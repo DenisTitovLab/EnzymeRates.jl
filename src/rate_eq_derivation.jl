@@ -1485,9 +1485,9 @@ function _combined_state_dependent_exprs(am::AllostericMechanism)
 end
 
 """
-    _dependent_param_exprs(M::Type{<:AllostericEnzymeMechanism})
+    _dependent_param_exprs(am::AllostericMechanism)
 
-Return `(dep_exprs, indep_params)` for an AllostericEnzymeMechanism from the
+Return `(dep_exprs, indep_params)` for an allosteric mechanism from the
 single combined constraint solve (`_combined_state_dependent_exprs`), which
 stacks the A-state and I-state constraint rows and solves them once — a
 cross-state tie (e.g. a live-forbidden `:NonequalAI` split) falls out of the
@@ -1497,12 +1497,10 @@ Regulator-site affinities complete no catalytic thermodynamic cycle, so they
 are independent on top of the combined solve — except an `:EqualAI`
 regulator, whose I-name mirrors its shared A-name (`K_I_reg = K_A_reg`, added
 to `dep`). `L` (the conformational constant) is always independent. Any
-symbol the combined solve already made dependent is dropped from `indep`.
+symbol the combined solve already made dependent is dropped from `indep`. The
+`Type{<:AllostericEnzymeMechanism}` method delegates here.
 """
-function _dependent_param_exprs(
-    ::Type{AllostericEnzymeMechanism{CM,CS,RS}},
-) where {CM,CS,RS}
-    am = AllostericMechanism(AllostericEnzymeMechanism{CM,CS,RS}())
+function _dependent_param_exprs(am::AllostericMechanism)
     dep, indep = _combined_state_dependent_exprs(am)
 
     # A per-state Wegscheider rename folds a single-symbol binding-K tie onto one
@@ -1542,6 +1540,9 @@ function _dependent_param_exprs(
     return dep, Tuple(p for p in (indep..., reg_params_a..., reg_params_i..., :L)
                       if p ∉ keys(dep))
 end
+
+_dependent_param_exprs(::Type{AllostericEnzymeMechanism{CM,CS,RS}}) where {CM,CS,RS} =
+    _dependent_param_exprs(AllostericMechanism(AllostericEnzymeMechanism{CM,CS,RS}()))
 
 # `parameters` and `fitted_params` for `AllostericEnzymeMechanism`
 # dispatch on explicit per-type methods at the top of this file.

@@ -1564,9 +1564,9 @@ const _DEDUP_SIG2 =
 end
 
 
-# Confirmed LDH renaming-dup pair (same graph, tied kinetic-group split): merged
-# form (8 groups) vs split form (9 groups). Currently different eq_hash; the
-# pre-fit canonical-partition merge must collapse them.
+# LDH renaming-dup pair (same graph, tied kinetic-group split): merged form
+# (8 groups) vs split form (9 groups). Different eq_hash, one model: the split
+# form's extra binding K is tied straight back by a Wegscheider cycle.
 const _CANON_SIG_MERGED =
     "EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, " *
     "3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (" *
@@ -1628,31 +1628,31 @@ const _CANON_SIG_SPLIT =
     "AD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), tr" *
     "ue),)))}"
 
-@testset "canonical-partition dedup collapses renaming-dups in _process_batch" begin
+@testset "renaming-dup pair: same independent count, different eq_hash" begin
     recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
     m1 = recon(_CANON_SIG_MERGED)   # merged, 8 kinetic groups
     m2 = recon(_CANON_SIG_SPLIT)    # split, 9 groups — same graph, Wegscheider-tied
     em1 = EnzymeRates.compile_mechanism(m1)
     em2 = EnzymeRates.compile_mechanism(m2)
-    # Precondition: same rate function, but the RAW dedup key currently DIFFERS —
-    # the renaming-dup that canonicalization must collapse.
+    # Precondition: the two forms are distinct mechanisms and render different
+    # dedup keys, so `eq_hash` alone never collapses this pair.
     @test m1 != m2
     @test EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1)) !=
           EnzymeRates._rate_eq_dedup_key(rate_equation_string(em2))
 
-    # _process_batch itself no longer canonicalizes — every mechanism it sees is
-    # already canonical, produced upstream by _expand_split_kinetic_group (see
-    # "expand_mechanisms output is canonical" in test_mechanism_enumeration.jl) —
-    # so the renaming-dup collapse is asserted at the mechanism level instead.
-    @test EnzymeRates._canonical_mechanism(m1) == EnzymeRates._canonical_mechanism(m2)
-    key(m) = EnzymeRates._rate_eq_dedup_key(rate_equation_string(
-        EnzymeRates.compile_mechanism(EnzymeRates._canonical_mechanism(m))))
-    @test key(m1) == key(m2)
+    # The pair is one model under the constraint solve: the split form's extra
+    # binding K is tied straight back, so both carry the same independent
+    # parameters. `eq_hash` does not see through which tied name survives, which
+    # is why the split move rejects a candidate by parameter count rather than by
+    # equation string.
+    @test EnzymeRates._independent_param_count(m1) ==
+          EnzymeRates._independent_param_count(m2)
 end
 
 
-# Confirmed LDH ALLOSTERIC renaming-dup pair: split form (8 cat groups) vs
-# merged (7). Different eq_hash; the per-state allosteric merge collapses them.
+# LDH ALLOSTERIC split/merge pair: split form (8 cat groups) vs merged (7).
+# Different eq_hash, and the split form carries one parameter the merged form
+# cannot express.
 const _ALLO_SIG_SPLIT =
     "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate)" *
     ", ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H," *
@@ -1716,93 +1716,31 @@ const _ALLO_SIG_MERGED =
     " ((), ())), nothing, false),)))}, (4, (:EqualAI, :EqualAI, :OnlyA," *
     " :NonequalAI, :EqualAI, :EqualAI, :OnlyA)), ()}"
 
-@testset "allosteric canonical-partition dedup" begin
+@testset "allosteric split/merge pair: the split form carries one more param" begin
     recon_am(sig) =
         EnzymeRates.AllostericMechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
     am1 = recon_am(_ALLO_SIG_SPLIT)     # 8 catalytic groups
-    am2 = recon_am(_ALLO_SIG_MERGED)    # 7 groups — same rate function
+    am2 = recon_am(_ALLO_SIG_MERGED)    # 7 groups
     key(m) = EnzymeRates._rate_eq_dedup_key(
         rate_equation_string(EnzymeRates.compile_mechanism(m)))
     @test am1 != am2
-    @test key(am1) != key(am2)                  # renaming-dup: raw keys differ
-    c1 = EnzymeRates._canonical_mechanism(am1)
-    c2 = EnzymeRates._canonical_mechanism(am2)
-    @test key(c1) == key(c2)                    # canonicalize → same eq_hash
-    @test length(EnzymeRates.steps(c1)) == length(EnzymeRates.steps(c2))
-    # Merged tags stay valid catalytic states.
-    @test all(t -> t in (:OnlyA, :EqualAI, :NonequalAI),
-              EnzymeRates.cat_allo_states(c1))
+    @test key(am1) != key(am2)                  # the two render different equations
+    # The split form is not a reparameterization of the merged one: it carries
+    # K_Lactate_ENADH on top of the merged form's parameters, in the independent
+    # count and in the fitted set alike. A finite-difference rank of ∂v/∂θ,
+    # measured outside this file, agrees (9 against 8).
+    @test EnzymeRates._independent_param_count(am1) ==
+          EnzymeRates._independent_param_count(am2) + 1
+    @test length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am1))) ==
+          length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am2))) + 1
 end
 
-
-# The confirmed futile-cycle class-A parent (LDH allosteric), reconstructed via
-# the macro (step topology and multiplicity match the run's mechanism; the
-# chemical step carries :OnlyA so the one-sided :OnlyA NADH binding stays
-# Haldane-valid). One of its single-step-split children canonicalizes 9->9
-# kinetic groups on the first merge pass (a no-op the single pass misses, since
-# a merge can expose a second tie) and 9->8 on the second — the non-idempotency
-# the fixed-point iteration and its error guard exist for.
-_canon_a_parent() = EnzymeRates.AllostericMechanism(
-    EnzymeRates.@allosteric_mechanism begin
-        substrates: NADH, Pyruvate
-        products: Lactate, NAD
-        catalytic_inhibitors: Lactate, NAD, NADH, Pyruvate
-        catalytic_multiplicity: 4
-        catalytic_steps: begin
-            (E + Lactate ⇌ E(Lactate), E(Lactate::Inh) + Lactate ⇌ E(Lactate, Lactate::Inh), E(NAD) + Lactate ⇌ E(Lactate, NAD), E(NADH) + Lactate ⇌ E(Lactate, NADH), E(Pyruvate::Inh) + Lactate ⇌ E(Lactate, Pyruvate::Inh))    :: EqualAI
-            (E + Lactate::Inh ⇌ E(Lactate::Inh), E(NADH::Inh) + Lactate::Inh ⇌ E(Lactate::Inh, NADH::Inh))    :: NonequalAI
-            (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD), E(NADH::Inh) + NAD ⇌ E(NAD, NADH::Inh), E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate))    :: EqualAI
-            (E + NADH ⇌ E(NADH), E(Lactate) + NADH ⇌ E(Lactate, NADH), E(Lactate::Inh) + NADH ⇌ E(Lactate::Inh, NADH), E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate), E(Pyruvate::Inh) + NADH ⇌ E(NADH, Pyruvate::Inh))    :: OnlyA
-            (E + NADH::Inh ⇌ E(NADH::Inh), E(Lactate::Inh) + NADH::Inh ⇌ E(Lactate::Inh, NADH::Inh), E(NAD) + NADH::Inh ⇌ E(NAD, NADH::Inh), E(Pyruvate) + NADH::Inh ⇌ E(NADH::Inh, Pyruvate), E(Pyruvate::Inh) + NADH::Inh ⇌ E(NADH::Inh, Pyruvate::Inh))    :: EqualAI
-            (E + Pyruvate <--> E(Pyruvate), E(NAD) + Pyruvate <--> E(NAD, Pyruvate), E(NADH) + Pyruvate <--> E(NADH, Pyruvate), E(NADH::Inh) + Pyruvate <--> E(NADH::Inh, Pyruvate))    :: EqualAI
-            (E + Pyruvate::Inh ⇌ E(Pyruvate::Inh), E(Lactate) + Pyruvate::Inh ⇌ E(Lactate, Pyruvate::Inh), E(NADH) + Pyruvate::Inh ⇌ E(NADH, Pyruvate::Inh), E(NADH::Inh) + Pyruvate::Inh ⇌ E(NADH::Inh, Pyruvate::Inh))    :: EqualAI
-            (E(Lactate) + Lactate::Inh ⇌ E(Lactate, Lactate::Inh), E(NADH) + Lactate::Inh ⇌ E(Lactate::Inh, NADH))    :: NonequalAI
-            E(NADH, Pyruvate) <--> E(Lactate, NAD)    :: OnlyA
-        end
-    end)
-
-@testset "_canonical_mechanism is idempotent" begin
-    for spec in MECHANISM_TEST_SPECS
-        m = spec.mechanism isa EnzymeRates.AllostericEnzymeMechanism ?
-            EnzymeRates.AllostericMechanism(spec.mechanism) :
-            EnzymeRates.Mechanism(spec.mechanism)
-        c = EnzymeRates._canonical_mechanism(m)
-        @test EnzymeRates._canonical_mechanism(c) == c
-    end
-    # Reproducer A parent: a single-step-split child (as `_expand_split_kinetic_
-    # group` produces it, already run through one canonicalization pass) is not
-    # a fixed point on its own — a second pass merges a tie the first pass missed.
-    amA = _canon_a_parent()
-    for child in EnzymeRates._expand_split_kinetic_group(amA)
-        @test EnzymeRates._canonical_mechanism(child) == child
-    end
-end
-
-@testset "_canonical_mechanism errors when it does not converge" begin
-    # A raw single-step split of the class-A parent needs a 2nd merge pass
-    # (9 groups → 8). One pass must NOT silently return the non-canonical form —
-    # it must fail loud, so a canonicalization bug is caught rather than
-    # reintroducing a non-canonical frontier member.
-    amA = _canon_a_parent()
-    raws = [EnzymeRates._with_steps_and_cat_states(amA,
-                EnzymeRates._split_one_step(EnzymeRates.steps(amA), g, idx),
-                vcat(EnzymeRates.cat_allo_states(amA),
-                     [EnzymeRates.cat_allo_states(amA)[g]]))
-            for g in EnzymeRates.kinetic_groups(amA)
-            for idx in eachindex(EnzymeRates.steps(amA)[g])
-            if length(EnzymeRates.steps(amA)[g]) >= 2]
-    errs1(r) = try; EnzymeRates._canonical_mechanism(r; max_passes=1); false
-               catch; true end
-    ok8(r)   = try; EnzymeRates._canonical_mechanism(r; max_passes=8); true
-               catch; false end
-    @test any(errs1, raws)   # ≥1 raw split needs a 2nd pass → max_passes=1 errors
-    @test all(ok8, raws)     # the production default (8) converges for all
-end
 
 @testset "_process_batch failures report the ORIGINAL mechanism" begin
-    # PASS-1 catch: the failure now surfaces at compile_mechanism/fitted_params,
-    # not canonicalization — _process_batch no longer calls _canonical_mechanism.
-    # The FitFailure must still carry the ORIGINAL `m0`.
+    # A mechanism whose derivation throws — its chemistry step consumes an atom
+    # of the never-binding substrate T, so the thermodynamic-cycle check inside
+    # compile_mechanism raises "Cycle 1 produces metabolite change not
+    # proportional to net reaction". The FitFailure must carry the ORIGINAL `m0`.
     rxn_bad = @enzyme_reaction begin
         substrates: S[C], T[N]
         products:   P[CN]
@@ -1815,7 +1753,6 @@ end
         [EnzymeRates.Step(e_s, e_p, nothing, false)],
         [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
     ])
-    @test_throws ErrorException EnzymeRates._canonical_mechanism(m_bad)
     data_bad = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
                 S = [1.0, 2.0, 1.0, 2.0], T = [0.5, 0.5, 1.0, 1.0],
                 P = [0.1, 0.2, 0.1, 0.2])
@@ -1826,13 +1763,12 @@ end
         n_restarts=1, maxtime=1.0, memo=Dict{UInt64, NamedTuple}())
     @test isempty(e1)
     @test length(f1) == 1 && f1[1] isa EnzymeRates.FitFailure
-    @test f1[1].mech == m_bad                     # ORIGINAL, not a canonical form
+    @test f1[1].mech == m_bad                     # the mechanism as handed in
 
-    # PASS-2 catch: a split form whose canonical merge differs; when its fit
-    # throws, the FitFailure must carry the original split, not the merged form.
+    # A mechanism that derives but whose fit throws: the FitFailure must carry
+    # the mechanism as it was handed in.
     recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
     split = recon(_CANON_SIG_SPLIT)
-    @test split != EnzymeRates._canonical_mechanism(split)   # merge changes it
     data2 = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
              NADH = [1.0, 2.0, 1.0, 2.0], Pyruvate = [0.5, 0.5, 1.0, 1.0],
              Lactate = [0.1, 0.2, 0.1, 0.2], NAD = [0.3, 0.3, 0.4, 0.4])
@@ -1843,13 +1779,15 @@ end
         n_restarts=1, maxtime=1.0, memo=Dict{UInt64, NamedTuple}())
     @test isempty(e2)
     @test length(f2) == 1 && f2[1] isa EnzymeRates.FitFailure
-    @test f2[1].mech == split                     # original split, not merged canonical
+    @test f2[1].mech == split                     # the mechanism as handed in
 end
 
 @testset "_expand_parent records an expansion error instead of aborting" begin
-    # A mechanism whose canonicalization throws makes expand_mechanisms raise;
-    # _expand_parent must catch it and return the parent as a FitFailure (so the
-    # beam records it in CSV and continues), not propagate and abort the search.
+    # expand_mechanisms asserts its input conserves atoms; this mechanism's
+    # chemistry step does not (T is a declared substrate that never binds, so the
+    # step loses an N), and the assertion raises. _expand_parent must catch that
+    # and return the parent as a FitFailure (so the beam records it in CSV and
+    # continues), not propagate and abort the search.
     rxn_bad = @enzyme_reaction begin
         substrates: S[C], T[N]
         products:   P[CN]

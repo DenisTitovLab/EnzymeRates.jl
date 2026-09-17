@@ -204,9 +204,24 @@ EnzymeRates.jl identifies the best enzyme rate equation from kinetic data. Given
 ## Commands
 
 ```bash
-# Run full test suite (cold — pays precompilation + JIT cost every time)
-julia --project -e 'using Pkg; Pkg.test()'
+# Run full test suite (cold — pays precompilation + JIT cost every time). The heap hint
+# keeps the peak under the memory available next to a resident VS Code language server.
+julia --project -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hint=2500M"])'
 ```
+
+```bash
+# Focused run of one test file (warm: skips the full suite's precompile and JIT; ~4 min for
+# the enumeration file). TestEnv activates the test environment in place.
+julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<file>.jl")'
+```
+
+Use the focused run while iterating and the full suite once before committing. Four things to
+know: the focused run skips Aqua and JET; a helper defined in another test file (e.g.
+`random_reduced_params` in `test_rate_eq_derivation.jl`) is undefined under it, so an
+`UndefVarError` for such a helper is an artifact of the focused run; run one Julia process at a
+time (the machine has 7.7 GB and no swap, and the full suite needs about 4 GB free); and never
+park on a background monitor — poll a log in a bounded shell loop. `TestEnv` must be installed
+in the default environment once: `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
 
 ## Workflow
 
@@ -233,3 +248,14 @@ Step direction, step order, and group order are canonicalized in the `Step` and 
 ### `rate_equation` runtime perf is non-negotiable
 
 `rate_equation` MUST be allocation-free and sub-120-ns per call for every mechanism in `MECHANISM_TEST_SPECS`. Enforced by `test_rate_equation_performance` in `test/test_rate_eq_derivation.jl` (`allocs == 0`, `t < 120e-9`) plus the Expr-shape and flat-string regression tests in the same file. The 120-ns bound carries margin for shared CI runners; the real per-call cost is tens of ns. The fitter evaluates `rate_equation` millions of times per cross-validation fold; any change that introduces allocations or microsecond-scale per-call time makes the package unusable in practice. If a change you are considering would force `rate_equation` to allocate or slow down, YOU MUST STOP and discuss with Denis first before implementing it. This is one of the most important tests in the suite. See the Developer page in the docs for how `rate_equation` is derived and why the 0-allocation / sub-120-ns contract holds.
+
+
+### Enumeration-engine tests
+
+Tests of `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`, and the expansion moves live in `test/test_mechanism_enumeration.jl` and follow three rules:
+
+1. **Write the mechanism in the testset.** Define every fixture inline with `@enzyme_mechanism` or `@allosteric_mechanism`, even when that repeats a mechanism used elsewhere. A fixture pulled from `init_mechanisms`, a shared constant, or a helper cannot be reviewed without leaving the testset. The only exception is an aggregate regression pin over a whole seed set (a count over all `init_mechanisms(rxn)`), which must say so in a comment.
+2. **Assert the exact children.** A move test asserts `length(children) == n` and `Set(children) == Set(expected)` with every expected child written out as a mechanism. Property assertions (every child gains, no superset) are welcome in addition, never instead: a property test passes on wrong output that happens to satisfy the property.
+3. **Write chemistry the enumerator's way.** A move fixture writes each chemistry step as an isomerization to a product-bound form followed by a release step (`E(A) <--> E(P; residual = A - P)` then `E(P; residual = A - P) ⇌ E(; residual = A - P) + P`), never folded into the release; `expand_mechanisms` rejects the folded form and the moves misread it.
+
+File-level test helpers are prefixed `_testhelper_` so they cannot be mistaken for package functions; a one-line closure local to a testset needs no prefix.

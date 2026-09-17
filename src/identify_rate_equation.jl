@@ -706,8 +706,9 @@ end
 
 """
 Expand one parent into its children, catching a per-mechanism expansion error
-(e.g. a canonicalization that fails to reach a fixed point) so it is recorded as
-a failure rather than aborting the whole search. Returns `(children, failure)`
+(e.g. a child whose step breaks the atom-conservation assertion
+`expand_mechanisms` runs, `_assert_atom_conserving`) so it is recorded as a
+failure rather than aborting the whole search. Returns `(children, failure)`
 with `failure === nothing` on success, else a `FitFailure` carrying the parent.
 """
 function _expand_parent(m::Union{Mechanism, AllostericMechanism},
@@ -897,8 +898,8 @@ function _beam_search(
                 child_entries, child_failures = _fit_batch(compiled, reps, rep_idx,
                     prob, memo; optimizer, parent_of, kwargs...)
                 # A per-parent expansion error is recorded like a fit failure (CSV row
-                # + the errored bucket), so a canonicalization bug flags itself in the
-                # search output instead of aborting the whole run.
+                # + the errored bucket), so a bug in an expansion move flags itself in
+                # the search output instead of aborting the whole run.
                 append!(child_failures, expand_failures)
                 _save_iteration_csv(save_dir,
                     vcat([e.row for e in child_entries],

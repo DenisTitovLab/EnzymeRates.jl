@@ -152,6 +152,26 @@ function _assert_step_atom_conserving(reaction::EnzymeReaction, s::Step)
 end
 
 """
+    _assert_chemistry_is_iso(m)
+
+The moves take the isomerization step as the chemistry step, which is how the
+enumerator writes every mechanism: chemistry isomerizes to a product-bound form
+and the release is its own step. A binding step may change the enzyme's
+conformation but never its covalent residual; a mechanism written for the
+derivation with chemistry folded into a release step is not a valid parent.
+"""
+function _assert_chemistry_is_iso(m::Union{Mechanism, AllostericMechanism})
+    for group in steps(m), s in group
+        is_binding(s) && residual(from_species(s)) != residual(to_species(s)) &&
+            error("binding step $(name(from_species(s))) → " *
+                  "$(name(to_species(s))) changes the covalent residual; the " *
+                  "moves need the chemistry as an isomerization and the " *
+                  "release as its own step")
+    end
+    nothing
+end
+
+"""
     _assert_atom_conserving(m::Mechanism)
     _assert_atom_conserving(am::AllostericMechanism)
 
@@ -1204,73 +1224,41 @@ function _apply_equivalence_grouping(
 end
 
 
-# ─── Expansion-Move Helpers ──────────────────────────────────
-
 # ─── Expansion Moves ─────────────────────────────────────────
-
-"""
-Inhibitor-free core of a step: the same catalytic binding with every
-`Regulator` stripped from both its species. Two steps with equal cores are
-the same binding in different inhibitor contexts (mirrors) — e.g.
-`E→E·Pyruvate` and `E·Pyruvateinh→E·Pyruvate·Pyruvateinh`.
-"""
-function _step_core(s::Step)
-    strip(sp) = Species(
-        Metabolite[b for b in bound(sp) if !(b isa Regulator)],
-        conformation(sp), residual(sp))
-    (strip(from_species(s)), strip(to_species(s)), bound_metabolite(s))
-end
-
-"""
-Partition the RE→SS-eligible kinetic groups into mirror classes: connected
-components of the graph where two groups are linked if they share a step core.
-Eligible = all-RE and not an inhibitor binding (invariant 1). A catalytic
-binding and its inhibitor-bound mirror, once a split has separated them into
-different groups, land in one class and flip together (invariant 2). Same-group
-mirrors and non-mirror groups each form their own singleton class, so behavior
-is unchanged except where a split has separated a mirror. Classes are returned
-sorted by lowest group index for deterministic move order.
-"""
-function _re_to_ss_flip_units(m::Union{Mechanism, AllostericMechanism})
-    elig = [g for g in kinetic_groups(m)
-            if all(is_equilibrium, steps(m)[g]) &&
-               !any(s -> bound_metabolite(s) isa Regulator, steps(m)[g])]
-    core_groups = Dict{Any, Vector{Int}}()
-    for g in elig, s in steps(m)[g]
-        push!(get!(core_groups, _step_core(s), Int[]), g)
-    end
-    parent = Dict(g => g for g in elig)
-    root(x) = parent[x] == x ? x : root(parent[x])
-    for gs in values(core_groups), i in 2:length(gs)
-        parent[root(gs[i])] = root(gs[1])
-    end
-    comps = Dict{Int, Vector{Int}}()
-    for g in elig
-        push!(get!(comps, root(g), Int[]), g)
-    end
-    sort([sort(unique(c)) for c in values(comps)]; by = first)
-end
 
 """
     _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
 
-Mechanism-native overload of the RE→SS expansion move. For each mirror class of
-all-RE catalytic kinetic groups (`_re_to_ss_flip_units`), produce a variant with
-every group in that class flipped to SS at once. Competitive-inhibitor bindings
-are never flipped (RE-only), and a catalytic step flips together with its
-inhibitor-bound mirror. All other groups, the reaction, and (for allosteric) the
-catalytic-allo tags, multiplicity, and regulatory sites are preserved verbatim.
+RE→SS expansion move. A flip unit is a whole kinetic group that is all-RE, binds
+no regulator (competitive-inhibitor binding stays at rapid equilibrium by
+modeling choice), and holds a flux-carrying step (`_flux_carrying_groups`; a
+group with none exposes only equilibrium ratios and would gain a phantom
+parameter). One child is produced per minimal set of units whose joint flip
+raises the RE segment count (`_minimal_gaining_sets`): a single group when it
+cuts a segment on its own, several groups when each alone is bridged by an RE
+route through the others — as happens once a split has separated a
+metabolite's binding steps, or a catalytic step from its inhibitor-bound
+mirror. A flip that leaves the segment count unchanged adds an SS step whose
+endpoints share a segment, which the rate equation never sees. All other
+groups, the reaction, and (for allosteric) the catalytic-allo tags,
+multiplicity, and regulatory sites are preserved verbatim.
 """
 function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
-    results = typeof(m)[]
-    for unit in _re_to_ss_flip_units(m)
-        new_groups = steps(m)
-        for g in unit
-            new_groups = _flip_group_to_ss(new_groups, g)
+    flux = _flux_carrying_groups(m)
+    units = [g for g in kinetic_groups(m)
+             if all(is_equilibrium, steps(m)[g]) && flux[g] &&
+                !any(s -> bound_metabolite(s) isa Regulator, steps(m)[g])]
+    child(sel) = begin
+        groups = steps(m)
+        for u in sel
+            groups = _flip_group_to_ss(groups, units[u])
         end
-        push!(results, _with_steps(m, new_groups))
+        _with_steps(m, groups)
     end
-    results
+    base = _re_segment_count(m)
+    gains(sel) = _re_segment_count_after_flip(m, Set(units[u] for u in sel)) > base
+    sets = _minimal_gaining_sets(gains, _ -> 1:length(units))
+    typeof(m)[child(sel) for sel in sets]
 end
 
 """
@@ -1295,217 +1283,318 @@ function _flip_group_to_ss(groups::Vector{Vector{Step}}, g::Int)
 end
 
 """
+Biconnected blocks of an undirected multigraph. `edges[e] = (u, v)` with
+vertices `1:nv`. Returns the block id of every edge (Tarjan's edge-stack
+algorithm); a bridge is a block of its own.
+"""
+function _edge_blocks(nv::Int, edges::Vector{Tuple{Int, Int}})
+    adj = [Int[] for _ in 1:nv]
+    for (e, (u, v)) in enumerate(edges)
+        push!(adj[u], e); push!(adj[v], e)
+    end
+    disc = zeros(Int, nv); low = zeros(Int, nv)
+    block = zeros(Int, length(edges))
+    stack = Int[]; clock = Ref(0); nblocks = Ref(0)
+    function visit(u, parent_edge)
+        clock[] += 1; disc[u] = low[u] = clock[]
+        for e in adj[u]
+            e == parent_edge && continue
+            w = edges[e][1] == u ? edges[e][2] : edges[e][1]
+            if disc[w] == 0
+                push!(stack, e)
+                visit(w, e)
+                low[u] = min(low[u], low[w])
+                if low[w] >= disc[u]
+                    nblocks[] += 1
+                    while true
+                        x = pop!(stack); block[x] = nblocks[]
+                        x == e && break
+                    end
+                end
+            elseif disc[w] < disc[u]
+                push!(stack, e)
+                low[u] = min(low[u], disc[w])
+            end
+        end
+    end
+    for v in 1:nv
+        disc[v] == 0 && visit(v, 0)
+    end
+    block
+end
+
+"""
+    _flux_carrying_groups(m) -> BitVector
+
+One flag per kinetic group: the group holds a step that lies on a cycle of the
+step graph containing a chemistry step (an isomerization), i.e. shares a
+biconnected block with one. A binding-only cycle satisfies detailed balance and
+carries no net flux at steady state, so a group whose every step sits in such a
+pendant region exposes only equilibrium ratios however it is
+flagged; flipping it to steady state adds a phantom parameter. RE and SS steps
+are both edges here: flux-carrying-ness depends on the graph, not on the flags.
+"""
+function _flux_carrying_groups(m::Union{Mechanism, AllostericMechanism})
+    forms = Dict{Species, Int}()
+    edges = Tuple{Int, Int}[]
+    edge_group = Int[]
+    edge_is_chemistry = Bool[]
+    vertex(sp) = get!(forms, sp, length(forms) + 1)
+    for (g, group) in enumerate(steps(m)), s in group
+        push!(edges, (vertex(from_species(s)), vertex(to_species(s))))
+        push!(edge_group, g); push!(edge_is_chemistry, is_iso(s))
+    end
+    block = _edge_blocks(length(forms), edges)
+    chem_blocks = Set(block[e] for e in eachindex(edges) if edge_is_chemistry[e])
+    flags = falses(length(steps(m)))
+    for e in eachindex(edges)
+        block[e] in chem_blocks && (flags[edge_group[e]] = true)
+    end
+    flags
+end
+
+"""Number of rapid-equilibrium segments (connected components of the RE
+subgraph). An allosteric mechanism is measured on its A-state projection, which
+holds every catalytic group."""
+_re_segment_count(m::Mechanism) = length(_compute_re_groups(m)[2])
+_re_segment_count(am::AllostericMechanism) = _re_segment_count(_state_mechanism(am, :A))
+
+"""RE segment count of `m` after flipping the kinetic groups in `flipped` to SS,
+computed on `m`'s own steps without building the child: a union-find over the
+species joined by the RE steps of every other group. `_compute_re_groups`
+gives the same answer on the built child; this form is what the flip move probes
+with, so a candidate the constructors would reject is never constructed."""
+function _re_segment_count_after_flip(
+    m::Union{Mechanism, AllostericMechanism}, flipped,
+)
+    species = Species[]
+    for group in steps(m), s in group
+        from_species(s) in species || push!(species, from_species(s))
+        to_species(s) in species   || push!(species, to_species(s))
+    end
+    parent = collect(1:length(species))
+    function find(x)
+        while parent[x] != x; parent[x] = parent[parent[x]]; x = parent[x]; end
+        x
+    end
+    for (g, group) in enumerate(steps(m))
+        g in flipped && continue
+        for s in group
+            is_equilibrium(s) || continue
+            ra = find(findfirst(==(from_species(s)), species))
+            rb = find(findfirst(==(to_species(s)),   species))
+            ra != rb && (parent[ra] = rb)
+        end
+    end
+    count(i -> find(i) == i, eachindex(species))
+end
+
+"""
+    _minimal_gaining_sets(gains, partners) -> Vector{Vector{Int}}
+
+Every minimal set of units for which `gains(set)` holds, found Apriori-style:
+level 1 tests each unit of `partners(Int[])`; a level-`j` set is tested only if
+every `(j−1)`-subset was tested and failed at the previous level, so no superset
+of a gaining set is ever tested. `partners(set)` lists the units allowed to
+extend `set` (units already in `set` are skipped). The loop ends when a level
+fails nothing. Each returned set is sorted; sets are ordered by level, then
+lexicographically.
+"""
+function _minimal_gaining_sets(gains, partners)
+    out = Vector{Int}[]
+    failed = Vector{Int}[Int[]]
+    while !isempty(failed)
+        failed_keys = Set(failed)
+        candidates = Set{Vector{Int}}()
+        for set in failed, u in partners(set)
+            u in set && continue
+            c = sort!(vcat(set, u))
+            c in candidates && continue
+            all(setdiff(c, [x]) in failed_keys for x in c) || continue
+            push!(candidates, c)
+        end
+        failed = Vector{Int}[]
+        for c in sort!(collect(candidates))
+            gains(c) ? push!(out, c) : push!(failed, c)
+        end
+    end
+    out
+end
+
+"""
     _expand_split_kinetic_group(m::Mechanism) → Vector{Mechanism}
     _expand_split_kinetic_group(am::AllostericMechanism) → Vector{AllostericMechanism}
 
-Mechanism-native overload of the kinetic-group split move. For each
-catalytic group with 2+ members, produce one variant per member where
-that member is carved out into a fresh trailing group. The reaction
-(and, for allosteric, multiplicity / regulatory sites) is preserved.
-Catalytic allo-state tags are extended with the parent group's tag
-appended (splitting is a parameter-relaxation move that MUST NOT
+Kinetic-group split move. A unit is one context bipartition of one group
+(`_context_bipartitions`: the affinity for a metabolite may depend on which
+other ligand is already bound). One child is produced per minimal set of units,
+at most one per group, whose joint application raises the independent-parameter
+count (`_minimal_gaining_sets`). A single bipartition whose new constant a
+Wegscheider cycle ties straight back is not a model: the derivation substitutes
+the constant away and the child's equation is the parent's. Such a bipartition
+is kept as a seed for pairs and larger sets, because the cycle that absorbs it
+is broken by also splitting another group on that cycle — random-order binding
+needs one split per substrate before any constant frees up. Partners for a
+rejected set are the all-RE groups sharing a rapid-equilibrium segment with any
+step of the split groups: a tie needs an RE cycle through the carve, and every
+group on that cycle lies in that segment. The count is evaluated without building the child
+for a `Mechanism` (`_partition_independent_count`, cycle basis once per parent)
+and by the combined state solve on the built child for an `AllostericMechanism`.
+The reaction and (for allosteric) multiplicity and regulatory sites are
+preserved; both parts of a split group inherit its catalytic allo-state tag.
+"""
+function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
+    groups = steps(m)
+    units = [(g, bp) for g in kinetic_groups(m)
+             for bp in _context_bipartitions(groups[g])]
+    isempty(units) && return typeof(m)[]
+    selection(sel) = [units[u] for u in sel]
+    gains = _split_gain_test(m, units)
+    segments = _group_re_segments(m)
+    partners(sel) = begin
+        isempty(sel) && return 1:length(units)
+        used = Set(units[u][1] for u in sel)
+        touched = reduce(union, (segments[units[u][1]] for u in sel))
+        [u for u in 1:length(units)
+         if !(units[u][1] in used) &&
+            !isempty(intersect(segments[units[u][1]], touched))]
+    end
+    sets = _minimal_gaining_sets(gains, partners)
+    typeof(m)[_apply_bipartitions(m, selection(sel)) for sel in sets]
+end
+
+"""Gain test for the split move: `sel -> Bool`, true when applying the selected
+units raises the independent-parameter count above the parent's."""
+function _split_gain_test(m::Mechanism, units)
+    counter = _partition_independent_count(m)
+    flat = _flat_steps(m)
+    position = Dict(s => j for (j, (s, _)) in enumerate(flat))
+    parent_ids = [g for (_, g) in flat]
+    base = counter(parent_ids)
+    function gains(sel)
+        ids = copy(parent_ids)
+        next_id = length(steps(m))
+        for u in sel
+            next_id += 1
+            for s in units[u][2][2]
+                ids[position[s]] = next_id
+            end
+        end
+        counter(ids) > base
+    end
+    gains
+end
+
+function _split_gain_test(am::AllostericMechanism, units)
+    base = _independent_param_count(am)
+    sel -> _independent_param_count(
+        _apply_bipartitions(am, [units[u] for u in sel])) > base
+end
+
+"""RE segment ids touched by each kinetic group's steps; empty for a group holding
+an SS step, which lies on no RE cycle and is never a split partner."""
+function _group_re_segments(m::Union{Mechanism, AllostericMechanism})
+    cm = m isa Mechanism ? m : _state_mechanism(m, :A)
+    species, _, form_to_segment = _compute_re_groups(cm)
+    segment(sp) = form_to_segment[findfirst(==(sp), species)]
+    map(steps(m)) do group
+        all(is_equilibrium, group) || return Set{Int}()
+        Set{Int}(segment(from_species(s)) for s in group)
+    end
+end
+
+"""
+The endpoint of `s` that does not carry the step's bound metabolite: the form the
+metabolite binds to. Reads the metabolite's side from `_step_sides(s)`, the
+canonical metabolite-on-which-side chokepoint: `from_species(s)` when the
+metabolite is on `m_lhs` (canonical binding, carried by `to_species`),
+`to_species(s)` when it is on `m_rhs` (a reverse-canonical or SS-dissociation
+step, including one where the metabolite is in neither endpoint's bound
+list), and `from_species(s)` for an iso step (both sides empty).
+"""
+function _context_form(s::Step)
+    _, _, m_lhs, m_rhs = _step_sides(s)
+    isempty(m_lhs) || return from_species(s)
+    isempty(m_rhs) || return to_species(s)
+    from_species(s)
+end
+
+"""
+    _context_bipartitions(group) -> Vector{Tuple{Vector{Step}, Vector{Step}}}
+
+Ways to divide one kinetic group in two by binding context: another ligand
+already bound, the enzyme's conformation, or its covalent residual. Encodes
+"the affinity for this metabolite may depend on what else is bound, on the
+conformation, or on the covalent state" — the ligand family includes a
+competitive inhibitor, which separates a catalytic step from its inhibitor-bound
+mirror. Each context value divides the steps whose context form
+(`_context_form`) carries it from the rest; the group's own bound metabolite is
+never a context, and a group whose forms share one conformation and one residual
+gets no bipartition from those two families. Both parts are nonempty, the first
+part holds the group's first step, context values that induce the same division
+give one bipartition, and the order is ligands (by role then name), then
+conformations (by name), then residuals, for deterministic output.
+"""
+function _context_bipartitions(group::Vector{Step})
+    own = bound_metabolite(first(group))
+    forms = [_context_form(s) for s in group]
+    ligands = Set{Metabolite}()
+    for f in forms, b in bound(f)
+        own !== nothing && b == own && continue
+        push!(ligands, b)
+    end
+    division(carries) = Step[s for (s, f) in zip(group, forms) if carries(f)]
+    divisions = [division(f -> y in bound(f))
+                 for y in sort!(collect(ligands);
+                                by = b -> (string(typeof(b)), string(name(b))))]
+    append!(divisions, division(f -> conformation(f) == c)
+            for c in sort!(unique(conformation(f) for f in forms); by = string))
+    append!(divisions, division(f -> residual(f) == r)
+            for r in sort!(unique(residual(f) for f in forms); by = string))
+    seen = Set{Vector{Step}}()
+    out = Tuple{Vector{Step}, Vector{Step}}[]
+    for with in divisions
+        without = Step[s for s in group if !(s in with)]
+        (isempty(with) || isempty(without)) && continue
+        first_part, second_part = first(group) in with ? (with, without) : (without, with)
+        first_part in seen && continue
+        push!(seen, first_part)
+        push!(out, (first_part, second_part))
+    end
+    out
+end
+
+"""
+Replace each selected group by its two bipartition parts. `selection` pairs a
+group index with one of that group's `_context_bipartitions`; each group appears
+at most once. For an allosteric mechanism both parts inherit the group's
+catalytic allo-state tag (splitting is a parameter-relaxation move that must not
 change A/I semantics).
-
-Splitting a group adds a parameter, but a Wegscheider cycle often forces
-that new parameter straight back to dependent, making the split a
-model-space no-op that fits the parent's equation. `_canonical_mechanism`
-merges such splits back, so each candidate is canonicalized and dropped
-when it returns to the parent. These no-op splits dominate — up to ~2/3 of
-the mechanisms in bi-bi enumeration — and, because every enumerated
-mechanism is canonical, an un-dropped one would re-enter the beam as a
-self-loop.
 """
-function _expand_split_kinetic_group(m::Mechanism)
-    results = Mechanism[]
-    mc = _canonical_mechanism(m)
-    for g in kinetic_groups(m)
-        length(steps(m)[g]) >= 2 || continue
-        for split_idx in 1:length(steps(m)[g])
-            child = _canonical_mechanism(
-                _with_steps(m, _split_one_step(steps(m), g, split_idx)))
-            child == mc || push!(results, child)
-        end
-    end
-    results
+function _apply_bipartitions(m::Mechanism, selection)
+    _with_steps(m, _bipartitioned_groups(steps(m), selection)[1])
 end
 
-function _expand_split_kinetic_group(am::AllostericMechanism)
-    results = AllostericMechanism[]
-    mc = _canonical_mechanism(am)
-    for g in kinetic_groups(am)
-        length(steps(am)[g]) >= 2 || continue
-        for split_idx in 1:length(steps(am)[g])
-            new_groups = _split_one_step(steps(am), g, split_idx)
-            new_states = vcat(cat_allo_states(am), [cat_allo_states(am)[g]])
-            child = _canonical_mechanism(
-                _with_steps_and_cat_states(am, new_groups, new_states))
-            child == mc || push!(results, child)
-        end
-    end
-    results
+function _apply_bipartitions(am::AllostericMechanism, selection)
+    groups, origin = _bipartitioned_groups(steps(am), selection)
+    _with_steps_and_cat_states(am, groups, cat_allo_states(am)[origin])
 end
 
-"""
-Canonical kinetic-group partition: merge kinetic groups whose binding-K
-representatives are single-symbol Wegscheider-tied (the relation
-`_build_wegscheider_rename_map` finds), so split and merged encodings of the
-same rate-equivalent graph collapse to one partition. Returns `mech.steps`
-unchanged when nothing is tied.
-"""
-function _merge_tied_kinetic_groups(mech::Mechanism)
-    rename = _build_wegscheider_rename_map(mech)
-    isempty(rename) && return mech.steps
-    groups = mech.steps
-    step_params = _step_parameters(mech)
-    # Canonical representative binding-K name per group (nothing if no binding step).
-    rep = Vector{Union{Symbol, Nothing}}(nothing, length(groups))
-    for (idx, (s, g)) in enumerate(_flat_steps(mech))
-        is_equilibrium(s) && is_binding(s) || continue
-        k = name(step_params[idx][1], mech)
-        rep[g] = get(rename, k, k)
-    end
-    byrep = Dict{Symbol, Vector{Int}}()
-    for (gi, r) in enumerate(rep)
-        r === nothing && continue
-        push!(get!(byrep, r, Int[]), gi)
-    end
-    any(length(v) > 1 for v in values(byrep)) || return mech.steps
-    merged = Vector{Vector{Step}}()
-    done = falses(length(groups))
-    for gi in eachindex(groups)
-        done[gi] && continue
-        r = rep[gi]
-        if r !== nothing && length(byrep[r]) > 1
-            gis = byrep[r]
-            push!(merged, Step[s for j in gis for s in groups[j]])
-            for j in gis
-                done[j] = true
-            end
+"""Groups of `groups` with each selected group replaced by its two parts, plus
+the index of the original group each new group came from."""
+function _bipartitioned_groups(groups::Vector{Vector{Step}}, selection)
+    parts = Dict(g => bp for (g, bp) in selection)
+    out = Vector{Vector{Step}}()
+    origin = Int[]
+    for (g, group) in enumerate(groups)
+        if haskey(parts, g)
+            push!(out, parts[g][1]); push!(origin, g)
+            push!(out, parts[g][2]); push!(origin, g)
         else
-            push!(merged, copy(groups[gi]))
-            done[gi] = true
+            push!(out, group); push!(origin, g)
         end
     end
-    merged
-end
-
-"""
-Allosteric partition merge: the AllostericMechanism analog of
-`_merge_tied_kinetic_groups(::Mechanism)`. Ties come from the per-state binding-K
-Wegscheider relations (`_state_wegscheider_rename_map` for `:A` and `:I`). Each
-catalytic group is keyed by `(tag, folded-binding-K-name(s))`; the tag is part of
-the key so groups that differ in allosteric state (and therefore are not
-rate-equivalent) never merge. Returns the merged
-`(cat_steps, cat_allo_states)` parallel vectors, unchanged when nothing is tied.
-"""
-function _merge_tied_kinetic_groups(am::AllostericMechanism)
-    rename_A = _state_wegscheider_rename_map(am, :A)
-    rename_I = _state_wegscheider_rename_map(am, :I)
-    groups = steps(am)
-    tags = cat_allo_states(am)
-    (isempty(rename_A) && isempty(rename_I)) && return groups, tags
-    fold(d, nm) = get(d, nm, nm)
-    keyof = Vector{Any}(nothing, length(groups))
-    for (g, grp) in enumerate(groups)
-        tag = tags[g]
-        bstep = nothing
-        for s in grp
-            if is_equilibrium(s) && is_binding(s)
-                bstep = s
-                break
-            end
-        end
-        bstep === nothing && continue
-        astate = tag === :EqualAI ? :EqualAI : :A
-        aK = fold(rename_A, name(Kd(bstep, astate), am))
-        keyof[g] = tag === :NonequalAI ?
-            (:NonequalAI, aK, fold(rename_I, name(Kd(bstep, :I), am))) :
-            (tag, aK)
-    end
-    bykey = Dict{Any, Vector{Int}}()
-    for (g, k) in enumerate(keyof)
-        k === nothing && continue
-        push!(get!(bykey, k, Int[]), g)
-    end
-    any(length(v) > 1 for v in values(bykey)) || return groups, tags
-    merged_steps = Vector{Vector{Step}}()
-    merged_tags = Symbol[]
-    done = falses(length(groups))
-    for g in eachindex(groups)
-        done[g] && continue
-        k = keyof[g]
-        if k !== nothing && length(bykey[k]) > 1
-            gis = bykey[k]
-            push!(merged_steps, Step[s for j in gis for s in groups[j]])
-            push!(merged_tags, tags[g])
-            for j in gis
-                done[j] = true
-            end
-        else
-            push!(merged_steps, copy(groups[g]))
-            push!(merged_tags, tags[g])
-            done[g] = true
-        end
-    end
-    merged_steps, merged_tags
-end
-
-"""
-Canonical form of a mechanism for deduplication: the same graph with its
-kinetic-group partition merged over Wegscheider-tied binding-K's. Two
-graph-distinct mechanisms that reduce to the same rate function collapse to the
-same canonical mechanism, so their rendered equation and `eq_hash` agree.
-Applied by the split-move expansion (`_expand_split_kinetic_group`), so every
-enumerated mechanism is canonical.
-"""
-function _canonical_mechanism(m::Mechanism; max_passes::Int = 8)
-    prev = m
-    for _ in 1:max_passes   # convergence is ≤2 passes in practice
-        merged = Mechanism(reaction(prev), _merge_tied_kinetic_groups(prev))
-        merged == prev && return merged
-        prev = merged
-    end
-    error("_canonical_mechanism did not reach a fixed point in $max_passes " *
-          "merge passes — the kinetic-group merge is not converging, a " *
-          "canonicalization bug for the mechanism producing this")
-end
-
-function _canonical_mechanism(am::AllostericMechanism; max_passes::Int = 8)
-    prev = am
-    for _ in 1:max_passes
-        cat_steps, cat_states = _merge_tied_kinetic_groups(prev)
-        merged = AllostericMechanism(reaction(prev), cat_steps, cat_states,
-                                     catalytic_multiplicity(prev),
-                                     copy(regulatory_sites(prev)))
-        merged == prev && return merged
-        prev = merged
-    end
-    error("_canonical_mechanism did not reach a fixed point in $max_passes " *
-          "merge passes — the kinetic-group merge is not converging, a " *
-          "canonicalization bug for the mechanism producing this")
-end
-
-"""
-Return a fresh `Vector{Vector{Step}}` matching `groups` but with the
-step at `(g, split_idx)` moved into a new trailing singleton group.
-Other groups are reused by reference (Step / Vector{Step} are immutable
-from this caller's perspective).
-"""
-function _split_one_step(
-    groups::Vector{Vector{Step}}, g::Int, split_idx::Int,
-)
-    new_groups = Vector{Vector{Step}}()
-    for (gi, gr) in enumerate(groups)
-        if gi == g
-            remaining = Step[gr[i] for i in eachindex(gr)
-                             if i != split_idx]
-            push!(new_groups, remaining)
-        else
-            push!(new_groups, gr)
-        end
-    end
-    push!(new_groups, Step[groups[g][split_idx]])
-    new_groups
+    out, origin
 end
 
 """
@@ -2268,6 +2357,7 @@ function expand_mechanisms(
     rxn::EnzymeReaction)
     result = Union{Mechanism, AllostericMechanism}[]
     for m in mechs
+        _assert_chemistry_is_iso(m)
         _add_expansions_mech!(result, m, rxn)
     end
     result = _filter_by_reg_type(result, rxn)

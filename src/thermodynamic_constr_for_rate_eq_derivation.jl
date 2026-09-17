@@ -276,7 +276,7 @@ function _enumerate_species_names(mech::Mechanism)
 end
 
 """
-    _dependent_param_exprs(M::Type{<:EnzymeMechanism}) → (dep_exprs, indep_params)
+    _dependent_param_exprs(mech::Mechanism) → (dep_exprs, indep_params)
 
 Select dependent parameters and build substitution expressions for the
 Haldane / Wegscheider thermodynamic constraints. Steps in the same
@@ -284,13 +284,14 @@ kinetic group share parameters: their cycle-incidence columns are merged
 into the representative step's column before Gaussian elimination, so
 `dep_exprs` and `indep_params` are keyed only on representatives.
 
-The wrapper calls `_build_wegscheider_rename_map(M)` to obtain the
-rename map for absorbed single-symbol Wegscheider RE ties and forwards
-to `_dependent_param_exprs_kernel`.
+Calls `_build_wegscheider_rename_map(mech)` to obtain the rename map for
+absorbed single-symbol Wegscheider RE ties and forwards to
+`_dependent_param_exprs_kernel`. The `Type{<:EnzymeMechanism}` method delegates
+here.
 """
-function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
-    rename = _build_wegscheider_rename_map(M)
-    dep_exprs, indep = _dependent_param_exprs_kernel(M, rename)
+function _dependent_param_exprs(mech::Mechanism)
+    rename = _build_wegscheider_rename_map(mech)
+    dep_exprs, indep = _dependent_param_exprs_kernel(mech, rename)
     # Filter Pass-2-absorbed symbols out of indep. Pass 2 of
     # `_build_wegscheider_rename_map` adds entries like `K_P_E => K_S_E`
     # when a Wegscheider tie collapses two binding-K group reps to the
@@ -310,6 +311,56 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     # equation string and therefore the same dedup key.
     indep = Tuple(sort(collect(indep); by = string))
     return dep_exprs, indep
+end
+
+_dependent_param_exprs(M::Type{<:EnzymeMechanism}) = _dependent_param_exprs(Mechanism(M()))
+
+"""Number of independent (fitted) rate constants of a concrete mechanism, computed
+from the thermodynamic constraint solve without compiling the mechanism."""
+_independent_param_count(m::Union{Mechanism, AllostericMechanism}) =
+    length(_dependent_param_exprs(m)[2])
+
+"""
+    _partition_independent_count(parent::Mechanism) -> counter
+
+Return `counter(group_of_step)`, the independent-parameter count of the mechanism
+obtained by regrouping `parent`'s flat steps (in `_flat_steps` order) into the
+groups labelled by `group_of_step`. Regrouping moves no edges, so the cycle basis
+of the step graph (`_thermodynamic_constraints`) is the same for every
+regrouping and is computed once here; each call only merges step columns by
+group and takes the rank. Equals `_independent_param_count` of the constructed
+child: the kernel's independent set is the columns minus the pivots, and folding
+a single-symbol Wegscheider tie onto its target removes one column and one rank
+together, so the count is invariant to the rename. Column sign conventions match
+`_assemble_constraints`: a binding K enters with a sign flip, an iso K without,
+an SS step contributes `+kf` and `-kr`.
+"""
+function _partition_independent_count(parent::Mechanism)
+    C, _ = _thermodynamic_constraints(parent)
+    kinds = [is_equilibrium(s) ? (is_binding(s) ? :binding_K : :iso_K) : :ss
+             for (s, _) in _flat_steps(parent)]
+    function counter(group_of_step::AbstractVector{Int})
+        length(group_of_step) == length(kinds) ||
+            error("group_of_step must label every flat step of the parent")
+        column = Dict{Tuple{Int, Int}, Int}()
+        for (j, g) in enumerate(group_of_step)
+            get!(column, (g, 1), length(column) + 1)
+            kinds[j] === :ss && get!(column, (g, 2), length(column) + 1)
+        end
+        A = zeros(Int, size(C, 1), length(column))
+        for (j, g) in enumerate(group_of_step), i in axes(C, 1)
+            c = C[i, j]
+            c == 0 && continue
+            if kinds[j] === :ss
+                A[i, column[(g, 1)]] += c
+                A[i, column[(g, 2)]] -= c
+            else
+                A[i, column[(g, 1)]] += kinds[j] === :binding_K ? -c : c
+            end
+        end
+        length(column) - length(_rref_partition(A)[1])
+    end
+    counter
 end
 
 """
