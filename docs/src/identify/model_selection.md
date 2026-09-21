@@ -85,33 +85,25 @@ cv_score = mean(fold_scores)
 
 ## The cross-validation selection rule
 
-Let `n_min` be the parameter count with the lowest mean CV score (with a
-parsimony tiebreak to the smaller count). The selection rule then checks each
-simpler bucket (ascending `n_params < n_min`). A simpler bucket is accepted
-only if it passes **both**:
+Selection follows the one-standard-error rule [Hastie2009](@cite). The
+**best equation** is the candidate with the lowest `cv_score` (with a parsimony
+tiebreak to the smaller `n_params`). Its fold scores set the yardstick:
 
-1. **Paired 1-SE rule** [Hastie2009](@cite): the mean of the paired
-   fold-loss differences (`simpler − n_min`) must not exceed
-   `se_threshold × std(diffs) / √n_folds`. The default `se_threshold=1.0`
-   is the textbook one-standard-error rule.
+```julia
+cv_score_se = std(fold_scores) / sqrt(n_folds)
+cutoff      = cv_score_best + se_threshold * cv_score_se_best
+```
 
-2. **One-sided sign-flip permutation test**: the p-value `Pr(perm_mean ≥
-   observed)` under the sign-flip null must exceed `perm_p_threshold`. The
-   default `perm_p_threshold=0.16` matches the paired 1-SE criterion: under a
-   normal approximation a ±1-SE band covers 68.3% of the distribution, leaving
-   1 − 0.683 = 0.317 in the two tails and ≈ 0.16 in the single tail the
-   one-sided test uses. The test asks how often a random sign-flip of the
-   per-fold loss differences would look at least as favorable to the simpler
-   model; a high p-value means the simpler model is not meaningfully worse.
+The selected equation is the lowest-`cv_score` candidate at the **smallest**
+`n_params` that has a candidate at or below the cutoff. A simpler equation wins
+whenever it predicts held-out groups as well as the best equation to within the
+best equation's fold-to-fold standard error; an added parameter must lower the
+CV score by more than that standard error to be kept. The best equation always
+passes its own cutoff, so an equation with more parameters than the best one is
+never selected.
 
-The function returns the **smallest** `n_params` that passes both tests, or
-`n_min` if none pass. When there is only one fold (one group), the SE is
-undefined and the loop is skipped, so `n_min` is always returned. Within the
-chosen bucket, the mechanism with the lowest **training loss** wins — CV scores
-rank buckets, training loss resolves ties inside a bucket.
-
-Both `se_threshold` and `perm_p_threshold` are tunable kwargs of
-`identify_rate_equation`.
+The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
+`identify_rate_equation`. Larger values favor simpler equations.
 
 ## The `cv_results` DataFrame
 
@@ -126,7 +118,7 @@ Both `se_threshold` and `perm_p_threshold` are tunable kwargs of
 | Column | Description |
 |--------|-------------|
 | `n_params` | Actual fitted-parameter count. |
-| `loss` | Training loss (used for within-bucket ranking). |
+| `loss` | Training loss (ranks which equations enter LOOCV). |
 | `mechanism_type` | Julia type name of the compiled mechanism. |
 | `rate_equation` | Full symbolic rate-equation string. |
 | `retcode` | Optimizer return code (`"Success"` = converged). |
@@ -134,9 +126,7 @@ Both `se_threshold` and `perm_p_threshold` are tunable kwargs of
 | `eq_hash` | Hex hash of the comment-stripped rate equation. Two mechanisms with the same `eq_hash` compute the same rate function. |
 | one per fitted parameter | Fitted parameter value, or `missing` if the mechanism lacks that parameter. |
 | `cv_score` | Mean of per-fold losses (lower is better). |
-| `mean_loss_diff` | Mean paired fold-loss difference vs the `n_min` bucket's representative. `0.0` for `n_min`. |
-| `se_paired` | Paired standard error: `std(diffs) / √n_folds`. `0.0` for `n_min`. |
-| `permutation_p` | One-sided sign-flip p-value. `0.0` for `n_min`. |
+| `cv_score_se` | Standard error of the per-fold losses: `std(fold_scores) / √n_folds`. |
 | `cv_fold_<group>` | Per-fold test loss for held-out group `<group>`, one column per group. |
 
 Only the top `n_cv_candidates` distinct equations per parameter count enter
