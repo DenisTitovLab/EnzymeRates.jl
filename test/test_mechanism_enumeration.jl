@@ -5609,6 +5609,14 @@ end
     end)
     @test EnzymeRates._hyperbolic_catalysis(grouped_dead_end)
 
+    flags = vcat(EnzymeRates._flux_carrying_steps(grouped_dead_end)...)
+    all_steps = vcat(EnzymeRates.steps(grouped_dead_end)...)
+    @test count(!, flags) == 1
+    abortive = all_steps[findfirst(!, flags)]
+    abortive_bound = Symbol[EnzymeRates.name(x)
+                             for x in EnzymeRates.bound(EnzymeRates.to_species(abortive))]
+    @test length(abortive_bound) == 2 && :Q in abortive_bound
+
     # Ping-pong whose second chemistry step is at rapid equilibrium, with B also
     # bound as an abortive complex on E(Q) in the same kinetic group as its
     # catalytic binding. One segment spans both halves: E sits one B above
@@ -5636,7 +5644,7 @@ end
 @testset "_hyperbolic_catalysis matches the derived denominator" begin
     # The structural predicate against the exponents of the derived denominator,
     # over every mechanism reachable from the seeds in a bounded number of
-    # expansion levels. Dead-end groups are stripped before deriving, since the
+    # expansion levels. Dead-end steps are stripped before deriving, since the
     # predicate ignores them; the reactions declare no regulators, so stripping
     # never leaves the reaction naming a metabolite no step binds. For an
     # allosteric mechanism the predicate is compared with the A-state, and the
