@@ -35,8 +35,12 @@ flux-carrying step graph has degree at most 1 in every substrate and product.
 
 Construction:
 
-1. Keep only the flux-carrying kinetic groups (`_flux_carrying_groups`).
-   Dead-end substrate, product, and regulator groups are pendant and drop out.
+1. Keep only the flux-carrying steps (`_flux_carrying_steps`: a step on a
+   cycle through a chemistry step). Dead-end substrate, product, and regulator
+   bindings are pendant and drop out. The exemption is per step, not per
+   group: the enumerator gives an abortive complex's binding the same kinetic
+   group as the metabolite's catalytic binding, and that step must still be
+   ignored.
 2. Build the rapid-equilibrium (RE) segment quotient graph over the kept
    steps: nodes are RE segments (union-find over RE steps, as in
    `_compute_re_groups`); every SS step is an edge in both directions.
@@ -44,8 +48,11 @@ Construction:
    `_bottomless_re_segment` gives each form the metabolites it carries beyond
    the segment's bottom form ("extras").
 4. For metabolite `X`, score a directed edge `u → v` as
-   `[the step binds X in that direction] + [X ∈ extras(source form of u → v)]`,
-   and score a segment `S` as `[any form in S has X among its extras]`.
+   `[the step binds X in that direction] + extras(source form of u → v)[X]`,
+   and score a segment `S` as `max over forms in S of extras[X]`. A segment
+   can carry `X` twice without any edge: a ping-pong whose second chemistry
+   step is at rapid equilibrium puts free `E` one `B` above the covalent
+   intermediate, and an abortive `E(B, Q)` two above it.
 5. The degree of `X` is the maximum over root segments `S` of
    `score(S) + (max-weight spanning arborescence toward S)`. This is the
    `X`-exponent of a Cha-style King–Altman denominator term: the root
@@ -53,8 +60,8 @@ Construction:
 6. `_hyperbolic_catalysis(m)` is `true` when every substrate and product has
    degree at most 1.
 
-Scores are 0, 1, or 2, and only "at most 1" matters, so the maximum is never
-solved in general. The degree exceeds 1 exactly when one edge scores 2, or a
+Only "at most 1" matters, so the maximum is never solved in general. The
+degree exceeds 1 exactly when one segment or one edge scores 2 or more, or a
 root scoring 1 has an arborescence toward it holding a scoring edge, or some
 arborescence holds two scoring edges. An arborescence toward `S` containing
 given edges exists iff every segment still reaches `S` once each given edge's
@@ -123,7 +130,7 @@ Move tests in `test/test_mechanism_enumeration.jl`, following its three rules:
 
 Exactness test: for every `Mechanism` in the bi-bi, uni-bi, and ping-pong
 enumerations to two expansion levels, build the mechanism from its
-flux-carrying groups, derive it, and check that the structural degree of every
+flux-carrying steps, derive it, and check that the structural degree of every
 substrate and product equals the largest exponent of that symbol in the derived
 denominator. For every `AllostericMechanism` at the same depth, check the same
 on both the A-state and I-state projections.
