@@ -1361,6 +1361,101 @@ function _flux_carrying_groups(m::Union{Mechanism, AllostericMechanism})
     flags
 end
 
+"""
+Whether the enumerator may only give this mechanism type a catalytic scheme
+that passes `_hyperbolic_catalysis`. True for every type that layers a
+conformational equilibrium over its catalytic scheme.
+"""
+_requires_hyperbolic_catalysis(::Mechanism) = false
+_requires_hyperbolic_catalysis(::AllostericMechanism) = true
+
+"""
+    _hyperbolic_catalysis(m) -> Bool
+
+Whether the rate equation of `m`'s flux-carrying step graph has degree at most 1
+in every substrate and product concentration. Dead-end groups (substrate,
+product, or regulator binding off the catalytic cycle, `_flux_carrying_groups`)
+are ignored: their inhibition terms are a separate source of concentration
+powers that conformational mechanisms keep.
+
+The equation is a sum over rapid-equilibrium (RE) segments and spanning
+arborescences of the segment graph toward each segment. A denominator term is
+the root segment's weight times the weight of every tree edge, so the exponent
+of `X` in a term is the number of `X` the root segment's forms carry beyond the
+segment's bottom form, plus, per tree edge, one if the step binds `X` in the
+tree direction and one if the edge's source form carries `X` beyond its bottom
+(`_re_segment_extras`). The degree exceeds 1 exactly when one edge scores 2, or
+the root scores 1 and some arborescence toward it holds a scoring edge, or some
+arborescence holds two scoring edges. An arborescence toward `S` containing
+given edges exists iff every segment still reaches `S` once each given edge's
+source keeps that edge as its only way out (`_all_reach`).
+"""
+function _hyperbolic_catalysis(m::Union{Mechanism, AllostericMechanism})
+    flux = _flux_carrying_groups(m)
+    groups = [steps(m)[g] for g in kinetic_groups(m) if flux[g]]
+    species, segments, extras = _re_segment_extras(groups)
+    idx = Dict(sp => i for (i, sp) in enumerate(species))
+    seg_of = zeros(Int, length(species))
+    for (k, segment) in enumerate(segments), i in segment
+        seg_of[i] = k
+    end
+    # Directed segment-graph edges: source segment, target segment, source form,
+    # metabolites bound in that direction.
+    edges = Tuple{Int, Int, Int, Vector{Symbol}}[]
+    for group in groups, s in group
+        is_equilibrium(s) && continue
+        _, _, m_lhs, m_rhs = _step_sides(s)
+        a, b = idx[from_species(s)], idx[to_species(s)]
+        seg_of[a] == seg_of[b] && continue
+        push!(edges, (seg_of[a], seg_of[b], a, m_lhs))
+        push!(edges, (seg_of[b], seg_of[a], b, m_rhs))
+    end
+    rxn = reaction(m)
+    mets = vcat(Symbol[name(s) for s in substrates(rxn)],
+                Symbol[name(p) for p in products(rxn)])
+    n = length(segments)
+    for x in mets
+        score(e) = count(==(x), e[4]) + get(extras[e[3]], x, 0)
+        carrying = [e for e in edges if score(e) > 0]
+        any(e -> score(e) > 1, carrying) && return false
+        roots = [k for (k, segment) in enumerate(segments)
+                 if any(i -> get(extras[i], x, 0) > 0, segment)]
+        for e in carrying, k in roots
+            k != e[1] && _all_reach(n, edges, k, (e,)) && return false
+        end
+        for (p, e1) in enumerate(carrying), e2 in carrying[p + 1:end]
+            e1[1] == e2[1] && continue
+            any(k -> k != e1[1] && k != e2[1] && _all_reach(n, edges, k, (e1, e2)),
+                1:n) && return false
+        end
+    end
+    true
+end
+
+"""
+Whether every segment of the segment graph reaches `root` when each edge in
+`fixed` is its source segment's only way out. A digraph has a spanning
+arborescence toward `root` iff every vertex reaches `root`, and with the fixed
+edges as their sources' only exits every such arborescence contains them.
+"""
+function _all_reach(n::Int, edges, root::Int, fixed)
+    pinned = Dict(e[1] => e[2] for e in fixed)
+    into = [Int[] for _ in 1:n]
+    for (u, v, _, _) in edges
+        get(pinned, u, v) == v && push!(into[v], u)
+    end
+    seen = falses(n)
+    seen[root] = true
+    queue = [root]
+    while !isempty(queue)
+        v = popfirst!(queue)
+        for u in into[v]
+            seen[u] || (seen[u] = true; push!(queue, u))
+        end
+    end
+    all(seen)
+end
+
 """Number of rapid-equilibrium segments (connected components of the RE
 subgraph). An allosteric mechanism is measured on its A-state projection, which
 holds every catalytic group."""

@@ -579,6 +579,61 @@ function _assert_no_re_ss_duplicate(steps::Vector{Vector{Step}})
 end
 
 """
+Rapid-equilibrium segments of `steps` with each form's metabolite exponents
+cleared to the lowest in its segment: `(species, segments, extras)`, where
+`segments[k]` indexes `species` and `extras[i][x]` is how many more `x` form `i`
+carries than the lowest form of its segment. Within a segment, rapid equilibrium
+fixes each form's weight relative to any other as a monomial in concentrations,
+one factor per metabolite bound or released along the RE path between them;
+chemistry steps pass the exponents through unchanged.
+"""
+function _re_segment_extras(steps::Vector{Vector{Step}})
+    species = Species[]
+    for group in steps, s in group
+        from_species(s) in species || push!(species, from_species(s))
+        to_species(s) in species   || push!(species, to_species(s))
+    end
+    idx = Dict(sp => i for (i, sp) in enumerate(species))
+    # RE adjacency with the exponent change of each metabolite from → to.
+    adj = [Tuple{Int, Dict{Symbol, Int}}[] for _ in species]
+    for group in steps, s in group
+        is_equilibrium(s) || continue
+        _, _, m_lhs, m_rhs = _step_sides(s)
+        d = Dict{Symbol, Int}()
+        for x in m_lhs; d[x] = get(d, x, 0) + 1; end
+        for x in m_rhs; d[x] = get(d, x, 0) - 1; end
+        a, b = idx[from_species(s)], idx[to_species(s)]
+        push!(adj[a], (b, d))
+        push!(adj[b], (a, Dict(x => -e for (x, e) in d)))
+    end
+    expo = Dict{Int, Dict{Symbol, Int}}()
+    segments = Vector{Int}[]
+    for root in eachindex(species)
+        haskey(expo, root) && continue
+        expo[root] = Dict{Symbol, Int}()
+        segment = [root]
+        queue = [root]
+        while !isempty(queue)
+            u = popfirst!(queue)
+            for (v, d) in adj[u]
+                haskey(expo, v) && continue
+                expo[v] = mergewith(+, expo[u], d)
+                push!(segment, v); push!(queue, v)
+            end
+        end
+        for x in union(Set{Symbol}(), (keys(expo[i]) for i in segment)...)
+            lowest = minimum(get(expo[i], x, 0) for i in segment)
+            for i in segment
+                expo[i][x] = get(expo[i], x, 0) - lowest
+            end
+        end
+        push!(segments, segment)
+    end
+    extras = [filter(p -> p.second > 0, expo[i]) for i in eachindex(species)]
+    species, segments, extras
+end
+
+"""
     _bottomless_re_segment(steps) -> Union{Nothing, Vector{Species}}
 
 The forms of a rapid-equilibrium segment whose weights all vanish at zero
@@ -599,48 +654,17 @@ segment whose weights vanish only at a corner mixing a substrate and a product
 harmless: no turnover is possible at that corner.
 """
 function _bottomless_re_segment(steps::Vector{Vector{Step}})
-    species = Species[]
-    for group in steps, s in group
-        from_species(s) in species || push!(species, from_species(s))
-        to_species(s) in species   || push!(species, to_species(s))
-    end
-    idx = Dict(sp => i for (i, sp) in enumerate(species))
-    # RE adjacency with the exponent change of each metabolite from → to.
-    adj = [Tuple{Int, Dict{Symbol, Int}}[] for _ in species]
     side = Dict{Symbol, Type}()
     for group in steps, s in group
-        is_equilibrium(s) || continue
-        _, _, m_lhs, m_rhs = _step_sides(s)
-        d = Dict{Symbol, Int}()
-        for x in m_lhs; d[x] = get(d, x, 0) + 1; end
-        for x in m_rhs; d[x] = get(d, x, 0) - 1; end
-        is_binding(s) && (side[name(bound_metabolite(s))] = typeof(bound_metabolite(s)))
-        a, b = idx[from_species(s)], idx[to_species(s)]
-        push!(adj[a], (b, d))
-        push!(adj[b], (a, Dict(x => -e for (x, e) in d)))
+        is_equilibrium(s) && is_binding(s) || continue
+        side[name(bound_metabolite(s))] = typeof(bound_metabolite(s))
     end
-    expo = Dict{Int, Dict{Symbol, Int}}()
-    for root in eachindex(species)
-        haskey(expo, root) && continue
-        expo[root] = Dict{Symbol, Int}()
-        segment = [root]
-        queue = [root]
-        while !isempty(queue)
-            u = popfirst!(queue)
-            for (v, d) in adj[u]
-                haskey(expo, v) && continue
-                expo[v] = mergewith(+, expo[u], d)
-                push!(segment, v); push!(queue, v)
-            end
-        end
+    species, segments, extras = _re_segment_extras(steps)
+    for segment in segments
         length(segment) < 2 && continue
-        mets = union((keys(expo[i]) for i in segment)...)
-        lowest = Dict(x => minimum(get(expo[i], x, 0) for i in segment) for x in mets)
-        # Metabolites left in a form's weight after clearing negative exponents.
-        factors(i) = (x for x in mets if get(expo[i], x, 0) > lowest[x])
         for S in (Product, Substrate)
-            all(i -> any(x -> get(side, x, Nothing) === S, factors(i)), segment) &&
-                return species[segment]
+            all(i -> any(x -> get(side, x, Nothing) === S, keys(extras[i])),
+                segment) && return species[segment]
         end
     end
     nothing

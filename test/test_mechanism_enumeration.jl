@@ -5418,6 +5418,135 @@ end
     @test all(EnzymeRates._flux_carrying_groups(pp))
 end
 
+@testset "_hyperbolic_catalysis" begin
+    # Ordered SS bi-bi: every metabolite binds on one edge and every segment is
+    # a single form, so no denominator term carries a concentration twice.
+    ordered = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B <--> E(A, B)
+            E + Q <--> E(Q)
+            E(Q) + P <--> E(P, Q)
+            E(A, B) <--> E(P, Q)
+        end
+    end)
+    @test EnzymeRates._hyperbolic_catalysis(ordered)
+
+    # Random SS bi-bi: A binds on E → E(A) and on E(B) → E(A, B); both edges lie
+    # in one tree toward E(A, B), so the denominator carries A².
+    random_ss = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(A, B))
+            (E + B <--> E(B), E(A) + B <--> E(A, B))
+            (E + P <--> E(P), E(Q) + P <--> E(P, Q))
+            (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))
+            E(A, B) <--> E(P, Q)
+        end
+    end)
+    @test !EnzymeRates._hyperbolic_catalysis(random_ss)
+
+    # Random RE bi-bi with the chemistry step as the only SS step: one segment,
+    # so the equation is the rapid-equilibrium law, degree 1 throughout.
+    random_re = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+            E(A, B) <--> E(P, Q)
+        end
+    end)
+    @test EnzymeRates._hyperbolic_catalysis(random_re)
+
+    # Random RE bi-bi with the A group flipped: the segment {E(A), E(A, B)} has
+    # E(A, B) carrying B beyond its bottom E(A), and the edge E(B) → E(A, B) into
+    # it leaves a form carrying B, so the term rooted there carries B².
+    random_flip_a = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(A, B))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+            E(A, B) <--> E(P, Q)
+        end
+    end)
+    @test !EnzymeRates._hyperbolic_catalysis(random_flip_a)
+
+    # Ordered SS bi-bi with substrate A as a dead end on E(Q): the derived
+    # denominator carries A² (substrate inhibition), but the dead-end group is
+    # not flux-carrying and the predicate ignores it.
+    dead_end = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B <--> E(A, B)
+            E + Q <--> E(Q)
+            E(Q) + P <--> E(P, Q)
+            E(A, B) <--> E(P, Q)
+            E(Q) + A ⇌ E(A, Q)
+        end
+    end)
+    @test EnzymeRates._hyperbolic_catalysis(dead_end)
+
+    # Uni-bi with random SS product release: P binds on E → E(P) and on
+    # E(Q) → E(P, Q), both toward E(P, Q), so the denominator carries P².
+    unibi_ss = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P, Q
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P, Q)
+            (E + P <--> E(P), E(Q) + P <--> E(P, Q))
+            (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))
+        end
+    end)
+    @test !EnzymeRates._hyperbolic_catalysis(unibi_ss)
+
+    # Ping-pong with one SS chemistry step per half-reaction: two segments,
+    # each metabolite carried once per term.
+    pingpong = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+            E(Q) ⇌ E + Q
+        end
+    end)
+    @test EnzymeRates._hyperbolic_catalysis(pingpong)
+
+    # An allosteric mechanism is scored on its catalytic steps: uni-bi with the
+    # P group at steady state carries Q² (the segment {E(P), E(P, Q)} plus the
+    # edge E(Q) → E(P, Q)).
+    allo_unibi_flip_p = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P, Q
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)                                        :: NonequalAI
+            E(S) <--> E(P, Q)                                   :: NonequalAI
+            (E + P <--> E(P), E(Q) + P <--> E(P, Q))            :: NonequalAI
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))                  :: NonequalAI
+        end
+    end)
+    @test !EnzymeRates._hyperbolic_catalysis(allo_unibi_flip_p)
+
+    @test !EnzymeRates._requires_hyperbolic_catalysis(ordered)
+    @test EnzymeRates._requires_hyperbolic_catalysis(allo_unibi_flip_p)
+end
+
 @testset "_re_segment_count" begin
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
