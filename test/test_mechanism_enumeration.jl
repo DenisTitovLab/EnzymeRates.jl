@@ -5646,22 +5646,27 @@ end
     end
     n_checked = 0
     n_nonhyperbolic = 0
+    # stripped mechanism => (A hyperbolic, I hyperbolic)
+    derived = Dict{Any, Tuple{Bool, Bool}}()
     for (rxn, depth) in ((unibi, 2), (bibi, 1), (pingpong, 2))
         mets = _testhelper_mets(rxn)
-        for m in filter(m -> rxn !== bibi || m isa EnzymeRates.Mechanism,
-                         _testhelper_levels(rxn, depth))
+        for m in _testhelper_levels(rxn, depth)
             EnzymeRates._eq_complexity(m) <= 337 || continue
             stripped = _testhelper_flux_only(m)
             structural = EnzymeRates._hyperbolic_catalysis(m)
-            if m isa EnzymeRates.Mechanism
-                @test structural == _testhelper_den_hyperbolic(stripped)
-            else
-                _, den_a, _ = EnzymeRates._state_rate_polys(stripped, :A)
-                _, den_i, _ = EnzymeRates._state_rate_polys(stripped, :I)
-                hyp_a = _testhelper_poly_hyperbolic(den_a, mets)
-                @test structural == hyp_a
-                @test _testhelper_poly_hyperbolic(den_i, mets) || !hyp_a
+            hyp_a, hyp_i = get!(derived, stripped) do
+                if stripped isa EnzymeRates.Mechanism
+                    h = _testhelper_den_hyperbolic(stripped)
+                    (h, h)
+                else
+                    _, den_a, _ = EnzymeRates._state_rate_polys(stripped, :A)
+                    _, den_i, _ = EnzymeRates._state_rate_polys(stripped, :I)
+                    (_testhelper_poly_hyperbolic(den_a, mets),
+                     _testhelper_poly_hyperbolic(den_i, mets))
+                end
             end
+            @test structural == hyp_a
+            @test hyp_i || !hyp_a
             n_checked += 1
             structural || (n_nonhyperbolic += 1)
         end
