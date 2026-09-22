@@ -5543,6 +5543,43 @@ end
     end)
     @test !EnzymeRates._hyperbolic_catalysis(allo_unibi_flip_p)
 
+    # Ordered SS bi-bi whose A group also binds A as an abortive complex on
+    # E(Q). The abortive step went to steady state with its group, but it is a
+    # dead end and is ignored; counted, its edge into E(A, Q) together with
+    # E → E(A) would carry A twice in one tree.
+    grouped_dead_end = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A <--> E(A), E(Q) + A <--> E(A, Q))
+            E(A) + B <--> E(A, B)
+            E + Q <--> E(Q)
+            E(Q) + P <--> E(P, Q)
+            E(A, B) <--> E(P, Q)
+        end
+    end)
+    @test EnzymeRates._hyperbolic_catalysis(grouped_dead_end)
+
+    # Ping-pong whose second chemistry step is at rapid equilibrium, with B also
+    # bound as an abortive complex on E(Q) in the same kinetic group as its
+    # catalytic binding. One segment spans both halves: E sits one B above
+    # E(; residual) and E(B, Q) two above, so with the abortive form counted the
+    # segment weight would carry B². The abortive step is a dead end and is
+    # ignored, leaving degree 1.
+    pingpong_abortive = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+            (E(; residual = A - P) + B ⇌ E(B; residual = A - P), E(Q) + B ⇌ E(B, Q))
+            E(B; residual = A - P) ⇌ E(Q)
+            E(Q) ⇌ E + Q
+        end
+    end)
+    @test EnzymeRates._hyperbolic_catalysis(pingpong_abortive)
+
     @test !EnzymeRates._requires_hyperbolic_catalysis(ordered)
     @test EnzymeRates._requires_hyperbolic_catalysis(allo_unibi_flip_p)
 end

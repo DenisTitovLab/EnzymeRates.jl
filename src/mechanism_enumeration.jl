@@ -1332,34 +1332,45 @@ function _edge_blocks(nv::Int, edges::Vector{Tuple{Int, Int}})
 end
 
 """
-    _flux_carrying_groups(m) -> BitVector
+    _flux_carrying_steps(m) -> Vector{BitVector}
 
-One flag per kinetic group: the group holds a step that lies on a cycle of the
-step graph containing a chemistry step (an isomerization), i.e. shares a
+One flag per step, in `steps(m)` layout: the step lies on a cycle of the step
+graph containing a chemistry step (an isomerization), i.e. shares a
 biconnected block with one. A binding-only cycle satisfies detailed balance and
-carries no net flux at steady state, so a group whose every step sits in such a
-pendant region exposes only equilibrium ratios however it is
-flagged; flipping it to steady state adds a phantom parameter. RE and SS steps
-are both edges here: flux-carrying-ness depends on the graph, not on the flags.
+carries no net flux at steady state, so a step in such a pendant region (a
+dead-end binding) exposes only an equilibrium ratio. RE and SS steps are both
+edges here: flux-carrying-ness depends on the graph, not on the flags.
 """
-function _flux_carrying_groups(m::Union{Mechanism, AllostericMechanism})
+function _flux_carrying_steps(m::Union{Mechanism, AllostericMechanism})
     forms = Dict{Species, Int}()
     edges = Tuple{Int, Int}[]
-    edge_group = Int[]
     edge_is_chemistry = Bool[]
     vertex(sp) = get!(forms, sp, length(forms) + 1)
-    for (g, group) in enumerate(steps(m)), s in group
+    for group in steps(m), s in group
         push!(edges, (vertex(from_species(s)), vertex(to_species(s))))
-        push!(edge_group, g); push!(edge_is_chemistry, is_iso(s))
+        push!(edge_is_chemistry, is_iso(s))
     end
     block = _edge_blocks(length(forms), edges)
     chem_blocks = Set(block[e] for e in eachindex(edges) if edge_is_chemistry[e])
-    flags = falses(length(steps(m)))
-    for e in eachindex(edges)
-        block[e] in chem_blocks && (flags[edge_group[e]] = true)
+    flags = [falses(length(group)) for group in steps(m)]
+    e = 0
+    for (g, group) in enumerate(steps(m)), i in eachindex(group)
+        e += 1
+        flags[g][i] = block[e] in chem_blocks
     end
     flags
 end
+
+"""
+    _flux_carrying_groups(m) -> BitVector
+
+One flag per kinetic group: the group holds a flux-carrying step
+(`_flux_carrying_steps`). A group whose every step sits in a pendant region
+exposes only equilibrium ratios however it is flagged; flipping it to steady
+state adds a phantom parameter.
+"""
+_flux_carrying_groups(m::Union{Mechanism, AllostericMechanism}) =
+    BitVector(any(flags) for flags in _flux_carrying_steps(m))
 
 """
 Whether the enumerator may only give this mechanism type a catalytic scheme
@@ -1373,26 +1384,27 @@ _requires_hyperbolic_catalysis(::AllostericMechanism) = true
     _hyperbolic_catalysis(m) -> Bool
 
 Whether the rate equation of `m`'s flux-carrying step graph has degree at most 1
-in every substrate and product concentration. Dead-end groups (substrate,
-product, or regulator binding off the catalytic cycle, `_flux_carrying_groups`)
+in every substrate and product concentration. Dead-end steps (substrate,
+product, or regulator binding off the catalytic cycle, `_flux_carrying_steps`)
 are ignored: their inhibition terms are a separate source of concentration
 powers that conformational mechanisms keep.
 
 The equation is a sum over rapid-equilibrium (RE) segments and spanning
 arborescences of the segment graph toward each segment. A denominator term is
 the root segment's weight times the weight of every tree edge, so the exponent
-of `X` in a term is the number of `X` the root segment's forms carry beyond the
-segment's bottom form, plus, per tree edge, one if the step binds `X` in the
-tree direction and one if the edge's source form carries `X` beyond its bottom
-(`_re_segment_extras`). The degree exceeds 1 exactly when one edge scores 2, or
-the root scores 1 and some arborescence toward it holds a scoring edge, or some
-arborescence holds two scoring edges. An arborescence toward `S` containing
-given edges exists iff every segment still reaches `S` once each given edge's
-source keeps that edge as its only way out (`_all_reach`).
+of `X` in a term is the most `X` any form of the root segment carries beyond
+the segment's bottom form, plus, per tree edge, one if the step binds `X` in
+the tree direction and the count of `X` the edge's source form carries beyond
+its bottom (`_re_segment_extras`). The degree exceeds 1 exactly when one
+segment or one edge scores 2 or more, or the root scores 1 and some
+arborescence toward it holds a scoring edge, or some arborescence holds two
+scoring edges. An arborescence toward `S` containing given edges exists iff
+every segment still reaches `S` once each given edge's source keeps that edge
+as its only way out (`_all_reach`).
 """
 function _hyperbolic_catalysis(m::Union{Mechanism, AllostericMechanism})
-    flux = _flux_carrying_groups(m)
-    groups = [steps(m)[g] for g in kinetic_groups(m) if flux[g]]
+    groups = [group[flags] for (group, flags) in zip(steps(m), _flux_carrying_steps(m))
+              if any(flags)]
     species, segments, extras = _re_segment_extras(groups)
     idx = Dict(sp => i for (i, sp) in enumerate(species))
     seg_of = zeros(Int, length(species))
@@ -1418,8 +1430,9 @@ function _hyperbolic_catalysis(m::Union{Mechanism, AllostericMechanism})
         score(e) = count(==(x), e[4]) + get(extras[e[3]], x, 0)
         carrying = [e for e in edges if score(e) > 0]
         any(e -> score(e) > 1, carrying) && return false
-        roots = [k for (k, segment) in enumerate(segments)
-                 if any(i -> get(extras[i], x, 0) > 0, segment)]
+        root_score(k) = maximum((get(extras[i], x, 0) for i in segments[k]); init=0)
+        any(k -> root_score(k) > 1, 1:n) && return false
+        roots = [k for k in 1:n if root_score(k) == 1]
         for e in carrying, k in roots
             k != e[1] && _all_reach(n, edges, k, (e,)) && return false
         end
