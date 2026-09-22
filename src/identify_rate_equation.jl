@@ -96,9 +96,9 @@ end
     identify_rate_equation(prob; optimizer,
         min_beam_width=50, loss_rel_threshold=1.3, loss_abs_threshold=0.001,
         loss_parsimony_threshold=0.99,
-        max_param_count=20, n_restarts=20, maxtime=60.0, maxiters=10_000_000,
+        max_param_count=20, n_restarts=20, maxtime=600.0, maxiters=10_000_000,
         abstol=nothing, reltol=nothing, callback=nothing, solver_kwargs=(;),
-        n_cv_candidates=5, se_threshold=1.0, perm_p_threshold=0.16,
+        n_cv_candidates=5, se_threshold=1.0,
         save_dir=_default_save_dir(), show_progress=true)
 
 Find the best rate equation for the given reaction
@@ -149,15 +149,10 @@ and data using beam search.
   solver that supports it); the caller matches its contents to `optimizer`
 - `n_cv_candidates::Int = 5`: LOOCV top N
   **unique-rate-equation** candidates per param count
-- `se_threshold::Float64 = 1.0`: paired 1-SE multiplier for
-  model selection. Simpler-model bucket accepted iff its mean
-  paired loss difference vs the best bucket is `≤
-  se_threshold * std(diffs)/sqrt(n_folds)`. Default 1.0 is the
-  textbook "1-SE rule".
-- `perm_p_threshold::Float64 = 0.16`: minimum one-sided
-  permutation p-value for model selection. Simpler-model
-  bucket accepted iff `p > perm_p_threshold` under the
-  sign-flip null. Default 0.16 matches paired 1-SE empirically.
+- `se_threshold::Float64 = 1.0`: 1-SE multiplier for model selection.
+  A simpler equation is accepted iff its `cv_score` is `≤` the best
+  equation's `cv_score + se_threshold * cv_score_se`. Default 1.0 is
+  the textbook "1-SE rule".
 - `save_dir::String = _default_save_dir()`: output directory for the
   search CSVs (`initial_mechanisms.csv` + `equation_search_iteration_N.csv`),
   plus `loocv_results.csv` (the LOOCV table for every cross-validated
@@ -184,25 +179,14 @@ threshold would collapse the beam to the single best mechanism.
 
 # Model selection (LOOCV)
 
-For each `n_params` bucket below `n_min` (lowest mean
-fold-loss) the rule computes paired fold-loss differences
-between the bucket's representative and `n_min`'s, then
-accepts the simpler bucket iff BOTH:
-
-1. **Paired 1-SE rule**: `mean(diffs) ≤ se_threshold *
-   std(diffs)/sqrt(n_folds)`.
-2. **One-sided permutation test**:
-   `permutation_p > perm_p_threshold`, where p is computed by
-   exact enumeration when `n_folds ≤ 20` and Monte Carlo
-   (10⁶ samples) otherwise.
-
-Returns the smallest passing `n_params`; falls through to
-`n_min` if none pass. Within the chosen bucket the mechanism
-with lowest training loss wins. Per-bucket representative =
-the row with the lowest `cv_score` in that bucket. Diagnostic
-columns `mean_loss_diff`, `se_paired`, `permutation_p`
-are surfaced in `cv_results`; the `n_min` bucket has 0.0 in
-all three.
+Every LOOCV candidate gets a `cv_score` (mean of its per-fold losses)
+and a `cv_score_se` (`std(fold losses)/sqrt(n_folds)`). The best
+equation is the one with the lowest `cv_score`; its cutoff is
+`cv_score + se_threshold * cv_score_se`. The selected equation is the
+lowest-`cv_score` candidate at the smallest `n_params` that has a
+candidate at or below the cutoff, so a simpler equation wins whenever
+it predicts held-out groups as well as the best one to within the
+best one's fold-to-fold standard error.
 """
 function identify_rate_equation(
     prob::IdentifyRateEquationProblem;
@@ -227,7 +211,6 @@ function identify_rate_equation(
     # Model selection
     n_cv_candidates::Int = 5,
     se_threshold::Float64 = 1.0,
-    perm_p_threshold::Float64 = 0.16,
     # Output & parallelism
     save_dir::String = _default_save_dir(),
     show_progress::Bool = true,
@@ -256,7 +239,7 @@ function identify_rate_equation(
 
     result = _cv_model_selection(
         mechanisms, df, prob;
-        n_cv_candidates, se_threshold, perm_p_threshold,
+        n_cv_candidates, se_threshold,
         optimizer, save_dir, show_progress,
         fitting_kwargs...)
     _progress(save_dir, show_progress, "Done. Results saved to $save_dir")
@@ -973,168 +956,22 @@ function _evaluate_loss(
 end
 
 """
-    _onesided_permutation_p(diffs; exact_threshold=20,
-                             mc_samples=10^6,
-                             rng=Random.default_rng()) → Float64
+    _select_best_row(cv_df; se_threshold=1.0) → Int
 
-One-sided p-value `Pr(perm_mean ≥ observed)` for paired-difference vector
-`diffs` under the sign-flip null. Exact enumeration of `2^n` sign patterns
-when `length(diffs) ≤ exact_threshold` (default 20 → up to ~10^6 perms);
-Monte Carlo with `mc_samples` random sign-flips otherwise.
-
-Both default branches do ~10^6 inner iterations. The `exact_threshold` and
-`mc_samples` kwargs are exposed primarily for tests (forcing the MC branch
-on small fixtures and using seeded RNGs).
-
-Errors on empty `diffs` (caller's invariant: a bucket comparison always has
-at least one fold).
+1-SE rule on the best equation's fold scores. The best row is the one with
+the lowest `cv_score` (ties resolve to the smallest `n_params`); its cutoff
+is `cv_score + se_threshold * cv_score_se`. Returns the index of the
+lowest-`cv_score` row at the smallest `n_params` that has a row at or below
+the cutoff. The best row always passes its own cutoff, so a row with more
+parameters than the best row is never returned.
 """
-function _onesided_permutation_p(
-    diffs::Vector{Float64};
-    exact_threshold::Int = 20,
-    mc_samples::Int = 10^6,
-    rng = Random.default_rng(),
-)
-    n = length(diffs)
-    n == 0 && error("_onesided_permutation_p: empty diffs vector")
-    # Compute `observed` with the same sequential reduction as the inner
-    # permutation loop, so the identity permutation reproduces it
-    # bit-identically and `s/n >= observed` always counts it. Using
-    # `mean(diffs)` here would invoke pairwise summation for n ≥ 16,
-    # which differs from the loop at 1 ULP and can drop the identity
-    # from the count.
-    observed_sum = 0.0
-    for i in 1:n
-        observed_sum += diffs[i]
-    end
-    observed = observed_sum / n
-
-    if n <= exact_threshold
-        total = 1 << n   # 2^n
-        count_ge = 0
-        for mask in 0:(total - 1)
-            s = 0.0
-            @inbounds for i in 1:n
-                bit = (mask >> (i - 1)) & 1
-                s += bit == 1 ? -diffs[i] : diffs[i]
-            end
-            count_ge += (s / n >= observed)
-        end
-        return count_ge / total
-    else
-        count_ge = 0
-        @inbounds for _ in 1:mc_samples
-            s = 0.0
-            for i in 1:n
-                s += rand(rng, Bool) ? -diffs[i] : diffs[i]
-            end
-            count_ge += (s / n >= observed)
-        end
-        return count_ge / mc_samples
-    end
-end
-
-"""
-    _select_best_n_params(cv_df; se_threshold=1.0,
-                          perm_p_threshold=0.16) → NamedTuple
-
-Paired 1-SE rule AND-combined with a one-sided sign-flip permutation test
-on per-fold LOOCV scores. Returns:
-
-  best_n::Int                — selected `n_params`
-  n_min::Int                 — bucket with lowest mean fold-loss
-  diagnostics::Dict{Int, NamedTuple{(:mean_loss_diff, :se_paired,
-                                     :permutation_p)}}
-                              — `n_min` bucket has all three = 0.0
-
-Per-bucket representative = the row with the lowest `cv_score` in that
-`n_params` bucket. For each non-`n_min` bucket, computes paired diffs vs
-the rep of `n_min`'s folds. The simpler bucket is accepted iff BOTH:
-
-  mean(diffs) ≤ se_threshold * std(diffs)/sqrt(n_folds)   (paired 1-SE)
-  permutation_p > perm_p_threshold                         (perm test)
-
-Iterates smaller buckets in ascending `n_params`; returns the first that
-passes. Falls through to `n_min` if none pass. Larger-than-`n_min` buckets
-have diagnostics computed but are never selected.
-
-Tiebreak: when two buckets tie on `mean(fold_scores)`, `n_min` resolves to
-the smallest `n_params` (parsimony).
-
-Errors if any bucket's fold-score length differs from `n_min`'s. (Every
-`cv_fold_scores` row is non-empty — the LOOCV grid scores every
-`(candidate, fold)` pair or raises — so there is no empty-input case to handle.)
-
-When `n_folds_min == 1` the SE is undefined; the selection loop is
-skipped and `n_min` is returned. Diagnostics are still populated with
-`se_paired = 0.0`. When the input has only one `n_params` value, returns
-it as both `n_min` and `best_n` with empty smaller/larger comparisons.
-"""
-function _select_best_n_params(
-    cv_df::DataFrame;
-    se_threshold::Float64 = 1.0,
-    perm_p_threshold::Float64 = 0.16,
-)
-    sorted = sort(cv_df, [:n_params, :cv_score])
-    reps = combine(groupby(sorted, :n_params), first)
-
-    fold_scores = Dict(
-        row.n_params => row.cv_fold_scores
-        for row in eachrow(reps))
-    means = Dict(n => mean(fs) for (n, fs) in fold_scores)
-    # Tie-break on mean by smallest n_params (parsimony). Without
-    # this, argmin over Dict keys is iteration-order-dependent.
-    n_min = argmin(n -> (means[n], n), keys(means))
-    n_folds_min = length(fold_scores[n_min])
-
-    diagnostics = Dict{Int, @NamedTuple{
-        mean_loss_diff::Float64,
-        se_paired::Float64,
-        permutation_p::Float64}}()
-    diagnostics[n_min] = (
-        mean_loss_diff = 0.0,
-        se_paired = 0.0,
-        permutation_p = 0.0,
-    )
-
-    smaller_ns = sort([n for n in keys(means) if n < n_min])
-
-    for n in keys(means)
-        n == n_min && continue
-        fs = fold_scores[n]
-        length(fs) == n_folds_min || error(
-            "fold-count mismatch for n_params=$n: " *
-            "got $(length(fs)), expected $n_folds_min " *
-            "(n_min=$n_min)")
-        diffs = fs .- fold_scores[n_min]
-        md  = mean(diffs)
-        sep = n_folds_min == 1 ? 0.0 :
-              std(diffs) / sqrt(n_folds_min)
-        p   = _onesided_permutation_p(diffs)
-        diagnostics[n] = (
-            mean_loss_diff = md,
-            se_paired = sep,
-            permutation_p = p,
-        )
-    end
-
-    best_n = n_min
-    if n_folds_min > 1
-        for n in smaller_ns
-            d = diagnostics[n]
-            if d.mean_loss_diff <= se_threshold * d.se_paired &&
-               d.permutation_p > perm_p_threshold
-                best_n = n
-                break
-            end
-        end
-    end
-
-    return (
-        best_n = best_n,
-        n_min = n_min,
-        diagnostics = diagnostics,
-    )
+function _select_best_row(cv_df::DataFrame; se_threshold::Float64 = 1.0)
+    by_score = sortperm(collect(zip(cv_df.cv_score, cv_df.n_params)))
+    i_min = by_score[1]
+    cutoff = cv_df.cv_score[i_min] + se_threshold * cv_df.cv_score_se[i_min]
+    passing = [i for i in by_score if cv_df.cv_score[i] <= cutoff]
+    best_n = minimum(cv_df.n_params[passing])
+    return first(i for i in passing if cv_df.n_params[i] == best_n)
 end
 
 function _cv_model_selection(
@@ -1142,7 +979,6 @@ function _cv_model_selection(
     prob::IdentifyRateEquationProblem;
     n_cv_candidates, optimizer,
     se_threshold::Float64,
-    perm_p_threshold::Float64,
     save_dir, show_progress,
     kwargs...
 )
@@ -1188,31 +1024,10 @@ function _cv_model_selection(
     cv_df = copy(candidate_rows)
     cv_df.cv_fold_scores = collect(fold_scores_per_candidate)
     cv_df.cv_score = [mean(v) for v in cv_df.cv_fold_scores]
+    cv_df.cv_score_se = [std(v) / sqrt(length(v)) for v in cv_df.cv_fold_scores]
 
-    sel = _select_best_n_params(
-        cv_df;
-        se_threshold = se_threshold,
-        perm_p_threshold = perm_p_threshold,
-    )
-
-    # Best mechanism = lowest training `loss` within sel.best_n.
-    at_best_pc_idx = findall(==(sel.best_n), cv_df.n_params)
-    isempty(at_best_pc_idx) && error(
-        "internal: best_n=$(sel.best_n) has no rows in cv_df")
-    sort_perm = sortperm(cv_df.loss[at_best_pc_idx])
-    best_row_idx = at_best_pc_idx[sort_perm[1]]
-    best_mech = candidate_mechs[best_row_idx]
-    best_mechanism = compile_mechanism(best_mech)
-
-    # Populate diagnostic columns. A bucket may be absent from
-    # diagnostics only if every row in it had empty fold scores.
-    for fld in (:mean_loss_diff, :se_paired, :permutation_p)
-        cv_df[!, fld] = [
-            haskey(sel.diagnostics, n) ?
-                sel.diagnostics[n][fld] : missing
-            for n in cv_df.n_params
-        ]
-    end
+    best_row_idx = _select_best_row(cv_df; se_threshold)
+    best_mechanism = compile_mechanism(candidate_mechs[best_row_idx])
 
     # Flatten per-fold scores into one column per held-out group.
     # Group order matches the `groups = unique(prob.data.group)` iteration above.
@@ -1223,7 +1038,8 @@ function _cv_model_selection(
 
     _progress(save_dir, show_progress,
         "Selected: $(nameof(typeof(best_mechanism))) " *
-        "(eq_hash=$(cv_df.eq_hash[best_row_idx])), n_params=$(sel.best_n)")
+        "(eq_hash=$(cv_df.eq_hash[best_row_idx])), " *
+        "n_params=$(cv_df.n_params[best_row_idx])")
     select!(cv_df, Not(:cv_fold_scores))
 
     # Save the LOOCV table and the selected best equation alongside the

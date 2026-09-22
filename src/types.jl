@@ -578,6 +578,74 @@ function _assert_no_re_ss_duplicate(steps::Vector{Vector{Step}})
     end
 end
 
+"""
+    _bottomless_re_segment(steps) -> Union{Nothing, Vector{Species}}
+
+The forms of a rapid-equilibrium segment whose weights all vanish at zero
+products, or all vanish at zero substrates; `nothing` when no segment does.
+
+Within a segment, rapid equilibrium fixes each form's weight relative to any
+other as a monomial in concentrations (one factor per RE binding step on the
+path between them). Once the weights are scaled to clear every negative
+exponent, a segment normally has a bottom form whose weight is free of one
+side's metabolites — the form the others drain to when that side is absent. A
+segment with no such form (e.g. `{E(P), E(Q), E(P, Q)}` with `E + P` and
+`E + Q` at steady state: weights `Kq·P : Kp·Q : P·Q`) is empty at zero
+products, and the rate there depends on how `E(P, Q)` splits between `E(P)`
+and `E(Q)` — a ratio of two fast release rates the RE approximation does not
+carry. The rate equation is `0/0` exactly where initial-rate data sit. A
+segment whose weights vanish only at a corner mixing a substrate and a product
+(a mixed abortive complex, or the ping-pong `E` / `E(; residual)` pair) is
+harmless: no turnover is possible at that corner.
+"""
+function _bottomless_re_segment(steps::Vector{Vector{Step}})
+    species = Species[]
+    for group in steps, s in group
+        from_species(s) in species || push!(species, from_species(s))
+        to_species(s) in species   || push!(species, to_species(s))
+    end
+    idx = Dict(sp => i for (i, sp) in enumerate(species))
+    # RE adjacency with the exponent change of each metabolite from → to.
+    adj = [Tuple{Int, Dict{Symbol, Int}}[] for _ in species]
+    side = Dict{Symbol, Type}()
+    for group in steps, s in group
+        is_equilibrium(s) || continue
+        _, _, m_lhs, m_rhs = _step_sides(s)
+        d = Dict{Symbol, Int}()
+        for x in m_lhs; d[x] = get(d, x, 0) + 1; end
+        for x in m_rhs; d[x] = get(d, x, 0) - 1; end
+        is_binding(s) && (side[name(bound_metabolite(s))] = typeof(bound_metabolite(s)))
+        a, b = idx[from_species(s)], idx[to_species(s)]
+        push!(adj[a], (b, d))
+        push!(adj[b], (a, Dict(x => -e for (x, e) in d)))
+    end
+    expo = Dict{Int, Dict{Symbol, Int}}()
+    for root in eachindex(species)
+        haskey(expo, root) && continue
+        expo[root] = Dict{Symbol, Int}()
+        segment = [root]
+        queue = [root]
+        while !isempty(queue)
+            u = popfirst!(queue)
+            for (v, d) in adj[u]
+                haskey(expo, v) && continue
+                expo[v] = mergewith(+, expo[u], d)
+                push!(segment, v); push!(queue, v)
+            end
+        end
+        length(segment) < 2 && continue
+        mets = union((keys(expo[i]) for i in segment)...)
+        lowest = Dict(x => minimum(get(expo[i], x, 0) for i in segment) for x in mets)
+        # Metabolites left in a form's weight after clearing negative exponents.
+        factors(i) = (x for x in mets if get(expo[i], x, 0) > lowest[x])
+        for S in (Product, Substrate)
+            all(i -> any(x -> get(side, x, Nothing) === S, factors(i)), segment) &&
+                return species[segment]
+        end
+    end
+    nothing
+end
+
 # Mechanism: groups elementary steps by kinetic group (outer
 # vector). All steps within a group share kinetic parameters. The
 # constructor canonicalizes iso-step direction and stores the steps;
@@ -602,8 +670,18 @@ struct Mechanism
         steps = _canonicalize_iso_groups(reaction, steps)
         permute!(steps, _canonical_group_order!(steps))
         _assert_no_re_ss_duplicate(steps)
+        _assert_re_segments_have_bottom(steps)
         new(reaction, steps)
     end
+end
+
+function _assert_re_segments_have_bottom(steps::Vector{Vector{Step}})
+    segment = _bottomless_re_segment(steps)
+    segment === nothing && return
+    error("Mechanism: rapid-equilibrium segment {" *
+          join(name.(segment), ", ") * "} has no form free of one side's " *
+          "metabolites, so its rate is undefined when that side is absent " *
+          "(0/0). Make one of the segment's binding steps steady-state.")
 end
 
 reaction(m::Mechanism) = m.reaction
@@ -665,6 +743,7 @@ struct AllostericMechanism
         perm = _canonical_group_order!(cat_steps)
         permute!(cat_steps, perm)
         _assert_no_re_ss_duplicate(cat_steps)
+        _assert_re_segments_have_bottom(cat_steps)
         cat_allo_states = permute!(copy(cat_allo_states), perm)
         regulatory_sites =
             sort(regulatory_sites; by = _regulatory_site_canonical_key)

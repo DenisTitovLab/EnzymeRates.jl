@@ -1415,6 +1415,105 @@ end
 # ─── _expand_re_to_ss ──────────────────────────────────────────────────
 @testset "_expand_re_to_ss" begin
 
+@testset "Mechanism — flip past a bottomless RE segment" begin
+    # PARENT: uni-bi with random product release, all binding RE. The product
+    # ring E–E(P)–E(P, Q)–E(Q)–E needs two cuts to raise the segment count, so
+    # every pair of ring edges gains. Cutting the two edges at E ({P@E, Q@E})
+    # would leave {E(P), E(Q), E(P, Q)} with no bottom form — a mechanism the
+    # constructor rejects — so that pair counts as failed and is not emitted.
+    # Its supersets are reached by one more flip from the other pairs' children.
+    # Children: the S flip plus the five other pairs.
+    parent = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P, Q
+        steps: begin
+            E + S ⇌ E(S)
+            E + P ⇌ E(P)
+            E + Q ⇌ E(Q)
+            E(P) + Q ⇌ E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E(S) <--> E(P, Q)
+        end
+    end)
+    children = EnzymeRates._expand_re_to_ss(parent)
+    expected = EnzymeRates.Mechanism.([
+        (@enzyme_mechanism begin      # S alone: E(S) becomes its own segment
+            substrates: S
+            products: P, Q
+            steps: begin
+                E + S <--> E(S)
+                E + P ⇌ E(P)
+                E + Q ⇌ E(Q)
+                E(P) + Q ⇌ E(P, Q)
+                E(Q) + P ⇌ E(P, Q)
+                E(S) <--> E(P, Q)
+            end
+        end),
+        (@enzyme_mechanism begin      # the two edges at E(P)
+            substrates: S
+            products: P, Q
+            steps: begin
+                E + S ⇌ E(S)
+                E + P <--> E(P)
+                E + Q ⇌ E(Q)
+                E(P) + Q <--> E(P, Q)
+                E(Q) + P ⇌ E(P, Q)
+                E(S) <--> E(P, Q)
+            end
+        end),
+        (@enzyme_mechanism begin      # the two edges at E(Q)
+            substrates: S
+            products: P, Q
+            steps: begin
+                E + S ⇌ E(S)
+                E + P ⇌ E(P)
+                E + Q <--> E(Q)
+                E(P) + Q ⇌ E(P, Q)
+                E(Q) + P <--> E(P, Q)
+                E(S) <--> E(P, Q)
+            end
+        end),
+        (@enzyme_mechanism begin      # the two edges at E(P, Q)
+            substrates: S
+            products: P, Q
+            steps: begin
+                E + S ⇌ E(S)
+                E + P ⇌ E(P)
+                E + Q ⇌ E(Q)
+                E(P) + Q <--> E(P, Q)
+                E(Q) + P <--> E(P, Q)
+                E(S) <--> E(P, Q)
+            end
+        end),
+        (@enzyme_mechanism begin      # P@E and P@E(Q)
+            substrates: S
+            products: P, Q
+            steps: begin
+                E + S ⇌ E(S)
+                E + P <--> E(P)
+                E + Q ⇌ E(Q)
+                E(P) + Q ⇌ E(P, Q)
+                E(Q) + P <--> E(P, Q)
+                E(S) <--> E(P, Q)
+            end
+        end),
+        (@enzyme_mechanism begin      # Q@E and Q@E(P)
+            substrates: S
+            products: P, Q
+            steps: begin
+                E + S ⇌ E(S)
+                E + P ⇌ E(P)
+                E + Q <--> E(Q)
+                E(P) + Q <--> E(P, Q)
+                E(Q) + P ⇌ E(P, Q)
+                E(S) <--> E(P, Q)
+            end
+        end)
+    ])
+    @test length(children) == 6
+    @test Set(children) == Set(expected)
+end
+
 @testset "Mechanism — bi-bi sequential: 4 RE binding groups → 4 variants" begin
     # SEED: bi-bi sequential ordered, 4 singleton RE binding groups + 1
     # SS iso. _expand_re_to_ss fires per RE group → 4 variants.
@@ -6062,8 +6161,12 @@ end
     @testset "_expand_re_to_ss: split ter-ter pairs the A and B parts" begin
         # Ter-ter after one context split: A is split by whether B is bound and B
         # by whether A is bound. Each of the four parts alone leaves E and E(A)
-        # joined through its sibling, so nothing flips one part by itself; the six
-        # pairs that cut a segment are emitted, and C, P, Q, R still flip alone.
+        # joined through its sibling, so nothing flips one part by itself; five
+        # of the six pairs that cut a segment are emitted, and C, P, Q, R still
+        # flip alone. The sixth pair, {A1, B1}, cuts both binding edges at E and
+        # E(C) and leaves {E(A), E(B), E(A, B), E(A, C), E(B, C), E(A, B, C)} as a
+        # segment with no substrate-free form, which the constructor rejects;
+        # its supersets are reached from the {A1, A2} and {B1, B2} children.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B, C
             products: P, Q, R
@@ -6098,13 +6201,12 @@ end
             flip(R),        # {R}
             flip(A1, A2),   # {A1, A2}
             flip(B1, B2),   # {B1, B2}
-            flip(A1, B1),   # {A1, B1}
             flip(A1, B2),   # {A1, B2}
             flip(A2, B1),   # {A2, B1}
             flip(A2, B2),   # {A2, B2}
         ]
         kids = EnzymeRates._expand_re_to_ss(m)
-        @test length(kids) == 10
+        @test length(kids) == 9
         @test Set(kids) == Set(expected)
         for c in kids
             ss = count((A1, A2, B1, B2)) do key

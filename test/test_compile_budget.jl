@@ -156,10 +156,11 @@ end
     # machinery, so running uni-uni AFTER ter-ter in the same process is
     # essentially free. Measured in two fresh subprocesses (reactions built
     # via @enzyme_reaction, as the original main gate did):
-    #   - cold:  uni-uni alone           → t_uni_cold ≈ 3 s
-    #   - warm:  ter-ter, then uni-uni    → t_ter ≈ 15 s, t_uni_warm ≈ 0.1 ms
-    # The warm/cold ratio (≈ 5e-5) is robust to machine speed (warm is ~0
-    # regardless), unlike an absolute wall-clock ceiling on the cold time.
+    #   - cold:  uni-uni alone           → t_uni_cold ≈ 1-2 s
+    #   - warm:  ter-ter, then uni-uni    → t_ter ≈ 15-30 s, t_uni_warm ≈ 0.2-1.6 ms
+    # The warm/cold ratio (≈ 1e-4 to 2e-3 on CI runners; macOS is the noisy high
+    # end) is robust to machine speed, unlike an absolute wall-clock ceiling on
+    # the cold time.
     @testset "compile reuse: ter-ter warms all of uni-uni" begin
         cold_script = """
             using EnzymeRates
@@ -197,11 +198,12 @@ end
         @test isfinite(t_ter)
         @test t_ter < 70.0
         # Warm uni-uni must be near-instant relative to cold: ter-ter already
-        # compiled the superset. Observed warm/cold ≈ 5e-5; the < 1e-3 gate
-        # keeps a ~20× margin and is insensitive to machine speed.
+        # compiled the superset. A lost reuse recompiles a sizeable fraction of
+        # cold (warm/cold ≳ 0.1); the < 1e-2 gate sits ~6× above the noisiest
+        # observed CI ratio and ~10× below a real failure.
         @test isfinite(t_uni_cold) && t_uni_cold > 0
         @test isfinite(t_uni_warm)
-        @test t_uni_warm / t_uni_cold < 0.001
+        @test t_uni_warm / t_uni_cold < 0.01
     end
 
     # Dispatch identity: EnzymeReaction is non-parametric, so uni-uni and
