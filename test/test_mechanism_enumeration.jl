@@ -5584,6 +5584,94 @@ end
     @test EnzymeRates._requires_hyperbolic_catalysis(allo_unibi_flip_p)
 end
 
+@testset "_hyperbolic_catalysis matches the derived denominator" begin
+    # The structural predicate against the exponents of the derived denominator,
+    # over every mechanism reachable from the seeds in a bounded number of
+    # expansion levels. Dead-end groups are stripped before deriving, since the
+    # predicate ignores them; the reactions declare no regulators, so stripping
+    # never leaves the reaction naming a metabolite no step binds. For an
+    # allosteric mechanism the predicate is compared with the A-state, and the
+    # I-state is checked to be hyperbolic whenever the A-state is.
+    _testhelper_poly_hyperbolic(p, mets) =
+        all(e <= 1 for mono in keys(p) for (s, e) in mono if s in mets)
+    _testhelper_mets(rxn) = vcat(
+        Symbol[EnzymeRates.name(s) for s in EnzymeRates.substrates(rxn)],
+        Symbol[EnzymeRates.name(p) for p in EnzymeRates.products(rxn)])
+    function _testhelper_den_hyperbolic(m::EnzymeRates.Mechanism)
+        rxn = EnzymeRates.reaction(m)
+        subs = Symbol[EnzymeRates.name(s) for s in EnzymeRates.substrates(rxn)]
+        prods = Symbol[EnzymeRates.name(p) for p in EnzymeRates.products(rxn)]
+        _, den, _ = EnzymeRates._raw_symbolic_rate_polys(
+            m, EnzymeRates._step_parameters(m),
+            EnzymeRates._build_wegscheider_rename_map(m), subs, prods)
+        _testhelper_poly_hyperbolic(den, _testhelper_mets(rxn))
+    end
+    function _testhelper_flux_only(m::EnzymeRates.Mechanism)
+        flux = EnzymeRates._flux_carrying_steps(m)
+        EnzymeRates.Mechanism(EnzymeRates.reaction(m),
+            [group[f] for (group, f) in zip(EnzymeRates.steps(m), flux) if any(f)])
+    end
+    function _testhelper_flux_only(am::EnzymeRates.AllostericMechanism)
+        flux = EnzymeRates._flux_carrying_steps(am)
+        keep = [g for (g, f) in enumerate(flux) if any(f)]
+        EnzymeRates._with_steps_and_cat_states(
+            am, [EnzymeRates.steps(am)[g][flux[g]] for g in keep],
+            EnzymeRates.cat_allo_states(am)[keep])
+    end
+    function _testhelper_levels(rxn, depth)
+        M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
+        level = M[m for m in EnzymeRates.init_mechanisms(rxn)]
+        mechs = unique(level)
+        for _ in 1:depth
+            level = unique!(EnzymeRates.expand_mechanisms(level, rxn))
+            append!(mechs, level)
+        end
+        unique!(mechs)
+    end
+
+    unibi = @enzyme_reaction begin
+        substrates: S[AB]
+        products: P[A], Q[B]
+        oligomeric_state: 2
+    end
+    bibi = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        oligomeric_state: 2
+    end
+    pingpong = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        oligomeric_state: 2
+    end
+    n_checked = 0
+    n_nonhyperbolic = 0
+    for (rxn, depth) in ((unibi, 2), (bibi, 1), (pingpong, 2))
+        mets = _testhelper_mets(rxn)
+        for m in filter(m -> rxn !== bibi || m isa EnzymeRates.Mechanism,
+                         _testhelper_levels(rxn, depth))
+            EnzymeRates._eq_complexity(m) <= 337 || continue
+            stripped = _testhelper_flux_only(m)
+            structural = EnzymeRates._hyperbolic_catalysis(m)
+            if m isa EnzymeRates.Mechanism
+                @test structural == _testhelper_den_hyperbolic(stripped)
+            else
+                _, den_a, _ = EnzymeRates._state_rate_polys(stripped, :A)
+                _, den_i, _ = EnzymeRates._state_rate_polys(stripped, :I)
+                hyp_a = _testhelper_poly_hyperbolic(den_a, mets)
+                @test structural == hyp_a
+                @test _testhelper_poly_hyperbolic(den_i, mets) || !hyp_a
+            end
+            n_checked += 1
+            structural || (n_nonhyperbolic += 1)
+        end
+    end
+    # Both classes must be exercised for the comparison to mean anything.
+    @test n_checked > 100
+    @test n_nonhyperbolic > 0
+    @test n_nonhyperbolic < n_checked
+end
+
 @testset "_re_segment_count" begin
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
