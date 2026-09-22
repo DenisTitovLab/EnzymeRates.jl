@@ -53,9 +53,15 @@ Construction:
 6. `_hyperbolic_catalysis(m)` is `true` when every substrate and product has
    degree at most 1.
 
-The arborescence maximum uses Edmonds' algorithm, one run per (metabolite,
-root). Quotient graphs have at most a few dozen nodes, so the cost per call is
-microseconds.
+Scores are 0, 1, or 2, and only "at most 1" matters, so the maximum is never
+solved in general. The degree exceeds 1 exactly when one edge scores 2, or a
+root scoring 1 has an arborescence toward it holding a scoring edge, or some
+arborescence holds two scoring edges. An arborescence toward `S` containing
+given edges exists iff every segment still reaches `S` once each given edge's
+source keeps that edge as its only way out (a digraph has a spanning
+arborescence toward `S` iff every vertex reaches `S`). That is a handful of
+breadth-first searches per metabolite on a graph of at most a few dozen nodes,
+so the cost per call is microseconds.
 
 An allosteric mechanism is scored on its full catalytic step set, which is its
 A-state. The I-state prunes `:OnlyA` groups and the forms they disconnect.
