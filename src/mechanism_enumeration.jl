@@ -1239,26 +1239,34 @@ cuts a segment on its own, several groups when each alone is bridged by an RE
 route through the others — as happens once a split has separated a
 metabolite's binding steps, or a catalytic step from its inhibitor-bound
 mirror. A flip that leaves the segment count unchanged adds an SS step whose
-endpoints share a segment, which the rate equation never sees. All other
-groups, the reaction, and (for allosteric) the catalytic-allo tags,
-multiplicity, and regulatory sites are preserved verbatim.
+endpoints share a segment, which the rate equation never sees. A flip set
+that leaves a rapid-equilibrium segment with no bottom form
+(`_bottomless_re_segment`, which the constructor rejects) also counts as
+failed, so the minimal-set search extends it instead of emitting it; the
+non-degenerate mechanisms beyond it stay reachable — through the other cut
+orders of the same ring, or through the extended set when no other order
+gains. All other groups, the reaction, and (for allosteric) the
+catalytic-allo tags, multiplicity, and regulatory sites are preserved
+verbatim.
 """
 function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
     flux = _flux_carrying_groups(m)
     units = [g for g in kinetic_groups(m)
              if all(is_equilibrium, steps(m)[g]) && flux[g] &&
                 !any(s -> bound_metabolite(s) isa Regulator, steps(m)[g])]
-    child(sel) = begin
+    flipped_groups(sel) = begin
         groups = steps(m)
         for u in sel
             groups = _flip_group_to_ss(groups, units[u])
         end
-        _with_steps(m, groups)
+        groups
     end
     base = _re_segment_count(m)
-    gains(sel) = _re_segment_count_after_flip(m, Set(units[u] for u in sel)) > base
+    gains(sel) =
+        _re_segment_count_after_flip(m, Set(units[u] for u in sel)) > base &&
+        _bottomless_re_segment(flipped_groups(sel)) === nothing
     sets = _minimal_gaining_sets(gains, _ -> 1:length(units))
-    typeof(m)[child(sel) for sel in sets]
+    typeof(m)[_with_steps(m, flipped_groups(sel)) for sel in sets]
 end
 
 """

@@ -1,11 +1,12 @@
 # LDH §5b — Product-only rapid-equilibrium segment: `rate_equation` singularity at zero product
 
 **Date:** 2026-07-02
-**Status:** Analysis + ODE-validated diagnosis. **No fix implemented** — the fix
-direction is a design decision (see Recommendation). **Re-confirmed live 2026-07-09**
-(post-PR #62): the pivot/combined-solve work is unrelated to the division-free segment
-reduction, and `rate_equation` still returns `NaN` at products = 0 for mechanism 1 (both
-the catalytic core and the allosteric form; finite elsewhere).
+**Status:** RESOLVED 2026-09-22 (branch `cv-one-se-selection-rule`). The
+`Mechanism` and `AllostericMechanism` constructors reject a rapid-equilibrium
+segment with no bottom form (`_bottomless_re_segment`, `src/types.jl`), and the
+RE→SS flip move treats a flip set that would produce one as failed so the
+minimal-set search steps past it. See §"Resolution" at the end; it corrects two
+claims made below, which are kept as written for the record.
 **Scope:** 28 of 100,787 fits in the 2026-06-27 LDH `identify_rate_equation` run
 (`docs/ldh_hpc_results/2026_06_27_results`). Rare, and reached only on the allosteric path.
 
@@ -214,3 +215,51 @@ Scripts used: session scratchpad `show_ssre.jl` (SS/RE classification), `verify_
 27	AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), false),), ((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), false),), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH), false), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), false)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate), true),), (((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD), true),), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), true)), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), false), ((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), false)), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),), (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), true),)))}, (4, (:EqualAI, :EqualAI, :OnlyA, :EqualAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI)), ()}
 28	AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), false),), ((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), false),), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH), false), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), false)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate), true),), (((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD), true),), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), true)), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), false), ((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), false)), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),), (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), true),)))}, (4, (:EqualAI, :EqualAI, :OnlyA, :EqualAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI, :NonequalAI)), ()}
 ```
+
+## Resolution (2026-09-22)
+
+The same defect resurfaced in the 2026-09-17 LDH and PGK runs: 61 fit errors (44
+allosteric "no kcat components", 17 non-allosteric `MethodError: max()` — the
+non-allosteric search reaches the topology since PR #78) plus a silent mirror:
+16 PGK mechanisms whose RE segment has no *substrate*-free form pass the kcat
+step, fit "successfully", and land at loss ≈ 33 (the `NaN` sentinel on
+zero-substrate reverse rows).
+
+Two corrections to the analysis above:
+
+1. **The physical value at products = 0 is not unique; the model is missing a
+   parameter.** The ODE's single value came from the harness giving every RE
+   step the same on-rate (`kf = 1e6`). At zero products `E·Lactate·NAD` falls
+   apart to `E·Lactate` or `E·NAD` in the ratio of two fast off-rates,
+   `f = kon_NAD·K_NAD / (kon_NAD·K_NAD + kon_Lac·K_Lac)`. Wegscheider fixes
+   `K_NAD/K_Lac`; it never fixes `kon_NAD/kon_Lac`, and Haldane involves only
+   equilibrium constants. A rapid-equilibrium step stores only `K`, so the
+   mechanism as written does not contain `f`, and the closed form's
+   path-dependence is the honest signature of that missing parameter, not an
+   artifact. The properly specified versions of the same chemistry are its
+   siblings with one release group steady-state (+1 parameter, `f ∈ {0, 1}`) or
+   both (+2, general `f`), which the search already contains.
+
+2. **The trigger is narrower than "no product-free form".** `{E·P, E·P·Q}` is
+   fine: `E·P` is its bottom form (weights `Kq : Q`). The exact trigger is an RE
+   segment whose weights, after clearing negative exponents, all carry a
+   product — or all carry a substrate. A segment that empties only at a corner
+   mixing a substrate and a product (a mixed abortive complex; the ping-pong
+   `E` / `E(; residual)` pair of PR #48) is harmless: no turnover is possible
+   there.
+
+Chosen fix: option 3 (reject the topology), because the mechanism is an
+under-specified shorthand for models the search already reaches, not a
+distinct model. Reachability under rejection was measured by exhaustive closure
+under the flip and split moves, unrestricted vs. rejecting: uni-bi (56
+mechanisms) and bi-bi (55 seeds, 51,488 mechanisms, 4,251 rejected) lose no
+non-degenerate mechanism with plain rejection. Ter-ter does: a 21-step seed
+(≤ 12 parameters, 3,768 mechanisms) lost 28, all descendants of 4 mechanisms
+whose every parent is degenerate — three RE rings meeting at one segment, where
+the avoiding cut is not a minimal segment-raising set on its own. Making the
+flip move count a degenerate flip set as failed, so `_minimal_gaining_sets`
+extends it, recovers all 28 with no extra mechanisms, and changes nothing on
+bi-bi (47,237 non-degenerate) or ping-pong bi-bi (62 seeds, 45,369). The
+constructor rejects every one of the 61 errored and 16 loss ≈ 33 mechanisms
+and none of the 4,045 that fit normally in the PGK run.
+

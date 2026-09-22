@@ -398,6 +398,105 @@
         @test_throws ErrorException EnzymeRates.Mechanism(rxn_uni, [[s_re, s_ss], [s_rel]])
     end
 
+    @testset "Mechanism rejects a rapid-equilibrium segment with no bottom form" begin
+        # Random product release from E(P, Q) at rapid equilibrium, but release
+        # from E(P) and E(Q) at steady state: the RE segment {E(P), E(Q), E(P, Q)}
+        # has weights P·Q : Kq·P : Kp·Q, all zero at P = Q = 0. The RE
+        # approximation carries no parameter for how E(P, Q) splits between
+        # E(P) and E(Q) there, so the rate is undefined at zero products.
+        @test_throws ErrorException @enzyme_mechanism begin
+            substrates: S
+            products: P, Q
+            steps: begin
+                E + S ⇌ E(S)
+                E + P <--> E(P)
+                E + Q <--> E(Q)
+                E(P) + Q ⇌ E(P, Q)
+                E(Q) + P ⇌ E(P, Q)
+                E(S) <--> E(P, Q)
+            end
+        end
+        err = try
+            @enzyme_mechanism begin
+                substrates: S
+                products: P, Q
+                steps: begin
+                    E + S ⇌ E(S)
+                    E + P <--> E(P)
+                    E + Q <--> E(Q)
+                    E(P) + Q ⇌ E(P, Q)
+                    E(Q) + P ⇌ E(P, Q)
+                    E(S) <--> E(P, Q)
+                end
+            end
+            nothing
+        catch e
+            sprint(showerror, e)
+        end
+        @test occursin("rapid-equilibrium segment", err)
+        @test occursin("E(P, Q)", err) || occursin("EPQ", err)
+
+        # Mirror on the substrate side: undefined at A = B = 0.
+        @test_throws ErrorException @enzyme_mechanism begin
+            substrates: A, B
+            products: P
+            steps: begin
+                E + A <--> E(A)
+                E + B <--> E(B)
+                E(A) + B ⇌ E(A, B)
+                E(B) + A ⇌ E(A, B)
+                E + P ⇌ E(P)
+                E(A, B) <--> E(P)
+            end
+        end
+
+        # Ordered release: the segment {E(P), E(P, Q)} has weights Kq : Q, so
+        # E(P) is its bottom form and the rate is defined at zero products.
+        m_ordered = @enzyme_mechanism begin
+            substrates: S
+            products: P, Q
+            steps: begin
+                E + S ⇌ E(S)
+                E + P <--> E(P)
+                E(P) + Q ⇌ E(P, Q)
+                E(S) <--> E(P, Q)
+            end
+        end
+        @test m_ordered isa EnzymeMechanism
+
+        # Mixed abortive complex: the segment {E(S), E(P), E(S, P)} has weights
+        # K·S : K′·P : S·P, zero only at S = P = 0 where no turnover is
+        # possible anyway. Accepted.
+        m_abortive = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)
+                E + P <--> E(P)
+                E(S) + P ⇌ E(S, P)
+                E(P) + S ⇌ E(S, P)
+                E(S) <--> E(P)
+            end
+        end
+        @test m_abortive isa EnzymeMechanism
+
+        # Ping-pong seed: E and the covalent E(; residual) share one RE
+        # segment whose weights vanish only at B = Q = 0 (mixed). Accepted.
+        m_pingpong = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) <--> E(P; residual = A - P)
+                E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+                E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+                E(B; residual = A - P) ⇌ E(Q)
+                E + Q ⇌ E(Q)
+            end
+        end
+        @test m_pingpong isa EnzymeMechanism
+    end
+
     @testset "AllostericEnzymeMechanism constructor validators" begin
         cm = @enzyme_mechanism begin
             substrates: S
