@@ -3351,6 +3351,55 @@ end
         end
     end
 end
+
+@testset "Mechanism — non-hyperbolic catalytic scheme: no children" begin
+    # Uni-bi with random SS product release carries P² and Q² in its own
+    # denominator; a conformational equilibrium on top would stack a second
+    # source of concentration powers, so the promotion emits nothing.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P, Q
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P, Q)
+            (E + P <--> E(P), E(Q) + P <--> E(P, Q))
+            (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))
+        end
+    end)
+    rxn = @enzyme_reaction begin
+        substrates: S[AB]
+        products: P[A], Q[B]
+        oligomeric_state: 2
+    end
+    @test isempty(EnzymeRates._expand_to_allosteric(m, rxn))
+end
+
+@testset "Mechanism — substrate dead-end keeps the scheme hyperbolic" begin
+    # Ordered SS bi-bi with A as a dead end on E(Q): the dead-end's A² term is
+    # substrate inhibition, not random-order steady state, so the promotion
+    # proceeds. Five binding groups (A, B, Q, P, the dead end), each subset
+    # :OnlyA with the chemistry :OnlyA: 2^5 - 1 = 31 K-type children.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B <--> E(A, B)
+            E + Q <--> E(Q)
+            E(Q) + P <--> E(P, Q)
+            E(A, B) <--> E(P, Q)
+            E(Q) + A ⇌ E(A, Q)
+        end
+    end)
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        oligomeric_state: 2
+    end
+    children = EnzymeRates._expand_to_allosteric(m, rxn)
+    @test length(children) == 31
+    @test all(EnzymeRates._hyperbolic_catalysis, children)
+end
 end
 
 # ─── _expand_add_allosteric_regulator ──────────────────────────────────

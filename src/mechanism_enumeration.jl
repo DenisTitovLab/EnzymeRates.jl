@@ -1991,8 +1991,13 @@ steps are `:OnlyA`, and the inactive conformation only binds ligands.
 For each value in `rxn`'s `allowed_catalytic_multiplicities`, the
 multiplicity becomes the variant's `catalytic_multiplicity`. Catalytic
 steps are reused by reference; duplicate variants are removed.
+
+A parent whose catalytic scheme fails `_hyperbolic_catalysis` (random-order
+steady-state binding, whose own equation carries concentration powers) emits no
+children: a conformational mechanism only carries a hyperbolic catalytic scheme.
 """
 function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
+    _hyperbolic_catalysis(m) || return AllostericMechanism[]
     n_g = length(steps(m))
     iso = [g for g in 1:n_g if is_iso(rep_step(m, g))]
     bind = [g for g in 1:n_g if !is_iso(rep_step(m, g))]
