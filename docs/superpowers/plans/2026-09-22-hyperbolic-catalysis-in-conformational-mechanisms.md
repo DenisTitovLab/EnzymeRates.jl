@@ -4,7 +4,7 @@
 
 **Goal:** Make the enumerator refuse to combine an MWC conformational equilibrium with a catalytic scheme whose own rate equation carries concentration powers, while leaving hand-written mechanisms and dead-end inhibition untouched.
 
-**Architecture:** One structural predicate, `_hyperbolic_catalysis(m)`, decides whether the flux-carrying step graph's rate equation has degree at most 1 in every substrate and product, from the rapid-equilibrium segment graph alone (no derivation). One trait, `_requires_hyperbolic_catalysis(::T)`, names the mechanism types the rule applies to. Two moves consult them: promotion to allosteric refuses a non-hyperbolic parent, and the RE→SS flip drops non-hyperbolic children of a conformational parent. A shared helper `_re_segment_extras` (extracted from `_bottomless_re_segment`) supplies the per-form metabolite exponents both need.
+**Architecture:** One structural predicate, `_hyperbolic_catalysis(m)`, decides whether the flux-carrying step graph's rate equation has degree at most 1 in every substrate and product, from the rapid-equilibrium segment graph alone (no derivation). One trait, `_requires_hyperbolic_catalysis(::T)`, names the mechanism types the rule applies to. Two moves consult them: promotion to allosteric refuses a non-hyperbolic parent, and the RE→SS flip drops non-hyperbolic children of a conformational parent. A shared helper `_re_segment_extras` (extracted from `_bottomless_re_segment`) supplies the per-form metabolite exponents, and `_flux_carrying_steps` (split out of `_flux_carrying_groups`) marks the dead-end steps the predicate ignores.
 
 **Tech Stack:** Julia 1.x, EnzymeRates.jl internals (`Mechanism`, `AllostericMechanism`, `Step`, `Species`, `_flux_carrying_groups`, `_step_sides`, `_raw_symbolic_rate_polys`), Test.jl.
 
@@ -15,7 +15,7 @@
 - 92-character line length, 4-space indentation; match surrounding style exactly.
 - Every fixture in `test/test_mechanism_enumeration.jl` is written inline with `@enzyme_mechanism` / `@allosteric_mechanism`; move tests assert exact child counts and `Set(children) == Set(expected)`; file-level helpers are prefixed `_testhelper_`.
 - The rule lives in enumeration moves only, never in a constructor.
-- Dead-end groups (substrate, product, regulator) are ignored by the predicate.
+- Dead-end steps (substrate, product, regulator bindings off the catalytic cycle) are ignored by the predicate, per step: an abortive complex's binding shares a kinetic group with the metabolite's catalytic binding and must still drop out.
 - No new comments that describe history or a change; docstrings describe the code as it is.
 - Focused test run (per file): `julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/test_mechanism_enumeration.jl")'`. Run ONE Julia process at a time (7.7 GB RAM, no swap). The enumeration file takes ~4 min warm.
 - Commit messages end with the two attribution lines given in the session (Co-Authored-By and Claude-Session).
@@ -273,26 +273,26 @@ _requires_hyperbolic_catalysis(::AllostericMechanism) = true
     _hyperbolic_catalysis(m) -> Bool
 
 Whether the rate equation of `m`'s flux-carrying step graph has degree at most 1
-in every substrate and product concentration. Dead-end groups (substrate,
-product, or regulator binding off the catalytic cycle, `_flux_carrying_groups`)
+in every substrate and product concentration. Dead-end steps (substrate,
+product, or regulator binding off the catalytic cycle, `_flux_carrying_steps`)
 are ignored: their inhibition terms are a separate source of concentration
 powers that conformational mechanisms keep.
 
 The equation is a sum over rapid-equilibrium (RE) segments and spanning
 arborescences of the segment graph toward each segment. A denominator term is
 the root segment's weight times the weight of every tree edge, so the exponent
-of `X` in a term is the number of `X` the root segment's forms carry beyond the
+of `X` in a term is the most `X` any form of the root segment carries beyond the
 segment's bottom form, plus, per tree edge, one if the step binds `X` in the
-tree direction and one if the edge's source form carries `X` beyond its bottom
-(`_re_segment_extras`). The degree exceeds 1 exactly when one edge scores 2, or
-the root scores 1 and some arborescence toward it holds a scoring edge, or some
-arborescence holds two scoring edges. An arborescence toward `S` containing
+tree direction and the count of `X` the edge's source form carries beyond its
+bottom (`_re_segment_extras`). The degree exceeds 1 exactly when one segment or
+one edge scores 2 or more, or the root scores 1 and some arborescence toward it
+holds a scoring edge, or some arborescence holds two scoring edges. An arborescence toward `S` containing
 given edges exists iff every segment still reaches `S` once each given edge's
 source keeps that edge as its only way out (`_all_reach`).
 """
 function _hyperbolic_catalysis(m::Union{Mechanism, AllostericMechanism})
-    flux = _flux_carrying_groups(m)
-    groups = [steps(m)[g] for g in kinetic_groups(m) if flux[g]]
+    groups = [group[flags] for (group, flags) in zip(steps(m), _flux_carrying_steps(m))
+              if any(flags)]
     species, segments, extras = _re_segment_extras(groups)
     idx = Dict(sp => i for (i, sp) in enumerate(species))
     seg_of = zeros(Int, length(species))
@@ -318,8 +318,9 @@ function _hyperbolic_catalysis(m::Union{Mechanism, AllostericMechanism})
         score(e) = count(==(x), e[4]) + get(extras[e[3]], x, 0)
         carrying = [e for e in edges if score(e) > 0]
         any(e -> score(e) > 1, carrying) && return false
-        roots = [k for (k, segment) in enumerate(segments)
-                 if any(i -> get(extras[i], x, 0) > 0, segment)]
+        root_score(k) = maximum((get(extras[i], x, 0) for i in segments[k]); init=0)
+        any(k -> root_score(k) > 1, 1:n) && return false
+        roots = [k for k in 1:n if root_score(k) == 1]
         for e in carrying, k in roots
             k != e[1] && _all_reach(n, edges, k, (e,)) && return false
         end
@@ -390,7 +391,7 @@ Insert directly after the `_hyperbolic_catalysis` testset:
 @testset "_hyperbolic_catalysis matches the derived denominator" begin
     # The structural predicate against the exponents of the derived denominator,
     # over every mechanism reachable from the seeds in a bounded number of
-    # expansion levels. Dead-end groups are stripped before deriving, since the
+    # expansion levels. Dead-end steps are stripped before deriving, since the
     # predicate ignores them; the reactions declare no regulators, so stripping
     # never leaves the reaction naming a metabolite no step binds. For an
     # allosteric mechanism the predicate is compared with the A-state, and the
@@ -410,15 +411,16 @@ Insert directly after the `_hyperbolic_catalysis` testset:
         _testhelper_poly_hyperbolic(den, _testhelper_mets(rxn))
     end
     function _testhelper_flux_only(m::EnzymeRates.Mechanism)
-        flux = EnzymeRates._flux_carrying_groups(m)
-        keep = [g for g in EnzymeRates.kinetic_groups(m) if flux[g]]
-        EnzymeRates.Mechanism(EnzymeRates.reaction(m), EnzymeRates.steps(m)[keep])
+        flux = EnzymeRates._flux_carrying_steps(m)
+        EnzymeRates.Mechanism(EnzymeRates.reaction(m),
+            [group[f] for (group, f) in zip(EnzymeRates.steps(m), flux) if any(f)])
     end
     function _testhelper_flux_only(am::EnzymeRates.AllostericMechanism)
-        flux = EnzymeRates._flux_carrying_groups(am)
-        keep = [g for g in EnzymeRates.kinetic_groups(am) if flux[g]]
+        flux = EnzymeRates._flux_carrying_steps(am)
+        keep = [g for (g, f) in enumerate(flux) if any(f)]
         EnzymeRates._with_steps_and_cat_states(
-            am, EnzymeRates.steps(am)[keep], EnzymeRates.cat_allo_states(am)[keep])
+            am, [EnzymeRates.steps(am)[g][flux[g]] for g in keep],
+            EnzymeRates.cat_allo_states(am)[keep])
     end
     function _testhelper_levels(rxn, depth)
         M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
@@ -809,7 +811,7 @@ child that would introduce one. The test is structural
 (`_hyperbolic_catalysis`): the equation's degree in a metabolite is read from the
 rapid-equilibrium segment graph without deriving it. Competitive inhibition by a
 substrate or product is a separate source of powers and stays allowed inside an
-allosteric mechanism; the test ignores dead-end groups. Hand-written mechanisms
+allosteric mechanism; the test ignores dead-end steps. Hand-written mechanisms
 are not subject to the rule: an `@allosteric_mechanism` with random-order
 steady-state binding still derives and fits.
 ```
@@ -823,16 +825,17 @@ Conformational mechanism types declare `_requires_hyperbolic_catalysis` (true fo
 `AllostericMechanism`), and the moves that can give such a type a non-hyperbolic
 catalytic scheme consult `_hyperbolic_catalysis`: `_expand_to_allosteric` refuses
 the parent, `_expand_re_to_ss` filters its emitted children. The predicate scores
-the rapid-equilibrium segment graph of the flux-carrying groups: for each
-metabolite, a directed steady-state edge scores one if the step binds it in that
-direction and one if the edge's source form carries it beyond its segment's
-bottom form (`_re_segment_extras`, shared with `_bottomless_re_segment`), and a
-segment scores one if any of its forms does. The equation's degree in the
-metabolite is the best score over root segments and spanning arborescences
-toward the root; the predicate decides "at most 1" with reachability checks
-(`_all_reach`) rather than a max-arborescence solve, since a weight-2 pattern is
-one edge scoring 2, a scoring root plus a compatible scoring edge, or two
-compatible scoring edges. The exactness of the predicate against the derived
+the rapid-equilibrium segment graph of the flux-carrying steps
+(`_flux_carrying_steps`): for each metabolite, a directed steady-state edge
+scores one if the step binds it in that direction plus the count the edge's
+source form carries beyond its segment's bottom form (`_re_segment_extras`,
+shared with `_bottomless_re_segment`), and a segment scores the most any of its
+forms carries. The equation's degree in the metabolite is the best score over
+root segments and spanning arborescences toward the root; the predicate decides
+"at most 1" with reachability checks (`_all_reach`) rather than a
+max-arborescence solve, since a weight-2 pattern is one segment or edge scoring
+2, a scoring root plus a compatible scoring edge, or two compatible scoring
+edges. The exactness of the predicate against the derived
 denominator is pinned by a test over the uni-bi, bi-bi, and ping-pong
 enumerations. A future conformational type (KNF, mnemonic, slow isomerization)
 adds one `_requires_hyperbolic_catalysis` method and calls the predicate in its
