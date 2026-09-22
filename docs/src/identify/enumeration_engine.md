@@ -96,6 +96,12 @@ equilibrium by modeling choice. A group whose steps all lie on dead-end branches
 carries no net flux at steady state, so the equation could only ever see its
 equilibrium ratio; flipping it would add a parameter the data cannot determine.
 
+An allosteric parent also drops every child whose catalytic scheme would carry a
+concentration to a power of its own — the random-order steady-state pattern in
+which a metabolite binds on two steps that one King–Altman tree can hold. See
+**Conformational mechanisms carry hyperbolic catalytic schemes** under
+[Modeling choices](@ref).
+
 **Parameter delta:** +1 per flipped group in most cases. A few flips give an
 equation that is the parent's up to renaming the constants, even though they
 divide a segment; uni-uni is the classic case, where the steady-state and
@@ -166,6 +172,11 @@ unsatisfiable is dropped (see [Thermodynamic constraints of MWC equations](@ref)
 Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an already
 allosteric input.
 
+Also a no-op on a parent whose catalytic scheme already carries concentration
+powers (a random-order scheme with steady-state binding); see
+**Conformational mechanisms carry hyperbolic catalytic schemes** under
+[Modeling choices](@ref).
+
 In MWC terminology the A-state corresponds to the R-state and the I-state
 to the T-state of the original Monod–Wyman–Changeux nomenclature; this
 package uses A/I throughout.
@@ -228,6 +239,20 @@ but only after a split has given the two bindings separate constants.
 catalytic cycle carries no net flux at steady state. Its forward and reverse rates
 enter the equation only as their ratio, which the equilibrium form already has,
 so the group never flips.
+
+**Conformational mechanisms carry hyperbolic catalytic schemes.** An MWC
+conformational equilibrium and a random-order steady-state catalytic scheme
+each put a metabolite concentration to a power in the rate equation, and
+sigmoidal data cannot tell the two sources apart. The moves therefore never
+combine them: promotion to allosteric skips a parent whose catalytic scheme
+already carries a power, and the flip move on an allosteric parent drops a
+child that would introduce one. The test is structural
+(`_hyperbolic_catalysis`): the equation's degree in a metabolite is read from the
+rapid-equilibrium segment graph without deriving it. Competitive inhibition by a
+substrate or product is a separate source of powers and stays allowed inside an
+allosteric mechanism; the test ignores dead-end steps. Hand-written mechanisms
+are not subject to the rule: an `@allosteric_mechanism` with random-order
+steady-state binding still derives and fits.
 
 **Chemistry is the isomerization step.** The moves recognize a chemistry step
 by its having no ligand on it. The enumerator writes every mechanism that way,
