@@ -1,6 +1,6 @@
 # Hyperbolic catalysis inside conformational mechanisms
 
-Date: 2026-09-22. Status: approved design, not implemented.
+Date: 2026-09-22. Status: implemented.
 
 ## Goal
 
@@ -20,9 +20,12 @@ or slow-isomerization types) may only carry a catalytic scheme whose rate
 equation has degree at most 1 in every substrate and product concentration.
 The rule holds at every catalytic multiplicity, including `n = 1`.
 
-Competitive inhibition by substrates or products (dead-end binding) is a
-separate source of non-hyperbolic terms and stays allowed inside conformational
-mechanisms. The predicate therefore ignores dead-end groups.
+Every binding of a substrate or product at its catalytic site counts, abortive
+complexes included. Binding of a declared competitive inhibitor is a separate
+source of non-hyperbolic terms and stays allowed inside conformational
+mechanisms: an inhibitor binds a site of its own by definition, including a
+substrate declared as a dead-end inhibitor. The predicate therefore leaves
+out every step that touches a form carrying a declared inhibitor.
 
 The rule is an enumeration prior, not a validity property of the equation. It
 lives in the enumeration moves, never in a constructor: a hand-written
@@ -30,21 +33,16 @@ lives in the enumeration moves, never in a constructor: a hand-written
 
 ## The predicate
 
-`_hyperbolic_catalysis(m)` returns `true` when the rate equation of `m`'s
-flux-carrying step graph has degree at most 1 in every substrate and product.
+`_hyperbolic_catalysis(m)` returns `true` when the King–Altman denominator of
+`m`'s catalytic scheme has degree at most 1 in every substrate and product.
 
 Construction:
 
-1. Keep only the flux-carrying steps (`_flux_carrying_steps`: a step on a
-   cycle through a chemistry step). A one-sided dead-end binding is pendant
-   and drops out. An abortive complex reachable from two forms lies on a
-   cycle through the chemistry step, so its steps are scored: it is a branch
-   route, not a dead end. A competitive-inhibitor square is flux-carrying but
-   neutral: inhibitor binding at rapid equilibrium puts every inhibitor-bound
-   form in its parent's segment with the same extras, and regulators are not
-   scored. The exemption is per step, not per group: the enumerator gives an
-   abortive complex's binding the same kinetic group as the metabolite's
-   catalytic binding, and that step must still be ignored.
+1. Drop every step whose either form carries a declared inhibitor (a
+   `Regulator`). Inhibitor bindings and the catalytic steps mirrored onto
+   inhibitor-bound forms leave together, so what remains is the catalytic
+   scheme. Every substrate and product binding in it is scored, dead-end and
+   abortive bindings included.
 2. Build the rapid-equilibrium (RE) segment quotient graph over the kept
    steps: nodes are RE segments (union-find over RE steps, as in
    `_compute_re_groups`); every SS step is an edge in both directions.
@@ -103,9 +101,12 @@ A future conformational type adds one method. Two moves call the predicate:
   the search would walk every superset for nothing.
 
 No other move touches the flux-carrying SS structure. Split keeps every edge
-and only changes which steps share parameters. Dead-end and regulator moves add
-pendant RE groups. Allo-state and regulatory-site moves change tags and sites
-only. Seeds carry one SS step and one RE segment, so they pass.
+and only changes which steps share parameters. The dead-end move adds
+inhibitor bindings, which the predicate leaves out. Allo-state and
+regulatory-site moves change tags and sites only. Seeds carry one SS step and
+one RE segment, so they pass unless that segment's weight already carries a
+power: 2 of the 7 bi-bi ping-pong seeds carry the abortive complexes E·B·Q on
+both enzyme forms, have B² and Q², and are not promoted.
 
 Reachability is preserved. Every conformational mechanism with a hyperbolic
 catalytic scheme is still reached: from the RE seed by flips that stay
@@ -119,28 +120,31 @@ Predicate unit tests, each fixture written inline with the macros:
 - ordered SS bi-bi: `true`
 - random SS bi-bi: `false`
 - random RE bi-bi with one SS chemistry step: `true`
-- ordered SS bi-bi with a substrate dead-end on the product complex: `true`
-  (the dead-end's `[A]^2` term is ignored)
+- ordered SS bi-bi with substrate A as an abortive complex on E(Q): `false`
+  (A binds its catalytic site)
+- ordered SS bi-bi with A declared as a dead-end inhibitor, all four
+  placements: `true` (the powers come from the inhibitor site)
 - uni-bi with random SS product release: `false`
 - ping-pong with one SS step per half-reaction: `true`
 
 Move tests in `test/test_mechanism_enumeration.jl`, following its three rules:
 
 - `_expand_to_allosteric` on a uni-bi with random SS product release emits
-  zero children; on an ordered SS bi-bi with a substrate dead-end it emits
-  the same 31 children as before.
+  zero children; on an ordered SS bi-bi with an abortive complex of A on
+  E(Q) it emits none, and with A declared as a dead-end inhibitor on E and
+  E(Q) it emits 31 children.
 - `_expand_re_to_ss` on a uni-bi with random RE product release emits 3
   children as a plain `Mechanism`, every expected child written out; the
   same parent as an allosteric mechanism emits only the hyperbolic one.
 
 Exactness test: for every `Mechanism` in the uni-bi and ping-pong enumerations
 to two expansion levels and the bi-bi enumeration to one level plus the
-allosteric children of its level-1 allosteric mechanisms, build the mechanism
-from its flux-carrying steps, derive it, and check that the structural degree
-of every substrate and product equals the largest exponent of that symbol in
-the derived denominator. For every `AllostericMechanism` at the same depth,
-check the same on both the A-state and I-state projections. The derived
-verdict is memoized per stripped mechanism.
+allosteric children of its level-1 allosteric mechanisms, derive it and check
+that the structural degree of every substrate and product equals the largest
+exponent of that symbol in the derived denominator. For every
+`AllostericMechanism` at the same depth, check the same on both the A-state
+and I-state projections. The reactions declare no inhibitors, so nothing is
+left out and each mechanism is compared with its own derivation.
 
 Performance: the predicate must not move the per-parent expansion time
 measurably; the ter-ter seed is the check.

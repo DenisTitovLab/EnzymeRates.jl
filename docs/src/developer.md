@@ -84,17 +84,17 @@ Conformational mechanism types declare `_requires_hyperbolic_catalysis` (true fo
 `AllostericMechanism`), and the moves that can give such a type a non-hyperbolic
 catalytic scheme consult `_hyperbolic_catalysis`: `_expand_to_allosteric` refuses
 the parent, `_expand_re_to_ss` filters its emitted children. The predicate scores
-the rapid-equilibrium segment graph of the flux-carrying steps
-(`_flux_carrying_steps`): for each metabolite, a directed steady-state edge
-scores one if the step binds it in that direction plus the count the edge's
-source form carries beyond its segment's bottom form (`_re_segment_extras`,
-shared with `_bottomless_re_segment`), and a segment scores the most any of its
-forms carries. The equation's degree in the metabolite is the best score over
-root segments and spanning arborescences toward the root; the predicate decides
-"at most 1" with reachability checks (`_all_reach`) rather than a
-max-arborescence solve, since a weight-2 pattern is one segment or edge scoring
-2, a scoring root plus a compatible scoring edge, or two compatible scoring
-edges. The exactness of the predicate against the derived
+the rapid-equilibrium segment graph of the catalytic scheme, leaving out every
+step that touches a form carrying a declared inhibitor: for each substrate and
+product, a directed steady-state edge scores one if the step binds it in that
+direction plus the count the edge's source form carries beyond its segment's
+bottom form (`_re_segment_extras`, shared with `_bottomless_re_segment`), and a
+segment scores the most any of its forms carries. The equation's degree in the
+metabolite is the best score over root segments and spanning arborescences toward
+the root; the predicate decides "at most 1" with reachability checks
+(`_all_reach`) rather than a max-arborescence solve, since a weight-2 pattern is
+one segment or edge scoring 2, a scoring root plus a compatible scoring edge, or
+two compatible scoring edges. The exactness of the predicate against the derived
 denominator is pinned by a test over the uni-bi, bi-bi, and ping-pong
 enumerations. A future conformational type (KNF, mnemonic, slow isomerization)
 adds one `_requires_hyperbolic_catalysis` method and calls the predicate in its

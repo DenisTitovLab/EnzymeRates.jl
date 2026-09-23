@@ -174,7 +174,8 @@ Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an already
 allosteric input.
 
 Also a no-op on a parent whose catalytic scheme already carries concentration
-powers (a random-order scheme with steady-state binding); see
+powers, such as a random-order scheme with steady-state binding or a substrate
+that traps a steady-state intermediate in an abortive complex; see
 **Conformational mechanisms carry hyperbolic catalytic schemes** under
 [Modeling choices](@ref).
 
@@ -248,14 +249,16 @@ sigmoidal data cannot tell the two sources apart. The moves therefore never
 combine them: promotion to allosteric skips a parent whose catalytic scheme
 already carries a power, and the flip move on an allosteric parent drops a
 child that would introduce one. The test is structural
-(`_hyperbolic_catalysis`): the equation's degree in a metabolite is read from the
-rapid-equilibrium segment graph without deriving it. Competitive inhibition by a
-substrate or product is a separate source of powers and stays allowed inside an
-allosteric mechanism; the test ignores steps off every cycle through the
-chemistry step, which is what a one-sided dead-end binding is; an abortive
-complex reachable from two forms is a branch route and is scored. Hand-written
-mechanisms are not subject to the rule: an `@allosteric_mechanism` with
-random-order steady-state binding still derives and fits.
+(`_hyperbolic_catalysis`): the equation's degree in a metabolite is read from
+the rapid-equilibrium segment graph without deriving it. Every binding of a
+substrate or product at its catalytic site counts, abortive complexes included,
+so an ordered scheme whose substrate traps a steady-state intermediate, as
+pyruvate does with E·NAD⁺ in lactate dehydrogenase, stays out of allosteric
+mechanisms. Binding of a declared competitive inhibitor does not count, because
+an inhibitor binds a site of its own; declaring a substrate as a dead-end
+inhibitor is how substrate inhibition enters an allosteric mechanism.
+Hand-written mechanisms are not subject to the rule: an `@allosteric_mechanism`
+with random-order steady-state binding still derives and fits.
 
 **Chemistry is the isomerization step.** The moves recognize a chemistry step
 by its having no ligand on it. The enumerator writes every mechanism that way,
