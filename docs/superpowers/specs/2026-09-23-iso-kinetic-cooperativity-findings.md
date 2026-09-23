@@ -1,6 +1,6 @@
 # Iso mechanisms and single-subunit kinetic cooperativity: findings
 
-Date: 2026-09-23. Status: research findings; no design decided yet.
+Date: 2026-09-23. Status: research findings and PGK feasibility spike; no design decided yet.
 
 This note records what a research pass established before any design work on two goals:
 
@@ -235,18 +235,67 @@ Gaps:
   singular values of `d ln v / d ln θ` give 9–10 effective parameters for the random
   flip-flop (of 15) and 9–13 for SS random bi-bi (of 15).
 
-## 7. Next step: PGK feasibility spike
+## 7. PGK feasibility spike
 
 Question: can a conformational kinetic-cooperativity mechanism beat the current
-curvature-capable models on PGK with fewer parameters?
+curvature-capable models on PGK with fewer parameters? Success meant beating about 0.0194 at 9
+parameters or fewer with inhibitor modes (or 0.026 at 7 or fewer without), while reproducing
+the ATP curvature of Lavoinne 1979 Fig4 (h ≈ 0.5–0.6).
 
-Probe: fit hand-written mechanisms to the PGK data with the HPC settings (Keq = 760,
-`scale_k_to_kcat = 1.0`, CMA-ES). Baselines: RE random bi-bi, RE plus the ADP inhibitor mode,
-and SS random bi-bi. Candidates: iso random bi-bi; mnemonic in both orientations; the random,
-ordered and shared-binding flip-flops; and the most promising candidates again with the ADP
-inhibitor mode. Success means beating about 0.0194 at 9 parameters or fewer with inhibitor
-modes (or 0.026 at 7 or fewer without), while reproducing the ATP curvature of Lavoinne 1979
-Fig4 (h ≈ 0.5–0.6).
+**Method.** About 45 hand-built mechanisms were fitted with the HPC settings (Keq = 760,
+`scale_k_to_kcat = 1.0`, CMA-ES, 30 restarts; the leaders re-fitted with 150 restarts gave
+identical optima). All conformational candidates use RE binding, SS chemistry and an SS
+`Eprime <--> E` step. Families: iso; mnemonic in the forward orientation (Eprime binds all four
+and catalyzes internally) and the reverse orientation (E binds all four and catalyzes
+internally); flip-flop, with and without `Eprime <--> E`. Each family was fitted with binding
+constants shared or independent across conformations, with and without the HPC ADP inhibitor
+mode, with one ligand's binding split by conformation, and with the HPC 3PG inhibitor mode.
+Within a conformation, binding constants are shared across binding contexts, as in the
+enumerator's seeds. The ordered-binding flip-flop and conformational mechanisms with SS
+binding were not tested. The harness reproduces the HPC numbers exactly: RE random bi-bi
+0.06149, RE plus ADP mode 0.02866, and LOOCV 0.0390 against the HPC run's 0.0387.
+
+**Training loss** (best per family; HPC column = best in the 2026-09-17 run with inhibitor
+modes at the same count):
+
+| Mechanism | Params | Loss | HPC |
+|---|---|---|---|
+| RE random bi-bi + ADP mode | 6 | 0.0287 | 0.0287 |
+| Iso + ADP mode | 8 | 0.0315 | 0.0272 |
+| Flip-flop without `Eprime <--> E` + ADP mode | 8 | 0.0287 (= RE) | 0.0272 |
+| Flip-flop, shared binding + ADP mode | 9 | 0.0253 | 0.0250 |
+| Reverse mnemonic, shared binding, ATP split + ADP mode | 10 | 0.0243 | 0.0194 |
+| Reverse mnemonic, independent binding + ADP mode | 11 | 0.0231 | 0.0186 |
+| Flip-flop, independent binding + ADP mode | 13 | 0.0206 | 0.0165 |
+| SS random bi-bi, independent constants | 15 | 0.0241 | — |
+
+Without the ADP mode every candidate scored 0.030–0.041, above the HPC models at the same
+count. The 3PG inhibitor mode added a parameter and changed nothing.
+
+**LOOCV** (mean held-out loss over 15 groups): RE plus ADP mode 0.039; conformational
+candidates 0.038–0.044; iso 0.047; SS random bi-bi 0.058. The HPC run's best 10- and
+12-parameter models score 0.029 and 0.026.
+
+**The curvature is there, with the wrong shape.** Fitted flip-flop and reverse-mnemonic models
+reproduce the ATP curvature (Hill h ≈ 0.46–0.86 on Lavoinne 1979 Fig4, against 0.50–0.60 in
+the data; SS random bi-bi reaches only 0.90–0.98). But crossing chemistry needs both
+co-substrates bound, so the curvature couples them. In the reverse direction, the
+shared-binding flip-flop's correction factor is `(1 + a·[3PG][ATP]/Keq)/(1 + d·[3PG][ATP])`,
+symmetric in 3PG and ATP, and its fit gives h ≈ 0.66–0.94 for both. The data curve in ATP only:
+Lavoinne 1979 Fig3 (3PG titrations over the same grid) gives h ≈ 0.96–1.12. Splitting ATP
+binding by conformation fixes the training fit (3PG h ≈ 0.9–1.06), yet LOOCV still fails:
+with Fig3 held out, nothing forces 3PG to stay hyperbolic, and held-out Fig3 scores
+0.10–0.16. The HPC 10-parameter model (n = 1 MWC; ATP and BPG bind only A; SS ADP and 3PG
+binding) makes the curvature ATP-specific by construction and predicts held-out Fig3 at
+0.003. That fold accounts for most of the LOOCV gap.
+
+**Verdict.** Conformational kinetic cooperativity with RE binding is feasible in principle:
+it produces PGK-like negative cooperativity at 8–9 parameters, the most economical
+curvature of any family tested. On PGK it does not beat the existing search in training loss
+or LOOCV at any tested count, because PGK's curvature is specific to one co-substrate, and the
+existing n = 1 MWC with SS binding already captures that shape. PGK therefore provides no
+evidence that goal 2 improves identification. Untested combinations (conformational moves plus
+SS binding, splits and inhibitor modes, which an enumerator would reach) could still do better.
 
 ## References
 
