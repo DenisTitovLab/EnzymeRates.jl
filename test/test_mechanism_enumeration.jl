@@ -5638,8 +5638,70 @@ end
     end)
     @test EnzymeRates._hyperbolic_catalysis(pingpong_abortive)
 
+    # Ordered SS bi-bi with the abortive complex E(A, Q) reachable from both
+    # E(A) + Q and E(Q) + A, each step grouped with its metabolite's catalytic
+    # binding as the enumerator writes it. The square E–E(A)–E(A, Q)–E(Q)–E
+    # shares edges with the catalytic cycle, so E(A, Q) sits on a cycle through
+    # the chemistry step (Q + P → A + B runs through it) and its steps carry
+    # flux: a branch route, not a dead end. The tree toward E(A, Q) holds
+    # E → E(A) and E(Q) → E(A, Q), both binding A, so the equation carries A².
+    two_sided_abortive = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A <--> E(A), E(Q) + A <--> E(A, Q))
+            E(A) + B <--> E(A, B)
+            (E + Q <--> E(Q), E(A) + Q <--> E(A, Q))
+            E(Q) + P <--> E(P, Q)
+            E(A, B) <--> E(P, Q)
+        end
+    end)
+    @test !EnzymeRates._hyperbolic_catalysis(two_sided_abortive)
+    @test all(all, EnzymeRates._flux_carrying_steps(two_sided_abortive))
+
+    # A competitive-inhibitor square (I on E and on E(A), with A binding the
+    # inhibitor-bound form too) shares vertices with the catalytic cycle, so its
+    # steps count as flux-carrying, but they are neutral: inhibitor binding is at
+    # rapid equilibrium, so every inhibitor-bound form joins its parent's segment
+    # with the same substrate and product extras, and regulators are not scored.
+    rxn_with_i = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        dead_end_inhibitors: I
+    end
+    ordered_ss = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B <--> E(A, B)
+            E + Q <--> E(Q)
+            E(Q) + P <--> E(P, Q)
+            E(A, B) <--> E(P, Q)
+        end
+    end)
+    with_i = EnzymeRates._expand_add_dead_end_regulator(ordered_ss, rxn_with_i)
+    @test !isempty(with_i)
+    @test all(EnzymeRates._hyperbolic_catalysis, with_i)
+
     @test !EnzymeRates._requires_hyperbolic_catalysis(ordered)
     @test EnzymeRates._requires_hyperbolic_catalysis(allo_unibi_flip_p)
+end
+
+@testset "_all_reach" begin
+    # Segment graph 1 ⇄ 2 ⇄ 3 with edge tuples (source, target, form, mets).
+    edges = [(1, 2, 0, Symbol[]), (2, 1, 0, Symbol[]),
+             (2, 3, 0, Symbol[]), (3, 2, 0, Symbol[])]
+    # Unpinned, every segment reaches every root.
+    @test EnzymeRates._all_reach(3, edges, 3, ())
+    # Pinning 1 → 2 keeps the path 1 → 2 → 3.
+    @test EnzymeRates._all_reach(3, edges, 3, (edges[1],))
+    # Pinning 2 → 1 strands 2 (and 1) away from root 3.
+    @test !EnzymeRates._all_reach(3, edges, 3, (edges[2],))
+    # A pinned 2-cycle (1 → 2 and 2 → 1) reaches no root outside it.
+    @test !EnzymeRates._all_reach(3, edges, 3, (edges[1], edges[2]))
+    # A root that is a pinned edge's target is fine.
+    @test EnzymeRates._all_reach(3, edges, 2, (edges[1], edges[4]))
 end
 
 @testset "_hyperbolic_catalysis matches the derived denominator" begin
