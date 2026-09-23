@@ -6603,6 +6603,84 @@ end
         @test length(kids) == 4
         @test Set(kids) == Set([flipA, flipP, flipB, flipQ])
     end
+
+    @testset "_expand_re_to_ss: an allosteric parent keeps a hyperbolic scheme" begin
+        # Uni-bi with random product release. Flipping the S group alone splits
+        # off {E(S)} and the equation stays degree 1. Flipping the P group splits
+        # off {E(P), E(P, Q)}, whose term carries Q from E(P, Q) beyond its
+        # bottom E(P) and again from the edge E(Q) → E(P, Q), so the equation
+        # carries Q²; flipping Q mirrors it with P². A plain Mechanism emits all
+        # three; an allosteric parent emits only the S flip.
+        plain = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products: P, Q
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P, Q)
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+            end
+        end)
+        flipS = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products: P, Q
+            steps: begin
+                E + S <--> E(S)
+                E(S) <--> E(P, Q)
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+            end
+        end)
+        flipP = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products: P, Q
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P, Q)
+                (E + P <--> E(P), E(Q) + P <--> E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+            end
+        end)
+        flipQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products: P, Q
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P, Q)
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))
+            end
+        end)
+        kids = EnzymeRates._expand_re_to_ss(plain)
+        @test length(kids) == 3
+        @test Set(kids) == Set([flipS, flipP, flipQ])
+
+        allo = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P, Q
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)                                :: NonequalAI
+                E(S) <--> E(P, Q)                           :: NonequalAI
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: NonequalAI
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: NonequalAI
+            end
+        end)
+        allo_flipS = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P, Q
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S <--> E(S)                             :: NonequalAI
+                E(S) <--> E(P, Q)                           :: NonequalAI
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: NonequalAI
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: NonequalAI
+            end
+        end)
+        allo_kids = EnzymeRates._expand_re_to_ss(allo)
+        @test length(allo_kids) == 1
+        @test Set(allo_kids) == Set([allo_flipS])
+    end
 end
 
 @testset "_expand_split_kinetic_group (context bipartitions)" begin

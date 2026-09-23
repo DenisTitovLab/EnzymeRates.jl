@@ -1248,6 +1248,12 @@ orders of the same ring, or through the extended set when no other order
 gains. All other groups, the reaction, and (for allosteric) the
 catalytic-allo tags, multiplicity, and regulatory sites are preserved
 verbatim.
+
+A parent that `_requires_hyperbolic_catalysis` (a conformational mechanism) keeps
+only the children whose catalytic scheme passes `_hyperbolic_catalysis`. The
+check runs on the emitted minimal sets, not inside the gain predicate: a
+failing set would otherwise be extended with more flips, and more steady-state
+steps never restore a hyperbolic equation, so its supersets need no visit.
 """
 function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
     flux = _flux_carrying_groups(m)
@@ -1266,7 +1272,8 @@ function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
         _re_segment_count_after_flip(m, Set(units[u] for u in sel)) > base &&
         _bottomless_re_segment(flipped_groups(sel)) === nothing
     sets = _minimal_gaining_sets(gains, _ -> 1:length(units))
-    typeof(m)[_with_steps(m, flipped_groups(sel)) for sel in sets]
+    children = typeof(m)[_with_steps(m, flipped_groups(sel)) for sel in sets]
+    _requires_hyperbolic_catalysis(m) ? filter(_hyperbolic_catalysis, children) : children
 end
 
 """
