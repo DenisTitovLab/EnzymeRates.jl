@@ -1984,16 +1984,17 @@ end
     # RE route around the square, so the minimal-set search emits them only
     # together: they flip to SS as a pair, never one without the other.
     # Built via the macro; a separate catalytic inhibitor I keeps the
-    # substrate/inhibitor roles unambiguous.
+    # substrate/inhibitor roles unambiguous. Binding is ordered (A then B)
+    # so the pair flip stays hyperbolic; a conformational parent drops a
+    # child whose catalytic scheme carries a concentration power, and the
+    # random-order pair flip would carry B².
     m = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
         substrates: A, B
         products: P
         catalytic_inhibitors: I
         catalytic_steps: begin
             E + A ⇌ E(A)          :: EqualAI
-            E + B ⇌ E(B)          :: EqualAI
             E(A) + B ⇌ E(A, B)    :: EqualAI
-            E(B) + A ⇌ E(A, B)    :: EqualAI
             E(A, B) <--> E(P)      :: EqualAI
             E + P ⇌ E(P)          :: EqualAI
             E + I ⇌ E(I)          :: EqualAI
