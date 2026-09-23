@@ -98,7 +98,8 @@ equilibrium ratio; flipping it would add a parameter the data cannot determine.
 
 An allosteric parent also drops every child whose catalytic scheme would carry a
 concentration to a power of its own — the random-order steady-state pattern in
-which a metabolite binds on two steps that one King–Altman tree can hold. See
+which a metabolite binds on two steps that one King–Altman tree can hold, or an
+equilibrated segment already carries the metabolite once. See
 **Conformational mechanisms carry hyperbolic catalytic schemes** under
 [Modeling choices](@ref).
 
@@ -250,9 +251,11 @@ child that would introduce one. The test is structural
 (`_hyperbolic_catalysis`): the equation's degree in a metabolite is read from the
 rapid-equilibrium segment graph without deriving it. Competitive inhibition by a
 substrate or product is a separate source of powers and stays allowed inside an
-allosteric mechanism; the test ignores dead-end steps. Hand-written mechanisms
-are not subject to the rule: an `@allosteric_mechanism` with random-order
-steady-state binding still derives and fits.
+allosteric mechanism; the test ignores steps off every cycle through the
+chemistry step, which is what a one-sided dead-end binding is; an abortive
+complex reachable from two forms is a branch route and is scored. Hand-written
+mechanisms are not subject to the rule: an `@allosteric_mechanism` with
+random-order steady-state binding still derives and fits.
 
 **Chemistry is the isomerization step.** The moves recognize a chemistry step
 by its having no ligand on it. The enumerator writes every mechanism that way,

@@ -36,11 +36,15 @@ flux-carrying step graph has degree at most 1 in every substrate and product.
 Construction:
 
 1. Keep only the flux-carrying steps (`_flux_carrying_steps`: a step on a
-   cycle through a chemistry step). Dead-end substrate, product, and regulator
-   bindings are pendant and drop out. The exemption is per step, not per
-   group: the enumerator gives an abortive complex's binding the same kinetic
-   group as the metabolite's catalytic binding, and that step must still be
-   ignored.
+   cycle through a chemistry step). A one-sided dead-end binding is pendant
+   and drops out. An abortive complex reachable from two forms lies on a
+   cycle through the chemistry step, so its steps are scored: it is a branch
+   route, not a dead end. A competitive-inhibitor square is flux-carrying but
+   neutral: inhibitor binding at rapid equilibrium puts every inhibitor-bound
+   form in its parent's segment with the same extras, and regulators are not
+   scored. The exemption is per step, not per group: the enumerator gives an
+   abortive complex's binding the same kinetic group as the metabolite's
+   catalytic binding, and that step must still be ignored.
 2. Build the rapid-equilibrium (RE) segment quotient graph over the kept
    steps: nodes are RE segments (union-find over RE steps, as in
    `_compute_re_groups`); every SS step is an edge in both directions.
@@ -68,7 +72,7 @@ given edges exists iff every segment still reaches `S` once each given edge's
 source keeps that edge as its only way out (a digraph has a spanning
 arborescence toward `S` iff every vertex reaches `S`). That is a handful of
 breadth-first searches per metabolite on a graph of at most a few dozen nodes,
-so the cost per call is microseconds.
+so a call costs about 0.1 ms on a ter-ter parent.
 
 An allosteric mechanism is scored on its full catalytic step set, which is its
 A-state. The I-state prunes `:OnlyA` groups and the forms they disconnect.
@@ -122,18 +126,21 @@ Predicate unit tests, each fixture written inline with the macros:
 
 Move tests in `test/test_mechanism_enumeration.jl`, following its three rules:
 
-- `_expand_to_allosteric` on a random SS bi-bi parent emits zero children;
-  on an ordered SS bi-bi parent it emits the same children as before.
-- `_expand_re_to_ss` on an allosteric random RE bi-bi parent emits exactly
-  the hyperbolic minimal sets, every expected child written out; the same
-  parent as a plain `Mechanism` emits the full set.
+- `_expand_to_allosteric` on a uni-bi with random SS product release emits
+  zero children; on an ordered SS bi-bi with a substrate dead-end it emits
+  the same 31 children as before.
+- `_expand_re_to_ss` on a uni-bi with random RE product release emits 3
+  children as a plain `Mechanism`, every expected child written out; the
+  same parent as an allosteric mechanism emits only the hyperbolic one.
 
-Exactness test: for every `Mechanism` in the bi-bi, uni-bi, and ping-pong
-enumerations to two expansion levels, build the mechanism from its
-flux-carrying steps, derive it, and check that the structural degree of every
-substrate and product equals the largest exponent of that symbol in the derived
-denominator. For every `AllostericMechanism` at the same depth, check the same
-on both the A-state and I-state projections.
+Exactness test: for every `Mechanism` in the uni-bi and ping-pong enumerations
+to two expansion levels and the bi-bi enumeration to one level plus the
+allosteric children of its level-1 allosteric mechanisms, build the mechanism
+from its flux-carrying steps, derive it, and check that the structural degree
+of every substrate and product equals the largest exponent of that symbol in
+the derived denominator. For every `AllostericMechanism` at the same depth,
+check the same on both the A-state and I-state projections. The derived
+verdict is memoized per stripped mechanism.
 
 Performance: the predicate must not move the per-parent expansion time
 measurably; the ter-ter seed is the check.

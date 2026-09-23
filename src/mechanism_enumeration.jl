@@ -1390,11 +1390,15 @@ _requires_hyperbolic_catalysis(::AllostericMechanism) = true
 """
     _hyperbolic_catalysis(m) -> Bool
 
-Whether the rate equation of `m`'s flux-carrying step graph has degree at most 1
-in every substrate and product concentration. Dead-end steps (substrate,
-product, or regulator binding off the catalytic cycle, `_flux_carrying_steps`)
-are ignored: their inhibition terms are a separate source of concentration
-powers that conformational mechanisms keep.
+Whether the King–Altman denominator of `m`'s flux-carrying step graph has
+degree at most 1 in every substrate and product concentration. Steps off every
+cycle through a chemistry step (`_flux_carrying_steps`), such as a one-sided
+dead-end binding, are ignored: their inhibition terms are a separate source of
+concentration powers that conformational mechanisms keep. An abortive complex
+reachable from two forms lies on such a cycle and is scored; a
+competitive-inhibitor square is flux-carrying but neutral, since inhibitor
+binding at rapid equilibrium puts every inhibitor-bound form in its parent's
+segment with the same extras, and regulators are not scored.
 
 The equation is a sum over rapid-equilibrium (RE) segments and spanning
 arborescences of the segment graph toward each segment. A denominator term is
