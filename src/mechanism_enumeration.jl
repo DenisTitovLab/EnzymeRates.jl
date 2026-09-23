@@ -1992,7 +1992,8 @@ multiplicity becomes the variant's `catalytic_multiplicity`. Catalytic
 steps are reused by reference; duplicate variants are removed.
 
 A parent whose catalytic scheme fails `_hyperbolic_catalysis` (random-order
-steady-state binding, whose own equation carries concentration powers) emits no
+steady-state binding, or a substrate that traps a steady-state intermediate in
+an abortive complex, whose own equation carries concentration powers) emits no
 children: a conformational mechanism only carries a hyperbolic catalytic scheme.
 """
 function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)

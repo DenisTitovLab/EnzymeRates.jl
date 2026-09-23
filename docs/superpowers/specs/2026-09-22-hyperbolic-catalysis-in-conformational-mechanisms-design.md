@@ -100,13 +100,13 @@ A future conformational type adds one method. Two moves call the predicate:
   extended with more flips, and more SS steps never restore hyperbolicity, so
   the search would walk every superset for nothing.
 
-No other move touches the flux-carrying SS structure. Split keeps every edge
-and only changes which steps share parameters. The dead-end move adds
-inhibitor bindings, which the predicate leaves out. Allo-state and
-regulatory-site moves change tags and sites only. Seeds carry one SS step and
-one RE segment, so they pass unless that segment's weight already carries a
-power: 2 of the 7 bi-bi ping-pong seeds carry the abortive complexes E·B·Q on
-both enzyme forms, have B² and Q², and are not promoted.
+No other move changes the catalytic scheme's steps or their rapid-equilibrium
+flags. Split keeps every edge and only changes which steps share parameters.
+The dead-end move adds inhibitor bindings, which the predicate leaves out.
+Allo-state and regulatory-site moves change tags and sites only. Seeds carry
+one SS step and one RE segment, so they pass unless that segment's weight
+already carries a power: 2 of the 7 bi-bi ping-pong seeds carry the abortive
+complexes E·B·Q on both enzyme forms, have B² and Q², and are not promoted.
 
 Reachability is preserved. Every conformational mechanism with a hyperbolic
 catalytic scheme is still reached: from the RE seed by flips that stay
@@ -115,7 +115,8 @@ descendants are non-hyperbolic too, so dropping it loses nothing.
 
 ## Testing
 
-Predicate unit tests, each fixture written inline with the macros:
+Predicate unit tests, each fixture written inline with the macros, except one
+built by a move (noted below):
 
 - ordered SS bi-bi: `true`
 - random SS bi-bi: `false`
@@ -123,7 +124,8 @@ Predicate unit tests, each fixture written inline with the macros:
 - ordered SS bi-bi with substrate A as an abortive complex on E(Q): `false`
   (A binds its catalytic site)
 - ordered SS bi-bi with A declared as a dead-end inhibitor, all four
-  placements: `true` (the powers come from the inhibitor site)
+  placements (built by the dead-end move, `_expand_add_dead_end_regulator`):
+  `true` (the powers come from the inhibitor site)
 - uni-bi with random SS product release: `false`
 - ping-pong with one SS step per half-reaction: `true`
 
@@ -152,7 +154,7 @@ measurably; the ter-ter seed is the check.
 ## Docs and version
 
 - `docs/src/identify/enumeration_engine.md`: state the modeling assumption and
-  that dead-end inhibition is exempt.
+  that binding of a declared inhibitor is exempt.
 - `docs/src/developer.md`: the predicate, its scoring, and the trait.
 - `Project.toml`: 0.6.0 → 0.7.0 (enumeration output changes).
 

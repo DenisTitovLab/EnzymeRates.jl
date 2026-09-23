@@ -3401,26 +3401,23 @@ end
 end
 
 @testset "Mechanism — substrate declared as an inhibitor: promotion proceeds" begin
-    # Ordered SS bi-bi, same five steps as the regulator-square fixture above,
-    # with A also declared as a dead-end inhibitor. The parent is built by the
-    # move, not the macro: a bare symbol can carry only one role in
-    # @enzyme_mechanism (src/dsl.jl's role_of is single-valued per name), so
-    # declaring A in both substrates: and regulators: silently reinterprets
-    # every catalytic E(A) as inhibitor-bound instead of adding a second,
-    # distinctly-typed A-bound form alongside it. Building from
-    # _expand_add_dead_end_regulator keeps the catalytic Substrate(:A) bindings
-    # and the CompetitiveInhibitor(:A) bindings as the distinct species they are.
-    # The child taken is the one whose inhibitor-binding steps start from
-    # exactly E and E(Q) (row 1 of the table above, derived A-degree 2).
-    ordered_ss = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    # Ordered SS bi-bi with A also declared as a dead-end inhibitor, written
+    # with the ::Inh role tag (src/dsl.jl): a plain `A` occurrence keeps A's
+    # declared substrate role, while `A::Inh` binds CompetitiveInhibitor(:A),
+    # a distinct species from the catalytic A-bound forms. The inhibitor's
+    # own group binds E and E(Q); Q's catalytic binding is mirrored onto the
+    # inhibitor-bound form E(A::Inh), sharing its kinetic group, exactly as
+    # `_expand_add_dead_end_regulator` builds it.
+    parent = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
             E + A <--> E(A)
             E(A) + B <--> E(A, B)
-            E + Q <--> E(Q)
+            (E + Q <--> E(Q), E(A::Inh) + Q <--> E(A::Inh, Q))
             E(Q) + P <--> E(P, Q)
             E(A, B) <--> E(P, Q)
+            (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
         end
     end)
     rxn = @enzyme_reaction begin
@@ -3429,19 +3426,14 @@ end
         dead_end_inhibitors: A
         oligomeric_state: 2
     end
-    de_ms = EnzymeRates._expand_add_dead_end_regulator(ordered_ss, rxn)
-    inhibitor_froms(k) = sort(unique(Symbol[
-        EnzymeRates.name(EnzymeRates.from_species(s))
-        for group in EnzymeRates.steps(k) for s in group
-        if EnzymeRates.bound_metabolite(s) isa EnzymeRates.Regulator]))
-    parent = only(k for k in de_ms if inhibitor_froms(k) == [:E, :EQ])
 
-    # Five binding groups (A, B, Q, P, the inhibitor-A binding), each subset
-    # :OnlyA with the chemistry :OnlyA: 2^5 - 1 = 31 candidate K-type children;
-    # _onlya_haldane_violation drops none of them. The reaction declares no
-    # allosteric regulator, so no V-type variant is emitted. N = 31. The derived
-    # denominator carries A², but from the inhibitor site, so the catalytic
-    # scheme is hyperbolic and the promotion proceeds.
+    # Five binding groups (A, B, Q with its inhibitor-bound mirror, P, and the
+    # inhibitor's own group), each subset :OnlyA with the chemistry :OnlyA:
+    # 2^5 - 1 = 31 candidate K-type children; _onlya_haldane_violation drops
+    # none of them. The reaction declares no allosteric regulator, so no
+    # V-type variant is emitted. N = 31. The derived denominator carries A²,
+    # but from the inhibitor site, so the catalytic scheme is hyperbolic and
+    # the promotion proceeds.
     N = 31
     children = EnzymeRates._expand_to_allosteric(parent, rxn)
     @test length(children) == N
@@ -5732,6 +5724,12 @@ end
     @test length(with_a) == 4
     @test all(EnzymeRates._hyperbolic_catalysis, with_a)
     @test sort(den_a_degree.(with_a)) == [1, 2, 2, 3]
+
+    # Inhibitor-bound forms leave, but catalytic-site powers stay: adding the
+    # inhibitor role of A to the abortive-complex scheme keeps it non-hyperbolic.
+    dead_end_with_a = EnzymeRates._expand_add_dead_end_regulator(dead_end, rxn_a_inhibits)
+    @test length(dead_end_with_a) == 4
+    @test !any(EnzymeRates._hyperbolic_catalysis, dead_end_with_a)
 
     @test !EnzymeRates._requires_hyperbolic_catalysis(ordered)
     @test EnzymeRates._requires_hyperbolic_catalysis(allo_unibi_flip_p)
