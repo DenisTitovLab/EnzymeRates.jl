@@ -3375,11 +3375,11 @@ end
     @test isempty(EnzymeRates._expand_to_allosteric(m, rxn))
 end
 
-@testset "Mechanism — substrate dead-end keeps the scheme hyperbolic" begin
-    # Ordered SS bi-bi with A as a dead end on E(Q): the dead-end's A² term is
-    # substrate inhibition, not random-order steady state, so the promotion
-    # proceeds. Five binding groups (A, B, Q, P, the dead end), each subset
-    # :OnlyA with the chemistry :OnlyA: 2^5 - 1 = 31 K-type children.
+@testset "Mechanism — catalytic-site abortive complex: no children" begin
+    # Ordered SS bi-bi with A binding E(Q) as an abortive complex at its
+    # catalytic site: the term rooted at {E(Q), E(A, Q)} holds E → E(A), so the
+    # scheme carries A², and a conformational equilibrium on top would stack a
+    # second source of concentration powers. The promotion emits nothing.
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -3397,8 +3397,54 @@ end
         products: P[C], Q[N]
         oligomeric_state: 2
     end
-    children = EnzymeRates._expand_to_allosteric(m, rxn)
-    @test length(children) == 31
+    @test isempty(EnzymeRates._expand_to_allosteric(m, rxn))
+end
+
+@testset "Mechanism — substrate declared as an inhibitor: promotion proceeds" begin
+    # Ordered SS bi-bi, same five steps as the regulator-square fixture above,
+    # with A also declared as a dead-end inhibitor. The parent is built by the
+    # move, not the macro: a bare symbol can carry only one role in
+    # @enzyme_mechanism (src/dsl.jl's role_of is single-valued per name), so
+    # declaring A in both substrates: and regulators: silently reinterprets
+    # every catalytic E(A) as inhibitor-bound instead of adding a second,
+    # distinctly-typed A-bound form alongside it. Building from
+    # _expand_add_dead_end_regulator keeps the catalytic Substrate(:A) bindings
+    # and the CompetitiveInhibitor(:A) bindings as the distinct species they are.
+    # The child taken is the one whose inhibitor-binding steps start from
+    # exactly E and E(Q) (row 1 of the table above, derived A-degree 2).
+    ordered_ss = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B <--> E(A, B)
+            E + Q <--> E(Q)
+            E(Q) + P <--> E(P, Q)
+            E(A, B) <--> E(P, Q)
+        end
+    end)
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        dead_end_inhibitors: A
+        oligomeric_state: 2
+    end
+    de_ms = EnzymeRates._expand_add_dead_end_regulator(ordered_ss, rxn)
+    inhibitor_froms(k) = sort(unique(Symbol[
+        EnzymeRates.name(EnzymeRates.from_species(s))
+        for group in EnzymeRates.steps(k) for s in group
+        if EnzymeRates.bound_metabolite(s) isa EnzymeRates.Regulator]))
+    parent = only(k for k in de_ms if inhibitor_froms(k) == [:E, :EQ])
+
+    # Five binding groups (A, B, Q, P, the inhibitor-A binding), each subset
+    # :OnlyA with the chemistry :OnlyA: 2^5 - 1 = 31 candidate K-type children;
+    # _onlya_haldane_violation drops none of them. The reaction declares no
+    # allosteric regulator, so no V-type variant is emitted. N = 31. The derived
+    # denominator carries A², but from the inhibitor site, so the catalytic
+    # scheme is hyperbolic and the promotion proceeds.
+    N = 31
+    children = EnzymeRates._expand_to_allosteric(parent, rxn)
+    @test length(children) == N
     @test all(EnzymeRates._hyperbolic_catalysis, children)
 end
 end
@@ -5530,9 +5576,10 @@ end
     end)
     @test !EnzymeRates._hyperbolic_catalysis(random_flip_a)
 
-    # Ordered SS bi-bi with substrate A as a dead end on E(Q): the derived
-    # denominator carries A² (substrate inhibition), but the dead-end group is
-    # not flux-carrying and the predicate ignores it.
+    # Ordered SS bi-bi with substrate A binding E(Q) as an abortive complex at
+    # rapid equilibrium: E(A, Q) sits one A above E(Q) in its segment, and the
+    # term rooted there holds E → E(A), so the equation carries A². A binds its
+    # catalytic site, so the power counts even though E(A, Q) is a dead end.
     dead_end = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -5545,7 +5592,7 @@ end
             E(Q) + A ⇌ E(A, Q)
         end
     end)
-    @test EnzymeRates._hyperbolic_catalysis(dead_end)
+    @test !EnzymeRates._hyperbolic_catalysis(dead_end)
 
     # Uni-bi with random SS product release: P binds on E → E(P) and on
     # E(Q) → E(P, Q), both toward E(P, Q), so the denominator carries P².
@@ -5594,9 +5641,9 @@ end
     @test !EnzymeRates._hyperbolic_catalysis(allo_unibi_flip_p)
 
     # Ordered SS bi-bi whose A group also binds A as an abortive complex on
-    # E(Q). The abortive step went to steady state with its group, but it is a
-    # dead end and is ignored; counted, its edge into E(A, Q) together with
-    # E → E(A) would carry A twice in one tree.
+    # E(Q), as the enumerator groups it. The abortive step went to steady state
+    # with its group; the tree toward E(A, Q) holds E → E(A) and E(Q) → E(A, Q),
+    # both binding A, so the equation carries A².
     grouped_dead_end = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -5608,22 +5655,12 @@ end
             E(A, B) <--> E(P, Q)
         end
     end)
-    @test EnzymeRates._hyperbolic_catalysis(grouped_dead_end)
-
-    flags = vcat(EnzymeRates._flux_carrying_steps(grouped_dead_end)...)
-    all_steps = vcat(EnzymeRates.steps(grouped_dead_end)...)
-    @test count(!, flags) == 1
-    abortive = all_steps[findfirst(!, flags)]
-    abortive_bound = Symbol[EnzymeRates.name(x)
-                             for x in EnzymeRates.bound(EnzymeRates.to_species(abortive))]
-    @test length(abortive_bound) == 2 && :Q in abortive_bound
+    @test !EnzymeRates._hyperbolic_catalysis(grouped_dead_end)
 
     # Ping-pong whose second chemistry step is at rapid equilibrium, with B also
     # bound as an abortive complex on E(Q) in the same kinetic group as its
     # catalytic binding. One segment spans both halves: E sits one B above
-    # E(; residual) and E(B, Q) two above, so with the abortive form counted the
-    # segment weight would carry B². The abortive step is a dead end and is
-    # ignored, leaving degree 1.
+    # E(; residual) and E(B, Q) two above, so the segment weight carries B².
     pingpong_abortive = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -5636,14 +5673,11 @@ end
             E(Q) ⇌ E + Q
         end
     end)
-    @test EnzymeRates._hyperbolic_catalysis(pingpong_abortive)
+    @test !EnzymeRates._hyperbolic_catalysis(pingpong_abortive)
 
     # Ordered SS bi-bi with the abortive complex E(A, Q) reachable from both
     # E(A) + Q and E(Q) + A, each step grouped with its metabolite's catalytic
-    # binding as the enumerator writes it. The square E–E(A)–E(A, Q)–E(Q)–E
-    # shares edges with the catalytic cycle, so E(A, Q) sits on a cycle through
-    # the chemistry step (Q + P → A + B runs through it) and its steps carry
-    # flux: a branch route, not a dead end. The tree toward E(A, Q) holds
+    # binding as the enumerator writes it. The tree toward E(A, Q) holds
     # E → E(A) and E(Q) → E(A, Q), both binding A, so the equation carries A².
     two_sided_abortive = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
@@ -5657,13 +5691,11 @@ end
         end
     end)
     @test !EnzymeRates._hyperbolic_catalysis(two_sided_abortive)
-    @test all(all, EnzymeRates._flux_carrying_steps(two_sided_abortive))
 
     # A competitive-inhibitor square (I on E and on E(A), with A binding the
-    # inhibitor-bound form too) shares vertices with the catalytic cycle, so its
-    # steps count as flux-carrying, but they are neutral: inhibitor binding is at
-    # rapid equilibrium, so every inhibitor-bound form joins its parent's segment
-    # with the same substrate and product extras, and regulators are not scored.
+    # inhibitor-bound form too) leaves the verdict unchanged: an inhibitor binds
+    # a site of its own, so every step touching a form that carries it is left
+    # out.
     rxn_with_i = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]
@@ -5683,6 +5715,23 @@ end
     with_i = EnzymeRates._expand_add_dead_end_regulator(ordered_ss, rxn_with_i)
     @test !isempty(with_i)
     @test all(EnzymeRates._hyperbolic_catalysis, with_i)
+
+    # A substrate declared as a dead-end inhibitor binds its inhibitor site under
+    # the substrate's own name. Its bindings put A² and A³ into the derived
+    # denominator, but those powers come from the inhibitor site, which the
+    # predicate leaves out: all four placements on the ordered scheme pass.
+    rxn_a_inhibits = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        dead_end_inhibitors: A
+    end
+    with_a = EnzymeRates._expand_add_dead_end_regulator(ordered_ss, rxn_a_inhibits)
+    den_a_degree(k) = maximum(get(Dict(mono), :A, 0) for mono in keys(
+        EnzymeRates._raw_symbolic_rate_polys(k, EnzymeRates._step_parameters(k),
+            EnzymeRates._build_wegscheider_rename_map(k), [:A, :B], [:P, :Q])[2]))
+    @test length(with_a) == 4
+    @test all(EnzymeRates._hyperbolic_catalysis, with_a)
+    @test sort(den_a_degree.(with_a)) == [1, 2, 2, 3]
 
     @test !EnzymeRates._requires_hyperbolic_catalysis(ordered)
     @test EnzymeRates._requires_hyperbolic_catalysis(allo_unibi_flip_p)
@@ -5708,12 +5757,11 @@ end
     # The structural predicate against the exponents of the derived denominator,
     # over every mechanism reachable from the seeds in a bounded number of
     # expansion levels. Bi-bi is enumerated to one level plus the allosteric
-    # children of its level-1 allosteric mechanisms. Dead-end steps are stripped
-    # before deriving, since the predicate ignores them; the reactions declare
-    # no regulators, so stripping never leaves the reaction naming a metabolite
-    # no step binds. For an allosteric mechanism the predicate is compared with
-    # the A-state, and the I-state is checked to be hyperbolic whenever the
-    # A-state is.
+    # children of its level-1 allosteric mechanisms. The reactions declare no
+    # inhibitors, so the predicate sees every step and is compared with each
+    # mechanism's own derived denominator. For an allosteric mechanism the
+    # predicate is compared with the A-state, and the I-state is checked to be
+    # hyperbolic whenever the A-state is.
     _testhelper_poly_hyperbolic(p, mets) =
         all(e <= 1 for mono in keys(p) for (s, e) in mono if s in mets)
     _testhelper_mets(rxn) = vcat(
@@ -5727,18 +5775,6 @@ end
             m, EnzymeRates._step_parameters(m),
             EnzymeRates._build_wegscheider_rename_map(m), subs, prods)
         _testhelper_poly_hyperbolic(den, _testhelper_mets(rxn))
-    end
-    function _testhelper_flux_only(m::EnzymeRates.Mechanism)
-        flux = EnzymeRates._flux_carrying_steps(m)
-        EnzymeRates.Mechanism(EnzymeRates.reaction(m),
-            [group[f] for (group, f) in zip(EnzymeRates.steps(m), flux) if any(f)])
-    end
-    function _testhelper_flux_only(am::EnzymeRates.AllostericMechanism)
-        flux = EnzymeRates._flux_carrying_steps(am)
-        keep = [g for (g, f) in enumerate(flux) if any(f)]
-        EnzymeRates._with_steps_and_cat_states(
-            am, [EnzymeRates.steps(am)[g][flux[g]] for g in keep],
-            EnzymeRates.cat_allo_states(am)[keep])
     end
     function _testhelper_levels(rxn, depth)
         M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
@@ -5776,8 +5812,6 @@ end
     end
     n_checked = 0
     n_nonhyperbolic = 0
-    # stripped mechanism => (A hyperbolic, I hyperbolic)
-    derived = Dict{Any, Tuple{Bool, Bool}}()
     for (rxn, depth) in ((unibi, 2), (bibi, 1), (pingpong, 2))
         mets = _testhelper_mets(rxn)
         levels = _testhelper_levels(rxn, depth)
@@ -5786,21 +5820,16 @@ end
         unique!(mechs)
         for m in mechs
             EnzymeRates._eq_complexity(m) <= 337 || continue
-            stripped = _testhelper_flux_only(m)
             structural = EnzymeRates._hyperbolic_catalysis(m)
-            hyp_a, hyp_i = get!(derived, stripped) do
-                if stripped isa EnzymeRates.Mechanism
-                    h = _testhelper_den_hyperbolic(stripped)
-                    (h, h)
-                else
-                    _, den_a, _ = EnzymeRates._state_rate_polys(stripped, :A)
-                    _, den_i, _ = EnzymeRates._state_rate_polys(stripped, :I)
-                    (_testhelper_poly_hyperbolic(den_a, mets),
-                     _testhelper_poly_hyperbolic(den_i, mets))
-                end
+            if m isa EnzymeRates.Mechanism
+                @test structural == _testhelper_den_hyperbolic(m)
+            else
+                _, den_a, _ = EnzymeRates._state_rate_polys(m, :A)
+                _, den_i, _ = EnzymeRates._state_rate_polys(m, :I)
+                hyp_a = _testhelper_poly_hyperbolic(den_a, mets)
+                @test structural == hyp_a
+                @test _testhelper_poly_hyperbolic(den_i, mets) || !hyp_a
             end
-            @test structural == hyp_a
-            @test hyp_i || !hyp_a
             n_checked += 1
             structural || (n_nonhyperbolic += 1)
         end

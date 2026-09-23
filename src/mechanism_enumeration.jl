@@ -1339,45 +1339,34 @@ function _edge_blocks(nv::Int, edges::Vector{Tuple{Int, Int}})
 end
 
 """
-    _flux_carrying_steps(m) -> Vector{BitVector}
+    _flux_carrying_groups(m) -> BitVector
 
-One flag per step, in `steps(m)` layout: the step lies on a cycle of the step
-graph containing a chemistry step (an isomerization), i.e. shares a
+One flag per kinetic group: the group holds a step that lies on a cycle of the
+step graph containing a chemistry step (an isomerization), i.e. shares a
 biconnected block with one. A binding-only cycle satisfies detailed balance and
-carries no net flux at steady state, so a step in such a pendant region (a
-dead-end binding) exposes only an equilibrium ratio. RE and SS steps are both
-edges here: flux-carrying-ness depends on the graph, not on the flags.
+carries no net flux at steady state, so a group whose every step sits in such a
+pendant region exposes only equilibrium ratios however it is
+flagged; flipping it to steady state adds a phantom parameter. RE and SS steps
+are both edges here: flux-carrying-ness depends on the graph, not on the flags.
 """
-function _flux_carrying_steps(m::Union{Mechanism, AllostericMechanism})
+function _flux_carrying_groups(m::Union{Mechanism, AllostericMechanism})
     forms = Dict{Species, Int}()
     edges = Tuple{Int, Int}[]
+    edge_group = Int[]
     edge_is_chemistry = Bool[]
     vertex(sp) = get!(forms, sp, length(forms) + 1)
-    for group in steps(m), s in group
+    for (g, group) in enumerate(steps(m)), s in group
         push!(edges, (vertex(from_species(s)), vertex(to_species(s))))
-        push!(edge_is_chemistry, is_iso(s))
+        push!(edge_group, g); push!(edge_is_chemistry, is_iso(s))
     end
     block = _edge_blocks(length(forms), edges)
     chem_blocks = Set(block[e] for e in eachindex(edges) if edge_is_chemistry[e])
-    flags = [falses(length(group)) for group in steps(m)]
-    e = 0
-    for (g, group) in enumerate(steps(m)), i in eachindex(group)
-        e += 1
-        flags[g][i] = block[e] in chem_blocks
+    flags = falses(length(steps(m)))
+    for e in eachindex(edges)
+        block[e] in chem_blocks && (flags[edge_group[e]] = true)
     end
     flags
 end
-
-"""
-    _flux_carrying_groups(m) -> BitVector
-
-One flag per kinetic group: the group holds a flux-carrying step
-(`_flux_carrying_steps`). A group whose every step sits in a pendant region
-exposes only equilibrium ratios however it is flagged; flipping it to steady
-state adds a phantom parameter.
-"""
-_flux_carrying_groups(m::Union{Mechanism, AllostericMechanism}) =
-    BitVector(any(flags) for flags in _flux_carrying_steps(m))
 
 """
 Whether the enumerator may only give this mechanism type a catalytic scheme
@@ -1390,15 +1379,13 @@ _requires_hyperbolic_catalysis(::AllostericMechanism) = true
 """
     _hyperbolic_catalysis(m) -> Bool
 
-Whether the King–Altman denominator of `m`'s flux-carrying step graph has
-degree at most 1 in every substrate and product concentration. Steps off every
-cycle through a chemistry step (`_flux_carrying_steps`), such as a one-sided
-dead-end binding, are ignored: their inhibition terms are a separate source of
-concentration powers that conformational mechanisms keep. An abortive complex
-reachable from two forms lies on such a cycle and is scored; a
-competitive-inhibitor square is flux-carrying but neutral, since inhibitor
-binding at rapid equilibrium puts every inhibitor-bound form in its parent's
-segment with the same extras, and regulators are not scored.
+Whether the King–Altman denominator of `m`'s catalytic scheme has degree at most
+1 in every substrate and product concentration. Every binding of a substrate or
+product at its catalytic site counts, abortive complexes included. Steps touching
+a form that carries a declared inhibitor are left out: an inhibitor binds a site
+of its own by definition, so the powers its binding adds, including those of a
+substrate declared as a dead-end inhibitor, are a separate source that
+conformational mechanisms keep.
 
 The equation is a sum over rapid-equilibrium (RE) segments and spanning
 arborescences of the segment graph toward each segment. A denominator term is
@@ -1414,8 +1401,9 @@ every segment still reaches `S` once each given edge's source keeps that edge
 as its only way out (`_all_reach`).
 """
 function _hyperbolic_catalysis(m::Union{Mechanism, AllostericMechanism})
-    groups = [group[flags] for (group, flags) in zip(steps(m), _flux_carrying_steps(m))
-              if any(flags)]
+    on_catalytic_site(s) = !any(b -> b isa Regulator,
+                                vcat(bound(from_species(s)), bound(to_species(s))))
+    groups = filter(!isempty, [filter(on_catalytic_site, group) for group in steps(m)])
     species, segments, extras = _re_segment_extras(groups)
     idx = Dict(sp => i for (i, sp) in enumerate(species))
     seg_of = zeros(Int, length(species))
