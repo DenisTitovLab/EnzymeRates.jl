@@ -3375,6 +3375,40 @@ end
     @test isempty(EnzymeRates._expand_to_allosteric(m, rxn))
 end
 
+@testset "Mechanism — non-hyperbolic catalytic scheme: multiplicity 1 only" begin
+    # The same uni-bi with random SS product release, with multiplicities 1 and 2
+    # allowed. One catalytic subunit adds no concentration power of its own, so
+    # the multiplicity-1 variants are emitted exactly as for a reaction allowing
+    # only multiplicity 1; multiplicity 2 would stack a second source of powers
+    # and emits nothing. Three binding groups (S, P, Q), each subset :OnlyA with
+    # the chemistry :OnlyA: 2^3 - 1 = 7 K-type children, none rejected by
+    # `_onlya_haldane_violation`.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P, Q
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P, Q)
+            (E + P <--> E(P), E(Q) + P <--> E(P, Q))
+            (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))
+        end
+    end)
+    rxn_1_2 = @enzyme_reaction begin
+        substrates: S[AB]
+        products: P[A], Q[B]
+        allowed_catalytic_multiplicities: (1, 2)
+    end
+    rxn_1 = @enzyme_reaction begin
+        substrates: S[AB]
+        products: P[A], Q[B]
+        allowed_catalytic_multiplicities: (1,)
+    end
+    children = EnzymeRates._expand_to_allosteric(m, rxn_1_2)
+    @test length(children) == 7
+    @test all(am -> EnzymeRates.catalytic_multiplicity(am) == 1, children)
+    @test Set(children) == Set(EnzymeRates._expand_to_allosteric(m, rxn_1))
+end
+
 @testset "Mechanism — catalytic-site abortive complex: no children" begin
     # Ordered SS bi-bi with A binding E(Q) as an abortive complex at its
     # catalytic site: the term rooted at {E(Q), E(A, Q)} holds E → E(A), so the
@@ -5733,6 +5767,22 @@ end
 
     @test !EnzymeRates._requires_hyperbolic_catalysis(ordered)
     @test EnzymeRates._requires_hyperbolic_catalysis(allo_unibi_flip_p)
+    # One catalytic subunit: the conformational equilibrium reweights each form
+    # without raising any catalytic-site binding to a power, so the rule does
+    # not apply.
+    allo_unibi_flip_p_one_subunit = EnzymeRates.AllostericMechanism(
+        @allosteric_mechanism begin
+            substrates: S
+            products: P, Q
+            catalytic_multiplicity: 1
+            catalytic_steps: begin
+                E + S ⇌ E(S)                                        :: NonequalAI
+                E(S) <--> E(P, Q)                                   :: NonequalAI
+                (E + P <--> E(P), E(Q) + P <--> E(P, Q))            :: NonequalAI
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))                  :: NonequalAI
+            end
+        end)
+    @test !EnzymeRates._requires_hyperbolic_catalysis(allo_unibi_flip_p_one_subunit)
 end
 
 @testset "_all_reach" begin
@@ -6784,6 +6834,60 @@ end
         allo_kids = EnzymeRates._expand_re_to_ss(allo)
         @test length(allo_kids) == 1
         @test Set(allo_kids) == Set([allo_flipS])
+    end
+
+    @testset "_expand_re_to_ss: a one-subunit allosteric parent keeps every flip" begin
+        # The same uni-bi as an allosteric mechanism with one catalytic subunit.
+        # The conformational equilibrium adds no concentration power, so the
+        # flip move keeps the P and Q flips it drops for two subunits, and emits
+        # the same three flips as the plain mechanism.
+        allo_one = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P, Q
+            catalytic_multiplicity: 1
+            catalytic_steps: begin
+                E + S ⇌ E(S)                                :: NonequalAI
+                E(S) <--> E(P, Q)                           :: NonequalAI
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: NonequalAI
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: NonequalAI
+            end
+        end)
+        flipS_one = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P, Q
+            catalytic_multiplicity: 1
+            catalytic_steps: begin
+                E + S <--> E(S)                             :: NonequalAI
+                E(S) <--> E(P, Q)                           :: NonequalAI
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: NonequalAI
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: NonequalAI
+            end
+        end)
+        flipP_one = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P, Q
+            catalytic_multiplicity: 1
+            catalytic_steps: begin
+                E + S ⇌ E(S)                                :: NonequalAI
+                E(S) <--> E(P, Q)                           :: NonequalAI
+                (E + P <--> E(P), E(Q) + P <--> E(P, Q))    :: NonequalAI
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: NonequalAI
+            end
+        end)
+        flipQ_one = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P, Q
+            catalytic_multiplicity: 1
+            catalytic_steps: begin
+                E + S ⇌ E(S)                                :: NonequalAI
+                E(S) <--> E(P, Q)                           :: NonequalAI
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: NonequalAI
+                (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))    :: NonequalAI
+            end
+        end)
+        kids_one = EnzymeRates._expand_re_to_ss(allo_one)
+        @test length(kids_one) == 3
+        @test Set(kids_one) == Set([flipS_one, flipP_one, flipQ_one])
     end
 end
 

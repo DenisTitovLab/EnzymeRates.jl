@@ -81,9 +81,11 @@ Duplicate equations that survive these proofs are collapsed at compile time by
 oracle for the proofs; nothing in `src/` estimates identifiability numerically.
 
 Conformational mechanism types declare `_requires_hyperbolic_catalysis` (true for
-`AllostericMechanism`), and the moves that can give such a type a non-hyperbolic
-catalytic scheme consult `_hyperbolic_catalysis`: `_expand_to_allosteric` refuses
-the parent, `_expand_re_to_ss` filters its emitted children. The predicate scores
+an `AllostericMechanism` whose catalytic multiplicity is above 1), and the moves
+that can give such a mechanism a non-hyperbolic catalytic scheme consult
+`_hyperbolic_catalysis`: `_expand_to_allosteric` promotes a non-hyperbolic
+parent at multiplicity 1 only, and `_expand_re_to_ss` filters its emitted
+children. The predicate scores
 the rapid-equilibrium segment graph of the catalytic scheme, leaving out every
 step that touches a form carrying a declared inhibitor: for each substrate and
 product, a directed steady-state edge scores one if the step binds it in that

@@ -96,10 +96,11 @@ equilibrium by modeling choice. A group whose steps all lie on dead-end branches
 carries no net flux at steady state, so the equation could only ever see its
 equilibrium ratio; flipping it would add a parameter the data cannot determine.
 
-An allosteric parent also drops every child whose catalytic scheme would carry a
-concentration to a power of its own — the random-order steady-state pattern in
-which a metabolite binds on two steps that one King–Altman tree can hold, or an
-equilibrated segment already carries the metabolite once. See
+An allosteric parent with more than one catalytic subunit also drops every child
+whose catalytic scheme would carry a concentration to a power of its own — the
+random-order steady-state pattern in which a metabolite binds on two steps that
+one King–Altman tree can hold, or an equilibrated segment already carries the
+metabolite once. See
 **Conformational mechanisms carry hyperbolic catalytic schemes** under
 [Modeling choices](@ref).
 
@@ -173,9 +174,10 @@ unsatisfiable is dropped (see [Thermodynamic constraints of MWC equations](@ref)
 Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an already
 allosteric input.
 
-Also a no-op on a parent whose catalytic scheme already carries concentration
-powers, such as a random-order scheme with steady-state binding or a substrate
-that traps a steady-state intermediate in an abortive complex; see
+A parent whose catalytic scheme already carries concentration powers, such as a
+random-order scheme with steady-state binding or a substrate that traps a
+steady-state intermediate in an abortive complex, is promoted at catalytic
+multiplicity 1 only; see
 **Conformational mechanisms carry hyperbolic catalytic schemes** under
 [Modeling choices](@ref).
 
@@ -246,9 +248,12 @@ so the group never flips.
 conformational equilibrium and a random-order steady-state catalytic scheme
 each put a metabolite concentration to a power in the rate equation, and
 sigmoidal data cannot tell the two sources apart. The moves therefore never
-combine them: promotion to allosteric skips a parent whose catalytic scheme
-already carries a power, and the flip move on an allosteric parent drops a
-child that would introduce one. The test is structural
+combine them: promotion to allosteric gives a parent whose catalytic scheme
+already carries a power no variant above one catalytic subunit, and the flip
+move on an allosteric parent with more than one subunit drops a child that
+would introduce one. With one catalytic subunit the conformational equilibrium
+only reweights each enzyme form and adds no power of its own, so such a
+mechanism may carry any catalytic scheme. The test is structural
 (`_hyperbolic_catalysis`): the equation's degree in a metabolite is read from
 the rapid-equilibrium segment graph without deriving it. Every binding of a
 substrate or product at its catalytic site counts, abortive complexes included,

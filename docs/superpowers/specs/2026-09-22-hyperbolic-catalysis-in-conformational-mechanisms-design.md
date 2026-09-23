@@ -18,7 +18,12 @@ hyperbolic in every substrate and product.
 A conformational mechanism (today `AllostericMechanism`; later KNF, mnemonic,
 or slow-isomerization types) may only carry a catalytic scheme whose rate
 equation has degree at most 1 in every substrate and product concentration.
-The rule holds at every catalytic multiplicity, including `n = 1`.
+The rule applies when the catalytic multiplicity is above 1. There the
+conformational equilibrium raises every catalytic-site binding to the power of
+the multiplicity, a source of powers of its own. With one catalytic subunit the
+equilibrium only reweights each enzyme form and adds no power, so an `n = 1`
+mechanism may carry any catalytic scheme. Powers from a regulatory site's
+multiplicity do not count, since a regulatory site is a separate site.
 
 Every binding of a substrate or product at its catalytic site counts, abortive
 complexes included. Binding of a declared competitive inhibitor is a separate
@@ -86,14 +91,14 @@ One trait names the types the rule applies to:
 
 ```julia
 _requires_hyperbolic_catalysis(::Mechanism) = false
-_requires_hyperbolic_catalysis(::AllostericMechanism) = true
+_requires_hyperbolic_catalysis(am::AllostericMechanism) = catalytic_multiplicity(am) > 1
 ```
 
 A future conformational type adds one method. Two moves call the predicate:
 
-- `_expand_to_allosteric(m::Mechanism, rxn)` returns no children when
-  `_hyperbolic_catalysis(m)` is `false`. One evaluation per parent, not per
-  variant.
+- `_expand_to_allosteric(m::Mechanism, rxn)` emits variants at multiplicity
+  1 only when `_hyperbolic_catalysis(m)` is `false`. One evaluation per
+  parent, not per variant.
 - `_expand_re_to_ss(m)` filters its emitted minimal flip sets through the
   predicate when `_requires_hyperbolic_catalysis(m)`. The check stays out of
   the `gains` predicate of `_minimal_gaining_sets`: a set that fails there is
@@ -135,12 +140,14 @@ built by the dead-end move (noted below):
 Move tests in `test/test_mechanism_enumeration.jl`, following its three rules:
 
 - `_expand_to_allosteric` on a uni-bi with random SS product release emits
-  zero children; on an ordered SS bi-bi with an abortive complex of A on
-  E(Q) it emits none, and with A declared as a dead-end inhibitor on E and
-  E(Q) it emits 31 children.
+  zero children at multiplicity 2, and with multiplicities 1 and 2 allowed
+  emits the 7 multiplicity-1 children only; on an ordered SS bi-bi with an
+  abortive complex of A on E(Q) it emits none, and with A declared as a
+  dead-end inhibitor on E and E(Q) it emits 31 children.
 - `_expand_re_to_ss` on a uni-bi with random RE product release emits 3
   children as a plain `Mechanism`, every expected child written out; the
-  same parent as an allosteric mechanism emits only the hyperbolic one.
+  same parent as an allosteric mechanism with two catalytic subunits emits
+  only the hyperbolic one, and with one subunit emits all 3.
 
 Exactness test: for every `Mechanism` in the uni-bi and ping-pong enumerations
 to two expansion levels and the bi-bi enumeration to one level plus the

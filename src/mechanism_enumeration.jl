@@ -1249,11 +1249,12 @@ gains. All other groups, the reaction, and (for allosteric) the
 catalytic-allo tags, multiplicity, and regulatory sites are preserved
 verbatim.
 
-A parent that `_requires_hyperbolic_catalysis` (a conformational mechanism) keeps
-only the children whose catalytic scheme passes `_hyperbolic_catalysis`. The
-check runs on the emitted minimal sets, not inside the gain predicate: a
-failing set would otherwise be extended with more flips, and more steady-state
-steps never restore a hyperbolic equation, so its supersets need no visit.
+A parent that `_requires_hyperbolic_catalysis` (a conformational mechanism over
+more than one catalytic subunit) keeps only the children whose catalytic scheme
+passes `_hyperbolic_catalysis`. The check runs on the emitted minimal sets, not
+inside the gain predicate: a failing set would otherwise be extended with more
+flips, and more steady-state steps never restore a hyperbolic equation, so its
+supersets need no visit.
 """
 function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
     flux = _flux_carrying_groups(m)
@@ -1369,12 +1370,14 @@ function _flux_carrying_groups(m::Union{Mechanism, AllostericMechanism})
 end
 
 """
-Whether the enumerator may only give this mechanism type a catalytic scheme
-that passes `_hyperbolic_catalysis`. True for every type that layers a
-conformational equilibrium over its catalytic scheme.
+Whether the enumerator may only give this mechanism a catalytic scheme that
+passes `_hyperbolic_catalysis`. True when a conformational equilibrium sits over
+a catalytic site with more than one subunit: the equilibrium then raises every
+catalytic-site binding to the power of the multiplicity. Over one subunit it
+only reweights each enzyme form and adds no power of its own.
 """
 _requires_hyperbolic_catalysis(::Mechanism) = false
-_requires_hyperbolic_catalysis(::AllostericMechanism) = true
+_requires_hyperbolic_catalysis(am::AllostericMechanism) = catalytic_multiplicity(am) > 1
 
 """
     _hyperbolic_catalysis(m) -> Bool
@@ -1993,11 +1996,13 @@ steps are reused by reference; duplicate variants are removed.
 
 A parent whose catalytic scheme fails `_hyperbolic_catalysis` (random-order
 steady-state binding, or a substrate that traps a steady-state intermediate in
-an abortive complex, whose own equation carries concentration powers) emits no
-children: a conformational mechanism only carries a hyperbolic catalytic scheme.
+an abortive complex, whose own equation carries concentration powers) emits
+variants at multiplicity 1 only: above one subunit the conformational
+equilibrium would add a second source of powers
+(`_requires_hyperbolic_catalysis`).
 """
 function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
-    _hyperbolic_catalysis(m) || return AllostericMechanism[]
+    hyperbolic = _hyperbolic_catalysis(m)
     n_g = length(steps(m))
     iso = [g for g in 1:n_g if is_iso(rep_step(m, g))]
     bind = [g for g in 1:n_g if !is_iso(rep_step(m, g))]
@@ -2009,6 +2014,7 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     sort!(regs)
     results = AllostericMechanism[]
     for cn in allowed_catalytic_multiplicities(rxn)
+        cn > 1 && !hyperbolic && continue
         # K-type: every non-empty subset of binding groups :OnlyA, with all
         # chemical (iso) steps :OnlyA — a catalytically-dead inactive conformation.
         # A state that cannot bind a catalytic metabolite cannot complete the
