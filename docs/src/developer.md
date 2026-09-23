@@ -80,6 +80,28 @@ Duplicate equations that survive these proofs are collapsed at compile time by
 `eq_hash`. A numerical identifiability rank exists only in the test suite, as an
 oracle for the proofs; nothing in `src/` estimates identifiability numerically.
 
+Conformational mechanism types declare `_requires_hyperbolic_catalysis` (true for
+an `AllostericMechanism` whose catalytic multiplicity is above 1), and the moves
+that can give such a mechanism a non-hyperbolic catalytic scheme consult
+`_hyperbolic_catalysis`: `_expand_to_allosteric` promotes a non-hyperbolic
+parent at multiplicity 1 only, and `_expand_re_to_ss` filters its emitted
+children. The predicate scores
+the rapid-equilibrium segment graph of the catalytic scheme, leaving out every
+step that touches a form carrying a declared inhibitor: for each substrate and
+product, a directed steady-state edge scores one if the step binds it in that
+direction plus the count the edge's source form carries beyond its segment's
+bottom form (`_re_segment_extras`, shared with `_bottomless_re_segment`), and a
+segment scores the most any of its forms carries. The equation's degree in the
+metabolite is the best score over root segments and spanning arborescences toward
+the root; the predicate decides "at most 1" with reachability checks
+(`_all_reach`) rather than a max-arborescence solve, since a weight-2 pattern is
+one segment or edge scoring 2, a scoring root plus a compatible scoring edge, or
+two compatible scoring edges. The exactness of the predicate against the derived
+denominator is pinned by a test over the uni-bi, bi-bi, and ping-pong
+enumerations. A future conformational type (KNF, mnemonic, slow isomerization)
+adds one `_requires_hyperbolic_catalysis` method and calls the predicate in its
+promotion move.
+
 ## Optimization algorithm architecture
 
 Fitting depends only on Optimization.jl; the package ships no solver of its own.

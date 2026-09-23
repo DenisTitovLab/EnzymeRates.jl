@@ -134,26 +134,9 @@ When asked to do something, just do it - including obvious follow-up actions nee
 YOU MUST ALWAYS find the root cause of any issue you are debugging
 YOU MUST NEVER fix a symptom or add a workaround instead of finding a root cause, even if it is faster or I seem like I'm in a hurry.
 
-YOU MUST follow this debugging framework for ANY technical issue:
+YOU MUST follow the `superpowers:systematic-debugging` skill for ANY technical issue: investigate the root cause before attempting any fix, compare against working examples, and test one hypothesis at a time, saying "I don't understand X" rather than pretending to know.
 
-### Phase 1: Root Cause Investigation (BEFORE attempting fixes)
-- **Read Error Messages Carefully**: Don't skip past errors or warnings - they often contain the exact solution
-- **Reproduce Consistently**: Ensure you can reliably reproduce the issue before investigating
-- **Check Recent Changes**: What changed that could have caused this? Git diff, recent commits, etc.
-
-### Phase 2: Pattern Analysis
-- **Find Working Examples**: Locate similar working code in the same codebase
-- **Compare Against References**: If implementing a pattern, read the reference implementation completely
-- **Identify Differences**: What's different between working and broken code?
-- **Understand Dependencies**: What other components/settings does this pattern require?
-
-### Phase 3: Hypothesis and Testing
-1. **Form Single Hypothesis**: What do you think is the root cause? State it clearly
-2. **Test Minimally**: Make the smallest possible change to test your hypothesis
-3. **Verify Before Continuing**: Did your test work? If not, form new hypothesis - don't add more fixes
-4. **When You Don't Know**: Say "I don't understand X" rather than pretending to know
-
-### Phase 4: Implementation Rules
+### Implementation Rules
 - ALWAYS have the simplest possible failing test case. If there's no test framework, it's ok to write a one-off test script.
 - NEVER add multiple fixes at once
 - NEVER claim to implement a pattern without reading it completely first
@@ -184,21 +167,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Package architecture and how-it-works — the derivation, fitting, and identification pipelines, the enumeration engine, and maintainer internals (Canonical Step Form, the `EnzymeMechanism{Sig}` lift, the derivation/enumeration/optimization architecture) — are documented at <https://DenisTitovLab.github.io/EnzymeRates.jl/>; the Developer page covers the internals.
 
-## Package Goal
-
-EnzymeRates.jl identifies the best enzyme rate equation from kinetic data. Given a reaction definition and experimental rate measurements at varying concentrations, the package enumerates all biochemically valid mechanisms, fits each to data, and selects the one with fewest parameters that adequately describes the data (cross-validation).
-
-**Primary use case**: `EnzymeReaction` + data → `IdentifyRateEquationProblem` → `identify_rate_equation()` → `IdentifyRateEquationResults`
-
-**Secondary use cases**: manually define mechanisms via `@enzyme_mechanism` and derive/fit rate equations.
-
 ## API Design
 
-- **18 exported public names**: 6 types, 3 macros, 2 constants (`Full`, `Reduced`), 7 functions.
 - `compile_mechanism` is NOT exported (internal). The concrete enumeration types `Mechanism` / `AllostericMechanism` are also not exported; they are the mechanism-construction surface reached as `EnzymeRates.Mechanism` / `EnzymeRates.AllostericMechanism` / `EnzymeRates.init_mechanisms(rxn) → Vector{Mechanism}` (internal-but-usable). Their `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` singleton-type forms are lifted via `compile_mechanism(m)` when the @generated rate-equation derivation is needed.
 - The enumeration pipeline operates end-to-end on the decomposed concrete types `Mechanism` / `AllostericMechanism` (built from `Step` / `Species`) — there is no separate working representation.
 - Data tables use a `group` column (not `Article`+`Fig`) to identify measurement groups sharing the same E_total
-- Cross-validation: leave-one-group-out
 - Keq is always user-provided, never estimated from data
 
 ## Commands

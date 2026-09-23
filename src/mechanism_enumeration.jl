@@ -1248,6 +1248,13 @@ orders of the same ring, or through the extended set when no other order
 gains. All other groups, the reaction, and (for allosteric) the
 catalytic-allo tags, multiplicity, and regulatory sites are preserved
 verbatim.
+
+A parent that `_requires_hyperbolic_catalysis` (a conformational mechanism over
+more than one catalytic subunit) keeps only the children whose catalytic scheme
+passes `_hyperbolic_catalysis`. The check runs on the emitted minimal sets, not
+inside the gain predicate: a failing set would otherwise be extended with more
+flips, and more steady-state steps never restore a hyperbolic equation, so its
+supersets need no visit.
 """
 function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
     flux = _flux_carrying_groups(m)
@@ -1266,7 +1273,8 @@ function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
         _re_segment_count_after_flip(m, Set(units[u] for u in sel)) > base &&
         _bottomless_re_segment(flipped_groups(sel)) === nothing
     sets = _minimal_gaining_sets(gains, _ -> 1:length(units))
-    typeof(m)[_with_steps(m, flipped_groups(sel)) for sel in sets]
+    children = typeof(m)[_with_steps(m, flipped_groups(sel)) for sel in sets]
+    _requires_hyperbolic_catalysis(m) ? filter(_hyperbolic_catalysis, children) : children
 end
 
 """
@@ -1359,6 +1367,108 @@ function _flux_carrying_groups(m::Union{Mechanism, AllostericMechanism})
         block[e] in chem_blocks && (flags[edge_group[e]] = true)
     end
     flags
+end
+
+"""
+Whether the enumerator may only give this mechanism a catalytic scheme that
+passes `_hyperbolic_catalysis`. True when a conformational equilibrium sits over
+a catalytic site with more than one subunit: the equilibrium then raises every
+catalytic-site binding to the power of the multiplicity. Over one subunit it
+only reweights each enzyme form and adds no power of its own.
+"""
+_requires_hyperbolic_catalysis(::Mechanism) = false
+_requires_hyperbolic_catalysis(am::AllostericMechanism) = catalytic_multiplicity(am) > 1
+
+"""
+    _hyperbolic_catalysis(m) -> Bool
+
+Whether the King–Altman denominator of `m`'s catalytic scheme has degree at most
+1 in every substrate and product concentration. Every binding of a substrate or
+product at its catalytic site counts, abortive complexes included. Steps touching
+a form that carries a declared inhibitor are left out: an inhibitor binds a site
+of its own by definition, so the powers its binding adds, including those of a
+substrate declared as a dead-end inhibitor, are a separate source that
+conformational mechanisms keep.
+
+The equation is a sum over rapid-equilibrium (RE) segments and spanning
+arborescences of the segment graph toward each segment. A denominator term is
+the root segment's weight times the weight of every tree edge, so the exponent
+of `X` in a term is the most `X` any form of the root segment carries beyond
+the segment's bottom form, plus, per tree edge, one if the step binds `X` in
+the tree direction and the count of `X` the edge's source form carries beyond
+its bottom (`_re_segment_extras`). The degree exceeds 1 exactly when one
+segment or one edge scores 2 or more, or the root scores 1 and some
+arborescence toward it holds a scoring edge, or some arborescence holds two
+scoring edges. An arborescence toward `S` containing given edges exists iff
+every segment still reaches `S` once each given edge's source keeps that edge
+as its only way out (`_all_reach`).
+"""
+function _hyperbolic_catalysis(m::Union{Mechanism, AllostericMechanism})
+    on_catalytic_site(s) = !any(b -> b isa Regulator,
+                                vcat(bound(from_species(s)), bound(to_species(s))))
+    groups = filter(!isempty, [filter(on_catalytic_site, group) for group in steps(m)])
+    species, segments, extras = _re_segment_extras(groups)
+    idx = Dict(sp => i for (i, sp) in enumerate(species))
+    seg_of = zeros(Int, length(species))
+    for (k, segment) in enumerate(segments), i in segment
+        seg_of[i] = k
+    end
+    # Directed segment-graph edges: source segment, target segment, source form,
+    # metabolites bound in that direction.
+    edges = Tuple{Int, Int, Int, Vector{Symbol}}[]
+    for group in groups, s in group
+        is_equilibrium(s) && continue
+        _, _, m_lhs, m_rhs = _step_sides(s)
+        a, b = idx[from_species(s)], idx[to_species(s)]
+        seg_of[a] == seg_of[b] && continue
+        push!(edges, (seg_of[a], seg_of[b], a, m_lhs))
+        push!(edges, (seg_of[b], seg_of[a], b, m_rhs))
+    end
+    rxn = reaction(m)
+    mets = vcat(Symbol[name(s) for s in substrates(rxn)],
+                Symbol[name(p) for p in products(rxn)])
+    n = length(segments)
+    for x in mets
+        score(e) = count(==(x), e[4]) + get(extras[e[3]], x, 0)
+        carrying = [e for e in edges if score(e) > 0]
+        any(e -> score(e) > 1, carrying) && return false
+        root_score(k) = maximum((get(extras[i], x, 0) for i in segments[k]); init=0)
+        any(k -> root_score(k) > 1, 1:n) && return false
+        roots = [k for k in 1:n if root_score(k) == 1]
+        for e in carrying, k in roots
+            k != e[1] && _all_reach(n, edges, k, (e,)) && return false
+        end
+        for (p, e1) in enumerate(carrying), e2 in carrying[p + 1:end]
+            e1[1] == e2[1] && continue
+            any(k -> k != e1[1] && k != e2[1] && _all_reach(n, edges, k, (e1, e2)),
+                1:n) && return false
+        end
+    end
+    true
+end
+
+"""
+Whether every segment of the segment graph reaches `root` when each edge in
+`fixed` is its source segment's only way out. A digraph has a spanning
+arborescence toward `root` iff every vertex reaches `root`, and with the fixed
+edges as their sources' only exits every such arborescence contains them.
+"""
+function _all_reach(n::Int, edges, root::Int, fixed)
+    pinned = Dict(e[1] => e[2] for e in fixed)
+    into = [Int[] for _ in 1:n]
+    for (u, v, _, _) in edges
+        get(pinned, u, v) == v && push!(into[v], u)
+    end
+    seen = falses(n)
+    seen[root] = true
+    queue = [root]
+    while !isempty(queue)
+        v = popfirst!(queue)
+        for u in into[v]
+            seen[u] || (seen[u] = true; push!(queue, u))
+        end
+    end
+    all(seen)
 end
 
 """Number of rapid-equilibrium segments (connected components of the RE
@@ -1883,8 +1993,16 @@ steps are `:OnlyA`, and the inactive conformation only binds ligands.
 For each value in `rxn`'s `allowed_catalytic_multiplicities`, the
 multiplicity becomes the variant's `catalytic_multiplicity`. Catalytic
 steps are reused by reference; duplicate variants are removed.
+
+A parent whose catalytic scheme fails `_hyperbolic_catalysis` (random-order
+steady-state binding, or a substrate that traps a steady-state intermediate in
+an abortive complex, whose own equation carries concentration powers) emits
+variants at multiplicity 1 only: above one subunit the conformational
+equilibrium would add a second source of powers
+(`_requires_hyperbolic_catalysis`).
 """
 function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
+    hyperbolic = _hyperbolic_catalysis(m)
     n_g = length(steps(m))
     iso = [g for g in 1:n_g if is_iso(rep_step(m, g))]
     bind = [g for g in 1:n_g if !is_iso(rep_step(m, g))]
@@ -1896,6 +2014,7 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     sort!(regs)
     results = AllostericMechanism[]
     for cn in allowed_catalytic_multiplicities(rxn)
+        cn > 1 && !hyperbolic && continue
         # K-type: every non-empty subset of binding groups :OnlyA, with all
         # chemical (iso) steps :OnlyA — a catalytically-dead inactive conformation.
         # A state that cannot bind a catalytic metabolite cannot complete the

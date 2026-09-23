@@ -523,6 +523,9 @@ Build a plain (non-allosteric) `EnzymeMechanism`.
   symbols. Atom brackets (`S[C]`) are rejected at the mechanism level.
 - `regulators:` entries are treated as `CompetitiveInhibitor`s when later
   passed to `EnzymeReaction`.
+- A name listed both as a substrate or product and in `regulators:` binds as
+  the substrate or product in a bare `E(X)`; its inhibitor form is written
+  `E(X::Inh)`.
 - Same-kinetics groups are expressed via parenthesized step-groups; no
   `constraints:` block needed.
 - Allosteric-only constructs (`site(...)` / `::Tag` /
@@ -630,10 +633,13 @@ function _parse_plain_mechanism_body(block)
 
     declared_mets = Set{Symbol}(subs_list) ∪ Set{Symbol}(prods_list) ∪
                     Set{Symbol}(regs_list)
+    # A metabolite that is both a substrate/product and its own competitive
+    # inhibitor takes the substrate/product role for a bare `E(X)` binding; its
+    # inhibitor form is written `E(X::Inh)`.
     role_of = Dict{Symbol,Symbol}()
+    for r in regs_list;  role_of[r] = :CompetitiveInhibitor; end
     for s in subs_list;  role_of[s] = :Substrate;            end
     for p in prods_list; role_of[p] = :Product;              end
-    for r in regs_list;  role_of[r] = :CompetitiveInhibitor; end
 
     side_terms_per_step =
         _parse_steps_block_with_groups(steps_block, declared_mets)
@@ -1016,6 +1022,10 @@ Build an `AllostericEnzymeMechanism` (MWC, two conformations).
   not appear in two sites. Ligands declared in `allosteric_regulators:` but
   not assigned to any `regulatory_site(...):` block default to a single-ligand
   site at the catalytic multiplicity.
+- A name with several roles binds in a bare catalytic-step `E(X)` as its
+  substrate or product role first, then as a catalytic inhibitor; an
+  allosteric regulator binds only at its regulatory site. A catalytic
+  inhibitor's form is written `E(X::Inh)`.
 """
 macro allosteric_mechanism(block)
     return esc(_parse_allosteric_mechanism_body(block)[1])
@@ -1215,12 +1225,14 @@ function _parse_allosteric_mechanism_body(block)
 
     # Order matters: a metabolite that is both a substrate/product and its own
     # competitive inhibitor (self-inhibition) takes the substrate/product role
-    # for a bare `E(X)` binding; its inhibitor form is written `E(X::Inh)`.
+    # for a bare `E(X)` binding; its inhibitor form is written `E(X::Inh)`. An
+    # allosteric regulator binds only at its regulatory site, so every other
+    # role of the same name wins in catalytic steps.
     role_of = Dict{Symbol,Symbol}()
+    for (r, _) in allo_regs;  role_of[r] = :AllostericRegulator;  end
     for i in cat_inhibitors;  role_of[i] = :CompetitiveInhibitor; end
     for s in subs_list;       role_of[s] = :Substrate;            end
     for p in prods_list;      role_of[p] = :Product;              end
-    for (r, _) in allo_regs;  role_of[r] = :AllostericRegulator;  end
 
     group_tags, side_terms_per_step = _parse_steps_block_with_groups(
         cat_steps_block, declared_mets; allow_tag=true,

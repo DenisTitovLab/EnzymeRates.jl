@@ -654,6 +654,55 @@
         @test !occursin("Pinh = concs", re_str)     # the inh marker never names a concentration
     end
 
+    @testset "dual-role names bind by their catalytic role unless tagged ::Inh" begin
+        _testhelper_bound_types(m) = Dict(
+            EnzymeRates.name(EnzymeRates.to_species(s)) =>
+                typeof(EnzymeRates.bound_metabolite(s))
+            for g in EnzymeRates.steps(m) for s in g if EnzymeRates.is_binding(s))
+        # A substrate also declared as a competitive inhibitor binds as the
+        # substrate in a bare catalytic step; `E(A::Inh)` writes its inhibitor
+        # form.
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A
+            products:   P
+            regulators: A
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) <--> E(P)
+                E(P) ⇌ E + P
+                E + A::Inh ⇌ E(A::Inh)
+            end
+        end)
+        types = _testhelper_bound_types(m)
+        @test types[:EA] === EnzymeRates.Substrate
+        @test types[:EAinh] === EnzymeRates.CompetitiveInhibitor
+        @test types[:EP] === EnzymeRates.Product
+
+        # A substrate and a product also declared as allosteric regulators bind
+        # as the substrate and the product in catalytic steps; as regulators
+        # they bind only at their regulatory site.
+        am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+            substrates: A
+            products:   P
+            allosteric_regulators: A::OnlyI, P::OnlyA
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + A ⇌ E(A)          :: EqualAI
+                E(A) <--> E(P)        :: NonequalAI
+                E(P) ⇌ E + P          :: EqualAI
+            end
+            regulatory_site(multiplicity = 2): begin
+                ligands: A, P
+            end
+        end)
+        types = _testhelper_bound_types(am)
+        @test types[:EA] === EnzymeRates.Substrate
+        @test types[:EP] === EnzymeRates.Product
+        site = only(EnzymeRates.regulatory_sites(am))
+        @test Set(EnzymeRates.name.(EnzymeRates.ligands(site))) == Set([:A, :P])
+        @test all(l -> l isa EnzymeRates.AllostericRegulator, EnzymeRates.ligands(site))
+    end
+
     @testset "fused catalytic release: metabolite in neither bound list dissociates" begin
         # E(A) <--> E(Q) + P : P is produced by the step (in neither E(A) nor
         # E(Q) bound list, and both sides are 1-bound). It must reconstruct as

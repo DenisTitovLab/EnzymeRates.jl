@@ -96,6 +96,14 @@ equilibrium by modeling choice. A group whose steps all lie on dead-end branches
 carries no net flux at steady state, so the equation could only ever see its
 equilibrium ratio; flipping it would add a parameter the data cannot determine.
 
+An allosteric parent with more than one catalytic subunit also drops every child
+whose catalytic scheme would carry a concentration to a power of its own — the
+random-order steady-state pattern in which a metabolite binds on two steps that
+one King–Altman tree can hold, or an equilibrated segment already carries the
+metabolite once. See
+**Conformational mechanisms carry hyperbolic catalytic schemes** under
+[Modeling choices](@ref).
+
 **Parameter delta:** +1 per flipped group in most cases. A few flips give an
 equation that is the parent's up to renaming the constants, even though they
 divide a segment; uni-uni is the classic case, where the steady-state and
@@ -166,6 +174,13 @@ unsatisfiable is dropped (see [Thermodynamic constraints of MWC equations](@ref)
 Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an already
 allosteric input.
 
+A parent whose catalytic scheme already carries concentration powers, such as a
+random-order scheme with steady-state binding or a substrate that traps a
+steady-state intermediate in an abortive complex, is promoted at catalytic
+multiplicity 1 only; see
+**Conformational mechanisms carry hyperbolic catalytic schemes** under
+[Modeling choices](@ref).
+
 In MWC terminology the A-state corresponds to the R-state and the I-state
 to the T-state of the original Monod–Wyman–Changeux nomenclature; this
 package uses A/I throughout.
@@ -228,6 +243,27 @@ but only after a split has given the two bindings separate constants.
 catalytic cycle carries no net flux at steady state. Its forward and reverse rates
 enter the equation only as their ratio, which the equilibrium form already has,
 so the group never flips.
+
+**Conformational mechanisms carry hyperbolic catalytic schemes.** An MWC
+conformational equilibrium and a random-order steady-state catalytic scheme
+each put a metabolite concentration to a power in the rate equation, and
+sigmoidal data cannot tell the two sources apart. The moves therefore never
+combine them: promotion to allosteric gives a parent whose catalytic scheme
+already carries a power no variant above one catalytic subunit, and the flip
+move on an allosteric parent with more than one subunit drops a child that
+would introduce one. With one catalytic subunit the conformational equilibrium
+only reweights each enzyme form and adds no power of its own, so such a
+mechanism may carry any catalytic scheme. The test is structural
+(`_hyperbolic_catalysis`): the equation's degree in a metabolite is read from
+the rapid-equilibrium segment graph without deriving it. Every binding of a
+substrate or product at its catalytic site counts, abortive complexes included,
+so an ordered scheme whose substrate traps a steady-state intermediate, as
+pyruvate does with E·NAD⁺ in lactate dehydrogenase, stays out of allosteric
+mechanisms. Binding of a declared competitive inhibitor does not count, because
+an inhibitor binds a site of its own; declaring a substrate as a dead-end
+inhibitor is how substrate inhibition enters an allosteric mechanism.
+Hand-written mechanisms are not subject to the rule: an `@allosteric_mechanism`
+with random-order steady-state binding still derives and fits.
 
 **Chemistry is the isomerization step.** The moves recognize a chemistry step
 by its having no ligand on it. The enumerator writes every mechanism that way,
