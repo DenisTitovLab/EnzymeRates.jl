@@ -115,8 +115,8 @@ descendants are non-hyperbolic too, so dropping it loses nothing.
 
 ## Testing
 
-Predicate unit tests, each fixture written inline with the macros, except one
-built by a move (noted below):
+Predicate unit tests, each fixture written inline with the macros, except two
+built by the dead-end move (noted below):
 
 - ordered SS bi-bi: `true`
 - random SS bi-bi: `false`
@@ -126,6 +126,9 @@ built by a move (noted below):
 - ordered SS bi-bi with A declared as a dead-end inhibitor, all four
   placements (built by the dead-end move, `_expand_add_dead_end_regulator`):
   `true` (the powers come from the inhibitor site)
+- the abortive-complex scheme above with A also declared as a dead-end
+  inhibitor, every placement (built by the dead-end move): `false` (leaving
+  out the inhibitor forms leaves the catalytic-site A² in place)
 - uni-bi with random SS product release: `false`
 - ping-pong with one SS step per half-reaction: `true`
 
