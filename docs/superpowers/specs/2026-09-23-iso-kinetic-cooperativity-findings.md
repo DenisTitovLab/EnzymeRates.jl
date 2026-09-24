@@ -1,6 +1,7 @@
 # Iso mechanisms and single-subunit kinetic cooperativity: findings
 
-Date: 2026-09-23. Status: research findings and PGK feasibility spike; no design decided yet.
+Date: 2026-09-23. Status: research findings, PGK feasibility spike and identifiability
+analysis; no design decided yet.
 
 This note records what a research pass established before any design work on two goals:
 
@@ -29,6 +30,12 @@ re-derivations of every theoretical claim. Hand-written PGK mechanisms used Keq 
   cross terms only. They serve goal 1, not goal 2.
 - The symmetric **flip-flop** (chemistry in `E` lands in `Eprime` and chemistry in `Eprime`
   lands in `E`) is non-hyperbolic in all four metabolites of a bi-bi reaction.
+- The unidentifiable parameter of conformational mechanisms is a dwell-time gauge symmetry:
+  the rate fixes the total round-trip time between conformations but not its split (§9).
+  Counting identifiable rank fixes it everywhere; a switch-product constraint fixes it without
+  losing any rate law.
+- On PGK, no conformational mechanism (about 320 fitted, §7–8) beats the existing search at
+  the same parameter count, in training loss or LOOCV.
 - In the PGK data, most of the RE→SS random bi-bi loss gap comes from the ADP
   product-inhibition pattern, not from curvature. The genuine curvature is apparent negative
   cooperativity (Hill h ≈ 0.5–0.7), mainly in reverse-direction ATP titrations.
@@ -127,8 +134,9 @@ bounds on the extremes, not maxima.
 Iso uni-uni adds one denominator term, S·P. Iso random bi-bi adds ADP·ATP·BPG,
 ADP·ATP·3PG, ADP·BPG·3PG, ATP·BPG·3PG and ADP·ATP·BPG·3PG. Every iso variant stays degree 1
 in each metabolite, so iso mechanisms change product-inhibition patterns and never produce
-curvature on their own. Each carries one structurally unidentifiable fitted parameter (4 of 5
-uni-uni, 8 of 9 random bi-bi).
+curvature on their own. With binding constants independent per context, each carries one structurally unidentifiable
+fitted parameter (4 of 5 uni-uni, 8 of 9 random bi-bi); with the enumerator's context-shared
+binding, iso random bi-bi is full rank (7 of 7). Section 9 explains both.
 
 ## 4. PGK data and search results
 
@@ -296,6 +304,112 @@ or LOOCV at any tested count, because PGK's curvature is specific to one co-subs
 existing n = 1 MWC with SS binding already captures that shape. PGK therefore provides no
 evidence that goal 2 improves identification. Untested combinations (conformational moves plus
 SS binding, splits and inhibitor modes, which an enumerator would reach) could still do better.
+
+## 8. Extended spike: ordered binding, SS binding, sharing
+
+**Grid.** Every combination of: family (single-conformation RE, iso, forward mnemonic, reverse
+mnemonic, flip-flop); binding order (random, or ordered in each of the four order
+combinations); binding constants shared or independent across conformations; and SS binding for
+no ligand, each single ligand, ADP + 3PG, or all four. The ADP inhibitor mode was on
+throughout. That gives 280 mechanisms: 269 were fitted (30 restarts), 10 exceed the package's
+5000-term derivation limit (random binding with most or all binding steps SS), and 1 (ordered
+flip-flop, independent, all SS, 21 parameters) was stopped after 20 minutes.
+
+**Result: no mechanism beats the HPC search at the same parameter count.**
+
+| Params | Best in grid | Loss | HPC best |
+|---|---|---|---|
+| 9 | flip-flop, random, shared, all RE | 0.0253 | 0.0243 |
+| 10 | reverse mnemonic, random, shared, SS BPG | 0.0225 | 0.0194 |
+| 12 | reverse mnemonic, random, independent, SS BPG | 0.0184 | 0.0174 |
+| 13 | flip-flop, random, independent, all RE | 0.0206 | 0.0165 |
+| 15 | flip-flop, random, independent, SS BPG | 0.0170 | — |
+
+- **Ordered binding is worse for PGK** in every family. At 13 parameters or fewer, the best
+  ordered variant trails the best random one by 0.002–0.013.
+- **The reverse mnemonic and the flip-flop lead**, as expected from the ATP curvature. The
+  forward mnemonic and iso never approach the HPC curve.
+- **Shape.** The top grid models again curve 3PG as well as ATP (Lavoinne 1979 Fig3 3PG
+  h ≈ 0.46–0.88 against the data's 0.96–1.12). The only conformational models with the
+  data's shape (3PG h ≈ 0.86–1.0, ATP h ≈ 0.58–0.70) bind 3PG in SS, the same ingredient as
+  the HPC bar model: reverse mnemonic, independent, SS ADP + 3PG (14 parameters, 0.0215) and
+  flip-flop, ordered, independent, SS ADP + 3PG (17 parameters, 0.0180).
+- **LOOCV** of the grid's Pareto front: 0.0456 (10 parameters), 0.0386 (10), 0.0343 (12),
+  0.0361 (15), against the HPC's 0.0286 (10) and 0.0262 (12).
+  The one model with the data's ATP-only shape (reverse mnemonic, independent, SS ADP + 3PG,
+  14 parameters) scores worse: 0.0532.
+
+**Verdict.** The extended grid confirms §7. Conformational kinetic cooperativity reproduces
+PGK's ATP curvature only when combined with SS 3PG binding, and then needs 14–17 parameters,
+where the existing n = 1 MWC search needs 10. PGK gives no evidence for goal 2.
+
+## 9. Why conformational mechanisms carry unidentifiable parameters
+
+**Cause (proved; confirmed by an independent re-derivation).** It is a dwell-time gauge
+symmetry. Split the enzyme forms into two blocks (for example the `E` forms and the `Eprime`
+forms) joined only by SS steps that carry no free ligand: a relaxation `Eprime <--> E`, a
+chemistry step that crosses conformations, or a ping-pong chemistry step. Each crossing out
+of `E` is followed by exactly one crossing back, so the steady-state rate depends on the
+turnover per round trip and the total round-trip time, never on how that time splits between
+the two blocks. Formally: for every form X with a crossing step, divide the SS constants
+leaving X by `f_X = 1 + σ·t·R_X` (σ = +1 in `E`, −1 in `Eprime`; `R_X` = total crossing rate
+constant of X) and multiply X's equilibrium weight by `f_X`. Every one-way flux, the total
+enzyme, `v/E_t` and every Haldane relation stay the same, for all concentrations. In lifetimes:
+`1/k` rises by t for every crossing out of `E` and falls by t for every crossing out of
+`Eprime`, while the binding constants compensate.
+
+For iso uni-uni the orbit is `1/k(ES→EprimeP) + t`, `1/k(E→Eprime) + t`,
+`1/k(Eprime→E) − t`, `1/k(EprimeP→ES) − t`, with `K_S·k(E→Eprime)/k(ES→EprimeP)` fixed. The
+identifiable constants are Cleland's: `1/V1 = 1/k1 + 1/k2`, `1/V2 = 1/km1 + 1/km2`,
+`Kms = K_S(k2 + km2)/(k1 + k2)` and `Kiip = K'_P(k1 + k2)/(k1 + km1)`, four in all. Swapping
+the roles of the chemistry and relaxation steps gives a second orbit with the same rate law,
+so even after gauge fixing the fit is two-to-one.
+
+**When the phantom appears.** Only when the gauge's reweighting can be expressed in the
+fitted parameters. Sharing a binding constant across contexts or conformations breaks it
+whenever the shared steps touch forms with crossing steps, because the gauge would move the
+tied constants by different factors. Hence:
+
+- PGK mechanisms with context-shared binding (the enumerator's seed grouping) are full rank:
+  iso 7/7, flip-flop 8/8 and 12/12, both mnemonics 8/8 and 10/10.
+- A phantom appears in uni-uni mechanisms, in ordered binding (ordered iso 6/7), and once
+  splits remove the last sharing relation (context-split iso 8/9, flip-flop 15/16). A split
+  move can therefore add a fitted parameter without adding rank.
+- **Phantoms already occur in enumerated ping-pong mechanisms.** Checked with the package
+  (BigFloat derivatives, concentrations on the parameters' scale): 3 of the 8 PGK ping-pong
+  seeds from `init_mechanisms` have 6 fitted parameters and rank 5; the other 37 seeds are
+  full rank. Seeds carry one RE and one SS chemistry step. The RE chemistry step lumps
+  `E(A)` and the covalent `F(P)` into one segment, where only two combinations of its
+  `Kiso` and the adjacent binding constant are identifiable; seeds with dead-end complexes on
+  those forms escape it. Flipping that chemistry step to SS turns the redundancy into the
+  dwell-time gauge across the covalent intermediate (7 fitted, rank 6). The package's own
+  Segel ping-pong fixture (every step SS) is rank 6 of 7 through yet another redundancy: it
+  has no ligand-free cut.
+- "Exactly one phantom iff the gauge is realizable" is only a lower bound. Briggs–Haldane
+  redundancy from SS binding (kon, koff) is a separate class; for Michaelis–Menten the RE→SS
+  flip child has exactly its RE parent's family of rate laws. Rate-constant ties and
+  three-block mechanisms can add or remove phantoms beyond the gauge count.
+
+**Fixes.**
+
+- **(A) Count identifiable rank instead of fitted parameters,** on the beam's complexity axis
+  and in the flip and split gain tests. This covers every phantom class found (gauge,
+  Briggs–Haldane, ping-pong). Forward-mode AD of `d ln v / d ln θ` at a moderate random
+  point (θ and concentrations within 10^±1 of scale), 3n concentration points, relative
+  tolerance 1e-9, maximum over three draws, recovered the exact rank on 14 models with a
+  5-decade gap. Exact rank modulo a prime also matched. Parameters drawn over 10^±3 break
+  AD rank.
+- **(B) Gauge fixing,** an extra dependent row: the product of the equilibrium constants of
+  the crossing steps (each oriented `E → Eprime`) equals 1. Along an orbit this product falls
+  strictly from infinity to 0, so every orbit meets it exactly once and no rate law is lost
+  (proved; checked on 300/300 random uni-uni and 60–150 bi-bi orbits at 60+ digits). For iso
+  uni-uni it reads `K_P_Eprime = Keq·K_S_E·(k_E_to_Eprime/k_Eprime_to_E)²`. Apply it only when
+  the phantom exists: on phantom-free mechanisms it removes a real direction. It does not
+  address Briggs–Haldane redundancy.
+- **What fails:** pinning any single parameter to a constant (including K0 = 1), and every
+  tie the enumerator's grouping can express. Each loses part of the family of rate laws.
+  Reparameterizing to free Cleland constants over-covers: about a third of positive
+  coefficient sets are not iso rate laws.
 
 ## References
 
