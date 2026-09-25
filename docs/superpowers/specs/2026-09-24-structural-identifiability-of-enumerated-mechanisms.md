@@ -437,9 +437,10 @@ re-estimated after the correction.
   example, swapping the roles of chemistry and relaxation in an iso mechanism gives the same
   rate law, so a fit can be two-to-one even at full rank. Uniqueness on each slice was probed
   numerically only.
-- The profile covers uni-uni, bi-bi and PGK. Ter-ter reactions, multi-conformation mechanisms
-  (iso, flip-flop; see `2026-09-23-iso-kinetic-cooperativity-findings.md`), mechanisms with three or more gauge blocks, and the
-  package's default inhibitor-required subgraph were not analyzed. The bi-bi-with-inhibitor
+- The profile covers uni-uni, bi-bi and PGK. Not analyzed: ter-ter reactions;
+  multi-conformation mechanisms such as iso and flip-flop (see
+  `2026-09-23-iso-kinetic-cooperativity-findings.md`); mechanisms with three or more gauge
+  blocks; and the package's default inhibitor-required subgraph. The bi-bi-with-inhibitor
   closure stops at 10 parameters because of memory.
 - Family-inclusion evidence comes from a few sampled rate laws per test, and the Python sampler
   was skewed; loss fractions should be re-estimated with unbiased samples in fitted coordinates
