@@ -1,6 +1,7 @@
 # Structural identifiability of enumerated catalytic mechanisms
 
-Date: 2026-09-24. Status: survey, catalog of causes and verified fixes; no design decided.
+Date: 2026-09-24 (fusion analysis 2026-09-25). Status: survey, catalog of causes and verified
+fixes; no design decided.
 
 ## Goal and scope
 
@@ -46,6 +47,13 @@ Terms used below:
   it loses roughly 0.7–5.5% of the rate-law families and still emits non-identifiable
   mechanisms; emitting only full-rank mechanisms loses about 10%. A rank check alone cannot
   validate a fix either: several edits restore full rank and still lose rate laws.
+- **Fusing steps is exact only in specific places (§5).** Merging consecutive central complexes
+  and merging the ping-pong RE half-reaction keep every rate law and remove phantoms
+  (Michaelis–Menten all SS 5 → 3 parameters, ordered bi-bi 9 → 7, ping-pong 11 → 7). Eliminating
+  a central complex (Theorell–Chance) or merging an SS isomerization between branch points (random
+  bi-bi) gives a different, simpler rate law. Even the textbook ping-pong keeps one unidentifiable
+  parameter (6 identifiable of 7). The package derives some fused steps correctly but returns
+  silently wrong rate laws for others; those bugs come first.
 - **Canonicalization reaches the goal.** Expanding as today but emitting each mechanism's
   canonical identifiable form (its RE-reduced core plus exact slice rows) removes every phantom,
   loses almost no family, and fits about a third fewer mechanisms. It needs new machinery: SS→RE
@@ -98,7 +106,7 @@ Mechanisms with at least one phantom, by reaction (profiled samples, beam-fittab
 | PGK | 572 | 248/572 (43%) | 0.79 | 67/101 (66%) | 181/471 (38%) |
 
 The complete bi-bi closure (all 37,264 fittable mechanisms up to 14 parameters, ranked with the
-fast independent engine; §5) gives 39.9%, matching the sample's 38%, but it rises more slowly
+fast independent engine; §6) gives 39.9%, matching the sample's 38%, but it rises more slowly
 with parameter count than the sample does: 6% at 6 parameters, 25% at 8, 35% at 10, 44% at 12
 and 50% at 14. The random walks over-represent phantom mechanisms at middle counts. Ping-pong
 mechanisms are about twice as likely to carry phantoms as sequential ones.
@@ -159,9 +167,9 @@ directions in 340 mechanisms; one mechanism can carry several classes):
 |---|---|---|---|---|
 | EQ | An SS group carries no net flux, so it sits at equilibrium | 181 | Make the group RE (on a flip child: reject the flip), or pin kon = 1 | Proved; package-checked |
 | BH | Briggs–Haldane: a transit form is seen only through its inflow and outflow | 133 | Make the transit form's binding entry RE | Proved for Michaelis–Menten; package-checked |
-| CHAIN | Consecutive transit forms, e.g. SS binding, SS chemistry, SS release | 131 | Make each transit form's entry RE, working inward from the chain's end | Proved for uni-uni; package-checked |
-| PAIR | Two forms joined by an RE chemistry step trade mass freely (ping-pong) | 42 | Slice Kiso = 1 (merging the two forms is an argued alternative) | Proved; package-checked |
-| CUT | Dwell-time gauge across a ligand-free SS cut (ping-pong with both half-reactions SS) | 41 | Slice: product of the crossing steps' K = 1 | Proved; package-checked |
+| CHAIN | Consecutive transit forms, e.g. SS binding, SS chemistry, SS release | 131 | Make each transit form's entry RE, working inward from the chain's end; or merge the central complexes (§5), an equivalent exact fix | Proved; package-checked |
+| PAIR | Two forms joined by an RE chemistry step trade mass freely (ping-pong) | 42 | Merge the two forms (§5), or slice Kiso = 1 | Proved (merge: when no shared group touches the pair); package-checked |
+| CUT | Dwell-time gauge across a ligand-free SS cut (ping-pong with both half-reactions SS) | 41 | Slice: product of the crossing steps' K = 1; for ping-pong also a union of three identifiable forms split by a sign invariant (§5) | Proved; package-checked |
 | CHAIN-b | A chain one of whose entry groups also holds a dead-end step | 9 | Make the chain's chemistry RE (fuse the two central complexes), or slice k_chem² = koff_in·koff_out | Orbit proved; package-checked |
 | PAR | Two SS bindings enter the same complex in parallel | 9 | With BH: make both entries RE. Alone: slice koff₁ = koff₂ | Orbit proved; package-checked |
 | HYBRID-a | A BH-type collision next to a context-shared binding square (mostly ping-pong) | 9 | Make the transit form's binding entry RE, confirmed by a rank check | Package-checked on 2; not proved |
@@ -308,9 +316,10 @@ Every fix is one of three kinds.
    that is emitted.
 2. **Quotient.** Replace the mechanism with an equivalent one that has fewer constants: turn a
    zero-flux or transit group into RE, fuse two central complexes into one (Cleland's net rate
-   constants), or merge two forms joined by RE chemistry. Thermodynamics carries over exactly: a
-   fused or RE step's equilibrium constant is the product of the constants it replaces, and the
-   Haldane and Wegscheider relations apply to it like any other step.
+   constants), or merge two forms joined by RE chemistry (§5 gives the exact conditions).
+   Thermodynamics carries over exactly: a fused or RE step's equilibrium constant is the product
+   of the constants it replaces, and the Haldane and Wegscheider relations apply to it like any
+   other step.
 3. **Slice.** Keep the mechanism and add one dependent-parameter row per phantom, chosen so
    that every orbit of equivalent parameter sets crosses it exactly once. The row changes only
    which parameters are fitted, not `rate_equation`.
@@ -339,7 +348,7 @@ How each class maps onto the three kinds of fix:
 | Kind | Classes where it is exact | Where it loses rate laws |
 |---|---|---|
 | Avoid: reject the child | EQ; BH, CHAIN and PAR+BH flips (47/47 tested flip pairs kept every rate law); JOINT, when both of its RE parents are also emitted | CHAIN-b, deep HYBRID, TRI and PAIR→CUT flips; JOINT when a parent is missing; many splits (33 of 56 tested same-rank split pairs reach rate laws their parent cannot) |
-| Quotient: SS group → RE, fuse or merge | EQ, BH, CHAIN, PAR+BH, CHAIN-b (chemistry), HYBRID-a (entry); PAIR by merging the two forms (argued) | Converting the wrong group: every class has a plausible conversion that fails |
+| Quotient: SS group → RE, fuse or merge | EQ, BH, CHAIN (entry RE or merge), PAR+BH, CHAIN-b (chemistry), HYBRID-a (entry), PAIR (merge) | Converting the wrong group: every class has a plausible conversion that fails; merging an SS isomerization between branch points |
 | Slice: one dimensionless row | EQ (kon = 1), PAIR (Kiso = 1), CUT (crossing product), PAR-only (koff₁ = koff₂), CHAIN-b (k_chem² = koff_in·koff_out), TRI (k_f·k_r = koff_B·koff_Q), RING (product of two exit rates = product of the other two) | A row the orbit does not cross (it deletes a real direction), or any row applied where no phantom exists |
 
 A slice that involves a Haldane-dependent constant carries a ±log Keq term in the package's
@@ -347,7 +356,166 @@ fitted coordinates; whether it does depends on which constant the constraint sol
 dependent in that mechanism, not on the class. None of the slices can be written as a mechanism
 edit: adding them means a new kind of dependent row in the thermodynamic constraint solve.
 
-## 5. Enumerator-level policies
+## 5. Fusing steps and merging central complexes
+
+Denis proposed removing intermediates that have a single route in and a single route out, and
+merging central complexes such as E(A,B) and E(P,Q). Two operations make this precise:
+
+- **ELIM(X)** removes a form X with exactly two steps Y ⇌ X ⇌ Z and replaces them with one
+  fused step Y ⇌ Z that carries both steps' free metabolites.
+- **MERGE(X₁, X₂)** contracts a ligand-free step X₁ ⇌ X₂ (typically chemistry between central
+  complexes) into a single form.
+
+**Thermodynamics carries over exactly (proved).** A fused step's equilibrium constant is the
+product of the two it replaces, and every cycle of the original maps to a cycle of the fused
+mechanism with the same product of constants and the same net turnover. Merging a ligand-free
+step keeps the cycle structure. Both results are thermodynamically consistent. Fusing two SS
+steps, or merging an SS step, removes two fitted parameters; the RE cases remove one.
+
+**When fusion keeps every rate law (proved).** Take a pass-through form X between two SS steps,
+Y + L₁ → X → Z + R₂, where leaving X binds nothing. At steady state X's population is
+α·L₁·[Y] + β·R₂·[Z], and the rest of the mechanism sees exactly the fused step. The original
+mechanism is therefore the fused one plus two free "dead-end masses", α·L₁·[Y] and β·R₂·[Z],
+and the constants map one-to-one. Fusion keeps the family exactly when both masses can be
+absorbed elsewhere in the mechanism: when a mass carries no ligand, when an RE partner of Y has
+the same content, or when another pass-through form is entered from Y by the same ligand (after
+merging parallel duplicate steps and RE pairs). Denis's rule needs two refinements:
+
+- The form must bind nothing when it is left; otherwise the fused step's rate depends on a
+  concentration and is not mass action.
+- Neither of its steps may belong to a context-shared kinetic group; otherwise the fused step
+  needs fresh constants and the fitted count rises.
+
+Checking only that the dropped monomials still appear elsewhere is not enough (50
+counterexamples), nor is adding a check that rank is unchanged (20 ping-pong counterexamples).
+
+**Two more exact rules (proved).**
+
+- **Merging a ligand-free RE step is always exact** and removes exactly one phantom, provided no
+  context-shared group touches the merged pair. This settles the PAIR class: merging the
+  ping-pong RE half-reaction is now a proved fix, not an argued one.
+- **The RE sandwich.** Y + L ⇌ X₁ (RE), X₁ <--> X₂ (SS), X₂ ⇌ Z + R (RE) has the same fitted
+  count and the same family as Y + L <--> X <--> Z + R with a single merged complex and both
+  steps SS. The enumerator's RE ordered seed (5 of 5) is therefore the same model as the merged
+  central complex with SS second binding and SS first release.
+
+**Denis's examples, computed exactly** (fitted / rank):
+
+| Mechanism | Fitted / rank | Relation |
+|---|---|---|
+| Michaelis–Menten, all three steps SS | 5 / 3 | |
+| Michaelis–Menten, merged central complex E + S ⇌ X ⇌ E + P (SS) | 3 / 3 | same family as the all-SS and the RE forms |
+| Ordered bi-bi, all SS, E(A,B) and E(P,Q) separate | 9 / 7 | |
+| Ordered bi-bi, merged central complex | 7 / 7 | same family, same 11-term denominator |
+| Theorell–Chance, E(A) + B ⇌ E(Q) + P | 5 / 5 | different family: lacks the ABP and BPQ terms; the limit of the ordered family as the central complex empties |
+| Ordered ter-bi, all SS | 11 / 9 | merged central complex 9 / 9, same family |
+| Ping-pong, six steps, all SS | 11 / 6 | |
+| Ping-pong, textbook four steps | 7 / 6 | same family as the six-step form; one phantom remains |
+| Random bi-bi, all SS | 15 / 15 | |
+| Random bi-bi, merged central complex | 13 / 13 | same 48-term denominator but a different, lower-dimensional family on the boundary (whether it lies inside the SS family is unproven) |
+
+**Why the textbook ping-pong has 6, not 7, identifiable parameters.** All 8 denominator
+coefficients, and the 8 Cleland constants built from them (Vf, Vb, K_mA, K_mB, K_mP, K_mQ,
+K_iA, K_iQ), can be measured; Vmax is already one of them, because numerator and denominator
+share a common scale. For every ping-pong mechanism the coefficients obey two identities (proved
+symbolically; ρᵢ = k₋ᵢ/kᵢ):
+
+1. c_A·c_B = Keq·c_P·c_Q, the ping-pong Haldane relation among kinetic constants.
+2. Normalized by the numerator, c_A = x₃ + ρ₃x₄, c_B = x₁ + ρ₁x₂, c_AB = x₂ + x₄ and
+   c_PQ/(ρ₂ρ₄) = ρ₃x₁ + ρ₁x₃ with xᵢ = 1/kᵢ; the fourth equals ρ₁·(first) + ρ₃·(second) −
+   ρ₁ρ₃·(third).
+
+So 8 − 2 = 6 independent numbers against 7 fitted constants. The invisible direction shifts
+1/k₂ up and 1/k₄ down by the same amount (with k₁ and k₃ compensating), leaving
+Vf = 1/(1/k₂ + 1/k₄) unchanged: the data fix the total time of the two product-release
+half-reactions, not its split. No ELIM, MERGE or RE conversion removes this phantom. Two exact
+options exist: the slice kon(A→X₁)·kon(Q→X₂) = kon(P→X₁)·kon(B→X₂), which gives 6 of 6, or
+the union of three identifiable four-step forms selected by the sign of
+σ = d_AP·d_B − d_AB·d_P (A binding RE when σ < 0, Q release RE when σ > 0, both when σ = 0);
+a second, equivalent decomposition uses σ′ = d_BQ·d_A − d_AB·d_Q. Today the enumerator reaches
+the textbook family at 7 fitted parameters (RE bindings with both chemistry steps SS, a CUT
+mechanism), and the six-step all-SS form at 11.
+
+**Denis's point 5: merge the central complex whenever a mechanism has more than one SS step.**
+Not valid in general. Merging an RE isomerization is always exact, but merging an SS
+isomerization keeps the family only in special cases: when an end is a pass-through whose other
+mass can be absorbed (ordered sides), or through the RE sandwich. In exact scans of mechanisms
+with per-step constants, 372 of 429 SS merges lost rate laws. On the complete bi-bi closure,
+merging lowers the rank in 96% of the mechanisms it changes. With a guard that keeps rank, it
+fixes 888 of 14,873 non-identifiable mechanisms (6.0%), almost all of them PAIR or CHAIN, and
+removes 9.8% of phantom directions.
+
+**Combined with canonicalization.** Applying the guarded merge after the RE-reduced core (§6)
+makes 1,070 of the 3,002 cores that still carry phantoms fully identifiable (1,034 of the 1,134
+PAIR cores), cutting the directions that need a slice from 3,144 to 2,036. For CHAIN, merging
+the chain and making its entries RE are equivalent exact fixes with the same count; the merge
+produces Cleland's single central complex, which the enumerator does not build today.
+
+**Denis's point 9: reducing identifiable mechanisms.** Merging reduces 98.7% of the full-rank
+closure mechanisms by at least two parameters (elimination reduces 18%), and almost all results
+are identifiable. Because the original was identifiable, the reduced mechanism always has a
+different family (proved by dimension). In every certified case it lies on the original's
+boundary but outside it, as Theorell–Chance does for ordered bi-bi, and three quarters have no
+counterpart among the reachable mechanisms. These are simpler nested models, not
+reparameterizations: useful candidates for parsimony, with genuinely different rate laws.
+
+**Denis's points 7 and 8: new initial mechanisms.** From the 69 bi-bi seeds, merging or
+eliminating the central complex and choosing which other steps become SS gives 4,686 variants,
+all thermodynamically consistent. 1,554 have no more parameters than their seed, and 1,244 of
+those are identifiable, but most are degenerate: they lack the AB or PQ denominator term, or
+their rate does not vanish as a substrate goes to zero. Specifically:
+
+- **Duplicates.** Merging the central complex with SS entry and exit gives exactly the RE seed's
+  family (proved), so these add nothing.
+- **Fewer parameters.** A merged complex with a single SS step has 4 parameters and lacks the PQ
+  or the AB term; an RE Theorell–Chance mechanism has 3. These are limits of the seed family,
+  not seed-like models.
+- **Same count, new, well-behaved.** For ordered bi-bi: the merged complex with A binding and P
+  release SS, the merged complex with B binding and Q release SS, and the all-SS
+  Theorell–Chance mechanism. All are identifiable 5-parameter families that the moves cannot
+  reach today. They lie on the boundary of reachable families.
+- **Random topology.** No variant with 5 or fewer parameters behaves like the seeds.
+- **Ping-pong.** The 5-parameter merges with A binding and Q release SS (or B binding and P
+  release SS) have the textbook 8-term denominator, but they are one-dimension-smaller faces of
+  the textbook family, which the enumerator already reaches at 7 parameters. The merge with SS
+  steps around the first merged form equals the family of the plain PAIR seed, making it an
+  identifiable 5-parameter replacement for two of the four PAIR seeds.
+- **A flaw in today's ping-pong seeds.** With no products present, every RE ping-pong seed gives
+  v = V·A/(K + A), independent of B: the RE second half-reaction pulls all enzyme back to E
+  instantly.
+
+**What the package supports today (checked under the package's derivation against independent
+mass-action rate laws).** Correct: fused chemistry-plus-release written in the release direction
+(twelve test fixtures use it, including the Segel ping-pong), fused binding-plus-chemistry
+written in the binding direction, and the merged ordered central complex. Broken:
+
+- **Silently wrong results.**
+  - A fused binding written in the reverse direction with an RE release returns −v.
+  - The DSL keeps one metabolite of a Theorell–Chance step and silently drops the other
+    (`dsl.jl:744-745`).
+  - A fused binding and an ordinary binding from the same form get the same parameter names, so
+    their constants are silently tied.
+  - `_compute_numerator` (`rate_eq_derivation.jl:549-551`) leaves steps at mixed
+    substrate/product complexes out of the reaction cut. Whenever such a step carries catalytic
+    flux, the numerator is wrong without an error. This also affects unmerged hand-written
+    mechanisms with RE chemistry and an SS abortive binding (package 1.249 against exact
+    1.841). Today's enumerated mechanisms are unaffected, since each contains a single SS
+    chemistry step.
+- **Crashes.** An RE fused release raises a BoundsError in `_compute_alpha`
+  (`rate_eq_derivation.jl:305`).
+- **Representation.** `Step` stores one free metabolite and not which side it is on, so
+  Theorell–Chance steps cannot be written, and the side of a fused step is guessed from its
+  shape. Fused steps are stored as written, so the same step written in each direction gives two
+  different mechanisms and names.
+- **Enumerator.** The moves recognize chemistry only as a ligand-free isomerization:
+  `_flux_carrying_groups` gives a parent with fused chemistry no flips at all, the atom check
+  rejects fused releases, and the dead-end move places inhibitor bindings on the wrong form for
+  a fused release.
+
+These must be fixed before the enumerator emits any fused or merged mechanism; the first group
+already affects hand-written mechanisms.
+
+## 6. Enumerator-level policies
 
 The sampled profile cannot measure reachability, so the policies were compared on complete
 closures: every mechanism the catalytic moves reach from the 69 bi-bi seeds within the beam's
@@ -402,7 +570,7 @@ with a skewed law sampler, testing only parents as covering mechanisms, and then
 merge-equivalent cores; treat them as rough. The bi-bi-with-inhibitor losses were not
 re-estimated after the correction.
 
-## 6. Open questions
+## 7. Open questions
 
 **Design choices for Denis.**
 
@@ -419,6 +587,20 @@ re-estimated after the correction.
 - **The beam's complexity axis.** Until every emitted mechanism is identifiable, fitted counts
   overcharge phantom mechanisms in the beam, the parsimony filter and the LOOCV tie-break.
 
+- **New initial mechanisms.** Which of the same-count variants (merged ordered complexes with
+  A binding and P release SS, or B binding and Q release SS; all-SS Theorell–Chance) should seed
+  the search, whether the degenerate fewer-parameter variants belong there too, and whether the
+  RE ping-pong seeds (B-independent at zero products) should be replaced by merged forms.
+- **Parsimony candidates.** Merging or eliminating steps of identifiable mechanisms yields
+  simpler, different rate laws that the moves never reach; whether the enumerator should offer
+  them as moves.
+- **Step representation.** Supporting fused steps properly means storing which side each free
+  metabolite is on (and allowing one on each side for Theorell–Chance), canonicalizing their
+  direction, and giving them distinct parameter names; it touches `Step`, `_step_sides`,
+  `_compute_alpha`, `_compute_numerator`, naming and the moves.
+- **Package bugs.** The silently wrong results listed in §5 affect hand-written mechanisms today
+  and are independent of any enumeration change.
+
 **Proofs still missing.**
 
 - The orbit-endpoint rule for when an SS→RE conversion is exact, in general.
@@ -430,6 +612,13 @@ re-estimated after the correction.
 - Lossless rejection of the first dead-end inhibitor mode for the DUP-T, DUP-BH and DUP-PAR
   subclasses.
 - A general slice rule for INH-DUP where rejection loses rate laws.
+- Whether the merged random bi-bi family lies inside the SS random family or only on its
+  boundary, and whether the absorbability conditions for fusion are necessary in general.
+- Whether the package-checked CHAIN-b representatives (chemistry made RE) avoid the numerator
+  bug, which bites when an SS step at a mixed substrate/product complex carries flux.
+- True family-loss rates of the rank-guarded merge for BH+CUT and HYBRID-a mechanisms; the
+  sampled estimates are upper bounds, since the fitter reported false losses in classes proved
+  exact.
 
 **Scope limits.**
 
