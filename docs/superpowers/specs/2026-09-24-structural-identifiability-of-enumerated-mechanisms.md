@@ -445,6 +445,27 @@ merging lowers the rank in 96% of the mechanisms it changes. With a guard that k
 fixes 888 of 14,873 non-identifiable mechanisms (6.0%), almost all of them PAIR or CHAIN, and
 removes 9.8% of phantom directions.
 
+**Which classes merging fixes.** Merging fixes CHAIN, which includes the textbook
+Briggs–Haldane Michaelis–Menten with every step SS (5 fitted, rank 3, becomes 3 of 3 with the
+same rate laws), and the ping-pong half-reactions. It does not fix the class called BH here, where
+the binding into the central complex is SS but the release on the other side is RE. There the
+merged complex joins free enzyme's RE segment, the substrate terms vanish and the rate no longer
+saturates (Michaelis–Menten: 2 of 2 with denominator 1 + P/K). On the bi-bi closure, merging never
+fixes a BH mechanism without losing rate laws; making the SS binding RE remains the exact fix.
+
+**Keeping non-flux-carrying steps RE.** Converting a zero-flux SS group to RE is always exact
+(EQ, §3), and the enumerator already screens flips with `_flux_carrying_groups`. That screen is
+weaker than "carries flux" in three ways: it works on the raw form graph before RE steps are
+contracted, so a step on a cycle through the chemistry passes even when the rest of that cycle is
+RE; it flags a whole group if any one step qualifies; and it runs once on the parent, while later
+splits can isolate a zero-flux context into its own SS group. Zero flux is also a property of the
+whole mechanism, not of the step. An SS route E → E(A) → E(A,B) beside an RE route
+E → E(B) → E(A,B) carries no net flux (1.6e-7 of v in a brute-force check, vanishing as the RE
+limit becomes exact), but once the parallel route is SS the same route carries 62% of the flux.
+The exact rule is therefore: an SS group must contain a step on a catalytic cycle of the
+RE-contracted mechanism, checked on each mechanism as it is built. Only dead-end and abortive
+bindings (bridges) can never carry flux, so for them "never SS" is permanent.
+
 **Combined with canonicalization.** Applying the guarded merge after the RE-reduced core (§6)
 makes 1,070 of the 3,002 cores that still carry phantoms fully identifiable (1,034 of the 1,134
 PAIR cores), cutting the directions that need a slice from 3,144 to 2,036. For CHAIN, merging
