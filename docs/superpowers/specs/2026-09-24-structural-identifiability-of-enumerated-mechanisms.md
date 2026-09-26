@@ -512,9 +512,9 @@ and an independent skeptic recomputed every one and certified every class.
 Two obstructions explain most of the losses. An exact merge needs a parent with at least two
 phantoms, since the merged mechanism has two fewer constants; an identifiable parent therefore
 always loses a dimension (5,491 applications). And no merge touched by a context-shared group
-was exact on the closures (0 of 5,387). The likely reason is that the merged form inherits a tied
-binding constant K where the fast-isomerization limit needs K/(1 + K_iso); a tie confined to the
-pair can still be exact (below).
+was exact on the closures (0 of 5,387). The likely reason is that the merged form inherits a
+tied binding constant K where the fast-isomerization limit needs K/(1 + K_iso); a tie confined
+to the pair can still be exact (below).
 
 **When the merge is exact (sufficient, proved; also necessary on the closures).** The pair is
 an untied SS relay: each complex has one other step (counting parallel steps from one RE segment
