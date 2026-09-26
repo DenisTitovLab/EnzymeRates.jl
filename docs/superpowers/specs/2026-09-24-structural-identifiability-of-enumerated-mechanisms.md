@@ -1,7 +1,7 @@
 # Structural identifiability of enumerated catalytic mechanisms
 
-Date: 2026-09-24 (fusion analysis 2026-09-25). Status: survey, catalog of causes and verified
-fixes; no design decided.
+Date: 2026-09-24 (fusion analysis 2026-09-25, SS-only merge rule 2026-09-26). Status: survey,
+catalog of causes and verified fixes; no design decided.
 
 ## Goal and scope
 
@@ -57,8 +57,10 @@ Terms used below:
   (Michaelis–Menten all SS 5 → 3 parameters, ordered bi-bi 9 → 7, ping-pong 11 → 7). Eliminating
   a central complex (Theorell–Chance) or merging an SS isomerization between branch points (random
   bi-bi) gives a different, simpler rate law. Even the textbook ping-pong keeps one unidentifiable
-  parameter (6 identifiable of 7). The package derives some fused steps correctly but returns
-  silently wrong rate laws for others; those bugs come first.
+  parameter (6 identifiable of 7). Merging an SS isomerization whose complexes carry only SS
+  steps keeps the concentration terms in 98% of closure cases but every rate law in only 19%:
+  exactly when the pair is an untied SS relay. The package derives some fused steps correctly
+  but returns silently wrong rate laws for others; those bugs come first.
 - **Canonicalization reaches the goal.** Expanding as today but emitting each mechanism's
   canonical identifiable form (its RE-reduced core plus exact slice rows) removes every phantom,
   loses almost no family, and fits about a third fewer mechanisms. It needs new machinery: SS→RE
@@ -472,9 +474,10 @@ the key numbers with its own brute-force solver.
   so it does add concentration terms. That holds for about 89% of the mergeable catalytic
   mechanisms in these runs. A control that only makes the chemistry RE costs the same, so the
   chemistry rate constant itself does the fitting work.
-- **Checking the monomials is the reliable guard.** "Both complexes reached only by SS
-  steps" is necessary but not sufficient: 27 of 45 sampled candidates meeting it keep their
-  monomials.
+- **Checking the monomials is the reliable guard.** Of 45 sampled candidates where at least
+  one central complex is reached only by SS steps, 27 keep their monomials: 9 of 20 and 13 of
+  20 where only one complex qualifies, 5 of 5 where both do. The next paragraph examines the
+  both-sides rule on the complete closures.
 - **Replacing rather than adding.** Swapping catalytic candidates for their merged versions
   in the cross-validation tables changes the selected equation in 2 of 4 runs, both times to a
   model with a similar score.
@@ -487,6 +490,60 @@ equally well. Before that, the package's merged derivations must be fixed: they 
 check would pass). `_kcat_forward` crashes on some correctly derived merged mechanisms. For
 allosteric PFK mechanisms, the build agent found a further normalization error (the merged rate
 equals the exact one with L replaced by L/F6P⁴), which the skeptic did not re-check.
+
+**Denis's SS-only rule.** Denis proposed merging an SS isomerization X₁ <--> X₂ whenever every
+other step at X₁ and at X₂ is SS, expecting the same concentration terms with two fewer
+parameters. A census applied the rule to every SS ligand-free isomerization in the uni-uni,
+bi-bi (37,264 mechanisms) and bi-bi-with-inhibitor (88,076) closures, 8,009 applications in all,
+and an independent skeptic recomputed every one and certified every class.
+
+- **Parameters.** Every application removes two. That is not a theorem: when a context-shared
+  tie closes a cycle through the isomerization, Wegscheider already fixes its equilibrium
+  constant and the merge saves one (527 of about 5,500 random form splits outside the closures).
+- **Terms.** A merge never adds a concentration term (proved). It keeps every term when leaving
+  X₁ and X₂ binds nothing except through dead-end bridges (proved for the denominator; no
+  numerator exception in about 10,500 cases), which covers every sequential central complex.
+  7,815 applications (97.6%) keep their terms; the other 194 are ping-pong mechanisms with an
+  abortive complex on a cycle at one end.
+- **Family.** Only 1,524 applications (19%) keep every rate law. 6,227 keep the terms but lower
+  the rank, 64 keep terms and rank but provably lose rate laws (a coefficient inequality holds
+  on the merged family and fails for some parent laws), and 194 lose terms.
+
+Two obstructions explain most of the losses. An exact merge needs a parent with at least two
+phantoms, since the merged mechanism has two fewer constants; an identifiable parent therefore
+always loses a dimension (5,491 applications). And no merge touched by a context-shared group
+was exact on the closures (0 of 5,387). The likely reason is that the merged form inherits a tied
+binding constant K where the fast-isomerization limit needs K/(1 + K_iso); a tie confined to the
+pair can still be exact (below).
+
+**When the merge is exact (sufficient, proved; also necessary on the closures).** The pair is
+an untied SS relay: each complex has one other step (counting parallel steps from one RE segment
+with the same concentration monomial as one step), that step is SS and in its own kinetic group,
+and leaving the complex through it binds nothing. The merged complex is then itself such a
+relay, which absorbs the dead-end masses of the decomposition above. Explicit two-way parameter
+maps confirm all 1,524 exact merges; 208 bi-bi and 632 bi-bi-with-inhibitor mechanisms become
+fully identifiable. Outside the closures five more exact patterns exist, all instances of the
+same absorption principle: an isomerization chain, a ligand-free dead-end conformation at a
+branch, an RE nonproductive complex that absorbs the mass, a conformer whose only route
+duplicates the other end's entry, and a tie confined to the pair.
+
+**Every isomerization removal, by outcome.**
+
+| Removal | Saving | Outcome |
+|---|---|---|
+| RE ligand-free isomerization, no shared group at either end (includes PAIR) | 1 | exact (2,756 closure cases, by explicit maps) |
+| SS relay, as above (all-SS Michaelis–Menten, ordered central complexes, ping-pong half-reactions with SS binding and release) | 2 | exact |
+| SS isomerization chain X₁ <--> X₂ <--> X₃ | 2 | exact |
+| SS isomerization on no catalytic cycle (dead-end conformation, bridge) | 2 | exact: convert to RE (EQ), then merge |
+| SS step with both ends inside one RE segment | 1 | exact: delete |
+| RE sandwich | 0 | same family, a rewrite |
+| SS isomerization at a branch point, or with an identifiable parent | 2 | smaller family; the fast-isomerization limit when untied |
+| SS isomerization with an RE step at either end | 2 (1 when its group is shared) | not exact on the closures (0 of 123,376): 75% lose terms, 10% close an all-RE catalytic cycle |
+
+The rule rarely fires on real data. In the PGK and LDH pools only 5 of about 6,700 SS central
+steps meet it; all 5 keep their terms, and all have identifiable parents, so every merge there
+is a smaller family. As a canonicalization that replaces the parent, only the exact rows above
+qualify. Every other merge belongs to the extra, parent-keeping move recommended above.
 
 **Which classes merging fixes.** Merging fixes CHAIN, which includes the textbook
 Briggs–Haldane Michaelis–Menten with every step SS (5 fitted, rank 3, becomes 3 of 3 with the
@@ -685,6 +742,10 @@ re-estimated after the correction.
 - A general slice rule for INH-DUP where rejection loses rate laws.
 - Whether the merged random bi-bi family lies inside the SS random family or only on its
   boundary, and whether the absorbability conditions for fusion are necessary in general.
+- That merging keeps the numerator's terms when leaving both complexes binds nothing (proved
+  for the denominator; no exception in about 10,500 cases), and whether the 24 bi-bi RE
+  isomerization merges touched by a shared group that keep rank are exact (no separating
+  inequality found; fits unresolved).
 - Whether the package-checked CHAIN-b representatives (chemistry made RE) avoid the numerator
   bug, which bites when an SS step at a mixed substrate/product complex carries flux.
 - True family-loss rates of the rank-guarded merge for BH+CUT and HYBRID-a mechanisms; the
