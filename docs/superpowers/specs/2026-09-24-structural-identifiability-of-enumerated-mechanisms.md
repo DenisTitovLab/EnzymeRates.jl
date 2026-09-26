@@ -47,6 +47,11 @@ Terms used below:
   it loses roughly 0.7–5.5% of the rate-law families and still emits non-identifiable
   mechanisms; emitting only full-rank mechanisms loses about 10%. A rank check alone cannot
   validate a fix either: several edits restore full rank and still lose rate laws.
+- **Merging the central complex everywhere loses fit on real data (§5).** On the PGK, LDH and
+  PFK runs, merging costs 1.3–24× in fit whenever it deletes concentration terms, which it does
+  in about 89% of cases, because the SS chemistry step separates two rapid-equilibrium segments.
+  Where it keeps the terms, it costs at most 1.22× and often wins on parsimony. So the merge
+  belongs as an extra move limited to term-preserving cases, not as a replacement.
 - **Fusing steps is exact only in specific places (§5).** Merging consecutive central complexes
   and merging the ping-pong RE half-reaction keep every rate law and remove phantoms
   (Michaelis–Menten all SS 5 → 3 parameters, ordered bi-bi 9 → 7, ping-pong 11 → 7). Eliminating
@@ -445,6 +450,44 @@ merging lowers the rank in 96% of the mechanisms it changes. With a guard that k
 fixes 888 of 14,873 non-identifiable mechanisms (6.0%), almost all of them PAIR or CHAIN, and
 removes 9.8% of phantom directions.
 
+**Denis's merge-everywhere proposal, tested on real data.** Denis proposed merging the
+central complex in every mechanism with more than one SS step, reasoning that two extra
+parameters that add no new concentration term will rarely earn their place under parsimony.
+This was tested on the PGK, LDH and PFK identify runs. 109 top mechanisms with an SS central
+step and other SS steps were merged, each merged rate law was checked against an independent
+exact rate law, and each was refit with the runs' own settings. The harness reproduced the HPC
+losses to 10⁻⁹ and the HPC cross-validation scores to 10⁻⁶. An independent skeptic re-derived
+the key numbers with its own brute-force solver.
+
+- **Denis's premise is the right test.** Whether the merge keeps the rate law's concentration
+  monomials separates the outcomes cleanly.
+  - Where it keeps them, all 21 merges tested cost at most 1.22× in training loss, and one
+    improved on its parent. The 1-SE rule picked the merged model in 5 of 5 cross-validated
+    pairs, and merged models set new best losses at their parameter count in all four
+    catalytic runs (for example PGK without inhibitors, 5 parameters: 0.0384 against 0.0615).
+  - Where it deletes monomials, merging cost 1.3–24× (median 5.4), and merged
+    cross-validation scores were 2.9–15.5× worse.
+- **The premise fails for most mechanisms.** When the central complexes are entered from RE
+  steps on both sides, the SS chemistry step is what separates two rapid-equilibrium segments,
+  so it does add concentration terms. That holds for about 89% of the mergeable catalytic
+  mechanisms in these runs. A control that only makes the chemistry RE costs the same, so the
+  chemistry rate constant itself does the fitting work.
+- **Checking the monomials is the reliable guard.** "Both complexes reached only by SS
+  steps" is necessary but not sufficient: 27 of 45 sampled candidates meeting it keep their
+  monomials.
+- **Replacing rather than adding.** Swapping catalytic candidates for their merged versions
+  in the cross-validation tables changes the selected equation in 2 of 4 runs, both times to a
+  model with a similar score.
+
+The supported rule: do not merge everywhere. Add merging as an extra expansion move that keeps
+the unmerged parent, limited to merges that leave the rate law's concentration monomials
+unchanged. The merged models then compete on parsimony, which favours them when they fit
+equally well. Before that, the package's merged derivations must be fixed: they were wrong for
+68 of 96 tested catalytic merges (and 4 of 11 out-of-sample, one only 3.5e-5 off, which a loose
+check would pass). `_kcat_forward` crashes on some correctly derived merged mechanisms. For
+allosteric PFK mechanisms, the build agent found a further normalization error (the merged rate
+equals the exact one with L replaced by L/F6P⁴), which the skeptic did not re-check.
+
 **Which classes merging fixes.** Merging fixes CHAIN, which includes the textbook
 Briggs–Haldane Michaelis–Menten with every step SS (5 fitted, rank 3, becomes 3 of 3 with the
 same rate laws), and the ping-pong half-reactions. It does not fix the class called BH here, where
@@ -621,6 +664,13 @@ re-estimated after the correction.
   `_compute_alpha`, `_compute_numerator`, naming and the moves.
 - **Package bugs.** The silently wrong results listed in §5 affect hand-written mechanisms today
   and are independent of any enumeration change.
+- **A merge move.** How to check cheaply that a merge keeps the rate law's concentration
+  monomials, whether allosteric mechanisms should get the same move, and a real identify run
+  with the move once the derivation is fixed. The replacement test above kept the beam's path
+  fixed; a real run would expand merged mechanisms differently.
+- **Selection rule drift.** The HPC runs chose their best equation with the older paired 1-SE
+  plus permutation rule; the current `_select_best_row` selects a different equation in all four
+  runs. Comparisons of "the selected equation" should use the current rule.
 
 **Proofs still missing.**
 
