@@ -122,8 +122,44 @@ refactor run (+18%; R5 1.1 s to 1.2 s, R4 0.4 s in both). A warm measurement at 
 R6 7.32 s to 8.27 s (+13%); there the parameter-name collision guard cost 0.37 s and
 step-direction canonicalization 0.31 s.
 
+## Allosteric mechanisms
+
+The comparison above covers non-allosteric mechanisms only. A second scratch script (not
+committed) ran the same check on enumerated allosteric mechanisms, on ab7f0cf and on the
+branch's final code (0a6dbb9 plus the final-review fixes, none of which touch derivation or
+enumeration).
+
+Population, for each of R4 and R5: every `_expand_to_allosteric` child of the 62
+`init_mechanisms` seeds (level 1) and every `_expand_change_allo_state` child of those (level 2),
+deduplicated by `==`. Both reactions allow catalytic multiplicity 1 only and declare no
+allosteric regulator, so every level-1 child is a K-type variant: all chemistry `:OnlyA` and a
+non-empty subset of the binding groups `:OnlyA`. R5's inhibitor is not bound at these levels, so
+R5's population has the same 2,914 structures as R4's. A mechanism is keyed by its steps with
+explicit consumed and released lists, each group's allosteric tag, the multiplicity and the
+regulatory sites.
+
+| Reaction | Level 1: raw, distinct | Level 2: raw, new distinct | Total |
+|---|---|---|---|
+| R4 | 930, 930 | 3,720, 1,984 | 2,914 |
+| R5 | 930, 930 | 3,720, 1,984 | 2,914 |
+
+Both runs enumerated these counts, the same keys at the same levels, and the same stored step
+and group order for every one of the 5,828 mechanisms. The baseline derived a fixed-seed uniform
+sample of 1,000 per reaction (R4: 329 at level 1 and 671 at level 2; R5: 290 and 710; 1,676
+distinct structures in all), and the refactor derived the same 2,000. Each run recorded
+`fitted_params` and the Reduced `rate_equation_string`; an allosteric mechanism has no Full
+string.
+
+| Set | Derived | fitted | reduced | error | okey | Median t (s) |
+|---|---|---|---|---|---|---|
+| R4 | 1,000 | 0 | 0 | 0 | 0 | 0.147 → 0.131 |
+| R5 | 1,000 | 0 | 0 | 0 | 0 | 0.122 → 0.108 |
+
+Neither run raised an error. No mechanism differs, so no law needed the mass-action oracle.
+
 ## Conclusion
 
 Every enumerated mechanism compared keeps its fitted names, both rate equations, its step order
 and its place in the enumeration, except two R5 mechanisms whose baseline law was wrong. The
+same holds, with no exception, for the 2,000 enumerated allosteric mechanisms derived. The
 fixtures with fused steps change only their parameter names. Derivation is not slower.

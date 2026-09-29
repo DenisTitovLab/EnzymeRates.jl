@@ -309,6 +309,55 @@ function build_mechanism_test_specs()
         ))
     end
 
+    # 6. Segel Theorell-Chance Bi Bi: E + A ⇌ EA, EA + B ⇌ EQ + P, EQ ⇌ E + Q
+    #    B binds and P leaves in one step, which carries metabolites on both sides.
+    #    Reference: Segel, Enzyme Kinetics, Eq. IX-122
+    let
+        m, src = @enzyme_mechanism_src begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) + B <--> E(Q) + P
+                E(Q) <--> E + Q
+            end
+        end
+
+        # Segel Eq. IX-122: Theorell-Chance Bi Bi steady-state rate
+        function rate_theorell_chance_bi_bi(params, concs)
+            (; k1f, k1r, k2f, k2r, k3f, k3r, Etotal) = params
+            (; A, B, P, Q) = concs
+            num = k1f * k2f * k3f * A * B - k1r * k2r * k3r * P * Q
+            denom = k1r * k3f +
+                    k1f * k3f * A +
+                    k2f * k3f * B +
+                    k1r * k2r * P +
+                    k1r * k3r * Q +
+                    k1f * k2f * A * B +
+                    k1f * k2r * A * P +
+                    k2f * k3r * B * Q +
+                    k2r * k3r * P * Q
+            return Etotal * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="Segel Theorell-Chance Bi Bi",
+            mechanism=m,
+            source_steps=src,
+            metabolite_names=[:A, :B, :P, :Q],
+            expected_n_states=3,
+            expected_n_steps=3,
+            expected_n_metabolites=4,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
+            expected_n_independent_params=5,
+            analytical_rate_fn=(p, c) ->
+                rate_theorell_chance_bi_bi(merge(p, (Etotal=p.Et,)), c),
+            analytical_kcat_fn=p -> p.k3f,
+        ))
+    end
+
     # 7. Segel Ping Pong Bi Bi (replaces Ping-Pong Bi-Bi):
     #    E + A ⇌ (EA≡FP) ⇌ F + P, F + B ⇌ (FB≡EQ) ⇌ E + Q
     #    Reference: Segel, Enzyme Kinetics, Eq. IX-140

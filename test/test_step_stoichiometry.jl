@@ -276,6 +276,17 @@ const _testhelper_fused_cases = [
             E(B; residual = A - P) ⇌ E(Q)
             E(P; residual = A - P) + B ⇌ E(B, P; residual = A - P)
             E(; residual = A - P) + B ⇌ E(B; residual = A - P) end end),
+        # both substrates bind in one rapid-equilibrium step
+        @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
+            E + A + B ⇌ E(A, B); E(A, B) <--> E(P, Q); E(P, Q) <--> E(Q) + P
+            E(Q) <--> E + Q end end),
+        # the first substrate also binds as a dead-end inhibitor copy, at rapid
+        # equilibrium on E and at steady state on E(Q); both the derivation and
+        # the oracle count the first substrate by name
+        @enzyme_mechanism(begin substrates: A, B; products: P, Q; regulators: A
+            steps: begin
+            E + A ⇌ E(A); E(A) + B <--> E(A, B); E(A, B) <--> E(Q) + P; E(Q) <--> E + Q
+            E + A::Inh ⇌ E(A::Inh); E(Q) + A::Inh <--> E(A::Inh, Q) end end),
 ]
 
 @testset "fused steps derive the mass-action rate" begin
