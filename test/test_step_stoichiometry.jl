@@ -2,12 +2,13 @@
 # ABOUTME: construction, canonical orientation, kinds, names, orientation-free derivation.
 
 const ER = EnzymeRates
-_sp(bound, conf = :E) = ER.Species(ER.Metabolite[bound...], conf)
-_sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res)
+_testhelper_sp(bound, conf = :E) = ER.Species(ER.Metabolite[bound...], conf)
+_testhelper_sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res)
 
 @testset "Step: explicit consumed/released lists" begin
     A, B, P, Q = ER.Substrate(:A), ER.Substrate(:B), ER.Product(:P), ER.Product(:Q)
-    E, EA, EQ, EAB = _sp([]), _sp([A]), _sp([Q]), _sp([A, B])
+    E, EA = _testhelper_sp([]), _testhelper_sp([A])
+    EQ, EAB = _testhelper_sp([Q]), _testhelper_sp([A, B])
 
     @testset "pure binding keeps its written orientation" begin
         s = ER.Step(E, EA, [A], ER.Metabolite[], true)
@@ -20,14 +21,14 @@ _sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res)
         s = ER.Step(EA, E, ER.Metabolite[], [A], false)
         @test s == ER.Step(E, EA, [A], ER.Metabolite[], false)
         # conformation change allowed: E*(A) → E + A is the binding E + A → E*(A)
-        Estar_A = _sp([A], :Estar)
+        Estar_A = _testhelper_sp([A], :Estar)
         r = ER.Step(Estar_A, E, ER.Metabolite[], [A], true)
         @test ER.from_species(r) == E && ER.to_species(r) == Estar_A
         @test ER.ligand(r) == A
     end
 
     @testset "isomerization and transformations" begin
-        iso = ER.Step(EAB, _sp([P, Q]), ER.Metabolite[], ER.Metabolite[], false)
+        iso = ER.Step(EAB, _testhelper_sp([P, Q]), ER.Metabolite[], ER.Metabolite[], false)
         @test ER.is_iso(iso) && ER.ligand(iso) === nothing && !ER.is_binding(iso)
         fused = ER.Step(EAB, EQ, ER.Metabolite[], [P], false)        # chemistry + release
         @test !ER.is_iso(fused) && ER.ligand(fused) === nothing
@@ -41,7 +42,7 @@ _sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res)
 
     @testset "covalent residual: binding onto a residual form vs chemistry" begin
         res = ER.Residual([A], [P])
-        F, FB = _sp([], :E, res), _sp([B], :E, res)
+        F, FB = _testhelper_sp([], :E, res), _testhelper_sp([B], :E, res)
         @test ER.ligand(ER.Step(F, FB, [B], ER.Metabolite[], true)) == B
         chem = ER.Step(EA, F, ER.Metabolite[], [P], false)            # E(A) → F + P
         @test ER.ligand(chem) === nothing
@@ -59,7 +60,7 @@ _sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res)
     @testset "inhibitor copy stays distinct from the substrate" begin
         Ai = ER.CompetitiveInhibitor(:A)
         s_sub = ER.Step(E, EA, [A], ER.Metabolite[], true)
-        s_inh = ER.Step(E, _sp([Ai]), [Ai], ER.Metabolite[], true)
+        s_inh = ER.Step(E, _testhelper_sp([Ai]), [Ai], ER.Metabolite[], true)
         @test s_sub != s_inh && hash(s_sub) != hash(s_inh)
         @test ER.ligand(s_inh) == Ai
     end
@@ -72,7 +73,7 @@ _sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res)
     @testset "sort key reproduces today's order" begin
         s = ER.Step(E, EA, [A], ER.Metabolite[], true)
         @test ER._step_canonical_key(s) == ("E", "EA", "A", "", true)
-        iso = ER.Step(EAB, _sp([P, Q]), ER.Metabolite[], ER.Metabolite[], false)
+        iso = ER.Step(EAB, _testhelper_sp([P, Q]), ER.Metabolite[], ER.Metabolite[], false)
         @test ER._step_canonical_key(iso) == ("EAB", "EPQ", "", "", false)
     end
 
