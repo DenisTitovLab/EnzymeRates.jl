@@ -187,8 +187,8 @@ function _testhelper_check_against_mass_action(em; n_points = 3, seed = 1)
     end
 end
 
-@testset "fused steps derive the mass-action rate" begin
-    cases = [
+# Mechanisms with fused steps, shared by the mass-action and orientation testsets.
+const _testhelper_fused_cases = [
         # uni-uni: fused release / fused binding, both orientations, both flags
         @enzyme_mechanism(begin substrates: S; products: P; steps: begin
             E + S <--> E(S); E(S) <--> E + P end end),
@@ -255,14 +255,18 @@ end
             E(B; residual = A - P) ⇌ E(Q)
             E(P; residual = A - P) + B ⇌ E(B, P; residual = A - P)
             E(; residual = A - P) + B ⇌ E(B; residual = A - P) end end),
-    ]
-    for em in cases
+]
+
+@testset "fused steps derive the mass-action rate" begin
+    for em in _testhelper_fused_cases
         _testhelper_check_against_mass_action(em)
     end
 end
 
-@testset "Theorell–Chance and two-metabolite steps" begin
-    tc_ss = @enzyme_mechanism begin
+# Theorell–Chance and two-metabolite mechanisms, shared by the mass-action and
+# orientation testsets.
+const _testhelper_tc_cases = (
+    tc_ss = @enzyme_mechanism(begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -270,8 +274,8 @@ end
             E(A) + B <--> E(Q) + P
             E(Q) <--> E + Q
         end
-    end
-    tc_re_outer = @enzyme_mechanism begin
+    end),
+    tc_re_outer = @enzyme_mechanism(begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -279,8 +283,8 @@ end
             E(A) + B <--> E(Q) + P
             E(Q) ⇌ E + Q
         end
-    end
-    tc_re_step = @enzyme_mechanism begin
+    end),
+    tc_re_step = @enzyme_mechanism(begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -288,8 +292,8 @@ end
             E(A) + B ⇌ E(Q) + P
             E(Q) <--> E + Q
         end
-    end
-    two_in = @enzyme_mechanism begin
+    end),
+    two_in = @enzyme_mechanism(begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -297,7 +301,11 @@ end
             E(A, B) <--> E(P, Q)
             E(P, Q) <--> E + P + Q
         end
-    end
+    end),
+)
+
+@testset "Theorell–Chance and two-metabolite steps" begin
+    (; tc_ss, tc_re_outer, tc_re_step, two_in) = _testhelper_tc_cases
     @test length(ER.fitted_params(tc_ss)) == 5
     @test length(ER.fitted_params(tc_re_outer)) == 3
     for em in (tc_ss, tc_re_outer, tc_re_step, two_in)
@@ -316,16 +324,78 @@ end
     rev(s) = ER.Step(ER.to_species(s), ER.from_species(s), ER.released(s), ER.consumed(s),
                      ER.is_equilibrium(s))
     rng = Random.MersenneTwister(7)
+    # Every step reversed, then a random subset.
+    variants(groups) = ([[rev(s) for s in g] for g in groups],
+                        [[rand(rng, Bool) ? rev(s) : s for s in g] for g in groups])
+    # The Theorell–Chance step of `tc_ss` written backwards.
+    tc_backwards = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(Q) + P <--> E(A) + B
+            E(Q) <--> E + Q
+        end
+    end
+    @test ER.Mechanism(tc_backwards) == ER.Mechanism(_testhelper_tc_cases.tc_ss)
+    @test ER.rate_equation_string(tc_backwards) ==
+          ER.rate_equation_string(_testhelper_tc_cases.tc_ss)
     ems = Any[spec.mechanism for spec in MECHANISM_TEST_SPECS
               if spec.mechanism isa ER.EnzymeMechanism]
+    append!(ems, _testhelper_fused_cases, values(_testhelper_tc_cases), [tc_backwards])
     for em in ems
         m = ER.Mechanism(em)
-        flipped = [[rand(rng, Bool) ? rev(s) : s for s in g] for g in ER.steps(m)]
-        m2 = ER.Mechanism(ER.reaction(m), flipped)
-        @test m2 == m
-        @test ER.rate_equation_string(ER.compile_mechanism(m2)) ==
-              ER.rate_equation_string(em)
+        for flipped in variants(ER.steps(m))
+            m2 = ER.Mechanism(ER.reaction(m), flipped)
+            @test m2 == m
+            @test ER.rate_equation_string(ER.compile_mechanism(m2)) ==
+                  ER.rate_equation_string(em)
+        end
     end
+    for spec in MECHANISM_TEST_SPECS
+        spec.mechanism isa ER.AllostericEnzymeMechanism || continue
+        am = ER.AllostericMechanism(spec.mechanism)
+        for flipped in variants(ER.steps(am))
+            am2 = ER.AllostericMechanism(ER.reaction(am), flipped, ER.cat_allo_states(am),
+                                         ER.catalytic_multiplicity(am),
+                                         ER.regulatory_sites(am))
+            @test am2 == am
+            @test ER.rate_equation_string(ER.compile_mechanism(am2)) ==
+                  ER.rate_equation_string(spec.mechanism)
+        end
+    end
+end
+
+@testset "Tier 2 reads the free metabolites at both ends of a step" begin
+    # F is where P leaves (the fused release E(S) → F + P) and E is where S
+    # enters, so the isomerization between them runs F → E however either step
+    # is written.
+    forward = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> F + P
+            F <--> E
+        end
+    end
+    backward = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(S)
+            F + P <--> E(S)
+            E <--> F
+        end
+    end
+    m = ER.Mechanism(forward)
+    @test ER.Mechanism(backward) == m
+    flat = ER._flat_steps(m)
+    i = only(i for (i, (s, _)) in enumerate(flat) if ER.is_iso(s))
+    iso = first(flat[i])
+    @test ER.name(ER.from_species(iso)) == :F && ER.name(ER.to_species(iso)) == :E
+    kf, kr = ER._step_parameters(m)[i]
+    @test ER.name(kf, m) == :k_F_to_E && ER.name(kr, m) == :k_E_to_F
 end
 
 @testset "parameter-name collisions are rejected" begin

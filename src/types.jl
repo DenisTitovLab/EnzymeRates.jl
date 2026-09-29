@@ -476,24 +476,30 @@ function Base.show(io::IO, r::EnzymeReaction)
     end
 end
 
-# Classify how a species participates in pure BINDING steps (RE or SS) as the
-# FREE side (canonical binding puts the bound metabolite on the to_species
-# side, so the free form IS from_species). Used by `_canonical_step_direction`
-# Tier 2 to decide direction for non-binding steps where Tier 1 ties.
+# Classify a species by the metabolites that enter or leave solution at it:
+# the consumed metabolites of every step leaving it (its `from_species`) and
+# the released metabolites of every step arriving at it (its `to_species`). A
+# pure binding is stored with its metabolite consumed, so it marks its free
+# form; a fused release E(S) → F + P marks F, the form P leaves at. Reversing a
+# step swaps its forms and its lists together, so the classification does not
+# depend on how any step was written. Isomerizations carry no free metabolites
+# and mark nothing. Used by `_canonical_step_direction` Tier 2 to decide
+# direction for non-binding steps where Tier 1 ties.
 #
-# Why ALL binding steps (not just RE): the "substrate-entry / product-exit"
+# Why ALL steps (not just RE): the "substrate-entry / product-exit"
 # property is a chemistry fact about which forms metabolites enter and
-# leave at — it does NOT depend on whether the binding step is rapid-
+# leave at — it does NOT depend on whether the step is rapid-
 # equilibrium or steady-state. The DSL parses `<-->` as SS and `⇌` as RE;
 # fixtures like Segel Iso Uni Uni (`E + A <--> EA ⇌ EP <--> F + P, F <--> E`)
 # use `<-->` throughout, so an RE-only filter would mis-classify both `E`
 # and `F` as `:neither` and the F⇌E case would fall through to Tier 3 lex.
-function _entry_kind(sp::Species, binding_steps, subs::Set{Symbol},
+function _entry_kind(sp::Species, all_steps, subs::Set{Symbol},
                      prods::Set{Symbol})
     has_sub = false; has_prod = false
-    for s in binding_steps
-        from_species(s) == sp || continue
-        for m in consumed(s)
+    for s in all_steps, (form, free) in ((from_species(s), consumed(s)),
+                                         (to_species(s), released(s)))
+        form == sp || continue
+        for m in free
             n = name(m)
             n in subs  && (has_sub  = true)
             n in prods && (has_prod = true)
@@ -515,7 +521,7 @@ end
 # two sides symmetrically, so the result does not depend on how the step was
 # written.
 function _canonical_step_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol},
-                                   binding_steps::Vector{Step})
+                                   all_steps::Vector{Step})
     is_binding(s) && return s
     f, t = from_species(s), to_species(s)
     flip() = Step(t, f, released(s), consumed(s), is_equilibrium(s))
@@ -528,9 +534,10 @@ function _canonical_step_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol
     sf > st && return s
     sf < st && return flip()
 
-    # Tier 2: 1-hop binding (RE+SS) graph context.
-    fk = _entry_kind(f, binding_steps, subs, prods)
-    tk = _entry_kind(t, binding_steps, subs, prods)
+    # Tier 2: 1-hop (RE+SS) graph context — the metabolites that enter or
+    # leave solution at each form.
+    fk = _entry_kind(f, all_steps, subs, prods)
+    tk = _entry_kind(t, all_steps, subs, prods)
     fk == :product_only   && tk == :substrate_only && return s
     fk == :substrate_only && tk == :product_only   && return flip()
 
@@ -539,18 +546,16 @@ function _canonical_step_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol
 end
 
 # Canonicalize the storage direction (RE + SS) of every non-binding step to
-# physical-forward for every group. Tier 2 reads only the pure bindings, which
-# the Step constructor has already oriented, so it sees the same context
-# however the other steps were written. Shared by the `Mechanism` and
-# `AllostericMechanism` constructors so the Canonical Step Form invariant
-# cannot drift between them.
+# physical-forward for every group. Tier 2 reads each step's free metabolites
+# at both of its ends, so it sees the same context however the steps were
+# written. Shared by the `Mechanism` and `AllostericMechanism` constructors so
+# the Canonical Step Form invariant cannot drift between them.
 function _canonicalize_step_directions(reaction::EnzymeReaction,
                                        groups::Vector{Vector{Step}})
     subs  = Set{Symbol}(name(s) for s in substrates(reaction))
     prods = Set{Symbol}(name(s) for s in products(reaction))
-    flat0 = Step[s for group in groups for s in group]
-    binding_steps = filter(is_binding, flat0)
-    [[_canonical_step_direction(s, subs, prods, binding_steps)
+    all_steps = Step[s for group in groups for s in group]
+    [[_canonical_step_direction(s, subs, prods, all_steps)
       for s in group] for group in groups]
 end
 
