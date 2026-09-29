@@ -125,10 +125,10 @@ function _positional_flat_idx(mech, source_steps)
         return flat_idx
     end
     # Match canonical steps to as-written steps by structural `Step ==`. The
-    # source groups are iso-canonicalized so their stored direction matches the
-    # mechanism's; group/within-group order is preserved, so flat position in
+    # source groups are direction-canonicalized so their stored direction matches
+    # the mechanism's; group/within-group order is preserved, so flat position in
     # `src_flat` IS the as-written step index the oracle numbers k1,k2,….
-    src_canon = EnzymeRates._canonicalize_iso_groups(
+    src_canon = EnzymeRates._canonicalize_step_directions(
         EnzymeRates.reaction(mech), source_steps)
     src_flat = EnzymeRates.Step[s for g in src_canon for s in g]
     used = falses(length(src_flat))

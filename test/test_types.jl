@@ -898,7 +898,7 @@
 
         # The Step constructor does NOT canonicalize iso steps (RE or SS) —
         # iso direction depends on the reaction's substrate/product sets and
-        # is decided by `_canonical_iso_direction` in the Mechanism / Allosteric
+        # is decided by `_canonical_step_direction` in the Mechanism / Allosteric
         # Mechanism constructor. At the bare-Step level, direction is preserved.
         re_fwd = EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
                                   EnzymeRates.Metabolite[], true)

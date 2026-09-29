@@ -732,40 +732,34 @@ end
 """
 Build a `Step(from_species, to_species, consumed, released, is_eq)` `Expr`
 from one step's LHS/RHS structural terms. Each side has exactly one
-enzyme-form term (bare conformation OR call-form) and zero or one
-metabolite terms: the left-hand metabolite is consumed, the right-hand one
-released.
+enzyme-form term (bare conformation OR call-form) and any number of
+metabolite terms: the left-hand metabolites are consumed, the right-hand
+ones released.
 """
 function _build_step_expr(lhs::Vector{_StepSideTerm},
                           rhs::Vector{_StepSideTerm},
                           is_eq::Bool,
                           role_of::Dict{Symbol,Symbol})
-    lhs_enzyme, lhs_met = _split_side(lhs)
-    rhs_enzyme, rhs_met = _split_side(rhs)
-    met_exprs(t) = t === nothing ? Expr[] :
-        [_metabolite_expr(t.sym, role_of, t.role)]
+    lhs_enzyme, lhs_mets = _split_side(lhs)
+    rhs_enzyme, rhs_mets = _split_side(rhs)
+    met_exprs(ts) = Expr[_metabolite_expr(t.sym, role_of, t.role) for t in ts]
     from_expr = _species_expr_from_term(lhs_enzyme, role_of)
     to_expr   = _species_expr_from_term(rhs_enzyme, role_of)
     :(EnzymeRates.Step($from_expr, $to_expr,
-                       EnzymeRates.Metabolite[$(met_exprs(lhs_met)...)],
-                       EnzymeRates.Metabolite[$(met_exprs(rhs_met)...)], $is_eq))
+                       EnzymeRates.Metabolite[$(met_exprs(lhs_mets)...)],
+                       EnzymeRates.Metabolite[$(met_exprs(rhs_mets)...)], $is_eq))
 end
 
 """
-Split a step side into its `(enzyme_term, optional_metabolite_term)`.
-Errors if there is not exactly one enzyme term or more than one
-metabolite term.
+Split a step side into its `(enzyme_term, metabolite_terms)`.
+Errors if there is not exactly one enzyme term.
 """
 function _split_side(side::Vector{_StepSideTerm})
     enzyme_term = nothing
-    met_term = nothing
+    met_terms = _StepSideTerm[]
     for t in side
         if t.kind === :metabolite
-            met_term === nothing ||
-                error("@enzyme_mechanism: step side has more than one " *
-                      "metabolite term ($(met_term.sym), $(t.sym)); each " *
-                      "elementary step binds at most one metabolite.")
-            met_term = t
+            push!(met_terms, t)
         else
             enzyme_term === nothing ||
                 error("@enzyme_mechanism: step side has more than one " *
@@ -778,7 +772,7 @@ function _split_side(side::Vector{_StepSideTerm})
     enzyme_term === nothing &&
         error("@enzyme_mechanism: step side has no enzyme-form term " *
               "(terms: $(Symbol[t.sym for t in side])).")
-    enzyme_term, met_term
+    enzyme_term, met_terms
 end
 
 """

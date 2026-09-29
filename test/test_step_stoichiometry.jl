@@ -260,3 +260,99 @@ end
         _testhelper_check_against_mass_action(em)
     end
 end
+
+@testset "Theorell–Chance and two-metabolite steps" begin
+    tc_ss = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B <--> E(Q) + P
+            E(Q) <--> E + Q
+        end
+    end
+    tc_re_outer = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(Q) + P
+            E(Q) ⇌ E + Q
+        end
+    end
+    tc_re_step = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B ⇌ E(Q) + P
+            E(Q) <--> E + Q
+        end
+    end
+    two_in = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A + B <--> E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P, Q) <--> E + P + Q
+        end
+    end
+    @test length(ER.fitted_params(tc_ss)) == 5
+    @test length(ER.fitted_params(tc_re_outer)) == 3
+    for em in (tc_ss, tc_re_outer, tc_re_step, two_in)
+        _testhelper_check_against_mass_action(em)
+    end
+    # canonical orientation: the substrate side is `from`
+    s = only(s for g in ER.steps(ER.Mechanism(tc_ss)) for s in g
+             if !ER.is_iso(s) && !ER.is_binding(s))
+    @test ER.name(ER.from_species(s)) == :EA &&
+          ER.consumed(s) == ER.Metabolite[ER.Substrate(:B)]
+    @test :k_EA_to_EQ in ER.parameters(tc_ss, ER.Full)
+    @test :k_EQ_to_EA in ER.parameters(tc_ss, ER.Full)
+end
+
+@testset "reversing written steps changes nothing" begin
+    rev(s) = ER.Step(ER.to_species(s), ER.from_species(s), ER.released(s), ER.consumed(s),
+                     ER.is_equilibrium(s))
+    rng = Random.MersenneTwister(7)
+    ems = Any[spec.mechanism for spec in MECHANISM_TEST_SPECS
+              if spec.mechanism isa ER.EnzymeMechanism]
+    for em in ems
+        m = ER.Mechanism(em)
+        flipped = [[rand(rng, Bool) ? rev(s) : s for s in g] for g in ER.steps(m)]
+        m2 = ER.Mechanism(ER.reaction(m), flipped)
+        @test m2 == m
+        @test ER.rate_equation_string(ER.compile_mechanism(m2)) ==
+              ER.rate_equation_string(em)
+    end
+end
+
+@testset "parameter-name collisions are rejected" begin
+    A, B, P = ER.Substrate(:A), ER.Substrate(:B), ER.Product(:P)
+    E, EA, EstarA = _testhelper_sp([]), _testhelper_sp([A]), _testhelper_sp([A], :Estar)
+    EAB, EP = _testhelper_sp([A, B]), _testhelper_sp([P])
+    rxn = @enzyme_reaction(begin
+        substrates: A[C]
+        products: P[C]
+    end)
+    # A binds E into two different forms from two groups: both would be kon_A_E.
+    err = try
+        ER.Mechanism(rxn, [
+            [ER.Step(E, EA, [A], ER.Metabolite[], false)],
+            [ER.Step(E, EstarA, [A], ER.Metabolite[], false)],
+            [ER.Step(EA, EP, ER.Metabolite[], ER.Metabolite[], false)],
+            [ER.Step(E, EP, [P], ER.Metabolite[], false)]])
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("same parameter names", err.msg)
+    # The same isomerization in two groups: both would be k_EA_to_EP.
+    @test_throws ErrorException ER.Mechanism(rxn, [
+        [ER.Step(E, EA, [A], ER.Metabolite[], false)],
+        [ER.Step(EA, EP, ER.Metabolite[], ER.Metabolite[], false)],
+        [ER.Step(EP, EA, ER.Metabolite[], ER.Metabolite[], false)],
+        [ER.Step(E, EP, [P], ER.Metabolite[], false)]])
+end
