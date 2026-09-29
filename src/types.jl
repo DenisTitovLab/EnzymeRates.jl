@@ -1278,7 +1278,8 @@ function Base.show(io::IO, m::EnzymeMechanism)
     # between its two enzyme forms; start at a path endpoint (a degree-1
     # form) if any, else the free enzyme `:E`, else any form, then follow
     # edges and emit each step's far side. If the walk can't consume every
-    # step the mechanism is branched → multi-line rendering below.
+    # step (the mechanism is branched, or the chain would hide a step's
+    # metabolite) → multi-line rendering below.
     _enz_forms(lhs, rhs) = (first(s for s in lhs if s in enz_set),
                             first(s for s in rhs if s in enz_set))
     degree = Dict{Symbol,Int}()
@@ -1305,6 +1306,7 @@ function Base.show(io::IO, m::EnzymeMechanism)
     if is_linear
         subs = Set{Symbol}(substrates(m))
         remaining = collect(Rxns)
+        remaining_binds = [is_binding(s) for group in steps(Mechanism(m)) for s in group]
         current = start
         while !isempty(remaining)
             idx = nothing
@@ -1323,8 +1325,16 @@ function Base.show(io::IO, m::EnzymeMechanism)
             end
             idx === nothing && (is_linear = false; break)
             lhs, rhs, is_eq, _ = remaining[idx]
+            binds = remaining_binds[idx]
             deleteat!(remaining, idx)
+            deleteat!(remaining_binds, idx)
             a, b = _enz_forms(lhs, rhs)
+            # Only the first step prints its entry side. A later step may leave
+            # its entry-side metabolites unprinted only if it is a pure binding,
+            # whose bound form names the metabolite; any other step (e.g. a
+            # Theorell–Chance step) needs the multi-line rendering.
+            !isempty(chain_segments) && length(current == a ? lhs : rhs) > 1 &&
+                !binds && (is_linear = false; break)
             in_side  = current == a ? join(lhs, " + ") : join(rhs, " + ")
             out_side = current == a ? join(rhs, " + ") : join(lhs, " + ")
             isempty(chain_segments) && push!(chain_segments, in_side)

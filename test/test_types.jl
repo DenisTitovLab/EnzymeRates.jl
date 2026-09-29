@@ -249,6 +249,36 @@
         @test sprint(show, m_re) ==
             "EnzymeMechanism: E + S ⇌ ES <--> EP ⇌ E + P"
 
+        # Theorell–Chance: B binds and P leaves in one step. A chain prints only
+        # the first step's entry side, which would hide B, so every step prints
+        # on its own line with all its metabolites.
+        m_tc = @enzyme_mechanism begin
+            substrates: A, B
+            products:   P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) + B <--> E(Q) + P
+                E(Q) <--> E + Q
+            end
+        end
+        @test sprint(show, m_tc) ==
+            "EnzymeMechanism (3 steps, 3 enzyme forms):\n  E + A <--> EA\n" *
+            "  E + Q <--> EQ\n  EA + B <--> EQ + P"
+
+        # A fused binding (B binds and chemistry runs in one step) would hide B
+        # in a chain as well, since E(P, Q) does not name it.
+        m_fb = @enzyme_mechanism begin
+            substrates: A, B
+            products:   P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) + B <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
+            end
+        end
+        @test contains(sprint(show, m_fb), "EA + B <--> EPQ")
+
         # Mechanism with regulators: appended at end.
         m_reg = @enzyme_mechanism begin
             substrates: S
