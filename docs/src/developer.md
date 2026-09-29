@@ -24,9 +24,9 @@ during precompilation rather than at every call.
 This is the most important architectural decision in the package, and it is
 deliberate. Moving the derivation to compile time leaves
 `rate_equation(m, conc, params)` as a flat numeric expression that must be
-**allocation-free and sub-100 ns per call**, enforced by
+**allocation-free and sub-120 ns per call**, enforced by
 `test_rate_equation_performance` (`test/test_rate_eq_derivation.jl`, asserting
-`allocs == 0` and `t < 100e-9` for every fixture mechanism). That speed is the
+`allocs == 0` and `t < 120e-9` for every fixture mechanism). That speed is the
 binding constraint on the whole package: the fitter is a multi-start, global,
 gradient-free optimizer that evaluates `rate_equation` millions of times per
 fit, and a single rate equation can take minutes to fit, so any per-call
@@ -52,10 +52,19 @@ Mechanism enumeration uses the **concrete types** `Mechanism` and
 from `Step` and `Species` values. `Mechanism` has two fields:
 `reaction::EnzymeReaction` and `steps::Vector{Vector{Step}}` — kinetic groups,
 one inner vector per group holding the steps that share that group's parameters.
-`Step` has `from_species`, `to_species`, `bound_metabolite`, and
-`is_equilibrium`. Like the singleton types, these are canonicalized so that the
+`Step` has `from_species`, `to_species`, `consumed`, `released`, and
+`is_equilibrium`: going from `from_species` to `to_species`, a step takes up the
+metabolites in `consumed` from solution and gives off those in `released`. A pure
+binding consumes one metabolite that `to_species` then carries (`ligand`); an
+isomerization has both lists empty (`is_iso`); every other step, such as fused
+chemistry and release, a Theorell–Chance step, or several metabolites on one
+side, is a transformation, and its constants are named by its two forms
+(`k_EAB_to_EQ`). Like the singleton types, these are canonicalized so that the
 order or direction in which steps are written does not change the resulting
-mechanism.
+mechanism. The `Step` constructor stores a pure binding with its metabolite
+consumed; the `Mechanism` and `AllostericMechanism` constructors orient every
+other step (`_canonical_step_direction`), sort steps and groups, and reject steps
+in different kinetic groups that would render the same parameter names.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see

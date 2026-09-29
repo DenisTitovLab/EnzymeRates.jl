@@ -70,12 +70,22 @@ end
 
 - The `Step` constructor stores a pure binding with its metabolite consumed: a release written
   EA → E + A is stored as E + A → EA, as today.
-- The `Mechanism` and `AllostericMechanism` constructors orient every other step with the three
-  tiers of today's `_canonical_iso_direction`. Tier 1 scores each side by (number of substrates,
+- The `Mechanism` and `AllostericMechanism` constructors orient every other step in three
+  tiers (`_canonical_step_direction`). Tier 1 scores each side by (number of substrates,
   −number of products) over the side's bound metabolites plus its free metabolites, so
-  EA + B | EQ + P scores (2, 0) against (0, −2) and `from` becomes the substrate side. Tiers 2
-  and 3 are unchanged. Isomerizations have no free metabolites, so their orientation does not
-  change.
+  EA + B | EQ + P scores (2, 0) against (0, −2) and `from` becomes the substrate side.
+- Tier 2, used when Tier 1 ties, reads the free metabolites at both ends of every step in the
+  mechanism: a form collects the consumed metabolites of the steps leaving it and the released
+  metabolites of the steps arriving at it (`_entry_kind`). A step whose one end collects only
+  products and whose other end collects only substrates runs from the product end to the
+  substrate end. Reversing a step swaps its forms and its lists together, so what each form
+  collects, and with it the orientation, does not depend on how any step was written. A pure
+  binding marks its free form with its metabolite, and an isomerization marks nothing.
+- Tier 3, used when Tiers 1 and 2 leave the step undecided, makes the form whose name sorts
+  first `from`.
+- Tier 1 scores an isomerization by its bound metabolites alone, and in a mechanism of pure
+  bindings and isomerizations Tier 2 marks each binding's free form with the binding's
+  metabolite, so every mechanism the enumerator emits keeps its orientation (Goal 3).
 - Reversing a step swaps its two forms and its two lists.
 - The function is renamed to say what it now does (it orients every non-binding step).
 
@@ -136,15 +146,18 @@ which constant is called forward.
   `k_F1_to_F2`, `k_F2_to_F1`, with F1 the canonical `from` (Denis, 2026-09-28). A transformation's
   `Kiso` can carry concentration units. `rescale_parameter_values` classifies constants by
   parameter type and scales every SS rate constant alike, so it is unaffected.
-- The `Mechanism` and `AllostericMechanism` constructors reject two kinetic groups whose
-  representatives render the same name, with an error naming both steps. Today such a collision
-  silently ties two constants.
-- The structural heuristics that pick group representatives, Haldane pivots and isomerization
-  directions (`_free_enz_set`, `_step_priority`, `_group_rep`, `_entry_kind`) read the lists: a
-  step with free metabolites plays the part today's metabolite steps play, and a step that
-  consumes a metabolite marks its `to` form as bound. For every pure binding and isomerization
-  this reproduces the current behaviour, so group representatives and Haldane pivots do not
-  move for any mechanism the enumerator emits.
+- The `Mechanism` and `AllostericMechanism` constructors reject two steps in different kinetic
+  groups that would render the same parameter names: the same metabolite (or the same
+  competitive-inhibitor copy) bound to the same form, or the same two forms joined in either
+  direction (`_assert_unique_parameter_names`). The check covers every step, not only group
+  representatives, and its error names both steps. Without it such a collision would silently
+  tie two constants.
+- The structural heuristics that pick group representatives and Haldane pivots
+  (`_free_enz_set`, `_step_priority`, `_group_rep`) read the lists: a step with free
+  metabolites plays the part today's metabolite steps play, and a step that consumes a
+  metabolite marks its `to` form as bound. For every pure binding and isomerization this
+  reproduces the current behaviour, so group representatives and Haldane pivots do not move for
+  any mechanism the enumerator emits. Step orientation reads the lists as section 2 describes.
 
 ### 6. DSL
 

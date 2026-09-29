@@ -24,6 +24,12 @@ The distinction is stored on each `Step` as the `is_equilibrium` field.
   and `koff_<met>_<form>`.
 - An **SS isomerization step** contributes two directed rate constants:
   `k_<from>_to_<to>` and `k_<to>_to_<from>`.
+- Every other step — fused chemistry and release (`E(A, B) <--> E(Q) + P`), a
+  Theorell–Chance step (`E(A) + B <--> E(Q) + P`), or several metabolites on
+  one side — is named by its two forms, as an isomerization is. The
+  mechanism, not the order the step is written in, decides which form is
+  `<from>` (the side carrying more substrate or, failing that, less
+  product), so writing the step backwards gives the same names.
 
 ## A concrete comparison
 
