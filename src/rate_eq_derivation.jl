@@ -117,8 +117,9 @@ function _build_wegscheider_rename_map(mech::Mechanism)
     rename = Dict{Symbol, Symbol}()
     step_params = _step_parameters(mech)
     # binding-K set: value-context rep name of each RE binding step. Walk
-    # Mechanism.steps directly — an RE step carrying a bound metabolite is
-    # a binding step; step_params is indexed in the same flat order.
+    # Mechanism.steps directly — an RE step that is a pure binding
+    # (`is_binding`) is a binding step; step_params is indexed in the same
+    # flat order.
     binding_set = Set{Symbol}()
     for (idx, (s, _)) in enumerate(_flat_steps(mech))
         is_equilibrium(s) && is_binding(s) || continue
@@ -144,46 +145,6 @@ _build_wegscheider_rename_map(m::EnzymeMechanism) =
     _build_wegscheider_rename_map(typeof(m))
 
 # ─── RE Group Helpers ───────────────────────────────────────
-
-"""
-Per-step side breakdown for the rate equation derivation. Returns
-`(from_species_sym, to_species_sym, m_lhs_syms, m_rhs_syms)` for a
-single `Step`. This is the canonical metabolite-on-which-side
-projection: it reads Step fields directly, placing the bound
-metabolite on the binding (m_lhs) or release (m_rhs) side from the
-canonical metabolite-on-`to_species` placement plus the SS-dissociation
-rule. The five-branch logic is load-bearing: SS catalytic-release steps
-where the bound metabolite is a Product that doesn't appear in either
-bound list put the metabolite on m_rhs, not m_lhs.
-"""
-function _step_sides(s::Step)
-    e_lhs = name(from_species(s))
-    e_rhs = name(to_species(s))
-    is_iso(s) && return (e_lhs, e_rhs, Symbol[], Symbol[])
-    bm = bound_metabolite(s)
-    bm_name = name(bm)
-    from_bound_names = Set{Symbol}(name(m) for m in bound(from_species(s)))
-    to_bound_names = Set{Symbol}(name(m) for m in bound(to_species(s)))
-    if bm_name in to_bound_names
-        # Canonical binding: bound met on to_species → emit on m_lhs
-        return (e_lhs, e_rhs, Symbol[bm_name], Symbol[])
-    elseif bm_name in from_bound_names
-        # Reverse-canonical (defensive: ctor swap should have prevented this)
-        return (e_lhs, e_rhs, Symbol[], Symbol[bm_name])
-    elseif !is_equilibrium(s) && bm isa Product &&
-           !(isempty(from_bound_names) && isempty(to_bound_names))
-        # SS dissociation rule: bound_metabolite is a Product released
-        # in an SS catalytic step; not in either bound list (because the
-        # Species canonicalization moved it). Emit on m_rhs.
-        return (e_lhs, e_rhs, Symbol[], Symbol[bm_name])
-    elseif length(from_bound_names) > length(to_bound_names)
-        # Bound-list-size fallback: the side with fewer bound metabolites
-        # is the release side, so the metabolite goes on m_rhs.
-        return (e_lhs, e_rhs, Symbol[], Symbol[bm_name])
-    else
-        return (e_lhs, e_rhs, Symbol[bm_name], Symbol[])
-    end
-end
 
 """
 Compute RE-connected groups via union-find over enzyme Species. Walks
@@ -259,11 +220,26 @@ function _segment_root(group, enz_species)
 end
 
 """
+    _re_weight_ratio(s, K; inverse = false) -> POLY
+
+w(to)/w(from) of rapid-equilibrium step `s` as a monomial (its inverse when
+`inverse`): [M]/K for a pure binding of M (K a dissociation constant), and
+K·Π[consumed]/Π[released] for every other step (K in the association direction).
+"""
+function _re_weight_ratio(s::Step, K::Symbol; inverse::Bool = false)
+    sgn = inverse ? -1 : 1
+    d = Dict{Symbol, Int}(K => sgn * (is_binding(s) ? -1 : 1))
+    for m in consumed(s); d[name(m)] = get(d, name(m), 0) + sgn; end
+    for m in released(s); d[name(m)] = get(d, name(m), 0) - sgn; end
+    filter!(p -> p.second != 0, d)
+    POLY(sort!(MONO(collect(d)); by = first) => 1)
+end
+
+"""
 Compute alpha factors (relative concentrations within RE groups) as POLY
-values. Iterates `mech.steps` directly. Binding steps' direction comes
-from the canonical Step form (metabolite-on-`to_species`); iso steps
-are physical-forward (canonicalized in the Mechanism constructor).
-`step_to_K[idx]` is the parameter Symbol for the RE step at flat
+values. Iterates `mech.steps` directly; each RE step's weight ratio comes
+from `_re_weight_ratio`, entering `to_species` from `from_species` or the
+reverse. `step_to_K[idx]` is the parameter Symbol for the RE step at flat
 position `idx` (rep-renamed via the `name(p, m)` chokepoint).
 """
 function _compute_alpha(mech::Mechanism, enz_species,
@@ -281,30 +257,15 @@ function _compute_alpha(mech::Mechanism, enz_species,
             cur = popfirst!(queue)
             for (idx, (s, _)) in enumerate(flat)
                 is_equilibrium(s) || continue
-                e_l, e_r, m_l, m_r = _step_sides(s)
-                i_f = enz_name_to_form[e_l]
-                j_f = enz_name_to_form[e_r]
-                Ksym = step_to_K[idx]
-                Kp = poly_sym(Ksym)
-                Kinv = POLY(_mono(Ksym => -1) => 1)
-                is_iso = isempty(m_l) && isempty(m_r)
+                i_f = enz_name_to_form[name(from_species(s))]
+                j_f = enz_name_to_form[name(to_species(s))]
+                K = step_to_K[idx]
                 if i_f == cur && j_f ∉ visited
-                    if is_iso
-                        alpha[j_f] = poly_mul(alpha[cur], Kp)
-                    else
-                        f = poly_mul(poly_sym(m_l[1]), Kinv)
-                        isempty(m_r) ||
-                            (f = poly_mul(f, POLY(_mono(m_r[1] => -1) => 1)))
-                        alpha[j_f] = poly_mul(alpha[cur], f)
-                    end
+                    alpha[j_f] = poly_mul(alpha[cur], _re_weight_ratio(s, K))
                     push!(visited, j_f); push!(queue, j_f)
                 elseif j_f == cur && i_f ∉ visited
-                    if is_iso
-                        alpha[i_f] = poly_mul(alpha[cur], Kinv)
-                    else
-                        f = poly_mul(Kp, POLY(_mono(m_l[1] => -1) => 1))
-                        alpha[i_f] = poly_mul(alpha[cur], f)
-                    end
+                    alpha[i_f] = poly_mul(alpha[cur],
+                                          _re_weight_ratio(s, K; inverse = true))
                     push!(visited, i_f); push!(queue, i_f)
                 end
             end
@@ -352,16 +313,15 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
     R = [poly_zero() for _ in 1:G, _ in 1:G]
     for (idx, (s, _)) in enumerate(flat)
         is_equilibrium(s) && continue
-        e_lhs, e_rhs, m_lhs, m_rhs = _step_sides(s)
-        i_form = enz_name_to_form[e_lhs]
-        j_form = enz_name_to_form[e_rhs]
+        i_form = enz_name_to_form[name(from_species(s))]
+        j_form = enz_name_to_form[name(to_species(s))]
         g1, g2 = form_to_group[i_form], form_to_group[j_form]
         kf_poly = poly_sym(name(step_params[idx][1], mech))
         kr_poly = poly_sym(name(step_params[idx][2], mech))
         R[g1, g2] = poly_add(R[g1, g2],
-            _ss_contrib(kf_poly, m_lhs, i_form, alpha))
+            _ss_contrib(kf_poly, Symbol[name(m) for m in consumed(s)], i_form, alpha))
         R[g2, g1] = poly_add(R[g2, g1],
-            _ss_contrib(kr_poly, m_rhs, j_form, alpha))
+            _ss_contrib(kr_poly, Symbol[name(m) for m in released(s)], j_form, alpha))
     end
 
     L = [i == j ? poly_zero() : poly_neg(R[i,j])
@@ -440,9 +400,8 @@ function _segment_graph_terms(mech::Mechanism)
     A = zeros(Int, G, G)
     for (s, _) in _flat_steps(mech)
         is_equilibrium(s) && continue                # SS steps are the segment-graph edges
-        e_lhs, e_rhs, _, _ = _step_sides(s)
-        g1 = form_to_group[enz_name_to_form[e_lhs]]
-        g2 = form_to_group[enz_name_to_form[e_rhs]]
+        g1 = form_to_group[enz_name_to_form[name(from_species(s))]]
+        g2 = form_to_group[enz_name_to_form[name(to_species(s))]]
         g1 == g2 && continue
         A[g1, g2] += 1; A[g2, g1] += 1
     end
@@ -528,12 +487,13 @@ function _compute_numerator(
     # Forward-oriented reaction steps (skip inhibitor/regulator binding, pure
     # conformational isos, and product-rebinding dead-ends). For each: type ∈
     # {:bind,:chem,:release}; (ff,ft) = forward (from,to). A product release stored
-    # as product-binding (`E+P→EP`, product on m_lhs) is the reverse reaction, so
+    # as product-binding (`E+P→EP`, product consumed) is the reverse reaction, so
     # its forward direction swaps the endpoints; an SS-dissociation release
-    # (`EA→E+P`, product on m_rhs) is already forward.
+    # (`EA→E+P`, product released) is already forward. `bm` is the step's one
+    # free metabolite.
     rsteps = NamedTuple[]
     for (idx, (s, _)) in enumerate(_flat_steps(mech))
-        bm = bound_metabolite(s)
+        bm = is_iso(s) ? nothing : only(vcat(consumed(s), released(s)))
         local ff, ft, typ
         if bm === nothing                                   # iso step
             f, t = from_species(s), to_species(s)
@@ -543,8 +503,7 @@ function _compute_numerator(
         elseif bm isa Substrate
             ff, ft, typ = from_species(s), to_species(s), :bind
         elseif bm isa Product
-            _, _, m_lhs, _ = _step_sides(s)
-            rev = !isempty(m_lhs)                           # product-binding storage
+            rev = bm in consumed(s)                         # product-binding storage
             ff = rev ? to_species(s) : from_species(s)
             ft = rev ? from_species(s) : to_species(s)
             typ = :release
@@ -554,7 +513,7 @@ function _compute_numerator(
         typ !== :chem &&
             (is_mixed_substrate_product_complex(ff) ||
              is_mixed_substrate_product_complex(ft)) && continue
-        push!(rsteps, (idx = idx, ff = ff, ft = ft, typ = typ, s = s))
+        push!(rsteps, (idx = idx, ff = ff, ft = ft, typ = typ, s = s, bm = bm))
     end
 
     # Candidate cuts: (steps into rsteps, central form or `nothing` for metabolite).
@@ -562,11 +521,11 @@ function _compute_numerator(
     add_cand!(central, pred) = (g = [k for k in eachindex(rsteps) if pred(rsteps[k])];
                                 isempty(g) || push!(cands, (g, central)))
     for S in subs_species
-        add_cand!(nothing, r -> r.typ === :bind && name(bound_metabolite(r.s)) == S)
+        add_cand!(nothing, r -> r.typ === :bind && name(r.bm) == S)
         add_cand!(nothing, r -> r.typ === :chem && S in subs_in(r.ff) && !(S in subs_in(r.ft)))
     end
     for P in prods_species
-        add_cand!(nothing, r -> r.typ === :release && name(bound_metabolite(r.s)) == P)
+        add_cand!(nothing, r -> r.typ === :release && name(r.bm) == P)
         add_cand!(nothing, r -> r.typ === :chem && P in prods_in(r.ft) && !(P in prods_in(r.ff)))
     end
     central_forms = Set{Species}()      # iso-step endpoints
@@ -614,8 +573,10 @@ function _compute_numerator(
     num = poly_zero()
     for k in steps
         r = rsteps[k]; idx = r.idx
-        e_lhs, e_rhs, m_lhs, m_rhs = _step_sides(r.s)
-        i_form = enz_name_to_form[e_lhs]; j_form = enz_name_to_form[e_rhs]
+        m_lhs = Symbol[name(m) for m in consumed(r.s)]
+        m_rhs = Symbol[name(m) for m in released(r.s)]
+        i_form = enz_name_to_form[name(from_species(r.s))]
+        j_form = enz_name_to_form[name(to_species(r.s))]
         g1, g2 = form_to_group[i_form], form_to_group[j_form]
         rf = _ss_contrib(poly_sym(name(step_params[idx][1], mech)), m_lhs, i_form, alpha)
         rr = _ss_contrib(poly_sym(name(step_params[idx][2], mech)), m_rhs, j_form, alpha)

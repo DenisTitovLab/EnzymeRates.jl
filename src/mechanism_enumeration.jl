@@ -131,23 +131,22 @@ function _species_atoms(reaction::EnzymeReaction, sp::Species)
 end
 
 """
-Assert one `Step` conserves atoms: a binding step must move exactly the
-bound metabolite's atoms onto the enzyme (`atoms(to) − atoms(from) ==
-atoms(bound_metabolite)`); an iso step must leave the atom multiset
-unchanged (`atoms(to) == atoms(from)`). Errors naming the offending step.
+Assert one `Step` conserves atoms: the atoms of `from_species` plus those of
+the consumed metabolites must equal the atoms of `to_species` plus those of the
+released metabolites (an iso step leaves the atom multiset unchanged). Errors
+naming the offending step.
 """
 function _assert_step_atom_conserving(reaction::EnzymeReaction, s::Step)
     diff = Dict{Symbol,Int}()
     _accumulate_atoms!(diff, _species_atoms(reaction, to_species(s)), 1)
     _accumulate_atoms!(diff, _species_atoms(reaction, from_species(s)), -1)
+    for m in consumed(s); _accumulate_atoms!(diff, _atoms_dict(reaction, name(m)), -1); end
+    for m in released(s); _accumulate_atoms!(diff, _atoms_dict(reaction, name(m)), 1); end
     diff = _nonzero_atoms(diff)
-    bm = bound_metabolite(s)
-    expected = bm === nothing ? Dict{Symbol,Int}() :
-        _nonzero_atoms(copy(_atoms_dict(reaction, name(bm))))
-    diff == expected || error(
-        "atom-non-conserving step $(name(from_species(s))) → " *
-        "$(name(to_species(s))) (bound " *
-        "$(bm === nothing ? "—" : name(bm))): Δatoms $diff ≠ $expected")
+    isempty(diff) || error(
+        "atom-non-conserving step $(name(from_species(s))) → $(name(to_species(s))) " *
+        "(consumed $(name.(consumed(s))), released $(name.(released(s)))): " *
+        "atoms(from) + atoms(consumed) − atoms(to) − atoms(released) = $diff")
     nothing
 end
 
@@ -156,17 +155,18 @@ end
 
 The moves take the isomerization step as the chemistry step, which is how the
 enumerator writes every mechanism: chemistry isomerizes to a product-bound form
-and the release is its own step. A binding step may change the enzyme's
-conformation but never its covalent residual; a mechanism written for the
-derivation with chemistry folded into a release step is not a valid parent.
+and each binding or release is its own step. A parent may therefore contain
+only pure bindings (`is_binding`, which may change the enzyme's conformation but
+never its covalent residual) and isomerizations (`is_iso`); a mechanism written
+for the derivation with chemistry folded into a binding or release step is not
+a valid parent.
 """
 function _assert_chemistry_is_iso(m::Union{Mechanism, AllostericMechanism})
     for group in steps(m), s in group
-        is_binding(s) && residual(from_species(s)) != residual(to_species(s)) &&
-            error("binding step $(name(from_species(s))) → " *
-                  "$(name(to_species(s))) changes the covalent residual; the " *
-                  "moves need the chemistry as an isomerization and the " *
-                  "release as its own step")
+        is_binding(s) || is_iso(s) || error(
+            "step $(name(from_species(s))) → $(name(to_species(s))) folds chemistry " *
+            "into a binding or release; the moves need the chemistry as an " *
+            "isomerization and each binding or release as its own step")
     end
     nothing
 end
@@ -247,7 +247,7 @@ function _release_products!(
                               [rel_so_far; p], new_unreleased,
                               sub_atoms, prod_atoms))
             rel_step = Step(
-                cur, new_species, Product(p), true)
+                cur, new_species, Metabolite[], Metabolite[Product(p)], true)
             push!(steps, rel_step)
             _release_recurse!(
                 new_species, new_unreleased, [rel_so_far; p])
@@ -263,15 +263,13 @@ end
 Substrate bound-metabolite names in route (path) order.
 """
 _binding_order(path::Vector{Step}) =
-    Symbol[name(bound_metabolite(s)) for s in path
-           if is_binding(s) && bound_metabolite(s) isa Substrate]
+    Symbol[name(ligand(s)) for s in path if ligand(s) isa Substrate]
 
 """
 Product bound-metabolite names in route (path) order.
 """
 _release_order(path::Vector{Step}) =
-    Symbol[name(bound_metabolite(s)) for s in path
-           if is_binding(s) && bound_metabolite(s) isa Product]
+    Symbol[name(ligand(s)) for s in path if ligand(s) isa Product]
 
 """
 True iff `order` is a linearization of weak ordering `wo` (a vector of
@@ -377,7 +375,8 @@ function _catalytic_topologies(
                                   new_released, new_on_prods,
                                   sub_atoms, prod_atoms))
                 step = Step(
-                    cur_species, new_species, Product(p), true)
+                    cur_species, new_species,
+                    Metabolite[], Metabolite[Product(p)], true)
                 push!(steps, step)
                 backtrack!(
                     new_species,
@@ -405,7 +404,8 @@ function _catalytic_topologies(
                                   released_prods, Symbol[],
                                   sub_atoms, prod_atoms))
                 step = Step(
-                    cur_species, new_species, Substrate(s), true)
+                    cur_species, new_species,
+                    Metabolite[Substrate(s)], Metabolite[], true)
                 push!(steps, step)
                 backtrack!(
                     new_species,
@@ -430,7 +430,7 @@ function _catalytic_topologies(
                                       sub_atoms, prod_atoms))
                     step = Step(
                         cur_species, new_species,
-                        Substrate(s), true)
+                        Metabolite[Substrate(s)], Metabolite[], true)
                     push!(steps, step)
                     backtrack!(
                         new_species,
@@ -486,7 +486,7 @@ function _catalytic_topologies(
                                 sub_atoms, prod_atoms))
                         step = Step(
                             cur_species, iso_species,
-                            nothing, true)
+                            Metabolite[], Metabolite[], true)
                         push!(steps, step)
                         # Release products one at a time. This
                         # ping-pong continuation carries a genuine
@@ -528,7 +528,7 @@ function _catalytic_topologies(
                             sub_atoms, prod_atoms))
                     step = Step(
                         cur_species, new_species,
-                        nothing, true)
+                        Metabolite[], Metabolite[], true)
                     push!(steps, step)
                     backtrack!(
                         new_species, acc_atoms,
@@ -552,7 +552,7 @@ function _catalytic_topologies(
                                   sub_atoms, prod_atoms))
                 step = Step(
                     cur_species, new_species,
-                    Substrate(s), true)
+                    Metabolite[Substrate(s)], Metabolite[], true)
                 push!(steps, step)
                 backtrack!(
                     new_species,
@@ -577,7 +577,7 @@ function _catalytic_topologies(
                                       sub_atoms, prod_atoms))
                     step = Step(
                         cur_species, new_species,
-                        Substrate(s), true)
+                        Metabolite[Substrate(s)], Metabolite[], true)
                     push!(steps, step)
                     backtrack!(
                         new_species,
@@ -632,7 +632,7 @@ function _catalytic_topologies(
                                 sub_atoms, prod_atoms))
                         step = Step(
                             cur_species, new_species,
-                            nothing, true)
+                            Metabolite[], Metabolite[], true)
                         push!(steps, step)
                         backtrack!(
                             new_species, acc_atoms,
@@ -661,7 +661,7 @@ function _catalytic_topologies(
                                 sub_atoms, prod_atoms))
                         step = Step(
                             cur_species, iso_species,
-                            nothing, true)
+                            Metabolite[], Metabolite[], true)
                         push!(steps, step)
                         _release_products!(
                             all_paths, backtrack!,
@@ -768,8 +768,8 @@ function _catalytic_topologies(
         sub_binding_mets = Set{Symbol}()
         prod_binding_mets = Set{Symbol}()
         for path in group_paths, step in path
-            is_binding(step) || continue
-            bm = bound_metabolite(step)
+            bm = ligand(step)
+            bm === nothing && continue
             if bm isa Substrate
                 push!(sub_binding_mets, name(bm))
             elseif bm isa Product
@@ -808,7 +808,7 @@ function _catalytic_topologies(
             iso_idx = findfirst(is_iso, steps)
             push!(result, Step[
                 Step(from_species(s), to_species(s),
-                     bound_metabolite(s), i != iso_idx)
+                     consumed(s), released(s), i != iso_idx)
                 for (i, s) in enumerate(steps)])
         end
     end
@@ -1091,7 +1091,8 @@ function _expand_substrate_product_dead_ends(
                 for (cat_form, met) in de_forms[de_name]
                     base = form_sp[cat_form]
                     push!(steps, Step(
-                        base, _add(base, met), _role(met), true))
+                        base, _add(base, met), Metabolite[_role(met)], Metabolite[],
+                        true))
                     push!(groups, next_g)
                     next_g += 1
                 end
@@ -1116,7 +1117,7 @@ function _expand_substrate_product_dead_ends(
                     push!(steps, Step(
                         _add(form_sp[from], de_met),
                         _add(form_sp[to], de_met),
-                        bound_metabolite(s), is_equilibrium(s)))
+                        consumed(s), released(s), is_equilibrium(s)))
                     push!(groups, ci)
                 end
             end
@@ -1152,7 +1153,7 @@ function _expand_substrate_product_dead_ends(
                 (length(b2) == length(b1) + 1 && issubset(b1, b2)) || continue
                 (name(sp1), name(sp2)) in have_edge && continue
                 met = only(setdiff(b2, b1))
-                push!(steps, Step(sp1, sp2, _role(met), true))
+                push!(steps, Step(sp1, sp2, Metabolite[_role(met)], Metabolite[], true))
                 push!(groups, next_g); next_g += 1
                 push!(have_edge, (name(sp1), name(sp2)))
                 push!(have_edge, (name(sp2), name(sp1)))
@@ -1197,7 +1198,7 @@ function _to_group_list(steps::Vector{Step}, groups::Vector{Int})
 end
 
 """
-Reassign kinetic-group ids so binding steps sharing `(metabolite, RE/SS)`
+Reassign kinetic-group ids so steps sharing `(consumed, released, RE/SS)`
 collapse into one group. Each multi-step class is assigned a fresh id;
 singleton classes and iso steps keep their existing id. Operates on the
 `(steps, groups)` parallel-array form and returns the merged pair.
@@ -1205,11 +1206,11 @@ singleton classes and iso steps keep their existing id. Operates on the
 function _apply_equivalence_grouping(
     steps::Vector{Step}, groups::Vector{Int},
 )
-    classes = Dict{Tuple{Symbol,Bool}, Vector{Int}}()
+    classes = Dict{Tuple{Tuple, Tuple, Bool}, Vector{Int}}()
     for (i, s) in enumerate(steps)
-        bm = bound_metabolite(s)
-        bm === nothing && continue
-        push!(get!(classes, (name(bm), is_equilibrium(s)), Int[]), i)
+        is_iso(s) && continue
+        key = (Tuple(name.(consumed(s))), Tuple(name.(released(s))), is_equilibrium(s))
+        push!(get!(classes, key, Int[]), i)
     end
     next_g = maximum(groups; init=0) + 1
     new_groups = copy(groups)
@@ -1260,7 +1261,8 @@ function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
     flux = _flux_carrying_groups(m)
     units = [g for g in kinetic_groups(m)
              if all(is_equilibrium, steps(m)[g]) && flux[g] &&
-                !any(s -> bound_metabolite(s) isa Regulator, steps(m)[g])]
+                !any(s -> any(x -> x isa Regulator, consumed(s)) ||
+                          any(x -> x isa Regulator, released(s)), steps(m)[g])]
     flipped_groups(sel) = begin
         groups = steps(m)
         for u in sel
@@ -1288,7 +1290,7 @@ function _flip_group_to_ss(groups::Vector{Vector{Step}}, g::Int)
         if gi == g
             flipped = Step[
                 Step(from_species(s), to_species(s),
-                     bound_metabolite(s), false)
+                     consumed(s), released(s), false)
                 for s in gr]
             push!(new_groups, flipped)
         else
@@ -1418,7 +1420,8 @@ function _hyperbolic_catalysis(m::Union{Mechanism, AllostericMechanism})
     edges = Tuple{Int, Int, Int, Vector{Symbol}}[]
     for group in groups, s in group
         is_equilibrium(s) && continue
-        _, _, m_lhs, m_rhs = _step_sides(s)
+        m_lhs = Symbol[name(x) for x in consumed(s)]
+        m_rhs = Symbol[name(x) for x in released(s)]
         a, b = idx[from_species(s)], idx[to_species(s)]
         seg_of[a] == seg_of[b] && continue
         push!(edges, (seg_of[a], seg_of[b], a, m_lhs))
@@ -1622,18 +1625,16 @@ function _group_re_segments(m::Union{Mechanism, AllostericMechanism})
 end
 
 """
-The endpoint of `s` that does not carry the step's bound metabolite: the form the
-metabolite binds to. Reads the metabolite's side from `_step_sides(s)`, the
-canonical metabolite-on-which-side chokepoint: `from_species(s)` when the
-metabolite is on `m_lhs` (canonical binding, carried by `to_species`),
-`to_species(s)` when it is on `m_rhs` (a reverse-canonical or SS-dissociation
-step, including one where the metabolite is in neither endpoint's bound
-list), and `from_species(s)` for an iso step (both sides empty).
+The endpoint of `s` that does not carry the step's free metabolites: the form
+they bind to. `from_species(s)` when the step consumes a metabolite (a
+canonical binding, whose metabolite `to_species` carries), `to_species(s)` when
+it only releases one (a release step, including one where the metabolite is in
+neither endpoint's bound list), and `from_species(s)` for an iso step (both
+lists empty).
 """
 function _context_form(s::Step)
-    _, _, m_lhs, m_rhs = _step_sides(s)
-    isempty(m_lhs) || return from_species(s)
-    isempty(m_rhs) || return to_species(s)
+    isempty(consumed(s)) || return from_species(s)
+    isempty(released(s)) || return to_species(s)
     from_species(s)
 end
 
@@ -1654,7 +1655,7 @@ give one bipartition, and the order is ligands (by role then name), then
 conformations (by name), then residuals, for deterministic output.
 """
 function _context_bipartitions(group::Vector{Step})
-    own = bound_metabolite(first(group))
+    own = ligand(first(group))
     forms = [_context_form(s) for s in group]
     ligands = Set{Metabolite}()
     for f in forms, b in bound(f)
@@ -1742,7 +1743,7 @@ function _forms_with_binding_step_native(
 )
     result = Set{Symbol}()
     for group in steps(m), s in group
-        bm = bound_metabolite(s)
+        bm = ligand(s)
         bm === nothing && continue
         name(bm) == met_name || continue
         push!(result, name(from_species(s)))
@@ -1838,8 +1839,7 @@ function _expand_add_dead_end_regulator_native(
     prod_names = Set(name(p) for p in products(rxn))
 
     existing_regs = Set{Symbol}()
-    for group in steps(m), s in group
-        bm = bound_metabolite(s)
+    for group in steps(m), s in group, bm in consumed(s)
         bm isa Regulator && push!(existing_regs, name(bm))
     end
 
@@ -1880,8 +1880,7 @@ function _expand_add_dead_end_regulator_native(
         isempty(eligible_forms) && continue
 
         existing_inhibitors = Symbol[]
-        for group in steps(m), s in group
-            bm = bound_metabolite(s)
+        for group in steps(m), s in group, bm in consumed(s)
             bm isa Regulator || continue
             name(bm) == reg_name && continue
             push!(existing_inhibitors, name(bm))
@@ -1929,7 +1928,7 @@ function _expand_add_dead_end_regulator_native(
                 de_species_map[cf] = de_species
                 push!(reg_group_steps, Step(
                     base, de_species,
-                    CompetitiveInhibitor(reg_name), true))
+                    Metabolite[CompetitiveInhibitor(reg_name)], Metabolite[], true))
             end
 
             mirror_per_group = Dict{Int, Vector{Step}}()
@@ -1941,7 +1940,7 @@ function _expand_add_dead_end_regulator_native(
                     haskey(de_species_map, tn) || continue
                     push!(get!(mirror_per_group, gi, Step[]),
                         Step(de_species_map[fn], de_species_map[tn],
-                             bound_metabolite(s), is_equilibrium(s)))
+                             consumed(s), released(s), is_equilibrium(s)))
                 end
             end
 
@@ -2637,8 +2636,7 @@ _bound_allo_regs(am::AllostericMechanism) =
 """Names of the competitive inhibitors bound at a dead-end step in `m`."""
 function _bound_comp_inhibitors(m::Union{Mechanism, AllostericMechanism})
     bound = Set{Symbol}()
-    for group in steps(m), s in group
-        bm = bound_metabolite(s)
+    for group in steps(m), s in group, bm in consumed(s)
         bm isa CompetitiveInhibitor && push!(bound, name(bm))
     end
     bound
@@ -2674,7 +2672,7 @@ _binds_all_required(m::Union{Mechanism, AllostericMechanism},
 
 Structural invariants every valid Mechanism should satisfy:
 - Every group is non-empty
-- Each binding step's bound_metabolite is non-nothing AND iso steps have nothing
+- Every step is a pure binding (`is_binding`) or an isomerization (`is_iso`)
 - from_species != to_species for every step
 """
 function _assert_mechanism_invariants(m::Mechanism)
@@ -2684,13 +2682,9 @@ function _assert_mechanism_invariants(m::Mechanism)
         isempty(g) && error("empty kinetic group in Mechanism")
     end
     for s in flat
-        if is_binding(s)
-            bound_metabolite(s) === nothing &&
-                error("binding step has nothing bound_metabolite")
-        else
-            bound_metabolite(s) === nothing ||
-                error("iso step has non-nothing bound_metabolite")
-        end
+        is_binding(s) || is_iso(s) || error(
+            "step $(name(from_species(s))) → $(name(to_species(s))) is neither " *
+            "a pure binding nor an isomerization")
         from_species(s) == to_species(s) &&
             error("from_species == to_species in step $s")
     end
@@ -2706,8 +2700,9 @@ function _assert_mechanism_invariants(m::Mechanism)
                 push!(appearing, name(met))
             end
         end
-        bm = bound_metabolite(s)
-        bm === nothing || push!(appearing, name(bm))
+        for met in Iterators.flatten((consumed(s), released(s)))
+            push!(appearing, name(met))
+        end
     end
     for met in (substrates(reaction(m))..., products(reaction(m))...)
         name(met) in appearing ||
@@ -2719,16 +2714,16 @@ function _assert_mechanism_invariants(m::Mechanism)
     # the per-step loop above already enforces bound/iso consistency.
     for group in steps(m)
         length(group) == 1 && continue
-        kinds = [(is_equilibrium(s), bound_metabolite(s)) for s in group
-                 if bound_metabolite(s) !== nothing]
+        kinds = [(is_equilibrium(s), consumed(s), released(s)) for s in group
+                 if !is_iso(s)]
         isempty(kinds) && continue
-        first_eq, first_met = kinds[1]
-        for (eq, met) in kinds[2:end]
+        first_eq, first_c, first_r = kinds[1]
+        for (eq, c, r) in kinds[2:end]
             eq == first_eq ||
                 error("kinetic group mixes RE and SS binding steps")
-            met == first_met ||
+            (c, r) == (first_c, first_r) ||
                 error("kinetic group binds different metabolites: " *
-                      "$(name(first_met)) and $(name(met))")
+                      "$(name.(vcat(first_c, first_r))) and $(name.(vcat(c, r)))")
         end
     end
     nothing

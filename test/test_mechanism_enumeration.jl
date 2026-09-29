@@ -20,12 +20,12 @@ function _iso_orient(s::EnzymeRates.Step)
     forward ? (from, to) : (to, from)
 end
 _t_reactants(s::EnzymeRates.Step) =
-    EnzymeRates.bound_metabolite(s) === nothing ?
+    EnzymeRates.is_iso(s) ?
         [EnzymeRates.name(_iso_orient(s)[1])] :
         [EnzymeRates.name(EnzymeRates.from_species(s)),
-         EnzymeRates.name(EnzymeRates.bound_metabolite(s))]
+         EnzymeRates.name(only(vcat(EnzymeRates.consumed(s), EnzymeRates.released(s))))]
 _t_products(s::EnzymeRates.Step) =
-    EnzymeRates.bound_metabolite(s) === nothing ?
+    EnzymeRates.is_iso(s) ?
         [EnzymeRates.name(_iso_orient(s)[2])] :
         [EnzymeRates.name(EnzymeRates.to_species(s))]
 
@@ -93,7 +93,7 @@ end
 # group. Mirrors the rule `_expand_to_allosteric` uses to decide whether a
 # group's `:OnlyA` flip needs a paired regulator to be distinguishable.
 _is_catalytic_group(m, g) =
-    EnzymeRates.bound_metabolite(EnzymeRates.rep_step(m, g)) === nothing
+    EnzymeRates.ligand(EnzymeRates.rep_step(m, g)) === nothing
 
 const uni_uni_rxn = @enzyme_reaction begin
     substrates: S[C]
@@ -231,17 +231,17 @@ end
     # iso step. Built two ways: reversed outer group order AND swapped inner
     # step order. Canonical-by-construction must collapse them to one struct.
     bind_S = EnzymeRates.Step(
-        EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E),
+        EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
         EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-        EnzymeRates.Substrate(:S), true)
+        [EnzymeRates.Substrate(:S)], EnzymeRates.Metabolite[], true)
     bind_A = EnzymeRates.Step(
-        EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E),
+        EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
         EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E_A),
-        EnzymeRates.Substrate(:A), true)
+        [EnzymeRates.Substrate(:A)], EnzymeRates.Metabolite[], true)
     iso = EnzymeRates.Step(
         EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
         EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-        nothing, false)
+        EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
 
     m_orderA = EnzymeRates.Mechanism(rxn, [[bind_S, bind_A], [iso]])
     m_orderB = EnzymeRates.Mechanism(rxn, [[iso], [bind_A, bind_S]])
@@ -290,15 +290,15 @@ end
         substrates: S[C], T[C]
         products:   P[C2]
     end
-    s1 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E),
+    s1 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
                           EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                          EnzymeRates.Substrate(:S), true)
+                          [EnzymeRates.Substrate(:S)], EnzymeRates.Metabolite[], true)
     s2 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
                           EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-                          nothing, false)
+                          EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
     s3 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
                           EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-                          EnzymeRates.Product(:P), true)
+                          EnzymeRates.Metabolite[], [EnzymeRates.Product(:P)], true)
     m_unused = EnzymeRates.Mechanism(rxn_unused, [[s1], [s2], [s3]])
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_unused)
 
@@ -307,15 +307,15 @@ end
         substrates: S[C], A[N]
         products:   P[CN]
     end
-    g1a = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E),
+    g1a = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
                            EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                           EnzymeRates.Substrate(:S), true)
-    g1b = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E),
+                           [EnzymeRates.Substrate(:S)], EnzymeRates.Metabolite[], true)
+    g1b = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
                            EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E_A),
-                           EnzymeRates.Substrate(:A), true)
+                           [EnzymeRates.Substrate(:A)], EnzymeRates.Metabolite[], true)
     g2  = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
                            EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-                           nothing, false)
+                           EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
     m_mixed = EnzymeRates.Mechanism(rxn2, [[g1a, g1b], [g2]])
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_mixed)
 end
@@ -334,7 +334,7 @@ end
     bad_iso = EnzymeRates.Step(
         EnzymeRates.Species([EnzymeRates.Substrate(:NADH)], :E),
         EnzymeRates.Species([EnzymeRates.Product(:Lac)], :E),
-        nothing, false)
+        EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
     bad_m = EnzymeRates.Mechanism(ldh_rxn, [[bad_iso]])
     @test_throws ErrorException EnzymeRates._assert_atom_conserving(bad_m)
 
@@ -350,12 +350,14 @@ end
     E_B_res = EnzymeRates.Species(EnzymeRates.Metabolite[B], :E, res_AP)
     E_Q     = EnzymeRates.Species([Q], :E)
     good_steps = [
-        [EnzymeRates.Step(E, E_A, A, true)],
-        [EnzymeRates.Step(E_A, E_P_res, nothing, false)],
-        [EnzymeRates.Step(E_P_res, F, P, true)],
-        [EnzymeRates.Step(F, E_B_res, B, true)],
-        [EnzymeRates.Step(E_B_res, E_Q, nothing, true)],
-        [EnzymeRates.Step(E_Q, E, Q, true)],
+        [EnzymeRates.Step(E, E_A, [A], EnzymeRates.Metabolite[], true)],
+        [EnzymeRates.Step(E_A, E_P_res, EnzymeRates.Metabolite[],
+                          EnzymeRates.Metabolite[], false)],
+        [EnzymeRates.Step(E_P_res, F, EnzymeRates.Metabolite[], [P], true)],
+        [EnzymeRates.Step(F, E_B_res, [B], EnzymeRates.Metabolite[], true)],
+        [EnzymeRates.Step(E_B_res, E_Q, EnzymeRates.Metabolite[],
+                          EnzymeRates.Metabolite[], true)],
+        [EnzymeRates.Step(E_Q, E, EnzymeRates.Metabolite[], [Q], true)],
     ]
     good_m = EnzymeRates.Mechanism(bi_bi_pp_rxn, good_steps)
     @test EnzymeRates._assert_atom_conserving(good_m) === nothing
@@ -1224,7 +1226,7 @@ end
 am = EnzymeRates.AllostericMechanism(m_compiled)
 state_of(pred) = EnzymeRates.cat_allo_state(am,
     only(g for g in EnzymeRates.kinetic_groups(am)
-         if pred(EnzymeRates.bound_metabolite(EnzymeRates.rep_step(am, g)))))
+         if pred(EnzymeRates.ligand(EnzymeRates.rep_step(am, g)))))
 @test state_of(bm -> bm isa EnzymeRates.Substrate) == :EqualAI
 @test state_of(bm -> bm isa EnzymeRates.Product) == :NonequalAI
 @test state_of(bm -> bm === nothing) == :OnlyA
@@ -1308,7 +1310,7 @@ end
         for (gi, group) in enumerate(spec.steps)
             for step in group
                 EnzymeRates.is_equilibrium(step) || continue
-                bm = EnzymeRates.bound_metabolite(step)
+                bm = EnzymeRates.ligand(step)
                 bm === nothing && continue
                 push!(get!(by_metabolite, EnzymeRates.name(bm),
                            Int[]), gi)
@@ -1623,8 +1625,8 @@ end
             E + A ⇌ E(A)
             Estar + B ⇌ Estar(B)
             E + Q ⇌ E(Q)
-            Estar + P ⇌ Estar(A, P)
-            E(A) <--> Estar(A, P)
+            Estar + P ⇌ Estar(P)
+            E(A) <--> Estar(P)
             Estar(B) ⇌ E(Q)
         end
     end
@@ -1968,7 +1970,7 @@ end
               first(EnzymeRates.init_mechanisms(rxn)), rxn))
     for r in EnzymeRates._expand_re_to_ss(m)
         for grp in EnzymeRates.steps(r), s in grp
-            if EnzymeRates.bound_metabolite(s) isa EnzymeRates.Regulator
+            if EnzymeRates.ligand(s) isa EnzymeRates.Regulator
                 @test EnzymeRates.is_equilibrium(s)   # inhibitor binding stays RE
             end
         end
@@ -2013,7 +2015,7 @@ end
                                    if !(b isa EnzymeRates.Regulator)],
             EnzymeRates.conformation(sp), EnzymeRates.residual(sp))
         (strip(EnzymeRates.from_species(s)), strip(EnzymeRates.to_species(s)),
-         EnzymeRates.bound_metabolite(s))
+         EnzymeRates.ligand(s))
     end
     # The base E + A ⇌ E(A) and its mirror E(I) + A ⇌ E(A, I) share a core.
     base = only(s for grp in EnzymeRates.steps(m) for s in grp
@@ -2021,7 +2023,7 @@ end
                    EnzymeRates.name(EnzymeRates.to_species(s)) == :EA)
     pair_ss = [EnzymeRates.Step(EnzymeRates.from_species(s),
                                 EnzymeRates.to_species(s),
-                                EnzymeRates.bound_metabolite(s), false)
+                                EnzymeRates.consumed(s), EnzymeRates.released(s), false)
                for grp in EnzymeRates.steps(m) for s in grp
                if core(s) == core(base)]
     @test length(pair_ss) == 2
@@ -2079,8 +2081,8 @@ end
                   [EnzymeRates.from_species(s) for s in new_grp]
             @test [EnzymeRates.to_species(s) for s in old_grp] ==
                   [EnzymeRates.to_species(s) for s in new_grp]
-            @test [EnzymeRates.bound_metabolite(s) for s in old_grp] ==
-                  [EnzymeRates.bound_metabolite(s) for s in new_grp]
+            @test [EnzymeRates.ligand(s) for s in old_grp] ==
+                  [EnzymeRates.ligand(s) for s in new_grp]
         end
     end
 end
@@ -2192,7 +2194,7 @@ end
     a_split = [r for r in result
                if length(EnzymeRates.steps(r)) == length(m.steps) + 1 &&
                any(grp -> length(grp) == 1 && !EnzymeRates.is_equilibrium(only(grp)) &&
-                   EnzymeRates.name(EnzymeRates.bound_metabolite(only(grp))) == :A,
+                   EnzymeRates.name(EnzymeRates.ligand(only(grp))) == :A,
                    EnzymeRates.steps(r))]
     @test length(a_split) == 1
 end
@@ -2229,7 +2231,7 @@ end
     # that splits that group and nothing else is emitted.
     a_group = only(grp for grp in am.cat_steps
                    if length(grp) == 2 && EnzymeRates.name(
-                       EnzymeRates.bound_metabolite(first(grp))) == :A)
+                       EnzymeRates.ligand(first(grp))) == :A)
     @test any(r -> length(EnzymeRates.steps(r)) == length(am.cat_steps) + 1 &&
                    count(grp -> Set(grp) ⊆ Set(a_group),
                          EnzymeRates.steps(r)) == 2, result)
@@ -2391,7 +2393,7 @@ end
     for r in result
         i_groups = Int[]
         for (gi, group) in enumerate(r.steps), s in group
-            bm = EnzymeRates.bound_metabolite(s)
+            bm = EnzymeRates.ligand(s)
             bm !== nothing && EnzymeRates.name(bm) === :I &&
                 push!(i_groups, gi)
         end
@@ -2450,7 +2452,7 @@ end
     for r in result
         i_groups = Int[]
         for (gi, group) in enumerate(r.steps), s in group
-            bm = EnzymeRates.bound_metabolite(s)
+            bm = EnzymeRates.ligand(s)
             bm !== nothing && EnzymeRates.name(bm) === :I &&
                 push!(i_groups, gi)
         end
@@ -2469,8 +2471,8 @@ end
             E + A ⇌ E(A)
             Estar + B ⇌ Estar(B)
             E + Q ⇌ E(Q)
-            Estar + P ⇌ Estar(A, P)
-            E(A) <--> Estar(A, P)
+            Estar + P ⇌ Estar(P)
+            E(A) <--> Estar(P)
             Estar(B) ⇌ E(Q)
         end
     end
@@ -2509,7 +2511,7 @@ end
     for r in result
         i_groups = Int[]
         for (gi, group) in enumerate(r.steps), s in group
-            bm = EnzymeRates.bound_metabolite(s)
+            bm = EnzymeRates.ligand(s)
             bm !== nothing && EnzymeRates.name(bm) === :I &&
                 push!(i_groups, gi)
         end
@@ -2544,7 +2546,7 @@ end
     with_i = first(filter(i_or_j_ms) do r
         any(r.steps) do group
             any(group) do s
-                bm = EnzymeRates.bound_metabolite(s)
+                bm = EnzymeRates.ligand(s)
                 bm !== nothing && EnzymeRates.name(bm) === :I
             end
         end
@@ -2560,7 +2562,7 @@ end
         j_present = false
         i_present = false
         for group in r.steps, s in group
-            bm = EnzymeRates.bound_metabolite(s)
+            bm = EnzymeRates.ligand(s)
             bm === nothing && continue
             EnzymeRates.name(bm) === :J && (j_present = true)
             EnzymeRates.name(bm) === :I && (i_present = true)
@@ -2602,7 +2604,7 @@ end
     multi = filter(result1) do r
         i1_forms = Set{Symbol}()
         for group in r.steps, s in group
-            bm = EnzymeRates.bound_metabolite(s)
+            bm = EnzymeRates.ligand(s)
             if bm !== nothing && EnzymeRates.name(bm) === :I1
                 push!(i1_forms, EnzymeRates.name(
                     EnzymeRates.to_species(s)))
@@ -2655,7 +2657,7 @@ end
     # must treat the substrate-:S and the inhibitor-:S binding kinetic
     # groups as independent — Mechanism stores the inhibitor as a
     # CompetitiveInhibitor Metabolite (separate type from the
-    # Substrate), so there is no name collision in bound_metabolite.
+    # Substrate), so there is no name collision in `ligand`.
     rxn_overlap = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -2692,14 +2694,14 @@ end
         @test EnzymeRates.EnzymeMechanism(r) isa EnzymeMechanism
     end
 
-    # 4. property: a new step has bound_metabolite::CompetitiveInhibitor
+    # 4. property: a new step has ligand::CompetitiveInhibitor
     # named :S (proving the substrate-:S vs inhibitor-:S distinction is
     # preserved). Exactly one new outer-vector kinetic group was added
     # for the inhibitor binding.
     for r in result
         has_inh_s = any(r.steps) do group
             any(group) do s
-                bm = EnzymeRates.bound_metabolite(s)
+                bm = EnzymeRates.ligand(s)
                 bm isa EnzymeRates.CompetitiveInhibitor &&
                     EnzymeRates.name(bm) === :S
             end
@@ -2828,7 +2830,7 @@ end
     multi = filter(result) do r
         n = 0
         for group in r.steps, s in group
-            bm = EnzymeRates.bound_metabolite(s)
+            bm = EnzymeRates.ligand(s)
             bm !== nothing && EnzymeRates.name(bm) === :I && (n += 1)
         end
         n >= 2
@@ -2837,7 +2839,7 @@ end
     for r in multi
         i_groups = Int[]
         for (gi, group) in enumerate(r.steps), s in group
-            bm = EnzymeRates.bound_metabolite(s)
+            bm = EnzymeRates.ligand(s)
             bm !== nothing && EnzymeRates.name(bm) === :I &&
                 push!(i_groups, gi)
         end
@@ -2876,9 +2878,9 @@ end
     r1 = first(result)
     has_i_step = any(r1.steps) do group
         any(group) do s
-            EnzymeRates.bound_metabolite(s) !== nothing &&
+            EnzymeRates.ligand(s) !== nothing &&
                 EnzymeRates.name(
-                    EnzymeRates.bound_metabolite(s)) === :I
+                    EnzymeRates.ligand(s)) === :I
         end
     end
     @test has_i_step
@@ -2902,9 +2904,9 @@ end
     has_i = any(excluded) do r
         any(r.steps) do group
             any(group) do s
-                EnzymeRates.bound_metabolite(s) !== nothing &&
+                EnzymeRates.ligand(s) !== nothing &&
                     EnzymeRates.name(
-                        EnzymeRates.bound_metabolite(s)) === :I
+                        EnzymeRates.ligand(s)) === :I
             end
         end
     end
@@ -3040,7 +3042,7 @@ end
 @testset "Mechanism — Bi-bi ping-pong: binding-group :OnlyA variants only" begin
     # SEED: bi-bi ping-pong topology, 6 kinetic groups: 4 bindings
     # (A, B substrate-side; P, Q product-side) + 2 chemical steps (the
-    # two half-reaction interconversions E(A)<-->Estar(A,P) and
+    # two half-reaction interconversions E(A)<-->Estar(P) and
     # Estar(B)⇌E(Q)). Neither catalytic group is a bare primary :OnlyA
     # (that V-type needs a regulator, none declared); each binding's
     # one-sided :OnlyA is closed over its minimal Haldane completions.
@@ -3051,8 +3053,8 @@ end
             E + A ⇌ E(A)
             Estar + B ⇌ Estar(B)
             E + Q ⇌ E(Q)
-            Estar + P ⇌ Estar(A, P)
-            E(A) <--> Estar(A, P)
+            Estar + P ⇌ Estar(P)
+            E(A) <--> Estar(P)
             Estar(B) ⇌ E(Q)
         end
     end
@@ -3318,7 +3320,7 @@ end
             uni_uni_reg_and_inhibitor)...], uni_uni_reg_and_inhibitor))
     seed_ci = first(filter(pool) do m
         m isa EnzymeRates.Mechanism && any(
-            (bm = EnzymeRates.bound_metabolite(s);
+            (bm = EnzymeRates.ligand(s);
              bm isa EnzymeRates.Regulator && EnzymeRates.name(bm) == :R1)
             for g in EnzymeRates.steps(m) for s in g)
     end)
@@ -3986,7 +3988,7 @@ end
     # am already binds ATP as a competitive dead-end inhibitor step.
     @test any(EnzymeRates.steps(am)) do g
         any(g) do s
-            bm = EnzymeRates.bound_metabolite(s)
+            bm = EnzymeRates.ligand(s)
             bm isa EnzymeRates.CompetitiveInhibitor &&
                 EnzymeRates.name(bm) == :ATP
         end
@@ -4096,7 +4098,7 @@ end
         seed, uni_uni_reg_and_inhibitor)
     de_regs = Set(EnzymeRates.name(bm) for m in added
                   for g in EnzymeRates.steps(m) for s in g
-                  for bm in (EnzymeRates.bound_metabolite(s),)
+                  for bm in (EnzymeRates.ligand(s),)
                   if bm isa EnzymeRates.Regulator)
     @test !isempty(added)
     @test de_regs == Set([:R1])
@@ -5077,7 +5079,7 @@ end
     # SEED: AllostericMechanism uni-uni with R already added as an
     # allosteric regulator (:OnlyA). expand_mechanisms must never add R
     # as a dead-end inhibitor — no Step in any expansion may have
-    # bound_metabolite named :R (allosteric regulators live in
+    # ligand named :R (allosteric regulators live in
     # regulatory_sites, not in cat_steps).
     aem = @allosteric_mechanism begin
         substrates: S; products: P
@@ -5095,7 +5097,7 @@ end
         groups = r isa EnzymeRates.AllostericMechanism ?
             r.cat_steps : r.steps
         for group in groups, st in group
-            bm = EnzymeRates.bound_metabolite(st)
+            bm = EnzymeRates.ligand(st)
             bm === nothing && continue
             @test EnzymeRates.name(bm) !== :R
         end
@@ -5211,7 +5213,7 @@ end
     end
 
     # #distinct metabolites bound by an :OnlyA catalytic group (iso → skip)
-    onlya_mets(am) = Set(EnzymeRates.name(EnzymeRates.bound_metabolite(
+    onlya_mets(am) = Set(EnzymeRates.name(EnzymeRates.ligand(
                             EnzymeRates.rep_step(am, g)))
         for g in EnzymeRates.kinetic_groups(am)
         if EnzymeRates.cat_allo_states(am)[g] === :OnlyA &&
@@ -5353,7 +5355,7 @@ allo_mechs = EnzymeRates._expand_to_allosteric(m_seed, uni_uni_allo_reg)
             # Must NOT be an iso-only group (iso `:OnlyA` is just a relabel
             # — the test wants a binding group whose K param disappears in T).
             group_steps = am.cat_steps[g]
-            any(s -> EnzymeRates.bound_metabolite(s) !== nothing,
+            any(s -> EnzymeRates.ligand(s) !== nothing,
                 group_steps)
         end
     end)
@@ -5370,7 +5372,7 @@ end
             EnzymeRates.cat_allo_state(am, g) === :OnlyA || return false
             group_steps = am.cat_steps[g]
             all(s -> !EnzymeRates.is_equilibrium(s) &&
-                     EnzymeRates.bound_metabolite(s) === nothing,
+                     EnzymeRates.ligand(s) === nothing,
                 group_steps)
         end
     end)
@@ -5515,7 +5517,7 @@ end
         end
     end)
     pfc = EnzymeRates._flux_carrying_groups(pendant)
-    inhibits(grp) = (bm = EnzymeRates.bound_metabolite(first(grp));
+    inhibits(grp) = (bm = EnzymeRates.ligand(first(grp));
                      bm !== nothing && EnzymeRates.name(bm) in (:I, :J))
     inhibitor_groups = [g for (g, grp) in enumerate(EnzymeRates.steps(pendant))
                         if inhibits(grp)]
@@ -5994,7 +5996,7 @@ end
     src_forms(part) = Set(EnzymeRates.name(EnzymeRates.from_species(s)) for s in part)
     a_group = only(grp for grp in EnzymeRates.steps(m)
                    if length(grp) == 3 &&
-                      EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp))) == :A)
+                      EnzymeRates.name(EnzymeRates.ligand(first(grp))) == :A)
     bps = EnzymeRates._context_bipartitions(a_group)
     @test length(bps) == 2
     for (with, without) in bps
@@ -6023,20 +6025,20 @@ end
     # so the context form is from_species.
     @test EnzymeRates._context_form(first(a_group)) ==
           EnzymeRates.from_species(first(a_group))
-    # _context_form: an SS dissociation step whose bound metabolite is in
+    # _context_form: an SS dissociation step whose released metabolite is in
     # neither endpoint's bound list (the Segel ping-pong step shape) puts
     # the metabolite on to_species.
     ping_pong_step = EnzymeRates.Step(
         EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E),
         EnzymeRates.Species(EnzymeRates.Metabolite[], :F),
-        EnzymeRates.Product(:P), false)
+        EnzymeRates.Metabolite[], [EnzymeRates.Product(:P)], false)
     @test EnzymeRates._context_form(ping_pong_step) ==
           EnzymeRates.to_species(ping_pong_step)
     # A two-step group with one context has one bipartition; a group whose
     # source forms carry no other ligand has none.
     b_group = only(grp for grp in EnzymeRates.steps(m)
                    if length(grp) == 2 &&
-                      EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp))) == :B)
+                      EnzymeRates.name(EnzymeRates.ligand(first(grp))) == :B)
     @test length(EnzymeRates._context_bipartitions(b_group)) == 1
     iso_group = only(grp for grp in EnzymeRates.steps(m) if EnzymeRates.is_iso(first(grp)))
     @test isempty(EnzymeRates._context_bipartitions(iso_group))
@@ -6061,7 +6063,7 @@ end
     end)
     cube_a = only(grp for grp in EnzymeRates.steps(cube)
                   if length(grp) == 4 &&
-                     EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp))) == :A)
+                     EnzymeRates.name(EnzymeRates.ligand(first(grp))) == :A)
     cube_bps = EnzymeRates._context_bipartitions(cube_a)
     @test length(cube_bps) == 2
     # Both contexts are substrates, so they are ordered by name: B then C.
@@ -6174,7 +6176,7 @@ end
         end
     end)
     ga = findfirst(grp -> length(grp) == 2 &&
-                   EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp))) == :A,
+                   EnzymeRates.name(EnzymeRates.ligand(first(grp))) == :A,
                    EnzymeRates.steps(am))
     bpa = only(EnzymeRates._context_bipartitions(EnzymeRates.steps(am)[ga]))
     achild = EnzymeRates._apply_bipartitions(am, [(ga, bpa)])
@@ -6653,7 +6655,7 @@ end
                 E + R ⇌ E(R)
             end
         end)
-        binds(grp) = (bm = EnzymeRates.bound_metabolite(first(grp));
+        binds(grp) = (bm = EnzymeRates.ligand(first(grp));
                       bm === nothing ? :iso : EnzymeRates.name(bm))
         sources(grp) = Set(EnzymeRates.name(EnzymeRates.from_species(s)) for s in grp)
         # Each group is pinned by the metabolite it binds and the forms it binds to.
@@ -7171,7 +7173,7 @@ end
                 E(A, B) <--> E(P, Q)
             end
         end)
-        binder(grp) = EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp)))
+        binder(grp) = EnzymeRates.name(EnzymeRates.ligand(first(grp)))
         a_group = only(grp for grp in EnzymeRates.steps(m)
                        if length(grp) == 4 && binder(grp) == :A)
         bps = EnzymeRates._context_bipartitions(a_group)
@@ -7344,7 +7346,7 @@ end
         e
     end
     @test err isa ErrorException &&
-          occursin("changes the covalent residual", sprint(showerror, err))
+          occursin("folds chemistry", sprint(showerror, err))
     # Aggregate pin over the ping-pong seed set: the enumerator itself never
     # writes a binding step that changes the residual.
     @test all(EnzymeRates._assert_chemistry_is_iso(m) === nothing
@@ -7524,9 +7526,9 @@ end
     seeds = EnzymeRates.init_mechanisms(rxn)
     for m in seeds, c in EnzymeRates._expand_add_dead_end_regulator(m, rxn)
         branch = [s for grp in EnzymeRates.steps(c) for s in grp if in_branch(s)]
-        bound_in_branch = Set(EnzymeRates.name(EnzymeRates.bound_metabolite(s))
+        bound_in_branch = Set(EnzymeRates.name(EnzymeRates.ligand(s))
                               for s in branch
-                              if EnzymeRates.bound_metabolite(s) !== nothing)
+                              if EnzymeRates.ligand(s) !== nothing)
         @test !(Set([:A, :B]) ⊆ bound_in_branch)
         n_children += 1
         any(EnzymeRates.is_iso, branch) && (n_half += 1)
@@ -7705,8 +7707,8 @@ end
             stepkeys = sort([
                 string((EnzymeRates.name(EnzymeRates.from_species(s)),
                         EnzymeRates.name(EnzymeRates.to_species(s)),
-                        EnzymeRates.bound_metabolite(s) === nothing ? :iso :
-                            EnzymeRates.name(EnzymeRates.bound_metabolite(s)),
+                        EnzymeRates.ligand(s) === nothing ? :iso :
+                            EnzymeRates.name(EnzymeRates.ligand(s)),
                         EnzymeRates.is_equilibrium(s)))
                 for s in grp])
             push!(grpkeys, join(stepkeys, "|"))
@@ -7796,7 +7798,7 @@ end
     is_free_e_binding(m, g) = begin
         rs = EnzymeRates.rep_step(m, g)
         isempty(EnzymeRates.bound(EnzymeRates.from_species(rs))) &&
-            EnzymeRates.bound_metabolite(rs) !== nothing
+            EnzymeRates.ligand(rs) !== nothing
     end
     n_reproducers = 0
     for m in EnzymeRates.init_mechanisms(rxn)
@@ -8052,7 +8054,7 @@ end
         tags = ER.cat_allo_states(x)
         by_ligand = Dict{Symbol, Symbol}()
         for (g, grp) in enumerate(ER.steps(x))
-            bm = ER.bound_metabolite(grp[1])
+            bm = ER.ligand(grp[1])
             by_ligand[bm === nothing ? :chem : ER.name(bm)] = tags[g]
         end
         (by_ligand[:S], by_ligand[:chem], by_ligand[:P])
@@ -8072,7 +8074,7 @@ end
 # (`:chem` for the chemical step). Group index is never a stable key: the
 # AllostericMechanism constructor canonicalizes group order.
 tags_by_ligand(x) = Dict(
-    (bm = EnzymeRates.bound_metabolite(grp[1]);
+    (bm = EnzymeRates.ligand(grp[1]);
      bm === nothing ? :chem : EnzymeRates.name(bm)) =>
         EnzymeRates.cat_allo_states(x)[g]
     for (g, grp) in enumerate(EnzymeRates.steps(x)))

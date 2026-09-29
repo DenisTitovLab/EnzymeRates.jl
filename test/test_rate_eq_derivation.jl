@@ -344,7 +344,7 @@ function analytical_oracle_params(m, nt::NamedTuple;
     swap_idxs = Set{Int}()
     for (g, group) in enumerate(EnzymeRates.steps(mech))
         for (within, s) in enumerate(group)
-            bm = EnzymeRates.bound_metabolite(s)
+            bm = EnzymeRates.ligand(s)
             if bm isa EnzymeRates.Product &&
                bm in EnzymeRates.bound(EnzymeRates.to_species(s))
                 push!(swap_idxs, flat_idx[g][within])
@@ -1107,7 +1107,7 @@ end
     onlyA_groups = [g for g in EnzymeRates.kinetic_groups(am)
                     if EnzymeRates.cat_allo_state(am, g) === :OnlyA]
     @test length(onlyA_groups) == 2
-    onlyA_bms = [EnzymeRates.bound_metabolite(EnzymeRates.rep_step(am, g))
+    onlyA_bms = [EnzymeRates.ligand(EnzymeRates.rep_step(am, g))
                  for g in onlyA_groups]
     @test count(bm -> bm !== nothing && EnzymeRates.name(bm) === :ATP,
                 onlyA_bms) == 1
@@ -1378,7 +1378,7 @@ end
     uni_uni = only(s for s in MECHANISM_TEST_SPECS
                    if s.name == "Uni-Uni").mechanism
     names = EnzymeRates._ss_rate_constant_names(uni_uni)
-    for sym in (:kon_S_E, :koff_S_E, :kon_P_ES, :koff_P_ES)
+    for sym in (:kon_S_E, :koff_S_E, :k_ES_to_E, :k_E_to_ES)
         @test sym in names
     end
 
@@ -1387,7 +1387,7 @@ end
     re_uu = only(s for s in MECHANISM_TEST_SPECS
                  if s.name == "RE Uni-Uni").mechanism
     re_uu_names = EnzymeRates._ss_rate_constant_names(re_uu)
-    @test :kon_P_EA in re_uu_names && :koff_P_EA in re_uu_names
+    @test :k_EA_to_E in re_uu_names && :k_E_to_EA in re_uu_names
     for sym in (:K_A_E, :Keq, :L, :E_total)
         @test !(sym in re_uu_names)
     end
@@ -1792,13 +1792,13 @@ end
     end
     s_q1 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
                             EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                            EnzymeRates.Substrate(:S), true)
+                            [EnzymeRates.Substrate(:S)], EnzymeRates.Metabolite[], true)
     s_q2 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
                             EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-                            nothing, false)
+                            EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
     s_q3 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
                             EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-                            EnzymeRates.Product(:P), true)
+                            EnzymeRates.Metabolite[], [EnzymeRates.Product(:P)], true)
     m_no_q = EnzymeRates.Mechanism(rxn_no_q, [[s_q1], [s_q2], [s_q3]])
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_no_q)
 
@@ -1810,14 +1810,14 @@ end
     end
     g_sa1 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
                              EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                             EnzymeRates.Substrate(:S), true)
+                             [EnzymeRates.Substrate(:S)], EnzymeRates.Metabolite[], true)
     g_sa2 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
                              EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E_A),
-                             EnzymeRates.Substrate(:A), true)
+                             [EnzymeRates.Substrate(:A)], EnzymeRates.Metabolite[], true)
     g_sa3 = EnzymeRates.Step(
         EnzymeRates.Species([EnzymeRates.Substrate(:S), EnzymeRates.Substrate(:A)], :E_S_A),
         EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-        nothing, false)
+        EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
     m_sa = EnzymeRates.Mechanism(rxn_sa, [[g_sa1, g_sa2], [g_sa3]])
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_sa)
 

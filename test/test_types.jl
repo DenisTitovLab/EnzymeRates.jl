@@ -48,7 +48,7 @@
         @test length(unique(EnzymeRates.kinetic_group(m2, i)
                             for i in 1:EnzymeRates.n_steps(m2))) == 4
         shared = only(g for g in EnzymeRates.Mechanism(m2).steps if length(g) == 2)
-        @test all(EnzymeRates.bound_metabolite(s) ==
+        @test all(EnzymeRates.ligand(s) ==
                   EnzymeRates.CompetitiveInhibitor(:R) for s in shared)
     end
 
@@ -195,7 +195,7 @@
         am_c = EnzymeRates.AllostericMechanism(m)
         onlyA_g = only(g for g in EnzymeRates.kinetic_groups(am_c)
                        if EnzymeRates.cat_allo_state(am_c, g) === :OnlyA)
-        @test EnzymeRates.bound_metabolite(
+        @test EnzymeRates.ligand(
                   EnzymeRates.rep_step(am_c, onlyA_g)) === nothing
         @test all(EnzymeRates.cat_allo_state(am_c, g) === :EqualAI
                   for g in EnzymeRates.kinetic_groups(am_c) if g != onlyA_g)
@@ -339,9 +339,12 @@
         e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
         e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
         m_unused = EnzymeRates.Mechanism(rxn_unused, [
-            [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)],
-            [EnzymeRates.Step(e_s, e_p, nothing, false)],
-            [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
+            [EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                              EnzymeRates.Metabolite[], true)],
+            [EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                              EnzymeRates.Metabolite[], false)],
+            [EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
+                              EnzymeRates.Metabolite[], true)],
         ])
         @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_unused)
 
@@ -379,9 +382,12 @@
         e_s  = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
         e_a  = EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E)
         e_p2 = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
-        g1_s = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
-        g1_a = EnzymeRates.Step(e, e_a, EnzymeRates.Substrate(:A), true)
-        g2_iso = EnzymeRates.Step(e_s, e_p2, nothing, false)
+        g1_s = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                                EnzymeRates.Metabolite[], true)
+        g1_a = EnzymeRates.Step(e, e_a, [EnzymeRates.Substrate(:A)],
+                                EnzymeRates.Metabolite[], true)
+        g2_iso = EnzymeRates.Step(e_s, e_p2, EnzymeRates.Metabolite[],
+                                  EnzymeRates.Metabolite[], false)
         m_diffmet = EnzymeRates.Mechanism(rxn_two, [[g1_s, g1_a], [g2_iso]])
         @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_diffmet)
 
@@ -392,9 +398,12 @@
             substrates: S[C]
             products:   P[C]
         end
-        s_re = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
-        s_ss = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), false)
-        s_rel = EnzymeRates.Step(e, e_p2, EnzymeRates.Product(:P), true)
+        s_re = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                                EnzymeRates.Metabolite[], true)
+        s_ss = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                                EnzymeRates.Metabolite[], false)
+        s_rel = EnzymeRates.Step(e, e_p2, [EnzymeRates.Product(:P)],
+                                 EnzymeRates.Metabolite[], true)
         @test_throws ErrorException EnzymeRates.Mechanism(rxn_uni, [[s_re, s_ss], [s_rel]])
     end
 
@@ -596,7 +605,7 @@
         cat_allo_states = Symbol[]
         for g in EnzymeRates.kinetic_groups(base)
             rep = EnzymeRates.rep_step(base, g)
-            met = EnzymeRates.bound_metabolite(rep)
+            met = EnzymeRates.ligand(rep)
             tag = (met isa EnzymeRates.Reactant &&
                    EnzymeRates.name(met) in (:S, :P)) ?
                   :EqualAI : :NonequalAI
@@ -816,27 +825,28 @@
         e_p = EnzymeRates.Species(
             EnzymeRates.Metabolite[EnzymeRates.Product(:P)], :E)
 
-        s1 = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
-        s2 = EnzymeRates.Step(e_s, e_p, nothing, false)
-        s3 = EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)
+        s1 = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                              EnzymeRates.Metabolite[], true)
+        s2 = EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                              EnzymeRates.Metabolite[], false)
+        s3 = EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
+                              EnzymeRates.Metabolite[], true)
 
         @test fieldnames(EnzymeRates.Step) ==
-              (:from_species, :to_species, :bound_metabolite,
+              (:from_species, :to_species, :consumed, :released,
                :is_equilibrium)
 
         @test EnzymeRates.from_species(s1) === e
         @test EnzymeRates.to_species(s1) === e_s
-        @test EnzymeRates.bound_metabolite(s1) ==
+        @test EnzymeRates.ligand(s1) ==
               EnzymeRates.Substrate(:S)
         @test EnzymeRates.is_equilibrium(s1)
         @test EnzymeRates.is_binding(s1)
         @test !EnzymeRates.is_iso(s1)
-        @test EnzymeRates.direction(s1) === :binding
 
-        @test EnzymeRates.bound_metabolite(s2) === nothing
+        @test EnzymeRates.ligand(s2) === nothing
         @test EnzymeRates.is_iso(s2)
         @test !EnzymeRates.is_binding(s2)
-        @test EnzymeRates.direction(s2) === :iso
 
         @test EnzymeRates.is_binding(s3)
     end
@@ -845,8 +855,10 @@
         e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
         e_s = EnzymeRates.Species(
             EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
-        s  = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
-        s2 = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
+        s  = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                              EnzymeRates.Metabolite[], true)
+        s2 = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                              EnzymeRates.Metabolite[], true)
         @test s == s2
         @test hash(s) == hash(s2)
     end
@@ -859,15 +871,19 @@
         # User authored release direction (E_S → E + S, metabolite on RHS).
         # Constructor swaps to binding direction (E + S → E_S). Both RE and
         # SS binding canonicalize this way.
-        re_released = EnzymeRates.Step(e_s, e, EnzymeRates.Substrate(:S), true)
-        re_bound    = EnzymeRates.Step(e,   e_s, EnzymeRates.Substrate(:S), true)
+        re_released = EnzymeRates.Step(e_s, e, EnzymeRates.Metabolite[],
+                                       [EnzymeRates.Substrate(:S)], true)
+        re_bound    = EnzymeRates.Step(e,   e_s, [EnzymeRates.Substrate(:S)],
+                                       EnzymeRates.Metabolite[], true)
         @test re_released == re_bound
         @test hash(re_released) == hash(re_bound)
         @test EnzymeRates.from_species(re_released) === e
         @test EnzymeRates.to_species(re_released) === e_s
 
-        ss_released = EnzymeRates.Step(e_s, e, EnzymeRates.Substrate(:S), false)
-        ss_bound    = EnzymeRates.Step(e,   e_s, EnzymeRates.Substrate(:S), false)
+        ss_released = EnzymeRates.Step(e_s, e, EnzymeRates.Metabolite[],
+                                       [EnzymeRates.Substrate(:S)], false)
+        ss_bound    = EnzymeRates.Step(e,   e_s, [EnzymeRates.Substrate(:S)],
+                                       EnzymeRates.Metabolite[], false)
         @test ss_released == ss_bound
         @test hash(ss_released) == hash(ss_bound)
         @test EnzymeRates.from_species(ss_released) === e
@@ -884,14 +900,18 @@
         # iso direction depends on the reaction's substrate/product sets and
         # is decided by `_canonical_iso_direction` in the Mechanism / Allosteric
         # Mechanism constructor. At the bare-Step level, direction is preserved.
-        re_fwd = EnzymeRates.Step(e_s, e_p, nothing, true)
-        re_rev = EnzymeRates.Step(e_p, e_s, nothing, true)
+        re_fwd = EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                                  EnzymeRates.Metabolite[], true)
+        re_rev = EnzymeRates.Step(e_p, e_s, EnzymeRates.Metabolite[],
+                                  EnzymeRates.Metabolite[], true)
         @test re_fwd != re_rev
         @test EnzymeRates.from_species(re_fwd) === e_s
         @test EnzymeRates.from_species(re_rev) === e_p
 
-        ss_fwd = EnzymeRates.Step(e_s, e_p, nothing, false)
-        ss_rev = EnzymeRates.Step(e_p, e_s, nothing, false)
+        ss_fwd = EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                                  EnzymeRates.Metabolite[], false)
+        ss_rev = EnzymeRates.Step(e_p, e_s, EnzymeRates.Metabolite[],
+                                  EnzymeRates.Metabolite[], false)
         @test ss_fwd != ss_rev
         @test EnzymeRates.from_species(ss_fwd) === e_s
         @test EnzymeRates.from_species(ss_rev) === e_p
@@ -901,7 +921,8 @@
         e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
         e_s = EnzymeRates.Species(
             EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
-        step = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
+        step = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                                EnzymeRates.Metabolite[], true)
 
         kd_none = EnzymeRates.Kd(step, :None)
         kd_i    = EnzymeRates.Kd(step, :I)
@@ -1194,9 +1215,12 @@
         e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
         e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
 
-        s_bind = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
-        s_iso  = EnzymeRates.Step(e_s, e_p, nothing, false)
-        s_rel  = EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)
+        s_bind = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                                  EnzymeRates.Metabolite[], true)
+        s_iso  = EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                                  EnzymeRates.Metabolite[], false)
+        s_rel  = EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
+                                  EnzymeRates.Metabolite[], true)
 
         m = EnzymeRates.Mechanism(r, [[s_bind], [s_iso], [s_rel]])
         @test EnzymeRates.reaction(m) == r
@@ -1251,8 +1275,7 @@
         @test EnzymeRates.Mechanism(s1) == EnzymeRates.Mechanism(s2)
         iso = only(s for grp in EnzymeRates.steps(EnzymeRates.Mechanism(s2))
                        for s in grp
-                       if !EnzymeRates.is_binding(s) &&
-                          EnzymeRates.bound_metabolite(s) === nothing &&
+                       if EnzymeRates.is_iso(s) &&
                           EnzymeRates.name(EnzymeRates.from_species(s)) in (:E, :F))
         @test EnzymeRates.name(EnzymeRates.from_species(iso)) == :F  # product-exit
         @test EnzymeRates.name(EnzymeRates.to_species(iso))   == :E  # substrate-entry
@@ -1271,9 +1294,12 @@
         e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
         e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
 
-        s1 = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
-        s2 = EnzymeRates.Step(e_s, e_p, nothing, false)
-        s3 = EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)
+        s1 = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                              EnzymeRates.Metabolite[], true)
+        s2 = EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                              EnzymeRates.Metabolite[], false)
+        s3 = EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
+                              EnzymeRates.Metabolite[], true)
 
         m = EnzymeRates.Mechanism(r, [[s1], [s2], [s3]])
         flat = EnzymeRates._flat_steps(m)
@@ -1307,9 +1333,12 @@
         e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
         e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
         e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
-        s_bind = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
-        s_iso  = EnzymeRates.Step(e_s, e_p, nothing, false)
-        s_rel  = EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)
+        s_bind = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                                  EnzymeRates.Metabolite[], true)
+        s_iso  = EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                                  EnzymeRates.Metabolite[], false)
+        s_rel  = EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
+                                  EnzymeRates.Metabolite[], true)
 
         site = EnzymeRates.RegulatorySite(
             [EnzymeRates.AllostericRegulator(:I)], 1, [:OnlyI])
@@ -1356,7 +1385,8 @@
         )
         e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
         e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
-        s_bind = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
+        s_bind = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                                  EnzymeRates.Metabolite[], true)
         cat_steps = [[s_bind]]
 
         # :OnlyI for catalytic group is rejected (R-state-active convention)
@@ -1441,7 +1471,7 @@
         # is canonical, so pick the substrate-binding and iso steps by content.
         rep_bind = only(EnzymeRates.rep_step(am, g)
             for g in EnzymeRates.kinetic_groups(am)
-            if EnzymeRates.bound_metabolite(
+            if EnzymeRates.ligand(
                    EnzymeRates.rep_step(am, g)) isa EnzymeRates.Substrate)
         @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :None), aem) ==
               EnzymeRates.name(EnzymeRates.Kd(rep_bind, :None), am)
@@ -1451,7 +1481,7 @@
 
         rep_iso  = only(EnzymeRates.rep_step(am, g)
             for g in EnzymeRates.kinetic_groups(am)
-            if EnzymeRates.bound_metabolite(EnzymeRates.rep_step(am, g)) === nothing)
+            if EnzymeRates.ligand(EnzymeRates.rep_step(am, g)) === nothing)
         @test EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), aem) ==
               EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), am)
         @test EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), aem) === :k_ES_to_EP
@@ -1483,9 +1513,12 @@
         e_p = EnzymeRates.Species([EnzymeRates.Product(:ADP)], :E)
 
         m = EnzymeRates.Mechanism(r, [
-            [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:ATP), true)],
-            [EnzymeRates.Step(e_s, e_p, nothing, false)],
-            [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:ADP), true)],
+            [EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:ATP)],
+                              EnzymeRates.Metabolite[], true)],
+            [EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                              EnzymeRates.Metabolite[], false)],
+            [EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:ADP)],
+                              EnzymeRates.Metabolite[], true)],
         ])
 
         sig = EnzymeRates._sig_of(m)
@@ -1517,9 +1550,12 @@
         e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
 
         m = EnzymeRates.Mechanism(r, [
-            [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)],
-            [EnzymeRates.Step(e_s, e_p, nothing, false)],
-            [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
+            [EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                              EnzymeRates.Metabolite[], true)],
+            [EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                              EnzymeRates.Metabolite[], false)],
+            [EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
+                              EnzymeRates.Metabolite[], true)],
         ])
 
         em = EnzymeMechanism(m)
@@ -1540,9 +1576,12 @@
         e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
         e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
 
-        step1 = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
-        step2 = EnzymeRates.Step(e_s, e_p, nothing, false)
-        step3 = EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)
+        step1 = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                                 EnzymeRates.Metabolite[], true)
+        step2 = EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                                 EnzymeRates.Metabolite[], false)
+        step3 = EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
+                                 EnzymeRates.Metabolite[], true)
 
         m = EnzymeRates.Mechanism(r, [[step1], [step2], [step3]])
 
@@ -1596,10 +1635,14 @@
             EnzymeRates.Metabolite[
                 EnzymeRates.Substrate(:S), EnzymeRates.Product(:P)], :E)
 
-        step_a = EnzymeRates.Step(e,   e_s,  EnzymeRates.Substrate(:S), true)
-        step_b = EnzymeRates.Step(e_p, e_sp, EnzymeRates.Substrate(:S), true)
-        step_c = EnzymeRates.Step(e_s, e_p,  nothing, false)
-        step_d = EnzymeRates.Step(e,   e_p,  EnzymeRates.Product(:P), true)
+        step_a = EnzymeRates.Step(e,   e_s,  [EnzymeRates.Substrate(:S)],
+                                  EnzymeRates.Metabolite[], true)
+        step_b = EnzymeRates.Step(e_p, e_sp, [EnzymeRates.Substrate(:S)],
+                                  EnzymeRates.Metabolite[], true)
+        step_c = EnzymeRates.Step(e_s, e_p,  EnzymeRates.Metabolite[],
+                                  EnzymeRates.Metabolite[], false)
+        step_d = EnzymeRates.Step(e,   e_p,  [EnzymeRates.Product(:P)],
+                                  EnzymeRates.Metabolite[], true)
 
         m = EnzymeRates.Mechanism(r, [[step_a, step_b], [step_c], [step_d]])
 
@@ -1625,9 +1668,12 @@
         e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
 
         cat_steps = [
-            [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)],
-            [EnzymeRates.Step(e_s, e_p, nothing, false)],
-            [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
+            [EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                              EnzymeRates.Metabolite[], true)],
+            [EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                              EnzymeRates.Metabolite[], false)],
+            [EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
+                              EnzymeRates.Metabolite[], true)],
         ]
         site_a = EnzymeRates.RegulatorySite(
             [EnzymeRates.AllostericRegulator(:A)], 2, [:NonequalAI])
@@ -1733,7 +1779,8 @@
             EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
         e_p = EnzymeRates.Species(
             EnzymeRates.Metabolite[EnzymeRates.Product(:P)], :E)
-        s = EnzymeRates.Step(e_s, e_p, nothing, false)
+        s = EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                             EnzymeRates.Metabolite[], false)
 
         # An :EqualAI parameter has no :I variant under _flip_to_inactive
         # (returns itself); _force_inactive must return the explicit :I variant.
@@ -1884,7 +1931,7 @@ end
         tags = copy(ER.cat_allo_states(am))
         # find each group by its representative step
         for (g, grp) in enumerate(ER.steps(am))
-            bm = ER.bound_metabolite(grp[1])
+            bm = ER.ligand(grp[1])
             tags[g] = bm === nothing ? cat_tag :
                       ER.name(bm) === :S ? s_tag : p_tag
         end
@@ -1935,7 +1982,7 @@ end
     # every binding :OnlyA, catalysis :EqualAI -> balanced -> valid
     function both_bindings_onlya(m)
         am = ER.AllostericMechanism(m)
-        tags = [ER.bound_metabolite(g[1]) === nothing ? :EqualAI : :OnlyA
+        tags = [ER.ligand(g[1]) === nothing ? :EqualAI : :OnlyA
                 for g in ER.steps(am)]
         ER._onlya_haldane_violation(ER.reaction(am), ER.steps(am), tags)
     end
@@ -1965,7 +2012,7 @@ end
         function tags(onlya_keys...)
             want = Set{Tuple{Symbol, Union{Symbol, Nothing}}}(onlya_keys)
             map(ER.steps(bu_am)) do grp
-                bm = ER.bound_metabolite(grp[1])
+                bm = ER.ligand(grp[1])
                 key = (ER.name(ER.from_species(grp[1])),
                        bm === nothing ? nothing : ER.name(bm))
                 key in want ? :OnlyA : :EqualAI

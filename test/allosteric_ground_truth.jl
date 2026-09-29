@@ -775,11 +775,12 @@ end
         end
     end
     fp = ER.fitted_params(allo)
-    @test fp == (:kon_A_E, :kon_A_P_EA, :koff_A_P_EA,
-                 Symbol("kon_A_Q_EB_res_+A_-P"), Symbol("koff_A_Q_EB_res_+A_-P"),
+    @test fp == (:kon_A_E, Symbol("k_A_EA_to_E_res_+A_-P"),
+                 Symbol("k_A_E_res_+A_-P_to_EA"),
+                 Symbol("k_A_EB_res_+A_-P_to_E"), Symbol("k_A_E_to_EB_res_+A_-P"),
                  Symbol("kon_B_E_res_+A_-P"), Symbol("koff_B_E_res_+A_-P"),
-                 :kon_I_P_EA, Symbol("kon_I_Q_EB_res_+A_-P"),
-                 Symbol("koff_I_Q_EB_res_+A_-P"), :L)
+                 Symbol("k_I_EA_to_E_res_+A_-P"), Symbol("k_I_EB_res_+A_-P_to_E"),
+                 Symbol("k_I_E_to_EB_res_+A_-P"), :L)
 
     rng = MersenneTwister(20260716)
     for _ in 1:6
@@ -789,30 +790,33 @@ end
         k_P_I = 0.5+2rand(rng); k_Q_I = 0.5+2rand(rng); koff_Q_I = 0.5+2rand(rng)
         L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
         A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng); Q = 0.5+2rand(rng)
-        # Map fitted_params -> ground-truth params. On a release step the
-        # canonical direction runs E(A) → F + P, so `kon_…` is the forward
-        # (product-releasing) rate and `koff_…` the reverse (product-rebinding)
-        # one — the binding steps read the usual way round.
+        # Map fitted_params -> ground-truth params. A step that releases a
+        # product while changing the residual is named by its form pair in the
+        # direction it is written, E(A) → F + P, so `k_…_EA_to_E_res_…` is the
+        # forward (product-releasing) rate and `k_…_E_res_…_to_EA` the reverse
+        # (product-rebinding) one — the binding steps read the usual way round.
         #   kon_A_E=kon_A                                (E + A ⇌ EA, shared)
         #   kon_B_E_res_+A_-P=kon_B, koff_B_E_res_+A_-P=koff_B  (F + B ⇌ FB, shared)
-        #   kon_A_P_EA=k_P_A, koff_A_P_EA=koff_P_A       (EA ⇌ F + P, active)
-        #   kon_I_P_EA=k_P_I                             (EA ⇌ F + P, inactive)
-        #   kon_A_Q_EB_res_+A_-P=k_Q_A,
-        #   koff_A_Q_EB_res_+A_-P=koff_Q_A               (FB ⇌ E + Q, active)
-        #   kon_I_Q_EB_res_+A_-P=k_Q_I,
-        #   koff_I_Q_EB_res_+A_-P=koff_Q_I               (FB ⇌ E + Q, inactive)
-        # `koff_A_E` and `koff_I_P_EA` are absent from fitted_params: each
-        # conformation's Haldane makes one reverse constant dependent, and the
-        # oracle derives exactly those two.
+        #   k_A_EA_to_E_res_+A_-P=k_P_A,
+        #   k_A_E_res_+A_-P_to_EA=koff_P_A               (EA ⇌ F + P, active)
+        #   k_I_EA_to_E_res_+A_-P=k_P_I                  (EA ⇌ F + P, inactive)
+        #   k_A_EB_res_+A_-P_to_E=k_Q_A,
+        #   k_A_E_to_EB_res_+A_-P=koff_Q_A               (FB ⇌ E + Q, active)
+        #   k_I_EB_res_+A_-P_to_E=k_Q_I,
+        #   k_I_E_to_EB_res_+A_-P=koff_Q_I               (FB ⇌ E + Q, inactive)
+        # `koff_A_E` and `k_I_E_res_+A_-P_to_EA` are absent from fitted_params:
+        # each conformation's Haldane makes one reverse constant dependent, and
+        # the oracle derives exactly those two.
         d = Dict(:kon_A_E => kon_A,
                  Symbol("kon_B_E_res_+A_-P") => kon_B,
                  Symbol("koff_B_E_res_+A_-P") => koff_B,
-                 :kon_A_P_EA => k_P_A, :koff_A_P_EA => koff_P_A,
-                 Symbol("kon_A_Q_EB_res_+A_-P") => k_Q_A,
-                 Symbol("koff_A_Q_EB_res_+A_-P") => koff_Q_A,
-                 :kon_I_P_EA => k_P_I,
-                 Symbol("kon_I_Q_EB_res_+A_-P") => k_Q_I,
-                 Symbol("koff_I_Q_EB_res_+A_-P") => koff_Q_I,
+                 Symbol("k_A_EA_to_E_res_+A_-P") => k_P_A,
+                 Symbol("k_A_E_res_+A_-P_to_EA") => koff_P_A,
+                 Symbol("k_A_EB_res_+A_-P_to_E") => k_Q_A,
+                 Symbol("k_A_E_to_EB_res_+A_-P") => koff_Q_A,
+                 Symbol("k_I_EA_to_E_res_+A_-P") => k_P_I,
+                 Symbol("k_I_EB_res_+A_-P_to_E") => k_Q_I,
+                 Symbol("k_I_E_to_EB_res_+A_-P") => koff_Q_I,
                  :L => L)
         prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
         v_code = real(ER.rate_equation(allo, (A=A, B=B, P=P, Q=Q), prm))

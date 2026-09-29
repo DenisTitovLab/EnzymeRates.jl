@@ -19,7 +19,7 @@
         @test length(mech.steps) == 3
         # Steps are canonicalized; pick each by content, not position.
         es_step = only(s for g in mech.steps for s in g           # E + S ⇌ E(S)
-            if EnzymeRates.bound_metabolite(s) == EnzymeRates.Substrate(:S))
+            if EnzymeRates.ligand(s) == EnzymeRates.Substrate(:S))
         @test EnzymeRates.conformation(es_step.to_species) == :E
         @test EnzymeRates.bound(es_step.to_species) ==
               EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)]
@@ -32,7 +32,7 @@
         # `from`, product-bound `to`) via `_canonical_iso_direction`, so
         # `E_S` is `from_species` and `E_P` is `to_species`.
         iso_step = only(s for g in mech.steps for s in g
-                        if EnzymeRates.bound_metabolite(s) === nothing)
+                        if EnzymeRates.ligand(s) === nothing)
         @test EnzymeRates.bound(iso_step.from_species) ==
               EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)]
         @test EnzymeRates.bound(iso_step.to_species) ==
@@ -66,7 +66,7 @@
         # Dead-end inhibitor lookup picks the correct Metabolite subtype.
         ei = only(EnzymeRates.to_species(s)             # E(I)
             for g in mech_multi.steps for s in g
-            if EnzymeRates.bound_metabolite(s) ==
+            if EnzymeRates.ligand(s) ==
                EnzymeRates.CompetitiveInhibitor(:I))
         @test EnzymeRates.bound(ei) ==
               EnzymeRates.Metabolite[
@@ -542,7 +542,7 @@
 
         # Numeric check: same as Uni-Uni spot check
         Keq = 3.2 * 2.5 / (0.8 * 1.1)
-        params = (kon_S_E=3.2, kon_P_ES=2.5, koff_P_ES=1.1, Keq=Keq, E_total=1.0)
+        params = (kon_S_E=3.2, k_ES_to_E=2.5, k_E_to_ES=1.1, Keq=Keq, E_total=1.0)
         concs = (S=0.7, P=0.3)
         @test rate_equation(m, concs, params) ≈ 0.9091 atol=0.001
 
@@ -657,7 +657,7 @@
     @testset "dual-role names bind by their catalytic role unless tagged ::Inh" begin
         _testhelper_bound_types(m) = Dict(
             EnzymeRates.name(EnzymeRates.to_species(s)) =>
-                typeof(EnzymeRates.bound_metabolite(s))
+                typeof(EnzymeRates.ligand(s))
             for g in EnzymeRates.steps(m) for s in g if EnzymeRates.is_binding(s))
         # A substrate also declared as a competitive inhibitor binds as the
         # substrate in a bare catalytic step; `E(A::Inh)` writes its inhibitor

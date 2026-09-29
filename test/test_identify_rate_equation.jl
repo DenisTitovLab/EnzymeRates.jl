@@ -29,7 +29,7 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
     _cat_allo_states = Symbol[]
     for g in EnzymeRates.kinetic_groups(_base)
         rep = EnzymeRates.rep_step(_base, g)
-        met = EnzymeRates.bound_metabolite(rep)
+        met = EnzymeRates.ligand(rep)
         tag = (met isa EnzymeRates.Reactant) ? :OnlyA : :NonequalAI
         push!(_cat_allo_states, tag)
     end
@@ -1257,32 +1257,32 @@ end
 const _DEDUP_SIG1 =
     "EnzymeMechanism{(((((:Substrate, :A), ((:C, 1),)), ((:Substrate, :B), ((:N" *
     ", 1),)), ((:Product, :P), ((:C, 1),)), ((:Product, :Q), ((:N, 1),))), (), " *
-    "(1,)), (((((), :E, ((), ())), (((:Substrate, :A),), :E, ((), ())), (:Subst" *
-    "rate, :A), true), ((((:Product, :Q),), :E, ((), ())), (((:Substrate, :A), " *
-    "(:Product, :Q)), :E, ((), ())), (:Substrate, :A), true)), ((((), :E, ((), " *
-    "())), (((:Product, :Q),), :E, ((), ())), (:Product, :Q), true), ((((:Subst" *
-    "rate, :A),), :E, ((), ())), (((:Substrate, :A), (:Product, :Q)), :E, ((), " *
-    "())), (:Product, :Q), true)), (((((:Substrate, :A),), :E, ((), ())), (((:S" *
-    "ubstrate, :A), (:Substrate, :B)), :E, ((), ())), (:Substrate, :B), true),)" *
-    ", (((((:Substrate, :A), (:Substrate, :B)), :E, ((), ())), (((:Product, :P)" *
-    ", (:Product, :Q)), :E, ((), ())), nothing, false),), (((((:Product, :Q),)," *
-    " :E, ((), ())), (((:Product, :P), (:Product, :Q)), :E, ((), ())), (:Produc" *
-    "t, :P), true),)))}"
+    "(1,)), (((((), :E, ((), ())), (((:Substrate, :A),), :E, ((), ())), ((:Subs" *
+    "trate, :A),), (), true), ((((:Product, :Q),), :E, ((), ())), (((:Substrate" *
+    ", :A), (:Product, :Q)), :E, ((), ())), ((:Substrate, :A),), (), true)), ((" *
+    "((), :E, ((), ())), (((:Product, :Q),), :E, ((), ())), ((:Product, :Q),), " *
+    "(), true), ((((:Substrate, :A),), :E, ((), ())), (((:Substrate, :A), (:Pro" *
+    "duct, :Q)), :E, ((), ())), ((:Product, :Q),), (), true)), (((((:Substrate," *
+    " :A),), :E, ((), ())), (((:Substrate, :A), (:Substrate, :B)), :E, ((), ())" *
+    "), ((:Substrate, :B),), (), true),), (((((:Substrate, :A), (:Substrate, :B" *
+    ")), :E, ((), ())), (((:Product, :P), (:Product, :Q)), :E, ((), ())), (), (" *
+    "), false),), (((((:Product, :Q),), :E, ((), ())), (((:Product, :P), (:Prod" *
+    "uct, :Q)), :E, ((), ())), ((:Product, :P),), (), true),)))}"
 
 const _DEDUP_SIG2 =
     "EnzymeMechanism{(((((:Substrate, :A), ((:C, 1),)), ((:Substrate, :B), ((:N" *
     ", 1),)), ((:Product, :P), ((:C, 1),)), ((:Product, :Q), ((:N, 1),))), (), " *
-    "(1,)), (((((), :E, ((), ())), (((:Substrate, :A),), :E, ((), ())), (:Subst" *
-    "rate, :A), true),), ((((), :E, ((), ())), (((:Product, :Q),), :E, ((), ())" *
-    "), (:Product, :Q), true), ((((:Substrate, :A),), :E, ((), ())), (((:Substr" *
-    "ate, :A), (:Product, :Q)), :E, ((), ())), (:Product, :Q), true)), (((((:Su" *
-    "bstrate, :A),), :E, ((), ())), (((:Substrate, :A), (:Substrate, :B)), :E, " *
-    "((), ())), (:Substrate, :B), true),), (((((:Substrate, :A), (:Substrate, :" *
-    "B)), :E, ((), ())), (((:Product, :P), (:Product, :Q)), :E, ((), ())), noth" *
-    "ing, false),), (((((:Product, :Q),), :E, ((), ())), (((:Substrate, :A), (:" *
-    "Product, :Q)), :E, ((), ())), (:Substrate, :A), true),), (((((:Product, :Q" *
-    "),), :E, ((), ())), (((:Product, :P), (:Product, :Q)), :E, ((), ())), (:Pr" *
-    "oduct, :P), true),)))}"
+    "(1,)), (((((), :E, ((), ())), (((:Substrate, :A),), :E, ((), ())), ((:Subs" *
+    "trate, :A),), (), true),), ((((), :E, ((), ())), (((:Product, :Q),), :E, (" *
+    "(), ())), ((:Product, :Q),), (), true), ((((:Substrate, :A),), :E, ((), ()" *
+    ")), (((:Substrate, :A), (:Product, :Q)), :E, ((), ())), ((:Product, :Q),)," *
+    " (), true)), (((((:Substrate, :A),), :E, ((), ())), (((:Substrate, :A), (:" *
+    "Substrate, :B)), :E, ((), ())), ((:Substrate, :B),), (), true),), (((((:Su" *
+    "bstrate, :A), (:Substrate, :B)), :E, ((), ())), (((:Product, :P), (:Produc" *
+    "t, :Q)), :E, ((), ())), (), (), false),), (((((:Product, :Q),), :E, ((), (" *
+    "))), (((:Substrate, :A), (:Product, :Q)), :E, ((), ())), ((:Substrate, :A)" *
+    ",), (), true),), (((((:Product, :Q),), :E, ((), ())), (((:Product, :P), (:" *
+    "Product, :Q)), :E, ((), ())), ((:Product, :P),), (), true),)))}"
 
 @testset "fit-dedup by eq_hash in _process_batch" begin
     recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
@@ -1358,60 +1358,62 @@ const _CANON_SIG_MERGED =
     ":P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O," *
     " 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O," *
     " 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),)" *
-    ", :E, ((), ())), (:Product, :Lactate), true), ((((:Product, :NAD)," *
-    "), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, (" *
-    "(), ())), (:Product, :Lactate), true), ((((:Substrate, :NADH),), :" *
-    "E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((" *
-    "), ())), (:Product, :Lactate), true)), ((((), :E, ((), ())), (((:P" *
-    "roduct, :NAD),), :E, ((), ())), (:Product, :NAD), true), ((((:Prod" *
-    "uct, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product" *
-    ", :NAD)), :E, ((), ())), (:Product, :NAD), true)), ((((), :E, (()," *
-    " ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH)" *
-    ", true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :L" *
-    "actate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH)," *
-    " true)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((" *
-    "), ())), (:Substrate, :Pyruvate), true),), (((((:Product, :NAD),)," *
-    " :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, " *
-    "((), ())), (:Substrate, :Pyruvate), true), ((((:Substrate, :NADH)," *
-    "), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate))," *
-    " :E, ((), ())), (:Substrate, :Pyruvate), true)), (((((:Substrate, " *
-    ":NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lac" *
-    "tate), (:Product, :NAD)), :E, ((), ())), nothing, false),), (((((:" *
-    "Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:S" *
-    "ubstrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), true),)" *
-    ", (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :NAD)" *
-    ", (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), true)" *
-    ",)))}"
+    ", :E, ((), ())), ((:Product, :Lactate),), (), true), ((((:Product," *
+    " :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD))" *
+    ", :E, ((), ())), ((:Product, :Lactate),), (), true), ((((:Substrat" *
+    "e, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :" *
+    "NADH)), :E, ((), ())), ((:Product, :Lactate),), (), true)), (((()," *
+    " :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), ((:Product, :" *
+    "NAD),), (), true), ((((:Product, :Lactate),), :E, ((), ())), (((:P" *
+    "roduct, :Lactate), (:Product, :NAD)), :E, ((), ())), ((:Product, :" *
+    "NAD),), (), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),)," *
+    " :E, ((), ())), ((:Substrate, :NADH),), (), true), ((((:Product, :" *
+    "Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :N" *
+    "ADH)), :E, ((), ())), ((:Substrate, :NADH),), (), true)), ((((), :" *
+    "E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((), ())), ((:Subst" *
+    "rate, :Pyruvate),), (), true),), (((((:Product, :NAD),), :E, ((), " *
+    "())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ()))," *
+    " ((:Substrate, :Pyruvate),), (), true), ((((:Substrate, :NADH),), " *
+    ":E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E" *
+    ", ((), ())), ((:Substrate, :Pyruvate),), (), true)), (((((:Substra" *
+    "te, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, " *
+    ":Lactate), (:Product, :NAD)), :E, ((), ())), (), (), false),), (((" *
+    "((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), " *
+    "(:Substrate, :Pyruvate)), :E, ((), ())), ((:Substrate, :NADH),), (" *
+    "), true),), (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Prod" *
+    "uct, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), ((:Product, :" *
+    "NAD),), (), true),)))}"
 const _CANON_SIG_SPLIT =
     "EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, " *
     "3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (" *
     ":P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O," *
     " 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O," *
     " 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),)" *
-    ", :E, ((), ())), (:Product, :Lactate), true), ((((:Product, :NAD)," *
-    "), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, (" *
-    "(), ())), (:Product, :Lactate), true)), ((((), :E, ((), ())), (((:" *
-    "Product, :NAD),), :E, ((), ())), (:Product, :NAD), true), ((((:Pro" *
-    "duct, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Produc" *
-    "t, :NAD)), :E, ((), ())), (:Product, :NAD), true)), ((((), :E, (()" *
-    ", ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH" *
-    "), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :" *
-    "Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH)" *
-    ", true)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, (" *
-    "(), ())), (:Substrate, :Pyruvate), true),), (((((:Product, :NAD),)" *
-    ", :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E," *
-    " ((), ())), (:Substrate, :Pyruvate), true), ((((:Substrate, :NADH)" *
-    ",), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate))" *
-    ", :E, ((), ())), (:Substrate, :Pyruvate), true)), (((((:Substrate," *
-    " :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NA" *
-    "DH)), :E, ((), ())), (:Product, :Lactate), true),), (((((:Substrat" *
-    "e, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :" *
-    "Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),), (((" *
-    "((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), " *
-    "(:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), true" *
-    "),), (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :N" *
-    "AD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), tr" *
-    "ue),)))}"
+    ", :E, ((), ())), ((:Product, :Lactate),), (), true), ((((:Product," *
+    " :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD))" *
+    ", :E, ((), ())), ((:Product, :Lactate),), (), true)), ((((), :E, (" *
+    "(), ())), (((:Product, :NAD),), :E, ((), ())), ((:Product, :NAD),)" *
+    ", (), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product" *
+    ", :Lactate), (:Product, :NAD)), :E, ((), ())), ((:Product, :NAD),)" *
+    ", (), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, (" *
+    "(), ())), ((:Substrate, :NADH),), (), true), ((((:Product, :Lactat" *
+    "e),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH))," *
+    " :E, ((), ())), ((:Substrate, :NADH),), (), true)), ((((), :E, (()" *
+    ", ())), (((:Substrate, :Pyruvate),), :E, ((), ())), ((:Substrate, " *
+    ":Pyruvate),), (), true),), (((((:Product, :NAD),), :E, ((), ())), " *
+    "(((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), ((:Su" *
+    "bstrate, :Pyruvate),), (), true), ((((:Substrate, :NADH),), :E, ((" *
+    "), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, (()," *
+    " ())), ((:Substrate, :Pyruvate),), (), true)), (((((:Substrate, :N" *
+    "ADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)" *
+    "), :E, ((), ())), ((:Product, :Lactate),), (), true),), (((((:Subs" *
+    "trate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Produc" *
+    "t, :Lactate), (:Product, :NAD)), :E, ((), ())), (), (), false),), " *
+    "(((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH" *
+    "), (:Substrate, :Pyruvate)), :E, ((), ())), ((:Substrate, :NADH),)" *
+    ", (), true),), (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:P" *
+    "roduct, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), ((:Product" *
+    ", :NAD),), (), true),)))}"
 
 @testset "renaming-dup pair: same independent count, different eq_hash" begin
     recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
@@ -1444,62 +1446,65 @@ const _ALLO_SIG_SPLIT =
     " 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21" *
     "), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate" *
     "), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ()))" *
-    ", (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), t" *
-    "rue), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate)" *
-    ", (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true)), " *
-    "((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Produ" *
-    "ct, :NAD), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Pr" *
-    "oduct, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NA" *
-    "D), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Produc" *
-    "t, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD" *
-    "), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, (()," *
-    " ())), (:Substrate, :NADH), false), ((((:Product, :Lactate),), :E," *
-    " ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, (()," *
-    " ())), (:Substrate, :NADH), false), ((((:Substrate, :Pyruvate),), " *
-    ":E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E" *
-    ", ((), ())), (:Substrate, :NADH), false)), ((((), :E, ((), ())), (" *
-    "((:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate)" *
-    ", true),), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :NA" *
-    "D), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvat" *
-    "e), true),), (((((:Substrate, :NADH),), :E, ((), ())), (((:Product" *
-    ", :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lact" *
-    "ate), true),), (((((:Substrate, :NADH),), :E, ((), ())), (((:Subst" *
-    "rate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate" *
-    ", :Pyruvate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyru" *
-    "vate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), " *
-    ":E, ((), ())), nothing, false),)))}, (4, (:EqualAI, :EqualAI, :Onl" *
-    "yA, :NonequalAI, :EqualAI, :EqualAI, :EqualAI, :OnlyA)), ()}"
+    ", (((:Product, :Lactate),), :E, ((), ())), ((:Product, :Lactate),)" *
+    ", (), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :L" *
+    "actate), (:Product, :NAD)), :E, ((), ())), ((:Product, :Lactate),)" *
+    ", (), true)), ((((), :E, ((), ())), (((:Product, :NAD),), :E, (()," *
+    " ())), ((:Product, :NAD),), (), true), ((((:Product, :Lactate),), " *
+    ":E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, (()," *
+    " ())), ((:Product, :NAD),), (), true), ((((:Substrate, :Pyruvate)," *
+    "), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E" *
+    ", ((), ())), ((:Product, :NAD),), (), true)), ((((), :E, ((), ()))" *
+    ", (((:Substrate, :NADH),), :E, ((), ())), ((:Substrate, :NADH),), " *
+    "(), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Product," *
+    " :Lactate), (:Substrate, :NADH)), :E, ((), ())), ((:Substrate, :NA" *
+    "DH),), (), false), ((((:Substrate, :Pyruvate),), :E, ((), ())), ((" *
+    "(:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), ((:S" *
+    "ubstrate, :NADH),), (), false)), ((((), :E, ((), ())), (((:Substra" *
+    "te, :Pyruvate),), :E, ((), ())), ((:Substrate, :Pyruvate),), (), t" *
+    "rue),), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD)," *
+    " (:Substrate, :Pyruvate)), :E, ((), ())), ((:Substrate, :Pyruvate)" *
+    ",), (), true),), (((((:Substrate, :NADH),), :E, ((), ())), (((:Pro" *
+    "duct, :Lactate), (:Substrate, :NADH)), :E, ((), ())), ((:Product, " *
+    ":Lactate),), (), true),), (((((:Substrate, :NADH),), :E, ((), ()))" *
+    ", (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), " *
+    "((:Substrate, :Pyruvate),), (), true),), (((((:Substrate, :NADH), " *
+    "(:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (" *
+    ":Product, :NAD)), :E, ((), ())), (), (), false),)))}, (4, (:EqualA" *
+    "I, :EqualAI, :OnlyA, :NonequalAI, :EqualAI, :EqualAI, :EqualAI, :O" *
+    "nlyA)), ()}"
 const _ALLO_SIG_MERGED =
     "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate)" *
     ", ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H," *
     " 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21" *
     "), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate" *
     "), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ()))" *
-    ", (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), t" *
-    "rue), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate)" *
-    ", (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true), (" *
-    "(((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:" *
-    "Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), true)), (" *
-    "(((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Produc" *
-    "t, :NAD), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Pro" *
-    "duct, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD" *
-    "), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product" *
-    ", :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD)" *
-    ", true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), " *
-    "())), (:Substrate, :NADH), false), ((((:Product, :Lactate),), :E, " *
-    "((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), " *
-    "())), (:Substrate, :NADH), false), ((((:Substrate, :Pyruvate),), :" *
-    "E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E," *
-    " ((), ())), (:Substrate, :NADH), false)), ((((), :E, ((), ())), ((" *
-    "(:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate)," *
-    " true),), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD" *
-    "), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate" *
-    "), true),), (((((:Substrate, :NADH),), :E, ((), ())), (((:Substrat" *
-    "e, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :" *
-    "Pyruvate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyruvat" *
-    "e)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E," *
-    " ((), ())), nothing, false),)))}, (4, (:EqualAI, :EqualAI, :OnlyA," *
-    " :NonequalAI, :EqualAI, :EqualAI, :OnlyA)), ()}"
+    ", (((:Product, :Lactate),), :E, ((), ())), ((:Product, :Lactate),)" *
+    ", (), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :L" *
+    "actate), (:Product, :NAD)), :E, ((), ())), ((:Product, :Lactate),)" *
+    ", (), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product," *
+    " :Lactate), (:Substrate, :NADH)), :E, ((), ())), ((:Product, :Lact" *
+    "ate),), (), true)), ((((), :E, ((), ())), (((:Product, :NAD),), :E" *
+    ", ((), ())), ((:Product, :NAD),), (), true), ((((:Product, :Lactat" *
+    "e),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E" *
+    ", ((), ())), ((:Product, :NAD),), (), true), ((((:Substrate, :Pyru" *
+    "vate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate" *
+    ")), :E, ((), ())), ((:Product, :NAD),), (), true)), ((((), :E, (()" *
+    ", ())), (((:Substrate, :NADH),), :E, ((), ())), ((:Substrate, :NAD" *
+    "H),), (), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Pr" *
+    "oduct, :Lactate), (:Substrate, :NADH)), :E, ((), ())), ((:Substrat" *
+    "e, :NADH),), (), false), ((((:Substrate, :Pyruvate),), :E, ((), ()" *
+    ")), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ()))" *
+    ", ((:Substrate, :NADH),), (), false)), ((((), :E, ((), ())), (((:S" *
+    "ubstrate, :Pyruvate),), :E, ((), ())), ((:Substrate, :Pyruvate),)," *
+    " (), true),), (((((:Product, :NAD),), :E, ((), ())), (((:Product, " *
+    ":NAD), (:Substrate, :Pyruvate)), :E, ((), ())), ((:Substrate, :Pyr" *
+    "uvate),), (), true),), (((((:Substrate, :NADH),), :E, ((), ())), (" *
+    "((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), ((:" *
+    "Substrate, :Pyruvate),), (), true),), (((((:Substrate, :NADH), (:S" *
+    "ubstrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Pr" *
+    "oduct, :NAD)), :E, ((), ())), (), (), false),)))}, (4, (:EqualAI, " *
+    ":EqualAI, :OnlyA, :NonequalAI, :EqualAI, :EqualAI, :OnlyA)), ()}"
 
 @testset "allosteric split/merge pair: the split form carries one more param" begin
     recon_am(sig) =
@@ -1534,9 +1539,12 @@ end
     e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
     e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
     m_bad = EnzymeRates.Mechanism(rxn_bad, [
-        [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)],
-        [EnzymeRates.Step(e_s, e_p, nothing, false)],
-        [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
+        [EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                          EnzymeRates.Metabolite[], true)],
+        [EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                          EnzymeRates.Metabolite[], false)],
+        [EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
+                          EnzymeRates.Metabolite[], true)],
     ])
     data_bad = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
                 S = [1.0, 2.0, 1.0, 2.0], T = [0.5, 0.5, 1.0, 1.0],
@@ -1581,9 +1589,12 @@ end
     e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
     e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
     m_bad = EnzymeRates.Mechanism(rxn_bad, [
-        [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)],
-        [EnzymeRates.Step(e_s, e_p, nothing, false)],
-        [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
+        [EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                          EnzymeRates.Metabolite[], true)],
+        [EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                          EnzymeRates.Metabolite[], false)],
+        [EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
+                          EnzymeRates.Metabolite[], true)],
     ])
     # Sanity: expansion of this mechanism genuinely raises.
     @test_throws ErrorException EnzymeRates.expand_mechanisms(

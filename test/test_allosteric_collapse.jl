@@ -9,13 +9,15 @@ const S=Sub(:S); const P=Prd(:P)
 function uni(states)
     E=Sp(Met[],:E); ES=Sp(Met[S],:E); EP=Sp(Met[P],:E)
     rxn=ER.EnzymeReaction(RA[RA(S,[:C=>1]),RA(P,[:C=>1])], ER.RegulatorMults[], Int[2])
-    steps=Vector{St}[[St(E,ES,S,true)],[St(ES,EP,nothing,false)],[St(EP,E,P,true)]]
+    steps=Vector{St}[[St(E,ES,Met[S],Met[],true)],[St(ES,EP,Met[],Met[],false)],
+                     [St(EP,E,Met[],Met[P],true)]]
     ER.AllostericMechanism(rxn, steps, collect(Symbol,states), 2, ER.RegulatorySite[])
 end
 function uni_ss(states)   # all-steady-state uni-uni (bindings carry kon/koff)
     E=Sp(Met[],:E); ES=Sp(Met[S],:E); EP=Sp(Met[P],:E)
     rxn=ER.EnzymeReaction(RA[RA(S,[:C=>1]),RA(P,[:C=>1])], ER.RegulatorMults[], Int[2])
-    steps=Vector{St}[[St(E,ES,S,false)],[St(ES,EP,nothing,false)],[St(EP,E,P,false)]]
+    steps=Vector{St}[[St(E,ES,Met[S],Met[],false)],[St(ES,EP,Met[],Met[],false)],
+                     [St(EP,E,Met[],Met[P],false)]]
     ER.AllostericMechanism(rxn, steps, collect(Symbol,states), 2, ER.RegulatorySite[])
 end
 function evalrate(am; seed=1, split=nothing)
@@ -74,9 +76,11 @@ end
         EPQ=Sp(Met[P,Q2],:E); EP=Sp(Met[P],:E); EQ=Sp(Met[Q2],:E)
         rxn=ER.EnzymeReaction(RA[RA(A2,[:C=>1]),RA(B2,[:N=>1]),RA(P,[:C=>1]),RA(Q2,[:N=>1])],
                               ER.RegulatorMults[], Int[2])
-        sd=[St(E,EA,A2,true),St(E,EB,B2,true),St(EB,EAB,A2,true),St(EA,EAB,B2,true),
-            St(EAB,EPQ,nothing,false),St(EP,EPQ,Q2,true),St(EQ,EPQ,P,true),
-            St(E,EP,P,true),St(E,EQ,Q2,true)]
+        sd=[St(E,EA,Met[A2],Met[],true),St(E,EB,Met[B2],Met[],true),
+            St(EB,EAB,Met[A2],Met[],true),St(EA,EAB,Met[B2],Met[],true),
+            St(EAB,EPQ,Met[],Met[],false),St(EP,EPQ,Met[Q2],Met[],true),
+            St(EQ,EPQ,Met[P],Met[],true),St(E,EP,Met[P],Met[],true),
+            St(E,EQ,Met[Q2],Met[],true)]
         st=fill(:EqualAI,9); st[3]=:NonequalAI
         am=ER.AllostericMechanism(rxn, Vector{St}[[s] for s in sd], st, 2, ER.RegulatorySite[])
         cem=ER.compile_mechanism(am); fp=ER.fitted_params(am)
@@ -128,7 +132,8 @@ end
         # use one uniform sign — a per-type flip inverts the coupling → nonzero flux.
         E=Sp(Met[],:E); ES=Sp(Met[S],:E); EP=Sp(Met[P],:E)
         rxn=ER.EnzymeReaction(RA[RA(S,[:C=>1]),RA(P,[:C=>1])], ER.RegulatorMults[], Int[2])
-        steps=Vector{St}[[St(E,ES,S,true)],[St(ES,EP,nothing,false)],[St(EP,E,P,false)]]
+        steps=Vector{St}[[St(E,ES,Met[S],Met[],true)],[St(ES,EP,Met[],Met[],false)],
+                         [St(EP,E,Met[],Met[P],false)]]
         am=ER.AllostericMechanism(rxn, steps, [:NonequalAI,:EqualAI,:NonequalAI], 2,
                                   ER.RegulatorySite[])
         fp,v,veq = evalrate(am)
@@ -145,9 +150,11 @@ end
         EPQ=Sp(Met[P,Q2],:E); EP=Sp(Met[P],:E); EQ=Sp(Met[Q2],:E)
         rxn=ER.EnzymeReaction(RA[RA(A2,[:C=>1]),RA(B2,[:N=>1]),RA(P,[:C=>1]),RA(Q2,[:N=>1])],
                               ER.RegulatorMults[], Int[2])
-        sd=[St(E,EA,A2,true),St(E,EB,B2,true),St(EB,EAB,A2,true),St(EA,EAB,B2,true),
-            St(EAB,EPQ,nothing,false),St(EP,EPQ,Q2,true),St(EQ,EPQ,P,true),
-            St(E,EP,P,true),St(E,EQ,Q2,true)]
+        sd=[St(E,EA,Met[A2],Met[],true),St(E,EB,Met[B2],Met[],true),
+            St(EB,EAB,Met[A2],Met[],true),St(EA,EAB,Met[B2],Met[],true),
+            St(EAB,EPQ,Met[],Met[],false),St(EP,EPQ,Met[Q2],Met[],true),
+            St(EQ,EPQ,Met[P],Met[],true),St(E,EP,Met[P],Met[],true),
+            St(E,EQ,Met[Q2],Met[],true)]
         st=fill(:EqualAI,9); st[2]=:NonequalAI; st[3]=:NonequalAI
         am=ER.AllostericMechanism(rxn, Vector{St}[[s] for s in sd], st, 2, ER.RegulatorySite[])
         cem=ER.compile_mechanism(am)

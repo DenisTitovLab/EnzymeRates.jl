@@ -730,10 +730,11 @@ function _build_mechanism_expr(subs_list, prods_list, regs_list,
 end
 
 """
-Build a `Step(from_species, to_species, bound_metabolite, is_eq)` `Expr`
+Build a `Step(from_species, to_species, consumed, released, is_eq)` `Expr`
 from one step's LHS/RHS structural terms. Each side has exactly one
 enzyme-form term (bare conformation OR call-form) and zero or one
-metabolite terms.
+metabolite terms: the left-hand metabolite is consumed, the right-hand one
+released.
 """
 function _build_step_expr(lhs::Vector{_StepSideTerm},
                           rhs::Vector{_StepSideTerm},
@@ -741,14 +742,13 @@ function _build_step_expr(lhs::Vector{_StepSideTerm},
                           role_of::Dict{Symbol,Symbol})
     lhs_enzyme, lhs_met = _split_side(lhs)
     rhs_enzyme, rhs_met = _split_side(rhs)
-    bound_met_term = lhs_met !== nothing ? lhs_met :
-                     rhs_met !== nothing ? rhs_met : nothing
+    met_exprs(t) = t === nothing ? Expr[] :
+        [_metabolite_expr(t.sym, role_of, t.role)]
     from_expr = _species_expr_from_term(lhs_enzyme, role_of)
     to_expr   = _species_expr_from_term(rhs_enzyme, role_of)
-    met_expr  = bound_met_term === nothing ? :nothing :
-                _metabolite_expr(bound_met_term.sym, role_of,
-                                 bound_met_term.role)
-    :(EnzymeRates.Step($from_expr, $to_expr, $met_expr, $is_eq))
+    :(EnzymeRates.Step($from_expr, $to_expr,
+                       EnzymeRates.Metabolite[$(met_exprs(lhs_met)...)],
+                       EnzymeRates.Metabolite[$(met_exprs(rhs_met)...)], $is_eq))
 end
 
 """

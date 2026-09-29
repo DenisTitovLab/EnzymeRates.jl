@@ -48,14 +48,14 @@ end
 # ─── Structural primacy: free-enzyme set + step priority ─────────
 
 """
-Set of enzyme-form names that are NOT the RHS of any canonical RE
-binding step `F + met… ⇌ F_bound`. Walks `Mechanism.steps` directly:
-for each RE binding step, the canonical form puts the bound metabolite
-on `to_species`, so `to_species`'s name is excluded from the free set.
-Iso steps don't determine binding state. SS steps' direction is not
-canonicalized so they don't participate.
+Set of enzyme-form names that are NOT the RHS of any RE step that
+consumes a metabolite, `F + met… ⇌ F_bound`. Walks `Mechanism.steps`
+directly: such a step leaves its consumed metabolites on `to_species`, so
+`to_species`'s name is excluded from the free set. Iso steps don't
+determine binding state. SS steps' direction is not canonicalized so they
+don't participate.
 
-A form that carries bound metabolites but has no binding-in step in this
+A form that carries bound metabolites but has no consuming step into it in this
 graph is also excluded: an inactive-conformation graph
 (`_state_mechanism(am, :I)`) drops each `:OnlyA` binding step, so the ligand's
 downstream complex is reached only by conformational flip or reverse catalysis
@@ -77,13 +77,14 @@ function _free_enz_set(m::Union{Mechanism, AllostericMechanism})
     free_enz_set = copy(enz_names)
     for group in steps(m), s in group
         is_equilibrium(s) || continue
-        is_binding(s) || continue
-        # Canonical: bound metabolite resides on to_species. The from-side
-        # is the "free + met" reactant; the to-side is the bound form.
+        isempty(consumed(s)) && continue
+        # A step that consumes a metabolite leaves it on to_species. The
+        # from-side is the "free + met" reactant; the to-side is the bound form.
         delete!(free_enz_set, name(to_species(s)))
     end
     bound_in = Set{Symbol}(name(to_species(s))
-                           for group in steps(m) for s in group if is_binding(s))
+                           for group in steps(m) for s in group
+                           if !isempty(consumed(s)))
     for group in steps(m), s in group
         for sp in (from_species(s), to_species(s))
             isempty(bound(sp)) || name(sp) in bound_in ||
@@ -101,7 +102,7 @@ kinetic-group name representative (argmin) and the Haldane elimination pivot
 (argmax, which adds a +0/+1 forward/reverse offset per rate constant).
 """
 function _step_priority(s::Step, free_enz_set::Set{Symbol})
-    has_met = is_binding(s)
+    has_met = !is_iso(s)
     is_free = (name(from_species(s)) in free_enz_set) ||
               (name(to_species(s))   in free_enz_set)
     is_equilibrium(s) && has_met && is_free && return -1
@@ -109,20 +110,13 @@ function _step_priority(s::Step, free_enz_set::Set{Symbol})
 end
 
 """
-Total lexical tiebreak for two distinct steps in the same kinetic group:
-species pair + bound metabolite + RE/SS flag.
-"""
-_step_lex_key(s::Step) =
-    (String(name(from_species(s))), String(name(to_species(s))),
-     String(bound_metabolite(s) === nothing ? "" : name(bound_metabolite(s))),
-     is_equilibrium(s))
-
-"""
 Kinetic-group naming representative: the structurally-primary step
-(`argmin _step_priority`), with a deterministic lexical tiebreak.
+(`argmin _step_priority`), with a deterministic lexical tiebreak between two
+distinct steps (`_step_canonical_key`: species pair + consumed and released
+metabolites + RE/SS flag).
 """
 _group_rep(group::Vector{Step}, free_enz_set::Set{Symbol}) =
-    argmin(s -> (_step_priority(s, free_enz_set), _step_lex_key(s)), group)
+    argmin(s -> (_step_priority(s, free_enz_set), _step_canonical_key(s)), group)
 
 # ─── Thermodynamic Constraint Infrastructure ─────────────────────
 
@@ -190,26 +184,23 @@ function _thermodynamic_constraints(mech::Mechanism)
         B[i_to,   j] += 1
     end
 
-    # Stoichiometry matrix (rows = metabolites, cols = steps). A
-    # metabolite gets its stoichiometry solely from the canonical
-    # reaction tuple via `_step_sides(s)`: m_lhs contributes -1 (consumed
-    # from the free pool), m_rhs contributes +1 (produced).
+    # Stoichiometry matrix (rows = metabolites, cols = steps), read from each
+    # step's consumed (-1) and released (+1) lists.
     #
     # Iso steps carry no free-pool metabolite — their bound content is
-    # encoded in the enzyme-form identity — so `_step_sides` returns empty
-    # metabolite lists and they contribute zero. Do NOT add a
-    # from_bound/to_bound diff for iso steps: that double-counts
-    # metabolites already accounted for by the binding/release steps and
-    # inflates the cycle's net change (e.g. 1/Keq -> 1/Keq^2).
+    # encoded in the enzyme-form identity — so both lists are empty and they
+    # contribute zero. Do NOT add a from_bound/to_bound diff for iso steps:
+    # that double-counts metabolites already accounted for by the
+    # binding/release steps and inflates the cycle's net change (e.g.
+    # 1/Keq -> 1/Keq^2).
     met_idx = Dict(n => i for (i, n) in enumerate(met_names))
     stoich_mat = zeros(Int, length(met_names), nsteps)
     for (j, (s, _)) in enumerate(flat)
-        _, _, m_lhs, m_rhs = _step_sides(s)
-        for m in m_lhs
-            haskey(met_idx, m) && (stoich_mat[met_idx[m], j] -= 1)
+        for m in consumed(s)
+            haskey(met_idx, name(m)) && (stoich_mat[met_idx[name(m)], j] -= 1)
         end
-        for m in m_rhs
-            haskey(met_idx, m) && (stoich_mat[met_idx[m], j] += 1)
+        for m in released(s)
+            haskey(met_idx, name(m)) && (stoich_mat[met_idx[name(m)], j] += 1)
         end
     end
 
