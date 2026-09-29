@@ -240,7 +240,8 @@ Compute alpha factors (relative concentrations within RE groups) as POLY
 values. Iterates `mech.steps` directly; each RE step's weight ratio comes
 from `_re_weight_ratio`, entering `to_species` from `from_species` or the
 reverse. `step_to_K[idx]` is the parameter Symbol for the RE step at flat
-position `idx` (rep-renamed via the `name(p, m)` chokepoint).
+position `idx` (rep-renamed via the `name(p, m)` chokepoint). Raises when the
+RE steps close a catalytic cycle, which gives the mechanism no finite rate.
 """
 function _compute_alpha(mech::Mechanism, enz_species,
                         enz_name_to_form, groups, step_to_K)
@@ -271,6 +272,21 @@ function _compute_alpha(mech::Mechanism, enz_species,
             end
         end
     end
+
+    # Every RE step must reproduce its own concentration ratio from the weights; a
+    # mismatch means a cycle of RE steps performs turnover.
+    conc_set = _concentration_symbols(mech)
+    conc(p) = Dict(k => v for (k, v) in only(keys(p)) if k in conc_set)
+    for (idx, (s, _)) in enumerate(flat)
+        is_equilibrium(s) || continue
+        a = enz_name_to_form[name(from_species(s))]
+        b = enz_name_to_form[name(to_species(s))]
+        ratio = poly_mul(alpha[b], _invert_monomial(alpha[a]))
+        conc(ratio) == conc(_re_weight_ratio(s, step_to_K[idx])) || error(
+            "rate_equation: the rapid-equilibrium steps close a catalytic cycle " *
+            "(through $(name(from_species(s))) ⇌ $(name(to_species(s)))), so the " *
+            "mechanism has no finite rate. Make one step of the cycle steady-state.")
+    end
     alpha
 end
 
@@ -293,9 +309,7 @@ Also returns `d_free`, the spanning-tree weight `D[g_free]` of the segment
 holding the free resting enzyme (the form with empty `bound` and empty
 `residual`) — `1` when that segment is the mechanism's only segment.
 """
-function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
-                                  subs_species, prods_species;
-                                  allow_dead::Bool=false)
+function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map)
     enz_species, groups, form_to_group = _compute_re_groups(mech)
     # A fully-inert conformation (every binding pruned) has no enumerated form; it
     # exists only as free enzyme — no flux, partition 1, D[g_free] 1.
@@ -348,10 +362,7 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
         den = poly_add(den, poly_mul(csigma, D[g]))
     end
 
-    num = _compute_numerator(
-        mech, enz_name_to_form, step_params,
-        alpha, form_to_group,
-        D, subs_species, prods_species; allow_dead=allow_dead)
+    num = _compute_numerator(mech, enz_name_to_form, step_params, alpha, form_to_group, D)
 
     num = _rename_symbols(num, rename_map)
     den = _rename_symbols(den, rename_map)
@@ -365,13 +376,7 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     _assert_derivable(mech)
     step_params = _step_parameters(mech)
     rename_map = _build_wegscheider_rename_map(M)
-    # substrates(::EnzymeReaction) returns Vector{Substrate} (concrete metabolite
-    # structs); _compute_numerator compares them as Symbols (`name(...) == S`,
-    # `S in subs_in(...)`). Wrap explicitly.
-    subs_syms = Symbol[name(s) for s in substrates(mech.reaction)]
-    prods_syms = Symbol[name(p) for p in products(mech.reaction)]
-    _raw_symbolic_rate_polys(mech, step_params, rename_map,
-                              subs_syms, prods_syms)
+    _raw_symbolic_rate_polys(mech, step_params, rename_map)
 end
 
 """
@@ -460,128 +465,35 @@ function _assert_derivable(mech::Mechanism)
 end
 
 """
-Numerator = net flux across one complete steady-state reaction-cut. Each
-per-turnover-conserved "event" is a candidate cut whose SS-step fluxes sum to v:
-metabolite cuts (bind a substrate / release a product / iso-convert a substrate /
-iso-produce a product) and central-species cuts (produce / consume an iso-step
-endpoint form). Dead-end binding/release steps touching a substrate-product mixed
-complex are excluded (a chemistry step producing such a complex — a ping-pong
-covalent intermediate — is kept). A candidate is usable iff all its steps are SS;
-NUM = oriented-flux sum over the chosen cut (prefer a metabolite cut — always
-complete — over a central-species cut, then fewest steps, then a chemistry cut,
-then sorted indices). No usable candidate ⇒ a complete all-RE catalytic cycle ⇒
-no finite rate ⇒ raise. A central-species cut is trusted only when its form is
-unique up to bound regulators; a regulator-variant sibling is a parallel route the
-single-form cut would undercount, so raise rather than return a wrong rate.
+Numerator of the rate: v·den summed over steady-state steps. With u(f) the
+first substrate's exponent in form f's RE weight, each SS step e contributes
+ω_e·(forward − reverse flux) with ω_e = (copies of the first substrate e
+consumes − copies it releases) + u(from_e) − u(to_e). Flux conservation at every
+form makes the sum equal the net consumption of the first substrate for every
+parameter value, so it needs no choice of reaction cut and does not depend on
+the direction a step is written in. Steps with ω_e = 0 contribute nothing.
 """
-function _compute_numerator(
-    mech::Mechanism, enz_name_to_form, step_params,
-    alpha, form_to_group, D, subs_species, prods_species;
-    allow_dead::Bool=false,
-)
-    is_mixed_substrate_product_complex(f) =
-        any(m -> m isa Substrate, bound(f)) && any(m -> m isa Product, bound(f))
-    subs_in(f)  = Set(name(m) for m in bound(f) if m isa Substrate)
-    prods_in(f) = Set(name(m) for m in bound(f) if m isa Product)
-
-    # Forward-oriented reaction steps (skip inhibitor/regulator binding, pure
-    # conformational isos, and product-rebinding dead-ends). For each: type ∈
-    # {:bind,:chem,:release}; (ff,ft) = forward (from,to). A product release stored
-    # as product-binding (`E+P→EP`, product consumed) is the reverse reaction, so
-    # its forward direction swaps the endpoints; an SS-dissociation release
-    # (`EA→E+P`, product released) is already forward. `bm` is the step's one
-    # free metabolite.
-    rsteps = NamedTuple[]
-    for (idx, (s, _)) in enumerate(_flat_steps(mech))
-        bm = is_iso(s) ? nothing : only(vcat(consumed(s), released(s)))
-        local ff, ft, typ
-        if bm === nothing                                   # iso step
-            f, t = from_species(s), to_species(s)
-            (Set(name(m) for m in bound(f)) == Set(name(m) for m in bound(t)) &&
-             residual(f) == residual(t)) && continue        # pure conformational iso
-            ff, ft, typ = f, t, :chem
-        elseif bm isa Substrate
-            ff, ft, typ = from_species(s), to_species(s), :bind
-        elseif bm isa Product
-            rev = bm in consumed(s)                         # product-binding storage
-            ff = rev ? to_species(s) : from_species(s)
-            ft = rev ? from_species(s) : to_species(s)
-            typ = :release
-        else
-            continue                                        # inhibitor / regulator
-        end
-        typ !== :chem &&
-            (is_mixed_substrate_product_complex(ff) ||
-             is_mixed_substrate_product_complex(ft)) && continue
-        push!(rsteps, (idx = idx, ff = ff, ft = ft, typ = typ, s = s, bm = bm))
-    end
-
-    # Candidate cuts: (steps into rsteps, central form or `nothing` for metabolite).
-    cands = Tuple{Vector{Int}, Union{Species, Nothing}}[]
-    add_cand!(central, pred) = (g = [k for k in eachindex(rsteps) if pred(rsteps[k])];
-                                isempty(g) || push!(cands, (g, central)))
-    for S in subs_species
-        add_cand!(nothing, r -> r.typ === :bind && name(r.bm) == S)
-        add_cand!(nothing, r -> r.typ === :chem && S in subs_in(r.ff) && !(S in subs_in(r.ft)))
-    end
-    for P in prods_species
-        add_cand!(nothing, r -> r.typ === :release && name(r.bm) == P)
-        add_cand!(nothing, r -> r.typ === :chem && P in prods_in(r.ft) && !(P in prods_in(r.ff)))
-    end
-    central_forms = Set{Species}()      # iso-step endpoints
-    for r in rsteps
-        r.typ === :chem && (push!(central_forms, r.ff); push!(central_forms, r.ft))
-    end
-    for X in sort(collect(central_forms); by = x -> string(name(x)))  # sorted: precompile-stable
-        add_cand!(X, r -> r.ft == X)    # produce X
-        add_cand!(X, r -> r.ff == X)    # consume X
-    end
-
-    usable = [c for c in cands if all(!is_equilibrium(rsteps[k].s) for k in c[1])]
-    if isempty(usable)
-        allow_dead && return poly_zero()
-        error(
-            "rate_equation: no rapid-equilibrium-consistent reaction cut — a complete " *
-            "all-RE catalytic cycle exists, so the mechanism has no finite rate.")
-    end
-
-    # Prefer a metabolite cut (central === nothing) over a central-species cut, then
-    # fewest steps, then a chemistry cut, then sorted indices (precompile-stable).
-    has_chem(c) = any(rsteps[k].typ === :chem for k in c[1])
-    steps, central = usable[argmin(
-        i -> (usable[i][2] === nothing ? 0 : 1, length(usable[i][1]),
-              has_chem(usable[i]) ? 0 : 1, sort([rsteps[k].idx for k in usable[i][1]])),
-        eachindex(usable))]
-
-    # A central-species cut is complete only when its form is unique up to bound
-    # regulators; a regulator-variant sibling is a parallel route this cut would
-    # undercount, so raise rather than return a wrong rate.
-    if central !== nothing
-        xs = sort!([name(m) for m in bound(central) if m isa Substrate])
-        xp = sort!([name(m) for m in bound(central) if m isa Product])
-        for Y in _enumerate_species(mech)
-            Y == central && continue
-            sort!([name(m) for m in bound(Y) if m isa Substrate]) == xs &&
-                sort!([name(m) for m in bound(Y) if m isa Product]) == xp &&
-                residual(Y) == residual(central) && error(
-                "rate_equation: ambiguous central-complex cut on $(name(central)) — " *
-                "the regulator-variant form $(name(Y)) is a parallel route this cut " *
-                "would undercount; cannot derive a unique rate.")
-        end
-    end
-
+function _compute_numerator(mech::Mechanism, enz_name_to_form, step_params,
+                            alpha, form_to_group, D)
+    x = name(first(substrates(reaction(mech))))
+    expo(p) = (mono = only(keys(p));
+               k = findfirst(q -> q.first == x, mono);
+               k === nothing ? 0 : mono[k].second)
     num = poly_zero()
-    for k in steps
-        r = rsteps[k]; idx = r.idx
-        m_lhs = Symbol[name(m) for m in consumed(r.s)]
-        m_rhs = Symbol[name(m) for m in released(r.s)]
-        i_form = enz_name_to_form[name(from_species(r.s))]
-        j_form = enz_name_to_form[name(to_species(r.s))]
-        g1, g2 = form_to_group[i_form], form_to_group[j_form]
-        rf = _ss_contrib(poly_sym(name(step_params[idx][1], mech)), m_lhs, i_form, alpha)
-        rr = _ss_contrib(poly_sym(name(step_params[idx][2], mech)), m_rhs, j_form, alpha)
-        canon = poly_sub(poly_mul(rf, D[g1]), poly_mul(rr, D[g2]))
-        num = poly_add(num, (r.typ === :release && !isempty(m_lhs)) ? poly_neg(canon) : canon)
+    for (idx, (s, _)) in enumerate(_flat_steps(mech))
+        is_equilibrium(s) && continue
+        i_form = enz_name_to_form[name(from_species(s))]
+        j_form = enz_name_to_form[name(to_species(s))]
+        ω = count(m -> name(m) == x, consumed(s)) - count(m -> name(m) == x, released(s)) +
+            expo(alpha[i_form]) - expo(alpha[j_form])
+        ω == 0 && continue
+        fwd = _ss_contrib(poly_sym(name(step_params[idx][1], mech)),
+                          Symbol[name(m) for m in consumed(s)], i_form, alpha)
+        rev = _ss_contrib(poly_sym(name(step_params[idx][2], mech)),
+                          Symbol[name(m) for m in released(s)], j_form, alpha)
+        term = poly_sub(poly_mul(fwd, D[form_to_group[i_form]]),
+                        poly_mul(rev, D[form_to_group[j_form]]))
+        num = poly_add(num, poly_mul(poly_const(ω), term))
     end
     num
 end
@@ -1115,8 +1027,8 @@ end
 
 """
 The native I-state catalytic numerator polynomial is empty (zero): the
-reachable-form-pruned I-graph of a broken cycle has no steady-state cut, so
-`_compute_numerator(allow_dead=true)` returns `poly_zero()` natively — no forced
+steady-state fluxes of a broken cycle's reachable-form-pruned I-graph cancel
+exactly, so `_compute_numerator` returns `poly_zero()` natively — no forced
 zero. It decides, at both consumer sites (`_allosteric_num_den_exprs` and
 `_kcat_forward`), whether the `L·num_I` term is emitted and whether `kcat`
 carries the I-state term. A live redundant-path `:OnlyA` mechanism (num_I ≠ 0)
@@ -1264,12 +1176,7 @@ function _state_rate_polys(am::AllostericMechanism, state::Symbol)
     _assert_derivable(cm)
     sp = _state_step_params(am, state)
     @assert length(sp) == length(_flat_steps(cm)) "state step_params/steps misaligned"
-    subs_syms = Symbol[name(s) for s in substrates(reaction(am))]
-    prods_syms = Symbol[name(p) for p in products(reaction(am))]
-    _raw_symbolic_rate_polys(cm, sp,
-                             _state_wegscheider_rename_map(am, state),
-                             subs_syms, prods_syms;
-                             allow_dead = state === :I)
+    _raw_symbolic_rate_polys(cm, sp, _state_wegscheider_rename_map(am, state))
 end
 
 """
@@ -1650,8 +1557,8 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     # subgraph (`_state_allo_mechanism(am, :I)` drops `:OnlyA` groups and every
     # form they disconnect from free E). Reachable-subgraph King–Altman gives the
     # same binding partition monomial-zeroing produced, and for a dead cycle the
-    # pruned graph has no SS cut so `_compute_numerator(allow_dead=true)` returns
-    # 0 natively — no forced zero needed.
+    # pruned graph's steady-state fluxes cancel exactly, so `_compute_numerator`
+    # returns 0 natively — no forced zero needed.
     num_i_poly, den_i_poly, d_free_I = _state_rate_polys(am, :I)
 
     # Formulation-1 per-state free-enzyme normalization. Render the same value

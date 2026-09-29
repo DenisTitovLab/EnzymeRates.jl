@@ -1511,16 +1511,12 @@ end
         rate_equation_string(m_allre); nothing
     catch e; e end
     @test err isa ErrorException
-    @test occursin("all-RE catalytic cycle", err.msg)
+    @test occursin("no finite rate", err.msg)
 end
 
-@testset "Numerator: ambiguous central cut (regulator sibling) raises" begin
-    # Non-essential activator with free + activator-bound parallel routes, where
-    # chemistry is RE, the FREE product release is SS, and the ACTIVATOR product
-    # release is RE. No metabolite cut is all-SS (release-P is mixed SS/RE), so the
-    # numerator falls to the central cut "consume E(P)". But E(P) has a
-    # regulator-variant sibling E(P,R) — a parallel route the single-form cut would
-    # undercount — so it must raise rather than return a silently-wrong rate.
+@testset "All-RE catalytic cycle raises" begin
+    # The activator route E(R) + S ⇌ E(S, R) ⇌ E(P, R) ⇌ E(R) + P is an all-RE
+    # catalytic cycle, so the mechanism has no finite rate.
     m_sib = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -1541,7 +1537,7 @@ end
         rate_equation_string(m_sib); nothing
     catch e; e end
     @test err isa ErrorException
-    @test occursin("ambiguous central-complex cut", err.msg)
+    @test occursin("no finite rate", err.msg)
 end
 
 @testset "_eq_complexity (V×τ term-count estimate)" begin

@@ -5756,7 +5756,7 @@ end
     with_a = EnzymeRates._expand_add_dead_end_regulator(ordered_ss, rxn_a_inhibits)
     den_a_degree(k) = maximum(get(Dict(mono), :A, 0) for mono in keys(
         EnzymeRates._raw_symbolic_rate_polys(k, EnzymeRates._step_parameters(k),
-            EnzymeRates._build_wegscheider_rename_map(k), [:A, :B], [:P, :Q])[2]))
+            EnzymeRates._build_wegscheider_rename_map(k))[2]))
     @test length(with_a) == 4
     @test all(EnzymeRates._hyperbolic_catalysis, with_a)
     @test sort(den_a_degree.(with_a)) == [1, 2, 2, 3]
@@ -5818,13 +5818,10 @@ end
         Symbol[EnzymeRates.name(s) for s in EnzymeRates.substrates(rxn)],
         Symbol[EnzymeRates.name(p) for p in EnzymeRates.products(rxn)])
     function _testhelper_den_hyperbolic(m::EnzymeRates.Mechanism)
-        rxn = EnzymeRates.reaction(m)
-        subs = Symbol[EnzymeRates.name(s) for s in EnzymeRates.substrates(rxn)]
-        prods = Symbol[EnzymeRates.name(p) for p in EnzymeRates.products(rxn)]
         _, den, _ = EnzymeRates._raw_symbolic_rate_polys(
             m, EnzymeRates._step_parameters(m),
-            EnzymeRates._build_wegscheider_rename_map(m), subs, prods)
-        _testhelper_poly_hyperbolic(den, _testhelper_mets(rxn))
+            EnzymeRates._build_wegscheider_rename_map(m))
+        _testhelper_poly_hyperbolic(den, _testhelper_mets(EnzymeRates.reaction(m)))
     end
     function _testhelper_levels(rxn, depth)
         M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
