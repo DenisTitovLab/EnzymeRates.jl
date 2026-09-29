@@ -239,6 +239,22 @@ end
             steps: begin
             E + A ⇌ E(A); E(A) + B ⇌ E(A, B); E(A, B) <--> E(Q) + P; E(Q) ⇌ E + Q
             E + I ⇌ E(I); E(Q) + I ⇌ E(I, Q) end end),
+        # ping-pong: parallel product-release route via a mixed substrate/product complex
+        @enzyme_mechanism(begin substrates: A, B; products: P, Q; regulators: I
+            steps: begin
+            E + A ⇌ E(A); E(I) + A ⇌ E(A, I); E(Q) + A ⇌ E(A, Q)
+            E + I ⇌ E(I); E(A) + I ⇌ E(A, I)
+            E(P; residual = A - P) + I ⇌ E(I, P; residual = A - P)
+            E(; residual = A - P) + I ⇌ E(I; residual = A - P)
+            E + Q <--> E(Q); E(A) + Q <--> E(A, Q)
+            E(A) <--> E(P; residual = A - P)
+            E(A, I) <--> E(I, P; residual = A - P)
+            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
+            E(I; residual = A - P) + P ⇌ E(I, P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            E(P; residual = A - P) + B ⇌ E(B, P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P) end end),
     ]
     for em in cases
         _testhelper_check_against_mass_action(em)
