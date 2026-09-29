@@ -791,9 +791,10 @@ end
         L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
         A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng); Q = 0.5+2rand(rng)
         # Map fitted_params -> ground-truth params. A step that releases a
-        # product while changing the residual is named by its form pair in the
-        # direction it is written, E(A) → F + P, so `k_…_EA_to_E_res_…` is the
-        # forward (product-releasing) rate and `k_…_E_res_…_to_EA` the reverse
+        # product while changing the residual is named by its form pair in its
+        # canonical orientation, substrate side first, E(A) → F + P, however the
+        # step is written, so `k_…_EA_to_E_res_…` is the forward
+        # (product-releasing) rate and `k_…_E_res_…_to_EA` the reverse
         # (product-rebinding) one — the binding steps read the usual way round.
         #   kon_A_E=kon_A                                (E + A ⇌ EA, shared)
         #   kon_B_E_res_+A_-P=kon_B, koff_B_E_res_+A_-P=koff_B  (F + B ⇌ FB, shared)

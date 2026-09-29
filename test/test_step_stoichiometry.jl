@@ -54,7 +54,14 @@ _testhelper_sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res
             [[ER.Step(E, EA, [A], ER.Metabolite[], false)], [chem],
              [ER.Step(F, FB, [B], ER.Metabolite[], false)],
              [ER.Step(FB, E, ER.Metabolite[], [Q], false)]])
-        @test_throws ErrorException ER._assert_chemistry_is_iso(m)
+        err = try
+            ER._assert_chemistry_is_iso(m)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ErrorException
+        @test occursin("folds chemistry", err.msg)
     end
 
     @testset "inhibitor copy stays distinct from the substrate" begin
@@ -66,11 +73,25 @@ _testhelper_sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res
     end
 
     @testset "rejections" begin
-        @test_throws ErrorException ER.Step(E, E, [A], ER.Metabolite[], true)
-        @test_throws ErrorException ER.Step(EA, EQ, [A], [A], false)
+        err = try
+            ER.Step(E, E, [A], ER.Metabolite[], true)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ErrorException
+        @test occursin("both ends", err.msg)
+        err = try
+            ER.Step(EA, EQ, [A], [A], false)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ErrorException
+        @test occursin("both consumed and released", err.msg)
     end
 
-    @testset "sort key reproduces today's order" begin
+    @testset "sort key orders bindings and isomerizations" begin
         s = ER.Step(E, EA, [A], ER.Metabolite[], true)
         @test ER._step_canonical_key(s) == ("E", "EA", "A", "", true)
         iso = ER.Step(EAB, _testhelper_sp([P, Q]), ER.Metabolite[], ER.Metabolite[], false)
@@ -224,8 +245,8 @@ const _testhelper_fused_cases = [
             E + A <--> E(A); E(A) ⇌ E(; residual = A - P) + P
             E(; residual = A - P) + B <--> E(B; residual = A - P)
             E(B; residual = A - P) <--> E + Q end end),
-        # merged random bi-bi: RE bindings and releases (former missing cut),
-        # and all SS with a reversed fused binding (former mixed cut)
+        # merged random bi-bi with RE bindings and releases, and a reversed fused
+        # binding inside an all-SS merged random bi-bi
         @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
             E + A ⇌ E(A); E + B ⇌ E(B); E(A) + B ⇌ E(A, B); E(B) + A ⇌ E(A, B)
             E(A, B) <--> E(Q) + P; E(A, B) <--> E(P) + Q; E(Q) ⇌ E + Q; E(P) ⇌ E + P
@@ -420,9 +441,16 @@ end
     @test err isa ErrorException
     @test occursin("same parameter names", err.msg)
     # The same isomerization in two groups: both would be k_EA_to_EP.
-    @test_throws ErrorException ER.Mechanism(rxn, [
-        [ER.Step(E, EA, [A], ER.Metabolite[], false)],
-        [ER.Step(EA, EP, ER.Metabolite[], ER.Metabolite[], false)],
-        [ER.Step(EP, EA, ER.Metabolite[], ER.Metabolite[], false)],
-        [ER.Step(E, EP, [P], ER.Metabolite[], false)]])
+    err = try
+        ER.Mechanism(rxn, [
+            [ER.Step(E, EA, [A], ER.Metabolite[], false)],
+            [ER.Step(EA, EP, ER.Metabolite[], ER.Metabolite[], false)],
+            [ER.Step(EP, EA, ER.Metabolite[], ER.Metabolite[], false)],
+            [ER.Step(E, EP, [P], ER.Metabolite[], false)]])
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("same parameter names", err.msg)
 end

@@ -266,10 +266,12 @@ Hand-written mechanisms are not subject to the rule: an `@allosteric_mechanism`
 with random-order steady-state binding still derives and fits.
 
 **Chemistry is the isomerization step.** The moves recognize a chemistry step
-by its having no ligand on it. The enumerator writes every mechanism that way,
-and `expand_mechanisms` rejects a parent whose binding or release step changes
-the covalent residual; the derivation still accepts chemistry folded into a
-release step for hand-written textbook mechanisms.
+by its taking up and giving off no metabolite. The enumerator writes every
+mechanism that way, and `expand_mechanisms` rejects a parent with any step that
+is neither a pure binding nor an isomerization, such as chemistry folded into a
+release (even one that leaves the covalent residual unchanged) or a
+Theorell–Chance step; the derivation still accepts those steps in hand-written
+textbook mechanisms.
 
 **Competitive-inhibitor binding stays at equilibrium.** An inhibitor bound to
 two forms that a catalytic step connects carries flux through its mirror step,

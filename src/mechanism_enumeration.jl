@@ -2673,7 +2673,6 @@ _binds_all_required(m::Union{Mechanism, AllostericMechanism},
 Structural invariants every valid Mechanism should satisfy:
 - Every group is non-empty
 - Every step is a pure binding (`is_binding`) or an isomerization (`is_iso`)
-- from_species != to_species for every step
 """
 function _assert_mechanism_invariants(m::Mechanism)
     flat = collect(Iterators.flatten(steps(m)))
@@ -2685,8 +2684,6 @@ function _assert_mechanism_invariants(m::Mechanism)
         is_binding(s) || is_iso(s) || error(
             "step $(name(from_species(s))) → $(name(to_species(s))) is neither " *
             "a pure binding nor an isomerization")
-        from_species(s) == to_species(s) &&
-            error("from_species == to_species in step $s")
     end
 
     # Every declared substrate/product must appear in some step. Regulators

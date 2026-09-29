@@ -454,6 +454,12 @@ the class counts and estimates in this section are for R4 only.
   chain's type. The series rule is the SSS case.
 - **Moves learn fused steps**: chemistry detection in the flip and allosteric moves, dead-end
   placement, and removal of `_assert_chemistry_is_iso`.
+- **`:OnlyA` fused chemistry**: `_onlya_haldane_violation` rejects a hand-written allosteric
+  mechanism whose `:OnlyA` chemistry is a fused step, such as a ping-pong with
+  `E(A) <--> E(; residual = A - P) + P :: OnlyA`, with a message asking to tag the chemical step
+  `:OnlyA`; the same mechanism with the chemistry as an isomerization is accepted, because the
+  check drops only `:OnlyA` isomerizations from its cycle graph. The behaviour predates
+  sub-project A; C must decide how the check treats fused chemistry once the moves emit it.
 - **To decide**: which species represents a merged complex (substrate side or product side); what
   to do with the degenerate ping-pong seeds (drop, keep as non-fitted parents, or replace); how to
   apply the degeneracy check when dead-end copies of substrates or products are present.

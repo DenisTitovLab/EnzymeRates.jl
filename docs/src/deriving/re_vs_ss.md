@@ -29,7 +29,11 @@ The distinction is stored on each `Step` as the `is_equilibrium` field.
   one side — is named by its two forms, as an isomerization is. The
   mechanism, not the order the step is written in, decides which form is
   `<from>` (the side carrying more substrate or, failing that, less
-  product), so writing the step backwards gives the same names.
+  product; on a tie, the metabolites the mechanism's steps exchange at each
+  form, and failing that the form whose name sorts first), so writing the
+  step backwards gives the same names. At rapid equilibrium such a step's
+  `Kiso` can carry concentration units: the fused release above has
+  `Kiso` = [EQ]·[P]/[EAB], a concentration.
 
 ## A concrete comparison
 

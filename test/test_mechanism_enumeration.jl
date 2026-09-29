@@ -5472,8 +5472,8 @@ end
             E + A ⇌ E(A)
             Estar + B ⇌ Estar(B)
             E + Q ⇌ E(Q)
-            Estar + P ⇌ Estar(A, P)
-            E(A) <--> Estar(A, P)
+            Estar + P ⇌ Estar(P)
+            E(A) <--> Estar(P)
             Estar(B) ⇌ E(Q)
         end
     end)

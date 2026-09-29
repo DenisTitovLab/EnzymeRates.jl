@@ -96,8 +96,10 @@ end
 
 """
 Structural primacy base score for a step (lower = more primary / less
-eliminable). Free-enzyme RE binding (-1) < free-enzyme SS binding (0) <
-non-free metabolite step (10) < internal isomerization (20). Shared by the
+eliminable). A metabolite step takes up or gives off a free metabolite (a pure
+binding, a fused step or a Theorell–Chance step). Free-enzyme RE metabolite
+step (-1) < free-enzyme SS metabolite step (0) < non-free metabolite step
+(10) < internal isomerization (20). Shared by the
 kinetic-group name representative (argmin) and the Haldane elimination pivot
 (argmax, which adds a +0/+1 forward/reverse offset per rate constant).
 """
