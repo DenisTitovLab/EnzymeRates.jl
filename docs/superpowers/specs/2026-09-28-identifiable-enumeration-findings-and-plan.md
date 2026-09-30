@@ -421,8 +421,9 @@ the class counts and estimates in this section are for R4 only.
   form followed by its free metabolites, joined by `_`. An SS step gives `k_X_to_Y` (forward) and
   `k_Y_to_X` (reverse); an RE step gives one equilibrium constant `K_X_to_Y`, named in the release
   direction for a pure binding (`K_ES_to_E_S`, a dissociation constant) and in the canonical
-  direction otherwise (`K_EAB_to_EQ_P`). The `Mechanism` constructor rejects a reaction — the pair
-  of a step's two sides — that appears in more than one kinetic group.
+  direction otherwise (`K_EAB_to_EQ_P`). The `Mechanism` constructor rejects a reaction that
+  appears in more than one step (`_assert_each_reaction_once`): in two kinetic groups, or twice in
+  one.
 - **DSL**: any number of metabolites on either side of a step.
 - **Enumeration code**: mechanical changes only; fused parents stay out of `expand_mechanisms`
   until C.
