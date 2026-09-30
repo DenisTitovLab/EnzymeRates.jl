@@ -58,7 +58,7 @@ _met_label(m::Metabolite) =
     m isa CompetitiveInhibitor ? String(name(m)) * "inh" : String(name(m))
 
 # Species: an enzyme form. `bound` is sorted by `_met_sort_key`; the
-# rendered Symbol name reads `:E` / `:EATP` / `:Estar...` / `:EATPres_+P`.
+# rendered Symbol name reads `:E` / `:EATP` / `:Estar...` / `:EATP_res_+P`.
 struct Species
     bound::Vector{Metabolite}
     conformation::Symbol
@@ -599,6 +599,22 @@ function _canonical_group_order!(groups::Vector{Vector{Step}})
 end
 
 """
+A step side as written in parameter names: its enzyme form followed by its free
+metabolites, joined by `_` (a competitive-inhibitor copy carries `inh`, as in
+`name(::Species)`), e.g. `"EA_B"` for `E(A) + B`.
+"""
+_side_label(form::Species, mets::Vector{Metabolite}) =
+    join([String(name(form)); _met_label.(mets)], "_")
+
+"""
+The two sides of `s` in its stored direction: `from_species` with the consumed
+metabolites, then `to_species` with the released ones. Every step constant is
+named after them.
+"""
+_forward_sides(s::Step) = (_side_label(from_species(s), consumed(s)),
+                           _side_label(to_species(s), released(s)))
+
+"""
 The kind of a step for kinetic grouping: `(:binding, m)` for a pure binding of
 `m`, `(:iso,)` for an isomerization, and `(:transformation, consumed, released)`
 for every other step. Steps that share a kinetic group share their constants, so
@@ -616,39 +632,44 @@ Error unless every kinetic group holds steps of one kind (`_step_kind`) with one
 RE/SS flag: a shared constant means the same reaction type at the same speed.
 """
 function _assert_uniform_groups(steps::Vector{Vector{Step}})
+    label(s) = join(_forward_sides(s), " → ") * (is_equilibrium(s) ? " (RE)" : " (SS)")
     for group in steps
         s1 = first(group)
         for s in group
             _step_kind(s) == _step_kind(s1) && is_equilibrium(s) == is_equilibrium(s1) &&
                 continue
-            error("Mechanism: a kinetic group holds $(name(from_species(s1))) → " *
-                  "$(name(to_species(s1))) and $(name(from_species(s))) → " *
-                  "$(name(to_species(s))), which differ in kind or in RE/SS; the " *
-                  "steps of a kinetic group share their constants, so they must be " *
-                  "the same kind of step with the same flag")
+            error("Mechanism: a kinetic group holds $(label(s1)) and $(label(s)), " *
+                  "which differ in kind or in RE/SS; the steps of a kinetic group " *
+                  "share their constants, so they must be the same kind of step " *
+                  "with the same flag")
         end
     end
 end
 
 """
-Error when one reaction appears in two kinetic groups. A step's constants are
-named after its two sides (`_forward_sides`), so two groups holding the same
-reaction — the same unordered pair of sides, in any direction and with either
-RE/SS flag — would share their names; rejecting that keeps every rendered name
-unique. With `_assert_uniform_groups`, it also rejects a reaction written both
-rapid-equilibrium and steady-state. Steps of one group may repeat a reaction.
+Error when one reaction — the unordered pair of a step's two sides
+(`_forward_sides`) — appears in more than one step. A reaction belongs to one
+kinetic group. Two groups holding it with the same RE/SS flag would give one
+reaction two sets of constants, which render the same names when the reaction
+represents both groups; an RE group and an SS group holding it would make one
+reaction both fast and slow. One group holding it twice would count its edge twice
+in the derivation.
 """
-function _assert_one_group_per_reaction(steps::Vector{Vector{Step}})
+function _assert_each_reaction_once(steps::Vector{Vector{Step}})
     seen = Dict{Tuple{String, String}, Tuple{Int, Step}}()
+    flag(s) = is_equilibrium(s) ? "RE" : "SS"
     for (g, group) in enumerate(steps), s in group
         sides = minmax(_forward_sides(s)...)
-        if haskey(seen, sides) && first(seen[sides]) != g
+        if haskey(seen, sides)
             g0, s0 = seen[sides]
+            reaction = join(_forward_sides(s0), " ⇌ ")
+            g0 == g && error("Mechanism: kinetic group $g holds the reaction " *
+                             "$reaction twice; a mechanism holds each reaction once")
+            flags = flag(s0) == flag(s) ? "" :
+                " ($(flag(s0)) in group $g0, $(flag(s)) in group $g)"
             error("Mechanism: kinetic groups $g0 and $g both hold the reaction " *
-                  "$(join(_forward_sides(s0), " ⇌ ")) (steps " *
-                  "$(join(_forward_sides(s0), " → ")) and " *
-                  "$(join(_forward_sides(s), " → "))); a reaction belongs to one " *
-                  "kinetic group, whose constants are named after it")
+                  "$reaction$flags; a reaction belongs to one kinetic group, whose " *
+                  "constants are named after it")
         end
         seen[sides] = (g, s)
     end
@@ -771,7 +792,7 @@ struct Mechanism
         steps = _canonicalize_step_directions(reaction, steps)
         permute!(steps, _canonical_group_order!(steps))
         _assert_uniform_groups(steps)
-        _assert_one_group_per_reaction(steps)
+        _assert_each_reaction_once(steps)
         _assert_re_segments_have_bottom(steps)
         new(reaction, steps)
     end
@@ -845,7 +866,7 @@ struct AllostericMechanism
         perm = _canonical_group_order!(cat_steps)
         permute!(cat_steps, perm)
         _assert_uniform_groups(cat_steps)
-        _assert_one_group_per_reaction(cat_steps)
+        _assert_each_reaction_once(cat_steps)
         _assert_re_segments_have_bottom(cat_steps)
         cat_allo_states = permute!(copy(cat_allo_states), perm)
         regulatory_sites =
@@ -1700,22 +1721,6 @@ function _state_tag(state::Symbol)
 end
 
 """
-A step side as written in parameter names: its enzyme form followed by its free
-metabolites, joined by `_` (a competitive-inhibitor copy carries `inh`, as in
-`name(::Species)`), e.g. `"EA_B"` for `E(A) + B`.
-"""
-_side_label(form::Species, mets::Vector{Metabolite}) =
-    join([String(name(form)); _met_label.(mets)], "_")
-
-"""
-The two sides of `s` in its stored direction: `from_species` with the consumed
-metabolites, then `to_species` with the released ones. Every step constant is
-named after them.
-"""
-_forward_sides(s::Step) = (_side_label(from_species(s), consumed(s)),
-                           _side_label(to_species(s), released(s)))
-
-"""
 The constant of the reaction `a → b`: `prefix`, the state tag, then
 `"<a>_to_<b>"` (e.g. `:k_ES_to_EP`, `:K_A_ES_to_E_S`).
 """
@@ -1849,9 +1854,9 @@ end
 Enumerate every raw rate-constant Parameter for a non-allosteric
 mechanism, in kinetic-group order. Each kinetic group's representative
 step (the structurally-primary step, `_group_rep`) drives the emit: RE
-binding → `Kd`, RE iso → `Kiso`, SS binding → `Kon`+`Koff`, SS iso →
-`Kfor`+`Krev`. All parameters carry `state === :None` because
-non-allosteric mechanisms have no A/I branches.
+binding → `Kd`, RE non-binding step → `Kiso`, SS binding → `Kon`+`Koff`, SS
+non-binding step → `Kfor`+`Krev`. All parameters carry `state === :None`
+because non-allosteric mechanisms have no A/I branches.
 """
 function _enumerate_parameters_full(m::Mechanism)
     out = Parameter[]
@@ -1865,13 +1870,15 @@ end
 """
 Emit the Parameter(s) governing a single kinetic-group representative
 step with the given allosteric state. The 4-way switch on
-`is_equilibrium(rep)` × `is_binding(rep)` is the shared core that every
-Step→Parameter walker routes through: `_enumerate_parameters_full`,
+`is_equilibrium(rep)` × `is_binding(rep)` is the shared core of the walkers
+over group representatives: `_enumerate_parameters_full`,
 `_onlyA_parameters_for_sym`, `_all_params_for_sym` (catalytic part),
 and `_ss_rate_constant_names`.
 
 Returns 1 element for RE steps (`Kd` or `Kiso`) and 2 elements for SS
-steps (`Kon`+`Koff` or `Kfor`+`Krev`).
+steps (`Kon`+`Koff` or `Kfor`+`Krev`). A binding takes `Kd` / `Kon`+`Koff`;
+every other step — an isomerization, a Theorell–Chance step, a fused step —
+takes `Kiso` / `Kfor`+`Krev`.
 """
 function _emit_cat_params_for_rep(rep::Step, state::Symbol)
     if is_equilibrium(rep)

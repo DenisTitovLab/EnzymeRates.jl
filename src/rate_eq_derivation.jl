@@ -224,7 +224,9 @@ end
 
 w(to)/w(from) of rapid-equilibrium step `s` as a monomial (its inverse when
 `inverse`): [M]/K for a pure binding of M (K a dissociation constant), and
-K·Π[consumed]/Π[released] for every other step (K in the association direction).
+K·Π[consumed]/Π[released] for every other step (K the equilibrium constant of the
+stored direction, products over reactants: [to]·Π[released] / ([from]·Π[consumed]),
+as its name `K_<from>_to_<to>` says).
 """
 function _re_weight_ratio(s::Step, K::Symbol; inverse::Bool = false)
     sgn = inverse ? -1 : 1
@@ -682,9 +684,9 @@ end
 
 """
 Set of Symbol names for SS rate-constant parameters (Kon, Koff, Kfor,
-Krev) of `em`. For `AllostericEnzymeMechanism`, also includes the
-`_T`-suffixed names of every SS rate constant that lives in the
-inactive state polynomial. Routes Symbol production through the
+Krev) of `em`. For `AllostericEnzymeMechanism`, also includes the I-state
+names (`I_` tag after the prefix, e.g. `k_I_ES_to_EP`) of every SS rate
+constant that lives in the inactive state polynomial. Routes Symbol production through the
 `name(p, m)` chokepoint via Parameter-subtype dispatch. Used by
 `rescale_parameter_values` to scale only SS k's without touching RE
 Kd's, Keq, E_total, L, or regulatory K's.

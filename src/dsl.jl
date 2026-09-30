@@ -537,12 +537,13 @@ Species notation on step sides:
 - Bare Symbol otherwise (e.g. `E`, `Estar`, `ES`) → conformation-only
   species named after the Symbol.
 - `E(S)` / `E(S, P)` → species with conformation `:E` and bound
-  metabolites; synthesized name is `:E_<bound...>` with bound names
-  sorted alphabetically (matching `name(::Species)`).
+  metabolites; synthesized name is `:E<bound...>` (the conformation
+  followed by the bound names, sorted alphabetically, with no separator:
+  `:ES`, `:EPS`), matching `name(::Species)`.
 - `Estar(; residual = A - P)` → species with empty bound and a residual
   recording `+A` / `−P`; synthesized name is `:Estar_res_+A_-P`.
 - `Estar(B; residual = A - P)` → bound + residual; name
-  `:Estar_B_res_+A_-P`.
+  `:EstarB_res_+A_-P`.
 
 Conformation labels cannot shadow declared metabolite names.
 """

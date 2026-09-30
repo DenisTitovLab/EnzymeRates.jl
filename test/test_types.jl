@@ -401,49 +401,6 @@
         @test m isa EnzymeMechanism
     end
 
-    @testset "Kinetic-group validator error paths" begin
-        # Group binding different metabolites → the constructor rejects the
-        # group itself (_assert_uniform_groups), before any other check runs.
-        rxn_two = @enzyme_reaction begin
-            substrates: S[C], A[N]
-            products:   P[CN]
-        end
-        e    = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
-        e_s  = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
-        e_a  = EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E)
-        e_p2 = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
-        g1_s = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
-                                EnzymeRates.Metabolite[], true)
-        g1_a = EnzymeRates.Step(e, e_a, [EnzymeRates.Substrate(:A)],
-                                EnzymeRates.Metabolite[], true)
-        g2_iso = EnzymeRates.Step(e_s, e_p2, EnzymeRates.Metabolite[],
-                                  EnzymeRates.Metabolite[], false)
-        err = try
-            EnzymeRates.Mechanism(rxn_two, [[g1_s, g1_a], [g2_iso]])
-            nothing
-        catch exc
-            exc
-        end
-        @test err isa ErrorException
-        @test occursin("kinetic group", err.msg)
-
-        # Group mixing RE and SS → error. Same metabolite, one RE binding
-        # step and one SS binding step share a kinetic group. The constructor
-        # rejects this via _assert_uniform_groups; _assert_one_group_per_reaction
-        # allows a reaction repeated within one group.
-        rxn_uni = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-        end
-        s_re = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
-                                EnzymeRates.Metabolite[], true)
-        s_ss = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
-                                EnzymeRates.Metabolite[], false)
-        s_rel = EnzymeRates.Step(e, e_p2, [EnzymeRates.Product(:P)],
-                                 EnzymeRates.Metabolite[], true)
-        @test_throws ErrorException EnzymeRates.Mechanism(rxn_uni, [[s_re, s_ss], [s_rel]])
-    end
-
     @testset "Mechanism rejects a rapid-equilibrium segment with no bottom form" begin
         # Random product release from E(P, Q) at rapid equilibrium, but release
         # from E(P) and E(Q) at steady state: the RE segment {E(P), E(Q), E(P, Q)}
@@ -1827,29 +1784,21 @@
         p_a = EnzymeRates.Krev(s, :A)
         @test EnzymeRates._force_inactive(p_a) == EnzymeRates.Krev(s, :I)
     end
-
-    @testset "reject same reaction as both RE and SS" begin
-        err = try
-            @enzyme_mechanism begin
-                substrates: S
-                products: P
-                steps: begin
-                    E + S <--> E(S)
-                    E + S ⇌ E(S)
-                    E(S) ⇌ E(P)
-                    E(P) ⇌ E + P
-                end
-            end
-            nothing
-        catch e; e end
-        @test err isa ErrorException
-        @test occursin("both hold the reaction E_S ⇌ ES", err.msg)
-    end
 end
 
 const ER = EnzymeRates
 _testhelper_sp(bound, conf = :E) = ER.Species(ER.Metabolite[bound...], conf)
 _testhelper_sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res)
+
+# The exception that `f()` throws, or `nothing` when it returns.
+function _testhelper_thrown(f)
+    try
+        f()
+    catch e
+        return e
+    end
+    nothing
+end
 
 @testset "Step: explicit consumed/released lists" begin
     A, B, P, Q = ER.Substrate(:A), ER.Substrate(:B), ER.Product(:P), ER.Product(:Q)
@@ -1901,12 +1850,7 @@ _testhelper_sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res
             [[ER.Step(E, EA, [A], ER.Metabolite[], false)], [chem],
              [ER.Step(F, FB, [B], ER.Metabolite[], false)],
              [ER.Step(FB, E, ER.Metabolite[], [Q], false)]])
-        err = try
-            ER._assert_chemistry_is_iso(m)
-            nothing
-        catch e
-            e
-        end
+        err = _testhelper_thrown(() -> ER._assert_chemistry_is_iso(m))
         @test err isa ErrorException
         @test occursin("folds chemistry", err.msg)
     end
@@ -1920,20 +1864,10 @@ _testhelper_sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res
     end
 
     @testset "rejections" begin
-        err = try
-            ER.Step(E, E, [A], ER.Metabolite[], true)
-            nothing
-        catch e
-            e
-        end
+        err = _testhelper_thrown(() -> ER.Step(E, E, [A], ER.Metabolite[], true))
         @test err isa ErrorException
         @test occursin("both ends", err.msg)
-        err = try
-            ER.Step(EA, EQ, [A], [A], false)
-            nothing
-        catch e
-            e
-        end
+        err = _testhelper_thrown(() -> ER.Step(EA, EQ, [A], [A], false))
         @test err isa ErrorException
         @test occursin("both consumed and released", err.msg)
     end
@@ -1953,7 +1887,7 @@ end
 
 @testset "kinetic groups hold one kind of step with one flag" begin
     @testset "binding and Theorell-Chance step in one group" begin
-        err = try
+        err = _testhelper_thrown() do
             @enzyme_mechanism begin
                 substrates: A, B
                 products: P, Q
@@ -1963,16 +1897,14 @@ end
                     E(Q) <--> E + Q
                 end
             end
-            nothing
-        catch e
-            e
         end
         @test err isa ErrorException
-        @test occursin("kinetic group", err.msg)
+        @test occursin("a kinetic group holds EA_B → EAB (SS) and EA_B → EQ_P (SS)",
+                       err.msg)
     end
 
     @testset "RE and SS steps in one group" begin
-        err = try
+        err = _testhelper_thrown() do
             @enzyme_mechanism begin
                 substrates: S
                 products: P
@@ -1982,16 +1914,29 @@ end
                     E(P) ⇌ E + P
                 end
             end
-            nothing
-        catch e
-            e
         end
         @test err isa ErrorException
-        @test occursin("kinetic group", err.msg)
+        @test occursin("a kinetic group holds E_S → ES (RE) and EP_S → EPS (SS)", err.msg)
+    end
+
+    @testset "one reaction written RE and SS in one group" begin
+        err = _testhelper_thrown() do
+            @enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    (E + S ⇌ E(S), E + S <--> E(S))
+                    E(S) <--> E(P)
+                    E(P) ⇌ E + P
+                end
+            end
+        end
+        @test err isa ErrorException
+        @test occursin("a kinetic group holds E_S → ES (SS) and E_S → ES (RE)", err.msg)
     end
 
     @testset "bindings of two different metabolites in one group" begin
-        err = try
+        err = _testhelper_thrown() do
             @enzyme_mechanism begin
                 substrates: A, B
                 products: P
@@ -2000,12 +1945,28 @@ end
                     E(A, B) <--> E + P
                 end
             end
-            nothing
-        catch e
-            e
         end
         @test err isa ErrorException
-        @test occursin("kinetic group", err.msg)
+        @test occursin("a kinetic group holds E_A → EA (SS) and EA_B → EAB (SS)", err.msg)
+    end
+
+    @testset "a substrate binding and its competitive-inhibitor copy in one group" begin
+        # A and its inhibitor copy A::Inh are different metabolites, so their
+        # bindings are different kinds of step and cannot share a constant.
+        err = _testhelper_thrown() do
+            @enzyme_mechanism begin
+                substrates: A
+                products: Q
+                steps: begin
+                    (E + A ⇌ E(A), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+                    E(A) <--> E(Q)
+                    E(Q) <--> E + Q
+                end
+            end
+        end
+        @test err isa ErrorException
+        @test occursin("a kinetic group holds E_A → EA (RE) and EQ_Ainh → EAinhQ (RE)",
+                       err.msg)
     end
 
     @testset "accepted: context-shared bindings of one metabolite" begin
@@ -2042,17 +2003,39 @@ end
         m = ER.Mechanism(rxn, [[iso1, iso2]])
         @test m isa ER.Mechanism
     end
+end
 
-    @testset "accepted: every MECHANISM_TEST_SPECS mechanism reconstructs" begin
-        # Aggregate regression pin over the whole seed set: reconstructing
-        # every mechanism in MECHANISM_TEST_SPECS re-runs the new check.
-        for spec in MECHANISM_TEST_SPECS
-            m = spec.mechanism
-            rebuilt = m isa AllostericEnzymeMechanism ?
-                ER.AllostericMechanism(m) : ER.Mechanism(m)
-            @test rebuilt !== nothing
+@testset "AllostericMechanism enforces the kinetic-group rules" begin
+    am = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)     :: NonequalAI
+            E(S) <--> E(P)   :: EqualAI
+            E(P) ⇌ E + P     :: EqualAI
         end
+    end)
+    group_of(pred) = only(g for g in ER.steps(am) if pred(first(g)))
+    bind_s = group_of(s -> ER.bound_metabolite(s) == ER.Substrate(:S))
+    bind_p = group_of(s -> ER.bound_metabolite(s) == ER.Product(:P))
+    iso = group_of(ER.is_iso)
+    rebuild(groups) = _testhelper_thrown() do
+        ER.AllostericMechanism(ER.reaction(am), groups, fill(:EqualAI, length(groups)),
+                               2, ER.RegulatorySite[])
     end
+    # The two bindings in one group: different metabolites.
+    err = rebuild([[bind_s; bind_p], iso])
+    @test err isa ErrorException
+    @test occursin("a kinetic group holds E_P → EP (RE) and E_S → ES (RE)", err.msg)
+    # The isomerization in two groups.
+    err = rebuild([bind_s, iso, iso, bind_p])
+    @test err isa ErrorException
+    @test occursin("both hold the reaction ES ⇌ EP", err.msg)
+    # The isomerization twice in one group.
+    err = rebuild([bind_s, [iso; iso], bind_p])
+    @test err isa ErrorException
+    @test occursin("holds the reaction ES ⇌ EP twice", err.msg)
 end
 
 @testset "transformation steps are named by their sides" begin
@@ -2166,6 +2149,7 @@ end
     @test issubset([:K_A_ES_to_E_S, :K_I_ES_to_E_S], allo_names)
     @test !(:K_ES_to_E_S in allo_names)
     @test :K_EP_to_E_P in ER.parameters(allo) && !(:K_A_EP_to_E_P in allo_names)
+    @test :K_I_EP_to_E_P ∉ ER.parameters(allo)
     # A ping-pong residual form: B binds E(; residual = A - P), whose name is
     # E_res_+A_-P, so the release-direction K reads EB_res_+A_-P → E_res_+A_-P + B.
     pingpong = @enzyme_mechanism begin
@@ -2204,6 +2188,21 @@ end
         end
     end
     @test full_names(tc_backward) == full_names(tc)
+    # An SS step has a constant in each direction, so only RE steps show that
+    # reversal keeps the stored direction: re_iso's RE binding written as its
+    # release and its RE isomerization written backwards.
+    re_backward = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E(S) ⇌ E + S
+            E(P) ⇌ E(S)
+            E(P) <--> E + P
+        end
+    end
+    @test issubset([:K_ES_to_E_S, :K_ES_to_EP], full_names(re_backward))
+    @test isdisjoint([:K_E_S_to_ES, :K_EP_to_ES], full_names(re_backward))
+    @test full_names(re_backward) == full_names(re_iso)
     # No mechanism in the spec table carries a kon, koff or Kiso prefix.
     for spec in MECHANISM_TEST_SPECS
         names = String.(collect(ER.parameters(spec.mechanism, ER.Full)))
@@ -2243,7 +2242,7 @@ end
     @test ER.name(kf, m) == :k_F_to_E && ER.name(kr, m) == :k_E_to_F
 end
 
-@testset "parameter-name collisions are rejected" begin
+@testset "each reaction appears once in a mechanism" begin
     A, B, P = ER.Substrate(:A), ER.Substrate(:B), ER.Product(:P)
     E, EA, EstarA = _testhelper_sp([]), _testhelper_sp([A]), _testhelper_sp([A], :Estar)
     EAB, EP = _testhelper_sp([A, B]), _testhelper_sp([P])
@@ -2263,31 +2262,57 @@ end
     @test issubset([:k_E_A_to_EA, :k_E_A_to_EstarA], names)
     # The same binding in two groups, once written as its release: both would be
     # k_E_A_to_EA.
-    err = try
+    err = _testhelper_thrown() do
         ER.Mechanism(rxn, [
             [ER.Step(E, EA, [A], ER.Metabolite[], false)],
             [ER.Step(EA, E, ER.Metabolite[], [A], false)],
             [ER.Step(EA, EP, ER.Metabolite[], ER.Metabolite[], false)],
             [ER.Step(E, EP, [P], ER.Metabolite[], false)]])
-        nothing
-    catch e
-        e
     end
     @test err isa ErrorException
     @test occursin("both hold the reaction E_A ⇌ EA", err.msg)
     # The same isomerization in two groups: both would be k_EA_to_EP.
-    err = try
+    err = _testhelper_thrown() do
         ER.Mechanism(rxn, [
             [ER.Step(E, EA, [A], ER.Metabolite[], false)],
             [ER.Step(EA, EP, ER.Metabolite[], ER.Metabolite[], false)],
             [ER.Step(EP, EA, ER.Metabolite[], ER.Metabolite[], false)],
             [ER.Step(E, EP, [P], ER.Metabolite[], false)]])
-        nothing
-    catch e
-        e
     end
     @test err isa ErrorException
     @test occursin("both hold the reaction EA ⇌ EP", err.msg)
+    # The same binding written RE in one group and SS in another: one reaction
+    # cannot be both fast and slow.
+    err = _testhelper_thrown() do
+        @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)
+                E + S ⇌ E(S)
+                E(S) ⇌ E(P)
+                E(P) ⇌ E + P
+            end
+        end
+    end
+    @test err isa ErrorException
+    @test occursin("both hold the reaction E_S ⇌ ES (SS in group 2, RE in group 3)",
+                   err.msg)
+    # The same binding twice in one group, once written as its release: the
+    # derivation would count its edge twice.
+    err = _testhelper_thrown() do
+        @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                (E + S <--> E(S), E(S) <--> E + S)
+                E(S) <--> E(P)
+                E(P) <--> E + P
+            end
+        end
+    end
+    @test err isa ErrorException
+    @test occursin("kinetic group 2 holds the reaction E_S ⇌ ES twice", err.msg)
 end
 
 # Chokepoint guard: no `Symbol("[KkVL]...")` literal is constructed outside
@@ -2394,7 +2419,6 @@ end
 end
 
 @testset "OnlyA Haldane validator" begin
-    ER = EnzymeRates
     # Uni-uni S -> P. Tags: (S binding, chemical step, P binding).
     function uni(s_tag, cat_tag, p_tag)
         m = @allosteric_mechanism begin
@@ -2576,8 +2600,6 @@ end
 # witness — its sign test finds nothing to flag, so the verdict genuinely comes
 # from the Stiemke stage (M is 5x12, nullity 7, feasible = true).
 @testset ":OnlyA guard admits feasible ter-substrate mechanisms" begin
-    ER = EnzymeRates
-
     # A full random-order A/B/C binding lattice, every substrate binding :OnlyA.
     # The :OnlyA chemical step drops the catalytic Haldane row from the check
     # graph, leaving the lattice's five Wegscheider squares; each carries both
@@ -2626,7 +2648,6 @@ end
 end
 
 @testset "rational nullspace + Stiemke feasibility helpers" begin
-    ER = EnzymeRates
     R = Rational{BigInt}
 
     @testset "_rational_nullspace" begin
