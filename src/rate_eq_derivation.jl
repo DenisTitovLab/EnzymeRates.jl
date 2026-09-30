@@ -62,7 +62,7 @@ end
     am = AllostericMechanism(aem)
     # The full symbol set over-emits an I-state mirror for every non-`:OnlyA`
     # catalytic group (`_all_i_state_parameters`). A forbidden-split collapse
-    # mirror — a `:NonequalAI` group's derived I-symbol, e.g. PK's `K_I_PEP_E` —
+    # mirror — a `:NonequalAI` group's derived I-symbol, e.g. PK's `K_I_EPEP_to_E_PEP` —
     # is the I-form of that group's binding/reverse constant, so it always
     # coincides with the group's over-emitted `(:I)` mirror already in `names`.
     # No separate collapse-name splice is needed.
@@ -601,11 +601,11 @@ julia> m = @enzyme_mechanism begin
        end;
 
 julia> print(rate_equation_string(m))
-(; K_P_E, K_S_E, k_ES_to_EP, Keq, E_total) = params
+(; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP, Keq, E_total) = params
 (; S, P) = concs
 # Haldane constraints:
-k_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_ES_to_EP
-v = E_total * (k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E) / (1 + P / K_P_E + S / K_S_E)
+k_EP_to_ES = (1 / Keq) * K_EP_to_E_P * (1 / K_ES_to_E_S) * k_ES_to_EP
+v = E_total * (k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P) / (1 + P / K_EP_to_E_P + S / K_ES_to_E_S)
 ```
 """
 function rate_equation_string end

@@ -5425,12 +5425,12 @@ end
     end
     @test EnzymeRates._i_state_num_zero(EnzymeRates.AllostericMechanism(m))
     params_full = parameters(m, Full)
-    # K_I_S_E_c and K_I_P_E_c are referenced in `den_T` of the body
+    # K_I_E_cS_to_E_c_S and K_I_E_cP_to_E_c_P are referenced in `den_T` of the body
     # (the binding partition function for :NonequalAI groups
     # is built regardless of `t_state_dead` since `den_T`
     # always appears in the denominator).
-    @test :K_I_S_E_c in params_full
-    @test :K_I_P_E_c in params_full
+    @test :K_I_E_cS_to_E_c_S in params_full
+    @test :K_I_E_cP_to_E_c_P in params_full
 end
 end
 
@@ -7791,8 +7791,9 @@ end
     # catalysis. It is still a bound form, never free enzyme, so `_free_enz_set`
     # excludes it — keeping a lumped `:EqualAI` group's naming rep identical in
     # both conformations. Without that exclusion the inactive-state rep flips
-    # (e.g. `K_Lactate_ENADH` vs the active-state `K_Lactate_ENAD`), un-lumping a
-    # shared constant so the combined solve fails to merge it and over-counts.
+    # (e.g. `K_ELactateNADH_to_ENADH_Lactate` vs the active-state
+    # `K_ELactateNAD_to_ENAD_Lactate`), un-lumping a shared constant so the combined
+    # solve fails to merge it and over-counts.
     #
     # `_expand_to_allosteric` emits dead-inactive `:OnlyA`-binding combos (all
     # chemical steps `:OnlyA`), so the case this guards is the child that sets

@@ -41,9 +41,9 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
     test_mechanism = EnzymeRates.AllostericEnzymeMechanism(_am)
 
     Keq_val = 2.0
-    # 5 fitted params: K_A_P_E, K_A_S_E, k_A_ES_to_EP, K_I_Rreg, L
+    # 5 fitted params: K_A_EP_to_E_P, K_A_ES_to_E_S, k_A_ES_to_EP, K_I_Rreg, L
     true_params = (
-        K_A_P_E = 1.0, K_A_S_E = 0.5, k_A_ES_to_EP = 5.0,
+        K_A_EP_to_E_P = 1.0, K_A_ES_to_E_S = 0.5, k_A_ES_to_EP = 5.0,
         K_I_Rreg = 2.0, L = 0.1,
         Keq = Keq_val, E_total = 1.0)
 
@@ -1516,8 +1516,8 @@ const _ALLO_SIG_MERGED =
     @test am1 != am2
     @test key(am1) != key(am2)                  # the two render different equations
     # The split form is not a reparameterization of the merged one: it carries
-    # K_Lactate_ENADH on top of the merged form's parameters, in the independent
-    # count and in the fitted set alike. A finite-difference rank of ∂v/∂θ,
+    # K_ELactateNADH_to_ENADH_Lactate on top of the merged form's parameters, in the
+    # independent count and in the fitted set alike. A finite-difference rank of ∂v/∂θ,
     # measured outside this file, agrees (9 against 8).
     @test EnzymeRates._independent_param_count(am1) ==
           EnzymeRates._independent_param_count(am2) + 1

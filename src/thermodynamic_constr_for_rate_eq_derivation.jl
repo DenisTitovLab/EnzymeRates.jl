@@ -286,7 +286,7 @@ function _dependent_param_exprs(mech::Mechanism)
     rename = _build_wegscheider_rename_map(mech)
     dep_exprs, indep = _dependent_param_exprs_kernel(mech, rename)
     # Filter Pass-2-absorbed symbols out of indep. Pass 2 of
-    # `_build_wegscheider_rename_map` adds entries like `K_P_E => K_S_E`
+    # `_build_wegscheider_rename_map` adds entries like `K_EP_to_E_P => K_ES_to_E_S`
     # when a Wegscheider tie collapses two binding-K group reps to the
     # same name. After the merge, the absorbed symbol doesn't appear in
     # the v polynomial — its column has been folded into the target.
@@ -572,7 +572,7 @@ function _onlya_haldane_violation(rxn::EnzymeReaction,
     # `sym in binding_K_set` sign rule of `_assemble_constraints` (line 366):
     # only an RE binding lands in that set, so only it is sign-flipped. The
     # multiplier is well defined per column because RE and SS bindings render to
-    # different symbols (`K_S_E` vs `kon_S_E`) and so never share a column.
+    # different symbols (`K_ES_to_E_S` vs `k_E_S_to_ES`) and so never share a column.
     onlyA_cols = Dict{Int, Int}()
     for (j, (s, _)) in enumerate(_flat_steps(cm))
         s in onlyA_steps || continue

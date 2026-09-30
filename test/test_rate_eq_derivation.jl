@@ -534,7 +534,7 @@ end
 """
 Compute all structural-named params (independent + Haldane-derived dependents)
 plus Keq + E_total for a mechanism. Returns a NamedTuple with structural keys
-(e.g. :K_S_E, :k_ES_to_EP) that positional_params can remap to oracle-style
+(e.g. :K_ES_to_E_S, :k_ES_to_EP) that positional_params can remap to oracle-style
 positional names.
 """
 function compute_all_params(m, new_params)
@@ -598,7 +598,7 @@ function raw_to_ode_params(m, raw_params)
     rxns = EnzymeRates.reactions(m)
     enz_set = Set(EnzymeRates.enzyme_forms(m))
     # Kinetic-group rename map: maps Wegscheider-equivalent RE binding K names
-    # (e.g. K_S_ERinh → K_S_E) so the param lookup succeeds even when the
+    # (e.g. K_ERinhS_to_ERinh_S → K_ES_to_E_S) so the param lookup succeeds even when the
     # mechanism has sharing via Wegscheider constraints.
     rename = EnzymeRates._build_wegscheider_rename_map(m)
     # A canonical RE binding step has a metabolite on LHS (canonical form
@@ -1323,8 +1323,8 @@ const _testhelper_tc_cases = (
              if !ER.is_iso(s) && !ER.is_binding(s))
     @test ER.name(ER.from_species(s)) == :EA &&
           ER.consumed(s) == ER.Metabolite[ER.Substrate(:B)]
-    @test :k_EA_to_EQ in ER.parameters(tc_ss, ER.Full)
-    @test :k_EQ_to_EA in ER.parameters(tc_ss, ER.Full)
+    @test :k_EA_B_to_EQ_P in ER.parameters(tc_ss, ER.Full)
+    @test :k_EQ_P_to_EA_B in ER.parameters(tc_ss, ER.Full)
 end
 
 @testset "reversing written steps changes nothing" begin
@@ -1409,11 +1409,11 @@ end
 # destructuring machinery never emitted. They are round-trippable singleton-type
 # strings, embedded here so the regression is self-contained (the source CSVs are
 # not tracked). Each exercises a distinct trigger path:
-#   caseB_binding  — i_state_dead, previously dangled `K_I_Lactate_ENAD`
+#   caseB_binding  — i_state_dead, previously dangled `K_I_ELactateNAD_to_ENAD_Lactate`
 #   caseB_reverse  — i_state_dead, previously dangled
 #                    `k_I_ELactateNAD_to_ENADHPyruvate`
-#   nonidead_multi — live I-state, previously dangled `kon_I_NAD_EPyruvate`
-# The 4th trigger path (i_dead with a phantom `kon_I_*` binding param) has no
+#   nonidead_multi — live I-state, previously dangled `k_I_EPyruvate_NAD_to_ENADPyruvate`
+# The 4th trigger path (i_dead with a phantom `k_I_*` binding param) has no
 # embedded fixture; the two i_state_dead fixtures above exercise the dead
 # I-state branch generally, and S_I's reference-polynomial construction
 # handles phantom binding params structurally rather than case-by-case.
@@ -1657,17 +1657,17 @@ end
     uni_uni = only(s for s in MECHANISM_TEST_SPECS
                    if s.name == "Uni-Uni").mechanism
     names = EnzymeRates._ss_rate_constant_names(uni_uni)
-    for sym in (:kon_S_E, :koff_S_E, :k_ES_to_E, :k_E_to_ES)
+    for sym in (:k_E_S_to_ES, :k_ES_to_E_S, :k_ES_to_E_P, :k_E_P_to_ES)
         @test sym in names
     end
 
-    # Mixed RE/SS: RE binding (K_A_E) + SS catalysis. Only the
+    # Mixed RE/SS: RE binding (K_EA_to_E_A) + SS catalysis. Only the
     # SS k's are returned; RE binding K is excluded.
     re_uu = only(s for s in MECHANISM_TEST_SPECS
                  if s.name == "RE Uni-Uni").mechanism
     re_uu_names = EnzymeRates._ss_rate_constant_names(re_uu)
-    @test :k_EA_to_E in re_uu_names && :k_E_to_EA in re_uu_names
-    for sym in (:K_A_E, :Keq, :L, :E_total)
+    @test :k_EA_to_E_P in re_uu_names && :k_E_P_to_EA in re_uu_names
+    for sym in (:K_EA_to_E_A, :Keq, :L, :E_total)
         @test !(sym in re_uu_names)
     end
 
@@ -1679,7 +1679,8 @@ end
     for sym in (:k_A_ES_to_EP, :k_A_EP_to_ES, :k_I_ES_to_EP, :k_I_EP_to_ES)
         @test sym in mwc_names
     end
-    for sym in (:K_A_S_E, :K_A_P_E, :K_I_S_E, :K_I_P_E, :Keq, :L, :E_total)
+    for sym in (:K_A_ES_to_E_S, :K_A_EP_to_E_P, :K_I_ES_to_E_S, :K_I_EP_to_E_P,
+                :Keq, :L, :E_total)
         @test !(sym in mwc_names)
     end
 end
@@ -1964,7 +1965,7 @@ end
     # OnlyA substrate + OnlyA catalysis: S binds only in the R-state and only
     # the R-state catalyzes (k_T = 0). The T-state therefore carries no flux
     # (N_T = 0) and never populates E(S), so no reverse-catalysis weight leaks
-    # into Q_I. As K_A_S_E → ∞ (weaker R-state binding), rate vanishes.
+    # into Q_I. As K_A_ES_to_E_S → ∞ (weaker R-state binding), rate vanishes.
     onlyR_sub = @allosteric_mechanism begin
         substrates: S
         products:   P
@@ -1976,9 +1977,9 @@ end
         end
     end
     concs = (S=1.0, P=0.001)
-    base_params = (k_A_ES_to_EP=10.0, K_P_E=0.5, L=10.0, Keq=1000.0, E_total=1.0)
-    rate_strong = rate_equation(onlyR_sub, concs, merge(base_params, (K_A_S_E=0.01,)))
-    rate_weak   = rate_equation(onlyR_sub, concs, merge(base_params, (K_A_S_E=1e6,)))
+    base_params = (k_A_ES_to_EP=10.0, K_EP_to_E_P=0.5, L=10.0, Keq=1000.0, E_total=1.0)
+    rate_strong = rate_equation(onlyR_sub, concs, merge(base_params, (K_A_ES_to_E_S=0.01,)))
+    rate_weak   = rate_equation(onlyR_sub, concs, merge(base_params, (K_A_ES_to_E_S=1e6,)))
     @test rate_strong > 1.0
     @test rate_weak < 1e-3
     @test rate_weak / rate_strong < 1e-5
@@ -1996,7 +1997,7 @@ end
             E(P) ⇌ E + P     :: EqualAI
         end
     end
-    vparams = (K_S_E=0.1, k_A_ES_to_EP=10.0, K_P_E=0.5, Keq=1000.0, E_total=1.0)
+    vparams = (K_ES_to_E_S=0.1, k_A_ES_to_EP=10.0, K_EP_to_E_P=0.5, Keq=1000.0, E_total=1.0)
     rate_R = rate_equation(vtype, concs, merge(vparams, (L=0.0,)))
     rate_T = rate_equation(vtype, concs, merge(vparams, (L=1e10,)))
     @test rate_R > 1.0
@@ -2123,8 +2124,8 @@ end
     m_mix = allo_from_source(
         (cm_mix, src_mix), (2, (:NonequalAI, :OnlyA, :NonequalAI)),
         (((:I,), 2, (:OnlyI,)),))
-    p_mix = (K_A_S_E=0.1, k_A_ES_to_EP=10.0, K_A_P_E=0.5,
-             K_I_S_E=10.0, K_I_P_E=10.0,
+    p_mix = (K_A_ES_to_E_S=0.1, k_A_ES_to_EP=10.0, K_A_EP_to_E_P=0.5,
+             K_I_ES_to_E_S=10.0, K_I_EP_to_E_P=10.0,
              K_I_Ireg=1.0, L=1.0, Keq=1000.0, E_total=1.0)
     rate_mix = rate_equation(m_mix, (S=10.0, P=0.0, I=0.0), p_mix)
     # With Kd convention (correct): rate ≈ 9.90 (R-state catalysis dominates),
@@ -2133,13 +2134,13 @@ end
     @test isapprox(rate_mix, 9.90; rtol=0.05)
 
     # Sanity: rate_equation_string emits Kd form for T-state K's.
-    @test occursin("S / K_I_S_E", rate_equation_string(m_mix))
-    @test occursin("P / K_I_P_E", rate_equation_string(m_mix))
+    @test occursin("S / K_I_ES_to_E_S", rate_equation_string(m_mix))
+    @test occursin("P / K_I_EP_to_E_P", rate_equation_string(m_mix))
 
     # Regression: :NonequalAI substrate + :EqualAI catalysis must produce
     # zero rate at chemical equilibrium. The :NonequalAI S-binding split is
     # forbidden (its lone cycle is shared with :EqualAI catalysis), so it
-    # collapses to K_I_S_E = K_A_S_E and K_I_S_E leaves the fitted set.
+    # collapses to K_I_ES_to_E_S = K_A_ES_to_E_S and K_I_ES_to_E_S leaves the fitted set.
     cm_mixed, src_mixed = @enzyme_mechanism_src begin
         substrates: S
         products:   P
@@ -2155,7 +2156,7 @@ end
         (cm_mixed, src_mixed), (2, (:NonequalAI, :EqualAI, :EqualAI)),
         (((:I,), 2, (:NonequalAI,)),))
     Keq_val = 5.0
-    p_eq = (K_A_S_E=0.3, k_ES_to_EP=8.0, K_P_E=0.7,
+    p_eq = (K_A_ES_to_E_S=0.3, k_ES_to_EP=8.0, K_EP_to_E_P=0.7,
             K_A_Ireg=1.0, K_I_Ireg=4.0,
             L=2.0, Keq=Keq_val, E_total=1.0)
     # At chemical equilibrium: P = Keq · S
@@ -2167,7 +2168,8 @@ end
     # Wegscheider-cycle EqualAI×NonequalAI: the Random-order Bi-Bi mechanism has a
     # genuine independent Wegscheider cycle. Group 2 (the steady-state B-binding)
     # is :NonequalAI while its box partners are :EqualAI, so its affinity is
-    # forbidden and collapses (koff_I_B_E = koff_A_B_E·kon_I_B_E/kon_A_B_E) while
+    # forbidden and collapses
+    # (k_I_EB_to_E_B = k_A_EB_to_E_B·k_I_E_B_to_EB/k_A_E_B_to_EB) while
     # its speed stays free. Asserts the mechanism-agnostic invariant: zero net rate
     # at chemical equilibrium. (Over-parametrized; the enumerator will skip such
     # degenerate configs in a follow-up PR.)
@@ -2239,12 +2241,12 @@ end
         end
     end
     actual = rate_equation_string(m_allo)
-    expected = raw"""(; K_A_P_E, K_A_S_E, k_A_ES_to_EP, K_I_P_E, K_I_S_E, k_I_ES_to_EP, K_A_Rreg, K_I_Rreg, L, Keq, E_total) = params
+    expected = raw"""(; K_A_EP_to_E_P, K_A_ES_to_E_S, k_A_ES_to_EP, K_I_EP_to_E_P, K_I_ES_to_E_S, k_I_ES_to_EP, K_A_Rreg, K_I_Rreg, L, Keq, E_total) = params
 (; S, P, R) = concs
 # Haldane constraints:
-k_A_EP_to_ES = (1 / Keq) * K_A_P_E * (1 / K_A_S_E) * k_A_ES_to_EP
-k_I_EP_to_ES = (1 / Keq) * K_I_P_E * (1 / K_I_S_E) * k_I_ES_to_EP
-v = E_total * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + R / K_A_Rreg) ^ 2 + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + R / K_I_Rreg) ^ 2) / ((1 + P / K_A_P_E + S / K_A_S_E) ^ 2 * (1 + R / K_A_Rreg) ^ 2 + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2 * (1 + R / K_I_Rreg) ^ 2)"""
+k_A_EP_to_ES = (1 / Keq) * K_A_EP_to_E_P * (1 / K_A_ES_to_E_S) * k_A_ES_to_EP
+k_I_EP_to_ES = (1 / Keq) * K_I_EP_to_E_P * (1 / K_I_ES_to_E_S) * k_I_ES_to_EP
+v = E_total * ((k_A_ES_to_EP * S / K_A_ES_to_E_S - k_A_EP_to_ES * P / K_A_EP_to_E_P) * (1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) * (1 + R / K_A_Rreg) ^ 2 + L * (S * k_I_ES_to_EP / K_I_ES_to_E_S - P * k_I_EP_to_ES / K_I_EP_to_E_P) * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) * (1 + R / K_I_Rreg) ^ 2) / ((1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) ^ 2 * (1 + R / K_A_Rreg) ^ 2 + L * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) ^ 2 * (1 + R / K_I_Rreg) ^ 2)"""
     @test actual == expected
 end
 
@@ -2271,10 +2273,10 @@ end
 
         # Catalytic side: every non-:OnlyA group contributes an I-state
         # parameter (Kd for RE binding, Kfor/Krev for SS).
-        @test :K_I_S_E in rendered
+        @test :K_I_ES_to_E_S in rendered
         @test :k_I_ES_to_EP in rendered
         @test :k_I_EP_to_ES in rendered
-        @test :K_I_P_E in rendered
+        @test :K_I_EP_to_E_P in rendered
         # Regulator side: :R is :NonequalAI → K_I_Rreg appears.
         @test :K_I_Rreg in rendered
 
@@ -2289,7 +2291,7 @@ end
         am_skip = EnzymeRates.AllostericMechanism(aem_skip)
         rendered_skip = [EnzymeRates.name(p, am_skip)
                          for p in EnzymeRates._all_i_state_parameters(am_skip)]
-        @test :K_I_S_E ∉ rendered_skip          # :OnlyA cat group skipped
+        @test :K_I_ES_to_E_S ∉ rendered_skip    # :OnlyA cat group skipped
         @test :k_I_ES_to_EP in rendered_skip    # :NonequalAI SS iso emits both
         @test :k_I_EP_to_ES in rendered_skip
         @test :K_I_Rreg ∉ rendered_skip    # :OnlyA reg ligand skipped
@@ -2358,12 +2360,12 @@ end
     groups = EnzymeRates.steps(mech)
     # group 1 = the S-binding group {E→E_S (free), EI1inh→EI1inh_S (non-free)}.
     # Force the non-free mirror to be first(group); structural-primacy naming
-    # must still pick the free-enzyme step → :K_S_E (not :K_S_EI1inh).
+    # must still pick the free-enzyme step → :K_ES_to_E_S (not :K_EI1inhS_to_EI1inh_S).
     reversed = [gi == 1 ? reverse(g) : g for (gi, g) in enumerate(groups)]
     mech_rev = EnzymeRates.Mechanism(mech.reaction, reversed)
     params_rev = EnzymeRates.parameters(EnzymeRates.compile_mechanism(mech_rev))
-    @test :K_S_E in params_rev
-    @test !(:K_S_EI1inh in params_rev)
+    @test :K_ES_to_E_S in params_rev
+    @test !(:K_EI1inhS_to_EI1inh_S in params_rev)
 end
 
 # ── Dependent-parameter choice invariance to kinetic-group naming rep ────────
@@ -2436,7 +2438,7 @@ end
 
 @testset "Fix A: dead-inactive-state allosteric body defines all I-state symbols" begin
     # Random-order allosteric bi-bi with an :OnlyA catalytic step → dead inactive
-    # state. Verified pre-fix to crash with `UndefVarError: koff_I_A_E`.
+    # state. Verified pre-fix to crash with `UndefVarError: k_I_EA_to_E_A`.
     m = @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2567,7 +2569,7 @@ end
             E + S ⇌ E(S) :: OnlyA ; E(S) <--> E(P) :: OnlyA ; E + P ⇌ E(P) :: EqualAI
         end
     end
-    fp = ER.fitted_params(m)                        # K_P_E, K_A_S_E, k_A_ES_to_EP, L
+    fp = ER.fitted_params(m)            # K_EP_to_E_P, K_A_ES_to_E_S, k_A_ES_to_EP, L
     prm = NamedTuple{(fp..., :Keq, :E_total)}((0.9, 1.3, 2.1, 0.7, 3.0, 1.0))
     rescaled = ER.rescale_parameter_values(m, prm; scale_k_to_kcat=5.0)  # ask kcat = 5.0
     @test isapprox(ER._kcat_forward(m, rescaled), 5.0; rtol=1e-6)

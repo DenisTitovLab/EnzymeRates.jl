@@ -39,9 +39,9 @@ end
     @testset "single NonequalAI binding + EqualAI catalysis -> full collapse" begin
         fp,v,veq = evalrate(uni([:NonequalAI,:EqualAI,:EqualAI]))
         @test isfinite(v); @test abs(veq) < 1e-8
-        @test !(:K_I_S_E in fp)                 # I-twin dropped (collapsed to a mirror)
+        @test !(:K_I_ES_to_E_S in fp)           # I-twin dropped (collapsed to a mirror)
         s = ER.rate_equation_string(uni([:NonequalAI,:EqualAI,:EqualAI]))
-        @test occursin("K_I_S_E=K_A_S_E", replace(s," "=>""))  # explicit mirror
+        @test occursin("K_I_ES_to_E_S=K_A_ES_to_E_S", replace(s," "=>""))  # explicit mirror
         @test !occursin("k_I_", s)              # catalysis not silently un-shared
     end
 
@@ -64,7 +64,7 @@ end
         am = uni([:NonequalAI,:NonequalAI,:EqualAI])
         fp,v,veq = evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
-        @test :K_I_S_E in fp                    # binding split free
+        @test :K_I_ES_to_E_S in fp              # binding split free
         @test any(p->startswith(String(p),"k_I_"), fp)  # catalysis split free (native)
     end
 
@@ -84,9 +84,9 @@ end
         st=fill(:EqualAI,9); st[3]=:NonequalAI
         am=ER.AllostericMechanism(rxn, Vector{St}[[s] for s in sd], st, 2, ER.RegulatorySite[])
         cem=ER.compile_mechanism(am); fp=ER.fitted_params(am)
-        @test !(:K_I_A_EB in fp)                            # forbidden split collapsed
+        @test !(:K_I_EAB_to_EB_A in fp)                     # forbidden split collapsed
         s=replace(ER.rate_equation_string(am)," "=>"")
-        @test occursin("K_I_A_EB=K_A_A_EB", s)              # explicit mirror
+        @test occursin("K_I_EAB_to_EB_A=K_A_EAB_to_EB_A", s)  # explicit mirror
         rng=MersenneTwister(2)
         pv=Tuple((k===:L ? 0.6 : 0.4+2rand(rng)) for k in fp)
         prm=NamedTuple{(fp...,:Keq,:E_total)}((pv...,3.0,1.0))
@@ -105,13 +105,13 @@ end
         am = uni_ss([:NonequalAI,:EqualAI,:EqualAI])
         fp,v,veq = evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
-        @test !(:koff_I_S_E in fp)              # affinity collapsed: reverse derived
-        @test :kon_I_S_E in fp                  # speed (forward) stays free
+        @test !(:k_I_ES_to_E_S in fp)           # affinity collapsed: reverse derived
+        @test :k_I_E_S_to_ES in fp              # speed (forward) stays free
         s = replace(ER.rate_equation_string(am), " "=>"")
-        @test occursin("koff_I_S_E=", s)        # explicit reverse-rate mirror
+        @test occursin("k_I_ES_to_E_S=", s)     # explicit reverse-rate mirror
         # the surviving speed split moves the rate (identifiable)
-        v1 = evalrate(am; split=(:kon_I_S_E,1.3))[2]
-        v2 = evalrate(am; split=(:kon_I_S_E,5.0))[2]
+        v1 = evalrate(am; split=(:k_I_E_S_to_ES,1.3))[2]
+        v2 = evalrate(am; split=(:k_I_E_S_to_ES,5.0))[2]
         @test !isapprox(v1, v2)
     end
 
@@ -119,7 +119,8 @@ end
         am = uni_ss([:NonequalAI,:NonequalAI,:EqualAI])
         fp,v,veq = evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
-        @test (:kon_I_S_E in fp) && (:koff_I_S_E in fp)   # both free (affinity honorable)
+        # both free (affinity honorable)
+        @test (:k_I_E_S_to_ES in fp) && (:k_I_ES_to_E_S in fp)
     end
 
     # ── Mixed-type + Wegscheider-coupled :NonequalAI bindings. Two mechanisms that
@@ -169,17 +170,17 @@ end
 
     @testset "dead-I NonequalAI binding -> K_I identifiable, NOT collapsed" begin
         # I state cannot turn over (OnlyA catalysis) but binds S with its own
-        # affinity: K_A_S_E and K_I_S_E are BOTH identifiable (a dead-end E_I·S is
-        # in no cycle, so nothing pins K_I to K_A). HEAD over-collapses this.
+        # affinity: K_A_ES_to_E_S and K_I_ES_to_E_S are BOTH identifiable (a dead-end
+        # E_I·S is in no cycle, so nothing pins K_I to K_A). HEAD over-collapses this.
         am = uni([:NonequalAI, :OnlyA, :EqualAI])
         fp, v, veq = evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
-        @test :K_I_S_E in fp                          # NOT collapsed
-        v1 = evalrate(am; split=(:K_I_S_E, 1.3))[2]
-        v2 = evalrate(am; split=(:K_I_S_E, 5.0))[2]
+        @test :K_I_ES_to_E_S in fp                    # NOT collapsed
+        v1 = evalrate(am; split=(:K_I_ES_to_E_S, 1.3))[2]
+        v2 = evalrate(am; split=(:K_I_ES_to_E_S, 5.0))[2]
         @test !isapprox(v1, v2)                       # identifiable (moves the rate)
         s = replace(ER.rate_equation_string(am), " " => "")
-        @test !occursin("K_I_S_E=K_A_S_E", s)         # no collapse mirror
+        @test !occursin("K_I_ES_to_E_S=K_A_ES_to_E_S", s)  # no collapse mirror
     end
 end
 end # module

@@ -265,7 +265,7 @@ end
 Rename symbols in a polynomial. `rename_map` is a `Dict{Symbol, Symbol}`;
 absent keys are left unchanged. Used by the allosteric derivation to rename
 A-state symbols to their I-state counterparts when building the inactive-
-state polynomial (e.g., `:K_A_ATP_E → :K_I_ATP_E`).
+state polynomial (e.g., `:K_A_EATP_to_E_ATP → :K_I_EATP_to_E_ATP`).
 """
 function _rename_symbols(p::POLY, rename_map::AbstractDict{Symbol, Symbol})
     isempty(rename_map) && return p

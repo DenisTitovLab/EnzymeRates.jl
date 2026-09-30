@@ -1,10 +1,10 @@
 # ABOUTME: Three Haldane-valid :OnlyA-catalysis LDH mechanisms guarding sound
-# ABOUTME: derivation of the dependent-parameter partition (koff EqualAI-shared,
-# ABOUTME: K_I NonequalAI, kon_I SS-speed — the shapes that once UndefVar'd).
+# ABOUTME: derivation of the dependent-parameter partition (EqualAI-shared release
+# ABOUTME: rate, NonequalAI K_I, SS binding rate k_I — the shapes that once UndefVar'd).
 
 const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
     typeof(m) for m in (
-        # koff_Pyruvate_ENAD family (EqualAI-shared dependent-param partition)
+        # k_ENADPyruvate_to_ENAD_Pyruvate family (EqualAI-shared dependent-param partition)
         @allosteric_mechanism(begin
             substrates: NADH, Pyruvate
             products: Lactate, NAD
@@ -22,7 +22,7 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
                 E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA
             end
         end),
-        # K_NAD_ELactate family (NonequalAI dependent-param partition)
+        # K_ELactateNAD_to_ELactate_NAD family (NonequalAI dependent-param partition)
         @allosteric_mechanism(begin
             substrates: NADH, Pyruvate
             products: Lactate, NAD
@@ -43,7 +43,7 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
                 E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate) :: NonequalAI
             end
         end),
-        # kon_I_NAD_E family (SS-speed dependent-param partition)
+        # k_I_E_NAD_to_ENAD family (SS-speed dependent-param partition)
         @allosteric_mechanism(begin
             substrates: NADH, Pyruvate
             products: Lactate, NAD

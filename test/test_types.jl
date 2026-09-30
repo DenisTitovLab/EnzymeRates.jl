@@ -429,8 +429,8 @@
 
         # Group mixing RE and SS → error. Same metabolite, one RE binding
         # step and one SS binding step share a kinetic group. The constructor
-        # rejects this via _assert_uniform_groups before _assert_no_re_ss_duplicate
-        # runs.
+        # rejects this via _assert_uniform_groups; _assert_one_group_per_reaction
+        # allows a reaction repeated within one group.
         rxn_uni = @enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
@@ -1514,7 +1514,7 @@
               EnzymeRates.name(EnzymeRates.Kd(rep_bind, :None), am)
         @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :I), aem) ==
               EnzymeRates.name(EnzymeRates.Kd(rep_bind, :I), am)
-        @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :I), aem) === :K_I_S_E
+        @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :I), aem) === :K_I_ES_to_E_S
 
         rep_iso  = only(EnzymeRates.rep_step(am, g)
             for g in EnzymeRates.kinetic_groups(am)
@@ -1622,23 +1622,23 @@
 
         m = EnzymeRates.Mechanism(r, [[step1], [step2], [step3]])
 
-        # Structural naming: binding params encode metabolite + pre-binding form;
-        # iso params encode directed species pair.
-        @test EnzymeRates.name(EnzymeRates.Kd(step1, :None), m) === :K_S_E
-        @test EnzymeRates.name(EnzymeRates.Kd(step1, :I),    m) === :K_I_S_E
+        # Structural naming: every step constant encodes its reaction's two sides;
+        # a binding K reads in the release direction, iso params in the stored one.
+        @test EnzymeRates.name(EnzymeRates.Kd(step1, :None), m) === :K_ES_to_E_S
+        @test EnzymeRates.name(EnzymeRates.Kd(step1, :I),    m) === :K_I_ES_to_E_S
         @test EnzymeRates.name(EnzymeRates.Kon(step2, :None), m) === :k_ES_to_EP
         @test EnzymeRates.name(EnzymeRates.Koff(step2, :None), m) === :k_EP_to_ES
         @test EnzymeRates.name(EnzymeRates.Kfor(step2, :None), m) === :k_ES_to_EP
         @test EnzymeRates.name(EnzymeRates.Krev(step2, :None), m) === :k_EP_to_ES
-        @test EnzymeRates.name(EnzymeRates.Kd(step3, :None), m) === :K_P_E
+        @test EnzymeRates.name(EnzymeRates.Kd(step3, :None), m) === :K_EP_to_E_P
 
         # I-state token on SS step
         @test EnzymeRates.name(EnzymeRates.Kon(step2, :I),  m) === :k_I_ES_to_EP
         @test EnzymeRates.name(EnzymeRates.Koff(step2, :I), m) === :k_I_EP_to_ES
 
-        # Kiso uses Kiso_ prefix (RE iso)
-        @test EnzymeRates.name(EnzymeRates.Kiso(step2, :None), m) === :Kiso_ES_to_EP
-        @test EnzymeRates.name(EnzymeRates.Kiso(step2, :I),    m) === :Kiso_I_ES_to_EP
+        # Kiso: the RE iso's equilibrium constant, named in the stored direction
+        @test EnzymeRates.name(EnzymeRates.Kiso(step2, :None), m) === :K_ES_to_EP
+        @test EnzymeRates.name(EnzymeRates.Kiso(step2, :I),    m) === :K_I_ES_to_EP
 
         # Mechanism-level scalars
         @test EnzymeRates.name(EnzymeRates.Keq(),   m) === :Keq
@@ -1647,7 +1647,7 @@
 
         # Same names resolve via EnzymeMechanism(m) (the parametric form).
         em = EnzymeMechanism(m)
-        @test EnzymeRates.name(EnzymeRates.Kd(step1, :None), em) === :K_S_E
+        @test EnzymeRates.name(EnzymeRates.Kd(step1, :None), em) === :K_ES_to_E_S
         @test EnzymeRates.name(EnzymeRates.Kon(step2, :None), em) === :k_ES_to_EP
         @test EnzymeRates.name(EnzymeRates.Keq(),   em) === :Keq
         @test EnzymeRates.name(EnzymeRates.Etot(),  em) === :E_total
@@ -1684,12 +1684,12 @@
         m = EnzymeRates.Mechanism(r, [[step_a, step_b], [step_c], [step_d]])
 
         # Group 1: both steps bind S; rep = step_a. Both yield the same name.
-        @test EnzymeRates.name(EnzymeRates.Kd(step_a, :None), m) === :K_S_E
-        @test EnzymeRates.name(EnzymeRates.Kd(step_b, :None), m) === :K_S_E
+        @test EnzymeRates.name(EnzymeRates.Kd(step_a, :None), m) === :K_ES_to_E_S
+        @test EnzymeRates.name(EnzymeRates.Kd(step_b, :None), m) === :K_ES_to_E_S
         # Group 2: SS iso ES → EP.
         @test EnzymeRates.name(EnzymeRates.Kon(step_c, :None), m) === :k_ES_to_EP
         # Group 3: RE binding P from E.
-        @test EnzymeRates.name(EnzymeRates.Kd(step_d, :None), m) === :K_P_E
+        @test EnzymeRates.name(EnzymeRates.Kd(step_d, :None), m) === :K_EP_to_E_P
     end
 
     @testset "name(p::Kreg, m) chokepoint" begin
@@ -1727,12 +1727,12 @@
 
         # Step-bound parameters also resolve via AllostericMechanism.
         rep = first(cat_steps[1])
-        @test EnzymeRates.name(EnzymeRates.Kd(rep, :None), am) === :K_S_E
-        @test EnzymeRates.name(EnzymeRates.Kd(rep, :I),    am) === :K_I_S_E
+        @test EnzymeRates.name(EnzymeRates.Kd(rep, :None), am) === :K_ES_to_E_S
+        @test EnzymeRates.name(EnzymeRates.Kd(rep, :I),    am) === :K_I_ES_to_E_S
 
         # Iso step in second kinetic group
         iso_step = first(cat_steps[2])
-        @test EnzymeRates.name(EnzymeRates.Kiso(iso_step, :None), am) === :Kiso_ES_to_EP
+        @test EnzymeRates.name(EnzymeRates.Kiso(iso_step, :None), am) === :K_ES_to_EP
         @test EnzymeRates.name(EnzymeRates.Kon(iso_step, :None),  am) === :k_ES_to_EP
 
         # Scalars also dispatch on AllostericMechanism
@@ -1761,7 +1761,7 @@
 
     @testset "synth-dep I-state names consistent with chokepoint (NonequalAI)" begin
         # PK-like mechanism: NonequalAI PEP binding, EqualAI catalysis.
-        # k5r is a Haldane dep whose RHS references K_PEP_E (NonequalAI),
+        # k5r is a Haldane dep whose RHS references K_EPEP_to_E_PEP (NonequalAI),
         # so a synthesized I-state dep is produced. The synth-dep name must
         # be what name(_flip_to_inactive(_param_for_symbol(am, active)), am)
         # returns, not string(active) * "_T".
@@ -1843,7 +1843,7 @@
             nothing
         catch e; e end
         @test err isa ErrorException
-        @test occursin("both rapid-equilibrium and steady-state", err.msg)
+        @test occursin("both hold the reaction E_S ⇌ ES", err.msg)
     end
 end
 
@@ -2055,7 +2055,7 @@ end
     end
 end
 
-@testset "transformation steps are named by form pair" begin
+@testset "transformation steps are named by their sides" begin
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2067,9 +2067,148 @@ end
         end
     end
     names = Set(ER.parameters(m, ER.Full))
-    @test :k_EAB_to_EQ in names && :k_EQ_to_EAB in names
-    @test !(:kon_P_EAB in names) && !(:koff_P_EAB in names)
-    @test :kon_A_E in names && :koff_Q_E in names
+    @test :k_EAB_to_EQ_P in names && :k_EQ_P_to_EAB in names
+    # The fused release E(A, B) → E(Q) + P is a transformation, not a binding of P.
+    mech = ER.Mechanism(m)
+    i = only(i for (i, (s, _)) in enumerate(ER._flat_steps(mech))
+             if !ER.is_binding(s) && !ER.is_iso(s))
+    kf, kr = ER._step_parameters(mech)[i]
+    @test kf isa ER.Kfor && kr isa ER.Krev
+    @test :k_E_A_to_EA in names && :k_EQ_to_E_Q in names
+end
+
+@testset "step constants are named by their reaction" begin
+    full_names(m) = Set(ER.parameters(m, ER.Full))
+    # Michaelis–Menten, RE bindings: a binding K is named in the release
+    # direction (a dissociation constant); the SS isomerization has k both ways.
+    mm_re = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    @test issubset([:K_ES_to_E_S, :K_EP_to_E_P, :k_ES_to_EP, :k_EP_to_ES],
+                   full_names(mm_re))
+    # SS bindings: one rate constant per direction of the binding.
+    mm_ss = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) <--> E + P
+        end
+    end
+    @test issubset([:k_E_S_to_ES, :k_ES_to_E_S, :k_E_P_to_EP, :k_EP_to_E_P],
+                   full_names(mm_ss))
+    # Theorell–Chance: each side carries its free metabolite.
+    tc = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B <--> E(Q) + P
+            E(Q) <--> E + Q
+        end
+    end
+    @test issubset([:k_EA_B_to_EQ_P, :k_EQ_P_to_EA_B], full_names(tc))
+    # An RE isomerization has one equilibrium constant, in its canonical direction.
+    re_iso = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) ⇌ E(P)
+            E(P) <--> E + P
+        end
+    end
+    @test :K_ES_to_EP in full_names(re_iso)
+    # An RE fused release is named in its canonical direction, not as a binding.
+    re_fused = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) ⇌ E(Q) + P
+            E(Q) <--> E + Q
+        end
+    end
+    @test :K_EAB_to_EQ_P in full_names(re_fused)
+    # A competitive-inhibitor copy of A and A itself bind E without colliding.
+    inh = @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P)
+            E(P) ⇌ E + P
+            E + A::Inh ⇌ E(A::Inh)
+        end
+    end
+    @test issubset([:K_EAinh_to_E_Ainh, :K_EA_to_E_A], full_names(inh))
+    # The allosteric state tag follows the prefix: a :NonequalAI binding has an
+    # A-state and an I-state constant, an :EqualAI binding one shared constant.
+    allo = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)     :: NonequalAI
+            E(S) <--> E(P)   :: EqualAI
+            E(P) ⇌ E + P     :: EqualAI
+        end
+    end
+    allo_names = full_names(allo)
+    @test issubset([:K_A_ES_to_E_S, :K_I_ES_to_E_S], allo_names)
+    @test !(:K_ES_to_E_S in allo_names)
+    @test :K_EP_to_E_P in ER.parameters(allo) && !(:K_A_EP_to_E_P in allo_names)
+    # A ping-pong residual form: B binds E(; residual = A - P), whose name is
+    # E_res_+A_-P, so the release-direction K reads EB_res_+A_-P → E_res_+A_-P + B.
+    pingpong = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            E + Q ⇌ E(Q)
+        end
+    end
+    pp_names = full_names(pingpong)
+    @test Symbol("K_EB_res_+A_-P_to_E_res_+A_-P_B") in pp_names
+    @test length(pp_names) == length(ER.parameters(pingpong, ER.Full))
+    # Writing a binding as its release, or any step backwards, changes no name.
+    mm_ss_backward = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E(S) <--> E + S
+            E(P) <--> E(S)
+            E + P <--> E(P)
+        end
+    end
+    @test full_names(mm_ss_backward) == full_names(mm_ss)
+    tc_backward = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E(A) <--> E + A
+            E(Q) + P <--> E(A) + B
+            E + Q <--> E(Q)
+        end
+    end
+    @test full_names(tc_backward) == full_names(tc)
+    # No mechanism in the spec table carries a kon, koff or Kiso prefix.
+    for spec in MECHANISM_TEST_SPECS
+        names = String.(collect(ER.parameters(spec.mechanism, ER.Full)))
+        @test !any(n -> occursin(r"^(kon|koff|Kiso)_", n), names)
+    end
 end
 
 @testset "Tier 2 reads the free metabolites at both ends of a step" begin
@@ -2112,11 +2251,22 @@ end
         substrates: A[C]
         products: P[C]
     end)
-    # A binds E into two different forms from two groups: both would be kon_A_E.
+    # A binds E into two different forms from two groups: two reactions, whose
+    # names differ in the bound form (k_E_A_to_EA, k_E_A_to_EstarA).
+    m = ER.Mechanism(rxn, [
+        [ER.Step(E, EA, [A], ER.Metabolite[], false)],
+        [ER.Step(E, EstarA, [A], ER.Metabolite[], false)],
+        [ER.Step(EA, EP, ER.Metabolite[], ER.Metabolite[], false)],
+        [ER.Step(E, EP, [P], ER.Metabolite[], false)]])
+    names = [ER.name(p, m) for p in ER._enumerate_parameters_full(m)]
+    @test allunique(names)
+    @test issubset([:k_E_A_to_EA, :k_E_A_to_EstarA], names)
+    # The same binding in two groups, once written as its release: both would be
+    # k_E_A_to_EA.
     err = try
         ER.Mechanism(rxn, [
             [ER.Step(E, EA, [A], ER.Metabolite[], false)],
-            [ER.Step(E, EstarA, [A], ER.Metabolite[], false)],
+            [ER.Step(EA, E, ER.Metabolite[], [A], false)],
             [ER.Step(EA, EP, ER.Metabolite[], ER.Metabolite[], false)],
             [ER.Step(E, EP, [P], ER.Metabolite[], false)]])
         nothing
@@ -2124,7 +2274,7 @@ end
         e
     end
     @test err isa ErrorException
-    @test occursin("same parameter names", err.msg)
+    @test occursin("both hold the reaction E_A ⇌ EA", err.msg)
     # The same isomerization in two groups: both would be k_EA_to_EP.
     err = try
         ER.Mechanism(rxn, [
@@ -2137,7 +2287,7 @@ end
         e
     end
     @test err isa ErrorException
-    @test occursin("same parameter names", err.msg)
+    @test occursin("both hold the reaction EA ⇌ EP", err.msg)
 end
 
 # Chokepoint guard: no `Symbol("[KkVL]...")` literal is constructed outside
@@ -2388,7 +2538,7 @@ end
     # constraint row carries BOTH signs on its :OnlyA eps-exponents, so the
     # per-row sign test sees no violation — but the coupled system has no
     # strictly-positive solution: rows 2, 4 and 5 combine to force the
-    # eps-exponent of K_B_EA to zero, i.e. K_I = K_A, contradicting its :OnlyA
+    # eps-exponent of K_EAB_to_EA_B to zero, i.e. K_I = K_A, contradicting its :OnlyA
     # tag. The inactive cube circulates flux around the E(A)->E(A,B)<-E(B)->
     # E(B,C)<-E(C)->E(A,C)<-E(A) hexagon at equilibrium — perpetual motion.
     @test_throws ErrorException @allosteric_mechanism begin

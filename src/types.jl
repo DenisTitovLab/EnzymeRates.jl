@@ -51,6 +51,12 @@ Base.hash(r::Residual, h::UInt) =
 # metabolite of the same name.
 _met_sort_key(m::Metabolite) = (name(m), m isa CompetitiveInhibitor)
 
+# A metabolite as written in enzyme-form and parameter names: its name, with an
+# `inh` marker on a competitive-inhibitor copy, so the copy's forms and constants
+# stay distinct from those of the same metabolite in its reactant role.
+_met_label(m::Metabolite) =
+    m isa CompetitiveInhibitor ? String(name(m)) * "inh" : String(name(m))
+
 # Species: an enzyme form. `bound` is sorted by `_met_sort_key`; the
 # rendered Symbol name reads `:E` / `:EATP` / `:Estar...` / `:EATPres_+P`.
 struct Species
@@ -84,8 +90,7 @@ Base.hash(s::Species, h::UInt) =
 function name(s::Species)
     head = String(conformation(s))
     for m in bound(s)
-        head *= m isa CompetitiveInhibitor ?
-                String(name(m)) * "inh" : String(name(m))
+        head *= _met_label(m)
     end
     parts = String[head]
     if has_residual(s)
@@ -171,8 +176,8 @@ struct Step
             "$(join(name.(shared), ", ")) both consumed and released")
         # A pure release is stored as the binding it reverses (metabolite on
         # `to`), so a binding written in either direction dedups to the same
-        # Step; binding-K names key on the metabolite and the free form, not
-        # on the written direction. See CLAUDE.md "Canonical Step Form".
+        # Step; binding constants are named after the step's two sides, not
+        # its written direction. See CLAUDE.md "Canonical Step Form".
         if isempty(c) && length(r) == 1 && _binds_ligand(to_species, from_species, only(r))
             from_species, to_species, c, r = to_species, from_species, r, c
         end
@@ -626,45 +631,26 @@ function _assert_uniform_groups(steps::Vector{Vector{Step}})
 end
 
 """
-Reject a mechanism that contains the same physical reaction as both a
-rapid-equilibrium and a steady-state step (e.g. `E + S <--> E(S)` AND
-`E + S ⇌ E(S)`): a single reaction cannot be both fast and slow.
+Error when one reaction appears in two kinetic groups. A step's constants are
+named after its two sides (`_forward_sides`), so two groups holding the same
+reaction — the same unordered pair of sides, in any direction and with either
+RE/SS flag — would share their names; rejecting that keeps every rendered name
+unique. With `_assert_uniform_groups`, it also rejects a reaction written both
+rapid-equilibrium and steady-state. Steps of one group may repeat a reaction.
 """
-function _assert_no_re_ss_duplicate(steps::Vector{Vector{Step}})
-    seen = Dict{Tuple{Species, Species, Vector{Metabolite}, Vector{Metabolite}}, Bool}()
-    for group in steps, s in group
-        k = (from_species(s), to_species(s), consumed(s), released(s))
-        if haskey(seen, k) && seen[k] != is_equilibrium(s)
-            error("Mechanism: reaction $(name(from_species(s))) → " *
-                  "$(name(to_species(s))) appears as both rapid-equilibrium " *
-                  "and steady-state; a reaction cannot be both.")
-        end
-        seen[k] = is_equilibrium(s)
-    end
-end
-
-"""
-Error when two kinetic groups would render the same parameter name. A pure
-binding's constants are named by (metabolite, free form), every other step's by
-its two forms, so two groups collide when they bind the same metabolite to the
-same form or join the same two forms.
-"""
-function _assert_unique_parameter_names(steps::Vector{Vector{Step}})
-    seen = Dict{Tuple, Tuple{Int, Step}}()
+function _assert_one_group_per_reaction(steps::Vector{Vector{Step}})
+    seen = Dict{Tuple{String, String}, Tuple{Int, Step}}()
     for (g, group) in enumerate(steps), s in group
-        m = bound_metabolite(s)
-        key = m === nothing ?
-            (:pair, minmax(String(name(from_species(s))),
-                           String(name(to_species(s))))...) :
-            (:binding, name(m), m isa CompetitiveInhibitor, name(from_species(s)))
-        if haskey(seen, key) && first(seen[key]) != g
-            other = last(seen[key])
-            error("Mechanism: steps $(name(from_species(other))) → " *
-                  "$(name(to_species(other))) and $(name(from_species(s))) → " *
-                  "$(name(to_species(s))) are in different kinetic groups but " *
-                  "would get the same parameter names")
+        sides = minmax(_forward_sides(s)...)
+        if haskey(seen, sides) && first(seen[sides]) != g
+            g0, s0 = seen[sides]
+            error("Mechanism: kinetic groups $g0 and $g both hold the reaction " *
+                  "$(join(_forward_sides(s0), " ⇌ ")) (steps " *
+                  "$(join(_forward_sides(s0), " → ")) and " *
+                  "$(join(_forward_sides(s), " → "))); a reaction belongs to one " *
+                  "kinetic group, whose constants are named after it")
         end
-        seen[key] = (g, s)
+        seen[sides] = (g, s)
     end
 end
 
@@ -785,8 +771,7 @@ struct Mechanism
         steps = _canonicalize_step_directions(reaction, steps)
         permute!(steps, _canonical_group_order!(steps))
         _assert_uniform_groups(steps)
-        _assert_no_re_ss_duplicate(steps)
-        _assert_unique_parameter_names(steps)
+        _assert_one_group_per_reaction(steps)
         _assert_re_segments_have_bottom(steps)
         new(reaction, steps)
     end
@@ -860,8 +845,7 @@ struct AllostericMechanism
         perm = _canonical_group_order!(cat_steps)
         permute!(cat_steps, perm)
         _assert_uniform_groups(cat_steps)
-        _assert_no_re_ss_duplicate(cat_steps)
-        _assert_unique_parameter_names(cat_steps)
+        _assert_one_group_per_reaction(cat_steps)
         _assert_re_segments_have_bottom(cat_steps)
         cat_allo_states = permute!(copy(cat_allo_states), perm)
         regulatory_sites =
@@ -1697,8 +1681,8 @@ end
 # ─── name(p::Parameter, m) chokepoint ─────────────────────────────────
 #
 # Single chokepoint for parameter Symbol production. Renders structural
-# names (:K_S_E, :k_ES_to_EP, :K_I_S_E, :K_Ireg) via Parameter subtype
-# dispatch. Routing all parameter-name production through one function
+# names (:K_ES_to_E_S, :k_ES_to_EP, :K_I_ES_to_E_S, :K_Ireg) via Parameter
+# subtype dispatch. Routing all parameter-name production through one function
 # keeps any name-scheme change a single-function edit.
 
 # State token — placed right after the type prefix:
@@ -1715,22 +1699,28 @@ function _state_tag(state::Symbol)
           "(must be one of :None, :EqualAI, :A, :I)")
 end
 
-# Render a binding param from its rep step: metabolite + pre-binding form.
-# A CompetitiveInhibitor-role bound metabolite gains an `inh` marker (mirrors
-# `name(Species)`) so an inhibitor-role group is distinct from the same
-# metabolite's product-role group.
-function _render_binding(prefix::String, rep::Step, state::Symbol)
-    met = bound_metabolite(rep)
-    met_name = met isa CompetitiveInhibitor ?
-               String(name(met)) * "inh" : String(name(met))
-    Symbol(prefix, _state_tag(state), met_name, "_",
-           String(name(from_species(rep))))
-end
+"""
+A step side as written in parameter names: its enzyme form followed by its free
+metabolites, joined by `_` (a competitive-inhibitor copy carries `inh`, as in
+`name(::Species)`), e.g. `"EA_B"` for `E(A) + B`.
+"""
+_side_label(form::Species, mets::Vector{Metabolite}) =
+    join([String(name(form)); _met_label.(mets)], "_")
 
-# Render an iso param by directed species pair.
-_render_iso(prefix::String, from::Species, to::Species, state::Symbol) =
-    Symbol(prefix, _state_tag(state),
-           String(name(from)), "_to_", String(name(to)))
+"""
+The two sides of `s` in its stored direction: `from_species` with the consumed
+metabolites, then `to_species` with the released ones. Every step constant is
+named after them.
+"""
+_forward_sides(s::Step) = (_side_label(from_species(s), consumed(s)),
+                           _side_label(to_species(s), released(s)))
+
+"""
+The constant of the reaction `a → b`: `prefix`, the state tag, then
+`"<a>_to_<b>"` (e.g. `:k_ES_to_EP`, `:K_A_ES_to_E_S`).
+"""
+_render_reaction(prefix::String, (a, b)::Tuple{String, String}, state::Symbol) =
+    Symbol(prefix, _state_tag(state), a, "_to_", b)
 
 # Find the kinetic group containing `step`; return its naming rep.
 function _rep_step(step::Step, m::Union{Mechanism, AllostericMechanism})
@@ -1748,30 +1738,19 @@ _rep_step(step::Step, m::AllostericEnzymeMechanism) =
 const _AnyMech =
     Union{Mechanism, EnzymeMechanism, AllostericMechanism, AllostericEnzymeMechanism}
 
+# Every step constant is named after the reaction of its group's representative:
+# a rate constant (`k_`) after the direction it drives, an equilibrium constant
+# (`K_`) after the direction whose products-over-reactants it is. A binding's K is
+# named in the release direction, so it is a dissociation constant (`K_ES_to_E_S`);
+# an isomerization's or other RE step's K in the stored direction (`K_ES_to_EP`).
+name(p::Union{Kon, Kfor}, m::_AnyMech) =
+    _render_reaction("k_", _forward_sides(_rep_step(p.step, m)), p.state)
+name(p::Union{Koff, Krev}, m::_AnyMech) =
+    _render_reaction("k_", reverse(_forward_sides(_rep_step(p.step, m))), p.state)
+name(p::Kiso, m::_AnyMech) =
+    _render_reaction("K_", _forward_sides(_rep_step(p.step, m)), p.state)
 name(p::Kd, m::_AnyMech) =
-    _render_binding("K_", _rep_step(p.step, m), p.state)
-function name(p::Kon, m::_AnyMech)
-    rep = _rep_step(p.step, m)
-    is_binding(rep) ? _render_binding("kon_", rep, p.state) :
-                      _render_iso("k_", from_species(rep), to_species(rep), p.state)
-end
-function name(p::Koff, m::_AnyMech)
-    rep = _rep_step(p.step, m)
-    is_binding(rep) ? _render_binding("koff_", rep, p.state) :
-                      _render_iso("k_", to_species(rep), from_species(rep), p.state)
-end
-function name(p::Kiso, m::_AnyMech)
-    rep = _rep_step(p.step, m)
-    _render_iso("Kiso_", from_species(rep), to_species(rep), p.state)
-end
-function name(p::Kfor, m::_AnyMech)
-    rep = _rep_step(p.step, m)
-    _render_iso("k_", from_species(rep), to_species(rep), p.state)
-end
-function name(p::Krev, m::_AnyMech)
-    rep = _rep_step(p.step, m)
-    _render_iso("k_", to_species(rep), from_species(rep), p.state)
-end
+    _render_reaction("K_", reverse(_forward_sides(_rep_step(p.step, m))), p.state)
 
 # Regulator-site parameter: state tag + ligand name + "reg". No site index —
 # the AllostericMechanism constructor enforces that each ligand appears at most
