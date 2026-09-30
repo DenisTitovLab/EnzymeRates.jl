@@ -1424,7 +1424,10 @@ end
     # would leave {E(P), E(Q), E(P, Q)} with no bottom form — a mechanism the
     # constructor rejects — so that pair counts as failed and is not emitted.
     # Its supersets are reached by one more flip from the other pairs' children.
-    # Children: the S flip plus the five other pairs.
+    # The two pairs at E(P) and at E(Q) isolate one form joined to the rest by two
+    # edges of weight 0 (balanced block): neither flipped group carries flux, so
+    # they fail the same way and keep their parent's rank. Children: the S flip
+    # plus the three other pairs.
     parent = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P, Q
@@ -1448,30 +1451,6 @@ end
                 E + Q ⇌ E(Q)
                 E(P) + Q ⇌ E(P, Q)
                 E(Q) + P ⇌ E(P, Q)
-                E(S) <--> E(P, Q)
-            end
-        end),
-        (@enzyme_mechanism begin      # the two edges at E(P)
-            substrates: S
-            products: P, Q
-            steps: begin
-                E + S ⇌ E(S)
-                E + P <--> E(P)
-                E + Q ⇌ E(Q)
-                E(P) + Q <--> E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
-                E(S) <--> E(P, Q)
-            end
-        end),
-        (@enzyme_mechanism begin      # the two edges at E(Q)
-            substrates: S
-            products: P, Q
-            steps: begin
-                E + S ⇌ E(S)
-                E + P ⇌ E(P)
-                E + Q <--> E(Q)
-                E(P) + Q ⇌ E(P, Q)
-                E(Q) + P <--> E(P, Q)
                 E(S) <--> E(P, Q)
             end
         end),
@@ -1512,7 +1491,7 @@ end
             end
         end)
     ])
-    @test length(children) == 6
+    @test length(children) == 4
     @test Set(children) == Set(expected)
 end
 
@@ -6739,12 +6718,18 @@ end
     @testset "_expand_re_to_ss: split ter-ter pairs the A and B parts" begin
         # Ter-ter after one context split: A is split by whether B is bound and B
         # by whether A is bound. Each of the four parts alone leaves E and E(A)
-        # joined through its sibling, so nothing flips one part by itself; five
-        # of the six pairs that cut a segment are emitted, and C, P, Q, R still
-        # flip alone. The sixth pair, {A1, B1}, cuts both binding edges at E and
-        # E(C) and leaves {E(A), E(B), E(A, B), E(A, C), E(B, C), E(A, B, C)} as a
-        # segment with no substrate-free form, which the constructor rejects;
-        # its supersets are reached from the {A1, A2} and {B1, B2} children.
+        # joined through its sibling, so nothing flips one part by itself; C, P, Q
+        # and R still flip alone. Of the six pairs, {A1, B1} cuts both binding edges
+        # at E and E(C) and leaves {E(A), E(B), E(A, B), E(A, C), E(B, C), E(A, B, C)}
+        # as a segment with no substrate-free form, which the constructor rejects.
+        # {A1, B2} isolates {E(A), E(A, C)}: its four edges to the rest all have
+        # weight 1 inward (A uptake) and −1 outward (B uptake against the +2 offset
+        # of E(A, B)), so every cycle through them is balanced and the pair carries
+        # no flux; the turnover runs through E(B) inside the big segment. {A2, B1}
+        # isolates {E(B), E(B, C)} the same way. Both count as failed and have no
+        # extension, since every three-set containing them holds a gaining pair.
+        # The other three pairs cut a block that also holds the chemistry edge
+        # (weight 6 against edges of weight 2) and are emitted.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B, C
             products: P, Q, R
@@ -6779,12 +6764,10 @@ end
             flip(R),        # {R}
             flip(A1, A2),   # {A1, A2}
             flip(B1, B2),   # {B1, B2}
-            flip(A1, B2),   # {A1, B2}
-            flip(A2, B1),   # {A2, B1}
             flip(A2, B2),   # {A2, B2}
         ]
         kids = EnzymeRates._expand_re_to_ss(m)
-        @test length(kids) == 9
+        @test length(kids) == 7
         @test Set(kids) == Set(expected)
         for c in kids
             ss = count((A1, A2, B1, B2)) do key
@@ -6793,6 +6776,13 @@ end
                 !any(EnzymeRates.is_equilibrium, grp)
             end
             @test ss != 1
+        end
+        # The two zero-flux pairs divide a segment yet keep the parent's rank.
+        r0 = _testhelper_identifiable_rank(m)
+        for absent in (flip(A1, B2), flip(A2, B1))
+            @test !(absent in kids)
+            @test EnzymeRates._re_segment_count(absent) > EnzymeRates._re_segment_count(m)
+            @test _testhelper_identifiable_rank(absent) == r0
         end
     end
 
@@ -6996,6 +6986,191 @@ end
         kids_one = EnzymeRates._expand_re_to_ss(allo_one)
         @test length(kids_one) == 3
         @test Set(kids_one) == Set([flipS_one, flipP_one, flipQ_one])
+    end
+
+    @testset "_expand_re_to_ss: a zero-flux pair is not emitted, its supersets stay reachable" begin
+        # Ordered bi-bi with the abortive complex E(A, Q), after both the A group and
+        # the Q group were split by context: six rapid-equilibrium binding groups,
+        # each holding one step. Singles: E(A) + B and E(Q) + P are bridges of the RE
+        # graph (E(A, B) and E(P, Q) are leaves there), so each flips alone; the four
+        # bindings on the square E–E(A)–E(A, Q)–E(Q) are not. Pairs of square edges
+        # all divide the segment. {E + A, E + Q} isolates {E}, joined to the rest by
+        # two parallel edges of weight 0 (A uptake +1 against E(A)'s offset +1; Q
+        # uptake −1 against E(Q)'s offset −1): a balanced block, so neither flipped
+        # group carries flux and the child would be its parent plus two phantoms.
+        # {E(A) + Q, E(Q) + A} isolates {E(A, Q)} the same way (weights −1 + 1 and
+        # 1 − 1). The other four pairs each cut a block that also holds the chemistry
+        # edge, whose weight 3 or 4 against a binding edge of weight 1 makes the block
+        # unbalanced. Each of the two zero-flux pairs has no extension: every
+        # three-set containing it also contains a gaining pair, so its supersets are
+        # reached by a later flip of those children.
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(Q) + A ⇌ E(A, Q)
+                E + Q ⇌ E(Q)
+                E(A) + Q ⇌ E(A, Q)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(Q) + P ⇌ E(P, Q)
+            end
+        end)
+        expected = [
+            EnzymeRates.Mechanism(@enzyme_mechanism begin      # {E(A) + B}
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E(Q) + A ⇌ E(A, Q)
+                    E + Q ⇌ E(Q)
+                    E(A) + Q ⇌ E(A, Q)
+                    E(A) + B <--> E(A, B)
+                    E(A, B) <--> E(P, Q)
+                    E(Q) + P ⇌ E(P, Q)
+                end
+            end),
+            EnzymeRates.Mechanism(@enzyme_mechanism begin      # {E(Q) + P}
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E(Q) + A ⇌ E(A, Q)
+                    E + Q ⇌ E(Q)
+                    E(A) + Q ⇌ E(A, Q)
+                    E(A) + B ⇌ E(A, B)
+                    E(A, B) <--> E(P, Q)
+                    E(Q) + P <--> E(P, Q)
+                end
+            end),
+            EnzymeRates.Mechanism(@enzyme_mechanism begin      # {E + A, E(A) + Q}
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A <--> E(A)
+                    E(Q) + A ⇌ E(A, Q)
+                    E + Q ⇌ E(Q)
+                    E(A) + Q <--> E(A, Q)
+                    E(A) + B ⇌ E(A, B)
+                    E(A, B) <--> E(P, Q)
+                    E(Q) + P ⇌ E(P, Q)
+                end
+            end),
+            EnzymeRates.Mechanism(@enzyme_mechanism begin      # {E + A, E(Q) + A}
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A <--> E(A)
+                    E(Q) + A <--> E(A, Q)
+                    E + Q ⇌ E(Q)
+                    E(A) + Q ⇌ E(A, Q)
+                    E(A) + B ⇌ E(A, B)
+                    E(A, B) <--> E(P, Q)
+                    E(Q) + P ⇌ E(P, Q)
+                end
+            end),
+            EnzymeRates.Mechanism(@enzyme_mechanism begin      # {E + Q, E(A) + Q}
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E(Q) + A ⇌ E(A, Q)
+                    E + Q <--> E(Q)
+                    E(A) + Q <--> E(A, Q)
+                    E(A) + B ⇌ E(A, B)
+                    E(A, B) <--> E(P, Q)
+                    E(Q) + P ⇌ E(P, Q)
+                end
+            end),
+            EnzymeRates.Mechanism(@enzyme_mechanism begin      # {E + Q, E(Q) + A}
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E(Q) + A <--> E(A, Q)
+                    E + Q <--> E(Q)
+                    E(A) + Q ⇌ E(A, Q)
+                    E(A) + B ⇌ E(A, B)
+                    E(A, B) <--> E(P, Q)
+                    E(Q) + P ⇌ E(P, Q)
+                end
+            end),
+        ]
+        kids = EnzymeRates._expand_re_to_ss(m)
+        @test length(kids) == 6
+        @test Set(kids) == Set(expected)
+        # The two zero-flux pairs are absent, and each has exactly its parent's rank.
+        r0 = _testhelper_identifiable_rank(m)
+        for absent in (
+            EnzymeRates.Mechanism(@enzyme_mechanism begin  # {E + A, E + Q}
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A <--> E(A)
+                    E(Q) + A ⇌ E(A, Q)
+                    E + Q <--> E(Q)
+                    E(A) + Q ⇌ E(A, Q)
+                    E(A) + B ⇌ E(A, B)
+                    E(A, B) <--> E(P, Q)
+                    E(Q) + P ⇌ E(P, Q)
+                end
+            end),
+            EnzymeRates.Mechanism(@enzyme_mechanism begin  # {E(A) + Q, E(Q) + A}
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E(Q) + A <--> E(A, Q)
+                    E + Q ⇌ E(Q)
+                    E(A) + Q <--> E(A, Q)
+                    E(A) + B ⇌ E(A, B)
+                    E(A, B) <--> E(P, Q)
+                    E(Q) + P ⇌ E(P, Q)
+                end
+            end))
+            @test !(absent in kids)
+            @test EnzymeRates._re_segment_count(absent) > EnzymeRates._re_segment_count(m)
+            @test _testhelper_identifiable_rank(absent) == r0
+        end
+    end
+
+    @testset "_expand_re_to_ss: a Theorell–Chance parent flips each binding" begin
+        # No isomerization step: the former screen found no unit here. Every step
+        # lies on the unbalanced cycle E → E(A) → E(Q) → E (weights 1, 2, 1), so both
+        # rapid-equilibrium bindings are units; each divides the one segment alone.
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) + B <--> E(Q) + P
+                E + Q ⇌ E(Q)
+            end
+        end)
+        expected = [
+            EnzymeRates.Mechanism(@enzyme_mechanism begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A <--> E(A)
+                    E(A) + B <--> E(Q) + P
+                    E + Q ⇌ E(Q)
+                end
+            end),
+            EnzymeRates.Mechanism(@enzyme_mechanism begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E(A) + B <--> E(Q) + P
+                    E + Q <--> E(Q)
+                end
+            end),
+        ]
+        kids = EnzymeRates._expand_re_to_ss(m)
+        @test length(kids) == 2
+        @test Set(kids) == Set(expected)
     end
 end
 

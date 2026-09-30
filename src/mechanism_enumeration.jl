@@ -1244,10 +1244,14 @@ mirror. A flip that leaves the segment count unchanged adds an SS step whose
 endpoints share a segment, which the rate equation never sees. A flip set
 that leaves a rapid-equilibrium segment with no bottom form
 (`_bottomless_re_segment`, which the constructor rejects) also counts as
-failed, so the minimal-set search extends it instead of emitting it; the
-non-degenerate mechanisms beyond it stay reachable — through the other cut
-orders of the same ring, or through the extended set when no other order
-gains. All other groups, the reaction, and (for allosteric) the
+failed, so the minimal-set search extends it instead of emitting it; so does
+a set one of whose flipped groups carries no flux in the child
+(`_flux_carrying_groups` on the flipped groups): that group's constants enter
+the rate only as their ratio, the child is its parent plus one phantom per such
+group, and its flux-carrying supersets are the smallest identifiable
+relaxations. The non-degenerate mechanisms beyond these stay reachable —
+through the other cut orders of the same ring, or through the extended set when
+no other order gains. All other groups, the reaction, and (for allosteric) the
 catalytic-allo tags, multiplicity, and regulatory sites are preserved
 verbatim.
 
@@ -1272,9 +1276,13 @@ function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
         groups
     end
     base = _re_segment_count(m)
-    gains(sel) =
-        _re_segment_count_after_flip(m, Set(units[u] for u in sel)) > base &&
-        _bottomless_re_segment(flipped_groups(sel)) === nothing
+    gains(sel) = begin
+        _re_segment_count_after_flip(m, Set(units[u] for u in sel)) > base || return false
+        groups = flipped_groups(sel)
+        _bottomless_re_segment(groups) === nothing || return false
+        flux = _flux_carrying_groups(groups, reaction(m))
+        all(u -> flux[units[u]], sel)
+    end
     sets = _minimal_gaining_sets(gains, _ -> 1:length(units))
     children = typeof(m)[_with_steps(m, flipped_groups(sel)) for sel in sets]
     _requires_hyperbolic_catalysis(m) ? filter(_hyperbolic_catalysis, children) : children
