@@ -88,6 +88,36 @@ function _connectivity_violations(steps)
     viol
 end
 
+"Finite-difference rank of ∂v/∂log θ over the fitted parameters (test oracle only)."
+function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
+    em = EnzymeRates.compile_mechanism(m)
+    fp = collect(EnzymeRates.fitted_params(em))
+    cm = m isa EnzymeRates.Mechanism ? m : EnzymeRates._state_mechanism(m, :A)
+    mets = sort!(collect(EnzymeRates._concentration_symbols(cm)))
+    # Seeded from the rendered equation: a struct hash mixes in objectid and
+    # would not reproduce a failure in a later session.
+    rng = MersenneTwister(hash(rate_equation_string(em)) % 2^31)
+    best = 0
+    for _ in 1:ndraws
+        θ = exp.(randn(rng, length(fp)))
+        keq = exp(randn(rng))
+        concs = [NamedTuple{Tuple(mets)}(Tuple(exp.(2 .* randn(rng, length(mets)))))
+                 for _ in 1:npts]
+        J = zeros(npts, length(fp))
+        for j in eachindex(fp), sgn in (1, -1)
+            θp = copy(θ); θp[j] *= exp(sgn * h)
+            p = NamedTuple{(fp..., :Keq, :E_total)}((θp..., keq, 1.0))
+            for (i, c) in enumerate(concs)
+                J[i, j] += sgn * rate_equation(em, c, p) / (2h)
+            end
+        end
+        all(isfinite, J) || continue
+        sv = svdvals(J)
+        best = max(best, count(>(1e-7 * sv[1]), sv))
+    end
+    best
+end
+
 # A kinetic group is catalytic iff its representative step binds no
 # metabolite (an isomerization/conversion step); otherwise it is a binding
 # group. Mirrors the rule `_expand_to_allosteric` uses to decide whether a
@@ -1846,113 +1876,171 @@ end
     end
 end
 
-@testset "Mechanism — Substrate-as-dead-end-inhibitor overlap" begin
-    # SEED: uni-uni where S is BOTH substrate AND dead-end inhibitor.
-    # Build via init + dead-end expansion to get the S/__reg overlap.
-    # _expand_re_to_ss keeps inhibitor bindings RE-only, so the
-    # dead-end-inhibitor-S kinetic group never flips, even though the
-    # substrate-S and inhibitor-S groups are otherwise independent.
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        dead_end_inhibitors: S
-    end
-    init_ms = EnzymeRates.init_mechanisms(rxn)
-    @test length(init_ms) == 1   # uni-uni: 1 catalytic topology
-    seed = first(init_ms)
-    de_ms = EnzymeRates._expand_add_dead_end_regulator(seed, rxn)
-    @test !isempty(de_ms)
-    m = first(de_ms)
-    EnzymeRates._assert_mechanism_invariants(m)
-
-    result = EnzymeRates._expand_re_to_ss(m)
-
-    # 1. count: after dead-end expansion, groups are substrate-binding (RE),
-    # product-binding (RE), iso (SS), dead-end-S__reg-binding (RE, but
-    # binds a Regulator so it is skipped). → 2 RE groups → 2 variants.
-    @test length(result) == 2
-    for r in result
-        @test r isa EnzymeRates.Mechanism
-        EnzymeRates._assert_mechanism_invariants(r)
-        @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
-    end
-
-    # 2. property-style: each variant flips exactly one initial RE
-    # group to all-SS, and the flipped group covers 2 distinct values
-    # (substrate-binding, product-binding) across the 2 variants; the
-    # dead-end-inhibitor-S group never appears among them.
-    flipped_groups = Int[]
-    for r in result
-        for (gi, (old_grp, new_grp)) in enumerate(zip(m.steps, r.steps))
-            if all(EnzymeRates.is_equilibrium, old_grp) &&
-               !any(EnzymeRates.is_equilibrium, new_grp)
-                push!(flipped_groups, gi)
-            end
+@testset "Mechanism — a substrate's inhibitor copy never flips; the catalytic groups do" begin
+    # Ordered bi-bi with A also bound as a competitive-inhibitor copy at E and
+    # E(Q), the Q binding mirrored onto the copy forms in the Q group, as the
+    # dead-end move builds it. The copy group binds a regulator and is never a
+    # unit. A, B, P and Q each divide the one segment alone (the Q flip takes its
+    # mirror with it and isolates {E(Q), E(P, Q), E(A::Inh, Q)}), and each flipped
+    # group shares a block with the chemistry edge, so all four carry flux.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))
+            (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
         end
-    end
-    @test length(unique(flipped_groups)) == 2
-
-    # 3. preservation: reaction unchanged.
-    for r in result
-        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+    end)
+    expected = [
+        EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(Q) + P ⇌ E(P, Q)
+                (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))
+                (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+            end
+        end),
+        EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(Q) + P ⇌ E(P, Q)
+                (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))
+                (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+            end
+        end),
+        EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(Q) + P <--> E(P, Q)
+                (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))
+                (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+            end
+        end),
+        EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(Q) + P ⇌ E(P, Q)
+                (E + Q <--> E(Q), E(A::Inh) + Q <--> E(A::Inh, Q))
+                (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+            end
+        end),
+    ]
+    kids = EnzymeRates._expand_re_to_ss(m)
+    @test length(kids) == 4
+    @test Set(kids) == Set(expected)
+    for r in kids, grp in EnzymeRates.steps(r), s in grp
+        EnzymeRates.bound_metabolite(s) isa EnzymeRates.Regulator &&
+            @test EnzymeRates.is_equilibrium(s)
     end
 end
 
-@testset "Mechanism — Allosteric substrate-as-dead-end-I overlap" begin
-    # AllostericMechanism counterpart of the substrate-as-I overlap.
-    # Same count derivation: the dead-end-inhibitor-S group binds a
-    # Regulator and stays RE, leaving 2 RE groups → 2 variants. Each
-    # flip should preserve cat_allo_states tags exactly.
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        dead_end_inhibitors: S
-        oligomeric_state: 2
-    end
-    init_ms = EnzymeRates.init_mechanisms(rxn)
-    seed = first(init_ms)
-    de_ms = EnzymeRates._expand_add_dead_end_regulator(seed, rxn)
-    @test !isempty(de_ms)
-    plain = first(de_ms)
-    # Convert to allosteric
-    allo_ms = EnzymeRates._expand_to_allosteric(plain, rxn)
-    @test !isempty(allo_ms)
-    am = first(allo_ms)
-    EnzymeRates._assert_mechanism_invariants(am)
-
-    result = EnzymeRates._expand_re_to_ss(am)
-
-    # 1. count: 2 RE groups (dead-end-inhibitor-S excluded). → 2 variants.
-    @test length(result) == 2
-    for r in result
-        @test r isa EnzymeRates.AllostericMechanism
-        EnzymeRates._assert_mechanism_invariants(r)
-        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-    end
-
-    # 2. cat_allo_states preserved on every variant.
-    for r in result
-        @test r.cat_allo_states == am.cat_allo_states
+@testset "AllostericMechanism — the inhibitor copy never flips; tags are preserved" begin
+    # The same mechanism as an allosteric one with a dead inactive conformation
+    # (the chemistry `:OnlyA`, every binding `:EqualAI`) and one catalytic subunit.
+    # The same four groups flip; every child keeps one `:OnlyA` group, the
+    # chemistry, and the multiplicity and (empty) regulatory sites.
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_inhibitors: A
+        catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A ⇌ E(A)                                            :: EqualAI
+            E(A) + B ⇌ E(A, B)                                      :: EqualAI
+            E(A, B) <--> E(P, Q)                                    :: OnlyA
+            E(Q) + P ⇌ E(P, Q)                                      :: EqualAI
+            (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))            :: EqualAI
+            (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))  :: EqualAI
+        end
+    end)
+    flip(rewrite) = EnzymeRates.AllostericMechanism(rewrite)
+    expected = [
+        flip(@allosteric_mechanism begin
+            substrates: A, B
+            products: P, Q
+            catalytic_inhibitors: A
+            catalytic_multiplicity: 1
+            catalytic_steps: begin
+                E + A <--> E(A)                                         :: EqualAI
+                E(A) + B ⇌ E(A, B)                                      :: EqualAI
+                E(A, B) <--> E(P, Q)                                    :: OnlyA
+                E(Q) + P ⇌ E(P, Q)                                      :: EqualAI
+                (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))            :: EqualAI
+                (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))  :: EqualAI
+            end
+        end),
+        flip(@allosteric_mechanism begin
+            substrates: A, B
+            products: P, Q
+            catalytic_inhibitors: A
+            catalytic_multiplicity: 1
+            catalytic_steps: begin
+                E + A ⇌ E(A)                                            :: EqualAI
+                E(A) + B <--> E(A, B)                                   :: EqualAI
+                E(A, B) <--> E(P, Q)                                    :: OnlyA
+                E(Q) + P ⇌ E(P, Q)                                      :: EqualAI
+                (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))            :: EqualAI
+                (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))  :: EqualAI
+            end
+        end),
+        flip(@allosteric_mechanism begin
+            substrates: A, B
+            products: P, Q
+            catalytic_inhibitors: A
+            catalytic_multiplicity: 1
+            catalytic_steps: begin
+                E + A ⇌ E(A)                                            :: EqualAI
+                E(A) + B ⇌ E(A, B)                                      :: EqualAI
+                E(A, B) <--> E(P, Q)                                    :: OnlyA
+                E(Q) + P <--> E(P, Q)                                   :: EqualAI
+                (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))            :: EqualAI
+                (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))  :: EqualAI
+            end
+        end),
+        flip(@allosteric_mechanism begin
+            substrates: A, B
+            products: P, Q
+            catalytic_inhibitors: A
+            catalytic_multiplicity: 1
+            catalytic_steps: begin
+                E + A ⇌ E(A)                                            :: EqualAI
+                E(A) + B ⇌ E(A, B)                                      :: EqualAI
+                E(A, B) <--> E(P, Q)                                    :: OnlyA
+                E(Q) + P ⇌ E(P, Q)                                      :: EqualAI
+                (E + Q <--> E(Q), E(A::Inh) + Q <--> E(A::Inh, Q))      :: EqualAI
+                (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))  :: EqualAI
+            end
+        end),
+    ]
+    kids = EnzymeRates._expand_re_to_ss(am)
+    @test length(kids) == 4
+    @test Set(kids) == Set(expected)
+    for r in kids
+        @test count(==(:OnlyA), r.cat_allo_states) == 1
+        @test EnzymeRates.is_iso(first(r.cat_steps[findfirst(==(:OnlyA), r.cat_allo_states)]))
         @test r.catalytic_multiplicity == am.catalytic_multiplicity
         @test r.regulatory_sites == am.regulatory_sites
         @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
-    end
-end
-
-@testset "_expand_re_to_ss keeps inhibitor bindings RE" begin
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        dead_end_inhibitors: S
-    end
-    m = first(EnzymeRates._expand_add_dead_end_regulator(
-              first(EnzymeRates.init_mechanisms(rxn)), rxn))
-    for r in EnzymeRates._expand_re_to_ss(m)
-        for grp in EnzymeRates.steps(r), s in grp
-            if EnzymeRates.bound_metabolite(s) isa EnzymeRates.Regulator
-                @test EnzymeRates.is_equilibrium(s)   # inhibitor binding stays RE
-            end
-        end
     end
 end
 
@@ -2631,63 +2719,245 @@ end
     @test has_compete
 end
 
-@testset "Mechanism — Substrate-as-dead-end-inhibitor overlap" begin
-    # :S declared as BOTH substrate and dead-end inhibitor. The move
-    # must treat the substrate-:S and the inhibitor-:S binding kinetic
-    # groups as independent — Mechanism stores the inhibitor as a
-    # CompetitiveInhibitor Metabolite (separate type from the
-    # Substrate), so there is no name collision in `bound_metabolite`.
-    rxn_overlap = @enzyme_reaction begin
+@testset "Mechanism — uni-uni: a substrate or product as its own inhibitor has no placement" begin
+    # The only site that carries neither S nor P is free E, and E·S* has the
+    # composition of E(S) (E·P* that of E(P)): the copy's constant would enter the
+    # rate only as K_S + K_S,inh with kcat rescaled. No child is emitted.
+    rxn_S = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
         dead_end_inhibitors: S
     end
-    init_ms = EnzymeRates.init_mechanisms(rxn_overlap)
-    @test length(init_ms) == 1
-    m = first(init_ms)
-    EnzymeRates._assert_mechanism_invariants(m)
-
-    result = EnzymeRates._expand_add_dead_end_regulator(m, rxn_overlap)
-
-    # 1. count: 1 variant (uni-uni; eligible form = E only).
-    @test length(result) == 1
-
-    # 2. Δ params: +1 (one new K_I parameter), measured against
-    # ground-truth `fitted_params(compile_mechanism(...))`. The
-    # dead-end inhibitor binds as a `CompetitiveInhibitor`, so its
-    # form renders `:ESinh` — distinct from the substrate-bound
-    # `:ES` (`Species([Substrate(:S)], :E)`). Compiled `fitted_params`
-    # is the canonical source for exact counts.
-    base_fitted = length(EnzymeRates.fitted_params(
-        EnzymeRates.compile_mechanism(m)))
-    for r in result
-        r_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(r)))
-        @test r_fitted == base_fitted + 1
+    rxn_P = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: P
     end
-
-    # 3. compilability
-    for r in result
-        @test r isa EnzymeRates.Mechanism
-        EnzymeRates._assert_mechanism_invariants(r)
-        @test EnzymeRates.EnzymeMechanism(r) isa EnzymeMechanism
-    end
-
-    # 4. property: a new step has bound_metabolite::CompetitiveInhibitor
-    # named :S (proving the substrate-:S vs inhibitor-:S distinction is
-    # preserved). Exactly one new outer-vector kinetic group was added
-    # for the inhibitor binding.
-    for r in result
-        has_inh_s = any(r.steps) do group
-            any(group) do s
-                bm = EnzymeRates.bound_metabolite(s)
-                bm isa EnzymeRates.CompetitiveInhibitor &&
-                    EnzymeRates.name(bm) === :S
+    for rxn in (rxn_S, rxn_P)
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E + P ⇌ E(P)
             end
-        end
-        @test has_inh_s
-        @test length(r.steps) == length(m.steps) + 1
+        end)
+        @test isempty(EnzymeRates._expand_add_dead_end_regulator(m, rxn))
     end
+end
+
+@testset "Mechanism — ordered bi-bi with A as its own inhibitor: three placements" begin
+    # A binds productively at E only, so A* competing with P puts it at {E, E(Q)},
+    # with Q puts it at {E} alone, and competing with B puts it at {E(A), E(Q)} or
+    # {E, E(A)}. E·A* has the composition of E(A); E(Q)·A* and E(A)·A* are new. The
+    # placement at E alone is all-twin and is not emitted. Mirrors: E + Q ⇌ E(Q)
+    # onto {E, E(Q)} in the Q group; E + A ⇌ E(A) onto {E, E(A)} in the A group.
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        dead_end_inhibitors: A
+    end
+    # A dead-end child carries the declared reaction (atoms and the inhibitor), so
+    # every fixture is rebuilt on it for `==`.
+    withrxn(em) = EnzymeRates.Mechanism(rxn, EnzymeRates.steps(EnzymeRates.Mechanism(em)))
+    m = withrxn(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    at_E_EQ = withrxn(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))
+            (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+        end
+    end)
+    at_EA_EQ = withrxn(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+            (E(A) + A::Inh ⇌ E(A, A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+        end
+    end)
+    at_E_EA = withrxn(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(A::Inh) + A ⇌ E(A, A::Inh))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+            (E + A::Inh ⇌ E(A::Inh), E(A) + A::Inh ⇌ E(A, A::Inh))
+        end
+    end)
+    at_E = withrxn(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+            E + A::Inh ⇌ E(A::Inh)
+        end
+    end)
+    kids = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
+    @test length(kids) == 3
+    @test Set(kids) == Set([at_E_EQ, at_EA_EQ, at_E_EA])
+    @test !(at_E in kids)
+    # Each child binds the copy as a CompetitiveInhibitor named :A, in one new
+    # kinetic group, and adds exactly one fitted constant.
+    base_fitted = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(m)))
+    for r in kids
+        @test any(grp -> (bm = EnzymeRates.bound_metabolite(first(grp));
+                          bm isa EnzymeRates.CompetitiveInhibitor && EnzymeRates.name(bm) === :A),
+                  EnzymeRates.steps(r))
+        @test length(EnzymeRates.steps(r)) == length(EnzymeRates.steps(m)) + 1
+        @test length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(r))) ==
+            base_fitted + 1
+    end
+    # The absent placement adds a constant the data cannot see.
+    @test _testhelper_identifiable_rank(at_E) == _testhelper_identifiable_rank(m)
+end
+
+@testset "Mechanism — shared A group with abortive E(A, Q): twin-only placements absent" begin
+    # A binds at E and, in the same kinetic group, at E(Q) to form the abortive
+    # complex E(A, Q). A copy of A at E duplicates E(A) and at E(Q) duplicates
+    # E(A, Q), so the placements {E} and {E, E(Q)} are all-twin. {E, E(Q)} is a
+    # phantom. {E} is identifiable, by accident: the shared group pins K_A at E(Q),
+    # where no copy binds, so the absorption of the copy's constant is blocked. A
+    # non-productive orientation of E(A) is not a distinct hypothesis, so it is
+    # dropped with the rest (Denis, 2026-09-30). {E(A), E(Q)} and {E, E(A)} create
+    # E(A, A*) and are emitted; the second mirrors E + A ⇌ E(A) in the A group.
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        dead_end_inhibitors: A
+    end
+    # A dead-end child carries the declared reaction (atoms and the inhibitor), so
+    # every fixture is rebuilt on it for `==`.
+    withrxn(em) = EnzymeRates.Mechanism(rxn, EnzymeRates.steps(EnzymeRates.Mechanism(em)))
+    m = withrxn(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
+        end
+    end)
+    at_EA_EQ = withrxn(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
+            (E(A) + A::Inh ⇌ E(A, A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+        end
+    end)
+    at_E_EA = withrxn(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q), E(A::Inh) + A ⇌ E(A, A::Inh))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
+            (E + A::Inh ⇌ E(A::Inh), E(A) + A::Inh ⇌ E(A, A::Inh))
+        end
+    end)
+    at_E = withrxn(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
+            E + A::Inh ⇌ E(A::Inh)
+        end
+    end)
+    at_E_EQ = withrxn(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))
+            (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+        end
+    end)
+    kids = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
+    @test length(kids) == 2
+    @test Set(kids) == Set([at_EA_EQ, at_E_EA])
+    r0 = _testhelper_identifiable_rank(m)
+    @test _testhelper_identifiable_rank(at_E_EQ) == r0        # a phantom
+    @test _testhelper_identifiable_rank(at_E) == r0 + 1       # tie-only, dropped anyway
+end
+
+@testset "Mechanism — a copy that only matches a form through a conformational isomer" begin
+    # E ⇌ E* at rapid equilibrium; S binds E* only, P binds E only. S* competing
+    # with P is placed at E (where P binds) and E* (where S binds), with the
+    # isomerization mirrored between the copy forms. E*·S* has E*(S)'s composition.
+    # E·S* has a composition no form has, but E and E* share offsets, so E·S* and
+    # E*(S) have proportional weights: the pattern is all-twin and is not emitted;
+    # the would-be child has its parent's rank.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: S
+    end
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E ⇌ Estar
+            Estar + S ⇌ Estar(S)
+            Estar(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    @test isempty(EnzymeRates._expand_add_dead_end_regulator(m, rxn))
+    absent = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            (E ⇌ Estar, E(S::Inh) ⇌ Estar(S::Inh))
+            Estar + S ⇌ Estar(S)
+            Estar(S) <--> E(P)
+            E + P ⇌ E(P)
+            (E + S::Inh ⇌ E(S::Inh), Estar + S::Inh ⇌ Estar(S::Inh))
+        end
+    end)
+    @test _testhelper_identifiable_rank(absent) == _testhelper_identifiable_rank(m)
 end
 
 @testset "AllostericMechanism — dead-end binding tagged :EqualAI" begin
@@ -5630,6 +5900,143 @@ end
     @test EnzymeRates._re_segment_count(loop) == 1
 end
 
+@testset "_twin_site_test" begin
+    ER = EnzymeRates
+    # The form named `nm` among the ends of `m`'s steps.
+    form(m, nm) = only(unique(sp for g in ER.steps(m) for s in g
+                              for sp in (ER.from_species(s), ER.to_species(s))
+                              if ER.name(sp) == nm))
+    Ainh, Binh, Sinh, Qinh, I = ER.CompetitiveInhibitor(:A), ER.CompetitiveInhibitor(:B),
+        ER.CompetitiveInhibitor(:S), ER.CompetitiveInhibitor(:Q), ER.CompetitiveInhibitor(:I)
+
+    # Ordered bi-bi. A copy of A at E has the composition of E(A); at E(Q) it is new;
+    # a copy of B at E is new; a foreign inhibitor is never a twin.
+    ordered = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    twin = ER._twin_site_test(ER.steps(ordered))
+    @test twin(form(ordered, :E), Ainh)
+    @test !twin(form(ordered, :EQ), Ainh)
+    @test !twin(form(ordered, :E), Binh)
+    @test !twin(form(ordered, :E), I) && !twin(form(ordered, :EQ), I)
+
+    # With the abortive complex E(A, Q) present, the copy at E(Q) is a twin too.
+    abortive = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
+        end
+    end)
+    @test ER._twin_site_test(ER.steps(abortive))(form(abortive, :EQ), Ainh)
+
+    # A copy whose complex already exists is judged against the other forms only.
+    with_copy = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))
+            (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+        end
+    end)
+    twin_c = ER._twin_site_test(ER.steps(with_copy))
+    @test twin_c(form(with_copy, :E), Ainh)
+    @test !twin_c(form(with_copy, :EQ), Ainh)
+
+    # The offsets key. E ⇌ E* is a rapid-equilibrium isomerization, so E and E*
+    # have equal offsets; a copy of S at E has a composition no form has, yet its
+    # weight is proportional to E*(S)'s. With the isomerization at steady state the
+    # two forms sit in different segments and the copy is not a twin.
+    iso = ER.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E ⇌ Estar
+            Estar + S ⇌ Estar(S)
+            Estar(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    estar_s = only(ER.to_species(s) for g in ER.steps(iso) for s in g
+                   if ER.bound_metabolite(s) !== nothing &&
+                      ER.name(ER.bound_metabolite(s)) == :S)
+    @test ER._twin_site_test(ER.steps(iso))(form(iso, :E), Sinh)
+    @test ER._composition(form(iso, :E), Sinh) != ER._composition(estar_s)
+    iso_ss = ER.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E <--> Estar
+            Estar + S ⇌ Estar(S)
+            Estar(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    @test !ER._twin_site_test(ER.steps(iso_ss))(form(iso_ss, :E), Sinh)
+
+    # Ping-pong with the second chemistry step at rapid equilibrium, an abortive
+    # E(B, P; residual) and a copy of P at E. A copy of Q at E(P::Inh) has the new
+    # composition {P, Q}, but E(B; residual) ⇌ E(Q) puts E(B, P; residual) at the
+    # offsets P + Q of E's segment, the same as E(P::Inh)·Q: a twin. At
+    # E(; residual) the copy is not.
+    pp = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            E(Q) ⇌ E + Q
+            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
+            E + P::Inh ⇌ E(P::Inh)
+        end
+    end)
+    copy_form = only(ER.to_species(s) for g in ER.steps(pp) for s in g
+                     if ER.bound_metabolite(s) isa ER.CompetitiveInhibitor)
+    free_res = only(ER.from_species(s) for g in ER.steps(pp) for s in g
+                    if ER.bound_metabolite(s) !== nothing &&
+                       ER.name(ER.bound_metabolite(s)) == :B)
+    twin_pp = ER._twin_site_test(ER.steps(pp))
+    @test twin_pp(copy_form, Qinh)
+    @test !twin_pp(free_res, Qinh)
+
+    # Groups that bind a copy only at twin sites.
+    @test isempty(ER._duplicate_copy_groups(ER.steps(with_copy)))
+    twin_only = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+            E + A::Inh ⇌ E(A::Inh)
+        end
+    end)
+    dup = ER._duplicate_copy_groups(ER.steps(twin_only))
+    @test length(dup) == 1
+    @test ER.bound_metabolite(first(ER.steps(twin_only)[only(dup)])) == Ainh
+end
+
 @testset "_hyperbolic_catalysis" begin
     # Ordered SS bi-bi: every metabolite binds on one edge and every segment is
     # a single form, so no denominator term carries a concentration twice.
@@ -5835,24 +6242,33 @@ end
     # A substrate declared as a dead-end inhibitor binds its inhibitor site under
     # the substrate's own name. Its bindings put A² and A³ into the derived
     # denominator, but those powers come from the inhibitor site, which the
-    # predicate leaves out: all four placements on the ordered scheme pass.
+    # predicate leaves out: the three placements on the ordered scheme pass. The
+    # fourth placement, the copy at E alone, duplicates E(A) and is not emitted; it
+    # was the one of degree 1, so the survivors have degrees 2, 2 and 3.
     rxn_a_inhibits = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]
         dead_end_inhibitors: A
     end
+    copy_sites(k) = Set(EnzymeRates.name(EnzymeRates.from_species(s))
+                        for grp in EnzymeRates.steps(k) for s in grp
+                        if EnzymeRates.bound_metabolite(s) isa EnzymeRates.CompetitiveInhibitor)
     with_a = EnzymeRates._expand_add_dead_end_regulator(ordered_ss, rxn_a_inhibits)
     den_a_degree(k) = maximum(get(Dict(mono), :A, 0) for mono in keys(
         EnzymeRates._raw_symbolic_rate_polys(k, EnzymeRates._step_parameters(k),
             EnzymeRates._build_wegscheider_rename_map(k))[2]))
-    @test length(with_a) == 4
+    @test Set(copy_sites.(with_a)) ==
+        Set([Set([:E, :EQ]), Set([:EA, :EQ]), Set([:E, :EA])])
     @test all(EnzymeRates._hyperbolic_catalysis, with_a)
-    @test sort(den_a_degree.(with_a)) == [1, 2, 2, 3]
+    @test sort(den_a_degree.(with_a)) == [2, 2, 3]
 
     # Inhibitor-bound forms leave, but catalytic-site powers stay: adding the
     # inhibitor role of A to the abortive-complex scheme keeps it non-hyperbolic.
+    # The placements at E and at {E, E(Q)} duplicate E(A) and E(A, Q) and are not
+    # emitted.
     dead_end_with_a = EnzymeRates._expand_add_dead_end_regulator(dead_end, rxn_a_inhibits)
-    @test length(dead_end_with_a) == 4
+    @test Set(copy_sites.(dead_end_with_a)) == Set([Set([:EA, :EQ]), Set([:E, :EA])])
+    @test !any(EnzymeRates._hyperbolic_catalysis, dead_end_with_a)
     @test !any(EnzymeRates._hyperbolic_catalysis, dead_end_with_a)
 
     @test !EnzymeRates._requires_hyperbolic_catalysis(ordered)
@@ -6295,36 +6711,6 @@ end
         end
     end
     @test checked > 100
-end
-
-"Finite-difference rank of ∂v/∂log θ over the fitted parameters (test oracle only)."
-function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
-    em = EnzymeRates.compile_mechanism(m)
-    fp = collect(EnzymeRates.fitted_params(em))
-    cm = m isa EnzymeRates.Mechanism ? m : EnzymeRates._state_mechanism(m, :A)
-    mets = sort!(collect(EnzymeRates._concentration_symbols(cm)))
-    # Seeded from the rendered equation: a struct hash mixes in objectid and
-    # would not reproduce a failure in a later session.
-    rng = MersenneTwister(hash(rate_equation_string(em)) % 2^31)
-    best = 0
-    for _ in 1:ndraws
-        θ = exp.(randn(rng, length(fp)))
-        keq = exp(randn(rng))
-        concs = [NamedTuple{Tuple(mets)}(Tuple(exp.(2 .* randn(rng, length(mets)))))
-                 for _ in 1:npts]
-        J = zeros(npts, length(fp))
-        for j in eachindex(fp), sgn in (1, -1)
-            θp = copy(θ); θp[j] *= exp(sgn * h)
-            p = NamedTuple{(fp..., :Keq, :E_total)}((θp..., keq, 1.0))
-            for (i, c) in enumerate(concs)
-                J[i, j] += sgn * rate_equation(em, c, p) / (2h)
-            end
-        end
-        all(isfinite, J) || continue
-        sv = svdvals(J)
-        best = max(best, count(>(1e-7 * sv[1]), sv))
-    end
-    best
 end
 
 "Closure of `seed` under `gen`, by structural identity."
