@@ -58,15 +58,20 @@ metabolites in `consumed` from solution and gives off those in `released`. A pur
 binding consumes one metabolite that `to_species` then carries
 (`bound_metabolite`); an isomerization has both lists empty (`is_iso`); every
 other step, such as fused chemistry and release, a Theorell–Chance step, or
-several metabolites on one side, is a transformation, and its constants are
+several metabolites on one side, is a transformation. Every step's constants are
 named by its two sides — each side's enzyme form followed by its free
-metabolites (`k_EA_B_to_EQ_P` for `E(A) + B <--> E(Q) + P`). Like the singleton
-types, these are canonicalized so that the order or direction in which steps
-are written does not change the resulting mechanism. The `Step` constructor
-stores a pure binding with its metabolite consumed; the `Mechanism` and
-`AllostericMechanism` constructors orient every other step
-(`_canonical_step_direction`), sort steps and groups, and reject a reaction —
-the pair of a step's two sides — that belongs to more than one kinetic group.
+metabolites (`K_ES_to_E_S` for `E + S ⇌ E(S)`, `k_EA_B_to_EQ_P` for
+`E(A) + B <--> E(Q) + P`). Like the singleton types, these are canonicalized so
+that the order or direction in which steps are written does not change the
+resulting mechanism. The `Step` constructor stores a pure binding with its
+metabolite consumed; the `Mechanism` and `AllostericMechanism` constructors
+orient every other step (`_canonical_step_direction`) and sort steps and groups.
+They also enforce the kinetic-group rules. A group holds one kind of step
+(`_step_kind`: bindings of one metabolite, isomerizations, or transformations
+that take up and give off the same metabolites) with one RE/SS flag
+(`_assert_uniform_groups`), so a Theorell–Chance step cannot share a group with
+a binding. A reaction — the pair of a step's two sides — appears in one step of
+one group (`_assert_each_reaction_once`).
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see

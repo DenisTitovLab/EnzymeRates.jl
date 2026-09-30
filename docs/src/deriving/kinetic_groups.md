@@ -19,6 +19,12 @@ steps: begin
 end
 ```
 
+The steps of a group must be one kind of step with one flag: bindings of one
+metabolite, isomerizations, or transformations that take up and give off the
+same metabolites, all rapid-equilibrium or all steady-state. A Theorell–Chance
+step therefore cannot share a group with a binding. Each reaction appears once,
+in one group. Building a mechanism that breaks these rules raises an error.
+
 This is a modeling choice, distinct from the thermodynamic reduction
 ([Thermodynamic constraints](@ref)). The reduction also removes parameters, but
 only when a Haldane or Wegscheider relation *forces* two constants to be equal.

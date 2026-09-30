@@ -426,8 +426,9 @@ the class counts and estimates in this section are for R4 only.
 - **DSL**: any number of metabolites on either side of a step.
 - **Enumeration code**: mechanical changes only; fused parents stay out of `expand_mechanisms`
   until C.
-- **Verification**: identical fitted names and rate equations for all 12,556 exported mechanisms
-  and `MECHANISM_TEST_SPECS`, except intended renames of fixtures with fused steps; an orientation
+- **Verification**: identical rate equations, with fitted names that map one-to-one onto the
+  previous names, for all 12,556 exported mechanisms and `MECHANISM_TEST_SPECS`, except intended
+  renames of fixtures with fused steps; an orientation
   property test; a fused and Theorell–Chance suite checked against a brute-force mass-action
   oracle; unchanged performance and naming-chokepoint tests.
 

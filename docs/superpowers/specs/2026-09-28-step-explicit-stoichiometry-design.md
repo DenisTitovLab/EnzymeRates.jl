@@ -23,8 +23,8 @@ merged central complexes in the enumerator, so these must work first.
    same rate law however a step is written.
 2. Fused steps, Theorell–Chance steps and steps with several metabolites on one side derive
    correctly and can be written in the DSL.
-3. Every mechanism the enumerator emits today keeps its fitted parameter names, its rate
-   equations and its place in the enumeration.
+3. Every mechanism the enumerator emits today keeps its rate equations and its place in the
+   enumeration; its parameter names follow section 5 (a one-to-one rename).
 
 ## Non-goals
 
@@ -96,7 +96,8 @@ end
 - `==` and `hash` include both lists.
 - The sort key becomes (from name, to name, consumed names, released names, flag). For every
   existing step the third field equals today's (the bound metabolite's name, or "") and the
-  fourth is empty, so step order, group order, Haldane pivots and fitted names do not change.
+  fourth is empty, so step order, group order, Haldane pivots and the choice of fitted constants
+  do not change.
   CLAUDE.md marks this order as load-bearing.
 - The `_to_sig` / `_step_from_sig` encoding of a step becomes (from, to, consumed tuple,
   released tuple, flag). Consequence: the `mechanism_type` strings in result CSVs written before
@@ -108,7 +109,8 @@ The derivation reads each step's lists and is built so that reversing a step cha
 which constant is called forward.
 
 - **RE weights.** One rule replaces the two branches of `_compute_alpha`:
-  - pure binding: [to] = [from]·[M]/K, with K the dissociation constant (`Kd`, named `K_M_F`);
+  - pure binding: [to] = [from]·[M]/K, with K the dissociation constant (`Kd`, named in the
+    release direction, e.g. `K_ES_to_E_S`);
   - every other RE step: [to]·Π[released] = K·[from]·Π[consumed] (`Kiso`).
   This fixes the BoundsError on RE steps that release a metabolite.
 - **King–Altman edges.** Forward rate kf·Π[consumed]·w(from), reverse kr·Π[released]·w(to).
@@ -153,11 +155,17 @@ which constant is called forward.
   `E_total`, and `L` are unchanged. A transformation's `K` can carry concentration units.
   `rescale_parameter_values` classifies constants by parameter type and scales every SS rate
   constant alike, so it is unaffected.
-- The `Mechanism` and `AllostericMechanism` constructors reject a reaction — the pair of a step's
-  two sides — that appears in more than one kinetic group (`_assert_one_group_per_reaction`); with
-  `_assert_uniform_groups` in place this also covers a reaction written both RE and SS. The check
-  covers every step, not only group representatives, and its error names both groups. Without it
-  such a collision would silently tie two constants.
+- The `Mechanism` and `AllostericMechanism` constructors reject a kinetic group whose steps differ
+  in kind or in RE/SS flag (`_assert_uniform_groups`; Denis, 2026-09-29). A group's steps share
+  one set of constants, so they must be one kind of step (`_step_kind`: bindings of one
+  metabolite, isomerizations, or transformations that consume and release the same metabolites),
+  all RE or all SS.
+- The constructors also reject a reaction — the pair of a step's two sides — that appears in more
+  than one step (`_assert_each_reaction_once`): in two kinetic groups, or twice in one group,
+  where the derivation would count its edge twice. With `_assert_uniform_groups` in place this
+  also covers a reaction written both RE and SS. The check covers every step, not only group
+  representatives, and its error names the groups. Without it such a collision would silently
+  tie two constants.
 - The structural heuristics that pick group representatives and Haldane pivots
   (`_free_enz_set`, `_step_priority`, `_group_rep`) read the lists: a step with free
   metabolites plays the part today's metabolite steps play, and a step that consumes a
@@ -203,9 +211,10 @@ Mechanical changes only; the enumerator's output must not change.
   (`test/test_rate_eq_derivation.jl`) expects the "ambiguous central-complex cut" error. Its
   mechanism has an all-RE catalytic cycle (E(R) + S ⇌ E(S, R) ⇌ E(P, R) ⇌ E(R) + P), so its rate
   is infinite; the test keeps its mechanism and expects the infinite-rate error instead.
-- Fixtures with fused steps (for example Segel ordered bi-bi, `E(A, B) <--> E(Q) + P`) change
-  parameter names, e.g. `kon_P_EAB` → `k_EAB_to_EQ`. Their textbook-formula tests keep passing
-  with the renamed parameters.
+- Every fixture's parameter names follow section 5. Fixtures with fused steps (for example Segel
+  ordered bi-bi, `E(A, B) <--> E(Q) + P`) also lose names that tied distinct constants, e.g.
+  `kon_P_EAB` → `k_EAB_to_EQ_P`. Their textbook-formula tests keep passing with the renamed
+  parameters.
 
 ## Verification
 
@@ -216,12 +225,13 @@ Every change is made test-first.
    export (`init_mechanisms` plus two levels of the three catalytic moves on reactions R1–R6 of
    the findings document, including R6's level-2 sample) and for `MECHANISM_TEST_SPECS`, keyed by
    the steps written with explicit lists. After the change, regenerate the export with the new
-   code and compare: the set of mechanisms, and every name and string, must be identical, except
-   the listed fixtures with fused steps. Any other difference is checked against the mass-action
-   oracle below; a difference where the new law matches the oracle and the old one does not is a
-   fixed bug and is recorded in the PR. Record derivation time per mechanism in both runs and
-   investigate if the median grows by more than 20%. This check is a script whose result is
-   reported in the PR, not a committed golden file.
+   code and compare: the set of mechanisms, and every name and string after mapping the names
+   through the section 5 rename, must be identical, except the listed fixtures with fused steps.
+   Any other difference is checked against the mass-action oracle below; a difference where the
+   new law matches the oracle and the old one does not is a fixed bug and is recorded in the PR.
+   Record derivation time per mechanism in both runs and investigate if the median grows by more
+   than 20%. This check is a script whose result is reported in the PR, not a committed golden
+   file.
 2. **Orientation property test.** For every mechanism in `MECHANISM_TEST_SPECS` and in the fused
    suite below, reversing any subset of the written steps gives an `==` mechanism and an
    identical `rate_equation_string`.
@@ -238,7 +248,7 @@ Every change is made test-first.
 4. **Unit tests**: the `Step` constructor (binding orientation, reversal swapping the lists,
    rejection of a shared metabolite and of equal end forms); `bound_metabolite`, `is_binding`,
    `is_iso`; the DSL (Theorell–Chance, two metabolites on one side, the remaining errors);
-   form-pair names for transformations; the name-collision error.
+   side-pair names for every kind of step; the name-collision error.
 5. **Unchanged guards**: the `rate_equation` performance test (zero allocations, under 120 ns,
    every spec) and the parameter-naming chokepoint test pass without edits.
 6. The full suite runs before every commit.
