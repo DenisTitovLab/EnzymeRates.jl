@@ -2078,7 +2078,8 @@ end
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_no_q)
 
     # Same-kinetics group across different metabolites: group 1 contains both
-    # an S-binding and an A-binding step → invariant check rejects.
+    # an S-binding and an A-binding step → the constructor rejects the group
+    # itself (_assert_uniform_groups).
     rxn_sa = @enzyme_reaction begin
         substrates: S[C], A[N]
         products:   P[CN]
@@ -2093,8 +2094,14 @@ end
         EnzymeRates.Species([EnzymeRates.Substrate(:S), EnzymeRates.Substrate(:A)], :E_S_A),
         EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
         EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
-    m_sa = EnzymeRates.Mechanism(rxn_sa, [[g_sa1, g_sa2], [g_sa3]])
-    @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_sa)
+    err = try
+        EnzymeRates.Mechanism(rxn_sa, [[g_sa1, g_sa2], [g_sa3]])
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("kinetic group", err.msg)
 
     # Regression: T-state binding K's must be in Kd convention even when
     # `:OnlyA` and `:NonequalAI` catalytic groups coexist. Without the fix,

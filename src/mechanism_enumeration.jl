@@ -2705,24 +2705,6 @@ function _assert_mechanism_invariants(m::Mechanism)
         name(met) in appearing ||
             error("declared substrate/product $(name(met)) appears in no step")
     end
-
-    # A kinetic group of size > 1 must bind a single metabolite with a single
-    # RE/SS kind (no mixing). Iso steps within such a group are ignored here;
-    # the per-step loop above already enforces bound/iso consistency.
-    for group in steps(m)
-        length(group) == 1 && continue
-        kinds = [(is_equilibrium(s), consumed(s), released(s)) for s in group
-                 if !is_iso(s)]
-        isempty(kinds) && continue
-        first_eq, first_c, first_r = kinds[1]
-        for (eq, c, r) in kinds[2:end]
-            eq == first_eq ||
-                error("kinetic group mixes RE and SS binding steps")
-            (c, r) == (first_c, first_r) ||
-                error("kinetic group binds different metabolites: " *
-                      "$(name.(vcat(first_c, first_r))) and $(name.(vcat(c, r)))")
-        end
-    end
     nothing
 end
 

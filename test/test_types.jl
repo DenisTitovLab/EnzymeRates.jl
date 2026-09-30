@@ -402,8 +402,8 @@
     end
 
     @testset "Kinetic-group validator error paths" begin
-        # Group binding different metabolites → error (re-pointed to
-        # _assert_mechanism_invariants over a hand-built decomposed Mechanism).
+        # Group binding different metabolites → the constructor rejects the
+        # group itself (_assert_uniform_groups), before any other check runs.
         rxn_two = @enzyme_reaction begin
             substrates: S[C], A[N]
             products:   P[CN]
@@ -418,12 +418,19 @@
                                 EnzymeRates.Metabolite[], true)
         g2_iso = EnzymeRates.Step(e_s, e_p2, EnzymeRates.Metabolite[],
                                   EnzymeRates.Metabolite[], false)
-        m_diffmet = EnzymeRates.Mechanism(rxn_two, [[g1_s, g1_a], [g2_iso]])
-        @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_diffmet)
+        err = try
+            EnzymeRates.Mechanism(rxn_two, [[g1_s, g1_a], [g2_iso]])
+            nothing
+        catch exc
+            exc
+        end
+        @test err isa ErrorException
+        @test occursin("kinetic group", err.msg)
 
         # Group mixing RE and SS → error. Same metabolite, one RE binding
         # step and one SS binding step share a kinetic group. The constructor
-        # rejects this via _assert_no_re_ss_duplicate before invariants are checked.
+        # rejects this via _assert_uniform_groups before _assert_no_re_ss_duplicate
+        # runs.
         rxn_uni = @enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
@@ -1941,6 +1948,110 @@ _testhelper_sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res
     @testset "signature round trip" begin
         tc = ER.Step(EA, EQ, [B], [P], false)
         @test ER._step_from_sig(ER._to_sig(tc)) == tc
+    end
+end
+
+@testset "kinetic groups hold one kind of step with one flag" begin
+    @testset "binding and Theorell-Chance step in one group" begin
+        err = try
+            @enzyme_mechanism begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A <--> E(A)
+                    (E(A) + B <--> E(A, B), E(A) + B <--> E(Q) + P)
+                    E(Q) <--> E + Q
+                end
+            end
+            nothing
+        catch e
+            e
+        end
+        @test err isa ErrorException
+        @test occursin("kinetic group", err.msg)
+    end
+
+    @testset "RE and SS steps in one group" begin
+        err = try
+            @enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    (E + S ⇌ E(S), E(P) + S <--> E(P, S))
+                    E(S) <--> E(P)
+                    E(P) ⇌ E + P
+                end
+            end
+            nothing
+        catch e
+            e
+        end
+        @test err isa ErrorException
+        @test occursin("kinetic group", err.msg)
+    end
+
+    @testset "bindings of two different metabolites in one group" begin
+        err = try
+            @enzyme_mechanism begin
+                substrates: A, B
+                products: P
+                steps: begin
+                    (E + A <--> E(A), E(A) + B <--> E(A, B))
+                    E(A, B) <--> E + P
+                end
+            end
+            nothing
+        catch e
+            e
+        end
+        @test err isa ErrorException
+        @test occursin("kinetic group", err.msg)
+    end
+
+    @testset "accepted: context-shared bindings of one metabolite" begin
+        # R binds both free E and E(S) with the same K (non-competitive
+        # inhibitor pattern): a legitimate shared binding of one metabolite.
+        m = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            regulators: R
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E + P ⇌ E(P)
+                (E + R ⇌ E(R), E(S) + R ⇌ E(S, R))
+                E(R) + S ⇌ E(S, R)
+            end
+        end
+        @test m isa EnzymeMechanism
+    end
+
+    @testset "accepted: mirrored isomerizations" begin
+        # Two different conformational isomerizations, free and A-bound,
+        # sharing one rate by a symmetry assumption: both are `:iso`, so
+        # they are the same kind and may share a kinetic group.
+        A = ER.Substrate(:A)
+        e, e2   = _testhelper_sp([], :E), _testhelper_sp([], :Estar)
+        ea, e2a = _testhelper_sp([A], :E), _testhelper_sp([A], :Estar)
+        iso1 = ER.Step(e, e2, ER.Metabolite[], ER.Metabolite[], false)
+        iso2 = ER.Step(ea, e2a, ER.Metabolite[], ER.Metabolite[], false)
+        rxn = @enzyme_reaction(begin
+            substrates: A[C]
+            products: P[C]
+        end)
+        m = ER.Mechanism(rxn, [[iso1, iso2]])
+        @test m isa ER.Mechanism
+    end
+
+    @testset "accepted: every MECHANISM_TEST_SPECS mechanism reconstructs" begin
+        # Aggregate regression pin over the whole seed set: reconstructing
+        # every mechanism in MECHANISM_TEST_SPECS re-runs the new check.
+        for spec in MECHANISM_TEST_SPECS
+            m = spec.mechanism
+            rebuilt = m isa AllostericEnzymeMechanism ?
+                ER.AllostericMechanism(m) : ER.Mechanism(m)
+            @test rebuilt !== nothing
+        end
     end
 end
 

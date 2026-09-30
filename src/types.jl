@@ -594,6 +594,38 @@ function _canonical_group_order!(groups::Vector{Vector{Step}})
 end
 
 """
+The kind of a step for kinetic grouping: `(:binding, m)` for a pure binding of
+`m`, `(:iso,)` for an isomerization, and `(:transformation, consumed, released)`
+for every other step. Steps that share a kinetic group share their constants, so
+they must be the same kind of reaction.
+"""
+function _step_kind(s::Step)
+    m = bound_metabolite(s)
+    m !== nothing && return (:binding, m)
+    is_iso(s) && return (:iso,)
+    (:transformation, consumed(s), released(s))
+end
+
+"""
+Error unless every kinetic group holds steps of one kind (`_step_kind`) with one
+RE/SS flag: a shared constant means the same reaction type at the same speed.
+"""
+function _assert_uniform_groups(steps::Vector{Vector{Step}})
+    for group in steps
+        s1 = first(group)
+        for s in group
+            _step_kind(s) == _step_kind(s1) && is_equilibrium(s) == is_equilibrium(s1) &&
+                continue
+            error("Mechanism: a kinetic group holds $(name(from_species(s1))) → " *
+                  "$(name(to_species(s1))) and $(name(from_species(s))) → " *
+                  "$(name(to_species(s))), which differ in kind or in RE/SS; the " *
+                  "steps of a kinetic group share their constants, so they must be " *
+                  "the same kind of step with the same flag")
+        end
+    end
+end
+
+"""
 Reject a mechanism that contains the same physical reaction as both a
 rapid-equilibrium and a steady-state step (e.g. `E + S <--> E(S)` AND
 `E + S ⇌ E(S)`): a single reaction cannot be both fast and slow.
@@ -752,6 +784,7 @@ struct Mechanism
                        steps::Vector{Vector{Step}})
         steps = _canonicalize_step_directions(reaction, steps)
         permute!(steps, _canonical_group_order!(steps))
+        _assert_uniform_groups(steps)
         _assert_no_re_ss_duplicate(steps)
         _assert_unique_parameter_names(steps)
         _assert_re_segments_have_bottom(steps)
@@ -826,6 +859,7 @@ struct AllostericMechanism
         # (cat_steps is fresh from _canonicalize_step_directions; copy the rest).
         perm = _canonical_group_order!(cat_steps)
         permute!(cat_steps, perm)
+        _assert_uniform_groups(cat_steps)
         _assert_no_re_ss_duplicate(cat_steps)
         _assert_unique_parameter_names(cat_steps)
         _assert_re_segments_have_bottom(cat_steps)

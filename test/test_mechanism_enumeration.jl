@@ -227,31 +227,33 @@ end
         substrates: S[C], A[N]
         products:   P[CN]
     end
-    # One kinetic group holding two binding steps + a second group with an
-    # iso step. Built two ways: reversed outer group order AND swapped inner
-    # step order. Canonical-by-construction must collapse them to one struct.
+    # One kinetic group holding two bindings of the same metabolite S (context-
+    # shared: S binds free E, and S binds A-bound E, with the same K) + a
+    # second group with an iso step. Built two ways: reversed outer group
+    # order AND swapped inner step order. Canonical-by-construction must
+    # collapse them to one struct.
     bind_S = EnzymeRates.Step(
         EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
         EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
         [EnzymeRates.Substrate(:S)], EnzymeRates.Metabolite[], true)
-    bind_A = EnzymeRates.Step(
-        EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
+    bind_S_on_A = EnzymeRates.Step(
         EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E_A),
-        [EnzymeRates.Substrate(:A)], EnzymeRates.Metabolite[], true)
+        EnzymeRates.Species([EnzymeRates.Substrate(:A), EnzymeRates.Substrate(:S)], :E_A_S),
+        [EnzymeRates.Substrate(:S)], EnzymeRates.Metabolite[], true)
     iso = EnzymeRates.Step(
         EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
         EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
         EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
 
-    m_orderA = EnzymeRates.Mechanism(rxn, [[bind_S, bind_A], [iso]])
-    m_orderB = EnzymeRates.Mechanism(rxn, [[iso], [bind_A, bind_S]])
+    m_orderA = EnzymeRates.Mechanism(rxn, [[bind_S, bind_S_on_A], [iso]])
+    m_orderB = EnzymeRates.Mechanism(rxn, [[iso], [bind_S_on_A, bind_S]])
     @test m_orderA == m_orderB
     @test hash(m_orderA) == hash(m_orderB)
 
     # unique! collapses the duplicate orderings; the mechanisms are not mutated.
     # m_split groups the two binding steps separately, so it is structurally
     # distinct and survives alongside the collapsed orderA/orderB.
-    m_split = EnzymeRates.Mechanism(rxn, [[bind_S], [bind_A], [iso]])
+    m_split = EnzymeRates.Mechanism(rxn, [[bind_S], [bind_S_on_A], [iso]])
     mechs = [m_orderA, m_split, m_orderB]
     snapshot = deepcopy(mechs)
     result = unique!(mechs)
@@ -302,7 +304,8 @@ end
     m_unused = EnzymeRates.Mechanism(rxn_unused, [[s1], [s2], [s3]])
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_unused)
 
-    # NEGATIVE 2: a kinetic group binding two different metabolites → error.
+    # NEGATIVE 2: a kinetic group binding two different metabolites → the
+    # constructor rejects the group itself (_assert_uniform_groups).
     rxn2 = @enzyme_reaction begin
         substrates: S[C], A[N]
         products:   P[CN]
@@ -316,8 +319,14 @@ end
     g2  = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
                            EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
                            EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
-    m_mixed = EnzymeRates.Mechanism(rxn2, [[g1a, g1b], [g2]])
-    @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_mixed)
+    err = try
+        EnzymeRates.Mechanism(rxn2, [[g1a, g1b], [g2]])
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("kinetic group", err.msg)
 end
 
 @testset "_assert_atom_conserving" begin
