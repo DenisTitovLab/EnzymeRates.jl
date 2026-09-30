@@ -5442,7 +5442,8 @@ end
             E + P ⇌ E(P)
         end
     end)
-    @test all(EnzymeRates._flux_carrying_groups(m))
+    @test all(EnzymeRates._flux_carrying_groups(
+        EnzymeRates._all_steady_state(EnzymeRates.steps(m)), EnzymeRates.reaction(m)))
 
     # A dead-end leaf hanging off the cycle is a bridge: not flux-carrying.
     leaf = EnzymeRates.Mechanism(@enzyme_mechanism begin
@@ -5455,7 +5456,8 @@ end
             E(P) + S ⇌ E(P, S)
         end
     end)
-    fc = EnzymeRates._flux_carrying_groups(leaf)
+    fc = EnzymeRates._flux_carrying_groups(
+        EnzymeRates._all_steady_state(EnzymeRates.steps(leaf)), EnzymeRates.reaction(leaf))
     # The leaf group is the one whose step forms the doubly-bound E(P, S).
     leaf_group = only(g for (g, grp) in enumerate(EnzymeRates.steps(leaf))
                       if any(s -> length(EnzymeRates.bound(
@@ -5477,7 +5479,9 @@ end
             Estar(B) ⇌ E(Q)
         end
     end)
-    @test all(EnzymeRates._flux_carrying_groups(pingpong))
+    @test all(EnzymeRates._flux_carrying_groups(
+        EnzymeRates._all_steady_state(EnzymeRates.steps(pingpong)),
+        EnzymeRates.reaction(pingpong)))
 
     # An inhibitor bound to both E and E(S), with the mirror E(I)+S ⇌ E(I,S): the
     # inhibitor square shares the edge E→E(S) with the catalytic cycle, so the
@@ -5497,7 +5501,9 @@ end
             E(S) + I ⇌ E(I, S)    :: EqualAI
         end
     end)
-    @test all(EnzymeRates._flux_carrying_groups(mirror))
+    @test all(EnzymeRates._flux_carrying_groups(
+        EnzymeRates._all_steady_state(EnzymeRates.steps(mirror)),
+        EnzymeRates.reaction(mirror)))
 
     # Two inhibitors binding only free E form a binding-only square joined to the
     # cycle at the single form E: no cycle through it contains chemistry, so its
@@ -5516,7 +5522,9 @@ end
             E(J) + I ⇌ E(I, J)    :: EqualAI
         end
     end)
-    pfc = EnzymeRates._flux_carrying_groups(pendant)
+    pfc = EnzymeRates._flux_carrying_groups(
+        EnzymeRates._all_steady_state(EnzymeRates.steps(pendant)),
+        EnzymeRates.reaction(pendant))
     inhibits(grp) = (bm = EnzymeRates.bound_metabolite(first(grp));
                      bm !== nothing && EnzymeRates.name(bm) in (:I, :J))
     inhibitor_groups = [g for (g, grp) in enumerate(EnzymeRates.steps(pendant))
@@ -5539,7 +5547,108 @@ end
             E(Q) ⇌ E + Q
         end
     end)
-    @test all(EnzymeRates._flux_carrying_groups(pp))
+    @test all(EnzymeRates._flux_carrying_groups(
+        EnzymeRates._all_steady_state(EnzymeRates.steps(pp)), EnzymeRates.reaction(pp)))
+    # A Theorell–Chance step consumes B and releases P in one edge. The cycle
+    # E → E(A) → E(Q) → E has weight 1 + 2 + 1 = 4 = one turnover times the
+    # four reactants, so it is unbalanced and every step carries flux. The
+    # former screen looked for an isomerization step and flagged nothing here.
+    tc = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(Q) + P
+            E + Q ⇌ E(Q)
+        end
+    end)
+    @test all(EnzymeRates._flux_carrying_groups(
+        EnzymeRates._all_steady_state(EnzymeRates.steps(tc)), EnzymeRates.reaction(tc)))
+    @test EnzymeRates._flux_carrying_groups(tc) ==
+        [EnzymeRates.is_equilibrium(first(g)) ? false : true for g in EnzymeRates.steps(tc)]
+
+    # A merged central complex X with two fused steps into it and no
+    # isomerization: E + A ⇌ E(A), E(A) + B → X, E(Q) + P → X, E + Q ⇌ E(Q).
+    # Every step lies on the unbalanced cycle E → E(A) → X → E(Q) → E.
+    merged = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(P, Q)
+            E(Q) + P <--> E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    @test all(EnzymeRates._flux_carrying_groups(
+        EnzymeRates._all_steady_state(EnzymeRates.steps(merged)),
+        EnzymeRates.reaction(merged)))
+
+    # An RE shunt. E + A and E + Q are steady-state while the abortive route
+    # E(Q) + A ⇌ E(A, Q) ⇌ E(A) + Q stays at rapid equilibrium. The segment
+    # {E} joins the rest by two parallel edges of weight 0 (A uptake +1 against
+    # E(A)'s offset +1; Q uptake −1 against E(Q)'s offset −1): a balanced block,
+    # so neither steady-state binding carries flux. The turnover runs inside the
+    # big segment, where the chemistry step is an unbalanced self-loop of
+    # weight 4 (E(A, B) sits at A + B, E(P, Q) at −P − Q). On the all-steady-state
+    # graph every group carries flux, which is what the former screen reported.
+    shunt = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(Q) + A ⇌ E(A, Q)
+            E + Q <--> E(Q)
+            E(A) + Q ⇌ E(A, Q)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+        end
+    end)
+    binder(grp) = EnzymeRates.bound_metabolite(first(grp))
+    source(grp) = EnzymeRates.name(EnzymeRates.from_species(first(grp)))
+    ss_binding(grp) = binder(grp) !== nothing && !EnzymeRates.is_equilibrium(first(grp))
+    flags = EnzymeRates._flux_carrying_groups(shunt)
+    for (g, grp) in enumerate(EnzymeRates.steps(shunt))
+        if ss_binding(grp)
+            @test source(grp) == :E && !flags[g]
+        elseif EnzymeRates.is_iso(first(grp))
+            @test flags[g]
+        else
+            @test EnzymeRates.is_equilibrium(first(grp)) && !flags[g]
+        end
+    end
+    @test count(ss_binding, EnzymeRates.steps(shunt)) == 2
+    @test all(EnzymeRates._flux_carrying_groups(
+        EnzymeRates._all_steady_state(EnzymeRates.steps(shunt)),
+        EnzymeRates.reaction(shunt)))
+
+    # A balanced self-loop: E + A is steady-state, but E and E(A) already share
+    # a segment through E ⇌ E(Q) ⇌ E(A, Q) ⇌ E(A), so the step is a self-loop
+    # of weight 1 + 0 − 1 = 0 and carries no flux. The chemistry self-loop in
+    # the same segment has weight 4 and does.
+    loop = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(Q) + A ⇌ E(A, Q)
+            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+        end
+    end)
+    lflags = EnzymeRates._flux_carrying_groups(loop)
+    for (g, grp) in enumerate(EnzymeRates.steps(loop))
+        if ss_binding(grp)
+            @test !lflags[g]
+        elseif EnzymeRates.is_iso(first(grp))
+            @test lflags[g]
+        end
+    end
+    @test count(ss_binding, EnzymeRates.steps(loop)) == 1
+    @test EnzymeRates._re_segment_count(loop) == 1
 end
 
 @testset "_hyperbolic_catalysis" begin

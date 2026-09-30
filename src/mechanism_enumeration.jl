@@ -1232,9 +1232,10 @@ end
 
 RE→SS expansion move. A flip unit is a whole kinetic group that is all-RE, binds
 no regulator (competitive-inhibitor binding stays at rapid equilibrium by
-modeling choice), and holds a flux-carrying step (`_flux_carrying_groups`; a
-group with none exposes only equilibrium ratios and would gain a phantom
-parameter). One child is produced per minimal set of units whose joint flip
+modeling choice), and holds a flux-carrying step (`_flux_carrying_groups` on the
+all-steady-state graph, `_all_steady_state`; a group with none exposes only
+equilibrium ratios under every assignment and would gain a phantom parameter).
+One child is produced per minimal set of units whose joint flip
 raises the RE segment count (`_minimal_gaining_sets`): a single group when it
 cuts a segment on its own, several groups when each alone is bridged by an RE
 route through the others — as happens once a split has separated a
@@ -1258,7 +1259,7 @@ flips, and more steady-state steps never restore a hyperbolic equation, so its
 supersets need no visit.
 """
 function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
-    flux = _flux_carrying_groups(m)
+    flux = _flux_carrying_groups(_all_steady_state(steps(m)), reaction(m))
     units = [g for g in kinetic_groups(m)
              if all(is_equilibrium, steps(m)[g]) && flux[g] &&
                 !any(s -> any(x -> x isa Regulator, consumed(s)) ||
@@ -1341,35 +1342,121 @@ function _edge_blocks(nv::Int, edges::Vector{Tuple{Int, Int}})
     block
 end
 
-"""
-    _flux_carrying_groups(m) -> BitVector
+"""Every step of `groups` rebuilt at steady state. The flip move pre-filters its
+units on this graph: a step that carries no flux with every step steady-state
+carries none under any assignment (flips only refine segments), so a group with
+no such step can never flip usefully."""
+_all_steady_state(groups::Vector{Vector{Step}}) =
+    [Step[Step(from_species(s), to_species(s), consumed(s), released(s), false)
+          for s in group] for group in groups]
 
-One flag per kinetic group: the group holds a step that lies on a cycle of the
-step graph containing a chemistry step (an isomerization), i.e. shares a
-biconnected block with one. A binding-only cycle satisfies detailed balance and
-carries no net flux at steady state, so a group whose every step sits in such a
-pendant region exposes only equilibrium ratios however it is
-flagged; flipping it to steady state adds a phantom parameter. RE and SS steps
-are both edges here: flux-carrying-ness depends on the graph, not on the flags.
 """
-function _flux_carrying_groups(m::Union{Mechanism, AllostericMechanism})
-    forms = Dict{Species, Int}()
-    edges = Tuple{Int, Int}[]
-    edge_group = Int[]
-    edge_is_chemistry = Bool[]
-    vertex(sp) = get!(forms, sp, length(forms) + 1)
-    for (g, group) in enumerate(steps(m)), s in group
-        push!(edges, (vertex(from_species(s)), vertex(to_species(s))))
-        push!(edge_group, g); push!(edge_is_chemistry, is_iso(s))
+    _flux_carrying_steps(groups, rxn) -> Vector{BitVector}
+
+One flag per step of `groups`, parallel to `groups`: whether the step carries net
+steady-state flux for generic parameter values. Rapid-equilibrium steps hold
+equilibrium mass and are flagged `false`; the rule that uses these flags concerns
+steady-state groups only.
+
+Contract each rapid-equilibrium segment to one vertex (`_re_segment_extras`) and
+make every steady-state step an edge between its two forms' segments, weighted by
+the substrates it takes up minus the products, plus its `from` form's offsets minus
+its `to` form's. Around any cycle the offsets telescope and the uptakes sum to the
+net turnover times the reactant count, so a cycle has weight zero exactly when it
+runs no net reaction. A self-loop (both forms in one segment) carries flux iff its
+weight is nonzero. Any other edge carries flux iff its biconnected block
+(`_edge_blocks`) holds a cycle of nonzero weight: every edge of such a block lies
+on one (join the edge to the cycle by two disjoint paths; one of the two resulting
+cycles is unbalanced), while in a balanced block detailed balance holds along every
+cycle and each step's flux vanishes. The zero-flux verdict holds for any parameters
+and grouping; the flux-carrying verdict for one-way steps, which every step the
+enumerator emits is. Reading the metabolite lists, the test covers fused and
+Theorell–Chance steps.
+"""
+function _flux_carrying_steps(groups::Vector{Vector{Step}}, rxn::EnzymeReaction)
+    species, segments, extras = _re_segment_extras(groups)
+    idx = Dict(sp => i for (i, sp) in enumerate(species))
+    seg = zeros(Int, length(species))
+    for (k, members) in enumerate(segments), i in members
+        seg[i] = k
     end
-    block = _edge_blocks(length(forms), edges)
-    chem_blocks = Set(block[e] for e in eachindex(edges) if edge_is_chemistry[e])
-    flags = falses(length(steps(m)))
+    rho = Dict{Symbol, Int}()
+    for s in substrates(rxn); rho[name(s)] = get(rho, name(s), 0) + 1; end
+    for p in products(rxn);   rho[name(p)] = get(rho, name(p), 0) - 1; end
+    offset(i) = sum(get(rho, x, 0) * e for (x, e) in extras[i]; init = 0)
+    weight(s) = sum(get(rho, name(x), 0) for x in consumed(s); init = 0) -
+                sum(get(rho, name(x), 0) for x in released(s); init = 0) +
+                offset(idx[from_species(s)]) - offset(idx[to_species(s)])
+    flags = [falses(length(group)) for group in groups]
+    edges = Tuple{Int, Int}[]; weights = Int[]; owner = Tuple{Int, Int}[]
+    for (g, group) in enumerate(groups), (j, s) in enumerate(group)
+        is_equilibrium(s) && continue
+        a, b = seg[idx[from_species(s)]], seg[idx[to_species(s)]]
+        if a == b
+            flags[g][j] = weight(s) != 0
+        else
+            push!(edges, (a, b)); push!(weights, weight(s)); push!(owner, (g, j))
+        end
+    end
+    block = _edge_blocks(length(segments), edges)
+    members = Dict{Int, Vector{Int}}()
     for e in eachindex(edges)
-        block[e] in chem_blocks && (flags[edge_group[e]] = true)
+        push!(get!(members, block[e], Int[]), e)
+    end
+    unbalanced = Set(b for (b, es) in members if !_block_balanced(edges, weights, es))
+    for (e, (g, j)) in enumerate(owner)
+        flags[g][j] = block[e] in unbalanced
     end
     flags
 end
+
+"""Whether every cycle of the block made of the edges `es` has weight zero. A BFS
+spanning tree gives each vertex a potential, rising by an edge's weight along its
+stored direction; the block is balanced iff every edge's weight equals the
+potential difference of its ends. A block is connected, so one search from any of
+its vertices visits all of them."""
+function _block_balanced(edges, weights, es::Vector{Int})
+    adj = Dict{Int, Vector{Int}}()
+    for e in es
+        u, v = edges[e]
+        push!(get!(adj, u, Int[]), e); push!(get!(adj, v, Int[]), e)
+    end
+    root = edges[first(es)][1]
+    phi = Dict(root => 0)
+    queue = [root]
+    while !isempty(queue)
+        u = popfirst!(queue)
+        for e in adj[u]
+            a, b = edges[e]
+            v = a == u ? b : a
+            w = a == u ? weights[e] : -weights[e]
+            if haskey(phi, v)
+                phi[v] == phi[u] + w || return false
+            else
+                phi[v] = phi[u] + w
+                push!(queue, v)
+            end
+        end
+    end
+    true
+end
+
+"""
+    _flux_carrying_groups(groups, rxn) -> BitVector
+    _flux_carrying_groups(m) -> BitVector
+
+One flag per kinetic group: whether some step of the group carries net
+steady-state flux (`_flux_carrying_steps`). A steady-state group with no such step
+exposes only the ratio of its two constants, so the moves never emit one; a
+zero-flux step inside a group that also holds a flux-carrying step costs nothing,
+because the group's shared constants are pinned by the step that carries flux.
+The mechanism method reads `steps(m)`, which for an allosteric mechanism is its
+A-state catalytic graph.
+"""
+_flux_carrying_groups(groups::Vector{Vector{Step}}, rxn::EnzymeReaction) =
+    BitVector([any(f) for f in _flux_carrying_steps(groups, rxn)])
+_flux_carrying_groups(m::Union{Mechanism, AllostericMechanism}) =
+    _flux_carrying_groups(steps(m), reaction(m))
 
 """
 Whether the enumerator may only give this mechanism a catalytic scheme that
