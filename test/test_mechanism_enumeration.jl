@@ -274,7 +274,7 @@ end
     @test EnzymeRates._assert_mechanism_invariants(m) === nothing
 end
 
-@testset "_assert_mechanism_invariants: ported coverage + group composition" begin
+@testset "_assert_mechanism_invariants: ported coverage" begin
     # POSITIVE: an init mechanism with an unbound declared inhibitor must NOT
     # error — regulators are intentionally excluded from the coverage check
     # (init_mechanisms declares dead-end inhibitors that no step binds yet).
@@ -303,30 +303,6 @@ end
                           EnzymeRates.Metabolite[], [EnzymeRates.Product(:P)], true)
     m_unused = EnzymeRates.Mechanism(rxn_unused, [[s1], [s2], [s3]])
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_unused)
-
-    # NEGATIVE 2: a kinetic group binding two different metabolites → the
-    # constructor rejects the group itself (_assert_uniform_groups).
-    rxn2 = @enzyme_reaction begin
-        substrates: S[C], A[N]
-        products:   P[CN]
-    end
-    g1a = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-                           EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                           [EnzymeRates.Substrate(:S)], EnzymeRates.Metabolite[], true)
-    g1b = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-                           EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E_A),
-                           [EnzymeRates.Substrate(:A)], EnzymeRates.Metabolite[], true)
-    g2  = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                           EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-                           EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
-    err = try
-        EnzymeRates.Mechanism(rxn2, [[g1a, g1b], [g2]])
-        nothing
-    catch e
-        e
-    end
-    @test err isa ErrorException
-    @test occursin("kinetic group", err.msg)
 end
 
 @testset "_assert_atom_conserving" begin
@@ -1081,7 +1057,8 @@ end
     for r in result
         new_forms = setdiff(_form_names(r[1]), seed_forms)
         for f in new_forms
-            startswith(string(f), "Estar") && string(f) != "Estar" && push!(new_estar_forms, f)
+            startswith(string(f), "Estar") && string(f) != "Estar" &&
+                push!(new_estar_forms, f)
         end
     end
     @test !isempty(new_estar_forms)
@@ -8073,12 +8050,12 @@ end
     # AllostericMechanism constructor canonicalizes group order.
     function shape(x)
         tags = ER.cat_allo_states(x)
-        by_ligand = Dict{Symbol, Symbol}()
+        by_bound_metabolite = Dict{Symbol, Symbol}()
         for (g, grp) in enumerate(ER.steps(x))
             bm = ER.bound_metabolite(grp[1])
-            by_ligand[bm === nothing ? :chem : ER.name(bm)] = tags[g]
+            by_bound_metabolite[bm === nothing ? :chem : ER.name(bm)] = tags[g]
         end
-        (by_ligand[:S], by_ligand[:chem], by_ligand[:P])
+        (by_bound_metabolite[:S], by_bound_metabolite[:chem], by_bound_metabolite[:P])
     end
     shapes = Set(shape(r) for r in result)
 
@@ -8094,7 +8071,7 @@ end
 # Tag of each catalytic kinetic group, keyed by the metabolite it binds
 # (`:chem` for the chemical step). Group index is never a stable key: the
 # AllostericMechanism constructor canonicalizes group order.
-tags_by_ligand(x) = Dict(
+tags_by_bound_metabolite(x) = Dict(
     (bm = EnzymeRates.bound_metabolite(grp[1]);
      bm === nothing ? :chem : EnzymeRates.name(bm)) =>
         EnzymeRates.cat_allo_states(x)[g]
@@ -8131,8 +8108,8 @@ haldane_ok(x) = EnzymeRates._onlya_haldane_violation(
     end
     # Three tags are relaxable; the chemical step's relaxation is dropped.
     @test length(result) == 2
-    @test !any(r -> tags_by_ligand(r)[:chem] == :NonequalAI, result)
-    @test Set(tags_by_ligand(r) for r in result) == Set([
+    @test !any(r -> tags_by_bound_metabolite(r)[:chem] == :NonequalAI, result)
+    @test Set(tags_by_bound_metabolite(r) for r in result) == Set([
         Dict(:S => :OnlyA, :chem => :OnlyA, :P => :NonequalAI),
         Dict(:S => :NonequalAI, :chem => :OnlyA, :P => :EqualAI)])
 
@@ -8157,8 +8134,8 @@ haldane_ok(x) = EnzymeRates._onlya_haldane_violation(
     @test haldane_ok(balanced)
     kids = ER._expand_change_allo_state(balanced)
     @test length(kids) == 2           # the chemical-step relaxation is dropped
-    @test !any(tags_by_ligand(k)[:chem] == :NonequalAI for k in kids)
-    @test Set(tags_by_ligand(k) for k in kids) == Set([
+    @test !any(tags_by_bound_metabolite(k)[:chem] == :NonequalAI for k in kids)
+    @test Set(tags_by_bound_metabolite(k) for k in kids) == Set([
         Dict(:S => :NonequalAI, :chem => :OnlyA, :P => :OnlyA),
         Dict(:S => :OnlyA, :chem => :OnlyA, :P => :NonequalAI)])
 

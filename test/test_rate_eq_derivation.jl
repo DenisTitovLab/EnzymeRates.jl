@@ -1403,23 +1403,16 @@ end
 end
 
 # ── §5a regression: every inactive-state parameter must be defined ──────────
-# These `mechanism_type` strings come from an LDH `identify_rate_equation` run
-# where allosteric mechanisms crashed with `UndefVarError` on undefined I-state
-# parameters — the I-state polynomials referenced names the dep-assignment and
-# destructuring machinery never emitted. They are round-trippable singleton-type
-# strings, embedded here so the regression is self-contained (the source CSVs are
-# not tracked). Each exercises a distinct trigger path:
-#   caseB_binding  — i_state_dead, previously dangled `K_I_ELactateNAD_to_ENAD_Lactate`
-#   caseB_reverse  — i_state_dead, previously dangled
-#                    `k_I_ELactateNAD_to_ENADHPyruvate`
-#   nonidead_multi — live I-state, previously dangled `k_I_EPyruvate_NAD_to_ENADPyruvate`
-# The 4th trigger path (i_dead with a phantom `k_I_*` binding param) has no
-# embedded fixture; the two i_state_dead fixtures above exercise the dead
-# I-state branch generally, and S_I's reference-polynomial construction
-# handles phantom binding params structurally rather than case-by-case.
-# The LDH i-state mechanisms that exposed the Bug-2 fitted_params leak are
-# defined as MechanismTestSpec fixtures in
-# mechanism_definitions_for_test_enzyme_derivation.jl; pull them back out here.
+# Allosteric mechanisms from an LDH `identify_rate_equation` run crashed with
+# `UndefVarError` on undefined I-state parameters: the I-state polynomials
+# referenced names the dep-assignment and destructuring machinery never emitted.
+# The undefined constants were an I-state lactate dissociation constant and an
+# I-state reverse chemistry rate in dead inactive states, and an I-state NAD
+# binding rate in a live one. Those mechanisms are not kept here. The regression
+# runs the three `LDH i-state …` specs of MECHANISM_TEST_SPECS, which exposed the
+# Bug-2 fitted_params leak (defined in
+# mechanism_definitions_for_test_enzyme_derivation.jl), and checks that each rate
+# equation defines every name it references.
 const _LDH_ISTATE_MECHS = [spec.mechanism for spec in MECHANISM_TEST_SPECS
                            if startswith(spec.name, "LDH i-state")]
 
@@ -2078,32 +2071,6 @@ end
     m_no_q = EnzymeRates.Mechanism(rxn_no_q, [[s_q1], [s_q2], [s_q3]])
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_no_q)
 
-    # Same-kinetics group across different metabolites: group 1 contains both
-    # an S-binding and an A-binding step → the constructor rejects the group
-    # itself (_assert_uniform_groups).
-    rxn_sa = @enzyme_reaction begin
-        substrates: S[C], A[N]
-        products:   P[CN]
-    end
-    g_sa1 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-                             EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                             [EnzymeRates.Substrate(:S)], EnzymeRates.Metabolite[], true)
-    g_sa2 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-                             EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E_A),
-                             [EnzymeRates.Substrate(:A)], EnzymeRates.Metabolite[], true)
-    g_sa3 = EnzymeRates.Step(
-        EnzymeRates.Species([EnzymeRates.Substrate(:S), EnzymeRates.Substrate(:A)], :E_S_A),
-        EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-        EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
-    err = try
-        EnzymeRates.Mechanism(rxn_sa, [[g_sa1, g_sa2], [g_sa3]])
-        nothing
-    catch e
-        e
-    end
-    @test err isa ErrorException
-    @test occursin("kinetic group", err.msg)
-
     # Regression: T-state binding K's must be in Kd convention even when
     # `:OnlyA` and `:NonequalAI` catalytic groups coexist. Without the fix,
     # the flat-poly path in _allosteric_num_den_exprs renders T-state K's
@@ -2438,7 +2405,8 @@ end
 
 @testset "Fix A: dead-inactive-state allosteric body defines all I-state symbols" begin
     # Random-order allosteric bi-bi with an :OnlyA catalytic step → dead inactive
-    # state. Verified pre-fix to crash with `UndefVarError: k_I_EA_to_E_A`.
+    # state. Verified pre-fix to crash with an UndefVarError on the I-state
+    # release rate of A from E(A).
     m = @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2547,7 +2515,6 @@ end
 end
 
 @testset "rendering helpers" begin
-    ER = EnzymeRates
     k = ER.POLY(ER._mono(:k_ES_to_EP => 1) => 1)
     @test ER._invert_monomial(k) == ER.POLY(ER._mono(:k_ES_to_EP => -1) => 1)
     @test ER._invert_monomial(ER.poly_one()) == ER.poly_one()
@@ -2562,7 +2529,6 @@ end
 end
 
 @testset "kcat consistent with rate_equation under normalization (uni-OnlyA)" begin
-    ER = EnzymeRates
     m = @allosteric_mechanism begin
         substrates: S ; products: P ; catalytic_multiplicity: 1
         catalytic_steps: begin

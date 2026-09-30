@@ -1149,7 +1149,8 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
             expected_factored_denom=
-            "1 + P / K_EP_to_E_P + R / K_ERinh_to_E_Rinh + S / K_ES_to_E_S + R * S / (K_ERinh_to_E_Rinh * K_ES_to_E_S)",
+            "1 + P / K_EP_to_E_P + R / K_ERinh_to_E_Rinh + S / K_ES_to_E_S" *
+            " + R * S / (K_ERinh_to_E_Rinh * K_ES_to_E_S)",
         ))
     end
 
@@ -1195,7 +1196,8 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
             expected_factored_denom=
-            "1 + P / K_EP_to_E_P + S / K_ES_to_E_S + R * S / (K_ERinhS_to_ES_Rinh * K_ES_to_E_S)",
+            "1 + P / K_EP_to_E_P + S / K_ES_to_E_S" *
+            " + R * S / (K_ERinhS_to_ES_Rinh * K_ES_to_E_S)",
         ))
     end
 
@@ -1429,7 +1431,8 @@ function build_mechanism_test_specs()
             "(k_A_ES_to_EP * S / K_A_ES_to_E_S - k_A_EP_to_ES * P / K_A_EP_to_E_P) * (1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S)" *
             " + L * (S * k_I_ES_to_EP / K_I_ES_to_E_S - P * k_I_EP_to_ES / K_I_EP_to_E_P) * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S)",
             expected_factored_denom=
-            "(1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) ^ 2 + L * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) ^ 2",
+            "(1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) ^ 2" *
+            " + L * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) ^ 2",
         ))
     end
 
@@ -1603,7 +1606,8 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
             expected_factored_denom=
-            "1 + I1 / K_EI1inh_to_E_I1inh + I2 / K_EI2inh_to_E_I2inh + P / K_EP_to_E_P + S / K_ES_to_E_S",
+            "1 + I1 / K_EI1inh_to_E_I1inh + I2 / K_EI2inh_to_E_I2inh + P / K_EP_to_E_P" *
+            " + S / K_ES_to_E_S",
         ))
     end
 
@@ -1777,7 +1781,8 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
             expected_factored_denom=
-            "1 + I2 / K_EI2inh_to_E_I2inh + P / K_EP_to_E_P + S / K_ES_to_E_S + I1 * S / (K_EI1inhS_to_ES_I1inh * K_ES_to_E_S)",
+            "1 + I2 / K_EI2inh_to_E_I2inh + P / K_EP_to_E_P + S / K_ES_to_E_S" *
+            " + I1 * S / (K_EI1inhS_to_ES_I1inh * K_ES_to_E_S)",
         ))
     end
 
