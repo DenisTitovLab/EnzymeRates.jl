@@ -443,10 +443,12 @@ the class counts and estimates in this section are for R4 only.
 - **Duplicate-inhibitor rule**: a dead-end copy of a substrate or product must create a new
   complex, judged by composition and by (RE segment, net uptake), on every child (or the split move
   must not split copy groups).
-- **To decide**: whether the split move drops a bipartition that leaves an SS part without a
-  flux-carrying step or emits its RE-reverted form; required S or P inhibitors in uni-uni, which
-  have no identifiable placement in today's unmerged topology; whether to keep tie-only duplicate
-  children.
+- **Designed** (2026-09-30): `2026-09-30-exact-filters-design.md`. Denis's decisions on the open
+  points: a split part with no flux-carrying step is reverted to RE, with the gain test on the
+  reverted child; the flux test runs on the A-state projection, because a step's RE/SS type is
+  shared by both conformations; the plain copy rule with both keys, which drops the tie-only
+  children; `seed_mechanisms` errors when no mechanism binds every required regulator, which is
+  what a required S or P inhibitor in uni-uni now produces.
 
 ### C. Merged and Theorell–Chance seeds; canonical merges
 
