@@ -220,12 +220,10 @@ function _thermodynamic_constraints(mech::Mechanism)
         nu_net[met_idx[nm]] += 1
     end
 
-    """
-    Classify each null-space cycle as Haldane (proportional to the
-    net reaction → contributes log(Keq)) or Wegscheider (closed
-    cycle, zero net change). Errors on cycles that touch metabolites
-    but aren't proportional to the net reaction.
-    """
+    # Classify each null-space cycle as Haldane (proportional to the
+    # net reaction → contributes log(Keq)) or Wegscheider (closed
+    # cycle, zero net change). Errors on cycles that touch metabolites
+    # but aren't proportional to the net reaction.
     function classify_cycle(nu_cycle, i)
         all(nu_cycle .== 0) && return 0
         c = nothing

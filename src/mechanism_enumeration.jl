@@ -223,7 +223,7 @@ function _release_products!(
     pingpong_intermediate::Bool,
     steps::Vector{Step},
 )
-    """Generate all release orderings of products."""
+    # Generate all release orderings of products
     function _release_recurse!(
         cur::Species,
         unreleased::Vector{Symbol},
@@ -319,21 +319,19 @@ function _catalytic_topologies(
     # Collect all complete catalytic paths as Step lists
     all_paths = Vector{Vector{Step}}()
 
-    """
-    Backtracking state:
-    - cur_species: current enzyme form as a `Species`
-    - acc_atoms: atoms currently on the enzyme
-    - consumed_subs: substrates consumed so far (history)
-    - released_prods: products released so far (history)
-    - on_enzyme_subs: substrates currently bound
-    - on_enzyme_prods: products currently bound
-        (post-final-isomerize)
-    - pingpong_intermediate: enzyme is in a ping-pong
-        covalent-intermediate state (carries a residual)
-    - post_final: in product-release phase after final
-        isomerization
-    - steps: path of Step accumulated so far
-    """
+    # Backtracking state:
+    # - cur_species: current enzyme form as a `Species`
+    # - acc_atoms: atoms currently on the enzyme
+    # - consumed_subs: substrates consumed so far (history)
+    # - released_prods: products released so far (history)
+    # - on_enzyme_subs: substrates currently bound
+    # - on_enzyme_prods: products currently bound
+    #     (post-final-isomerize)
+    # - pingpong_intermediate: enzyme is in a ping-pong
+    #     covalent-intermediate state (carries a residual)
+    # - post_final: in product-release phase after final
+    #     isomerization
+    # - steps: path of Step accumulated so far
     function backtrack!(
         cur_species::Species,
         acc_atoms::Dict{Symbol,Int},
@@ -2573,12 +2571,10 @@ function seed_mechanisms(rxn::EnzymeReaction, required_allo::Set{Symbol},
                          required_comp::Set{Symbol})
     visited = Set{UInt64}()
     seeds = Union{Mechanism, AllostericMechanism}[]
-    """
-    Dedup + collect on the main node. Returns true when `m` is new, so the
-    caller advances only genuinely-new nodes to the next wave. Called in
-    frontier order, which equals the serial BFS enqueue order, so `visited`
-    and `seeds` end byte-identical to the FIFO version.
-    """
+    # Dedup + collect on the main node. Returns true when `m` is new, so the
+    # caller advances only genuinely-new nodes to the next wave. Called in
+    # frontier order, which equals the serial BFS enqueue order, so `visited`
+    # and `seeds` end byte-identical to the FIFO version.
     consider!(m) = begin
         h = hash(m)
         h in visited && return false
