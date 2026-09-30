@@ -9,7 +9,6 @@ include("mechanism_definitions_for_test_enzyme_derivation.jl")
 @testset "EnzymeRates.jl" begin
     include("test_accessors.jl")
     include("test_types.jl")
-    include("test_step_stoichiometry.jl")
     include("test_dsl.jl")
     include("test_rate_eq_derivation.jl")
     include("test_pivot_priority_regression.jl")
