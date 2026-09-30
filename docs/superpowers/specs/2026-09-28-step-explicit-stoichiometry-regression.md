@@ -163,3 +163,39 @@ Every enumerated mechanism compared keeps its fitted names, both rate equations,
 and its place in the enumeration, except two R5 mechanisms whose baseline law was wrong. The
 same holds, with no exception, for the 2,000 enumerated allosteric mechanisms derived. The
 fixtures with fused steps change only their parameter names. Derivation is not slower.
+
+## Parameter names by reaction
+
+Date: 2026-09-30. Commit 7069a83 names every step constant by its reaction (design §5, Denis,
+2026-09-29). The check below shows that it changes names and nothing else.
+
+Method. A scratch script re-derived, on 7069a83, the mechanisms of the comparison run above
+(same reactions, moves, levels and R6 sample) and matched them to that run's records by the
+step key. For each mechanism it built the old-to-new map from the mechanism's `Parameter`
+objects, rendering each with the current `name(p, m)` and with the renderer of 0c65124. It
+then required that the mapped old fitted set equal the new one exactly, and that the old and new
+Reduced strings, evaluated by a small expression interpreter at two random points with values
+shared through the map, agree to a relative 1e-10. A second script compared 649 enumerated
+allosteric mechanisms the same way against the code of 0c65124 run from a worktree: seeds plus
+one or two expansion levels of four uni-uni reactions with one or two allosteric regulators, a
+regulator with a competitive inhibitor, and typed regulators, covering all four allosteric
+states.
+
+| Set | Compared | fitted | numeric | step keys | error | Worst relative difference |
+|---|---|---|---|---|---|---|
+| R1–R3 | 22 | 0 | 0 | 0 | 0 | 2.5e-16 |
+| R4 | 1,819 | 0 | 0 | 0 | 0 | 3.5e-13 |
+| R5 | 4,715 | 0 | 0 | 0 | 0 | 6.4e-12 |
+| R6 | 6,000 | 0 | 0 | 0 | 0 | 1.7e-13 |
+| Specs | 42 | 0 | 0 | 0 | 0 | 3.3e-15 |
+| Allosteric | 649 | 0 | 0 | — | 0 | 5.6e-15 |
+
+The step-key sets per level equal the comparison run's, so the enumeration is unchanged. The
+largest differences are roundoff: re-evaluated in BigFloat at 200 more points they agree to about
+1e-152. Swapping two mapped names makes the check fail on 12,595 of the 12,598 non-allosteric
+mechanisms (the other three are symmetric in the two swapped constants) and on all 649 allosteric
+ones, so it can detect a wrong map. The Theorell–Chance spec postdates the comparison run and was
+not compared.
+
+Conclusion: the rule renames constants. Every compared mechanism keeps its fitted set under the
+map, its rate law and its place in the enumeration.
