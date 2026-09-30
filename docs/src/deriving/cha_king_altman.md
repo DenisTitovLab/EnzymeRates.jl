@@ -24,7 +24,7 @@ ties broken toward no covalent residual and then by name.
 Every other form in the segment gets an alpha factor — its relative abundance
 expressed as a ratio to the root.
 Referencing to the free-enzyme form is what produces the readable
-`1 + S / K_S_E + P / K_P_E` denominator in the final equation.
+`1 + S / K_ES_to_E_S + P / K_EP_to_E_P` denominator in the final equation.
 
 
 **Across segments**, the SS steps form an inter-segment rate matrix.

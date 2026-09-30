@@ -60,9 +60,9 @@ turnover basis.
 
 `rescale_parameter_values(mechanism, params; scale_k_to_kcat)` is the public
 API for kcat normalization. It rescales only the rate constants — the
-lowercase-`k` parameters (`kon_…`, `koff_…`, and the steady-state
-interconversion `k_…`) — while leaving the binding constants `K`, `Keq`,
-`E_total`, the allosteric `L`, and regulatory K values unchanged.
+lowercase-`k` parameters every steady-state step contributes, in both
+directions (`k_<from>_to_<to>`) — while leaving the binding constants `K`,
+`Keq`, `E_total`, the allosteric `L`, and regulatory K values unchanged.
 
 The rate constants are the only parameters that carry time in their units, and
 the measured rate is the only thing that supplies a time scale, so it can pin
@@ -72,9 +72,9 @@ time dimension, so the rate constrains them only as far as the response shape
 already does. Multiplying every rate constant by a common factor scales kcat by
 that factor (kcat is homogeneous of degree one in them), and the K's stay put: a
 rapid-equilibrium step stores its binding constant directly, so the rescaling
-never touches it, while a steady-state binding constant is the ratio `koff/kon`,
-in which the common factor cancels. One uniform rescaling therefore sets kcat to
-any target while leaving every other parameter fixed.
+never touches it, while a steady-state binding constant is the ratio of its two
+rate constants, in which the common factor cancels. One uniform rescaling
+therefore sets kcat to any target while leaving every other parameter fixed.
 
 `fit_rate_equation` calls this function internally in relative mode. You can
 also call it directly on any parameter `NamedTuple` to renormalize after the
@@ -92,15 +92,15 @@ uni_uni = @enzyme_mechanism begin
     end
 end
 
-# These params have kcat = 3.0 (k_ES_to_E is the bottleneck)
-params = (k_ES_to_E = 3.0, k_E_to_ES = 6.0, kon_S_E = 4.0, Keq = 2.0, E_total = 1.0)
+# These params have kcat = 3.0 (k_ES_to_E_P is the bottleneck)
+params = (k_ES_to_E_P = 3.0, k_E_P_to_ES = 6.0, k_E_S_to_ES = 4.0, Keq = 2.0, E_total = 1.0)
 
 rescaled = rescale_parameter_values(uni_uni, params; scale_k_to_kcat = 1.0)
 rescaled
 ```
 
-Notice that only the rate constants changed (`k_ES_to_E`, `k_E_to_ES`,
-`kon_S_E`); `Keq` and `E_total` are unchanged. Calling
+Notice that only the rate constants changed (`k_ES_to_E_P`, `k_E_P_to_ES`,
+`k_E_S_to_ES`); `Keq` and `E_total` are unchanged. Calling
 `rescale_parameter_values` again on `rescaled` with `scale_k_to_kcat = 1.0`
 returns the same values — the internal kcat computation on `rescaled` gives
 ≈ 1.

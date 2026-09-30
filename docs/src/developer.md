@@ -59,13 +59,14 @@ binding consumes one metabolite that `to_species` then carries
 (`bound_metabolite`); an isomerization has both lists empty (`is_iso`); every
 other step, such as fused chemistry and release, a Theorell–Chance step, or
 several metabolites on one side, is a transformation, and its constants are
-named by its two forms (`k_EAB_to_EQ`). Like the singleton types, these are
-canonicalized so that the order or direction in which steps are written does
-not change the resulting mechanism. The `Step` constructor stores a pure
-binding with its metabolite consumed; the `Mechanism` and `AllostericMechanism`
-constructors orient every other step (`_canonical_step_direction`), sort steps
-and groups, and reject steps in different kinetic groups that would render the
-same parameter names.
+named by its two sides — each side's enzyme form followed by its free
+metabolites (`k_EA_B_to_EQ_P` for `E(A) + B <--> E(Q) + P`). Like the singleton
+types, these are canonicalized so that the order or direction in which steps
+are written does not change the resulting mechanism. The `Step` constructor
+stores a pure binding with its metabolite consumed; the `Mechanism` and
+`AllostericMechanism` constructors orient every other step
+(`_canonical_step_direction`), sort steps and groups, and reject a reaction —
+the pair of a step's two sides — that belongs to more than one kinetic group.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see

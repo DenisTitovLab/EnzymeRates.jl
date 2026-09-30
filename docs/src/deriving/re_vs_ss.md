@@ -16,24 +16,27 @@ The distinction is stored on each `Step` as the `is_equilibrium` field.
 
 
 - An **RE binding step** contributes one parameter: a dissociation constant
-  `Kd`, rendered as `K_<metabolite>_<form>` (for example, `K_S_E`).
-- An **RE isomerization step** contributes one parameter: an isomerization
-  constant `Kiso`, rendered as `Kiso_<from>_to_<to>` (for example,
-  `Kiso_ES_to_EP`).
-- An **SS binding step** contributes two rate constants: `kon_<met>_<form>`
-  and `koff_<met>_<form>`.
+  `Kd`, named in the release direction — the bound side to the free side —
+  as `K_<bound>_to_<free>` (for example, `K_ES_to_E_S`).
+- An **RE isomerization step** contributes one parameter: an equilibrium
+  constant, named in the canonical direction as `K_<from>_to_<to>` (for
+  example, `K_ES_to_EP`).
+- An **SS binding step** contributes two rate constants, one per direction:
+  `k_<free>_to_<bound>` and `k_<bound>_to_<free>` (for example,
+  `k_E_S_to_ES` and `k_ES_to_E_S`).
 - An **SS isomerization step** contributes two directed rate constants:
   `k_<from>_to_<to>` and `k_<to>_to_<from>`.
 - Every other step — fused chemistry and release (`E(A, B) <--> E(Q) + P`), a
   Theorell–Chance step (`E(A) + B <--> E(Q) + P`), or several metabolites on
-  one side — is named by its two forms, as an isomerization is. The
-  mechanism, not the order the step is written in, decides which form is
-  `<from>` (the side carrying more substrate or, failing that, less
-  product; on a tie, the metabolites the mechanism's steps exchange at each
-  form, and failing that the form whose name sorts first), so writing the
-  step backwards gives the same names. At rapid equilibrium such a step's
-  `Kiso` can carry concentration units: the fused release above has
-  `Kiso` = [EQ]·[P]/[EAB], a concentration.
+  one side — is named by its two sides, as an isomerization is. A side is a
+  step's enzyme form followed by its free metabolites. The mechanism, not the
+  order the step is written in, decides which side is `<from>` (the side
+  carrying more substrate or, failing that, less product; on a tie, the
+  metabolites the mechanism's steps exchange at each form, and failing that
+  the form whose name sorts first), so writing the step backwards gives the
+  same names. At rapid equilibrium such a step's equilibrium constant can
+  carry concentration units: the fused release above has
+  `K_EAB_to_EQ_P` = [EQ]·[P]/[EAB], a concentration.
 
 ## A concrete comparison
 
@@ -83,7 +86,7 @@ parameters(ss)
 ```
 
 Nine parameters — each binding step trades its single `K` for an independent
-`kon`/`koff` pair — and the rate law is far larger:
+forward/reverse rate-constant pair — and the rate law is far larger:
 
 ```@example revss
 print(rate_equation_string(ss))
@@ -113,4 +116,4 @@ When it does not hold, the full on/off pair is needed.
 The [The Cha / King–Altman algorithm](@ref) solves the full Cha steady state
 regardless of whether individual steps are RE or SS; RE steps simply factor
 out of the rate matrix as pre-equilibrium segments, giving the familiar
-`K_met_form` notation in the denominator.
+`K_ES_to_E_S`-style notation in the denominator.

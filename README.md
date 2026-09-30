@@ -42,7 +42,7 @@ end
 parameters(m)                              # parameter names to supply
 print(rate_equation_string(m))             # the symbolic rate equation
 rate_equation(m, (S=1e-4, P=1e-5),        # evaluate numerically
-    (K_P_E=1e-5, K_S_E=1e-4, k_ES_to_EP=100.0, Keq=2.0, E_total=1.0))
+    (K_EP_to_E_P=1e-5, K_ES_to_E_S=1e-4, k_ES_to_EP=100.0, Keq=2.0, E_total=1.0))
 ```
 
 Or identify the best mechanism directly from measured rates. Provide a data

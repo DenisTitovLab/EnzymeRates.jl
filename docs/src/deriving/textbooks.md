@@ -40,11 +40,11 @@ Call `print` to display it without escaped newlines:
 
 ```jldoctest textbook
 julia> print(rate_equation_string(m))
-(; K_P_E, K_S_E, k_ES_to_EP, Keq, E_total) = params
+(; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP, Keq, E_total) = params
 (; S, P) = concs
 # Haldane constraints:
-k_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_ES_to_EP
-v = E_total * (k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E) / (1 + P / K_P_E + S / K_S_E)
+k_EP_to_ES = (1 / Keq) * K_EP_to_E_P * (1 / K_ES_to_E_S) * k_ES_to_EP
+v = E_total * (k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P) / (1 + P / K_EP_to_E_P + S / K_ES_to_E_S)
 ```
 
 The default mode is `Reduced`.
@@ -62,12 +62,12 @@ In `Reduced` mode the string has four sections:
 
 | Package symbol | Role | Units |
 |:---|:---|:---|
-| `K_S_E` | Dissociation constant of substrate `S` from the `E`–`S` complex. For a one-substrate, one-product Michaelis–Menten enzyme it is analogous to the Michaelis constant `Km` under the rapid-equilibrium approximation, but it is not the same as `Km` for more complex mechanisms. | M |
-| `K_P_E` | Dissociation constant of product `P` from the `E`–`P` complex. | M |
+| `K_ES_to_E_S` | Dissociation constant of substrate `S` from the `E`–`S` complex. For a one-substrate, one-product Michaelis–Menten enzyme it is analogous to the Michaelis constant `Km` under the rapid-equilibrium approximation, but it is not the same as `Km` for more complex mechanisms. | M |
+| `K_EP_to_E_P` | Dissociation constant of product `P` from the `E`–`P` complex. | M |
 | `k_ES_to_EP` | Rate of conversion of enzyme species `ES` to enzyme species `EP`. | 1/s |
 | `k_EP_to_ES` | Rate of the reverse conversion, `EP` to `ES`. | 1/s |
-| `kon_S_E` | Rate constant for binding of `S` to `E`. | 1/(s·M) |
-| `koff_S_E` | Rate of dissociation of `S` from the `E`–`S` complex. | 1/s |
+| `k_E_S_to_ES` | Rate constant for binding of `S` to `E`. | 1/(s·M) |
+| `k_ES_to_E_S` | Rate of dissociation of `S` from the `E`–`S` complex. | 1/s |
 | `Keq` | Equilibrium constant of the overall reaction; always user-supplied. | unitless |
 | `E_total` | Active-site (protomer) concentration. For a monomer this equals the total enzyme concentration; for an allosteric enzyme with `N` catalytic subunits it is `N` × the oligomer concentration, so allosteric `kcat` is reported per active site. | M |
 

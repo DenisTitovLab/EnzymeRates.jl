@@ -21,7 +21,7 @@ catalytic rate is fixed by `Keq`, the two binding constants, and the forward
 rate:
 
 ```
-k_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_ES_to_EP
+k_EP_to_ES = (1 / Keq) * K_EP_to_E_P * (1 / K_ES_to_E_S) * k_ES_to_EP
 ```
 
 A **Wegscheider constraint** comes from a cycle that closes on itself with zero
@@ -33,7 +33,7 @@ consistently. For a random-order mechanism in which substrates `A` and `B` can
 bind in either order, the four binding constants are tied:
 
 ```
-K_A_E * K_B_EA = K_B_E * K_A_EB
+K_EA_to_E_A * K_EAB_to_EA_B = K_EB_to_E_B * K_EAB_to_EB_A
 ```
 
 ## How the constraints are found
@@ -59,7 +59,7 @@ keep and which to express in terms of the others by a fixed priority, designed t
 keep the **biochemically meaningful** parameters independent:
 
 1. **Free-enzyme binding constants** — the affinity of a substrate or product for
-   the free enzyme, such as `K_S_E` — are kept independent whenever possible.
+   the free enzyme, such as `K_ES_to_E_S` — are kept independent whenever possible.
    These are the quantities an experimentalist measures and reports.
 2. Binding steps on already-occupied enzyme forms are eliminated next, when a
    cycle needs them.

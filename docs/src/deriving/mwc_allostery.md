@@ -56,13 +56,13 @@ controls how its A- and I-state symbols are rendered:
 
 | Tag | Meaning | Example symbol |
 |-----|---------|----------------|
-| `:EqualAI` | One shared symbol for both states | `K_S_E` |
+| `:EqualAI` | One shared symbol for both states | `K_ES_to_E_S` |
 | `:NonequalAI` | Independent A and I symbols | `k_A_ES_to_EP`, `k_I_ES_to_EP` |
 | `:OnlyA` | Present in the active state only; zeroed in the inactive polynomial | `K_A_Areg` |
 | `:OnlyI` | Present in the inactive state only; zeroed in the active polynomial | `K_I_Ireg` |
 
-In the example the two binding steps are `:EqualAI`, so they share `K_S_E` and
-`K_P_E` with no A/I token; the isomerization step is `:NonequalAI`, giving
+In the example the two binding steps are `:EqualAI`, so they share `K_ES_to_E_S`
+and `K_EP_to_E_P` with no A/I token; the isomerization step is `:NonequalAI`, giving
 independent `k_A_ES_to_EP` and `k_I_ES_to_EP`; the activator `A` is `:OnlyA`
 (`K_A_Areg`, active state only) and the inhibitor `I` is `:OnlyI` (`K_I_Ireg`,
 inactive state only). `L` is the free-enzyme coupling constant. A catalytic step
@@ -172,7 +172,7 @@ end
 print(rate_equation_string(collapse))
 ```
 
-The equation reports `K_I_S_E = K_A_S_E`. The Haldane relation fixes `Keq` from
+The equation reports `K_I_ES_to_E_S = K_A_ES_to_E_S`. The Haldane relation fixes `Keq` from
 the catalytic rate constants and the two affinities in each conformation; with
 catalysis, product release, and `Keq` all shared, the substrate affinity is
 pinned as well. The tag asked for a difference thermodynamics forbids, so the
@@ -199,7 +199,8 @@ end
 print(rate_equation_string(coupled))
 ```
 
-Now `K_I_P_E = K_A_P_E · K_I_S_E / K_A_S_E`, i.e. `K_P^I / K_S^I = K_P^A / K_S^A`:
+Now `K_I_EP_to_E_P = K_A_EP_to_E_P · K_I_ES_to_E_S / K_A_ES_to_E_S`, i.e.
+`K_P^I / K_S^I = K_P^A / K_S^A`:
 the affinities differ freely as long as they differ *together*, holding their
 ratio fixed. This is the thermodynamically consistent form of a **K-system**, and
 it needs two coupled `:NonequalAI` bindings, not one.
@@ -216,13 +217,13 @@ The exception is a balanced K-system. When `:OnlyA` binds both a substrate and a
 product, the two `K_I → ∞` limits cancel in the Haldane relation: the affinities
 diverge together and their ratio stays free, so `:EqualAI` catalysis is legal.
 
-A steady-state binding splits the constraint further, carrying an affinity
-(`kon/koff`) the cycles constrain and a speed (`kon·koff`) they do not: a
-forbidden affinity collapses while the speed stays free, so the two conformations
-bind with the same `Kd` but different kinetics. Tagging the substrate binding
-steady-state and `:NonequalAI` derives its reverse rate
-(`koff_I_S_E = koff_A_S_E · kon_I_S_E / kon_A_S_E`) and leaves the forward rate a
-free parameter:
+A steady-state binding splits the constraint further, carrying an affinity (a
+ratio of its two rate constants) the cycles constrain and a speed (their
+product) they do not: a forbidden affinity collapses while the speed stays
+free, so the two conformations bind with the same `Kd` but different kinetics.
+Tagging the substrate binding steady-state and `:NonequalAI` derives its
+reverse rate (`k_I_ES_to_E_S = k_A_ES_to_E_S · k_I_E_S_to_ES / k_A_E_S_to_ES`)
+and leaves the forward rate a free parameter:
 
 ```@example mwc
 ss = @allosteric_mechanism begin

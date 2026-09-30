@@ -417,9 +417,12 @@ the class counts and estimates in this section are for R4 only.
 - **Derivation**: reads the lists and ignores orientation. `_step_sides` is deleted; one RE
   weight rule replaces two; v is the net consumption of the first substrate, summed over the SS
   steps, which replaces the cut search.
-- **Names**: pure bindings keep `K_`, `kon_` and `koff_`; every other step is named by form pair
-  (`k_EA_to_EQ`, `Kiso_EA_to_EQ`). The `Mechanism` constructor rejects two kinetic groups with the
-  same rendered name.
+- **Names** (Denis, 2026-09-29): every step's constants are named after its two sides — an enzyme
+  form followed by its free metabolites, joined by `_`. An SS step gives `k_X_to_Y` (forward) and
+  `k_Y_to_X` (reverse); an RE step gives one equilibrium constant `K_X_to_Y`, named in the release
+  direction for a pure binding (`K_ES_to_E_S`, a dissociation constant) and in the canonical
+  direction otherwise (`K_EAB_to_EQ_P`). The `Mechanism` constructor rejects a reaction — the pair
+  of a step's two sides — that appears in more than one kinetic group.
 - **DSL**: any number of metabolites on either side of a step.
 - **Enumeration code**: mechanical changes only; fused parents stay out of `expand_mechanisms`
   until C.

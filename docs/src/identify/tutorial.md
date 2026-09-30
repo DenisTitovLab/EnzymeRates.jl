@@ -53,11 +53,11 @@ println("fitted params: ", EnzymeRates.fitted_params(generator))
 println("metabolites:   ", metabolites(generator))
 ```
 
-The mechanism has five independent parameters: the binding constants `K_S_E`
-and `K_P_E` (shared by both conformations, `:EqualAI`), the active-state
-catalytic constant `k_A_ES_to_EP` (`:OnlyA`), the activator binding constant
-`K_A_Areg`, and the conformational equilibrium `L = [T]/[R]`. `Keq` is
-user-supplied and `E_total` is absorbed into the rate scale.
+The mechanism has five independent parameters: the binding constants
+`K_ES_to_E_S` and `K_EP_to_E_P` (shared by both conformations, `:EqualAI`),
+the active-state catalytic constant `k_A_ES_to_EP` (`:OnlyA`), the activator
+binding constant `K_A_Areg`, and the conformational equilibrium `L = [T]/[R]`.
+`Keq` is user-supplied and `E_total` is absorbed into the rate scale.
 [Mechanisms with allosteric regulators](@ref) covers the allosteric-state tags
 and the partition-function structure.
 
@@ -76,7 +76,7 @@ rate of exactly zero has no logarithm, and the loss works in log space.
 
 ```@example identify_fast
 Keq = 10.0
-true_params = (K_S_E = 1.0, K_P_E = 1.0, k_A_ES_to_EP = 5.0,
+true_params = (K_ES_to_E_S = 1.0, K_EP_to_E_P = 1.0, k_A_ES_to_EP = 5.0,
                K_A_Areg = 1.0, L = 100.0, Keq = Keq, E_total = 1.0)
 
 concs = [(S = s, P = p, A = a)

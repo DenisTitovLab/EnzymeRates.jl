@@ -142,18 +142,22 @@ which constant is called forward.
 
 ### 5. Parameters and names
 
-- Pure bindings keep `Kd` / `Kon` / `Koff`, rendered as today: `K_M_F`, `kon_M_F`, `koff_M_F`,
-  with the `inh` marker for a competitive-inhibitor copy.
-- Every other step uses `Kiso` / `Kfor` / `Krev`, named by form pair: `Kiso_F1_to_F2`,
-  `k_F1_to_F2`, `k_F2_to_F1`, with F1 the canonical `from` (Denis, 2026-09-28). A transformation's
-  `Kiso` can carry concentration units. `rescale_parameter_values` classifies constants by
-  parameter type and scales every SS rate constant alike, so it is unaffected.
-- The `Mechanism` and `AllostericMechanism` constructors reject two steps in different kinetic
-  groups that would render the same parameter names: the same metabolite (or the same
-  competitive-inhibitor copy) bound to the same form, or the same two forms joined in either
-  direction (`_assert_unique_parameter_names`). The check covers every step, not only group
-  representatives, and its error names both steps. Without it such a collision would silently
-  tie two constants.
+- A step's constants are named after its two sides — a side is its enzyme form followed by its
+  free metabolites, joined by `_`, with the `inh` marker for a competitive-inhibitor copy (Denis,
+  2026-09-29). An SS step with canonical orientation `X → Y` gets `k_X_to_Y` (forward) and
+  `k_Y_to_X` (reverse); a binding `E + S <--> E(S)` gives `k_E_S_to_ES` and `k_ES_to_E_S`. An RE
+  step gets one constant, `K_X_to_Y`, the equilibrium constant of `X → Y`: a pure binding is named
+  in the release direction (`K_ES_to_E_S` = [E][S]/[ES], a dissociation constant), every other RE
+  step in the canonical direction (`K_ES_to_EP`; `K_EAB_to_EQ_P`). The allosteric state tag sits
+  right after the prefix (`K_A_ES_to_E_S`, `k_I_E_S_to_ES`); `K_<tag><ligand>reg`, `Keq`,
+  `E_total`, and `L` are unchanged. A transformation's `K` can carry concentration units.
+  `rescale_parameter_values` classifies constants by parameter type and scales every SS rate
+  constant alike, so it is unaffected.
+- The `Mechanism` and `AllostericMechanism` constructors reject a reaction — the pair of a step's
+  two sides — that appears in more than one kinetic group (`_assert_one_group_per_reaction`); with
+  `_assert_uniform_groups` in place this also covers a reaction written both RE and SS. The check
+  covers every step, not only group representatives, and its error names both groups. Without it
+  such a collision would silently tie two constants.
 - The structural heuristics that pick group representatives and Haldane pivots
   (`_free_enz_set`, `_step_priority`, `_group_rep`) read the lists: a step with free
   metabolites plays the part today's metabolite steps play, and a step that consumes a
