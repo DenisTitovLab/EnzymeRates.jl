@@ -1656,16 +1656,42 @@ step of the split groups: a tie needs an RE cycle through the carve, and every
 group on that cycle lies in that segment. The count is evaluated without building the child
 for a `Mechanism` (`_partition_independent_count`, cycle basis once per parent)
 and by the combined state solve on the built child for an `AllostericMechanism`.
+A part of a steady-state group none of whose steps carries flux
+(`_flux_carrying_steps`, computed once on the parent, since a split moves no edge)
+is emitted at rapid equilibrium (`_revert_zero_flux_parts`): its two constants
+would enter the rate only as their ratio, and the rapid-equilibrium part is the
+same family with one constant fewer; the gain test counts the reverted part under
+its new kind, so a reverted constant the Wegscheider ties pull back is absorbed
+like any tied split, and a candidate whose reverted groups leave a rapid-equilibrium
+segment without a bottom form counts as failed. A bipartition of a
+competitive-inhibitor group in which one part binds only at twin sites
+(`_copy_twin_test`, judged in every conformational state where the copy binds) is
+not a unit: that part's constant would be invisible beside the existing bindings,
+and every superset of the unit recreates it.
 The reaction and (for allosteric) multiplicity and regulatory sites are
 preserved; both parts of a split group inherit its catalytic allo-state tag.
 """
 function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
     groups = steps(m)
-    units = [(g, bp) for g in kinetic_groups(m)
-             for bp in _context_bipartitions(groups[g])]
+    flux = _flux_carrying_steps(groups, reaction(m))
+    twin = _copy_twin_test(m)
+    tag(g) = m isa AllostericMechanism ? cat_allo_states(m)[g] : :EqualAI
+    duplicate_only(part, g) = bound_metabolite(first(part)) isa CompetitiveInhibitor &&
+        all(s -> twin(from_species(s), bound_metabolite(s)::Metabolite, tag(g)), part)
+    units = Tuple{Int, Tuple{Vector{Step}, Vector{Step}}}[]
+    reverted = Bool[]
+    for g in kinetic_groups(m), bp in _context_bipartitions(groups[g])
+        (duplicate_only(bp[1], g) || duplicate_only(bp[2], g)) && continue
+        parts = _revert_zero_flux_parts(groups[g], bp, flux[g])
+        push!(units, (g, parts)); push!(reverted, parts !== bp)
+    end
     isempty(units) && return typeof(m)[]
     selection(sel) = [units[u] for u in sel]
-    gains = _split_gain_test(m, units)
+    gain = _split_gain_test(m, units)
+    gains(sel) =
+        (!any(u -> reverted[u], sel) ||
+         _bottomless_re_segment(_bipartitioned_groups(groups, selection(sel))[1]) ===
+         nothing) && gain(sel)
     segments = _group_re_segments(m)
     partners(sel) = begin
         isempty(sel) && return 1:length(units)
@@ -1680,23 +1706,34 @@ function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
 end
 
 """Gain test for the split move: `sel -> Bool`, true when applying the selected
-units raises the independent-parameter count above the parent's."""
+units raises the independent-parameter count above the parent's. A unit's steps are
+matched to the parent's flat steps by reaction (forms and metabolite lists), since a
+reverted part carries the other flag; each step is counted under the kind it has in
+the child."""
 function _split_gain_test(m::Mechanism, units)
     counter = _partition_independent_count(m)
     flat = _flat_steps(m)
-    position = Dict(s => j for (j, (s, _)) in enumerate(flat))
+    reaction_key(s) = (from_species(s), to_species(s), consumed(s), released(s))
+    position = Dict(reaction_key(s) => j for (j, (s, _)) in enumerate(flat))
     parent_ids = [g for (_, g) in flat]
-    base = counter(parent_ids)
+    parent_kinds = [_count_kind(s) for (s, _) in flat]
+    base = counter(parent_ids, parent_kinds)
     function gains(sel)
         ids = copy(parent_ids)
+        kinds = copy(parent_kinds)
         next_id = length(steps(m))
         for u in sel
             next_id += 1
+            for s in units[u][2][1]
+                kinds[position[reaction_key(s)]] = _count_kind(s)
+            end
             for s in units[u][2][2]
-                ids[position[s]] = next_id
+                j = position[reaction_key(s)]
+                ids[j] = next_id
+                kinds[j] = _count_kind(s)
             end
         end
-        counter(ids) > base
+        counter(ids, kinds) > base
     end
     gains
 end
@@ -1792,6 +1829,24 @@ end
 function _apply_bipartitions(am::AllostericMechanism, selection)
     groups, origin = _bipartitioned_groups(steps(am), selection)
     _with_steps_and_cat_states(am, groups, cat_allo_states(am)[origin])
+end
+
+"""
+The bipartition `bp` of `group` with every part none of whose steps carries flux
+(`flags`, one per step of `group`) rebuilt at rapid equilibrium; `bp` itself when
+no part changes, and always for a rapid-equilibrium group. A steady-state group
+with no flux-carrying step exposes only the ratio of its constants, and its
+rapid-equilibrium form is the same family with one constant fewer, so the split
+emits that form instead of the raw part.
+"""
+function _revert_zero_flux_parts(group::Vector{Step}, bp, flags::BitVector)
+    is_equilibrium(first(group)) && return bp
+    carries = Dict(s => flags[j] for (j, s) in enumerate(group))
+    revert(part) = any(s -> carries[s], part) ? part :
+        Step[Step(from_species(s), to_species(s), consumed(s), released(s), true)
+             for s in part]
+    p1, p2 = revert(bp[1]), revert(bp[2])
+    p1 === bp[1] && p2 === bp[2] ? bp : (p1, p2)
 end
 
 """Groups of `groups` with each selected group replaced by its two parts, plus

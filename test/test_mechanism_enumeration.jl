@@ -2412,6 +2412,106 @@ end
                    EnzymeRates._independent_param_count(am), result)
 end
 
+@testset "Mechanism — a split part with no flux-carrying step is emitted at rapid equilibrium" begin
+    # Ordered bi-bi whose steady-state B group holds the catalytic binding
+    # E(A) + B and the abortive binding E(Q) + B. Splitting by context leaves
+    # E(Q) + B → E(B, Q) alone: E(B, Q) is a dead end, so the step is a pendant
+    # bridge of the segment graph and carries no flux. Its two constants would
+    # enter the rate only as their ratio, so the part is emitted at rapid
+    # equilibrium, one constant fewer than the raw split and the same family.
+    # E(B, Q) lies on no cycle, so the new constant raises the independent count: one
+    # child.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            (E(A) + B <--> E(A, B), E(Q) + B <--> E(B, Q))
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    reverted = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(A, B)
+            E(Q) + B ⇌ E(B, Q)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    raw = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(A, B)
+            E(Q) + B <--> E(B, Q)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    kids = EnzymeRates._expand_split_kinetic_group(m)
+    @test length(kids) == 1
+    @test Set(kids) == Set([reverted])
+    @test !(raw in kids)
+    @test EnzymeRates._independent_param_count(reverted) ==
+        EnzymeRates._independent_param_count(m) + 1
+    fitted(k) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(k)))
+    r_rev, r_raw = _testhelper_identifiable_rank(reverted), _testhelper_identifiable_rank(raw)
+    @test r_rev == r_raw                                          # the same family
+    @test fitted(reverted) == fitted(raw) - 1                     # one constant fewer
+    # Both children keep one phantom of another class: once the abortive step no
+    # longer pins kf_B/kr_B, E(A) + B → E(A, B) is a steady-state binding into a
+    # form with one exit, and its three constants enter the law through two
+    # combinations (the chain class sub-project C merges). The revert removes
+    # exactly the zero-flux phantom.
+    @test fitted(raw) - r_raw == fitted(reverted) - r_rev + 1
+end
+
+@testset "Mechanism — a bipartition that isolates twin-only copy sites is not a unit" begin
+    # Ordered bi-bi with B also bound as a competitive-inhibitor copy at E(A) and
+    # E(Q). E(A, B::Inh) has the composition of E(A, B); E(Q, B::Inh) is new, so
+    # the placement stands. Splitting the copy group by context would leave
+    # E(A) + B::Inh alone, a group that binds only where it duplicates a form,
+    # and the child would be its parent plus a phantom. Every other group holds
+    # one step, so the move emits nothing.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+            (E(A) + B::Inh ⇌ E(A, B::Inh), E(Q) + B::Inh ⇌ E(B::Inh, Q))
+        end
+    end)
+    @test isempty(EnzymeRates._expand_split_kinetic_group(m))
+    absent = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+            E(A) + B::Inh ⇌ E(A, B::Inh)
+            E(Q) + B::Inh ⇌ E(B::Inh, Q)
+        end
+    end)
+    @test EnzymeRates._independent_param_count(absent) ==
+        EnzymeRates._independent_param_count(m) + 1
+    @test _testhelper_identifiable_rank(absent) == _testhelper_identifiable_rank(m)
+end
+
 end
 
 # ─── _expand_add_dead_end_regulator ────────────────────────────────────
@@ -6801,6 +6901,49 @@ end
         end
     end
     @test checked > 100
+end
+
+@testset "_partition_independent_count counts a reverted part as its RE constant" begin
+    # The E(Q) + B step of the steady-state B group, relabelled into a new group
+    # and counted as a binding K, gives the count of the built child with that
+    # step at rapid equilibrium: the cycle basis does not depend on the flags.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            (E(A) + B <--> E(A, B), E(Q) + B <--> E(B, Q))
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    child = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(A, B)
+            E(Q) + B ⇌ E(B, Q)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    counter = EnzymeRates._partition_independent_count(m)
+    flat = EnzymeRates._flat_steps(m)
+    ids = [g for (_, g) in flat]
+    kinds = [EnzymeRates._count_kind(s) for (s, _) in flat]
+    j = only(j for (j, (s, _)) in enumerate(flat)
+             if EnzymeRates.name(EnzymeRates.from_species(s)) == :EQ &&
+                EnzymeRates.bound_metabolite(s) !== nothing &&
+                EnzymeRates.name(EnzymeRates.bound_metabolite(s)) == :B)
+    @test kinds[j] == :ss
+    base = counter(ids)
+    ids[j] = length(EnzymeRates.steps(m)) + 1
+    kinds[j] = :binding_K
+    @test counter(ids, kinds) == EnzymeRates._independent_param_count(child)
+    @test counter(ids, kinds) == base + 1
 end
 
 "Closure of `seed` under `gen`, by structural identity."

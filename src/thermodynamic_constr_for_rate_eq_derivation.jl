@@ -317,42 +317,52 @@ from the thermodynamic constraint solve without compiling the mechanism."""
 _independent_param_count(m::Union{Mechanism, AllostericMechanism}) =
     length(_dependent_param_exprs(m)[2])
 
+"""How a step's constants enter the constraint columns: `:ss` (a forward and a
+reverse rate), `:binding_K` (a dissociation constant, whose column carries a sign
+flip) or `:iso_K` (an equilibrium constant)."""
+_count_kind(s::Step) = is_equilibrium(s) ? (is_binding(s) ? :binding_K : :iso_K) : :ss
+
 """
     _partition_independent_count(parent::Mechanism) -> counter
 
-Return `counter(group_of_step)`, the independent-parameter count of the mechanism
-obtained by regrouping `parent`'s flat steps (in `_flat_steps` order) into the
-groups labelled by `group_of_step`. Regrouping moves no edges, so the cycle basis
-of the step graph (`_thermodynamic_constraints`) is the same for every
-regrouping and is computed once here; each call only merges step columns by
-group and takes the rank. Equals `_independent_param_count` of the constructed
-child: the kernel's independent set is the columns minus the pivots, and folding
-a single-symbol Wegscheider tie onto its target removes one column and one rank
-together, so the count is invariant to the rename. Column sign conventions match
-`_assemble_constraints`: a binding K enters with a sign flip, an iso K without,
-an SS step contributes `+kf` and `-kr`.
+Return `counter(group_of_step, kind_of_step = kinds of the parent's steps)`, the
+independent-parameter count of the mechanism obtained by regrouping `parent`'s
+flat steps (in `_flat_steps` order) into the groups labelled by `group_of_step`,
+each step counted under the constant kind `kind_of_step` gives it (`_count_kind`).
+Regrouping moves no edges and a flag changes none, so the cycle basis of the step
+graph (`_thermodynamic_constraints`) is the same for every call and is computed
+once here; each call only merges step columns by group and takes the rank. The
+split move passes a step's own kind, or `:binding_K`/`:iso_K` for a steady-state
+step it reverts to rapid equilibrium. Equals `_independent_param_count` of the
+constructed child: the kernel's independent set is the columns minus the pivots,
+and folding a single-symbol Wegscheider tie onto its target removes one column and
+one rank together, so the count is invariant to the rename. Column sign
+conventions match `_assemble_constraints`: a binding K enters with a sign flip, an
+iso K without, an SS step contributes `+kf` and `-kr`.
 """
 function _partition_independent_count(parent::Mechanism)
     C, _ = _thermodynamic_constraints(parent)
-    kinds = [is_equilibrium(s) ? (is_binding(s) ? :binding_K : :iso_K) : :ss
-             for (s, _) in _flat_steps(parent)]
-    function counter(group_of_step::AbstractVector{Int})
+    kinds = [_count_kind(s) for (s, _) in _flat_steps(parent)]
+    function counter(group_of_step::AbstractVector{Int},
+                     kind_of_step::AbstractVector{Symbol} = kinds)
         length(group_of_step) == length(kinds) ||
             error("group_of_step must label every flat step of the parent")
+        length(kind_of_step) == length(kinds) ||
+            error("kind_of_step must label every flat step of the parent")
         column = Dict{Tuple{Int, Int}, Int}()
         for (j, g) in enumerate(group_of_step)
             get!(column, (g, 1), length(column) + 1)
-            kinds[j] === :ss && get!(column, (g, 2), length(column) + 1)
+            kind_of_step[j] === :ss && get!(column, (g, 2), length(column) + 1)
         end
         A = zeros(Int, size(C, 1), length(column))
         for (j, g) in enumerate(group_of_step), i in axes(C, 1)
             c = C[i, j]
             c == 0 && continue
-            if kinds[j] === :ss
+            if kind_of_step[j] === :ss
                 A[i, column[(g, 1)]] += c
                 A[i, column[(g, 2)]] -= c
             else
-                A[i, column[(g, 1)]] += kinds[j] === :binding_K ? -c : c
+                A[i, column[(g, 1)]] += kind_of_step[j] === :binding_K ? -c : c
             end
         end
         length(column) - length(_rref_partition(A)[1])
