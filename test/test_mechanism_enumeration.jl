@@ -8266,6 +8266,84 @@ end
     @test EnzymeRates.expand_mechanisms([conf], rxn) isa Vector
 end
 
+@testset "expand_mechanisms rejects a parent with a zero-flux steady-state group" begin
+    # E + A and E + Q at steady state while E(Q) + A ⇌ E(A, Q) ⇌ E(A) + Q stays at
+    # rapid equilibrium: {E} joins the rest by two edges of weight 0, so neither
+    # group carries flux and their constants enter the rate only as ratios. The
+    # flip never emits this child; a hand-written parent is refused.
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+    end
+    shunt = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(Q) + A ⇌ E(A, Q)
+            E + Q <--> E(Q)
+            E(A) + Q ⇌ E(A, Q)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+        end
+    end)
+    err = try
+        EnzymeRates.expand_mechanisms([shunt], rxn); nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("carries net flux", err.msg)
+    @test occursin("E_A", err.msg) || occursin("E_Q", err.msg)
+end
+
+@testset "expand_mechanisms rejects a parent whose inhibitor copy binds only at twin sites" begin
+    # A bound as its own competitive inhibitor at E alone: E(A::Inh) has the
+    # composition of E(A), so the copy's constant enters the rate only added to
+    # K_A's. The dead-end move never emits this child; a hand-written parent is
+    # refused.
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        dead_end_inhibitors: A
+    end
+    twin_only = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+            E + A::Inh ⇌ E(A::Inh)
+        end
+    end)
+    err = try
+        EnzymeRates.expand_mechanisms([twin_only], rxn); nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("duplicates an existing form", err.msg)
+    # The same copy placed where it also creates a new complex is a valid parent.
+    kept = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))
+            (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+        end
+    end)
+    @test !isempty(EnzymeRates.expand_mechanisms([kept], rxn))
+    @test EnzymeRates._assert_emission_rules(kept) === nothing
+end
+
 @testset "_expand_add_dead_end_regulator: inhibitor mirrors one half-reaction" begin
     # The inhibitor binds the forms that bind a competing ligand, never a form
     # already carrying one, so a competing substrate's binding step is never
@@ -8879,6 +8957,36 @@ end
             @test !(:L in fp)
         end
     end
+end
+
+@testset "seed_mechanisms errors when no mechanism binds every required regulator" begin
+    # Uni-uni with S as its own competitive inhibitor: the only site that carries
+    # neither S nor P is free E, where the copy duplicates E(S). No seed exists,
+    # and the beam must say so rather than return nothing.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: S
+    end
+    err = try
+        EnzymeRates.seed_mechanisms(rxn, Set{Symbol}(), Set([:S])); nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("required regulator", err.msg)
+    @test occursin("competitive inhibitors: S", err.msg)
+    @test occursin("optional_competitive_inhibitors", err.msg)
+    # Bi-bi with A as its own inhibitor has placements that create a new complex.
+    bibi = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        dead_end_inhibitors: A
+    end
+    seeds = EnzymeRates.seed_mechanisms(bibi, Set{Symbol}(), Set([:A]))
+    @test !isempty(seeds)
+    @test all(m -> EnzymeRates._assert_emission_rules(m) === nothing, seeds)
+    @test all(m -> :A in EnzymeRates._bound_comp_inhibitors(m), seeds)
 end
 
 @testset "seed_mechanisms wave-parallel equivalence" begin

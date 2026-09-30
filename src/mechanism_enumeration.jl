@@ -172,6 +172,36 @@ function _assert_chemistry_is_iso(m::Union{Mechanism, AllostericMechanism})
 end
 
 """
+    _assert_emission_rules(m)
+
+The two rules every mechanism the moves emit satisfies, checked on a parent before
+it is expanded. Every steady-state kinetic group holds a step that carries net flux
+(`_flux_carrying_groups`): otherwise its two constants enter the rate only as their
+ratio. Every kinetic group that binds a competitive inhibitor binds it somewhere
+that creates a new complex (`_duplicate_copy_groups`): otherwise its constant is not
+separable from the existing binding's. The flip tests only the groups it flips and
+the split only the parts it makes, so a parent must already satisfy both; a move
+that emitted a violator fails here at the next expansion instead of propagating it.
+"""
+function _assert_emission_rules(m::Union{Mechanism, AllostericMechanism})
+    label(g) = join((join(_forward_sides(s), " → ") for s in steps(m)[g]), ", ")
+    flux = _flux_carrying_groups(m)
+    for (g, group) in enumerate(steps(m))
+        is_equilibrium(first(group)) || flux[g] || error(
+            "expand_mechanisms: steady-state kinetic group {" * label(g) * "} has no " *
+            "step that carries net flux, so its two constants enter the rate only as " *
+            "their ratio; write the group at rapid equilibrium")
+    end
+    for g in _duplicate_copy_groups(m)
+        error("expand_mechanisms: kinetic group {" * label(g) * "} binds a competitive " *
+              "inhibitor only where the complex duplicates an existing form, so its " *
+              "constant is not separable from the existing binding's; bind the " *
+              "inhibitor where it forms a new complex, or drop it")
+    end
+    nothing
+end
+
+"""
     _assert_atom_conserving(m::Mechanism)
     _assert_atom_conserving(am::AllostericMechanism)
 
@@ -2722,7 +2752,9 @@ Apply all expansion moves (RE→SS, split kinetic group, add dead-end
 regulator, to-allosteric, add allosteric regulator, change allo state,
 merge regulatory sites) to each input mechanism and return the children as
 a flat vector. Bucketing by parameter count is the caller's job, not
-enumeration's.
+enumeration's. Each parent must satisfy the two emission rules
+(`_assert_emission_rules`): every steady-state group carries flux and every
+competitive-inhibitor group creates a new complex.
 """
 function expand_mechanisms(
     mechs::Vector{<:Union{Mechanism, AllostericMechanism}},
@@ -2730,6 +2762,7 @@ function expand_mechanisms(
     result = Union{Mechanism, AllostericMechanism}[]
     for m in mechs
         _assert_chemistry_is_iso(m)
+        _assert_emission_rules(m)
         _add_expansions_mech!(result, m, rxn)
     end
     result = _filter_by_reg_type(result, rxn)
@@ -2811,7 +2844,10 @@ Returned deduped (each node is visited once). Explored as a wave-parallel BFS:
 each level's child generation is distributed via `pmap`, then deduped and
 folded back into the next frontier in frontier order — the same order the
 serial FIFO BFS would enqueue in — so the result is byte-identical to a serial
-traversal.
+traversal. Errors when no mechanism binds every required regulator, naming the
+regulators and the keywords that make one optional; the first case is a uni-uni
+reaction with its substrate or product declared as a competitive inhibitor, whose
+only placement duplicates an existing complex.
 """
 function seed_mechanisms(rxn::EnzymeReaction, required_allo::Set{Symbol},
                          required_comp::Set{Symbol})
@@ -2841,6 +2877,16 @@ function seed_mechanisms(rxn::EnzymeReaction, required_allo::Set{Symbol},
             consider!(c) && push!(next, c)
         end
         frontier = next
+    end
+    if isempty(seeds)
+        list(s) = isempty(s) ? "none" : join(sort!(collect(s)), ", ")
+        error("seed_mechanisms: no mechanism binds every required regulator " *
+              "(competitive inhibitors: " * list(required_comp) *
+              "; allosteric regulators: " * list(required_allo) * "). A substrate or " *
+              "product declared as a competitive inhibitor binds only where it forms " *
+              "a new complex, and a uni-uni mechanism has no such site. Mark a " *
+              "regulator optional with `optional_competitive_inhibitors` or " *
+              "`optional_allosteric_regulators`, or remove its declaration")
     end
     seeds
 end
