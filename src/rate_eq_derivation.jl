@@ -1591,7 +1591,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     reg_Q_A = Any[_reg_site_expr(am, i, false) for i in eachindex(RS)]
     reg_Q_I = Any[_reg_site_expr(am, i, true) for i in eachindex(RS)]
 
-    # Numerator: N × Q_cat^(CatN-1) × all reg-site factors at multiplicity.
+    """Numerator: N × Q_cat^(CatN-1) × all reg-site factors at multiplicity."""
     function make_num_term(N, Q, reg_Qs)
         factors = Any[N]
         CatN > 1 && push!(factors, _power_expr(Q, CatN - 1))
@@ -1601,7 +1601,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
         _nest_binary(:*, factors)
     end
 
-    # Denominator: Q_cat^CatN × all reg-site factors at multiplicity.
+    """Denominator: Q_cat^CatN × all reg-site factors at multiplicity."""
     function make_den_term(Q, reg_Qs)
         factors = Any[_power_expr(Q, CatN)]
         for i in eachindex(RS)

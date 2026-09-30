@@ -1,9 +1,11 @@
 # ABOUTME: Lightweight symbolic polynomial type (POLY = Dict{MONO, Rational{Int}})
 # ABOUTME: for compile-time rate equation derivation.
 
-# Maximum raw polynomial terms allowed in a rate equation.
-# Equations exceeding this limit would take too long to compile
-# via @generated functions and are unlikely to be useful.
+"""
+Maximum raw polynomial terms allowed in a rate equation.
+Equations exceeding this limit would take too long to compile
+via @generated functions and are unlikely to be useful.
+"""
 const MAX_RATE_EQUATION_TERMS = 5000
 
 const MONO = Vector{Pair{Symbol,Int}}

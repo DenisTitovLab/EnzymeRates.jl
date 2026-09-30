@@ -445,12 +445,14 @@ _is_conformation_shape(sym::Symbol) =
     occursin(r"^[A-Z][a-z0-9]*(_[a-z0-9]+)*$", String(sym))
 
 
-# Reject opaque bound-form bare-enzyme names. A bare-enzyme term `:X` is
-# acceptable iff `:X` is a call-form head seen in this steps block (`E` in
-# `E(S)`) or matches the conformation shape (`:E`, `:Estar`, `:E_c`).
-# Multi-capital (`:ES`) and underscore-then-uppercase (`:E_S`) names are
-# opaque and rejected in favor of decomposed call notation. `macro_name`
-# names the invoking macro so the error points at the right docs.
+"""
+Reject opaque bound-form bare-enzyme names. A bare-enzyme term `:X` is
+acceptable iff `:X` is a call-form head seen in this steps block (`E` in
+`E(S)`) or matches the conformation shape (`:E`, `:Estar`, `:E_c`).
+Multi-capital (`:ES`) and underscore-then-uppercase (`:E_S`) names are
+opaque and rejected in favor of decomposed call notation. `macro_name`
+names the invoking macro so the error points at the right docs.
+"""
 function _reject_opaque_bound_forms(side_terms_per_step, macro_name::String)
     call_heads = Set{Symbol}()
     for (_, lhs, rhs, _) in side_terms_per_step

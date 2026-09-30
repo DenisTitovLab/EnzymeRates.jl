@@ -122,10 +122,12 @@ _group_rep(group::Vector{Step}, free_enz_set::Set{Symbol}) =
 
 # ─── Thermodynamic Constraint Infrastructure ─────────────────────
 
-# Reduced row echelon form over `Rational{BigInt}`. Returns the pivot and
-# free column indices (pivot_cols in row-pivot order, so pivot_cols[i] is the
-# pivot at reduced-matrix row i) plus the reduced matrix R. Used by
-# `_integer_nullspace` (nullspace basis).
+"""
+Reduced row echelon form over `Rational{BigInt}`. Returns the pivot and
+free column indices (pivot_cols in row-pivot order, so pivot_cols[i] is the
+pivot at reduced-matrix row i) plus the reduced matrix R. Used by
+`_integer_nullspace` (nullspace basis).
+"""
 function _rref_partition(A::Matrix{Int})
     m, n = size(A)
     R = Matrix{Rational{BigInt}}(A)
@@ -218,10 +220,12 @@ function _thermodynamic_constraints(mech::Mechanism)
         nu_net[met_idx[nm]] += 1
     end
 
-    # Classify each null-space cycle as Haldane (proportional to the
-    # net reaction → contributes log(Keq)) or Wegscheider (closed
-    # cycle, zero net change). Errors on cycles that touch metabolites
-    # but aren't proportional to the net reaction.
+    """
+    Classify each null-space cycle as Haldane (proportional to the
+    net reaction → contributes log(Keq)) or Wegscheider (closed
+    cycle, zero net change). Errors on cycles that touch metabolites
+    but aren't proportional to the net reaction.
+    """
     function classify_cycle(nu_cycle, i)
         all(nu_cycle .== 0) && return 0
         c = nothing
@@ -255,8 +259,10 @@ function _thermodynamic_constraints(mech::Mechanism)
     return C, rhs_coeffs
 end
 
-# Walk Mechanism.steps; emit distinct enzyme-form Symbol names in
-# step-walk order. Used by _thermodynamic_constraints and friends.
+"""
+Walk Mechanism.steps; emit distinct enzyme-form Symbol names in
+step-walk order. Used by _thermodynamic_constraints and friends.
+"""
 function _enumerate_species_names(mech::Mechanism)
     seen = Symbol[]
     for group in steps(mech), s in group
@@ -706,8 +712,10 @@ function _dependent_param_exprs_kernel(
     return _solve_dependent_set(A, rhs, columns, priority)
 end
 
-# Type-dispatching wrapper preserves the existing call sites in
-# _dependent_param_exprs and _build_kinetic_rename_map / _build_wegscheider_rename_map.
+"""
+Type-dispatching wrapper preserves the existing call sites in
+_dependent_param_exprs and _build_kinetic_rename_map / _build_wegscheider_rename_map.
+"""
 _dependent_param_exprs_kernel(M::Type{<:EnzymeMechanism},
                               rename::AbstractDict{Symbol, Symbol}) =
     _dependent_param_exprs_kernel(Mechanism(M()), rename)

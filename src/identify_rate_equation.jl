@@ -246,7 +246,7 @@ function identify_rate_equation(
     return result
 end
 
-# Write result rows to `<save_dir>/<filename>`, creating `save_dir` if absent.
+"""Write result rows to `<save_dir>/<filename>`, creating `save_dir` if absent."""
 function _write_rows_csv(save_dir::String, filename::String, rows)
     isdir(save_dir) || mkpath(save_dir)
     CSV.write(joinpath(save_dir, filename), _rows_to_dataframe(rows))
@@ -409,15 +409,17 @@ struct FitFailure
     error::String
 end
 
-# Compact, CSV-safe rendering of a thrown exception: type + truncated message.
+"""Compact, CSV-safe rendering of a thrown exception: type + truncated message."""
 _exc_string(e) = first(sprint(showerror, e), 200)
 
-# CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row,
-# with `missing` wherever the value is unavailable (compile/fit never produced it).
-# `mechanism_type` is the round-trippable parametric `EnzymeMechanism{Sig}` string when
-# the mechanism compiles; falls back to the bare concrete type name
-# (`"EnzymeRates.Mechanism"` / `"EnzymeRates.AllostericMechanism"`) when compilation
-# itself fails, so the row still identifies the mechanism family.
+"""
+CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row,
+with `missing` wherever the value is unavailable (compile/fit never produced it).
+`mechanism_type` is the round-trippable parametric `EnzymeMechanism{Sig}` string when
+the mechanism compiles; falls back to the bare concrete type name
+(`"EnzymeRates.Mechanism"` / `"EnzymeRates.AllostericMechanism"`) when compilation
+itself fails, so the row still identifies the mechanism family.
+"""
 function _failure_row(f::FitFailure)
     (n_params = missing,
      parent_n_params = missing,
@@ -922,9 +924,11 @@ function _beam_search(
     return mechs, df
 end
 
-# Parsimony reference = threshold × best loss over ALL counts strictly below c
-# (not just c-1): an added parameter must beat the best simpler model of any size.
-# Returns nothing when no simpler tier has been fit yet.
+"""
+Parsimony reference = threshold × best loss over ALL counts strictly below c
+(not just c-1): an added parameter must beat the best simpler model of any size.
+Returns nothing when no simpler tier has been fit yet.
+"""
 function _parsimony_cutoff(best_loss_by_count::Dict{Int,Float64}, c::Int,
                            loss_parsimony_threshold::Float64)
     prev = [best_loss_by_count[k] for k in keys(best_loss_by_count) if k < c]

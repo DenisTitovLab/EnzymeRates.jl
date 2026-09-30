@@ -93,9 +93,11 @@ function FittingProblem(mechanism::AbstractEnzymeMechanism, table;
     )
 end
 
-# Accept the concrete working-representation mechanism: compile to the
-# singleton once at construction so `loss!`'s hot path operates on the
-# @generated `EnzymeMechanism` / `AllostericEnzymeMechanism` (0-alloc).
+"""
+Accept the concrete working-representation mechanism: compile to the
+singleton once at construction so `loss!`'s hot path operates on the
+@generated `EnzymeMechanism` / `AllostericEnzymeMechanism` (0-alloc).
+"""
 FittingProblem(mechanism::Union{Mechanism, AllostericMechanism}, table;
         Keq::Real, scale_k_to_kcat::Union{Real,Nothing}=1.0) =
     FittingProblem(compile_mechanism(mechanism), table;
