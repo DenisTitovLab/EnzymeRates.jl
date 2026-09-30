@@ -1031,11 +1031,13 @@ end
     @test length(result) == 1
 end
 
-@testset "Bi-Bi Ping-Pong: 5 dead-end forms → 7 variants" begin
-    # Forms: E, E_A, Estar, Estar_A_P, Estar_B, E_Q
-    # 5 dead-end forms total (E-side: E_A_P, E_A_Q, E_B_Q; Estar-side:
-    # Estar_B_P, Estar_B_Q). 7 competition patterns; each yields a
-    # distinct dead-end-form set after dedup → 7 variants.
+@testset "Bi-Bi Ping-Pong: 6 dead-end forms → 7 variants" begin
+    # Forms: E, E_A, Estar, Estar_P, Estar_B, E_Q
+    # 6 dead-end forms total, each binding one substrate and one product
+    # (E-side: E_A_P, E_A_Q, E_B_Q; Estar-side: Estar_A_P, Estar_B_P,
+    # Estar_B_Q). 7 competition patterns; every (substrate, product) pair
+    # names at least one dead-end form, so each pattern yields a distinct
+    # dead-end-form set after dedup → 7 variants.
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -1043,8 +1045,8 @@ end
             E + A ⇌ E(A)
             Estar + B ⇌ Estar(B)
             E + Q ⇌ E(Q)
-            Estar + P ⇌ Estar(A, P)
-            E(A) <--> Estar(A, P)
+            Estar + P ⇌ Estar(P)
+            E(A) <--> Estar(P)
             Estar(B) ⇌ E(Q)
         end
     end
@@ -1054,15 +1056,27 @@ end
             [topo],bi_bi_pp_rxn)
     @test all(isempty(_connectivity_violations(steps))
               for (steps, _groups) in result)
-    # 5 dead-end forms (E_A_P, E_A_Q, E_B_Q from
-    # E-side + Estar_B_P, Estar_B_Q from
+    # 6 dead-end forms (E_A_P, E_A_Q, E_B_Q from
+    # E-side + Estar_A_P, Estar_B_P, Estar_B_Q from
     # Estar-side), competition-filtered
     @test length(result) == 7
+
+    # Each variant adds exactly the dead-end forms whose (substrate, product)
+    # pair its competition pattern leaves unforbidden.
+    seed_forms = _form_names(topo)
+    @test Set(setdiff(_form_names(r[1]), seed_forms) for r in result) == Set([
+        Set([:EAQ, :EstarBP]),                  # forbids A↔P, B↔Q
+        Set([:EAP, :EBQ, :EstarAP, :EstarBQ]),  # forbids A↔Q, B↔P
+        Set([:EBQ, :EstarBQ]),                  # forbids all but B↔Q
+        Set([:EstarBP]),                        # forbids all but B↔P
+        Set([:EAQ]),                            # forbids all but A↔Q
+        Set([:EAP, :EstarAP]),                  # forbids all but A↔P
+        Set{Symbol}(),                          # forbids all four pairs
+    ])
 
     # Assert that some result variants contain Estar-prefixed dead-end
     # forms (proving dead-end forms inherit the base form's Estar
     # conformation).
-    seed_forms = _form_names(topo)
     new_estar_forms = Set{Symbol}()
     for r in result
         new_forms = setdiff(_form_names(r[1]), seed_forms)
