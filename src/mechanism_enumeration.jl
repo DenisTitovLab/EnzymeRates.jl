@@ -1858,7 +1858,7 @@ function _twin_site_test(groups::Vector{Vector{Step}})
     for (k, members) in enumerate(segments), i in members
         seg[i] = k
     end
-    compositions = Dict{Any, Int}()
+    compositions = Dict{Tuple{Vector{Symbol}, Symbol, Residual}, Int}()
     for sp in species
         key = _composition(sp)
         compositions[key] = get(compositions, key, 0) + 1
@@ -1875,16 +1875,44 @@ function _twin_site_test(groups::Vector{Vector{Step}})
 end
 
 """
-Kinetic groups of `groups` that bind a competitive inhibitor only at twin sites
-(`_twin_site_test`). Such a group's constant enters the rate only through a sum
-with an existing constant, or names a second orientation of an existing complex
-that a shared group happens to pin; neither is a hypothesis the moves emit.
+    _copy_twin_test(m) -> (site::Species, ligand::Metabolite, tag::Symbol) -> Bool
+
+Whether a competitive-inhibitor copy bound at `site` with allosteric tag `tag`
+duplicates an existing form in every conformational state where it binds
+(`_twin_site_test` on each state's graph). A `Mechanism` has one state. An
+allosteric copy binds the active state always and the inactive state unless its
+tag is `:OnlyA`; a site absent from the inactive state's graph
+(`_state_mechanism(am, :I)` prunes `:OnlyA` groups and the forms they strand) binds
+nothing there. A complex that duplicates a form in one state and is new in the
+other keeps a visible constant, so it is not a twin.
 """
-function _duplicate_copy_groups(groups::Vector{Vector{Step}})
-    twin = _twin_site_test(groups)
-    [g for (g, group) in enumerate(groups)
+function _copy_twin_test(m::Mechanism)
+    twin = _twin_site_test(steps(m))
+    (site, ligand, _) -> twin(site, ligand)
+end
+function _copy_twin_test(am::AllostericMechanism)
+    twin_active = _twin_site_test(steps(am))
+    inactive = _state_mechanism(am, :I)
+    inactive_forms = Set(sp for group in steps(inactive) for s in group
+                         for sp in (from_species(s), to_species(s)))
+    twin_inactive = _twin_site_test(steps(inactive))
+    (site, ligand, tag) -> twin_active(site, ligand) &&
+        (tag === :OnlyA || !(site in inactive_forms) || twin_inactive(site, ligand))
+end
+
+"""
+Kinetic groups of `m` that bind a competitive inhibitor only at twin sites
+(`_copy_twin_test`, with each group's allosteric tag). Such a group's constant
+enters the rate only through a sum with an existing constant, or names a second
+orientation of an existing complex that a shared group happens to pin; neither is
+a hypothesis the moves emit.
+"""
+function _duplicate_copy_groups(m::Union{Mechanism, AllostericMechanism})
+    twin = _copy_twin_test(m)
+    tag(g) = m isa AllostericMechanism ? cat_allo_states(m)[g] : :EqualAI
+    [g for (g, group) in enumerate(steps(m))
      if bound_metabolite(first(group)) isa CompetitiveInhibitor &&
-        all(s -> twin(from_species(s), bound_metabolite(s)::Metabolite), group)]
+        all(s -> twin(from_species(s), bound_metabolite(s)::Metabolite, tag(g)), group)]
 end
 
 """
@@ -1936,7 +1964,8 @@ metabolite. Mirror steps inherit their catalytic counterpart's
 `kinetic_group`. All new binding steps for a single regulator share one
 fresh trailing kinetic group (one K_R parameter).
 A pattern whose every site is a twin (`_twin_site_test`: the copy's complex has the
-composition of an existing form, or its segment and offsets) is skipped. Such a copy is
+composition of an existing form, or its segment and offsets) is skipped, judged in every
+conformational state where the copy binds (`_copy_twin_test`). Such a copy is
 a second orientation of a complex the mechanism already has; its constant enters the
 rate only through a sum with the existing binding's, or, when a shared kinetic group
 happens to pin that binding, names a hypothesis no different from the existing complex.
@@ -2026,7 +2055,7 @@ function _expand_add_dead_end_regulator_native(
     results = Tuple{Vector{Vector{Step}}, Int, EnzymeReaction}[]
 
     boundmap = _bound_at_forms(m)
-    twin = _twin_site_test(steps(m))
+    twin = _copy_twin_test(m)
 
     for reg_name in eligible_regs
         eligible_forms = Symbol[]
@@ -2075,7 +2104,8 @@ function _expand_add_dead_end_regulator_native(
                 push!(active, f)
             end
             isempty(active) && continue
-            all(f -> twin(form_sp[f], CompetitiveInhibitor(reg_name)), active) && continue
+            all(f -> twin(form_sp[f], CompetitiveInhibitor(reg_name), :EqualAI),
+                active) && continue
             active in seen && continue
             push!(seen, active)
 

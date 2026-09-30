@@ -1948,6 +1948,10 @@ end
     kids = EnzymeRates._expand_re_to_ss(m)
     @test length(kids) == 4
     @test Set(kids) == Set(expected)
+    for r in kids
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
+    end
     for r in kids, grp in EnzymeRates.steps(r), s in grp
         EnzymeRates.bound_metabolite(s) isa EnzymeRates.Regulator &&
             @test EnzymeRates.is_equilibrium(s)
@@ -1973,9 +1977,9 @@ end
             (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))  :: EqualAI
         end
     end)
-    flip(rewrite) = EnzymeRates.AllostericMechanism(rewrite)
+    lift(em) = EnzymeRates.AllostericMechanism(em)
     expected = [
-        flip(@allosteric_mechanism begin
+        lift(@allosteric_mechanism begin
             substrates: A, B
             products: P, Q
             catalytic_inhibitors: A
@@ -1989,7 +1993,7 @@ end
                 (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))  :: EqualAI
             end
         end),
-        flip(@allosteric_mechanism begin
+        lift(@allosteric_mechanism begin
             substrates: A, B
             products: P, Q
             catalytic_inhibitors: A
@@ -2003,7 +2007,7 @@ end
                 (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))  :: EqualAI
             end
         end),
-        flip(@allosteric_mechanism begin
+        lift(@allosteric_mechanism begin
             substrates: A, B
             products: P, Q
             catalytic_inhibitors: A
@@ -2017,7 +2021,7 @@ end
                 (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))  :: EqualAI
             end
         end),
-        flip(@allosteric_mechanism begin
+        lift(@allosteric_mechanism begin
             substrates: A, B
             products: P, Q
             catalytic_inhibitors: A
@@ -2035,6 +2039,10 @@ end
     kids = EnzymeRates._expand_re_to_ss(am)
     @test length(kids) == 4
     @test Set(kids) == Set(expected)
+    for r in kids
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa EnzymeRates.AllostericEnzymeMechanism
+    end
     for r in kids
         @test count(==(:OnlyA), r.cat_allo_states) == 1
         @test EnzymeRates.is_iso(first(r.cat_steps[findfirst(==(:OnlyA), r.cat_allo_states)]))
@@ -2921,6 +2929,60 @@ end
     r0 = _testhelper_identifiable_rank(m)
     @test _testhelper_identifiable_rank(at_E_EQ) == r0        # a phantom
     @test _testhelper_identifiable_rank(at_E) == r0 + 1       # tie-only, dropped anyway
+end
+
+@testset "AllostericMechanism — a copy that is new only in the inactive state is kept" begin
+    # Uni-uni whose S binding and chemistry are `:OnlyA`: the inactive conformation
+    # binds P but not S. An `:EqualAI` copy of S at E duplicates E(S) in the active
+    # state and is the only S-bound form in the inactive one, where its constant is
+    # visible; the placement stands and adds an identifiable constant. With S
+    # binding `:NonequalAI` the copy duplicates E(S) in both states and is skipped.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: S
+        oligomeric_state: 2
+    end
+    lift(em) = EnzymeRates.AllostericMechanism(rxn, EnzymeRates.steps(em),
+        EnzymeRates.cat_allo_states(em), 2, EnzymeRates.RegulatorySite[])
+    onlya = lift(EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end))
+    kept = lift(EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_inhibitors: S
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)                :: OnlyA
+            E(S) <--> E(P)              :: OnlyA
+            E + P ⇌ E(P)                :: EqualAI
+            E + S::Inh ⇌ E(S::Inh)      :: EqualAI
+        end
+    end))
+    kids = EnzymeRates._expand_add_dead_end_regulator(onlya, rxn)
+    @test length(kids) == 1
+    @test Set(kids) == Set([kept])
+    @test _testhelper_identifiable_rank(kept) == _testhelper_identifiable_rank(onlya) + 1
+    @test isempty(EnzymeRates._duplicate_copy_groups(kept))
+    nonequal = lift(EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end))
+    @test isempty(EnzymeRates._expand_add_dead_end_regulator(nonequal, rxn))
 end
 
 @testset "Mechanism — a copy that only matches a form through a conformational isomer" begin
@@ -6019,7 +6081,7 @@ end
     @test !twin_pp(free_res, Qinh)
 
     # Groups that bind a copy only at twin sites.
-    @test isempty(ER._duplicate_copy_groups(ER.steps(with_copy)))
+    @test isempty(ER._duplicate_copy_groups(with_copy))
     twin_only = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -6032,9 +6094,38 @@ end
             E + A::Inh ⇌ E(A::Inh)
         end
     end)
-    dup = ER._duplicate_copy_groups(ER.steps(twin_only))
+    dup = ER._duplicate_copy_groups(twin_only)
     @test length(dup) == 1
     @test ER.bound_metabolite(first(ER.steps(twin_only)[only(dup)])) == Ainh
+
+    # Conformational states. With S binding `:OnlyA`, E(S) exists in the active
+    # state only; an `:EqualAI` copy of S at E duplicates it there but is new in the
+    # inactive state, so it is not a twin. With S binding `:NonequalAI`, E(S) exists
+    # in both states and the copy is a twin. An `:OnlyA` copy binds the active state
+    # only, so it is a twin either way.
+    onlya = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end)
+    @test !ER._copy_twin_test(onlya)(form(onlya, :E), Sinh, :EqualAI)
+    @test ER._copy_twin_test(onlya)(form(onlya, :E), Sinh, :OnlyA)
+    nonequal = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end)
+    @test ER._copy_twin_test(nonequal)(form(nonequal, :E), Sinh, :EqualAI)
 end
 
 @testset "_hyperbolic_catalysis" begin
@@ -6268,7 +6359,6 @@ end
     # emitted.
     dead_end_with_a = EnzymeRates._expand_add_dead_end_regulator(dead_end, rxn_a_inhibits)
     @test Set(copy_sites.(dead_end_with_a)) == Set([Set([:EA, :EQ]), Set([:E, :EA])])
-    @test !any(EnzymeRates._hyperbolic_catalysis, dead_end_with_a)
     @test !any(EnzymeRates._hyperbolic_catalysis, dead_end_with_a)
 
     @test !EnzymeRates._requires_hyperbolic_catalysis(ordered)
