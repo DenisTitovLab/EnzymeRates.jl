@@ -29,7 +29,7 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
     _cat_allo_states = Symbol[]
     for g in EnzymeRates.kinetic_groups(_base)
         rep = EnzymeRates.rep_step(_base, g)
-        met = EnzymeRates.ligand(rep)
+        met = EnzymeRates.bound_metabolite(rep)
         tag = (met isa EnzymeRates.Reactant) ? :OnlyA : :NonequalAI
         push!(_cat_allo_states, tag)
     end

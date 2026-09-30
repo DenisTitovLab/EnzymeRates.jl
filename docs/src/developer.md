@@ -55,16 +55,17 @@ one inner vector per group holding the steps that share that group's parameters.
 `Step` has `from_species`, `to_species`, `consumed`, `released`, and
 `is_equilibrium`: going from `from_species` to `to_species`, a step takes up the
 metabolites in `consumed` from solution and gives off those in `released`. A pure
-binding consumes one metabolite that `to_species` then carries (`ligand`); an
-isomerization has both lists empty (`is_iso`); every other step, such as fused
-chemistry and release, a Theorell–Chance step, or several metabolites on one
-side, is a transformation, and its constants are named by its two forms
-(`k_EAB_to_EQ`). Like the singleton types, these are canonicalized so that the
-order or direction in which steps are written does not change the resulting
-mechanism. The `Step` constructor stores a pure binding with its metabolite
-consumed; the `Mechanism` and `AllostericMechanism` constructors orient every
-other step (`_canonical_step_direction`), sort steps and groups, and reject steps
-in different kinetic groups that would render the same parameter names.
+binding consumes one metabolite that `to_species` then carries
+(`bound_metabolite`); an isomerization has both lists empty (`is_iso`); every
+other step, such as fused chemistry and release, a Theorell–Chance step, or
+several metabolites on one side, is a transformation, and its constants are
+named by its two forms (`k_EAB_to_EQ`). Like the singleton types, these are
+canonicalized so that the order or direction in which steps are written does
+not change the resulting mechanism. The `Step` constructor stores a pure
+binding with its metabolite consumed; the `Mechanism` and `AllostericMechanism`
+constructors orient every other step (`_canonical_step_direction`), sort steps
+and groups, and reject steps in different kinetic groups that would render the
+same parameter names.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see

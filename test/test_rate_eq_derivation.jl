@@ -433,7 +433,7 @@ function analytical_oracle_params(m, nt::NamedTuple;
     swap_idxs = Set{Int}()
     for (g, group) in enumerate(EnzymeRates.steps(mech))
         for (within, s) in enumerate(group)
-            bm = EnzymeRates.ligand(s)
+            bm = EnzymeRates.bound_metabolite(s)
             if bm isa EnzymeRates.Product &&
                bm in EnzymeRates.bound(EnzymeRates.to_species(s))
                 push!(swap_idxs, flat_idx[g][within])
@@ -1386,7 +1386,7 @@ end
     onlyA_groups = [g for g in EnzymeRates.kinetic_groups(am)
                     if EnzymeRates.cat_allo_state(am, g) === :OnlyA]
     @test length(onlyA_groups) == 2
-    onlyA_bms = [EnzymeRates.ligand(EnzymeRates.rep_step(am, g))
+    onlyA_bms = [EnzymeRates.bound_metabolite(EnzymeRates.rep_step(am, g))
                  for g in onlyA_groups]
     @test count(bm -> bm !== nothing && EnzymeRates.name(bm) === :ATP,
                 onlyA_bms) == 1

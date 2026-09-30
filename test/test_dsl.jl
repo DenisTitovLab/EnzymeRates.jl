@@ -19,7 +19,7 @@
         @test length(mech.steps) == 3
         # Steps are canonicalized; pick each by content, not position.
         es_step = only(s for g in mech.steps for s in g           # E + S ⇌ E(S)
-            if EnzymeRates.ligand(s) == EnzymeRates.Substrate(:S))
+            if EnzymeRates.bound_metabolite(s) == EnzymeRates.Substrate(:S))
         @test EnzymeRates.conformation(es_step.to_species) == :E
         @test EnzymeRates.bound(es_step.to_species) ==
               EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)]
@@ -32,7 +32,7 @@
         # `from`, product-bound `to`) via `_canonical_step_direction`, so
         # `E_S` is `from_species` and `E_P` is `to_species`.
         iso_step = only(s for g in mech.steps for s in g
-                        if EnzymeRates.ligand(s) === nothing)
+                        if EnzymeRates.bound_metabolite(s) === nothing)
         @test EnzymeRates.bound(iso_step.from_species) ==
               EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)]
         @test EnzymeRates.bound(iso_step.to_species) ==
@@ -66,7 +66,7 @@
         # Dead-end inhibitor lookup picks the correct Metabolite subtype.
         ei = only(EnzymeRates.to_species(s)             # E(I)
             for g in mech_multi.steps for s in g
-            if EnzymeRates.ligand(s) ==
+            if EnzymeRates.bound_metabolite(s) ==
                EnzymeRates.CompetitiveInhibitor(:I))
         @test EnzymeRates.bound(ei) ==
               EnzymeRates.Metabolite[
@@ -656,7 +656,7 @@
     @testset "dual-role names bind by their catalytic role unless tagged ::Inh" begin
         _testhelper_bound_types(m) = Dict(
             EnzymeRates.name(EnzymeRates.to_species(s)) =>
-                typeof(EnzymeRates.ligand(s))
+                typeof(EnzymeRates.bound_metabolite(s))
             for g in EnzymeRates.steps(m) for s in g if EnzymeRates.is_binding(s))
         # A substrate also declared as a competitive inhibitor binds as the
         # substrate in a bare catalytic step; `E(A::Inh)` writes its inhibitor

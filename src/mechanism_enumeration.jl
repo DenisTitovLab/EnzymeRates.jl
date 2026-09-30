@@ -263,13 +263,13 @@ end
 Substrate bound-metabolite names in route (path) order.
 """
 _binding_order(path::Vector{Step}) =
-    Symbol[name(ligand(s)) for s in path if ligand(s) isa Substrate]
+    Symbol[name(bound_metabolite(s)) for s in path if bound_metabolite(s) isa Substrate]
 
 """
 Product bound-metabolite names in route (path) order.
 """
 _release_order(path::Vector{Step}) =
-    Symbol[name(ligand(s)) for s in path if ligand(s) isa Product]
+    Symbol[name(bound_metabolite(s)) for s in path if bound_metabolite(s) isa Product]
 
 """
 True iff `order` is a linearization of weak ordering `wo` (a vector of
@@ -768,7 +768,7 @@ function _catalytic_topologies(
         sub_binding_mets = Set{Symbol}()
         prod_binding_mets = Set{Symbol}()
         for path in group_paths, step in path
-            bm = ligand(step)
+            bm = bound_metabolite(step)
             bm === nothing && continue
             if bm isa Substrate
                 push!(sub_binding_mets, name(bm))
@@ -1655,7 +1655,7 @@ give one bipartition, and the order is ligands (by role then name), then
 conformations (by name), then residuals, for deterministic output.
 """
 function _context_bipartitions(group::Vector{Step})
-    own = ligand(first(group))
+    own = bound_metabolite(first(group))
     forms = [_context_form(s) for s in group]
     ligands = Set{Metabolite}()
     for f in forms, b in bound(f)
@@ -1743,7 +1743,7 @@ function _forms_with_binding_step_native(
 )
     result = Set{Symbol}()
     for group in steps(m), s in group
-        bm = ligand(s)
+        bm = bound_metabolite(s)
         bm === nothing && continue
         name(bm) == met_name || continue
         push!(result, name(from_species(s)))

@@ -48,7 +48,7 @@
         @test length(unique(EnzymeRates.kinetic_group(m2, i)
                             for i in 1:EnzymeRates.n_steps(m2))) == 4
         shared = only(g for g in EnzymeRates.Mechanism(m2).steps if length(g) == 2)
-        @test all(EnzymeRates.ligand(s) ==
+        @test all(EnzymeRates.bound_metabolite(s) ==
                   EnzymeRates.CompetitiveInhibitor(:R) for s in shared)
     end
 
@@ -195,7 +195,7 @@
         am_c = EnzymeRates.AllostericMechanism(m)
         onlyA_g = only(g for g in EnzymeRates.kinetic_groups(am_c)
                        if EnzymeRates.cat_allo_state(am_c, g) === :OnlyA)
-        @test EnzymeRates.ligand(
+        @test EnzymeRates.bound_metabolite(
                   EnzymeRates.rep_step(am_c, onlyA_g)) === nothing
         @test all(EnzymeRates.cat_allo_state(am_c, g) === :EqualAI
                   for g in EnzymeRates.kinetic_groups(am_c) if g != onlyA_g)
@@ -635,7 +635,7 @@
         cat_allo_states = Symbol[]
         for g in EnzymeRates.kinetic_groups(base)
             rep = EnzymeRates.rep_step(base, g)
-            met = EnzymeRates.ligand(rep)
+            met = EnzymeRates.bound_metabolite(rep)
             tag = (met isa EnzymeRates.Reactant &&
                    EnzymeRates.name(met) in (:S, :P)) ?
                   :EqualAI : :NonequalAI
@@ -868,13 +868,13 @@
 
         @test EnzymeRates.from_species(s1) === e
         @test EnzymeRates.to_species(s1) === e_s
-        @test EnzymeRates.ligand(s1) ==
+        @test EnzymeRates.bound_metabolite(s1) ==
               EnzymeRates.Substrate(:S)
         @test EnzymeRates.is_equilibrium(s1)
         @test EnzymeRates.is_binding(s1)
         @test !EnzymeRates.is_iso(s1)
 
-        @test EnzymeRates.ligand(s2) === nothing
+        @test EnzymeRates.bound_metabolite(s2) === nothing
         @test EnzymeRates.is_iso(s2)
         @test !EnzymeRates.is_binding(s2)
 
@@ -1501,7 +1501,7 @@
         # is canonical, so pick the substrate-binding and iso steps by content.
         rep_bind = only(EnzymeRates.rep_step(am, g)
             for g in EnzymeRates.kinetic_groups(am)
-            if EnzymeRates.ligand(
+            if EnzymeRates.bound_metabolite(
                    EnzymeRates.rep_step(am, g)) isa EnzymeRates.Substrate)
         @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :None), aem) ==
               EnzymeRates.name(EnzymeRates.Kd(rep_bind, :None), am)
@@ -1511,7 +1511,7 @@
 
         rep_iso  = only(EnzymeRates.rep_step(am, g)
             for g in EnzymeRates.kinetic_groups(am)
-            if EnzymeRates.ligand(EnzymeRates.rep_step(am, g)) === nothing)
+            if EnzymeRates.bound_metabolite(EnzymeRates.rep_step(am, g)) === nothing)
         @test EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), aem) ==
               EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), am)
         @test EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), aem) === :k_ES_to_EP
@@ -1853,7 +1853,7 @@ _testhelper_sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res
         s = ER.Step(E, EA, [A], ER.Metabolite[], true)
         @test ER.from_species(s) == E && ER.to_species(s) == EA
         @test ER.consumed(s) == ER.Metabolite[A] && isempty(ER.released(s))
-        @test ER.ligand(s) == A && ER.is_binding(s) && !ER.is_iso(s)
+        @test ER.bound_metabolite(s) == A && ER.is_binding(s) && !ER.is_iso(s)
     end
 
     @testset "a pure release is stored as the binding it reverses" begin
@@ -1863,28 +1863,29 @@ _testhelper_sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res
         Estar_A = _testhelper_sp([A], :Estar)
         r = ER.Step(Estar_A, E, ER.Metabolite[], [A], true)
         @test ER.from_species(r) == E && ER.to_species(r) == Estar_A
-        @test ER.ligand(r) == A
+        @test ER.bound_metabolite(r) == A
     end
 
     @testset "isomerization and transformations" begin
         iso = ER.Step(EAB, _testhelper_sp([P, Q]), ER.Metabolite[], ER.Metabolite[], false)
-        @test ER.is_iso(iso) && ER.ligand(iso) === nothing && !ER.is_binding(iso)
+        @test ER.is_iso(iso) && ER.bound_metabolite(iso) === nothing && !ER.is_binding(iso)
         fused = ER.Step(EAB, EQ, ER.Metabolite[], [P], false)        # chemistry + release
-        @test !ER.is_iso(fused) && ER.ligand(fused) === nothing
+        @test !ER.is_iso(fused) && ER.bound_metabolite(fused) === nothing
         @test ER.released(fused) == ER.Metabolite[P]
         tc = ER.Step(EA, EQ, [B], [P], false)                          # Theorell–Chance
         @test ER.consumed(tc) == ER.Metabolite[B] && ER.released(tc) == ER.Metabolite[P]
-        @test ER.ligand(tc) === nothing
+        @test ER.bound_metabolite(tc) === nothing
         two = ER.Step(E, EAB, [B, A], ER.Metabolite[], true)           # lists are sorted
-        @test ER.consumed(two) == ER.Metabolite[A, B] && ER.ligand(two) === nothing
+        @test ER.consumed(two) == ER.Metabolite[A, B] &&
+              ER.bound_metabolite(two) === nothing
     end
 
     @testset "covalent residual: binding onto a residual form vs chemistry" begin
         res = ER.Residual([A], [P])
         F, FB = _testhelper_sp([], :E, res), _testhelper_sp([B], :E, res)
-        @test ER.ligand(ER.Step(F, FB, [B], ER.Metabolite[], true)) == B
+        @test ER.bound_metabolite(ER.Step(F, FB, [B], ER.Metabolite[], true)) == B
         chem = ER.Step(EA, F, ER.Metabolite[], [P], false)            # E(A) → F + P
-        @test ER.ligand(chem) === nothing
+        @test ER.bound_metabolite(chem) === nothing
         m = ER.Mechanism(
             @enzyme_reaction(begin
                 substrates: A[CX], B[N]
@@ -1908,7 +1909,7 @@ _testhelper_sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res
         s_sub = ER.Step(E, EA, [A], ER.Metabolite[], true)
         s_inh = ER.Step(E, _testhelper_sp([Ai]), [Ai], ER.Metabolite[], true)
         @test s_sub != s_inh && hash(s_sub) != hash(s_inh)
-        @test ER.ligand(s_inh) == Ai
+        @test ER.bound_metabolite(s_inh) == Ai
     end
 
     @testset "rejections" begin
@@ -2149,7 +2150,7 @@ end
         tags = copy(ER.cat_allo_states(am))
         # find each group by its representative step
         for (g, grp) in enumerate(ER.steps(am))
-            bm = ER.ligand(grp[1])
+            bm = ER.bound_metabolite(grp[1])
             tags[g] = bm === nothing ? cat_tag :
                       ER.name(bm) === :S ? s_tag : p_tag
         end
@@ -2200,7 +2201,7 @@ end
     # every binding :OnlyA, catalysis :EqualAI -> balanced -> valid
     function both_bindings_onlya(m)
         am = ER.AllostericMechanism(m)
-        tags = [ER.ligand(g[1]) === nothing ? :EqualAI : :OnlyA
+        tags = [ER.bound_metabolite(g[1]) === nothing ? :EqualAI : :OnlyA
                 for g in ER.steps(am)]
         ER._onlya_haldane_violation(ER.reaction(am), ER.steps(am), tags)
     end
@@ -2230,7 +2231,7 @@ end
         function tags(onlya_keys...)
             want = Set{Tuple{Symbol, Union{Symbol, Nothing}}}(onlya_keys)
             map(ER.steps(bu_am)) do grp
-                bm = ER.ligand(grp[1])
+                bm = ER.bound_metabolite(grp[1])
                 key = (ER.name(ER.from_species(grp[1])),
                        bm === nothing ? nothing : ER.name(bm))
                 key in want ? :OnlyA : :EqualAI

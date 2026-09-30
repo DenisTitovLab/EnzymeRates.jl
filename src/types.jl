@@ -148,8 +148,8 @@ going `from_species → to_species` it takes up the metabolites in `consumed` fr
 solution and gives off those in `released`. Both lists may be empty (an
 isomerization) or non-empty (for example a Theorell–Chance step EA + B → EQ + P).
 `is_equilibrium` flags a rapid-equilibrium step (`true`) versus a steady-state
-step (`false`). A pure binding (`ligand`) is stored with its metabolite consumed,
-bound on `to_species`; every other step is oriented by the `Mechanism` /
+step (`false`). A pure binding (`bound_metabolite`) is stored with its metabolite
+consumed, bound on `to_species`; every other step is oriented by the `Mechanism` /
 `AllostericMechanism` constructor. See CLAUDE.md "Canonical Step Form".
 """
 struct Step
@@ -186,14 +186,15 @@ consumed(s::Step)       = s.consumed
 released(s::Step)       = s.released
 is_equilibrium(s::Step) = s.is_equilibrium
 
-"""The metabolite of a pure binding (it consumes exactly that metabolite, releases
-nothing, and `to_species` is `from_species` with it bound), else `nothing`."""
-function ligand(s::Step)
+"""The metabolite a pure binding step binds (it consumes exactly that metabolite,
+releases nothing, and `to_species` is `from_species` with it bound); `nothing` for
+every other step."""
+function bound_metabolite(s::Step)
     length(s.consumed) == 1 && isempty(s.released) || return nothing
     m = only(s.consumed)
     _binds_ligand(s.from_species, s.to_species, m) ? m : nothing
 end
-is_binding(s::Step) = ligand(s) !== nothing
+is_binding(s::Step) = bound_metabolite(s) !== nothing
 is_iso(s::Step)     = isempty(s.consumed) && isempty(s.released)
 
 Base.:(==)(a::Step, b::Step) =
@@ -619,7 +620,7 @@ same form or join the same two forms.
 function _assert_unique_parameter_names(steps::Vector{Vector{Step}})
     seen = Dict{Tuple, Tuple{Int, Step}}()
     for (g, group) in enumerate(steps), s in group
-        m = ligand(s)
+        m = bound_metabolite(s)
         key = m === nothing ?
             (:pair, minmax(String(name(from_species(s))),
                            String(name(to_species(s))))...) :
@@ -1685,7 +1686,7 @@ end
 # `name(Species)`) so an inhibitor-role group is distinct from the same
 # metabolite's product-role group.
 function _render_binding(prefix::String, rep::Step, state::Symbol)
-    met = ligand(rep)
+    met = bound_metabolite(rep)
     met_name = met isa CompetitiveInhibitor ?
                String(name(met)) * "inh" : String(name(met))
     Symbol(prefix, _state_tag(state), met_name, "_",
