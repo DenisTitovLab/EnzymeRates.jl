@@ -56,9 +56,10 @@ end
   metabolite.
 - Accessors: `from_species`, `to_species`, `consumed`, `released`, `is_equilibrium`, and three
   kinds derived from the fields only:
-  - `ligand(s)` returns M when the step is a **pure binding**: it consumes exactly M, releases
-    nothing, and `bound(to)` is `bound(from)` plus M with the same residual. The conformation
-    may change, as today. Otherwise it returns `nothing`. `is_binding(s) = ligand(s) !== nothing`.
+  - `bound_metabolite(s)` returns M when the step is a **pure binding**: it consumes exactly M,
+    releases nothing, and `bound(to)` is `bound(from)` plus M with the same residual. The
+    conformation may change, as today. Otherwise it returns `nothing`.
+    `is_binding(s) = bound_metabolite(s) !== nothing`.
   - `is_iso(s)` is true when both lists are empty. It keeps today's meaning (chemistry or
     conformational isomerization), so every move behaves exactly as today; B and C switch
     chemistry detection to a correct predicate.

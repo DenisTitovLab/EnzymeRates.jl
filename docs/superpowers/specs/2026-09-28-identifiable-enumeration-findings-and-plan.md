@@ -406,8 +406,9 @@ the class counts and estimates in this section are for R4 only.
 ### A. Steps with explicit stoichiometry (design agreed; its own spec follows)
 
 - **Data model**: `Step(from_species, to_species, consumed, released, is_equilibrium)`, the only
-  constructor; the old four-argument constructor is removed. Kinds: pure binding (`ligand(s)`
-  returns its metabolite), isomerization (`is_iso`), and transformation (everything else).
+  constructor; the old four-argument constructor is removed. Kinds: pure binding
+  (`bound_metabolite(s)` returns its metabolite), isomerization (`is_iso`), and transformation
+  (everything else).
 - **Canonical orientation**: the `Step` constructor stores a pure binding with its metabolite
   consumed; the `Mechanism` constructor orients every other step by the existing three tiers, with
   Tier 1 counting free metabolites. Reversing a step swaps its forms and its lists. The sort key
