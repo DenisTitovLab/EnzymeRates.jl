@@ -65,7 +65,8 @@ end
     chemistry detection to a correct predicate.
   - A **transformation** is every other step: fused chemistry plus release, fused binding plus
     chemistry, Theorell–Chance, several metabolites on one side.
-- `bound_metabolite` is removed; its callers use `ligand` or the lists.
+- Callers that need every metabolite a step consumes or releases read the lists;
+  `bound_metabolite` answers only for pure bindings.
 
 ### 2. Canonical orientation
 
@@ -179,9 +180,8 @@ Mechanical changes only; the enumerator's output must not change.
 - Every `Step(` call switches to the list form: `_catalytic_topologies`, `_release_products!`,
   the init dead ends, the dead-end move and its mirror steps, `_flip_group_to_ss`, splits, and
   the allosteric paths.
-- Readers of `bound_metabolite` switch to `ligand` or the lists: `_forms_with_binding_step_native`,
-  `_bound_at_forms`, `_drop_unbound_regulators`, `_assert_mechanism_invariants`, the regulator
-  checks.
+- `_forms_with_binding_step_native`, `_bound_at_forms`, `_drop_unbound_regulators`,
+  `_assert_mechanism_invariants`, and the regulator checks read `bound_metabolite` or the lists.
 - `_assert_step_atom_conserving` checks atoms(from) + atoms(consumed) = atoms(to) +
   atoms(released).
 - `_apply_equivalence_grouping` keys on (consumed, released, RE/SS) instead of the bound
@@ -193,8 +193,8 @@ Mechanical changes only; the enumerator's output must not change.
 
 ## Test changes
 
-- Tests that call `bound_metabolite` switch to `ligand` or the lists; test helpers that build
-  steps switch to the five-argument constructor.
+- Tests call `bound_metabolite` or the lists directly; test helpers that build steps switch to
+  the five-argument constructor.
 - "Numerator: ambiguous central cut (regulator sibling) raises"
   (`test/test_rate_eq_derivation.jl`) expects the "ambiguous central-complex cut" error. Its
   mechanism has an all-RE catalytic cycle (E(R) + S ⇌ E(S, R) ⇌ E(P, R) ⇌ E(R) + P), so its rate
@@ -232,9 +232,9 @@ Every change is made test-first.
    the former missing-cut cases; Theorell–Chance with SS and RE steps; a two-metabolite binding;
    and dead ends on merged forms. Every case must match.
 4. **Unit tests**: the `Step` constructor (binding orientation, reversal swapping the lists,
-   rejection of a shared metabolite and of equal end forms); `ligand`, `is_binding`, `is_iso`;
-   the DSL (Theorell–Chance, two metabolites on one side, the remaining errors); form-pair names
-   for transformations; the name-collision error.
+   rejection of a shared metabolite and of equal end forms); `bound_metabolite`, `is_binding`,
+   `is_iso`; the DSL (Theorell–Chance, two metabolites on one side, the remaining errors);
+   form-pair names for transformations; the name-collision error.
 5. **Unchanged guards**: the `rate_equation` performance test (zero allocations, under 120 ns,
    every spec) and the parameter-naming chokepoint test pass without edits.
 6. The full suite runs before every commit.
