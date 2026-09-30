@@ -1360,7 +1360,9 @@ Inside `@testset "_expand_split_kinetic_group"`, before its closing `end`, add:
     # bridge of the segment graph and carries no flux. Its two constants would
     # enter the rate only as their ratio, so the part is emitted at rapid
     # equilibrium, one constant fewer than the raw split and the same family.
-    # E(B, Q) lies on no cycle, so the new constant is free: one child.
+    # E(B, Q) lies on no cycle, so the new constant raises the independent count: one
+    # child. (Amended during execution: the reverted child is 7 fitted / rank 6 against
+    # the raw child's 8 / 6 and the parent's 6 / 6; see the assertions below.)
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -1404,9 +1406,14 @@ Inside `@testset "_expand_split_kinetic_group"`, before its closing `end`, add:
         EnzymeRates._independent_param_count(m) + 1
     fitted(k) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(k)))
     r_rev, r_raw = _testhelper_identifiable_rank(reverted), _testhelper_identifiable_rank(raw)
-    @test r_rev == r_raw                     # the same family
-    @test fitted(reverted) == r_rev          # identifiable
-    @test fitted(raw) == r_raw + 1           # one phantom
+    @test r_rev == r_raw                                          # the same family
+    @test fitted(reverted) == fitted(raw) - 1                     # one constant fewer
+    # Both children keep one phantom of another class: once the abortive step no
+    # longer pins kf_B/kr_B, E(A) + B → E(A, B) is a steady-state binding into a
+    # form with one exit, and its three constants enter the law through two
+    # combinations (the chain class sub-project C merges). The revert removes
+    # exactly the zero-flux phantom.
+    @test fitted(raw) - r_raw == fitted(reverted) - r_rev + 1
 end
 
 @testset "Mechanism — a bipartition that isolates twin-only copy sites is not a unit" begin

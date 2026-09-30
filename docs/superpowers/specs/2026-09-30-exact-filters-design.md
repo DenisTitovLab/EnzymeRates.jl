@@ -37,7 +37,8 @@ see, and both have exact structural tests.
 2. Every mechanism the moves emit has, in every kinetic group that binds a competitive inhibitor,
    a binding that creates a complex no other form duplicates.
 3. Rule 1 loses no family: a flip set that fails it is extended, and a split part that fails it
-   is reverted to rapid equilibrium, so the identifiable representative is emitted.
+   is reverted to rapid equilibrium, so the representative without the zero-flux phantom is
+   emitted (it may still carry a phantom of another class, such as the chain class C merges).
 4. Both tests are structural, exact, O(steps + forms), free of numerics, and read a step's
    metabolite lists, so they hold for the fused and Theorell–Chance steps C introduces.
 5. A required regulator that no mechanism can bind under the rules fails loudly.
