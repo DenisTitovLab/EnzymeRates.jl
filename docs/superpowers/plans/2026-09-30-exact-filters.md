@@ -621,6 +621,8 @@ Claude-Session: https://claude.ai/code/session_01R4zCpbZSoygD66kRecfrDN"
 
 ### Task 3: The twin predicate and the dead-end move's new-complex rule
 
+> Amended during execution (fix round 1, controller ruling): the twin test is judged in every conformational state where the copy binds. `_copy_twin_test(m)` wraps `_twin_site_test(groups)` per state, `_duplicate_copy_groups` takes the mechanism, and the dead-end move passes the copy's tag `:EqualAI`. Tasks 4–6 below consume the amended interface.
+
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` (new functions next to `_bound_at_forms`, about line 1720; `_expand_add_dead_end_regulator_native`, about lines 1829–1960; the `_expand_add_dead_end_regulator` docstring, about lines 1766–1790)
 - Test: `test/test_mechanism_enumeration.jl` (new `@testset "_twin_site_test"` after `@testset "_flux_carrying_groups"`, about line 5543; new and rewritten testsets inside `@testset "_expand_add_dead_end_regulator"`, about lines 2343–2720, replacing "Mechanism — Substrate-as-dead-end-inhibitor overlap" at about line 2655; rewritten flip testsets at about lines 1870–1961 and 1963–1978; the `_hyperbolic_catalysis` assertions at about lines 5748–5766)
@@ -1340,7 +1342,7 @@ Claude-Session: https://claude.ai/code/session_01R4zCpbZSoygD66kRecfrDN"
 - Test: `test/test_mechanism_enumeration.jl` (new testsets inside `@testset "_expand_split_kinetic_group"`, about lines 2157–2341, before its closing `end`; a new testset next to the `_partition_independent_count` testset, about line 6195)
 
 **Interfaces:**
-- Consumes: `_flux_carrying_steps(groups, rxn)` (Task 1), `_twin_site_test(groups)` (Task 3).
+- Consumes: `_flux_carrying_steps(groups, rxn)` (Task 1), `_copy_twin_test(m)` (Task 3, as amended in its fix round: a closure `(site, ligand, tag) -> Bool` that judges a copy in every conformational state where it binds).
 - Produces:
   - `_count_kind(s::Step)::Symbol` — `:ss`, `:binding_K` or `:iso_K`.
   - `_partition_independent_count(parent)` now returns `counter(group_of_step, kind_of_step = parent kinds)`.
@@ -1564,13 +1566,14 @@ In `src/mechanism_enumeration.jl`, replace the body of `_expand_split_kinetic_gr
 function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
     groups = steps(m)
     flux = _flux_carrying_steps(groups, reaction(m))
-    twin = _twin_site_test(groups)
-    duplicate_only(part) = bound_metabolite(first(part)) isa CompetitiveInhibitor &&
-        all(s -> twin(from_species(s), bound_metabolite(s)), part)
+    twin = _copy_twin_test(m)
+    tag(g) = m isa AllostericMechanism ? cat_allo_state(m, g) : :EqualAI
+    duplicate_only(part, g) = bound_metabolite(first(part)) isa CompetitiveInhibitor &&
+        all(s -> twin(from_species(s), bound_metabolite(s)::Metabolite, tag(g)), part)
     units = Tuple{Int, Tuple{Vector{Step}, Vector{Step}}}[]
     reverted = Bool[]
     for g in kinetic_groups(m), bp in _context_bipartitions(groups[g])
-        (duplicate_only(bp[1]) || duplicate_only(bp[2])) && continue
+        (duplicate_only(bp[1], g) || duplicate_only(bp[2], g)) && continue
         parts = _revert_zero_flux_parts(groups[g], bp, flux[g])
         push!(units, (g, parts)); push!(reverted, parts !== bp)
     end
@@ -1595,7 +1598,7 @@ function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
 end
 ```
 
-Extend its docstring: after the sentence ending "...for an `AllostericMechanism`." add two sentences: "A part of a steady-state group none of whose steps carries flux (`_flux_carrying_steps`, computed once on the parent, since a split moves no edge) is emitted at rapid equilibrium (`_revert_zero_flux_parts`): its two constants would enter the rate only as their ratio, and the rapid-equilibrium part is the same family with one constant fewer; the gain test counts the reverted part under its new kind, so a reverted constant the Wegscheider ties pull back is absorbed like any tied split, and a candidate whose reverted groups leave a rapid-equilibrium segment without a bottom form counts as failed. A bipartition of a competitive-inhibitor group in which one part binds only at twin sites (`_twin_site_test`) is not a unit: that part's constant would be invisible beside the existing bindings, and every superset of the unit recreates it."
+Extend its docstring: after the sentence ending "...for an `AllostericMechanism`." add two sentences: "A part of a steady-state group none of whose steps carries flux (`_flux_carrying_steps`, computed once on the parent, since a split moves no edge) is emitted at rapid equilibrium (`_revert_zero_flux_parts`): its two constants would enter the rate only as their ratio, and the rapid-equilibrium part is the same family with one constant fewer; the gain test counts the reverted part under its new kind, so a reverted constant the Wegscheider ties pull back is absorbed like any tied split, and a candidate whose reverted groups leave a rapid-equilibrium segment without a bottom form counts as failed. A bipartition of a competitive-inhibitor group in which one part binds only at twin sites (`_copy_twin_test`, judged in every conformational state where the copy binds) is not a unit: that part's constant would be invisible beside the existing bindings, and every superset of the unit recreates it."
 
 Replace `_split_gain_test(m::Mechanism, units)` with:
 
@@ -1678,7 +1681,7 @@ Claude-Session: https://claude.ai/code/session_01R4zCpbZSoygD66kRecfrDN"
 - Test: `test/test_mechanism_enumeration.jl` (new testsets next to "expand_mechanisms rejects chemistry folded into a release step", about line 7330, and next to the `seed_mechanisms` tests, found with `grep -n 'seed_mechanisms' test/test_mechanism_enumeration.jl`)
 
 **Interfaces:**
-- Consumes: `_flux_carrying_groups(m)` (Task 1), `_duplicate_copy_groups(groups)` (Task 3), `_forward_sides(s)` (types.jl).
+- Consumes: `_flux_carrying_groups(m)` (Task 1), `_duplicate_copy_groups(m)` (Task 3 as amended: takes the mechanism, reads each group's allosteric tag), `_forward_sides(s)` (types.jl).
 - Produces: `_assert_emission_rules(m::Union{Mechanism, AllostericMechanism})::Nothing` (used by Task 6's population test).
 
 - [ ] **Step 1: Write the failing tests**
@@ -1829,7 +1832,7 @@ function _assert_emission_rules(m::Union{Mechanism, AllostericMechanism})
             "step that carries net flux, so its two constants enter the rate only as " *
             "their ratio; write the group at rapid equilibrium")
     end
-    for g in _duplicate_copy_groups(steps(m))
+    for g in _duplicate_copy_groups(m)
         error("expand_mechanisms: kinetic group {" * label(g) * "} binds a competitive " *
               "inhibitor only where the complex duplicates an existing form, so its " *
               "constant is not separable from the existing binding's; bind the " *
@@ -1888,7 +1891,7 @@ Claude-Session: https://claude.ai/code/session_01R4zCpbZSoygD66kRecfrDN"
 - Scratch (not committed): `<scratchpad>/regress/regress.jl`, a detached worktree of a2a02b1 at `<scratchpad>/regress/base`
 
 **Interfaces:**
-- Consumes: `_assert_emission_rules(m)` (Task 5), `_flux_carrying_groups(m)` (Task 1), `_duplicate_copy_groups(groups)` (Task 3), `_sig_of`/`_mechanism_from_sig` (types.jl).
+- Consumes: `_assert_emission_rules(m)` (Task 5), `_flux_carrying_groups(m)` (Task 1), `_duplicate_copy_groups(m)` (Task 3 as amended), `_sig_of`/`_mechanism_from_sig` (types.jl).
 
 - [ ] **Step 1: Write the population test and watch it fail**
 
@@ -2241,7 +2244,7 @@ function compare(old, new, report)
     for (s, k) in removed_all
         m = from_key(k, s == "ALLO")
         z = zero_flux_groups(m)
-        d = m isa ER.Mechanism ? ER._duplicate_copy_groups(ER.steps(m)) : Int[]
+        d = ER._duplicate_copy_groups(m)
         if !isempty(z)
             zf += 1
             if m isa ER.Mechanism

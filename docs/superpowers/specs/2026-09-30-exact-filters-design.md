@@ -134,6 +134,17 @@ and 3 of R6, for 14 identifiable events beyond the composition key alone.
 
 A copy group satisfies rule 2 when one of its steps is not a twin site.
 
+Conformational states (added 2026-09-30 during implementation, for Denis to confirm): a copy
+in an allosteric mechanism is a twin only when it duplicates a form in every state where it
+binds. A copy binds the active state always and the inactive state unless its tag is `:OnlyA`;
+a site that the inactive state's graph lacks (`_state_mechanism(am, :I)` prunes `:OnlyA` groups
+and the forms they strand) binds nothing there. So an `:EqualAI` copy of S at E, in a mechanism
+whose S binding is `:OnlyA`, duplicates E(S) in the active state but is the only S-bound form
+in the inactive one; its constant is visible through that state's S-dependence (rank rises by
+one), and the placement stands. This is the route by which substrate inhibition enters an
+allosteric mechanism. With S binding `:NonequalAI` the copy duplicates E(S) in both states and
+is skipped.
+
 Which moves can break rule 2: a flip only cuts segments and changes no composition, so a twin
 can disappear but never appear; a dead-end addition of another regulator adds only forms that
 carry that regulator, which no copy complex does; the four allosteric moves change no step. Only
