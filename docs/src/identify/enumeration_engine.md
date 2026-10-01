@@ -91,13 +91,13 @@ binding steps, a single group may be bridged by an RE route through the others;
 the move then flips the bridging groups together, because a steady-state step
 whose two ends stay in one equilibrated segment never reaches the rate equation.
 
-Two kinds of group never flip. Competitive-inhibitor binding stays at rapid
-equilibrium by modeling choice. A steady-state group must carry net flux: a group
-none of whose steps would carry flux with every step at steady state is never a
-unit, and a set of flips that leaves one of its groups without flux in the child,
-because an equilibrated route around it carries the turnover, counts as failed and
-is extended like a set that divides no segment. Such a group's two constants enter
-the equation only as their ratio, which its equilibrium form already has.
+Competitive-inhibitor binding never flips: it stays at rapid equilibrium by modeling
+choice. A steady-state group must carry net flux. A group none of whose steps would
+carry flux with every step at steady state is never offered for flipping, and a set of
+flips that leaves one of its groups without flux in the child, because an equilibrated
+route around it carries the turnover, counts as failed and is extended like a set that
+divides no segment. Such a group's two constants enter the equation only as their ratio,
+which its equilibrium form already has.
 
 An allosteric parent with more than one catalytic subunit also drops every child
 whose catalytic scheme would carry a concentration to a power of its own — the
@@ -317,7 +317,7 @@ partitions are not tried, a group is never split three ways in one move, and
 groups never merge. A partition that no sequence of context splits produces is
 unreachable.
 
-**A child is never a provable copy of its parent.** Both moves reject a child
+**A child is never a provable copy of its parent.** The moves reject a child
 whose equation can be shown to equal the parent's: a split the constraint solver
 ties back, a flip that leaves the segment count unchanged, a flip that leaves a
 steady-state group without flux, a dead-end copy that creates no new complex. A few

@@ -1,7 +1,7 @@
-# A+B+C handoff: state after A and its review follow-ups
+# A+B+C handoff: state after A and B
 
 Date: 2026-09-30. Read this, then the findings document
-(`2026-09-28-identifiable-enumeration-findings-and-plan.md`), before starting B.
+(`2026-09-28-identifiable-enumeration-findings-and-plan.md`), before starting C.
 
 ## Where things stand
 

@@ -83,7 +83,7 @@ values instead means enumeration and deduplication cost no compilation at all.
 Only the candidates the search actually fits are lifted to singleton types, one
 at a time, through `compile_mechanism`.
 
-The two refinement moves never emit a child that is provably a reparameterization
+The moves never emit a child that is provably a reparameterization
 of its parent. The split move divides a group by binding context and accepts a
 set of splits only if the independent-parameter count rises; the count comes from
 the thermodynamic constraint solve, and for a `Mechanism` it is evaluated without

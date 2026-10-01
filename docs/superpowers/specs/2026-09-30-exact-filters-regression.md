@@ -34,12 +34,20 @@ the script checks:
   ∂v/∂log θ (finite differences over 60 points, three draws, singular values above 1e-7 of
   the largest) is at least the number of zero-flux groups (RANK otherwise).
 
-For each added mechanism it runs `_assert_emission_rules`. For a random sample of the
-populations (100 per reaction, 50 for ALLO, fixed seed) it records `fitted_params` and the
-Reduced `rate_equation_string`, and compares them where both runs sampled the same mechanism.
-It also records the enumeration time of each population. The compare mode ran on the new
-checkout, so it uses the new predicates; the snapshot mode uses only functions both
-checkouts have.
+For each added mechanism it runs `_assert_emission_rules`. It also records the enumeration
+time of each population (one run per checkout). The compare mode ran on the new checkout, so
+it uses the new predicates; the snapshot mode uses only functions both checkouts have. The
+rank is a finite-difference one with step `h = 1e-5`, and a removed R4 mechanism passes only
+if its rank is at least 1 and fitted minus rank is at least its number of zero-flux groups.
+The 11,505 copy removals were classified by the predicate under test
+(`_duplicate_copy_groups`); no independent rank check covers them.
+
+The derivation comparison is a separate step. It draws, per set, up to 40 keys (all of them
+for R1–R3) from the sorted intersection of the two key sets with `MersenneTwister(20260930)`,
+then derives each on both checkouts (`fitted_params` joined by spaces and the Reduced
+`rate_equation_string`) and compares the two. The scripts lived in the session scratchpad
+and are not committed. The a2a02b1 checkout ran with the current `Manifest.toml`, so both
+runs used the same dependency versions.
 
 ## Results
 
@@ -66,8 +74,9 @@ checkouts have.
 | ALLO | 1 | 930 | 930 | 930 | 0 | 0 |
 | ALLO | 2 | 5471 | 5471 | 5471 | 0 | 0 |
 
-Every new population is a subset of the old. R4's levels, 62, 369 and 1,388 before and 62, 369
-and 1,200 after, are the counts the test suite pins.
+Every new population is a subset of the old. R4's levels are 62, 369 and 1,388 before and
+62, 369 and 1,200 after; the test suite pins 62, 369 and 1,200 for R4 and 1,409 for R6's
+first level.
 
 ## Removed mechanisms
 
@@ -75,27 +84,40 @@ Removed: 12,069. Of these, 564 have a steady-state group that carries no flux an
 have a copy group whose twin test fails; none is unexplained.
 
 - Zero-flux removals (564): the RE twin of each is in the new population, 564 of 564. R4
-  loses 188 (the 148 zero-flux flip children and the 40 zero-flux split children that the
-  test's comment names), R5 loses 190 with the same structures, and the rest are R6's.
+  loses 188. The findings predict 148 flip and 40 split children; the script does not tell
+  flip from split children. R5 loses 190, all zero-flux (derived from the totals), 2 more
+  than R4, and the other 186 zero-flux removals are R6's.
 - Twin-only copy groups (11,505): the dead-end children whose inhibitor copy of a substrate or
   product binds a complex a form already holds. R3 loses all of its dead-end children, as a
-  uni-uni mechanism has no new complex to give; R6 loses the bulk of its levels 1 and 2.
-- Rank: for the 188 removed R4 zero-flux mechanisms, fitted parameters minus the numerical
-  rank is at least the number of zero-flux groups in all 188; 0 failures. The removed
+  uni-uni mechanism has no new complex to give; R6 loses 20% of its level 1 (360 of 1,769) and 40% of its level 2
+  (11,324 of 28,304).
+- Rank: for the 188 removed R4 zero-flux mechanisms, the rank is at least 1 and fitted
+  parameters minus the rank is at least the number of zero-flux groups in all 188; 0
+  failures. Fitted parameters range over 8 to 9 and the rank over 6 to 8. The removed
   parameters are ones the rate equation cannot see.
 - R1, R2 and ALLO lose nothing, and the allosteric populations are unchanged.
 
 ## Added mechanisms
 
 None: 0 added, so 0 violate an emission rule. The extended flip pairs the plan expects appear
-only at level 3, which these populations do not reach.
+only at level 3, and these populations do not reach level 3.
 
 ## Derivation of kept mechanisms
 
-The two runs drew their samples from different populations, so only 24 sampled mechanisms
-occur in both. For those 24, the fitted names and the Reduced string are identical in both
-runs; 0 differ. The comparison is small, but the filters change which mechanisms exist, not
-how one derives, and the kept mechanisms are unchanged as keys.
+The sample is drawn from the sorted intersection of the kept keys, seed 20260930, up to 40
+per set, all of R1–R3. Fitted names and Reduced string, old against new:
+
+| Set | Compared | Differing | Errors |
+|---|---|---|---|
+| R1 | 4 | 0 | 0 |
+| R2 | 7 | 0 | 0 |
+| R3 | 4 | 0 | 0 |
+| R4 | 40 | 0 | 0 |
+| R5 | 40 | 0 | 0 |
+| R6 | 40 | 0 | 0 |
+| ALLO | 40 | 0 | 0 |
+
+175 mechanisms, 0 differences, 0 errors.
 
 ## Enumeration time
 
@@ -109,16 +131,18 @@ how one derives, and the kept mechanisms are unchanged as keys.
 | R6 | 8.15 | 5.38 | -34% |
 | ALLO | 71.69 | 56.06 | -22% |
 
-R6, the largest population, enumerates 34% faster; no set is more than 12% slower, and those
-differences are within run-to-run variation on populations that take about a second.
+Each time is one run per checkout; there were no repeats. R6, the largest of R1–R6,
+enumerates 34% faster; R5 is 12% slower and R1, R2 and R4 are 5% to 8% slower, on populations
+that take between 0.06 and 1.3 s. ALLO is 22% faster.
 
 ## Conclusion
 
 The filters remove 12,069 mechanisms, each named by a rule: 564 with a steady-state group
 that carries no flux, whose rapid-equilibrium twin stays in the population, and 11,505 whose
-dead-end copy adds no new complex. They add none, change no kept mechanism's derivation in
-the sample, and cost no enumeration time.
+dead-end copy adds no new complex. They add none and change no kept mechanism's derivation in
+the 175-mechanism sample. Enumeration is 34% faster on R6 and up to 12% slower on the
+sub-two-second sets.
 
-The script's first compare run stopped at the read of the sampled strings, because a Reduced
-string spans several lines; the reader was fixed to join them and the comparison rerun on the
-same snapshots.
+The snapshot script's own derivation sample overlapped only 24 mechanisms between the runs,
+because both runs shared one random stream and R3's population differs; the separate
+intersection sample above replaced it.
