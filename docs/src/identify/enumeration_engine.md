@@ -92,9 +92,12 @@ the move then flips the bridging groups together, because a steady-state step
 whose two ends stay in one equilibrated segment never reaches the rate equation.
 
 Two kinds of group never flip. Competitive-inhibitor binding stays at rapid
-equilibrium by modeling choice. A group whose steps all lie on dead-end branches
-carries no net flux at steady state, so the equation could only ever see its
-equilibrium ratio; flipping it would add a parameter the data cannot determine.
+equilibrium by modeling choice. A steady-state group must carry net flux: a group
+none of whose steps would carry flux with every step at steady state is never a
+unit, and a set of flips that leaves one of its groups without flux in the child,
+because an equilibrated route around it carries the turnover, counts as failed and
+is extended like a set that divides no segment. Such a group's two constants enter
+the equation only as their ratio, which its equilibrium form already has.
 
 An allosteric parent with more than one catalytic subunit also drops every child
 whose catalytic scheme would carry a concentration to a power of its own — the
@@ -127,6 +130,14 @@ most one per group, whose combined effect raises the number of independent
 parameters; the thermodynamic constraint solver decides. Random-order bi-bi needs
 the A group and the B group split together before either constant is free.
 
+A part of a steady-state group that carries no flux, such as an abortive binding
+separated from the catalytic binding whose constants it shared, is emitted at
+rapid equilibrium: its two rates would enter the equation only as their ratio, and
+the equilibrium form is the same family with one constant fewer. The count test
+runs on that form, so a constant the thermodynamic ties pull back is still
+rejected. A competitive-inhibitor group is never divided so that one part binds
+only where its complex duplicates an existing form (see move 3).
+
 **Parameter delta:** at least +1 by construction. A child that would add nothing
 is never emitted.
 
@@ -135,7 +146,7 @@ is never emitted.
 Adds binding steps for a `CompetitiveInhibitor` declared in the reaction, as a
 dead-end complex with the enzyme. The move enumerates the combinations of enzyme
 species the inhibitor can bind, emitting one child mechanism per combination,
-subject to two rules:
+subject to three rules:
 
 - **Binding capacity.** An enzyme form holds at most as many metabolites as the
   larger of the substrate and product counts, `max(#substrates, #products)`, so
@@ -149,6 +160,14 @@ subject to two rules:
   inhibitor-bound branch can never complete the net reaction. In a ping-pong
   mechanism it can carry out the one half-reaction whose ligands the inhibitor
   does not compete with.
+- **A new complex.** A dead-end complex must differ from every form the mechanism
+  has: in composition, or, when a rapid-equilibrium route joins it to an existing
+  form, in the metabolites bound along that route. A substrate or product declared
+  as its own competitive inhibitor otherwise binds in a second orientation of a
+  complex the mechanism already has, and its constant enters the equation only
+  added to the existing one. A placement whose every site duplicates a form is not
+  emitted; in a uni-uni mechanism that is every placement, and the beam reports
+  the unsatisfiable requirement.
 
 The inhibitor's own binding steps form one fresh kinetic group (one new
 dissociation constant `K_R`).
@@ -239,10 +258,14 @@ steady-state detail follows it. A mechanism in which one enzyme form binds a
 metabolite at equilibrium while another binds it at steady state is reachable,
 but only after a split has given the two bindings separate constants.
 
-**Dead-end branches stay at equilibrium.** A group whose every step lies off the
-catalytic cycle carries no net flux at steady state. Its forward and reverse rates
-enter the equation only as their ratio, which the equilibrium form already has,
-so the group never flips.
+**A steady-state group carries flux.** A group whose every step lies off every
+cycle that runs the reaction carries no net flux at steady state. Its forward and
+reverse rates enter the equation only as their ratio, which the equilibrium form
+already has, so the moves never leave such a group at steady state: the flip does
+not make one, and the split reverts the one it would create. The test is
+structural, on the graph of rapid-equilibrium segments (`_flux_carrying_groups`),
+and reads each step's metabolite lists, so it holds for fused and
+Theorell–Chance steps as well.
 
 **Conformational mechanisms carry hyperbolic catalytic schemes.** An MWC
 conformational equilibrium and a random-order steady-state catalytic scheme
@@ -261,7 +284,9 @@ so an ordered scheme whose substrate traps a steady-state intermediate, as
 pyruvate does with E·NAD⁺ in lactate dehydrogenase, stays out of allosteric
 mechanisms. Binding of a declared competitive inhibitor does not count, because
 an inhibitor binds a site of its own; declaring a substrate as a dead-end
-inhibitor is how substrate inhibition enters an allosteric mechanism.
+inhibitor is how substrate inhibition enters an allosteric mechanism, provided the
+inhibitor complex is new: a copy that only duplicates an existing complex is never
+emitted (move 3).
 Hand-written mechanisms are not subject to the rule: an `@allosteric_mechanism`
 with random-order steady-state binding still derives and fits.
 
@@ -294,7 +319,7 @@ unreachable.
 
 **A child is never a provable copy of its parent.** Both moves reject a child
 whose equation can be shown to equal the parent's: a split the constraint solver
-ties back, a flip that leaves the segment count unchanged, a flip of a dead-end
-group. A few children whose equation is the parent's up to renaming the
-constants survive, uni-uni flips among them; they cost one fit each and never
-win selection.
+ties back, a flip that leaves the segment count unchanged, a flip that leaves a
+steady-state group without flux, a dead-end copy that creates no new complex. A few
+children whose equation is the parent's up to renaming the constants survive,
+uni-uni flips among them; they cost one fit each and never win selection.

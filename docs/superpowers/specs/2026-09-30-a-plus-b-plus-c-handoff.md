@@ -19,8 +19,10 @@ Date: 2026-09-30. Read this, then the findings document
       steps, a pure binding in the release direction (`K_ES_to_E_S`, a dissociation constant).
       The regression record shows this changed names only.
     - Internal functions are documented with docstrings.
-- Next: B, exact filters (findings points 1 and 2; plan section "B. Exact filters"). Start with
-  its spec, as A did; then a plan; then subagent-driven execution.
+- B, exact filters, is implemented (spec `2026-09-30-exact-filters-design.md`, plan
+  `../plans/2026-09-30-exact-filters.md`, regression record
+  `2026-09-30-exact-filters-regression.md`). Next: C, merged and Theorell–Chance seeds and
+  canonical merges (findings plan section C), starting with its spec.
 
 ## Open questions parked for Denis
 

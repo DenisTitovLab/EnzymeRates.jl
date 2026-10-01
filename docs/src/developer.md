@@ -89,12 +89,22 @@ set of splits only if the independent-parameter count rises; the count comes fro
 the thermodynamic constraint solve, and for a `Mechanism` it is evaluated without
 building the child, from a cycle basis computed once per parent
 (`_partition_independent_count`). The RE→SS move flips whole groups and accepts a
-set only if the rapid-equilibrium segment count rises; groups with no
-flux-carrying step (no cycle through a chemistry step, `_flux_carrying_groups`)
-never flip. Both moves share one minimal-set search (`_minimal_gaining_sets`).
-Duplicate equations that survive these proofs are collapsed at compile time by
-`eq_hash`. A numerical identifiability rank exists only in the test suite, as an
-oracle for the proofs; nothing in `src/` estimates identifiability numerically.
+set only if the rapid-equilibrium segment count rises and every flipped group
+carries net flux in the child. Flux is decided on the graph of rapid-equilibrium
+segments (`_flux_carrying_groups`): each steady-state step is an edge weighted by
+its net uptake of substrates minus products, segment offsets included, and a step
+carries flux exactly when its biconnected block holds a cycle of nonzero weight. A
+steady-state group with no such step exposes only the ratio of its constants, so a
+flip set that leaves one counts as failed and is extended, and a split part with
+none is emitted at rapid equilibrium. A dead-end copy of a substrate or product
+must create a complex no form duplicates, by composition or by segment and
+offsets (`_twin_site_test`); the dead-end move skips a pattern whose sites are all
+twins, and the split never isolates twin-only copy sites. `expand_mechanisms`
+asserts both rules on every parent (`_assert_emission_rules`). Both refinement
+moves share one minimal-set search (`_minimal_gaining_sets`). Duplicate equations
+that survive these proofs are collapsed at compile time by `eq_hash`. A numerical
+identifiability rank exists only in the test suite, as an oracle for the proofs;
+nothing in `src/` estimates identifiability numerically.
 
 Conformational mechanism types declare `_requires_hyperbolic_catalysis` (true for
 an `AllostericMechanism` whose catalytic multiplicity is above 1), and the moves

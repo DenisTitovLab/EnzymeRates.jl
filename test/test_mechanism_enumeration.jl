@@ -8221,6 +8221,53 @@ end
     @test t < 120
 end
 
+@testset "catalytic moves on bi-bi to depth 2: counts and both rules on every child" begin
+    # Aggregate regression pin over the whole enumerated population of the
+    # findings' reaction R4, whose atoms admit ping-pong: `init_mechanisms` plus two
+    # levels of the flip, split and dead-end moves, deduplicated across levels.
+    # Before the rules the levels held 62, 369 and 1,388 mechanisms. The rules drop
+    # 148 zero-flux flip children at level 2 and turn the 40 zero-flux split
+    # children into duplicates of level-2 flip children, so 1,200 remain; no seed
+    # or level-1 child changes. Every mechanism satisfies both emission rules.
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+    end
+    moves(m) = vcat(EnzymeRates._expand_re_to_ss(m),
+                    EnzymeRates._expand_split_kinetic_group(m),
+                    EnzymeRates._expand_add_dead_end_regulator(m, rxn))
+    level = unique!(EnzymeRates.init_mechanisms(rxn))
+    seen = Set(level)
+    counts = [length(level)]
+    for _ in 1:2
+        next = EnzymeRates.Mechanism[]
+        for m in level, c in moves(m)
+            c in seen && continue
+            push!(seen, c); push!(next, c)
+        end
+        level = next
+        push!(counts, length(level))
+    end
+    @test counts == [62, 369, 1200]
+    @test all(m -> EnzymeRates._assert_emission_rules(m) === nothing, seen)
+
+    # The same seeds with every reactant also a competitive inhibitor (R6), one
+    # level: every dead-end child binds its copy where it creates a new complex.
+    rxn6 = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        dead_end_inhibitors: A, B, P, Q
+    end
+    seeds6 = unique!(EnzymeRates.init_mechanisms(rxn6))
+    @test length(seeds6) == 62
+    kids6 = unique!(vcat((vcat(EnzymeRates._expand_re_to_ss(m),
+                                EnzymeRates._expand_split_kinetic_group(m),
+                                EnzymeRates._expand_add_dead_end_regulator(m, rxn6))
+                           for m in seeds6)...))
+    @test all(m -> EnzymeRates._assert_emission_rules(m) === nothing, kids6)
+    @test any(m -> !isempty(EnzymeRates._bound_comp_inhibitors(m)), kids6)
+end
+
 @testset "expand_mechanisms rejects chemistry folded into a release step" begin
     # The moves take the isomerization step as the chemistry step, which is
     # how the enumerator writes every mechanism. A mechanism written for the
