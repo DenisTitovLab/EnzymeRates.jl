@@ -178,10 +178,17 @@ The two rules every mechanism the moves emit satisfies, checked on a parent befo
 it is expanded. Every steady-state kinetic group holds a step that carries net flux
 (`_flux_carrying_groups`): otherwise its two constants enter the rate only as their
 ratio. Every kinetic group that binds a competitive inhibitor binds it somewhere
-that creates a new complex (`_duplicate_copy_groups`): otherwise its constant is not
-separable from the existing binding's. The flip tests only the groups it flips and
-the split only the parts it makes, so a parent must already satisfy both; a move
-that emitted a violator fails here at the next expansion instead of propagating it.
+that creates a new complex (`_duplicate_copy_groups`, judged against copy-free
+forms): otherwise its constant is not separable from the existing binding's. The
+flip tests only the groups it flips and the split only the parts it makes, so a
+parent must already satisfy both; a move that emitted a violator fails here at the
+next expansion instead of propagating it. The dead-end move adds only forms bound to
+its new copy, which the copy-free check never reads as twins, and
+`_expand_change_allo_state` filters its children. The other three allosteric moves
+preserve both rules: `_expand_to_allosteric` keeps every step, and an allosteric
+copy is a twin only where it is one in the active state, whose forms are the
+parent's; `_expand_add_allosteric_regulator` and `_expand_merge_regulatory_sites`
+change neither the steps nor the tags of existing groups.
 """
 function _assert_emission_rules(m::Union{Mechanism, AllostericMechanism})
     label(g) = join((join(_forward_sides(s), " → ") for s in steps(m)[g]), ", ")
@@ -1695,23 +1702,20 @@ its new kind, so a reverted constant the Wegscheider ties pull back is absorbed
 like any tied split, and a candidate whose reverted groups leave a rapid-equilibrium
 segment without a bottom form counts as failed. A bipartition of a
 competitive-inhibitor group in which one part binds only at twin sites
-(`_copy_twin_test`, judged in every conformational state where the copy binds) is
-not a unit: that part's constant would be invisible beside the existing bindings,
-and every superset of the unit recreates it.
+(`_twin_only`: judged against copy-free forms, in every conformational state where
+the copy binds) is not a unit: that part's constant would be invisible beside the
+existing bindings, and every superset of the unit recreates it.
 The reaction and (for allosteric) multiplicity and regulatory sites are
 preserved; both parts of a split group inherit its catalytic allo-state tag.
 """
 function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
     groups = steps(m)
     flux = _flux_carrying_steps(groups, reaction(m))
-    twin = _copy_twin_test(m)
-    tag(g) = m isa AllostericMechanism ? cat_allo_states(m)[g] : :EqualAI
-    duplicate_only(part, g) = bound_metabolite(first(part)) isa CompetitiveInhibitor &&
-        all(s -> twin(from_species(s), bound_metabolite(s)::Metabolite, tag(g)), part)
+    twin = _copy_twin_test(m; copy_free = true)
     units = Tuple{Int, Tuple{Vector{Step}, Vector{Step}}}[]
     reverted = Bool[]
     for g in kinetic_groups(m), bp in _context_bipartitions(groups[g])
-        (duplicate_only(bp[1], g) || duplicate_only(bp[2], g)) && continue
+        (_twin_only(twin, m, bp[1], g) || _twin_only(twin, m, bp[2], g)) && continue
         parts = _revert_zero_flux_parts(groups[g], bp, flux[g])
         push!(units, (g, parts)); push!(reverted, parts !== bp)
     end
@@ -1924,7 +1928,8 @@ _composition(sp::Species, extra::Metabolite...) =
      conformation(sp), residual(sp))
 
 """
-    _twin_site_test(groups) -> (site::Species, ligand::Metabolite) -> Bool
+    _twin_site_test(groups; copy_free = false)
+        -> (site::Species, ligand::Metabolite) -> Bool
 
 Whether binding `ligand` at `site` by a rapid-equilibrium step gives a complex that
 duplicates another form of `groups`: a form of the same composition, or a form of
@@ -1935,16 +1940,23 @@ through that sum. The complex itself, when `groups` already holds it, is not its
 own twin. Both keys are needed: a copy of a metabolite bound at steady state has a
 twin by composition alone, and a copy across a rapid-equilibrium isomerization
 (a ping-pong second chemistry step, a conformational isomer) by offsets alone.
+
+Every form is a twin source by default, which is how the dead-end move judges a
+new copy's sites. With `copy_free = true` only forms bound to no competitive
+inhibitor are: a twin that is another copy's complex shares the sum with that
+copy's constant, which the sites pinning the other copy keep separable.
 """
-function _twin_site_test(groups::Vector{Vector{Step}})
+function _twin_site_test(groups::Vector{Vector{Step}}; copy_free::Bool = false)
     species, segments, extras = _re_segment_extras(groups)
     idx = Dict(sp => i for (i, sp) in enumerate(species))
     seg = zeros(Int, length(species))
     for (k, members) in enumerate(segments), i in members
         seg[i] = k
     end
+    source(sp) = !copy_free || !any(b -> b isa CompetitiveInhibitor, bound(sp))
     compositions = Dict{Tuple{Vector{Symbol}, Symbol, Residual}, Int}()
     for sp in species
+        source(sp) || continue
         key = _composition(sp)
         compositions[key] = get(compositions, key, 0) + 1
     end
@@ -1952,52 +1964,70 @@ function _twin_site_test(groups::Vector{Vector{Step}})
         complex = Species(Metabolite[bound(site)..., ligand], conformation(site),
                           residual(site))
         own = get(idx, complex, 0)
-        get(compositions, _composition(complex), 0) - (own == 0 ? 0 : 1) > 0 && return true
+        counted = own != 0 && source(complex)
+        get(compositions, _composition(complex), 0) - (counted ? 1 : 0) > 0 &&
+            return true
         i = idx[site]
         target = mergewith(+, extras[i], Dict(name(ligand) => 1))
-        any(j -> j != own && extras[j] == target, segments[seg[i]])
+        any(j -> j != own && source(species[j]) && extras[j] == target,
+            segments[seg[i]])
     end
 end
 
 """
-    _copy_twin_test(m) -> (site::Species, ligand::Metabolite, tag::Symbol) -> Bool
+    _copy_twin_test(m; copy_free = false)
+        -> (site::Species, ligand::Metabolite, tag::Symbol) -> Bool
 
 Whether a competitive-inhibitor copy bound at `site` with allosteric tag `tag`
 duplicates an existing form in every conformational state where it binds
-(`_twin_site_test` on each state's graph). A `Mechanism` has one state. An
-allosteric copy binds the active state always and the inactive state unless its
-tag is `:OnlyA`; a site absent from the inactive state's graph
-(`_state_mechanism(am, :I)` prunes `:OnlyA` groups and the forms they strand) binds
-nothing there. A complex that duplicates a form in one state and is new in the
-other keeps a visible constant, so it is not a twin.
+(`_twin_site_test` on each state's graph, with `copy_free` passed through: every
+form a twin source, or only forms bound to no competitive inhibitor). A
+`Mechanism` has one state. An allosteric copy binds the active state always and
+the inactive state unless its tag is `:OnlyA`; a site absent from the inactive
+state's graph (`_state_mechanism(am, :I)` prunes `:OnlyA` groups and the forms they
+strand) binds nothing there. A complex that duplicates a form in one state and is
+new in the other keeps a visible constant, so it is not a twin.
 """
-function _copy_twin_test(m::Mechanism)
-    twin = _twin_site_test(steps(m))
+function _copy_twin_test(m::Mechanism; copy_free::Bool = false)
+    twin = _twin_site_test(steps(m); copy_free)
     (site, ligand, _) -> twin(site, ligand)
 end
-function _copy_twin_test(am::AllostericMechanism)
-    twin_active = _twin_site_test(steps(am))
+function _copy_twin_test(am::AllostericMechanism; copy_free::Bool = false)
+    twin_active = _twin_site_test(steps(am); copy_free)
     inactive = _state_mechanism(am, :I)
     inactive_forms = Set(sp for group in steps(inactive) for s in group
                          for sp in (from_species(s), to_species(s)))
-    twin_inactive = _twin_site_test(steps(inactive))
+    twin_inactive = _twin_site_test(steps(inactive); copy_free)
     (site, ligand, tag) -> twin_active(site, ligand) &&
         (tag === :OnlyA || !(site in inactive_forms) || twin_inactive(site, ligand))
 end
 
 """
+Whether `part`, steps of kinetic group `g` of `m`, binds a competitive inhibitor
+only where the complex duplicates a copy-free form in every conformational state
+the copy binds (`twin`, which is `_copy_twin_test(m; copy_free = true)`). Judged
+against copy-free forms only: a twin that is another copy's complex leaves the two
+constants separable through the sites that pin the other copy.
+"""
+function _twin_only(twin, m::Union{Mechanism, AllostericMechanism},
+                    part::Vector{Step}, g::Int)
+    tag = m isa AllostericMechanism ? cat_allo_states(m)[g] : :EqualAI
+    bound_metabolite(first(part)) isa CompetitiveInhibitor &&
+        all(s -> twin(from_species(s), bound_metabolite(s)::Metabolite, tag), part)
+end
+
+"""
 Kinetic groups of `m` that bind a competitive inhibitor only at twin sites
-(`_copy_twin_test`, with each group's allosteric tag). Such a group's constant
-enters the rate only through a sum with an existing constant, or names a second
+(`_twin_only`, with each group's allosteric tag). Such a group's constant enters
+the rate only through a sum with an existing constant, or names a second
 orientation of an existing complex that a shared group happens to pin; neither is
-a hypothesis the moves emit.
+a hypothesis the moves emit. This is the mechanism-level invariant: twins are
+judged against copy-free forms, so an older copy whose complex a later copy's
+complex matches in composition still counts as binding where it is new.
 """
 function _duplicate_copy_groups(m::Union{Mechanism, AllostericMechanism})
-    twin = _copy_twin_test(m)
-    tag(g) = m isa AllostericMechanism ? cat_allo_states(m)[g] : :EqualAI
-    [g for (g, group) in enumerate(steps(m))
-     if bound_metabolite(first(group)) isa CompetitiveInhibitor &&
-        all(s -> twin(from_species(s), bound_metabolite(s)::Metabolite, tag(g)), group)]
+    twin = _copy_twin_test(m; copy_free = true)
+    [g for (g, group) in enumerate(steps(m)) if _twin_only(twin, m, group, g)]
 end
 
 """
@@ -2050,10 +2080,16 @@ metabolite. Mirror steps inherit their catalytic counterpart's
 fresh trailing kinetic group (one K_R parameter).
 A pattern whose every site is a twin (`_twin_site_test`: the copy's complex has the
 composition of an existing form, or its segment and offsets) is skipped, judged in every
-conformational state where the copy binds (`_copy_twin_test`). Such a copy is
+conformational state where the copy binds (`_copy_twin_test`) and against every form of
+the parent, other copies' complexes included. Such a copy is
 a second orientation of a complex the mechanism already has; its constant enters the
 rate only through a sum with the existing binding's, or, when a shared kinetic group
 happens to pin that binding, names a hypothesis no different from the existing complex.
+The mechanism-level invariant (`_duplicate_copy_groups`) reads only copy-free forms as
+twins, so a new complex that matches an older copy's complex in composition leaves that
+older group valid: the two copies' constants enter that composition's weight each beside
+a different binding constant (1/(K_A·K_Q*) + 1/(K_Q·K_A*) for copies of A and Q), and
+the sites that pin each copy keep them separable.
 
 The caller must pass the declared `rxn` because `m.reaction` only
 carries regulators already bound by its steps; not-yet-bound regulators
@@ -2508,6 +2544,12 @@ lost.
 A regulatory ligand's tag is not an argument to the Haldane check — a
 regulator site completes no catalytic cycle — so that branch needs no
 filter.
+
+A child with a competitive-inhibitor group that binds only at twin sites
+(`_duplicate_copy_groups`) is dropped. The per-state twin test reads the tags
+this move changes: relaxing an `:OnlyA` binding to `:NonequalAI` brings its
+complex into the inactive state, where a copy that was new there becomes its
+twin, and the copy's constant then shows in neither state.
 """
 function _expand_change_allo_state(am::AllostericMechanism)
     results = AllostericMechanism[]
@@ -2554,7 +2596,7 @@ function _expand_change_allo_state(am::AllostericMechanism)
         end
     end
 
-    results
+    filter!(c -> isempty(_duplicate_copy_groups(c)), results)
 end
 
 """
@@ -2884,9 +2926,11 @@ function seed_mechanisms(rxn::EnzymeReaction, required_allo::Set{Symbol},
               "(competitive inhibitors: " * list(required_comp) *
               "; allosteric regulators: " * list(required_allo) * "). A substrate or " *
               "product declared as a competitive inhibitor binds only where it forms " *
-              "a new complex, and a uni-uni mechanism has no such site. Mark a " *
-              "regulator optional with `optional_competitive_inhibitors` or " *
-              "`optional_allosteric_regulators`, or remove its declaration")
+              "a complex no other form duplicates in every conformational state " *
+              "where it binds; a uni-uni mechanism with one conformation has no " *
+              "such site. Mark a regulator optional with " *
+              "`optional_competitive_inhibitors` or `optional_allosteric_regulators`, " *
+              "or remove its declaration")
     end
     seeds
 end

@@ -162,6 +162,10 @@ identify_rate_equation(prob; optimizer = CMAEvolutionStrategyOpt(),
                        optional_allosteric_regulators = [:A])
 ```
 
+When no mechanism can bind every required regulator, the search stops with an error
+that names the regulators and the `optional_allosteric_regulators` and
+`optional_competitive_inhibitors` keywords.
+
 To go the other way and shrink the seed set, declare `A`'s type. An activator binds
 the active conformation, so `A::Activator` pins it to `:OnlyA` and halves the seeds an
 undesignated regulator would otherwise produce:

@@ -65,7 +65,10 @@ By default every declared regulator is required. `identify_rate_equation`'s
 `optional_allosteric_regulators` and `optional_competitive_inhibitors` keywords move
 named regulators back to optional, so the beam adds them as refinements rather than
 forcing them into every seed; listing every regulator as optional recovers the
-`init_mechanisms` starting set. Declaring a regulator's type in the reaction —
+`init_mechanisms` starting set. When no mechanism binds every required regulator —
+a uni-uni reaction whose substrate is also declared a competitive inhibitor, say —
+`seed_mechanisms` stops with an error that names the regulators and these two
+keywords. Declaring a regulator's type in the reaction —
 `::Activator` or `::Inhibitor` — pins it to one allosteric state and shrinks the set
 further. The [Identify tutorial](@ref) works a concrete example.
 
@@ -165,9 +168,13 @@ subject to three rules:
   form, in the metabolites bound along that route. A substrate or product declared
   as its own competitive inhibitor otherwise binds in a second orientation of a
   complex the mechanism already has, and its constant enters the equation only
-  added to the existing one. A placement whose every site duplicates a form is not
-  emitted; in a uni-uni mechanism that is every placement, and the beam reports
-  the unsatisfiable requirement.
+  added to the existing one. In an allosteric mechanism the test is made in every
+  conformation the copy binds: a copy that duplicates a complex in the active
+  conformation but is the only such complex in the inactive one keeps a visible
+  constant and is emitted. A placement whose every site duplicates a form in every
+  conformational state where the copy binds is not emitted; in a uni-uni mechanism
+  with one conformation that is every placement, and the beam reports the
+  unsatisfiable requirement.
 
 The inhibitor's own binding steps form one fresh kinetic group (one new
 dissociation constant `K_R`).

@@ -99,7 +99,10 @@ flip set that leaves one counts as failed and is extended, and a split part with
 none is emitted at rapid equilibrium. A dead-end copy of a substrate or product
 must create a complex no form duplicates, by composition or by segment and
 offsets (`_twin_site_test`); the dead-end move skips a pattern whose sites are all
-twins, and the split never isolates twin-only copy sites. `expand_mechanisms`
+twins of the parent's forms, and the split never isolates twin-only copy sites.
+The split, `_expand_change_allo_state` and the parent check read only copy-free
+forms as twins (`_duplicate_copy_groups`): a later copy whose complex matches an
+older copy's complex leaves the older group's constant separable. `expand_mechanisms`
 asserts both rules on every parent (`_assert_emission_rules`). Both refinement
 moves share one minimal-set search (`_minimal_gaining_sets`). Duplicate equations
 that survive these proofs are collapsed at compile time by `eq_hash`. A numerical
