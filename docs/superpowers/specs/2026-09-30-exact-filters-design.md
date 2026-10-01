@@ -69,6 +69,11 @@ see, and both have exact structural tests.
   shared group blocks the absorption; a non-productive orientation of an existing complex is not
   a distinct hypothesis.
 - `seed_mechanisms` **errors** when no mechanism binds every required regulator.
+- Controller rulings during execution, for Denis to confirm: the twin test is judged per
+  conformational state (section 2, "Conformational states"); the mechanism-level invariant
+  judges twins against copy-free forms while the dead-end move's placement rule judges against
+  all forms (section 2, "Two readings"); `_expand_change_allo_state` filters its children by
+  the invariant; a reverted split part may keep a phantom of the chain class (Goal 3).
 
 ## Terms
 
@@ -146,11 +151,26 @@ one), and the placement stands. This is the route by which substrate inhibition 
 allosteric mechanism. With S binding `:NonequalAI` the copy duplicates E(S) in both states and
 is skipped.
 
+Two readings of the rule (settled 2026-09-30 during implementation, for Denis to confirm). The
+dead-end move judges a new copy's sites against every form the parent has, other copies'
+complexes included: that is the per-placement rule the findings measured (no phantom among the
+26,292 placements that create a new complex). The mechanism-level invariant that the split,
+`_expand_change_allo_state` and the parent assertion enforce judges a copy group's sites against
+copy-free forms only, the forms bound to no competitive inhibitor. The two differ when a later
+copy's complex has the composition of an older copy's, as E(Q, A*) has that of E(A, Q*): the
+older group is then all-twin by composition, yet the two constants enter the law through
+K_A·K_Q* + K_Q·K_A*, and the sites that pin the other copy keep them separable, so such a
+mechanism is generically identifiable and is not rejected.
+
 Which moves can break rule 2: a flip only cuts segments and changes no composition, so a twin
-can disappear but never appear; a dead-end addition of another regulator adds only forms that
-carry that regulator, which no copy complex does; the four allosteric moves change no step. Only
-the split move and the dead-end move need the check, and the parent assertion of section 6
-covers hand-written input.
+can disappear but never appear; a dead-end addition adds only forms that carry the new copy,
+none of them copy-free, so older groups keep their status under the invariant;
+`_expand_change_allo_state` changes the tags the per-state test reads (relaxing an `:OnlyA`
+binding to `:NonequalAI` brings its complex into the inactive state and can make a kept copy a
+twin in both states), so its children are filtered by the invariant; the other allosteric moves
+change neither steps nor the tags of existing groups. The split move, the dead-end move and
+`_expand_change_allo_state` enforce the rule; the parent assertion of section 6 covers
+hand-written input.
 
 ### 3. The flip move (`_expand_re_to_ss`)
 
@@ -171,8 +191,10 @@ covers hand-written input.
 
 ### 4. The split move (`_expand_split_kinetic_group`)
 
-- Per-step flux flags and per-copy-step twin flags are computed once per parent; a split moves
-  no edge and changes no flag, so the parent's flags hold for every candidate.
+- Per-step flux flags are computed once per parent: a split moves no edge, and reverting a
+  zero-flux part contracts edges of a balanced block, which changes no cycle's net
+  stoichiometry, so the parent's flux flags hold for every candidate. Twin status is judged on
+  the candidate's parts under the mechanism-level invariant (section 2).
 - **Revert**: for a unit of an SS group, a part with no flux-carrying step is rebuilt with every
   step at rapid equilibrium. A parent that satisfies rule 1 has a flux-carrying step in one part,
   so at most one part reverts. The reverted child has the same family as the raw split child with
@@ -207,7 +229,9 @@ seed keeps at least two children per copied ligand.
   errors that name the offending group's steps (in canonical group order, like the group-rule
   errors). This is what lets the flip test only its flipped groups, and it makes a move that
   emits a violator, such as C's merge, fail at the next expansion rather than silently
-  propagate. The four allosteric moves copy or pass through `steps`, so they preserve both rules.
+  propagate. Three allosteric moves copy or pass through `steps` and leave the tags of existing
+  groups, so they preserve both rules; `_expand_change_allo_state` filters its children
+  (section 2).
 - `seed_mechanisms` errors when it finds no seed. The message names the required competitive
   inhibitors and allosteric regulators it could not place and the keywords that make a regulator
   optional (`optional_competitive_inhibitors`, `optional_allosteric_regulators`). Today the beam
