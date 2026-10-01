@@ -150,7 +150,16 @@ Removed: 15,242, each named by a rule; none is unexplained.
   Denis chose this reading (2026-10-01). A scratch probe judged the same parts with every form a
   twin source except the complexes of the copy being split: all eight then pass, while the
   depth-4 phantom of the test suite (A* split down to E(Q) beside Q* at E(A)) and the B* split
-  of its neighboring test are still rejected.
+  of its neighboring test are still rejected. That narrower reading is not exact either. It
+  admits the same-copy form of the depth-4 phantom: a hand-written ping-pong with its second
+  chemistry step at rapid equilibrium and Q* at E(Q) and E(B; res) in one group splits into two
+  singleton copy groups with 8 fitted and rank 7, the Q² coefficient (1/K_Q)(1/K1 + Kc/K2)
+  holding both constants and neither appearing elsewhere. Over R5's level-2 parents it adds 13
+  level-3 split children, one with a phantom; over R6's it adds about 946, with one phantom and
+  one inherited phantom among 120 sampled. What separates the eight from the phantoms is whether
+  the twin's own constant is fixed elsewhere, which no composition rule reads. The all-forms
+  reading, in turn, cuts those same level-3 children, about 98% of them identifiable in the
+  sample; whether other routes reach them was not checked.
 - R5's only inhibitor is foreign. No copy-free form binds it, and the placement rule drops
   every form that does, so a foreign inhibitor's complex is never a twin under either check:
   188 of R5's 190 removals are zero-flux. The split's all-forms reading can match the
@@ -248,6 +257,7 @@ tag-relaxation filter drops 310 ALLO6 relaxations, each with a twin-only copy gr
 filters add none, every kept mechanism satisfies both emission rules, and no kept mechanism's
 derivation changes in the 215-mechanism sample. Three questions remain open for Denis: the
 107 ALLO6 placements that the placement rule and the child-level check judge differently (62
-of them identifiable), the `:NonequalAI` copy class the rules do not cover, and the eight
-identifiable split children the all-forms reading drops, which a reading that excludes only
-the split copy's own complexes would keep.
+of them identifiable), the `:NonequalAI` copy class the rules do not cover, and the split
+children the all-forms reading drops (eight at level 2, about 946 of R6's at level 3, most of
+them identifiable), which a reading that excludes only the split copy's own complexes would
+keep at the price of admitting a few same-copy phantoms.

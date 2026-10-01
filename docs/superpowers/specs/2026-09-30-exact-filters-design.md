@@ -171,8 +171,9 @@ is skipped.
 Two readings of the rule (settled 2026-09-30 during implementation, for Denis to confirm). The
 dead-end move judges a new copy's sites against every form the parent has, other copies'
 complexes included: that is the per-placement rule the findings measured (no phantom among the
-26,292 placements that create a new complex). The split's part filter uses the same all-forms
-reading: once two copies are each split down to complexes of one composition, their two
+26,292 placements that create a new complex). The split's part filter judges against every
+form as well, the copy's own complexes at its other sites included, which the placement never
+sees: once two copies are each split down to complexes of one composition, their two
 constants enter the law through one coefficient (Denis, 2026-10-01). The mechanism-level
 invariant that `_expand_change_allo_state` and the parent assertion enforce judges a copy
 group's sites against copy-free forms only, the forms bound to no competitive inhibitor. The two
@@ -228,7 +229,8 @@ hand-written input.
 - **Copy groups**: a bipartition of a copy group in which a part has only twin sites
   (`_copy_twin_test` against every form, in every conformational state where the copy binds) is
   not a unit. Every superset of such a unit recreates the same duplicate-only group, so excluding
-  the unit loses nothing.
+  the unit loses only children the rule itself judges twin-only; some of those are identifiable
+  (section 2, "Two readings", and the regression record).
 - The partner search is unchanged. It ignores groups holding an SS step, so a reverted RE part
   whose constant a further split could free is not extended within one move; the same child is
   reachable by splitting the partner first.

@@ -103,8 +103,9 @@ twins of the parent's forms, and the split never isolates twin-only copy sites.
 `_expand_change_allo_state` and the parent check read only copy-free forms as
 twins (`_duplicate_copy_groups`): a later copy whose complex matches an older
 copy's complex leaves the older group's constant separable. The split reads every
-form as a twin source, as the dead-end move does: two copies each split down to
-complexes of one composition enter the law through one coefficient.
+form as a twin source, the copy's own complexes at its other sites included: two
+copies each split down to complexes of one composition enter the law through one
+coefficient.
 `expand_mechanisms` asserts both rules on every parent (`_assert_emission_rules`).
 Both refinement moves share one minimal-set search (`_minimal_gaining_sets`).
 Duplicate equations that survive these proofs are collapsed at compile time by

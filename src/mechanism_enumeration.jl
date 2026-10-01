@@ -1702,8 +1702,9 @@ its new kind, so a reverted constant the Wegscheider ties pull back is absorbed
 like any tied split, and a candidate whose reverted groups leave a rapid-equilibrium
 segment without a bottom form counts as failed. A bipartition of a
 competitive-inhibitor group in which one part binds only at twin sites (`_twin_only`
-with the twin test against every form, other copies' complexes included, in every
-conformational state where the copy binds) is not a unit: once two copies are each
+with the twin test against every form, the copy's own complexes at its other sites and
+other copies' complexes included, in every conformational state where the copy binds) is
+not a unit: once two copies are each
 split down to complexes of one composition, their two constants enter the law through
 one coefficient, so the placement test's reading, not the invariant's, applies here.
 The reaction and (for allosteric) multiplicity and regulatory sites are

@@ -8558,8 +8558,9 @@ end
     # Without the new-complex rule level 1 would hold 1,769; the 360 seed-level
     # placements whose every site duplicates a form are not emitted. Without both
     # rules level 2 would hold 28,304. In 412 level-2 mechanisms a copy group
-    # duplicates a form at every site only when other copies' complexes count;
-    # judged against copy-free forms, they satisfy the new-complex rule.
+    # duplicates a form at every site only when the copy's own other complexes or
+    # other copies' complexes count; judged against copy-free forms, they satisfy
+    # the new-complex rule.
     @test length.(copies) == [62, 1409, 16980]
     @test all(obeys_rules, Iterators.flatten(copies))
     @test any(m -> !isempty(EnzymeRates._bound_comp_inhibitors(m)), copies[2])
