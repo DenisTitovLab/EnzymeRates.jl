@@ -1,18 +1,18 @@
 # Exact filters: regression check
 
-Date: 2026-09-30. This checks the exact enumeration filters (design
+Date: 2026-10-01. This checks the exact enumeration filters (design
 `2026-09-30-exact-filters-design.md`, plan `../plans/2026-09-30-exact-filters.md`): the flux
 predicate, the flip's extend semantics, the twin predicate, the dead-end move's new-complex
-rule, the split's revert and copy-unit filter, the mechanism-level check against copy-free
-forms and the tag-relaxation filter. Every mechanism the filters remove must be one a rule
-names; every kept and added mechanism must satisfy both emission rules; every kept mechanism
-must derive as before.
+rule, the split's revert and its copy-unit filter (judged against all forms), the
+mechanism-level check against copy-free forms and the tag-relaxation filter. Every mechanism
+the filters remove must be one a rule names; every kept and added mechanism must satisfy both
+emission rules; every kept mechanism must derive as before.
 
 ## Method
 
 A scratch script (not committed) enumerates the populations of one checkout and writes them
 as keys; a second mode compares two key sets mechanism by mechanism. The baseline ran on
-a2a02b1, before the filters; the comparison ran on 9215223, which holds them. Both enumerated
+a2a02b1, before the filters; the comparison ran on 0cb540f, which holds them. Both enumerated
 independently, one Julia process at a time. The a2a02b1 checkout ran with the current
 `Manifest.toml`, so both runs used the same dependency versions.
 
@@ -46,6 +46,9 @@ For each removed mechanism the script records the first rule that names it:
 - else a copy group whose every site is a twin among all forms of the mechanism without that
   copy, other copies' complexes included: the dead-end move's placement rule, which judges
   a new copy against every form of its parent;
+- else a copy group whose every site is a twin among all forms of the mechanism, the copy's
+  own complexes at its other sites included (`_twin_only` with `_copy_twin_test(m)`): the
+  split's part filter;
 - else, for an allosteric mechanism, a valid mechanism that the new code reaches by placing
   the copy on its relaxed parent (`_expand_add_dead_end_regulator` on the mechanism without
   that copy returns it);
@@ -64,6 +67,11 @@ kept parent.
 
 It runs `_assert_emission_rules` on every kept and every added mechanism of every set. It
 also records the enumeration time of each population (one run per checkout).
+
+It also compares the new keys with the snapshot of the previous comparison, which ran on
+9215223, where the split judged its parts against copy-free forms. For each mechanism that
+snapshot holds and this one does not, it records the two twin predicates, the fitted
+parameters and the rank.
 
 The derivation comparison is a separate step. It draws, per set, up to 40 keys (all of them
 for R1–R3) from the sorted intersection of the two key sets with `MersenneTwister(20260930)`,
@@ -88,10 +96,10 @@ then derives each on both checkouts (`fitted_params` joined by spaces and the Re
 | R4 | 2 | 1388 | 1200 | 1200 | 188 | 0 |
 | R5 | 0 | 62 | 62 | 62 | 0 | 0 |
 | R5 | 1 | 719 | 719 | 719 | 0 | 0 |
-| R5 | 2 | 3934 | 3746 | 3746 | 188 | 0 |
+| R5 | 2 | 3934 | 3744 | 3744 | 190 | 0 |
 | R6 | 0 | 62 | 62 | 62 | 0 | 0 |
 | R6 | 1 | 1769 | 1409 | 1409 | 360 | 0 |
-| R6 | 2 | 28304 | 16986 | 16986 | 11318 | 0 |
+| R6 | 2 | 28304 | 16980 | 16980 | 11324 | 0 |
 | ALLO | 1 | 930 | 930 | 930 | 0 | 0 |
 | ALLO | 2 | 5471 | 5471 | 5471 | 0 | 0 |
 | ALLO6 | 1 | 150 | 150 | 150 | 0 | 0 |
@@ -99,22 +107,22 @@ then derives each on both checkouts (`fitted_params` joined by spaces and the Re
 | ALLO6 | 3 | 15756 | 13088 | 13088 | 2668 | 0 |
 
 Every new population is a subset of the old. The test suite pins 62, 369 and 1,200 for R4
-and 62, 1,409 and 16,986 for R6.
+and 62, 1,409 and 16,980 for R6.
 
 ## Removed mechanisms
 
-Removed: 15,234, each named by a rule; none is unexplained.
+Removed: 15,242, each named by a rule; none is unexplained.
 
-| Set | Zero-flux | Twin-only (copy-free) | Placement rule | Other order | Unexplained |
-|---|---|---|---|---|---|
-| R1 | 0 | 0 | 0 | 0 | 0 |
-| R2 | 0 | 0 | 0 | 0 | 0 |
-| R3 | 0 | 7 | 0 | 0 | 0 |
-| R4 | 188 | 0 | 0 | 0 | 0 |
-| R5 | 188 | 0 | 0 | 0 | 0 |
-| R6 | 188 | 10618 | 872 | 0 | 0 |
-| ALLO | 0 | 0 | 0 | 0 | 0 |
-| ALLO6 | 0 | 2681 | 346 | 146 | 0 |
+| Set | Zero-flux | Twin-only (copy-free) | Placement rule | Twin-only part (all forms) | Other order | Unexplained |
+|---|---|---|---|---|---|---|
+| R1 | 0 | 0 | 0 | 0 | 0 | 0 |
+| R2 | 0 | 0 | 0 | 0 | 0 | 0 |
+| R3 | 0 | 7 | 0 | 0 | 0 | 0 |
+| R4 | 188 | 0 | 0 | 0 | 0 | 0 |
+| R5 | 188 | 0 | 0 | 2 | 0 | 0 |
+| R6 | 188 | 10618 | 872 | 6 | 0 | 0 |
+| ALLO | 0 | 0 | 0 | 0 | 0 | 0 |
+| ALLO6 | 0 | 2681 | 346 | 0 | 146 | 0 |
 
 - Zero-flux removals (564): the RE twin of each is in the new population, 564 of 564. For
   the 188 removed R4 mechanisms the rank is at least 1 and fitted parameters minus the rank
@@ -132,6 +140,22 @@ Removed: 15,234, each named by a rule; none is unexplained.
   conformation keeps no step, so the placement rule finds free E absent from that state and
   judges the copy by the active state alone, while in the child the copy binding reaches the
   inactive state and the copy is new there.
+- Twin-only parts against all forms (8: R5 2, R6 6): split children of a ping-pong mechanism
+  whose second chemistry step E(B; res) ⇌ E(Q) is at rapid equilibrium, with the copy (I in R5,
+  B or Q in R6) bound at E(Q) and at E(B; res) and the mirrored isomerization between its two
+  complexes in a kinetic group of its own. The split separates the two sites, and the part
+  holding one of them binds only at twin sites; at that site the only twin is the copy's own
+  complex in the other part, with the same segment and offsets. Each has 8 fitted parameters and
+  rank 8: identifiable mechanisms that the all-forms reading does not emit, the cost stated when
+  Denis chose this reading (2026-10-01). A scratch probe judged the same parts with every form a
+  twin source except the complexes of the copy being split: all eight then pass, while the
+  depth-4 phantom of the test suite (A* split down to E(Q) beside Q* at E(A)) and the B* split
+  of its neighboring test are still rejected.
+- R5's only inhibitor is foreign. No copy-free form binds it, and the placement rule drops
+  every form that does, so a foreign inhibitor's complex is never a twin under either check:
+  188 of R5's 190 removals are zero-flux. The split's all-forms reading can match the
+  inhibitor's complex to its own complex at another site, which removes the other 2. These
+  figures are measured per set, not derived from the totals.
 - Other order (146, ALLO6 level 3): valid mechanisms whose level-2 parents were all removed;
   the new code reaches each by placing the copy after the relaxation, a path ALLO6 does not
   enumerate.
@@ -142,12 +166,10 @@ Removed: 15,234, each named by a rule; none is unexplained.
   phantom over its kept parent. The other 2,358 lost every parent.
 - R1, R2 and ALLO lose nothing.
 
-The copy-free reading keeps eight mechanisms that the earlier all-forms check removed: R5's
-level 2 holds 3,746 here against 3,744 in the earlier run of this check, and R6's 16,986
-against 16,980 (a comparison of the two runs' counts, not of keys). Scratch probes found these
-to be split children whose part's twin is another inhibitor-bound form (in R5, the foreign
-inhibitor's own complex across the ping-pong second chemistry step), and measured 8 fitted
-parameters and rank 8 for each of the eight.
+Against the previous comparison's snapshot (9215223), this one loses exactly the eight
+twin-only parts above, two at R5 level 2 and six at R6 level 2, and gains none; every other
+set and level holds the same keys. Each of the eight has a copy group that is twin-only
+against all forms and none against copy-free forms.
 
 ## Added mechanisms
 
@@ -163,8 +185,8 @@ None: 0 added.
 | R2 | 7 | 0 |
 | R3 | 4 | 0 |
 | R4 | 1631 | 0 |
-| R5 | 4527 | 0 |
-| R6 | 18457 | 0 |
+| R5 | 4525 | 0 |
+| R6 | 18451 | 0 |
 | ALLO | 6401 | 0 |
 | ALLO6 | 17483 | 0 |
 
@@ -199,26 +221,33 @@ per set, all of R1–R3. Fitted names and Reduced string, old against new:
 
 | Set | Old (s) | New (s) | Change |
 |---|---|---|---|
-| R1 | 0.89 | 0.90 | 1% |
-| R2 | 0.056 | 0.063 | 13% |
-| R3 | 0.005 | 0.0003 | -94% |
-| R4 | 0.44 | 0.44 | 0% |
-| R5 | 1.29 | 1.36 | 5% |
-| R6 | 7.84 | 5.26 | -33% |
-| ALLO | 53.06 | 53.31 | 0% |
-| ALLO6 | 100.40 | 89.30 | -11% |
+| R1 | 0.89 | 0.89 | 0% |
+| R2 | 0.056 | 0.069 | 24% |
+| R3 | 0.005 | 0.0003 | -93% |
+| R4 | 0.44 | 0.52 | 17% |
+| R5 | 1.29 | 1.48 | 15% |
+| R6 | 7.84 | 5.33 | -32% |
+| ALLO | 53.06 | 55.00 | 4% |
+| ALLO6 | 100.40 | 94.62 | -6% |
 
-Each time is one run per checkout; there were no repeats. R6 enumerates 33% faster and ALLO6
-11% faster; R5 is 5% slower and R2 13% slower on a population that takes 0.06 s.
+Each time is one run per checkout; there were no repeats. R6 enumerates 32% faster and ALLO6
+6% faster. R4 is 17% and R5 15% slower. The previous comparison ran the same populations on
+code that differs from this one's only in the split's twin sources and two refactors that
+change no behavior, and measured 0.44 s and 1.36 s. R4 binds no copy, so the split's twin
+test never reaches a site there, and its rise is variation between single runs. R2 is 24%
+slower on a population that takes 0.07 s.
 
 ## Conclusion
 
-The filters remove 15,234 mechanisms across R1–R6, ALLO and ALLO6, each named by a rule: 564
+The filters remove 15,242 mechanisms across R1–R6, ALLO and ALLO6, each named by a rule: 564
 with a steady-state group that carries no flux, whose rapid-equilibrium twin stays in the
 population; 13,306 whose copy duplicates a copy-free form at every site; 1,218 the dead-end
-placement rule rejects; and 146 valid ALLO6 mechanisms the new code reaches in another order.
-The tag-relaxation filter drops 310 ALLO6 relaxations, each with a twin-only copy group. The
+placement rule rejects; 8 split children with a part that binds only at twins among all
+forms; and 146 valid ALLO6 mechanisms the new code reaches in another order. The
+tag-relaxation filter drops 310 ALLO6 relaxations, each with a twin-only copy group. The
 filters add none, every kept mechanism satisfies both emission rules, and no kept mechanism's
-derivation changes in the 215-mechanism sample. Two questions remain open for Denis: the 107
-ALLO6 placements that the placement rule and the child-level check judge differently (62 of
-them identifiable), and the `:NonequalAI` copy class the rules do not cover.
+derivation changes in the 215-mechanism sample. Three questions remain open for Denis: the
+107 ALLO6 placements that the placement rule and the child-level check judge differently (62
+of them identifiable), the `:NonequalAI` copy class the rules do not cover, and the eight
+identifiable split children the all-forms reading drops, which a reading that excludes only
+the split copy's own complexes would keep.
