@@ -140,6 +140,23 @@ and 3 of R6, for 14 identifiable events beyond the composition key alone.
 
 A copy group satisfies rule 2 when one of its steps is not a twin site.
 
+Edges left as they are (found during the final review, 2026-09-30; for Denis to decide):
+
+- A `:NonequalAI` copy group has one constant per state, and the rule asks only that the copy
+  be a twin in every state where it binds. A copy that is a twin in the active state alone
+  keeps one phantom (its active constant) and is emitted; a "twin in either state" rule would
+  reject identifiable groups as well (521 of 17,483 sampled allosteric mechanisms hold such a
+  group, with mixed ranks). The same principle as the I-state class under Non-goals: a
+  constant that one conformation cannot see is not a reason to change the group's tag.
+- A copy placed at free E in a parent whose inactive graph has no steps (every catalytic group
+  `:OnlyA`) is judged absent from the inactive state and rejected at placement when its
+  complex duplicates E(S) in the active one. Counting free E as always present would emit 107
+  such placements in the sampled allosteric population, 62 of them identifiable and 45 with a
+  phantom. The conservative verdict stands until Denis decides.
+- The mechanism-level invariant passes a hand-written mechanism whose two copies are twins
+  only of each other (Q* only at E(A) and A* only at E(Q): 7 fitted, rank 6). No move can
+  build it, since the second placement is all-twin against all forms.
+
 Conformational states (added 2026-09-30 during implementation, for Denis to confirm): a copy
 in an allosteric mechanism is a twin only when it duplicates a form in every state where it
 binds. A copy binds the active state always and the inactive state unless its tag is `:OnlyA`;
