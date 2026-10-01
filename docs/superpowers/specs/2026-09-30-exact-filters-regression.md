@@ -12,7 +12,7 @@ must derive as before.
 
 A scratch script (not committed) enumerates the populations of one checkout and writes them
 as keys; a second mode compares two key sets mechanism by mechanism. The baseline ran on
-a2a02b1, before the filters; the comparison ran on 95ffa12, which holds them. Both enumerated
+a2a02b1, before the filters; the comparison ran on 9215223, which holds them. Both enumerated
 independently, one Julia process at a time. The a2a02b1 checkout ran with the current
 `Manifest.toml`, so both runs used the same dependency versions.
 
