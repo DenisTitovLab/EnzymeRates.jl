@@ -100,14 +100,16 @@ none is emitted at rapid equilibrium. A dead-end copy of a substrate or product
 must create a complex no form duplicates, by composition or by segment and
 offsets (`_twin_site_test`); the dead-end move skips a pattern whose sites are all
 twins of the parent's forms, and the split never isolates twin-only copy sites.
-The split, `_expand_change_allo_state` and the parent check read only copy-free
-forms as twins (`_duplicate_copy_groups`): a later copy whose complex matches an
-older copy's complex leaves the older group's constant separable. `expand_mechanisms`
-asserts both rules on every parent (`_assert_emission_rules`). Both refinement
-moves share one minimal-set search (`_minimal_gaining_sets`). Duplicate equations
-that survive these proofs are collapsed at compile time by `eq_hash`. A numerical
-identifiability rank exists only in the test suite, as an oracle for the proofs;
-nothing in `src/` estimates identifiability numerically.
+`_expand_change_allo_state` and the parent check read only copy-free forms as
+twins (`_duplicate_copy_groups`): a later copy whose complex matches an older
+copy's complex leaves the older group's constant separable. The split reads every
+form as a twin source, as the dead-end move does: two copies each split down to
+complexes of one composition enter the law through one coefficient.
+`expand_mechanisms` asserts both rules on every parent (`_assert_emission_rules`).
+Both refinement moves share one minimal-set search (`_minimal_gaining_sets`).
+Duplicate equations that survive these proofs are collapsed at compile time by
+`eq_hash`. A numerical identifiability rank exists only in the test suite, as an
+oracle for the proofs; nothing in `src/` estimates identifiability numerically.
 
 Conformational mechanism types declare `_requires_hyperbolic_catalysis` (true for
 an `AllostericMechanism` whose catalytic multiplicity is above 1), and the moves

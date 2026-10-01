@@ -1888,6 +1888,8 @@ Claude-Session: https://claude.ai/code/session_01R4zCpbZSoygD66kRecfrDN"
 
 ### Task 6: Population pin, docs, version, regression record
 
+> Amended 2026-10-01 (Denis): no version bump in B; the branch rises once over `main`, in A.
+
 **Files:**
 - Test: `test/test_mechanism_enumeration.jl` (new testset next to "expand_mechanisms: ter-ter random-order seed within budget", about line 7305)
 - Modify: `docs/src/developer.md` (the paragraph beginning "The two refinement moves never emit", about lines 86–100)

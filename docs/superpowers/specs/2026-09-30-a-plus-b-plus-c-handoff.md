@@ -7,7 +7,7 @@ Date: 2026-09-30. Read this, then the findings document
 
 - Branch `step-explicit-stoichiometry` holds all of A+B+C. Denis wants A, B and C in one pull
   request from this branch (2026-09-30), so B and C are built here. Nothing is pushed.
-- Done on the branch, full suite 54,642/54,642:
+- Done on the branch (full suite at the tip, A and B together: 54,612/54,612):
   - A, explicit-stoichiometry `Step` (spec `2026-09-28-step-explicit-stoichiometry-design.md`,
     plan `../plans/2026-09-28-step-explicit-stoichiometry.md`, regression record
     `2026-09-28-step-explicit-stoichiometry-regression.md`).
@@ -23,6 +23,8 @@ Date: 2026-09-30. Read this, then the findings document
   `../plans/2026-09-30-exact-filters.md`, regression record
   `2026-09-30-exact-filters-regression.md`). Next: C, merged and Theorell–Chance seeds and
   canonical merges (findings plan section C), starting with its spec.
+- The version is 0.8.0 for the whole branch: it ships as one squashed pull request, so it rises
+  once over `main`'s 0.7.0, in A, and B and C add no bump.
 
 ## Open questions parked for Denis
 

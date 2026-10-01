@@ -153,9 +153,9 @@ Edges left as they are (found during the final review, 2026-09-30; for Denis to 
   complex duplicates E(S) in the active one. Counting free E as always present would emit 107
   such placements in the sampled allosteric population, 62 of them identifiable and 45 with a
   phantom. The conservative verdict stands until Denis decides.
-- The mechanism-level invariant passes a hand-written mechanism whose two copies are twins
-  only of each other (Q* only at E(A) and A* only at E(Q): 7 fitted, rank 6). No move can
-  build it, since the second placement is all-twin against all forms.
+- The mechanism-level invariant passes a hand-written mechanism whose two copies are twins only
+  of each other (Q* only at E(A) and A* only at E(Q): 7 fitted, rank 6). No move builds it: the
+  dead-end placement and the split's part filter both judge against all forms.
 
 Conformational states (added 2026-09-30 during implementation, for Denis to confirm): a copy
 in an allosteric mechanism is a twin only when it duplicates a form in every state where it
@@ -171,13 +171,15 @@ is skipped.
 Two readings of the rule (settled 2026-09-30 during implementation, for Denis to confirm). The
 dead-end move judges a new copy's sites against every form the parent has, other copies'
 complexes included: that is the per-placement rule the findings measured (no phantom among the
-26,292 placements that create a new complex). The mechanism-level invariant that the split,
-`_expand_change_allo_state` and the parent assertion enforce judges a copy group's sites against
-copy-free forms only, the forms bound to no competitive inhibitor. The two differ when a later
-copy's complex has the composition of an older copy's, as E(Q, A*) has that of E(A, Q*): the
-older group is then all-twin by composition, yet the two constants enter the law through
-K_A·K_Q* + K_Q·K_A*, and the sites that pin the other copy keep them separable, so such a
-mechanism is generically identifiable and is not rejected.
+26,292 placements that create a new complex). The split's part filter uses the same all-forms
+reading: once two copies are each split down to complexes of one composition, their two
+constants enter the law through one coefficient (Denis, 2026-10-01). The mechanism-level
+invariant that `_expand_change_allo_state` and the parent assertion enforce judges a copy
+group's sites against copy-free forms only, the forms bound to no competitive inhibitor. The two
+differ when a later copy's complex has the composition of an older copy's, as E(Q, A*) has that
+of E(A, Q*): the older group is then all-twin by composition, yet the two constants enter the
+law through K_A·K_Q* + K_Q·K_A*, and the sites that pin the other copy keep them separable, so
+such a mechanism is generically identifiable and is not rejected.
 
 Which moves can break rule 2: a flip only cuts segments and changes no composition, so a twin
 can disappear but never appear; a dead-end addition adds only forms that carry the new copy,
@@ -211,7 +213,7 @@ hand-written input.
 - Per-step flux flags are computed once per parent: a split moves no edge, and reverting a
   zero-flux part contracts edges of a balanced block, which changes no cycle's net
   stoichiometry, so the parent's flux flags hold for every candidate. Twin status is judged on
-  the candidate's parts under the mechanism-level invariant (section 2).
+  the candidate's parts against every form (section 2, "Two readings").
 - **Revert**: for a unit of an SS group, a part with no flux-carrying step is rebuilt with every
   step at rapid equilibrium. A parent that satisfies rule 1 has a flux-carrying step in one part,
   so at most one part reverts. The reverted child has the same family as the raw split child with
@@ -223,9 +225,10 @@ hand-written input.
   absorbed like any tied split, so no reparameterization of the parent is emitted. A candidate
   whose reverted groups leave a bottomless RE segment counts as failed, as in the flip; the
   construction of a rejected child is never attempted.
-- **Copy groups**: a bipartition of a copy group in which a part has only twin sites is not a
-  unit. Every superset of such a unit recreates the same duplicate-only group, so excluding the
-  unit loses nothing.
+- **Copy groups**: a bipartition of a copy group in which a part has only twin sites
+  (`_copy_twin_test` against every form, in every conformational state where the copy binds) is
+  not a unit. Every superset of such a unit recreates the same duplicate-only group, so excluding
+  the unit loses nothing.
 - The partner search is unchanged. It ignores groups holding an SS step, so a reverted RE part
   whose constant a further split could free is not extended within one move; the same child is
   reachable by splitting the partner first.
@@ -325,7 +328,8 @@ Every change is made test-first.
    The record reports per-level counts for every reaction.
 2. **Timing**: enumeration of R6 levels 0–2 on both commits; the design's limit is a 20% rise.
    The ter-ter worst-case split timing test in the suite stays green.
-3. **Full suite** before every commit; bump the version to 0.9.0.
+3. **Full suite** before every commit; the branch's version rises once over `main`, in A
+   (0.8.0); B adds no bump.
 
 ## Risks
 
