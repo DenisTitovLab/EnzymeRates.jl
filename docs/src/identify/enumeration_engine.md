@@ -139,7 +139,7 @@ rapid equilibrium: its two rates would enter the equation only as their ratio, a
 the equilibrium form is the same family with one constant fewer. The count test
 runs on that form, so a constant the thermodynamic ties pull back is still
 rejected. A competitive-inhibitor group is never divided so that one part binds
-only where its complex duplicates an existing form (see move 3).
+only where its complex duplicates a productive complex (see move 3).
 
 **Parameter delta:** at least +1 by construction. A child that would add nothing
 is never emitted.
@@ -163,18 +163,21 @@ subject to three rules:
   inhibitor-bound branch can never complete the net reaction. In a ping-pong
   mechanism it can carry out the one half-reaction whose ligands the inhibitor
   does not compete with.
-- **A new complex.** A dead-end complex must differ from every form the mechanism
-  has: in composition, or, when a rapid-equilibrium route joins it to an existing
-  form, in the metabolites bound along that route. A substrate or product declared
-  as its own competitive inhibitor otherwise binds in a second orientation of a
-  complex the mechanism already has, and its constant enters the equation only
-  added to the existing one. In an allosteric mechanism the test is made in every
-  conformation the copy binds: a copy that duplicates a complex in the active
-  conformation but is the only such complex in the inactive one keeps a visible
-  constant and is emitted. A placement whose every site duplicates a form in every
-  conformational state where the copy binds is not emitted; in a uni-uni mechanism
-  with one conformation that is every placement, and the beam reports the
-  unsatisfiable requirement.
+- **A new complex.** A dead-end complex must differ from every productive complex
+  the mechanism has, one that carries no competitive inhibitor: in composition, or,
+  when a rapid-equilibrium route joins it to a productive complex, in the
+  metabolites bound along that route. A substrate or product declared as its own
+  competitive inhibitor otherwise binds in a second orientation of a complex the
+  mechanism already has, and its constant enters the equation only added to the
+  existing one. A complex that matches only an inhibitor-bound complex counts as
+  new: the sites that pin each inhibitor may keep both constants apart. In an
+  allosteric mechanism the test is made in every conformation the copy binds, and
+  every conformation holds its free enzyme: a copy that duplicates a complex in the
+  active conformation but is the only such complex in the inactive one keeps a
+  visible constant and is emitted. A placement whose every site duplicates a
+  productive complex in every conformational state where the copy binds is not
+  emitted; in a uni-uni mechanism with one conformation that is every placement,
+  and the beam reports the unsatisfiable requirement.
 
 The inhibitor's own binding steps form one fresh kinetic group (one new
 dissociation constant `K_R`).
@@ -292,8 +295,8 @@ pyruvate does with E·NAD⁺ in lactate dehydrogenase, stays out of allosteric
 mechanisms. Binding of a declared competitive inhibitor does not count, because
 an inhibitor binds a site of its own; declaring a substrate as a dead-end
 inhibitor is how substrate inhibition enters an allosteric mechanism, provided the
-inhibitor complex is new: a copy that only duplicates an existing complex is never
-emitted (move 3).
+inhibitor complex is new: a copy that only duplicates existing productive complexes
+is never emitted (move 3).
 Hand-written mechanisms are not subject to the rule: an `@allosteric_mechanism`
 with random-order steady-state binding still derives and fits.
 

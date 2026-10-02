@@ -97,15 +97,16 @@ carries flux exactly when its biconnected block holds a cycle of nonzero weight.
 steady-state group with no such step exposes only the ratio of its constants, so a
 flip set that leaves one counts as failed and is extended, and a split part with
 none is emitted at rapid equilibrium. A dead-end copy of a substrate or product
-must create a complex no form duplicates, by composition or by segment and
-offsets (`_twin_site_test`); the dead-end move skips a pattern whose sites are all
-twins of the parent's forms, and the split never isolates twin-only copy sites.
-`_expand_change_allo_state` and the parent check read only copy-free forms as
-twins (`_duplicate_copy_groups`): a later copy whose complex matches an older
-copy's complex leaves the older group's constant separable. The split reads every
-form as a twin source, the copy's own complexes at its other sites included: two
-copies each split down to complexes of one composition enter the law through one
-coefficient.
+must create a complex that no productive form (one bound to no competitive
+inhibitor) duplicates, by composition or by segment and offsets
+(`_twin_site_test`), in every conformation where the copy binds; every
+conformation holds its free enzyme (`_copy_twin_test`). The dead-end move skips a
+pattern whose sites are all twins, the split never isolates twin-only copy sites,
+and `_expand_change_allo_state` and the parent check reject a group with only twin
+sites (`_duplicate_copy_groups`). A copy whose complexes all duplicate productive
+forms has a dwell gauge that absorbs its constant; a complex that duplicates only a
+copy's complex never rejects, since the sites that pin either copy may keep both
+constants separable.
 `expand_mechanisms` asserts both rules on every parent (`_assert_emission_rules`).
 Both refinement moves share one minimal-set search (`_minimal_gaining_sets`).
 Duplicate equations that survive these proofs are collapsed at compile time by

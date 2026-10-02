@@ -72,8 +72,13 @@ see, and both have exact structural tests.
 - Controller rulings during execution, for Denis to confirm: the twin test is judged per
   conformational state (section 2, "Conformational states"); the mechanism-level invariant
   judges twins against copy-free forms while the dead-end move's placement rule judges against
-  all forms (section 2, "Two readings"); `_expand_change_allo_state` filters its children by
-  the invariant; a reverted split part may keep a phantom of the chain class (Goal 3).
+  all forms (withdrawn by Denis on 2026-10-02, below); `_expand_change_allo_state` filters its
+  children by the invariant; a reverted split part may keep a phantom of the chain class
+  (Goal 3).
+- Denis (2026-10-02): the rule's priority is to keep every identifiable mechanism and tolerate a
+  few percent of non-identifiable ones; one reading of the twin test (productive complexes only,
+  per conformation, free enzyme always present) replaces the two readings; the split's
+  all-forms test of 2026-10-01 is withdrawn.
 
 ## Terms
 
@@ -92,8 +97,9 @@ see, and both have exact structural tests.
 - **Offsets**: `_re_segment_extras` gives, for every form, how many more of each metabolite it
   carries than the lowest form of its RE segment; within a segment two forms with equal offsets
   have proportional weights.
-- **Twin site**: a copy step whose complex has another form's composition, or lies in another
-  form's RE segment with equal offsets.
+- **Twin site**: a copy step whose complex has a productive form's composition, or lies in a
+  productive form's RE segment with equal offsets. A **productive** form carries no competitive
+  inhibitor.
 
 ## Design
 
@@ -128,7 +134,7 @@ any other.
 
 ### 2. The twin predicate
 
-A copy step is a twin site when its complex duplicates another form of the mechanism under
+A copy step is a twin site when its complex duplicates a productive form of the mechanism under
 either key: the composition key, or the (segment, offsets) key with the complex's segment and
 offsets read from `_re_segment_extras`. The dead-end move evaluates it for a candidate site
 before the child exists: the candidate complex has the site's composition plus the copy's name,
@@ -148,49 +154,43 @@ Edges left as they are (found during the final review, 2026-09-30; for Denis to 
   reject identifiable groups as well (521 of 17,483 sampled allosteric mechanisms hold such a
   group, with mixed ranks). The same principle as the I-state class under Non-goals: a
   constant that one conformation cannot see is not a reason to change the group's tag.
-- A copy placed at free E in a parent whose inactive graph has no steps (every catalytic group
-  `:OnlyA`) is judged absent from the inactive state and rejected at placement when its
-  complex duplicates E(S) in the active one. Counting free E as always present would emit 107
-  such placements in the sampled allosteric population, 62 of them identifiable and 45 with a
-  phantom. The conservative verdict stands until Denis decides.
-- The mechanism-level invariant passes a hand-written mechanism whose two copies are twins only
-  of each other (Q* only at E(A) and A* only at E(Q): 7 fitted, rank 6). No move builds it: the
-  dead-end placement and the split's part filter both judge against all forms.
+- Two copies that are twins only of each other, each split or placed down to that one site (Q*
+  only at E(A) and A* only at E(Q): 7 fitted, rank 6; after two splits, 9 fitted, rank 8), are
+  emitted. The rule has no proof against them, and rejecting them would also reject
+  identifiable splits whose other copy is pinned. The regression record measures the fraction
+  at level 3.
 
 Conformational states (added 2026-09-30 during implementation, for Denis to confirm): a copy
 in an allosteric mechanism is a twin only when it duplicates a form in every state where it
 binds. A copy binds the active state always and the inactive state unless its tag is `:OnlyA`;
 a site that the inactive state's graph lacks (`_state_mechanism(am, :I)` prunes `:OnlyA` groups
-and the forms they strand) binds nothing there. So an `:EqualAI` copy of S at E, in a mechanism
+and the forms they strand) binds nothing there, except the free enzyme, which every
+conformation holds (section 2, "One reading"). So an `:EqualAI` copy of S at E, in a mechanism
 whose S binding is `:OnlyA`, duplicates E(S) in the active state but is the only S-bound form
 in the inactive one; its constant is visible through that state's S-dependence (rank rises by
 one), and the placement stands. This is the route by which substrate inhibition enters an
 allosteric mechanism. With S binding `:NonequalAI` the copy duplicates E(S) in both states and
 is skipped.
 
-Two readings of the rule (settled 2026-09-30 during implementation, for Denis to confirm). The
-dead-end move judges a new copy's sites against every form the parent has, other copies'
-complexes included: that is the per-placement rule the findings measured (no phantom among the
-26,292 placements that create a new complex). The split's part filter judges against every
-form as well, the copy's own complexes at its other sites included, which the placement never
-sees: once two copies are each split down to complexes of one composition, their two
-constants enter the law through one coefficient (Denis, 2026-10-01). The mechanism-level
-invariant that `_expand_change_allo_state` and the parent assertion enforce judges a copy
-group's sites against copy-free forms only, the forms bound to no competitive inhibitor. The two
-differ when a later copy's complex has the composition of an older copy's, as E(Q, A*) has that
-of E(A, Q*): the older group is then all-twin by composition, yet the two constants enter the
-law through K_A·K_Q* + K_Q·K_A*, and the sites that pin the other copy keep them separable, so
-such a mechanism is generically identifiable and is not rejected.
+One reading of the rule (Denis, 2026-10-02; it replaces the two readings tried during
+execution): a copy complex is a twin only of a productive complex, a form that carries no
+competitive inhibitor, judged in every conformation where the copy binds, and the free enzyme is
+present in every conformation. The proof behind the rule (track 2, Theorem 2) concerns
+productive twins: such a copy has a dwell gauge that absorbs its constant. A twin that is
+another copy's complex may leave both constants separable through the sites that pin the other
+copy, so it never rejects. The rule therefore removes every proven case and Case 3, and admits
+phantoms where two copies are twins only of each other with neither pinned, which the regression
+record measures at level 3. Denis's priority: never remove an identifiable mechanism; tolerate a
+few percent of non-identifiable ones.
 
 Which moves can break rule 2: a flip only cuts segments and changes no composition, so a twin
 can disappear but never appear; a dead-end addition adds only forms that carry the new copy,
-none of them copy-free, so older groups keep their status under the invariant;
-`_expand_change_allo_state` changes the tags the per-state test reads (relaxing an `:OnlyA`
-binding to `:NonequalAI` brings its complex into the inactive state and can make a kept copy a
-twin in both states), so its children are filtered by the invariant; the other allosteric moves
-change neither steps nor the tags of existing groups. The split move, the dead-end move and
-`_expand_change_allo_state` enforce the rule; the parent assertion of section 6 covers
-hand-written input.
+none of them productive, so older groups keep their status; `_expand_change_allo_state` changes
+the tags the per-state test reads (relaxing an `:OnlyA` binding to `:NonequalAI` brings its
+complex into the inactive state and can make a kept copy a twin in both states), so its children
+are filtered; the other allosteric moves change neither steps nor the tags of existing groups.
+The split move, the dead-end move and `_expand_change_allo_state` enforce the rule; the parent
+assertion of section 6 covers hand-written input.
 
 ### 3. The flip move (`_expand_re_to_ss`)
 
@@ -214,7 +214,7 @@ hand-written input.
 - Per-step flux flags are computed once per parent: a split moves no edge, and reverting a
   zero-flux part contracts edges of a balanced block, which changes no cycle's net
   stoichiometry, so the parent's flux flags hold for every candidate. Twin status is judged on
-  the candidate's parts against every form (section 2, "Two readings").
+  the candidate's parts against productive complexes (section 2, "One reading").
 - **Revert**: for a unit of an SS group, a part with no flux-carrying step is rebuilt with every
   step at rapid equilibrium. A parent that satisfies rule 1 has a flux-carrying step in one part,
   so at most one part reverts. The reverted child has the same family as the raw split child with
@@ -227,10 +227,10 @@ hand-written input.
   whose reverted groups leave a bottomless RE segment counts as failed, as in the flip; the
   construction of a rejected child is never attempted.
 - **Copy groups**: a bipartition of a copy group in which a part has only twin sites
-  (`_copy_twin_test` against every form, in every conformational state where the copy binds) is
-  not a unit. Every superset of such a unit recreates the same duplicate-only group, so excluding
-  the unit loses only children the rule itself judges twin-only; some of those are identifiable
-  (section 2, "Two readings", and the regression record).
+  (`_copy_twin_test` against productive complexes, in every conformational state where the copy
+  binds) is not a unit. Every superset of such a unit recreates the same duplicate-only group.
+  Excluding the unit loses only children whose part duplicates a productive complex at every
+  site.
 - The partner search is unchanged. It ignores groups holding an SS step, so a reverted RE part
   whose constant a further split could free is not extended within one move; the same child is
   reachable by splitting the partner first.
@@ -239,8 +239,8 @@ hand-written input.
 
 ### 5. The dead-end move (`_expand_add_dead_end_regulator_native`)
 
-After the pattern's `active` sites are chosen, a pattern whose every site is a twin (section 2)
-is skipped. The same kernel builds the required-regulator seeds in `seed_mechanisms`, so
+After the pattern's `active` sites are chosen, a pattern whose every site duplicates a
+productive complex (a twin, section 2) is skipped. The same kernel builds the required-regulator seeds in `seed_mechanisms`, so
 required copies obey the rule. Effect at depth 2 in R6: 10,552 of 36,844 events removed, every
 phantom-creating one among them, 7,470 identifiable tie-only children with them; every bi-bi
 seed keeps at least two children per copied ligand.
@@ -327,7 +327,7 @@ Every change is made test-first.
    removed zero-flux mechanism's RE-converted twin is present; the rank oracle on every removed
    R4 zero-flux mechanism gives fitted minus rank at least its zero-flux group count; derivation
    strings are unchanged on a random sample of kept mechanisms (B touches no derivation code).
-   The record reports per-level counts for every reaction.
+   The record reports per-level counts for every reaction and the level-3 phantom fraction.
 2. **Timing**: enumeration of R6 levels 0–2 on both commits; the design's limit is a 20% rise.
    The ter-ter worst-case split timing test in the suite stays green.
 3. **Full suite** before every commit; the branch's version rises once over `main`, in A

@@ -622,6 +622,8 @@ Claude-Session: https://claude.ai/code/session_01R4zCpbZSoygD66kRecfrDN"
 ### Task 3: The twin predicate and the dead-end move's new-complex rule
 
 > Amended during execution (fix round 1, controller ruling): the twin test is judged in every conformational state where the copy binds. `_copy_twin_test(m)` wraps `_twin_site_test(groups)` per state, `_duplicate_copy_groups` takes the mechanism, and the dead-end move passes the copy's tag `:EqualAI`. Tasks 4–6 below consume the amended interface.
+>
+> Amended 2026-10-02 (Denis): one reading — twins are productive complexes only, per conformation, free enzyme always present.
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` (new functions next to `_bound_at_forms`, about line 1720; `_expand_add_dead_end_regulator_native`, about lines 1829–1960; the `_expand_add_dead_end_regulator` docstring, about lines 1766–1790)
@@ -1335,6 +1337,8 @@ Claude-Session: https://claude.ai/code/session_01R4zCpbZSoygD66kRecfrDN"
 ---
 
 ### Task 4: The split reverts a zero-flux part and never isolates twin-only copy sites
+
+> Amended 2026-10-02 (Denis): one reading — twins are productive complexes only, per conformation, free enzyme always present.
 
 **Files:**
 - Modify: `src/thermodynamic_constr_for_rate_eq_derivation.jl` (`_partition_independent_count`, about lines 320–365; new `_count_kind`)

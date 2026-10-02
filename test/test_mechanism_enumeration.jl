@@ -2549,11 +2549,13 @@ end
 @testset "Mechanism — two copies split down to complexes of one composition" begin
     # Ordered bi-bi with Q bound as a competitive-inhibitor copy at E(A) and at E(Q) in two
     # groups, and A as a copy at E(A) and E(Q) in one group. E(Q, A::Inh) has the
-    # composition {A, Q} of E(A, Q::Inh). Dividing the A copy by context would leave
-    # E(Q) + A::Inh alone: its complex and E(A, Q::Inh) then enter the law through one
-    # coefficient, K_A·K_Q* + K_Q·K_A*, with one constant too many. Judged against every
-    # form, that part is twin-only, so the bipartition is not a unit; every other group
-    # holds one step, and the move emits nothing.
+    # composition {A, Q} of E(A, Q::Inh), a copy's complex, and no productive form has
+    # it, so neither part of the A copy's context bipartition is twin-only; every other
+    # group holds one step, and the move emits the pair. The child carries one phantom:
+    # with E(Q) + A::Inh alone in its group, its complex and E(A, Q::Inh) enter the law
+    # through one coefficient, K_A·K_Q* + K_Q·K_A*, so 9 fitted constants have rank 8.
+    # The rule tolerates it: rejecting it would also reject identifiable splits whose
+    # other copy is pinned.
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2568,8 +2570,7 @@ end
             (E(A) + A::Inh ⇌ E(A, A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
         end
     end)
-    @test isempty(EnzymeRates._expand_split_kinetic_group(m))
-    absent = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    emitted = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -2584,8 +2585,11 @@ end
             E(Q) + A::Inh ⇌ E(A::Inh, Q)
         end
     end)
+    kids = EnzymeRates._expand_split_kinetic_group(m)
+    @test length(kids) == 1
+    @test Set(kids) == Set([emitted])
     fitted(k) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(k)))
-    @test fitted(absent) == _testhelper_identifiable_rank(absent) + 1
+    @test fitted(emitted) == _testhelper_identifiable_rank(emitted) + 1
     @test fitted(m) == _testhelper_identifiable_rank(m)
 end
 
@@ -3113,14 +3117,16 @@ end
     # Ordered bi-bi with Q as its own inhibitor at {E, E(A)}, the A binding
     # mirrored onto the copy forms. A copy of A goes to {E(A), E(Q)} or {E, E(A)}
     # competing with B, to {E, E(Q), E(Q*)} competing with A and P, and to {E}
-    # competing with A and Q. E·A* duplicates E(A), and E(Q)·A* and E(Q*)·A*
-    # duplicate E(A, Q*) by composition, so {E} and {E, E(Q), E(Q*)} are all-twin
-    # and not emitted; E(A)·A* is new. In the child at {E(A), E(Q)} the older Q*
-    # group binds at E, a twin of E(Q), and at E(A), whose complex E(A, Q*) has the
-    # composition of E(A*, Q). Its constant still shows: the A·Q term is
-    # A·Q/(K_A·K_Q*) + A·Q/(K_Q·K_A*), and E(A, A*) pins K_A*. The mechanism-level
-    # check judges a copy's sites against copy-free forms only, so the child
-    # satisfies both rules, and it has full rank.
+    # competing with A and Q. E·A* duplicates E(A), so {E} is all-twin and is not
+    # emitted; E(A)·A* is new. E(Q)·A* and E(Q*)·A* have the composition of
+    # E(A, Q*), a copy's complex, which is no twin source, so {E, E(Q), E(Q*)} is
+    # emitted. In the child at {E(A), E(Q)} the older Q* group binds at E, a twin of
+    # E(Q), and at E(A), whose complex E(A, Q*) has the composition of E(A*, Q). Its
+    # constant still shows: the A·Q term is A·Q/(K_A·K_Q*) + A·Q/(K_Q·K_A*), and
+    # E(A, A*) pins K_A*; the child has full rank. In the child at {E, E(Q), E(Q*)}
+    # no site pins either copy: K_A, K_A*, K_Q and K_Q* enter the law only through
+    # the A, Q and A·Q coefficients, so the child carries one phantom. The rule
+    # tolerates it, as it does two copies that are twins only of each other.
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]
@@ -3167,15 +3173,31 @@ end
             (E + A::Inh ⇌ E(A::Inh), E(A) + A::Inh ⇌ E(A, A::Inh))
         end
     end)
+    at_E_EQ_EQinh = withrxn(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(Q::Inh) + A ⇌ E(A, Q::Inh))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))
+            (E + Q::Inh ⇌ E(Q::Inh), E(A) + Q::Inh ⇌ E(A, Q::Inh),
+             E(A::Inh) + Q::Inh ⇌ E(A::Inh, Q::Inh))
+            (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q),
+             E(Q::Inh) + A::Inh ⇌ E(A::Inh, Q::Inh))
+        end
+    end)
     kids = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
-    @test length(kids) == 2
-    @test Set(kids) == Set([at_EA_EQ, at_E_EA])
+    @test length(kids) == 3
+    @test Set(kids) == Set([at_EA_EQ, at_E_EA, at_E_EQ_EQinh])
     for r in kids
         @test isempty(EnzymeRates._duplicate_copy_groups(r))
         @test EnzymeRates._assert_emission_rules(r) === nothing
     end
-    fitted = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(at_EA_EQ)))
-    @test _testhelper_identifiable_rank(at_EA_EQ) == fitted
+    fitted(k) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(k)))
+    @test _testhelper_identifiable_rank(at_EA_EQ) == fitted(at_EA_EQ)
+    @test _testhelper_identifiable_rank(at_E_EQ_EQinh) == fitted(at_E_EQ_EQinh) - 1
 end
 
 @testset "AllostericMechanism — a copy that is new only in the inactive state is kept" begin
@@ -3230,6 +3252,49 @@ end
         end
     end))
     @test isempty(EnzymeRates._expand_add_dead_end_regulator(nonequal, rxn))
+end
+
+@testset "AllostericMechanism — free enzyme binds a copy in every conformation" begin
+    # Uni-uni whose every catalytic group is `:OnlyA`: the inactive conformation has no
+    # step, yet it holds its free enzyme. An `:EqualAI` copy of S at E duplicates E(S) in
+    # the active state and is the only S-bound form in the inactive one, where its
+    # constant is visible; the placement stands and adds an identifiable constant.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: S
+        oligomeric_state: 2
+    end
+    lift(em) = EnzymeRates.AllostericMechanism(rxn, EnzymeRates.steps(em),
+        EnzymeRates.cat_allo_states(em), 2, EnzymeRates.RegulatorySite[])
+    dead_inactive = lift(EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)      :: OnlyA
+        end
+    end))
+    kept = lift(EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_inhibitors: S
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)                :: OnlyA
+            E(S) <--> E(P)              :: OnlyA
+            E + P ⇌ E(P)                :: OnlyA
+            E + S::Inh ⇌ E(S::Inh)      :: EqualAI
+        end
+    end))
+    kids = EnzymeRates._expand_add_dead_end_regulator(dead_inactive, rxn)
+    @test length(kids) == 1
+    @test Set(kids) == Set([kept])
+    @test isempty(EnzymeRates._duplicate_copy_groups(kept))
+    @test _testhelper_identifiable_rank(kept) ==
+        _testhelper_identifiable_rank(dead_inactive) + 1
 end
 
 @testset "AllostericMechanism — no relaxation makes a kept copy a twin" begin
@@ -6421,10 +6486,10 @@ end
     @test length(dup) == 1
     @test ER.bound_metabolite(first(ER.steps(twin_only)[only(dup)])) == Ainh
 
-    # Two copies. E(A, Q*) has the composition of E(A*, Q), another copy's complex,
-    # so the Q* site at E(A) is a twin among all forms but not among copy-free forms;
-    # the Q* site at E duplicates E(Q), a copy-free form. Both copy groups hold a site
-    # with no copy-free twin.
+    # Two copies. E(A, Q*) has the composition of E(A*, Q), but a form bound to a
+    # competitive inhibitor is no twin source: only productive forms are. So the Q*
+    # site at E(A) is not a twin, the Q* site at E duplicates E(Q), and both copy
+    # groups hold a site with no twin.
     two_copies = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -6438,11 +6503,10 @@ end
             (E(A) + A::Inh ⇌ E(A, A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
         end
     end)
-    @test ER._twin_site_test(ER.steps(two_copies))(form(two_copies, :EA), Qinh)
-    twin_free = ER._twin_site_test(ER.steps(two_copies); copy_free = true)
-    @test !twin_free(form(two_copies, :EA), Qinh)
-    @test twin_free(form(two_copies, :E), Qinh)
-    @test !twin_free(form(two_copies, :EQ), Ainh)
+    twin_two = ER._twin_site_test(ER.steps(two_copies))
+    @test !twin_two(form(two_copies, :EA), Qinh)
+    @test twin_two(form(two_copies, :E), Qinh)
+    @test !twin_two(form(two_copies, :EQ), Ainh)
     @test isempty(ER._duplicate_copy_groups(two_copies))
 
     # Conformational states. With S binding `:OnlyA`, E(S) exists in the active
@@ -6473,6 +6537,21 @@ end
         end
     end)
     @test ER._copy_twin_test(nonequal)(form(nonequal, :E), Sinh, :EqualAI)
+    # The inactive state holds its free enzyme even when every catalytic group is
+    # `:OnlyA` and its step graph is empty: an `:EqualAI` copy of S at E duplicates E(S)
+    # in the active state only, so it is not a twin.
+    all_onlya = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)      :: OnlyA
+        end
+    end)
+    @test !ER._copy_twin_test(all_onlya)(form(all_onlya, :E), Sinh, :EqualAI)
+    @test ER._copy_twin_test(all_onlya)(form(all_onlya, :E), Sinh, :OnlyA)
 end
 
 @testset "_hyperbolic_catalysis" begin
@@ -8557,11 +8636,10 @@ end
     copies = levels(rxn6)
     # Without the new-complex rule level 1 would hold 1,769; the 360 seed-level
     # placements whose every site duplicates a form are not emitted. Without both
-    # rules level 2 would hold 28,304. In 412 level-2 mechanisms a copy group
-    # duplicates a form at every site only when the copy's own other complexes or
-    # other copies' complexes count; judged against copy-free forms, they satisfy
-    # the new-complex rule.
-    @test length.(copies) == [62, 1409, 16980]
+    # rules level 2 would hold 28,304. In 922 level-2 mechanisms a copy group
+    # duplicates a form at every site only when complexes of copies count as twin
+    # sources; the rule reads only productive forms, so they satisfy it.
+    @test length.(copies) == [62, 1409, 17490]
     @test all(obeys_rules, Iterators.flatten(copies))
     @test any(m -> !isempty(EnzymeRates._bound_comp_inhibitors(m)), copies[2])
 end

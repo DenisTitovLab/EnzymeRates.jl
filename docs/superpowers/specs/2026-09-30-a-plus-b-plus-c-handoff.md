@@ -7,7 +7,7 @@ Date: 2026-09-30. Read this, then the findings document
 
 - Branch `step-explicit-stoichiometry` holds all of A+B+C. Denis wants A, B and C in one pull
   request from this branch (2026-09-30), so B and C are built here. Nothing is pushed.
-- Done on the branch (full suite at the tip, A and B together: 54,612/54,612):
+- Done on the branch (full suite at the tip, A and B together: 54,621/54,621):
   - A, explicit-stoichiometry `Step` (spec `2026-09-28-step-explicit-stoichiometry-design.md`,
     plan `../plans/2026-09-28-step-explicit-stoichiometry.md`, regression record
     `2026-09-28-step-explicit-stoichiometry-regression.md`).
