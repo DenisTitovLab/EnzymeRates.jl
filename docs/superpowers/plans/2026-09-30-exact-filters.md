@@ -624,6 +624,8 @@ Claude-Session: https://claude.ai/code/session_01R4zCpbZSoygD66kRecfrDN"
 > Amended during execution (fix round 1, controller ruling): the twin test is judged in every conformational state where the copy binds. `_copy_twin_test(m)` wraps `_twin_site_test(groups)` per state, `_duplicate_copy_groups` takes the mechanism, and the dead-end move passes the copy's tag `:EqualAI`. Tasks 4–6 below consume the amended interface.
 >
 > Amended 2026-10-02 (Denis): one reading — twins are productive complexes only, per conformation, free enzyme always present.
+>
+> Amended 2026-10-02 (Denis): competition per site in the dead-end move; a copy is not its reactant for competition or capacity.
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` (new functions next to `_bound_at_forms`, about line 1720; `_expand_add_dead_end_regulator_native`, about lines 1829–1960; the `_expand_add_dead_end_regulator` docstring, about lines 1766–1790)

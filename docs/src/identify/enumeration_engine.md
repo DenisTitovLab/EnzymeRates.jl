@@ -151,15 +151,20 @@ dead-end complex with the enzyme. The move enumerates the combinations of enzyme
 species the inhibitor can bind, emitting one child mechanism per combination,
 subject to three rules:
 
-- **Binding capacity.** An enzyme form holds at most as many metabolites as the
-  larger of the substrate and product counts, `max(#substrates, #products)`, so
-  the inhibitor is not added to a form already at capacity.
+- **Binding capacity.** The inhibitor is not added to a form that already holds
+  every substrate or every product, counting productive bindings only. A
+  substrate or product declared as its own competitive inhibitor binds as a copy
+  at a dead-end site of its own, apart from the reactant's catalytic site, so a
+  copy fills no catalytic site.
 - **Mirror steps.** If the inhibitor binds two enzyme forms that a catalytic
   step already connects, a mirror step is added between the two inhibitor-bound
   forms, so the inhibitor-bound branch stays connected to the cycle. Each mirror
-  inherits its counterpart's kinetic group and adds no parameter. A form that
-  already carries a competing ligand never receives the inhibitor, so the
-  binding step of a competing substrate is never mirrored and the
+  inherits its counterpart's kinetic group and adds no parameter. Productive
+  bindings decide competition: an inhibitor that competes with a substrate or
+  product binds where that metabolite binds productively and never at a form
+  that holds it productively, while a form that carries only its copy is a site.
+  A form that already carries a competing ligand never receives the inhibitor,
+  so the binding step of a competing substrate is never mirrored and the
   inhibitor-bound branch can never complete the net reaction. In a ping-pong
   mechanism it can carry out the one half-reaction whose ligands the inhibitor
   does not compete with.

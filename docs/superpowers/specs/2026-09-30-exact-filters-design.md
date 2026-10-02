@@ -79,6 +79,11 @@ see, and both have exact structural tests.
   few percent of non-identifiable ones; one reading of the twin test (productive complexes only,
   per conformation, free enzyme always present) replaces the two readings; the split's
   all-forms test of 2026-10-01 is withdrawn.
+- Denis (2026-10-02): competition in the dead-end move is decided per site, not per name. A
+  substrate declared as a competitive inhibitor is a copy that binds its own dead-end site, and
+  the reactant's catalytic site and the copy's dead-end site are different sites by definition:
+  a form carrying only the copy of M is a site for an inhibitor competing with M, and a copy does
+  not count toward the capacity test (section 5).
 
 ## Terms
 
@@ -241,7 +246,12 @@ assertion of section 6 covers hand-written input.
 
 After the pattern's `active` sites are chosen, a pattern whose every site duplicates a
 productive complex (a twin, section 2) is skipped. The same kernel builds the required-regulator seeds in `seed_mechanisms`, so
-required copies obey the rule. Effect at depth 2 in R6: 10,552 of 36,844 events removed, every
+required copies obey the rule.
+
+Competition is decided per site (Denis, 2026-10-02): a copy occupies its own dead-end site, so a
+form carrying only the copy of M is a legitimate site for an inhibitor competing with M, and
+copies do not count toward the all-substrates or all-products capacity test. The move's target
+sites for competition with a reactant are the forms where it binds productively. Effect at depth 2 in R6: 10,552 of 36,844 events removed, every
 phantom-creating one among them, 7,470 identifiable tie-only children with them; every bi-bi
 seed keeps at least two children per copied ligand.
 
@@ -328,6 +338,7 @@ Every change is made test-first.
    R4 zero-flux mechanism gives fitted minus rank at least its zero-flux group count; derivation
    strings are unchanged on a random sample of kept mechanisms (B touches no derivation code).
    The record reports per-level counts for every reaction and the level-3 phantom fraction.
+   Added mechanisms are reported with their phantom fraction.
 2. **Timing**: enumeration of R6 levels 0–2 on both commits; the design's limit is a 20% rise.
    The ter-ter worst-case split timing test in the suite stays green.
 3. **Full suite** before every commit; the branch's version rises once over `main`, in A

@@ -203,7 +203,7 @@ function _assert_emission_rules(m::Union{Mechanism, AllostericMechanism})
     end
     for g in _duplicate_copy_groups(m)
         error("expand_mechanisms: kinetic group {" * label(g) * "} binds a competitive " *
-              "inhibitor only where the complex duplicates an existing form, so its " *
+              "inhibitor only where the complex duplicates a productive form, so its " *
               "constant is not separable from the existing binding's; bind the " *
               "inhibitor where it forms a new complex, or drop it")
     end
@@ -1905,23 +1905,6 @@ function _bipartitioned_groups(groups::Vector{Vector{Step}}, selection)
 end
 
 """
-Map each form name in `m`'s step graph to the set of bound-metabolite
-names read directly from its `Species`. Returns
-`Dict{form_name => Set{met_name}}`.
-"""
-function _bound_at_forms(m::Union{Mechanism, AllostericMechanism})
-    result = Dict{Symbol, Set{Symbol}}()
-    for group in steps(m), s in group
-        for sp in (from_species(s), to_species(s))
-            fn = name(sp)
-            haskey(result, fn) ||
-                (result[fn] = Set(name(b) for b in bound(sp)))
-        end
-    end
-    result
-end
-
-"""
 Composition of a form with `extra` bound as well: the sorted names of its bound
 metabolites, a competitive-inhibitor copy counting as the reactant it copies, with
 its conformation and residual. Two forms of one composition hold the same ligands
@@ -2044,18 +2027,22 @@ function _duplicate_copy_groups(m::Union{Mechanism, AllostericMechanism})
 end
 
 """
-Return source-form names that have a binding step for the named
-metabolite. The source form is the side without the metabolite (RE
-binding canonicalizes the metabolite onto `to_species`).
+Return source-form names that have a binding step for the metabolite named
+`met_name` in the role `role`: `Reactant` for a substrate or product bound
+productively, at its catalytic site; `CompetitiveInhibitor` for an inhibitor,
+a reactant's copy included, bound at its dead-end site. A reactant and its copy
+share a name but bind different sites, so the role tells them apart. The source
+form is the side without the metabolite (RE binding canonicalizes the
+metabolite onto `to_species`).
 """
 function _forms_with_binding_step_native(
-    m::Union{Mechanism, AllostericMechanism}, met_name::Symbol,
+    m::Union{Mechanism, AllostericMechanism}, role::Type{<:Metabolite},
+    met_name::Symbol,
 )
     result = Set{Symbol}()
     for group in steps(m), s in group
         bm = bound_metabolite(s)
-        bm === nothing && continue
-        name(bm) == met_name || continue
+        bm isa role && name(bm) == met_name || continue
         push!(result, name(from_species(s)))
     end
     result
@@ -2086,11 +2073,19 @@ end
 Add a dead-end regulator binding step set. For each `CompetitiveInhibitor`
 declared in `rxn` but not yet bound by `m`'s steps, enumerate inhibitor
 competition patterns (S × P × existing inhibitors); for each pattern,
-add RE binding steps to forms where the competing metabolite has a
-binding step and the form isn't already bound by any competing
-metabolite. Mirror steps inherit their catalytic counterpart's
-`kinetic_group`. All new binding steps for a single regulator share one
-fresh trailing kinetic group (one K_R parameter).
+add RE binding steps to the forms where a competing metabolite binds, unless
+the form already holds a competing metabolite or holds every substrate or every
+product. Competition is decided per site, not per name. A substrate or product
+declared as a competitive inhibitor is a copy that binds a dead-end site of its
+own, and that site and the reactant's catalytic site are different sites by
+definition. Competition with a substrate or product M targets the forms where
+M binds productively and excludes the forms that hold M productively;
+competition with an existing inhibitor I targets and excludes the forms where I
+binds as a `CompetitiveInhibitor`; the capacity test counts productive bindings
+only. A form that carries only the copy of M is therefore a site for an
+inhibitor that competes with M. Mirror steps inherit their catalytic
+counterpart's `kinetic_group`. All new binding steps for a single regulator
+share one fresh trailing kinetic group (one K_R parameter).
 A pattern whose every site is a twin (`_copy_twin_test`: the copy's complex duplicates
 a productive form, by composition or by segment and offsets, in every conformational
 state where the copy binds) is skipped. Such a copy is a second orientation of a complex
@@ -2183,18 +2178,22 @@ function _expand_add_dead_end_regulator_native(
         form_sp[name(to_species(s))] = to_species(s)
     end
     cat_forms = Set(keys(form_sp))
+    # Per form, the names bound productively and the names bound as competitive
+    # inhibitors: a reactant's copy sits at a dead-end site, not at its reactant's.
+    productive = Dict(f => Set(name(b) for b in bound(sp) if b isa Reactant)
+                      for (f, sp) in form_sp)
+    inhibiting = Dict(f => Set(name(b) for b in bound(sp) if b isa CompetitiveInhibitor)
+                      for (f, sp) in form_sp)
 
     n_groups_before = length(steps(m))
     results = Tuple{Vector{Vector{Step}}, Int, EnzymeReaction}[]
 
-    boundmap = _bound_at_forms(m)
     twin = _copy_twin_test(m)
 
     for reg_name in eligible_regs
         eligible_forms = Symbol[]
         for f in sort(collect(cat_forms))
-            haskey(boundmap, f) || continue
-            fb = boundmap[f]
+            fb = productive[f]
             (intersect(fb, sub_names) == sub_names ||
                 intersect(fb, prod_names) == prod_names) && continue
             push!(eligible_forms, f)
@@ -2214,26 +2213,22 @@ function _expand_add_dead_end_regulator_native(
         seen = Set{Vector{Symbol}}()
 
         for (comp_subs, comp_prods, comp_inhibitors) in inh_patterns
+            comp_reactants = union(comp_subs, comp_prods)
             target_forms = Set{Symbol}()
-            for met in comp_subs
+            for met in comp_reactants
                 union!(target_forms,
-                       _forms_with_binding_step_native(m, met))
-            end
-            for met in comp_prods
-                union!(target_forms,
-                       _forms_with_binding_step_native(m, met))
+                       _forms_with_binding_step_native(m, Reactant, met))
             end
             for inh in comp_inhibitors
                 union!(target_forms,
-                       _forms_with_binding_step_native(m, inh))
+                       _forms_with_binding_step_native(m, CompetitiveInhibitor, inh))
             end
 
-            all_competing = union(comp_subs, comp_prods, comp_inhibitors)
             active = Symbol[]
             for f in sort(collect(target_forms))
                 f in eligible_forms || continue
-                haskey(boundmap, f) || continue
-                isempty(intersect(boundmap[f], all_competing)) || continue
+                isempty(intersect(productive[f], comp_reactants)) || continue
+                isempty(intersect(inhibiting[f], comp_inhibitors)) || continue
                 push!(active, f)
             end
             isempty(active) && continue
