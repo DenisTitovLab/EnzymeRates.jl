@@ -3,6 +3,8 @@
 Date: 2026-09-30. Read this, then the findings document
 (`2026-09-28-identifiable-enumeration-findings-and-plan.md`), before starting C.
 
+Superseded for C by `2026-10-02-c-handoff.md`, which holds the state after A and B.
+
 ## Where things stand
 
 - Branch `step-explicit-stoichiometry` holds all of A+B+C. Denis wants A, B and C in one pull
