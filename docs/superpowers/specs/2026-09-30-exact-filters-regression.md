@@ -4,7 +4,8 @@ Date: 2026-10-02. This checks the exact enumeration filters (design
 `2026-09-30-exact-filters-design.md`, plan `../plans/2026-09-30-exact-filters.md`): the flux
 predicate, the flip's extend semantics, the split's revert, the copy rule (section 2 of the
 design: a copy group is rejected only when every complex has a productive twin and the dwell
-gauge of Theorem 2 is consistent) and the dead-end move's per-site competition (section 5).
+gauge of Theorem 2 is consistent, the copy's complexes at one factor) and the dead-end move's
+per-site competition (section 5).
 Every mechanism the filters remove must be one a rule names; every kept and added mechanism must
 satisfy both emission rules; every kept mechanism must derive as before; added mechanisms are
 reported with their phantom fraction; the rejections are checked against the rank oracle.
@@ -13,19 +14,22 @@ reported with their phantom fraction; the rejections are checked against the ran
 
 A scratch script (not committed) enumerates the populations of one checkout and writes them as
 keys; a second mode compares two key sets mechanism by mechanism. The baseline ran on a2a02b1,
-before the filters; the comparison ran on the tree committed as c3481a4, the branch commit that
-holds the gauge rule (the commit adds only a type assertion and the wording of an error message
-to the enumeration code that ran). Both enumerated independently, one Julia process at a time;
-the a2a02b1 run is the snapshot of the earlier comparisons, made with the current
-`Manifest.toml`. The previous branch snapshot, ea0ada5, decided copies by the all-twin rule
-(every complex a twin, no gauge).
+before the filters; the comparison ran on the tree committed as 18a1008, the review fix of the
+gauge rule. Both enumerated independently, one Julia process at a time; the a2a02b1 run is the
+snapshot of the earlier comparisons, made with the current `Manifest.toml`. The previous branch
+snapshot is 6f0a626, the gauge rule before its review fix, which gave each copy complex its
+twin's gauge factor; ea0ada5, two snapshots back, decided copies by the all-twin rule (every
+complex a twin, no gauge).
 
 The copy rule. A copy complex's twin is a productive complex, a form bound to no competitive
 inhibitor, in the complex's rapid-equilibrium segment with the complex's offsets, so the two
 weights are proportional (`_productive_twin`). A copy group is redundant when every complex has
 a twin in every conformational state where the copy binds and the dwell gauge is consistent
 over the states together, an `:EqualAI` group taking one rescaling in both
-(`_redundant_copy_groups`). Every conformation holds its free enzyme.
+(`_redundant_copy_groups`). The gauge gives each class of twins its factor and all of the
+copy's complexes one factor, and every kinetic group, the copy's own included, must take one
+rescaling; an RE mirror between two complexes therefore has ratio 1. Every conformation holds
+its free enzyme.
 
 Competition in the dead-end move is decided per site: for competition with a reactant the move
 targets the forms where that reactant binds productively, for competition with an inhibitor
@@ -66,7 +70,9 @@ one of its copies; a mechanism adds a phantom when its fitted count minus rank e
 parent's. Two oracle checks run on R6 levels 1–2 with `MersenneTwister(20260930)`: (a) 100
 kept mechanisms with a copy group whose every complex duplicates a productive form under the
 all-twin rule, which ea0ada5 rejected, are ranked; (b) 100 mechanisms removed for a redundant
-copy group must all have fitted minus rank at least 1, in R6 and in ALLO6.
+copy group must all have fitted minus rank at least 1, in R6 and in ALLO6. Every mechanism the
+review fix removes against 6f0a626 is ranked as well; one with full rank would make the fix
+unsound.
 
 The derivation comparison draws, per set, up to 40 keys (all of R1–R3) from the sorted
 intersection of the two key sets with `MersenneTwister(20260930)`, derives each on both
@@ -94,7 +100,7 @@ ran as a detached worktree with the current `Manifest.toml`, removed afterwards.
 | R5 | 2 | 3934 | 3746 | 3746 | 188 | 0 |
 | R6 | 0 | 62 | 62 | 62 | 0 | 0 |
 | R6 | 1 | 1769 | 1649 | 1649 | 120 | 0 |
-| R6 | 2 | 28304 | 31870 | 25772 | 2532 | 6098 |
+| R6 | 2 | 28304 | 31730 | 25632 | 2672 | 6098 |
 | ALLO | 1 | 930 | 930 | 930 | 0 | 0 |
 | ALLO | 2 | 5471 | 5471 | 5471 | 0 | 0 |
 | ALLO6 | 1 | 150 | 150 | 150 | 0 | 0 |
@@ -102,11 +108,11 @@ ran as a detached worktree with the current `Manifest.toml`, removed afterwards.
 | ALLO6 | 3 | 15756 | 14980 | 14980 | 776 | 0 |
 
 Every new population except R6 level 2 is a subset of the old. The test suite pins 62, 369 and
-1,200 for R4 and 62, 1,649 and 31,870 for R6.
+1,200 for R4 and 62, 1,649 and 31,730 for R6.
 
 ## Removed mechanisms
 
-Removed: 3,950.
+Removed: 4,090.
 
 | Set | Zero-flux | Redundant copy group | Other order | Reachable only through a redundant intermediate | Unexplained |
 |---|---|---|---|---|---|
@@ -115,14 +121,14 @@ Removed: 3,950.
 | R3 | 0 | 5 | 0 | 0 | 0 |
 | R4 | 188 | 0 | 0 | 0 | 0 |
 | R5 | 188 | 0 | 0 | 0 | 0 |
-| R6 | 188 | 2286 | 0 | 178 | 0 |
+| R6 | 188 | 2426 | 0 | 178 | 0 |
 | ALLO | 0 | 0 | 0 | 0 | 0 |
 | ALLO6 | 0 | 776 | 20 | 121 | 0 |
 
 - Zero-flux (564): the rapid-equilibrium twin of each is in the new population, 564 of 564.
   The 188 removed R4 mechanisms all have rank at least 1 and fitted minus rank at least their
   zero-flux group count (fitted 8 to 9, rank 6 to 8); 0 failures.
-- Redundant copy groups (3,067): every complex has a productive twin in every state where the
+- Redundant copy groups (3,207): every complex has a productive twin in every state where the
   copy binds and the gauge is consistent. R3 loses five copies at E of uni-uni mechanisms
   whose copied ligand binds at rapid equilibrium.
 - Other order (20, ALLO6 level 3): mechanisms whose level-2 parents were all removed; for
@@ -141,9 +147,16 @@ Removed: 3,950.
   add one phantom each over the kept parent.
 - R1, R2 and ALLO lose nothing. None is unexplained.
 
-Against the previous snapshot (ea0ada5), this one removes none and adds 11,335: R3 level 2 2,
-R6 level 1 240, R6 level 2 9,318, ALLO6 level 2 257, ALLO6 level 3 1,518. 9,931 of them are in
-the baseline as well.
+Against the previous snapshot (6f0a626), this one removes 140 R6 level-2 mechanisms and adds
+none; ALLO6 is unchanged. Each of the 140 holds a copy whose complexes all have twins, of two
+classes, joined by an RE mirror that the previous labelling read as blocking the gauge (the
+per-class labelling with RE mirrors skipped rejects the same 140). Ranked all 140: each has
+fitted minus rank 1, and in each the copy adds that phantom over the mechanism without it. The
+fix's other change, a complex's own factor where a step leaves it beside a twin, keeps
+mechanisms the previous labelling rejected (two hand cases, 7 fitted, rank 7), but none
+appears in these populations to depth 2. Against ea0ada5, two snapshots back, this one
+removes none and adds 11,195: R3 level 2 2, R6 level 1 240, R6 level 2 9,178, ALLO6 level 2
+257, ALLO6 level 3 1,518. 9,791 of them are in the baseline as well.
 
 ## Added mechanisms
 
@@ -162,14 +175,16 @@ add one.
 ## Oracle checks
 
 - (a) R6 mechanisms kept with a copy group whose every complex duplicates a productive form
-  under the all-twin rule: 240 at level 1 and 9,214 at level 2. Of 100 ranked, **90 have full
-  rank** and 10 do not; 8 of the 10 add a phantom over their parents (the copy's gauge fails,
-  yet no other constant pins it), 2 inherit it. The test is conservative: it rejects only on a
-  proof.
-- (b) Removed for a redundant copy group: of 100 ranked R6 mechanisms (of 2,286), **100 have
+  under the all-twin rule: 240 at level 1 and 9,074 at level 2. Of 100 ranked, **89 have full
+  rank** and 11 do not; 10 of the 159 comparisons with a parent in the new population add a
+  phantom (the copy's gauge fails, yet no other constant pins it). The test is conservative: it
+  rejects only on a proof.
+- (b) Removed for a redundant copy group: of 100 ranked R6 mechanisms (of 2,426), **100 have
   fitted minus rank at least 1**, and in all 100 the copy adds at least one phantom over the
-  mechanism without it; ALLO6, 100 of 776 ranked, the same 100 and 100. None of the ranked R6
-  rejections has a twin outside Theorem 2's reach.
+  mechanism without it; ALLO6, 100 of 776 ranked, the same 100 and 100.
+- The review fix's own rejections, all 140 ranked (above): every one has fitted minus rank 1,
+  and in every one the copy adds that phantom over the mechanism without it. No full-rank
+  mechanism is rejected.
 - Twins of the same composition formed by a steady-state binding are not twins. Taken as twins
   they rejected 20 R6 mechanisms, 4 of them identifiable (an SS binding of A, P, Q or B with its
   copy at E and a random-order product or substrate side: 7 fitted, rank 7). The 20 return (4
@@ -187,10 +202,12 @@ ea0ada5 that add a phantom over every parent in the new population:
 | Stratum | Added | Ranked | Add a phantom | Estimate |
 |---|---|---|---|---|
 | R6 level 1 | 240 | 150 | 2 | about 3 |
-| R6 level 2 | 9,318 | 150 | 23 | about 1,430 (15%) |
+| R6 level 2 | 9,178 | 150 | 23 | about 1,290 (14%) |
 | ALLO6 level 2 | 257 | 150 | 18 | about 31 |
 | ALLO6 level 3 | 1,518 | 150 | 65 | about 660 |
 
+The draws ran on 6f0a626's population. The review fix removed 140 of its 9,318 R6 level-2
+additions, every one a phantom, so the R6 level-2 estimate is that draw's 1,430 less the 140.
 The per-site wave's level-2 intake, also an estimate: 224 of the 368 mechanisms it restored add
 a phantom (measured) and about 2% of its other 4,694 additions do (sampled), about 6% of its
 5,062 additions.
@@ -206,7 +223,7 @@ a phantom (measured) and about 2% of its other 4,694 additions do (sampled), abo
 | R3 | 6 | 0 |
 | R4 | 1631 | 0 |
 | R5 | 4527 | 0 |
-| R6 | 33581 | 0 |
+| R6 | 33441 | 0 |
 | ALLO | 6401 | 0 |
 | ALLO6 | 19739 | 0 |
 
@@ -232,9 +249,11 @@ and 6, 8 and 6, 8 and 8, 9 and 9, 8 and 7, 8 and 7, 8 and 8.
 
 ## Level-3 phantom fraction
 
-R6 levels 0–2 hold 62, 1,649 and 31,870. 11,332 level-2 mechanisms hold a copy group that is
+This sample was drawn on 6f0a626's population and not redrawn after the review fix. There R6
+levels 0–2 held 62, 1,649 and 31,870; 11,332 level-2 mechanisms held a copy group that is
 twin-only when complexes of copies count, 8,854 a copy group whose every complex has a
-productive twin and whose gauge fails. The 300 drawn level-2 parents have 1,290 split and
+productive twin and whose gauge fails. The review fix removes 140 of the 8,854 (8,714 remain,
+in 31,730 level-2 mechanisms). The 300 drawn level-2 parents have 1,290 split and
 10,855 dead-end children. 6,609 of these 12,145 children are admitted only by a relaxation of
 the all-twin rule over all forms (split 698, dead-end 5,911): a copy group twin-only when
 copies' complexes count, or all-twin with a failing gauge (4,341); 3,951 of the 6,609 have a
@@ -256,38 +275,65 @@ gauge); of 20 ranked R6 ones, none adds a phantom.
 
 ## Seeds with required copies
 
-`seed_mechanisms(R6, ∅, {A, Q})`: 3,569 seeds in 40 s, none violating a rule; 993 hold a copy
+`seed_mechanisms(R6, ∅, {A, Q})`: 3,569 seeds in 35 s, none violating a rule; 993 hold a copy
 group whose every complex has a productive twin and whose gauge fails. Of 20 ranked, 18 have
-full rank and 2 are 7 fitted, rank 6. (ea0ada5: 2,550 seeds.)
+full rank and 2 are 7 fitted, rank 6. The review fix changes none of these numbers. (ea0ada5:
+2,550 seeds.)
 
 ## Enumeration time
 
 | Set | Old (s) | New (s) | Change |
 |---|---|---|---|
-| R1 | 0.89 | 0.80 | -10% |
-| R2 | 0.06 | 0.06 | 0% |
-| R3 | 0.00 | 0.27 | — |
-| R4 | 0.44 | 0.48 | 8% |
-| R5 | 1.29 | 1.32 | 3% |
-| R6 | 7.84 | 9.58 | 22% |
-| ALLO | 53.06 | 55.23 | 4% |
-| ALLO6 | 100.40 | 104.05 | 4% |
+| R1 | 0.89 | 0.76 | -14% |
+| R2 | 0.06 | 0.05 | -2% |
+| R3 | 0.00 | 0.26 | — |
+| R4 | 0.44 | 0.47 | 6% |
+| R5 | 1.29 | 1.35 | 5% |
+| R6 | 7.84 | 9.32 | 19% |
+| ALLO | 53.06 | 53.41 | 1% |
+| ALLO6 | 100.40 | 99.90 | 0% |
 
-One run per checkout. R6 warm (best of three runs after a warm-up): a2a02b1 7.58 s, ea0ada5
-6.33 s, the gauge rule 9.86 s, a rise of 30% over a2a02b1 for 11% more mechanisms; per
-enumerated mechanism 0.252, 0.264 and 0.294 ms. The copy rule's own checks cost about 0.25 s
-in the split (0.14 s for 980 one-unit children of the part filter, 0.10 s for the children
-filter); the rest follows the larger population (16% more level-1 parents than ea0ada5, 43%
-more dead-end children). R3's 0.27 s is first-use compilation.
+One run per checkout; R3's 0.26 s is first-use compilation. The design's limit is a 20% rise
+in R6 levels 0–2. The gauge rule as committed (6f0a626) exceeded it: warm, best of three runs
+after a warm-up, the gauge wave measured a2a02b1 7.58 s, ea0ada5 6.33 s and 6f0a626 9.86 s, a
+rise of 30% over a2a02b1 for 11% more mechanisms, and per enumerated mechanism 0.252, 0.264 and
+0.294 ms: 17% over a2a02b1 and 11% over ea0ada5. The review traced the cost to the dead-end
+move: about 0.69 s in 16,414 calls of the copy predicate on built children, 12 of each call's
+19 µs in `_productive_twin` recomputing `_re_segment_extras` for every child, and about 0.2 s
+building all-twin candidates only to reject them. The copy rule's split filters cost about
+0.25 s more (0.14 s for 980 one-unit children of the part filter, 0.10 s for the children
+filter).
+
+The review fix runs the gauge on a `Mechanism` candidate's groups with the parent's twins,
+before the child is built. Remeasured in one session, the best of two rounds of three warm
+runs each (one round for the intermediate state):
+
+| Checkout | R6 levels 0–2 | Time (s) | Per mechanism (ms) |
+|---|---|---|---|
+| a2a02b1 | 62, 1,769, 28,304 | 7.50 | 0.249 |
+| ea0ada5 | 62, 1,409, 22,552 | 6.21 | 0.259 |
+| 6f0a626 | 62, 1,649, 31,870 | 9.19 | 0.274 |
+| review fix, gauge on built children | 62, 1,649, 31,730 | 9.22 | 0.276 |
+| review fix | 62, 1,649, 31,730 | 8.85 | 0.265 |
+
+The review fix is 18% over a2a02b1 in total, inside the limit by a margin smaller than the
+spread between runs, and 6% per mechanism (2% over ea0ada5); 6f0a626 measures 23% here. Over
+the 1,711 level-0 and level-1 parents, the dead-end move now takes 5.52 s for 44,312 children,
+125 µs each, against 128 µs at a2a02b1 (4.72 s for 36,844 children of 1,831 parents) and
+129 µs at 6f0a626: its cost per child is back at the baseline's, and its rise is the 20% more
+children per-site competition and the gauge's kept placements produce. The split costs 1.18 ms
+per parent against 1.02 ms at a2a02b1 (16% more), the copy rule's two filters.
 
 ## Conclusion
 
-Against a2a02b1 the filters remove 3,950 mechanisms: 564 with a steady-state group that carries
-no flux, whose rapid-equilibrium twin stays; 3,067 with a redundant copy group; 20 ALLO6
+Against a2a02b1 the filters remove 4,090 mechanisms: 564 with a steady-state group that carries
+no flux, whose rapid-equilibrium twin stays; 3,207 with a redundant copy group; 20 ALLO6
 mechanisms the new code reaches in another order; and 299 that the rule admits but no move
 reaches, each with at least one phantom. None is unexplained. All 100 ranked rejections in R6
-and in ALLO6 have a phantom; 90 of 100 ranked kept all-twin mechanisms have full rank. Every
-kept mechanism satisfies both rules, and the 217 sampled derivations are unchanged. The gauge
-returns the shared-group family Denis chose to keep: R6 level 2 grows from 22,552 to 31,870,
-about 15% of its additions adding a phantom (estimate), and at level 3 about 5.1% of the
-children of a sample of level-2 parents are phantoms that a relaxation admits.
+and in ALLO6 have a phantom, and so do all 140 that the review fix adds; 89 of 100 ranked kept
+all-twin mechanisms have full rank. Every kept mechanism satisfies both rules, and the 217
+sampled derivations are unchanged. The gauge returns the shared-group family Denis chose to
+keep: R6 level 2 grows from 22,552 to 31,730, about 14% of its additions adding a phantom
+(estimate), and at level 3 about 5.1% of the children of a sample of level-2 parents are
+phantoms that a relaxation admits. R6 levels 0–2 enumerate 18% slower than at a2a02b1, inside
+the design's 20% limit, which the gauge rule as first committed exceeded.
