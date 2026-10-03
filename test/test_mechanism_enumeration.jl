@@ -4020,11 +4020,11 @@ end
     # with P is placed at E (where P binds) and E* (where S binds), with the
     # isomerization mirrored between the copy forms. E*·S* has E*(S)'s composition.
     # E·S* has a composition no form has, but E and E* share offsets, so E·S* and
-    # E*(S) have proportional weights: the pattern is all-twin. Both complexes merge
-    # into E*(S), the mirrored isomerization merges onto that one form and keeps the
-    # original's ratio 1, and only the S binding and the chemistry touch E*(S), each
-    # alone in its group: the gauge exists, and the pattern is not emitted. The
-    # would-be child has its parent's rank.
+    # E*(S) have proportional weights: the pattern is all-twin. Both complexes have
+    # E*(S) as their twin, the mirrored isomerization joins the two complexes, both at
+    # the copy's one factor, so its ratio is 1 like the original's, and only the S
+    # binding and the chemistry touch E*(S), each alone in its group: the gauge exists,
+    # and the pattern is not emitted. The would-be child has its parent's rank.
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -7223,12 +7223,14 @@ end
 
 @testset "_redundant_copy_groups: every complex a twin and a consistent dwell gauge" begin
     # A copy group is redundant when every complex duplicates a productive form and the
-    # dwell gauge exists: merging each complex into its twin T rescales T's weight by
-    # 1/ρ, and every kinetic group other than the copy's must absorb that with one
-    # constant. Scale factors σ: ρ_class on the twins, 1 elsewhere, a merged complex
-    # taking its twin's; an RE group needs one ratio σ(from)/σ(to), an SS group one
-    # σ(from) and one σ(to). Twins formed by RE bindings of the copied ligand in one
-    # kinetic group share a class (ρ = K/(K + K*)); every other twin is its own.
+    # dwell gauge exists (track 2's Lemma 1 and Theorem 2): scale factors σ, ρ_class on
+    # each twin, one factor s on every complex of the copy and 1 elsewhere, under which
+    # every kinetic group, the copy's own included, rescales its constants alike: an RE
+    # group needs one ratio σ(from)/σ(to), an SS group one σ(from) and one σ(to). Twins
+    # formed by RE bindings of the copied ligand in one kinetic group share a class
+    # (ρ = K/(K + K*)); every other twin is its own. The copy's group, 1 at each site,
+    # holds all its complexes at one factor, and a complex's weight moves opposite to
+    # its twin's, so no complex takes its twin's factor.
     ER = EnzymeRates
     fitted(k) = length(ER.fitted_params(ER.compile_mechanism(k)))
     copy_group(m) = only(g for (g, grp) in enumerate(ER.steps(m))
@@ -7277,8 +7279,8 @@ end
     # B14: the same parent with A* at E and E(Q), the Q binding E + Q ⇌ E(Q) mirrored
     # onto the copy forms. Both twins, E(A) and E(A, Q), are formed by the one A
     # group, so they share ρ: the A group's two steps both have ratio 1/ρ, and the Q
-    # group's three steps (E → E(Q), E(A) → E(A, Q) and the mirror, whose ends merge
-    # into E(A) and E(A, Q)) all have ratio 1. The gauge exists. 6 fitted, rank 5.
+    # group's three steps (E → E(Q), E(A) → E(A, Q) and the mirror between the two
+    # complexes, both at s) all have ratio 1. The gauge exists. 6 fitted, rank 5.
     b14 = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -7296,8 +7298,8 @@ end
 
     # H1: A binds E in one group and E(B) in another, so the twins E(A) and E(A, B)
     # have different ρ. The B group shared by E(A) + B ⇌ E(A, B) (ratio ρ₁/ρ₂) and
-    # E(Q) + B ⇌ E(B, Q) (ratio 1) cannot absorb both, nor can the B group at E with
-    # its mirror onto the copy forms: no gauge. 7 fitted, rank 7.
+    # E(Q) + B ⇌ E(B, Q) (ratio 1) cannot absorb both: no gauge. (The B group at E
+    # and its mirror between the complexes have ratio 1.) 7 fitted, rank 7.
     h1 = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -7316,6 +7318,128 @@ end
     @test ER._twin_only(ER._copy_twin_test(h1), h1, ER.steps(h1)[gh], gh)
     @test isempty(ER._redundant_copy_groups(h1))
     @test fitted(h1) == 7 && _testhelper_identifiable_rank(h1) == 7
+
+    # A step that leaves a complex takes the complex's factor s, never its twin's. B14
+    # plus P* at the complex E(A*) and at the twin E(A, Q): the P* group holds
+    # E(A*) → E(A*, P*) at s beside E(A, Q) → E(A, P*, Q) at ρ, two ratios, so no gauge,
+    # and the copy's constant shows (7 fitted, rank 7, as without the copy). The
+    # mechanism is a valid parent.
+    p_at_twin = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))
+            (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+            (E(A::Inh) + P::Inh ⇌ E(A::Inh, P::Inh), E(A, Q) + P::Inh ⇌ E(A, P::Inh, Q))
+        end
+    end)
+    @test isempty(ER._redundant_copy_groups(p_at_twin))
+    @test ER._assert_emission_rules(p_at_twin) === nothing
+    @test fitted(p_at_twin) == 7 && _testhelper_identifiable_rank(p_at_twin) == 7
+    # P* at E(A*) and at its own twin E(A) instead: E(A*, P*) pairs with E(A, P*), and a
+    # phantom remains (7 fitted, rank 6). The gauge does not reach it: it reads
+    # E(A*) → E(A*, P*) at s beside E(A) → E(A, P*) at ρ, and the copy is kept.
+    p_at_own_twin = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))
+            (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+            (E(A::Inh) + P::Inh ⇌ E(A::Inh, P::Inh), E(A) + P::Inh ⇌ E(A, P::Inh))
+        end
+    end)
+    @test isempty(ER._redundant_copy_groups(p_at_own_twin))
+    @test fitted(p_at_own_twin) == 7 && _testhelper_identifiable_rank(p_at_own_twin) == 6
+
+    # An RE mirror joins two complexes, both at s, so its ratio is 1, as is its parent
+    # step's between two sites, whatever the twins' classes. Random-order A in two
+    # groups with A* at {E, E(B)}: twins E(A) and E(A, B) of two classes, and
+    # E + B ⇌ E(B) mirrored onto the complexes. Redundant: 7 fitted, rank 6.
+    two_classes = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(B) + A ⇌ E(A, B)
+            (E + B ⇌ E(B), E(A::Inh) + B ⇌ E(A::Inh, B))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+            (E + A::Inh ⇌ E(A::Inh), E(B) + A::Inh ⇌ E(A::Inh, B))
+        end
+    end)
+    @test ER._redundant_copy_groups(two_classes) == [copy_group(two_classes)]
+    @test fitted(two_classes) == 7 && _testhelper_identifiable_rank(two_classes) == 6
+    # B14 with the A bindings and E(A) + Q ⇌ E(A, Q) each in a group of their own: the
+    # twins E(A) and E(A, Q) have two classes, and the Q mirror joins their complexes.
+    # Redundant: 7 fitted, rank 6. With the Q group at steady state the mirror carries
+    # flux between the complexes, its forward constant needs s beside its parent step's
+    # 1, and the gauge fails.
+    split_b14 = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(Q) + A ⇌ E(A, Q)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))
+            E(A) + Q ⇌ E(A, Q)
+            (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+        end
+    end)
+    ss_mirror = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(Q) + A ⇌ E(A, Q)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q <--> E(Q), E(A::Inh) + Q <--> E(A::Inh, Q))
+            E(A) + Q ⇌ E(A, Q)
+            (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+        end
+    end)
+    @test ER._redundant_copy_groups(split_b14) == [copy_group(split_b14)]
+    @test fitted(split_b14) == 7 && _testhelper_identifiable_rank(split_b14) == 6
+    @test isempty(ER._redundant_copy_groups(ss_mirror))
+    # One factor for all of a copy's complexes, whatever their twins' classes: the
+    # previous mechanism plus P* at the two complexes E(A*) and E(A*, Q), the Q binding
+    # mirrored between the P* complexes. Both P* steps leave a complex at s, one ratio,
+    # and the gauge exists: 8 fitted, rank 7.
+    p_at_complexes = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(Q) + A ⇌ E(A, Q)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q),
+             E(A::Inh, P::Inh) + Q ⇌ E(A::Inh, P::Inh, Q))
+            E(A) + Q ⇌ E(A, Q)
+            (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+            (E(A::Inh) + P::Inh ⇌ E(A::Inh, P::Inh),
+             E(A::Inh, Q) + P::Inh ⇌ E(A::Inh, P::Inh, Q))
+        end
+    end)
+    a_group = only(g for (g, grp) in enumerate(ER.steps(p_at_complexes))
+                   if ER.bound_metabolite(first(grp)) == ER.CompetitiveInhibitor(:A))
+    @test ER._redundant_copy_groups(p_at_complexes) == [a_group]
+    @test fitted(p_at_complexes) == 8 && _testhelper_identifiable_rank(p_at_complexes) == 7
 
     # Case 1, uni-uni with S* at E: the twin E(S) is formed by the S group alone, and
     # the chemistry leaves it alone. 4 fitted, rank 3.
@@ -9587,9 +9711,9 @@ end
     # Without the copy rule level 1 would hold 1,769: the 120 seed-level placements
     # whose every complex has a productive twin and whose dwell gauge is consistent
     # are not emitted, and the 240 whose gauge fails, the shared-group family of
-    # Case 3, are. 8,854 level-2 mechanisms hold a copy group whose every complex has
+    # Case 3, are. 8,714 level-2 mechanisms hold a copy group whose every complex has
     # a productive twin and whose gauge fails.
-    @test length.(copies) == [62, 1649, 31870]
+    @test length.(copies) == [62, 1649, 31730]
     @test all(obeys_rules, Iterators.flatten(copies))
     @test any(m -> !isempty(EnzymeRates._bound_comp_inhibitors(m)), copies[2])
 end

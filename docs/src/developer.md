@@ -101,8 +101,9 @@ is redundant, and never emitted, when in every conformation where it binds each 
 its complexes has a productive twin (a form bound to no competitive inhibitor, in
 the complex's rapid-equilibrium segment with its offsets, so the two weights are
 proportional: `_productive_twin`; every conformation holds its free enzyme,
-`_copy_twin_test`), and the dwell gauge of Theorem 2 that merges each complex into
-its twin is consistent with every kinetic group's shared constants, an `:EqualAI`
+`_copy_twin_test`), and the dwell gauge of Theorem 2, which rescales each twin by
+its own factor and all of the copy's complexes by one factor, is consistent with
+every kinetic group's shared constants, the copy's own included, an `:EqualAI`
 group taking one rescaling in both conformations (`_gauge_rescaling`, bookkeeping
 over the steps); a copy whose complexes all have twins but whose gauge fails is
 kept, since only the gauge proves the copy's constant invisible. The

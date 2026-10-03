@@ -176,8 +176,8 @@ subject to three rules:
   inhibitor then binds in a second orientation of a complex the mechanism already
   has. A copy is
   not emitted when every complex it forms duplicates a productive complex and a
-  dwell gauge absorbs its constant into the existing binding's, so that the
-  equation depends on the two only through their sum; a copy whose complexes all
+  dwell gauge absorbs its constant into the existing binding's, so that the data
+  cannot separate the two; a copy whose complexes all
   duplicate productive complexes but whose gauge fails, as when a shared kinetic
   group pins the existing binding, is emitted, since its constant may be
   identifiable. A complex that matches only an inhibitor-bound complex counts as

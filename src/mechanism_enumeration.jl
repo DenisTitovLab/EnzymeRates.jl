@@ -2041,39 +2041,41 @@ end
 
 The dwell gauge of the competitive-inhibitor copy bound by kinetic group `g` of
 `groups`, one conformational state's step graph, every complex of which has a
-productive twin (`twin`, a `_productive_twin` of `groups`): the rescaling each other
-nonempty kinetic group needs, or `nothing` when some group would need two and the gauge
-does not exist. The gauge is the finite transformation of track 2's Theorem 2 (findings
-evidence, `t2_inhdup_report.md` §3), which merges each complex into its twin and leaves
-the rate law unchanged. A twin T grows by its complex's weight, a factor 1/ρ_T with
-ρ_T = w(T)/(w(T) + w(complex)), a constant because the two weights are proportional, so
-every flux through T stays the same only if the constants of the steps that leave T
-are multiplied by ρ_T and those of the steps that enter T divided by it. With scale
-factors σ equal to ρ_T on each twin, to its twin's on a merged complex and to 1 on every
-other form, a rapid-equilibrium group's K becomes K·σ(from)/σ(to), and a steady-state
-group's forward constant scales by σ(from) and its reverse by σ(to). A kinetic group
-shares its constants, so every group other than `g` must have one ratio σ(from)/σ(to)
-over its steps (rapid equilibrium), or one σ(from) and one σ(to) (steady state). A
-mirror step, between two complexes, takes its twins' factors beside its parent step's 1
-and 1: a rapid-equilibrium mirror keeps the gauge when the two twins share ρ, a
-steady-state mirror never does. The copy's own group is the one the gauge eliminates
-(its sites gain K_h + K* in place of K_h) and is not checked.
+productive twin (`twin`, a `_productive_twin` of `groups`): the rescaling each nonempty
+kinetic group needs, or `nothing` when some group would need two and the gauge does not
+exist. The gauge is track 2's Lemma 1 with Theorem 2's factors (findings evidence,
+`t2_inhdup_report.md` §3): a factor σ per form, ρ_T on each twin T, one factor s on
+every complex of the copy and 1 on every other form. Multiplying a rapid-equilibrium
+group's K by σ(from)/σ(to), and a steady-state group's forward constant by σ(from) and
+its reverse by σ(to), divides each form's weight by its factor and leaves every flux
+as it was. A twin's weight is a constant multiple of its complexes', so the factors
+can keep each twin's total with its complexes, and the rate law, unchanged while K*
+moves: the copy's constant is a phantom. A kinetic group shares its constants, so every
+group, the copy's own included, must have one ratio σ(from)/σ(to) over its steps (rapid
+equilibrium), or one σ(from) and one σ(to) (steady state). The copy's group, at 1 on
+each site, holds all its complexes at the one factor s, and a complex never takes its
+twin's factor: its weight moves opposite to the twin's. A rapid-equilibrium mirror step,
+between two complexes, therefore has ratio 1, as its parent step between two sites
+has, whatever the twins; a steady-state mirror needs s beside its parent step's 1, and
+the gauge fails. Within Theorem 2's scope the gauge is the merge of each complex into
+its twin, the twin's binding group taking K_h + K* in place of K_h, and the family is
+that of the mechanism without the copy.
 
 The ρ are generic numbers, equal only where the structure makes them equal: twins
 formed from their sites by rapid-equilibrium bindings of the copied ligand in one
 kinetic group h, each the twin of one complex, share ρ = K_h/(K_h + K*); every other
-twin has its own. `label` names the classes: it receives the group index h of a shared
-class or the twin of a class of its own, and returns the class's symbol, so the caller
-decides which classes are one number. A group's rescaling is the pair of its ends'
-symbols, `nothing` standing for the factor 1, and `(nothing, nothing)` for a
-rapid-equilibrium group whose two ends scale alike. The test is bookkeeping over the
-steps, with no parameters and no numerics.
+twin has its own. `label` names the classes: it receives the group index of a shared
+class (h) or of the copy's complexes (g), or the twin of a class of its own, and
+returns the class's symbol, so the caller decides which classes are one number. A
+group's rescaling is the pair of its ends' symbols, `nothing` standing for the factor
+1, and `(nothing, nothing)` for a rapid-equilibrium group whose two ends scale alike.
+The test is bookkeeping over the steps, with no parameters and no numerics.
 """
 function _gauge_rescaling(groups::Vector{Vector{Step}}, g::Int, twin, label)
     ligand = bound_metabolite(first(groups[g]))::Metabolite
-    merged = Dict(to_species(s) => twin(from_species(s), ligand) for s in groups[g])
+    twin_of = Dict(to_species(s) => twin(from_species(s), ligand) for s in groups[g])
     shared = Dict{Species, Int}()
-    for t in values(merged)
+    for t in values(twin_of)
         shared[t] = get(shared, t, 0) + 1
     end
     binding_group = Dict{Tuple{Species, Species}, Int}()
@@ -2082,22 +2084,19 @@ function _gauge_rescaling(groups::Vector{Vector{Step}}, g::Int, twin, label)
         is_equilibrium(s) && bm isa Reactant && name(bm) == name(ligand) &&
             (binding_group[(from_species(s), to_species(s))] = h)
     end
-    class = Dict{Species, Any}()
+    class = Dict{Species, Any}(complex => label(g) for complex in keys(twin_of))
     for s in groups[g]
-        t = merged[to_species(s)]
+        t = twin_of[to_species(s)]
         haskey(class, t) && continue
         h = shared[t] == 1 ? get(binding_group, (from_species(s), t), 0) : 0
         class[t] = label(h > 0 ? h : t)
-    end
-    for (complex, t) in merged
-        class[complex] = class[t]
     end
     σ(sp) = get(class, sp, nothing)
     rescale(s) = (a = σ(from_species(s)); b = σ(to_species(s));
                   is_equilibrium(s) && isequal(a, b) ? (nothing, nothing) : (a, b))
     rescaling = Dict{Int, Tuple{Any, Any}}()
     for (h, group) in enumerate(groups)
-        (h == g || isempty(group)) && continue
+        isempty(group) && continue
         r = rescale(first(group))
         all(s -> isequal(rescale(s), r), group) || return nothing
         rescaling[h] = r
@@ -2111,26 +2110,29 @@ end
 Kinetic groups of `m` that bind a competitive inhibitor redundantly: in every
 conformational state where the copy binds, every complex has a productive twin, a form
 whose weight is proportional to the complex's (`_productive_twin`, `_all_twin`), and the
-dwell gauge exists over the states together (`_gauge_rescaling`). By track 2's Theorem 2
-such a copy's constant enters the rate only as K_h + K* beside the existing binding's,
-the other constants rescaled, so the mechanism's family is its family without the copy
-and the copy adds a phantom. A copy group whose complexes all have twins but whose
-gauge fails, because a group that forms or leaves a twin also binds where no copy does
-(a shared group that pins the existing binding) or a mirror is steady-state, is not
-redundant: the gauge is the proof that the copy's constant is invisible, and without it
-the constant may be identifiable (Case 3's is). A complex that duplicates only a copy's
-complex is not a twin, since the sites that pin either copy may keep both constants
-separable; two copies that are twins only of each other, neither pinned, pass and carry
-a phantom.
+dwell gauge exists over the states together (`_gauge_rescaling`). By track 2's Lemma 1
+the copy's constant then moves along a direction the rate law cannot see, so the copy
+adds a phantom; within Theorem 2's scope the constant enters the rate only as K_h + K*
+beside the existing binding's, and the mechanism's family is its family without the
+copy. A copy group whose complexes all have twins but whose gauge fails is not
+redundant: a group that forms or leaves a twin also binds where no copy does (a shared
+group that pins the existing binding), a group holds a step that leaves a complex
+beside one that leaves another form (a second copy bound at the complex and at a twin),
+or a mirror is steady-state. The gauge is the proof that the copy's constant is
+invisible, and without it the constant may be identifiable (Case 3's is). A complex that
+duplicates only a copy's complex is not a twin, since the sites that pin either copy may
+keep both constants separable; two copies that are twins only of each other, neither
+pinned, pass and carry a phantom.
 
 An allosteric copy binds the active state always and the inactive state unless its tag
 is `:OnlyA`; in the inactive state, the graph of `_state_mechanism(am, :I)`, it binds
 only at the sites that graph keeps, its free enzyme always among them, and where it binds
-nothing that state needs no merge (every factor 1). The two states form one system: a
+nothing every factor of that state is 1. The two states form one system: a
 group tagged `:EqualAI` has one set of constants in both, so it must take the same
 rescaling in each, and a shared class is one number in both states only when its
-binding group and the copy are both `:EqualAI` (one K_h, one K*); every other class is a
-number per state.
+binding group and the copy are both `:EqualAI` (one K_h, one K*), and the copy's
+complexes share one factor in both states when the copy is `:EqualAI` (one K*); every
+other class is a number per state.
 """
 function _redundant_copy_groups(m::Mechanism)
     groups = steps(m)
@@ -2234,21 +2236,25 @@ with M. Mirror steps inherit their catalytic counterpart's `kinetic_group`. All
 new binding steps for a single regulator share one fresh trailing kinetic group
 (one K_R parameter).
 A pattern is skipped when its child binds the new copy redundantly
-(`_redundant_copy_groups`): every site is a twin (`_copy_twin_test`: a productive form
-of the site's rapid-equilibrium segment with the complex's offsets, whose weight is
-proportional to the complex's, in every conformational state where the copy binds), and
-the dwell gauge of track 2's Theorem 2 exists (`_gauge_rescaling`). Such a copy is a
-second orientation of complexes the mechanism already has: its constant enters the rate
-only through a sum with the existing binding's, and the child's family is the parent's.
-A pattern whose every site is a twin but whose gauge fails, because a kinetic group that
-forms or leaves a twin also binds where no copy does (a shared group that pins the
-existing binding) or a mirror is steady-state, is emitted: the gauge is the proof of
-redundancy, and without it the copy may be identifiable. A site whose complex duplicates
+(`_redundant_copy_groups`, through `_dead_end_child`): every site is a twin
+(`_copy_twin_test`: a productive form of the site's rapid-equilibrium segment with the
+complex's offsets, whose weight is proportional to the complex's, in every
+conformational state where the copy binds), and the dwell gauge of track 2's Theorem 2
+exists (`_gauge_rescaling`). Such a copy is a second orientation of complexes the
+mechanism already has: its constant is a phantom, and within Theorem 2's scope it enters
+the rate only through a sum with the existing binding's. A pattern whose every site is
+a twin but whose gauge fails, because a kinetic group that forms or leaves a twin also
+binds where no copy does (a shared group that pins the existing binding) or a mirror is
+steady-state, is emitted: the gauge is the proof of redundancy, and without it the copy
+may be identifiable. A site whose complex duplicates
 only a copy's complex is not a twin: the two copies' constants enter that composition's
 weight each beside a different binding constant (1/(K_A·K_Q*) + 1/(K_Q·K_A*) for copies
 of A and Q), and the sites that pin either copy may keep them separable. The new copy's
 forms are not productive, and its steps and mirrors only add steps to the groups an
-older copy's gauge reads, so a placement never makes an older copy group redundant.
+older copy's gauge reads, so a placement never makes an older copy group redundant; a
+parent holds none (the parent rule), so only the new copy's group can be redundant in a
+child, and `_dead_end_child` tests that group alone on a `Mechanism` candidate, before
+building it, and an allosteric child whole.
 
 The caller must pass the declared `rxn` because `m.reaction` only
 carries regulators already bound by its steps; not-yet-bound regulators
@@ -2280,15 +2286,28 @@ end
 
 """
 The dead-end move's child of `m`: `groups`, `m`'s groups with the new copy's mirrors
-and the copy's group last, on reaction `rxn`. An allosteric child tags the copy's group
-`:EqualAI` and keeps `m`'s multiplicity and regulatory sites.
+and the copy's group last, on reaction `rxn`; `nothing` when the new copy is redundant
+in it (`_redundant_copy_groups`), which needs every site a twin (`all_twin`, judged
+before the child exists). A `Mechanism` candidate runs the gauge on `groups` with `m`'s
+`_productive_twin` (`twin`) and is built only when kept: the copy's forms are not
+productive, and its steps attach each complex to its site's segment and join no two
+segments, so every form of `m` keeps its segment and offsets. Only the new group is
+tested: `m` holds no redundant copy group (the parent rule), and the placement cannot
+make an older one redundant. An allosteric child is built and tested whole; it tags the
+copy's group `:EqualAI` and keeps `m`'s multiplicity and regulatory sites.
 """
-_dead_end_child(::Mechanism, groups::Vector{Vector{Step}}, rxn::EnzymeReaction) =
+function _dead_end_child(::Mechanism, groups::Vector{Vector{Step}}, rxn::EnzymeReaction,
+                         all_twin::Bool, twin)
+    all_twin && _gauge_rescaling(groups, length(groups), twin, identity) !== nothing &&
+        return nothing
     Mechanism(rxn, groups)
-_dead_end_child(am::AllostericMechanism, groups::Vector{Vector{Step}},
-                rxn::EnzymeReaction) =
-    AllostericMechanism(rxn, groups, vcat(cat_allo_states(am), [:EqualAI]),
-                        catalytic_multiplicity(am), copy(regulatory_sites(am)))
+end
+function _dead_end_child(am::AllostericMechanism, groups::Vector{Vector{Step}},
+                         rxn::EnzymeReaction, all_twin::Bool, _)
+    child = AllostericMechanism(rxn, groups, vcat(cat_allo_states(am), [:EqualAI]),
+                                catalytic_multiplicity(am), copy(regulatory_sites(am)))
+    all_twin && !isempty(_redundant_copy_groups(child)) ? nothing : child
+end
 
 """
 Shared kernel for the Mechanism / AllostericMechanism dead-end
@@ -2340,6 +2359,7 @@ function _expand_add_dead_end_regulator_native(
     results = typeof(m)[]
 
     twin = _copy_twin_test(m)
+    productive_twin = _productive_twin(steps(m))
 
     for reg_name in eligible_regs
         eligible_forms = Symbol[]
@@ -2422,9 +2442,9 @@ function _expand_add_dead_end_regulator_native(
             push!(new_groups, reg_group_steps)
 
             child = _dead_end_child(m, new_groups,
-                                    _add_competitive_inhibitor(rxn, reg_name))
-            all_twin && !isempty(_redundant_copy_groups(child)) && continue
-            push!(results, child)
+                                    _add_competitive_inhibitor(rxn, reg_name),
+                                    all_twin, productive_twin)
+            child === nothing || push!(results, child)
         end
     end
     results

@@ -92,6 +92,12 @@ see, and both have exact structural tests.
   in the copy complex's RE segment with its offsets (Theorem 2's hypothesis (a)); a composition
   match formed at steady state is not one, since four such rejections had full rank.
   `:EqualAI` groups, and an `:EqualAI` copy's K*, are tied across conformations.
+- Review fixes (2026-10-02), for Denis to confirm: the copy's complexes carry one gauge factor s,
+  never their twins' factors, as Theorem 2's gauge has it. Their twins' factors rejected two
+  identifiable mechanisms with a second copy bound at a complex (7 fitted, rank 7). With one
+  factor, an RE mirror between two complexes has ratio 1 and no longer blocks the gauge: 140 R6
+  level-2 mechanisms are newly rejected, every one with a phantom. The copy's own group is
+  checked like any other group.
 
 ## Terms
 
@@ -150,13 +156,14 @@ any other.
 A copy group is **redundant** when, in every conformational state where the copy binds, (i)
 every complex it forms has a productive twin, a complex whose weight is proportional to its own
 (the group is all-twin), and (ii) the dwell gauge of track 2's Theorem 2 is consistent, over the
-states together (the test below). The copy's constant then
-enters the rate only as K_g + K* beside the existing binding's, the other constants rescaled,
-and the child's family is its parent's: the copy adds a phantom. No move emits a redundant
-copy group (`_redundant_copy_groups`). A group that is all-twin but whose gauge fails is kept:
-Case 3 (the shared A group that pins K_A at E(Q)), the other shared-group cases and H1 are
-identifiable or unproven, and the rule's priority is never to drop an identifiable mechanism.
-The gauge is the proof.
+states together (the test below). The rate law then has a direction, Lemma 1's dwell gauge,
+along which the copy's constant moves and nothing observable changes: the copy adds a phantom.
+Within Theorem 2's scope the gauge is a finite merge: the copy's constant enters the rate only
+as K_g + K* beside the existing binding's, and the child's family is its parent's. No move
+emits a redundant copy group (`_redundant_copy_groups`). A group that is all-twin but whose
+gauge fails is kept: Case 3 (the shared A group that pins K_A at E(Q)), the other shared-group
+cases and H1 are identifiable or unproven, and the rule's priority is never to drop an
+identifiable mechanism. The gauge is the proof.
 
 **Twins.** A copy step is a twin site when its complex has a productive twin: a form that
 carries no competitive inhibitor, lies in the complex's rapid-equilibrium segment and has the
@@ -176,33 +183,47 @@ weight with that copy's constant, which the sites that pin the other copy may ke
 
 #### The gauge test
 
-Merge each copy complex X_i·L* into its twin T_i. T_i's weight grows by the factor 1/ρ_i, with
-ρ_i = w(T_i)/(w(T_i) + w(X_i·L*)). For the rate law to stay the same every flux through T_i
-must stay the same, so every rate constant of a step that leaves T_i is multiplied by ρ_i and
-every constant of a step that enters T_i is divided by ρ_i (an RE step's K is adjusted by the
-ratio of its two ends' factors). A kinetic group shares its constants, so this rescaling must be
-one for all its steps. The gauge exists iff that holds for every group, with the ρ_i treated as
-generic numbers that are equal only where the structure forces them equal (`_gauge_consistent`).
+The test is track 2's Lemma 1 with Theorem 2's factors (`_gauge_rescaling`). Give every form a
+factor σ: ρ_c on a twin of class c, one factor s on every complex of the copy, and 1 on every
+other form. Multiplying an RE group's K by σ(from)/σ(to), and an SS group's kf by σ(from) and its
+kr by σ(to), divides each form's weight by its factor and leaves every flux as it was. A twin's
+weight is a constant multiple of its complexes', so the factors can keep each twin's total with
+its complexes, and with it the rate law, unchanged to first order while K* moves. A kinetic
+group shares its constants, so the rescaling must be one for all its steps. The gauge exists iff
+that holds for every group, the copy's own included, with the factors treated as generic numbers
+that are equal only where the structure forces them equal. Within Theorem 2's scope (every
+complex a twin formed from its site by an RE binding, no step at a complex but the copy's own
+and RE mirrors) the gauge is the merge of each copy complex X_i·L* into its twin T_i: T_i's
+weight grows by the factor 1/ρ_i, with ρ_i = w(T_i)/(w(T_i) + w(X_i·L*)), every constant of a
+step that leaves T_i is multiplied by ρ_i, every constant of a step that enters T_i is divided by
+it, and the twin's binding group takes K_g' = K_g + K*.
 
-- **Scale factors.** σ(F) = ρ_class(F) for a twin F; σ(F) = 1 for every other form; a merged
-  copy complex takes its twin's σ.
+- **Scale factors.** σ(F) = ρ_class(F) for a twin F; σ = s on every complex of the copy, one
+  factor for all of them; σ(F) = 1 for every other form. The copy's own group, at 1 on each
+  site, holds all its complexes at one factor. A complex never takes its twin's factor: its
+  weight moves opposite to the twin's (in the merge its share of the twin's new weight is
+  K*/(K_g + K*) = 1 − ρ_g). Labelled with its twin's factor, a second copy bound at a complex
+  and at a twin (P* at E(A*) and at E(A, Q) on B14) read one ratio where there are two, and two
+  identifiable mechanisms (7 fitted, rank 7) were rejected.
 - **Classes.** Two twins share a class iff they are formed from their sites X_i and X_j by RE
   bindings of L in the same kinetic group g, each the twin of one complex (then
   ρ = K_g/(K_g + K*) for both). Every other twin has a class of its own: a twin reached from its
   site another way (across an RE isomerization), one formed by an L binding in another group, a
-  twin into which two complexes merge.
-- **Consistency**, per kinetic group other than the copy's own, which the gauge eliminates:
+  twin of two complexes.
+- **Consistency**, per kinetic group, the copy's own included:
   - an RE group needs one ratio σ(from)/σ(to) over its steps (its K becomes K·σ(from)/σ(to)).
     The L-binding group g of a twin has steps (1, ρ_g), and its K becomes K_g/ρ_g = K_g + K*,
     Theorem 2's K_g'. A step of g binding L at a form that is not a site gives (1, 1) and breaks
     the group: Case 3.
   - an SS group needs one σ(from) and one σ(to) (kf scales by σ(from), kr by σ(to)).
-  - a mirror step, between two copy complexes in its parent step's group, has the twins as its
-    ends after the merge and contributes (σ(T_i), σ(T_j)) beside the parent step's (1, 1): an
-    RE mirror is consistent iff ρ_i = ρ_j, an SS mirror never.
-- **Bookkeeping.** σ is a class id, 0 for the factor 1. An RE step's key is (σ(from), σ(to)),
-  or (0, 0) when the two are equal; an SS step's key is the pair itself; a group is consistent
-  when its steps share one key. No parameters, no random points.
+  - a mirror step joins two complexes, both at s. An RE mirror has ratio 1, as its parent step
+    between two sites has, so it does not block the gauge whatever the twins' classes. An SS
+    mirror carries flux between the complexes and needs s beside its parent step's 1: never
+    consistent.
+- **Bookkeeping.** σ is a class id, 0 for the factor 1 and the copy's own group's id for s. An
+  RE step's key is (σ(from), σ(to)), or (0, 0) when the two are equal; an SS step's key is the
+  pair itself; a group is consistent when its steps share one key. No parameters, no random
+  points.
 
 The cases, ranked with the test oracle (fitted/rank):
 
@@ -217,29 +238,38 @@ The cases, ranked with the test oracle (fitted/rank):
 | allosteric | S and chemistry `:OnlyA`, `:EqualAI` S* at E | new in the inactive state | kept | 5/5 |
 | SS binding | A binds E at steady state, A* at E, random-order product side | E(A) is in another segment: no twin | kept | 7/7 (parent 6/6) |
 | tie | A binding `:NonequalAI`, B binding `:EqualAI`, chemistry `:NonequalAI`, A* at E | each state consistent; the B group needs K_B·ρ_A in one, K_B·ρ_I in the other | kept | rank one above the parent's |
+| two classes | A in two groups, A* at {E, E(B)}, E + B ⇌ E(B) mirrored | the RE mirror between the complexes has ratio 1 | redundant | 7/6 |
+| B14 split | B14 with the A bindings and E(A) + Q ⇌ E(A, Q) in groups of their own | twins of two classes; the RE Q mirror has ratio 1 | redundant | 7/6 |
+| SS mirror | the same with the Q group at steady state | the mirror needs s beside 1 | kept | 8/6 |
+| P* at a complex and a twin | B14, P* at {E(A*), E(A, Q)} | P* group: s beside ρ | kept | 7/7 |
+| P* at a complex and its twin | B14, P* at {E(A*), E(A)} | P* group: s beside ρ | kept | 7/6 |
+| P* at two complexes | B14 split, P* at {E(A*), E(A*, Q)} | both P* steps leave a complex at s | A* redundant | 8/7 |
 
 **Conformational states.** A copy binds the active state always and the inactive state unless
 its tag is `:OnlyA`. The test runs on the graph of each state where the copy binds; the inactive
 graph is `_state_mechanism(am, :I)`, which prunes `:OnlyA` groups and the forms they strand. A
 site that graph lacks binds nothing there, and the free enzyme is always present, since every
 conformation holds it. A copy is redundant iff it is all-twin in every state where it binds and
-the gauge is consistent over the states together. A state where the copy binds nothing needs no
-merge: every factor there is 1. The states form one system: a kinetic group tagged `:EqualAI`
-has one set of constants in both, so it must take the same rescaling in each, and a shared class
-is one number in both states only when its binding group and the copy are both `:EqualAI` (one
-K_g, one K*); every other class is a number per state. So an `:OnlyA` copy whose twin is left by
-an `:EqualAI` group is not redundant (the group is rescaled in the active state only), nor is a
-copy whose twin is formed by a `:NonequalAI` binding and left by an `:EqualAI` one. So an `:EqualAI` copy of S at E, in a mechanism whose S binding is
-`:OnlyA`, duplicates E(S) in the active state but is the only S-bound form in the inactive one;
-its constant is visible through that state's S-dependence (rank rises by one), and the
-placement stands. This is the route by which substrate inhibition enters an allosteric
-mechanism. With S binding `:NonequalAI` the copy is redundant in both states and is skipped.
+the gauge is consistent over the states together. In a state where the copy binds nothing every
+factor is 1. The states form one system: a kinetic group tagged `:EqualAI` has one set of
+constants in both, so it must take the same rescaling in each; a shared class is one number in
+both states only when its binding group and the copy are both `:EqualAI` (one K_g, one K*), the
+copy's factor s is one number when the copy is `:EqualAI` (one K*), and every other class is a
+number per state. So an `:OnlyA` copy whose twin is left by an `:EqualAI` group is not redundant
+(the group is rescaled in the active state only), nor is a copy whose twin is formed by a
+`:NonequalAI` binding and left by an `:EqualAI` one. An `:EqualAI` copy of S at E, in a
+mechanism whose S binding is `:OnlyA`, duplicates E(S) in the active state but is the only
+S-bound form in the inactive one; its constant is visible through that state's S-dependence
+(rank rises by one), and the placement stands. This is the route by which substrate inhibition
+enters an allosteric mechanism. With S binding `:NonequalAI` the copy is redundant in both
+states and is skipped.
 
 **Which moves can break the rule.** A flip only cuts segments and turns RE groups to SS: twins
 can disappear but never appear (a twin formed by a flipped binding leaves its site's segment),
 and an SS group's condition implies an RE group's, so a flip cannot complete a gauge whose
-twins it keeps. A dead-end addition adds only forms that carry the new copy, none of them productive,
-and steps to the groups an older copy's gauge reads, so older groups keep their status. A split
+twins it keeps. A dead-end addition adds only forms that carry the new copy, none of them
+productive, and steps to the groups an older copy's gauge reads, so older groups keep their
+status, and the move tests the new copy's group alone (section 5). A split
 can complete a gauge, by separating a binding that forms or leaves a twin from the bindings
 elsewhere in its group that blocked it (Theorem 3's split sibling), so the split filters its
 children as well as its units (section 4). `_expand_change_allo_state` changes the tags the
@@ -267,6 +297,11 @@ Edges left as they are (for Denis to decide):
   even when it is a phantom (U4, B10 in the track: the uni-uni and ordered copies at E with S or
   A bound at steady state). No exact merge exists there, B10's family is wider than its
   parent's, and four such copies at depth 2 of R6 have full rank.
+- A second copy bound at a complex of the first and at that complex's own twin (P* at E(A*)
+  and E(A) on B14) pairs E(A*, P*) with E(A, P*) and keeps a phantom (7 fitted, rank 6) that
+  the test does not reach: it gives the complex its factor s and the twin ρ, so the P* group
+  reads two ratios. E(A, P*) is no productive twin, and the test rescales only the copy's own
+  complexes. Emitted, the tolerated family.
 - A mechanism reachable only through a mechanism with a redundant copy group (a split of a
   redundant copy group; two copies each redundant alone) is not enumerated, though the rule on
   its own groups admits it; the regression record ranks all of them.
@@ -331,7 +366,11 @@ sites for competition with a reactant are the forms where it binds productively.
 After the pattern's `active` sites are chosen, a pattern whose every site duplicates a
 productive complex (a twin, section 2) is a candidate for rejection, and it is skipped when the
 copy's dwell gauge is consistent in the child (the candidate's sites, their twins and the
-mirrors the move adds; section 2). A placement whose every site is a twin but whose gauge fails,
+mirrors the move adds; section 2). On a parent that obeys the rule only the new copy's group
+can be redundant. For a `Mechanism` the gauge runs on the candidate's groups with the parent's
+twins before the child is built, since the copy's forms are not productive and join no two
+segments, so every parent form keeps its segment and offsets; an allosteric child is built and
+tested whole. A placement whose every site is a twin but whose gauge fails,
 Case 3 among them, is emitted. The same kernel builds the required-regulator seeds in
 `seed_mechanisms`, so required copies obey the rule. Effect of the all-twin skip at depth 2 in
 R6: 10,552 of 36,844 events are all-twin, every phantom-creating one among them, with 7,470
@@ -385,6 +424,10 @@ New tests:
   (shared A group with abortive EAQ, A at E: kept, its gauge fails), a copy at {E, EQ} kept
   because EQ·A is new, and the ping-pong (segment, offsets) case.
 - The split that would isolate EA → EAB·B\* from its copy group: the exact child set without it.
+- The gauge's factors (`_redundant_copy_groups`): a second copy bound at a complex and at a
+  twin (kept, 7 fitted, rank 7, a valid parent), at a complex and its own twin (kept, 7 and 6),
+  at two complexes whose twins have two classes (redundant, 8 and 7); an RE mirror between
+  complexes of two classes, in two mechanisms (redundant, 7 and 6 each); an SS mirror (kept).
 - `seed_mechanisms`: uni-uni with S required errors with the regulator's name in the message;
   bi-bi with A required returns seeds.
 - A population test: R4 through `expand_mechanisms` to depth 2 (about half a second), asserting
