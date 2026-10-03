@@ -626,6 +626,10 @@ Claude-Session: https://claude.ai/code/session_01R4zCpbZSoygD66kRecfrDN"
 > Amended 2026-10-02 (Denis): one reading — twins are productive complexes only, per conformation, free enzyme always present.
 >
 > Amended 2026-10-02 (Denis): competition per site in the dead-end move; a copy is not its reactant for competition or capacity.
+>
+> Amended 2026-10-02 (Denis): option 3 everywhere — a copy group is rejected only when every complex duplicates a productive complex and the dwell gauge of Theorem 2 is consistent (`_redundant_copy_groups`, replacing `_duplicate_copy_groups`; `_productive_twin` returns the twin, replacing `_twin_site_test`; `_gauge_consistent`). The dead-end move builds each child and skips an all-twin pattern whose copy is redundant in it; Case 3 placements return.
+>
+> Amended 2026-10-02 (controller ruling): a twin is a productive complex in the copy complex's RE segment with its offsets (Theorem 2's hypothesis (a)); a composition match formed at steady state is not one. `:EqualAI` groups and an `:EqualAI` copy's K* are tied across conformations (`_gauge_rescaling` returns each group's rescaling, replacing `_gauge_consistent`).
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` (new functions next to `_bound_at_forms`, about line 1720; `_expand_add_dead_end_regulator_native`, about lines 1829–1960; the `_expand_add_dead_end_regulator` docstring, about lines 1766–1790)
@@ -1341,6 +1345,8 @@ Claude-Session: https://claude.ai/code/session_01R4zCpbZSoygD66kRecfrDN"
 ### Task 4: The split reverts a zero-flux part and never isolates twin-only copy sites
 
 > Amended 2026-10-02 (Denis): one reading — twins are productive complexes only, per conformation, free enzyme always present.
+>
+> Amended 2026-10-02 (Denis): option 3 — a bipartition of a copy group is not a unit when a part would be redundant as a group of its own in the child (all-twin and gauge-consistent), and a split child with a redundant copy group is not emitted, since a split can complete a gauge.
 
 **Files:**
 - Modify: `src/thermodynamic_constr_for_rate_eq_derivation.jl` (`_partition_independent_count`, about lines 320–365; new `_count_kind`)

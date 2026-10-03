@@ -34,8 +34,10 @@ see, and both have exact structural tests.
 
 1. Every mechanism the moves emit has, in every SS kinetic group, a step that carries net
    steady-state flux, judged on the A-state catalytic graph.
-2. Every mechanism the moves emit has, in every kinetic group that binds a competitive inhibitor,
-   a binding that creates a complex no other form duplicates.
+2. Every mechanism the moves emit has no redundant copy group: every kinetic group that binds a
+   competitive inhibitor has, in some conformational state where it binds, a complex that no
+   productive form duplicates, or a dwell gauge that the mechanism's kinetic groups block
+   (section 2).
 3. Rule 1 loses no family: a flip set that fails it is extended, and a split part that fails it
    is reverted to rapid equilibrium, so the representative without the zero-flux phantom is
    emitted (it may still carry a phantom of another class, such as the chain class C merges).
@@ -45,7 +47,6 @@ see, and both have exact structural tests.
 
 ## Non-goals
 
-- The gauge test that would keep the identifiable "tie-only" copies (section 2).
 - `:NonequalAI` SS groups whose I-state copy carries no flux (a dead-inactive I-state has no
   chemistry, so every SS group there sits at equilibrium and only kf_I/kr_I is visible). Denis
   (2026-09-30): the RE/SS type belongs to the step and both conformations share it, so an
@@ -56,7 +57,7 @@ see, and both have exact structural tests.
   `_expand_change_allo_state` and `_assert_chemistry_is_iso` (C).
 - MERGE and ELIM moves; rank on the beam's complexity axis (deferred in the findings).
 - The `Mechanism` constructor does not enforce either rule. Both are emission policies of the
-  moves: a hand-written mechanism with a zero-flux SS group or a duplicate copy still derives.
+  moves: a hand-written mechanism with a zero-flux SS group or a redundant copy still derives.
 
 ## Decisions (Denis, 2026-09-30)
 
@@ -84,6 +85,13 @@ see, and both have exact structural tests.
   the reactant's catalytic site and the copy's dead-end site are different sites by definition:
   a form carrying only the copy of M is a site for an inhibitor competing with M, and a copy does
   not count toward the capacity test (section 5).
+- Denis (2026-10-02): option 3 everywhere — a copy group is rejected only when every complex
+  duplicates a productive complex and the dwell gauge of Theorem 2 is consistent; Case 3
+  placements return.
+- Controller ruling (2026-10-02), adopting the gauge wave's fix: a twin is a productive complex
+  in the copy complex's RE segment with its offsets (Theorem 2's hypothesis (a)); a composition
+  match formed at steady state is not one, since four such rejections had full rank.
+  `:EqualAI` groups, and an `:EqualAI` copy's K*, are tied across conformations.
 
 ## Terms
 
@@ -102,8 +110,8 @@ see, and both have exact structural tests.
 - **Offsets**: `_re_segment_extras` gives, for every form, how many more of each metabolite it
   carries than the lowest form of its RE segment; within a segment two forms with equal offsets
   have proportional weights.
-- **Twin site**: a copy step whose complex has a productive form's composition, or lies in a
-  productive form's RE segment with equal offsets. A **productive** form carries no competitive
+- **Twin site**: a copy step whose complex lies in a productive form's RE segment with equal
+  offsets, so the two weights are proportional. A **productive** form carries no competitive
   inhibitor.
 
 ## Design
@@ -137,65 +145,131 @@ on all 25,850 exported SS steps and equals today's screen on all 67,235 exported
 reads the metabolite lists, so a Theorell–Chance step EA + B → EQ + P is an unbalanced edge like
 any other.
 
-### 2. The twin predicate
+### 2. The copy predicate: all twins and a consistent gauge
 
-A copy step is a twin site when its complex duplicates a productive form of the mechanism under
-either key: the composition key, or the (segment, offsets) key with the complex's segment and
-offsets read from `_re_segment_extras`. The dead-end move evaluates it for a candidate site
-before the child exists: the candidate complex has the site's composition plus the copy's name,
-lies in the site's segment, and has the site's offsets plus one of the copy's name, since the
-copy step is RE. Both keys are needed: composition alone misses the ping-pong copy that matches
-a form across EB_res ⇌ EQ, and offsets alone miss a copy of a metabolite bound at steady state
-(48 cases at depth 2). Their union catches every phantom-creating dead-end event at depths ≤ 2
-and 3 of R6, for 14 identifiable events beyond the composition key alone.
+A copy group is **redundant** when, in every conformational state where the copy binds, (i)
+every complex it forms has a productive twin, a complex whose weight is proportional to its own
+(the group is all-twin), and (ii) the dwell gauge of track 2's Theorem 2 is consistent, over the
+states together (the test below). The copy's constant then
+enters the rate only as K_g + K* beside the existing binding's, the other constants rescaled,
+and the child's family is its parent's: the copy adds a phantom. No move emits a redundant
+copy group (`_redundant_copy_groups`). A group that is all-twin but whose gauge fails is kept:
+Case 3 (the shared A group that pins K_A at E(Q)), the other shared-group cases and H1 are
+identifiable or unproven, and the rule's priority is never to drop an identifiable mechanism.
+The gauge is the proof.
 
-A copy group satisfies rule 2 when one of its steps is not a twin site.
+**Twins.** A copy step is a twin site when its complex has a productive twin: a form that
+carries no competitive inhibitor, lies in the complex's rapid-equilibrium segment and has the
+complex's offsets (`_re_segment_extras`), so that rapid equilibrium makes the two weights
+proportional (`_productive_twin`, which returns the twin, preferring the complex's composition
+when several forms qualify). This is Theorem 2's hypothesis (a), and the merge below is exact
+only under it. The dead-end move evaluates it for a candidate site before the child exists: the
+candidate complex lies in the site's segment and has the site's offsets plus one of the copy's
+name, since the copy step is RE. The offsets reach the ping-pong copy that matches a form across
+EB_res ⇌ EQ, where no form shares the complex's composition. A form of the complex's
+composition in another segment, formed by a steady-state binding, is not a twin: its weight is
+not a constant multiple of the complex's, so the merge is no reparameterization. Taken as a
+twin it gave four identifiable rejections at depth 2 of R6 (an SS A binding with A* at E and a
+random-order product side: 7 fitted, rank 7). Only productive forms are twin sources: Theorem 2
+concerns productive twins, and a complex that duplicates only another copy's complex shares its
+weight with that copy's constant, which the sites that pin the other copy may keep separable.
 
-Edges left as they are (found during the final review, 2026-09-30; for Denis to decide):
+#### The gauge test
 
-- A `:NonequalAI` copy group has one constant per state, and the rule asks only that the copy
-  be a twin in every state where it binds. A copy that is a twin in the active state alone
-  keeps one phantom (its active constant) and is emitted; a "twin in either state" rule would
-  reject identifiable groups as well (521 of 17,483 sampled allosteric mechanisms hold such a
-  group, with mixed ranks). The same principle as the I-state class under Non-goals: a
-  constant that one conformation cannot see is not a reason to change the group's tag.
-- Two copies that are twins only of each other, each split or placed down to that one site (Q*
-  only at E(A) and A* only at E(Q): 7 fitted, rank 6; after two splits, 9 fitted, rank 8), are
-  emitted. The rule has no proof against them, and rejecting them would also reject
-  identifiable splits whose other copy is pinned. The regression record measures the fraction
-  at level 3.
+Merge each copy complex X_i·L* into its twin T_i. T_i's weight grows by the factor 1/ρ_i, with
+ρ_i = w(T_i)/(w(T_i) + w(X_i·L*)). For the rate law to stay the same every flux through T_i
+must stay the same, so every rate constant of a step that leaves T_i is multiplied by ρ_i and
+every constant of a step that enters T_i is divided by ρ_i (an RE step's K is adjusted by the
+ratio of its two ends' factors). A kinetic group shares its constants, so this rescaling must be
+one for all its steps. The gauge exists iff that holds for every group, with the ρ_i treated as
+generic numbers that are equal only where the structure forces them equal (`_gauge_consistent`).
 
-Conformational states (added 2026-09-30 during implementation, for Denis to confirm): a copy
-in an allosteric mechanism is a twin only when it duplicates a form in every state where it
-binds. A copy binds the active state always and the inactive state unless its tag is `:OnlyA`;
-a site that the inactive state's graph lacks (`_state_mechanism(am, :I)` prunes `:OnlyA` groups
-and the forms they strand) binds nothing there, except the free enzyme, which every
-conformation holds (section 2, "One reading"). So an `:EqualAI` copy of S at E, in a mechanism
-whose S binding is `:OnlyA`, duplicates E(S) in the active state but is the only S-bound form
-in the inactive one; its constant is visible through that state's S-dependence (rank rises by
-one), and the placement stands. This is the route by which substrate inhibition enters an
-allosteric mechanism. With S binding `:NonequalAI` the copy duplicates E(S) in both states and
-is skipped.
+- **Scale factors.** σ(F) = ρ_class(F) for a twin F; σ(F) = 1 for every other form; a merged
+  copy complex takes its twin's σ.
+- **Classes.** Two twins share a class iff they are formed from their sites X_i and X_j by RE
+  bindings of L in the same kinetic group g, each the twin of one complex (then
+  ρ = K_g/(K_g + K*) for both). Every other twin has a class of its own: a twin reached from its
+  site another way (across an RE isomerization), one formed by an L binding in another group, a
+  twin into which two complexes merge.
+- **Consistency**, per kinetic group other than the copy's own, which the gauge eliminates:
+  - an RE group needs one ratio σ(from)/σ(to) over its steps (its K becomes K·σ(from)/σ(to)).
+    The L-binding group g of a twin has steps (1, ρ_g), and its K becomes K_g/ρ_g = K_g + K*,
+    Theorem 2's K_g'. A step of g binding L at a form that is not a site gives (1, 1) and breaks
+    the group: Case 3.
+  - an SS group needs one σ(from) and one σ(to) (kf scales by σ(from), kr by σ(to)).
+  - a mirror step, between two copy complexes in its parent step's group, has the twins as its
+    ends after the merge and contributes (σ(T_i), σ(T_j)) beside the parent step's (1, 1): an
+    RE mirror is consistent iff ρ_i = ρ_j, an SS mirror never.
+- **Bookkeeping.** σ is a class id, 0 for the factor 1. An RE step's key is (σ(from), σ(to)),
+  or (0, 0) when the two are equal; an SS step's key is the pair itself; a group is consistent
+  when its steps share one key. No parameters, no random points.
 
-One reading of the rule (Denis, 2026-10-02; it replaces the two readings tried during
-execution): a copy complex is a twin only of a productive complex, a form that carries no
-competitive inhibitor, judged in every conformation where the copy binds, and the free enzyme is
-present in every conformation. The proof behind the rule (track 2, Theorem 2) concerns
-productive twins: such a copy has a dwell gauge that absorbs its constant. A twin that is
-another copy's complex may leave both constants separable through the sites that pin the other
-copy, so it never rejects. The rule therefore removes every proven case and Case 3, and admits
-phantoms where two copies are twins only of each other with neither pinned, which the regression
-record measures at level 3. Denis's priority: never remove an identifiable mechanism; tolerate a
-few percent of non-identifiable ones.
+The cases, ranked with the test oracle (fitted/rank):
 
-Which moves can break rule 2: a flip only cuts segments and changes no composition, so a twin
-can disappear but never appear; a dead-end addition adds only forms that carry the new copy,
-none of them productive, so older groups keep their status; `_expand_change_allo_state` changes
-the tags the per-state test reads (relaxing an `:OnlyA` binding to `:NonequalAI` brings its
-complex into the inactive state and can make a kept copy a twin in both states), so its children
-are filtered; the other allosteric moves change neither steps nor the tags of existing groups.
-The split move, the dead-end move and `_expand_change_allo_state` enforce the rule; the parent
-assertion of section 6 covers hand-written input.
+| Case | Mechanism | Gauge | Verdict | Fitted/rank |
+|---|---|---|---|---|
+| B1 | ordered bi-bi, A* at E | E(A) is formed by the A group alone | redundant | 6/5 |
+| Case 3 | A group {E + A, E(Q) + A} with abortive E(A, Q), A* at E | A group: 1/ρ at E, 1 at E(Q) | kept | 6/6 |
+| B14 | Case 3's parent, A* at {E, E(Q)}, E + Q ⇌ E(Q) mirrored | both twins share the A group's ρ; the Q group has ratio 1 throughout | redundant | 6/5 |
+| H1 | A* at {E, E(B)}, twins from two A groups, shared B group | B group: ρ₁/ρ₂ beside 1 | kept | 7/7 |
+| Case 1 | uni-uni, S* at E | S group alone | redundant | 4/3 |
+| ping-pong | RE second chemistry, abortive E(B, P; res), P* at E, Q* at E(P*) | offsets twin E(B, P; res), touched by one single-step group | redundant | 9/7 (parent 8/7) |
+| allosteric | S and chemistry `:OnlyA`, `:EqualAI` S* at E | new in the inactive state | kept | 5/5 |
+| SS binding | A binds E at steady state, A* at E, random-order product side | E(A) is in another segment: no twin | kept | 7/7 (parent 6/6) |
+| tie | A binding `:NonequalAI`, B binding `:EqualAI`, chemistry `:NonequalAI`, A* at E | each state consistent; the B group needs K_B·ρ_A in one, K_B·ρ_I in the other | kept | rank one above the parent's |
+
+**Conformational states.** A copy binds the active state always and the inactive state unless
+its tag is `:OnlyA`. The test runs on the graph of each state where the copy binds; the inactive
+graph is `_state_mechanism(am, :I)`, which prunes `:OnlyA` groups and the forms they strand. A
+site that graph lacks binds nothing there, and the free enzyme is always present, since every
+conformation holds it. A copy is redundant iff it is all-twin in every state where it binds and
+the gauge is consistent over the states together. A state where the copy binds nothing needs no
+merge: every factor there is 1. The states form one system: a kinetic group tagged `:EqualAI`
+has one set of constants in both, so it must take the same rescaling in each, and a shared class
+is one number in both states only when its binding group and the copy are both `:EqualAI` (one
+K_g, one K*); every other class is a number per state. So an `:OnlyA` copy whose twin is left by
+an `:EqualAI` group is not redundant (the group is rescaled in the active state only), nor is a
+copy whose twin is formed by a `:NonequalAI` binding and left by an `:EqualAI` one. So an `:EqualAI` copy of S at E, in a mechanism whose S binding is
+`:OnlyA`, duplicates E(S) in the active state but is the only S-bound form in the inactive one;
+its constant is visible through that state's S-dependence (rank rises by one), and the
+placement stands. This is the route by which substrate inhibition enters an allosteric
+mechanism. With S binding `:NonequalAI` the copy is redundant in both states and is skipped.
+
+**Which moves can break the rule.** A flip only cuts segments and turns RE groups to SS: twins
+can disappear but never appear (a twin formed by a flipped binding leaves its site's segment),
+and an SS group's condition implies an RE group's, so a flip cannot complete a gauge whose
+twins it keeps. A dead-end addition adds only forms that carry the new copy, none of them productive,
+and steps to the groups an older copy's gauge reads, so older groups keep their status. A split
+can complete a gauge, by separating a binding that forms or leaves a twin from the bindings
+elsewhere in its group that blocked it (Theorem 3's split sibling), so the split filters its
+children as well as its units (section 4). `_expand_change_allo_state` changes the tags the
+per-state test reads (relaxing an `:OnlyA` binding to `:NonequalAI` brings its complex into the
+inactive state), so its children are filtered; the other allosteric moves change neither steps
+nor the tags of existing groups. The parent assertion of section 6 covers hand-written input.
+
+Edges left as they are (for Denis to decide):
+
+- Two copies that are twins only of each other (Q* only at E(A) and A* only at E(Q): 7 fitted,
+  rank 6; after two splits, 9 fitted, rank 8) are emitted, the tolerated family. The rule has no
+  proof against them, and rejecting them would also reject identifiable splits whose other copy
+  is pinned. The same holds for a second copy whose twin's group also binds at the first copy's
+  form through a mirror (Q* at E beside A* at {E, E(Q)}, A* at E beside Q* at {E, E(A)}): the
+  mirror's ratio 1 sits beside the twin step's, the gauge fails, and the placement is emitted
+  with one phantom (7 fitted, rank 6). The regression record measures the fraction at level 3.
+- A `:NonequalAI` copy group has one constant per state, and the test runs on each state's graph
+  with that state's constant. A copy redundant in the active state alone, new in the inactive
+  one, keeps one phantom (its active constant) and is emitted; a "redundant in either state"
+  rule would reject identifiable groups as well (521 of 17,483 sampled allosteric mechanisms hold
+  an all-twin-in-one-state group, with mixed ranks). The same principle as the I-state class
+  under Non-goals: a constant that one conformation cannot see is not a reason to change the
+  group's tag.
+- A copy whose only match is a complex of the same composition formed at steady state is kept
+  even when it is a phantom (U4, B10 in the track: the uni-uni and ordered copies at E with S or
+  A bound at steady state). No exact merge exists there, B10's family is wider than its
+  parent's, and four such copies at depth 2 of R6 have full rank.
+- A mechanism reachable only through a mechanism with a redundant copy group (a split of a
+  redundant copy group; two copies each redundant alone) is not enumerated, though the rule on
+  its own groups admits it; the regression record ranks all of them.
 
 ### 3. The flip move (`_expand_re_to_ss`)
 
@@ -219,7 +293,7 @@ assertion of section 6 covers hand-written input.
 - Per-step flux flags are computed once per parent: a split moves no edge, and reverting a
   zero-flux part contracts edges of a balanced block, which changes no cycle's net
   stoichiometry, so the parent's flux flags hold for every candidate. Twin status is judged on
-  the candidate's parts against productive complexes (section 2, "One reading").
+  the candidate's parts against productive complexes (section 2).
 - **Revert**: for a unit of an SS group, a part with no flux-carrying step is rebuilt with every
   step at rapid equilibrium. A parent that satisfies rule 1 has a flux-carrying step in one part,
   so at most one part reverts. The reverted child has the same family as the raw split child with
@@ -231,11 +305,16 @@ assertion of section 6 covers hand-written input.
   absorbed like any tied split, so no reparameterization of the parent is emitted. A candidate
   whose reverted groups leave a bottomless RE segment counts as failed, as in the flip; the
   construction of a rejected child is never attempted.
-- **Copy groups**: a bipartition of a copy group in which a part has only twin sites
-  (`_copy_twin_test` against productive complexes, in every conformational state where the copy
-  binds) is not a unit. Every superset of such a unit recreates the same duplicate-only group.
-  Excluding the unit loses only children whose part duplicates a productive complex at every
-  site.
+- **Copy groups**: a bipartition of a copy group in which a part would be redundant as a group of
+  its own in the child (all-twin, `_twin_only`, checked first on the parent; then the gauge on
+  the child that splits only that group) is not a unit. Every superset of such a unit keeps the
+  part, and splitting other groups only relaxes the part's gauge. Excluding the unit loses only
+  children whose part is provably a phantom.
+- **Children**: a split of any group can complete a kept copy's gauge, by separating a binding
+  that forms or leaves a twin from the bindings elsewhere in its group that blocked it (Case 3
+  with its A and Q groups split is redundant: 7 fitted, rank 6). A child with a redundant copy
+  group is not emitted; by Theorem 2 its family is that of the same split of the mechanism
+  without the copy.
 - The partner search is unchanged. It ignores groups holding an SS step, so a reverted RE part
   whose constant a further split could free is not extended within one move; the same child is
   reachable by splitting the partner first.
@@ -244,16 +323,21 @@ assertion of section 6 covers hand-written input.
 
 ### 5. The dead-end move (`_expand_add_dead_end_regulator_native`)
 
-After the pattern's `active` sites are chosen, a pattern whose every site duplicates a
-productive complex (a twin, section 2) is skipped. The same kernel builds the required-regulator seeds in `seed_mechanisms`, so
-required copies obey the rule.
-
 Competition is decided per site (Denis, 2026-10-02): a copy occupies its own dead-end site, so a
 form carrying only the copy of M is a legitimate site for an inhibitor competing with M, and
 copies do not count toward the all-substrates or all-products capacity test. The move's target
-sites for competition with a reactant are the forms where it binds productively. Effect at depth 2 in R6: 10,552 of 36,844 events removed, every
-phantom-creating one among them, 7,470 identifiable tie-only children with them; every bi-bi
-seed keeps at least two children per copied ligand.
+sites for competition with a reactant are the forms where it binds productively.
+
+After the pattern's `active` sites are chosen, a pattern whose every site duplicates a
+productive complex (a twin, section 2) is a candidate for rejection, and it is skipped when the
+copy's dwell gauge is consistent in the child (the candidate's sites, their twins and the
+mirrors the move adds; section 2). A placement whose every site is a twin but whose gauge fails,
+Case 3 among them, is emitted. The same kernel builds the required-regulator seeds in
+`seed_mechanisms`, so required copies obey the rule. Effect of the all-twin skip at depth 2 in
+R6: 10,552 of 36,844 events are all-twin, every phantom-creating one among them, with 7,470
+identifiable tie-only children; the gauge returns those whose gauge fails, and the regression
+record measures the populations. Every bi-bi seed keeps at least two children per copied
+ligand.
 
 ### 6. `expand_mechanisms` and `seed_mechanisms`
 
@@ -262,15 +346,15 @@ seed keeps at least two children per copied ligand.
   errors). This is what lets the flip test only its flipped groups, and it makes a move that
   emits a violator, such as C's merge, fail at the next expansion rather than silently
   propagate. Three allosteric moves copy or pass through `steps` and leave the tags of existing
-  groups, so they preserve both rules; `_expand_change_allo_state` filters its children
-  (section 2).
+  groups, so they preserve both rules; the split and `_expand_change_allo_state` filter their
+  children (section 2).
 - `seed_mechanisms` errors when it finds no seed. The message names the required competitive
   inhibitors and allosteric regulators it could not place and the keywords that make a regulator
   optional (`optional_competitive_inhibitors`, `optional_allosteric_regulators`). Today the beam
   returns an empty result with no message. The first case this catches: a uni-uni reaction with
   S or P declared as a competitive inhibitor, whose only admissible site is free E and whose copy
-  complex duplicates ES or EP. Whether C's merged seeds give that copy a placement is C's
-  decision.
+  complex duplicates ES or EP, formed by a binding group that nothing else shares, so the gauge
+  is consistent. Whether C's merged seeds give that copy a placement is C's decision.
 
 ### 7. Unchanged
 
@@ -298,8 +382,8 @@ New tests:
   with EQ + B ⇌ EBQ reverted. The plan searches small parents for one whose reverted child the
   ties absorb and, when it finds one, pins that child's absence.
 - The dead-end move: Case 1 (uni-uni + S: no child), Case 2 (ordered + B at E: kept), Case 3
-  (shared A group with abortive EAQ, A at E: rejected), a copy at {E, EQ} kept because EQ·A is
-  new, and the ping-pong (segment, offsets) case.
+  (shared A group with abortive EAQ, A at E: kept, its gauge fails), a copy at {E, EQ} kept
+  because EQ·A is new, and the ping-pong (segment, offsets) case.
 - The split that would isolate EA → EAB·B\* from its copy group: the exact child set without it.
 - `seed_mechanisms`: uni-uni with S required errors with the regulator's name in the message;
   bi-bi with A required returns seeds.
@@ -338,7 +422,11 @@ Every change is made test-first.
    R4 zero-flux mechanism gives fitted minus rank at least its zero-flux group count; derivation
    strings are unchanged on a random sample of kept mechanisms (B touches no derivation code).
    The record reports per-level counts for every reaction and the level-3 phantom fraction.
-   Added mechanisms are reported with their phantom fraction.
+   Added mechanisms are reported with their phantom fraction. Two oracle checks on R6 levels
+   1–2 (`MersenneTwister(20260930)`): of 100 kept mechanisms with an all-twin copy group, the
+   record reports how many have full rank (the test is conservative, so some may not); every
+   one of 100 mechanisms removed for a redundant copy group must have fitted − rank ≥ 1, and a
+   single exception makes the gauge test unsound.
 2. **Timing**: enumeration of R6 levels 0–2 on both commits; the design's limit is a 20% rise.
    The ter-ter worst-case split timing test in the suite stays green.
 3. **Full suite** before every commit; the branch's version rises once over `main`, in A

@@ -97,16 +97,20 @@ carries flux exactly when its biconnected block holds a cycle of nonzero weight.
 steady-state group with no such step exposes only the ratio of its constants, so a
 flip set that leaves one counts as failed and is extended, and a split part with
 none is emitted at rapid equilibrium. A dead-end copy of a substrate or product
-must create a complex that no productive form (one bound to no competitive
-inhibitor) duplicates, by composition or by segment and offsets
-(`_twin_site_test`), in every conformation where the copy binds; every
-conformation holds its free enzyme (`_copy_twin_test`). The dead-end move skips a
-pattern whose sites are all twins, the split never isolates twin-only copy sites,
-and `_expand_change_allo_state` and the parent check reject a group with only twin
-sites (`_duplicate_copy_groups`). A copy whose complexes all duplicate productive
-forms has a dwell gauge that absorbs its constant; a complex that duplicates only a
-copy's complex never rejects, since the sites that pin either copy may keep both
-constants separable.
+is redundant, and never emitted, when in every conformation where it binds each of
+its complexes has a productive twin (a form bound to no competitive inhibitor, in
+the complex's rapid-equilibrium segment with its offsets, so the two weights are
+proportional: `_productive_twin`; every conformation holds its free enzyme,
+`_copy_twin_test`), and the dwell gauge of Theorem 2 that merges each complex into
+its twin is consistent with every kinetic group's shared constants, an `:EqualAI`
+group taking one rescaling in both conformations (`_gauge_rescaling`, bookkeeping
+over the steps); a copy whose complexes all have twins but whose gauge fails is
+kept, since only the gauge proves the copy's constant invisible. The
+dead-end move skips a redundant placement, the split never makes a redundant part
+and drops a child whose split completes a gauge, and `_expand_change_allo_state`
+and the parent check reject a redundant group (`_redundant_copy_groups`). A complex
+that duplicates only a copy's complex never rejects, since the sites that pin
+either copy may keep both constants separable.
 `expand_mechanisms` asserts both rules on every parent (`_assert_emission_rules`).
 Both refinement moves share one minimal-set search (`_minimal_gaining_sets`).
 Duplicate equations that survive these proofs are collapsed at compile time by

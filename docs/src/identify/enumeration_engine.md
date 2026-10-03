@@ -138,8 +138,8 @@ separated from the catalytic binding whose constants it shared, is emitted at
 rapid equilibrium: its two rates would enter the equation only as their ratio, and
 the equilibrium form is the same family with one constant fewer. The count test
 runs on that form, so a constant the thermodynamic ties pull back is still
-rejected. A competitive-inhibitor group is never divided so that one part binds
-only where its complex duplicates a productive complex (see move 3).
+rejected. A competitive-inhibitor group is never divided so that one part is a
+redundant copy, and no split child keeps a redundant copy (see move 3).
 
 **Parameter delta:** at least +1 by construction. A child that would add nothing
 is never emitted.
@@ -168,21 +168,27 @@ subject to three rules:
   inhibitor-bound branch can never complete the net reaction. In a ping-pong
   mechanism it can carry out the one half-reaction whose ligands the inhibitor
   does not compete with.
-- **A new complex.** A dead-end complex must differ from every productive complex
-  the mechanism has, one that carries no competitive inhibitor: in composition, or,
-  when a rapid-equilibrium route joins it to a productive complex, in the
-  metabolites bound along that route. A substrate or product declared as its own
-  competitive inhibitor otherwise binds in a second orientation of a complex the
-  mechanism already has, and its constant enters the equation only added to the
-  existing one. A complex that matches only an inhibitor-bound complex counts as
+- **No redundant copy.** A dead-end complex duplicates a productive complex, one
+  that carries no competitive inhibitor, when a rapid-equilibrium route joins the
+  two and binds exactly the copied ligand along it, so their weights are
+  proportional; a complex of the same composition formed by a steady-state binding
+  is not a duplicate. A substrate or product declared as its own competitive
+  inhibitor then binds in a second orientation of a complex the mechanism already
+  has. A copy is
+  not emitted when every complex it forms duplicates a productive complex and a
+  dwell gauge absorbs its constant into the existing binding's, so that the
+  equation depends on the two only through their sum; a copy whose complexes all
+  duplicate productive complexes but whose gauge fails, as when a shared kinetic
+  group pins the existing binding, is emitted, since its constant may be
+  identifiable. A complex that matches only an inhibitor-bound complex counts as
   new: the sites that pin each inhibitor may keep both constants apart. In an
-  allosteric mechanism the test is made in every conformation the copy binds, and
-  every conformation holds its free enzyme: a copy that duplicates a complex in the
+  allosteric mechanism the test is made in every conformation the copy binds, with
+  a kinetic group shared by both conformations rescaled alike in each, and every
+  conformation holds its free enzyme: a copy that duplicates a complex in the
   active conformation but is the only such complex in the inactive one keeps a
-  visible constant and is emitted. A placement whose every site duplicates a
-  productive complex in every conformational state where the copy binds is not
-  emitted; in a uni-uni mechanism with one conformation that is every placement,
-  and the beam reports the unsatisfiable requirement.
+  visible constant and is emitted. On a uni-uni seed with one conformation every
+  placement is redundant, and `seed_mechanisms` reports the unsatisfiable
+  requirement.
 
 The inhibitor's own binding steps form one fresh kinetic group (one new
 dissociation constant `K_R`).
@@ -300,8 +306,7 @@ pyruvate does with E·NAD⁺ in lactate dehydrogenase, stays out of allosteric
 mechanisms. Binding of a declared competitive inhibitor does not count, because
 an inhibitor binds a site of its own; declaring a substrate as a dead-end
 inhibitor is how substrate inhibition enters an allosteric mechanism, provided the
-inhibitor complex is new: a copy that only duplicates existing productive complexes
-is never emitted (move 3).
+copy is not redundant (move 3).
 Hand-written mechanisms are not subject to the rule: an `@allosteric_mechanism`
 with random-order steady-state binding still derives and fits.
 
@@ -335,6 +340,6 @@ unreachable.
 **A child is never a provable copy of its parent.** The moves reject a child
 whose equation can be shown to equal the parent's: a split the constraint solver
 ties back, a flip that leaves the segment count unchanged, a flip that leaves a
-steady-state group without flux, a dead-end copy that creates no new complex. A few
+steady-state group without flux, a redundant dead-end copy. A few
 children whose equation is the parent's up to renaming the constants survive,
 uni-uni flips among them; they cost one fit each and never win selection.
