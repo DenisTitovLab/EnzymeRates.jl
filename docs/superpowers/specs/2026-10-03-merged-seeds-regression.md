@@ -50,6 +50,9 @@ The checks follow the opening wave's record; the script behind each is named in 
 - Counts and timings of `init_mechanisms`, `seed_mechanisms` and R6 (`initseed.jl`,
   `terter_order.jl`, `terter_init_timing.jl`, `timing.jl`, `timing_gc.jl`,
   `timing_gcstats.jl`).
+- Base-tier sizes, measured by the final review of C (`review_check.jl`, `review_r5.jl`,
+  `review_bdep.jl`, `review_bdep2.jl`, `review_terter.jl`) and repeated for this record
+  (`basetier_check.jl`, `basetier_split.jl`, `terter_degen.jl`, `terter_kids.jl`).
 
 Populations are those of B's record: `init_mechanisms` plus two levels of the flip
 (`_expand_re_to_ss`), split (`_expand_split_kinetic_group`) and dead-end
@@ -273,6 +276,39 @@ the ten minutes set for running the search, so it was not run. The design refers
 seeding over one minute to the maintainer: `init_mechanisms` stays inside that line, and
 seeding with a required inhibitor exceeds it on both checkouts.
 
+## Base tier
+
+The beam first fits every starting mechanism that is not degenerate and the children of every
+one that is (`_base_tier`, d7c64d4); 7857b6d fits the starting mechanisms themselves. The final
+review of C measured these sizes, and this record repeated each measurement with the same
+counts, the ter-ter children on the review's draw of 20 (`MersenneTwister(3)`):
+
+| Starting set | 7857b6d | Tip: not degenerate | Tip: degenerate | Tip: their children (degenerate) | Tip: base tier |
+|---|---|---|---|---|---|
+| R4, `init_mechanisms` | 62 | 257 | 7 | 148 (127) | 405 |
+| R5 with I required, `seed_mechanisms` | 350 | 1,431 | 39 | 1,517 (1,400) | 2,948 |
+| `ter_ter_rxn`, `init_mechanisms` | 35,665 | 237,745 | 13,110 | about 1,000,000 | about 1,240,000 |
+
+- R4's 7 degenerate init mechanisms are its ping-pong seeds. Their 148 children are 105 K-type
+  allosteric children at multiplicity 1 and 43 plain ones. The 105 keep their seed's steps, so
+  all are degenerate; so are 22 of the 43. The base tier fits all 148.
+- Each of the 105 derives a law that depends on B at zero products: at A = 1.5 its largest rate
+  over B = 10⁻³, 1 and 10³ exceeds its smallest about 100- to 2,600-fold, on the review's draws
+  of constants and on this record's, while each seed's own law is flat in B (to 10⁻¹⁵). The MWC
+  model gives such a child a rate free of B there, as the harness of testset "ping-pong MWC
+  derivation with free E and F in one RE segment" argues for its mechanism: at zero products
+  every form past the steady-state chemistry drains back to free E. The B dependence is the
+  known derivation defect (Limitations), and the base tier fits these laws.
+- Ter-ter's 13,110 degenerate init mechanisms are exactly those with two chemistry
+  isomerizations, one of them at rapid equilibrium (`terter_degen.jl`). Each fails C, passes V
+  both ways and carries a residual form: they are ter-ter's ping-pong seeds. They are seeds,
+  7857b6d's 35,665 init mechanisms being the tip's 22,555 one-isomerization seeds and these, not
+  merged or Theorell–Chance variants, so restricting the variants to small reactions leaves
+  them and their children in the base tier. The draw of 20 gives 76.3 children per seed after
+  deduplication within the draw, about 1.0 million in all, and serial `_base_tier` takes 0.74 s
+  per seed (the review: 0.73 s), about 2.7 hours for the expansions alone, before any fit.
+  7857b6d fits the 13,110 themselves.
+
 ## Limitations
 
 - Rate strings of R5 and R6 were compared on draws of 400 of 4,361 and 33,073 shared mechanisms,
@@ -312,4 +348,6 @@ on all 1,614 candidates of R4, bi-bi and uni-bi. R6 levels 0–2 enumerate 29% f
 mechanism on the best run; the slowest run under the heap hint is 22% over the base's best.
 Ter-ter seeding with a required inhibitor would reach about five million seeds in at least 15
 minutes, against 808,000 at 7857b6d; that cost is reported to the maintainer with the ter-ter
-base-tier concerns of Tasks 10 and 11.
+base-tier concerns of Tasks 10 and 11. The base tier fits 405 R4 mechanisms against 62 at
+7857b6d, 105 of them K-type children whose laws carry the known MWC defect, and for ter-ter it
+adds about a million children of the 13,110 degenerate ping-pong seeds.
