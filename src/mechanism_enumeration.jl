@@ -1427,12 +1427,9 @@ fused and Theorell–Chance steps as well.
 """
 function _flux_carrying_steps(groups::Vector{Vector{Step}}, rxn::EnzymeReaction)
     species, segments, extras, idx, seg = _indexed_re_segments(groups)
-    rho = Dict{Symbol, Int}()
-    for s in substrates(rxn); rho[name(s)] = get(rho, name(s), 0) + 1; end
-    for p in products(rxn);   rho[name(p)] = get(rho, name(p), 0) - 1; end
+    rho = _reactant_signs(rxn)
     offset(i) = sum(get(rho, x, 0) * e for (x, e) in extras[i]; init = 0)
-    weight(s) = sum(get(rho, name(x), 0) for x in consumed(s); init = 0) -
-                sum(get(rho, name(x), 0) for x in released(s); init = 0) +
+    weight(s) = _uptake_weight(s, rho) +
                 offset(idx[from_species(s)]) - offset(idx[to_species(s)])
     flags = [falses(length(group)) for group in groups]
     edges = Tuple{Int, Int}[]; weights = Int[]; owner = Tuple{Int, Int}[]
@@ -1445,16 +1442,36 @@ function _flux_carrying_steps(groups::Vector{Vector{Step}}, rxn::EnzymeReaction)
             push!(edges, (a, b)); push!(weights, weight(s)); push!(owner, (g, j))
         end
     end
-    block = _edge_blocks(length(segments), edges)
-    members = Dict{Int, Vector{Int}}()
-    for e in eachindex(edges)
-        push!(get!(members, block[e], Int[]), e)
-    end
-    unbalanced = Set{Int}(b for (b, es) in members if !_block_balanced(edges, weights, es))
+    block, unbalanced = _unbalanced_blocks(length(segments), edges, weights)
     for (e, (g, j)) in enumerate(owner)
         flags[g][j] = block[e] in unbalanced
     end
     flags
+end
+
+"""Net uptake sign of each reactant name of `rxn`: +1 for a substrate, −1 for a product."""
+function _reactant_signs(rxn::EnzymeReaction)
+    rho = Dict{Symbol, Int}()
+    for s in substrates(rxn); rho[name(s)] = get(rho, name(s), 0) + 1; end
+    for p in products(rxn);   rho[name(p)] = get(rho, name(p), 0) - 1; end
+    rho
+end
+
+"""The signs `rho` (`_reactant_signs`) summed over the metabolites `s` takes up, minus
+those summed over the metabolites it gives off."""
+_uptake_weight(s::Step, rho::Dict{Symbol, Int}) =
+    sum(get(rho, name(x), 0) for x in consumed(s); init = 0) -
+    sum(get(rho, name(x), 0) for x in released(s); init = 0)
+
+"""The block of every edge of the weighted multigraph (`_edge_blocks`) and the set of
+blocks that hold a cycle of nonzero weight (`_block_balanced`)."""
+function _unbalanced_blocks(nv::Int, edges::Vector{Tuple{Int, Int}}, weights::Vector{Int})
+    block = _edge_blocks(nv, edges)
+    members = Dict{Int, Vector{Int}}()
+    for e in eachindex(edges)
+        push!(get!(members, block[e], Int[]), e)
+    end
+    block, Set{Int}(b for (b, es) in members if !_block_balanced(edges, weights, es))
 end
 
 """Whether every cycle of the block made of the edges `es` has weight zero. A BFS
@@ -1504,6 +1521,120 @@ _flux_carrying_groups(groups::Vector{Vector{Step}}, rxn::EnzymeReaction) =
     BitVector([any(f) for f in _flux_carrying_steps(groups, rxn)])
 _flux_carrying_groups(m::Union{Mechanism, AllostericMechanism}) =
     _flux_carrying_groups(steps(m), reaction(m))
+
+"""
+`groups` with the isomerization `s0`, alone in its group, merged onto its product side:
+`s0` and its group are removed, and every other step at `from_species(s0)` moves onto
+`to_species(s0)`. The last substrate's binding into the substrate side becomes a fused
+binding into the product side; the releases stay plain.
+"""
+function _merge_isomerization(groups::Vector{Vector{Step}}, s0::Step)
+    x1, x2 = from_species(s0), to_species(s0)
+    move(sp) = sp == x1 ? x2 : sp
+    [Step[Step(move(from_species(s)), move(to_species(s)), consumed(s), released(s),
+               is_equilibrium(s)) for s in group]
+     for group in groups if group != [s0]]
+end
+
+"""
+`groups` with the form `x` eliminated, or `nothing` when that is not possible: `x` must
+have exactly two steps, both bindings into it, Y + L → x and Z + R → x with Y ≠ Z. They
+become one Theorell–Chance step Y + L → Z + R, rapid equilibrium, in a group of its own,
+where Y + L is the binding of a substrate when one of the two is; their groups keep their
+other steps.
+"""
+function _eliminate_form(groups::Vector{Vector{Step}}, x::Species)
+    at_x = [s for group in groups for s in group if x in (from_species(s), to_species(s))]
+    length(at_x) == 2 && all(s -> is_binding(s) && to_species(s) == x, at_x) ||
+        return nothing
+    entry, release = sort(at_x; by = s -> !(bound_metabolite(s) isa Substrate))
+    from_species(entry) == from_species(release) && return nothing
+    fused = Step(from_species(entry), from_species(release), consumed(entry),
+                 consumed(release), true)
+    kept = [filter(s -> !(s in at_x), group) for group in groups]
+    push!(filter!(!isempty, kept), [fused])
+end
+
+"""Whether a cycle of rapid-equilibrium steps of `groups` runs net turnover, which makes the
+rate infinite. Each RE step is an edge between its two forms weighted by its uptake of the
+reaction's substrates minus its products (`_uptake_weight`); a turnover cycle has weight
+n·Σρ², never zero, and a block of the RE graph holds one iff it is unbalanced
+(`_unbalanced_blocks`)."""
+function _re_turnover_cycle(groups::Vector{Vector{Step}}, rxn::EnzymeReaction)
+    rho = _reactant_signs(rxn)
+    idx = Dict{Species, Int}()
+    vertex(sp) = get!(idx, sp, length(idx) + 1)
+    edges = Tuple{Int, Int}[]; weights = Int[]
+    for group in groups, s in group
+        is_equilibrium(s) || continue
+        push!(edges, (vertex(from_species(s)), vertex(to_species(s))))
+        push!(weights, _uptake_weight(s, rho))
+    end
+    !isempty(last(_unbalanced_blocks(length(idx), edges, weights)))
+end
+
+"""Whether the rate has a maximum as the metabolites of `side` (`Substrate` or `Product`)
+grow: turning rapid equilibrium every steady-state step that takes up or gives off one of
+them leaves no rapid-equilibrium turnover cycle (track 4's condition V)."""
+function _has_vmax(groups::Vector{Vector{Step}}, rxn::EnzymeReaction, side::Type)
+    names = Set(name(x) for x in (side === Substrate ? substrates(rxn) : products(rxn)))
+    touches(s) = any(m -> name(m) in names, Iterators.flatten((consumed(s), released(s))))
+    !_re_turnover_cycle([[touches(s) ? _with_equilibrium(s, true) : s for s in group]
+                         for group in groups], rxn)
+end
+
+"""
+Whether some chemistry node of `groups` is left both by a rapid-equilibrium step that
+releases a substrate and by one that releases a product (track 4's condition C). A chemistry
+node is a merged complex (a form entered by a fused binding of a substrate) with every form
+joined to it by RE isomerizations, a set of forms joined to each other by RE isomerizations,
+or an RE Theorell–Chance step. An RE step leaves a node through a node form F and releases M
+when traversing it away from F gives M off: F is its `to_species` and M is consumed, or F is
+its `from_species` and M is released. An RE Theorell–Chance node leaves through its own step
+in both directions. Then the chemistry sits in rapid equilibrium with both sides and some
+reactant is not needed at zero products or substrates.
+"""
+function _chemistry_equilibrates_both_sides(groups::Vector{Vector{Step}},
+                                            rxn::EnzymeReaction)
+    subs = Set(name(s) for s in substrates(rxn))
+    prods = Set(name(p) for p in products(rxn))
+    re = [s for group in groups for s in group if is_equilibrium(s)]
+    re_iso = filter(is_iso, re)
+    function node(start)
+        out = Set{Species}(start); frontier = collect(start)
+        while !isempty(frontier)
+            f = pop!(frontier)
+            for s in re_iso, (a, b) in ((from_species(s), to_species(s)),
+                                        (to_species(s), from_species(s)))
+                a == f && !(b in out) && (push!(out, b); push!(frontier, b))
+            end
+        end
+        out
+    end
+    has(ms, names) = any(m -> name(m) in names, ms)
+    releases(n, names) = any(re) do t
+        to_species(t) in n && !(from_species(t) in n) && has(consumed(t), names) ||
+            from_species(t) in n && !(to_species(t) in n) && has(released(t), names)
+    end
+    fused_substrate_binding(s) =
+        (m = bound_metabolite(s); m !== nothing && _is_chemistry(s) && name(m) in subs)
+    merged = [to_species(s) for group in groups for s in group if fused_substrate_binding(s)]
+    nodes = vcat([node([x]) for x in merged],
+                 [node([from_species(s), to_species(s)]) for s in re_iso])
+    any(n -> releases(n, subs) && releases(n, prods), nodes) ||
+        any(t -> has(consumed(t), subs) && has(released(t), prods) ||
+                 has(consumed(t), prods) && has(released(t), subs), re)
+end
+
+"""Whether `m` is degenerate by track 4's structural conditions: no maximal rate in one
+direction (`_has_vmax`), or chemistry in rapid equilibrium with both sides
+(`_chemistry_equilibrates_both_sides`). Read on `steps(m)`, an allosteric mechanism's
+active-state graph."""
+function _degenerate(m::Union{Mechanism, AllostericMechanism})
+    groups, rxn = steps(m), reaction(m)
+    !(_has_vmax(groups, rxn, Substrate) && _has_vmax(groups, rxn, Product)) ||
+        _chemistry_equilibrates_both_sides(groups, rxn)
+end
 
 """
 Whether the enumerator may only give this mechanism a catalytic scheme that

@@ -118,6 +118,36 @@ function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     best
 end
 
+"""Numeric degeneracy probe (test oracle only): true when the rate at zero products does not
+need some substrate (ratio of the rate at 10⁻⁸ of it to the rate at 1 stays above 10⁻³), or
+grows without bound as the substrates scale (10⁹ against 10⁶), or the mirror for
+products."""
+function _testhelper_degenerate(m; ndraws = 2)
+    em = EnzymeRates.compile_mechanism(m)
+    fp = collect(EnzymeRates.fitted_params(em))
+    cm = m isa EnzymeRates.Mechanism ? m : EnzymeRates._state_mechanism(m, :A)
+    subs = [EnzymeRates.name(s) for s in EnzymeRates.substrates(EnzymeRates.reaction(cm))]
+    prods = [EnzymeRates.name(p) for p in EnzymeRates.products(EnzymeRates.reaction(cm))]
+    mets = sort!(collect(EnzymeRates._concentration_symbols(cm)))
+    rng = MersenneTwister(7)
+    for _ in 1:ndraws
+        θ = exp.(randn(rng, length(fp)))
+        p = NamedTuple{(fp..., :Keq, :E_total)}((θ..., exp(randn(rng)), 1.0))
+        v(d) = rate_equation(
+            em, NamedTuple{Tuple(mets)}(Tuple(get(d, x, 0.0) for x in mets)), p)
+        for side in (subs, prods)
+            base = v(Dict(x => 1.0 for x in side))
+            for x in side
+                r = v(Dict(y => (y == x ? 1e-8 : 1.0) for y in side)) / base
+                (isfinite(r) && abs(r) < 1e-3) || return true
+            end
+            big = v(Dict(x => 1e9 for x in side)) / v(Dict(x => 1e6 for x in side))
+            big > 10 && return true
+        end
+    end
+    false
+end
+
 # A kinetic group is catalytic iff it holds a chemistry step (`_is_chemistry`:
 # an isomerization, a fused binding or a Theorell–Chance step); otherwise it is
 # a binding group. Mirrors the rule `_expand_to_allosteric` uses to decide
@@ -1869,6 +1899,30 @@ end
     @test all(g -> length(g) == 1 && EnzymeRates.is_binding(only(g)), flank_steps)
     @test Set(EnzymeRates.name(EnzymeRates.bound_metabolite(only(g)))
               for g in flank_steps) == Set([:A, :P])
+end
+
+@testset "_chain_flank_groups: a flank binds into its end of the chain" begin
+    # Iso uni-uni with P also binding E(S) abortively. Both isomerizations are steady
+    # state and alone in their groups, and no chain qualifies:
+    #   E(S) → Estar(P): E(S) has two other steps, the S binding into it and the P
+    #     binding out of it (E(S) + P ⇌ E(P, S)), so it is no chain end.
+    #   Estar → E: each end has exactly one other step, a binding alone in its group,
+    #     but out of the end, not into it (Estar + P ⇌ Estar(P), E + S ⇌ E(S)), so
+    #     neither is a flank.
+    # Without the orientation condition the second isomerization would name the S and P
+    # groups, the flanks the first would name without the abortive step.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) + P ⇌ E(P, S)
+            E(S) <--> Estar(P)
+            Estar + P ⇌ Estar(P)
+            Estar <--> E
+        end
+    end)
+    @test isempty(EnzymeRates._chain_flank_groups(m))
 end
 
 @testset "Mechanism — bi-bi sequential: 4 RE binding groups → 2 variants" begin
@@ -7434,6 +7488,222 @@ end
     end
     @test count(ss_binding, EnzymeRates.steps(loop)) == 1
     @test EnzymeRates._re_segment_count(loop) == 1
+end
+
+@testset "MERGE, ELIM and the seed tests on the ordered bi-bi seed" begin
+    ER = EnzymeRates
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+    end
+    @test ER._reactant_signs(rxn) == Dict(:A => 1, :B => 1, :P => -1, :Q => -1)
+    groups(em) = ER.steps(ER.Mechanism(rxn, ER.steps(ER.Mechanism(em))))
+    seed = groups(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    iso = only(s for g in seed for s in g if ER.is_iso(s))
+    merged = ER._merge_isomerization(seed, iso)
+    # The isomerization's product side E(P, Q) takes over E(A, B)'s steps.
+    @test Set(s for g in merged for s in g) == Set(s for g in groups(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end) for s in g)
+    # The merged cycle E → E(A) → E(P, Q) → E(Q) → E takes up A and B and gives off P and
+    # Q, weight 1 + 1 + 1 + 1 = 4, all at rapid equilibrium. The seed's cycle runs
+    # through its steady-state isomerization, and its RE steps form a tree.
+    @test ER._re_turnover_cycle(merged, rxn)        # every step RE: infinite rate
+    @test !ER._re_turnover_cycle(seed, rxn)
+    variant(ss) = [[ER._with_equilibrium(s, !(ER.bound_metabolite(s) !== nothing &&
+                    ER.name(ER.bound_metabolite(s)) in ss)) for s in g] for g in merged]
+    clean(gs) = !ER._re_turnover_cycle(gs, rxn) && ER._has_vmax(gs, rxn, ER.Substrate) &&
+        ER._has_vmax(gs, rxn, ER.Product) && !ER._chemistry_equilibrates_both_sides(gs, rxn)
+    # Track 4 table 4.3: {A, Pˣ}, {Bˣ, Q}, {Bˣ, Pˣ} clean; {A, Q} fails C (B is not
+    # needed); {A, Bˣ} has no forward Vmax; {Pˣ, Q} no reverse Vmax; singletons none.
+    # The merged groups are A (E + A ⇌ E(A)), Bˣ (E(A) + B → E(P, Q)), Pˣ
+    # (E(Q) + P → E(P, Q)) and Q (E + Q ⇌ E(Q)); ˣ marks a step at the merged complex
+    # E(P, Q), the one chemistry node. V for substrates turns A and Bˣ RE and fails
+    # exactly when Pˣ and Q are RE too, closing the cycle: the steady-state set lies in
+    # {A, Bˣ}. V for products fails exactly when it lies in {Pˣ, Q}. Every singleton
+    # lies in one of the two. C fails exactly when Bˣ (giving B off from E(P, Q)) and Pˣ
+    # (giving P off) both stay RE: among the pairs, {A, Q} only.
+    @test clean(variant([:A, :P])) && clean(variant([:B, :Q])) && clean(variant([:B, :P]))
+    @test ER._chemistry_equilibrates_both_sides(variant([:A, :Q]), rxn)
+    @test !ER._has_vmax(variant([:A, :B]), rxn, ER.Substrate)
+    @test !ER._has_vmax(variant([:P, :Q]), rxn, ER.Product)
+    @test all(x -> !clean(variant([x])), (:A, :B, :P, :Q))
+    # ELIM of the merged complex: one step E(A) + B → E(Q) + P; all three SS is clean.
+    x = ER.to_species(iso)
+    tc = ER._eliminate_form(merged, x)
+    is_tc(s) = !isempty(ER.consumed(s)) && !isempty(ER.released(s))
+    binds(name) = s -> ER.bound_metabolite(s) !== nothing &&
+                       ER.name(ER.bound_metabolite(s)) == name
+    group_of(pred) = only(g for (g, grp) in enumerate(tc) if any(pred, grp))
+    gA, gQ, gTC = group_of(binds(:A)), group_of(binds(:Q)), group_of(is_tc)
+    @test length(tc) == 3 &&
+        ER.consumed(only(tc[gTC])) == ER.Metabolite[ER.Substrate(:B)] &&
+        ER.released(only(tc[gTC])) == ER.Metabolite[ER.Product(:P)]
+    @test Set(s for g in tc for s in g) == Set(s for g in groups(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(Q) + P
+            E + Q ⇌ E(Q)
+        end
+    end) for s in g)
+    @test ER._re_turnover_cycle(tc, rxn)            # E → E(A) → E(Q) → E, all RE
+    ss(which) = [g in which ? ER._with_equilibrium.(grp, false) : grp
+                 for (g, grp) in enumerate(tc)]
+    # The Theorell–Chance step takes up B and gives off P, so V turns it RE for either
+    # side. {A, Q, TC}: V for substrates leaves Q steady state, V for products leaves A,
+    # and no RE step is left for C. {A, Q}: the RE Theorell–Chance step gives B off one
+    # way and P the other, so C fails. {A, TC}: V for substrates closes the cycle with
+    # the RE Q step, no forward Vmax; {Q, TC} is the mirror.
+    @test clean(ss([gA, gQ, gTC]))
+    @test !clean(ss([gA, gQ])) && !clean(ss([gA, gTC])) && !clean(ss([gQ, gTC]))
+    @test ER._chemistry_equilibrates_both_sides(ss([gA, gQ]), rxn)
+    @test !ER._has_vmax(ss([gA, gTC]), rxn, ER.Substrate)
+    @test !ER._has_vmax(ss([gQ, gTC]), rxn, ER.Product)
+    # ELIM needs two bindings into the form: E(A)'s second step binds B out of it.
+    ea = ER.to_species(only(s for g in merged for s in g if binds(:A)(s)))
+    @test ER._eliminate_form(merged, ea) === nothing
+    # The seed itself is not degenerate; the probe agrees on every verdict above.
+    @test !ER._degenerate(ER.Mechanism(rxn, seed))
+    @test !_testhelper_degenerate(ER.Mechanism(rxn, seed))
+    pairs = [(:A, :B), (:A, :P), (:A, :Q), (:B, :P), (:B, :Q), (:P, :Q)]
+    candidates = vcat([string(x) => variant([x]) for x in (:A, :B, :P, :Q)],
+                      [string(x, y) => variant([x, y]) for (x, y) in pairs],
+                      ["TC: A Q TC" => ss([gA, gQ, gTC]), "TC: A Q" => ss([gA, gQ]),
+                       "TC: A TC" => ss([gA, gTC]), "TC: Q TC" => ss([gQ, gTC])])
+    for (label, gs) in candidates
+        m = ER.Mechanism(rxn, gs)
+        @test (label, ER._degenerate(m)) == (label, !clean(gs))
+        @test (label, _testhelper_degenerate(m)) == (label, !clean(gs))
+    end
+end
+
+@testset "ELIM refuses the uni-uni merged complex" begin
+    ER = EnzymeRates
+    groups(em) = ER.steps(ER.Mechanism(uni_uni_rxn, ER.steps(ER.Mechanism(em))))
+    seed = groups(@enzyme_mechanism begin
+        substrates: S; products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    iso = only(s for g in seed for s in g if ER.is_iso(s))
+    merged = ER._merge_isomerization(seed, iso)
+    # S binds E into the merged complex E(P), and P binds E into it as well.
+    @test Set(s for g in merged for s in g) == Set(s for g in groups(@enzyme_mechanism begin
+        substrates: S; products: P
+        steps: begin
+            E + S ⇌ E(P)
+            E + P ⇌ E(P)
+        end
+    end) for s in g)
+    # Both of E(P)'s steps start at E, so a Theorell–Chance step E + S → E + P would join
+    # E to itself.
+    @test ER._eliminate_form(merged, ER.to_species(iso)) === nothing
+end
+
+@testset "_re_turnover_cycle: a balanced rapid-equilibrium cycle runs no turnover" begin
+    ER = EnzymeRates
+    # Random-order binding of A and B at rapid equilibrium closes the cycle
+    # E → E(A) → E(A, B) ← E(B) ← E of weight 1 + 1 − 1 − 1 = 0: it runs no net reaction.
+    # With the isomerization RE as well, E → E(A) → E(A, B) → E(P, Q) → E(Q) → E has
+    # weight 4, one turnover, in the same block.
+    m = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E + B ⇌ E(B)
+            E(A) + B ⇌ E(A, B)
+            E(B) + A ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    @test !ER._re_turnover_cycle(ER.steps(m), ER.reaction(m))
+    @test ER._re_turnover_cycle([ER._with_equilibrium.(g, true) for g in ER.steps(m)],
+                                ER.reaction(m))
+end
+
+@testset "C on the ping-pong seed and its single flips" begin
+    ER = EnzymeRates
+    groups(em) = ER.steps(ER.Mechanism(bi_bi_pp_rxn, ER.steps(ER.Mechanism(em))))
+    seed = groups(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    binds(x) = s -> ER.bound_metabolite(s) !== nothing &&
+                    ER.name(ER.bound_metabolite(s)) == x
+    flip(x) = [[binds(x)(s) ? ER._with_equilibrium(s, false) : s for s in g] for g in seed]
+    # The steady-state isomerization E(A) → E(P; res) cuts the one catalytic cycle, and
+    # no step it would turn RE touches a substrate or a product, so both maximal rates
+    # exist. The RE isomerization E(B; res) ⇌ E(Q) makes {E(B; res), E(Q)} a chemistry
+    # node, left by the RE B binding (traversed away from E(B; res) it gives B off) and
+    # by the RE Q binding (away from E(Q) it gives Q off): C fails. At zero products the
+    # forms past the steady-state step drain to E and E(A), so B is not needed.
+    rxn = bi_bi_pp_rxn
+    @test ER._has_vmax(seed, rxn, ER.Substrate) && ER._has_vmax(seed, rxn, ER.Product)
+    @test ER._chemistry_equilibrates_both_sides(seed, rxn)
+    @test ER._degenerate(ER.Mechanism(rxn, seed))
+    @test _testhelper_degenerate(ER.Mechanism(rxn, seed))
+    # Flipping B or Q leaves the node one RE exit, Q's or B's: C holds (the B flip is the
+    # steady-state half of the SRR ping-pong). Flipping A or P leaves both exits RE: C
+    # still fails. V never turns the steady-state isomerization RE (it touches no
+    # metabolite), so it still cuts the cycle and every flip keeps both maximal rates.
+    for x in (:A, :B, :P, :Q)
+        gs = flip(x)
+        m = ER.Mechanism(rxn, gs)
+        fails_c = x in (:A, :P)
+        @test ER._has_vmax(gs, rxn, ER.Substrate) && ER._has_vmax(gs, rxn, ER.Product)
+        @test (x, ER._chemistry_equilibrates_both_sides(gs, rxn)) == (x, fails_c)
+        @test (x, ER._degenerate(m)) == (x, fails_c)
+        @test (x, _testhelper_degenerate(m)) == (x, fails_c)
+    end
+    # A conformational variant is read on its active-state graph, the seed's: still
+    # degenerate.
+    am = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A ⇌ E(A)                                          :: EqualAI
+            E(A) <--> E(P; residual = A - P)                      :: OnlyA
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)    :: EqualAI
+            E(B; residual = A - P) ⇌ E(Q)                         :: OnlyA
+            E + Q ⇌ E(Q)                                          :: EqualAI
+        end
+    end)
+    @test ER._degenerate(am)
+    # The probe reads the derived allosteric law, which for this mechanism (ping-pong seed,
+    # catalytic multiplicity 1, both chemistry steps :OnlyA, bindings :EqualAI) misses a
+    # factor B on its L term: free E and E(; residual = A - P) lie in one
+    # rapid-equilibrium segment. The formulation-1 ground truth gives v independent of B
+    # (0.28977 at every B from 1e-3 to 1e3 at the parameters of the gate in
+    # test/allosteric_ground_truth.jl); the derived law agrees with it only at B = 1.
+    @test_broken _testhelper_degenerate(am) == ER._degenerate(am)
 end
 
 @testset "_productive_twin" begin

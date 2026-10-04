@@ -842,6 +842,90 @@ end
     end
 end
 
+# ── Ping-pong network with rapid-equilibrium chemistry, at zero products ──────
+# The undecorated ping-pong: E + A ⇌ EA → F(P) ⇌ F + P, F + B ⇌ FB ⇌ EQ ⇌ E + Q,
+# with both chemistry steps :OnlyA and every binding :EqualAI. Only EA → F(P) is
+# steady state; the second chemistry FB ⇌ EQ is rapid equilibrium, so free E and
+# the covalent F lie in one active rapid-equilibrium segment. Rapid steps use FAST.
+# Only free E flips (formulation 1, E_I/E_A = L). The inactive conformation runs no
+# chemistry, so it holds E_I, EA_I and EQ_I; its covalent forms, which free E cannot
+# reach, hold no mass. At P = Q = 0 the P and Q releases are one-way and the
+# chemistry's reverse never fires, so every form past EA → F(P) drains back to E,
+# and the rate is k·(A/KA)/((1 + A/KA)(1 + L)), free of B.
+function pingpong_re_chemistry_flux(; KA, KB, KP, KQ, K2, k, L, A, B, FAST=1e9)
+    species = [:E_A, :EA_A, :FP_A, :F_A, :FB_A, :EQ_A, :E_I, :EA_I, :EQ_I]
+    edges = [
+        (:E_A, :EA_A, FAST * A), (:EA_A, :E_A, FAST * KA),   # E + A ⇌ EA (RE)
+        (:EA_A, :FP_A, k),                                   # EA → F(P) (SS)
+        (:FP_A, :F_A, FAST * KP),                            # F(P) → F + P (RE, P = 0)
+        (:F_A, :FB_A, FAST * B), (:FB_A, :F_A, FAST * KB),   # F + B ⇌ FB (RE)
+        (:FB_A, :EQ_A, FAST * K2), (:EQ_A, :FB_A, FAST),     # FB ⇌ EQ (RE)
+        (:EQ_A, :E_A, FAST * KQ),                            # EQ → E + Q (RE, Q = 0)
+        (:E_I, :EA_I, FAST * A), (:EA_I, :E_I, FAST * KA),   # inactive A binding
+        (:EQ_I, :E_I, FAST * KQ),                            # inactive Q release
+        (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),          # free-enzyme flip, ratio L
+    ]
+    mwc_ground_truth_flux(species, edges, [(:EA_A, :FP_A, k, 0.0)], 1.0)
+end
+
+# ── Ping-pong rapid-equilibrium-chemistry harness self-validation ─────────────
+# The network against its closed form, live (L = 3) and unpopulated (L = 0), across
+# four decades of B: the B-binding rate FAST·B stays far above k, so the
+# rapid-equilibrium limit holds to about k/(FAST·B).
+@testset "ping-pong RE-chemistry ground-truth harness self-validation" begin
+    p = (KA=0.7, KB=1.3, KP=0.9, KQ=1.1, K2=2.0, k=1.7, A=1.5)
+    closed(L) = p.k * (p.A / p.KA) / ((1 + p.A / p.KA) * (1 + L))
+    for L in (0.0, 3.0), B in (1e-2, 1.0, 1e2)
+        @test isapprox(pingpong_re_chemistry_flux(; p..., L=L, B=B), closed(L); rtol=1e-5)
+    end
+end
+
+# ── The gate: a rapid-equilibrium segment holding free E and F (KNOWN BROKEN) ──
+# The two ping-pong value gates above write every step steady state, and the two
+# ping-pong :OnlyA gates below, whose active segments do hold free E and F, check
+# finiteness, the equilibrium ratio and the L = 0 limit only. This gate compares an
+# L > 0 rate against ground truth for a mechanism whose active rapid-equilibrium
+# segment holds both free E and F. The cleared active-state polynomial gives free E
+# the weight B (F sits at Q/B relative to E), while the derived L term gives E_I the
+# weight L: the law misses a factor B on its L term. The ground truth is independent
+# of B (0.28977 at these parameters); the derived law agrees with it only at B = 1.
+@testset "ping-pong MWC derivation with free E and F in one RE segment" begin
+    allo = @allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A ⇌ E(A)                                          :: EqualAI
+            E(A) <--> E(P; residual = A - P)                      :: OnlyA
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)    :: EqualAI
+            E(B; residual = A - P) ⇌ E(Q)                         :: OnlyA
+            E + Q ⇌ E(Q)                                          :: EqualAI
+        end
+    end
+    fp = ER.fitted_params(allo)
+    @test fp == (:K_EA_to_E_A, :K_EQ_to_E_Q, Symbol("k_A_EA_to_EP_res_+A_-P"),
+                 Symbol("K_A_EB_res_+A_-P_to_EQ"),
+                 Symbol("K_EB_res_+A_-P_to_E_res_+A_-P_B"),
+                 Symbol("K_EP_res_+A_-P_to_E_res_+A_-P_P"), :L)
+    p = (KA=0.7, KB=1.3, KP=0.9, KQ=1.1, K2=2.0, k=1.7, L=3.0, A=1.5)
+    # Map fitted_params -> ground-truth params. Each K is the ratio of its to-side to
+    # its from-side, so the binding Ks are dissociation constants:
+    #   K_EA_to_E_A=KA, K_EQ_to_E_Q=KQ, K_EB_res_…_to_E_res_…_B=KB,
+    #   K_EP_res_…_to_E_res_…_P=KP, K_A_EB_res_…_to_EQ=K2 ([EQ]/[FB]),
+    #   k_A_EA_to_EP_res_…=k. At P = Q = 0 only KA, k and L enter the rate.
+    d = Dict(:K_EA_to_E_A => p.KA, :K_EQ_to_E_Q => p.KQ,
+             Symbol("k_A_EA_to_EP_res_+A_-P") => p.k,
+             Symbol("K_A_EB_res_+A_-P_to_EQ") => p.K2,
+             Symbol("K_EB_res_+A_-P_to_E_res_+A_-P_B") => p.KB,
+             Symbol("K_EP_res_+A_-P_to_E_res_+A_-P_P") => p.KP, :L => p.L)
+    prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., 2.0, 1.0))
+    v_code(B) = real(ER.rate_equation(allo, (A=p.A, B=B, P=0.0, Q=0.0), prm))
+    v_gt(B) = pingpong_re_chemistry_flux(; p..., B=B)
+    @test isapprox(v_code(1.0), v_gt(1.0); rtol=1e-5)
+    for B in (1e-3, 0.1, 10.0, 1e3)
+        @test_broken isapprox(v_code(B), v_gt(B); rtol=1e-5)
+    end
+end
+
 # ── Fully-inert inactive network (both substrate and product bind :OnlyA) ─────
 # S and P both bind :OnlyA, so the inactive conformation binds nothing — it is a
 # free-enzyme reservoir of mass L, coupled to the active cycle only by the E flip.
