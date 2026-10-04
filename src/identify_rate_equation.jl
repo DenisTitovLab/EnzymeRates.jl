@@ -252,7 +252,7 @@ function _write_rows_csv(save_dir::String, filename::String, rows)
     CSV.write(joinpath(save_dir, filename), _rows_to_dataframe(rows))
 end
 
-"""Save the base-tier fit (all init mechanisms) to `initial_mechanisms.csv`."""
+"""Save the base-tier fit (`_base_tier`) to `initial_mechanisms.csv`."""
 _save_initial_csv(save_dir::String, rows) =
     _write_rows_csv(save_dir, "initial_mechanisms.csv", rows)
 
@@ -732,14 +732,35 @@ function _expand_parents(to_expand::Vector{BatchEntry},
 end
 
 """
+The mechanisms the beam fits first: every seed of `mechs` that is not degenerate
+(`_degenerate`), and the children of every one that is. A degenerate seed's law ignores a
+substrate or never saturates, so it is not worth a fit, but it is the only parent of
+mechanisms that are not degenerate (the ping-pong seeds' children). Expansion errors are
+returned as failures, one per seed, as `_expand_parent` records them.
+"""
+function _base_tier(mechs::Vector, rxn::EnzymeReaction)
+    base = Union{Mechanism, AllostericMechanism}[m for m in mechs if !_degenerate(m)]
+    failures = FitFailure[]
+    for m in mechs
+        _degenerate(m) || continue
+        kids, failure = _expand_parent(m, rxn)
+        failure === nothing || push!(failures, failure)
+        append!(base, kids)
+    end
+    unique!(base), failures
+end
+
+"""
     _required_regulators(rxn, optional_allosteric_regulators,
                          optional_competitive_inhibitors)
         -> (required_allo::Set{Symbol}, required_comp::Set{Symbol})
 
 The regulators the beam seed must bind: every `AllostericRegulator` and every
 `CompetitiveInhibitor` declared in `rxn`, minus the names the caller marked
-optional. Both sets empty means the beam keeps its unregulated `init_mechanisms`
-seed; a non-empty set means it seeds from `seed_mechanisms`.
+optional. Both sets empty means the beam takes its seeds from `init_mechanisms`; a
+non-empty set means it takes them from `seed_mechanisms`. Either way the base tier
+fits the seeds that are not degenerate and the children of those that are
+(`_base_tier`).
 """
 function _required_regulators(rxn::EnzymeReaction,
                               optional_allosteric_regulators::Vector{Symbol},
@@ -784,15 +805,17 @@ function _beam_search(
     # invariant breaks.
     fitted = Set{UInt64}()
 
-    # ── Base tier: fit ALL init mechanisms (no bucketing — siblings) ──
+    # ── Base tier: fit every seed, with each degenerate seed replaced by its
+    # children (`_base_tier`; no bucketing — siblings) ──
     _progress(save_dir, show_progress, "Enumerating initial mechanisms…")
     required_allo, required_comp = _required_regulators(
         prob.reaction, optional_allosteric_regulators,
         optional_competitive_inhibitors)
-    base = (isempty(required_allo) && isempty(required_comp)) ?
+    seeds = (isempty(required_allo) && isempty(required_comp)) ?
         unique!(collect(init_mechanisms(prob.reaction))) :
         unique!(collect(seed_mechanisms(
             prob.reaction, required_allo, required_comp)))
+    base, base_expand_failures = _base_tier(seeds, prob.reaction)
     compiled, reps, rep_idx, n_base_fitted_skip, n_base_param_skip, n_base_cx_skip =
         _compile_batch(base, prob; max_param_count, eq_complexity_filter, memo, fitted)
     n_base_nt = count(c -> c isa NamedTuple, compiled)
@@ -803,6 +826,9 @@ function _beam_search(
             max_param_count, eq_complexity_filter)))
     base_entries, base_failures = _fit_batch(compiled, reps, rep_idx, prob, memo;
         optimizer, kwargs...)
+    # A degenerate seed's expansion error is recorded like a fit failure (a row of
+    # initial_mechanisms.csv and the errored bucket).
+    append!(base_failures, base_expand_failures)
     if isempty(base_entries)
         isempty(base_failures) && return (
             Union{Mechanism, AllostericMechanism}[],

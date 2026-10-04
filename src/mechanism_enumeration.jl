@@ -1642,7 +1642,7 @@ end
 """Whether `m` is degenerate by track 4's structural conditions: no maximal rate in one
 direction (`_has_vmax`), or chemistry in rapid equilibrium with both sides
 (`_chemistry_equilibrates_both_sides`). Read on `steps(m)`, an allosteric mechanism's
-active-state graph."""
+active-state graph. The beam expands a degenerate seed without fitting it (`_base_tier`)."""
 function _degenerate(m::Union{Mechanism, AllostericMechanism})
     groups, rxn = steps(m), reaction(m)
     !(_has_vmax(groups, rxn, Substrate) && _has_vmax(groups, rxn, Product)) ||

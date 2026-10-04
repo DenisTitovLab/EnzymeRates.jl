@@ -1654,6 +1654,85 @@ end
     @test length(gf) == length(rf)
 end
 
+@testset "_base_tier expands degenerate seeds instead of fitting them" begin
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+    end
+    seeds = unique!(collect(EnzymeRates.init_mechanisms(rxn)))
+    degenerate = filter(EnzymeRates._degenerate, seeds)
+    @test length(degenerate) == 7                  # the seven ping-pong seeds
+    base, failures = EnzymeRates._base_tier(seeds, rxn)
+    @test isempty(failures)
+    @test !any(m -> m in base, degenerate)
+    @test all(m -> m in base, filter(!EnzymeRates._degenerate, seeds))
+    kids = EnzymeRates.expand_mechanisms(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[degenerate...], rxn)
+    @test all(k -> k in base, kids)
+    @test length(base) ==
+        length(unique!(vcat(filter(!EnzymeRates._degenerate, seeds), kids)))
+end
+
+@testset "a base-tier row of a degenerate seed's child carries no parent" begin
+    # The base tier fits a degenerate seed's children with no `parent_of`, as it fits
+    # the seeds, so the row `_fit_batch` writes has no parent and `_rows_to_dataframe`
+    # keeps its parent columns missing.
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+    end
+    seeds = unique!(collect(EnzymeRates.init_mechanisms(rxn)))
+    seed = first(filter(EnzymeRates._degenerate, seeds))
+    child = first(filter(m -> m isa EnzymeRates.Mechanism,
+                         first(EnzymeRates._expand_parent(seed, rxn))))
+    base, _ = EnzymeRates._base_tier(seeds, rxn)
+    @test child in base && !(child in seeds)
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            A = [1.0, 2.0, 1.0, 2.0], B = [0.5, 0.5, 1.0, 1.0],
+            P = [0.1, 0.2, 0.1, 0.2], Q = [0.3, 0.3, 0.4, 0.4])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
+    entries, failures = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[child], prob;
+        optimizer=_CountingStubOpt(; uval=log(5.0)), max_param_count=20,
+        n_restarts=1, maxtime=1.0, memo=Dict{UInt64, NamedTuple}())
+    @test isempty(failures) && length(entries) == 1
+    df = EnzymeRates._rows_to_dataframe([e.row for e in entries])
+    em = EnzymeRates.compile_mechanism(child)
+    @test nrow(df) == 1
+    @test ismissing(df.parent_n_params[1]) && ismissing(df.parent_mechanism_type[1])
+    @test df.mechanism_type[1] == string(typeof(em))
+    @test df.n_params[1] == length(EnzymeRates.fitted_params(em))
+    @test df.loss[1] == entries[1].loss
+end
+
+@testset "_base_tier records a degenerate seed's expansion error" begin
+    # The chemistry step E(S) ⇌ E(P) loses the N of T, a declared substrate that never
+    # binds, so expand_mechanisms' atom-conservation assertion raises. With the P binding
+    # steady state the seed has no maximal rate in products (turning that binding rapid
+    # equilibrium closes an all-RE turnover cycle), so it is degenerate and expanded.
+    rxn_bad = @enzyme_reaction begin
+        substrates: S[C], T[N]
+        products:   P[CN]
+    end
+    e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+    e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+    e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+    m_bad = EnzymeRates.Mechanism(rxn_bad, [
+        [EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
+                          EnzymeRates.Metabolite[], true)],
+        [EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
+                          EnzymeRates.Metabolite[], true)],
+        [EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
+                          EnzymeRates.Metabolite[], false)],
+    ])
+    @test EnzymeRates._degenerate(m_bad)
+    base, failures = EnzymeRates._base_tier([m_bad], rxn_bad)
+    @test isempty(base)
+    @test length(failures) == 1 && failures[1] isa EnzymeRates.FitFailure
+    @test failures[1].mech == m_bad
+    @test !isempty(failures[1].error)
+end
+
 @testset "LOOCV eq_hash-uniqueness guard (§4)" begin
     # _cv_model_selection dedups candidates by eq_hash per n_params bucket before
     # LOOCV: same-equation twins collapse to ONE candidate (lowest loss kept), so
