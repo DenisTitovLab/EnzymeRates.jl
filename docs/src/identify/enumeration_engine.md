@@ -90,10 +90,13 @@ The tests run on a candidate's groups; a mechanism is built only for a variant:
     and P through its equilibrated exit. The variant with A and P at steady state
     passes.
 
-Every ping-pong seed fails C itself: the forms its rapid-equilibrium
-isomerization joins release B and Q by rapid-equilibrium steps, so at zero
-products its rate does not depend on B. The beam expands such a seed without
-fitting it (see [Best mechanism selection](@ref)).
+Every seed with two chemistry isomerizations, such as a ping-pong seed, fails C
+itself. A seed holds one steady-state step, so one isomerization is at rapid
+equilibrium, and so are the bindings and releases on both its sides: the forms it
+joins release a substrate and a product by rapid-equilibrium steps. In a bi-bi
+ping-pong seed they release B and Q, so at zero products its rate does not depend
+on B. The beam expands such a seed without fitting it (see
+[Best mechanism selection](@ref)).
 
 The starting set therefore holds mixed parameter counts. A bi-bi reaction has 55
 seeds at 5 parameters and 184 variants: 164 merged ones, 108 at 5 parameters and
@@ -116,9 +119,10 @@ go allosteric, add an allosteric regulator, add a competitive inhibitor — unde
 three constraints that keep the set small: each
 required regulator binds at its own single-ligand site, every allosteric state stays
 cheap (`:OnlyA`/`:OnlyI`, never `:NonequalAI`), and no partially-regulated mechanism
-survives. The result is every fully-regulated mechanism at its minimum parameter
-count, and nothing beneath it. The beam then refines these seeds with the detail
-moves — steady-state flips, splits, and `:NonequalAI` relaxations — as usual.
+survives. The result is every fully-regulated mechanism those moves build, and
+nothing that binds fewer regulators; like the starting set, it holds mixed
+parameter counts. The beam then refines these seeds with the detail moves —
+steady-state flips, splits, and `:NonequalAI` relaxations — as usual.
 
 By default every declared regulator is required. `identify_rate_equation`'s
 `optional_allosteric_regulators` and `optional_competitive_inhibitors` keywords move
@@ -294,9 +298,14 @@ binding-only Wegscheider cycle unsatisfiable is dropped (see
 A K-type variant does not always reveal `L`. Over more than one catalytic
 subunit the conformational equilibrium enters the rate with the multiplicity's
 power. Over one subunit the inactive conformation is a dead-end branch of the
-free enzyme, and a rescaling of the active state's constants can absorb `L`
-whatever that conformation binds: every K-type variant of the rapid-equilibrium
-ordered bi-bi seed carries `L` as a phantom at multiplicity 1.
+free enzyme, and `L` is a phantom in some K-type variants and not in others. In
+every K-type variant of the rapid-equilibrium ordered bi-bi seed a rescaling of
+the active state's constants absorbs it, whatever that conformation binds. In
+the merged ordered bi-bi whose B group mixes a fused and a plain binding it is a
+phantom only in the variants whose inactive conformation binds nothing: no
+rescaling absorbs an A or Q binding kept there. Binding nothing is not enough:
+in a random-order merged bi-bi, whose A group takes A up at E and at E(B) under
+one rate constant, `L` shows in every K-type variant.
 
 A parent whose catalytic scheme already carries concentration powers, such as a
 random-order scheme with steady-state binding or a substrate that traps a

@@ -735,8 +735,8 @@ end
 The mechanisms the beam fits first: every seed of `mechs` that is not degenerate
 (`_degenerate`), and the children of every one that is. A degenerate seed's law ignores a
 substrate or never saturates, so it is not worth a fit, but it is the only parent of
-mechanisms that are not degenerate (the ping-pong seeds' children). Expansion errors are
-returned as failures, one per seed, as `_expand_parent` records them.
+mechanisms that are not degenerate (such as the ping-pong seeds' children). Expansion
+errors are returned as failures, one per seed, as `_expand_parent` records them.
 """
 function _base_tier(mechs::Vector, rxn::EnzymeReaction)
     base = Union{Mechanism, AllostericMechanism}[m for m in mechs if !_degenerate(m)]

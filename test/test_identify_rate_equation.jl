@@ -1607,7 +1607,9 @@ end
     @test isempty(kids)
     @test failure isa EnzymeRates.FitFailure
     @test failure.mech == m_bad                    # the ORIGINAL parent
-    @test !isempty(failure.error)
+    # The recorded error is the assertion's: the chemistry step ES → EP loses T's N.
+    @test occursin("atom-non-conserving step ES → EP", failure.error)
+    @test occursin("= Dict(:N => 1)", failure.error)
     # A well-formed parent expands with no failure.
     good = first(EnzymeRates.init_mechanisms(rxn_bad))
     gkids, gfail = EnzymeRates._expand_parent(good, rxn_bad)
@@ -1730,7 +1732,9 @@ end
     @test isempty(base)
     @test length(failures) == 1 && failures[1] isa EnzymeRates.FitFailure
     @test failures[1].mech == m_bad
-    @test !isempty(failures[1].error)
+    # The recorded error is the assertion's: the chemistry step ES → EP loses T's N.
+    @test occursin("atom-non-conserving step ES → EP", failures[1].error)
+    @test occursin("= Dict(:N => 1)", failures[1].error)
 end
 
 @testset "LOOCV eq_hash-uniqueness guard (§4)" begin

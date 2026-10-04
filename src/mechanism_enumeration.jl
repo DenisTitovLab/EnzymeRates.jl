@@ -1580,7 +1580,7 @@ grow: turning rapid equilibrium every steady-state step that takes up or gives o
 them leaves no rapid-equilibrium turnover cycle (track 4's condition V)."""
 function _has_vmax(groups::Vector{Vector{Step}}, rxn::EnzymeReaction, side::Type)
     names = Set(name(x) for x in (side === Substrate ? substrates(rxn) : products(rxn)))
-    touches(s) = any(m -> name(m) in names, Iterators.flatten((consumed(s), released(s))))
+    touches(s) = _any_named(consumed(s), names) || _any_named(released(s), names)
     !_re_turnover_cycle([[touches(s) ? _with_equilibrium(s, true) : s for s in group]
                          for group in groups], rxn)
 end
@@ -2618,11 +2618,17 @@ binding or a Theorell–Chance step; every other group is a binding group.
     with every chemistry group `:OnlyA`, and each is emitted bare. Over
     more than one catalytic subunit the conformational equilibrium enters
     the rate with the multiplicity's power. Over one subunit the inactive
-    conformation is a dead-end branch of the free enzyme, and a rescaling
-    of the active state's constants can absorb `L` whatever that
-    conformation binds: every K-type variant of the rapid-equilibrium
-    ordered bi-bi seed carries `L` as a phantom at multiplicity 1. A
-    subset that leaves a binding-only Wegscheider cycle unsatisfiable
+    conformation is a dead-end branch of the free enzyme, and `L` is a
+    phantom in some K-type variants and not in others. In every K-type
+    variant of the rapid-equilibrium ordered bi-bi seed a rescaling of the
+    active state's constants absorbs it, whatever that conformation binds.
+    In the merged ordered bi-bi whose B group mixes a fused and a plain
+    binding it is a phantom only in the variants whose inactive
+    conformation binds nothing: no rescaling absorbs an A or Q binding
+    kept there. Binding nothing is not enough: in a random-order merged
+    bi-bi, whose A group takes A up at E and at E(B) under one rate
+    constant, `L` shows in every K-type variant. A subset that leaves a
+    binding-only Wegscheider cycle unsatisfiable
     (`_onlya_haldane_violation`) is dropped.
   * V-type: no `:OnlyA` binding, every chemistry group `:OnlyA`. The
     inactive state binds substrate/product identically to the active

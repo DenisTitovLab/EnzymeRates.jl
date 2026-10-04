@@ -11544,6 +11544,80 @@ end
     end
 end
 
+@testset "_expand_to_allosteric on a random-order merged bi-bi led by plain bindings" begin
+    # The random-order merged bi-bi: A and B bind free E in either order, and the second
+    # binding is fused with the chemistry. A's steady-state group holds E + A → E(A) and
+    # the fused E(B) + A → E(P, Q); B's rapid-equilibrium group holds E + B ⇌ E(B) and
+    # the fused E(A) + B ⇌ E(P, Q). Canonical order sorts a group's steps by source form,
+    # E before E(A) and E(B), so each group opens with its plain binding. A group holding
+    # a chemistry step is chemistry whatever its first step, so both are :OnlyA in every
+    # K-type child, and the subsets range over the Q and P groups: 2^2 − 1 = 3. Without
+    # the :OnlyA A and B groups the check graph keeps the path E – E(Q) – E(P, Q), so
+    # `_onlya_haldane_violation` refuses none. The reaction allows one catalytic subunit
+    # and declares no regulator, so no V-type: three children. Read by its first step,
+    # neither group would be chemistry, and the subsets would range over all four groups.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))
+            E + Q ⇌ E(Q)
+            E(Q) + P <--> E(P, Q)
+        end
+    end)
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+    end
+    chemistry = [g for g in EnzymeRates.steps(m) if any(EnzymeRates._is_chemistry, g)]
+    @test length(chemistry) == 2
+    @test all(g -> EnzymeRates.is_binding(first(g)) &&
+                   !EnzymeRates._is_chemistry(first(g)), chemistry)
+    only_q = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q))     :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))           :: OnlyA
+            E + Q ⇌ E(Q)                                 :: OnlyA
+            E(Q) + P <--> E(P, Q)                        :: EqualAI
+        end
+    end)
+    only_p = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q))     :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))           :: OnlyA
+            E + Q ⇌ E(Q)                                 :: EqualAI
+            E(Q) + P <--> E(P, Q)                        :: OnlyA
+        end
+    end)
+    p_and_q = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q))     :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))           :: OnlyA
+            E + Q ⇌ E(Q)                                 :: OnlyA
+            E(Q) + P <--> E(P, Q)                        :: OnlyA
+        end
+    end)
+    kids = EnzymeRates._expand_to_allosteric(m, rxn)
+    @test length(kids) == 3
+    @test Set(kids) == Set([only_q, only_p, p_and_q])
+    # The parent has 5 fitted constants, all identifiable. Each child adds L. Its dead
+    # inactive conformation reaches no E(B), since B's group is :OnlyA, so it adds L·E to
+    # E's rapid-equilibrium segment {E, E(B), E(Q)}, times 1 + Q/K_Q where Q stays
+    # :EqualAI. A's group takes A up at E and at E(B) under one rate constant, so the
+    # denominator's A·B term is 2·B/K_B times its A term whatever L is: K_B is pinned and
+    # cannot also absorb the 1 + L at E. L shows in every child, the two whose inactive
+    # conformation binds nothing included: 6 fitted, rank 6.
+    fitted(x) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(x)))
+    @test fitted(m) == _testhelper_identifiable_rank(m) == 5
+    for k in (only_q, only_p, p_and_q)
+        @test fitted(k) == _testhelper_identifiable_rank(k) == 6
+    end
+end
+
 @testset "expand_mechanisms expands a parent whose binding changes conformation" begin
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]

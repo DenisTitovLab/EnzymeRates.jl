@@ -135,10 +135,11 @@ dead-end substrate and product inhibition, each at its lowest parameter count �
 and, for a reaction with more than one substrate or product, their merged and
 Theorell–Chance variants ([The enumeration engine](@ref)).
 Because this reaction declares `A`, the seeds are lifted a level: the search
-starts from mechanisms that already bind `A` — every fully-regulated mechanism at
-its minimum parameter count — and never fits the non-allosteric mechanisms
-beneath. This is the default: every declared regulator is required, which is what
-lets the search reach the generating MWC mechanism so quickly here.
+starts from mechanisms that already bind `A` — every fully-regulated mechanism
+the regulator-binding moves build from the seeds, at mixed parameter counts — and
+never fits the non-allosteric mechanisms beneath. This is the default: every
+declared regulator is required, which is what lets the search reach the
+generating MWC mechanism so quickly here.
 
 The progress lines above trace the search, which is a *beam search*: it walks
 parameter counts in ascending order, and at each count it fits the candidates,
