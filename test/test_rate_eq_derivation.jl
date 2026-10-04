@@ -105,13 +105,29 @@ end
 # A consistent parameter point: free energies g for every enzyme form and
 # metabolite make each step's association constant
 #   Ka = exp(g_from + Σ g_consumed − g_to − Σ g_released),
-# so every cycle multiplies to Keq^n by construction. Each step is its own
-# kinetic group in the mechanisms used here.
+# so every cycle multiplies to Keq^n by construction. The steps of a kinetic
+# group share their constants: the form free energies are projected onto
+# g_from − g_to = g_from₁ − g_to₁ for every step after its group's first (the
+# metabolites cancel, since a group's steps take up and give off the same ones),
+# and a steady-state group draws one forward rate.
 function _testhelper_consistent_point(em, rng)
     mech = ER.Mechanism(em)
     flat = ER._flat_steps(mech)
     forms = unique(vcat([[ER.from_species(s), ER.to_species(s)] for (s, _) in flat]...))
     g = Dict{Any, BigFloat}(f => 4 * big(rand(rng)) - 2 for f in forms)
+    basis = Vector{BigFloat}[]
+    for (s, gi) in flat
+        s1 = first(ER.steps(mech)[gi])
+        s == s1 && continue
+        v = BigFloat[(f == ER.from_species(s)) - (f == ER.to_species(s)) -
+                     (f == ER.from_species(s1)) + (f == ER.to_species(s1)) for f in forms]
+        for b in basis; v -= (b' * v) * b; end
+        norm_v = sqrt(v' * v)
+        norm_v > big(10)^-30 && push!(basis, v / norm_v)
+    end
+    x = BigFloat[g[f] for f in forms]
+    for b in basis; x -= (b' * x) * b; end
+    for (f, xf) in zip(forms, x); g[f] = xf; end
     rxn = ER.reaction(mech)
     mets = vcat([ER.name(x) for x in ER.substrates(rxn)],
                 [ER.name(x) for x in ER.products(rxn)],
@@ -122,7 +138,8 @@ function _testhelper_consistent_point(em, rng)
     steps = []
     vals = Dict{Symbol, BigFloat}()
     sp = ER._step_parameters(mech)
-    for (idx, (s, _)) in enumerate(flat)
+    kf_of_group = Dict{Int, BigFloat}()
+    for (idx, (s, gi)) in enumerate(flat)
         Ka = exp(g[ER.from_species(s)] +
                  sum((g[ER.name(m)] for m in ER.consumed(s)); init = big(0)) -
                  g[ER.to_species(s)] -
@@ -132,7 +149,7 @@ function _testhelper_consistent_point(em, rng)
             vals[ER.name(p, mech)] = p isa ER.Kd ? 1 / Ka : Ka
             push!(steps, (s, Ka, nothing))
         else
-            kf = exp(4 * big(rand(rng)) - 2)
+            kf = get!(() -> exp(4 * big(rand(rng)) - 2), kf_of_group, gi)
             vals[ER.name(sp[idx][1], mech)] = kf
             vals[ER.name(sp[idx][2], mech)] = kf / Ka
             push!(steps, (s, Ka, kf))
@@ -412,12 +429,13 @@ end
 """
 Positional params for the **hand-written analytical oracles**, which fix
 `k{idx}f` as the chemically-forward (substrate→product) rate of source step
-`idx`. A product-binding step canonicalizes to `E + P → EP` (product on the
-`to` side), so the package's stored-forward rate (the one `positional_params`
-puts on `k{idx}f`) is actually the chemical REVERSE (binding) of the oracle's
-forward (release `EP → E + P`). Swap the `k{idx}f`/`k{idx}r` values for those
-steps so the oracle's forward keeps its release meaning. (The QSSA / ODE
-oracles read the canonical stored direction directly and need the un-swapped
+`idx`. A step that gives off a product is stored as the binding it reverses
+(`E + P → EP` for a plain release, `E + P → ES` for a fused one), so the
+package's stored-forward rate (the one `positional_params` puts on `k{idx}f`)
+is actually the chemical REVERSE (binding) of the oracle's forward (release
+`EP → E + P`). Swap the `k{idx}f`/`k{idx}r` values for those steps so the
+oracle's forward keeps its release meaning. (The QSSA / ODE oracles read the
+canonical stored direction directly and need the un-swapped
 `positional_params`.)
 """
 function analytical_oracle_params(m, nt::NamedTuple;
@@ -433,9 +451,7 @@ function analytical_oracle_params(m, nt::NamedTuple;
     swap_idxs = Set{Int}()
     for (g, group) in enumerate(EnzymeRates.steps(mech))
         for (within, s) in enumerate(group)
-            bm = EnzymeRates.bound_metabolite(s)
-            if bm isa EnzymeRates.Product &&
-               bm in EnzymeRates.bound(EnzymeRates.to_species(s))
+            if EnzymeRates.bound_metabolite(s) isa EnzymeRates.Product
                 push!(swap_idxs, flat_idx[g][within])
             end
         end
@@ -1262,6 +1278,10 @@ const _testhelper_fused_cases = [
             steps: begin
             E + A ⇌ E(A); E(A) + B <--> E(A, B); E(A, B) <--> E(Q) + P; E(Q) <--> E + Q
             E + A::Inh ⇌ E(A::Inh); E(Q) + A::Inh <--> E(A::Inh, Q) end end),
+        # a fused and a plain binding of B share one rapid-equilibrium kinetic group
+        @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
+            E + A <--> E(A); (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))
+            E(Q) + P <--> E(P, Q); E + Q ⇌ E(Q) end end),
 ]
 
 @testset "fused steps derive the mass-action rate" begin

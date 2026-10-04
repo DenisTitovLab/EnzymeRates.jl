@@ -156,14 +156,14 @@ end
 The moves take the isomerization step as the chemistry step, which is how the
 enumerator writes every mechanism: chemistry isomerizes to a product-bound form
 and each binding or release is its own step. A parent may therefore contain
-only pure bindings (`is_binding`, which may change the enzyme's conformation but
-never its covalent residual) and isomerizations (`is_iso`); a mechanism written
-for the derivation with chemistry folded into a binding or release step is not
-a valid parent.
+only plain bindings (`_is_chemistry` false: the bound form adds the metabolite and
+may change the enzyme's conformation, never its covalent residual) and
+isomerizations (`is_iso`); a mechanism written for the derivation with chemistry
+folded into a binding or release step is not a valid parent.
 """
 function _assert_chemistry_is_iso(m::Union{Mechanism, AllostericMechanism})
     for group in steps(m), s in group
-        is_binding(s) || is_iso(s) || error(
+        !_is_chemistry(s) || is_iso(s) || error(
             "step $(name(from_species(s))) → $(name(to_species(s))) folds chemistry " *
             "into a binding or release; the moves need the chemistry as an " *
             "isomerization and each binding or release as its own step")
@@ -1770,11 +1770,11 @@ end
 
 """
 The endpoint of `s` that does not carry the step's free metabolites: the form
-they bind to. `from_species(s)` when the step consumes a metabolite (a
-canonical binding, whose metabolite `to_species` carries), `to_species(s)` when
-it only releases one (a release step, including one where the metabolite is in
-neither endpoint's bound list), and `from_species(s)` for an iso step (both
-lists empty).
+they bind to. `from_species(s)` when the step consumes a metabolite (every
+binding, plain or fused, is stored with its metabolite consumed), `to_species(s)`
+when it only releases metabolites (two or more: a step releasing one is stored
+as the binding it reverses), and `from_species(s)` for an iso step (both lists
+empty).
 """
 function _context_form(s::Step)
     isempty(consumed(s)) || return from_species(s)
@@ -3024,7 +3024,7 @@ _binds_all_required(m::Union{Mechanism, AllostericMechanism},
 
 Structural invariants every valid Mechanism should satisfy:
 - Every group is non-empty
-- Every step is a pure binding (`is_binding`) or an isomerization (`is_iso`)
+- Every step is a plain binding (`_is_chemistry` false) or an isomerization (`is_iso`)
 """
 function _assert_mechanism_invariants(m::Mechanism)
     flat = collect(Iterators.flatten(steps(m)))
@@ -3033,9 +3033,9 @@ function _assert_mechanism_invariants(m::Mechanism)
         isempty(g) && error("empty kinetic group in Mechanism")
     end
     for s in flat
-        is_binding(s) || is_iso(s) || error(
+        !_is_chemistry(s) || is_iso(s) || error(
             "step $(name(from_species(s))) → $(name(to_species(s))) is neither " *
-            "a pure binding nor an isomerization")
+            "a plain binding nor an isomerization")
     end
 
     # Every declared substrate/product must appear in some step. Regulators

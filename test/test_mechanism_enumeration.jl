@@ -8176,14 +8176,16 @@ end
     @test EnzymeRates._context_form(first(a_group)) ==
           EnzymeRates.from_species(first(a_group))
     # _context_form: an SS dissociation step whose released metabolite is in
-    # neither endpoint's bound list (the Segel ping-pong step shape) puts
-    # the metabolite on to_species.
+    # neither endpoint's bound list (the Segel ping-pong step shape) is stored
+    # as the binding it reverses, F + P → E(A), so its context form is F, the
+    # form P binds to.
     ping_pong_step = EnzymeRates.Step(
         EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E),
         EnzymeRates.Species(EnzymeRates.Metabolite[], :F),
         EnzymeRates.Metabolite[], [EnzymeRates.Product(:P)], false)
     @test EnzymeRates._context_form(ping_pong_step) ==
-          EnzymeRates.to_species(ping_pong_step)
+          EnzymeRates.Species(EnzymeRates.Metabolite[], :F) ==
+          EnzymeRates.from_species(ping_pong_step)
     # A two-step group with one context has one bipartition; a group whose
     # source forms carry no other ligand has none.
     b_group = only(grp for grp in EnzymeRates.steps(m)

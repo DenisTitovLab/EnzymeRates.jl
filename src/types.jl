@@ -167,9 +167,12 @@ going `from_species → to_species` it takes up the metabolites in `consumed` fr
 solution and gives off those in `released`. Both lists may be empty (an
 isomerization) or non-empty (for example a Theorell–Chance step EA + B → EQ + P).
 `is_equilibrium` flags a rapid-equilibrium step (`true`) versus a steady-state
-step (`false`). A pure binding (`bound_metabolite`) is stored with its metabolite
-consumed, bound on `to_species`; every other step is oriented by the `Mechanism` /
-`AllostericMechanism` constructor. See CLAUDE.md "Canonical Step Form".
+step (`false`). A binding (`bound_metabolite`) takes up exactly one metabolite and
+gives off none, whatever happens to the enzyme's composition: a plain binding only
+adds the metabolite (E + A → E(A)), a fused one also runs chemistry
+(E(A) + B → E(P, Q)). A binding is stored with its metabolite consumed; every other
+step is oriented by the `Mechanism` / `AllostericMechanism` constructor. See
+CLAUDE.md "Canonical Step Form".
 """
 struct Step
     from_species::Species
@@ -188,11 +191,11 @@ struct Step
         isempty(shared) || error(
             "Step $(name(from_species)) → $(name(to_species)): " *
             "$(join(name.(shared), ", ")) both consumed and released")
-        # A pure release is stored as the binding it reverses (metabolite on
-        # `to`), so a binding written in either direction dedups to the same
-        # Step; binding constants are named after the step's two sides, not
-        # its written direction. See CLAUDE.md "Canonical Step Form".
-        if isempty(c) && length(r) == 1 && _binds_ligand(to_species, from_species, only(r))
+        # A step that only gives off one metabolite is stored as the binding it
+        # reverses (metabolite consumed), so a binding written in either direction
+        # dedups to the same Step; binding constants are named after the step's
+        # two sides, not its written direction. See CLAUDE.md "Canonical Step Form".
+        if isempty(c) && length(r) == 1
             from_species, to_species, c, r = to_species, from_species, r, c
         end
         new(from_species, to_species, c, r, is_equilibrium)
@@ -205,16 +208,23 @@ consumed(s::Step)       = s.consumed
 released(s::Step)       = s.released
 is_equilibrium(s::Step) = s.is_equilibrium
 
-"""The metabolite a pure binding step binds (it consumes exactly that metabolite,
-releases nothing, and `to_species` is `from_species` with it bound); `nothing` for
-every other step."""
+"""The metabolite a binding step binds: it takes up exactly that metabolite and
+gives off none, whether `to_species` is `from_species` with it bound (a plain
+binding) or the enzyme's composition changes beyond it (a fused binding);
+`nothing` for every other step."""
 function bound_metabolite(s::Step)
-    length(s.consumed) == 1 && isempty(s.released) || return nothing
-    m = only(s.consumed)
-    _binds_ligand(s.from_species, s.to_species, m) ? m : nothing
+    length(s.consumed) == 1 && isempty(s.released) ? only(s.consumed) : nothing
 end
 is_binding(s::Step) = bound_metabolite(s) !== nothing
 is_iso(s::Step)     = isempty(s.consumed) && isempty(s.released)
+
+"""Whether `s` changes the enzyme beyond the metabolite it binds: an isomerization,
+a fused binding (`E(A) + B → E(P, Q)`) or a Theorell–Chance step; every step but a
+plain binding, whose `to_species` is its `from_species` with the metabolite added."""
+function _is_chemistry(s::Step)
+    m = bound_metabolite(s)
+    m === nothing || !_binds_ligand(from_species(s), to_species(s), m)
+end
 
 Base.:(==)(a::Step, b::Step) =
     a.from_species == b.from_species && a.to_species == b.to_species &&
@@ -502,8 +512,9 @@ end
 Classify a species by the metabolites that enter or leave solution at it:
 the consumed metabolites of every step leaving it (its `from_species`) and
 the released metabolites of every step arriving at it (its `to_species`). A
-pure binding is stored with its metabolite consumed, so it marks its free
-form; a fused release E(S) → F + P marks F, the form P leaves at. Reversing a
+binding is stored with its metabolite consumed, so it marks the form the
+metabolite binds to; a fused release E(S) → F + P, stored as the binding
+F + P → E(S), marks F, the form P leaves at. Reversing a
 step swaps its forms and its lists together, so the classification does not
 depend on how any step was written. Isomerizations carry no free metabolites
 and mark nothing. Used by `_canonical_step_direction` Tier 2 to decide
@@ -540,7 +551,7 @@ Canonicalize a non-binding step's storage direction to physical-forward, so
 `from` is further from product-release / closer to substrate-binding.
 Applies to RE AND SS steps — the direction question is identical;
 only the parameter count differs. (All binding steps — RE and SS —
-are canonicalized bound-metabolite-on-`to` by the Step constructor; this
+are stored with their metabolite consumed by the Step constructor; this
 function orients every other step: isomerizations and transformations.)
 Reversing a step swaps its forms and its lists, and every tier reads the
 two sides symmetrically, so the result does not depend on how the step was
@@ -641,21 +652,17 @@ _forward_sides(s::Step) = (_side_label(from_species(s), consumed(s)),
                            _side_label(to_species(s), released(s)))
 
 """
-The kind of a step for kinetic grouping: `(:binding, m)` for a pure binding of
-`m`, `(:iso,)` for an isomerization, and `(:transformation, consumed, released)`
-for every other step. Steps that share a kinetic group share their constants, so
-they must be the same kind of reaction.
+The kind of a step for kinetic grouping: the metabolites it takes up and gives off,
+`(consumed, released)`. Steps that share a kinetic group share their constants, so
+they must take up and give off the same metabolites: two bindings of `m` share a
+kind whether or not either runs chemistry, and every isomerization is one kind.
 """
-function _step_kind(s::Step)
-    m = bound_metabolite(s)
-    m !== nothing && return (:binding, m)
-    is_iso(s) && return (:iso,)
-    (:transformation, consumed(s), released(s))
-end
+_step_kind(s::Step) = (consumed(s), released(s))
 
 """
-Error unless every kinetic group holds steps of one kind (`_step_kind`) with one
-RE/SS flag: a shared constant means the same reaction type at the same speed.
+Error unless the steps of every kinetic group take up and give off the same
+metabolites (`_step_kind`) and carry one RE/SS flag: a shared constant means the
+same reaction type at the same speed.
 """
 function _assert_uniform_groups(steps::Vector{Vector{Step}})
     label(s) = join(_forward_sides(s), " → ") * (is_equilibrium(s) ? " (RE)" : " (SS)")
@@ -1375,7 +1382,8 @@ function Base.show(io::IO, m::EnzymeMechanism)
     if is_linear
         subs = Set{Symbol}(substrates(m))
         remaining = collect(Rxns)
-        remaining_binds = [is_binding(s) for group in steps(Mechanism(m)) for s in group]
+        remaining_binds =
+            [!_is_chemistry(s) for group in steps(Mechanism(m)) for s in group]
         current = start
         while !isempty(remaining)
             idx = nothing
@@ -1399,9 +1407,9 @@ function Base.show(io::IO, m::EnzymeMechanism)
             deleteat!(remaining_binds, idx)
             a, b = _enz_forms(lhs, rhs)
             # Only the first step prints its entry side. A later step may leave
-            # its entry-side metabolites unprinted only if it is a pure binding,
-            # whose bound form names the metabolite; any other step (e.g. a
-            # Theorell–Chance step) needs the multi-line rendering.
+            # its entry-side metabolites unprinted only if it is a plain binding,
+            # whose bound form names the metabolite; any other step (e.g. a fused
+            # binding or a Theorell–Chance step) needs the multi-line rendering.
             !isempty(chain_segments) && length(current == a ? lhs : rhs) > 1 &&
                 !binds && (is_linear = false; break)
             in_side  = current == a ? join(lhs, " + ") : join(rhs, " + ")
@@ -1917,9 +1925,9 @@ over group representatives: `_enumerate_parameters_full`,
 and `_ss_rate_constant_names`.
 
 Returns 1 element for RE steps (`Kd` or `Kiso`) and 2 elements for SS
-steps (`Kon`+`Koff` or `Kfor`+`Krev`). A binding takes `Kd` / `Kon`+`Koff`;
-every other step — an isomerization, a Theorell–Chance step, a fused step —
-takes `Kiso` / `Kfor`+`Krev`.
+steps (`Kon`+`Koff` or `Kfor`+`Krev`). A binding, plain or fused, takes `Kd` /
+`Kon`+`Koff`; every other step — an isomerization, a Theorell–Chance step, a step
+with two metabolites on one side — takes `Kiso` / `Kfor`+`Krev`.
 """
 function _emit_cat_params_for_rep(rep::Step, state::Symbol)
     if is_equilibrium(rep)

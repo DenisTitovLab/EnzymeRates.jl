@@ -1805,29 +1805,31 @@ end
     E, EA = _testhelper_sp([]), _testhelper_sp([A])
     EQ, EAB = _testhelper_sp([Q]), _testhelper_sp([A, B])
 
-    @testset "pure binding keeps its written orientation" begin
+    @testset "plain binding keeps its written orientation" begin
         s = ER.Step(E, EA, [A], ER.Metabolite[], true)
         @test ER.from_species(s) == E && ER.to_species(s) == EA
         @test ER.consumed(s) == ER.Metabolite[A] && isempty(ER.released(s))
         @test ER.bound_metabolite(s) == A && ER.is_binding(s) && !ER.is_iso(s)
     end
 
-    @testset "a pure release is stored as the binding it reverses" begin
+    @testset "a plain release is stored as the binding it reverses" begin
         s = ER.Step(EA, E, ER.Metabolite[], [A], false)
         @test s == ER.Step(E, EA, [A], ER.Metabolite[], false)
         # conformation change allowed: E*(A) → E + A is the binding E + A → E*(A)
         Estar_A = _testhelper_sp([A], :Estar)
         r = ER.Step(Estar_A, E, ER.Metabolite[], [A], true)
         @test ER.from_species(r) == E && ER.to_species(r) == Estar_A
-        @test ER.bound_metabolite(r) == A
+        @test ER.bound_metabolite(r) == A && !ER._is_chemistry(r)
     end
 
     @testset "isomerization and transformations" begin
         iso = ER.Step(EAB, _testhelper_sp([P, Q]), ER.Metabolite[], ER.Metabolite[], false)
         @test ER.is_iso(iso) && ER.bound_metabolite(iso) === nothing && !ER.is_binding(iso)
-        fused = ER.Step(EAB, EQ, ER.Metabolite[], [P], false)        # chemistry + release
-        @test !ER.is_iso(fused) && ER.bound_metabolite(fused) === nothing
-        @test ER.released(fused) == ER.Metabolite[P]
+        # Chemistry + release, stored as the fused binding of P it reverses.
+        fused = ER.Step(EAB, EQ, ER.Metabolite[], [P], false)
+        @test !ER.is_iso(fused) && ER.bound_metabolite(fused) == P
+        @test ER.from_species(fused) == EQ && ER.consumed(fused) == ER.Metabolite[P]
+        @test isempty(ER.released(fused)) && ER._is_chemistry(fused)
         tc = ER.Step(EA, EQ, [B], [P], false)                          # Theorell–Chance
         @test ER.consumed(tc) == ER.Metabolite[B] && ER.released(tc) == ER.Metabolite[P]
         @test ER.bound_metabolite(tc) === nothing
@@ -1839,9 +1841,12 @@ end
     @testset "covalent residual: binding onto a residual form vs chemistry" begin
         res = ER.Residual([A], [P])
         F, FB = _testhelper_sp([], :E, res), _testhelper_sp([B], :E, res)
-        @test ER.bound_metabolite(ER.Step(F, FB, [B], ER.Metabolite[], true)) == B
-        chem = ER.Step(EA, F, ER.Metabolite[], [P], false)            # E(A) → F + P
-        @test ER.bound_metabolite(chem) === nothing
+        onto_residual = ER.Step(F, FB, [B], ER.Metabolite[], true)
+        @test ER.bound_metabolite(onto_residual) == B && !ER._is_chemistry(onto_residual)
+        # E(A) → F + P is stored as the fused binding F + P → E(A) it reverses.
+        chem = ER.Step(EA, F, ER.Metabolite[], [P], false)
+        @test ER.bound_metabolite(chem) == P && ER.from_species(chem) == F
+        @test ER._is_chemistry(chem)
         m = ER.Mechanism(
             @enzyme_reaction(begin
                 substrates: A[CX], B[N]
@@ -1883,6 +1888,40 @@ end
         tc = ER.Step(EA, EQ, [B], [P], false)
         @test ER._step_from_sig(ER._to_sig(tc)) == tc
     end
+end
+
+@testset "a step that takes up one metabolite and gives off none binds it" begin
+    sp(mets...) = ER.Species(ER.Metabolite[mets...], :E)
+    A, B, P, Q = ER.Substrate(:A), ER.Substrate(:B), ER.Product(:P), ER.Product(:Q)
+    plain = ER.Step(sp(), sp(A), ER.Metabolite[A], ER.Metabolite[], true)
+    @test ER.bound_metabolite(plain) == A && !ER._is_chemistry(plain)
+    fused = ER.Step(sp(A), sp(P, Q), ER.Metabolite[B], ER.Metabolite[], true)
+    @test ER.bound_metabolite(fused) == B && ER._is_chemistry(fused)
+    # A step that only gives off one metabolite is stored as the binding it reverses.
+    release = ER.Step(sp(A, B), sp(Q), ER.Metabolite[], ER.Metabolite[P], false)
+    @test ER.from_species(release) == sp(Q) && ER.to_species(release) == sp(A, B)
+    @test ER.consumed(release) == ER.Metabolite[P] && ER._is_chemistry(release)
+    tc = ER.Step(sp(A), sp(Q), ER.Metabolite[B], ER.Metabolite[P], false)
+    @test ER.bound_metabolite(tc) === nothing && ER._is_chemistry(tc)
+    iso = ER.Step(sp(A, B), sp(P, Q), ER.Metabolite[], ER.Metabolite[], false)
+    @test ER.bound_metabolite(iso) === nothing && ER._is_chemistry(iso)
+end
+
+@testset "a fused and a plain binding of one metabolite share a kinetic group" begin
+    # Merged decorated ordered bi-bi, variant {A, Pˣ}: the B group holds the fused
+    # E(A) + B → E(P, Q) and the dead-end E(Q) + B ⇌ E(B, Q). Fitted: A (2) + B (1)
+    # + P (2) + Q (1) − 1 Haldane = 5.
+    em = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))
+            E(Q) + P <--> E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end
+    @test length(EnzymeRates.fitted_params(em)) == 5
 end
 
 @testset "kinetic groups hold one kind of step with one flag" begin
@@ -2038,7 +2077,7 @@ end
     @test occursin("holds the reaction ES ⇌ EP twice", err.msg)
 end
 
-@testset "transformation steps are named by their sides" begin
+@testset "fused steps are named by their sides" begin
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2051,12 +2090,13 @@ end
     end
     names = Set(ER.parameters(m, ER.Full))
     @test :k_EAB_to_EQ_P in names && :k_EQ_P_to_EAB in names
-    # The fused release E(A, B) → E(Q) + P is a transformation, not a binding of P.
+    # The fused release E(A, B) → E(Q) + P is stored as the binding of P it
+    # reverses, E(Q) + P → E(A, B), so it takes a binding's rate constants.
     mech = ER.Mechanism(m)
-    i = only(i for (i, (s, _)) in enumerate(ER._flat_steps(mech))
-             if !ER.is_binding(s) && !ER.is_iso(s))
-    kf, kr = ER._step_parameters(mech)[i]
-    @test kf isa ER.Kfor && kr isa ER.Krev
+    i = only(i for (i, (s, _)) in enumerate(ER._flat_steps(mech)) if ER._is_chemistry(s))
+    kon, koff = ER._step_parameters(mech)[i]
+    @test kon isa ER.Kon && koff isa ER.Koff
+    @test ER.name(kon, mech) == :k_EQ_P_to_EAB && ER.name(koff, mech) == :k_EAB_to_EQ_P
     @test :k_E_A_to_EA in names && :k_EQ_to_E_Q in names
 end
 
@@ -2109,7 +2149,9 @@ end
         end
     end
     @test :K_ES_to_EP in full_names(re_iso)
-    # An RE fused release is named in its canonical direction, not as a binding.
+    # An RE fused release is stored as the binding of P it reverses, so its
+    # constant is a dissociation constant, [EQ]·[P]/[EAB], named in the release
+    # direction.
     re_fused = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2121,6 +2163,17 @@ end
         end
     end
     @test :K_EAB_to_EQ_P in full_names(re_fused)
+    # An RE fused binding takes a dissociation constant too, [E]·[S]/[EP], named in
+    # the release direction like a plain binding's.
+    re_fused_binding = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(P)
+            E(P) <--> E + P
+        end
+    end
+    @test :K_EP_to_E_S in full_names(re_fused_binding)
     # A competitive-inhibitor copy of A and A itself bind E without colliding.
     inh = @enzyme_mechanism begin
         substrates: A

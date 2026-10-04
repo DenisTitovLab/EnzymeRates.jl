@@ -542,7 +542,7 @@
 
         # Numeric check: same as Uni-Uni spot check
         Keq = 3.2 * 2.5 / (0.8 * 1.1)
-        params = (k_E_S_to_ES=3.2, k_ES_to_E_P=2.5, k_E_P_to_ES=1.1, Keq=Keq, E_total=1.0)
+        params = (k_E_S_to_ES=3.2, k_ES_to_E_S=0.8, k_E_P_to_ES=1.1, Keq=Keq, E_total=1.0)
         concs = (S=0.7, P=0.3)
         @test rate_equation(m, concs, params) ≈ 0.9091 atol=0.001
 
@@ -705,7 +705,7 @@
     @testset "fused catalytic release: metabolite in neither bound list dissociates" begin
         # E(A) <--> E(Q) + P : P is produced by the step (in neither E(A) nor
         # E(Q) bound list, and both sides are 1-bound). It must reconstruct as
-        # a release (P on the rhs), not a binding.
+        # leaving at E(Q), stored as the binding it reverses: E(Q) + P → E(A).
         m = @enzyme_mechanism begin
             substrates: A
             products: P, Q
@@ -717,11 +717,10 @@
         end
         rxns = EnzymeRates.reactions(m)
         # The P-releasing step (canonical order, so found by content):
-        # E(A) <--> E(Q) + P.
+        # E(Q) + P → E(A).
         mid = only(r for r in rxns if :P in r[1] || :P in r[2])
-        @test mid[1] == (:EA,)  # lhs: only the enzyme form
-        @test :P in mid[2]       # P released (rhs)
-        @test :P ∉ mid[1]        # P not consumed (lhs)
+        @test mid[1] == (:EQ, :P)  # lhs: E(Q) takes up P
+        @test mid[2] == (:EA,)     # rhs: only the enzyme form
     end
 
     @testset "several metabolites on a step side" begin

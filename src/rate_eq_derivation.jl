@@ -117,8 +117,8 @@ function _build_wegscheider_rename_map(mech::Mechanism)
     rename = Dict{Symbol, Symbol}()
     step_params = _step_parameters(mech)
     # binding-K set: value-context rep name of each RE binding step. Walk
-    # Mechanism.steps directly — an RE step that is a pure binding
-    # (`is_binding`) is a binding step; step_params is indexed in the same
+    # Mechanism.steps directly — an RE step that is a binding (`is_binding`,
+    # plain or fused) is a binding step; step_params is indexed in the same
     # flat order.
     binding_set = Set{Symbol}()
     for (idx, (s, _)) in enumerate(_flat_steps(mech))
@@ -223,7 +223,7 @@ end
     _re_weight_ratio(s, K; inverse = false) -> POLY
 
 w(to)/w(from) of rapid-equilibrium step `s` as a monomial (its inverse when
-`inverse`): [M]/K for a pure binding of M (K a dissociation constant), and
+`inverse`): [M]/K for a binding of M, plain or fused (K a dissociation constant), and
 K·Π[consumed]/Π[released] for every other step (K the equilibrium constant of the
 stored direction, products over reactants: [to]·Π[released] / ([from]·Π[consumed]),
 as its name `K_<from>_to_<to>` says).

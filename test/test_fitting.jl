@@ -5,6 +5,9 @@ using Tables
 @testset "Fitting" begin
 
     # ── Helper: build a Uni-Uni mechanism ─────────────────────────────────────
+    # Fitted: k_E_S_to_ES, k_ES_to_E_S, k_E_P_to_ES. The true points below put
+    # k_ES_to_E_S = 25 at Keq = 2, so the Haldane-derived catalytic rate is
+    # k_ES_to_E_P = Keq·k_ES_to_E_S·k_E_P_to_ES/k_E_S_to_ES = 5.
     uni_uni = @enzyme_mechanism begin
         substrates: S
         products:   P
@@ -47,7 +50,7 @@ using Tables
     # ── Test 2: FittingProblem construction ───────────────────────────────────
     @testset "Construction" begin
         Keq_val = 2.0
-        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_P = 5.0, k_E_P_to_ES = 1.0,
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_E_P_to_ES = 1.0,
                        Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
@@ -68,7 +71,7 @@ using Tables
     # ── Test 3: Loss function correctness ─────────────────────────────────────
     @testset "Loss at true params is zero" begin
         Keq_val = 2.0
-        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_P = 5.0, k_E_P_to_ES = 1.0,
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_E_P_to_ES = 1.0,
                        Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
@@ -90,7 +93,7 @@ using Tables
     # ── Test 4: Per-group centering invariance ───────────────────────────────
     @testset "Centering invariance" begin
         Keq_val = 2.0
-        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_P = 5.0, k_E_P_to_ES = 1.0,
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_E_P_to_ES = 1.0,
                        Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
@@ -122,7 +125,7 @@ using Tables
     # ── Test 5: Multi-group centering invariance ─────────────────────────────
     @testset "Multi-group centering invariance" begin
         Keq_val = 2.0
-        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_P = 5.0, k_E_P_to_ES = 1.0,
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_E_P_to_ES = 1.0,
                        Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
@@ -156,7 +159,7 @@ using Tables
     # ── Absolute mode: uncentered loss (scale_k_to_kcat=nothing) ──────────────
     @testset "Absolute mode uncentered loss" begin
         Keq_val = 2.0
-        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_P = 5.0, k_E_P_to_ES = 1.0,
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_E_P_to_ES = 1.0,
                        Keq = Keq_val, E_total = 1.0)
         concs_list = [
             (S = 1.0, P = 0.1), (S = 2.0, P = 0.1), (S = 5.0, P = 0.1),
@@ -254,7 +257,7 @@ using Tables
     # ── Test 7: Zero allocations ──────────────────────────────────────────────
     @testset "Zero allocations" begin
         Keq_val = 2.0
-        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_P = 5.0, k_E_P_to_ES = 1.0,
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_E_P_to_ES = 1.0,
                        Keq = Keq_val, E_total = 1.0)
 
         concs_list = [(S = Float64(i), P = 0.1) for i in 1:20]
@@ -334,7 +337,7 @@ using Tables
     @testset "scale_k_to_kcat normalization" begin
         using OptimizationBBO
         Keq_val = 2.0
-        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_P = 5.0, k_E_P_to_ES = 1.0,
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_E_P_to_ES = 1.0,
                        Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
@@ -372,7 +375,7 @@ using Tables
     @testset "fit_rate_equation kcat rescaling" begin
         using OptimizationBBO
         Keq_val = 2.0
-        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_P = 5.0, k_E_P_to_ES = 1.0,
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_E_P_to_ES = 1.0,
                        Keq = Keq_val, E_total = 1.0)
         concs_list = [
             (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
@@ -401,7 +404,7 @@ using Tables
     @testset "solver kwarg forwarding" begin
         using OptimizationCMAEvolutionStrategy
         Keq_val = 2.0
-        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_P = 5.0, k_E_P_to_ES = 1.0,
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_E_P_to_ES = 1.0,
             Keq = Keq_val, E_total = 1.0)
         concs_list = [
             (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
@@ -464,7 +467,7 @@ using Tables
         end
 
         Keq_val = 2.0
-        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_P = 5.0, k_E_P_to_ES = 1.0,
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_E_P_to_ES = 1.0,
             Keq = Keq_val, E_total = 1.0)
         concs_list = [(S = 1.0, P = 0.1), (S = 2.0, P = 0.1)]
         data = make_synthetic_data(uni_uni, true_params, concs_list)

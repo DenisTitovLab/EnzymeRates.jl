@@ -781,13 +781,13 @@ end
         end
     end
     fp = ER.fitted_params(allo)
-    @test fp == (:k_E_A_to_EA, Symbol("k_A_EA_to_E_res_+A_-P_P"),
-                 Symbol("k_A_E_res_+A_-P_P_to_EA"),
-                 Symbol("k_A_EB_res_+A_-P_to_E_Q"), Symbol("k_A_E_Q_to_EB_res_+A_-P"),
+    @test fp == (:k_E_A_to_EA, Symbol("k_A_E_Q_to_EB_res_+A_-P"),
+                 Symbol("k_A_EB_res_+A_-P_to_E_Q"), Symbol("k_A_E_res_+A_-P_P_to_EA"),
+                 Symbol("k_A_EA_to_E_res_+A_-P_P"),
                  Symbol("k_E_res_+A_-P_B_to_EB_res_+A_-P"),
                  Symbol("k_EB_res_+A_-P_to_E_res_+A_-P_B"),
-                 Symbol("k_I_EA_to_E_res_+A_-P_P"), Symbol("k_I_EB_res_+A_-P_to_E_Q"),
-                 Symbol("k_I_E_Q_to_EB_res_+A_-P"), :L)
+                 Symbol("k_I_E_Q_to_EB_res_+A_-P"), Symbol("k_I_E_res_+A_-P_P_to_EA"),
+                 Symbol("k_I_EA_to_E_res_+A_-P_P"), :L)
 
     rng = MersenneTwister(20260716)
     for _ in 1:6
@@ -798,24 +798,28 @@ end
         L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
         A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng); Q = 0.5+2rand(rng)
         # Map fitted_params -> ground-truth params. A step that releases a
-        # product while changing the residual is named by its two sides in its
-        # canonical orientation, substrate side first, E(A) → F + P, however the
-        # step is written, so `k_…_EA_to_E_res_…_P` is the forward
-        # (product-releasing) rate and `k_…_E_res_…_P_to_EA` the reverse
-        # (product-rebinding) one — the binding steps read the usual way round.
+        # product while changing the residual is stored as the binding it
+        # reverses, F + P → E(A), however the step is written; its rate constants
+        # are named by its two sides, so `k_…_EA_to_E_res_…_P` is the
+        # product-releasing rate and `k_…_E_res_…_P_to_EA` the product-rebinding
+        # one — the binding steps read the usual way round.
         #   k_E_A_to_EA=k1f                          (E + A ⇌ EA, shared)
         #   k_E_res_+A_-P_B_to_EB_res_+A_-P=k3f,
         #   k_EB_res_+A_-P_to_E_res_+A_-P_B=k3r      (F + B ⇌ FB, shared)
         #   k_A_EA_to_E_res_+A_-P_P=k2f_A,
         #   k_A_E_res_+A_-P_P_to_EA=k2r_A            (EA ⇌ F + P, active)
-        #   k_I_EA_to_E_res_+A_-P_P=k2f_I            (EA ⇌ F + P, inactive)
+        #   k_I_EA_to_E_res_+A_-P_P=k2f_I,
+        #   k_I_E_res_+A_-P_P_to_EA=k2r_I            (EA ⇌ F + P, inactive)
         #   k_A_EB_res_+A_-P_to_E_Q=k4f_A,
         #   k_A_E_Q_to_EB_res_+A_-P=k4r_A            (FB ⇌ E + Q, active)
         #   k_I_EB_res_+A_-P_to_E_Q=k4f_I,
         #   k_I_E_Q_to_EB_res_+A_-P=k4r_I            (FB ⇌ E + Q, inactive)
-        # `k_EA_to_E_A` and `k_I_E_res_+A_-P_P_to_EA` are absent from fitted_params:
-        # each conformation's Haldane makes one reverse constant dependent, and
-        # the oracle derives exactly those two.
+        # `k_EA_to_E_A` and `k_I_EB_res_+A_-P_to_E_Q` are absent from
+        # fitted_params: each conformation's Haldane makes one constant dependent.
+        # The oracle takes k4f_I and derives k2r_I by the inactive Haldane, so
+        # k2r_I is computed here the same way.
+        k1r = k1f * k2f_A * k3f * k4f_A / (Keq * k2r_A * k3r * k4r_A)
+        k2r_I = k1f * k2f_I * k3f * k4f_I / (Keq * k1r * k3r * k4r_I)
         d = Dict(:k_E_A_to_EA => k1f,
                  Symbol("k_E_res_+A_-P_B_to_EB_res_+A_-P") => k3f,
                  Symbol("k_EB_res_+A_-P_to_E_res_+A_-P_B") => k3r,
@@ -824,6 +828,7 @@ end
                  Symbol("k_A_EB_res_+A_-P_to_E_Q") => k4f_A,
                  Symbol("k_A_E_Q_to_EB_res_+A_-P") => k4r_A,
                  Symbol("k_I_EA_to_E_res_+A_-P_P") => k2f_I,
+                 Symbol("k_I_E_res_+A_-P_P_to_EA") => k2r_I,
                  Symbol("k_I_EB_res_+A_-P_to_E_Q") => k4f_I,
                  Symbol("k_I_E_Q_to_EB_res_+A_-P") => k4r_I,
                  :L => L)
