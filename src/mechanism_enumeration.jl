@@ -834,10 +834,8 @@ function _catalytic_topologies(
             # RE. Rebuild each Step with that tag (Step is immutable; direction
             # is unaffected by is_equilibrium).
             iso_idx = findfirst(is_iso, steps)
-            push!(result, Step[
-                Step(from_species(s), to_species(s),
-                     consumed(s), released(s), i != iso_idx)
-                for (i, s) in enumerate(steps)])
+            push!(result, Step[_with_equilibrium(s, i != iso_idx)
+                               for (i, s) in enumerate(steps)])
         end
     end
     result
@@ -1320,21 +1318,12 @@ Return a fresh `Vector{Vector{Step}}` matching `groups` but with every
 Step in group `g` rebuilt with `is_equilibrium=false`. All other groups
 are reused by reference (Step is immutable).
 """
-function _flip_group_to_ss(groups::Vector{Vector{Step}}, g::Int)
-    new_groups = Vector{Vector{Step}}()
-    for (gi, gr) in enumerate(groups)
-        if gi == g
-            flipped = Step[
-                Step(from_species(s), to_species(s),
-                     consumed(s), released(s), false)
-                for s in gr]
-            push!(new_groups, flipped)
-        else
-            push!(new_groups, gr)
-        end
-    end
-    new_groups
-end
+_flip_group_to_ss(groups::Vector{Vector{Step}}, g::Int) =
+    [gi == g ? _with_equilibrium.(gr, false) : gr for (gi, gr) in enumerate(groups)]
+
+"""`s` with its rapid-equilibrium flag set to `flag`."""
+_with_equilibrium(s::Step, flag::Bool) =
+    Step(from_species(s), to_species(s), consumed(s), released(s), flag)
 
 """
 Biconnected blocks of an undirected multigraph. `edges[e] = (u, v)` with
@@ -1382,8 +1371,20 @@ units on this graph: a step that carries no flux with every step steady-state
 carries none under any assignment (flips only refine segments), so a group with
 no such step can never flip usefully."""
 _all_steady_state(groups::Vector{Vector{Step}}) =
-    [Step[Step(from_species(s), to_species(s), consumed(s), released(s), false)
-          for s in group] for group in groups]
+    [_with_equilibrium.(group, false) for group in groups]
+
+"""`_re_segment_extras(groups)` with each form's index and segment: `(species, segments,
+extras, index, segment_of)`, where `index[sp]` is the form's position in `species` and
+`segment_of[i]` the segment holding form `i`."""
+function _indexed_re_segments(groups::Vector{Vector{Step}})
+    species, segments, extras = _re_segment_extras(groups)
+    index = Dict(sp => i for (i, sp) in enumerate(species))
+    segment_of = zeros(Int, length(species))
+    for (k, members) in enumerate(segments), i in members
+        segment_of[i] = k
+    end
+    species, segments, extras, index, segment_of
+end
 
 """
     _flux_carrying_steps(groups, rxn) -> Vector{BitVector}
@@ -1409,12 +1410,7 @@ enumerator emits is. The test reads each step's metabolite lists, so it holds fo
 fused and Theorell–Chance steps as well.
 """
 function _flux_carrying_steps(groups::Vector{Vector{Step}}, rxn::EnzymeReaction)
-    species, segments, extras = _re_segment_extras(groups)
-    idx = Dict(sp => i for (i, sp) in enumerate(species))
-    seg = zeros(Int, length(species))
-    for (k, members) in enumerate(segments), i in members
-        seg[i] = k
-    end
+    species, segments, extras, idx, seg = _indexed_re_segments(groups)
     rho = Dict{Symbol, Int}()
     for s in substrates(rxn); rho[name(s)] = get(rho, name(s), 0) + 1; end
     for p in products(rxn);   rho[name(p)] = get(rho, name(p), 0) - 1; end
@@ -1531,12 +1527,7 @@ function _hyperbolic_catalysis(m::Union{Mechanism, AllostericMechanism})
     on_catalytic_site(s) = !any(b -> b isa Regulator,
                                 vcat(bound(from_species(s)), bound(to_species(s))))
     groups = filter(!isempty, [filter(on_catalytic_site, group) for group in steps(m)])
-    species, segments, extras = _re_segment_extras(groups)
-    idx = Dict(sp => i for (i, sp) in enumerate(species))
-    seg_of = zeros(Int, length(species))
-    for (k, segment) in enumerate(segments), i in segment
-        seg_of[i] = k
-    end
+    species, segments, extras, idx, seg_of = _indexed_re_segments(groups)
     # Directed segment-graph edges: source segment, target segment, source form,
     # metabolites bound in that direction.
     edges = Tuple{Int, Int, Int, Vector{Symbol}}[]
@@ -1757,12 +1748,9 @@ function _split_gain_test(m::Mechanism, units)
         next_id = length(steps(m))
         for u in sel
             next_id += 1
-            for s in units[u][2][1]
-                kinds[position[reaction_key(s)]] = _count_kind(s)
-            end
-            for s in units[u][2][2]
+            for (part_number, part) in enumerate(units[u][2]), s in part
                 j = position[reaction_key(s)]
-                ids[j] = next_id
+                part_number == 2 && (ids[j] = next_id)
                 kinds[j] = _count_kind(s)
             end
         end
@@ -1873,8 +1861,7 @@ function _revert_zero_flux_parts(group::Vector{Step}, bp, flags::BitVector)
     is_equilibrium(first(group)) && return bp
     carries = Dict(s => flags[j] for (j, s) in enumerate(group))
     revert(part) = any(s -> carries[s], part) ? part :
-        Step[Step(from_species(s), to_species(s), consumed(s), released(s), true)
-             for s in part]
+        _with_equilibrium.(part, true)
     p1, p2 = revert(bp[1]), revert(bp[2])
     p1 === bp[1] && p2 === bp[2] ? bp : (p1, p2)
 end
@@ -1895,21 +1882,6 @@ function _bipartitioned_groups(groups::Vector{Vector{Step}}, selection)
     end
     out, origin
 end
-
-"""
-Composition of a form with `extra` bound as well: the sorted names of its bound
-metabolites, a competitive-inhibitor copy counting as the reactant it copies, with
-its conformation and residual. Among a copy complex's twins, the one of the complex's
-composition holds the same ligands in the same conformation (`_productive_twin`
-prefers it).
-"""
-_composition(sp::Species, extra::Metabolite...) =
-    (sort!(vcat(Symbol[name(b) for b in bound(sp)], Symbol[name(x) for x in extra])),
-     conformation(sp), residual(sp))
-
-"""The complex `ligand` forms at `site`, in the site's conformation and residual."""
-_copy_complex(site::Species, ligand::Metabolite) =
-    Species(Metabolite[bound(site)..., ligand], conformation(site), residual(site))
 
 """
     _productive_twin(groups) -> (site, ligand) -> Union{Species, Nothing}
@@ -1934,21 +1906,21 @@ the sites that pin either copy may keep both constants separable, so such a matc
 makes a twin.
 """
 function _productive_twin(groups::Vector{Vector{Step}})
-    species, segments, extras = _re_segment_extras(groups)
-    idx = Dict(sp => i for (i, sp) in enumerate(species))
-    seg = zeros(Int, length(species))
-    for (k, members) in enumerate(segments), i in members
-        seg[i] = k
-    end
+    species, segments, extras, idx, seg = _indexed_re_segments(groups)
     productive(sp) = !any(b -> b isa CompetitiveInhibitor, bound(sp))
+    # Sorted names of a form's bound metabolites with `extra` also bound (a copy counts as
+    # the reactant it copies), with its conformation and residual.
+    composition(sp::Species, extra::Metabolite...) =
+        (sort!(vcat(Symbol[name(b) for b in bound(sp)],
+                    Symbol[name(x) for x in extra])), conformation(sp), residual(sp))
     function (site::Species, ligand::Metabolite)
         i = idx[site]
         target = mergewith(+, extras[i], Dict(name(ligand) => 1))
         twins = [species[j] for j in segments[seg[i]]
                  if productive(species[j]) && extras[j] == target]
         isempty(twins) && return nothing
-        composition = _composition(site, ligand)
-        k = findfirst(t -> _composition(t) == composition, twins)
+        wanted = composition(site, ligand)
+        k = findfirst(t -> composition(t) == wanted, twins)
         k === nothing ? argmin(name, twins) : twins[k]
     end
 end
@@ -2095,11 +2067,14 @@ not redundant: a group that forms or leaves a twin also binds where no copy does
 group that pins the existing binding), a group holds a step that leaves a complex beside
 one that leaves another form (a second copy bound at the complex and at a twin), or a
 mirror is steady-state. The gauge is the proof that the copy's constant is invisible, and
-without it the constant may be identifiable.
+without it the constant may be identifiable. Two copies that are twins only of each other,
+neither pinned, pass the test and carry a phantom: the rule admits them.
 
 An allosteric copy binds the active state always and the inactive state unless its tag
-is `:OnlyA`; in the inactive state, the graph of `_state_mechanism(am, :I)`, it binds
-only at the sites that graph keeps, its free enzyme always among them, and where it binds
+is `:OnlyA`; in the inactive state, the graph of `_state_mechanism(am, :I)` (the steps
+of the non-`:OnlyA` groups between forms reachable from the free enzyme,
+`_reachable_from_free`), it binds only at the sites that graph keeps, its free enzyme
+always among them, and where it binds
 nothing every factor of that state is 1. The two states form one system: a
 group tagged `:EqualAI` has one set of constants in both, so it must take the same
 rescaling in each, and a shared class is one number in both states only when its
@@ -2121,9 +2096,12 @@ function _redundant_copy_groups(am::AllostericMechanism)
     any(group -> bound_metabolite(first(group)) isa CompetitiveInhibitor, active) ||
         return Int[]
     tags = cat_allo_states(am)
-    sides(s) = minmax(_forward_sides(s)...)
-    kept = Set(sides(s) for group in steps(_state_mechanism(am, :I)) for s in group)
-    inactive = [Step[s for s in group if sides(s) in kept] for group in active]
+    reachable = _reachable_from_free(
+        [group for (g, group) in enumerate(active) if tags[g] !== :OnlyA])
+    inactive = [tags[g] === :OnlyA ? Step[] :
+                Step[s for s in group if name(from_species(s)) in reachable &&
+                                         name(to_species(s)) in reachable]
+                for (g, group) in enumerate(active)]
     twin_active, twin_inactive = _productive_twin(active), _productive_twin(inactive)
     filter(collect(eachindex(active))) do g
         _all_twin(active, g, twin_active) || return false
@@ -2131,12 +2109,12 @@ function _redundant_copy_groups(am::AllostericMechanism)
         label(state) = c -> one_number(c) ? c : (state, c)
         rescaling_active = _gauge_rescaling(active, g, twin_active, label(:A))
         rescaling_active === nothing && return false
-        binds_inactive = tags[g] !== :OnlyA && !isempty(inactive[g])
+        binds_inactive = !isempty(inactive[g])
         binds_inactive && !_all_twin(inactive, g, twin_inactive) && return false
         rescaling_inactive = binds_inactive ?
             _gauge_rescaling(inactive, g, twin_inactive, label(:I)) :
             Dict(h => (nothing, nothing) for h in eachindex(inactive)
-                 if h != g && !isempty(inactive[h]))
+                 if !isempty(inactive[h]))
         rescaling_inactive === nothing && return false
         all(h -> tags[h] !== :EqualAI || !haskey(rescaling_inactive, h) ||
                  isequal(rescaling_active[h], rescaling_inactive[h]),
@@ -2179,62 +2157,6 @@ function _add_competitive_inhibitor(rxn::EnzymeReaction, reg_name::Symbol)
 end
 
 """
-    _expand_add_dead_end_regulator(m::Mechanism, rxn::EnzymeReaction;
-                                   exclude_regs) → Vector{Mechanism}
-    _expand_add_dead_end_regulator(am::AllostericMechanism,
-                                   rxn::EnzymeReaction; exclude_regs) →
-        Vector{AllostericMechanism}
-
-Add a dead-end regulator binding step set. For each `CompetitiveInhibitor`
-declared in `rxn` but not yet bound by `m`'s steps, enumerate inhibitor
-competition patterns (S × P × existing inhibitors); for each pattern,
-add RE binding steps to the forms where a competing metabolite binds, unless
-the form already holds a competing metabolite or holds every substrate or every
-product. Competition is decided per site, not per name. A substrate or product
-declared as a competitive inhibitor is a copy that binds a dead-end site of its
-own, and that site and the reactant's catalytic site are different sites by
-definition. Competition with a substrate or product M targets the forms where
-M binds productively and excludes the forms that hold M productively;
-competition with an existing inhibitor I targets the forms where I binds as a
-`CompetitiveInhibitor` (its binding steps' source forms) and excludes the forms
-that hold I; the capacity test counts productive bindings only. A form that
-carries only the copy of M is therefore a site for an inhibitor that competes
-with M. Mirror steps inherit their catalytic counterpart's `kinetic_group`. All
-new binding steps for a single regulator share one fresh trailing kinetic group
-(one K_R parameter).
-A pattern is skipped when its child binds the new copy redundantly
-(`_redundant_copy_groups`, through `_dead_end_child` on a `Mechanism` candidate via
-`_gauge_rescaling`, and directly on an allosteric child).
-
-The caller must pass the declared `rxn` because `m.reaction` only
-carries regulators already bound by its steps; not-yet-bound regulators
-live exclusively in the declared reaction. The new `Mechanism`'s
-reaction is `rxn` extended with the newly-bound regulator (preserving
-the substrate / product / multiplicity payload).
-"""
-function _expand_add_dead_end_regulator(
-    m::Mechanism, rxn::EnzymeReaction;
-    exclude_regs::Set{Symbol}=Set{Symbol}(),
-)
-    _expand_add_dead_end_regulator_native(m, rxn, Set{Symbol}();
-                                          exclude_regs=exclude_regs)
-end
-
-function _expand_add_dead_end_regulator(
-    am::AllostericMechanism, rxn::EnzymeReaction;
-    exclude_regs::Set{Symbol}=Set{Symbol}(),
-)
-    # Allosteric ligands are excluded — dead-end is not the right move
-    # for them (they belong on a regulatory site).
-    allo_ligands = Set{Symbol}()
-    for site in regulatory_sites(am), lig in ligands(site)
-        push!(allo_ligands, name(lig))
-    end
-    _expand_add_dead_end_regulator_native(am, rxn, allo_ligands;
-                                          exclude_regs=exclude_regs)
-end
-
-"""
 The dead-end move's child of `m`: `groups`, `m`'s groups with the new copy's mirrors
 and the copy's group last, on reaction `rxn`; `nothing` when the new copy is redundant
 in it (`_redundant_copy_groups`), which needs every site a twin (`all_twin`, judged
@@ -2260,18 +2182,47 @@ function _dead_end_child(am::AllostericMechanism, groups::Vector{Vector{Step}},
 end
 
 """
-Shared kernel for the Mechanism / AllostericMechanism dead-end
-expansion. `additional_excluded` carries allosteric ligand names that
-should not be eligible (empty for plain `Mechanism`). Returns the children
-(`_dead_end_child`), of `m`'s type.
+    _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism},
+                                   rxn::EnzymeReaction; exclude_regs) →
+        Vector{typeof(m)}
+
+Add a dead-end regulator binding step set. For each `CompetitiveInhibitor`
+declared in `rxn` but not yet bound by `m`'s steps, enumerate inhibitor
+competition patterns (S × P × existing inhibitors); for each pattern,
+add RE binding steps to the forms where a competing metabolite binds, unless
+the form already holds a competing metabolite or holds every substrate or every
+product. Competition is decided per site, not per name. A substrate or product
+declared as a competitive inhibitor is a copy that binds a dead-end site of its
+own, and that site and the reactant's catalytic site are different sites by
+definition. Competition with a substrate or product M targets the forms where
+M binds productively and excludes the forms that hold M productively;
+competition with an existing inhibitor I targets the forms where I binds as a
+`CompetitiveInhibitor` (its binding steps' source forms) and excludes the forms
+that hold I; the capacity test counts productive bindings only. A form that
+carries only the copy of M is therefore a site for an inhibitor that competes
+with M. Mirror steps inherit their catalytic counterpart's `kinetic_group`. All
+new binding steps for a single regulator share one fresh trailing kinetic group
+(one K_R parameter).
+A pattern is skipped when its child binds the new copy redundantly
+(`_redundant_copy_groups`). A `Mechanism` candidate is tested by `_gauge_rescaling`
+inside `_dead_end_child`, before the child is built; an allosteric child is built and
+tested directly. Ligands of an allosteric mechanism's regulatory sites are not eligible:
+they belong on a regulatory site.
+
+The caller must pass the declared `rxn` because `m.reaction` only
+carries regulators already bound by its steps; not-yet-bound regulators
+live exclusively in the declared reaction. The new `Mechanism`'s
+reaction is `rxn` extended with the newly-bound regulator (preserving
+the substrate / product / multiplicity payload).
 """
-function _expand_add_dead_end_regulator_native(
-    m::Union{Mechanism, AllostericMechanism},
-    rxn::EnzymeReaction,
-    additional_excluded::Set{Symbol};
-    exclude_regs::Set{Symbol},
+function _expand_add_dead_end_regulator(
+    m::Union{Mechanism, AllostericMechanism}, rxn::EnzymeReaction;
+    exclude_regs::Set{Symbol}=Set{Symbol}(),
 )
     isempty(regulators(rxn)) && return typeof(m)[]
+    additional_excluded = m isa AllostericMechanism ?
+        Set(name(l) for site in regulatory_sites(m) for l in ligands(site)) :
+        Set{Symbol}()
 
     sub_names = Set(name(s) for s in substrates(rxn))
     prod_names = Set(name(p) for p in products(rxn))
@@ -2308,8 +2259,9 @@ function _expand_add_dead_end_regulator_native(
 
     results = typeof(m)[]
 
-    twin = _copy_twin_test(m)
     productive_twin = _productive_twin(steps(m))
+    twin = m isa AllostericMechanism ? _copy_twin_test(m) :
+        (site, ligand, _) -> productive_twin(site, ligand) !== nothing
 
     for reg_name in eligible_regs
         eligible_forms = Symbol[]
@@ -2362,7 +2314,10 @@ function _expand_add_dead_end_regulator_native(
             reg_group_steps = Step[]
             for cf in active
                 base = form_sp[cf]
-                de_species = _copy_complex(base, CompetitiveInhibitor(reg_name))
+                # The complex the copy forms at `base`, in its conformation and residual.
+                de_species = Species(
+                    Metabolite[bound(base)..., CompetitiveInhibitor(reg_name)],
+                    conformation(base), residual(base))
                 de_species_map[cf] = de_species
                 push!(reg_group_steps, Step(
                     base, de_species,

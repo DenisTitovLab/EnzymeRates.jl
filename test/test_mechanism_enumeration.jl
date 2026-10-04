@@ -7072,7 +7072,10 @@ end
                    if ER.bound_metabolite(s) !== nothing &&
                       ER.name(ER.bound_metabolite(s)) == :S)
     @test ER._productive_twin(ER.steps(iso))(form(iso, :E), Sinh) == estar_s
-    @test ER._composition(form(iso, :E), Sinh) != ER._composition(estar_s)
+    # The twin differs from the complex in conformation or residual, so it is found by
+    # offsets, not by composition.
+    @test (ER.conformation(estar_s), ER.residual(estar_s)) !=
+          (ER.conformation(form(iso, :E)), ER.residual(form(iso, :E)))
     iso_ss = ER.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
