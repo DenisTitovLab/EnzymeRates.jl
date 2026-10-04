@@ -7072,8 +7072,9 @@ end
                    if ER.bound_metabolite(s) !== nothing &&
                       ER.name(ER.bound_metabolite(s)) == :S)
     @test ER._productive_twin(ER.steps(iso))(form(iso, :E), Sinh) == estar_s
-    # The twin differs from the complex in conformation or residual, so it is found by
-    # offsets, not by composition.
+    # Twins are found by offsets; composition only breaks a tie between forms with the
+    # complex's offsets. This twin differs from the complex in conformation or residual,
+    # so no form has the complex's composition.
     @test (ER.conformation(estar_s), ER.residual(estar_s)) !=
           (ER.conformation(form(iso, :E)), ER.residual(form(iso, :E)))
     iso_ss = ER.Mechanism(@enzyme_mechanism begin
@@ -7179,49 +7180,93 @@ end
     @test twin_two(form(two_copies, :EQ), Ainh) === nothing
     @test isempty(ER._redundant_copy_groups(two_copies))
 
-    # Conformational states. With S binding `:OnlyA`, E(S) exists in the active
-    # state only; an `:EqualAI` copy of S at E duplicates it there but is new in the
-    # inactive state, so it is not a twin. With S binding `:NonequalAI`, E(S) exists
-    # in both states and the copy is a twin. An `:OnlyA` copy binds the active state
-    # only, so it is a twin either way.
-    onlya = ER.AllostericMechanism(@allosteric_mechanism begin
+    # Conformational states. A copy binds the active state always and the inactive state
+    # unless it is `:OnlyA`. It is redundant when every complex has a twin in every state
+    # where it binds and the gauge holds over the states together. In each fixture below,
+    # the copy E + S* ⇌ E(S*) and every other kinetic group are single steps, and a single
+    # step has one rescaling, so the gauge holds in each state where E(S*) has a twin. The
+    # states agree too. The only `:EqualAI` groups are E + P ⇌ E(P), which touches neither
+    # E(S) nor E(S*) and takes factor 1 at both ends in each state, and an `:EqualAI` copy,
+    # which takes 1 at E and its one factor s at E(S*) in each. So a copy here is
+    # redundant exactly when E(S*) has a twin in every state where it binds. In the active
+    # state that twin is E(S), formed from E by the RE S binding.
+    fitted(k) = length(ER.fitted_params(ER.compile_mechanism(k)))
+    # S binding `:OnlyA`: the inactive state holds E, E(P) and an `:EqualAI` copy's
+    # E(S*), and no productive form bound to S. The copy is new there and kept.
+    onlya_with_equalai_copy = ER.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
+        catalytic_inhibitors: S
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ E(S)                :: OnlyA
+            E(S) <--> E(P)              :: OnlyA
+            E + P ⇌ E(P)                :: EqualAI
+            E + S::Inh ⇌ E(S::Inh)      :: EqualAI
         end
     end)
-    @test !ER._copy_twin_test(onlya)(form(onlya, :E), Sinh, :EqualAI)
-    @test ER._copy_twin_test(onlya)(form(onlya, :E), Sinh, :OnlyA)
-    nonequal = ER.AllostericMechanism(@allosteric_mechanism begin
+    @test isempty(ER._redundant_copy_groups(onlya_with_equalai_copy))
+    # An `:OnlyA` copy binds the active state only, where E(S) is its twin: redundant,
+    # its constant one fitted parameter above the rank.
+    onlya_with_onlya_copy = ER.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
+        catalytic_inhibitors: S
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ E(S)      :: NonequalAI
-            E(S) <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ E(S)                :: OnlyA
+            E(S) <--> E(P)              :: OnlyA
+            E + P ⇌ E(P)                :: EqualAI
+            E + S::Inh ⇌ E(S::Inh)      :: OnlyA
         end
     end)
-    @test ER._copy_twin_test(nonequal)(form(nonequal, :E), Sinh, :EqualAI)
-    # The inactive state holds its free enzyme even when every catalytic group is
-    # `:OnlyA` and its step graph is empty: an `:EqualAI` copy of S at E duplicates E(S)
-    # in the active state only, so it is not a twin.
-    all_onlya = ER.AllostericMechanism(@allosteric_mechanism begin
+    @test !isempty(ER._redundant_copy_groups(onlya_with_onlya_copy))
+    @test fitted(onlya_with_onlya_copy) ==
+        _testhelper_identifiable_rank(onlya_with_onlya_copy) + 1
+    # S binding `:NonequalAI`: E(S) exists in both states and is the twin in each, so an
+    # `:EqualAI` copy is redundant.
+    nonequal_with_equalai_copy = ER.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
+        catalytic_inhibitors: S
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)      :: OnlyA
+            E + S ⇌ E(S)                :: NonequalAI
+            E(S) <--> E(P)              :: OnlyA
+            E + P ⇌ E(P)                :: EqualAI
+            E + S::Inh ⇌ E(S::Inh)      :: EqualAI
         end
     end)
-    @test !ER._copy_twin_test(all_onlya)(form(all_onlya, :E), Sinh, :EqualAI)
-    @test ER._copy_twin_test(all_onlya)(form(all_onlya, :E), Sinh, :OnlyA)
+    @test !isempty(ER._redundant_copy_groups(nonequal_with_equalai_copy))
+    # Every catalytic group `:OnlyA`: the inactive state has no catalytic step, yet it
+    # holds its free enzyme, so an `:EqualAI` copy binds E there, where E(S*) has no
+    # twin: kept. An `:OnlyA` copy binds the active state only and is redundant.
+    all_onlya_with_equalai_copy = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_inhibitors: S
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)                :: OnlyA
+            E(S) <--> E(P)              :: OnlyA
+            E + P ⇌ E(P)                :: OnlyA
+            E + S::Inh ⇌ E(S::Inh)      :: EqualAI
+        end
+    end)
+    @test isempty(ER._redundant_copy_groups(all_onlya_with_equalai_copy))
+    all_onlya_with_onlya_copy = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_inhibitors: S
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)                :: OnlyA
+            E(S) <--> E(P)              :: OnlyA
+            E + P ⇌ E(P)                :: OnlyA
+            E + S::Inh ⇌ E(S::Inh)      :: OnlyA
+        end
+    end)
+    @test !isempty(ER._redundant_copy_groups(all_onlya_with_onlya_copy))
 end
 
 @testset "_redundant_copy_groups: every complex a twin and a consistent dwell gauge" begin
@@ -7275,7 +7320,7 @@ end
         end
     end)
     g3 = copy_group(case3)
-    @test ER._twin_only(ER._copy_twin_test(case3), case3, ER.steps(case3)[g3], g3)
+    @test ER._all_twin(ER.steps(case3)[g3], ER._productive_twin(ER.steps(case3)))
     @test isempty(ER._redundant_copy_groups(case3))
     @test fitted(case3) == 6 && _testhelper_identifiable_rank(case3) == 6
 
@@ -7318,7 +7363,7 @@ end
         end
     end)
     gh = copy_group(h1)
-    @test ER._twin_only(ER._copy_twin_test(h1), h1, ER.steps(h1)[gh], gh)
+    @test ER._all_twin(ER.steps(h1)[gh], ER._productive_twin(ER.steps(h1)))
     @test isempty(ER._redundant_copy_groups(h1))
     @test fitted(h1) == 7 && _testhelper_identifiable_rank(h1) == 7
 
