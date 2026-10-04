@@ -1585,6 +1585,20 @@ function _has_vmax(groups::Vector{Vector{Step}}, rxn::EnzymeReaction, side::Type
                          for group in groups], rxn)
 end
 
+"""Whether some metabolite of `ms` has its name in `names`."""
+_any_named(ms, names) = any(m -> name(m) in names, ms)
+
+"""Whether `s` is a fused binding of a substrate: a chemistry step (`_is_chemistry`) that
+binds a metabolite named in `subs`. The form it enters is a merged complex."""
+_fused_substrate_binding(s::Step, subs) =
+    (m = bound_metabolite(s); m !== nothing && _is_chemistry(s) && name(m) in subs)
+
+"""Whether `s` takes up a reactant of one side of the reaction (names `subs` or `prods`)
+and gives off one of the other, as a Theorell–Chance step does."""
+_crosses_sides(s::Step, subs, prods) =
+    _any_named(consumed(s), subs) && _any_named(released(s), prods) ||
+    _any_named(consumed(s), prods) && _any_named(released(s), subs)
+
 """
 Whether some chemistry node of `groups` is left both by a rapid-equilibrium step that
 releases a substrate and by one that releases a product (track 4's condition C). A chemistry
@@ -1613,20 +1627,16 @@ function _chemistry_equilibrates_both_sides(groups::Vector{Vector{Step}},
         end
         out
     end
-    has(ms, names) = any(m -> name(m) in names, ms)
     releases(n, names) = any(re) do t
-        to_species(t) in n && !(from_species(t) in n) && has(consumed(t), names) ||
-            from_species(t) in n && !(to_species(t) in n) && has(released(t), names)
+        to_species(t) in n && !(from_species(t) in n) && _any_named(consumed(t), names) ||
+            from_species(t) in n && !(to_species(t) in n) && _any_named(released(t), names)
     end
-    fused_substrate_binding(s) =
-        (m = bound_metabolite(s); m !== nothing && _is_chemistry(s) && name(m) in subs)
     merged = [to_species(s) for group in groups for s in group
-              if fused_substrate_binding(s)]
+              if _fused_substrate_binding(s, subs)]
     nodes = vcat([node([x]) for x in merged],
                  [node([from_species(s), to_species(s)]) for s in re_iso])
     any(n -> releases(n, subs) && releases(n, prods), nodes) ||
-        any(t -> has(consumed(t), subs) && has(released(t), prods) ||
-                 has(consumed(t), prods) && has(released(t), subs), re)
+        any(t -> _crosses_sides(t, subs, prods), re)
 end
 
 """Whether `m` is degenerate by track 4's structural conditions: no maximal rate in one
@@ -1649,7 +1659,9 @@ step's ends, uptake weight, group and reactants are indexed once per base, so a 
 costs a few passes over arrays. A base holds no isomerization, so each chemistry node is a
 merged complex or a Theorell–Chance step. A set of steps holds a turnover cycle iff giving
 every form a potential that rises by each step's weight along it fails somewhere: a cycle
-of nonzero weight is exactly a conflict, found here by a weighted union-find.
+of nonzero weight is exactly a conflict, found here by a weighted union-find. Each
+maximal-rate test runs on the candidate's rapid-equilibrium steps and more, and adding
+steps never removes a conflict, so a turnover cycle of the candidate fails both tests.
 """
 function _seed_candidate_screen(groups::Vector{Vector{Step}}, rxn::EnzymeReaction)
     flat = [s for group in groups for s in group]
@@ -1658,7 +1670,6 @@ function _seed_candidate_screen(groups::Vector{Vector{Step}}, rxn::EnzymeReactio
     rho = _reactant_signs(rxn)
     subs = Set(name(x) for x in substrates(rxn))
     prods = Set(name(x) for x in products(rxn))
-    has(ms, names) = any(x -> name(x) in names, ms)
     index = Dict{Species, Int}()
     for s in flat, sp in (from_species(s), to_species(s))
         get!(index, sp, length(index) + 1)
@@ -1666,16 +1677,14 @@ function _seed_candidate_screen(groups::Vector{Vector{Step}}, rxn::EnzymeReactio
     from = [index[from_species(s)] for s in flat]
     to = [index[to_species(s)] for s in flat]
     weight = [_uptake_weight(s, rho) for s in flat]
-    touches(names) = BitVector([has(consumed(s), names) || has(released(s), names)
-                                for s in flat])
+    touches(names) = BitVector([_any_named(consumed(s), names) ||
+                                _any_named(released(s), names) for s in flat])
     sub_step, prod_step = touches(subs), touches(prods)
-    crossing = BitVector([has(consumed(s), subs) && has(released(s), prods) ||
-                          has(consumed(s), prods) && has(released(s), subs) for s in flat])
-    fused_substrate_binding(s) =
-        (m = bound_metabolite(s); m !== nothing && _is_chemistry(s) && name(m) in subs)
-    complexes = unique(to[k] for k in eachindex(flat) if fused_substrate_binding(flat[k]))
-    leaves(x, names) = BitVector([to[k] == x && has(consumed(flat[k]), names) ||
-                                  from[k] == x && has(released(flat[k]), names)
+    crossing = BitVector([_crosses_sides(s, subs, prods) for s in flat])
+    complexes = unique(to[k] for k in eachindex(flat)
+                       if _fused_substrate_binding(flat[k], subs))
+    leaves(x, names) = BitVector([to[k] == x && _any_named(consumed(flat[k]), names) ||
+                                  from[k] == x && _any_named(released(flat[k]), names)
                                   for k in eachindex(flat)])
     exits = [(leaves(x, subs), leaves(x, prods)) for x in complexes]
     parent = zeros(Int, length(index)); offset = zeros(Int, length(index))
@@ -1705,7 +1714,6 @@ function _seed_candidate_screen(groups::Vector{Vector{Step}}, rxn::EnzymeReactio
         for k in eachindex(flat)
             re[k] = !ss[group[k]]
         end
-        turnover(re) && return false
         kept .= re .| sub_step
         turnover(kept) && return false
         kept .= re .| prod_step

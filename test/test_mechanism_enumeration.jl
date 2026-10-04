@@ -7219,15 +7219,39 @@ end
     init = unique!(
         collect(EnzymeRates.init_mechanisms(bi_bi_rxn)))
     @test !isempty(init)
+    steps_of(m) = Iterators.flatten(EnzymeRates.steps(m))
+    holds_iso(m) = any(EnzymeRates.is_iso, steps_of(m))
+    holds_tc(m) = any(s -> !isempty(EnzymeRates.consumed(s)) &&
+                           !isempty(EnzymeRates.released(s)), steps_of(m))
+    n_ss(m) = count(g -> !EnzymeRates.is_equilibrium(first(g)), EnzymeRates.steps(m))
+    kind(m) = holds_iso(m) ? :seed : holds_tc(m) ? :theorell_chance :
+              n_ss(m) == 2 ? :merged_two_groups : :merged_three_groups
+    # The groups whose every step binds into a form that has no other step.
+    function dead_end_groups(m)
+        degree = Dict{EnzymeRates.Species, Int}()
+        for s in steps_of(m), sp in (EnzymeRates.from_species(s), EnzymeRates.to_species(s))
+            degree[sp] = get(degree, sp, 0) + 1
+        end
+        count(g -> all(s -> degree[EnzymeRates.to_species(s)] == 1, g),
+              EnzymeRates.steps(m))
+    end
     counts = Set{Int}()
+    tally = Dict{Tuple{Symbol, Int}, Int}()
     for m in init
         em = EnzymeRates.compile_mechanism(m)
-        push!(counts, length(EnzymeRates.fitted_params(em)))
+        n = length(EnzymeRates.fitted_params(em))
+        push!(counts, n)
+        tally[(kind(m), n)] = get(tally, (kind(m), n), 0) + 1
+        kind(m) == :theorell_chance && @test n == 5 + dead_end_groups(m)
     end
     # {5,6,7}: the seeds and their two-group merged variants fit 5, the
     # three-group merged variants 6, and a Theorell–Chance variant 5 plus one
     # for each group the eliminated steps leave holding only dead-end steps.
     @test counts == Set([5, 6, 7])
+    @test tally == Dict((:seed, 5) => 55, (:merged_two_groups, 5) => 108,
+                        (:merged_three_groups, 6) => 56, (:theorell_chance, 5) => 8,
+                        (:theorell_chance, 6) => 8, (:theorell_chance, 7) => 4)
+    @test all(m -> kind(m) == :theorell_chance || dead_end_groups(m) == 0, init)
 end
 
 @testset "Mechanism — With allosteric regulators" begin
@@ -8242,22 +8266,54 @@ end
                  for seed in (ordered, shared_b, ordered_random, ping_pong)
                  for b in bases(seed)]
     @test length.(last.(all_bases)) == [4, 3, 4, 4, 4, 4, 3, 3]
-    verdicts = Bool[]
-    for (rxn, base) in all_bases
+    # The screen's verdict and the predicates' verdict on every subset of `base`'s groups.
+    function sweep(rxn, base)
         screen = ER._seed_candidate_screen(base, rxn)
-        for bits in 0:(2^length(base) - 1)
+        map(0:(2^length(base) - 1)) do bits
             ss = BitVector([isodd(bits >> (g - 1)) for g in eachindex(base)])
             gs = [ss[g] ? ER._with_equilibrium.(grp, false) : grp
                   for (g, grp) in enumerate(base)]
             expected = !ER._re_turnover_cycle(gs, rxn) &&
                 ER._has_vmax(gs, rxn, ER.Substrate) && ER._has_vmax(gs, rxn, ER.Product) &&
                 !ER._chemistry_equilibrates_both_sides(gs, rxn)
-            @test (ss, screen(ss)) == (ss, expected)
-            push!(verdicts, expected)
+            (ss, screen(ss), expected)
         end
+    end
+    verdicts = Bool[]
+    for (rxn, base) in all_bases, (ss, screened, expected) in sweep(rxn, base)
+        @test (ss, screened) == (ss, expected)
+        push!(verdicts, expected)
     end
     @test length(verdicts) == 16 + 8 + 16 + 16 + 16 + 16 + 8 + 8
     @test 0 < count(verdicts) < length(verdicts)
+
+    # Aggregate pin over the whole bi_bi_pp_rxn seed set: the 86 bases of its 62 seeds
+    # (merged, and Theorell–Chance where ELIM applies) and every subset of their groups.
+    # 8 bases of decorated ping-pong seeds hold a fused binding of a product, which makes
+    # no chemistry node: the merge turns a dead-end binding of P at the substrate-side
+    # form into one, and leaves that merged complex with three steps. The 35 merged bases
+    # of the seeds with a random-order side hold a merged complex of three or four steps.
+    pp_seeds = filter(m -> any(ER.is_iso, Iterators.flatten(ER.steps(m))),
+                      ER.init_mechanisms(bi_bi_pp_rxn))
+    pp_bases = [b for seed in pp_seeds for b in bases(seed)]
+    fused(b, side) = [s for s in Iterators.flatten(b) if ER.is_binding(s) &&
+                      ER._is_chemistry(s) && ER.bound_metabolite(s) isa side]
+    function three_step_complex(b)
+        n = Dict{ER.Species, Int}()
+        for s in Iterators.flatten(b), sp in (ER.from_species(s), ER.to_species(s))
+            n[sp] = get(n, sp, 0) + 1
+        end
+        any(s -> n[ER.to_species(s)] >= 3, fused(b, ER.Substrate))
+    end
+    @test (length(pp_seeds), length(pp_bases)) == (62, 86)
+    @test count(b -> !isempty(fused(b, ER.Product)), pp_bases) == 8
+    @test count(b -> !isempty(fused(b, ER.Product)) && three_step_complex(b), pp_bases) == 8
+    @test count(three_step_complex, pp_bases) == 35 + 8
+    outcomes = [o for b in pp_bases for o in sweep(bi_bi_pp_rxn, b)]
+    @test length(outcomes) == 1344
+    @test isempty([(ss, screened) for (ss, screened, expected) in outcomes
+                   if screened != expected])
+    @test count(o -> o[3], outcomes) == 484
 end
 
 @testset "_productive_twin" begin
@@ -9774,7 +9830,9 @@ end
         # 8 of the 55 seeds hold a qualifying chain whose isomerization is steady state;
         # its two flanks never flip (`_chain_flank_groups`), and with them the seeds
         # would have 220 flip children. The variants hold no isomerization, so no chain,
-        # and have 272 flip children (measured).
+        # and each flip child of a variant flips one group: each of the 108 two-group
+        # merged variants holds two flip units, each of the 56 three-group ones one, and
+        # the 20 Theorell–Chance ones none, so the variants have 2 × 108 + 56 = 272.
         init = EnzymeRates.init_mechanisms(_testhelper_bibi_rxn)
         holds_iso(m) = any(EnzymeRates.is_iso, Iterators.flatten(EnzymeRates.steps(m)))
         seeds, variants = filter(holds_iso, init), filter(!holds_iso, init)
@@ -10851,7 +10909,9 @@ end
 
     @testset "_expand_split_kinetic_group: bi-bi seeds emit 102 children" begin
         # Aggregate regression pin over the whole bi-bi init set: 102 children from the
-        # 55 seeds and 420 from their 184 merged and Theorell–Chance variants (measured).
+        # 55 seeds and 420 from their 184 merged and Theorell–Chance variants, which are
+        # 176 from the 108 two-group merged, 236 from the 56 three-group merged and 8
+        # from the 20 Theorell–Chance ones.
         init = EnzymeRates.init_mechanisms(_testhelper_bibi_rxn)
         holds_iso(m) = any(EnzymeRates.is_iso, Iterators.flatten(EnzymeRates.steps(m)))
         n_children(ms) = sum(length(EnzymeRates._expand_split_kinetic_group(m)) for m in ms)
@@ -11071,10 +11131,11 @@ end
     # mechanisms at level 2, each holding a qualifying chain whose isomerization and
     # at least one flank are steady state, and each with its twin whose flanks are
     # both at rapid equilibrium in the population: 62, 349 and 1,134 remain. These
-    # are the levels grown from the 62 seeds that hold an isomerization; grown from
-    # all 264 init mechanisms, the merged and Theorell–Chance variants included, they
-    # hold 264, 1,018 and 2,371 (measured). Every mechanism satisfies both emission
-    # rules.
+    # are the levels grown from the 62 seeds that hold an isomerization. The moves
+    # neither add nor remove an isomerization, so the 202 merged and Theorell–Chance
+    # variants, which hold none, grow apart from the seeds: 669 mechanisms at level 1
+    # and 1,237 at level 2. Grown from all 264 init mechanisms the levels hold the sums,
+    # 264, 1,018 and 2,371. Every mechanism satisfies both emission rules.
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
@@ -11100,6 +11161,7 @@ end
     end
     obeys_rules(m) = EnzymeRates._assert_emission_rules(m) === nothing
     @test length.(levels(rxn, holds_iso)) == [62, 349, 1134]
+    @test length.(levels(rxn, !holds_iso)) == [202, 669, 1237]
     bibi = levels(rxn)
     @test length.(bibi) == [264, 1018, 2371]
     @test all(obeys_rules, Iterators.flatten(bibi))
@@ -11119,8 +11181,10 @@ end
     # whose every complex has a productive twin and whose gauge fails. Without the
     # flip rule the levels would hold 62, 1,649 and 31,730: it leaves out 20 seed
     # children at level 1 and 348 mechanisms at level 2, each holding a qualifying
-    # chain whose isomerization and at least one flank are steady state. Grown from
-    # all 264 init mechanisms the levels hold 264, 6,738 and 128,493 (measured).
+    # chain whose isomerization and at least one flank are steady state. The 202
+    # variants grow apart from the seeds, as above: 5,109 mechanisms at level 1 and
+    # 97,111 at level 2. Grown from all 264 init mechanisms the levels hold the sums,
+    # 264, 6,738 and 128,493.
     @test length.(levels(rxn6, holds_iso)) == [62, 1629, 31382]
     copies = levels(rxn6)
     @test length.(copies) == [264, 6738, 128493]
