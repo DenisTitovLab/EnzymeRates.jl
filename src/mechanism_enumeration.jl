@@ -1240,7 +1240,8 @@ no regulator (competitive-inhibitor binding stays at rapid equilibrium by
 modeling choice), and holds a flux-carrying step (`_flux_carrying_groups` on the
 all-steady-state graph, `_all_steady_state`; a group with none exposes only
 equilibrium ratios under every assignment and would gain a phantom parameter).
-One child is produced per minimal set of units whose joint flip
+A flank of a qualifying chain whose isomerization is steady state is no unit
+(`_chain_flank_groups`). One child is produced per minimal set of units whose joint flip
 raises the RE segment count (`_minimal_gaining_sets`): a single group when it
 cuts a segment on its own, several groups when each alone is bridged by an RE
 route through the others — as happens once a split has separated a
@@ -1268,8 +1269,9 @@ supersets need no visit.
 """
 function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
     flux = _flux_carrying_groups(_all_steady_state(steps(m)), reaction(m))
+    flanks = _chain_flank_groups(m)
     units = [g for g in kinetic_groups(m)
-             if all(is_equilibrium, steps(m)[g]) && flux[g] &&
+             if all(is_equilibrium, steps(m)[g]) && flux[g] && !(g in flanks) &&
                 !any(s -> any(x -> x isa Regulator, consumed(s)) ||
                           any(x -> x isa Regulator, released(s)), steps(m)[g])]
     flipped_groups(sel) = begin
@@ -1291,6 +1293,41 @@ function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
     children = typeof(m)[_with_steps(m, flipped_groups(sel)) for sel in sets]
     _requires_hyperbolic_catalysis(m) ? filter(_hyperbolic_catalysis, children) : children
 end
+
+"""
+Kinetic groups of `m` that are a flank of a qualifying chain whose isomerization is steady
+state: an isomerization X1 → X2 alone in its group, where X1 and X2 each have exactly one
+other step, each a binding into that form and alone in its group. By the chain lemma the
+mechanism sees such a chain only through its flux and enzyme content, four numbers that
+the form with both flanks at rapid equilibrium already covers, so flipping a flank adds
+parameters and no rate law. An allosteric mechanism has none: at more than one catalytic
+subunit a flank's flip can be visible through the two conformations.
+"""
+function _chain_flank_groups(m::Mechanism)
+    groups = steps(m)
+    group_of = Dict(s => g for (g, group) in enumerate(groups) for s in group)
+    at = Dict{Species, Vector{Step}}()
+    for group in groups, s in group, sp in (from_species(s), to_species(s))
+        push!(get!(at, sp, Step[]), s)
+    end
+    flank(s0, x) = begin
+        rest = filter(!=(s0), at[x])
+        length(rest) == 1 || return nothing
+        s = only(rest)
+        is_binding(s) && to_species(s) == x && length(groups[group_of[s]]) == 1 ?
+            s : nothing
+    end
+    out = Set{Int}()
+    for group in groups
+        length(group) == 1 || continue
+        s0 = only(group)
+        is_iso(s0) && !is_equilibrium(s0) || continue
+        f1, f2 = flank(s0, from_species(s0)), flank(s0, to_species(s0))
+        f1 === nothing || f2 === nothing || union!(out, (group_of[f1], group_of[f2]))
+    end
+    out
+end
+_chain_flank_groups(::AllostericMechanism) = Set{Int}()
 
 """
 Return a fresh `Vector{Vector{Step}}` matching `groups` but with every

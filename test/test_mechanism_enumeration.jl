@@ -1599,9 +1599,283 @@ end
     end
 end
 
-@testset "Mechanism — bi-bi sequential: 4 RE binding groups → 4 variants" begin
+@testset "Mechanism — the flip skips the flanks of a qualifying chain" begin
+    # Ordered RE seed: E + A ⇌ E(A), E(A) + B ⇌ E(A, B), E(A, B) → E(P, Q) (SS),
+    # E(Q) + P ⇌ E(P, Q), E + Q ⇌ E(Q). E(A, B) and E(P, Q) each have one other step, a
+    # binding into them, and every group holds one step: a qualifying chain (RSR). Its
+    # flanks, the B and P groups, never flip: a flipped flank gives its parent's family
+    # plus a phantom (chain lemma). The A and Q flips each cut a segment and carry flux.
+    seed = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    a_flip = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    q_flip = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q <--> E(Q)
+        end
+    end)
+    kids = EnzymeRates._expand_re_to_ss(seed)
+    @test length(kids) == 2
+    @test Set(kids) == Set([a_flip, q_flip])
+    # The seed has 5 fitted constants, all identifiable; each child adds one and
+    # gains one. Each flank flip, absent, adds a constant and no rank.
+    fitted(x) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(x)))
+    @test fitted(seed) == _testhelper_identifiable_rank(seed) == 5
+    for k in kids
+        @test fitted(k) == _testhelper_identifiable_rank(k) == 6
+    end
+    for absent in EnzymeRates.Mechanism.([
+        (@enzyme_mechanism begin      # the B flank
+            substrates: A, B; products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(Q) + P ⇌ E(P, Q)
+                E + Q ⇌ E(Q)
+            end
+        end),
+        (@enzyme_mechanism begin      # the P flank
+            substrates: A, B; products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(Q) + P <--> E(P, Q)
+                E + Q ⇌ E(Q)
+            end
+        end)
+    ])
+        @test !(absent in kids)
+        @test fitted(absent) == 6
+        @test _testhelper_identifiable_rank(absent) == 5
+    end
+end
+
+@testset "Mechanism — a flank whose group is shared still flips" begin
+    # The ordered seed with B's abortive binding at E(Q) in B's group. One RE segment
+    # holds every form; the iso is steady state. E(A, B)'s binding shares its group
+    # with E(Q) + B ⇌ E(B, Q), so the chain E(A, B) → E(P, Q) does not qualify and
+    # no group is a flank. Each flip cuts the segment alone:
+    #   A: {E(A), E(A, B)} | {E, E(Q), E(B, Q), E(P, Q)}             → 2 segments
+    #   B: {E(A, B)} | {E(B, Q)} | {E, E(A), E(Q), E(P, Q)}           → 3 segments
+    #   P: {E(P, Q)} | {E, E(A), E(A, B), E(Q), E(B, Q)}              → 2 segments
+    #   Q: {E, E(A), E(A, B)} | {E(Q), E(B, Q), E(P, Q)}              → 2 segments
+    # Every segment keeps a bottom form, and each flipped group holds a step of the
+    # cycle E → E(A) → E(A, B) → E(P, Q) → E(Q) → E, so it carries flux: four children,
+    # each one constant and one rank above the seed's 5.
+    seed = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    a_flip = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    b_flip = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            (E(A) + B <--> E(A, B), E(Q) + B <--> E(B, Q))
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    p_flip = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+            E(A, B) <--> E(P, Q)
+            E(Q) + P <--> E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    q_flip = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q <--> E(Q)
+        end
+    end)
+    @test isempty(EnzymeRates._chain_flank_groups(seed))
+    kids = EnzymeRates._expand_re_to_ss(seed)
+    @test length(kids) == 4
+    @test Set(kids) == Set([a_flip, b_flip, p_flip, q_flip])
+    fitted(x) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(x)))
+    @test fitted(seed) == _testhelper_identifiable_rank(seed) == 5
+    for k in kids
+        @test fitted(k) == _testhelper_identifiable_rank(k) == 6
+    end
+end
+
+@testset "AllostericMechanism — a chain flank still flips at multiplicity 2" begin
+    # A K-type variant of the ordered seed over two catalytic subunits: the iso and the
+    # A binding :OnlyA, the other bindings :EqualAI. Its flank flips stay children: two
+    # conformations over two subunits can see a flank's flip. The A-state graph is the
+    # plain seed's, so each single flip cuts the one segment in two, keeps a bottom
+    # form and carries flux. The parent needs a hyperbolic scheme
+    # (`_hyperbolic_catalysis`). With two segments an arborescence toward a root holds
+    # one edge, which leaves the other segment, so the scheme fails only when a
+    # metabolite scores 2 on one edge or one segment, or scores in one segment and on
+    # an edge leaving the other. Each flip passes:
+    #   A: {E, E(Q), E(P, Q)} | {E(A), E(A, B)}. A scores on E → E(A) only; B in the
+    #      second segment and on E(A, B) → E(P, Q), which leaves it; P and Q in the
+    #      first and on E(P, Q) → E(A, B), which leaves it.
+    #   Q: the mirror of A.
+    #   B: {E, E(A), E(Q), E(P, Q)} | {E(A, B)}. A, P and Q score in the first segment
+    #      and on edges leaving it (E(A) → E(A, B), E(P, Q) → E(A, B)); B scores 1 on
+    #      E(A) → E(A, B) and in no segment.
+    #   P: the mirror of B.
+    # Four children, tags kept. The parent is identifiable at 6; every child adds one
+    # constant and gains one, the B and P flank flips included, where the plain
+    # seed's flank flips gain none.
+    seed = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    rxn2 = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        oligomeric_state: 2
+    end
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A ⇌ E(A)                :: OnlyA
+            E(A) + B ⇌ E(A, B)          :: EqualAI
+            E(A, B) <--> E(P, Q)        :: OnlyA
+            E(Q) + P ⇌ E(P, Q)          :: EqualAI
+            E + Q ⇌ E(Q)                :: EqualAI
+        end
+    end)
+    @test am in EnzymeRates._expand_to_allosteric(seed, rxn2)
+    @test isempty(EnzymeRates._chain_flank_groups(am))
+    a_flip = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A <--> E(A)             :: OnlyA
+            E(A) + B ⇌ E(A, B)          :: EqualAI
+            E(A, B) <--> E(P, Q)        :: OnlyA
+            E(Q) + P ⇌ E(P, Q)          :: EqualAI
+            E + Q ⇌ E(Q)                :: EqualAI
+        end
+    end)
+    b_flip = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A ⇌ E(A)                :: OnlyA
+            E(A) + B <--> E(A, B)       :: EqualAI
+            E(A, B) <--> E(P, Q)        :: OnlyA
+            E(Q) + P ⇌ E(P, Q)          :: EqualAI
+            E + Q ⇌ E(Q)                :: EqualAI
+        end
+    end)
+    p_flip = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A ⇌ E(A)                :: OnlyA
+            E(A) + B ⇌ E(A, B)          :: EqualAI
+            E(A, B) <--> E(P, Q)        :: OnlyA
+            E(Q) + P <--> E(P, Q)       :: EqualAI
+            E + Q ⇌ E(Q)                :: EqualAI
+        end
+    end)
+    q_flip = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A ⇌ E(A)                :: OnlyA
+            E(A) + B ⇌ E(A, B)          :: EqualAI
+            E(A, B) <--> E(P, Q)        :: OnlyA
+            E(Q) + P ⇌ E(P, Q)          :: EqualAI
+            E + Q <--> E(Q)             :: EqualAI
+        end
+    end)
+    kids = EnzymeRates._expand_re_to_ss(am)
+    @test length(kids) == 4
+    @test Set(kids) == Set([a_flip, b_flip, p_flip, q_flip])
+    @test all(EnzymeRates._hyperbolic_catalysis, kids)
+    fitted(x) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(x)))
+    @test fitted(am) == _testhelper_identifiable_rank(am) == 6
+    for k in kids
+        @test fitted(k) == _testhelper_identifiable_rank(k) == 7
+    end
+end
+
+@testset "_chain_flank_groups: the flanks of steady-state chains only" begin
+    # Ping-pong seed. E(A) → Estar(P) is steady state, alone in its group, and its two
+    # ends each have one other step, a binding into that end, alone in its group: the
+    # A and P groups are its flanks. Estar(B) ⇌ E(Q) is a chain of the same shape
+    # whose isomerization is at rapid equilibrium, so the B and Q groups are no
+    # flanks.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            Estar + B ⇌ Estar(B)
+            E + Q ⇌ E(Q)
+            Estar + P ⇌ Estar(P)
+            E(A) <--> Estar(P)
+            Estar(B) ⇌ E(Q)
+        end
+    end)
+    flank_steps = Set(EnzymeRates.steps(m)[g]
+                      for g in EnzymeRates._chain_flank_groups(m))
+    @test length(flank_steps) == 2
+    @test all(g -> length(g) == 1 && EnzymeRates.is_binding(only(g)), flank_steps)
+    @test Set(EnzymeRates.name(EnzymeRates.bound_metabolite(only(g)))
+              for g in flank_steps) == Set([:A, :P])
+end
+
+@testset "Mechanism — bi-bi sequential: 4 RE binding groups → 2 variants" begin
     # SEED: bi-bi sequential ordered, 4 singleton RE binding groups + 1
-    # SS iso. _expand_re_to_ss fires per RE group → 4 variants.
+    # SS iso. The B and P groups are the flanks of the qualifying chain
+    # E(A, B) → E(P, Q) (`_chain_flank_groups`) and never flip; the A and Q
+    # groups each cut the one segment alone → 2 variants.
     em_seed = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -1618,8 +1892,9 @@ end
 
     result = EnzymeRates._expand_re_to_ss(m)
 
-    # 1. count: 4 all-RE singleton groups (A, B, Q, P bindings). Iso SS. → 4.
-    @test length(result) == 4
+    # 1. count: 4 all-RE singleton groups (A, B, Q, P bindings), of which
+    # B and P are chain flanks. Iso SS. → 2.
+    @test length(result) == 2
     for r in result
         @test r isa EnzymeRates.Mechanism
         EnzymeRates._assert_mechanism_invariants(r)
@@ -1638,7 +1913,7 @@ end
         @test n_groups_newly_ss == 1
     end
 
-    # 3. distinct flipped group across variants (one per RE group).
+    # 3. distinct flipped group across variants (one per non-flank RE group).
     flipped_groups = Int[]
     for r in result
         for (gi, (old_grp, new_grp)) in enumerate(zip(m.steps, r.steps))
@@ -1648,7 +1923,21 @@ end
             end
         end
     end
-    @test length(unique(flipped_groups)) == 4
+    @test length(unique(flipped_groups)) == 2
+
+    # 4. step structure preserved: each Step's chemistry (from/to
+    # species + bound metabolite) in the result matches the
+    # corresponding Step in the seed, position-for-position.
+    for r in result
+        for (old_grp, new_grp) in zip(m.steps, r.steps)
+            @test [EnzymeRates.from_species(s) for s in old_grp] ==
+                  [EnzymeRates.from_species(s) for s in new_grp]
+            @test [EnzymeRates.to_species(s) for s in old_grp] ==
+                  [EnzymeRates.to_species(s) for s in new_grp]
+            @test [EnzymeRates.bound_metabolite(s) for s in old_grp] ==
+                  [EnzymeRates.bound_metabolite(s) for s in new_grp]
+        end
+    end
 end
 
 @testset "Mechanism — bi-bi multi-step kinetic group: atomic conversion" begin
@@ -1698,9 +1987,14 @@ end
     end
 end
 
-@testset "Mechanism — bi-bi ping-pong: 5 RE groups → 5 variants" begin
+@testset "Mechanism — bi-bi ping-pong: 5 RE groups → 3 variants" begin
     # SEED: bi-bi ping-pong with Estar (residual) form. 5 singleton RE
-    # groups + 1 SS iso group. _expand_re_to_ss fires per RE group → 5.
+    # groups + 1 SS iso group. E(A) → Estar(P) is a qualifying chain with a
+    # steady-state isomerization: E(A) and Estar(P) each have one other step,
+    # a binding into that form alone in its group, so its flanks, the A and P
+    # groups, never flip (`_chain_flank_groups`). Estar(B) ⇌ E(Q) has the same
+    # shape at rapid equilibrium, so the B and Q groups stay units. The B, Q
+    # and RE iso groups each flip alone → 3.
     em_seed = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -1718,8 +2012,8 @@ end
 
     result = EnzymeRates._expand_re_to_ss(m)
 
-    # 1. count: 5 all-RE groups → 5 variants.
-    @test length(result) == 5
+    # 1. count: 5 all-RE groups, of which A and P are chain flanks → 3 variants.
+    @test length(result) == 3
     for r in result
         @test r isa EnzymeRates.Mechanism
         EnzymeRates._assert_mechanism_invariants(r)
@@ -1736,17 +2030,51 @@ end
             end
         end
     end
-    @test length(unique(flipped_groups)) == 5
+    @test length(unique(flipped_groups)) == 3
 
     # 3. preservation
     for r in result
         @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
     end
+
+    # 4. The A and P flank flips, absent, keep the seed's rank (chain lemma).
+    r0 = _testhelper_identifiable_rank(m)
+    for absent in EnzymeRates.Mechanism.([
+        (@enzyme_mechanism begin      # the A flank
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A <--> E(A)
+                Estar + B ⇌ Estar(B)
+                E + Q ⇌ E(Q)
+                Estar + P ⇌ Estar(P)
+                E(A) <--> Estar(P)
+                Estar(B) ⇌ E(Q)
+            end
+        end),
+        (@enzyme_mechanism begin      # the P flank
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                Estar + B ⇌ Estar(B)
+                E + Q ⇌ E(Q)
+                Estar + P <--> Estar(P)
+                E(A) <--> Estar(P)
+                Estar(B) ⇌ E(Q)
+            end
+        end)
+    ])
+        @test !(absent in result)
+        @test _testhelper_identifiable_rank(absent) == r0
+    end
 end
 
 @testset "Mechanism — ter-ter sequential" begin
     # SEED: ter-ter sequential ordered. 6 singleton RE binding groups
-    # + 1 SS iso. _expand_re_to_ss fires per RE group → 6 variants.
+    # + 1 SS iso. The D and P groups are the flanks of the qualifying chain
+    # E(A, B, D) → E(P, Q, R) (`_chain_flank_groups`) and never flip; the other
+    # four each cut the one segment alone → 4 variants.
     em_seed = @enzyme_mechanism begin
         substrates: A, B, D
         products: P, Q, R
@@ -1764,11 +2092,44 @@ end
     EnzymeRates._assert_mechanism_invariants(m)
 
     result = EnzymeRates._expand_re_to_ss(m)
-    @test length(result) == 6
+    @test length(result) == 4
     for r in result
         @test r isa EnzymeRates.Mechanism
         EnzymeRates._assert_mechanism_invariants(r)
         @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
+    end
+    # The D and P flank flips, absent, keep the seed's rank (chain lemma).
+    r0 = _testhelper_identifiable_rank(m)
+    for absent in EnzymeRates.Mechanism.([
+        (@enzyme_mechanism begin      # the D flank
+            substrates: A, B, D
+            products: P, Q, R
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) + D <--> E(A, B, D)
+                E + R ⇌ E(R)
+                E(R) + Q ⇌ E(Q, R)
+                E(Q, R) + P ⇌ E(P, Q, R)
+                E(A, B, D) <--> E(P, Q, R)
+            end
+        end),
+        (@enzyme_mechanism begin      # the P flank
+            substrates: A, B, D
+            products: P, Q, R
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) + D ⇌ E(A, B, D)
+                E + R ⇌ E(R)
+                E(R) + Q ⇌ E(Q, R)
+                E(Q, R) + P <--> E(P, Q, R)
+                E(A, B, D) <--> E(P, Q, R)
+            end
+        end)
+    ])
+        @test !(absent in result)
+        @test _testhelper_identifiable_rank(absent) == r0
     end
 end
 
@@ -1956,7 +2317,11 @@ end
     # dead-end move builds it. The copy group binds a regulator and is never a
     # unit. A, B, P and Q each divide the one segment alone (the Q flip takes its
     # mirror with it and isolates {E(Q), E(P, Q), E(A::Inh, Q)}), and each flipped
-    # group shares a block with the chemistry edge, so all four carry flux.
+    # group shares a block with the chemistry edge, so all four carry flux. The copy
+    # binds at E and E(Q), so E(A, B) and E(P, Q) keep one step each beside the
+    # isomerization, a binding into that form alone in its group: B and P are the
+    # flanks of a qualifying chain and never flip (`_chain_flank_groups`). Their
+    # flips, absent, keep the parent's rank. Children: the A and Q flips.
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -1987,6 +2352,24 @@ end
             products: P, Q
             steps: begin
                 E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(Q) + P ⇌ E(P, Q)
+                (E + Q <--> E(Q), E(A::Inh) + Q <--> E(A::Inh, Q))
+                (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
+            end
+        end),
+    ]
+    kids = EnzymeRates._expand_re_to_ss(m)
+    @test length(kids) == 2
+    @test Set(kids) == Set(expected)
+    r0 = _testhelper_identifiable_rank(m)
+    for absent in [
+        EnzymeRates.Mechanism(@enzyme_mechanism begin      # the B flank
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
                 E(A) + B <--> E(A, B)
                 E(A, B) <--> E(P, Q)
                 E(Q) + P ⇌ E(P, Q)
@@ -1994,7 +2377,7 @@ end
                 (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
             end
         end),
-        EnzymeRates.Mechanism(@enzyme_mechanism begin
+        EnzymeRates.Mechanism(@enzyme_mechanism begin      # the P flank
             substrates: A, B
             products: P, Q
             steps: begin
@@ -2005,23 +2388,11 @@ end
                 (E + Q ⇌ E(Q), E(A::Inh) + Q ⇌ E(A::Inh, Q))
                 (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
             end
-        end),
-        EnzymeRates.Mechanism(@enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E(A)
-                E(A) + B ⇌ E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
-                (E + Q <--> E(Q), E(A::Inh) + Q <--> E(A::Inh, Q))
-                (E + A::Inh ⇌ E(A::Inh), E(Q) + A::Inh ⇌ E(A::Inh, Q))
-            end
-        end),
+        end)
     ]
-    kids = EnzymeRates._expand_re_to_ss(m)
-    @test length(kids) == 4
-    @test Set(kids) == Set(expected)
+        @test !(absent in kids)
+        @test _testhelper_identifiable_rank(absent) == r0
+    end
     for r in kids
         EnzymeRates._assert_mechanism_invariants(r)
         @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
@@ -2035,7 +2406,8 @@ end
 @testset "AllostericMechanism — the inhibitor copy never flips; tags are preserved" begin
     # The same mechanism as an allosteric one with a dead inactive conformation
     # (the chemistry `:OnlyA`, every binding `:EqualAI`) and one catalytic subunit.
-    # The same four groups flip; every child keeps one `:OnlyA` group, the
+    # All four groups A, B, P and Q flip: an allosteric mechanism has no chain
+    # flanks (`_chain_flank_groups`). Every child keeps one `:OnlyA` group, the
     # chemistry, and the multiplicity and (empty) regulatory sites.
     am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B
@@ -2194,47 +2566,18 @@ end
     end
 end
 
-@testset "Mechanism — uni-uni: 2 RE binding groups → 2 variants" begin
+@testset "Mechanism — uni-uni: both RE binding groups are chain flanks → no variants" begin
     # SEED: uni-uni init mechanism. 3 kinetic groups: 2 RE binding
-    # (S-binding, P-binding) and 1 SS iso. _expand_re_to_ss fires per
-    # all-RE group → 2 variants.
+    # (S-binding, P-binding) and 1 SS iso. E(S) and E(P) each have one step
+    # beside the iso, a binding into that form alone in its group, so E(S) →
+    # E(P) is a qualifying chain whose flanks are both binding groups
+    # (`_chain_flank_groups`). No group is a unit → no variants.
     m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
     @test m isa EnzymeRates.Mechanism
-
-    result = EnzymeRates._expand_re_to_ss(m)
-
-    # 1. count: 2 all-RE groups (P-binding, S-binding). Iso already SS. → 2.
-    @test length(result) == 2
-    for r in result
-        @test r isa EnzymeRates.Mechanism
-        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
-        @test length(r.steps) == length(m.steps)
-    end
-
-    # 2. property-style: in each variant, exactly one initial RE
-    # group has all its steps newly SS; all other groups unchanged.
-    for r in result
-        n_groups_newly_ss = count(zip(m.steps, r.steps)) do (old_grp, new_grp)
-            length(old_grp) == length(new_grp) &&
-                all(EnzymeRates.is_equilibrium, old_grp) &&
-                !any(EnzymeRates.is_equilibrium, new_grp)
-        end
-        @test n_groups_newly_ss == 1
-    end
-
-    # 3. step structure preserved: each Step's chemistry (from/to
-    # species + bound metabolite) in the result matches the
-    # corresponding Step in the seed, position-for-position.
-    for r in result
-        for (old_grp, new_grp) in zip(m.steps, r.steps)
-            @test [EnzymeRates.from_species(s) for s in old_grp] ==
-                  [EnzymeRates.from_species(s) for s in new_grp]
-            @test [EnzymeRates.to_species(s) for s in old_grp] ==
-                  [EnzymeRates.to_species(s) for s in new_grp]
-            @test [EnzymeRates.bound_metabolite(s) for s in old_grp] ==
-                  [EnzymeRates.bound_metabolite(s) for s in new_grp]
-        end
-    end
+    @test EnzymeRates._chain_flank_groups(m) ==
+          Set(g for g in EnzymeRates.kinetic_groups(m)
+              if !EnzymeRates.is_iso(only(m.steps[g])))
+    @test isempty(EnzymeRates._expand_re_to_ss(m))
 end
 
 @testset "Mechanism — all-SS seed: empty (negative)" begin
@@ -8601,16 +8944,21 @@ function _testhelper_closure(seed, gen; maxn = 5_000)
 end
 
 @testset "_expand_re_to_ss (group-set flips)" begin
-    @testset "_expand_re_to_ss: seed child count is unchanged (220 over bi-bi seeds)" begin
+    @testset "_expand_re_to_ss: seed child count (204 over bi-bi seeds)" begin
+        # Aggregate regression pin over the whole bi-bi seed set. 8 of the 55 seeds
+        # hold a qualifying chain whose isomerization is steady state; its two flanks
+        # never flip (`_chain_flank_groups`), and with them the seeds would have 220
+        # flip children.
         seeds = EnzymeRates.init_mechanisms(_testhelper_bibi_rxn)
         @test length(seeds) == 55
-        @test sum(length(EnzymeRates._expand_re_to_ss(m)) for m in seeds) == 220
+        @test count(m -> !isempty(EnzymeRates._chain_flank_groups(m)), seeds) == 8
+        @test sum(length(EnzymeRates._expand_re_to_ss(m)) for m in seeds) == 204
     end
 
-    @testset "_expand_re_to_ss: uni-uni emits both single-group flips exactly" begin
-        # Uni-uni steady-state and rapid-equilibrium laws have the same form, so
-        # these two children are documented no-ops; the move still emits them
-        # because their rejection has no structural proof.
+    @testset "_expand_re_to_ss: uni-uni emits no flip, both bindings are chain flanks" begin
+        # Uni-uni steady-state and rapid-equilibrium laws have the same form: E(S) →
+        # E(P) is a qualifying chain whose flanks are the S and P groups, so neither
+        # flips (`_chain_flank_groups`). Each flip, absent, keeps the parent's rank.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
             products: P
@@ -8620,7 +8968,7 @@ end
                 E + P ⇌ E(P)
             end
         end)
-        expected = [
+        absent = [
             EnzymeRates.Mechanism(@enzyme_mechanism begin
                 substrates: S
                 products: P
@@ -8641,8 +8989,11 @@ end
             end),
         ]
         kids = EnzymeRates._expand_re_to_ss(m)
-        @test length(kids) == 2
-        @test Set(kids) == Set(expected)
+        @test isempty(kids)
+        r0 = _testhelper_identifiable_rank(m)
+        for a in absent
+            @test _testhelper_identifiable_rank(a) == r0
+        end
     end
 
     @testset "_expand_re_to_ss: random-order bi-bi emits one flip per metabolite" begin
@@ -9048,8 +9399,12 @@ end
     @testset "_expand_re_to_ss: ping-pong" begin
         # The rapid-equilibrium subgraph is two trees, {E, E(A), E(Q)} and
         # {E(P; res), E(; res), E(B; res)}, so every RE group is a bridge and
-        # flipping any one of them alone raises the segment count; no pair is
-        # minimal.
+        # flipping any one of them alone raises the segment count. Both
+        # isomerizations are steady state, and each of their ends has one other
+        # step, a binding into that end alone in its group: E(A) → E(P; res) and
+        # E(B; res) → E(Q) are qualifying chains whose flanks are all four binding
+        # groups (`_chain_flank_groups`). No group is a unit, so no child; each
+        # single flip, absent, keeps the parent's rank.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
@@ -9111,8 +9466,11 @@ end
             end
         end)
         kids = EnzymeRates._expand_re_to_ss(m)
-        @test length(kids) == 4
-        @test Set(kids) == Set([flipA, flipP, flipB, flipQ])
+        @test isempty(kids)
+        r0 = _testhelper_identifiable_rank(m)
+        for absent in (flipA, flipP, flipB, flipQ)
+            @test _testhelper_identifiable_rank(absent) == r0
+        end
     end
 
     @testset "_expand_re_to_ss: an allosteric parent keeps a hyperbolic scheme" begin
@@ -9251,9 +9609,11 @@ end
         # Ordered bi-bi with the abortive complex E(A, Q), after both the A group and
         # the Q group were split by context: six rapid-equilibrium binding groups,
         # each holding one step. Singles: E(A) + B and E(Q) + P are bridges of the RE
-        # graph (E(A, B) and E(P, Q) are leaves there), so each flips alone; the four
-        # bindings on the square E–E(A)–E(A, Q)–E(Q) are not. Pairs of square edges
-        # all divide the segment. {E + A, E + Q} isolates {E}, joined to the rest by
+        # graph (E(A, B) and E(P, Q) are leaves there), so each would flip alone, but
+        # they are the flanks of the qualifying chain E(A, B) → E(P, Q) and never flip
+        # (`_chain_flank_groups`); the four bindings on the square E–E(A)–E(A, Q)–E(Q)
+        # are no bridges. Pairs of square edges all divide the segment.
+        # {E + A, E + Q} isolates {E}, joined to the rest by
         # two parallel edges of weight 0 (A uptake +1 against E(A)'s offset +1; Q
         # uptake −1 against E(Q)'s offset −1): a balanced block, so neither flipped
         # group carries flux and the child would be its parent plus two phantoms.
@@ -9277,32 +9637,6 @@ end
             end
         end)
         expected = [
-            EnzymeRates.Mechanism(@enzyme_mechanism begin      # {E(A) + B}
-                substrates: A, B
-                products: P, Q
-                steps: begin
-                    E + A ⇌ E(A)
-                    E(Q) + A ⇌ E(A, Q)
-                    E + Q ⇌ E(Q)
-                    E(A) + Q ⇌ E(A, Q)
-                    E(A) + B <--> E(A, B)
-                    E(A, B) <--> E(P, Q)
-                    E(Q) + P ⇌ E(P, Q)
-                end
-            end),
-            EnzymeRates.Mechanism(@enzyme_mechanism begin      # {E(Q) + P}
-                substrates: A, B
-                products: P, Q
-                steps: begin
-                    E + A ⇌ E(A)
-                    E(Q) + A ⇌ E(A, Q)
-                    E + Q ⇌ E(Q)
-                    E(A) + Q ⇌ E(A, Q)
-                    E(A) + B ⇌ E(A, B)
-                    E(A, B) <--> E(P, Q)
-                    E(Q) + P <--> E(P, Q)
-                end
-            end),
             EnzymeRates.Mechanism(@enzyme_mechanism begin      # {E + A, E(A) + Q}
                 substrates: A, B
                 products: P, Q
@@ -9357,11 +9691,38 @@ end
             end),
         ]
         kids = EnzymeRates._expand_re_to_ss(m)
-        @test length(kids) == 6
+        @test length(kids) == 4
         @test Set(kids) == Set(expected)
-        # The two zero-flux pairs are absent, and each has exactly its parent's rank.
+        # The two flank flips and the two zero-flux pairs are absent; each divides a
+        # segment, and each has exactly its parent's rank.
         r0 = _testhelper_identifiable_rank(m)
         for absent in (
+            EnzymeRates.Mechanism(@enzyme_mechanism begin  # {E(A) + B}
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E(Q) + A ⇌ E(A, Q)
+                    E + Q ⇌ E(Q)
+                    E(A) + Q ⇌ E(A, Q)
+                    E(A) + B <--> E(A, B)
+                    E(A, B) <--> E(P, Q)
+                    E(Q) + P ⇌ E(P, Q)
+                end
+            end),
+            EnzymeRates.Mechanism(@enzyme_mechanism begin  # {E(Q) + P}
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E(Q) + A ⇌ E(A, Q)
+                    E + Q ⇌ E(Q)
+                    E(A) + Q ⇌ E(A, Q)
+                    E(A) + B ⇌ E(A, B)
+                    E(A, B) <--> E(P, Q)
+                    E(Q) + P <--> E(P, Q)
+                end
+            end),
             EnzymeRates.Mechanism(@enzyme_mechanism begin  # {E + A, E + Q}
                 substrates: A, B
                 products: P, Q
@@ -9868,7 +10229,11 @@ end
     # Without the flux and new-complex rules the levels would hold 62, 369 and 1,388;
     # the flux rule leaves out 148 zero-flux flip children at level 2, and the 40
     # zero-flux split children, emitted at rapid equilibrium, duplicate level-2 flip
-    # children, so 1,200 remain. No seed or level-1 child is affected. Every
+    # children, so 1,200 would remain; it affects no seed or level-1 child. The flip
+    # rule (`_chain_flank_groups`) then leaves out 20 seed children at level 1 and 66
+    # mechanisms at level 2, each holding a qualifying chain whose isomerization and
+    # at least one flank are steady state, and each with its twin whose flanks are
+    # both at rapid equilibrium in the population: 62, 349 and 1,134 remain. Every
     # mechanism satisfies both emission rules.
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
@@ -9894,7 +10259,7 @@ end
     end
     obeys_rules(m) = EnzymeRates._assert_emission_rules(m) === nothing
     bibi = levels(rxn)
-    @test length.(bibi) == [62, 369, 1200]
+    @test length.(bibi) == [62, 349, 1134]
     @test all(obeys_rules, Iterators.flatten(bibi))
 
     # The same seeds with every reactant also a competitive inhibitor (R6), two
@@ -9905,12 +10270,15 @@ end
         dead_end_inhibitors: A, B, P, Q
     end
     copies = levels(rxn6)
-    # Without the copy rule level 1 would hold 1,769: the 120 seed-level placements
+    # Without the copy rule level 1 would hold 1,749: the 120 seed-level placements
     # whose every complex has a productive twin and whose dwell gauge is consistent
     # are not emitted, and the 240 whose gauge fails, the shared-group family of
-    # Case 3, are. 8,714 level-2 mechanisms hold a copy group whose every complex has
-    # a productive twin and whose gauge fails.
-    @test length.(copies) == [62, 1649, 31730]
+    # Case 3, are. 8,694 level-2 mechanisms hold a copy group whose every complex has
+    # a productive twin and whose gauge fails. Without the flip rule the levels would
+    # hold 62, 1,649 and 31,730: it leaves out 20 seed children at level 1 and 348
+    # mechanisms at level 2, each holding a qualifying chain whose isomerization and
+    # at least one flank are steady state.
+    @test length.(copies) == [62, 1629, 31382]
     @test all(obeys_rules, Iterators.flatten(copies))
     @test any(m -> !isempty(EnzymeRates._bound_comp_inhibitors(m)), copies[2])
 end
