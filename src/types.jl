@@ -223,9 +223,9 @@ is_iso(s::Step)     = isempty(s.consumed) && isempty(s.released)
 off, and `to_species` holding `from_species`'s metabolites plus that one with the
 same residual, the conformation free to change (`_binds_ligand`). Isomerizations,
 fused bindings (`E(A) + B → E(P, Q)`), Theorell–Chance steps and steps with several
-metabolites on a side are chemistry. `show` and the enumeration guards
-(`_assert_chemistry_is_iso`, `_assert_mechanism_invariants`) read it to tell
-catalysis from binding."""
+metabolites on a side are chemistry. The allosteric moves (`_expand_to_allosteric`,
+`_partial_onlya_catalysis`, `_expand_change_allo_state`), `_onlya_haldane_violation`
+and `show` read it to tell catalysis from binding."""
 function _is_chemistry(s::Step)
     m = bound_metabolite(s)
     m === nothing || !_binds_ligand(from_species(s), to_species(s), m)

@@ -151,27 +151,6 @@ function _assert_step_atom_conserving(reaction::EnzymeReaction, s::Step)
 end
 
 """
-    _assert_chemistry_is_iso(m)
-
-The moves take the isomerization step as the chemistry step, which is how the
-enumerator writes every mechanism: chemistry isomerizes to a product-bound form
-and each binding or release is its own step. A parent may therefore contain
-only plain bindings (`_is_chemistry` false: the bound form adds the metabolite and
-may change the enzyme's conformation, never its covalent residual) and
-isomerizations (`is_iso`); a mechanism written for the derivation with chemistry
-folded into a binding or release step is not a valid parent.
-"""
-function _assert_chemistry_is_iso(m::Union{Mechanism, AllostericMechanism})
-    for group in steps(m), s in group
-        !_is_chemistry(s) || is_iso(s) || error(
-            "step $(name(from_species(s))) → $(name(to_species(s))) folds chemistry " *
-            "into a binding or release; the moves need the chemistry as an " *
-            "isomerization and each binding or release as its own step")
-    end
-    nothing
-end
-
-"""
     _assert_emission_rules(m)
 
 The two rules every mechanism the moves emit satisfies, checked on a parent before
@@ -2303,18 +2282,20 @@ distinguishable from a simpler mechanism (an MWC conformational
 constant `L` with no observable effect is not enumerated). An `:OnlyA`
 catalytic binding means the inactive conformation cannot bind that
 metabolite, so it cannot complete the catalytic cycle: every emitted
-`:OnlyA` variant is **dead-inactive** — all isomerization (chemical)
-steps are `:OnlyA`, and the inactive conformation only binds ligands.
+`:OnlyA` variant is **dead-inactive** — every chemistry group is `:OnlyA`,
+and the inactive conformation only binds ligands. A chemistry group is one
+holding a chemistry step (`_is_chemistry`): an isomerization, a fused
+binding or a Theorell–Chance step; every other group is a binding group.
 
   * The all-`:EqualAI` baseline is never emitted — the two conformations
     are identical, `L` cancels, and the mechanism is indistinguishable
     from `m`.
   * K-type: every non-empty subset of binding groups is set `:OnlyA`,
-    with all isomerization steps `:OnlyA`. Each `:OnlyA` binding's
+    with every chemistry group `:OnlyA`. Each `:OnlyA` binding's
     metabolite concentration reveals `L`, so each is emitted bare. A
     subset that leaves a binding-only Wegscheider cycle unsatisfiable
     (`_onlya_haldane_violation`) is dropped.
-  * V-type: no `:OnlyA` binding, all isomerization steps `:OnlyA`. The
+  * V-type: no `:OnlyA` binding, every chemistry group `:OnlyA`. The
     inactive state binds substrate/product identically to the active
     state but cannot catalyze, so `L` folds entirely into `kcat`
     (`v = kcat/(1+L)·shape`) and is not observable; it is emitted ONLY
@@ -2336,8 +2317,8 @@ equilibrium would add a second source of powers
 function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     hyperbolic = _hyperbolic_catalysis(m)
     n_g = length(steps(m))
-    iso = [g for g in 1:n_g if is_iso(rep_step(m, g))]
-    bind = [g for g in 1:n_g if !is_iso(rep_step(m, g))]
+    chem = [g for g in 1:n_g if any(_is_chemistry, steps(m)[g])]
+    bind = [g for g in 1:n_g if !(g in chem)]
     regs = Symbol[]
     for rm in regulators(rxn)
         reg = regulator(rm)
@@ -2347,15 +2328,15 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     results = AllostericMechanism[]
     for cn in allowed_catalytic_multiplicities(rxn)
         cn > 1 && !hyperbolic && continue
-        # K-type: every non-empty subset of binding groups :OnlyA, with all
-        # chemical (iso) steps :OnlyA — a catalytically-dead inactive conformation.
+        # K-type: every non-empty subset of binding groups :OnlyA, with every
+        # chemistry group :OnlyA — a catalytically-dead inactive conformation.
         # A state that cannot bind a catalytic metabolite cannot complete the
         # cycle, so it runs no chemistry. The :OnlyA binding's metabolite reveals
         # L, so each is emitted bare. `_onlya_haldane_violation` drops a subset
         # that leaves a binding-only Wegscheider cycle unsatisfiable.
         for mask in 1:(2^length(bind) - 1)
             tags = Symbol[:EqualAI for _ in 1:n_g]
-            for g in iso
+            for g in chem
                 tags[g] = :OnlyA
             end
             for (i, g) in enumerate(bind)
@@ -2365,12 +2346,12 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
             push!(results, AllostericMechanism(
                 reaction(m), copy(steps(m)), tags, cn, RegulatorySite[]))
         end
-        # V-type: no :OnlyA binding, all chemical steps :OnlyA. The inactive state
-        # binds identically but cannot catalyze, so L folds into kcat and is
+        # V-type: no :OnlyA binding, every chemistry group :OnlyA. The inactive
+        # state binds identically but cannot catalyze, so L folds into kcat and is
         # unobservable — emit only paired with a declared regulator.
-        if !isempty(iso) && !isempty(regs)
+        if !isempty(chem) && !isempty(regs)
             vtags = Symbol[:EqualAI for _ in 1:n_g]
-            for g in iso
+            for g in chem
                 vtags[g] = :OnlyA
             end
             am_cat = AllostericMechanism(
@@ -2518,19 +2499,20 @@ _expand_add_allosteric_regulator(::Mechanism, ::EnzymeReaction) =
     _partial_onlya_catalysis(cat_steps, cat_allo_states) → Bool
 
 True when the inactive conformation catalyzes only partially: some catalytic
-group is `:OnlyA` (a dead binding or chemical step) while some isomerization
-(chemical) step is still live (not `:OnlyA`). The inactive conformation's
-catalysis must be all-or-nothing — fully dead (every chemical step `:OnlyA`,
-whether because an `:OnlyA` binding blocks the cycle or by a dead-inactive
-V-type) or fully live. A partial conformation strands enzyme in a covalent
-form (a kinetic sink) and crashes the saturating-turnover extraction. The
-enumeration moves use this to avoid generating such a form.
+group is `:OnlyA` (a dead binding or chemistry group) while some chemistry
+group (one holding a chemistry step, `_is_chemistry`) is still live (not
+`:OnlyA`). The inactive conformation's catalysis must be all-or-nothing — fully
+dead (every chemistry group `:OnlyA`, whether because an `:OnlyA` binding blocks
+the cycle or by a dead-inactive V-type) or fully live. A partial conformation
+strands enzyme in a covalent form (a kinetic sink) and crashes the
+saturating-turnover extraction. The enumeration moves use this to avoid
+generating such a form.
 """
 function _partial_onlya_catalysis(cat_steps::Vector{Vector{Step}},
                                   cat_allo_states::Vector{Symbol})
-    live_iso = any(is_iso(cat_steps[g][1]) && cat_allo_states[g] !== :OnlyA
-                   for g in eachindex(cat_steps))
-    live_iso && any(==(:OnlyA), cat_allo_states)
+    live = any(any(_is_chemistry, cat_steps[g]) && cat_allo_states[g] !== :OnlyA
+               for g in eachindex(cat_steps))
+    live && any(==(:OnlyA), cat_allo_states)
 end
 
 """
@@ -2540,23 +2522,23 @@ end
 Mechanism-native overload. Relax a "constrained" tag (`:EqualAI`,
 `:OnlyA`, `:OnlyI`) to `:NonequalAI`. A binding catalytic group and a
 regulatory ligand each relax individually — one variant per group not
-already `:NonequalAI`. The chemical (isomerization) groups relax
-**together**, one variant setting every non-`:NonequalAI` chemical step
-to `:NonequalAI` at once: inactive catalysis is all-or-nothing, so a
-fully-`:NonequalAI` catalytic inactive conformation cannot be reached by
-relaxing chemical steps one at a time (each mixed intermediate is a
-partial and is dropped). The base catalytic steps, multiplicity, and
-untouched tags are preserved.
+already `:NonequalAI`. The chemistry groups (those holding a chemistry step,
+`_is_chemistry`) relax **together**, one variant setting every
+non-`:NonequalAI` chemistry group to `:NonequalAI` at once: inactive catalysis
+is all-or-nothing, so a fully-`:NonequalAI` catalytic inactive conformation
+cannot be reached by relaxing chemistry groups one at a time (each mixed
+intermediate is a partial and is dropped). The base catalytic steps,
+multiplicity, and untouched tags are preserved.
 
-Relaxing an `:OnlyA` chemical step is dropped in two cases. A one-sided
+Relaxing an `:OnlyA` chemistry group is dropped in two cases. A one-sided
 `:OnlyA` binding is only legal because `k_I = 0`; restoring a finite
 `k_I` strands it, leaving no thermodynamic reading
 (`_onlya_haldane_violation`). More broadly, inactive catalysis must be
 all-or-nothing: a relaxation that leaves the inactive conformation
 catalyzing only partially — some catalytic group `:OnlyA` while a
-chemical step stays live — is dropped (`_partial_onlya_catalysis`),
+chemistry group stays live — is dropped (`_partial_onlya_catalysis`),
 because such a conformation strands enzyme in a covalent form. Relaxing
-an `:OnlyA` binding, or a chemical step of a fully-live inactive
+an `:OnlyA` binding, or a chemistry group of a fully-live inactive
 conformation, is retained. Where the inactive conformation binds nothing
 (all bindings `:OnlyA`), the dropped partial variant is rate-equivalent
 to the fully-dead form emitted directly, so no observable hypothesis is
@@ -2575,11 +2557,11 @@ the copy's constant then shows in neither state.
 function _expand_change_allo_state(am::AllostericMechanism)
     results = AllostericMechanism[]
     cs = steps(am)
-    iso_gs = [g for g in eachindex(cs) if is_iso(cs[g][1])]
+    chem = [g for g in eachindex(cs) if any(_is_chemistry, cs[g])]
 
     # Binding catalytic groups relax individually.
     for g in eachindex(cat_allo_states(am))
-        is_iso(cs[g][1]) && continue
+        g in chem && continue
         cat_allo_states(am)[g] == :NonequalAI && continue
         new_states = copy(cat_allo_states(am))
         new_states[g] = :NonequalAI
@@ -2589,14 +2571,14 @@ function _expand_change_allo_state(am::AllostericMechanism)
         push!(results, _with_cat_allo_states(am, new_states))
     end
 
-    # Chemical (isomerization) groups relax together. Inactive catalysis is
-    # all-or-nothing, so a fully-`:NonequalAI` catalytic inactive conformation is
-    # unreachable by relaxing chemical steps one at a time — each mixed
-    # intermediate is a partial and is dropped. One variant sets every
-    # non-`:NonequalAI` chemical step to `:NonequalAI` at once.
-    if any(cat_allo_states(am)[g] != :NonequalAI for g in iso_gs)
+    # Chemistry groups relax together. Inactive catalysis is all-or-nothing, so a
+    # fully-`:NonequalAI` catalytic inactive conformation is unreachable by
+    # relaxing chemistry groups one at a time — each mixed intermediate is a
+    # partial and is dropped. One variant sets every non-`:NonequalAI` chemistry
+    # group to `:NonequalAI` at once.
+    if any(cat_allo_states(am)[g] != :NonequalAI for g in chem)
         new_states = copy(cat_allo_states(am))
-        for g in iso_gs
+        for g in chem
             new_states[g] = :NonequalAI
         end
         if _onlya_haldane_violation(reaction(am), cs, new_states) === nothing &&
@@ -2824,7 +2806,6 @@ function expand_mechanisms(
     rxn::EnzymeReaction)
     result = Union{Mechanism, AllostericMechanism}[]
     for m in mechs
-        _assert_chemistry_is_iso(m)
         _assert_emission_rules(m)
         _add_expansions_mech!(result, m, rxn)
     end
@@ -3024,18 +3005,12 @@ _binds_all_required(m::Union{Mechanism, AllostericMechanism},
 
 Structural invariants every valid Mechanism should satisfy:
 - Every group is non-empty
-- Every step is a plain binding (`_is_chemistry` false) or an isomerization (`is_iso`)
 """
 function _assert_mechanism_invariants(m::Mechanism)
     flat = collect(Iterators.flatten(steps(m)))
     isempty(flat) && error("empty steps in Mechanism")
     for g in steps(m)
         isempty(g) && error("empty kinetic group in Mechanism")
-    end
-    for s in flat
-        !_is_chemistry(s) || is_iso(s) || error(
-            "step $(name(from_species(s))) → $(name(to_species(s))) is neither " *
-            "a plain binding nor an isomerization")
     end
 
     # Every declared substrate/product must appear in some step. Regulators

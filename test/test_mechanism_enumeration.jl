@@ -118,12 +118,11 @@ function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     best
 end
 
-# A kinetic group is catalytic iff its representative step binds no
-# metabolite (an isomerization/conversion step); otherwise it is a binding
-# group. Mirrors the rule `_expand_to_allosteric` uses to decide whether a
-# group's `:OnlyA` flip needs a paired regulator to be distinguishable.
-_is_catalytic_group(m, g) =
-    EnzymeRates.bound_metabolite(EnzymeRates.rep_step(m, g)) === nothing
+# A kinetic group is catalytic iff it holds a chemistry step (`_is_chemistry`:
+# an isomerization, a fused binding or a Theorell–Chance step); otherwise it is
+# a binding group. Mirrors the rule `_expand_to_allosteric` uses to decide
+# whether a group's `:OnlyA` flip needs a paired regulator to be distinguishable.
+_is_catalytic_group(m, g) = any(EnzymeRates._is_chemistry, EnzymeRates.steps(m)[g])
 
 const uni_uni_rxn = @enzyme_reaction begin
     substrates: S[C]
@@ -9777,36 +9776,255 @@ end
     @test any(m -> !isempty(EnzymeRates._bound_comp_inhibitors(m)), copies[2])
 end
 
-@testset "expand_mechanisms rejects chemistry folded into a release step" begin
-    # The moves take the isomerization step as the chemistry step, which is
-    # how the enumerator writes every mechanism. A mechanism written for the
-    # derivation with chemistry folded into a release (the ping-pong docs
-    # page) is not a valid parent.
+@testset "expand_mechanisms on a merged uni-uni" begin
+    # E + S → E(P) fused (SS), E + P ⇌ E(P) (RE). Flip: the P group cuts E from E(P),
+    # carries flux, no bottomless segment: one child, both steps SS. Split: single-step
+    # groups, nothing. Dead end: no regulator. To-allosteric at multiplicity 1: the
+    # chemistry group (the fused step) is :OnlyA, the binding subsets range over {P}:
+    # one K-type child; no regulator, so no V-type.
     rxn = @enzyme_reaction begin
-        substrates: A[CX], B[N]
-        products: P[C], Q[NX]
+        substrates: S[C]
+        products: P[C]
     end
-    folded = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    withrxn(em) = EnzymeRates.Mechanism(rxn, EnzymeRates.steps(EnzymeRates.Mechanism(em)))
+    m = withrxn(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    flipped = withrxn(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(P)
+            E + P <--> E(P)
+        end
+    end)
+    k_type = EnzymeRates.AllostericMechanism(rxn, EnzymeRates.steps(m),
+        [:OnlyA, :OnlyA], 1, EnzymeRates.RegulatorySite[])
+    kids = EnzymeRates.expand_mechanisms([m], rxn)
+    @test length(kids) == 2
+    @test Set(kids) == Set([flipped, k_type])
+    # The parent's rate is k·(S − P/Keq)/(1 + P/Kp), the Haldane relation fixing the
+    # fused step's reverse constant: 2 fitted, rank 2. The flipped child's two forms at
+    # steady state give V·(S − P/Keq)/(1 + a·S + b·P) with V, a and b free: 3 fitted,
+    # rank 3. In the K-type child the inactive conformation binds nothing and runs no
+    # chemistry, so L enters only as 1 + L beside the free enzyme and folds into k and
+    # Kp: 3 fitted, rank 2.
+    fitted(x) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(x)))
+    @test fitted(m) == _testhelper_identifiable_rank(m) == 2
+    @test fitted(flipped) == _testhelper_identifiable_rank(flipped) == 3
+    @test fitted(k_type) == 3 && _testhelper_identifiable_rank(k_type) == 2
+end
+
+@testset "_expand_change_allo_state on a merged uni-uni K-type" begin
+    # The fused step E + S → E(P) is the chemistry group. Relaxing P to :NonequalAI
+    # keeps the chemistry :OnlyA: the inactive conformation binds P with a constant of
+    # its own and runs no chemistry, a valid child. Relaxing the chemistry restores
+    # inactive catalysis beside the :OnlyA P binding: a partial :OnlyA catalysis
+    # (`_partial_onlya_catalysis`), whose one-sided :OnlyA binding also leaves the
+    # Haldane cycle unsatisfiable once the chemistry is back in the check graph
+    # (`_onlya_haldane_violation`). Dropped: one child.
+    k_type = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + S <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)       :: OnlyA
+        end
+    end)
+    p_relaxed = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + S <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)       :: NonequalAI
+        end
+    end)
+    kids = EnzymeRates._expand_change_allo_state(k_type)
+    @test length(kids) == 1
+    @test Set(kids) == Set([p_relaxed])
+    # The child's rate is k·(S − P/Keq)/(1 + L + P·(1/Kp_A + L/Kp_I)): dividing by
+    # 1 + L leaves k/(1 + L) and one P coefficient, so k, Kp_A, Kp_I and L give
+    # 4 fitted, rank 2.
+    fitted(x) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(x)))
+    @test fitted(p_relaxed) == 4 && _testhelper_identifiable_rank(p_relaxed) == 2
+end
+
+@testset "_expand_to_allosteric on an ordered Theorell–Chance mechanism" begin
+    # E(A) + B → E(Q) + P takes up B and gives off P in one step: the chemistry group.
+    # Each K-type child sets it :OnlyA and ranges the binding subsets over {A, Q}:
+    # {A}, {Q} and {A, Q}. `_onlya_haldane_violation` drops the :OnlyA chemistry group
+    # from its cycle graph; the A and Q bindings left form the tree E(A) – E – E(Q),
+    # so no cycle row remains and no subset is refused. No regulator, so no V-type:
+    # three children.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
             E + A ⇌ E(A)
-            E(A) <--> E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E + Q
+            E(A) + B <--> E(Q) + P
+            E + Q ⇌ E(Q)
         end
     end)
-    err = try
-        EnzymeRates.expand_mechanisms([folded], rxn); nothing
-    catch e
-        e
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
     end
-    @test err isa ErrorException &&
-          occursin("folds chemistry", sprint(showerror, err))
-    # Aggregate pin over the ping-pong seed set: the enumerator itself never
-    # writes a binding step that changes the residual.
-    @test all(EnzymeRates._assert_chemistry_is_iso(m) === nothing
-              for m in EnzymeRates.init_mechanisms(rxn))
+    only_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A ⇌ E(A)                :: OnlyA
+            E(A) + B <--> E(Q) + P      :: OnlyA
+            E + Q ⇌ E(Q)                :: EqualAI
+        end
+    end)
+    only_q = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A ⇌ E(A)                :: EqualAI
+            E(A) + B <--> E(Q) + P      :: OnlyA
+            E + Q ⇌ E(Q)                :: OnlyA
+        end
+    end)
+    a_and_q = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A ⇌ E(A)                :: OnlyA
+            E(A) + B <--> E(Q) + P      :: OnlyA
+            E + Q ⇌ E(Q)                :: OnlyA
+        end
+    end)
+    kids = EnzymeRates._expand_to_allosteric(m, rxn)
+    @test length(kids) == 3
+    @test Set(kids) == Set([only_a, only_q, a_and_q])
+    # The parent's rate is (k/Ka)·(A·B − P·Q/Keq)/(1 + A/Ka + Q/Kq): 3 fitted, rank 3.
+    # Each child's dead inactive conformation adds (1 + L) times the bindings it keeps
+    # to the bindings it loses, so dividing by 1 + L rescales the lost bindings'
+    # constants and the turnover and L disappears: 4 fitted, rank 3.
+    fitted(x) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(x)))
+    @test fitted(m) == _testhelper_identifiable_rank(m) == 3
+    for k in kids
+        @test fitted(k) == 4 && _testhelper_identifiable_rank(k) == 3
+    end
+end
+
+@testset "_expand_to_allosteric on a merged ordered bi-bi at multiplicity 2" begin
+    # The ordered bi-bi seed with E(A, B) merged into E(P, Q): B's binding is fused
+    # with the chemistry (E(A) + B ⇌ E(P, Q)), and the A and P bindings are steady
+    # state. The fused B group is the chemistry group, :OnlyA in every K-type child,
+    # and the subsets range over the A, P and Q groups: 2^3 − 1 = 7. Without the
+    # :OnlyA chemistry group the bindings form the tree E(A) – E – E(Q) – E(P, Q), so
+    # `_onlya_haldane_violation` refuses none. The scheme is hyperbolic, so
+    # multiplicity 2 stays open: the RE segments are {E, E(Q)}, where E(Q) carries one
+    # Q, and {E(A), E(P, Q)}, where E(P, Q) carries one B; the steady-state A and P
+    # bindings join them, and each metabolite scores on one edge only, an edge that
+    # leaves the segment carrying that metabolite (`_hyperbolic_catalysis`). No
+    # regulator, so no V-type: seven children.
+    m2 = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B ⇌ E(P, Q)
+            E(Q) + P <--> E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    rxn2 = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        oligomeric_state: 2
+    end
+    only_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A <--> E(A)             :: OnlyA
+            E(A) + B ⇌ E(P, Q)          :: OnlyA
+            E(Q) + P <--> E(P, Q)       :: EqualAI
+            E + Q ⇌ E(Q)                :: EqualAI
+        end
+    end)
+    only_p = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A <--> E(A)             :: EqualAI
+            E(A) + B ⇌ E(P, Q)          :: OnlyA
+            E(Q) + P <--> E(P, Q)       :: OnlyA
+            E + Q ⇌ E(Q)                :: EqualAI
+        end
+    end)
+    only_q = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A <--> E(A)             :: EqualAI
+            E(A) + B ⇌ E(P, Q)          :: OnlyA
+            E(Q) + P <--> E(P, Q)       :: EqualAI
+            E + Q ⇌ E(Q)                :: OnlyA
+        end
+    end)
+    a_and_p = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A <--> E(A)             :: OnlyA
+            E(A) + B ⇌ E(P, Q)          :: OnlyA
+            E(Q) + P <--> E(P, Q)       :: OnlyA
+            E + Q ⇌ E(Q)                :: EqualAI
+        end
+    end)
+    a_and_q = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A <--> E(A)             :: OnlyA
+            E(A) + B ⇌ E(P, Q)          :: OnlyA
+            E(Q) + P <--> E(P, Q)       :: EqualAI
+            E + Q ⇌ E(Q)                :: OnlyA
+        end
+    end)
+    p_and_q = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A <--> E(A)             :: EqualAI
+            E(A) + B ⇌ E(P, Q)          :: OnlyA
+            E(Q) + P <--> E(P, Q)       :: OnlyA
+            E + Q ⇌ E(Q)                :: OnlyA
+        end
+    end)
+    all_three = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A <--> E(A)             :: OnlyA
+            E(A) + B ⇌ E(P, Q)          :: OnlyA
+            E(Q) + P <--> E(P, Q)       :: OnlyA
+            E + Q ⇌ E(Q)                :: OnlyA
+        end
+    end)
+    @test EnzymeRates._hyperbolic_catalysis(m2)
+    kids = EnzymeRates._expand_to_allosteric(m2, rxn2)
+    @test all(c -> c isa EnzymeRates.AllostericMechanism, kids)
+    @test length(kids) == 7
+    @test Set(kids) == Set([only_a, only_p, only_q, a_and_p, a_and_q, p_and_q,
+                            all_three])
+    # The parent has 5 fitted constants, all identifiable. Each child adds L; at
+    # multiplicity 2 each conformation's binding polynomial enters squared, so dividing
+    # by 1 + L no longer folds L into the other constants: 6 fitted, rank 6.
+    fitted(x) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(x)))
+    @test fitted(m2) == _testhelper_identifiable_rank(m2) == 5
+    for k in kids
+        @test fitted(k) == _testhelper_identifiable_rank(k) == 6
+    end
+end
+
+@testset "expand_mechanisms expands a parent whose binding changes conformation" begin
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+    end
     # A binding step may change conformation; only the residual is chemistry.
     conf = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B

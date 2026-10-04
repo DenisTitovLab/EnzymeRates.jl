@@ -538,8 +538,12 @@ absorbs the imbalance is a free inactive catalytic ratio `k_I_f/k_I_r`. An
 the rate equation, so their ratio is free to satisfy the cycle's Haldane at any
 affinity — which is why the inactive Haldane is present but never binding here.
 
-The check graph drops `:OnlyA` chemical groups, so a cycle running through one
-never appears and never reports a violation: that free `k_I` ratio is the escape.
+The check graph drops `:OnlyA` chemistry groups (those holding a chemistry step,
+`_is_chemistry`: an isomerization, a fused binding or a Theorell–Chance step), so
+a cycle running through one never appears and never reports a violation: that
+free `k_I` ratio is the escape. The `:OnlyA` bindings are the `:OnlyA` groups of
+plain bindings alone; a fused binding tagged `:OnlyA` is chemistry and leaves the
+graph.
 Bindings completing no cycle (competitive inhibitors, dead ends, regulator
 sites) never enter a row and take no part. Both catalytic (Haldane) and
 binding-only (Wegscheider, `rhs = 0`) cycle rows are inspected, so a one-sided
@@ -569,11 +573,11 @@ function _onlya_haldane_violation(rxn::EnzymeReaction,
                                   cat_steps::Vector{Vector{Step}},
                                   cat_allo_states::Vector{Symbol})
     keep = [g for g in eachindex(cat_steps)
-            if !(cat_allo_states[g] === :OnlyA && is_iso(cat_steps[g][1]))]
+            if !(cat_allo_states[g] === :OnlyA && any(_is_chemistry, cat_steps[g]))]
     isempty(keep) && return nothing
     onlyA_steps = Set{Step}()
     for g in eachindex(cat_steps)
-        cat_allo_states[g] === :OnlyA && is_binding(cat_steps[g][1]) &&
+        cat_allo_states[g] === :OnlyA && !any(_is_chemistry, cat_steps[g]) &&
             union!(onlyA_steps, cat_steps[g])
     end
     isempty(onlyA_steps) && return nothing

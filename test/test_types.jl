@@ -1855,9 +1855,7 @@ end
             [[ER.Step(E, EA, [A], ER.Metabolite[], false)], [chem],
              [ER.Step(F, FB, [B], ER.Metabolite[], false)],
              [ER.Step(FB, E, ER.Metabolite[], [Q], false)]])
-        err = _testhelper_thrown(() -> ER._assert_chemistry_is_iso(m))
-        @test err isa ErrorException
-        @test occursin("folds chemistry", err.msg)
+        @test ER._assert_mechanism_invariants(m) === nothing
     end
 
     @testset "inhibitor copy stays distinct from the substrate" begin
@@ -2698,6 +2696,28 @@ end
     end
     @test ordered isa ER.AllostericEnzymeMechanism
     @test ER.AllostericMechanism(ordered) isa ER.AllostericMechanism
+end
+
+@testset ":OnlyA guard admits a ping-pong whose fused release is :OnlyA" begin
+    # E(A) → E(; residual = A - P) + P runs the first half-reaction and releases P in
+    # one step: chemistry (`_is_chemistry`), though it gives off one metabolite and
+    # takes up none. Tagged :OnlyA, it leaves the check graph as an :OnlyA
+    # isomerization does; the steps left form the tree E(A) – E – E(B; residual) –
+    # E(; residual), so no cycle row remains and the inactive conformation's free
+    # k_I ratio carries the Haldane relation.
+    pingpong = @allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A <--> E(A)                                       :: EqualAI
+            E(A) <--> E(; residual = A - P) + P                   :: OnlyA
+            E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
+            E(B; residual = A - P) <--> E + Q                     :: EqualAI
+        end
+    end
+    am = ER.AllostericMechanism(pingpong)
+    @test am isa ER.AllostericMechanism
+    @test ER._onlya_haldane_violation(ER.reaction(am), ER.steps(am),
+                                      ER.cat_allo_states(am)) === nothing
 end
 
 @testset "rational nullspace + Stiemke feasibility helpers" begin
