@@ -2698,20 +2698,22 @@ end
     @test ER.AllostericMechanism(ordered) isa ER.AllostericMechanism
 end
 
-@testset ":OnlyA guard admits a ping-pong whose fused release is :OnlyA" begin
+@testset ":OnlyA guard admits a ping-pong whose fused releases are :OnlyA" begin
     # E(A) → E(; residual = A - P) + P runs the first half-reaction and releases P in
-    # one step: chemistry (`_is_chemistry`), though it gives off one metabolite and
-    # takes up none. Tagged :OnlyA, it leaves the check graph as an :OnlyA
-    # isomerization does; the steps left form the tree E(A) – E – E(B; residual) –
-    # E(; residual), so no cycle row remains and the inactive conformation's free
-    # k_I ratio carries the Haldane relation.
+    # one step, E(B; residual = A - P) → E + Q the second and releases Q: chemistry
+    # (`_is_chemistry`), though each gives off one metabolite and takes up none.
+    # Tagged :OnlyA, both leave the check graph as :OnlyA isomerizations do, and the
+    # inactive conformation runs no chemistry. No plain binding is :OnlyA, so the
+    # guard has no affinity to drive to zero and returns before it builds a cycle
+    # row. Read as :OnlyA bindings, P and Q would stand on the product side of the
+    # one Haldane cycle, one sign, and the mechanism would be refused.
     pingpong = @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
         catalytic_steps: begin
             E + A <--> E(A)                                       :: EqualAI
             E(A) <--> E(; residual = A - P) + P                   :: OnlyA
             E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
-            E(B; residual = A - P) <--> E + Q                     :: EqualAI
+            E(B; residual = A - P) <--> E + Q                     :: OnlyA
         end
     end
     am = ER.AllostericMechanism(pingpong)

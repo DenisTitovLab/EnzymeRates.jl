@@ -2043,22 +2043,22 @@ function _redundant_copy_groups(am::AllostericMechanism)
 end
 
 """
-Source-form names of the binding steps for the metabolite named `met_name` in the role
-`role`: `Reactant` for a substrate or product bound productively, `CompetitiveInhibitor`
-for an inhibitor, a reactant's copy included, bound at its dead-end site. The source
-form is the side without the metabolite.
+Names of the forms where the metabolite named `met_name`, in the role `role`, is free on
+some step: the step's `from_species` when it takes the metabolite up, its `to_species`
+when it gives it off, so a Theorell–Chance step E(A) + B → E(Q) + P frees B at E(A) and
+P at E(Q). `Reactant` asks where a substrate or product binds productively;
+`CompetitiveInhibitor` where an inhibitor, a reactant's copy included, binds its dead-end
+site. A reactant and its copy share a name but bind different sites, so the role tells
+them apart. The dead-end move targets these forms for competition with the metabolite.
 """
-function _forms_with_binding_step_native(
-    m::Union{Mechanism, AllostericMechanism}, role::Type{<:Metabolite},
-    met_name::Symbol,
-)
-    result = Set{Symbol}()
-    for group in steps(m), s in group
-        bm = bound_metabolite(s)
-        bm isa role && name(bm) == met_name || continue
-        push!(result, name(from_species(s)))
+function _forms_where_free(m::Union{Mechanism, AllostericMechanism},
+                           role::Type{<:Metabolite}, met_name::Symbol)
+    forms = Set{Symbol}()
+    for group in steps(m), s in group,
+        (form, mets) in ((from_species(s), consumed(s)), (to_species(s), released(s)))
+        any(x -> x isa role && name(x) == met_name, mets) && push!(forms, name(form))
     end
-    result
+    forms
 end
 
 """
@@ -2111,13 +2111,13 @@ end
 Add a dead-end regulator binding step set. For each `CompetitiveInhibitor`
 declared in `rxn` but not yet bound by `m`'s steps, enumerate inhibitor
 competition patterns (S × P × existing inhibitors); for each pattern,
-add RE binding steps to the forms where a competing metabolite binds, unless
+add RE binding steps to the forms where a competing metabolite is free, unless
 the form already holds a competing metabolite or holds every substrate or every
 product. Competition is decided per site, not per name. A substrate or product
 declared as a competitive inhibitor is a copy that binds a dead-end site of its
 own, and that site and the reactant's catalytic site are different sites by
 definition. Competition with a substrate or product M targets the forms where
-M binds productively and excludes the forms that hold M productively;
+M is free on a productive step and excludes the forms that hold M productively;
 competition with an existing inhibitor I targets the forms where I binds as a
 `CompetitiveInhibitor` (its binding steps' source forms) and excludes the forms
 that hold I; the capacity test counts productive bindings only. A form that
@@ -2209,12 +2209,10 @@ function _expand_add_dead_end_regulator(
             comp_reactants = union(comp_subs, comp_prods)
             target_forms = Set{Symbol}()
             for met in comp_reactants
-                union!(target_forms,
-                       _forms_with_binding_step_native(m, Reactant, met))
+                union!(target_forms, _forms_where_free(m, Reactant, met))
             end
             for inh in comp_inhibitors
-                union!(target_forms,
-                       _forms_with_binding_step_native(m, CompetitiveInhibitor, inh))
+                union!(target_forms, _forms_where_free(m, CompetitiveInhibitor, inh))
             end
 
             active = Symbol[]
