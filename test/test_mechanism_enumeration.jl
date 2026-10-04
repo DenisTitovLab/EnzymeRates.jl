@@ -1378,18 +1378,24 @@ end
     end
 end
 
-@testset "exactly 1 SS step per init mechanism" begin
-    # init_mechanisms produces minimum-parameter mechanisms — exactly
-    # one isomerization step, which is SS by construction. Subsequent
-    # RE→SS expansions add more SS steps; init never does.
+@testset "exactly 1 SS step per init seed" begin
+    # A seed holds its chemistry as an isomerization, and exactly one step,
+    # an isomerization, is SS by construction. Subsequent RE→SS expansions add
+    # more SS steps. The merged and Theorell–Chance variants that follow the
+    # seeds hold no isomerization and two or three SS groups.
     for rxn in [uni_uni_rxn, uni_bi_rxn,
                 bi_bi_rxn, bi_bi_pp_rxn]
         specs = EnzymeRates.init_mechanisms(rxn)
         @test all(isempty(_connectivity_violations(
             EnzymeRates.steps(m))) for m in specs)
         for s in specs
-            @test count(st -> !st.is_equilibrium,
-                        Iterators.flatten(s.steps)) == 1
+            if any(EnzymeRates.is_iso, Iterators.flatten(s.steps))
+                @test count(st -> !st.is_equilibrium,
+                            Iterators.flatten(s.steps)) == 1
+            else
+                @test count(g -> !EnzymeRates.is_equilibrium(first(g)),
+                            s.steps) in (2, 3)
+            end
         end
     end
 end
@@ -1455,7 +1461,8 @@ end
     mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
     @test all(isempty(_connectivity_violations(
         EnzymeRates.steps(m))) for m in mechs)
-    @test length(mechs) == 55
+    # The 55 seeds and their 184 merged and Theorell–Chance variants.
+    @test length(mechs) == 239
     # Derive a small subset only — full derivation is slow. Pick the 5
     # smallest by step count (cheapest to compile).
     by_size = sort(mechs; by = m -> EnzymeRates.n_steps(m))
@@ -1463,6 +1470,106 @@ end
         s = EnzymeRates.rate_equation_string(EnzymeRates.compile_mechanism(m))
         @test s isa AbstractString && !isempty(s)
     end
+end
+
+@testset "init_mechanisms: the seeds, then their merged and Theorell–Chance variants" begin
+    ER = EnzymeRates
+    holds_iso(m) = any(ER.is_iso, Iterators.flatten(ER.steps(m)))
+    function kind(m)
+        st = collect(Iterators.flatten(ER.steps(m)))
+        tc = any(s -> !isempty(ER.consumed(s)) && !isempty(ER.released(s)), st)
+        fused = any(s -> ER.is_binding(s) && ER._is_chemistry(s), st)
+        (tc ? (fused ? :half_tc : :tc) : :merged,
+         count(g -> !ER.is_equilibrium(first(g)), ER.steps(m)))
+    end
+    tally(ms) = Dict(k => count(m -> kind(m) == k, ms) for k in unique(kind.(ms)))
+    # Aggregate pins over the whole seed sets. bi_bi_pp_rxn: 62 seeds (55 sequential, 7
+    # ping-pong), each holding its isomerization, then 202 variants, none holding one.
+    # Two-group merged: 52 from the 20 ordered/ordered seeds (3 each, less the 8 lumping
+    # twins), 56 from the 28 ordered/random and random/ordered seeds (2 each), 14 from the
+    # 7 ping-pong seeds (PP-AQ and PP-BP each). Three-group merged: 28 from the
+    # ordered/random and random/ordered seeds (1 each) and 28 from the 7 random/random
+    # seeds (4 each). Theorell–Chance: 20, one per ordered/ordered seed. Half
+    # Theorell–Chance: 4, both halves of the undecorated ping-pong seed and one half of
+    # each of two decorated ones. The 7 ping-pong seeds are degenerate and no variant is.
+    pp = ER.init_mechanisms(bi_bi_pp_rxn)
+    @test length(pp) == 264 && allunique(pp)
+    @test all(holds_iso, pp[1:62]) && !any(holds_iso, pp[63:end])
+    @test tally(pp[63:end]) == Dict((:merged, 2) => 122, (:merged, 3) => 56,
+                                    (:tc, 3) => 20, (:half_tc, 3) => 4)
+    @test count(ER._degenerate, pp[1:62]) == 7 && !any(ER._degenerate, pp[63:end])
+    @test all(m -> ER._assert_emission_rules(m) === nothing, pp)
+    # bi_bi_rxn's atoms admit no ping-pong: the 55 sequential seeds and their 184 variants.
+    bb = ER.init_mechanisms(bi_bi_rxn)
+    @test length(bb) == 239 && allunique(bb)
+    @test all(holds_iso, bb[1:55]) && !any(holds_iso, bb[56:end])
+    @test tally(bb[56:end]) == Dict((:merged, 2) => 108, (:merged, 3) => 56, (:tc, 3) => 20)
+end
+
+@testset "init_mechanisms on uni-bi: one merged variant per ordered seed" begin
+    ER = EnzymeRates
+    mech(em) = ER.Mechanism(uni_bi_rxn, ER.steps(ER.Mechanism(em)))
+    # Aggregate pin over the uni-bi seed set: the two ordered seeds (P or Q released first)
+    # and the random-release seed. An ordered seed's merged base holds S (E + S → E(P, Q)),
+    # the inner product's group (into E(P, Q)) and the outer product's group. Singletons
+    # fail V; {S, inner} is the lumping twin; {inner, outer} has no reverse maximal rate;
+    # {S, outer} is the one variant (n + m − 2 = 1). Its Theorell–Chance base gives none:
+    # each single group leaves the TC step RE or closes the cycle, and {TC, outer} turned
+    # RE for products closes it as well. The random-release base holds S, Pˣ and Qˣ, each
+    # product group with a step into E(P, Q); {S, Pˣ} and {S, Qˣ} pass and are no twins
+    # (E(P, Q) has three steps), {Pˣ, Qˣ} has no reverse maximal rate, and ELIM refuses the
+    # three-step complex. Each variant fits 2 + 1 + 2 − 1 = 4 (2 + 2 + 1 − 1 = 4 for the
+    # random seed's), the seeds' count.
+    ordered_p = mech(@enzyme_mechanism begin
+        substrates: S; products: P, Q
+        steps: begin
+            E + S <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q <--> E(Q)
+        end
+    end)
+    ordered_q = mech(@enzyme_mechanism begin
+        substrates: S; products: P, Q
+        steps: begin
+            E + S <--> E(P, Q)
+            E(P) + Q ⇌ E(P, Q)
+            E + P <--> E(P)
+        end
+    end)
+    random_p = mech(@enzyme_mechanism begin
+        substrates: S; products: P, Q
+        steps: begin
+            E + S <--> E(P, Q)
+            (E(Q) + P <--> E(P, Q), E + P <--> E(P))
+            (E(P) + Q ⇌ E(P, Q), E + Q ⇌ E(Q))
+        end
+    end)
+    random_q = mech(@enzyme_mechanism begin
+        substrates: S; products: P, Q
+        steps: begin
+            E + S <--> E(P, Q)
+            (E(Q) + P ⇌ E(P, Q), E + P ⇌ E(P))
+            (E(P) + Q <--> E(P, Q), E + Q <--> E(Q))
+        end
+    end)
+    init = ER.init_mechanisms(uni_bi_rxn)
+    @test length(init) == 7
+    @test all(m -> any(ER.is_iso, Iterators.flatten(ER.steps(m))), init[1:3])
+    @test Set(init[4:7]) == Set([ordered_p, ordered_q, random_p, random_q])
+    for seed in init[1:3]
+        @test length(ER._seed_variants(seed)) == (ER.n_steps(seed) == 4 ? 1 : 2)
+    end
+    for v in init[4:7]
+        fitted = length(ER.fitted_params(ER.compile_mechanism(v)))
+        @test (fitted, _testhelper_identifiable_rank(v)) == (4, 4)
+    end
+end
+
+@testset "init_mechanisms on ter-ter within a minute" begin
+    # Aggregate pin over the whole ter-ter seed set: 35,665 seeds and their 215,190 merged
+    # and Theorell–Chance variants. The first call compiles; the second is timed.
+    @test length(EnzymeRates.init_mechanisms(ter_ter_rxn)) == 250855
+    @test (@elapsed EnzymeRates.init_mechanisms(ter_ter_rxn)) < 60
 end
 
 @testset "Drops unbound regulators from init Mechanism" begin
@@ -7107,7 +7214,7 @@ end
     # of @generated derivations) — too slow for the suite. The init tier
     # suffices to verify bi-bi enumeration produces mechanisms that
     # compile and that their actual fitted-param counts fall in the
-    # expected {5,6} band. (Multi-tier actual-count enumeration is
+    # expected {5,6,7} band. (Multi-tier actual-count enumeration is
     # exercised by the uni-uni / dead-end / allosteric callers below.)
     init = unique!(
         collect(EnzymeRates.init_mechanisms(bi_bi_rxn)))
@@ -7117,10 +7224,10 @@ end
         em = EnzymeRates.compile_mechanism(m)
         push!(counts, length(EnzymeRates.fitted_params(em)))
     end
-    # {5,6}: ordered binding identifies one more thermodynamic
-    # constraint than random binding, so it fits one fewer parameter.
-    @test issubset(counts, Set([5, 6]))
-    @test 5 in counts
+    # {5,6,7}: the seeds and their two-group merged variants fit 5, the
+    # three-group merged variants 6, and a Theorell–Chance variant 5 plus one
+    # for each group the eliminated steps leave holding only dead-end steps.
+    @test counts == Set([5, 6, 7])
 end
 
 @testset "Mechanism — With allosteric regulators" begin
@@ -7704,6 +7811,453 @@ end
     # (0.28977 at every B from 1e-3 to 1e3 at the parameters of the gate in
     # test/allosteric_ground_truth.jl); the derived law agrees with it only at B = 1.
     @test_broken _testhelper_degenerate(am) == ER._degenerate(am)
+end
+
+@testset "_seed_variants: the uni-uni seed has none" begin
+    ER = EnzymeRates
+    mech(em) = ER.Mechanism(uni_uni_rxn, ER.steps(ER.Mechanism(em)))
+    seed = mech(@enzyme_mechanism begin
+        substrates: S; products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    # The merged base holds S (E + S → E(P), fused) and P (E + P ⇌ E(P)), both units.
+    # Either group alone at steady state has no maximal rate one way: V turns it rapid
+    # equilibrium and closes the turnover cycle E → E(P) → E with the other. {S, P} passes
+    # every test but is the lumping twin of the seed (both steps at E(P) steady state, each
+    # alone in its group), so it is skipped. Both steps at E(P) start at E, so ELIM gives no
+    # Theorell–Chance base.
+    @test isempty(ER._seed_variants(seed))
+    only_s = mech(@enzyme_mechanism begin
+        substrates: S; products: P
+        steps: begin
+            E + S <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    only_p = mech(@enzyme_mechanism begin
+        substrates: S; products: P
+        steps: begin
+            E + S ⇌ E(P)
+            E + P <--> E(P)
+        end
+    end)
+    twin = mech(@enzyme_mechanism begin
+        substrates: S; products: P
+        steps: begin
+            E + S <--> E(P)
+            E + P <--> E(P)
+        end
+    end)
+    @test !ER._has_vmax(ER.steps(only_s), uni_uni_rxn, ER.Substrate)
+    @test !ER._has_vmax(ER.steps(only_p), uni_uni_rxn, ER.Product)
+    @test _testhelper_degenerate(only_s) && _testhelper_degenerate(only_p)
+    # The twin is skipped as the seed's twin, not as degenerate.
+    @test !ER._degenerate(twin) && !_testhelper_degenerate(twin)
+end
+
+@testset "_seed_variants: the undecorated ordered seed" begin
+    ER = EnzymeRates
+    mech(em) = ER.Mechanism(bi_bi_rxn, ER.steps(ER.Mechanism(em)))
+    seed = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    # The merged base holds A (E + A ⇌ E(A)), Bˣ (E(A) + B → E(P, Q)), Pˣ
+    # (E(Q) + P → E(P, Q)) and Q (E + Q ⇌ E(Q)), every group a unit. Every singleton has no
+    # maximal rate one way; among the pairs {A, Q} fails C, {A, Bˣ} has no forward and
+    # {Pˣ, Q} no reverse maximal rate (verdicts and probes pinned in "MERGE, ELIM and the
+    # seed tests on the ordered bi-bi seed"). {A, Pˣ} and {Bˣ, Q} are variants; {Bˣ, Pˣ} is
+    # the seed's lumping twin and is skipped; every triple holds a passing pair. The
+    # Theorell–Chance base (A, Q, TC = E(A) + B → E(Q) + P) fails every set of one or two
+    # groups and gives {A, Q, TC}. Each variant fits two SS groups and two RE groups
+    # (2 + 2 + 1 + 1) or three SS groups (2 + 2 + 2), less the Haldane relation: 5.
+    a_p = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B ⇌ E(P, Q)
+            E(Q) + P <--> E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    b_q = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q <--> E(Q)
+        end
+    end)
+    tc = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B <--> E(Q) + P
+            E + Q <--> E(Q)
+        end
+    end)
+    variants = ER._seed_variants(seed)
+    @test length(variants) == 3
+    @test Set(variants) == Set([a_p, b_q, tc])
+    for v in variants
+        fitted = length(ER.fitted_params(ER.compile_mechanism(v)))
+        @test (fitted, _testhelper_identifiable_rank(v)) == (5, 5)
+        @test !_testhelper_degenerate(v)
+    end
+end
+
+@testset "_seed_variants: an ordered seed whose B group is shared" begin
+    ER = EnzymeRates
+    mech(em) = ER.Mechanism(bi_bi_rxn, ER.steps(ER.Mechanism(em)))
+    seed = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    # The merged base holds A, Bˣ (E(A) + B → E(P, Q) with the abortive E(Q) + B ⇌ E(B, Q)),
+    # Pˣ and Q; the abortive step is a dead end, and its group carries flux through the
+    # fused step, so every group is a unit. The verdicts are the undecorated seed's: the
+    # abortive step lies on no cycle, so it changes no turnover test, and it leaves no node
+    # (E(P, Q) is the one node, with exits Bˣ and Pˣ). Singletons fail V; {A, Q} fails C;
+    # {A, Bˣ} and {Pˣ, Q} fail V. {A, Pˣ}, {Bˣ, Q} and {Bˣ, Pˣ} are variants: {Bˣ, Pˣ} is no
+    # lumping twin, because the Bˣ group holds two steps. Each fits 2 + 2 + 1 + 1 − 1 = 5.
+    # ELIM of E(P, Q) leaves the abortive step alone in its group, which carries no flux
+    # in the all-steady-state base, so it is no unit and stays RE. As in the undecorated
+    # base, every set of one or two of A, Q and TC fails, and {A, Q, TC} fits
+    # 2 + 2 + 2 + 1 − 1 = 6.
+    b_p = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            (E(A) + B <--> E(P, Q), E(Q) + B <--> E(B, Q))
+            E(Q) + P <--> E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    a_p = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))
+            E(Q) + P <--> E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    b_q = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            (E(A) + B <--> E(P, Q), E(Q) + B <--> E(B, Q))
+            E(Q) + P ⇌ E(P, Q)
+            E + Q <--> E(Q)
+        end
+    end)
+    tc = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(Q) + B ⇌ E(B, Q)
+            E(A) + B <--> E(Q) + P
+            E + Q <--> E(Q)
+        end
+    end)
+    variants = ER._seed_variants(seed)
+    @test length(variants) == 4
+    @test Set(variants) == Set([b_p, a_p, b_q, tc])
+    for (v, n) in ((b_p, 5), (a_p, 5), (b_q, 5), (tc, 6))
+        fitted = length(ER.fitted_params(ER.compile_mechanism(v)))
+        @test (fitted, _testhelper_identifiable_rank(v)) == (n, n)
+        @test !_testhelper_degenerate(v)
+    end
+    # The rejected candidates, each degenerate by the probe as well.
+    iso = only(s for g in ER.steps(seed) for s in g if ER.is_iso(s))
+    base = [ER._with_equilibrium.(g, true)
+            for g in ER._merge_isomerization(ER.steps(seed), iso)]
+    tc_base = ER._eliminate_form(base, ER.to_species(iso))
+    binds(x) = s -> ER.bound_metabolite(s) !== nothing &&
+                    ER.name(ER.bound_metabolite(s)) == x
+    is_tc(s) = !isempty(ER.consumed(s)) && !isempty(ER.released(s))
+    flip(gs, preds) = [any(s -> any(p -> p(s), preds), g) ?
+                       ER._with_equilibrium.(g, false) : g for g in gs]
+    rejected = vcat([flip(base, [binds(x)]) for x in (:A, :B, :P, :Q)],
+                    [flip(base, binds.(xs)) for xs in ([:A, :Q], [:A, :B], [:P, :Q])],
+                    [flip(tc_base, ps) for ps in ([binds(:A)], [binds(:Q)], [is_tc],
+                                                  [binds(:A), binds(:Q)],
+                                                  [binds(:A), is_tc], [binds(:Q), is_tc])])
+    for gs in rejected
+        m = ER.Mechanism(bi_bi_rxn, gs)
+        @test ER._degenerate(m) && _testhelper_degenerate(m)
+    end
+end
+
+@testset "_seed_variants: the undecorated ping-pong seed" begin
+    ER = EnzymeRates
+    mech(em) = ER.Mechanism(bi_bi_pp_rxn, ER.steps(ER.Mechanism(em)))
+    seed = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    # Merging both isomerizations gives A (E + A → E(P; res), fused), P, B
+    # (E(; res) + B → E(Q), fused) and Q, all units, with the merged complexes E(P; res) and
+    # E(Q) as C's nodes. Every singleton fails V. {A, Q} (PP-AQ) and {B, P} (PP-BP) pass:
+    # each node keeps one RE exit (P from E(P; res) and B from E(Q), or A and Q), and each
+    # side's steps turned RE leave the other side's steady-state group on the cycle.
+    # {A, P} fails C at E(Q) (RE exits B and Q), {B, Q} at E(P; res) (A and P); {A, B} has
+    # no forward and {P, Q} no reverse maximal rate. Every triple holds PP-AQ or PP-BP. No
+    # merged complex has both its steps steady state in a variant, so neither is a twin.
+    # ELIM of E(P; res) gives TC1 = E + A → E(; res) + P beside B and Q; of E(Q),
+    # TC2 = E(; res) + B → E + Q beside A and P. In each Theorell–Chance base a set of one
+    # or two groups leaves the TC step RE (C fails) or turns both of one side's groups RE
+    # (V fails); all three steady state pass. Each variant fits 2 + 2 + 1 + 1 − 1 or
+    # 2 + 2 + 2 − 1 = 5.
+    pp_aq = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(Q)
+            E + Q <--> E(Q)
+        end
+    end)
+    pp_bp = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + P <--> E(P; residual = A - P)
+            E(; residual = A - P) + B <--> E(Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    half_tc1 = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B <--> E(Q)
+            E + Q <--> E(Q)
+        end
+    end)
+    half_tc2 = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A <--> E(P; residual = A - P)
+            E(; residual = A - P) + P <--> E(P; residual = A - P)
+            E(; residual = A - P) + B <--> E + Q
+        end
+    end)
+    variants = ER._seed_variants(seed)
+    @test length(variants) == 4
+    @test Set(variants) == Set([pp_aq, pp_bp, half_tc1, half_tc2])
+    for v in variants
+        fitted = length(ER.fitted_params(ER.compile_mechanism(v)))
+        @test (fitted, _testhelper_identifiable_rank(v)) == (5, 5)
+        @test !_testhelper_degenerate(v)
+    end
+    # The rejected candidates, each degenerate by the probe as well.
+    isos = [s for g in ER.steps(seed) for s in g if ER.is_iso(s)]
+    base = [ER._with_equilibrium.(g, true)
+            for g in foldl(ER._merge_isomerization, isos; init = ER.steps(seed))]
+    tc_bases = [ER._eliminate_form(base, ER.to_species(s)) for s in isos]
+    binds(x) = s -> ER.bound_metabolite(s) !== nothing &&
+                    ER.name(ER.bound_metabolite(s)) == x
+    is_tc(s) = !isempty(ER.consumed(s)) && !isempty(ER.released(s))
+    flip(gs, preds) = [any(s -> any(p -> p(s), preds), g) ?
+                       ER._with_equilibrium.(g, false) : g for g in gs]
+    # A Theorell–Chance base holds its TC step and the bindings of the other half's two
+    # metabolites, x and y.
+    function tc_rejected(gs)
+        x, y = [ER.name(ER.bound_metabolite(first(g)))
+                for g in gs if ER.is_binding(first(g))]
+        [flip(gs, ps) for ps in ([is_tc], [binds(x)], [binds(y)], [is_tc, binds(x)],
+                                 [is_tc, binds(y)], [binds(x), binds(y)])]
+    end
+    rejected = vcat([flip(base, [binds(x)]) for x in (:A, :B, :P, :Q)],
+                    [flip(base, binds.(xs))
+                     for xs in ([:A, :P], [:B, :Q], [:A, :B], [:P, :Q])],
+                    tc_rejected(tc_bases[1]), tc_rejected(tc_bases[2]))
+    for gs in rejected
+        m = ER.Mechanism(bi_bi_pp_rxn, gs)
+        @test ER._degenerate(m) && _testhelper_degenerate(m)
+    end
+end
+
+@testset "_seed_variants: the ordered/random seed" begin
+    ER = EnzymeRates
+    mech(em) = ER.Mechanism(bi_bi_rxn, ER.steps(ER.Mechanism(em)))
+    seed = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            (E(Q) + P ⇌ E(P, Q), E + P ⇌ E(P))
+            (E(P) + Q ⇌ E(P, Q), E + Q ⇌ E(Q))
+        end
+    end)
+    # The merged base holds A, Bˣ (E(A) + B → E(P, Q)), Pˣ (E(Q) + P → E(P, Q),
+    # E + P ⇌ E(P)) and Qˣ (E(P) + Q → E(P, Q), E + Q ⇌ E(Q)), all units. The node E(P, Q)
+    # has three exits: Bˣ gives B off, Pˣ's step gives P off and Qˣ's gives Q off. Every
+    # singleton fails V.
+    # {A, Pˣ} keeps the RE exits Bˣ and Qˣ, {A, Qˣ} keeps Bˣ and Pˣ: both fail C. {A, Bˣ}
+    # turned RE with Pˣ and Qˣ closes a turnover cycle (no forward maximal rate), and
+    # {Pˣ, Qˣ} likewise backward. {Bˣ, Pˣ} passes: V for products turns Pˣ and Qˣ RE, which
+    # closes only the balanced square E → E(P) → E(P, Q) ← E(Q) ← E, and the node keeps one
+    # RE exit, Q; {Bˣ, Qˣ} is its mirror. E(P, Q) has three steps, so neither is a twin.
+    # Among the triples only {A, Pˣ, Qˣ} has three failing pairs, and it passes: the node
+    # keeps the one RE exit Bˣ. Fitted: 1 + 2 + 2 + 1 − 1 = 5 for the pairs, and
+    # 2 + 1 + 2 + 2 − 1 = 6 for the triple; the shared P and Q groups satisfy the square's
+    # Wegscheider relation by themselves.
+    b_p = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(P, Q)
+            (E(Q) + P <--> E(P, Q), E + P <--> E(P))
+            (E(P) + Q ⇌ E(P, Q), E + Q ⇌ E(Q))
+        end
+    end)
+    b_q = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(P, Q)
+            (E(Q) + P ⇌ E(P, Q), E + P ⇌ E(P))
+            (E(P) + Q <--> E(P, Q), E + Q <--> E(Q))
+        end
+    end)
+    a_p_q = mech(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B ⇌ E(P, Q)
+            (E(Q) + P <--> E(P, Q), E + P <--> E(P))
+            (E(P) + Q <--> E(P, Q), E + Q <--> E(Q))
+        end
+    end)
+    variants = ER._seed_variants(seed)
+    @test length(variants) == 3
+    @test Set(variants) == Set([b_p, b_q, a_p_q])
+    for (v, n) in ((b_p, 5), (b_q, 5), (a_p_q, 6))
+        fitted = length(ER.fitted_params(ER.compile_mechanism(v)))
+        @test (fitted, _testhelper_identifiable_rank(v)) == (n, n)
+        @test !_testhelper_degenerate(v)
+    end
+    # ELIM refuses the merged complex: it has three steps.
+    iso = only(s for g in ER.steps(seed) for s in g if ER.is_iso(s))
+    base = [ER._with_equilibrium.(g, true)
+            for g in ER._merge_isomerization(ER.steps(seed), iso)]
+    @test count(s -> ER.to_species(s) == ER.to_species(iso), Iterators.flatten(base)) == 3
+    @test ER._eliminate_form(base, ER.to_species(iso)) === nothing
+    # The rejected candidates, each degenerate by the probe as well.
+    binds(x) = s -> ER.bound_metabolite(s) !== nothing &&
+                    ER.name(ER.bound_metabolite(s)) == x
+    flip(gs, xs) = [any(s -> any(x -> binds(x)(s), xs), g) ?
+                    ER._with_equilibrium.(g, false) : g for g in gs]
+    for xs in ([:A], [:B], [:P], [:Q], [:A, :P], [:A, :Q], [:A, :B], [:P, :Q])
+        m = ER.Mechanism(bi_bi_rxn, flip(base, xs))
+        @test (xs, ER._degenerate(m), _testhelper_degenerate(m)) == (xs, true, true)
+    end
+end
+
+@testset "_seed_candidate_screen agrees with the group predicates on every candidate" begin
+    ER = EnzymeRates
+    # The screen reads the turnover, maximal-rate and chemistry tests of a candidate from
+    # index arrays. On every subset of the groups of eight bases flipped to steady state it
+    # must give the verdict of `_re_turnover_cycle`, `_has_vmax` both ways and
+    # `_chemistry_equilibrates_both_sides` on the flipped groups.
+    mech(rxn, em) = ER.Mechanism(rxn, ER.steps(ER.Mechanism(em)))
+    function bases(seed)
+        isos = [s for g in ER.steps(seed) for s in g if ER.is_iso(s)]
+        merged = [ER._with_equilibrium.(g, true)
+                  for g in foldl(ER._merge_isomerization, isos; init = ER.steps(seed))]
+        tcs = [ER._eliminate_form(merged, ER.to_species(s)) for s in isos]
+        vcat([merged], filter(!isnothing, tcs))
+    end
+    ordered = mech(bi_bi_rxn, @enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    shared_b = mech(bi_bi_rxn, @enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    ordered_random = mech(bi_bi_rxn, @enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            (E(Q) + P ⇌ E(P, Q), E + P ⇌ E(P))
+            (E(P) + Q ⇌ E(P, Q), E + Q ⇌ E(Q))
+        end
+    end)
+    ping_pong = mech(bi_bi_pp_rxn, @enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    # Bases: merged and Theorell–Chance for the two ordered seeds, merged only for the
+    # ordered/random seed, merged and both halves for the ping-pong seed.
+    all_bases = [(ER.reaction(seed), b)
+                 for seed in (ordered, shared_b, ordered_random, ping_pong)
+                 for b in bases(seed)]
+    @test length.(last.(all_bases)) == [4, 3, 4, 4, 4, 4, 3, 3]
+    verdicts = Bool[]
+    for (rxn, base) in all_bases
+        screen = ER._seed_candidate_screen(base, rxn)
+        for bits in 0:(2^length(base) - 1)
+            ss = BitVector([isodd(bits >> (g - 1)) for g in eachindex(base)])
+            gs = [ss[g] ? ER._with_equilibrium.(grp, false) : grp
+                  for (g, grp) in enumerate(base)]
+            expected = !ER._re_turnover_cycle(gs, rxn) &&
+                ER._has_vmax(gs, rxn, ER.Substrate) && ER._has_vmax(gs, rxn, ER.Product) &&
+                !ER._chemistry_equilibrates_both_sides(gs, rxn)
+            @test (ss, screen(ss)) == (ss, expected)
+            push!(verdicts, expected)
+        end
+    end
+    @test length(verdicts) == 16 + 8 + 16 + 16 + 16 + 16 + 8 + 8
+    @test 0 < count(verdicts) < length(verdicts)
 end
 
 @testset "_productive_twin" begin
@@ -9215,14 +9769,19 @@ end
 
 @testset "_expand_re_to_ss (group-set flips)" begin
     @testset "_expand_re_to_ss: seed child count (204 over bi-bi seeds)" begin
-        # Aggregate regression pin over the whole bi-bi seed set. 8 of the 55 seeds
-        # hold a qualifying chain whose isomerization is steady state; its two flanks
-        # never flip (`_chain_flank_groups`), and with them the seeds would have 220
-        # flip children.
-        seeds = EnzymeRates.init_mechanisms(_testhelper_bibi_rxn)
-        @test length(seeds) == 55
-        @test count(m -> !isempty(EnzymeRates._chain_flank_groups(m)), seeds) == 8
+        # Aggregate regression pin over the whole bi-bi init set: the 55 seeds, each
+        # holding its isomerization, and their 184 merged and Theorell–Chance variants.
+        # 8 of the 55 seeds hold a qualifying chain whose isomerization is steady state;
+        # its two flanks never flip (`_chain_flank_groups`), and with them the seeds
+        # would have 220 flip children. The variants hold no isomerization, so no chain,
+        # and have 272 flip children (measured).
+        init = EnzymeRates.init_mechanisms(_testhelper_bibi_rxn)
+        holds_iso(m) = any(EnzymeRates.is_iso, Iterators.flatten(EnzymeRates.steps(m)))
+        seeds, variants = filter(holds_iso, init), filter(!holds_iso, init)
+        @test (length(seeds), length(variants)) == (55, 184)
+        @test count(m -> !isempty(EnzymeRates._chain_flank_groups(m)), init) == 8
         @test sum(length(EnzymeRates._expand_re_to_ss(m)) for m in seeds) == 204
+        @test sum(length(EnzymeRates._expand_re_to_ss(m)) for m in variants) == 272
     end
 
     @testset "_expand_re_to_ss: uni-uni emits no flip, both bindings are chain flanks" begin
@@ -10291,8 +10850,13 @@ end
     end
 
     @testset "_expand_split_kinetic_group: bi-bi seeds emit 102 children" begin
-        seeds = EnzymeRates.init_mechanisms(_testhelper_bibi_rxn)
-        @test sum(length(EnzymeRates._expand_split_kinetic_group(m)) for m in seeds) == 102
+        # Aggregate regression pin over the whole bi-bi init set: 102 children from the
+        # 55 seeds and 420 from their 184 merged and Theorell–Chance variants (measured).
+        init = EnzymeRates.init_mechanisms(_testhelper_bibi_rxn)
+        holds_iso(m) = any(EnzymeRates.is_iso, Iterators.flatten(EnzymeRates.steps(m)))
+        n_children(ms) = sum(length(EnzymeRates._expand_split_kinetic_group(m)) for m in ms)
+        @test n_children(filter(holds_iso, init)) == 102
+        @test n_children(filter(!holds_iso, init)) == 420
     end
 
     @testset "_expand_split_kinetic_group: a rejected split is the parent's model" begin
@@ -10386,9 +10950,10 @@ end
             substrates: A[C], B[N], C[O]
             products: P[C], Q[N], R[O]
         end
-        seeds = EnzymeRates.init_mechanisms(terter)
-        nst = [EnzymeRates.n_steps(m) for m in seeds]
-        worst = seeds[argmax(nst)]
+        # Only the worst seed is kept, so the timed split runs without the init list.
+        worst = let seeds = EnzymeRates.init_mechanisms(terter)
+            seeds[argmax([EnzymeRates.n_steps(m) for m in seeds])]
+        end
         @test EnzymeRates.n_steps(worst) == 55
         t = @elapsed kids = EnzymeRates._expand_split_kinetic_group(worst)
         @test length(kids) == 12
@@ -10484,8 +11049,10 @@ end
         substrates: A[C], B[N], C[O]
         products: P[C], Q[N], R[O]
     end
-    seeds = EnzymeRates.init_mechanisms(terter)
-    worst = seeds[argmax([EnzymeRates.n_steps(m) for m in seeds])]
+    # Only the worst seed is kept, so the timed expansion runs without the init list.
+    worst = let seeds = EnzymeRates.init_mechanisms(terter)
+        seeds[argmax([EnzymeRates.n_steps(m) for m in seeds])]
+    end
     @test EnzymeRates.n_steps(worst) == 55
     t = @elapsed kids = EnzymeRates.expand_mechanisms([worst], terter)
     @test length(kids) == 81
@@ -10503,8 +11070,11 @@ end
     # rule (`_chain_flank_groups`) then leaves out 20 seed children at level 1 and 66
     # mechanisms at level 2, each holding a qualifying chain whose isomerization and
     # at least one flank are steady state, and each with its twin whose flanks are
-    # both at rapid equilibrium in the population: 62, 349 and 1,134 remain. Every
-    # mechanism satisfies both emission rules.
+    # both at rapid equilibrium in the population: 62, 349 and 1,134 remain. These
+    # are the levels grown from the 62 seeds that hold an isomerization; grown from
+    # all 264 init mechanisms, the merged and Theorell–Chance variants included, they
+    # hold 264, 1,018 and 2,371 (measured). Every mechanism satisfies both emission
+    # rules.
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
@@ -10512,8 +11082,9 @@ end
     moves(m, rxn) = vcat(EnzymeRates._expand_re_to_ss(m),
                          EnzymeRates._expand_split_kinetic_group(m),
                          EnzymeRates._expand_add_dead_end_regulator(m, rxn))
-    function levels(rxn)
-        level = unique!(EnzymeRates.init_mechanisms(rxn))
+    holds_iso(m) = any(EnzymeRates.is_iso, Iterators.flatten(EnzymeRates.steps(m)))
+    function levels(rxn, keep = _ -> true)
+        level = unique!(filter(keep, EnzymeRates.init_mechanisms(rxn)))
         seen = Set(level)
         out = [level]
         for _ in 1:2
@@ -10528,8 +11099,9 @@ end
         out
     end
     obeys_rules(m) = EnzymeRates._assert_emission_rules(m) === nothing
+    @test length.(levels(rxn, holds_iso)) == [62, 349, 1134]
     bibi = levels(rxn)
-    @test length.(bibi) == [62, 349, 1134]
+    @test length.(bibi) == [264, 1018, 2371]
     @test all(obeys_rules, Iterators.flatten(bibi))
 
     # The same seeds with every reactant also a competitive inhibitor (R6), two
@@ -10539,16 +11111,19 @@ end
         products: P[C], Q[NX]
         dead_end_inhibitors: A, B, P, Q
     end
+    # The counts that follow are of the levels grown from the 62 seeds that hold an
+    # isomerization. Without the copy rule level 1 would hold 1,749: the 120
+    # seed-level placements whose every complex has a productive twin and whose dwell
+    # gauge is consistent are not emitted, and the 240 whose gauge fails, the
+    # shared-group family of Case 3, are. 8,694 level-2 mechanisms hold a copy group
+    # whose every complex has a productive twin and whose gauge fails. Without the
+    # flip rule the levels would hold 62, 1,649 and 31,730: it leaves out 20 seed
+    # children at level 1 and 348 mechanisms at level 2, each holding a qualifying
+    # chain whose isomerization and at least one flank are steady state. Grown from
+    # all 264 init mechanisms the levels hold 264, 6,738 and 128,493 (measured).
+    @test length.(levels(rxn6, holds_iso)) == [62, 1629, 31382]
     copies = levels(rxn6)
-    # Without the copy rule level 1 would hold 1,749: the 120 seed-level placements
-    # whose every complex has a productive twin and whose dwell gauge is consistent
-    # are not emitted, and the 240 whose gauge fails, the shared-group family of
-    # Case 3, are. 8,694 level-2 mechanisms hold a copy group whose every complex has
-    # a productive twin and whose gauge fails. Without the flip rule the levels would
-    # hold 62, 1,649 and 31,730: it leaves out 20 seed children at level 1 and 348
-    # mechanisms at level 2, each holding a qualifying chain whose isomerization and
-    # at least one flank are steady state.
-    @test length.(copies) == [62, 1629, 31382]
+    @test length.(copies) == [264, 6738, 128493]
     @test all(obeys_rules, Iterators.flatten(copies))
     @test any(m -> !isempty(EnzymeRates._bound_comp_inhibitors(m)), copies[2])
 end
@@ -11383,6 +11958,10 @@ end
     golden = readlines(fixture)
     @test mech_keys == golden          # permanent structural regression gate
     @test length(init) == length(golden)   # init_mechanisms count invariant
+    # The seeds, the init mechanisms that hold an isomerization, keep their keys
+    # beside their merged and Theorell–Chance variants.
+    holds_iso(m) = any(EnzymeRates.is_iso, Iterators.flatten(EnzymeRates.steps(m)))
+    @test issubset([_mech_struct_key(m) for m in init if holds_iso(m)], golden)
 end
 
 @testset "mechanism dedup via unique!" begin
@@ -11666,6 +12245,22 @@ end
     @test !isempty(seeds)
     @test all(m -> EnzymeRates._assert_emission_rules(m) === nothing, seeds)
     @test all(m -> :A in EnzymeRates._bound_comp_inhibitors(m), seeds)
+end
+
+@testset "seed_mechanisms grows the merged and Theorell–Chance seeds" begin
+    ER = EnzymeRates
+    # A required dead-end inhibitor is placed on every init mechanism, the merged and
+    # Theorell–Chance variants included, so some seed carries a fused binding.
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        dead_end_inhibitors: I
+    end
+    seeds = ER.seed_mechanisms(rxn, Set{Symbol}(), Set([:I]))
+    fused(m) = any(s -> ER.is_binding(s) && ER._is_chemistry(s),
+                   Iterators.flatten(ER.steps(m)))
+    @test all(m -> :I in ER._bound_comp_inhibitors(m), seeds)
+    @test any(fused, seeds)
 end
 
 @testset "seed_mechanisms wave-parallel equivalence" begin

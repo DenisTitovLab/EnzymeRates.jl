@@ -725,17 +725,20 @@ end
     ]
 
     # Expected partition sizes per reaction = the number of DISTINCT rate
-    # equations the init-level enumeration produces. The 55 bi_bi init
-    # mechanisms are all structurally distinct AND each yields a distinct
+    # equations the init-level enumeration produces. The 239 bi_bi init
+    # mechanisms (55 seeds and their 184 merged and Theorell–Chance variants)
+    # are all structurally distinct AND each yields a distinct
     # `rate_equation_string`, so the comment-stripped string key produces
-    # exactly 55 classes (zero over- and zero under-collapse): clean
+    # exactly 239 classes (zero over- and zero under-collapse): clean
     # topologies have distinct enzyme-form sets, hence distinct rate
-    # equations.
+    # equations. The 8 ordered/random pairs and the 2 Theorell–Chance pairs
+    # among the variants share a family, but each pair's members are
+    # structurally distinct, so they render distinct equations.
     # If these counts change in a future commit, the dedup key's
     # equivalence classes (or the enumeration) have shifted — investigate.
     expected_n_classes = Dict(
         "uni_uni" => 1,
-        "bi_bi"   => 55,
+        "bi_bi"   => 239,
     )
 
     for (label, reaction) in test_reactions

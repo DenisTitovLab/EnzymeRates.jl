@@ -1337,8 +1337,9 @@ are reused by reference (Step is immutable).
 _flip_group_to_ss(groups::Vector{Vector{Step}}, g::Int) =
     [gi == g ? _with_equilibrium.(gr, false) : gr for (gi, gr) in enumerate(groups)]
 
-"""`s` with its rapid-equilibrium flag set to `flag`."""
-_with_equilibrium(s::Step, flag::Bool) =
+"""`s` with its rapid-equilibrium flag set to `flag`; `s` itself when it has that flag, so
+mechanisms built from one another share their unchanged steps."""
+_with_equilibrium(s::Step, flag::Bool) = is_equilibrium(s) == flag ? s :
     Step(from_species(s), to_species(s), consumed(s), released(s), flag)
 
 """
@@ -1531,9 +1532,10 @@ binding into the product side; the releases stay plain.
 function _merge_isomerization(groups::Vector{Vector{Step}}, s0::Step)
     x1, x2 = from_species(s0), to_species(s0)
     move(sp) = sp == x1 ? x2 : sp
-    [Step[Step(move(from_species(s)), move(to_species(s)), consumed(s), released(s),
-               is_equilibrium(s)) for s in group]
-     for group in groups if group != [s0]]
+    moved(s) = x1 in (from_species(s), to_species(s)) ?
+        Step(move(from_species(s)), move(to_species(s)), consumed(s), released(s),
+             is_equilibrium(s)) : s
+    [Step[moved(s) for s in group] for group in groups if group != [s0]]
 end
 
 """
@@ -1618,7 +1620,8 @@ function _chemistry_equilibrates_both_sides(groups::Vector{Vector{Step}},
     end
     fused_substrate_binding(s) =
         (m = bound_metabolite(s); m !== nothing && _is_chemistry(s) && name(m) in subs)
-    merged = [to_species(s) for group in groups for s in group if fused_substrate_binding(s)]
+    merged = [to_species(s) for group in groups for s in group
+              if fused_substrate_binding(s)]
     nodes = vcat([node([x]) for x in merged],
                  [node([from_species(s), to_species(s)]) for s in re_iso])
     any(n -> releases(n, subs) && releases(n, prods), nodes) ||
@@ -1634,6 +1637,153 @@ function _degenerate(m::Union{Mechanism, AllostericMechanism})
     groups, rxn = steps(m), reaction(m)
     !(_has_vmax(groups, rxn, Substrate) && _has_vmax(groups, rxn, Product)) ||
         _chemistry_equilibrates_both_sides(groups, rxn)
+end
+
+"""
+The tests of `_seed_variants` that build no `Step`, for one base `groups` of a seed: a
+function of the mask `ss` of groups flipped to steady state, every other step at rapid
+equilibrium, that is true when the candidate has no rapid-equilibrium turnover cycle
+(`_re_turnover_cycle`), a maximal rate both ways (`_has_vmax`) and no chemistry in
+equilibrium with both sides (`_chemistry_equilibrates_both_sides`). The forms and each
+step's ends, uptake weight, group and reactants are indexed once per base, so a candidate
+costs a few passes over arrays. A base holds no isomerization, so each chemistry node is a
+merged complex or a Theorell–Chance step. A set of steps holds a turnover cycle iff giving
+every form a potential that rises by each step's weight along it fails somewhere: a cycle
+of nonzero weight is exactly a conflict, found here by a weighted union-find.
+"""
+function _seed_candidate_screen(groups::Vector{Vector{Step}}, rxn::EnzymeReaction)
+    flat = [s for group in groups for s in group]
+    any(is_iso, flat) && error("_seed_candidate_screen: a seed base holds no isomerization")
+    group = [g for (g, steps_g) in enumerate(groups) for _ in steps_g]
+    rho = _reactant_signs(rxn)
+    subs = Set(name(x) for x in substrates(rxn))
+    prods = Set(name(x) for x in products(rxn))
+    has(ms, names) = any(x -> name(x) in names, ms)
+    index = Dict{Species, Int}()
+    for s in flat, sp in (from_species(s), to_species(s))
+        get!(index, sp, length(index) + 1)
+    end
+    from = [index[from_species(s)] for s in flat]
+    to = [index[to_species(s)] for s in flat]
+    weight = [_uptake_weight(s, rho) for s in flat]
+    touches(names) = BitVector([has(consumed(s), names) || has(released(s), names)
+                                for s in flat])
+    sub_step, prod_step = touches(subs), touches(prods)
+    crossing = BitVector([has(consumed(s), subs) && has(released(s), prods) ||
+                          has(consumed(s), prods) && has(released(s), subs) for s in flat])
+    fused_substrate_binding(s) =
+        (m = bound_metabolite(s); m !== nothing && _is_chemistry(s) && name(m) in subs)
+    complexes = unique(to[k] for k in eachindex(flat) if fused_substrate_binding(flat[k]))
+    leaves(x, names) = BitVector([to[k] == x && has(consumed(flat[k]), names) ||
+                                  from[k] == x && has(released(flat[k]), names)
+                                  for k in eachindex(flat)])
+    exits = [(leaves(x, subs), leaves(x, prods)) for x in complexes]
+    parent = zeros(Int, length(index)); offset = zeros(Int, length(index))
+    function root(x)
+        p = 0
+        while parent[x] != x
+            p += offset[x]; x = parent[x]
+        end
+        x, p
+    end
+    function turnover(on::BitVector)
+        parent .= eachindex(parent); fill!(offset, 0)
+        for k in eachindex(flat)
+            on[k] || continue
+            ra, pa = root(from[k]); rb, pb = root(to[k])
+            if ra == rb
+                pb == pa + weight[k] || return true
+            else
+                parent[rb] = ra; offset[rb] = pa + weight[k] - pb
+            end
+        end
+        false
+    end
+    meets(a::BitVector, b::BitVector) = any(k -> a[k] && b[k], eachindex(a))
+    re = falses(length(flat)); kept = falses(length(flat))
+    function screen(ss::AbstractVector{Bool})
+        for k in eachindex(flat)
+            re[k] = !ss[group[k]]
+        end
+        turnover(re) && return false
+        kept .= re .| sub_step
+        turnover(kept) && return false
+        kept .= re .| prod_step
+        turnover(kept) && return false
+        meets(re, crossing) && return false
+        !any(((es, ep),) -> meets(re, es) && meets(re, ep), exits)
+    end
+end
+
+"""
+The merged and Theorell–Chance variants of the seed `m`. Merging every isomerization of `m`
+onto its product side (`_merge_isomerization`) and setting every step at rapid equilibrium
+gives the merged base; eliminating one merged complex with two steps (`_eliminate_form`)
+gives a Theorell–Chance base. MERGE and ELIM conserve atoms, which each base asserts. For
+each base, every inclusion-minimal set of its groups whose flip to steady state gives a
+valid, flux-carrying, non-degenerate candidate is a variant: no rapid-equilibrium turnover
+cycle (`_re_turnover_cycle`), a maximal rate both ways (`_has_vmax`), no chemistry in
+equilibrium with both sides (`_chemistry_equilibrates_both_sides`), no bottomless segment,
+and every steady-state group carrying flux. The first three tests read index arrays
+(`_seed_candidate_screen`); a candidate's steps are built only when it passes them. A
+merged variant whose every merged complex has both its steps steady state, each alone in
+its group, is skipped: the unmerged form with rapid-equilibrium flanks has its family at
+the same count.
+"""
+function _seed_variants(m::Mechanism)
+    rxn = reaction(m)
+    isos = [s for group in steps(m) for s in group if is_iso(s)]
+    merged = foldl(_merge_isomerization, isos; init = steps(m))
+    merged = [_with_equilibrium.(group, true) for group in merged]
+    complexes = [to_species(s) for s in isos]
+    bases = Tuple{Vector{Vector{Step}}, Bool}[(merged, true)]
+    for x in complexes
+        b = _eliminate_form(merged, x)
+        b === nothing || push!(bases, (b, false))
+    end
+    lumping_twin(gs) = all(complexes) do x
+        at_x = [(s, group) for group in gs for s in group
+                if x in (from_species(s), to_species(s))]
+        length(at_x) == 2 &&
+            all(((s, group),) -> !is_equilibrium(s) && length(group) == 1, at_x)
+    end
+    variants = Mechanism[]
+    for (base, is_merged) in bases
+        for group in base, s in group
+            _assert_step_atom_conserving(rxn, s)
+        end
+        steady = _all_steady_state(base)
+        flux = _flux_carrying_groups(steady, rxn)
+        units = [g for g in eachindex(base) if flux[g]]
+        screen = _seed_candidate_screen(base, rxn)
+        mask = falses(length(base))
+        # A candidate takes each flipped group from `steady`, so the variants of a base
+        # share their steady-state steps.
+        flipped(sel) = begin
+            gs = copy(base)
+            for u in sel
+                gs[units[u]] = steady[units[u]]
+            end
+            gs
+        end
+        admissible(sel) = begin
+            fill!(mask, false)
+            for u in sel
+                mask[units[u]] = true
+            end
+            screen(mask) || return false
+            gs = flipped(sel)
+            _bottomless_re_segment(gs) === nothing || return false
+            carries = _flux_carrying_groups(gs, rxn)
+            all(g -> is_equilibrium(first(gs[g])) || carries[g], eachindex(gs))
+        end
+        for sel in _minimal_gaining_sets(admissible, _ -> 1:length(units))
+            gs = flipped(sel)
+            is_merged && lumping_twin(gs) && continue
+            push!(variants, Mechanism(rxn, gs))
+        end
+    end
+    variants
 end
 
 """
@@ -3001,13 +3151,17 @@ end
 """
     init_mechanisms(reaction::EnzymeReaction) -> Vector{Mechanism}
 
-Public entry point. Produces all mechanisms at minimum parameter count
-for a reaction as concrete `Mechanism` structs. For each catalytic
-topology (`_catalytic_topologies`): 1 SS step, all substrate/product
-dead-end subsets (`_expand_substrate_product_dead_ends`), with binding
-steps sharing the same `(metabolite, RE/SS)` class collapsed into one
-kinetic group (`_apply_equivalence_grouping`). Dead-end enumeration
-respects `shared_catalytic_site`.
+Public entry point. Produces the starting mechanisms of the search for a
+reaction as concrete `Mechanism` structs: first the seeds, then their merged
+and Theorell–Chance variants. A seed is built for each catalytic topology
+(`_catalytic_topologies`) and each substrate/product dead-end subset
+(`_expand_substrate_product_dead_ends`), with one steady-state step, a
+chemistry isomerization, and binding steps sharing the same `(metabolite, RE/SS)`
+class collapsed into one kinetic group (`_apply_equivalence_grouping`). Dead-end
+enumeration respects `shared_catalytic_site`. The variants of each seed
+(`_seed_variants`) follow in the seeds' order, each once. The parameter counts
+are mixed: a three-group merged variant or a decorated Theorell–Chance variant
+fits more parameters than its seed, a merged ping-pong variant fewer.
 """
 function init_mechanisms(r::EnzymeReaction)
     topos = _catalytic_topologies(r)
@@ -3020,7 +3174,12 @@ function init_mechanisms(r::EnzymeReaction)
         _assert_atom_conserving(m)
         push!(mechs, m)
     end
-    mechs
+    seen = Set(mechs)
+    out = copy(mechs)
+    for m in unique(mechs), v in _seed_variants(m)
+        v in seen || (push!(seen, v); push!(out, v))
+    end
+    out
 end
 
 """
