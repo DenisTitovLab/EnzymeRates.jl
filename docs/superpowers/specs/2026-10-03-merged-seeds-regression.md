@@ -9,43 +9,47 @@ dead-end sites where the metabolite is free (12acf7a), the flip rule (51e232b), 
 predicates (7c26f63), the merged and Theorell–Chance seeds (27c829b, 0469ab6), and degenerate
 seeds expanded without fitting (d7c64d4).
 
-Every check passes. No compared mechanism without a fused or Theorell–Chance step changes its
-rate string, fitted names or rank; the populations grown from today's seeds lose exactly the
-flank flips of qualifying chains and their descendants; every new seed derives, fits its rank
-and is non-degenerate; V and C agree with the numeric probe on every candidate the seed search
-tests; and R6 levels 0–2 enumerate in 29% less time per mechanism. Ter-ter seeding with a
-required inhibitor is estimated at about 15 minutes, over the ten minutes set for running it
-and over the design's one-minute line for ter-ter seeding, which the base already exceeds.
+Every check passes except two, named here. First, R6 levels 0–2 pass the +20% timing limit only
+on the best run: under the heap hint the slowest run is 22% over the base's best per mechanism.
+Second, ter-ter seeding with a required inhibitor exceeds the design's one-minute line for
+ter-ter seeding on both checkouts; for the tip the estimate is at least 15 minutes. Otherwise no
+compared mechanism without a fused or Theorell–Chance step changes its rate string, fitted
+names or rank; the populations grown from the base's seeds lose exactly the flank flips of
+qualifying chains and their descendants; every new seed derives, fits its rank and is
+non-degenerate; V and C agree with the numeric probe on every candidate the seed search tests;
+and R6 levels 0–2 enumerate in 29% less time per mechanism on the best run.
 
 ## Method
 
-Scratch scripts (not committed) follow the opening wave's record:
+The checks follow the opening wave's record; the script behind each is named in parentheses.
 
-- `lib.jl`: the reactions, the populations, sig-string keys, and copies of the test file's rank
-  oracle (`_testhelper_identifiable_rank`) and degeneracy probe (`_testhelper_degenerate`). A
-  key holds `repr(_to_sig(s))` for the reaction and every step, group by group in stored order,
-  with an allosteric mechanism's tags and multiplicity appended; it is finer than
-  `_forward_sides` per group and does not depend on names. `oracle.jl` copies the mass-action
-  oracle of `test/test_rate_eq_derivation.jl` (consistent point, full linear steady state).
-- `snap.jl` enumerates the populations of one checkout, writes one key per mechanism, and runs
-  `_assert_emission_rules` on every mechanism; `compare.jl` compares two snapshots per set and
-  level and draws the rate-string samples.
-- `flipcheck.jl` (base checkout) takes every mechanism found only on the base, finds each
-  previous-level parent and move that emits it, and builds its RSR twin: the mechanism with
-  both flanks of every steady-state-isomerization qualifying chain at rapid equilibrium. Its
-  chain test is a copy of the tip's `_chain_flank_groups`.
-- `derive.jl` derives a list of mechanisms on one checkout and writes fitted names, rank, probe
-  verdict and the Reduced `rate_equation_string`; `cmpstrings.jl` compares two such lists. Where
-  two strings differ it evaluates both, with a small expression evaluator (no compilation), at
-  five consistent points built as the mass-action oracle builds them on the tip, mapping a
-  base name absent on the tip to the reciprocal of its reversed constant (K_X_to_Y = 1/K_Y_to_X).
-- `newseeds.jl` and `massaction_all.jl` check every merged and Theorell–Chance seed.
-- `vc.jl` runs an instrumented copy of `_seed_variants` that logs every candidate its
-  `admissible` tests, with the screen's verdict and its bottomless and flux tests, then
-  evaluates the documented predicates (`_re_turnover_cycle`, `_has_vmax`,
-  `_chemistry_equilibrates_both_sides`) and the probe on each candidate.
-- `initseed.jl`, `terter_order.jl`, `terter_init_timing.jl`, `timing.jl`, `timing_gc.jl` and
-  `timing_gcstats.jl` count and time `init_mechanisms` and `seed_mechanisms` and time R6.
+- Shared code (`lib.jl`): the reactions, the populations, sig-string keys, and copies of the
+  test file's rank oracle (`_testhelper_identifiable_rank`) and degeneracy probe
+  (`_testhelper_degenerate`). A key holds `repr(_to_sig(s))` for the reaction and every step,
+  group by group in stored order, with an allosteric mechanism's tags and multiplicity appended;
+  it is finer than `_forward_sides` per group and does not depend on names. `oracle.jl` copies
+  the mass-action oracle of `test/test_rate_eq_derivation.jl` (consistent point, full linear
+  steady state).
+- Populations: one key per mechanism of each set on each checkout, `_assert_emission_rules` on
+  every mechanism, and the per-set, per-level comparison (`snap.jl`, `compare.jl`).
+- Flip rule: for every mechanism found only on the base, each previous-level parent and move
+  that emits it, and its RSR twin, the mechanism with both flanks of every
+  steady-state-isomerization qualifying chain at rapid equilibrium (`flipcheck.jl`, on the base;
+  its chain test is a copy of the tip's `_chain_flank_groups`).
+- Rate strings, fitted names, rank and probe verdict of each compared mechanism
+  (`derive.jl`, `cmpstrings.jl`). Where two strings differ, both are evaluated with a small
+  expression evaluator (no compilation) at five consistent points built as the mass-action
+  oracle builds them on the tip; a base name absent on the tip maps to the reciprocal of its
+  reversed constant (K_X_to_Y = 1/K_Y_to_X).
+- New seeds: derivation, fitted and rank, probe, `_degenerate`, emission rules and the
+  mass-action oracle (`newseeds.jl`, `massaction_all.jl`).
+- V and C: every candidate that `admissible` tests in an instrumented copy of `_seed_variants`,
+  with the screen's verdict and its bottomless and flux tests, the documented predicates
+  (`_re_turnover_cycle`, `_has_vmax`, `_chemistry_equilibrates_both_sides`) and the probe
+  (`vc.jl`).
+- Counts and timings of `init_mechanisms`, `seed_mechanisms` and R6 (`initseed.jl`,
+  `terter_order.jl`, `terter_init_timing.jl`, `timing.jl`, `timing_gc.jl`,
+  `timing_gcstats.jl`).
 
 Populations are those of B's record: `init_mechanisms` plus two levels of the flip
 (`_expand_re_to_ss`), split (`_expand_split_kinetic_group`) and dead-end
@@ -60,8 +64,8 @@ inhibitors. On the tip each population is grown twice: from the seeds (the init 
 that hold an isomerization, the base's init list) and from all init mechanisms. Samples are
 drawn with `MersenneTwister(20261003)` from keys sorted as strings.
 
-The base ran as a detached worktree with the current `Manifest.toml`, removed afterwards. One
-Julia process ran at a time, with `--heap-size-hint=2500M` unless a timing says otherwise.
+The base is a detached worktree at 7857b6d with the current `Manifest.toml`. Every measurement
+runs alone in one Julia process, with `--heap-size-hint=2500M` unless a timing says otherwise.
 
 ## Populations
 
@@ -142,8 +146,10 @@ Level 3, a draw of 150 per stratum:
 | Tip, level 3 grown from the new seeds | 1,760 | 150 | 0 | 0 |
 
 Scaled, about 447 of the base's 2,795 level-3 mechanisms carry a phantom and about 357 of the
-tip's 4,437 (8.0%). The new seeds' descendants carry none in draws of 150 at levels 1 and 2
-either, and none of those 450 is degenerate by the probe.
+tip's 4,437 (8.0%). The new seeds' plain-mechanism descendants carry none in draws of 150 at
+levels 1 and 2 either, and none of those 450 is degenerate by the probe. Their allosteric
+descendants do carry phantoms: 26 of 100 tip-only ALLO mechanisms drawn carry one, against 49
+of the 100 shared ALLO mechanisms drawn.
 
 ## Rate strings
 
@@ -162,10 +168,10 @@ Every enumerated mechanism compared also has the same fitted names, rank and pro
 both checkouts. The eight different strings all belong to mechanisms with a fused step; each
 keeps its law and changes only its parameterization:
 
-- Uni-Uni and fixtures 1 and 4 (`E(S) <--> E + P`, a steady-state fused release now stored as
-  the binding it reverses): the base fits `k_ES_to_E_P`; the tip fits `k_ES_to_E_S` and derives
-  `k_ES_to_E_P` by Haldane. RE Uni-Uni and fixture 2: `k_EA_to_E_P` and `k_ES_to_E_P` become
-  `k_E_P_to_EA` and `k_E_P_to_ES`.
+- Uni-Uni and fixtures 1 and 4 (`E(S) <--> E + P`, a steady-state fused release that the tip
+  stores as the binding it reverses): the base fits `k_ES_to_E_P`; the tip fits `k_ES_to_E_S`
+  and derives `k_ES_to_E_P` by Haldane. RE Uni-Uni and fixture 2: `k_EA_to_E_P` and
+  `k_ES_to_E_P` become `k_E_P_to_EA` and `k_E_P_to_ES`.
 - Fixture 7 (`E(P) ⇌ E + S`, a rapid-equilibrium fused binding): `K_E_S_to_EP` becomes its
   dissociation constant `K_EP_to_E_S`, the one name the map inverts.
 - Fixtures 14 and 16 (bi-bi with steady-state fused releases from E(A, B)): `k_EAB_to_EP_Q` and
@@ -189,7 +195,8 @@ the tip; the base's constructor rejects the mixed group.
 
 On every reaction the tip's list begins with the base's list in the base's order, and every
 later mechanism holds no isomerization. R4, R5 and R6 give the same steps in the same order:
-`init_mechanisms` ignores regulators. Bi-bi meets the design's estimate of about 264 exactly.
+`init_mechanisms` ignores regulators. R4 meets the design's bi-bi estimate of about 264
+exactly.
 
 | Kind | R4 | `bi_bi_rxn` | `uni_bi_rxn` | Fitted = rank |
 |---|---|---|---|---|
@@ -248,19 +255,23 @@ peak. The same with and without the heap hint.
 
 Ter-ter with a required dead-end inhibitor I, estimated rather than run. A copy of
 `seed_mechanisms`' search that takes its first frontier as an argument ran from 500 init
-mechanisms drawn with `MersenneTwister(20261003)`. The counts scale linearly, since removing
-the I steps from a seed recovers its init mechanism, so no seed is reached from two:
+mechanisms drawn with `MersenneTwister(20261003)`. The seed count scales linearly, since
+removing the I steps from a seed recovers its init mechanism, so no seed is reached from two;
+the draw carries its own sampling variance (22.7 seeds per init mechanism on the base, 20.4 on
+the tip):
 
 | Checkout | Init mechanisms | Seeds from 500 | Time (s) | Scaled seeds | Scaled time |
 |---|---|---|---|---|---|
-| 7857b6d | 35,665 | 11,332 | 2.9 | about 808,000 | about 3.4 min |
-| d7c64d4 | 250,855 | 10,220 | 1.8 | about 5,130,000 | about 15 min |
+| 7857b6d | 35,665 | 11,332 | 2.9 | about 808,000 | at least 3.4 min |
+| d7c64d4 | 250,855 | 10,220 | 1.8 | about 5,130,000 | at least 15 min |
 
-The tip's estimate exceeds the ten minutes set for running the search, so it was not run. The
-design brings ter-ter seeding over one minute to Denis: `init_mechanisms` stays inside that
-line, and seeding with a required inhibitor exceeds it on both checkouts. At the size of the
-init mechanisms (Task 10 measured 534 MB live for 250,855), five million seeds need about
-11 GB, more than this machine holds; the base's 808,000 need about 1.7 GB.
+The scaled times are lower bounds. They scale time linearly with the seed count, while
+collection and memory pressure grow with the population held: at the size of the init
+mechanisms (Task 10 measured 534 MB live for 250,855), five million seeds need about 11 GB,
+more than this machine holds, and the base's 808,000 about 1.7 GB. The tip's estimate exceeds
+the ten minutes set for running the search, so it was not run. The design refers ter-ter
+seeding over one minute to the maintainer: `init_mechanisms` stays inside that line, and
+seeding with a required inhibitor exceeds it on both checkouts.
 
 ## Limitations
 
@@ -270,27 +281,35 @@ init mechanisms (Task 10 measured 534 MB live for 250,855), five million seeds n
   checked; their descendants only on draws (450 ranked at R4 levels 1–3; 100 of the 4,229 tip-only
   ALLO mechanisms, all of which derive, 26 with one phantom, against 49 of the 100 shared ALLO
   mechanisms drawn).
-- A known MWC derivation defect (the five `@test_broken` gates of Task 9) gives an allosteric
-  mechanism whose free enzyme shares a rapid-equilibrium segment with a residual form, among
-  them K-type children of the ping-pong seeds, a law whose L term misses a factor. The defect
-  predates C and both checkouts share it, so it is no regression; the 200 allosteric strings
-  drawn match. The probe reads such laws as they are derived, and the V and C check runs on plain
-  mechanisms only.
+- A known MWC derivation defect (five `@test_broken` checks: one in testset "C on the ping-pong
+  seed and its single flips" of `test/test_mechanism_enumeration.jl`, four in testset "ping-pong
+  MWC derivation with free E and F in one RE segment" of `test/allosteric_ground_truth.jl`)
+  gives an allosteric mechanism whose free enzyme shares a rapid-equilibrium segment with a
+  residual form, among them K-type children of the ping-pong seeds, a law whose L term misses a
+  factor. The defect predates C and both checkouts share it, so it is no regression; the 200
+  allosteric strings drawn match. The probe reads such laws as they are derived, and the V and C
+  check runs on plain mechanisms only.
 - ALLO6 was not built from all of the tip's init mechanisms: its draw of 150 would differ from
   the base's.
-- Ter-ter seeding with a required inhibitor is an estimate on both checkouts.
+- Ter-ter seeding with a required inhibitor is an estimate on both checkouts and a lower bound
+  on time; the tip's population would need about 11 GB, more than this machine holds.
+- R6 timing varies with the heap hint: under `--heap-size-hint=2500M` the tip's second and third
+  runs in one process spend 19–23 s collecting and take 37.6–42.9 s, against 24.7–25.0 s
+  without the hint. The +20% limit holds on the best run only.
 - The test suite was not run for this record; the last full run, on d7c64d4, passed.
 
 ## Conclusion
 
-C changes nothing it was not meant to change. Grown from today's seeds, the tip keeps every
+C changes nothing it was not meant to change. Grown from the base's seeds, the tip keeps every
 mechanism but the flip rule's removals and adds none, and every kept mechanism compared derives
 exactly as at 7857b6d: all 1,545 R4 mechanisms of levels 0–2 and the draws of R5, R6, ALLO and
-ALLO6. The flip rule removes 204 R4 mechanisms to level 3, each a
-flank flip or its descendant with its RSR twin kept, and adds none; at levels 0–2 it removes 105
-of 266 phantoms. The 202 merged and Theorell–Chance seeds of R4 (184 of bi-bi, 4 of uni-bi) all
-fit their rank and pass the mass-action oracle, and their descendants carry no phantom in the
-draws. V and C agree with the probe on all 1,614 candidates of R4, bi-bi and uni-bi. R6 levels
-0–2 enumerate 29% faster per mechanism. Ter-ter seeding with a required inhibitor would reach
-about five million seeds in about 15 minutes, against 808,000 at 7857b6d; that cost goes to
-Denis with the ter-ter base-tier concerns of Tasks 10 and 11.
+ALLO6. The flip rule removes 204 R4 mechanisms to level 3, each a flank flip or its descendant
+with its RSR twin kept, and adds none; at levels 0–2 it removes 105 of 266 phantoms. The 202
+merged and Theorell–Chance seeds of R4 (184 of bi-bi, 4 of uni-bi) all fit their rank and pass
+the mass-action oracle; their plain-mechanism descendants carry no phantom in the draws, and 26
+of 100 tip-only ALLO mechanisms drawn carry one (49 of 100 shared). V and C agree with the probe
+on all 1,614 candidates of R4, bi-bi and uni-bi. R6 levels 0–2 enumerate 29% faster per
+mechanism on the best run; the slowest run under the heap hint is 22% over the base's best.
+Ter-ter seeding with a required inhibitor would reach about five million seeds in at least 15
+minutes, against 808,000 at 7857b6d; that cost is reported to the maintainer with the ter-ter
+base-tier concerns of Tasks 10 and 11.
