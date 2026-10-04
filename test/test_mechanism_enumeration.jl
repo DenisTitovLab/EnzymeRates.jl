@@ -2533,7 +2533,7 @@ end
     @test fitted(raw) - r_raw == fitted(reverted) - r_rev + 1
 end
 
-@testset "Mechanism — a bipartition that leaves a redundant copy part is not a unit" begin
+@testset "Mechanism — a split leaving a redundant copy part is not emitted" begin
     # Ordered bi-bi with B also bound as a competitive-inhibitor copy at E(A) and
     # E(Q). E(A, B::Inh) has the composition of E(A, B); E(Q, B::Inh) is new, so
     # the placement stands. Splitting the copy group by context would leave
@@ -7206,6 +7206,8 @@ end
         end
     end)
     @test isempty(ER._redundant_copy_groups(onlya_with_equalai_copy))
+    @test fitted(onlya_with_equalai_copy) ==
+        _testhelper_identifiable_rank(onlya_with_equalai_copy)
     # An `:OnlyA` copy binds the active state only, where E(S) is its twin: redundant,
     # its constant one fitted parameter above the rank.
     onlya_with_onlya_copy = ER.AllostericMechanism(@allosteric_mechanism begin
@@ -7238,6 +7240,8 @@ end
         end
     end)
     @test !isempty(ER._redundant_copy_groups(nonequal_with_equalai_copy))
+    @test fitted(nonequal_with_equalai_copy) ==
+        _testhelper_identifiable_rank(nonequal_with_equalai_copy) + 1
     # Every catalytic group `:OnlyA`: the inactive state has no catalytic step, yet it
     # holds its free enzyme, so an `:EqualAI` copy binds E there, where E(S*) has no
     # twin: kept. An `:OnlyA` copy binds the active state only and is redundant.
@@ -7254,6 +7258,8 @@ end
         end
     end)
     @test isempty(ER._redundant_copy_groups(all_onlya_with_equalai_copy))
+    @test fitted(all_onlya_with_equalai_copy) ==
+        _testhelper_identifiable_rank(all_onlya_with_equalai_copy)
     all_onlya_with_onlya_copy = ER.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
@@ -7267,6 +7273,8 @@ end
         end
     end)
     @test !isempty(ER._redundant_copy_groups(all_onlya_with_onlya_copy))
+    @test fitted(all_onlya_with_onlya_copy) ==
+        _testhelper_identifiable_rank(all_onlya_with_onlya_copy) + 1
 end
 
 @testset "_redundant_copy_groups: every complex a twin and a consistent dwell gauge" begin

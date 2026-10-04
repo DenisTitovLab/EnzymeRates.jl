@@ -1680,31 +1680,22 @@ is emitted at rapid equilibrium (`_revert_zero_flux_parts`), the same family wit
 one constant fewer; the gain test counts the reverted part under
 its new kind, so a reverted constant the Wegscheider ties pull back is absorbed
 like any tied split, and a candidate whose reverted groups leave a rapid-equilibrium
-segment without a bottom form counts as failed. A bipartition of a
-competitive-inhibitor group in which one part would be redundant as a group of its own
-in the child (`_redundant_copy_groups`, `_all_twin`) is not a unit: the gauge absorbs
-that part's constant. A split of any group can
-also complete a copy's gauge, by separating a binding that forms or leaves a twin from
-the bindings elsewhere in its group that blocked the gauge (track 2's Theorem 3: the
-split holds the family of the copy its shared group pinned), so a child with a
-redundant copy group is not emitted; its family is that of the same split without the
-copy.
+segment without a bottom form counts as failed. A split of any group can complete a
+copy's gauge, by separating a binding that forms or leaves a twin from the bindings
+elsewhere in its group that blocked the gauge (track 2's Theorem 3: the split holds the
+family of the copy its shared group pinned), and a split of a group that forms a copy's
+twins can break the gauge, so the copy rule is decided on each child: a child with a
+redundant copy group (`_redundant_copy_groups`) is not emitted; its family is that of
+the same split without the copy.
 The reaction and (for allosteric) multiplicity and regulatory sites are
 preserved; both parts of a split group inherit its catalytic allo-state tag.
 """
 function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
     groups = steps(m)
     flux = _flux_carrying_steps(groups, reaction(m))
-    twin = _productive_twin(groups)
-    redundant_part(g, bp) = any(part -> _all_twin(part, twin), bp) && begin
-        child = _apply_bipartitions(m, [(g, bp)])
-        any(h -> any(part -> issetequal(steps(child)[h], part), bp),
-            _redundant_copy_groups(child))
-    end
     units = Tuple{Int, Tuple{Vector{Step}, Vector{Step}}}[]
     reverted = Bool[]
     for g in kinetic_groups(m), bp in _context_bipartitions(groups[g])
-        redundant_part(g, bp) && continue
         parts = _revert_zero_flux_parts(groups[g], bp, flux[g])
         push!(units, (g, parts)); push!(reverted, parts !== bp)
     end
@@ -1926,14 +1917,14 @@ function _productive_twin(groups::Vector{Vector{Step}})
 end
 
 """
-Whether `part`, steps of one kinetic group, binds a competitive inhibitor, and only at
-sites whose complex has a productive twin (`twin`, a `_productive_twin` of one state's
+Whether `group`, the steps of one kinetic group, binds a competitive inhibitor, and only
+at sites whose complex has a productive twin (`twin`, a `_productive_twin` of one state's
 graph).
 """
-function _all_twin(part::Vector{Step}, twin)
-    ligand = bound_metabolite(first(part))
+function _all_twin(group::Vector{Step}, twin)
+    ligand = bound_metabolite(first(group))
     ligand isa CompetitiveInhibitor &&
-        all(s -> twin(from_species(s), ligand) !== nothing, part)
+        all(s -> twin(from_species(s), ligand) !== nothing, group)
 end
 
 """

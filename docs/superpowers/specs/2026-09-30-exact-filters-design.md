@@ -340,11 +340,11 @@ Edges left as they are (for Denis to decide):
   absorbed like any tied split, so no reparameterization of the parent is emitted. A candidate
   whose reverted groups leave a bottomless RE segment counts as failed, as in the flip; the
   construction of a rejected child is never attempted.
-- **Copy groups**: a bipartition of a copy group in which a part would be redundant as a group of
-  its own in the child (all-twin, `_twin_only`, checked first on the parent; then the gauge on
-  the child that splits only that group) is not a unit. Every superset of such a unit keeps the
-  part, and splitting other groups only relaxes the part's gauge. Excluding the unit loses only
-  children whose part is provably a phantom.
+- **Copy groups**: a bipartition of a copy group can leave a part that would be redundant as a
+  group of its own in the child that splits only that group. Splitting a group that forms the
+  part's twins can break the gauge (H1 with its two A groups merged into one is redundant;
+  splitting that A group makes it identifiable), so such a bipartition stays a unit, and the
+  child filter alone removes children with a redundant copy group.
 - **Children**: a split of any group can complete a kept copy's gauge, by separating a binding
   that forms or leaves a twin from the bindings elsewhere in its group that blocked it (Case 3
   with its A and Q groups split is redundant: 7 fitted, rank 6). A child with a redundant copy
