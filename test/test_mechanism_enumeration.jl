@@ -7415,6 +7415,7 @@ end
     @test ER._redundant_copy_groups(split_b14) == [copy_group(split_b14)]
     @test fitted(split_b14) == 7 && _testhelper_identifiable_rank(split_b14) == 6
     @test isempty(ER._redundant_copy_groups(ss_mirror))
+    @test fitted(ss_mirror) == 8 && _testhelper_identifiable_rank(ss_mirror) == 6
     # One factor for all of a copy's complexes, whatever their twins' classes: the
     # previous mechanism plus P* at the two complexes E(A*) and E(A*, Q), the Q binding
     # mirrored between the P* complexes. Both P* steps leave a complex at s, one ratio,
@@ -10492,7 +10493,7 @@ end
     @test occursin("required regulator", err.msg)
     @test occursin("competitive inhibitors: S", err.msg)
     @test occursin("allosteric regulators: none", err.msg)
-    @test occursin("a uni-uni seed with one conformation has no such site", err.msg)
+    @test occursin("a uni-uni seed has no such site", err.msg)
     @test occursin("optional_competitive_inhibitors", err.msg)
     # Bi-bi with A as its own inhibitor has placements that create a new complex.
     bibi = @enzyme_reaction begin
