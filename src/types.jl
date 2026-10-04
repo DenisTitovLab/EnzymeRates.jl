@@ -168,11 +168,13 @@ solution and gives off those in `released`. Both lists may be empty (an
 isomerization) or non-empty (for example a Theorell–Chance step EA + B → EQ + P).
 `is_equilibrium` flags a rapid-equilibrium step (`true`) versus a steady-state
 step (`false`). A binding (`bound_metabolite`) takes up exactly one metabolite and
-gives off none, whatever happens to the enzyme's composition: a plain binding only
-adds the metabolite (E + A → E(A)), a fused one also runs chemistry
-(E(A) + B → E(P, Q)). A binding is stored with its metabolite consumed; every other
-step is oriented by the `Mechanism` / `AllostericMechanism` constructor. See
-CLAUDE.md "Canonical Step Form".
+gives off none. It is plain when `to_species` holds `from_species`'s metabolites
+plus that one with the same residual, the conformation free to change
+(`_binds_ligand`: E + A → E(A), E + A → E*(A)), and fused otherwise
+(E(A) + B → E(P, Q)). The constructor stores a step that takes up nothing and gives
+off exactly one metabolite as the binding it reverses, so every binding is stored
+with its metabolite consumed; every other step is oriented by the `Mechanism` /
+`AllostericMechanism` constructor. See CLAUDE.md "Canonical Step Form".
 """
 struct Step
     from_species::Species
@@ -209,18 +211,21 @@ released(s::Step)       = s.released
 is_equilibrium(s::Step) = s.is_equilibrium
 
 """The metabolite a binding step binds: it takes up exactly that metabolite and
-gives off none, whether `to_species` is `from_species` with it bound (a plain
-binding) or the enzyme's composition changes beyond it (a fused binding);
-`nothing` for every other step."""
+gives off none, as a plain or a fused binding (`Step`, `_is_chemistry`); `nothing`
+for every other step."""
 function bound_metabolite(s::Step)
     length(s.consumed) == 1 && isempty(s.released) ? only(s.consumed) : nothing
 end
 is_binding(s::Step) = bound_metabolite(s) !== nothing
 is_iso(s::Step)     = isempty(s.consumed) && isempty(s.released)
 
-"""Whether `s` changes the enzyme beyond the metabolite it binds: an isomerization,
-a fused binding (`E(A) + B → E(P, Q)`) or a Theorell–Chance step; every step but a
-plain binding, whose `to_species` is its `from_species` with the metabolite added."""
+"""Whether `s` is anything but a plain binding: one metabolite taken up, none given
+off, and `to_species` holding `from_species`'s metabolites plus that one with the
+same residual, the conformation free to change (`_binds_ligand`). Isomerizations,
+fused bindings (`E(A) + B → E(P, Q)`), Theorell–Chance steps and steps with several
+metabolites on a side are chemistry. `show` and the enumeration guards
+(`_assert_chemistry_is_iso`, `_assert_mechanism_invariants`) read it to tell
+catalysis from binding."""
 function _is_chemistry(s::Step)
     m = bound_metabolite(s)
     m === nothing || !_binds_ligand(from_species(s), to_species(s), m)

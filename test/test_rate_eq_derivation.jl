@@ -429,7 +429,7 @@ end
 """
 Positional params for the **hand-written analytical oracles**, which fix
 `k{idx}f` as the chemically-forward (substrate→product) rate of source step
-`idx`. A step that gives off a product is stored as the binding it reverses
+`idx`. A step that only gives off one product is stored as the binding it reverses
 (`E + P → EP` for a plain release, `E + P → ES` for a fused one), so the
 package's stored-forward rate (the one `positional_params` puts on `k{idx}f`)
 is actually the chemical REVERSE (binding) of the oracle's forward (release
