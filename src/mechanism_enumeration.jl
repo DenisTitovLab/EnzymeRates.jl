@@ -2601,9 +2601,9 @@ end
         → Vector{AllostericMechanism}
 
 Mechanism-native overload: convert a non-allosteric `Mechanism` into
-allosteric variants, keeping only variants that are empirically
-distinguishable from a simpler mechanism (an MWC conformational
-constant `L` with no observable effect is not enumerated). An `:OnlyA`
+allosteric variants. Two kinds whose conformational constant `L` never
+shows are not enumerated: the all-`:EqualAI` baseline and a V-type variant
+without a regulator. An `:OnlyA`
 catalytic binding means the inactive conformation cannot bind that
 metabolite, so it cannot complete the catalytic cycle: every emitted
 `:OnlyA` variant is **dead-inactive** — every chemistry group is `:OnlyA`,
@@ -2615,8 +2615,13 @@ binding or a Theorell–Chance step; every other group is a binding group.
     are identical, `L` cancels, and the mechanism is indistinguishable
     from `m`.
   * K-type: every non-empty subset of binding groups is set `:OnlyA`,
-    with every chemistry group `:OnlyA`. Each `:OnlyA` binding's
-    metabolite concentration reveals `L`, so each is emitted bare. A
+    with every chemistry group `:OnlyA`, and each is emitted bare. Over
+    more than one catalytic subunit the conformational equilibrium enters
+    the rate with the multiplicity's power. Over one subunit the inactive
+    conformation is a dead-end branch of the free enzyme, and a rescaling
+    of the active state's constants can absorb `L` whatever that
+    conformation binds: every K-type variant of the rapid-equilibrium
+    ordered bi-bi seed carries `L` as a phantom at multiplicity 1. A
     subset that leaves a binding-only Wegscheider cycle unsatisfiable
     (`_onlya_haldane_violation`) is dropped.
   * V-type: no `:OnlyA` binding, every chemistry group `:OnlyA`. The
@@ -2655,9 +2660,9 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
         # K-type: every non-empty subset of binding groups :OnlyA, with every
         # chemistry group :OnlyA — a catalytically-dead inactive conformation.
         # A state that cannot bind a catalytic metabolite cannot complete the
-        # cycle, so it runs no chemistry. The :OnlyA binding's metabolite reveals
-        # L, so each is emitted bare. `_onlya_haldane_violation` drops a subset
-        # that leaves a binding-only Wegscheider cycle unsatisfiable.
+        # cycle, so it runs no chemistry. Each is emitted bare; over one subunit
+        # L can be a phantom (see the docstring). `_onlya_haldane_violation` drops
+        # a subset that leaves a binding-only Wegscheider cycle unsatisfiable.
         for mask in 1:(2^length(bind) - 1)
             tags = Symbol[:EqualAI for _ in 1:n_g]
             for g in chem

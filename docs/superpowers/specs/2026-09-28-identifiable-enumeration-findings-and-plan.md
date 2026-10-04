@@ -471,6 +471,19 @@ the class counts and estimates in this section are for R4 only.
 - **To decide**: which species represents a merged complex (substrate side or product side); what
   to do with the degenerate ping-pong seeds (drop, keep as non-fitted parents, or replace); how to
   apply the degeneracy check when dead-end copies of substrates or products are present.
+- **Designed** (2026-10-03): `2026-10-03-merged-seeds-and-fused-steps-design.md`, checked in
+  `2026-10-03-merged-seeds-regression.md`. Denis's decisions: a binding is defined by its
+  stoichiometry, one metabolite taken up and none given off, plain or fused, and the merged complex
+  is the product-bound form; the flip rule only, with no canonicalization pass, so in a plain
+  `Mechanism` the flip never flips a flank of a qualifying chain whose isomerization is steady
+  state, and the other non-canonical chains stay as tolerated phantoms; degenerate seeds, the
+  ping-pong seeds among them, are expanded without being fitted, and only seeds; both members of a
+  duplicate family among the merged and Theorell–Chance seeds stay, and the decorated
+  Theorell–Chance seeds are in; B's code is simplified first, with one twin predicate and the
+  split's child filter alone enforcing the copy rule; the copy gauge puts one shared factor on all of a copy's complexes and never a
+  twin's factor, which confirms B's ruling. The variant search tests degeneracy on seeds and
+  their variants, which carry no copies, and `_onlya_haldane_violation` reads `_is_chemistry`,
+  so it accepts `:OnlyA` fused chemistry.
 
 ## Reproducing
 

@@ -17,7 +17,13 @@ The distinction is stored on each `Step` as the `is_equilibrium` field.
 
 - An **RE binding step** contributes one parameter: a dissociation constant
   `Kd`, named in the release direction — the bound side to the free side —
-  as `K_<bound>_to_<free>` (for example, `K_ES_to_E_S`).
+  as `K_<bound>_to_<free>` (for example, `K_ES_to_E_S`). A binding is any step
+  that takes up exactly one metabolite and gives off none, so a fused binding,
+  whose bound form is not its free form with the metabolite added, is named the
+  same way: `E(A) + B ⇌ E(P, Q)` gives `K_EPQ_to_EA_B`. A step that gives off
+  one metabolite and takes up none is the binding it reverses: the fused
+  release `E(A, B) ⇌ E(Q) + P` binds `P` into `E(A, B)`, with dissociation
+  constant `K_EAB_to_EQ_P` = [EQ]·[P]/[EAB].
 - An **RE isomerization step** contributes one parameter: an equilibrium
   constant, named in the canonical direction as `K_<from>_to_<to>` (for
   example, `K_ES_to_EP`).
@@ -26,17 +32,16 @@ The distinction is stored on each `Step` as the `is_equilibrium` field.
   `k_E_S_to_ES` and `k_ES_to_E_S`).
 - An **SS isomerization step** contributes two directed rate constants:
   `k_<from>_to_<to>` and `k_<to>_to_<from>`.
-- Every other step — fused chemistry and release (`E(A, B) <--> E(Q) + P`), a
-  Theorell–Chance step (`E(A) + B <--> E(Q) + P`), or several metabolites on
-  one side — is named by its two sides, as an isomerization is. A side is a
-  step's enzyme form followed by its free metabolites. The mechanism, not the
-  order the step is written in, decides which side is `<from>` (the side
-  carrying more substrate or, failing that, less product; on a tie, the
-  metabolites the mechanism's steps exchange at each form, and failing that
-  the form whose name sorts first), so writing the step backwards gives the
-  same names. At rapid equilibrium such a step's equilibrium constant can
-  carry concentration units: the fused release above has
-  `K_EAB_to_EQ_P` = [EQ]·[P]/[EAB], a concentration.
+- Every other step — a Theorell–Chance step (`E(A) + B <--> E(Q) + P`), or one
+  with several metabolites on a side — is named by its two sides, as an
+  isomerization is. A side is a step's enzyme form followed by its free
+  metabolites. The mechanism, not the order the step is written in, decides
+  which side is `<from>` (the side carrying more substrate or, failing that,
+  less product; on a tie, the metabolites the mechanism's steps exchange at
+  each form, and failing that the form whose name sorts first), so writing the
+  step backwards gives the same names: at rapid equilibrium the
+  Theorell–Chance step above gives `K_EA_B_to_EQ_P`. Such a constant can carry
+  concentration units, as for a step that gives off two metabolites.
 
 ## A concrete comparison
 
@@ -117,3 +122,19 @@ The [The Cha / King–Altman algorithm](@ref) solves the full Cha steady state
 regardless of whether individual steps are RE or SS; RE steps simply factor
 out of the rate matrix as pre-equilibrium segments, giving the familiar
 `K_ES_to_E_S`-style notation in the denominator.
+
+## Apparent constants on a steady-state chain
+
+An RE label does not always claim that a binding is fast. Take a *chain*: an
+isomerization alone in its kinetic group, between two forms that each have
+exactly one other step, a binding into that form alone in its group. Those two
+bindings are the chain's *flanks*. The uni-uni mechanism `E + S ⇌ E(S)`, `E(S) <--> E(P)`,
+`E(P) ⇌ E + P` is one chain. When the isomerization is steady state, the rest of
+the mechanism sees the chain only through its flux and the enzyme it holds, and
+rapid-equilibrium flanks already give every rate law that steady-state flanks
+give. An RE flank's constant is then an apparent constant, a Michaelis-type
+combination of the chain's rate constants, not the dissociation constant of its
+complex: here `K_ES_to_E_S` plays the part of the Michaelis constant for `S`. The
+mechanism gives the same rate laws as the chain with all three steps steady
+state, with three parameters instead of five. The enumeration therefore never
+flips such a flank to steady state (see [The enumeration engine](@ref)).

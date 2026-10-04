@@ -131,7 +131,9 @@ nothing # hide
 
 The search does not start from scratch. Its *seed* mechanisms are the simplest
 catalytic mechanisms for the reaction — one per binding order, with optional
-dead-end substrate and product inhibition, each at its lowest parameter count.
+dead-end substrate and product inhibition, each at its lowest parameter count —
+and, for a reaction with more than one substrate or product, their merged and
+Theorell–Chance variants ([The enumeration engine](@ref)).
 Because this reaction declares `A`, the seeds are lifted a level: the search
 starts from mechanisms that already bind `A` — every fully-regulated mechanism at
 its minimum parameter count — and never fits the non-allosteric mechanisms

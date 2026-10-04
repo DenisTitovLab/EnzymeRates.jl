@@ -19,13 +19,22 @@ an over-simple model whose better CV score is within noise.
 ## Running the search
 
 [The enumeration engine](@ref) generates every candidate the beam fits.
-`init_mechanisms` builds the minimum-parameter starting mechanisms (or
-`seed_mechanisms` starts from fully-regulated ones when a reaction's regulators
-are required), and `expand_mechanisms` grows each survivor through single moves —
-splitting a shared rate constant, flipping a rapid-equilibrium group to steady
-state, adding a regulator, or making the enzyme allosteric. Every move yields
-slightly more complex children, so the beam meets candidates in order of
-increasing complexity.
+`init_mechanisms` builds the starting mechanisms (or `seed_mechanisms` starts
+from fully-regulated ones when a reaction's regulators are required), and
+`expand_mechanisms` grows each survivor through single moves — splitting a shared
+rate constant, flipping a rapid-equilibrium group to steady state, adding a
+regulator, or making the enzyme allosteric. Every move yields slightly more
+complex children, so the beam meets candidates in order of increasing complexity.
+
+The beam first fits every starting mechanism, each at its own parameter count.
+A degenerate starting mechanism is expanded instead of fitted: its rate at zero
+products ignores some substrate or never saturates, or the same holds for
+products, so it is not worth a fit, but it is the only parent of mechanisms that
+are not degenerate. Every ping-pong seed is one. The beam expands such a
+mechanism at once and fits its children beside the other starting mechanisms
+(`_base_tier`). Their rows, like the starting mechanisms' rows, name no parent,
+and the degenerate mechanism gets a row of its own only when its expansion
+fails. A degenerate mechanism that a move builds is fitted like any other.
 
 The search walks parameter counts in ascending order. At each count it fits
 every candidate, keeps a *beam* of the most promising, and expands only those

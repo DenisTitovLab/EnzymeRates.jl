@@ -19,11 +19,13 @@ steps: begin
 end
 ```
 
-The steps of a group must be one kind of step with one flag: bindings of one
-metabolite, isomerizations, or transformations that take up and give off the
-same metabolites, all rapid-equilibrium or all steady-state. A Theorell–Chance
-step therefore cannot share a group with a binding. Each reaction appears once,
-in one group. Building a mechanism that breaks these rules raises an error.
+The steps of a group must take up and give off the same metabolites and carry
+one flag, all rapid-equilibrium or all steady-state. Every binding of one
+metabolite is the same kind of step, whether or not it runs chemistry: a fused
+binding of `B` (`E(A) + B ⇌ E(P, Q)`) may share a group with a plain one
+(`E(Q) + B ⇌ E(B, Q)`). Every isomerization is one kind, and a Theorell–Chance
+step cannot share a group with a binding. Each reaction appears once, in one
+group. Building a mechanism that breaks these rules raises an error.
 
 This is a modeling choice, distinct from the thermodynamic reduction
 ([Thermodynamic constraints](@ref)). The reduction also removes parameters, but

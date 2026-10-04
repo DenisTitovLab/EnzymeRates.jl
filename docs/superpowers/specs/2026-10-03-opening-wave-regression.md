@@ -31,7 +31,7 @@ drawn with `MersenneTwister(20260930)` from the children sorted by key, their de
 tag-relaxation, flip and split children, and the tag relaxations of those that bind a copy.
 
 Three snapshots ran, one Julia process at a time: b340822 (a detached worktree with the current
-`Manifest.toml`, removed afterwards), 689f44d (Tasks 1–3), and the tree of Task 4.
+`Manifest.toml`, removed afterwards), 689f44d (Tasks 1–3), and 6afe748 (Task 4).
 
 ## Populations
 
