@@ -184,6 +184,15 @@ At the five consistent points the two strings of each agree to a relative 7e-76 
 laws are equal. The 25th fixture, a fused and a plain binding of B in one group, builds only on
 the tip; the base's constructor rejects the mixed group.
 
+04a362e, after this record, keeps a fused release's catalytic constant fitted: the pivot
+eliminates first the forward constant of a fused binding of a product, which runs against the
+reaction. Uni-Uni fits `k_E_S_to_ES`, `k_ES_to_E_S` and `k_ES_to_E_P` and derives `k_E_P_to_ES`;
+RE Uni-Uni fits `K_EA_to_E_A` and `k_EA_to_E_P`. Of R4's 1,282 mechanisms to depth 1 (the init
+mechanisms with their flip and split children), 9 change fitted names, each because a ping-pong
+dead-end step fuses a product binding with chemistry (`E(P; res) + Q → E(A, Q)`); every other
+string is unchanged (`pivot_regression.jl`). Only the dependent constant changes, so each family
+is the same.
+
 ## The new seeds
 
 `init_mechanisms` on both checkouts:
