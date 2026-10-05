@@ -309,6 +309,7 @@ counts, the ter-ter children on the review's draw of 20 (`MersenneTwister(3)`):
   deduplication within the draw, about 1.0 million in all, and serial `_base_tier` takes 0.74 s
   per seed (the review: 0.73 s), about 2.7 hours for the expansions alone, before any fit.
   7857b6d fits the 13,110 themselves.
+- 74241b5 keeps only the curing flips of each degenerate seed (Curing flips in the base tier).
 
 ## The free-enzyme weight
 
@@ -333,6 +334,56 @@ inactive term of the MWC law missed that factor beside L. The fix gives the weig
   only release P, while E(P; residual) can also return to E(A). `kcat` is finite on all 707
   (`dfree_bflat.jl`).
 - The five `@test_broken` checks pass, and the suite passes 64,682 of 64,682.
+
+## Curing flips in the base tier
+
+74241b5 replaces each degenerate seed by its flip children that are not degenerate instead of
+all its children. Only a flip can cure a degenerate seed: the other moves keep every catalytic
+step's rapid-equilibrium flag, and the steps they add bind regulators, which neither V nor C
+reads. On 100 drawn ter-ter seeds with shared sites, the non-degenerate children of all moves are
+exactly the flip's: 259 of 7,481 children, none from split, to-allosteric or dead-end moves
+(`degen_moves.jl`); the test of `_base_tier` pins the same on R4.
+
+| Starting set | Not degenerate | Degenerate | Curing flip children | Base tier | Before | Expansion |
+|---|---|---|---|---|---|---|
+| R4, `init_mechanisms` | 257 | 7 | 21 | 278 | 405 | under 0.1 s |
+| R5 with I required, `seed_mechanisms` | 1,431 | 39 | 117 | 1,548 | 2,948 | 0.1 s |
+| `ter_ter_rxn`, `init_mechanisms` | 237,745 | 13,110 | 33,816 | 271,561 | about 1,240,000 | 31 s |
+| ter-ter, shared sites (A, P), (B, Q), (D, R) | 59,665 | 3,216 | 8,448 | 68,113 | about 300,000 | 6 s |
+
+(`basetier_after.jl`; the shared-sites "before" scales a draw of 100 seeds, `init_anatomy.jl`.)
+
+- A flip cures a degenerate ping-pong seed exactly when it turns steady state its
+  rapid-equilibrium chemistry, or every rapid-equilibrium step by which a substrate leaves that
+  chemistry, or every one by which a product leaves it. Each R4 seed has three curing flips;
+  ter-ter's draw of 20 has one to three (53 of 137 flip children) (`curing_flips.jl`).
+- The curing flips add families the variants lack. None of R4's 21 shares the growth signature
+  (next section) with an init mechanism, and 52 of the 53 ter-ter ones differ from every variant
+  of their own seed. Within a seed, 3 of R4's 21 equal a sibling's family (confirmed by refitting,
+  `cures_equal.jl`); no structural rule picks them out.
+- Chemistry flips are identifiable in 26 of 27 cases and exit flips in 39 of 47 (R4 and the
+  ter-ter draw). The undecorated bi-bi seed's three are 7 fitted, rank 6, the textbook ping-pong
+  phantom.
+
+## Ter-ter variants: phantoms and duplicate families
+
+The check covers ter-ter's 1,735 undecorated init mechanisms under the complexity cap (223 seeds,
+1,512 variants) and 300 decorated variants drawn, 150 from each seed class (`variant_check.jl`).
+
+- Phantoms (fitted count minus the finite-difference rank of the suite's oracle): none in any
+  variant. 36 of the 54 undecorated ping-pong seeds carry one; they are degenerate and not fitted.
+- Renamed duplicates (two laws that a bijection of fitted parameters maps onto each other, found
+  by fingerprints at equal parameters and single-parameter perturbations and verified at random
+  points): none.
+- Equal families under any reparametrization. Candidates share rank and growth exponents along
+  76 directions of log-concentration space: the support function of num's Newton polytope minus
+  den's, which a factor common to num and den leaves unchanged (`family_signature.jl`). Refitting
+  each law of a candidate pair to the other's exact values from 12 starts confirms a pair
+  (`family_confirm.jl`). On R4's 202 new seeds this finds 103 candidates and confirms exactly the
+  design's 10 equal-family pairs, 2 of them Theorell–Chance. On ter-ter it confirms none of 436
+  candidates. Refitting a ter-ter law to itself from random starts reaches 10⁻¹² or better, and
+  the closest candidate pair misses by 6.5·10⁻⁴ (`family_confirm_diag.jl`).
+- Duplicates among decorated variants were sought only within the draw of 300.
 
 ## Limitations
 
@@ -373,4 +424,6 @@ Ter-ter seeding with a required inhibitor would reach about five million seeds i
 minutes, against 808,000 at 7857b6d; that cost is reported to the maintainer with the ter-ter
 base-tier concerns of Tasks 10 and 11. The base tier fits 405 R4 mechanisms against 62 at
 7857b6d, 105 of them K-type children whose laws were wrong until 43f4d23, and for ter-ter it
-adds about a million children of the 13,110 degenerate ping-pong seeds.
+adds about a million children of the 13,110 degenerate ping-pong seeds. 74241b5 keeps only the
+curing flips, 21 and 33,816 children, which brings the ter-ter base tier to 271,561; the ter-ter
+variants checked carry no phantom and duplicate no family.
