@@ -3050,8 +3050,7 @@ end
     # Both children keep one phantom of another class: once the abortive step no
     # longer pins kf_B/kr_B, E(A) + B → E(A, B) is a steady-state binding into a
     # form with one exit, and its three constants enter the law through two
-    # combinations (the chain class sub-project C merges). The revert removes
-    # exactly the zero-flux phantom.
+    # combinations. The revert removes exactly the zero-flux phantom.
     @test fitted(raw) - r_raw == fitted(reverted) - r_rev + 1
 end
 
@@ -4551,8 +4550,8 @@ end
     # column, and partial catalysis would reject it too: the inactive state would
     # catalyze in part. The P binding and the copy relax. The relaxed copy, with one
     # constant per state, duplicates E(S) in the active state and is new in the
-    # inactive one, so it keeps one phantom, its active-state constant: the
-    # `:NonequalAI` copy class the spec accepts.
+    # inactive one, so it keeps one phantom, its active-state constant; the copy rule
+    # keeps such a `:NonequalAI` copy.
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -8599,7 +8598,7 @@ end
 
 @testset "_redundant_copy_groups: every complex a twin and a consistent dwell gauge" begin
     # A copy group is redundant when every complex duplicates a productive form and the
-    # dwell gauge exists (track 2's Lemma 1 and Theorem 2): scale factors σ, ρ_class on
+    # dwell gauge exists: scale factors σ, ρ_class on
     # each twin, one factor s on every complex of the copy and 1 elsewhere, under which
     # every kinetic group, the copy's own included, rescales its constants alike: an RE
     # group needs one ratio σ(from)/σ(to), an SS group one σ(from) and one σ(to). Twins
@@ -8612,7 +8611,7 @@ end
     copy_group(m) = only(g for (g, grp) in enumerate(ER.steps(m))
                          if ER.bound_metabolite(first(grp)) isa ER.CompetitiveInhibitor)
 
-    # B1 (track 2's hand example): ordered bi-bi with A* at E. The twin E(A) is formed
+    # B1: ordered bi-bi with A* at E. The twin E(A) is formed
     # by E + A ⇌ E(A), alone in its group, so the A group's ratio is 1/ρ, the B group's
     # ρ and the chemistry's forward factor ρ, each over one step: the gauge exists.
     # 6 fitted, rank 5.
@@ -11167,8 +11166,8 @@ end
 end
 
 @testset "catalytic moves on bi-bi to depth 2: counts and both rules on every child" begin
-    # Aggregate regression pin over the whole enumerated population of the
-    # findings' reaction R4, whose atoms admit ping-pong: `init_mechanisms` plus two
+    # Aggregate regression pin over the whole enumerated population of the bi-bi
+    # reaction whose atoms admit ping-pong: `init_mechanisms` plus two
     # levels of the flip, split and dead-end moves, deduplicated across levels.
     # Without the flux and new-complex rules the levels would hold 62, 369 and 1,388;
     # the flux rule leaves out 148 zero-flux flip children at level 2, and the 40
@@ -11213,7 +11212,7 @@ end
     @test length.(bibi) == [264, 1018, 2371]
     @test all(obeys_rules, Iterators.flatten(bibi))
 
-    # The same seeds with every reactant also a competitive inhibitor (R6), two
+    # The same seeds with every reactant also a competitive inhibitor, two
     # levels: no copy group is redundant.
     rxn6 = @enzyme_reaction begin
         substrates: A[CX], B[N]

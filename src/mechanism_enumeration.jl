@@ -1577,7 +1577,7 @@ end
 
 """Whether the rate has a maximum as the metabolites of `side` (`Substrate` or `Product`)
 grow: turning rapid equilibrium every steady-state step that takes up or gives off one of
-them leaves no rapid-equilibrium turnover cycle (track 4's condition V)."""
+them leaves no rapid-equilibrium turnover cycle (condition V)."""
 function _has_vmax(groups::Vector{Vector{Step}}, rxn::EnzymeReaction, side::Type)
     names = Set(name(x) for x in (side === Substrate ? substrates(rxn) : products(rxn)))
     touches(s) = _any_named(consumed(s), names) || _any_named(released(s), names)
@@ -1601,7 +1601,7 @@ _crosses_sides(s::Step, subs, prods) =
 
 """
 Whether some chemistry node of `groups` is left both by a rapid-equilibrium step that
-releases a substrate and by one that releases a product (track 4's condition C). A chemistry
+releases a substrate and by one that releases a product (condition C). A chemistry
 node is a merged complex (a form entered by a fused binding of a substrate) with every form
 joined to it by RE isomerizations, a set of forms joined to each other by RE isomerizations,
 or an RE Theorell–Chance step. An RE step leaves a node through a node form F and releases M
@@ -1639,7 +1639,7 @@ function _chemistry_equilibrates_both_sides(groups::Vector{Vector{Step}},
         any(t -> _crosses_sides(t, subs, prods), re)
 end
 
-"""Whether `m` is degenerate by track 4's structural conditions: no maximal rate in one
+"""Whether `m` is degenerate by the structural conditions V and C: no maximal rate in one
 direction (`_has_vmax`), or chemistry in rapid equilibrium with both sides
 (`_chemistry_equilibrates_both_sides`). Read on `steps(m)`, an allosteric mechanism's
 active-state graph. The beam expands a degenerate seed without fitting it (`_base_tier`)."""
@@ -1987,8 +1987,8 @@ its new kind, so a reverted constant the Wegscheider ties pull back is absorbed
 like any tied split, and a candidate whose reverted groups leave a rapid-equilibrium
 segment without a bottom form counts as failed. A split of any group can complete a
 copy's gauge, by separating a binding that forms or leaves a twin from the bindings
-elsewhere in its group that blocked the gauge (track 2's Theorem 3: the split holds the
-family of the copy its shared group pinned), and a split of a group that forms a copy's
+elsewhere in its group that blocked the gauge (the split then holds the family of the
+copy its shared group pinned), and a split of a group that forms a copy's
 twins can break the gauge, so the copy rule is decided on each child: a child with a
 redundant copy group (`_redundant_copy_groups`) is not emitted; its family is that of
 the same split without the copy.
@@ -2240,9 +2240,8 @@ The dwell gauge of the competitive-inhibitor copy bound by kinetic group `g` of
 group needs, or `nothing` when the gauge does not exist. It does not exist when group `g`
 binds no competitive inhibitor or a complex it forms has no productive twin (`_all_twin`,
 with `twin` a `_productive_twin` of `groups`), or when some group would need two
-rescalings. The gauge is track 2's Lemma 1 with Theorem 2's factors (findings evidence,
-`t2_inhdup_report.md` §3): a factor σ per form, ρ_T on each twin T, one factor s on
-every complex of the copy and 1 on every other form. Multiplying a rapid-equilibrium
+rescalings. The gauge gives every form a factor σ: ρ_T to each twin T, one factor s to
+every complex of the copy and 1 to every other form. Multiplying a rapid-equilibrium
 group's K by σ(from)/σ(to), and a steady-state group's forward constant by σ(from) and
 its reverse by σ(to), divides each form's weight by its factor and leaves every flux
 as it was. A twin's weight is a constant multiple of its complexes', so the factors
@@ -2254,14 +2253,14 @@ each site, holds all its complexes at the one factor s, and a complex never take
 twin's factor: its weight moves opposite to the twin's. A rapid-equilibrium mirror step,
 between two complexes, therefore has ratio 1, as its parent step between two sites
 has, whatever the twins; a steady-state mirror needs s beside its parent step's 1, and
-the gauge fails. Within Theorem 2's scope the gauge is the merge of each complex into
-its twin, the twin's binding group taking K_h + K* in place of K_h, and the family is
-that of the mechanism without the copy.
+the gauge fails. When each site binds the copied ligand at rapid equilibrium, the gauge
+is the merge of each complex into its twin, the twin's binding group taking K_h + K* in
+place of K_h, and the family is that of the mechanism without the copy.
 
 The ρ are generic numbers, equal only where the structure makes them equal: twins
 formed from their sites by RE bindings of the copied ligand in one kinetic group h, each
-the twin of one complex, share one factor (Theorem 2's finite merge gives it as
-ρ = K_h/(K_h + K*)); every other twin has its own. `label` names the classes: it
+the twin of one complex, share one factor (the merge gives it as ρ = K_h/(K_h + K*));
+every other twin has its own. `label` names the classes: it
 receives the group index of a shared class (h) or of the copy's complexes (g), or the
 twin of a class of its own, and returns the class's symbol, so the caller decides which
 classes are one number. A group's rescaling is the pair of its ends' symbols, `nothing`
@@ -2309,8 +2308,8 @@ end
 Kinetic groups of `m` that bind a competitive inhibitor redundantly: in every
 conformational state where the copy binds, every complex has a productive twin, a form
 whose weight is proportional to the complex's (`_productive_twin`, `_all_twin`), and the
-dwell gauge exists over the states together (`_gauge_rescaling`). By track 2's Lemma 1
-the copy's constant then moves along a direction the rate law cannot see, so the copy
+dwell gauge exists over the states together (`_gauge_rescaling`). The gauge then moves
+the copy's constant along a direction the rate law cannot see, so the copy
 adds a phantom, and the mechanism's family is its family without the copy
 (`_gauge_rescaling`). A copy group whose complexes all have twins but whose gauge fails is
 not redundant: a group that forms or leaves a twin also binds where no copy does (a shared
