@@ -1305,6 +1305,30 @@ const _testhelper_fused_cases = [
     @test d_free == EnzymeRates.poly_sym(:B)
 end
 
+@testset "a fused release keeps its catalytic rate constant fitted" begin
+    # E(S) <--> E + P gives off P while turning S into P. It is stored as the binding it
+    # reverses, E + P → E(S), whose forward constant k_E_P_to_ES runs against the
+    # reaction. The Haldane relation makes that constant dependent, as k₋₂ of the
+    # textbook mechanism, and the catalytic constant k_ES_to_E_P stays fitted.
+    ss = @enzyme_mechanism begin
+        substrates: S; products: P
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E + P
+        end
+    end
+    @test Set(EnzymeRates.fitted_params(ss)) ==
+          Set([:k_E_S_to_ES, :k_ES_to_E_S, :k_ES_to_E_P])
+    re = @enzyme_mechanism begin
+        substrates: S; products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E + P
+        end
+    end
+    @test Set(EnzymeRates.fitted_params(re)) == Set([:K_ES_to_E_S, :k_ES_to_E_P])
+end
+
 @testset "fused steps derive the mass-action rate" begin
     for em in _testhelper_fused_cases
         _testhelper_check_against_mass_action(em)

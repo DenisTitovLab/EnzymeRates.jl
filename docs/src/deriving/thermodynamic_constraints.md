@@ -67,7 +67,11 @@ keep the **biochemically meaningful** parameters independent:
    eliminable and the least directly measurable.
 
 Within a steady-state step, the reverse rate is preferred dependent over the
-forward rate. Because step and group order are canonicalized when a mechanism is
+forward rate. A step that gives off a product while changing the enzyme, such as
+`E(S) <--> E + P`, is stored as the binding it reverses, so its forward rate is
+the product rebinding; that rate, which runs against the reaction, is preferred
+dependent instead, and the catalytic rate stays fitted. Because step and group
+order are canonicalized when a mechanism is
 constructed, this choice is deterministic: two mechanisms with the same structure
 written in a different step order produce the identical reduced equation.
 

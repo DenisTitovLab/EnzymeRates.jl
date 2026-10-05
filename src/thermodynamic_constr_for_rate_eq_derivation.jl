@@ -443,10 +443,15 @@ function _assemble_constraints(
             s = step_name(step_params[j][1])
             haskey(sym_col, s) && (priority[sym_col[s]] = (is_i_state, base))
         else
+            # A steady-state step's reverse constant is eliminated before its forward one.
+            # A fused binding of a product is a release stored as the binding it reverses,
+            # so its forward constant runs against the reaction and goes first instead,
+            # keeping the catalytic constant fitted.
+            against = _is_chemistry(step) && bound_metabolite(step) isa Product
             for (offset, p) in enumerate(step_params[j])
                 s = step_name(p)
-                haskey(sym_col, s) &&
-                    (priority[sym_col[s]] = (is_i_state, base + offset - 1))
+                rank = against ? 2 - offset : offset - 1
+                haskey(sym_col, s) && (priority[sym_col[s]] = (is_i_state, base + rank))
             end
         end
     end

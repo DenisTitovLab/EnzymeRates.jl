@@ -92,14 +92,14 @@ uni_uni = @enzyme_mechanism begin
     end
 end
 
-# These params have kcat = k_ES_to_E_P = Keq * k_ES_to_E_S * k_E_P_to_ES / k_E_S_to_ES = 3.0
-params = (k_ES_to_E_S = 1.0, k_E_P_to_ES = 6.0, k_E_S_to_ES = 4.0, Keq = 2.0, E_total = 1.0)
+# These params have kcat = 3.0 (k_ES_to_E_P is the bottleneck)
+params = (k_ES_to_E_P = 3.0, k_ES_to_E_S = 1.0, k_E_S_to_ES = 4.0, Keq = 2.0, E_total = 1.0)
 
 rescaled = rescale_parameter_values(uni_uni, params; scale_k_to_kcat = 1.0)
 rescaled
 ```
 
-Notice that only the rate constants changed (`k_ES_to_E_S`, `k_E_P_to_ES`,
+Notice that only the rate constants changed (`k_ES_to_E_P`, `k_ES_to_E_S`,
 `k_E_S_to_ES`); `Keq` and `E_total` are unchanged. Calling
 `rescale_parameter_values` again on `rescaled` with `scale_k_to_kcat = 1.0`
 returns the same values — the internal kcat computation on `rescaled` gives

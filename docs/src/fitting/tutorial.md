@@ -52,8 +52,8 @@ The example below generates synthetic data by evaluating the true rate equation
 on a concentration grid, then wraps it in a `FittingProblem`.
 
 ```@example fitting
-# Independent fitted params for the reduced equation: k_ES_to_E_S, k_E_P_to_ES, k_E_S_to_ES
-true_params = (k_ES_to_E_S = 5.0, k_E_P_to_ES = 3.0, k_E_S_to_ES = 10.0,
+# Independent fitted params for the reduced equation: k_ES_to_E_P, k_ES_to_E_S, k_E_S_to_ES
+true_params = (k_ES_to_E_P = 3.0, k_ES_to_E_S = 5.0, k_E_S_to_ES = 10.0,
                Keq = 2.0, E_total = 1.0)
 
 concs_list = [(S = s, P = p) for s in (0.5, 1.0, 2.0, 5.0, 10.0) for p in (0.1, 0.5)]
