@@ -38,11 +38,12 @@ using Tables
         return (; (k => cols[k] for k in (:group, :Rate, met_names...))...)
     end
 
-    # ── Absolute-loss fit: the only warning is BlackBoxOptim's convergence ────
-    # An absolute loss has a single optimum, which BlackBoxOptim can reach before
-    # maxtime. It then stops because the search has converged, a reason Optimization
-    # does not recognize, so Optimization warns. Runs `fit`, checks that every warning
-    # it logs is that one, and returns its result.
+    # ── BlackBoxOptim fit: the only warning is its convergence ────────────────
+    # BlackBoxOptim can converge on these fits before maxtime: an absolute loss has a
+    # single optimum, and a centered population can collapse along its scale direction.
+    # It then stops because the search has converged, a reason Optimization does not
+    # recognize, so Optimization warns. Runs `fit`, checks that every warning it logs
+    # is that one, and returns its result.
     function fit_capturing_convergence(fit)
         logs, result = Test.collect_test_logs(fit)
         @test all(l -> l.level < Base.CoreLogging.Warn ||
@@ -361,16 +362,20 @@ using Tables
 
         # Default scale_k_to_kcat=1.0: returned params have kcat ≈ 1.
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
-        result = fit_rate_equation(fp, BBO_adaptive_de_rand_1_bin_radiuslimited();
-            n_restarts=3, maxtime=5.0)
+        result = fit_capturing_convergence() do
+            fit_rate_equation(fp, BBO_adaptive_de_rand_1_bin_radiuslimited();
+                n_restarts=3, maxtime=5.0)
+        end
         full = merge(result.params, (Keq = Keq_val, E_total = 1.0))
         @test EnzymeRates._kcat_forward(uni_uni, full) ≈ 1.0 rtol=0.01
         @test result.retcode isa Symbol
 
         # Custom target set on the FittingProblem.
         fp42 = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=42.0)
-        result2 = fit_rate_equation(fp42, BBO_adaptive_de_rand_1_bin_radiuslimited();
-            n_restarts=3, maxtime=5.0)
+        result2 = fit_capturing_convergence() do
+            fit_rate_equation(fp42, BBO_adaptive_de_rand_1_bin_radiuslimited();
+                n_restarts=3, maxtime=5.0)
+        end
         full2 = merge(result2.params, (Keq = Keq_val, E_total = 1.0))
         @test EnzymeRates._kcat_forward(uni_uni, full2) ≈ 42.0 rtol=0.01
         @test result2.retcode isa Symbol
@@ -401,7 +406,9 @@ using Tables
 
         # scale_k_to_kcat=7.0: the returned params are anchored so kcat ≈ 7.0.
         fp = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=7.0)
-        res = fit_rate_equation(fp, opt; n_restarts=3, maxtime=5.0)
+        res = fit_capturing_convergence() do
+            fit_rate_equation(fp, opt; n_restarts=3, maxtime=5.0)
+        end
         @test keys(res.params) == EnzymeRates.fitted_params(uni_uni)
         @test isfinite(res.loss)
         @test res.retcode isa Symbol
