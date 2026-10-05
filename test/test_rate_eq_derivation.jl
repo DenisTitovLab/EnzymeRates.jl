@@ -1284,6 +1284,27 @@ const _testhelper_fused_cases = [
             E(Q) + P <--> E(P, Q); E + Q ⇌ E(Q) end end),
 ]
 
+@testset "the free-enzyme weight is free E's weight in the reduced denominator" begin
+    # Ping-pong with a rapid-equilibrium second chemistry step: every form lies in one
+    # rapid-equilibrium segment rooted at free E, where E(; residual = A - P) sits at
+    # Q·K/B relative to E. Reducing the polynomials to lowest terms in the
+    # concentrations multiplies them by B, so free E weighs B in the reduced
+    # denominator; the MWC combination divides each conformation by this weight.
+    em = @enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            E + Q ⇌ E(Q)
+        end
+    end
+    _, _, d_free = EnzymeRates._raw_symbolic_rate_polys(typeof(em))
+    @test d_free == EnzymeRates.poly_sym(:B)
+end
+
 @testset "fused steps derive the mass-action rate" begin
     for em in _testhelper_fused_cases
         _testhelper_check_against_mass_action(em)

@@ -7828,13 +7828,11 @@ end
         end
     end)
     @test ER._degenerate(am)
-    # The probe reads the derived allosteric law, which for this mechanism (ping-pong seed,
-    # catalytic multiplicity 1, both chemistry steps :OnlyA, bindings :EqualAI) misses a
-    # factor B on its L term: free E and E(; residual = A - P) lie in one
-    # rapid-equilibrium segment. The formulation-1 ground truth gives v independent of B
-    # (0.28977 at every B from 1e-3 to 1e3 at the parameters of the gate in
-    # test/allosteric_ground_truth.jl); the derived law agrees with it only at B = 1.
-    @test_broken _testhelper_degenerate(am) == ER._degenerate(am)
+    # The probe reads the derived allosteric law. Free E and E(; residual = A - P) lie in
+    # one rapid-equilibrium segment of the active state; the law divides each
+    # conformation by its free enzyme's weight, so at zero products it does not depend on
+    # B (the gate in test/allosteric_ground_truth.jl checks it against mass action).
+    @test _testhelper_degenerate(am) == ER._degenerate(am)
 end
 
 @testset "_seed_variants: the uni-uni seed has none" begin

@@ -307,9 +307,11 @@ walking the lifted `Mechanism`. Parameter Symbols on the leaves of
 collapses kinetic-group members to their rep's name). `rename_map` then
 applies any single-symbol Wegscheider ties as a post-pass.
 
-Also returns `d_free`, the spanning-tree weight `D[g_free]` of the segment
-holding the free resting enzyme (the form with empty `bound` and empty
-`residual`) — `1` when that segment is the mechanism's only segment.
+Also returns `d_free`, the weight in the returned denominator of the free
+resting enzyme (the form with empty `bound` and empty `residual`): the
+spanning-tree weight `D[g_free]` of its segment times the concentration monomial
+that brings `num`/`den` to lowest terms. Free E roots its segment, so its own
+`alpha` is 1.
 """
 function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map)
     enz_species, groups, form_to_group = _compute_re_groups(mech)
@@ -369,8 +371,7 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map)
     num = _rename_symbols(num, rename_map)
     den = _rename_symbols(den, rename_map)
     conc_set = _concentration_symbols(mech)
-    num, den = _reduce_conc_lowest_terms(num, den, conc_set)
-    num, den, d_free
+    _reduce_conc_lowest_terms(num, den, d_free, conc_set)
 end
 
 function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
@@ -839,7 +840,7 @@ so this carries no `catalytic_multiplicity` factor.
     # unchanged; matching the same branch as `rate_equation` keeps the
     # saturating-pattern grouping below consistent with it.
     if d_free_A == d_free_I
-        # raw — D[g_free] is common to both states and cancels; leave the polys
+        # raw — the free-enzyme weight is common to both states and cancels; leave the polys
         # as captured
     elseif _is_metabolite_free_monomial(d_free_A, cat_mets) &&
            _is_metabolite_free_monomial(d_free_I, cat_mets)
@@ -1170,7 +1171,7 @@ no post-hoc rename is needed (`:EqualAI` groups render the shared bare Symbol
 automatically). The `:I` polynomials reference each `:NonequalAI` group's
 native `K_I_…`/`k_I_…` symbol; a forbidden split's `K_I_…` is defined by the
 combined constraint solve's dependent assignment (`_build_dep_assignments`).
-`d_free_poly` is that state's free-enzyme segment weight (see
+`d_free_poly` is free E's weight in that state's denominator (see
 `_raw_symbolic_rate_polys`).
 """
 function _state_rate_polys(am::AllostericMechanism, state::Symbol)
@@ -1461,7 +1462,7 @@ _mwc_power_pair(x, y, n) =
 
 """Cross-weight an MWC state term by the OTHER conformation's free-enzyme weight
 `D_other^n` (`n = catalytic_multiplicity`). Restores a common free-enzyme basis
-when the two conformations' `D[g_free]` differ and cannot be divided out (a
+when the two conformations' free-enzyme weights differ and cannot be divided out (a
 metabolite-bearing or multi-term `D`). A no-op when `d_other_expr == 1`."""
 _mwc_cross_weight(term, d_other_expr, n) =
     d_other_expr == 1 ? term : :($(_power_expr(d_other_expr, n)) * $term)
@@ -1475,7 +1476,7 @@ function _invert_monomial(p::POLY)
 end
 
 """True when `p` is a single term whose monomial names no symbol in `mets`.
-A metabolite-free monomial `D[g_free]` can be divided out of a `POLY` as a
+A metabolite-free monomial free-enzyme weight can be divided out of a `POLY` as a
 Laurent factor; a metabolite-bearing or multi-term `D` cannot (division would
 put a concentration or a rational in a denominator), so it is cross-weighted."""
 function _is_metabolite_free_monomial(p::POLY, mets::Set{Symbol})
@@ -1564,7 +1565,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     num_i_poly, den_i_poly, d_free_I = _state_rate_polys(am, :I)
 
     # Formulation-1 per-state free-enzyme normalization. Render the same value
-    # three ways by how D[g_free] combines:
+    # three ways by how the two free-enzyme weights combine:
     #   D_A == D_I               → raw (identical conformations; the factor cancels)
     #   both metabolite-free monomials → divide Q/D (clean standard-MWC form)
     #   otherwise                → cross-weight by the other state's D^n (polynomial)

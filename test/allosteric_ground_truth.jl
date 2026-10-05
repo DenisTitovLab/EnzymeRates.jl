@@ -880,15 +880,14 @@ end
     end
 end
 
-# ── The gate: a rapid-equilibrium segment holding free E and F (KNOWN BROKEN) ──
+# ── The gate: a rapid-equilibrium segment holding free E and F ────────────────
 # The two ping-pong value gates above write every step steady state, and the two
 # ping-pong :OnlyA gates below, whose active segments do hold free E and F, check
 # finiteness, the equilibrium ratio and the L = 0 limit only. This gate compares an
 # L > 0 rate against ground truth for a mechanism whose active rapid-equilibrium
-# segment holds both free E and F. The cleared active-state polynomial gives free E
-# the weight B (F sits at Q/B relative to E), while the derived L term gives E_I the
-# weight L: the law misses a factor B on its L term. The ground truth is independent
-# of B (0.28977 at these parameters); the derived law agrees with it only at B = 1.
+# segment holds both free E and F. Clearing that segment's polynomial gives free E the
+# weight B (F sits at Q/B relative to E), so the inactive term must carry the same
+# factor beside L. The ground truth is independent of B (0.28977 at these parameters).
 @testset "ping-pong MWC derivation with free E and F in one RE segment" begin
     allo = @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
@@ -922,7 +921,7 @@ end
     v_gt(B) = pingpong_re_chemistry_flux(; p..., B=B)
     @test isapprox(v_code(1.0), v_gt(1.0); rtol=1e-5)
     for B in (1e-3, 0.1, 10.0, 1e3)
-        @test_broken isapprox(v_code(B), v_gt(B); rtol=1e-5)
+        @test isapprox(v_code(B), v_gt(B); rtol=1e-5)
     end
 end
 

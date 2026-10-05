@@ -116,8 +116,10 @@ den = (Q_A/D_A)^cat_n * W_A                 + L * (Q_I/D_I)^cat_n               
 ```
 
 `N_A`, `Q_A` are the active state's catalytic numerator and partition function
-(the King–Altman/Cha polynomials for the catalytic cycle), and `D_A` is the
-spanning-tree weight of its free-enzyme segment. `N_I`, `Q_I`, `D_I` are the
+(the King–Altman/Cha polynomials for the catalytic cycle), and `D_A` is free E's
+weight in `Q_A`: the spanning-tree weight of its free-enzyme segment, times the
+concentration monomial with which the derivation clears reciprocal concentrations.
+`N_I`, `Q_I`, `D_I` are the
 inactive-state counterparts, derived the same way from the inactive-state graph —
 `:OnlyA` groups pruned, `:EqualAI` groups keeping the shared active-state
 constants, and `:NonequalAI` groups carrying their own I-state names. `W_A`,
@@ -125,10 +127,13 @@ constants, and `:NonequalAI` groups carrying their own I-state names. `W_A`,
 weights the inactive branch throughout.
 
 The free-enzyme weight `D` is `1` whenever the catalytic graph is a single
-rapid-equilibrium segment — the common case, where `Q/D = Q` and the equation is
-the textbook MWC form. `D` differs from `1` only when an `:OnlyA`/`:OnlyI`
-binding fragments the graph or a steady-state binding splits it into segments;
-the normalization then keeps the two conformations on a common free-enzyme basis,
+rapid-equilibrium segment without a ping-pong covalent form — the common case,
+where `Q/D = Q` and the equation is the textbook MWC form. `D` differs from `1`
+when an `:OnlyA`/`:OnlyI` binding fragments the graph, a steady-state binding
+splits it into segments, or a covalent form shares free E's segment: such a form
+sits at a reciprocal concentration relative to free E (`Q/B`, say), and clearing
+it gives free E the weight `B`. The normalization then keeps the two
+conformations on a common free-enzyme basis,
 which is what stops a bare rate constant from leaking into the `L`-term. The
 package divides `Q/D` directly when `D` is a single rate constant — giving the
 readable `1 + [S]/K + …` form — and clears the fraction to a polynomial when `D`
