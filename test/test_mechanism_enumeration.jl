@@ -1567,9 +1567,10 @@ end
 
 @testset "init_mechanisms on ter-ter within a minute" begin
     # Aggregate pin over the whole ter-ter seed set: 35,665 seeds and their 215,190 merged
-    # and Theorell–Chance variants. The first call compiles; the second is timed.
-    @test length(EnzymeRates.init_mechanisms(ter_ter_rxn)) == 250855
-    @test (@elapsed EnzymeRates.init_mechanisms(ter_ter_rxn)) < 60
+    # and Theorell–Chance variants. test_compile_budget.jl compiles the call first.
+    t = @elapsed ms = EnzymeRates.init_mechanisms(ter_ter_rxn)
+    @test length(ms) == 250855
+    @test t < 60
 end
 
 @testset "Drops unbound regulators from init Mechanism" begin
@@ -11008,10 +11009,35 @@ end
             substrates: A[C], B[N], C[O]
             products: P[C], Q[N], R[O]
         end
-        # Only the worst seed is kept, so the timed split runs without the init list.
-        worst = let seeds = EnzymeRates.init_mechanisms(terter)
-            seeds[argmax([EnzymeRates.n_steps(m) for m in seeds])]
+        # The seed of `init_mechanisms(terter)` with the most steps: random order, each
+        # substrate and product binding at nine forms in one rapid-equilibrium group.
+        seed = @enzyme_mechanism begin
+            substrates: A, B, C
+            products: P, Q, R
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(B, C) + A ⇌ E(A, B, C),
+                 E(B, P) + A ⇌ E(A, B, P), E(C) + A ⇌ E(A, C), E(C, Q) + A ⇌ E(A, C, Q),
+                 E(P) + A ⇌ E(A, P), E(P, Q) + A ⇌ E(A, P, Q), E(Q) + A ⇌ E(A, Q))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(A, C) + B ⇌ E(A, B, C),
+                 E(A, P) + B ⇌ E(A, B, P), E(C) + B ⇌ E(B, C), E(C, R) + B ⇌ E(B, C, R),
+                 E(P) + B ⇌ E(B, P), E(P, R) + B ⇌ E(B, P, R), E(R) + B ⇌ E(B, R))
+                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(A, B) + C ⇌ E(A, B, C),
+                 E(A, Q) + C ⇌ E(A, C, Q), E(B) + C ⇌ E(B, C), E(B, R) + C ⇌ E(B, C, R),
+                 E(Q) + C ⇌ E(C, Q), E(Q, R) + C ⇌ E(C, Q, R), E(R) + C ⇌ E(C, R))
+                (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(A, B) + P ⇌ E(A, B, P),
+                 E(A, Q) + P ⇌ E(A, P, Q), E(B) + P ⇌ E(B, P), E(B, R) + P ⇌ E(B, P, R),
+                 E(Q) + P ⇌ E(P, Q), E(Q, R) + P ⇌ E(P, Q, R), E(R) + P ⇌ E(P, R))
+                (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q), E(A, C) + Q ⇌ E(A, C, Q),
+                 E(A, P) + Q ⇌ E(A, P, Q), E(C) + Q ⇌ E(C, Q), E(C, R) + Q ⇌ E(C, Q, R),
+                 E(P) + Q ⇌ E(P, Q), E(P, R) + Q ⇌ E(P, Q, R), E(R) + Q ⇌ E(Q, R))
+                (E + R ⇌ E(R), E(B) + R ⇌ E(B, R), E(B, C) + R ⇌ E(B, C, R),
+                 E(B, P) + R ⇌ E(B, P, R), E(C) + R ⇌ E(C, R), E(C, Q) + R ⇌ E(C, Q, R),
+                 E(P) + R ⇌ E(P, R), E(P, Q) + R ⇌ E(P, Q, R), E(Q) + R ⇌ E(Q, R))
+                E(A, B, C) <--> E(P, Q, R)
+            end
         end
+        worst = EnzymeRates.Mechanism(terter,
+                                      EnzymeRates.steps(EnzymeRates.Mechanism(seed)))
         @test EnzymeRates.n_steps(worst) == 55
         t = @elapsed kids = EnzymeRates._expand_split_kinetic_group(worst)
         @test length(kids) == 12
@@ -11100,17 +11126,40 @@ end
 end
 
 @testset "expand_mechanisms: ter-ter random-order seed within budget" begin
-    # Aggregate pin over the seed set: the seed with the most steps (55) is the
-    # enumeration's worst case; measured 26 s for all seven moves in a cold
-    # focused run, JIT included.
+    # The seed of `init_mechanisms(terter)` with the most steps (55) is the enumeration's
+    # worst case: random order, each substrate and product binding at nine forms in one
+    # rapid-equilibrium group. Measured 26 s for all seven moves in a cold focused run,
+    # JIT included.
     terter = @enzyme_reaction begin
         substrates: A[C], B[N], C[O]
         products: P[C], Q[N], R[O]
     end
-    # Only the worst seed is kept, so the timed expansion runs without the init list.
-    worst = let seeds = EnzymeRates.init_mechanisms(terter)
-        seeds[argmax([EnzymeRates.n_steps(m) for m in seeds])]
+    seed = @enzyme_mechanism begin
+        substrates: A, B, C
+        products: P, Q, R
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(B, C) + A ⇌ E(A, B, C),
+             E(B, P) + A ⇌ E(A, B, P), E(C) + A ⇌ E(A, C), E(C, Q) + A ⇌ E(A, C, Q),
+             E(P) + A ⇌ E(A, P), E(P, Q) + A ⇌ E(A, P, Q), E(Q) + A ⇌ E(A, Q))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(A, C) + B ⇌ E(A, B, C),
+             E(A, P) + B ⇌ E(A, B, P), E(C) + B ⇌ E(B, C), E(C, R) + B ⇌ E(B, C, R),
+             E(P) + B ⇌ E(B, P), E(P, R) + B ⇌ E(B, P, R), E(R) + B ⇌ E(B, R))
+            (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(A, B) + C ⇌ E(A, B, C),
+             E(A, Q) + C ⇌ E(A, C, Q), E(B) + C ⇌ E(B, C), E(B, R) + C ⇌ E(B, C, R),
+             E(Q) + C ⇌ E(C, Q), E(Q, R) + C ⇌ E(C, Q, R), E(R) + C ⇌ E(C, R))
+            (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(A, B) + P ⇌ E(A, B, P),
+             E(A, Q) + P ⇌ E(A, P, Q), E(B) + P ⇌ E(B, P), E(B, R) + P ⇌ E(B, P, R),
+             E(Q) + P ⇌ E(P, Q), E(Q, R) + P ⇌ E(P, Q, R), E(R) + P ⇌ E(P, R))
+            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q), E(A, C) + Q ⇌ E(A, C, Q),
+             E(A, P) + Q ⇌ E(A, P, Q), E(C) + Q ⇌ E(C, Q), E(C, R) + Q ⇌ E(C, Q, R),
+             E(P) + Q ⇌ E(P, Q), E(P, R) + Q ⇌ E(P, Q, R), E(R) + Q ⇌ E(Q, R))
+            (E + R ⇌ E(R), E(B) + R ⇌ E(B, R), E(B, C) + R ⇌ E(B, C, R),
+             E(B, P) + R ⇌ E(B, P, R), E(C) + R ⇌ E(C, R), E(C, Q) + R ⇌ E(C, Q, R),
+             E(P) + R ⇌ E(P, R), E(P, Q) + R ⇌ E(P, Q, R), E(Q) + R ⇌ E(Q, R))
+            E(A, B, C) <--> E(P, Q, R)
+        end
     end
+    worst = EnzymeRates.Mechanism(terter, EnzymeRates.steps(EnzymeRates.Mechanism(seed)))
     @test EnzymeRates.n_steps(worst) == 55
     t = @elapsed kids = EnzymeRates.expand_mechanisms([worst], terter)
     @test length(kids) == 81
