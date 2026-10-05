@@ -305,7 +305,9 @@ the merged ordered bi-bi whose B group mixes a fused and a plain binding it is a
 phantom only in the variants whose inactive conformation binds nothing: no
 rescaling absorbs an A or Q binding kept there. Binding nothing is not enough:
 in a random-order merged bi-bi, whose A group takes A up at E and at E(B) under
-one rate constant, `L` shows in every K-type variant.
+one rate constant, `L` shows in every K-type variant. The engine emits the
+variants where `L` is a phantom all the same, so a fit can carry an `L` the data
+cannot determine.
 
 A parent whose catalytic scheme already carries concentration powers, such as a
 random-order scheme with steady-state binding or a substrate that traps a

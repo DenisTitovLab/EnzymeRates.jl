@@ -292,13 +292,14 @@ counts, the ter-ter children on the review's draw of 20 (`MersenneTwister(3)`):
 - R4's 7 degenerate init mechanisms are its ping-pong seeds. Their 148 children are 105 K-type
   allosteric children at multiplicity 1 and 43 plain ones. The 105 keep their seed's steps, so
   all are degenerate; so are 22 of the 43. The base tier fits all 148.
-- Each of the 105 derives a law that depends on B at zero products: at A = 1.5 its largest rate
-  over B = 10⁻³, 1 and 10³ exceeds its smallest about 100- to 2,600-fold, on the review's draws
-  of constants and on this record's, while each seed's own law is flat in B (to 10⁻¹⁵). The MWC
-  model gives such a child a rate free of B there, as the harness of testset "ping-pong MWC
-  derivation with free E and F in one RE segment" argues for its mechanism: at zero products
-  every form past the steady-state chemistry drains back to free E. The B dependence is the
-  known derivation defect (Limitations), and the base tier fits these laws.
+- At d7c64d4 each of the 105 derives a law that depends on B at zero products: at A = 1.5 its
+  largest rate over B = 10⁻³, 1 and 10³ exceeds its smallest about 100- to 2,600-fold, on the
+  review's draws of constants and on this record's, while each seed's own law is flat in B (to
+  10⁻¹⁵). The MWC model gives such a child a rate free of B there, as the harness of testset
+  "ping-pong MWC derivation with free E and F in one RE segment" argues for its mechanism: at
+  zero products every form past the steady-state chemistry drains back to free E. The B
+  dependence was the derivation defect that 43f4d23 fixes (The free-enzyme weight); with the
+  fix all 105 laws are flat in B, and the base tier fits them.
 - Ter-ter's 13,110 degenerate init mechanisms are exactly those with two chemistry
   isomerizations, one of them at rapid equilibrium (`terter_degen.jl`). Each fails C, passes V
   both ways and carries a residual form: they are ter-ter's ping-pong seeds. They are seeds,
@@ -309,6 +310,30 @@ counts, the ter-ter children on the review's draw of 20 (`MersenneTwister(3)`):
   per seed (the review: 0.73 s), about 2.7 hours for the expansions alone, before any fit.
   7857b6d fits the 13,110 themselves.
 
+## The free-enzyme weight
+
+43f4d23 fixes the MWC derivation defect that both checkouts share. The derivation reduces each
+conformation's polynomials to lowest terms in the concentrations, and it returned free E's
+weight without that shift. Where free E shares a rapid-equilibrium segment with a ping-pong
+covalent form, the shift is a concentration (B, F sitting at Q/B relative to E), so the
+inactive term of the MWC law missed that factor beside L. The fix gives the weight the shift.
+
+- Of the 14,296 allosteric mechanisms of R4 to one expansion (the 1,954 `_expand_to_allosteric`
+  children of its init mechanisms and their 12,342 allosteric children), 707 change, all at
+  multiplicity 1, each shifted by B in the active conformation and not at all in the inactive
+  one. None is shifted by a product, and in none do the conformations share a shift, which would
+  change a law's form but not its value (`dfree_shift_probe.jl`).
+- In both conformations of the 707 and of 300 unchanged mechanisms drawn at random, num/den is
+  the mass-action flux and d_free/den is free E's mass-action fraction, to 10⁻⁵⁶, at two
+  consistent points each with every concentration positive. Without the fix the fraction is
+  wrong in all 707, by up to a factor 3.5 (`dfree_invariant.jl`).
+- The 105 K-type children of R4's ping-pong seeds are flat in B at zero products (largest spread
+  4·10⁻¹⁶), and the probe calls all 105 degenerate (`ktype_after_fix.jl`). Thirty other changed
+  laws still vary with B there, rightly: each binds B to the product-bound F, which can then
+  only release P, while E(P; residual) can also return to E(A). `kcat` is finite on all 707
+  (`dfree_bflat.jl`).
+- The five `@test_broken` checks pass, and the suite passes 64,682 of 64,682.
+
 ## Limitations
 
 - Rate strings of R5 and R6 were compared on draws of 400 of 4,361 and 33,073 shared mechanisms,
@@ -317,12 +342,10 @@ counts, the ter-ter children on the review's draw of 20 (`MersenneTwister(3)`):
   checked; their descendants only on draws (450 ranked at R4 levels 1–3; 100 of the 4,229 tip-only
   ALLO mechanisms, all of which derive, 26 with one phantom, against 49 of the 100 shared ALLO
   mechanisms drawn).
-- A known MWC derivation defect (five `@test_broken` checks: one in testset "C on the ping-pong
-  seed and its single flips" of `test/test_mechanism_enumeration.jl`, four in testset "ping-pong
-  MWC derivation with free E and F in one RE segment" of `test/allosteric_ground_truth.jl`)
-  gives an allosteric mechanism whose free enzyme shares a rapid-equilibrium segment with a
-  residual form, among them K-type children of the ping-pong seeds, a law whose L term misses a
-  factor. The defect predates C and both checkouts share it, so it is no regression; the 200
+- Both checkouts share an MWC derivation defect, fixed after this record by 43f4d23 (The
+  free-enzyme weight): an allosteric mechanism whose free enzyme shares a rapid-equilibrium
+  segment with a residual form, among them K-type children of the ping-pong seeds, derives a
+  law whose L term misses a factor. The defect predates C, so it is no regression; the 200
   allosteric strings drawn match. The probe reads such laws as they are derived, and the V and C
   check runs on plain mechanisms only.
 - ALLO6 was not built from all of the tip's init mechanisms: its draw of 150 would differ from
@@ -349,5 +372,5 @@ mechanism on the best run; the slowest run under the heap hint is 22% over the b
 Ter-ter seeding with a required inhibitor would reach about five million seeds in at least 15
 minutes, against 808,000 at 7857b6d; that cost is reported to the maintainer with the ter-ter
 base-tier concerns of Tasks 10 and 11. The base tier fits 405 R4 mechanisms against 62 at
-7857b6d, 105 of them K-type children whose laws carry the known MWC defect, and for ter-ter it
+7857b6d, 105 of them K-type children whose laws were wrong until 43f4d23, and for ter-ter it
 adds about a million children of the 13,110 degenerate ping-pong seeds.
