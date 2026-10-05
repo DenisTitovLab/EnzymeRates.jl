@@ -74,8 +74,8 @@ Supply a `NamedTuple` of parameters and a `NamedTuple` of concentrations:
 
 ```@example getting-started
 params = (
-    K_S_E = 1.0,
-    K_P_E = 1.0,
+    K_ES_to_E_S = 1.0,
+    K_EP_to_E_P = 1.0,
     k_ES_to_EP = 10.0,
     Keq = 2.0,
     E_total = 1.0,

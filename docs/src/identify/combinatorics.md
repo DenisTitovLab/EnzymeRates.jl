@@ -23,13 +23,27 @@ An enzyme can bind a substrate and a product at the same time and get stuck: a
 dead-end complex that sits off the catalytic cycle. Each pairing of a substrate
 with a product may be allowed or forbidden, and every reactant must be
 forbidden from at least one partner. For a bi-bi that gives 7 patterns of dead ends.
-Together with binding order, that is why `init_mechanisms` returns 55 bi-bi
-starting mechanisms before any refinement, and 35,665 for a ter-ter reaction.
-The 55 falls short of 9 × 7 = 63 because patterns that add the same forms to a
-skeleton give the same mechanism, and equivalent mechanisms are counted once.
+Together with binding order, that gives 55 bi-bi seeds, the simplest mechanisms
+of the search, and 35,665 for a ter-ter reaction. The 55 falls short of
+9 × 7 = 63 because patterns that add the same forms to a skeleton give the same
+mechanism, and equivalent mechanisms are counted once.
 
 The `shared_catalytic_site` keyword removes patterns a chemist already knows are
 impossible, such as ATP and ADP occupying one site together.
+
+## Merged and Theorell–Chance variants
+
+Each seed also yields variants with its chemistry folded into the steps around
+it. In a merged variant the last substrate binds straight into the
+product-bound complex; in a Theorell–Chance variant one step takes up the last
+substrate and gives off the first product. A variant is each smallest set of
+kinetic groups made steady state that gives a mechanism whose rate needs every
+substrate and every product and saturates in both directions. Some textbook
+laws, the steady-state ordered and ping-pong laws among them, exist in the search
+only through these variants. They bring the bi-bi starting set to 239 mechanisms
+(184 variants), 264 when the atoms allow a ping-pong cycle (62 seeds), 7 for a
+uni-bi reaction (3 seeds) and 250,855 for a ter-ter reaction. A uni-uni reaction
+has its one seed and no variant.
 
 ## Which forms share an affinity
 
@@ -71,9 +85,10 @@ at separate sites.
 
 ## Putting it together
 
-The choices multiply. Binding order times dead ends gives the 55 starting
-mechanisms; sharing structure, steady-state detail, inhibitors, and allosteric
-states each multiply that by tens to thousands. Fitting one equation takes
+The choices multiply. Binding order times dead ends gives the 55 bi-bi seeds,
+and their variants bring the starting set to 239; sharing structure,
+steady-state detail, inhibitors, and allosteric states each multiply that by tens
+to thousands. Fitting one equation takes
 seconds to minutes, so an exhaustive search of a bi-bi with one regulator would
 take years on one core. The search therefore keeps only the promising
 candidates at each parameter count, drops equations too dense to fit, starts

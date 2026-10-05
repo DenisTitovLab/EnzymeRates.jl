@@ -445,12 +445,14 @@ _is_conformation_shape(sym::Symbol) =
     occursin(r"^[A-Z][a-z0-9]*(_[a-z0-9]+)*$", String(sym))
 
 
-# Reject opaque bound-form bare-enzyme names. A bare-enzyme term `:X` is
-# acceptable iff `:X` is a call-form head seen in this steps block (`E` in
-# `E(S)`) or matches the conformation shape (`:E`, `:Estar`, `:E_c`).
-# Multi-capital (`:ES`) and underscore-then-uppercase (`:E_S`) names are
-# opaque and rejected in favor of decomposed call notation. `macro_name`
-# names the invoking macro so the error points at the right docs.
+"""
+Reject opaque bound-form bare-enzyme names. A bare-enzyme term `:X` is
+acceptable iff `:X` is a call-form head seen in this steps block (`E` in
+`E(S)`) or matches the conformation shape (`:E`, `:Estar`, `:E_c`).
+Multi-capital (`:ES`) and underscore-then-uppercase (`:E_S`) names are
+opaque and rejected in favor of decomposed call notation. `macro_name`
+names the invoking macro so the error points at the right docs.
+"""
 function _reject_opaque_bound_forms(side_terms_per_step, macro_name::String)
     call_heads = Set{Symbol}()
     for (_, lhs, rhs, _) in side_terms_per_step
@@ -537,12 +539,13 @@ Species notation on step sides:
 - Bare Symbol otherwise (e.g. `E`, `Estar`, `ES`) → conformation-only
   species named after the Symbol.
 - `E(S)` / `E(S, P)` → species with conformation `:E` and bound
-  metabolites; synthesized name is `:E_<bound...>` with bound names
-  sorted alphabetically (matching `name(::Species)`).
+  metabolites; synthesized name is `:E<bound...>` (the conformation
+  followed by the bound names, sorted alphabetically, with no separator:
+  `:ES`, `:EPS`), matching `name(::Species)`.
 - `Estar(; residual = A - P)` → species with empty bound and a residual
   recording `+A` / `−P`; synthesized name is `:Estar_res_+A_-P`.
 - `Estar(B; residual = A - P)` → bound + residual; name
-  `:Estar_B_res_+A_-P`.
+  `:EstarB_res_+A_-P`.
 
 Conformation labels cannot shadow declared metabolite names.
 """
@@ -730,42 +733,36 @@ function _build_mechanism_expr(subs_list, prods_list, regs_list,
 end
 
 """
-Build a `Step(from_species, to_species, bound_metabolite, is_eq)` `Expr`
+Build a `Step(from_species, to_species, consumed, released, is_eq)` `Expr`
 from one step's LHS/RHS structural terms. Each side has exactly one
-enzyme-form term (bare conformation OR call-form) and zero or one
-metabolite terms.
+enzyme-form term (bare conformation OR call-form) and any number of
+metabolite terms: the left-hand metabolites are consumed, the right-hand
+ones released.
 """
 function _build_step_expr(lhs::Vector{_StepSideTerm},
                           rhs::Vector{_StepSideTerm},
                           is_eq::Bool,
                           role_of::Dict{Symbol,Symbol})
-    lhs_enzyme, lhs_met = _split_side(lhs)
-    rhs_enzyme, rhs_met = _split_side(rhs)
-    bound_met_term = lhs_met !== nothing ? lhs_met :
-                     rhs_met !== nothing ? rhs_met : nothing
+    lhs_enzyme, lhs_mets = _split_side(lhs)
+    rhs_enzyme, rhs_mets = _split_side(rhs)
+    met_exprs(ts) = Expr[_metabolite_expr(t.sym, role_of, t.role) for t in ts]
     from_expr = _species_expr_from_term(lhs_enzyme, role_of)
     to_expr   = _species_expr_from_term(rhs_enzyme, role_of)
-    met_expr  = bound_met_term === nothing ? :nothing :
-                _metabolite_expr(bound_met_term.sym, role_of,
-                                 bound_met_term.role)
-    :(EnzymeRates.Step($from_expr, $to_expr, $met_expr, $is_eq))
+    :(EnzymeRates.Step($from_expr, $to_expr,
+                       EnzymeRates.Metabolite[$(met_exprs(lhs_mets)...)],
+                       EnzymeRates.Metabolite[$(met_exprs(rhs_mets)...)], $is_eq))
 end
 
 """
-Split a step side into its `(enzyme_term, optional_metabolite_term)`.
-Errors if there is not exactly one enzyme term or more than one
-metabolite term.
+Split a step side into its `(enzyme_term, metabolite_terms)`.
+Errors if there is not exactly one enzyme term.
 """
 function _split_side(side::Vector{_StepSideTerm})
     enzyme_term = nothing
-    met_term = nothing
+    met_terms = _StepSideTerm[]
     for t in side
         if t.kind === :metabolite
-            met_term === nothing ||
-                error("@enzyme_mechanism: step side has more than one " *
-                      "metabolite term ($(met_term.sym), $(t.sym)); each " *
-                      "elementary step binds at most one metabolite.")
-            met_term = t
+            push!(met_terms, t)
         else
             enzyme_term === nothing ||
                 error("@enzyme_mechanism: step side has more than one " *
@@ -778,7 +775,7 @@ function _split_side(side::Vector{_StepSideTerm})
     enzyme_term === nothing &&
         error("@enzyme_mechanism: step side has no enzyme-form term " *
               "(terms: $(Symbol[t.sym for t in side])).")
-    enzyme_term, met_term
+    enzyme_term, met_terms
 end
 
 """

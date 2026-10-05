@@ -9,13 +9,15 @@ const S=Sub(:S); const P=Prd(:P)
 function uni(states)
     E=Sp(Met[],:E); ES=Sp(Met[S],:E); EP=Sp(Met[P],:E)
     rxn=ER.EnzymeReaction(RA[RA(S,[:C=>1]),RA(P,[:C=>1])], ER.RegulatorMults[], Int[2])
-    steps=Vector{St}[[St(E,ES,S,true)],[St(ES,EP,nothing,false)],[St(EP,E,P,true)]]
+    steps=Vector{St}[[St(E,ES,Met[S],Met[],true)],[St(ES,EP,Met[],Met[],false)],
+                     [St(EP,E,Met[],Met[P],true)]]
     ER.AllostericMechanism(rxn, steps, collect(Symbol,states), 2, ER.RegulatorySite[])
 end
 function uni_ss(states)   # all-steady-state uni-uni (bindings carry kon/koff)
     E=Sp(Met[],:E); ES=Sp(Met[S],:E); EP=Sp(Met[P],:E)
     rxn=ER.EnzymeReaction(RA[RA(S,[:C=>1]),RA(P,[:C=>1])], ER.RegulatorMults[], Int[2])
-    steps=Vector{St}[[St(E,ES,S,false)],[St(ES,EP,nothing,false)],[St(EP,E,P,false)]]
+    steps=Vector{St}[[St(E,ES,Met[S],Met[],false)],[St(ES,EP,Met[],Met[],false)],
+                     [St(EP,E,Met[],Met[P],false)]]
     ER.AllostericMechanism(rxn, steps, collect(Symbol,states), 2, ER.RegulatorySite[])
 end
 function evalrate(am; seed=1, split=nothing)
@@ -37,9 +39,9 @@ end
     @testset "single NonequalAI binding + EqualAI catalysis -> full collapse" begin
         fp,v,veq = evalrate(uni([:NonequalAI,:EqualAI,:EqualAI]))
         @test isfinite(v); @test abs(veq) < 1e-8
-        @test !(:K_I_S_E in fp)                 # I-twin dropped (collapsed to a mirror)
+        @test !(:K_I_ES_to_E_S in fp)           # I-twin dropped (collapsed to a mirror)
         s = ER.rate_equation_string(uni([:NonequalAI,:EqualAI,:EqualAI]))
-        @test occursin("K_I_S_E=K_A_S_E", replace(s," "=>""))  # explicit mirror
+        @test occursin("K_I_ES_to_E_S=K_A_ES_to_E_S", replace(s," "=>""))  # explicit mirror
         @test !occursin("k_I_", s)              # catalysis not silently un-shared
     end
 
@@ -62,7 +64,7 @@ end
         am = uni([:NonequalAI,:NonequalAI,:EqualAI])
         fp,v,veq = evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
-        @test :K_I_S_E in fp                    # binding split free
+        @test :K_I_ES_to_E_S in fp              # binding split free
         @test any(p->startswith(String(p),"k_I_"), fp)  # catalysis split free (native)
     end
 
@@ -74,15 +76,17 @@ end
         EPQ=Sp(Met[P,Q2],:E); EP=Sp(Met[P],:E); EQ=Sp(Met[Q2],:E)
         rxn=ER.EnzymeReaction(RA[RA(A2,[:C=>1]),RA(B2,[:N=>1]),RA(P,[:C=>1]),RA(Q2,[:N=>1])],
                               ER.RegulatorMults[], Int[2])
-        sd=[St(E,EA,A2,true),St(E,EB,B2,true),St(EB,EAB,A2,true),St(EA,EAB,B2,true),
-            St(EAB,EPQ,nothing,false),St(EP,EPQ,Q2,true),St(EQ,EPQ,P,true),
-            St(E,EP,P,true),St(E,EQ,Q2,true)]
+        sd=[St(E,EA,Met[A2],Met[],true),St(E,EB,Met[B2],Met[],true),
+            St(EB,EAB,Met[A2],Met[],true),St(EA,EAB,Met[B2],Met[],true),
+            St(EAB,EPQ,Met[],Met[],false),St(EP,EPQ,Met[Q2],Met[],true),
+            St(EQ,EPQ,Met[P],Met[],true),St(E,EP,Met[P],Met[],true),
+            St(E,EQ,Met[Q2],Met[],true)]
         st=fill(:EqualAI,9); st[3]=:NonequalAI
         am=ER.AllostericMechanism(rxn, Vector{St}[[s] for s in sd], st, 2, ER.RegulatorySite[])
         cem=ER.compile_mechanism(am); fp=ER.fitted_params(am)
-        @test !(:K_I_A_EB in fp)                            # forbidden split collapsed
+        @test !(:K_I_EAB_to_EB_A in fp)                     # forbidden split collapsed
         s=replace(ER.rate_equation_string(am)," "=>"")
-        @test occursin("K_I_A_EB=K_A_A_EB", s)              # explicit mirror
+        @test occursin("K_I_EAB_to_EB_A=K_A_EAB_to_EB_A", s)  # explicit mirror
         rng=MersenneTwister(2)
         pv=Tuple((k===:L ? 0.6 : 0.4+2rand(rng)) for k in fp)
         prm=NamedTuple{(fp...,:Keq,:E_total)}((pv...,3.0,1.0))
@@ -101,13 +105,13 @@ end
         am = uni_ss([:NonequalAI,:EqualAI,:EqualAI])
         fp,v,veq = evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
-        @test !(:koff_I_S_E in fp)              # affinity collapsed: reverse derived
-        @test :kon_I_S_E in fp                  # speed (forward) stays free
+        @test !(:k_I_ES_to_E_S in fp)           # affinity collapsed: reverse derived
+        @test :k_I_E_S_to_ES in fp              # speed (forward) stays free
         s = replace(ER.rate_equation_string(am), " "=>"")
-        @test occursin("koff_I_S_E=", s)        # explicit reverse-rate mirror
+        @test occursin("k_I_ES_to_E_S=", s)     # explicit reverse-rate mirror
         # the surviving speed split moves the rate (identifiable)
-        v1 = evalrate(am; split=(:kon_I_S_E,1.3))[2]
-        v2 = evalrate(am; split=(:kon_I_S_E,5.0))[2]
+        v1 = evalrate(am; split=(:k_I_E_S_to_ES,1.3))[2]
+        v2 = evalrate(am; split=(:k_I_E_S_to_ES,5.0))[2]
         @test !isapprox(v1, v2)
     end
 
@@ -115,7 +119,8 @@ end
         am = uni_ss([:NonequalAI,:NonequalAI,:EqualAI])
         fp,v,veq = evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
-        @test (:kon_I_S_E in fp) && (:koff_I_S_E in fp)   # both free (affinity honorable)
+        # both free (affinity honorable)
+        @test (:k_I_E_S_to_ES in fp) && (:k_I_ES_to_E_S in fp)
     end
 
     # ── Mixed-type + Wegscheider-coupled :NonequalAI bindings. Two mechanisms that
@@ -128,7 +133,8 @@ end
         # use one uniform sign — a per-type flip inverts the coupling → nonzero flux.
         E=Sp(Met[],:E); ES=Sp(Met[S],:E); EP=Sp(Met[P],:E)
         rxn=ER.EnzymeReaction(RA[RA(S,[:C=>1]),RA(P,[:C=>1])], ER.RegulatorMults[], Int[2])
-        steps=Vector{St}[[St(E,ES,S,true)],[St(ES,EP,nothing,false)],[St(EP,E,P,false)]]
+        steps=Vector{St}[[St(E,ES,Met[S],Met[],true)],[St(ES,EP,Met[],Met[],false)],
+                         [St(EP,E,Met[],Met[P],false)]]
         am=ER.AllostericMechanism(rxn, steps, [:NonequalAI,:EqualAI,:NonequalAI], 2,
                                   ER.RegulatorySite[])
         fp,v,veq = evalrate(am)
@@ -145,9 +151,11 @@ end
         EPQ=Sp(Met[P,Q2],:E); EP=Sp(Met[P],:E); EQ=Sp(Met[Q2],:E)
         rxn=ER.EnzymeReaction(RA[RA(A2,[:C=>1]),RA(B2,[:N=>1]),RA(P,[:C=>1]),RA(Q2,[:N=>1])],
                               ER.RegulatorMults[], Int[2])
-        sd=[St(E,EA,A2,true),St(E,EB,B2,true),St(EB,EAB,A2,true),St(EA,EAB,B2,true),
-            St(EAB,EPQ,nothing,false),St(EP,EPQ,Q2,true),St(EQ,EPQ,P,true),
-            St(E,EP,P,true),St(E,EQ,Q2,true)]
+        sd=[St(E,EA,Met[A2],Met[],true),St(E,EB,Met[B2],Met[],true),
+            St(EB,EAB,Met[A2],Met[],true),St(EA,EAB,Met[B2],Met[],true),
+            St(EAB,EPQ,Met[],Met[],false),St(EP,EPQ,Met[Q2],Met[],true),
+            St(EQ,EPQ,Met[P],Met[],true),St(E,EP,Met[P],Met[],true),
+            St(E,EQ,Met[Q2],Met[],true)]
         st=fill(:EqualAI,9); st[2]=:NonequalAI; st[3]=:NonequalAI
         am=ER.AllostericMechanism(rxn, Vector{St}[[s] for s in sd], st, 2, ER.RegulatorySite[])
         cem=ER.compile_mechanism(am)
@@ -162,17 +170,17 @@ end
 
     @testset "dead-I NonequalAI binding -> K_I identifiable, NOT collapsed" begin
         # I state cannot turn over (OnlyA catalysis) but binds S with its own
-        # affinity: K_A_S_E and K_I_S_E are BOTH identifiable (a dead-end E_I·S is
-        # in no cycle, so nothing pins K_I to K_A). HEAD over-collapses this.
+        # affinity: K_A_ES_to_E_S and K_I_ES_to_E_S are BOTH identifiable (a dead-end
+        # E_I·S is in no cycle, so nothing pins K_I to K_A). HEAD over-collapses this.
         am = uni([:NonequalAI, :OnlyA, :EqualAI])
         fp, v, veq = evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
-        @test :K_I_S_E in fp                          # NOT collapsed
-        v1 = evalrate(am; split=(:K_I_S_E, 1.3))[2]
-        v2 = evalrate(am; split=(:K_I_S_E, 5.0))[2]
+        @test :K_I_ES_to_E_S in fp                    # NOT collapsed
+        v1 = evalrate(am; split=(:K_I_ES_to_E_S, 1.3))[2]
+        v2 = evalrate(am; split=(:K_I_ES_to_E_S, 5.0))[2]
         @test !isapprox(v1, v2)                       # identifiable (moves the rate)
         s = replace(ER.rate_equation_string(am), " " => "")
-        @test !occursin("K_I_S_E=K_A_S_E", s)         # no collapse mirror
+        @test !occursin("K_I_ES_to_E_S=K_A_ES_to_E_S", s)  # no collapse mirror
     end
 end
 end # module

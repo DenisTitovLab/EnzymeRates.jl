@@ -1,14 +1,68 @@
 # ABOUTME: Three Haldane-valid :OnlyA-catalysis LDH mechanisms guarding sound
-# ABOUTME: derivation of the dependent-parameter partition (koff EqualAI-shared,
-# ABOUTME: K_I NonequalAI, kon_I SS-speed — the shapes that once UndefVar'd).
+# ABOUTME: derivation of the dependent-parameter partition (EqualAI-shared release
+# ABOUTME: rate, NonequalAI K_I, SS binding rate k_I — the shapes that once UndefVar'd).
 
 const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
-    Core.eval(EnzymeRates, Meta.parse(strip(s))) for s in (
-        # koff_Pyruvate_ENAD family (EqualAI-shared dependent-param partition)
-        raw"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), true)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate), false), ((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), false)), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), true)), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), false),), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),)))}, (4, (:EqualAI, :OnlyA, :EqualAI, :EqualAI, :EqualAI, :OnlyA)), ()}",
-        # K_NAD_ELactate family (NonequalAI dependent-param partition)
-        raw"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), true)), ((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), true),), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), true)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate), false), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), false), ((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), false)), (((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD), true),), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),), (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), true),)))}, (4, (:NonequalAI, :NonequalAI, :OnlyA, :EqualAI, :EqualAI, :NonequalAI, :OnlyA, :NonequalAI)), ()}",
-        # kon_I_NAD_E family (SS-speed dependent-param partition)
-        raw"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), true),), ((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), false),), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), true),), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate), false), ((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), false)), (((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD), true),), (((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), true)), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true),), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), false),), (((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),), (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), true),)))}, (4, (:EqualAI, :NonequalAI, :OnlyA, :EqualAI, :EqualAI, :OnlyA, :EqualAI, :EqualAI, :EqualAI, :OnlyA, :EqualAI)), ()}",
+    typeof(m) for m in (
+        # k_ENADPyruvate_to_ENAD_Pyruvate family (EqualAI-shared dependent-param partition)
+        @allosteric_mechanism(begin
+            substrates: NADH, Pyruvate
+            products: Lactate, NAD
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                (E + NAD ⇌ E(NAD),
+                 E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate)) :: EqualAI
+                (E + NADH ⇌ E(NADH),
+                 E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)) :: OnlyA
+                (E + Pyruvate <--> E(Pyruvate),
+                 E(NADH) + Pyruvate <--> E(NADH, Pyruvate)) :: EqualAI
+                (E(NAD) + Lactate ⇌ E(Lactate, NAD),
+                 E(NADH) + Lactate ⇌ E(Lactate, NADH)) :: EqualAI
+                E(NAD) + Pyruvate <--> E(NAD, Pyruvate) :: EqualAI
+                E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA
+            end
+        end),
+        # K_ELactateNAD_to_ELactate_NAD family (NonequalAI dependent-param partition)
+        @allosteric_mechanism(begin
+            substrates: NADH, Pyruvate
+            products: Lactate, NAD
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                (E + Lactate ⇌ E(Lactate),
+                 E(NADH) + Lactate ⇌ E(Lactate, NADH)) :: NonequalAI
+                E + NAD ⇌ E(NAD) :: NonequalAI
+                (E + NADH ⇌ E(NADH),
+                 E(Lactate) + NADH ⇌ E(Lactate, NADH),
+                 E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)) :: OnlyA
+                (E + Pyruvate <--> E(Pyruvate),
+                 E(NAD) + Pyruvate <--> E(NAD, Pyruvate),
+                 E(NADH) + Pyruvate <--> E(NADH, Pyruvate)) :: EqualAI
+                E(Lactate) + NAD ⇌ E(Lactate, NAD) :: EqualAI
+                E(NAD) + Lactate ⇌ E(Lactate, NAD) :: NonequalAI
+                E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA
+                E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate) :: NonequalAI
+            end
+        end),
+        # k_I_E_NAD_to_ENAD family (SS-speed dependent-param partition)
+        @allosteric_mechanism(begin
+            substrates: NADH, Pyruvate
+            products: Lactate, NAD
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                E + Lactate ⇌ E(Lactate) :: EqualAI
+                E + NAD <--> E(NAD) :: NonequalAI
+                E + NADH ⇌ E(NADH) :: OnlyA
+                (E + Pyruvate <--> E(Pyruvate),
+                 E(NADH) + Pyruvate <--> E(NADH, Pyruvate)) :: EqualAI
+                E(Lactate) + NAD ⇌ E(Lactate, NAD) :: EqualAI
+                (E(Lactate) + NADH ⇌ E(Lactate, NADH),
+                 E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)) :: OnlyA
+                E(NAD) + Lactate ⇌ E(Lactate, NAD) :: EqualAI
+                E(NAD) + Pyruvate <--> E(NAD, Pyruvate) :: EqualAI
+                E(NADH) + Lactate ⇌ E(Lactate, NADH) :: EqualAI
+                E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA
+                E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate) :: EqualAI
+            end
+        end),
     )
 ]

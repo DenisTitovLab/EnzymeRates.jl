@@ -309,6 +309,55 @@ function build_mechanism_test_specs()
         ))
     end
 
+    # 6. Segel Theorell-Chance Bi Bi: E + A ⇌ EA, EA + B ⇌ EQ + P, EQ ⇌ E + Q
+    #    B binds and P leaves in one step, which carries metabolites on both sides.
+    #    Reference: Segel, Enzyme Kinetics, Eq. IX-122
+    let
+        m, src = @enzyme_mechanism_src begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) + B <--> E(Q) + P
+                E(Q) <--> E + Q
+            end
+        end
+
+        # Segel Eq. IX-122: Theorell-Chance Bi Bi steady-state rate
+        function rate_theorell_chance_bi_bi(params, concs)
+            (; k1f, k1r, k2f, k2r, k3f, k3r, Etotal) = params
+            (; A, B, P, Q) = concs
+            num = k1f * k2f * k3f * A * B - k1r * k2r * k3r * P * Q
+            denom = k1r * k3f +
+                    k1f * k3f * A +
+                    k2f * k3f * B +
+                    k1r * k2r * P +
+                    k1r * k3r * Q +
+                    k1f * k2f * A * B +
+                    k1f * k2r * A * P +
+                    k2f * k3r * B * Q +
+                    k2r * k3r * P * Q
+            return Etotal * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="Segel Theorell-Chance Bi Bi",
+            mechanism=m,
+            source_steps=src,
+            metabolite_names=[:A, :B, :P, :Q],
+            expected_n_states=3,
+            expected_n_steps=3,
+            expected_n_metabolites=4,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
+            expected_n_independent_params=5,
+            analytical_rate_fn=(p, c) ->
+                rate_theorell_chance_bi_bi(merge(p, (Etotal=p.Et,)), c),
+            analytical_kcat_fn=p -> p.k3f,
+        ))
+    end
+
     # 7. Segel Ping Pong Bi Bi (replaces Ping-Pong Bi-Bi):
     #    E + A ⇌ (EA≡FP) ⇌ F + P, F + B ⇌ (FB≡EQ) ⇌ E + Q
     #    Reference: Segel, Enzyme Kinetics, Eq. IX-140
@@ -1051,9 +1100,9 @@ function build_mechanism_test_specs()
             analytical_kcat_fn=p -> p.k2f,
             # Textbook: flat sum denominator (no Cartesian product structure)
             expected_factored_num=
-            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
+            "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
             expected_factored_denom=
-            "1 + P / K_P_E + R / K_Rinh_E + S / K_S_E",
+            "1 + P / K_EP_to_E_P + R / K_ERinh_to_E_Rinh + S / K_ES_to_E_S",
         ))
     end
 
@@ -1098,9 +1147,10 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) -> rate_noncompetitive_inh(
                 merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
+            "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
             expected_factored_denom=
-            "1 + P / K_P_E + R / K_Rinh_E + S / K_S_E + R * S / (K_Rinh_E * K_S_E)",
+            "1 + P / K_EP_to_E_P + R / K_ERinh_to_E_Rinh + S / K_ES_to_E_S" *
+            " + R * S / (K_ERinh_to_E_Rinh * K_ES_to_E_S)",
         ))
     end
 
@@ -1144,9 +1194,10 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) -> rate_uncompetitive_inh(
                 merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
+            "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
             expected_factored_denom=
-            "1 + P / K_P_E + S / K_S_E + R * S / (K_Rinh_ES * K_S_E)",
+            "1 + P / K_EP_to_E_P + S / K_ES_to_E_S" *
+            " + R * S / (K_ERinhS_to_ES_Rinh * K_ES_to_E_S)",
         ))
     end
 
@@ -1192,9 +1243,9 @@ function build_mechanism_test_specs()
                 merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> p.k2f,
             expected_factored_num=
-            "k_ERinhS_to_EPRinh * R * S / (K_Rinh_E * K_S_ERinh) - k_EPRinh_to_ERinhS * P * R / (K_P_ERinh * K_Rinh_E)",
+            "k_ERinhS_to_EPRinh * R * S / (K_ERinhS_to_ERinh_S * K_ERinh_to_E_Rinh) - k_EPRinh_to_ERinhS * P * R / (K_EPRinh_to_ERinh_P * K_ERinh_to_E_Rinh)",
             expected_factored_denom=
-            "1 + R / K_Rinh_E + P * R / (K_P_ERinh * K_Rinh_E) + R * S / (K_Rinh_E * K_S_ERinh)",
+            "1 + R / K_ERinh_to_E_Rinh + P * R / (K_EPRinh_to_ERinh_P * K_ERinh_to_E_Rinh) + R * S / (K_ERinhS_to_ERinh_S * K_ERinh_to_E_Rinh)",
         ))
     end
 
@@ -1248,9 +1299,9 @@ function build_mechanism_test_specs()
                 merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> max(p.k2f, p.k5f),
             expected_factored_num=
-            "k_ES_to_EP * S / K_S_E + k_ERinhS_to_EPRinh * R * S / (K_Rinh_E * K_S_E) - (k_EP_to_ES * P / K_P_E + k_EPRinh_to_ERinhS * P * R / (K_P_E * K_Rinh_E))",
+            "k_ES_to_EP * S / K_ES_to_E_S + k_ERinhS_to_EPRinh * R * S / (K_ERinh_to_E_Rinh * K_ES_to_E_S) - (k_EP_to_ES * P / K_EP_to_E_P + k_EPRinh_to_ERinhS * P * R / (K_EP_to_E_P * K_ERinh_to_E_Rinh))",
             expected_factored_denom=
-            "1 + P / K_P_E + R / K_Rinh_E + S / K_S_E + P * R / (K_P_E * K_Rinh_E) + R * S / (K_Rinh_E * K_S_E)",
+            "1 + P / K_EP_to_E_P + R / K_ERinh_to_E_Rinh + S / K_ES_to_E_S + P * R / (K_EP_to_E_P * K_ERinh_to_E_Rinh) + R * S / (K_ERinh_to_E_Rinh * K_ES_to_E_S)",
         ))
     end
 
@@ -1312,9 +1363,9 @@ function build_mechanism_test_specs()
             # Denom has both multiplicative (activator) and additive
             # (inhibitor) structure
             expected_factored_num=
-            "k_ES_to_EP * S / K_S_E + k_EAinhS_to_EAinhP * A * S / (K_Ainh_E * K_S_E) - (k_EP_to_ES * P / K_P_E + k_EAinhP_to_EAinhS * A * P / (K_Ainh_E * K_P_E))",
+            "k_ES_to_EP * S / K_ES_to_E_S + k_EAinhS_to_EAinhP * A * S / (K_EAinh_to_E_Ainh * K_ES_to_E_S) - (k_EP_to_ES * P / K_EP_to_E_P + k_EAinhP_to_EAinhS * A * P / (K_EAinh_to_E_Ainh * K_EP_to_E_P))",
             expected_factored_denom=
-            "1 + A / K_Ainh_E + I / K_Iinh_E + P / K_P_E + S / K_S_E + A * P / (K_Ainh_E * K_P_E) + A * S / (K_Ainh_E * K_S_E)",
+            "1 + A / K_EAinh_to_E_Ainh + I / K_EIinh_to_E_Iinh + P / K_EP_to_E_P + S / K_ES_to_E_S + A * P / (K_EAinh_to_E_Ainh * K_EP_to_E_P) + A * S / (K_EAinh_to_E_Ainh * K_ES_to_E_S)",
         ))
     end
 
@@ -1377,10 +1428,11 @@ function build_mechanism_test_specs()
             run_ode_test=false,
             analytical_rate_fn=rate_mwc_dimer_oligo,
             expected_factored_num=
-            "(k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E)" *
-            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E)",
+            "(k_A_ES_to_EP * S / K_A_ES_to_E_S - k_A_EP_to_ES * P / K_A_EP_to_E_P) * (1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S)" *
+            " + L * (S * k_I_ES_to_EP / K_I_ES_to_E_S - P * k_I_EP_to_ES / K_I_EP_to_E_P) * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S)",
             expected_factored_denom=
-            "(1 + P / K_A_P_E + S / K_A_S_E) ^ 2 + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2",
+            "(1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) ^ 2" *
+            " + L * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) ^ 2",
         ))
     end
 
@@ -1441,11 +1493,11 @@ function build_mechanism_test_specs()
             run_ode_test=false,
             analytical_rate_fn=rate_homodimer_noncomp_inh_oligo,
             expected_factored_num=
-            "(k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + I / K_A_Ireg)" *
-            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + I / K_I_Ireg)",
+            "(k_A_ES_to_EP * S / K_A_ES_to_E_S - k_A_EP_to_ES * P / K_A_EP_to_E_P) * (1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) * (1 + I / K_A_Ireg)" *
+            " + L * (S * k_I_ES_to_EP / K_I_ES_to_E_S - P * k_I_EP_to_ES / K_I_EP_to_E_P) * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) * (1 + I / K_I_Ireg)",
             expected_factored_denom=
-            "(1 + P / K_A_P_E + S / K_A_S_E) ^ 2 * (1 + I / K_A_Ireg)" *
-            " + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2 * (1 + I / K_I_Ireg)",
+            "(1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) ^ 2 * (1 + I / K_A_Ireg)" *
+            " + L * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) ^ 2 * (1 + I / K_I_Ireg)",
         ))
     end
 
@@ -1503,11 +1555,11 @@ function build_mechanism_test_specs()
             run_ode_test=false,
             analytical_rate_fn=rate_mwc_dimer_inh_oligo,
             expected_factored_num=
-            "(k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + I / K_A_Ireg)" *
-            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + I / K_I_Ireg)",
+            "(k_A_ES_to_EP * S / K_A_ES_to_E_S - k_A_EP_to_ES * P / K_A_EP_to_E_P) * (1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) * (1 + I / K_A_Ireg)" *
+            " + L * (S * k_I_ES_to_EP / K_I_ES_to_E_S - P * k_I_EP_to_ES / K_I_EP_to_E_P) * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) * (1 + I / K_I_Ireg)",
             expected_factored_denom=
-            "(1 + P / K_A_P_E + S / K_A_S_E) ^ 2 * (1 + I / K_A_Ireg)" *
-            " + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2 * (1 + I / K_I_Ireg)",
+            "(1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) ^ 2 * (1 + I / K_A_Ireg)" *
+            " + L * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) ^ 2 * (1 + I / K_I_Ireg)",
         ))
     end
 
@@ -1552,9 +1604,10 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_two_comp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
+            "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
             expected_factored_denom=
-            "1 + I1 / K_I1inh_E + I2 / K_I2inh_E + P / K_P_E + S / K_S_E",
+            "1 + I1 / K_EI1inh_to_E_I1inh + I2 / K_EI2inh_to_E_I2inh + P / K_EP_to_E_P" *
+            " + S / K_ES_to_E_S",
         ))
     end
 
@@ -1622,9 +1675,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_two_noncomp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
+            "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
             expected_factored_denom=
-            "1 + I1 / K_I1inh_E + I2 / K_I2inh_E + P / K_P_E + S / K_S_E + I1 * I2 / (K_I1inh_E * K_I2inh_E) + I1 * P / (K_I1inh_E * K_P_E) + I1 * S / (K_I1inh_E * K_S_E) + I2 * P / (K_I2inh_E * K_P_E) + I2 * S / (K_I2inh_E * K_S_E) + I1 * I2 * P / (K_I1inh_E * K_I2inh_E * K_P_E) + I1 * I2 * S / (K_I1inh_E * K_I2inh_E * K_S_E)",
+            "1 + I1 / K_EI1inh_to_E_I1inh + I2 / K_EI2inh_to_E_I2inh + P / K_EP_to_E_P + S / K_ES_to_E_S + I1 * I2 / (K_EI1inh_to_E_I1inh * K_EI2inh_to_E_I2inh) + I1 * P / (K_EI1inh_to_E_I1inh * K_EP_to_E_P) + I1 * S / (K_EI1inh_to_E_I1inh * K_ES_to_E_S) + I2 * P / (K_EI2inh_to_E_I2inh * K_EP_to_E_P) + I2 * S / (K_EI2inh_to_E_I2inh * K_ES_to_E_S) + I1 * I2 * P / (K_EI1inh_to_E_I1inh * K_EI2inh_to_E_I2inh * K_EP_to_E_P) + I1 * I2 * S / (K_EI1inh_to_E_I1inh * K_EI2inh_to_E_I2inh * K_ES_to_E_S)",
         ))
     end
 
@@ -1678,9 +1731,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_noncomp_comp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
+            "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
             expected_factored_denom=
-            "1 + I1 / K_I1inh_E + I2 / K_I2inh_E + P / K_P_E + S / K_S_E + I1 * P / (K_I1inh_E * K_P_E) + I1 * S / (K_I1inh_E * K_S_E)",
+            "1 + I1 / K_EI1inh_to_E_I1inh + I2 / K_EI2inh_to_E_I2inh + P / K_EP_to_E_P + S / K_ES_to_E_S + I1 * P / (K_EI1inh_to_E_I1inh * K_EP_to_E_P) + I1 * S / (K_EI1inh_to_E_I1inh * K_ES_to_E_S)",
         ))
     end
 
@@ -1726,9 +1779,10 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_uncomp_comp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
+            "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
             expected_factored_denom=
-            "1 + I2 / K_I2inh_E + P / K_P_E + S / K_S_E + I1 * S / (K_I1inh_ES * K_S_E)",
+            "1 + I2 / K_EI2inh_to_E_I2inh + P / K_EP_to_E_P + S / K_ES_to_E_S" *
+            " + I1 * S / (K_EI1inhS_to_ES_I1inh * K_ES_to_E_S)",
         ))
     end
 
@@ -1789,9 +1843,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_two_samesite_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
+            "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
             expected_factored_denom=
-            "1 + I1 / K_I1inh_E + I2 / K_I2inh_E + P / K_P_E + S / K_S_E + I1 * P / (K_I1inh_E * K_P_E) + I1 * S / (K_I1inh_E * K_S_E) + I2 * P / (K_I2inh_E * K_P_E) + I2 * S / (K_I2inh_E * K_S_E)",
+            "1 + I1 / K_EI1inh_to_E_I1inh + I2 / K_EI2inh_to_E_I2inh + P / K_EP_to_E_P + S / K_ES_to_E_S + I1 * P / (K_EI1inh_to_E_I1inh * K_EP_to_E_P) + I1 * S / (K_EI1inh_to_E_I1inh * K_ES_to_E_S) + I2 * P / (K_EI2inh_to_E_I2inh * K_EP_to_E_P) + I2 * S / (K_EI2inh_to_E_I2inh * K_ES_to_E_S)",
         ))
     end
 
@@ -2169,16 +2223,14 @@ function build_mechanism_test_specs()
 
     # ── Pyruvate kinase (PK) hand-verified mechanism ──────────────────────────
     # Reaction: PEP + ADP ⇌ Pyruvate + ATP, 4 catalytic subunits.
-    # PEP binding is :NonequalAI (independent K_R and K_T) so the T-state
-    # cycle is alive. Catalysis (groups 2-5) are :EqualAI; k5r and k5r_T both
-    # derive from the shared k5f via per-state Haldanes (R-state uses K1, T-state
-    # uses K1_T). Reg sites have MISMATCHED multiplicities:
+    # PEP binding and catalysis are :OnlyA, so the T-state cycle is dead; the
+    # ADP binding and both releases are :EqualAI. Reg sites have MISMATCHED
+    # multiplicities:
     #   ATP::OnlyI at mult 2
     #   F16BP::OnlyA at mult 4 (matches catalytic mult)
     # This exercises the symmetric all-reg-sites contribution to both numerator
     # and denominator.
-    # Independent parameters (9): K1, K1_T, K3, k5f, K6, K8,
-    # K_ATP_T_reg1, K_F16BP_reg2, L
+    # Independent parameters (8): K1, K3, k5f, K6, K8, K_ATP_T_reg1, K_F16BP_reg2, L
     let
         m, src, src_reg = @allosteric_mechanism_src begin
             substrates: PEP, ADP
@@ -2503,14 +2555,12 @@ function build_mechanism_test_specs()
         expected_n_wegscheider_constraints=2, expected_n_independent_params=8,
         run_ode_test=false))
 
-    # NOTE: a multi-:OnlyA derivation/perf spec was intentionally NOT added here.
-    # The representative multi-:OnlyA mechanism triggers the pre-existing allosteric
-    # MWC L-term leak (its inactive graph fragments), so its derivation is
-    # known-incorrect until that bug is fixed — see
-    # docs/superpowers/specs/2026-07-13-allosteric-mwc-derivation-known-issues.md.
-    # The enumeration move that makes multi-:OnlyA reachable is validated by its own
-    # tests in test_mechanism_enumeration.jl; the n=1 mass-action ground truth for the
-    # multi-:OnlyA derivation lives (as an @test_broken gate) in allosteric_ground_truth.jl.
+    # The PFK-1, HK and PK specs above pair one :OnlyA binding with :OnlyA catalysis. A
+    # mechanism that binds both substrates :OnlyA has no spec here; its derivation is
+    # checked against the n=1 mass-action ground truth in allosteric_ground_truth.jl
+    # (testset "multi-OnlyA MWC derivation matches mass-action ground truth").
+    # `_expand_to_allosteric` reaches it by tagging the two substrate binding groups
+    # :OnlyA with the chemistry.
 
     return specs
 end

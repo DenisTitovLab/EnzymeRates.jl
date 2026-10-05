@@ -53,11 +53,11 @@ println("fitted params: ", EnzymeRates.fitted_params(generator))
 println("metabolites:   ", metabolites(generator))
 ```
 
-The mechanism has five independent parameters: the binding constants `K_S_E`
-and `K_P_E` (shared by both conformations, `:EqualAI`), the active-state
-catalytic constant `k_A_ES_to_EP` (`:OnlyA`), the activator binding constant
-`K_A_Areg`, and the conformational equilibrium `L = [T]/[R]`. `Keq` is
-user-supplied and `E_total` is absorbed into the rate scale.
+The mechanism has five independent parameters: the binding constants
+`K_ES_to_E_S` and `K_EP_to_E_P` (shared by both conformations, `:EqualAI`),
+the active-state catalytic constant `k_A_ES_to_EP` (`:OnlyA`), the activator
+binding constant `K_A_Areg`, and the conformational equilibrium `L = [T]/[R]`.
+`Keq` is user-supplied and `E_total` is absorbed into the rate scale.
 [Mechanisms with allosteric regulators](@ref) covers the allosteric-state tags
 and the partition-function structure.
 
@@ -76,7 +76,7 @@ rate of exactly zero has no logarithm, and the loss works in log space.
 
 ```@example identify_fast
 Keq = 10.0
-true_params = (K_S_E = 1.0, K_P_E = 1.0, k_A_ES_to_EP = 5.0,
+true_params = (K_ES_to_E_S = 1.0, K_EP_to_E_P = 1.0, k_A_ES_to_EP = 5.0,
                K_A_Areg = 1.0, L = 100.0, Keq = Keq, E_total = 1.0)
 
 concs = [(S = s, P = p, A = a)
@@ -131,12 +131,15 @@ nothing # hide
 
 The search does not start from scratch. Its *seed* mechanisms are the simplest
 catalytic mechanisms for the reaction — one per binding order, with optional
-dead-end substrate and product inhibition, each at its lowest parameter count.
+dead-end substrate and product inhibition, each at its lowest parameter count —
+and, for a reaction with more than one substrate or product, their merged and
+Theorell–Chance variants ([The enumeration engine](@ref)).
 Because this reaction declares `A`, the seeds are lifted a level: the search
-starts from mechanisms that already bind `A` — every fully-regulated mechanism at
-its minimum parameter count — and never fits the non-allosteric mechanisms
-beneath. This is the default: every declared regulator is required, which is what
-lets the search reach the generating MWC mechanism so quickly here.
+starts from mechanisms that already bind `A` — every fully-regulated mechanism
+the regulator-binding moves build from the seeds, at mixed parameter counts — and
+never fits the non-allosteric mechanisms beneath. This is the default: every
+declared regulator is required, which is what lets the search reach the
+generating MWC mechanism so quickly here.
 
 The progress lines above trace the search, which is a *beam search*: it walks
 parameter counts in ascending order, and at each count it fits the candidates,
@@ -161,6 +164,10 @@ matters, and fit the non-regulated mechanisms too, mark it optional:
 identify_rate_equation(prob; optimizer = CMAEvolutionStrategyOpt(),
                        optional_allosteric_regulators = [:A])
 ```
+
+When no mechanism can bind every required regulator, the search stops with an error
+that names the regulators and the `optional_allosteric_regulators` and
+`optional_competitive_inhibitors` keywords.
 
 To go the other way and shrink the seed set, declare `A`'s type. An activator binds
 the active conformation, so `A::Activator` pins it to `:OnlyA` and halves the seeds an

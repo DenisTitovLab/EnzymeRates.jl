@@ -173,15 +173,16 @@ end
             E + P ⇌ E(P)     :: EqualAI
         end
     end
-    fp = ER.fitted_params(onlyA)          # (:K_P_E, :K_A_S_E, :k_A_ES_to_EP, :L)
-    @test fp == (:K_P_E, :K_A_S_E, :k_A_ES_to_EP, :L)
+    fp = ER.fitted_params(onlyA)  # (:K_EP_to_E_P, :K_A_ES_to_E_S, :k_A_ES_to_EP, :L)
+    @test fp == (:K_EP_to_E_P, :K_A_ES_to_E_S, :k_A_ES_to_EP, :L)
 
     rng = MersenneTwister(20260713)
     for _ in 1:5
         KA = 0.5 + 2rand(rng); KP = 0.5 + 2rand(rng); k = 0.5 + 2rand(rng)
         L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
         S = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
-        # Map fitted_params -> ground-truth params: K_A_S_E=KA, K_P_E=KP, k_A_ES_to_EP=k.
+        # Map fitted_params -> ground-truth params:
+        #   K_A_ES_to_E_S=KA, K_EP_to_E_P=KP, k_A_ES_to_EP=k.
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, KA, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(onlyA, (S=S, P=P), prm))
         v_gt = uni_onlyA_flux(KA, KP, k, L=L, Keq=Keq, S=S, P=P)
@@ -205,8 +206,9 @@ end
             E + P ⇌ E(P)          :: EqualAI
         end
     end
-    fp = ER.fitted_params(multiA)   # (:K_A_A_E, :K_P_E, :K_A_B_EA, :k_A_EAB_to_EP, :L)
-    @test fp == (:K_A_A_E, :K_P_E, :K_A_B_EA, :k_A_EAB_to_EP, :L)
+    # (:K_A_EA_to_E_A, :K_EP_to_E_P, :K_A_EAB_to_EA_B, :k_A_EAB_to_EP, :L)
+    fp = ER.fitted_params(multiA)
+    @test fp == (:K_A_EA_to_E_A, :K_EP_to_E_P, :K_A_EAB_to_EA_B, :k_A_EAB_to_EP, :L)
 
     rng = MersenneTwister(20260713)
     for _ in 1:5
@@ -214,7 +216,7 @@ end
         k = 0.5 + 2rand(rng); L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
         A = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
         # Map fitted_params -> ground-truth params:
-        #   K_A_A_E=KA, K_P_E=KP, K_A_B_EA=KB, k_A_EAB_to_EP=k.
+        #   K_A_EA_to_E_A=KA, K_EP_to_E_P=KP, K_A_EAB_to_EA_B=KB, k_A_EAB_to_EP=k.
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KA, KP, KB, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(multiA, (A=A, B=B, P=P), prm))
         v_gt = multi_onlyA_flux(KA, KB, KP, k, L=L, Keq=Keq, A=A, B=B, P=P)
@@ -229,7 +231,7 @@ end
 # steady-state :OnlyA (inactive rate k_I = 0); P binds :EqualAI at rapid
 # equilibrium. Because B binds rapidly on the steady-state catalytic path, the
 # active free-enzyme spanning-tree weight D[g_free] CARRIES the metabolite B:
-# D_A = koff_S + k·B/K_B. The inactive conformation runs no catalysis and never
+# D_A = koff + k·B/K_B. The inactive conformation runs no catalysis and never
 # binds S or B (both :OnlyA), so its graph is a single rapid-equilibrium segment
 # {E_I, E(P)_I} and D_I = 1. D_A ≠ D_I — a metabolite-bearing active weight against
 # a bare inactive one — the cross-weight regime the fix re-baselines and which has
@@ -326,8 +328,10 @@ end
             E + P ⇌ E(P)         :: EqualAI
         end
     end
-    fp = ER.fitted_params(metabD)  # (:K_P_E,:kon_A_S_E,:koff_A_S_E,:k_A_EBS_to_EP,:K_B_ES,:L)
-    @test fp == (:K_P_E, :kon_A_S_E, :koff_A_S_E, :k_A_EBS_to_EP, :K_B_ES, :L)
+    # (:K_EP_to_E_P,:k_A_E_S_to_ES,:k_A_ES_to_E_S,:k_A_EBS_to_EP,:K_EBS_to_ES_B,:L)
+    fp = ER.fitted_params(metabD)
+    @test fp == (:K_EP_to_E_P, :k_A_E_S_to_ES, :k_A_ES_to_E_S, :k_A_EBS_to_EP,
+                 :K_EBS_to_ES_B, :L)
 
     rng = MersenneTwister(20260713)
     for _ in 1:5
@@ -335,7 +339,8 @@ end
         KB = 0.5 + 2rand(rng); k = 0.5 + 2rand(rng); L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
         S = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
         # Map fitted_params -> ground-truth params:
-        #   kon_A_S_E=kon, koff_A_S_E=koff, K_B_ES=KB, K_P_E=KP, k_A_EBS_to_EP=k.
+        #   k_A_E_S_to_ES=kon, k_A_ES_to_E_S=koff, K_EBS_to_ES_B=KB, K_EP_to_E_P=KP,
+        #   k_A_EBS_to_EP=k.
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, kon, koff, k, KB, L, Keq, 1.0))
         v_code = real(ER.rate_equation(metabD, (S=S, B=B, P=P), prm))
         v_gt = metab_dfree_onlyA_flux(kon, koff, KB, KP, k, L=L, Keq=Keq, S=S, B=B, P=P)
@@ -413,8 +418,8 @@ end
         base_rate = metab_dfree_base_flux(kon, koff, KB, KP, kA, Keq, A, B, P)
 
         # `metab_dfree_base_flux` vs the ODE-validated non-allosteric rate_equation.
-        bd = Dict(:kon_A_E=>kon, :koff_A_E=>koff, :K_B_EA=>KB, :K_P_E=>KP,
-                  :k_EAB_to_EP=>kA)
+        bd = Dict(:k_E_A_to_EA=>kon, :k_EA_to_E_A=>koff, :K_EAB_to_EA_B=>KB,
+                  :K_EP_to_E_P=>KP, :k_EAB_to_EP=>kA)
         bprm = NamedTuple{(bfp..., :Keq, :E_total)}(((bd[s] for s in bfp)..., Keq, 1.0))
         @test isapprox(base_rate,
             real(ER.rate_equation(base, (A=A, B=B, P=P), bprm)); rtol=1e-4)
@@ -517,7 +522,7 @@ end
         end
     end
     fp = ER.fitted_params(allo)
-    @test fp == (:kon_A_E, :koff_A_E, :K_P_E, :K_B_EA,
+    @test fp == (:k_E_A_to_EA, :k_EA_to_E_A, :K_EP_to_E_P, :K_EAB_to_EA_B,
                  :k_A_EAB_to_EP, :k_I_EAB_to_EP, :L)
 
     rng = MersenneTwister(20260713)
@@ -528,10 +533,10 @@ end
         L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
         A = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
         # Map fitted_params -> ground-truth params:
-        #   kon_A_E=kon, koff_A_E=koff, K_B_EA=KB, K_P_E=KP,
+        #   k_E_A_to_EA=kon, k_EA_to_E_A=koff, K_EAB_to_EA_B=KB, K_EP_to_E_P=KP,
         #   k_A_EAB_to_EP=k_A, k_I_EAB_to_EP=k_I.
-        d = Dict(:kon_A_E=>kon, :koff_A_E=>koff, :K_P_E=>KP, :K_B_EA=>KB,
-                 :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L)
+        d = Dict(:k_E_A_to_EA=>kon, :k_EA_to_E_A=>koff, :K_EP_to_E_P=>KP,
+                 :K_EAB_to_EA_B=>KB, :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L)
         prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
         v_code = real(ER.rate_equation(allo, (A=A, B=B, P=P), prm))
         v_gt = biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
@@ -556,7 +561,8 @@ end
             E(S, B) <--> E(P) :: OnlyA ; E + P ⇌ E(P) :: EqualAI
         end
     end
-    fp = ER.fitted_params(metabD)   # (:K_P_E,:kon_A_S_E,:koff_A_S_E,:k_A_EBS_to_EP,:K_B_ES,:L)
+    # (:K_EP_to_E_P,:k_A_E_S_to_ES,:k_A_ES_to_E_S,:k_A_EBS_to_EP,:K_EBS_to_ES_B,:L)
+    fp = ER.fitted_params(metabD)
     kon, koff, KP, KB, k, L, Keq, S, P = 1.7, 1.1, 0.9, 0.8, 2.1, 0.7, 3.0, 1.1, 0.6
     prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, kon, koff, k, KB, L, Keq, 1.0))
     v0 = real(ER.rate_equation(metabD, (S=S, B=0.0, P=P), prm))
@@ -575,8 +581,8 @@ end
     fpn = ER.fitted_params(allo)
     kon2, koff2, KP2, KB2 = 1.7, 1.1, 0.9, 0.8
     kA, kI, L2, Keq2, A2, P2 = 2.5, 0.4, 0.7, 3.0, 1.1, 0.9
-    d = Dict(:kon_A_E=>kon2, :koff_A_E=>koff2, :K_P_E=>KP2, :K_B_EA=>KB2,
-             :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L2)
+    d = Dict(:k_E_A_to_EA=>kon2, :k_EA_to_E_A=>koff2, :K_EP_to_E_P=>KP2,
+             :K_EAB_to_EA_B=>KB2, :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L2)
     prm2 = NamedTuple{(fpn..., :Keq, :E_total)}(((d[s] for s in fpn)..., Keq2, 1.0))
     vN = real(ER.rate_equation(allo, (A=A2, B=0.0, P=P2), prm2))
     @test isapprox(vN, biuni_nonequalAI_freeflip_flux(kon2, koff2, KB2, KP2;
@@ -638,33 +644,33 @@ end
 #
 # Thermodynamics pins ONE combination per conformation, not one per half-reaction.
 # Detailed balance around the closed cycle E → EA → F → FB → E requires
-#   (kon_A·A/koff_A)·(k_P/(koff_P·P))·(kon_B·B/koff_B)·(k_Q/(koff_Q·Q)) = 1
+#   (k1f·A/k1r)·(k2f/(k2r·P))·(k3f·B/k3r)·(k4f/(k4r·Q)) = 1
 # at the equilibrium ratio P·Q/(A·B) = Keq, i.e. the overall Haldane relation
-#   kon_A·k_P·kon_B·k_Q = Keq · koff_A·koff_P·koff_B·koff_Q,
+#   k1f·k2f·k3f·k4f = Keq · k1r·k2r·k3r·k4r,
 # matching the numerator of Segel Eq. IX-140 (k1f·k2f·k3f·k4f·A·B −
 # k1r·k2r·k3r·k4r·P·Q). The two half-reactions' equilibrium constants are NOT
 # separately fixed — only their product is — so exactly one reverse constant per
-# conformation is dependent. `koff_A` (shared, :EqualAI) closes the active cycle;
-# `koff_P_I` then closes the inactive one against that same `koff_A`.
-function pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B;
-        k_P_A, koff_P_A, k_Q_A, koff_Q_A, k_P_I, k_Q_I, koff_Q_I,
+# conformation is dependent. `k1r` (shared, :EqualAI) closes the active cycle;
+# `k2r_I` then closes the inactive one against that same `k1r`.
+function pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r;
+        k2f_A, k2r_A, k4f_A, k4r_A, k2f_I, k4f_I, k4r_I,
         L, Keq, A, B, P, Q, FAST=1e7)
-    koff_A   = kon_A * k_P_A * kon_B * k_Q_A / (Keq * koff_P_A * koff_B * koff_Q_A)
-    koff_P_I = kon_A * k_P_I * kon_B * k_Q_I / (Keq * koff_A * koff_B * koff_Q_I)
+    k1r   = k1f * k2f_A * k3f * k4f_A / (Keq * k2r_A * k3r * k4r_A)
+    k2r_I = k1f * k2f_I * k3f * k4f_I / (Keq * k1r * k3r * k4r_I)
     species = [:E_A, :EA_A, :F_A, :FB_A, :E_I, :EA_I, :F_I, :FB_I]
     edges = Tuple{Symbol,Symbol,Float64}[]
     cat_edges = Tuple{Symbol,Symbol,Float64,Float64}[]
-    for (c, k_P, koff_P, k_Q, koff_Q) in ((:A, k_P_A, koff_P_A, k_Q_A, koff_Q_A),
-                                          (:I, k_P_I, koff_P_I, k_Q_I, koff_Q_I))
+    for (c, k2f, k2r, k4f, k4r) in ((:A, k2f_A, k2r_A, k4f_A, k4r_A),
+                                    (:I, k2f_I, k2r_I, k4f_I, k4r_I))
         e, ea = Symbol(:E_, c), Symbol(:EA_, c)
         f, fb = Symbol(:F_, c), Symbol(:FB_, c)
         append!(edges, [
-            (e, ea, kon_A * A), (ea, e, koff_A),          # E + A ⇌ EA
-            (ea, f, k_P), (f, ea, koff_P * P),            # EA ⇌ F + P
-            (f, fb, kon_B * B), (fb, f, koff_B),          # F + B ⇌ FB
-            (fb, e, k_Q), (e, fb, koff_Q * Q),            # FB ⇌ E + Q
+            (e, ea, k1f * A), (ea, e, k1r),               # E + A ⇌ EA
+            (ea, f, k2f), (f, ea, k2r * P),               # EA ⇌ F + P
+            (f, fb, k3f * B), (fb, f, k3r),               # F + B ⇌ FB
+            (fb, e, k4f), (e, fb, k4r * Q),               # FB ⇌ E + Q
         ])
-        push!(cat_edges, (ea, f, k_P, koff_P * P))        # net flux across the P cut
+        push!(cat_edges, (ea, f, k2f, k2r * P))           # net flux across the P cut
     end
     push!(edges, (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST))   # only free enzyme flips
     mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
@@ -695,29 +701,29 @@ end
 @testset "ping-pong free-flip ground-truth harness self-validation" begin
     rng = MersenneTwister(20260716)
     for _ in 1:4
-        kon_A = 0.5+2rand(rng); kon_B = 0.5+2rand(rng); koff_B = 0.5+2rand(rng)
-        k_P_A = 0.5+2rand(rng); koff_P_A = 0.5+2rand(rng)
-        k_Q_A = 0.5+2rand(rng); koff_Q_A = 0.5+2rand(rng)
-        k_P_I = 0.5+2rand(rng); k_Q_I = 0.5+2rand(rng); koff_Q_I = 0.5+2rand(rng)
+        k1f = 0.5+2rand(rng); k3f = 0.5+2rand(rng); k3r = 0.5+2rand(rng)
+        k2f_A = 0.5+2rand(rng); k2r_A = 0.5+2rand(rng)
+        k4f_A = 0.5+2rand(rng); k4r_A = 0.5+2rand(rng)
+        k2f_I = 0.5+2rand(rng); k4f_I = 0.5+2rand(rng); k4r_I = 0.5+2rand(rng)
         L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
         A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng); Q = 0.5+2rand(rng)
-        act = (k_P_A=k_P_A, koff_P_A=koff_P_A, k_Q_A=k_Q_A, koff_Q_A=koff_Q_A)
-        ina = (k_P_I=k_P_I, k_Q_I=k_Q_I, koff_Q_I=koff_Q_I)
+        act = (k2f_A=k2f_A, k2r_A=k2r_A, k4f_A=k4f_A, k4r_A=k4r_A)
+        ina = (k2f_I=k2f_I, k4f_I=k4f_I, k4r_I=k4r_I)
 
         # (a) L = 0 : inactive unpopulated → the active-only ping-pong, checked
-        #     against the Segel closed form. `koff_A` is the dependent reverse
+        #     against the Segel closed form. `k1r` is the dependent reverse
         #     constant the Haldane fixes; Segel's k1r is that same constant.
-        koff_A = kon_A*k_P_A*kon_B*k_Q_A / (Keq*koff_P_A*koff_B*koff_Q_A)
-        f0 = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act..., ina...,
+        k1r = k1f*k2f_A*k3f*k4f_A / (Keq*k2r_A*k3r*k4r_A)
+        f0 = pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r; act..., ina...,
             L=0.0, Keq=Keq, A=A, B=B, P=P, Q=Q)
-        @test isapprox(f0, segel_pingpong_flux(kon_A, koff_A, k_P_A, koff_P_A,
-            kon_B, koff_B, k_Q_A, koff_Q_A, A, B, P, Q); rtol=1e-9)
+        @test isapprox(f0, segel_pingpong_flux(k1f, k1r, k2f_A, k2r_A,
+            k3f, k3r, k4f_A, k4r_A, A, B, P, Q); rtol=1e-9)
 
         # (b) identical conformations → the active-only rate, independent of L.
-        same = (k_P_I=k_P_A, k_Q_I=k_Q_A, koff_Q_I=koff_Q_A)
-        fe = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act..., same...,
+        same = (k2f_I=k2f_A, k4f_I=k4f_A, k4r_I=k4r_A)
+        fe = pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r; act..., same...,
             L=L, Keq=Keq, A=A, B=B, P=P, Q=Q)
-        fe5 = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act..., same...,
+        fe5 = pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r; act..., same...,
             L=5.0, Keq=Keq, A=A, B=B, P=P, Q=Q)
         @test isapprox(fe, f0; rtol=1e-9)
         @test isapprox(fe, fe5; rtol=1e-9)
@@ -725,17 +731,17 @@ end
         # (c) v = 0 at the equilibrium metabolite ratio P·Q/(A·B) = Keq. Both
         #     conformations are live and unequal, so this pins both Haldanes.
         Qeq = Keq * A * B / P
-        @test abs(pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act...,
+        @test abs(pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r; act...,
             ina..., L=L, Keq=Keq, A=A, B=B, P=P, Q=Qeq)) < 1e-9
 
         # (d) FAST-invariance: the free-enzyme flip is the only cut between the
         #     conformation subnetworks, so it carries zero net flux and E_I/E_A is
         #     exactly L for any FAST. The fast-flip limit is therefore exact here.
-        v_live = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act..., ina...,
+        v_live = pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r; act..., ina...,
             L=L, Keq=Keq, A=A, B=B, P=P, Q=Q)
         for fast in (1e2, 1e12)
-            @test isapprox(v_live, pingpong_nonequalAI_freeflip_flux(kon_A, kon_B,
-                koff_B; act..., ina..., L=L, Keq=Keq, A=A, B=B, P=P, Q=Q, FAST=fast);
+            @test isapprox(v_live, pingpong_nonequalAI_freeflip_flux(k1f, k3f,
+                k3r; act..., ina..., L=L, Keq=Keq, A=A, B=B, P=P, Q=Q, FAST=fast);
                 rtol=1e-9)
         end
 
@@ -775,52 +781,147 @@ end
         end
     end
     fp = ER.fitted_params(allo)
-    @test fp == (:kon_A_E, :kon_A_P_EA, :koff_A_P_EA,
-                 Symbol("kon_A_Q_EB_res_+A_-P"), Symbol("koff_A_Q_EB_res_+A_-P"),
-                 Symbol("kon_B_E_res_+A_-P"), Symbol("koff_B_E_res_+A_-P"),
-                 :kon_I_P_EA, Symbol("kon_I_Q_EB_res_+A_-P"),
-                 Symbol("koff_I_Q_EB_res_+A_-P"), :L)
+    @test fp == (:k_E_A_to_EA, Symbol("k_A_E_Q_to_EB_res_+A_-P"),
+                 Symbol("k_A_EB_res_+A_-P_to_E_Q"), Symbol("k_A_E_res_+A_-P_P_to_EA"),
+                 Symbol("k_A_EA_to_E_res_+A_-P_P"),
+                 Symbol("k_E_res_+A_-P_B_to_EB_res_+A_-P"),
+                 Symbol("k_EB_res_+A_-P_to_E_res_+A_-P_B"),
+                 Symbol("k_I_EB_res_+A_-P_to_E_Q"), Symbol("k_I_E_res_+A_-P_P_to_EA"),
+                 Symbol("k_I_EA_to_E_res_+A_-P_P"), :L)
 
     rng = MersenneTwister(20260716)
     for _ in 1:6
-        kon_A = 0.5+2rand(rng); kon_B = 0.5+2rand(rng); koff_B = 0.5+2rand(rng)
-        k_P_A = 0.5+2rand(rng); koff_P_A = 0.5+2rand(rng)
-        k_Q_A = 0.5+2rand(rng); koff_Q_A = 0.5+2rand(rng)
-        k_P_I = 0.5+2rand(rng); k_Q_I = 0.5+2rand(rng); koff_Q_I = 0.5+2rand(rng)
+        k1f = 0.5+2rand(rng); k3f = 0.5+2rand(rng); k3r = 0.5+2rand(rng)
+        k2f_A = 0.5+2rand(rng); k2r_A = 0.5+2rand(rng)
+        k4f_A = 0.5+2rand(rng); k4r_A = 0.5+2rand(rng)
+        k2f_I = 0.5+2rand(rng); k4f_I = 0.5+2rand(rng); k4r_I = 0.5+2rand(rng)
         L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
         A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng); Q = 0.5+2rand(rng)
-        # Map fitted_params -> ground-truth params. On a release step the
-        # canonical direction runs E(A) → F + P, so `kon_…` is the forward
-        # (product-releasing) rate and `koff_…` the reverse (product-rebinding)
+        # Map fitted_params -> ground-truth params. A step that releases a
+        # product while changing the residual is stored as the binding it
+        # reverses, F + P → E(A), however the step is written; its rate constants
+        # are named by its two sides, so `k_…_EA_to_E_res_…_P` is the
+        # product-releasing rate and `k_…_E_res_…_P_to_EA` the product-rebinding
         # one — the binding steps read the usual way round.
-        #   kon_A_E=kon_A                                (E + A ⇌ EA, shared)
-        #   kon_B_E_res_+A_-P=kon_B, koff_B_E_res_+A_-P=koff_B  (F + B ⇌ FB, shared)
-        #   kon_A_P_EA=k_P_A, koff_A_P_EA=koff_P_A       (EA ⇌ F + P, active)
-        #   kon_I_P_EA=k_P_I                             (EA ⇌ F + P, inactive)
-        #   kon_A_Q_EB_res_+A_-P=k_Q_A,
-        #   koff_A_Q_EB_res_+A_-P=koff_Q_A               (FB ⇌ E + Q, active)
-        #   kon_I_Q_EB_res_+A_-P=k_Q_I,
-        #   koff_I_Q_EB_res_+A_-P=koff_Q_I               (FB ⇌ E + Q, inactive)
-        # `koff_A_E` and `koff_I_P_EA` are absent from fitted_params: each
-        # conformation's Haldane makes one reverse constant dependent, and the
-        # oracle derives exactly those two.
-        d = Dict(:kon_A_E => kon_A,
-                 Symbol("kon_B_E_res_+A_-P") => kon_B,
-                 Symbol("koff_B_E_res_+A_-P") => koff_B,
-                 :kon_A_P_EA => k_P_A, :koff_A_P_EA => koff_P_A,
-                 Symbol("kon_A_Q_EB_res_+A_-P") => k_Q_A,
-                 Symbol("koff_A_Q_EB_res_+A_-P") => koff_Q_A,
-                 :kon_I_P_EA => k_P_I,
-                 Symbol("kon_I_Q_EB_res_+A_-P") => k_Q_I,
-                 Symbol("koff_I_Q_EB_res_+A_-P") => koff_Q_I,
+        #   k_E_A_to_EA=k1f                          (E + A ⇌ EA, shared)
+        #   k_E_res_+A_-P_B_to_EB_res_+A_-P=k3f,
+        #   k_EB_res_+A_-P_to_E_res_+A_-P_B=k3r      (F + B ⇌ FB, shared)
+        #   k_A_EA_to_E_res_+A_-P_P=k2f_A,
+        #   k_A_E_res_+A_-P_P_to_EA=k2r_A            (EA ⇌ F + P, active)
+        #   k_I_EA_to_E_res_+A_-P_P=k2f_I,
+        #   k_I_E_res_+A_-P_P_to_EA=k2r_I            (EA ⇌ F + P, inactive)
+        #   k_A_EB_res_+A_-P_to_E_Q=k4f_A,
+        #   k_A_E_Q_to_EB_res_+A_-P=k4r_A            (FB ⇌ E + Q, active)
+        #   k_I_EB_res_+A_-P_to_E_Q=k4f_I,
+        #   k_I_E_Q_to_EB_res_+A_-P=k4r_I            (FB ⇌ E + Q, inactive)
+        # `k_EA_to_E_A` and `k_I_E_Q_to_EB_res_+A_-P` are absent from
+        # fitted_params: each conformation's Haldane makes one constant dependent.
+        # The oracle takes k4r_I and derives k2r_I by the inactive Haldane, so
+        # k2r_I is computed here the same way, and the derivation rederives k4r_I.
+        k1r = k1f * k2f_A * k3f * k4f_A / (Keq * k2r_A * k3r * k4r_A)
+        k2r_I = k1f * k2f_I * k3f * k4f_I / (Keq * k1r * k3r * k4r_I)
+        d = Dict(:k_E_A_to_EA => k1f,
+                 Symbol("k_E_res_+A_-P_B_to_EB_res_+A_-P") => k3f,
+                 Symbol("k_EB_res_+A_-P_to_E_res_+A_-P_B") => k3r,
+                 Symbol("k_A_EA_to_E_res_+A_-P_P") => k2f_A,
+                 Symbol("k_A_E_res_+A_-P_P_to_EA") => k2r_A,
+                 Symbol("k_A_EB_res_+A_-P_to_E_Q") => k4f_A,
+                 Symbol("k_A_E_Q_to_EB_res_+A_-P") => k4r_A,
+                 Symbol("k_I_EA_to_E_res_+A_-P_P") => k2f_I,
+                 Symbol("k_I_E_res_+A_-P_P_to_EA") => k2r_I,
+                 Symbol("k_I_EB_res_+A_-P_to_E_Q") => k4f_I,
+                 Symbol("k_I_E_Q_to_EB_res_+A_-P") => k4r_I,
                  :L => L)
         prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
         v_code = real(ER.rate_equation(allo, (A=A, B=B, P=P, Q=Q), prm))
-        v_gt = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B;
-            k_P_A=k_P_A, koff_P_A=koff_P_A, k_Q_A=k_Q_A, koff_Q_A=koff_Q_A,
-            k_P_I=k_P_I, k_Q_I=k_Q_I, koff_Q_I=koff_Q_I,
+        v_gt = pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r;
+            k2f_A=k2f_A, k2r_A=k2r_A, k4f_A=k4f_A, k4r_A=k4r_A,
+            k2f_I=k2f_I, k4f_I=k4f_I, k4r_I=k4r_I,
             L=L, Keq=Keq, A=A, B=B, P=P, Q=Q)
         @test isapprox(v_code, v_gt; rtol=1e-10)
+    end
+end
+
+# ── Ping-pong network with rapid-equilibrium chemistry, at zero products ──────
+# The undecorated ping-pong: E + A ⇌ EA → F(P) ⇌ F + P, F + B ⇌ FB ⇌ EQ ⇌ E + Q,
+# with both chemistry steps :OnlyA and every binding :EqualAI. Only EA → F(P) is
+# steady state; the second chemistry FB ⇌ EQ is rapid equilibrium, so free E and
+# the covalent F lie in one active rapid-equilibrium segment. Rapid steps use FAST.
+# Only free E flips (formulation 1, E_I/E_A = L). The inactive conformation runs no
+# chemistry, so it holds E_I, EA_I and EQ_I; its covalent forms, which free E cannot
+# reach, hold no mass. At P = Q = 0 the P and Q releases are one-way and the
+# chemistry's reverse never fires, so every form past EA → F(P) drains back to E,
+# and the rate is k·(A/KA)/((1 + A/KA)(1 + L)), free of B.
+function pingpong_re_chemistry_flux(; KA, KB, KP, KQ, K2, k, L, A, B, FAST=1e9)
+    species = [:E_A, :EA_A, :FP_A, :F_A, :FB_A, :EQ_A, :E_I, :EA_I, :EQ_I]
+    edges = [
+        (:E_A, :EA_A, FAST * A), (:EA_A, :E_A, FAST * KA),   # E + A ⇌ EA (RE)
+        (:EA_A, :FP_A, k),                                   # EA → F(P) (SS)
+        (:FP_A, :F_A, FAST * KP),                            # F(P) → F + P (RE, P = 0)
+        (:F_A, :FB_A, FAST * B), (:FB_A, :F_A, FAST * KB),   # F + B ⇌ FB (RE)
+        (:FB_A, :EQ_A, FAST * K2), (:EQ_A, :FB_A, FAST),     # FB ⇌ EQ (RE)
+        (:EQ_A, :E_A, FAST * KQ),                            # EQ → E + Q (RE, Q = 0)
+        (:E_I, :EA_I, FAST * A), (:EA_I, :E_I, FAST * KA),   # inactive A binding
+        (:EQ_I, :E_I, FAST * KQ),                            # inactive Q release
+        (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),          # free-enzyme flip, ratio L
+    ]
+    mwc_ground_truth_flux(species, edges, [(:EA_A, :FP_A, k, 0.0)], 1.0)
+end
+
+# ── Ping-pong rapid-equilibrium-chemistry harness self-validation ─────────────
+# The network against its closed form, live (L = 3) and unpopulated (L = 0), across
+# four decades of B: the B-binding rate FAST·B stays far above k, so the
+# rapid-equilibrium limit holds to about k/(FAST·B).
+@testset "ping-pong RE-chemistry ground-truth harness self-validation" begin
+    p = (KA=0.7, KB=1.3, KP=0.9, KQ=1.1, K2=2.0, k=1.7, A=1.5)
+    closed(L) = p.k * (p.A / p.KA) / ((1 + p.A / p.KA) * (1 + L))
+    for L in (0.0, 3.0), B in (1e-2, 1.0, 1e2)
+        @test isapprox(pingpong_re_chemistry_flux(; p..., L=L, B=B), closed(L); rtol=1e-5)
+    end
+end
+
+# ── The gate: a rapid-equilibrium segment holding free E and F ────────────────
+# The two ping-pong value gates above write every step steady state, and the two
+# ping-pong :OnlyA gates below, whose active segments do hold free E and F, check
+# finiteness, the equilibrium ratio and the L = 0 limit only. This gate compares an
+# L > 0 rate against ground truth for a mechanism whose active rapid-equilibrium
+# segment holds both free E and F. Clearing that segment's polynomial gives free E the
+# weight B (F sits at Q/B relative to E), so the inactive term must carry the same
+# factor beside L. The ground truth is independent of B (0.28977 at these parameters).
+@testset "ping-pong MWC derivation with free E and F in one RE segment" begin
+    allo = @allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A ⇌ E(A)                                          :: EqualAI
+            E(A) <--> E(P; residual = A - P)                      :: OnlyA
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)    :: EqualAI
+            E(B; residual = A - P) ⇌ E(Q)                         :: OnlyA
+            E + Q ⇌ E(Q)                                          :: EqualAI
+        end
+    end
+    fp = ER.fitted_params(allo)
+    @test fp == (:K_EA_to_E_A, :K_EQ_to_E_Q, Symbol("k_A_EA_to_EP_res_+A_-P"),
+                 Symbol("K_A_EB_res_+A_-P_to_EQ"),
+                 Symbol("K_EB_res_+A_-P_to_E_res_+A_-P_B"),
+                 Symbol("K_EP_res_+A_-P_to_E_res_+A_-P_P"), :L)
+    p = (KA=0.7, KB=1.3, KP=0.9, KQ=1.1, K2=2.0, k=1.7, L=3.0, A=1.5)
+    # Map fitted_params -> ground-truth params. Each K is the ratio of its to-side to
+    # its from-side, so the binding Ks are dissociation constants:
+    #   K_EA_to_E_A=KA, K_EQ_to_E_Q=KQ, K_EB_res_…_to_E_res_…_B=KB,
+    #   K_EP_res_…_to_E_res_…_P=KP, K_A_EB_res_…_to_EQ=K2 ([EQ]/[FB]),
+    #   k_A_EA_to_EP_res_…=k. At P = Q = 0 only KA, k and L enter the rate.
+    d = Dict(:K_EA_to_E_A => p.KA, :K_EQ_to_E_Q => p.KQ,
+             Symbol("k_A_EA_to_EP_res_+A_-P") => p.k,
+             Symbol("K_A_EB_res_+A_-P_to_EQ") => p.K2,
+             Symbol("K_EB_res_+A_-P_to_E_res_+A_-P_B") => p.KB,
+             Symbol("K_EP_res_+A_-P_to_E_res_+A_-P_P") => p.KP, :L => p.L)
+    prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., 2.0, 1.0))
+    v_code(B) = real(ER.rate_equation(allo, (A=p.A, B=B, P=0.0, Q=0.0), prm))
+    v_gt(B) = pingpong_re_chemistry_flux(; p..., B=B)
+    @test isapprox(v_code(1.0), v_gt(1.0); rtol=1e-5)
+    for B in (1e-3, 0.1, 10.0, 1e3)
+        @test isapprox(v_code(B), v_gt(B); rtol=1e-5)
     end
 end
 
@@ -854,15 +955,16 @@ end
             E + P ⇌ E(P)   :: OnlyA
         end
     end
-    fp = ER.fitted_params(inert)      # (:K_A_P_E, :K_A_S_E, :k_ES_to_EP, :L)
-    @test fp == (:K_A_P_E, :K_A_S_E, :k_ES_to_EP, :L)
+    fp = ER.fitted_params(inert)      # (:K_A_EP_to_E_P, :K_A_ES_to_E_S, :k_ES_to_EP, :L)
+    @test fp == (:K_A_EP_to_E_P, :K_A_ES_to_E_S, :k_ES_to_EP, :L)
 
     rng = MersenneTwister(20260714)
     for _ in 1:5
         KS = 0.5 + 2rand(rng); KP = 0.5 + 2rand(rng); k = 0.5 + 2rand(rng)
         L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
         S = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
-        # Map fitted_params -> ground-truth params: K_A_S_E=KS, K_A_P_E=KP, k_ES_to_EP=k.
+        # Map fitted_params -> ground-truth params:
+        #   K_A_ES_to_E_S=KS, K_A_EP_to_E_P=KP, k_ES_to_EP=k.
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, KS, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(inert, (S=S, P=P), prm))
         @test isapprox(v_code,
@@ -1044,7 +1146,7 @@ end
                 end
             end)
         fp = ER.fitted_params(allo)
-        @test fp == (:kon_A_E, :koff_A_E, :K_P_E, :K_B_EA,
+        @test fp == (:k_E_A_to_EA, :k_EA_to_E_A, :K_EP_to_E_P, :K_EAB_to_EA_B,
                      :k_A_EAB_to_EP, :k_I_EAB_to_EP, :L)
         for _ in 1:6
             kon = 0.5+2rand(rng); koff = 0.5+2rand(rng)
@@ -1052,8 +1154,8 @@ end
             kA = 0.5+2rand(rng); kI = 0.5+2rand(rng)
             L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
             A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng)
-            d = Dict(:kon_A_E=>kon, :koff_A_E=>koff, :K_P_E=>KP, :K_B_EA=>KB,
-                     :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L)
+            d = Dict(:k_E_A_to_EA=>kon, :k_EA_to_E_A=>koff, :K_EP_to_E_P=>KP,
+                     :K_EAB_to_EA_B=>KB, :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L)
             prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
             # `rate_equation` is per active site; the oracle is per oligomer.
             v_code = nprot * real(ER.rate_equation(allo, (A=A, B=B, P=P), prm))
@@ -1089,10 +1191,11 @@ end
         end
     end
     afp = ER.fitted_params(dead)
-    @test afp == (:K_ADP_E, :K_ATP_E, Symbol("k_A_EATP_to_EF16BP_res_+ATP_-F16BP"),
-                  Symbol("Kiso_A_EF6P_res_+ATP_-F16BP_to_EADP"),
-                  Symbol("K_F16BP_E_res_+ATP_-F16BP"),
-                  Symbol("K_A_F6P_E_res_+ATP_-F16BP"), :L)
+    @test afp == (:K_EADP_to_E_ADP, :K_EATP_to_E_ATP,
+                  Symbol("k_A_EATP_to_EF16BP_res_+ATP_-F16BP"),
+                  Symbol("K_A_EF6P_res_+ATP_-F16BP_to_EADP"),
+                  Symbol("K_EF16BP_res_+ATP_-F16BP_to_E_res_+ATP_-F16BP_F16BP"),
+                  Symbol("K_A_EF6P_res_+ATP_-F16BP_to_E_res_+ATP_-F16BP_F6P"), :L)
 
     am = ER.AllostericMechanism(dead)
     @test ER._onlya_haldane_violation(ER.reaction(am), ER.steps(am),
@@ -1104,9 +1207,9 @@ end
     # inactive conformation is unpopulated, so the allosteric rate must reduce to
     # this twin's rate — an independent re-derivation through the non-allosteric
     # King–Altman path. Map allo params -> twin params: the three :EqualAI bindings
-    # (K_ADP_E, K_ATP_E, K_F16BP_E_res_…) share names; the three :OnlyA A-tagged
-    # params drop the "A_" tag (k_A_EATP…→k_EATP…, Kiso_A_EF6P…→Kiso_EF6P…,
-    # K_A_F6P…→K_F6P…).
+    # (K_EADP_to_E_ADP, K_EATP_to_E_ATP, K_EF16BP_res_…) share names; the three
+    # :OnlyA A-tagged params drop the "A_" tag (k_A_EATP…→k_EATP…, and the two
+    # K_A_EF6P…→K_EF6P…).
     nonallo = @enzyme_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
@@ -1123,10 +1226,10 @@ end
     allo_to_twin = Dict(
         Symbol("k_A_EATP_to_EF16BP_res_+ATP_-F16BP") =>
             Symbol("k_EATP_to_EF16BP_res_+ATP_-F16BP"),
-        Symbol("Kiso_A_EF6P_res_+ATP_-F16BP_to_EADP") =>
-            Symbol("Kiso_EF6P_res_+ATP_-F16BP_to_EADP"),
-        Symbol("K_A_F6P_E_res_+ATP_-F16BP") =>
-            Symbol("K_F6P_E_res_+ATP_-F16BP"))
+        Symbol("K_A_EF6P_res_+ATP_-F16BP_to_EADP") =>
+            Symbol("K_EF6P_res_+ATP_-F16BP_to_EADP"),
+        Symbol("K_A_EF6P_res_+ATP_-F16BP_to_E_res_+ATP_-F16BP_F6P") =>
+            Symbol("K_EF6P_res_+ATP_-F16BP_to_E_res_+ATP_-F16BP_F6P"))
     twin_of(s) = get(allo_to_twin, s, s)
 
     rng = MersenneTwister(20260717)

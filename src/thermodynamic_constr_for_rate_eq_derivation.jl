@@ -48,14 +48,14 @@ end
 # ─── Structural primacy: free-enzyme set + step priority ─────────
 
 """
-Set of enzyme-form names that are NOT the RHS of any canonical RE
-binding step `F + met… ⇌ F_bound`. Walks `Mechanism.steps` directly:
-for each RE binding step, the canonical form puts the bound metabolite
-on `to_species`, so `to_species`'s name is excluded from the free set.
-Iso steps don't determine binding state. SS steps' direction is not
-canonicalized so they don't participate.
+Set of enzyme-form names that are NOT the RHS of any RE step that
+consumes a metabolite, `F + met… ⇌ F_bound`. Walks `Mechanism.steps`
+directly: such a step leaves its consumed metabolites on `to_species`, so
+`to_species`'s name is excluded from the free set. Iso steps don't
+determine binding state. SS steps' direction is not canonicalized so they
+don't participate.
 
-A form that carries bound metabolites but has no binding-in step in this
+A form that carries bound metabolites but has no consuming step into it in this
 graph is also excluded: an inactive-conformation graph
 (`_state_mechanism(am, :I)`) drops each `:OnlyA` binding step, so the ligand's
 downstream complex is reached only by conformational flip or reverse catalysis
@@ -77,13 +77,14 @@ function _free_enz_set(m::Union{Mechanism, AllostericMechanism})
     free_enz_set = copy(enz_names)
     for group in steps(m), s in group
         is_equilibrium(s) || continue
-        is_binding(s) || continue
-        # Canonical: bound metabolite resides on to_species. The from-side
-        # is the "free + met" reactant; the to-side is the bound form.
+        isempty(consumed(s)) && continue
+        # A step that consumes a metabolite leaves it on to_species. The
+        # from-side is the "free + met" reactant; the to-side is the bound form.
         delete!(free_enz_set, name(to_species(s)))
     end
     bound_in = Set{Symbol}(name(to_species(s))
-                           for group in steps(m) for s in group if is_binding(s))
+                           for group in steps(m) for s in group
+                           if !isempty(consumed(s)))
     for group in steps(m), s in group
         for sp in (from_species(s), to_species(s))
             isempty(bound(sp)) || name(sp) in bound_in ||
@@ -95,13 +96,15 @@ end
 
 """
 Structural primacy base score for a step (lower = more primary / less
-eliminable). Free-enzyme RE binding (-1) < free-enzyme SS binding (0) <
-non-free metabolite step (10) < internal isomerization (20). Shared by the
+eliminable). A metabolite step takes up or gives off a free metabolite (a pure
+binding, a fused step or a Theorell–Chance step). Free-enzyme RE metabolite
+step (-1) < free-enzyme SS metabolite step (0) < non-free metabolite step
+(10) < internal isomerization (20). Shared by the
 kinetic-group name representative (argmin) and the Haldane elimination pivot
 (argmax, which adds a +0/+1 forward/reverse offset per rate constant).
 """
 function _step_priority(s::Step, free_enz_set::Set{Symbol})
-    has_met = is_binding(s)
+    has_met = !is_iso(s)
     is_free = (name(from_species(s)) in free_enz_set) ||
               (name(to_species(s))   in free_enz_set)
     is_equilibrium(s) && has_met && is_free && return -1
@@ -109,27 +112,22 @@ function _step_priority(s::Step, free_enz_set::Set{Symbol})
 end
 
 """
-Total lexical tiebreak for two distinct steps in the same kinetic group:
-species pair + bound metabolite + RE/SS flag.
-"""
-_step_lex_key(s::Step) =
-    (String(name(from_species(s))), String(name(to_species(s))),
-     String(bound_metabolite(s) === nothing ? "" : name(bound_metabolite(s))),
-     is_equilibrium(s))
-
-"""
 Kinetic-group naming representative: the structurally-primary step
-(`argmin _step_priority`), with a deterministic lexical tiebreak.
+(`argmin _step_priority`), with a deterministic lexical tiebreak between two
+distinct steps (`_step_canonical_key`: species pair + consumed and released
+metabolites + RE/SS flag).
 """
 _group_rep(group::Vector{Step}, free_enz_set::Set{Symbol}) =
-    argmin(s -> (_step_priority(s, free_enz_set), _step_lex_key(s)), group)
+    argmin(s -> (_step_priority(s, free_enz_set), _step_canonical_key(s)), group)
 
 # ─── Thermodynamic Constraint Infrastructure ─────────────────────
 
-# Reduced row echelon form over `Rational{BigInt}`. Returns the pivot and
-# free column indices (pivot_cols in row-pivot order, so pivot_cols[i] is the
-# pivot at reduced-matrix row i) plus the reduced matrix R. Used by
-# `_integer_nullspace` (nullspace basis).
+"""
+Reduced row echelon form over `Rational{BigInt}`. Returns the pivot and
+free column indices (pivot_cols in row-pivot order, so pivot_cols[i] is the
+pivot at reduced-matrix row i) plus the reduced matrix R. Used by
+`_integer_nullspace` (nullspace basis).
+"""
 function _rref_partition(A::Matrix{Int})
     m, n = size(A)
     R = Matrix{Rational{BigInt}}(A)
@@ -190,26 +188,23 @@ function _thermodynamic_constraints(mech::Mechanism)
         B[i_to,   j] += 1
     end
 
-    # Stoichiometry matrix (rows = metabolites, cols = steps). A
-    # metabolite gets its stoichiometry solely from the canonical
-    # reaction tuple via `_step_sides(s)`: m_lhs contributes -1 (consumed
-    # from the free pool), m_rhs contributes +1 (produced).
+    # Stoichiometry matrix (rows = metabolites, cols = steps), read from each
+    # step's consumed (-1) and released (+1) lists.
     #
     # Iso steps carry no free-pool metabolite — their bound content is
-    # encoded in the enzyme-form identity — so `_step_sides` returns empty
-    # metabolite lists and they contribute zero. Do NOT add a
-    # from_bound/to_bound diff for iso steps: that double-counts
-    # metabolites already accounted for by the binding/release steps and
-    # inflates the cycle's net change (e.g. 1/Keq -> 1/Keq^2).
+    # encoded in the enzyme-form identity — so both lists are empty and they
+    # contribute zero. Do NOT add a from_bound/to_bound diff for iso steps:
+    # that double-counts metabolites already accounted for by the
+    # binding/release steps and inflates the cycle's net change (e.g.
+    # 1/Keq -> 1/Keq^2).
     met_idx = Dict(n => i for (i, n) in enumerate(met_names))
     stoich_mat = zeros(Int, length(met_names), nsteps)
     for (j, (s, _)) in enumerate(flat)
-        _, _, m_lhs, m_rhs = _step_sides(s)
-        for m in m_lhs
-            haskey(met_idx, m) && (stoich_mat[met_idx[m], j] -= 1)
+        for m in consumed(s)
+            haskey(met_idx, name(m)) && (stoich_mat[met_idx[name(m)], j] -= 1)
         end
-        for m in m_rhs
-            haskey(met_idx, m) && (stoich_mat[met_idx[m], j] += 1)
+        for m in released(s)
+            haskey(met_idx, name(m)) && (stoich_mat[met_idx[name(m)], j] += 1)
         end
     end
 
@@ -262,8 +257,10 @@ function _thermodynamic_constraints(mech::Mechanism)
     return C, rhs_coeffs
 end
 
-# Walk Mechanism.steps; emit distinct enzyme-form Symbol names in
-# step-walk order. Used by _thermodynamic_constraints and friends.
+"""
+Walk Mechanism.steps; emit distinct enzyme-form Symbol names in
+step-walk order. Used by _thermodynamic_constraints and friends.
+"""
 function _enumerate_species_names(mech::Mechanism)
     seen = Symbol[]
     for group in steps(mech), s in group
@@ -293,7 +290,7 @@ function _dependent_param_exprs(mech::Mechanism)
     rename = _build_wegscheider_rename_map(mech)
     dep_exprs, indep = _dependent_param_exprs_kernel(mech, rename)
     # Filter Pass-2-absorbed symbols out of indep. Pass 2 of
-    # `_build_wegscheider_rename_map` adds entries like `K_P_E => K_S_E`
+    # `_build_wegscheider_rename_map` adds entries like `K_EP_to_E_P => K_ES_to_E_S`
     # when a Wegscheider tie collapses two binding-K group reps to the
     # same name. After the merge, the absorbed symbol doesn't appear in
     # the v polynomial — its column has been folded into the target.
@@ -320,42 +317,52 @@ from the thermodynamic constraint solve without compiling the mechanism."""
 _independent_param_count(m::Union{Mechanism, AllostericMechanism}) =
     length(_dependent_param_exprs(m)[2])
 
+"""How a step's constants enter the constraint columns: `:ss` (a forward and a
+reverse rate), `:binding_K` (a dissociation constant, whose column carries a sign
+flip) or `:iso_K` (an equilibrium constant)."""
+_count_kind(s::Step) = is_equilibrium(s) ? (is_binding(s) ? :binding_K : :iso_K) : :ss
+
 """
     _partition_independent_count(parent::Mechanism) -> counter
 
-Return `counter(group_of_step)`, the independent-parameter count of the mechanism
-obtained by regrouping `parent`'s flat steps (in `_flat_steps` order) into the
-groups labelled by `group_of_step`. Regrouping moves no edges, so the cycle basis
-of the step graph (`_thermodynamic_constraints`) is the same for every
-regrouping and is computed once here; each call only merges step columns by
-group and takes the rank. Equals `_independent_param_count` of the constructed
-child: the kernel's independent set is the columns minus the pivots, and folding
-a single-symbol Wegscheider tie onto its target removes one column and one rank
-together, so the count is invariant to the rename. Column sign conventions match
-`_assemble_constraints`: a binding K enters with a sign flip, an iso K without,
-an SS step contributes `+kf` and `-kr`.
+Return `counter(group_of_step, kind_of_step = kinds of the parent's steps)`, the
+independent-parameter count of the mechanism obtained by regrouping `parent`'s
+flat steps (in `_flat_steps` order) into the groups labelled by `group_of_step`,
+each step counted under the constant kind `kind_of_step` gives it (`_count_kind`).
+Regrouping moves no edges and a flag changes none, so the cycle basis of the step
+graph (`_thermodynamic_constraints`) is the same for every call and is computed
+once here; each call only merges step columns by group and takes the rank. The
+split move passes a step's own kind, or `:binding_K`/`:iso_K` for a steady-state
+step it reverts to rapid equilibrium. Equals `_independent_param_count` of the
+constructed child: the kernel's independent set is the columns minus the pivots,
+and folding a single-symbol Wegscheider tie onto its target removes one column and
+one rank together, so the count is invariant to the rename. Column sign
+conventions match `_assemble_constraints`: a binding K enters with a sign flip, an
+iso K without, an SS step contributes `+kf` and `-kr`.
 """
 function _partition_independent_count(parent::Mechanism)
     C, _ = _thermodynamic_constraints(parent)
-    kinds = [is_equilibrium(s) ? (is_binding(s) ? :binding_K : :iso_K) : :ss
-             for (s, _) in _flat_steps(parent)]
-    function counter(group_of_step::AbstractVector{Int})
+    kinds = [_count_kind(s) for (s, _) in _flat_steps(parent)]
+    function counter(group_of_step::AbstractVector{Int},
+                     kind_of_step::AbstractVector{Symbol} = kinds)
         length(group_of_step) == length(kinds) ||
             error("group_of_step must label every flat step of the parent")
+        length(kind_of_step) == length(kinds) ||
+            error("kind_of_step must label every flat step of the parent")
         column = Dict{Tuple{Int, Int}, Int}()
         for (j, g) in enumerate(group_of_step)
             get!(column, (g, 1), length(column) + 1)
-            kinds[j] === :ss && get!(column, (g, 2), length(column) + 1)
+            kind_of_step[j] === :ss && get!(column, (g, 2), length(column) + 1)
         end
         A = zeros(Int, size(C, 1), length(column))
         for (j, g) in enumerate(group_of_step), i in axes(C, 1)
             c = C[i, j]
             c == 0 && continue
-            if kinds[j] === :ss
+            if kind_of_step[j] === :ss
                 A[i, column[(g, 1)]] += c
                 A[i, column[(g, 2)]] -= c
             else
-                A[i, column[(g, 1)]] += kinds[j] === :binding_K ? -c : c
+                A[i, column[(g, 1)]] += kind_of_step[j] === :binding_K ? -c : c
             end
         end
         length(column) - length(_rref_partition(A)[1])
@@ -436,10 +443,15 @@ function _assemble_constraints(
             s = step_name(step_params[j][1])
             haskey(sym_col, s) && (priority[sym_col[s]] = (is_i_state, base))
         else
+            # A steady-state step's reverse constant is eliminated before its forward one.
+            # A fused binding of a product is a release stored as the binding it reverses,
+            # so its forward constant runs against the reaction and goes first instead,
+            # keeping the catalytic constant fitted.
+            against = _is_chemistry(step) && bound_metabolite(step) isa Product
             for (offset, p) in enumerate(step_params[j])
                 s = step_name(p)
-                haskey(sym_col, s) &&
-                    (priority[sym_col[s]] = (is_i_state, base + offset - 1))
+                rank = against ? 2 - offset : offset - 1
+                haskey(sym_col, s) && (priority[sym_col[s]] = (is_i_state, base + rank))
             end
         end
     end
@@ -531,8 +543,12 @@ absorbs the imbalance is a free inactive catalytic ratio `k_I_f/k_I_r`. An
 the rate equation, so their ratio is free to satisfy the cycle's Haldane at any
 affinity — which is why the inactive Haldane is present but never binding here.
 
-The check graph drops `:OnlyA` chemical groups, so a cycle running through one
-never appears and never reports a violation: that free `k_I` ratio is the escape.
+The check graph drops `:OnlyA` chemistry groups (those holding a chemistry step,
+`_is_chemistry`: an isomerization, a fused binding or a Theorell–Chance step), so
+a cycle running through one never appears and never reports a violation: that
+free `k_I` ratio is the escape. The `:OnlyA` bindings are the `:OnlyA` groups of
+plain bindings alone; a fused binding tagged `:OnlyA` is chemistry and leaves the
+graph.
 Bindings completing no cycle (competitive inhibitors, dead ends, regulator
 sites) never enter a row and take no part. Both catalytic (Haldane) and
 binding-only (Wegscheider, `rhs = 0`) cycle rows are inspected, so a one-sided
@@ -562,11 +578,11 @@ function _onlya_haldane_violation(rxn::EnzymeReaction,
                                   cat_steps::Vector{Vector{Step}},
                                   cat_allo_states::Vector{Symbol})
     keep = [g for g in eachindex(cat_steps)
-            if !(cat_allo_states[g] === :OnlyA && is_iso(cat_steps[g][1]))]
+            if !(cat_allo_states[g] === :OnlyA && any(_is_chemistry, cat_steps[g]))]
     isempty(keep) && return nothing
     onlyA_steps = Set{Step}()
     for g in eachindex(cat_steps)
-        cat_allo_states[g] === :OnlyA && is_binding(cat_steps[g][1]) &&
+        cat_allo_states[g] === :OnlyA && !any(_is_chemistry, cat_steps[g]) &&
             union!(onlyA_steps, cat_steps[g])
     end
     isempty(onlyA_steps) && return nothing
@@ -579,7 +595,7 @@ function _onlya_haldane_violation(rxn::EnzymeReaction,
     # `sym in binding_K_set` sign rule of `_assemble_constraints` (line 366):
     # only an RE binding lands in that set, so only it is sign-flipped. The
     # multiplier is well defined per column because RE and SS bindings render to
-    # different symbols (`K_S_E` vs `kon_S_E`) and so never share a column.
+    # different symbols (`K_ES_to_E_S` vs `k_E_S_to_ES`) and so never share a column.
     onlyA_cols = Dict{Int, Int}()
     for (j, (s, _)) in enumerate(_flat_steps(cm))
         s in onlyA_steps || continue
@@ -713,8 +729,10 @@ function _dependent_param_exprs_kernel(
     return _solve_dependent_set(A, rhs, columns, priority)
 end
 
-# Type-dispatching wrapper preserves the existing call sites in
-# _dependent_param_exprs and _build_kinetic_rename_map / _build_wegscheider_rename_map.
+"""
+Type-dispatching wrapper preserves the existing call sites in
+_dependent_param_exprs and _build_kinetic_rename_map / _build_wegscheider_rename_map.
+"""
 _dependent_param_exprs_kernel(M::Type{<:EnzymeMechanism},
                               rename::AbstractDict{Symbol, Symbol}) =
     _dependent_param_exprs_kernel(Mechanism(M()), rename)

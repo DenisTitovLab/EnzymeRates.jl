@@ -1,9 +1,11 @@
 # ABOUTME: Lightweight symbolic polynomial type (POLY = Dict{MONO, Rational{Int}})
 # ABOUTME: for compile-time rate equation derivation.
 
-# Maximum raw polynomial terms allowed in a rate equation.
-# Equations exceeding this limit would take too long to compile
-# via @generated functions and are unlikely to be useful.
+"""
+Maximum raw polynomial terms allowed in a rate equation.
+Equations exceeding this limit would take too long to compile
+via @generated functions and are unlikely to be useful.
+"""
 const MAX_RATE_EQUATION_TERMS = 5000
 
 const MONO = Vector{Pair{Symbol,Int}}
@@ -52,9 +54,13 @@ exponent 0, so the shift is the identity unless the symbol appears in *every*
 monomial (min > 0) or with a negative exponent somewhere (min < 0). Identity for
 sequential mechanisms (constant term present); for a 1/conc-coupled mechanism it
 clears the coupling, yielding the standard division-free form.
+
+`weight`, a part of `den` such as the free enzyme's weight, takes the same shift
+without entering the minimum, so it keeps its share of the reduced denominator.
 """
-function _reduce_conc_lowest_terms(num::POLY, den::POLY, conc_set::Set{Symbol})
-    isempty(conc_set) && return num, den
+function _reduce_conc_lowest_terms(num::POLY, den::POLY, weight::POLY,
+                                   conc_set::Set{Symbol})
+    isempty(conc_set) && return num, den, weight
     mins = Dict{Symbol,Int}()
     for p in (num, den), mono in keys(p)
         present = Dict{Symbol,Int}(s => e for (s, e) in mono if s in conc_set)
@@ -64,7 +70,7 @@ function _reduce_conc_lowest_terms(num::POLY, den::POLY, conc_set::Set{Symbol})
         end
     end
     filter!(p -> p.second != 0, mins)
-    isempty(mins) && return num, den
+    isempty(mins) && return num, den, weight
     function shift(p)
         out = POLY()
         for (mono, v) in p
@@ -77,7 +83,7 @@ function _reduce_conc_lowest_terms(num::POLY, den::POLY, conc_set::Set{Symbol})
         end
         out
     end
-    shift(num), shift(den)
+    shift(num), shift(den), shift(weight)
 end
 
 """
@@ -265,7 +271,7 @@ end
 Rename symbols in a polynomial. `rename_map` is a `Dict{Symbol, Symbol}`;
 absent keys are left unchanged. Used by the allosteric derivation to rename
 A-state symbols to their I-state counterparts when building the inactive-
-state polynomial (e.g., `:K_A_ATP_E → :K_I_ATP_E`).
+state polynomial (e.g., `:K_A_EATP_to_E_ATP → :K_I_EATP_to_E_ATP`).
 """
 function _rename_symbols(p::POLY, rename_map::AbstractDict{Symbol, Symbol})
     isempty(rename_map) && return p

@@ -19,6 +19,14 @@ steps: begin
 end
 ```
 
+The steps of a group must take up and give off the same metabolites and carry
+one flag, all rapid-equilibrium or all steady-state. Every binding of one
+metabolite is the same kind of step, whether or not it runs chemistry: a fused
+binding of `B` (`E(A) + B ⇌ E(P, Q)`) may share a group with a plain one
+(`E(Q) + B ⇌ E(B, Q)`). Every isomerization is one kind, and a Theorell–Chance
+step cannot share a group with a binding. Each reaction appears once, in one
+group. Building a mechanism that breaks these rules raises an error.
+
 This is a modeling choice, distinct from the thermodynamic reduction
 ([Thermodynamic constraints](@ref)). The reduction also removes parameters, but
 only when a Haldane or Wegscheider relation *forces* two constants to be equal.
@@ -61,11 +69,12 @@ end
 print(rate_equation_string(ungrouped))
 ```
 
-There are nine independent constants, with form-specific names: `K_A_E`,
-`K_A_EB`, and `K_A_EQ` for `A` on three different forms, and similar families for
-the others. Four more bindings are not fit at all but fixed by Wegscheider
-relations (`K_B_EA`, `K_P_EB`, `K_Q_EA`, `K_Q_EP`), since each catalytic and
-abortive loop closes a thermodynamic cycle.
+There are nine independent constants, with form-specific names: `K_EA_to_E_A`,
+`K_EAB_to_EB_A`, and `K_EAQ_to_EQ_A` for `A` on three different forms, and
+similar families for the others. Four more bindings are not fit at all but
+fixed by Wegscheider relations (`K_EAB_to_EA_B`, `K_EBP_to_EB_P`,
+`K_EAQ_to_EA_Q`, `K_EPQ_to_EP_Q`), since each catalytic and abortive loop
+closes a thermodynamic cycle.
 
 Now group every binding of a given metabolite together — all `A`-binding steps
 in one group, all `B`-binding in another, and likewise for `P` and `Q`. Each
@@ -87,18 +96,18 @@ print(rate_equation_string(grouped))
 ```
 
 The parameter list collapses from nine constants to five — one binding constant
-per metabolite (`K_A_E`, `K_B_E`, `K_P_E`, `K_Q_E`) plus the catalytic
-`k_EAB_to_EPQ`:
+per metabolite (`K_EA_to_E_A`, `K_EB_to_E_B`, `K_EP_to_E_P`, `K_EQ_to_E_Q`) plus
+the catalytic `k_EAB_to_EPQ`:
 
 ```@example kingroups
 (ungrouped = parameters(ungrouped), grouped = parameters(grouped))
 ```
 
 The denominator becomes symmetric: the two abortive complexes read
-`A * Q / (K_A_E * K_Q_E)` and `B * P / (K_B_E * K_P_E)`, with no form-specific
-suffixes. The Wegscheider section is gone, too — once each metabolite has a
-single binding constant, the loop-closing relations become identities and drop
-out. Grouping did the collapsing the thermodynamics could not: it is what keeps
-the parameter count at the lowest physically meaningful value, and the mechanism
-enumeration starts there, splitting groups back apart only as the data warrant
-(see [The enumeration engine](@ref)).
+`A * Q / (K_EA_to_E_A * K_EQ_to_E_Q)` and `B * P / (K_EB_to_E_B * K_EP_to_E_P)`,
+with no form-specific suffixes. The Wegscheider section is gone, too — once
+each metabolite has a single binding constant, the loop-closing relations
+become identities and drop out. Grouping did the collapsing the thermodynamics
+could not: it is what keeps the parameter count at the lowest physically
+meaningful value, and the mechanism enumeration starts there, splitting groups
+back apart only as the data warrant (see [The enumeration engine](@ref)).

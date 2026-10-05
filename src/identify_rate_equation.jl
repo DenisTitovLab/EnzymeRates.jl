@@ -246,13 +246,13 @@ function identify_rate_equation(
     return result
 end
 
-# Write result rows to `<save_dir>/<filename>`, creating `save_dir` if absent.
+"""Write result rows to `<save_dir>/<filename>`, creating `save_dir` if absent."""
 function _write_rows_csv(save_dir::String, filename::String, rows)
     isdir(save_dir) || mkpath(save_dir)
     CSV.write(joinpath(save_dir, filename), _rows_to_dataframe(rows))
 end
 
-"""Save the base-tier fit (all init mechanisms) to `initial_mechanisms.csv`."""
+"""Save the base-tier fit (`_base_tier`) to `initial_mechanisms.csv`."""
 _save_initial_csv(save_dir::String, rows) =
     _write_rows_csv(save_dir, "initial_mechanisms.csv", rows)
 
@@ -409,15 +409,17 @@ struct FitFailure
     error::String
 end
 
-# Compact, CSV-safe rendering of a thrown exception: type + truncated message.
+"""Compact, CSV-safe rendering of a thrown exception: type + truncated message."""
 _exc_string(e) = first(sprint(showerror, e), 200)
 
-# CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row,
-# with `missing` wherever the value is unavailable (compile/fit never produced it).
-# `mechanism_type` is the round-trippable parametric `EnzymeMechanism{Sig}` string when
-# the mechanism compiles; falls back to the bare concrete type name
-# (`"EnzymeRates.Mechanism"` / `"EnzymeRates.AllostericMechanism"`) when compilation
-# itself fails, so the row still identifies the mechanism family.
+"""
+CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row,
+with `missing` wherever the value is unavailable (compile/fit never produced it).
+`mechanism_type` is the round-trippable parametric `EnzymeMechanism{Sig}` string when
+the mechanism compiles; falls back to the bare concrete type name
+(`"EnzymeRates.Mechanism"` / `"EnzymeRates.AllostericMechanism"`) when compilation
+itself fails, so the row still identifies the mechanism family.
+"""
 function _failure_row(f::FitFailure)
     (n_params = missing,
      parent_n_params = missing,
@@ -730,14 +732,43 @@ function _expand_parents(to_expand::Vector{BatchEntry},
 end
 
 """
+The mechanisms the beam fits first: every seed of `mechs` that is not degenerate
+(`_degenerate`), and in place of each one that is, its flip children (`_expand_re_to_ss`)
+that are not. A degenerate seed's law ignores a substrate or never saturates, so it is not
+worth a fit, but it is the only parent of mechanisms that are not degenerate (such as the
+ping-pong seeds' children). Only a flip can cure it: the other moves keep every catalytic
+step's rapid-equilibrium flag, and the steps they add bind regulators, which neither
+degeneracy condition reads. An expansion error is returned as a failure, one per seed,
+carrying the seed.
+"""
+function _base_tier(mechs::Vector, rxn::EnzymeReaction)
+    base = Union{Mechanism, AllostericMechanism}[m for m in mechs if !_degenerate(m)]
+    failures = FitFailure[]
+    for m in mechs
+        _degenerate(m) || continue
+        try
+            for child in _expand_re_to_ss(m)
+                _assert_atom_conserving(child)
+                _degenerate(child) || push!(base, child)
+            end
+        catch e
+            push!(failures, FitFailure(m, _exc_string(e)))
+        end
+    end
+    unique!(base), failures
+end
+
+"""
     _required_regulators(rxn, optional_allosteric_regulators,
                          optional_competitive_inhibitors)
         -> (required_allo::Set{Symbol}, required_comp::Set{Symbol})
 
 The regulators the beam seed must bind: every `AllostericRegulator` and every
 `CompetitiveInhibitor` declared in `rxn`, minus the names the caller marked
-optional. Both sets empty means the beam keeps its unregulated `init_mechanisms`
-seed; a non-empty set means it seeds from `seed_mechanisms`.
+optional. Both sets empty means the beam takes its seeds from `init_mechanisms`; a
+non-empty set means it takes them from `seed_mechanisms`. Either way the base tier
+fits the seeds that are not degenerate and, in place of those that are, their flip
+children that are not (`_base_tier`).
 """
 function _required_regulators(rxn::EnzymeReaction,
                               optional_allosteric_regulators::Vector{Symbol},
@@ -782,15 +813,17 @@ function _beam_search(
     # invariant breaks.
     fitted = Set{UInt64}()
 
-    # ── Base tier: fit ALL init mechanisms (no bucketing — siblings) ──
+    # ── Base tier: fit every seed, with each degenerate seed replaced by its
+    # non-degenerate flip children (`_base_tier`; no bucketing — siblings) ──
     _progress(save_dir, show_progress, "Enumerating initial mechanisms…")
     required_allo, required_comp = _required_regulators(
         prob.reaction, optional_allosteric_regulators,
         optional_competitive_inhibitors)
-    base = (isempty(required_allo) && isempty(required_comp)) ?
+    seeds = (isempty(required_allo) && isempty(required_comp)) ?
         unique!(collect(init_mechanisms(prob.reaction))) :
         unique!(collect(seed_mechanisms(
             prob.reaction, required_allo, required_comp)))
+    base, base_expand_failures = _base_tier(seeds, prob.reaction)
     compiled, reps, rep_idx, n_base_fitted_skip, n_base_param_skip, n_base_cx_skip =
         _compile_batch(base, prob; max_param_count, eq_complexity_filter, memo, fitted)
     n_base_nt = count(c -> c isa NamedTuple, compiled)
@@ -801,6 +834,9 @@ function _beam_search(
             max_param_count, eq_complexity_filter)))
     base_entries, base_failures = _fit_batch(compiled, reps, rep_idx, prob, memo;
         optimizer, kwargs...)
+    # A degenerate seed's expansion error is recorded like a fit failure (a row of
+    # initial_mechanisms.csv and the errored bucket).
+    append!(base_failures, base_expand_failures)
     if isempty(base_entries)
         isempty(base_failures) && return (
             Union{Mechanism, AllostericMechanism}[],
@@ -922,9 +958,11 @@ function _beam_search(
     return mechs, df
 end
 
-# Parsimony reference = threshold × best loss over ALL counts strictly below c
-# (not just c-1): an added parameter must beat the best simpler model of any size.
-# Returns nothing when no simpler tier has been fit yet.
+"""
+Parsimony reference = threshold × best loss over ALL counts strictly below c
+(not just c-1): an added parameter must beat the best simpler model of any size.
+Returns nothing when no simpler tier has been fit yet.
+"""
 function _parsimony_cutoff(best_loss_by_count::Dict{Int,Float64}, c::Int,
                            loss_parsimony_threshold::Float64)
     prev = [best_loss_by_count[k] for k in keys(best_loss_by_count) if k < c]

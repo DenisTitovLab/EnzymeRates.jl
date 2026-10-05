@@ -29,7 +29,7 @@
 
         # Second step: E(S) ⇌ E(P) — RE iso. The Mechanism constructor
         # canonicalizes iso direction physical-forward (substrate-bound
-        # `from`, product-bound `to`) via `_canonical_iso_direction`, so
+        # `from`, product-bound `to`) via `_canonical_step_direction`, so
         # `E_S` is `from_species` and `E_P` is `to_species`.
         iso_step = only(s for g in mech.steps for s in g
                         if EnzymeRates.bound_metabolite(s) === nothing)
@@ -542,7 +542,7 @@
 
         # Numeric check: same as Uni-Uni spot check
         Keq = 3.2 * 2.5 / (0.8 * 1.1)
-        params = (kon_S_E=3.2, kon_P_ES=2.5, koff_P_ES=1.1, Keq=Keq, E_total=1.0)
+        params = (k_E_S_to_ES=3.2, k_ES_to_E_S=0.8, k_ES_to_E_P=2.5, Keq=Keq, E_total=1.0)
         concs = (S=0.7, P=0.3)
         @test rate_equation(m, concs, params) ≈ 0.9091 atol=0.001
 
@@ -563,16 +563,15 @@
     end
 
     @testset "Elementary steps" begin
-        # The decomposed grammar's parser validates ≤1 metabolite/side
-        # at macro-expansion time. Wrap in `eval(:(...))` so the macro
-        # expansion happens at runtime where `@test_throws` can catch
-        # the LoadError that wraps the parser's exception (same pattern
-        # as lines 149, 160 above).
-        @test_throws Exception eval(:(@enzyme_mechanism begin
+        # The decomposed grammar's parser requires an enzyme form on each
+        # step side at macro-expansion time. Wrap in `eval(:(...))` so the
+        # macro expansion happens at runtime where `@test_throws` can catch
+        # the LoadError that wraps the parser's exception.
+        @test_throws "no enzyme-form term" eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S + P <--> E(S, P)
+                S <--> E(S)
             end
         end))
 
@@ -706,7 +705,7 @@
     @testset "fused catalytic release: metabolite in neither bound list dissociates" begin
         # E(A) <--> E(Q) + P : P is produced by the step (in neither E(A) nor
         # E(Q) bound list, and both sides are 1-bound). It must reconstruct as
-        # a release (P on the rhs), not a binding.
+        # leaving at E(Q), stored as the binding it reverses: E(Q) + P → E(A).
         m = @enzyme_mechanism begin
             substrates: A
             products: P, Q
@@ -718,10 +717,56 @@
         end
         rxns = EnzymeRates.reactions(m)
         # The P-releasing step (canonical order, so found by content):
-        # E(A) <--> E(Q) + P.
+        # E(Q) + P → E(A).
         mid = only(r for r in rxns if :P in r[1] || :P in r[2])
-        @test mid[1] == (:EA,)  # lhs: only the enzyme form
-        @test :P in mid[2]       # P released (rhs)
-        @test :P ∉ mid[1]        # P not consumed (lhs)
+        @test mid[1] == (:EQ, :P)  # lhs: E(Q) takes up P
+        @test mid[2] == (:EA,)     # rhs: only the enzyme form
+    end
+
+    @testset "several metabolites on a step side" begin
+        only_transformation(m) = only(
+            s for g in EnzymeRates.steps(EnzymeRates.Mechanism(m)) for s in g
+            if !EnzymeRates.is_iso(s) && !EnzymeRates.is_binding(s))
+        # Theorell–Chance: the left-hand metabolite is consumed, the right-hand
+        # one released.
+        tc = only_transformation(@enzyme_mechanism begin
+            substrates: A, B
+            products:   P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) + B <--> E(Q) + P
+                E(Q) <--> E + Q
+            end
+        end)
+        @test EnzymeRates.consumed(tc) ==
+              EnzymeRates.Metabolite[EnzymeRates.Substrate(:B)]
+        @test EnzymeRates.released(tc) ==
+              EnzymeRates.Metabolite[EnzymeRates.Product(:P)]
+
+        # Two metabolites bound in one step.
+        two_in = only_transformation(@enzyme_mechanism begin
+            substrates: A, B
+            products:   P, Q
+            steps: begin
+                E + A + B <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
+            end
+        end)
+        @test EnzymeRates.consumed(two_in) ==
+              EnzymeRates.Metabolite[EnzymeRates.Substrate(:A),
+                                     EnzymeRates.Substrate(:B)]
+        @test isempty(EnzymeRates.released(two_in))
+
+        # A side with two enzyme forms is still rejected.
+        @test_throws "more than one enzyme-form term" eval(:(@enzyme_mechanism begin
+            substrates: A, B
+            products:   P
+            steps: begin
+                E(A) + E(B) <--> E(A, B)
+                E(A, B) <--> E + P
+            end
+        end))
     end
 end

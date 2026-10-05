@@ -5,6 +5,9 @@ using Tables
 @testset "Fitting" begin
 
     # ── Helper: build a Uni-Uni mechanism ─────────────────────────────────────
+    # Fitted: k_E_S_to_ES, k_ES_to_E_S, k_ES_to_E_P. The true points below put
+    # k_ES_to_E_P = 5 at Keq = 2, so the Haldane-derived product rebinding rate is
+    # k_E_P_to_ES = k_E_S_to_ES·k_ES_to_E_P/(Keq·k_ES_to_E_S) = 1.
     uni_uni = @enzyme_mechanism begin
         substrates: S
         products:   P
@@ -35,6 +38,19 @@ using Tables
         return (; (k => cols[k] for k in (:group, :Rate, met_names...))...)
     end
 
+    # ── BlackBoxOptim fit: the only warning is its convergence ────────────────
+    # BlackBoxOptim can converge on these fits before maxtime: an absolute loss has a
+    # single optimum, and a centered population can collapse along its scale direction.
+    # It then stops because the search has converged, a reason Optimization does not
+    # recognize, so Optimization warns. Runs `fit`, checks that every warning it logs
+    # is that one, and returns its result.
+    function fit_capturing_convergence(fit)
+        logs, result = Test.collect_test_logs(fit)
+        @test all(l -> l.level < Base.CoreLogging.Warn ||
+                       occursin("probably search has converged", string(l.message)), logs)
+        result
+    end
+
     # ── Test 1: Mechanism-level accessors ─────────────────────────────────────
     @testset "Mechanism-level accessors" begin
         all_param_syms = parameters(uni_uni)
@@ -47,7 +63,8 @@ using Tables
     # ── Test 2: FittingProblem construction ───────────────────────────────────
     @testset "Construction" begin
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_ES_to_E_P = 5.0,
+                       Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -67,7 +84,8 @@ using Tables
     # ── Test 3: Loss function correctness ─────────────────────────────────────
     @testset "Loss at true params is zero" begin
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_ES_to_E_P = 5.0,
+                       Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -88,7 +106,8 @@ using Tables
     # ── Test 4: Per-group centering invariance ───────────────────────────────
     @testset "Centering invariance" begin
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_ES_to_E_P = 5.0,
+                       Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -119,7 +138,8 @@ using Tables
     # ── Test 5: Multi-group centering invariance ─────────────────────────────
     @testset "Multi-group centering invariance" begin
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_ES_to_E_P = 5.0,
+                       Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -152,7 +172,8 @@ using Tables
     # ── Absolute mode: uncentered loss (scale_k_to_kcat=nothing) ──────────────
     @testset "Absolute mode uncentered loss" begin
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_ES_to_E_P = 5.0,
+                       Keq = Keq_val, E_total = 1.0)
         concs_list = [
             (S = 1.0, P = 0.1), (S = 2.0, P = 0.1), (S = 5.0, P = 0.1),
             (S = 1.0, P = 0.5), (S = 2.0, P = 0.5),
@@ -249,7 +270,8 @@ using Tables
     # ── Test 7: Zero allocations ──────────────────────────────────────────────
     @testset "Zero allocations" begin
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_ES_to_E_P = 5.0,
+                       Keq = Keq_val, E_total = 1.0)
 
         concs_list = [(S = Float64(i), P = 0.1) for i in 1:20]
         data = make_synthetic_data(uni_uni, true_params, concs_list)
@@ -328,7 +350,8 @@ using Tables
     @testset "scale_k_to_kcat normalization" begin
         using OptimizationBBO
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_ES_to_E_P = 5.0,
+                       Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
@@ -339,24 +362,30 @@ using Tables
 
         # Default scale_k_to_kcat=1.0: returned params have kcat ≈ 1.
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
-        result = fit_rate_equation(fp, BBO_adaptive_de_rand_1_bin_radiuslimited();
-            n_restarts=3, maxtime=5.0)
+        result = fit_capturing_convergence() do
+            fit_rate_equation(fp, BBO_adaptive_de_rand_1_bin_radiuslimited();
+                n_restarts=3, maxtime=5.0)
+        end
         full = merge(result.params, (Keq = Keq_val, E_total = 1.0))
         @test EnzymeRates._kcat_forward(uni_uni, full) ≈ 1.0 rtol=0.01
         @test result.retcode isa Symbol
 
         # Custom target set on the FittingProblem.
         fp42 = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=42.0)
-        result2 = fit_rate_equation(fp42, BBO_adaptive_de_rand_1_bin_radiuslimited();
-            n_restarts=3, maxtime=5.0)
+        result2 = fit_capturing_convergence() do
+            fit_rate_equation(fp42, BBO_adaptive_de_rand_1_bin_radiuslimited();
+                n_restarts=3, maxtime=5.0)
+        end
         full2 = merge(result2.params, (Keq = Keq_val, E_total = 1.0))
         @test EnzymeRates._kcat_forward(uni_uni, full2) ≈ 42.0 rtol=0.01
         @test result2.retcode isa Symbol
 
         # scale_k_to_kcat=nothing: raw params (no rescale), retcode still present.
         fpN = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
-        result3 = fit_rate_equation(fpN, BBO_adaptive_de_rand_1_bin_radiuslimited();
-            n_restarts=3, maxtime=5.0)
+        result3 = fit_capturing_convergence() do
+            fit_rate_equation(fpN, BBO_adaptive_de_rand_1_bin_radiuslimited();
+                n_restarts=3, maxtime=5.0)
+        end
         @test haskey(result3, :params)
         @test result3.retcode isa Symbol
     end
@@ -365,7 +394,7 @@ using Tables
     @testset "fit_rate_equation kcat rescaling" begin
         using OptimizationBBO
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0,
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_ES_to_E_P = 5.0,
                        Keq = Keq_val, E_total = 1.0)
         concs_list = [
             (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
@@ -377,7 +406,9 @@ using Tables
 
         # scale_k_to_kcat=7.0: the returned params are anchored so kcat ≈ 7.0.
         fp = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=7.0)
-        res = fit_rate_equation(fp, opt; n_restarts=3, maxtime=5.0)
+        res = fit_capturing_convergence() do
+            fit_rate_equation(fp, opt; n_restarts=3, maxtime=5.0)
+        end
         @test keys(res.params) == EnzymeRates.fitted_params(uni_uni)
         @test isfinite(res.loss)
         @test res.retcode isa Symbol
@@ -386,7 +417,9 @@ using Tables
 
         # scale_k_to_kcat=nothing: params returned verbatim (data fixes the scale).
         fpN = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
-        resN = fit_rate_equation(fpN, opt; n_restarts=1, maxtime=2.0)
+        resN = fit_capturing_convergence() do
+            fit_rate_equation(fpN, opt; n_restarts=1, maxtime=2.0)
+        end
         @test keys(resN.params) == EnzymeRates.fitted_params(uni_uni)
     end
 
@@ -394,7 +427,7 @@ using Tables
     @testset "solver kwarg forwarding" begin
         using OptimizationCMAEvolutionStrategy
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0,
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_ES_to_E_P = 5.0,
             Keq = Keq_val, E_total = 1.0)
         concs_list = [
             (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
@@ -457,7 +490,7 @@ using Tables
         end
 
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0,
+        true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_ES_to_E_P = 5.0,
             Keq = Keq_val, E_total = 1.0)
         concs_list = [(S = 1.0, P = 0.1), (S = 2.0, P = 0.1)]
         data = make_synthetic_data(uni_uni, true_params, concs_list)

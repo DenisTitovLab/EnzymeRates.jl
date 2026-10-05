@@ -62,7 +62,7 @@ end
     am = AllostericMechanism(aem)
     # The full symbol set over-emits an I-state mirror for every non-`:OnlyA`
     # catalytic group (`_all_i_state_parameters`). A forbidden-split collapse
-    # mirror — a `:NonequalAI` group's derived I-symbol, e.g. PK's `K_I_PEP_E` —
+    # mirror — a `:NonequalAI` group's derived I-symbol, e.g. PK's `K_I_EPEP_to_E_PEP` —
     # is the I-form of that group's binding/reverse constant, so it always
     # coincides with the group's over-emitted `(:I)` mirror already in `names`.
     # No separate collapse-name splice is needed.
@@ -117,8 +117,9 @@ function _build_wegscheider_rename_map(mech::Mechanism)
     rename = Dict{Symbol, Symbol}()
     step_params = _step_parameters(mech)
     # binding-K set: value-context rep name of each RE binding step. Walk
-    # Mechanism.steps directly — an RE step carrying a bound metabolite is
-    # a binding step; step_params is indexed in the same flat order.
+    # Mechanism.steps directly — an RE step that is a binding (`is_binding`,
+    # plain or fused) is a binding step; step_params is indexed in the same
+    # flat order.
     binding_set = Set{Symbol}()
     for (idx, (s, _)) in enumerate(_flat_steps(mech))
         is_equilibrium(s) && is_binding(s) || continue
@@ -144,46 +145,6 @@ _build_wegscheider_rename_map(m::EnzymeMechanism) =
     _build_wegscheider_rename_map(typeof(m))
 
 # ─── RE Group Helpers ───────────────────────────────────────
-
-"""
-Per-step side breakdown for the rate equation derivation. Returns
-`(from_species_sym, to_species_sym, m_lhs_syms, m_rhs_syms)` for a
-single `Step`. This is the canonical metabolite-on-which-side
-projection: it reads Step fields directly, placing the bound
-metabolite on the binding (m_lhs) or release (m_rhs) side from the
-canonical metabolite-on-`to_species` placement plus the SS-dissociation
-rule. The five-branch logic is load-bearing: SS catalytic-release steps
-where the bound metabolite is a Product that doesn't appear in either
-bound list put the metabolite on m_rhs, not m_lhs.
-"""
-function _step_sides(s::Step)
-    e_lhs = name(from_species(s))
-    e_rhs = name(to_species(s))
-    is_iso(s) && return (e_lhs, e_rhs, Symbol[], Symbol[])
-    bm = bound_metabolite(s)
-    bm_name = name(bm)
-    from_bound_names = Set{Symbol}(name(m) for m in bound(from_species(s)))
-    to_bound_names = Set{Symbol}(name(m) for m in bound(to_species(s)))
-    if bm_name in to_bound_names
-        # Canonical binding: bound met on to_species → emit on m_lhs
-        return (e_lhs, e_rhs, Symbol[bm_name], Symbol[])
-    elseif bm_name in from_bound_names
-        # Reverse-canonical (defensive: ctor swap should have prevented this)
-        return (e_lhs, e_rhs, Symbol[], Symbol[bm_name])
-    elseif !is_equilibrium(s) && bm isa Product &&
-           !(isempty(from_bound_names) && isempty(to_bound_names))
-        # SS dissociation rule: bound_metabolite is a Product released
-        # in an SS catalytic step; not in either bound list (because the
-        # Species canonicalization moved it). Emit on m_rhs.
-        return (e_lhs, e_rhs, Symbol[], Symbol[bm_name])
-    elseif length(from_bound_names) > length(to_bound_names)
-        # Bound-list-size fallback: the side with fewer bound metabolites
-        # is the release side, so the metabolite goes on m_rhs.
-        return (e_lhs, e_rhs, Symbol[], Symbol[bm_name])
-    else
-        return (e_lhs, e_rhs, Symbol[bm_name], Symbol[])
-    end
-end
 
 """
 Compute RE-connected groups via union-find over enzyme Species. Walks
@@ -259,12 +220,30 @@ function _segment_root(group, enz_species)
 end
 
 """
+    _re_weight_ratio(s, K; inverse = false) -> POLY
+
+w(to)/w(from) of rapid-equilibrium step `s` as a monomial (its inverse when
+`inverse`): [M]/K for a binding of M, plain or fused (K a dissociation constant), and
+K·Π[consumed]/Π[released] for every other step (K the equilibrium constant of the
+stored direction, products over reactants: [to]·Π[released] / ([from]·Π[consumed]),
+as its name `K_<from>_to_<to>` says).
+"""
+function _re_weight_ratio(s::Step, K::Symbol; inverse::Bool = false)
+    sgn = inverse ? -1 : 1
+    d = Dict{Symbol, Int}(K => sgn * (is_binding(s) ? -1 : 1))
+    for m in consumed(s); d[name(m)] = get(d, name(m), 0) + sgn; end
+    for m in released(s); d[name(m)] = get(d, name(m), 0) - sgn; end
+    filter!(p -> p.second != 0, d)
+    POLY(sort!(MONO(collect(d)); by = first) => 1)
+end
+
+"""
 Compute alpha factors (relative concentrations within RE groups) as POLY
-values. Iterates `mech.steps` directly. Binding steps' direction comes
-from the canonical Step form (metabolite-on-`to_species`); iso steps
-are physical-forward (canonicalized in the Mechanism constructor).
-`step_to_K[idx]` is the parameter Symbol for the RE step at flat
-position `idx` (rep-renamed via the `name(p, m)` chokepoint).
+values. Iterates `mech.steps` directly; each RE step's weight ratio comes
+from `_re_weight_ratio`, entering `to_species` from `from_species` or the
+reverse. `step_to_K[idx]` is the parameter Symbol for the RE step at flat
+position `idx` (rep-renamed via the `name(p, m)` chokepoint). Raises when the
+RE steps close a catalytic cycle, which gives the mechanism no finite rate.
 """
 function _compute_alpha(mech::Mechanism, enz_species,
                         enz_name_to_form, groups, step_to_K)
@@ -281,34 +260,34 @@ function _compute_alpha(mech::Mechanism, enz_species,
             cur = popfirst!(queue)
             for (idx, (s, _)) in enumerate(flat)
                 is_equilibrium(s) || continue
-                e_l, e_r, m_l, m_r = _step_sides(s)
-                i_f = enz_name_to_form[e_l]
-                j_f = enz_name_to_form[e_r]
-                Ksym = step_to_K[idx]
-                Kp = poly_sym(Ksym)
-                Kinv = POLY(_mono(Ksym => -1) => 1)
-                is_iso = isempty(m_l) && isempty(m_r)
+                i_f = enz_name_to_form[name(from_species(s))]
+                j_f = enz_name_to_form[name(to_species(s))]
+                K = step_to_K[idx]
                 if i_f == cur && j_f ∉ visited
-                    if is_iso
-                        alpha[j_f] = poly_mul(alpha[cur], Kp)
-                    else
-                        f = poly_mul(poly_sym(m_l[1]), Kinv)
-                        isempty(m_r) ||
-                            (f = poly_mul(f, POLY(_mono(m_r[1] => -1) => 1)))
-                        alpha[j_f] = poly_mul(alpha[cur], f)
-                    end
+                    alpha[j_f] = poly_mul(alpha[cur], _re_weight_ratio(s, K))
                     push!(visited, j_f); push!(queue, j_f)
                 elseif j_f == cur && i_f ∉ visited
-                    if is_iso
-                        alpha[i_f] = poly_mul(alpha[cur], Kinv)
-                    else
-                        f = poly_mul(Kp, POLY(_mono(m_l[1] => -1) => 1))
-                        alpha[i_f] = poly_mul(alpha[cur], f)
-                    end
+                    alpha[i_f] = poly_mul(alpha[cur],
+                                          _re_weight_ratio(s, K; inverse = true))
                     push!(visited, i_f); push!(queue, i_f)
                 end
             end
         end
+    end
+
+    # Every RE step must reproduce its own concentration ratio from the weights; a
+    # mismatch means a cycle of RE steps performs turnover.
+    conc_set = _concentration_symbols(mech)
+    conc(p) = Dict(k => v for (k, v) in only(keys(p)) if k in conc_set)
+    for (idx, (s, _)) in enumerate(flat)
+        is_equilibrium(s) || continue
+        a = enz_name_to_form[name(from_species(s))]
+        b = enz_name_to_form[name(to_species(s))]
+        ratio = poly_mul(alpha[b], _invert_monomial(alpha[a]))
+        conc(ratio) == conc(_re_weight_ratio(s, step_to_K[idx])) || error(
+            "rate_equation: the rapid-equilibrium steps close a catalytic cycle " *
+            "(through $(name(from_species(s))) ⇌ $(name(to_species(s)))), so the " *
+            "mechanism has no finite rate. Make one step of the cycle steady-state.")
     end
     alpha
 end
@@ -328,13 +307,13 @@ walking the lifted `Mechanism`. Parameter Symbols on the leaves of
 collapses kinetic-group members to their rep's name). `rename_map` then
 applies any single-symbol Wegscheider ties as a post-pass.
 
-Also returns `d_free`, the spanning-tree weight `D[g_free]` of the segment
-holding the free resting enzyme (the form with empty `bound` and empty
-`residual`) — `1` when that segment is the mechanism's only segment.
+Also returns `d_free`, the weight in the returned denominator of the free
+resting enzyme (the form with empty `bound` and empty `residual`): the
+spanning-tree weight `D[g_free]` of its segment times the concentration monomial
+that brings `num`/`den` to lowest terms. Free E roots its segment, so its own
+`alpha` is 1.
 """
-function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
-                                  subs_species, prods_species;
-                                  allow_dead::Bool=false)
+function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map)
     enz_species, groups, form_to_group = _compute_re_groups(mech)
     # A fully-inert conformation (every binding pruned) has no enumerated form; it
     # exists only as free enzyme — no flux, partition 1, D[g_free] 1.
@@ -352,16 +331,15 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
     R = [poly_zero() for _ in 1:G, _ in 1:G]
     for (idx, (s, _)) in enumerate(flat)
         is_equilibrium(s) && continue
-        e_lhs, e_rhs, m_lhs, m_rhs = _step_sides(s)
-        i_form = enz_name_to_form[e_lhs]
-        j_form = enz_name_to_form[e_rhs]
+        i_form = enz_name_to_form[name(from_species(s))]
+        j_form = enz_name_to_form[name(to_species(s))]
         g1, g2 = form_to_group[i_form], form_to_group[j_form]
         kf_poly = poly_sym(name(step_params[idx][1], mech))
         kr_poly = poly_sym(name(step_params[idx][2], mech))
         R[g1, g2] = poly_add(R[g1, g2],
-            _ss_contrib(kf_poly, m_lhs, i_form, alpha))
+            _ss_contrib(kf_poly, Symbol[name(m) for m in consumed(s)], i_form, alpha))
         R[g2, g1] = poly_add(R[g2, g1],
-            _ss_contrib(kr_poly, m_rhs, j_form, alpha))
+            _ss_contrib(kr_poly, Symbol[name(m) for m in released(s)], j_form, alpha))
     end
 
     L = [i == j ? poly_zero() : poly_neg(R[i,j])
@@ -388,16 +366,12 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
         den = poly_add(den, poly_mul(csigma, D[g]))
     end
 
-    num = _compute_numerator(
-        mech, enz_name_to_form, step_params,
-        alpha, form_to_group,
-        D, subs_species, prods_species; allow_dead=allow_dead)
+    num = _compute_numerator(mech, enz_name_to_form, step_params, alpha, form_to_group, D)
 
     num = _rename_symbols(num, rename_map)
     den = _rename_symbols(den, rename_map)
     conc_set = _concentration_symbols(mech)
-    num, den = _reduce_conc_lowest_terms(num, den, conc_set)
-    num, den, d_free
+    _reduce_conc_lowest_terms(num, den, d_free, conc_set)
 end
 
 function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
@@ -405,13 +379,7 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     _assert_derivable(mech)
     step_params = _step_parameters(mech)
     rename_map = _build_wegscheider_rename_map(M)
-    # substrates(::EnzymeReaction) returns Vector{Substrate} (concrete metabolite
-    # structs); _compute_numerator compares them as Symbols (`name(...) == S`,
-    # `S in subs_in(...)`). Wrap explicitly.
-    subs_syms = Symbol[name(s) for s in substrates(mech.reaction)]
-    prods_syms = Symbol[name(p) for p in products(mech.reaction)]
-    _raw_symbolic_rate_polys(mech, step_params, rename_map,
-                              subs_syms, prods_syms)
+    _raw_symbolic_rate_polys(mech, step_params, rename_map)
 end
 
 """
@@ -440,9 +408,8 @@ function _segment_graph_terms(mech::Mechanism)
     A = zeros(Int, G, G)
     for (s, _) in _flat_steps(mech)
         is_equilibrium(s) && continue                # SS steps are the segment-graph edges
-        e_lhs, e_rhs, _, _ = _step_sides(s)
-        g1 = form_to_group[enz_name_to_form[e_lhs]]
-        g2 = form_to_group[enz_name_to_form[e_rhs]]
+        g1 = form_to_group[enz_name_to_form[name(from_species(s))]]
+        g2 = form_to_group[enz_name_to_form[name(to_species(s))]]
         g1 == g2 && continue
         A[g1, g2] += 1; A[g2, g1] += 1
     end
@@ -501,126 +468,35 @@ function _assert_derivable(mech::Mechanism)
 end
 
 """
-Numerator = net flux across one complete steady-state reaction-cut. Each
-per-turnover-conserved "event" is a candidate cut whose SS-step fluxes sum to v:
-metabolite cuts (bind a substrate / release a product / iso-convert a substrate /
-iso-produce a product) and central-species cuts (produce / consume an iso-step
-endpoint form). Dead-end binding/release steps touching a substrate-product mixed
-complex are excluded (a chemistry step producing such a complex — a ping-pong
-covalent intermediate — is kept). A candidate is usable iff all its steps are SS;
-NUM = oriented-flux sum over the chosen cut (prefer a metabolite cut — always
-complete — over a central-species cut, then fewest steps, then a chemistry cut,
-then sorted indices). No usable candidate ⇒ a complete all-RE catalytic cycle ⇒
-no finite rate ⇒ raise. A central-species cut is trusted only when its form is
-unique up to bound regulators; a regulator-variant sibling is a parallel route the
-single-form cut would undercount, so raise rather than return a wrong rate.
+Numerator of the rate: v·den summed over steady-state steps. With u(f) the
+first substrate's exponent in form f's RE weight, each SS step e contributes
+ω_e·(forward − reverse flux) with ω_e = (copies of the first substrate e
+consumes − copies it releases) + u(from_e) − u(to_e). Flux conservation at every
+form makes the sum equal the net consumption of the first substrate for every
+parameter value, so it needs no choice of reaction cut and does not depend on
+the direction a step is written in. Steps with ω_e = 0 contribute nothing.
 """
-function _compute_numerator(
-    mech::Mechanism, enz_name_to_form, step_params,
-    alpha, form_to_group, D, subs_species, prods_species;
-    allow_dead::Bool=false,
-)
-    is_mixed_substrate_product_complex(f) =
-        any(m -> m isa Substrate, bound(f)) && any(m -> m isa Product, bound(f))
-    subs_in(f)  = Set(name(m) for m in bound(f) if m isa Substrate)
-    prods_in(f) = Set(name(m) for m in bound(f) if m isa Product)
-
-    # Forward-oriented reaction steps (skip inhibitor/regulator binding, pure
-    # conformational isos, and product-rebinding dead-ends). For each: type ∈
-    # {:bind,:chem,:release}; (ff,ft) = forward (from,to). A product release stored
-    # as product-binding (`E+P→EP`, product on m_lhs) is the reverse reaction, so
-    # its forward direction swaps the endpoints; an SS-dissociation release
-    # (`EA→E+P`, product on m_rhs) is already forward.
-    rsteps = NamedTuple[]
-    for (idx, (s, _)) in enumerate(_flat_steps(mech))
-        bm = bound_metabolite(s)
-        local ff, ft, typ
-        if bm === nothing                                   # iso step
-            f, t = from_species(s), to_species(s)
-            (Set(name(m) for m in bound(f)) == Set(name(m) for m in bound(t)) &&
-             residual(f) == residual(t)) && continue        # pure conformational iso
-            ff, ft, typ = f, t, :chem
-        elseif bm isa Substrate
-            ff, ft, typ = from_species(s), to_species(s), :bind
-        elseif bm isa Product
-            _, _, m_lhs, _ = _step_sides(s)
-            rev = !isempty(m_lhs)                           # product-binding storage
-            ff = rev ? to_species(s) : from_species(s)
-            ft = rev ? from_species(s) : to_species(s)
-            typ = :release
-        else
-            continue                                        # inhibitor / regulator
-        end
-        typ !== :chem &&
-            (is_mixed_substrate_product_complex(ff) ||
-             is_mixed_substrate_product_complex(ft)) && continue
-        push!(rsteps, (idx = idx, ff = ff, ft = ft, typ = typ, s = s))
-    end
-
-    # Candidate cuts: (steps into rsteps, central form or `nothing` for metabolite).
-    cands = Tuple{Vector{Int}, Union{Species, Nothing}}[]
-    add_cand!(central, pred) = (g = [k for k in eachindex(rsteps) if pred(rsteps[k])];
-                                isempty(g) || push!(cands, (g, central)))
-    for S in subs_species
-        add_cand!(nothing, r -> r.typ === :bind && name(bound_metabolite(r.s)) == S)
-        add_cand!(nothing, r -> r.typ === :chem && S in subs_in(r.ff) && !(S in subs_in(r.ft)))
-    end
-    for P in prods_species
-        add_cand!(nothing, r -> r.typ === :release && name(bound_metabolite(r.s)) == P)
-        add_cand!(nothing, r -> r.typ === :chem && P in prods_in(r.ft) && !(P in prods_in(r.ff)))
-    end
-    central_forms = Set{Species}()      # iso-step endpoints
-    for r in rsteps
-        r.typ === :chem && (push!(central_forms, r.ff); push!(central_forms, r.ft))
-    end
-    for X in sort(collect(central_forms); by = x -> string(name(x)))  # sorted: precompile-stable
-        add_cand!(X, r -> r.ft == X)    # produce X
-        add_cand!(X, r -> r.ff == X)    # consume X
-    end
-
-    usable = [c for c in cands if all(!is_equilibrium(rsteps[k].s) for k in c[1])]
-    if isempty(usable)
-        allow_dead && return poly_zero()
-        error(
-            "rate_equation: no rapid-equilibrium-consistent reaction cut — a complete " *
-            "all-RE catalytic cycle exists, so the mechanism has no finite rate.")
-    end
-
-    # Prefer a metabolite cut (central === nothing) over a central-species cut, then
-    # fewest steps, then a chemistry cut, then sorted indices (precompile-stable).
-    has_chem(c) = any(rsteps[k].typ === :chem for k in c[1])
-    steps, central = usable[argmin(
-        i -> (usable[i][2] === nothing ? 0 : 1, length(usable[i][1]),
-              has_chem(usable[i]) ? 0 : 1, sort([rsteps[k].idx for k in usable[i][1]])),
-        eachindex(usable))]
-
-    # A central-species cut is complete only when its form is unique up to bound
-    # regulators; a regulator-variant sibling is a parallel route this cut would
-    # undercount, so raise rather than return a wrong rate.
-    if central !== nothing
-        xs = sort!([name(m) for m in bound(central) if m isa Substrate])
-        xp = sort!([name(m) for m in bound(central) if m isa Product])
-        for Y in _enumerate_species(mech)
-            Y == central && continue
-            sort!([name(m) for m in bound(Y) if m isa Substrate]) == xs &&
-                sort!([name(m) for m in bound(Y) if m isa Product]) == xp &&
-                residual(Y) == residual(central) && error(
-                "rate_equation: ambiguous central-complex cut on $(name(central)) — " *
-                "the regulator-variant form $(name(Y)) is a parallel route this cut " *
-                "would undercount; cannot derive a unique rate.")
-        end
-    end
-
+function _compute_numerator(mech::Mechanism, enz_name_to_form, step_params,
+                            alpha, form_to_group, D)
+    x = name(first(substrates(reaction(mech))))
+    expo(p) = (mono = only(keys(p));
+               k = findfirst(q -> q.first == x, mono);
+               k === nothing ? 0 : mono[k].second)
     num = poly_zero()
-    for k in steps
-        r = rsteps[k]; idx = r.idx
-        e_lhs, e_rhs, m_lhs, m_rhs = _step_sides(r.s)
-        i_form = enz_name_to_form[e_lhs]; j_form = enz_name_to_form[e_rhs]
-        g1, g2 = form_to_group[i_form], form_to_group[j_form]
-        rf = _ss_contrib(poly_sym(name(step_params[idx][1], mech)), m_lhs, i_form, alpha)
-        rr = _ss_contrib(poly_sym(name(step_params[idx][2], mech)), m_rhs, j_form, alpha)
-        canon = poly_sub(poly_mul(rf, D[g1]), poly_mul(rr, D[g2]))
-        num = poly_add(num, (r.typ === :release && !isempty(m_lhs)) ? poly_neg(canon) : canon)
+    for (idx, (s, _)) in enumerate(_flat_steps(mech))
+        is_equilibrium(s) && continue
+        i_form = enz_name_to_form[name(from_species(s))]
+        j_form = enz_name_to_form[name(to_species(s))]
+        ω = count(m -> name(m) == x, consumed(s)) - count(m -> name(m) == x, released(s)) +
+            expo(alpha[i_form]) - expo(alpha[j_form])
+        ω == 0 && continue
+        fwd = _ss_contrib(poly_sym(name(step_params[idx][1], mech)),
+                          Symbol[name(m) for m in consumed(s)], i_form, alpha)
+        rev = _ss_contrib(poly_sym(name(step_params[idx][2], mech)),
+                          Symbol[name(m) for m in released(s)], j_form, alpha)
+        term = poly_sub(poly_mul(fwd, D[form_to_group[i_form]]),
+                        poly_mul(rev, D[form_to_group[j_form]]))
+        num = poly_add(num, poly_mul(poly_const(ω), term))
     end
     num
 end
@@ -728,11 +604,11 @@ julia> m = @enzyme_mechanism begin
        end;
 
 julia> print(rate_equation_string(m))
-(; K_P_E, K_S_E, k_ES_to_EP, Keq, E_total) = params
+(; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP, Keq, E_total) = params
 (; S, P) = concs
 # Haldane constraints:
-k_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_ES_to_EP
-v = E_total * (k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E) / (1 + P / K_P_E + S / K_S_E)
+k_EP_to_ES = (1 / Keq) * K_EP_to_E_P * (1 / K_ES_to_E_S) * k_ES_to_EP
+v = E_total * (k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P) / (1 + P / K_EP_to_E_P + S / K_ES_to_E_S)
 ```
 """
 function rate_equation_string end
@@ -809,9 +685,9 @@ end
 
 """
 Set of Symbol names for SS rate-constant parameters (Kon, Koff, Kfor,
-Krev) of `em`. For `AllostericEnzymeMechanism`, also includes the
-`_T`-suffixed names of every SS rate constant that lives in the
-inactive state polynomial. Routes Symbol production through the
+Krev) of `em`. For `AllostericEnzymeMechanism`, also includes the I-state
+names (`I_` tag after the prefix, e.g. `k_I_ES_to_EP`) of every SS rate
+constant that lives in the inactive state polynomial. Routes Symbol production through the
 `name(p, m)` chokepoint via Parameter-subtype dispatch. Used by
 `rescale_parameter_values` to scale only SS k's without touching RE
 Kd's, Keq, E_total, L, or regulatory K's.
@@ -964,7 +840,7 @@ so this carries no `catalytic_multiplicity` factor.
     # unchanged; matching the same branch as `rate_equation` keeps the
     # saturating-pattern grouping below consistent with it.
     if d_free_A == d_free_I
-        # raw — D[g_free] is common to both states and cancels; leave the polys
+        # raw — the free-enzyme weight is common to both states and cancels; leave the polys
         # as captured
     elseif _is_metabolite_free_monomial(d_free_A, cat_mets) &&
            _is_metabolite_free_monomial(d_free_I, cat_mets)
@@ -1154,8 +1030,8 @@ end
 
 """
 The native I-state catalytic numerator polynomial is empty (zero): the
-reachable-form-pruned I-graph of a broken cycle has no steady-state cut, so
-`_compute_numerator(allow_dead=true)` returns `poly_zero()` natively — no forced
+steady-state fluxes of a broken cycle's reachable-form-pruned I-graph cancel
+exactly, so `_compute_numerator` returns `poly_zero()` natively — no forced
 zero. It decides, at both consumer sites (`_allosteric_num_den_exprs` and
 `_kcat_forward`), whether the `L·num_I` term is emitted and whether `kcat`
 carries the I-state term. A live redundant-path `:OnlyA` mechanism (num_I ≠ 0)
@@ -1295,7 +1171,7 @@ no post-hoc rename is needed (`:EqualAI` groups render the shared bare Symbol
 automatically). The `:I` polynomials reference each `:NonequalAI` group's
 native `K_I_…`/`k_I_…` symbol; a forbidden split's `K_I_…` is defined by the
 combined constraint solve's dependent assignment (`_build_dep_assignments`).
-`d_free_poly` is that state's free-enzyme segment weight (see
+`d_free_poly` is free E's weight in that state's denominator (see
 `_raw_symbolic_rate_polys`).
 """
 function _state_rate_polys(am::AllostericMechanism, state::Symbol)
@@ -1303,12 +1179,7 @@ function _state_rate_polys(am::AllostericMechanism, state::Symbol)
     _assert_derivable(cm)
     sp = _state_step_params(am, state)
     @assert length(sp) == length(_flat_steps(cm)) "state step_params/steps misaligned"
-    subs_syms = Symbol[name(s) for s in substrates(reaction(am))]
-    prods_syms = Symbol[name(p) for p in products(reaction(am))]
-    _raw_symbolic_rate_polys(cm, sp,
-                             _state_wegscheider_rename_map(am, state),
-                             subs_syms, prods_syms;
-                             allow_dead = state === :I)
+    _raw_symbolic_rate_polys(cm, sp, _state_wegscheider_rename_map(am, state))
 end
 
 """
@@ -1591,7 +1462,7 @@ _mwc_power_pair(x, y, n) =
 
 """Cross-weight an MWC state term by the OTHER conformation's free-enzyme weight
 `D_other^n` (`n = catalytic_multiplicity`). Restores a common free-enzyme basis
-when the two conformations' `D[g_free]` differ and cannot be divided out (a
+when the two conformations' free-enzyme weights differ and cannot be divided out (a
 metabolite-bearing or multi-term `D`). A no-op when `d_other_expr == 1`."""
 _mwc_cross_weight(term, d_other_expr, n) =
     d_other_expr == 1 ? term : :($(_power_expr(d_other_expr, n)) * $term)
@@ -1605,7 +1476,7 @@ function _invert_monomial(p::POLY)
 end
 
 """True when `p` is a single term whose monomial names no symbol in `mets`.
-A metabolite-free monomial `D[g_free]` can be divided out of a `POLY` as a
+A metabolite-free monomial free-enzyme weight can be divided out of a `POLY` as a
 Laurent factor; a metabolite-bearing or multi-term `D` cannot (division would
 put a concentration or a rational in a denominator), so it is cross-weighted."""
 function _is_metabolite_free_monomial(p::POLY, mets::Set{Symbol})
@@ -1689,12 +1560,12 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     # subgraph (`_state_allo_mechanism(am, :I)` drops `:OnlyA` groups and every
     # form they disconnect from free E). Reachable-subgraph King–Altman gives the
     # same binding partition monomial-zeroing produced, and for a dead cycle the
-    # pruned graph has no SS cut so `_compute_numerator(allow_dead=true)` returns
-    # 0 natively — no forced zero needed.
+    # pruned graph's steady-state fluxes cancel exactly, so `_compute_numerator`
+    # returns 0 natively — no forced zero needed.
     num_i_poly, den_i_poly, d_free_I = _state_rate_polys(am, :I)
 
     # Formulation-1 per-state free-enzyme normalization. Render the same value
-    # three ways by how D[g_free] combines:
+    # three ways by how the two free-enzyme weights combine:
     #   D_A == D_I               → raw (identical conformations; the factor cancels)
     #   both metabolite-free monomials → divide Q/D (clean standard-MWC form)
     #   otherwise                → cross-weight by the other state's D^n (polynomial)

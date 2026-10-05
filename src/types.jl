@@ -26,9 +26,11 @@ name(p::Product)              = p.name
 name(a::AllostericRegulator)  = a.name
 name(c::CompetitiveInhibitor) = c.name
 
-# Residual: substrates added + products subtracted from the enzyme
-# (e.g., a covalent adduct after a ping-pong half-reaction). Empty
-# `Residual()` means no covalent residue.
+"""
+Residual: substrates added + products subtracted from the enzyme
+(e.g., a covalent adduct after a ping-pong half-reaction). Empty
+`Residual()` means no covalent residue.
+"""
 struct Residual
     added::Vector{Substrate}
     subtracted::Vector{Product}
@@ -46,16 +48,32 @@ Base.:(==)(a::Residual, b::Residual) =
 Base.hash(r::Residual, h::UInt) =
     hash(r.subtracted, hash(r.added, hash(:Residual, h)))
 
-# Species: an enzyme form. `bound` is sorted by name; the
-# rendered Symbol name reads `:E` / `:EATP` / `:Estar...` / `:EATPres_+P`.
+"""
+Sort key for metabolite lists (`Species.bound`, `Step.consumed`,
+`Step.released`): by name, a competitive-inhibitor copy after the
+metabolite of the same name.
+"""
+_met_sort_key(m::Metabolite) = (name(m), m isa CompetitiveInhibitor)
+
+"""
+A metabolite as written in enzyme-form and parameter names: its name, with an
+`inh` marker on a competitive-inhibitor copy, so the copy's forms and constants
+stay distinct from those of the same metabolite in its reactant role.
+"""
+_met_label(m::Metabolite) =
+    m isa CompetitiveInhibitor ? String(name(m)) * "inh" : String(name(m))
+
+"""
+Species: an enzyme form. `bound` is sorted by `_met_sort_key`; the
+rendered Symbol name reads `:E` / `:EATP` / `:Estar...` / `:EATP_res_+P`.
+"""
 struct Species
     bound::Vector{Metabolite}
     conformation::Symbol
     residual::Residual
     function Species(bound::Vector{<:Metabolite}, conformation::Symbol,
                      residual::Residual)
-        new(sort(Vector{Metabolite}(bound);
-                 by = m -> (name(m), m isa CompetitiveInhibitor)),
+        new(sort(Vector{Metabolite}(bound); by = _met_sort_key),
             conformation, residual)
     end
 end
@@ -71,17 +89,18 @@ Base.:(==)(a::Species, b::Species) =
 Base.hash(s::Species, h::UInt) =
     hash(s.bound, hash(s.conformation, hash(s.residual, hash(:Species, h))))
 
-# Render species name deterministically from fields:
-#   :<conformation><bound1><bound2>...[_res[_+<added>...][_-<subtracted>...]]
-# Conformation and bound metabolites are concatenated without separator.
-# Metabolite Symbols must not contain `_` (domain convention): `:EATP`
-# unambiguously means E with ATP bound, not a conformation named "EATP".
-# Examples: `:E`, `:ES`, `:EATP`, `:EstarA_res_+P`.
+"""
+Render species name deterministically from fields:
+  :<conformation><bound1><bound2>...[_res[_+<added>...][_-<subtracted>...]]
+Conformation and bound metabolites are concatenated without separator.
+Metabolite Symbols must not contain `_` (domain convention): `:EATP`
+unambiguously means E with ATP bound, not a conformation named "EATP".
+Examples: `:E`, `:ES`, `:EATP`, `:EstarA_res_+P`.
+"""
 function name(s::Species)
     head = String(conformation(s))
     for m in bound(s)
-        head *= m isa CompetitiveInhibitor ?
-                String(name(m)) * "inh" : String(name(m))
+        head *= _met_label(m)
     end
     parts = String[head]
     if has_residual(s)
@@ -96,9 +115,11 @@ function name(s::Species)
     Symbol(join(parts, "_"))
 end
 
-# RegulatorySite: a binding site (possibly multimeric) for one or
-# more allosteric ligands. `ligands[i]` and `allo_states[i]` are parallel;
-# ordering is meaningful (canonicalize at the call site if needed).
+"""
+RegulatorySite: a binding site (possibly multimeric) for one or
+more allosteric ligands. `ligands[i]` and `allo_states[i]` are parallel;
+ordering is meaningful (canonicalize at the call site if needed).
+"""
 struct RegulatorySite
     ligands::Vector{AllostericRegulator}
     multiplicity::Int
@@ -129,62 +150,94 @@ Base.hash(s::RegulatorySite, h::UInt) =
     hash(s.allo_states, hash(s.multiplicity,
         hash(s.ligands, hash(:RegulatorySite, h))))
 
-# Step: one elementary transition. Binding steps carry
-# `bound_metabolite`; iso steps carry `nothing`. All binding steps (RE and
-# SS) canonicalize here (bound metabolite on the `to_species` side). All iso
-# steps (RE and SS) canonicalize in the Mechanism constructor via
-# `_canonical_iso_direction`. After Mechanism construction, every Step is
-# canonicalized.
+"""
+Whether `bound_form` is `free` with metabolite `m` added: same residual, and
+`bound(bound_form)` equals `bound(free)` plus `m` as a multiset. The
+conformation may differ (a binding may change the enzyme's conformation).
+"""
+_binds_ligand(free::Species, bound_form::Species, m::Metabolite) =
+    residual(free) == residual(bound_form) &&
+    bound(bound_form) == sort(Metabolite[bound(free)..., m]; by = _met_sort_key)
+
 """
     Step
 
-One elementary transition between two enzyme `Species`. A binding step carries
-the bound `Metabolite` in `bound_metabolite` (iso steps store `nothing`).
+One elementary transition between two enzyme `Species`, with its stoichiometry:
+going `from_species → to_species` it takes up the metabolites in `consumed` from
+solution and gives off those in `released`. Both lists may be empty (an
+isomerization) or non-empty (for example a Theorell–Chance step EA + B → EQ + P).
 `is_equilibrium` flags a rapid-equilibrium step (`true`) versus a steady-state
-step (`false`). Every `Step` is stored in canonical form: binding steps place
-the bound metabolite on `to_species`, and iso-step direction is fixed by the
-`Mechanism`/`AllostericMechanism` constructor.
+step (`false`). A binding (`bound_metabolite`) takes up exactly one metabolite and
+gives off none. It is plain when `to_species` holds `from_species`'s metabolites
+plus that one with the same residual, the conformation free to change
+(`_binds_ligand`: E + A → E(A), E + A → E*(A)), and fused otherwise
+(E(A) + B → E(P, Q)). The constructor stores a step that takes up nothing and gives
+off exactly one metabolite as the binding it reverses, so every binding is stored
+with its metabolite consumed; every other step is oriented by the `Mechanism` /
+`AllostericMechanism` constructor. See CLAUDE.md "Canonical Step Form".
 """
 struct Step
     from_species::Species
     to_species::Species
-    bound_metabolite::Union{Metabolite,Nothing}
+    consumed::Vector{Metabolite}
+    released::Vector{Metabolite}
     is_equilibrium::Bool
     function Step(from_species::Species, to_species::Species,
-                  bound_metabolite::Union{Metabolite,Nothing},
+                  consumed::Vector{<:Metabolite}, released::Vector{<:Metabolite},
                   is_equilibrium::Bool)
-        if bound_metabolite !== nothing
-            # All binding steps (RE and SS) canonicalize to "free + enzyme →
-            # enzyme-met" so two structurally-equivalent binding steps written
-            # in opposite source directions dedup to the same Step. With
-            # structural binding-K names keyed on the bound metabolite + form
-            # (not source direction), the canonical metabolite-on-`to`
-            # orientation (free form on `from`) is direction-independent. See
-            # CLAUDE.md "Canonical Step Form" for the invariant.
-            in_from = any(m -> m == bound_metabolite, bound(from_species))
-            in_to   = any(m -> m == bound_metabolite, bound(to_species))
-            if in_from && !in_to
-                from_species, to_species = to_species, from_species
-            end
+        from_species == to_species && error(
+            "Step: both ends are the form $(name(from_species)); a step joins two forms")
+        c = sort(Vector{Metabolite}(consumed); by = _met_sort_key)
+        r = sort(Vector{Metabolite}(released); by = _met_sort_key)
+        shared = intersect(c, r)
+        isempty(shared) || error(
+            "Step $(name(from_species)) → $(name(to_species)): " *
+            "$(join(name.(shared), ", ")) both consumed and released")
+        # A step that only gives off one metabolite is stored as the binding it
+        # reverses (metabolite consumed), so a binding written in either direction
+        # dedups to the same Step; binding constants are named after the step's
+        # two sides, not its written direction. See CLAUDE.md "Canonical Step Form".
+        if isempty(c) && length(r) == 1
+            from_species, to_species, c, r = to_species, from_species, r, c
         end
-        new(from_species, to_species, bound_metabolite, is_equilibrium)
+        new(from_species, to_species, c, r, is_equilibrium)
     end
 end
 
-from_species(s::Step)     = s.from_species
-to_species(s::Step)       = s.to_species
-bound_metabolite(s::Step) = s.bound_metabolite
-is_equilibrium(s::Step)   = s.is_equilibrium
-is_binding(s::Step)       = s.bound_metabolite !== nothing
-is_iso(s::Step)           = s.bound_metabolite === nothing
-direction(s::Step)        = is_binding(s) ? :binding : :iso
+from_species(s::Step)   = s.from_species
+to_species(s::Step)     = s.to_species
+consumed(s::Step)       = s.consumed
+released(s::Step)       = s.released
+is_equilibrium(s::Step) = s.is_equilibrium
+
+"""The metabolite a binding step binds: it takes up exactly that metabolite and
+gives off none, as a plain or a fused binding (`Step`, `_is_chemistry`); `nothing`
+for every other step."""
+function bound_metabolite(s::Step)
+    length(s.consumed) == 1 && isempty(s.released) ? only(s.consumed) : nothing
+end
+is_binding(s::Step) = bound_metabolite(s) !== nothing
+is_iso(s::Step)     = isempty(s.consumed) && isempty(s.released)
+
+"""Whether `s` is anything but a plain binding: one metabolite taken up, none given
+off, and `to_species` holding `from_species`'s metabolites plus that one with the
+same residual, the conformation free to change (`_binds_ligand`). Isomerizations,
+fused bindings (`E(A) + B → E(P, Q)`), Theorell–Chance steps and steps with several
+metabolites on a side are chemistry. The allosteric moves (`_expand_to_allosteric`,
+`_partial_onlya_catalysis`, `_expand_change_allo_state`), `_onlya_haldane_violation`
+and `show` read it to tell catalysis from binding."""
+function _is_chemistry(s::Step)
+    m = bound_metabolite(s)
+    m === nothing || !_binds_ligand(from_species(s), to_species(s), m)
+end
+
 Base.:(==)(a::Step, b::Step) =
     a.from_species == b.from_species && a.to_species == b.to_species &&
-    a.bound_metabolite == b.bound_metabolite &&
+    a.consumed == b.consumed && a.released == b.released &&
     a.is_equilibrium == b.is_equilibrium
 Base.hash(s::Step, h::UInt) =
-    hash(s.is_equilibrium, hash(s.bound_metabolite,
-        hash(s.to_species, hash(s.from_species, hash(:Step, h)))))
+    hash(s.is_equilibrium, hash(s.released, hash(s.consumed,
+        hash(s.to_species, hash(s.from_species, hash(:Step, h))))))
 
 # Parameter family.
 abstract type Parameter end
@@ -199,8 +252,10 @@ struct Koff <: Parameter; step::Step; state::Symbol end
 struct Kfor <: Parameter; step::Step; state::Symbol end
 struct Krev <: Parameter; step::Step; state::Symbol end
 
-# Regulator-site parameter: a single ligand at a single site can appear
-# in either the R or T branch of the polynomial.
+"""
+Regulator-site parameter: a single ligand at a single site can appear
+in either the R or T branch of the polynomial.
+"""
 struct Kreg <: Parameter
     site::RegulatorySite
     ligand::AllostericRegulator
@@ -458,27 +513,37 @@ function Base.show(io::IO, r::EnzymeReaction)
     end
 end
 
-# Classify how a species participates in BINDING steps (RE or SS) as the
-# FREE side (canonical binding puts the bound metabolite on the to_species
-# side, so the free form IS from_species). Used by `_canonical_iso_direction`
-# Tier 2 to decide direction for pure-conformational iso steps where Tier 1
-# ties.
-#
-# Why ALL binding steps (not just RE): the "substrate-entry / product-exit"
-# property is a chemistry fact about which forms metabolites enter and
-# leave at — it does NOT depend on whether the binding step is rapid-
-# equilibrium or steady-state. The DSL parses `<-->` as SS and `⇌` as RE;
-# fixtures like Segel Iso Uni Uni (`E + A <--> EA ⇌ EP <--> F + P, F <--> E`)
-# use `<-->` throughout, so an RE-only filter would mis-classify both `E`
-# and `F` as `:neither` and the F⇌E case would fall through to Tier 3 lex.
-function _entry_kind(sp::Species, binding_steps, subs::Set{Symbol}, prods::Set{Symbol})
+"""
+Classify a species by the metabolites that enter or leave solution at it:
+the consumed metabolites of every step leaving it (its `from_species`) and
+the released metabolites of every step arriving at it (its `to_species`). A
+binding is stored with its metabolite consumed, so it marks the form the
+metabolite binds to; a fused release E(S) → F + P, stored as the binding
+F + P → E(S), marks F, the form P leaves at. Reversing a
+step swaps its forms and its lists together, so the classification does not
+depend on how any step was written. Isomerizations carry no free metabolites
+and mark nothing. Used by `_canonical_step_direction` Tier 2 to decide
+direction for non-binding steps where Tier 1 ties.
+
+Why ALL steps (not just RE): the "substrate-entry / product-exit"
+property is a chemistry fact about which forms metabolites enter and
+leave at — it does NOT depend on whether the step is rapid-
+equilibrium or steady-state. The DSL parses `<-->` as SS and `⇌` as RE;
+fixtures like Segel Iso Uni Uni (`E + A <--> EA ⇌ EP <--> F + P, F <--> E`)
+use `<-->` throughout, so an RE-only filter would mis-classify both `E`
+and `F` as `:neither` and the F⇌E case would fall through to Tier 3 lex.
+"""
+function _entry_kind(sp::Species, all_steps, subs::Set{Symbol},
+                     prods::Set{Symbol})
     has_sub = false; has_prod = false
-    for s in binding_steps
-        from_species(s) == sp || continue
-        b = bound_metabolite(s); b === nothing && continue
-        n = name(b)
-        n in subs  && (has_sub  = true)
-        n in prods && (has_prod = true)
+    for s in all_steps, (form, free) in ((from_species(s), consumed(s)),
+                                         (to_species(s), released(s)))
+        form == sp || continue
+        for m in free
+            n = name(m)
+            n in subs  && (has_sub  = true)
+            n in prods && (has_prod = true)
+        end
     end
     has_sub && has_prod && return :both
     has_sub  && return :substrate_only
@@ -486,44 +551,55 @@ function _entry_kind(sp::Species, binding_steps, subs::Set{Symbol}, prods::Set{S
     return :neither
 end
 
-# Canonicalize an iso step's storage direction to physical-forward, so
-# `from` is further from product-release / closer to substrate-binding.
-# Applies to RE iso AND SS iso — the direction question is identical;
-# only the parameter count differs. (All binding steps — RE and SS —
-# are canonicalized bound-metabolite-on-`to` by the Step constructor; this
-# function only handles iso steps.)
-function _canonical_iso_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol},
-                                  all_binding_steps::Vector{Step})
+"""
+Canonicalize a non-binding step's storage direction to physical-forward, so
+`from` is further from product-release / closer to substrate-binding.
+Applies to RE AND SS steps — the direction question is identical;
+only the parameter count differs. (All binding steps — RE and SS —
+are stored with their metabolite consumed by the Step constructor; this
+function orients every other step: isomerizations and transformations.)
+Reversing a step swaps its forms and its lists, and every tier reads the
+two sides symmetrically, so the result does not depend on how the step was
+written.
+"""
+function _canonical_step_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol},
+                                   all_steps::Vector{Step})
     is_binding(s) && return s
     f, t = from_species(s), to_species(s)
+    flip() = Step(t, f, released(s), consumed(s), is_equilibrium(s))
 
-    # Tier 1: atom-balance progression.
-    score(sp) = (count(m -> name(m) in subs,  bound(sp)),
-                -count(m -> name(m) in prods, bound(sp)))
-    sf, st = score(f), score(t)
+    # Tier 1: atom-balance progression over bound plus free metabolites.
+    score(sp, free) =
+        (count(m -> name(m) in subs, bound(sp)) + count(m -> name(m) in subs, free),
+         -count(m -> name(m) in prods, bound(sp)) - count(m -> name(m) in prods, free))
+    sf, st = score(f, consumed(s)), score(t, released(s))
     sf > st && return s
-    sf < st && return Step(t, f, nothing, is_equilibrium(s))
+    sf < st && return flip()
 
-    # Tier 2: 1-hop binding (RE+SS) graph context.
-    fk = _entry_kind(f, all_binding_steps, subs, prods)
-    tk = _entry_kind(t, all_binding_steps, subs, prods)
+    # Tier 2: 1-hop (RE+SS) graph context — the metabolites that enter or
+    # leave solution at each form.
+    fk = _entry_kind(f, all_steps, subs, prods)
+    tk = _entry_kind(t, all_steps, subs, prods)
     fk == :product_only   && tk == :substrate_only && return s
-    fk == :substrate_only && tk == :product_only   && return Step(t, f, nothing, is_equilibrium(s))
+    fk == :substrate_only && tk == :product_only   && return flip()
 
     # Tier 3: lex fallback (source-independent).
-    string(name(f)) ≤ string(name(t)) ? s : Step(t, f, nothing, is_equilibrium(s))
+    string(name(f)) ≤ string(name(t)) ? s : flip()
 end
 
-# Canonicalize iso-step storage direction (RE + SS) to physical-forward for
-# every group. Shared by the `Mechanism` and `AllostericMechanism`
-# constructors so the Canonical Step Form invariant cannot drift between them.
-function _canonicalize_iso_groups(reaction::EnzymeReaction,
-                                  groups::Vector{Vector{Step}})
+"""
+Canonicalize the storage direction (RE + SS) of every non-binding step to
+physical-forward for every group. Tier 2 reads each step's free metabolites
+at both of its ends, so it sees the same context however the steps were
+written. Shared by the `Mechanism` and `AllostericMechanism` constructors so
+the Canonical Step Form invariant cannot drift between them.
+"""
+function _canonicalize_step_directions(reaction::EnzymeReaction,
+                                       groups::Vector{Vector{Step}})
     subs  = Set{Symbol}(name(s) for s in substrates(reaction))
     prods = Set{Symbol}(name(s) for s in products(reaction))
-    flat0 = Step[s for group in groups for s in group]
-    binding_steps = filter(is_binding, flat0)
-    [[_canonical_iso_direction(s, subs, prods, binding_steps)
+    all_steps = Step[s for group in groups for s in group]
+    [[_canonical_step_direction(s, subs, prods, all_steps)
       for s in group] for group in groups]
 end
 
@@ -535,24 +611,28 @@ end
 # order (and thus `fitted_params` / the reduced rate equation / dedup keys)
 # non-deterministic. Names are derived purely from metabolite names, so the
 # ordering is fixed and reproducible.
+_met_names(v) = join((String(name(m)) for m in v), "+")
 _step_canonical_key(s::Step) =
     (String(name(from_species(s))), String(name(to_species(s))),
-     bound_metabolite(s) === nothing ? "" : String(name(bound_metabolite(s))),
-     is_equilibrium(s))
+     _met_names(consumed(s)), _met_names(released(s)), is_equilibrium(s))
 
-# Canonical key for a `RegulatorySite`. Orders the outer site vector so two
-# `AllostericMechanism`s differing only in site presentation order collapse.
-# Keyed on ligand names (stable) rather than `hash` for the same reason.
+"""
+Canonical key for a `RegulatorySite`. Orders the outer site vector so two
+`AllostericMechanism`s differing only in site presentation order collapse.
+Keyed on ligand names (stable) rather than `hash` for the same reason.
+"""
 _regulatory_site_canonical_key(site::RegulatorySite) =
     (Tuple(String(name(l)) for l in ligands(site)),
      multiplicity(site),
      Tuple(allo_states(site)))
 
-# Sort steps within each group by `_step_canonical_key`, then return the
-# group order (a permutation of 1:length) that sorts the outer vector by the
-# canonical key of each group's first step. The inner sort must run BEFORE
-# computing the outer permutation so each group's "first step" key reflects
-# the canonical inner order. Operates on fresh vectors (callers pass copies).
+"""
+Sort steps within each group by `_step_canonical_key`, then return the
+group order (a permutation of 1:length) that sorts the outer vector by the
+canonical key of each group's first step. The inner sort must run BEFORE
+computing the outer permutation so each group's "first step" key reflects
+the canonical inner order. Operates on fresh vectors (callers pass copies).
+"""
 function _canonical_group_order!(groups::Vector{Vector{Step}})
     for group in groups
         sort!(group; by = _step_canonical_key)
@@ -561,20 +641,75 @@ function _canonical_group_order!(groups::Vector{Vector{Step}})
 end
 
 """
-Reject a mechanism that contains the same physical reaction as both a
-rapid-equilibrium and a steady-state step (e.g. `E + S <--> E(S)` AND
-`E + S ⇌ E(S)`): a single reaction cannot be both fast and slow.
+A step side as written in parameter names: its enzyme form followed by its free
+metabolites, joined by `_` (a competitive-inhibitor copy carries `inh`, as in
+`name(::Species)`), e.g. `"EA_B"` for `E(A) + B`.
 """
-function _assert_no_re_ss_duplicate(steps::Vector{Vector{Step}})
-    seen = Dict{Tuple{Species, Species, Union{Metabolite, Nothing}}, Bool}()
-    for group in steps, s in group
-        k = (from_species(s), to_species(s), bound_metabolite(s))
-        if haskey(seen, k) && seen[k] != is_equilibrium(s)
-            error("Mechanism: reaction $(name(from_species(s))) → " *
-                  "$(name(to_species(s))) appears as both rapid-equilibrium " *
-                  "and steady-state; a reaction cannot be both.")
+_side_label(form::Species, mets::Vector{Metabolite}) =
+    join([String(name(form)); _met_label.(mets)], "_")
+
+"""
+The two sides of `s` in its stored direction: `from_species` with the consumed
+metabolites, then `to_species` with the released ones. Every step constant is
+named after them.
+"""
+_forward_sides(s::Step) = (_side_label(from_species(s), consumed(s)),
+                           _side_label(to_species(s), released(s)))
+
+"""
+The kind of a step for kinetic grouping: the metabolites it takes up and gives off,
+`(consumed, released)`. Steps that share a kinetic group share their constants, so
+they must take up and give off the same metabolites: two bindings of `m` share a
+kind whether or not either runs chemistry, and every isomerization is one kind.
+"""
+_step_kind(s::Step) = (consumed(s), released(s))
+
+"""
+Error unless the steps of every kinetic group take up and give off the same
+metabolites (`_step_kind`) and carry one RE/SS flag: a shared constant means the
+same reaction type at the same speed.
+"""
+function _assert_uniform_groups(steps::Vector{Vector{Step}})
+    label(s) = join(_forward_sides(s), " → ") * (is_equilibrium(s) ? " (RE)" : " (SS)")
+    for group in steps
+        s1 = first(group)
+        for s in group
+            _step_kind(s) == _step_kind(s1) && is_equilibrium(s) == is_equilibrium(s1) &&
+                continue
+            error("Mechanism: a kinetic group holds $(label(s1)) and $(label(s)), " *
+                  "which differ in kind or in RE/SS; the steps of a kinetic group " *
+                  "share their constants, so they must be the same kind of step " *
+                  "with the same flag")
         end
-        seen[k] = is_equilibrium(s)
+    end
+end
+
+"""
+Error when one reaction — the unordered pair of a step's two sides
+(`_forward_sides`) — appears in more than one step. A reaction belongs to one
+kinetic group. Two groups holding it with the same RE/SS flag would give one
+reaction two sets of constants, which render the same names when the reaction
+represents both groups; an RE group and an SS group holding it would make one
+reaction both fast and slow. One group holding it twice would count its edge twice
+in the derivation.
+"""
+function _assert_each_reaction_once(steps::Vector{Vector{Step}})
+    seen = Dict{Tuple{String, String}, Tuple{Int, Step}}()
+    flag(s) = is_equilibrium(s) ? "RE" : "SS"
+    for (g, group) in enumerate(steps), s in group
+        sides = minmax(_forward_sides(s)...)
+        if haskey(seen, sides)
+            g0, s0 = seen[sides]
+            reaction = join(_forward_sides(s0), " ⇌ ")
+            g0 == g && error("Mechanism: kinetic group $g holds the reaction " *
+                             "$reaction twice; a mechanism holds each reaction once")
+            flags = flag(s0) == flag(s) ? "" :
+                " ($(flag(s0)) in group $g0, $(flag(s)) in group $g)"
+            error("Mechanism: kinetic groups $g0 and $g both hold the reaction " *
+                  "$reaction$flags; a reaction belongs to one kinetic group, whose " *
+                  "constants are named after it")
+        end
+        seen[sides] = (g, s)
     end
 end
 
@@ -598,10 +733,9 @@ function _re_segment_extras(steps::Vector{Vector{Step}})
     adj = [Tuple{Int, Dict{Symbol, Int}}[] for _ in species]
     for group in steps, s in group
         is_equilibrium(s) || continue
-        _, _, m_lhs, m_rhs = _step_sides(s)
         d = Dict{Symbol, Int}()
-        for x in m_lhs; d[x] = get(d, x, 0) + 1; end
-        for x in m_rhs; d[x] = get(d, x, 0) - 1; end
+        for m in consumed(s); d[name(m)] = get(d, name(m), 0) + 1; end
+        for m in released(s); d[name(m)] = get(d, name(m), 0) - 1; end
         a, b = idx[from_species(s)], idx[to_species(s)]
         push!(adj[a], (b, d))
         push!(adj[b], (a, Dict(x => -e for (x, e) in d)))
@@ -656,8 +790,10 @@ harmless: no turnover is possible at that corner.
 function _bottomless_re_segment(steps::Vector{Vector{Step}})
     side = Dict{Symbol, Type}()
     for group in steps, s in group
-        is_equilibrium(s) && is_binding(s) || continue
-        side[name(bound_metabolite(s))] = typeof(bound_metabolite(s))
+        is_equilibrium(s) || continue
+        for m in Iterators.flatten((consumed(s), released(s)))
+            side[name(m)] = typeof(m)
+        end
     end
     species, segments, extras = _re_segment_extras(steps)
     for segment in segments
@@ -670,20 +806,16 @@ function _bottomless_re_segment(steps::Vector{Vector{Step}})
     nothing
 end
 
-# Mechanism: groups elementary steps by kinetic group (outer
-# vector). All steps within a group share kinetic parameters. The
-# constructor canonicalizes iso-step direction and stores the steps;
-# parameter naming and step ordering derive purely from structure and
-# flat iteration order.
 """
     Mechanism
 
 A non-allosteric enzyme mechanism: a `reaction::EnzymeReaction` plus
 `steps::Vector{Vector{Step}}`, where the outer vector is kinetic groups and
 each inner vector holds the steps that share that group's kinetic parameters.
-The constructor canonicalizes iso-step direction and sorts steps and groups,
+The constructor canonicalizes step direction and sorts steps and groups,
 so two mechanisms that differ only in how their steps were written collapse to
-the same struct. Lift to the singleton derivation type with
+the same struct. Parameter naming and step ordering derive purely from
+structure and flat iteration order. Lift to the singleton derivation type with
 `EnzymeRates.compile_mechanism(m)` or `EnzymeMechanism(m)`.
 """
 struct Mechanism
@@ -691,9 +823,10 @@ struct Mechanism
     steps::Vector{Vector{Step}}
     function Mechanism(reaction::EnzymeReaction,
                        steps::Vector{Vector{Step}})
-        steps = _canonicalize_iso_groups(reaction, steps)
+        steps = _canonicalize_step_directions(reaction, steps)
         permute!(steps, _canonical_group_order!(steps))
-        _assert_no_re_ss_duplicate(steps)
+        _assert_uniform_groups(steps)
+        _assert_each_reaction_once(steps)
         _assert_re_segments_have_bottom(steps)
         new(reaction, steps)
     end
@@ -759,14 +892,15 @@ struct AllostericMechanism
                       "$_VALID_CAT_ALLO_STATES); :OnlyI is rejected for " *
                       "catalytic groups (active-state-active convention)")
         end
-        cat_steps = _canonicalize_iso_groups(reaction, cat_steps)
+        cat_steps = _canonicalize_step_directions(reaction, cat_steps)
         # cat_steps and cat_allo_states are parallel — permute both with the
         # same group order. regulatory_sites canonicalizes independently. All
         # operate on fresh vectors so the caller's inputs are not mutated
-        # (cat_steps is fresh from _canonicalize_iso_groups; copy the rest).
+        # (cat_steps is fresh from _canonicalize_step_directions; copy the rest).
         perm = _canonical_group_order!(cat_steps)
         permute!(cat_steps, perm)
-        _assert_no_re_ss_duplicate(cat_steps)
+        _assert_uniform_groups(cat_steps)
+        _assert_each_reaction_once(cat_steps)
         _assert_re_segments_have_bottom(cat_steps)
         cat_allo_states = permute!(copy(cat_allo_states), perm)
         regulatory_sites =
@@ -877,9 +1011,11 @@ _with_steps_and_cat_states(am::AllostericMechanism,
 # One polymorphic `_to_sig` with a method per source type; the matching
 # `_*_from_sig` family reconstructs the corresponding type.
 
-# One encoder for every Metabolite leaf: (TypeTag, name). The tag Symbol is
-# `nameof(typeof(m))`, identical to the four hand-written tags it replaces, so
-# the Sig layout is unchanged and `_metabolite_from_sig` still decodes it.
+"""
+One encoder for every Metabolite leaf: (TypeTag, name). The tag Symbol is
+`nameof(typeof(m))`, identical to the four hand-written tags it replaces, so
+the Sig layout is unchanged and `_metabolite_from_sig` still decodes it.
+"""
 _to_sig(m::Metabolite) = (nameof(typeof(m)), name(m))
 
 _to_sig(r::Residual) = (
@@ -896,7 +1032,8 @@ _to_sig(s::Species) = (
 _to_sig(s::Step) = (
     _to_sig(from_species(s)),
     _to_sig(to_species(s)),
-    bound_metabolite(s) === nothing ? nothing : _to_sig(bound_metabolite(s)),
+    Tuple(_to_sig(m) for m in consumed(s)),
+    Tuple(_to_sig(m) for m in released(s)),
     is_equilibrium(s),
 )
 
@@ -943,9 +1080,10 @@ function _species_from_sig(sig::Tuple)
 end
 
 function _step_from_sig(sig::Tuple)
-    from_sig, to_sig, met_sig, is_eq = sig
-    met = met_sig === nothing ? nothing : _metabolite_from_sig(met_sig)
-    Step(_species_from_sig(from_sig), _species_from_sig(to_sig), met, is_eq)
+    from_sig, to_sig, consumed_sig, released_sig, is_eq = sig
+    Step(_species_from_sig(from_sig), _species_from_sig(to_sig),
+         Metabolite[_metabolite_from_sig(t) for t in consumed_sig],
+         Metabolite[_metabolite_from_sig(t) for t in released_sig], is_eq)
 end
 
 function _reactant_atoms_from_sig(sig::Tuple)
@@ -1001,7 +1139,8 @@ Singleton type encoding an enzyme mechanism. `Sig` is the tuple
   catalytic multiplicities) as a tuple of tuples of `Symbol`s/`Int`s.
 - `steps_sig` encodes `Vector{Vector{Step}}` as a nested tuple where the
   outer level is kinetic groups and the inner level is `Step` data
-  (from-species, to-species, bound metabolite, is-equilibrium).
+  (from-species, to-species, consumed metabolites, released metabolites,
+  is-equilibrium).
 
 The conversion functions are `_sig_of` and `_mechanism_from_sig`; the
 exact layout is internal — users construct via `EnzymeMechanism(::Mechanism)`.
@@ -1013,20 +1152,24 @@ struct EnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
 # `(reaction_sig, steps_sig)` produced by `_sig_of`; `Mechanism(em)`
 # lifts it back so derivation consumers can walk a `Mechanism`
 # uniformly.
-# Lift a `Mechanism` to its singleton `EnzymeMechanism` type. The Sig
-# is purely structural — two mechanisms differing only in source order
-# collapse to the same `EnzymeMechanism` type.
+"""
+Lift a `Mechanism` to its singleton `EnzymeMechanism` type. The Sig
+is purely structural — two mechanisms differing only in source order
+collapse to the same `EnzymeMechanism` type.
+"""
 EnzymeMechanism(m::Mechanism) =
     EnzymeMechanism{_sig_of(_drop_unbound_regulators(m))}()
 
-# A regulator declared on the reaction that no step actually binds does
-# not belong in the compiled catalytic mechanism's `regulators` list
-# (e.g. a dead-end inhibitor before any expansion move binds it). Drop
-# such regulators at the `compile_mechanism` boundary so they neither
-# show up in `regulators(em)` nor get a parameter; substrates/products
-# are never dropped. `Mechanism` (the working representation used during
-# enumeration) intentionally KEEPS unbound regulators — expansion moves
-# bind them later.
+"""
+A regulator declared on the reaction that no step actually binds does
+not belong in the compiled catalytic mechanism's `regulators` list
+(e.g. a dead-end inhibitor before any expansion move binds it). Drop
+such regulators at the `compile_mechanism` boundary so they neither
+show up in `regulators(em)` nor get a parameter; substrates/products
+are never dropped. `Mechanism` (the working representation used during
+enumeration) intentionally KEEPS unbound regulators — expansion moves
+bind them later.
+"""
 function _drop_unbound_regulators(m::Mechanism)
     bound_names = Set{Symbol}()
     for group in steps(m), s in group
@@ -1035,8 +1178,9 @@ function _drop_unbound_regulators(m::Mechanism)
                 push!(bound_names, name(b))
             end
         end
-        bm = bound_metabolite(s)
-        bm === nothing || push!(bound_names, name(bm))
+        for x in Iterators.flatten((consumed(s), released(s)))
+            push!(bound_names, name(x))
+        end
     end
     regs = regulators(reaction(m))
     kept = RegulatorMults[rm for rm in regs
@@ -1058,11 +1202,12 @@ allosteric MWC enzymes. User code constructs and inspects via
 `AllostericMechanism`; `compile_mechanism(am)` produces this opaque
 fast-path handle. The three type parameters encode the catalytic
 mechanism plus per-site allosteric data.
+
+The three type parameters cannot be folded into a single value-tuple `Sig`
+(as EnzymeMechanism{Sig} does): the first slot is a DataType (an
+EnzymeMechanism subtype), and Julia rejects DataTypes inside the
+value-tuple position of a type parameter.
 """
-# The three type parameters cannot be folded into a single value-tuple `Sig`
-# (as EnzymeMechanism{Sig} does): the first slot is a DataType (an
-# EnzymeMechanism subtype), and Julia rejects DataTypes inside the
-# value-tuple position of a type parameter.
 struct AllostericEnzymeMechanism{
     CatalyticMech, CatSites, RegSites,
 } <: AbstractEnzymeMechanism end
@@ -1214,7 +1359,8 @@ function Base.show(io::IO, m::EnzymeMechanism)
     # between its two enzyme forms; start at a path endpoint (a degree-1
     # form) if any, else the free enzyme `:E`, else any form, then follow
     # edges and emit each step's far side. If the walk can't consume every
-    # step the mechanism is branched → multi-line rendering below.
+    # step (the mechanism is branched, or the chain would hide a step's
+    # metabolite) → multi-line rendering below.
     _enz_forms(lhs, rhs) = (first(s for s in lhs if s in enz_set),
                             first(s for s in rhs if s in enz_set))
     degree = Dict{Symbol,Int}()
@@ -1241,6 +1387,8 @@ function Base.show(io::IO, m::EnzymeMechanism)
     if is_linear
         subs = Set{Symbol}(substrates(m))
         remaining = collect(Rxns)
+        remaining_binds =
+            [!_is_chemistry(s) for group in steps(Mechanism(m)) for s in group]
         current = start
         while !isempty(remaining)
             idx = nothing
@@ -1259,8 +1407,16 @@ function Base.show(io::IO, m::EnzymeMechanism)
             end
             idx === nothing && (is_linear = false; break)
             lhs, rhs, is_eq, _ = remaining[idx]
+            binds = remaining_binds[idx]
             deleteat!(remaining, idx)
+            deleteat!(remaining_binds, idx)
             a, b = _enz_forms(lhs, rhs)
+            # Only the first step prints its entry side. A later step may leave
+            # its entry-side metabolites unprinted only if it is a plain binding,
+            # whose bound form names the metabolite; any other step (e.g. a fused
+            # binding or a Theorell–Chance step) needs the multi-line rendering.
+            !isempty(chain_segments) && length(current == a ? lhs : rhs) > 1 &&
+                !binds && (is_linear = false; break)
             in_side  = current == a ? join(lhs, " + ") : join(rhs, " + ")
             out_side = current == a ? join(rhs, " + ") : join(lhs, " + ")
             isempty(chain_segments) && push!(chain_segments, in_side)
@@ -1437,16 +1593,18 @@ julia> metabolites(m)
 end
 
 """Return the reactions tuple `((lhs, rhs, is_eq, kinetic_group), ...)`.
-Each step's metabolite is projected onto the binding (lhs) or release (rhs)
-side via `_step_sides`, the canonical Step-based side projection."""
+Each step's `lhs` is its `from_species` name followed by the names of the
+metabolites it consumes; `rhs` is its `to_species` name followed by the names
+of the metabolites it releases."""
 function reactions(em::EnzymeMechanism)
     m = Mechanism(em)
     tuples = Any[]
     for (g, group) in enumerate(steps(m))
         for s in group
-            e_lhs, e_rhs, m_lhs, m_rhs = _step_sides(s)
             push!(tuples,
-                  ((e_lhs, m_lhs...), (e_rhs, m_rhs...), is_equilibrium(s), g))
+                  ((name(from_species(s)), name.(consumed(s))...),
+                   (name(to_species(s)), name.(released(s))...),
+                   is_equilibrium(s), g))
         end
     end
     return Tuple(tuples)
@@ -1534,10 +1692,12 @@ kinetic_group(m::AllostericEnzymeMechanism, i::Int) =
 steps_in_group(m::AllostericEnzymeMechanism, g) =
     steps_in_group(catalytic_mechanism(m), g)
 
-# Returns ONLY reg-site ligands, NOT a union with catalytic_mechanism's
-# regulators. Downstream rate-equation code reads `regulators(m)` to find
-# dead-end binding K's; including allosteric-only ligands would cause it
-# to look up nonexistent K names.
+"""
+Returns ONLY reg-site ligands, NOT a union with catalytic_mechanism's
+regulators. Downstream rate-equation code reads `regulators(m)` to find
+dead-end binding K's; including allosteric-only ligands would cause it
+to look up nonexistent K names.
+"""
 regulators(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
     syms = Symbol[]
     seen = Set{Symbol}()
@@ -1586,15 +1746,17 @@ end
 # ─── name(p::Parameter, m) chokepoint ─────────────────────────────────
 #
 # Single chokepoint for parameter Symbol production. Renders structural
-# names (:K_S_E, :k_ES_to_EP, :K_I_S_E, :K_Ireg) via Parameter subtype
-# dispatch. Routing all parameter-name production through one function
+# names (:K_ES_to_E_S, :k_ES_to_EP, :K_I_ES_to_E_S, :K_Ireg) via Parameter
+# subtype dispatch. Routing all parameter-name production through one function
 # keeps any name-scheme change a single-function edit.
 
-# State token — placed right after the type prefix:
-#   :A       → "A_"  (allosteric active branch; distinguishes allosteric from non-)
-#   :I       → "I_"  (allosteric inactive branch: OnlyI or NonequalAI-inactive)
-#   :EqualAI → ""    (allosteric shared symbol; shared between A and I state)
-#   :None    → ""    (non-allosteric mechanism)
+"""
+State token — placed right after the type prefix:
+  :A       → "A_"  (allosteric active branch; distinguishes allosteric from non-)
+  :I       → "I_"  (allosteric inactive branch: OnlyI or NonequalAI-inactive)
+  :EqualAI → ""    (allosteric shared symbol; shared between A and I state)
+  :None    → ""    (non-allosteric mechanism)
+"""
 function _state_tag(state::Symbol)
     state === :A       && return "A_"
     state === :I       && return "I_"
@@ -1604,24 +1766,14 @@ function _state_tag(state::Symbol)
           "(must be one of :None, :EqualAI, :A, :I)")
 end
 
-# Render a binding param from its rep step: metabolite + pre-binding form.
-# A CompetitiveInhibitor-role bound metabolite gains an `inh` marker (mirrors
-# `name(Species)`) so an inhibitor-role group is distinct from the same
-# metabolite's product-role group.
-function _render_binding(prefix::String, rep::Step, state::Symbol)
-    met = bound_metabolite(rep)
-    met_name = met isa CompetitiveInhibitor ?
-               String(name(met)) * "inh" : String(name(met))
-    Symbol(prefix, _state_tag(state), met_name, "_",
-           String(name(from_species(rep))))
-end
+"""
+The constant of the reaction `a → b`: `prefix`, the state tag, then
+`"<a>_to_<b>"` (e.g. `:k_ES_to_EP`, `:K_A_ES_to_E_S`).
+"""
+_render_reaction(prefix::String, (a, b)::Tuple{String, String}, state::Symbol) =
+    Symbol(prefix, _state_tag(state), a, "_to_", b)
 
-# Render an iso param by directed species pair.
-_render_iso(prefix::String, from::Species, to::Species, state::Symbol) =
-    Symbol(prefix, _state_tag(state),
-           String(name(from)), "_to_", String(name(to)))
-
-# Find the kinetic group containing `step`; return its naming rep.
+"""Find the kinetic group containing `step`; return its naming rep."""
 function _rep_step(step::Step, m::Union{Mechanism, AllostericMechanism})
     fes = _free_enz_set(m)
     for group in steps(m)
@@ -1637,34 +1789,25 @@ _rep_step(step::Step, m::AllostericEnzymeMechanism) =
 const _AnyMech =
     Union{Mechanism, EnzymeMechanism, AllostericMechanism, AllostericEnzymeMechanism}
 
+# Every step constant is named after the reaction of its group's representative:
+# a rate constant (`k_`) after the direction it drives, an equilibrium constant
+# (`K_`) after the direction whose products-over-reactants it is. A binding's K is
+# named in the release direction, so it is a dissociation constant (`K_ES_to_E_S`);
+# an isomerization's or other RE step's K in the stored direction (`K_ES_to_EP`).
+name(p::Union{Kon, Kfor}, m::_AnyMech) =
+    _render_reaction("k_", _forward_sides(_rep_step(p.step, m)), p.state)
+name(p::Union{Koff, Krev}, m::_AnyMech) =
+    _render_reaction("k_", reverse(_forward_sides(_rep_step(p.step, m))), p.state)
+name(p::Kiso, m::_AnyMech) =
+    _render_reaction("K_", _forward_sides(_rep_step(p.step, m)), p.state)
 name(p::Kd, m::_AnyMech) =
-    _render_binding("K_", _rep_step(p.step, m), p.state)
-function name(p::Kon, m::_AnyMech)
-    rep = _rep_step(p.step, m)
-    is_binding(rep) ? _render_binding("kon_", rep, p.state) :
-                      _render_iso("k_", from_species(rep), to_species(rep), p.state)
-end
-function name(p::Koff, m::_AnyMech)
-    rep = _rep_step(p.step, m)
-    is_binding(rep) ? _render_binding("koff_", rep, p.state) :
-                      _render_iso("k_", to_species(rep), from_species(rep), p.state)
-end
-function name(p::Kiso, m::_AnyMech)
-    rep = _rep_step(p.step, m)
-    _render_iso("Kiso_", from_species(rep), to_species(rep), p.state)
-end
-function name(p::Kfor, m::_AnyMech)
-    rep = _rep_step(p.step, m)
-    _render_iso("k_", from_species(rep), to_species(rep), p.state)
-end
-function name(p::Krev, m::_AnyMech)
-    rep = _rep_step(p.step, m)
-    _render_iso("k_", to_species(rep), from_species(rep), p.state)
-end
+    _render_reaction("K_", reverse(_forward_sides(_rep_step(p.step, m))), p.state)
 
-# Regulator-site parameter: state tag + ligand name + "reg". No site index —
-# the AllostericMechanism constructor enforces that each ligand appears at most
-# once across all sites.
+"""
+Regulator-site parameter: state tag + ligand name + "reg". No site index —
+the AllostericMechanism constructor enforces that each ligand appears at most
+once across all sites.
+"""
 name(p::Kreg, ::Union{AllostericMechanism, AllostericEnzymeMechanism}) =
     Symbol("K_", _state_tag(p.state), String(name(p.ligand)), "reg")
 
@@ -1673,9 +1816,11 @@ name(::Keq,   _) = :Keq
 name(::Etot,  _) = :E_total
 name(::Lallo, _) = :L
 
-# Flip a Parameter's allosteric state to its inactive counterpart. Used
-# by the Wegscheider/Haldane synth-dep machinery to recover the inactive
-# variant of an eliminated dep parameter without string surgery.
+"""
+Flip a Parameter's allosteric state to its inactive counterpart. Used
+by the Wegscheider/Haldane synth-dep machinery to recover the inactive
+variant of an eliminated dep parameter without string surgery.
+"""
 function _flip_to_inactive(p::P) where {P <: Union{Kd, Kiso, Kon, Koff, Kfor, Krev}}
     p.state === :A       && return P(p.step, :I)
     p.state === :I       && return P(p.step, :A)
@@ -1695,17 +1840,21 @@ function _flip_to_inactive(p::Kreg)
     error("_flip_to_inactive: Kreg has unexpected state $(p.state)")
 end
 
-# Inactive-state variant of a parameter REGARDLESS of its allosteric tag.
-# Unlike `_flip_to_inactive` (which returns an `:EqualAI`/`:None` param
-# unchanged), this forces the `:I` state, used to give a *dependent* `:EqualAI`
-# parameter a distinct inactive name when the Haldane/Wegscheider relation
-# makes it differ between states.
+"""
+Inactive-state variant of a parameter REGARDLESS of its allosteric tag.
+Unlike `_flip_to_inactive` (which returns an `:EqualAI`/`:None` param
+unchanged), this forces the `:I` state, used to give a *dependent* `:EqualAI`
+parameter a distinct inactive name when the Haldane/Wegscheider relation
+makes it differ between states.
+"""
 _force_inactive(p::P) where {P <: Union{Kd, Kiso, Kon, Koff, Kfor, Krev}} =
     P(p.step, :I)
 _force_inactive(p::Kreg) = Kreg(p.site, p.ligand, :I)
 
-# Recover the Parameter struct that renders to `sym` under `name(p, m)`.
-# Walks the full parameter set once and matches by rendered name.
+"""
+Recover the Parameter struct that renders to `sym` under `name(p, m)`.
+Walks the full parameter set once and matches by rendered name.
+"""
 function _param_for_symbol(m::Union{Mechanism, EnzymeMechanism}, sym::Symbol)
     mech = m isa Mechanism ? m : Mechanism(m)
     for p in _enumerate_parameters_full(mech)
@@ -1727,7 +1876,7 @@ function _param_for_symbol(
     error("_param_for_symbol: no Parameter renders to $sym in allosteric mechanism")
 end
 
-# Walk all A-state catalytic parameters (for _param_for_symbol lookup).
+"""Walk all A-state catalytic parameters (for _param_for_symbol lookup)."""
 function _onlyA_parameters_for_sym(am::AllostericMechanism)
     out = Parameter[]
     fes = _free_enz_set(am)
@@ -1738,7 +1887,7 @@ function _onlyA_parameters_for_sym(am::AllostericMechanism)
     out
 end
 
-# Walk all I-state catalytic + reg parameters (for _param_for_symbol lookup).
+"""Walk all I-state catalytic + reg parameters (for _param_for_symbol lookup)."""
 function _all_params_for_sym(am::AllostericMechanism)
     out = Parameter[]
     fes = _free_enz_set(am)
@@ -1759,9 +1908,9 @@ end
 Enumerate every raw rate-constant Parameter for a non-allosteric
 mechanism, in kinetic-group order. Each kinetic group's representative
 step (the structurally-primary step, `_group_rep`) drives the emit: RE
-binding → `Kd`, RE iso → `Kiso`, SS binding → `Kon`+`Koff`, SS iso →
-`Kfor`+`Krev`. All parameters carry `state === :None` because
-non-allosteric mechanisms have no A/I branches.
+binding → `Kd`, RE non-binding step → `Kiso`, SS binding → `Kon`+`Koff`, SS
+non-binding step → `Kfor`+`Krev`. All parameters carry `state === :None`
+because non-allosteric mechanisms have no A/I branches.
 """
 function _enumerate_parameters_full(m::Mechanism)
     out = Parameter[]
@@ -1775,13 +1924,15 @@ end
 """
 Emit the Parameter(s) governing a single kinetic-group representative
 step with the given allosteric state. The 4-way switch on
-`is_equilibrium(rep)` × `is_binding(rep)` is the shared core that every
-Step→Parameter walker routes through: `_enumerate_parameters_full`,
+`is_equilibrium(rep)` × `is_binding(rep)` is the shared core of the walkers
+over group representatives: `_enumerate_parameters_full`,
 `_onlyA_parameters_for_sym`, `_all_params_for_sym` (catalytic part),
 and `_ss_rate_constant_names`.
 
 Returns 1 element for RE steps (`Kd` or `Kiso`) and 2 elements for SS
-steps (`Kon`+`Koff` or `Kfor`+`Krev`).
+steps (`Kon`+`Koff` or `Kfor`+`Krev`). A binding, plain or fused, takes `Kd` /
+`Kon`+`Koff`; every other step — an isomerization, a Theorell–Chance step, a step
+with two metabolites on one side — takes `Kiso` / `Kfor`+`Krev`.
 """
 function _emit_cat_params_for_rep(rep::Step, state::Symbol)
     if is_equilibrium(rep)
