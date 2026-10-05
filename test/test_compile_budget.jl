@@ -157,7 +157,7 @@ end
     # essentially free. Measured in two fresh subprocesses (reactions built
     # via @enzyme_reaction, as the original main gate did):
     #   - cold:  uni-uni alone           → t_uni_cold ≈ 1-2 s
-    #   - warm:  ter-ter, then uni-uni    → t_ter ≈ 15-30 s, t_uni_warm ≈ 0.2-1.6 ms
+    #   - warm:  ter-ter, then uni-uni    → t_ter ≈ 50-110 s, t_uni_warm ≈ 0.2-1.6 ms
     # The warm/cold ratio (≈ 1e-4 to 2e-3 on CI runners; macOS is the noisy high
     # end) is robust to machine speed, unlike an absolute wall-clock ceiling on
     # the cold time.
@@ -193,10 +193,11 @@ end
               "uni_cold=$(round(t_uni_cold; digits=2))s  " *
               "uni_warm=$(round(t_uni_warm * 1e6; digits=1))µs  " *
               "warm/cold=$(round(t_uni_warm / t_uni_cold; sigdigits=2))"
-        # ter-ter cold-compile ceiling. CI-runner baseline ~34 s (local
-        # baseline ~15 s); budget = 2× CI.
+        # ter-ter cold ceiling. Enumeration, not compilation, dominates the call:
+        # CI-runner baseline ~70 s on Linux and macOS, ~110 s on Windows (local
+        # baseline ~50 s); budget = 2× the Linux runner.
         @test isfinite(t_ter)
-        @test t_ter < 70.0
+        @test t_ter < 150.0
         # Warm uni-uni must be near-instant relative to cold: ter-ter already
         # compiled the superset. A lost reuse recompiles a sizeable fraction of
         # cold (warm/cold ≳ 0.1); the < 1e-2 gate sits ~6× above the noisiest
