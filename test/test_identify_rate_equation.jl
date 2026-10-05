@@ -1666,13 +1666,81 @@ end
     @test length(degenerate) == 7                  # the seven ping-pong seeds
     base, failures = EnzymeRates._base_tier(seeds, rxn)
     @test isempty(failures)
-    @test !any(m -> m in base, degenerate)
-    @test all(m -> m in base, filter(!EnzymeRates._degenerate, seeds))
+    @test !any(EnzymeRates._degenerate, base)
+    cures = unique!([c for m in degenerate for c in EnzymeRates._expand_re_to_ss(m)
+                     if !EnzymeRates._degenerate(c)])
+    @test length(cures) == 21                      # three per ping-pong seed
+    # Only a flip changes which steps are at rapid equilibrium, so every other move leaves
+    # a degenerate seed's child degenerate.
     kids = EnzymeRates.expand_mechanisms(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[degenerate...], rxn)
-    @test all(k -> k in base, kids)
-    @test length(base) ==
-        length(unique!(vcat(filter(!EnzymeRates._degenerate, seeds), kids)))
+    @test Set(filter(!EnzymeRates._degenerate, kids)) == Set(cures)
+    @test Set(base) == Set(vcat(filter(!EnzymeRates._degenerate, seeds), cures))
+    @test length(base) == 278
+end
+
+@testset "_base_tier replaces a degenerate seed by the flips that cure it" begin
+    # The undecorated ping-pong seed. Its steady-state chemistry E(A) → E(P; res) is a
+    # qualifying chain, so the flip rule keeps its flanks, the A and P bindings, at rapid
+    # equilibrium. The rapid-equilibrium chemistry E(B; res) ⇌ E(Q) is left by the B and
+    # the Q binding, both rapid equilibrium, so the seed is degenerate. Each of the other
+    # three groups alone raises the segment count, and each flip cures the seed: it turns
+    # that chemistry steady state, or one of its two exits.
+    ER = EnzymeRates
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+    end
+    attach(em) = ER.Mechanism(rxn, ER.steps(ER.Mechanism(em)))
+    seed = attach(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    chemistry_flipped = attach(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    b_flipped = attach(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B <--> E(B; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    q_flipped = attach(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            E + Q <--> E(Q)
+        end
+    end)
+    @test ER._degenerate(seed)
+    base, failures = ER._base_tier([seed], rxn)
+    @test isempty(failures)
+    @test length(base) == 3
+    @test Set(base) == Set([chemistry_flipped, b_flipped, q_flipped])
 end
 
 @testset "a base-tier row of a degenerate seed's child carries no parent" begin
@@ -1685,8 +1753,7 @@ end
     end
     seeds = unique!(collect(EnzymeRates.init_mechanisms(rxn)))
     seed = first(filter(EnzymeRates._degenerate, seeds))
-    child = first(filter(m -> m isa EnzymeRates.Mechanism,
-                         first(EnzymeRates._expand_parent(seed, rxn))))
+    child = first(filter(!EnzymeRates._degenerate, EnzymeRates._expand_re_to_ss(seed)))
     base, _ = EnzymeRates._base_tier(seeds, rxn)
     @test child in base && !(child in seeds)
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],

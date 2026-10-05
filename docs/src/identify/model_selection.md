@@ -33,11 +33,15 @@ products, so it is not worth a fit, but it is the only parent of mechanisms that
 are not degenerate. Every seed with two chemistry isomerizations, such as a
 ping-pong seed, is one: a seed holds one steady-state step, so its other
 isomerization sits at rapid equilibrium with the steps on both its sides. The
-beam expands such a mechanism at once and fits its children beside the other
-starting mechanisms (`_base_tier`). Their rows, like the starting mechanisms'
-rows, name no parent, and the degenerate mechanism gets a row of its own only
-when its expansion fails. A degenerate mechanism that a move builds is fitted
-like any other.
+beam replaces such a mechanism at once by its children that are not degenerate
+and fits them beside the other starting mechanisms (`_base_tier`). Only a flip of
+a rapid-equilibrium group to steady state can cure it, by turning that
+isomerization steady state or every step on one of its sides; the other moves
+keep which steps are at rapid equilibrium, so their children stay degenerate and
+are not fitted. The children's rows, like the starting mechanisms' rows, name no
+parent, and the degenerate mechanism gets a row of its own only when its
+expansion fails. A degenerate mechanism that a move builds is fitted like any
+other.
 
 The search walks parameter counts in ascending order. At each count it fits
 every candidate, keeps a *beam* of the most promising, and expands only those

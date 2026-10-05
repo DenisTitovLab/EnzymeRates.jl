@@ -154,7 +154,8 @@ merged variant whose every merged complex has two steady-state steps, each alone
 in its group, has the family of the unmerged chain with rapid-equilibrium flanks
 at the same count and is skipped. `_degenerate`, the failure of V or C on the
 active-state graph, marks the starting mechanisms that `_base_tier`
-(`src/identify_rate_equation.jl`) expands without fitting.
+(`src/identify_rate_equation.jl`) replaces by their flip children that are not
+degenerate.
 
 Conformational mechanism types declare `_requires_hyperbolic_catalysis` (true for
 an `AllostericMechanism` whose catalytic multiplicity is above 1), and the moves
