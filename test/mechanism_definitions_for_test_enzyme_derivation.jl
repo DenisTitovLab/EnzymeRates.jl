@@ -2223,16 +2223,14 @@ function build_mechanism_test_specs()
 
     # ── Pyruvate kinase (PK) hand-verified mechanism ──────────────────────────
     # Reaction: PEP + ADP ⇌ Pyruvate + ATP, 4 catalytic subunits.
-    # PEP binding is :NonequalAI (independent K_R and K_T) so the T-state
-    # cycle is alive. Catalysis (groups 2-5) are :EqualAI; k5r and k5r_T both
-    # derive from the shared k5f via per-state Haldanes (R-state uses K1, T-state
-    # uses K1_T). Reg sites have MISMATCHED multiplicities:
+    # PEP binding and catalysis are :OnlyA, so the T-state cycle is dead; the
+    # ADP binding and both releases are :EqualAI. Reg sites have MISMATCHED
+    # multiplicities:
     #   ATP::OnlyI at mult 2
     #   F16BP::OnlyA at mult 4 (matches catalytic mult)
     # This exercises the symmetric all-reg-sites contribution to both numerator
     # and denominator.
-    # Independent parameters (9): K1, K1_T, K3, k5f, K6, K8,
-    # K_ATP_T_reg1, K_F16BP_reg2, L
+    # Independent parameters (8): K1, K3, k5f, K6, K8, K_ATP_T_reg1, K_F16BP_reg2, L
     let
         m, src, src_reg = @allosteric_mechanism_src begin
             substrates: PEP, ADP
@@ -2557,14 +2555,12 @@ function build_mechanism_test_specs()
         expected_n_wegscheider_constraints=2, expected_n_independent_params=8,
         run_ode_test=false))
 
-    # NOTE: a multi-:OnlyA derivation/perf spec was intentionally NOT added here.
-    # The representative multi-:OnlyA mechanism triggers the pre-existing allosteric
-    # MWC L-term leak (its inactive graph fragments), so its derivation is
-    # known-incorrect until that bug is fixed — see
-    # docs/superpowers/specs/2026-07-13-allosteric-mwc-derivation-known-issues.md.
-    # The enumeration move that makes multi-:OnlyA reachable is validated by its own
-    # tests in test_mechanism_enumeration.jl; the n=1 mass-action ground truth for the
-    # multi-:OnlyA derivation lives (as an @test_broken gate) in allosteric_ground_truth.jl.
+    # The PFK-1, HK and PK specs above pair one :OnlyA binding with :OnlyA catalysis. A
+    # mechanism that binds both substrates :OnlyA has no spec here; its derivation is
+    # checked against the n=1 mass-action ground truth in allosteric_ground_truth.jl
+    # (testset "multi-OnlyA MWC derivation matches mass-action ground truth").
+    # `_expand_to_allosteric` reaches it by tagging the two substrate binding groups
+    # :OnlyA with the chemistry.
 
     return specs
 end
