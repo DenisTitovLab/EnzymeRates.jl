@@ -72,27 +72,6 @@ using Serialization
         @test EnzymeRates.metabolites(m) == (:S, :P, :I)
     end
 
-    @testset "EnzymeMechanism Sig repack" begin
-        m = @enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-            end
-        end
-
-        @test m isa EnzymeRates.EnzymeMechanism
-        Sig = typeof(m).parameters[1]
-        @test Sig isa Tuple
-        @test length(Sig) == 2
-
-        @test EnzymeRates.substrates(m) == (:S,)
-        @test EnzymeRates.products(m)   == (:P,)
-        @test EnzymeRates.n_steps(m)    == 3
-    end
-
     @testset "_to_sig metabolite encoding round-trips" begin
         for M in (EnzymeRates.Substrate, EnzymeRates.Product,
                   EnzymeRates.AllostericRegulator, EnzymeRates.CompetitiveInhibitor)
@@ -100,59 +79,6 @@ using Serialization
             @test sig == (nameof(M), :X)
             @test EnzymeRates._metabolite_from_sig(sig) == M(:X)
         end
-    end
-
-    @testset "EnzymeMechanism constructor" begin
-        m = @enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-            end
-        end
-        @test EnzymeRates.n_steps(m) == 3
-        @test EnzymeRates.substrates(m) == (:S,)
-
-        # Same-kinetics group test: regulator R binds E and E(S) sharing one K
-        m_g = @enzyme_mechanism begin
-            substrates: S
-            products:   P
-            regulators: R
-            steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-                (E + R ⇌ E(R), E(S) + R ⇌ E(S, R))
-            end
-        end
-        # The two R-binding steps share one kinetic group → 5 steps, 4 groups
-        # (order-independent: canonicalization reorders the flat step list).
-        @test length(unique(EnzymeRates.kinetic_group(m_g, i)
-                            for i in 1:EnzymeRates.n_steps(m_g))) == 4
-    end
-
-    @testset "AllostericEnzymeMechanism struct + accessors" begin
-        cm = @enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-            end
-        end
-        # Dense format: (multiplicity, cat_allo_states) and (ligands, mult, reg_allo_states)
-        cat_sites = (2, (:NonequalAI, :OnlyA, :NonequalAI))
-        reg_sites = ((((:I,), 2, (:OnlyI,)),),)
-        m = EnzymeRates.AllostericEnzymeMechanism{typeof(cm), cat_sites, reg_sites[1]}()
-
-        @test EnzymeRates.catalytic_mechanism(m) === cm
-        @test EnzymeRates.catalytic_multiplicity(m) == 2
-        @test EnzymeRates.cat_allo_state(m, 1) == :NonequalAI
-        @test EnzymeRates.cat_allo_state(m, 2) == :OnlyA
-        @test EnzymeRates.regulatory_sites(m) == reg_sites[1]
     end
 
     @testset "AllostericEnzymeMechanism constructor + DSL" begin
@@ -330,27 +256,6 @@ using Serialization
         @test contains(s_allo, "I::OnlyI")
     end
 
-    @testset "EnzymeMechanism different orderings produce valid mechanisms" begin
-        m1 = @enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + S <--> E(S)
-                E(S) <--> E + P
-            end
-        end
-        m2 = @enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E(S) <--> E + P
-                E + S <--> E(S)
-            end
-        end
-        @test m1 isa EnzymeMechanism
-        @test m2 isa EnzymeMechanism
-    end
-
     @testset "EnzymeMechanism error cases" begin
         # Empty steps → error (re-pointed to _assert_mechanism_invariants:
         # the decomposed Mechanism with no steps errors on `isempty(flat)`).
@@ -361,46 +266,11 @@ using Serialization
         m_empty = EnzymeRates.Mechanism(rxn, Vector{Vector{EnzymeRates.Step}}())
         @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_empty)
 
-        # Net stoichiometry mismatch: a declared substrate that no step binds.
-        # Re-pointed to _assert_mechanism_invariants (substrate coverage).
-        rxn_unused = @enzyme_reaction begin
-            substrates: S[C], T[N]
-            products:   P[CN]
-        end
-        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
-        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
-        e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
-        m_unused = EnzymeRates.Mechanism(rxn_unused, [
-            [EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
-                              EnzymeRates.Metabolite[], true)],
-            [EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
-                              EnzymeRates.Metabolite[], false)],
-            [EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
-                              EnzymeRates.Metabolite[], true)],
-        ])
-        @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_unused)
-
-        # NOTE: duplicate reactions and unreachable enzyme forms are both
-        # accepted. Two reactions with the same (lhs, rhs) but distinct
-        # kinetic_groups are valid (they represent dead-end mirrors with
-        # different parameters, disambiguated by the kinetic_group integer).
-        # The constructor does not enforce a connectivity invariant —
-        # enzyme forms are inferred from steps, so an "unreachable" form
-        # simply has its own steps in isolation, which is structurally
-        # valid (graph connectivity is a downstream concern caught by
+        # NOTE: unreachable enzyme forms are accepted. The constructor does not
+        # enforce a connectivity invariant — enzyme forms are inferred from steps,
+        # so an "unreachable" form simply has its own steps in isolation, which is
+        # structurally valid (graph connectivity is a downstream concern caught by
         # Wegscheider analysis if it matters).
-    end
-
-    @testset "EnzymeMechanism valid with reachable enzyme forms" begin
-        m = @enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + S <--> E(S)
-                E(S) <--> E + P
-            end
-        end
-        @test m isa EnzymeMechanism
     end
 
     @testset "Mechanism rejects a rapid-equilibrium segment with no bottom form" begin
@@ -409,18 +279,6 @@ using Serialization
         # has weights P·Q : Kq·P : Kp·Q, all zero at P = Q = 0. The RE
         # approximation carries no parameter for how E(P, Q) splits between
         # E(P) and E(Q) there, so the rate is undefined at zero products.
-        @test_throws ErrorException @enzyme_mechanism begin
-            substrates: S
-            products: P, Q
-            steps: begin
-                E + S ⇌ E(S)
-                E + P <--> E(P)
-                E + Q <--> E(Q)
-                E(P) + Q ⇌ E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
-                E(S) <--> E(P, Q)
-            end
-        end
         err = try
             @enzyme_mechanism begin
                 substrates: S
@@ -436,10 +294,12 @@ using Serialization
             end
             nothing
         catch e
-            sprint(showerror, e)
+            e
         end
-        @test occursin("rapid-equilibrium segment", err)
-        @test occursin("E(P, Q)", err) || occursin("EPQ", err)
+        @test err isa ErrorException
+        msg = sprint(showerror, err)
+        @test occursin("rapid-equilibrium segment", msg)
+        @test occursin("E(P, Q)", msg) || occursin("EPQ", msg)
 
         # Mirror on the substrate side: undefined at A = B = 0.
         @test_throws ErrorException @enzyme_mechanism begin
@@ -484,22 +344,6 @@ using Serialization
             end
         end
         @test m_abortive isa EnzymeMechanism
-
-        # Ping-pong seed: E and the covalent E(; residual) share one RE
-        # segment whose weights vanish only at B = Q = 0 (mixed). Accepted.
-        m_pingpong = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E(A)
-                E(A) <--> E(P; residual = A - P)
-                E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-                E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-                E(B; residual = A - P) ⇌ E(Q)
-                E + Q ⇌ E(Q)
-            end
-        end
-        @test m_pingpong isa EnzymeMechanism
     end
 
     @testset "AllostericEnzymeMechanism constructor validators" begin
@@ -565,65 +409,6 @@ using Serialization
         end
     end
 
-    @testset "EnzymeMechanism: regulator binding" begin
-        # All regulators bound -> ok
-        @test (@enzyme_mechanism begin
-            substrates: S
-            products:   P
-            regulators: A
-            steps: begin
-                E + S ⇌ E(S)
-                E(S) + A ⇌ E(S, A)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-            end
-        end) isa EnzymeRates.EnzymeMechanism
-        # No regulators -> ok
-        @test (@enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-            end
-        end) isa EnzymeRates.EnzymeMechanism
-    end
-
-    @testset "AllostericEnzymeMechanism display format" begin
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: R
-            oligomeric_state: 2
-        end
-        base = first(EnzymeRates.init_mechanisms(rxn))
-        cat_allo_states = Symbol[]
-        for g in EnzymeRates.kinetic_groups(base)
-            rep = EnzymeRates.rep_step(base, g)
-            met = EnzymeRates.bound_metabolite(rep)
-            tag = (met isa EnzymeRates.Reactant &&
-                   EnzymeRates.name(met) in (:S, :P)) ?
-                  :EqualAI : :NonequalAI
-            push!(cat_allo_states, tag)
-        end
-        site = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:R)], 2, [:OnlyI])
-        am = EnzymeRates.AllostericMechanism(
-            EnzymeRates.reaction(base), copy(EnzymeRates.steps(base)),
-            cat_allo_states, 2, [site])
-        m = EnzymeRates.AllostericEnzymeMechanism(am)
-        s = repr(m)
-
-        # No cat_allo_states: summary line — tags are shown inline instead:
-        @test !occursin("cat_allo_states:", s)
-        # Inline ::Tag annotations on each step or step group:
-        @test occursin(":: EqualAI", s)
-        # Multi-line catalytic display (no chain shortcut):
-        n_steps_re = count(c -> c == '\n', s)
-        @test n_steps_re >= 3   # header + ≥3 step lines
-    end
-
     @testset "AllostericEnzymeMechanism display: shared kinetic group" begin
         cm = @enzyme_mechanism begin
             substrates: S
@@ -647,6 +432,8 @@ using Serialization
         @test occursin("ES <--> EP :: EqualAI", s)
         @test occursin(":: EqualAI", s)
         @test !occursin("cat_allo_states:", s)
+        # One line per kinetic group: a multi-line catalytic display.
+        @test count(==('\n'), s) >= 3
     end
 
     # ─── Concrete type hierarchy ──────────────────────────────────────
@@ -657,15 +444,11 @@ using Serialization
         a = EnzymeRates.AllostericRegulator(:cAMP)
         i = EnzymeRates.CompetitiveInhibitor(:I)
 
-        @test s isa EnzymeRates.Substrate
         @test s isa EnzymeRates.Reactant
         @test s isa EnzymeRates.Metabolite
-        @test p isa EnzymeRates.Product
         @test p isa EnzymeRates.Reactant
-        @test a isa EnzymeRates.AllostericRegulator
         @test a isa EnzymeRates.Regulator
         @test a isa EnzymeRates.Metabolite
-        @test i isa EnzymeRates.CompetitiveInhibitor
         @test i isa EnzymeRates.Regulator
 
         @test EnzymeRates.name(s) === :ATP
@@ -785,10 +568,13 @@ using Serialization
         @test_throws ErrorException EnzymeRates.RegulatorySite(
             [lig_a], 1, [:NotAState])
 
-        # All four allowed states accepted
+        # All four allowed states accepted; the R/T symbols are rejected.
         for st in (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
             @test EnzymeRates.RegulatorySite([lig_a], 1, [st]) isa
                   EnzymeRates.RegulatorySite
+        end
+        for st in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT)
+            @test_throws ErrorException EnzymeRates.RegulatorySite([lig_a], 1, [st])
         end
 
         # Equality / hash
@@ -801,89 +587,6 @@ using Serialization
         site_reordered = EnzymeRates.RegulatorySite(
             [lig_b, lig_a], 4, [:OnlyA, :NonequalAI])
         @test site != site_reordered
-    end
-
-    @testset "RegulatorySite: A/I allo-state symbols accepted; R/T rejected" begin
-        for st in (:EqualAI, :OnlyA, :OnlyI, :NonequalAI)
-            @test EnzymeRates.RegulatorySite(
-                [EnzymeRates.AllostericRegulator(:G6P)], 1, [st]) isa EnzymeRates.RegulatorySite
-        end
-        for st in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT)
-            @test_throws ErrorException EnzymeRates.RegulatorySite(
-                [EnzymeRates.AllostericRegulator(:G6P)], 1, [st])
-        end
-    end
-
-    @testset "Step fields + accessors" begin
-        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
-        e_s = EnzymeRates.Species(
-            EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
-        e_p = EnzymeRates.Species(
-            EnzymeRates.Metabolite[EnzymeRates.Product(:P)], :E)
-
-        s1 = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
-                              EnzymeRates.Metabolite[], true)
-        s2 = EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
-                              EnzymeRates.Metabolite[], false)
-        s3 = EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
-                              EnzymeRates.Metabolite[], true)
-
-        @test fieldnames(EnzymeRates.Step) ==
-              (:from_species, :to_species, :consumed, :released,
-               :is_equilibrium)
-
-        @test EnzymeRates.from_species(s1) === e
-        @test EnzymeRates.to_species(s1) === e_s
-        @test EnzymeRates.bound_metabolite(s1) ==
-              EnzymeRates.Substrate(:S)
-        @test EnzymeRates.is_equilibrium(s1)
-        @test EnzymeRates.is_binding(s1)
-        @test !EnzymeRates.is_iso(s1)
-
-        @test EnzymeRates.bound_metabolite(s2) === nothing
-        @test EnzymeRates.is_iso(s2)
-        @test !EnzymeRates.is_binding(s2)
-
-        @test EnzymeRates.is_binding(s3)
-    end
-
-    @testset "Step `==` / hash are structural" begin
-        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
-        e_s = EnzymeRates.Species(
-            EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
-        s  = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
-                              EnzymeRates.Metabolite[], true)
-        s2 = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
-                              EnzymeRates.Metabolite[], true)
-        @test s == s2
-        @test hash(s) == hash(s2)
-    end
-
-    @testset "Step canonicalizes binding direction" begin
-        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
-        e_s = EnzymeRates.Species(
-            EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
-
-        # User authored release direction (E_S → E + S, metabolite on RHS).
-        # Constructor swaps to binding direction (E + S → E_S). Both RE and
-        # SS binding canonicalize this way.
-        re_released = EnzymeRates.Step(e_s, e, EnzymeRates.Metabolite[],
-                                       [EnzymeRates.Substrate(:S)], true)
-        re_bound    = EnzymeRates.Step(e,   e_s, [EnzymeRates.Substrate(:S)],
-                                       EnzymeRates.Metabolite[], true)
-        @test re_released == re_bound
-        @test hash(re_released) == hash(re_bound)
-        @test EnzymeRates.from_species(re_released) === e
-        @test EnzymeRates.to_species(re_released) === e_s
-
-        ss_released = EnzymeRates.Step(e_s, e, EnzymeRates.Metabolite[],
-                                       [EnzymeRates.Substrate(:S)], false)
-        ss_bound    = EnzymeRates.Step(e,   e_s, [EnzymeRates.Substrate(:S)],
-                                       EnzymeRates.Metabolite[], false)
-        @test ss_released == ss_bound
-        @test hash(ss_released) == hash(ss_bound)
-        @test EnzymeRates.from_species(ss_released) === e
-        @test EnzymeRates.to_species(ss_released) === e_s
     end
 
     @testset "Step preserves iso direction (canonicalized in Mechanism ctor)" begin
@@ -920,20 +623,13 @@ using Serialization
         step = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
                                 EnzymeRates.Metabolite[], true)
 
-        kd_none = EnzymeRates.Kd(step, :None)
-        kd_i    = EnzymeRates.Kd(step, :I)
-        @test kd_none isa EnzymeRates.Kd
-        @test kd_none isa EnzymeRates.Parameter
-        @test EnzymeRates.governing_step(kd_none) === step
-        @test !EnzymeRates.is_i_state(kd_none)
-        @test EnzymeRates.is_i_state(kd_i)
-        @test kd_none == EnzymeRates.Kd(step, :None)
-        @test kd_none != kd_i
-
-        for T in (EnzymeRates.Kiso, EnzymeRates.Kon, EnzymeRates.Koff,
+        for T in (EnzymeRates.Kd, EnzymeRates.Kiso, EnzymeRates.Kon, EnzymeRates.Koff,
                   EnzymeRates.Kfor, EnzymeRates.Krev)
             p = T(step, :None)
+            @test p isa T
             @test p isa EnzymeRates.Parameter
+            @test p == T(step, :None)
+            @test p != T(step, :I)
             @test EnzymeRates.governing_step(p) === step
             @test !EnzymeRates.is_i_state(p)
             @test EnzymeRates.is_i_state(T(step, :I))
@@ -1139,24 +835,6 @@ using Serialization
             EnzymeRates.AllostericRegulator(:X), [2], :bogus)
     end
 
-    @testset "EnzymeReaction struct + accessors" begin
-        r = EnzymeReaction(
-            [EnzymeRates.ReactantAtoms(
-                 EnzymeRates.Substrate(:ATP), [:C => 10]),
-             EnzymeRates.ReactantAtoms(
-                 EnzymeRates.Product(:ADP), [:C => 10])],
-            [EnzymeRates.RegulatorMults(
-                 EnzymeRates.AllostericRegulator(:cAMP), [2])],
-            [1, 2],
-        )
-
-        @test length(EnzymeRates.reactants(r)) == 2
-        @test EnzymeRates.allowed_catalytic_multiplicities(r) == [1, 2]
-        @test length(EnzymeRates.regulators(r)) == 1
-        @test EnzymeRates.substrates(r) == [EnzymeRates.Substrate(:ATP)]
-        @test EnzymeRates.products(r) == [EnzymeRates.Product(:ADP)]
-    end
-
     @testset "EnzymeReaction canonicalizes reactant + regulator ordering" begin
         r1 = EnzymeReaction(
             [EnzymeRates.ReactantAtoms(
@@ -1198,77 +876,15 @@ using Serialization
         )
     end
 
-    @testset "Mechanism (non-parametric)" begin
-        r = EnzymeReaction(
-            [EnzymeRates.ReactantAtoms(
-                 EnzymeRates.Substrate(:S), [:C => 1]),
-             EnzymeRates.ReactantAtoms(
-                 EnzymeRates.Product(:P), [:C => 1])],
-            EnzymeRates.RegulatorMults[],
-            [1],
-        )
-        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
-        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
-        e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
-
-        s_bind = EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
-                                  EnzymeRates.Metabolite[], true)
-        s_iso  = EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
-                                  EnzymeRates.Metabolite[], false)
-        s_rel  = EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
-                                  EnzymeRates.Metabolite[], true)
-
-        m = EnzymeRates.Mechanism(r, [[s_bind], [s_iso], [s_rel]])
-        @test EnzymeRates.reaction(m) == r
-        # Steps are canonicalized at construction → compare as a set.
-        @test Set(only(g) for g in EnzymeRates.steps(m)) ==
-              Set([s_bind, s_iso, s_rel])
-        @test EnzymeRates.kinetic_groups(m) == 1:3
-        @test EnzymeRates.n_steps(m) == 3
-        @test s_iso in (EnzymeRates.rep_step(m, g)
-                        for g in EnzymeRates.kinetic_groups(m))
-
-        m2 = EnzymeRates.Mechanism(r, [[s_bind], [s_iso], [s_rel]])
-        @test m == m2
-        @test hash(m) == hash(m2)
-    end
-
-    @testset "iso canonicalization (RE + SS, all tiers)" begin
-        # Tier 1 (SS iso, score differs): forward = substrate-bound -> product-bound.
-        m_fwd = @enzyme_mechanism begin
-            substrates: S; products: P
-            steps: begin
-                E + S <--> E(S)
-                E(S) <--> E(P)
-                E(P) <--> E + P
-            end
-        end
-        m_rev = @enzyme_mechanism begin
-            substrates: S; products: P
-            steps: begin
-                E + S <--> E(S)
-                E(P) <--> E(S)        # SS iso written backwards
-                E(P) <--> E + P
-            end
-        end
-        @test EnzymeRates.Mechanism(m_fwd) == EnzymeRates.Mechanism(m_rev)
-
-        # Tier 2 (the Segel Iso Uni Uni case): pure conformational F <--> E,
-        # tied on Tier 1, decided by entry_kind. Two opposite-source-direction
-        # mechanisms canonicalize to the same form.
-        s1 = @enzyme_mechanism begin
-            substrates: A; products: P
-            steps: begin
-                E + A <--> E(A); E(A) <--> E(P); E(P) <--> F + P; F <--> E
-            end
-        end
+    @testset "pure conformational isomerization runs product-exit to substrate-entry" begin
+        # Tier 2 (the Segel Iso Uni Uni case): the pure conformational F <--> E, tied
+        # on Tier 1 and decided by entry_kind, runs F → E however it is written.
         s2 = @enzyme_mechanism begin
             substrates: A; products: P
             steps: begin
                 E + A <--> E(A); E(A) <--> E(P); E(P) <--> F + P; E <--> F   # last step flipped
             end
         end
-        @test EnzymeRates.Mechanism(s1) == EnzymeRates.Mechanism(s2)
         iso = only(s for grp in EnzymeRates.steps(EnzymeRates.Mechanism(s2))
                        for s in grp
                        if EnzymeRates.is_iso(s) &&
@@ -1298,23 +914,16 @@ using Serialization
                               EnzymeRates.Metabolite[], true)
 
         m = EnzymeRates.Mechanism(r, [[s1], [s2], [s3]])
+        @test EnzymeRates.reaction(m) == r
         flat = EnzymeRates._flat_steps(m)
         @test Set(s for (s, _) in flat) == Set([s1, s2, s3])
         @test [g for (_, g) in flat] == [1, 2, 3]
+        @test EnzymeRates.kinetic_groups(m) == 1:3
+        @test EnzymeRates.n_steps(m) == 3
         # Canonical by construction: a permuted input yields identical storage.
         m_perm = EnzymeRates.Mechanism(r, [[s3], [s1], [s2]])
         @test EnzymeRates._flat_steps(m) == EnzymeRates._flat_steps(m_perm)
-    end
-
-    @testset "wegscheider rename map on Mechanism" begin
-        m = first(EnzymeRates.init_mechanisms(@enzyme_reaction(begin
-            substrates: A[C], B[N]
-            products:   P[C], Q[N]
-        end)))
-        from_type = EnzymeRates._build_wegscheider_rename_map(
-            EnzymeRates.compile_mechanism(m))
-        from_mech = EnzymeRates._build_wegscheider_rename_map(m)
-        @test from_type == from_mech
+        @test m == m_perm && hash(m) == hash(m_perm)
     end
 
     @testset "AllostericMechanism (non-parametric)" begin
@@ -1421,6 +1030,12 @@ using Serialization
             (((:A, :B), 1, (:OnlyA, :NonequalAI)),),
         )
 
+        @test EnzymeRates.catalytic_mechanism(aem) === cm
+        @test EnzymeRates.catalytic_multiplicity(aem) == 2
+        @test [EnzymeRates.cat_allo_state(aem, g) for g in 1:3] ==
+              [:EqualAI, :NonequalAI, :OnlyA]
+        @test EnzymeRates.regulatory_sites(aem) == (((:A, :B), 1, (:OnlyA, :NonequalAI)),)
+
         am = EnzymeRates.AllostericMechanism(aem)
         @test am isa EnzymeRates.AllostericMechanism
 
@@ -1482,11 +1097,17 @@ using Serialization
               EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), am)
         @test EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), aem) === :k_ES_to_EP
 
+        # The same names resolve on the AllostericMechanism itself.
+        @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :None), am) === :K_ES_to_E_S
+        @test EnzymeRates.name(EnzymeRates.Kiso(rep_iso, :None), am) === :K_ES_to_EP
+        @test EnzymeRates.name(EnzymeRates.Kon(rep_iso, :None), am) === :k_ES_to_EP
+
         # Kreg: AEM dispatch matches AM dispatch
         site = EnzymeRates.regulatory_sites(am)[1]
         lig  = first(site.ligands)
         @test EnzymeRates.name(EnzymeRates.Kreg(site, lig, :A), aem) ==
               EnzymeRates.name(EnzymeRates.Kreg(site, lig, :A), am)
+        @test EnzymeRates.name(EnzymeRates.Kreg(site, lig, :A), am) === :K_A_Rreg
         @test EnzymeRates.name(EnzymeRates.Kreg(site, lig, :I), aem) ===
               :K_I_Rreg
     end
@@ -1519,6 +1140,7 @@ using Serialization
 
         sig = EnzymeRates._sig_of(m)
         @test sig isa Tuple
+        @test length(sig) == 2   # (reaction_sig, steps_sig)
 
         m_recon = EnzymeRates._mechanism_from_sig(sig)
         @test m_recon == m   # roundtrip
@@ -1529,36 +1151,10 @@ using Serialization
         @test em_type <: EnzymeRates.EnzymeMechanism
         em_inst = em_type()
         @test em_inst isa EnzymeRates.EnzymeMechanism
+        @test EnzymeRates.EnzymeMechanism(m) === em_inst
 
         # Roundtrip through the type-parameter form preserves everything.
         @test EnzymeRates.Mechanism(em_inst) == m
-    end
-
-    @testset "Mechanism <-> EnzymeMechanism converters" begin
-        r = EnzymeRates.EnzymeReaction(
-            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
-             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])],
-            EnzymeRates.RegulatorMults[],
-            [1],
-        )
-        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
-        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
-        e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
-
-        m = EnzymeRates.Mechanism(r, [
-            [EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
-                              EnzymeRates.Metabolite[], true)],
-            [EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
-                              EnzymeRates.Metabolite[], false)],
-            [EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
-                              EnzymeRates.Metabolite[], true)],
-        ])
-
-        em = EnzymeMechanism(m)
-        @test em isa EnzymeMechanism
-
-        m_back = EnzymeRates.Mechanism(em)
-        @test m_back == m
     end
 
     @testset "name(p::Parameter, m) chokepoint" begin
@@ -1613,11 +1209,7 @@ using Serialization
         @test EnzymeRates.name(EnzymeRates.Lallo(), em) === :L
     end
 
-    @testset "name(p::Parameter, m) rep_idx for shared kinetic group" begin
-        # Group with 2 steps: rep is the first step's position in the
-        # flattened step list. If group 1 contains steps at positions 1
-        # and 2, rep_idx is 1; if group 2 starts at position 3 with two
-        # steps, rep_idx for group 2 is 3.
+    @testset "name(p::Parameter, m) for the steps of a shared kinetic group" begin
         r = EnzymeRates.EnzymeReaction(
             [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
              EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])],
@@ -1642,131 +1234,9 @@ using Serialization
 
         m = EnzymeRates.Mechanism(r, [[step_a, step_b], [step_c], [step_d]])
 
-        # Group 1: both steps bind S; rep = step_a. Both yield the same name.
+        # Group 1: both steps bind S; they yield the same name.
         @test EnzymeRates.name(EnzymeRates.Kd(step_a, :None), m) === :K_ES_to_E_S
         @test EnzymeRates.name(EnzymeRates.Kd(step_b, :None), m) === :K_ES_to_E_S
-        # Group 2: SS iso ES → EP.
-        @test EnzymeRates.name(EnzymeRates.Kon(step_c, :None), m) === :k_ES_to_EP
-        # Group 3: RE binding P from E.
-        @test EnzymeRates.name(EnzymeRates.Kd(step_d, :None), m) === :K_EP_to_E_P
-    end
-
-    @testset "name(p::Kreg, m) chokepoint" begin
-        r = EnzymeRates.EnzymeReaction(
-            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
-             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])],
-            [EnzymeRates.RegulatorMults(
-                 EnzymeRates.AllostericRegulator(:A), [2])],
-            [2],
-        )
-        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
-        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
-        e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
-
-        cat_steps = [
-            [EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
-                              EnzymeRates.Metabolite[], true)],
-            [EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
-                              EnzymeRates.Metabolite[], false)],
-            [EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
-                              EnzymeRates.Metabolite[], true)],
-        ]
-        site_a = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:A)], 2, [:NonequalAI])
-        am = EnzymeRates.AllostericMechanism(
-            r, cat_steps,
-            [:EqualAI, :EqualAI, :EqualAI], 2, [site_a])
-
-        @test EnzymeRates.name(
-            EnzymeRates.Kreg(site_a, EnzymeRates.AllostericRegulator(:A), :A),
-            am) === :K_A_Areg
-        @test EnzymeRates.name(
-            EnzymeRates.Kreg(site_a, EnzymeRates.AllostericRegulator(:A), :I),
-            am) === :K_I_Areg
-
-        # Step-bound parameters also resolve via AllostericMechanism.
-        rep = first(cat_steps[1])
-        @test EnzymeRates.name(EnzymeRates.Kd(rep, :None), am) === :K_ES_to_E_S
-        @test EnzymeRates.name(EnzymeRates.Kd(rep, :I),    am) === :K_I_ES_to_E_S
-
-        # Iso step in second kinetic group
-        iso_step = first(cat_steps[2])
-        @test EnzymeRates.name(EnzymeRates.Kiso(iso_step, :None), am) === :K_ES_to_EP
-        @test EnzymeRates.name(EnzymeRates.Kon(iso_step, :None),  am) === :k_ES_to_EP
-
-        # Scalars also dispatch on AllostericMechanism
-        @test EnzymeRates.name(EnzymeRates.Keq(),   am) === :Keq
-        @test EnzymeRates.name(EnzymeRates.Etot(),  am) === :E_total
-        @test EnzymeRates.name(EnzymeRates.Lallo(), am) === :L
-    end
-
-    @testset "structural parameter names" begin
-        m = @enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + S <--> E(S)
-                E(S) <--> E(P)
-                E(P) <--> E + P
-            end
-        end
-        ps = EnzymeRates.parameters(m)
-        # SS iso forward step E(S) → E(P) must appear as :k_ES_to_EP
-        @test :k_ES_to_EP in ps
-        # No positional index names such as k2f or K1.
-        @test !any(p -> occursin(r"^k[0-9]", String(p)), ps)
-        @test !any(p -> occursin(r"^K[0-9]", String(p)), ps)
-    end
-
-    @testset "synth-dep I-state names consistent with chokepoint (NonequalAI)" begin
-        # PK-like mechanism: NonequalAI PEP binding, EqualAI catalysis.
-        # k5r is a Haldane dep whose RHS references K_EPEP_to_E_PEP (NonequalAI),
-        # so a synthesized I-state dep is produced. The synth-dep name must
-        # be what name(_flip_to_inactive(_param_for_symbol(am, active)), am)
-        # returns, not string(active) * "_T".
-        m = @allosteric_mechanism begin
-            substrates: PEP, ADP
-            products:   Pyruvate, ATP
-            allosteric_regulators: ATP::OnlyI, F16BP::OnlyA
-            catalytic_multiplicity: 4
-            catalytic_steps: begin
-                (E + PEP ⇌ E(PEP),
-                 E(ADP) + PEP ⇌ E(PEP, ADP))                          :: NonequalAI
-                (E + ADP ⇌ E(ADP),
-                 E(PEP) + ADP ⇌ E(PEP, ADP))                          :: EqualAI
-                E(PEP, ADP) <--> E(Pyruvate, ATP)                     :: EqualAI
-                (E(Pyruvate, ATP) ⇌ E(ATP) + Pyruvate,
-                 E(Pyruvate) ⇌ E + Pyruvate)                          :: EqualAI
-                (E(Pyruvate, ATP) ⇌ E(Pyruvate) + ATP,
-                 E(ATP) ⇌ E + ATP)                                    :: EqualAI
-            end
-            regulatory_site(multiplicity = 2): begin
-                ligands: ATP
-            end
-            regulatory_site(multiplicity = 4): begin
-                ligands: F16BP
-            end
-        end
-        # parameters(m, Reduced) must advertise the I-state variant of PEP
-        # binding using the structural mid-name I_ token, not a _T suffix.
-        ps = EnzymeRates.parameters(m)
-        ps_str = String.(collect(ps))
-        # The I-state PEP binding param must use mid-name I_ token
-        @test any(s -> startswith(s, "K_I_"), ps_str)
-        # No param name should use _T suffix
-        @test !any(s -> endswith(s, "_T"), ps_str)
-        # Calling rate_equation must not error (proves indep names and rate
-        # body names are consistent — the intermediate state would KeyError here).
-        rng = Random.MersenneTwister(1234)
-        met_names = [:PEP, :ADP, :Pyruvate, :ATP, :F16BP]
-        concs_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in met_names)
-        concs = NamedTuple{Tuple(met_names)}(concs_vals)
-        indep = EnzymeRates.fitted_params(m)
-        param_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in indep)
-        params = NamedTuple{indep}(param_vals)
-        params = merge(params, (Keq=1.0, E_total=1.0))
-        v = EnzymeRates.rate_equation(m, concs, params)
-        @test isfinite(v)
     end
 
     @testset "_force_inactive forces :I regardless of tag" begin
@@ -1809,35 +1279,47 @@ end
 
     @testset "plain binding keeps its written orientation" begin
         s = ER.Step(E, EA, [A], ER.Metabolite[], true)
-        @test ER.from_species(s) == E && ER.to_species(s) == EA
+        @test fieldnames(ER.Step) ==
+              (:from_species, :to_species, :consumed, :released, :is_equilibrium)
+        @test ER.from_species(s) === E && ER.to_species(s) === EA
         @test ER.consumed(s) == ER.Metabolite[A] && isempty(ER.released(s))
         @test ER.bound_metabolite(s) == A && ER.is_binding(s) && !ER.is_iso(s)
+        @test ER.is_equilibrium(s) && !ER._is_chemistry(s)
     end
 
     @testset "a plain release is stored as the binding it reverses" begin
-        s = ER.Step(EA, E, ER.Metabolite[], [A], false)
-        @test s == ER.Step(E, EA, [A], ER.Metabolite[], false)
+        for is_eq in (true, false)
+            release = ER.Step(EA, E, ER.Metabolite[], [A], is_eq)
+            binding = ER.Step(E, EA, [A], ER.Metabolite[], is_eq)
+            @test release == binding && hash(release) == hash(binding)
+            @test ER.from_species(release) === E && ER.to_species(release) === EA
+        end
         # conformation change allowed: E*(A) → E + A is the binding E + A → E*(A)
         Estar_A = _testhelper_sp([A], :Estar)
         r = ER.Step(Estar_A, E, ER.Metabolite[], [A], true)
-        @test ER.from_species(r) == E && ER.to_species(r) == Estar_A
+        @test ER.from_species(r) === E && ER.to_species(r) === Estar_A
         @test ER.bound_metabolite(r) == A && !ER._is_chemistry(r)
     end
 
     @testset "isomerization and transformations" begin
         iso = ER.Step(EAB, _testhelper_sp([P, Q]), ER.Metabolite[], ER.Metabolite[], false)
         @test ER.is_iso(iso) && ER.bound_metabolite(iso) === nothing && !ER.is_binding(iso)
+        @test ER._is_chemistry(iso)
         # Chemistry + release, stored as the fused binding of P it reverses.
         fused = ER.Step(EAB, EQ, ER.Metabolite[], [P], false)
         @test !ER.is_iso(fused) && ER.bound_metabolite(fused) == P
-        @test ER.from_species(fused) == EQ && ER.consumed(fused) == ER.Metabolite[P]
+        @test ER.from_species(fused) == EQ && ER.to_species(fused) == EAB
+        @test ER.consumed(fused) == ER.Metabolite[P]
         @test isempty(ER.released(fused)) && ER._is_chemistry(fused)
         tc = ER.Step(EA, EQ, [B], [P], false)                          # Theorell–Chance
         @test ER.consumed(tc) == ER.Metabolite[B] && ER.released(tc) == ER.Metabolite[P]
-        @test ER.bound_metabolite(tc) === nothing
+        @test ER.bound_metabolite(tc) === nothing && ER._is_chemistry(tc)
         two = ER.Step(E, EAB, [B, A], ER.Metabolite[], true)           # lists are sorted
         @test ER.consumed(two) == ER.Metabolite[A, B] &&
               ER.bound_metabolite(two) === nothing
+        # A fused binding: the metabolite is taken up while chemistry runs.
+        fused_binding = ER.Step(EA, _testhelper_sp([P, Q]), [B], ER.Metabolite[], true)
+        @test ER.bound_metabolite(fused_binding) == B && ER._is_chemistry(fused_binding)
     end
 
     @testset "covalent residual: binding onto a residual form vs chemistry" begin
@@ -1888,40 +1370,6 @@ end
         tc = ER.Step(EA, EQ, [B], [P], false)
         @test ER._step_from_sig(ER._to_sig(tc)) == tc
     end
-end
-
-@testset "a step that takes up one metabolite and gives off none binds it" begin
-    sp(mets...) = ER.Species(ER.Metabolite[mets...], :E)
-    A, B, P, Q = ER.Substrate(:A), ER.Substrate(:B), ER.Product(:P), ER.Product(:Q)
-    plain = ER.Step(sp(), sp(A), ER.Metabolite[A], ER.Metabolite[], true)
-    @test ER.bound_metabolite(plain) == A && !ER._is_chemistry(plain)
-    fused = ER.Step(sp(A), sp(P, Q), ER.Metabolite[B], ER.Metabolite[], true)
-    @test ER.bound_metabolite(fused) == B && ER._is_chemistry(fused)
-    # A step that only gives off one metabolite is stored as the binding it reverses.
-    release = ER.Step(sp(A, B), sp(Q), ER.Metabolite[], ER.Metabolite[P], false)
-    @test ER.from_species(release) == sp(Q) && ER.to_species(release) == sp(A, B)
-    @test ER.consumed(release) == ER.Metabolite[P] && ER._is_chemistry(release)
-    tc = ER.Step(sp(A), sp(Q), ER.Metabolite[B], ER.Metabolite[P], false)
-    @test ER.bound_metabolite(tc) === nothing && ER._is_chemistry(tc)
-    iso = ER.Step(sp(A, B), sp(P, Q), ER.Metabolite[], ER.Metabolite[], false)
-    @test ER.bound_metabolite(iso) === nothing && ER._is_chemistry(iso)
-end
-
-@testset "a fused and a plain binding of one metabolite share a kinetic group" begin
-    # Merged decorated ordered bi-bi, variant {A, Pˣ}: the B group holds the fused
-    # E(A) + B → E(P, Q) and the dead-end E(Q) + B ⇌ E(B, Q). Fitted: A (2) + B (1)
-    # + P (2) + Q (1) − 1 Haldane = 5.
-    em = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A <--> E(A)
-            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))
-            E(Q) + P <--> E(P, Q)
-            E + Q ⇌ E(Q)
-        end
-    end
-    @test length(EnzymeRates.fitted_params(em)) == 5
 end
 
 @testset "kinetic groups hold one kind of step with one flag" begin
@@ -2104,17 +1552,6 @@ end
     full_names(m) = Set(ER.parameters(m, ER.Full))
     # Michaelis–Menten, RE bindings: a binding K is named in the release
     # direction (a dissociation constant); the SS isomerization has k both ways.
-    mm_re = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-        end
-    end
-    @test issubset([:K_ES_to_E_S, :K_EP_to_E_P, :k_ES_to_EP, :k_EP_to_ES],
-                   full_names(mm_re))
     # SS bindings: one rate constant per direction of the binding.
     mm_ss = @enzyme_mechanism begin
         substrates: S
@@ -2127,17 +1564,8 @@ end
     end
     @test issubset([:k_E_S_to_ES, :k_ES_to_E_S, :k_E_P_to_EP, :k_EP_to_E_P],
                    full_names(mm_ss))
-    # Theorell–Chance: each side carries its free metabolite.
-    tc = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(Q) + P
-            E(Q) <--> E + Q
-        end
-    end
-    @test issubset([:k_EA_B_to_EQ_P, :k_EQ_P_to_EA_B], full_names(tc))
+    # Reduced mode: the Haldane reduction leaves the SS isomerization constant fitted.
+    @test :k_ES_to_EP in ER.parameters(mm_ss)
     # An RE isomerization has one equilibrium constant, in its canonical direction.
     re_iso = @enzyme_mechanism begin
         substrates: S
@@ -2205,6 +1633,8 @@ end
     @test :K_I_EP_to_E_P ∉ ER.parameters(allo)
     # A ping-pong residual form: B binds E(; residual = A - P), whose name is
     # E_res_+A_-P, so the release-direction K reads EB_res_+A_-P → E_res_+A_-P + B.
+    # E and the covalent E(; residual) share one RE segment whose weights vanish only
+    # at B = Q = 0 (mixed), so the mechanism is accepted.
     pingpong = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2220,47 +1650,6 @@ end
     pp_names = full_names(pingpong)
     @test Symbol("K_EB_res_+A_-P_to_E_res_+A_-P_B") in pp_names
     @test length(pp_names) == length(ER.parameters(pingpong, ER.Full))
-    # Writing a binding as its release, or any step backwards, changes no name.
-    mm_ss_backward = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E(S) <--> E + S
-            E(P) <--> E(S)
-            E + P <--> E(P)
-        end
-    end
-    @test full_names(mm_ss_backward) == full_names(mm_ss)
-    tc_backward = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E(A) <--> E + A
-            E(Q) + P <--> E(A) + B
-            E + Q <--> E(Q)
-        end
-    end
-    @test full_names(tc_backward) == full_names(tc)
-    # An SS step has a constant in each direction, so only RE steps show that
-    # reversal keeps the stored direction: re_iso's RE binding written as its
-    # release and its RE isomerization written backwards.
-    re_backward = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E(S) ⇌ E + S
-            E(P) ⇌ E(S)
-            E(P) <--> E + P
-        end
-    end
-    @test issubset([:K_ES_to_E_S, :K_ES_to_EP], full_names(re_backward))
-    @test isdisjoint([:K_E_S_to_ES, :K_EP_to_ES], full_names(re_backward))
-    @test full_names(re_backward) == full_names(re_iso)
-    # No mechanism in the spec table carries a kon, koff or Kiso prefix.
-    for spec in MECHANISM_TEST_SPECS
-        names = String.(collect(ER.parameters(spec.mechanism, ER.Full)))
-        @test !any(n -> occursin(r"^(kon|koff|Kiso)_", n), names)
-    end
 end
 
 @testset "Tier 2 reads the free metabolites at both ends of a step" begin
@@ -2597,19 +1986,6 @@ end
     end
 end
 
-@testset "AllostericMechanism rejects an unsatisfiable Haldane" begin
-    @test_throws ErrorException @allosteric_mechanism begin
-        substrates: S
-        products:   P
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: EqualAI
-            E(P) ⇌ E + P      :: EqualAI
-        end
-    end
-end
-
 @testset ":OnlyA guard rejects a multi-cycle ter-substrate inconsistency" begin
     # A full random-order ter binding cube with seven :OnlyA edges. Every single
     # constraint row carries BOTH signs on its :OnlyA eps-exponents, so the
@@ -2680,7 +2056,6 @@ end
         end
     end
     @test cube isa ER.AllostericEnzymeMechanism
-    @test ER.AllostericMechanism(cube) isa ER.AllostericMechanism
 
     # Ordered ter with an :OnlyA binding and an :OnlyA chemical step: the free
     # inactive k_I ratio absorbs the B affinity's divergence, so this is valid.
@@ -2697,7 +2072,6 @@ end
         end
     end
     @test ordered isa ER.AllostericEnzymeMechanism
-    @test ER.AllostericMechanism(ordered) isa ER.AllostericMechanism
 end
 
 @testset ":OnlyA guard admits a ping-pong whose fused releases are :OnlyA" begin

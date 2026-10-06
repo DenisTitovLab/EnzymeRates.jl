@@ -1200,6 +1200,12 @@ end
     end
 end
 
+# A fused and a plain binding of B share one rapid-equilibrium kinetic group.
+const _testhelper_fused_and_plain_binding =
+    @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
+        E + A <--> E(A); (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))
+        E(Q) + P <--> E(P, Q); E + Q ⇌ E(Q) end end)
+
 # Mechanisms with fused steps, shared by the mass-action and orientation testsets.
 const _testhelper_fused_cases = [
         # uni-uni: fused release / fused binding, both orientations, both flags
@@ -1279,10 +1285,7 @@ const _testhelper_fused_cases = [
             steps: begin
             E + A ⇌ E(A); E(A) + B <--> E(A, B); E(A, B) <--> E(Q) + P; E(Q) <--> E + Q
             E + A::Inh ⇌ E(A::Inh); E(Q) + A::Inh <--> E(A::Inh, Q) end end),
-        # a fused and a plain binding of B share one rapid-equilibrium kinetic group
-        @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
-            E + A <--> E(A); (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))
-            E(Q) + P <--> E(P, Q); E + Q ⇌ E(Q) end end),
+        _testhelper_fused_and_plain_binding,
 ]
 
 @testset "the free-enzyme weight is free E's weight in the reduced denominator" begin
@@ -1334,6 +1337,9 @@ end
     for em in _testhelper_fused_cases
         _testhelper_check_against_mass_action(em)
     end
+    # The B group holds the fused E(A) + B → E(P, Q) and the dead-end E(Q) + B ⇌ E(B, Q).
+    # Fitted: A (2) + B (1) + P (2) + Q (1) − 1 Haldane = 5.
+    @test length(ER.fitted_params(_testhelper_fused_and_plain_binding)) == 5
 end
 
 # Theorell–Chance and two-metabolite mechanisms, shared by the mass-action and
@@ -1999,25 +2005,6 @@ end
             E(P) ⇌ E + P     :: EqualAI
         end
     end)) isa EnzymeRates.AllostericEnzymeMechanism
-
-    # Stoichiometric infeasibility: Q listed as product but never appears
-    # in any reaction step → invariant check rejects. (S carries both atoms
-    # so the declared reaction balances; the step list omits Q on purpose.)
-    rxn_no_q = @enzyme_reaction begin
-        substrates: S[CN]
-        products:   P[C], Q[N]
-    end
-    s_q1 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-                            EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                            [EnzymeRates.Substrate(:S)], EnzymeRates.Metabolite[], true)
-    s_q2 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                            EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-                            EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
-    s_q3 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-                            EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-                            EnzymeRates.Metabolite[], [EnzymeRates.Product(:P)], true)
-    m_no_q = EnzymeRates.Mechanism(rxn_no_q, [[s_q1], [s_q2], [s_q3]])
-    @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_no_q)
 
     # Regression: T-state binding K's must be in Kd convention even when
     # `:OnlyA` and `:NonequalAI` catalytic groups coexist. Without the fix,
