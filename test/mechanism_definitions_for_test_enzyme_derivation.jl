@@ -22,10 +22,10 @@ Base.@kwdef struct MechanismTestSpec
 
     # Constraint expectations
     expected_n_haldane_constraints::Int       # RHS references Keq (catalytic-cycle closure)
-    expected_n_mirror_constraints::Int        # RHS is a single Symbol (allosteric :EqualAI rename)
+    expected_n_mirror_constraints::Int = 0    # RHS is a single Symbol (allosteric :EqualAI rename)
     # NOTE: largely vestigial under structural naming — mostly 0, only nonzero for :EqualAI
     # reg ligands; candidate for repurposing-or-removal in the structural-naming cleanup.
-    expected_n_wegscheider_constraints::Int   # RHS Expr without Keq (multi-cycle futile-cycle closure)
+    expected_n_wegscheider_constraints::Int = 0   # RHS Expr without Keq (multi-cycle futile-cycle closure)
     expected_n_independent_params::Int        # 2*n_steps - n_constraints
 
     # Test configuration (optional)
@@ -119,8 +119,6 @@ let
         expected_n_states=2,
         expected_n_steps=2,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=3,
         analytical_rate_fn=(p, c) -> begin
             num = p.k1f * p.k2f * c.S - p.k1r * p.k2r * c.P
@@ -162,8 +160,6 @@ let
         expected_n_states=3,
         expected_n_steps=3,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) -> rate_uni_uni(merge(p, (Etotal=p.Et,)), c)
     ))
@@ -203,8 +199,6 @@ let
         expected_n_states=4,
         expected_n_steps=4,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=7,
         analytical_rate_fn=(p, c) -> rate_iso_uni_uni(merge(p, (Etotal=p.Et,)), c)
     ))
@@ -245,8 +239,6 @@ let
         expected_n_states=3,
         expected_n_steps=3,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) -> rate_ordered_uni_bi(merge(p, (Etotal=p.Et,)), c)
     ))
@@ -294,8 +286,6 @@ let
         expected_n_states=4,
         expected_n_steps=4,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=7,
         analytical_rate_fn=(p, c) -> rate_ordered_bi_bi(merge(p, (Etotal=p.Et,)), c),
         analytical_kcat_fn=p -> p.k3f * p.k4f / (p.k3f + p.k4f),
@@ -341,8 +331,6 @@ let
         expected_n_states=3,
         expected_n_steps=3,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) ->
             rate_theorell_chance_bi_bi(merge(p, (Etotal=p.Et,)), c),
@@ -389,8 +377,6 @@ let
         expected_n_states=4,
         expected_n_steps=4,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=7,
         analytical_rate_fn=(p, c) ->
             rate_ping_pong_bi_bi(
@@ -455,8 +441,6 @@ let
         expected_n_states=5,
         expected_n_steps=5,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=9,
         analytical_rate_fn=(p, c) -> rate_ordered_ter_bi(merge(p, (Etotal=p.Et,)), c)
     ))
@@ -529,8 +513,6 @@ let
         expected_n_states=6,
         expected_n_steps=6,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=11,
         analytical_rate_fn=(p, c) ->
             rate_ordered_ter_ter(
@@ -588,8 +570,6 @@ let
         expected_n_states=5,
         expected_n_steps=5,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=9,
         analytical_rate_fn=(p, c) ->
             rate_bi_uni_uni_uni_ping_pong_ter_bi(
@@ -620,10 +600,8 @@ let
         expected_n_states=6,
         expected_n_steps=7,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=1,
         expected_n_independent_params=12,
-        analytical_rate_fn=nothing
     ))
 end
 
@@ -649,10 +627,8 @@ let
         expected_n_states=5,
         expected_n_steps=6,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=1,
         expected_n_independent_params=7,
-        analytical_rate_fn=nothing
     ))
 end
 
@@ -681,10 +657,8 @@ let
         expected_n_states=7,
         expected_n_steps=9,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=2,
         expected_n_independent_params=10,
-        analytical_rate_fn=nothing
     ))
 end
 
@@ -710,10 +684,8 @@ let
         expected_n_states=5,
         expected_n_steps=6,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=1,
         expected_n_independent_params=6,
-        analytical_rate_fn=nothing
     ))
 end
 
@@ -777,8 +749,6 @@ let
         expected_n_states=6,
         expected_n_steps=6,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=11,
         analytical_rate_fn=(p, c) ->
             rate_bi_uni_uni_bi_ping_pong_ter_ter(
@@ -846,8 +816,6 @@ let
         expected_n_states=6,
         expected_n_steps=6,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=11,
         analytical_rate_fn=(p, c) ->
             rate_bi_bi_uni_uni_ping_pong_ter_ter(
@@ -908,8 +876,6 @@ let
         expected_n_states=6,
         expected_n_steps=6,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=11,
         analytical_rate_fn=(p, c) ->
             rate_hexa_uni_ping_pong(
@@ -949,8 +915,6 @@ let
         expected_n_states=2,
         expected_n_steps=2,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=2,
         analytical_rate_fn=(p, c) -> rate_re_uni_uni(merge(p, (Et=p.Et,)), c),
         analytical_kcat_fn=p -> p.k2f,
@@ -995,8 +959,6 @@ let
         expected_n_states=4,
         expected_n_steps=4,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) -> rate_re_ordered_bi_bi(merge(p, (Et=p.Et,)), c)
     ))
@@ -1027,10 +989,8 @@ let
         expected_n_states=6,
         expected_n_steps=7,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=1,
         expected_n_independent_params=10,
-        analytical_rate_fn=nothing
     ))
 end
 
@@ -1069,8 +1029,6 @@ let
         expected_n_states=4,
         expected_n_steps=4,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=4,
         analytical_rate_fn=(p, c) -> rate_competitive_inh(
             merge(p, (Et=p.Et,)), c),
@@ -1117,8 +1075,6 @@ let
         expected_n_states=5,
         expected_n_steps=6,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=4,
         analytical_rate_fn=(p, c) -> rate_noncompetitive_inh(
             merge(p, (Et=p.Et,)), c),
@@ -1163,8 +1119,6 @@ let
         expected_n_states=4,
         expected_n_steps=4,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=4,
         analytical_rate_fn=(p, c) -> rate_uncompetitive_inh(
             merge(p, (Et=p.Et,)), c),
@@ -1210,8 +1164,6 @@ let
         expected_n_states=4,
         expected_n_steps=4,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=4,
         analytical_rate_fn=(p, c) -> rate_essential_activator(
             merge(p, (Et=p.Et,)), c),
@@ -1265,8 +1217,6 @@ let
         expected_n_states=6,
         expected_n_steps=9,
         expected_n_haldane_constraints=2,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) -> rate_nonessential_activator(
             merge(p, (Et=p.Et,)), c),
@@ -1326,8 +1276,6 @@ let
         expected_n_states=7,
         expected_n_steps=10,
         expected_n_haldane_constraints=2,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=6,
         analytical_rate_fn=(p, c) ->
             rate_activator_inhibitor(
@@ -1393,17 +1341,9 @@ let
         expected_n_states=3,          # catalytic subunit: E_c, E_S, E_P
         expected_n_steps=3,           # 2 RE + 1 SS per subunit
         expected_n_haldane_constraints=2,         # k3r per conformation × 2
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=7,
         run_ode_test=false,
         analytical_rate_fn=rate_mwc_dimer_oligo,
-        expected_factored_num=
-        "(k_A_ES_to_EP * S / K_A_ES_to_E_S - k_A_EP_to_ES * P / K_A_EP_to_E_P) * (1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S)" *
-        " + L * (S * k_I_ES_to_EP / K_I_ES_to_E_S - P * k_I_EP_to_ES / K_I_EP_to_E_P) * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S)",
-        expected_factored_denom=
-        "(1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) ^ 2" *
-        " + L * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) ^ 2",
     ))
 end
 
@@ -1417,6 +1357,8 @@ end
 # 25B. AllostericEnzymeMechanism Homodimer + Non-competitive Inhibitor
 #      I binds all enzyme forms independently with the same Ki (enzyme-level).
 #      sigma = Q_cat^2 * (1 + I/K_I_reg1)  (multiplicative factor).
+#      The Wegscheider closure of the R_00I ⇌ T_00I cycle is automatic in the
+#      conformational assembly formula; the DSL needs no explicit constraint.
 let
     m, src, src_reg = @allosteric_mechanism_src begin
         substrates: S
@@ -1457,17 +1399,9 @@ let
         expected_n_states=3,
         expected_n_steps=3,
         expected_n_haldane_constraints=2,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=9,
         run_ode_test=false,
         analytical_rate_fn=rate_homodimer_noncomp_inh_oligo,
-        expected_factored_num=
-        "(k_A_ES_to_EP * S / K_A_ES_to_E_S - k_A_EP_to_ES * P / K_A_EP_to_E_P) * (1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) * (1 + I / K_A_Ireg)" *
-        " + L * (S * k_I_ES_to_EP / K_I_ES_to_E_S - P * k_I_EP_to_ES / K_I_EP_to_E_P) * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) * (1 + I / K_I_Ireg)",
-        expected_factored_denom=
-        "(1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) ^ 2 * (1 + I / K_A_Ireg)" *
-        " + L * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) ^ 2 * (1 + I / K_I_Ireg)",
     ))
 end
 
@@ -1505,8 +1439,6 @@ let
         expected_n_states=5,
         expected_n_steps=5,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) ->
             rate_two_comp_inh(merge(p, (Et=p.Et,)), c),
@@ -1575,8 +1507,6 @@ let
         expected_n_states=12,
         expected_n_steps=21,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) ->
             rate_two_noncomp_inh(merge(p, (Et=p.Et,)), c),
@@ -1630,8 +1560,6 @@ let
         expected_n_states=7,
         expected_n_steps=9,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) ->
             rate_noncomp_comp_inh(merge(p, (Et=p.Et,)), c),
@@ -1677,8 +1605,6 @@ let
         expected_n_states=5,
         expected_n_steps=5,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) ->
             rate_uncomp_comp_inh(merge(p, (Et=p.Et,)), c),
@@ -1740,8 +1666,6 @@ let
         expected_n_states=9,
         expected_n_steps=13,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) ->
             rate_two_samesite_inh(merge(p, (Et=p.Et,)), c),
@@ -1895,13 +1819,9 @@ let
         expected_n_states=9,           # catalytic subunit states
         expected_n_steps=13,           # catalytic subunit steps
         expected_n_haldane_constraints=2,          # one k13r per conformation (R and T)
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,      # site-independence constraints are in param_constraints of CM
         expected_n_independent_params=17,
         run_ode_test=false,
         analytical_rate_fn=rate_mwc_tetramer_bi_bi,
-        expected_factored_num=nothing,
-        expected_factored_denom=nothing,
     ))
 end
 
@@ -1975,7 +1895,6 @@ let
         expected_n_steps=9,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=1,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=12,
         run_ode_test=false,
         analytical_rate_fn=pfk_rate_analytical,
@@ -1984,8 +1903,6 @@ let
         # for every regulator corner. Regression test for the
         # `t_pattern_dead` branch in `_kcat_forward`.
         analytical_kcat_fn = p -> p.k5f,
-        expected_factored_num=nothing,
-        expected_factored_denom=nothing,
     ))
 end
 
@@ -2107,7 +2024,6 @@ let
         expected_n_steps=14,     # 3+2+1+3+2+3
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=1,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=9,
         run_ode_test=false,
         analytical_rate_fn=hk_rate_analytical,
@@ -2116,8 +2032,6 @@ let
         # for every regulator corner. Regression test for the
         # `t_pattern_dead` branch in `_kcat_forward`.
         analytical_kcat_fn = p -> p.k6f,
-        expected_factored_num=nothing,
-        expected_factored_denom=nothing,
     ))
 end
 
@@ -2209,14 +2123,10 @@ let
         # PEP binding and catalysis are :OnlyA (the T-state is pruned), so
         # there is no mirror/collapse — the T-catalytic cycle is simply dead
         # (N_T = 0). One R-state Haldane derives k5r; no Wegscheider tie.
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=8,
         run_ode_test=false,
         analytical_rate_fn=pk_rate_analytical,
         analytical_kcat_fn = p -> p.k5f,
-        expected_factored_num=nothing,
-        expected_factored_denom=nothing,
     ))
 end
 
@@ -2295,13 +2205,10 @@ let
         expected_n_haldane_constraints=2,
         # structural naming: :EqualAI catalytic groups share one symbol (no rename); only :EqualAI reg ligands emit a mirror
         expected_n_mirror_constraints=1,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=12,
         run_ode_test=false,
         analytical_rate_fn=m_all_rate_analytical,
         analytical_kcat_fn=nothing,      # cat is :NonequalAI → kcat L-dependent
-        expected_factored_num=nothing,
-        expected_factored_denom=nothing,
     ))
 end
 
@@ -2356,8 +2263,6 @@ let
         expected_n_states=3,                  # E, E_S, E_P
         expected_n_steps=3,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,
         expected_n_independent_params=4,
         run_ode_test=false,
         analytical_rate_fn=m_OnlyA_prod_rate_analytical,
@@ -2365,8 +2270,6 @@ let
         #   A_R = k2f/K1², B_R = 1/K1², B_T = 1/K1² (T-state pattern same as R)
         #   kcat = A_R / (B_R + L · B_T) = k2f / (1 + L)
         analytical_kcat_fn = p -> p.k2f / (1 + p.L),
-        expected_factored_num=nothing,
-        expected_factored_denom=nothing,
     ))
 end
 
@@ -2399,7 +2302,7 @@ push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
     end),
     metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
     expected_n_states=9, expected_n_steps=13,
-    expected_n_haldane_constraints=1, expected_n_mirror_constraints=0,
+    expected_n_haldane_constraints=1,
     expected_n_wegscheider_constraints=2, expected_n_independent_params=9,
     run_ode_test=false))
 
@@ -2423,8 +2326,8 @@ push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
     end),
     metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
     expected_n_states=7, expected_n_steps=9,
-    expected_n_haldane_constraints=1, expected_n_mirror_constraints=0,
-    expected_n_wegscheider_constraints=0, expected_n_independent_params=8,
+    expected_n_haldane_constraints=1,
+    expected_n_independent_params=8,
     run_ode_test=false))
 
 push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
@@ -2448,7 +2351,7 @@ push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
     end),
     metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
     expected_n_states=8, expected_n_steps=10,
-    expected_n_haldane_constraints=1, expected_n_mirror_constraints=0,
+    expected_n_haldane_constraints=1,
     expected_n_wegscheider_constraints=2, expected_n_independent_params=8,
     run_ode_test=false))
 
@@ -2458,16 +2361,3 @@ push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
 # (testset "multi-OnlyA MWC derivation matches mass-action ground truth").
 # `_expand_to_allosteric` reaches it by tagging the two substrate binding groups
 # :OnlyA with the chemistry.
-
-"""Look up a mechanism test spec by name."""
-function _spec_by_name(name)
-    for s in MECHANISM_TEST_SPECS
-        s.name == name && return s
-    end
-    error("MechanismTestSpec not found: $name")
-end
-
-const pfk_mechanism = _spec_by_name("PFK-1").mechanism
-const pfk_rate_analytical = _spec_by_name("PFK-1").analytical_rate_fn
-const hk_mechanism = _spec_by_name("HK").mechanism
-const hk_rate_analytical = _spec_by_name("HK").analytical_rate_fn
