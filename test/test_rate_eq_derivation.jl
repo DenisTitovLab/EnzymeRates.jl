@@ -511,32 +511,11 @@ function test_rate_equation_performance(m, params, concs)
 end
 
 """
-Get independent parameter symbols from mechanism using internal API.
-"""
-function _get_independent_params(m)
-    _, indep = EnzymeRates._dependent_param_exprs(typeof(m))
-    return indep
-end
-
-"""
-Get dependent parameter expressions from mechanism using internal API.
-Returns vector of (symbol, expression_string) pairs.
-"""
-function _get_dependent_params(m)
-    dep_exprs, _ = EnzymeRates._dependent_param_exprs(typeof(m))
-    pairs = Tuple{Symbol, String}[]
-    for (sym, expr) in sort(collect(dep_exprs); by=first)
-        push!(pairs, (sym, string(expr)))
-    end
-    return pairs
-end
-
-"""
 Build a NamedTuple with only independent params + Keq + E_total,
 given all_params (with all k's + E_total) and a Keq value.
 """
 function make_independent_params(m, all_params, Keq)
-    indep = _get_independent_params(m)
+    indep = EnzymeRates.fitted_params(m)
     keys_out = (indep..., :Keq, :E_total)
     vals_out = Tuple(
         k == :Keq ? Keq :
@@ -554,29 +533,20 @@ plus Keq + E_total for a mechanism. Returns a NamedTuple with structural keys
 positional names.
 """
 function compute_all_params(m, new_params)
-    indep = _get_independent_params(m)
-    dep = _get_dependent_params(m)
-    dep_dict = Dict{Symbol, Float64}()
-    for (sym, expr_str) in dep
-        dep_dict[sym] = _eval_dep_expr(expr_str, new_params)
-    end
-    all_keys = (indep..., Tuple(keys(dep_dict))..., :Keq, :E_total)
-    all_vals = Tuple(Float64[
-        haskey(dep_dict, k) ? dep_dict[k] :
-        k == :Keq ? Float64(new_params[:Keq]) :
-        k == :E_total ? Float64(new_params[:E_total]) :
-        Float64(new_params[k])
-        for k in all_keys
-    ])
-    NamedTuple{all_keys}(all_vals)
+    dep, _ = EnzymeRates._dependent_param_exprs(typeof(m))
+    dep_vals = (k => Float64(_eval_dep_expr(e, new_params)) for (k, e) in dep)
+    merge(new_params, (; dep_vals...))
 end
 
-function _eval_dep_expr(expr_str::String, params::NamedTuple)
-    # Build let bindings from params - bind each key directly so bare names work
-    bindings = ["$(k) = $(params[k])" for k in keys(params)]
-    code = "let $(join(bindings, ", "))\n  $expr_str\nend"
-    return Float64(eval(Meta.parse(code)))
-end
+"""
+Evaluate a dependent-parameter expression: a Symbol is looked up in `params`, a
+number is itself, and a call applies the named `Base` function to its evaluated
+arguments.
+"""
+_eval_dep_expr(x::Symbol, params) = params[x]
+_eval_dep_expr(x::Real, params) = x
+_eval_dep_expr(e::Expr, params) =
+    getfield(Base, e.args[1])((_eval_dep_expr(a, params) for a in e.args[2:end])...)
 
 """
 Generate random independent params + Keq + E_total for testing.
@@ -585,9 +555,8 @@ Also returns all_params (the full set of k's + E_total) for reference comparison
 function random_independent_params_concs(
     m, met_names::Vector{Symbol}; rng=Random.default_rng()
 )
-    indep = _get_independent_params(m)
     # Generate random values for independent params + Keq + E_total
-    param_keys = (indep..., :Keq, :E_total)
+    param_keys = (EnzymeRates.fitted_params(m)..., :Keq, :E_total)
     param_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in param_keys)
     new_params = NamedTuple{param_keys}(param_vals)
 
