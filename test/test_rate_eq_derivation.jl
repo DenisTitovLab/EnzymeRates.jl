@@ -1712,35 +1712,28 @@ end
 # ── Large equation compilation regression test ────────────────────────────
 
 @testset "Large equation compilation (<20s)" begin
-    # Use the manually-defined large mechanism (11 forms, 16 steps)
-    # from the "Rate equation too large error" test below, but with
-    # all steps as RE to keep it compilable.
-    rxn = @enzyme_reaction begin
-        substrates: A[CX], B[N]
-        products: P[C], Q[NX]
-        competitive_inhibitors: R1
-    end
-    # Add dead-end regulator R1 to the largest topology
-    n_forms_of(mech) = length(Set(
-        sp for grp in EnzymeRates.steps(mech) for st in grp
-        for sp in (EnzymeRates.from_species(st),
-                   EnzymeRates.to_species(st))))
-    topos = EnzymeRates.init_mechanisms(rxn)
-    sort!(topos; by=n_forms_of, rev=true)
-    variants = EnzymeRates._expand_add_dead_end_regulator(topos[1], rxn)
-    # Find largest compilable mechanism
-    sort!(variants; by=n_forms_of, rev=true)
-    m = nothing
-    for s in variants
-        try
-            m = EnzymeMechanism(s)
-            parameters(m)
-            break
-        catch
-            m = nothing
+    # A ping-pong bi-bi with a dead-end inhibitor R1: 13 forms and 13 steps, every
+    # step at rapid equilibrium except the A → P isomerization.
+    m = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        regulators: R1
+        steps: begin
+            (E + A ⇌ E(A),
+             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P))
+            (E + Q ⇌ E(Q),
+             E(B; residual = A - P) + Q ⇌ E(B, Q; residual = A - P))
+            (E + R1 ⇌ E(R1),
+             E(B; residual = A - P) + R1 ⇌ E(B, R1; residual = A - P),
+             E(P; residual = A - P) + R1 ⇌ E(P, R1; residual = A - P))
+            (E(A) + P ⇌ E(A, P),
+             E(; residual = A - P) + P ⇌ E(P; residual = A - P))
+            E(A) <--> E(P; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            (E(Q) + B ⇌ E(B, Q),
+             E(; residual = A - P) + B ⇌ E(B; residual = A - P))
         end
     end
-    @test m !== nothing
 
     metabs = metabolites(m)
     params_tup = parameters(m)
