@@ -360,7 +360,7 @@ end
     @test EnzymeRates.steps(m_orderA) == EnzymeRates.steps(snapshot[1])
 end
 
-@testset "_testhelper_assert_mechanism_invariants: ported coverage" begin
+@testset "_testhelper_assert_mechanism_invariants: coverage of every reactant" begin
     # POSITIVE: an init mechanism with an unbound declared inhibitor must NOT
     # error — regulators are intentionally excluded from the coverage check
     # (init_mechanisms declares dead-end inhibitors that no step binds yet).

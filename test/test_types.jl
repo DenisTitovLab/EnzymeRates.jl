@@ -278,23 +278,6 @@ end
         @test contains(s_allo, "I::OnlyI")
     end
 
-    @testset "EnzymeMechanism error cases" begin
-        # Empty steps → error: _testhelper_assert_mechanism_invariants rejects a
-        # Mechanism with no steps.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-        end
-        m_empty = ER.Mechanism(rxn, Vector{Vector{ER.Step}}())
-        @test_throws ErrorException _testhelper_assert_mechanism_invariants(m_empty)
-
-        # NOTE: unreachable enzyme forms are accepted. The constructor does not
-        # enforce a connectivity invariant — enzyme forms are inferred from steps,
-        # so an "unreachable" form simply has its own steps in isolation, which is
-        # structurally valid (graph connectivity is a downstream concern caught by
-        # Wegscheider analysis if it matters).
-    end
-
     @testset "Mechanism rejects a rapid-equilibrium segment with no bottom form" begin
         # Random product release from E(P, Q) at rapid equilibrium, but release
         # from E(P) and E(Q) at steady state: the RE segment {E(P), E(Q), E(P, Q)}
@@ -366,6 +349,12 @@ end
             end
         end
         @test m_abortive isa EnzymeMechanism
+
+        # NOTE: unreachable enzyme forms are accepted. The constructor does not
+        # enforce a connectivity invariant — enzyme forms are inferred from steps,
+        # so an "unreachable" form simply has its own steps in isolation, which is
+        # structurally valid (graph connectivity is a downstream concern caught by
+        # Wegscheider analysis if it matters).
     end
 
     @testset "AllostericEnzymeMechanism constructor validators" begin

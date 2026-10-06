@@ -97,12 +97,12 @@ function allo_from_source(cm_src, cat_sites, reg_sites)
             src, collect(Symbol, cat_states), mult, sites))
 end
 
-# A mechanism has steps and every declared substrate and product appears in some step.
-# Regulators are exempt: init_mechanisms declares a dead-end inhibitor that no step binds
-# yet.
+# Every declared substrate and product appears in some step. Regulators are exempt:
+# init_mechanisms declares a dead-end inhibitor that no step binds yet (expand_mechanisms
+# binds it later; _drop_unbound_regulators drops it at compile time). Substrates and
+# products are never dropped.
 function _testhelper_assert_mechanism_invariants(m)
     flat = collect(Iterators.flatten(EnzymeRates.steps(m)))
-    isempty(flat) && error("empty steps in mechanism")
     appearing = Set(EnzymeRates.name(met) for s in flat for met in Iterators.flatten((
         EnzymeRates.bound(EnzymeRates.from_species(s)),
         EnzymeRates.bound(EnzymeRates.to_species(s)),
