@@ -102,15 +102,6 @@ end
         @test ER.metabolites(m) == (:S, :P, :I)
     end
 
-    @testset "_to_sig metabolite encoding round-trips" begin
-        for M in (ER.Substrate, ER.Product,
-                  ER.AllostericRegulator, ER.CompetitiveInhibitor)
-            sig = ER._to_sig(M(:X))
-            @test sig == (nameof(M), :X)
-            @test ER._metabolite_from_sig(sig) == M(:X)
-        end
-    end
-
     @testset "AllostericEnzymeMechanism constructor + DSL" begin
         cm = _testhelper_re_mm
 
@@ -1036,39 +1027,57 @@ end
     end
 
     @testset "_sig_of / _mechanism_from_sig roundtrip" begin
-        # Multi-element atom data exercises type-parameter validity:
-        # Pair{Symbol,Int} is NOT a valid type-parameter value; encoding
-        # must use Tuple{Symbol,Int} leaves. Substrate and product carry the
-        # same atom totals so the declared reaction balances (this test checks
-        # Sig round-trip + type-param leaves, not reaction chemistry).
-        atoms = [:C => 10, :H => 16, :N => 5, :O => 13, :P => 3]
-        r = ER.EnzymeReaction(
-            [ER.ReactantAtoms(ER.Substrate(:ATP), atoms),
-             ER.ReactantAtoms(ER.Product(:ADP), copy(atoms))],
-            ER.RegulatorMults[],
-            [1],
-        )
-        (; bind, iso, rel) = _testhelper_uniuni(s = :ATP, p = :ADP)
+        # One fixture holds every Sig leaf kind: all four metabolite tags (a
+        # competitive inhibitor and an allosteric regulator each bound by a step), a
+        # covalent residual, a Theorell–Chance step and multi-element atom data.
+        # Pair{Symbol,Int} is NOT a valid type-parameter value; atoms must encode
+        # as Tuple{Symbol,Int} leaves.
+        A, B = ER.Substrate(:A), ER.Substrate(:B)
+        P, Q = ER.Product(:P), ER.Product(:Q)
+        I, R = ER.CompetitiveInhibitor(:I), ER.AllostericRegulator(:R)
+        rxn(regs) = ER.EnzymeReaction(
+            [ER.ReactantAtoms(A, [:C => 2, :X => 1]), ER.ReactantAtoms(B, [:N => 1]),
+             ER.ReactantAtoms(P, [:C => 2]), ER.ReactantAtoms(Q, [:N => 1, :X => 1])],
+            regs, [1, 2])
+        E, EA, EQ = _testhelper_sp([]), _testhelper_sp([A]), _testhelper_sp([Q])
+        F = _testhelper_sp([], :E, ER.Residual([A], [P]))
+        none = ER.Metabolite[]
+        groups = [[ER.Step(E, EA, [A], none, true)],
+                  [ER.Step(EA, F, none, [P], false)],
+                  [ER.Step(F, EQ, [B], none, false)],
+                  [ER.Step(EA, EQ, [B], [P], false)],                  # Theorell–Chance
+                  [ER.Step(E, EQ, [Q], none, true)],
+                  [ER.Step(E, _testhelper_sp([I]), [I], none, true)],
+                  [ER.Step(EA, _testhelper_sp([A, R]), [R], none, true)]]
+        regs = [ER.RegulatorMults(I, [1]), ER.RegulatorMults(R, [1, 2])]
+        m = ER.Mechanism(rxn(regs), groups)
 
-        m = ER.Mechanism(r, [[bind], [iso], [rel]])
+        for x in (A, P, I, R)
+            @test ER._to_sig(x) == (nameof(typeof(x)), ER.name(x))
+        end
+        @test ER._to_sig(F) == ((), :E, (((:Substrate, :A),), ((:Product, :P),)))
 
         sig = ER._sig_of(m)
         @test sig isa Tuple
         @test length(sig) == 2   # (reaction_sig, steps_sig)
-
-        m_recon = ER._mechanism_from_sig(sig)
-        @test m_recon == m   # roundtrip
+        @test ER._mechanism_from_sig(sig) == m   # roundtrip
 
         # CRITICAL: sig MUST be usable as a type parameter. Throws TypeError
         # if any leaf is invalid (Pair, Vector, DataType inside value-tuple).
         em_type = ER.EnzymeMechanism{sig}
         @test em_type <: ER.EnzymeMechanism
         em_inst = em_type()
-        @test em_inst isa ER.EnzymeMechanism
         @test ER.EnzymeMechanism(m) === em_inst
 
         # Roundtrip through the type-parameter form preserves everything.
         @test ER.Mechanism(em_inst) == m
+
+        # A regulator that no step binds is left out of the Sig, so the mechanism
+        # declaring it compiles to the same type as the one without it.
+        U = ER.CompetitiveInhibitor(:U)
+        m_unbound = ER.Mechanism(rxn([regs; ER.RegulatorMults(U, [1])]), groups)
+        @test ER._sig_of(m_unbound) == sig
+        @test ER.EnzymeMechanism(m_unbound) === em_inst
     end
 
     @testset "name(p::Parameter, m) chokepoint" begin
@@ -1217,11 +1226,6 @@ end
         @test ER._step_canonical_key(s) == ("E", "EA", "A", "", true)
         iso = ER.Step(EAB, _testhelper_sp([P, Q]), ER.Metabolite[], ER.Metabolite[], false)
         @test ER._step_canonical_key(iso) == ("EAB", "EPQ", "", "", false)
-    end
-
-    @testset "signature round trip" begin
-        tc = ER.Step(EA, EQ, [B], [P], false)
-        @test ER._step_from_sig(ER._to_sig(tc)) == tc
     end
 end
 

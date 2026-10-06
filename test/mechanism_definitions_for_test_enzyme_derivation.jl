@@ -99,7 +99,7 @@ end
 
 # Every declared substrate and product appears in some step. Regulators are exempt:
 # init_mechanisms declares a dead-end inhibitor that no step binds yet (expand_mechanisms
-# binds it later; _drop_unbound_regulators drops it at compile time). Substrates and
+# binds it later; _sig_of leaves it out of the compiled type). Substrates and
 # products are never dropped.
 function _testhelper_assert_mechanism_invariants(m)
     flat = collect(Iterators.flatten(EnzymeRates.steps(m)))

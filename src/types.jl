@@ -937,134 +937,82 @@ _with_steps_and_cat_states(am::AllostericMechanism,
 # type parameter — encode pairs as `Tuple{Symbol,Int}`. Vectors are
 # NEVER valid — always wrap in `Tuple(...)`.
 #
-# One polymorphic `_to_sig` with a method per source type; the matching
-# `_*_from_sig` family reconstructs the corresponding type.
+# `_to_sig` encodes the leaves of a step, `_sig_of` assembles a mechanism's whole
+# tuple from them, and `_mechanism_from_sig` decodes it.
 #
 # A mechanism's Sig is a tuple type of its own, so a decoder specialized on its
-# argument compiles again for every mechanism. `_mechanism_from_sig` and the
-# decoders of reactions, steps, species and residuals take their tuple
-# `@nospecialize`; the two that see a whole mechanism's tuple index and loop over
-# it, since destructuring or mapping a tuple also compiles once per tuple type.
+# argument compiles again for every mechanism. `_mechanism_from_sig` and its local
+# decoders take their tuples `@nospecialize`, and the decoder indexes and loops over
+# the whole mechanism's tuple, since destructuring or mapping a tuple also compiles
+# once per tuple type.
 
 """
-One encoder for every Metabolite leaf: (TypeTag, name). The tag Symbol is
-`nameof(typeof(m))`, identical to the four hand-written tags it replaces, so
-the Sig layout is unchanged and `_metabolite_from_sig` still decodes it.
+Encode a Sig leaf: a metabolite as `(TypeTag, name)` with `TypeTag =
+nameof(typeof(m))`, a metabolite list as a tuple of those, a species as
+`(bound, conformation, (added, subtracted))` and a step as `(from_species,
+to_species, consumed, released, is_equilibrium)`.
 """
 _to_sig(m::Metabolite) = (nameof(typeof(m)), name(m))
+_to_sig(ms::Vector{<:Metabolite}) = Tuple(_to_sig(m) for m in ms)
+_to_sig(s::Species) = (_to_sig(bound(s)), conformation(s),
+                       (_to_sig(added(residual(s))), _to_sig(subtracted(residual(s)))))
+_to_sig(s::Step) = (_to_sig(from_species(s)), _to_sig(to_species(s)),
+                    _to_sig(consumed(s)), _to_sig(released(s)), is_equilibrium(s))
 
-_to_sig(r::Residual) = (
-    Tuple(_to_sig(m) for m in added(r)),
-    Tuple(_to_sig(m) for m in subtracted(r)),
-)
+"""
+The Sig of `m`: `(reaction_sig, steps_sig)`. `reaction_sig` holds the reactants as
+`(leaf, atoms)`, the regulators as `(leaf, allowed_multiplicities)` and the allowed
+catalytic multiplicities; `steps_sig` holds one tuple of step leaves per kinetic
+group.
 
-_to_sig(s::Species) = (
-    Tuple(_to_sig(m) for m in bound(s)),
-    conformation(s),
-    _to_sig(residual(s)),
-)
-
-_to_sig(s::Step) = (
-    _to_sig(from_species(s)),
-    _to_sig(to_species(s)),
-    Tuple(_to_sig(m) for m in consumed(s)),
-    Tuple(_to_sig(m) for m in released(s)),
-    is_equilibrium(s),
-)
-
-_to_sig(ra::ReactantAtoms) = (
-    _to_sig(ra.metabolite),
-    Tuple((p.first, p.second) for p in atoms(ra)),   # Tuple{Symbol,Int}, NOT Pair
-)
-
-_to_sig(rm::RegulatorMults) = (
-    _to_sig(rm.regulator),
-    Tuple(rm.allowed_multiplicities),
-)
-
-_to_sig(r::EnzymeReaction) = (
-    Tuple(_to_sig(ra) for ra in reactants(r)),
-    Tuple(_to_sig(rm) for rm in regulators(r)),
-    Tuple(allowed_catalytic_multiplicities(r)),
-)
-
-function _metabolite_from_sig(sig::Tuple{Symbol, Symbol})
-    kind, nm = sig
-    kind === :Substrate            ? Substrate(nm)            :
-    kind === :Product              ? Product(nm)              :
-    kind === :AllostericRegulator  ? AllostericRegulator(nm)  :
-    kind === :CompetitiveInhibitor ? CompetitiveInhibitor(nm) :
-    error("Unknown metabolite kind in sig: $kind")
+A regulator declared on the reaction that no step actually binds does not belong in
+the compiled catalytic mechanism's `regulators` list (e.g. a dead-end inhibitor
+before any expansion move binds it), so the Sig leaves it out: it neither shows up
+in `regulators(em)` nor gets a parameter. Substrates and products are always
+encoded. `Mechanism` (the working representation used during enumeration)
+intentionally KEEPS unbound regulators — expansion moves bind them later.
+"""
+function _sig_of(m::Mechanism)
+    rxn = reaction(m)
+    bound_names = Set{Symbol}(
+        name(x) for group in steps(m) for s in group
+        for x in Iterators.flatten((bound(from_species(s)), bound(to_species(s)),
+                                    consumed(s), released(s))))
+    reaction_sig = (
+        Tuple((_to_sig(metabolite(ra)), Tuple(Tuple.(atoms(ra)))) for ra in reactants(rxn)),
+        Tuple((_to_sig(regulator(rm)), Tuple(allowed_multiplicities(rm)))
+              for rm in regulators(rxn) if name(regulator(rm)) in bound_names),
+        Tuple(allowed_catalytic_multiplicities(rxn)))
+    (reaction_sig, Tuple(Tuple(_to_sig(s) for s in group) for group in steps(m)))
 end
 
-function _residual_from_sig(@nospecialize(sig::Tuple))
-    added_sig, sub_sig = sig
-    Residual(
-        Substrate[_metabolite_from_sig(t) for t in added_sig],
-        Product[_metabolite_from_sig(t)   for t in sub_sig],
-    )
-end
+# The metabolite type each Sig leaf tag names.
+const _SIG_METABOLITE_TYPES = (Substrate = Substrate, Product = Product,
+                               AllostericRegulator = AllostericRegulator,
+                               CompetitiveInhibitor = CompetitiveInhibitor)
 
-function _species_from_sig(@nospecialize(sig::Tuple))
-    bound_sig, conformation, residual_sig = sig
-    Species(
-        Metabolite[_metabolite_from_sig(t) for t in bound_sig],
-        conformation,
-        _residual_from_sig(residual_sig),
-    )
-end
-
-function _step_from_sig(@nospecialize(sig::Tuple))
-    from_sig, to_sig, consumed_sig, released_sig, is_eq = sig
-    Step(_species_from_sig(from_sig), _species_from_sig(to_sig),
-         Metabolite[_metabolite_from_sig(t) for t in consumed_sig],
-         Metabolite[_metabolite_from_sig(t) for t in released_sig], is_eq)
-end
-
-function _reactant_atoms_from_sig(sig::Tuple)
-    met_sig, atoms_sig = sig
-    ReactantAtoms(
-        _metabolite_from_sig(met_sig)::Reactant,
-        Pair{Symbol,Int}[s => c for (s, c) in atoms_sig],
-    )
-end
-
-function _regulator_mults_from_sig(sig::Tuple)
-    reg_sig, mults_sig = sig
-    RegulatorMults(
-        _metabolite_from_sig(reg_sig)::Regulator,
-        Int[m for m in mults_sig],
-    )
-end
-
-function _reaction_from_sig(@nospecialize(sig::Tuple))
-    reactants_sig, regulators_sig, mults_sig = sig
-    EnzymeReaction(
-        ReactantAtoms[_reactant_atoms_from_sig(t) for t in reactants_sig],
-        RegulatorMults[_regulator_mults_from_sig(t) for t in regulators_sig],
-        Int[m for m in mults_sig],
-    )
-end
-
-function _steps_from_sig(@nospecialize(sig::Tuple))
+"""The `Mechanism` whose Sig (`_sig_of`) is `sig`."""
+function _mechanism_from_sig(@nospecialize(sig::Tuple))
+    met(t::Tuple{Symbol, Symbol}) = _SIG_METABOLITE_TYPES[t[1]](t[2])
+    mets(@nospecialize(ts::Tuple)) = Metabolite[met(t) for t in ts]
+    species(@nospecialize(t::Tuple)) = Species(mets(t[1]), t[2],
+        Residual(Substrate[met(x) for x in t[3][1]], Product[met(x) for x in t[3][2]]))
+    reactants_sig, regulators_sig, mults_sig = sig[1]
+    rxn = EnzymeReaction(
+        ReactantAtoms[
+            ReactantAtoms(met(r[1]), Pair{Symbol, Int}[a => n for (a, n) in r[2]])
+            for r in reactants_sig],
+        RegulatorMults[RegulatorMults(met(r[1]), collect(Int, r[2])) for r in regulators_sig],
+        collect(Int, mults_sig))
     groups = Vector{Step}[]
-    for group_sig in sig
+    for group_sig in sig[2]
         group = Step[]
-        for step_sig in group_sig
-            push!(group, _step_from_sig(step_sig))
+        for s in group_sig
+            push!(group, Step(species(s[1]), species(s[2]), mets(s[3]), mets(s[4]), s[5]))
         end
         push!(groups, group)
     end
-    groups
-end
-
-_sig_of(m::Mechanism) = (
-    _to_sig(reaction(m)),
-    Tuple(Tuple(_to_sig(s) for s in g) for g in steps(m)),
-)
-
-function _mechanism_from_sig(@nospecialize(sig::Tuple))
-    Mechanism(_reaction_from_sig(sig[1]), _steps_from_sig(sig[2]))
+    Mechanism(rxn, groups)
 end
 
 # ─── Parametric mechanism types ───────────────────────────────────────
@@ -1099,40 +1047,7 @@ Lift a `Mechanism` to its singleton `EnzymeMechanism` type. The Sig
 is purely structural — two mechanisms differing only in source order
 collapse to the same `EnzymeMechanism` type.
 """
-EnzymeMechanism(m::Mechanism) =
-    EnzymeMechanism{_sig_of(_drop_unbound_regulators(m))}()
-
-"""
-A regulator declared on the reaction that no step actually binds does
-not belong in the compiled catalytic mechanism's `regulators` list
-(e.g. a dead-end inhibitor before any expansion move binds it). Drop
-such regulators at the `compile_mechanism` boundary so they neither
-show up in `regulators(em)` nor get a parameter; substrates/products
-are never dropped. `Mechanism` (the working representation used during
-enumeration) intentionally KEEPS unbound regulators — expansion moves
-bind them later.
-"""
-function _drop_unbound_regulators(m::Mechanism)
-    bound_names = Set{Symbol}()
-    for group in steps(m), s in group
-        for sp in (from_species(s), to_species(s))
-            for b in bound(sp)
-                push!(bound_names, name(b))
-            end
-        end
-        for x in Iterators.flatten((consumed(s), released(s)))
-            push!(bound_names, name(x))
-        end
-    end
-    regs = regulators(reaction(m))
-    kept = RegulatorMults[rm for rm in regs
-                          if name(regulator(rm)) in bound_names]
-    length(kept) == length(regs) && return m
-    filtered_reaction = EnzymeReaction(
-        reactants(reaction(m)), kept,
-        allowed_catalytic_multiplicities(reaction(m)))
-    Mechanism(filtered_reaction, steps(m))
-end
+EnzymeMechanism(m::Mechanism) = EnzymeMechanism{_sig_of(m)}()
 
 # Reads `Sig` from the type at run time, so the lift compiles once rather than once
 # per mechanism type.
