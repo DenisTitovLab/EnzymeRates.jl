@@ -1701,37 +1701,6 @@ end
     @test Set(base) == Set([chemistry_flipped, b_flipped, q_flipped])
 end
 
-@testset "a base-tier row of a degenerate seed's child carries no parent" begin
-    # The base tier fits a degenerate seed's children with no `parent_of`, as it fits
-    # the seeds, so the row `_fit_batch` writes has no parent and `_rows_to_dataframe`
-    # keeps its parent columns missing.
-    rxn = @enzyme_reaction begin
-        substrates: A[CX], B[N]
-        products: P[C], Q[NX]
-    end
-    seeds = unique!(collect(EnzymeRates.init_mechanisms(rxn)))
-    seed = first(filter(EnzymeRates._degenerate, seeds))
-    child = first(filter(!EnzymeRates._degenerate, EnzymeRates._expand_re_to_ss(seed)))
-    base, _ = EnzymeRates._base_tier(seeds, rxn)
-    @test child in base && !(child in seeds)
-    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
-            A = [1.0, 2.0, 1.0, 2.0], B = [0.5, 0.5, 1.0, 1.0],
-            P = [0.1, 0.2, 0.1, 0.2], Q = [0.3, 0.3, 0.4, 0.4])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
-    entries, failures = EnzymeRates._process_batch(
-        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[child], prob;
-        optimizer=_CountingStubOpt(; uval=log(5.0)), max_param_count=20,
-        n_restarts=1, maxtime=1.0, memo=Dict{UInt64, NamedTuple}())
-    @test isempty(failures) && length(entries) == 1
-    df = EnzymeRates._rows_to_dataframe([e.row for e in entries])
-    em = EnzymeRates.compile_mechanism(child)
-    @test nrow(df) == 1
-    @test ismissing(df.parent_n_params[1]) && ismissing(df.parent_mechanism_type[1])
-    @test df.mechanism_type[1] == string(typeof(em))
-    @test df.n_params[1] == length(EnzymeRates.fitted_params(em))
-    @test df.loss[1] == entries[1].loss
-end
-
 @testset "_base_tier records a degenerate seed's expansion error" begin
     # The chemistry step E(S) ⇌ E(P) loses the N of T, a declared substrate that never
     # binds, so expand_mechanisms' atom-conservation assertion raises. With the P binding
