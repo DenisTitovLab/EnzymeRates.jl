@@ -451,44 +451,6 @@ function Base.show(io::IO, r::EnzymeReaction)
 end
 
 """
-Classify a species by the metabolites that enter or leave solution at it:
-the consumed metabolites of every step leaving it (its `from_species`) and
-the released metabolites of every step arriving at it (its `to_species`). A
-binding is stored with its metabolite consumed, so it marks the form the
-metabolite binds to; a fused release E(S) → F + P, stored as the binding
-F + P → E(S), marks F, the form P leaves at. Reversing a
-step swaps its forms and its lists together, so the classification does not
-depend on how any step was written. Isomerizations carry no free metabolites
-and mark nothing. Used by `_canonical_step_direction` Tier 2 to decide
-direction for non-binding steps where Tier 1 ties.
-
-Why ALL steps (not just RE): the "substrate-entry / product-exit"
-property is a chemistry fact about which forms metabolites enter and
-leave at — it does NOT depend on whether the step is rapid-
-equilibrium or steady-state. The DSL parses `<-->` as SS and `⇌` as RE;
-fixtures like Segel Iso Uni Uni (`E + A <--> EA ⇌ EP <--> F + P, F <--> E`)
-use `<-->` throughout, so an RE-only filter would mis-classify both `E`
-and `F` as `:neither` and the F⇌E case would fall through to Tier 3 lex.
-"""
-function _entry_kind(sp::Species, all_steps, subs::Set{Symbol},
-                     prods::Set{Symbol})
-    has_sub = false; has_prod = false
-    for s in all_steps, (form, free) in ((from_species(s), consumed(s)),
-                                         (to_species(s), released(s)))
-        form == sp || continue
-        for m in free
-            n = name(m)
-            n in subs  && (has_sub  = true)
-            n in prods && (has_prod = true)
-        end
-    end
-    has_sub && has_prod && return :both
-    has_sub  && return :substrate_only
-    has_prod && return :product_only
-    return :neither
-end
-
-"""
 Canonicalize a non-binding step's storage direction to physical-forward, so
 `from` is further from product-release / closer to substrate-binding.
 Applies to RE AND SS steps — the direction question is identical;
@@ -500,7 +462,7 @@ two sides symmetrically, so the result does not depend on how the step was
 written.
 """
 function _canonical_step_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol},
-                                   all_steps::Vector{Step})
+                                   kind::Dict{Species, Tuple{Bool, Bool}})
     is_binding(s) && return s
     f, t = from_species(s), to_species(s)
     flip() = Step(t, f, released(s), consumed(s), is_equilibrium(s))
@@ -513,12 +475,12 @@ function _canonical_step_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol
     sf > st && return s
     sf < st && return flip()
 
-    # Tier 2: 1-hop (RE+SS) graph context — the metabolites that enter or
-    # leave solution at each form.
-    fk = _entry_kind(f, all_steps, subs, prods)
-    tk = _entry_kind(t, all_steps, subs, prods)
-    fk == :product_only   && tk == :substrate_only && return s
-    fk == :substrate_only && tk == :product_only   && return flip()
+    # Tier 2: 1-hop (RE+SS) graph context — whether substrates and products
+    # enter or leave solution at each form, as `(any substrate, any product)`.
+    fk = get(kind, f, (false, false))
+    tk = get(kind, t, (false, false))
+    fk == (false, true) && tk == (true, false) && return s
+    fk == (true, false) && tk == (false, true) && return flip()
 
     # Tier 3: lex fallback (source-independent).
     string(name(f)) ≤ string(name(t)) ? s : flip()
@@ -530,17 +492,42 @@ physical-forward for every group. Tier 2 reads each step's free metabolites
 at both of its ends, so it sees the same context however the steps were
 written. Shared by the `Mechanism` and `AllostericMechanism` constructors so
 the Canonical Step Form invariant cannot drift between them.
+
+The table `kind` built here classifies each species by the metabolites that
+enter or leave solution at it, as `(any substrate, any product)`: the consumed
+metabolites of every step leaving it (its `from_species`) and the released
+metabolites of every step arriving at it (its `to_species`). A binding is stored
+with its metabolite consumed, so it marks the form the metabolite binds to; a
+fused release E(S) → F + P, stored as the binding F + P → E(S), marks F, the form
+P leaves at. Reversing a step swaps its forms and its lists together, so the
+classification does not depend on how any step was written. Isomerizations carry
+no free metabolites and mark nothing. `_canonical_step_direction` Tier 2 reads it
+to decide direction for non-binding steps where Tier 1 ties.
+
+Why ALL steps (not just RE): the "substrate-entry / product-exit"
+property is a chemistry fact about which forms metabolites enter and
+leave at — it does NOT depend on whether the step is rapid-
+equilibrium or steady-state. The DSL parses `<-->` as SS and `⇌` as RE;
+fixtures like Segel Iso Uni Uni (`E + A <--> EA ⇌ EP <--> F + P, F <--> E`)
+use `<-->` throughout, so an RE-only filter would mis-classify both `E`
+and `F` as marking nothing and the F⇌E case would fall through to Tier 3 lex.
 """
 function _canonicalize_step_directions(reaction::EnzymeReaction,
                                        groups::Vector{Vector{Step}})
     subs  = Set{Symbol}(name(s) for s in substrates(reaction))
     prods = Set{Symbol}(name(s) for s in products(reaction))
-    all_steps = Step[s for group in groups for s in group]
-    [[_canonical_step_direction(s, subs, prods, all_steps)
+    kind = Dict{Species, Tuple{Bool, Bool}}()
+    for group in groups, s in group, (form, free) in ((from_species(s), consumed(s)),
+                                                      (to_species(s), released(s)))
+        has_sub, has_prod = get(kind, form, (false, false))
+        kind[form] = (has_sub  || any(m -> name(m) in subs, free),
+                      has_prod || any(m -> name(m) in prods, free))
+    end
+    [[_canonical_step_direction(s, subs, prods, kind)
       for s in group] for group in groups]
 end
 
-# Canonical key for a `Step`. Gives `sort!` a deterministic ordering so two
+# Canonical key for a `Step`. Gives the sorts a deterministic ordering so two
 # physically-equivalent `Mechanism`s end up with identical step storage.
 # Keyed on the species' rendered NAMES (not `hash`): `Substrate`/`Product`
 # use Julia's default struct hash, which mixes in the type's `objectid` and so
