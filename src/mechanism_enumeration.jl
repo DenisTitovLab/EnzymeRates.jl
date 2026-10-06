@@ -1292,7 +1292,7 @@ function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
         all(u -> flux[units[u]], sel)
     end
     sets = _minimal_gaining_sets(gains, _ -> 1:length(units))
-    children = typeof(m)[_with_steps(m, flipped_groups(sel)) for sel in sets]
+    children = typeof(m)[_with(m; groups = flipped_groups(sel)) for sel in sets]
     _requires_hyperbolic_catalysis(m) ? filter(_hyperbolic_catalysis, children) : children
 end
 
@@ -2142,12 +2142,12 @@ catalytic allo-state tag (splitting is a parameter-relaxation move that must not
 change A/I semantics).
 """
 function _apply_bipartitions(m::Mechanism, selection)
-    _with_steps(m, _bipartitioned_groups(steps(m), selection)[1])
+    _with(m; groups = _bipartitioned_groups(steps(m), selection)[1])
 end
 
 function _apply_bipartitions(am::AllostericMechanism, selection)
     groups, origin = _bipartitioned_groups(steps(am), selection)
-    _with_steps_and_cat_states(am, groups, cat_allo_states(am)[origin])
+    _with(am; groups, states = cat_allo_states(am)[origin])
 end
 
 """
@@ -2804,9 +2804,7 @@ function _make_am_with_added_reg(
             end
         end
     end
-    AllostericMechanism(reaction(am), copy(steps(am)),
-                        copy(cat_allo_states(am)),
-                        catalytic_multiplicity(am), new_sites)
+    _with(am; sites = new_sites)
 end
 
 """
@@ -2881,7 +2879,7 @@ function _expand_change_allo_state(am::AllostericMechanism)
         _onlya_haldane_violation(reaction(am), cs, new_states) ===
             nothing || continue
         _partial_onlya_catalysis(cs, new_states) && continue
-        push!(results, _with_cat_allo_states(am, new_states))
+        push!(results, _with(am; states = new_states))
     end
 
     # Chemistry groups relax together. Inactive catalysis is all-or-nothing, so a
@@ -2896,7 +2894,7 @@ function _expand_change_allo_state(am::AllostericMechanism)
         end
         if _onlya_haldane_violation(reaction(am), cs, new_states) === nothing &&
            !_partial_onlya_catalysis(cs, new_states)
-            push!(results, _with_cat_allo_states(am, new_states))
+            push!(results, _with(am; states = new_states))
         end
     end
 
@@ -2908,7 +2906,7 @@ function _expand_change_allo_state(am::AllostericMechanism)
             new_states[li] = :NonequalAI
             new_sites[si] = RegulatorySite(
                 copy(ligands(site)), multiplicity(site), new_states)
-            push!(results, _with_reg_sites(am, new_sites))
+            push!(results, _with(am; sites = new_sites))
         end
     end
 
@@ -2988,7 +2986,7 @@ function _expand_merge_regulatory_sites(am::AllostericMechanism)
         for states in _merged_site_state_assignments(base_states;
                                                      drop_all_keep=redundant)
             merged = RegulatorySite(copy(ligs), mult, states)
-            push!(results, _with_reg_sites(am, vcat(others, [merged])))
+            push!(results, _with(am; sites = vcat(others, [merged])))
         end
     end
     results

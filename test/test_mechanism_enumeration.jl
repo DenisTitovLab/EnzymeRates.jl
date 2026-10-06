@@ -7992,8 +7992,8 @@ end
     @test EnzymeRates._re_segment_count(am) == 1
     am_groups = EnzymeRates.steps(am)
     am_g = findfirst(grp -> all(EnzymeRates.is_equilibrium, grp), am_groups)
-    am_flipped = EnzymeRates._with_steps(am,
-                                        EnzymeRates._flip_group_to_ss(am_groups, am_g))
+    am_flipped = EnzymeRates._with(am;
+                                   groups = EnzymeRates._flip_group_to_ss(am_groups, am_g))
     @test EnzymeRates._re_segment_count(am_flipped) == 2
 end
 
@@ -8017,7 +8017,7 @@ function _testhelper_flip_groups(m, gs)
     for g in gs
         groups = EnzymeRates._flip_group_to_ss(groups, g)
     end
-    EnzymeRates._with_steps(m, groups)
+    EnzymeRates._with(m; groups)
 end
 
 @testset "_re_segment_count_after_flip agrees with the built child" begin

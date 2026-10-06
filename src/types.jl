@@ -789,14 +789,6 @@ n_steps(m::Mechanism) = sum(length, m.steps; init = 0)
 rep_step(m::Mechanism, g::Int) = first(m.steps[g])
 Base.show(io::IO, m::Mechanism) = _show_fields(io, m, (:reaction, :steps))
 
-"""
-Return a new Mechanism with `new_steps` but the same reaction. Used by
-expansion moves to swap step structure while preserving the rest of
-the mechanism's shape.
-"""
-_with_steps(m::Mechanism, new_steps::Vector{Vector{Step}}) =
-    Mechanism(reaction(m), new_steps)
-
 # AllostericMechanism: a multi-subunit MWC enzyme. Each catalytic
 # kinetic group carries an allosteric-state tag (`:OnlyA`, `:EqualAI`, or
 # `:NonequalAI` — `:OnlyI` is rejected by the active-state convention).
@@ -888,47 +880,19 @@ Base.show(io::IO, m::AllostericMechanism) = _show_fields(io, m,
     (:reaction, :cat_steps, :cat_allo_states, :catalytic_multiplicity, :regulatory_sites))
 
 """
-Return a new AllostericMechanism with `new_steps` but otherwise
-identical fields.
-"""
-_with_steps(am::AllostericMechanism, new_steps::Vector{Vector{Step}}) =
-    AllostericMechanism(reaction(am), new_steps,
-                        copy(cat_allo_states(am)),
-                        catalytic_multiplicity(am),
-                        copy(regulatory_sites(am)))
+    _with(m; groups) / _with(am; groups, states, sites)
 
+`m` rebuilt through its constructor with the given fields replaced: `groups`, the
+kinetic groups; for an `AllostericMechanism` also `states`, the catalytic
+allo-state tags parallel to `groups`, and `sites`, the regulatory sites. Fields not
+given keep `m`'s. Expansion moves use it to change one part of a mechanism. The
+constructor stores fresh group, state and site lists, so a child shares no list with
+its parent, only the `Step` and `RegulatorySite` values in them.
 """
-Return a new AllostericMechanism with `new_cat_allo_states` but
-otherwise identical fields.
-"""
-_with_cat_allo_states(am::AllostericMechanism, new_cat_allo_states::Vector{Symbol}) =
-    AllostericMechanism(reaction(am), copy(steps(am)),
-                        new_cat_allo_states,
-                        catalytic_multiplicity(am),
-                        copy(regulatory_sites(am)))
-
-"""
-Return a new AllostericMechanism with `new_reg_sites` but otherwise
-identical fields.
-"""
-_with_reg_sites(am::AllostericMechanism, new_reg_sites::Vector{RegulatorySite}) =
-    AllostericMechanism(reaction(am), copy(steps(am)),
-                        copy(cat_allo_states(am)),
-                        catalytic_multiplicity(am),
-                        new_reg_sites)
-
-"""
-Return a new AllostericMechanism with both new_steps AND new_cat_allo_states.
-Useful for expansion moves that split a kinetic group (which adds a
-state for the new group).
-"""
-_with_steps_and_cat_states(am::AllostericMechanism,
-                            new_steps::Vector{Vector{Step}},
-                            new_cat_allo_states::Vector{Symbol}) =
-    AllostericMechanism(reaction(am), new_steps,
-                        new_cat_allo_states,
-                        catalytic_multiplicity(am),
-                        copy(regulatory_sites(am)))
+_with(m::Mechanism; groups = steps(m)) = Mechanism(reaction(m), groups)
+_with(am::AllostericMechanism; groups = steps(am), states = cat_allo_states(am),
+      sites = regulatory_sites(am)) =
+    AllostericMechanism(reaction(am), groups, states, catalytic_multiplicity(am), sites)
 
 # ─── Mechanism ↔ Sig (parametric ↔ non-parametric) conversion ──
 #
