@@ -12143,21 +12143,61 @@ end
 end
 
 @testset "init division-freeness (bi_bi_pp)" begin
-    # Every enumerated init mechanism's derived rate equation must stay finite
-    # when any single metabolite concentration is zero (real data has zeros).
-    # `isfinite` suffices here: a residual coupling that survived the
-    # concentration-GCD would put the same 1/conc factor in BOTH numerator and
-    # denominator, so a zeroed metabolite yields Inf/Inf = NaN, which isfinite
-    # catches (no separate != 0 check needed).
+    # Every enumerated init mechanism's rate equation must stay finite when any single
+    # metabolite concentration is zero (real data has zeros). The compiled body is
+    # E_total * num / den after concentration-free assignments of the dependent
+    # constants, so it is finite at a zero concentration exactly when num and den carry
+    # no negative power of a concentration and den keeps a term free of each zeroed
+    # metabolite (den's coefficients are positive sums of spanning-tree weights). A
+    # residual coupling that survived the concentration-GCD would put the same 1/conc
+    # factor in both num and den, so a zeroed metabolite yields Inf/Inf = NaN. These
+    # conditions are checked on the polynomials the body is built from, together with
+    # every symbol the body reads being in scope when it is read. The compiled equation
+    # of each ping-pong seed, where such a coupling arises, is also evaluated at every
+    # zeroed metabolite.
+    ER = EnzymeRates
     mets = [:A, :B, :P, :Q]
-    for m in unique!(collect(EnzymeRates.init_mechanisms(bi_bi_pp_rxn)))
-        cm = EnzymeRates.compile_mechanism(m)
-        params = random_reduced_params(cm; rng = Random.MersenneTwister(1))
+    free_symbols(e) = e isa Symbol ? [e] : e isa Expr ?
+        reduce(vcat, (free_symbols(a) for a in e.args[2:end]); init = Symbol[]) : Symbol[]
+    mechs = unique!(collect(ER.init_mechanisms(bi_bi_pp_rxn)))
+    for m in mechs
+        cm = ER.compile_mechanism(m)
+        @test cm isa EnzymeMechanism
+        M = typeof(cm)
+        num, den, _ = ER._raw_symbolic_rate_polys(M)
+        @test all(e >= 0 for p in (num, den) for mono in keys(p)
+                  for (s, e) in mono if s in mets)
+        @test all(>(0), values(den))
         for zeroed in mets
-            cvals = Tuple(n == zeroed ? 0.0 : 1.0 for n in mets)
-            concs = NamedTuple{Tuple(mets)}(cvals)
-            v = rate_equation(cm, concs, params)
-            @test isfinite(v)
+            @test any(mono -> all(s != zeroed for (s, _) in mono), keys(den))
+        end
+        dep, indep = ER._dependent_param_exprs(M)
+        in_scope = Set{Symbol}([indep..., :Keq, :E_total])
+        undefined = Symbol[]
+        for (sym, rhs) in sort(collect(dep); by = first)
+            append!(undefined, setdiff(free_symbols(rhs), in_scope))
+            push!(in_scope, sym)
+        end
+        for p in (num, den), mono in keys(p), (s, _) in mono
+            s in mets || s in in_scope || push!(undefined, s)
+        end
+        @test isempty(undefined)
+    end
+    pingpong_seeds = [m for m in mechs if any(Iterators.flatten(ER.steps(m))) do s
+        ER.is_iso(s) && (ER.has_residual(ER.from_species(s)) ||
+                         ER.has_residual(ER.to_species(s)))
+    end]
+    @test length(pingpong_seeds) == 7
+    for m in pingpong_seeds
+        cm = ER.compile_mechanism(m)
+        rng = Random.MersenneTwister(1)
+        fp = ER.fitted_params(cm)
+        params = NamedTuple{(fp..., :Keq, :E_total)}(
+            Tuple(0.1 + 9.9 * rand(rng) for _ in 1:(length(fp) + 2)))
+        for zeroed in mets
+            concs = NamedTuple{Tuple(mets)}(
+                Tuple(n == zeroed ? 0.0 : 1.0 for n in mets))
+            @test isfinite(rate_equation(cm, concs, params))
         end
     end
 end
