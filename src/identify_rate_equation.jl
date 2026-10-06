@@ -42,15 +42,8 @@ function IdentifyRateEquationProblem(
         req in col_names ||
             error("Missing required column: $req")
     end
-    # Extract metabolite names from reaction (struct accessors return
-    # Substrate/Product/RegulatorMults; pull the underlying Symbol via
-    # `name()`).
-    mnames = tuple(
-        (name(s) for s in substrates(reaction))...,
-        (name(p) for p in products(reaction))...,
-        (name(regulator(r)) for r in regulators(reaction))...,
-    )
-    for m in mnames
+    # Every metabolite the reaction declares needs a concentration column.
+    for m in _metabolite_names(reaction)
         m in col_names ||
             error(
                 "Missing metabolite column: $m")

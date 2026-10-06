@@ -201,13 +201,7 @@ concentrations and the only symbols `_reduce_conc_lowest_terms` is allowed to
 shift. Parameter symbols are never in this set, so the concentration-GCD can
 never drop a fitted parameter.
 """
-function _concentration_symbols(mech::Mechanism)
-    rxn = reaction(mech)
-    cs = Set{Symbol}(name(s) for s in substrates(rxn))
-    for p in products(rxn);    push!(cs, name(p)); end
-    for rm in regulators(rxn); push!(cs, name(regulator(rm))); end
-    cs
-end
+_concentration_symbols(mech::Mechanism) = Set(_metabolite_names(reaction(mech)))
 
 """
 Free enzyme of a rapid-equilibrium segment: the form with the fewest bound

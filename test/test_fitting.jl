@@ -212,6 +212,33 @@ using Tables
         @test allocs_abs == 0
     end
 
+    # loss! builds each data point's concentration NamedTuple from metabolites(m), so an
+    # allosteric mechanism's metabolite names must be a compile-time constant as well.
+    @testset "Zero allocations: allosteric mechanism" begin
+        allo = @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: R::OnlyI
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)     :: EqualAI
+                E(S) <--> E(P)   :: OnlyA
+                E(P) ⇌ E + P     :: EqualAI
+            end
+        end
+        fps = EnzymeRates.fitted_params(allo)
+        params = merge(NamedTuple{fps}(ntuple(i -> 1.0 + 0.1 * i, length(fps))),
+                       (Keq = Keq_val, E_total = 1.0))
+        concs_list = [(S = Float64(i), P = 0.1, R = 0.5) for i in 1:20]
+        data = make_synthetic_data(allo, params, concs_list)
+        fp = FittingProblem(allo, data; Keq=Keq_val)
+
+        x = randn(length(fps))
+        EnzymeRates.loss!(x, fp)  # warmup
+        allocs = @allocated EnzymeRates.loss!(x, fp)
+        @test allocs == 0
+    end
+
     # ── Test 8: Speed benchmark ───────────────────────────────────────────────
     @testset "Speed" begin
         # Build a larger mechanism: Ordered Bi-Bi

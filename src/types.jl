@@ -428,6 +428,12 @@ substrates(r::EnzymeReaction) =
 products(r::EnzymeReaction) =
     Product[metabolite(ra) for ra in reactants(r) if metabolite(ra) isa Product]
 
+"""The distinct metabolite names of `rxn`: substrates, then products, then regulators,
+each in stored order, keeping a name's first occurrence."""
+_metabolite_names(rxn::EnzymeReaction) =
+    unique!(Symbol[name.(substrates(rxn)); name.(products(rxn));
+                   [name(regulator(rm)) for rm in regulators(rxn)]])
+
 function Base.show(io::IO, r::EnzymeReaction)
     subs_str  = join(String.(name.(substrates(r))), " + ")
     prods_str = join(String.(name.(products(r))),   " + ")
@@ -1341,24 +1347,10 @@ julia> metabolites(m)
 ```
 """
 @generated function metabolites(::EnzymeMechanism{Sig}) where {Sig}
-    # Kept `@generated` (unlike the other demoted accessors): `loss!` uses
-    # `metabolites(m)` as a compile-time-constant tuple to build the
-    # per-datapoint `NamedTuple{MetNames}` concs on the fitting hot path. A
-    # runtime body would make that NamedTuple type-unstable and allocate.
-    m = Mechanism(EnzymeMechanism{Sig}())
-    rxn = reaction(m)
-    names = Symbol[]
-    seen = Set{Symbol}()
-    for s in substrates(rxn)
-        nm = name(s); nm ∉ seen && (push!(seen, nm); push!(names, nm))
-    end
-    for p in products(rxn)
-        nm = name(p); nm ∉ seen && (push!(seen, nm); push!(names, nm))
-    end
-    for rm in regulators(rxn)
-        nm = name(regulator(rm)); nm ∉ seen && (push!(seen, nm); push!(names, nm))
-    end
-    return Tuple(names)
+    # Kept `@generated`: `loss!` uses `metabolites(m)` as a compile-time-constant
+    # tuple to build the per-datapoint `NamedTuple{MetNames}` concs on the fitting
+    # hot path. A runtime body would make that NamedTuple type-unstable and allocate.
+    Tuple(_metabolite_names(reaction(Mechanism(EnzymeMechanism{Sig}()))))
 end
 
 """Return the reactions tuple `((lhs, rhs, is_eq, kinetic_group), ...)`.
@@ -1478,16 +1470,11 @@ regulators(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
     Tuple(syms)
 end
 
-metabolites(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
-    cat_mets = metabolites(CM())
-    extra = Symbol[]
-    seen = Set{Symbol}(cat_mets)
-    for entry in RS
-        for lig in entry[1]
-            lig in seen || (push!(seen, lig); push!(extra, lig))
-        end
-    end
-    (cat_mets..., extra...)
+# `@generated` for the same reason as `metabolites(::EnzymeMechanism)`: `loss!` needs
+# the tuple as a compile-time constant.
+@generated function metabolites(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS}
+    ligs = (l for (site_ligands, _, _) in RS for l in site_ligands)
+    Tuple(unique!(Symbol[metabolites(CM())..., ligs...]))
 end
 
 allosteric_regulators(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
