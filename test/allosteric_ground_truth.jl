@@ -49,29 +49,6 @@ function uni_onlyA_flux(KA, KP, k; L, Keq, S, P, FAST=1e7)
     mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
-# ── Uni-uni all-:EqualAI network (both conformations identical) ──────────────
-# Same topology, but S also binds the inactive conformation with K_I = K_A, and
-# the ES flip is present. With K_I = K_A everywhere the flip ratio is L on every
-# edge, so the two conformations are indistinguishable and the total catalytic
-# flux is the non-allosteric rate, independent of L.
-function uni_equalAI_flux(KA, KP, k, L, Keq, S, P; FAST=1e7)
-    kr = k * KP / (Keq * KA)
-    species = [:E_A, :ES_A, :EP_A, :E_I, :ES_I, :EP_I]
-    edges = [
-        (:E_A, :ES_A, FAST * S / KA), (:ES_A, :E_A, FAST),   # active S binding
-        (:E_A, :EP_A, FAST * P / KP), (:EP_A, :E_A, FAST),   # active P binding
-        (:E_I, :ES_I, FAST * S / KA), (:ES_I, :E_I, FAST),   # inactive S binding (K_I = K_A)
-        (:E_I, :EP_I, FAST * P / KP), (:EP_I, :E_I, FAST),   # inactive P binding (K_I = K_A)
-        (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),          # free-enzyme flip, ratio L
-        (:ES_A, :ES_I, FAST * L), (:ES_I, :ES_A, FAST),      # ES flip, ratio L
-        (:EP_A, :EP_I, FAST * L), (:EP_I, :EP_A, FAST),      # EP flip, ratio L
-        (:ES_A, :EP_A, k), (:EP_A, :ES_A, kr),              # active catalysis
-        (:ES_I, :EP_I, k), (:EP_I, :ES_I, kr),              # inactive catalysis
-    ]
-    cat_edges = [(:ES_A, :EP_A, k, kr), (:ES_I, :EP_I, k, kr)]
-    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
-end
-
 # ── Multi-:OnlyA bi-uni network (both substrates bind the active state only) ──
 # A + B ⇌ P. Both A and B bind :OnlyA (active conformation only) and catalysis is
 # :OnlyA (inactive rate k_I = 0), P :EqualAI. Active forms E_A, EA_A, EAB_A, EP_A.
@@ -95,68 +72,6 @@ function multi_onlyA_flux(KA, KB, KP, k; L, Keq, A, B, P, FAST=1e7)
     ]
     cat_edges = [(:EAB_A, :EP_A, k, kr)]
     mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
-end
-
-# ── Multi-:EqualAI bi-uni network (both conformations identical) ──────────────
-# Same A + B ⇌ P topology, but A and B also bind the inactive conformation with
-# K_I = K_A, and every form flips (ratio L). With K_I = K_A everywhere the two
-# conformations are indistinguishable, so the flux is the non-allosteric bi-uni
-# rate, independent of L.
-function multi_equalAI_flux(KA, KB, KP, k, L, Keq, A, B, P; FAST=1e7)
-    kr = k * KP / (Keq * KA * KB)
-    species = [:E_A, :EA_A, :EAB_A, :EP_A, :E_I, :EA_I, :EAB_I, :EP_I]
-    edges = [
-        (:E_A, :EA_A, FAST * A / KA), (:EA_A, :E_A, FAST),    # active A binding
-        (:EA_A, :EAB_A, FAST * B / KB), (:EAB_A, :EA_A, FAST),# active B binding
-        (:E_A, :EP_A, FAST * P / KP), (:EP_A, :E_A, FAST),    # active P binding
-        (:E_I, :EA_I, FAST * A / KA), (:EA_I, :E_I, FAST),    # inactive A binding (K_I = K_A)
-        (:EA_I, :EAB_I, FAST * B / KB), (:EAB_I, :EA_I, FAST),# inactive B binding (K_I = K_A)
-        (:E_I, :EP_I, FAST * P / KP), (:EP_I, :E_I, FAST),    # inactive P binding (K_I = K_A)
-        (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),           # free-enzyme flip, ratio L
-        (:EA_A, :EA_I, FAST * L), (:EA_I, :EA_A, FAST),       # EA flip, ratio L
-        (:EAB_A, :EAB_I, FAST * L), (:EAB_I, :EAB_A, FAST),   # EAB flip, ratio L
-        (:EP_A, :EP_I, FAST * L), (:EP_I, :EP_A, FAST),       # EP flip, ratio L
-        (:EAB_A, :EP_A, k), (:EP_A, :EAB_A, kr),             # active catalysis
-        (:EAB_I, :EP_I, k), (:EP_I, :EAB_I, kr),             # inactive catalysis
-    ]
-    cat_edges = [(:EAB_A, :EP_A, k, kr), (:EAB_I, :EP_I, k, kr)]
-    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
-end
-
-# ── Self-validation: the harness physics, independent of any derivation code ─
-@testset "ground-truth harness self-validation" begin
-    KA, KP, k, L, Keq, S, P = 1.3, 0.9, 2.1, 0.7, 3.0, 1.1, 0.6
-    kr = k * KP / (Keq * KA)
-    nonallo = (k * S / KA - kr * P / KP) / (1 + S / KA + P / KP)
-
-    # (a) L = 0 : the inactive conformation is unpopulated, so the :OnlyA flux
-    #     reduces to the single-conformation (non-allosteric) uni-uni rate.
-    f0 = uni_onlyA_flux(KA, KP, k, L=0.0, Keq=Keq, S=S, P=P)
-    @test isapprox(f0, nonallo; rtol=1e-4)
-
-    # (b) all-:EqualAI : both conformations are identical, so the flux is the
-    #     base rate and is independent of L.
-    fa = uni_equalAI_flux(KA, KP, k, L, Keq, S, P)
-    @test isapprox(fa, nonallo; rtol=1e-4)
-    @test isapprox(fa, uni_equalAI_flux(KA, KP, k, 5.0, Keq, S, P); rtol=1e-4)
-end
-
-# ── Multi-:OnlyA harness self-validation (same physics, bi-uni topology) ─────
-@testset "multi-OnlyA ground-truth harness self-validation" begin
-    KA, KB, KP, k, L, Keq, A, B, P = 1.3, 0.8, 0.9, 2.1, 0.7, 3.0, 1.1, 0.5, 0.6
-    kr = k * KP / (Keq * KA * KB)
-    nonallo = (k*A*B/(KA*KB) - kr*P/KP) / (1 + A/KA + A*B/(KA*KB) + P/KP)
-
-    # (a) L = 0 : the inactive conformation is unpopulated, so the multi-:OnlyA
-    #     flux reduces to the single-conformation (non-allosteric) bi-uni rate.
-    f0 = multi_onlyA_flux(KA, KB, KP, k, L=0.0, Keq=Keq, A=A, B=B, P=P)
-    @test isapprox(f0, nonallo; rtol=1e-4)
-
-    # (b) all-:EqualAI : both conformations are identical, so the flux is the
-    #     base bi-uni rate and is independent of L.
-    fa = multi_equalAI_flux(KA, KB, KP, k, L, Keq, A, B, P)
-    @test isapprox(fa, nonallo; rtol=1e-4)
-    @test isapprox(fa, multi_equalAI_flux(KA, KB, KP, k, 5.0, Keq, A, B, P); rtol=1e-4)
 end
 
 # ── The gate: :OnlyA MWC derivation matches mass-action ground truth ─────────
@@ -188,7 +103,29 @@ end
         v_gt = uni_onlyA_flux(KA, KP, k, L=L, Keq=Keq, S=S, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
         @test isfinite(ER._kcat_forward(onlyA, prm))
+        # self-validation: L = 0 → inactive conformation unpopulated → the
+        # single-conformation (non-allosteric) uni-uni rate.
+        kr = k * KP / (Keq * KA)
+        nonallo = (k * S / KA - kr * P / KP) / (1 + S / KA + P / KP)
+        @test isapprox(uni_onlyA_flux(KA, KP, k, L=0.0, Keq=Keq, S=S, P=P), nonallo;
+                       rtol=1e-4)
     end
+
+    # The inactive state neither binds S nor catalyzes, so its free-enzyme graph is a
+    # single segment and both states surface D = 1. The genuinely fragmenting
+    # cross-weight regime (D_A ≠ D_I, a metabolite-bearing inactive weight) needs a
+    # steady-state :OnlyA binding and is covered by the metabolite-bearing-D :OnlyA
+    # gate below.
+    am = ER.AllostericMechanism(onlyA)
+    _, _, dA = ER._state_rate_polys(am, :A)
+    _, _, dI = ER._state_rate_polys(am, :I)
+    @test dA == ER.poly_one()                       # single active segment
+    @test dI == ER.poly_one()                       # single inactive segment
+
+    # kcat stays consistent with rate_equation under normalization.
+    prm = NamedTuple{(fp..., :Keq, :E_total)}((0.9, 1.3, 2.1, 0.7, 3.0, 1.0))
+    rescaled = ER.rescale_parameter_values(onlyA, prm; scale_k_to_kcat=5.0)
+    @test isapprox(ER._kcat_forward(onlyA, rescaled), 5.0; rtol=1e-6)
 end
 
 # ── The gate: multi-:OnlyA bi-uni derivation matches mass-action ground truth ─
@@ -222,6 +159,12 @@ end
         v_gt = multi_onlyA_flux(KA, KB, KP, k, L=L, Keq=Keq, A=A, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
         @test isfinite(ER._kcat_forward(multiA, prm))
+        # self-validation: L = 0 → inactive conformation unpopulated → the
+        # single-conformation (non-allosteric) bi-uni rate.
+        kr = k * KP / (Keq * KA * KB)
+        nonallo = (k*A*B/(KA*KB) - kr*P/KP) / (1 + A/KA + A*B/(KA*KB) + P/KP)
+        @test isapprox(multi_onlyA_flux(KA, KB, KP, k, L=0.0, Keq=Keq, A=A, B=B, P=P),
+                       nonallo; rtol=1e-4)
     end
 end
 
@@ -254,35 +197,9 @@ function metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L, Keq, S, B, P, FAST=1e7)
     mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
-# ── Metabolite-bearing-D all-:EqualAI network (both conformations identical) ───
-# Same topology, but S also binds the inactive conformation (SS, K_I = K_A) and
-# every form flips (ratio L). With K_I = K_A everywhere the two conformations are
-# indistinguishable, so the flux is the non-allosteric ordered bi-uni rate,
-# independent of L.
-function metab_dfree_equalAI_flux(kon, koff, KB, KP, k, L, Keq, S, B, P; FAST=1e7)
-    kr = k * kon * KP / (koff * KB * Keq)
-    species = [:E_A, :ES_A, :ESB_A, :EP_A, :E_I, :ES_I, :ESB_I, :EP_I]
-    edges = [
-        (:E_A, :ES_A, kon * S), (:ES_A, :E_A, koff),
-        (:E_I, :ES_I, kon * S), (:ES_I, :E_I, koff),          # inactive S binding (K_I = K_A)
-        (:ES_A, :ESB_A, FAST * B / KB), (:ESB_A, :ES_A, FAST),
-        (:ES_I, :ESB_I, FAST * B / KB), (:ESB_I, :ES_I, FAST),
-        (:E_A, :EP_A, FAST * P / KP), (:EP_A, :E_A, FAST),
-        (:E_I, :EP_I, FAST * P / KP), (:EP_I, :E_I, FAST),
-        (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),
-        (:ES_A, :ES_I, FAST * L), (:ES_I, :ES_A, FAST),       # ES flip, ratio L
-        (:ESB_A, :ESB_I, FAST * L), (:ESB_I, :ESB_A, FAST),   # ESB flip, ratio L
-        (:EP_A, :EP_I, FAST * L), (:EP_I, :EP_A, FAST),
-        (:ESB_A, :EP_A, k), (:EP_A, :ESB_A, kr),
-        (:ESB_I, :EP_I, k), (:EP_I, :ESB_I, kr),
-    ]
-    cat_edges = [(:ESB_A, :EP_A, k, kr), (:ESB_I, :EP_I, k, kr)]
-    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
-end
-
 # ── Single-conformation (non-allosteric) reference for the ordered bi-uni ─────
 # The active mechanism alone (E, E(S), E(S,B), E(P)); no inactive conformation,
-# no flips. The L → 0 limit and the all-:EqualAI flux must both equal this rate.
+# no flips. The L → 0 limit of the :OnlyA flux must equal this rate.
 function metab_dfree_base_flux(kon, koff, KB, KP, k, Keq, S, B, P; FAST=1e7)
     kr = k * kon * KP / (koff * KB * Keq)
     species = [:E, :ES, :ESB, :EP]
@@ -293,23 +210,6 @@ function metab_dfree_base_flux(kon, koff, KB, KP, k, Keq, S, B, P; FAST=1e7)
         (:ESB, :EP, k), (:EP, :ESB, kr),
     ]
     mwc_ground_truth_flux(species, edges, [(:ESB, :EP, k, kr)], 1.0)
-end
-
-# ── Metabolite-bearing-D harness self-validation ─────────────────────────────
-@testset "metabolite-bearing-D ground-truth harness self-validation" begin
-    kon, koff, KB, KP, k, Keq, S, B, P = 1.7, 1.1, 0.8, 0.9, 2.1, 3.0, 1.1, 0.5, 0.6
-    base = metab_dfree_base_flux(kon, koff, KB, KP, k, Keq, S, B, P)
-
-    # (a) L = 0 : the inactive conformation is unpopulated, so the :OnlyA flux
-    #     reduces to the single-conformation (non-allosteric) ordered bi-uni rate.
-    f0 = metab_dfree_onlyA_flux(kon, koff, KB, KP, k, L=0.0, Keq=Keq, S=S, B=B, P=P)
-    @test isapprox(f0, base; rtol=1e-4)
-
-    # (b) all-:EqualAI : both conformations are identical, so the flux is the base
-    #     rate and is independent of L.
-    fa = metab_dfree_equalAI_flux(kon, koff, KB, KP, k, 0.7, Keq, S, B, P)
-    @test isapprox(fa, base; rtol=1e-4)
-    @test isapprox(fa, metab_dfree_equalAI_flux(kon, koff, KB, KP, k, 5.0, Keq, S, B, P); rtol=1e-4)
 end
 
 # ── The gate: metabolite-bearing-D :OnlyA derivation matches mass-action GT ────
@@ -346,40 +246,51 @@ end
         v_gt = metab_dfree_onlyA_flux(kon, koff, KB, KP, k, L=L, Keq=Keq, S=S, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
         @test isfinite(ER._kcat_forward(metabD, prm))
+        # self-validation: L = 0 → inactive conformation unpopulated → the
+        # single-conformation (non-allosteric) ordered bi-uni rate.
+        @test isapprox(
+            metab_dfree_onlyA_flux(kon, koff, KB, KP, k, L=0.0, Keq=Keq, S=S, B=B, P=P),
+            metab_dfree_base_flux(kon, koff, KB, KP, k, Keq, S, B, P); rtol=1e-4)
     end
+
+    # B = 0 puts the metabolite B in D[g_free] at zero concentration. The active
+    # steady-state S binding leaves a bare koff term in D[g_free], so a reverse path
+    # from product back to free enzyme stays open and the reverse flux survives.
+    kon, koff, KP, KB, k, L, Keq, S, P = 1.7, 1.1, 0.9, 0.8, 2.1, 0.7, 3.0, 1.1, 0.6
+    prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, kon, koff, k, KB, L, Keq, 1.0))
+    v0 = real(ER.rate_equation(metabD, (S=S, B=0.0, P=P), prm))
+    @test isapprox(v0,
+        metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L=L, Keq=Keq, S=S, B=0.0, P=P);
+        rtol=1e-4)
+    @test v0 < 0    # reverse flux survives at B=0 (invalid :EqualAI-cat trap→0 was fake)
+    @test isfinite(ER._kcat_forward(metabD, prm))
 end
 
-# ── Ordered bi-uni :NonequalAI-catalysis network (the per-form-flip reference) ─
+# ── Free-flip-only ordered bi-uni :NonequalAI-catalysis reference ────────────
 # A + B ⇌ P. A binds :EqualAI via a STEADY-STATE step (E + A <--> E(A), kon·A /
 # koff); B binds :EqualAI at rapid equilibrium on E(A); catalysis E(A,B) <--> E(P)
 # is STEADY-STATE :NonequalAI (rate k_A in the active conformation, k_I in the
 # inactive); P binds :EqualAI at rapid equilibrium. Every ligand is :EqualAI
-# (K_I = K_A), so every form — including the catalytic intermediates — flips with
-# ratio [X_I]/[X_A] = L.
+# (K_I = K_A).
 #
-# This is the PER-FORM-FLIP model (the enzyme may change conformation mid-cycle),
-# retained here only to self-validate the harness. It is NOT the model the package
-# derives: `biuni_nonequalAI_freeflip_flux` (only the free enzyme flips) is the
-# formulation-1 reference the derivation gate checks. The two differ by ~0.1–3%
-# whenever k_A ≠ k_I, because per-form flipping routes turnover through the faster
-# conformation. Reverse catalysis kr from the Haldane relation.
-function biuni_nonequalAI_flux(kon, koff, KB, KP; k_A, k_I, L, Keq, A, B, P, FAST=1e7)
-    krA = k_A * kon * KP / (koff * KB * Keq)
-    krI = k_I * kon * KP / (koff * KB * Keq)
+# Formulation-1 reference: only the free enzyme flips conformation. Each
+# conformation runs its own catalytic cycle, coupled only through the shared
+# free-enzyme pool — the model this package derives (commit-when-free). Reverse
+# catalysis kr from the Haldane relation. `biuni_mwc_oligomer_flux(1, …;
+# freeflip=false)` is the per-form-flip model with the same forms and edges, which
+# also flips every catalytic intermediate.
+function biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP; k_A, k_I, L, Keq, A, B, P, FAST=1e7)
+    krA = k_A * kon * KP / (koff * KB * Keq); krI = k_I * kon * KP / (koff * KB * Keq)
     species = [:E_A, :EA_A, :EAB_A, :EP_A, :E_I, :EA_I, :EAB_I, :EP_I]
     edges = [
-        (:E_A, :EA_A, kon * A), (:EA_A, :E_A, koff),          # active A binding (SS)
-        (:E_I, :EA_I, kon * A), (:EA_I, :E_I, koff),          # inactive A binding (SS, K_I = K_A)
-        (:EA_A, :EAB_A, FAST * B / KB), (:EAB_A, :EA_A, FAST),# active B binding (RE)
-        (:EA_I, :EAB_I, FAST * B / KB), (:EAB_I, :EA_I, FAST),# inactive B binding (RE)
-        (:E_A, :EP_A, FAST * P / KP), (:EP_A, :E_A, FAST),    # active P binding (RE)
-        (:E_I, :EP_I, FAST * P / KP), (:EP_I, :E_I, FAST),    # inactive P binding (RE)
-        (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),           # free-enzyme flip, ratio L
-        (:EA_A, :EA_I, FAST * L), (:EA_I, :EA_A, FAST),       # EA flip, ratio L
-        (:EAB_A, :EAB_I, FAST * L), (:EAB_I, :EAB_A, FAST),   # EAB flip, ratio L
-        (:EP_A, :EP_I, FAST * L), (:EP_I, :EP_A, FAST),       # EP flip, ratio L
-        (:EAB_A, :EP_A, k_A), (:EP_A, :EAB_A, krA),         # active catalysis (SS, k_A)
-        (:EAB_I, :EP_I, k_I), (:EP_I, :EAB_I, krI),         # inactive catalysis (SS, k_I)
+        (:E_A, :EA_A, kon*A), (:EA_A, :E_A, koff), (:E_I, :EA_I, kon*A), (:EA_I, :E_I, koff),
+        (:EA_A, :EAB_A, FAST*B/KB), (:EAB_A, :EA_A, FAST),
+        (:EA_I, :EAB_I, FAST*B/KB), (:EAB_I, :EA_I, FAST),
+        (:E_A, :EP_A, FAST*P/KP), (:EP_A, :E_A, FAST),
+        (:E_I, :EP_I, FAST*P/KP), (:EP_I, :E_I, FAST),
+        (:E_A, :E_I, FAST*L), (:E_I, :E_A, FAST),                  # only free enzyme flips
+        (:EAB_A, :EP_A, k_A), (:EP_A, :EAB_A, krA),
+        (:EAB_I, :EP_I, k_I), (:EP_I, :EAB_I, krI),
     ]
     cat_edges = [(:EAB_A, :EP_A, k_A, krA), (:EAB_I, :EP_I, k_I, krI)]
     mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
@@ -390,10 +301,10 @@ end
 # (the single-conformation ordered bi-uni, reused as the non-allosteric rate at
 # k = k_A) against the ODE-validated non-allosteric `rate_equation` — an
 # independent, separately ODE-cross-checked code path. This closes the trust loop
-# for the whole `mwc_ground_truth_flux` harness. Then confirm the two-conformation
-# `biuni_nonequalAI_flux` degenerates correctly: (a) L = 0 (inactive unpopulated)
-# → the base rate at k = k_A; (b) k_I = k_A (conformations identical) → the base
-# rate, independent of L.
+# for the whole `mwc_ground_truth_flux` harness. Then confirm the free-flip-only
+# reference degenerates correctly: (a) L = 0 (inactive unpopulated) → the base rate
+# at k = k_A; (b) k_I = k_A (conformations identical) → the base rate, independent
+# of L.
 @testset ":NonequalAI-catalysis ground-truth harness self-validation" begin
     base = @enzyme_mechanism begin
         substrates: A, B
@@ -425,59 +336,6 @@ end
             real(ER.rate_equation(base, (A=A, B=B, P=P), bprm)); rtol=1e-4)
 
         # (a) L = 0 : inactive conformation unpopulated → base rate at k_A.
-        f0 = biuni_nonequalAI_flux(kon, koff, KB, KP;
-            k_A=kA, k_I=kI, L=0.0, Keq=Keq, A=A, B=B, P=P)
-        @test isapprox(f0, base_rate; rtol=1e-4)
-
-        # (b) k_I = k_A : conformations identical → base rate, independent of L.
-        fe = biuni_nonequalAI_flux(kon, koff, KB, KP;
-            k_A=kA, k_I=kA, L=L, Keq=Keq, A=A, B=B, P=P)
-        fe5 = biuni_nonequalAI_flux(kon, koff, KB, KP;
-            k_A=kA, k_I=kA, L=5.0, Keq=Keq, A=A, B=B, P=P)
-        @test isapprox(fe, base_rate; rtol=1e-4)
-        @test isapprox(fe, fe5; rtol=1e-4)
-    end
-end
-
-# ── Free-flip-only ordered bi-uni :NonequalAI-catalysis reference ────────────
-# Formulation-1 reference: only the free enzyme flips conformation. Each
-# conformation runs its own catalytic cycle, coupled only through the shared
-# free-enzyme pool. Same forms/edges as `biuni_nonequalAI_flux` but with only
-# the E_A<->E_I flip — the model this package derives (commit-when-free).
-function biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP; k_A, k_I, L, Keq, A, B, P, FAST=1e7)
-    krA = k_A * kon * KP / (koff * KB * Keq); krI = k_I * kon * KP / (koff * KB * Keq)
-    species = [:E_A, :EA_A, :EAB_A, :EP_A, :E_I, :EA_I, :EAB_I, :EP_I]
-    edges = [
-        (:E_A, :EA_A, kon*A), (:EA_A, :E_A, koff), (:E_I, :EA_I, kon*A), (:EA_I, :E_I, koff),
-        (:EA_A, :EAB_A, FAST*B/KB), (:EAB_A, :EA_A, FAST),
-        (:EA_I, :EAB_I, FAST*B/KB), (:EAB_I, :EA_I, FAST),
-        (:E_A, :EP_A, FAST*P/KP), (:EP_A, :E_A, FAST),
-        (:E_I, :EP_I, FAST*P/KP), (:EP_I, :E_I, FAST),
-        (:E_A, :E_I, FAST*L), (:E_I, :E_A, FAST),                  # only free enzyme flips
-        (:EAB_A, :EP_A, k_A), (:EP_A, :EAB_A, krA),
-        (:EAB_I, :EP_I, k_I), (:EP_I, :EAB_I, krI),
-    ]
-    cat_edges = [(:EAB_A, :EP_A, k_A, krA), (:EAB_I, :EP_I, k_I, krI)]
-    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
-end
-
-# ── Free-flip-only :NonequalAI-catalysis harness self-validation ────────────
-# Same physics checks as the topology-sharing harness above, applied to the
-# free-flip-only reference: (a) L = 0 (inactive unpopulated) → the base rate at
-# k = k_A; (b) k_I = k_A (conformations identical) → the base rate, independent
-# of L.
-@testset ":NonequalAI-catalysis free-flip-only ground-truth harness self-validation" begin
-    rng = MersenneTwister(20260713)
-    for _ in 1:5
-        kon = 0.5 + 2rand(rng); koff = 0.5 + 2rand(rng)
-        KB = 0.5 + 2rand(rng); KP = 0.5 + 2rand(rng)
-        kA = 0.5 + 2rand(rng); kI = 0.5 + 2rand(rng); Keq = 2.0 + 2rand(rng)
-        A = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
-        L = 0.5 + rand(rng)
-
-        base_rate = metab_dfree_base_flux(kon, koff, KB, KP, kA, Keq, A, B, P)
-
-        # (a) L = 0 : inactive conformation unpopulated → base rate at k_A.
         f0 = biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
             k_A=kA, k_I=kI, L=0.0, Keq=Keq, A=A, B=B, P=P)
         @test isapprox(f0, base_rate; rtol=1e-4)
@@ -490,104 +348,6 @@ end
         @test isapprox(fe, base_rate; rtol=1e-4)
         @test isapprox(fe, fe5; rtol=1e-4)
     end
-
-    # (c) k_I ≠ k_A, L > 0 : the free-flip (formulation-1) reference must DIFFER
-    #     from the per-form-flip one. That ~0.1–3% gap is the whole point of the
-    #     fix, and it guards the :NonequalAI derivation gate against being pointed
-    #     back at the per-form-flip reference (which the raw Q_A + L·Q_I combine
-    #     matches). Fixed, clearly-unequal rate constants keep the gap unambiguous.
-    v_free = biuni_nonequalAI_freeflip_flux(1.7, 1.1, 0.8, 0.9;
-        k_A=2.5, k_I=0.4, L=0.7, Keq=3.0, A=1.1, B=0.5, P=0.6)
-    v_perform = biuni_nonequalAI_flux(1.7, 1.1, 0.8, 0.9;
-        k_A=2.5, k_I=0.4, L=0.7, Keq=3.0, A=1.1, B=0.5, P=0.6)
-    @test !isapprox(v_free, v_perform; rtol=1e-4)
-end
-
-# ── The gate: :NonequalAI-catalysis derivation matches mass-action GT ─────────
-# The productive-inactive case. Catalysis is :NonequalAI (k_A ≠ k_I) with shared
-# graph topology, so D_A and D_I differ only by the catalytic rate constant. Under
-# formulation 1 (the enzyme commits to one conformation per catalytic cycle) the
-# two conformations normalize per-state, so the derivation cross-weights them and
-# this gate checks against the free-flip-only reference `biuni_nonequalAI_freeflip_flux`.
-# The gate goes red if the derivation reverts to the raw Q_A + L·Q_I combine (which
-# matches a per-form-flip model, not formulation 1) or mis-renders the normalization.
-@testset ":NonequalAI-catalysis MWC derivation matches mass-action ground truth" begin
-    allo = @allosteric_mechanism begin
-        substrates: A, B ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
-            E + A <--> E(A)        :: EqualAI
-            E(A) + B ⇌ E(A, B)     :: EqualAI
-            E(A, B) <--> E(P)      :: NonequalAI
-            E + P ⇌ E(P)           :: EqualAI
-        end
-    end
-    fp = ER.fitted_params(allo)
-    @test fp == (:k_E_A_to_EA, :k_EA_to_E_A, :K_EP_to_E_P, :K_EAB_to_EA_B,
-                 :k_A_EAB_to_EP, :k_I_EAB_to_EP, :L)
-
-    rng = MersenneTwister(20260713)
-    for _ in 1:6
-        kon = 0.5 + 2rand(rng); koff = 0.5 + 2rand(rng)
-        KP = 0.5 + 2rand(rng); KB = 0.5 + 2rand(rng)
-        kA = 0.5 + 2rand(rng); kI = 0.5 + 2rand(rng)
-        L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
-        A = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
-        # Map fitted_params -> ground-truth params:
-        #   k_E_A_to_EA=kon, k_EA_to_E_A=koff, K_EAB_to_EA_B=KB, K_EP_to_E_P=KP,
-        #   k_A_EAB_to_EP=k_A, k_I_EAB_to_EP=k_I.
-        d = Dict(:k_E_A_to_EA=>kon, :k_EA_to_E_A=>koff, :K_EP_to_E_P=>KP,
-                 :K_EAB_to_EA_B=>KB, :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L)
-        prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
-        v_code = real(ER.rate_equation(allo, (A=A, B=B, P=P), prm))
-        v_gt = biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
-            k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=B, P=P)
-        @test isapprox(v_code, v_gt; rtol=1e-4)
-    end
-end
-
-# ── The gate: a metabolite inside D[g_free] at zero concentration ─────────────
-# When D[g_free] carries a metabolite, the derivation must handle that metabolite
-# going to zero correctly. Both mechanisms here keep a finite free-enzyme weight
-# at B = 0: the active steady-state S/A-binding leaves a bare koff term in
-# D[g_free], so a reverse path from product back to free enzyme stays open and the
-# reverse flux is nonzero. The :OnlyA metabolite-D mechanism and the productive
-# :NonequalAI mechanism both retain surviving reverse flux at B = 0. Both are
-# checked against the ground truth.
-@testset "metabolite in D[g_free] at zero concentration" begin
-    metabD = @allosteric_mechanism begin
-        substrates: S, B ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
-            E + S <--> E(S) :: OnlyA ; E(S) + B ⇌ E(S, B) :: EqualAI
-            E(S, B) <--> E(P) :: OnlyA ; E + P ⇌ E(P) :: EqualAI
-        end
-    end
-    # (:K_EP_to_E_P,:k_A_E_S_to_ES,:k_A_ES_to_E_S,:k_A_EBS_to_EP,:K_EBS_to_ES_B,:L)
-    fp = ER.fitted_params(metabD)
-    kon, koff, KP, KB, k, L, Keq, S, P = 1.7, 1.1, 0.9, 0.8, 2.1, 0.7, 3.0, 1.1, 0.6
-    prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, kon, koff, k, KB, L, Keq, 1.0))
-    v0 = real(ER.rate_equation(metabD, (S=S, B=0.0, P=P), prm))
-    @test isapprox(v0,
-        metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L=L, Keq=Keq, S=S, B=0.0, P=P); rtol=1e-4)
-    @test v0 < 0    # reverse flux survives at B=0 (invalid :EqualAI-cat trap→0 was fake)
-    @test isfinite(ER._kcat_forward(metabD, prm))
-
-    allo = @allosteric_mechanism begin
-        substrates: A, B ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
-            E + A <--> E(A) :: EqualAI ; E(A) + B ⇌ E(A, B) :: EqualAI
-            E(A, B) <--> E(P) :: NonequalAI ; E + P ⇌ E(P) :: EqualAI
-        end
-    end
-    fpn = ER.fitted_params(allo)
-    kon2, koff2, KP2, KB2 = 1.7, 1.1, 0.9, 0.8
-    kA, kI, L2, Keq2, A2, P2 = 2.5, 0.4, 0.7, 3.0, 1.1, 0.9
-    d = Dict(:k_E_A_to_EA=>kon2, :k_EA_to_E_A=>koff2, :K_EP_to_E_P=>KP2,
-             :K_EAB_to_EA_B=>KB2, :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L2)
-    prm2 = NamedTuple{(fpn..., :Keq, :E_total)}(((d[s] for s in fpn)..., Keq2, 1.0))
-    vN = real(ER.rate_equation(allo, (A=A2, B=0.0, P=P2), prm2))
-    @test isapprox(vN, biuni_nonequalAI_freeflip_flux(kon2, koff2, KB2, KP2;
-        k_A=kA, k_I=kI, L=L2, Keq=Keq2, A=A2, B=0.0, P=P2); rtol=1e-4)
-    @test abs(vN) > 1e-3                                     # reverse flux survives at B = 0
 end
 
 # ── The gate: allosteric ping-pong (single free form, formulation-1 normalization) ─
@@ -676,12 +436,12 @@ function pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r;
     mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
-# `test/mechanism_definitions_for_test_enzyme_derivation.jl:328` transcribes this
-# same Segel formula, and both transcriptions are live. Keep them independent
-# rather than sharing one: a shared transcription error would green this gate and
-# that one at once, whereas two independent transcriptions cross-check each other.
-# Sharing would also couple this gate to the MECHANISM_TEST_SPECS fixture, whose
-# copy takes `(params::NamedTuple, concs::NamedTuple)` with an `Etotal` rather
+# `rate_ping_pong_bi_bi` in `test/mechanism_definitions_for_test_enzyme_derivation.jl`
+# transcribes this same Segel formula, and both transcriptions are live. Keep them
+# independent rather than sharing one: a shared transcription error would green this
+# gate and that one at once, whereas two independent transcriptions cross-check each
+# other. Sharing would also couple this gate to the MECHANISM_TEST_SPECS fixture,
+# whose copy takes `(params::NamedTuple, concs::NamedTuple)` with an `Etotal` rather
 # than the 12 positional scalars this one takes.
 "Segel Eq. IX-140 ping-pong bi-bi rate: E + A ⇌ EA ⇌ F + P; F + B ⇌ FB ⇌ E + Q."
 function segel_pingpong_flux(k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, A, B, P, Q)
@@ -919,8 +679,7 @@ end
     prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., 2.0, 1.0))
     v_code(B) = real(ER.rate_equation(allo, (A=p.A, B=B, P=0.0, Q=0.0), prm))
     v_gt(B) = pingpong_re_chemistry_flux(; p..., B=B)
-    @test isapprox(v_code(1.0), v_gt(1.0); rtol=1e-5)
-    for B in (1e-3, 0.1, 10.0, 1e3)
+    for B in (1e-3, 0.1, 1.0, 10.0, 1e3)
         @test isapprox(v_code(B), v_gt(B); rtol=1e-5)
     end
 end
@@ -999,9 +758,9 @@ end
             E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
+    # The constructor errors on any `_onlya_haldane_violation`, so building `am`
+    # proves the guard accepts it.
     am = ER.AllostericMechanism(err1)
-    @test ER._onlya_haldane_violation(ER.reaction(am), ER.steps(am),
-                                      ER.cat_allo_states(am)) === nothing
 
     _, _, d_free_I = ER._state_rate_polys(am, :I)
     @test !isempty(d_free_I)
@@ -1018,8 +777,10 @@ end
 # protomers are independent, so the joint occupancy state is a tuple. Only the
 # FULLY-unliganded oligomer flips (`freeflip=true`) — the n-protomer extension
 # of the free-flip-only model this package derives. `freeflip=false` flips every
-# joint state (the classic per-form-flip MWC, formulation 2) and is kept ONLY as
-# a discriminator: it must NOT match the derivation.
+# joint state (the classic per-form-flip MWC, formulation 2) and is kept ONLY as a
+# self-validation reference: it must NOT match the derivation. At nprot = 1 the two
+# differ by ~0.1–3% whenever k_A ≠ k_I, because per-form flipping routes turnover
+# through the faster conformation.
 const OCC = (:E, :EA, :EAB, :EP)
 
 function biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP; k_A, k_I, L, Keq,
@@ -1066,11 +827,11 @@ function biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP; k_A, k_I, L, Keq,
 end
 
 # Self-validation. Check (c) is the load-bearing one: it pins the oracle to
-# formulation 1. Checks (a)/(b) pass for BOTH formulations and so cannot
-# distinguish them on their own.
+# formulation 1. Checks (a), (b) and (d) pass for BOTH formulations and so cannot
+# distinguish them on their own; they run for both `freeflip` settings.
 @testset "concerted-MWC oligomer oracle self-validation" begin
     rng = MersenneTwister(11)
-    for nprot in (1, 2, 3), _ in 1:3
+    for nprot in (1, 2, 3), freeflip in (true, false), _ in 1:3
         kon = 0.5+2rand(rng); koff = 0.5+2rand(rng)
         KB = 0.5+2rand(rng); KP = 0.5+2rand(rng)
         kA = 0.5+2rand(rng); kI = 0.5+2rand(rng); Keq = 2.0+2rand(rng)
@@ -1080,21 +841,21 @@ end
 
         # (a) L = 0 : inactive unpopulated -> nprot x the single-protomer rate.
         @test isapprox(biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
-                k_A=kA, k_I=kI, L=0.0, Keq=Keq, A=A, B=B, P=P),
+                k_A=kA, k_I=kI, L=0.0, Keq=Keq, A=A, B=B, P=P, freeflip),
             nprot * base; rtol=1e-4)
 
         # (b) k_I = k_A : conformations identical -> L-independent.
         f1 = biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
-                k_A=kA, k_I=kA, L=L, Keq=Keq, A=A, B=B, P=P)
+                k_A=kA, k_I=kA, L=L, Keq=Keq, A=A, B=B, P=P, freeflip)
         f5 = biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
-                k_A=kA, k_I=kA, L=5.0, Keq=Keq, A=A, B=B, P=P)
+                k_A=kA, k_I=kA, L=5.0, Keq=Keq, A=A, B=B, P=P, freeflip)
         @test isapprox(f1, nprot * base; rtol=1e-4)
         @test isapprox(f1, f5; rtol=1e-4)
 
         # (d) v = 0 at the equilibrium metabolite ratio.
         Peq = Keq * A * B
         @test abs(biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
-                k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=B, P=Peq)) < 1e-6
+                k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=B, P=Peq, freeflip)) < 1e-6
     end
 
     # (e) a live inactive conformation must move the flux, or the gate below
@@ -1118,15 +879,34 @@ end
                     biuni_nonequalAI_freeflip_flux(args...; kw...); rtol=1e-4)
 end
 
-# ── The gate: the ^n combine with a LIVE inactive numerator ─────────────────
-# `:OnlyA` always yields a dead inactive cycle (the guard forces an `:OnlyA`
-# catalytic tag alongside an `:OnlyA` binding), so the numerator cross term
-# `L*N_I*D_I^(n-1)` is live only for `:NonequalAI`. This is the only gate that
-# exercises it, and the only mass-action gate at n >= 2 for any family.
-@testset ":NonequalAI ^n cross term matches multi-protomer ground truth" begin
+# ── The gate: :NonequalAI catalysis for 1, 2 and 3 protomers ──────────────────
+# The productive-inactive case. Catalysis is :NonequalAI (k_A ≠ k_I) with shared
+# graph topology, so D_A and D_I differ only by the catalytic rate constant. Under
+# formulation 1 (the enzyme commits to one conformation per catalytic cycle) the
+# two conformations normalize per-state, so the derivation cross-weights them. The
+# gate goes red if the derivation reverts to the raw Q_A + L·Q_I combine (which
+# matches a per-form-flip model, not formulation 1) or mis-renders the
+# normalization. At nprot = 1 the oligomer oracle is the free-flip-only reference
+# `biuni_nonequalAI_freeflip_flux` (pinned in the oligomer self-validation).
+#
+# The ^n combine also needs a LIVE inactive numerator: `:OnlyA` always yields a dead
+# inactive cycle (the guard forces an `:OnlyA` catalytic tag alongside an `:OnlyA`
+# binding), so the numerator cross term `L*N_I*D_I^(n-1)` is live only for
+# `:NonequalAI`. This is the only gate that exercises it, and the only mass-action
+# gate at n >= 2 for any family.
+@testset ":NonequalAI MWC derivation matches mass-action ground truth, 1-3 protomers" begin
     rng = MersenneTwister(20260716)
-    for nprot in (2, 3)
-        allo = nprot == 2 ?
+    for nprot in (1, 2, 3)
+        allo = nprot == 1 ?
+            @allosteric_mechanism(begin
+                substrates: A, B ; products: P ; catalytic_multiplicity: 1
+                catalytic_steps: begin
+                    E + A <--> E(A)        :: EqualAI
+                    E(A) + B ⇌ E(A, B)     :: EqualAI
+                    E(A, B) <--> E(P)      :: NonequalAI
+                    E + P ⇌ E(P)           :: EqualAI
+                end
+            end) : nprot == 2 ?
             @allosteric_mechanism(begin
                 substrates: A, B ; products: P ; catalytic_multiplicity: 2
                 catalytic_steps: begin
@@ -1148,20 +928,40 @@ end
         fp = ER.fitted_params(allo)
         @test fp == (:k_E_A_to_EA, :k_EA_to_E_A, :K_EP_to_E_P, :K_EAB_to_EA_B,
                      :k_A_EAB_to_EP, :k_I_EAB_to_EP, :L)
+        # Map fitted_params -> ground-truth params:
+        #   k_E_A_to_EA=kon, k_EA_to_E_A=koff, K_EAB_to_EA_B=KB, K_EP_to_E_P=KP,
+        #   k_A_EAB_to_EP=k_A, k_I_EAB_to_EP=k_I.
+        function params_for(kon, koff, KP, KB, kA, kI, L, Keq)
+            d = Dict(:k_E_A_to_EA=>kon, :k_EA_to_E_A=>koff, :K_EP_to_E_P=>KP,
+                     :K_EAB_to_EA_B=>KB, :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L)
+            NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
+        end
         for _ in 1:6
             kon = 0.5+2rand(rng); koff = 0.5+2rand(rng)
             KP = 0.5+2rand(rng); KB = 0.5+2rand(rng)
             kA = 0.5+2rand(rng); kI = 0.5+2rand(rng)
             L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
             A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng)
-            d = Dict(:k_E_A_to_EA=>kon, :k_EA_to_E_A=>koff, :K_EP_to_E_P=>KP,
-                     :K_EAB_to_EA_B=>KB, :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L)
-            prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
+            prm = params_for(kon, koff, KP, KB, kA, kI, L, Keq)
             # `rate_equation` is per active site; the oracle is per oligomer.
             v_code = nprot * real(ER.rate_equation(allo, (A=A, B=B, P=P), prm))
             v_gt = biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
                 k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=B, P=P)
             @test isapprox(v_code, v_gt; rtol=1e-4)
+        end
+
+        if nprot == 1
+            # B = 0 puts the metabolite B in D[g_free] at zero concentration. The
+            # active steady-state A binding leaves a bare koff term in D[g_free], so a
+            # reverse path from product back to free enzyme stays open and the reverse
+            # flux survives.
+            kon, koff, KP, KB = 1.7, 1.1, 0.9, 0.8
+            kA, kI, L, Keq, A, P = 2.5, 0.4, 0.7, 3.0, 1.1, 0.9
+            vN = real(ER.rate_equation(allo, (A=A, B=0.0, P=P),
+                                       params_for(kon, koff, KP, KB, kA, kI, L, Keq)))
+            @test isapprox(vN, biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
+                k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=0.0, P=P); rtol=1e-4)
+            @test abs(vN) > 1e-3
         end
     end
 end
@@ -1197,9 +997,9 @@ end
                   Symbol("K_EF16BP_res_+ATP_-F16BP_to_E_res_+ATP_-F16BP_F16BP"),
                   Symbol("K_A_EF6P_res_+ATP_-F16BP_to_E_res_+ATP_-F16BP_F6P"), :L)
 
+    # The constructor errors on any `_onlya_haldane_violation`, so building `am`
+    # proves the guard accepts it.
     am = ER.AllostericMechanism(dead)
-    @test ER._onlya_haldane_violation(ER.reaction(am), ER.steps(am),
-                                      ER.cat_allo_states(am)) === nothing
     _, _, d_free_I = ER._state_rate_polys(am, :I)
     @test ER._poly_to_expr(d_free_I, Set{Symbol}(), Set{Symbol}()) == 1
 

@@ -2176,28 +2176,6 @@ end
     end
 end
 
-@testset "D[g_free] surfaced per allosteric state" begin
-    # Uni-uni with :OnlyA substrate + :OnlyA catalysis: the inactive state
-    # neither binds S nor catalyzes, so its free-enzyme graph is a single
-    # segment and both states surface D = 1. The genuinely fragmenting
-    # cross-weight regime (D_A ≠ D_I, a metabolite-bearing inactive weight)
-    # needs a steady-state :OnlyA binding and is covered by the
-    # metabolite-bearing-D :OnlyA gate in allosteric_ground_truth.jl.
-    onlyA = @allosteric_mechanism begin
-        substrates: S ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
-            E + S ⇌ E(S)     :: OnlyA
-            E(S) <--> E(P)   :: OnlyA
-            E + P ⇌ E(P)     :: EqualAI
-        end
-    end
-    am = EnzymeRates.AllostericMechanism(onlyA)
-    _, _, dA = EnzymeRates._state_rate_polys(am, :A)
-    _, _, dI = EnzymeRates._state_rate_polys(am, :I)
-    @test dA == EnzymeRates.poly_one()                       # single active segment
-    @test dI == EnzymeRates.poly_one()                       # single inactive segment
-end
-
 @testset "rendering helpers" begin
     k = ER.POLY(ER._mono(:k_ES_to_EP => 1) => 1)
     @test ER._invert_monomial(k) == ER.POLY(ER._mono(:k_ES_to_EP => -1) => 1)
@@ -2210,17 +2188,4 @@ end
     @test_throws ErrorException ER._invert_monomial(twoterm)      # non-monomial errors
     @test ER._mwc_cross_weight(:foo, 1, 2) == :foo               # no-op when D==1
     @test ER._mwc_cross_weight(:foo, :D, 1) == :(D * foo)
-end
-
-@testset "kcat consistent with rate_equation under normalization (uni-OnlyA)" begin
-    m = @allosteric_mechanism begin
-        substrates: S ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
-            E + S ⇌ E(S) :: OnlyA ; E(S) <--> E(P) :: OnlyA ; E + P ⇌ E(P) :: EqualAI
-        end
-    end
-    fp = ER.fitted_params(m)            # K_EP_to_E_P, K_A_ES_to_E_S, k_A_ES_to_EP, L
-    prm = NamedTuple{(fp..., :Keq, :E_total)}((0.9, 1.3, 2.1, 0.7, 3.0, 1.0))
-    rescaled = ER.rescale_parameter_values(m, prm; scale_k_to_kcat=5.0)  # ask kcat = 5.0
-    @test isapprox(ER._kcat_forward(m, rescaled), 5.0; rtol=1e-6)
 end

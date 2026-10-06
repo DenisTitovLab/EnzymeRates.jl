@@ -15,8 +15,6 @@ function _allosteric_golden_lines()
         reduced_string = EnzymeRates.rate_equation_string(m, EnzymeRates.Reduced)
         push!(lines, "REDUCED_STRING " * replace(reduced_string, "\n" => "\\n"))
         push!(lines, "PARAMS_FULL " * string(parameters(m, EnzymeRates.Full)))
-        push!(lines, "PARAMS_REDUCED " *
-              string(parameters(m, EnzymeRates.Reduced)))
     end
     lines
 end
@@ -28,5 +26,13 @@ end
     @test length(current) == length(reference)
     for (c, r) in zip(current, reference)
         @test c == r
+    end
+    # The REDUCED_STRING header pins the reduced parameters; this pins the exported
+    # `parameters(m, Reduced)` wrapper to the fitted parameters plus Keq and E_total.
+    for spec in MECHANISM_TEST_SPECS
+        m = spec.mechanism
+        m isa EnzymeRates.AllostericEnzymeMechanism || continue
+        @test parameters(m, EnzymeRates.Reduced) ==
+              (EnzymeRates.fitted_params(m)..., :Keq, :E_total)
     end
 end

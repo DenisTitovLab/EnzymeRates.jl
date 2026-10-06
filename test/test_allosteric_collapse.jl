@@ -6,19 +6,28 @@ const ER = EnzymeRates
 const Sub=ER.Substrate; const Prd=ER.Product; const Sp=ER.Species
 const St=ER.Step; const RA=ER.ReactantAtoms; const Met=ER.Metabolite
 const S=Sub(:S); const P=Prd(:P)
-function uni(states)
+# `re` flags which of the S-binding, chemistry and P-release steps are rapid
+# equilibrium; a steady-state binding carries kon/koff.
+function uni(states; re=(true,false,true))
     E=Sp(Met[],:E); ES=Sp(Met[S],:E); EP=Sp(Met[P],:E)
     rxn=ER.EnzymeReaction(RA[RA(S,[:C=>1]),RA(P,[:C=>1])], ER.RegulatorMults[], Int[2])
-    steps=Vector{St}[[St(E,ES,Met[S],Met[],true)],[St(ES,EP,Met[],Met[],false)],
-                     [St(EP,E,Met[],Met[P],true)]]
+    steps=Vector{St}[[St(E,ES,Met[S],Met[],re[1])],[St(ES,EP,Met[],Met[],re[2])],
+                     [St(EP,E,Met[],Met[P],re[3])]]
     ER.AllostericMechanism(rxn, steps, collect(Symbol,states), 2, ER.RegulatorySite[])
 end
-function uni_ss(states)   # all-steady-state uni-uni (bindings carry kon/koff)
-    E=Sp(Met[],:E); ES=Sp(Met[S],:E); EP=Sp(Met[P],:E)
-    rxn=ER.EnzymeReaction(RA[RA(S,[:C=>1]),RA(P,[:C=>1])], ER.RegulatorMults[], Int[2])
-    steps=Vector{St}[[St(E,ES,Met[S],Met[],false)],[St(ES,EP,Met[],Met[],false)],
-                     [St(EP,E,Met[],Met[P],false)]]
-    ER.AllostericMechanism(rxn, steps, collect(Symbol,states), 2, ER.RegulatorySite[])
+# Random-order bi-bi with two Wegscheider boxes; `states` tags its nine one-step groups.
+function ro_bibi(states)
+    A2=Sub(:A); B2=Sub(:B); Q2=Prd(:Q)
+    E=Sp(Met[],:E); EA=Sp(Met[A2],:E); EB=Sp(Met[B2],:E); EAB=Sp(Met[A2,B2],:E)
+    EPQ=Sp(Met[P,Q2],:E); EP=Sp(Met[P],:E); EQ=Sp(Met[Q2],:E)
+    rxn=ER.EnzymeReaction(RA[RA(A2,[:C=>1]),RA(B2,[:N=>1]),RA(P,[:C=>1]),RA(Q2,[:N=>1])],
+                          ER.RegulatorMults[], Int[2])
+    sd=[St(E,EA,Met[A2],Met[],true),St(E,EB,Met[B2],Met[],true),
+        St(EB,EAB,Met[A2],Met[],true),St(EA,EAB,Met[B2],Met[],true),
+        St(EAB,EPQ,Met[],Met[],false),St(EP,EPQ,Met[Q2],Met[],true),
+        St(EQ,EPQ,Met[P],Met[],true),St(E,EP,Met[P],Met[],true),
+        St(E,EQ,Met[Q2],Met[],true)]
+    ER.AllostericMechanism(rxn, Vector{St}[[s] for s in sd], states, 2, ER.RegulatorySite[])
 end
 function evalrate(am; seed=1, split=nothing)
     cem=ER.compile_mechanism(am); fp=ER.fitted_params(am); rng=MersenneTwister(seed)
@@ -71,28 +80,13 @@ end
     @testset "binding-Wegscheider single inner edge -> full collapse" begin
         # random-order bi-bi (two Wegscheider boxes); tag ONE inner box-independent
         # edge (EB+A->EAB) :NonequalAI, rest :EqualAI -> its split is forbidden -> collapses.
-        A2=Sub(:A); B2=Sub(:B); Q2=Prd(:Q)
-        E=Sp(Met[],:E); EA=Sp(Met[A2],:E); EB=Sp(Met[B2],:E); EAB=Sp(Met[A2,B2],:E)
-        EPQ=Sp(Met[P,Q2],:E); EP=Sp(Met[P],:E); EQ=Sp(Met[Q2],:E)
-        rxn=ER.EnzymeReaction(RA[RA(A2,[:C=>1]),RA(B2,[:N=>1]),RA(P,[:C=>1]),RA(Q2,[:N=>1])],
-                              ER.RegulatorMults[], Int[2])
-        sd=[St(E,EA,Met[A2],Met[],true),St(E,EB,Met[B2],Met[],true),
-            St(EB,EAB,Met[A2],Met[],true),St(EA,EAB,Met[B2],Met[],true),
-            St(EAB,EPQ,Met[],Met[],false),St(EP,EPQ,Met[Q2],Met[],true),
-            St(EQ,EPQ,Met[P],Met[],true),St(E,EP,Met[P],Met[],true),
-            St(E,EQ,Met[Q2],Met[],true)]
         st=fill(:EqualAI,9); st[3]=:NonequalAI
-        am=ER.AllostericMechanism(rxn, Vector{St}[[s] for s in sd], st, 2, ER.RegulatorySite[])
-        cem=ER.compile_mechanism(am); fp=ER.fitted_params(am)
+        am=ro_bibi(st)
+        fp,v,veq = evalrate(am)
+        @test isfinite(v); @test abs(veq) < 1e-8             # thermo-consistent
         @test !(:K_I_EAB_to_EB_A in fp)                     # forbidden split collapsed
         s=replace(ER.rate_equation_string(am)," "=>"")
         @test occursin("K_I_EAB_to_EB_A=K_A_EAB_to_EB_A", s)  # explicit mirror
-        rng=MersenneTwister(2)
-        pv=Tuple((k===:L ? 0.6 : 0.4+2rand(rng)) for k in fp)
-        prm=NamedTuple{(fp...,:Keq,:E_total)}((pv...,3.0,1.0))
-        mets=collect(ER.metabolites(cem))
-        ec=NamedTuple{Tuple(mets)}(ntuple(i->(mets[i] in (:A,:B) ? 1.0 : sqrt(3.0)),length(mets)))
-        @test abs(real(ER.rate_equation(cem,ec,prm))) < 1e-8   # thermo-consistent
     end
 
     # ── Steady-state binding: affinity/speed decomposition (Option 3) ──
@@ -102,7 +96,7 @@ end
     # whole binding. (The steady-state Wegscheider-box case is covered by `m_ro`
     # in test_rate_eq_derivation.jl.)
     @testset "SS binding + EqualAI catalysis -> affinity collapses, speed free" begin
-        am = uni_ss([:NonequalAI,:EqualAI,:EqualAI])
+        am = uni([:NonequalAI,:EqualAI,:EqualAI]; re=(false,false,false))
         fp,v,veq = evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
         @test !(:k_I_ES_to_E_S in fp)           # affinity collapsed: reverse derived
@@ -116,7 +110,7 @@ end
     end
 
     @testset "SS binding + NonequalAI catalysis -> not forbidden, stays free" begin
-        am = uni_ss([:NonequalAI,:NonequalAI,:EqualAI])
+        am = uni([:NonequalAI,:NonequalAI,:EqualAI]; re=(false,false,false))
         fp,v,veq = evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
         # both free (affinity honorable)
@@ -131,12 +125,7 @@ end
         # S-binding RE, P-release SS, both :NonequalAI, catalysis :EqualAI: the two
         # coupled affinities are *different* step types, so the constraint matrix must
         # use one uniform sign — a per-type flip inverts the coupling → nonzero flux.
-        E=Sp(Met[],:E); ES=Sp(Met[S],:E); EP=Sp(Met[P],:E)
-        rxn=ER.EnzymeReaction(RA[RA(S,[:C=>1]),RA(P,[:C=>1])], ER.RegulatorMults[], Int[2])
-        steps=Vector{St}[[St(E,ES,Met[S],Met[],true)],[St(ES,EP,Met[],Met[],false)],
-                         [St(EP,E,Met[],Met[P],false)]]
-        am=ER.AllostericMechanism(rxn, steps, [:NonequalAI,:EqualAI,:NonequalAI], 2,
-                                  ER.RegulatorySite[])
+        am=uni([:NonequalAI,:EqualAI,:NonequalAI]; re=(true,false,false))
         fp,v,veq = evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
     end
@@ -146,26 +135,9 @@ end
         # edges :NonequalAI so one binding-K is Wegscheider-derived from the other.
         # The combined solve must express every derived symbol purely in free columns
         # (no circular reference ⇒ no UndefVarError) and hold detailed balance.
-        A2=Sub(:A); B2=Sub(:B); Q2=Prd(:Q)
-        E=Sp(Met[],:E); EA=Sp(Met[A2],:E); EB=Sp(Met[B2],:E); EAB=Sp(Met[A2,B2],:E)
-        EPQ=Sp(Met[P,Q2],:E); EP=Sp(Met[P],:E); EQ=Sp(Met[Q2],:E)
-        rxn=ER.EnzymeReaction(RA[RA(A2,[:C=>1]),RA(B2,[:N=>1]),RA(P,[:C=>1]),RA(Q2,[:N=>1])],
-                              ER.RegulatorMults[], Int[2])
-        sd=[St(E,EA,Met[A2],Met[],true),St(E,EB,Met[B2],Met[],true),
-            St(EB,EAB,Met[A2],Met[],true),St(EA,EAB,Met[B2],Met[],true),
-            St(EAB,EPQ,Met[],Met[],false),St(EP,EPQ,Met[Q2],Met[],true),
-            St(EQ,EPQ,Met[P],Met[],true),St(E,EP,Met[P],Met[],true),
-            St(E,EQ,Met[Q2],Met[],true)]
         st=fill(:EqualAI,9); st[2]=:NonequalAI; st[3]=:NonequalAI
-        am=ER.AllostericMechanism(rxn, Vector{St}[[s] for s in sd], st, 2, ER.RegulatorySite[])
-        cem=ER.compile_mechanism(am)
-        fp=collect(ER.fitted_params(am)); rng=MersenneTwister(3)
-        prm=NamedTuple{(fp...,:Keq,:E_total)}(
-            (ntuple(i->(fp[i]===:L ? 0.6 : 0.4+2rand(rng)),length(fp))...,4.0,1.0))
-        mets=collect(ER.metabolites(cem))
-        ec=NamedTuple{Tuple(mets)}(ntuple(i->(mets[i] in (:A,:B) ? 1.0 : 2.0),length(mets)))
-        v=real(ER.rate_equation(cem,ec,prm))         # must not throw UndefVarError
-        @test isfinite(v); @test abs(v) < 1e-8
+        fp,v,veq = evalrate(ro_bibi(st))             # must not throw UndefVarError
+        @test isfinite(v); @test abs(veq) < 1e-8
     end
 
     @testset "dead-I NonequalAI binding -> K_I identifiable, NOT collapsed" begin

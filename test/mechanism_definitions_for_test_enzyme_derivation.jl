@@ -2276,8 +2276,8 @@ end
 # The three LDH i-state mechanisms that exposed the Bug-2 fitted_params
 # leak (a Haldane-dependent reverse rate that landed in the independent
 # set). Written as @allosteric_mechanism for readability; RE-containing
-# with a products=0 boundary, so the ODE cross-check is skipped. Their
-# golden PARAMS_REDUCED confirm the dependent reverse rate is excluded.
+# with a products=0 boundary, so the ODE cross-check is skipped. The parameter
+# headers of their golden REDUCED_STRINGs confirm the dependent reverse rate is excluded.
 push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
     name="LDH i-state NonequalAI 6-group",
     mechanism=(@allosteric_mechanism begin
