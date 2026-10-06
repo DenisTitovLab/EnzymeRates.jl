@@ -43,10 +43,6 @@ Residual() = Residual(Substrate[], Product[])
 added(r::Residual)        = r.added
 subtracted(r::Residual)   = r.subtracted
 Base.isempty(r::Residual) = isempty(r.added) && isempty(r.subtracted)
-Base.:(==)(a::Residual, b::Residual) =
-    a.added == b.added && a.subtracted == b.subtracted
-Base.hash(r::Residual, h::UInt) =
-    hash(r.subtracted, hash(r.added, hash(:Residual, h)))
 
 """
 Sort key for metabolite lists (`Species.bound`, `Step.consumed`,
@@ -162,12 +158,6 @@ end
 ligands(s::RegulatorySite)      = s.ligands
 multiplicity(s::RegulatorySite) = s.multiplicity
 allo_states(s::RegulatorySite)  = s.allo_states
-Base.:(==)(a::RegulatorySite, b::RegulatorySite) =
-    a.ligands == b.ligands && a.multiplicity == b.multiplicity &&
-    a.allo_states == b.allo_states
-Base.hash(s::RegulatorySite, h::UInt) =
-    hash(s.allo_states, hash(s.multiplicity,
-        hash(s.ligands, hash(:RegulatorySite, h))))
 
 """
 Whether `bound_form` is `free` with metabolite `m` added: same residual, and
@@ -250,14 +240,6 @@ function _is_chemistry(s::Step)
     m === nothing || !_binds_ligand(from_species(s), to_species(s), m)
 end
 
-Base.:(==)(a::Step, b::Step) =
-    a.from_species == b.from_species && a.to_species == b.to_species &&
-    a.consumed == b.consumed && a.released == b.released &&
-    a.is_equilibrium == b.is_equilibrium
-Base.hash(s::Step, h::UInt) =
-    hash(s.is_equilibrium, hash(s.released, hash(s.consumed,
-        hash(s.to_species, hash(s.from_species, hash(:Step, h))))))
-
 # Parameter family.
 abstract type Parameter end
 
@@ -284,17 +266,6 @@ end
 # Mechanism-level scalar (singleton): the MWC coupling constant L
 struct Lallo <: Parameter end
 
-for T in (:Kd, :Kiso, :Kon, :Koff, :Kfor, :Krev)
-    @eval Base.:(==)(a::$T, b::$T) =
-        a.step == b.step && a.state === b.state
-    @eval Base.hash(p::$T, h::UInt) =
-        hash(p.state, hash(p.step, hash($(QuoteNode(T)), h)))
-end
-Base.:(==)(a::Kreg, b::Kreg) =
-    a.site == b.site && a.ligand == b.ligand && a.state === b.state
-Base.hash(p::Kreg, h::UInt) =
-    hash(p.state, hash(p.ligand, hash(p.site, hash(:Kreg, h))))
-
 # Per-reactant and per-regulator bundling structs. Canonical
 # ordering of atoms / multiplicities so two equivalent constructions
 # compare equal under `==` / `hash`.
@@ -317,10 +288,6 @@ end
 
 metabolite(r::ReactantAtoms) = r.metabolite
 atoms(r::ReactantAtoms)      = r.atoms
-Base.:(==)(a::ReactantAtoms, b::ReactantAtoms) =
-    a.metabolite == b.metabolite && a.atoms == b.atoms
-Base.hash(r::ReactantAtoms, h::UInt) =
-    hash(r.atoms, hash(r.metabolite, hash(:ReactantAtoms, h)))
 
 struct RegulatorMults
     regulator::Regulator
@@ -342,14 +309,6 @@ end
 regulator(r::RegulatorMults)              = r.regulator
 allowed_multiplicities(r::RegulatorMults) = r.allowed_multiplicities
 reg_type(r::RegulatorMults)               = r.reg_type
-Base.:(==)(a::RegulatorMults, b::RegulatorMults) =
-    a.regulator == b.regulator &&
-    a.allowed_multiplicities == b.allowed_multiplicities &&
-    a.reg_type == b.reg_type
-Base.hash(r::RegulatorMults, h::UInt) =
-    hash(r.reg_type,
-         hash(r.allowed_multiplicities,
-              hash(r.regulator, hash(:RegulatorMults, h))))
 
 """
     EnzymeReaction
@@ -488,16 +447,6 @@ substrates(r::EnzymeReaction) =
     Substrate[metabolite(ra) for ra in reactants(r) if metabolite(ra) isa Substrate]
 products(r::EnzymeReaction) =
     Product[metabolite(ra) for ra in reactants(r) if metabolite(ra) isa Product]
-
-Base.:(==)(a::EnzymeReaction, b::EnzymeReaction) =
-    a.reactants == b.reactants && a.regulators == b.regulators &&
-    a.allowed_catalytic_multiplicities == b.allowed_catalytic_multiplicities &&
-    a.shared_catalytic_site == b.shared_catalytic_site
-Base.hash(r::EnzymeReaction, h::UInt) =
-    hash(r.shared_catalytic_site,
-         hash(r.allowed_catalytic_multiplicities,
-              hash(r.regulators,
-                   hash(r.reactants, hash(:EnzymeReaction, h)))))
 
 function Base.show(io::IO, r::EnzymeReaction)
     subs_str  = join(String.(name.(substrates(r))), " + ")
@@ -868,11 +817,6 @@ steps(m::Mechanism) = m.steps
 kinetic_groups(m::Mechanism) = 1:length(m.steps)
 n_steps(m::Mechanism) = sum(length, m.steps; init = 0)
 rep_step(m::Mechanism, g::Int) = first(m.steps[g])
-
-Base.:(==)(a::Mechanism, b::Mechanism) =
-    a.reaction == b.reaction && a.steps == b.steps
-Base.hash(m::Mechanism, h::UInt) =
-    hash(m.steps, hash(m.reaction, hash(:Mechanism, h)))
 Base.show(io::IO, m::Mechanism) = _show_fields(io, m, (:reaction, :steps))
 
 """
@@ -951,6 +895,19 @@ struct AllostericMechanism
     end
 end
 
+# `==` and `hash` by content for the value types whose fields are Vectors or structs: the
+# default `==` would compare identity. Every field takes part, in declaration order, except
+# a mechanism's `naming` cache. `Species` keeps its own pair: its stored `name` is derived.
+for T in (Residual, RegulatorySite, Step, Kd, Kiso, Kon, Koff, Kfor, Krev, Kreg,
+          ReactantAtoms, RegulatorMults, EnzymeReaction, Mechanism, AllostericMechanism)
+    fs = filter(!=(:naming), fieldnames(T))
+    @eval Base.:(==)(a::$T, b::$T) =
+        $(reduce((l, r) -> :($l && $r), [:(a.$f == b.$f) for f in fs]))
+    @eval Base.hash(x::$T, h::UInt) =
+        $(foldl((acc, f) -> :(hash(x.$f, $acc)), fs;
+                init = :(hash($(QuoteNode(nameof(T))), h))))
+end
+
 reaction(m::AllostericMechanism) = m.reaction
 steps(m::AllostericMechanism) = m.cat_steps
 cat_allo_state(m::AllostericMechanism, g::Int) = m.cat_allo_states[g]
@@ -969,18 +926,6 @@ function allosteric_regulators(m::AllostericMechanism)
     seen
 end
 
-Base.:(==)(a::AllostericMechanism, b::AllostericMechanism) =
-    a.reaction == b.reaction && a.cat_steps == b.cat_steps &&
-    a.cat_allo_states == b.cat_allo_states &&
-    a.catalytic_multiplicity == b.catalytic_multiplicity &&
-    a.regulatory_sites == b.regulatory_sites
-Base.hash(m::AllostericMechanism, h::UInt) =
-    hash(m.regulatory_sites,
-         hash(m.catalytic_multiplicity,
-              hash(m.cat_allo_states,
-                   hash(m.cat_steps,
-                        hash(m.reaction,
-                             hash(:AllostericMechanism, h))))))
 Base.show(io::IO, m::AllostericMechanism) = _show_fields(io, m,
     (:reaction, :cat_steps, :cat_allo_states, :catalytic_multiplicity, :regulatory_sites))
 
