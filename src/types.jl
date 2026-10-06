@@ -111,8 +111,8 @@ function _species_name(bound::Vector{Metabolite}, conformation::Symbol,
                        residual::Residual)
     head = String(conformation) * join(_met_label(m) for m in bound)
     isempty(residual) && return Symbol(head)
-    Symbol(join([head; "res"; "+" .* String.(name.(added(residual)));
-                 "-" .* String.(name.(subtracted(residual)))], "_"))
+    Symbol(head, "_res", join("_+" * String(name(a)) for a in added(residual)),
+           join("_-" * String(name(p)) for p in subtracted(residual)))
 end
 name(s::Species) = s.name
 
