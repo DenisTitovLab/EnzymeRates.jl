@@ -1133,7 +1133,7 @@ end
                                [ER.Substrate(:S)], ER.Metabolite[], true)
         m = ER.Mechanism(rxn, [[bind, bind_into_EP], [iso], [rel]])
 
-        # Both steps bind S; they yield the same name.
+        # Both steps bind S; rep = bind. Both yield the same name.
         @test ER.name(ER.Kd(bind, :None), m) === :K_ES_to_E_S
         @test ER.name(ER.Kd(bind_into_EP, :None), m) === :K_ES_to_E_S
     end
@@ -1439,9 +1439,8 @@ end
 
 @testset "step constants are named by their reaction" begin
     full_names(m) = Set(ER.parameters(m, ER.Full))
-    # Michaelis–Menten, RE bindings: a binding K is named in the release
-    # direction (a dissociation constant); the SS isomerization has k both ways.
-    # SS bindings: one rate constant per direction of the binding.
+    # Michaelis–Menten, every step steady-state: each binding has one rate constant
+    # per direction, named after the reaction it drives; the isomerization has k both ways.
     mm_ss = @enzyme_mechanism begin
         substrates: S
         products: P
