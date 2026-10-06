@@ -739,25 +739,12 @@ end
 
 # ── Rate equation string evaluation helper ──────────────────────────────────
 
+# Runs the rendered code as written: its destructuring lines read `params` and
+# `concs`, its constraint lines define the dependent parameters, and its `v` line
+# is the value.
 function _eval_rate_string(s, params, concs)
-    # Filter out destructuring lines ("= params", "= concs"), keep constraint + v = lines
-    lines = split(s, "\n")
-    eval_lines = String[]
-    for line in lines
-        stripped = strip(line)
-        isempty(stripped) && continue
-        endswith(stripped, "= params") && continue
-        endswith(stripped, "= concs") && continue
-        push!(eval_lines, stripped)
-    end
-    # The last line should be "v = ..." — extract the expression after "v = "
-    code_body = join(eval_lines, "\n")
-    eq_line = last(split(code_body, "v = "; limit=2))
-    bindings = vcat(
-        ["$k = $(params[k])" for k in keys(params)],
-        ["$k = $(concs[k])" for k in keys(concs)],
-    )
-    code = "let $(join(bindings, ", "))\n  $eq_line\nend"
+    code = "let params = $params, concs = $concs\n" *
+           replace(s, EnzymeRates.ANNOTATION_SUBSTITUTED => "") * "\nend"
     eval(Meta.parse(code))
 end
 
@@ -997,13 +984,23 @@ function test_rate_equation_string(spec::MechanismTestSpec)
         # Numerical equivalence test
         rng = Random.MersenneTwister(9000 + hash(spec.name) % 1000)
         @test all(1:10) do _
-            new_params, concs, all_params =
+            new_params, concs, _ =
                 random_independent_params_concs(
                     m, met_names; rng=rng)
             isapprox(
                 rate_equation(m, concs, new_params),
-                _eval_rate_string(s, all_params, concs);
+                _eval_rate_string(s, new_params, concs);
                 rtol=1e-10)
+        end
+
+        has_num = spec.expected_factored_num !== nothing
+        has_denom = spec.expected_factored_denom !== nothing
+        if has_num || has_denom
+            num_str, denom_str = _extract_num_denom(last(split(s, "\n")))
+            @test num_str !== nothing
+            @test denom_str !== nothing
+            has_num && @test num_str == spec.expected_factored_num
+            has_denom && @test denom_str == spec.expected_factored_denom
         end
     end
 end
@@ -1030,24 +1027,6 @@ function _extract_num_denom(v_line::AbstractString)
     denom_begin = pos + last(div_start)
     denom_str = v_line[denom_begin:end-1]
     return String(num_str), String(denom_str)
-end
-
-function test_factored_form(spec::MechanismTestSpec)
-    has_num = spec.expected_factored_num !== nothing
-    has_denom = spec.expected_factored_denom !== nothing
-    (has_num || has_denom) || return
-    m = spec.mechanism
-    @testset "Factored Form" begin
-        s = rate_equation_string(m)
-        v_line = last(split(s, "\n"))
-        num_str, denom_str = _extract_num_denom(v_line)
-        @test num_str !== nothing
-        @test denom_str !== nothing
-        if num_str !== nothing && denom_str !== nothing
-            has_num && @test num_str == spec.expected_factored_num
-            has_denom && @test denom_str == spec.expected_factored_denom
-        end
-    end
 end
 
 function test_analytical_kcat(spec::MechanismTestSpec; seed=42)
@@ -1206,7 +1185,6 @@ function run_all_tests(spec::MechanismTestSpec)
         test_haldane_equilibrium(spec)
         test_performance(spec)
         test_rate_equation_string(spec)
-        test_factored_form(spec)        # Only runs if expected strings provided
         test_zero_metabolite_finite(spec)
         spec.run_ode_test && test_ode_steadystate(spec)
         test_analytical_kcat(spec)      # Only runs if analytical_kcat_fn provided
