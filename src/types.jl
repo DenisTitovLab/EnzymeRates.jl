@@ -827,14 +827,15 @@ end
 
 """
 Naming data derived from a mechanism's steps, filled on first use: the free-enzyme
-form names and each kinetic group's naming representative. It never takes part in
-`==`, `hash`, the compiled type or display.
+form names, each kinetic group's naming representative and that representative's
+rendered sides. It never takes part in `==`, `hash`, the compiled type or display.
 """
 mutable struct _NamingCache
     free_enz::Union{Nothing, Set{Symbol}}
     reps::Union{Nothing, Vector{Step}}
+    sides::Union{Nothing, Vector{Tuple{String, String}}}
 end
-_NamingCache() = _NamingCache(nothing, nothing)
+_NamingCache() = _NamingCache(nothing, nothing, nothing)
 
 """
     Mechanism
@@ -1835,16 +1836,25 @@ function _group_reps(m::Union{Mechanism, AllostericMechanism})
     c.reps = Step[_group_rep(group, fes) for group in steps(m)]
 end
 
-"""Find the kinetic group containing `step`; return its naming rep."""
-function _rep_step(step::Step, m::Union{Mechanism, AllostericMechanism})
+"""Each kinetic group's naming representative's `_forward_sides`, in group order; cached
+per mechanism."""
+function _group_sides(m::Union{Mechanism, AllostericMechanism})
+    c = m.naming
+    sides = c.sides
+    sides === nothing || return sides
+    c.sides = Tuple{String, String}[_forward_sides(rep) for rep in _group_reps(m)]
+end
+
+"""Find the kinetic group containing `step`; return its naming rep's `_forward_sides`."""
+function _rep_sides(step::Step, m::Union{Mechanism, AllostericMechanism})
     for (g, group) in enumerate(steps(m))
-        step in group && return _group_reps(m)[g]
+        step in group && return _group_sides(m)[g]
     end
     error("Step not found in mechanism: $step")
 end
-_rep_step(step::Step, m::EnzymeMechanism) = _rep_step(step, Mechanism(m))
-_rep_step(step::Step, m::AllostericEnzymeMechanism) =
-    _rep_step(step, AllostericMechanism(m))
+_rep_sides(step::Step, m::EnzymeMechanism) = _rep_sides(step, Mechanism(m))
+_rep_sides(step::Step, m::AllostericEnzymeMechanism) =
+    _rep_sides(step, AllostericMechanism(m))
 
 
 const _AnyMech =
@@ -1856,13 +1866,13 @@ const _AnyMech =
 # named in the release direction, so it is a dissociation constant (`K_ES_to_E_S`);
 # an isomerization's or other RE step's K in the stored direction (`K_ES_to_EP`).
 name(p::Union{Kon, Kfor}, m::_AnyMech) =
-    _render_reaction("k_", _forward_sides(_rep_step(p.step, m)), p.state)
+    _render_reaction("k_", _rep_sides(p.step, m), p.state)
 name(p::Union{Koff, Krev}, m::_AnyMech) =
-    _render_reaction("k_", reverse(_forward_sides(_rep_step(p.step, m))), p.state)
+    _render_reaction("k_", reverse(_rep_sides(p.step, m)), p.state)
 name(p::Kiso, m::_AnyMech) =
-    _render_reaction("K_", _forward_sides(_rep_step(p.step, m)), p.state)
+    _render_reaction("K_", _rep_sides(p.step, m), p.state)
 name(p::Kd, m::_AnyMech) =
-    _render_reaction("K_", reverse(_forward_sides(_rep_step(p.step, m))), p.state)
+    _render_reaction("K_", reverse(_rep_sides(p.step, m)), p.state)
 
 """
 Regulator-site parameter: state tag + ligand name + "reg". No site index —
