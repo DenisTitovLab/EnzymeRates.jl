@@ -240,7 +240,7 @@ struct Krev <: Parameter; step::Step; state::Symbol end
 
 """
 Regulator-site parameter: a single ligand at a single site can appear
-in either the R or T branch of the polynomial.
+in either the A (active) or I (inactive) branch of the polynomial.
 """
 struct Kreg <: Parameter
     site::RegulatorySite
@@ -1149,6 +1149,11 @@ end
 
 # Reads `Sig` from the type at run time, so the lift compiles once rather than once
 # per mechanism type.
+"""
+Lift an `EnzymeMechanism` to the `Mechanism` its Sig encodes. The lift is not the inverse
+of `EnzymeMechanism(m)`: `shared_catalytic_site`, `RegulatorMults.reg_type` and unbound
+regulators are not encoded, on purpose, so that equivalent mechanisms share one compile.
+"""
 Mechanism(@nospecialize(em::EnzymeMechanism)) =
     _mechanism_from_sig(typeof(em).parameters[1])
 
