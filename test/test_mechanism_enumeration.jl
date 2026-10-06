@@ -7168,7 +7168,8 @@ end
     end
     maxdistinct = 0
     gen = 0
-    while !isempty(frontier) && gen < 14
+    # The first generation reaches the target; three also run the regulator moves.
+    while !isempty(frontier) && gen < 3
         nextf = eltype(frontier)[]
         for c in EnzymeRates.expand_mechanisms(frontier, rxn)
             h = hash(c); h in seen || (push!(seen, h); push!(nextf, c))
