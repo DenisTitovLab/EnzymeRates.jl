@@ -564,17 +564,37 @@ _regulatory_site_canonical_key(site::RegulatorySite) =
      Tuple(allo_states(site)))
 
 """
-Sort steps within each group by `_step_canonical_key`, then return the
-group order (a permutation of 1:length) that sorts the outer vector by the
-canonical key of each group's first step. The inner sort must run BEFORE
-computing the outer permutation so each group's "first step" key reflects
-the canonical inner order. Operates on fresh vectors (callers pass copies).
+    _canonical_groups(reaction, groups) -> (groups, perm)
+
+The kinetic groups in Canonical Step Form, as both mechanism constructors store
+them. Orient every step (`_canonicalize_step_directions`), sort the steps within
+each group by `_step_canonical_key`, then sort the groups by the canonical key of
+each group's first step; `perm` is that group order (a permutation of 1:length),
+which the caller applies to any data parallel to the groups. The inner sort must
+run BEFORE the outer one so each group's "first step" key reflects the canonical
+inner order. Each key is rendered once per sort. Then enforce the kinetic-group
+rules (`_assert_uniform_groups`, `_assert_each_reaction_once`) and reject a
+rapid-equilibrium segment with no bottom form (`_bottomless_re_segment`). The
+returned groups are fresh vectors; the input is not mutated.
 """
-function _canonical_group_order!(groups::Vector{Vector{Step}})
-    for group in groups
-        sort!(group; by = _step_canonical_key)
-    end
-    sortperm(groups; by = group -> _step_canonical_key(first(group)))
+function _canonical_groups(reaction::EnzymeReaction, groups::Vector{Vector{Step}})
+    bad = findfirst(isempty, groups)
+    bad === nothing ||
+        error("Mechanism: kinetic group $bad is empty; a kinetic group holds at least " *
+              "one step")
+    gs = [g[sortperm(_step_canonical_key.(g))]
+          for g in _canonicalize_step_directions(reaction, groups)]
+    perm = sortperm([_step_canonical_key(first(g)) for g in gs])
+    gs = gs[perm]
+    _assert_uniform_groups(gs)
+    _assert_each_reaction_once(gs)
+    segment = _bottomless_re_segment(gs)
+    segment === nothing ||
+        error("Mechanism: rapid-equilibrium segment {" *
+              join(name.(segment), ", ") * "} has no form free of one side's " *
+              "metabolites, so its rate is undefined when that side is absent " *
+              "(0/0). Make one of the segment's binding steps steady-state.")
+    gs, perm
 end
 
 """
@@ -773,22 +793,8 @@ struct Mechanism
     naming::_NamingCache
     function Mechanism(reaction::EnzymeReaction,
                        steps::Vector{Vector{Step}})
-        steps = _canonicalize_step_directions(reaction, steps)
-        permute!(steps, _canonical_group_order!(steps))
-        _assert_uniform_groups(steps)
-        _assert_each_reaction_once(steps)
-        _assert_re_segments_have_bottom(steps)
-        new(reaction, steps, _NamingCache())
+        new(reaction, first(_canonical_groups(reaction, steps)), _NamingCache())
     end
-end
-
-function _assert_re_segments_have_bottom(steps::Vector{Vector{Step}})
-    segment = _bottomless_re_segment(steps)
-    segment === nothing && return
-    error("Mechanism: rapid-equilibrium segment {" *
-          join(name.(segment), ", ") * "} has no form free of one side's " *
-          "metabolites, so its rate is undefined when that side is absent " *
-          "(0/0). Make one of the segment's binding steps steady-state.")
 end
 
 steps(m::Mechanism) = m.steps
@@ -836,17 +842,11 @@ struct AllostericMechanism
                   "allo state $(cat_allo_states[bad]) (must be one of " *
                   "$_VALID_CAT_ALLO_STATES); :OnlyI is rejected for " *
                   "catalytic groups (active-state-active convention)")
-        cat_steps = _canonicalize_step_directions(reaction, cat_steps)
         # cat_steps and cat_allo_states are parallel — permute both with the
         # same group order. regulatory_sites canonicalizes independently. All
-        # operate on fresh vectors so the caller's inputs are not mutated
-        # (cat_steps is fresh from _canonicalize_step_directions; copy the rest).
-        perm = _canonical_group_order!(cat_steps)
-        permute!(cat_steps, perm)
-        _assert_uniform_groups(cat_steps)
-        _assert_each_reaction_once(cat_steps)
-        _assert_re_segments_have_bottom(cat_steps)
-        cat_allo_states = permute!(copy(cat_allo_states), perm)
+        # come back as fresh vectors, so the caller's inputs are not mutated.
+        cat_steps, perm = _canonical_groups(reaction, cat_steps)
+        cat_allo_states = cat_allo_states[perm]
         regulatory_sites =
             sort(regulatory_sites; by = _regulatory_site_canonical_key)
         # Detect Kreg name collision: a ligand in two distinct regulatory

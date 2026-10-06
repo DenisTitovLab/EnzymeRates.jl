@@ -1309,6 +1309,19 @@ end
                        err.msg)
     end
 
+    @testset "an empty kinetic group" begin
+        A = ER.Substrate(:A)
+        binding = ER.Step(_testhelper_sp([]), _testhelper_sp([A]), [A], ER.Metabolite[],
+                          true)
+        rxn = @enzyme_reaction(begin
+            substrates: A[C]
+            products: P[C]
+        end)
+        err = _testhelper_thrown(() -> ER.Mechanism(rxn, [[binding], ER.Step[]]))
+        @test err isa ErrorException
+        @test occursin("kinetic group 2 is empty", err.msg)
+    end
+
     @testset "accepted: context-shared bindings of one metabolite" begin
         # R binds both free E and E(S) with the same K (non-competitive
         # inhibitor pattern): a legitimate shared binding of one metabolite.
