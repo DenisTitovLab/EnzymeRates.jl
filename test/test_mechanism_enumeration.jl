@@ -10919,46 +10919,6 @@ end
             @test length(EnzymeRates.cat_allo_states(c)) == length(EnzymeRates.steps(c))
         end
     end
-
-    @testset "_expand_split_kinetic_group: ter-ter random-order seed within budget" begin
-        terter = @enzyme_reaction begin
-            substrates: A[C], B[N], C[O]
-            products: P[C], Q[N], R[O]
-        end
-        # The seed of `init_mechanisms(terter)` with the most steps: random order, each
-        # substrate and product binding at nine forms in one rapid-equilibrium group.
-        seed = @enzyme_mechanism begin
-            substrates: A, B, C
-            products: P, Q, R
-            steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(B, C) + A ⇌ E(A, B, C),
-                 E(B, P) + A ⇌ E(A, B, P), E(C) + A ⇌ E(A, C), E(C, Q) + A ⇌ E(A, C, Q),
-                 E(P) + A ⇌ E(A, P), E(P, Q) + A ⇌ E(A, P, Q), E(Q) + A ⇌ E(A, Q))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(A, C) + B ⇌ E(A, B, C),
-                 E(A, P) + B ⇌ E(A, B, P), E(C) + B ⇌ E(B, C), E(C, R) + B ⇌ E(B, C, R),
-                 E(P) + B ⇌ E(B, P), E(P, R) + B ⇌ E(B, P, R), E(R) + B ⇌ E(B, R))
-                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(A, B) + C ⇌ E(A, B, C),
-                 E(A, Q) + C ⇌ E(A, C, Q), E(B) + C ⇌ E(B, C), E(B, R) + C ⇌ E(B, C, R),
-                 E(Q) + C ⇌ E(C, Q), E(Q, R) + C ⇌ E(C, Q, R), E(R) + C ⇌ E(C, R))
-                (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(A, B) + P ⇌ E(A, B, P),
-                 E(A, Q) + P ⇌ E(A, P, Q), E(B) + P ⇌ E(B, P), E(B, R) + P ⇌ E(B, P, R),
-                 E(Q) + P ⇌ E(P, Q), E(Q, R) + P ⇌ E(P, Q, R), E(R) + P ⇌ E(P, R))
-                (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q), E(A, C) + Q ⇌ E(A, C, Q),
-                 E(A, P) + Q ⇌ E(A, P, Q), E(C) + Q ⇌ E(C, Q), E(C, R) + Q ⇌ E(C, Q, R),
-                 E(P) + Q ⇌ E(P, Q), E(P, R) + Q ⇌ E(P, Q, R), E(R) + Q ⇌ E(Q, R))
-                (E + R ⇌ E(R), E(B) + R ⇌ E(B, R), E(B, C) + R ⇌ E(B, C, R),
-                 E(B, P) + R ⇌ E(B, P, R), E(C) + R ⇌ E(C, R), E(C, Q) + R ⇌ E(C, Q, R),
-                 E(P) + R ⇌ E(P, R), E(P, Q) + R ⇌ E(P, Q, R), E(Q) + R ⇌ E(Q, R))
-                E(A, B, C) <--> E(P, Q, R)
-            end
-        end
-        worst = EnzymeRates.Mechanism(terter,
-                                      EnzymeRates.steps(EnzymeRates.Mechanism(seed)))
-        @test EnzymeRates.n_steps(worst) == 55
-        t = @elapsed kids = EnzymeRates._expand_split_kinetic_group(worst)
-        @test length(kids) == 12
-        @test t < 60
-    end
 end
 
 @testset "_expand_split_kinetic_group: by conformation" begin
@@ -11041,11 +11001,12 @@ end
     @test Set(kids) == Set([by_B, by_residual])
 end
 
-@testset "expand_mechanisms: ter-ter random-order seed within budget" begin
+@testset "expansion moves: ter-ter random-order seed within budget" begin
     # The seed of `init_mechanisms(terter)` with the most steps (55) is the enumeration's
     # worst case: random order, each substrate and product binding at nine forms in one
-    # rapid-equilibrium group. Measured 26 s for all seven moves in a cold focused run,
-    # JIT included.
+    # rapid-equilibrium group. The split alone must take under 60 s and all seven moves
+    # under 120 s; `expand_mechanisms` returns their 81 children: 12 splits, 6 flips and
+    # 63 K-types. Measured 26 s for all seven moves in a cold focused run, JIT included.
     terter = @enzyme_reaction begin
         substrates: A[C], B[N], C[O]
         products: P[C], Q[N], R[O]
@@ -11077,9 +11038,18 @@ end
     end
     worst = EnzymeRates.Mechanism(terter, EnzymeRates.steps(EnzymeRates.Mechanism(seed)))
     @test EnzymeRates.n_steps(worst) == 55
-    t = @elapsed kids = EnzymeRates.expand_mechanisms([worst], terter)
-    @test length(kids) == 81
-    @test t < 120
+    t_split = @elapsed split = EnzymeRates._expand_split_kinetic_group(worst)
+    t_rest = @elapsed rest = vcat(
+        EnzymeRates._expand_re_to_ss(worst),
+        EnzymeRates._expand_add_dead_end_regulator(worst, terter),
+        EnzymeRates._expand_to_allosteric(worst, terter),
+        EnzymeRates._expand_add_allosteric_regulator(worst, terter),
+        EnzymeRates._expand_change_allo_state(worst),
+        EnzymeRates._expand_merge_regulatory_sites(worst))
+    @test length(split) == 12
+    @test t_split < 60
+    @test length(rest) == 69
+    @test t_split + t_rest < 120
 end
 
 @testset "catalytic moves on bi-bi to depth 2: counts and both rules on every child" begin
