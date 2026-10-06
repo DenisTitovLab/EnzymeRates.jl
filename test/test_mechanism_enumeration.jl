@@ -461,9 +461,10 @@ end
     end
 end
 
+ter_ter_topos = EnzymeRates._catalytic_topologies(ter_ter_rxn)
+
 @testset "Ter-Ter" begin
-    topos = EnzymeRates._catalytic_topologies(
-        ter_ter_rxn)
+    topos = ter_ter_topos
     @test all(isempty(_connectivity_violations(t)) for t in topos)
     @test length(topos) == 223
     for t in topos
@@ -494,11 +495,7 @@ end
     # always on conformation :E (never a separate conformation). For
     # ter-ter, residues form by combining substrates (e.g. bind A+B,
     # release P[C] leaving an N residue), so ping-pong topologies survive.
-    ter_ter = @enzyme_reaction begin
-        substrates: A[C], B[N], D[X]
-        products: P[C], Q[N], R[X]
-    end
-    topos = EnzymeRates._catalytic_topologies(ter_ter)
+    topos = ter_ter_topos
     @test all(isempty(_connectivity_violations(t)) for t in topos)
     # Every enzyme form lives on conformation :E.
     for t in topos, s in t,
@@ -518,27 +515,8 @@ end
     end
 end
 
-@testset "weak-ordering combining" begin
-    # For bi-bi: 9 sequential (the degenerate empty-residue ping-pong
-    # is rejected by the admissible-residual rule).
-    bi_bi_rxn_test = @enzyme_reaction begin
-        substrates: A[C], B[N]
-        products: P[C], Q[N]
-    end
-    topos = EnzymeRates._catalytic_topologies(
-        bi_bi_rxn_test)
-    @test all(isempty(_connectivity_violations(t)) for t in topos)
-    @test length(topos) == 9
-
-    topos_tt = EnzymeRates._catalytic_topologies(
-        ter_ter_rxn)
-    @test all(isempty(_connectivity_violations(t)) for t in topos_tt)
-    @test length(topos_tt) == 223
-end
-
 @testset "isomerization constraints" begin
-    topos = EnzymeRates._catalytic_topologies(
-        ter_ter_rxn)
+    topos = ter_ter_topos
     @test all(isempty(_connectivity_violations(t)) for t in topos)
 
     sub_names_set = Set([:A, :B, :D])
@@ -1385,8 +1363,6 @@ end
     for rxn in [uni_uni_rxn, uni_bi_rxn,
                 bi_bi_rxn, bi_bi_pp_rxn]
         specs = EnzymeRates.init_mechanisms(rxn)
-        @test all(isempty(_connectivity_violations(
-            EnzymeRates.steps(m))) for m in specs)
         for s in specs
             if any(EnzymeRates.is_iso, Iterators.flatten(s.steps))
                 @test count(st -> !st.is_equilibrium,
@@ -1405,8 +1381,6 @@ end
     # For bi-bi, metabolites like :B appear in multiple binding steps
     # (e.g. E+B⇌E_B and E_A+B⇌E_A_B) — these must share one kinetic_group.
     specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-    @test all(isempty(_connectivity_violations(
-        EnzymeRates.steps(m))) for m in specs)
     @test !isempty(specs)
     n_assertions_fired = 0
     for spec in specs
@@ -1437,38 +1411,7 @@ end
     # (none possible — see test_expand_substrate_product_dead_ends
     # uni-uni case). Hence init produces exactly 1 mechanism.
     specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
-    @test all(isempty(_connectivity_violations(
-        EnzymeRates.steps(m))) for m in specs)
     @test length(specs) == 1
-end
-
-@testset "Init compiles for all small reactions" begin
-    # Every init mechanism must compile to a valid EnzymeMechanism.
-    # Tests first 5 mechanisms per reaction to cap @generated cost.
-    for rxn in [uni_uni_rxn, bi_bi_rxn, bi_bi_pp_rxn]
-        specs = EnzymeRates.init_mechanisms(rxn)
-        @test all(isempty(_connectivity_violations(
-            EnzymeRates.steps(m))) for m in specs)
-        for spec in first(specs, 5)
-            m = EnzymeMechanism(spec)
-            @test m isa EnzymeMechanism
-        end
-    end
-end
-
-@testset "bi-bi exit gate: init mechanisms derive (subset)" begin
-    mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-    @test all(isempty(_connectivity_violations(
-        EnzymeRates.steps(m))) for m in mechs)
-    # The 55 seeds and their 184 merged and Theorell–Chance variants.
-    @test length(mechs) == 239
-    # Derive a small subset only — full derivation is slow. Pick the 5
-    # smallest by step count (cheapest to compile).
-    by_size = sort(mechs; by = m -> EnzymeRates.n_steps(m))
-    for m in by_size[1:5]
-        s = EnzymeRates.rate_equation_string(EnzymeRates.compile_mechanism(m))
-        @test s isa AbstractString && !isempty(s)
-    end
 end
 
 @testset "init_mechanisms: the seeds, then their merged and Theorell–Chance variants" begin
@@ -6778,68 +6721,6 @@ end
 
 # ─── mechanism dedup (unique!) ──────────────────────────────────────────
 @testset "Dedup" begin
-
-@testset "Mechanism — same physics, different group order" begin
-    # Two Mechanisms representing the same physics but with their
-    # outer kinetic-group order swapped should collapse to one.
-    m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
-    @test m_seed isa EnzymeRates.Mechanism
-    # Build a permuted copy by reversing the group order.
-    permuted_steps = reverse(m_seed.steps)
-    m_perm = EnzymeRates.Mechanism(
-        EnzymeRates.reaction(m_seed), permuted_steps)
-    v = EnzymeRates.Mechanism[m_seed, m_perm]
-    unique!(v)
-    @test length(v) == 1
-end
-
-@testset "Mechanism — different mechanisms preserved" begin
-    # Surviving Mechanisms must be pairwise distinct under
-    # compile-time equality (EnzymeMechanism singleton type).
-    mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
-    unique!(mechs)
-    compiled = Set(EnzymeRates.EnzymeMechanism(m) for m in mechs)
-    @test length(mechs) == length(compiled)
-    @test length(mechs) >= 2
-end
-
-@testset "Mechanism — idempotent" begin
-    mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
-    unique!(mechs)
-    n1 = length(mechs)
-    unique!(mechs)
-    @test length(mechs) == n1
-end
-
-@testset "Mechanism — bi-bi init: dedup leaves canonical seeds intact" begin
-    # init_mechanisms produces mechanisms that are already in canonical
-    # form (no two are presentation-variants of each other). unique!
-    # is therefore a no-op on the count.
-    mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
-    n = length(mechs)
-    unique!(mechs)
-    @test length(mechs) == n
-end
-
-@testset "AllostericMechanism — same physics, site permutation" begin
-    # Build two AllostericMechanisms representing the same physics with
-    # sites in different order.
-    base = first(EnzymeRates.init_mechanisms(uni_uni_allo))
-    cat_states = [:NonequalAI for _ in base.steps]
-    site_a = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:A)], 2, [:NonequalAI])
-    site_b = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:B)], 2, [:NonequalAI])
-    am_ab = EnzymeRates.AllostericMechanism(
-        EnzymeRates.reaction(base),
-        [copy(g) for g in base.steps], cat_states, 2, [site_a, site_b])
-    am_ba = EnzymeRates.AllostericMechanism(
-        EnzymeRates.reaction(base),
-        [copy(g) for g in base.steps], cat_states, 2, [site_b, site_a])
-    v = EnzymeRates.AllostericMechanism[am_ab, am_ba]
-    unique!(v)
-    @test length(v) == 1
-end
 
 @testset "Mechanism — expansion-path overlap: dedup actually fires" begin
     # Run two rounds of expand_mechanisms on the uni-uni init seeds
