@@ -252,19 +252,17 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
         optimizer=cmaes_opt,
         n_restarts=1, maxtime=1.0)
 
+    # The selected mechanism is the 1-SE-rule row of cv_results.
+    best_row = results.cv_results[
+        EnzymeRates._select_best_row(results.cv_results), :]
+
     @testset "mechanism recovery" begin
         # The best mechanism should fit the noiseless data with near-zero loss.
         # (Whether the search recovers the *most parsimonious* mechanism is a
         # search-quality property that needs heavy, seeded fits to test
         # reliably — too slow and too stochastic for CI, so it is not asserted
         # here.)
-        fp_best = FittingProblem(
-            results.best, test_data;
-            Keq=Keq_val)
-        fit_best = fit_rate_equation(
-            fp_best, cmaes_opt;
-            n_restarts=3, maxtime=10.0)
-        @test fit_best.loss < 0.01
+        @test best_row.loss < 0.01
     end
 
     @testset "results structure" begin
@@ -304,9 +302,6 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
             @test row.cv_score_se ≈ std(folds) / sqrt(length(folds))
         end
 
-        # The selected mechanism is the 1-SE-rule row of cv_results.
-        best_row = results.cv_results[
-            EnzymeRates._select_best_row(results.cv_results), :]
         @test best_row.mechanism_type == string(typeof(results.best))
 
         # Per-fold columns named by held-out group label.
@@ -1307,6 +1302,7 @@ const _DEDUP_SIG2 =
     @test isempty(bad_entries)
     @test length(bad_failures) == 2
     @test all(f -> f isa EnzymeRates.FitFailure, bad_failures)
+    @test [f.mech for f in bad_failures] == [m1, m2]   # the mechanisms as handed in
 end
 
 
@@ -1518,22 +1514,6 @@ end
     @test isempty(e1)
     @test length(f1) == 1 && f1[1] isa EnzymeRates.FitFailure
     @test f1[1].mech == m_bad                     # the mechanism as handed in
-
-    # A mechanism that derives but whose fit throws: the FitFailure must carry
-    # the mechanism as it was handed in.
-    recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
-    split = recon(_CANON_SIG_SPLIT)
-    data2 = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
-             NADH = [1.0, 2.0, 1.0, 2.0], Pyruvate = [0.5, 0.5, 1.0, 1.0],
-             Lactate = [0.1, 0.2, 0.1, 0.2], NAD = [0.3, 0.3, 0.4, 0.4])
-    prob2 = IdentifyRateEquationProblem(EnzymeRates.reaction(split), data2; Keq=2.0)
-    e2, f2 = EnzymeRates._process_batch(
-        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[split],
-        prob2; optimizer=_CountingStubOpt(; throwit=true), max_param_count=20,
-        n_restarts=1, maxtime=1.0, memo=Dict{UInt64, NamedTuple}())
-    @test isempty(e2)
-    @test length(f2) == 1 && f2[1] isa EnzymeRates.FitFailure
-    @test f2[1].mech == split                     # the mechanism as handed in
 end
 
 @testset "_expand_parent records an expansion error instead of aborting" begin
