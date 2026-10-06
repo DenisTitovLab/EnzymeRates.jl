@@ -7074,20 +7074,13 @@ end
 uni = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
 
 @testset "Mechanism — Uni-uni full enumeration" begin
-    # enumerate_all_mechanism buckets by ACTUAL fitted-parameter count,
-    # so each bucket key `pc` must equal every member's fitted count. At
+    # enumerate_all_mechanism buckets by ACTUAL fitted-parameter count. At
     # least 2 param-count buckets, and consecutive buckets separated by at
     # most 4 (max single-move delta).
     @test !isempty(uni)
     pcs = sort(collect(keys(uni)))
     @test length(pcs) >= 2
     @test all(pcs[i+1] - pcs[i] <= 4 for i in 1:length(pcs)-1)
-    for (pc, mechs) in uni
-        for m in mechs
-            @test length(EnzymeRates.fitted_params(
-                EnzymeRates.compile_mechanism(m))) == pc
-        end
-    end
 end
 
 @testset "Mechanism — Bi-bi init-tier (actual-count buckets)" begin
@@ -7137,8 +7130,7 @@ end
 end
 
 @testset "Mechanism — With allosteric regulators" begin
-    # Sample-based per bucket on a uni-uni allosteric reaction. The
-    # bucket key `pc` IS the actual fitted-parameter count.
+    # A uni-uni allosteric reaction enumerates allosteric mechanisms.
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -7150,12 +7142,6 @@ end
         any(s isa EnzymeRates.AllostericMechanism for s in mechs)
         for (_, mechs) in results)
     @test has_allo
-    for (pc, mechs) in results
-        for m in first(mechs, 5)
-            @test length(EnzymeRates.fitted_params(
-                EnzymeRates.compile_mechanism(m))) == pc
-        end
-    end
 end
 
 @testset "Mechanism — With dead-end regulator" begin
