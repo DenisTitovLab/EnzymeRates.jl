@@ -26,7 +26,6 @@ using Dates
 using Tables
 using Optimization
 using Distributed
-using Random
 
 include("types.jl")
 include("dsl.jl")

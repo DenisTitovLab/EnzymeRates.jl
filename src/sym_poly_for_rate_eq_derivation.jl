@@ -110,7 +110,7 @@ function sym_det(M::Matrix{POLY}, n::Int)
 end
 
 """Convert `POLY` to a Julia `Expr` for `@generated` function bodies (bare symbols)."""
-function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol})
+function _poly_to_expr(p::POLY, param_syms::Set{Symbol} = Set{Symbol}())
     isempty(p) && return 0
     pos, neg = Any[], Any[]
     sorted = sort(
@@ -140,12 +140,9 @@ function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol})
         term = isempty(df) ? num_part : :($num_part / $(_nest_binary(:*, df)))
         coeff > 0 ? push!(pos, term) : push!(neg, term)
     end
-    pe = isempty(pos) ? nothing : _nest_binary(:+, pos)
-    ne = isempty(neg) ? nothing : _nest_binary(:+, neg)
-    pe !== nothing && ne !== nothing && return :($pe - $ne)
-    pe !== nothing && return pe
-    ne !== nothing && return :(- $ne)
-    return 0
+    isempty(neg) && return _nest_binary(:+, pos)
+    ne = _nest_binary(:+, neg)
+    isempty(pos) ? :(-$ne) : :($(_nest_binary(:+, pos)) - $ne)
 end
 
 """
@@ -158,7 +155,6 @@ terms. See `test_rate_equation_performance` for the contract this enforces.
 function _nest_binary(op::Symbol, terms::Vector{Any})
     n = length(terms)
     n == 1 && return terms[1]
-    n == 2 && return Expr(:call, op, terms[1], terms[2])
     mid = n >> 1
     Expr(:call, op,
         _nest_binary(op, terms[1:mid]),
@@ -183,7 +179,6 @@ Precedence-aware Expr→String conversion for rate equations.
 Avoids unnecessary parentheses that Julia's `string()` adds.
 """
 function _expr_to_string(x)
-    x isa Union{Number, Symbol} && return string(x)
     x isa Expr && x.head == :call || return string(x)
     op, args = x.args[1], @view(x.args[2:end])
     # Unary minus
@@ -255,15 +250,8 @@ function build_power_expr(keq_exp::Rational, factors)
     end
 end
 
-"""Check if an expression references any symbol in the given set."""
-function _expr_references_any(expr, syms::Set{Symbol})
-    if expr isa Symbol
-        return expr ∈ syms
-    elseif expr isa Expr
-        return any(_expr_references_any(a, syms) for a in expr.args)
-    end
-    false
-end
+"""Whether the expression mentions the symbol `s`."""
+_mentions(ex, s::Symbol) = ex === s || (ex isa Expr && any(a -> _mentions(a, s), ex.args))
 
 # ─── Symbol renaming in POLY ───────────────────────────────
 

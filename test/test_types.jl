@@ -279,14 +279,14 @@ end
     end
 
     @testset "EnzymeMechanism error cases" begin
-        # Empty steps → error (re-pointed to _assert_mechanism_invariants:
-        # the decomposed Mechanism with no steps errors on `isempty(flat)`).
+        # Empty steps → error: _testhelper_assert_mechanism_invariants rejects a
+        # Mechanism with no steps.
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
         end
         m_empty = ER.Mechanism(rxn, Vector{Vector{ER.Step}}())
-        @test_throws ErrorException ER._assert_mechanism_invariants(m_empty)
+        @test_throws ErrorException _testhelper_assert_mechanism_invariants(m_empty)
 
         # NOTE: unreachable enzyme forms are accepted. The constructor does not
         # enforce a connectivity invariant — enzyme forms are inferred from steps,
@@ -633,25 +633,16 @@ end
             @test p isa ER.Parameter
             @test p == T(step, :None)
             @test p != T(step, :I)
-            @test ER.governing_step(p) === step
-            @test !ER.is_i_state(p)
-            @test ER.is_i_state(T(step, :I))
         end
 
         lig_a = ER.AllostericRegulator(:A)
         site = ER.RegulatorySite([lig_a], 2, [:OnlyA])
         kr = ER.Kreg(site, lig_a, :A)
         @test kr isa ER.Parameter
-        @test ER.is_i_state(ER.Kreg(site, lig_a, :I))
-        @test !ER.is_i_state(kr)
         @test kr == ER.Kreg(site, lig_a, :A)
 
-        # Mechanism-level scalars: singletons
-        @test ER.Keq() == ER.Keq()
-        @test ER.Etot() == ER.Etot()
+        # Mechanism-level scalar: singleton
         @test ER.Lallo() == ER.Lallo()
-        @test ER.Keq() isa ER.Parameter
-        @test ER.Etot() isa ER.Parameter
         @test ER.Lallo() isa ER.Parameter
     end
 
@@ -1113,17 +1104,13 @@ end
         @test ER.name(ER.Kiso(iso, :None), m) === :K_ES_to_EP
         @test ER.name(ER.Kiso(iso, :I),    m) === :K_I_ES_to_EP
 
-        # Mechanism-level scalars
-        @test ER.name(ER.Keq(),   m) === :Keq
-        @test ER.name(ER.Etot(),  m) === :E_total
+        # Mechanism-level scalar
         @test ER.name(ER.Lallo(), m) === :L
 
         # Same names resolve via EnzymeMechanism(m) (the parametric form).
         em = EnzymeMechanism(m)
         @test ER.name(ER.Kd(bind, :None), em) === :K_ES_to_E_S
         @test ER.name(ER.Kon(iso, :None), em) === :k_ES_to_EP
-        @test ER.name(ER.Keq(),   em) === :Keq
-        @test ER.name(ER.Etot(),  em) === :E_total
         @test ER.name(ER.Lallo(), em) === :L
     end
 
@@ -1136,18 +1123,6 @@ end
         # Both steps bind S; rep = bind. Both yield the same name.
         @test ER.name(ER.Kd(bind, :None), m) === :K_ES_to_E_S
         @test ER.name(ER.Kd(bind_into_EP, :None), m) === :K_ES_to_E_S
-    end
-
-    @testset "_force_inactive forces :I regardless of tag" begin
-        s = _testhelper_uniuni().iso
-
-        # An :EqualAI parameter has no :I variant under _flip_to_inactive
-        # (returns itself); _force_inactive must return the explicit :I variant.
-        p_eq = ER.Krev(s, :EqualAI)
-        @test ER._flip_to_inactive(p_eq) === p_eq          # unchanged
-        @test ER._force_inactive(p_eq) == ER.Krev(s, :I)
-        p_a = ER.Krev(s, :A)
-        @test ER._force_inactive(p_a) == ER.Krev(s, :I)
     end
 end
 
@@ -1228,7 +1203,7 @@ end
             [[ER.Step(E, EA, [A], ER.Metabolite[], false)], [chem],
              [ER.Step(F, FB, [B], ER.Metabolite[], false)],
              [ER.Step(FB, E, ER.Metabolite[], [Q], false)]])
-        @test ER._assert_mechanism_invariants(m) === nothing
+        @test _testhelper_assert_mechanism_invariants(m) === nothing
     end
 
     @testset "inhibitor copy stays distinct from the substrate" begin

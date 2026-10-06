@@ -753,7 +753,7 @@ end
 function _classify_dep_expr(expr)
     if expr isa Symbol
         return :mirror
-    elseif EnzymeRates._expr_references_any(expr, Set([:Keq]))
+    elseif EnzymeRates._mentions(expr, :Keq)
         return :haldane
     else
         return :wegscheider
@@ -2039,14 +2039,10 @@ end
 @testset "structural names + synth-dep routing: allosteric NonequalAI" begin
     # NonequalAI substrate binding (PEP), EqualAI catalysis.
     # k_cat_rev (Haldane dep) references the NonequalAI PEP binding K,
-    # so a synthesized I-state dep name is produced.
-    # After the full atomic change: the synth-dep name must use the
-    # structural mid-name I_ token (from name(_flip_to_inactive(...))),
-    # not string(active) * "_T".
-    # In the intermediate state (chokepoint rewritten, synth-dep sites
-    # not yet updated), rate_equation errors with a KeyError because the
-    # rate polynomial uses structural I-names but indep_T_list has _T-
-    # suffixed structural names.
+    # so an I-state dep name is produced. It must use the structural
+    # mid-name I_ token, not string(active) * "_T"; a rate polynomial with
+    # structural I-names beside _T-suffixed independent names would make
+    # rate_equation error with a KeyError.
     m = @allosteric_mechanism begin
         substrates: PEP, ADP
         products:   Pyruvate, ATP

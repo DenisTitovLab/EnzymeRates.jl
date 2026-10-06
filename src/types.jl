@@ -281,18 +281,8 @@ struct Kreg <: Parameter
     state::Symbol
 end
 
-# Mechanism-level scalars (singletons)
-struct Keq   <: Parameter end
-struct Etot  <: Parameter end
+# Mechanism-level scalar (singleton): the MWC coupling constant L
 struct Lallo <: Parameter end
-
-# Step-bound governance: only step-bound subtypes have a step. Kreg /
-# Keq / Etot / Lallo intentionally have no `governing_step` method.
-const StepBoundParameter = Union{Kd, Kiso, Kon, Koff, Kfor, Krev}
-const StatefulParameter  = Union{Kd, Kiso, Kon, Koff, Kfor, Krev, Kreg}
-
-governing_step(p::StepBoundParameter) = p.step
-is_i_state(p::StatefulParameter)      = p.state === :I
 
 for T in (:Kd, :Kiso, :Kon, :Koff, :Kfor, :Krev)
     @eval Base.:(==)(a::$T, b::$T) =
@@ -1882,98 +1872,8 @@ once across all sites.
 name(p::Kreg, ::Union{AllostericMechanism, AllostericEnzymeMechanism}) =
     Symbol("K_", _state_tag(p.state), String(name(p.ligand)), "reg")
 
-# Mechanism-level scalars
-name(::Keq,   _) = :Keq
-name(::Etot,  _) = :E_total
+# Mechanism-level scalar
 name(::Lallo, _) = :L
-
-"""
-Flip a Parameter's allosteric state to its inactive counterpart. Used
-by the Wegscheider/Haldane synth-dep machinery to recover the inactive
-variant of an eliminated dep parameter without string surgery.
-"""
-function _flip_to_inactive(p::P) where {P <: Union{Kd, Kiso, Kon, Koff, Kfor, Krev}}
-    p.state === :A       && return P(p.step, :I)
-    p.state === :I       && return P(p.step, :A)
-    p.state === :EqualAI && return p
-    p.state === :None    && error(
-        "_flip_to_inactive: $(P) with state=:None has no inactive variant " *
-        "(non-allosteric parameters). Caller bug — the synth-dep machinery " *
-        "should only invoke this on allosteric parameters.")
-    error("_flip_to_inactive: $(P) has unexpected state $(p.state)")
-end
-function _flip_to_inactive(p::Kreg)
-    p.state === :A       && return Kreg(p.site, p.ligand, :I)
-    p.state === :I       && return Kreg(p.site, p.ligand, :A)
-    p.state === :EqualAI && return p
-    p.state === :None    && error(
-        "_flip_to_inactive: Kreg with state=:None has no inactive variant")
-    error("_flip_to_inactive: Kreg has unexpected state $(p.state)")
-end
-
-"""
-Inactive-state variant of a parameter REGARDLESS of its allosteric tag.
-Unlike `_flip_to_inactive` (which returns an `:EqualAI`/`:None` param
-unchanged), this forces the `:I` state, used to give a *dependent* `:EqualAI`
-parameter a distinct inactive name when the Haldane/Wegscheider relation
-makes it differ between states.
-"""
-_force_inactive(p::P) where {P <: Union{Kd, Kiso, Kon, Koff, Kfor, Krev}} =
-    P(p.step, :I)
-_force_inactive(p::Kreg) = Kreg(p.site, p.ligand, :I)
-
-"""
-Recover the Parameter struct that renders to `sym` under `name(p, m)`.
-Walks the full parameter set once and matches by rendered name.
-"""
-function _param_for_symbol(m::Union{Mechanism, EnzymeMechanism}, sym::Symbol)
-    mech = m isa Mechanism ? m : Mechanism(m)
-    for p in _enumerate_parameters_full(mech)
-        name(p, mech) == sym && return p
-    end
-    error("_param_for_symbol: no Parameter renders to $sym in non-allosteric mechanism")
-end
-
-function _param_for_symbol(
-    m::Union{AllostericMechanism, AllostericEnzymeMechanism}, sym::Symbol,
-)
-    am = m isa AllostericMechanism ? m : AllostericMechanism(m)
-    for p in _onlyA_parameters_for_sym(am)
-        name(p, am) == sym && return p
-    end
-    for p in _all_params_for_sym(am)
-        name(p, am) == sym && return p
-    end
-    error("_param_for_symbol: no Parameter renders to $sym in allosteric mechanism")
-end
-
-"""Walk all A-state catalytic parameters (for _param_for_symbol lookup)."""
-function _onlyA_parameters_for_sym(am::AllostericMechanism)
-    out = Parameter[]
-    fes = _free_enz_set(am)
-    for (g, group) in enumerate(steps(am))
-        st = cat_allo_state(am, g) === :EqualAI ? :EqualAI : :A
-        append!(out, _emit_cat_params_for_rep(_group_rep(group, fes), st))
-    end
-    out
-end
-
-"""Walk all I-state catalytic + reg parameters (for _param_for_symbol lookup)."""
-function _all_params_for_sym(am::AllostericMechanism)
-    out = Parameter[]
-    fes = _free_enz_set(am)
-    for (g, group) in enumerate(steps(am))
-        cat_allo_state(am, g) === :OnlyA && continue
-        append!(out, _emit_cat_params_for_rep(_group_rep(group, fes), :I))
-    end
-    for site in regulatory_sites(am)
-        for (lig, tag) in zip(ligands(site), allo_states(site))
-            tag === :OnlyI || push!(out, Kreg(site, lig, :A))
-            tag === :OnlyA || push!(out, Kreg(site, lig, :I))
-        end
-    end
-    out
-end
 
 """
 Enumerate every raw rate-constant Parameter for a non-allosteric
@@ -1996,9 +1896,8 @@ end
 Emit the Parameter(s) governing a single kinetic-group representative
 step with the given allosteric state. The 4-way switch on
 `is_equilibrium(rep)` × `is_binding(rep)` is the shared core of the walkers
-over group representatives: `_enumerate_parameters_full`,
-`_onlyA_parameters_for_sym`, `_all_params_for_sym` (catalytic part),
-and `_ss_rate_constant_names`.
+over group representatives: `_enumerate_parameters_full` and
+`_ss_rate_constant_names`.
 
 Returns 1 element for RE steps (`Kd` or `Kiso`) and 2 elements for SS
 steps (`Kon`+`Koff` or `Kfor`+`Krev`). A binding, plain or fused, takes `Kd` /

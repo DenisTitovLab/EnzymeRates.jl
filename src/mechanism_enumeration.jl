@@ -2599,12 +2599,11 @@ end
     _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
         → Vector{AllostericMechanism}
 
-Mechanism-native overload: convert a non-allosteric `Mechanism` into
-allosteric variants. Two kinds whose conformational constant `L` never
-shows are not enumerated: the all-`:EqualAI` baseline and a V-type variant
-without a regulator. An `:OnlyA`
-catalytic binding means the inactive conformation cannot bind that
-metabolite, so it cannot complete the catalytic cycle: every emitted
+Convert a non-allosteric `Mechanism` into allosteric variants. Two kinds whose
+conformational constant `L` never shows are not enumerated: the all-`:EqualAI` baseline
+and a V-type variant without a regulator. An `:OnlyA` catalytic binding means the
+inactive conformation cannot bind that metabolite, so it cannot complete the catalytic
+cycle: every emitted
 `:OnlyA` variant is **dead-inactive** — every chemistry group is `:OnlyA`,
 and the inactive conformation only binds ligands. A chemistry group is one
 holding a chemistry step (`_is_chemistry`): an isomerization, a fused
@@ -2697,16 +2696,6 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     end
     unique!(results)
 end
-
-"""
-    _expand_to_allosteric(am::AllostericMechanism, rxn::EnzymeReaction)
-        → Vector{AllostericMechanism}
-
-`AllostericMechanism` input is already allosteric — no-op move.
-Only non-allosteric mechanisms can be promoted by this move.
-"""
-_expand_to_allosteric(::AllostericMechanism, ::EnzymeReaction) =
-    AllostericMechanism[]
 
 """
     _expand_add_allosteric_regulator(am::AllostericMechanism,
@@ -2819,17 +2808,6 @@ function _make_am_with_added_reg(
 end
 
 """
-    _expand_add_allosteric_regulator(m::Mechanism, rxn::EnzymeReaction)
-        → Vector{AllostericMechanism}
-
-Non-allosteric input: no-op; this move only extends allosteric mechanisms.
-The dispatch shape here ensures callers walking a mixed Mechanism /
-AllostericMechanism collection don't need to type-check.
-"""
-_expand_add_allosteric_regulator(::Mechanism, ::EnzymeReaction) =
-    AllostericMechanism[]
-
-"""
     _partial_onlya_catalysis(cat_steps, cat_allo_states) → Bool
 
 True when the inactive conformation catalyzes only partially: some catalytic
@@ -2853,10 +2831,9 @@ end
     _expand_change_allo_state(am::AllostericMechanism)
         → Vector{AllostericMechanism}
 
-Mechanism-native overload. Relax a "constrained" tag (`:EqualAI`,
-`:OnlyA`, `:OnlyI`) to `:NonequalAI`. A binding catalytic group and a
-regulatory ligand each relax individually — one variant per group not
-already `:NonequalAI`. The chemistry groups (those holding a chemistry step,
+Relax a "constrained" tag (`:EqualAI`, `:OnlyA`, `:OnlyI`) to `:NonequalAI`. A binding
+catalytic group and a regulatory ligand each relax individually — one variant per group
+not already `:NonequalAI`. The chemistry groups (those holding a chemistry step,
 `_is_chemistry`) relax **together**, one variant setting every
 non-`:NonequalAI` chemistry group to `:NonequalAI` at once: inactive catalysis
 is all-or-nothing, so a fully-`:NonequalAI` catalytic inactive conformation
@@ -2937,14 +2914,6 @@ function _expand_change_allo_state(am::AllostericMechanism)
 end
 
 """
-    _expand_change_allo_state(m::Mechanism) → Vector{AllostericMechanism}
-
-Non-allosteric input: no-op; this move only relaxes allosteric state tags.
-"""
-_expand_change_allo_state(::Mechanism) =
-    AllostericMechanism[]
-
-"""
     _state_conformations(state::Symbol) -> Set{Symbol}
 
 The conformations a single ligand's allosteric `state` acts on: `:active` for
@@ -3022,15 +2991,6 @@ function _expand_merge_regulatory_sites(am::AllostericMechanism)
     end
     results
 end
-
-"""
-    _expand_merge_regulatory_sites(::Mechanism) → Vector{AllostericMechanism}
-
-Non-allosteric input: no-op; this move only merges regulatory sites, which a
-`Mechanism` has none of. Keeps callers type-uniform.
-"""
-_expand_merge_regulatory_sites(::Mechanism) =
-    AllostericMechanism[]
 
 """
     _merged_site_state_assignments(base_states::Vector{Symbol};
@@ -3141,26 +3101,20 @@ function expand_mechanisms(
     result = Union{Mechanism, AllostericMechanism}[]
     for m in mechs
         _assert_emission_rules(m)
-        _add_expansions_mech!(result, m, rxn)
+        append!(result, _expand_re_to_ss(m), _expand_split_kinetic_group(m),
+                _expand_add_dead_end_regulator(m, rxn))
+        if m isa Mechanism
+            append!(result, _expand_to_allosteric(m, rxn))
+        else
+            append!(result, _expand_add_allosteric_regulator(m, rxn),
+                    _expand_change_allo_state(m), _expand_merge_regulatory_sites(m))
+        end
     end
     result = _filter_by_reg_type(result, rxn)
     for child in result
         _assert_atom_conserving(child)
     end
     result
-end
-
-function _add_expansions_mech!(
-    result::Vector{Union{Mechanism, AllostericMechanism}},
-    m::Union{Mechanism, AllostericMechanism},
-    rxn::EnzymeReaction)
-    append!(result, _expand_re_to_ss(m))
-    append!(result, _expand_split_kinetic_group(m))
-    append!(result, _expand_add_dead_end_regulator(m, rxn))
-    append!(result, _expand_to_allosteric(m, rxn))
-    append!(result, _expand_add_allosteric_regulator(m, rxn))
-    append!(result, _expand_change_allo_state(m))
-    append!(result, _expand_merge_regulatory_sites(m))
 end
 
 # --- Dedup ---
@@ -3283,14 +3237,15 @@ Children of `m` under the seed-build structure moves. The two
 allosteric-lifting moves run only when an allosteric regulator is required, so
 a competitive-only required set (`required_allo` empty) stays non-allosteric —
 no `L` — and seeds at `base + n_required_comp`. The dead-end move always runs.
-Each move is a no-op on the mechanism kind it does not apply to.
+A `Mechanism` is lifted by `_expand_to_allosteric`; an `AllostericMechanism`
+gains a regulator by `_expand_add_allosteric_regulator`.
 """
 function _seed_children(m::Union{Mechanism, AllostericMechanism},
                         rxn::EnzymeReaction, required_allo::Set{Symbol})
     children = Union{Mechanism, AllostericMechanism}[]
     if !isempty(required_allo)
-        append!(children, _expand_to_allosteric(m, rxn))
-        append!(children, _expand_add_allosteric_regulator(m, rxn))
+        append!(children, m isa Mechanism ? _expand_to_allosteric(m, rxn) :
+                          _expand_add_allosteric_regulator(m, rxn))
     end
     append!(children, _expand_add_dead_end_regulator(m, rxn))
     children
@@ -3342,74 +3297,3 @@ _binds_all_required(m::Union{Mechanism, AllostericMechanism},
                     required_allo::Set{Symbol}, required_comp::Set{Symbol}) =
     issubset(required_allo, _bound_allo_regs(m)) &&
     issubset(required_comp, _bound_comp_inhibitors(m))
-
-"""
-    _assert_mechanism_invariants(m::Mechanism) -> Nothing
-
-Structural invariants every valid Mechanism should satisfy:
-- Every group is non-empty
-"""
-function _assert_mechanism_invariants(m::Mechanism)
-    flat = collect(Iterators.flatten(steps(m)))
-    isempty(flat) && error("empty steps in Mechanism")
-    for g in steps(m)
-        isempty(g) && error("empty kinetic group in Mechanism")
-    end
-
-    # Every declared substrate/product must appear in some step. Regulators
-    # are excluded — init_mechanisms declares a dead-end inhibitor that no
-    # step binds yet (expand_mechanisms binds it later; _drop_unbound_regulators
-    # drops it at compile time). Substrates/products are never dropped.
-    appearing = Set{Symbol}()
-    for s in flat
-        for sp in (from_species(s), to_species(s))
-            for met in bound(sp)
-                push!(appearing, name(met))
-            end
-        end
-        for met in Iterators.flatten((consumed(s), released(s)))
-            push!(appearing, name(met))
-        end
-    end
-    for met in (substrates(reaction(m))..., products(reaction(m))...)
-        name(met) in appearing ||
-            error("declared substrate/product $(name(met)) appears in no step")
-    end
-    nothing
-end
-
-function _assert_mechanism_invariants(m::AllostericMechanism)
-    # Check the base catalytic-side invariants (every cat-group non-empty,
-    # etc.), then the allosteric-specific invariants against the actual
-    # AllostericMechanism fields.
-    flat = Step[s for g in steps(m) for s in g]
-    isempty(flat) && error("AllostericMechanism: empty cat_steps")
-    for g in steps(m)
-        isempty(g) && error("AllostericMechanism: empty catalytic kinetic group")
-    end
-
-    # cat_allo_states is one per cat group, validated by the constructor;
-    # re-check defensively here:
-    length(cat_allo_states(m)) == length(steps(m)) ||
-        error("AllostericMechanism: cat_allo_states length " *
-              "$(length(cat_allo_states(m))) ≠ cat_steps length " *
-              "$(length(steps(m)))")
-    valid_cat_states = (:OnlyA, :EqualAI, :NonequalAI)
-    for tag in cat_allo_states(m)
-        tag in valid_cat_states ||
-            error("AllostericMechanism: invalid cat allo state $tag")
-    end
-
-    catalytic_multiplicity(m) ≥ 1 ||
-        error("AllostericMechanism: catalytic_multiplicity " *
-              "$(catalytic_multiplicity(m)) must be ≥ 1")
-
-    # regulatory_sites is a Vector{RegulatorySite}; each site carries
-    # its own ligand list + multiplicity + per-ligand allo states. The
-    # constructor validates internal structure; here we only assert the
-    # list is non-nothing.
-    regulatory_sites(m) isa Vector{RegulatorySite} ||
-        error("AllostericMechanism: regulatory_sites not Vector{RegulatorySite}")
-
-    nothing
-end

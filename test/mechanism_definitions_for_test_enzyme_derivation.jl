@@ -97,6 +97,24 @@ function allo_from_source(cm_src, cat_sites, reg_sites)
             src, collect(Symbol, cat_states), mult, sites))
 end
 
+# A mechanism has steps and every declared substrate and product appears in some step.
+# Regulators are exempt: init_mechanisms declares a dead-end inhibitor that no step binds
+# yet.
+function _testhelper_assert_mechanism_invariants(m)
+    flat = collect(Iterators.flatten(EnzymeRates.steps(m)))
+    isempty(flat) && error("empty steps in mechanism")
+    appearing = Set(EnzymeRates.name(met) for s in flat for met in Iterators.flatten((
+        EnzymeRates.bound(EnzymeRates.from_species(s)),
+        EnzymeRates.bound(EnzymeRates.to_species(s)),
+        EnzymeRates.consumed(s), EnzymeRates.released(s))))
+    rxn = EnzymeRates.reaction(m)
+    for met in (EnzymeRates.substrates(rxn)..., EnzymeRates.products(rxn)...)
+        EnzymeRates.name(met) in appearing ||
+            error("declared substrate/product $(EnzymeRates.name(met)) appears in no step")
+    end
+    nothing
+end
+
 # ── Mechanism test specifications ───────────────────────────────────────────
 
 const MECHANISM_TEST_SPECS = MechanismTestSpec[]

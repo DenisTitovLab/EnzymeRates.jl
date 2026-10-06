@@ -1001,7 +1001,7 @@ end
     # proves the guard accepts it.
     am = ER.AllostericMechanism(dead)
     _, _, d_free_I = ER._state_rate_polys(am, :I)
-    @test ER._poly_to_expr(d_free_I, Set{Symbol}(), Set{Symbol}()) == 1
+    @test ER._poly_to_expr(d_free_I) == 1
 
     # Non-allosteric twin: the SAME six steps with no allosteric tags. At L = 0 the
     # inactive conformation is unpopulated, so the allosteric rate must reduce to

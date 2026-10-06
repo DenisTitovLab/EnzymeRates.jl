@@ -3,8 +3,6 @@
 
 # ─── Parameters API ─────────────────────────────────────────
 
-const _AnyMechanism = AbstractEnzymeMechanism
-
 # Every mechanism is a singleton type of its own, so a method specialized on one
 # compiles again for each mechanism. The derivation helpers that lift a singleton,
 # or its type, to its concrete form therefore take it `@nospecialize`.
@@ -41,7 +39,8 @@ Return the parameter names required for the given mode as a tuple of Symbols.
 """
 function parameters end
 
-parameters(m::_AnyMechanism) = parameters(m, Reduced)
+parameters(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism}) =
+    parameters(m, Reduced)
 
 # ── EnzymeMechanism ───────────────────────────────────────────
 @generated function parameters(
@@ -83,7 +82,7 @@ end
 end
 
 """Independent rate constant names for fitting (excludes Keq, E_total)."""
-@generated function fitted_params(::M) where {M <: _AnyMechanism}
+@generated function fitted_params(::M) where {M <: AbstractEnzymeMechanism}
     _, indep = _dependent_param_exprs(M)
     indep
 end
@@ -99,7 +98,6 @@ end
 parameters(m::Union{Mechanism, AllostericMechanism},
            mode::AbstractRateEquationMode) =
     parameters(compile_mechanism(m), mode)
-parameters(m::Union{Mechanism, AllostericMechanism}) = parameters(m, Reduced)
 fitted_params(m::Union{Mechanism, AllostericMechanism}) =
     fitted_params(compile_mechanism(m))
 
@@ -515,9 +513,8 @@ function _raw_rate_expr_and_symbols(@nospecialize(M::Type{<:EnzymeMechanism}))
     num, den, _ = _raw_symbolic_rate_polys(M)
     m = M()
     param_syms = Set{Symbol}(_raw_param_symbols(m))
-    conc_syms = Set{Symbol}(metabolites(m))
-    num_expr = _poly_to_expr(num, param_syms, conc_syms)
-    den_expr = _poly_to_expr(den, param_syms, conc_syms)
+    num_expr = _poly_to_expr(num, param_syms)
+    den_expr = _poly_to_expr(den, param_syms)
     expr = :(E_total * ($num_expr) / ($den_expr))
     all_params = _sorted_raw_param_symbols(M)
     return expr, all_params, metabolites(m)
@@ -547,15 +544,14 @@ arithmetic expression with no allocations, loops, or matrix operations. Use
 """
 function rate_equation end
 
-rate_equation(m::_AnyMechanism, concs, params) = rate_equation(m, concs, params, Reduced)
+rate_equation(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism},
+              concs, params) = rate_equation(m, concs, params, Reduced)
 
 # Concrete-mechanism convenience: lift to the singleton (see the note on
 # the parameters/fitted_params methods above — allocates, not the hot path).
 rate_equation(m::Union{Mechanism, AllostericMechanism}, concs, params,
               mode::AbstractRateEquationMode) =
     rate_equation(compile_mechanism(m), concs, params, mode)
-rate_equation(m::Union{Mechanism, AllostericMechanism}, concs, params) =
-    rate_equation(m, concs, params, Reduced)
 
 @generated function rate_equation(
     m::M, concs::NamedTuple, params::NamedTuple, ::FullMode,
@@ -617,23 +613,21 @@ v = E_total * (k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P) / (1
 """
 function rate_equation_string end
 
-rate_equation_string(m::_AnyMechanism) = rate_equation_string(m, Reduced)
+rate_equation_string(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism}) =
+    rate_equation_string(m, Reduced)
 
 # Concrete-mechanism convenience: lift to the singleton.
 rate_equation_string(m::Union{Mechanism, AllostericMechanism},
                      mode::AbstractRateEquationMode) =
     rate_equation_string(compile_mechanism(m), mode)
-rate_equation_string(m::Union{Mechanism, AllostericMechanism}) =
-    rate_equation_string(m, Reduced)
 
 """Build the `v = E_total * (num) / (den)` line from the raw symbolic rate polys."""
 function _rate_v_line(@nospecialize(M::Type{<:EnzymeMechanism}))
     num, den, _ = _raw_symbolic_rate_polys(M)
     m = M()
     ps = Set{Symbol}(_raw_param_symbols(m))
-    cs = Set{Symbol}(metabolites(m))
-    "v = E_total * ($(_expr_to_string(_poly_to_expr(num, ps, cs)))) / " *
-        "($(_expr_to_string(_poly_to_expr(den, ps, cs))))"
+    "v = E_total * ($(_expr_to_string(_poly_to_expr(num, ps)))) / " *
+        "($(_expr_to_string(_poly_to_expr(den, ps))))"
 end
 
 function rate_equation_string(@nospecialize(em::EnzymeMechanism), ::FullMode)
@@ -653,9 +647,8 @@ multi-symbol RHSes get runtime assignment in `_build_rate_body` (no annotation).
 Entries are visited in lexicographic LHS order.
 """
 function _partition_constraint_lines!(weg_lines, hal_lines, dep)
-    keq_set = Set([:Keq])
     for (sym, expr) in sort(collect(dep); by=p -> string(p[1]))
-        is_haldane = _expr_references_any(expr, keq_set)
+        is_haldane = _mentions(expr, :Keq)
         suffix = expr isa Symbol ? ANNOTATION_SUBSTITUTED : ""
         push!(is_haldane ? hal_lines : weg_lines, "$sym = $(string(expr))$suffix")
     end
@@ -784,15 +777,14 @@ Multiple candidates arise for mechanisms with alternative catalytic pathways
     # kcat is evaluated at products = 0, so product-containing monomials are
     # outside its domain — King–Altman net-flux cross-terms like A·B·P yield
     # spurious candidates that can win the max. Keep substrate-only patterns.
-    empty_set = Set{Symbol}()
     prod_syms = Set{Symbol}(products(M()))
     components = Tuple{Any, Any}[]
     for (met_key, num_k) in sort!(collect(num_groups); by=first)
         den_k = get(den_groups, met_key, nothing)
         den_k === nothing && continue
         any(first(s) in prod_syms for s in met_key) && continue
-        num_expr = _poly_to_expr(num_k, empty_set, empty_set)
-        den_expr = _poly_to_expr(den_k, empty_set, empty_set)
+        num_expr = _poly_to_expr(num_k)
+        den_expr = _poly_to_expr(den_k)
         push!(components, (num_expr, den_expr))
     end
 
@@ -885,7 +877,6 @@ so this carries no `catalytic_multiplicity` factor.
     isempty(a_keys) &&
         error("_kcat_forward: AllostericEnzymeMechanism produced no kcat " *
               "components — saturating-substrate pattern not found in numerator")
-    empty_set = Set{Symbol}()
 
     a_assignments, i_assignments_ = _build_dep_assignments(M_type)
     # Keep inactive-state assignments unconditionally: B_I references them, and
@@ -909,14 +900,12 @@ so this carries no `catalytic_multiplicity` factor.
 
     kcat_exprs = Any[]
     for met_key in a_keys
-        num_k_A_expr = _poly_to_expr(num_A_groups[met_key], empty_set, empty_set)
-        den_k_A_expr = _poly_to_expr(den_A_groups[met_key], empty_set, empty_set)
+        num_k_A_expr = _poly_to_expr(num_A_groups[met_key])
+        den_k_A_expr = _poly_to_expr(den_A_groups[met_key])
         num_I_p = get(num_I_groups, met_key, nothing)
         den_I_p = get(den_I_groups, met_key, nothing)
-        num_k_I_expr = num_I_p === nothing ? 0 :
-            _poly_to_expr(num_I_p, empty_set, empty_set)
-        den_k_I_expr = den_I_p === nothing ? 0 :
-            _poly_to_expr(den_I_p, empty_set, empty_set)
+        num_k_I_expr = num_I_p === nothing ? 0 : _poly_to_expr(num_I_p)
+        den_k_I_expr = den_I_p === nothing ? 0 : _poly_to_expr(den_I_p)
         i_pattern_dead = den_I_p === nothing
 
         A_A, B_A = _mwc_power_pair(num_k_A_expr, den_k_A_expr, CatN)
@@ -1002,7 +991,7 @@ Rescale SS rate constants so that `_kcat_forward(m, result) ≈ scale_k_to_kcat`
 Non-SS parameters (K's, Keq, E_total, L, regulatory K's) are unchanged.
 """
 function rescale_parameter_values(
-    @nospecialize(m::_AnyMechanism), params::NamedTuple; scale_k_to_kcat=1.0,
+    @nospecialize(m::AbstractEnzymeMechanism), params::NamedTuple; scale_k_to_kcat=1.0,
 )
     kcat_current = _kcat_forward(m, params)
     scale = scale_k_to_kcat / kcat_current
@@ -1584,14 +1573,14 @@ function _allosteric_num_den_exprs(@nospecialize(M_type::Type{<:AllostericEnzyme
         num_A_poly = poly_mul(num_A_poly, inv_A); den_A_poly = poly_mul(den_A_poly, inv_A)
         num_i_poly = poly_mul(num_i_poly, inv_I); den_i_poly = poly_mul(den_i_poly, inv_I)
     else
-        D_A_expr = _poly_to_expr(d_free_A, cat_params, cat_mets)
-        D_I_expr = _poly_to_expr(d_free_I, cat_params, cat_mets)
+        D_A_expr = _poly_to_expr(d_free_A, cat_params)
+        D_I_expr = _poly_to_expr(d_free_I, cat_params)
     end
 
-    N_A = _poly_to_expr(num_A_poly, cat_params, cat_mets)
-    Q_A = _poly_to_expr(den_A_poly, cat_params, cat_mets)
-    N_I = _poly_to_expr(num_i_poly, cat_params, cat_mets)
-    Q_I = _poly_to_expr(den_i_poly, cat_params, cat_mets)
+    N_A = _poly_to_expr(num_A_poly, cat_params)
+    Q_A = _poly_to_expr(den_A_poly, cat_params)
+    N_I = _poly_to_expr(num_i_poly, cat_params)
+    Q_I = _poly_to_expr(den_i_poly, cat_params)
 
     reg_Q_A = Any[_reg_site_expr(am, i, false) for i in eachindex(RS)]
     reg_Q_I = Any[_reg_site_expr(am, i, true) for i in eachindex(RS)]
@@ -1678,13 +1667,12 @@ function rate_equation_string(
 
     # Every dependent assignment comes from the single combined solve — the same set
     # the compiled body assigns — split into Wegscheider/Haldane by Keq-reference.
-    keq_set = Set([:Keq])
     a_assignments, i_assignments = _build_dep_assignments(M)
     weg_lines, hal_lines = String[], String[]
     for a in (a_assignments..., i_assignments...)
         sym = a.args[1]
         expr = a.args[2]
-        is_haldane = _expr_references_any(expr, keq_set)
+        is_haldane = _mentions(expr, :Keq)
         line = "$sym = $(_expr_to_string(expr))"
         push!(is_haldane ? hal_lines : weg_lines, line)
     end
