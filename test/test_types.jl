@@ -6,6 +6,12 @@ const ER = EnzymeRates
 _testhelper_sp(bound, conf = :E) = ER.Species(ER.Metabolite[bound...], conf)
 _testhelper_sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res)
 
+# The AllostericEnzymeMechanism over catalytic mechanism `cm`, its catalytic allosteric
+# states given in `cm`'s canonical group order (`allo_from_source` with the canonical
+# groups as the source).
+_testhelper_aem(cm, cat_sites, reg_sites) =
+    allo_from_source((cm, ER.steps(ER.Mechanism(cm))), cat_sites, reg_sites)
+
 # Michaelis–Menten with rapid-equilibrium bindings and a steady-state isomerization.
 const _testhelper_re_mm = @enzyme_mechanism begin
     substrates: S
@@ -102,18 +108,18 @@ end
         @test ER.metabolites(m) == (:S, :P, :I)
     end
 
-    @testset "AllostericEnzymeMechanism constructor + DSL" begin
+    @testset "AllostericEnzymeMechanism lift + DSL" begin
         cm = _testhelper_re_mm
 
         # Single-ligand :EqualAI reg site is allowed (degenerate but valid —
         # the enumerator won't emit it, but users may write it for teaching).
-        @test ER.AllostericEnzymeMechanism(
+        @test _testhelper_aem(
             cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)),
             (((:I,), 2, (:EqualAI,)),),
         ) isa ER.AllostericEnzymeMechanism
 
         # Catalytic group :OnlyI → error
-        @test_throws ErrorException ER.AllostericEnzymeMechanism(
+        @test_throws ErrorException _testhelper_aem(
             cm, (2, (:NonequalAI, :OnlyI, :NonequalAI)), (),
         )
 
@@ -348,28 +354,28 @@ end
         # Wegscheider analysis if it matters).
     end
 
-    @testset "AllostericEnzymeMechanism constructor validators" begin
+    @testset "AllostericEnzymeMechanism lift validators" begin
         cm = _testhelper_re_mm
+        # The compiled type is built only by lifting an AllostericMechanism.
+        @test_throws MethodError ER.AllostericEnzymeMechanism(
+            cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)), ())
+
         # Wrong-length cat_allo_states (4 entries for 3 kinetic groups) → error
-        @test_throws ErrorException ER.AllostericEnzymeMechanism(
+        @test_throws ErrorException _testhelper_aem(
             cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI, :OnlyA)), ())
 
         # Invalid allo state value → error
-        @test_throws ErrorException ER.AllostericEnzymeMechanism(
+        @test_throws ErrorException _testhelper_aem(
             cm, (2, (:NotAState, :NonequalAI, :NonequalAI)), ())
 
-        # Reg site with no ligands → error
-        @test_throws ErrorException ER.AllostericEnzymeMechanism(
-            cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)), (((), 2, ()),))
-
         # Reg site with all-:EqualAI ligands is allowed (degenerate but valid).
-        @test ER.AllostericEnzymeMechanism(
+        @test _testhelper_aem(
             cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)),
             (((:I, :J), 2, (:EqualAI, :EqualAI)),)) isa
               ER.AllostericEnzymeMechanism
 
         # Invalid reg-site ligand allo state → error
-        @test_throws ErrorException ER.AllostericEnzymeMechanism(
+        @test_throws ErrorException _testhelper_aem(
             cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)),
             (((:I,), 2, (:NotAState,)),))
     end
@@ -413,7 +419,7 @@ end
                 E(P) ⇌ E + P
             end
         end
-        am = ER.AllostericEnzymeMechanism(
+        am = _testhelper_aem(
             cm, (2, (:EqualAI, :EqualAI, :EqualAI)), ())
         s = repr(am)
 
@@ -557,6 +563,10 @@ end
         # Multiplicity < 1 → error
         @test_throws ErrorException ER.RegulatorySite(
             [lig_a], 0, [:OnlyA])
+
+        # No ligands → error
+        @test_throws ErrorException ER.RegulatorySite(
+            ER.AllostericRegulator[], 2, Symbol[])
 
         # Invalid allo state → error
         @test_throws ErrorException ER.RegulatorySite(
@@ -947,7 +957,7 @@ end
 
     @testset "AllostericMechanism(::AllostericEnzymeMechanism) converter" begin
         cm = _testhelper_re_mm
-        aem = ER.AllostericEnzymeMechanism(
+        aem = _testhelper_aem(
             cm, (2, (:EqualAI, :NonequalAI, :OnlyA)),
             (((:A, :B), 1, (:OnlyA, :NonequalAI)),),
         )
@@ -986,7 +996,7 @@ end
 
     @testset "name(p, ::AllostericMechanism) chokepoint" begin
         cm = _testhelper_re_mm
-        aem = ER.AllostericEnzymeMechanism(
+        aem = _testhelper_aem(
             cm, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
             (((:R,), 1, (:NonequalAI,)),),
         )

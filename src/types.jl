@@ -127,6 +127,7 @@ struct RegulatorySite
     allo_states::Vector{Symbol}
     function RegulatorySite(ligands::Vector{AllostericRegulator},
                             multiplicity::Int, allo_states::Vector{Symbol})
+        isempty(ligands) && error("RegulatorySite: needs at least one ligand")
         length(ligands) == length(allo_states) ||
             error("RegulatorySite: length(ligands)=$(length(ligands)) " *
                   "must equal length(allo_states)=$(length(allo_states))")
@@ -1042,58 +1043,6 @@ struct AllostericEnzymeMechanism{
     CatalyticMech, CatSites, RegSites,
 } <: AbstractEnzymeMechanism end
 
-function AllostericEnzymeMechanism(
-    @nospecialize(cm::EnzymeMechanism), @nospecialize(cat_sites::Tuple),
-    @nospecialize(reg_sites::Tuple),
-)
-    multiplicity, cat_allo_states = cat_sites
-    multiplicity isa Int && multiplicity ≥ 1 ||
-        error("Catalytic multiplicity must be a positive Int, got $multiplicity")
-
-    step_groups = [g for (_, g) in _flat_steps(Mechanism(cm))]
-    n_groups = length(unique(step_groups))
-    # Validate kinetic_group numbers are 1..n_groups consecutive — the
-    # cat_allo_states tuple is indexed by group number, so non-consecutive
-    # numbering would cause OOB or wrong-state lookup at runtime.
-    observed_groups = sort!(unique(step_groups))
-    observed_groups == collect(1:n_groups) ||
-        error("Catalytic mechanism kinetic_group numbers must be 1..n " *
-              "consecutive; got $observed_groups")
-    length(cat_allo_states) == n_groups ||
-        error("cat_allo_states length $(length(cat_allo_states)) does not " *
-              "match catalytic kinetic-group count $n_groups")
-    for (g, st) in enumerate(cat_allo_states)
-        st === :OnlyI &&
-            error("Catalytic kinetic group $g has state :OnlyI; the " *
-                  "active branch is the active state by convention. Relabel " *
-                  "your mechanism so the active branch is A (use :OnlyA " *
-                  "instead).")
-        st in _VALID_CAT_ALLO_STATES ||
-            error("Catalytic kinetic group $g has unknown allo state $st; " *
-                  "must be one of $_VALID_CAT_ALLO_STATES")
-    end
-
-    for (i, entry) in enumerate(reg_sites)
-        ligands, n_reg, reg_allo_states = entry
-        ligands isa Tuple && all(l isa Symbol for l in ligands) ||
-            error("Reg site $i: ligands must be a Tuple of Symbol")
-        length(ligands) >= 1 ||
-            error("Reg site $i: must have at least one ligand; got empty " *
-                  "ligand tuple")
-        n_reg isa Int && n_reg ≥ 1 ||
-            error("Reg site $i: multiplicity must be a positive Int")
-        length(reg_allo_states) == length(ligands) ||
-            error("Reg site $i: reg_allo_states length $(length(reg_allo_states)) " *
-                  "does not match ligand count $(length(ligands))")
-        for (k, st) in enumerate(reg_allo_states)
-            st in _VALID_REG_ALLO_STATES ||
-                error("Reg site $i, ligand $(ligands[k]): unknown allo state $st")
-        end
-    end
-
-    AllostericEnzymeMechanism{typeof(cm), cat_sites, reg_sites}()
-end
-
 """
     AllostericMechanism(aem::AllostericEnzymeMechanism)
 
@@ -1126,19 +1075,19 @@ end
 Lift an `AllostericMechanism` to its singleton `AllostericEnzymeMechanism`
 type. The catalytic side becomes an `EnzymeMechanism` lifting through
 `Mechanism(am.reaction, am.cat_steps)`. Catalytic and regulatory allosteric
-data are encoded directly into the type parameters.
+data are encoded directly into the type parameters: `CatSites = (multiplicity,
+cat_allo_states)` and one `(ligands, multiplicity, allo_states)` entry per
+regulatory site. The `AllostericMechanism` and `RegulatorySite` constructors have
+validated every field, so the lift checks nothing further.
 """
 function AllostericEnzymeMechanism(am::AllostericMechanism)
-    cat_mech = Mechanism(reaction(am), steps(am))
-    cm = EnzymeMechanism(cat_mech)
-    cat_sites = (catalytic_multiplicity(am),
-                 Tuple(cat_allo_states(am)))
-    reg_sites = Tuple(
-        (Tuple(Symbol[name(l) for l in ligands(site)]),
-         multiplicity(site),
-         Tuple(allo_states(site)))
-        for site in regulatory_sites(am))
-    AllostericEnzymeMechanism(cm, cat_sites, reg_sites)
+    cm = EnzymeMechanism(Mechanism(reaction(am), steps(am)))
+    AllostericEnzymeMechanism{
+        typeof(cm),
+        (catalytic_multiplicity(am), Tuple(cat_allo_states(am))),
+        Tuple((Tuple(name.(ligands(s))), multiplicity(s), Tuple(allo_states(s)))
+              for s in regulatory_sites(am)),
+    }()
 end
 
 # --- Rate equation mode types ---

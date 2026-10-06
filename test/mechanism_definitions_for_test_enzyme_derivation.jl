@@ -77,9 +77,8 @@ end
 # catalytic steps AS WRITTEN (source order). `cm_src` is an
 # `@enzyme_mechanism_src` result `(cm, source_groups)`. Routing through
 # AllostericMechanism canonicalizes catalytic steps and their allosteric tags
-# together, so each tag stays on its intended step (the 3-arg
-# AllostericEnzymeMechanism ctor instead indexes tags by canonical group
-# order). `cat_sites`/`reg_sites` use the same tuple shapes that ctor accepts:
+# together, so each tag stays on its intended step. `cat_sites`/`reg_sites` use
+# the tuple shapes of the compiled type's parameters:
 # `cat_sites = (multiplicity, cat_allo_states)`,
 # `reg_sites = ((ligands, multiplicity, ligand_states), …)`.
 function allo_from_source(cm_src, cat_sites, reg_sites)
