@@ -5,6 +5,10 @@
 
 const _AnyMechanism = AbstractEnzymeMechanism
 
+# Every mechanism is a singleton type of its own, so a method specialized on one
+# compiles again for each mechanism. The derivation helpers that lift a singleton,
+# or its type, to its concrete form therefore take it `@nospecialize`.
+
 """
 Suffix appended to single-symbol equality lines whose LHS got folded
 into the kinetic-group rename map. Both display sites (User defined
@@ -139,9 +143,9 @@ function _build_wegscheider_rename_map(mech::Mechanism)
     rename
 end
 
-_build_wegscheider_rename_map(M::Type{<:EnzymeMechanism}) =
+_build_wegscheider_rename_map(@nospecialize(M::Type{<:EnzymeMechanism})) =
     _build_wegscheider_rename_map(Mechanism(M()))
-_build_wegscheider_rename_map(m::EnzymeMechanism) =
+_build_wegscheider_rename_map(@nospecialize(m::EnzymeMechanism)) =
     _build_wegscheider_rename_map(typeof(m))
 
 # ─── RE Group Helpers ───────────────────────────────────────
@@ -374,7 +378,7 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map)
     _reduce_conc_lowest_terms(num, den, d_free, conc_set)
 end
 
-function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
+function _raw_symbolic_rate_polys(@nospecialize(M::Type{<:EnzymeMechanism}))
     mech = Mechanism(M())
     _assert_derivable(mech)
     step_params = _step_parameters(mech)
@@ -507,7 +511,7 @@ end
 Compute the raw rate expression (bare symbols) and sorted parameter/concentration symbols.
 Returns `(expr, all_params, sorted_concs)`.
 """
-function _raw_rate_expr_and_symbols(M::Type{<:EnzymeMechanism})
+function _raw_rate_expr_and_symbols(@nospecialize(M::Type{<:EnzymeMechanism}))
     num, den, _ = _raw_symbolic_rate_polys(M)
     m = M()
     param_syms = Set{Symbol}(_raw_param_symbols(m))
@@ -623,7 +627,7 @@ rate_equation_string(m::Union{Mechanism, AllostericMechanism}) =
     rate_equation_string(m, Reduced)
 
 """Build the `v = E_total * (num) / (den)` line from the raw symbolic rate polys."""
-function _rate_v_line(M::Type{<:EnzymeMechanism})
+function _rate_v_line(@nospecialize(M::Type{<:EnzymeMechanism}))
     num, den, _ = _raw_symbolic_rate_polys(M)
     m = M()
     ps = Set{Symbol}(_raw_param_symbols(m))
@@ -632,12 +636,12 @@ function _rate_v_line(M::Type{<:EnzymeMechanism})
         "($(_expr_to_string(_poly_to_expr(den, ps, cs))))"
 end
 
-function rate_equation_string(::M, ::FullMode) where {M<:EnzymeMechanism}
-    mech = Mechanism(M())
+function rate_equation_string(@nospecialize(em::EnzymeMechanism), ::FullMode)
+    mech = Mechanism(em)
     param_names = Symbol[name(p, mech) for p in _enumerate_parameters_full(mech)]
     lines = ["(; $(join((param_names..., :E_total), ", "))) = params",
-             "(; $(join(metabolites(M()), ", "))) = concs"]
-    push!(lines, _rate_v_line(M))
+             "(; $(join(metabolites(em), ", "))) = concs"]
+    push!(lines, _rate_v_line(typeof(em)))
     join(lines, "\n")
 end
 
@@ -666,8 +670,8 @@ function _append_constraint_sections!(lines, weg_lines, hal_lines)
         (push!(lines, "# Haldane constraints:");      append!(lines, hal_lines))
 end
 
-function rate_equation_string(::M, ::ReducedMode) where {M<:EnzymeMechanism}
-    m = M()
+function rate_equation_string(@nospecialize(m::EnzymeMechanism), ::ReducedMode)
+    M = typeof(m)
     _, indep = _dependent_param_exprs(M)
 
     dep_raw, _ = _dependent_param_exprs_kernel(M, Dict{Symbol, Symbol}())
@@ -692,13 +696,13 @@ constant that lives in the inactive state polynomial. Routes Symbol production t
 `rescale_parameter_values` to scale only SS k's without touching RE
 Kd's, Keq, E_total, L, or regulatory K's.
 """
-function _ss_rate_constant_names(em::EnzymeMechanism)
+function _ss_rate_constant_names(@nospecialize(em::EnzymeMechanism))
     mech = Mechanism(em)
     Set{Symbol}(name(p, mech) for p in _enumerate_parameters_full(mech)
                 if p isa Union{Kon, Koff, Kfor, Krev})
 end
 
-function _ss_rate_constant_names(em::AllostericEnzymeMechanism)
+function _ss_rate_constant_names(@nospecialize(em::AllostericEnzymeMechanism))
     am = AllostericMechanism(em)
     a_names = Set{Symbol}()
     fes = _free_enz_set(am)
@@ -998,7 +1002,7 @@ Rescale SS rate constants so that `_kcat_forward(m, result) ≈ scale_k_to_kcat`
 Non-SS parameters (K's, Keq, E_total, L, regulatory K's) are unchanged.
 """
 function rescale_parameter_values(
-    m::_AnyMechanism, params::NamedTuple; scale_k_to_kcat=1.0,
+    @nospecialize(m::_AnyMechanism), params::NamedTuple; scale_k_to_kcat=1.0,
 )
     kcat_current = _kcat_forward(m, params)
     scale = scale_k_to_kcat / kcat_current
@@ -1412,8 +1416,8 @@ function _dependent_param_exprs(am::AllostericMechanism)
                       if p ∉ keys(dep))
 end
 
-_dependent_param_exprs(::Type{AllostericEnzymeMechanism{CM,CS,RS}}) where {CM,CS,RS} =
-    _dependent_param_exprs(AllostericMechanism(AllostericEnzymeMechanism{CM,CS,RS}()))
+_dependent_param_exprs(@nospecialize(M::Type{<:AllostericEnzymeMechanism})) =
+    _dependent_param_exprs(AllostericMechanism(M()))
 
 # `parameters` and `fitted_params` for `AllostericEnzymeMechanism`
 # dispatch on explicit per-type methods at the top of this file.
@@ -1519,10 +1523,10 @@ coincides with its A-state column) is emitted in the A-block. All Symbols
 route through the `name(p, am)` chokepoint (native derivation + `Kreg`).
 """
 function _build_dep_assignments(
-    M_type::Type{<:AllostericEnzymeMechanism},
+    @nospecialize(M_type::Type{<:AllostericEnzymeMechanism}),
 )
     am = AllostericMechanism(M_type())
-    dep, _ = _dependent_param_exprs(M_type)
+    dep, _ = _dependent_param_exprs(am)
     # A-block first so an I-block `:EqualAI` regulator mirror (`K_I_reg = K_A_reg`)
     # finds its A-name defined. The combined solve expresses every dependent purely
     # in independent columns, so no dependent reads another — order within a block
@@ -1542,7 +1546,7 @@ Returns `(full_num, full_den)`. Per-active-site normalization: the
 numerator carries no leading `catalytic_multiplicity` factor; only the
 `Q_cat^(CatN-1)` / `Q_cat^CatN` binding-statistics powers remain.
 """
-function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
+function _allosteric_num_den_exprs(@nospecialize(M_type::Type{<:AllostericEnzymeMechanism}))
     m = M_type()
     am = AllostericMechanism(m)
     CM = typeof(catalytic_mechanism(m))
@@ -1628,7 +1632,9 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
 end
 
 """Build the MWC rate equation body as an Expr block."""
-function _build_allosteric_rate_body(M_type::Type{<:AllostericEnzymeMechanism})
+function _build_allosteric_rate_body(
+    @nospecialize(M_type::Type{<:AllostericEnzymeMechanism}),
+)
     full_num, full_den = _allosteric_num_den_exprs(M_type)
     rate_expr = :(E_total * ($full_num) / ($full_den))
 
@@ -1663,10 +1669,9 @@ end
 # ─── String representation ────────────────────────────────────────
 
 function rate_equation_string(
-    ::AllostericEnzymeMechanism{CM,CS,RS}, ::ReducedMode,
-) where {CM,CS,RS}
-    M = AllostericEnzymeMechanism{CM,CS,RS}
-    m = M()
+    @nospecialize(m::AllostericEnzymeMechanism), ::ReducedMode,
+)
+    M = typeof(m)
     _, indep = _dependent_param_exprs(M)
     hw_params = (indep..., :Keq, :E_total)
     mets = metabolites(m)

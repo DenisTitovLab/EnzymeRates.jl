@@ -45,6 +45,13 @@ lift `EnzymeMechanism(m::Mechanism)` first drops regulators declared on the
 reaction but bound by no step, so they neither appear in `regulators` nor add a
 parameter; `Mechanism(em)` lifts back.
 
+Only the `@generated` methods (`rate_equation`, `parameters`, `fitted_params`,
+`metabolites`, `_kcat_forward`) need code per singleton type. The lifts
+`Mechanism(em)` and `AllostericMechanism(aem)` read the type parameters at run
+time, and the derivation helpers that take a singleton or its type take it
+`@nospecialize`, so they compile once for all mechanisms. A new mechanism type
+then pays only for its generated bodies and the derivation they run.
+
 ## Enumeration engine architecture
 
 Mechanism enumeration uses the **concrete types** `Mechanism` and

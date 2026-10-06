@@ -1045,6 +1045,12 @@ _with_steps_and_cat_states(am::AllostericMechanism,
 #
 # One polymorphic `_to_sig` with a method per source type; the matching
 # `_*_from_sig` family reconstructs the corresponding type.
+#
+# A mechanism's Sig is a tuple type of its own, so a decoder specialized on its
+# argument compiles again for every mechanism. `_mechanism_from_sig` and the
+# decoders of reactions, steps, species and residuals take their tuple
+# `@nospecialize`; the two that see a whole mechanism's tuple index and loop over
+# it, since destructuring or mapping a tuple also compiles once per tuple type.
 
 """
 One encoder for every Metabolite leaf: (TypeTag, name). The tag Symbol is
@@ -1097,7 +1103,7 @@ function _metabolite_from_sig(sig::Tuple{Symbol, Symbol})
     error("Unknown metabolite kind in sig: $kind")
 end
 
-function _residual_from_sig(sig::Tuple)
+function _residual_from_sig(@nospecialize(sig::Tuple))
     added_sig, sub_sig = sig
     Residual(
         Substrate[_metabolite_from_sig(t) for t in added_sig],
@@ -1105,7 +1111,7 @@ function _residual_from_sig(sig::Tuple)
     )
 end
 
-function _species_from_sig(sig::Tuple)
+function _species_from_sig(@nospecialize(sig::Tuple))
     bound_sig, conformation, residual_sig = sig
     Species(
         Metabolite[_metabolite_from_sig(t) for t in bound_sig],
@@ -1114,7 +1120,7 @@ function _species_from_sig(sig::Tuple)
     )
 end
 
-function _step_from_sig(sig::Tuple)
+function _step_from_sig(@nospecialize(sig::Tuple))
     from_sig, to_sig, consumed_sig, released_sig, is_eq = sig
     Step(_species_from_sig(from_sig), _species_from_sig(to_sig),
          Metabolite[_metabolite_from_sig(t) for t in consumed_sig],
@@ -1137,7 +1143,7 @@ function _regulator_mults_from_sig(sig::Tuple)
     )
 end
 
-function _reaction_from_sig(sig::Tuple)
+function _reaction_from_sig(@nospecialize(sig::Tuple))
     reactants_sig, regulators_sig, mults_sig = sig
     EnzymeReaction(
         ReactantAtoms[_reactant_atoms_from_sig(t) for t in reactants_sig],
@@ -1146,8 +1152,16 @@ function _reaction_from_sig(sig::Tuple)
     )
 end
 
-function _steps_from_sig(sig::Tuple)
-    Vector{Step}[Step[_step_from_sig(s) for s in group] for group in sig]
+function _steps_from_sig(@nospecialize(sig::Tuple))
+    groups = Vector{Step}[]
+    for group_sig in sig
+        group = Step[]
+        for step_sig in group_sig
+            push!(group, _step_from_sig(step_sig))
+        end
+        push!(groups, group)
+    end
+    groups
 end
 
 _sig_of(m::Mechanism) = (
@@ -1155,9 +1169,8 @@ _sig_of(m::Mechanism) = (
     Tuple(Tuple(_to_sig(s) for s in g) for g in steps(m)),
 )
 
-function _mechanism_from_sig(sig::Tuple)
-    reaction_sig, steps_sig = sig
-    Mechanism(_reaction_from_sig(reaction_sig), _steps_from_sig(steps_sig))
+function _mechanism_from_sig(@nospecialize(sig::Tuple))
+    Mechanism(_reaction_from_sig(sig[1]), _steps_from_sig(sig[2]))
 end
 
 # ─── Parametric mechanism types ───────────────────────────────────────
@@ -1227,7 +1240,10 @@ function _drop_unbound_regulators(m::Mechanism)
     Mechanism(filtered_reaction, steps(m))
 end
 
-Mechanism(em::EnzymeMechanism{Sig}) where {Sig} = _mechanism_from_sig(Sig)
+# Reads `Sig` from the type at run time, so the lift compiles once rather than once
+# per mechanism type.
+Mechanism(@nospecialize(em::EnzymeMechanism)) =
+    _mechanism_from_sig(typeof(em).parameters[1])
 
 """
     AllostericEnzymeMechanism{CatalyticMech, CatSites, RegSites}
@@ -1248,17 +1264,19 @@ struct AllostericEnzymeMechanism{
 } <: AbstractEnzymeMechanism end
 
 function AllostericEnzymeMechanism(
-    cm::EnzymeMechanism, cat_sites::Tuple, reg_sites::Tuple,
+    @nospecialize(cm::EnzymeMechanism), @nospecialize(cat_sites::Tuple),
+    @nospecialize(reg_sites::Tuple),
 )
     multiplicity, cat_allo_states = cat_sites
     multiplicity isa Int && multiplicity ≥ 1 ||
         error("Catalytic multiplicity must be a positive Int, got $multiplicity")
 
-    n_groups = length(unique(kinetic_group(cm, i) for i in 1:n_steps(cm)))
+    step_groups = [g for (_, g) in _flat_steps(Mechanism(cm))]
+    n_groups = length(unique(step_groups))
     # Validate kinetic_group numbers are 1..n_groups consecutive — the
     # cat_allo_states tuple is indexed by group number, so non-consecutive
     # numbering would cause OOB or wrong-state lookup at runtime.
-    observed_groups = sort!(unique(kinetic_group(cm, i) for i in 1:n_steps(cm)))
+    observed_groups = sort!(unique(step_groups))
     observed_groups == collect(1:n_groups) ||
         error("Catalytic mechanism kinetic_group numbers must be 1..n " *
               "consecutive; got $observed_groups")
@@ -1307,11 +1325,11 @@ catalytic-side data; each `RS` entry `(ligands, mult, reg_allo_states)`
 becomes a `RegulatorySite` whose ligand `Symbol`s are wrapped as
 `AllostericRegulator`. Mirrors `Mechanism(::EnzymeMechanism)` — bridges
 the parametric ↔ non-parametric boundary so derivation code can walk
-`AllostericMechanism` uniformly.
+`AllostericMechanism` uniformly. It reads the type parameters at run time,
+so it compiles once rather than once per mechanism type.
 """
-function AllostericMechanism(
-    ::AllostericEnzymeMechanism{CM, CS, RS},
-) where {CM, CS, RS}
+function AllostericMechanism(@nospecialize(aem::AllostericEnzymeMechanism))
+    CM, CS, RS = typeof(aem).parameters
     cm_mech = Mechanism(CM())
     multiplicity, cat_allo_states = CS
     sites = RegulatorySite[]

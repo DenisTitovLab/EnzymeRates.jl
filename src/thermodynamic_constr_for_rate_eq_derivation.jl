@@ -24,7 +24,7 @@ function _raw_param_symbols(m::Mechanism)
     Symbol[name(p, m) for p in _enumerate_parameters_full(m)]
 end
 
-_raw_param_symbols(m::EnzymeMechanism) = _raw_param_symbols(Mechanism(m))
+_raw_param_symbols(@nospecialize(m::EnzymeMechanism)) = _raw_param_symbols(Mechanism(m))
 
 """
 For each step in `m` (in flat-iteration order), yield the Parameter
@@ -321,7 +321,8 @@ function _dependent_param_exprs(mech::Mechanism)
     return dep_exprs, indep
 end
 
-_dependent_param_exprs(M::Type{<:EnzymeMechanism}) = _dependent_param_exprs(Mechanism(M()))
+_dependent_param_exprs(@nospecialize(M::Type{<:EnzymeMechanism})) =
+    _dependent_param_exprs(Mechanism(M()))
 
 """Number of independent (fitted) rate constants of a concrete mechanism, computed
 from the thermodynamic constraint solve without compiling the mechanism."""
@@ -744,7 +745,7 @@ end
 Type-dispatching wrapper preserves the existing call sites in
 _dependent_param_exprs and _build_kinetic_rename_map / _build_wegscheider_rename_map.
 """
-_dependent_param_exprs_kernel(M::Type{<:EnzymeMechanism},
+_dependent_param_exprs_kernel(@nospecialize(M::Type{<:EnzymeMechanism}),
                               rename::AbstractDict{Symbol, Symbol}) =
     _dependent_param_exprs_kernel(Mechanism(M()), rename)
 
@@ -759,7 +760,7 @@ end
 Collect raw parameter symbols (one K or k_f/k_r per kinetic group) plus
 `E_total`, in step order.
 """
-function _sorted_raw_param_symbols(M::Type{<:EnzymeMechanism})
+function _sorted_raw_param_symbols(@nospecialize(M::Type{<:EnzymeMechanism}))
     Tuple((_raw_param_symbols(M())..., :E_total))
 end
 
