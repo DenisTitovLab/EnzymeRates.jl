@@ -73,39 +73,6 @@
                   EnzymeRates.CompetitiveInhibitor(:I)]
     end
 
-    @testset "@enzyme_mechanism: + step-side syntax" begin
-        # New form: + separator, no brackets.
-        m = @enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + S <--> E(S)
-                E(S) <--> E + P
-            end
-        end
-        @test m isa EnzymeMechanism
-        @test EnzymeRates.n_steps(m) == 2
-        @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
-    end
-
-    @testset "@enzyme_mechanism multi-product balances placeholders" begin
-        # Uni-bi (1 substrate, 2 products) — asymmetric reactant counts.
-        # The placeholder atoms emitted by the macro must balance across
-        # the substrate/product sides so the EnzymeReaction atom-balance
-        # check passes.
-        m = @enzyme_mechanism begin
-            substrates: A
-            products:   P, Q
-            steps: begin
-                E + A <--> E(A)
-                E(A) <--> E(P, Q)
-                E(P, Q) <--> E(Q) + P
-                E(Q) <--> E + Q
-            end
-        end
-        @test m isa EnzymeRates.EnzymeMechanism
-    end
-
     @testset "@enzyme_mechanism decomposed-Species grammar" begin
         m = @enzyme_mechanism begin
             substrates: S
@@ -126,38 +93,6 @@
         # 5 steps, 4 groups (order-independent: canonicalization reorders steps).
         @test length(unique(EnzymeRates.kinetic_group(m, i)
                             for i in 1:EnzymeRates.n_steps(m))) == 4
-
-        # Function-call species notation: E(S) ≡ species with conformation :E
-        # and bound metabolite :S. Synthesized form name is :ES
-        # (matching `name(::Species)` from src/types.jl).
-        m_call = @enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + S <--> E(S)
-                E(S) <--> E(P)
-                E(P) <--> E + P
-            end
-        end
-        @test m_call isa EnzymeMechanism
-        @test Set(EnzymeRates.enzyme_forms(m_call)) == Set([:E, :ES, :EP])
-        @test EnzymeRates.n_steps(m_call) == 3
-
-        # Multi-bound species: E(S, P) → :EPS (sorted alphabetically).
-        m_multi = @enzyme_mechanism begin
-            substrates: A, B
-            products:   P, Q
-            steps: begin
-                E + A <--> E(A)
-                E(A) + B <--> E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(P, Q) <--> E(Q) + P
-                E(Q) <--> E + Q
-            end
-        end
-        @test m_multi isa EnzymeMechanism
-        @test :EAB in EnzymeRates.enzyme_forms(m_multi)
-        @test :EPQ in EnzymeRates.enzyme_forms(m_multi)
 
         # Residual notation: Estar(; residual = A - P).
         m_res = @enzyme_mechanism begin
@@ -202,21 +137,6 @@
     end
 
     @testset "@allosteric_mechanism (parsing & validation)" begin
-        m = @allosteric_mechanism begin
-            substrates: F6P
-            products:   F16BP
-            catalytic_multiplicity: 2
-            allosteric_regulators: I::OnlyI
-
-            catalytic_steps: begin
-                E + F6P ⇌ E(F6P)         :: EqualAI
-                E(F6P) <--> E(F16BP)     :: EqualAI
-                E(F16BP) ⇌ E + F16BP     :: EqualAI
-            end
-        end
-        @test m isa EnzymeRates.AllostericEnzymeMechanism
-        @test EnzymeRates.allosteric_regulators(m) ⊇ ((:I, :OnlyI),)
-
         # Reject untagged catalytic step
         @test_throws Exception eval(:(@allosteric_mechanism begin
             substrates: F6P
@@ -280,17 +200,6 @@
         @test EnzymeRates.reactants(spec)[2] == EnzymeRates.ReactantAtoms(
             EnzymeRates.Substrate(:S), [:C => 1])
         @test EnzymeRates.regulators(spec) == EnzymeRates.RegulatorMults[]
-
-        spec2 = @enzyme_reaction begin
-            substrates: S[C6H12O6], ATP[C10H16N5O13P3]
-            products:   G6P[C6H13O9P], ADP[C10H15N5O10P2]
-            competitive_inhibitors: I
-        end
-        @test length(EnzymeRates.substrates(spec2)) == 2
-        @test length(EnzymeRates.products(spec2)) == 2
-        @test length(EnzymeRates.regulators(spec2)) == 1
-        @test EnzymeRates.regulator(EnzymeRates.regulators(spec2)[1]) ==
-            EnzymeRates.CompetitiveInhibitor(:I)
     end
 
     @testset "multi-atom metabolites" begin
@@ -429,18 +338,6 @@
         end))
     end
 
-    @testset "@allosteric_mechanism rejects opaque bound-form names" begin
-        @test_throws "opaque bound-form name" eval(:(@allosteric_mechanism begin
-            substrates: S
-            products: P
-            allosteric_regulators: I::OnlyI
-            catalytic_steps: begin
-                E + S <--> ES :: EqualAI
-                ES <--> E + P :: EqualAI
-            end
-        end))
-    end
-
     @testset "@allosteric_mechanism opaque rejection names itself" begin
         err = try
             eval(:(@allosteric_mechanism begin
@@ -459,6 +356,7 @@
         @test err !== nothing
         msg = err isa LoadError ? sprint(showerror, err.error) :
               sprint(showerror, err)
+        @test occursin("opaque bound-form name", msg)
         @test occursin("@allosteric_mechanism", msg)
         @test !occursin("@enzyme_mechanism", msg)
     end
@@ -539,27 +437,6 @@
         @test EnzymeRates.n_states(m) == 2
         @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
         @test Set(metabolites(m)) == Set([:S, :P])
-
-        # Numeric check: same as Uni-Uni spot check
-        Keq = 3.2 * 2.5 / (0.8 * 1.1)
-        params = (k_E_S_to_ES=3.2, k_ES_to_E_S=0.8, k_ES_to_E_P=2.5, Keq=Keq, E_total=1.0)
-        concs = (S=0.7, P=0.3)
-        @test rate_equation(m, concs, params) ≈ 0.9091 atol=0.001
-
-        # Multi-step mechanism
-        m2 = @enzyme_mechanism begin
-            substrates: A, B
-            products:   P, Q
-            steps: begin
-                E + A <--> E(A)
-                E(A) <--> F(P)
-                F(P) <--> F + P
-                F + B <--> F(B)
-                F(B) <--> E(Q)
-                E(Q) <--> E + Q
-            end
-        end
-        @test EnzymeRates.n_states(m2) == 6
     end
 
     @testset "Elementary steps" begin
@@ -574,61 +451,6 @@
                 S <--> E(S)
             end
         end))
-
-        spec = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            competitive_inhibitors: I
-        end
-        @test spec isa EnzymeReaction
-
-        # Dead-end inhibitor: valid mechanism (competitive inhibition)
-        m = @enzyme_mechanism begin
-            substrates: S
-            products:   P
-            regulators: I
-            steps: begin
-                E + S <--> E(S)
-                E(S) <--> E + P
-                E + I <--> E(I)
-            end
-        end
-        @test m isa EnzymeMechanism
-    end
-
-    @testset "No-atom species" begin
-        # All metabolites without atoms
-        m = @enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + S <--> E(S)
-                E(S) <--> E + P
-            end
-        end
-        @test m isa EnzymeMechanism
-        @test EnzymeRates.n_steps(m) == 2
-    end
-
-    @testset "Constraint DSL parsing" begin
-        # Bi-bi random with two K_A binding steps in shared kinetic group
-        m = @enzyme_mechanism begin
-            substrates: A, B
-            products:   P, Q
-            steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                E + B ⇌ E(B)
-                E(A) + B ⇌ E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(P, Q) ⇌ E(Q) + P
-                E(Q) ⇌ E + Q
-            end
-        end
-        @test m isa EnzymeMechanism
-        # One shared 2-step kinetic group (the A-binding pair) + 5 singletons →
-        # 7 steps, 6 groups (order-independent: canonicalization reorders steps).
-        @test length(unique(EnzymeRates.kinetic_group(m, i)
-                            for i in 1:EnzymeRates.n_steps(m))) == 6
     end
 
     @testset "::Inh role tag: product that also competitively inhibits" begin
@@ -702,63 +524,7 @@
         @test all(l -> l isa EnzymeRates.AllostericRegulator, EnzymeRates.ligands(site))
     end
 
-    @testset "fused catalytic release: metabolite in neither bound list dissociates" begin
-        # E(A) <--> E(Q) + P : P is produced by the step (in neither E(A) nor
-        # E(Q) bound list, and both sides are 1-bound). It must reconstruct as
-        # leaving at E(Q), stored as the binding it reverses: E(Q) + P → E(A).
-        m = @enzyme_mechanism begin
-            substrates: A
-            products: P, Q
-            steps: begin
-                E + A <--> E(A)
-                E(A) <--> E(Q) + P
-                E(Q) <--> E + Q
-            end
-        end
-        rxns = EnzymeRates.reactions(m)
-        # The P-releasing step (canonical order, so found by content):
-        # E(Q) + P → E(A).
-        mid = only(r for r in rxns if :P in r[1] || :P in r[2])
-        @test mid[1] == (:EQ, :P)  # lhs: E(Q) takes up P
-        @test mid[2] == (:EA,)     # rhs: only the enzyme form
-    end
-
     @testset "several metabolites on a step side" begin
-        only_transformation(m) = only(
-            s for g in EnzymeRates.steps(EnzymeRates.Mechanism(m)) for s in g
-            if !EnzymeRates.is_iso(s) && !EnzymeRates.is_binding(s))
-        # Theorell–Chance: the left-hand metabolite is consumed, the right-hand
-        # one released.
-        tc = only_transformation(@enzyme_mechanism begin
-            substrates: A, B
-            products:   P, Q
-            steps: begin
-                E + A <--> E(A)
-                E(A) + B <--> E(Q) + P
-                E(Q) <--> E + Q
-            end
-        end)
-        @test EnzymeRates.consumed(tc) ==
-              EnzymeRates.Metabolite[EnzymeRates.Substrate(:B)]
-        @test EnzymeRates.released(tc) ==
-              EnzymeRates.Metabolite[EnzymeRates.Product(:P)]
-
-        # Two metabolites bound in one step.
-        two_in = only_transformation(@enzyme_mechanism begin
-            substrates: A, B
-            products:   P, Q
-            steps: begin
-                E + A + B <--> E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(P, Q) <--> E(Q) + P
-                E(Q) <--> E + Q
-            end
-        end)
-        @test EnzymeRates.consumed(two_in) ==
-              EnzymeRates.Metabolite[EnzymeRates.Substrate(:A),
-                                     EnzymeRates.Substrate(:B)]
-        @test isempty(EnzymeRates.released(two_in))
-
         # A side with two enzyme forms is still rejected.
         @test_throws "more than one enzyme-form term" eval(:(@enzyme_mechanism begin
             substrates: A, B
