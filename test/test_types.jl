@@ -1,5 +1,7 @@
 # ABOUTME: Tests for the core EnzymeRates types (Mechanism, Step, Species,
 # ABOUTME: Parameter family) and their constructors, accessors, and equality.
+using Serialization
+
 @testset "Types" begin
     @testset "EnzymeMechanism struct + accessors" begin
         m = @enzyme_mechanism begin
@@ -2776,4 +2778,38 @@ end
         # contradicts the third row's -y1 - y2 > 0.
         @test !ER._has_strict_positive_combination(R[1 0; 0 1; -1 -1])
     end
+end
+
+@testset "the naming cache never changes a mechanism's identity" begin
+    m1 = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P, Q) ⇌ E(Q) + P
+            E(Q) ⇌ E + Q
+        end
+    end)
+    m2 = EnzymeRates.Mechanism(EnzymeRates.reaction(m1),
+                               deepcopy(EnzymeRates.steps(m1)))
+    param_names(m) =
+        [EnzymeRates.name(p, m) for p in EnzymeRates._enumerate_parameters_full(m)]
+    names1 = param_names(m1)
+    @test m1 == m2
+    @test hash(m1) == hash(m2)
+    @test EnzymeRates.compile_mechanism(m1) === EnzymeRates.compile_mechanism(m2)
+    @test names1 == param_names(m2)
+    io = IOBuffer(); serialize(io, m1); seekstart(io)
+    m3 = deserialize(io)
+    @test m3 == m1 && hash(m3) == hash(m1)
+    @test names1 == param_names(m3)
+    # A species' stored name is rendered from its sorted bound list, so the order in
+    # which the bound metabolites are given does not change it.
+    A, B = EnzymeRates.Substrate(:A), EnzymeRates.Substrate(:B)
+    sp = EnzymeRates.Species(EnzymeRates.Metabolite[A, B], :E)
+    sp2 = EnzymeRates.Species(EnzymeRates.Metabolite[B, A], :E)
+    @test sp2 == sp && hash(sp2) == hash(sp)
+    @test EnzymeRates.name(sp2) === EnzymeRates.name(sp) === :EAB
 end

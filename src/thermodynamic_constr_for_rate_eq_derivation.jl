@@ -68,7 +68,7 @@ binding-in step.
 Shared by the kinetic-group name representative and the Haldane
 elimination pivot.
 """
-function _free_enz_set(m::Union{Mechanism, AllostericMechanism})
+function _compute_free_enz_set(m::Union{Mechanism, AllostericMechanism})
     enz_names = Set{Symbol}()
     for group in steps(m), s in group
         push!(enz_names, name(from_species(s)))
@@ -92,6 +92,17 @@ function _free_enz_set(m::Union{Mechanism, AllostericMechanism})
         end
     end
     free_enz_set
+end
+
+"""
+The free-enzyme form names of `m` (`_compute_free_enz_set`), cached per mechanism.
+Callers share the returned set and must not mutate it.
+"""
+function _free_enz_set(m::Union{Mechanism, AllostericMechanism})
+    c = m.naming
+    fes = c.free_enz
+    fes === nothing || return fes
+    c.free_enz = _compute_free_enz_set(m)
 end
 
 """
@@ -407,7 +418,7 @@ function _assemble_constraints(
     sym_col = Dict(p => i for (i, p) in enumerate(columns))
     n_vars = length(columns)
 
-    step_name(p::Parameter) = get(rename, name(p, mech), name(p, mech))
+    step_name(p::Parameter) = (s = name(p, mech); get(rename, s, s))
 
     binding_K_set = Set{Symbol}()
     for (j, (s, _)) in enumerate(flat)

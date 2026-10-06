@@ -66,15 +66,19 @@ _met_label(m::Metabolite) =
 """
 Species: an enzyme form. `bound` is sorted by `_met_sort_key`; the
 rendered Symbol name reads `:E` / `:EATP` / `:Estar...` / `:EATP_res_+P`.
+The name is rendered once at construction and stored in `name`; it never
+takes part in `==` or `hash`.
 """
 struct Species
     bound::Vector{Metabolite}
     conformation::Symbol
     residual::Residual
+    name::Symbol
     function Species(bound::Vector{<:Metabolite}, conformation::Symbol,
                      residual::Residual)
-        new(sort(Vector{Metabolite}(bound); by = _met_sort_key),
-            conformation, residual)
+        sorted = sort(Vector{Metabolite}(bound); by = _met_sort_key)
+        new(sorted, conformation, residual,
+            _species_name(sorted, conformation, residual))
     end
 end
 Species(bound, conformation::Symbol) = Species(bound, conformation, Residual())
@@ -97,23 +101,25 @@ Metabolite Symbols must not contain `_` (domain convention): `:EATP`
 unambiguously means E with ATP bound, not a conformation named "EATP".
 Examples: `:E`, `:ES`, `:EATP`, `:EstarA_res_+P`.
 """
-function name(s::Species)
-    head = String(conformation(s))
-    for m in bound(s)
+function _species_name(bound::Vector{Metabolite}, conformation::Symbol,
+                       residual::Residual)
+    head = String(conformation)
+    for m in bound
         head *= _met_label(m)
     end
     parts = String[head]
-    if has_residual(s)
+    if !isempty(residual)
         push!(parts, "res")
-        for a in added(residual(s))
+        for a in added(residual)
             push!(parts, "+" * String(name(a)))
         end
-        for r in subtracted(residual(s))
+        for r in subtracted(residual)
             push!(parts, "-" * String(name(r)))
         end
     end
     Symbol(join(parts, "_"))
 end
+name(s::Species) = s.name
 
 """
 RegulatorySite: a binding site (possibly multimeric) for one or
@@ -807,6 +813,17 @@ function _bottomless_re_segment(steps::Vector{Vector{Step}})
 end
 
 """
+Naming data derived from a mechanism's steps, filled on first use: the free-enzyme
+form names and each kinetic group's naming representative. It never takes part in
+`==`, `hash` or the compiled type.
+"""
+mutable struct _NamingCache
+    free_enz::Union{Nothing, Set{Symbol}}
+    reps::Union{Nothing, Vector{Step}}
+end
+_NamingCache() = _NamingCache(nothing, nothing)
+
+"""
     Mechanism
 
 A non-allosteric enzyme mechanism: a `reaction::EnzymeReaction` plus
@@ -821,6 +838,7 @@ structure and flat iteration order. Lift to the singleton derivation type with
 struct Mechanism
     reaction::EnzymeReaction
     steps::Vector{Vector{Step}}
+    naming::_NamingCache
     function Mechanism(reaction::EnzymeReaction,
                        steps::Vector{Vector{Step}})
         steps = _canonicalize_step_directions(reaction, steps)
@@ -828,7 +846,7 @@ struct Mechanism
         _assert_uniform_groups(steps)
         _assert_each_reaction_once(steps)
         _assert_re_segments_have_bottom(steps)
-        new(reaction, steps)
+        new(reaction, steps, _NamingCache())
     end
 end
 
@@ -872,6 +890,7 @@ struct AllostericMechanism
     cat_allo_states::Vector{Symbol}
     catalytic_multiplicity::Int
     regulatory_sites::Vector{RegulatorySite}
+    naming::_NamingCache
 
     function AllostericMechanism(reaction::EnzymeReaction,
                                  cat_steps::Vector{Vector{Step}},
@@ -923,7 +942,7 @@ struct AllostericMechanism
         violation === nothing ||
             error("AllostericMechanism: $violation")
         new(reaction, cat_steps, cat_allo_states,
-            catalytic_multiplicity, regulatory_sites)
+            catalytic_multiplicity, regulatory_sites, _NamingCache())
     end
 end
 
@@ -1773,11 +1792,19 @@ The constant of the reaction `a → b`: `prefix`, the state tag, then
 _render_reaction(prefix::String, (a, b)::Tuple{String, String}, state::Symbol) =
     Symbol(prefix, _state_tag(state), a, "_to_", b)
 
+"""Each kinetic group's naming representative, in group order; cached per mechanism."""
+function _group_reps(m::Union{Mechanism, AllostericMechanism})
+    c = m.naming
+    reps = c.reps
+    reps === nothing || return reps
+    fes = _free_enz_set(m)
+    c.reps = Step[_group_rep(group, fes) for group in steps(m)]
+end
+
 """Find the kinetic group containing `step`; return its naming rep."""
 function _rep_step(step::Step, m::Union{Mechanism, AllostericMechanism})
-    fes = _free_enz_set(m)
-    for group in steps(m)
-        step in group && return _group_rep(group, fes)
+    for (g, group) in enumerate(steps(m))
+        step in group && return _group_reps(m)[g]
     end
     error("Step not found in mechanism: $step")
 end
