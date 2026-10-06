@@ -1093,7 +1093,7 @@ end
 am = EnzymeRates.AllostericMechanism(m_compiled)
 state_of(pred) = EnzymeRates.cat_allo_state(am,
     only(g for g in EnzymeRates.kinetic_groups(am)
-         if pred(EnzymeRates.bound_metabolite(EnzymeRates.rep_step(am, g)))))
+         if pred(EnzymeRates.bound_metabolite(first(EnzymeRates.steps(am)[g])))))
 @test state_of(bm -> bm isa EnzymeRates.Substrate) == :EqualAI
 @test state_of(bm -> bm isa EnzymeRates.Product) == :NonequalAI
 @test state_of(bm -> bm === nothing) == :OnlyA
@@ -1268,7 +1268,8 @@ end
     @test all(_testhelper_holds_iso, ub[1:3])
     @test Set(ub[4:7]) == Set([ordered_p, ordered_q, random_p, random_q])
     for seed in ub[1:3]
-        @test length(ER._seed_variants(seed)) == (ER.n_steps(seed) == 4 ? 1 : 2)
+        @test length(ER._seed_variants(seed)) ==
+              (sum(length, ER.steps(seed)) == 4 ? 1 : 2)
     end
     for v in ub[4:7]
         fitted = _testhelper_fitted(v)
@@ -1297,14 +1298,14 @@ end
     @test !isempty(init_mechs)
     for m in init_mechs
         em = EnzymeRates.compile_mechanism(m)
-        @test :I ∉ EnzymeRates.regulators(em)
+        @test :I ∉ _testhelper_regulators(em)
     end
 
     expanded = EnzymeRates.expand_mechanisms(init_mechs, uni_uni_with_reg)
     found_with_reg = false
     for mm in expanded
         em = EnzymeRates.compile_mechanism(mm)
-        if :I in EnzymeRates.regulators(em)
+        if :I in _testhelper_regulators(em)
             found_with_reg = true
             break
         end
@@ -2282,7 +2283,7 @@ end
         @test r isa EnzymeRates.Mechanism
         _testhelper_assert_mechanism_invariants(r)
         @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
-        @test EnzymeRates.n_steps(r) == EnzymeRates.n_steps(m)
+        @test sum(length, EnzymeRates.steps(r)) == sum(length, EnzymeRates.steps(m))
         @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
     end
     # The SS A-binding group has no equilibrium constant to tie, so its
@@ -5834,10 +5835,10 @@ end
 
     # #distinct metabolites bound by an :OnlyA catalytic group (iso → skip)
     onlya_mets(am) = Set(EnzymeRates.name(EnzymeRates.bound_metabolite(
-                            EnzymeRates.rep_step(am, g)))
+                            first(EnzymeRates.steps(am)[g])))
         for g in EnzymeRates.kinetic_groups(am)
         if EnzymeRates.cat_allo_states(am)[g] === :OnlyA &&
-           !EnzymeRates.is_iso(EnzymeRates.rep_step(am, g)))
+           !EnzymeRates.is_iso(first(EnzymeRates.steps(am)[g])))
 
     seen = Set{UInt64}()
     frontier = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
@@ -8228,7 +8229,7 @@ end
     bp = only(EnzymeRates._context_bipartitions(groups[g]))
     child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
     @test length(EnzymeRates.steps(child)) == length(groups) + 1
-    @test EnzymeRates.n_steps(child) == EnzymeRates.n_steps(m)
+    @test sum(length, EnzymeRates.steps(child)) == sum(length, EnzymeRates.steps(m))
     @test Set(s for grp in EnzymeRates.steps(child) for s in grp) ==
           Set(s for grp in groups for s in grp)
     @test any(grp -> Set(grp) == Set(bp[1]), EnzymeRates.steps(child))
@@ -9602,7 +9603,7 @@ end
         end
     end
     worst = EnzymeRates.Mechanism(terter, EnzymeRates.steps(EnzymeRates.Mechanism(seed)))
-    @test EnzymeRates.n_steps(worst) == 55
+    @test sum(length, EnzymeRates.steps(worst)) == 55
     t_split = @elapsed split = EnzymeRates._expand_split_kinetic_group(worst)
     t_rest = @elapsed rest = vcat(
         EnzymeRates._expand_re_to_ss(worst),
@@ -10637,7 +10638,7 @@ end
             all(s -> !isempty(EnzymeRates.bound(EnzymeRates.from_species(s))), g)
     end
     is_free_e_binding(m, g) = begin
-        rs = EnzymeRates.rep_step(m, g)
+        rs = first(EnzymeRates.steps(m)[g])
         isempty(EnzymeRates.bound(EnzymeRates.from_species(rs))) &&
             EnzymeRates.bound_metabolite(rs) !== nothing
     end

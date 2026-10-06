@@ -86,13 +86,12 @@
                 E(P) ⇌ E + P
             end
         end
-        @test EnzymeRates.substrates(m) == (:S,)
-        @test EnzymeRates.products(m) == (:P,)
-        @test EnzymeRates.regulators(m) == (:I,)
+        @test _testhelper_substrates(m) == [:S]
+        @test _testhelper_products(m) == [:P]
+        @test _testhelper_regulators(m) == [:I]
         # One shared 2-step kinetic group (the S-binding pair) + 3 singletons →
         # 5 steps, 4 groups (order-independent: canonicalization reorders steps).
-        @test length(unique(EnzymeRates.kinetic_group(m, i)
-                            for i in 1:EnzymeRates.n_steps(m))) == 4
+        @test length(EnzymeRates.steps(EnzymeRates.Mechanism(m))) == 4
 
         # Residual notation: Estar(; residual = A - P).
         m_res = @enzyme_mechanism begin
@@ -108,7 +107,7 @@
             end
         end
         @test m_res isa EnzymeMechanism
-        @test EnzymeRates.n_steps(m_res) == 6
+        @test sum(length, EnzymeRates.steps(EnzymeRates.Mechanism(m_res))) == 6
 
         # Reject atom bracket syntax in substrates:
         @test_throws Exception eval(:(@enzyme_mechanism begin
@@ -433,9 +432,8 @@
             end
         end
         @test m isa EnzymeMechanism
-        @test EnzymeRates.n_steps(m) == 2
-        @test EnzymeRates.n_states(m) == 2
-        @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
+        @test sum(length, EnzymeRates.steps(EnzymeRates.Mechanism(m))) == 2
+        @test Set(_testhelper_enzyme_forms(_testhelper_flat_steps(m))) == Set([:E, :ES])
         @test Set(metabolites(m)) == Set([:S, :P])
     end
 
@@ -464,7 +462,7 @@
                 E + P::Inh <--> E(P::Inh)
             end
         end
-        forms = EnzymeRates.enzyme_forms(m)
+        forms = _testhelper_enzyme_forms(_testhelper_flat_steps(m))
         @test :EP in forms        # product-bound form (catalytic release)
         @test :EPinh in forms     # inhibitor-bound form — DISTINCT from :EP
         @test :EP != :EPinh

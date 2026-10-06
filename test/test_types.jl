@@ -50,23 +50,17 @@ end
             end
         end
 
-        @test ER.substrates(m) == (:S,)
-        @test ER.products(m) == (:P,)
-        @test ER.regulators(m) == ()
+        @test _testhelper_substrates(m) == [:S]
+        @test _testhelper_products(m) == [:P]
+        @test isempty(_testhelper_regulators(m))
         @test ER.metabolites(m) == (:S, :P)
         # Steps are canonicalized at construction, so compare content
-        # order-independently (the 4th tuple element is the flat index).
-        @test Set((r[1], r[2], r[3]) for r in ER.reactions(m)) == Set([
-            ((:E, :S), (:ES,), true),
-            ((:ES,),   (:EP,), false),
-            ((:E, :P), (:EP,), true),
-        ])
-        @test sort(collect(ER.equilibrium_steps(m))) == [false, true, true]
-        @test ER.n_steps(m) == 3
-        @test ER.kinetic_groups(m) == (1, 2, 3)
-        @test ER.steps_in_group(m, 1) == (1,)
-        @test Set(ER.enzyme_forms(m)) == Set([:E, :ES, :EP])
-        @test ER.n_states(m) == 3
+        # order-independently.
+        @test Set(ER._step_text.(_testhelper_flat_steps(m))) ==
+              Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
+        @test length(ER.steps(ER.Mechanism(m))) == 3
+        @test Set(_testhelper_enzyme_forms(_testhelper_flat_steps(m))) ==
+              Set([:E, :ES, :EP])
 
         # Shared kinetic-group: two steps in group 1 (regulator R binds
         # both E and E(S) sharing one K).
@@ -83,8 +77,7 @@ end
         end
         # Steps are canonicalized; the two R-binding steps share one kinetic
         # group → 5 steps, 4 groups (one 2-step group binding R).
-        @test length(unique(ER.kinetic_group(m2, i)
-                            for i in 1:ER.n_steps(m2))) == 4
+        @test length(ER.steps(ER.Mechanism(m2))) == 4
         shared = only(g for g in ER.Mechanism(m2).steps if length(g) == 2)
         @test all(ER.bound_metabolite(s) ==
                   ER.CompetitiveInhibitor(:R) for s in shared)
@@ -142,11 +135,11 @@ end
         am_c = ER.AllostericMechanism(m)
         onlyA_g = only(g for g in ER.kinetic_groups(am_c)
                        if ER.cat_allo_state(am_c, g) === :OnlyA)
-        @test ER.bound_metabolite(
-                  ER.rep_step(am_c, onlyA_g)) === nothing
+        @test ER.bound_metabolite(first(ER.steps(am_c)[onlyA_g])) === nothing
         @test all(ER.cat_allo_state(am_c, g) === :EqualAI
                   for g in ER.kinetic_groups(am_c) if g != onlyA_g)
-        @test ER.allosteric_regulators(m) == ((:I, :OnlyI),)
+        @test ER.allosteric_regulators(am_c) == [ER.AllostericRegulator(:I)]
+        @test ER.allo_states(only(ER.regulatory_sites(am_c))) == [:OnlyI]
     end
 
     @testset "Pretty printing" begin
@@ -426,19 +419,15 @@ end
                    "  E + P ⇌ EP :: EqualAI\n  E + S ⇌ ES :: NonequalAI\n" *
                    "  ES <--> EP :: OnlyA\n  reg site 1 (n=2): I [I::NonequalAI]\n" *
                    "  reg site 2 (n=2): J [J::OnlyI]"
+        am = ER.AllostericMechanism(m)
         # Every catalytic state appears in cat_allo_states line
-        cm_inner = ER.catalytic_mechanism(m)
-        n_groups = length(unique(ER.kinetic_group(cm_inner, i)
-                                 for i in 1:ER.n_steps(cm_inner)))
-        for g in 1:n_groups
-            @test occursin(string(ER.cat_allo_state(m, g)), s)
+        for g in ER.kinetic_groups(am)
+            @test occursin(string(ER.cat_allo_state(am, g)), s)
         end
         # No :NonequalAI ligand silently hidden from reg-site display
-        for (i, _) in enumerate(ER.regulatory_sites(m))
-            for lig in ER.regulatory_sites(m)[i][1]
-                state = ER.reg_allo_state(m, i, lig)
-                @test occursin("$lig::$state", s)
-            end
+        for site in ER.regulatory_sites(am),
+            (lig, state) in zip(ER.ligands(site), ER.allo_states(site))
+            @test occursin("$(ER.name(lig))::$state", s)
         end
     end
 
@@ -921,7 +910,7 @@ end
         @test Set(s for (s, _) in flat) == Set([bind, iso, rel])
         @test [g for (_, g) in flat] == [1, 2, 3]
         @test ER.kinetic_groups(m) == 1:3
-        @test ER.n_steps(m) == 3
+        @test sum(length, ER.steps(m)) == 3
         # Canonical by construction: a permuted input yields identical storage.
         m_perm = ER.Mechanism(rxn, [[rel], [bind], [iso]])
         @test ER._flat_steps(m) == ER._flat_steps(m_perm)
@@ -944,16 +933,15 @@ end
               Set([bind, iso, rel])
         state_of(step) = ER.cat_allo_state(m,
             only(g for g in ER.kinetic_groups(m)
-                 if ER.rep_step(m, g) == step))
+                 if first(ER.steps(m)[g]) == step))
         @test state_of(bind) == :EqualAI
         @test state_of(iso)  == :OnlyA
         @test state_of(rel)  == :NonequalAI
         @test ER.catalytic_multiplicity(m) == 2
         @test ER.regulatory_sites(m) == [site]
         @test ER.kinetic_groups(m) == 1:3
-        @test ER.n_steps(m) == 3
-        @test iso in (ER.rep_step(m, g)
-                      for g in ER.kinetic_groups(m))
+        @test sum(length, ER.steps(m)) == 3
+        @test iso in first.(ER.steps(m))
         @test ER.allosteric_regulators(m) ==
               [ER.AllostericRegulator(:I)]
 
@@ -999,9 +987,6 @@ end
 
         @test ER.catalytic_mechanism(aem) === cm
         @test ER.catalytic_multiplicity(aem) == 2
-        @test [ER.cat_allo_state(aem, g) for g in 1:3] ==
-              [:EqualAI, :NonequalAI, :OnlyA]
-        @test ER.regulatory_sites(aem) == (((:A, :B), 1, (:OnlyA, :NonequalAI)),)
 
         am = ER.AllostericMechanism(aem)
         @test am isa ER.AllostericMechanism
@@ -1039,16 +1024,12 @@ end
 
         # Step-bound parameters. Group order is canonical, so pick the
         # substrate-binding and iso steps by content.
-        rep_bind = only(ER.rep_step(am, g)
-            for g in ER.kinetic_groups(am)
-            if ER.bound_metabolite(
-                   ER.rep_step(am, g)) isa ER.Substrate)
+        reps = first.(ER.steps(am))
+        rep_bind = only(r for r in reps if ER.bound_metabolite(r) isa ER.Substrate)
         @test ER.name(ER.Kd(rep_bind, :None), am) === :K_ES_to_E_S
         @test ER.name(ER.Kd(rep_bind, :I), am) === :K_I_ES_to_E_S
 
-        rep_iso  = only(ER.rep_step(am, g)
-            for g in ER.kinetic_groups(am)
-            if ER.bound_metabolite(ER.rep_step(am, g)) === nothing)
+        rep_iso  = only(r for r in reps if ER.bound_metabolite(r) === nothing)
         @test ER.name(ER.Kfor(rep_iso, :None), am) === :k_ES_to_EP
         @test ER.name(ER.Kiso(rep_iso, :None), am) === :K_ES_to_EP
         @test ER.name(ER.Kon(rep_iso, :None), am) === :k_ES_to_EP

@@ -793,8 +793,6 @@ struct Mechanism
 end
 
 steps(m::Mechanism) = m.steps
-n_steps(m::Mechanism) = sum(length, m.steps; init = 0)
-rep_step(m::Mechanism, g::Int) = first(m.steps[g])
 Base.show(io::IO, m::Mechanism) = _show_fields(io, m, (:reaction, :steps))
 
 # AllostericMechanism: a multi-subunit MWC enzyme. Each catalytic
@@ -873,16 +871,8 @@ cat_allo_state(m::AllostericMechanism, g::Int) = m.cat_allo_states[g]
 cat_allo_states(m::AllostericMechanism) = m.cat_allo_states
 catalytic_multiplicity(m::AllostericMechanism) = m.catalytic_multiplicity
 regulatory_sites(m::AllostericMechanism) = m.regulatory_sites
-n_steps(m::AllostericMechanism) = sum(length, m.cat_steps; init = 0)
-rep_step(m::AllostericMechanism, g::Int) = first(m.cat_steps[g])
-
-function allosteric_regulators(m::AllostericMechanism)
-    seen = AllostericRegulator[]
-    for site in regulatory_sites(m), lig in ligands(site)
-        lig in seen || push!(seen, lig)
-    end
-    seen
-end
+allosteric_regulators(m::AllostericMechanism) =
+    unique(AllostericRegulator[l for s in regulatory_sites(m) for l in ligands(s)])
 
 Base.show(io::IO, m::AllostericMechanism) = _show_fields(io, m,
     (:reaction, :cat_steps, :cat_allo_states, :catalytic_multiplicity, :regulatory_sites))
@@ -939,9 +929,9 @@ group.
 
 A regulator declared on the reaction that no step actually binds does not belong in
 the compiled catalytic mechanism's `regulators` list (e.g. a dead-end inhibitor
-before any expansion move binds it), so the Sig leaves it out: it neither shows up
-in `regulators(em)` nor gets a parameter. Substrates and products are always
-encoded. `Mechanism` (the working representation used during enumeration)
+before any expansion move binds it), so the Sig leaves it out: the reaction of
+`Mechanism(em)` does not list it and it gets no parameter. Substrates and products
+are always encoded. `Mechanism` (the working representation used during enumeration)
 intentionally KEEPS unbound regulators — expansion moves bind them later.
 """
 function _sig_of(m::Mechanism)
@@ -974,7 +964,8 @@ function _mechanism_from_sig(@nospecialize(sig::Tuple))
         ReactantAtoms[
             ReactantAtoms(met(r[1]), Pair{Symbol, Int}[a => n for (a, n) in r[2]])
             for r in reactants_sig],
-        RegulatorMults[RegulatorMults(met(r[1]), collect(Int, r[2])) for r in regulators_sig],
+        RegulatorMults[
+            RegulatorMults(met(r[1]), collect(Int, r[2])) for r in regulators_sig],
         collect(Int, mults_sig))
     groups = Vector{Step}[]
     for group_sig in sig[2]
@@ -1174,32 +1165,13 @@ end
 
 # ─── Accessors ─────────────────────────────────────────────────
 #
-# Accessors on `EnzymeMechanism` lift to `Mechanism(em)` and walk the
-# concrete `reaction` / `steps` fields. Return shapes (tuples of
-# `Symbol`s, the `Matrix{Int}` stoichiometry, ranges) are the contract
-# consumed by the @generated rate-equation body builders.
+# A compiled mechanism is read by lifting it to its concrete `Mechanism` or
+# `AllostericMechanism` (`Mechanism(em)`, `AllostericMechanism(aem)`) and walking its
+# `reaction` and `steps` fields. Only `metabolites` is read on the compiled type itself.
 
 """Walk the steps of `m` in flat order, yielding
 `(step::Step, kinetic_group::Int)` pairs."""
 _flat_steps(m::Mechanism) = [(s, g) for (g, group) in enumerate(steps(m)) for s in group]
-
-"""Return substrates as a tuple of `Symbol` names."""
-function substrates(em::EnzymeMechanism)
-    m = Mechanism(em)
-    Tuple(name(s) for s in substrates(reaction(m)))
-end
-
-"""Return products as a tuple of `Symbol` names."""
-function products(em::EnzymeMechanism)
-    m = Mechanism(em)
-    Tuple(name(p) for p in products(reaction(m)))
-end
-
-"""Return regulators as a tuple of `Symbol` names."""
-function regulators(em::EnzymeMechanism)
-    m = Mechanism(em)
-    Tuple(name(regulator(rm)) for rm in regulators(reaction(m)))
-end
 
 """
     metabolites(m::EnzymeMechanism) → Tuple{Symbol,...}
@@ -1232,150 +1204,16 @@ julia> metabolites(m)
     Tuple(_metabolite_names(reaction(Mechanism(EnzymeMechanism{Sig}()))))
 end
 
-"""Return the reactions tuple `((lhs, rhs, is_eq, kinetic_group), ...)`.
-Each step's `lhs` is its `from_species` name followed by the names of the
-metabolites it consumes; `rhs` is its `to_species` name followed by the names
-of the metabolites it releases."""
-function reactions(em::EnzymeMechanism)
-    m = Mechanism(em)
-    tuples = Any[]
-    for (g, group) in enumerate(steps(m))
-        for s in group
-            push!(tuples,
-                  ((name(from_species(s)), name.(consumed(s))...),
-                   (name(to_species(s)), name.(released(s))...),
-                   is_equilibrium(s), g))
-        end
-    end
-    return Tuple(tuples)
-end
-
-"""Return the equilibrium-step flags (`true` = rapid-equilibrium, `false` = steady-state)."""
-function equilibrium_steps(em::EnzymeMechanism)
-    m = Mechanism(em)
-    Tuple(is_equilibrium(s) for group in steps(m) for s in group)
-end
-
-"""Number of steps in the mechanism."""
-function n_steps(em::EnzymeMechanism)
-    m = Mechanism(em)
-    sum(length, steps(m); init=0)
-end
-
-"""Kinetic group of step `idx`."""
-function kinetic_group(em::EnzymeMechanism, idx::Int)
-    flat = _flat_steps(Mechanism(em))
-    1 ≤ idx ≤ length(flat) ||
-        error("kinetic_group: step index $idx out of range 1:$(length(flat))")
-    return flat[idx][2]
-end
-
-"""Sorted tuple of distinct kinetic group ids."""
-function kinetic_groups(em::EnzymeMechanism)
-    m = Mechanism(em)
-    Tuple(1:length(steps(m)))
-end
-
-"""Indices of steps belonging to kinetic group `g`."""
-function steps_in_group(em::EnzymeMechanism, g::Int)
-    flat = _flat_steps(Mechanism(em))
-    Tuple(i for (i, (_, gid)) in enumerate(flat) if gid == g)
-end
-steps_in_group(em::EnzymeMechanism, ::Val{G}) where {G} = steps_in_group(em, G)
-
-"""
-    enzyme_forms(m::EnzymeMechanism) → Tuple{Symbol,...}
-
-Return distinct enzyme-form names (any symbol appearing in a step that is not a
-metabolite) as a tuple of `Symbol`s in step-order, deduplicated.
-"""
-function enzyme_forms(em::EnzymeMechanism)
-    # Collect metabolite names so a Species whose synthesized name
-    # coincidentally matches a metabolite (e.g., bare `:S` conformation)
-    # is excluded.
-    m = Mechanism(em)
-    met_names = Set(metabolites(em))
-    seen = Set{Symbol}()
-    forms = Symbol[]
-    for group in steps(m), s in group
-        for sp in (from_species(s), to_species(s))
-            nm = name(sp)
-            nm ∉ met_names && nm ∉ seen &&
-                (push!(seen, nm); push!(forms, nm))
-        end
-    end
-    return Tuple(forms)
-end
-
-"""Number of distinct enzyme states."""
-n_states(m::EnzymeMechanism) = length(enzyme_forms(m))
-
 # ─── AllostericEnzymeMechanism Accessors ────────────────────────
 
 catalytic_mechanism(::AllostericEnzymeMechanism{CM}) where {CM} = CM()
 catalytic_multiplicity(::AllostericEnzymeMechanism{CM, CS}) where {CM, CS} = CS[1]
-
-"""Return the allosteric state of catalytic kinetic group `g`."""
-function cat_allo_state(::AllostericEnzymeMechanism{CM, CS, RS}, g::Int) where {CM, CS, RS}
-    _, states = CS
-    return states[g]
-end
-
-# These accessors forward to the catalytic_mechanism. Generated en masse
-# to avoid 13 lines of boilerplate.
-for fn in (:substrates, :products, :reactions, :equilibrium_steps,
-           :n_steps, :enzyme_forms, :n_states, :kinetic_groups)
-    @eval $fn(m::AllostericEnzymeMechanism) = $fn(catalytic_mechanism(m))
-end
-kinetic_group(m::AllostericEnzymeMechanism, i::Int) =
-    kinetic_group(catalytic_mechanism(m), i)
-steps_in_group(m::AllostericEnzymeMechanism, g) =
-    steps_in_group(catalytic_mechanism(m), g)
-
-"""
-Returns ONLY reg-site ligands, NOT a union with catalytic_mechanism's
-regulators. Downstream rate-equation code reads `regulators(m)` to find
-dead-end binding K's; including allosteric-only ligands would cause it
-to look up nonexistent K names.
-"""
-regulators(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
-    syms = Symbol[]
-    seen = Set{Symbol}()
-    for entry in RS
-        for lig in entry[1]
-            lig in seen || (push!(seen, lig); push!(syms, lig))
-        end
-    end
-    Tuple(syms)
-end
 
 # `@generated` for the same reason as `metabolites(::EnzymeMechanism)`: `loss!` needs
 # the tuple as a compile-time constant.
 @generated function metabolites(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS}
     ligs = (l for (site_ligands, _, _) in RS for l in site_ligands)
     Tuple(unique!(Symbol[metabolites(CM())..., ligs...]))
-end
-
-allosteric_regulators(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
-    result = Tuple{Symbol, Symbol}[]
-    for (ligands, _, reg_allo_states) in RS
-        for (lig, st) in zip(ligands, reg_allo_states)
-            push!(result, (lig, st))
-        end
-    end
-    Tuple(result)
-end
-
-regulatory_sites(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = RS
-
-"""Return the allosteric state of regulator ligand `lig` at site `site_idx`."""
-function reg_allo_state(
-    ::AllostericEnzymeMechanism{CM, CS, RS}, site_idx::Int, lig::Symbol,
-) where {CM, CS, RS}
-    ligands, _, states = RS[site_idx]
-    idx = findfirst(==(lig), ligands)
-    idx === nothing && error("Ligand $lig not at regulatory site $site_idx")
-    return states[idx]
 end
 
 # ─── name(p::Parameter, m) chokepoint ─────────────────────────────────

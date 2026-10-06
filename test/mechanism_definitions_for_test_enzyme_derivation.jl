@@ -114,6 +114,39 @@ function _testhelper_assert_mechanism_invariants(m)
     nothing
 end
 
+# The Mechanism lifted from an EnzymeMechanism, or the AllostericMechanism lifted from an
+# AllostericEnzymeMechanism.
+_testhelper_lift(m::EnzymeRates.EnzymeMechanism) = EnzymeRates.Mechanism(m)
+_testhelper_lift(m::EnzymeRates.AllostericEnzymeMechanism) =
+    EnzymeRates.AllostericMechanism(m)
+
+# The steps of a compiled mechanism in stored order, and the enzyme-form names across
+# a list of steps in order of first appearance.
+_testhelper_flat_steps(m) =
+    collect(Iterators.flatten(EnzymeRates.steps(_testhelper_lift(m))))
+_testhelper_enzyme_forms(steps) = unique(
+    EnzymeRates.name(sp) for s in steps
+    for sp in (EnzymeRates.from_species(s), EnzymeRates.to_species(s)))
+
+# The names of a compiled mechanism's substrates, products and regulators.
+_testhelper_substrates(m) =
+    EnzymeRates.name.(EnzymeRates.substrates(EnzymeRates.reaction(_testhelper_lift(m))))
+_testhelper_products(m) =
+    EnzymeRates.name.(EnzymeRates.products(EnzymeRates.reaction(_testhelper_lift(m))))
+_testhelper_regulators(m) = EnzymeRates.name.(EnzymeRates.regulator.(
+    EnzymeRates.regulators(EnzymeRates.reaction(_testhelper_lift(m)))))
+
+"""Generate random reduced (fitted) params + Keq + E_total for a mechanism."""
+function random_reduced_params(m; rng=Random.default_rng())
+    fp = EnzymeRates.fitted_params(m)
+    vals = Tuple(0.1 + 9.9 * rand(rng) for _ in fp)
+    Keq_val = 0.1 + 9.9 * rand(rng)
+    E_total_val = 0.1 + 9.9 * rand(rng)
+    keys_out = (fp..., :Keq, :E_total)
+    vals_out = (vals..., Keq_val, E_total_val)
+    NamedTuple{keys_out}(vals_out)
+end
+
 # ── Mechanism test specifications ───────────────────────────────────────────
 
 const MECHANISM_TEST_SPECS = MechanismTestSpec[]

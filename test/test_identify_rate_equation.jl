@@ -44,7 +44,7 @@ end
     _base = first(EnzymeRates.init_mechanisms(test_rxn))
     _cat_allo_states = Symbol[]
     for g in EnzymeRates.kinetic_groups(_base)
-        rep = EnzymeRates.rep_step(_base, g)
+        rep = first(EnzymeRates.steps(_base)[g])
         met = EnzymeRates.bound_metabolite(rep)
         tag = (met isa EnzymeRates.Reactant) ? :OnlyA : :NonequalAI
         push!(_cat_allo_states, tag)

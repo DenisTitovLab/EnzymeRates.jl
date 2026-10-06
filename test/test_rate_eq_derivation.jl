@@ -20,26 +20,23 @@ function reference_qssa(
     params::NamedTuple,
     concs::NamedTuple,
 )
-    # Walk reactions via accessor so this helper follows the compiled
+    # Walk the steps of the lifted mechanism, so this helper follows the compiled
     # mechanism representation.
-    Reactions = EnzymeRates.reactions(m)
-    enz_names = EnzymeRates.enzyme_forms(m)
+    flat = _testhelper_flat_steps(m)
+    enz_names = _testhelper_enzyme_forms(flat)
     n = length(enz_names)
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
-    enz_set = Set(enz_names)
 
     ref_name, nu_ref = _reference_metabolite(m)
 
     # Build rate matrix R[i,j] = pseudo-first-order rate from i to j
     R = zeros(n, n)
-    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
-        e_lhs = first(s for s in lhs if s in enz_set)
-        e_rhs = first(s for s in rhs if s in enz_set)
-        i = name_to_idx[e_lhs]
-        j = name_to_idx[e_rhs]
+    for (step_idx, step) in enumerate(flat)
+        i = name_to_idx[EnzymeRates.name(EnzymeRates.from_species(step))]
+        j = name_to_idx[EnzymeRates.name(EnzymeRates.to_species(step))]
 
-        m_lhs = [s for s in lhs if s ∉ enz_set]
-        m_rhs = [s for s in rhs if s ∉ enz_set]
+        m_lhs = EnzymeRates.name.(EnzymeRates.consumed(step))
+        m_rhs = EnzymeRates.name.(EnzymeRates.released(step))
 
         kf = params[Symbol("k$(step_idx)f")]
         kr = params[Symbol("k$(step_idx)r")]
@@ -75,14 +72,12 @@ function reference_qssa(
 
     # Compute net consumption of reference substrate
     v = 0.0
-    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
-        e_lhs = first(s for s in lhs if s in enz_set)
-        e_rhs = first(s for s in rhs if s in enz_set)
-        i = name_to_idx[e_lhs]
-        j = name_to_idx[e_rhs]
+    for (step_idx, step) in enumerate(flat)
+        i = name_to_idx[EnzymeRates.name(EnzymeRates.from_species(step))]
+        j = name_to_idx[EnzymeRates.name(EnzymeRates.to_species(step))]
 
-        m_lhs = [s for s in lhs if s ∉ enz_set]
-        m_rhs = [s for s in rhs if s ∉ enz_set]
+        m_lhs = EnzymeRates.name.(EnzymeRates.consumed(step))
+        m_rhs = EnzymeRates.name.(EnzymeRates.released(step))
 
         kf = params[Symbol("k$(step_idx)f")]
         kr = params[Symbol("k$(step_idx)r")]
@@ -473,19 +468,8 @@ function analytical_oracle_params(m, nt::NamedTuple;
     NamedTuple{Tuple(names)}(Tuple(vals))
 end
 
-"""Generate random reduced (fitted) params + Keq + E_total for a mechanism."""
-function random_reduced_params(m; rng=Random.default_rng())
-    fp = EnzymeRates.fitted_params(m)
-    vals = Tuple(0.1 + 9.9 * rand(rng) for _ in fp)
-    Keq_val = 0.1 + 9.9 * rand(rng)
-    E_total_val = 0.1 + 9.9 * rand(rng)
-    keys_out = (fp..., :Keq, :E_total)
-    vals_out = (vals..., Keq_val, E_total_val)
-    NamedTuple{keys_out}(vals_out)
-end
-
 """Check if mechanism has any rapid-equilibrium steps."""
-_has_re_steps(m) = any(EnzymeRates.equilibrium_steps(m))
+_has_re_steps(m) = any(EnzymeRates.is_equilibrium, _testhelper_flat_steps(m))
 
 """
 Test that `rate_equation` is non-allocating and fast for the given mechanism.
@@ -562,10 +546,7 @@ For RE isomerization steps (no metabolite, enzyme-only):
 """
 function raw_to_ode_params(m, raw_params)
     mech = m isa EnzymeRates.Mechanism ? m : EnzymeRates.Mechanism(m)
-    eq = EnzymeRates.equilibrium_steps(m)
-    ns = EnzymeRates.n_steps(m)
-    rxns = EnzymeRates.reactions(m)
-    enz_set = Set(EnzymeRates.enzyme_forms(m))
+    flat = EnzymeRates._flat_steps(mech)
     # Kinetic-group rename map: maps Wegscheider-equivalent RE binding K names
     # (e.g. K_ERinhS_to_ERinh_S → K_ES_to_E_S) so the param lookup succeeds even when the
     # mechanism has sharing via Wegscheider constraints.
@@ -573,8 +554,8 @@ function raw_to_ode_params(m, raw_params)
     # A canonical RE binding step has a metabolite on LHS (canonical form
     # invariant: all RE binding steps are written `E + S ⇌ ES`).
     is_binding_step = Bool[
-        eq[i] && any(s ∉ enz_set for s in rxns[i][1])
-        for i in 1:ns
+        EnzymeRates.is_equilibrium(s) && !isempty(EnzymeRates.consumed(s))
+        for (s, _) in flat
     ]
     # Resolve a structural param key through the rename map if not present
     _lookup(k) = haskey(raw_params, k) ? Float64(raw_params[k]) :
@@ -582,12 +563,11 @@ function raw_to_ode_params(m, raw_params)
                  error("raw_to_ode_params: missing param $k")
     param_keys = Symbol[]
     param_vals = Float64[]
-    for i in 1:ns
-        g = EnzymeRates.kinetic_group(m, i)
+    for (i, (step, g)) in enumerate(flat)
         rep_step = first(EnzymeRates.steps(mech)[g])
         push!(param_keys, Symbol("k$(i)f"))
         push!(param_keys, Symbol("k$(i)r"))
-        if eq[i]
+        if EnzymeRates.is_equilibrium(step)
             # Look up structural K key for the rep step (Kd for binding, Kiso for iso)
             if is_binding_step[i]
                 K_key = EnzymeRates.name(EnzymeRates.Kd(rep_step, :None), mech)
@@ -621,7 +601,7 @@ function raw_to_ode_params(m, raw_params)
 end
 
 function _reference_metabolite(m)
-    subs = EnzymeRates.substrates(m)
+    subs = _testhelper_substrates(m)
     isempty(subs) && error("No substrate found in mechanism")
     name = subs[1]
     coeff = -count(==(name), subs)
@@ -634,22 +614,19 @@ function build_ode_rhs(
     m::EnzymeMechanism,
     params, concs,
 )
-    # Walk reactions via accessor so this helper follows the compiled
+    # Walk the steps of the lifted mechanism, so this helper follows the compiled
     # mechanism representation.
-    Reactions = EnzymeRates.reactions(m)
-    enz_names = EnzymeRates.enzyme_forms(m)
+    flat = _testhelper_flat_steps(m)
+    enz_names = _testhelper_enzyme_forms(flat)
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
-    enz_set = Set(enz_names)
 
     step_data = []
-    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
-        e_lhs = first(s for s in lhs if s in enz_set)
-        e_rhs = first(s for s in rhs if s in enz_set)
-        i = name_to_idx[e_lhs]
-        j = name_to_idx[e_rhs]
+    for (step_idx, step) in enumerate(flat)
+        i = name_to_idx[EnzymeRates.name(EnzymeRates.from_species(step))]
+        j = name_to_idx[EnzymeRates.name(EnzymeRates.to_species(step))]
 
-        m_lhs = [s for s in lhs if s ∉ enz_set]
-        m_rhs = [s for s in rhs if s ∉ enz_set]
+        m_lhs = EnzymeRates.name.(EnzymeRates.consumed(step))
+        m_rhs = EnzymeRates.name.(EnzymeRates.released(step))
 
         kf = Float64(params[Symbol("k$(step_idx)f")])
         kr = Float64(params[Symbol("k$(step_idx)r")])
@@ -676,11 +653,10 @@ function ode_steady_state_flux(
     m::EnzymeMechanism,
     params, concs,
 )
-    Reactions = EnzymeRates.reactions(m)
+    flat = _testhelper_flat_steps(m)
     E_total = params.E_total
-    enz_names = EnzymeRates.enzyme_forms(m)
+    enz_names = _testhelper_enzyme_forms(flat)
     n = length(enz_names)
-    enz_set = Set(enz_names)
     ref_name, nu_ref = _reference_metabolite(m)
 
     u0 = zeros(n)
@@ -696,14 +672,12 @@ function ode_steady_state_flux(
 
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
     v = 0.0
-    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
-        e_lhs = first(s for s in lhs if s in enz_set)
-        e_rhs = first(s for s in rhs if s in enz_set)
-        i = name_to_idx[e_lhs]
-        j = name_to_idx[e_rhs]
+    for (step_idx, step) in enumerate(flat)
+        i = name_to_idx[EnzymeRates.name(EnzymeRates.from_species(step))]
+        j = name_to_idx[EnzymeRates.name(EnzymeRates.to_species(step))]
 
-        m_lhs = [s for s in lhs if s ∉ enz_set]
-        m_rhs = [s for s in rhs if s ∉ enz_set]
+        m_lhs = EnzymeRates.name.(EnzymeRates.consumed(step))
+        m_rhs = EnzymeRates.name.(EnzymeRates.released(step))
 
         kf = Float64(params[Symbol("k$(step_idx)f")])
         kr = Float64(params[Symbol("k$(step_idx)r")])
@@ -737,8 +711,9 @@ end
 function test_structure(spec::MechanismTestSpec)
     m = spec.mechanism
     @testset "Structure" begin
-        @test EnzymeRates.n_states(m) == spec.expected_n_states
-        @test EnzymeRates.n_steps(m) == spec.expected_n_steps
+        flat = _testhelper_flat_steps(m)
+        @test length(_testhelper_enzyme_forms(flat)) == spec.expected_n_states
+        @test length(flat) == spec.expected_n_steps
         @test metabolites(m) == Tuple(spec.metabolite_names)
         # Structural parameter names must be injective on the load-bearing
         # paths the fitter consumes (Reduced + fitted_params). A collision
@@ -893,11 +868,11 @@ function test_haldane_equilibrium(spec::MechanismTestSpec; seed=42)
         rng = Random.MersenneTwister(seed)
         new_params, _, _ = random_independent_params_concs(m, met_names; rng=rng)
         Keq = new_params.Keq
-        n_prods = length(EnzymeRates.products(m))
+        n_prods = length(_testhelper_products(m))
         # Build equilibrium concentrations: prod(P_i) / prod(S_i) = Keq
         # Set all substrates to 1.0, distribute Keq^(1/n_prods) across products
-        sub_names = collect(EnzymeRates.substrates(m))
-        prod_names = collect(EnzymeRates.products(m))
+        sub_names = _testhelper_substrates(m)
+        prod_names = _testhelper_products(m)
         eq_vals = Dict{Symbol,Float64}()
         for s in sub_names; eq_vals[s] = 1.0; end
         p_each = Keq^(1.0 / n_prods)
@@ -1080,9 +1055,9 @@ function test_kcat_rescaling(spec::MechanismTestSpec; seed=100)
         @test v_norm / v_orig ≈ 1.0 / kcat_orig rtol=1e-8
 
         # V ≈ 1 at saturating substrates, products=0
-        sub_names = collect(EnzymeRates.substrates(m))
-        prod_names = collect(EnzymeRates.products(m))
-        reg_names = collect(EnzymeRates.regulators(m))
+        sub_names = _testhelper_substrates(m)
+        prod_names = _testhelper_products(m)
+        reg_names = setdiff(met_names, sub_names, prod_names)
         n_reg = length(reg_names)
 
         norm_e1 = merge(norm, (E_total=1.0,))
@@ -1121,8 +1096,8 @@ function test_zero_metabolite_finite(spec::MechanismTestSpec)
     @testset "Zero-metabolite finiteness" begin
         rng = Random.MersenneTwister(777 + hash(spec.name) % 1000)
         mets = collect(metabolites(m))
-        sub_prod = Set{Symbol}(EnzymeRates.substrates(m))
-        union!(sub_prod, EnzymeRates.products(m))
+        sub_prod = Set{Symbol}(_testhelper_substrates(m))
+        union!(sub_prod, _testhelper_products(m))
         params = random_reduced_params(m; rng)
         for zeroed in mets
             cvals = Tuple(n == zeroed ? 0.0 : 0.5 + rand(rng) for n in mets)
@@ -1421,7 +1396,7 @@ end
     onlyA_groups = [g for g in EnzymeRates.kinetic_groups(am)
                     if EnzymeRates.cat_allo_state(am, g) === :OnlyA]
     @test length(onlyA_groups) == 2
-    onlyA_bms = [EnzymeRates.bound_metabolite(EnzymeRates.rep_step(am, g))
+    onlyA_bms = [EnzymeRates.bound_metabolite(first(EnzymeRates.steps(am)[g]))
                  for g in onlyA_groups]
     @test count(bm -> bm !== nothing && EnzymeRates.name(bm) === :ATP,
                 onlyA_bms) == 1
@@ -1481,7 +1456,7 @@ end
     for em in _LDH_ISTATE_MECHS
         pnames = EnzymeRates.fitted_params(em)
         mets = EnzymeRates.metabolites(em)
-        prods = Set(EnzymeRates.products(em))
+        prods = Set(_testhelper_products(em))
         params = merge(NamedTuple{pnames}(ntuple(_ -> 1.3, length(pnames))),
                        (Keq = 20000.0, E_total = 1.0))
         # No UndefVarError: the @generated body compiles and evaluates finite at
@@ -1515,8 +1490,8 @@ end
     for T in ALLOSTERIC_UNDEFVAR_REPRODUCERS
         m = T()
         pn = collect(EnzymeRates.fitted_params(m))
-        subs = collect(EnzymeRates.substrates(m))
-        prods = collect(EnzymeRates.products(m))
+        subs = _testhelper_substrates(m)
+        prods = _testhelper_products(m)
         mets = collect(EnzymeRates.metabolites(m))
         Keq = 20000.0
         p_each = Keq^(1 / length(prods))
