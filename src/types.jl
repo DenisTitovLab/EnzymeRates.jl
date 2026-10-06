@@ -1167,7 +1167,8 @@ end
 #
 # A compiled mechanism is read by lifting it to its concrete `Mechanism` or
 # `AllostericMechanism` (`Mechanism(em)`, `AllostericMechanism(aem)`) and walking its
-# `reaction` and `steps` fields. Only `metabolites` is read on the compiled type itself.
+# `reaction` and `steps` fields. Only `metabolites`, `catalytic_mechanism` and
+# `catalytic_multiplicity` are read on the compiled type itself.
 
 """Walk the steps of `m` in flat order, yielding
 `(step::Step, kinetic_group::Int)` pairs."""

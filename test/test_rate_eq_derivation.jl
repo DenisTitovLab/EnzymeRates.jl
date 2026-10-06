@@ -1057,7 +1057,7 @@ function test_kcat_rescaling(spec::MechanismTestSpec; seed=100)
         # V ≈ 1 at saturating substrates, products=0
         sub_names = _testhelper_substrates(m)
         prod_names = _testhelper_products(m)
-        reg_names = setdiff(met_names, sub_names, prod_names)
+        reg_names = _testhelper_regulators(m)
         n_reg = length(reg_names)
 
         norm_e1 = merge(norm, (E_total=1.0,))

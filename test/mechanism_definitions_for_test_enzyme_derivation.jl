@@ -128,13 +128,18 @@ _testhelper_enzyme_forms(steps) = unique(
     EnzymeRates.name(sp) for s in steps
     for sp in (EnzymeRates.from_species(s), EnzymeRates.to_species(s)))
 
-# The names of a compiled mechanism's substrates, products and regulators.
+# The names of a compiled mechanism's substrates and products, and of its regulators: an
+# EnzymeMechanism's catalytic regulators, an AllostericEnzymeMechanism's regulatory-site
+# ligands.
 _testhelper_substrates(m) =
     EnzymeRates.name.(EnzymeRates.substrates(EnzymeRates.reaction(_testhelper_lift(m))))
 _testhelper_products(m) =
     EnzymeRates.name.(EnzymeRates.products(EnzymeRates.reaction(_testhelper_lift(m))))
-_testhelper_regulators(m) = EnzymeRates.name.(EnzymeRates.regulator.(
-    EnzymeRates.regulators(EnzymeRates.reaction(_testhelper_lift(m)))))
+_testhelper_regulators(m::EnzymeRates.EnzymeMechanism) = EnzymeRates.name.(
+    EnzymeRates.regulator.(
+        EnzymeRates.regulators(EnzymeRates.reaction(_testhelper_lift(m)))))
+_testhelper_regulators(m::EnzymeRates.AllostericEnzymeMechanism) =
+    EnzymeRates.name.(EnzymeRates.allosteric_regulators(_testhelper_lift(m)))
 
 """Generate random reduced (fitted) params + Keq + E_total for a mechanism."""
 function random_reduced_params(m; rng=Random.default_rng())

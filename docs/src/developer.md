@@ -42,8 +42,8 @@ enzyme forms or steps can be slow to compile, exhaust memory, or `StackOverflow`
 `compile_mechanism(m::Mechanism) = EnzymeMechanism(m)` and
 `compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)`. The
 lift `EnzymeMechanism(m::Mechanism)` first drops regulators declared on the
-reaction but bound by no step, so they neither appear in `regulators` nor add a
-parameter; `Mechanism(em)` lifts back.
+reaction but bound by no step, so they add no parameter and the reaction of
+`Mechanism(em)`, which lifts back, does not list them.
 
 Only the `@generated` methods (`rate_equation`, `parameters`, `fitted_params`,
 `metabolites`, `_kcat_forward`) need code per singleton type. The lifts
