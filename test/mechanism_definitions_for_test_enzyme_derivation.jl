@@ -14,12 +14,11 @@ Base.@kwdef struct MechanismTestSpec
     # Core data
     name::String                          # Human-readable name for test labels
     mechanism::Any                        # EnzymeMechanism or AllostericEnzymeMechanism
-    metabolite_names::Vector{Symbol}      # For param/conc generation
+    metabolite_names::Vector{Symbol}      # metabolites(mechanism) order; for params/concs
 
     # Structural expectations
     expected_n_states::Int
     expected_n_steps::Int
-    expected_n_metabolites::Int
 
     # Constraint expectations
     expected_n_haldane_constraints::Int       # RHS references Keq (catalytic-cycle closure)
@@ -119,7 +118,6 @@ let
         metabolite_names=[:S, :P],
         expected_n_states=2,
         expected_n_steps=2,
-        expected_n_metabolites=2,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -163,7 +161,6 @@ let
         metabolite_names=[:A, :P],
         expected_n_states=3,
         expected_n_steps=3,
-        expected_n_metabolites=2,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -205,7 +202,6 @@ let
         metabolite_names=[:A, :P],
         expected_n_states=4,
         expected_n_steps=4,
-        expected_n_metabolites=2,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -248,7 +244,6 @@ let
         metabolite_names=[:A, :P, :Q],
         expected_n_states=3,
         expected_n_steps=3,
-        expected_n_metabolites=3,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -298,7 +293,6 @@ let
         metabolite_names=[:A, :B, :P, :Q],
         expected_n_states=4,
         expected_n_steps=4,
-        expected_n_metabolites=4,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -346,7 +340,6 @@ let
         metabolite_names=[:A, :B, :P, :Q],
         expected_n_states=3,
         expected_n_steps=3,
-        expected_n_metabolites=4,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -395,7 +388,6 @@ let
         metabolite_names=[:A, :B, :P, :Q],
         expected_n_states=4,
         expected_n_steps=4,
-        expected_n_metabolites=4,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -462,7 +454,6 @@ let
         metabolite_names=[:A, :B, :C, :P, :Q],
         expected_n_states=5,
         expected_n_steps=5,
-        expected_n_metabolites=5,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -537,7 +528,6 @@ let
         metabolite_names=[:A, :B, :C, :P, :Q, :R],
         expected_n_states=6,
         expected_n_steps=6,
-        expected_n_metabolites=6,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -597,7 +587,6 @@ let
         metabolite_names=[:A, :B, :C, :P, :Q],
         expected_n_states=5,
         expected_n_steps=5,
-        expected_n_metabolites=5,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -630,7 +619,6 @@ let
         metabolite_names=[:A, :B, :P, :Q],
         expected_n_states=6,
         expected_n_steps=7,
-        expected_n_metabolites=4,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=1,
@@ -660,7 +648,6 @@ let
         metabolite_names=[:S1, :S2, :P],
         expected_n_states=5,
         expected_n_steps=6,
-        expected_n_metabolites=3,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=1,
@@ -693,7 +680,6 @@ let
         metabolite_names=[:S1, :S2, :P1, :P2],
         expected_n_states=7,
         expected_n_steps=9,
-        expected_n_metabolites=4,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=2,
@@ -723,7 +709,6 @@ let
         metabolite_names=[:S1, :S2, :P],
         expected_n_states=5,
         expected_n_steps=6,
-        expected_n_metabolites=3,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=1,
@@ -791,7 +776,6 @@ let
         metabolite_names=[:A, :B, :C, :P, :Q, :R],
         expected_n_states=6,
         expected_n_steps=6,
-        expected_n_metabolites=6,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -861,7 +845,6 @@ let
         metabolite_names=[:A, :B, :C, :P, :Q, :R],
         expected_n_states=6,
         expected_n_steps=6,
-        expected_n_metabolites=6,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -924,7 +907,6 @@ let
         metabolite_names=[:A, :B, :C, :P, :Q, :R],
         expected_n_states=6,
         expected_n_steps=6,
-        expected_n_metabolites=6,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -966,7 +948,6 @@ let
         metabolite_names=[:A, :P],
         expected_n_states=2,
         expected_n_steps=2,
-        expected_n_metabolites=2,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1013,7 +994,6 @@ let
         metabolite_names=[:A, :B, :P, :Q],
         expected_n_states=4,
         expected_n_steps=4,
-        expected_n_metabolites=4,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1046,7 +1026,6 @@ let
         metabolite_names=[:A, :B, :P, :Q],
         expected_n_states=6,
         expected_n_steps=7,
-        expected_n_metabolites=4,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=1,
@@ -1089,7 +1068,6 @@ let
         metabolite_names=[:S, :P, :R],
         expected_n_states=4,
         expected_n_steps=4,
-        expected_n_metabolites=3,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1138,7 +1116,6 @@ let
         metabolite_names=[:S, :P, :R],
         expected_n_states=5,
         expected_n_steps=6,
-        expected_n_metabolites=3,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1185,7 +1162,6 @@ let
         metabolite_names=[:S, :P, :R],
         expected_n_states=4,
         expected_n_steps=4,
-        expected_n_metabolites=3,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1233,7 +1209,6 @@ let
         metabolite_names=[:S, :P, :R],
         expected_n_states=4,
         expected_n_steps=4,
-        expected_n_metabolites=3,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1289,7 +1264,6 @@ let
         metabolite_names=[:S, :P, :R],
         expected_n_states=6,
         expected_n_steps=9,
-        expected_n_metabolites=3,
         expected_n_haldane_constraints=2,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1351,7 +1325,6 @@ let
         metabolite_names=[:S, :P, :A, :I],
         expected_n_states=7,
         expected_n_steps=10,
-        expected_n_metabolites=4,
         expected_n_haldane_constraints=2,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1419,7 +1392,6 @@ let
         metabolite_names=[:S, :P],
         expected_n_states=3,          # catalytic subunit: E_c, E_S, E_P
         expected_n_steps=3,           # 2 RE + 1 SS per subunit
-        expected_n_metabolites=2,
         expected_n_haldane_constraints=2,         # k3r per conformation × 2
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1484,7 +1456,6 @@ let
         metabolite_names=[:S, :P, :I],
         expected_n_states=3,
         expected_n_steps=3,
-        expected_n_metabolites=3,
         expected_n_haldane_constraints=2,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1546,7 +1517,6 @@ let
         metabolite_names=[:S, :P, :I],
         expected_n_states=3,
         expected_n_steps=3,
-        expected_n_metabolites=3,
         expected_n_haldane_constraints=2,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,  # thermodynamic consistency is automatic
@@ -1595,7 +1565,6 @@ let
         metabolite_names=[:S, :P, :I1, :I2],
         expected_n_states=5,
         expected_n_steps=5,
-        expected_n_metabolites=4,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1666,7 +1635,6 @@ let
         metabolite_names=[:S, :P, :I1, :I2],
         expected_n_states=12,
         expected_n_steps=21,
-        expected_n_metabolites=4,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1722,7 +1690,6 @@ let
         metabolite_names=[:S, :P, :I1, :I2],
         expected_n_states=7,
         expected_n_steps=9,
-        expected_n_metabolites=4,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1770,7 +1737,6 @@ let
         metabolite_names=[:S, :P, :I1, :I2],
         expected_n_states=5,
         expected_n_steps=5,
-        expected_n_metabolites=4,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1834,7 +1800,6 @@ let
         metabolite_names=[:S, :P, :I1, :I2],
         expected_n_states=9,
         expected_n_steps=13,
-        expected_n_metabolites=4,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -1990,7 +1955,6 @@ let
         metabolite_names=[:S1, :S2, :P1, :P2, :R1, :R2, :R3],
         expected_n_states=9,           # catalytic subunit states
         expected_n_steps=13,           # catalytic subunit steps
-        expected_n_metabolites=7,
         expected_n_haldane_constraints=2,          # one k13r per conformation (R and T)
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,      # site-independence constraints are in param_constraints of CM
@@ -2067,10 +2031,9 @@ let
         mechanism=m,
         source_steps=src,
         source_reg_sites=src_reg,
-        metabolite_names=[:F6P, :ATP, :F16BP, :ADP, :Pi, :Citrate, :F26BP],
+        metabolite_names=[:ATP, :F6P, :ADP, :F16BP, :Citrate, :F26BP, :Pi],
         expected_n_states=7,
         expected_n_steps=9,
-        expected_n_metabolites=7,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=1,
         expected_n_wegscheider_constraints=0,
@@ -2200,10 +2163,9 @@ let
         mechanism=m,
         source_steps=src,
         source_reg_sites=src_reg,
-        metabolite_names=[:Glucose, :ATP, :G6P, :ADP, :Pi],
+        metabolite_names=[:ATP, :Glucose, :ADP, :G6P, :Pi],
         expected_n_states=10,    # 7 catalytic-cycle + 3 G6Pi dead-end
         expected_n_steps=14,     # 3+2+1+3+2+3
-        expected_n_metabolites=5,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=1,
         expected_n_wegscheider_constraints=0,
@@ -2301,10 +2263,9 @@ let
         mechanism=m,
         source_steps=src,
         source_reg_sites=src_reg,
-        metabolite_names=[:PEP, :ADP, :Pyruvate, :ATP, :F16BP],
+        metabolite_names=[:ADP, :PEP, :ATP, :Pyruvate, :F16BP],
         expected_n_states=7,           # E, E_PEP, E_ADP, E_PEP_ADP, E_Pyr_ATP, E_Pyr, E_ATP
         expected_n_steps=9,
-        expected_n_metabolites=5,
         expected_n_haldane_constraints=1,
         # PEP binding and catalysis are :OnlyA (the T-state is pruned), so
         # there is no mirror/collapse — the T-catalytic cycle is simply dead
@@ -2392,7 +2353,6 @@ let
         metabolite_names=[:S1, :S2, :P1, :P2, :R1, :R2],
         expected_n_states=7,
         expected_n_steps=9,
-        expected_n_metabolites=6,
         expected_n_haldane_constraints=2,
         # structural naming: :EqualAI catalytic groups share one symbol (no rename); only :EqualAI reg ligands emit a mirror
         expected_n_mirror_constraints=1,
@@ -2456,7 +2416,6 @@ let
         metabolite_names=[:S, :P],
         expected_n_states=3,                  # E, E_S, E_P
         expected_n_steps=3,
-        expected_n_metabolites=2,
         expected_n_haldane_constraints=1,
         expected_n_mirror_constraints=0,
         expected_n_wegscheider_constraints=0,
@@ -2500,7 +2459,7 @@ push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
         end
     end),
     metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
-    expected_n_states=9, expected_n_steps=13, expected_n_metabolites=4,
+    expected_n_states=9, expected_n_steps=13,
     expected_n_haldane_constraints=1, expected_n_mirror_constraints=0,
     expected_n_wegscheider_constraints=2, expected_n_independent_params=9,
     run_ode_test=false))
@@ -2524,7 +2483,7 @@ push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
         end
     end),
     metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
-    expected_n_states=7, expected_n_steps=9, expected_n_metabolites=4,
+    expected_n_states=7, expected_n_steps=9,
     expected_n_haldane_constraints=1, expected_n_mirror_constraints=0,
     expected_n_wegscheider_constraints=0, expected_n_independent_params=8,
     run_ode_test=false))
@@ -2549,7 +2508,7 @@ push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
         end
     end),
     metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
-    expected_n_states=8, expected_n_steps=10, expected_n_metabolites=4,
+    expected_n_states=8, expected_n_steps=10,
     expected_n_haldane_constraints=1, expected_n_mirror_constraints=0,
     expected_n_wegscheider_constraints=2, expected_n_independent_params=8,
     run_ode_test=false))

@@ -799,7 +799,7 @@ function test_structure(spec::MechanismTestSpec)
     @testset "Structure" begin
         @test EnzymeRates.n_states(m) == spec.expected_n_states
         @test EnzymeRates.n_steps(m) == spec.expected_n_steps
-        @test length(metabolites(m)) == spec.expected_n_metabolites
+        @test metabolites(m) == Tuple(spec.metabolite_names)
         # Structural parameter names must be injective on the load-bearing
         # paths the fitter consumes (Reduced + fitted_params). A collision
         # would silently shorten the destructured params NamedTuple.
