@@ -270,13 +270,15 @@ end
 Substrate bound-metabolite names in route (path) order.
 """
 _binding_order(path::Vector{Step}) =
-    Symbol[name(bound_metabolite(s)) for s in path if bound_metabolite(s) isa Substrate]
+    Symbol[name(bound_metabolite(s)::Substrate) for s in path
+           if bound_metabolite(s) isa Substrate]
 
 """
 Product bound-metabolite names in route (path) order.
 """
 _release_order(path::Vector{Step}) =
-    Symbol[name(bound_metabolite(s)) for s in path if bound_metabolite(s) isa Product]
+    Symbol[name(bound_metabolite(s)::Product) for s in path
+           if bound_metabolite(s) isa Product]
 
 """
 True iff `order` is a linearization of weak ordering `wo` (a vector of

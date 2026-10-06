@@ -21,10 +21,7 @@ struct CompetitiveInhibitor <: Regulator
     name::Symbol
 end
 
-name(s::Substrate)            = s.name
-name(p::Product)              = p.name
-name(a::AllostericRegulator)  = a.name
-name(c::CompetitiveInhibitor) = c.name
+name(m::Metabolite)::Symbol = m.name
 
 """
 Residual: substrates added + products subtracted from the enzyme
@@ -112,21 +109,10 @@ Examples: `:E`, `:ES`, `:EATP`, `:EstarA_res_+P`.
 """
 function _species_name(bound::Vector{Metabolite}, conformation::Symbol,
                        residual::Residual)
-    head = String(conformation)
-    for m in bound
-        head *= _met_label(m)
-    end
-    parts = String[head]
-    if !isempty(residual)
-        push!(parts, "res")
-        for a in added(residual)
-            push!(parts, "+" * String(name(a)))
-        end
-        for r in subtracted(residual)
-            push!(parts, "-" * String(name(r)))
-        end
-    end
-    Symbol(join(parts, "_"))
+    head = String(conformation) * join(_met_label(m) for m in bound)
+    isempty(residual) && return Symbol(head)
+    Symbol(join([head; "res"; "+" .* String.(name.(added(residual)));
+                 "-" .* String.(name.(subtracted(residual)))], "_"))
 end
 name(s::Species) = s.name
 
@@ -1505,18 +1491,9 @@ end
 # `Symbol`s, the `Matrix{Int}` stoichiometry, ranges) are the contract
 # consumed by the @generated rate-equation body builders.
 
-"""Walk the steps of `Mechanism(em)` in flat order, yielding
+"""Walk the steps of `m` in flat order, yielding
 `(step::Step, kinetic_group::Int)` pairs."""
-function _flat_steps(m::Mechanism)
-    out = Tuple{Step, Int}[]
-    for (g, group) in enumerate(steps(m))
-        for s in group
-            push!(out, (s, g))
-        end
-    end
-    out
-end
-
+_flat_steps(m::Mechanism) = [(s, g) for (g, group) in enumerate(steps(m)) for s in group]
 
 """Return substrates as a tuple of `Symbol` names."""
 function substrates(em::EnzymeMechanism)
