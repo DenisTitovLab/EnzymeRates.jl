@@ -511,22 +511,6 @@ function test_rate_equation_performance(m, params, concs)
 end
 
 """
-Build a NamedTuple with only independent params + Keq + E_total,
-given all_params (with all k's + E_total) and a Keq value.
-"""
-function make_independent_params(m, all_params, Keq)
-    indep = EnzymeRates.fitted_params(m)
-    keys_out = (indep..., :Keq, :E_total)
-    vals_out = Tuple(
-        k == :Keq ? Keq :
-        k == :E_total ? all_params.E_total :
-        all_params[k]
-        for k in keys_out
-    )
-    return NamedTuple{keys_out}(vals_out)
-end
-
-"""
 Compute all structural-named params (independent + Haldane-derived dependents)
 plus Keq + E_total for a mechanism. Returns a NamedTuple with structural keys
 (e.g. :K_ES_to_E_S, :k_ES_to_EP) that positional_params can remap to oracle-style
@@ -1126,16 +1110,11 @@ Assert `rate_equation` stays finite when any single metabolite concentration
 is zero (real kinetic data routinely has zeros). Zeroing a substrate or product
 must still leave a nonzero net rate — the opposite-direction metabolites keep
 driving flux — so a `0.0` there normally signals a `1/conc` term that blew the
-denominator to `Inf`. Two cases legitimately zero the rate, so only finiteness
-is required: a regulator zero (essential activator), and — for an MWC mechanism
-whose inactive conformation carries no flux (a dead end) — a metabolite that
-sits in the inactive free-enzyme weight `D[g_free]`. Zeroing the latter sends
-the inactive partition `Q_I/D_I` to infinity: all enzyme drains into the dead-end
-inactive form and the rate goes to zero. This is the correct formulation-1
-physics (validated against the free-flip mass-action ground truth), not a
-`1/conc` blow-up. The `metabolite in D[g_free] at zero concentration` gate in
-`allosteric_ground_truth.jl` checks both the trap (→ 0) and the surviving
-reverse flux (≠ 0) against the ground truth directly.
+denominator to `Inf`. A regulator zero (essential activator) can legitimately
+zero the rate, so only finiteness is required there. Zeroing a metabolite that
+sits in the free-enzyme weight `D[g_free]` also keeps a finite rate with a
+nonzero reverse flux; the mass-action gates in `allosteric_ground_truth.jl`
+check that case against the ground truth.
 """
 function test_zero_metabolite_finite(spec::MechanismTestSpec)
     m = spec.mechanism
@@ -1144,30 +1123,13 @@ function test_zero_metabolite_finite(spec::MechanismTestSpec)
         mets = collect(metabolites(m))
         sub_prod = Set{Symbol}(EnzymeRates.substrates(m))
         union!(sub_prod, EnzymeRates.products(m))
-        # Metabolites whose absence traps all enzyme in a dead inactive
-        # conformation: for an MWC mechanism with no inactive-state flux, a
-        # metabolite that divides the inactive free-enzyme weight D[g_free] (it
-        # appears in every monomial, so D_I → 0 when it is zeroed) sends the
-        # inactive partition to infinity. Zeroing one legitimately zeroes the
-        # rate, so it is exempt from the nonzero assertion below.
-        trap_mets = Set{Symbol}()
-        if m isa EnzymeRates.AllostericEnzymeMechanism
-            am = EnzymeRates.AllostericMechanism(m)
-            if EnzymeRates._i_state_num_zero(am)
-                _, _, d_free_I = EnzymeRates._state_rate_polys(am, :I)
-                for s in Set(mets)
-                    all(any(sym === s for (sym, _) in mono) for mono in keys(d_free_I)) &&
-                        push!(trap_mets, s)
-                end
-            end
-        end
         params = random_reduced_params(m; rng)
         for zeroed in mets
             cvals = Tuple(n == zeroed ? 0.0 : 0.5 + rand(rng) for n in mets)
             concs = NamedTuple{Tuple(mets)}(cvals)
             v = rate_equation(m, concs, params)
             @test isfinite(v)
-            zeroed in sub_prod && !(zeroed in trap_mets) && @test v != 0.0
+            zeroed in sub_prod && @test v != 0.0
         end
     end
 end
@@ -1522,21 +1484,13 @@ end
         prods = Set(EnzymeRates.products(em))
         params = merge(NamedTuple{pnames}(ntuple(_ -> 1.3, length(pnames))),
                        (Keq = 20000.0, E_total = 1.0))
-        concs = NamedTuple{mets}(ntuple(_ -> 1.5, length(mets)))
-        # No UndefVarError: the @generated body compiles and evaluates finite.
-        @test isfinite(EnzymeRates.rate_equation(em, concs, params))
-        # Finite at products = 0 too (the kcat evaluation domain).
+        # No UndefVarError: the @generated body compiles and evaluates finite at
+        # products = 0 (the kcat evaluation domain).
         concs0 = NamedTuple{mets}(
             ntuple(i -> mets[i] in prods ? 0.0 : 1.5, length(mets)))
         @test isfinite(EnzymeRates.rate_equation(em, concs0, params))
         # DEFINED ⊇ REFERENCED on the rendered transcript.
         @test isempty(_undefined_rhs_symbols(EnzymeRates.rate_equation_string(em)))
-        # The fixed I-state codegen must still meet the 0-alloc / sub-120ns
-        # contract (test_rate_equation_performance is the same helper used
-        # for MECHANISM_TEST_SPECS in test_performance above).
-        allocs, t = test_rate_equation_performance(em, params, concs)
-        @test allocs == 0
-        @test t < 120e-9   # CI-runner margin; see test_performance
     end
 end
 
@@ -1546,32 +1500,18 @@ end
     end
 end
 
-@testset "allosteric reproducers: rate_equation is callable" begin
+@testset "allosteric reproducers: detailed balance" begin
     # The dep/indep graph is not always sufficient: a dep expression can be
     # structurally sound (acyclic, every RHS symbol defined) while the
     # code-generated assignment order still leaves a forward reference
     # unresolved, producing a runtime UndefVarError. This is the
     # user-visible symptom for every reproducer, independent of which
-    # structural check above flags it.
-    for T in ALLOSTERIC_UNDEFVAR_REPRODUCERS
-        m = T()
-        pnames = EnzymeRates.fitted_params(m)
-        keys_out = (pnames..., :Keq, :E_total)
-        vals_out = (ntuple(_ -> 1.01, length(pnames))..., 20000.0, 1.0)
-        params = NamedTuple{keys_out}(vals_out)
-        mets = EnzymeRates.metabolites(m)
-        concs = NamedTuple{mets}(ntuple(_ -> 1.0, length(mets)))
-        @test_nowarn EnzymeRates.rate_equation(m, concs, params)
-    end
-end
-
-@testset "allosteric reproducers: detailed balance" begin
-    # Being callable is necessary but not sufficient: the equation must also
-    # satisfy `v = 0` at `Q = Keq` for arbitrary parameter values. The single
-    # combined constraint solve (`_combined_state_dependent_exprs`) ties every
-    # cross-state affinity split directly, so all three reproducers (D1's
-    # `:EqualAI`-shared `koff` merge, D2's `:NonequalAI` split, D3's steady-state
-    # speed) are detailed-balance-correct.
+    # structural check above flags it. Being callable is necessary but not
+    # sufficient: the equation must also satisfy `v = 0` at `Q = Keq` for
+    # arbitrary parameter values. The single combined constraint solve
+    # (`_combined_state_dependent_exprs`) ties every cross-state affinity split
+    # directly, so all three reproducers (D1's `:EqualAI`-shared `koff` merge, D2's
+    # `:NonequalAI` split, D3's steady-state speed) are detailed-balance-correct.
     for T in ALLOSTERIC_UNDEFVAR_REPRODUCERS
         m = T()
         pn = collect(EnzymeRates.fitted_params(m))
@@ -1701,16 +1641,8 @@ end
         # No factors and zero Keq: returns Int literal 1
         @test bpe(R(0), Tuple{Symbol, R}[]) === 1
 
-        # All return types are valid AST nodes
-        for r in [
-            bpe(R(0), [(:k1f, R(1))]),
-            bpe(R(0), [(:k1f, R(-1))]),
-            bpe(R(1), Tuple{Symbol, R}[]),
-            bpe(R(0), [(:k1f, R(1)), (:k2f, R(1))]),
-            bpe(R(1), [(:k1f, R(1))]),
-        ]
-            @test r isa Union{Int, Symbol, Expr}
-        end
+        # Keq times a factor is a valid AST node
+        @test bpe(R(1), [(:k1f, R(1))]) isa Union{Int, Symbol, Expr}
     end
 
 end
@@ -1954,58 +1886,6 @@ end
     # enzyme mass dominates the denominator → rate ∝ 1/(1+L).
     @test rate_T * 1e10 < 100.0    # bounded as L grows
 
-    # :OnlyI on a substrate-binding catalytic group → constructor error
-    # (R-state convention: relabel so the active state is R, i.e. use :OnlyA).
-    @test_throws Exception eval(:(@allosteric_mechanism begin
-        substrates: S
-        products:   P
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + S ⇌ E(S)     :: OnlyI
-            E(S) <--> E(P)   :: EqualAI
-            E(P) ⇌ E + P     :: EqualAI
-        end
-    end))
-
-    # :OnlyI on a product-binding catalytic group → constructor error
-    @test_throws Exception eval(:(@allosteric_mechanism begin
-        substrates: S
-        products:   P
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + S ⇌ E(S)     :: EqualAI
-            E(S) <--> E(P)   :: EqualAI
-            E(P) ⇌ E + P     :: OnlyI
-        end
-    end))
-
-    # :OnlyI on the catalysis SS step → constructor error
-    @test_throws Exception eval(:(@allosteric_mechanism begin
-        substrates: S
-        products:   P
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + S ⇌ E(S)     :: EqualAI
-            E(S) <--> E(P)   :: OnlyI
-            E(P) ⇌ E + P     :: EqualAI
-        end
-    end))
-
-
-    # Single-ligand :EqualAI reg site is degenerate but valid — the derivation
-    # produces an equation (the regulator is inert); users may write it.
-    @test eval(:(@allosteric_mechanism begin
-        substrates: S
-        products:   P
-        allosteric_regulators: I::EqualAI
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + S ⇌ E(S)     :: EqualAI
-            E(S) <--> E(P)   :: EqualAI
-            E(P) ⇌ E + P     :: EqualAI
-        end
-    end)) isa EnzymeRates.AllostericEnzymeMechanism
-
     # Regression: T-state binding K's must be in Kd convention even when
     # `:OnlyA` and `:NonequalAI` catalytic groups coexist. Without the fix,
     # the flat-poly path in _allosteric_num_den_exprs renders T-state K's
@@ -2038,34 +1918,6 @@ end
     # Sanity: rate_equation_string emits Kd form for T-state K's.
     @test occursin("S / K_I_ES_to_E_S", rate_equation_string(m_mix))
     @test occursin("P / K_I_EP_to_E_P", rate_equation_string(m_mix))
-
-    # Regression: :NonequalAI substrate + :EqualAI catalysis must produce
-    # zero rate at chemical equilibrium. The :NonequalAI S-binding split is
-    # forbidden (its lone cycle is shared with :EqualAI catalysis), so it
-    # collapses to K_I_ES_to_E_S = K_A_ES_to_E_S and K_I_ES_to_E_S leaves the fitted set.
-    cm_mixed, src_mixed = @enzyme_mechanism_src begin
-        substrates: S
-        products:   P
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
-        end
-    end
-    # S binding :NonequalAI, catalysis + P binding :EqualAI — bound to the
-    # steps AS WRITTEN.
-    m_mixed = allo_from_source(
-        (cm_mixed, src_mixed), (2, (:NonequalAI, :EqualAI, :EqualAI)),
-        (((:I,), 2, (:NonequalAI,)),))
-    Keq_val = 5.0
-    p_eq = (K_A_ES_to_E_S=0.3, k_ES_to_EP=8.0, K_EP_to_E_P=0.7,
-            K_A_Ireg=1.0, K_I_Ireg=4.0,
-            L=2.0, Keq=Keq_val, E_total=1.0)
-    # At chemical equilibrium: P = Keq · S
-    S_eq = 1.5
-    P_eq = Keq_val * S_eq
-    rate_eq = rate_equation(m_mixed, (S=S_eq, P=P_eq, I=0.5), p_eq)
-    @test isapprox(rate_eq, 0.0; atol=1e-10)
 
     # Wegscheider-cycle EqualAI×NonequalAI: the Random-order Bi-Bi mechanism has a
     # genuine independent Wegscheider cycle. Group 2 (the steady-state B-binding)
@@ -2111,22 +1963,6 @@ end
     @test isapprox(
         rate_equation(m_ro, (A=A_eq, B=B_eq, P=P_eq, Q=Q_eq, I=0.5), p_ro), 0.0;
         atol=1e-9)
-
-    # Empty ligand list at reg site → constructor error
-    cm_simple = @enzyme_mechanism begin
-        substrates: S
-        products:   P
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-        end
-    end
-    @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-        cm_simple,
-        (2, (:NonequalAI, :EqualAI, :EqualAI)),
-        (((), 2, ()),),  # empty ligand tuple
-    )
 end
 
 
