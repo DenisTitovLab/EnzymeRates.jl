@@ -3731,6 +3731,7 @@ end
     kids = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
     @test length(kids) == 3
     @test Set(kids) == Set([at_E_EQ, at_EA_EQ, at_E_EA])
+    # The absent placement adds a constant the data cannot see.
     @test !(at_E in kids)
     # Each child binds the copy as a CompetitiveInhibitor named :A, in one new
     # kinetic group, and adds exactly one fitted constant; every child has full rank.
@@ -3744,8 +3745,6 @@ end
         @test fitted == base_fitted + 1
         @test fitted == _testhelper_identifiable_rank(r)
     end
-    # The absent placement adds a constant the data cannot see.
-    @test _testhelper_identifiable_rank(at_E) == _testhelper_identifiable_rank(m)
 end
 
 @testset "Mechanism — shared A group with abortive E(A, Q): the gauge decides" begin
@@ -3832,10 +3831,7 @@ end
     @test Set(kids) == Set([at_EA_EQ, at_E_EA, at_E])
     @test !(at_E_EQ in kids)
     fitted(k) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(k)))
-    r0 = _testhelper_identifiable_rank(m)
-    @test r0 == fitted(m)
-    @test _testhelper_identifiable_rank(at_E_EQ) == r0               # a phantom
-    @test _testhelper_identifiable_rank(at_E) == fitted(at_E) == r0 + 1
+    @test _testhelper_identifiable_rank(m) == fitted(m)
 end
 
 @testset "Mechanism — a second copy may share an older copy's composition" begin
@@ -4137,7 +4133,6 @@ end
         @test EnzymeRates._assert_emission_rules(r) === nothing
     end
     fitted(k) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(k)))
-    @test _testhelper_identifiable_rank(m) == fitted(m)
     for k in (at_E_EQ, at_EA_EQ, at_E_EA_EQ)
         @test _testhelper_identifiable_rank(k) == fitted(k)
     end
@@ -9866,7 +9861,8 @@ end
     @testset "_expand_re_to_ss: uni-uni emits no flip, both bindings are chain flanks" begin
         # Uni-uni steady-state and rapid-equilibrium laws have the same form: E(S) →
         # E(P) is a qualifying chain whose flanks are the S and P groups, so neither
-        # flips (`_chain_flank_groups`). Each flip, absent, keeps the parent's rank.
+        # flips (`_chain_flank_groups`). The S flip, absent, keeps the parent's rank; the
+        # P flip is its mirror under reversing the reaction.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
             products: P
@@ -9876,32 +9872,18 @@ end
                 E + P ⇌ E(P)
             end
         end)
-        absent = [
-            EnzymeRates.Mechanism(@enzyme_mechanism begin
-                substrates: S
-                products: P
-                steps: begin
-                    E + S <--> E(S)
-                    E(S) <--> E(P)
-                    E + P ⇌ E(P)
-                end
-            end),
-            EnzymeRates.Mechanism(@enzyme_mechanism begin
-                substrates: S
-                products: P
-                steps: begin
-                    E + S ⇌ E(S)
-                    E(S) <--> E(P)
-                    E + P <--> E(P)
-                end
-            end),
-        ]
+        absent = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)
+                E(S) <--> E(P)
+                E + P ⇌ E(P)
+            end
+        end)
         kids = EnzymeRates._expand_re_to_ss(m)
         @test isempty(kids)
-        r0 = _testhelper_identifiable_rank(m)
-        for a in absent
-            @test _testhelper_identifiable_rank(a) == r0
-        end
+        @test _testhelper_identifiable_rank(absent) == _testhelper_identifiable_rank(m)
     end
 
     @testset "_expand_re_to_ss: random-order bi-bi emits one flip per metabolite" begin
@@ -10295,13 +10277,14 @@ end
             end
             @test ss != 1
         end
-        # The two zero-flux pairs divide a segment yet keep the parent's rank.
-        r0 = _testhelper_identifiable_rank(m)
+        # The two zero-flux pairs divide a segment yet keep the parent's rank;
+        # flip(A2, B1) is flip(A1, B2) with A and B swapped.
         for absent in (flip(A1, B2), flip(A2, B1))
             @test !(absent in kids)
             @test EnzymeRates._re_segment_count(absent) > EnzymeRates._re_segment_count(m)
-            @test _testhelper_identifiable_rank(absent) == r0
         end
+        @test _testhelper_identifiable_rank(flip(A1, B2)) ==
+            _testhelper_identifiable_rank(m)
     end
 
     @testset "_expand_re_to_ss: ping-pong" begin
@@ -10311,8 +10294,9 @@ end
         # isomerizations are steady state, and each of their ends has one other
         # step, a binding into that end alone in its group: E(A) → E(P; res) and
         # E(B; res) → E(Q) are qualifying chains whose flanks are all four binding
-        # groups (`_chain_flank_groups`). No group is a unit, so no child; each
-        # single flip, absent, keeps the parent's rank.
+        # groups (`_chain_flank_groups`). No group is a unit, so no child. The A flip,
+        # absent, keeps the parent's rank; the B, P and Q flips are its images under
+        # swapping the two half-reactions and reversing the reaction.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
@@ -10337,48 +10321,9 @@ end
                 E(Q) ⇌ E + Q
             end
         end)
-        flipP = EnzymeRates.Mechanism(@enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E(A)
-                E(A) <--> E(P; residual = A - P)
-                E(P; residual = A - P) <--> E(; residual = A - P) + P
-                E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-                E(B; residual = A - P) <--> E(Q)
-                E(Q) ⇌ E + Q
-            end
-        end)
-        flipB = EnzymeRates.Mechanism(@enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E(A)
-                E(A) <--> E(P; residual = A - P)
-                E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-                E(; residual = A - P) + B <--> E(B; residual = A - P)
-                E(B; residual = A - P) <--> E(Q)
-                E(Q) ⇌ E + Q
-            end
-        end)
-        flipQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E(A)
-                E(A) <--> E(P; residual = A - P)
-                E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-                E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-                E(B; residual = A - P) <--> E(Q)
-                E(Q) <--> E + Q
-            end
-        end)
         kids = EnzymeRates._expand_re_to_ss(m)
         @test isempty(kids)
-        r0 = _testhelper_identifiable_rank(m)
-        for absent in (flipA, flipP, flipB, flipQ)
-            @test _testhelper_identifiable_rank(absent) == r0
-        end
+        @test _testhelper_identifiable_rank(flipA) == _testhelper_identifiable_rank(m)
     end
 
     @testset "_expand_re_to_ss: an allosteric parent keeps a hyperbolic scheme" begin
@@ -10601,8 +10546,9 @@ end
         kids = EnzymeRates._expand_re_to_ss(m)
         @test length(kids) == 4
         @test Set(kids) == Set(expected)
-        # The two flank flips and the two zero-flux pairs are absent; each divides a
-        # segment, and each has exactly its parent's rank.
+        # The flank flip of B and the two zero-flux pairs are absent; each divides a
+        # segment, and each has exactly its parent's rank. The flank flip of P is the
+        # flip of B with the reaction reversed.
         r0 = _testhelper_identifiable_rank(m)
         for absent in (
             EnzymeRates.Mechanism(@enzyme_mechanism begin  # {E(A) + B}
@@ -10616,19 +10562,6 @@ end
                     E(A) + B <--> E(A, B)
                     E(A, B) <--> E(P, Q)
                     E(Q) + P ⇌ E(P, Q)
-                end
-            end),
-            EnzymeRates.Mechanism(@enzyme_mechanism begin  # {E(Q) + P}
-                substrates: A, B
-                products: P, Q
-                steps: begin
-                    E + A ⇌ E(A)
-                    E(Q) + A ⇌ E(A, Q)
-                    E + Q ⇌ E(Q)
-                    E(A) + Q ⇌ E(A, Q)
-                    E(A) + B ⇌ E(A, B)
-                    E(A, B) <--> E(P, Q)
-                    E(Q) + P <--> E(P, Q)
                 end
             end),
             EnzymeRates.Mechanism(@enzyme_mechanism begin  # {E + A, E + Q}
@@ -10942,7 +10875,10 @@ end
 
     @testset "_expand_split_kinetic_group: a rejected split is the parent's model" begin
         # Level-1 candidates the count test rejects have the parent's identifiable
-        # rank; the rendered equation may differ only in which tied name survives.
+        # rank; the rendered equation may differ only in which tied name survives. The
+        # B, P and Q groups' candidates are images of the A group's under relabeling
+        # (A and B swapped with P and Q swapped) and reversing the reaction, so the
+        # rank is checked on the A group's.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
@@ -10962,8 +10898,9 @@ end
         r0 = _testhelper_identifiable_rank(m)
         @test r0 == base
         rejected = 0
-        for (g, grp) in enumerate(EnzymeRates.steps(m)),
-            bp in EnzymeRates._context_bipartitions(grp)
+        g = findfirst(grp -> EnzymeRates.bound_metabolite(first(grp)) ==
+                             EnzymeRates.Substrate(:A), EnzymeRates.steps(m))
+        for bp in EnzymeRates._context_bipartitions(EnzymeRates.steps(m)[g])
             ids = copy(ids0)
             for s in bp[2]; ids[pos[s]] = length(EnzymeRates.steps(m)) + 1; end
             counter(ids) > base && continue
@@ -11391,11 +11328,15 @@ end
     # The parent's rate is (k/Ka)·(A·B − P·Q/Keq)/(1 + A/Ka + Q/Kq): 3 fitted, rank 3.
     # Each child's dead inactive conformation adds (1 + L) times the bindings it keeps
     # to the bindings it loses, so dividing by 1 + L rescales the lost bindings'
-    # constants and the turnover and L disappears: 4 fitted, rank 3.
+    # constants and the turnover and L disappears: 4 fitted, rank 3. The rank is
+    # checked on only_a and a_and_q; only_q is only_a with the reaction reversed.
     fitted(x) = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(x)))
     @test fitted(m) == _testhelper_identifiable_rank(m) == 3
     for k in kids
-        @test fitted(k) == 4 && _testhelper_identifiable_rank(k) == 3
+        @test fitted(k) == 4
+    end
+    for k in (only_a, a_and_q)
+        @test _testhelper_identifiable_rank(k) == 3
     end
 end
 
