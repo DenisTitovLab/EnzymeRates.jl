@@ -9318,51 +9318,19 @@ end
 
 @testset "_hyperbolic_catalysis matches the derived denominator" begin
     # The structural predicate against the exponents of the derived denominator,
-    # over every mechanism reachable from the seeds in a bounded number of
-    # expansion levels. Bi-bi is enumerated to one level plus the allosteric
-    # children of its level-1 allosteric mechanisms. The reactions declare no
-    # inhibitors, so the predicate sees every step and is compared with each
-    # mechanism's own derived denominator. For an allosteric mechanism the
-    # predicate is compared with the A-state, and the I-state is checked to be
-    # hyperbolic whenever the A-state is.
-    _testhelper_poly_hyperbolic(p, mets) =
-        all(e <= 1 for mono in keys(p) for (s, e) in mono if s in mets)
-    _testhelper_mets(rxn) = vcat(
-        Symbol[EnzymeRates.name(s) for s in EnzymeRates.substrates(rxn)],
-        Symbol[EnzymeRates.name(p) for p in EnzymeRates.products(rxn)])
-    function _testhelper_den_hyperbolic(m::EnzymeRates.Mechanism)
-        _, den, _ = EnzymeRates._raw_symbolic_rate_polys(
-            m, EnzymeRates._step_parameters(m),
-            EnzymeRates._build_wegscheider_rename_map(m))
-        _testhelper_poly_hyperbolic(den, _testhelper_mets(EnzymeRates.reaction(m)))
-    end
-    function _testhelper_levels(rxn, depth)
-        M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
-        level = M[m for m in EnzymeRates.init_mechanisms(rxn)]
-        levels = [unique(level)]
-        for _ in 1:depth
-            level = unique!(EnzymeRates.expand_mechanisms(level, rxn))
-            push!(levels, level)
-        end
-        levels
-    end
-    # Allosteric children of the allosteric mechanisms in `parents`: the
-    # mechanisms the hyperbolic-catalysis rule targets.
-    function _testhelper_allosteric_children(parents, rxn)
-        M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
-        allo = M[m for m in parents if m isa EnzymeRates.AllostericMechanism]
-        unique!(M[c for c in EnzymeRates.expand_mechanisms(allo, rxn)
-                  if c isa EnzymeRates.AllostericMechanism])
-    end
-
+    # over every mechanism reachable from the seeds in two expansion levels. The
+    # ping-pong-capable reaction's sequential seeds are the bi-bi seeds, and the moves,
+    # the predicate and the derivation read metabolite names, never atoms, so its
+    # population holds every bi-bi mechanism and the allosteric children of the bi-bi
+    # allosteric mechanisms. The reactions declare no inhibitors, so the predicate sees
+    # every step and is compared with each mechanism's own derived denominator. For an
+    # allosteric mechanism the predicate is compared with the A-state, and the I-state
+    # is checked to be hyperbolic whenever the A-state is. Allosteric mechanisms with
+    # the same state graph share one derivation per state.
+    hyperbolic(p, mets) = all(e <= 1 for mono in keys(p) for (s, e) in mono if s in mets)
     unibi = @enzyme_reaction begin
         substrates: S[AB]
         products: P[A], Q[B]
-        oligomeric_state: 2
-    end
-    bibi = @enzyme_reaction begin
-        substrates: A[C], B[N]
-        products: P[C], Q[N]
         oligomeric_state: 2
     end
     pingpong = @enzyme_reaction begin
@@ -9372,23 +9340,34 @@ end
     end
     n_checked = 0
     n_nonhyperbolic = 0
-    for (rxn, depth) in ((unibi, 2), (bibi, 1), (pingpong, 2))
-        mets = _testhelper_mets(rxn)
-        levels = _testhelper_levels(rxn, depth)
-        mechs = unique!(reduce(vcat, levels))
-        rxn === bibi && append!(mechs, _testhelper_allosteric_children(levels[end], rxn))
+    for rxn in (unibi, pingpong)
+        mets = Symbol[EnzymeRates.name(x) for x in
+                      vcat(EnzymeRates.substrates(rxn), EnzymeRates.products(rxn))]
+        level = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
+            m for m in EnzymeRates.init_mechanisms(rxn)]
+        mechs = copy(level)
+        for _ in 1:2
+            level = unique!(EnzymeRates.expand_mechanisms(level, rxn))
+            append!(mechs, level)
+        end
         unique!(mechs)
+        derived = Dict{Tuple{Symbol, EnzymeRates.Mechanism}, Bool}()
+        state_hyperbolic(m, state) = get!(
+            derived, (state, EnzymeRates._state_mechanism(m, state))) do
+            hyperbolic(EnzymeRates._state_rate_polys(m, state)[2], mets)
+        end
         for m in mechs
             EnzymeRates._eq_complexity(m) <= 337 || continue
             structural = EnzymeRates._hyperbolic_catalysis(m)
             if m isa EnzymeRates.Mechanism
-                @test structural == _testhelper_den_hyperbolic(m)
+                _, den, _ = EnzymeRates._raw_symbolic_rate_polys(
+                    m, EnzymeRates._step_parameters(m),
+                    EnzymeRates._build_wegscheider_rename_map(m))
+                @test structural == hyperbolic(den, mets)
             else
-                _, den_a, _ = EnzymeRates._state_rate_polys(m, :A)
-                _, den_i, _ = EnzymeRates._state_rate_polys(m, :I)
-                hyp_a = _testhelper_poly_hyperbolic(den_a, mets)
+                hyp_a = state_hyperbolic(m, :A)
                 @test structural == hyp_a
-                @test _testhelper_poly_hyperbolic(den_i, mets) || !hyp_a
+                @test state_hyperbolic(m, :I) || !hyp_a
             end
             n_checked += 1
             structural || (n_nonhyperbolic += 1)
