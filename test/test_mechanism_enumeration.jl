@@ -7165,14 +7165,18 @@ end
 # ─── enumerate_all ─────────────────────────────────────────────────────
 @testset "Integration" begin
 
+uni = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
+
 @testset "Mechanism — Uni-uni full enumeration" begin
     # enumerate_all_mechanism buckets by ACTUAL fitted-parameter count,
-    # so each bucket key `pc` must equal every member's fitted count.
-    results = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
-    @test !isempty(results)
-    pcs = sort(collect(keys(results)))
-    @test issorted(pcs)
-    for (pc, mechs) in results
+    # so each bucket key `pc` must equal every member's fitted count. At
+    # least 2 param-count buckets, and consecutive buckets separated by at
+    # most 4 (max single-move delta).
+    @test !isempty(uni)
+    pcs = sort(collect(keys(uni)))
+    @test length(pcs) >= 2
+    @test all(pcs[i+1] - pcs[i] <= 4 for i in 1:length(pcs)-1)
+    for (pc, mechs) in uni
         for m in mechs
             @test length(EnzymeRates.fitted_params(
                 EnzymeRates.compile_mechanism(m))) == pc
@@ -7255,20 +7259,9 @@ end
     end
     results = enumerate_all_mechanism(rxn; max_params=8)
     @test !isempty(results)
-    plain = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
     total_with_reg = sum(length(v) for v in values(results))
-    total_plain = sum(length(v) for v in values(plain))
+    total_plain = sum(length(v) for v in values(uni))
     @test total_with_reg > total_plain
-end
-
-@testset "Mechanism — Multiple levels populated" begin
-    # Mechanism-form parallel. At least 2 param-count buckets, and
-    # consecutive buckets separated by at most 4 (max single-move
-    # delta).
-    results = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
-    @test length(results) >= 2
-    pcs = sort(collect(keys(results)))
-    @test all(pcs[i+1] - pcs[i] <= 4 for i in 1:length(pcs)-1)
 end
 end
 
