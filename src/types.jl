@@ -1131,165 +1131,44 @@ const Reduced = ReducedMode()
 
 # --- Pretty printing ---
 
-function Base.show(io::IO, m::EnzymeMechanism)
-    # `show` reads through the accessors so it works for both Sig shapes.
-    Rxns = reactions(m)
-    regs = regulators(m)
-    enz_set = Set(enzyme_forms(m))
-    _arrow(is_eq) = is_eq ? " ⇌ " : " <--> "
+"""A step as text: its entry side, an arrow (`⇌` rapid equilibrium, `<-->` steady state)
+and its exit side. A side lists the enzyme form, then the metabolites the step consumes
+or releases."""
+_step_text(s::Step) =
+    join((name(from_species(s)), name.(consumed(s))...), " + ") *
+    (is_equilibrium(s) ? " ⇌ " : " <--> ") *
+    join((name(to_species(s)), name.(released(s))...), " + ")
 
-    # Render the steps as a single chain by walking the enzyme-form graph
-    # (stored order is canonical, not chain order). Each step is an edge
-    # between its two enzyme forms; start at a path endpoint (a degree-1
-    # form) if any, else the free enzyme `:E`, else any form, then follow
-    # edges and emit each step's far side. If the walk can't consume every
-    # step (the mechanism is branched, or the chain would hide a step's
-    # metabolite) → multi-line rendering below.
-    _enz_forms(lhs, rhs) = (first(s for s in lhs if s in enz_set),
-                            first(s for s in rhs if s in enz_set))
-    degree = Dict{Symbol,Int}()
-    for (lhs, rhs, _, _) in Rxns
-        a, b = _enz_forms(lhs, rhs)
-        degree[a] = get(degree, a, 0) + 1
-        degree[b] = get(degree, b, 0) + 1
+function Base.show(io::IO, em::EnzymeMechanism)
+    m = Mechanism(em)
+    flat = collect(Iterators.flatten(steps(m)))
+    forms = unique(name(sp) for s in flat for sp in (from_species(s), to_species(s)))
+    print(io, "EnzymeMechanism (", length(flat), " steps, ", length(forms),
+          " enzyme forms):")
+    for s in flat
+        print(io, "\n  ", _step_text(s))
     end
-    start = nothing
-    for (lhs, rhs, _, _) in Rxns
-        a, b = _enz_forms(lhs, rhs)
-        degree[a] == 1 && (start = a; break)
-        degree[b] == 1 && (start = b; break)
-    end
-    start === nothing && :E in enz_set && (start = :E)
-    start === nothing && !isempty(Rxns) &&
-        (start = _enz_forms(Rxns[1][1], Rxns[1][2])[1])
-
-    # A single chain exists iff every enzyme form has degree ≤ 2 (a simple
-    # path or cycle); a higher-degree form is a branch point → multi-line.
-    chain_segments = String[]
-    chain_arrows = String[]
-    is_linear = !isempty(Rxns) && all(<=(2), values(degree))
-    if is_linear
-        subs = Set{Symbol}(substrates(m))
-        remaining = collect(Rxns)
-        remaining_binds =
-            [!_is_chemistry(s) for group in steps(Mechanism(m)) for s in group]
-        current = start
-        while !isempty(remaining)
-            idx = nothing
-            if isempty(chain_segments)
-                # First step: prefer to leave `current` by binding a substrate,
-                # so a reversible cycle renders substrate→product.
-                idx = findfirst(remaining) do rxn
-                    fs = _enz_forms(rxn[1], rxn[2])
-                    current in fs &&
-                        any(x -> x in subs, current == fs[1] ? rxn[1] : rxn[2])
-                end
-            end
-            if idx === nothing
-                idx = findfirst(
-                    rxn -> current in _enz_forms(rxn[1], rxn[2]), remaining)
-            end
-            idx === nothing && (is_linear = false; break)
-            lhs, rhs, is_eq, _ = remaining[idx]
-            binds = remaining_binds[idx]
-            deleteat!(remaining, idx)
-            deleteat!(remaining_binds, idx)
-            a, b = _enz_forms(lhs, rhs)
-            # Only the first step prints its entry side. A later step may leave
-            # its entry-side metabolites unprinted only if it is a plain binding,
-            # whose bound form names the metabolite; any other step (e.g. a fused
-            # binding or a Theorell–Chance step) needs the multi-line rendering.
-            !isempty(chain_segments) && length(current == a ? lhs : rhs) > 1 &&
-                !binds && (is_linear = false; break)
-            in_side  = current == a ? join(lhs, " + ") : join(rhs, " + ")
-            out_side = current == a ? join(rhs, " + ") : join(lhs, " + ")
-            isempty(chain_segments) && push!(chain_segments, in_side)
-            push!(chain_arrows, _arrow(is_eq))
-            push!(chain_segments, out_side)
-            current = current == a ? b : a
-        end
-        !isempty(remaining) && (is_linear = false)
-    end
-
-    if is_linear
-        print(io, "EnzymeMechanism: ")
-        print(io, chain_segments[1])
-        for k in 2:length(chain_segments)
-            print(io, chain_arrows[k-1], chain_segments[k])
-        end
-    else
-        print(io, "EnzymeMechanism (", length(Rxns), " steps, ",
-              length(enz_set), " enzyme forms):")
-        for (lhs, rhs, is_eq, _) in Rxns
-            print(io, "\n  ", join(lhs, " + "), _arrow(is_eq),
-                      join(rhs, " + "))
-        end
-    end
-    if !isempty(regs)
-        print(io, " | regulators: ", join(regs, ", "))
-    end
+    regs = regulators(reaction(m))
+    isempty(regs) || print(io, " | regulators: ", join(name.(regulator.(regs)), ", "))
 end
 
-"""Render the catalytic mechanism's steps as multi-line text,
-grouping steps that share a kinetic_group with parens and a single
-`:: Tag` annotation. Mirrors `@allosteric_mechanism` macro syntax."""
-function _format_allo_step_groups(
-    io::IO, cm::EnzymeMechanism,
-    m::AllostericEnzymeMechanism,
-)
-    rxns = reactions(cm)
-    _arrow(is_eq) = is_eq ? " ⇌ " : " <--> "
-
-    groups_seen = Int[]
-    group_to_step_idxs = Dict{Int,Vector{Int}}()
-    for (i, step) in enumerate(rxns)
-        g = step[4]
-        if !haskey(group_to_step_idxs, g)
-            push!(groups_seen, g)
-            group_to_step_idxs[g] = Int[]
-        end
-        push!(group_to_step_idxs[g], i)
-    end
-
-    for g in groups_seen
-        idxs = group_to_step_idxs[g]
-        tag = cat_allo_state(m, g)
-        if length(idxs) == 1
-            (lhs, rhs, is_eq, _) = rxns[idxs[1]]
-            print(io, "\n  ", join(lhs, " + "),
-                  _arrow(is_eq), join(rhs, " + "),
-                  " :: ", tag)
-        else
-            print(io, "\n  (")
-            for (k, i) in enumerate(idxs)
-                k > 1 && print(io, ", ")
-                (lhs, rhs, is_eq, _) = rxns[i]
-                print(io, join(lhs, " + "),
-                      _arrow(is_eq), join(rhs, " + "))
-            end
-            print(io, ") :: ", tag)
-        end
-    end
-end
-
-function Base.show(io::IO, m::AllostericEnzymeMechanism)
-    cm = catalytic_mechanism(m)
-    print(io, "AllostericEnzymeMechanism (cat_n=",
-          catalytic_multiplicity(m))
-    rs = regulatory_sites(m)
-    if !isempty(rs)
-        print(io, ", ", length(rs), " reg sites")
-    end
+# Mirrors `@allosteric_mechanism` syntax: a kinetic group of several steps prints in
+# parentheses, and each group carries its allosteric-state tag.
+function Base.show(io::IO, aem::AllostericEnzymeMechanism)
+    am = AllostericMechanism(aem)
+    sites = regulatory_sites(am)
+    print(io, "AllostericEnzymeMechanism (cat_n=", catalytic_multiplicity(am))
+    isempty(sites) || print(io, ", ", length(sites), " reg sites")
     print(io, "):")
-    _format_allo_step_groups(io, cm, m)
-    for (i, (ligands, mult, reg_allo_states)) in enumerate(rs)
-        print(io, "\n  reg site $i (n=", mult, "): ",
-              join(ligands, ", "))
-        print(io, " [")
-        print(io, join(("$(n)::$(t)"
-                        for (n, t) in zip(ligands, reg_allo_states)),
-                       ", "))
-        print(io, "]")
+    for (g, group) in enumerate(steps(am))
+        body = join(_step_text.(group), ", ")
+        print(io, "\n  ", length(group) == 1 ? body : "($body)", " :: ",
+              cat_allo_state(am, g))
+    end
+    for (i, site) in enumerate(sites)
+        ligs = name.(ligands(site))
+        print(io, "\n  reg site $i (n=", multiplicity(site), "): ", join(ligs, ", "),
+              " [", join(("$l::$t" for (l, t) in zip(ligs, allo_states(site))), ", "), "]")
     end
 end
 

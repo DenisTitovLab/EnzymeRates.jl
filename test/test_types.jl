@@ -150,7 +150,8 @@ end
     end
 
     @testset "Pretty printing" begin
-        # Linear mechanism: compact chain.
+        # Linear mechanism: one line per step, in stored order, under a header that
+        # counts steps and enzyme forms.
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -160,7 +161,17 @@ end
             end
         end
         @test sprint(show, m) ==
-            "EnzymeMechanism: E + S <--> ES <--> E + P"
+            "EnzymeMechanism (2 steps, 2 enzyme forms):\n  E + P <--> ES\n" *
+            "  E + S <--> ES"
+
+        # A mechanism with no steps prints the bare header.
+        m_none = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+            end
+        end
+        @test sprint(show, m_none) == "EnzymeMechanism (0 steps, 0 enzyme forms):"
 
         # Branched mechanism: multi-line with header summary.
         m_b = @enzyme_mechanism begin
@@ -181,9 +192,7 @@ end
         @test contains(s, "E + A <--> EA")
         @test contains(s, "E + Q <--> EQ")
 
-        # Catalytic 3-cycle. The compact chain-walk follows the enzyme-form
-        # graph (not stored order) and starts at the free enzyme, binding the
-        # substrate first, so it renders as a single substrate→product chain.
+        # Catalytic 3-cycle: the steps print in stored order, not chain order.
         m_re = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -194,11 +203,11 @@ end
             end
         end
         @test sprint(show, m_re) ==
-            "EnzymeMechanism: E + S ⇌ ES <--> EP ⇌ E + P"
+            "EnzymeMechanism (3 steps, 3 enzyme forms):\n  E + P ⇌ EP\n" *
+            "  E + S ⇌ ES\n  ES <--> EP"
 
-        # Theorell–Chance: B binds and P leaves in one step. A chain prints only
-        # the first step's entry side, which would hide B, so every step prints
-        # on its own line with all its metabolites.
+        # Theorell–Chance: B binds and P leaves in one step, and the step prints
+        # both on its own line.
         m_tc = @enzyme_mechanism begin
             substrates: A, B
             products:   P, Q
@@ -212,8 +221,8 @@ end
             "EnzymeMechanism (3 steps, 3 enzyme forms):\n  E + A <--> EA\n" *
             "  E + Q <--> EQ\n  EA + B <--> EQ + P"
 
-        # A fused binding (B binds and chemistry runs in one step) would hide B
-        # in a chain as well, since E(P, Q) does not name it.
+        # A fused binding (B binds and chemistry runs in one step) prints B on its
+        # entry side, since E(P, Q) does not name it.
         m_fb = @enzyme_mechanism begin
             substrates: A, B
             products:   P, Q
@@ -273,6 +282,26 @@ end
         @test contains(s_allo, "AllostericEnzymeMechanism (cat_n=2")
         @test contains(s_allo, "reg sites")
         @test contains(s_allo, "I::OnlyI")
+
+        # A regulatory site with two ligands lists both with their states.
+        m_site = @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: I::OnlyI, J::EqualAI
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)     :: EqualAI
+                E(S) <--> E(P)   :: OnlyA
+                E(P) ⇌ E + P     :: EqualAI
+            end
+            regulatory_site(multiplicity = 3): begin
+                ligands: I, J
+            end
+        end
+        @test sprint(show, m_site) ==
+            "AllostericEnzymeMechanism (cat_n=2, 1 reg sites):\n" *
+            "  E + P ⇌ EP :: EqualAI\n  E + S ⇌ ES :: EqualAI\n" *
+            "  ES <--> EP :: OnlyA\n  reg site 1 (n=3): I, J [I::OnlyI, J::EqualAI]"
     end
 
     @testset "Mechanism rejects a rapid-equilibrium segment with no bottom form" begin
@@ -393,6 +422,10 @@ end
             end
         end
         s = sprint(show, m)
+        @test s == "AllostericEnzymeMechanism (cat_n=2, 2 reg sites):\n" *
+                   "  E + P ⇌ EP :: EqualAI\n  E + S ⇌ ES :: NonequalAI\n" *
+                   "  ES <--> EP :: OnlyA\n  reg site 1 (n=2): I [I::NonequalAI]\n" *
+                   "  reg site 2 (n=2): J [J::OnlyI]"
         # Every catalytic state appears in cat_allo_states line
         cm_inner = ER.catalytic_mechanism(m)
         n_groups = length(unique(ER.kinetic_group(cm_inner, i)
@@ -434,6 +467,8 @@ end
         @test !occursin("cat_allo_states:", s)
         # One line per kinetic group: a multi-line catalytic display.
         @test count(==('\n'), s) >= 3
+        @test s == "AllostericEnzymeMechanism (cat_n=2):\n  E + P ⇌ EP :: EqualAI\n" *
+                   "  (E + S ⇌ ES, EP + S ⇌ EPS) :: EqualAI\n  ES <--> EP :: EqualAI"
     end
 
     # ─── Concrete type hierarchy ──────────────────────────────────────
