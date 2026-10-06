@@ -277,15 +277,19 @@ using Tables
         data = make_synthetic_data(uni_uni, true_params, concs_list)
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
+        # Measured inside a function so the count excludes boxing the Float64 return
+        # of a dynamically dispatched call (Julia < 1.12 `@allocated` counts it).
+        loss_allocs(x, fp) = @allocated EnzymeRates.loss!(x, fp)
+
         x = randn(length(EnzymeRates.fitted_params(uni_uni)))
-        EnzymeRates.loss!(x, fp)  # warmup
-        allocs = @allocated EnzymeRates.loss!(x, fp)
+        loss_allocs(x, fp)  # warmup
+        allocs = loss_allocs(x, fp)
         @test allocs == 0
 
         # Absolute mode (uncentered branch) is equally allocation-free.
         fp_abs = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
-        EnzymeRates.loss!(x, fp_abs)  # warmup
-        allocs_abs = @allocated EnzymeRates.loss!(x, fp_abs)
+        loss_allocs(x, fp_abs)  # warmup
+        allocs_abs = loss_allocs(x, fp_abs)
         @test allocs_abs == 0
     end
 
