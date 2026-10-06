@@ -11084,36 +11084,27 @@ end
 
 @testset "catalytic moves on bi-bi to depth 2: counts and both rules on every child" begin
     # Aggregate regression pin over the whole enumerated population of the bi-bi
-    # reaction whose atoms admit ping-pong: `init_mechanisms` plus two
-    # levels of the flip, split and dead-end moves, deduplicated across levels.
-    # Without the flux and new-complex rules the levels would hold 62, 369 and 1,388;
-    # the flux rule leaves out 148 zero-flux flip children at level 2, and the 40
-    # zero-flux split children, emitted at rapid equilibrium, duplicate level-2 flip
-    # children, so 1,200 would remain; it affects no seed or level-1 child. The flip
-    # rule (`_chain_flank_groups`) then leaves out 20 seed children at level 1 and 66
-    # mechanisms at level 2, each holding a qualifying chain whose isomerization and
-    # at least one flank are steady state, and each with its twin whose flanks are
-    # both at rapid equilibrium in the population: 62, 349 and 1,134 remain. These
-    # are the levels grown from the 62 seeds that hold an isomerization. The moves
-    # neither add nor remove an isomerization, so the 202 merged and Theorell–Chance
-    # variants, which hold none, grow apart from the seeds: 669 mechanisms at level 1
-    # and 1,237 at level 2. Grown from all 264 init mechanisms the levels hold the sums,
-    # 264, 1,018 and 2,371. Every mechanism satisfies both emission rules.
+    # reaction whose atoms admit ping-pong, every reactant also a competitive
+    # inhibitor: `init_mechanisms` plus two levels of the flip, split and dead-end
+    # moves, deduplicated across levels. Every mechanism satisfies both emission rules.
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
+        dead_end_inhibitors: A, B, P, Q
     end
     moves(m, rxn) = vcat(EnzymeRates._expand_re_to_ss(m),
                          EnzymeRates._expand_split_kinetic_group(m),
                          EnzymeRates._expand_add_dead_end_regulator(m, rxn))
     holds_iso(m) = any(EnzymeRates.is_iso, Iterators.flatten(EnzymeRates.steps(m)))
-    function levels(rxn, keep = _ -> true)
-        level = unique!(filter(keep, EnzymeRates.init_mechanisms(rxn)))
+    iso_kept = true
+    function levels(rxn)
+        level = unique!(EnzymeRates.init_mechanisms(rxn))
         seen = Set(level)
         out = [level]
         for _ in 1:2
             next = EnzymeRates.Mechanism[]
             for m in level, c in moves(m, rxn)
+                iso_kept &= holds_iso(c) == holds_iso(m)
                 c in seen && continue
                 push!(seen, c); push!(next, c)
             end
@@ -11123,36 +11114,44 @@ end
         out
     end
     obeys_rules(m) = EnzymeRates._assert_emission_rules(m) === nothing
-    @test length.(levels(rxn, holds_iso)) == [62, 349, 1134]
-    @test length.(levels(rxn, !holds_iso)) == [202, 669, 1237]
-    bibi = levels(rxn)
-    @test length.(bibi) == [264, 1018, 2371]
-    @test all(obeys_rules, Iterators.flatten(bibi))
-
-    # The same seeds with every reactant also a competitive inhibitor, two
-    # levels: no copy group is redundant.
-    rxn6 = @enzyme_reaction begin
-        substrates: A[CX], B[N]
-        products: P[C], Q[NX]
-        dead_end_inhibitors: A, B, P, Q
-    end
-    # The counts that follow are of the levels grown from the 62 seeds that hold an
-    # isomerization. Without the copy rule level 1 would hold 1,749: the 120
-    # seed-level placements whose every complex has a productive twin and whose dwell
-    # gauge is consistent are not emitted, and the 240 whose gauge fails, the
-    # shared-group family of Case 3, are. 8,694 level-2 mechanisms hold a copy group
-    # whose every complex has a productive twin and whose gauge fails. Without the
-    # flip rule the levels would hold 62, 1,649 and 31,730: it leaves out 20 seed
-    # children at level 1 and 348 mechanisms at level 2, each holding a qualifying
-    # chain whose isomerization and at least one flank are steady state. The 202
-    # variants grow apart from the seeds, as above: 5,109 mechanisms at level 1 and
-    # 97,111 at level 2. Grown from all 264 init mechanisms the levels hold the sums,
-    # 264, 6,738 and 128,493.
-    @test length.(levels(rxn6, holds_iso)) == [62, 1629, 31382]
-    copies = levels(rxn6)
-    @test length.(copies) == [264, 6738, 128493]
+    free(m) = isempty(EnzymeRates._bound_comp_inhibitors(m))
+    copies = levels(rxn)
+    @test iso_kept
     @test all(obeys_rules, Iterators.flatten(copies))
-    @test any(m -> !isempty(EnzymeRates._bound_comp_inhibitors(m)), copies[2])
+    @test any(!free, copies[2])
+
+    # The counts that follow are of the levels grown from the 62 seeds that hold an
+    # isomerization; the moves neither add nor remove one. Without the copy rule
+    # level 1 would hold 1,749: the 120 seed-level placements whose every complex has
+    # a productive twin and whose dwell gauge is consistent are not emitted, and the
+    # 240 whose gauge fails, the shared-group family of Case 3, are. 8,694 level-2
+    # mechanisms hold a copy group whose every complex has a productive twin and
+    # whose gauge fails. Without the flip rule the levels would hold 62, 1,649 and
+    # 31,730: it leaves out 20 seed children at level 1 and 348 mechanisms at level 2,
+    # each holding a qualifying chain whose isomerization and at least one flank are
+    # steady state. The 202 merged and Theorell–Chance variants, which hold none, grow
+    # apart from the seeds: 5,109 mechanisms at level 1 and 97,111 at level 2. Grown
+    # from all 264 init mechanisms the levels hold the sums, 264, 6,738 and 128,493.
+    @test [count(holds_iso, l) for l in copies] == [62, 1629, 31382]
+    @test length.(copies) == [264, 6738, 128493]
+
+    # The moves never remove a step, so a mechanism that binds no inhibitor descends
+    # only from inhibitor-free ones and sits at the level it has in the same reaction
+    # declaring no inhibitor: the plain bi-bi reaction. Without the flux and
+    # new-complex rules its levels would hold 62, 369 and 1,388; the flux rule leaves
+    # out 148 zero-flux flip children at level 2, and the 40 zero-flux split children,
+    # emitted at rapid equilibrium, duplicate level-2 flip children, so 1,200 would
+    # remain; it affects no seed or level-1 child. The flip rule
+    # (`_chain_flank_groups`) then leaves out 20 seed children at level 1 and 66
+    # mechanisms at level 2, each holding a qualifying chain whose isomerization and
+    # at least one flank are steady state, and each with its twin whose flanks are
+    # both at rapid equilibrium in the population: 62, 349 and 1,134 remain from the
+    # seeds that hold an isomerization. The variants hold none: 669 mechanisms at
+    # level 1 and 1,237 at level 2. Grown from all 264 init mechanisms the levels
+    # hold the sums, 264, 1,018 and 2,371.
+    @test [count(m -> free(m) && holds_iso(m), l) for l in copies] == [62, 349, 1134]
+    @test [count(m -> free(m) && !holds_iso(m), l) for l in copies] == [202, 669, 1237]
+    @test [count(free, l) for l in copies] == [264, 1018, 2371]
 end
 
 @testset "expand_mechanisms on a merged uni-uni" begin
