@@ -250,7 +250,8 @@ not lost.
 """
 function enumerate_all_mechanism(rxn; max_params::Int=typemax(Int))
     M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
-    actual(m) = EnzymeRates._independent_param_count(m)
+    actual(m) = length(
+        EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(m)))
     frontier = Dict{Int, Vector{M}}()
     function add!(m)
         pc = actual(m)
@@ -2262,9 +2263,11 @@ end
 
     # 2. Δ params: cheap-tag RE→SS adds 1 fitted param per variant
     # (RE K → SS (kf, kr), shared across R/T — no separate T-state pair).
-    # Measured by `_independent_param_count`.
-    base_fitted = EnzymeRates._independent_param_count(am)
-    deltas = sort([EnzymeRates._independent_param_count(r) - base_fitted for r in result])
+    # Measured against the actual compiled fitted-param count.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
     @test deltas == [1, 1]
 
     # 3. compilability — must produce AllostericEnzymeMechanism.
@@ -2323,8 +2326,10 @@ end
     # in the inactive state of the base AND of every variant, so flipping a
     # binding group RE→SS adds only that group's own SS rate constant (+1) —
     # it does not introduce a new inactive-state form. Both variants → Δ=1.
-    base_fitted = EnzymeRates._independent_param_count(am)
-    deltas = sort([EnzymeRates._independent_param_count(r) - base_fitted for r in result])
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
     @test deltas == [1, 1]
 
     # 3. compilability
@@ -2379,10 +2384,12 @@ end
     @test length(result) == 2
 
     # 2. Δ params: P-binding :EqualAI → +1; S-binding :NonequalAI → +2.
-    # Measured by `_independent_param_count`: SS :NonequalAI adds kf_T, kr_T on
-    # top of the R-state pair.
-    base_fitted = EnzymeRates._independent_param_count(am)
-    deltas = sort([EnzymeRates._independent_param_count(r) - base_fitted for r in result])
+    # Measured against the actual compiled fitted-param count (ground
+    # truth): SS :NonequalAI adds kf_T, kr_T on top of the R-state pair.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
     @test deltas == [1, 2]
 
     # 3. compilability
@@ -2716,10 +2723,12 @@ end
     @test length(result) == 2
 
     # 2. Δ params: :NonequalAI RE→SS adds 2 fitted params per variant (the
-    # A- and I-state binding K each split into (kf, kr)). Measured by
-    # `_independent_param_count`.
-    base_fitted = EnzymeRates._independent_param_count(am)
-    deltas = sort([EnzymeRates._independent_param_count(r) - base_fitted for r in result])
+    # A- and I-state binding K each split into (kf, kr)). Measured against
+    # the actual compiled count.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
     @test deltas == [2, 2]
 
     # 3. allosteric state preserved on every variant.
@@ -4899,8 +4908,10 @@ end
     # that ligand, adding no inactive binding constant), and the dead
     # inactive conformation runs no chemistry, so it carries no free
     # catalytic constant. All 15 variants are Δ=1.
-    base_fitted = EnzymeRates._independent_param_count(m)
-    deltas = sort([EnzymeRates._independent_param_count(r) - base_fitted for r in result])
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(m)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
     @test deltas == fill(1, 15)
 
     # 3. compilability — must produce AllostericEnzymeMechanism, and no
@@ -4954,8 +4965,10 @@ end
     # Each :OnlyA binding is K-type (no inactive binding constant), and the
     # dead inactive conformation runs no chemistry, so it carries no free
     # catalytic constant. All 15 variants are Δ=1.
-    base_fitted = EnzymeRates._independent_param_count(m)
-    deltas = sort([EnzymeRates._independent_param_count(r) - base_fitted for r in result])
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(m)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
     @test deltas == fill(1, 15)
 
     # 3. compilability, and no result is the all-:EqualAI baseline.
@@ -5159,8 +5172,10 @@ end
                 E + P ⇌ E(P)
             end
         end)))
-    base = EnzymeRates._independent_param_count(seed)
-    Δ(am) = EnzymeRates._independent_param_count(am) - base
+    base = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(seed)))
+    Δ(am) = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am))) - base
     outs = EnzymeRates._expand_to_allosteric(seed, uni_uni_allo_2reg)
     vtypes = filter(am -> !isempty(EnzymeRates.regulatory_sites(am)), outs)
     ktypes = filter(am -> isempty(EnzymeRates.regulatory_sites(am)), outs)
@@ -5376,10 +5391,12 @@ end
     @test length(result) == 3
 
     # 2. Δ params: :OnlyA/:OnlyI add one K_R each (+1); :NonequalAI adds
-    # K_R and K_R_T (+2). Sorted [1, 1, 2]. Measured by
-    # `_independent_param_count`.
-    base_fitted = EnzymeRates._independent_param_count(am)
-    deltas = sort([EnzymeRates._independent_param_count(r) - base_fitted for r in result])
+    # K_R and K_R_T (+2). Sorted [1, 1, 2]. Measured against the actual
+    # compiled fitted count.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
     @test deltas == [1, 1, 2]
 
     # 3. equivalence-style structural: each variant has exactly one
@@ -5475,9 +5492,11 @@ end
     # 2. Δ params: four variants add one parameter (:OnlyA new/existing,
     # :OnlyI new, and the :EqualAI-at-existing one), two :NonequalAI
     # variants add two (K_R2 + K_R2_T). Sorted [1, 1, 1, 1, 2, 2].
-    # Measured by `_independent_param_count`.
-    base_fitted = EnzymeRates._independent_param_count(am)
-    deltas = sort([EnzymeRates._independent_param_count(r) - base_fitted for r in result])
+    # Measured against the actual compiled fitted count.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
     @test deltas == [1, 1, 1, 1, 2, 2]
 
     # 3. structural: every result has :R2 in some regulatory site.
@@ -5578,9 +5597,11 @@ end
 
     # 2. Δ params: same multiset as the :OnlyA seed — four +1 variants
     # and two :NonequalAI +2 variants. Sorted [1, 1, 1, 1, 2, 2].
-    # Measured by `_independent_param_count`.
-    base_fitted = EnzymeRates._independent_param_count(am)
-    deltas = sort([EnzymeRates._independent_param_count(r) - base_fitted for r in result])
+    # Measured against the actual compiled fitted count.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
     @test deltas == [1, 1, 1, 1, 2, 2]
 
     # 3. compilability
@@ -5633,10 +5654,12 @@ end
     @test length(result) == 3
 
     # 2. Δ params: :OnlyA/:OnlyI add one K_S each (+1); :NonequalAI adds
-    # K_S and K_S_T (+2). Sorted [1, 1, 2]. Measured by
-    # `_independent_param_count`.
-    base_fitted = EnzymeRates._independent_param_count(am)
-    deltas = sort([EnzymeRates._independent_param_count(r) - base_fitted for r in result])
+    # K_S and K_S_T (+2). Sorted [1, 1, 2]. Measured against the actual
+    # compiled fitted count.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
     @test deltas == [1, 1, 2]
 
     # 3. structural: :S appears in some regulatory site of every result.
@@ -5733,10 +5756,12 @@ end
     @test length(result) == 3
 
     # 2. Δ params: :OnlyA/:OnlyI add one K_P each (+1); :NonequalAI adds
-    # K_P and K_P_T (+2). Sorted [1, 1, 2]. Measured by
-    # `_independent_param_count`.
-    base_fitted = EnzymeRates._independent_param_count(am)
-    deltas = sort([EnzymeRates._independent_param_count(r) - base_fitted for r in result])
+    # K_P and K_P_T (+2). Sorted [1, 1, 2]. Measured against the actual
+    # compiled fitted count.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
     @test deltas == [1, 1, 2]
 
     # 3. compilability
@@ -7066,10 +7091,13 @@ uni = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
 end
 
 @testset "Mechanism — Bi-bi init-tier (actual-count buckets)" begin
-    # Full multi-tier bi-bi enumeration is too slow for the suite. The init tier
-    # suffices to verify that the actual fitted-param counts of the bi-bi init
-    # mechanisms fall in the expected {5,6,7} band. (Multi-tier actual-count
-    # enumeration is exercised by the uni-uni / dead-end / allosteric callers below.)
+    # Full multi-tier bi-bi enumeration would have to compile every
+    # reachable mechanism to bucket it by actual fitted count (hundreds
+    # of @generated derivations) — too slow for the suite. The init tier
+    # suffices to verify bi-bi enumeration produces mechanisms that
+    # compile and that their actual fitted-param counts fall in the
+    # expected {5,6,7} band. (Multi-tier actual-count enumeration is
+    # exercised by the uni-uni / dead-end / allosteric callers below.)
     init = unique!(
         collect(EnzymeRates.init_mechanisms(bi_bi_rxn)))
     @test !isempty(init)
@@ -7092,7 +7120,8 @@ end
     counts = Set{Int}()
     tally = Dict{Tuple{Symbol, Int}, Int}()
     for m in init
-        n = EnzymeRates._independent_param_count(m)
+        em = EnzymeRates.compile_mechanism(m)
+        n = length(EnzymeRates.fitted_params(em))
         push!(counts, n)
         tally[(kind(m), n)] = get(tally, (kind(m), n), 0) + 1
         kind(m) == :theorell_chance && @test n == 5 + dead_end_groups(m)
