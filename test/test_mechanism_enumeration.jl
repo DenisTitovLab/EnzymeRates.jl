@@ -88,28 +88,74 @@ function _connectivity_violations(steps)
     viol
 end
 
-"Finite-difference rank of ∂v/∂log θ over the fitted parameters (test oracle only)."
-function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
+"""Fitted constants, metabolite names and rate function of a mechanism for the numeric
+oracles (test oracle only). `rates(C, θ, keq)` returns the rate at `E_total = 1` at each
+column of `C` (a row per metabolite, in the order of the returned names) for fitted
+constants `θ` (in the returned order) and `Keq`. A plain mechanism evaluates the derived
+polynomials, the expression `rate_equation` compiles; an allosteric one calls the compiled
+`rate_equation`."""
+function _testhelper_rate_function(m::EnzymeRates.Mechanism)
+    ER = EnzymeRates
+    num, den, _ = ER._raw_symbolic_rate_polys(m, ER._step_parameters(m),
+                                              ER._build_wegscheider_rename_map(m))
+    dep, indep = ER._dependent_param_exprs(m)
+    mets = sort!(collect(ER._concentration_symbols(m)))
+    row = Dict(x => i for (i, x) in enumerate(mets))
+    # A polynomial sums, over the concentration monomials u, u(c) times a polynomial in
+    # the constants.
+    function by_concentration(p)
+        groups = Dict{ER.MONO, Vector{Tuple{Float64, ER.MONO}}}()
+        for (mono, coeff) in p
+            u = filter(pr -> first(pr) in mets, mono)
+            push!(get!(groups, u, Tuple{Float64, ER.MONO}[]),
+                  (Float64(coeff), filter(pr -> !(first(pr) in mets), mono)))
+        end
+        collect(groups)
+    end
+    value(e::Number, x) = e
+    value(e::Symbol, x) = x[e]
+    value(e::Expr, x) = getfield(Base, e.args[1])((value(a, x) for a in e.args[2:end])...)
+    num_by_u, den_by_u = by_concentration(num), by_concentration(den)
+    function rates(C, θ, keq)
+        x = Dict{Symbol, Float64}(:Keq => keq)
+        for (s, v) in zip(indep, θ); x[s] = v; end
+        for (s, e) in dep; x[s] = value(e, x); end
+        weights(by_u) = [(u, sum(c * prod(x[s]^e for (s, e) in par; init = 1.0)
+                                 for (c, par) in terms; init = 0.0)) for (u, terms) in by_u]
+        point(ws, j) = sum(w * prod(C[row[s], j]^e for (s, e) in u; init = 1.0)
+                           for (u, w) in ws; init = 0.0)
+        nw, dw = weights(num_by_u), weights(den_by_u)
+        [point(nw, j) / point(dw, j) for j in axes(C, 2)]
+    end
+    collect(indep), mets, rates
+end
+
+function _testhelper_rate_function(m::EnzymeRates.AllostericMechanism)
     em = EnzymeRates.compile_mechanism(m)
     fp = collect(EnzymeRates.fitted_params(em))
-    cm = m isa EnzymeRates.Mechanism ? m : EnzymeRates._state_mechanism(m, :A)
-    mets = sort!(collect(EnzymeRates._concentration_symbols(cm)))
-    # Seeded from the rendered equation: a struct hash mixes in objectid and
-    # would not reproduce a failure in a later session.
-    rng = MersenneTwister(hash(rate_equation_string(em)) % 2^31)
+    mets = sort!(collect(EnzymeRates._concentration_symbols(
+        EnzymeRates._state_mechanism(m, :A))))
+    rates(C, θ, keq) = [rate_equation(em, NamedTuple{Tuple(mets)}(Tuple(c)),
+                                      NamedTuple{(fp..., :Keq, :E_total)}((θ..., keq, 1.0)))
+                        for c in eachcol(C)]
+    fp, mets, rates
+end
+
+"Finite-difference rank of ∂v/∂log θ over the fitted parameters (test oracle only)."
+function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
+    fp, mets, rates = _testhelper_rate_function(m)
+    # A fixed seed reproduces a failure in a later session; a struct hash mixes in
+    # objectid and would not.
+    rng = MersenneTwister(1)
     best = 0
     for _ in 1:ndraws
         θ = exp.(randn(rng, length(fp)))
         keq = exp(randn(rng))
-        concs = [NamedTuple{Tuple(mets)}(Tuple(exp.(2 .* randn(rng, length(mets)))))
-                 for _ in 1:npts]
+        C = exp.(2 .* randn(rng, length(mets), npts))
         J = zeros(npts, length(fp))
         for j in eachindex(fp), sgn in (1, -1)
             θp = copy(θ); θp[j] *= exp(sgn * h)
-            p = NamedTuple{(fp..., :Keq, :E_total)}((θp..., keq, 1.0))
-            for (i, c) in enumerate(concs)
-                J[i, j] += sgn * rate_equation(em, c, p) / (2h)
-            end
+            J[:, j] += sgn * rates(C, θp, keq) / (2h)
         end
         all(isfinite, J) || continue
         sv = svdvals(J)
@@ -123,18 +169,15 @@ need some substrate (ratio of the rate at 10⁻⁸ of it to the rate at 1 stays 
 grows without bound as the substrates scale (10⁹ against 10⁶), or the mirror for
 products."""
 function _testhelper_degenerate(m; ndraws = 2)
-    em = EnzymeRates.compile_mechanism(m)
-    fp = collect(EnzymeRates.fitted_params(em))
+    fp, mets, rates = _testhelper_rate_function(m)
     cm = m isa EnzymeRates.Mechanism ? m : EnzymeRates._state_mechanism(m, :A)
     subs = [EnzymeRates.name(s) for s in EnzymeRates.substrates(EnzymeRates.reaction(cm))]
     prods = [EnzymeRates.name(p) for p in EnzymeRates.products(EnzymeRates.reaction(cm))]
-    mets = sort!(collect(EnzymeRates._concentration_symbols(cm)))
     rng = MersenneTwister(7)
     for _ in 1:ndraws
         θ = exp.(randn(rng, length(fp)))
-        p = NamedTuple{(fp..., :Keq, :E_total)}((θ..., exp(randn(rng)), 1.0))
-        v(d) = rate_equation(
-            em, NamedTuple{Tuple(mets)}(Tuple(get(d, x, 0.0) for x in mets)), p)
+        keq = exp(randn(rng))
+        v(d) = only(rates(reshape([get(d, x, 0.0) for x in mets], :, 1), θ, keq))
         for side in (subs, prods)
             base = v(Dict(x => 1.0 for x in side))
             for x in side
