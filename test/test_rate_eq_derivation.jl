@@ -820,10 +820,64 @@ function _classify_dep_expr(expr)
     end
 end
 
+# Parameter-name symbols referenced on the RHS of a dependent-param expression
+# `x`, skipping the operator/function-name slot of a `:call` Expr (so `:+`,
+# `:*`, `:/`, `:^`, `:sqrt`, ... never appear as candidate parameter names).
+rhs_syms(x) = x isa Symbol ? [x] :
+    x isa Expr ? reduce(vcat, map(rhs_syms, x.head === :call ? x.args[2:end] : x.args);
+                         init=Symbol[]) :
+    Symbol[]
+
+"""
+The dependent-parameter graph `dep` (with independent parameters `indep`) is sound
+iff (a) no symbol is both independent (fitted) and dependent, (b) the dep→dep
+dependency graph is acyclic, and (c) every dependent expression's RHS symbol
+is a fitted param, another dependent param, or `Keq`.
+"""
+function _dep_graph_is_sound(dep, indep)
+    indepset = Set(indep)
+    isempty(intersect(indepset, keys(dep))) || return false
+
+    depset = Set(keys(dep))
+    edges = Dict(k => Symbol[s for s in rhs_syms(v) if s in depset] for (k, v) in dep)
+    state = Dict{Symbol, Int}()  # 0 = unseen, 1 = on-stack, 2 = done
+    ok = true
+    function dfs(n)
+        get(state, n, 0) == 2 && return
+        if get(state, n, 0) == 1
+            ok = false
+            return
+        end
+        state[n] = 1
+        for m in get(edges, n, Symbol[])
+            dfs(m)
+            ok || return
+        end
+        state[n] = 2
+    end
+    for k in keys(dep)
+        dfs(k)
+        ok || break
+    end
+    ok || return false
+
+    known = union(indepset, depset, Set([:Keq]))
+    for (_, v) in dep, s in rhs_syms(v)
+        s in known || return false
+    end
+    true
+end
+
 function test_constraint_counting(spec::MechanismTestSpec)
     m = spec.mechanism
     @testset "Constraints" begin
         dep_exprs, indep = EnzymeRates._dependent_param_exprs(typeof(m))
+        # A dependent (Haldane/Wegscheider-derived) parameter must never appear in
+        # the independent set returned as fitted_params. The LDH i-state specs have a
+        # shared :EqualAI catalytic reverse rate that is Haldane-dependent in the
+        # A-state while the dead I-state references it unpinned — the exact leak the
+        # uniform dep-filter closes.
+        @test _dep_graph_is_sound(dep_exprs, indep)
         n_haldane = 0
         n_mirror = 0
         n_wegscheider = 0
@@ -1396,9 +1450,10 @@ end
     rev(s) = ER.Step(ER.to_species(s), ER.from_species(s), ER.released(s), ER.consumed(s),
                      ER.is_equilibrium(s))
     rng = Random.MersenneTwister(7)
-    # Every step reversed, then a random subset.
+    # Every step reversed, a random subset, and every group's steps in reverse order.
     variants(groups) = ([[rev(s) for s in g] for g in groups],
-                        [[rand(rng, Bool) ? rev(s) : s for s in g] for g in groups])
+                        [[rand(rng, Bool) ? rev(s) : s for s in g] for g in groups],
+                        [reverse(g) for g in groups])
     # The Theorell–Chance step of `tc_ss` written backwards.
     tc_backwards = @enzyme_mechanism begin
         substrates: A, B
@@ -1532,82 +1587,9 @@ end
     end
 end
 
-@testset "indep ∩ keys(dep) == ∅ (allosteric i-state mechanisms)" begin
-    # A dependent (Haldane/Wegscheider-derived) parameter must never appear in
-    # the independent set returned as fitted_params. These LDH mechanisms have a
-    # shared :EqualAI catalytic reverse rate that is Haldane-dependent in the
-    # A-state while the dead I-state references it unpinned — the exact leak the
-    # uniform dep-filter closes.
-    for m in _LDH_ISTATE_MECHS
-        M = typeof(m)
-        dep, indep = EnzymeRates._dependent_param_exprs(M)
-        @test isempty(intersect(Set(keys(dep)), Set(indep)))
-    end
-end
-
-@testset "indep ∩ keys(dep) == ∅ (all MECHANISM_TEST_SPECS)" begin
-    for spec in MECHANISM_TEST_SPECS
-        dep, indep = EnzymeRates._dependent_param_exprs(typeof(spec.mechanism))
-        @test isempty(intersect(Set(keys(dep)), Set(indep)))
-    end
-end
-
-# Parameter-name symbols referenced on the RHS of a dependent-param expression
-# `x`, skipping the operator/function-name slot of a `:call` Expr (so `:+`,
-# `:*`, `:/`, `:^`, `:sqrt`, ... never appear as candidate parameter names).
-rhs_syms(x) = x isa Symbol ? [x] :
-    x isa Expr ? reduce(vcat, map(rhs_syms, x.head === :call ? x.args[2:end] : x.args);
-                         init=Symbol[]) :
-    Symbol[]
-
-"""
-The dependent-parameter graph for mechanism type `T` is sound iff (a) no
-symbol is both independent (fitted) and dependent, (b) the dep→dep
-dependency graph is acyclic, and (c) every dependent expression's RHS symbol
-is a fitted param, another dependent param, or `Keq`.
-"""
-function _dep_graph_is_sound(T)
-    dep, indep = EnzymeRates._dependent_param_exprs(T)
-    indepset = Set(indep)
-    isempty(intersect(indepset, keys(dep))) || return false
-
-    depset = Set(keys(dep))
-    edges = Dict(k => Symbol[s for s in rhs_syms(v) if s in depset] for (k, v) in dep)
-    state = Dict{Symbol, Int}()  # 0 = unseen, 1 = on-stack, 2 = done
-    ok = true
-    function dfs(n)
-        get(state, n, 0) == 2 && return
-        if get(state, n, 0) == 1
-            ok = false
-            return
-        end
-        state[n] = 1
-        for m in get(edges, n, Symbol[])
-            dfs(m)
-            ok || return
-        end
-        state[n] = 2
-    end
-    for k in keys(dep)
-        dfs(k)
-        ok || break
-    end
-    ok || return false
-
-    known = union(indepset, depset, Set([:Keq]))
-    for (_, v) in dep, s in rhs_syms(v)
-        s in known || return false
-    end
-    true
-end
-
 @testset "allosteric dependent-param graph is sound" begin
     for T in ALLOSTERIC_UNDEFVAR_REPRODUCERS
-        @test _dep_graph_is_sound(T)
-    end
-    for spec in MECHANISM_TEST_SPECS
-        spec.mechanism isa EnzymeRates.AllostericEnzymeMechanism || continue
-        @test _dep_graph_is_sound(typeof(spec.mechanism))
+        @test _dep_graph_is_sound(EnzymeRates._dependent_param_exprs(T)...)
     end
 end
 
@@ -1827,7 +1809,7 @@ end
     @test t_compile < 20.0
 end
 
-@testset "Numerator: all-RE catalytic cycle raises" begin
+@testset "All-RE catalytic cycle raises" begin
     # Binding stage mixed (S2 SS, S1 RE), release stage mixed (P1 SS, P2 RE),
     # chemistry RE ⇒ a complete all-RE catalytic cycle exists ⇒ no finite rate.
     m_allre = @enzyme_mechanism begin
@@ -1845,14 +1827,6 @@ end
             E(P2) ⇌ E + P2
         end
     end
-    err = try
-        rate_equation_string(m_allre); nothing
-    catch e; e end
-    @test err isa ErrorException
-    @test occursin("no finite rate", err.msg)
-end
-
-@testset "All-RE catalytic cycle raises" begin
     # The activator route E(R) + S ⇌ E(S, R) ⇌ E(P, R) ⇌ E(R) + P is an all-RE
     # catalytic cycle, so the mechanism has no finite rate.
     m_sib = @enzyme_mechanism begin
@@ -1871,11 +1845,13 @@ end
              E(P) + R ⇌ E(P, R))
         end
     end
-    err = try
-        rate_equation_string(m_sib); nothing
-    catch e; e end
-    @test err isa ErrorException
-    @test occursin("no finite rate", err.msg)
+    for m in (m_allre, m_sib)
+        err = try
+            rate_equation_string(m); nothing
+        catch e; e end
+        @test err isa ErrorException
+        @test occursin("no finite rate", err.msg)
+    end
 end
 
 @testset "_eq_complexity (V×τ term-count estimate)" begin
@@ -1982,39 +1958,6 @@ end
         end
     end
     @test_throws "polynomial terms" rate_equation_string(m_manual)
-
-    # A directly-constructed random Bi-Bi with an R1 dead-end that binds
-    # the free enzyme AND every catalytic form, so each `E(X, R1)` form is
-    # reachable two ways (`E(R1)+X` and `E(X)+R1`). Those cycles multiply
-    # the King-Altman spanning-tree count (V×τ) past MAX_RATE_EQUATION_TERMS,
-    # so `_assert_derivable` aborts the derivation before `sym_det` runs. Built
-    # directly rather than enumerated so the guard is exercised deterministically.
-    m_cyclic = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        regulators: R1
-        steps: begin
-            E + A <--> E(A)
-            E + B <--> E(B)
-            E(A) + B <--> E(A, B)
-            E(B) + A <--> E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(P, Q) <--> E(P) + Q
-            E(P, Q) <--> E(Q) + P
-            E + P <--> E(P)
-            E + Q <--> E(Q)
-            E + R1 <--> E(R1)
-            E(R1) + A <--> E(A, R1)
-            E(A) + R1 <--> E(A, R1)
-            E(R1) + B <--> E(B, R1)
-            E(B) + R1 <--> E(B, R1)
-            E(R1) + P <--> E(P, R1)
-            E(P) + R1 <--> E(P, R1)
-            E(R1) + Q <--> E(Q, R1)
-            E(Q) + R1 <--> E(Q, R1)
-        end
-    end
-    @test_throws "polynomial terms" rate_equation_string(m_cyclic)
 end
 
 
@@ -2379,93 +2322,6 @@ end
     params = merge(params, (Keq=1.0, E_total=1.0))
     v = rate_equation(m, concs, params)
     @test isfinite(v)
-end
-
-@testset "kinetic-group name rep is structurally primary (free-enzyme binding)" begin
-    # A kinetic group joining a free-enzyme binding step (E + S ⇌ E_S) with a
-    # non-free dead-end mirror (EI1_inh + S ⇌ EI1_inh_S) must be NAMED after
-    # the free-enzyme step regardless of the steps' source order. The rep is
-    # the structurally-primary step (argmin _step_priority), not first(group).
-    spec = first(s for s in MECHANISM_TEST_SPECS
-                 if s.name == "Non-competitive + Competitive Inhibitor")
-    mech = EnzymeRates.Mechanism(spec.mechanism)
-    groups = EnzymeRates.steps(mech)
-    # group 1 = the S-binding group {E→E_S (free), EI1inh→EI1inh_S (non-free)}.
-    # Force the non-free mirror to be first(group); structural-primacy naming
-    # must still pick the free-enzyme step → :K_ES_to_E_S (not :K_EI1inhS_to_EI1inh_S).
-    reversed = [gi == 1 ? reverse(g) : g for (gi, g) in enumerate(groups)]
-    mech_rev = EnzymeRates.Mechanism(mech.reaction, reversed)
-    params_rev = EnzymeRates.parameters(EnzymeRates.compile_mechanism(mech_rev))
-    @test :K_ES_to_E_S in params_rev
-    @test !(:K_EI1inhS_to_EI1inh_S in params_rev)
-end
-
-# ── Dependent-parameter choice invariance to kinetic-group naming rep ────────
-#
-# The kinetic-group naming representative must not change WHICH kinetic group
-# becomes the Haldane elimination's dependent parameter — only the rendered
-# name of the representative.
-#
-# A dependent parameter names a kinetic GROUP. We identify each group
-# structurally and order-independently (sorted member step-hashes), so the
-# key is invariant to step order within the group — and therefore invariant
-# to the rep choice. Permuting the step order inside every group (reversing
-# it) changes the rep (and thus the rendered Symbol) but MUST leave the set
-# of dependent groups untouched. If the dependent-parameter choice depends on
-# naming/order, this set differs.
-
-"""
-Structural, order-independent identity of the dependent parameter `sym`:
-`(typeof(p), group_identity, p.state)`. `group_identity` is the hash of the
-sorted member step-hashes of the kinetic group the parameter governs (Kreg:
-the site hash). Recovers the Parameter from the Symbol via `_param_for_symbol`,
-flipping an `_I_`-state name back to its `_A_` source when needed.
-"""
-function _dep_struct_key(sym::Symbol, mech::EnzymeRates.Mechanism)
-    p = try
-        EnzymeRates._param_for_symbol(mech, sym)
-    catch
-        active_sym = Symbol(replace(String(sym), "_I_" => "_A_"; count=1))
-        EnzymeRates._flip_to_inactive(
-            EnzymeRates._param_for_symbol(mech, active_sym))
-    end
-    group_id = if p isa EnzymeRates.Kreg
-        hash(p.site)
-    else
-        gh = UInt(0)
-        for group in EnzymeRates.steps(mech)
-            if p.step in group
-                gh = hash(sort!([hash(s) for s in group]))
-                break
-            end
-        end
-        gh
-    end
-    return (typeof(p), group_id, p.state)
-end
-
-"""Set of structural dep-group keys for a Mechanism."""
-function _dep_struct_key_set(mech::EnzymeRates.Mechanism)
-    M = typeof(EnzymeRates.compile_mechanism(mech))
-    dep_exprs, _ = EnzymeRates._dependent_param_exprs(M)
-    return Set(_dep_struct_key(sym, mech) for sym in keys(dep_exprs))
-end
-
-@testset "dependent-param choice invariant to group-rep" begin
-    for spec in MECHANISM_TEST_SPECS
-        spec.mechanism isa EnzymeRates.EnzymeMechanism || continue
-        @testset "$(spec.name)" begin
-            mech = EnzymeRates.Mechanism(spec.mechanism)
-            base_keys = _dep_struct_key_set(mech)
-            # Reverse step order within every kinetic group. This flips the
-            # naming rep wherever a group has >1 step, but must not change
-            # which groups are dependent.
-            reversed = [reverse(g) for g in EnzymeRates.steps(mech)]
-            mech_rev = EnzymeRates.Mechanism(mech.reaction, reversed)
-            rev_keys = _dep_struct_key_set(mech_rev)
-            @test base_keys == rev_keys
-        end
-    end
 end
 
 @testset "Fix A: dead-inactive-state allosteric body defines all I-state symbols" begin

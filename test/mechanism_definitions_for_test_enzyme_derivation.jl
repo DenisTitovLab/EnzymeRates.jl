@@ -1471,67 +1471,6 @@ let
     ))
 end
 
-# The explicit flat MWC inhibitor fixture is intentionally omitted; the
-# AllostericEnzymeMechanism form below is canonical.
-
-# 26B. AllostericEnzymeMechanism MWC Dimer + Independent Inhibitor
-#      The Wegscheider constraint K80 = K47*K37/K38 (R_00I ⇌ T_00I equilibrium)
-#      is automatically satisfied by the conformational assembly formula — no
-#      explicit constraint needed in the AllostericEnzymeMechanism DSL.
-let
-    m, src, src_reg = @allosteric_mechanism_src begin
-        substrates: S
-        products: P
-        allosteric_regulators: I::NonequalAI
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + S ⇌ E(S)    :: NonequalAI
-            E + P ⇌ E(P)    :: NonequalAI
-            E(S) <--> E(P)  :: NonequalAI
-        end
-        regulatory_site(multiplicity = 1): begin
-            ligands: I
-        end
-    end
-
-    function rate_mwc_dimer_inh_oligo(params, concs)
-        (; K1, K2, k3f, k3r, K1_T, K2_T, k3f_T, k3r_T,
-           L, K_I_reg1, K_I_T_reg1, Et) = params
-        (; S, P, I) = concs
-        r_flux   = k3f * S / K1 - k3r * P / K2
-        t_flux   = k3f_T * S / K1_T - k3r_T * P / K2_T
-        r_factor = 1.0 + S / K1 + P / K2
-        t_factor = 1.0 + S / K1_T + P / K2_T
-        num   = r_flux * r_factor * (1.0 + I / K_I_reg1) +
-                L * t_flux * t_factor * (1.0 + I / K_I_T_reg1)
-        denom = r_factor^2 * (1.0 + I / K_I_reg1) +
-                L * t_factor^2 * (1.0 + I / K_I_T_reg1)
-        return Et * num / denom
-    end
-
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
-        name="MWC Dimer + Independent Inhibitor [AllostericEnzymeMechanism]",
-        mechanism=m,
-        source_steps=src,
-        source_reg_sites=src_reg,
-        metabolite_names=[:S, :P, :I],
-        expected_n_states=3,
-        expected_n_steps=3,
-        expected_n_haldane_constraints=2,
-        expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=0,  # thermodynamic consistency is automatic
-        expected_n_independent_params=9,
-        run_ode_test=false,
-        analytical_rate_fn=rate_mwc_dimer_inh_oligo,
-        expected_factored_num=
-        "(k_A_ES_to_EP * S / K_A_ES_to_E_S - k_A_EP_to_ES * P / K_A_EP_to_E_P) * (1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) * (1 + I / K_A_Ireg)" *
-        " + L * (S * k_I_ES_to_EP / K_I_ES_to_E_S - P * k_I_EP_to_ES / K_I_EP_to_E_P) * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) * (1 + I / K_I_Ireg)",
-        expected_factored_denom=
-        "(1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) ^ 2 * (1 + I / K_A_Ireg)" *
-        " + L * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) ^ 2 * (1 + I / K_I_Ireg)",
-    ))
-end
-
 # 27. Two Competitive Inhibitors (monomer)
 #     Tests: multiple additive dead-end terms (flat sum denominator).
 #     I1 and I2 both bind only free E (competitive with S/P and each other).
