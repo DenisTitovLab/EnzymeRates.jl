@@ -10,6 +10,22 @@ using OptimizationCMAEvolutionStrategy
 using Optimization
 using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCache
 
+# The uni-uni reaction S[C] → P[C], and a 4-row, two-group problem on it (Keq = 10) whose
+# data is a NamedTuple with String groups or a DataFrame with Int groups.
+const _testhelper_uni_rxn = @enzyme_reaction begin
+    substrates: S[C]
+    products: P[C]
+end
+
+function _testhelper_uni_prob(data_form)
+    columns = (S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4],
+               Rate = [0.5, 0.8, 1.0, 1.1])
+    data = data_form === DataFrame ?
+           DataFrame(merge(columns, (group = [1, 1, 2, 2],))) :
+           merge((group = ["G1", "G1", "G2", "G2"],), columns)
+    return IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0)
+end
+
 @testset "identify_rate_equation" begin
 
     # ── Shared test setup ────────────────────────────
@@ -173,10 +189,9 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
         df2 = EnzymeRates._rows_to_dataframe(
             NamedTuple[])
         @test nrow(df2) == 0
-    end
 
-    @testset "_rows_to_dataframe with failure row" begin
-        rows = [
+        # A failure row (every fit field missing) beside a fitted row.
+        rows_with_failure = [
             (n_params = 3, loss = 0.5, mechanism_type = "M",
              rate_equation = "v = ...", retcode = "Success", error = missing,
              fitted_param_names = (:a,), fitted_param_values = (1.0,),
@@ -187,24 +202,20 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
              fitted_param_values = (), eq_hash = missing,
              fit_inherited = missing),
         ]
-        df = EnzymeRates._rows_to_dataframe(rows)
-        @test nrow(df) == 2
-        @test ismissing(df.loss[2])
-        @test df.error[2] == "StackOverflowError: "
-        @test ismissing(df.retcode[2])
-        @test ismissing(df.eq_hash[2])
-        @test df.fit_inherited[1] == false
-        @test ismissing(df.fit_inherited[2])
-        @test "a" in names(df)              # param column still built from row 1
-        @test ismissing(df.a[2])            # failure row contributes no param value
+        df_with_failure = EnzymeRates._rows_to_dataframe(rows_with_failure)
+        @test nrow(df_with_failure) == 2
+        @test ismissing(df_with_failure.loss[2])
+        @test df_with_failure.error[2] == "StackOverflowError: "
+        @test ismissing(df_with_failure.retcode[2])
+        @test ismissing(df_with_failure.eq_hash[2])
+        @test df_with_failure.fit_inherited[1] == false
+        @test ismissing(df_with_failure.fit_inherited[2])
+        @test "a" in names(df_with_failure)    # param column still built from row 1
+        @test ismissing(df_with_failure.a[2])  # failure row contributes no param value
     end
 
     @testset "failure row preserves round-trippable mechanism" begin
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-        end
-        m = first(EnzymeRates.init_mechanisms(rxn))
+        m = first(EnzymeRates.init_mechanisms(_testhelper_uni_rxn))
         f = EnzymeRates.FitFailure(m, "boom")
         row = EnzymeRates._failure_row(f)
         # Round-trippable parametric Sig, not the bare concrete type name.
@@ -414,13 +425,9 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
                 n_restarts=1, maxtime=1.0))
     end
 
-    @testset "_cv_fold_loss over all groups: per-fold scores, finite" begin
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-        end
+    @testset "_cv_fold_loss: finite per-fold scores, loud on fit failure" begin
         m = EnzymeRates.EnzymeMechanism(
-            first(EnzymeRates.init_mechanisms(rxn)))
+            first(EnzymeRates.init_mechanisms(_testhelper_uni_rxn)))
 
         # 3 groups × 2 rows each so per-fold fits aren't degenerate
         data = DataFrame(
@@ -429,7 +436,7 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
             Rate = [0.5, 0.8, 1.0, 1.1, 1.2, 1.3],
             group = [1, 1, 2, 2, 3, 3],
         )
-        prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+        prob = IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0)
 
         groups = unique(prob.data.group)
         scores = [EnzymeRates._cv_fold_loss(m, prob, g;
@@ -444,50 +451,14 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
         @test length(scores) == 3
         @test all(s -> s >= 0.0, scores)
         @test all(isfinite, scores)
-    end
 
-    @testset "_cv_fold_loss is loud on fit failure" begin
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-        end
-        m = EnzymeRates.EnzymeMechanism(
-            first(EnzymeRates.init_mechanisms(rxn)))
-        data = DataFrame(
-            S    = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-            P    = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
-            Rate = [0.5, 0.8, 1.0, 1.1, 1.2, 1.3],
-            group = [1, 1, 2, 2, 3, 3],
-        )
-        prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
         # An unrecognized kwarg (`beam_fraction`) makes the fold's
         # `fit_rate_equation` call throw; `_cv_fold_loss` must propagate that
         # error, not swallow it (a corrupted CV must abort model selection).
         @test_throws Exception EnzymeRates._cv_fold_loss(
-            m, prob, first(unique(prob.data.group));
+            m, prob, first(groups);
             optimizer=CMAEvolutionStrategyOpt(),
             n_restarts=1, maxtime=1.0, beam_fraction=0.5)
-    end
-
-    @testset "_cv_fold_loss: one fold, finite" begin
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-        end
-        m = EnzymeRates.EnzymeMechanism(
-            first(EnzymeRates.init_mechanisms(rxn)))
-        data = DataFrame(
-            S = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-            P = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
-            Rate = [0.5, 0.8, 1.0, 1.1, 1.2, 1.3],
-            group = [1, 1, 2, 2, 3, 3])
-        prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
-        kw = (; optimizer=CMAEvolutionStrategyOpt(),
-                n_restarts=2, maxtime=2.0, maxiters=500)
-
-        one = EnzymeRates._cv_fold_loss(m, prob, 2; kw...)
-        @test one isa Float64
-        @test one >= 0.0 && isfinite(one)
     end
 
 end
@@ -515,7 +486,7 @@ end
     end
 end
 
-@testset "beam selection: loss thresholds + min_beam_width floor" begin
+@testset "_select_beam: thresholds, floor, best_override, parsimony_cutoff" begin
     losses = [1.0, 1.5, 2.5, 5.0, 10.0]
     sel = EnzymeRates._select_beam(
         losses;
@@ -561,6 +532,47 @@ end
         loss_abs_threshold=0.0,
         min_beam_width=1)
     @test sel == [2, 4]   # input-order, not [2, 4] sorted by loss
+
+    # best_override replaces the minimum loss in the relative cutoff.
+    losses = [1.0, 1.5, 3.0]
+    kw = (loss_rel_threshold=1.2, loss_abs_threshold=0.0, min_beam_width=1)
+    # without override: best = min = 1.0, cutoff = 1.2 -> only index 1
+    @test EnzymeRates._select_beam(losses; kw...) == [1]
+    # override best = 2.0 -> cutoff 2.4 -> indices 1 and 2
+    @test EnzymeRates._select_beam(losses; kw..., best_override=2.0) == [1, 2]
+    # min_beam_width still honored
+    @test EnzymeRates._select_beam(losses;
+        loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+        min_beam_width=2, best_override=0.0) == [1, 2]
+
+    # Floor guarantee: a parsimony_cutoff below every loss admits nothing via
+    # the loss filter, yet min_beam_width still keeps the top-k by loss.
+    losses = [1.0, 1.5, 2.5, 5.0, 10.0]
+    @test EnzymeRates._select_beam(losses;
+        loss_rel_threshold=2.0, loss_abs_threshold=0.0,
+        min_beam_width=2, parsimony_cutoff=0.5) == [1, 2]
+
+    # Tightening: a parsimony_cutoff stricter than the rel/abs cutoff lowers the
+    # combined cutoff to 2.0, so indices 1 and 2 (losses 1.0, 1.5) pass and
+    # index 3 (2.5) is dropped. Without it, rel=10 would admit all four.
+    losses = [1.0, 1.5, 2.5, 5.0]
+    @test EnzymeRates._select_beam(losses;
+        loss_rel_threshold=10.0, loss_abs_threshold=0.0,
+        min_beam_width=1, parsimony_cutoff=2.0) == [1, 2]
+
+    # No-op: parsimony_cutoff=nothing reproduces the parsimony-free selection.
+    kw = (loss_rel_threshold=2.0, loss_abs_threshold=0.0, min_beam_width=1)
+    @test EnzymeRates._select_beam(losses; kw..., parsimony_cutoff=nothing) ==
+          EnzymeRates._select_beam(losses; kw...)
+
+    # Interaction: min() picks the smaller cutoff. With best_override=2.0 the
+    # rel cutoff is 2.4 (admits 1,2); a tighter parsimony_cutoff=1.0 overrides
+    # it down to just the single best.
+    losses = [1.0, 1.5, 3.0]
+    ov = (loss_rel_threshold=1.2, loss_abs_threshold=0.0,
+          min_beam_width=1, best_override=2.0)
+    @test EnzymeRates._select_beam(losses; ov...) == [1, 2]
+    @test EnzymeRates._select_beam(losses; ov..., parsimony_cutoff=1.0) == [1]
 end
 
 @testset "all base fits fail: failure CSV written, then raises" begin
@@ -571,15 +583,7 @@ end
     # base tier is then empty and the pipeline raises. The contract under
     # test is that the all-base-fail path persists the failure rows to
     # `initial_mechanisms.csv` before raising (for cluster debugging).
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-    end
-    data = (group = ["G1", "G1", "G2", "G2"],
-            Rate = [0.5, 0.8, 1.0, 1.1],
-            S = [1.0, 2.0, 3.0, 4.0],
-            P = [0.1, 0.2, 0.3, 0.4])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    prob = _testhelper_uni_prob(NamedTuple)
     tmp = mktempdir()
     @test_throws ErrorException identify_rate_equation(
         prob; solver_kwargs=(; not_a_real_solver_option=1),
@@ -659,32 +663,6 @@ end
     @test EnzymeRates._select_best_row(cv_df_single) == 1
 end
 
-@testset "cv_results: exotic group labels survive CSV roundtrip" begin
-    # The column-flattening step in _cv_model_selection does:
-    #   col = Symbol("cv_fold_$g")
-    #   cv_df[!, col] = [v[i] for v in cv_df.cv_fold_scores]
-    # Exotic group labels (containing =, ,, spaces) must produce
-    # valid Symbol column names that survive CSV.write/CSV.read.
-    df = DataFrame(n_params = [3, 5])
-    exotic_groups = ["a=b", "c,d", "x y"]
-    fold_scores = [[0.1, 0.2, 0.3], [0.05, 0.1, 0.15]]
-    for (i, g) in enumerate(exotic_groups)
-        col = Symbol("cv_fold_$g")
-        df[!, col] = [v[i] for v in fold_scores]
-    end
-    @test Symbol("cv_fold_a=b") in propertynames(df)
-    @test Symbol("cv_fold_c,d") in propertynames(df)
-    @test Symbol("cv_fold_x y") in propertynames(df)
-
-    buf = IOBuffer()
-    CSV.write(buf, df)
-    seekstart(buf)
-    roundtrip = CSV.read(buf, DataFrame)
-    @test "cv_fold_a=b" in names(roundtrip)
-    @test "cv_fold_c,d" in names(roundtrip)
-    @test "cv_fold_x y" in names(roundtrip)
-end
-
 @testset "_default_save_dir" begin
     mktempdir() do tmp
         cd(tmp) do
@@ -742,50 +720,6 @@ end
     end
 
     @test length(buckets) == expected_n_classes
-end
-
-@testset "_select_beam best_override" begin
-    losses = [1.0, 1.5, 3.0]
-    kw = (loss_rel_threshold=1.2, loss_abs_threshold=0.0, min_beam_width=1)
-    # without override: best = min = 1.0, cutoff = 1.2 -> only index 1
-    @test EnzymeRates._select_beam(losses; kw...) == [1]
-    # override best = 2.0 -> cutoff 2.4 -> indices 1 and 2
-    @test EnzymeRates._select_beam(losses; kw..., best_override=2.0) == [1, 2]
-    # min_beam_width still honored
-    @test EnzymeRates._select_beam(losses;
-        loss_rel_threshold=1.0, loss_abs_threshold=0.0,
-        min_beam_width=2, best_override=0.0) == [1, 2]
-end
-
-@testset "_select_beam parsimony_cutoff" begin
-    # Floor guarantee: a parsimony_cutoff below every loss admits nothing via
-    # the loss filter, yet min_beam_width still keeps the top-k by loss.
-    losses = [1.0, 1.5, 2.5, 5.0, 10.0]
-    @test EnzymeRates._select_beam(losses;
-        loss_rel_threshold=2.0, loss_abs_threshold=0.0,
-        min_beam_width=2, parsimony_cutoff=0.5) == [1, 2]
-
-    # Tightening: a parsimony_cutoff stricter than the rel/abs cutoff lowers the
-    # combined cutoff to 2.0, so indices 1 and 2 (losses 1.0, 1.5) pass and
-    # index 3 (2.5) is dropped. Without it, rel=10 would admit all four.
-    losses = [1.0, 1.5, 2.5, 5.0]
-    @test EnzymeRates._select_beam(losses;
-        loss_rel_threshold=10.0, loss_abs_threshold=0.0,
-        min_beam_width=1, parsimony_cutoff=2.0) == [1, 2]
-
-    # No-op: parsimony_cutoff=nothing reproduces the parsimony-free selection.
-    kw = (loss_rel_threshold=2.0, loss_abs_threshold=0.0, min_beam_width=1)
-    @test EnzymeRates._select_beam(losses; kw..., parsimony_cutoff=nothing) ==
-          EnzymeRates._select_beam(losses; kw...)
-
-    # Interaction: min() picks the smaller cutoff. With best_override=2.0 the
-    # rel cutoff is 2.4 (admits 1,2); a tighter parsimony_cutoff=1.0 overrides
-    # it down to just the single best.
-    losses = [1.0, 1.5, 3.0]
-    ov = (loss_rel_threshold=1.2, loss_abs_threshold=0.0,
-          min_beam_width=1, best_override=2.0)
-    @test EnzymeRates._select_beam(losses; ov...) == [1, 2]
-    @test EnzymeRates._select_beam(losses; ov..., parsimony_cutoff=1.0) == [1]
 end
 
 @testset "_select_count! cumulative per-count floor" begin
@@ -864,8 +798,7 @@ end
     @test !occursin("Success", pre)
 
     # _postfit_summary: errored + success/non-Success over the fitted set.
-    mech = first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
-        substrates: S[C]; products: P[C] end))
+    mech = first(EnzymeRates.init_mechanisms(_testhelper_uni_rxn))
     row = (n_params=3, loss=0.5, mechanism_type="M", rate_equation="v",
            retcode="Success", error=missing, fitted_param_names=(:K,),
            fitted_param_values=(1.0,), eq_hash="abc", fit_inherited=false)
@@ -893,18 +826,8 @@ end
 end
 
 @testset "_process_batch" begin
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-    end
-    data = DataFrame(
-        S = [1.0, 2.0, 3.0, 4.0],
-        P = [0.1, 0.2, 0.3, 0.4],
-        Rate = [0.5, 0.8, 1.0, 1.1],
-        group = [1, 1, 2, 2],
-    )
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
-    ms = unique!(collect(EnzymeRates.init_mechanisms(rxn)))
+    ms = unique!(collect(EnzymeRates.init_mechanisms(_testhelper_uni_rxn)))
+    prob = _testhelper_uni_prob(DataFrame)
 
     entries, failures = EnzymeRates._process_batch(ms, prob;
         optimizer=CMAEvolutionStrategyOpt(),
@@ -933,22 +856,9 @@ end
     @test !isempty(fail_failures)
     @test all(f -> f isa EnzymeRates.FitFailure, fail_failures)
     @test all(f -> !isempty(f.error), fail_failures)
-end
 
-@testset "fitted-set: repeat structures are skipped, not reprocessed" begin
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-    end
-    data = DataFrame(
-        S = [1.0, 2.0, 3.0, 4.0],
-        P = [0.1, 0.2, 0.3, 0.4],
-        Rate = [0.5, 0.8, 1.0, 1.1],
-        group = [1, 1, 2, 2],
-    )
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
-    m = first(unique!(collect(EnzymeRates.init_mechanisms(rxn))))
-
+    # fitted set: a structure already fit is skipped, not reprocessed.
+    m = first(ms)
     fitted = Set{UInt64}()
     e1, f1, ps1, cs1, ss1 = EnzymeRates._process_batch([m], prob;
         optimizer=CMAEvolutionStrategyOpt(), max_param_count=20,
@@ -1057,8 +967,7 @@ end
 
 @testset "_ingest! and cv pool" begin
     mk(n, loss, h) = EnzymeRates.BatchEntry(
-        first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
-            substrates:S[C]; products:P[C] end)),
+        first(EnzymeRates.init_mechanisms(_testhelper_uni_rxn)),
         n, loss, :Success, hash(h),
         (n_params=n, loss=loss, mechanism_type="M",
          rate_equation="v", retcode="Success", error=missing,
@@ -1080,19 +989,23 @@ end
     # n=0 must not panic on the empty pool (n_cv_candidates is public)
     @test EnzymeRates._offer_cv!(EnzymeRates.BatchEntry[], mk(5,1.0,:a), 0) ==
           EnzymeRates.BatchEntry[]
+
+    # `_offer_cv!` keeps at most one entry per eq_hash: a repeat hash updates its own
+    # slot to the lower loss, never consuming a second.
+    pool = EnzymeRates.BatchEntry[]
+    for (loss, h) in [(1.0, :a), (0.5, :a), (2.0, :b)]
+        EnzymeRates._offer_cv!(pool, mk(5, loss, h), 5)
+    end
+    @test allunique([e.eq_hash for e in pool])
+    @test length(pool) == 2
+    @test only(filter(e -> e.eq_hash == hash(:a), pool)).loss == 0.5
 end
 
 @testset "all-cap-skipped expansion batch is reported (M2)" begin
     # uni-uni base mechanism has 3 params; every child has 4. With
     # max_param_count=3 the base fits but the whole expansion batch is
     # cap-skipped — no rows, no CSV — so it must still emit a progress line.
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-    end
-    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
-            S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    prob = _testhelper_uni_prob(NamedTuple)
     tmp = mktempdir()
     # An explicit non-default loss_parsimony_threshold proves the keyword is accepted
     # (an unknown keyword throws at the call boundary).
@@ -1153,15 +1066,7 @@ end
     # so they are rejected immediately at the call boundary (before any
     # fitting or CSV write) — distinct from a solver-rejected solver_kwargs
     # option, which fails inside fitting.
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-    end
-    data = (group = ["G1", "G1", "G2", "G2"],
-            Rate = [0.5, 0.8, 1.0, 1.1],
-            S = [1.0, 2.0, 3.0, 4.0],
-            P = [0.1, 0.2, 0.3, 0.4])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    prob = _testhelper_uni_prob(NamedTuple)
     @test_throws Exception identify_rate_equation(
         prob; popsize=200, optimizer=CMAEvolutionStrategyOpt(),
         n_restarts=1, maxtime=1.0, save_dir=mktempdir())
@@ -1191,45 +1096,39 @@ function Optimization.SciMLBase.__solve(
 end
 
 # Two structurally-distinct bi-bi mechanisms that render the SAME reduced rate
-# equation (eq_hash 78546b5f56b20e15): identical 7-edge topology, differing only
-# in kinetic-group partitioning. Captured from the bi-bi enumeration (init ∪
-# expand) and reconstructed from their EnzymeMechanism{Sig} type, so the test is
-# self-contained and cheap (no full child enumeration, which would compile ~800
-# distinct rate equations). The test re-verifies the collision at run time.
-const _DEDUP_SIG1 =
-    "EnzymeMechanism{(((((:Substrate, :A), ((:C, 1),)), ((:Substrate, :B), ((:N" *
-    ", 1),)), ((:Product, :P), ((:C, 1),)), ((:Product, :Q), ((:N, 1),))), (), " *
-    "(1,)), (((((), :E, ((), ())), (((:Substrate, :A),), :E, ((), ())), ((:Subs" *
-    "trate, :A),), (), true), ((((:Product, :Q),), :E, ((), ())), (((:Substrate" *
-    ", :A), (:Product, :Q)), :E, ((), ())), ((:Substrate, :A),), (), true)), ((" *
-    "((), :E, ((), ())), (((:Product, :Q),), :E, ((), ())), ((:Product, :Q),), " *
-    "(), true), ((((:Substrate, :A),), :E, ((), ())), (((:Substrate, :A), (:Pro" *
-    "duct, :Q)), :E, ((), ())), ((:Product, :Q),), (), true)), (((((:Substrate," *
-    " :A),), :E, ((), ())), (((:Substrate, :A), (:Substrate, :B)), :E, ((), ())" *
-    "), ((:Substrate, :B),), (), true),), (((((:Substrate, :A), (:Substrate, :B" *
-    ")), :E, ((), ())), (((:Product, :P), (:Product, :Q)), :E, ((), ())), (), (" *
-    "), false),), (((((:Product, :Q),), :E, ((), ())), (((:Product, :P), (:Prod" *
-    "uct, :Q)), :E, ((), ())), ((:Product, :P),), (), true),)))}"
-
-const _DEDUP_SIG2 =
-    "EnzymeMechanism{(((((:Substrate, :A), ((:C, 1),)), ((:Substrate, :B), ((:N" *
-    ", 1),)), ((:Product, :P), ((:C, 1),)), ((:Product, :Q), ((:N, 1),))), (), " *
-    "(1,)), (((((), :E, ((), ())), (((:Substrate, :A),), :E, ((), ())), ((:Subs" *
-    "trate, :A),), (), true),), ((((), :E, ((), ())), (((:Product, :Q),), :E, (" *
-    "(), ())), ((:Product, :Q),), (), true), ((((:Substrate, :A),), :E, ((), ()" *
-    ")), (((:Substrate, :A), (:Product, :Q)), :E, ((), ())), ((:Product, :Q),)," *
-    " (), true)), (((((:Substrate, :A),), :E, ((), ())), (((:Substrate, :A), (:" *
-    "Substrate, :B)), :E, ((), ())), ((:Substrate, :B),), (), true),), (((((:Su" *
-    "bstrate, :A), (:Substrate, :B)), :E, ((), ())), (((:Product, :P), (:Produc" *
-    "t, :Q)), :E, ((), ())), (), (), false),), (((((:Product, :Q),), :E, ((), (" *
-    "))), (((:Substrate, :A), (:Product, :Q)), :E, ((), ())), ((:Substrate, :A)" *
-    ",), (), true),), (((((:Product, :Q),), :E, ((), ())), (((:Product, :P), (:" *
-    "Product, :Q)), :E, ((), ())), ((:Product, :P),), (), true),)))}"
+# equation: identical 7-edge topology, differing only in kinetic-group partitioning.
+# Written out directly so the tests are self-contained and cheap (no full child
+# enumeration, which would compile ~800 distinct rate equations). The tests re-verify
+# the collision at run time.
+function _testhelper_dedup_twins()
+    m1 = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products:   P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
+            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+        end
+    end)
+    m2 = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products:   P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + A ⇌ E(A, Q)
+            E(Q) + P ⇌ E(P, Q)
+        end
+    end)
+    return m1, m2
+end
 
 @testset "fit-dedup by eq_hash in _process_batch" begin
-    recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
-    m1 = recon(_DEDUP_SIG1)
-    m2 = recon(_DEDUP_SIG2)
+    m1, m2 = _testhelper_dedup_twins()
     em1 = EnzymeRates.compile_mechanism(m1)
     em2 = EnzymeRates.compile_mechanism(m2)
     key = EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1))
@@ -1295,73 +1194,41 @@ end
 # LDH renaming-dup pair (same graph, tied kinetic-group split): merged form
 # (8 groups) vs split form (9 groups). Different eq_hash, one model: the split
 # form's extra binding K is tied straight back by a Wegscheider cycle.
-const _CANON_SIG_MERGED =
-    "EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, " *
-    "3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (" *
-    ":P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O," *
-    " 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O," *
-    " 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),)" *
-    ", :E, ((), ())), ((:Product, :Lactate),), (), true), ((((:Product," *
-    " :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD))" *
-    ", :E, ((), ())), ((:Product, :Lactate),), (), true), ((((:Substrat" *
-    "e, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :" *
-    "NADH)), :E, ((), ())), ((:Product, :Lactate),), (), true)), (((()," *
-    " :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), ((:Product, :" *
-    "NAD),), (), true), ((((:Product, :Lactate),), :E, ((), ())), (((:P" *
-    "roduct, :Lactate), (:Product, :NAD)), :E, ((), ())), ((:Product, :" *
-    "NAD),), (), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),)," *
-    " :E, ((), ())), ((:Substrate, :NADH),), (), true), ((((:Product, :" *
-    "Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :N" *
-    "ADH)), :E, ((), ())), ((:Substrate, :NADH),), (), true)), ((((), :" *
-    "E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((), ())), ((:Subst" *
-    "rate, :Pyruvate),), (), true),), (((((:Product, :NAD),), :E, ((), " *
-    "())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ()))," *
-    " ((:Substrate, :Pyruvate),), (), true), ((((:Substrate, :NADH),), " *
-    ":E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E" *
-    ", ((), ())), ((:Substrate, :Pyruvate),), (), true)), (((((:Substra" *
-    "te, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, " *
-    ":Lactate), (:Product, :NAD)), :E, ((), ())), (), (), false),), (((" *
-    "((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), " *
-    "(:Substrate, :Pyruvate)), :E, ((), ())), ((:Substrate, :NADH),), (" *
-    "), true),), (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Prod" *
-    "uct, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), ((:Product, :" *
-    "NAD),), (), true),)))}"
-const _CANON_SIG_SPLIT =
-    "EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, " *
-    "3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (" *
-    ":P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O," *
-    " 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O," *
-    " 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),)" *
-    ", :E, ((), ())), ((:Product, :Lactate),), (), true), ((((:Product," *
-    " :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD))" *
-    ", :E, ((), ())), ((:Product, :Lactate),), (), true)), ((((), :E, (" *
-    "(), ())), (((:Product, :NAD),), :E, ((), ())), ((:Product, :NAD),)" *
-    ", (), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product" *
-    ", :Lactate), (:Product, :NAD)), :E, ((), ())), ((:Product, :NAD),)" *
-    ", (), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, (" *
-    "(), ())), ((:Substrate, :NADH),), (), true), ((((:Product, :Lactat" *
-    "e),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH))," *
-    " :E, ((), ())), ((:Substrate, :NADH),), (), true)), ((((), :E, (()" *
-    ", ())), (((:Substrate, :Pyruvate),), :E, ((), ())), ((:Substrate, " *
-    ":Pyruvate),), (), true),), (((((:Product, :NAD),), :E, ((), ())), " *
-    "(((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), ((:Su" *
-    "bstrate, :Pyruvate),), (), true), ((((:Substrate, :NADH),), :E, ((" *
-    "), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, (()," *
-    " ())), ((:Substrate, :Pyruvate),), (), true)), (((((:Substrate, :N" *
-    "ADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)" *
-    "), :E, ((), ())), ((:Product, :Lactate),), (), true),), (((((:Subs" *
-    "trate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Produc" *
-    "t, :Lactate), (:Product, :NAD)), :E, ((), ())), (), (), false),), " *
-    "(((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH" *
-    "), (:Substrate, :Pyruvate)), :E, ((), ())), ((:Substrate, :NADH),)" *
-    ", (), true),), (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:P" *
-    "roduct, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), ((:Product" *
-    ", :NAD),), (), true),)))}"
-
 @testset "renaming-dup pair: same independent count, different eq_hash" begin
-    recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
-    m1 = recon(_CANON_SIG_MERGED)   # merged, 8 kinetic groups
-    m2 = recon(_CANON_SIG_SPLIT)    # split, 9 groups — same graph, Wegscheider-tied
+    # Merged, 8 kinetic groups.
+    m1 = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: NADH, Pyruvate
+        products:   Lactate, NAD
+        steps: begin
+            (E + Lactate ⇌ E(Lactate), E(NAD) + Lactate ⇌ E(Lactate, NAD),
+             E(NADH) + Lactate ⇌ E(Lactate, NADH))
+            (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD))
+            (E + NADH ⇌ E(NADH), E(Lactate) + NADH ⇌ E(Lactate, NADH))
+            E + Pyruvate ⇌ E(Pyruvate)
+            (E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate),
+             E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate))
+            E(NADH, Pyruvate) <--> E(Lactate, NAD)
+            E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)
+            E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate)
+        end
+    end)
+    # Split, 9 groups — same graph, Wegscheider-tied.
+    m2 = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: NADH, Pyruvate
+        products:   Lactate, NAD
+        steps: begin
+            (E + Lactate ⇌ E(Lactate), E(NAD) + Lactate ⇌ E(Lactate, NAD))
+            (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD))
+            (E + NADH ⇌ E(NADH), E(Lactate) + NADH ⇌ E(Lactate, NADH))
+            E + Pyruvate ⇌ E(Pyruvate)
+            (E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate),
+             E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate))
+            E(NADH) + Lactate ⇌ E(Lactate, NADH)
+            E(NADH, Pyruvate) <--> E(Lactate, NAD)
+            E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)
+            E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate)
+        end
+    end)
     em1 = EnzymeRates.compile_mechanism(m1)
     em2 = EnzymeRates.compile_mechanism(m2)
     # Precondition: the two forms are distinct mechanisms and render different
@@ -1383,77 +1250,43 @@ end
 # LDH ALLOSTERIC split/merge pair: split form (8 cat groups) vs merged (7).
 # Different eq_hash, and the split form carries one parameter the merged form
 # cannot express.
-const _ALLO_SIG_SPLIT =
-    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate)" *
-    ", ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H," *
-    " 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21" *
-    "), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate" *
-    "), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ()))" *
-    ", (((:Product, :Lactate),), :E, ((), ())), ((:Product, :Lactate),)" *
-    ", (), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :L" *
-    "actate), (:Product, :NAD)), :E, ((), ())), ((:Product, :Lactate),)" *
-    ", (), true)), ((((), :E, ((), ())), (((:Product, :NAD),), :E, (()," *
-    " ())), ((:Product, :NAD),), (), true), ((((:Product, :Lactate),), " *
-    ":E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, (()," *
-    " ())), ((:Product, :NAD),), (), true), ((((:Substrate, :Pyruvate)," *
-    "), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E" *
-    ", ((), ())), ((:Product, :NAD),), (), true)), ((((), :E, ((), ()))" *
-    ", (((:Substrate, :NADH),), :E, ((), ())), ((:Substrate, :NADH),), " *
-    "(), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Product," *
-    " :Lactate), (:Substrate, :NADH)), :E, ((), ())), ((:Substrate, :NA" *
-    "DH),), (), false), ((((:Substrate, :Pyruvate),), :E, ((), ())), ((" *
-    "(:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), ((:S" *
-    "ubstrate, :NADH),), (), false)), ((((), :E, ((), ())), (((:Substra" *
-    "te, :Pyruvate),), :E, ((), ())), ((:Substrate, :Pyruvate),), (), t" *
-    "rue),), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD)," *
-    " (:Substrate, :Pyruvate)), :E, ((), ())), ((:Substrate, :Pyruvate)" *
-    ",), (), true),), (((((:Substrate, :NADH),), :E, ((), ())), (((:Pro" *
-    "duct, :Lactate), (:Substrate, :NADH)), :E, ((), ())), ((:Product, " *
-    ":Lactate),), (), true),), (((((:Substrate, :NADH),), :E, ((), ()))" *
-    ", (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), " *
-    "((:Substrate, :Pyruvate),), (), true),), (((((:Substrate, :NADH), " *
-    "(:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (" *
-    ":Product, :NAD)), :E, ((), ())), (), (), false),)))}, (4, (:EqualA" *
-    "I, :EqualAI, :OnlyA, :NonequalAI, :EqualAI, :EqualAI, :EqualAI, :O" *
-    "nlyA)), ()}"
-const _ALLO_SIG_MERGED =
-    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate)" *
-    ", ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H," *
-    " 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21" *
-    "), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate" *
-    "), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ()))" *
-    ", (((:Product, :Lactate),), :E, ((), ())), ((:Product, :Lactate),)" *
-    ", (), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :L" *
-    "actate), (:Product, :NAD)), :E, ((), ())), ((:Product, :Lactate),)" *
-    ", (), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product," *
-    " :Lactate), (:Substrate, :NADH)), :E, ((), ())), ((:Product, :Lact" *
-    "ate),), (), true)), ((((), :E, ((), ())), (((:Product, :NAD),), :E" *
-    ", ((), ())), ((:Product, :NAD),), (), true), ((((:Product, :Lactat" *
-    "e),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E" *
-    ", ((), ())), ((:Product, :NAD),), (), true), ((((:Substrate, :Pyru" *
-    "vate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate" *
-    ")), :E, ((), ())), ((:Product, :NAD),), (), true)), ((((), :E, (()" *
-    ", ())), (((:Substrate, :NADH),), :E, ((), ())), ((:Substrate, :NAD" *
-    "H),), (), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Pr" *
-    "oduct, :Lactate), (:Substrate, :NADH)), :E, ((), ())), ((:Substrat" *
-    "e, :NADH),), (), false), ((((:Substrate, :Pyruvate),), :E, ((), ()" *
-    ")), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ()))" *
-    ", ((:Substrate, :NADH),), (), false)), ((((), :E, ((), ())), (((:S" *
-    "ubstrate, :Pyruvate),), :E, ((), ())), ((:Substrate, :Pyruvate),)," *
-    " (), true),), (((((:Product, :NAD),), :E, ((), ())), (((:Product, " *
-    ":NAD), (:Substrate, :Pyruvate)), :E, ((), ())), ((:Substrate, :Pyr" *
-    "uvate),), (), true),), (((((:Substrate, :NADH),), :E, ((), ())), (" *
-    "((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), ((:" *
-    "Substrate, :Pyruvate),), (), true),), (((((:Substrate, :NADH), (:S" *
-    "ubstrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Pr" *
-    "oduct, :NAD)), :E, ((), ())), (), (), false),)))}, (4, (:EqualAI, " *
-    ":EqualAI, :OnlyA, :NonequalAI, :EqualAI, :EqualAI, :OnlyA)), ()}"
-
 @testset "allosteric split/merge pair: the split form carries one more param" begin
-    recon_am(sig) =
-        EnzymeRates.AllostericMechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
-    am1 = recon_am(_ALLO_SIG_SPLIT)     # 8 catalytic groups
-    am2 = recon_am(_ALLO_SIG_MERGED)    # 7 groups
+    # Split form: 8 catalytic groups.
+    am1 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: NADH, Pyruvate
+        products:   Lactate, NAD
+        catalytic_multiplicity: 4
+        catalytic_steps: begin
+            (E + Lactate ⇌ E(Lactate), E(NAD) + Lactate ⇌ E(Lactate, NAD))   :: EqualAI
+            (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD),
+             E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate))                           :: EqualAI
+            (E + NADH <--> E(NADH), E(Lactate) + NADH <--> E(Lactate, NADH),
+             E(Pyruvate) + NADH <--> E(NADH, Pyruvate))                      :: OnlyA
+            E + Pyruvate ⇌ E(Pyruvate)                                       :: NonequalAI
+            E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate)                             :: EqualAI
+            E(NADH) + Lactate ⇌ E(Lactate, NADH)                             :: EqualAI
+            E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate)                           :: EqualAI
+            E(NADH, Pyruvate) <--> E(Lactate, NAD)                           :: OnlyA
+        end
+    end)
+    # Merged form: 7 groups.
+    am2 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: NADH, Pyruvate
+        products:   Lactate, NAD
+        catalytic_multiplicity: 4
+        catalytic_steps: begin
+            (E + Lactate ⇌ E(Lactate), E(NAD) + Lactate ⇌ E(Lactate, NAD),
+             E(NADH) + Lactate ⇌ E(Lactate, NADH))                           :: EqualAI
+            (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD),
+             E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate))                           :: EqualAI
+            (E + NADH <--> E(NADH), E(Lactate) + NADH <--> E(Lactate, NADH),
+             E(Pyruvate) + NADH <--> E(NADH, Pyruvate))                      :: OnlyA
+            E + Pyruvate ⇌ E(Pyruvate)                                       :: NonequalAI
+            E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate)                             :: EqualAI
+            E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate)                           :: EqualAI
+            E(NADH, Pyruvate) <--> E(Lactate, NAD)                           :: OnlyA
+        end
+    end)
     key(m) = EnzymeRates._rate_eq_dedup_key(
         rate_equation_string(EnzymeRates.compile_mechanism(m)))
     @test am1 != am2
@@ -1697,87 +1530,51 @@ end
     @test occursin("= Dict(:N => 1)", failures[1].error)
 end
 
-@testset "LOOCV eq_hash-uniqueness guard (§4)" begin
+@testset "_cv_model_selection: eq_hash dedup, flatten reproduces serial LOOCV" begin
     # _cv_model_selection dedups candidates by eq_hash per n_params bucket before
     # LOOCV: same-equation twins collapse to ONE candidate (lowest loss kept), so
-    # folds are never wasted on, or biased by, textually identical equations.
-    recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
-    m1 = recon(_DEDUP_SIG1); m2 = recon(_DEDUP_SIG2)   # distinct structure, same eq_hash
+    # folds are never wasted on, or biased by, textually identical equations. A
+    # deterministic stub optimizer gives identical fits whether folds run serially or
+    # across the flattened (candidate, fold) grid. Group labels containing `=`, `,`
+    # and spaces must come out as valid fold-column names that survive the CSV write.
+    m1, m2 = _testhelper_dedup_twins()   # distinct structure, same eq_hash
     em1 = EnzymeRates.compile_mechanism(m1)
     fkeys = EnzymeRates.fitted_params(em1)
-    h = string(EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1)), base=16, pad=16)
-    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
-            A = [1.0, 2.0, 1.0, 2.0], B = [0.5, 0.5, 1.0, 1.0],
-            P = [0.1, 0.2, 0.1, 0.2], Q = [0.3, 0.3, 0.4, 0.4])
+    h = string(EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1)),
+               base=16, pad=16)
+    data = (group = ["a=b", "a=b", "c,d", "c,d", "x y", "x y"],
+            Rate = [0.5, 0.8, 1.0, 1.1, 0.9, 1.2],
+            A = [1.0, 2.0, 1.0, 2.0, 1.5, 2.5], B = [0.5, 0.5, 1.0, 1.0, 0.7, 0.7],
+            P = [0.1, 0.2, 0.1, 0.2, 0.15, 0.25], Q = [0.3, 0.3, 0.4, 0.4, 0.35, 0.35])
     prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0)
     mechs = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2]
     mkrow(loss) = (n_params=length(fkeys), loss=loss, mechanism_type="M",
         rate_equation="v", retcode="Success", error=missing,
-        fitted_param_names=Tuple(fkeys), fitted_param_values=Tuple(fill(1.0, length(fkeys))),
+        fitted_param_names=Tuple(fkeys),
+        fitted_param_values=Tuple(fill(1.0, length(fkeys))),
         eq_hash=h, fit_inherited=false)
     df = EnzymeRates._rows_to_dataframe([mkrow(0.5), mkrow(0.2)])  # m1 loss .5, m2 loss .2
+    save_dir = mktempdir()
     res = EnzymeRates._cv_model_selection(mechs, df, prob;
         n_cv_candidates=5, optimizer=_CountingStubOpt(; uval=log(5.0)),
-        se_threshold=1.0, save_dir=mktempdir(),
-        show_progress=false, n_restarts=1, maxtime=1.0)
+        se_threshold=1.0, save_dir, show_progress=false, n_restarts=1, maxtime=1.0)
     # The two same-eq_hash twins collapsed to a single LOOCV candidate…
     @test nrow(res.cv_results) == 1
     @test res.cv_results.eq_hash[1] == h
     # …and the lower-loss twin (0.2) was the one kept.
     @test res.cv_results.loss[1] == 0.2
 
-    # `_offer_cv!` likewise keeps at most one entry per eq_hash: a repeat hash
-    # updates its own slot to the lower loss, never consuming a second.
-    mech = first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
-        substrates: S[C]; products: P[C] end))
-    mkentry(loss, h) = EnzymeRates.BatchEntry(mech, 5, loss, :Success, h,
-        (n_params=5, loss=loss, mechanism_type="M", rate_equation="v",
-         retcode="Success", error=missing, fitted_param_names=(:K,),
-         fitted_param_values=(1.0,), eq_hash=string(h, base=16, pad=16),
-         fit_inherited=false))
-    pool = EnzymeRates.BatchEntry[]
-    for (loss, h) in [(1.0, UInt64(1)), (0.5, UInt64(1)), (2.0, UInt64(2))]
-        EnzymeRates._offer_cv!(pool, mkentry(loss, h), 5)
-    end
-    @test allunique([e.eq_hash for e in pool])
-    @test length(pool) == 2
-    @test only(filter(e -> e.eq_hash == UInt64(1), pool)).loss == 0.5
-end
-
-@testset "_cv_model_selection flatten reproduces serial LOOCV" begin
-    # Deterministic stub optimizer → identical fits whether folds run serially
-    # or across the flattened (candidate, fold) grid.
-    recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
-    m1 = recon(_DEDUP_SIG1)
-    em1 = EnzymeRates.compile_mechanism(m1)
-    fkeys = EnzymeRates.fitted_params(em1)
-    h = string(EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1)),
-               base=16, pad=16)
-    data = (group = ["G1", "G1", "G2", "G2", "G3", "G3"],
-            Rate = [0.5, 0.8, 1.0, 1.1, 0.9, 1.2],
-            A = [1.0, 2.0, 1.0, 2.0, 1.5, 2.5], B = [0.5, 0.5, 1.0, 1.0, 0.7, 0.7],
-            P = [0.1, 0.2, 0.1, 0.2, 0.15, 0.25], Q = [0.3, 0.3, 0.4, 0.4, 0.35, 0.35])
-    prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0)
-    mechs = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1]
-    mkrow(loss) = (n_params=length(fkeys), loss=loss, mechanism_type="M",
-        rate_equation="v", retcode="Success", error=missing,
-        fitted_param_names=Tuple(fkeys),
-        fitted_param_values=Tuple(fill(1.0, length(fkeys))),
-        eq_hash=h, fit_inherited=false)
-    df = EnzymeRates._rows_to_dataframe([mkrow(0.5)])
-
-    res = EnzymeRates._cv_model_selection(mechs, df, prob;
-        n_cv_candidates=5, optimizer=_CountingStubOpt(; uval=log(5.0)),
-        se_threshold=1.0, save_dir=mktempdir(),
-        show_progress=false, n_restarts=1, maxtime=1.0)
-
+    # The flattened grid reproduces serial LOOCV on the kept twin.
     groups = unique(prob.data.group)
     flat = [res.cv_results[1, Symbol("cv_fold_$g")] for g in groups]
-    m1c = EnzymeRates.compile_mechanism(m1)
-    serial = [EnzymeRates._cv_fold_loss(m1c, prob, g;
+    m2c = EnzymeRates.compile_mechanism(m2)
+    serial = [EnzymeRates._cv_fold_loss(m2c, prob, g;
         optimizer=_CountingStubOpt(; uval=log(5.0)), n_restarts=1, maxtime=1.0)
         for g in groups]
     @test flat == serial
+    # Every group label is a fold column in the saved table.
+    saved = names(CSV.read(joinpath(save_dir, "loocv_results.csv"), DataFrame))
+    @test all("cv_fold_$g" in saved for g in groups)
 end
 
 @testset "_scatter_fold_scores places each fold at (candidate, group)" begin

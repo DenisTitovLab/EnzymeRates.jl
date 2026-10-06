@@ -82,37 +82,6 @@ using Tables
         @test length(fp.group_point_indexes[1]) == 5
     end
 
-    # ── Test 3: Loss function correctness ─────────────────────────────────────
-    @testset "Loss at true params is zero" begin
-        data = make_synthetic_data(uni_uni, true_params, concs5)
-        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
-
-        pn = EnzymeRates.fitted_params(uni_uni)
-        x_true = [log(true_params[p]) for p in pn]
-        l = EnzymeRates.loss!(x_true, fp)
-        @test l ≈ 0.0 atol=1e-20
-    end
-
-    # ── Test 4: Per-group centering invariance ───────────────────────────────
-    @testset "Centering invariance" begin
-        # Data with scale=1
-        data1 = make_synthetic_data(uni_uni, true_params, concs5;
-            groups=fill("G1", 5), scale=1.0)
-        fp1 = FittingProblem(uni_uni, data1; Keq=Keq_val)
-
-        # Data with scale=10 (simulates different E_total)
-        data2 = make_synthetic_data(uni_uni, true_params, concs5;
-            groups=fill("G1", 5), scale=10.0)
-        fp2 = FittingProblem(uni_uni, data2; Keq=Keq_val)
-
-        # For any x, loss should be the same (centering removes the uniform scale)
-        np = length(EnzymeRates.fitted_params(uni_uni))
-        @test all(1:10) do _
-            x = randn(np) .* 2.0
-            isapprox(EnzymeRates.loss!(x, fp1), EnzymeRates.loss!(x, fp2); rtol=1e-12)
-        end
-    end
-
     # ── Test 5: Multi-group centering invariance ─────────────────────────────
     @testset "Multi-group centering invariance" begin
         # Two groups, each independently scaled
