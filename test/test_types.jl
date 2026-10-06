@@ -984,7 +984,7 @@ end
         @test ER.AllostericMechanism(aem) == am
     end
 
-    @testset "name(p, ::AllostericEnzymeMechanism) chokepoint overloads" begin
+    @testset "name(p, ::AllostericMechanism) chokepoint" begin
         cm = _testhelper_re_mm
         aem = ER.AllostericEnzymeMechanism(
             cm, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
@@ -992,38 +992,31 @@ end
         )
         am = ER.AllostericMechanism(aem)
 
-        # Step-bound parameters: AEM dispatch matches AM dispatch. Group order
-        # is canonical, so pick the substrate-binding and iso steps by content.
+        # Step-bound parameters. Group order is canonical, so pick the
+        # substrate-binding and iso steps by content.
         rep_bind = only(ER.rep_step(am, g)
             for g in ER.kinetic_groups(am)
             if ER.bound_metabolite(
                    ER.rep_step(am, g)) isa ER.Substrate)
-        @test ER.name(ER.Kd(rep_bind, :None), aem) ==
-              ER.name(ER.Kd(rep_bind, :None), am)
-        @test ER.name(ER.Kd(rep_bind, :I), aem) ==
-              ER.name(ER.Kd(rep_bind, :I), am)
-        @test ER.name(ER.Kd(rep_bind, :I), aem) === :K_I_ES_to_E_S
+        @test ER.name(ER.Kd(rep_bind, :None), am) === :K_ES_to_E_S
+        @test ER.name(ER.Kd(rep_bind, :I), am) === :K_I_ES_to_E_S
 
         rep_iso  = only(ER.rep_step(am, g)
             for g in ER.kinetic_groups(am)
             if ER.bound_metabolite(ER.rep_step(am, g)) === nothing)
-        @test ER.name(ER.Kfor(rep_iso, :None), aem) ==
-              ER.name(ER.Kfor(rep_iso, :None), am)
-        @test ER.name(ER.Kfor(rep_iso, :None), aem) === :k_ES_to_EP
-
-        # The same names resolve on the AllostericMechanism itself.
-        @test ER.name(ER.Kd(rep_bind, :None), am) === :K_ES_to_E_S
+        @test ER.name(ER.Kfor(rep_iso, :None), am) === :k_ES_to_EP
         @test ER.name(ER.Kiso(rep_iso, :None), am) === :K_ES_to_EP
         @test ER.name(ER.Kon(rep_iso, :None), am) === :k_ES_to_EP
 
-        # Kreg: AEM dispatch matches AM dispatch
         site = ER.regulatory_sites(am)[1]
         lig  = first(site.ligands)
-        @test ER.name(ER.Kreg(site, lig, :A), aem) ==
-              ER.name(ER.Kreg(site, lig, :A), am)
         @test ER.name(ER.Kreg(site, lig, :A), am) === :K_A_Rreg
-        @test ER.name(ER.Kreg(site, lig, :I), aem) ===
-              :K_I_Rreg
+        @test ER.name(ER.Kreg(site, lig, :I), am) === :K_I_Rreg
+
+        # The chokepoint renders on the concrete mechanism only; a compiled type
+        # is lifted first.
+        @test_throws MethodError ER.name(ER.Kd(rep_bind, :None), aem)
+        @test_throws MethodError ER.name(ER.Kreg(site, lig, :A), aem)
     end
 
     @testset "_sig_of / _mechanism_from_sig roundtrip" begin
@@ -1105,11 +1098,13 @@ end
         # Mechanism-level scalar
         @test ER.name(ER.Lallo(), m) === :L
 
-        # Same names resolve via EnzymeMechanism(m) (the parametric form).
+        # Same names resolve on the mechanism lifted back from EnzymeMechanism(m);
+        # the compiled type itself is not a chokepoint argument.
         em = EnzymeMechanism(m)
-        @test ER.name(ER.Kd(bind, :None), em) === :K_ES_to_E_S
-        @test ER.name(ER.Kon(iso, :None), em) === :k_ES_to_EP
-        @test ER.name(ER.Lallo(), em) === :L
+        @test ER.name(ER.Kd(bind, :None), ER.Mechanism(em)) === :K_ES_to_E_S
+        @test ER.name(ER.Kon(iso, :None), ER.Mechanism(em)) === :k_ES_to_EP
+        @test ER.name(ER.Lallo(), ER.Mechanism(em)) === :L
+        @test_throws MethodError ER.name(ER.Kd(bind, :None), em)
     end
 
     @testset "name(p::Parameter, m) for the steps of a shared kinetic group" begin

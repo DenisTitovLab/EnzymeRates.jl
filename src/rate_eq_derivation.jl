@@ -698,12 +698,10 @@ end
 function _ss_rate_constant_names(@nospecialize(em::AllostericEnzymeMechanism))
     am = AllostericMechanism(em)
     a_names = Set{Symbol}()
-    fes = _free_enz_set(am)
-    for (g, group) in enumerate(steps(am))
-        rep = _group_rep(group, fes)
+    for (g, rep) in enumerate(_group_reps(am))
         is_equilibrium(rep) && continue
         st = cat_allo_state(am, g) === :EqualAI ? :EqualAI : :A
-        for p in _emit_cat_params_for_rep(rep, st)
+        for p in _step_params(rep, st)
             push!(a_names, name(p, am))
         end
     end
@@ -1239,10 +1237,9 @@ are emitted Symbol-level by the dep-assignment builder.
 """
 function _all_i_state_parameters(am::AllostericMechanism)
     out = Parameter[]
-    fes = _free_enz_set(am)
-    for (g, group) in enumerate(steps(am))
+    for (g, rep) in enumerate(_group_reps(am))
         cat_allo_state(am, g) === :OnlyA && continue
-        append!(out, _emit_cat_params_for_rep(_group_rep(group, fes), :I))
+        append!(out, _step_params(rep, :I))
     end
     for site in regulatory_sites(am)
         for (lig, tag) in zip(ligands(site), allo_states(site))
@@ -1279,11 +1276,9 @@ rate-equation Exprs. This enumeration intentionally over-emits.
 """
 function _enumerate_parameters_full_allosteric(am::AllostericMechanism)
     out = Parameter[]
-    fes = _free_enz_set(am)
-    for (g, group) in enumerate(steps(am))
-        rep = _group_rep(group, fes)
+    for (g, rep) in enumerate(_group_reps(am))
         st = cat_allo_state(am, g) === :EqualAI ? :EqualAI : :A
-        append!(out, _emit_cat_params_for_rep(rep, st))
+        append!(out, _step_params(rep, st))
     end
     append!(out, _all_i_state_parameters(am))
     for site in regulatory_sites(am)

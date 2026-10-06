@@ -554,9 +554,10 @@ _regulatory_site_canonical_key(site::RegulatorySite) =
     _canonical_groups(reaction, groups) -> (groups, perm)
 
 The kinetic groups in Canonical Step Form, as both mechanism constructors store
-them. Orient every step (`_canonicalize_step_directions`), sort the steps within
-each group by `_step_canonical_key`, then sort the groups by the canonical key of
-each group's first step; `perm` is that group order (a permutation of 1:length),
+them. First reject an empty kinetic group. Then orient every step
+(`_canonicalize_step_directions`), sort the steps within each group by
+`_step_canonical_key`, then sort the groups by the canonical key of each group's
+first step; `perm` is that group order (a permutation of 1:length),
 which the caller applies to any data parallel to the groups. The inner sort must
 run BEFORE the outer one so each group's "first step" key reflects the canonical
 inner order. Each key is rendered once per sort. Then enforce the kinetic-group
@@ -1576,14 +1577,10 @@ State token — placed right after the type prefix:
   :EqualAI → ""    (allosteric shared symbol; shared between A and I state)
   :None    → ""    (non-allosteric mechanism)
 """
-function _state_tag(state::Symbol)
-    state === :A       && return "A_"
-    state === :I       && return "I_"
-    state === :EqualAI && return ""
-    state === :None    && return ""
+_state_tag(state::Symbol) =
+    state === :A ? "A_" : state === :I ? "I_" : state in (:EqualAI, :None) ? "" :
     error("_state_tag: unexpected Parameter.state $state " *
           "(must be one of :None, :EqualAI, :A, :I)")
-end
 
 """
 The constant of the reaction `a → b`: `prefix`, the state tag, then
@@ -1617,13 +1614,8 @@ function _rep_sides(step::Step, m::Union{Mechanism, AllostericMechanism})
     end
     error("Step not found in mechanism: $step")
 end
-_rep_sides(step::Step, m::EnzymeMechanism) = _rep_sides(step, Mechanism(m))
-_rep_sides(step::Step, m::AllostericEnzymeMechanism) =
-    _rep_sides(step, AllostericMechanism(m))
 
-
-const _AnyMech =
-    Union{Mechanism, EnzymeMechanism, AllostericMechanism, AllostericEnzymeMechanism}
+const _AnyMech = Union{Mechanism, AllostericMechanism}
 
 # Every step constant is named after the reaction of its group's representative:
 # a rate constant (`k_`) after the direction it drives, an equilibrium constant
@@ -1644,7 +1636,7 @@ Regulator-site parameter: state tag + ligand name + "reg". No site index —
 the AllostericMechanism constructor enforces that each ligand appears at most
 once across all sites.
 """
-name(p::Kreg, ::Union{AllostericMechanism, AllostericEnzymeMechanism}) =
+name(p::Kreg, ::AllostericMechanism) =
     Symbol("K_", _state_tag(p.state), String(name(p.ligand)), "reg")
 
 # Mechanism-level scalar
@@ -1658,33 +1650,21 @@ binding → `Kd`, RE non-binding step → `Kiso`, SS binding → `Kon`+`Koff`, S
 non-binding step → `Kfor`+`Krev`. All parameters carry `state === :None`
 because non-allosteric mechanisms have no A/I branches.
 """
-function _enumerate_parameters_full(m::Mechanism)
-    out = Parameter[]
-    fes = _free_enz_set(m)
-    for group in steps(m)
-        append!(out, _emit_cat_params_for_rep(_group_rep(group, fes), :None))
-    end
-    out
-end
+_enumerate_parameters_full(m::Mechanism) =
+    Parameter[p for rep in _group_reps(m) for p in _step_params(rep, :None)]
 
 """
-Emit the Parameter(s) governing a single kinetic-group representative
-step with the given allosteric state. The 4-way switch on
-`is_equilibrium(rep)` × `is_binding(rep)` is the shared core of the walkers
-over group representatives: `_enumerate_parameters_full` and
-`_ss_rate_constant_names`.
+The Parameter(s) governing step `s` with the given allosteric state: the 4-way
+switch on `is_equilibrium(s)` × `is_binding(s)`. The walkers over group
+representatives (`_enumerate_parameters_full`, `_ss_rate_constant_names`) apply it
+to each group's representative step.
 
 Returns 1 element for RE steps (`Kd` or `Kiso`) and 2 elements for SS
 steps (`Kon`+`Koff` or `Kfor`+`Krev`). A binding, plain or fused, takes `Kd` /
 `Kon`+`Koff`; every other step — an isomerization, a Theorell–Chance step, a step
 with two metabolites on one side — takes `Kiso` / `Kfor`+`Krev`.
 """
-function _emit_cat_params_for_rep(rep::Step, state::Symbol)
-    if is_equilibrium(rep)
-        return Parameter[is_binding(rep) ? Kd(rep, state) : Kiso(rep, state)]
-    end
-    if is_binding(rep)
-        return Parameter[Kon(rep, state), Koff(rep, state)]
-    end
-    Parameter[Kfor(rep, state), Krev(rep, state)]
-end
+_step_params(s::Step, state::Symbol) =
+    is_equilibrium(s) ? Parameter[(is_binding(s) ? Kd : Kiso)(s, state)] :
+    is_binding(s) ? Parameter[Kon(s, state), Koff(s, state)] :
+    Parameter[Kfor(s, state), Krev(s, state)]
