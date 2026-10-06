@@ -132,11 +132,10 @@ struct RegulatorySite
                   "must equal length(allo_states)=$(length(allo_states))")
         multiplicity ≥ 1 ||
             error("RegulatorySite: multiplicity must be ≥ 1, got $multiplicity")
-        for st in allo_states
-            st in _VALID_REG_ALLO_STATES ||
-                error("RegulatorySite: allo state $st must be one of " *
-                      "$_VALID_REG_ALLO_STATES")
-        end
+        bad = findfirst(∉(_VALID_REG_ALLO_STATES), allo_states)
+        bad === nothing ||
+            error("RegulatorySite: allo state $(allo_states[bad]) must be one of " *
+                  "$_VALID_REG_ALLO_STATES")
         new(ligands, multiplicity, allo_states)
     end
 end
@@ -263,11 +262,11 @@ struct ReactantAtoms
         isempty(atoms) && error(
             "ReactantAtoms: $(name(metabolite)) has no declared atoms; atoms " *
             "are mandatory (use `[C…]` bracket syntax in @enzyme_reaction).")
-        for (elem, count) in atoms
-            (count isa Bool || count ≤ 0) &&
-                error("ReactantAtoms: $(name(metabolite)) atom count for " *
-                      "element $elem must be a positive integer, got $count.")
-        end
+        bad = findfirst(a -> a.second isa Bool || a.second ≤ 0, atoms)
+        bad === nothing ||
+            error("ReactantAtoms: $(name(metabolite)) atom count for element " *
+                  "$(atoms[bad].first) must be a positive integer, got " *
+                  "$(atoms[bad].second).")
         new(metabolite, sort(Vector{Pair{Symbol,Int}}(atoms); by=first))
     end
 end
@@ -355,22 +354,18 @@ struct EnzymeReaction
             error("EnzymeReaction: allowed_catalytic_multiplicities must " *
                   "all be ≥ 1, got $allowed_catalytic_multiplicities")
 
-        subs = [metabolite(ra) for ra in sorted_reactants
-                if metabolite(ra) isa Substrate]
-        prods = [metabolite(ra) for ra in sorted_reactants
-                 if metabolite(ra) isa Product]
-        isempty(subs)  && error("EnzymeReaction: substrates must not be empty")
-        isempty(prods) && error("EnzymeReaction: products must not be empty")
+        sub_names  = Symbol[name(metabolite(ra)) for ra in sorted_reactants
+                            if metabolite(ra) isa Substrate]
+        prod_names = Symbol[name(metabolite(ra)) for ra in sorted_reactants
+                            if metabolite(ra) isa Product]
+        isempty(sub_names)  && error("EnzymeReaction: substrates must not be empty")
+        isempty(prod_names) && error("EnzymeReaction: products must not be empty")
 
-        sub_names  = Symbol[name(m) for m in subs]
-        prod_names = Symbol[name(m) for m in prods]
         reg_keys   = [(name(regulator(rm)), typeof(regulator(rm)))
                       for rm in sorted_regulators]
-        length(sub_names)  == length(Set(sub_names))  ||
-            error("EnzymeReaction: duplicate substrate names")
-        length(prod_names) == length(Set(prod_names)) ||
-            error("EnzymeReaction: duplicate product names")
-        length(reg_keys)   == length(Set(reg_keys))   ||
+        allunique(sub_names)  || error("EnzymeReaction: duplicate substrate names")
+        allunique(prod_names) || error("EnzymeReaction: duplicate product names")
+        allunique(reg_keys)   ||
             error("EnzymeReaction: duplicate regulator of the same kind")
 
         sub_set  = Set(sub_names)
@@ -405,11 +400,9 @@ struct EnzymeReaction
         # product sharing a name route to the correct side.
         sub_atoms  = Dict{Symbol,Int}()
         prod_atoms = Dict{Symbol,Int}()
-        for ra in sorted_reactants
+        for ra in sorted_reactants, (elem, c) in atoms(ra)
             tgt = metabolite(ra) isa Substrate ? sub_atoms : prod_atoms
-            for (elem, c) in atoms(ra)
-                tgt[elem] = get(tgt, elem, 0) + c
-            end
+            tgt[elem] = get(tgt, elem, 0) + c
         end
         for elem in union(keys(sub_atoms), keys(prod_atoms))
             s_c = get(sub_atoms, elem, 0)
@@ -446,7 +439,7 @@ function Base.show(io::IO, r::EnzymeReaction)
     mults = allowed_catalytic_multiplicities(r)
     if length(mults) == 1 && mults[1] > 1
         print(io, " | oligomeric_state: ", mults[1])
-    elseif length(mults) > 1 || (length(mults) == 1 && mults[1] != 1)
+    elseif length(mults) > 1
         print(io, " | allowed_catalytic_multiplicities: (",
               join(mults, ", "), ")")
     end
@@ -798,9 +791,7 @@ function _assert_re_segments_have_bottom(steps::Vector{Vector{Step}})
           "(0/0). Make one of the segment's binding steps steady-state.")
 end
 
-reaction(m::Mechanism) = m.reaction
 steps(m::Mechanism) = m.steps
-kinetic_groups(m::Mechanism) = 1:length(m.steps)
 n_steps(m::Mechanism) = sum(length, m.steps; init = 0)
 rep_step(m::Mechanism, g::Int) = first(m.steps[g])
 Base.show(io::IO, m::Mechanism) = _show_fields(io, m, (:reaction, :steps))
@@ -839,13 +830,12 @@ struct AllostericMechanism
         catalytic_multiplicity ≥ 1 ||
             error("AllostericMechanism: catalytic_multiplicity must be ≥ 1, " *
                   "got $catalytic_multiplicity")
-        for (g, tag) in enumerate(cat_allo_states)
-            tag in _VALID_CAT_ALLO_STATES ||
-                error("AllostericMechanism: catalytic group $g has invalid " *
-                      "allo state $tag (must be one of " *
-                      "$_VALID_CAT_ALLO_STATES); :OnlyI is rejected for " *
-                      "catalytic groups (active-state-active convention)")
-        end
+        bad = findfirst(∉(_VALID_CAT_ALLO_STATES), cat_allo_states)
+        bad === nothing ||
+            error("AllostericMechanism: catalytic group $bad has invalid " *
+                  "allo state $(cat_allo_states[bad]) (must be one of " *
+                  "$_VALID_CAT_ALLO_STATES); :OnlyI is rejected for " *
+                  "catalytic groups (active-state-active convention)")
         cat_steps = _canonicalize_step_directions(reaction, cat_steps)
         # cat_steps and cat_allo_states are parallel — permute both with the
         # same group order. regulatory_sites canonicalizes independently. All
@@ -862,17 +852,12 @@ struct AllostericMechanism
         # Detect Kreg name collision: a ligand in two distinct regulatory
         # sites would produce identical rendered Kreg names (no site
         # discriminator). Not enumerated; constructor rejects it.
-        seen_ligands = Set{Symbol}()
-        for site in regulatory_sites
-            for lig in ligands(site)
-                ligname = name(lig)
-                ligname in seen_ligands &&
-                    error("AllostericMechanism: ligand $ligname appears in two " *
-                          "distinct regulatory sites; rendered Kreg names would " *
-                          "collide. Same-ligand-two-sites is not enumerated.")
-                push!(seen_ligands, ligname)
-            end
-        end
+        ligs = [name(l) for site in regulatory_sites for l in ligands(site)]
+        dup = findfirst(i -> ligs[i] in view(ligs, 1:i-1), eachindex(ligs))
+        dup === nothing ||
+            error("AllostericMechanism: ligand $(ligs[dup]) appears in two " *
+                  "distinct regulatory sites; rendered Kreg names would " *
+                  "collide. Same-ligand-two-sites is not enumerated.")
         violation = _onlya_haldane_violation(reaction, cat_steps, cat_allo_states)
         violation === nothing ||
             error("AllostericMechanism: $violation")
@@ -894,13 +879,13 @@ for T in (Residual, RegulatorySite, Step, Kd, Kiso, Kon, Koff, Kfor, Krev, Kreg,
                 init = :(hash($(QuoteNode(nameof(T))), h))))
 end
 
-reaction(m::AllostericMechanism) = m.reaction
+reaction(m::Union{Mechanism, AllostericMechanism}) = m.reaction
+kinetic_groups(m::Union{Mechanism, AllostericMechanism}) = 1:length(steps(m))
 steps(m::AllostericMechanism) = m.cat_steps
 cat_allo_state(m::AllostericMechanism, g::Int) = m.cat_allo_states[g]
 cat_allo_states(m::AllostericMechanism) = m.cat_allo_states
 catalytic_multiplicity(m::AllostericMechanism) = m.catalytic_multiplicity
 regulatory_sites(m::AllostericMechanism) = m.regulatory_sites
-kinetic_groups(m::AllostericMechanism) = 1:length(m.cat_steps)
 n_steps(m::AllostericMechanism) = sum(length, m.cat_steps; init = 0)
 rep_step(m::AllostericMechanism, g::Int) = first(m.cat_steps[g])
 
@@ -1254,13 +1239,10 @@ function AllostericMechanism(@nospecialize(aem::AllostericEnzymeMechanism))
     CM, CS, RS = typeof(aem).parameters
     cm_mech = Mechanism(CM())
     multiplicity, cat_allo_states = CS
-    sites = RegulatorySite[]
-    for entry in RS
-        ligands_syms, mult, reg_allo_states = entry
-        ligands_vec = AllostericRegulator[AllostericRegulator(l) for l in ligands_syms]
-        push!(sites,
-              RegulatorySite(ligands_vec, mult, collect(Symbol, reg_allo_states)))
-    end
+    sites = RegulatorySite[
+        RegulatorySite(AllostericRegulator[AllostericRegulator(l) for l in ligands_syms],
+                       mult, collect(Symbol, reg_allo_states))
+        for (ligands_syms, mult, reg_allo_states) in RS]
     AllostericMechanism(reaction(cm_mech), steps(cm_mech),
                         collect(Symbol, cat_allo_states),
                         multiplicity, sites)
