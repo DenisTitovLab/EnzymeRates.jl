@@ -67,7 +67,7 @@ _met_label(m::Metabolite) =
 Species: an enzyme form. `bound` is sorted by `_met_sort_key`; the
 rendered Symbol name reads `:E` / `:EATP` / `:Estar...` / `:EATP_res_+P`.
 The name is rendered once at construction and stored in `name`; it never
-takes part in `==` or `hash`.
+takes part in `==`, `hash` or display.
 """
 struct Species
     bound::Vector{Metabolite}
@@ -92,6 +92,19 @@ Base.:(==)(a::Species, b::Species) =
     a.bound == b.bound
 Base.hash(s::Species, h::UInt) =
     hash(s.bound, hash(s.conformation, hash(s.residual, hash(:Species, h))))
+Base.show(io::IO, s::Species) = _show_fields(io, s, (:bound, :conformation, :residual))
+
+# Julia's default display limited to the semantic fields: cached naming data never shows.
+function _show_fields(io::IO, x, fields::Tuple)
+    show(io, typeof(x))
+    print(io, '(')
+    recur_io = IOContext(io, :SHOWN_SET => x, :typeinfo => Any)
+    for (i, f) in enumerate(fields)
+        i > 1 && print(io, ", ")
+        show(recur_io, getfield(x, f))
+    end
+    print(io, ')')
+end
 
 """
 Render species name deterministically from fields:
@@ -815,7 +828,7 @@ end
 """
 Naming data derived from a mechanism's steps, filled on first use: the free-enzyme
 form names and each kinetic group's naming representative. It never takes part in
-`==`, `hash` or the compiled type.
+`==`, `hash`, the compiled type or display.
 """
 mutable struct _NamingCache
     free_enz::Union{Nothing, Set{Symbol}}
@@ -869,6 +882,7 @@ Base.:(==)(a::Mechanism, b::Mechanism) =
     a.reaction == b.reaction && a.steps == b.steps
 Base.hash(m::Mechanism, h::UInt) =
     hash(m.steps, hash(m.reaction, hash(:Mechanism, h)))
+Base.show(io::IO, m::Mechanism) = _show_fields(io, m, (:reaction, :steps))
 
 """
 Return a new Mechanism with `new_steps` but the same reaction. Used by
@@ -976,6 +990,8 @@ Base.hash(m::AllostericMechanism, h::UInt) =
                    hash(m.cat_steps,
                         hash(m.reaction,
                              hash(:AllostericMechanism, h))))))
+Base.show(io::IO, m::AllostericMechanism) = _show_fields(io, m,
+    (:reaction, :cat_steps, :cat_allo_states, :catalytic_multiplicity, :regulatory_sites))
 
 """
 Return a new AllostericMechanism with `new_steps` but otherwise

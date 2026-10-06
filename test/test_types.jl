@@ -2794,22 +2794,48 @@ end
     end)
     m2 = EnzymeRates.Mechanism(EnzymeRates.reaction(m1),
                                deepcopy(EnzymeRates.steps(m1)))
-    param_names(m) =
+    am1 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: I::OnlyI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)     :: EqualAI
+            E(S) <--> E(P)   :: OnlyA
+            E(P) ⇌ E + P     :: EqualAI
+        end
+    end)
+    am2 = EnzymeRates.AllostericMechanism(EnzymeRates.reaction(am1),
+                                          deepcopy(EnzymeRates.steps(am1)),
+                                          copy(EnzymeRates.cat_allo_states(am1)),
+                                          EnzymeRates.catalytic_multiplicity(am1),
+                                          copy(EnzymeRates.regulatory_sites(am1)))
+    # Naming every parameter fills the mechanism's naming cache.
+    param_names(m::EnzymeRates.Mechanism) =
         [EnzymeRates.name(p, m) for p in EnzymeRates._enumerate_parameters_full(m)]
-    names1 = param_names(m1)
-    @test m1 == m2
-    @test hash(m1) == hash(m2)
-    @test EnzymeRates.compile_mechanism(m1) === EnzymeRates.compile_mechanism(m2)
-    @test names1 == param_names(m2)
-    io = IOBuffer(); serialize(io, m1); seekstart(io)
-    m3 = deserialize(io)
-    @test m3 == m1 && hash(m3) == hash(m1)
-    @test names1 == param_names(m3)
+    param_names(m::EnzymeRates.AllostericMechanism) = [EnzymeRates.name(p, m)
+        for p in EnzymeRates._enumerate_parameters_full_allosteric(m)]
+    # `rebuilt` is `m` constructed again from its fields, with an empty cache.
+    function check_identity(m, rebuilt)
+        shown = repr(m)
+        names = param_names(m)
+        @test repr(m) == shown
+        @test m == rebuilt && hash(m) == hash(rebuilt)
+        @test EnzymeRates.compile_mechanism(m) === EnzymeRates.compile_mechanism(rebuilt)
+        @test names == param_names(rebuilt)
+        io = IOBuffer(); serialize(io, m); seekstart(io)
+        copied = deserialize(io)
+        @test copied == m && hash(copied) == hash(m)
+        @test names == param_names(copied)
+    end
+    check_identity(m1, m2)
+    check_identity(am1, am2)
     # A species' stored name is rendered from its sorted bound list, so the order in
-    # which the bound metabolites are given does not change it.
+    # which the bound metabolites are given does not change it. Display leaves it out.
     A, B = EnzymeRates.Substrate(:A), EnzymeRates.Substrate(:B)
     sp = EnzymeRates.Species(EnzymeRates.Metabolite[A, B], :E)
     sp2 = EnzymeRates.Species(EnzymeRates.Metabolite[B, A], :E)
     @test sp2 == sp && hash(sp2) == hash(sp)
     @test EnzymeRates.name(sp2) === EnzymeRates.name(sp) === :EAB
+    @test !occursin("EAB", repr(sp))
 end
