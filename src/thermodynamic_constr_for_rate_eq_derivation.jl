@@ -33,17 +33,8 @@ Koff|Krev]` for an SS step. Each Parameter is anchored on the original
 step (not the rep), so `name(p, m)` renders to the rep's structural
 Symbol via the value-context chokepoint, collapsing kinetic-group members.
 """
-function _step_parameters(m::Mechanism)
-    out = Vector{Vector{Parameter}}()
-    for (s, _) in _flat_steps(m)
-        params = is_equilibrium(s) ?
-            Parameter[is_binding(s) ? Kd(s, :None) : Kiso(s, :None)] :
-            Parameter[is_binding(s) ? Kon(s, :None)  : Kfor(s, :None),
-                      is_binding(s) ? Koff(s, :None) : Krev(s, :None)]
-        push!(out, params)
-    end
-    out
-end
+_step_parameters(m::Mechanism) =
+    Vector{Parameter}[_step_constants(s, :None) for (s, _) in _flat_steps(m)]
 
 # ─── Structural primacy: free-enzyme set + step priority ─────────
 
@@ -52,8 +43,8 @@ Set of enzyme-form names that are NOT the RHS of any RE step that
 consumes a metabolite, `F + met… ⇌ F_bound`. Walks `Mechanism.steps`
 directly: such a step leaves its consumed metabolites on `to_species`, so
 `to_species`'s name is excluded from the free set. Iso steps don't
-determine binding state. SS steps' direction is not canonicalized so they
-don't participate.
+determine binding state, and SS steps take no part in this rule (they do in
+the next one).
 
 A form that carries bound metabolites but has no consuming step into it in this
 graph is also excluded: an inactive-conformation graph
@@ -69,29 +60,14 @@ Shared by the kinetic-group name representative and the Haldane
 elimination pivot.
 """
 function _compute_free_enz_set(m::Union{Mechanism, AllostericMechanism})
-    enz_names = Set{Symbol}()
-    for group in steps(m), s in group
-        push!(enz_names, name(from_species(s)))
-        push!(enz_names, name(to_species(s)))
-    end
-    free_enz_set = copy(enz_names)
-    for group in steps(m), s in group
-        is_equilibrium(s) || continue
-        isempty(consumed(s)) && continue
-        # A step that consumes a metabolite leaves it on to_species. The
-        # from-side is the "free + met" reactant; the to-side is the bound form.
-        delete!(free_enz_set, name(to_species(s)))
-    end
-    bound_in = Set{Symbol}(name(to_species(s))
-                           for group in steps(m) for s in group
-                           if !isempty(consumed(s)))
-    for group in steps(m), s in group
-        for sp in (from_species(s), to_species(s))
-            isempty(bound(sp)) || name(sp) in bound_in ||
-                delete!(free_enz_set, name(sp))
-        end
-    end
-    free_enz_set
+    flat = [s for g in steps(m) for s in g]
+    # A step that consumes a metabolite leaves it on to_species. The from-side is
+    # the "free + met" reactant; the to-side is the bound form.
+    into(re) = Set{Symbol}(name(to_species(s)) for s in flat
+                           if !isempty(consumed(s)) && (!re || is_equilibrium(s)))
+    bound_in, re_bound_in = into(false), into(true)
+    Set{Symbol}(name(sp) for s in flat for sp in (from_species(s), to_species(s))
+                if name(sp) ∉ re_bound_in && (isempty(bound(sp)) || name(sp) in bound_in))
 end
 
 """
@@ -137,9 +113,9 @@ _group_rep(group::Vector{Step}, free_enz_set::Set{Symbol}) =
 Reduced row echelon form over `Rational{BigInt}`. Returns the pivot and
 free column indices (pivot_cols in row-pivot order, so pivot_cols[i] is the
 pivot at reduced-matrix row i) plus the reduced matrix R. Used by
-`_integer_nullspace` (nullspace basis).
+`_rational_nullspace` (nullspace basis) and `_partition_independent_count` (rank).
 """
-function _rref_partition(A::Matrix{Int})
+function _rref_partition(A::AbstractMatrix)
     m, n = size(A)
     R = Matrix{Rational{BigInt}}(A)
     pivot_cols = Int[]
@@ -159,44 +135,49 @@ function _rref_partition(A::Matrix{Int})
     return pivot_cols, free_cols, R
 end
 
-function _integer_nullspace(A::Matrix{Int})
-    n = size(A, 2)
-    pivot_cols, free_cols, R = _rref_partition(A)
-    isempty(free_cols) && return zeros(Int, n, 0)
-    NS = zeros(Rational{BigInt}, n, length(free_cols))
-    for (k, fc) in enumerate(free_cols)
-        NS[fc, k] = 1
-        for (r, pc) in enumerate(pivot_cols); NS[pc, k] = -R[r, fc]; end
+"""
+Basis of `{x : M·x = 0}` as the COLUMNS of the returned matrix, exact over the
+rationals: each free column of `M`'s reduced row echelon form yields one basis
+vector, 1 at its free coordinate.
+"""
+function _rational_nullspace(M::AbstractMatrix)
+    pivots, free, R = _rref_partition(M)
+    N = zeros(Rational{BigInt}, size(M, 2), length(free))
+    for (k, f) in enumerate(free)
+        N[f, k] = 1
+        for (r, c) in enumerate(pivots); N[c, k] = -R[r, f]; end
     end
-    result = zeros(Int, n, length(free_cols))
-    for k in axes(result, 2)
-        col = @view NS[:, k]
-        l = lcm(denominator.(col)...)
-        result[:, k] .= Int.(col .* l)
-        g = gcd(abs.(result[:, k])...)
-        g > 0 && (result[:, k] .÷= g)
-        fnz = findfirst(!=(0), result[:, k])
-        fnz !== nothing && result[fnz, k] < 0 && (result[:, k] .*= -1)
+    N
+end
+
+"""
+`_rational_nullspace(A)` with each basis column scaled to coprime integers whose
+first nonzero entry is positive.
+"""
+function _integer_nullspace(A::Matrix{Int})
+    N = _rational_nullspace(A)
+    result = zeros(Int, size(N))
+    for k in axes(N, 2)
+        col = Int.(N[:, k] .* lcm(denominator.(N[:, k])))
+        col .÷= gcd(col)
+        result[:, k] .= col[findfirst(!iszero, col)] < 0 ? -col : col
     end
     result
 end
 
 function _thermodynamic_constraints(mech::Mechanism)
     flat = _flat_steps(mech)
-    enz_names = collect(_enumerate_species_names(mech))
-    enz_name_to_idx = Dict(n => i for (i, n) in enumerate(enz_names))
-    nsteps = length(flat)
-    met_names = Symbol[name(metabolite(ra)) for ra in reactants(mech.reaction)]
-    subs_species = Symbol[name(s) for s in substrates(mech.reaction)]
-    prods_species = Symbol[name(p) for p in products(mech.reaction)]
+    ras = reactants(mech.reaction)
 
-    # Enzyme incidence matrix
-    B = zeros(Int, length(enz_names), nsteps)
+    # Enzyme incidence matrix (rows = enzyme forms in first-seen step-walk order)
+    form = Dict{Symbol, Int}()
+    for (s, _) in flat, sp in (from_species(s), to_species(s))
+        get!(form, name(sp), length(form) + 1)
+    end
+    B = zeros(Int, length(form), length(flat))
     for (j, (s, _)) in enumerate(flat)
-        i_from = enz_name_to_idx[name(from_species(s))]
-        i_to   = enz_name_to_idx[name(to_species(s))]
-        B[i_from, j] -= 1
-        B[i_to,   j] += 1
+        B[form[name(from_species(s))], j] -= 1
+        B[form[name(to_species(s))], j] += 1
     end
 
     # Stoichiometry matrix (rows = metabolites, cols = steps), read from each
@@ -208,79 +189,32 @@ function _thermodynamic_constraints(mech::Mechanism)
     # that double-counts metabolites already accounted for by the
     # binding/release steps and inflates the cycle's net change (e.g.
     # 1/Keq -> 1/Keq^2).
-    met_idx = Dict(n => i for (i, n) in enumerate(met_names))
-    stoich_mat = zeros(Int, length(met_names), nsteps)
-    for (j, (s, _)) in enumerate(flat)
-        for m in consumed(s)
-            haskey(met_idx, name(m)) && (stoich_mat[met_idx[name(m)], j] -= 1)
-        end
-        for m in released(s)
-            haskey(met_idx, name(m)) && (stoich_mat[met_idx[name(m)], j] += 1)
+    met_idx = Dict(name(metabolite(ra)) => i for (i, ra) in enumerate(ras))
+    stoich_mat = zeros(Int, length(ras), length(flat))
+    for (j, (s, _)) in enumerate(flat), (mets, sgn) in ((consumed(s), -1), (released(s), 1))
+        for m in mets
+            haskey(met_idx, name(m)) && (stoich_mat[met_idx[name(m)], j] += sgn)
         end
     end
-
-    NS = _integer_nullspace(B)
-    nc = size(NS, 2)
-    nc == 0 && return zeros(Int, 0, size(B, 2)), Int[]
-
-    nu_net = zeros(Int, length(met_names))
-    for nm in subs_species
-        nu_net[met_idx[nm]] -= 1
-    end
-    for nm in prods_species
-        nu_net[met_idx[nm]] += 1
+    nu_net = zeros(Int, length(ras))
+    for ra in ras
+        nu_net[met_idx[name(metabolite(ra))]] += metabolite(ra) isa Substrate ? -1 : 1
     end
 
     # Classify each null-space cycle as Haldane (proportional to the
     # net reaction → contributes log(Keq)) or Wegscheider (closed
     # cycle, zero net change). Errors on cycles that touch metabolites
     # but aren't proportional to the net reaction.
-    function classify_cycle(nu_cycle, i)
-        all(nu_cycle .== 0) && return 0
-        c = nothing
-        for j in eachindex(nu_cycle)
-            if nu_net[j] == 0
-                nu_cycle[j] != 0 && error(
-                    "Cycle $i produces metabolite " *
-                    "change not proportional to " *
-                    "net reaction"
-                )
-            else
-                c_j = nu_cycle[j] // nu_net[j]
-                if c === nothing
-                    c = c_j
-                elseif c_j != c
-                    error(
-                        "Cycle $i produces metabolite " *
-                        "change not proportional to " *
-                        "net reaction"
-                    )
-                end
-            end
-        end
-        err = "Cycle $i produces metabolite change " *
-              "not proportional to net reaction"
-        c !== nothing && denominator(c) == 1 ? Int(c) : error(err)
+    C = _integer_nullspace(B)'
+    j0 = findfirst(!iszero, nu_net)
+    function classify(i)
+        nu = stoich_mat * C[i, :]
+        c = nu[j0] // nu_net[j0]
+        nu == c .* nu_net && isinteger(c) ||
+            error("Cycle $i produces metabolite change not proportional to net reaction")
+        Int(c)
     end
-
-    C = NS'
-    rhs_coeffs = [classify_cycle(stoich_mat * C[i, :], i) for i in 1:nc]
-    return C, rhs_coeffs
-end
-
-"""
-Walk Mechanism.steps; emit distinct enzyme-form Symbol names in
-step-walk order. Used by _thermodynamic_constraints and friends.
-"""
-function _enumerate_species_names(mech::Mechanism)
-    seen = Symbol[]
-    for group in steps(mech), s in group
-        for sp in (from_species(s), to_species(s))
-            nm = name(sp)
-            nm in seen || push!(seen, nm)
-        end
-    end
-    seen
+    return C, Int[classify(i) for i in axes(C, 1)]
 end
 
 """
@@ -471,41 +405,6 @@ function _assemble_constraints(
 end
 
 """
-Basis of `{x : M·x = 0}` as the COLUMNS of the returned matrix. Exact
-Gauss-Jordan over the rationals; each non-pivot (free) column yields one basis
-vector.
-"""
-function _rational_nullspace(M::AbstractMatrix{Rational{BigInt}})
-    A = copy(M)
-    m, n = size(A)
-    pivots = Int[]
-    r = 1
-    for c in 1:n
-        r > m && break
-        p = findfirst(i -> A[i, c] != 0, r:m)
-        p === nothing && continue
-        p += r - 1
-        A[[r, p], :] = A[[p, r], :]
-        A[r, :] = A[r, :] ./ A[r, c]
-        for i in 1:m
-            (i == r || A[i, c] == 0) && continue
-            A[i, :] = A[i, :] .- A[i, c] .* A[r, :]
-        end
-        push!(pivots, c)
-        r += 1
-    end
-    free = setdiff(1:n, pivots)
-    N = zeros(Rational{BigInt}, n, length(free))
-    for (k, f) in enumerate(free)
-        N[f, k] = 1
-        for (i, c) in enumerate(pivots)
-            N[c, k] = -A[i, f]
-        end
-    end
-    N
-end
-
-"""
 True when some `y` makes every row of `N·y` strictly positive — i.e. the open
 cone `{y : N·y > 0}` is nonempty. Exact Fourier-Motzkin elimination: to drop
 variable `v`, every (positive, negative) row pair is combined with positive
@@ -577,11 +476,11 @@ strictly-positive nullspace vector, `M·w = 0` with `w > 0` (Stiemke
 feasibility). The two stages agree for every random-order mechanism up to bi-bi;
 they part from ter-substrate up.
 
-An RE binding carries the cycle exponent on its `Kd` column, already sign-flipped
-against the cycle's `1/Kd` product, while an SS binding carries it on `Kon`
-unflipped. Both encode the same `-C·log(Kd)`, so each column is normalized back
-to the `ε` exponent before its sign is read; otherwise a cycle mixing the two
-step kinds reads as same-sign and a balanced pair is rejected.
+An `:OnlyA` group's `ε` exponent in a cycle is the sum of its steps' entries in
+that row of the cycle basis (`_thermodynamic_constraints`), for RE and SS
+bindings alike: an RE binding's `1/Kd` and an SS binding's `kon/koff` both enter
+the cycle's product raised to the step's entry, so a cycle that mixes the two step
+kinds reads its signs on one scale and a balanced pair is accepted.
 
 Builds a plain `Mechanism`; it must not call `_state_allo_mechanism`, which
 would construct an `AllostericMechanism` and recurse.
@@ -589,46 +488,28 @@ would construct an `AllostericMechanism` and recurse.
 function _onlya_haldane_violation(rxn::EnzymeReaction,
                                   cat_steps::Vector{Vector{Step}},
                                   cat_allo_states::Vector{Symbol})
+    onlya(g) = cat_allo_states[g] === :OnlyA
     keep = [g for g in eachindex(cat_steps)
-            if !(cat_allo_states[g] === :OnlyA && any(_is_chemistry, cat_steps[g]))]
-    isempty(keep) && return nothing
-    onlyA_steps = Set{Step}()
-    for g in eachindex(cat_steps)
-        cat_allo_states[g] === :OnlyA && !any(_is_chemistry, cat_steps[g]) &&
-            union!(onlyA_steps, cat_steps[g])
-    end
-    isempty(onlyA_steps) && return nothing
+            if !(onlya(g) && any(_is_chemistry, cat_steps[g]))]
+    any(onlya, keep) || return nothing
+    onlyA_steps = Set{Step}(s for g in keep if onlya(g) for s in cat_steps[g])
     cm = Mechanism(rxn, [copy(cat_steps[g]) for g in keep])
-    sp = _step_parameters(cm)
-    A, _, columns, _ = _assemble_constraints(cm, Dict{Symbol, Symbol}();
-                                             step_params = sp)
-    sym_col = Dict(c => i for (i, c) in enumerate(columns))
-    # Column → multiplier normalizing its entry to the ε exponent. Mirrors the
-    # `sym in binding_K_set` sign rule of `_assemble_constraints` (line 366):
-    # only an RE binding lands in that set, so only it is sign-flipped. The
-    # multiplier is well defined per column because RE and SS bindings render to
-    # different symbols (`K_ES_to_E_S` vs `k_E_S_to_ES`) and so never share a column.
-    onlyA_cols = Dict{Int, Int}()
-    for (j, (s, _)) in enumerate(_flat_steps(cm))
-        s in onlyA_steps || continue
-        sym = name(sp[j][1], cm)
-        haskey(sym_col, sym) &&
-            (onlyA_cols[sym_col[sym]] = is_equilibrium(s) ? -1 : 1)
-    end
-    isempty(onlyA_cols) && return nothing
+    C, _ = _thermodynamic_constraints(cm)
+    flat = _flat_steps(cm)
+    groups = unique(g for (s, g) in flat if s in onlyA_steps)
+    isempty(groups) && return nothing
+    # Column k holds `:OnlyA` group k's `ε` exponents: its steps' cycle entries summed.
+    M = Rational{BigInt}[sum((C[i, j] for (j, (_, g)) in enumerate(flat) if g == k);
+                             init = 0) for i in axes(C, 1), k in groups]
+    labels = [string(name(first(_step_constants(first(steps(cm)[k]), :None)), cm))
+              for k in groups]
     # Per-row sign test first: sound (an all-one-sign row forces a sum of
     # same-signed positive terms to vanish) and cheap, so it keeps the common
     # rejections on the fast path.
-    for i in axes(A, 1)
-        signs = Set{Int}()
-        for (c, mult) in onlyA_cols
-            A[i, c] == 0 || push!(signs, mult * A[i, c] > 0 ? 1 : -1)
-        end
-        isempty(signs) && continue
-        length(signs) == 1 || continue
-        offenders = sort!([string(columns[c]) for c in keys(onlyA_cols)
-                           if A[i, c] != 0])
-        return _onlya_violation_message(offenders)
+    for row in eachrow(M)
+        nz = findall(!iszero, row)
+        !isempty(nz) && allequal(sign.(row[nz])) &&
+            return _onlya_violation_message(sort!(labels[nz]))
     end
 
     # The complete condition: the `ε` exponents must admit a strictly-positive
@@ -637,13 +518,8 @@ function _onlya_haldane_violation(rxn::EnzymeReaction,
     # inconsistency passes it. `nothing` from the cone test means elimination
     # blew up; fall back to the per-row verdict (sound, just incomplete) rather
     # than reject a mechanism we could not decide.
-    cols = sort!(collect(keys(onlyA_cols)))
-    M = Rational{BigInt}[onlyA_cols[c] * A[i, c] for i in axes(A, 1), c in cols]
-    N = _rational_nullspace(M)
-    feasible = _has_strict_positive_combination(N)
-    feasible === nothing && return nothing
-    feasible && return nothing
-    return _onlya_violation_message(sort!([string(columns[c]) for c in cols]))
+    _has_strict_positive_combination(_rational_nullspace(M)) === false || return nothing
+    return _onlya_violation_message(sort(labels))
 end
 
 """

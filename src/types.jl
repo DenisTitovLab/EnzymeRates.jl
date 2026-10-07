@@ -1305,20 +1305,22 @@ non-binding step → `Kfor`+`Krev`. All parameters carry `state === :None`
 because non-allosteric mechanisms have no A/I branches.
 """
 _enumerate_parameters_full(m::Mechanism) =
-    Parameter[p for rep in _group_reps(m) for p in _step_params(rep, :None)]
+    Parameter[p for rep in _group_reps(m) for p in _step_constants(rep, :None)]
 
 """
 The Parameter(s) governing step `s` with the given allosteric state: the 4-way
 switch on `is_equilibrium(s)` × `is_binding(s)`. The walkers over group
-representatives (`_enumerate_parameters_full`, `_ss_rate_constant_names`) apply it
-to each group's representative step.
+representatives (`_enumerate_parameters_full`, `_enumerate_parameters_full_allosteric`,
+`_all_i_state_parameters`, `_ss_rate_constant_names`) apply it to each group's
+representative step; `_step_parameters` applies it to every step, and
+`_onlya_haldane_violation` to a group's first step to label the group.
 
 Returns 1 element for RE steps (`Kd` or `Kiso`) and 2 elements for SS
 steps (`Kon`+`Koff` or `Kfor`+`Krev`). A binding, plain or fused, takes `Kd` /
 `Kon`+`Koff`; every other step — an isomerization, a Theorell–Chance step, a step
 with two metabolites on one side — takes `Kiso` / `Kfor`+`Krev`.
 """
-_step_params(s::Step, state::Symbol) =
+_step_constants(s::Step, state::Symbol) =
     is_equilibrium(s) ? Parameter[(is_binding(s) ? Kd : Kiso)(s, state)] :
     is_binding(s) ? Parameter[Kon(s, state), Koff(s, state)] :
     Parameter[Kfor(s, state), Krev(s, state)]

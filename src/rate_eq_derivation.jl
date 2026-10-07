@@ -695,7 +695,7 @@ function _ss_rate_constant_names(@nospecialize(em::AllostericEnzymeMechanism))
     for (g, rep) in enumerate(_group_reps(am))
         is_equilibrium(rep) && continue
         st = cat_allo_state(am, g) === :EqualAI ? :EqualAI : :A
-        for p in _step_params(rep, st)
+        for p in _step_constants(rep, st)
             push!(a_names, name(p, am))
         end
     end
@@ -1233,7 +1233,7 @@ function _all_i_state_parameters(am::AllostericMechanism)
     out = Parameter[]
     for (g, rep) in enumerate(_group_reps(am))
         cat_allo_state(am, g) === :OnlyA && continue
-        append!(out, _step_params(rep, :I))
+        append!(out, _step_constants(rep, :I))
     end
     for site in regulatory_sites(am)
         for (lig, tag) in zip(ligands(site), allo_states(site))
@@ -1272,7 +1272,7 @@ function _enumerate_parameters_full_allosteric(am::AllostericMechanism)
     out = Parameter[]
     for (g, rep) in enumerate(_group_reps(am))
         st = cat_allo_state(am, g) === :EqualAI ? :EqualAI : :A
-        append!(out, _step_params(rep, st))
+        append!(out, _step_constants(rep, st))
     end
     append!(out, _all_i_state_parameters(am))
     for site in regulatory_sites(am)
