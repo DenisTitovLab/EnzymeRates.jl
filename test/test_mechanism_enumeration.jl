@@ -1057,16 +1057,6 @@ n_base = length(unique!(collect(EnzymeRates.init_mechanisms(base))))
 n_con  = length(unique!(collect(EnzymeRates.init_mechanisms(constrained))))
 @test n_con < n_base
 end
-
-@testset "_add_competitive_inhibitor preserves shared_catalytic_site" begin
-rxn = @enzyme_reaction begin
-    substrates: A[C], B[C]
-    products:   P[C], Q[C]
-    shared_catalytic_site: (A, P)
-end
-result = EnzymeRates._add_competitive_inhibitor(rxn, :I)
-@test EnzymeRates.shared_catalytic_site(result) == [(:A, :P)]
-end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2706,9 +2696,7 @@ end
         products: P[C], Q[N]
         dead_end_inhibitors: I
     end
-    withrxn(em) = EnzymeRates.Mechanism(
-        EnzymeRates._add_competitive_inhibitor(rxn, :I),
-        EnzymeRates.steps(EnzymeRates.Mechanism(em)))
+    withrxn(em) = EnzymeRates.Mechanism(rxn, EnzymeRates.steps(EnzymeRates.Mechanism(em)))
     m = EnzymeRates.Mechanism(rxn, EnzymeRates.steps(EnzymeRates.Mechanism(
         @enzyme_mechanism begin
             substrates: A, B
@@ -4014,38 +4002,6 @@ end
     am = EnzymeRates.AllostericMechanism(em_seed)
     @test isempty(EnzymeRates._expand_add_dead_end_regulator(
         am, uni_uni_allo_reg))
-end
-
-@testset "Mechanism — exclude_regs suppresses regulator addition" begin
-    rxn_ij = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        dead_end_inhibitors: I, J
-    end
-    m = first(EnzymeRates.init_mechanisms(rxn_ij))
-
-    baseline = EnzymeRates._expand_add_dead_end_regulator(m, rxn_ij)
-    @test length(baseline) == 2
-
-    excluded = EnzymeRates._expand_add_dead_end_regulator(
-        m, rxn_ij; exclude_regs=Set([:I]))
-    @test length(excluded) == 1
-    # The remaining variant must bind :J, not :I.
-    has_i = any(excluded) do r
-        any(r.steps) do group
-            any(group) do s
-                EnzymeRates.bound_metabolite(s) !== nothing &&
-                    EnzymeRates.name(
-                        EnzymeRates.bound_metabolite(s)) === :I
-            end
-        end
-    end
-    @test !has_i
-
-    @test length(EnzymeRates._expand_add_dead_end_regulator(
-        m, rxn_ij; exclude_regs=Set([:J]))) == 1
-    @test isempty(EnzymeRates._expand_add_dead_end_regulator(
-        m, rxn_ij; exclude_regs=Set([:I, :J])))
 end
 
 @testset "Mechanism — no regulators: empty (negative)" begin
@@ -10335,8 +10291,7 @@ end
     kids = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
     @test length(kids) == 6
     @test Set(EnzymeRates.steps.(kids)) == Set(EnzymeRates.steps.(expected))
-    @test all(c -> EnzymeRates.reaction(c) ==
-                   EnzymeRates._add_competitive_inhibitor(rxn, :I), kids)
+    @test all(c -> EnzymeRates.reaction(c) == rxn, kids)
 end
 
 @testset "_expand_add_dead_end_regulator: inhibitor never runs the net reaction" begin

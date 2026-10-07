@@ -2251,7 +2251,7 @@ neither pinned, pass the test and carry a phantom: the rule admits them.
 An allosteric copy binds the active state always and the inactive state unless its tag
 is `:OnlyA`. The inactive state's graph is that of `_state_mechanism(am, :I)`: the steps
 of the non-`:OnlyA` groups between forms reachable from the free enzyme
-(`_reachable_from_free`). The copy binds there only at the sites that graph keeps, and a
+(`_inactive_groups`). The copy binds there only at the sites that graph keeps, and a
 free-enzyme site is always among them. In a state where the copy binds nothing, every
 factor of that state is 1. The two states form one system. A group tagged `:EqualAI`
 has one set of constants in both, so it must take the same rescaling in each. A shared
@@ -2259,26 +2259,17 @@ class is one number in both states only when its binding group and the copy are 
 `:EqualAI` (one K_h, one K*). The copy's complexes share one factor in both states when
 the copy is `:EqualAI` (one K*). Every other class is a number per state.
 """
-function _redundant_copy_groups(m::Mechanism)
-    groups = steps(m)
-    any(group -> bound_metabolite(first(group)) isa CompetitiveInhibitor, groups) ||
-        return Int[]
-    twin = _productive_twin(groups)
-    [g for g in eachindex(groups)
-     if _gauge_rescaling(groups, g, twin, identity) !== nothing]
-end
-function _redundant_copy_groups(am::AllostericMechanism)
-    active = steps(am)
+function _redundant_copy_groups(m::Union{Mechanism, AllostericMechanism})
+    active = steps(m)
     any(group -> bound_metabolite(first(group)) isa CompetitiveInhibitor, active) ||
         return Int[]
-    tags = cat_allo_states(am)
-    reachable = _reachable_from_free(
-        [group for (g, group) in enumerate(active) if tags[g] !== :OnlyA])
-    inactive = [tags[g] === :OnlyA ? Step[] :
-                Step[s for s in group if name(from_species(s)) in reachable &&
-                                         name(to_species(s)) in reachable]
-                for (g, group) in enumerate(active)]
-    twin_active, twin_inactive = _productive_twin(active), _productive_twin(inactive)
+    twin_active = _productive_twin(active)
+    m isa Mechanism &&
+        return [g for g in eachindex(active)
+                if _gauge_rescaling(active, g, twin_active, identity) !== nothing]
+    tags = cat_allo_states(m)
+    inactive = _inactive_groups(m)
+    twin_inactive = _productive_twin(inactive)
     filter(collect(eachindex(active))) do g
         one_number(c) = c isa Int && tags[c] === :EqualAI && tags[g] === :EqualAI
         label(state) = c -> one_number(c) ? c : (state, c)
@@ -2316,21 +2307,6 @@ function _forms_where_free(m::Union{Mechanism, AllostericMechanism},
 end
 
 """
-Extend `rxn`'s regulators with a new `CompetitiveInhibitor(name)`,
-preserving every other field (reactants, allowed catalytic
-multiplicities, shared_catalytic_site). `EnzymeReaction`'s inner
-constructor canonicalizes the regulator order.
-"""
-function _add_competitive_inhibitor(rxn::EnzymeReaction, reg_name::Symbol)
-    any(rm -> name(regulator(rm)) == reg_name, regulators(rxn)) && return rxn
-    new_regs = copy(regulators(rxn))
-    push!(new_regs, RegulatorMults(CompetitiveInhibitor(reg_name), Int[1]))
-    EnzymeReaction(copy(reactants(rxn)), new_regs,
-                   copy(allowed_catalytic_multiplicities(rxn));
-                   shared_catalytic_site = copy(shared_catalytic_site(rxn)))
-end
-
-"""
 The dead-end move's child of `m`: `groups`, `m`'s groups with the new copy's mirrors
 and the copy's group last, on reaction `rxn`; `nothing` when the new copy is redundant
 in it (`_redundant_copy_groups`). `twin` is the `_productive_twin` of `m`'s steps, the
@@ -2359,8 +2335,7 @@ end
 
 """
     _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism},
-                                   rxn::EnzymeReaction; exclude_regs) →
-        Vector{typeof(m)}
+                                   rxn::EnzymeReaction) → Vector{typeof(m)}
 
 Add a dead-end regulator binding step set. For each `CompetitiveInhibitor`
 declared in `rxn` but not yet bound by `m`'s steps, enumerate inhibitor
@@ -2385,47 +2360,23 @@ inside `_dead_end_child`, before the child is built; an allosteric child is buil
 tested directly. Ligands of an allosteric mechanism's regulatory sites are not eligible:
 they belong on a regulatory site.
 
-The caller must pass the declared `rxn` because `m.reaction` only
-carries regulators already bound by its steps; not-yet-bound regulators
-live exclusively in the declared reaction. The new `Mechanism`'s
-reaction is `rxn` extended with the newly-bound regulator (preserving
-the substrate / product / multiplicity payload).
+The caller must pass the declared `rxn`: its regulators, not those of `m`'s reaction,
+decide which inhibitors are eligible. The child's reaction is `rxn` itself.
 """
-function _expand_add_dead_end_regulator(
-    m::Union{Mechanism, AllostericMechanism}, rxn::EnzymeReaction;
-    exclude_regs::Set{Symbol}=Set{Symbol}(),
-)
-    isempty(regulators(rxn)) && return typeof(m)[]
-    additional_excluded = m isa AllostericMechanism ?
-        Set(name(l) for site in regulatory_sites(m) for l in ligands(site)) :
-        Set{Symbol}()
-
+function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism},
+                                        rxn::EnzymeReaction)
     sub_names = Set(name(s) for s in substrates(rxn))
     prod_names = Set(name(p) for p in products(rxn))
-
-    existing_regs = Set{Symbol}()
-    for group in steps(m), s in group, bm in consumed(s)
-        bm isa Regulator && push!(existing_regs, name(bm))
-    end
-
-    eligible_regs = Symbol[]
-    for rm in regulators(rxn)
-        reg = regulator(rm)
-        reg isa CompetitiveInhibitor || continue
-        name(reg) in existing_regs && continue
-        name(reg) in additional_excluded && continue
-        name(reg) in exclude_regs && continue
-        push!(eligible_regs, name(reg))
-    end
-    sort!(eligible_regs)
+    bound_regs = Set{Symbol}(name(bm) for group in steps(m) for s in group
+                             for bm in consumed(s) if bm isa Regulator)
+    excluded = union(bound_regs, _bound_allo_regs(m))
+    eligible_regs = [name(regulator(rm)) for rm in regulators(rxn)
+                     if regulator(rm) isa CompetitiveInhibitor &&
+                        name(regulator(rm)) ∉ excluded]
     isempty(eligible_regs) && return typeof(m)[]
 
-    form_sp = Dict{Symbol, Species}()
-    for group in steps(m), s in group
-        form_sp[name(from_species(s))] = from_species(s)
-        form_sp[name(to_species(s))] = to_species(s)
-    end
-    cat_forms = Set(keys(form_sp))
+    form_sp = Dict(name(sp) => sp for group in steps(m) for s in group
+                   for sp in (from_species(s), to_species(s)))
     # Per form, the names bound productively and the names bound as competitive
     # inhibitors: a reactant's copy sits at a dead-end site, not at its reactant's.
     productive = Dict(f => Set(name(b) for b in bound(sp) if b isa Reactant)
@@ -2433,93 +2384,45 @@ function _expand_add_dead_end_regulator(
     inhibiting = Dict(f => Set(name(b) for b in bound(sp) if b isa CompetitiveInhibitor)
                       for (f, sp) in form_sp)
 
+    # The sites of each competition pattern, sorted, once each in pattern order.
+    placements = Vector{Symbol}[]
+    for (comp_subs, comp_prods, comp_inhibitors) in
+            _inhibitor_competition_patterns(sub_names, prod_names, collect(bound_regs))
+        comp_reactants = union(comp_subs, comp_prods)
+        target_forms = Set{Symbol}()
+        for met in comp_reactants
+            union!(target_forms, _forms_where_free(m, Reactant, met))
+        end
+        for inh in comp_inhibitors
+            union!(target_forms, _forms_where_free(m, CompetitiveInhibitor, inh))
+        end
+        push!(placements, [f for f in sort!(collect(target_forms))
+                           if !issubset(sub_names, productive[f]) &&
+                              !issubset(prod_names, productive[f]) &&
+                              isempty(intersect(productive[f], comp_reactants)) &&
+                              isempty(intersect(inhibiting[f], comp_inhibitors))])
+    end
+    unique!(filter!(!isempty, placements))
+
     results = typeof(m)[]
-
     twin = _productive_twin(steps(m))
-
-    for reg_name in eligible_regs
-        eligible_forms = Symbol[]
-        for f in sort(collect(cat_forms))
-            fb = productive[f]
-            (intersect(fb, sub_names) == sub_names ||
-                intersect(fb, prod_names) == prod_names) && continue
-            push!(eligible_forms, f)
-        end
-        isempty(eligible_forms) && continue
-
-        existing_inhibitors = Symbol[]
-        for group in steps(m), s in group, bm in consumed(s)
-            bm isa Regulator || continue
-            name(bm) == reg_name && continue
-            push!(existing_inhibitors, name(bm))
-        end
-        sort!(unique!(existing_inhibitors))
-
-        inh_patterns = _inhibitor_competition_patterns(
-            sub_names, prod_names, existing_inhibitors)
-        seen = Set{Vector{Symbol}}()
-
-        for (comp_subs, comp_prods, comp_inhibitors) in inh_patterns
-            comp_reactants = union(comp_subs, comp_prods)
-            target_forms = Set{Symbol}()
-            for met in comp_reactants
-                union!(target_forms, _forms_where_free(m, Reactant, met))
-            end
-            for inh in comp_inhibitors
-                union!(target_forms, _forms_where_free(m, CompetitiveInhibitor, inh))
-            end
-
-            active = Symbol[]
-            for f in sort(collect(target_forms))
-                f in eligible_forms || continue
-                isempty(intersect(productive[f], comp_reactants)) || continue
-                isempty(intersect(inhibiting[f], comp_inhibitors)) || continue
-                push!(active, f)
-            end
-            isempty(active) && continue
-            active in seen && continue
-            push!(seen, active)
-
-            de_species_map = Dict{Symbol, Species}()
-            reg_group_steps = Step[]
-            for cf in active
-                base = form_sp[cf]
-                # The complex the copy forms at `base`, in its conformation and residual.
-                de_species = Species(
-                    Metabolite[bound(base)..., CompetitiveInhibitor(reg_name)],
-                    conformation(base), residual(base))
-                de_species_map[cf] = de_species
-                push!(reg_group_steps, Step(
-                    base, de_species,
-                    Metabolite[CompetitiveInhibitor(reg_name)], Metabolite[], true))
-            end
-
-            mirror_per_group = Dict{Int, Vector{Step}}()
-            for (gi, group) in enumerate(steps(m))
-                for s in group
-                    fn = name(from_species(s))
-                    tn = name(to_species(s))
-                    haskey(de_species_map, fn) || continue
-                    haskey(de_species_map, tn) || continue
-                    push!(get!(mirror_per_group, gi, Step[]),
-                        Step(de_species_map[fn], de_species_map[tn],
-                             consumed(s), released(s), is_equilibrium(s)))
-                end
-            end
-
-            new_groups = Vector{Vector{Step}}()
-            for (gi, group) in enumerate(steps(m))
-                extended = copy(group)
-                haskey(mirror_per_group, gi) &&
-                    append!(extended, mirror_per_group[gi])
-                push!(new_groups, extended)
-            end
-            push!(new_groups, reg_group_steps)
-
-            child = _dead_end_child(m, new_groups,
-                                    _add_competitive_inhibitor(rxn, reg_name), twin)
-            child === nothing || push!(results, child)
-        end
+    for reg_name in eligible_regs, active in placements
+        inhibitor = CompetitiveInhibitor(reg_name)
+        # The complex the copy forms at each site, in the site's conformation and residual.
+        complex = Dict(f => Species(Metabolite[bound(form_sp[f])..., inhibitor],
+                                    conformation(form_sp[f]), residual(form_sp[f]))
+                       for f in active)
+        mirrored(s) = haskey(complex, name(from_species(s))) &&
+                      haskey(complex, name(to_species(s)))
+        groups = [Step[group; [Step(complex[name(from_species(s))],
+                                    complex[name(to_species(s))],
+                                    consumed(s), released(s), is_equilibrium(s))
+                               for s in group if mirrored(s)]]
+                  for group in steps(m)]
+        push!(groups, [Step(form_sp[f], complex[f], Metabolite[inhibitor], Metabolite[],
+                            true) for f in active])
+        child = _dead_end_child(m, groups, rxn, twin)
+        child === nothing || push!(results, child)
     end
     results
 end

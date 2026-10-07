@@ -930,12 +930,8 @@ mass, and leaving it in place would strand the free-enzyme spanning tree
 (`D[g_free] = 0`).
 """
 function _reachable_from_free(groups)
-    forms = Species[]
-    for grp in groups, s in grp
-        from_species(s) in forms || push!(forms, from_species(s))
-        to_species(s)   in forms || push!(forms, to_species(s))
-    end
-    reach = Set{Symbol}(name(f) for f in forms
+    reach = Set{Symbol}(name(f) for grp in groups for s in grp
+                        for f in (from_species(s), to_species(s))
                         if isempty(bound(f)) && isempty(residual(f)))
     changed = true
     while changed
@@ -953,8 +949,26 @@ function _reachable_from_free(groups)
 end
 
 """
+The inactive conformation's step graph of `am`, aligned with `steps(am)`: an `:OnlyA`
+group is empty, and every other group keeps the steps whose two forms are reachable
+from the free enzyme over the non-`:OnlyA` groups (`_reachable_from_free`). The
+derivation (`_state_allo_mechanism`) and the copy rule (`_redundant_copy_groups`) read
+the inactive state from it.
+"""
+function _inactive_groups(am::AllostericMechanism)
+    tags = cat_allo_states(am)
+    reach = _reachable_from_free(
+        [group for (g, group) in enumerate(steps(am)) if tags[g] !== :OnlyA])
+    [tags[g] === :OnlyA ? Step[] :
+     Step[s for s in group if name(from_species(s)) in reach &&
+                              name(to_species(s)) in reach]
+     for (g, group) in enumerate(steps(am))]
+end
+
+"""
 The `AllostericMechanism` for `am` in conformational `state`: `am` itself for
-`:A`; for `:I`, a fresh `AllostericMechanism` with `:OnlyA` catalytic groups
+`:A`; for `:I`, a fresh `AllostericMechanism` from the nonempty groups of
+`_inactive_groups(am)`, with `:OnlyA` catalytic groups
 dropped AND every enzyme form disconnected from free E by that drop pruned at
 the step level. After removing the `:OnlyA` groups, a form is kept iff it lies
 in the connected component of the free-enzyme root — a form carrying neither a
@@ -977,23 +991,9 @@ constructor canonicalizes `cat_steps` and applies the SAME permutation to
 """
 function _state_allo_mechanism(am::AllostericMechanism, state::Symbol)
     state === :I || return am
-    keepG = [g for g in eachindex(steps(am)) if cat_allo_state(am, g) !== :OnlyA]
-    groups = steps(am)[keepG]
-    states = cat_allo_states(am)[keepG]
-    all_forms = Set{Symbol}()
-    for grp in groups, s in grp
-        push!(all_forms, name(from_species(s)), name(to_species(s)))
-    end
-    stranded = setdiff(all_forms, _reachable_from_free(groups))
-    kg = Vector{Step}[]
-    ks = Symbol[]
-    for (grp, st) in zip(groups, states)
-        kept = [s for s in grp
-                if name(from_species(s)) ∉ stranded &&
-                   name(to_species(s)) ∉ stranded]
-        isempty(kept) || (push!(kg, kept); push!(ks, st))
-    end
-    AllostericMechanism(reaction(am), kg, ks,
+    groups = _inactive_groups(am)
+    keep = findall(!isempty, groups)
+    AllostericMechanism(reaction(am), groups[keep], cat_allo_states(am)[keep],
                         catalytic_multiplicity(am), regulatory_sites(am))
 end
 
