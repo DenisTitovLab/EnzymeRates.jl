@@ -102,6 +102,8 @@ function _parse_reaction_block(block)
         error("@enzyme_reaction: `substrates:` not specified.")
     any(r -> r[1] === :Product, reactants) ||
         error("@enzyme_reaction: `products:` not specified.")
+    # The constructor's name sort keeps ties in input order: list substrates first.
+    sort!(reactants; by = r -> r[1] === :Product)
     catalytic_mults = something(mults, [1])
     regs = [(t, n, something(ms, catalytic_mults), rt) for (t, n, ms, rt) in regs]
     (; reactants, regs, mults = catalytic_mults, shared)
@@ -478,9 +480,9 @@ end
 
 """
 Parse a labeled-line, returning `(label, values_vector)`. `values_vector` is the
-list of args after the label, in source order. Each value is either a bare
-Symbol or an `Expr(:(::), name, tag)` (for tagged lists, allosteric only).
-Handles both Julia parse shapes:
+list of args after the label, in source order. Values are returned as parsed
+(bare Symbols, `name::Tag`, `Sym[atoms]`, `begin ... end` blocks, literals, ...);
+each caller checks the shape it expects. Handles both Julia parse shapes:
   - `Expr(:call, :(:), label, value)` — single labeled value.
   - `Expr(:tuple, Expr(:call, :(:), label, first), rest...)` — multi-element labeled.
 """

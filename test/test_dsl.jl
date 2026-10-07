@@ -110,7 +110,7 @@
         @test sum(length, EnzymeRates.steps(EnzymeRates.Mechanism(m_res))) == 6
 
         # Reject atom bracket syntax in substrates:
-        @test_throws Exception eval(:(@enzyme_mechanism begin
+        @test_throws "expects bare names" eval(:(@enzyme_mechanism begin
             substrates: S[C]
             products:   P
             steps: begin
@@ -121,7 +121,7 @@
         end))
 
         # Reject allosteric-only syntax (regulatory_site(...))
-        @test_throws Exception eval(:(@enzyme_mechanism begin
+        @test_throws "belong in @allosteric_mechanism" eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             regulatory_site(multiplicity = 2): begin
@@ -199,6 +199,20 @@
         @test EnzymeRates.reactants(spec)[2] == EnzymeRates.ReactantAtoms(
             EnzymeRates.Substrate(:S), [:C => 1])
         @test EnzymeRates.regulators(spec) == EnzymeRates.RegulatorMults[]
+    end
+
+    @testset "@enzyme_reaction lists substrates before products" begin
+        # A substrate and a product may share a name; the constructor's name sort keeps
+        # ties in input order, so label order must not decide it.
+        products_first = @enzyme_reaction begin
+            products:   S[C]
+            substrates: S[C]
+        end
+        substrates_first = @enzyme_reaction begin
+            substrates: S[C]
+            products:   S[C]
+        end
+        @test products_first == substrates_first
     end
 
     @testset "multi-atom metabolites" begin
