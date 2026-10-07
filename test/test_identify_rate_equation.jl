@@ -491,56 +491,56 @@ end
 @testset "_select_count!: thresholds, floor, best loss, parsimony" begin
     # One call at count 5 with a fresh floor budget: `best` is the count's best loss
     # over the whole search, and `others` holds the best losses of other counts.
-    select(losses, best; rel, add = 0.0, width = 1, others = Dict{Int,Float64}(),
-           parsimony = 1.0) =
+    selected(losses, best; rel, add = 0.0, width = 1, others = Dict{Int,Float64}(),
+             parsimony = 1.0) =
         EnzymeRates._select_count!(Dict{Int,Int}(), merge(Dict(5 => best), others), 5,
             losses; loss_rel_threshold = rel, loss_abs_threshold = add,
             loss_parsimony_threshold = parsimony, min_beam_width = width)
 
     losses = [1.0, 1.5, 2.5, 5.0, 10.0]
-    @test select(losses, 1.0; rel = 2.0) == [1, 2]
-    @test select(losses, 1.0; rel = 2.0, width = 4) == [1, 2, 3, 4]
+    @test selected(losses, 1.0; rel = 2.0) == [1, 2]
+    @test selected(losses, 1.0; rel = 2.0, width = 4) == [1, 2, 3, 4]
 
     # The additive term keeps a near-zero best loss from collapsing the cutoff.
-    @test select([1e-6, 0.005, 0.05], 1e-6; rel = 2.0, add = 0.01) == [1, 2]
+    @test selected([1e-6, 0.005, 0.05], 1e-6; rel = 2.0, add = 0.01) == [1, 2]
 
     # Non-finite losses are excluded, even within the floor.
-    @test isempty(select([Inf, Inf, Inf], Inf; rel = 2.0, add = 0.01, width = 5))
-    @test select([1.0, NaN, 2.0], 1.0; rel = 2.5) == [1, 3]
+    @test isempty(selected([Inf, Inf, Inf], Inf; rel = 2.0, add = 0.01, width = 5))
+    @test selected([1.0, NaN, 2.0], 1.0; rel = 2.5) == [1, 3]
 
     # Indices come back in INPUT order, not loss order.
-    @test select([5.0, 1.0, 10.0, 2.0], 1.0; rel = 2.5) == [2, 4]
+    @test selected([5.0, 1.0, 10.0, 2.0], 1.0; rel = 2.5) == [2, 4]
 
     # The relative cutoff uses the count's best loss, which can differ from this
     # sweep's minimum.
     losses = [1.0, 1.5, 3.0]
-    @test select(losses, 1.0; rel = 1.2) == [1]         # cutoff 1.2
-    @test select(losses, 2.0; rel = 1.2) == [1, 2]      # cutoff 2.4
-    @test select(losses, 0.0; rel = 1.0, width = 2) == [1, 2]   # floor still honored
+    @test selected(losses, 1.0; rel = 1.2) == [1]         # cutoff 1.2
+    @test selected(losses, 2.0; rel = 1.2) == [1, 2]      # cutoff 2.4
+    @test selected(losses, 0.0; rel = 1.0, width = 2) == [1, 2]   # floor still honored
 
     # Floor guarantee: a parsimony cutoff below every loss admits nothing via
     # the loss filter, yet min_beam_width still keeps the top-k by loss.
     losses = [1.0, 1.5, 2.5, 5.0, 10.0]
-    @test select(losses, 1.0; rel = 2.0, width = 2, others = Dict(4 => 0.5)) == [1, 2]
+    @test selected(losses, 1.0; rel = 2.0, width = 2, others = Dict(4 => 0.5)) == [1, 2]
 
     # Tightening: a parsimony cutoff stricter than the rel/abs cutoff lowers the
     # combined cutoff to 2.0, so indices 1 and 2 (losses 1.0, 1.5) pass and
     # index 3 (2.5) is dropped. Without it, rel=10 would admit all four.
     losses = [1.0, 1.5, 2.5, 5.0]
-    @test select(losses, 1.0; rel = 10.0, others = Dict(4 => 2.0)) == [1, 2]
+    @test selected(losses, 1.0; rel = 10.0, others = Dict(4 => 2.0)) == [1, 2]
 
     # No-op: with no smaller count fit yet the parsimony term is dropped, whatever its
     # threshold, and a larger count is no parsimony reference.
-    @test select(losses, 1.0; rel = 2.0, parsimony = 0.0) ==
-          select(losses, 1.0; rel = 2.0, parsimony = Inf) == [1, 2]
-    @test select(losses, 1.0; rel = 2.0, others = Dict(6 => 0.1)) == [1, 2]
+    @test selected(losses, 1.0; rel = 2.0, parsimony = 0.0) ==
+          selected(losses, 1.0; rel = 2.0, parsimony = Inf) == [1, 2]
+    @test selected(losses, 1.0; rel = 2.0, others = Dict(6 => 0.1)) == [1, 2]
 
     # Interaction: min() picks the smaller cutoff. With best loss 2.0 the
     # rel cutoff is 2.4 (admits 1,2); a tighter parsimony cutoff of 1.0 lowers
     # it to just the single best.
     losses = [1.0, 1.5, 3.0]
-    @test select(losses, 2.0; rel = 1.2) == [1, 2]
-    @test select(losses, 2.0; rel = 1.2, others = Dict(4 => 1.0)) == [1]
+    @test selected(losses, 2.0; rel = 1.2) == [1, 2]
+    @test selected(losses, 2.0; rel = 1.2, others = Dict(4 => 1.0)) == [1]
 end
 
 @testset "all base fits fail: failure CSV written, then raises" begin
@@ -721,17 +721,18 @@ end
 @testset "§1 parsimony cutoff = threshold * min over all counts < c" begin
     # No floor and a loose relative cutoff (10 × the count's best), so the parsimony
     # cutoff alone decides: 1.01 × the best loss over the counts below c.
-    select(best_loss_by_count, c, losses) = EnzymeRates._select_count!(
+    selected(best_loss_by_count, c, losses) = EnzymeRates._select_count!(
         Dict{Int,Int}(), best_loss_by_count, c, losses; loss_rel_threshold=10.0,
         loss_abs_threshold=0.0, loss_parsimony_threshold=1.01, min_beam_width=0)
     # No count < c: no parsimony term (else 0.15 > 1.01*0.02 would be dropped).
-    @test select(Dict(5=>0.02), 5, [0.02, 0.15]) == [1, 2]
+    @test selected(Dict(5=>0.02), 5, [0.02, 0.15]) == [1, 2]
     # min over <c, not c-1: the cutoff is 1.01*0.02, not 1.01*0.03.
-    @test select(Dict(5=>0.02, 6=>0.05, 7=>0.03, 8=>0.02), 8, [0.0201, 0.0203, 0.03]) == [1]
+    @test selected(Dict(5=>0.02, 6=>0.05, 7=>0.03, 8=>0.02), 8,
+                   [0.0201, 0.0203, 0.03]) == [1]
     # count gap: c-1=6 absent, the cutoff is 1.01*0.02.
-    @test select(Dict(5=>0.02, 7=>0.02), 7, [0.0201, 0.0203]) == [1]
+    @test selected(Dict(5=>0.02, 7=>0.02), 7, [0.0201, 0.0203]) == [1]
     # non-monotone → true min: the cutoff is 1.01*0.01, not 1.01*0.04.
-    @test select(Dict(5=>0.01, 6=>0.04, 7=>0.01), 7, [0.0100, 0.0102]) == [1]
+    @test selected(Dict(5=>0.01, 6=>0.04, 7=>0.01), 7, [0.0100, 0.0102]) == [1]
 end
 
 @testset "_progress" begin
