@@ -238,67 +238,6 @@ end
 # ─── Dead-End Helpers ────────────────────────────────────────
 
 """
-    _substrate_product_dead_end_opportunities(
-        form_sp, bound, cat_forms, sub_names, prod_names,
-        add_metabolite)
-
-Find (form, metabolite) dead-end opportunities for
-substrates and products. `form_sp` maps each catalytic
-form name to its `Species`; `add_metabolite(species, met)`
-returns the `Species` with `met` added to its bound list,
-used to render the candidate dead-end form name. A dead-end
-is valid when:
-- The form doesn't already bind all substrates or all
-  products
-- The metabolite isn't already bound at the form
-- The resulting form isn't a catalytic form
-- The result binds at least one substrate AND at least
-  one product (mixed binding required)
-- The result doesn't have all substrates or all products
-"""
-function _substrate_product_dead_end_opportunities(
-    form_sp::Dict{Symbol, Species},
-    bound::Dict{Symbol, Set{Symbol}},
-    cat_forms::Set{Symbol},
-    sub_names::Set{Symbol},
-    prod_names::Set{Symbol},
-    add_metabolite,
-)
-    all_mets = union(sub_names, prod_names)
-    opportunities = Tuple{Symbol, Symbol}[]
-    for f in sort(collect(cat_forms))
-        haskey(bound, f) || continue
-        fb = bound[f]
-        fb_subs = intersect(fb, sub_names)
-        fb_prods = intersect(fb, prod_names)
-        # Eligible: neither all subs nor all prods
-        (fb_subs == sub_names ||
-            fb_prods == prod_names) && continue
-        for m in sort(collect(all_mets))
-            m in fb && continue
-            de_name = name(add_metabolite(form_sp[f], m))
-            de_name in cat_forms && continue
-            new_bound = union(fb, Set([m]))
-            new_subs = intersect(
-                new_bound, sub_names)
-            new_prods = intersect(
-                new_bound, prod_names)
-            # Must bind at least one of each type
-            if isempty(new_subs) || isempty(new_prods)
-                continue
-            end
-            # Must not bind all of either type
-            if new_subs == sub_names ||
-                    new_prods == prod_names
-                continue
-            end
-            push!(opportunities, (f, m))
-        end
-    end
-    opportunities
-end
-
-"""
     _competition_patterns(sub_names, prod_names)
         → Vector{Set{Tuple{Symbol,Symbol}}}
 
@@ -338,21 +277,29 @@ function _inhibitor_competition_patterns(
 end
 
 """
-    _expand_substrate_product_dead_ends(topos, reaction)
-        -> Vector{Tuple{Vector{Step}, Vector{Int}}}
+    _expand_substrate_product_dead_ends(topos, reaction) -> Vector{Vector{Step}}
 
 For each catalytic topology, enumerate substrate/product dead-end
 form combinations and return each resulting mechanism as a flat
-`Vector{Step}` paired with a parallel `Vector{Int}` of kinetic-group
-ids. A dead-end form is created when a substrate or product binds to
-a catalytic form where it doesn't normally bind, subject to:
-- The resulting form is not already a catalytic form
+`Vector{Step}`. A dead-end form is a catalytic form with one more
+substrate or product bound, subject to:
 - The resulting form binds at least one substrate AND
   at least one product (mixed binding required)
 - The resulting form doesn't have all substrates or
   all products
 - A declared `shared_catalytic_site` pair is never both bound in the
   resulting form
+Each competition pattern (`_competition_patterns`) keeps the dead-end forms that bind
+none of its (substrate, product) pairs, and each distinct set of kept forms gives one
+mechanism: the topology plus a rapid-equilibrium binding step between every two of its
+forms that differ by one bound metabolite.
+
+Two preconditions hold for the topologies of `_catalytic_topologies`: every binding is
+rapid equilibrium, and every isomerization joins a substrate-only form to a
+product-only form. The first gives a binding between two dead-end forms the flag of the
+topology binding it parallels. The second keeps every dead-end form off the catalytic
+cycle and leaves no isomerization a dead-end parallel, so bindings are the only steps
+the dead-end forms need.
 """
 function _expand_substrate_product_dead_ends(
     topos::Vector{Vector{Step}},
@@ -360,177 +307,63 @@ function _expand_substrate_product_dead_ends(
 )
     sub_names = Set(name(s) for s in substrates(reaction))
     prod_names = Set(name(p) for p in products(reaction))
-    all_mets = union(sub_names, prod_names)
-
-    # Competition patterns depend only on the reaction,
-    # not the topology — compute once.
-    patterns = _competition_patterns(
-        sub_names, prod_names)
+    mets = sort!(collect(union(sub_names, prod_names)))
 
     # A declared shared catalytic site forbids its (substrate, product) pair
     # from co-occupying the catalytic site, so keep only competition patterns
     # whose forbidden-edge set contains every declared pair. The complete
     # bipartite pattern contains all edges and always survives, so the list is
     # never empty.
-    shared = shared_catalytic_site(reaction)
-    if !isempty(shared)
-        patterns = filter(
-            pat -> all(edge -> edge in pat, shared), patterns)
-    end
+    patterns = filter(pat -> all(in(pat), shared_catalytic_site(reaction)),
+                      _competition_patterns(sub_names, prod_names))
 
-    _role(m::Symbol) = m in sub_names ? Substrate(m) : Product(m)
-    _add(sp::Species, m::Symbol) = Species(
-        Metabolite[bound(sp)..., _role(m)],
-        conformation(sp), residual(sp))
-
-    result = Tuple{Vector{Step}, Vector{Int}}[]
+    role(m::Symbol) = m in sub_names ? Substrate(m) : Product(m)
+    held(sp::Species) = Set(name(b) for b in bound(sp))
+    result = Vector{Step}[]
     for topo in topos
-        # Form name → Species and → bound-metabolite-name set.
-        form_sp = Dict{Symbol, Species}()
-        for s in topo
-            form_sp[name(from_species(s))] = from_species(s)
-            form_sp[name(to_species(s))] = to_species(s)
+        catalytic = _forms([topo])
+        dead_ends = Species[]
+        for sp in catalytic, m in mets
+            b = held(sp)
+            m in b && continue
+            push!(b, m)
+            subs, prods = intersect(b, sub_names), intersect(b, prod_names)
+            (isempty(subs) || isempty(prods) || subs == sub_names || prods == prod_names) &&
+                continue
+            push!(dead_ends, Species(Metabolite[bound(sp)..., role(m)], conformation(sp),
+                                     residual(sp)))
         end
-        boundmap = Dict{Symbol, Set{Symbol}}(
-            f => Set(name(b) for b in bound(sp))
-            for (f, sp) in form_sp)
-        cat_forms = Set(keys(form_sp))
-
-        de_opportunities =
-            _substrate_product_dead_end_opportunities(
-                form_sp, boundmap, cat_forms, sub_names,
-                prod_names, _add)
-
-        # Deduplicate: multiple catalytic forms may
-        # produce the same dead-end form. Group by
-        # dead-end form name.
-        de_forms = Dict{Symbol,
-            Vector{Tuple{Symbol, Symbol}}}()
-        for (f, m) in de_opportunities
-            de_name = name(_add(form_sp[f], m))
-            push!(get!(de_forms, de_name,
-                Tuple{Symbol, Symbol}[]), (f, m))
-        end
-        de_form_names = sort(collect(keys(de_forms)))
-
-        # Map each dead-end form to its bound metabolites
-        de_bound = Dict{Symbol, Set{Symbol}}()
-        for de_name in de_form_names
-            entries = de_forms[de_name]
-            f, m = first(entries)
-            de_bound[de_name] = union(
-                boundmap[f], Set([m]))
-        end
-
-        seen = Set{Vector{Symbol}}()
-
+        unique!(dead_ends)
+        edges = Set((from_species(s), to_species(s)) for s in topo)
+        seen = Set{Vector{Species}}()
         for pattern in patterns
-            # Filter dead-end forms by competition
-            allowed_de = Symbol[]
-            for de_name in de_form_names
-                mets = de_bound[de_name]
-                de_subs = intersect(mets, sub_names)
-                de_prods = intersect(
-                    mets, prod_names)
-                has_conflict = any(
-                    (s, p) in pattern
-                    for s in de_subs
-                    for p in de_prods)
-                has_conflict || push!(
-                    allowed_de, de_name)
+            active = filter(dead_ends) do d
+                b = held(d)
+                !any((s, p) in pattern
+                     for s in intersect(b, sub_names) for p in intersect(b, prod_names))
             end
+            active in seen && continue
+            push!(seen, active)
 
-            # Dedup by form set
-            allowed_de in seen && continue
-            push!(seen, allowed_de)
-
-            active_de = Set{Symbol}(allowed_de)
-
-            # Build new steps: original topology + dead-end.
-            # Each topology step is its own initial group
-            # (group id = source position).
-            steps = copy(topo)
-            groups = collect(1:length(topo))
-            next_g = length(topo) + 1
-
-            # Add binding steps for active dead-ends.
-            # Each binding step is an equivalence-eligible
-            # candidate, but during initialization every binding
-            # step gets its own fresh group (init_mechanisms
-            # later applies same-metabolite grouping).
-            for de_name in sort(collect(active_de))
-                for (cat_form, met) in de_forms[de_name]
-                    base = form_sp[cat_form]
-                    push!(steps, Step(
-                        base, _add(base, met), Metabolite[_role(met)], Metabolite[],
-                        true))
-                    push!(groups, next_g)
-                    next_g += 1
-                end
-            end
-
-            # Add mirror steps: for each catalytic
-            # step, if both endpoints have dead-end
-            # forms with the same metabolite, add a
-            # parallel step. Mirror inherits RE/SS
-            # AND the catalytic step's kinetic_group
-            # (the step's source position in the topology).
-            for (ci, s) in enumerate(topo)
-                from = name(from_species(s))
-                to = name(to_species(s))
-                for de_met in sort(collect(all_mets))
-                    de_met in boundmap[from] && continue
-                    de_met in boundmap[to] && continue
-                    from_de = name(_add(form_sp[from], de_met))
-                    to_de = name(_add(form_sp[to], de_met))
-                    from_de in active_de || continue
-                    to_de in active_de || continue
-                    push!(steps, Step(
-                        _add(form_sp[from], de_met),
-                        _add(form_sp[to], de_met),
-                        consumed(s), released(s), is_equilibrium(s)))
-                    push!(groups, ci)
-                end
-            end
-
-            # Fully connect the enzyme-form graph: any two present forms that
-            # are identical except for one bound metabolite must be joined by a
-            # binding step. The dead-end + mirror steps above only cover
-            # single-bystander cases; this fills multi-bystander gaps (e.g. a
-            # dead-end form adjacent to another dead-end form). Added edges are
-            # RE bindings on the differing metabolite — the equivalence grouping
+            # Fully connect the enzyme-form graph: any two forms that are identical
+            # except for one bound metabolite are joined by a binding step. This adds
+            # each dead-end form's bindings to the forms it extends, the parallels of
+            # the topology's bindings, and the bindings between two dead-end forms.
+            # Added edges are RE bindings on the differing metabolite: `_seed_groups`
             # folds them into that metabolite's kinetic group, and under rapid
-            # equilibrium the extra edge is a thermodynamically-dependent cycle
-            # that adds no free parameter. A no-op when no gaps exist (e.g.
-            # bi-bi), so already-connected mechanisms are unaffected.
-            present = Dict{Symbol, Species}()
-            have_edge = Set{Tuple{Symbol, Symbol}}()
-            for s in steps
-                fr, to = from_species(s), to_species(s)
-                present[name(fr)] = fr
-                present[name(to)] = to
-                push!(have_edge, (name(fr), name(to)))
-                push!(have_edge, (name(to), name(fr)))
+            # equilibrium an added edge closes a thermodynamically-dependent cycle
+            # that adds no free parameter.
+            forms = [catalytic; active]
+            hs = held.(forms)
+            steps = copy(topo)
+            for (i, sp1) in enumerate(forms), (j, sp2) in enumerate(forms)
+                conformation(sp1) == conformation(sp2) && residual(sp1) == residual(sp2) &&
+                    length(hs[j]) == length(hs[i]) + 1 && issubset(hs[i], hs[j]) &&
+                    !((sp1, sp2) in edges) || continue
+                met = only(setdiff(hs[j], hs[i]))
+                push!(steps, Step(sp1, sp2, Metabolite[role(met)], Metabolite[], true))
             end
-            # Sort for deterministic edge/group order (Dict value order is not
-            # guaranteed); matches the defensive sorting used when assembling
-            # topologies above.
-            forms_list = sort(collect(values(present)); by = name)
-            for sp1 in forms_list, sp2 in forms_list
-                conformation(sp1) == conformation(sp2) || continue
-                residual(sp1) == residual(sp2) || continue
-                b1 = Set(name(mb) for mb in bound(sp1))
-                b2 = Set(name(mb) for mb in bound(sp2))
-                (length(b2) == length(b1) + 1 && issubset(b1, b2)) || continue
-                (name(sp1), name(sp2)) in have_edge && continue
-                met = only(setdiff(b2, b1))
-                push!(steps, Step(sp1, sp2, Metabolite[_role(met)], Metabolite[], true))
-                push!(groups, next_g); next_g += 1
-                push!(have_edge, (name(sp1), name(sp2)))
-                push!(have_edge, (name(sp2), name(sp1)))
-            end
-
-            push!(result, (steps, groups))
+            push!(result, steps)
         end
     end
     result
@@ -2301,7 +2134,7 @@ fits more parameters than its seed, a merged ping-pong variant fewer.
 """
 function init_mechanisms(r::EnzymeReaction)
     seeds = _expand_substrate_product_dead_ends(_catalytic_topologies(r), r)
-    mechs = [Mechanism(r, _seed_groups(steps)) for (steps, _) in seeds]
+    mechs = [Mechanism(r, _seed_groups(steps)) for steps in seeds]
     foreach(_assert_atom_conserving, mechs)
     seen = Set(mechs)
     out = copy(mechs)

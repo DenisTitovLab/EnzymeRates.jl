@@ -1641,6 +1641,32 @@ end
     @test occursin("kinetic group 2 holds the reaction E_S ⇌ ES twice", err.msg)
 end
 
+@testset "two distinct forms that render one name are rejected" begin
+    # E with NAD and P bound and E with NADP bound both render :ENADP, so every
+    # constant named after one form would also name the other.
+    NAD, P, NADP = ER.Substrate(:NAD), ER.Substrate(:P), ER.Product(:NADP)
+    E, ENAD = _testhelper_sp([]), _testhelper_sp([NAD])
+    E_NAD_P, E_NADP = _testhelper_sp([NAD, P]), _testhelper_sp([NADP])
+    @test ER.name(E_NAD_P) == ER.name(E_NADP) == :ENADP
+    rxn = @enzyme_reaction(begin
+        substrates: NAD[C], P[N]
+        products: NADP[CN]
+    end)
+    err = _testhelper_thrown() do
+        ER.Mechanism(rxn, [
+            [ER.Step(E, ENAD, [NAD], ER.Metabolite[], true)],
+            [ER.Step(ENAD, E_NAD_P, [P], ER.Metabolite[], true)],
+            [ER.Step(E_NAD_P, E_NADP, ER.Metabolite[], ER.Metabolite[], false)],
+            [ER.Step(E, E_NADP, [NADP], ER.Metabolite[], true)]])
+    end
+    @test err isa ErrorException
+    @test occursin("Species(Metabolite[Substrate(:NAD), Substrate(:P)], :E, " *
+                   "Residual(Substrate[], Product[]))", err.msg)
+    @test occursin("Species(Metabolite[Product(:NADP)], :E, " *
+                   "Residual(Substrate[], Product[]))", err.msg)
+    @test occursin("both render the name ENADP", err.msg)
+end
+
 # Chokepoint guard: no `Symbol("[KkVL]...")` literal is constructed outside
 # parameter-name rendering bodies (the `name(::Parameter, m)` chokepoint).
 

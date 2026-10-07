@@ -564,7 +564,8 @@ them. First reject an empty kinetic group. Then orient every step
 first step; `perm` is that group order (a permutation of 1:length),
 which the caller applies to any data parallel to the groups. The inner sort must
 run BEFORE the outer one so each group's "first step" key reflects the canonical
-inner order. Each key is rendered once per sort. Then enforce the kinetic-group
+inner order. Each key is rendered once per sort. Then reject two distinct forms that
+render one name (`_assert_distinct_form_names`), enforce the kinetic-group
 rules (`_assert_uniform_groups`, `_assert_each_reaction_once`) and reject a
 rapid-equilibrium segment with no bottom form (`_bottomless_re_segment`). The
 returned groups are fresh vectors; the input is not mutated.
@@ -578,6 +579,7 @@ function _canonical_groups(reaction::EnzymeReaction, groups::Vector{Vector{Step}
           for g in _canonicalize_step_directions(reaction, groups)]
     perm = sortperm([_step_canonical_key(first(g)) for g in gs])
     gs = gs[perm]
+    _assert_distinct_form_names(gs)
     _assert_uniform_groups(gs)
     _assert_each_reaction_once(gs)
     segment = _bottomless_re_segment(gs)
@@ -612,6 +614,24 @@ they must take up and give off the same metabolites: two bindings of `m` share a
 kind whether or not either runs chemistry, and every isomerization is one kind.
 """
 _step_kind(s::Step) = (consumed(s), released(s))
+
+"""
+Error when two distinct enzyme forms of `steps` render the same name. A form's name
+joins its conformation and bound metabolites without a separator, so E with NAD and P
+bound and E with NADP bound are both `:ENADP`. Every constant is named after the forms
+its step joins, so the two forms would share constant names.
+"""
+function _assert_distinct_form_names(steps::Vector{Vector{Step}})
+    text(sp) = sprint(show, sp; context = :module => @__MODULE__)
+    seen = Dict{Symbol, Species}()
+    for group in steps, s in group, sp in (from_species(s), to_species(s))
+        other = get!(seen, name(sp), sp)
+        other == sp || error("Mechanism: the enzyme forms $(text(other)) and $(text(sp)) " *
+                             "both render the name $(name(sp)); every constant is named " *
+                             "after the forms its step joins, so rename a metabolite to " *
+                             "tell the two forms apart")
+    end
+end
 
 """
 Error unless the steps of every kinetic group take up and give off the same

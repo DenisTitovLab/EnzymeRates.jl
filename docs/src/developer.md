@@ -87,7 +87,10 @@ give off the same metabolites (`_step_kind`, the pair `(consumed, released)`) an
 carry one RE/SS flag (`_assert_uniform_groups`), so a fused and a plain binding
 of one metabolite may share a group and a Theorell–Chance step cannot share one
 with a binding. A reaction — the pair of a step's two sides — appears in one step
-of one group (`_assert_each_reaction_once`).
+of one group (`_assert_each_reaction_once`). No two distinct forms render one name
+(`_assert_distinct_form_names`): a form's name joins its conformation and bound
+metabolites without a separator, so E with NAD and P bound and E with NADP bound
+would both be `ENADP` and share their constants' names.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see

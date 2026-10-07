@@ -22,19 +22,10 @@ end
 _topo_mech(rxn, t::Vector{EnzymeRates.Step}) =
     EnzymeRates.Mechanism(rxn, [[s] for s in t])
 
-# Form-name set and form→bound-metabolite-name map for a flat topology
-# Step list, derived from the decomposed Species of each Step.
+# Form-name set for a flat topology Step list, derived from the decomposed
+# Species of each Step.
 _form_names(t::Vector{EnzymeRates.Step}) = Set{Symbol}(
     EnzymeRates.name(sp)
-    for s in t for sp in (EnzymeRates.from_species(s),
-                          EnzymeRates.to_species(s)))
-_boundmap(t::Vector{EnzymeRates.Step}) = Dict{Symbol, Set{Symbol}}(
-    EnzymeRates.name(sp) =>
-        Set(EnzymeRates.name(b) for b in EnzymeRates.bound(sp))
-    for s in t for sp in (EnzymeRates.from_species(s),
-                          EnzymeRates.to_species(s)))
-_form_species(t::Vector{EnzymeRates.Step}) = Dict{Symbol, EnzymeRates.Species}(
-    EnzymeRates.name(sp) => sp
     for s in t for sp in (EnzymeRates.from_species(s),
                           EnzymeRates.to_species(s)))
 
@@ -751,98 +742,6 @@ end
 end
 end
 
-# ─── _substrate_product_dead_end_opportunities ──────────────────────────
-@testset "_substrate_product_dead_end_opportunities" begin
-# Random ter-ter topology has 27 possible
-# dead-end forms. With diagonal competition
-# {A↔P, B↔Q, D↔R}:
-#   1S+1P: 6 allowed, 3 forbidden (the 3
-#     diagonal pairs A-P, B-Q, D-R)
-#   2S+1P: 3 allowed (EABR, EADQ,
-#     EBDP), 6 forbidden
-#   1S+2P: 3 allowed (EAQR, EBPR,
-#     EDPQ), 6 forbidden
-#   Total: 12 allowed out of 27
-topos = EnzymeRates._catalytic_topologies(
-    ter_ter_rxn)
-# Pick a sequential topo with most forms
-_, idx = findmax(
-    length(_form_names(t))
-    for t in topos)
-random_topo = topos[idx]
-bound = _boundmap(random_topo)
-form_sp = _form_species(random_topo)
-sub_names = Set([:A, :B, :D])
-prod_names = Set([:P, :Q, :R])
-cat_forms = _form_names(random_topo)
-_role(m) = m in sub_names ? EnzymeRates.Substrate(m) :
-                            EnzymeRates.Product(m)
-_add(sp, m) = EnzymeRates.Species(
-    EnzymeRates.Metabolite[EnzymeRates.bound(sp)..., _role(m)],
-    EnzymeRates.conformation(sp), EnzymeRates.residual(sp))
-_sp_de_opps =
-    EnzymeRates._substrate_product_dead_end_opportunities
-de_opps = _sp_de_opps(
-    form_sp, bound, cat_forms,
-    sub_names, prod_names, _add)
-# Group dead-end forms
-de_forms = Dict{Symbol,
-    Vector{Tuple{Symbol, Symbol}}}()
-for (f, m) in de_opps
-    de_name = EnzymeRates.name(_add(form_sp[f], m))
-    push!(get!(de_forms, de_name,
-        Tuple{Symbol, Symbol}[]), (f, m))
-end
-de_form_names =
-    sort(collect(keys(de_forms)))
-@test length(de_form_names) == 27
-
-# Build de_bound mapping
-de_bound = Dict{Symbol, Set{Symbol}}()
-for de_name in de_form_names
-    f, m = first(de_forms[de_name])
-    de_bound[de_name] = union(
-        bound[f], Set([m]))
-end
-
-# Apply diagonal competition filter
-diagonal =
-    Set([(:A, :P), (:B, :Q), (:D, :R)])
-allowed = Symbol[]
-for de_name in de_form_names
-    mets = de_bound[de_name]
-    de_subs = intersect(mets, sub_names)
-    de_prods =
-        intersect(mets, prod_names)
-    has_conflict = any(
-        (s, p) in diagonal
-        for s in de_subs
-        for p in de_prods)
-    has_conflict ||
-        push!(allowed, de_name)
-end
-@test length(allowed) == 12
-
-# Verify specific allowed forms
-@test :EAQ in allowed   # 1S+1P
-@test :EAR in allowed
-@test :EBP in allowed
-@test :EBR in allowed
-@test :EDP in allowed
-@test :EDQ in allowed
-@test :EABR in allowed # 2S+1P
-@test :EADQ in allowed
-@test :EBDP in allowed
-@test :EAQR in allowed # 1S+2P
-@test :EBPR in allowed
-@test :EDPQ in allowed
-
-# Verify specific forbidden forms
-@test :EAP ∉ allowed    # A↔P diagonal
-@test :EBQ ∉ allowed    # B↔Q diagonal
-@test :EDR ∉ allowed    # D↔R diagonal
-end
-
 # ─── _expand_substrate_product_dead_ends ────────────────────────────────
 @testset "_expand_substrate_product_dead_ends" begin
 @testset "_expand_substrate_product_dead_ends" begin
@@ -865,7 +764,7 @@ end
         EnzymeRates._expand_substrate_product_dead_ends(
             [topo],uni_uni_rxn)
     @test all(isempty(_connectivity_violations(steps))
-              for (steps, _groups) in result)
+              for steps in result)
     @test length(result) == 1
 end
 
@@ -905,7 +804,7 @@ end
         EnzymeRates._expand_substrate_product_dead_ends(
             [topo],bi_bi_rxn)
     @test all(isempty(_connectivity_violations(steps))
-              for (steps, _groups) in result)
+              for steps in result)
     # 4 unique dead-end forms, 7 competition patterns,
     # all 7 produce distinct dead-end sets → 7 variants
     @test length(result) == 7
@@ -913,7 +812,7 @@ end
     # Each variant adds exactly the dead-end forms whose (substrate, product)
     # pair its competition pattern leaves unforbidden.
     seed_forms = _form_names(topo)
-    @test Set(setdiff(_form_names(r[1]), seed_forms) for r in result) == Set([
+    @test Set(setdiff(_form_names(r), seed_forms) for r in result) == Set([
         Set([:EAQ, :EBP]),     # forbids A↔P, B↔Q
         Set([:EAP, :EBQ]),     # forbids A↔Q, B↔P
         Set([:EBQ]),           # forbids all but B↔Q
@@ -944,7 +843,7 @@ end
         EnzymeRates._expand_substrate_product_dead_ends(
             [topo],uni_bi_rxn)
     @test all(isempty(_connectivity_violations(steps))
-              for (steps, _groups) in result)
+              for steps in result)
     @test length(result) == 1
 end
 
@@ -972,7 +871,7 @@ end
         EnzymeRates._expand_substrate_product_dead_ends(
             [topo],bi_bi_pp_rxn)
     @test all(isempty(_connectivity_violations(steps))
-              for (steps, _groups) in result)
+              for steps in result)
     # 6 dead-end forms (E_A_P, E_A_Q, E_B_Q from
     # E-side + Estar_A_P, Estar_B_P, Estar_B_Q from
     # Estar-side), competition-filtered
@@ -981,7 +880,7 @@ end
     # Each variant adds exactly the dead-end forms whose (substrate, product)
     # pair its competition pattern leaves unforbidden.
     seed_forms = _form_names(topo)
-    @test Set(setdiff(_form_names(r[1]), seed_forms) for r in result) == Set([
+    @test Set(setdiff(_form_names(r), seed_forms) for r in result) == Set([
         Set([:EAQ, :EstarBP]),                  # forbids A↔P, B↔Q
         Set([:EAP, :EBQ, :EstarAP, :EstarBQ]),  # forbids A↔Q, B↔P
         Set([:EBQ, :EstarBQ]),                  # forbids all but B↔Q
@@ -996,7 +895,7 @@ end
     # conformation).
     new_estar_forms = Set{Symbol}()
     for r in result
-        new_forms = setdiff(_form_names(r[1]), seed_forms)
+        new_forms = setdiff(_form_names(r), seed_forms)
         for f in new_forms
             startswith(string(f), "Estar") && string(f) != "Estar" &&
                 push!(new_estar_forms, f)
@@ -1017,12 +916,27 @@ end
             EnzymeRates._expand_substrate_product_dead_ends(
                 [topo], ter_ter_rxn)
         @test all(isempty(_connectivity_violations(steps))
-                  for (steps, _groups) in result)
+                  for steps in result)
         # Competition patterns reduce 2^27 to
         # ≤265 variants per topology
         @test length(result) > 0
         @test length(result) <= 265
     end
+end
+
+@testset "Ter-ter random: 27 dead-end forms, 12 on the diagonal pattern" begin
+    # The random ter-ter topology (the one with most forms) has 27 dead-end forms.
+    # The diagonal competition pattern {A↔P, B↔Q, D↔R} keeps 12 of them:
+    #   1S+1P: 6 (the diagonal pairs A-P, B-Q, D-R are forbidden)
+    #   2S+1P: 3 (EABR, EADQ, EBDP)
+    #   1S+2P: 3 (EAQR, EBPR, EDPQ)
+    topos = EnzymeRates._catalytic_topologies(ter_ter_rxn)
+    _, idx = findmax(length(_form_names(t)) for t in topos)
+    result = EnzymeRates._expand_substrate_product_dead_ends([topos[idx]], ter_ter_rxn)
+    added = [setdiff(_form_names(steps), _form_names(topos[idx])) for steps in result]
+    @test length(union(added...)) == 27
+    @test Set([:EAQ, :EAR, :EBP, :EBR, :EDP, :EDQ, :EABR, :EADQ, :EBDP, :EAQR, :EBPR,
+               :EDPQ]) in added
 end
 
 end
