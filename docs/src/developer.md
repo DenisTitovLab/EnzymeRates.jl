@@ -151,8 +151,8 @@ step in a group of its own. Every step of a base starts at rapid equilibrium. Th
 variants are the inclusion-minimal sets of the base's flux-carrying groups
 (`_minimal_flips`) whose flip to steady state leaves no rapid-equilibrium
 turnover cycle (`_re_turnover_cycle`: each RE step weighted by its uptake of
-substrates minus products, a turnover cycle being an unbalanced block), keeps a
-maximal rate both ways (`_has_vmax`, condition V), keeps chemistry out of
+substrates minus products, a turnover cycle being a cycle of nonzero weight),
+keeps a maximal rate both ways (`_has_vmax`, condition V), keeps chemistry out of
 equilibrium with both sides (`_chemistry_equilibrates_both_sides`, condition C),
 leaves no bottomless segment and keeps every steady-state group flux-carrying.
 `_seed_candidate_screen` runs the first three tests on index arrays with a

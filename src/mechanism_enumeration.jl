@@ -1548,22 +1548,45 @@ function _eliminate_form(groups::Vector{Vector{Step}}, x::Species)
     push!(filter!(!isempty, kept), [fused])
 end
 
+"""Whether the steps `k` with `on[k]` close a cycle of nonzero weight, step `k` joining
+forms `from[k]` and `to[k]` with weight `weight[k]`: giving every form a potential that
+rises by each step's weight along it then fails somewhere, which a weighted union-find in
+the buffers `parent` and `offset` (one entry per form) detects."""
+function _has_unbalanced_cycle(from, to, weight, on, parent, offset)
+    parent .= eachindex(parent); fill!(offset, 0)
+    function root(x)
+        p = 0
+        while parent[x] != x
+            p += offset[x]; x = parent[x]
+        end
+        x, p
+    end
+    for k in eachindex(from)
+        on[k] || continue
+        ra, pa = root(from[k]); rb, pb = root(to[k])
+        if ra == rb
+            pb == pa + weight[k] || return true
+        else
+            parent[rb] = ra; offset[rb] = pa + weight[k] - pb
+        end
+    end
+    false
+end
+
 """Whether a cycle of rapid-equilibrium steps of `groups` runs net turnover, which makes the
-rate infinite. Each RE step is an edge between its two forms weighted by its uptake of the
-reaction's substrates minus its products (`_uptake_weight`); a turnover cycle has weight
-n·Σρ², never zero, and a block of the RE graph holds one iff it is unbalanced
-(`_unbalanced_blocks`)."""
+rate infinite. Each RE step joins its two forms with its uptake of the reaction's
+substrates minus its products as weight (`_uptake_weight`); a turnover cycle has weight
+n·Σρ², never zero, so the RE steps hold one iff they close a cycle of nonzero weight
+(`_has_unbalanced_cycle`)."""
 function _re_turnover_cycle(groups::Vector{Vector{Step}}, rxn::EnzymeReaction)
     rho = _reactant_signs(rxn)
+    re = [s for group in groups for s in group if is_equilibrium(s)]
     idx = Dict{Species, Int}()
     vertex(sp) = get!(idx, sp, length(idx) + 1)
-    edges = Tuple{Int, Int}[]; weights = Int[]
-    for group in groups, s in group
-        is_equilibrium(s) || continue
-        push!(edges, (vertex(from_species(s)), vertex(to_species(s))))
-        push!(weights, _uptake_weight(s, rho))
-    end
-    !isempty(last(_unbalanced_blocks(length(idx), edges, weights)))
+    ends = [(vertex(from_species(s)), vertex(to_species(s))) for s in re]
+    n = length(idx)
+    _has_unbalanced_cycle(first.(ends), last.(ends), [_uptake_weight(s, rho) for s in re],
+                          trues(length(re)), zeros(Int, n), zeros(Int, n))
 end
 
 """Whether the rate has a maximum as the metabolites of `side` (`Substrate` or `Product`)
@@ -1640,11 +1663,10 @@ chemistry in equilibrium with both sides (`_chemistry_equilibrates_both_sides`).
 and each step's ends, uptake weight and reactants are indexed once per base, so a
 candidate costs a few passes over arrays. A base holds no isomerization, so each chemistry
 node is a merged complex or a Theorell–Chance step. A set of steps holds a turnover cycle
-iff giving every form a potential that rises by each step's weight along it fails
-somewhere: a cycle of nonzero weight is exactly a conflict, found here by a weighted
-union-find. Each maximal-rate test runs on the candidate's rapid-equilibrium steps and
-more, and adding steps never removes a conflict, so a turnover cycle of the candidate
-fails both tests.
+iff it closes a cycle of nonzero weight (`_has_unbalanced_cycle`), which reuses the
+screen's buffers. Each maximal-rate test runs on the candidate's rapid-equilibrium steps
+and more, and adding steps never removes such a cycle, so a turnover cycle of the
+candidate fails both tests.
 """
 function _seed_candidate_screen(groups::Vector{Vector{Step}}, rxn::EnzymeReaction)
     flat = [s for group in groups for s in group]
@@ -1670,26 +1692,7 @@ function _seed_candidate_screen(groups::Vector{Vector{Step}}, rxn::EnzymeReactio
                                   for k in eachindex(flat)])
     exits = [(leaves(x, subs), leaves(x, prods)) for x in complexes]
     parent = zeros(Int, length(index)); offset = zeros(Int, length(index))
-    function root(x)
-        p = 0
-        while parent[x] != x
-            p += offset[x]; x = parent[x]
-        end
-        x, p
-    end
-    function turnover(on::BitVector)
-        parent .= eachindex(parent); fill!(offset, 0)
-        for k in eachindex(flat)
-            on[k] || continue
-            ra, pa = root(from[k]); rb, pb = root(to[k])
-            if ra == rb
-                pb == pa + weight[k] || return true
-            else
-                parent[rb] = ra; offset[rb] = pa + weight[k] - pb
-            end
-        end
-        false
-    end
+    turnover(on) = _has_unbalanced_cycle(from, to, weight, on, parent, offset)
     meets(a::BitVector, b::BitVector) = any(k -> a[k] && b[k], eachindex(a))
     re = falses(length(flat)); kept = falses(length(flat))
     function screen(gs::Vector{Vector{Step}})
