@@ -146,7 +146,8 @@ The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
 | `cv_fold_<group>` | Per-fold test loss for held-out group `<group>`, one column per group. |
 
 Only the top `n_cv_candidates` distinct equations per parameter count enter
-LOOCV (default `n_cv_candidates=5`, a kwarg of `identify_rate_equation`).
-Distinctness is by `eq_hash`.
+LOOCV (default `n_cv_candidates=5`, at least 1, a kwarg of
+`identify_rate_equation`). Distinctness is by `eq_hash`. A fit whose training loss
+is not finite never enters LOOCV, nor is it expanded.
 
 ---

@@ -520,10 +520,6 @@ end
     # The additive term keeps a near-zero best loss from collapsing the cutoff.
     @test selected([1e-6, 0.005, 0.05], 1e-6; rel = 2.0, add = 0.01) == [1, 2]
 
-    # Non-finite losses are excluded, even within the floor.
-    @test isempty(selected([Inf, Inf, Inf], Inf; rel = 2.0, add = 0.01, width = 5))
-    @test selected([1.0, NaN, 2.0], 1.0; rel = 2.5) == [1, 3]
-
     # Indices come back in INPUT order, not loss order.
     @test selected([5.0, 1.0, 10.0, 2.0], 1.0; rel = 2.5) == [2, 4]
 
@@ -1006,9 +1002,22 @@ end
         [mk(5,0.9,:f)]; n_cv_candidates=2) == Set([5])
     @test isempty(EnzymeRates._ingest!(frontier, cv_pool, best,
         EnzymeRates.BatchEntry[]; n_cv_candidates=2))
-    # n=0 must not panic on the empty pool (n_cv_candidates is public)
-    @test EnzymeRates._offer_cv!(EnzymeRates.BatchEntry[], mk(5,1.0,:a), 0) ==
-          EnzymeRates.BatchEntry[]
+
+    # A fit whose loss is not finite (fit_rate_equation returns Inf when no restart is
+    # finite) is skipped: it joins neither the frontier nor the cv pool and sets no best
+    # loss, even at a count it is the first to reach. A non-finite fit beside a finite one
+    # at count 5 leaves a free slot rather than enter LOOCV, and counts 6 and 7, which
+    # only non-finite fits reach, get no LOOCV candidate at all.
+    frontier_nf = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
+    cv_pool_nf  = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
+    best_nf     = Dict{Int,Float64}()
+    @test EnzymeRates._ingest!(frontier_nf, cv_pool_nf, best_nf,
+        [mk(5,Inf,:g), mk(5,1.0,:h), mk(6,NaN,:i), mk(7,Inf,:j)];
+        n_cv_candidates=2) == Set([5])
+    @test Set(keys(frontier_nf)) == Set(keys(cv_pool_nf)) == Set([5])
+    @test [e.eq_hash for e in frontier_nf[5]] == [hash(:h)]
+    @test [e.eq_hash for e in cv_pool_nf[5]] == [hash(:h)]
+    @test best_nf == Dict(5 => 1.0)
 
     # `_offer_cv!` keeps at most one entry per eq_hash: a repeat hash updates its own
     # slot to the lower loss, never consuming a second.
@@ -1114,6 +1123,19 @@ end
         @test readdir(tmp) == ["progress.log"]
         @test read(joinpath(tmp, "progress.log"), String) ==
               "Enumerating initial mechanisms…\n"
+    end
+end
+
+@testset "n_cv_candidates below 1 is refused before any fit" begin
+    # The lean beam settings keep the run short should the check ever let it through.
+    prob = _testhelper_uni_prob(NamedTuple)
+    mktempdir() do tmp
+        @test_throws(ErrorException("n_cv_candidates must be ≥ 1; got 0"),
+            identify_rate_equation(prob; optimizer=CMAEvolutionStrategyOpt(),
+                min_beam_width=1, loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+                max_param_count=3, n_cv_candidates=0, n_restarts=1, maxtime=1.0,
+                save_dir=tmp))
+        @test isempty(readdir(tmp))       # raised before writing anything
     end
 end
 

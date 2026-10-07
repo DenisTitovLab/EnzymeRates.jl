@@ -234,7 +234,7 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
     best_x = zeros(np)
     best_loss = Inf
     # Sentinel for "no restart produced a finite objective" (loss stays Inf, so
-    # the fit is dropped by the beam's non-finite filter). Deliberately NOT a
+    # `_ingest!` drops it from the beam search). Deliberately NOT a
     # real SciMLBase ReturnCode name — `Symbol(ReturnCode.Default) === :Default`,
     # so `:NoFiniteLoss` stays distinct from a genuine `:Default` solver return
     # (which only fires when a restart achieves a finite objective).

@@ -115,7 +115,7 @@ and data using beam search.
   verbatim to `Optimization.solve` (e.g. `(; popsize=200)` for a CMA-ES
   solver that supports it); the caller matches its contents to `optimizer`
 - `n_cv_candidates::Int = 5`: LOOCV top N
-  **unique-rate-equation** candidates per param count
+  **unique-rate-equation** candidates per param count (at least 1)
 - `se_threshold::Float64 = 1.0`: 1-SE multiplier for model selection.
   A simpler equation is accepted iff its `cv_score` is `≤` the best
   equation's `cv_score + se_threshold * cv_score_se`. Default 1.0 is
@@ -182,6 +182,7 @@ function identify_rate_equation(
     save_dir::String = _default_save_dir(),
     show_progress::Bool = true,
 )
+    n_cv_candidates >= 1 || error("n_cv_candidates must be ≥ 1; got $n_cv_candidates")
     fitting_kwargs = (;
         n_restarts, maxtime, maxiters,
         abstol, reltol, callback, solver_kwargs)
@@ -276,9 +277,8 @@ qualifies if either:
     so far; the width floor may add at most `min_beam_width - expanded[c]` more. Once
     the budget is spent, only the loss cutoff admits at that count.
 
-Mechanisms with non-finite losses (`Inf`, `NaN`) are excluded
-unconditionally — they represent failed or non-converging fits
-that should not propagate to the next level.
+Every loss is finite: a failed or non-converging fit (`Inf`, `NaN`) should not
+propagate to the next level, so `_ingest!` keeps it out of the frontier.
 """
 function _select_count!(
     expanded::Dict{Int,Int}, best_loss_by_count::Dict{Int,Float64}, c::Int,
@@ -291,7 +291,7 @@ function _select_count!(
     isempty(smaller) ||
         (cutoff = min(cutoff, loss_parsimony_threshold * minimum(smaller)))
     budget = max(0, min_beam_width - get(expanded, c, 0))
-    perm = sort([i for i in eachindex(losses) if isfinite(losses[i])]; by=i -> losses[i])
+    perm = sortperm(losses)
     # Return indices in original (input) order so callers don't
     # rely on the by-loss sort order, which is a side-effect of
     # the rank computation rather than part of the contract.
@@ -532,17 +532,21 @@ function _process_batch(
 end
 
 """
-Fold a batch of `BatchEntry`s into the search state: every entry joins the
-`frontier` (the unexpanded work queue — ALL structurally-distinct
+Fold a batch of `BatchEntry`s into the search state: every entry with a finite loss
+joins the `frontier` (the unexpanded work queue — ALL structurally-distinct
 mechanisms, no eq-dedup); `best_loss_by_count` tracks the per-count running
 min (the beam-cutoff reference); `cv_pool` keeps the top `n_cv_candidates`
-DISTINCT equations (by `eq_hash`, lowest loss each) per param count. Returns the
-set of counts whose best loss strictly dropped (or first appeared) in this batch.
+DISTINCT equations (by `eq_hash`, lowest loss each) per param count. An entry whose
+loss is not finite (`fit_rate_equation` returns `Inf` when no restart is finite) is
+skipped: it is never expanded, never sets a best loss and never enters LOOCV; its row
+is already in the batch's CSV. Returns the set of counts whose best loss strictly
+dropped (or first appeared) in this batch.
 """
 function _ingest!(frontier, cv_pool, best_loss_by_count, entries;
                   n_cv_candidates)
     improved = Set{Int}()
     for e in entries
+        isfinite(e.loss) || continue
         push!(get!(frontier, e.n_params, BatchEntry[]), e)
         if !haskey(best_loss_by_count, e.n_params) ||
                 e.loss < best_loss_by_count[e.n_params]
@@ -561,7 +565,6 @@ Keep `pool` at the top `n` distinct-`eq_hash` entries by loss. A repeat
 consumes a second slot.
 """
 function _offer_cv!(pool::Vector{BatchEntry}, e::BatchEntry, n::Int)
-    n == 0 && return pool
     idx = findfirst(p -> p.eq_hash == e.eq_hash, pool)
     if idx !== nothing
         e.loss < pool[idx].loss && (pool[idx] = e)
