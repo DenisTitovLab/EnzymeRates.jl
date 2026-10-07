@@ -1639,7 +1639,8 @@ reaction payload pass through unchanged.
 
 The regulators declared in `rxn`, not those of `am`'s reaction, decide which
 regulators are eligible: the reaction of an `@allosteric_mechanism` fixture
-declares only the regulators its sites bind. The child keeps `am`'s reaction.
+declares no allosteric regulator, only the competitive inhibitors its steps bind.
+The child keeps `am`'s reaction.
 """
 function _expand_add_allosteric_regulator(
     am::AllostericMechanism, rxn::EnzymeReaction,

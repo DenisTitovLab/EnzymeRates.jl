@@ -5911,6 +5911,11 @@ end
     # direction 3 → 1 it weighs -3, so the cycle weighs 1 + 2 - 3 = 0 and is balanced.
     @test EnzymeRates._unbalanced_blocks(3, [(1, 2), (2, 3), (3, 1)], [1, 2, -3]) ==
           ([1, 1, 1], Set{Int}())
+    # The search reaches vertex 2 from vertex 1 over the edge stored as (2, 1), against
+    # its direction, so the potential falls by its weight: (0, -1, 0). The cycle
+    # 1 → 2 → 3 → 1 weighs -1 + 1 + 0 = 0, balanced.
+    @test EnzymeRates._unbalanced_blocks(3, [(2, 1), (2, 3), (3, 1)], [1, 1, 0]) ==
+          ([1, 1, 1], Set{Int}())
     # Two components. Vertices 1 and 2 carry an edge and its reverse of opposite weight
     # (balanced). Vertices 3, 4 and 5 form a triangle whose paths 3 → 4 → 5 and 3 → 5
     # weigh 2 and 1 (unbalanced), with a bridge 5 → 6 hanging off it. Blocks are
