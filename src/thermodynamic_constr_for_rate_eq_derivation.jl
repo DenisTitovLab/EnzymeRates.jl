@@ -246,13 +246,7 @@ function _dependent_param_exprs(mech::Mechanism)
     # convergence suffers (the same rate equation can land at noticeably
     # different fitted losses depending on which absorbed symbol got
     # the dummy slot).
-    indep = Tuple(p for p in indep if get(rename, p, p) == p)
-    # Sort by name so `fitted_params` / the params destructuring is
-    # content-canonical: two mechanisms with the same independent set (e.g.
-    # graph-distinct but rate-equivalent ones) produce the identical rate
-    # equation string and therefore the same dedup key.
-    indep = Tuple(sort(collect(indep); by = string))
-    return dep_exprs, indep
+    return dep_exprs, Tuple(p for p in indep if get(rename, p, p) == p)
 end
 
 """Number of independent (fitted) rate constants of a concrete mechanism, computed
@@ -519,8 +513,8 @@ order), and `[A rhs]` is brought to reduced row echelon form. Each pivot column
 becomes dependent, expressed via the non-pivot columns of its row; every other
 column is independent (fitted). A pivot in the `rhs` column means the rows combine
 to `0 = log Keq`, a thermodynamic contradiction, which errors. Returns
-`(dep_exprs, indep)`. An empty system (no rows) yields no dependents and all
-columns independent.
+`(dep_exprs, indep)`, `indep` sorted by name. An empty system (no rows) yields no
+dependents and all columns independent.
 
 The pivots are the greedy basis over the sorted columns: a column becomes dependent
 exactly when it is not a linear combination of the columns sorted ahead of it, so the
@@ -546,5 +540,10 @@ function _solve_dependent_set(
                    for c in 1:n_vars if c != p && R[r, c] != 0]
         dep_exprs[columns[order[p]]] = build_power_expr(R[r, n_vars + 1], factors)
     end
-    return dep_exprs, Tuple(p for p in columns if !haskey(dep_exprs, p))
+    # Sort by name so `fitted_params` / the params destructuring is
+    # content-canonical: two mechanisms with the same independent set (e.g.
+    # graph-distinct but rate-equivalent ones) produce the identical rate
+    # equation string and therefore the same dedup key.
+    indep = sort([p for p in columns if !haskey(dep_exprs, p)]; by = string)
+    return dep_exprs, Tuple(indep)
 end

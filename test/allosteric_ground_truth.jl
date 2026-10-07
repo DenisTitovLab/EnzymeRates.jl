@@ -88,8 +88,8 @@ end
             E + P ⇌ E(P)     :: EqualAI
         end
     end
-    fp = ER.fitted_params(onlyA)  # (:K_EP_to_E_P, :K_A_ES_to_E_S, :k_A_ES_to_EP, :L)
-    @test fp == (:K_EP_to_E_P, :K_A_ES_to_E_S, :k_A_ES_to_EP, :L)
+    fp = ER.fitted_params(onlyA)  # (:K_A_ES_to_E_S, :K_EP_to_E_P, :k_A_ES_to_EP, :L)
+    @test fp == (:K_A_ES_to_E_S, :K_EP_to_E_P, :k_A_ES_to_EP, :L)
 
     rng = MersenneTwister(20260713)
     for _ in 1:5
@@ -98,7 +98,7 @@ end
         S = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
         # Map fitted_params -> ground-truth params:
         #   K_A_ES_to_E_S=KA, K_EP_to_E_P=KP, k_A_ES_to_EP=k.
-        prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, KA, k, L, Keq, 1.0))
+        prm = NamedTuple{(fp..., :Keq, :E_total)}((KA, KP, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(onlyA, (S=S, P=P), prm))
         v_gt = uni_onlyA_flux(KA, KP, k, L=L, Keq=Keq, S=S, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
@@ -123,7 +123,7 @@ end
     @test dI == ER.poly_one()                       # single inactive segment
 
     # kcat stays consistent with rate_equation under normalization.
-    prm = NamedTuple{(fp..., :Keq, :E_total)}((0.9, 1.3, 2.1, 0.7, 3.0, 1.0))
+    prm = NamedTuple{(fp..., :Keq, :E_total)}((1.3, 0.9, 2.1, 0.7, 3.0, 1.0))
     rescaled = ER.rescale_parameter_values(onlyA, prm; scale_k_to_kcat=5.0)
     @test isapprox(ER._kcat_forward(onlyA, rescaled), 5.0; rtol=1e-6)
 end
@@ -143,9 +143,9 @@ end
             E + P ⇌ E(P)          :: EqualAI
         end
     end
-    # (:K_A_EA_to_E_A, :K_EP_to_E_P, :K_A_EAB_to_EA_B, :k_A_EAB_to_EP, :L)
+    # (:K_A_EAB_to_EA_B, :K_A_EA_to_E_A, :K_EP_to_E_P, :k_A_EAB_to_EP, :L)
     fp = ER.fitted_params(multiA)
-    @test fp == (:K_A_EA_to_E_A, :K_EP_to_E_P, :K_A_EAB_to_EA_B, :k_A_EAB_to_EP, :L)
+    @test fp == (:K_A_EAB_to_EA_B, :K_A_EA_to_E_A, :K_EP_to_E_P, :k_A_EAB_to_EP, :L)
 
     rng = MersenneTwister(20260713)
     for _ in 1:5
@@ -154,7 +154,7 @@ end
         A = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
         # Map fitted_params -> ground-truth params:
         #   K_A_EA_to_E_A=KA, K_EP_to_E_P=KP, K_A_EAB_to_EA_B=KB, k_A_EAB_to_EP=k.
-        prm = NamedTuple{(fp..., :Keq, :E_total)}((KA, KP, KB, k, L, Keq, 1.0))
+        prm = NamedTuple{(fp..., :Keq, :E_total)}((KB, KA, KP, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(multiA, (A=A, B=B, P=P), prm))
         v_gt = multi_onlyA_flux(KA, KB, KP, k, L=L, Keq=Keq, A=A, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
@@ -228,10 +228,10 @@ end
             E + P ⇌ E(P)         :: EqualAI
         end
     end
-    # (:K_EP_to_E_P,:k_A_E_S_to_ES,:k_A_ES_to_E_S,:k_A_EBS_to_EP,:K_EBS_to_ES_B,:L)
+    # (:K_EBS_to_ES_B,:K_EP_to_E_P,:k_A_EBS_to_EP,:k_A_ES_to_E_S,:k_A_E_S_to_ES,:L)
     fp = ER.fitted_params(metabD)
-    @test fp == (:K_EP_to_E_P, :k_A_E_S_to_ES, :k_A_ES_to_E_S, :k_A_EBS_to_EP,
-                 :K_EBS_to_ES_B, :L)
+    @test fp == (:K_EBS_to_ES_B, :K_EP_to_E_P, :k_A_EBS_to_EP, :k_A_ES_to_E_S,
+                 :k_A_E_S_to_ES, :L)
 
     rng = MersenneTwister(20260713)
     for _ in 1:5
@@ -241,7 +241,7 @@ end
         # Map fitted_params -> ground-truth params:
         #   k_A_E_S_to_ES=kon, k_A_ES_to_E_S=koff, K_EBS_to_ES_B=KB, K_EP_to_E_P=KP,
         #   k_A_EBS_to_EP=k.
-        prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, kon, koff, k, KB, L, Keq, 1.0))
+        prm = NamedTuple{(fp..., :Keq, :E_total)}((KB, KP, k, koff, kon, L, Keq, 1.0))
         v_code = real(ER.rate_equation(metabD, (S=S, B=B, P=P), prm))
         v_gt = metab_dfree_onlyA_flux(kon, koff, KB, KP, k, L=L, Keq=Keq, S=S, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
@@ -257,7 +257,7 @@ end
     # steady-state S binding leaves a bare koff term in D[g_free], so a reverse path
     # from product back to free enzyme stays open and the reverse flux survives.
     kon, koff, KP, KB, k, L, Keq, S, P = 1.7, 1.1, 0.9, 0.8, 2.1, 0.7, 3.0, 1.1, 0.6
-    prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, kon, koff, k, KB, L, Keq, 1.0))
+    prm = NamedTuple{(fp..., :Keq, :E_total)}((KB, KP, k, koff, kon, L, Keq, 1.0))
     v0 = real(ER.rate_equation(metabD, (S=S, B=0.0, P=P), prm))
     @test isapprox(v0,
         metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L=L, Keq=Keq, S=S, B=0.0, P=P);
@@ -541,13 +541,12 @@ end
         end
     end
     fp = ER.fitted_params(allo)
-    @test fp == (:k_E_A_to_EA, Symbol("k_A_E_Q_to_EB_res_+A_-P"),
-                 Symbol("k_A_EB_res_+A_-P_to_E_Q"), Symbol("k_A_E_res_+A_-P_P_to_EA"),
-                 Symbol("k_A_EA_to_E_res_+A_-P_P"),
+    @test fp == (Symbol("k_A_EA_to_E_res_+A_-P_P"), Symbol("k_A_EB_res_+A_-P_to_E_Q"),
+                 Symbol("k_A_E_Q_to_EB_res_+A_-P"), Symbol("k_A_E_res_+A_-P_P_to_EA"),
+                 Symbol("k_EB_res_+A_-P_to_E_res_+A_-P_B"), :k_E_A_to_EA,
                  Symbol("k_E_res_+A_-P_B_to_EB_res_+A_-P"),
-                 Symbol("k_EB_res_+A_-P_to_E_res_+A_-P_B"),
-                 Symbol("k_I_EB_res_+A_-P_to_E_Q"), Symbol("k_I_E_res_+A_-P_P_to_EA"),
-                 Symbol("k_I_EA_to_E_res_+A_-P_P"), :L)
+                 Symbol("k_I_EA_to_E_res_+A_-P_P"), Symbol("k_I_EB_res_+A_-P_to_E_Q"),
+                 Symbol("k_I_E_res_+A_-P_P_to_EA"), :L)
 
     rng = MersenneTwister(20260716)
     for _ in 1:6
@@ -661,10 +660,10 @@ end
         end
     end
     fp = ER.fitted_params(allo)
-    @test fp == (:K_EA_to_E_A, :K_EQ_to_E_Q, Symbol("k_A_EA_to_EP_res_+A_-P"),
-                 Symbol("K_A_EB_res_+A_-P_to_EQ"),
+    @test fp == (Symbol("K_A_EB_res_+A_-P_to_EQ"), :K_EA_to_E_A,
                  Symbol("K_EB_res_+A_-P_to_E_res_+A_-P_B"),
-                 Symbol("K_EP_res_+A_-P_to_E_res_+A_-P_P"), :L)
+                 Symbol("K_EP_res_+A_-P_to_E_res_+A_-P_P"), :K_EQ_to_E_Q,
+                 Symbol("k_A_EA_to_EP_res_+A_-P"), :L)
     p = (KA=0.7, KB=1.3, KP=0.9, KQ=1.1, K2=2.0, k=1.7, L=3.0, A=1.5)
     # Map fitted_params -> ground-truth params. Each K is the ratio of its to-side to
     # its from-side, so the binding Ks are dissociation constants:
@@ -926,8 +925,8 @@ end
                 end
             end)
         fp = ER.fitted_params(allo)
-        @test fp == (:k_E_A_to_EA, :k_EA_to_E_A, :K_EP_to_E_P, :K_EAB_to_EA_B,
-                     :k_A_EAB_to_EP, :k_I_EAB_to_EP, :L)
+        @test fp == (:K_EAB_to_EA_B, :K_EP_to_E_P, :k_A_EAB_to_EP, :k_EA_to_E_A,
+                     :k_E_A_to_EA, :k_I_EAB_to_EP, :L)
         # Map fitted_params -> ground-truth params:
         #   k_E_A_to_EA=kon, k_EA_to_E_A=koff, K_EAB_to_EA_B=KB, K_EP_to_E_P=KP,
         #   k_A_EAB_to_EP=k_A, k_I_EAB_to_EP=k_I.
@@ -991,11 +990,11 @@ end
         end
     end
     afp = ER.fitted_params(dead)
-    @test afp == (:K_EADP_to_E_ADP, :K_EATP_to_E_ATP,
-                  Symbol("k_A_EATP_to_EF16BP_res_+ATP_-F16BP"),
-                  Symbol("K_A_EF6P_res_+ATP_-F16BP_to_EADP"),
+    @test afp == (Symbol("K_A_EF6P_res_+ATP_-F16BP_to_EADP"),
+                  Symbol("K_A_EF6P_res_+ATP_-F16BP_to_E_res_+ATP_-F16BP_F6P"),
+                  :K_EADP_to_E_ADP, :K_EATP_to_E_ATP,
                   Symbol("K_EF16BP_res_+ATP_-F16BP_to_E_res_+ATP_-F16BP_F16BP"),
-                  Symbol("K_A_EF6P_res_+ATP_-F16BP_to_E_res_+ATP_-F16BP_F6P"), :L)
+                  Symbol("k_A_EATP_to_EF16BP_res_+ATP_-F16BP"), :L)
 
     # The constructor errors on any `_onlya_haldane_violation`, so building `am`
     # proves the guard accepts it.

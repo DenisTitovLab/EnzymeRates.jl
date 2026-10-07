@@ -1984,7 +1984,7 @@ end
         end
     end
     actual = rate_equation_string(m_allo)
-    expected = raw"""(; K_A_EP_to_E_P, K_A_ES_to_E_S, k_A_ES_to_EP, K_I_EP_to_E_P, K_I_ES_to_E_S, k_I_ES_to_EP, K_A_Rreg, K_I_Rreg, L, Keq, E_total) = params
+    expected = raw"""(; K_A_EP_to_E_P, K_A_ES_to_E_S, K_I_EP_to_E_P, K_I_ES_to_E_S, k_A_ES_to_EP, k_I_ES_to_EP, K_A_Rreg, K_I_Rreg, L, Keq, E_total) = params
 (; S, P, R) = concs
 # Haldane constraints:
 k_A_EP_to_ES = (1 / Keq) * K_A_EP_to_E_P * (1 / K_A_ES_to_E_S) * k_A_ES_to_EP
@@ -2132,8 +2132,8 @@ end
         end
     end
     @test EnzymeRates.fitted_params(tie) ==
-        (:K_A_EA_to_E_A, :K_A_EB_to_E_B, :K_A_EP_to_E_P, :k_A_EAB_to_EP,
-         :K_I_EA_to_E_A, :K_I_EB_to_E_B, :K_I_EP_to_E_P, :k_I_EAB_to_EP, :L)
+        (:K_A_EA_to_E_A, :K_A_EB_to_E_B, :K_A_EP_to_E_P, :K_I_EA_to_E_A,
+         :K_I_EB_to_E_B, :K_I_EP_to_E_P, :k_A_EAB_to_EP, :k_I_EAB_to_EP, :L)
     @test rate_equation_string(tie) == rate_equation_string(grouped)
 end
 

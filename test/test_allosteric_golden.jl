@@ -34,4 +34,17 @@ end
         @test parameters(m, EnzymeRates.Reduced) ==
               (EnzymeRates.fitted_params(m)..., :Keq, :E_total)
     end
+    # The fitted parameters list the catalytic constants by name, so rate-equivalent
+    # mechanisms render one params line, then the regulator constants, then L.
+    for spec in MECHANISM_TEST_SPECS
+        m = spec.mechanism
+        m isa EnzymeRates.AllostericEnzymeMechanism || continue
+        fp = EnzymeRates.fitted_params(m)
+        am = EnzymeRates.AllostericMechanism(m)
+        reg = Tuple(EnzymeRates.name(p, am) for st in (:A, :I)
+                    for p in EnzymeRates._kreg_params(am, st))
+        cat = fp[1:end - 1 - count(in(fp), reg)]
+        @test issorted(collect(cat); by = string)
+        @test fp == (cat..., filter(in(fp), reg)..., :L)
+    end
 end

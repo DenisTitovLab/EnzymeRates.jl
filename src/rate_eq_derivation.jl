@@ -952,7 +952,9 @@ unchanged.
 Regulator-site affinities complete no catalytic thermodynamic cycle, so they
 are independent on top of the combined solve — except an `:EqualAI`
 regulator, whose I-name mirrors its shared A-name (`K_I_reg = K_A_reg`, added
-to `dep`). `L` (the conformational constant) is always independent. Any
+to `dep`). `L` (the conformational constant) is always independent. The
+independents list the solve's catalytic ones by name, then the regulator ones site
+by site, then `L`. Any
 symbol the combined solve already made dependent is dropped from `indep`. The
 `Type{<:AbstractEnzymeMechanism}` method lifts with `_concrete` and delegates here.
 """
