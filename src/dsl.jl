@@ -612,29 +612,18 @@ macro allosteric_mechanism(block)
 end
 
 """
-Match a `regulatory_site(multiplicity = N): begin ligands: ... end` line.
-Returns `(mult::Int, ligands::Vector{Symbol})` or `nothing` if the line is
-not a regulatory-site declaration.
+Parse a `regulatory_site(multiplicity = N): begin ligands: ... end` line, given its
+`regulatory_site(...)` label call and its body. Returns
+`(mult::Int, ligands::Vector{Symbol})`.
 """
-function _match_regulatory_site_line(arg)
-    arg isa Expr && arg.head == :call && length(arg.args) >= 3 &&
-        arg.args[1] == :(:) || return nothing
-    label, body = arg.args[2], arg.args[3]
-    label isa Expr && label.head == :call &&
-        label.args[1] == :regulatory_site || return nothing
-
-    mult = nothing
-    for kw in label.args[2:end]
-        kw isa Expr && (kw.head == :kw || kw.head == :(=)) &&
-            kw.args[1] == :multiplicity ||
-            error("@allosteric_mechanism: `regulatory_site` only accepts " *
-                  "`multiplicity = N` kwarg; got $kw")
-        mult = _positive_int(kw.args[2],
-                             "@allosteric_mechanism: `regulatory_site` multiplicity")
-    end
-    mult === nothing &&
-        error("@allosteric_mechanism: `regulatory_site` requires " *
-              "`multiplicity = N`")
+function _parse_regulatory_site(label, body)
+    kws = label.args[2:end]
+    length(kws) == 1 && kws[1] isa Expr && kws[1].head == :kw &&
+        kws[1].args[1] == :multiplicity ||
+        error("@allosteric_mechanism: `regulatory_site` takes exactly one " *
+              "`multiplicity = N` argument; got `$label`")
+    mult = _positive_int(kws[1].args[2],
+                         "@allosteric_mechanism: `regulatory_site` multiplicity")
 
     body isa Expr && body.head == :block ||
         error("@allosteric_mechanism: `regulatory_site` body must be a " *
@@ -685,15 +674,10 @@ function _parse_allosteric_mechanism_body(block)
     allo_regs = Pair{Symbol,Symbol}[]
     cat_n::Int = 1
     cat_steps_block = nothing
-    reg_site_specs = Tuple{Any,Vector{Symbol}}[]
+    reg_site_specs = Tuple{Int,Vector{Symbol}}[]
 
     for arg in block.args
         arg isa LineNumberNode && continue
-        reg_site = _match_regulatory_site_line(arg)
-        if reg_site !== nothing
-            push!(reg_site_specs, reg_site)
-            continue
-        end
         label, values = _parse_labeled_line(arg)
         if label == :substrates
             append!(subs_list, _bare_symbols_from_values(values, label))
@@ -709,6 +693,8 @@ function _parse_allosteric_mechanism_body(block)
                           "`name::Tag` annotations (e.g., I::OnlyI); got $v")
                 push!(allo_regs, v.args[1] => v.args[2])
             end
+        elseif label isa Expr && label.head == :call && label.args[1] == :regulatory_site
+            push!(reg_site_specs, _parse_regulatory_site(label, only(values)))
         elseif label == :catalytic_multiplicity
             cat_n = _positive_int(only(values),
                                   "@allosteric_mechanism: `catalytic_multiplicity:`")

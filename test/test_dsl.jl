@@ -259,6 +259,29 @@
             end))
     end
 
+    @testset "regulatory_site takes exactly one multiplicity" begin
+        # Repeated, missing, misnamed and positional arguments are all errors.
+        for site in (:(regulatory_site(multiplicity = 2, multiplicity = 4)),
+                     :(regulatory_site()),
+                     :(regulatory_site(size = 2)),
+                     :(regulatory_site(2)))
+            @test_throws "exactly one `multiplicity = N`" eval(
+                :(@allosteric_mechanism begin
+                    substrates: S
+                    products:   P
+                    allosteric_regulators: A::OnlyA
+                    catalytic_steps: begin
+                        E + S ⇌ E(S)      :: EqualAI
+                        E(S) <--> E(P)    :: EqualAI
+                        E(P) ⇌ E + P      :: EqualAI
+                    end
+                    $site: begin
+                        ligands: A
+                    end
+                end))
+        end
+    end
+
     @testset "a parenthesized single step carries a group tag" begin
         # The @allosteric_mechanism docstring's example: its last step is a
         # parenthesized one-step group, the same mechanism as the bare tagged step.
