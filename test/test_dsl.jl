@@ -533,4 +533,22 @@
             end
         end))
     end
+
+    @testset "a residual adds substrates and subtracts products" begin
+        # `P - S` adds a product and subtracts a substrate; `P` and `-S` each do one of
+        # the two; `S - I` subtracts a competitive inhibitor.
+        for residual in (:(P - S), :P, :(-S), :(S - I))
+            @test_throws "adds substrates and subtracts products" eval(
+                :(@enzyme_mechanism begin
+                    substrates: S
+                    products:   P
+                    regulators: I
+                    steps: begin
+                        E + S ⇌ E(S)
+                        E(S) <--> Estar(; residual = $residual)
+                        Estar(; residual = $residual) ⇌ E + P
+                    end
+                end))
+        end
+    end
 end

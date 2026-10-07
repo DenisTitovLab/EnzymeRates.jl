@@ -62,7 +62,6 @@ end
 # constructor canonicalizes. Used to populate `MechanismTestSpec.source_steps`
 # / `source_reg_sites` so positional oracles bridge to canonical stored order.
 macro enzyme_mechanism_src(block)
-    EnzymeRates._reject_allosteric_syntax!(block)
     mech_expr, groups_expr = EnzymeRates._parse_plain_mechanism_body(block)
     esc(:(($mech_expr, $groups_expr)))
 end
@@ -1953,7 +1952,7 @@ let
         expected_n_independent_params=12,
         run_ode_test=false,
         analytical_rate_fn=pfk_rate_analytical,
-        # F6P binding (group 3) is :OnlyA → the F6P·ATP saturating
+        # F6P binding (group 1) is :OnlyA → the F6P·ATP saturating
         # pattern is unreachable in T-state, so kcat = k5f
         # for every regulator corner. Guards `_kcat_forward` for a saturating
         # pattern absent from the I-state: the I-state pair is (0, 0) and the
