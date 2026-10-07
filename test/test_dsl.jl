@@ -186,6 +186,62 @@
         end))
     end
 
+    @testset "a parenthesized single step carries a group tag" begin
+        # The @allosteric_mechanism docstring's example: its last step is a
+        # parenthesized one-step group, the same mechanism as the bare tagged step.
+        parenthesized = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+            substrates: F6P
+            products:   F16BP
+            catalytic_multiplicity: 2
+            allosteric_regulators: A::OnlyA, I::OnlyI
+
+            catalytic_steps: begin
+                E + F6P ⇌ E(F6P)        :: EqualAI
+                E(F6P) <--> E(F16BP)    :: EqualAI
+                (E(F16BP) ⇌ E + F16BP)  :: EqualAI
+            end
+
+            regulatory_site(multiplicity = 4): begin
+                ligands: A
+            end
+            regulatory_site(multiplicity = 4): begin
+                ligands: I
+            end
+        end)
+        bare = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+            substrates: F6P
+            products:   F16BP
+            catalytic_multiplicity: 2
+            allosteric_regulators: A::OnlyA, I::OnlyI
+
+            catalytic_steps: begin
+                E + F6P ⇌ E(F6P)        :: EqualAI
+                E(F6P) <--> E(F16BP)    :: EqualAI
+                E(F16BP) ⇌ E + F16BP    :: EqualAI
+            end
+
+            regulatory_site(multiplicity = 4): begin
+                ligands: A
+            end
+            regulatory_site(multiplicity = 4): begin
+                ligands: I
+            end
+        end)
+        @test parenthesized == bare
+        @test length(EnzymeRates.steps(parenthesized)) == 3
+
+        # A plain mechanism has no group tags, parenthesized or not.
+        @test_throws "tag annotation" eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                (E(P) ⇌ E + P) :: EqualAI
+            end
+        end))
+    end
+
     @testset "@enzyme_reaction" begin
         spec = @enzyme_reaction begin
             substrates: S[C]

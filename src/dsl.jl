@@ -341,7 +341,8 @@ end
 Parse the steps block into the `Vector{Vector{Step}}` `Expr` of its kinetic groups
 and the groups' tags, both in source order. Each top-level expression is either:
   - `Expr(:(::), Expr(:tuple, step1, step2, ...), Tag)` — parenthesized group with tag
-    (allosteric only).
+    (allosteric only); a parenthesized single step, `Expr(:(::), step, Tag)`, is a
+    one-step group.
   - `Expr(:tuple, step1, step2, ...)` — parenthesized group with no tag (plain mech).
   - `Expr(:call, ⇌|<-->, lhs, Expr(:(::), rhs, Tag))` — single tagged step (allosteric).
   - `Expr(:call, ⇌|<-->, lhs, rhs)` — single untagged step (plain).
@@ -356,12 +357,13 @@ function _parse_steps_block(steps_block, role_of, macro_name; allow_tag::Bool)
     for arg in steps_block.args
         arg isa LineNumberNode && continue
 
-        # Parenthesized-group-with-tag (allosteric)
+        # Parenthesized-group-with-tag (allosteric); a lone parenthesized step is a group
         if arg isa Expr && arg.head == :(::) &&
-           arg.args[1] isa Expr && arg.args[1].head == :tuple
+           arg.args[1] isa Expr && arg.args[1].head in (:tuple, :call)
             allow_tag ||
                 error("$macro_name: tag annotation `$arg` is not allowed")
-            steps, tag = arg.args[1].args, arg.args[2]
+            inner, tag = arg.args
+            steps = inner.head == :tuple ? inner.args : Any[inner]
             tag isa Symbol ||
                 error("$macro_name: step-group tag must be a Symbol; got $tag")
             push!(tags, tag)
