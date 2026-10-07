@@ -611,37 +611,6 @@ macro allosteric_mechanism(block)
     return esc(_parse_allosteric_mechanism_body(block)[1])
 end
 
-const _ALLOSTERIC_REG_STATES = Set([:OnlyA, :OnlyI, :EqualAI, :NonequalAI])
-
-"""
-Coerce labeled-line values to `(name, tag)` pairs. Each value must be
-`Expr(:(::), name, tag)`; bare symbols are rejected. Used for
-`allosteric_regulators:` and similar tagged lists.
-"""
-function _tagged_symbols_from_values(values, label, valid_tags)
-    pairs = Pair{Symbol,Symbol}[]
-    for v in values
-        v isa Expr && v.head == :(::) ||
-            error("@allosteric_mechanism `$label:` requires per-entry " *
-                  "::Tag annotations (e.g., I::OnlyI); got $v")
-        name, tag = v.args[1], v.args[2]
-        name isa Symbol ||
-            error("@allosteric_mechanism `$label:`: expected Symbol name " *
-                  "in `name::Tag`; got $name")
-        tag isa Symbol ||
-            error("@allosteric_mechanism `$label:`: tag must be a Symbol; " *
-                  "got $tag")
-        tag in valid_tags ||
-            error("@allosteric_mechanism `$label:`: tag :$tag not in " *
-                  "($(_format_state_set(valid_tags)))")
-        push!(pairs, name => tag)
-    end
-    pairs
-end
-
-"""Format a state set as a sorted, comma-joined list for error messages."""
-_format_state_set(tags) = join((":$t" for t in sort(collect(tags))), ", ")
-
 """
 Match a `regulatory_site(multiplicity = N): begin ligands: ... end` line.
 Returns `(mult::Int, ligands::Vector{Symbol})` or `nothing` if the line is
@@ -695,8 +664,6 @@ function _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
     tag_of = Dict{Symbol,Symbol}(allo_regs)
     explicit = Set{Symbol}()
     for (_, ligs) in reg_site_specs, l in ligs
-        l in explicit && error("@allosteric_mechanism: ligand $l " *
-                               "appears in multiple regulatory sites")
         haskey(tag_of, l) ||
             error("@allosteric_mechanism: ligand $l on a " *
                   "`regulatory_site` is not declared in " *
@@ -711,20 +678,6 @@ function _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
             $mult, Symbol[$((QuoteNode(tag_of[l]) for l in ligs)...)]))
     end
     :(EnzymeRates.RegulatorySite[$(entries...)])
-end
-
-"""
-Build the `cat_allo_states` `Vector{Symbol}` expression for the
-`AllostericMechanism` constructor: one tag per catalytic kinetic group, in
-source order.
-"""
-function _build_cat_allo_states_expr(group_tags)
-    for tag in group_tags
-        tag in _ALLOSTERIC_REG_STATES ||
-            error("@allosteric_mechanism: catalytic step tag :$tag not in " *
-                  "($(_format_state_set(_ALLOSTERIC_REG_STATES)))")
-    end
-    :(Symbol[$(QuoteNode.(group_tags)...)])
 end
 
 function _parse_allosteric_mechanism_body(block)
@@ -750,9 +703,12 @@ function _parse_allosteric_mechanism_body(block)
             append!(cat_inhibitors,
                     _bare_symbols_from_values(values, label))
         elseif label == :allosteric_regulators
-            append!(allo_regs,
-                    _tagged_symbols_from_values(values, label,
-                                                _ALLOSTERIC_REG_STATES))
+            for v in values
+                v isa Expr && v.head == :(::) && all(a -> a isa Symbol, v.args) ||
+                    error("@allosteric_mechanism `$label:` requires per-entry " *
+                          "`name::Tag` annotations (e.g., I::OnlyI); got $v")
+                push!(allo_regs, v.args[1] => v.args[2])
+            end
         elseif label == :catalytic_multiplicity
             cat_n = _positive_int(only(values),
                                   "@allosteric_mechanism: `catalytic_multiplicity:`")
@@ -772,6 +728,12 @@ function _parse_allosteric_mechanism_body(block)
         error("@allosteric_mechanism: products: not specified")
     cat_steps_block === nothing &&
         error("@allosteric_mechanism: `catalytic_steps:` block is required")
+    allo_names = first.(allo_regs)
+    repeated = unique(n for (i, n) in enumerate(allo_names)
+                      if n in view(allo_names, 1:i-1))
+    isempty(repeated) ||
+        error("@allosteric_mechanism: `allosteric_regulators:` lists " *
+              "$(join(("`$n`" for n in repeated), ", ")) more than once.")
 
     # Order matters: a metabolite that is both a substrate/product and its own
     # competitive inhibitor (self-inhibition) takes the substrate/product role
@@ -784,7 +746,7 @@ function _parse_allosteric_mechanism_body(block)
     groups_expr, group_tags = _parse_steps_block(
         cat_steps_block, role_of, "@allosteric_mechanism"; allow_tag = true)
 
-    cat_allo_states_expr = _build_cat_allo_states_expr(group_tags)
+    cat_allo_states_expr = :(Symbol[$(QuoteNode.(group_tags)...)])
     reg_sites_expr = _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
 
     # Route through AllostericMechanism so catalytic steps and their

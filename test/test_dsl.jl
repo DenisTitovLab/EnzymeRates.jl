@@ -186,6 +186,79 @@
         end))
     end
 
+    @testset "@allosteric_mechanism states and ligands are checked by the constructors" begin
+        # A name listed twice in `allosteric_regulators:` is rejected, even when an
+        # explicit site would let the last tag silently replace the first.
+        @test_throws "lists `A` more than once" eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: A::Bogus, A::OnlyA
+            catalytic_steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: EqualAI
+            end
+            regulatory_site(multiplicity = 2): begin
+                ligands: A
+            end
+        end))
+        @test_throws "lists `A` more than once" eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: A::OnlyA, A::OnlyA
+            catalytic_steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: EqualAI
+            end
+        end))
+
+        # An unknown regulator state is reported by RegulatorySite when the expansion
+        # runs.
+        @test_throws "allo state Bogus must be one of" eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: X::Bogus
+            catalytic_steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: EqualAI
+            end
+        end))
+
+        # Unknown and :OnlyI catalytic states are reported by AllostericMechanism.
+        for state in (:Bogus, :OnlyI)
+            @test_throws "catalytic group" eval(:(@allosteric_mechanism begin
+                substrates: S
+                products:   P
+                catalytic_steps: begin
+                    E + S ⇌ E(S)      :: EqualAI
+                    E(S) <--> E(P)    :: EqualAI
+                    E(P) ⇌ E + P     :: $state
+                end
+            end))
+        end
+
+        # A ligand on two regulatory sites is reported by AllostericMechanism.
+        @test_throws "appears in two distinct regulatory sites" eval(
+            :(@allosteric_mechanism begin
+                substrates: S
+                products:   P
+                allosteric_regulators: A::OnlyA
+                catalytic_steps: begin
+                    E + S ⇌ E(S)      :: EqualAI
+                    E(S) <--> E(P)    :: EqualAI
+                    E(P) ⇌ E + P      :: EqualAI
+                end
+                regulatory_site(multiplicity = 2): begin
+                    ligands: A
+                end
+                regulatory_site(multiplicity = 4): begin
+                    ligands: A
+                end
+            end))
+    end
+
     @testset "a parenthesized single step carries a group tag" begin
         # The @allosteric_mechanism docstring's example: its last step is a
         # parenthesized one-step group, the same mechanism as the bare tagged step.
