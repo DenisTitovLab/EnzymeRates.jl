@@ -753,6 +753,7 @@ function _parse_steps_block_with_groups(steps_block, declared_mets::Set{Symbol};
             original = string(arg)
             tag = _peel_step_tag!(arg)
             if tag !== nothing
+                tag isa Symbol || error("Step tag must be a Symbol; got $tag")
                 allow_tag ||
                     error("@enzyme_mechanism: tag annotation on `$original` " *
                           "is not allowed")
@@ -795,7 +796,8 @@ end
 
 """
 If the step Expr has a `::Tag` attached to its RHS arg, remove the wrapper and
-return the tag Symbol. Otherwise return `nothing`. Mutates `step_expr.args[3]`.
+return the tag. Otherwise return `nothing`. Mutates the step Expr. `::Inh`
+marks a metabolite's inhibitor role, so it is never taken as a step tag.
 
 Two RHS shapes carry a tag:
   - `Sym :: Tag` parses as `Expr(:(::), Sym, Tag)`.
@@ -805,21 +807,12 @@ Two RHS shapes carry a tag:
 """
 function _peel_step_tag!(step_expr)
     rhs = step_expr.args[3]
-    if rhs isa Expr && rhs.head == :(::)
-        tag = rhs.args[2]
-        tag isa Symbol || error("Step tag must be a Symbol; got $tag")
-        step_expr.args[3] = rhs.args[1]
-        return tag
-    elseif rhs isa Expr && rhs.head == :call && rhs.args[1] == :+
-        last = rhs.args[end]
-        if last isa Expr && last.head == :(::)
-            tag = last.args[2]
-            tag isa Symbol || error("Step tag must be a Symbol; got $tag")
-            rhs.args[end] = last.args[1]
-            return tag
-        end
-    end
-    nothing
+    holder, i = rhs isa Expr && rhs.head == :call && rhs.args[1] == :+ ?
+                (rhs, lastindex(rhs.args)) : (step_expr, 3)
+    t = holder.args[i]
+    t isa Expr && t.head == :(::) && t.args[2] !== :Inh || return nothing
+    holder.args[i] = t.args[1]
+    t.args[2]
 end
 
 """

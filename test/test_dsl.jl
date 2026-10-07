@@ -551,4 +551,81 @@
                 end))
         end
     end
+
+    @testset "::Inh is never a step tag" begin
+        # `E(S::Inh) ⇌ E + S::Inh :: EqualAI` parses as `(S::Inh)::EqualAI`: the state
+        # after `::Inh` is the step's tag, and the step reads like its binding direction.
+        bind_inh = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            catalytic_inhibitors: S
+            catalytic_steps: begin
+                E + S ⇌ E(S)             :: EqualAI
+                E(S) <--> E(P)           :: EqualAI
+                E(P) ⇌ E + P             :: EqualAI
+                E + S::Inh ⇌ E(S::Inh)   :: EqualAI
+            end
+        end)
+        release_inh = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            catalytic_inhibitors: S
+            catalytic_steps: begin
+                E + S ⇌ E(S)             :: EqualAI
+                E(S) <--> E(P)           :: EqualAI
+                E(P) ⇌ E + P             :: EqualAI
+                E(S::Inh) ⇌ E + S::Inh   :: EqualAI
+            end
+        end)
+        @test release_inh == bind_inh
+
+        # Without a state the step is missing its annotation.
+        @test_throws "is missing" eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            catalytic_inhibitors: I
+            catalytic_steps: begin
+                E + S ⇌ E(S)           :: EqualAI
+                E(S) <--> E(P)         :: EqualAI
+                E(P) ⇌ E + P           :: EqualAI
+                E(I::Inh) ⇌ E + I::Inh
+            end
+        end))
+
+        # A plain mechanism may release an inhibitor as well as bind it.
+        bind_plain = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            regulators: I
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+                E + I::Inh ⇌ E(I::Inh)
+            end
+        end)
+        release_plain = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            regulators: I
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+                E(I::Inh) ⇌ E + I::Inh
+            end
+        end)
+        @test release_plain == bind_plain
+
+        # A step tag that is not a name is rejected.
+        @test_throws "must be a Symbol" eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            catalytic_steps: begin
+                E + S ⇌ E(S)    :: EqualAI
+                E(S) <--> E(P)  :: EqualAI
+                E(P) ⇌ E + P    :: 3
+            end
+        end))
+    end
 end
