@@ -774,13 +774,10 @@ segment whose weights vanish only at a corner mixing a substrate and a product
 harmless: no turnover is possible at that corner.
 """
 function _bottomless_re_segment(steps::Vector{Vector{Step}})
-    side = Dict{Symbol, Type}()
-    for group in steps, s in group
-        is_equilibrium(s) || continue
-        for m in Iterators.flatten((consumed(s), released(s)))
-            side[name(m)] = typeof(m)
-        end
-    end
+    # Each name's reactant role over every step: a competitive-inhibitor copy shares
+    # its reactant's name and must not hide that role.
+    side = Dict(name(m) => typeof(m) for g in steps for s in g
+                for m in Iterators.flatten((consumed(s), released(s))) if m isa Reactant)
     species, segments, extras = _re_segment_extras(steps)
     for segment in segments
         length(segment) < 2 && continue

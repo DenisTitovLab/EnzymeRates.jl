@@ -339,6 +339,39 @@ end
             end
         end
 
+        # The same segment with A's competitive-inhibitor copy binding E(B) at rapid
+        # equilibrium: E(A::Inh, B) joins it, but every form still carries A or B, so
+        # the segment stays bottomless. The copy shares A's name and must not hide
+        # A's substrate role, whatever the order of the groups.
+        A, B, Ainh = ER.Substrate(:A), ER.Substrate(:B), ER.CompetitiveInhibitor(:A)
+        inh_steps = [
+            [ER.Step(_testhelper_sp([]), _testhelper_sp([A]), [A], ER.Metabolite[],
+                     false)],
+            [ER.Step(_testhelper_sp([]), _testhelper_sp([B]), [B], ER.Metabolite[],
+                     false)],
+            [ER.Step(_testhelper_sp([A]), _testhelper_sp([A, B]), [B], ER.Metabolite[],
+                     true)],
+            [ER.Step(_testhelper_sp([B]), _testhelper_sp([A, B]), [A], ER.Metabolite[],
+                     true)],
+            [ER.Step(_testhelper_sp([B]), _testhelper_sp([Ainh, B]), [Ainh],
+                     ER.Metabolite[], true)],
+        ]
+        @test ER._bottomless_re_segment(inh_steps) !== nothing
+        @test ER._bottomless_re_segment(reverse(inh_steps)) !== nothing
+        @test_throws "rapid-equilibrium segment" @enzyme_mechanism begin
+            substrates: A, B
+            products: P
+            steps: begin
+                E + A <--> E(A)
+                E + B <--> E(B)
+                E(A) + B ⇌ E(A, B)
+                E(B) + A ⇌ E(A, B)
+                E(B) + A::Inh ⇌ E(A::Inh, B)
+                E + P ⇌ E(P)
+                E(A, B) <--> E(P)
+            end
+        end
+
         # Ordered release: the segment {E(P), E(P, Q)} has weights Kq : Q, so
         # E(P) is its bottom form and the rate is defined at zero products.
         m_ordered = @enzyme_mechanism begin
