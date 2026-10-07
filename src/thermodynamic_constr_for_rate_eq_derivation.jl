@@ -113,7 +113,8 @@ _group_rep(group::Vector{Step}, free_enz_set::Set{Symbol}) =
 Reduced row echelon form over `Rational{BigInt}`. Returns the pivot and
 free column indices (pivot_cols in row-pivot order, so pivot_cols[i] is the
 pivot at reduced-matrix row i) plus the reduced matrix R. Used by
-`_rational_nullspace` (nullspace basis) and `_partition_independent_count` (rank).
+`_rational_nullspace` (nullspace basis), `_partition_independent_count` (rank) and
+`_solve_dependent_set` (dependent parameters).
 """
 function _rref_partition(A::AbstractMatrix)
     m, n = size(A)
@@ -380,7 +381,7 @@ function _assemble_constraints(
     # Pivot priority: (is_I_state, type_priority). Lexicographic — an I-state column
     # outranks any A-state / non-allosteric column, so a cross-state affinity split
     # collapses onto the free A-side; within a state the `_step_priority` order holds.
-    # No value is a never-pivot sentinel (that lives only in `_solve_dependent_set`).
+    # No value is a never-pivot sentinel.
     priority = fill((is_i_state, 0), n_vars)
     for j in 1:nsteps
         step = step_params[j][1].step
@@ -524,13 +525,20 @@ end
 
 """
 Solve an assembled constraint system `(A, rhs, columns, priority)` for a
-dependent/independent parameter partition. Gaussian elimination with priority
-pivoting picks, per constraint row, the highest-priority still-unused column as
-the pivot (that column becomes dependent, expressed via the remaining columns);
-every non-pivot column is independent (fitted). A row with no eligible pivot is
-either redundant (`0 = 0`) or a thermodynamic contradiction (`0 = c·log Keq`),
-which errors. Returns `(dep_exprs, indep)`. An empty system (no rows) yields no
-dependents and all columns independent.
+dependent/independent parameter partition. The columns are sorted by priority,
+highest first (every `is_i_state` column ahead of the rest, ties in ascending column
+order), and `[A rhs]` is brought to reduced row echelon form. Each pivot column
+becomes dependent, expressed via the non-pivot columns of its row; every other
+column is independent (fitted). A pivot in the `rhs` column means the rows combine
+to `0 = log Keq`, a thermodynamic contradiction, which errors. Returns
+`(dep_exprs, indep)`. An empty system (no rows) yields no dependents and all
+columns independent.
+
+The pivots are the greedy basis over the sorted columns: a column becomes dependent
+exactly when it is not a linear combination of the higher-priority columns, so the
+constraints eliminate the highest-priority columns they can. Eliminating row by row
+and pivoting each row on its highest-priority remaining column picks the same set,
+and the reduced row echelon form is unique, so the dependent expressions match too.
 """
 function _solve_dependent_set(
     A::AbstractMatrix{Rational{BigInt}},
@@ -538,54 +546,19 @@ function _solve_dependent_set(
     columns::AbstractVector{Symbol},
     priority::AbstractVector{Tuple{Bool, Int}},
 )
-    nc = size(A, 1)
     n_vars = length(columns)
-
-    pivot_entries = Tuple{Int, Int}[]
-    pivot_col_set = Set{Int}()
-    wA, wrhs = copy(A), copy(rhs)
-    for i in 1:nc
-        best_col, best_pri = 0, (false, typemin(Int))
-        for c in 1:n_vars
-            c in pivot_col_set && continue
-            wA[i, c] == 0 && continue
-            if priority[c] > best_pri
-                best_pri = priority[c]
-                best_col = c
-            end
-        end
-        if best_col == 0
-            wrhs[i] == 0 && continue  # redundant constraint (0 = 0)
-            error(
-                "Thermodynamically contradictory mechanism: " *
-                "constraint row $i reduces to " *
-                "0 = $(wrhs[i]) * log(Keq)")
-        end
-        push!(pivot_entries, (i, best_col))
-        push!(pivot_col_set, best_col)
-        pv = wA[i, best_col]
-        wA[i, :] ./= pv
-        wrhs[i] /= pv
-        for r in 1:nc
-            if r != i && wA[r, best_col] != 0
-                f = wA[r, best_col]
-                wA[r, :] .-= f .* wA[i, :]
-                wrhs[r] -= f * wrhs[i]
-            end
-        end
-    end
-
+    order = sortperm(priority; rev = true)
+    pivots, _, R = _rref_partition([A[:, order] rhs])
+    n_vars + 1 in pivots && error(
+        "Thermodynamically contradictory mechanism: a combination of its " *
+        "constraint rows reduces to 0 = log(Keq)")
     dep_exprs = Dict{Symbol, Union{Symbol, Expr}}()
-    for (prow, pcol) in pivot_entries
-        factors = [
-            (columns[c], -wA[prow, c])
-            for c in 1:n_vars
-            if c != pcol && wA[prow, c] != 0
-        ]
-        dep_exprs[columns[pcol]] = build_power_expr(wrhs[prow], factors)
+    for (r, p) in enumerate(pivots)
+        factors = [(columns[order[c]], -R[r, c])
+                   for c in 1:n_vars if c != p && R[r, c] != 0]
+        dep_exprs[columns[order[p]]] = build_power_expr(R[r, n_vars + 1], factors)
     end
-    dep_set = Set(keys(dep_exprs))
-    return dep_exprs, Tuple(p for p in columns if p ∉ dep_set)
+    return dep_exprs, Tuple(p for p in columns if !haskey(dep_exprs, p))
 end
 
 """
