@@ -1692,26 +1692,6 @@ function _make_am_with_added_reg(
 end
 
 """
-    _partial_onlya_catalysis(cat_steps, cat_allo_states) → Bool
-
-True when the inactive conformation catalyzes only partially: some catalytic
-group is `:OnlyA` (a dead binding or chemistry group) while some chemistry
-group (one holding a chemistry step, `_is_chemistry`) is still live (not
-`:OnlyA`). The inactive conformation's catalysis must be all-or-nothing — fully
-dead (every chemistry group `:OnlyA`, whether because an `:OnlyA` binding blocks
-the cycle or by a dead-inactive V-type) or fully live. A partial conformation
-strands enzyme in a covalent form (a kinetic sink) and crashes the
-saturating-turnover extraction. The enumeration moves use this to avoid
-generating such a form.
-"""
-function _partial_onlya_catalysis(cat_steps::Vector{Vector{Step}},
-                                  cat_allo_states::Vector{Symbol})
-    live = any(any(_is_chemistry, cat_steps[g]) && cat_allo_states[g] !== :OnlyA
-               for g in eachindex(cat_steps))
-    live && any(==(:OnlyA), cat_allo_states)
-end
-
-"""
     _expand_change_allo_state(am::AllostericMechanism)
         → Vector{AllostericMechanism}
 
@@ -1725,19 +1705,23 @@ cannot be reached by relaxing chemistry groups one at a time (each mixed
 intermediate is a partial and is dropped). The base catalytic steps,
 multiplicity, and untouched tags are preserved.
 
-Relaxing an `:OnlyA` chemistry group is dropped in two cases. A one-sided
-`:OnlyA` binding is only legal because `k_I = 0`; restoring a finite
-`k_I` strands it, leaving no thermodynamic reading
-(`_onlya_haldane_violation`). More broadly, inactive catalysis must be
-all-or-nothing: a relaxation that leaves the inactive conformation
-catalyzing only partially — some catalytic group `:OnlyA` while a
-chemistry group stays live — is dropped (`_partial_onlya_catalysis`),
-because such a conformation strands enzyme in a covalent form. Relaxing
-an `:OnlyA` binding, or a chemistry group of a fully-live inactive
-conformation, is retained. Where the inactive conformation binds nothing
-(all bindings `:OnlyA`), the dropped partial variant is rate-equivalent
-to the fully-dead form emitted directly, so no observable hypothesis is
-lost.
+The chemistry relaxation is tried only while no binding group is `:OnlyA`. The
+inactive conformation's catalysis must be all-or-nothing — fully dead (every
+chemistry group `:OnlyA`, whether because an `:OnlyA` binding blocks the cycle or by
+a dead-inactive V-type) or fully live — and the relaxation leaves every chemistry
+group live. Beside an `:OnlyA` binding it would leave a partial conformation, which
+strands enzyme in a covalent form (a kinetic sink) and crashes the
+saturating-turnover extraction; a one-sided `:OnlyA` binding, legal only because
+`k_I = 0`, would also be stranded by the restored finite `k_I`, leaving no
+thermodynamic reading (`_onlya_haldane_violation`). Where the inactive conformation
+binds nothing (all bindings `:OnlyA`), the skipped variant is rate-equivalent to the
+fully-dead form emitted directly, so no observable hypothesis is lost.
+
+A binding relaxation is dropped when it leaves an `:OnlyA` binding's cycle
+unsatisfiable (`_onlya_haldane_violation`). It needs no all-or-nothing test: it tags
+no group `:OnlyA` and leaves the chemistry tags alone, so a parent whose inactive
+catalysis is fully dead or fully live stays so. Every mechanism the moves emit is one
+of the two; a hand-built partial parent keeps its partial binding relaxations.
 
 A regulatory ligand's tag is not an argument to the Haldane check — a
 regulator site completes no catalytic cycle — so that branch needs no
@@ -1756,15 +1740,16 @@ function _expand_change_allo_state(am::AllostericMechanism)
     # Inactive catalysis is all-or-nothing, so a fully-`:NonequalAI` catalytic inactive
     # conformation is unreachable by relaxing chemistry groups one at a time — each
     # mixed intermediate is a partial and is dropped. One variant sets every
-    # non-`:NonequalAI` chemistry group to `:NonequalAI` at once.
+    # non-`:NonequalAI` chemistry group to `:NonequalAI` at once, and only while no
+    # binding group is `:OnlyA`, which would leave the inactive catalysis partial.
     relaxations = [[g] for g in eachindex(cs) if !chem[g] && states[g] != :NonequalAI]
-    any(chem .& (states .!= :NonequalAI)) && push!(relaxations, findall(chem))
+    any(chem .& (states .!= :NonequalAI)) && !any(.!chem .& (states .== :OnlyA)) &&
+        push!(relaxations, findall(chem))
     results = AllostericMechanism[]
     for gs in relaxations
         new_states = copy(states)
         new_states[gs] .= :NonequalAI
         _onlya_haldane_violation(reaction(am), cs, new_states) === nothing || continue
-        _partial_onlya_catalysis(cs, new_states) && continue
         push!(results, _with(am; states = new_states))
     end
     for (si, site) in enumerate(regulatory_sites(am)), li in eachindex(ligands(site))

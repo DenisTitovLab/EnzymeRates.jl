@@ -9587,11 +9587,11 @@ end
 @testset "_expand_change_allo_state on a merged uni-uni K-type" begin
     # The fused step E + S → E(P) is the chemistry group. Relaxing P to :NonequalAI
     # keeps the chemistry :OnlyA: the inactive conformation binds P with a constant of
-    # its own and runs no chemistry, a valid child. Relaxing the chemistry restores
-    # inactive catalysis beside the :OnlyA P binding: a partial :OnlyA catalysis
-    # (`_partial_onlya_catalysis`), whose one-sided :OnlyA binding also leaves the
-    # Haldane cycle unsatisfiable once the chemistry is back in the check graph
-    # (`_onlya_haldane_violation`). Dropped: one child.
+    # its own and runs no chemistry, a valid child. The chemistry is not relaxed while
+    # P's binding is :OnlyA: that would restore inactive catalysis beside it, a partial
+    # :OnlyA catalysis whose one-sided :OnlyA binding also leaves the Haldane cycle
+    # unsatisfiable once the chemistry is back in the check graph
+    # (`_onlya_haldane_violation`). One child.
     k_type = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
@@ -10784,9 +10784,9 @@ _testhelper_tags_by_bound_metabolite(x) = Dict(
 
     # Balanced parent: both bindings and the chemical step :OnlyA — the inactive
     # conformation binds nothing (a fully-inert T-state). Relaxing either binding
-    # is retained (it leaves all chemical steps :OnlyA); relaxing the chemical
-    # step is dropped (`_partial_onlya_catalysis`), because an :OnlyA binding
-    # requires a catalytically-dead inactive conformation. That dropped
+    # is retained (it leaves all chemical steps :OnlyA); the chemical step is not
+    # relaxed while a binding is :OnlyA, because an :OnlyA binding requires a
+    # catalytically-dead inactive conformation. That skipped
     # :NonequalAI-chemistry variant is anyway rate-equivalent to this fully-dead
     # form (the inactive binds nothing, so k_I is unobservable), so no hypothesis
     # is lost.
@@ -10921,4 +10921,69 @@ end
     # the one-iso-at-a-time intermediate is a filtered partial.
     @test any(all(EnzymeRates.cat_allo_states(k)[g] === :NonequalAI
                   for g in _testhelper_iso_groups(k)) for k in kids)
+end
+
+@testset "change_allo_state relaxes the bindings of a hand-built partial parent" begin
+    # A partial parent: every binding :OnlyA beside a live chemistry step. The
+    # enumeration never builds one, since every mechanism it emits is fully dead or fully
+    # live in the inactive conformation; this one is written by hand. Each binding
+    # relaxation leaves three :OnlyA bindings of both signs on the catalytic cycle, so
+    # the Haldane check accepts all four. The chemistry relaxation is not tried while a
+    # binding is :OnlyA.
+    partial = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A ⇌ E(A)                :: OnlyA
+            E(A) + B ⇌ E(A, B)          :: OnlyA
+            E(A, B) <--> E(P, Q)        :: EqualAI
+            E(Q) + P ⇌ E(P, Q)          :: OnlyA
+            E + Q ⇌ E(Q)                :: OnlyA
+        end
+    end)
+    a_relaxed = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A ⇌ E(A)                :: NonequalAI
+            E(A) + B ⇌ E(A, B)          :: OnlyA
+            E(A, B) <--> E(P, Q)        :: EqualAI
+            E(Q) + P ⇌ E(P, Q)          :: OnlyA
+            E + Q ⇌ E(Q)                :: OnlyA
+        end
+    end)
+    b_relaxed = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A ⇌ E(A)                :: OnlyA
+            E(A) + B ⇌ E(A, B)          :: NonequalAI
+            E(A, B) <--> E(P, Q)        :: EqualAI
+            E(Q) + P ⇌ E(P, Q)          :: OnlyA
+            E + Q ⇌ E(Q)                :: OnlyA
+        end
+    end)
+    p_relaxed = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A ⇌ E(A)                :: OnlyA
+            E(A) + B ⇌ E(A, B)          :: OnlyA
+            E(A, B) <--> E(P, Q)        :: EqualAI
+            E(Q) + P ⇌ E(P, Q)          :: NonequalAI
+            E + Q ⇌ E(Q)                :: OnlyA
+        end
+    end)
+    q_relaxed = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A ⇌ E(A)                :: OnlyA
+            E(A) + B ⇌ E(A, B)          :: OnlyA
+            E(A, B) <--> E(P, Q)        :: EqualAI
+            E(Q) + P ⇌ E(P, Q)          :: OnlyA
+            E + Q ⇌ E(Q)                :: NonequalAI
+        end
+    end)
+    kids = EnzymeRates._expand_change_allo_state(partial)
+    @test length(kids) == 4
+    @test Set(kids) == Set([a_relaxed, b_relaxed, p_relaxed, q_relaxed])
+    # expand_mechanisms passes them on.
+    @test issubset(kids,
+                   EnzymeRates.expand_mechanisms([partial], EnzymeRates.reaction(partial)))
 end
