@@ -1833,8 +1833,11 @@ end
 
 @testset "AllostericMechanism — uni-uni RE→SS flips one group and preserves the tags" begin
     # Each seed is a uni-uni allosteric mechanism whose two binding groups are all-RE and
-    # whose isomerization is SS: _expand_re_to_ss fires per all-RE group → 2 variants.
-    for (am, deltas) in [
+    # whose isomerization is SS: _expand_re_to_ss fires per all-RE group → 2 variants,
+    # one with the P binding steady state and one with the S binding steady state, each
+    # keeping every tag.
+    allo(em) = EnzymeRates.AllostericMechanism(em)
+    for (am, deltas, expected) in [
         # :EqualAI groups. Each converted group stays :EqualAI (RE K → SS (kf, kr),
         # shared R/T). Cheap-tag RE→SS adds 1 fitted param per variant (no separate
         # T-state pair).
@@ -1847,7 +1850,27 @@ end
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: EqualAI
             end
-        end), [1, 1]),
+        end), [1, 1], [
+            allo(@allosteric_mechanism begin
+                substrates: S
+                products: P
+                catalytic_multiplicity: 2
+                catalytic_steps: begin
+                    E + P <--> E(P)   :: EqualAI
+                    E + S ⇌ E(S)      :: EqualAI
+                    E(S) <--> E(P)    :: EqualAI
+                end
+            end),
+            allo(@allosteric_mechanism begin
+                substrates: S
+                products: P
+                catalytic_multiplicity: 2
+                catalytic_steps: begin
+                    E + P ⇌ E(P)      :: EqualAI
+                    E + S <--> E(S)   :: EqualAI
+                    E(S) <--> E(P)    :: EqualAI
+                end
+            end)]),
         # Both binding groups :OnlyA (a balanced substrate/product pair, so the
         # mechanism is Haldane-valid) and :EqualAI catalysis. :OnlyA groups live in the
         # R-state only; the T-state contributes no kf_T/kr_T after RE→SS. The move MUST
@@ -1869,7 +1892,27 @@ end
                 E + S ⇌ E(S)      :: OnlyA
                 E(S) <--> E(P)    :: EqualAI
             end
-        end), [1, 1]),
+        end), [1, 1], [
+            allo(@allosteric_mechanism begin
+                substrates: S
+                products: P
+                catalytic_multiplicity: 2
+                catalytic_steps: begin
+                    E + P <--> E(P)   :: OnlyA
+                    E + S ⇌ E(S)      :: OnlyA
+                    E(S) <--> E(P)    :: EqualAI
+                end
+            end),
+            allo(@allosteric_mechanism begin
+                substrates: S
+                products: P
+                catalytic_multiplicity: 2
+                catalytic_steps: begin
+                    E + P ⇌ E(P)      :: OnlyA
+                    E + S <--> E(S)   :: OnlyA
+                    E(S) <--> E(P)    :: EqualAI
+                end
+            end)]),
         # One :NonequalAI group (S-binding), the others :EqualAI. When RE→SS converts a
         # :NonequalAI group, BOTH the R-state K and the T-state K_T must split into
         # (kf, kr) and (kf_T, kr_T): P-binding :EqualAI → +1; S-binding :NonequalAI → +2.
@@ -1883,7 +1926,27 @@ end
                 E + S ⇌ E(S)      :: NonequalAI
                 E(S) <--> E(P)    :: EqualAI
             end
-        end), [1, 2]),
+        end), [1, 2], [
+            allo(@allosteric_mechanism begin
+                substrates: S
+                products: P
+                catalytic_multiplicity: 2
+                catalytic_steps: begin
+                    E + P <--> E(P)   :: EqualAI
+                    E + S ⇌ E(S)      :: NonequalAI
+                    E(S) <--> E(P)    :: EqualAI
+                end
+            end),
+            allo(@allosteric_mechanism begin
+                substrates: S
+                products: P
+                catalytic_multiplicity: 2
+                catalytic_steps: begin
+                    E + P ⇌ E(P)      :: EqualAI
+                    E + S <--> E(S)   :: NonequalAI
+                    E(S) <--> E(P)    :: EqualAI
+                end
+            end)]),
         # Every group :NonequalAI — a distinguishable mechanism (an all-:EqualAI seed, the
         # first entry above, is a model-space no-op that is never enumerated; the move is
         # still tested on it). :NonequalAI RE→SS adds 2 fitted params per variant (the A-
@@ -1897,11 +1960,32 @@ end
                 E + P ⇌ E(P)    :: NonequalAI
                 E(S) <--> E(P)  :: NonequalAI
             end
-        end), [2, 2]),
+        end), [2, 2], [
+            allo(@allosteric_mechanism begin
+                substrates: S
+                products: P
+                catalytic_multiplicity: 2
+                catalytic_steps: begin
+                    E + P <--> E(P)   :: NonequalAI
+                    E + S ⇌ E(S)      :: NonequalAI
+                    E(S) <--> E(P)    :: NonequalAI
+                end
+            end),
+            allo(@allosteric_mechanism begin
+                substrates: S
+                products: P
+                catalytic_multiplicity: 2
+                catalytic_steps: begin
+                    E + P ⇌ E(P)      :: NonequalAI
+                    E + S <--> E(S)   :: NonequalAI
+                    E(S) <--> E(P)    :: NonequalAI
+                end
+            end)]),
     ]
         _testhelper_assert_mechanism_invariants(am)
         result = EnzymeRates._expand_re_to_ss(am)
         @test length(result) == 2
+        @test Set(result) == Set(expected)
         @test _testhelper_param_deltas(am, result) == deltas
         for r in result
             _testhelper_assert_mechanism_invariants(r)
@@ -2543,8 +2627,13 @@ end
 @testset "_expand_add_dead_end_regulator" begin
 
 @testset "Mechanism — bi-bi + I: variants" begin
-    for (em_seed, rxn, n_variants, multi_form) in [
-        # SEED: bi-bi sequential. The expansion should produce 4 form sets after dedup.
+    # Each child is the seed with the foreign inhibitor I bound at the forms of one
+    # competition pattern's placement, plus a mirror of every seed step that joins two
+    # of those forms in that step's group. I has no productive twin, so every placement
+    # is kept.
+    for (em_seed, rxn, n_variants, multi_form, expected) in [
+        # SEED: bi-bi sequential. The expansion should produce 4 form sets after dedup:
+        # {E, E(Q)}, {E}, {E(A), E(Q)} and {E, E(A)}.
         (@enzyme_mechanism(begin
             substrates: A, B
             products: P, Q
@@ -2559,10 +2648,55 @@ end
             substrates: A[C], B[N]
             products: P[C], Q[N]
             dead_end_inhibitors: I
-        end), 4, false),
+        end), 4, false, [
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    E + A ⇌ E(A)
+                    E(A) + B ⇌ E(A, B)
+                    (E + Q ⇌ E(Q), E(I) + Q ⇌ E(I, Q))
+                    E(Q) + P ⇌ E(P, Q)
+                    E(A, B) <--> E(P, Q)
+                    (E + I ⇌ E(I), E(Q) + I ⇌ E(I, Q))
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    E + A ⇌ E(A)
+                    E(A) + B ⇌ E(A, B)
+                    E + Q ⇌ E(Q)
+                    E(Q) + P ⇌ E(P, Q)
+                    E(A, B) <--> E(P, Q)
+                    E + I ⇌ E(I)
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    E + A ⇌ E(A)
+                    E(A) + B ⇌ E(A, B)
+                    E + Q ⇌ E(Q)
+                    E(Q) + P ⇌ E(P, Q)
+                    E(A, B) <--> E(P, Q)
+                    (E(A) + I ⇌ E(A, I), E(Q) + I ⇌ E(I, Q))
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    (E + A ⇌ E(A), E(I) + A ⇌ E(A, I))
+                    E(A) + B ⇌ E(A, B)
+                    E + Q ⇌ E(Q)
+                    E(Q) + P ⇌ E(P, Q)
+                    E(A, B) <--> E(P, Q)
+                    (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))
+                end
+            end)]),
         # SEED: bi-bi random. It has 5 eligible forms (E, E_A, E_B, E_P, E_Q);
         # competition patterns × dedup → 9 variants. Some variants bind I at several
-        # forms.
+        # forms: {E, E(B), E(Q)}, {E, E(B), E(P)}, {E, E(B)}, {E, E(A), E(Q)},
+        # {E, E(A), E(P)}, {E, E(A)}, {E, E(Q)}, {E, E(P)} and {E}.
         (@enzyme_mechanism(begin
             substrates: A, B
             products: P, Q
@@ -2577,9 +2711,108 @@ end
             substrates: A[C], B[N]
             products: P[C], Q[N]
             dead_end_inhibitors: I
-        end), 9, true),
+        end), 9, true, [
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(I) + B ⇌ E(B, I))
+                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(I) + Q ⇌ E(I, Q))
+                    E(A, B) <--> E(P, Q)
+                    (E + I ⇌ E(I), E(B) + I ⇌ E(B, I), E(Q) + I ⇌ E(I, Q))
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(I) + B ⇌ E(B, I))
+                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(I) + P ⇌ E(I, P))
+                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                    E(A, B) <--> E(P, Q)
+                    (E + I ⇌ E(I), E(B) + I ⇌ E(B, I), E(P) + I ⇌ E(I, P))
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(I) + B ⇌ E(B, I))
+                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                    E(A, B) <--> E(P, Q)
+                    (E + I ⇌ E(I), E(B) + I ⇌ E(B, I))
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(I) + A ⇌ E(A, I))
+                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(I) + Q ⇌ E(I, Q))
+                    E(A, B) <--> E(P, Q)
+                    (E + I ⇌ E(I), E(A) + I ⇌ E(A, I), E(Q) + I ⇌ E(I, Q))
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(I) + A ⇌ E(A, I))
+                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(I) + P ⇌ E(I, P))
+                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                    E(A, B) <--> E(P, Q)
+                    (E + I ⇌ E(I), E(A) + I ⇌ E(A, I), E(P) + I ⇌ E(I, P))
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(I) + A ⇌ E(A, I))
+                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                    E(A, B) <--> E(P, Q)
+                    (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(I) + Q ⇌ E(I, Q))
+                    E(A, B) <--> E(P, Q)
+                    (E + I ⇌ E(I), E(Q) + I ⇌ E(I, Q))
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(I) + P ⇌ E(I, P))
+                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                    E(A, B) <--> E(P, Q)
+                    (E + I ⇌ E(I), E(P) + I ⇌ E(I, P))
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                    E(A, B) <--> E(P, Q)
+                    E + I ⇌ E(I)
+                end
+            end)]),
         # SEED: bi-bi ping-pong with Estar. It has 4 eligible forms (E, E_A, Estar,
-        # E_Q); competition patterns × dedup → 3 variants.
+        # E_Q); competition patterns × dedup → 3 variants: {E, Estar}, {E} and {Estar}.
         (@enzyme_mechanism(begin
             substrates: A, B
             products: P, Q
@@ -2595,15 +2828,52 @@ end
             substrates: A[CX], B[N]
             products: P[C], Q[NX]
             dead_end_inhibitors: I
-        end), 3, false),
+        end), 3, false, [
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    E + A ⇌ E(A)
+                    Estar + B ⇌ Estar(B)
+                    E + Q ⇌ E(Q)
+                    Estar + P ⇌ Estar(P)
+                    E(A) <--> Estar(P)
+                    Estar(B) ⇌ E(Q)
+                    (E + I ⇌ E(I), Estar + I ⇌ Estar(I))
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    E + A ⇌ E(A)
+                    Estar + B ⇌ Estar(B)
+                    E + Q ⇌ E(Q)
+                    Estar + P ⇌ Estar(P)
+                    E(A) <--> Estar(P)
+                    Estar(B) ⇌ E(Q)
+                    E + I ⇌ E(I)
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B; products: P, Q; regulators: I
+                steps: begin
+                    E + A ⇌ E(A)
+                    Estar + B ⇌ Estar(B)
+                    E + Q ⇌ E(Q)
+                    Estar + P ⇌ Estar(P)
+                    E(A) <--> Estar(P)
+                    Estar(B) ⇌ E(Q)
+                    Estar + I ⇌ Estar(I)
+                end
+            end)]),
     ]
         m = EnzymeRates.Mechanism(em_seed)
         _testhelper_assert_mechanism_invariants(m)
 
         result = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
 
-        # 1. count
+        # 1. count and the exact children
         @test length(result) == n_variants
+        @test Set(result) == Set(_testhelper_on_reaction(rxn, em) for em in expected)
 
         # 2. Δ params: +1 each (one new K_I parameter), measured against ground-truth
         # `fitted_params(compile_mechanism(...))` — the canonical source for exact
@@ -4508,11 +4778,86 @@ end
     result = EnzymeRates._expand_add_allosteric_regulator(
         am, uni_uni_allo_2reg)
 
+    # The exact children: R2 on a site of its own as :OnlyA, :OnlyI or :NonequalAI, and
+    # on R1's :OnlyA site as :OnlyA, :NonequalAI or :EqualAI.
+    allo(em) = EnzymeRates.AllostericMechanism(em)
+    expected = [
+        allo(@allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R1::OnlyA, R2::OnlyA
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E(P)    :: EqualAI
+                E + S ⇌ E(S)    :: EqualAI
+                E(S) <--> E(P)  :: EqualAI
+            end
+        end),
+        allo(@allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R1::OnlyA, R2::OnlyI
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E(P)    :: EqualAI
+                E + S ⇌ E(S)    :: EqualAI
+                E(S) <--> E(P)  :: EqualAI
+            end
+        end),
+        allo(@allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R1::OnlyA, R2::NonequalAI
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E(P)    :: EqualAI
+                E + S ⇌ E(S)    :: EqualAI
+                E(S) <--> E(P)  :: EqualAI
+            end
+        end),
+        allo(@allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R1::OnlyA, R2::OnlyA
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E(P)    :: EqualAI
+                E + S ⇌ E(S)    :: EqualAI
+                E(S) <--> E(P)  :: EqualAI
+            end
+            regulatory_site(multiplicity = 2): begin
+                ligands: R1, R2
+            end
+        end),
+        allo(@allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R1::OnlyA, R2::NonequalAI
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E(P)    :: EqualAI
+                E + S ⇌ E(S)    :: EqualAI
+                E(S) <--> E(P)  :: EqualAI
+            end
+            regulatory_site(multiplicity = 2): begin
+                ligands: R1, R2
+            end
+        end),
+        allo(@allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R1::OnlyA, R2::EqualAI
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E(P)    :: EqualAI
+                E + S ⇌ E(S)    :: EqualAI
+                E(S) <--> E(P)  :: EqualAI
+            end
+            regulatory_site(multiplicity = 2): begin
+                ligands: R1, R2
+            end
+        end)]
+
     # 1. count: 3 non-:EqualAI tag flavors × 2 site options (new + R1's
     # existing) = 6, minus the redundant :OnlyI-onto-R1's-:OnlyA-site
     # append (disjoint conformations) = 5. Plus 1 :EqualAI-at-existing
     # variant (gated on R1 being non-:EqualAI). → 6.
     @test length(result) == 6
+    @test Set(result) == Set(expected)
 
     # 2. Δ params: four variants add one parameter (:OnlyA new/existing,
     # :OnlyI new, and the :EqualAI-at-existing one), two :NonequalAI
