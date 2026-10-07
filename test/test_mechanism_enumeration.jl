@@ -586,6 +586,16 @@ end
     @test all(count(EnzymeRates.is_iso, t) >= 2 for t in topos)
 end
 
+@testset "uni-quad: no admissible catalytic cycle throws" begin
+    # One isomerization would have to give off all four products (C6), and one that
+    # gives off fewer leaves a covalent residue after the last substrate has bound.
+    uni_quad_rxn = @enzyme_reaction begin
+        substrates: S[CNOX]
+        products: P[C], Q[N], R[O], T[X]
+    end
+    @test_throws "no catalytic cycle" EnzymeRates.init_mechanisms(uni_quad_rxn)
+end
+
 end
 
 # ─── _competition_patterns ──────────────────────────────────────────────

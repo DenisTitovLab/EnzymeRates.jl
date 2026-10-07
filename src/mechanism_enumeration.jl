@@ -108,7 +108,7 @@ end
 
 Build catalytic cycle topologies by constructive backtracking.
 Each topology is a set of steps forming one or more complete
-catalytic cycles (E -> ... -> E).
+catalytic cycles (E -> ... -> E). Errors when the reaction has none.
 """
 function _catalytic_topologies(reaction::EnzymeReaction)
     sub_names = Symbol[name(s) for s in substrates(reaction)]
@@ -232,6 +232,9 @@ function _catalytic_topologies(reaction::EnzymeReaction)
                                for (i, s) in enumerate(steps)])
         end
     end
+    isempty(result) && error("no catalytic cycle for $(reaction): every route needs an " *
+                             "isomerization converting more than three substrates or " *
+                             "products at once")
     result
 end
 
@@ -2130,7 +2133,8 @@ flag collapsed into one kinetic group (`_seed_groups`). Dead-end
 enumeration respects `shared_catalytic_site`. The variants of each seed
 (`_seed_variants`) follow in the seeds' order, each once. The parameter counts
 are mixed: a three-group merged variant or a decorated Theorell–Chance variant
-fits more parameters than its seed, a merged ping-pong variant fewer.
+fits more parameters than its seed, a merged ping-pong variant fewer. Errors when
+the reaction has no catalytic topology.
 """
 function init_mechanisms(r::EnzymeReaction)
     seeds = _expand_substrate_product_dead_ends(_catalytic_topologies(r), r)
