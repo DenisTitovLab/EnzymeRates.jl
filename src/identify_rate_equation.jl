@@ -410,48 +410,57 @@ function _best_loss_line(best_loss_by_count::Dict{Int,Float64}, improved::Set{In
 end
 
 """
-PASS-1: skip mechanisms already produced in an earlier batch (a mechanism whose
-structural `hash` is already in `fitted` is dropped before compiling; `fitted`
-gets every structure on first sight regardless of outcome). Compile, cap-check
-(`max_param_count`), and render every fresh mechanism in parallel (`pmap`) to
-get its `eq_hash`; a mechanism over `eq_complexity_filter` or `max_param_count`
-is recorded as a skip in `compiled`, not fit. Then pick one fit representative
-per `eq_hash` not already in `memo`. `mechs` is already structurally deduped by
-the caller (`unique!`). Returns `(compiled, reps, rep_idx, n_fitted_skip,
-n_param_skip, n_cx_skip)`.
+Fit one batch of mechanisms. Returns `(entries, failures, n_param_skip, n_cx_skip,
+n_seen_skip)`.
+
+PASS-1: skip mechanisms already produced, in an earlier batch or earlier in this one (a
+mechanism whose structural `hash` is already in `seen` is dropped before compiling;
+`seen` gets every structure on first sight regardless of outcome). Compile, cap-check
+(`max_param_count`), and render every fresh mechanism in parallel (`pmap`) to get its
+`eq_hash`; a mechanism over `eq_complexity_filter` or `max_param_count` is recorded as a
+skip, not fit. Then pick one fit representative per `eq_hash` not already in `memo`, and
+pass the pre-fit summary (`_prefit_summary`) to `log`. `mechs` is already structurally
+deduped by the caller (`unique!`).
+
+PASS-2: fit ONE representative per `eq_hash` not already in `memo`, in parallel across
+all workers (`pmap`); the fit is stored in `memo` and copied to every mechanism sharing
+that `eq_hash` — same equation ⟹ same fitted params and same rescaling, so no refit is
+needed. `memo` persists across iterations (threaded from `_beam_search`), so an equation
+fit in an earlier iteration is never refit. A representative whose fit throws fails ALL
+of its duplicates (all-or-nothing per equation). `fit_inherited` is `false` for the
+representative actually fit this batch, `true` for every reused row. `parent_of` maps a
+child to its parent's `BatchEntry`, which fills the row's parent columns.
+`entries::Vector{BatchEntry}` are the mechanisms with a usable fit (each keeping its own
+row, `retcode`, and `eq_hash`); `failures::Vector{FitFailure}` are mechanisms that threw
+at compile/render/fit — captured WITH the exception text, never silently swallowed.
 """
-function _compile_batch(
+function _process_batch(
     mechs, prob::IdentifyRateEquationProblem;
-    max_param_count, eq_complexity_filter::Int = typemax(Int),
+    optimizer, max_param_count, eq_complexity_filter::Int = typemax(Int),
     memo::Dict{UInt64,NamedTuple}=Dict{UInt64,NamedTuple}(),
-    fitted::Set{UInt64}=Set{UInt64}(),
+    seen::Set{UInt64}=Set{UInt64}(),
+    parent_of::AbstractDict = Dict(), log = msg -> nothing, kwargs...
 )
-    # Skip structures already produced in an earlier batch — expand each once.
-    # Added to `fitted` on first sight regardless of outcome (fit / cap / error).
+    # Skip structures already produced — expand each once. Added to `seen` on first
+    # sight regardless of outcome (fit / cap / error).
     fresh = empty(mechs)
-    n_fitted_skip = 0
     for m in mechs
         h = hash(m)
-        if h in fitted
-            n_fitted_skip += 1
-        else
-            push!(fitted, h)
-            push!(fresh, m)
-        end
+        h in seen || (push!(seen, h); push!(fresh, m))
     end
 
     # PASS 1 (workers): complexity-cap + compile + param-cap + render.
     # `:complexity_skip` = over eq_complexity_filter (checked first, before any
-    # derivation); `nothing` = over max_param_count; `FitFailure` = threw; else a
+    # derivation); `:param_skip` = over max_param_count; `FitFailure` = threw; else a
     # record with everything the row needs + `eq_hash`.
     compiled = pmap(fresh) do m
         try
             _eq_complexity(m) > eq_complexity_filter && return :complexity_skip
             em = compile_mechanism(m)
             fkeys = fitted_params(em)
-            length(fkeys) > max_param_count && return nothing
+            length(fkeys) > max_param_count && return :param_skip
             eq_text = rate_equation_string(em)
-            (mech = m, orig = m, n_params = length(fkeys),
+            (mech = m, n_params = length(fkeys),
              mechanism_type = string(typeof(em)),
              eq_text = eq_text, eq_hash = _rate_eq_dedup_key(eq_text))
         catch e
@@ -462,35 +471,18 @@ function _compile_batch(
     # Pick one representative per `eq_hash` not already fit.
     rep_idx = Dict{UInt64,Int}()
     for (i, c) in enumerate(compiled)
-        c isa NamedTuple || continue
-        (haskey(memo, c.eq_hash) || haskey(rep_idx, c.eq_hash)) && continue
-        rep_idx[c.eq_hash] = i
+        c isa NamedTuple && !haskey(memo, c.eq_hash) && get!(rep_idx, c.eq_hash, i)
     end
     reps = [(mech = compiled[i].mech, eq_hash = compiled[i].eq_hash)
             for i in values(rep_idx)]
-    (compiled, reps, rep_idx, n_fitted_skip,
-     count(x -> x === nothing, compiled),          # param-count skips
-     count(x -> x === :complexity_skip, compiled)) # complexity skips
-end
+    n_param_skip = count(==(:param_skip), compiled)
+    n_cx_skip = count(==(:complexity_skip), compiled)
+    n_seen_skip = length(mechs) - length(fresh)
+    log(_prefit_summary(length(reps),
+        count(c -> c isa NamedTuple, compiled) - length(reps),
+        n_param_skip, n_cx_skip, n_seen_skip; max_param_count, eq_complexity_filter))
 
-"""
-PASS-2: fit ONE representative per `eq_hash` not already in `memo`, in parallel
-across all workers (`pmap`); the fit is stored in `memo` and copied to every
-mechanism sharing that `eq_hash` — same equation ⟹ same fitted params and same
-rescaling, so no refit is needed. `memo` persists across iterations (threaded
-from `_beam_search`), so an equation fit in an earlier iteration is never
-refit. A representative whose fit throws fails ALL of its duplicates
-(all-or-nothing per equation). `fit_inherited` is `false` for the
-representative actually fit this batch, `true` for every reused row. Returns
-`(entries, failures)`: `entries::Vector{BatchEntry}` are the mechanisms with a
-usable fit (each keeping its own row, `retcode`, and `eq_hash`);
-`failures::Vector{FitFailure}` are mechanisms that threw at compile/render/fit
-— captured WITH the exception text, never silently swallowed.
-"""
-function _fit_batch(compiled, reps, rep_idx::Dict{UInt64,Int},
-    prob::IdentifyRateEquationProblem, memo::Dict{UInt64,NamedTuple};
-    optimizer, parent_of::AbstractDict = Dict(), kwargs...)
-    # Fit them in PARALLEL (`pmap`) — fitting dominates cost, so it must run
+    # PASS 2: fit them in PARALLEL (`pmap`) — fitting dominates cost, so it must run
     # across all workers.
     rep_fits = pmap(reps) do r
         try
@@ -512,16 +504,16 @@ function _fit_batch(compiled, reps, rep_idx::Dict{UInt64,Int},
     failures = FitFailure[]
     emitted_eq_hashes = Set{UInt64}()
     for c in compiled
-        (c === nothing || c === :complexity_skip) && continue    # cap skip
+        c isa Symbol && continue                     # cap skip
         c isa FitFailure && (push!(failures, c); continue)
         if haskey(fit_error, c.eq_hash)              # representative fit threw
-            push!(failures, FitFailure(c.orig, fit_error[c.eq_hash]))
+            push!(failures, FitFailure(c.mech, fit_error[c.eq_hash]))
             continue
         end
         fit = memo[c.eq_hash]
         inherited = !haskey(rep_idx, c.eq_hash) || (c.eq_hash in emitted_eq_hashes)
         push!(emitted_eq_hashes, c.eq_hash)
-        parent = get(parent_of, c.orig, nothing)
+        parent = get(parent_of, c.mech, nothing)
         row = (
             n_params = c.n_params,
             parent_n_params = parent === nothing ? missing : parent.n_params,
@@ -539,21 +531,7 @@ function _fit_batch(compiled, reps, rep_idx::Dict{UInt64,Int},
         push!(entries, BatchEntry(c.mech, c.n_params, fit.loss, fit.retcode,
                                   c.eq_hash, row))
     end
-    (entries, failures)
-end
-
-function _process_batch(
-    mechs, prob::IdentifyRateEquationProblem;
-    optimizer, max_param_count, eq_complexity_filter::Int = typemax(Int),
-    memo::Dict{UInt64,NamedTuple}=Dict{UInt64,NamedTuple}(),
-    fitted::Set{UInt64}=Set{UInt64}(),
-    parent_of::AbstractDict = Dict(), kwargs...
-)
-    compiled, reps, rep_idx, n_fitted_skip, n_param_skip, n_cx_skip =
-        _compile_batch(mechs, prob; max_param_count, eq_complexity_filter, memo, fitted)
-    entries, failures = _fit_batch(compiled, reps, rep_idx, prob, memo;
-        optimizer, parent_of, kwargs...)
-    (entries, failures, n_param_skip, n_cx_skip, n_fitted_skip)
+    (entries, failures, n_param_skip, n_cx_skip, n_seen_skip)
 end
 
 """
@@ -713,11 +691,31 @@ function _beam_search(
     # old code selected on a later re-production it would already have selected
     # on the first. If `_select_count!` ever gains a non-monotone budget, this
     # invariant breaks.
-    fitted = Set{UInt64}()
+    seen = Set{UInt64}()
+
+    progress(msg) = _progress(save_dir, show_progress, msg)
+    # Fit one batch and record it: log `header` with the pre-fit summary, write the
+    # rows to `csv`, fold the entries into the search state, and log the post-fit
+    # summary. Returns `(entries, failures)`, or `nothing`, writing no CSV, when the
+    # batch has no rows.
+    function run_batch!(mechs, extra_failures, header, csv; parent_of = Dict())
+        entries, failures = _process_batch(mechs, prob; optimizer, max_param_count,
+            eq_complexity_filter, memo, seen, parent_of,
+            log = msg -> progress(header * "\n  " * msg), kwargs...)
+        append!(failures, extra_failures)
+        isempty(entries) && isempty(failures) && return nothing
+        _write_rows_csv(save_dir, csv,
+            vcat([e.row for e in entries], [_failure_row(f) for f in failures]))
+        improved = _ingest!(frontier, cv_pool, best_loss_by_count, entries;
+                            n_cv_candidates)
+        progress(string("  ", _postfit_summary(entries, failures),
+                        "\n  ", _best_loss_line(best_loss_by_count, improved)))
+        (entries, failures)
+    end
 
     # ── Base tier: fit every seed, with each degenerate seed replaced by its
     # non-degenerate flip children (`_base_tier`; no bucketing — siblings) ──
-    _progress(save_dir, show_progress, "Enumerating initial mechanisms…")
+    progress("Enumerating initial mechanisms…")
     required_allo, required_comp = _required_regulators(
         prob.reaction, optional_allosteric_regulators,
         optional_competitive_inhibitors)
@@ -726,39 +724,19 @@ function _beam_search(
         unique!(collect(seed_mechanisms(
             prob.reaction, required_allo, required_comp)))
     base, base_expand_failures = _base_tier(seeds, prob.reaction)
-    compiled, reps, rep_idx, n_base_fitted_skip, n_base_param_skip, n_base_cx_skip =
-        _compile_batch(base, prob; max_param_count, eq_complexity_filter, memo, fitted)
-    n_base_nt = count(c -> c isa NamedTuple, compiled)
-    _progress(save_dir, show_progress, string(
-        "Fitting $(length(base)) initial mechanisms…\n  ",
-        _prefit_summary(length(reps), n_base_nt - length(reps),
-            n_base_param_skip, n_base_cx_skip, n_base_fitted_skip;
-            max_param_count, eq_complexity_filter)))
-    base_entries, base_failures = _fit_batch(compiled, reps, rep_idx, prob, memo;
-        optimizer, kwargs...)
     # A degenerate seed's expansion error is recorded like a fit failure (a row of
     # initial_mechanisms.csv and the errored bucket).
-    append!(base_failures, base_expand_failures)
-    if isempty(base_entries)
-        isempty(base_failures) && return (
-            Union{Mechanism, AllostericMechanism}[],
-            _rows_to_dataframe(NamedTuple[]))
-        _write_rows_csv(save_dir, "initial_mechanisms.csv",
-            [_failure_row(f) for f in base_failures])
-        error("Every base-tier fit failed ($(length(base_failures)) " *
-              "mechanisms; failure rows written to " *
-              "$(joinpath(save_dir, "initial_mechanisms.csv"))). This usually " *
-              "indicates an optimizer/solver configuration problem (e.g. an " *
-              "unsupported kwarg). First failure: $(base_failures[1].error)")
-    end
-    _write_rows_csv(save_dir, "initial_mechanisms.csv",
-        vcat([e.row for e in base_entries],
-             [_failure_row(f) for f in base_failures]))
-    improved = _ingest!(frontier, cv_pool, best_loss_by_count,
-                        base_entries; n_cv_candidates)
-    _progress(save_dir, show_progress, string(
-        "Base tier: ", _postfit_summary(base_entries, base_failures),
-        "\n  ", _best_loss_line(best_loss_by_count, improved)))
+    base_batch = run_batch!(base, base_expand_failures,
+        "Fitting $(length(base)) initial mechanisms…", "initial_mechanisms.csv")
+    base_batch === nothing && return (
+        Union{Mechanism, AllostericMechanism}[], _rows_to_dataframe(NamedTuple[]))
+    base_entries, base_failures = base_batch
+    isempty(base_entries) && error(
+        "Every base-tier fit failed ($(length(base_failures)) " *
+        "mechanisms; failure rows written to " *
+        "$(joinpath(save_dir, "initial_mechanisms.csv"))). This usually " *
+        "indicates an optimizer/solver configuration problem (e.g. an " *
+        "unsupported kwarg). First failure: $(base_failures[1].error)")
 
     # ── Advancing-target sweep over actual param counts ──
     iteration = 0
@@ -776,68 +754,30 @@ function _beam_search(
                 min_beam_width)
             append!(to_expand, entries_at_count[sel])
         end
+        isempty(to_expand) && continue
 
-        if !isempty(to_expand)
-            # Expand each parent and record which parent produced each child
-            # (first parent wins on structural dedup, matching `unique!`), so the
-            # saved CSV can carry the parent's round-trippable mechanism type and
-            # parameter count for diagnosing per-move parameter changes. The
-            # parent's `mechanism_type` is already on its `BatchEntry.row`, so no
-            # recompile. Typed for dispatch: expand_mechanisms needs a concrete
-            # Vector{<:Union{Mechanism, AllostericMechanism}} eltype.
-            children, parent_of, expand_failures =
-                _expand_parents(to_expand, prob.reaction)
-            compiled, reps, rep_idx, n_child_fitted_skip, n_child_param_skip,
-                n_child_cx_skip = _compile_batch(
-                    children, prob; max_param_count, eq_complexity_filter, memo, fitted)
-            n_child_nt   = count(c -> c isa NamedTuple, compiled)
-            n_child_fail = count(c -> c isa FitFailure, compiled)
-            if n_child_nt > 0 || n_child_fail > 0 || !isempty(expand_failures)
-                # Count only iterations that produced rows, so the
-                # equation_search_iteration_N CSVs are gap-free. `iteration` is a
-                # 1-based sequential counter, NOT a parameter count — the real
-                # fitted count is the `n_params` column of each row.
-                iteration += 1
-                np_range = n_child_nt == 0 ? "n/a" :
-                    let ns = [c.n_params for c in compiled if c isa NamedTuple],
-                        lo = minimum(ns), hi = maximum(ns)
-                        lo == hi ? string(lo) : "$lo-$hi"
-                    end
-                _progress(save_dir, show_progress, string(
-                    "Iteration $iteration (child n_params $np_range): ",
-                    length(to_expand), " parents → ", length(children),
-                    " children\n  ",
-                    _prefit_summary(length(reps),
-                        n_child_nt - length(reps), n_child_param_skip,
-                        n_child_cx_skip, n_child_fitted_skip;
-                        max_param_count, eq_complexity_filter)))
-                child_entries, child_failures = _fit_batch(compiled, reps, rep_idx,
-                    prob, memo; optimizer, parent_of, kwargs...)
-                # A per-parent expansion error is recorded like a fit failure (CSV row
-                # + the errored bucket), so a bug in an expansion move flags itself in
-                # the search output instead of aborting the whole run.
-                append!(child_failures, expand_failures)
-                _write_rows_csv(save_dir, "equation_search_iteration_$(iteration).csv",
-                    vcat([e.row for e in child_entries],
-                         [_failure_row(f) for f in child_failures]))
-                improved = _ingest!(frontier, cv_pool, best_loss_by_count,
-                                    child_entries; n_cv_candidates)
-                _progress(save_dir, show_progress, string("  ",
-                    _postfit_summary(child_entries, child_failures),
-                    "\n  ", _best_loss_line(best_loss_by_count, improved)))
-            elseif !isempty(children)
-                # Whole batch cap-skipped (param count and/or complexity) or
-                # already fit, so it produced no rows and no CSV. Report it
-                # anyway; don't bump the iteration counter, since there are no
-                # rows to save.
-                _progress(save_dir, show_progress, string(
-                    "Expanded ", length(to_expand), " parents → ",
-                    length(children), " children | all skipped (",
-                    n_child_fitted_skip, " already fit, ",
-                    n_child_param_skip, " >", max_param_count, " params, ",
-                    n_child_cx_skip, " >", eq_complexity_filter, " complexity)"))
-            end
-        end
+        # Expand each parent and record which parent produced each child
+        # (first parent wins on structural dedup, matching `unique!`), so the
+        # saved CSV can carry the parent's round-trippable mechanism type and
+        # parameter count for diagnosing per-move parameter changes. The
+        # parent's `mechanism_type` is already on its `BatchEntry.row`, so no
+        # recompile. Typed for dispatch: expand_mechanisms needs a concrete
+        # Vector{<:Union{Mechanism, AllostericMechanism}} eltype.
+        children, parent_of, expand_failures =
+            _expand_parents(to_expand, prob.reaction)
+        # A per-parent expansion error is recorded like a fit failure (CSV row
+        # + the errored bucket), so a bug in an expansion move flags itself in
+        # the search output instead of aborting the whole run. Count only
+        # iterations that produced rows, so the equation_search_iteration_N CSVs
+        # are gap-free: a batch with no rows (every child skipped) still logs its
+        # header and pre-fit summary, but writes no CSV and keeps the counter.
+        # `iteration` is a 1-based sequential counter, NOT a parameter count —
+        # the real fitted count is the `n_params` column of each row.
+        run_batch!(children, expand_failures,
+            "Iteration $(iteration + 1): $(length(to_expand)) parents → " *
+            "$(length(children)) children",
+            "equation_search_iteration_$(iteration + 1).csv"; parent_of) === nothing ||
+            (iteration += 1)
     end
 
     pool_entries = BatchEntry[e for v in values(cv_pool) for e in v]

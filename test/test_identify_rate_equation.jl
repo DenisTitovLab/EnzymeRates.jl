@@ -344,6 +344,13 @@ end
         @test occursin("new fits", log_text)
         @test occursin("skipped (>", log_text)
         @test occursin("best loss by n_params:", log_text)
+        # The base tier and every iteration log the same four-line block: a header, the
+        # pre-fit summary, the post-fit summary and the best-loss line.
+        block(header) = Regex("^" * header * "\\n  \\d+ new fits \\+ [^\\n]*\\n" *
+                              "  \\d+ errored \\| Success [^\\n]*\\n" *
+                              "  best loss by n_params: ", "m")
+        @test occursin(block("Fitting \\d+ initial mechanisms…"), log_text)
+        @test occursin(block("Iteration 1: \\d+ parents → \\d+ children"), log_text)
         @test !any(startswith(f, "params_estimate_") for f in files)
         iters = filter(f -> startswith(f, "equation_search_iteration_"), files)
         @test !isempty(iters)
@@ -556,6 +563,10 @@ end
     @test nrow(fail_df) >= 1
     @test all(.!ismissing.(fail_df.error))
     @test all(ismissing.(fail_df.eq_hash))
+    # The post-fit summary is logged before the raise.
+    @test occursin(
+        "\n  $(nrow(fail_df)) errored | Success 0.0% | non-Success retcode 0.0%\n",
+        read(joinpath(tmp, "progress.log"), String))
 end
 
 @testset "_select_best_row: 1-SE rule on the best equation's fold scores" begin
@@ -804,12 +815,17 @@ end
     @test all(e -> e.n_params == length(e.row.params), entries)
     @test all(e -> occursin(r"^[0-9a-f]{16}$", e.row.eq_hash), entries)
 
-    # cap filter: nothing over the cap is fit (and it is not a failure).
+    # cap filter: nothing over the cap is fit (and it is not a failure), and the
+    # pre-fit summary logs every mechanism as a param-count skip.
+    capped_log = String[]
     capped_entries, capped_failures = EnzymeRates._process_batch(ms, prob;
         optimizer=CMAEvolutionStrategyOpt(),
-        max_param_count=0, n_restarts=1, maxtime=1.0)
+        max_param_count=0, eq_complexity_filter=337, n_restarts=1, maxtime=1.0,
+        log = msg -> push!(capped_log, msg))
     @test isempty(capped_entries)
     @test isempty(capped_failures)
+    @test capped_log == ["0 new fits + 0 inherited + 0 skipped (already fit) + " *
+                         "$(length(ms)) skipped (>0 params) + 0 skipped (>337 complexity)"]
 
     # config error (solver rejects an option) → every fit throws → all
     # failures, no entries; each failure carries a non-empty error string.
@@ -822,19 +838,29 @@ end
     @test all(f -> f isa EnzymeRates.FitFailure, fail_failures)
     @test all(f -> !isempty(f.error), fail_failures)
 
-    # fitted set: a structure already fit is skipped, not reprocessed.
+    # seen set: a structure already produced is skipped, not reprocessed.
     m = first(ms)
-    fitted = Set{UInt64}()
+    seen = Set{UInt64}()
     e1, f1, ps1, cs1, ss1 = EnzymeRates._process_batch([m], prob;
         optimizer=CMAEvolutionStrategyOpt(), max_param_count=20,
-        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), fitted)
+        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), seen)
     @test ss1 == 0 && length(e1) == 1
 
-    # Same structure again in a later batch → fitted-skipped, no new entry.
+    # Same structure again in a later batch → seen-skipped, no new entry.
+    seen_log = String[]
     e2, f2, ps2, cs2, ss2 = EnzymeRates._process_batch([m], prob;
-        optimizer=CMAEvolutionStrategyOpt(), max_param_count=20,
-        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), fitted)
+        optimizer=CMAEvolutionStrategyOpt(), max_param_count=20, eq_complexity_filter=337,
+        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), seen,
+        log = msg -> push!(seen_log, msg))
     @test ss2 == 1 && isempty(e2) && isempty(f2)
+    @test seen_log == ["0 new fits + 0 inherited + 1 skipped (already fit) + " *
+                       "0 skipped (>20 params) + 0 skipped (>337 complexity)"]
+
+    # A structure repeated within one batch is fit once; the repeat is seen-skipped.
+    e3, f3, ps3, cs3, ss3 = EnzymeRates._process_batch([m, m], prob;
+        optimizer=CMAEvolutionStrategyOpt(), max_param_count=20,
+        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), seen=Set{UInt64}())
+    @test ss3 == 1 && length(e3) == 1 && isempty(f3)
 end
 
 # A random-order ter-ter (all binding/release orders, all SS): V×τ ≈ 5.9M, far
@@ -980,7 +1006,8 @@ end
 @testset "all-cap-skipped expansion batch is reported (M2)" begin
     # uni-uni base mechanism has 3 params; every child has 4. With
     # max_param_count=3 the base fits but the whole expansion batch is
-    # cap-skipped — no rows, no CSV — so it must still emit a progress line.
+    # cap-skipped — no rows, no CSV — so it must still log its header and
+    # pre-fit summary.
     prob = _testhelper_uni_prob(NamedTuple)
     tmp = mktempdir()
     # An explicit non-default loss_parsimony_threshold proves the keyword is accepted
@@ -992,9 +1019,10 @@ end
         max_param_count=3, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
         save_dir=tmp)
     log_text = read(joinpath(tmp, "progress.log"), String)
-    @test occursin(
-        r"all skipped \(\d+ already fit, \d+ >3 params, \d+ >337 complexity\)",
-        log_text)
+    @test occursin(Regex(
+        "^Iteration 1: \\d+ parents → (\\d+) children\\n  0 new fits \\+ 0 inherited \\+ " *
+        "0 skipped \\(already fit\\) \\+ \\1 skipped \\(>3 params\\) \\+ " *
+        "0 skipped \\(>337 complexity\\)\\nCross-validating", "m"), log_text)
     # The all-skip batch produced no rows, so no iteration CSV was written.
     @test !any(startswith(f, "equation_search_iteration_") for f in readdir(tmp))
 end
@@ -1122,11 +1150,18 @@ end
 
     memo = Dict{UInt64, NamedTuple}()
     opt = _CountingStubOpt(; uval = log(5.0))
+    # Each logged line is stored with the solve count at the moment it was logged.
+    batch_log = Tuple{String,Int}[]
     entries, failures = EnzymeRates._process_batch(pair, prob;
-        optimizer=opt, max_param_count=20, n_restarts=1, maxtime=1.0, memo)
+        optimizer=opt, max_param_count=20, eq_complexity_filter=337, n_restarts=1,
+        maxtime=1.0, memo, log = msg -> push!(batch_log, (msg, opt.count)))
 
     # The shared equation is fit exactly ONCE (n_restarts=1 → one solve).
     @test opt.count == 1
+    # The pre-fit summary counts one new fit and one inherited row, and is logged
+    # before the fit runs.
+    @test batch_log == [("1 new fits + 1 inherited + 0 skipped (already fit) + " *
+                         "0 skipped (>20 params) + 0 skipped (>337 complexity)", 0)]
     @test length(entries) == 2
     @test isempty(failures)
     # loss + retcode are equation properties → eq_hash-invariant → identical.
@@ -1150,10 +1185,14 @@ end
 
     # Cross-batch memo hit: a later batch with the same eq_hash refits NOTHING.
     single = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1]
+    reuse_log = String[]
     reused, _ = EnzymeRates._process_batch(single, prob;
-        optimizer=opt, max_param_count=20, n_restarts=1, maxtime=1.0, memo)
+        optimizer=opt, max_param_count=20, eq_complexity_filter=337, n_restarts=1,
+        maxtime=1.0, memo, log = msg -> push!(reuse_log, msg))
     @test opt.count == 1                                # no new solve
     @test [e.row.fit_inherited for e in reused] == [true]
+    @test reuse_log == ["0 new fits + 1 inherited + 0 skipped (already fit) + " *
+                        "0 skipped (>20 params) + 0 skipped (>337 complexity)"]
 
     # A representative whose fit throws fails ALL its duplicates
     # (all-or-nothing per equation).
