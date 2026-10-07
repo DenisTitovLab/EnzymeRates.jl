@@ -665,21 +665,25 @@ function _assert_each_reaction_once(steps::Vector{Vector{Step}})
     end
 end
 
+"""The distinct enzyme forms of the steps of `groups`, in first-seen order, each step's
+`from_species` before its `to_species`."""
+_forms(groups) =
+    unique(sp for g in groups for s in g for sp in (from_species(s), to_species(s)))
+
 """
 Rapid-equilibrium segments of `steps` with each form's metabolite exponents
-cleared to the lowest in its segment: `(species, segments, extras)`, where
-`segments[k]` indexes `species` and `extras[i][x]` is how many more `x` form `i`
-carries than the lowest form of its segment. Within a segment, rapid equilibrium
-fixes each form's weight relative to any other as a monomial in concentrations,
-one factor per metabolite bound or released along the RE path between them;
-chemistry steps pass the exponents through unchanged.
+cleared to the lowest in its segment: `(species, segments, extras, idx, segment_of)`,
+where `species` is `_forms(steps)`, `segments[k]` indexes `species` in
+breadth-first order from its lowest-index form, `extras[i][x]` is how many more
+`x` form `i` carries than the lowest form of its segment, `idx[sp]` is the
+position of form `sp` in `species` and `segment_of[i]` is the segment holding
+form `i`. Segments are numbered by their lowest-index form. Within a segment,
+rapid equilibrium fixes each form's weight relative to any other as a monomial
+in concentrations, one factor per metabolite bound or released along the RE
+path between them; chemistry steps pass the exponents through unchanged.
 """
 function _re_segment_extras(steps::Vector{Vector{Step}})
-    species = Species[]
-    for group in steps, s in group
-        from_species(s) in species || push!(species, from_species(s))
-        to_species(s) in species   || push!(species, to_species(s))
-    end
+    species = _forms(steps)
     idx = Dict(sp => i for (i, sp) in enumerate(species))
     # RE adjacency with the exponent change of each metabolite from → to.
     adj = [Tuple{Int, Dict{Symbol, Int}}[] for _ in species]
@@ -694,16 +698,20 @@ function _re_segment_extras(steps::Vector{Vector{Step}})
     end
     expo = Dict{Int, Dict{Symbol, Int}}()
     segments = Vector{Int}[]
+    segment_of = zeros(Int, length(species))
     for root in eachindex(species)
-        haskey(expo, root) && continue
+        segment_of[root] == 0 || continue
+        k = length(segments) + 1
         expo[root] = Dict{Symbol, Int}()
+        segment_of[root] = k
         segment = [root]
         queue = [root]
         while !isempty(queue)
             u = popfirst!(queue)
             for (v, d) in adj[u]
-                haskey(expo, v) && continue
+                segment_of[v] == 0 || continue
                 expo[v] = mergewith(+, expo[u], d)
+                segment_of[v] = k
                 push!(segment, v); push!(queue, v)
             end
         end
@@ -716,7 +724,7 @@ function _re_segment_extras(steps::Vector{Vector{Step}})
         push!(segments, segment)
     end
     extras = [filter(p -> p.second > 0, expo[i]) for i in eachindex(species)]
-    species, segments, extras
+    species, segments, extras, idx, segment_of
 end
 
 """
@@ -1133,8 +1141,7 @@ _step_text(s::Step) =
 function Base.show(io::IO, em::EnzymeMechanism)
     m = Mechanism(em)
     flat = collect(Iterators.flatten(steps(m)))
-    forms = unique(name(sp) for s in flat for sp in (from_species(s), to_species(s)))
-    print(io, "EnzymeMechanism (", length(flat), " steps, ", length(forms),
+    print(io, "EnzymeMechanism (", length(flat), " steps, ", length(_forms(steps(m))),
           " enzyme forms):")
     for s in flat
         print(io, "\n  ", _step_text(s))

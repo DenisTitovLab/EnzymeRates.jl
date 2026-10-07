@@ -1445,7 +1445,8 @@ end
         end)
     ])
         @test !(absent in children)
-        @test EnzymeRates._re_segment_count(absent) > EnzymeRates._re_segment_count(parent)
+        @test EnzymeRates._re_segment_count(EnzymeRates.steps(absent)) >
+              EnzymeRates._re_segment_count(EnzymeRates.steps(parent))
         @test _testhelper_identifiable_rank(absent) == r0
     end
 end
@@ -6267,7 +6268,7 @@ end
         end
     end
     @test count(ss_binding, EnzymeRates.steps(loop)) == 1
-    @test EnzymeRates._re_segment_count(loop) == 1
+    @test EnzymeRates._re_segment_count(EnzymeRates.steps(loop)) == 1
 end
 
 @testset "MERGE, ELIM and the seed tests on the ordered bi-bi seed" begin
@@ -6908,7 +6909,7 @@ end
             expected = !ER._re_turnover_cycle(gs, rxn) &&
                 ER._has_vmax(gs, rxn, ER.Substrate) && ER._has_vmax(gs, rxn, ER.Product) &&
                 !ER._chemistry_equilibrates_both_sides(gs, rxn)
-            (ss, screen(ss), expected)
+            (ss, screen(gs), expected)
         end
     end
     verdicts = Bool[]
@@ -7972,14 +7973,14 @@ end
             E + P ⇌ E(P)
         end
     end)
-    @test EnzymeRates._re_segment_count(m) == 1
     groups = EnzymeRates.steps(m)
+    @test EnzymeRates._re_segment_count(groups) == 1
     g = findfirst(grp -> all(EnzymeRates.is_equilibrium, grp), groups)
-    flipped = EnzymeRates.Mechanism(EnzymeRates.reaction(m),
-                                    EnzymeRates._flip_group_to_ss(groups, g))
+    flipped = [i == g ? EnzymeRates._with_equilibrium.(grp, false) : grp
+               for (i, grp) in enumerate(groups)]
     @test EnzymeRates._re_segment_count(flipped) == 2
 
-    # Allosteric: measured on the A-state projection.
+    # Allosteric: measured on its catalytic groups.
     am = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
         substrates: S
         products: P
@@ -7990,11 +7991,11 @@ end
             E + P ⇌ E(P)   :: EqualAI
         end
     end)
-    @test EnzymeRates._re_segment_count(am) == 1
     am_groups = EnzymeRates.steps(am)
+    @test EnzymeRates._re_segment_count(am_groups) == 1
     am_g = findfirst(grp -> all(EnzymeRates.is_equilibrium, grp), am_groups)
-    am_flipped = EnzymeRates._with(am;
-                                   groups = EnzymeRates._flip_group_to_ss(am_groups, am_g))
+    am_flipped = [i == am_g ? EnzymeRates._with_equilibrium.(grp, false) : grp
+                  for (i, grp) in enumerate(am_groups)]
     @test EnzymeRates._re_segment_count(am_flipped) == 2
 end
 
@@ -8012,44 +8013,11 @@ end
     @test isempty(EnzymeRates._minimal_gaining_sets(_ -> true, _ -> 1:0))
 end
 
-"Whole-group flip of groups `gs` (test helper; production uses _flip_group_to_ss)."
+"Whole-group flip of groups `gs` of `m` to steady state (test helper)."
 function _testhelper_flip_groups(m, gs)
-    groups = EnzymeRates.steps(m)
-    for g in gs
-        groups = EnzymeRates._flip_group_to_ss(groups, g)
-    end
+    groups = [g in gs ? EnzymeRates._with_equilibrium.(grp, false) : grp
+              for (g, grp) in enumerate(EnzymeRates.steps(m))]
     EnzymeRates._with(m; groups)
-end
-
-@testset "_re_segment_count_after_flip agrees with the built child" begin
-    function check(m)
-        groups = EnzymeRates.steps(m)
-        eligible = [g for g in eachindex(groups)
-                    if all(EnzymeRates.is_equilibrium, groups[g])]
-        for g in eligible
-            @test EnzymeRates._re_segment_count_after_flip(m, Set([g])) ==
-                  EnzymeRates._re_segment_count(_testhelper_flip_groups(m, [g]))
-        end
-        for (i, g) in enumerate(eligible), h in eligible[(i + 1):end]
-            @test EnzymeRates._re_segment_count_after_flip(m, Set([g, h])) ==
-                  EnzymeRates._re_segment_count(_testhelper_flip_groups(m, [g, h]))
-        end
-    end
-    # Aggregate pin over the seed set; the inline fixtures below cover the shapes.
-    for m in EnzymeRates.init_mechanisms(bi_bi_rxn)
-        check(m)
-    end
-    am = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
-        substrates: S
-        products: P
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + S ⇌ E(S)   :: EqualAI
-            E(S) <--> E(P) :: EqualAI
-            E + P ⇌ E(P)   :: EqualAI
-        end
-    end)
-    check(am)
 end
 
 @testset "_context_bipartitions" begin
@@ -8635,7 +8603,8 @@ end
                 end
             end))
             @test !(single in kids)
-            @test EnzymeRates._re_segment_count(single) == EnzymeRates._re_segment_count(m)
+            @test EnzymeRates._re_segment_count(EnzymeRates.steps(single)) ==
+                  EnzymeRates._re_segment_count(EnzymeRates.steps(m))
         end
     end
 
@@ -8828,7 +8797,8 @@ end
         # flip(A2, B1) is flip(A1, B2) with A and B swapped.
         for absent in (flip(A1, B2), flip(A2, B1))
             @test !(absent in kids)
-            @test EnzymeRates._re_segment_count(absent) > EnzymeRates._re_segment_count(m)
+            @test EnzymeRates._re_segment_count(EnzymeRates.steps(absent)) >
+                  EnzymeRates._re_segment_count(EnzymeRates.steps(m))
         end
         @test _testhelper_identifiable_rank(flip(A1, B2)) ==
             _testhelper_identifiable_rank(m)
@@ -9138,7 +9108,8 @@ end
                 end
             end))
             @test !(absent in kids)
-            @test EnzymeRates._re_segment_count(absent) > EnzymeRates._re_segment_count(m)
+            @test EnzymeRates._re_segment_count(EnzymeRates.steps(absent)) >
+                  EnzymeRates._re_segment_count(EnzymeRates.steps(m))
             @test _testhelper_identifiable_rank(absent) == r0
         end
     end

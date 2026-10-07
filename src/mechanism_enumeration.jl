@@ -1244,7 +1244,7 @@ all-steady-state graph, `_all_steady_state`; a group with none exposes only
 equilibrium ratios under every assignment and would gain a phantom parameter).
 A flank of a qualifying chain whose isomerization is steady state is no unit
 (`_chain_flank_groups`). One child is produced per minimal set of units whose joint flip
-raises the RE segment count (`_minimal_gaining_sets`): a single group when it
+raises the RE segment count (`_minimal_flips`): a single group when it
 cuts a segment on its own, several groups when each alone is bridged by an RE
 route through the others — as happens once a split has separated a
 metabolite's binding steps, or a catalytic step from its inhibitor-bound
@@ -1270,29 +1270,14 @@ flips, and more steady-state steps never restore a hyperbolic equation, so its
 supersets need no visit.
 """
 function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
-    flux = _flux_carrying_groups(_all_steady_state(steps(m)), reaction(m))
     flanks = _chain_flank_groups(m)
-    units = [g for g in kinetic_groups(m)
-             if all(is_equilibrium, steps(m)[g]) && flux[g] && !(g in flanks) &&
-                !any(s -> any(x -> x isa Regulator, consumed(s)) ||
-                          any(x -> x isa Regulator, released(s)), steps(m)[g])]
-    flipped_groups(sel) = begin
-        groups = steps(m)
-        for u in sel
-            groups = _flip_group_to_ss(groups, units[u])
-        end
-        groups
-    end
-    base = _re_segment_count(m)
-    gains(sel) = begin
-        _re_segment_count_after_flip(m, Set(units[u] for u in sel)) > base || return false
-        groups = flipped_groups(sel)
-        _bottomless_re_segment(groups) === nothing || return false
-        flux = _flux_carrying_groups(groups, reaction(m))
-        all(u -> flux[units[u]], sel)
-    end
-    sets = _minimal_gaining_sets(gains, _ -> 1:length(units))
-    children = typeof(m)[_with(m; groups = flipped_groups(sel)) for sel in sets]
+    eligible(g) = !(g in flanks) &&
+        !any(s -> any(x -> x isa Regulator, consumed(s)) ||
+                  any(x -> x isa Regulator, released(s)), steps(m)[g])
+    base = _re_segment_count(steps(m))
+    flips = _minimal_flips(gs -> _re_segment_count(gs) > base, steps(m), reaction(m),
+                           eligible)
+    children = typeof(m)[_with(m; groups = gs) for gs in flips]
     _requires_hyperbolic_catalysis(m) ? filter(_hyperbolic_catalysis, children) : children
 end
 
@@ -1330,14 +1315,6 @@ function _chain_flank_groups(m::Mechanism)
     out
 end
 _chain_flank_groups(::AllostericMechanism) = Set{Int}()
-
-"""
-Return a fresh `Vector{Vector{Step}}` matching `groups` but with every
-Step in group `g` rebuilt with `is_equilibrium=false`. All other groups
-are reused by reference (Step is immutable).
-"""
-_flip_group_to_ss(groups::Vector{Vector{Step}}, g::Int) =
-    [gi == g ? _with_equilibrium.(gr, false) : gr for (gi, gr) in enumerate(groups)]
 
 """`s` with its rapid-equilibrium flag set to `flag`; `s` itself when it has that flag, so
 mechanisms built from one another share their unchanged steps."""
@@ -1392,17 +1369,29 @@ no such step can never flip usefully."""
 _all_steady_state(groups::Vector{Vector{Step}}) =
     [_with_equilibrium.(group, false) for group in groups]
 
-"""`_re_segment_extras(groups)` with each form's index and segment: `(species, segments,
-extras, index, segment_of)`, where `index[sp]` is the form's position in `species` and
-`segment_of[i]` the segment holding form `i`."""
-function _indexed_re_segments(groups::Vector{Vector{Step}})
-    species, segments, extras = _re_segment_extras(groups)
-    index = Dict(sp => i for (i, sp) in enumerate(species))
-    segment_of = zeros(Int, length(species))
-    for (k, members) in enumerate(segments), i in members
-        segment_of[i] = k
-    end
-    species, segments, extras, index, segment_of
+"""
+    _minimal_flips(admissible, base, rxn, eligible = _ -> true)
+
+The groups of `base` after every inclusion-minimal flip to steady state that passes. A
+unit is a rapid-equilibrium group of `base` that carries flux on the all-steady-state
+graph (`_all_steady_state`, `_flux_carrying_groups`) and passes `eligible`. A candidate
+takes each flipped group from that graph, so the candidates share their steady-state
+steps, and every other group from `base` by reference. It passes when `admissible` holds
+on its groups, it leaves no rapid-equilibrium segment without a bottom form
+(`_bottomless_re_segment`) and every flipped group carries flux in it. The sets come from
+`_minimal_gaining_sets`, so a failing set is extended and a passing one is not.
+"""
+function _minimal_flips(admissible, base::Vector{Vector{Step}}, rxn::EnzymeReaction,
+                        eligible = _ -> true)
+    steady = _all_steady_state(base)
+    flux = _flux_carrying_groups(steady, rxn)
+    units = [g for g in eachindex(base)
+             if all(is_equilibrium, base[g]) && flux[g] && eligible(g)]
+    flipped(sel) = (gs = copy(base); gs[units[sel]] = steady[units[sel]]; gs)
+    passes(sel) = (gs = flipped(sel);
+                   admissible(gs) && _bottomless_re_segment(gs) === nothing &&
+                   all(_flux_carrying_groups(gs, rxn)[units[sel]]))
+    [flipped(sel) for sel in _minimal_gaining_sets(passes, _ -> 1:length(units))]
 end
 
 """
@@ -1429,7 +1418,7 @@ enumerator emits is. The test reads each step's metabolite lists, so it holds fo
 fused and Theorell–Chance steps as well.
 """
 function _flux_carrying_steps(groups::Vector{Vector{Step}}, rxn::EnzymeReaction)
-    species, segments, extras, idx, seg = _indexed_re_segments(groups)
+    species, segments, extras, idx, seg = _re_segment_extras(groups)
     rho = _reactant_signs(rxn)
     offset(i) = sum(get(rho, x, 0) * e for (x, e) in extras[i]; init = 0)
     weight(s) = _uptake_weight(s, rho) +
@@ -1617,26 +1606,17 @@ function _chemistry_equilibrates_both_sides(groups::Vector{Vector{Step}},
     subs = Set(name(s) for s in substrates(rxn))
     prods = Set(name(p) for p in products(rxn))
     re = [s for group in groups for s in group if is_equilibrium(s)]
-    re_iso = filter(is_iso, re)
-    function node(start)
-        out = Set{Species}(start); frontier = collect(start)
-        while !isempty(frontier)
-            f = pop!(frontier)
-            for s in re_iso, (a, b) in ((from_species(s), to_species(s)),
-                                        (to_species(s), from_species(s)))
-                a == f && !(b in out) && (push!(out, b); push!(frontier, b))
-            end
-        end
-        out
-    end
     releases(n, names) = any(re) do t
         to_species(t) in n && !(from_species(t) in n) && _any_named(consumed(t), names) ||
             from_species(t) in n && !(to_species(t) in n) && _any_named(released(t), names)
     end
+    # The forms joined by RE isomerizations, one node per segment; a merged complex
+    # outside every RE isomerization is a node of its own.
+    species, segments, _, idx, _ = _re_segment_extras([filter(is_iso, re)])
     merged = [to_species(s) for group in groups for s in group
               if _fused_substrate_binding(s, subs)]
-    nodes = vcat([node([x]) for x in merged],
-                 [node([from_species(s), to_species(s)]) for s in re_iso])
+    nodes = [[Set(species[k]) for k in segments];
+             [Set([x]) for x in merged if !haskey(idx, x)]]
     any(n -> releases(n, subs) && releases(n, prods), nodes) ||
         any(t -> _crosses_sides(t, subs, prods), re)
 end
@@ -1653,22 +1633,22 @@ end
 
 """
 The tests of `_seed_variants` that build no `Step`, for one base `groups` of a seed: a
-function of the mask `ss` of groups flipped to steady state, every other step at rapid
-equilibrium, that is true when the candidate has no rapid-equilibrium turnover cycle
-(`_re_turnover_cycle`), a maximal rate both ways (`_has_vmax`) and no chemistry in
-equilibrium with both sides (`_chemistry_equilibrates_both_sides`). The forms and each
-step's ends, uptake weight, group and reactants are indexed once per base, so a candidate
-costs a few passes over arrays. A base holds no isomerization, so each chemistry node is a
-merged complex or a Theorell–Chance step. A set of steps holds a turnover cycle iff giving
-every form a potential that rises by each step's weight along it fails somewhere: a cycle
-of nonzero weight is exactly a conflict, found here by a weighted union-find. Each
-maximal-rate test runs on the candidate's rapid-equilibrium steps and more, and adding
-steps never removes a conflict, so a turnover cycle of the candidate fails both tests.
+function of a candidate's groups (those of `groups`, some flipped to steady state) that
+reads each step's flag from them and is true when the candidate has no rapid-equilibrium
+turnover cycle (`_re_turnover_cycle`), a maximal rate both ways (`_has_vmax`) and no
+chemistry in equilibrium with both sides (`_chemistry_equilibrates_both_sides`). The forms
+and each step's ends, uptake weight and reactants are indexed once per base, so a
+candidate costs a few passes over arrays. A base holds no isomerization, so each chemistry
+node is a merged complex or a Theorell–Chance step. A set of steps holds a turnover cycle
+iff giving every form a potential that rises by each step's weight along it fails
+somewhere: a cycle of nonzero weight is exactly a conflict, found here by a weighted
+union-find. Each maximal-rate test runs on the candidate's rapid-equilibrium steps and
+more, and adding steps never removes a conflict, so a turnover cycle of the candidate
+fails both tests.
 """
 function _seed_candidate_screen(groups::Vector{Vector{Step}}, rxn::EnzymeReaction)
     flat = [s for group in groups for s in group]
     any(is_iso, flat) && error("_seed_candidate_screen: a seed base holds no isomerization")
-    group = [g for (g, steps_g) in enumerate(groups) for _ in steps_g]
     rho = _reactant_signs(rxn)
     subs = Set(name(x) for x in substrates(rxn))
     prods = Set(name(x) for x in products(rxn))
@@ -1712,9 +1692,10 @@ function _seed_candidate_screen(groups::Vector{Vector{Step}}, rxn::EnzymeReactio
     end
     meets(a::BitVector, b::BitVector) = any(k -> a[k] && b[k], eachindex(a))
     re = falses(length(flat)); kept = falses(length(flat))
-    function screen(ss::AbstractVector{Bool})
-        for k in eachindex(flat)
-            re[k] = !ss[group[k]]
+    function screen(gs::Vector{Vector{Step}})
+        k = 0
+        for g in gs, s in g
+            re[k += 1] = is_equilibrium(s)
         end
         kept .= re .| sub_step
         turnover(kept) && return false
@@ -1730,15 +1711,15 @@ The merged and Theorell–Chance variants of the seed `m`. Merging every isomeri
 onto its product side (`_merge_isomerization`) and setting every step at rapid equilibrium
 gives the merged base; eliminating one merged complex with two steps (`_eliminate_form`)
 gives a Theorell–Chance base. MERGE and ELIM conserve atoms, which each base asserts. For
-each base, every inclusion-minimal set of its groups whose flip to steady state gives a
-valid, flux-carrying, non-degenerate candidate is a variant: no rapid-equilibrium turnover
-cycle (`_re_turnover_cycle`), a maximal rate both ways (`_has_vmax`), no chemistry in
-equilibrium with both sides (`_chemistry_equilibrates_both_sides`), no bottomless segment,
-and every steady-state group carrying flux. The first three tests read index arrays
-(`_seed_candidate_screen`); a candidate's steps are built only when it passes them. A
-merged variant whose every merged complex has both its steps steady state, each alone in
-its group, is skipped: the unmerged form with rapid-equilibrium flanks has its family at
-the same count.
+each base, every inclusion-minimal set of its groups (`_minimal_flips`) whose flip to
+steady state gives a valid, flux-carrying, non-degenerate candidate is a variant: no
+rapid-equilibrium turnover cycle (`_re_turnover_cycle`), a maximal rate both ways
+(`_has_vmax`), no chemistry in equilibrium with both sides
+(`_chemistry_equilibrates_both_sides`), no bottomless segment, and every steady-state group
+carrying flux. The first three tests read index arrays (`_seed_candidate_screen`); the
+other two run only on a candidate that passes them. A merged variant whose every merged
+complex has both its steps steady state, each alone in its group, is skipped: the
+unmerged form with rapid-equilibrium flanks has its family at the same count.
 """
 function _seed_variants(m::Mechanism)
     rxn = reaction(m)
@@ -1746,11 +1727,8 @@ function _seed_variants(m::Mechanism)
     merged = foldl(_merge_isomerization, isos; init = steps(m))
     merged = [_with_equilibrium.(group, true) for group in merged]
     complexes = [to_species(s) for s in isos]
-    bases = Tuple{Vector{Vector{Step}}, Bool}[(merged, true)]
-    for x in complexes
-        b = _eliminate_form(merged, x)
-        b === nothing || push!(bases, (b, false))
-    end
+    bases = Vector{Vector{Step}}[[merged];
+        filter(!isnothing, [_eliminate_form(merged, x) for x in complexes])]
     lumping_twin(gs) = all(complexes) do x
         at_x = [(s, group) for group in gs for s in group
                 if x in (from_species(s), to_species(s))]
@@ -1758,38 +1736,12 @@ function _seed_variants(m::Mechanism)
             all(((s, group),) -> !is_equilibrium(s) && length(group) == 1, at_x)
     end
     variants = Mechanism[]
-    for (base, is_merged) in bases
+    for (i, base) in enumerate(bases)
         for group in base, s in group
             _assert_step_atom_conserving(rxn, s)
         end
-        steady = _all_steady_state(base)
-        flux = _flux_carrying_groups(steady, rxn)
-        units = [g for g in eachindex(base) if flux[g]]
-        screen = _seed_candidate_screen(base, rxn)
-        mask = falses(length(base))
-        # A candidate takes each flipped group from `steady`, so the variants of a base
-        # share their steady-state steps.
-        flipped(sel) = begin
-            gs = copy(base)
-            for u in sel
-                gs[units[u]] = steady[units[u]]
-            end
-            gs
-        end
-        admissible(sel) = begin
-            fill!(mask, false)
-            for u in sel
-                mask[units[u]] = true
-            end
-            screen(mask) || return false
-            gs = flipped(sel)
-            _bottomless_re_segment(gs) === nothing || return false
-            carries = _flux_carrying_groups(gs, rxn)
-            all(g -> is_equilibrium(first(gs[g])) || carries[g], eachindex(gs))
-        end
-        for sel in _minimal_gaining_sets(admissible, _ -> 1:length(units))
-            gs = flipped(sel)
-            is_merged && lumping_twin(gs) && continue
+        for gs in _minimal_flips(_seed_candidate_screen(base, rxn), base, rxn)
+            i == 1 && lumping_twin(gs) && continue
             push!(variants, Mechanism(rxn, gs))
         end
     end
@@ -1834,7 +1786,7 @@ function _hyperbolic_catalysis(m::Union{Mechanism, AllostericMechanism})
     on_catalytic_site(s) = !any(b -> b isa Regulator,
                                 vcat(bound(from_species(s)), bound(to_species(s))))
     groups = filter(!isempty, [filter(on_catalytic_site, group) for group in steps(m)])
-    species, segments, extras, idx, seg_of = _indexed_re_segments(groups)
+    species, segments, extras, idx, seg_of = _re_segment_extras(groups)
     # Directed segment-graph edges: source segment, target segment, source form,
     # metabolites bound in that direction.
     edges = Tuple{Int, Int, Int, Vector{Symbol}}[]
@@ -1894,40 +1846,19 @@ function _all_reach(n::Int, edges, root::Int, fixed)
     all(seen)
 end
 
-"""Number of rapid-equilibrium segments (connected components of the RE
-subgraph). An allosteric mechanism is measured on its A-state projection, which
-holds every catalytic group."""
-_re_segment_count(m::Mechanism) = length(_compute_re_groups(m)[2])
-_re_segment_count(am::AllostericMechanism) = _re_segment_count(_state_mechanism(am, :A))
-
-"""RE segment count of `m` after flipping the kinetic groups in `flipped` to SS,
-computed on `m`'s own steps without building the child: a union-find over the
-species joined by the RE steps of every other group. `_compute_re_groups`
-gives the same answer on the built child; this form is what the flip move probes
-with, so a candidate the constructors would reject is never constructed."""
-function _re_segment_count_after_flip(
-    m::Union{Mechanism, AllostericMechanism}, flipped,
-)
-    species = Species[]
-    for group in steps(m), s in group
-        from_species(s) in species || push!(species, from_species(s))
-        to_species(s) in species   || push!(species, to_species(s))
+"""Number of rapid-equilibrium segments (connected components of the RE subgraph) of
+`groups`, by a union-find over the forms. The flip move measures each candidate on its
+groups, so a candidate the constructors would reject is never constructed."""
+function _re_segment_count(groups::Vector{Vector{Step}})
+    index = Dict{Species, Int}()
+    parent = Int[]
+    vertex(sp) = get!(() -> (push!(parent, length(parent) + 1); length(parent)), index, sp)
+    find(x) = (while parent[x] != x; x = parent[x] = parent[parent[x]]; end; x)
+    for group in groups, s in group
+        a, b = vertex(from_species(s)), vertex(to_species(s))
+        is_equilibrium(s) && (parent[find(a)] = find(b))
     end
-    parent = collect(1:length(species))
-    function find(x)
-        while parent[x] != x; parent[x] = parent[parent[x]]; x = parent[x]; end
-        x
-    end
-    for (g, group) in enumerate(steps(m))
-        g in flipped && continue
-        for s in group
-            is_equilibrium(s) || continue
-            ra = find(findfirst(==(from_species(s)), species))
-            rb = find(findfirst(==(to_species(s)),   species))
-            ra != rb && (parent[ra] = rb)
-        end
-    end
-    count(i -> find(i) == i, eachindex(species))
+    count(i -> parent[i] == i, eachindex(parent))
 end
 
 """
@@ -2013,7 +1944,12 @@ function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
         (!any(u -> reverted[u], sel) ||
          _bottomless_re_segment(_bipartitioned_groups(groups, selection(sel))[1]) ===
          nothing) && gain(sel)
-    segments = _group_re_segments(m)
+    # RE segment ids touched by each kinetic group's steps; empty for a group holding an
+    # SS step, which lies on no RE cycle and is never a split partner.
+    _, _, _, idx, seg = _re_segment_extras(groups)
+    segments = [is_equilibrium(first(group)) ?
+                Set{Int}(seg[idx[from_species(s)]] for s in group) : Set{Int}()
+                for group in groups]
     partners(sel) = begin
         isempty(sel) && return 1:length(units)
         used = Set(units[u][1] for u in sel)
@@ -2061,18 +1997,6 @@ function _split_gain_test(am::AllostericMechanism, units)
     base = _independent_param_count(am)
     sel -> _independent_param_count(
         _apply_bipartitions(am, [units[u] for u in sel])) > base
-end
-
-"""RE segment ids touched by each kinetic group's steps; empty for a group holding
-an SS step, which lies on no RE cycle and is never a split partner."""
-function _group_re_segments(m::Union{Mechanism, AllostericMechanism})
-    cm = m isa Mechanism ? m : _state_mechanism(m, :A)
-    species, _, form_to_segment = _compute_re_groups(cm)
-    segment(sp) = form_to_segment[findfirst(==(sp), species)]
-    map(steps(m)) do group
-        all(is_equilibrium, group) || return Set{Int}()
-        Set{Int}(segment(from_species(s)) for s in group)
-    end
 end
 
 """
@@ -2204,7 +2128,7 @@ the sites that pin either copy may keep both constants separable, so such a matc
 makes a twin.
 """
 function _productive_twin(groups::Vector{Vector{Step}})
-    species, segments, extras, idx, seg = _indexed_re_segments(groups)
+    species, segments, extras, idx, seg = _re_segment_extras(groups)
     productive(sp) = !any(b -> b isa CompetitiveInhibitor, bound(sp))
     # Sorted names of a form's bound metabolites with `extra` also bound (a copy counts as
     # the reactant it copies), with its conformation and residual.
