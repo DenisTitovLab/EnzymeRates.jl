@@ -232,9 +232,10 @@ function _catalytic_topologies(reaction::EnzymeReaction)
                                for (i, s) in enumerate(steps)])
         end
     end
-    isempty(result) && error("no catalytic cycle for $(reaction): every route needs an " *
-                             "isomerization converting more than three substrates or " *
-                             "products at once")
+    isempty(result) && error("no catalytic cycle for $(reaction): either a product " *
+                             "shares a substrate's name, or every route needs an " *
+                             "isomerization converting more than three substrates, or " *
+                             "more than three products counting a covalent residue as one")
     result
 end
 
@@ -292,10 +293,11 @@ substrate or product bound, subject to:
   all products
 - A declared `shared_catalytic_site` pair is never both bound in the
   resulting form
+
 Each competition pattern (`_competition_patterns`) keeps the dead-end forms that bind
 none of its (substrate, product) pairs, and each distinct set of kept forms gives one
 mechanism: the topology plus a rapid-equilibrium binding step between every two of its
-forms that differ by one bound metabolite.
+forms with the same conformation and residual that differ by one bound metabolite.
 
 Two preconditions hold for the topologies of `_catalytic_topologies`: every binding is
 rapid equilibrium, and every isomerization joins a substrate-only form to a
@@ -353,9 +355,9 @@ function _expand_substrate_product_dead_ends(
             # each dead-end form's bindings to the forms it extends, the parallels of
             # the topology's bindings, and the bindings between two dead-end forms.
             # Added edges are RE bindings on the differing metabolite: `_seed_groups`
-            # folds them into that metabolite's kinetic group, and under rapid
-            # equilibrium an added edge closes a thermodynamically-dependent cycle
-            # that adds no free parameter.
+            # folds them into that metabolite's kinetic group, so an added edge adds no
+            # free parameter whether it reaches a dead-end form or closes a
+            # thermodynamically dependent cycle.
             forms = [catalytic; active]
             hs = held.(forms)
             steps = copy(topo)

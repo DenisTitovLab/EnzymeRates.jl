@@ -622,7 +622,16 @@ bound and E with NADP bound are both `:ENADP`. Every constant is named after the
 its step joins, so the two forms would share constant names.
 """
 function _assert_distinct_form_names(steps::Vector{Vector{Step}})
-    text(sp) = sprint(show, sp; context = :module => @__MODULE__)
+    # A form as `@enzyme_mechanism` writes it: `E(NAD, P)`, `E(A::Inh)`,
+    # `E(B; residual = A - P)`.
+    function text(sp)
+        mets = [m isa CompetitiveInhibitor ? "$(name(m))::Inh" : "$(name(m))"
+                for m in bound(sp)]
+        r = residual(sp)
+        terms = join(name.(added(r)), " + ") * join(" - $(name(p))" for p in subtracted(r))
+        res = isempty(r) ? "" : "; residual = " * lstrip(terms)
+        "$(conformation(sp))(" * join(mets, ", ") * res * ")"
+    end
     seen = Dict{Symbol, Species}()
     for group in steps, s in group, sp in (from_species(s), to_species(s))
         other = get!(seen, name(sp), sp)

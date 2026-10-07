@@ -1660,11 +1660,10 @@ end
             [ER.Step(E, E_NADP, [NADP], ER.Metabolite[], true)]])
     end
     @test err isa ErrorException
-    @test occursin("Species(Metabolite[Substrate(:NAD), Substrate(:P)], :E, " *
-                   "Residual(Substrate[], Product[]))", err.msg)
-    @test occursin("Species(Metabolite[Product(:NADP)], :E, " *
-                   "Residual(Substrate[], Product[]))", err.msg)
-    @test occursin("both render the name ENADP", err.msg)
+    @test occursin("E(NAD, P)", err.msg)
+    @test occursin("E(NADP)", err.msg)
+    @test occursin("both render the name ENADP; ", err.msg)
+    @test occursin("rename a metabolite", err.msg)
 end
 
 # Chokepoint guard: no `Symbol("[KkVL]...")` literal is constructed outside

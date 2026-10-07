@@ -16,6 +16,10 @@ Emit an `EnzymeReaction`.
 
 - `substrates:` / `products:` — comma-separated entries with required atom
   brackets (`S[C6H12O6]`). Multi-atom forms like `[C2,N]` are allowed.
+  An enzyme form's name joins its bound metabolites' names without a
+  separator, so names whose joins coincide are rejected: with `Ac`, `CoA`
+  and `AcCoA`, E with Ac and CoA bound and E with AcCoA bound are both
+  `EAcCoA`. Rename one (`Acetyl`).
 - `competitive_inhibitors:` / `dead_end_inhibitors:` —
   `CompetitiveInhibitor` entries (catalytic-site binding). May be bare
   `I` (multiplicities default to `allowed_catalytic_multiplicities`) or

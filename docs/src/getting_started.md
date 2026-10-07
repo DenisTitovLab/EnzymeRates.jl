@@ -40,6 +40,11 @@ independent forward and reverse rate constants. The result is an
 `typeof(m)`) is shown deliberately: the `Sig` type parameter that encodes the
 mechanism structure is an unreadable string, so `isa` is the useful check.
 
+An enzyme form's name joins its bound metabolites' names without a separator
+(`E(S)` is `ES`), so metabolite names whose joins coincide are rejected: with
+`Ac`, `CoA` and `AcCoA`, E with Ac and CoA bound and E with AcCoA bound are both
+`EAcCoA`. Rename one, for example `Acetyl`.
+
 ---
 
 ## Derive the rate equation
