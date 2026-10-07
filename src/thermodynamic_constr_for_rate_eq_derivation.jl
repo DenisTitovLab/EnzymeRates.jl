@@ -228,20 +228,20 @@ into the representative step's column before Gaussian elimination, so
 `dep_exprs` and `indep_params` are keyed only on representatives.
 
 Calls `_build_wegscheider_rename_map(mech)` to obtain the rename map for
-absorbed single-symbol Wegscheider RE ties and forwards to
-`_dependent_param_exprs_kernel`. The `Type{<:AbstractEnzymeMechanism}` method lifts
-with `_concrete` and delegates here.
+absorbed single-symbol Wegscheider RE ties and solves the constraint system
+(`_assemble_constraints`, `_solve_dependent_set`) under it. The
+`Type{<:AbstractEnzymeMechanism}` method lifts with `_concrete` and delegates here.
 """
 function _dependent_param_exprs(mech::Mechanism)
     rename = _build_wegscheider_rename_map(mech)
-    dep_exprs, indep = _dependent_param_exprs_kernel(mech, rename)
+    dep_exprs, indep = _solve_dependent_set(_assemble_constraints(mech, rename)...)
     # Filter Pass-2-absorbed symbols out of indep. Pass 2 of
     # `_build_wegscheider_rename_map` adds entries like `K_EP_to_E_P => K_ES_to_E_S`
     # when a Wegscheider tie collapses two binding-K group reps to the
     # same name. After the merge, the absorbed symbol doesn't appear in
     # the v polynomial — its column has been folded into the target.
     # But the absorbed symbol is still a kinetic-group rep in the
-    # mechanism, so `_raw_param_symbols` emits it and the kernel keeps it
+    # mechanism, so `_raw_param_symbols` emits it and the solve keeps it
     # in `indep`. Without this filter, `fitted_params` exposes a fittable
     # dummy dimension that doesn't affect the loss, and finite-restart
     # convergence suffers (the same rate equation can land at noticeably
@@ -298,7 +298,7 @@ graph (`_thermodynamic_constraints`) is the same for every call and is computed
 once here; each call only merges step columns by group and takes the rank. The
 split move passes a step's own kind, or `:binding_K`/`:iso_K` for a steady-state
 step it reverts to rapid equilibrium. Equals `_independent_param_count` of the
-constructed child: the kernel's independent set is the columns minus the pivots,
+constructed child: the solve's independent set is the columns minus the pivots,
 and folding a single-symbol Wegscheider tie onto its target removes one column and
 one rank together, so the count is invariant to the rename. This counter and
 `_assemble_constraints` both fill their columns with `_add_step_column!`, so they
@@ -350,13 +350,16 @@ lexicographic, so an I-state column (`is_i_state = true`, set via the
 `is_i_state` kwarg) always outranks an A-state/non-allosteric one, and within a
 state `type` orders internal isomerizations > metabolite steps > free-enzyme
 binding (higher scores are eliminated first, i.e. become dependent).
-`_solve_dependent_set` consumes this. Split out from the kernel so the
+`_solve_dependent_set` consumes this. Kept apart from the solve so the
 allosteric derivation can stack per-state systems and reuse one solver.
 
 Each step's cycle incidence enters its constants' columns through
 `_add_step_column!`. Non-representative steps fold into their representative
 through the `name(p, mech)` chokepoint (plus any Pass-2 single-symbol Wegscheider
 tie in `rename`) — equivalent to a kinetic-group equality constraint.
+`step_params` defaults to the mechanism's own `:None`-state constants. The
+allosteric per-state derivation passes state-tagged ones so `name(p, mech)` renders
+`K_A_…`/`K_I_…`/bare-`:EqualAI` symbols, and the columns (`_param_columns`) follow.
 """
 function _assemble_constraints(
     mech::Mechanism,
@@ -546,40 +549,6 @@ function _solve_dependent_set(
     end
     return dep_exprs, Tuple(p for p in columns if !haskey(dep_exprs, p))
 end
-
-"""
-Gaussian-elimination kernel underlying `_dependent_param_exprs`: assemble the
-constraint system and solve it for the dependent/independent partition. Takes
-the rename map as a parameter so callers can supply either the user-defined
-kinetic-group rename (Pass 1 only) or the full rename map that also absorbs
-single-symbol Wegscheider RE ties (Pass 1 + Pass 2).
-
-Pass 2 of `_build_wegscheider_rename_map` calls this kernel with the
-Pass-1-only rename to discover which single-symbol ties to absorb; the
-display path in `rate_equation_string` likewise calls it with the
-Pass-1-only rename to keep absorbed ties visible under the
-`# Wegscheider constraints:` section.
-
-`step_params` defaults to the mechanism's own `:None`-state constants. The
-allosteric per-state derivation passes state-tagged ones so `name(p, mech)` renders
-`K_A_…`/`K_I_…`/bare-`:EqualAI` symbols, and the columns (`_param_columns`) follow.
-"""
-function _dependent_param_exprs_kernel(
-    mech::Mechanism,
-    rename::AbstractDict{Symbol, Symbol};
-    step_params = _step_parameters(mech),
-)
-    A, rhs, columns, priority = _assemble_constraints(mech, rename; step_params)
-    return _solve_dependent_set(A, rhs, columns, priority)
-end
-
-"""
-Type-dispatching wrapper preserves the existing call sites in
-_dependent_param_exprs and _build_kinetic_rename_map / _build_wegscheider_rename_map.
-"""
-_dependent_param_exprs_kernel(@nospecialize(M::Type{<:EnzymeMechanism}),
-                              rename::AbstractDict{Symbol, Symbol}) =
-    _dependent_param_exprs_kernel(Mechanism(M()), rename)
 
 # ─── Preamble Building Helpers ───────────────────────────────────
 

@@ -72,48 +72,42 @@ fitted_params(m::Union{Mechanism, AllostericMechanism}) =
 
 """
 Build a renaming map for single-symbol Wegscheider RE ties between two
-binding K's. Calls `_dependent_param_exprs_kernel` to discover
-binding-K-to-binding-K Wegscheider closures of the form `K_a = K_b`
-(RHS is a bare Symbol). Both sides must be binding K's (RE step with
+binding K's of `mech` under `step_params`. Solves the constraint system with
+no rename to discover binding-K-to-binding-K Wegscheider closures of the form
+`K_a = K_b` (RHS is a bare Symbol). Both sides must be binding K's (RE step with
 metabolite on LHS) — absorbing a binding-K-to-iso-K tie would produce
-inconsistent sign-flips when the kernel runs with the full rename,
+inconsistent sign-flips when the solve runs with the full rename,
 since the binding-K column is sign-flipped (Kd convention) but the
-iso-K column is not.
+iso-K column is not. No tie chains onto another: the solve is a full
+Gauss–Jordan elimination, so a dependent's right-hand side holds only
+independent columns, and no target is itself renamed.
+
+`step_params` defaults to the mechanism's own `:None`-state constants. The
+allosteric derivation passes each conformation's state-tagged ones
+(`_state_parts`), so the map holds that state's `K_A_…`/`K_I_…` names. A tie
+arises from an RE binding square whose two bindings of one ligand share a group
+while the other ligand's two bindings do not: the square then equates the other
+ligand's two K's.
 
 The rename means the polynomial in `v` uses the representative symbol
 directly, so Source-C duplicates (split kinetic groups that
 Wegscheider ties back together) collapse at hash time.
 """
-function _build_wegscheider_rename_map(mech::Mechanism)
-    rename = Dict{Symbol, Symbol}()
-    step_params = _step_parameters(mech)
+function _build_wegscheider_rename_map(mech::Mechanism;
+                                       step_params = _step_parameters(mech))
     # binding-K set: value-context rep name of each RE binding step. Walk
     # Mechanism.steps directly — an RE step that is a binding (`is_binding`,
     # plain or fused) is a binding step; step_params is indexed in the same
     # flat order.
-    binding_set = Set{Symbol}()
-    for (idx, (s, _)) in enumerate(_flat_steps(mech))
-        is_equilibrium(s) && is_binding(s) || continue
-        push!(binding_set, name(step_params[idx][1], mech))
-    end
+    binding_set = Set{Symbol}(name(step_params[j][1], mech)
+                              for (j, (s, _)) in enumerate(_flat_steps(mech))
+                              if is_equilibrium(s) && is_binding(s))
     # Pass 2: single-symbol Wegscheider RE ties between two binding K's.
-    dep_raw, _ = _dependent_param_exprs_kernel(mech, rename)
-    for (lhs, rhs) in dep_raw
-        rhs isa Symbol || continue
-        lhs in binding_set && rhs in binding_set || continue
-        target = get(rename, rhs, rhs)
-        rename[lhs] = target
-        for k in collect(keys(rename))
-            rename[k] == lhs && (rename[k] = target)
-        end
-    end
-    rename
+    dep_raw, _ = _solve_dependent_set(
+        _assemble_constraints(mech, Dict{Symbol, Symbol}(); step_params)...)
+    Dict{Symbol, Symbol}(lhs => rhs for (lhs, rhs) in dep_raw
+                         if rhs isa Symbol && lhs in binding_set && rhs in binding_set)
 end
-
-_build_wegscheider_rename_map(@nospecialize(M::Type{<:EnzymeMechanism})) =
-    _build_wegscheider_rename_map(Mechanism(M()))
-_build_wegscheider_rename_map(@nospecialize(m::EnzymeMechanism)) =
-    _build_wegscheider_rename_map(typeof(m))
 
 # ─── RE Group Helpers ───────────────────────────────────────
 
@@ -224,7 +218,11 @@ Build raw numerator and denominator POLYs for the rate equation by
 walking the lifted `Mechanism`. Parameter Symbols on the leaves of
 `num`/`den` are produced via the `name(p, mech)` chokepoint (which
 collapses kinetic-group members to their rep's name). `rename_map` then
-applies any single-symbol Wegscheider ties as a post-pass.
+applies any single-symbol Wegscheider ties as a post-pass. `step_params` defaults
+to the mechanism's own `:None`-state constants and `rename_map` to the Wegscheider
+rename under them; the allosteric derivation passes each conformation's
+state-tagged constants (`_state_parts`). First aborts, through `_assert_derivable`,
+a mechanism whose denominator would be too large to derive.
 
 Also returns `d_free`, the weight in the returned denominator of the free
 resting enzyme (the form with empty `bound` and empty `residual`): the
@@ -232,7 +230,12 @@ spanning-tree weight `D[g_free]` of its segment times the concentration monomial
 that brings `num`/`den` to lowest terms. Free E roots its segment, so its own
 `alpha` is 1.
 """
-function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map)
+function _raw_symbolic_rate_polys(
+    mech::Mechanism,
+    step_params = _step_parameters(mech),
+    rename_map = _build_wegscheider_rename_map(mech; step_params),
+)
+    _assert_derivable(mech)
     species, segments, _, idx, seg = _re_segment_extras(steps(mech))
     # A fully-inert conformation (every binding pruned) has no enumerated form; it
     # exists only as free enzyme — no flux, partition 1, D[g_free] 1.
@@ -304,13 +307,8 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map)
     _reduce_conc_lowest_terms(num, den, d_free, conc_set)
 end
 
-function _raw_symbolic_rate_polys(@nospecialize(M::Type{<:EnzymeMechanism}))
-    mech = Mechanism(M())
-    _assert_derivable(mech)
-    step_params = _step_parameters(mech)
-    rename_map = _build_wegscheider_rename_map(M)
-    _raw_symbolic_rate_polys(mech, step_params, rename_map)
-end
+_raw_symbolic_rate_polys(@nospecialize(M::Type{<:EnzymeMechanism})) =
+    _raw_symbolic_rate_polys(Mechanism(M()))
 
 """
 Estimate a mechanism's King–Altman denominator term count, V×τ, from its
@@ -522,7 +520,10 @@ function rate_equation_string(@nospecialize(m::EnzymeMechanism), ::ReducedMode)
     M = typeof(m)
     _, indep = _dependent_param_exprs(M)
 
-    dep_raw, _ = _dependent_param_exprs_kernel(M, Dict{Symbol, Symbol}())
+    # The display solves with no Wegscheider rename, so an absorbed single-symbol tie
+    # stays visible under `# Wegscheider constraints:`.
+    dep_raw, _ = _solve_dependent_set(
+        _assemble_constraints(Mechanism(m), Dict{Symbol, Symbol}())...)
     weg_lines, hal_lines = String[], String[]
     _partition_constraint_lines!(weg_lines, hal_lines, dep_raw)
 
@@ -696,7 +697,7 @@ so this carries no `catalytic_multiplicity` factor.
     # (`:I` mirrors plus the native `:NonequalAI` I-names), which are exactly the
     # non-metabolite symbols the I-polys reference.
     a_param_names = union(
-        Set(_param_columns(_state_mechanism(am, :A), _state_step_params(am, :A))),
+        Set(_param_columns(_state_parts(am, :A)...)),
         setdiff(union(_poly_param_syms(num_A_poly), _poly_param_syms(den_A_poly)),
                 cat_mets))
     i_param_names = union(a_param_names,
@@ -953,34 +954,32 @@ function _state_allo_mechanism(am::AllostericMechanism, state::Symbol)
 end
 
 """
-State-tagged `step_params` for `am`'s catalytic mechanism in conformational
-`state` (`:A` or `:I`). Same shape as `_step_parameters(::Mechanism)` — a
-per-flat-step vector of `Parameter`s — but each catalytic group's `Parameter`s
-carry the group's state tag: a `:NonequalAI`/`:OnlyA` group is tagged with
-`state`; an `:EqualAI` group is tagged `:EqualAI` (so `name(p, am)` renders the
-shared bare Symbol in both states). For `state == :I`, `:OnlyA` groups are
-already pruned from `_state_allo_mechanism(am, :I)`, matching the broken-cycle
-graph from `_state_mechanism(am, :I)`.
+    _state_parts(am, state) -> (cm, sp)
+
+The catalytic `Mechanism` `cm` of `am` in conformational `state` (`:A` or `:I`) and
+its state-tagged step constants `sp`, both read from one
+`_state_allo_mechanism(am, state)`. `cm` is `_state_mechanism(am, state)`. `sp` has
+the shape of `_step_parameters(cm)` — a per-flat-step vector of `Parameter`s — but
+each catalytic group's `Parameter`s carry the group's state tag: a
+`:NonequalAI`/`:OnlyA` group is tagged with `state`; an `:EqualAI` group is tagged
+`:EqualAI` (so `name(p, am)` renders the shared bare Symbol in both states). For
+`state == :I`, `:OnlyA` groups are already pruned from
+`_state_allo_mechanism(am, :I)`, matching the broken-cycle graph.
 
 Walks `_state_allo_mechanism`'s already-canonical, aligned steps/states so the
-per-flat-step order matches `_flat_steps(_state_mechanism(am, state))`. Each
-`Parameter` is anchored on its own step (not the rep), exactly as
-`_step_parameters` does, so arity follows the step's RE/SS type while
-`name(p, am)` collapses to the rep's structural Symbol via the chokepoint.
+per-flat-step order matches `_flat_steps(cm)`. Each `Parameter` is anchored on its
+own step (not the rep), exactly as `_step_parameters` does, so arity follows the
+step's RE/SS type while `name(p, am)` collapses to the rep's structural Symbol via
+the chokepoint.
 """
-function _state_step_params(am::AllostericMechanism, state::Symbol)
+function _state_parts(am::AllostericMechanism, state::Symbol)
     sam = _state_allo_mechanism(am, state)
-    out = Vector{Vector{Parameter}}()
-    for (g, group) in enumerate(steps(sam))
-        tag = cat_allo_state(sam, g) === :EqualAI ? :EqualAI : state
-        for s in group
-            push!(out, is_equilibrium(s) ?
-                Parameter[is_binding(s) ? Kd(s, tag) : Kiso(s, tag)] :
-                Parameter[is_binding(s) ? Kon(s, tag)  : Kfor(s, tag),
-                          is_binding(s) ? Koff(s, tag) : Krev(s, tag)])
-        end
-    end
-    out
+    cm = Mechanism(reaction(sam), steps(sam))
+    sp = Vector{Parameter}[
+        _step_constants(s, cat_allo_state(sam, g) === :EqualAI ? :EqualAI : state)
+        for (g, group) in enumerate(steps(sam)) for s in group]
+    @assert length(sp) == length(_flat_steps(cm)) "state step_params/steps misaligned"
+    cm, sp
 end
 
 """
@@ -1006,47 +1005,8 @@ combined constraint solve's dependent assignment (`_build_dep_assignments`).
 `d_free_poly` is free E's weight in that state's denominator (see
 `_raw_symbolic_rate_polys`).
 """
-function _state_rate_polys(am::AllostericMechanism, state::Symbol)
-    cm = _state_mechanism(am, state)
-    _assert_derivable(cm)
-    sp = _state_step_params(am, state)
-    @assert length(sp) == length(_flat_steps(cm)) "state step_params/steps misaligned"
-    _raw_symbolic_rate_polys(cm, sp, _state_wegscheider_rename_map(am, state))
-end
-
-"""
-State-tagged Wegscheider rename map for `am`'s catalytic sub-mechanism in
-conformational `state` — the state-aware analog of `_build_wegscheider_rename_map`
-(which runs the kernel with `:None` step_params and so cannot see the `:A`/`:I`
-tags). Discovers single-symbol RE binding-K Wegscheider ties (`K_a = K_b`, both
-binding K's) under the state-tagged `step_params` and folds each
-absorbed symbol into its target. Empty for all current specs (catalysis is
-steady-state, so no fully-RE catalytic box), but a fully-RE catalytic core would
-now collapse its tie natively — the same way the non-allosteric path does.
-"""
-function _state_wegscheider_rename_map(am::AllostericMechanism, state::Symbol)
-    cm = _state_mechanism(am, state)
-    sp = _state_step_params(am, state)
-    rename = Dict{Symbol, Symbol}()
-    # binding-K set: value-context rep name of each RE binding step.
-    binding_set = Set{Symbol}()
-    for (idx, (s, _)) in enumerate(_flat_steps(cm))
-        is_equilibrium(s) && is_binding(s) || continue
-        push!(binding_set, name(sp[idx][1], cm))
-    end
-    # Single-symbol Wegscheider RE ties between two binding K's.
-    dep_raw, _ = _dependent_param_exprs_kernel(cm, rename; step_params = sp)
-    for (lhs, rhs) in dep_raw
-        rhs isa Symbol || continue
-        lhs in binding_set && rhs in binding_set || continue
-        target = get(rename, rhs, rhs)
-        rename[lhs] = target
-        for k in collect(keys(rename))
-            rename[k] == lhs && (rename[k] = target)
-        end
-    end
-    rename
-end
+_state_rate_polys(am::AllostericMechanism, state::Symbol) =
+    _raw_symbolic_rate_polys(_state_parts(am, state)...)
 
 """
 Catalytic `Parameter`s of `am` in conformation `state` (`:A` or `:I`): the
@@ -1079,62 +1039,18 @@ _kreg_params(am::AllostericMechanism, state::Symbol) =
 # ─── Dependent parameter expressions ─────────────────────────────
 
 """
-    _combined_state_dependent_exprs(am::AllostericMechanism)
-
-Stack the A-state and I-state thermodynamic constraint systems
-(`_assemble_constraints`, tagged `is_i_state`) over their combined column
-space and solve once with the shared solver (`_solve_dependent_set`). The
-`(is_i_state, type)` pivot priority alone gives the I-above-A collapse
-direction — an I-state column always outranks its A-state counterpart, so a
-cross-state affinity tie (e.g. a live-forbidden `:NonequalAI` split) is
-expressed onto the free A-side directly, with no post-hoc merge step; within
-a state the catalytic pivot order (`_step_priority`) is unchanged. Returns
-`(dep_exprs, indep_params)` over the union of both states' catalytic columns.
-"""
-function _combined_state_dependent_exprs(am::AllostericMechanism)
-    function state_system(state)
-        cm = _state_mechanism(am, state)
-        sp = _state_step_params(am, state)
-        _assemble_constraints(cm, _state_wegscheider_rename_map(am, state);
-                              step_params = sp, is_i_state = (state === :I))
-    end
-    A_A, rhs_A, cols_A, pri_A = state_system(:A)
-    A_I, rhs_I, cols_I, pri_I = state_system(:I)
-
-    # Union columns: A-state first, then any I-only column (a shared `:EqualAI` group
-    # carries the same bare Symbol in both states and coincides — it keeps its A tag).
-    columns = copy(cols_A)
-    col_index = Dict(c => i for (i, c) in enumerate(columns))
-    priority = copy(pri_A)
-    for (j, c) in enumerate(cols_I)
-        haskey(col_index, c) && continue
-        push!(columns, c)
-        col_index[c] = length(columns)
-        push!(priority, pri_I[j])
-    end
-
-    # Stack the two per-state constraint blocks over the combined column space and
-    # solve once. Cross-state ties emerge as `I-row − A-row` (the `log Keq` cancels).
-    A = zeros(Rational{BigInt}, size(A_A, 1) + size(A_I, 1), length(columns))
-    for i in axes(A_A, 1), (j, c) in enumerate(cols_A)
-        A_A[i, j] == 0 || (A[i, col_index[c]] = A_A[i, j])
-    end
-    off = size(A_A, 1)
-    for i in axes(A_I, 1), (j, c) in enumerate(cols_I)
-        A_I[i, j] == 0 || (A[off + i, col_index[c]] = A_I[i, j])
-    end
-    rhs = vcat(rhs_A, rhs_I)
-    return _solve_dependent_set(A, rhs, columns, priority)
-end
-
-"""
     _dependent_param_exprs(am::AllostericMechanism)
 
-Return `(dep_exprs, indep_params)` for an allosteric mechanism from the
-single combined constraint solve (`_combined_state_dependent_exprs`), which
-stacks the A-state and I-state constraint rows and solves them once — a
-cross-state tie (e.g. a live-forbidden `:NonequalAI` split) falls out of the
-stacked system directly, with no post-hoc merge step.
+Return `(dep_exprs, indep_params)` for an allosteric mechanism from one combined
+constraint solve. Stacks the A-state and I-state thermodynamic constraint systems
+(`_assemble_constraints` under each state's Wegscheider rename, tagged
+`is_i_state`) over their combined column space and solves once with the shared
+solver (`_solve_dependent_set`). The `(is_i_state, type)` pivot priority alone
+gives the I-above-A collapse direction — an I-state column always outranks its
+A-state counterpart, so a cross-state affinity tie (e.g. a live-forbidden
+`:NonequalAI` split) is expressed onto the free A-side directly, with no post-hoc
+merge step; within a state the catalytic pivot order (`_step_priority`) is
+unchanged.
 
 Regulator-site affinities complete no catalytic thermodynamic cycle, so they
 are independent on top of the combined solve — except an `:EqualAI`
@@ -1144,7 +1060,28 @@ symbol the combined solve already made dependent is dropped from `indep`. The
 `Type{<:AbstractEnzymeMechanism}` method lifts with `_concrete` and delegates here.
 """
 function _dependent_param_exprs(am::AllostericMechanism)
-    dep, indep = _combined_state_dependent_exprs(am)
+    function state_system(state)
+        cm, sp = _state_parts(am, state)
+        state_rename = _build_wegscheider_rename_map(cm; step_params = sp)
+        state_rename, _assemble_constraints(cm, state_rename; step_params = sp,
+                                            is_i_state = state === :I)
+    end
+    rename_A, (A_A, rhs_A, cols_A, pri_A) = state_system(:A)
+    rename_I, (A_I, rhs_I, cols_I, pri_I) = state_system(:I)
+
+    # Union columns: A-state first, then any I-only column (a shared `:EqualAI` group
+    # carries the same bare Symbol in both states and coincides — it keeps its A tag).
+    columns = unique([cols_A; cols_I])
+    col = Dict(c => i for (i, c) in enumerate(columns))
+    priority = merge(Dict(zip(cols_I, pri_I)), Dict(zip(cols_A, pri_A)))
+
+    # Stack the two per-state constraint blocks over the combined column space and
+    # solve once. Cross-state ties emerge as `I-row − A-row` (the `log Keq` cancels).
+    A = zeros(Rational{BigInt}, size(A_A, 1) + size(A_I, 1), length(columns))
+    A[axes(A_A, 1), [col[c] for c in cols_A]] = A_A
+    A[size(A_A, 1) .+ axes(A_I, 1), [col[c] for c in cols_I]] = A_I
+    dep, indep = _solve_dependent_set(A, [rhs_A; rhs_I], columns,
+                                      [priority[c] for c in columns])
 
     # A per-state Wegscheider rename folds a single-symbol binding-K tie onto one
     # representative; the folded symbol enters the combined solve as a zero-column and
@@ -1153,8 +1090,7 @@ function _dependent_param_exprs(am::AllostericMechanism)
     # used by the other state's polynomial, which keeps its own rename). The
     # non-allosteric analog needs no reference guard because it has a single,
     # consistent rename. No-op when both state renames are empty (all current specs).
-    rename = merge(_state_wegscheider_rename_map(am, :A),
-                   _state_wegscheider_rename_map(am, :I))
+    rename = merge(rename_A, rename_I)
     if !isempty(rename)
         refs = Set{Symbol}()
         for st in (:A, :I)
@@ -1258,8 +1194,8 @@ appear only in the I-state's parameter set (`cols_I \\ cols_A` — a shared
 the A-block), plus every non-`:OnlyA` regulator's I-name.
 """
 function _i_state_symbol_set(am::AllostericMechanism)
-    cols_A = _param_columns(_state_mechanism(am, :A), _state_step_params(am, :A))
-    cols_I = _param_columns(_state_mechanism(am, :I), _state_step_params(am, :I))
+    cols_A = _param_columns(_state_parts(am, :A)...)
+    cols_I = _param_columns(_state_parts(am, :I)...)
     syms = Set{Symbol}(setdiff(cols_I, cols_A))
     union!(syms, (name(p, am) for p in _kreg_params(am, :I)))
 end
@@ -1311,7 +1247,7 @@ function _allosteric_num_den_exprs(@nospecialize(M_type::Type{<:AllostericEnzyme
     num_A_poly, den_A_poly, d_free_A = _state_rate_polys(am, :A)
     # A-state catalytic param symbols (the tagged column set) drive `_poly_to_expr`'s
     # param/metabolite ordering split; the I-poly's `:I` symbols sort as non-params.
-    cat_params = Set(_param_columns(_state_mechanism(am, :A), _state_step_params(am, :A)))
+    cat_params = Set(_param_columns(_state_parts(am, :A)...))
     cat_mets = Set{Symbol}(metabolites(CM()))
 
     # I-state catalytic polys, always re-derived natively on the reachable-form

@@ -550,7 +550,7 @@ function raw_to_ode_params(m, raw_params)
     # Kinetic-group rename map: maps Wegscheider-equivalent RE binding K names
     # (e.g. K_ERinhS_to_ERinh_S → K_ES_to_E_S) so the param lookup succeeds even when the
     # mechanism has sharing via Wegscheider constraints.
-    rename = EnzymeRates._build_wegscheider_rename_map(m)
+    rename = EnzymeRates._build_wegscheider_rename_map(mech)
     # A canonical RE binding step has a metabolite on LHS (canonical form
     # invariant: all RE binding steps are written `E + S ⇌ ES`).
     is_binding_step = Bool[
@@ -1475,7 +1475,7 @@ end
     # structural check above flags it. Being callable is necessary but not
     # sufficient: the equation must also satisfy `v = 0` at `Q = Keq` for
     # arbitrary parameter values. The single combined constraint solve
-    # (`_combined_state_dependent_exprs`) ties every cross-state affinity split
+    # in `_dependent_param_exprs` ties every cross-state affinity split
     # directly, so all three reproducers (D1's `:EqualAI`-shared `koff` merge, D2's
     # `:NonequalAI` split, D3's steady-state speed) are detailed-balance-correct.
     for T in ALLOSTERIC_UNDEFVAR_REPRODUCERS
@@ -2100,6 +2100,41 @@ end
     params = merge(params, (Keq=1.0, E_total=1.0))
     v = rate_equation(m, concs, params)
     @test isfinite(v)
+end
+
+@testset "allosteric single-symbol Wegscheider tie is absorbed in both states" begin
+    # A binds E and E(B) under one shared K while B's two bindings keep their own, so
+    # the RE binding square ties B's two K's (K_EAB_to_EA_B = K_EB_to_E_B) in each
+    # conformation. Each state's Wegscheider rename folds its tie onto K_EB_to_E_B,
+    # and the folded symbols leave fitted_params, so the mechanism derives exactly as
+    # the one that groups B's two bindings outright.
+    tie = @allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B)) :: NonequalAI
+            E + B ⇌ E(B)                       :: NonequalAI
+            E(A) + B ⇌ E(A, B)                 :: NonequalAI
+            E(A, B) <--> E(P)                  :: NonequalAI
+            E(P) ⇌ E + P                       :: NonequalAI
+        end
+    end
+    grouped = @allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B)) :: NonequalAI
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B)) :: NonequalAI
+            E(A, B) <--> E(P)                  :: NonequalAI
+            E(P) ⇌ E + P                       :: NonequalAI
+        end
+    end
+    @test EnzymeRates.fitted_params(tie) ==
+        (:K_A_EA_to_E_A, :K_A_EB_to_E_B, :K_A_EP_to_E_P, :k_A_EAB_to_EP,
+         :K_I_EA_to_E_A, :K_I_EB_to_E_B, :K_I_EP_to_E_P, :k_I_EAB_to_EP, :L)
+    @test rate_equation_string(tie) == rate_equation_string(grouped)
 end
 
 @testset "Fix A: dead-inactive-state allosteric body defines all I-state symbols" begin
