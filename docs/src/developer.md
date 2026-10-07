@@ -82,7 +82,9 @@ resulting mechanism. The `Step` constructor stores a step that takes up nothing
 and gives off one metabolite as the binding it reverses, so every binding is
 stored with its metabolite consumed; the `Mechanism` and `AllostericMechanism`
 constructors orient every other step (`_canonical_step_direction`) and sort steps
-and groups. They also enforce the kinetic-group rules. A group's steps take up and
+and groups. The `RegulatorySite` constructor sorts a site's ligands by name, and the
+`AllostericMechanism` constructor sorts the sites. The two mechanism constructors
+also enforce the kinetic-group rules. A group's steps take up and
 give off the same metabolites (`_step_kind`, the pair `(consumed, released)`) and
 carry one RE/SS flag (`_assert_uniform_groups`), so a fused and a plain binding
 of one metabolite may share a group and a Theorell–Chance step cannot share one

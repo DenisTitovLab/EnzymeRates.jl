@@ -118,8 +118,10 @@ name(s::Species) = s.name
 
 """
 RegulatorySite: a binding site (possibly multimeric) for one or
-more allosteric ligands. `ligands[i]` and `allo_states[i]` are parallel;
-ordering is meaningful (canonicalize at the call site if needed).
+more allosteric ligands. `ligands[i]` and `allo_states[i]` are parallel.
+The constructor sorts the ligands by name and carries each ligand's state
+along, so the order the ligands are given in never changes `==`, `hash` or
+the compiled type.
 """
 struct RegulatorySite
     ligands::Vector{AllostericRegulator}
@@ -137,7 +139,8 @@ struct RegulatorySite
         bad === nothing ||
             error("RegulatorySite: allo state $(allo_states[bad]) must be one of " *
                   "$_VALID_REG_ALLO_STATES")
-        new(ligands, multiplicity, allo_states)
+        p = sortperm(ligands; by = name)
+        new(ligands[p], multiplicity, allo_states[p])
     end
 end
 

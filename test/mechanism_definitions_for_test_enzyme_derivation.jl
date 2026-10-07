@@ -1944,7 +1944,7 @@ let
         mechanism=m,
         source_steps=src,
         source_reg_sites=src_reg,
-        metabolite_names=[:ATP, :F6P, :ADP, :F16BP, :Citrate, :F26BP, :Pi],
+        metabolite_names=[:ATP, :F6P, :ADP, :F16BP, :Pi, :Citrate, :F26BP],
         expected_n_states=7,
         expected_n_steps=9,
         expected_n_haldane_constraints=1,

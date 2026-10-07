@@ -1814,10 +1814,10 @@ enumerate the Δ0-valid allo-state assignments:
 
 The all-`:EqualAI` assignment (degenerate) is dropped by this move's own
 guard; the `RegulatorySite` constructor does not reject it, so that guard is
-load-bearing. The merged site reuses one site's
-`multiplicity` (equal to `catalytic_multiplicity`) and its ligands are sorted
-by name, so two merge routes reaching the same ligand partition produce `==`
-mechanisms and dedup by `hash`. Regulator type is not enforced here;
+load-bearing. The merged site reuses one site's `multiplicity` (equal to
+`catalytic_multiplicity`), and the `RegulatorySite` constructor sorts its
+ligands by name, so two merge routes reaching the same ligand partition produce
+`==` mechanisms and dedup by `hash`. Regulator type is not enforced here;
 `expand_mechanisms` drops every child that fails `_respects_reg_type`.
 """
 function _expand_merge_regulatory_sites(am::AllostericMechanism)
@@ -1827,9 +1827,6 @@ function _expand_merge_regulatory_sites(am::AllostericMechanism)
     for i in 1:(n - 1), j in (i + 1):n
         ligs = vcat(ligands(sites[i]), ligands(sites[j]))
         base_states = vcat(allo_states(sites[i]), allo_states(sites[j]))
-        perm = sortperm(ligs; by = lig -> String(name(lig)))
-        ligs = ligs[perm]
-        base_states = base_states[perm]
         mult = multiplicity(sites[i])
         others = RegulatorySite[sites[k] for k in 1:n if k != i && k != j]
         redundant = isempty(intersect(_site_active_states(sites[i]),
@@ -1842,7 +1839,7 @@ function _expand_merge_regulatory_sites(am::AllostericMechanism)
             all(==(:EqualAI), retagged) || push!(assignments, retagged)
         end
         for states in assignments
-            merged = RegulatorySite(copy(ligs), mult, states)
+            merged = RegulatorySite(ligs, mult, states)
             push!(results, _with(am; sites = vcat(others, [merged])))
         end
     end

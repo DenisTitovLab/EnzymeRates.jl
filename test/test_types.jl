@@ -643,11 +643,20 @@ end
             [lig_a, lig_b], 4, [:OnlyA, :NonequalAI])
         @test site == site2
         @test hash(site) == hash(site2)
-        # Order-sensitive: ligand ordering is parallel to allo_states,
-        # so [A,B] / [OnlyA,NonequalAI] != [B,A] / [OnlyA,NonequalAI].
+        # The constructor sorts the ligands by name and carries each ligand's state
+        # along, so the order the ligands are given in does not matter...
         site_reordered = ER.RegulatorySite(
+            [lig_b, lig_a], 4, [:NonequalAI, :OnlyA])
+        @test ER.ligands(site_reordered) == [lig_a, lig_b]
+        @test ER.allo_states(site_reordered) == [:OnlyA, :NonequalAI]
+        @test site == site_reordered
+        @test hash(site) == hash(site_reordered)
+        # ...but the pairing of ligand and state does: B::OnlyA, A::NonequalAI is
+        # a different site.
+        site_swapped = ER.RegulatorySite(
             [lig_b, lig_a], 4, [:OnlyA, :NonequalAI])
-        @test site != site_reordered
+        @test ER.allo_states(site_swapped) == [:NonequalAI, :OnlyA]
+        @test site != site_swapped
     end
 
     @testset "Step preserves iso direction (canonicalized in Mechanism ctor)" begin

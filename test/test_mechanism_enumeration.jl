@@ -4717,6 +4717,56 @@ end
     @test any(c -> one_AI_site(c) && st(c,1,:A)==:OnlyA && st(c,1,:I)==:OnlyA, kids)
 end
 
+@testset "adding Y at X's site and X at Y's site give one mechanism" begin
+    # A site holding X::OnlyA and Y::NonequalAI is reached from a parent with X alone
+    # (Y appended to X's site) and from a parent with Y alone (X appended to Y's
+    # site). Both children are the same mechanism, so the beam dedups them.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: X, Y
+        oligomeric_state: 2
+    end
+    am_x = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: X::OnlyA
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+    end)
+    am_y = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: Y::NonequalAI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+    end)
+    shared = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: X::OnlyA, Y::NonequalAI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: X, Y
+        end
+    end)
+    from_x = EnzymeRates._expand_add_allosteric_regulator(am_x, rxn)
+    from_y = EnzymeRates._expand_add_allosteric_regulator(am_y, rxn)
+    @test count(==(shared), from_x) == 1
+    @test count(==(shared), from_y) == 1
+    @test length(unique([filter(==(shared), from_x); filter(==(shared), from_y)])) == 1
+end
+
 end
 
 # ─── regulator-kind routing ────────────────────────────────────────────
@@ -5145,9 +5195,10 @@ end
 @testset "ligand↔state pairing survives the name-sort (non-identity perm)" begin
     # Merge a 2-ligand site {A::OnlyA, C::OnlyI} with a 1-ligand site
     # {B::OnlyA}. The merged vcat order is ligands [A, C, B] / states
-    # [OnlyA, OnlyI, OnlyA]; the name-sort reorders ligands to [A, B, C]
-    # (perm [1, 3, 2]). C's :OnlyI must ride along to the new C slot — this
-    # only holds if base_states is permuted in lockstep with the ligands.
+    # [OnlyA, OnlyI, OnlyA]; the RegulatorySite constructor's name-sort reorders
+    # ligands to [A, B, C] (perm [1, 3, 2]). C's :OnlyI must ride along to the new
+    # C slot — this only holds if the states are permuted in lockstep with the
+    # ligands.
     rxn3 = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]

@@ -564,10 +564,10 @@ Build an `AllostericEnzymeMechanism` (MWC, two conformations).
   call species notation (`E(F6P)`, `Estar(B; residual = A - P)`) is supported.
 - `regulatory_site(multiplicity = N): begin ligands: L1, L2 end` declares one
   regulatory site per block with multiplicity `N` and the ligands listed
-  inside. Each ligand must appear in `allosteric_regulators:`; a ligand may
-  not appear in two sites. Ligands declared in `allosteric_regulators:` but
-  not assigned to any `regulatory_site(...):` block default to a single-ligand
-  site at the catalytic multiplicity.
+  inside, in any order. Each ligand must appear in `allosteric_regulators:`; a
+  ligand may not appear in two sites. Ligands declared in
+  `allosteric_regulators:` but not assigned to any `regulatory_site(...):` block
+  default to a single-ligand site at the catalytic multiplicity.
 - A name with several roles binds in a bare catalytic-step `E(X)` as its
   substrate or product role first, then as a catalytic inhibitor; an
   allosteric regulator binds only at its regulatory site. A catalytic
@@ -639,11 +639,12 @@ end
 Parse the body of a mechanism macro into `(mech_expr, groups_expr, reg_sites_expr)`:
 the `Expr` that builds the mechanism, its kinetic groups and, for an allosteric
 mechanism, its regulatory sites (`nothing` for a plain one). The groups and sites are
-in SOURCE order, before the constructor canonicalizes them, for positional-oracle tests
-to bridge as-written indices to canonical stored order. `allosteric` selects the
-grammar of `@allosteric_mechanism` (`catalytic_inhibitors:`, `catalytic_steps:`,
-`allosteric_regulators:`, `catalytic_multiplicity:`, `regulatory_site(...)`) over that
-of `@enzyme_mechanism` (`regulators:`, `steps:`).
+in SOURCE order, before the mechanism constructor canonicalizes them, for
+positional-oracle tests to bridge as-written indices to canonical stored order; each
+site's ligands are in name order, which the `RegulatorySite` constructor sets.
+`allosteric` selects the grammar of `@allosteric_mechanism` (`catalytic_inhibitors:`,
+`catalytic_steps:`, `allosteric_regulators:`, `catalytic_multiplicity:`,
+`regulatory_site(...)`) over that of `@enzyme_mechanism` (`regulators:`, `steps:`).
 """
 function _parse_mechanism_body(block, allosteric::Bool)
     macro_name = allosteric ? "@allosteric_mechanism" : "@enzyme_mechanism"
