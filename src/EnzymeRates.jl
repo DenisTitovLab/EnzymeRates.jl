@@ -23,6 +23,7 @@ export identify_rate_equation
 
 
 using Dates
+using LinearAlgebra: det
 using Tables
 using Optimization
 using Distributed

@@ -149,52 +149,6 @@ _build_wegscheider_rename_map(@nospecialize(m::EnzymeMechanism)) =
 # ─── RE Group Helpers ───────────────────────────────────────
 
 """
-Compute RE-connected groups via union-find over enzyme Species. Walks
-`m.steps` directly; nodes are Species values (compared by `==`). Returns
-`(enz_species, groups, form_to_group)` with `groups[g] :: Vector{Int}`
-indexing into `enz_species`.
-"""
-function _compute_re_groups(mech::Mechanism)
-    enz_species = _enumerate_species(mech)
-    N = length(enz_species)
-    parent = collect(1:N)
-    function find(x)
-        while parent[x] != x; parent[x] = parent[parent[x]]; x = parent[x]; end
-        x
-    end
-    for group in steps(mech)
-        for s in group
-            is_equilibrium(s) || continue
-            i_from = findfirst(==(from_species(s)), enz_species)
-            i_to   = findfirst(==(to_species(s)),   enz_species)
-            ra, rb = find(i_from), find(i_to)
-            ra != rb && (parent[ra] = rb)
-        end
-    end
-    root_to_group = Dict{Int, Int}()
-    groups = Vector{Vector{Int}}()
-    form_to_group = zeros(Int, N)
-    for i in 1:N
-        r = find(i)
-        g = get!(root_to_group, r) do; push!(groups, Int[]); length(groups) end
-        push!(groups[g], i); form_to_group[i] = g
-    end
-    enz_species, groups, form_to_group
-end
-
-"""Distinct enzyme Species in `m.steps`, in step-walk order."""
-function _enumerate_species(m::Mechanism)
-    seen = Species[]
-    for group in steps(m)
-        for s in group
-            from_species(s) in seen || push!(seen, from_species(s))
-            to_species(s)   in seen || push!(seen, to_species(s))
-        end
-    end
-    seen
-end
-
-"""
 Concentration symbols (substrates ∪ products ∪ regulators) that may appear in
 the rate-equation polynomials — the same set `_poly_to_expr` treats as
 concentrations and the only symbols `_reduce_conc_lowest_terms` is allowed to
@@ -209,10 +163,10 @@ metabolites, tie-broken toward no covalent residual, then a deterministic
 name. Referencing each segment's alphas to this form makes the derivation
 independent of the step order and yields the readable `1 + [S]/K + …` form.
 """
-function _segment_root(group, enz_species)
-    argmin(i -> (length(bound(enz_species[i])),
-                 has_residual(enz_species[i]) ? 1 : 0,
-                 string(name(enz_species[i]))), group)
+function _segment_root(segment, species)
+    argmin(i -> (length(bound(species[i])),
+                 has_residual(species[i]) ? 1 : 0,
+                 string(name(species[i]))), segment)
 end
 
 """
@@ -233,31 +187,31 @@ function _re_weight_ratio(s::Step, K::Symbol)
 end
 
 """
-Compute alpha factors (relative concentrations within RE groups) as POLY
+Compute alpha factors (relative concentrations within RE segments) as POLY
 values. Iterates `mech.steps` directly; each RE step's weight ratio comes
 from `_re_weight_ratio`, entering `to_species` from `from_species` or the
-reverse. `step_to_K[idx]` is the parameter Symbol for the RE step at flat
-position `idx` (rep-renamed via the `name(p, m)` chokepoint). Raises when the
-RE steps close a catalytic cycle, which gives the mechanism no finite rate.
+reverse. `idx[sp]` is the position of form `sp` in `species`; `step_to_K[j]` is
+the parameter Symbol for the RE step at flat position `j` (rep-renamed via the
+`name(p, m)` chokepoint). Raises when the RE steps close a catalytic cycle,
+which gives the mechanism no finite rate.
 """
-function _compute_alpha(mech::Mechanism, enz_species,
-                        enz_name_to_form, groups, step_to_K)
-    N = length(enz_species)
+function _compute_alpha(mech::Mechanism, species, idx, segments, step_to_K)
+    N = length(species)
     alpha = Vector{POLY}(fill(poly_one(), N))
     flat = _flat_steps(mech)
 
-    for group in groups
-        length(group) == 1 && continue
-        root = _segment_root(group, enz_species)
+    for segment in segments
+        length(segment) == 1 && continue
+        root = _segment_root(segment, species)
         visited = Set{Int}([root])
         queue = [root]
         while !isempty(queue)
             cur = popfirst!(queue)
-            for (idx, (s, _)) in enumerate(flat)
+            for (j, (s, _)) in enumerate(flat)
                 is_equilibrium(s) || continue
-                i_f = enz_name_to_form[name(from_species(s))]
-                j_f = enz_name_to_form[name(to_species(s))]
-                K = step_to_K[idx]
+                i_f = idx[from_species(s)]
+                j_f = idx[to_species(s)]
+                K = step_to_K[j]
                 if i_f == cur && j_f ∉ visited
                     alpha[j_f] = poly_mul(alpha[cur], _re_weight_ratio(s, K))
                     push!(visited, j_f); push!(queue, j_f)
@@ -274,12 +228,11 @@ function _compute_alpha(mech::Mechanism, enz_species,
     # mismatch means a cycle of RE steps performs turnover.
     conc_set = _concentration_symbols(mech)
     conc(p) = Dict(k => v for (k, v) in only(keys(p)) if k in conc_set)
-    for (idx, (s, _)) in enumerate(flat)
+    for (j, (s, _)) in enumerate(flat)
         is_equilibrium(s) || continue
-        a = enz_name_to_form[name(from_species(s))]
-        b = enz_name_to_form[name(to_species(s))]
+        a, b = idx[from_species(s)], idx[to_species(s)]
         ratio = poly_mul(alpha[b], _invert_monomial(alpha[a]))
-        conc(ratio) == conc(_re_weight_ratio(s, step_to_K[idx])) || error(
+        conc(ratio) == conc(_re_weight_ratio(s, step_to_K[j])) || error(
             "rate_equation: the rapid-equilibrium steps close a catalytic cycle " *
             "(through $(name(from_species(s))) ⇌ $(name(to_species(s)))), so the " *
             "mechanism has no finite rate. Make one step of the cycle steady-state.")
@@ -287,9 +240,11 @@ function _compute_alpha(mech::Mechanism, enz_species,
     alpha
 end
 
-"""Build rate poly for one SS step direction in Laurent (fractional) form."""
+"""Build rate poly for one SS step direction in Laurent (fractional) form: the rate
+constant `k_poly` times the metabolites `mets` it takes up times the weight of its source
+form `i_form`."""
 function _ss_contrib(k_poly, mets, i_form, alpha)
-    r = isempty(mets) ? k_poly : poly_mul(k_poly, reduce(poly_mul, poly_sym.(mets)))
+    r = isempty(mets) ? k_poly : poly_mul(k_poly, reduce(poly_mul, poly_sym.(name.(mets))))
     poly_mul(r, alpha[i_form])
 end
 
@@ -309,59 +264,70 @@ that brings `num`/`den` to lowest terms. Free E roots its segment, so its own
 `alpha` is 1.
 """
 function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map)
-    enz_species, groups, form_to_group = _compute_re_groups(mech)
+    species, segments, _, idx, seg = _re_segment_extras(steps(mech))
     # A fully-inert conformation (every binding pruned) has no enumerated form; it
     # exists only as free enzyme — no flux, partition 1, D[g_free] 1.
-    isempty(enz_species) && return poly_zero(), poly_one(), poly_one()
-    enz_name_to_form = Dict{Symbol, Int}(
-        name(es) => i for (i, es) in enumerate(enz_species))
+    isempty(species) && return poly_zero(), poly_one(), poly_one()
     flat = _flat_steps(mech)
     step_to_K = Dict{Int, Symbol}(
         i => name(step_params[i][1], mech)
         for i in eachindex(flat) if is_equilibrium(flat[i][1]))
-    alpha = _compute_alpha(mech, enz_species,
-                           enz_name_to_form, groups, step_to_K)
-    G = length(groups)
+    alpha = _compute_alpha(mech, species, idx, segments, step_to_K)
+    G = length(segments)
 
-    R = [poly_zero() for _ in 1:G, _ in 1:G]
-    for (idx, (s, _)) in enumerate(flat)
+    # The Laplacian of the segment graph: each SS step joining two segments adds its
+    # forward flux out of its source segment and its reverse flux out of its target. A
+    # step within one segment enters only the numerator. `ss` keeps every SS step with
+    # its two forms and fluxes for the numerator.
+    L = [poly_zero() for _ in 1:G, _ in 1:G]
+    ss = Tuple{Step, Int, Int, POLY, POLY}[]
+    for (j, (s, _)) in enumerate(flat)
         is_equilibrium(s) && continue
-        i_form = enz_name_to_form[name(from_species(s))]
-        j_form = enz_name_to_form[name(to_species(s))]
-        g1, g2 = form_to_group[i_form], form_to_group[j_form]
-        kf_poly = poly_sym(name(step_params[idx][1], mech))
-        kr_poly = poly_sym(name(step_params[idx][2], mech))
-        R[g1, g2] = poly_add(R[g1, g2],
-            _ss_contrib(kf_poly, Symbol[name(m) for m in consumed(s)], i_form, alpha))
-        R[g2, g1] = poly_add(R[g2, g1],
-            _ss_contrib(kr_poly, Symbol[name(m) for m in released(s)], j_form, alpha))
+        a, b = idx[from_species(s)], idx[to_species(s)]
+        fwd = _ss_contrib(poly_sym(name(step_params[j][1], mech)), consumed(s), a, alpha)
+        rev = _ss_contrib(poly_sym(name(step_params[j][2], mech)), released(s), b, alpha)
+        push!(ss, (s, a, b, fwd, rev))
+        g1, g2 = seg[a], seg[b]
+        g1 == g2 && continue
+        L[g1, g1] = poly_add(L[g1, g1], fwd); L[g1, g2] = poly_sub(L[g1, g2], fwd)
+        L[g2, g2] = poly_add(L[g2, g2], rev); L[g2, g1] = poly_sub(L[g2, g1], rev)
     end
-
-    L = [i == j ? poly_zero() : poly_neg(R[i,j])
-         for i in 1:G, j in 1:G]
-    for i in 1:G
-        L[i, i] = reduce(poly_add, R[i, j] for j in 1:G if j != i; init=poly_zero())
-    end
-    D = [begin
-        idx = [r for r in 1:G if r != root]
-        isempty(idx) ? poly_one() : sym_det(L[idx, idx], G - 1)
-    end for root in 1:G]
+    # D[g], the spanning-tree weight of segment g: L without g's row and column.
+    D = [(o = setdiff(1:G, g); sym_det(L[o, o])) for g in 1:G]
 
     # A fully-inert conformation (every binding pruned, e.g. all-`:OnlyA` in the
     # inactive state) has no reactions and so no enumerated form; its free enzyme
     # spans the whole (empty) graph, so `D[g_free] = 1`.
-    i_free = findfirst(f -> isempty(bound(f)) && isempty(residual(f)), enz_species)
+    i_free = findfirst(f -> isempty(bound(f)) && isempty(residual(f)), species)
     d_free = i_free === nothing ? poly_one() :
-             _rename_symbols(D[form_to_group[i_free]], rename_map)
+             _rename_symbols(D[seg[i_free]], rename_map)
 
     den = poly_zero()
     for g in 1:G
-        sigma = reduce(poly_add, (alpha[i] for i in groups[g]); init=poly_zero())
+        sigma = reduce(poly_add, (alpha[i] for i in segments[g]); init=poly_zero())
         csigma = _rename_symbols(sigma, rename_map)
         den = poly_add(den, poly_mul(csigma, D[g]))
     end
 
-    num = _compute_numerator(mech, enz_name_to_form, step_params, alpha, form_to_group, D)
+    # Numerator of the rate: v·den summed over steady-state steps. With u(f) the
+    # first substrate's exponent in form f's RE weight, each SS step e contributes
+    # ω_e·(forward − reverse flux) with ω_e = (copies of the first substrate e
+    # consumes − copies it releases) + u(from_e) − u(to_e). Flux conservation at every
+    # form makes the sum equal the net consumption of the first substrate for every
+    # parameter value, so it needs no choice of reaction cut and does not depend on
+    # the direction a step is written in. Steps with ω_e = 0 contribute nothing.
+    x = name(first(substrates(reaction(mech))))
+    expo(p) = (mono = only(keys(p));
+               k = findfirst(q -> q.first == x, mono);
+               k === nothing ? 0 : mono[k].second)
+    num = poly_zero()
+    for (s, a, b, fwd, rev) in ss
+        ω = count(m -> name(m) == x, consumed(s)) - count(m -> name(m) == x, released(s)) +
+            expo(alpha[a]) - expo(alpha[b])
+        ω == 0 && continue
+        term = poly_sub(poly_mul(fwd, D[seg[a]]), poly_mul(rev, D[seg[b]]))
+        num = poly_add(num, POLY(key => ω * c for (key, c) in term))
+    end
 
     num = _rename_symbols(num, rename_map)
     den = _rename_symbols(den, rename_map)
@@ -381,9 +347,11 @@ end
 Estimate a mechanism's King–Altman denominator term count, V×τ, from its
 catalytic segment graph WITHOUT deriving the rate equation.
 
-`V` is the number of RE-connected segments (`_compute_re_groups`); `τ` is the
-spanning-tree count of the segment graph, whose edges are the SS steps, via an
-exact integer Matrix–Tree determinant. `V×τ` equals the number of spanning-tree
+`V` is the number of RE-connected segments (`_re_segment_extras`); `τ` is the
+spanning-tree count of the segment graph, whose edges are the SS steps: by the
+Matrix–Tree theorem, the determinant of its Laplacian with the first row and column
+dropped, computed exactly (`det` of a `BigInt` matrix is fraction-free Bareiss; a
+disconnected graph gives 0). `V×τ` equals the number of spanning-tree
 products in the denominator — the products the compiled equation evaluates on
 every call — so it bounds fit cost. It guards the derivation itself
 (`_assert_derivable` aborts when V×τ exceeds `MAX_RATE_EQUATION_TERMS`, before the
@@ -391,61 +359,20 @@ O(G!) symbolic cofactor expansion) and backs the `eq_complexity_filter` keyword
 of [`identify_rate_equation`](@ref), which skips over-complex mechanisms before
 fitting.
 """
-_eq_complexity(m::Mechanism) = _segment_graph_terms(m)
-_eq_complexity(m::AllostericMechanism) = _segment_graph_terms(_state_mechanism(m, :A))
-
-function _segment_graph_terms(mech::Mechanism)
-    enz_species, groups, form_to_group = _compute_re_groups(mech)
-    G = length(groups)
+function _eq_complexity(mech::Mechanism)
+    _, segments, _, idx, seg = _re_segment_extras(steps(mech))
+    G = length(segments)
     G <= 1 && return big(G)                          # single RE segment ⇒ τ = 1
-    enz_name_to_form = Dict{Symbol, Int}(
-        name(es) => i for (i, es) in enumerate(enz_species))
-    A = zeros(Int, G, G)
-    for (s, _) in _flat_steps(mech)
+    lap = zeros(BigInt, G, G)
+    for group in steps(mech), s in group
         is_equilibrium(s) && continue                # SS steps are the segment-graph edges
-        g1 = form_to_group[enz_name_to_form[name(from_species(s))]]
-        g2 = form_to_group[enz_name_to_form[name(to_species(s))]]
+        g1, g2 = seg[idx[from_species(s)]], seg[idx[to_species(s)]]
         g1 == g2 && continue
-        A[g1, g2] += 1; A[g2, g1] += 1
+        lap[g1, g1] += 1; lap[g2, g2] += 1; lap[g1, g2] -= 1; lap[g2, g1] -= 1
     end
-    G * _spanning_tree_count(A)
+    G * det(lap[2:end, 2:end])
 end
-
-"""
-Spanning-tree count of an undirected multigraph given its integer adjacency
-matrix (Matrix–Tree theorem: the exact integer cofactor determinant of the graph
-Laplacian, dropping the first row and column).
-"""
-function _spanning_tree_count(A::Matrix{Int})
-    G = size(A, 1)
-    G <= 1 && return big(1)
-    L = Matrix{BigInt}(undef, G - 1, G - 1)          # Laplacian minor (drop node 1)
-    for i in 2:G, j in 2:G
-        L[i - 1, j - 1] = i == j ? big(sum(@view A[i, :])) : big(-A[i, j])
-    end
-    _bareiss_det(L)
-end
-
-"""Exact integer determinant via the fraction-free Bareiss algorithm."""
-function _bareiss_det(M::Matrix{BigInt})
-    n = size(M, 1)
-    n == 0 && return big(1)
-    M = copy(M); prev = big(1); sgn = 1
-    for k in 1:(n - 1)
-        if iszero(M[k, k])
-            p = findfirst(i -> !iszero(M[i, k]), (k + 1):n)
-            p === nothing && return big(0)
-            r = k + p
-            for c in 1:n; M[k, c], M[r, c] = M[r, c], M[k, c]; end
-            sgn = -sgn
-        end
-        for i in (k + 1):n, j in (k + 1):n
-            M[i, j] = (M[i, j] * M[k, k] - M[i, k] * M[k, j]) ÷ prev
-        end
-        prev = M[k, k]
-    end
-    sgn * M[n, n]
-end
+_eq_complexity(m::AllostericMechanism) = _eq_complexity(_state_mechanism(m, :A))
 
 """
 Abort the rate-equation derivation for a mechanism whose denominator term count
@@ -460,40 +387,6 @@ function _assert_derivable(mech::Mechanism)
         "take a very long time to compile and are unlikely to be practically " *
         "useful for parameter fitting.")
     return nothing
-end
-
-"""
-Numerator of the rate: v·den summed over steady-state steps. With u(f) the
-first substrate's exponent in form f's RE weight, each SS step e contributes
-ω_e·(forward − reverse flux) with ω_e = (copies of the first substrate e
-consumes − copies it releases) + u(from_e) − u(to_e). Flux conservation at every
-form makes the sum equal the net consumption of the first substrate for every
-parameter value, so it needs no choice of reaction cut and does not depend on
-the direction a step is written in. Steps with ω_e = 0 contribute nothing.
-"""
-function _compute_numerator(mech::Mechanism, enz_name_to_form, step_params,
-                            alpha, form_to_group, D)
-    x = name(first(substrates(reaction(mech))))
-    expo(p) = (mono = only(keys(p));
-               k = findfirst(q -> q.first == x, mono);
-               k === nothing ? 0 : mono[k].second)
-    num = poly_zero()
-    for (idx, (s, _)) in enumerate(_flat_steps(mech))
-        is_equilibrium(s) && continue
-        i_form = enz_name_to_form[name(from_species(s))]
-        j_form = enz_name_to_form[name(to_species(s))]
-        ω = count(m -> name(m) == x, consumed(s)) - count(m -> name(m) == x, released(s)) +
-            expo(alpha[i_form]) - expo(alpha[j_form])
-        ω == 0 && continue
-        fwd = _ss_contrib(poly_sym(name(step_params[idx][1], mech)),
-                          Symbol[name(m) for m in consumed(s)], i_form, alpha)
-        rev = _ss_contrib(poly_sym(name(step_params[idx][2], mech)),
-                          Symbol[name(m) for m in released(s)], j_form, alpha)
-        term = poly_sub(poly_mul(fwd, D[form_to_group[i_form]]),
-                        poly_mul(rev, D[form_to_group[j_form]]))
-        num = poly_add(num, poly_mul(poly_const(ω), term))
-    end
-    num
 end
 
 # ─── Expr generation from POLY ──────────────────────────────
@@ -1015,11 +908,11 @@ end
 """
 The native I-state catalytic numerator polynomial is empty (zero): the
 steady-state fluxes of a broken cycle's reachable-form-pruned I-graph cancel
-exactly, so `_compute_numerator` returns `poly_zero()` natively — no forced
-zero. It decides, at both consumer sites (`_allosteric_num_den_exprs` and
-`_kcat_forward`), whether the `L·num_I` term is emitted and whether `kcat`
-carries the I-state term. A live redundant-path `:OnlyA` mechanism (num_I ≠ 0)
-is thereby handled consistently.
+exactly, so the numerator `_raw_symbolic_rate_polys` builds is `poly_zero()`
+natively — no forced zero. It decides, at both consumer sites
+(`_allosteric_num_den_exprs` and `_kcat_forward`), whether the `L·num_I` term is
+emitted and whether `kcat` carries the I-state term. A live redundant-path `:OnlyA`
+mechanism (num_I ≠ 0) is thereby handled consistently.
 """
 _i_state_num_zero(am::AllostericMechanism) =
     isempty(first(_state_rate_polys(am, :I)))
@@ -1541,8 +1434,8 @@ function _allosteric_num_den_exprs(@nospecialize(M_type::Type{<:AllostericEnzyme
     # subgraph (`_state_allo_mechanism(am, :I)` drops `:OnlyA` groups and every
     # form they disconnect from free E). Reachable-subgraph King–Altman gives the
     # same binding partition monomial-zeroing produced, and for a dead cycle the
-    # pruned graph's steady-state fluxes cancel exactly, so `_compute_numerator`
-    # returns 0 natively — no forced zero needed.
+    # pruned graph's steady-state fluxes cancel exactly, so the numerator
+    # `_raw_symbolic_rate_polys` builds is 0 natively — no forced zero needed.
     num_i_poly, den_i_poly, d_free_I = _state_rate_polys(am, :I)
 
     # Formulation-1 per-state free-enzyme normalization. Render the same value

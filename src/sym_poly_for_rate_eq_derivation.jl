@@ -15,7 +15,6 @@ _mono(pairs...) = sort!(MONO(collect(pairs)); by=first)
 
 poly_zero() = POLY()
 poly_one() = POLY(_mono() => 1)
-poly_const(n::Integer) = n == 0 ? POLY() : POLY(_mono() => Int(n))
 poly_sym(s::Symbol) = POLY(_mono(s => 1) => 1)
 
 function _poly_addop(a::POLY, b::POLY, sign::Int)
@@ -25,7 +24,6 @@ function _poly_addop(a::POLY, b::POLY, sign::Int)
 end
 poly_add(a::POLY, b::POLY) = _poly_addop(a, b, 1)
 poly_sub(a::POLY, b::POLY) = _poly_addop(a, b, -1)
-poly_neg(a::POLY) = POLY(k => -v for (k, v) in a)
 
 function poly_mul(a::POLY, b::POLY)
     r = POLY()
@@ -80,7 +78,8 @@ Cofactor determinant expansion for symbolic matrices. The size guard against
 oversized rate equations runs upfront in `_raw_symbolic_rate_polys` (a numeric
 V×τ check on the segment graph), before this O(n!) expansion is ever entered.
 """
-function sym_det(M::Matrix{POLY}, n::Int)
+function sym_det(M::Matrix{POLY})
+    n = size(M, 1)
     n == 0 && return poly_one()
     n == 1 && return M[1,1]
     result = poly_zero()
@@ -91,7 +90,7 @@ function sym_det(M::Matrix{POLY}, n::Int)
             c < j && (minor[r-1, c] = M[r, c])
             c > j && (minor[r-1, c-1] = M[r, c])
         end
-        cofactor = sym_det(minor, n-1)
+        cofactor = sym_det(minor)
         term = poly_mul(M[1,j], cofactor)
         result = iseven(j-1) ? poly_add(result, term) : poly_sub(result, term)
     end
