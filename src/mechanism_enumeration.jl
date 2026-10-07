@@ -19,69 +19,23 @@ function _net_atoms(reaction::EnzymeReaction, plus, minus)
     filter!(kv -> kv.second != 0, acc)
 end
 
-"""Extract atom counts as Dict{Symbol,Int} for a metabolite."""
-function _atoms_dict(
-    reaction::EnzymeReaction,
-    met::Symbol,
-)
-    result = Dict{Symbol,Int}()
-    for ra in reactants(reaction)
-        m = metabolite(ra)
-        (m isa Substrate || m isa Product) || continue
-        name(m) == met || continue
-        for (a, c) in atoms(ra)
-            result[a] = get(result, a, 0) + c
-        end
-        return result
-    end
-    result
-end
-
 # ─── Atom-conservation validation ────────────────────────────
-
-"""Add `sign * d` into the signed accumulator `acc` in place."""
-function _accumulate_atoms!(acc::Dict{Symbol,Int}, d::Dict{Symbol,Int}, sign::Int)
-    for (a, c) in d
-        acc[a] = get(acc, a, 0) + sign * c
-    end
-    acc
-end
-
-"""Drop zero entries from a signed atom dict."""
-_nonzero_atoms(d::Dict{Symbol,Int}) = filter(kv -> kv.second != 0, d)
-
-"""
-Net atom multiset carried by a `Species`: atoms of its bound metabolites
-plus atoms of `residual.added` minus atoms of `residual.subtracted`, read
-from the reaction's per-metabolite inventory via `_atoms_dict`.
-"""
-function _species_atoms(reaction::EnzymeReaction, sp::Species)
-    acc = Dict{Symbol,Int}()
-    for m in bound(sp)
-        _accumulate_atoms!(acc, _atoms_dict(reaction, name(m)), 1)
-    end
-    for a in added(residual(sp))
-        _accumulate_atoms!(acc, _atoms_dict(reaction, name(a)), 1)
-    end
-    for p in subtracted(residual(sp))
-        _accumulate_atoms!(acc, _atoms_dict(reaction, name(p)), -1)
-    end
-    _nonzero_atoms(acc)
-end
 
 """
 Assert one `Step` conserves atoms: the atoms of `from_species` plus those of
 the consumed metabolites must equal the atoms of `to_species` plus those of the
-released metabolites (an iso step leaves the atom multiset unchanged). Errors
-naming the offending step.
+released metabolites (an iso step leaves the atom multiset unchanged). A form
+carries the atoms of its bound metabolites and of its residual's added substrates,
+less those of its residual's subtracted products, read from the reaction's
+inventory by name (`_net_atoms`). Errors naming the offending step.
 """
 function _assert_step_atom_conserving(reaction::EnzymeReaction, s::Step)
-    diff = Dict{Symbol,Int}()
-    _accumulate_atoms!(diff, _species_atoms(reaction, to_species(s)), 1)
-    _accumulate_atoms!(diff, _species_atoms(reaction, from_species(s)), -1)
-    for m in consumed(s); _accumulate_atoms!(diff, _atoms_dict(reaction, name(m)), -1); end
-    for m in released(s); _accumulate_atoms!(diff, _atoms_dict(reaction, name(m)), 1); end
-    diff = _nonzero_atoms(diff)
+    # The names counted on one side of `s`: `form`'s bound metabolites and residual
+    # additions, the residual subtractions of the `other` form, and the free metabolites.
+    side(form, other, free) = [name.(bound(form)); name.(added(residual(form)));
+                               name.(subtracted(residual(other))); name.(free)]
+    diff = _net_atoms(reaction, side(to_species(s), from_species(s), released(s)),
+                      side(from_species(s), to_species(s), consumed(s)))
     isempty(diff) || error(
         "atom-non-conserving step $(name(from_species(s))) → $(name(to_species(s))) " *
         "(consumed $(name.(consumed(s))), released $(name.(released(s)))): " *
@@ -597,48 +551,19 @@ compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)
 # ─── Mechanism Enumeration ───────────────────────────────────
 
 """
-    _to_group_list(steps, groups) -> Vector{Vector{Step}}
+    _seed_groups(steps) -> Vector{Vector{Step}}
 
-Partition a flat `Vector{Step}` into kinetic groups by the parallel
-`groups` id vector, ordered by first occurrence of each group id in the
-flat step list. (The `Mechanism` constructor then canonicalizes group and
-step order, so this ordering is not load-bearing downstream.)
+The kinetic groups of a seed's flat step list. Steps that take up and give off the
+same metabolites (`_step_kind`) with the same RE/SS flag share one group; every
+isomerization is a group of its own. The `Mechanism` constructor canonicalizes group
+and step order, so the order returned here does not matter.
 """
-function _to_group_list(steps::Vector{Step}, groups::Vector{Int})
-    order = Int[]
-    bygroup = Dict{Int, Vector{Step}}()
-    for (s, g) in zip(steps, groups)
-        haskey(bygroup, g) || push!(order, g)
-        push!(get!(bygroup, g, Step[]), s)
-    end
-    [bygroup[g] for g in order]
-end
-
-"""
-Reassign kinetic-group ids so steps sharing `(consumed, released, RE/SS)`
-collapse into one group. Each multi-step class is assigned a fresh id;
-singleton classes and iso steps keep their existing id. Operates on the
-`(steps, groups)` parallel-array form and returns the merged pair.
-"""
-function _apply_equivalence_grouping(
-    steps::Vector{Step}, groups::Vector{Int},
-)
-    classes = Dict{Tuple{Tuple, Tuple, Bool}, Vector{Int}}()
+function _seed_groups(steps::Vector{Step})
+    groups = Dict{Any, Vector{Step}}()
     for (i, s) in enumerate(steps)
-        is_iso(s) && continue
-        key = (Tuple(name.(consumed(s))), Tuple(name.(released(s))), is_equilibrium(s))
-        push!(get!(classes, key, Int[]), i)
+        push!(get!(groups, is_iso(s) ? i : (_step_kind(s), is_equilibrium(s)), Step[]), s)
     end
-    next_g = maximum(groups; init=0) + 1
-    new_groups = copy(groups)
-    for (_, idxs) in classes
-        length(idxs) >= 2 || continue
-        for i in idxs
-            new_groups[i] = next_g
-        end
-        next_g += 1
-    end
-    (steps, new_groups)
+    collect(values(groups))
 end
 
 
@@ -2357,8 +2282,7 @@ function expand_mechanisms(
     result
 end
 
-# --- Dedup ---
-
+# ─── Entry Points ────────────────────────────────────────────
 
 """
     init_mechanisms(reaction::EnzymeReaction) -> Vector{Mechanism}
@@ -2368,24 +2292,17 @@ reaction as concrete `Mechanism` structs: first the seeds, then their merged
 and Theorell–Chance variants. A seed is built for each catalytic topology
 (`_catalytic_topologies`) and each substrate/product dead-end subset
 (`_expand_substrate_product_dead_ends`), with one steady-state step, a
-chemistry isomerization, and binding steps sharing the same `(metabolite, RE/SS)`
-class collapsed into one kinetic group (`_apply_equivalence_grouping`). Dead-end
+chemistry isomerization, and the binding steps of one metabolite at one RE/SS
+flag collapsed into one kinetic group (`_seed_groups`). Dead-end
 enumeration respects `shared_catalytic_site`. The variants of each seed
 (`_seed_variants`) follow in the seeds' order, each once. The parameter counts
 are mixed: a three-group merged variant or a decorated Theorell–Chance variant
 fits more parameters than its seed, a merged ping-pong variant fewer.
 """
 function init_mechanisms(r::EnzymeReaction)
-    topos = _catalytic_topologies(r)
-    expanded = _expand_substrate_product_dead_ends(topos, r)
-    mechs = Mechanism[]
-    for (steps, groups) in expanded
-        merged_steps, merged_groups =
-            _apply_equivalence_grouping(steps, groups)
-        m = Mechanism(r, _to_group_list(merged_steps, merged_groups))
-        _assert_atom_conserving(m)
-        push!(mechs, m)
-    end
+    seeds = _expand_substrate_product_dead_ends(_catalytic_topologies(r), r)
+    mechs = [Mechanism(r, _seed_groups(steps)) for (steps, _) in seeds]
+    foreach(_assert_atom_conserving, mechs)
     seen = Set(mechs)
     out = copy(mechs)
     for m in unique(mechs), v in _seed_variants(m)

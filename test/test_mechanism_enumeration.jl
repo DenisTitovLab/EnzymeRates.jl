@@ -17,11 +17,10 @@ function _iso_orient(s::EnzymeRates.Step)
     forward ? (from, to) : (to, from)
 end
 
-# Build a Mechanism from a flat topology Step list (each step its own
-# kinetic group, in source order) — mirrors how init_mechanisms groups.
+# Build a Mechanism from a flat topology Step list, each step its own
+# kinetic group.
 _topo_mech(rxn, t::Vector{EnzymeRates.Step}) =
-    EnzymeRates.Mechanism(
-        rxn, EnzymeRates._to_group_list(t, collect(1:length(t))))
+    EnzymeRates.Mechanism(rxn, [[s] for s in t])
 
 # Form-name set and form→bound-metabolite-name map for a flat topology
 # Step list, derived from the decomposed Species of each Step.
@@ -1149,7 +1148,7 @@ uu, ub, bb, pp = (EnzymeRates.init_mechanisms(rxn)
 end
 
 @testset "Same-metabolite RE bindings share kinetic_group" begin
-    # _apply_equivalence_grouping collapses all RE binding steps for
+    # _seed_groups collapses all RE binding steps for
     # the same metabolite into one kinetic group (one shared K).
     # For bi-bi, metabolites like :B appear in multiple binding steps
     # (e.g. E+B⇌E_B and E_A+B⇌E_A_B) — these must share one kinetic_group.
@@ -5964,12 +5963,13 @@ end
     @test isempty(t_k_params)
 end
 
-@testset "t_state_dead with :NonequalAI: K_T in body must be in parameters" begin
+@testset "zero inactive-state numerator keeps the :NonequalAI binding constants" begin
     # K-type allosteric uni-uni: catalytic step is :OnlyA (so the I-state
     # numerator is zero), but binding steps are :NonequalAI.
     # When the I-state numerator is zero, the binding partition function
-    # for :NonequalAI groups must still emit K1_T / K2_T in `den_T`
-    # so they appear in the rate-equation body and in parameters(m).
+    # for :NonequalAI groups must still emit their I-state constants in the
+    # I-state denominator so they appear in the rate-equation body and in
+    # parameters(m).
     m = @allosteric_mechanism begin
         substrates: S
         products: P
@@ -5983,10 +5983,10 @@ end
     @test isempty(first(
         EnzymeRates._state_rate_polys(EnzymeRates.AllostericMechanism(m), :I)))
     params = parameters(m)
-    # K_I_E_cS_to_E_c_S and K_I_E_cP_to_E_c_P are referenced in `den_T` of the body
-    # (the binding partition function for :NonequalAI groups
-    # is built whether or not the I-state numerator is zero, since `den_T`
-    # always appears in the denominator).
+    # K_I_E_cS_to_E_c_S and K_I_E_cP_to_E_c_P are referenced in the I-state
+    # denominator of the body (the binding partition function for :NonequalAI
+    # groups is built whether or not the I-state numerator is zero, since the
+    # I-state denominator always appears in the rate's denominator).
     @test :K_I_E_cS_to_E_c_S in params
     @test :K_I_E_cP_to_E_c_P in params
 end
