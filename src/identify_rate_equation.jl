@@ -33,29 +33,8 @@ function IdentifyRateEquationProblem(
     reaction::EnzymeReaction, table; Keq::Real,
     scale_k_to_kcat::Union{Real,Nothing}=1.0
 )
-    scale_k_to_kcat !== nothing && scale_k_to_kcat <= 0 && error(
-        "scale_k_to_kcat must be positive (or nothing); got $scale_k_to_kcat")
-    data = Tables.columntable(table)
-    col_names = keys(data)
-
-    for req in (:group, :Rate)
-        req in col_names ||
-            error("Missing required column: $req")
-    end
     # Every metabolite the reaction declares needs a concentration column.
-    for m in _metabolite_names(reaction)
-        m in col_names ||
-            error(
-                "Missing metabolite column: $m")
-    end
-
-    # Validate non-zero rates
-    for i in eachindex(data.Rate)
-        data.Rate[i] == 0 &&
-            error(
-                "Zero rate at row $i: " *
-                "log(0) is undefined")
-    end
+    data = _rate_table(table, _metabolite_names(reaction), scale_k_to_kcat)
 
     # Validate at least 2 groups for CV
     n_groups = length(unique(data.group))
@@ -63,10 +42,9 @@ function IdentifyRateEquationProblem(
         "Need at least 2 unique groups for " *
         "cross-validation, got $n_groups")
 
-    sk = scale_k_to_kcat === nothing ? nothing : Float64(scale_k_to_kcat)
     IdentifyRateEquationProblem{
         typeof(reaction),typeof(data)
-    }(reaction, data, Float64(Keq), sk)
+    }(reaction, data, Keq, scale_k_to_kcat)
 end
 
 """

@@ -33,11 +33,10 @@ using Tables
     function make_synthetic_data(
             mechanism, true_params, concs_list;
             groups=fill("G1", length(concs_list)),
-            scale=1.0,
     )
         rates = Float64[]
         for (i, concs) in enumerate(concs_list)
-            r = rate_equation(mechanism, concs, true_params) * scale
+            r = rate_equation(mechanism, concs, true_params)
             push!(rates, r)
         end
         met_names = metabolites(mechanism)
@@ -63,7 +62,7 @@ using Tables
         result
     end
 
-    # ── Test 1: Mechanism-level accessors ─────────────────────────────────────
+    # ── Mechanism-level accessors ─────────────────────────────────────────────
     @testset "Mechanism-level accessors" begin
         all_param_syms = parameters(uni_uni)
         expected_fitted = Tuple(p for p in all_param_syms if p !== :E_total && p !== :Keq)
@@ -72,7 +71,7 @@ using Tables
         @test metabolites(uni_uni) == (:S, :P)
     end
 
-    # ── Test 2: FittingProblem construction ───────────────────────────────────
+    # ── FittingProblem construction ───────────────────────────────────────────
     @testset "Construction" begin
         data = make_synthetic_data(uni_uni, true_params, concs5)
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
@@ -82,12 +81,11 @@ using Tables
         @test length(fp.group_point_indexes[1]) == 5
     end
 
-    # ── Test 5: Multi-group centering invariance ─────────────────────────────
+    # ── Multi-group centering invariance ─────────────────────────────────────
     @testset "Multi-group centering invariance" begin
         # Two groups, each independently scaled
         data1 = make_synthetic_data(uni_uni, true_params, concs5;
-            groups=["G1","G1","G1","G2","G2"],
-            scale=1.0)
+            groups=["G1","G1","G1","G2","G2"])
         fp1 = FittingProblem(uni_uni, data1; Keq=Keq_val)
 
         # Scale group1 by 5x and group2 by 100x
@@ -136,11 +134,11 @@ using Tables
         @test FittingProblem(uni_uni, ok_data; Keq=1.0) isa FittingProblem  # default 1.0
     end
 
-    # ── Test 6: Sign-mismatch penalty ─────────────────────────────────────────
+    # ── Sign-mismatch penalty ─────────────────────────────────────────────────
     # Regression test for all-mismatch groups: when every prediction in a
     # group is a sign mismatch, centering must not zero every deviation.
     # The loss must be nonzero to distinguish a bad mechanism from a perfect one.
-    # Three sub-cases exercise each path that sets buf[i] = 10.0:
+    # Three sub-cases exercise each kind of mismatch that sets buf[i] = 10.0:
     #   (i)  pred == 0.0            (S=0, P=0)
     #   (ii) pred < 0, Rate > 0     (S=0, P>0: only reverse term survives → pred always negative)
     #   (iii) pred > 0, Rate < 0    (S>0, P=0: only forward term survives → pred always positive)
@@ -194,7 +192,7 @@ using Tables
         end
     end
 
-    # ── Test 7: Zero allocations ──────────────────────────────────────────────
+    # ── Zero allocations ──────────────────────────────────────────────────────
     @testset "Zero allocations" begin
         concs_list = [(S = Float64(i), P = 0.1) for i in 1:20]
         data = make_synthetic_data(uni_uni, true_params, concs_list)
@@ -239,7 +237,7 @@ using Tables
         @test allocs == 0
     end
 
-    # ── Test 8: Speed benchmark ───────────────────────────────────────────────
+    # ── Speed benchmark ───────────────────────────────────────────────────────
     @testset "Speed" begin
         # Build a larger mechanism: Ordered Bi-Bi
         # Decomposed ordered bi-bi: the central complex EAB↔EPQ becomes an
@@ -333,7 +331,7 @@ using Tables
         @test resN.retcode isa Symbol
     end
 
-    # ── Test: solver-option forwarding (named commons + solver_kwargs) ──
+    # ── solver-option forwarding (named commons + solver_kwargs) ──
     @testset "solver kwarg forwarding" begin
         using OptimizationCMAEvolutionStrategy
         concs_list = [
@@ -374,7 +372,7 @@ using Tables
             fp, CMAEvolutionStrategyOpt(); n_restarts=1, maxtime=1.0, verbose=-9)
     end
 
-    # ── Test: maxtime forwarded from fit_rate_equation to Optimization.solve (§6) ─
+    # ── maxtime forwarded from fit_rate_equation to Optimization.solve (§6) ─
     @testset "maxtime forwarded to Optimization.solve" begin
         using Optimization
         using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCache
@@ -405,7 +403,7 @@ using Tables
         @test stub.maxtime_seen == 1.23
     end
 
-    # ── Test 10: Validation errors ─────────────────────────────────────────────
+    # ── Validation errors ──────────────────────────────────────────────────────
     @testset "Validation errors" begin
         # Missing Rate column
         data_no_rate = (group = ["G1"], S = [1.0], P = [0.1])
