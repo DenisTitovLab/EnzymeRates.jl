@@ -14,7 +14,6 @@ function _allosteric_golden_lines()
         push!(lines, "### " * spec.name)
         reduced_string = EnzymeRates.rate_equation_string(m, EnzymeRates.Reduced)
         push!(lines, "REDUCED_STRING " * replace(reduced_string, "\n" => "\\n"))
-        push!(lines, "PARAMS_FULL " * string(parameters(m, EnzymeRates.Full)))
     end
     lines
 end

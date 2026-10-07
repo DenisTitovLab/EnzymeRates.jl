@@ -1516,7 +1516,9 @@ end
             E(P) ⇌ E + P     :: EqualAI
         end
     end
-    allo_names = full_names(allo)
+    # Every constant the reduced rate equation names, fitted or dependent.
+    dep, indep = ER._dependent_param_exprs(typeof(allo))
+    allo_names = union(keys(dep), indep)
     @test issubset([:K_A_ES_to_E_S, :K_I_ES_to_E_S], allo_names)
     @test !(:K_ES_to_E_S in allo_names)
     @test :K_EP_to_E_P in ER.parameters(allo) && !(:K_A_EP_to_E_P in allo_names)
@@ -2078,7 +2080,7 @@ end
     param_names(m::EnzymeRates.Mechanism) =
         [EnzymeRates.name(p, m) for p in EnzymeRates._enumerate_parameters_full(m)]
     param_names(m::EnzymeRates.AllostericMechanism) = [EnzymeRates.name(p, m)
-        for p in EnzymeRates._enumerate_parameters_full_allosteric(m)]
+        for p in EnzymeRates._all_i_state_parameters(m)]
     # `rebuilt` is `m` constructed again from its fields, with an empty cache.
     function check_identity(m, rebuilt)
         shown = repr(m)

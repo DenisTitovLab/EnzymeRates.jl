@@ -5964,12 +5964,12 @@ end
     @test isempty(t_k_params)
 end
 
-@testset "t_state_dead with :NonequalAI: K_T in body must be in parameters(Full)" begin
+@testset "t_state_dead with :NonequalAI: K_T in body must be in parameters" begin
     # K-type allosteric uni-uni: catalytic step is :OnlyA (so
     # `_i_state_num_zero == true`), but binding steps are :NonequalAI.
     # When `_i_state_num_zero == true`, the binding partition function
     # for :NonequalAI groups must still emit K1_T / K2_T in `den_T`
-    # so they appear in the rate-equation body and in parameters(Full).
+    # so they appear in the rate-equation body and in parameters(m).
     m = @allosteric_mechanism begin
         substrates: S
         products: P
@@ -5981,13 +5981,13 @@ end
         end
     end
     @test EnzymeRates._i_state_num_zero(EnzymeRates.AllostericMechanism(m))
-    params_full = parameters(m, Full)
+    params = parameters(m)
     # K_I_E_cS_to_E_c_S and K_I_E_cP_to_E_c_P are referenced in `den_T` of the body
     # (the binding partition function for :NonequalAI groups
     # is built regardless of `t_state_dead` since `den_T`
     # always appears in the denominator).
-    @test :K_I_E_cS_to_E_c_S in params_full
-    @test :K_I_E_cP_to_E_c_P in params_full
+    @test :K_I_E_cS_to_E_c_S in params
+    @test :K_I_E_cP_to_E_c_P in params
 end
 end
 

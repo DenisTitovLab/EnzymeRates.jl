@@ -1403,15 +1403,6 @@ end
     @test count(isnothing, onlyA_bms) == 1
 end
 
-# `parameters(m, Full)` is injective. A forbidden-split collapse emits the same
-# I-state name from two paths — the base I-state mirror and the collapse mirror —
-# so `parameters(Full)` takes their union rather than listing the name twice
-# (PK, whose PEP split collapses, is the only such mechanism in the fixtures).
-@testset "parameters(Full) injective for collapsed allosteric shapes" begin
-    pk = only(s for s in MECHANISM_TEST_SPECS if s.name == "PK")
-    @test allunique(EnzymeRates.parameters(pk.mechanism, EnzymeRates.Full))
-end
-
 # ── §5a regression: every inactive-state parameter must be defined ──────────
 # Allosteric mechanisms from an LDH `identify_rate_equation` run crashed with
 # `UndefVarError` on undefined I-state parameters: the I-state polynomials

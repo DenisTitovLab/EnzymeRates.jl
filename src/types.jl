@@ -1109,7 +1109,8 @@ abstract type AbstractRateEquationMode end
     FullMode <: AbstractRateEquationMode
 
 Full rate equation mode using all 2N microscopic rate constants (k_ES_to_EP, k_EP_to_ES, ...).
-No thermodynamic constraints applied. Parameters: all k's + E_total.
+No thermodynamic constraints applied. Parameters: all k's + E_total. Defined for plain
+`EnzymeMechanism`s only.
 """
 struct FullMode <: AbstractRateEquationMode end
 
@@ -1317,8 +1318,8 @@ _enumerate_parameters_full(m::Mechanism) =
 """
 The Parameter(s) governing step `s` with the given allosteric state: the 4-way
 switch on `is_equilibrium(s)` × `is_binding(s)`. The walkers over group
-representatives (`_enumerate_parameters_full`, `_enumerate_parameters_full_allosteric`,
-`_all_i_state_parameters`, `_ss_rate_constant_names`) apply it to each group's
+representatives (`_enumerate_parameters_full`, `_all_i_state_parameters`,
+`_ss_rate_constant_names`) apply it to each group's
 representative step; `_step_parameters` applies it to every step, and
 `_onlya_haldane_violation` to a group's first step to label the group.
 

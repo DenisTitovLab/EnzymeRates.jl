@@ -27,15 +27,9 @@ Return the parameter names required for the given mode as a tuple of Symbols.
   symbols the user supplies to evaluate the Haldane-reduced rate
   equation. Returned for both `EnzymeMechanism` and
   `AllostericEnzymeMechanism`.
-- `Full`: all raw rate-constant symbols + `E_total`. For
-  `EnzymeMechanism` this is "all 2N k's + `E_total`." For
-  `AllostericEnzymeMechanism` it composes the catalytic raw A-state
-  symbols + every I-state mirror (catalytic + regulatory + synthesized
-  dep) + reg-site A-state K's (skipping `:OnlyI` ligands) + `:L` +
-  `:E_total`. The allosteric Full mode enumerates the complete raw-symbol
-  set; no `rate_equation` method is defined for
-  `(::AllostericEnzymeMechanism, ::FullMode)`, so this mode is for
-  symbol enumeration, not runtime evaluation.
+- `Full`: all raw rate-constant symbols + `E_total`, that is "all 2N k's +
+  `E_total`." Full mode is for plain `EnzymeMechanism`s only; an
+  `AllostericEnzymeMechanism` has no Full rate equation and no Full parameter list.
 """
 function parameters end
 
@@ -58,22 +52,6 @@ end
 end
 
 # ── AllostericEnzymeMechanism ────────────────────────────────
-@generated function parameters(
-    ::M, ::FullMode,
-) where {M <: AllostericEnzymeMechanism}
-    aem = M()
-    am = AllostericMechanism(aem)
-    # The full symbol set over-emits an I-state mirror for every non-`:OnlyA`
-    # catalytic group (`_all_i_state_parameters`). A forbidden-split collapse
-    # mirror — a `:NonequalAI` group's derived I-symbol, e.g. PK's `K_I_EPEP_to_E_PEP` —
-    # is the I-form of that group's binding/reverse constant, so it always
-    # coincides with the group's over-emitted `(:I)` mirror already in `names`.
-    # No separate collapse-name splice is needed.
-    params = _enumerate_parameters_full_allosteric(am)
-    names = Symbol[name(p, am) for p in params]
-    Tuple((names..., :E_total))
-end
-
 @generated function parameters(
     ::M, ::ReducedMode,
 ) where {M <: AllostericEnzymeMechanism}
@@ -1133,47 +1111,6 @@ function _all_i_state_parameters(am::AllostericMechanism)
             push!(out, Kreg(site, lig, :I))
         end
     end
-    out
-end
-
-"""
-Enumerate every raw rate-constant `Parameter` for an `AllostericMechanism`
-(the complete Full-mode symbol set). Order is:
-
-1. Catalytic A-state Parameter per kinetic group (every group). `:OnlyA`
-   and `:NonequalAI` use `state = :A`; `:EqualAI` uses `state = :EqualAI`
-   because the symbol is shared with the I-state branch (the chokepoint
-   `name(p, m)` renders both to the same `Symbol`).
-2. Catalytic I-state mirrors via `_all_i_state_parameters` (skips
-   `:OnlyA` groups).
-3. Reg-site `Kreg(site, lig, :I)` and `Kreg(site, lig, :A)` per ligand
-   (the I-state set skips `:OnlyA` ligands; the A-state set skips
-   `:OnlyI` ligands).
-4. `Lallo()` for the MWC coupling `L`.
-
-Synthesized-dep I-symbols (derived deps whose RHS references a
-`:NonequalAI` symbol) are NOT included — they have no Parameter
-representation and are emitted Symbol-level by the caller.
-
-Non-appearing names (e.g., a catalytic I-state mirror that's elided in
-a `t_state_dead` mechanism) are harmless to include: unused names are
-inert — nothing consumes a name that does not appear in the
-rate-equation Exprs. This enumeration intentionally over-emits.
-"""
-function _enumerate_parameters_full_allosteric(am::AllostericMechanism)
-    out = Parameter[]
-    for (g, rep) in enumerate(_group_reps(am))
-        st = cat_allo_state(am, g) === :EqualAI ? :EqualAI : :A
-        append!(out, _step_constants(rep, st))
-    end
-    append!(out, _all_i_state_parameters(am))
-    for site in regulatory_sites(am)
-        for (lig, tag) in zip(ligands(site), allo_states(site))
-            tag === :OnlyI && continue
-            push!(out, Kreg(site, lig, :A))
-        end
-    end
-    push!(out, Lallo())
     out
 end
 

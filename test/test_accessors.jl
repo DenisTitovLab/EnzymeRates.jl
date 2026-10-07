@@ -30,13 +30,11 @@
         cat_allo_states, 2, [site])
     @test EnzymeRates.cat_allo_states(am) == cat_allo_states
     m_allo = EnzymeRates.AllostericEnzymeMechanism(am)
-    full_allo = parameters(m_allo, Full)
+    # Full mode lists the raw rate constants of plain mechanisms only.
+    @test_throws MethodError parameters(m_allo, Full)
     reduced_allo = parameters(m_allo, Reduced)
-    @test :L in full_allo
-    @test :E_total in full_allo
-    @test :Keq ∉ full_allo
-    @test any(occursin("_I_", string(p)) for p in full_allo)
-    @test any(occursin("reg", string(p)) for p in full_allo)
+    @test any(occursin("_I_", string(p)) for p in reduced_allo)
+    @test any(occursin("reg", string(p)) for p in reduced_allo)
     @test :L in reduced_allo
     @test :Keq in reduced_allo
     @test :E_total in reduced_allo
