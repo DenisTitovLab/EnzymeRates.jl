@@ -46,11 +46,17 @@ reaction but bound by no step, so they add no parameter and the reaction of
 `Mechanism(em)`, which lifts back, does not list them.
 
 Only the `@generated` methods (`rate_equation`, `parameters`, `fitted_params`,
-`metabolites`, `_kcat_forward`) need code per singleton type. The lifts
+`metabolites`, `_kcat_forward`) run the derivation per singleton type. The lifts
 `Mechanism(em)` and `AllostericMechanism(aem)` read the type parameters at run
 time, and the derivation helpers that take a singleton or its type take it
 `@nospecialize`, so they compile once for all mechanisms. A new mechanism type
-then pays only for its generated bodies and the derivation they run.
+then pays for its generated bodies and the derivation they run, plus a few thin
+methods that still specialize on it: the forwarders that supply the default mode
+(such as `rate_equation(m, concs, params)` and `rate_equation_string(m)`), `show`,
+`catalytic_mechanism` and `catalytic_multiplicity`. `FittingProblem` and `loss!`
+specialize on the type on purpose: `loss!` then reads `fitted_params` and
+`metabolites` as constants and calls the generated `rate_equation` without
+dispatch.
 
 ## Enumeration engine architecture
 
