@@ -204,8 +204,7 @@ function identify_rate_equation(
 
     result = _cv_model_selection(
         mechanisms, df, prob;
-        n_cv_candidates, se_threshold,
-        optimizer, save_dir, show_progress,
+        se_threshold, optimizer, save_dir, show_progress,
         fitting_kwargs...)
     _progress(save_dir, show_progress, "Done. Results saved to $save_dir")
     return result
@@ -849,29 +848,6 @@ function _beam_search(
 end
 
 """
-Subset a columnar NamedTuple by a boolean mask, returning views
-to avoid per-fold copying. Called G times per LOOCV; copying
-every column ×2 (train/test) ×G grew O(G·N·ncols).
-"""
-function _subset_data(data::NamedTuple, mask)
-    idx = findall(mask)
-    return map(col -> view(col, idx), data)
-end
-
-"""
-Evaluate loss of a mechanism on data with given
-params and scaling mode.
-"""
-function _evaluate_loss(
-    mechanism, data, params, Keq, scale_k_to_kcat
-)
-    pnames = fitted_params(mechanism)
-    x = [log(params[p]) for p in pnames]
-    fp = FittingProblem(mechanism, data; Keq=Keq, scale_k_to_kcat=scale_k_to_kcat)
-    return loss!(x, fp)
-end
-
-"""
     _select_best_row(cv_df; se_threshold=1.0) → Int
 
 1-SE rule on the best equation's fold scores. The best row is the one with
@@ -893,8 +869,7 @@ end
 function _cv_model_selection(
     mechs::Vector, df::DataFrame,
     prob::IdentifyRateEquationProblem;
-    n_cv_candidates, optimizer,
-    se_threshold::Float64,
+    optimizer, se_threshold::Float64,
     save_dir, show_progress,
     kwargs...
 )
@@ -902,24 +877,12 @@ function _cv_model_selection(
         "No mechanisms were successfully " *
         "fitted during beam search")
 
-    # LOOCV candidates: the top `n_cv_candidates` DISTINCT equations (by
-    # `eq_hash`, lowest `loss` each) per `n_params` bucket. Deduping by `eq_hash`
-    # keeps textually identical equations out of LOOCV — at most one row per
+    # LOOCV candidates: every row of `df`, ordered by `n_params`, then `loss`. The
+    # rows are the cv pool, where `_offer_cv!` keeps the top `n_cv_candidates`
+    # DISTINCT equations (by `eq_hash`, lowest `loss` each) per `n_params` bucket.
+    # That keeps textually identical equations out of LOOCV — at most one row per
     # `eq_hash` per param count — so folds are never wasted on, or biased by, them.
-    candidate_indices = Int[]
-    df_idx = DataFrame(
-        row_idx = 1:nrow(df), n_params = df.n_params,
-        loss = df.loss, eq_hash = df.eq_hash,
-    )
-    for gdf in groupby(df_idx, :n_params)
-        seen_hashes = Set{String}()
-        for row in eachrow(sort(gdf, :loss))
-            row.eq_hash in seen_hashes && continue
-            push!(seen_hashes, row.eq_hash)
-            push!(candidate_indices, row.row_idx)
-            length(seen_hashes) >= n_cv_candidates && break
-        end
-    end
+    candidate_indices = sortperm(collect(zip(df.n_params, df.loss)))
     candidate_mechs = mechs[candidate_indices]
     candidate_rows = df[candidate_indices, :]
 
@@ -927,20 +890,17 @@ function _cv_model_selection(
         "Cross-validating $(length(candidate_mechs)) candidate equations (LOOCV)…")
     # Flatten LOOCV to a (candidate, fold) grid so all folds of all candidates
     # run across every worker, not one candidate per worker with serial folds.
+    # `pmap` keeps the grid order (the fold varies fastest), so column ci of
+    # `scores` holds candidate ci's fold losses in `groups` order.
     groups = unique(prob.data.group)
-    tasks = [(ci, g) for ci in eachindex(candidate_mechs) for g in groups]
-    flat = pmap(tasks) do task
-        ci, g = task
-        m = compile_mechanism(candidate_mechs[ci])
-        (ci, g, _cv_fold_loss(m, prob, g; optimizer, kwargs...))
+    fold_losses = pmap([(m, g) for m in candidate_mechs for g in groups]) do (m, g)
+        _cv_fold_loss(compile_mechanism(m), prob, g; optimizer, kwargs...)
     end
-    fold_scores_per_candidate = _scatter_fold_scores(
-        flat, length(candidate_mechs), groups)
+    scores = reshape(Float64.(fold_losses), length(groups), :)
 
     cv_df = copy(candidate_rows)
-    cv_df.cv_fold_scores = collect(fold_scores_per_candidate)
-    cv_df.cv_score = [mean(v) for v in cv_df.cv_fold_scores]
-    cv_df.cv_score_se = [std(v) / sqrt(length(v)) for v in cv_df.cv_fold_scores]
+    cv_df.cv_score = [mean(c) for c in eachcol(scores)]
+    cv_df.cv_score_se = [std(c) / sqrt(length(groups)) for c in eachcol(scores)]
 
     best_row_idx = _select_best_row(cv_df; se_threshold)
     best_mechanism = compile_mechanism(candidate_mechs[best_row_idx])
@@ -948,15 +908,13 @@ function _cv_model_selection(
     # Flatten per-fold scores into one column per held-out group.
     # Group order matches the `groups = unique(prob.data.group)` iteration above.
     for (i, g) in enumerate(groups)
-        col = Symbol("cv_fold_$g")
-        cv_df[!, col] = [v[i] for v in cv_df.cv_fold_scores]
+        cv_df[!, Symbol("cv_fold_$g")] = scores[i, :]
     end
 
     _progress(save_dir, show_progress,
         "Selected: $(nameof(typeof(best_mechanism))) " *
         "(eq_hash=$(cv_df.eq_hash[best_row_idx])), " *
         "n_params=$(cv_df.n_params[best_row_idx])")
-    select!(cv_df, Not(:cv_fold_scores))
 
     # Save the LOOCV table and the selected best equation alongside the
     # per-iteration fit CSVs, so cluster runs persist the model-selection
@@ -978,17 +936,15 @@ function _cv_fold_loss(
     mechanism::AbstractEnzymeMechanism,
     prob::IdentifyRateEquationProblem, held_out;
     optimizer, kwargs...)
-    train_mask = prob.data.group .!= held_out
-    test_mask  = prob.data.group .== held_out
-    train_data = _subset_data(prob.data, train_mask)
-    test_data  = _subset_data(prob.data, test_mask)
-
-    fp_train = FittingProblem(mechanism, train_data;
-        Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
-    fit = fit_rate_equation(fp_train, optimizer; kwargs...)
-
-    test_loss = _evaluate_loss(mechanism, test_data,
-        fit.params, prob.Keq, prob.scale_k_to_kcat)
+    held = prob.data.group .== held_out
+    # Each fold's columns are views, so no fold copies the data: copying every
+    # column for train and test in each of the G folds would cost O(G·N·ncols).
+    fold(mask) = (idx = findall(mask);
+        FittingProblem(mechanism, map(col -> view(col, idx), prob.data);
+            Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat))
+    fit = fit_rate_equation(fold(.!held), optimizer; kwargs...)
+    # `fit.params` is keyed by `fitted_params(mechanism)`, the order `loss!` reads.
+    test_loss = loss!([log(v) for v in fit.params], fold(held))
     # A non-finite fold loss means the fit is unusable; aborting model
     # selection is correct (re-run CV from the saved CSVs after fixing
     # the fit).
@@ -996,20 +952,6 @@ function _cv_fold_loss(
         "LOOCV produced a non-finite test loss for held-out group " *
         "$held_out — the fit is unusable; aborting model selection.")
     test_loss
-end
-
-"""
-Scatter flat `(candidate_index, group, score)` triples into one fold-score
-vector per candidate, each ordered by `groups`. Every `(ci, g)` in the grid
-appears exactly once, so every slot is written.
-"""
-function _scatter_fold_scores(flat, n_candidates::Int, groups)
-    gi = Dict(g => i for (i, g) in enumerate(groups))
-    out = [Vector{Float64}(undef, length(groups)) for _ in 1:n_candidates]
-    for (ci, g, s) in flat
-        out[ci][gi[g]] = s
-    end
-    out
 end
 
 """

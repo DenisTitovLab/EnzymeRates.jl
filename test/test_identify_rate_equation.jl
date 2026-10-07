@@ -291,11 +291,10 @@ end
         @test "eq_hash" in names(
             results.cv_results)
         # LOOCV candidate dedup invariant: within each n_params
-        # bucket, each eq_hash should appear at most once (the
-        # `seen_hashes in continue` filter in
-        # `_cv_model_selection`). This catches a regression where
-        # duplicates would enter LOOCV and waste compute / bias
-        # the per-bucket "best".
+        # bucket, each eq_hash should appear at most once (the cv
+        # pool `_offer_cv!` keeps one slot per eq_hash). This
+        # catches a regression where duplicates would enter LOOCV
+        # and waste compute / bias the per-bucket "best".
         for gdf in groupby(
                 results.cv_results, :n_params)
             @test allunique(gdf.eq_hash)
@@ -1496,58 +1495,64 @@ end
     @test occursin("= Dict(:N => 1)", failures[1].error)
 end
 
-@testset "_cv_model_selection: eq_hash dedup, flatten reproduces serial LOOCV" begin
-    # _cv_model_selection dedups candidates by eq_hash per n_params bucket before
-    # LOOCV: same-equation twins collapse to ONE candidate (lowest loss kept), so
-    # folds are never wasted on, or biased by, textually identical equations. A
-    # deterministic stub optimizer gives identical fits whether folds run serially or
-    # across the flattened (candidate, fold) grid. Group labels containing `=`, `,`
+@testset "_cv_model_selection: flatten reproduces serial LOOCV per candidate" begin
+    # Two candidates with distinct equations. A deterministic stub optimizer gives
+    # identical fits whether folds run serially or across the flattened (candidate,
+    # fold) grid, so each candidate's fold columns must hold its own serial fold
+    # losses; a transposed grid would swap them. Group labels containing `=`, `,`
     # and spaces must come out as valid fold-column names that survive the CSV write.
-    m1, m2 = _testhelper_dedup_twins()   # distinct structure, same eq_hash
-    em1 = EnzymeRates.compile_mechanism(m1)
-    fkeys = EnzymeRates.fitted_params(em1)
-    h = string(EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1)),
-               base=16, pad=16)
+    m1, _ = _testhelper_dedup_twins()
+    m3 = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products:   P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    cands = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m3]
     data = (group = ["a=b", "a=b", "c,d", "c,d", "x y", "x y"],
             Rate = [0.5, 0.8, 1.0, 1.1, 0.9, 1.2],
             A = [1.0, 2.0, 1.0, 2.0, 1.5, 2.5], B = [0.5, 0.5, 1.0, 1.0, 0.7, 0.7],
             P = [0.1, 0.2, 0.1, 0.2, 0.15, 0.25], Q = [0.3, 0.3, 0.4, 0.4, 0.35, 0.35])
     prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0)
-    mechs = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2]
-    mkrow(loss) = (n_params=length(fkeys), loss=loss, mechanism_type="M",
-        rate_equation="v", retcode="Success", error=missing,
-        params=NamedTuple{fkeys}(ntuple(_ -> 1.0, length(fkeys))),
-        eq_hash=h, fit_inherited=false)
-    df = EnzymeRates._rows_to_dataframe([mkrow(0.5), mkrow(0.2)])  # m1 loss .5, m2 loss .2
+    function mkrow(m, loss)
+        em = EnzymeRates.compile_mechanism(m)
+        fkeys = EnzymeRates.fitted_params(em)
+        (n_params=length(fkeys), loss=loss, mechanism_type=string(typeof(em)),
+         rate_equation="v", retcode="Success", error=missing,
+         params=NamedTuple{fkeys}(ntuple(_ -> 1.0, length(fkeys))),
+         eq_hash=string(EnzymeRates._rate_eq_dedup_key(rate_equation_string(em)),
+                        base=16, pad=16),
+         fit_inherited=false)
+    end
+    df = EnzymeRates._rows_to_dataframe([mkrow(m1, 0.5), mkrow(m3, 0.2)])
     save_dir = mktempdir()
-    res = EnzymeRates._cv_model_selection(mechs, df, prob;
-        n_cv_candidates=5, optimizer=_CountingStubOpt(; uval=log(5.0)),
-        se_threshold=1.0, save_dir, show_progress=false, n_restarts=1, maxtime=1.0)
-    # The two same-eq_hash twins collapsed to a single LOOCV candidate…
-    @test nrow(res.cv_results) == 1
-    @test res.cv_results.eq_hash[1] == h
-    # …and the lower-loss twin (0.2) was the one kept.
-    @test res.cv_results.loss[1] == 0.2
+    stub() = _CountingStubOpt(; uval=log(5.0))
+    res = EnzymeRates._cv_model_selection(cands, df, prob;
+        optimizer=stub(), se_threshold=1.0, save_dir, show_progress=false,
+        n_restarts=1, maxtime=1.0)
+    @test nrow(res.cv_results) == 2
 
-    # The flattened grid reproduces serial LOOCV on the kept twin.
     groups = unique(prob.data.group)
-    flat = [res.cv_results[1, Symbol("cv_fold_$g")] for g in groups]
-    m2c = EnzymeRates.compile_mechanism(m2)
-    serial = [EnzymeRates._cv_fold_loss(m2c, prob, g;
-        optimizer=_CountingStubOpt(; uval=log(5.0)), n_restarts=1, maxtime=1.0)
-        for g in groups]
-    @test flat == serial
-    # Every group label is a fold column in the saved table.
-    saved = names(CSV.read(joinpath(save_dir, "loocv_results.csv"), DataFrame))
-    @test all("cv_fold_$g" in saved for g in groups)
-end
+    folds(r) = [r[Symbol("cv_fold_$g")] for g in groups]
+    for r in eachrow(res.cv_results)
+        m = only(c for c in cands
+                 if string(typeof(EnzymeRates.compile_mechanism(c))) == r.mechanism_type)
+        serial = [EnzymeRates._cv_fold_loss(EnzymeRates.compile_mechanism(m), prob, g;
+            optimizer=stub(), n_restarts=1, maxtime=1.0) for g in groups]
+        @test folds(r) == serial
+        @test r.cv_score == mean(serial)
+        @test r.cv_score_se == std(serial) / sqrt(length(groups))
+    end
+    @test folds(res.cv_results[1, :]) != folds(res.cv_results[2, :])
 
-@testset "_scatter_fold_scores places each fold at (candidate, group)" begin
-    groups = ["G1", "G2", "G3"]
-    # 2 candidates, distinct per-candidate scores, deliberately shuffled
-    flat = [(1, "G2", 0.12), (2, "G1", 0.20), (1, "G1", 0.10),
-            (2, "G3", 0.23), (1, "G3", 0.13), (2, "G2", 0.21)]
-    out = EnzymeRates._scatter_fold_scores(flat, 2, groups)
-    @test out[1] == [0.10, 0.12, 0.13]
-    @test out[2] == [0.20, 0.21, 0.23]
+    # Every group label is a fold column in the saved table, holding the same scores.
+    saved = CSV.read(joinpath(save_dir, "loocv_results.csv"), DataFrame)
+    for g in groups
+        @test saved[!, "cv_fold_$g"] == res.cv_results[!, Symbol("cv_fold_$g")]
+    end
 end
