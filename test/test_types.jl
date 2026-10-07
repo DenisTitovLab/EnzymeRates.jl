@@ -679,17 +679,18 @@ end
         @test ER.from_species(ss_rev) === EP
     end
 
-    @testset "Parameter family: step-bound, Kreg, mechanism-level" begin
+    @testset "Parameter family: step constants and Kreg" begin
         step = _testhelper_uniuni().bind
 
-        for T in (ER.Kd, ER.Kiso, ER.Kon, ER.Koff,
-                  ER.Kfor, ER.Krev)
+        # One RE constant and one forward/reverse rate pair serve every kind of step.
+        for T in (ER.Kequil, ER.Kfor, ER.Krev)
             p = T(step, :None)
             @test p isa T
             @test p isa ER.Parameter
             @test p == T(step, :None)
             @test p != T(step, :I)
         end
+        @test !any(n -> isdefined(ER, n), (:Kd, :Kiso, :Kon, :Koff))
 
         lig_a = ER.AllostericRegulator(:A)
         site = ER.RegulatorySite([lig_a], 2, [:OnlyA])
@@ -1064,13 +1065,13 @@ end
         # substrate-binding and iso steps by content.
         reps = first.(ER.steps(am))
         rep_bind = only(r for r in reps if ER.bound_metabolite(r) isa ER.Substrate)
-        @test ER.name(ER.Kd(rep_bind, :None), am) === :K_ES_to_E_S
-        @test ER.name(ER.Kd(rep_bind, :I), am) === :K_I_ES_to_E_S
+        @test ER.name(ER.Kequil(rep_bind, :None), am) === :K_ES_to_E_S
+        @test ER.name(ER.Kequil(rep_bind, :I), am) === :K_I_ES_to_E_S
 
         rep_iso  = only(r for r in reps if ER.bound_metabolite(r) === nothing)
         @test ER.name(ER.Kfor(rep_iso, :None), am) === :k_ES_to_EP
-        @test ER.name(ER.Kiso(rep_iso, :None), am) === :K_ES_to_EP
-        @test ER.name(ER.Kon(rep_iso, :None), am) === :k_ES_to_EP
+        @test ER.name(ER.Kequil(rep_iso, :None), am) === :K_ES_to_EP
+        @test ER.name(ER.Krev(rep_iso, :None), am) === :k_EP_to_ES
 
         site = ER.regulatory_sites(am)[1]
         lig  = first(site.ligands)
@@ -1079,7 +1080,7 @@ end
 
         # The chokepoint renders on the concrete mechanism only; a compiled type
         # is lifted first.
-        @test_throws MethodError ER.name(ER.Kd(rep_bind, :None), aem)
+        @test_throws MethodError ER.name(ER.Kequil(rep_bind, :None), aem)
         @test_throws MethodError ER.name(ER.Kreg(site, lig, :A), aem)
     end
 
@@ -1143,28 +1144,30 @@ end
 
         # Structural naming: every step constant encodes its reaction's two sides;
         # a binding K reads in the release direction, iso params in the stored one.
-        @test ER.name(ER.Kd(bind, :None), m) === :K_ES_to_E_S
-        @test ER.name(ER.Kd(bind, :I),    m) === :K_I_ES_to_E_S
-        @test ER.name(ER.Kon(iso, :None), m) === :k_ES_to_EP
-        @test ER.name(ER.Koff(iso, :None), m) === :k_EP_to_ES
+        @test ER.name(ER.Kequil(bind, :None), m) === :K_ES_to_E_S
+        @test ER.name(ER.Kequil(bind, :I),    m) === :K_I_ES_to_E_S
         @test ER.name(ER.Kfor(iso, :None), m) === :k_ES_to_EP
         @test ER.name(ER.Krev(iso, :None), m) === :k_EP_to_ES
-        @test ER.name(ER.Kd(rel, :None), m) === :K_EP_to_E_P
+        @test ER.name(ER.Kequil(rel, :None), m) === :K_EP_to_E_P
+
+        # A binding's rate pair: the forward rate binds, the reverse rate releases
+        @test ER.name(ER.Kfor(bind, :None), m) === :k_E_S_to_ES
+        @test ER.name(ER.Krev(bind, :None), m) === :k_ES_to_E_S
 
         # I-state token on SS step
-        @test ER.name(ER.Kon(iso, :I),  m) === :k_I_ES_to_EP
-        @test ER.name(ER.Koff(iso, :I), m) === :k_I_EP_to_ES
+        @test ER.name(ER.Kfor(iso, :I), m) === :k_I_ES_to_EP
+        @test ER.name(ER.Krev(iso, :I), m) === :k_I_EP_to_ES
 
-        # Kiso: the RE iso's equilibrium constant, named in the stored direction
-        @test ER.name(ER.Kiso(iso, :None), m) === :K_ES_to_EP
-        @test ER.name(ER.Kiso(iso, :I),    m) === :K_I_ES_to_EP
+        # The RE iso's equilibrium constant, named in the stored direction
+        @test ER.name(ER.Kequil(iso, :None), m) === :K_ES_to_EP
+        @test ER.name(ER.Kequil(iso, :I),    m) === :K_I_ES_to_EP
 
         # Same names resolve on the mechanism lifted back from EnzymeMechanism(m);
         # the compiled type itself is not a chokepoint argument.
         em = EnzymeMechanism(m)
-        @test ER.name(ER.Kd(bind, :None), ER.Mechanism(em)) === :K_ES_to_E_S
-        @test ER.name(ER.Kon(iso, :None), ER.Mechanism(em)) === :k_ES_to_EP
-        @test_throws MethodError ER.name(ER.Kd(bind, :None), em)
+        @test ER.name(ER.Kequil(bind, :None), ER.Mechanism(em)) === :K_ES_to_E_S
+        @test ER.name(ER.Kfor(iso, :None), ER.Mechanism(em)) === :k_ES_to_EP
+        @test_throws MethodError ER.name(ER.Kequil(bind, :None), em)
     end
 
     @testset "name(p::Parameter, m) for the steps of a shared kinetic group" begin
@@ -1174,8 +1177,8 @@ end
         m = ER.Mechanism(rxn, [[bind, bind_into_EP], [iso], [rel]])
 
         # Both steps bind S; rep = bind. Both yield the same name.
-        @test ER.name(ER.Kd(bind, :None), m) === :K_ES_to_E_S
-        @test ER.name(ER.Kd(bind_into_EP, :None), m) === :K_ES_to_E_S
+        @test ER.name(ER.Kequil(bind, :None), m) === :K_ES_to_E_S
+        @test ER.name(ER.Kequil(bind_into_EP, :None), m) === :K_ES_to_E_S
     end
 end
 
@@ -1464,11 +1467,11 @@ end
     names = Set(ER.parameters(m, ER.Full))
     @test :k_EAB_to_EQ_P in names && :k_EQ_P_to_EAB in names
     # The fused release E(A, B) → E(Q) + P is stored as the binding of P it
-    # reverses, E(Q) + P → E(A, B), so it takes a binding's rate constants.
+    # reverses, E(Q) + P → E(A, B), so its forward rate constant binds P.
     mech = ER.Mechanism(m)
     i = only(i for (i, (s, _)) in enumerate(ER._flat_steps(mech)) if ER._is_chemistry(s))
     kon, koff = ER._step_parameters(mech)[i]
-    @test kon isa ER.Kon && koff isa ER.Koff
+    @test kon isa ER.Kfor && koff isa ER.Krev
     @test ER.name(kon, mech) == :k_EQ_P_to_EAB && ER.name(koff, mech) == :k_EAB_to_EQ_P
     @test :k_E_A_to_EA in names && :k_EQ_to_E_Q in names
 end
@@ -1756,7 +1759,7 @@ function _is_chokepoint_def(expr)
     fn_name === :name || return false
     arg_str = _sig_first_arg_str(sig)
     return occursin(
-        r"Parameter|::(Kd|Kiso|Kon|Koff|Kfor|Krev|Kreg)\b",
+        r"Parameter|::(Kequil|Kfor|Krev|Kreg)\b",
         arg_str)
 end
 

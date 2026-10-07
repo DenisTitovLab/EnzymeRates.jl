@@ -141,7 +141,7 @@ function _testhelper_consistent_point(em, rng)
                  sum((g[ER.name(m)] for m in ER.released(s)); init = big(0)))
         if ER.is_equilibrium(s)
             p = sp[idx][1]
-            vals[ER.name(p, mech)] = p isa ER.Kd ? 1 / Ka : Ka
+            vals[ER.name(p, mech)] = ER.is_binding(s) ? 1 / Ka : Ka
             push!(steps, (s, Ka, nothing))
         else
             kf = get!(() -> exp(4 * big(rand(rng)) - 2), kf_of_group, gi)
@@ -300,12 +300,8 @@ function positional_params(m, nt::NamedTuple;
         has_inactive = is_allo && cat_st === :NonequalAI
 
         if EnzymeRates.is_equilibrium(rep)
-            # RE step: binding → Kd; iso → Kiso
-            act_key = if EnzymeRates.is_binding(rep)
-                EnzymeRates.name(EnzymeRates.Kd(rep, act_st), mech)
-            else
-                EnzymeRates.name(EnzymeRates.Kiso(rep, act_st), mech)
-            end
+            # RE step: its equilibrium constant
+            act_key = EnzymeRates.name(EnzymeRates.Kequil(rep, act_st), mech)
             if haskey(nt, act_key)
                 for idx in gidx
                     push!(names, Symbol("K", idx))
@@ -313,11 +309,7 @@ function positional_params(m, nt::NamedTuple;
                 end
             end
             if has_inactive
-                ina_key = if EnzymeRates.is_binding(rep)
-                    EnzymeRates.name(EnzymeRates.Kd(rep, :I), mech)
-                else
-                    EnzymeRates.name(EnzymeRates.Kiso(rep, :I), mech)
-                end
+                ina_key = EnzymeRates.name(EnzymeRates.Kequil(rep, :I), mech)
                 if haskey(nt, ina_key)
                     for idx in gidx
                         push!(names, Symbol("K", idx, "_T"))
@@ -326,14 +318,9 @@ function positional_params(m, nt::NamedTuple;
                 end
             end
         else
-            # SS step: binding → Kon/Koff; iso → Kfor/Krev
-            act_fwd, act_rev = if EnzymeRates.is_binding(rep)
-                EnzymeRates.name(EnzymeRates.Kon(rep, act_st), mech),
-                EnzymeRates.name(EnzymeRates.Koff(rep, act_st), mech)
-            else
-                EnzymeRates.name(EnzymeRates.Kfor(rep, act_st), mech),
-                EnzymeRates.name(EnzymeRates.Krev(rep, act_st), mech)
-            end
+            # SS step: its forward and reverse rate constants
+            act_fwd = EnzymeRates.name(EnzymeRates.Kfor(rep, act_st), mech)
+            act_rev = EnzymeRates.name(EnzymeRates.Krev(rep, act_st), mech)
             for idx in gidx
                 if haskey(nt, act_fwd)
                     push!(names, Symbol("k", idx, "f")); push!(vals, nt[act_fwd])
@@ -343,13 +330,8 @@ function positional_params(m, nt::NamedTuple;
                 end
             end
             if has_inactive
-                ina_fwd, ina_rev = if EnzymeRates.is_binding(rep)
-                    EnzymeRates.name(EnzymeRates.Kon(rep, :I), mech),
-                    EnzymeRates.name(EnzymeRates.Koff(rep, :I), mech)
-                else
-                    EnzymeRates.name(EnzymeRates.Kfor(rep, :I), mech),
-                    EnzymeRates.name(EnzymeRates.Krev(rep, :I), mech)
-                end
+                ina_fwd = EnzymeRates.name(EnzymeRates.Kfor(rep, :I), mech)
+                ina_rev = EnzymeRates.name(EnzymeRates.Krev(rep, :I), mech)
                 for idx in gidx
                     if haskey(nt, ina_fwd)
                         push!(names, Symbol("k", idx, "f_T")); push!(vals, nt[ina_fwd])
@@ -568,29 +550,21 @@ function raw_to_ode_params(m, raw_params)
         push!(param_keys, Symbol("k$(i)f"))
         push!(param_keys, Symbol("k$(i)r"))
         if EnzymeRates.is_equilibrium(step)
-            # Look up structural K key for the rep step (Kd for binding, Kiso for iso)
+            # Look up the rep step's structural K key
+            K = _lookup(EnzymeRates.name(EnzymeRates.Kequil(rep_step, :None), mech))
             if is_binding_step[i]
-                K_key = EnzymeRates.name(EnzymeRates.Kd(rep_step, :None), mech)
-                K = _lookup(K_key)
                 # Binding step (metabolite on LHS): K = Kd = kr/kf
                 push!(param_vals, 1e6)
                 push!(param_vals, 1e6 * K)
             else
-                K_key = EnzymeRates.name(EnzymeRates.Kiso(rep_step, :None), mech)
-                K = _lookup(K_key)
                 # RE isomerization (no metabolite): K = Ka = kf/kr
                 push!(param_vals, 1e6 * K)
                 push!(param_vals, 1e6)
             end
         else
-            # SS step: binding → Kon/Koff; iso → Kfor/Krev
-            fwd_key, rev_key = if EnzymeRates.is_binding(rep_step)
-                EnzymeRates.name(EnzymeRates.Kon(rep_step, :None), mech),
-                EnzymeRates.name(EnzymeRates.Koff(rep_step, :None), mech)
-            else
-                EnzymeRates.name(EnzymeRates.Kfor(rep_step, :None), mech),
-                EnzymeRates.name(EnzymeRates.Krev(rep_step, :None), mech)
-            end
+            # SS step: its forward and reverse rate constants
+            fwd_key = EnzymeRates.name(EnzymeRates.Kfor(rep_step, :None), mech)
+            rev_key = EnzymeRates.name(EnzymeRates.Krev(rep_step, :None), mech)
             push!(param_vals, _lookup(fwd_key))
             push!(param_vals, _lookup(rev_key))
         end

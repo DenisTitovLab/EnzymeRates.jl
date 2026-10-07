@@ -232,15 +232,11 @@ end
 # Parameter family.
 abstract type Parameter end
 
-# Step-bound RE parameters
-struct Kd   <: Parameter; step::Step; state::Symbol end
-struct Kiso <: Parameter; step::Step; state::Symbol end
-
-# Step-bound SS parameters
-struct Kon  <: Parameter; step::Step; state::Symbol end
-struct Koff <: Parameter; step::Step; state::Symbol end
-struct Kfor <: Parameter; step::Step; state::Symbol end
-struct Krev <: Parameter; step::Step; state::Symbol end
+# Step-bound parameters: a rapid-equilibrium step's equilibrium constant, and a
+# steady-state step's forward and reverse rate constants.
+struct Kequil <: Parameter; step::Step; state::Symbol end
+struct Kfor   <: Parameter; step::Step; state::Symbol end
+struct Krev   <: Parameter; step::Step; state::Symbol end
 
 """
 Regulator-site parameter: a single ligand at a single site can appear
@@ -888,7 +884,7 @@ end
 # `==` and `hash` by content for the value types whose fields are Vectors or structs: the
 # default `==` would compare identity. Every field takes part, in declaration order, except
 # a mechanism's `naming` cache. `Species` keeps its own pair: its stored `name` is derived.
-for T in (Residual, RegulatorySite, Step, Kd, Kiso, Kon, Koff, Kfor, Krev, Kreg,
+for T in (Residual, RegulatorySite, Step, Kequil, Kfor, Krev, Kreg,
           ReactantAtoms, RegulatorMults, EnzymeReaction, Mechanism, AllostericMechanism)
     fs = filter(!=(:naming), fieldnames(T))
     @eval Base.:(==)(a::$T, b::$T) =
@@ -1314,14 +1310,12 @@ const _AnyMech = Union{Mechanism, AllostericMechanism}
 # (`K_`) after the direction whose products-over-reactants it is. A binding's K is
 # named in the release direction, so it is a dissociation constant (`K_ES_to_E_S`);
 # an isomerization's or other RE step's K in the stored direction (`K_ES_to_EP`).
-name(p::Union{Kon, Kfor}, m::_AnyMech) =
-    _render_reaction("k_", _rep_sides(p.step, m), p.state)
-name(p::Union{Koff, Krev}, m::_AnyMech) =
-    _render_reaction("k_", reverse(_rep_sides(p.step, m)), p.state)
-name(p::Kiso, m::_AnyMech) =
-    _render_reaction("K_", _rep_sides(p.step, m), p.state)
-name(p::Kd, m::_AnyMech) =
-    _render_reaction("K_", reverse(_rep_sides(p.step, m)), p.state)
+name(p::Kfor, m::_AnyMech) = _render_reaction("k_", _rep_sides(p.step, m), p.state)
+name(p::Krev, m::_AnyMech) = _render_reaction("k_", reverse(_rep_sides(p.step, m)), p.state)
+function name(p::Kequil, m::_AnyMech)
+    sides = _rep_sides(p.step, m)
+    _render_reaction("K_", is_binding(p.step) ? reverse(sides) : sides, p.state)
+end
 
 """
 Regulator-site parameter: state tag + ligand name + "reg". No site index —
@@ -1334,27 +1328,26 @@ name(p::Kreg, ::AllostericMechanism) =
 """
 Enumerate every raw rate-constant Parameter for a non-allosteric
 mechanism, in kinetic-group order. Each kinetic group's representative
-step (the structurally-primary step, `_group_rep`) drives the emit: RE
-binding → `Kd`, RE non-binding step → `Kiso`, SS binding → `Kon`+`Koff`, SS
-non-binding step → `Kfor`+`Krev`. All parameters carry `state === :None`
-because non-allosteric mechanisms have no A/I branches.
+step (the structurally-primary step, `_group_rep`) drives the emit: an RE
+step → `Kequil`, an SS step → `Kfor`+`Krev`. All parameters carry
+`state === :None` because non-allosteric mechanisms have no A/I branches.
 """
 _enumerate_parameters_full(m::Mechanism) =
     Parameter[p for rep in _group_reps(m) for p in _step_constants(rep, :None)]
 
 """
-The Parameter(s) governing step `s` with the given allosteric state: the 4-way
-switch on `is_equilibrium(s)` × `is_binding(s)`. The walkers over group
-representatives (`_enumerate_parameters_full`, `_cat_params`) apply it to each group's
+The Parameter(s) governing step `s` with the given allosteric state, by
+`is_equilibrium(s)`. The walkers over group representatives
+(`_enumerate_parameters_full`, `_cat_params`) apply it to each group's
 representative step; `_step_parameters` applies it to every step, and
 `_onlya_haldane_violation` to a group's first step to label the group.
 
-Returns 1 element for RE steps (`Kd` or `Kiso`) and 2 elements for SS
-steps (`Kon`+`Koff` or `Kfor`+`Krev`). A binding, plain or fused, takes `Kd` /
-`Kon`+`Koff`; every other step — an isomerization, a Theorell–Chance step, a step
-with two metabolites on one side — takes `Kiso` / `Kfor`+`Krev`.
+Returns 1 element for an RE step (`Kequil`) and 2 elements for an SS step
+(`Kfor`+`Krev`). `name` renders a binding's `Kequil`, plain or fused, as a
+dissociation constant and every other step's — an isomerization, a Theorell–Chance
+step, a step with two metabolites on one side — as the equilibrium constant of its
+stored direction.
 """
 _step_constants(s::Step, state::Symbol) =
-    is_equilibrium(s) ? Parameter[(is_binding(s) ? Kd : Kiso)(s, state)] :
-    is_binding(s) ? Parameter[Kon(s, state), Koff(s, state)] :
+    is_equilibrium(s) ? Parameter[Kequil(s, state)] :
     Parameter[Kfor(s, state), Krev(s, state)]

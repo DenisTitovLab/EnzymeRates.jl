@@ -72,9 +72,9 @@ Theorell–Chance step takes up one metabolite and gives off another. `_is_chemi
 is true for every step but a plain binding; the allosteric moves,
 `_onlya_haldane_violation` and `show` read it to tell catalysis from binding. The
 derivation reads every binding alike, so a fused binding's rapid-equilibrium
-constant is a dissociation constant (`Kd`) and its steady-state pair `Kon` and
-`Koff`. Every step's constants are named by its two sides — each side's enzyme
-form followed by its free metabolites (`K_ES_to_E_S` for `E + S ⇌ E(S)`,
+constant is a dissociation constant and its steady-state pair a binding and a
+release rate constant. Every step's constants are named by its two sides — each
+side's enzyme form followed by its free metabolites (`K_ES_to_E_S` for `E + S ⇌ E(S)`,
 `K_EPQ_to_EA_B` for `E(A) + B ⇌ E(P, Q)`, `k_EA_B_to_EQ_P` for
 `E(A) + B <--> E(Q) + P`). Like the singleton types, these are canonicalized so
 that the order or direction in which steps are written does not change the

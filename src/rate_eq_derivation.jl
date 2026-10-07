@@ -546,8 +546,8 @@ end
 # ─── kcat Computation Helpers ──────────────────────────────────
 
 """
-Set of Symbol names for SS rate-constant parameters (Kon, Koff, Kfor,
-Krev) of `em`. For `AllostericEnzymeMechanism`, also includes the I-state
+Set of Symbol names for SS rate-constant parameters (`Kfor`, `Krev`) of
+`em`. For `AllostericEnzymeMechanism`, also includes the I-state
 names (`I_` tag after the prefix, e.g. `k_I_ES_to_EP`) of every SS rate
 constant that lives in the inactive state polynomial. Routes Symbol production through the
 `name(p, m)` chokepoint via Parameter-subtype dispatch. Used by
@@ -558,7 +558,7 @@ function _ss_rate_constant_names(@nospecialize(em::AbstractEnzymeMechanism))
     m = _concrete(em)
     params = m isa Mechanism ? _enumerate_parameters_full(m) :
         [_cat_params(m, :A); _cat_params(m, :I)]
-    Set{Symbol}(name(p, m) for p in params if p isa Union{Kon, Koff, Kfor, Krev})
+    Set{Symbol}(name(p, m) for p in params if p isa Union{Kfor, Krev})
 end
 
 """Group `num` and `den` POLYs by metabolite monomial pattern: each monomial splits
@@ -908,7 +908,7 @@ _state_rate_polys(am::AllostericMechanism, state::Symbol) =
 
 """
 Catalytic `Parameter`s of `am` in conformation `state` (`:A` or `:I`): the
-constants of each kinetic group's rep step (`Kd`/`Kiso`/`Kon`+`Koff`/`Kfor`+`Krev`),
+constants of each kinetic group's rep step (`Kequil` or `Kfor`+`Krev`),
 in group order. In `:A` an `:EqualAI` group takes the `:EqualAI` tag, because its
 symbol is shared with the I-state (the chokepoint `name(p, m)` renders both to the
 same `Symbol`), and every other group takes `:A`. In `:I` the `:OnlyA` groups are

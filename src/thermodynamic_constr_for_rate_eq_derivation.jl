@@ -27,8 +27,8 @@ _raw_param_symbols(@nospecialize(m::EnzymeMechanism)) = _raw_param_symbols(Mecha
 
 """
 For each step in `m` (in flat-iteration order), yield the Parameter
-instances that govern that step: `[Kd|Kiso]` for an RE step, `[Kon|Kfor,
-Koff|Krev]` for an SS step. Each Parameter is anchored on the original
+instances that govern that step: `[Kequil]` for an RE step, `[Kfor, Krev]`
+for an SS step. Each Parameter is anchored on the original
 step (not the rep), so `name(p, m)` renders to the rep's structural
 Symbol via the value-context chokepoint, collapsing kinetic-group members.
 """
