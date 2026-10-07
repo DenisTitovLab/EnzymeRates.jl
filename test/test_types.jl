@@ -654,10 +654,6 @@ end
         kr = ER.Kreg(site, lig_a, :A)
         @test kr isa ER.Parameter
         @test kr == ER.Kreg(site, lig_a, :A)
-
-        # Mechanism-level scalar: singleton
-        @test ER.Lallo() == ER.Lallo()
-        @test ER.Lallo() isa ER.Parameter
     end
 
     @testset "ReactantAtoms canonicalizes atom ordering" begin
@@ -1121,15 +1117,11 @@ end
         @test ER.name(ER.Kiso(iso, :None), m) === :K_ES_to_EP
         @test ER.name(ER.Kiso(iso, :I),    m) === :K_I_ES_to_EP
 
-        # Mechanism-level scalar
-        @test ER.name(ER.Lallo(), m) === :L
-
         # Same names resolve on the mechanism lifted back from EnzymeMechanism(m);
         # the compiled type itself is not a chokepoint argument.
         em = EnzymeMechanism(m)
         @test ER.name(ER.Kd(bind, :None), ER.Mechanism(em)) === :K_ES_to_E_S
         @test ER.name(ER.Kon(iso, :None), ER.Mechanism(em)) === :k_ES_to_EP
-        @test ER.name(ER.Lallo(), ER.Mechanism(em)) === :L
         @test_throws MethodError ER.name(ER.Kd(bind, :None), em)
     end
 
@@ -1697,7 +1689,7 @@ function _is_chokepoint_def(expr)
     fn_name === :name || return false
     arg_str = _sig_first_arg_str(sig)
     return occursin(
-        r"Parameter|::(Kd|Kiso|Kon|Koff|Kfor|Krev|Kreg|Keq|Etot|Lallo)\b",
+        r"Parameter|::(Kd|Kiso|Kon|Koff|Kfor|Krev|Kreg)\b",
         arg_str)
 end
 

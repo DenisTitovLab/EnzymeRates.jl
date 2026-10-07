@@ -249,9 +249,6 @@ struct Kreg <: Parameter
     state::Symbol
 end
 
-# Mechanism-level scalar (singleton): the MWC coupling constant L
-struct Lallo <: Parameter end
-
 # Per-reactant and per-regulator bundling structs. Canonical
 # ordering of atoms / multiplicities so two equivalent constructions
 # compare equal under `==` / `hash`.
@@ -1304,9 +1301,6 @@ once across all sites.
 """
 name(p::Kreg, ::AllostericMechanism) =
     Symbol("K_", _state_tag(p.state), String(name(p.ligand)), "reg")
-
-# Mechanism-level scalar
-name(::Lallo, _) = :L
 
 """
 Enumerate every raw rate-constant Parameter for a non-allosteric
