@@ -2036,6 +2036,14 @@ end
         # contradicts the third row's -y1 - y2 > 0.
         @test !ER._has_strict_positive_combination(R[1 0; 0 1; -1 -1])
     end
+
+    @testset "_solve_dependent_set rejects a contradictory system" begin
+        # The rows x = 0 and x = log(Keq) subtract to 0 = log(Keq): the reduced
+        # [A rhs] pivots in the rhs column, which no parameter value satisfies.
+        err = @test_throws ErrorException ER._solve_dependent_set(
+            reshape(R[1, 1], 2, 1), R[0, 1], [:K_x], [(false, 0)])
+        @test occursin("Thermodynamically contradictory mechanism", err.value.msg)
+    end
 end
 
 @testset "the naming cache never changes a mechanism's identity" begin

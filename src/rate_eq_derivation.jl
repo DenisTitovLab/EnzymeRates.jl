@@ -696,7 +696,7 @@ so this carries no `catalytic_multiplicity` factor.
     # (`:I` mirrors plus the native `:NonequalAI` I-names), which are exactly the
     # non-metabolite symbols the I-polys reference.
     a_param_names = union(
-        Set(_state_all_params(_state_mechanism(am, :A), _state_step_params(am, :A))),
+        Set(_param_columns(_state_mechanism(am, :A), _state_step_params(am, :A))),
         setdiff(union(_poly_param_syms(num_A_poly), _poly_param_syms(den_A_poly)),
                 cat_mets))
     i_param_names = union(a_param_names,
@@ -1015,28 +1015,11 @@ function _state_rate_polys(am::AllostericMechanism, state::Symbol)
 end
 
 """
-Tagged catalytic parameter symbols (the kernel's column set) for state graph
-`cm` under the state-tagged `sp`, in group order — the state-tagged analog of
-`_raw_param_symbols`. Distinct `name(p, cm)` (rep names, no Wegscheider rename);
-the kernel applies `_state_wegscheider_rename_map` on top of this column set when
-folding single-symbol RE binding-K ties.
-"""
-function _state_all_params(cm::Mechanism, sp)
-    out = Symbol[]
-    seen = Set{Symbol}()
-    for group in sp, p in group
-        s = name(p, cm)
-        s in seen || (push!(seen, s); push!(out, s))
-    end
-    out
-end
-
-"""
 State-tagged Wegscheider rename map for `am`'s catalytic sub-mechanism in
 conformational `state` — the state-aware analog of `_build_wegscheider_rename_map`
 (which runs the kernel with `:None` step_params and so cannot see the `:A`/`:I`
 tags). Discovers single-symbol RE binding-K Wegscheider ties (`K_a = K_b`, both
-binding K's) under the state-tagged `step_params`/`all_params` and folds each
+binding K's) under the state-tagged `step_params` and folds each
 absorbed symbol into its target. Empty for all current specs (catalysis is
 steady-state, so no fully-RE catalytic box), but a fully-RE catalytic core would
 now collapse its tie natively — the same way the non-allosteric path does.
@@ -1052,9 +1035,7 @@ function _state_wegscheider_rename_map(am::AllostericMechanism, state::Symbol)
         push!(binding_set, name(sp[idx][1], cm))
     end
     # Single-symbol Wegscheider RE ties between two binding K's.
-    dep_raw, _ = _dependent_param_exprs_kernel(cm, rename;
-                                               step_params = sp,
-                                               all_params = _state_all_params(cm, sp))
+    dep_raw, _ = _dependent_param_exprs_kernel(cm, rename; step_params = sp)
     for (lhs, rhs) in dep_raw
         rhs isa Symbol || continue
         lhs in binding_set && rhs in binding_set || continue
@@ -1115,8 +1096,7 @@ function _combined_state_dependent_exprs(am::AllostericMechanism)
         cm = _state_mechanism(am, state)
         sp = _state_step_params(am, state)
         _assemble_constraints(cm, _state_wegscheider_rename_map(am, state);
-                              step_params = sp, all_params = _state_all_params(cm, sp),
-                              is_i_state = (state === :I))
+                              step_params = sp, is_i_state = (state === :I))
     end
     A_A, rhs_A, cols_A, pri_A = state_system(:A)
     A_I, rhs_I, cols_I, pri_I = state_system(:I)
@@ -1278,8 +1258,8 @@ appear only in the I-state's parameter set (`cols_I \\ cols_A` — a shared
 the A-block), plus every non-`:OnlyA` regulator's I-name.
 """
 function _i_state_symbol_set(am::AllostericMechanism)
-    cols_A = _state_all_params(_state_mechanism(am, :A), _state_step_params(am, :A))
-    cols_I = _state_all_params(_state_mechanism(am, :I), _state_step_params(am, :I))
+    cols_A = _param_columns(_state_mechanism(am, :A), _state_step_params(am, :A))
+    cols_I = _param_columns(_state_mechanism(am, :I), _state_step_params(am, :I))
     syms = Set{Symbol}(setdiff(cols_I, cols_A))
     union!(syms, (name(p, am) for p in _kreg_params(am, :I)))
 end
@@ -1331,8 +1311,7 @@ function _allosteric_num_den_exprs(@nospecialize(M_type::Type{<:AllostericEnzyme
     num_A_poly, den_A_poly, d_free_A = _state_rate_polys(am, :A)
     # A-state catalytic param symbols (the tagged column set) drive `_poly_to_expr`'s
     # param/metabolite ordering split; the I-poly's `:I` symbols sort as non-params.
-    cat_params = Set(_state_all_params(_state_mechanism(am, :A),
-                                       _state_step_params(am, :A)))
+    cat_params = Set(_param_columns(_state_mechanism(am, :A), _state_step_params(am, :A)))
     cat_mets = Set{Symbol}(metabolites(CM()))
 
     # I-state catalytic polys, always re-derived natively on the reachable-form

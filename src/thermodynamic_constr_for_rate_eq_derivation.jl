@@ -267,6 +267,26 @@ flip) or `:iso_K` (an equilibrium constant)."""
 _count_kind(s::Step) = is_equilibrium(s) ? (is_binding(s) ? :binding_K : :iso_K) : :ss
 
 """
+Add flat step `j`'s cycle incidence `C[:, j]` into the constraint matrix `A` at the
+columns `cols` of its constants, by the step's constant kind (`_count_kind`). A
+binding K enters negated, because it is a Kd in the polynomial while the cycle
+product uses 1/Kd; an iso K enters as is; an SS step contributes `+kf` at `cols[1]`
+and `-kr` at `cols[2]`.
+"""
+function _add_step_column!(A, C, j, kind::Symbol, cols)
+    for i in axes(C, 1)
+        c = C[i, j]
+        c == 0 && continue
+        if kind === :ss
+            A[i, cols[1]] += c
+            A[i, cols[2]] -= c
+        else
+            A[i, cols[1]] += kind === :binding_K ? -c : c
+        end
+    end
+end
+
+"""
     _partition_independent_count(parent::Mechanism) -> counter
 
 Return `counter(group_of_step, kind_of_step = kinds of the parent's steps)`, the
@@ -280,9 +300,9 @@ split move passes a step's own kind, or `:binding_K`/`:iso_K` for a steady-state
 step it reverts to rapid equilibrium. Equals `_independent_param_count` of the
 constructed child: the kernel's independent set is the columns minus the pivots,
 and folding a single-symbol Wegscheider tie onto its target removes one column and
-one rank together, so the count is invariant to the rename. Column sign
-conventions match `_assemble_constraints`: a binding K enters with a sign flip, an
-iso K without, an SS step contributes `+kf` and `-kr`.
+one rank together, so the count is invariant to the rename. This counter and
+`_assemble_constraints` both fill their columns with `_add_step_column!`, so they
+share one sign convention.
 """
 function _partition_independent_count(parent::Mechanism)
     C, _ = _thermodynamic_constraints(parent)
@@ -299,15 +319,10 @@ function _partition_independent_count(parent::Mechanism)
             kind_of_step[j] === :ss && get!(column, (g, 2), length(column) + 1)
         end
         A = zeros(Int, size(C, 1), length(column))
-        for (j, g) in enumerate(group_of_step), i in axes(C, 1)
-            c = C[i, j]
-            c == 0 && continue
-            if kind_of_step[j] === :ss
-                A[i, column[(g, 1)]] += c
-                A[i, column[(g, 2)]] -= c
-            else
-                A[i, column[(g, 1)]] += kind_of_step[j] === :binding_K ? -c : c
-            end
+        for (j, g) in enumerate(group_of_step)
+            kind = kind_of_step[j]
+            cols = [column[(g, k)] for k in 1:(kind === :ss ? 2 : 1)]
+            _add_step_column!(A, C, j, kind, cols)
         end
         length(column) - length(_rref_partition(A)[1])
     end
@@ -315,9 +330,20 @@ function _partition_independent_count(parent::Mechanism)
 end
 
 """
+The constraint columns of `mech` under `step_params`: the distinct `name(p, mech)` of
+the step constants, in step order (rep names, before any Wegscheider rename). The
+steps of a kinetic group render their representative's names and every reaction
+belongs to one group, so under the default `_step_parameters(mech)` this is
+`_raw_param_symbols(mech)`; under the allosteric per-state step constants it is the
+state-tagged analog.
+"""
+_param_columns(mech::Mechanism, step_params) =
+    unique(Symbol[name(p, mech) for ps in step_params for p in ps])
+
+"""
 Assemble the rational thermodynamic-constraint system for `mech`. Returns
 `(A, rhs, columns, priority)`: `A` is the constraint matrix (rows = independent
-Wegscheider/Haldane cycles, columns = parameters in `all_params` order), `rhs`
+Wegscheider/Haldane cycles, columns = parameters in `_param_columns` order), `rhs`
 the per-row `log(Keq)` exponent, `columns` the ordered parameter symbols, and
 `priority` the per-column pivot preference as an `(is_i_state, type)` tuple —
 lexicographic, so an I-state column (`is_i_state = true`, set via the
@@ -327,79 +353,42 @@ binding (higher scores are eliminated first, i.e. become dependent).
 `_solve_dependent_set` consumes this. Split out from the kernel so the
 allosteric derivation can stack per-state systems and reuse one solver.
 
-Binding K's are Kd in the polynomial while cycle products use 1/Kd, so binding-K
-column entries carry a sign flip on top of the cycle incidence. Non-representative
-steps fold into their representative through the `name(p, mech)` chokepoint (plus
-any Pass-2 single-symbol Wegscheider tie in `rename`) — equivalent to a
-kinetic-group equality constraint.
+Each step's cycle incidence enters its constants' columns through
+`_add_step_column!`. Non-representative steps fold into their representative
+through the `name(p, mech)` chokepoint (plus any Pass-2 single-symbol Wegscheider
+tie in `rename`) — equivalent to a kinetic-group equality constraint.
 """
 function _assemble_constraints(
     mech::Mechanism,
     rename::AbstractDict{Symbol, Symbol};
     step_params = _step_parameters(mech),
-    all_params = _raw_param_symbols(mech),
     is_i_state::Bool = false,
 )
-    flat = _flat_steps(mech)
     free_enz_set = _free_enz_set(mech)
-
     C, rhs_coeffs = _thermodynamic_constraints(mech)
-    nc = size(C, 1)
-    nsteps = size(C, 2)
-
-    columns = collect(all_params)
+    columns = _param_columns(mech, step_params)
     sym_col = Dict(p => i for (i, p) in enumerate(columns))
-    n_vars = length(columns)
-
-    step_name(p::Parameter) = (s = name(p, mech); get(rename, s, s))
-
-    binding_K_set = Set{Symbol}()
-    for (j, (s, _)) in enumerate(flat)
-        is_equilibrium(s) && is_binding(s) || continue
-        push!(binding_K_set, step_name(step_params[j][1]))
-    end
-
-    A = zeros(Rational{BigInt}, nc, n_vars)
-    rhs = Rational{BigInt}.(rhs_coeffs)
-    for i in 1:nc, j in 1:nsteps
-        C[i, j] == 0 && continue
-        if is_equilibrium(flat[j][1])
-            sym = step_name(step_params[j][1])
-            sign_factor = sym in binding_K_set ? -1 : 1
-            A[i, sym_col[sym]] += sign_factor * C[i, j]
-        else
-            kf = step_name(step_params[j][1])
-            kr = step_name(step_params[j][2])
-            A[i, sym_col[kf]] += C[i, j]
-            A[i, sym_col[kr]] -= C[i, j]
-        end
-    end
+    A = zeros(Rational{BigInt}, size(C, 1), length(columns))
 
     # Pivot priority: (is_I_state, type_priority). Lexicographic — an I-state column
     # outranks any A-state / non-allosteric column, so a cross-state affinity split
     # collapses onto the free A-side; within a state the `_step_priority` order holds.
     # No value is a never-pivot sentinel.
-    priority = fill((is_i_state, 0), n_vars)
-    for j in 1:nsteps
-        step = step_params[j][1].step
-        base = _step_priority(step, free_enz_set)
-        if is_equilibrium(flat[j][1])
-            s = step_name(step_params[j][1])
-            haskey(sym_col, s) && (priority[sym_col[s]] = (is_i_state, base))
-        else
-            # A steady-state step's reverse constant is eliminated before its forward one.
-            # A fused binding of a product is a release stored as the binding it reverses,
-            # so its forward constant runs against the reaction and goes first instead,
-            # keeping the catalytic constant fitted.
-            against = _is_chemistry(step) && bound_metabolite(step) isa Product
-            for (offset, p) in enumerate(step_params[j])
-                s = step_name(p)
-                rank = against ? 2 - offset : offset - 1
-                haskey(sym_col, s) && (priority[sym_col[s]] = (is_i_state, base + rank))
-            end
+    priority = fill((is_i_state, 0), length(columns))
+    for (j, (s, _)) in enumerate(_flat_steps(mech))
+        cols = [sym_col[get(rename, n, n)] for n in (name(p, mech) for p in step_params[j])]
+        _add_step_column!(A, C, j, _count_kind(s), cols)
+        base = _step_priority(s, free_enz_set)
+        # A steady-state step's reverse constant is eliminated before its forward one.
+        # A fused binding of a product is a release stored as the binding it reverses,
+        # so its forward constant runs against the reaction and goes first instead,
+        # keeping the catalytic constant fitted.
+        against = !is_equilibrium(s) && _is_chemistry(s) && bound_metabolite(s) isa Product
+        for (offset, c) in enumerate(cols)
+            priority[c] = (is_i_state, base + (against ? 2 - offset : offset - 1))
         end
     end
-    return A, rhs, columns, priority
+    return A, Rational{BigInt}.(rhs_coeffs), columns, priority
 end
 
 """
@@ -532,7 +521,7 @@ to `0 = log Keq`, a thermodynamic contradiction, which errors. Returns
 columns independent.
 
 The pivots are the greedy basis over the sorted columns: a column becomes dependent
-exactly when it is not a linear combination of the higher-priority columns, so the
+exactly when it is not a linear combination of the columns sorted ahead of it, so the
 constraints eliminate the highest-priority columns they can. Eliminating row by row
 and pivoting each row on its highest-priority remaining column picks the same set,
 and the reduced row echelon form is unique, so the dependent expressions match too.
@@ -571,19 +560,16 @@ display path in `rate_equation_string` likewise calls it with the
 Pass-1-only rename to keep absorbed ties visible under the
 `# Wegscheider constraints:` section.
 
-`step_params` and `all_params` default to the mechanism's own `:None`-state
-symbols. The allosteric per-state derivation passes state-tagged versions so
-`name(p, mech)` renders `K_A_…`/`K_I_…`/bare-`:EqualAI` symbols and `all_params`
-carries the matching tagged column set (they must agree symbol-for-symbol).
+`step_params` defaults to the mechanism's own `:None`-state constants. The
+allosteric per-state derivation passes state-tagged ones so `name(p, mech)` renders
+`K_A_…`/`K_I_…`/bare-`:EqualAI` symbols, and the columns (`_param_columns`) follow.
 """
 function _dependent_param_exprs_kernel(
     mech::Mechanism,
     rename::AbstractDict{Symbol, Symbol};
     step_params = _step_parameters(mech),
-    all_params = _raw_param_symbols(mech),
 )
-    A, rhs, columns, priority =
-        _assemble_constraints(mech, rename; step_params, all_params)
+    A, rhs, columns, priority = _assemble_constraints(mech, rename; step_params)
     return _solve_dependent_set(A, rhs, columns, priority)
 end
 
