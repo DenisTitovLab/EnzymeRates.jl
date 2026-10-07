@@ -7953,6 +7953,17 @@ end
     am_flipped = [i == am_g ? EnzymeRates._with_equilibrium.(grp, false) : grp
                   for (i, grp) in enumerate(am_groups)]
     @test EnzymeRates._re_segment_count(am_flipped) == 2
+
+    # Aggregate cross-check over the bi-bi seed set: on every single RE→SS flip the count
+    # agrees with the segmentation `_re_segment_extras` produces.
+    flips = [[i == g ? EnzymeRates._with_equilibrium.(grp, false) : grp
+              for (i, grp) in enumerate(EnzymeRates.steps(seed))]
+             for seed in EnzymeRates.init_mechanisms(bi_bi_rxn)
+             for g in eachindex(EnzymeRates.steps(seed))
+             if all(EnzymeRates.is_equilibrium, EnzymeRates.steps(seed)[g])]
+    @test length(flips) == 508
+    @test all(gs -> EnzymeRates._re_segment_count(gs) ==
+                    length(EnzymeRates._re_segment_extras(gs)[2]), flips)
 end
 
 @testset "_minimal_gaining_sets" begin
