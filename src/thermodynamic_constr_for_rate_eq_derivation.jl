@@ -1,9 +1,8 @@
 # ABOUTME: Haldane/Wegscheider thermodynamic constraints for enzyme mechanisms.
-# ABOUTME: Finds cycles, selects dependent params, builds @generated rate-eq preambles.
+# ABOUTME: Finds cycles and selects the dependent parameters by Gauss–Jordan elimination.
 
 """
-Haldane and Wegscheider thermodynamic constraints for enzyme mechanisms,
-plus preamble building helpers for @generated rate equation bodies.
+Haldane and Wegscheider thermodynamic constraints for enzyme mechanisms.
 
 Identifies thermodynamic cycles in the mechanism graph (via null-space of the
 enzyme incidence matrix), classifies them as Haldane (net reaction) or
@@ -548,42 +547,4 @@ function _solve_dependent_set(
         dep_exprs[columns[order[p]]] = build_power_expr(R[r, n_vars + 1], factors)
     end
     return dep_exprs, Tuple(p for p in columns if !haskey(dep_exprs, p))
-end
-
-# ─── Preamble Building Helpers ───────────────────────────────────
-
-"""Build destructuring Expr: (; a, b, c) = source"""
-function _destructuring_expr(syms, source::Symbol)
-    Expr(:(=), Expr(:tuple, Expr(:parameters, syms...)), source)
-end
-
-"""
-Collect raw parameter symbols (one K or k_f/k_r per kinetic group) plus
-`E_total`, in step order.
-"""
-function _sorted_raw_param_symbols(@nospecialize(M::Type{<:EnzymeMechanism}))
-    Tuple((_raw_param_symbols(M())..., :E_total))
-end
-
-"""Full mode: destructure all params + concs, then raw expr."""
-function _build_rate_body(M, ::Type{FullMode})
-    expr, all_params, conc_syms = _raw_rate_expr_and_symbols(M)
-    Expr(:block,
-        _destructuring_expr(all_params, :params),
-        _destructuring_expr(conc_syms, :concs),
-        expr)
-end
-
-"""Reduced mode: destructure indep params + concs, define dep params, then raw expr."""
-function _build_rate_body(M, ::Type{ReducedMode})
-    expr, _, conc_syms = _raw_rate_expr_and_symbols(M)
-    dep_exprs, indep = _dependent_param_exprs(M)
-    hw_params = (indep..., :Keq, :E_total)
-    assignments = [Expr(:(=), sym, dep_exprs[sym])
-                   for (sym, _) in sort(collect(dep_exprs); by=first)]
-    Expr(:block,
-        _destructuring_expr(hw_params, :params),
-        _destructuring_expr(conc_syms, :concs),
-        assignments...,
-        expr)
 end

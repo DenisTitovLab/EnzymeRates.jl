@@ -1513,8 +1513,7 @@ end
     # tuple and turns 100ns/0B into 1µs/2KB per call.
     spec = only(s for s in MECHANISM_TEST_SPECS
                 if s.name == "Random-order Bi-Bi")
-    rate_expr, _, _ = EnzymeRates._raw_rate_expr_and_symbols(
-        typeof(spec.mechanism))
+    num_expr, den_expr = EnzymeRates._num_den_exprs(typeof(spec.mechanism))
     bad = Expr[]
     function walk!(e)
         if e isa Expr
@@ -1529,7 +1528,8 @@ end
             end
         end
     end
-    walk!(rate_expr)
+    walk!(num_expr)
+    walk!(den_expr)
     @test isempty(bad)
 end
 
@@ -1893,7 +1893,7 @@ end
 
     # Regression: T-state binding K's must be in Kd convention even when
     # `:OnlyA` and `:NonequalAI` catalytic groups coexist. Without the fix,
-    # the flat-poly path in _allosteric_num_den_exprs renders T-state K's
+    # the flat-poly path in _num_den_exprs renders T-state K's
     # as `K_T * met` (Ka) instead of `met / K_T` (Kd), silently producing
     # wrong rates whenever a mechanism mixes these two tags. Regression
     # for src/rate_eq_derivation.jl:1395-1396.

@@ -8,11 +8,10 @@
 # or its type, to its concrete form therefore take it `@nospecialize`.
 
 """
-Suffix appended to single-symbol equality lines whose LHS got folded
-into the kinetic-group rename map. Both display sites (User defined
-kinetic-group merges and absorbed single-symbol Wegscheider ties) emit
-this exact string so the rate-equation dedup key in
-`identify_rate_equation.jl` can strip these provenance lines.
+Suffix the `Reduced` `rate_equation_string` of an `EnzymeMechanism` appends to each
+constraint line whose right-hand side is a single symbol, such as an absorbed
+Wegscheider tie that the rename folds into `v`. The rate-equation dedup key in
+`identify_rate_equation.jl` strips these provenance lines.
 """
 const ANNOTATION_SUBSTITUTED = "  (substituted into v)"
 
@@ -84,10 +83,10 @@ independent columns, and no target is itself renamed.
 
 `step_params` defaults to the mechanism's own `:None`-state constants. The
 allosteric derivation passes each conformation's state-tagged ones
-(`_state_parts`), so the map holds that state's `K_A_…`/`K_I_…` names. A tie
-arises from an RE binding square whose two bindings of one ligand share a group
-while the other ligand's two bindings do not: the square then equates the other
-ligand's two K's.
+(`_state_parts`), so the map holds that state's `K_A_…`/`K_I_…` names. For
+example, a tie arises from an RE binding square whose two bindings of one ligand
+share a group while the other ligand's two bindings do not: the square then
+equates the other ligand's two K's.
 
 The rename means the polynomial in `v` uses the representative symbol
 directly, so Source-C duplicates (split kinetic groups that
@@ -223,8 +222,8 @@ as it enters `step_to_K`, the only route by which an RE binding K (every rename 
 and target is one) reaches the polynomials. `step_params` defaults
 to the mechanism's own `:None`-state constants and `rename_map` to the Wegscheider
 rename under them; the allosteric derivation passes each conformation's
-state-tagged constants (`_state_parts`). First aborts, through `_assert_derivable`,
-a mechanism whose denominator would be too large to derive.
+state-tagged constants (`_state_parts`). Aborts, before the King–Altman expansion,
+a mechanism whose denominator would be too large to derive (`_assert_derivable`).
 
 Also returns `d_free`, the weight in the returned denominator of the free
 resting enzyme (the form with empty `bound` and empty `residual`): the
@@ -356,19 +355,41 @@ end
 
 # ─── Expr generation from POLY ──────────────────────────────
 
-"""
-Compute the raw rate expression (bare symbols) and sorted parameter/concentration symbols.
-Returns `(expr, all_params, sorted_concs)`.
-"""
-function _raw_rate_expr_and_symbols(@nospecialize(M::Type{<:EnzymeMechanism}))
+"""The numerator and denominator Exprs of the rate equation of `M`, from its raw
+symbolic rate polys."""
+function _num_den_exprs(@nospecialize(M::Type{<:EnzymeMechanism}))
     num, den, _ = _raw_symbolic_rate_polys(M)
-    m = M()
-    param_syms = Set{Symbol}(_raw_param_symbols(m))
-    num_expr = _poly_to_expr(num, param_syms)
-    den_expr = _poly_to_expr(den, param_syms)
-    expr = :(E_total * ($num_expr) / ($den_expr))
-    all_params = _sorted_raw_param_symbols(M)
-    return expr, all_params, metabolites(m)
+    param_syms = Set{Symbol}(_raw_param_symbols(M()))
+    _poly_to_expr(num, param_syms), _poly_to_expr(den, param_syms)
+end
+
+"""Build destructuring Expr: (; a, b, c) = source"""
+function _destructuring_expr(syms, source::Symbol)
+    Expr(:(=), Expr(:tuple, Expr(:parameters, syms...)), source)
+end
+
+"""
+The assignments `sym = rhs` of the dependent parameters `dep`, in name order.
+`_solve_dependent_set` is a full Gauss–Jordan elimination, so every right-hand side
+reads only `Keq` and independent parameters — as does the `:EqualAI` regulator mirror
+`K_I_reg = K_A_reg` that the allosteric `_dependent_param_exprs` adds — and the
+assignments may run in any order.
+"""
+_dep_assignments(dep) =
+    [Expr(:(=), sym, rhs) for (sym, rhs) in sort!(collect(dep); by = first)]
+
+"""
+The body of the generated `rate_equation` of `M`: destructure `param_syms` from
+`params` and the metabolites from `concs`, assign the dependent parameters `dep`, and
+return `E_total * (num) / (den)` with `num` and `den` from `_num_den_exprs`.
+"""
+function _rate_body(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param_syms, dep)
+    num, den = _num_den_exprs(M)
+    Expr(:block,
+        _destructuring_expr(param_syms, :params),
+        _destructuring_expr(metabolites(M()), :concs),
+        _dep_assignments(dep)...,
+        :(return E_total * ($num) / ($den)))
 end
 
 # ─── Mode-dispatched rate_equation ────────────────────────────
@@ -407,14 +428,15 @@ rate_equation(m::Union{Mechanism, AllostericMechanism}, concs, params,
 @generated function rate_equation(
     m::M, concs::NamedTuple, params::NamedTuple, ::FullMode,
 ) where {M <: EnzymeMechanism}
-    _build_rate_body(M, FullMode)
+    _rate_body(M, (_raw_param_symbols(M())..., :E_total), Dict())
 end
 
 @generated function rate_equation(
     m::M, concs::NamedTuple, params::NamedTuple,
     ::ReducedMode,
-) where {M <: EnzymeMechanism}
-    _build_rate_body(M, ReducedMode)
+) where {M <: AbstractEnzymeMechanism}
+    dep, indep = _dependent_param_exprs(M)
+    _rate_body(M, (indep..., :Keq, :E_total), dep)
 end
 
 # ─── String Representation ────────────────────────────────────
@@ -472,64 +494,51 @@ rate_equation_string(m::Union{Mechanism, AllostericMechanism},
                      mode::AbstractRateEquationMode) =
     rate_equation_string(compile_mechanism(m), mode)
 
-"""Build the `v = E_total * (num) / (den)` line from the raw symbolic rate polys."""
-function _rate_v_line(@nospecialize(M::Type{<:EnzymeMechanism}))
-    num, den, _ = _raw_symbolic_rate_polys(M)
-    m = M()
-    ps = Set{Symbol}(_raw_param_symbols(m))
-    "v = E_total * ($(_expr_to_string(_poly_to_expr(num, ps)))) / " *
-        "($(_expr_to_string(_poly_to_expr(den, ps))))"
-end
-
-function rate_equation_string(@nospecialize(em::EnzymeMechanism), ::FullMode)
-    mech = Mechanism(em)
-    param_names = Symbol[name(p, mech) for p in _enumerate_parameters_full(mech)]
-    lines = ["(; $(join((param_names..., :E_total), ", "))) = params",
-             "(; $(join(metabolites(em), ", "))) = concs"]
-    push!(lines, _rate_v_line(typeof(em)))
-    join(lines, "\n")
-end
-
 """
-Render each dep-map entry as a constraint line and append it to `weg_lines` or
-`hal_lines`, split by whether its RHS references `Keq` (Haldane) or not
-(Wegscheider). Single-symbol RHSes get the substituted-into-v annotation;
-multi-symbol RHSes get runtime assignment in `_build_rate_body` (no annotation).
-Entries are visited in lexicographic LHS order.
+The `rate_equation_string` text of `M`: the `params` destructure of `param_syms`, the
+`concs` destructure, one line `sym = rhs` per dependent parameter of `dep` with `rhs`
+rendered by `rhs_string`, and the `v = E_total * (num) / (den)` line from
+`_num_den_exprs`. A dependent whose right-hand side mentions `Keq` goes under
+`# Haldane constraints:`, every other one under `# Wegscheider constraints:`; with
+`annotate`, a line whose right-hand side is a single symbol ends in
+`ANNOTATION_SUBSTITUTED`. Each section is sorted by name, which is load-bearing: the
+eq_hash dedup of rate-equivalent mechanisms compares these strings, so their line order
+must not depend on the order the solve emits its dependents in.
 """
-function _partition_constraint_lines!(weg_lines, hal_lines, dep)
-    for (sym, expr) in sort(collect(dep); by=p -> string(p[1]))
-        is_haldane = _mentions(expr, :Keq)
-        suffix = expr isa Symbol ? ANNOTATION_SUBSTITUTED : ""
-        push!(is_haldane ? hal_lines : weg_lines, "$sym = $(string(expr))$suffix")
+function _equation_text(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param_syms,
+                        dep; annotate = false, rhs_string = _expr_to_string)
+    weg, hal = String[], String[]
+    for (sym, rhs) in sort!(collect(dep); by = first)
+        suffix = annotate && rhs isa Symbol ? ANNOTATION_SUBSTITUTED : ""
+        push!(_mentions(rhs, :Keq) ? hal : weg, "$sym = $(rhs_string(rhs))$suffix")
     end
-end
-
-"""Append the `# Wegscheider constraints:` and `# Haldane constraints:` sections
-(each skipped when empty) to `lines`."""
-function _append_constraint_sections!(lines, weg_lines, hal_lines)
-    isempty(weg_lines)  ||
-        (push!(lines, "# Wegscheider constraints:");  append!(lines, weg_lines))
-    isempty(hal_lines)  ||
-        (push!(lines, "# Haldane constraints:");      append!(lines, hal_lines))
-end
-
-function rate_equation_string(@nospecialize(m::EnzymeMechanism), ::ReducedMode)
-    M = typeof(m)
-    _, indep = _dependent_param_exprs(M)
-
-    # The display solves with no Wegscheider rename, so an absorbed single-symbol tie
-    # stays visible under `# Wegscheider constraints:`.
-    dep_raw, _ = _solve_dependent_set(
-        _assemble_constraints(Mechanism(m), Dict{Symbol, Symbol}())...)
-    weg_lines, hal_lines = String[], String[]
-    _partition_constraint_lines!(weg_lines, hal_lines, dep_raw)
-
-    lines = ["(; $(join((indep..., :Keq, :E_total), ", "))) = params",
-             "(; $(join(metabolites(m), ", "))) = concs"]
-    _append_constraint_sections!(lines, weg_lines, hal_lines)
-    push!(lines, _rate_v_line(M))
+    num, den = _num_den_exprs(M)
+    lines = ["(; $(join(param_syms, ", "))) = params",
+             "(; $(join(metabolites(M()), ", "))) = concs"]
+    isempty(weg) || push!(lines, "# Wegscheider constraints:", weg...)
+    isempty(hal) || push!(lines, "# Haldane constraints:", hal...)
+    push!(lines, "v = E_total * ($(_expr_to_string(num))) / ($(_expr_to_string(den)))")
     join(lines, "\n")
+end
+
+rate_equation_string(@nospecialize(m::EnzymeMechanism), ::FullMode) =
+    _equation_text(typeof(m), (_raw_param_symbols(m)..., :E_total), Dict())
+
+# The display solves with no Wegscheider rename, so an absorbed single-symbol tie stays
+# visible under `# Wegscheider constraints:`. Its right-hand sides print with Base
+# `string`, which writes a symbol that is not an identifier (a ping-pong residual name
+# such as `K_EB_res_+A_-P_to_EQ`) inside a product as `var"…"`.
+function rate_equation_string(@nospecialize(m::EnzymeMechanism), ::ReducedMode)
+    _, indep = _dependent_param_exprs(typeof(m))
+    dep, _ = _solve_dependent_set(
+        _assemble_constraints(Mechanism(m), Dict{Symbol, Symbol}())...)
+    _equation_text(typeof(m), (indep..., :Keq, :E_total), dep; annotate = true,
+                   rhs_string = string)
+end
+
+function rate_equation_string(@nospecialize(m::AllostericEnzymeMechanism), ::ReducedMode)
+    dep, indep = _dependent_param_exprs(typeof(m))
+    _equation_text(typeof(m), (indep..., :Keq, :E_total), dep)
 end
 
 # ─── kcat Computation Helpers ──────────────────────────────────
@@ -626,16 +635,14 @@ Multiple candidates arise for mechanisms with alternative catalytic pathways
         push!(components, (num_expr, den_expr))
     end
 
-    dep_exprs, indep = _dependent_param_exprs(M)
+    dep, indep = _dependent_param_exprs(M)
     hw_params = (indep..., :Keq)
-    assignments = [Expr(:(=), sym, dep_exprs[sym])
-                   for (sym, _) in sort(collect(dep_exprs); by=first)]
     candidates = [:($nk / $dk) for (nk, dk) in components]
     result = length(candidates) == 1 ?
         candidates[1] : Expr(:call, :max, candidates...)
     Expr(:block,
         _destructuring_expr(hw_params, :params),
-        assignments...,
+        _dep_assignments(dep)...,
         :(return $result))
 end
 
@@ -667,7 +674,7 @@ so this carries no `catalytic_multiplicity` factor.
     num_I_poly, den_I_poly, d_free_I = _state_rate_polys(am, :I)
     cat_mets = Set{Symbol}(metabolites(CM()))
 
-    # Same per-state free-enzyme normalization as `_allosteric_num_den_exprs`,
+    # Same per-state free-enzyme normalization as `_num_den_exprs`,
     # applied at the POLY level (this function groups saturating metabolite
     # patterns directly off `num`/`den` polys, not Exprs). The normalization is
     # a common factor of the saturating-limit ratio, so it leaves kcat's value
@@ -716,13 +723,7 @@ so this carries no `catalytic_multiplicity` factor.
         error("_kcat_forward: AllostericEnzymeMechanism produced no kcat " *
               "components — saturating-substrate pattern not found in numerator")
 
-    a_assignments, i_assignments_ = _build_dep_assignments(M_type)
-    # Keep inactive-state assignments unconditionally: B_I references them, and
-    # every I-state dependent the combined solve emits is expressed purely in
-    # already-solved columns (independent params or other dependents), so
-    # nothing is left undefined.
-    i_assignments = i_assignments_
-    _, indep = _dependent_param_exprs(M_type)
+    dep, indep = _dependent_param_exprs(M_type)
     hw_params = (indep..., :Keq)
     i_state_dead = _i_state_num_zero(am)
 
@@ -815,8 +816,7 @@ so this carries no `catalytic_multiplicity` factor.
         Expr(:call, :max, kcat_exprs...)
     return Expr(:block,
         _destructuring_expr(hw_params, :params),
-        a_assignments...,
-        i_assignments...,
+        _dep_assignments(dep)...,
         :(return $result))
 end
 
@@ -864,7 +864,7 @@ The native I-state catalytic numerator polynomial is empty (zero): the
 steady-state fluxes of a broken cycle's reachable-form-pruned I-graph cancel
 exactly, so the numerator `_raw_symbolic_rate_polys` builds is `poly_zero()`
 natively — no forced zero. It decides, at both consumer sites
-(`_allosteric_num_den_exprs` and `_kcat_forward`), whether the `L·num_I` term is
+(`_num_den_exprs` and `_kcat_forward`), whether the `L·num_I` term is
 emitted and whether `kcat` carries the I-state term. A live redundant-path `:OnlyA`
 mechanism (num_I ≠ 0) is thereby handled consistently.
 """
@@ -999,7 +999,7 @@ shared King–Altman engine on the state-tagged `step_params` and state graph, s
 no post-hoc rename is needed (`:EqualAI` groups render the shared bare Symbol
 automatically). The `:I` polynomials reference each `:NonequalAI` group's
 native `K_I_…`/`k_I_…` symbol; a forbidden split's `K_I_…` is defined by the
-combined constraint solve's dependent assignment (`_build_dep_assignments`).
+combined constraint solve's dependent assignment (`_dep_assignments`).
 `d_free_poly` is free E's weight in that state's denominator (see
 `_raw_symbolic_rate_polys`).
 """
@@ -1149,7 +1149,7 @@ function _power_expr(expr, n::Int)
 end
 
 """MWC active + L·inactive state-combine `A + L * B`. Shared by `_kcat_forward`
-(numerator/denominator halves of the state ratio) and `_allosteric_num_den_exprs`
+(numerator/denominator halves of the state ratio) and `_num_den_exprs`
 (the retained num/den sums)."""
 _mwc_combine(a, b) = :($a + L * $b)
 
@@ -1185,57 +1185,12 @@ function _is_metabolite_free_monomial(p::POLY, mets::Set{Symbol})
 end
 
 """
-The set of Symbols that belong to the I-block when `_build_dep_assignments`
-splits the combined solve's dependents for emission: catalytic columns that
-appear only in the I-state's parameter set (`cols_I \\ cols_A` — a shared
-`:EqualAI` catalytic Symbol coincides with its A-state column, so it stays in
-the A-block), plus every non-`:OnlyA` regulator's I-name.
-"""
-function _i_state_symbol_set(am::AllostericMechanism)
-    cols_A = _param_columns(_state_parts(am, :A)...)
-    cols_I = _param_columns(_state_parts(am, :I)...)
-    syms = Set{Symbol}(setdiff(cols_I, cols_A))
-    union!(syms, (name(p, am) for p in _kreg_params(am, :I)))
-end
-
-"""
-Build active-state and inactive-state dep-param assignment Exprs from the
-single combined solve (`_dependent_param_exprs`). Returns `(a_assignments::
-Vector{Expr}, i_assignments::Vector{Expr})`. Shared by
-`_build_allosteric_rate_body` and `rate_equation_string`.
-
-Splits `dep` by `_i_state_symbol_set`: a dependent whose LHS is an I-only
-catalytic column or a non-`:OnlyA` regulator I-name (including an `:EqualAI`
-reg mirror, `K_I_reg = K_A_reg`) is emitted in the I-block; everything else
-(including a shared `:EqualAI` catalytic dependent, whose bare Symbol
-coincides with its A-state column) is emitted in the A-block. All Symbols
-route through the `name(p, am)` chokepoint (native derivation + `Kreg`).
-"""
-function _build_dep_assignments(
-    @nospecialize(M_type::Type{<:AllostericEnzymeMechanism}),
-)
-    am = AllostericMechanism(M_type())
-    dep, _ = _dependent_param_exprs(am)
-    # A-block first so an I-block `:EqualAI` regulator mirror (`K_I_reg = K_A_reg`)
-    # finds its A-name defined. The combined solve expresses every dependent purely
-    # in independent columns, so no dependent reads another — order within a block
-    # is free.
-    i_syms = _i_state_symbol_set(am)
-    a_assignments = Expr[]
-    i_assignments = Expr[]
-    for (sym, rhs) in sort(collect(dep); by = first)
-        push!(sym in i_syms ? i_assignments : a_assignments, Expr(:(=), sym, rhs))
-    end
-    return a_assignments, i_assignments
-end
-
-"""
 Assemble the MWC numerator and denominator Exprs.
 Returns `(full_num, full_den)`. Per-active-site normalization: the
 numerator carries no leading `catalytic_multiplicity` factor; only the
 `Q_cat^(CatN-1)` / `Q_cat^CatN` binding-statistics powers remain.
 """
-function _allosteric_num_den_exprs(@nospecialize(M_type::Type{<:AllostericEnzymeMechanism}))
+function _num_den_exprs(@nospecialize(M_type::Type{<:AllostericEnzymeMechanism}))
     m = M_type()
     am = AllostericMechanism(m)
     CM = typeof(catalytic_mechanism(m))
@@ -1317,78 +1272,4 @@ function _allosteric_num_den_exprs(@nospecialize(M_type::Type{<:AllostericEnzyme
         num_I = _mwc_cross_weight(make_num_term(N_I, Q_I, reg_Q_I), D_A_expr, CatN)
         _mwc_combine(num_A, num_I), full_den
     end
-end
-
-"""Build the MWC rate equation body as an Expr block."""
-function _build_allosteric_rate_body(
-    @nospecialize(M_type::Type{<:AllostericEnzymeMechanism}),
-)
-    full_num, full_den = _allosteric_num_den_exprs(M_type)
-    rate_expr = :(E_total * ($full_num) / ($full_den))
-
-    a_assignments, i_assignments_ = _build_dep_assignments(M_type)
-    # Keep inactive-state assignments unconditionally: the retained Q_I
-    # (`L * den_I`) references them, and every I-state dependent the combined
-    # solve emits is expressed purely in already-solved columns (independent
-    # params or other dependents), so nothing is left undefined.
-    i_assignments = i_assignments_
-
-    _, indep = _dependent_param_exprs(M_type)
-    hw_params = (indep..., :Keq, :E_total)
-    mets = metabolites(M_type())
-
-    Expr(:block,
-        _destructuring_expr(hw_params, :params),
-        _destructuring_expr(mets, :concs),
-        a_assignments...,
-        i_assignments...,
-        :(return $rate_expr))
-end
-
-# ─── Rate equation dispatch ───────────────────────────────────────
-
-@generated function rate_equation(
-    ::AllostericEnzymeMechanism{CM,CS,RS},
-    concs::NamedTuple, params::NamedTuple, ::ReducedMode,
-) where {CM,CS,RS}
-    _build_allosteric_rate_body(AllostericEnzymeMechanism{CM,CS,RS})
-end
-
-# ─── String representation ────────────────────────────────────────
-
-function rate_equation_string(
-    @nospecialize(m::AllostericEnzymeMechanism), ::ReducedMode,
-)
-    M = typeof(m)
-    _, indep = _dependent_param_exprs(M)
-    hw_params = (indep..., :Keq, :E_total)
-    mets = metabolites(m)
-
-    # Every dependent assignment comes from the single combined solve — the same set
-    # the compiled body assigns — split into Wegscheider/Haldane by Keq-reference.
-    a_assignments, i_assignments = _build_dep_assignments(M)
-    weg_lines, hal_lines = String[], String[]
-    for a in (a_assignments..., i_assignments...)
-        sym = a.args[1]
-        expr = a.args[2]
-        is_haldane = _mentions(expr, :Keq)
-        line = "$sym = $(_expr_to_string(expr))"
-        push!(is_haldane ? hal_lines : weg_lines, line)
-    end
-
-    # Sort each section lexicographically — load-bearing for eq_hash
-    # dedup of allosteric Source-C clusters, since inactive-state lines are
-    # appended in iteration order rather than the lexicographic active-state
-    # order.
-    sort!(weg_lines)
-    sort!(hal_lines)
-
-    full_num, full_den = _allosteric_num_den_exprs(M)
-    v_line = "v = E_total * ($(_expr_to_string(full_num))) / ($(_expr_to_string(full_den)))"
-
-    lines = ["(; $(join(hw_params, ", "))) = params",
-             "(; $(join(mets, ", "))) = concs"]
-    _append_constraint_sections!(lines, weg_lines, hal_lines)
-    push!(lines, v_line)
-    join(lines, "\n")
 end
