@@ -62,13 +62,13 @@ end
 # constructor canonicalizes. Used to populate `MechanismTestSpec.source_steps`
 # / `source_reg_sites` so positional oracles bridge to canonical stored order.
 macro enzyme_mechanism_src(block)
-    mech_expr, groups_expr = EnzymeRates._parse_plain_mechanism_body(block)
+    mech_expr, groups_expr, _ = EnzymeRates._parse_mechanism_body(block, false)
     esc(:(($mech_expr, $groups_expr)))
 end
 
 macro allosteric_mechanism_src(block)
     mech_expr, groups_expr, reg_sites_expr =
-        EnzymeRates._parse_allosteric_mechanism_body(block)
+        EnzymeRates._parse_mechanism_body(block, true)
     esc(:(($mech_expr, $groups_expr, $reg_sites_expr)))
 end
 

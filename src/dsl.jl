@@ -268,7 +268,7 @@ Species notation on step sides:
 Conformation labels cannot shadow declared metabolite names.
 """
 macro enzyme_mechanism(block)
-    return esc(_parse_plain_mechanism_body(block)[1])
+    return esc(_parse_mechanism_body(block, false)[1])
 end
 
 """
@@ -285,47 +285,6 @@ function _parse_labeled_line(arg)
     head isa Expr && head.head == :call && head.args[1] == :(:) ||
         error("Expected `label: value` or `label: v1, v2, ...`; got $arg")
     head.args[2], Any[head.args[3], rest...]
-end
-
-function _parse_plain_mechanism_body(block)
-    subs_list, prods_list, regs_list = Symbol[], Symbol[], Symbol[]
-    steps_block = nothing
-    for arg in block.args
-        arg isa LineNumberNode && continue
-        label, values = _parse_labeled_line(arg)
-        if label == :substrates
-            append!(subs_list, _bare_symbols_from_values(values, label))
-        elseif label == :products
-            append!(prods_list, _bare_symbols_from_values(values, label))
-        elseif label == :regulators
-            append!(regs_list, _bare_symbols_from_values(values, label))
-        elseif label == :steps
-            steps_block === nothing ||
-                error("@enzyme_mechanism: `steps:` given more than once.")
-            steps_block = only(values)
-        else
-            error("@enzyme_mechanism: unknown label `$label:`. Allosteric " *
-                  "declarations (`allosteric_regulators:`, `catalytic_steps:`, " *
-                  "`regulatory_site(...)`, ...) belong in @allosteric_mechanism.")
-        end
-    end
-    isempty(subs_list) && error("substrates: not specified")
-    isempty(prods_list) && error("products: not specified")
-    steps_block === nothing && error("steps: not specified")
-
-    # A metabolite that is both a substrate/product and its own competitive
-    # inhibitor takes the substrate/product role for a bare `E(X)` binding; its
-    # inhibitor form is written `E(X::Inh)`.
-    role_of = Dict{Symbol,Symbol}([regs_list .=> :CompetitiveInhibitor;
-                                   subs_list .=> :Substrate; prods_list .=> :Product])
-    groups_expr, _ = _parse_steps_block(steps_block, role_of, "@enzyme_mechanism";
-                                        allow_tag = false)
-    mech_expr = :(EnzymeRates.EnzymeMechanism(EnzymeRates.Mechanism(
-        $(_mechanism_reaction_expr(subs_list, prods_list, regs_list)), $groups_expr)))
-    # Second value is the SOURCE-order step groups (before the constructor
-    # canonicalizes), for positional-oracle tests to bridge as-written step
-    # indices to canonical stored order.
-    (mech_expr, groups_expr)
 end
 
 """
@@ -610,7 +569,7 @@ Build an `AllostericEnzymeMechanism` (MWC, two conformations).
   inhibitor's form is written `E(X::Inh)`.
 """
 macro allosteric_mechanism(block)
-    return esc(_parse_allosteric_mechanism_body(block)[1])
+    return esc(_parse_mechanism_body(block, true)[1])
 end
 
 """
@@ -671,11 +630,26 @@ function _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
     :(EnzymeRates.RegulatorySite[$(entries...)])
 end
 
-function _parse_allosteric_mechanism_body(block)
-    subs_list, prods_list, cat_inhibitors = Symbol[], Symbol[], Symbol[]
+"""
+Parse the body of a mechanism macro into `(mech_expr, groups_expr, reg_sites_expr)`:
+the `Expr` that builds the mechanism, its kinetic groups and, for an allosteric
+mechanism, its regulatory sites (`nothing` for a plain one). The groups and sites are
+in SOURCE order, before the constructor canonicalizes them, for positional-oracle tests
+to bridge as-written indices to canonical stored order. `allosteric` selects the
+grammar of `@allosteric_mechanism` (`catalytic_inhibitors:`, `catalytic_steps:`,
+`allosteric_regulators:`, `catalytic_multiplicity:`, `regulatory_site(...)`) over that
+of `@enzyme_mechanism` (`regulators:`, `steps:`).
+"""
+function _parse_mechanism_body(block, allosteric::Bool)
+    macro_name = allosteric ? "@allosteric_mechanism" : "@enzyme_mechanism"
+    block isa Expr && block.head === :block ||
+        error("$macro_name: expected a `begin ... end` block, got $block")
+    inhibitors_label, steps_label =
+        allosteric ? (:catalytic_inhibitors, :catalytic_steps) : (:regulators, :steps)
+    subs_list, prods_list, inhibitors = Symbol[], Symbol[], Symbol[]
     allo_regs = Pair{Symbol,Symbol}[]
     cat_n = nothing
-    cat_steps_block = nothing
+    steps_block = nothing
     reg_site_specs = Tuple{Int,Vector{Symbol}}[]
 
     for arg in block.args
@@ -685,40 +659,39 @@ function _parse_allosteric_mechanism_body(block)
             append!(subs_list, _bare_symbols_from_values(values, label))
         elseif label == :products
             append!(prods_list, _bare_symbols_from_values(values, label))
-        elseif label == :catalytic_inhibitors
-            append!(cat_inhibitors,
-                    _bare_symbols_from_values(values, label))
-        elseif label == :allosteric_regulators
+        elseif label == inhibitors_label
+            append!(inhibitors, _bare_symbols_from_values(values, label))
+        elseif label == steps_label
+            steps_block === nothing ||
+                error("$macro_name: `$label:` given more than once.")
+            steps_block = only(values)
+        elseif allosteric && label == :allosteric_regulators
             for v in values
                 v isa Expr && v.head == :(::) && all(a -> a isa Symbol, v.args) ||
                     error("@allosteric_mechanism `$label:` requires per-entry " *
                           "`name::Tag` annotations (e.g., I::OnlyI); got $v")
                 push!(allo_regs, v.args[1] => v.args[2])
             end
-        elseif label isa Expr && label.head == :call && label.args[1] == :regulatory_site
+        elseif allosteric && label isa Expr && label.head == :call &&
+               label.args[1] == :regulatory_site
             push!(reg_site_specs, _parse_regulatory_site(label, only(values)))
-        elseif label == :catalytic_multiplicity
+        elseif allosteric && label == :catalytic_multiplicity
             cat_n === nothing ||
                 error("@allosteric_mechanism: `catalytic_multiplicity:` given more " *
                       "than once.")
             cat_n = _positive_int(only(values),
                                   "@allosteric_mechanism: `catalytic_multiplicity:`")
-        elseif label == :catalytic_steps
-            cat_steps_block === nothing ||
-                error("@allosteric_mechanism: multiple " *
-                      "`catalytic_steps:` blocks.")
-            cat_steps_block = only(values)
         else
-            error("@allosteric_mechanism: unknown label `$label:`")
+            error("$macro_name: unknown label `$label:`." * (allosteric ? "" :
+                  " Allosteric declarations (`allosteric_regulators:`, " *
+                  "`catalytic_steps:`, `regulatory_site(...)`, ...) belong in " *
+                  "@allosteric_mechanism."))
         end
     end
 
-    isempty(subs_list) &&
-        error("@allosteric_mechanism: substrates: not specified")
-    isempty(prods_list) &&
-        error("@allosteric_mechanism: products: not specified")
-    cat_steps_block === nothing &&
-        error("@allosteric_mechanism: `catalytic_steps:` block is required")
+    isempty(subs_list) && error("$macro_name: `substrates:` not specified.")
+    isempty(prods_list) && error("$macro_name: `products:` not specified.")
+    steps_block === nothing && error("$macro_name: `$steps_label:` not specified.")
     allo_names = first.(allo_regs)
     repeated = unique(n for (i, n) in enumerate(allo_names)
                       if n in view(allo_names, 1:i-1))
@@ -732,24 +705,26 @@ function _parse_allosteric_mechanism_body(block)
     # allosteric regulator binds only at its regulatory site, so every other
     # role of the same name wins in catalytic steps.
     role_of = Dict{Symbol,Symbol}([first.(allo_regs) .=> :AllostericRegulator;
-                                   cat_inhibitors .=> :CompetitiveInhibitor;
+                                   inhibitors .=> :CompetitiveInhibitor;
                                    subs_list .=> :Substrate; prods_list .=> :Product])
-    groups_expr, group_tags = _parse_steps_block(
-        cat_steps_block, role_of, "@allosteric_mechanism"; allow_tag = true)
-
-    cat_allo_states_expr = :(Symbol[$(QuoteNode.(group_tags)...)])
-    cat_n = something(cat_n, 1)
-    reg_sites_expr = _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
-
-    # Route through AllostericMechanism so catalytic steps and their
-    # allosteric-state tags canonicalize together; the lift back to
-    # AllostericEnzymeMechanism keeps that alignment in the singleton.
-    mech_expr = :(EnzymeRates.AllostericEnzymeMechanism(
-        EnzymeRates.AllostericMechanism(
-            $(_mechanism_reaction_expr(subs_list, prods_list, cat_inhibitors)),
-            $groups_expr, $cat_allo_states_expr, $cat_n, $reg_sites_expr)))
-    # Extra values are SOURCE-order catalytic step groups and regulatory
-    # sites (before the constructor canonicalizes), for positional-oracle
-    # tests to bridge as-written indices to canonical stored order.
+    groups_expr, group_tags = _parse_steps_block(steps_block, role_of, macro_name;
+                                                 allow_tag = allosteric)
+    reaction_expr = _mechanism_reaction_expr(subs_list, prods_list, inhibitors)
+    if allosteric
+        cat_allo_states_expr = :(Symbol[$(QuoteNode.(group_tags)...)])
+        cat_n = something(cat_n, 1)
+        reg_sites_expr = _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
+        # Route through AllostericMechanism so catalytic steps and their
+        # allosteric-state tags canonicalize together; the lift back to
+        # AllostericEnzymeMechanism keeps that alignment in the singleton.
+        mech_expr = :(EnzymeRates.AllostericEnzymeMechanism(
+            EnzymeRates.AllostericMechanism(
+                $reaction_expr, $groups_expr, $cat_allo_states_expr, $cat_n,
+                $reg_sites_expr)))
+    else
+        reg_sites_expr = nothing
+        mech_expr = :(EnzymeRates.EnzymeMechanism(
+            EnzymeRates.Mechanism($reaction_expr, $groups_expr)))
+    end
     (mech_expr, groups_expr, reg_sites_expr)
 end

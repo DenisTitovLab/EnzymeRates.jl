@@ -289,6 +289,47 @@
             end))
     end
 
+    @testset "mechanism macros name themselves in body errors" begin
+        # A macro argument that is not a `begin ... end` block.
+        @test_throws "@enzyme_mechanism: expected a `begin ... end` block" eval(
+            :(@enzyme_mechanism S))
+        @test_throws "@allosteric_mechanism: expected a `begin ... end` block" eval(
+            :(@allosteric_mechanism S))
+
+        # A missing required label, in either macro.
+        @test_throws "@enzyme_mechanism: `steps:` not specified" eval(
+            :(@enzyme_mechanism begin
+                substrates: S
+                products:   P
+            end))
+        @test_throws "@enzyme_mechanism: `substrates:` not specified" eval(
+            :(@enzyme_mechanism begin
+                products: P
+            end))
+        @test_throws "@allosteric_mechanism: `catalytic_steps:` not specified" eval(
+            :(@allosteric_mechanism begin
+                substrates: S
+                products:   P
+            end))
+
+        # A repeated `catalytic_steps:` line names the label.
+        @test_throws "`catalytic_steps:` given more than once" eval(
+            :(@allosteric_mechanism begin
+                substrates: S
+                products:   P
+                catalytic_steps: begin
+                    E + S ⇌ E(S)      :: EqualAI
+                    E(S) <--> E(P)    :: EqualAI
+                    E(P) ⇌ E + P      :: EqualAI
+                end
+                catalytic_steps: begin
+                    E + S ⇌ E(S)      :: EqualAI
+                    E(S) <--> E(P)    :: EqualAI
+                    E(P) ⇌ E + P      :: EqualAI
+                end
+            end))
+    end
+
     @testset "regulatory_site takes exactly one multiplicity" begin
         # Repeated, missing, misnamed and positional arguments are all errors.
         for site in (:(regulatory_site(multiplicity = 2, multiplicity = 4)),
