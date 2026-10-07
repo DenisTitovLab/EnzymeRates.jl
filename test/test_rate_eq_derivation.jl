@@ -2226,6 +2226,24 @@ end
     end
 end
 
+@testset "kcat with no product-free saturating pattern errors descriptively" begin
+    # Catalysis runs only on the product-bound form E(P), so every forward numerator
+    # term carries P and no pattern survives the products = 0 filter.
+    m = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + P ⇌ E(P)
+            E(P) + S ⇌ E(P, S)
+            E(P, S) <--> E(P, P)
+            E(P, P) ⇌ E(P) + P
+        end
+    end
+    pn = EnzymeRates.fitted_params(m)
+    params = merge(NamedTuple{pn}(ntuple(_ -> 1.5, length(pn))), (Keq = 2.0,))
+    @test_throws "no kcat components" EnzymeRates._kcat_forward(m, params)
+end
+
 @testset "rendering helpers" begin
     k = ER.POLY(ER._mono(:k_ES_to_EP => 1) => 1)
     @test ER._invert_monomial(k) == ER.POLY(ER._mono(:k_ES_to_EP => -1) => 1)

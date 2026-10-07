@@ -601,33 +601,34 @@ Multiple candidates arise for mechanisms with alternative catalytic pathways
 ) where {M <: EnzymeMechanism}
     num, den, _ = _raw_symbolic_rate_polys(M)
     num_groups, den_groups = _kcat_groups_from_polys(num, den, Set(metabolites(M())))
-
-    # Build kcat candidates: for each forward numerator metabolite group
-    # with a matching denominator group, create (num_k_expr, den_k_expr).
-    # kcat is evaluated at products = 0, so product-containing monomials are
-    # outside its domain — King–Altman net-flux cross-terms like A·B·P yield
-    # spurious candidates that can win the max. Keep substrate-only patterns.
-    prod_syms = Set{Symbol}(name(p) for p in products(reaction(Mechanism(M()))))
-    components = Tuple{Any, Any}[]
-    for (met_key, num_k) in sort!(collect(num_groups); by=first)
-        den_k = get(den_groups, met_key, nothing)
-        den_k === nothing && continue
-        any(first(s) in prod_syms for s in met_key) && continue
-        num_expr = _poly_to_expr(num_k)
-        den_expr = _poly_to_expr(den_k)
-        push!(components, (num_expr, den_expr))
-    end
-
+    prods = Set(name.(products(reaction(Mechanism(M())))))
+    candidates = [:($(_poly_to_expr(num_groups[k])) / $(_poly_to_expr(den_groups[k])))
+                  for k in _kcat_keys(num_groups, den_groups, prods)]
     dep, indep = _dependent_param_exprs(M)
-    hw_params = (indep..., :Keq)
-    candidates = [:($nk / $dk) for (nk, dk) in components]
-    result = length(candidates) == 1 ?
-        candidates[1] : Expr(:call, :max, candidates...)
     Expr(:block,
-        _destructuring_expr(hw_params, :params),
+        _destructuring_expr((indep..., :Keq), :params),
         _dep_assignments(dep)...,
-        :(return $result))
+        :(return $(_max_expr(candidates))))
 end
+
+"""
+The saturating metabolite patterns `_kcat_forward` takes its candidates from: the keys
+of `num_groups` that are also keys of `den_groups` and name no product of `prods`, in
+sorted order. kcat is evaluated at products = 0, so product-containing monomials are
+outside its domain — King–Altman net-flux cross-terms like A·B·P yield spurious
+candidates that can win the max. Errors when no pattern remains, as when catalysis runs
+only on a product-bound form.
+"""
+function _kcat_keys(num_groups, den_groups, prods)
+    ks = sort!([k for k in keys(num_groups)
+                if haskey(den_groups, k) && !any(first(s) in prods for s in k)])
+    isempty(ks) && error("_kcat_forward: no kcat components — no product-free " *
+        "saturating-substrate pattern appears in both the rate numerator and denominator")
+    ks
+end
+
+"""The `max` of the kcat candidate Exprs `cands`, or the lone candidate itself."""
+_max_expr(cands) = length(cands) == 1 ? only(cands) : Expr(:call, :max, cands...)
 
 """
     _kcat_forward(m::AllostericEnzymeMechanism, params) → Float64
@@ -658,17 +659,10 @@ so this carries no `catalytic_multiplicity` factor.
         _kcat_groups_from_polys(poly_mul(num_I, d_A), poly_mul(den_I, d_A), cat_mets)
 
     # kcat = peak forward turnover at saturation: max over saturating patterns
-    # (met_key) and regulator corners. Only substrate-saturating patterns are
-    # valid at products=0; product-containing patterns are excluded.
-    prod_syms = Set{Symbol}(name(p) for p in products(am.reaction))
-    a_keys = sort!([k for k in keys(num_A_groups)
-                    if haskey(den_A_groups, k) && !any(first(s) in prod_syms for s in k)])
-    isempty(a_keys) &&
-        error("_kcat_forward: AllostericEnzymeMechanism produced no kcat " *
-              "components — saturating-substrate pattern not found in numerator")
+    # (met_key) and regulator corners.
+    a_keys = _kcat_keys(num_A_groups, den_A_groups, Set(name.(products(reaction(am)))))
 
     dep, indep = _dependent_param_exprs(am)
-    hw_params = (indep..., :Keq)
 
     # Regulator corners: each ligand 0 or saturating, independently of the pattern.
     all_ligs = allosteric_regulators(am)
@@ -711,12 +705,10 @@ so this carries no `catalytic_multiplicity` factor.
         end
     end
 
-    result = length(kcat_exprs) == 1 ? kcat_exprs[1] :
-        Expr(:call, :max, kcat_exprs...)
     return Expr(:block,
-        _destructuring_expr(hw_params, :params),
+        _destructuring_expr((indep..., :Keq), :params),
         _dep_assignments(dep)...,
-        :(return $result))
+        :(return $(_max_expr(kcat_exprs))))
 end
 
 # ─── Public API: rescale_parameter_values ──────────────────────────
