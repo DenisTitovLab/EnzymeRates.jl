@@ -121,17 +121,18 @@ none is emitted at rapid equilibrium. A dead-end copy of a substrate or product
 is redundant, and never emitted, when in every conformation where it binds each of
 its complexes has a productive twin (a form bound to no competitive inhibitor, in
 the complex's rapid-equilibrium segment with its offsets, so the two weights are
-proportional: `_productive_twin`, tested over a group by `_all_twin`; every
-conformation holds its free enzyme, `_redundant_copy_groups`), and the dwell gauge,
+proportional: `_productive_twin`; every conformation holds its free enzyme,
+`_redundant_copy_groups`), and the dwell gauge,
 which rescales each twin by
 its own factor and all of the copy's complexes by one factor, is consistent with
 every kinetic group's shared constants, the copy's own included, an `:EqualAI`
 group taking one rescaling in both conformations (`_gauge_rescaling`, bookkeeping
 over the steps); a copy whose complexes all have twins but whose gauge fails is
 kept, since only the gauge proves the copy's constant invisible. The
-dead-end move skips a redundant placement, the split drops every child that holds
-a redundant copy group (a split can complete a gauge, and splitting a group that
-forms a copy's twins can break one, so only the whole child decides), and
+dead-end move and the split drop every child that holds a redundant copy group,
+judged on the built child over all its copy groups (a split can complete a gauge,
+and splitting a group that forms a copy's twins can break one, so only the whole
+child decides), and
 `_expand_change_allo_state` and the parent check reject a redundant group
 (`_redundant_copy_groups`). A complex
 that duplicates only a copy's complex never rejects, since the sites that pin

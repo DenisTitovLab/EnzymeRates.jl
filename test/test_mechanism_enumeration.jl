@@ -2904,6 +2904,47 @@ end
     end
 end
 
+@testset "Mechanism and AllostericMechanism — no child keeps a redundant older copy" begin
+    # Uni-uni holding a redundant copy of S at E: E·S* has the composition of E(S),
+    # formed by the S group alone, so the gauge exists (`_redundant_copy_groups`).
+    # `expand_mechanisms` rejects such a parent; the move judges every copy group on the
+    # child it builds. The foreign inhibitor I has one placement, free E, where it pins
+    # neither copy: the child keeps the redundant S* group and is not emitted, from the
+    # plain mechanism or from the allosteric one.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: S, I
+        oligomeric_state: 2
+    end
+    plain = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+            E + S::Inh ⇌ E(S::Inh)
+        end
+    end)
+    allosteric = _testhelper_lift(rxn, @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_inhibitors: S
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)                :: EqualAI
+            E(S) <--> E(P)              :: EqualAI
+            E + P ⇌ E(P)                :: EqualAI
+            E + S::Inh ⇌ E(S::Inh)      :: EqualAI
+        end
+    end)
+    for m in (plain, allosteric)
+        @test length(EnzymeRates._redundant_copy_groups(m)) == 1
+        @test isempty(EnzymeRates._expand_add_dead_end_regulator(m, rxn))
+    end
+end
+
 @testset "Mechanism — ordered bi-bi with A as its own inhibitor: three placements" begin
     # A binds productively at E only, so A* competing with P puts it at {E, E(Q)},
     # with Q puts it at {E} alone, and competing with B puts it at {E(A), E(Q)} or
@@ -7183,6 +7224,9 @@ end
     ER = EnzymeRates
     copy_group(m) = only(g for (g, grp) in enumerate(ER.steps(m))
                          if ER.bound_metabolite(first(grp)) isa ER.CompetitiveInhibitor)
+    all_twin(m, g) = (twin = ER._productive_twin(ER.steps(m));
+                      all(s -> twin(ER.from_species(s), ER.bound_metabolite(s)) !== nothing,
+                          ER.steps(m)[g]))
 
     # B1: ordered bi-bi with A* at E. The twin E(A) is formed
     # by E + A ⇌ E(A), alone in its group, so the A group's ratio is 1/ρ, the B group's
@@ -7220,7 +7264,7 @@ end
         end
     end)
     g3 = copy_group(case3)
-    @test ER._all_twin(ER.steps(case3)[g3], ER._productive_twin(ER.steps(case3)))
+    @test all_twin(case3, g3)
     @test isempty(ER._redundant_copy_groups(case3))
     @test _testhelper_fitted(case3) == 6 && _testhelper_identifiable_rank(case3) == 6
 
@@ -7263,7 +7307,7 @@ end
         end
     end)
     gh = copy_group(h1)
-    @test ER._all_twin(ER.steps(h1)[gh], ER._productive_twin(ER.steps(h1)))
+    @test all_twin(h1, gh)
     @test isempty(ER._redundant_copy_groups(h1))
     @test _testhelper_fitted(h1) == 7 && _testhelper_identifiable_rank(h1) == 7
 
