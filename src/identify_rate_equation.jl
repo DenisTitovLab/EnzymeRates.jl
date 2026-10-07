@@ -190,15 +190,9 @@ function identify_rate_equation(
         n_restarts, maxtime, maxiters,
         abstol, reltol, callback, solver_kwargs)
 
-    if isdir(save_dir)
-        existing = filter(
-            f -> endswith(f, ".csv"),
-            readdir(save_dir))
-        isempty(existing) || error(
-            "save_dir already contains CSV " *
-            "files. Use an empty directory " *
-            "to avoid mixing results.")
-    end
+    isdir(save_dir) && any(f -> endswith(f, ".csv"), readdir(save_dir)) &&
+        error("save_dir already contains CSV files. " *
+              "Use an empty directory to avoid mixing results.")
 
     mechanisms, df = _beam_search(prob;
         min_beam_width, loss_rel_threshold,
@@ -219,37 +213,19 @@ end
 
 """Write result rows to `<save_dir>/<filename>`, creating `save_dir` if absent."""
 function _write_rows_csv(save_dir::String, filename::String, rows)
-    isdir(save_dir) || mkpath(save_dir)
+    mkpath(save_dir)
     CSV.write(joinpath(save_dir, filename), _rows_to_dataframe(rows))
 end
 
-"""Save the base-tier fit (`_base_tier`) to `initial_mechanisms.csv`."""
-_save_initial_csv(save_dir::String, rows) =
-    _write_rows_csv(save_dir, "initial_mechanisms.csv", rows)
-
 """
-Save one expansion iteration to `equation_search_iteration_<iteration>.csv`.
-`iteration` is a 1-based sequential counter, NOT a parameter count — the
-real fitted count is the `n_params` column of each row.
-"""
-_save_iteration_csv(save_dir::String, rows, iteration::Int) =
-    _write_rows_csv(
-        save_dir, "equation_search_iteration_$(iteration).csv", rows)
-
-"""
-Convert result row NamedTuples to a DataFrame.
+Convert result row NamedTuples to a DataFrame, one column per fitted parameter
+name across `rows` (`missing` where a row lacks it).
 Row order is preserved (no sorting) to maintain
 alignment with the mechanism vector.
 """
 function _rows_to_dataframe(rows)
     isempty(rows) && return DataFrame()
-    all_pnames = Set{Symbol}()
-    for row in rows
-        for p in row.fitted_param_names
-            push!(all_pnames, p)
-        end
-    end
-    sorted_pnames = sort(collect(all_pnames))
+    sorted_pnames = sort!(unique(k for r in rows for k in keys(r.params)))
 
     df = DataFrame(
         n_params = [r.n_params for r in rows],
@@ -266,13 +242,7 @@ function _rows_to_dataframe(rows)
         fit_inherited = Union{Missing,Bool}[r.fit_inherited for r in rows],
     )
     for pn in sorted_pnames
-        df[!, pn] = [
-            pn in r.fitted_param_names ?
-                r.fitted_param_values[
-                    findfirst(==(pn), r.fitted_param_names)] :
-                missing
-            for r in rows
-        ]
+        df[!, pn] = [get(r.params, pn, missing) for r in rows]
     end
     df
 end
@@ -296,69 +266,41 @@ function _rate_eq_dedup_key(eq_text::AbstractString)
 end
 
 """
-Return indices into `losses` for mechanisms that qualify for the
-beam at this level. A mechanism qualifies if either:
+Select this sweep's parents among the count-`c` mechanisms with `losses`, and advance
+the cumulative floor budget. Returns the selected indices in input order. A mechanism
+qualifies if either:
   • its loss ≤ cutoff, where
-    cutoff = min(loss_rel_threshold * best_loss + loss_abs_threshold,
-                 parsimony_cutoff) and the parsimony term is dropped
-    when `parsimony_cutoff === nothing`,
-  • OR its rank (1-indexed by ascending loss) ≤ min_beam_width.
-
-`parsimony_cutoff` (the loss-parsimony threshold times the best loss
-over all smaller parameter counts) only tightens the loss cutoff.
-`min_beam_width` here is the number kept by the width floor for this
-call; `_select_count!` passes the remaining cumulative per-count
-budget, not a fixed per-sweep floor.
+    cutoff = min(loss_rel_threshold * best_loss_by_count[c] + loss_abs_threshold,
+                 loss_parsimony_threshold * best(<c))
+    and best(<c) is the best loss over ALL counts strictly below c (not just c-1): an
+    added parameter must beat the best simpler model of any size. The parsimony term
+    only tightens the cutoff, and is dropped while no smaller count has been fit,
+  • OR its rank (1-indexed by ascending loss) is within the *cumulative* floor budget.
+    `expanded[c]` tracks how many count-`c` mechanisms the whole search has expanded
+    so far; the width floor may add at most `min_beam_width - expanded[c]` more. Once
+    the budget is spent, only the loss cutoff admits at that count.
 
 Mechanisms with non-finite losses (`Inf`, `NaN`) are excluded
 unconditionally — they represent failed or non-converging fits
 that should not propagate to the next level.
 """
-function _select_beam(
+function _select_count!(
+    expanded::Dict{Int,Int}, best_loss_by_count::Dict{Int,Float64}, c::Int,
     losses::AbstractVector{<:Real};
-    loss_rel_threshold::Float64,
-    loss_abs_threshold::Float64,
-    min_beam_width::Int,
-    best_override::Union{Nothing,Float64}=nothing,
-    parsimony_cutoff::Union{Nothing,Float64}=nothing,
+    loss_rel_threshold::Float64, loss_abs_threshold::Float64,
+    loss_parsimony_threshold::Float64, min_beam_width::Int,
 )
-    finite_idx = [i for i in eachindex(losses) if isfinite(losses[i])]
-    isempty(finite_idx) && return Int[]
-
-    perm = sort(finite_idx; by=i -> losses[i])
-    best = best_override === nothing ? losses[perm[1]] : best_override
-    cutoff = loss_rel_threshold * best + loss_abs_threshold
-    parsimony_cutoff !== nothing && (cutoff = min(cutoff, parsimony_cutoff))
-    selected = Int[]
-    for (rank, idx) in enumerate(perm)
-        if losses[idx] <= cutoff || rank <= min_beam_width
-            push!(selected, idx)
-        end
-    end
+    cutoff = loss_rel_threshold * best_loss_by_count[c] + loss_abs_threshold
+    smaller = [l for (k, l) in best_loss_by_count if k < c]
+    isempty(smaller) ||
+        (cutoff = min(cutoff, loss_parsimony_threshold * minimum(smaller)))
+    budget = max(0, min_beam_width - get(expanded, c, 0))
+    perm = sort([i for i in eachindex(losses) if isfinite(losses[i])]; by=i -> losses[i])
     # Return indices in original (input) order so callers don't
     # rely on the by-loss sort order, which is a side-effect of
     # the rank computation rather than part of the contract.
-    sort!(selected)
-end
-
-"""
-Select this sweep's parents at one parameter count under a *cumulative* floor
-budget, and advance the budget. `expanded[c]` tracks how many count-`c`
-mechanisms the whole search has expanded so far; the width floor may add at most
-`min_beam_width - expanded[c]` more. Once the budget is spent, only the loss
-cutoff admits at that count. Returns the selected indices (input order).
-"""
-function _select_count!(
-    expanded::Dict{Int,Int}, c::Int, losses::AbstractVector{<:Real};
-    loss_rel_threshold::Float64, loss_abs_threshold::Float64,
-    min_beam_width::Int,
-    best_override::Union{Nothing,Float64}=nothing,
-    parsimony_cutoff::Union{Nothing,Float64}=nothing,
-)
-    budget = max(0, min_beam_width - get(expanded, c, 0))
-    sel = _select_beam(losses;
-        loss_rel_threshold, loss_abs_threshold,
-        min_beam_width=budget, best_override, parsimony_cutoff)
+    sel = sort!([i for (rank, i) in enumerate(perm)
+                 if losses[i] <= cutoff || rank <= budget])
     expanded[c] = get(expanded, c, 0) + length(sel)
     sel
 end
@@ -404,8 +346,7 @@ function _failure_row(f::FitFailure)
      rate_equation = missing,
      retcode = missing,
      error = f.error,
-     fitted_param_names = (),
-     fitted_param_values = (),
+     params = (;),
      eq_hash = missing,
      fit_inherited = missing)
 end
@@ -420,7 +361,7 @@ function _progress(save_dir::AbstractString, show_progress::Bool, msg::AbstractS
     show_progress || return nothing
     println(msg)
     flush(stdout)
-    isdir(save_dir) || mkpath(save_dir)
+    mkpath(save_dir)
     open(joinpath(save_dir, "progress.log"), "a") do io
         println(io, msg)
     end
@@ -513,8 +454,7 @@ function _compile_batch(
             eq_text = rate_equation_string(em)
             (mech = m, orig = m, n_params = length(fkeys),
              mechanism_type = string(typeof(em)),
-             eq_text = eq_text, eq_hash = _rate_eq_dedup_key(eq_text),
-             fitted_param_names = fkeys)
+             eq_text = eq_text, eq_hash = _rate_eq_dedup_key(eq_text))
         catch e
             FitFailure(m, _exc_string(e))
         end
@@ -589,12 +529,11 @@ function _fit_batch(compiled, reps, rep_idx::Dict{UInt64,Int},
             loss = fit.loss,
             mechanism_type = c.mechanism_type,
             parent_mechanism_type =
-                parent === nothing ? missing : parent.mechanism_type,
+                parent === nothing ? missing : parent.row.mechanism_type,
             rate_equation = c.eq_text,
             retcode = string(fit.retcode),
             error = missing,
-            fitted_param_names = c.fitted_param_names,
-            fitted_param_values = Tuple(fit.params[k] for k in c.fitted_param_names),
+            params = fit.params,
             eq_hash = string(c.eq_hash, base=16, pad=16),
             fit_inherited = inherited,
         )
@@ -623,20 +562,23 @@ Fold a batch of `BatchEntry`s into the search state: every entry joins the
 `frontier` (the unexpanded work queue — ALL structurally-distinct
 mechanisms, no eq-dedup); `best_loss_by_count` tracks the per-count running
 min (the beam-cutoff reference); `cv_pool` keeps the top `n_cv_candidates`
-DISTINCT equations (by `eq_hash`, lowest loss each) per param count.
+DISTINCT equations (by `eq_hash`, lowest loss each) per param count. Returns the
+set of counts whose best loss strictly dropped (or first appeared) in this batch.
 """
 function _ingest!(frontier, cv_pool, best_loss_by_count, entries;
                   n_cv_candidates)
+    improved = Set{Int}()
     for e in entries
         push!(get!(frontier, e.n_params, BatchEntry[]), e)
         if !haskey(best_loss_by_count, e.n_params) ||
                 e.loss < best_loss_by_count[e.n_params]
             best_loss_by_count[e.n_params] = e.loss
+            push!(improved, e.n_params)
         end
         _offer_cv!(get!(cv_pool, e.n_params, BatchEntry[]),
                    e, n_cv_candidates)
     end
-    nothing
+    improved
 end
 
 """
@@ -661,41 +603,34 @@ function _offer_cv!(pool::Vector{BatchEntry}, e::BatchEntry, n::Int)
 end
 
 """
-Expand one parent into its children, catching a per-mechanism expansion error
-(e.g. a child whose step breaks the atom-conservation assertion
-`expand_mechanisms` runs, `_assert_atom_conserving`) so it is recorded as a
-failure rather than aborting the whole search. Returns `(children, failure)`
-with `failure === nothing` on success, else a `FitFailure` carrying the parent.
-"""
-function _expand_parent(m::Union{Mechanism, AllostericMechanism},
-                        rxn::EnzymeReaction)
-    try
-        (expand_mechanisms(Union{Mechanism, AllostericMechanism}[m], rxn), nothing)
-    catch e
-        (Union{Mechanism, AllostericMechanism}[], FitFailure(m, _exc_string(e)))
-    end
-end
-
-"""
 Expand every selected parent into its children across the workers, then merge
 serially. `pmap` preserves input order, so iterating `zip(to_expand, results)`
 reproduces the serial loop's first-parent-wins dedup, child order, and failure
-order exactly. Returns `(children, parent_of, expand_failures)`.
+order exactly. Returns `(children, parent_of, expand_failures)`: `parent_of` maps
+each child to the `BatchEntry` of the first parent that produced it, and
+`expand_failures` holds a `FitFailure` carrying the parent for each parent whose
+expansion threw.
 """
 function _expand_parents(to_expand::Vector{BatchEntry},
                          reaction::EnzymeReaction)
-    results = pmap(m -> _expand_parent(m, reaction),
-                   [pe.mech for pe in to_expand])
-    parent_of = Dict{Union{Mechanism, AllostericMechanism},
-                     @NamedTuple{mechanism_type::String, n_params::Int}}()
+    results = pmap([pe.mech for pe in to_expand]) do m
+        # Record a per-parent expansion error (e.g. `expand_mechanisms`' atom-conservation
+        # assertion, `_assert_atom_conserving`) as a failure; never abort the search.
+        try
+            (expand_mechanisms(Union{Mechanism, AllostericMechanism}[m], reaction),
+             nothing)
+        catch e
+            (Union{Mechanism, AllostericMechanism}[], FitFailure(m, _exc_string(e)))
+        end
+    end
+    parent_of = Dict{Union{Mechanism, AllostericMechanism}, BatchEntry}()
     children = Union{Mechanism, AllostericMechanism}[]
     expand_failures = FitFailure[]
     for (pe, (kids, failure)) in zip(to_expand, results)
         failure === nothing || push!(expand_failures, failure)
         for child in kids
             haskey(parent_of, child) && continue
-            parent_of[child] = (mechanism_type = pe.row.mechanism_type,
-                                n_params = pe.n_params)
+            parent_of[child] = pe
             push!(children, child)
         end
     end
@@ -744,15 +679,12 @@ children that are not (`_base_tier`).
 function _required_regulators(rxn::EnzymeReaction,
                               optional_allosteric_regulators::Vector{Symbol},
                               optional_competitive_inhibitors::Vector{Symbol})
-    required_allo = setdiff(
+    required(T, optional) = setdiff(
         Set{Symbol}(name(regulator(rm)) for rm in regulators(rxn)
-                    if regulator(rm) isa AllostericRegulator),
-        Set{Symbol}(optional_allosteric_regulators))
-    required_comp = setdiff(
-        Set{Symbol}(name(regulator(rm)) for rm in regulators(rxn)
-                    if regulator(rm) isa CompetitiveInhibitor),
-        Set{Symbol}(optional_competitive_inhibitors))
-    (required_allo, required_comp)
+                    if regulator(rm) isa T),
+        optional)
+    (required(AllostericRegulator, optional_allosteric_regulators),
+     required(CompetitiveInhibitor, optional_competitive_inhibitors))
 end
 
 function _beam_search(
@@ -812,44 +744,37 @@ function _beam_search(
         isempty(base_failures) && return (
             Union{Mechanism, AllostericMechanism}[],
             _rows_to_dataframe(NamedTuple[]))
-        _save_initial_csv(save_dir, [_failure_row(f) for f in base_failures])
+        _write_rows_csv(save_dir, "initial_mechanisms.csv",
+            [_failure_row(f) for f in base_failures])
         error("Every base-tier fit failed ($(length(base_failures)) " *
               "mechanisms; failure rows written to " *
               "$(joinpath(save_dir, "initial_mechanisms.csv"))). This usually " *
               "indicates an optimizer/solver configuration problem (e.g. an " *
               "unsupported kwarg). First failure: $(base_failures[1].error)")
     end
-    _save_initial_csv(save_dir,
+    _write_rows_csv(save_dir, "initial_mechanisms.csv",
         vcat([e.row for e in base_entries],
              [_failure_row(f) for f in base_failures]))
-    pre_best = copy(best_loss_by_count)
-    _ingest!(frontier, cv_pool, best_loss_by_count,
-             base_entries; n_cv_candidates)
-    improved = Set(c for c in keys(best_loss_by_count)
-                   if !haskey(pre_best, c) || best_loss_by_count[c] < pre_best[c])
+    improved = _ingest!(frontier, cv_pool, best_loss_by_count,
+                        base_entries; n_cv_candidates)
     _progress(save_dir, show_progress, string(
         "Base tier: ", _postfit_summary(base_entries, base_failures),
         "\n  ", _best_loss_line(best_loss_by_count, improved)))
 
     # ── Advancing-target sweep over actual param counts ──
     iteration = 0
-    target = minimum(keys(frontier))
+    target = 0
     while !isempty(frontier)
-        # Sweep this tier plus any same-or-lower-count stragglers.
-        swept = BatchEntry[]
-        for c in collect(keys(frontier))
-            c <= target && append!(swept, pop!(frontier, c))
-        end
-
+        # Sweep this tier plus any same-or-lower-count stragglers, bucket by bucket
+        # in the frontier's key order (each bucket holds one count).
+        target = max(target + 1, minimum(keys(frontier)))
         to_expand = BatchEntry[]
-        for c in unique(e.n_params for e in swept)
-            entries_at_count = [e for e in swept if e.n_params == c]
-            sel = _select_count!(expanded_by_count, c,
+        for c in [k for k in keys(frontier) if k <= target]
+            entries_at_count = pop!(frontier, c)
+            sel = _select_count!(expanded_by_count, best_loss_by_count, c,
                 [e.loss for e in entries_at_count];
-                loss_rel_threshold, loss_abs_threshold,
-                min_beam_width, best_override = best_loss_by_count[c],
-                parsimony_cutoff = _parsimony_cutoff(
-                    best_loss_by_count, c, loss_parsimony_threshold))
+                loss_rel_threshold, loss_abs_threshold, loss_parsimony_threshold,
+                min_beam_width)
             append!(to_expand, entries_at_count[sel])
         end
 
@@ -870,7 +795,9 @@ function _beam_search(
             n_child_fail = count(c -> c isa FitFailure, compiled)
             if n_child_nt > 0 || n_child_fail > 0 || !isempty(expand_failures)
                 # Count only iterations that produced rows, so the
-                # equation_search_iteration_N CSVs are gap-free.
+                # equation_search_iteration_N CSVs are gap-free. `iteration` is a
+                # 1-based sequential counter, NOT a parameter count — the real
+                # fitted count is the `n_params` column of each row.
                 iteration += 1
                 np_range = n_child_nt == 0 ? "n/a" :
                     let ns = [c.n_params for c in compiled if c isa NamedTuple],
@@ -891,16 +818,11 @@ function _beam_search(
                 # + the errored bucket), so a bug in an expansion move flags itself in
                 # the search output instead of aborting the whole run.
                 append!(child_failures, expand_failures)
-                _save_iteration_csv(save_dir,
+                _write_rows_csv(save_dir, "equation_search_iteration_$(iteration).csv",
                     vcat([e.row for e in child_entries],
-                         [_failure_row(f) for f in child_failures]),
-                    iteration)
-                pre_best = copy(best_loss_by_count)
-                !isempty(child_entries) && _ingest!(
-                    frontier, cv_pool, best_loss_by_count,
-                    child_entries; n_cv_candidates)
-                improved = Set(c for c in keys(best_loss_by_count)
-                    if !haskey(pre_best, c) || best_loss_by_count[c] < pre_best[c])
+                         [_failure_row(f) for f in child_failures]))
+                improved = _ingest!(frontier, cv_pool, best_loss_by_count,
+                                    child_entries; n_cv_candidates)
                 _progress(save_dir, show_progress, string("  ",
                     _postfit_summary(child_entries, child_failures),
                     "\n  ", _best_loss_line(best_loss_by_count, improved)))
@@ -917,9 +839,6 @@ function _beam_search(
                     n_child_cx_skip, " >", eq_complexity_filter, " complexity)"))
             end
         end
-
-        isempty(frontier) && break
-        target = max(target + 1, minimum(keys(frontier)))
     end
 
     pool_entries = BatchEntry[e for v in values(cv_pool) for e in v]
@@ -927,18 +846,6 @@ function _beam_search(
         e.mech for e in pool_entries]
     df = _rows_to_dataframe([e.row for e in pool_entries])
     return mechs, df
-end
-
-"""
-Parsimony reference = threshold × best loss over ALL counts strictly below c
-(not just c-1): an added parameter must beat the best simpler model of any size.
-Returns nothing when no simpler tier has been fit yet.
-"""
-function _parsimony_cutoff(best_loss_by_count::Dict{Int,Float64}, c::Int,
-                           loss_parsimony_threshold::Float64)
-    prev = [best_loss_by_count[k] for k in keys(best_loss_by_count) if k < c]
-    isempty(prev) && return nothing
-    loss_parsimony_threshold * minimum(prev)
 end
 
 """
@@ -1054,7 +961,7 @@ function _cv_model_selection(
     # Save the LOOCV table and the selected best equation alongside the
     # per-iteration fit CSVs, so cluster runs persist the model-selection
     # outcome (recoverable from the iteration CSVs, but wasteful to omit).
-    isdir(save_dir) || mkpath(save_dir)
+    mkpath(save_dir)
     CSV.write(joinpath(save_dir, "loocv_results.csv"), cv_df)
     CSV.write(joinpath(save_dir, "best_equation.csv"), cv_df[[best_row_idx], :])
 

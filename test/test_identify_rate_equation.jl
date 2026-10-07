@@ -168,8 +168,7 @@ end
             rate_equation = "v = ...",
             retcode = "Success",
             error = missing,
-            fitted_param_names = (:a, :b),
-            fitted_param_values = (1.0, 2.0),
+            params = (a = 1.0, b = 2.0),
             eq_hash = "0123456789abcdef",
             fit_inherited = false,
         )]
@@ -194,12 +193,10 @@ end
         rows_with_failure = [
             (n_params = 3, loss = 0.5, mechanism_type = "M",
              rate_equation = "v = ...", retcode = "Success", error = missing,
-             fitted_param_names = (:a,), fitted_param_values = (1.0,),
-             eq_hash = "0123456789abcdef", fit_inherited = false),
+             params = (a = 1.0,), eq_hash = "0123456789abcdef", fit_inherited = false),
             (n_params = missing, loss = missing, mechanism_type = "M",
              rate_equation = missing, retcode = missing,
-             error = "StackOverflowError: ", fitted_param_names = (),
-             fitted_param_values = (), eq_hash = missing,
+             error = "StackOverflowError: ", params = (;), eq_hash = missing,
              fit_inherited = missing),
         ]
         df_with_failure = EnzymeRates._rows_to_dataframe(rows_with_failure)
@@ -463,116 +460,80 @@ end
 
 end
 
-@testset "csv writers" begin
+@testset "csv writer" begin
     rows = [(
         n_params = 5, loss = 1.0, mechanism_type = "M",
         rate_equation = "v = 1", retcode = "Success", error = missing,
-        fitted_param_names = (:K_a,),
-        fitted_param_values = (2.0,), eq_hash = "abc",
+        params = (K_a = 2.0,), eq_hash = "abc",
         fit_inherited = false,
     )]
     mktempdir() do tmp
-        EnzymeRates._save_initial_csv(tmp, rows)
-        @test isfile(joinpath(tmp, "initial_mechanisms.csv"))
-        EnzymeRates._save_iteration_csv(tmp, rows, 3)
+        EnzymeRates._write_rows_csv(tmp, "equation_search_iteration_3.csv", rows)
         @test isfile(joinpath(tmp, "equation_search_iteration_3.csv"))
         df = CSV.read(joinpath(tmp, "equation_search_iteration_3.csv"), DataFrame)
         @test df.n_params == [5]
+        @test df.K_a == [2.0]
         @test "eq_hash" in names(df)
         # dir-creation branch: save_dir does not exist yet
         subdir = joinpath(tmp, "made")
-        EnzymeRates._save_initial_csv(subdir, rows)
+        EnzymeRates._write_rows_csv(subdir, "initial_mechanisms.csv", rows)
         @test isfile(joinpath(subdir, "initial_mechanisms.csv"))
     end
 end
 
-@testset "_select_beam: thresholds, floor, best_override, parsimony_cutoff" begin
+@testset "_select_count!: thresholds, floor, best loss, parsimony" begin
+    # One call at count 5 with a fresh floor budget: `best` is the count's best loss
+    # over the whole search, and `others` holds the best losses of other counts.
+    select(losses, best; rel, add = 0.0, width = 1, others = Dict{Int,Float64}(),
+           parsimony = 1.0) =
+        EnzymeRates._select_count!(Dict{Int,Int}(), merge(Dict(5 => best), others), 5,
+            losses; loss_rel_threshold = rel, loss_abs_threshold = add,
+            loss_parsimony_threshold = parsimony, min_beam_width = width)
+
     losses = [1.0, 1.5, 2.5, 5.0, 10.0]
-    sel = EnzymeRates._select_beam(
-        losses;
-        loss_rel_threshold=2.0,
-        loss_abs_threshold=0.0,
-        min_beam_width=1)
-    @test sort(sel) == [1, 2]
+    @test select(losses, 1.0; rel = 2.0) == [1, 2]
+    @test select(losses, 1.0; rel = 2.0, width = 4) == [1, 2, 3, 4]
 
-    sel = EnzymeRates._select_beam(
-        losses;
-        loss_rel_threshold=2.0,
-        loss_abs_threshold=0.0,
-        min_beam_width=4)
-    @test sort(sel) == [1, 2, 3, 4]
+    # The additive term keeps a near-zero best loss from collapsing the cutoff.
+    @test select([1e-6, 0.005, 0.05], 1e-6; rel = 2.0, add = 0.01) == [1, 2]
 
-    losses_small = [1e-6, 0.005, 0.05]
-    sel = EnzymeRates._select_beam(
-        losses_small;
-        loss_rel_threshold=2.0,
-        loss_abs_threshold=0.01,
-        min_beam_width=1)
-    @test sort(sel) == [1, 2]
+    # Non-finite losses are excluded, even within the floor.
+    @test isempty(select([Inf, Inf, Inf], Inf; rel = 2.0, add = 0.01, width = 5))
+    @test select([1.0, NaN, 2.0], 1.0; rel = 2.5) == [1, 3]
 
-    sel = EnzymeRates._select_beam(
-        [Inf, Inf, Inf];
-        loss_rel_threshold=2.0,
-        loss_abs_threshold=0.01,
-        min_beam_width=5)
-    @test isempty(sel)
+    # Indices come back in INPUT order, not loss order.
+    @test select([5.0, 1.0, 10.0, 2.0], 1.0; rel = 2.5) == [2, 4]
 
-    sel = EnzymeRates._select_beam(
-        [1.0, NaN, 2.0];
-        loss_rel_threshold=2.5,
-        loss_abs_threshold=0.0,
-        min_beam_width=1)
-    @test sort(sel) == [1, 3]
-
-    # `_select_beam` returns indices in INPUT order, not loss
-    # order. Verify with a deliberately-shuffled input.
-    sel = EnzymeRates._select_beam(
-        [5.0, 1.0, 10.0, 2.0];
-        loss_rel_threshold=2.5,
-        loss_abs_threshold=0.0,
-        min_beam_width=1)
-    @test sel == [2, 4]   # input-order, not [2, 4] sorted by loss
-
-    # best_override replaces the minimum loss in the relative cutoff.
+    # The relative cutoff uses the count's best loss, which can differ from this
+    # sweep's minimum.
     losses = [1.0, 1.5, 3.0]
-    kw = (loss_rel_threshold=1.2, loss_abs_threshold=0.0, min_beam_width=1)
-    # without override: best = min = 1.0, cutoff = 1.2 -> only index 1
-    @test EnzymeRates._select_beam(losses; kw...) == [1]
-    # override best = 2.0 -> cutoff 2.4 -> indices 1 and 2
-    @test EnzymeRates._select_beam(losses; kw..., best_override=2.0) == [1, 2]
-    # min_beam_width still honored
-    @test EnzymeRates._select_beam(losses;
-        loss_rel_threshold=1.0, loss_abs_threshold=0.0,
-        min_beam_width=2, best_override=0.0) == [1, 2]
+    @test select(losses, 1.0; rel = 1.2) == [1]         # cutoff 1.2
+    @test select(losses, 2.0; rel = 1.2) == [1, 2]      # cutoff 2.4
+    @test select(losses, 0.0; rel = 1.0, width = 2) == [1, 2]   # floor still honored
 
-    # Floor guarantee: a parsimony_cutoff below every loss admits nothing via
+    # Floor guarantee: a parsimony cutoff below every loss admits nothing via
     # the loss filter, yet min_beam_width still keeps the top-k by loss.
     losses = [1.0, 1.5, 2.5, 5.0, 10.0]
-    @test EnzymeRates._select_beam(losses;
-        loss_rel_threshold=2.0, loss_abs_threshold=0.0,
-        min_beam_width=2, parsimony_cutoff=0.5) == [1, 2]
+    @test select(losses, 1.0; rel = 2.0, width = 2, others = Dict(4 => 0.5)) == [1, 2]
 
-    # Tightening: a parsimony_cutoff stricter than the rel/abs cutoff lowers the
+    # Tightening: a parsimony cutoff stricter than the rel/abs cutoff lowers the
     # combined cutoff to 2.0, so indices 1 and 2 (losses 1.0, 1.5) pass and
     # index 3 (2.5) is dropped. Without it, rel=10 would admit all four.
     losses = [1.0, 1.5, 2.5, 5.0]
-    @test EnzymeRates._select_beam(losses;
-        loss_rel_threshold=10.0, loss_abs_threshold=0.0,
-        min_beam_width=1, parsimony_cutoff=2.0) == [1, 2]
+    @test select(losses, 1.0; rel = 10.0, others = Dict(4 => 2.0)) == [1, 2]
 
-    # No-op: parsimony_cutoff=nothing reproduces the parsimony-free selection.
-    kw = (loss_rel_threshold=2.0, loss_abs_threshold=0.0, min_beam_width=1)
-    @test EnzymeRates._select_beam(losses; kw..., parsimony_cutoff=nothing) ==
-          EnzymeRates._select_beam(losses; kw...)
+    # No-op: with no smaller count fit yet the parsimony term is dropped, whatever its
+    # threshold, and a larger count is no parsimony reference.
+    @test select(losses, 1.0; rel = 2.0, parsimony = 0.0) ==
+          select(losses, 1.0; rel = 2.0, parsimony = Inf) == [1, 2]
+    @test select(losses, 1.0; rel = 2.0, others = Dict(6 => 0.1)) == [1, 2]
 
-    # Interaction: min() picks the smaller cutoff. With best_override=2.0 the
-    # rel cutoff is 2.4 (admits 1,2); a tighter parsimony_cutoff=1.0 overrides
-    # it down to just the single best.
+    # Interaction: min() picks the smaller cutoff. With best loss 2.0 the
+    # rel cutoff is 2.4 (admits 1,2); a tighter parsimony cutoff of 1.0 lowers
+    # it to just the single best.
     losses = [1.0, 1.5, 3.0]
-    ov = (loss_rel_threshold=1.2, loss_abs_threshold=0.0,
-          min_beam_width=1, best_override=2.0)
-    @test EnzymeRates._select_beam(losses; ov...) == [1, 2]
-    @test EnzymeRates._select_beam(losses; ov..., parsimony_cutoff=1.0) == [1]
+    @test select(losses, 2.0; rel = 1.2) == [1, 2]
+    @test select(losses, 2.0; rel = 1.2, others = Dict(4 => 1.0)) == [1]
 end
 
 @testset "all base fits fail: failure CSV written, then raises" begin
@@ -724,37 +685,42 @@ end
 
 @testset "_select_count! cumulative per-count floor" begin
     expanded = Dict{Int,Int}()
+    best = Dict(5 => 1.0)
+    kw = (loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+          loss_parsimony_threshold=1.0, min_beam_width=3)
     # Sweep 1 at count 5: rel cutoff admits only the best (loss 1.0); the
     # floor budget (3) tops it up to the top 3 by loss. expanded[5] -> 3.
-    sel1 = EnzymeRates._select_count!(expanded, 5, [1.0, 2.0, 3.0, 4.0, 5.0];
-        loss_rel_threshold=1.0, loss_abs_threshold=0.0,
-        min_beam_width=3, best_override=1.0)
+    sel1 = EnzymeRates._select_count!(expanded, best, 5, [1.0, 2.0, 3.0, 4.0, 5.0]; kw...)
     @test sort(sel1) == [1, 2, 3]
     @test expanded[5] == 3
 
     # Sweep 2 at count 5: budget spent (3 of 3). New mechanisms all above the
     # cutoff -> the floor admits NONE (unlike the old per-sweep floor, which
     # would grant a fresh 3). expanded[5] stays 3.
-    sel2 = EnzymeRates._select_count!(expanded, 5, [10.0, 11.0, 12.0];
-        loss_rel_threshold=1.0, loss_abs_threshold=0.0,
-        min_beam_width=3, best_override=1.0)
+    sel2 = EnzymeRates._select_count!(expanded, best, 5, [10.0, 11.0, 12.0]; kw...)
     @test isempty(sel2)
     @test expanded[5] == 3
 
     # A cutoff-passer is still admitted after the floor is spent.
-    sel3 = EnzymeRates._select_count!(expanded, 5, [1.0, 20.0];
-        loss_rel_threshold=1.0, loss_abs_threshold=0.0,
-        min_beam_width=3, best_override=1.0)
+    sel3 = EnzymeRates._select_count!(expanded, best, 5, [1.0, 20.0]; kw...)
     @test sel3 == [1]
     @test expanded[5] == 4
 end
 
-@testset "§1 _parsimony_cutoff = threshold * min over all counts < c" begin
-    f = EnzymeRates._parsimony_cutoff
-    @test f(Dict(5=>0.02), 5, 1.01) === nothing            # no count < c
-    @test f(Dict(5=>0.02,6=>0.05,7=>0.03), 8, 1.01) ≈ 1.01*0.02   # min over <c, not c-1
-    @test f(Dict(5=>0.02), 7, 1.01) ≈ 1.01*0.02            # count gap: c-1=6 absent
-    @test f(Dict(5=>0.01,6=>0.04), 7, 1.01) ≈ 1.01*0.01    # non-monotone → true min
+@testset "§1 parsimony cutoff = threshold * min over all counts < c" begin
+    # No floor and a loose relative cutoff (10 × the count's best), so the parsimony
+    # cutoff alone decides: 1.01 × the best loss over the counts below c.
+    select(best_loss_by_count, c, losses) = EnzymeRates._select_count!(
+        Dict{Int,Int}(), best_loss_by_count, c, losses; loss_rel_threshold=10.0,
+        loss_abs_threshold=0.0, loss_parsimony_threshold=1.01, min_beam_width=0)
+    # No count < c: no parsimony term (else 0.15 > 1.01*0.02 would be dropped).
+    @test select(Dict(5=>0.02), 5, [0.02, 0.15]) == [1, 2]
+    # min over <c, not c-1: the cutoff is 1.01*0.02, not 1.01*0.03.
+    @test select(Dict(5=>0.02, 6=>0.05, 7=>0.03, 8=>0.02), 8, [0.0201, 0.0203, 0.03]) == [1]
+    # count gap: c-1=6 absent, the cutoff is 1.01*0.02.
+    @test select(Dict(5=>0.02, 7=>0.02), 7, [0.0201, 0.0203]) == [1]
+    # non-monotone → true min: the cutoff is 1.01*0.01, not 1.01*0.04.
+    @test select(Dict(5=>0.01, 6=>0.04, 7=>0.01), 7, [0.0100, 0.0102]) == [1]
 end
 
 @testset "_progress" begin
@@ -800,8 +766,8 @@ end
     # _postfit_summary: errored + success/non-Success over the fitted set.
     mech = first(EnzymeRates.init_mechanisms(_testhelper_uni_rxn))
     row = (n_params=3, loss=0.5, mechanism_type="M", rate_equation="v",
-           retcode="Success", error=missing, fitted_param_names=(:K,),
-           fitted_param_values=(1.0,), eq_hash="abc", fit_inherited=false)
+           retcode="Success", error=missing, params=(K = 1.0,), eq_hash="abc",
+           fit_inherited=false)
     e_succ = EnzymeRates.BatchEntry(mech, 3, 0.5, :Success, hash(:a), row)
     e_mt   = EnzymeRates.BatchEntry(mech, 3, 0.9, :MaxTime, hash(:b), row)
     f      = EnzymeRates.FitFailure(mech, "StackOverflowError: ")
@@ -836,7 +802,7 @@ end
     @test isempty(failures)
     @test all(e -> e isa EnzymeRates.BatchEntry, entries)
     @test all(e -> e.retcode isa Symbol, entries)
-    @test all(e -> e.n_params == length(e.row.fitted_param_names), entries)
+    @test all(e -> e.n_params == length(e.row.params), entries)
     @test all(e -> occursin(r"^[0-9a-f]{16}$", e.row.eq_hash), entries)
 
     # cap filter: nothing over the cap is fit (and it is not a failure).
@@ -971,14 +937,15 @@ end
         n, loss, :Success, hash(h),
         (n_params=n, loss=loss, mechanism_type="M",
          rate_equation="v", retcode="Success", error=missing,
-         fitted_param_names=(:K,), fitted_param_values=(1.0,),
-         eq_hash=string(hash(h),base=16,pad=16), fit_inherited=false))
+         params=(K = 1.0,), eq_hash=string(hash(h),base=16,pad=16),
+         fit_inherited=false))
     frontier = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     cv_pool  = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     best     = Dict{Int,Float64}()
     # two distinct equations + one duplicate-eq with worse loss, n_cv=2
-    EnzymeRates._ingest!(frontier, cv_pool, best,
+    improved = EnzymeRates._ingest!(frontier, cv_pool, best,
         [mk(5,2.0,:a), mk(5,1.0,:b), mk(5,3.0,:a)]; n_cv_candidates=2)
+    @test improved == Set([5])                 # count 5 first appeared
     @test length(frontier[5]) == 3            # frontier keeps ALL
     @test best[5] == 1.0                       # running min
     @test length(cv_pool[5]) == 2              # bounded, distinct eq_hash
@@ -986,6 +953,16 @@ end
     # BatchEntry.eq_hash is a UInt64, so compare against hash(:a), not hex:
     a = only(filter(e -> e.eq_hash == hash(:a), cv_pool[5]))
     @test a.loss == 2.0
+    # A later batch reports only the counts whose best strictly dropped or first
+    # appeared: count 5 ties its best (1.0), count 6 first appears, and count 7's
+    # entry is worse than its best (0.5).
+    best[7] = 0.5
+    @test EnzymeRates._ingest!(frontier, cv_pool, best,
+        [mk(5,1.0,:c), mk(6,4.0,:d), mk(7,0.6,:e)]; n_cv_candidates=2) == Set([6])
+    @test EnzymeRates._ingest!(frontier, cv_pool, best,
+        [mk(5,0.9,:f)]; n_cv_candidates=2) == Set([5])
+    @test isempty(EnzymeRates._ingest!(frontier, cv_pool, best,
+        EnzymeRates.BatchEntry[]; n_cv_candidates=2))
     # n=0 must not panic on the empty pool (n_cv_candidates is public)
     @test EnzymeRates._offer_cv!(EnzymeRates.BatchEntry[], mk(5,1.0,:a), 0) ==
           EnzymeRates.BatchEntry[]
@@ -1164,12 +1141,13 @@ end
     fit = memo[key]
     fkeys = EnzymeRates.fitted_params(em1)
     for e in entries
-        @test e.row.fitted_param_values == Tuple(fit.params[k] for k in fkeys)
+        @test keys(e.row.params) == fkeys
+        @test e.row.params == fit.params
     end
-    @test entries[1].row.fitted_param_values == entries[2].row.fitted_param_values
+    @test entries[1].row.params == entries[2].row.params
     # scale_k_to_kcat=1.0 anchored kcat: the copied params are the rescaled fit,
     # not the raw 5.0 the stub optimizer returned.
-    @test !all(v -> v ≈ 5.0, entries[1].row.fitted_param_values)
+    @test !all(v -> v ≈ 5.0, entries[1].row.params)
 
     # Cross-batch memo hit: a later batch with the same eq_hash refits NOTHING.
     single = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1]
@@ -1335,10 +1313,10 @@ end
     @test f1[1].mech == m_bad                     # the mechanism as handed in
 end
 
-@testset "_expand_parent records an expansion error instead of aborting" begin
+@testset "_expand_parents records an expansion error instead of aborting" begin
     # expand_mechanisms asserts its input conserves atoms; this mechanism's
     # chemistry step does not (T is a declared substrate that never binds, so the
-    # step loses an N), and the assertion raises. _expand_parent must catch that
+    # step loses an N), and the assertion raises. _expand_parents must catch that
     # and return the parent as a FitFailure (so the beam records it in CSV and
     # continues), not propagate and abort the search.
     rxn_bad = @enzyme_reaction begin
@@ -1360,8 +1338,10 @@ end
     @test_throws ErrorException EnzymeRates.expand_mechanisms(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m_bad],
         rxn_bad)
-    kids, failure = EnzymeRates._expand_parent(m_bad, rxn_bad)
-    @test isempty(kids)
+    entry(m) = EnzymeRates.BatchEntry(m, 0, 0.0, :Success, UInt64(0), (mechanism_type="M",))
+    kids, parent_of, failures = EnzymeRates._expand_parents([entry(m_bad)], rxn_bad)
+    @test isempty(kids) && isempty(parent_of)
+    failure = only(failures)
     @test failure isa EnzymeRates.FitFailure
     @test failure.mech == m_bad                    # the ORIGINAL parent
     # The recorded error is the assertion's: the chemistry step ES → EP loses T's N.
@@ -1369,48 +1349,34 @@ end
     @test occursin("= Dict(:N => 1)", failure.error)
     # A well-formed parent expands with no failure.
     good = first(EnzymeRates.init_mechanisms(rxn_bad))
-    gkids, gfail = EnzymeRates._expand_parent(good, rxn_bad)
-    @test gfail === nothing && !isempty(gkids)
+    gkids, _, gfail = EnzymeRates._expand_parents([entry(good)], rxn_bad)
+    @test isempty(gfail) && !isempty(gkids)
 end
 
-@testset "_expand_parents parallel equivalence" begin
+@testset "_expand_parents matches each parent's expand_mechanisms" begin
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
         dead_end_inhibitors: I
     end
-    mechs = collect(EnzymeRates.init_mechanisms(rxn))
-    to_expand = EnzymeRates.BatchEntry[
-        EnzymeRates.BatchEntry(
-            m, 2, 0.0, :Success, hash(m),
-            (mechanism_type = string(typeof(EnzymeRates.compile_mechanism(m))),))
-        for m in mechs]
+    M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
+    # The seed's children as parents: their own children overlap, so the
+    # first-parent dedup and attribution are exercised.
+    parents = EnzymeRates.expand_mechanisms(M[EnzymeRates.init_mechanisms(rxn)...], rxn)
+    to_expand = [EnzymeRates.BatchEntry(m, 3, 0.0, :Success, hash(m), (mechanism_type="M",))
+                 for m in parents]
 
-    # Inline serial reference = the loop being replaced.
-    function serial_expand_reference(to_expand, reaction)
-        parent_of = Dict{Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism},
-                         @NamedTuple{mechanism_type::String, n_params::Int}}()
-        children = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
-        fails = EnzymeRates.FitFailure[]
-        for pe in to_expand
-            kids, failure = EnzymeRates._expand_parent(pe.mech, reaction)
-            failure === nothing || push!(fails, failure)
-            for child in kids
-                haskey(parent_of, child) && continue
-                parent_of[child] = (mechanism_type = pe.row.mechanism_type,
-                                    n_params = pe.n_params)
-                push!(children, child)
-            end
-        end
-        (children, parent_of, fails)
+    children, parent_of, failures = EnzymeRates._expand_parents(to_expand, rxn)
+    per_parent = [EnzymeRates.expand_mechanisms(M[pe.mech], rxn) for pe in to_expand]
+    @test isempty(failures)
+    # Children in first-parent order, each once; several parents share a child.
+    @test children == unique(reduce(vcat, per_parent))
+    @test length(children) < sum(length, per_parent)
+    # Each child maps to the first parent that produced it.
+    @test keys(parent_of) == Set(children)
+    for child in children
+        @test parent_of[child] === to_expand[findfirst(kids -> child in kids, per_parent)]
     end
-
-    gc, gp, gf = EnzymeRates._expand_parents(to_expand, rxn)
-    rc, rp, rf = serial_expand_reference(to_expand, rxn)
-
-    @test gc == rc            # same children, same order, same first-parent dedup
-    @test gp == rp            # same parent_of map
-    @test length(gf) == length(rf)
 end
 
 @testset "_base_tier expands degenerate seeds instead of fitting them" begin
@@ -1550,8 +1516,7 @@ end
     mechs = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2]
     mkrow(loss) = (n_params=length(fkeys), loss=loss, mechanism_type="M",
         rate_equation="v", retcode="Success", error=missing,
-        fitted_param_names=Tuple(fkeys),
-        fitted_param_values=Tuple(fill(1.0, length(fkeys))),
+        params=NamedTuple{fkeys}(ntuple(_ -> 1.0, length(fkeys))),
         eq_hash=h, fit_inherited=false)
     df = EnzymeRates._rows_to_dataframe([mkrow(0.5), mkrow(0.2)])  # m1 loss .5, m2 loss .2
     save_dir = mktempdir()
