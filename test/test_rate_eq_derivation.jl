@@ -2195,6 +2195,34 @@ end
     @test kc ≈ vmax rtol = 1e-3
 end
 
+@testset "allosteric kcat: an :OnlyA regulator saturates to the active-state limit" begin
+    # :NonequalAI catalysis keeps the inactive state turning over. X binds only the
+    # active state, so at saturating X the active state holds all the enzyme and the
+    # rate tends to the active state's own saturating turnover; at X = 0 both states
+    # contribute. kcat is the larger of the two corners.
+    m = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: X::OnlyA
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: NonequalAI
+            E(P) ⇌ E + P      :: NonequalAI
+        end
+    end
+    pn = EnzymeRates.fitted_params(m)
+    for seed in 1:5
+        rng = Random.MersenneTwister(seed)
+        p = merge(NamedTuple{pn}(Tuple(0.2 + 5 * rand(rng) for _ in pn)),
+                  (Keq = 2.0, E_total = 1.0))
+        BIG = 1e9
+        vmax = max(rate_equation(m, (S = BIG, P = 0.0, X = BIG), p),
+                   rate_equation(m, (S = BIG, P = 0.0, X = 0.0), p))
+        @test EnzymeRates._kcat_forward(m, p) ≈ vmax rtol = 1e-6
+    end
+end
+
 @testset "Fix B: non-allosteric random-order bi-bi kcat = peak (contract guard)" begin
     # Sweeps 40 parameter draws; product-containing King–Altman cross-terms
     # (e.g. A·B·P monomials) are spurious candidates at products=0 and can

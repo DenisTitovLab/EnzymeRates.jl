@@ -635,7 +635,10 @@ _max_expr(cands) = length(cands) == 1 ? only(cands) : Expr(:call, :max, cands...
 
 Returns the peak achievable forward turnover: `max` over saturating
 substrate patterns and regulator corners (each regulator 0 or saturating)
-at products = 0, E_total = 1. Equals the numerical grid-peak forward rate.
+at products = 0, E_total = 1. Equals the numerical grid-peak forward rate. At a
+corner whose saturating regulators bind one conformation at a higher total site
+multiplicity than the other (an `:OnlyA` or `:OnlyI` ligand), that conformation holds
+all the enzyme, so the corner is its own turnover.
 Per active site (protomer) — `E_total` is the active-site concentration,
 so this carries no `catalytic_multiplicity` factor.
 """
@@ -679,6 +682,7 @@ so this carries no `catalytic_multiplicity` factor.
         for mask in 0:(2^length(all_ligs) - 1)
             W_A_factors = Any[]
             W_I_factors = Any[]
+            deg_A = deg_I = 0
             for site in regulatory_sites(am)
                 sat_terms_A = Any[]
                 sat_terms_I = Any[]
@@ -689,16 +693,30 @@ so this carries no `catalytic_multiplicity` factor.
                         K === nothing || push!(terms, :(inv($K)))
                     end
                 end
-                isempty(sat_terms_A) || push!(W_A_factors,
-                    _power_expr(_nest_binary(:+, sat_terms_A), multiplicity(site)))
-                isempty(sat_terms_I) || push!(W_I_factors,
-                    _power_expr(_nest_binary(:+, sat_terms_I), multiplicity(site)))
+                n = multiplicity(site)
+                if !isempty(sat_terms_A)
+                    push!(W_A_factors, _power_expr(_nest_binary(:+, sat_terms_A), n))
+                    deg_A += n
+                end
+                if !isempty(sat_terms_I)
+                    push!(W_I_factors, _power_expr(_nest_binary(:+, sat_terms_I), n))
+                    deg_I += n
+                end
             end
-            if isempty(W_A_factors) && isempty(W_I_factors)
+            # The saturating ligands grow a conformation's regulator factor as the
+            # concentration to the power `deg`. With unequal powers the conformation with
+            # the larger one holds all the enzyme in the limit, so the corner is that
+            # conformation's own turnover; it is skipped when that conformation lacks the
+            # pattern (0/0). Equal powers cancel and leave the weighted combination.
+            if deg_A > deg_I
+                push!(kcat_exprs, :($A_A / $B_A))
+            elseif deg_I > deg_A
+                B_I == 0 || push!(kcat_exprs, :($A_I / $B_I))
+            elseif deg_A == 0
                 push!(kcat_exprs, :($(_mwc_combine(A_A, A_I)) / $(_mwc_combine(B_A, B_I))))
             else
-                W_A = isempty(W_A_factors) ? 1 : _nest_binary(:*, W_A_factors)
-                W_I = isempty(W_I_factors) ? 1 : _nest_binary(:*, W_I_factors)
+                W_A = _nest_binary(:*, W_A_factors)
+                W_I = _nest_binary(:*, W_I_factors)
                 push!(kcat_exprs, :(($(A_A) * $(W_A) + L * $(A_I) * $(W_I)) /
                     ($(B_A) * $(W_A) + L * $(B_I) * $(W_I))))
             end
