@@ -301,6 +301,10 @@ function _linearizes(order::Vector{Symbol}, wo::Vector{Vector{Symbol}})
     true
 end
 
+"""All subsets of `v` in binary-counting order (bit `i - 1` selects `v[i]`), empty first."""
+_subsets(v::AbstractVector) =
+    [v[[isodd(mask >> (i - 1)) for i in eachindex(v)]] for mask in 0:(1 << length(v)) - 1]
+
 """
     _catalytic_topologies(reaction) -> Vector{Vector{Step}}
 
@@ -897,27 +901,10 @@ function _competition_patterns(
     sub_names::Set{Symbol},
     prod_names::Set{Symbol},
 )
-    subs = sort(collect(sub_names))
-    prods = sort(collect(prod_names))
-    edges = [(s, p) for s in subs for p in prods]
-    n = length(edges)
-    result = Set{Tuple{Symbol,Symbol}}[]
-    for mask in 1:(1 << n) - 1
-        pat = Set{Tuple{Symbol,Symbol}}()
-        for j in 1:n
-            if (mask >> (j - 1)) & 1 == 1
-                push!(pat, edges[j])
-            end
-        end
-        all(s -> any(
-            p -> (s, p) in pat, prods), subs) ||
-            continue
-        all(p -> any(
-            s -> (s, p) in pat, subs), prods) ||
-            continue
-        push!(result, pat)
-    end
-    result
+    edges = [(s, p) for s in sort(collect(sub_names)) for p in sort(collect(prod_names))]
+    [Set(pat) for pat in _subsets(edges)[2:end]
+     if all(s -> any(e -> e[1] == s, pat), sub_names) &&
+        all(p -> any(e -> e[2] == p, pat), prod_names)]
 end
 
 """
@@ -935,42 +922,10 @@ function _inhibitor_competition_patterns(
     prod_names::Set{Symbol},
     existing_inhibitors::Vector{Symbol},
 )
-    subs = sort(collect(sub_names))
-    prods = sort(collect(prod_names))
-    inhs = sort(existing_inhibitors)
-    n_s = length(subs)
-    n_p = length(prods)
-    n_i = length(inhs)
-
-    result = Tuple{
-        Set{Symbol}, Set{Symbol}, Set{Symbol}}[]
-    for s_mask in 1:(1 << n_s) - 1
-        comp_subs = Set{Symbol}()
-        for j in 1:n_s
-            if (s_mask >> (j - 1)) & 1 == 1
-                push!(comp_subs, subs[j])
-            end
-        end
-        for p_mask in 1:(1 << n_p) - 1
-            comp_prods = Set{Symbol}()
-            for j in 1:n_p
-                if (p_mask >> (j - 1)) & 1 == 1
-                    push!(comp_prods, prods[j])
-                end
-            end
-            for i_mask in 0:(1 << n_i) - 1
-                comp_inhs = Set{Symbol}()
-                for j in 1:n_i
-                    if (i_mask >> (j - 1)) & 1 == 1
-                        push!(comp_inhs, inhs[j])
-                    end
-                end
-                push!(result, (
-                    comp_subs, comp_prods, comp_inhs))
-            end
-        end
-    end
-    result
+    subs = _subsets(sort(collect(sub_names)))[2:end]
+    prods = _subsets(sort(collect(prod_names)))[2:end]
+    inhs = _subsets(sort(existing_inhibitors))
+    [(Set(s), Set(p), Set(i)) for s in subs for p in prods for i in inhs]
 end
 
 """
