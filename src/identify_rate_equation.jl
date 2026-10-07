@@ -746,7 +746,7 @@ function _beam_search(
         # in the frontier's key order (each bucket holds one count).
         target = max(target + 1, minimum(keys(frontier)))
         to_expand = BatchEntry[]
-        for c in [k for k in keys(frontier) if k <= target]
+        for c in filter(<=(target), collect(keys(frontier)))
             entries_at_count = pop!(frontier, c)
             sel = _select_count!(expanded_by_count, best_loss_by_count, c,
                 [e.loss for e in entries_at_count];
