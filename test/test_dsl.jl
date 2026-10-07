@@ -658,6 +658,42 @@
         @test all(l -> l isa EnzymeRates.AllostericRegulator, EnzymeRates.ligands(site))
     end
 
+    @testset "an allosteric regulator binds only at its regulatory site" begin
+        # R is declared only in `allosteric_regulators:`: a free term, a bound
+        # metabolite or a residual entry of a catalytic step names it in error.
+        @test_throws "`R` is an allosteric regulator" eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: R::OnlyA
+            catalytic_steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: EqualAI
+                E + R ⇌ E(R)      :: EqualAI
+            end
+        end))
+        @test_throws "`R` is an allosteric regulator" eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: R::OnlyA
+            catalytic_steps: begin
+                E + S ⇌ E(S)        :: EqualAI
+                E(S) <--> E(P, R)   :: EqualAI
+                E(P, R) ⇌ E + P     :: EqualAI
+            end
+        end))
+        @test_throws "got `R`" eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: R::OnlyA
+            catalytic_steps: begin
+                E + S ⇌ E(S)                       :: EqualAI
+                E(S) <--> Estar(; residual = S - R) :: EqualAI
+                Estar(; residual = S - R) ⇌ E + P   :: EqualAI
+            end
+        end))
+    end
+
     @testset "several metabolites on a step side" begin
         # A side with two enzyme forms is still rejected.
         @test_throws "more than one enzyme-form term" eval(:(@enzyme_mechanism begin

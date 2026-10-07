@@ -514,7 +514,8 @@ _is_conformation_shape(sym::Symbol) =
 """
 Build the `Metabolite` `Expr` for a declared name `X` (the subtype `role_of[X]`) or
 `X::Inh` (its `CompetitiveInhibitor` copy): a free term on a step side or, given
-`species`, a metabolite bound in that species.
+`species`, a metabolite bound in that species. A name declared only as an allosteric
+regulator is rejected: it binds only at its regulatory site.
 """
 function _metabolite_expr(t, role_of, macro_name, species = nothing)
     name, tag = t isa Expr ? t.args : (t, nothing)
@@ -530,6 +531,9 @@ function _metabolite_expr(t, role_of, macro_name, species = nothing)
                   "bound metabolite `$name` in species `$species`") *
               " is not declared. Declared: $(sort(collect(keys(role_of)))).")
     type = tag === :Inh ? :CompetitiveInhibitor : role_of[name]
+    type === :AllostericRegulator &&
+        error("$macro_name: `$name` is an allosteric regulator; it binds only at " *
+              "its regulatory site.")
     :(EnzymeRates.$type($(QuoteNode(name))))
 end
 
