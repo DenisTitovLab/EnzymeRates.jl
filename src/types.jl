@@ -466,7 +466,7 @@ two sides symmetrically, so the result does not depend on how the step was
 written.
 """
 function _canonical_step_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol},
-                                   kind::Dict{Species, Tuple{Bool, Bool}})
+                                   entry_sides::Dict{Species, Tuple{Bool, Bool}})
     is_binding(s) && return s
     f, t = from_species(s), to_species(s)
     flip() = Step(t, f, released(s), consumed(s), is_equilibrium(s))
@@ -481,8 +481,8 @@ function _canonical_step_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol
 
     # Tier 2: 1-hop (RE+SS) graph context — whether substrates and products
     # enter or leave solution at each form, as `(any substrate, any product)`.
-    fk = get(kind, f, (false, false))
-    tk = get(kind, t, (false, false))
+    fk = get(entry_sides, f, (false, false))
+    tk = get(entry_sides, t, (false, false))
     fk == (false, true) && tk == (true, false) && return s
     fk == (true, false) && tk == (false, true) && return flip()
 
@@ -497,7 +497,7 @@ at both of its ends, so it sees the same context however the steps were
 written. Shared by the `Mechanism` and `AllostericMechanism` constructors so
 the Canonical Step Form invariant cannot drift between them.
 
-The table `kind` built here classifies each species by the metabolites that
+The table `entry_sides` built here classifies each species by the metabolites that
 enter or leave solution at it, as `(any substrate, any product)`: the consumed
 metabolites of every step leaving it (its `from_species`) and the released
 metabolites of every step arriving at it (its `to_species`). A binding is stored
@@ -520,14 +520,14 @@ function _canonicalize_step_directions(reaction::EnzymeReaction,
                                        groups::Vector{Vector{Step}})
     subs  = Set{Symbol}(name(s) for s in substrates(reaction))
     prods = Set{Symbol}(name(s) for s in products(reaction))
-    kind = Dict{Species, Tuple{Bool, Bool}}()
+    entry_sides = Dict{Species, Tuple{Bool, Bool}}()
     for group in groups, s in group, (form, free) in ((from_species(s), consumed(s)),
                                                       (to_species(s), released(s)))
-        has_sub, has_prod = get(kind, form, (false, false))
-        kind[form] = (has_sub  || any(m -> name(m) in subs, free),
-                      has_prod || any(m -> name(m) in prods, free))
+        has_sub, has_prod = get(entry_sides, form, (false, false))
+        entry_sides[form] = (has_sub  || any(m -> name(m) in subs, free),
+                             has_prod || any(m -> name(m) in prods, free))
     end
-    [[_canonical_step_direction(s, subs, prods, kind)
+    [[_canonical_step_direction(s, subs, prods, entry_sides)
       for s in group] for group in groups]
 end
 
@@ -895,8 +895,10 @@ for T in (Residual, RegulatorySite, Step, Kequil, Kfor, Krev, Kreg,
                 init = :(hash($(QuoteNode(nameof(T))), h))))
 end
 
-reaction(m::Union{Mechanism, AllostericMechanism}) = m.reaction
-kinetic_groups(m::Union{Mechanism, AllostericMechanism}) = 1:length(steps(m))
+const _AnyMech = Union{Mechanism, AllostericMechanism}
+
+reaction(m::_AnyMech) = m.reaction
+kinetic_groups(m::_AnyMech) = 1:length(steps(m))
 steps(m::AllostericMechanism) = m.cat_steps
 cat_allo_state(m::AllostericMechanism, g::Int) = m.cat_allo_states[g]
 cat_allo_states(m::AllostericMechanism) = m.cat_allo_states
@@ -1278,7 +1280,7 @@ _render_reaction(prefix::String, (a, b)::Tuple{String, String}, state::Symbol) =
     Symbol(prefix, _state_tag(state), a, "_to_", b)
 
 """Each kinetic group's naming representative, in group order; cached per mechanism."""
-function _group_reps(m::Union{Mechanism, AllostericMechanism})
+function _group_reps(m::_AnyMech)
     c = m.naming
     reps = c.reps
     reps === nothing || return reps
@@ -1288,7 +1290,7 @@ end
 
 """Each kinetic group's naming representative's `_forward_sides`, in group order; cached
 per mechanism."""
-function _group_sides(m::Union{Mechanism, AllostericMechanism})
+function _group_sides(m::_AnyMech)
     c = m.naming
     sides = c.sides
     sides === nothing || return sides
@@ -1296,14 +1298,12 @@ function _group_sides(m::Union{Mechanism, AllostericMechanism})
 end
 
 """Find the kinetic group containing `step`; return its naming rep's `_forward_sides`."""
-function _rep_sides(step::Step, m::Union{Mechanism, AllostericMechanism})
+function _rep_sides(step::Step, m::_AnyMech)
     for (g, group) in enumerate(steps(m))
         step in group && return _group_sides(m)[g]
     end
     error("Step not found in mechanism: $step")
 end
-
-const _AnyMech = Union{Mechanism, AllostericMechanism}
 
 # Every step constant is named after the reaction of its group's representative:
 # a rate constant (`k_`) after the direction it drives, an equilibrium constant

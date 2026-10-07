@@ -35,14 +35,8 @@ function parameters end
 parameters(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism}) =
     parameters(m, Reduced)
 
-@generated function parameters(
-    ::EnzymeMechanism{Sig}, ::FullMode,
-) where {Sig}
-    mech = Mechanism(EnzymeMechanism{Sig}())
-    params = _enumerate_parameters_full(mech)
-    names = Tuple(name(p, mech) for p in params)
-    Tuple((names..., :E_total))
-end
+@generated parameters(::EnzymeMechanism{Sig}, ::FullMode) where {Sig} =
+    (_raw_param_symbols(EnzymeMechanism{Sig}())..., :E_total)
 
 @generated function parameters(::M, ::ReducedMode) where {M <: AbstractEnzymeMechanism}
     _, indep = _dependent_param_exprs(M)
@@ -886,10 +880,7 @@ groups and the forms they disconnect from free E pruned, via
 `_state_allo_mechanism`) so King–Altman re-derives the broken-cycle I-state law
 natively.
 """
-function _state_mechanism(am::AllostericMechanism, state::Symbol)
-    sam = _state_allo_mechanism(am, state)
-    Mechanism(reaction(sam), steps(sam))
-end
+_state_mechanism(am::AllostericMechanism, state::Symbol) = first(_state_parts(am, state))
 
 """
 Derive `(num_poly, den_poly, d_free_poly)` for `am`'s catalytic mechanism in

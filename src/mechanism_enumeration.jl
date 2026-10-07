@@ -1426,7 +1426,7 @@ end
 function _dead_end_child(am::AllostericMechanism, groups::Vector{Vector{Step}},
                          rxn::EnzymeReaction, twin)
     child = AllostericMechanism(rxn, groups, vcat(cat_allo_states(am), [:EqualAI]),
-                                catalytic_multiplicity(am), copy(regulatory_sites(am)))
+                                catalytic_multiplicity(am), regulatory_sites(am))
     _all_twin(groups[end], twin) && !isempty(_redundant_copy_groups(child)) ?
         nothing : child
 end

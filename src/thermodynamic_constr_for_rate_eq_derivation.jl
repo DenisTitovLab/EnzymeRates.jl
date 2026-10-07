@@ -58,7 +58,7 @@ binding-in step.
 Shared by the kinetic-group name representative and the Haldane
 elimination pivot.
 """
-function _compute_free_enz_set(m::Union{Mechanism, AllostericMechanism})
+function _compute_free_enz_set(m::_AnyMech)
     flat = [s for g in steps(m) for s in g]
     # A step that consumes a metabolite leaves it on to_species. The from-side is
     # the "free + met" reactant; the to-side is the bound form.
@@ -73,7 +73,7 @@ end
 The free-enzyme form names of `m` (`_compute_free_enz_set`), cached per mechanism.
 Callers share the returned set and must not mutate it.
 """
-function _free_enz_set(m::Union{Mechanism, AllostericMechanism})
+function _free_enz_set(m::_AnyMech)
     c = m.naming
     fes = c.free_enz
     fes === nothing || return fes
@@ -254,7 +254,7 @@ end
 
 """Number of independent (fitted) rate constants of a concrete mechanism, computed
 from the thermodynamic constraint solve without compiling the mechanism."""
-_independent_param_count(m::Union{Mechanism, AllostericMechanism}) =
+_independent_param_count(m::_AnyMech) =
     length(_dependent_param_exprs(m)[2])
 
 """How a step's constants enter the constraint columns: `:ss` (a forward and a
