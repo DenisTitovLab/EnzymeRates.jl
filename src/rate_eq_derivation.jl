@@ -155,8 +155,8 @@ values. Iterates `mech.steps` directly; each RE step's weight ratio comes
 from `_re_weight_ratio`, entering `to_species` from `from_species` or the
 reverse. `idx[sp]` is the position of form `sp` in `species`; `step_to_K[j]` is
 the parameter Symbol for the RE step at flat position `j` (rep-renamed via the
-`name(p, m)` chokepoint). Raises when the RE steps close a catalytic cycle,
-which gives the mechanism no finite rate.
+`name(p, m)` chokepoint, then through any Wegscheider tie). Raises when the RE
+steps close a catalytic cycle, which gives the mechanism no finite rate.
 """
 function _compute_alpha(mech::Mechanism, species, idx, segments, step_to_K)
     N = length(species)
@@ -217,8 +217,10 @@ end
 Build raw numerator and denominator POLYs for the rate equation by
 walking the lifted `Mechanism`. Parameter Symbols on the leaves of
 `num`/`den` are produced via the `name(p, mech)` chokepoint (which
-collapses kinetic-group members to their rep's name). `rename_map` then
-applies any single-symbol Wegscheider ties as a post-pass. `step_params` defaults
+collapses kinetic-group members to their rep's name). `rename_map` applies any
+single-symbol Wegscheider ties at the leaves: each RE step's constant is renamed
+as it enters `step_to_K`, the only route by which an RE binding K (every rename key
+and target is one) reaches the polynomials. `step_params` defaults
 to the mechanism's own `:None`-state constants and `rename_map` to the Wegscheider
 rename under them; the allosteric derivation passes each conformation's
 state-tagged constants (`_state_parts`). First aborts, through `_assert_derivable`,
@@ -242,7 +244,7 @@ function _raw_symbolic_rate_polys(
     isempty(species) && return poly_zero(), poly_one(), poly_one()
     flat = _flat_steps(mech)
     step_to_K = Dict{Int, Symbol}(
-        i => name(step_params[i][1], mech)
+        i => (K = name(step_params[i][1], mech); get(rename_map, K, K))
         for i in eachindex(flat) if is_equilibrium(flat[i][1]))
     alpha = _compute_alpha(mech, species, idx, segments, step_to_K)
     G = length(segments)
@@ -271,14 +273,12 @@ function _raw_symbolic_rate_polys(
     # inactive state) has no reactions and so no enumerated form; its free enzyme
     # spans the whole (empty) graph, so `D[g_free] = 1`.
     i_free = findfirst(f -> isempty(bound(f)) && isempty(residual(f)), species)
-    d_free = i_free === nothing ? poly_one() :
-             _rename_symbols(D[seg[i_free]], rename_map)
+    d_free = i_free === nothing ? poly_one() : D[seg[i_free]]
 
     den = poly_zero()
     for g in 1:G
         sigma = reduce(poly_add, (alpha[i] for i in segments[g]); init=poly_zero())
-        csigma = _rename_symbols(sigma, rename_map)
-        den = poly_add(den, poly_mul(csigma, D[g]))
+        den = poly_add(den, poly_mul(sigma, D[g]))
     end
 
     # Numerator of the rate: v·den summed over steady-state steps. With u(f) the
@@ -301,8 +301,6 @@ function _raw_symbolic_rate_polys(
         num = poly_add(num, POLY(key => ω * c for (key, c) in term))
     end
 
-    num = _rename_symbols(num, rename_map)
-    den = _rename_symbols(den, rename_map)
     conc_set = _concentration_symbols(mech)
     _reduce_conc_lowest_terms(num, den, d_free, conc_set)
 end

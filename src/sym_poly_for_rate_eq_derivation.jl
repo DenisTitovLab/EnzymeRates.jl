@@ -223,34 +223,6 @@ end
 """Whether the expression mentions the symbol `s`."""
 _mentions(ex, s::Symbol) = ex === s || (ex isa Expr && any(a -> _mentions(a, s), ex.args))
 
-# ─── Symbol renaming in POLY ───────────────────────────────
-
-"""
-Rename symbols in a polynomial. `rename_map` is a `Dict{Symbol, Symbol}`;
-absent keys are left unchanged. Used by the allosteric derivation to rename
-A-state symbols to their I-state counterparts when building the inactive-
-state polynomial (e.g., `:K_A_EATP_to_E_ATP → :K_I_EATP_to_E_ATP`).
-"""
-function _rename_symbols(p::POLY, rename_map::AbstractDict{Symbol, Symbol})
-    isempty(rename_map) && return p
-    result = POLY()
-    for (mono, val) in p
-        new_mono = sort!(
-            MONO([get(rename_map, s, s) => e for (s, e) in mono]);
-            by=first,
-        )
-        # Combine like-monomial entries by exponent merging
-        combined = Dict{Symbol, Int}()
-        for (s, e) in new_mono
-            combined[s] = get(combined, s, 0) + e
-        end
-        filter!(p -> p.second != 0, combined)
-        canon = sort!(MONO(collect(combined)); by=first)
-        result[canon] = get(result, canon, 0) + val
-    end
-    filter!(p -> p.second != 0, result)
-end
-
 # ─── AllostericEnzymeMechanism POLY helpers ──────────────────────
 
 """Set of every Symbol appearing in any monomial of a POLY (params + metabolites)."""
