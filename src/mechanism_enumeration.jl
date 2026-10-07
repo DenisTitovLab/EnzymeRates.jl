@@ -494,47 +494,6 @@ mechanisms built from one another share their unchanged steps."""
 _with_equilibrium(s::Step, flag::Bool) = is_equilibrium(s) == flag ? s :
     Step(from_species(s), to_species(s), consumed(s), released(s), flag)
 
-"""
-Biconnected blocks of an undirected multigraph. `edges[e] = (u, v)` with
-vertices `1:nv`. Returns the block id of every edge (Tarjan's edge-stack
-algorithm); a bridge is a block of its own.
-"""
-function _edge_blocks(nv::Int, edges::Vector{Tuple{Int, Int}})
-    adj = [Int[] for _ in 1:nv]
-    for (e, (u, v)) in enumerate(edges)
-        push!(adj[u], e); push!(adj[v], e)
-    end
-    disc = zeros(Int, nv); low = zeros(Int, nv)
-    block = zeros(Int, length(edges))
-    stack = Int[]; clock = Ref(0); nblocks = Ref(0)
-    function visit(u, parent_edge)
-        clock[] += 1; disc[u] = low[u] = clock[]
-        for e in adj[u]
-            e == parent_edge && continue
-            w = edges[e][1] == u ? edges[e][2] : edges[e][1]
-            if disc[w] == 0
-                push!(stack, e)
-                visit(w, e)
-                low[u] = min(low[u], low[w])
-                if low[w] >= disc[u]
-                    nblocks[] += 1
-                    while true
-                        x = pop!(stack); block[x] = nblocks[]
-                        x == e && break
-                    end
-                end
-            elseif disc[w] < disc[u]
-                push!(stack, e)
-                low[u] = min(low[u], disc[w])
-            end
-        end
-    end
-    for v in 1:nv
-        disc[v] == 0 && visit(v, 0)
-    end
-    block
-end
-
 """Every step of `groups` rebuilt at steady state. The flip move pre-filters its
 units on this graph: a step that carries no flux with every step steady-state
 carries none under any assignment (flips only refine segments), so a group with
@@ -582,7 +541,7 @@ its `to` form's. Around any cycle the offsets telescope and the uptakes sum to t
 net turnover times the reactant count, so a cycle has weight zero exactly when it
 runs no net reaction. A self-loop (both forms in one segment) carries flux iff its
 weight is nonzero. Any other edge carries flux iff its biconnected block
-(`_edge_blocks`) holds a cycle of nonzero weight: every edge of such a block lies
+(`_unbalanced_blocks`) holds a cycle of nonzero weight: every edge of such a block lies
 on one (join the edge to the cycle by two disjoint paths; one of the two resulting
 cycles is unbalanced), while in a balanced block detailed balance holds along every
 cycle and each step's flux vanishes. The zero-flux verdict holds for any parameters
@@ -628,46 +587,56 @@ _uptake_weight(s::Step, rho::Dict{Symbol, Int}) =
     sum(get(rho, name(x), 0) for x in consumed(s); init = 0) -
     sum(get(rho, name(x), 0) for x in released(s); init = 0)
 
-"""The block of every edge of the weighted multigraph (`_edge_blocks`) and the set of
-blocks that hold a cycle of nonzero weight (`_block_balanced`)."""
-function _unbalanced_blocks(nv::Int, edges::Vector{Tuple{Int, Int}}, weights::Vector{Int})
-    block = _edge_blocks(nv, edges)
-    members = Dict{Int, Vector{Int}}()
-    for e in eachindex(edges)
-        push!(get!(members, block[e], Int[]), e)
-    end
-    block, Set{Int}(b for (b, es) in members if !_block_balanced(edges, weights, es))
-end
+"""
+    _unbalanced_blocks(nv, edges, weights) -> (block, unbalanced)
 
-"""Whether every cycle of the block made of the edges `es` has weight zero. A BFS
-spanning tree gives each vertex a potential, rising by an edge's weight along its
-stored direction; the block is balanced iff every edge's weight equals the
-potential difference of its ends. A block is connected, so one search from any of
-its vertices visits all of them."""
-function _block_balanced(edges, weights, es::Vector{Int})
-    adj = Dict{Int, Vector{Int}}()
-    for e in es
-        u, v = edges[e]
-        push!(get!(adj, u, Int[]), e); push!(get!(adj, v, Int[]), e)
+The biconnected block of every edge of an undirected multigraph without self-loops,
+`edges[e] = (u, v)` with vertices `1:nv` (Tarjan's edge-stack algorithm; a bridge is a
+block of its own), and the set of blocks holding a cycle of nonzero weight, edge `e`
+weighing `weights[e]` along its stored direction. The search gives each vertex a
+potential that rises by each tree edge's weight along it. An edge's defect, its weight
+minus the potential difference of its ends, is zero on a tree edge and, on any other
+edge, the weight of the cycle it closes with the tree path between its ends, a cycle of
+its own block. The tree edges of a block span it, so these cycles generate the block's
+cycles and weight adds over them: a block holds a cycle of nonzero weight exactly when
+one of its edges has a nonzero defect.
+"""
+function _unbalanced_blocks(nv::Int, edges::Vector{Tuple{Int, Int}}, weights::Vector{Int})
+    adj = [Int[] for _ in 1:nv]
+    for (e, (u, v)) in enumerate(edges)
+        push!(adj[u], e); push!(adj[v], e)
     end
-    root = edges[first(es)][1]
-    phi = Dict(root => 0)
-    queue = [root]
-    while !isempty(queue)
-        u = popfirst!(queue)
+    disc = zeros(Int, nv); low = zeros(Int, nv); phi = zeros(Int, nv)
+    block = zeros(Int, length(edges))
+    stack = Int[]; clock = Ref(0); nblocks = Ref(0)
+    function visit(u, parent_edge)
+        clock[] += 1; disc[u] = low[u] = clock[]
         for e in adj[u]
-            a, b = edges[e]
-            v = a == u ? b : a
-            w = a == u ? weights[e] : -weights[e]
-            if haskey(phi, v)
-                phi[v] == phi[u] + w || return false
-            else
-                phi[v] = phi[u] + w
-                push!(queue, v)
+            e == parent_edge && continue
+            w = edges[e][1] == u ? edges[e][2] : edges[e][1]
+            if disc[w] == 0
+                phi[w] = phi[u] + (edges[e][1] == u ? weights[e] : -weights[e])
+                push!(stack, e)
+                visit(w, e)
+                low[u] = min(low[u], low[w])
+                if low[w] >= disc[u]
+                    nblocks[] += 1
+                    while true
+                        x = pop!(stack); block[x] = nblocks[]
+                        x == e && break
+                    end
+                end
+            elseif disc[w] < disc[u]
+                push!(stack, e)
+                low[u] = min(low[u], disc[w])
             end
         end
     end
-    true
+    for v in 1:nv
+        disc[v] == 0 && visit(v, 0)
+    end
+    block, Set{Int}(block[e] for (e, (u, v)) in enumerate(edges)
+                    if weights[e] != phi[v] - phi[u])
 end
 
 """
