@@ -2268,7 +2268,7 @@ let
 end
 
 # ── m_OnlyA_prod: catalysis :OnlyA → T-state truly inactive ─────────────
-# Exercises `_i_state_num_zero` detection when the catalytic conversion is
+# Exercises the zero I-state numerator when the catalytic conversion is
 # :OnlyA: the T-state cannot run the reaction (forward or reverse), so its
 # cycle is dead — N_T is 0 and the L*num_T branch is dropped. Analytical
 # kcat = 2·k2f/(1+L) — L-dependent because the saturating R-state
