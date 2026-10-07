@@ -115,6 +115,8 @@ end
         @test prob_abs.scale_k_to_kcat === nothing
         @test_throws ErrorException IdentifyRateEquationProblem(
             test_rxn, test_data; Keq=Keq_val, scale_k_to_kcat=0.0)
+        # An integer Keq converts to the Float64 field.
+        @test IdentifyRateEquationProblem(test_rxn, test_data; Keq=10).Keq === 10.0
 
         # Missing metabolite column
         @test_throws(
@@ -1628,6 +1630,8 @@ end
                         base=16, pad=16),
          fit_inherited=false)
     end
+    # Both candidates fit 5 parameters, so LOOCV orders them by loss: the rows go in
+    # against that order and must come back sorted by (n_params, loss).
     df = EnzymeRates._rows_to_dataframe([mkrow(m1, 0.5), mkrow(m3, 0.2)])
     save_dir = mktempdir()
     stub() = _CountingStubOpt(; uval=log(5.0))
@@ -1635,6 +1639,9 @@ end
         optimizer=stub(), se_threshold=1.0, save_dir, show_progress=false,
         n_restarts=1, maxtime=1.0)
     @test nrow(res.cv_results) == 2
+    @test df.n_params == [5, 5]
+    @test res.cv_results.loss == [0.2, 0.5]
+    @test issorted(collect(zip(res.cv_results.n_params, res.cv_results.loss)))
 
     groups = unique(prob.data.group)
     folds(r) = [r[Symbol("cv_fold_$g")] for g in groups]

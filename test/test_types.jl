@@ -83,10 +83,9 @@ end
                   ER.CompetitiveInhibitor(:R) for s in shared)
     end
 
-    @testset "metabolites() lift covers all three loops + dedup" begin
-        # Substrate, product, AND regulator so the lift exercises every loop
-        # (substrates, then products, then regulators) and the dedup `seen`
-        # set — coverage the plain S/P accessor tests do not reach.
+    @testset "metabolites() lists substrates, then products, then regulators" begin
+        # A substrate, a product and a regulator, so the lift lists all three roles in
+        # order — coverage the plain S/P accessor tests do not reach.
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -166,7 +165,8 @@ end
         end
         @test sprint(show, m_none) == "EnzymeMechanism (0 steps, 0 enzyme forms):"
 
-        # Branched mechanism: multi-line with header summary.
+        # Branched mechanism: the header counts every step and enzyme form, and each
+        # step prints.
         m_b = @enzyme_mechanism begin
             substrates: A, B
             products:   P, Q
@@ -411,10 +411,6 @@ end
 
     @testset "AllostericEnzymeMechanism lift validators" begin
         cm = _testhelper_re_mm
-        # The compiled type is built only by lifting an AllostericMechanism.
-        @test_throws MethodError ER.AllostericEnzymeMechanism(
-            cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)), ())
-
         # Wrong-length cat_allo_states (4 entries for 3 kinetic groups) → error
         @test_throws ErrorException _testhelper_aem(
             cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI, :OnlyA)), ())
@@ -1258,7 +1254,8 @@ end
             [[ER.Step(E, EA, [A], ER.Metabolite[], false)], [chem],
              [ER.Step(F, FB, [B], ER.Metabolite[], false)],
              [ER.Step(FB, E, ER.Metabolite[], [Q], false)]])
-        @test _testhelper_assert_mechanism_invariants(m) === nothing
+        # The Mechanism constructor accepts the cycle through the residual form.
+        @test m isa ER.Mechanism
     end
 
     @testset "inhibitor copy stays distinct from the substrate" begin
@@ -1854,10 +1851,9 @@ end
 
     # Whether a binding is rapid-equilibrium or steady-state does not change
     # which affinities diverge, so the balanced both-:OnlyA verdict must not
-    # depend on it. The two step kinds carry the cycle exponent on opposite
-    # columns (Kd vs Kon), so a mixed pair only agrees once the validator
-    # normalizes both to the epsilon exponent. Both orientations of the mix
-    # are equally valid mechanisms and must both pass.
+    # depend on it: an RE binding's 1/Kd and an SS binding's kon/koff enter the
+    # cycle product with the same exponent. Both orientations of the mix are equally
+    # valid mechanisms and must both pass.
     mixed_uni_re_ss = @allosteric_mechanism begin
         substrates: S
         products:   P

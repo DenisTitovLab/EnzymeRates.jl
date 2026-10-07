@@ -1106,6 +1106,8 @@ end
 # ── Main test loop ──────────────────────────────────────────────────────────
 
 @testset "Enzyme Derivation Tests" begin
+    # A truncated table would let every per-spec gate pass vacuously.
+    @test length(MECHANISM_TEST_SPECS) == 42
     for spec in MECHANISM_TEST_SPECS
         run_all_tests(spec)
     end
@@ -1418,6 +1420,8 @@ function _undefined_rhs_symbols(s::AbstractString)
 end
 
 @testset "§5a I-state parameters are all defined (regression)" begin
+    # A renamed spec would silently empty the name filter.
+    @test length(_LDH_ISTATE_MECHS) == 3
     for em in _LDH_ISTATE_MECHS
         pnames = EnzymeRates.fitted_params(em)
         mets = EnzymeRates.metabolites(em)

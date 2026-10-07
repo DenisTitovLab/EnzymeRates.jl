@@ -149,16 +149,17 @@
         end))
 
         # Reject :OnlyI on a catalytic step (V-type allostery not supported)
-        @test_throws Exception eval(:(@allosteric_mechanism begin
-            substrates: F6P
-            products:   F16BP
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + F6P ⇌ E(F6P) :: EqualAI
-                E(F6P) <--> E(F16BP) :: OnlyI
-                E(F16BP) ⇌ E + F16BP :: EqualAI
-            end
-        end))
+        @test_throws ":OnlyI is rejected for catalytic groups" eval(
+            :(@allosteric_mechanism begin
+                substrates: F6P
+                products:   F16BP
+                catalytic_multiplicity: 2
+                catalytic_steps: begin
+                    E + F6P ⇌ E(F6P) :: EqualAI
+                    E(F6P) <--> E(F16BP) :: OnlyI
+                    E(F16BP) ⇌ E + F16BP :: EqualAI
+                end
+            end))
 
         # Reject untagged allosteric regulator
         @test_throws Exception eval(:(@allosteric_mechanism begin
@@ -481,10 +482,61 @@
         @test ra_map[:Q] == [:H => 3, :P => 1]
     end
 
+    @testset "chemical formulas and multiplicities are validated" begin
+        # A formula is a run of elements, each an uppercase letter with optional
+        # lowercase letters and an optional count.
+        for formula in (:c6, :C6x, 6)
+            @test_throws "Invalid chemical formula: \"$formula\"" eval(
+                :(@enzyme_reaction begin
+                    substrates: S[$formula]
+                    products:   P[C6]
+                end))
+        end
+
+        # Every multiplicity is a positive Int.
+        @test_throws "regulator A multiplicity must be a positive Int, got 0." eval(
+            :(@enzyme_reaction begin
+                substrates: S[C]
+                products:   P[C]
+                allosteric_regulators: A(0)
+            end))
+        @test_throws "`oligomeric_state:` entry must be a positive Int, got 0." eval(
+            :(@enzyme_reaction begin
+                substrates: S[C]
+                products:   P[C]
+                oligomeric_state: 0
+            end))
+        @test_throws "`catalytic_multiplicity:` must be a positive Int, got 2.0." eval(
+            :(@allosteric_mechanism begin
+                substrates: S
+                products:   P
+                catalytic_multiplicity: 2.0
+                catalytic_steps: begin
+                    E + S ⇌ E(S)      :: EqualAI
+                    E(S) <--> E(P)    :: EqualAI
+                    E(P) ⇌ E + P      :: EqualAI
+                end
+            end))
+        @test_throws "`regulatory_site` multiplicity must be a positive Int, got 0." eval(
+            :(@allosteric_mechanism begin
+                substrates: S
+                products:   P
+                allosteric_regulators: A::OnlyA
+                catalytic_steps: begin
+                    E + S ⇌ E(S)      :: EqualAI
+                    E(S) <--> E(P)    :: EqualAI
+                    E(P) ⇌ E + P      :: EqualAI
+                end
+                regulatory_site(multiplicity = 0): begin
+                    ligands: A
+                end
+            end))
+    end
+
     @testset "@enzyme_reaction regulator kinds" begin
         # dead_end_inhibitors: and competitive_inhibitors: both emit
         # CompetitiveInhibitor entries. allosteric_regulators: emits
-        # AllostericRegulator and requires per-name multiplicities.
+        # AllostericRegulator; a bare entry takes the catalytic multiplicities.
         spec_kinds = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -522,7 +574,7 @@
         @test Set(typeof(EnzymeRates.regulator(rm)) for rm in atp_regs) ==
               Set([EnzymeRates.AllostericRegulator,
                    EnzymeRates.CompetitiveInhibitor])
-        # Two allosteric ATPs still rejected.
+        # Two allosteric ATPs are rejected.
         @test_throws Exception eval(:(@enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -932,8 +984,8 @@
         end))
     end
 
-    @testset "several metabolites on a step side" begin
-        # A side with two enzyme forms is still rejected.
+    @testset "a step side holds one enzyme form" begin
+        # A side with two enzyme forms is rejected.
         @test_throws "more than one enzyme-form term" eval(:(@enzyme_mechanism begin
             substrates: A, B
             products:   P

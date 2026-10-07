@@ -6,8 +6,9 @@
 # child set.
 
 # Orients an isomerization Step substrate-rich side → product-rich side (ties
-# by lex on form name) and returns its (source, destination) Species; the Step
-# itself canonicalizes iso direction by lex only.
+# by lex on form name) and returns its (source, destination) Species. A raw topology
+# step keeps the direction it was built in; the mechanism constructors orient
+# isomerizations (`_canonicalize_step_directions`).
 function _iso_orient(s::EnzymeRates.Step)
     from, to = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
     nf = count(b -> b isa EnzymeRates.Substrate, EnzymeRates.bound(from))
@@ -151,7 +152,7 @@ _testhelper_on_reaction(rxn, em) =
 
 # The allosteric mechanism `em` rebuilt on `rxn` at catalytic multiplicity 2 with no
 # regulatory sites.
-function _testhelper_lift(rxn, em)
+function _testhelper_on_reaction_mult2(rxn, em)
     am = EnzymeRates.AllostericMechanism(em)
     EnzymeRates.AllostericMechanism(rxn, EnzymeRates.steps(am),
         EnzymeRates.cat_allo_states(am), 2, EnzymeRates.RegulatorySite[])
@@ -174,6 +175,14 @@ _testhelper_is_tc(s) =
 _testhelper_flip_matching(gs, preds) = [
     any(s -> any(p -> p(s), preds), g) ? EnzymeRates._with_equilibrium.(g, false) : g
     for g in gs]
+
+# The children of the four moves `expand_mechanisms` runs on a plain `Mechanism` `m`, in
+# its order, before its regulator-type filter.
+_testhelper_plain_moves(m, rxn) = append!(
+    Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[],
+    EnzymeRates._expand_re_to_ss(m), EnzymeRates._expand_split_kinetic_group(m),
+    EnzymeRates._expand_add_dead_end_regulator(m, rxn),
+    EnzymeRates._expand_to_allosteric(m, rxn))
 
 # A kinetic group is catalytic iff it holds a chemistry step (`_is_chemistry`:
 # an isomerization, a fused binding or a Theorell–Chance step); otherwise it is
@@ -363,7 +372,8 @@ end
         @test _testhelper_assert_mechanism_invariants(m) === nothing
     end
 
-    # NEGATIVE 1: a declared SUBSTRATE that no step binds → error.
+    # NEGATIVE 1: a declared SUBSTRATE that no step binds → error. This half checks
+    # that the oracle can fail.
     rxn_unused = @enzyme_reaction begin
         substrates: S[C], T[C]
         products:   P[C2]
@@ -509,14 +519,14 @@ end
               for b in EnzymeRates.bound(_iso_orient(s)[2]))
 end
 
-_bset(sp) = Set(EnzymeRates.name(b) for b in EnzymeRates.bound(sp))
+_testhelper_bound_names(sp) = Set(EnzymeRates.name(b) for b in EnzymeRates.bound(sp))
 # An enzyme form binding exactly the metabolites `names`, with or without a
 # covalent residual.
-form(names, residual) =
-    sp -> _bset(sp) == Set(names) && EnzymeRates.has_residual(sp) == residual
+_testhelper_form(names, residual) = sp ->
+    _testhelper_bound_names(sp) == Set(names) && EnzymeRates.has_residual(sp) == residual
 # Whether `spec` holds an isomerization with one end satisfying `p` and the
 # other `q`, whichever way the step is oriented.
-iso_between(spec, p, q) = any(spec) do s
+_testhelper_iso_between(spec, p, q) = any(spec) do s
     EnzymeRates.is_iso(s) || return false
     f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
     (p(f) && q(t)) || (p(t) && q(f))
@@ -533,9 +543,10 @@ end
     # carboxyl-transfer iso converts a residual-bearing Pyr form into the
     # bare E(OAA).
     @test any(topos) do spec
-        iso_between(spec, form([:ATP, :HCO3], false), EnzymeRates.has_residual) &&
-        iso_between(spec, form([:OAA], false),
-                    t -> :Pyr in _bset(t) && EnzymeRates.has_residual(t))
+        _testhelper_iso_between(spec, _testhelper_form([:ATP, :HCO3], false),
+                                EnzymeRates.has_residual) &&
+        _testhelper_iso_between(spec, _testhelper_form([:OAA], false),
+            t -> :Pyr in _testhelper_bound_names(t) && EnzymeRates.has_residual(t))
     end
 
     # 312 = 169 seq + 143 pp, classified by iso-step count: sequential
@@ -559,9 +570,12 @@ end
     # CoA+acetyl→AcCoA (leaves a hydride residual),
     # NAD+hydride→NADH (residual cancels → bare E(NADH)).
     @test any(topos) do spec
-        iso_between(spec, form([:Pyr], false), form([:CO2], true)) &&
-        iso_between(spec, form([:CoA], true), form([:AcCoA], true)) &&
-        iso_between(spec, form([:NAD], true), form([:NADH], false))
+        _testhelper_iso_between(spec, _testhelper_form([:Pyr], false),
+                                _testhelper_form([:CO2], true)) &&
+        _testhelper_iso_between(spec, _testhelper_form([:CoA], true),
+                                _testhelper_form([:AcCoA], true)) &&
+        _testhelper_iso_between(spec, _testhelper_form([:NAD], true),
+                                _testhelper_form([:NADH], false))
     end
 
     # 334 = 169 seq + 165 pp, classified by iso-step count: sequential
@@ -1215,7 +1229,8 @@ end
 @testset "Drops unbound regulators from init Mechanism" begin
     # init_mechanisms produces Mechanisms without dead-end regulators
     # bound. When compiled to EnzymeMechanism, the regulator must NOT
-    # appear in the regulators tuple — only the catalytic mechanism is
+    # appear among the regulators of the lifted reaction
+    # (`_testhelper_regulators`) — only the catalytic mechanism is
     # built. After expand_mechanisms adds the dead-end regulator, it
     # should appear.
     init_mechs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
@@ -3653,7 +3668,7 @@ end
         dead_end_inhibitors: S
         oligomeric_state: 2
     end
-    onlya = _testhelper_lift(rxn, @allosteric_mechanism begin
+    onlya = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -3663,7 +3678,7 @@ end
             E + P ⇌ E(P)      :: EqualAI
         end
     end)
-    kept = _testhelper_lift(rxn, @allosteric_mechanism begin
+    kept = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_inhibitors: S
@@ -3680,7 +3695,7 @@ end
     @test Set(kids) == Set([kept])
     @test _testhelper_identifiable_rank(kept) == _testhelper_identifiable_rank(onlya) + 1
     @test isempty(EnzymeRates._redundant_copy_groups(kept))
-    nonequal = _testhelper_lift(rxn, @allosteric_mechanism begin
+    nonequal = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -3704,7 +3719,7 @@ end
         dead_end_inhibitors: S
         oligomeric_state: 2
     end
-    dead_inactive = _testhelper_lift(rxn, @allosteric_mechanism begin
+    dead_inactive = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -3714,7 +3729,7 @@ end
             E + P ⇌ E(P)      :: OnlyA
         end
     end)
-    kept = _testhelper_lift(rxn, @allosteric_mechanism begin
+    kept = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_inhibitors: S
@@ -3753,7 +3768,7 @@ end
         dead_end_inhibitors: S
         oligomeric_state: 2
     end
-    kept = _testhelper_lift(rxn, @allosteric_mechanism begin
+    kept = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_inhibitors: S
@@ -3765,7 +3780,7 @@ end
             E + S::Inh ⇌ E(S::Inh)      :: EqualAI
         end
     end)
-    relaxed_p = _testhelper_lift(rxn, @allosteric_mechanism begin
+    relaxed_p = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_inhibitors: S
@@ -3777,7 +3792,7 @@ end
             E + S::Inh ⇌ E(S::Inh)      :: EqualAI
         end
     end)
-    relaxed_copy = _testhelper_lift(rxn, @allosteric_mechanism begin
+    relaxed_copy = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_inhibitors: S
@@ -3789,7 +3804,7 @@ end
             E + S::Inh ⇌ E(S::Inh)      :: NonequalAI
         end
     end)
-    relaxed_s = _testhelper_lift(rxn, @allosteric_mechanism begin
+    relaxed_s = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_inhibitors: S
@@ -4075,7 +4090,7 @@ end
             E + P ⇌ E(P)
         end
     end)
-    only_s = _testhelper_lift(uni_uni_allo, @allosteric_mechanism begin
+    only_s = _testhelper_on_reaction_mult2(uni_uni_allo, @allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -4085,7 +4100,7 @@ end
             E + P ⇌ E(P)      :: EqualAI
         end
     end)
-    only_p = _testhelper_lift(uni_uni_allo, @allosteric_mechanism begin
+    only_p = _testhelper_on_reaction_mult2(uni_uni_allo, @allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -4095,7 +4110,7 @@ end
             E + P ⇌ E(P)      :: OnlyA
         end
     end)
-    both = _testhelper_lift(uni_uni_allo, @allosteric_mechanism begin
+    both = _testhelper_on_reaction_mult2(uni_uni_allo, @allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -5797,13 +5812,8 @@ end
     m_plain = first(EnzymeRates.init_mechanisms(rxn_plain))
 
     # Raw children reproduce expand_mechanisms' moves on a Mechanism without the filter.
-    raw_children(m, rxn) = append!(
-        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[],
-        EnzymeRates._expand_re_to_ss(m), EnzymeRates._expand_split_kinetic_group(m),
-        EnzymeRates._expand_add_dead_end_regulator(m, rxn),
-        EnzymeRates._expand_to_allosteric(m, rxn))
-    raw_act = raw_children(m_act, rxn_act)
-    raw_plain = raw_children(m_plain, rxn_plain)
+    raw_act = _testhelper_plain_moves(m_act, rxn_act)
+    raw_plain = _testhelper_plain_moves(m_plain, rxn_plain)
 
     children_act = EnzymeRates.expand_mechanisms([m_act], rxn_act)
     children_plain = EnzymeRates.expand_mechanisms([m_plain], rxn_plain)
@@ -5857,11 +5867,7 @@ end
     # contributes nothing: expand_mechanisms equals the reg-type-filtered output of the
     # moves that apply to a Mechanism.
     m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
-    raw = append!(
-        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[],
-        EnzymeRates._expand_re_to_ss(m), EnzymeRates._expand_split_kinetic_group(m),
-        EnzymeRates._expand_add_dead_end_regulator(m, uni_uni_rxn),
-        EnzymeRates._expand_to_allosteric(m, uni_uni_rxn))
+    raw = _testhelper_plain_moves(m, uni_uni_rxn)
     baseline = filter(c -> EnzymeRates._respects_reg_type(c, uni_uni_rxn), raw)
     @test EnzymeRates.expand_mechanisms([m], uni_uni_rxn) == baseline
 end
@@ -9619,9 +9625,11 @@ end
 @testset "expansion moves: ter-ter random-order seed within budget" begin
     # The seed of `init_mechanisms(terter)` with the most steps (55) is the enumeration's
     # worst case: random order, each substrate and product binding at nine forms in one
-    # rapid-equilibrium group. The split alone must take under 60 s and all seven moves
-    # under 120 s; `expand_mechanisms` returns their 81 children: 12 splits, 6 flips and
-    # 63 K-types. Measured 26 s for all seven moves in a cold focused run, JIT included.
+    # rapid-equilibrium group. The split alone must take under 60 s and the four moves
+    # that apply to a plain Mechanism (split, flip, dead end, to-allosteric) under 120 s
+    # together; they return 81 children: 12 splits, 6 flips and 63 K-types (the reaction
+    # declares no regulator). Measured 26 s for the four moves in a cold focused run, JIT
+    # included.
     terter = @enzyme_reaction begin
         substrates: A[C], B[N], C[O]
         products: P[C], Q[N], R[O]

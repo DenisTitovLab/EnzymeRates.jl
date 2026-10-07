@@ -1,5 +1,5 @@
-# ABOUTME: Compile-time regression gates for the EnzymeRates pipeline:
-# ABOUTME: init_mechanisms trace-compile, rate_equation body-build wall-clock, bi-bi→uni-uni compile reuse, dispatch identity.
+# ABOUTME: Compile-time regression gates: init_mechanisms trace-compile, rate_equation
+# ABOUTME: body-build wall-clock, bi-bi→uni-uni compile reuse and dispatch identity.
 
 using Test
 using EnzymeRates
@@ -51,7 +51,7 @@ end
 
 # Parses the `<label>:<float>` lines a subprocess printed. Returns a Vector{Float64}
 # parallel to `labels` (NaN for any label not found).
-function _parse_labeled(out::String, labels::Vector{String})
+function _testhelper_parse_labeled(out::String, labels::Vector{String})
     map(labels) do label
         m = match(Regex("$(label):([0-9.eE+-]+)"), out)
         m === nothing ? NaN : parse(Float64, m.captures[1])
@@ -71,15 +71,16 @@ function _measure_labeled_subprocess(script::String, labels::Vector{String})
         @warn "labeled subprocess failed: $e"
         return fill(NaN, length(labels))
     end
-    _parse_labeled(String(take!(out_buf)), labels)
+    _testhelper_parse_labeled(String(take!(out_buf)), labels)
 end
 
 @testset "compile-budget" begin
     # Two fresh subprocesses supply every measurement below. Each must be a fresh
-    # process: runtests.jl runs test_dsl.jl earlier, which JIT-builds the same
-    # EnzymeMechanism{...} body, and the enumeration tests run init_mechanisms, so
-    # an in-process measurement would always be near zero and no gate would trip on
-    # a regression.
+    # process: the test process has already loaded the shared fixtures, and whenever
+    # another test file runs before this one (a focused or reordered run)
+    # init_mechanisms and the same EnzymeMechanism{...} body are already compiled, so
+    # an in-process measurement could read near zero and no gate would trip on a
+    # regression.
     #   - trace: init_mechanisms on a bi-bi reaction under --trace-compile, then
     #     uni-uni in the same process (the warm half of the compile-reuse gate).
     #     Reactions are built via the direct EnzymeReaction constructor so the trace
@@ -135,7 +136,7 @@ end
         println("ELAPSED:", t)
         """
     n, trace_out = _count_relevant_precompiles(trace_script)
-    t_uni_warm = _parse_labeled(trace_out, ["UNI_WARM"])[1]
+    t_uni_warm = _testhelper_parse_labeled(trace_out, ["UNI_WARM"])[1]
     t_uni_cold, t_first = _measure_labeled_subprocess(cold_script, ["UNI_COLD", "ELAPSED"])
 
     # Trace-compile: the bi-bi init_mechanisms (the uni-uni that follows compiles

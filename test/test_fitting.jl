@@ -132,6 +132,9 @@ using Tables
         @test_throws ErrorException FittingProblem(uni_uni, ok_data; Keq=1.0, scale_k_to_kcat=-5.0)
         @test FittingProblem(uni_uni, ok_data; Keq=1.0, scale_k_to_kcat=nothing) isa FittingProblem
         @test FittingProblem(uni_uni, ok_data; Keq=1.0) isa FittingProblem  # default 1.0
+        # Integer Keq and scale_k_to_kcat convert to the Float64 fields.
+        fp = FittingProblem(uni_uni, ok_data; Keq=2, scale_k_to_kcat=3)
+        @test fp.Keq === 2.0 && fp.scale_k_to_kcat === 3.0
     end
 
     # ── Sign-mismatch penalty ─────────────────────────────────────────────────
