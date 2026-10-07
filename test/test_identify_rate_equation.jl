@@ -1097,6 +1097,26 @@ end
         n_restarts=1, maxtime=1.0, save_dir=mktempdir())
 end
 
+@testset "save_dir holding only a progress.log is refused" begin
+    # A run that crashed before its first CSV leaves only progress.log behind; a new
+    # run there would append its log to the old one. The lean beam settings keep the
+    # run short should the guard ever let it through.
+    prob = _testhelper_uni_prob(NamedTuple)
+    mktempdir() do tmp
+        write(joinpath(tmp, "progress.log"), "Enumerating initial mechanisms…\n")
+        @test_throws(
+            ErrorException("save_dir already contains results (CSV files or " *
+                "progress.log). Use an empty directory to avoid mixing results."),
+            identify_rate_equation(prob; optimizer=CMAEvolutionStrategyOpt(),
+                min_beam_width=1, loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+                max_param_count=3, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
+                save_dir=tmp))
+        @test readdir(tmp) == ["progress.log"]
+        @test read(joinpath(tmp, "progress.log"), String) ==
+              "Enumerating initial mechanisms…\n"
+    end
+end
+
 # ── §2 fit-dedup by eq_hash ──────────────────────────────────────────────────
 # A stub optimizer that counts `solve` invocations and returns a canned
 # log-space optimum (`uval` for every coordinate), so a batch's fits can be

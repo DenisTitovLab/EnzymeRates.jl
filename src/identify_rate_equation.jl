@@ -186,8 +186,9 @@ function identify_rate_equation(
         n_restarts, maxtime, maxiters,
         abstol, reltol, callback, solver_kwargs)
 
-    isdir(save_dir) && any(f -> endswith(f, ".csv"), readdir(save_dir)) &&
-        error("save_dir already contains CSV files. " *
+    isdir(save_dir) &&
+        any(f -> endswith(f, ".csv") || f == "progress.log", readdir(save_dir)) &&
+        error("save_dir already contains results (CSV files or progress.log). " *
               "Use an empty directory to avoid mixing results.")
 
     mechanisms, df = _beam_search(prob;
