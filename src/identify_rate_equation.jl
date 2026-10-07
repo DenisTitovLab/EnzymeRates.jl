@@ -7,7 +7,7 @@ using CSV
 using Statistics
 
 """
-    IdentifyRateEquationProblem{R, D}
+    IdentifyRateEquationProblem{D}
 
 Holds the reaction, experimental data, and equilibrium
 constant for rate equation identification.
@@ -20,10 +20,8 @@ constant for rate equation identification.
 - `scale_k_to_kcat`: target kcat for SS-rate rescaling
   before fitting (`nothing` = no rescaling, positive Float64 = target)
 """
-struct IdentifyRateEquationProblem{
-    R<:EnzymeReaction, D<:NamedTuple
-}
-    reaction::R
+struct IdentifyRateEquationProblem{D<:NamedTuple}
+    reaction::EnzymeReaction
     data::D
     Keq::Float64
     scale_k_to_kcat::Union{Float64,Nothing}
@@ -42,9 +40,7 @@ function IdentifyRateEquationProblem(
         "Need at least 2 unique groups for " *
         "cross-validation, got $n_groups")
 
-    IdentifyRateEquationProblem{
-        typeof(reaction),typeof(data)
-    }(reaction, data, Keq, scale_k_to_kcat)
+    IdentifyRateEquationProblem{typeof(data)}(reaction, data, Keq, scale_k_to_kcat)
 end
 
 """

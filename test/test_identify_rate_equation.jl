@@ -103,6 +103,7 @@ end
         prob = IdentifyRateEquationProblem(
             test_rxn, test_data; Keq=Keq_val)
         @test prob.reaction === test_rxn
+        @test typeof(prob) === IdentifyRateEquationProblem{typeof(prob.data)}
         @test prob.Keq == Keq_val
         @test length(
             unique(prob.data.group)) == 5
