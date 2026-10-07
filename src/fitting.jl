@@ -41,11 +41,12 @@ metabolite matching `metabolites(mechanism)`. Uses
 treats the data as relative (per-group-centered loss); `nothing` treats it as
 absolute per-enzyme turnover (uncentered loss).
 
-Rate values must be nonzero (zero rates produce `-Inf` in log space).
+Rate values must be finite and nonzero (the loss takes their log; a zero rate gives
+`-Inf`), and `Keq` must be positive.
 """
 function FittingProblem(mechanism::AbstractEnzymeMechanism, table;
         Keq::Real, scale_k_to_kcat::Union{Real,Nothing}=1.0)
-    data = _rate_table(table, metabolites(mechanism), scale_k_to_kcat)
+    data = _rate_table(table, metabolites(mechanism), scale_k_to_kcat, Keq)
     group_map = Dict{eltype(data.group), Vector{Int}}()
     for (i, g) in enumerate(data.group)
         push!(get!(() -> Int[], group_map, g), i)
@@ -57,15 +58,17 @@ function FittingProblem(mechanism::AbstractEnzymeMechanism, table;
 end
 
 """
-    _rate_table(table, mnames, scale_k_to_kcat) → NamedTuple
+    _rate_table(table, mnames, scale_k_to_kcat, Keq) → NamedTuple
 
 Validate a rate table and return it as `Tables.columntable(table)`: `scale_k_to_kcat`
-must be positive or `nothing`, the table needs a `group` column, a `Rate` column and
-one column per name in `mnames`, and no rate may be zero (the loss takes its log).
+must be positive or `nothing`, `Keq` must be positive, the table needs a `group`
+column, a `Rate` column and one column per name in `mnames`, and every rate must be a
+finite, nonzero number (the loss takes its log).
 """
-function _rate_table(table, mnames, scale_k_to_kcat)
+function _rate_table(table, mnames, scale_k_to_kcat, Keq)
     scale_k_to_kcat !== nothing && scale_k_to_kcat <= 0 && error(
         "scale_k_to_kcat must be positive (or nothing); got $scale_k_to_kcat")
+    Keq > 0 || error("Keq must be positive; got $Keq")
     data = Tables.columntable(table)
     for req in (:group, :Rate)
         req in keys(data) || error("Missing required column: $req")
@@ -73,6 +76,8 @@ function _rate_table(table, mnames, scale_k_to_kcat)
     for m in mnames
         m in keys(data) || error("Missing metabolite column: $m")
     end
+    i = findfirst(r -> !(r isa Real && isfinite(r)), data.Rate)
+    i === nothing || error("Rate at row $i must be a finite number; got $(data.Rate[i])")
     i = findfirst(iszero, data.Rate)
     i === nothing || error("Zero rate at row $i: log(0) is undefined")
     data

@@ -420,6 +420,23 @@ using Tables
         # Missing group column
         data_no_grp = (Rate = [1.0], S = [1.0], P = [0.1])
         @test_throws ErrorException FittingProblem(uni_uni, data_no_grp; Keq=1.0)
+
+        # A non-finite or missing rate: the error names the Rate column and the row.
+        for (bad, shown) in ((NaN, "NaN"), (Inf, "Inf"), (-Inf, "-Inf"),
+                             (missing, "missing"))
+            data_bad = (group = ["G1", "G1"], Rate = [1.0, bad], S = [1.0, 2.0],
+                        P = [0.1, 0.1])
+            @test_throws(
+                ErrorException("Rate at row 2 must be a finite number; got $shown"),
+                FittingProblem(uni_uni, data_bad; Keq=1.0))
+        end
+
+        # A Keq that is not positive
+        data_ok = (group = ["G1"], Rate = [1.0], S = [1.0], P = [0.1])
+        @test_throws(ErrorException("Keq must be positive; got 0"),
+            FittingProblem(uni_uni, data_ok; Keq=0))
+        @test_throws(ErrorException("Keq must be positive; got -1"),
+            FittingProblem(uni_uni, data_ok; Keq=-1))
     end
 
 end

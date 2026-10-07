@@ -14,7 +14,7 @@ vectors. The required columns are:
 | Column | Type | Description |
 |--------|------|-------------|
 | `group` | any | One independent experiment — rates measured with the same amount of enzyme at varying metabolite concentrations (a single kinetic-data figure from a paper is a typical group). Leave-one-group-out cross-validation folds on this column. |
-| `Rate` | nonzero `Real` | Measured reaction rate. Must be nonzero — the loss works in log space. |
+| `Rate` | finite, nonzero `Real` | Measured reaction rate. Must be finite and nonzero — the loss works in log space. |
 | one per metabolite | `Real` | Concentration of each metabolite, in molar (M) — use M for every metabolite so the fitted kinetic constants stay interpretable. Column names must match `metabolites(mechanism)` exactly. |
 
 Call `metabolites(mechanism)` to find which concentration columns your data
@@ -43,8 +43,9 @@ end
 metabolites(uni_uni)
 ```
 
-A missing required column, a missing metabolite column, or a zero `Rate` each
-raises an `ErrorException` at construction — the check runs before any fitting.
+A missing required column, a missing metabolite column, a zero, non-finite or
+missing `Rate`, or a `Keq` that is not positive each raises an `ErrorException` at
+construction — the check runs before any fitting.
 
 ## Building the `FittingProblem`
 

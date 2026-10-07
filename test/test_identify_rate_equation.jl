@@ -147,6 +147,22 @@ end
                  R = [1.0, 1.0]);
                 Keq=1.0))
 
+        # A non-finite or missing rate, or a Keq that is not positive: each error
+        # names the Rate column (with the row) or Keq.
+        two_groups = (group = ["G1", "G2"], Rate = [1.0, 2.0],
+                      S = [1.0, 1.0], P = [0.1, 0.1], R = [1.0, 1.0])
+        for (bad, shown) in ((NaN, "NaN"), (Inf, "Inf"), (-Inf, "-Inf"),
+                             (missing, "missing"))
+            @test_throws(
+                ErrorException("Rate at row 2 must be a finite number; got $shown"),
+                IdentifyRateEquationProblem(
+                    test_rxn, merge(two_groups, (Rate = [1.0, bad],)); Keq=1.0))
+        end
+        @test_throws(ErrorException("Keq must be positive; got 0"),
+            IdentifyRateEquationProblem(test_rxn, two_groups; Keq=0))
+        @test_throws(ErrorException("Keq must be positive; got -1"),
+            IdentifyRateEquationProblem(test_rxn, two_groups; Keq=-1))
+
         # Need >= 2 groups
         @test_throws(
             ErrorException,

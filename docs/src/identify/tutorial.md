@@ -103,12 +103,13 @@ value becomes one cross-validation fold, so at least two groups are required.
 - `:group` and `:Rate` columns must be present.
 - One column per substrate, product, and regulator (names match
   `metabolites(mechanism)` exactly).
-- Every `Rate` must be nonzero — the loss function works in log space.
+- Every `Rate` must be a finite, nonzero number — the loss function works in log
+  space.
 - At least two distinct `group` values are required for cross-validation.
 
-`Keq` is a required keyword argument, always user-supplied; the package never
-estimates it from data. Most enzyme reactions have a known `Keq` — measure it
-directly, or compute it from a resource such as
+`Keq` is a required keyword argument, always user-supplied and positive; the
+package never estimates it from data. Most enzyme reactions have a known `Keq` —
+measure it directly, or compute it from a resource such as
 [eQuilibrator](https://equilibrator.weizmann.ac.il).
 
 ## Run the search

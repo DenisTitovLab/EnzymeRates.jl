@@ -32,7 +32,7 @@ function IdentifyRateEquationProblem(
     scale_k_to_kcat::Union{Real,Nothing}=1.0
 )
     # Every metabolite the reaction declares needs a concentration column.
-    data = _rate_table(table, _metabolite_names(reaction), scale_k_to_kcat)
+    data = _rate_table(table, _metabolite_names(reaction), scale_k_to_kcat, Keq)
 
     # Validate at least 2 groups for CV
     n_groups = length(unique(data.group))
