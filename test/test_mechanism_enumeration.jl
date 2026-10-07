@@ -4747,6 +4747,7 @@ end
             E(S) <--> E(P)  :: EqualAI
         end
     end)
+    # The site both routes reach: X::OnlyA and Y::NonequalAI share one site.
     shared = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S; products: P
         allosteric_regulators: X::OnlyA, Y::NonequalAI
@@ -4760,11 +4761,145 @@ end
             ligands: X, Y
         end
     end)
+    # X::OnlyA and Y::NonequalAI on sites of their own: also reached from either parent.
+    x_y_apart = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: X::OnlyA, Y::NonequalAI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+    end)
+
+    # From am_x, Y joins as :OnlyA or :NonequalAI on a new site or X's site, as :OnlyI on a
+    # new site only (an :OnlyI ligand on X's all-:OnlyA site acts on a disjoint
+    # conformation), and as :EqualAI on X's site.
+    y_onlya_new = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: X::OnlyA, Y::OnlyA
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+    end)
+    y_onlya_at_x = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: X::OnlyA, Y::OnlyA
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: X, Y
+        end
+    end)
+    y_onlyi_new = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: X::OnlyA, Y::OnlyI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+    end)
+    y_equalai_at_x = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: X::OnlyA, Y::EqualAI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: X, Y
+        end
+    end)
     from_x = EnzymeRates._expand_add_allosteric_regulator(am_x, rxn)
+    @test length(from_x) == 6
+    @test Set(from_x) == Set([y_onlya_new, y_onlya_at_x, y_onlyi_new, x_y_apart, shared,
+                              y_equalai_at_x])
+
+    # From am_y, X joins with each non-:EqualAI tag on a new site or Y's site (Y's
+    # :NonequalAI site acts on both conformations), and as :EqualAI on Y's site.
+    x_onlyi_new = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: X::OnlyI, Y::NonequalAI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+    end)
+    x_onlyi_at_y = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: X::OnlyI, Y::NonequalAI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: X, Y
+        end
+    end)
+    x_nonequalai_new = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: X::NonequalAI, Y::NonequalAI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+    end)
+    x_nonequalai_at_y = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: X::NonequalAI, Y::NonequalAI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: X, Y
+        end
+    end)
+    x_equalai_at_y = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: X::EqualAI, Y::NonequalAI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: X, Y
+        end
+    end)
     from_y = EnzymeRates._expand_add_allosteric_regulator(am_y, rxn)
+    @test length(from_y) == 7
+    @test Set(from_y) == Set([x_y_apart, shared, x_onlyi_new, x_onlyi_at_y,
+                              x_nonequalai_new, x_nonequalai_at_y, x_equalai_at_y])
+
+    # The shared site comes out of each route once, as one mechanism under == and hash.
     @test count(==(shared), from_x) == 1
     @test count(==(shared), from_y) == 1
-    @test length(unique([filter(==(shared), from_x); filter(==(shared), from_y)])) == 1
+    via_x = EnzymeRates._make_am_with_added_reg(am_x, :Y, :NonequalAI, 1)
+    via_y = EnzymeRates._make_am_with_added_reg(am_y, :X, :OnlyA, 1)
+    @test via_x == via_y == shared
+    @test hash(via_x) == hash(via_y)
 end
 
 end

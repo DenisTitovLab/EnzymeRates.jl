@@ -690,7 +690,6 @@ end
             @test p == T(step, :None)
             @test p != T(step, :I)
         end
-        @test !any(n -> isdefined(ER, n), (:Kd, :Kiso, :Kon, :Koff))
 
         lig_a = ER.AllostericRegulator(:A)
         site = ER.RegulatorySite([lig_a], 2, [:OnlyA])

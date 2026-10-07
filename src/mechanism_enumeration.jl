@@ -1758,7 +1758,7 @@ function _expand_change_allo_state(am::AllostericMechanism)
         new_sites = copy(regulatory_sites(am))
         new_states = copy(allo_states(site))
         new_states[li] = :NonequalAI
-        new_sites[si] = RegulatorySite(copy(ligands(site)), multiplicity(site), new_states)
+        new_sites[si] = RegulatorySite(ligands(site), multiplicity(site), new_states)
         push!(results, _with(am; sites = new_sites))
     end
     filter!(c -> isempty(_redundant_copy_groups(c)), results)
