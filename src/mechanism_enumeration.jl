@@ -5,43 +5,18 @@
 # ─── Catalytic topologies ─────────────────────────────────────────────
 
 """
-Build a `Species` on conformation `:E` from sorted bound substrate /
-product names plus the covalent `residual`. Names map to `Substrate` /
-`Product` structs; the bound list is sorted by name (Species inner
-constructor enforces this).
+Net atom multiset of the reactants named in `plus` minus those named in `minus`, with
+zero counts dropped. A name may repeat; a name that names no reactant carries no atoms.
 """
-function _make_species(
-    bound_subs::Vector{Symbol},
-    bound_prods::Vector{Symbol},
-    residual::Residual,
-)
-    mets = Metabolite[Substrate.(bound_subs)...,
-                      Product.(bound_prods)...]
-    Species(mets, :E, residual)
-end
-
-"""
-Covalent residual at an enzyme form: `added` = consumed substrates not
-currently bound, `subtracted` = released products plus currently-bound
-products. Reduced to `Residual()` exactly when the added/subtracted atom
-multisets cancel (no covalent residue remains).
-"""
-function _residual_for(
-    consumed::Vector{Symbol},
-    on_subs::Vector{Symbol},
-    released::Vector{Symbol},
-    on_prods::Vector{Symbol},
-    sub_atoms::Dict{Symbol,Dict{Symbol,Int}},
-    prod_atoms::Dict{Symbol,Dict{Symbol,Int}},
-)
-    add_names = setdiff(consumed, on_subs)
-    sub_names = vcat(released, on_prods)
-    add_at = reduce(_add_atoms, [sub_atoms[s] for s in add_names];
-                    init=Dict{Symbol,Int}())
-    sub_at = reduce(_add_atoms, [prod_atoms[p] for p in sub_names];
-                    init=Dict{Symbol,Int}())
-    _nonzero_atoms(add_at) == _nonzero_atoms(sub_at) && return Residual()
-    Residual(Substrate.(add_names), Product.(sub_names))
+function _net_atoms(reaction::EnzymeReaction, plus, minus)
+    acc = Dict{Symbol,Int}()
+    for ra in reactants(reaction)
+        k = count(==(name(metabolite(ra))), plus) - count(==(name(metabolite(ra))), minus)
+        for (a, c) in atoms(ra)
+            acc[a] = get(acc, a, 0) + k * c
+        end
+    end
+    filter!(kv -> kv.second != 0, acc)
 end
 
 """Extract atom counts as Dict{Symbol,Int} for a metabolite."""
@@ -58,42 +33,6 @@ function _atoms_dict(
             result[a] = get(result, a, 0) + c
         end
         return result
-    end
-    result
-end
-
-"""Check if product atoms are a subset of accumulated atoms."""
-function _can_pingpong(
-    accumulated::Dict{Symbol,Int},
-    prod_atoms::Dict{Symbol,Int},
-)
-    for (a, c) in prod_atoms
-        get(accumulated, a, 0) < c && return false
-    end
-    true
-end
-
-"""Subtract atom counts: accumulated minus product atoms."""
-function _subtract_atoms(
-    accumulated::Dict{Symbol,Int},
-    prod_atoms::Dict{Symbol,Int},
-)
-    result = copy(accumulated)
-    for (a, c) in prod_atoms
-        result[a] -= c
-        result[a] == 0 && delete!(result, a)
-    end
-    result
-end
-
-"""Add atom counts: accumulated plus substrate atoms."""
-function _add_atoms(
-    accumulated::Dict{Symbol,Int},
-    sub_atoms::Dict{Symbol,Int},
-)
-    result = copy(accumulated)
-    for (a, c) in sub_atoms
-        result[a] = get(result, a, 0) + c
     end
     result
 end
@@ -195,115 +134,20 @@ function _assert_atom_conserving(m::Union{Mechanism, AllostericMechanism})
     nothing
 end
 
-"""Generate all combinations of `k` elements from `arr`."""
-function _combinations(arr, k)
-    n = length(arr)
-    k == 0 && return [eltype(arr)[]]
-    k == 1 && return [[x] for x in arr]
-    k == n && return [collect(arr)]
-    result = Vector{Vector{eltype(arr)}}()
-    for i in 1:n
-        for rest in _combinations(arr[i+1:end], k - 1)
-            push!(result, [arr[i]; rest])
-        end
-    end
-    result
-end
-
-"""
-Release products one at a time after a multi-product isomerization, then
-continue backtracking. `pingpong_intermediate` is the ping-pong control flag
-threaded to `backtrack!`; each released form carries the covalent
-residual derived from the consumed/released history via `_residual_for`.
-`residual_atoms` is the covalent residue remaining after the whole
-`prod_subset` is released (passed to `backtrack!` as the enzyme's atoms).
-"""
-function _release_products!(
-    all_paths, backtrack!,
-    iso_species::Species,
-    residual_atoms::Dict{Symbol,Int},
-    consumed_subs::Vector{Symbol},
-    released_prods::Vector{Symbol},
-    prod_subset::Vector{Symbol},
-    sub_atoms::Dict{Symbol,Dict{Symbol,Int}},
-    prod_atoms::Dict{Symbol,Dict{Symbol,Int}},
-    pingpong_intermediate::Bool,
-    steps::Vector{Step},
-)
-    # Generate all release orderings of products
-    function _release_recurse!(
-        cur::Species,
-        unreleased::Vector{Symbol},
-        rel_so_far::Vector{Symbol},
-    )
-        if isempty(unreleased)
-            # All products released, continue
-            backtrack!(
-                cur, residual_atoms,
-                consumed_subs, rel_so_far,
-                Symbol[], Symbol[],
-                pingpong_intermediate, false, steps
-            )
-            return
-        end
-        for p in copy(unreleased)
-            new_unreleased = filter(!=(p), unreleased)
-            new_species = _make_species(
-                Symbol[], new_unreleased,
-                _residual_for(consumed_subs, Symbol[],
-                              [rel_so_far; p], new_unreleased,
-                              sub_atoms, prod_atoms))
-            rel_step = Step(
-                cur, new_species, Metabolite[], Metabolite[Product(p)], true)
-            push!(steps, rel_step)
-            _release_recurse!(
-                new_species, new_unreleased, [rel_so_far; p])
-            pop!(steps)
-        end
-    end
-
-    _release_recurse!(
-        iso_species, collect(prod_subset), copy(released_prods))
-end
-
-"""
-Substrate bound-metabolite names in route (path) order.
-"""
-_binding_order(path::Vector{Step}) =
-    Symbol[name(bound_metabolite(s)::Substrate) for s in path
-           if bound_metabolite(s) isa Substrate]
-
-"""
-Product bound-metabolite names in route (path) order.
-"""
-_release_order(path::Vector{Step}) =
-    Symbol[name(bound_metabolite(s)::Product) for s in path
-           if bound_metabolite(s) isa Product]
-
-"""
-True iff `order` is a linearization of weak ordering `wo` (a vector of
-levels): every metabolite of `wo` appears exactly once in `order`, and the
-level index along `order` is non-decreasing (earlier levels strictly before
-later levels; any order within a level).
-"""
-function _linearizes(order::Vector{Symbol}, wo::Vector{Vector{Symbol}})
-    level = Dict{Symbol,Int}()
-    for (i, lvl) in enumerate(wo), m in lvl
-        level[m] = i
-    end
-    length(order) == length(level) || return false
-    prev = 0
-    for m in order
-        haskey(level, m) || return false
-        level[m] < prev && return false
-        prev = level[m]
-    end
-    true
-end
-
 """All subsets of `v` in binary-counting order (bit `i - 1` selects `v[i]`), empty first."""
 _subsets(v::AbstractVector) =
     [v[[isodd(mask >> (i - 1)) for i in eachindex(v)]] for mask in 0:(1 << length(v)) - 1]
+
+"""
+All weak orderings of `items`: sequences of nonempty levels that partition `items`, each
+level in the order of `items`. They come in the order of their first level in
+`_subsets(items)`, then recursively in the order of the rest.
+"""
+function _weak_orderings(items::Vector{Symbol})
+    isempty(items) && return [Vector{Symbol}[]]
+    Vector{Vector{Symbol}}[[[level]; rest] for level in _subsets(items)[2:end]
+                           for rest in _weak_orderings(setdiff(items, level))]
+end
 
 """
     _catalytic_topologies(reaction) -> Vector{Vector{Step}}
@@ -312,447 +156,78 @@ Build catalytic cycle topologies by constructive backtracking.
 Each topology is a set of steps forming one or more complete
 catalytic cycles (E -> ... -> E).
 """
-function _catalytic_topologies(
-    reaction::EnzymeReaction,
-)
+function _catalytic_topologies(reaction::EnzymeReaction)
     sub_names = Symbol[name(s) for s in substrates(reaction)]
     prod_names = Symbol[name(p) for p in products(reaction)]
 
-    # Precompute atom dicts for each metabolite
-    sub_atoms = Dict(
-        s => _atoms_dict(reaction, s) for s in sub_names
-    )
-    prod_atoms = Dict(
-        p => _atoms_dict(reaction, p) for p in prod_names
-    )
+    # The form on :E binding `on_subs` and `on_prods` after a route consumed `consumed`
+    # and released `released`. Its covalent residual adds the consumed substrates not
+    # bound and subtracts the released and bound products; it is `Residual()` exactly
+    # when their atoms cancel (no covalent residue remains).
+    function form(consumed, released, on_subs, on_prods)
+        added, subtracted = setdiff(consumed, on_subs), [released; on_prods]
+        res = isempty(_net_atoms(reaction, added, subtracted)) ? Residual() :
+              Residual(Substrate.(added), Product.(subtracted))
+        Species(Metabolite[Substrate.(on_subs); Product.(on_prods)], :E, res)
+    end
 
-    # C5: max simultaneously bound metabolites
-    max_bound = max(length(sub_names), length(prod_names))
-
-    # Collect all complete catalytic paths as Step lists
-    all_paths = Vector{Vector{Step}}()
-
-    # Backtracking state:
-    # - cur_species: current enzyme form as a `Species`
-    # - acc_atoms: atoms currently on the enzyme
-    # - consumed_subs: substrates consumed so far (history)
-    # - released_prods: products released so far (history)
-    # - on_enzyme_subs: substrates currently bound
-    # - on_enzyme_prods: products currently bound
-    #     (post-final-isomerize)
-    # - pingpong_intermediate: enzyme is in a ping-pong
-    #     covalent-intermediate state (carries a residual)
-    # - post_final: in product-release phase after final
-    #     isomerization
-    # - steps: path of Step accumulated so far
-    function backtrack!(
-        cur_species::Species,
-        acc_atoms::Dict{Symbol,Int},
-        consumed_subs::Vector{Symbol},
-        released_prods::Vector{Symbol},
-        on_enzyme_subs::Vector{Symbol},
-        on_enzyme_prods::Vector{Symbol},
-        # pingpong_intermediate: true when the enzyme is in a
-        # ping-pong covalent-intermediate state. Selects the
-        # bind-only / iso branches below (the covalent residue
-        # itself is stored on the form as a Residual).
-        pingpong_intermediate::Bool,
-        post_final::Bool,
-        steps::Vector{Step},
-    )
-        # Check for complete cycle
-        if conformation(cur_species) === :E &&
-                isempty(bound(cur_species)) && !isempty(steps)
-            if Set(consumed_subs) == Set(sub_names) &&
-                    Set(released_prods) == Set(prod_names)
-                push!(all_paths, copy(steps))
-                return
-            end
+    # Collect all complete catalytic paths as Step lists. A route starts at free E, binds
+    # substrates, isomerizes a substrate-bound form to a product-bound one, releases those
+    # products one at a time in every order, and repeats until it has consumed every
+    # substrate and released every product. `cur` is the current form, `consumed` and
+    # `released` are the route's history, and `on_subs` and `on_prods` are what `cur`
+    # binds; the atoms on the enzyme are those of `consumed` minus those of `released`.
+    paths = Vector{Step}[]
+    function walk!(cur, consumed, released, on_subs, on_prods, path)
+        if isempty(bound(cur)) && length(consumed) == length(sub_names) &&
+                length(released) == length(prod_names)
+            push!(paths, copy(path))
+            return
         end
-
-        remaining_subs = [
-            s for s in sub_names if s ∉ consumed_subs
-        ]
-        remaining_prods = [
-            p for p in prod_names if p ∉ released_prods
-        ]
-
-        if post_final
-            # Release any currently bound product
-            for p in copy(on_enzyme_prods)
-                new_on_prods = filter(!=(p), on_enzyme_prods)
-                new_released = [released_prods; p]
-                new_species = _make_species(
-                    Symbol[], new_on_prods,
-                    _residual_for(consumed_subs, Symbol[],
-                                  new_released, new_on_prods,
-                                  sub_atoms, prod_atoms))
-                step = Step(
-                    cur_species, new_species,
-                    Metabolite[], Metabolite[Product(p)], true)
-                push!(steps, step)
-                backtrack!(
-                    new_species,
-                    _subtract_atoms(
-                        acc_atoms, prod_atoms[p]
-                    ),
-                    consumed_subs, new_released,
-                    Symbol[], new_on_prods,
-                    false, !isempty(new_on_prods),
-                    steps
-                )
-                pop!(steps)
+        # Steps from `cur` to the form the arguments describe, then walks on from it.
+        function step!(takes_up, gives_off, con, rel, on_s, on_p)
+            to = form(con, rel, on_s, on_p)
+            push!(path, Step(cur, to, takes_up, gives_off, true))
+            walk!(to, con, rel, on_s, on_p, path)
+            pop!(path)
+        end
+        if !isempty(on_prods)
+            # Release a bound product; nothing binds until every bound product is gone.
+            for p in on_prods
+                step!(Metabolite[], Metabolite[Product(p)], consumed, [released; p],
+                      Symbol[], filter(!=(p), on_prods))
             end
             return
         end
-
-        if isempty(on_enzyme_subs) && !pingpong_intermediate
-            # Free enzyme: bind any remaining substrate
-            for s in remaining_subs
-                new_on = [on_enzyme_subs; s]
-                new_consumed = [consumed_subs; s]
-                new_species = _make_species(
-                    new_on, Symbol[],
-                    _residual_for(new_consumed, new_on,
-                                  released_prods, Symbol[],
-                                  sub_atoms, prod_atoms))
-                step = Step(
-                    cur_species, new_species,
-                    Metabolite[Substrate(s)], Metabolite[], true)
-                push!(steps, step)
-                backtrack!(
-                    new_species,
-                    _add_atoms(acc_atoms, sub_atoms[s]),
-                    new_consumed, released_prods,
-                    new_on, Symbol[],
-                    false, false, steps
-                )
-                pop!(steps)
-            end
-        elseif !isempty(on_enzyme_subs) && !pingpong_intermediate
-            # Substrates bound, no residual
-            # Option 1: bind another substrate (C5)
-            if length(on_enzyme_subs) < max_bound
-                for s in remaining_subs
-                    new_on = [on_enzyme_subs; s]
-                    new_consumed = [consumed_subs; s]
-                    new_species = _make_species(
-                        new_on, Symbol[],
-                        _residual_for(new_consumed, new_on,
-                                      released_prods, Symbol[],
-                                      sub_atoms, prod_atoms))
-                    step = Step(
-                        cur_species, new_species,
-                        Metabolite[Substrate(s)], Metabolite[], true)
-                    push!(steps, step)
-                    backtrack!(
-                        new_species,
-                        _add_atoms(
-                            acc_atoms, sub_atoms[s]),
-                        new_consumed, released_prods,
-                        new_on, Symbol[],
-                        false, false, steps
-                    )
-                    pop!(steps)
-                end
-            end
-            # Option 2: ping-pong isomerize (C9)
-            if !isempty(remaining_subs)
-                for k in 1:length(remaining_prods)
-                    for prod_subset in _combinations(
-                        remaining_prods, k)
-                        need = reduce(
-                            _add_atoms,
-                            [prod_atoms[p]
-                             for p in prod_subset];
-                            init=Dict{Symbol,Int}()
-                        )
-                        _can_pingpong(
-                            acc_atoms, need
-                        ) || continue
-                        residual = _subtract_atoms(
-                            acc_atoms, need
-                        )
-                        # Admissible-residual rule: a ping-pong
-                        # continuation must form a genuine covalent
-                        # residue. An empty residue means the enzyme
-                        # returns to apo E mid-cycle while substrates
-                        # remain unbound, splitting the reaction into
-                        # disconnected half-cycles — not a valid
-                        # mechanism. The final isomerization (Option 3,
-                        # all substrates consumed) handles the
-                        # legitimate return to apo E.
-                        isempty(residual) && continue
-                        n_prods_eff = k + 1
-                        # C6: iso size limit
-                        length(on_enzyme_subs) > 3 &&
-                            continue
-                        n_prods_eff > 3 && continue
-                        # C8: product-only iso form
-                        iso_species = _make_species(
-                            Symbol[],
-                            collect(prod_subset),
-                            _residual_for(
-                                consumed_subs, Symbol[],
-                                released_prods,
-                                collect(prod_subset),
-                                sub_atoms, prod_atoms))
-                        step = Step(
-                            cur_species, iso_species,
-                            Metabolite[], Metabolite[], true)
-                        push!(steps, step)
-                        # Release products one at a time. This
-                        # ping-pong continuation carries a genuine
-                        # covalent residual (the empty-residue case is
-                        # filtered above), so the control bool is true.
-                        _release_products!(
-                            all_paths, backtrack!,
-                            iso_species, residual,
-                            consumed_subs, released_prods,
-                            prod_subset, sub_atoms, prod_atoms,
-                            true, steps
-                        )
-                        pop!(steps)
-                    end
-                end
-            end
-            # Option 3: final isomerize (all subs bound)
-            if isempty(remaining_subs)
-                all_prod_atoms = reduce(
-                    _add_atoms,
-                    [prod_atoms[p]
-                     for p in remaining_prods];
-                    init=Dict{Symbol,Int}()
-                )
-                # C6: iso size limit
-                n_subs_react = length(on_enzyme_subs)
-                n_prods_eff = length(remaining_prods)
-                if n_subs_react <= 3 &&
-                        n_prods_eff <= 3 &&
-                        _can_pingpong(
-                            acc_atoms, all_prod_atoms)
-                    new_species = _make_species(
-                        Symbol[],
-                        copy(remaining_prods),
-                        _residual_for(
-                            consumed_subs, Symbol[],
-                            released_prods,
-                            copy(remaining_prods),
-                            sub_atoms, prod_atoms))
-                    step = Step(
-                        cur_species, new_species,
-                        Metabolite[], Metabolite[], true)
-                    push!(steps, step)
-                    backtrack!(
-                        new_species, acc_atoms,
-                        consumed_subs, released_prods,
-                        Symbol[],
-                        copy(remaining_prods),
-                        false, true, steps
-                    )
-                    pop!(steps)
-                end
-            end
-        elseif isempty(on_enzyme_subs) && pingpong_intermediate
-            # C7: residual-bearing form with no subs — only bind, no iso
-            for s in remaining_subs
-                new_on = [s]
-                new_consumed = [consumed_subs; s]
-                new_species = _make_species(
-                    new_on, Symbol[],
-                    _residual_for(new_consumed, new_on,
-                                  released_prods, Symbol[],
-                                  sub_atoms, prod_atoms))
-                step = Step(
-                    cur_species, new_species,
-                    Metabolite[Substrate(s)], Metabolite[], true)
-                push!(steps, step)
-                backtrack!(
-                    new_species,
-                    _add_atoms(acc_atoms, sub_atoms[s]),
-                    new_consumed, released_prods,
-                    new_on, Symbol[],
-                    true, false, steps
-                )
-                pop!(steps)
-            end
-        elseif !isempty(on_enzyme_subs) && pingpong_intermediate
-            # Residual + substrates bound
-            # Option 1: bind another substrate (C5)
-            if length(on_enzyme_subs) < max_bound
-                for s in remaining_subs
-                    new_on = [on_enzyme_subs; s]
-                    new_consumed = [consumed_subs; s]
-                    new_species = _make_species(
-                        new_on, Symbol[],
-                        _residual_for(new_consumed, new_on,
-                                      released_prods, Symbol[],
-                                      sub_atoms, prod_atoms))
-                    step = Step(
-                        cur_species, new_species,
-                        Metabolite[Substrate(s)], Metabolite[], true)
-                    push!(steps, step)
-                    backtrack!(
-                        new_species,
-                        _add_atoms(
-                            acc_atoms, sub_atoms[s]),
-                        new_consumed, released_prods,
-                        new_on, Symbol[],
-                        true, false, steps
-                    )
-                    pop!(steps)
-                end
-            end
-            # Option 2: isomerize to release products
-            # (C9: multi-product release)
-            for k in 1:length(remaining_prods)
-                for prod_subset in _combinations(
-                    remaining_prods, k)
-                    need = reduce(
-                        _add_atoms,
-                        [prod_atoms[p]
-                         for p in prod_subset];
-                        init=Dict{Symbol,Int}()
-                    )
-                    _can_pingpong(
-                        acc_atoms, need
-                    ) || continue
-                    residual_atoms = _subtract_atoms(
-                        acc_atoms, need
-                    )
-                    n_prods_eff = k + (
-                        isempty(residual_atoms) ? 0 : 1)
-                    # C6: iso size limit
-                    length(on_enzyme_subs) > 3 &&
-                        continue
-                    n_prods_eff > 3 && continue
-
-                    has_more = !isempty(residual_atoms)
-                    is_final = !has_more &&
-                        isempty(remaining_subs) &&
-                        k == length(remaining_prods)
-
-                    if is_final
-                        # Final iso: release all
-                        # remaining products
-                        new_species = _make_species(
-                            Symbol[],
-                            copy(remaining_prods),
-                            _residual_for(
-                                consumed_subs, Symbol[],
-                                released_prods,
-                                copy(remaining_prods),
-                                sub_atoms, prod_atoms))
-                        step = Step(
-                            cur_species, new_species,
-                            Metabolite[], Metabolite[], true)
-                        push!(steps, step)
-                        backtrack!(
-                            new_species, acc_atoms,
-                            consumed_subs,
-                            released_prods,
-                            Symbol[],
-                            copy(remaining_prods),
-                            false, true, steps
-                        )
-                        pop!(steps)
-                    else
-                        # Admissible-residual rule (mirrors the no-residual
-                        # ping-pong branch): a non-final ping-pong iso must
-                        # leave a genuine covalent residue. Without one the
-                        # enzyme returns to apo E mid-cycle while substrates
-                        # remain — a disconnected half-cycle.
-                        has_more || continue
-                        # C8: product-only iso form
-                        iso_species = _make_species(
-                            Symbol[],
-                            collect(prod_subset),
-                            _residual_for(
-                                consumed_subs, Symbol[],
-                                released_prods,
-                                collect(prod_subset),
-                                sub_atoms, prod_atoms))
-                        step = Step(
-                            cur_species, iso_species,
-                            Metabolite[], Metabolite[], true)
-                        push!(steps, step)
-                        _release_products!(
-                            all_paths, backtrack!,
-                            iso_species, residual_atoms,
-                            consumed_subs,
-                            released_prods,
-                            prod_subset, sub_atoms, prod_atoms,
-                            has_more, steps
-                        )
-                        pop!(steps)
-                    end
-                end
-            end
+        remaining_subs = setdiff(sub_names, consumed)
+        for s in remaining_subs
+            step!(Metabolite[Substrate(s)], Metabolite[], [consumed; s], released,
+                  [on_subs; s], Symbol[])
+        end
+        # C7: only a substrate-bound form isomerizes. C6: at most three substrates react.
+        (isempty(on_subs) || length(on_subs) > 3) && return
+        for subset in _subsets(setdiff(prod_names, released))[2:end]
+            residue = _net_atoms(reaction, consumed, [released; subset])
+            any(<(0), values(residue)) && continue
+            # Admissible-residual rule: an isomerization leaves a covalent residue
+            # exactly when substrates remain to bind. Without a residue while substrates
+            # remain, the enzyme would return to apo E mid-cycle, splitting the reaction
+            # into disconnected half-cycles. With a residue after the last substrate,
+            # the route strands it: only a substrate-bound form isomerizes (C7).
+            isempty(residue) == isempty(remaining_subs) || continue
+            # C6: iso size limit, the residue counting as one product
+            length(subset) + !isempty(residue) > 3 && continue
+            # C8: product-only iso form
+            step!(Metabolite[], Metabolite[], consumed, released, Symbol[], subset)
         end
     end
-
     # Start from free enzyme (:E, no bound metabolites).
-    free_E = Species(Metabolite[], :E)
-    backtrack!(
-        free_E, Dict{Symbol,Int}(), Symbol[], Symbol[],
-        Symbol[], Symbol[], false, false, Step[]
-    )
-
-    isempty(all_paths) && return Vector{Step}[]
-
-    # Deduplicate paths by their structural step content.
-    # `Step` equality / hash use canonical direction, so this
-    # correctly identifies equal step multi-sets across paths.
-    unique_paths = Vector{Vector{Step}}()
-    seen_path_keys = Set{Set{Step}}()
-    for path in all_paths
-        key = Set(path)
-        key ∈ seen_path_keys && continue
-        push!(seen_path_keys, key)
-        push!(unique_paths, path)
-    end
+    walk!(Species(Metabolite[], :E), Symbol[], Symbol[], Symbol[], Symbol[], Step[])
 
     # --- Group paths by isomerization pattern ---
-    _iso_pattern(path) = Set(s for s in path if is_iso(s))
-
     iso_groups = Dict{Set{Step}, Vector{Vector{Step}}}()
-    for path in unique_paths
-        pat = _iso_pattern(path)
-        push!(get!(iso_groups, pat, Vector{Vector{Step}}()),
-              path)
-    end
-
-    # --- Enumerate weak orderings within each group ---
-    function _weak_orderings(items::Vector{T}) where T
-        n = length(items)
-        n == 0 && return [Vector{Vector{T}}()]
-        n == 1 && return [[items]]
-        orderings = Vector{Vector{Vector{T}}}()
-        _wo_recurse!(orderings, Vector{Vector{T}}(), items)
-        orderings
-    end
-
-    function _wo_recurse!(
-        orderings, prefix, remaining::Vector{T},
-    ) where T
-        if isempty(remaining)
-            push!(orderings, copy(prefix))
-            return
-        end
-        for mask in 1:(2^length(remaining) - 1)
-            level = T[]
-            rest = T[]
-            for (i, item) in enumerate(remaining)
-                if (mask >> (i - 1)) & 1 == 1
-                    push!(level, item)
-                else
-                    push!(rest, item)
-                end
-            end
-            push!(prefix, sort(level))
-            _wo_recurse!(orderings, prefix, rest)
-            pop!(prefix)
-        end
+    for path in paths
+        push!(get!(iso_groups, Set(filter(is_iso, path)), Vector{Step}[]), path)
     end
 
     # --- Build topologies: union whole paths consistent with each
@@ -761,59 +236,39 @@ function _catalytic_topologies(
     # the catalytic complex — paths consistent with one weak ordering never
     # carry contradictory binding orders, so no dangling single-metabolite
     # forms arise. Binding history is read from the path, so ping-pong (where
-    # a consumed substrate leaves the bound set) is handled correctly.
+    # a consumed substrate leaves the bound set) is handled correctly. A path
+    # is consistent with a weak ordering when its binding (release) order never
+    # steps back to an earlier level; every path binds every substrate and
+    # releases every product once.
     #
     # Iterate iso_groups deterministically (smaller iso-step counts first,
     # then by sorted iso-step names) so topology output order is stable —
     # `Set{Step}` hashing is not value-stable.
-    sorted_iso_pats = sort(collect(keys(iso_groups));
-        by = pat -> (
-            length(pat),
-            sort([
-                (string(name(from_species(s))),
-                 string(name(to_species(s))))
-                for s in pat])))
-
+    level_of(wo) = Dict{Symbol,Int}(m => i for (i, level) in enumerate(wo) for m in level)
+    sub_levels = level_of.(_weak_orderings(sub_names))
+    prod_levels = level_of.(_weak_orderings(prod_names))
+    route_order(path, ::Type{T}) where {T} =
+        Symbol[name(bound_metabolite(s)::T) for s in path if bound_metabolite(s) isa T]
+    sorted_iso_pats = sort!(collect(keys(iso_groups));
+        by = pat -> (length(pat),
+                     sort([(string(name(from_species(s))), string(name(to_species(s))))
+                           for s in pat])))
     result = Vector{Step}[]
     for iso_pat in sorted_iso_pats
-        group_paths = iso_groups[iso_pat]
-
-        sub_binding_mets = Set{Symbol}()
-        prod_binding_mets = Set{Symbol}()
-        for path in group_paths, step in path
-            bm = bound_metabolite(step)
-            bm === nothing && continue
-            if bm isa Substrate
-                push!(sub_binding_mets, name(bm))
-            elseif bm isa Product
-                push!(prod_binding_mets, name(bm))
-            end
-        end
-
-        sub_orderings = _weak_orderings(
-            sort(collect(sub_binding_mets)))
-        prod_orderings = _weak_orderings(
-            sort(collect(prod_binding_mets)))
-
+        group = [(path, route_order(path, Substrate), route_order(path, Product))
+                 for path in iso_groups[iso_pat]]
         seen_topos = Set{Set{Step}}()
-        for sub_ord in sub_orderings, prod_ord in prod_orderings
+        for sl in sub_levels, pl in prod_levels
             topo_keys = Set{Step}()
-            matched = false
-            for path in group_paths
-                _linearizes(_binding_order(path), sub_ord) || continue
-                _linearizes(_release_order(path), prod_ord) || continue
-                union!(topo_keys, path)
-                matched = true
+            for (path, binds, releases) in group
+                issorted(binds; by = m -> sl[m]) && issorted(releases; by = m -> pl[m]) &&
+                    union!(topo_keys, path)
             end
-            matched || continue
-            topo_keys ∈ seen_topos && continue
+            (isempty(topo_keys) || topo_keys ∈ seen_topos) && continue
             push!(seen_topos, topo_keys)
 
-            steps = sort(collect(topo_keys); by=s -> (
-                is_iso(s) ? 1 : 0,
-                string(name(from_species(s))),
-                string(name(to_species(s))),
-            ))
+            steps = sort!(collect(topo_keys); by = s -> (is_iso(s),
+                string(name(from_species(s))), string(name(to_species(s)))))
 
             # The first iso step is the (single) SS step; every other step is
             # RE. Rebuild each Step with that tag (Step is immutable; direction
