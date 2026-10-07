@@ -222,7 +222,8 @@ off, and `to_species` holding `from_species`'s metabolites plus that one with th
 same residual, the conformation free to change (`_binds_ligand`). Isomerizations,
 fused bindings (`E(A) + B → E(P, Q)`), Theorell–Chance steps and steps with several
 metabolites on a side are chemistry. The allosteric moves (`_expand_to_allosteric`,
-`_expand_change_allo_state`), `_onlya_haldane_violation` and `show` read it to tell
+`_expand_change_allo_state`), `_onlya_haldane_violation`, the steady-state pivot
+tie-break in `_assemble_constraints` and `_fused_substrate_binding` read it to tell
 catalysis from binding."""
 function _is_chemistry(s::Step)
     m = bound_metabolite(s)
@@ -957,9 +958,8 @@ The Sig of `m`: `(reaction_sig, steps_sig)`. `reaction_sig` holds the reactants 
 catalytic multiplicities; `steps_sig` holds one tuple of step leaves per kinetic
 group.
 
-A regulator declared on the reaction that no step actually binds does not belong in
-the compiled catalytic mechanism's `regulators` list (e.g. a dead-end inhibitor
-before any expansion move binds it), so the Sig leaves it out: the reaction of
+A regulator declared on the reaction that no step binds is left out of the Sig (e.g.
+a dead-end inhibitor before any expansion move binds it): the reaction of
 `Mechanism(em)` does not list it and it gets no parameter. Substrates and products
 are always encoded. `Mechanism` (the working representation used during enumeration)
 intentionally KEEPS unbound regulators — expansion moves bind them later.
@@ -1211,8 +1211,8 @@ _flat_steps(m::Mechanism) = [(s, g) for (g, group) in enumerate(steps(m)) for s 
 """
     metabolites(m::EnzymeMechanism) → Tuple{Symbol,...}
 
-Return distinct metabolite names (substrates ∪ products ∪ regulators) as a tuple
-of `Symbol`s in declaration order, deduplicated. The fitter uses this as the
+Return distinct metabolite names as a tuple of `Symbol`s: substrates, then products,
+then regulators, each sorted by name, without duplicates. The fitter uses this as the
 key set for the per-datapoint concentration `NamedTuple` passed to
 [`rate_equation`](@ref).
 
@@ -1339,7 +1339,8 @@ _enumerate_parameters_full(m::Mechanism) =
 The Parameter(s) governing step `s` with the given allosteric state, by
 `is_equilibrium(s)`. The walkers over group representatives
 (`_enumerate_parameters_full`, `_cat_params`) apply it to each group's
-representative step; `_step_parameters` applies it to every step, and
+representative step; `_step_parameters` applies it to every step, `_state_parts` to
+every step of one conformation, with that conformation's tag, and
 `_onlya_haldane_violation` to a group's first step to label the group.
 
 Returns 1 element for an RE step (`Kequil`) and 2 elements for an SS step

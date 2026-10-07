@@ -268,9 +268,8 @@ function _raw_symbolic_rate_polys(
     # D[g], the spanning-tree weight of segment g: L without g's row and column.
     D = [(o = setdiff(1:G, g); sym_det(L[o, o])) for g in 1:G]
 
-    # A fully-inert conformation (every binding pruned, e.g. all-`:OnlyA` in the
-    # inactive state) has no reactions and so no enumerated form; its free enzyme
-    # spans the whole (empty) graph, so `D[g_free] = 1`.
+    # A graph with no unbound, residual-free form (a hand-written mechanism whose
+    # every form carries a residual) has no free enzyme to weight, so `d_free` is 1.
     i_free = findfirst(f -> isempty(bound(f)) && isempty(residual(f)), species)
     d_free = i_free === nothing ? poly_one() : D[seg[i_free]]
 
@@ -1093,9 +1092,9 @@ The catalytic rate polys of both conformations of `am` (`_state_rate_polys`) und
 formulation-1 per-state free-enzyme normalization that `rate_equation`
 (`_num_den_exprs`) and `_kcat_forward` share. The I-state polys are always re-derived
 natively on the reachable-form subgraph (`_state_allo_mechanism(am, :I)` drops `:OnlyA`
-groups and every form they disconnect from free E). Reachable-subgraph King–Altman gives
-the same binding partition monomial-zeroing produced, and for a dead cycle the pruned
-graph's steady-state fluxes cancel exactly, so `num_I` is 0 natively — no forced zero.
+groups and every form they disconnect from free E). King–Altman on that subgraph
+derives the inactive conformation's binding partition, and for a dead cycle the pruned
+graph's steady-state fluxes cancel exactly, so `num_I` is 0.
 
 The free-enzyme weights `d_A` and `d_I` combine three ways, all rendering the same
 value (`mets` are the catalytic metabolites):

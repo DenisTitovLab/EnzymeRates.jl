@@ -220,8 +220,10 @@ model-selection outcome is saved without re-running cross-validation.
 ## Loud failures
 
 A mechanism that throws during compilation or fitting becomes a `FitFailure`
-carrying the exception text. Failures are never silently discarded — they appear
-in `cv_results` (and the saved CSVs) with the `retcode` and `error` columns
-populated. If every mechanism in the base tier fails, the search re-raises the
-first exception, so an unsupported optimizer keyword or a memory overflow
+carrying the exception text. Failures are never silently discarded: each one is a
+row of the search CSVs (`initial_mechanisms.csv` and
+`equation_search_iteration_N.csv`) with `error` set and `retcode` missing. A
+failure never enters cross-validation, so `cv_results` holds none. If every
+mechanism in the base tier fails, the search raises an error quoting the first
+failure's message, so an unsupported optimizer keyword or a memory overflow
 surfaces immediately rather than being swallowed.

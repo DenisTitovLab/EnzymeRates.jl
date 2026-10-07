@@ -315,6 +315,7 @@ function _expand_substrate_product_dead_ends(
     prod_names = Set(name(p) for p in products(reaction))
     mets = sort!(collect(union(sub_names, prod_names)))
 
+    # Competition patterns depend only on the reaction, so they are computed once.
     # A declared shared catalytic site forbids its (substrate, product) pair
     # from co-occupying the catalytic site, so keep only competition patterns
     # whose forbidden-edge set contains every declared pair. The complete
@@ -339,6 +340,7 @@ function _expand_substrate_product_dead_ends(
             push!(dead_ends, Species(Metabolite[bound(sp)..., role(m)], conformation(sp),
                                      residual(sp)))
         end
+        # Several catalytic forms can give the same dead end.
         unique!(dead_ends)
         edges = Set((from_species(s), to_species(s)) for s in topo)
         seen = Set{Vector{Species}}()
@@ -1410,7 +1412,8 @@ exists: the copy's forms are not productive, and its steps attach each complex t
 site's segment and join no two segments, so every form of `m` keeps its segment and
 offsets. A `Mechanism` candidate takes the `_gauge_rescaling` path on `groups` and is
 built only when kept. Only the new group is tested: `m` holds no redundant copy group
-(the parent rule), and the placement cannot make an older one redundant. An allosteric
+(the parent rule), and in about 218,000 enumerated parents checked the placement never
+made an older one redundant (an empirical finding, not a proof). An allosteric
 child is built, and runs `_redundant_copy_groups` only when every complex of the copy
 has a twin in the active state (`_all_twin`), which redundancy needs; it tags the copy's
 group `:EqualAI` and keeps `m`'s multiplicity and regulatory sites.
@@ -1530,11 +1533,10 @@ Convert a non-allosteric `Mechanism` into allosteric variants. Two kinds whose
 conformational constant `L` never shows are not enumerated: the all-`:EqualAI` baseline
 and a V-type variant without a regulator. An `:OnlyA` catalytic binding means the
 inactive conformation cannot bind that metabolite, so it cannot complete the catalytic
-cycle: every emitted
-`:OnlyA` variant is **dead-inactive** — every chemistry group is `:OnlyA`,
-and the inactive conformation only binds ligands. A chemistry group is one
-holding a chemistry step (`_is_chemistry`): an isomerization, a fused
-binding or a Theorell–Chance step; every other group is a binding group.
+cycle: every emitted `:OnlyA` variant is **dead-inactive** — every chemistry group is
+`:OnlyA`, and the inactive conformation only binds ligands. A chemistry group is one
+holding a chemistry step (`_is_chemistry`): an isomerization, a fused binding or a
+Theorell–Chance step; every other group is a binding group.
 
   * The all-`:EqualAI` baseline is never emitted — the two conformations
     are identical, `L` cancels, and the mechanism is indistinguishable
@@ -1703,8 +1705,8 @@ not already `:NonequalAI`. The chemistry groups (those holding a chemistry step,
 non-`:NonequalAI` chemistry group to `:NonequalAI` at once: inactive catalysis
 is all-or-nothing, so a fully-`:NonequalAI` catalytic inactive conformation
 cannot be reached by relaxing chemistry groups one at a time (each mixed
-intermediate is a partial and is dropped). The base catalytic steps,
-multiplicity, and untouched tags are preserved.
+intermediate would leave the inactive catalysis partial, which the all-or-nothing
+rule forbids). The base catalytic steps, multiplicity, and untouched tags are preserved.
 
 The chemistry relaxation is tried only while no binding group is `:OnlyA`. The
 inactive conformation's catalysis must be all-or-nothing — fully dead (every
@@ -1740,9 +1742,10 @@ function _expand_change_allo_state(am::AllostericMechanism)
     # Binding catalytic groups relax individually. Chemistry groups relax together.
     # Inactive catalysis is all-or-nothing, so a fully-`:NonequalAI` catalytic inactive
     # conformation is unreachable by relaxing chemistry groups one at a time — each
-    # mixed intermediate is a partial and is dropped. One variant sets every
-    # non-`:NonequalAI` chemistry group to `:NonequalAI` at once, and only while no
-    # binding group is `:OnlyA`, which would leave the inactive catalysis partial.
+    # mixed intermediate would leave the inactive catalysis partial, which the
+    # all-or-nothing rule forbids. One variant sets every non-`:NonequalAI` chemistry
+    # group to `:NonequalAI` at once, and only while no binding group is `:OnlyA`,
+    # which would leave the inactive catalysis partial.
     relaxations = [[g] for g in eachindex(cs) if !chem[g] && states[g] != :NonequalAI]
     any(chem .& (states .!= :NonequalAI)) && !any(.!chem .& (states .== :OnlyA)) &&
         push!(relaxations, findall(chem))

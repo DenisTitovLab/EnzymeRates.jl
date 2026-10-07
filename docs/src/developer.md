@@ -46,8 +46,11 @@ reaction but bound by no step, so they add no parameter and the reaction of
 `Mechanism(em)`, which lifts back, does not list them.
 
 Only the `@generated` methods (`rate_equation`, `parameters`, `fitted_params`,
-`metabolites`, `_kcat_forward`) run the derivation per singleton type. The lifts
-`Mechanism(em)` and `AllostericMechanism(aem)` read the type parameters at run
+`metabolites`, `_kcat_forward`) do work per singleton type: `rate_equation` and
+`_kcat_forward` run the derivation, `fitted_params` and the reduced `parameters` run
+its constraint solve, and `metabolites` and the full `parameters` read names off the
+lifted mechanism. The lifts `Mechanism(em)` and `AllostericMechanism(aem)` read the
+type parameters at run
 time, and the derivation helpers that take a singleton or its type take it
 `@nospecialize`, so they compile once for all mechanisms. A new mechanism type
 then pays for its generated bodies and the derivation they run, plus a few thin
@@ -62,9 +65,13 @@ dispatch.
 
 Mechanism enumeration uses the **concrete types** `Mechanism` and
 `AllostericMechanism` (`src/types.jl`) — internal, not exported — built directly
-from `Step` and `Species` values. `Mechanism` has two fields:
+from `Step` and `Species` values. `Mechanism` has two semantic fields:
 `reaction::EnzymeReaction` and `steps::Vector{Vector{Step}}` — kinetic groups,
 one inner vector per group holding the steps that share that group's parameters.
+It also carries `naming`, a lazily filled cache of data derived from the steps (the
+free-enzyme forms and each group's naming representative and rendered sides), which
+takes no part in `==`, `hash`, the compiled type or display; `AllostericMechanism`
+carries the same cache.
 `Step` has `from_species`, `to_species`, `consumed`, `released`, and
 `is_equilibrium`: going from `from_species` to `to_species`, a step takes up the
 metabolites in `consumed` from solution and gives off those in `released`. Steps
@@ -76,8 +83,9 @@ last substrate binds straight into the product-bound form
 (`E(A) + B → E(P, Q)`). An isomerization has both lists empty (`is_iso`); a
 Theorell–Chance step takes up one metabolite and gives off another. `_is_chemistry`
 is true for every step but a plain binding; the allosteric moves,
-`_onlya_haldane_violation` and `show` read it to tell catalysis from binding. The
-derivation reads every binding alike, so a fused binding's rapid-equilibrium
+`_onlya_haldane_violation`, the steady-state pivot tie-break in
+`_assemble_constraints` and `_fused_substrate_binding` read it to tell catalysis from
+binding. The derivation reads every binding alike, so a fused binding's rapid-equilibrium
 constant is a dissociation constant and its steady-state pair a binding and a
 release rate constant. Every step's constants are named by its two sides — each
 side's enzyme form followed by its free metabolites (`K_ES_to_E_S` for `E + S ⇌ E(S)`,
@@ -192,10 +200,11 @@ the root; the predicate decides "at most 1" with reachability checks
 (`_all_reach`) rather than a max-arborescence solve, since a weight-2 pattern is
 one segment or edge scoring 2, a scoring root plus a compatible scoring edge, or
 two compatible scoring edges. The exactness of the predicate against the derived
-denominator is pinned by a test over the uni-bi, bi-bi, and ping-pong
-enumerations. A future conformational type (KNF, mnemonic, slow isomerization)
-adds one `_requires_hyperbolic_catalysis` method and calls the predicate in its
-promotion move.
+denominator is pinned by a test over the uni-bi enumeration and the
+ping-pong-capable bi-bi enumeration, which contains every bi-bi mechanism. A future
+conformational type (KNF, mnemonic, slow isomerization) adds one
+`_requires_hyperbolic_catalysis` method and calls the predicate in its promotion
+move.
 
 ## Optimization algorithm architecture
 

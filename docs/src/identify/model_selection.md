@@ -134,12 +134,15 @@ The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
 | Column | Description |
 |--------|-------------|
 | `n_params` | Actual fitted-parameter count. |
+| `parent_n_params` | Fitted-parameter count of the parent the mechanism was expanded from; `missing` for a starting mechanism. |
 | `loss` | Training loss (ranks which equations enter LOOCV). |
 | `mechanism_type` | Julia type name of the compiled mechanism. |
+| `parent_mechanism_type` | Julia type name of the compiled parent; `missing` for a starting mechanism. |
 | `rate_equation` | Full symbolic rate-equation string. |
 | `retcode` | Optimizer return code (`"Success"` = converged). |
 | `error` | Exception text if the fit errored; otherwise `missing`. |
 | `eq_hash` | Hex hash of the comment-stripped rate equation. Two mechanisms with the same `eq_hash` compute the same rate function. |
+| `fit_inherited` | `true` when the row reuses the fit of another mechanism with the same `eq_hash`; `false` for the mechanism actually fit. |
 | one per fitted parameter | Fitted parameter value, or `missing` if the mechanism lacks that parameter. |
 | `cv_score` | Mean of per-fold losses (lower is better). |
 | `cv_score_se` | Standard error of the per-fold losses: `std(fold_scores) / √n_folds`. |

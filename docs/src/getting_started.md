@@ -41,9 +41,13 @@ independent forward and reverse rate constants. The result is an
 mechanism structure is an unreadable string, so `isa` is the useful check.
 
 An enzyme form's name joins its bound metabolites' names without a separator
-(`E(S)` is `ES`), so metabolite names whose joins coincide are rejected: with
-`Ac`, `CoA` and `AcCoA`, E with Ac and CoA bound and E with AcCoA bound are both
-`EAcCoA`. Rename one, for example `Acetyl`.
+(`E(S)` is `ES`), so two forms can render one name: with `Ac`, `CoA` and `AcCoA`,
+E with Ac and CoA bound and E with AcCoA bound are both `EAcCoA`.
+`@enzyme_reaction` accepts such names; the mechanism constructors reject a
+mechanism that holds two forms whose names coincide. For Ac + CoA ⇌ AcCoA every
+seed holds both E(Ac, CoA) and E(AcCoA), so `init_mechanisms` and
+`identify_rate_equation` stop with an error naming both forms. Rename one, for
+example `Acetyl`.
 
 ---
 

@@ -17,9 +17,13 @@ Emit an `EnzymeReaction`.
 - `substrates:` / `products:` — comma-separated entries with required atom
   brackets (`S[C6H12O6]`). Multi-atom forms like `[C2,N]` are allowed.
   An enzyme form's name joins its bound metabolites' names without a
-  separator, so names whose joins coincide are rejected: with `Ac`, `CoA`
-  and `AcCoA`, E with Ac and CoA bound and E with AcCoA bound are both
-  `EAcCoA`. Rename one (`Acetyl`).
+  separator, so two forms can render one name: with `Ac`, `CoA` and
+  `AcCoA`, E with Ac and CoA bound and E with AcCoA bound are both
+  `EAcCoA`. `@enzyme_reaction` accepts such names; the mechanism
+  constructors reject a mechanism that holds two forms whose names
+  coincide. For Ac + CoA ⇌ AcCoA every seed holds both E(Ac, CoA) and
+  E(AcCoA), so `init_mechanisms` and `identify_rate_equation` stop with an
+  error naming both forms. Rename one (`Acetyl`).
 - `competitive_inhibitors:` / `dead_end_inhibitors:` —
   `CompetitiveInhibitor` entries (catalytic-site binding). May be bare
   `I` (multiplicities default to `allowed_catalytic_multiplicities`) or
@@ -481,7 +485,8 @@ _is_conformation_shape(sym::Symbol) =
 Build the `Metabolite` `Expr` for a declared name `X` (the subtype `role_of[X]`) or
 `X::Inh` (its `CompetitiveInhibitor` copy): a free term on a step side or, given
 `species`, a metabolite bound in that species. A name declared only as an allosteric
-regulator is rejected: it binds only at its regulatory site.
+regulator and written bare (`R`, `E(R)`) is rejected: it binds only at its regulatory
+site.
 """
 function _metabolite_expr(t, role_of, macro_name, species = nothing)
     name, tag = t isa Expr ? t.args : (t, nothing)

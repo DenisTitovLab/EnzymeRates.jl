@@ -17,8 +17,9 @@ constant for rate equation identification.
 - `data`: `NamedTuple` of column vectors with `:group`,
   `:Rate`, and metabolite columns
 - `Keq`: fixed equilibrium constant
-- `scale_k_to_kcat`: target kcat for SS-rate rescaling
-  before fitting (`nothing` = no rescaling, positive Float64 = target)
+- `scale_k_to_kcat`: a positive Float64 is the target kcat the fitted SS rate
+  constants are rescaled to, and selects the relative (per-group-centered) loss;
+  `nothing` selects the absolute loss and no rescaling
 """
 struct IdentifyRateEquationProblem{D<:NamedTuple}
     reaction::EnzymeReaction
@@ -49,8 +50,8 @@ end
 Results from `identify_rate_equation`.
 
 # Fields
-- `best`: the best `AbstractEnzymeMechanism`
-  (lowest loss at optimal param count)
+- `best`: the selected `AbstractEnzymeMechanism` (1-SE rule on the LOOCV
+  scores; see Model selection in `identify_rate_equation`)
 - `cv_results`: `DataFrame` with LOOCV results for
   top candidates per param count
 """
@@ -63,7 +64,10 @@ end
     identify_rate_equation(prob; optimizer,
         min_beam_width=50, loss_rel_threshold=1.3, loss_abs_threshold=0.001,
         loss_parsimony_threshold=0.99,
-        max_param_count=20, n_restarts=20, maxtime=600.0, maxiters=10_000_000,
+        max_param_count=20, eq_complexity_filter=337,
+        optional_allosteric_regulators=Symbol[],
+        optional_competitive_inhibitors=Symbol[],
+        n_restarts=20, maxtime=600.0, maxiters=10_000_000,
         abstol=nothing, reltol=nothing, callback=nothing, solver_kwargs=(;),
         n_cv_candidates=5, se_threshold=1.0,
         save_dir=_default_save_dir(), show_progress=true)
@@ -124,7 +128,8 @@ and data using beam search.
   search CSVs (`initial_mechanisms.csv` + `equation_search_iteration_N.csv`),
   plus `loocv_results.csv` (the LOOCV table for every cross-validated
   candidate) and `best_equation.csv` (the selected equation and its
-  fitted parameters)
+  fitted parameters). A `save_dir` that already holds a `.csv` file or a
+  `progress.log` is refused, so the results of two runs never mix.
 
 # Beam selection
 
@@ -679,8 +684,9 @@ function _beam_search(
     # Mechanisms expanded so far per parameter count — the cumulative floor
     # budget. Spent once over the whole search, never re-granted per sweep.
     expanded_by_count = Dict{Int, Int}()
-    # Raw pre-rescale fits keyed by `eq_hash`, shared across iterations so each
-    # distinct equation is fit exactly once over the whole search.
+    # Fits as `fit_rate_equation` returns them (rescaled when `scale_k_to_kcat` is
+    # set), keyed by `eq_hash`, shared across iterations so each distinct equation is
+    # fit exactly once over the whole search.
     memo = Dict{UInt64,NamedTuple}()
     # Structures already produced — each is expanded at most once (termination).
     # This preserves the selected model: expansion is deterministic, so a
