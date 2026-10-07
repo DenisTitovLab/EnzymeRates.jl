@@ -349,12 +349,10 @@ and the groups' tags, both in source order. Each top-level expression is either:
 With `allow_tag=false` (plain mechanism), reject any `::Tag` annotations; the tags
 come back empty. With `allow_tag=true` (allosteric mechanism), every group carries
 one. `role_of` maps each declared metabolite to the `Metabolite` subtype it binds
-as; `macro_name` names the invoking macro in error messages. A bare enzyme-form
-name is accepted iff it heads a call form somewhere in the block (`E` in `E(S)`) or
-is conformation-shaped (`_is_conformation_shape`).
+as; `macro_name` names the invoking macro in error messages.
 """
 function _parse_steps_block(steps_block, role_of, macro_name; allow_tag::Bool)
-    groups, tags, forms = Expr[], Symbol[], Any[]
+    groups, tags = Expr[], Symbol[]
     for arg in steps_block.args
         arg isa LineNumberNode && continue
 
@@ -394,14 +392,7 @@ function _parse_steps_block(steps_block, role_of, macro_name; allow_tag::Bool)
             error("$macro_name: expected step or step-group; got $arg")
         end
         push!(groups, :(EnzymeRates.Step[
-            $((_step_expr(s, role_of, macro_name, forms) for s in steps)...)]))
-    end
-
-    call_heads = Set(f.args[1] for f in forms if f isa Expr)
-    for f in forms
-        f isa Symbol && f ∉ call_heads && !_is_conformation_shape(f) &&
-            error("$macro_name: `$f` looks like an opaque bound-form name; write " *
-                  "it as decomposed call notation, e.g. `E(S)` or `E(A, B)`.")
+            $((_step_expr(s, role_of, macro_name) for s in steps)...)]))
     end
     :(Vector{EnzymeRates.Step}[$(groups...)]), tags
 end
@@ -434,9 +425,9 @@ exactly one enzyme-form term and any number of metabolite terms (a declared name
 `X::Inh`): the left-hand metabolites are consumed, the right-hand ones released.
 Every term of both sides is parsed before either side's enzyme forms are counted,
 so a misspelled metabolite bound on either side is reported as undeclared rather
-than as a second enzyme form. Each side's enzyme-form term is pushed onto `forms`.
+than as a second enzyme form.
 """
-function _step_expr(expr, role_of, macro_name, forms)
+function _step_expr(expr, role_of, macro_name)
     expr isa Expr && expr.head == :call ||
         error("$macro_name: expected lhs ⇌ rhs or lhs <--> rhs; got $expr")
     op = expr.args[1]
@@ -458,7 +449,6 @@ function _step_expr(expr, role_of, macro_name, forms)
             error("$macro_name: step side has more than one enzyme-form term " *
                   "($(term_name(terms[i[1]])), $(term_name(terms[i[2]]))); each " *
                   "elementary step has exactly one enzyme form per side.")
-        push!(forms, terms[only(i)])
         exprs[only(i)], exprs[eachindex(exprs) .!= only(i)]
     end
     :(EnzymeRates.Step($from, $to, EnzymeRates.Metabolite[$(consumed...)],
@@ -470,8 +460,9 @@ Build the `Species(bound, conformation, residual)` `Expr` for an enzyme-form ter
 a bare conformation `E`, or a call `E(S, X::Inh; residual = A - P)` whose head is
 the conformation, whose positional arguments are the bound metabolites, and whose
 `residual` lists the substrates added to and the products removed from the enzyme.
-Conformation labels cannot shadow declared metabolite names. The `Species` and
-`Residual` constructors sort what they hold.
+Conformation labels, bare or call heads, cannot shadow declared metabolite names and
+must be conformation-shaped (`_is_conformation_shape`). The `Species` and `Residual`
+constructors sort what they hold.
 """
 function _species_expr(t, role_of, macro_name)
     t isa Symbol || t isa Expr && t.head == :call && t.args[1] isa Symbol ||
@@ -482,6 +473,9 @@ function _species_expr(t, role_of, macro_name)
         error("$macro_name: conformation label `$conformation` collides with " *
               "declared metabolite `$conformation`; choose a different " *
               "conformation label.")
+    _is_conformation_shape(conformation) ||
+        error("$macro_name: `$conformation` looks like an opaque bound-form name; " *
+              "write it as decomposed call notation, e.g. `E(S)` or `E(A, B)`.")
     bound, added, subtracted = Expr[], Expr[], Expr[]
     for a in args
         if a isa Expr && a.head === :parameters
@@ -505,7 +499,7 @@ function _species_expr(t, role_of, macro_name)
 end
 
 """
-A bare `Symbol` is "conformation-shaped" iff it starts with a single
+A `Symbol` is "conformation-shaped" iff it starts with a single
 capital letter followed by any mix of lowercase letters, digits, and
 underscore-separated lowercase/digit runs: `:E`, `:Estar`, `:Estar2`, `:E_c`,
 `:E_secondary`. Multi-capital `Symbol`s (`:ES`, `:EAB`) and underscore-then-

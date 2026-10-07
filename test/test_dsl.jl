@@ -351,6 +351,32 @@
         end))
     end
 
+    @testset "every conformation label is conformation-shaped" begin
+        # A call head is a conformation label like a bare name: `ES(P)` is an opaque
+        # bound-form name written as a call.
+        @test_throws "`ES` looks like an opaque bound-form name" eval(
+            :(@enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + S <--> E(S)
+                    E(S) <--> ES(P)
+                    ES(P) <--> E + P
+                end
+            end))
+        # A bare `ER` is no more acceptable for also heading a call elsewhere.
+        @test_throws "`ER` looks like an opaque bound-form name" eval(
+            :(@enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + S <--> ER(S)
+                    ER(S) <--> ER
+                    ER <--> E + P
+                end
+            end))
+    end
+
     @testset "@allosteric_mechanism opaque rejection names itself" begin
         err = try
             eval(:(@allosteric_mechanism begin
