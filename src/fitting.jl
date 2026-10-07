@@ -77,7 +77,8 @@ function _rate_table(table, mnames, scale_k_to_kcat, Keq)
         m in keys(data) || error("Missing metabolite column: $m")
     end
     i = findfirst(r -> !(r isa Real && isfinite(r)), data.Rate)
-    i === nothing || error("Rate at row $i must be a finite number; got $(data.Rate[i])")
+    i === nothing ||
+        error("Rate at row $i must be a finite number; got $(repr(data.Rate[i]))")
     i = findfirst(iszero, data.Rate)
     i === nothing || error("Zero rate at row $i: log(0) is undefined")
     data

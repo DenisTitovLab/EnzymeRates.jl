@@ -421,9 +421,10 @@ using Tables
         data_no_grp = (Rate = [1.0], S = [1.0], P = [0.1])
         @test_throws ErrorException FittingProblem(uni_uni, data_no_grp; Keq=1.0)
 
-        # A non-finite or missing rate: the error names the Rate column and the row.
+        # A non-finite, missing or non-numeric rate: the error names the Rate column and
+        # the row, and shows the value as Julia prints it, so a String rate is quoted.
         for (bad, shown) in ((NaN, "NaN"), (Inf, "Inf"), (-Inf, "-Inf"),
-                             (missing, "missing"))
+                             (missing, "missing"), ("1.0", "\"1.0\""))
             data_bad = (group = ["G1", "G1"], Rate = [1.0, bad], S = [1.0, 2.0],
                         P = [0.1, 0.1])
             @test_throws(
