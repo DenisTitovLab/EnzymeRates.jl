@@ -300,6 +300,8 @@ function _parse_plain_mechanism_body(block)
         elseif label == :regulators
             append!(regs_list, _bare_symbols_from_values(values, label))
         elseif label == :steps
+            steps_block === nothing ||
+                error("@enzyme_mechanism: `steps:` given more than once.")
             steps_block = only(values)
         else
             error("@enzyme_mechanism: unknown label `$label:`. Allosteric " *
@@ -672,7 +674,7 @@ end
 function _parse_allosteric_mechanism_body(block)
     subs_list, prods_list, cat_inhibitors = Symbol[], Symbol[], Symbol[]
     allo_regs = Pair{Symbol,Symbol}[]
-    cat_n::Int = 1
+    cat_n = nothing
     cat_steps_block = nothing
     reg_site_specs = Tuple{Int,Vector{Symbol}}[]
 
@@ -696,6 +698,9 @@ function _parse_allosteric_mechanism_body(block)
         elseif label isa Expr && label.head == :call && label.args[1] == :regulatory_site
             push!(reg_site_specs, _parse_regulatory_site(label, only(values)))
         elseif label == :catalytic_multiplicity
+            cat_n === nothing ||
+                error("@allosteric_mechanism: `catalytic_multiplicity:` given more " *
+                      "than once.")
             cat_n = _positive_int(only(values),
                                   "@allosteric_mechanism: `catalytic_multiplicity:`")
         elseif label == :catalytic_steps
@@ -733,6 +738,7 @@ function _parse_allosteric_mechanism_body(block)
         cat_steps_block, role_of, "@allosteric_mechanism"; allow_tag = true)
 
     cat_allo_states_expr = :(Symbol[$(QuoteNode.(group_tags)...)])
+    cat_n = something(cat_n, 1)
     reg_sites_expr = _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
 
     # Route through AllostericMechanism so catalytic steps and their

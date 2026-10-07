@@ -259,6 +259,36 @@
             end))
     end
 
+    @testset "a mechanism macro's single-valued labels are written once" begin
+        # A repeated label errors and names the label; it never keeps the last line.
+        @test_throws "`steps:` given more than once" eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+            end
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end))
+        @test_throws "`catalytic_multiplicity:` given more than once" eval(
+            :(@allosteric_mechanism begin
+                substrates: S
+                products:   P
+                catalytic_multiplicity: 2
+                catalytic_multiplicity: 4
+                catalytic_steps: begin
+                    E + S ⇌ E(S)      :: EqualAI
+                    E(S) <--> E(P)    :: EqualAI
+                    E(P) ⇌ E + P      :: EqualAI
+                end
+            end))
+    end
+
     @testset "regulatory_site takes exactly one multiplicity" begin
         # Repeated, missing, misnamed and positional arguments are all errors.
         for site in (:(regulatory_site(multiplicity = 2, multiplicity = 4)),
