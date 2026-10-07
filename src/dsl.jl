@@ -40,14 +40,6 @@ macro enzyme_reaction(block)
     return esc(_reaction_expr(reactants, regs, mults, shared))
 end
 
-const _VALID_REACTION_LABELS = Set([
-    :substrates, :products,
-    :dead_end_inhibitors, :competitive_inhibitors,
-    :allosteric_regulators,
-    :allowed_catalytic_multiplicities, :oligomeric_state,
-    :shared_catalytic_site,
-])
-
 """
 Parse the `@enzyme_reaction` body. Returns a `NamedTuple`:
 - `reactants ::Vector{Tuple{Symbol, Symbol, Vector{Pair{Symbol,Int}}}}` —
@@ -71,9 +63,6 @@ function _parse_reaction_block(block)
     for arg in block.args
         arg isa LineNumberNode && continue
         label, values = _parse_labeled_line(arg)
-        label in _VALID_REACTION_LABELS ||
-            error("@enzyme_reaction: unknown label `$label:`. Valid labels: " *
-                  "$(sort(collect(_VALID_REACTION_LABELS))).")
         if label === :substrates || label === :products
             type = label === :substrates ? :Substrate : :Product
             for (name, atoms) in _parse_atom_bracket_entries(values, label)
@@ -84,17 +73,21 @@ function _parse_reaction_block(block)
             append!(regs, _parse_regulator_entries(values, :CompetitiveInhibitor))
         elseif label === :allosteric_regulators
             append!(regs, _parse_regulator_entries(values, :AllostericRegulator))
-        elseif label === :allowed_catalytic_multiplicities
-            mults = _parse_multiplicity_tuple(values, label)
-        elseif label === :oligomeric_state
+        elseif label === :allowed_catalytic_multiplicities || label === :oligomeric_state
             mults === nothing ||
-                error("@enzyme_reaction: cannot specify both `oligomeric_state:` " *
-                      "and `allowed_catalytic_multiplicities:`.")
-            length(values) == 1 ||
+                error("@enzyme_reaction: `$label:` sets the catalytic multiplicities, " *
+                      "which an earlier `allowed_catalytic_multiplicities:` or " *
+                      "`oligomeric_state:` line already set.")
+            mults = _parse_multiplicity_tuple(values, label)
+            label === :oligomeric_state && length(mults) != 1 &&
                 error("@enzyme_reaction: `oligomeric_state:` takes a single Int.")
-            mults = Int[_positive_int(values[1], "@enzyme_reaction: `oligomeric_state:`")]
         elseif label === :shared_catalytic_site
             append!(shared, _parse_shared_site_pairs(values))
+        else
+            error("@enzyme_reaction: unknown label `$label:`. Valid labels: " *
+                  "substrates, products, competitive_inhibitors, dead_end_inhibitors, " *
+                  "allosteric_regulators, allowed_catalytic_multiplicities, " *
+                  "oligomeric_state, shared_catalytic_site.")
         end
     end
 

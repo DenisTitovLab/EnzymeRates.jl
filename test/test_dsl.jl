@@ -333,7 +333,7 @@
         # The @enzyme_reaction grammar requires `competitive_inhibitors:`,
         # `dead_end_inhibitors:`, or `allosteric_regulators:`. A bare
         # `regulators:` label must be reported as unknown.
-        @test_throws Exception eval(:(@enzyme_reaction begin
+        @test_throws "unknown label `regulators:`" eval(:(@enzyme_reaction begin
             substrates: S[C]
             products: P[C]
             regulators: R1, R2
@@ -396,6 +396,46 @@
             allowed_catalytic_multiplicities: (1, 2, 4)
         end
         @test EnzymeRates.allowed_catalytic_multiplicities(rxn3) == [1, 2, 4]
+    end
+
+    @testset "@enzyme_reaction sets the catalytic multiplicities once" begin
+        # `oligomeric_state:` and `allowed_catalytic_multiplicities:` set the same
+        # value, so a second line of either label errors, in either order.
+        @test_throws "`allowed_catalytic_multiplicities:` sets the catalytic" eval(
+            :(@enzyme_reaction begin
+                substrates: S[C]
+                products:   P[C]
+                oligomeric_state: 2
+                allowed_catalytic_multiplicities: (1, 2)
+            end))
+        @test_throws "`oligomeric_state:` sets the catalytic" eval(
+            :(@enzyme_reaction begin
+                substrates: S[C]
+                products:   P[C]
+                allowed_catalytic_multiplicities: (1, 2)
+                oligomeric_state: 2
+            end))
+        @test_throws "`allowed_catalytic_multiplicities:` sets the catalytic" eval(
+            :(@enzyme_reaction begin
+                substrates: S[C]
+                products:   P[C]
+                allowed_catalytic_multiplicities: (1, 2)
+                allowed_catalytic_multiplicities: (4,)
+            end))
+
+        # `oligomeric_state:` takes one multiplicity, bare or as a one-element tuple.
+        one_tuple = eval(:(@enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+            oligomeric_state: (2,)
+        end))
+        @test EnzymeRates.allowed_catalytic_multiplicities(one_tuple) == [2]
+        @test_throws "`oligomeric_state:` takes a single Int" eval(
+            :(@enzyme_reaction begin
+                substrates: S[C]
+                products:   P[C]
+                oligomeric_state: (1, 2)
+            end))
     end
 
     @testset "@enzyme_reaction shared_catalytic_site" begin
