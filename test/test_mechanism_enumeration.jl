@@ -6074,7 +6074,8 @@ end
     end)
     @test all(EnzymeRates._flux_carrying_groups(
         EnzymeRates._all_steady_state(EnzymeRates.steps(tc)), EnzymeRates.reaction(tc)))
-    @test EnzymeRates._flux_carrying_groups(tc) ==
+    @test EnzymeRates._flux_carrying_groups(EnzymeRates.steps(tc),
+                                            EnzymeRates.reaction(tc)) ==
         [!EnzymeRates.is_equilibrium(first(g)) for g in EnzymeRates.steps(tc)]
 
     # A merged central complex X with two fused steps into it and no
@@ -6118,7 +6119,8 @@ end
     binder(grp) = EnzymeRates.bound_metabolite(first(grp))
     source(grp) = EnzymeRates.name(EnzymeRates.from_species(first(grp)))
     ss_binding(grp) = binder(grp) !== nothing && !EnzymeRates.is_equilibrium(first(grp))
-    flags = EnzymeRates._flux_carrying_groups(shunt)
+    flags = EnzymeRates._flux_carrying_groups(EnzymeRates.steps(shunt),
+                                              EnzymeRates.reaction(shunt))
     for (g, grp) in enumerate(EnzymeRates.steps(shunt))
         if ss_binding(grp)
             @test source(grp) == :E && !flags[g]
@@ -6149,7 +6151,8 @@ end
             E(Q) + P ⇌ E(P, Q)
         end
     end)
-    lflags = EnzymeRates._flux_carrying_groups(loop)
+    lflags = EnzymeRates._flux_carrying_groups(EnzymeRates.steps(loop),
+                                               EnzymeRates.reaction(loop))
     for (g, grp) in enumerate(EnzymeRates.steps(loop))
         if ss_binding(grp)
             @test !lflags[g]

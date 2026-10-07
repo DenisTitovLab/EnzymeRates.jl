@@ -48,14 +48,15 @@ end
 
 The two rules every mechanism the moves emit satisfies, checked on a parent before
 it is expanded. Every steady-state kinetic group holds a step that carries net flux
-(`_flux_carrying_groups`). No kinetic group binds a competitive inhibitor redundantly
-(`_redundant_copy_groups`). A parent must obey both because a flip tests only the groups
-it flips. The split, the dead-end move, and `_expand_change_allo_state` filter their
-children; the other moves preserve both rules.
+(`_flux_carrying_groups` on `steps(m)`, an allosteric mechanism's active-state graph). No
+kinetic group binds a competitive inhibitor redundantly (`_redundant_copy_groups`). A
+parent must obey both because a flip tests only the groups it flips. The split, the
+dead-end move, and `_expand_change_allo_state` filter their children; the other moves
+preserve both rules.
 """
 function _assert_emission_rules(m::Union{Mechanism, AllostericMechanism})
     label(g) = join((join(_forward_sides(s), " → ") for s in steps(m)[g]), ", ")
-    flux = _flux_carrying_groups(m)
+    flux = _flux_carrying_groups(steps(m), reaction(m))
     for (g, group) in enumerate(steps(m))
         is_equilibrium(first(group)) || flux[g] || error(
             "expand_mechanisms: steady-state kinetic group {" * label(g) * "} has no " *
@@ -465,7 +466,7 @@ subunit a flank's flip can be visible through the two conformations.
 """
 function _chain_flank_groups(m::Mechanism)
     groups = steps(m)
-    group_of = Dict(s => g for (g, group) in enumerate(groups) for s in group)
+    lone = Dict(only(group) => g for (g, group) in enumerate(groups) if length(group) == 1)
     at = Dict{Species, Vector{Step}}()
     for group in groups, s in group, sp in (from_species(s), to_species(s))
         push!(get!(at, sp, Step[]), s)
@@ -474,16 +475,13 @@ function _chain_flank_groups(m::Mechanism)
         rest = filter(!=(s0), at[x])
         length(rest) == 1 || return nothing
         s = only(rest)
-        is_binding(s) && to_species(s) == x && length(groups[group_of[s]]) == 1 ?
-            s : nothing
+        is_binding(s) && to_species(s) == x ? get(lone, s, nothing) : nothing
     end
     out = Set{Int}()
-    for group in groups
-        length(group) == 1 || continue
-        s0 = only(group)
+    for s0 in keys(lone)
         is_iso(s0) && !is_equilibrium(s0) || continue
         f1, f2 = flank(s0, from_species(s0)), flank(s0, to_species(s0))
-        f1 === nothing || f2 === nothing || union!(out, (group_of[f1], group_of[f2]))
+        f1 === nothing || f2 === nothing || union!(out, (f1, f2))
     end
     out
 end
@@ -641,20 +639,15 @@ end
 
 """
     _flux_carrying_groups(groups, rxn) -> BitVector
-    _flux_carrying_groups(m) -> BitVector
 
 One flag per kinetic group: whether some step of the group carries net
 steady-state flux (`_flux_carrying_steps`). A steady-state group with no such step
 exposes only the ratio of its two constants, so the moves never emit one; a
 zero-flux step inside a group that also holds a flux-carrying step costs nothing,
 because the group's shared constants are pinned by the step that carries flux.
-The mechanism method reads `steps(m)`, which for an allosteric mechanism is its
-A-state catalytic graph.
 """
 _flux_carrying_groups(groups::Vector{Vector{Step}}, rxn::EnzymeReaction) =
     BitVector([any(f) for f in _flux_carrying_steps(groups, rxn)])
-_flux_carrying_groups(m::Union{Mechanism, AllostericMechanism}) =
-    _flux_carrying_groups(steps(m), reaction(m))
 
 """
 `groups` with the isomerization `s0`, alone in its group, merged onto its product side:
@@ -716,13 +709,15 @@ function _has_unbalanced_cycle(from, to, weight, on, parent, offset)
 end
 
 """Whether a cycle of rapid-equilibrium steps of `groups` runs net turnover, which makes the
-rate infinite. Each RE step joins its two forms with its uptake of the reaction's
+rate infinite. The steps for which `fast` holds count as rapid equilibrium, by default
+those flagged so. Each RE step joins its two forms with its uptake of the reaction's
 substrates minus its products as weight (`_uptake_weight`); a turnover cycle has weight
 n·Σρ², never zero, so the RE steps hold one iff they close a cycle of nonzero weight
 (`_has_unbalanced_cycle`)."""
-function _re_turnover_cycle(groups::Vector{Vector{Step}}, rxn::EnzymeReaction)
+function _re_turnover_cycle(groups::Vector{Vector{Step}}, rxn::EnzymeReaction,
+                            fast = is_equilibrium)
     rho = _reactant_signs(rxn)
-    re = [s for group in groups for s in group if is_equilibrium(s)]
+    re = [s for group in groups for s in group if fast(s)]
     idx = Dict{Species, Int}()
     vertex(sp) = get!(idx, sp, length(idx) + 1)
     ends = [(vertex(from_species(s)), vertex(to_species(s))) for s in re]
@@ -737,8 +732,7 @@ them leaves no rapid-equilibrium turnover cycle (condition V)."""
 function _has_vmax(groups::Vector{Vector{Step}}, rxn::EnzymeReaction, side::Type)
     names = Set(name(x) for x in (side === Substrate ? substrates(rxn) : products(rxn)))
     touches(s) = _any_named(consumed(s), names) || _any_named(released(s), names)
-    !_re_turnover_cycle([[touches(s) ? _with_equilibrium(s, true) : s for s in group]
-                         for group in groups], rxn)
+    !_re_turnover_cycle(groups, rxn, s -> is_equilibrium(s) || touches(s))
 end
 
 """Whether some metabolite of `ms` has its name in `names`."""
@@ -930,23 +924,20 @@ as its only way out (`_all_reach`).
 function _hyperbolic_catalysis(m::Union{Mechanism, AllostericMechanism})
     on_catalytic_site(s) = !any(b -> b isa Regulator,
                                 vcat(bound(from_species(s)), bound(to_species(s))))
-    groups = filter(!isempty, [filter(on_catalytic_site, group) for group in steps(m)])
+    groups = [filter(on_catalytic_site, group) for group in steps(m)]
     species, segments, extras, idx, seg_of = _re_segment_extras(groups)
     # Directed segment-graph edges: source segment, target segment, source form,
     # metabolites bound in that direction.
     edges = Tuple{Int, Int, Int, Vector{Symbol}}[]
     for group in groups, s in group
         is_equilibrium(s) && continue
-        m_lhs = Symbol[name(x) for x in consumed(s)]
-        m_rhs = Symbol[name(x) for x in released(s)]
         a, b = idx[from_species(s)], idx[to_species(s)]
         seg_of[a] == seg_of[b] && continue
-        push!(edges, (seg_of[a], seg_of[b], a, m_lhs))
-        push!(edges, (seg_of[b], seg_of[a], b, m_rhs))
+        push!(edges, (seg_of[a], seg_of[b], a, name.(consumed(s))))
+        push!(edges, (seg_of[b], seg_of[a], b, name.(released(s))))
     end
     rxn = reaction(m)
-    mets = vcat(Symbol[name(s) for s in substrates(rxn)],
-                Symbol[name(p) for p in products(rxn)])
+    mets = [name(x) for side in (substrates(rxn), products(rxn)) for x in side]
     n = length(segments)
     for x in mets
         score(e) = count(==(x), e[4]) + get(extras[e[3]], x, 0)
@@ -1343,10 +1334,6 @@ function _gauge_rescaling(groups::Vector{Vector{Step}}, g::Int, twin, label)
     _all_twin(groups[g], twin) || return nothing
     ligand = bound_metabolite(first(groups[g]))::Metabolite
     twin_of = Dict(to_species(s) => twin(from_species(s), ligand) for s in groups[g])
-    shared = Dict{Species, Int}()
-    for t in values(twin_of)
-        shared[t] = get(shared, t, 0) + 1
-    end
     binding_group = Dict{Tuple{Species, Species}, Int}()
     for (h, group) in enumerate(groups), s in group
         bm = bound_metabolite(s)
@@ -1357,7 +1344,8 @@ function _gauge_rescaling(groups::Vector{Vector{Step}}, g::Int, twin, label)
     for s in groups[g]
         t = twin_of[to_species(s)]
         haskey(class, t) && continue
-        h = shared[t] == 1 ? get(binding_group, (from_species(s), t), 0) : 0
+        h = count(==(t), values(twin_of)) == 1 ?
+            get(binding_group, (from_species(s), t), 0) : 0
         class[t] = label(h > 0 ? h : t)
     end
     σ(sp) = get(class, sp, nothing)
