@@ -2151,13 +2151,24 @@ function _productive_twin(groups::Vector{Vector{Step}})
 end
 
 """
+Whether `group`, the steps of one kinetic group, binds a competitive inhibitor, and only
+at sites whose complex has a productive twin (`twin`, a `_productive_twin` of one state's
+graph).
+"""
+function _all_twin(group::Vector{Step}, twin)
+    ligand = bound_metabolite(first(group))
+    ligand isa CompetitiveInhibitor &&
+        all(s -> twin(from_species(s), ligand) !== nothing, group)
+end
+
+"""
     _gauge_rescaling(groups, g, twin, label) -> Union{Dict{Int, Tuple}, Nothing}
 
 The dwell gauge of the competitive-inhibitor copy bound by kinetic group `g` of
 `groups`, one conformational state's step graph: the rescaling each nonempty kinetic
 group needs, or `nothing` when the gauge does not exist. It does not exist when group `g`
-binds no competitive inhibitor or a complex it forms has no productive twin (`twin`, a
-`_productive_twin` of `groups`), or when some group would need two
+binds no competitive inhibitor or a complex it forms has no productive twin (`_all_twin`,
+with `twin` a `_productive_twin` of `groups`), or when some group would need two
 rescalings. The gauge gives every form a factor σ: ρ_T to each twin T, one factor s to
 every complex of the copy and 1 to every other form. Multiplying a rapid-equilibrium
 group's K by σ(from)/σ(to), and a steady-state group's forward constant by σ(from) and
@@ -2187,9 +2198,8 @@ two ends scale alike.
 The test is bookkeeping over the steps, with no parameters and no numerics.
 """
 function _gauge_rescaling(groups::Vector{Vector{Step}}, g::Int, twin, label)
-    ligand = bound_metabolite(first(groups[g]))
-    ligand isa CompetitiveInhibitor || return nothing
-    all(s -> twin(from_species(s), ligand) !== nothing, groups[g]) || return nothing
+    _all_twin(groups[g], twin) || return nothing
+    ligand = bound_metabolite(first(groups[g]))::Metabolite
     twin_of = Dict(to_species(s) => twin(from_species(s), ligand) for s in groups[g])
     shared = Dict{Species, Int}()
     for t in values(twin_of)
@@ -2226,7 +2236,7 @@ end
 
 Kinetic groups of `m` that bind a competitive inhibitor redundantly: in every
 conformational state where the copy binds, every complex has a productive twin, a form
-whose weight is proportional to the complex's (`_productive_twin`), and the
+whose weight is proportional to the complex's (`_productive_twin`, `_all_twin`), and the
 dwell gauge exists over the states together (`_gauge_rescaling`). The gauge then moves
 the copy's constant along a direction the rate law cannot see, so the copy
 adds a phantom, and the mechanism's family is its family without the copy
@@ -2297,6 +2307,33 @@ function _forms_where_free(m::Union{Mechanism, AllostericMechanism},
 end
 
 """
+The dead-end move's child of `m`: `groups`, `m`'s groups with the new copy's mirrors
+and the copy's group last, on reaction `rxn`; `nothing` when the new copy is redundant
+in it (`_redundant_copy_groups`). `twin` is the `_productive_twin` of `m`'s steps, the
+graph of its only (or active) state, and finds the child's twins there before the child
+exists: the copy's forms are not productive, and its steps attach each complex to its
+site's segment and join no two segments, so every form of `m` keeps its segment and
+offsets. A `Mechanism` candidate takes the `_gauge_rescaling` path on `groups` and is
+built only when kept. Only the new group is tested: `m` holds no redundant copy group
+(the parent rule), and the placement cannot make an older one redundant. An allosteric
+child is built, and runs `_redundant_copy_groups` only when every complex of the copy
+has a twin in the active state (`_all_twin`), which redundancy needs; it tags the copy's
+group `:EqualAI` and keeps `m`'s multiplicity and regulatory sites.
+"""
+function _dead_end_child(::Mechanism, groups::Vector{Vector{Step}}, rxn::EnzymeReaction,
+                         twin)
+    _gauge_rescaling(groups, length(groups), twin, identity) !== nothing && return nothing
+    Mechanism(rxn, groups)
+end
+function _dead_end_child(am::AllostericMechanism, groups::Vector{Vector{Step}},
+                         rxn::EnzymeReaction, twin)
+    child = AllostericMechanism(rxn, groups, vcat(cat_allo_states(am), [:EqualAI]),
+                                catalytic_multiplicity(am), copy(regulatory_sites(am)))
+    _all_twin(groups[end], twin) && !isempty(_redundant_copy_groups(child)) ?
+        nothing : child
+end
+
+"""
     _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism},
                                    rxn::EnzymeReaction) → Vector{typeof(m)}
 
@@ -2317,11 +2354,11 @@ carries only the copy of M is therefore a site for an inhibitor that competes
 with M. Mirror steps inherit their catalytic counterpart's `kinetic_group`. All
 new binding steps for a single regulator share one fresh trailing kinetic group
 (one K_R parameter).
-The child is built, an allosteric one with the copy's group tagged `:EqualAI` and `m`'s
-multiplicity and regulatory sites, and kept only if none of its copy groups, the older
-ones included, is redundant (`_redundant_copy_groups`): the test `_assert_emission_rules`
-applies to every parent. Ligands of an allosteric mechanism's regulatory sites are not
-eligible: they belong on a regulatory site.
+A pattern is skipped when its child binds the new copy redundantly
+(`_redundant_copy_groups`). A `Mechanism` candidate is tested by `_gauge_rescaling`
+inside `_dead_end_child`, before the child is built; an allosteric child is built and
+tested directly. Ligands of an allosteric mechanism's regulatory sites are not eligible:
+they belong on a regulatory site.
 
 The caller must pass the declared `rxn`: its regulators, not those of `m`'s reaction,
 decide which inhibitors are eligible. The child's reaction is `rxn` itself.
@@ -2368,6 +2405,7 @@ function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism}
     unique!(filter!(!isempty, placements))
 
     results = typeof(m)[]
+    twin = _productive_twin(steps(m))
     for reg_name in eligible_regs, active in placements
         inhibitor = CompetitiveInhibitor(reg_name)
         # The complex the copy forms at each site, in the site's conformation and residual.
@@ -2383,10 +2421,8 @@ function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism}
                   for group in steps(m)]
         push!(groups, [Step(form_sp[f], complex[f], Metabolite[inhibitor], Metabolite[],
                             true) for f in active])
-        child = m isa Mechanism ? Mechanism(rxn, groups) :
-            AllostericMechanism(rxn, groups, [cat_allo_states(m); :EqualAI],
-                                catalytic_multiplicity(m), regulatory_sites(m))
-        isempty(_redundant_copy_groups(child)) && push!(results, child)
+        child = _dead_end_child(m, groups, rxn, twin)
+        child === nothing || push!(results, child)
     end
     results
 end
