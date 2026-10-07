@@ -48,11 +48,11 @@ end
 
 The two rules every mechanism the moves emit satisfies, checked on a parent before
 it is expanded. Every steady-state kinetic group holds a step that carries net flux
-(`_flux_carrying_groups` on `steps(m)`, an allosteric mechanism's active-state graph). No
-kinetic group binds a competitive inhibitor redundantly (`_redundant_copy_groups`). A
-parent must obey both because a flip tests only the groups it flips. The split, the
-dead-end move, and `_expand_change_allo_state` filter their children; the other moves
-preserve both rules.
+(`_flux_carrying_groups` on `steps(m)`, which for an allosteric mechanism is its
+active-state graph). No kinetic group binds a competitive inhibitor redundantly
+(`_redundant_copy_groups`). A parent must obey both because a flip tests only the groups
+it flips. The split, the dead-end move, and `_expand_change_allo_state` filter their
+children; the other moves preserve both rules.
 """
 function _assert_emission_rules(m::Union{Mechanism, AllostericMechanism})
     label(g) = join((join(_forward_sides(s), " → ") for s in steps(m)[g]), ", ")
@@ -592,12 +592,12 @@ The biconnected block of every edge of an undirected multigraph without self-loo
 `edges[e] = (u, v)` with vertices `1:nv` (Tarjan's edge-stack algorithm; a bridge is a
 block of its own), and the set of blocks holding a cycle of nonzero weight, edge `e`
 weighing `weights[e]` along its stored direction. The search gives each vertex a
-potential that rises by each tree edge's weight along it. An edge's defect, its weight
-minus the potential difference of its ends, is zero on a tree edge and, on any other
-edge, the weight of the cycle it closes with the tree path between its ends, a cycle of
-its own block. The tree edges of a block span it, so these cycles generate the block's
-cycles and weight adds over them: a block holds a cycle of nonzero weight exactly when
-one of its edges has a nonzero defect.
+potential that rises by each tree edge's weight along its stored direction. An edge's
+defect, its weight minus the potential difference of its ends, is zero on a tree edge
+and, on any other edge, the weight of the cycle it closes with the tree path between its
+ends, a cycle of its own block. The tree edges of a block span it, so these cycles
+generate the block's cycles and weight adds over them: a block holds a cycle of nonzero
+weight exactly when one of its edges has a nonzero defect.
 """
 function _unbalanced_blocks(nv::Int, edges::Vector{Tuple{Int, Int}}, weights::Vector{Int})
     adj = [Int[] for _ in 1:nv]
@@ -1563,9 +1563,10 @@ binding or a Theorell–Chance step; every other group is a binding group.
     variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. A
     reaction with no declared allosteric regulators emits no V-type.
 
-For each value in `rxn`'s `allowed_catalytic_multiplicities`, the
-multiplicity becomes the variant's `catalytic_multiplicity`. Catalytic
-steps are reused by reference; duplicate variants are removed.
+For each value in `rxn`'s `allowed_catalytic_multiplicities`, the move emits
+the K-types, then the V-types, at that `catalytic_multiplicity`. Catalytic
+steps are reused by reference. The variants are distinct by construction: each
+differs from the others in its tags, its regulatory site or its multiplicity.
 
 A parent whose catalytic scheme fails `_hyperbolic_catalysis` (random-order
 steady-state binding, or a substrate that traps a steady-state intermediate in
@@ -1576,52 +1577,41 @@ equilibrium would add a second source of powers
 """
 function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     hyperbolic = _hyperbolic_catalysis(m)
-    n_g = length(steps(m))
-    chem = [g for g in 1:n_g if any(_is_chemistry, steps(m)[g])]
-    bind = [g for g in 1:n_g if !(g in chem)]
-    regs = Symbol[]
-    for rm in regulators(rxn)
-        reg = regulator(rm)
-        reg isa AllostericRegulator && push!(regs, name(reg))
+    cns = [cn for cn in allowed_catalytic_multiplicities(rxn) if cn == 1 || hyperbolic]
+    isempty(cns) && return AllostericMechanism[]
+    chem = [any(_is_chemistry, group) for group in steps(m)]
+    vtags = [c ? :OnlyA : :EqualAI for c in chem]
+    regs = [name(regulator(rm)) for rm in regulators(rxn)
+            if regulator(rm) isa AllostericRegulator]
+    # K-type: every non-empty subset of binding groups :OnlyA, with every
+    # chemistry group :OnlyA — a catalytically-dead inactive conformation.
+    # A state that cannot bind a catalytic metabolite cannot complete the
+    # cycle, so it runs no chemistry. Each is emitted bare; over one subunit
+    # L can be a phantom (see the docstring). `_onlya_haldane_violation` drops
+    # a subset that leaves a binding-only Wegscheider cycle unsatisfiable.
+    ktags = Vector{Symbol}[]
+    for sel in _subsets(findall(!, chem))[2:end]
+        tags = copy(vtags)
+        tags[sel] .= :OnlyA
+        _onlya_haldane_violation(reaction(m), steps(m), tags) === nothing &&
+            push!(ktags, tags)
     end
-    sort!(regs)
     results = AllostericMechanism[]
-    for cn in allowed_catalytic_multiplicities(rxn)
-        cn > 1 && !hyperbolic && continue
-        # K-type: every non-empty subset of binding groups :OnlyA, with every
-        # chemistry group :OnlyA — a catalytically-dead inactive conformation.
-        # A state that cannot bind a catalytic metabolite cannot complete the
-        # cycle, so it runs no chemistry. Each is emitted bare; over one subunit
-        # L can be a phantom (see the docstring). `_onlya_haldane_violation` drops
-        # a subset that leaves a binding-only Wegscheider cycle unsatisfiable.
-        for mask in 1:(2^length(bind) - 1)
-            tags = Symbol[:EqualAI for _ in 1:n_g]
-            for g in chem
-                tags[g] = :OnlyA
-            end
-            for (i, g) in enumerate(bind)
-                (mask >> (i - 1)) & 1 == 1 && (tags[g] = :OnlyA)
-            end
-            _onlya_haldane_violation(rxn, steps(m), tags) === nothing || continue
-            push!(results, AllostericMechanism(
-                reaction(m), copy(steps(m)), tags, cn, RegulatorySite[]))
+    for cn in cns
+        for tags in ktags
+            push!(results,
+                  AllostericMechanism(reaction(m), steps(m), tags, cn, RegulatorySite[]))
         end
         # V-type: no :OnlyA binding, every chemistry group :OnlyA. The inactive
         # state binds identically but cannot catalyze, so L folds into kcat and is
         # unobservable — emit only paired with a declared regulator.
-        if !isempty(chem) && !isempty(regs)
-            vtags = Symbol[:EqualAI for _ in 1:n_g]
-            for g in chem
-                vtags[g] = :OnlyA
-            end
-            am_cat = AllostericMechanism(
-                reaction(m), copy(steps(m)), vtags, cn, RegulatorySite[])
-            for reg in regs, tag in (:OnlyA, :OnlyI)
-                push!(results, _make_am_with_added_reg(am_cat, reg, tag, 0))
-            end
+        any(chem) || continue
+        for reg in regs, tag in (:OnlyA, :OnlyI)
+            push!(results, AllostericMechanism(reaction(m), steps(m), vtags, cn,
+                [RegulatorySite([AllostericRegulator(reg)], cn, [tag])]))
         end
     end
-    unique!(results)
+    results
 end
 
 """
@@ -1638,59 +1628,42 @@ target site, tag) combination, emit a variant:
   * target site ∈ {new site} ∪ {existing sites}
   * tag ∈ {:OnlyA, :OnlyI, :NonequalAI} for any target site
   * tag = :EqualAI only at an existing site that already has at least
-    one non-`:EqualAI` ligand (otherwise the `RegulatorySite`
-    constructor's all-`:EqualAI` rule would reject the variant).
+    one non-`:EqualAI` ligand. A site whose ligands are all `:EqualAI`
+    binds both conformations alike and cancels from the rate equation;
+    this guard, not the `RegulatorySite` constructor, keeps the move from
+    building one.
 
 New sites inherit `am.catalytic_multiplicity` as their multiplicity.
 The mechanism's catalytic side, regulatory_sites' multiplicities, and
 reaction payload pass through unchanged.
 
-Caller must supply `rxn` because `am.reaction` only carries regulators
-already bound by its steps; not-yet-bound regulators live in the
-declared reaction.
+The regulators declared in `rxn`, not those of `am`'s reaction, decide which
+regulators are eligible: the reaction of an `@allosteric_mechanism` fixture
+declares only the regulators its sites bind. The child keeps `am`'s reaction.
 """
 function _expand_add_allosteric_regulator(
     am::AllostericMechanism, rxn::EnzymeReaction,
 )
-    existing_allo = Set{Symbol}()
-    for site in regulatory_sites(am), lig in ligands(site)
-        push!(existing_allo, name(lig))
-    end
-
-    new_regs = Symbol[]
+    taken = _bound_allo_regs(am)
+    sites = regulatory_sites(am)
+    results = AllostericMechanism[]
     for rm in regulators(rxn)
         reg = regulator(rm)
-        reg isa AllostericRegulator || continue
-        name(reg) in existing_allo && continue
-        push!(new_regs, name(reg))
-    end
-    sort!(new_regs)
-    isempty(new_regs) && return AllostericMechanism[]
-
-    results = AllostericMechanism[]
-    for reg in new_regs
-        n_sites = length(regulatory_sites(am))
+        reg isa AllostericRegulator && !(name(reg) in taken) || continue
         # Non-:EqualAI tags at any (new or existing) site.
-        for tag in (:OnlyA, :OnlyI, :NonequalAI)
-            for site_idx in 0:n_sites
-                # Appending to an existing site whose conformations are disjoint
-                # from the new ligand's (an all-:OnlyA site gaining an :OnlyI
-                # ligand, or the reverse) reproduces the add-at-a-new-site
-                # equation — redundant, so skip it.
-                site_idx >= 1 && isempty(intersect(_state_conformations(tag),
-                    _site_active_states(regulatory_sites(am)[site_idx]))) && continue
-                push!(results,
-                    _make_am_with_added_reg(am, reg, tag, site_idx))
-            end
+        for tag in (:OnlyA, :OnlyI, :NonequalAI), site_idx in 0:length(sites)
+            # Appending to an existing site whose conformations are disjoint
+            # from the new ligand's (an all-:OnlyA site gaining an :OnlyI
+            # ligand, or the reverse) reproduces the add-at-a-new-site
+            # equation — redundant, so skip it.
+            site_idx >= 1 && isempty(intersect(_state_conformations(tag),
+                _site_active_states(sites[site_idx]))) && continue
+            push!(results, _make_am_with_added_reg(am, name(reg), tag, site_idx))
         end
-        # :EqualAI at an existing site only when that site already has
-        # at least one non-:EqualAI ligand (avoids the constructor's
-        # all-:EqualAI single-ligand rejection / identical-cancellation).
-        for site_idx in 1:n_sites
-            site = regulatory_sites(am)[site_idx]
-            any(st != :EqualAI for st in allo_states(site)) || continue
-            push!(results,
-                _make_am_with_added_reg(am, reg, :EqualAI, site_idx))
+        # :EqualAI only at an existing site that keeps a non-:EqualAI ligand: an
+        # all-:EqualAI site binds both conformations alike and cancels from the rate.
+        for site_idx in findall(site -> any(!=(:EqualAI), allo_states(site)), sites)
+            push!(results, _make_am_with_added_reg(am, name(reg), :EqualAI, site_idx))
         end
     end
     results
@@ -1706,30 +1679,16 @@ allosteric state `tag`. Multiplicity for a new site inherits
 function _make_am_with_added_reg(
     am::AllostericMechanism, reg::Symbol, tag::Symbol, site_idx::Int,
 )
-    new_sites = RegulatorySite[]
+    sites = copy(regulatory_sites(am))
+    lig = AllostericRegulator(reg)
     if site_idx == 0
-        for site in regulatory_sites(am)
-            push!(new_sites, site)
-        end
-        push!(new_sites, RegulatorySite(
-            AllostericRegulator[AllostericRegulator(reg)],
-            catalytic_multiplicity(am),
-            Symbol[tag]))
+        push!(sites, RegulatorySite([lig], catalytic_multiplicity(am), [tag]))
     else
-        for (i, site) in enumerate(regulatory_sites(am))
-            if i == site_idx
-                new_ligs = copy(ligands(site))
-                push!(new_ligs, AllostericRegulator(reg))
-                new_states = copy(allo_states(site))
-                push!(new_states, tag)
-                push!(new_sites, RegulatorySite(
-                    new_ligs, multiplicity(site), new_states))
-            else
-                push!(new_sites, site)
-            end
-        end
+        s = sites[site_idx]
+        sites[site_idx] =
+            RegulatorySite([ligands(s); lig], multiplicity(s), [allo_states(s); tag])
     end
-    _with(am; sites = new_sites)
+    _with(am; sites)
 end
 
 """
@@ -1791,50 +1750,31 @@ where a copy that was new there can become its twin with a consistent gauge, and
 the copy's constant then shows in neither state.
 """
 function _expand_change_allo_state(am::AllostericMechanism)
+    cs, states = steps(am), cat_allo_states(am)
+    chem = [any(_is_chemistry, group) for group in cs]
+    # Binding catalytic groups relax individually. Chemistry groups relax together.
+    # Inactive catalysis is all-or-nothing, so a fully-`:NonequalAI` catalytic inactive
+    # conformation is unreachable by relaxing chemistry groups one at a time — each
+    # mixed intermediate is a partial and is dropped. One variant sets every
+    # non-`:NonequalAI` chemistry group to `:NonequalAI` at once.
+    relaxations = [[g] for g in eachindex(cs) if !chem[g] && states[g] != :NonequalAI]
+    any(chem .& (states .!= :NonequalAI)) && push!(relaxations, findall(chem))
     results = AllostericMechanism[]
-    cs = steps(am)
-    chem = [g for g in eachindex(cs) if any(_is_chemistry, cs[g])]
-
-    # Binding catalytic groups relax individually.
-    for g in eachindex(cat_allo_states(am))
-        g in chem && continue
-        cat_allo_states(am)[g] == :NonequalAI && continue
-        new_states = copy(cat_allo_states(am))
-        new_states[g] = :NonequalAI
-        _onlya_haldane_violation(reaction(am), cs, new_states) ===
-            nothing || continue
+    for gs in relaxations
+        new_states = copy(states)
+        new_states[gs] .= :NonequalAI
+        _onlya_haldane_violation(reaction(am), cs, new_states) === nothing || continue
         _partial_onlya_catalysis(cs, new_states) && continue
         push!(results, _with(am; states = new_states))
     end
-
-    # Chemistry groups relax together. Inactive catalysis is all-or-nothing, so a
-    # fully-`:NonequalAI` catalytic inactive conformation is unreachable by
-    # relaxing chemistry groups one at a time — each mixed intermediate is a
-    # partial and is dropped. One variant sets every non-`:NonequalAI` chemistry
-    # group to `:NonequalAI` at once.
-    if any(cat_allo_states(am)[g] != :NonequalAI for g in chem)
-        new_states = copy(cat_allo_states(am))
-        for g in chem
-            new_states[g] = :NonequalAI
-        end
-        if _onlya_haldane_violation(reaction(am), cs, new_states) === nothing &&
-           !_partial_onlya_catalysis(cs, new_states)
-            push!(results, _with(am; states = new_states))
-        end
+    for (si, site) in enumerate(regulatory_sites(am)), li in eachindex(ligands(site))
+        allo_states(site)[li] == :NonequalAI && continue
+        new_sites = copy(regulatory_sites(am))
+        new_states = copy(allo_states(site))
+        new_states[li] = :NonequalAI
+        new_sites[si] = RegulatorySite(copy(ligands(site)), multiplicity(site), new_states)
+        push!(results, _with(am; sites = new_sites))
     end
-
-    for (si, site) in enumerate(regulatory_sites(am))
-        for (li, _) in enumerate(ligands(site))
-            allo_states(site)[li] == :NonequalAI && continue
-            new_sites = copy(regulatory_sites(am))
-            new_states = copy(allo_states(site))
-            new_states[li] = :NonequalAI
-            new_sites[si] = RegulatorySite(
-                copy(ligands(site)), multiplicity(site), new_states)
-            push!(results, _with(am; sites = new_sites))
-        end
-    end
-
     filter!(c -> isempty(_redundant_copy_groups(c)), results)
 end
 
@@ -1892,7 +1832,7 @@ load-bearing. The merged site reuses one site's
 `multiplicity` (equal to `catalytic_multiplicity`) and its ligands are sorted
 by name, so two merge routes reaching the same ligand partition produce `==`
 mechanisms and dedup by `hash`. Regulator type is not enforced here;
-`expand_mechanisms` runs every child through `_filter_by_reg_type`.
+`expand_mechanisms` drops every child that fails `_respects_reg_type`.
 """
 function _expand_merge_regulatory_sites(am::AllostericMechanism)
     sites = regulatory_sites(am)
@@ -1908,8 +1848,14 @@ function _expand_merge_regulatory_sites(am::AllostericMechanism)
         others = RegulatorySite[sites[k] for k in 1:n if k != i && k != j]
         redundant = isempty(intersect(_site_active_states(sites[i]),
                                        _site_active_states(sites[j])))
-        for states in _merged_site_state_assignments(base_states;
-                                                     drop_all_keep=redundant)
+        assignments = redundant ? Vector{Symbol}[] : [base_states]
+        for k in eachindex(base_states)
+            base_states[k] == :EqualAI && continue
+            retagged = copy(base_states)
+            retagged[k] = :EqualAI
+            all(==(:EqualAI), retagged) || push!(assignments, retagged)
+        end
+        for states in assignments
             merged = RegulatorySite(copy(ligs), mult, states)
             push!(results, _with(am; sites = vcat(others, [merged])))
         end
@@ -1917,96 +1863,34 @@ function _expand_merge_regulatory_sites(am::AllostericMechanism)
     results
 end
 
-"""
-    _merged_site_state_assignments(base_states::Vector{Symbol};
-                                   drop_all_keep=false) -> Vector{Vector{Symbol}}
-
-Δ0-valid allo-state assignments for a merged site's ligands: the all-keep
-assignment (omitted when `drop_all_keep`), plus each assignment retagging
-exactly one non-`:EqualAI` ligand to `:EqualAI`. The all-`:EqualAI` result is
-dropped. `drop_all_keep` omits the all-keep entry for a redundant merge (see
-`_site_active_states`) while keeping the antagonist retags.
-"""
-function _merged_site_state_assignments(base_states::Vector{Symbol};
-                                        drop_all_keep::Bool=false)
-    assignments = Vector{Symbol}[]
-    drop_all_keep || push!(assignments, copy(base_states))
-    for i in eachindex(base_states)
-        base_states[i] == :EqualAI && continue
-        retagged = copy(base_states)
-        retagged[i] = :EqualAI
-        all(==(:EqualAI), retagged) && continue
-        push!(assignments, retagged)
-    end
-    assignments
-end
-
 # ─── Regulator-Type Filter ────────────────────────────────────
 
 """
-    _declared_reg_type(reg_name::Symbol, rxn::EnzymeReaction) -> Symbol
+    _respects_reg_type(m, rxn::EnzymeReaction) -> Bool
 
-The declared type (`:activator`, `:inhibitor`, or `:unspecified`) of the
-`AllostericRegulator` named `reg_name` in `rxn`'s `regulators`. Returns
-`:unspecified` when `reg_name` names no `AllostericRegulator` entry (either
-absent entirely, or present only as some other `Regulator` subtype).
+Whether every regulatory ligand of `m` respects the type `rxn` declares for it, given the
+other ligands at its site. A `Mechanism` has no regulatory sites and passes. A ligand's
+type is the `reg_type` of its `AllostericRegulator` entry in `rxn`, or `:unspecified`
+when `rxn` has no such entry (the name is absent, or declared only as another
+`Regulator` subtype). An `:unspecified` ligand always passes. A designated activator is
+never `:OnlyI` and a designated inhibitor is never `:OnlyA`; the type-matching pure
+state and `:NonequalAI` are always allowed. `:EqualAI` is an antagonist state and is
+rejected only when another ligand at the site is a same-type designated effector, since
+it would counteract that ligand's declared direction.
 """
-function _declared_reg_type(reg_name::Symbol, rxn::EnzymeReaction)
-    for rm in regulators(rxn)
-        reg = regulator(rm)
-        reg isa AllostericRegulator && name(reg) == reg_name && return reg_type(rm)
-    end
-    :unspecified
-end
-
-"""
-    _state_respects_reg_type(reg_name, state::Symbol, sibling_names::Vector{Symbol},
-                          rxn::EnzymeReaction) -> Bool
-
-Whether ligand `reg_name`'s allosteric `state` is consistent with its
-declared regulator type, given `sibling_names` — the OTHER ligands at its
-regulatory site. `:unspecified` type always passes. A designated activator
-is never `:OnlyI` and a designated inhibitor is never `:OnlyA`; the
-type-matching pure state and `:NonequalAI` are always allowed. `:EqualAI`
-is an antagonist state and is rejected only when a sibling is a
-same-type designated effector, since that would counteract the sibling's
-declared direction.
-"""
-function _state_respects_reg_type(reg_name, state::Symbol,
-                              sibling_names::Vector{Symbol}, rxn::EnzymeReaction)
-    rt = _declared_reg_type(reg_name, rxn)
-    rt === :unspecified && return true
-    rt === :activator && state === :OnlyI && return false
-    rt === :inhibitor && state === :OnlyA && return false
-    if state === :EqualAI
-        any(s -> _declared_reg_type(s, rxn) === rt, sibling_names) && return false
-    end
-    true
-end
-
-"""
-    _filter_by_reg_type(mechs::Vector, rxn::EnzymeReaction) -> Vector
-
-Keep only mechanisms whose every regulatory ligand respects its declared
-type (`_state_respects_reg_type`) given its site's other ligands. A `Mechanism`
-has no regulatory sites and passes trivially.
-"""
-_filter_by_reg_type(mechs::Vector, rxn::EnzymeReaction) =
-    filter(m -> _respects_reg_type(m, rxn), mechs)
-
-"""Whether every regulatory ligand in `m` respects its declared type (see
-`_filter_by_reg_type`)."""
 _respects_reg_type(::Mechanism, ::EnzymeReaction) = true
 function _respects_reg_type(am::AllostericMechanism, rxn::EnzymeReaction)
-    for site in regulatory_sites(am)
-        lig_names = Symbol[name(lig) for lig in ligands(site)]
-        for (i, lig_name) in enumerate(lig_names)
-            siblings = Symbol[lig_names[j] for j in eachindex(lig_names) if j != i]
-            _state_respects_reg_type(lig_name, allo_states(site)[i], siblings, rxn) ||
-                return false
+    declared = Dict(name(regulator(rm)) => reg_type(rm) for rm in regulators(rxn)
+                    if regulator(rm) isa AllostericRegulator)
+    all(regulatory_sites(am)) do site
+        types = [get(declared, name(l), :unspecified) for l in ligands(site)]
+        all(zip(types, allo_states(site))) do (t, state)
+            t === :unspecified ||
+                !(t === :activator && state === :OnlyI ||
+                  t === :inhibitor && state === :OnlyA ||
+                  state === :EqualAI && count(==(t), types) > 1)
         end
     end
-    true
 end
 
 """
@@ -2035,7 +1919,7 @@ function expand_mechanisms(
                     _expand_change_allo_state(m), _expand_merge_regulatory_sites(m))
         end
     end
-    result = _filter_by_reg_type(result, rxn)
+    filter!(c -> _respects_reg_type(c, rxn), result)
     for child in result
         _assert_atom_conserving(child)
     end
@@ -2095,7 +1979,7 @@ node:
    expansion;
 3. no optional regulator is bound — every bound allosteric ligand ∈
    `required_allo` and every bound competitive inhibitor ∈ `required_comp`;
-4. every ligand respects its declared type (`_filter_by_reg_type`).
+4. every ligand respects its declared type (`_respects_reg_type`).
 
 The seeds are the valid nodes that additionally bind ALL of `required_allo` at
 regulatory sites and ALL of `required_comp` as competitive-inhibitor dead ends.
@@ -2117,7 +2001,8 @@ function seed_mechanisms(rxn::EnzymeReaction, required_allo::Set{Symbol},
         h = hash(m)
         h in visited && return false
         push!(visited, h)
-        _binds_all_required(m, required_allo, required_comp) && push!(seeds, m)
+        issubset(required_allo, _bound_allo_regs(m)) &&
+            issubset(required_comp, _bound_comp_inhibitors(m)) && push!(seeds, m)
         true
     end
     frontier = Union{Mechanism, AllostericMechanism}[
@@ -2125,8 +2010,11 @@ function seed_mechanisms(rxn::EnzymeReaction, required_allo::Set{Symbol},
     while !isempty(frontier)
         # Per-node child generation is pure and independent — distribute it.
         childsets = pmap(frontier) do m
-            filter(c -> _is_seed_node(c, rxn, required_allo, required_comp),
-                   _seed_children(m, rxn, required_allo))
+            children = Union{Mechanism, AllostericMechanism}[]
+            isempty(required_allo) || append!(children, m isa Mechanism ?
+                _expand_to_allosteric(m, rxn) : _expand_add_allosteric_regulator(m, rxn))
+            append!(children, _expand_add_dead_end_regulator(m, rxn))
+            filter!(c -> _is_seed_node(c, rxn, required_allo, required_comp), children)
         end
         next = Union{Mechanism, AllostericMechanism}[]
         for cs in childsets, c in cs
@@ -2146,35 +2034,6 @@ function seed_mechanisms(rxn::EnzymeReaction, required_allo::Set{Symbol},
     end
     seeds
 end
-
-"""
-    _seed_children(m, rxn::EnzymeReaction, required_allo::Set{Symbol})
-        -> Vector{Union{Mechanism, AllostericMechanism}}
-
-Children of `m` under the seed-build structure moves. The two
-allosteric-lifting moves run only when an allosteric regulator is required, so
-a competitive-only required set (`required_allo` empty) stays non-allosteric —
-no `L` — and seeds at `base + n_required_comp`. The dead-end move always runs.
-A `Mechanism` is lifted by `_expand_to_allosteric`; an `AllostericMechanism`
-gains a regulator by `_expand_add_allosteric_regulator`.
-"""
-function _seed_children(m::Union{Mechanism, AllostericMechanism},
-                        rxn::EnzymeReaction, required_allo::Set{Symbol})
-    children = Union{Mechanism, AllostericMechanism}[]
-    if !isempty(required_allo)
-        append!(children, m isa Mechanism ? _expand_to_allosteric(m, rxn) :
-                          _expand_add_allosteric_regulator(m, rxn))
-    end
-    append!(children, _expand_add_dead_end_regulator(m, rxn))
-    children
-end
-
-"""Whether `m` carries a `:NonequalAI` tag, on the catalytic step or a regulatory
-site."""
-_has_nonequalai(::Mechanism) = false
-_has_nonequalai(am::AllostericMechanism) =
-    any(==(:NonequalAI), cat_allo_states(am)) ||
-    any(site -> any(==(:NonequalAI), allo_states(site)), regulatory_sites(am))
 
 """Names of the allosteric regulators bound at `m`'s regulatory sites (empty for
 a `Mechanism`)."""
@@ -2201,17 +2060,11 @@ optional regulator bound, and reg-type-respecting.
 function _is_seed_node(m::Union{Mechanism, AllostericMechanism},
                        rxn::EnzymeReaction, required_allo::Set{Symbol},
                        required_comp::Set{Symbol})
-    _has_nonequalai(m) && return false
-    m isa AllostericMechanism &&
-        !all(site -> length(ligands(site)) == 1, regulatory_sites(m)) &&
-        return false
+    m isa AllostericMechanism && (:NonequalAI in cat_allo_states(m) ||
+        any(site -> length(ligands(site)) != 1 || only(allo_states(site)) == :NonequalAI,
+            regulatory_sites(m))) && return false
     issubset(_bound_allo_regs(m), required_allo) || return false
     issubset(_bound_comp_inhibitors(m), required_comp) || return false
     _respects_reg_type(m, rxn) || return false
     true
 end
-
-_binds_all_required(m::Union{Mechanism, AllostericMechanism},
-                    required_allo::Set{Symbol}, required_comp::Set{Symbol}) =
-    issubset(required_allo, _bound_allo_regs(m)) &&
-    issubset(required_comp, _bound_comp_inhibitors(m))

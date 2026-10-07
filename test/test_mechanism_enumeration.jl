@@ -5013,20 +5013,6 @@ mk(states) = EnzymeRates.RegulatorySite(
 @test EnzymeRates._site_active_states(mk([:OnlyA, :OnlyA])) == Set([:active])
 @test EnzymeRates._site_active_states(mk([:OnlyA, :OnlyI])) ==
       Set([:active, :inactive])
-
-@testset "_merged_site_state_assignments drop_all_keep" begin
-base = [:OnlyA, :OnlyI]
-keep = EnzymeRates._merged_site_state_assignments(base)
-@test [:OnlyA, :OnlyI] in keep          # all-keep present by default
-@test [:EqualAI, :OnlyI] in keep
-@test [:OnlyA, :EqualAI] in keep
-@test length(keep) == 3
-dropped = EnzymeRates._merged_site_state_assignments(base; drop_all_keep=true)
-@test !([:OnlyA, :OnlyI] in dropped)    # all-keep omitted
-@test [:EqualAI, :OnlyI] in dropped     # antagonist retags retained
-@test [:OnlyA, :EqualAI] in dropped
-@test length(dropped) == 2
-end
 end
 
 # ─── _expand_merge_regulatory_sites ─────────────────────────────────────
@@ -5092,7 +5078,7 @@ end
     # A::Activator + I::Inhibitor share a site with opposite types: no
     # ligand violates its type, so nothing is dropped — every merge child
     # survives.
-    kept = EnzymeRates._filter_by_reg_type(children, merge_rxn)
+    kept = filter(c -> EnzymeRates._respects_reg_type(c, merge_rxn), children)
     @test Set(kept) == Set(children)
     @test length(kept) == 2
 end
@@ -5117,7 +5103,7 @@ end
         rxn_aa, copy(EnzymeRates.steps(b_aa)), cat_aa, 4, [s1, s2])
     kids = EnzymeRates._expand_merge_regulatory_sites(p_aa)
     @test length(kids) == 3
-    kept = EnzymeRates._filter_by_reg_type(kids, rxn_aa)
+    kept = filter(c -> EnzymeRates._respects_reg_type(c, rxn_aa), kids)
     @test length(kept) == 1
     surviving = only(kept)
     @test Set(EnzymeRates.allo_states(
@@ -5221,22 +5207,39 @@ end
 end
 end
 
-# ─── _declared_reg_type / _state_respects_reg_type / _filter_by_reg_type ──────────
-@testset "_declared_reg_type / _state_respects_reg_type / _filter_by_reg_type" begin
+# ─── _respects_reg_type ──────────────────────────────────────────────────
+@testset "_respects_reg_type" begin
 
-@testset "_declared_reg_type" begin
+@testset "_respects_reg_type — one- and two-ligand sites" begin
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
-        allosteric_regulators: A::Activator, I::Inhibitor, U
+        allosteric_regulators: A::Activator, A2::Activator, I::Inhibitor, I2::Inhibitor, U
         oligomeric_state: 2
     end
-    @test EnzymeRates._declared_reg_type(:A, rxn) == :activator
-    @test EnzymeRates._declared_reg_type(:I, rxn) == :inhibitor
-    @test EnzymeRates._declared_reg_type(:U, rxn) == :unspecified
-    # No matching regulator at all → :unspecified.
-    @test EnzymeRates._declared_reg_type(:Nope, rxn) == :unspecified
+    core = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)   :: EqualAI
+            E + P ⇌ E(P)   :: EqualAI
+            E(S) <--> E(P) :: EqualAI
+        end
+    end)
+    # Whether `core` with one site holding `ligs` at `states` respects the types `r`
+    # declares.
+    respects(ligs, states, r = rxn) = EnzymeRates._respects_reg_type(
+        EnzymeRates._with(core; sites = [EnzymeRates.RegulatorySite(
+            EnzymeRates.AllostericRegulator.(collect(ligs)), 2, collect(states))]), r)
 
+    # An :unspecified ligand passes in every state, alone or beside another
+    # :unspecified ligand: U is declared untyped and Nope is not declared at all.
+    for state in (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
+        @test respects((:U,), (state,))
+        @test respects((:Nope,), (state,))
+        @test respects((:U, :Nope), (state, :EqualAI))
+    end
     # A CompetitiveInhibitor carrying a reg_type (only reachable by direct
     # construction; the DSL restricts type tags to allosteric_regulators:)
     # is not an AllostericRegulator, so its reg_type is ignored.
@@ -5246,66 +5249,29 @@ end
         [EnzymeRates.RegulatorMults(
             EnzymeRates.CompetitiveInhibitor(:X), [1], :activator)],
         [1])
-    @test EnzymeRates._declared_reg_type(:X, rxn_ci) == :unspecified
+    @test respects((:X,), (:OnlyI,), rxn_ci)
+    # A designated effector is never the opposite pure state; the matching pure state
+    # and :NonequalAI always pass. :EqualAI (an antagonist) passes alone and beside an
+    # opposite-type or :unspecified sibling, and fails beside a same-type designated
+    # sibling.
+    for (ligs, states, ok) in [((:A,), (:OnlyI,), false),
+                               ((:A,), (:OnlyA,), true),
+                               ((:A,), (:NonequalAI,), true),
+                               ((:A,), (:EqualAI,), true),
+                               ((:A, :I), (:EqualAI, :OnlyI), true),
+                               ((:A, :U), (:EqualAI, :OnlyA), true),
+                               ((:A, :A2), (:EqualAI, :OnlyA), false),
+                               ((:I,), (:OnlyA,), false),
+                               ((:I,), (:OnlyI,), true),
+                               ((:I,), (:NonequalAI,), true),
+                               ((:I,), (:EqualAI,), true),
+                               ((:I, :A), (:EqualAI, :OnlyA), true),
+                               ((:I, :I2), (:EqualAI, :OnlyI), false)]
+        @test respects(ligs, states) == ok
+    end
 end
 
-@testset "_state_respects_reg_type — :unspecified always passes" begin
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        allosteric_regulators: U
-        oligomeric_state: 2
-    end
-    for state in (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
-        @test EnzymeRates._state_respects_reg_type(:U, state, Symbol[], rxn)
-        @test EnzymeRates._state_respects_reg_type(:U, state, [:Other], rxn)
-    end
-end
-
-@testset "_state_respects_reg_type — activator" begin
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        allosteric_regulators: A::Activator, A2::Activator, I::Inhibitor
-        oligomeric_state: 2
-    end
-    # never the opposite pure state
-    @test !EnzymeRates._state_respects_reg_type(:A, :OnlyI, Symbol[], rxn)
-    # matching pure state / NonequalAI always allowed
-    @test EnzymeRates._state_respects_reg_type(:A, :OnlyA, Symbol[], rxn)
-    @test EnzymeRates._state_respects_reg_type(:A, :NonequalAI, Symbol[], rxn)
-    # EqualAI: no siblings → allowed
-    @test EnzymeRates._state_respects_reg_type(:A, :EqualAI, Symbol[], rxn)
-    # EqualAI: opposite-type sibling → allowed
-    @test EnzymeRates._state_respects_reg_type(:A, :EqualAI, [:I], rxn)
-    # EqualAI: unspecified sibling → allowed
-    rxn_u = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        allosteric_regulators: A::Activator, U
-        oligomeric_state: 2
-    end
-    @test EnzymeRates._state_respects_reg_type(:A, :EqualAI, [:U], rxn_u)
-    # EqualAI: same-type sibling → rejected
-    @test !EnzymeRates._state_respects_reg_type(:A, :EqualAI, [:A2], rxn)
-end
-
-@testset "_state_respects_reg_type — inhibitor (symmetric)" begin
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        allosteric_regulators: I::Inhibitor, I2::Inhibitor, A::Activator
-        oligomeric_state: 2
-    end
-    @test !EnzymeRates._state_respects_reg_type(:I, :OnlyA, Symbol[], rxn)
-    @test EnzymeRates._state_respects_reg_type(:I, :OnlyI, Symbol[], rxn)
-    @test EnzymeRates._state_respects_reg_type(:I, :NonequalAI, Symbol[], rxn)
-    @test EnzymeRates._state_respects_reg_type(:I, :EqualAI, Symbol[], rxn)
-    @test EnzymeRates._state_respects_reg_type(:I, :EqualAI, [:A], rxn)
-    @test !EnzymeRates._state_respects_reg_type(:I, :EqualAI, [:I2], rxn)
-end
-
-@testset "_filter_by_reg_type" begin
+@testset "_respects_reg_type as a filter" begin
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -5326,19 +5292,18 @@ end
     am_good = EnzymeRates.AllostericMechanism(
         rxn, copy(EnzymeRates.steps(m_seed)), cat_states, 2, [site_good])
 
-    kept = EnzymeRates._filter_by_reg_type(
+    kept = filter(c -> EnzymeRates._respects_reg_type(c, rxn),
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
-            m_seed, am_bad, am_good], rxn)
+            m_seed, am_bad, am_good])
     @test m_seed in kept   # Mechanism (no sites) passes trivially
     @test am_good in kept
     @test !(am_bad in kept)
     @test length(kept) == 2
 end
 
-@testset "_filter_by_reg_type — real two-ligand site (sibling extraction)" begin
-    # A single site holding two ligands exercises the sibling-extraction
-    # path (`j != i`) that single-ligand fixtures never run: each ligand's
-    # sibling_names come from the site itself, not a hand-fed vector.
+@testset "_respects_reg_type — two-ligand site siblings" begin
+    # A single site holding two ligands: each ligand's :EqualAI is judged against
+    # the declared type of the other ligand at the same site.
 
     # DROP: two same-type activators, both :EqualAI. Each is the other's
     # same-type EqualAI sibling, so both are rejected.
@@ -5355,8 +5320,7 @@ end
          EnzymeRates.AllostericRegulator(:A2)], 2, [:EqualAI, :EqualAI])
     am_aa = EnzymeRates.AllostericMechanism(
         rxn_aa, copy(EnzymeRates.steps(m_aa)), cat_aa, 2, [site_aa])
-    @test isempty(EnzymeRates._filter_by_reg_type(
-        EnzymeRates.AllostericMechanism[am_aa], rxn_aa))
+    @test !EnzymeRates._respects_reg_type(am_aa, rxn_aa)
 
     # KEEP: an :EqualAI activator beside an :OnlyI inhibitor. The
     # activator's only sibling is opposite-type, so EqualAI passes; the
@@ -5374,9 +5338,7 @@ end
          EnzymeRates.AllostericRegulator(:I)], 2, [:EqualAI, :OnlyI])
     am_ai = EnzymeRates.AllostericMechanism(
         rxn_ai, copy(EnzymeRates.steps(m_ai)), cat_ai, 2, [site_ai])
-    kept_ai = EnzymeRates._filter_by_reg_type(
-        EnzymeRates.AllostericMechanism[am_ai], rxn_ai)
-    @test kept_ai == [am_ai]
+    @test EnzymeRates._respects_reg_type(am_ai, rxn_ai)
 end
 end
 
@@ -5660,7 +5622,7 @@ end
     # V-type variant); the reg_type filter drops it, leaving strictly fewer.
     @test any(m -> has_reg_state(m, :R, :OnlyI), raw_act)
     @test !any(m -> has_reg_state(m, :R, :OnlyI), children_act)
-    @test children_act == EnzymeRates._filter_by_reg_type(raw_act, rxn_act)
+    @test children_act == filter(c -> EnzymeRates._respects_reg_type(c, rxn_act), raw_act)
     @test length(children_act) < length(raw_act)
 
     # A typeless reaction declares no type, so the filter is a no-op:
@@ -5710,7 +5672,7 @@ end
         EnzymeRates._expand_re_to_ss(m), EnzymeRates._expand_split_kinetic_group(m),
         EnzymeRates._expand_add_dead_end_regulator(m, uni_uni_rxn),
         EnzymeRates._expand_to_allosteric(m, uni_uni_rxn))
-    baseline = EnzymeRates._filter_by_reg_type(raw, uni_uni_rxn)
+    baseline = filter(c -> EnzymeRates._respects_reg_type(c, uni_uni_rxn), raw)
     @test EnzymeRates.expand_mechanisms([m], uni_uni_rxn) == baseline
 end
 
@@ -5939,6 +5901,23 @@ end
         @test EnzymeRates._independent_param_count(m) ==
               _testhelper_fitted(m)
     end
+end
+
+@testset "_unbalanced_blocks" begin
+    # Two parallel edges between the same two vertices, of different weight, close a
+    # cycle of nonzero weight: one block, unbalanced.
+    @test EnzymeRates._unbalanced_blocks(2, [(1, 2), (1, 2)], [1, 2]) == ([1, 1], Set([1]))
+    # A triangle whose third edge is stored against the walk 1 → 2 → 3: along its stored
+    # direction 3 → 1 it weighs -3, so the cycle weighs 1 + 2 - 3 = 0 and is balanced.
+    @test EnzymeRates._unbalanced_blocks(3, [(1, 2), (2, 3), (3, 1)], [1, 2, -3]) ==
+          ([1, 1, 1], Set{Int}())
+    # Two components. Vertices 1 and 2 carry an edge and its reverse of opposite weight
+    # (balanced). Vertices 3, 4 and 5 form a triangle whose paths 3 → 4 → 5 and 3 → 5
+    # weigh 2 and 1 (unbalanced), with a bridge 5 → 6 hanging off it. Blocks are
+    # numbered in the order the search closes them: the pair, the bridge, the triangle.
+    @test EnzymeRates._unbalanced_blocks(
+        6, [(1, 2), (2, 1), (3, 4), (4, 5), (3, 5), (5, 6)], [1, -1, 1, 1, 1, 4]) ==
+          ([1, 1, 3, 3, 3, 2], Set([3]))
 end
 
 @testset "_flux_carrying_groups" begin
@@ -10587,7 +10566,8 @@ end
             sites = EnzymeRates.regulatory_sites(s)
             @test length(sites) == 2
             @test all(length(EnzymeRates.ligands(si)) == 1 for si in sites)
-            @test !EnzymeRates._has_nonequalai(s)
+            @test :NonequalAI ∉ [EnzymeRates.cat_allo_states(s);
+                                 [st for si in sites for st in EnzymeRates.allo_states(si)]]
         end
         # Each lineage contributes exactly 2² = 4 state assignments.
         skels = Dict{UInt64, Int}()
@@ -10727,6 +10707,9 @@ end
 
 @testset "seed_mechanisms wave-parallel equivalence" begin
     # Inline serial FIFO BFS = the reference the parallel version must match.
+    binds_all_required(m, req_allo, req_comp) =
+        issubset(req_allo, EnzymeRates._bound_allo_regs(m)) &&
+        issubset(req_comp, EnzymeRates._bound_comp_inhibitors(m))
     function serial_seed_reference(rxn, req_allo, req_comp)
         visited = Set{UInt64}()
         queue = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
@@ -10735,12 +10718,15 @@ end
             h = hash(m)
             h in visited && return
             push!(visited, h); push!(queue, m)
-            EnzymeRates._binds_all_required(m, req_allo, req_comp) && push!(seeds, m)
+            binds_all_required(m, req_allo, req_comp) && push!(seeds, m)
         end
         for m in EnzymeRates.init_mechanisms(rxn); enq(m); end
         while !isempty(queue)
             m = popfirst!(queue)
-            for c in EnzymeRates._seed_children(m, rxn, req_allo)
+            lifted = isempty(req_allo) ? [] : m isa EnzymeRates.Mechanism ?
+                EnzymeRates._expand_to_allosteric(m, rxn) :
+                EnzymeRates._expand_add_allosteric_regulator(m, rxn)
+            for c in [lifted; EnzymeRates._expand_add_dead_end_regulator(m, rxn)]
                 EnzymeRates._is_seed_node(c, rxn, req_allo, req_comp) && enq(c)
             end
         end
@@ -10755,7 +10741,7 @@ end
     @test got == ref                                   # same seeds, same order
     @test !isempty(got)                                # the case is non-trivial
     @test allunique(hash.(got))                        # no duplicate structures
-    @test all(m -> EnzymeRates._binds_all_required(m, req, empty), got)
+    @test all(m -> binds_all_required(m, req, empty), got)
     @test EnzymeRates.seed_mechanisms(uni_uni_allo_reg, req, empty) == got  # deterministic
 end
 
