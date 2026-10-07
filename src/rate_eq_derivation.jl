@@ -707,7 +707,9 @@ so this carries no `catalytic_multiplicity` factor.
             # concentration to the power `deg`. With unequal powers the conformation with
             # the larger one holds all the enzyme in the limit, so the corner is that
             # conformation's own turnover; it is skipped when that conformation lacks the
-            # pattern (0/0). Equal powers cancel and leave the weighted combination.
+            # pattern (0/0), which is safe: taking the substrates to saturation first then
+            # gives A_A/B_A, which the corner with no regulator bound already supplies.
+            # Equal powers cancel and leave the weighted combination.
             if deg_A > deg_I
                 push!(kcat_exprs, :($A_A / $B_A))
             elseif deg_I > deg_A

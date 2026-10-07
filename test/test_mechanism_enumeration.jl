@@ -5985,7 +5985,7 @@ end
     params = parameters(m)
     # K_I_E_cS_to_E_c_S and K_I_E_cP_to_E_c_P are referenced in `den_T` of the body
     # (the binding partition function for :NonequalAI groups
-    # is built regardless of `t_state_dead` since `den_T`
+    # is built whether or not the I-state numerator is zero, since `den_T`
     # always appears in the denominator).
     @test :K_I_E_cS_to_E_c_S in params
     @test :K_I_E_cP_to_E_c_P in params

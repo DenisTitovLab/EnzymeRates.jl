@@ -1886,7 +1886,7 @@ end
     rate_T = rate_equation(vtype, concs, merge(vparams, (L=1e10,)))
     @test rate_R > 1.0
     @test rate_T < 1e-6
-    # T-state numerator branch is elided when t_state_dead (any :OnlyA catalytic group);
+    # T-state numerator branch is elided when the T-state cycle is dead (:OnlyA catalysis);
     # rate is E_total · num_R / (Q_R^catN + L · Q_T^catN). At large L, the T-state
     # enzyme mass dominates the denominator → rate ∝ 1/(1+L).
     @test rate_T * 1e10 < 100.0    # bounded as L grows
@@ -2195,12 +2195,13 @@ end
     @test kc ≈ vmax rtol = 1e-3
 end
 
-@testset "allosteric kcat: an :OnlyA regulator saturates to the active-state limit" begin
-    # :NonequalAI catalysis keeps the inactive state turning over. X binds only the
-    # active state, so at saturating X the active state holds all the enzyme and the
-    # rate tends to the active state's own saturating turnover; at X = 0 both states
-    # contribute. kcat is the larger of the two corners.
-    m = @allosteric_mechanism begin
+@testset "allosteric kcat: a one-sided regulator's corner is its conformation's limit" begin
+    # A regulator that binds one conformation only (:OnlyA or :OnlyI) puts all the enzyme
+    # in that conformation when it saturates, so the rate tends to that conformation's own
+    # saturating turnover; with the regulator absent both conformations contribute. kcat
+    # is the largest regulator corner at saturating S.
+    # :NonequalAI catalysis: both conformations turn over.
+    only_a = @allosteric_mechanism begin
         substrates: S
         products: P
         allosteric_regulators: X::OnlyA
@@ -2211,15 +2212,63 @@ end
             E(P) ⇌ E + P      :: NonequalAI
         end
     end
-    pn = EnzymeRates.fitted_params(m)
-    for seed in 1:5
-        rng = Random.MersenneTwister(seed)
-        p = merge(NamedTuple{pn}(Tuple(0.2 + 5 * rand(rng) for _ in pn)),
-                  (Keq = 2.0, E_total = 1.0))
-        BIG = 1e9
-        vmax = max(rate_equation(m, (S = BIG, P = 0.0, X = BIG), p),
-                   rate_equation(m, (S = BIG, P = 0.0, X = 0.0), p))
-        @test EnzymeRates._kcat_forward(m, p) ≈ vmax rtol = 1e-6
+    only_i = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: X::OnlyI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: NonequalAI
+            E(P) ⇌ E + P      :: NonequalAI
+        end
+    end
+    # :OnlyA catalysis with :EqualAI binding: the inactive conformation binds S but does
+    # not turn over, so saturating X drives the rate to 0.
+    only_i_dead = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: X::OnlyI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: OnlyA
+            E(P) ⇌ E + P      :: EqualAI
+        end
+    end
+    # Two sites: with X and Y saturating, the inactive conformation's regulator power is
+    # 2 + 1 against the active one's 1.
+    two_site = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: X::OnlyI, Y::NonequalAI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: OnlyA
+            E(P) ⇌ E + P      :: EqualAI
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: X
+        end
+        regulatory_site(multiplicity = 1): begin
+            ligands: Y
+        end
+    end
+    BIG = 1e9
+    for m in (only_a, only_i, only_i_dead, two_site)
+        pn = EnzymeRates.fitted_params(m)
+        regs = Tuple(x for x in metabolites(m) if x ∉ (:S, :P))
+        for seed in 1:5
+            rng = Random.MersenneTwister(seed)
+            p = merge(NamedTuple{pn}(Tuple(0.2 + 5 * rand(rng) for _ in pn)),
+                      (Keq = 2.0, E_total = 1.0))
+            vmax = maximum(0:(2^length(regs) - 1)) do mask
+                r = Tuple((mask >> (i - 1)) & 1 == 1 ? BIG : 0.0 for i in eachindex(regs))
+                rate_equation(m, NamedTuple{(:S, :P, regs...)}((BIG, 0.0, r...)), p)
+            end
+            @test EnzymeRates._kcat_forward(m, p) ≈ vmax rtol = 1e-6
+        end
     end
 end
 

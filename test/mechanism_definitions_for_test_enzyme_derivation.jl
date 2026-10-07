@@ -1953,10 +1953,11 @@ let
         expected_n_independent_params=12,
         run_ode_test=false,
         analytical_rate_fn=pfk_rate_analytical,
-        # F6P binding (group 3) is :OnlyA → the Glucose·ATP saturating
+        # F6P binding (group 3) is :OnlyA → the F6P·ATP saturating
         # pattern is unreachable in T-state, so kcat = k5f
-        # for every regulator corner. Regression test for the
-        # `t_pattern_dead` branch in `_kcat_forward`.
+        # for every regulator corner. Guards `_kcat_forward` for a saturating
+        # pattern absent from the I-state: the I-state pair is (0, 0) and the
+        # I-dominant regulator corners (ATP, Citrate saturating) are skipped.
         analytical_kcat_fn = p -> p.k5f,
     ))
 end
@@ -2084,8 +2085,9 @@ let
         analytical_rate_fn=hk_rate_analytical,
         # ATP binding (group 2) is :OnlyA → the Glucose·ATP saturating
         # pattern is unreachable in T-state, so kcat = k6f
-        # for every regulator corner. Regression test for the
-        # `t_pattern_dead` branch in `_kcat_forward`.
+        # for every regulator corner. Guards `_kcat_forward` for a saturating
+        # pattern absent from the I-state: the I-state pair is (0, 0) and the
+        # I-dominant regulator corner (G6P saturating) is skipped.
         analytical_kcat_fn = p -> p.k6f,
     ))
 end
@@ -2301,7 +2303,7 @@ let
         Q_cat_T = 1 + S/K1                    # E(P) unreachable in T-state (catalysis + P-binding :OnlyA)
 
         N_R = k2f * S/K1 - k2r * P/K3
-        # N_T = 0 forced (t_state_dead via catalysis group 2 :OnlyA)
+        # N_T = 0: the T-state cycle is dead (catalysis group 2 is :OnlyA)
 
         num = N_R * Q_cat_R                   # L*N_T*Q_cat_T term elided
         den = Q_cat_R^2 + L * Q_cat_T^2
