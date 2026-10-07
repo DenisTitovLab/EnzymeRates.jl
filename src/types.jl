@@ -1074,6 +1074,10 @@ function AllostericMechanism(@nospecialize(aem::AllostericEnzymeMechanism))
                         multiplicity, sites)
 end
 
+"""Lift a singleton mechanism to its concrete `Mechanism` or `AllostericMechanism`."""
+_concrete(@nospecialize(m::EnzymeMechanism)) = Mechanism(m)
+_concrete(@nospecialize(m::AllostericEnzymeMechanism)) = AllostericMechanism(m)
+
 """
     AllostericEnzymeMechanism(am::AllostericMechanism)
 
@@ -1318,8 +1322,7 @@ _enumerate_parameters_full(m::Mechanism) =
 """
 The Parameter(s) governing step `s` with the given allosteric state: the 4-way
 switch on `is_equilibrium(s)` × `is_binding(s)`. The walkers over group
-representatives (`_enumerate_parameters_full`, `_all_i_state_parameters`,
-`_ss_rate_constant_names`) apply it to each group's
+representatives (`_enumerate_parameters_full`, `_cat_params`) apply it to each group's
 representative step; `_step_parameters` applies it to every step, and
 `_onlya_haldane_violation` to a group's first step to label the group.
 

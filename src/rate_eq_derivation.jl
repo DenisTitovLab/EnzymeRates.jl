@@ -36,7 +36,6 @@ function parameters end
 parameters(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism}) =
     parameters(m, Reduced)
 
-# ── EnzymeMechanism ───────────────────────────────────────────
 @generated function parameters(
     ::EnzymeMechanism{Sig}, ::FullMode,
 ) where {Sig}
@@ -46,15 +45,7 @@ parameters(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism}) =
     Tuple((names..., :E_total))
 end
 
-@generated function parameters(::M, ::ReducedMode) where {M <: EnzymeMechanism}
-    _, indep = _dependent_param_exprs(M)
-    (indep..., :Keq, :E_total)
-end
-
-# ── AllostericEnzymeMechanism ────────────────────────────────
-@generated function parameters(
-    ::M, ::ReducedMode,
-) where {M <: AllostericEnzymeMechanism}
+@generated function parameters(::M, ::ReducedMode) where {M <: AbstractEnzymeMechanism}
     _, indep = _dependent_param_exprs(M)
     (indep..., :Keq, :E_total)
 end
@@ -553,25 +544,11 @@ constant that lives in the inactive state polynomial. Routes Symbol production t
 `rescale_parameter_values` to scale only SS k's without touching RE
 Kd's, Keq, E_total, L, or regulatory K's.
 """
-function _ss_rate_constant_names(@nospecialize(em::EnzymeMechanism))
-    mech = Mechanism(em)
-    Set{Symbol}(name(p, mech) for p in _enumerate_parameters_full(mech)
-                if p isa Union{Kon, Koff, Kfor, Krev})
-end
-
-function _ss_rate_constant_names(@nospecialize(em::AllostericEnzymeMechanism))
-    am = AllostericMechanism(em)
-    a_names = Set{Symbol}()
-    for (g, rep) in enumerate(_group_reps(am))
-        is_equilibrium(rep) && continue
-        st = cat_allo_state(am, g) === :EqualAI ? :EqualAI : :A
-        for p in _step_constants(rep, st)
-            push!(a_names, name(p, am))
-        end
-    end
-    i_names = Set{Symbol}(name(p, am) for p in _all_i_state_parameters(am)
-                          if p isa Union{Kon, Koff, Kfor, Krev})
-    union(a_names, i_names)
+function _ss_rate_constant_names(@nospecialize(em::AbstractEnzymeMechanism))
+    m = _concrete(em)
+    params = m isa Mechanism ? _enumerate_parameters_full(m) :
+        [_cat_params(m, :A); _cat_params(m, :I)]
+    Set{Symbol}(name(p, m) for p in params if p isa Union{Kon, Koff, Kfor, Krev})
 end
 
 """Group `num` and `den` POLYs by metabolite monomial pattern, using
@@ -1091,28 +1068,32 @@ function _state_wegscheider_rename_map(am::AllostericMechanism, state::Symbol)
 end
 
 """
-All I-state `Parameter`s the rate-equation body emits as constraint LHSes
-— `Parameter` form. Catalytic groups: every non-`:OnlyA` group
-contributes I-state Parameter(s) for its rep step (`Kd`/`Kiso`/`Kon`+
-`Koff`/`Kfor`+`Krev`). Regulator sites: every non-`:OnlyA` ligand
-contributes an I-state `Kreg`. Synthesized-dep I-mirrors (deps whose RHS
-references a `:NonequalAI` symbol) belong to dep-parameter machinery and
-are emitted Symbol-level by the dep-assignment builder.
+Catalytic `Parameter`s of `am` in conformation `state` (`:A` or `:I`): the
+constants of each kinetic group's rep step (`Kd`/`Kiso`/`Kon`+`Koff`/`Kfor`+`Krev`),
+in group order. In `:A` an `:EqualAI` group takes the `:EqualAI` tag, because its
+symbol is shared with the I-state (the chokepoint `name(p, m)` renders both to the
+same `Symbol`), and every other group takes `:A`. In `:I` the `:OnlyA` groups are
+skipped and every other group takes `:I`. Synthesized-dep I-mirrors (deps whose RHS
+references a `:NonequalAI` symbol) belong to dep-parameter machinery and are emitted
+Symbol-level by the dep-assignment builder.
 """
-function _all_i_state_parameters(am::AllostericMechanism)
+function _cat_params(am::AllostericMechanism, state::Symbol)
     out = Parameter[]
     for (g, rep) in enumerate(_group_reps(am))
-        cat_allo_state(am, g) === :OnlyA && continue
-        append!(out, _step_constants(rep, :I))
-    end
-    for site in regulatory_sites(am)
-        for (lig, tag) in zip(ligands(site), allo_states(site))
-            tag === :OnlyA && continue
-            push!(out, Kreg(site, lig, :I))
-        end
+        tag = cat_allo_state(am, g)
+        state === :I && tag === :OnlyA && continue
+        st = state === :A && tag === :EqualAI ? :EqualAI : state
+        append!(out, _step_constants(rep, st))
     end
     out
 end
+
+"""Regulator-site `Kreg`s of `am` in conformation `state` (`:A` or `:I`), site by site:
+a ligand absent from that conformation (`:OnlyI` in `:A`, `:OnlyA` in `:I`) has none."""
+_kreg_params(am::AllostericMechanism, state::Symbol) =
+    Kreg[Kreg(site, lig, state) for site in regulatory_sites(am)
+         for (lig, tag) in zip(ligands(site), allo_states(site))
+         if tag !== (state === :A ? :OnlyI : :OnlyA)]
 
 # ─── Dependent parameter expressions ─────────────────────────────
 
@@ -1180,7 +1161,7 @@ are independent on top of the combined solve — except an `:EqualAI`
 regulator, whose I-name mirrors its shared A-name (`K_I_reg = K_A_reg`, added
 to `dep`). `L` (the conformational constant) is always independent. Any
 symbol the combined solve already made dependent is dropped from `indep`. The
-`Type{<:AllostericEnzymeMechanism}` method delegates here.
+`Type{<:AbstractEnzymeMechanism}` method lifts with `_concrete` and delegates here.
 """
 function _dependent_param_exprs(am::AllostericMechanism)
     dep, indep = _combined_state_dependent_exprs(am)
@@ -1206,28 +1187,21 @@ function _dependent_param_exprs(am::AllostericMechanism)
 
     # Regulator-site affinities complete no catalytic thermodynamic cycle, so they
     # are independent — except an `:EqualAI` regulator, whose I-name mirrors its
-    # shared A-name. `L` (the conformational constant) is always independent.
-    reg_params_a = Symbol[]
-    reg_params_i = Symbol[]
-    for site in regulatory_sites(am)
-        for (lig, tag) in zip(ligands(site), allo_states(site))
-            tag === :OnlyI || push!(reg_params_a, name(Kreg(site, lig, :A), am))
-            if tag === :EqualAI
-                dep[name(Kreg(site, lig, :I), am)] = name(Kreg(site, lig, :A), am)
-            elseif tag === :NonequalAI || tag === :OnlyI
-                push!(reg_params_i, name(Kreg(site, lig, :I), am))
-            end
-        end
+    # shared A-name: the mirror joins `dep`, which drops it from the independent list.
+    # `L` (the conformational constant) is always independent.
+    for site in regulatory_sites(am), (lig, tag) in zip(ligands(site), allo_states(site))
+        tag === :EqualAI || continue
+        dep[name(Kreg(site, lig, :I), am)] = name(Kreg(site, lig, :A), am)
     end
-    return dep, Tuple(p for p in (indep..., reg_params_a..., reg_params_i..., :L)
-                      if p ∉ keys(dep))
+    reg_params = Symbol[name(p, am) for p in [_kreg_params(am, :A); _kreg_params(am, :I)]]
+    return dep, Tuple(p for p in (indep..., reg_params..., :L) if p ∉ keys(dep))
 end
 
-_dependent_param_exprs(@nospecialize(M::Type{<:AllostericEnzymeMechanism})) =
-    _dependent_param_exprs(AllostericMechanism(M()))
+_dependent_param_exprs(@nospecialize(M::Type{<:AbstractEnzymeMechanism})) =
+    _dependent_param_exprs(_concrete(M()))
 
-# `parameters` and `fitted_params` for `AllostericEnzymeMechanism`
-# dispatch on explicit per-type methods at the top of this file.
+# `parameters` and `fitted_params` for `AllostericEnzymeMechanism` are the
+# `AbstractEnzymeMechanism` methods at the top of this file.
 
 # ─── Rate body building helpers ───────────────────────────────────
 
@@ -1307,13 +1281,7 @@ function _i_state_symbol_set(am::AllostericMechanism)
     cols_A = _state_all_params(_state_mechanism(am, :A), _state_step_params(am, :A))
     cols_I = _state_all_params(_state_mechanism(am, :I), _state_step_params(am, :I))
     syms = Set{Symbol}(setdiff(cols_I, cols_A))
-    for site in regulatory_sites(am)
-        for (lig, tag) in zip(ligands(site), allo_states(site))
-            tag === :OnlyA && continue
-            push!(syms, name(Kreg(site, lig, :I), am))
-        end
-    end
-    syms
+    union!(syms, (name(p, am) for p in _kreg_params(am, :I)))
 end
 
 """

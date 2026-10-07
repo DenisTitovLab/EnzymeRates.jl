@@ -229,8 +229,8 @@ into the representative step's column before Gaussian elimination, so
 
 Calls `_build_wegscheider_rename_map(mech)` to obtain the rename map for
 absorbed single-symbol Wegscheider RE ties and forwards to
-`_dependent_param_exprs_kernel`. The `Type{<:EnzymeMechanism}` method delegates
-here.
+`_dependent_param_exprs_kernel`. The `Type{<:AbstractEnzymeMechanism}` method lifts
+with `_concrete` and delegates here.
 """
 function _dependent_param_exprs(mech::Mechanism)
     rename = _build_wegscheider_rename_map(mech)
@@ -255,9 +255,6 @@ function _dependent_param_exprs(mech::Mechanism)
     indep = Tuple(sort(collect(indep); by = string))
     return dep_exprs, indep
 end
-
-_dependent_param_exprs(@nospecialize(M::Type{<:EnzymeMechanism})) =
-    _dependent_param_exprs(Mechanism(M()))
 
 """Number of independent (fitted) rate constants of a concrete mechanism, computed
 from the thermodynamic constraint solve without compiling the mechanism."""

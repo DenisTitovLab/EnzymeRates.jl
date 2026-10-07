@@ -2004,15 +2004,16 @@ end
         end
     end
 
-    @testset "_all_i_state_parameters" begin
+    @testset "_cat_params and _kreg_params" begin
+        names_of(am, params) = [EnzymeRates.name(p, am) for p in params]
+        i_params(am) = [EnzymeRates._cat_params(am, :I); EnzymeRates._kreg_params(am, :I)]
         # :NonequalAI cat group + :NonequalAI reg ligand → both contribute.
         aem = allo_from_source(
             cm_src, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
             (((:R,), 1, (:NonequalAI,)),),
         )
         am = EnzymeRates.AllostericMechanism(aem)
-        params = EnzymeRates._all_i_state_parameters(am)
-        rendered = [EnzymeRates.name(p, am) for p in params]
+        rendered = names_of(am, i_params(am))
 
         # Catalytic side: every non-:OnlyA group contributes an I-state
         # parameter (Kd for RE binding, Kfor/Krev for SS).
@@ -2022,6 +2023,11 @@ end
         @test :K_I_EP_to_E_P in rendered
         # Regulator side: :R is :NonequalAI → K_I_Rreg appears.
         @test :K_I_Rreg in rendered
+        # Active state: the :EqualAI iso takes its shared untagged names; every other
+        # group and the regulator take A-state names.
+        @test names_of(am, EnzymeRates._cat_params(am, :A)) ==
+              [:K_A_EP_to_E_P, :K_A_ES_to_E_S, :k_ES_to_EP, :k_EP_to_ES]
+        @test names_of(am, EnzymeRates._kreg_params(am, :A)) == [:K_A_Rreg]
 
         # Balanced :OnlyA bindings (both S and P) keep the :NonequalAI iso
         # Haldane-valid — a one-sided :OnlyA binding under a non-:OnlyA iso is
@@ -2032,12 +2038,20 @@ end
             (((:R,), 1, (:OnlyA,)),),
         )
         am_skip = EnzymeRates.AllostericMechanism(aem_skip)
-        rendered_skip = [EnzymeRates.name(p, am_skip)
-                         for p in EnzymeRates._all_i_state_parameters(am_skip)]
+        rendered_skip = names_of(am_skip, i_params(am_skip))
         @test :K_I_ES_to_E_S ∉ rendered_skip    # :OnlyA cat group skipped
         @test :k_I_ES_to_EP in rendered_skip    # :NonequalAI SS iso emits both
         @test :k_I_EP_to_ES in rendered_skip
         @test :K_I_Rreg ∉ rendered_skip    # :OnlyA reg ligand skipped
+        @test names_of(am_skip, EnzymeRates._kreg_params(am_skip, :A)) == [:K_A_Rreg]
+
+        # An :OnlyI reg ligand has an I-state Kreg and no A-state one.
+        am_onlyi = EnzymeRates.AllostericMechanism(allo_from_source(
+            cm_src, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
+            (((:R,), 1, (:OnlyI,)),),
+        ))
+        @test isempty(EnzymeRates._kreg_params(am_onlyi, :A))
+        @test names_of(am_onlyi, EnzymeRates._kreg_params(am_onlyi, :I)) == [:K_I_Rreg]
     end
 end
 

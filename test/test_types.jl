@@ -2080,7 +2080,8 @@ end
     param_names(m::EnzymeRates.Mechanism) =
         [EnzymeRates.name(p, m) for p in EnzymeRates._enumerate_parameters_full(m)]
     param_names(m::EnzymeRates.AllostericMechanism) = [EnzymeRates.name(p, m)
-        for p in EnzymeRates._all_i_state_parameters(m)]
+        for state in (:A, :I)
+        for p in [EnzymeRates._cat_params(m, state); EnzymeRates._kreg_params(m, state)]]
     # `rebuilt` is `m` constructed again from its fields, with an empty cache.
     function check_identity(m, rebuilt)
         shown = repr(m)
