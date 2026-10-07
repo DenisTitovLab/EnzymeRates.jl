@@ -254,8 +254,9 @@ Species notation on step sides:
 
 - Bare Symbol that matches a declared metabolite → that metabolite.
 - Bare Symbol otherwise (e.g. `E`, `Estar`, `E_c`) → conformation-only
-  species named after the Symbol. A bare multi-capital name such as `ES`
-  is rejected as an opaque bound-form name; write `E(S)`.
+  species named after the Symbol. A multi-capital conformation label such as `ES`,
+  bare or as a call head (`ES(P)`), is rejected as an opaque bound-form name; write
+  `E(S)`.
 - `E(S)` / `E(S, P)` → species with conformation `:E` and bound
   metabolites; synthesized name is `:E<bound...>` (the conformation
   followed by the bound names, sorted alphabetically, with no separator:
