@@ -398,6 +398,10 @@ end
         EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
     bad_m = EnzymeRates.Mechanism(ldh_rxn, [[bad_iso]])
     @test_throws ErrorException EnzymeRates._assert_atom_conserving(bad_m)
+    # The label names the difference the message prints: Lac has 18 fewer C than NADH.
+    label = "atoms(to) + atoms(released) − atoms(from) − atoms(consumed) = "
+    @test_throws label EnzymeRates._assert_atom_conserving(bad_m)
+    @test_throws ":C => -18" EnzymeRates._assert_atom_conserving(bad_m)
 
     # POSITIVE: the bi-bi ping-pong worked example carries a real covalent
     # residual (+A −P) on conformation :E; every step conserves atoms.

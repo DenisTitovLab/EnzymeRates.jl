@@ -39,7 +39,7 @@ function _assert_step_atom_conserving(reaction::EnzymeReaction, s::Step)
     isempty(diff) || error(
         "atom-non-conserving step $(name(from_species(s))) → $(name(to_species(s))) " *
         "(consumed $(name.(consumed(s))), released $(name.(released(s)))): " *
-        "atoms(from) + atoms(consumed) − atoms(to) − atoms(released) = $diff")
+        "atoms(to) + atoms(released) − atoms(from) − atoms(consumed) = $diff")
     nothing
 end
 
