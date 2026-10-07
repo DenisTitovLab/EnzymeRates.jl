@@ -36,14 +36,13 @@ function poly_mul(a::POLY, b::POLY)
     filter!(p -> p.second != 0, r)
 end
 
-function _mono_op(a::MONO, b::MONO, sign::Int)
+function _mono_mul(a::MONO, b::MONO)
     d = Dict{Symbol,Int}()
     for (s, e) in a; d[s] = get(d, s, 0) + e; end
-    for (s, e) in b; d[s] = get(d, s, 0) + sign * e; end
+    for (s, e) in b; d[s] = get(d, s, 0) + e; end
     filter!(p -> p.second != 0, d)
     sort!(MONO(collect(d)); by=first)
 end
-_mono_mul(a::MONO, b::MONO) = _mono_op(a, b, 1)
 
 """
 Reduce num/den to lowest terms over concentrations only. For each concentration
@@ -71,19 +70,9 @@ function _reduce_conc_lowest_terms(num::POLY, den::POLY, weight::POLY,
     end
     filter!(p -> p.second != 0, mins)
     isempty(mins) && return num, den, weight
-    function shift(p)
-        out = POLY()
-        for (mono, v) in p
-            md = Dict{Symbol,Int}(mono)
-            for (s, mn) in mins
-                md[s] = get(md, s, 0) - mn
-            end
-            filter!(pr -> pr.second != 0, md)
-            out[sort!(MONO(collect(md)); by=first)] = v
-        end
-        out
-    end
-    shift(num), shift(den), shift(weight)
+    # Multiplying by a monomial is injective on monomials, so no two terms merge.
+    shift = POLY(_mono((s => -mn for (s, mn) in mins)...) => 1)
+    poly_mul(num, shift), poly_mul(den, shift), poly_mul(weight, shift)
 end
 
 """
@@ -218,21 +207,9 @@ constraint solver to materialize the Keq×rate-constant power product
 that replaces a dependent rate constant.
 """
 function build_power_expr(keq_exp::Rational, factors)
-    function _pa(sym, exp)
-        if exp == 1
-            sym
-        elseif exp == -1
-            :(1 / $sym)
-        elseif denominator(exp) == 1
-            if Int(exp) > 0
-                :($sym ^ $(Int(exp)))
-            else
-                :(1 / $sym ^ $(Int(-exp)))
-            end
-        else
-            :($sym ^ $(Float64(exp)))
-        end
-    end
+    _pa(sym, exp) = exp == 1 ? sym : exp == -1 ? :(1 / $sym) :
+        !isinteger(exp) ? :($sym ^ $(Float64(exp))) :
+        exp > 0 ? :($sym ^ $(Int(exp))) : :(1 / $sym ^ $(Int(-exp)))
     terms = Any[]
     keq_exp != 0 && push!(terms, _pa(:Keq, keq_exp))
     # Sort factors by name so the rendered power product is content-canonical
@@ -241,13 +218,7 @@ function build_power_expr(keq_exp::Rational, factors)
     for (sym, exp) in sort(collect(factors); by = x -> string(first(x)))
         exp != 0 && push!(terms, _pa(sym, exp))
     end
-    if isempty(terms)
-        :(1)
-    elseif length(terms) == 1
-        terms[1]
-    else
-        Expr(:call, :*, terms...)
-    end
+    isempty(terms) ? 1 : length(terms) == 1 ? only(terms) : Expr(:call, :*, terms...)
 end
 
 """Whether the expression mentions the symbol `s`."""

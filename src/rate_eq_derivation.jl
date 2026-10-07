@@ -216,19 +216,18 @@ function _segment_root(group, enz_species)
 end
 
 """
-    _re_weight_ratio(s, K; inverse = false) -> POLY
+    _re_weight_ratio(s, K) -> POLY
 
-w(to)/w(from) of rapid-equilibrium step `s` as a monomial (its inverse when
-`inverse`): [M]/K for a binding of M, plain or fused (K a dissociation constant), and
-K·Π[consumed]/Π[released] for every other step (K the equilibrium constant of the
-stored direction, products over reactants: [to]·Π[released] / ([from]·Π[consumed]),
-as its name `K_<from>_to_<to>` says).
+w(to)/w(from) of rapid-equilibrium step `s` as a monomial: [M]/K for a binding of M,
+plain or fused (K a dissociation constant), and K·Π[consumed]/Π[released] for every
+other step (K the equilibrium constant of the stored direction, products over
+reactants: [to]·Π[released] / ([from]·Π[consumed]), as its name `K_<from>_to_<to>`
+says).
 """
-function _re_weight_ratio(s::Step, K::Symbol; inverse::Bool = false)
-    sgn = inverse ? -1 : 1
-    d = Dict{Symbol, Int}(K => sgn * (is_binding(s) ? -1 : 1))
-    for m in consumed(s); d[name(m)] = get(d, name(m), 0) + sgn; end
-    for m in released(s); d[name(m)] = get(d, name(m), 0) - sgn; end
+function _re_weight_ratio(s::Step, K::Symbol)
+    d = Dict{Symbol, Int}(K => is_binding(s) ? -1 : 1)
+    for m in consumed(s); d[name(m)] = get(d, name(m), 0) + 1; end
+    for m in released(s); d[name(m)] = get(d, name(m), 0) - 1; end
     filter!(p -> p.second != 0, d)
     POLY(sort!(MONO(collect(d)); by = first) => 1)
 end
@@ -264,7 +263,7 @@ function _compute_alpha(mech::Mechanism, enz_species,
                     push!(visited, j_f); push!(queue, j_f)
                 elseif j_f == cur && i_f ∉ visited
                     alpha[i_f] = poly_mul(alpha[cur],
-                                          _re_weight_ratio(s, K; inverse = true))
+                                          _invert_monomial(_re_weight_ratio(s, K)))
                     push!(visited, i_f); push!(queue, i_f)
                 end
             end
