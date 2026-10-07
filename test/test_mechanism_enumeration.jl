@@ -8171,7 +8171,7 @@ end
             @test EnzymeRates.released(s) == EnzymeRates.released(r)
         end
     end
-    @test EnzymeRates._revert_zero_flux_parts(group, bp, trues(2)) === bp
+    @test EnzymeRates._revert_zero_flux_parts(group, bp, trues(2)) == bp
 end
 
 @testset "_partition_independent_count agrees with _independent_param_count" begin

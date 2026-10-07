@@ -1069,16 +1069,15 @@ function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
     flux = _flux_carrying_steps(groups, reaction(m))
     units = Tuple{Int, Tuple{Vector{Step}, Vector{Step}}}[]
     reverted = Bool[]
-    for g in kinetic_groups(m), bp in _context_bipartitions(groups[g])
+    for g in eachindex(groups), bp in _context_bipartitions(groups[g])
         parts = _revert_zero_flux_parts(groups[g], bp, flux[g])
-        push!(units, (g, parts)); push!(reverted, parts !== bp)
+        push!(units, (g, parts)); push!(reverted, parts != bp)
     end
     isempty(units) && return typeof(m)[]
-    selection(sel) = [units[u] for u in sel]
     gain = _split_gain_test(m, units)
     gains(sel) =
         (!any(u -> reverted[u], sel) ||
-         _bottomless_re_segment(_bipartitioned_groups(groups, selection(sel))[1]) ===
+         _bottomless_re_segment(_bipartitioned_groups(groups, units[sel])[1]) ===
          nothing) && gain(sel)
     # RE segment ids touched by each kinetic group's steps; empty for a group holding an
     # SS step, which lies on no RE cycle and is never a split partner.
@@ -1096,7 +1095,7 @@ function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
     end
     sets = _minimal_gaining_sets(gains, partners)
     filter!(c -> isempty(_redundant_copy_groups(c)),
-            typeof(m)[_apply_bipartitions(m, selection(sel)) for sel in sets])
+            typeof(m)[_apply_bipartitions(m, units[sel]) for sel in sets])
 end
 
 """Gain test for the split move: `sel -> Bool`, true when applying the selected
@@ -1115,14 +1114,11 @@ function _split_gain_test(m::Mechanism, units)
     function gains(sel)
         ids = copy(parent_ids)
         kinds = copy(parent_kinds)
-        next_id = length(steps(m))
-        for u in sel
-            next_id += 1
-            for (part_number, part) in enumerate(units[u][2]), s in part
-                j = position[reaction_key(s)]
-                part_number == 2 && (ids[j] = next_id)
-                kinds[j] = _count_kind(s)
-            end
+        for (i, u) in enumerate(sel), (part_number, part) in enumerate(units[u][2]),
+            s in part
+            j = position[reaction_key(s)]
+            part_number == 2 && (ids[j] = length(steps(m)) + i)
+            kinds[j] = _count_kind(s)
         end
         counter(ids, kinds) > base
     end
@@ -1131,8 +1127,7 @@ end
 
 function _split_gain_test(am::AllostericMechanism, units)
     base = _independent_param_count(am)
-    sel -> _independent_param_count(
-        _apply_bipartitions(am, [units[u] for u in sel])) > base
+    sel -> _independent_param_count(_apply_bipartitions(am, units[sel])) > base
 end
 
 """
@@ -1143,11 +1138,8 @@ when it only releases metabolites (two or more: a step releasing one is stored
 as the binding it reverses), and `from_species(s)` for an iso step (both lists
 empty).
 """
-function _context_form(s::Step)
-    isempty(consumed(s)) || return from_species(s)
-    isempty(released(s)) || return to_species(s)
-    from_species(s)
-end
+_context_form(s::Step) =
+    isempty(consumed(s)) && !isempty(released(s)) ? to_species(s) : from_species(s)
 
 """
     _context_bipartitions(group) -> Vector{Tuple{Vector{Step}, Vector{Step}}}
@@ -1168,30 +1160,18 @@ conformations (by name), then residuals, for deterministic output.
 function _context_bipartitions(group::Vector{Step})
     own = bound_metabolite(first(group))
     forms = [_context_form(s) for s in group]
-    ligands = Set{Metabolite}()
-    for f in forms, b in bound(f)
-        own !== nothing && b == own && continue
-        push!(ligands, b)
-    end
+    ligands = unique!(Metabolite[b for f in forms for b in bound(f) if b != own])
     division(carries) = Step[s for (s, f) in zip(group, forms) if carries(f)]
     divisions = [division(f -> y in bound(f))
-                 for y in sort!(collect(ligands);
-                                by = b -> (string(typeof(b)), string(name(b))))]
+                 for y in sort!(ligands; by = b -> (string(typeof(b)), string(name(b))))]
     append!(divisions, division(f -> conformation(f) == c)
             for c in sort!(unique(conformation(f) for f in forms); by = string))
     append!(divisions, division(f -> residual(f) == r)
             for r in sort!(unique(residual(f) for f in forms); by = string))
-    seen = Set{Vector{Step}}()
-    out = Tuple{Vector{Step}, Vector{Step}}[]
-    for with in divisions
-        without = Step[s for s in group if !(s in with)]
-        (isempty(with) || isempty(without)) && continue
-        first_part, second_part = first(group) in with ? (with, without) : (without, with)
-        first_part in seen && continue
-        push!(seen, first_part)
-        push!(out, (first_part, second_part))
-    end
-    out
+    parts(with) = (without = Step[s for s in group if !(s in with)];
+                   first(group) in with ? (with, without) : (without, with))
+    unique!(first, Tuple{Vector{Step}, Vector{Step}}[
+        parts(with) for with in divisions if 0 < length(with) < length(group)])
 end
 
 """
@@ -1201,44 +1181,29 @@ at most once. For an allosteric mechanism both parts inherit the group's
 catalytic allo-state tag (splitting is a parameter-relaxation move that must not
 change A/I semantics).
 """
-function _apply_bipartitions(m::Mechanism, selection)
-    _with(m; groups = _bipartitioned_groups(steps(m), selection)[1])
-end
-
-function _apply_bipartitions(am::AllostericMechanism, selection)
-    groups, origin = _bipartitioned_groups(steps(am), selection)
-    _with(am; groups, states = cat_allo_states(am)[origin])
+function _apply_bipartitions(m::Union{Mechanism, AllostericMechanism}, selection)
+    groups, origin = _bipartitioned_groups(steps(m), selection)
+    m isa Mechanism ? _with(m; groups) :
+        _with(m; groups, states = cat_allo_states(m)[origin])
 end
 
 """
 The bipartition `bp` of `group` with every part none of whose steps carries flux
-(`flags`, one per step of `group`) rebuilt at rapid equilibrium; `bp` itself when
-no part changes, and always for a rapid-equilibrium group (see `_flux_carrying_groups`).
+(`flags`, one per step of `group`) rebuilt at rapid equilibrium. A rapid-equilibrium
+group's steps are all flagged `false` (`_flux_carrying_steps`) and rebuild as themselves,
+so its bipartition comes back equal to `bp`.
 """
 function _revert_zero_flux_parts(group::Vector{Step}, bp, flags::BitVector)
-    is_equilibrium(first(group)) && return bp
-    carries = Dict(s => flags[j] for (j, s) in enumerate(group))
-    revert(part) = any(s -> carries[s], part) ? part :
-        _with_equilibrium.(part, true)
-    p1, p2 = revert(bp[1]), revert(bp[2])
-    p1 === bp[1] && p2 === bp[2] ? bp : (p1, p2)
+    carries = Dict(zip(group, flags))
+    map(part -> any(s -> carries[s], part) ? part : _with_equilibrium.(part, true), bp)
 end
 
 """Groups of `groups` with each selected group replaced by its two parts, plus
 the index of the original group each new group came from."""
 function _bipartitioned_groups(groups::Vector{Vector{Step}}, selection)
-    parts = Dict(g => bp for (g, bp) in selection)
-    out = Vector{Vector{Step}}()
-    origin = Int[]
-    for (g, group) in enumerate(groups)
-        if haskey(parts, g)
-            push!(out, parts[g][1]); push!(origin, g)
-            push!(out, parts[g][2]); push!(origin, g)
-        else
-            push!(out, group); push!(origin, g)
-        end
-    end
-    out, origin
+    parts = Dict(selection)
+    ([part for (g, group) in enumerate(groups) for part in get(parts, g, (group,))],
+     [g for (g, group) in enumerate(groups) for _ in get(parts, g, (group,))])
 end
 
 """
