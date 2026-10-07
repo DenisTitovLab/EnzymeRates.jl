@@ -809,6 +809,22 @@
         end))
     end
 
+    @testset "a call with fewer than three arguments is not a step" begin
+        # `f(x)` and `-E` parse as two-argument calls; the parser reports the line
+        # instead of reading a right-hand side the call lacks.
+        for line in (:(f(x)), :(-E))
+            @test_throws "@enzyme_mechanism: expected step or step-group; got $line" eval(
+                :(@enzyme_mechanism begin
+                    substrates: S
+                    products:   P
+                    steps: begin
+                        E + S ⇌ E(S)
+                        $line
+                    end
+                end))
+        end
+    end
+
     @testset "::Inh role tag: product that also competitively inhibits" begin
         m = @enzyme_mechanism begin
             substrates: S

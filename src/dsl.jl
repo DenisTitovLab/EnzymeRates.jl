@@ -342,8 +342,8 @@ function _parse_steps_block(steps_block, role_of, macro_name; allow_tag::Bool)
                       "`:: <:OnlyA|:EqualAI|:NonequalAI>` annotation. Add " *
                       "`:: <state>` after the closing paren.")
             steps = arg.args
-        # Single step (with or without tag)
-        elseif arg isa Expr && arg.head == :call
+        # Single step (with or without tag): an operator call with two sides
+        elseif arg isa Expr && arg.head == :call && length(arg.args) == 3
             original = string(arg)
             tag = _peel_step_tag!(arg)
             if tag !== nothing
