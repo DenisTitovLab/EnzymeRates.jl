@@ -8,10 +8,10 @@
 # or its type, to its concrete form therefore take it `@nospecialize`.
 
 """
-Suffix the `Reduced` `rate_equation_string` of an `EnzymeMechanism` appends to each
-constraint line whose right-hand side is a single symbol, such as an absorbed
-Wegscheider tie that the rename folds into `v`. The rate-equation dedup key in
-`identify_rate_equation.jl` strips these provenance lines.
+Suffix the `Reduced` `rate_equation_string` of an `EnzymeMechanism` appends to the line
+of each single-symbol Wegscheider tie that the rename (`_build_wegscheider_rename_map`)
+folds into `v`. The rate-equation dedup key in `identify_rate_equation.jl` strips these
+provenance lines.
 """
 const ANNOTATION_SUBSTITUTED = "  (substituted into v)"
 
@@ -499,17 +499,17 @@ The `rate_equation_string` text of `M`: the `params` destructure of `param_syms`
 `concs` destructure, one line `sym = rhs` per dependent parameter of `dep` with `rhs`
 rendered by `rhs_string`, and the `v = E_total * (num) / (den)` line from
 `_num_den_exprs`. A dependent whose right-hand side mentions `Keq` goes under
-`# Haldane constraints:`, every other one under `# Wegscheider constraints:`; with
-`annotate`, a line whose right-hand side is a single symbol ends in
-`ANNOTATION_SUBSTITUTED`. Each section is sorted by name, which is load-bearing: the
-eq_hash dedup of rate-equivalent mechanisms compares these strings, so their line order
-must not depend on the order the solve emits its dependents in.
+`# Haldane constraints:`, every other one under `# Wegscheider constraints:`; the line
+of a dependent in `substituted` ends in `ANNOTATION_SUBSTITUTED`. Each section is sorted
+by name, which is load-bearing: the eq_hash dedup of rate-equivalent mechanisms compares
+these strings, so their line order must not depend on the order the solve emits its
+dependents in.
 """
 function _equation_text(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param_syms,
-                        dep; annotate = false, rhs_string = _expr_to_string)
+                        dep; substituted = (), rhs_string = _expr_to_string)
     weg, hal = String[], String[]
     for (sym, rhs) in sort!(collect(dep); by = first)
-        suffix = annotate && rhs isa Symbol ? ANNOTATION_SUBSTITUTED : ""
+        suffix = sym in substituted ? ANNOTATION_SUBSTITUTED : ""
         push!(_mentions(rhs, :Keq) ? hal : weg, "$sym = $(rhs_string(rhs))$suffix")
     end
     num, den = _num_den_exprs(M)
@@ -525,15 +525,16 @@ rate_equation_string(@nospecialize(m::EnzymeMechanism), ::FullMode) =
     _equation_text(typeof(m), (_raw_param_symbols(m)..., :E_total), Dict())
 
 # The display solves with no Wegscheider rename, so an absorbed single-symbol tie stays
-# visible under `# Wegscheider constraints:`. Its right-hand sides print with Base
-# `string` because the eq_hash of a plain mechanism is computed over this text. Base
-# `string` writes a symbol that is not an identifier (a ping-pong residual name such as
-# `K_EB_res_+A_-P_to_EQ`) inside a product as `var"…"`.
+# visible under `# Wegscheider constraints:`, marked as substituted into v. Its
+# right-hand sides print with Base `string` because the eq_hash of a plain mechanism is
+# computed over this text. Base `string` writes a symbol that is not an identifier (a
+# ping-pong residual name such as `K_EB_res_+A_-P_to_EQ`) inside a product as `var"…"`.
 function rate_equation_string(@nospecialize(m::EnzymeMechanism), ::ReducedMode)
     _, indep = _dependent_param_exprs(typeof(m))
-    dep, _ = _solve_dependent_set(
-        _assemble_constraints(Mechanism(m), Dict{Symbol, Symbol}())...)
-    _equation_text(typeof(m), (indep..., :Keq, :E_total), dep; annotate = true,
+    mech = Mechanism(m)
+    dep, _ = _solve_dependent_set(_assemble_constraints(mech, Dict{Symbol, Symbol}())...)
+    _equation_text(typeof(m), (indep..., :Keq, :E_total), dep;
+                   substituted = keys(_build_wegscheider_rename_map(mech)),
                    rhs_string = string)
 end
 

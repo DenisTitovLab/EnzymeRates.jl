@@ -1533,6 +1533,51 @@ end
     @test isempty(bad)
 end
 
+@testset "rate_equation_string marks only the ties folded into v as substituted" begin
+    # A binds E and E(B) under one constant while B's two bindings keep their own, so
+    # the RE binding square ties B's two dissociation constants. The tie joins two
+    # binding K's, so the Wegscheider rename folds it into v.
+    folded = @enzyme_mechanism begin
+        substrates: A, B
+        products: P
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+            E + B ⇌ E(B)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    @test occursin("\nK_EAB_to_EA_B = K_EB_to_E_B" * ER.ANNOTATION_SUBSTITUTED * "\n",
+                   rate_equation_string(folded))
+    # S binds E and Estar under one constant, so the square of the two isomerizations
+    # ties their equilibrium constants. The rename folds no isomerization K: v reads
+    # K_E_to_Estar, and the line assigns it.
+    iso_tie = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            (E + S ⇌ E(S), Estar + S ⇌ Estar(S))
+            E ⇌ Estar
+            E(S) ⇌ Estar(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    @test occursin("\nK_E_to_Estar = K_ES_to_EstarS\n", rate_equation_string(iso_tie))
+    # The two isomerizations share one group and run opposite ways around the cycle, so
+    # the Haldane relation fixes the Theorell–Chance constant at Keq; v reads it.
+    keq_tie = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ Estar + P
+            (Estar <--> Ez, E <--> Ez)
+        end
+    end
+    @test occursin("\nK_E_S_to_Estar_P = Keq\n", rate_equation_string(keq_tie))
+end
+
 @testset "rate_equation_string prints flat +/* sums (no nested parens)" begin
     # Orthogonal guard (NOT a perf-fix backstop): _expr_to_string is
     # precedence-aware and flattens nested +/* nodes
