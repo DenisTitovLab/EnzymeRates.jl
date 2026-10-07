@@ -209,7 +209,7 @@ function _thermodynamic_constraints(mech::Mechanism)
     j0 = findfirst(!iszero, nu_net)
     function classify(i)
         nu = stoich_mat * C[i, :]
-        c = nu[j0] // nu_net[j0]
+        c = j0 === nothing ? 0 // 1 : nu[j0] // nu_net[j0]
         nu == c .* nu_net && isinteger(c) ||
             error("Cycle $i produces metabolite change not proportional to net reaction")
         Int(c)

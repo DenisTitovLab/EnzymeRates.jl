@@ -1622,6 +1622,56 @@ end
 
 end
 
+@testset "a reaction with no net change keeps its binding-square constraint" begin
+    # Every product shares a substrate's name, so the net reaction changes no
+    # metabolite. The random-order binding square closes one Wegscheider cycle
+    # (log Keq exponent 0), and the :OnlyA check reads that cycle.
+    m = @enzyme_mechanism begin
+        substrates: A, B
+        products:   A, B
+        steps: begin
+            E + A ⇌ E(A)
+            E + B ⇌ E(B)
+            E(A) + B ⇌ E(A, B)
+            E(B) + A ⇌ E(A, B)
+        end
+    end
+    C, rhs = EnzymeRates._thermodynamic_constraints(EnzymeRates.Mechanism(m))
+    @test C == [1 -1 1 -1]
+    @test rhs == [0]
+    @test EnzymeRates._dependent_param_exprs(EnzymeRates.Mechanism(m))[2] ==
+          (:K_EAB_to_EB_A, :K_EA_to_E_A, :K_EB_to_E_B)
+
+    # A paired :OnlyA binding balances the cycle; a lone one leaves it unsatisfiable.
+    @test @allosteric_mechanism(begin
+        substrates: A, B
+        products:   A, B
+        catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A ⇌ E(A)          :: OnlyA
+            E + B ⇌ E(B)          :: EqualAI
+            E(A) + B ⇌ E(A, B)    :: EqualAI
+            E(B) + A ⇌ E(A, B)    :: OnlyA
+        end
+    end) isa AllostericEnzymeMechanism
+    lone_onlya = ErrorException(
+        "AllostericMechanism: an :OnlyA binding (K_EA_to_E_A) leaves a thermodynamic " *
+        "(Haldane/Wegscheider) cycle unsatisfiable: the inactive conformation cannot " *
+        "close that cycle at finite nonzero affinity. Tag the cycle's chemical step " *
+        ":OnlyA, or tag an opposing binding :OnlyA so the affinities diverge together.")
+    @test_throws lone_onlya @allosteric_mechanism begin
+        substrates: A, B
+        products:   A, B
+        catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A ⇌ E(A)          :: OnlyA
+            E + B ⇌ E(B)          :: EqualAI
+            E(A) + B ⇌ E(A, B)    :: EqualAI
+            E(B) + A ⇌ E(A, B)    :: EqualAI
+        end
+    end
+end
+
 # ── Large equation compilation regression test ────────────────────────────
 
 @testset "Large equation compilation (<20s)" begin
