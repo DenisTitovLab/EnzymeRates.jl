@@ -186,7 +186,7 @@
         end))
     end
 
-    @testset "@allosteric_mechanism states and ligands are checked by the constructors" begin
+    @testset "@allosteric_mechanism leaves states and ligands to the constructors" begin
         # A name listed twice in `allosteric_regulators:` is rejected, even when an
         # explicit site would let the last tag silently replace the first.
         @test_throws "lists `A` more than once" eval(:(@allosteric_mechanism begin
@@ -287,6 +287,29 @@
                     E(P) ⇌ E + P      :: EqualAI
                 end
             end))
+    end
+
+    @testset "@enzyme_mechanism rejects each allosteric-only label" begin
+        for line in (:(allosteric_regulators: A::OnlyA),
+                     :(catalytic_inhibitors: I),
+                     :(catalytic_multiplicity: 2),
+                     :(catalytic_steps: begin
+                           E + S ⇌ E(S)
+                       end),
+                     :(regulatory_site(multiplicity = 2): begin
+                           ligands: A
+                       end))
+            @test_throws "belong in @allosteric_mechanism" eval(:(@enzyme_mechanism begin
+                substrates: S
+                products:   P
+                $line
+                steps: begin
+                    E + S ⇌ E(S)
+                    E(S) <--> E(P)
+                    E(P) ⇌ E + P
+                end
+            end))
+        end
     end
 
     @testset "mechanism macros name themselves in body errors" begin
@@ -600,6 +623,31 @@
             end))
     end
 
+    @testset "an undeclared metabolite is reported ahead of the opaque-name check" begin
+        # `ATP` is undeclared: it is a misspelled metabolite, not a bound-form name.
+        @test_throws "bound metabolite `ATP` in species `E(ATP)` is not declared" eval(
+            :(@enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + ATP ⇌ E(ATP)
+                    E(S) <--> E(P)
+                    E(P) ⇌ E + P
+                end
+            end))
+        @test_throws "bound metabolite `ATP` in species `E(ATP)` is not declared" eval(
+            :(@allosteric_mechanism begin
+                substrates: S
+                products: P
+                catalytic_steps: begin
+                    E + ATP ⇌ E(ATP)    :: EqualAI
+                    E + S ⇌ E(S)        :: EqualAI
+                    E(S) <--> E(P)      :: EqualAI
+                    E(P) ⇌ E + P        :: EqualAI
+                end
+            end))
+    end
+
     @testset "@allosteric_mechanism opaque rejection names itself" begin
         err = try
             eval(:(@allosteric_mechanism begin
@@ -685,6 +733,13 @@
                 products:   P[C]
                 oligomeric_state: (1, 2)
             end))
+        # Two values after the label, not one tuple.
+        @test_throws "`oligomeric_state:` takes a single Int" eval(Meta.parse("""
+            @enzyme_reaction begin
+                substrates: S[C]
+                products:   P[C]
+                oligomeric_state: 1, 2
+            end"""))
     end
 
     @testset "@enzyme_reaction shared_catalytic_site" begin

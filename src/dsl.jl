@@ -181,7 +181,9 @@ end
 """Parse `(1, 2, 4)` or `4` into `Vector{Int}`."""
 function _parse_multiplicity_tuple(values, label)
     length(values) == 1 ||
-        error("@enzyme_reaction: `$label:` takes a single tuple, got $values.")
+        error("@enzyme_reaction: `$label:` takes a single " *
+              "$(label === :oligomeric_state ? "Int" : "tuple"), " *
+              "got $(join(values, ", ")).")
     v = values[1]
     Int[_positive_int(a, "@enzyme_reaction: `$label:` entry")
         for a in (v isa Expr && v.head === :tuple ? v.args : (v,))]
@@ -389,7 +391,9 @@ exactly one enzyme-form term and any number of metabolite terms (a declared name
 `X::Inh`): the left-hand metabolites are consumed, the right-hand ones released.
 Every term of both sides is parsed before either side's enzyme forms are counted,
 so a misspelled metabolite bound on either side is reported as undeclared rather
-than as a second enzyme form.
+than as a second enzyme form or an opaque bound-form name. The enzyme form's
+conformation label, bare or a call head, must be conformation-shaped
+(`_is_conformation_shape`).
 """
 function _step_expr(expr, role_of, macro_name)
     expr isa Expr && expr.head == :call ||
@@ -413,6 +417,10 @@ function _step_expr(expr, role_of, macro_name)
             error("$macro_name: step side has more than one enzyme-form term " *
                   "($(term_name(terms[i[1]])), $(term_name(terms[i[2]]))); each " *
                   "elementary step has exactly one enzyme form per side.")
+        conformation = term_name(terms[only(i)])
+        _is_conformation_shape(conformation) ||
+            error("$macro_name: `$conformation` looks like an opaque bound-form name; " *
+                  "write it as decomposed call notation, e.g. `E(S)` or `E(A, B)`.")
         exprs[only(i)], exprs[eachindex(exprs) .!= only(i)]
     end
     :(EnzymeRates.Step($from, $to, EnzymeRates.Metabolite[$(consumed...)],
@@ -424,9 +432,8 @@ Build the `Species(bound, conformation, residual)` `Expr` for an enzyme-form ter
 a bare conformation `E`, or a call `E(S, X::Inh; residual = A - P)` whose head is
 the conformation, whose positional arguments are the bound metabolites, and whose
 `residual` lists the substrates added to and the products removed from the enzyme.
-Conformation labels, bare or call heads, cannot shadow declared metabolite names and
-must be conformation-shaped (`_is_conformation_shape`). The `Species` and `Residual`
-constructors sort what they hold.
+Conformation labels cannot shadow declared metabolite names. The `Species` and
+`Residual` constructors sort what they hold.
 """
 function _species_expr(t, role_of, macro_name)
     t isa Symbol || t isa Expr && t.head == :call && t.args[1] isa Symbol ||
@@ -437,9 +444,6 @@ function _species_expr(t, role_of, macro_name)
         error("$macro_name: conformation label `$conformation` collides with " *
               "declared metabolite `$conformation`; choose a different " *
               "conformation label.")
-    _is_conformation_shape(conformation) ||
-        error("$macro_name: `$conformation` looks like an opaque bound-form name; " *
-              "write it as decomposed call notation, e.g. `E(S)` or `E(A, B)`.")
     bound, added, subtracted = Expr[], Expr[], Expr[]
     for a in args
         if a isa Expr && a.head === :parameters
@@ -693,12 +697,6 @@ function _parse_mechanism_body(block, allosteric::Bool)
     isempty(subs_list) && error("$macro_name: `substrates:` not specified.")
     isempty(prods_list) && error("$macro_name: `products:` not specified.")
     steps_block === nothing && error("$macro_name: `$steps_label:` not specified.")
-    allo_names = first.(allo_regs)
-    repeated = unique(n for (i, n) in enumerate(allo_names)
-                      if n in view(allo_names, 1:i-1))
-    isempty(repeated) ||
-        error("@allosteric_mechanism: `allosteric_regulators:` lists " *
-              "$(join(("`$n`" for n in repeated), ", ")) more than once.")
 
     # Order matters: a metabolite that is both a substrate/product and its own
     # competitive inhibitor (self-inhibition) takes the substrate/product role
@@ -712,6 +710,12 @@ function _parse_mechanism_body(block, allosteric::Bool)
                                                  allow_tag = allosteric)
     reaction_expr = _mechanism_reaction_expr(subs_list, prods_list, inhibitors)
     if allosteric
+        allo_names = first.(allo_regs)
+        repeated = unique(n for (i, n) in enumerate(allo_names)
+                          if n in view(allo_names, 1:i-1))
+        isempty(repeated) ||
+            error("@allosteric_mechanism: `allosteric_regulators:` lists " *
+                  "$(join(("`$n`" for n in repeated), ", ")) more than once.")
         cat_allo_states_expr = :(Symbol[$(QuoteNode.(group_tags)...)])
         cat_n = something(cat_n, 1)
         reg_sites_expr = _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
