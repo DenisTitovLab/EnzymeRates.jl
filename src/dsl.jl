@@ -249,7 +249,7 @@ Build a plain (non-allosteric) `EnzymeMechanism`.
   passed to `EnzymeReaction`.
 - A name listed both as a substrate or product and in `regulators:` binds as
   the substrate or product in a bare `E(X)`; its inhibitor form is written
-  `E(X::Inh)`.
+  `E(X::Inh)`. `X::Inh` requires `X` in `regulators:`.
 - Same-kinetics groups are expressed via parenthesized step-groups; no
   `constraints:` block needed.
 - Allosteric-only constructs (`regulatory_site(...)` / `::Tag` /
@@ -317,9 +317,10 @@ and the groups' tags, both in source order. Each top-level expression is either:
 With `allow_tag=false` (plain mechanism), reject any `::Tag` annotations; the tags
 come back empty. With `allow_tag=true` (allosteric mechanism), every group carries
 one. `role_of` maps each declared metabolite to the `Metabolite` subtype it binds
-as; `macro_name` names the invoking macro in error messages.
+as; `inhibitors` holds the `label` that declares competitive inhibitors and the
+`names` it lists; `macro_name` names the invoking macro in error messages.
 """
-function _parse_steps_block(steps_block, role_of, macro_name; allow_tag::Bool)
+function _parse_steps_block(steps_block, role_of, inhibitors, macro_name; allow_tag::Bool)
     groups, tags = Expr[], Symbol[]
     for arg in steps_block.args
         arg isa LineNumberNode && continue
@@ -361,7 +362,7 @@ function _parse_steps_block(steps_block, role_of, macro_name; allow_tag::Bool)
             error("$macro_name: expected step or step-group; got $arg")
         end
         push!(groups, :(EnzymeRates.Step[
-            $((_step_expr(s, role_of, macro_name) for s in steps)...)]))
+            $((_step_expr(s, role_of, inhibitors, macro_name) for s in steps)...)]))
     end
     :(Vector{EnzymeRates.Step}[$(groups...)]), tags
 end
@@ -398,7 +399,7 @@ than as a second enzyme form or an opaque bound-form name. The enzyme form's
 conformation label, bare or a call head, must be conformation-shaped
 (`_is_conformation_shape`).
 """
-function _step_expr(expr, role_of, macro_name)
+function _step_expr(expr, role_of, inhibitors, macro_name)
     expr isa Expr && expr.head == :call ||
         error("$macro_name: expected lhs ⇌ rhs or lhs <--> rhs; got $expr")
     op = expr.args[1]
@@ -409,8 +410,8 @@ function _step_expr(expr, role_of, macro_name)
     sides = map(expr.args[2:3]) do side
         terms = side isa Expr && side.head == :call && side.args[1] == :+ ?
                 side.args[2:end] : Any[side]
-        terms, Expr[is_met(t) ? _metabolite_expr(t, role_of, macro_name) :
-                    _species_expr(t, role_of, macro_name) for t in terms]
+        terms, Expr[is_met(t) ? _metabolite_expr(t, role_of, inhibitors, macro_name) :
+                    _species_expr(t, role_of, inhibitors, macro_name) for t in terms]
     end
     (from, consumed), (to, released) = map(sides) do (terms, exprs)
         i = findall(!is_met, terms)
@@ -438,7 +439,7 @@ the conformation, whose positional arguments are the bound metabolites, and whos
 Conformation labels cannot shadow declared metabolite names. The `Species` and
 `Residual` constructors sort what they hold.
 """
-function _species_expr(t, role_of, macro_name)
+function _species_expr(t, role_of, inhibitors, macro_name)
     t isa Symbol || t isa Expr && t.head == :call && t.args[1] isa Symbol ||
         error("$macro_name: expected metabolite Symbol or species expression on " *
               "step side; got $t")
@@ -460,7 +461,7 @@ function _species_expr(t, role_of, macro_name)
         else
             a isa Symbol || a isa Expr && a.head === :(::) ||
                 error("$macro_name: invalid entry in species `$t`: $a")
-            push!(bound, _metabolite_expr(a, role_of, macro_name, t))
+            push!(bound, _metabolite_expr(a, role_of, inhibitors, macro_name, t))
         end
     end
     :(EnzymeRates.Species(EnzymeRates.Metabolite[$(bound...)],
@@ -483,11 +484,12 @@ _is_conformation_shape(sym::Symbol) =
 """
 Build the `Metabolite` `Expr` for a declared name `X` (the subtype `role_of[X]`) or
 `X::Inh` (its `CompetitiveInhibitor` copy): a free term on a step side or, given
-`species`, a metabolite bound in that species. A name declared only as an allosteric
-regulator and written bare (`R`, `E(R)`) is rejected: it binds only at its regulatory
-site.
+`species`, a metabolite bound in that species. `X::Inh` requires `X` among
+`inhibitors.names`, the competitive inhibitors the `inhibitors.label` line declares. A
+name declared only as an allosteric regulator is therefore rejected in either
+spelling: it binds only at its regulatory site.
 """
-function _metabolite_expr(t, role_of, macro_name, species = nothing)
+function _metabolite_expr(t, role_of, inhibitors, macro_name, species = nothing)
     name, tag = t isa Expr ? t.args : (t, nothing)
     in_species = species === nothing ? "" : " in species `$species`"
     name isa Symbol ||
@@ -500,6 +502,10 @@ function _metabolite_expr(t, role_of, macro_name, species = nothing)
                   "tagged metabolite `$name` in `$t`" :
                   "bound metabolite `$name` in species `$species`") *
               " is not declared. Declared: $(sort(collect(keys(role_of)))).")
+    tag === :Inh && name ∉ inhibitors.names &&
+        error("$macro_name: `$name::Inh` names `$name`, which `$(inhibitors.label):` " *
+              "does not declare; add `$name` to `$(inhibitors.label):` to let it bind " *
+              "the catalytic site as a competitive inhibitor.")
     type = tag === :Inh ? :CompetitiveInhibitor : role_of[name]
     type === :AllostericRegulator &&
         error("$macro_name: `$name` is an allosteric regulator; it binds only at " *
@@ -575,7 +581,9 @@ Build an `AllostericEnzymeMechanism` (MWC, two conformations).
 - A name with several roles binds in a bare catalytic-step `E(X)` as its
   substrate or product role first, then as a catalytic inhibitor; an
   allosteric regulator binds only at its regulatory site. A catalytic
-  inhibitor's form is written `E(X::Inh)`.
+  inhibitor's form is written `E(X::Inh)`, and `X::Inh` requires `X` in
+  `catalytic_inhibitors:`; list an allosteric regulator there as well to let it
+  bind the catalytic site.
 """
 macro allosteric_mechanism(block)
     return esc(_parse_mechanism_body(block, true)[1])
@@ -711,8 +719,9 @@ function _parse_mechanism_body(block, allosteric::Bool)
     role_of = Dict{Symbol,Symbol}([first.(allo_regs) .=> :AllostericRegulator;
                                    inhibitors .=> :CompetitiveInhibitor;
                                    subs_list .=> :Substrate; prods_list .=> :Product])
-    groups_expr, group_tags = _parse_steps_block(steps_block, role_of, macro_name;
-                                                 allow_tag = allosteric)
+    groups_expr, group_tags = _parse_steps_block(
+        steps_block, role_of, (label = inhibitors_label, names = inhibitors), macro_name;
+        allow_tag = allosteric)
     reaction_expr = _mechanism_reaction_expr(subs_list, prods_list, inhibitors)
     if allosteric
         allo_names = first.(allo_regs)

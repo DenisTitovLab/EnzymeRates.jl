@@ -366,6 +366,7 @@ end
         @test_throws "rapid-equilibrium segment" @enzyme_mechanism begin
             substrates: A, B
             products: P
+            regulators: A
             steps: begin
                 E + A <--> E(A)
                 E + B <--> E(B)
@@ -1436,6 +1437,7 @@ end
             @enzyme_mechanism begin
                 substrates: A
                 products: Q
+                regulators: A
                 steps: begin
                     (E + A ⇌ E(A), E(Q) + A::Inh ⇌ E(A::Inh, Q))
                     E(A) <--> E(Q)
@@ -1610,6 +1612,7 @@ end
     inh = @enzyme_mechanism begin
         substrates: A
         products: P
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(A) <--> E(P)

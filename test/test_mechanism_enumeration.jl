@@ -733,6 +733,7 @@ end
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -2010,6 +2011,7 @@ end
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -2023,6 +2025,7 @@ end
         EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
+            regulators: A
             steps: begin
                 E + A <--> E(A)
                 E(A) + B ⇌ E(A, B)
@@ -2035,6 +2038,7 @@ end
         EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
+            regulators: A
             steps: begin
                 E + A ⇌ E(A)
                 E(A) + B ⇌ E(A, B)
@@ -2053,6 +2057,7 @@ end
         EnzymeRates.Mechanism(@enzyme_mechanism begin      # the B flank
             substrates: A, B
             products: P, Q
+            regulators: A
             steps: begin
                 E + A ⇌ E(A)
                 E(A) + B <--> E(A, B)
@@ -2065,6 +2070,7 @@ end
         EnzymeRates.Mechanism(@enzyme_mechanism begin      # the P flank
             substrates: A, B
             products: P, Q
+            regulators: A
             steps: begin
                 E + A ⇌ E(A)
                 E(A) + B ⇌ E(A, B)
@@ -2496,6 +2502,7 @@ end
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: B
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -2509,6 +2516,7 @@ end
     absent = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: B
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -2536,6 +2544,7 @@ end
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
             E(A) + B ⇌ E(A, B)
@@ -2548,6 +2557,7 @@ end
     absent = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(Q) + A ⇌ E(A, Q)
@@ -2580,6 +2590,7 @@ end
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -2594,6 +2605,7 @@ end
     emitted = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3144,6 +3156,7 @@ end
     at_E_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3156,6 +3169,7 @@ end
     at_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3168,6 +3182,7 @@ end
     at_E_EA = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             (E + A ⇌ E(A), E(A::Inh) + A ⇌ E(A, A::Inh))
             E(A) + B ⇌ E(A, B)
@@ -3180,6 +3195,7 @@ end
     at_E = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3239,6 +3255,7 @@ end
     at_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
             E(A) + B ⇌ E(A, B)
@@ -3251,6 +3268,7 @@ end
     at_E_EA = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q), E(A::Inh) + A ⇌ E(A, A::Inh))
             E(A) + B ⇌ E(A, B)
@@ -3263,6 +3281,7 @@ end
     at_E = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
             E(A) + B ⇌ E(A, B)
@@ -3275,6 +3294,7 @@ end
     at_E_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
             E(A) + B ⇌ E(A, B)
@@ -3321,6 +3341,7 @@ end
     m = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: Q
         steps: begin
             (E + A ⇌ E(A), E(Q::Inh) + A ⇌ E(A, Q::Inh))
             E(A) + B ⇌ E(A, B)
@@ -3333,6 +3354,7 @@ end
     at_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             (E + A ⇌ E(A), E(Q::Inh) + A ⇌ E(A, Q::Inh))
             E(A) + B ⇌ E(A, B)
@@ -3346,6 +3368,7 @@ end
     at_E_EA = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             (E + A ⇌ E(A), E(Q::Inh) + A ⇌ E(A, Q::Inh), E(A::Inh) + A ⇌ E(A, A::Inh))
             E(A) + B ⇌ E(A, B)
@@ -3359,6 +3382,7 @@ end
     at_E_EQ_EQinh = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             (E + A ⇌ E(A), E(Q::Inh) + A ⇌ E(A, Q::Inh))
             E(A) + B ⇌ E(A, B)
@@ -3374,6 +3398,7 @@ end
     at_E_EQinh = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             (E + A ⇌ E(A), E(Q::Inh) + A ⇌ E(A, Q::Inh))
             E(A) + B ⇌ E(A, B)
@@ -3388,6 +3413,7 @@ end
     at_E_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             (E + A ⇌ E(A), E(Q::Inh) + A ⇌ E(A, Q::Inh))
             E(A) + B ⇌ E(A, B)
@@ -3401,6 +3427,7 @@ end
     at_E_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             (E + A ⇌ E(A), E(Q::Inh) + A ⇌ E(A, Q::Inh), E(A::Inh) + A ⇌ E(A, A::Inh))
             E(A) + B ⇌ E(A, B)
@@ -3415,6 +3442,7 @@ end
     at_E = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             (E + A ⇌ E(A), E(Q::Inh) + A ⇌ E(A, Q::Inh))
             E(A) + B ⇌ E(A, B)
@@ -3470,6 +3498,7 @@ end
     m = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3482,6 +3511,7 @@ end
     at_E_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3495,6 +3525,7 @@ end
     at_E_EAinh = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3509,6 +3540,7 @@ end
     at_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3522,6 +3554,7 @@ end
     at_E_EA_EAinh = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             (E + A ⇌ E(A), E(Q::Inh) + A ⇌ E(A, Q::Inh))
             E(A) + B ⇌ E(A, B)
@@ -3537,6 +3570,7 @@ end
     at_E_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             (E + A ⇌ E(A), E(Q::Inh) + A ⇌ E(A, Q::Inh))
             E(A) + B ⇌ E(A, B)
@@ -3551,6 +3585,7 @@ end
     at_E_EA = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             (E + A ⇌ E(A), E(Q::Inh) + A ⇌ E(A, Q::Inh))
             E(A) + B ⇌ E(A, B)
@@ -3564,6 +3599,7 @@ end
     at_E = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3611,6 +3647,7 @@ end
     m = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3623,7 +3660,7 @@ end
     at_E_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        regulators: I
+        regulators: I, A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3637,7 +3674,7 @@ end
     at_E_EAinh = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        regulators: I
+        regulators: I, A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3652,7 +3689,7 @@ end
     at_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        regulators: I
+        regulators: I, A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3666,7 +3703,7 @@ end
     at_E_EA_EAinh = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        regulators: I
+        regulators: I, A
         steps: begin
             (E + A ⇌ E(A), E(I) + A ⇌ E(A, I))
             E(A) + B ⇌ E(A, B)
@@ -3681,7 +3718,7 @@ end
     at_E_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        regulators: I
+        regulators: I, A
         steps: begin
             (E + A ⇌ E(A), E(I) + A ⇌ E(A, I))
             E(A) + B ⇌ E(A, B)
@@ -3695,7 +3732,7 @@ end
     at_E_EA = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        regulators: I
+        regulators: I, A
         steps: begin
             (E + A ⇌ E(A), E(I) + A ⇌ E(A, I))
             E(A) + B ⇌ E(A, B)
@@ -3709,7 +3746,7 @@ end
     at_E = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        regulators: I
+        regulators: I, A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3748,6 +3785,7 @@ end
     m = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: S
         products: P, Q
+        regulators: S
         steps: begin
             E + S ⇌ E(S)
             E(S) <--> E(P, Q)
@@ -3759,7 +3797,7 @@ end
     at_E_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: S
         products: P, Q
-        regulators: I
+        regulators: I, S
         steps: begin
             E + S ⇌ E(S)
             E(S) <--> E(P, Q)
@@ -3772,7 +3810,7 @@ end
     at_E_ESinh = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: S
         products: P, Q
-        regulators: I
+        regulators: I, S
         steps: begin
             E + S ⇌ E(S)
             E(S) <--> E(P, Q)
@@ -3786,7 +3824,7 @@ end
     at_E = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: S
         products: P, Q
-        regulators: I
+        regulators: I, S
         steps: begin
             E + S ⇌ E(S)
             E(S) <--> E(P, Q)
@@ -3828,6 +3866,7 @@ end
     m = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: B
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3840,7 +3879,7 @@ end
     at_E_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        regulators: I
+        regulators: I, B
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3854,7 +3893,7 @@ end
     at_E = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        regulators: I
+        regulators: I, B
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3868,7 +3907,7 @@ end
     at_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        regulators: I
+        regulators: I, B
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -3882,7 +3921,7 @@ end
     at_E_EA = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        regulators: I
+        regulators: I, B
         steps: begin
             (E + A ⇌ E(A), E(I) + A ⇌ E(A, I))
             E(A) + B ⇌ E(A, B)
@@ -3896,7 +3935,7 @@ end
     at_E_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        regulators: I
+        regulators: I, B
         steps: begin
             (E + A ⇌ E(A), E(I) + A ⇌ E(A, I))
             E(A) + B ⇌ E(A, B)
@@ -4117,6 +4156,7 @@ end
     absent = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
+        regulators: S
         steps: begin
             (E ⇌ Estar, E(S::Inh) ⇌ Estar(S::Inh))
             Estar + S ⇌ Estar(S)
@@ -4619,6 +4659,7 @@ end
     parent = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A <--> E(A)
             E(A) + B <--> E(A, B)
@@ -7404,6 +7445,7 @@ end
     with_copy = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -7477,6 +7519,7 @@ end
     pp = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: P
         steps: begin
             E + A ⇌ E(A)
             E(A) <--> E(P; residual = A - P)
@@ -7512,6 +7555,7 @@ end
     two_copies = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, Q
         steps: begin
             (E + A ⇌ E(A), E(Q::Inh) + A ⇌ E(A, Q::Inh))
             E(A) + B ⇌ E(A, B)
@@ -7645,6 +7689,7 @@ end
     b1 = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -7664,6 +7709,7 @@ end
     case3 = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
             E(A) + B ⇌ E(A, B)
@@ -7686,6 +7732,7 @@ end
     b14 = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
             E(A) + B ⇌ E(A, B)
@@ -7705,6 +7752,7 @@ end
     h1 = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(B) + A ⇌ E(A, B)
@@ -7729,6 +7777,7 @@ end
     p_at_twin = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, P
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
             E(A) + B ⇌ E(A, B)
@@ -7749,6 +7798,7 @@ end
     p_at_own_twin = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, P
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
             E(A) + B ⇌ E(A, B)
@@ -7770,6 +7820,7 @@ end
     two_classes = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(B) + A ⇌ E(A, B)
@@ -7792,6 +7843,7 @@ end
     split_b14 = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(Q) + A ⇌ E(A, Q)
@@ -7806,6 +7858,7 @@ end
     ss_mirror = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(Q) + A ⇌ E(A, Q)
@@ -7830,6 +7883,7 @@ end
     p_at_complexes = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A, P
         steps: begin
             E + A ⇌ E(A)
             E(Q) + A ⇌ E(A, Q)
@@ -7855,6 +7909,7 @@ end
     uni = ER.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
+        regulators: S
         steps: begin
             E + S ⇌ E(S)
             E(S) <--> E(P)
@@ -7876,6 +7931,7 @@ end
     fused_re = ER.Mechanism(@enzyme_mechanism begin
         substrates: A
         products: P
+        regulators: A
         steps: begin
             E + A ⇌ E(P)
             E + P <--> E(P)
@@ -7915,6 +7971,7 @@ end
     pp = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: P
         steps: begin
             E + A ⇌ E(A)
             E(A) <--> E(P; residual = A - P)
@@ -7929,6 +7986,7 @@ end
     pp_q = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: P, Q
         steps: begin
             E + A ⇌ E(A)
             E(A) <--> E(P; residual = A - P)
@@ -7955,6 +8013,7 @@ end
     ss_twin = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A <--> E(A)
             (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
@@ -10571,6 +10630,7 @@ end
     twin_only = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -10592,6 +10652,7 @@ end
     kept = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(A, B)
@@ -10609,6 +10670,7 @@ end
     no_gauge = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
+        regulators: A
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
             E(A) + B ⇌ E(A, B)

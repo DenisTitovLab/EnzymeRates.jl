@@ -883,6 +883,7 @@
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
+            regulators: P
             steps: begin
                 E + S <--> E(S)
                 E(S) <--> E(P)
@@ -984,6 +985,71 @@
                 Estar(; residual = S - R) ⇌ E + P   :: EqualAI
             end
         end))
+        # Tagged `R::Inh`, it needs `catalytic_inhibitors:` as well. The macro raises
+        # the error while it expands, so `eval` wraps it in a LoadError: match the text.
+        @test_throws(
+            "@allosteric_mechanism: `R::Inh` names `R`, which `catalytic_inhibitors:` " *
+            "does not declare; add `R` to `catalytic_inhibitors:` to let it bind the " *
+            "catalytic site as a competitive inhibitor.", eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: R::OnlyA
+            catalytic_steps: begin
+                E + S ⇌ E(S)              :: EqualAI
+                E(S) <--> E(P)            :: EqualAI
+                E(P) ⇌ E + P              :: EqualAI
+                E + R::Inh ⇌ E(R::Inh)    :: EqualAI
+            end
+        end)))
+        # Listed in both, R binds its regulatory site and, as `R::Inh`, the catalytic
+        # site.
+        dual = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            catalytic_inhibitors: R
+            allosteric_regulators: R::OnlyA
+            catalytic_steps: begin
+                E + S ⇌ E(S)              :: EqualAI
+                E(S) <--> E(P)            :: EqualAI
+                E(P) ⇌ E + P              :: EqualAI
+                E + R::Inh ⇌ E(R::Inh)    :: EqualAI
+            end
+        end)
+        @test EnzymeRates.CompetitiveInhibitor(:R) in
+              [EnzymeRates.bound_metabolite(g[1]) for g in EnzymeRates.steps(dual)]
+    end
+
+    @testset "X::Inh names a declared competitive inhibitor" begin
+        # A substrate or a product written `X::Inh` must also be listed in
+        # `regulators:`; the reaction then lists it as a competitive inhibitor.
+        for x in (:S, :P)
+            @test_throws(
+                "@enzyme_mechanism: `$x::Inh` names `$x`, which `regulators:` does " *
+                "not declare; add `$x` to `regulators:` to let it bind the catalytic " *
+                "site as a competitive inhibitor.", eval(:(@enzyme_mechanism begin
+                substrates: S
+                products:   P
+                steps: begin
+                    E + S ⇌ E(S)
+                    E(S) <--> E(P)
+                    E(P) ⇌ E + P
+                    E + $x::Inh ⇌ E($x::Inh)
+                end
+            end)))
+        end
+        declared = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            regulators: P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+                E + P::Inh ⇌ E(P::Inh)
+            end
+        end)
+        @test EnzymeRates.regulators(EnzymeRates.reaction(declared)) ==
+              [EnzymeRates.RegulatorMults(EnzymeRates.CompetitiveInhibitor(:P), [1])]
     end
 
     @testset "a step side holds one enzyme form" begin
