@@ -514,8 +514,10 @@ dependent/independent parameter partition. The columns are sorted by priority,
 highest first (every `is_i_state` column ahead of the rest, ties in ascending column
 order), and `[A rhs]` is brought to reduced row echelon form. Each pivot column
 becomes dependent, expressed via the non-pivot columns of its row; every other
-column is independent (fitted). A pivot in the `rhs` column means the rows combine
-to `0 = log Keq`, a thermodynamic contradiction, which errors. Returns
+column is independent (fitted). A row that holds its pivot alone with a zero `rhs`
+pins that constant to 1, so its expression is the Float64 `1.0`. A pivot in the
+`rhs` column means the rows combine to `0 = log Keq`, a thermodynamic
+contradiction, which errors. Returns
 `(dep_exprs, indep)`, `indep` sorted by name. An empty system (no rows) yields no
 dependents and all columns independent.
 
@@ -537,7 +539,7 @@ function _solve_dependent_set(
     n_vars + 1 in pivots && error(
         "Thermodynamically contradictory mechanism: a combination of its " *
         "constraint rows reduces to 0 = log(Keq)")
-    dep_exprs = Dict{Symbol, Union{Symbol, Expr}}()
+    dep_exprs = Dict{Symbol, Union{Symbol, Expr, Float64}}()
     for (r, p) in enumerate(pivots)
         factors = [(columns[order[c]], -R[r, c])
                    for c in 1:n_vars if c != p && R[r, c] != 0]

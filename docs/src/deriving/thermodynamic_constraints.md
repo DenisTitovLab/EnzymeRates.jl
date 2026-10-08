@@ -36,6 +36,11 @@ bind in either order, the four binding constants are tied:
 K_EA_to_E_A * K_EAB_to_EA_B = K_EB_to_E_B * K_EAB_to_EB_A
 ```
 
+When the other constants of a loop cancel, the loop fixes the remaining one at 1
+and its line reads `K_E_to_F = 1.0`. An inhibitor that binds conformations `E` and
+`F` under one shared dissociation constant does this: the loop through `E(I)`
+forces `E` and `F` to equal weight.
+
 ## How the constraints are found
 
 The package builds the enzyme-form **incidence matrix** — one column per step,

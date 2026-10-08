@@ -1627,11 +1627,37 @@ end
         # Multiple factors: returns Expr
         @test bpe(R(0), [(:k1f, R(1)), (:k2f, R(1))]) isa Expr
 
-        # No factors and zero Keq: returns Int literal 1
-        @test bpe(R(0), Tuple{Symbol, R}[]) === 1
+        # No factors and zero Keq: returns the Float64 literal 1.0
+        @test bpe(R(0), Tuple{Symbol, R}[]) === 1.0
 
         # Keq times a factor is a valid AST node
-        @test bpe(R(1), [(:k1f, R(1))]) isa Union{Int, Symbol, Expr}
+        @test bpe(R(1), [(:k1f, R(1))]) isa Union{Float64, Symbol, Expr}
+    end
+
+    @testset "a constant thermodynamics pins to 1 is the dependent constant 1.0" begin
+        # I binds E and F under one dissociation constant, so the cycle E → E(I) → F → E
+        # forces K_E_to_F = 1 and leaves no other constant in its row.
+        em = @enzyme_mechanism begin
+            substrates: A
+            products: P
+            regulators: I
+            steps: begin
+                E + A <--> E(A)
+                E(A) <--> E(P)
+                E(P) <--> E + P
+                E ⇌ F
+                (E + I ⇌ E(I), F + I ⇌ E(I))
+            end
+        end
+        @test occursin("# Wegscheider constraints:\nK_E_to_F = 1.0\n",
+                       rate_equation_string(em))
+        @test :K_E_to_F ∉ EnzymeRates.fitted_params(em)
+        _testhelper_check_against_mass_action(em)
+        # The generated rate equation assigns the literal 1.0 and stays allocation-free.
+        syms = parameters(em)
+        params = NamedTuple{syms}(ntuple(i -> 0.5 + i / 10, length(syms)))
+        allocs, _ = test_rate_equation_performance(em, params, (A = 1.0, P = 0.5, I = 0.2))
+        @test allocs == 0
     end
 
 end
