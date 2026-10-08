@@ -613,14 +613,6 @@ end
         products: P[C], Q[N], R[O], T[X]
     end
     @test_throws "no catalytic cycle" EnzymeRates.init_mechanisms(uni_quad_rxn)
-    # The product A shares the substrate A's name; reactant atoms are matched by name,
-    # so no isomerization balances.
-    shared_name_rxn = @enzyme_reaction begin
-        substrates: A[C], B[N]
-        products: A[CN]
-    end
-    causes = ["no catalytic cycle", "a product shares a substrate's name"]
-    @test_throws causes EnzymeRates.init_mechanisms(shared_name_rxn)
 end
 
 end

@@ -792,12 +792,22 @@ end
         rxn = ER.EnzymeReaction([S, P], [regA], Int[1])
         @test ER.name.(ER.substrates(rxn)) == [:S]
         @test ER.name.(ER.products(rxn)) == [:P]
-        # Balance dispatches by metabolite TYPE, not name: a substrate and a
-        # product sharing a name (X→X, 2 C each) balances and is not misrouted.
+        # A name listed as both a substrate and a product is rejected, whether it
+        # is the only reactant name (X → X) or one of several (A + B → A + C).
         Xs = ER.ReactantAtoms(ER.Substrate(:X), [:C => 2])
         Xp = ER.ReactantAtoms(ER.Product(:X), [:C => 2])
-        @test ER.EnzymeReaction([Xs, Xp], noregs, Int[1]) isa
-              ER.EnzymeReaction
+        @test_throws ErrorException(
+            "EnzymeReaction: X named as both a substrate and a product; " *
+            "concentrations and constants are keyed by name") ER.EnzymeReaction(
+            [Xs, Xp], noregs, Int[1])
+        As = ER.ReactantAtoms(ER.Substrate(:A), [:C => 1])
+        Bs = ER.ReactantAtoms(ER.Substrate(:B), [:N => 1])
+        Ap = ER.ReactantAtoms(ER.Product(:A), [:C => 1])
+        Cp = ER.ReactantAtoms(ER.Product(:C), [:N => 1])
+        @test_throws ErrorException(
+            "EnzymeReaction: A named as both a substrate and a product; " *
+            "concentrations and constants are keyed by name") ER.EnzymeReaction(
+            [As, Bs, Ap, Cp], noregs, Int[1])
         # A single name MAY be declared in BOTH regulator roles: one
         # AllostericRegulator and one CompetitiveInhibitor. The two roles
         # render to distinct parameter names, so both are kept.
@@ -2040,6 +2050,26 @@ end
         # one square edge :OnlyA -> VIOLATION (unbalanced in the square and
         # in the Haldane row)
         @test verdict(tags((:E, :A))) isa String
+        # ...and the constructor rejects that tagging with the full message
+        lone_onlya = ErrorException(
+            "AllostericMechanism: an :OnlyA binding (K_EA_to_E_A) leaves a " *
+            "thermodynamic (Haldane/Wegscheider) cycle unsatisfiable: the inactive " *
+            "conformation cannot close that cycle at finite nonzero affinity. Tag " *
+            "the cycle's chemical step :OnlyA, or tag an opposing binding :OnlyA so " *
+            "the affinities diverge together.")
+        @test_throws lone_onlya @allosteric_mechanism begin
+            substrates: A, B
+            products:   P
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + A ⇌ E(A)          :: OnlyA
+                E + B ⇌ E(B)          :: EqualAI
+                E(A) + B ⇌ E(A, B)    :: EqualAI
+                E(B) + A ⇌ E(A, B)    :: EqualAI
+                E(A, B) <--> E(P)     :: EqualAI
+                E(P) ⇌ E + P          :: EqualAI
+            end
+        end
         # both A-side bindings :OnlyA balances the square, but the Haldane row
         # is still unbalanced against P -> VIOLATION
         @test verdict(tags((:E, :A), (:EB, :A))) isa String

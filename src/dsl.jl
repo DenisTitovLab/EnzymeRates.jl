@@ -16,6 +16,7 @@ Emit an `EnzymeReaction`.
 
 - `substrates:` / `products:` — comma-separated entries with required atom
   brackets (`S[C6H12O6]`). Multi-atom forms like `[C2,N]` are allowed.
+  A name may appear under only one of the two labels.
   An enzyme form's name joins its bound metabolites' names without a
   separator, so two forms can render one name: with `Ac`, `CoA` and
   `AcCoA`, E with Ac and CoA bound and E with AcCoA bound are both
@@ -99,8 +100,6 @@ function _parse_reaction_block(block)
         error("@enzyme_reaction: `substrates:` not specified.")
     any(r -> r[1] === :Product, reactants) ||
         error("@enzyme_reaction: `products:` not specified.")
-    # The constructor's name sort keeps ties in input order: list substrates first.
-    sort!(reactants; by = r -> r[1] === :Product)
     catalytic_mults = something(mults, [1])
     regs = [(t, n, something(ms, catalytic_mults), rt) for (t, n, ms, rt) in regs]
     (; reactants, regs, mults = catalytic_mults, shared)

@@ -448,18 +448,20 @@
         @test EnzymeRates.regulators(spec) == EnzymeRates.RegulatorMults[]
     end
 
-    @testset "@enzyme_reaction lists substrates before products" begin
-        # A substrate and a product may share a name; the constructor's name sort keeps
-        # ties in input order, so label order must not decide it.
-        products_first = @enzyme_reaction begin
+    @testset "@enzyme_reaction rejects a name listed as substrate and product" begin
+        # Concentrations and constants are keyed by name, so a name may hold only
+        # one reactant role, whichever label comes first.
+        both_roles = ErrorException(
+            "EnzymeReaction: S named as both a substrate and a product; " *
+            "concentrations and constants are keyed by name")
+        @test_throws both_roles @enzyme_reaction begin
             products:   S[C]
             substrates: S[C]
         end
-        substrates_first = @enzyme_reaction begin
+        @test_throws both_roles @enzyme_reaction begin
             substrates: S[C]
             products:   S[C]
         end
-        @test products_first == substrates_first
     end
 
     @testset "multi-atom metabolites" begin

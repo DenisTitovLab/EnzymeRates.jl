@@ -318,7 +318,8 @@ Construct one with the [`@enzyme_reaction`](@ref) DSL. Each reactant takes
 an atom bracket (`S[C]`, `A[C1H1]`); the brackets are load-bearing for
 ping-pong and multi-substrate reactions. Reactants and regulators are sorted
 by name in the constructor, so two equivalent declarations compare equal
-under `==`/`hash`.
+under `==`/`hash`. The constructor rejects a name listed as both a substrate
+and a product: concentrations and constants are keyed by name.
 
 ```jldoctest
 julia> using EnzymeRates
@@ -365,6 +366,10 @@ struct EnzymeReaction
         allunique(prod_names) || error("EnzymeReaction: duplicate product names")
         allunique(reg_keys)   ||
             error("EnzymeReaction: duplicate regulator of the same kind")
+        both_roles = intersect(sub_names, prod_names)
+        isempty(both_roles) || error(
+            "EnzymeReaction: $(join(both_roles, ", ")) named as both a substrate and " *
+            "a product; concentrations and constants are keyed by name")
 
         sub_set  = Set(sub_names)
         prod_set = Set(prod_names)
