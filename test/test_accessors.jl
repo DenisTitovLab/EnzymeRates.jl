@@ -22,7 +22,7 @@
         oligomeric_state: 2
     end
     base = first(EnzymeRates.init_mechanisms(rxn_allo))
-    cat_allo_states = fill(:NonequalAI, length(EnzymeRates.kinetic_groups(base)))
+    cat_allo_states = fill(:NonequalAI, length(EnzymeRates.steps(base)))
     site = EnzymeRates.RegulatorySite(
         [EnzymeRates.AllostericRegulator(:R)], 2, [:NonequalAI])
     am = EnzymeRates.AllostericMechanism(

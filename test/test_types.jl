@@ -132,11 +132,11 @@ end
         # Catalysis (iso step) is :OnlyA, both bindings :EqualAI. Group order is
         # canonical, so identify the tagged group by its step, not its position.
         am_c = ER.AllostericMechanism(m)
-        onlyA_g = only(g for g in ER.kinetic_groups(am_c)
+        onlyA_g = only(g for g in eachindex(ER.steps(am_c))
                        if ER.cat_allo_state(am_c, g) === :OnlyA)
         @test ER.bound_metabolite(first(ER.steps(am_c)[onlyA_g])) === nothing
         @test all(ER.cat_allo_state(am_c, g) === :EqualAI
-                  for g in ER.kinetic_groups(am_c) if g != onlyA_g)
+                  for g in eachindex(ER.steps(am_c)) if g != onlyA_g)
         @test ER.allosteric_regulators(am_c) == [ER.AllostericRegulator(:I)]
         @test ER.allo_states(only(ER.regulatory_sites(am_c))) == [:OnlyI]
     end
@@ -481,7 +481,7 @@ end
                    "  reg site 2 (n=2): J [J::OnlyI]"
         am = ER.AllostericMechanism(m)
         # Every catalytic state appears in cat_allo_states line
-        for g in ER.kinetic_groups(am)
+        for g in eachindex(ER.steps(am))
             @test occursin(string(ER.cat_allo_state(am, g)), s)
         end
         # No :NonequalAI ligand silently hidden from reg-site display
@@ -985,7 +985,6 @@ end
         flat = ER._flat_steps(m)
         @test Set(s for (s, _) in flat) == Set([bind, iso, rel])
         @test [g for (_, g) in flat] == [1, 2, 3]
-        @test ER.kinetic_groups(m) == 1:3
         @test sum(length, ER.steps(m)) == 3
         # Canonical by construction: a permuted input yields identical storage.
         m_perm = ER.Mechanism(rxn, [[rel], [bind], [iso]])
@@ -1008,14 +1007,13 @@ end
         @test Set(only(g) for g in ER.steps(m)) ==
               Set([bind, iso, rel])
         state_of(step) = ER.cat_allo_state(m,
-            only(g for g in ER.kinetic_groups(m)
+            only(g for g in eachindex(ER.steps(m))
                  if first(ER.steps(m)[g]) == step))
         @test state_of(bind) == :EqualAI
         @test state_of(iso)  == :OnlyA
         @test state_of(rel)  == :NonequalAI
         @test ER.catalytic_multiplicity(m) == 2
         @test ER.regulatory_sites(m) == [site]
-        @test ER.kinetic_groups(m) == 1:3
         @test sum(length, ER.steps(m)) == 3
         @test iso in first.(ER.steps(m))
         @test ER.allosteric_regulators(m) ==

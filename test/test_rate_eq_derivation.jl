@@ -1368,7 +1368,7 @@ end
 @testset "Allosteric cat_allo_state stays bound to its step" begin
     hk = only(s for s in MECHANISM_TEST_SPECS if s.name == "HK")
     am = EnzymeRates.AllostericMechanism(hk.mechanism)
-    onlyA_groups = [g for g in EnzymeRates.kinetic_groups(am)
+    onlyA_groups = [g for g in eachindex(EnzymeRates.steps(am))
                     if EnzymeRates.cat_allo_state(am, g) === :OnlyA]
     @test length(onlyA_groups) == 2
     onlyA_bms = [EnzymeRates.bound_metabolite(first(EnzymeRates.steps(am)[g]))

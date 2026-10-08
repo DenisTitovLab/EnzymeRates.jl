@@ -1025,7 +1025,7 @@ end
 # Group order is canonical; allosteric tags stay bound to their steps.
 am = EnzymeRates.AllostericMechanism(m_compiled)
 state_of(pred) = EnzymeRates.cat_allo_state(am,
-    only(g for g in EnzymeRates.kinetic_groups(am)
+    only(g for g in eachindex(EnzymeRates.steps(am))
          if pred(EnzymeRates.bound_metabolite(first(EnzymeRates.steps(am)[g])))))
 @test state_of(bm -> bm isa EnzymeRates.Substrate) == :EqualAI
 @test state_of(bm -> bm isa EnzymeRates.Product) == :NonequalAI
@@ -6261,7 +6261,7 @@ end
     # #distinct metabolites bound by an :OnlyA catalytic group (iso → skip)
     onlya_mets(am) = Set(EnzymeRates.name(EnzymeRates.bound_metabolite(
                             first(EnzymeRates.steps(am)[g])))
-        for g in EnzymeRates.kinetic_groups(am)
+        for g in eachindex(EnzymeRates.steps(am))
         if EnzymeRates.cat_allo_states(am)[g] === :OnlyA &&
            !EnzymeRates.is_iso(first(EnzymeRates.steps(am)[g])))
 
@@ -6398,7 +6398,7 @@ allo_mechs = EnzymeRates._expand_to_allosteric(m_seed, uni_uni_allo_reg)
 
 @testset ":OnlyA binding group: no K_T param" begin
     only_r = first(filter(allo_mechs) do am
-        any(EnzymeRates.kinetic_groups(am)) do g
+        any(eachindex(EnzymeRates.steps(am))) do g
             EnzymeRates.cat_allo_state(am, g) === :OnlyA || return false
             # Must NOT be an iso-only group (iso `:OnlyA` is just a relabel
             # — the test wants a binding group whose K param disappears in T).
@@ -6416,7 +6416,7 @@ end
 
 @testset ":OnlyA iso group: no kf_T/kr_T param" begin
     only_r_iso = first(filter(allo_mechs) do am
-        any(EnzymeRates.kinetic_groups(am)) do g
+        any(eachindex(EnzymeRates.steps(am))) do g
             EnzymeRates.cat_allo_state(am, g) === :OnlyA || return false
             group_steps = am.cat_steps[g]
             all(s -> !EnzymeRates.is_equilibrium(s) &&
@@ -8875,7 +8875,7 @@ end
         end)
         kids = EnzymeRates._expand_re_to_ss(m)
         @test EnzymeRates._chain_flank_groups(m) ==
-              Set(g for g in EnzymeRates.kinetic_groups(m)
+              Set(g for g in eachindex(EnzymeRates.steps(m))
                   if !EnzymeRates.is_iso(only(m.steps[g])))
         @test isempty(kids)
         @test _testhelper_identifiable_rank(absent) == _testhelper_identifiable_rank(m)
@@ -10985,7 +10985,7 @@ end
 
         # Wegscheider section: emitted when the thermodynamic constraint
         # system produces cycle equalities. Random bi-bi with all-
-        # singleton kinetic_groups (no Pass-1 absorption) preserves the
+        # singleton kinetic groups (no Pass-1 absorption) preserves the
         # Wegscheider cycle relations and renders them as multi-symbol
         # RHSes in this section.
         m_weg = @enzyme_mechanism begin
@@ -11101,7 +11101,7 @@ end
     for m in EnzymeRates.init_mechanisms(rxn)
         has_lumped_bound_group(m) || continue
         pn = _testhelper_fitted(m)
-        free_e = Set(g for g in EnzymeRates.kinetic_groups(m)
+        free_e = Set(g for g in eachindex(EnzymeRates.steps(m))
                      if is_free_e_binding(m, g))
         iso = Set(_testhelper_iso_groups(m))
         children = EnzymeRates._expand_to_allosteric(m, rxn)

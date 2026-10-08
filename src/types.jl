@@ -973,7 +973,6 @@ end
 const _AnyMech = Union{Mechanism, AllostericMechanism}
 
 reaction(m::_AnyMech) = m.reaction
-kinetic_groups(m::_AnyMech) = 1:length(steps(m))
 steps(m::AllostericMechanism) = m.cat_steps
 cat_allo_state(m::AllostericMechanism, g::Int) = m.cat_allo_states[g]
 cat_allo_states(m::AllostericMechanism) = m.cat_allo_states

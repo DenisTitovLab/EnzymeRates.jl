@@ -43,7 +43,7 @@ end
     # tags) and R only in T-state (`:OnlyI` ligand tag).
     _base = first(EnzymeRates.init_mechanisms(test_rxn))
     _cat_allo_states = Symbol[]
-    for g in EnzymeRates.kinetic_groups(_base)
+    for g in eachindex(EnzymeRates.steps(_base))
         rep = first(EnzymeRates.steps(_base)[g])
         met = EnzymeRates.bound_metabolite(rep)
         tag = (met isa EnzymeRates.Reactant) ? :OnlyA : :NonequalAI
