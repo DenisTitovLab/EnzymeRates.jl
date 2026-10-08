@@ -103,10 +103,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Test the compat bounds in a scheduled CI job.**
   `.github/workflows/CI.yml` tests only the latest Julia release with the newest
   dependencies, while `Project.toml` declares `julia = "1.10"` and a lower bound for every
-  dependency, so a wrong floor surfaces only when General's AutoMerge loads the package at
-  registration. A scheduled workflow that runs the suite at the lower and upper bounds of
-  Julia and the dependencies would catch it without adding its run time to every push or
-  pull request.
+  dependency, so a wrong Julia or dependency floor surfaces only in a user's environment,
+  and a dependency release that breaks the package only at the next CI run. A scheduled
+  workflow that runs the suite at the lower and upper bounds of Julia and the dependencies
+  would catch both without adding its run time to every push or pull request.
 
 ## Decided against
 
