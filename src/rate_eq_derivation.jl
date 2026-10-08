@@ -898,7 +898,7 @@ _state_rate_polys(am::AllostericMechanism, state::Symbol) =
 
 """
 Catalytic `Parameter`s of `am` in conformation `state` (`:A` or `:I`): the
-constants of each kinetic group's rep step (`Kequil` or `Kfor`+`Krev`),
+constants of each kinetic group's rep step (`Krapid` or `Kfor`+`Krev`),
 in group order. In `:A` an `:EqualAI` group takes the `:EqualAI` tag, because its
 symbol is shared with the I-state (the chokepoint `name(p, m)` renders both to the
 same `Symbol`), and every other group takes `:A`. In `:I` the `:OnlyA` groups are

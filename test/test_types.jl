@@ -711,7 +711,7 @@ end
         step = _testhelper_uniuni().bind
 
         # One RE constant and one forward/reverse rate pair serve every kind of step.
-        for T in (ER.Kequil, ER.Kfor, ER.Krev)
+        for T in (ER.Krapid, ER.Kfor, ER.Krev)
             p = T(step, :None)
             @test p isa T
             @test p isa ER.Parameter
@@ -1102,12 +1102,12 @@ end
         # substrate-binding and iso steps by content.
         reps = first.(ER.steps(am))
         rep_bind = only(r for r in reps if ER.bound_metabolite(r) isa ER.Substrate)
-        @test ER.name(ER.Kequil(rep_bind, :None), am) === :K_ES_to_E_S
-        @test ER.name(ER.Kequil(rep_bind, :I), am) === :K_I_ES_to_E_S
+        @test ER.name(ER.Krapid(rep_bind, :None), am) === :K_ES_to_E_S
+        @test ER.name(ER.Krapid(rep_bind, :I), am) === :K_I_ES_to_E_S
 
         rep_iso  = only(r for r in reps if ER.bound_metabolite(r) === nothing)
         @test ER.name(ER.Kfor(rep_iso, :None), am) === :k_ES_to_EP
-        @test ER.name(ER.Kequil(rep_iso, :None), am) === :K_ES_to_EP
+        @test ER.name(ER.Krapid(rep_iso, :None), am) === :K_ES_to_EP
         @test ER.name(ER.Krev(rep_iso, :None), am) === :k_EP_to_ES
 
         site = ER.regulatory_sites(am)[1]
@@ -1117,7 +1117,7 @@ end
 
         # The chokepoint renders on the concrete mechanism only; a compiled type
         # is lifted first.
-        @test_throws MethodError ER.name(ER.Kequil(rep_bind, :None), aem)
+        @test_throws MethodError ER.name(ER.Krapid(rep_bind, :None), aem)
         @test_throws MethodError ER.name(ER.Kreg(site, lig, :A), aem)
     end
 
@@ -1181,11 +1181,11 @@ end
 
         # Structural naming: every step constant encodes its reaction's two sides;
         # a binding K reads in the release direction, iso params in the stored one.
-        @test ER.name(ER.Kequil(bind, :None), m) === :K_ES_to_E_S
-        @test ER.name(ER.Kequil(bind, :I),    m) === :K_I_ES_to_E_S
+        @test ER.name(ER.Krapid(bind, :None), m) === :K_ES_to_E_S
+        @test ER.name(ER.Krapid(bind, :I),    m) === :K_I_ES_to_E_S
         @test ER.name(ER.Kfor(iso, :None), m) === :k_ES_to_EP
         @test ER.name(ER.Krev(iso, :None), m) === :k_EP_to_ES
-        @test ER.name(ER.Kequil(rel, :None), m) === :K_EP_to_E_P
+        @test ER.name(ER.Krapid(rel, :None), m) === :K_EP_to_E_P
 
         # A binding's rate pair: the forward rate binds, the reverse rate releases
         @test ER.name(ER.Kfor(bind, :None), m) === :k_E_S_to_ES
@@ -1196,15 +1196,15 @@ end
         @test ER.name(ER.Krev(iso, :I), m) === :k_I_EP_to_ES
 
         # The RE iso's equilibrium constant, named in the stored direction
-        @test ER.name(ER.Kequil(iso, :None), m) === :K_ES_to_EP
-        @test ER.name(ER.Kequil(iso, :I),    m) === :K_I_ES_to_EP
+        @test ER.name(ER.Krapid(iso, :None), m) === :K_ES_to_EP
+        @test ER.name(ER.Krapid(iso, :I),    m) === :K_I_ES_to_EP
 
         # Same names resolve on the mechanism lifted back from EnzymeMechanism(m);
         # the compiled type itself is not a chokepoint argument.
         em = EnzymeMechanism(m)
-        @test ER.name(ER.Kequil(bind, :None), ER.Mechanism(em)) === :K_ES_to_E_S
+        @test ER.name(ER.Krapid(bind, :None), ER.Mechanism(em)) === :K_ES_to_E_S
         @test ER.name(ER.Kfor(iso, :None), ER.Mechanism(em)) === :k_ES_to_EP
-        @test_throws MethodError ER.name(ER.Kequil(bind, :None), em)
+        @test_throws MethodError ER.name(ER.Krapid(bind, :None), em)
     end
 
     @testset "name(p::Parameter, m) for the steps of a shared kinetic group" begin
@@ -1214,8 +1214,8 @@ end
         m = ER.Mechanism(rxn, [[bind, bind_into_EP], [iso], [rel]])
 
         # Both steps bind S; rep = bind. Both yield the same name.
-        @test ER.name(ER.Kequil(bind, :None), m) === :K_ES_to_E_S
-        @test ER.name(ER.Kequil(bind_into_EP, :None), m) === :K_ES_to_E_S
+        @test ER.name(ER.Krapid(bind, :None), m) === :K_ES_to_E_S
+        @test ER.name(ER.Krapid(bind_into_EP, :None), m) === :K_ES_to_E_S
     end
 end
 
@@ -1927,7 +1927,7 @@ function _is_chokepoint_def(expr)
     fn_name === :name || return false
     arg_str = _sig_first_arg_str(sig)
     return occursin(
-        r"Parameter|::(Kequil|Kfor|Krev|Kreg)\b",
+        r"Parameter|::(Krapid|Kfor|Krev|Kreg)\b",
         arg_str)
 end
 

@@ -300,7 +300,7 @@ function positional_params(m, nt::NamedTuple;
 
         if EnzymeRates.is_equilibrium(rep)
             # RE step: its equilibrium constant
-            act_key = EnzymeRates.name(EnzymeRates.Kequil(rep, act_st), mech)
+            act_key = EnzymeRates.name(EnzymeRates.Krapid(rep, act_st), mech)
             if haskey(nt, act_key)
                 for idx in gidx
                     push!(names, Symbol("K", idx))
@@ -308,7 +308,7 @@ function positional_params(m, nt::NamedTuple;
                 end
             end
             if has_inactive
-                ina_key = EnzymeRates.name(EnzymeRates.Kequil(rep, :I), mech)
+                ina_key = EnzymeRates.name(EnzymeRates.Krapid(rep, :I), mech)
                 if haskey(nt, ina_key)
                     for idx in gidx
                         push!(names, Symbol("K", idx, "_T"))
@@ -550,7 +550,7 @@ function raw_to_ode_params(m, raw_params)
         push!(param_keys, Symbol("k$(i)r"))
         if EnzymeRates.is_equilibrium(step)
             # Look up the rep step's structural K key
-            K = _lookup(EnzymeRates.name(EnzymeRates.Kequil(rep_step, :None), mech))
+            K = _lookup(EnzymeRates.name(EnzymeRates.Krapid(rep_step, :None), mech))
             if is_binding_step[i]
                 # Binding step (metabolite on LHS): K = Kd = kr/kf
                 push!(param_vals, 1e6)
