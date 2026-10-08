@@ -8,8 +8,8 @@ using EnzymeRates
 # init_mechanisms trace-compile is dominated by Step / Species / Mechanism
 # struct + @generated accessor specializations (EnzymeReaction is
 # non-parametric, so there is no per-arity reaction-type specialization).
-# The init_mechanisms baseline is 97 on Julia 1.12 and 101 on Julia 1.10.
-const INIT_TRACE_BUDGET                  = 200   # baseline 2026-10-05: 97-101; budget ≈ 2×
+# The init_mechanisms baseline is 88 on Julia 1.12 and 94 on Julia 1.10.
+const INIT_TRACE_BUDGET                  = 200   # baseline 2026-10-07: 88-94; budget ≈ 2×
 const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 6.0   # CI-runner baseline ~2.8s (local ~1.03s); budget = 2× CI
 
 # Anchored to the EnzymeRates module prefix only. Counts every method
