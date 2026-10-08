@@ -168,7 +168,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Package architecture and how-it-works — the derivation, fitting, and identification pipelines, the enumeration engine, and maintainer internals (Canonical Step Form, the `EnzymeMechanism{Sig}` lift, the derivation/enumeration/optimization architecture) — are documented at <https://DenisTitovLab.github.io/EnzymeRates.jl/>; the Developer page covers the internals.
 
-Known issues, planned work and ideas live in `ROADMAP.md` at the repo root. Read it before starting work, and update it in the same commit when a change fixes, adds or retires an entry.
+Known issues, planned work and ideas live in `ROADMAP.md` at the repo root. Read it before starting work, and update it in the same commit when a change fixes, adds or retires an entry. `docs/src/roadmap.md` is the user-facing page for the larger directions; a change that fixes or retires an entry it also lists updates both files.
 
 ## API Design
 
