@@ -138,7 +138,8 @@ Build a balanced binary `+`/`*` tree so every emitted call has exactly two
 operands. Required for zero-allocation `rate_equation` runtime: Julia inlines
 binary `+(::Float64, ::Float64)` into fused scalar arithmetic, but falls back
 to a varargs path that boxes the operand tuple once the chain exceeds ~30
-terms. See `test_rate_equation_performance` for the contract this enforces.
+terms. See `_testhelper_test_rate_equation_performance` for the contract this
+enforces.
 """
 function _nest_binary(op::Symbol, terms::Vector{Any})
     n = length(terms)

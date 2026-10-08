@@ -7,10 +7,10 @@ _testhelper_sp(bound, conf = :E) = ER.Species(ER.Metabolite[bound...], conf)
 _testhelper_sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res)
 
 # The AllostericEnzymeMechanism over catalytic mechanism `cm`, its catalytic allosteric
-# states given in `cm`'s canonical group order (`allo_from_source` with the canonical
-# groups as the source).
+# states given in `cm`'s canonical group order (`_testhelper_allo_from_source` with the
+# canonical groups as the source).
 _testhelper_aem(cm, cat_sites, reg_sites) =
-    allo_from_source((cm, ER.steps(ER.Mechanism(cm))), cat_sites, reg_sites)
+    _testhelper_allo_from_source((cm, ER.steps(ER.Mechanism(cm))), cat_sites, reg_sites)
 
 # Michaelis–Menten with rapid-equilibrium bindings and a steady-state isomerization.
 const _testhelper_re_mm = @enzyme_mechanism begin
@@ -1884,7 +1884,7 @@ const _CHOKEPOINT_PREFIX = r"^[KkVL][_a-zA-Z0-9]"
 
 # Extract the function-name symbol from a signature expression.
 # Handles `name(...)`, `name(...) where T`, `name(...)::Ret`, etc.
-function _sig_fn_name(sig)
+function _testhelper_sig_fn_name(sig)
     while sig isa Expr && sig.head === :where
         sig = sig.args[1]
     end
@@ -1895,7 +1895,7 @@ function _sig_fn_name(sig)
 end
 
 # Extract the first positional arg type-annotation as a String.
-function _sig_first_arg_str(sig)
+function _testhelper_sig_first_arg_str(sig)
     while sig isa Expr && sig.head === :where
         sig = sig.args[1]
     end
@@ -1911,7 +1911,7 @@ end
 
 # A method definition is a chokepoint body iff it is a `name` method
 # dispatching on a Parameter subtype value.
-function _is_chokepoint_def(expr)
+function _testhelper_is_chokepoint_def(expr)
     expr isa Expr || return false
     sig = if expr.head === :function && length(expr.args) >= 1
         expr.args[1]
@@ -1921,9 +1921,9 @@ function _is_chokepoint_def(expr)
     else
         return false
     end
-    fn_name = _sig_fn_name(sig)
+    fn_name = _testhelper_sig_fn_name(sig)
     fn_name === :name || return false
-    arg_str = _sig_first_arg_str(sig)
+    arg_str = _testhelper_sig_first_arg_str(sig)
     return occursin(
         r"Parameter|::(Krapid|Kfor|Krev|Kreg)\b",
         arg_str)
@@ -1932,7 +1932,7 @@ end
 # Reconstruct the string content of a `Symbol("...")` call. Supports
 # both literal Strings and `:string` interpolation expressions like
 # `Symbol("K\$idx")` → `Expr(:string, "K", :idx)`.
-function _symbol_call_pattern(expr)
+function _testhelper_symbol_call_pattern(expr)
     expr isa Expr && expr.head === :call &&
         length(expr.args) >= 2 && expr.args[1] === :Symbol || return nothing
     arg2 = expr.args[2]
@@ -1948,19 +1948,19 @@ function _symbol_call_pattern(expr)
     return nothing
 end
 
-function _walk_violations!(expr, in_chokepoint::Bool, out::Vector{String})
+function _testhelper_walk_violations!(expr, in_chokepoint::Bool, out::Vector{String})
     expr isa Expr || return
-    if _is_chokepoint_def(expr)
+    if _testhelper_is_chokepoint_def(expr)
         for child in expr.args
-            _walk_violations!(child, true, out)
+            _testhelper_walk_violations!(child, true, out)
         end
     else
-        pat = _symbol_call_pattern(expr)
+        pat = _testhelper_symbol_call_pattern(expr)
         if pat !== nothing && occursin(_CHOKEPOINT_PREFIX, pat) && !in_chokepoint
             push!(out, "Symbol(\"$pat\")")
         end
         for child in expr.args
-            _walk_violations!(child, in_chokepoint, out)
+            _testhelper_walk_violations!(child, in_chokepoint, out)
         end
     end
 end
@@ -1972,7 +1972,7 @@ end
         src = read(f, String)
         expr = Meta.parseall(src; filename=f)
         violations = String[]
-        _walk_violations!(expr, false, violations)
+        _testhelper_walk_violations!(expr, false, violations)
         if !isempty(violations)
             @info "chokepoint violations" file=basename(f) violations
         end

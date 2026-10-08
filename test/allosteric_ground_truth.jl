@@ -13,7 +13,7 @@ const ER = EnzymeRates
 # `edges`    :: Vector of (from::Symbol, to::Symbol, rate::Float64)   directed, rate = pseudo-first-order
 # `cat_edges`:: Vector of (reactant::Symbol, product::Symbol, kf::Float64, kr::Float64)
 "Net catalytic flux at steady state for an explicit two-conformation network."
-function mwc_ground_truth_flux(species, edges, cat_edges, Etot)
+function _testhelper_mwc_ground_truth_flux(species, edges, cat_edges, Etot)
     n = length(species); idx = Dict(s => i for (i, s) in enumerate(species))
     M = zeros(n, n)
     for (a, b, r) in edges
@@ -34,7 +34,7 @@ end
 # Fast RE bindings and flips use FAST; catalysis is O(1). Detailed-balance flip
 # ratio [X_I]/[X_A] = L·∏(K_A_i/K_I_i); every present flip here carries an
 # :EqualAI ligand (or none), so the ratio is L.
-function uni_onlyA_flux(KA, KP, k; L, Keq, S, P, FAST=1e7)
+function _testhelper_uni_onlyA_flux(KA, KP, k; L, Keq, S, P, FAST=1e7)
     kr = k * KP / (Keq * KA)
     species = [:E_A, :ES_A, :EP_A, :E_I, :EP_I]
     edges = [
@@ -46,7 +46,7 @@ function uni_onlyA_flux(KA, KP, k; L, Keq, S, P, FAST=1e7)
         (:ES_A, :EP_A, k), (:EP_A, :ES_A, kr),              # active catalysis (SS)
     ]
     cat_edges = [(:ES_A, :EP_A, k, kr)]
-    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
+    _testhelper_mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
 # ── Multi-:OnlyA bi-uni network (both substrates bind the active state only) ──
@@ -58,7 +58,7 @@ end
 # Flip ratio [X_I]/[X_A] = L·∏(K_A_i/K_I_i): free enzyme and EP (:EqualAI or bare)
 # flip with ratio L; an :OnlyA-ligand-bearing state has ratio 0 (no flip), so EA
 # and EAB never flip.
-function multi_onlyA_flux(KA, KB, KP, k; L, Keq, A, B, P, FAST=1e7)
+function _testhelper_multi_onlyA_flux(KA, KB, KP, k; L, Keq, A, B, P, FAST=1e7)
     kr = k * KP / (Keq * KA * KB)
     species = [:E_A, :EA_A, :EAB_A, :EP_A, :E_I, :EP_I]
     edges = [
@@ -71,7 +71,7 @@ function multi_onlyA_flux(KA, KB, KP, k; L, Keq, A, B, P, FAST=1e7)
         (:EAB_A, :EP_A, k), (:EP_A, :EAB_A, kr),             # active catalysis (SS)
     ]
     cat_edges = [(:EAB_A, :EP_A, k, kr)]
-    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
+    _testhelper_mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
 # ── The gate: :OnlyA MWC derivation matches mass-action ground truth ─────────
@@ -100,15 +100,16 @@ end
         #   K_A_ES_to_E_S=KA, K_EP_to_E_P=KP, k_A_ES_to_EP=k.
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KA, KP, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(onlyA, (S=S, P=P), prm))
-        v_gt = uni_onlyA_flux(KA, KP, k, L=L, Keq=Keq, S=S, P=P)
+        v_gt = _testhelper_uni_onlyA_flux(KA, KP, k, L=L, Keq=Keq, S=S, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
         @test isfinite(ER._kcat_forward(onlyA, prm))
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) uni-uni rate.
         kr = k * KP / (Keq * KA)
         nonallo = (k * S / KA - kr * P / KP) / (1 + S / KA + P / KP)
-        @test isapprox(uni_onlyA_flux(KA, KP, k, L=0.0, Keq=Keq, S=S, P=P), nonallo;
-                       rtol=1e-4)
+        @test isapprox(
+            _testhelper_uni_onlyA_flux(KA, KP, k, L=0.0, Keq=Keq, S=S, P=P), nonallo;
+            rtol=1e-4)
     end
 
     # The inactive state neither binds S nor catalyzes, so its free-enzyme graph is a
@@ -156,15 +157,16 @@ end
         #   K_A_EA_to_E_A=KA, K_EP_to_E_P=KP, K_A_EAB_to_EA_B=KB, k_A_EAB_to_EP=k.
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KB, KA, KP, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(multiA, (A=A, B=B, P=P), prm))
-        v_gt = multi_onlyA_flux(KA, KB, KP, k, L=L, Keq=Keq, A=A, B=B, P=P)
+        v_gt = _testhelper_multi_onlyA_flux(KA, KB, KP, k, L=L, Keq=Keq, A=A, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
         @test isfinite(ER._kcat_forward(multiA, prm))
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) bi-uni rate.
         kr = k * KP / (Keq * KA * KB)
         nonallo = (k*A*B/(KA*KB) - kr*P/KP) / (1 + A/KA + A*B/(KA*KB) + P/KP)
-        @test isapprox(multi_onlyA_flux(KA, KB, KP, k, L=0.0, Keq=Keq, A=A, B=B, P=P),
-                       nonallo; rtol=1e-4)
+        @test isapprox(
+            _testhelper_multi_onlyA_flux(KA, KB, KP, k, L=0.0, Keq=Keq, A=A, B=B, P=P),
+            nonallo; rtol=1e-4)
     end
 end
 
@@ -181,7 +183,7 @@ end
 # no other ground truth. Flip ratio [X_I]/[X_A] = L·∏(K_A/K_I): free enzyme and
 # E(P) flip (ratio L); an S-bearing state has ratio 0 (S :OnlyA), so E(S) and
 # E(S,B) never flip. Reverse catalysis kr from the Haldane relation.
-function metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L, Keq, S, B, P, FAST=1e7)
+function _testhelper_metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L, Keq, S, B, P, FAST=1e7)
     kr = k * kon * KP / (koff * KB * Keq)
     species = [:E_A, :ES_A, :ESB_A, :EP_A, :E_I, :EP_I]
     edges = [
@@ -194,13 +196,13 @@ function metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L, Keq, S, B, P, FAST=1e7)
         (:ESB_A, :EP_A, k), (:EP_A, :ESB_A, kr),            # active catalysis (SS)
     ]
     cat_edges = [(:ESB_A, :EP_A, k, kr)]
-    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
+    _testhelper_mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
 # ── Single-conformation (non-allosteric) reference for the ordered bi-uni ─────
 # The active mechanism alone (E, E(S), E(S,B), E(P)); no inactive conformation,
 # no flips. The L → 0 limit of the :OnlyA flux must equal this rate.
-function metab_dfree_base_flux(kon, koff, KB, KP, k, Keq, S, B, P; FAST=1e7)
+function _testhelper_metab_dfree_base_flux(kon, koff, KB, KP, k, Keq, S, B, P; FAST=1e7)
     kr = k * kon * KP / (koff * KB * Keq)
     species = [:E, :ES, :ESB, :EP]
     edges = [
@@ -209,7 +211,7 @@ function metab_dfree_base_flux(kon, koff, KB, KP, k, Keq, S, B, P; FAST=1e7)
         (:E, :EP, FAST * P / KP), (:EP, :E, FAST),
         (:ESB, :EP, k), (:EP, :ESB, kr),
     ]
-    mwc_ground_truth_flux(species, edges, [(:ESB, :EP, k, kr)], 1.0)
+    _testhelper_mwc_ground_truth_flux(species, edges, [(:ESB, :EP, k, kr)], 1.0)
 end
 
 # ── The gate: metabolite-bearing-D :OnlyA derivation matches mass-action GT ────
@@ -243,14 +245,17 @@ end
         #   k_A_EBS_to_EP=k.
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KB, KP, k, koff, kon, L, Keq, 1.0))
         v_code = real(ER.rate_equation(metabD, (S=S, B=B, P=P), prm))
-        v_gt = metab_dfree_onlyA_flux(kon, koff, KB, KP, k, L=L, Keq=Keq, S=S, B=B, P=P)
+        v_gt = _testhelper_metab_dfree_onlyA_flux(
+            kon, koff, KB, KP, k, L=L, Keq=Keq, S=S, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
         @test isfinite(ER._kcat_forward(metabD, prm))
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) ordered bi-uni rate.
         @test isapprox(
-            metab_dfree_onlyA_flux(kon, koff, KB, KP, k, L=0.0, Keq=Keq, S=S, B=B, P=P),
-            metab_dfree_base_flux(kon, koff, KB, KP, k, Keq, S, B, P); rtol=1e-4)
+            _testhelper_metab_dfree_onlyA_flux(
+                kon, koff, KB, KP, k, L=0.0, Keq=Keq, S=S, B=B, P=P),
+            _testhelper_metab_dfree_base_flux(
+                kon, koff, KB, KP, k, Keq, S, B, P); rtol=1e-4)
     end
 
     # B = 0 puts the metabolite B in D[g_free] at zero concentration. The active
@@ -260,7 +265,8 @@ end
     prm = NamedTuple{(fp..., :Keq, :E_total)}((KB, KP, k, koff, kon, L, Keq, 1.0))
     v0 = real(ER.rate_equation(metabD, (S=S, B=0.0, P=P), prm))
     @test isapprox(v0,
-        metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L=L, Keq=Keq, S=S, B=0.0, P=P);
+        _testhelper_metab_dfree_onlyA_flux(
+            kon, koff, KB, KP, k; L=L, Keq=Keq, S=S, B=0.0, P=P);
         rtol=1e-4)
     @test v0 < 0    # reverse flux survives at B=0 (invalid :EqualAI-cat trap→0 was fake)
     @test isfinite(ER._kcat_forward(metabD, prm))
@@ -276,10 +282,11 @@ end
 # Formulation-1 reference: only the free enzyme flips conformation. Each
 # conformation runs its own catalytic cycle, coupled only through the shared
 # free-enzyme pool — the model this package derives (commit-when-free). Reverse
-# catalysis kr from the Haldane relation. `biuni_mwc_oligomer_flux(1, …;
+# catalysis kr from the Haldane relation. `_testhelper_biuni_mwc_oligomer_flux(1, …;
 # freeflip=false)` is the per-form-flip model with the same forms and edges, which
 # also flips every catalytic intermediate.
-function biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP; k_A, k_I, L, Keq, A, B, P, FAST=1e7)
+function _testhelper_biuni_nonequalAI_freeflip_flux(
+        kon, koff, KB, KP; k_A, k_I, L, Keq, A, B, P, FAST=1e7)
     krA = k_A * kon * KP / (koff * KB * Keq); krI = k_I * kon * KP / (koff * KB * Keq)
     species = [:E_A, :EA_A, :EAB_A, :EP_A, :E_I, :EA_I, :EAB_I, :EP_I]
     edges = [
@@ -293,15 +300,15 @@ function biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP; k_A, k_I, L, Keq, A, 
         (:EAB_I, :EP_I, k_I), (:EP_I, :EAB_I, krI),
     ]
     cat_edges = [(:EAB_A, :EP_A, k_A, krA), (:EAB_I, :EP_I, k_I, krI)]
-    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
+    _testhelper_mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
 # ── :NonequalAI-catalysis harness self-validation ────────────────────────────
-# First ground the hand-written mass-action reference `metab_dfree_base_flux`
+# First ground the hand-written mass-action reference `_testhelper_metab_dfree_base_flux`
 # (the single-conformation ordered bi-uni, reused as the non-allosteric rate at
 # k = k_A) against the ODE-validated non-allosteric `rate_equation` — an
 # independent, separately ODE-cross-checked code path. This closes the trust loop
-# for the whole `mwc_ground_truth_flux` harness. Then confirm the free-flip-only
+# for the whole `_testhelper_mwc_ground_truth_flux` harness. Then confirm the free-flip-only
 # reference degenerates correctly: (a) L = 0 (inactive unpopulated) → the base rate
 # at k = k_A; (b) k_I = k_A (conformations identical) → the base rate, independent
 # of L.
@@ -326,9 +333,10 @@ end
         A = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
         L = 0.5 + rand(rng)
 
-        base_rate = metab_dfree_base_flux(kon, koff, KB, KP, kA, Keq, A, B, P)
+        base_rate = _testhelper_metab_dfree_base_flux(kon, koff, KB, KP, kA, Keq, A, B, P)
 
-        # `metab_dfree_base_flux` vs the ODE-validated non-allosteric rate_equation.
+        # `_testhelper_metab_dfree_base_flux` vs the ODE-validated non-allosteric
+        # rate_equation.
         bd = Dict(:k_E_A_to_EA=>kon, :k_EA_to_E_A=>koff, :K_EAB_to_EA_B=>KB,
                   :K_EP_to_E_P=>KP, :k_EAB_to_EP=>kA)
         bprm = NamedTuple{(bfp..., :Keq, :E_total)}(((bd[s] for s in bfp)..., Keq, 1.0))
@@ -336,14 +344,14 @@ end
             real(ER.rate_equation(base, (A=A, B=B, P=P), bprm)); rtol=1e-4)
 
         # (a) L = 0 : inactive conformation unpopulated → base rate at k_A.
-        f0 = biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
+        f0 = _testhelper_biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
             k_A=kA, k_I=kI, L=0.0, Keq=Keq, A=A, B=B, P=P)
         @test isapprox(f0, base_rate; rtol=1e-4)
 
         # (b) k_I = k_A : conformations identical → base rate, independent of L.
-        fe = biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
+        fe = _testhelper_biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
             k_A=kA, k_I=kA, L=L, Keq=Keq, A=A, B=B, P=P)
-        fe5 = biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
+        fe5 = _testhelper_biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
             k_A=kA, k_I=kA, L=5.0, Keq=Keq, A=A, B=B, P=P)
         @test isapprox(fe, base_rate; rtol=1e-4)
         @test isapprox(fe, fe5; rtol=1e-4)
@@ -412,7 +420,7 @@ end
 # separately fixed — only their product is — so exactly one reverse constant per
 # conformation is dependent. `k1r` (shared, :EqualAI) closes the active cycle;
 # `k2r_I` then closes the inactive one against that same `k1r`.
-function pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r;
+function _testhelper_pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r;
         k2f_A, k2r_A, k4f_A, k4r_A, k2f_I, k4f_I, k4r_I,
         L, Keq, A, B, P, Q, FAST=1e7)
     k1r   = k1f * k2f_A * k3f * k4f_A / (Keq * k2r_A * k3r * k4r_A)
@@ -433,7 +441,7 @@ function pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r;
         push!(cat_edges, (ea, f, k2f, k2r * P))           # net flux across the P cut
     end
     push!(edges, (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST))   # only free enzyme flips
-    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
+    _testhelper_mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
 # `rate_ping_pong_bi_bi` in `test/mechanism_definitions_for_test_enzyme_derivation.jl`
@@ -444,7 +452,7 @@ end
 # whose copy takes `(params::NamedTuple, concs::NamedTuple)` with an `Etotal` rather
 # than the 12 positional scalars this one takes.
 "Segel Eq. IX-140 ping-pong bi-bi rate: E + A ⇌ EA ⇌ F + P; F + B ⇌ FB ⇌ E + Q."
-function segel_pingpong_flux(k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, A, B, P, Q)
+function _testhelper_segel_pingpong_flux(k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, A, B, P, Q)
     num = k1f*k2f*k3f*k4f*A*B - k1r*k2r*k3r*k4r*P*Q
     den = k1f*k2f*(k3r+k4f)*A + k3f*k4f*(k1r+k2f)*B +
           k1r*k2r*(k3r+k4f)*P + k3r*k4r*(k1r+k2f)*Q +
@@ -474,16 +482,16 @@ end
         #     against the Segel closed form. `k1r` is the dependent reverse
         #     constant the Haldane fixes; Segel's k1r is that same constant.
         k1r = k1f*k2f_A*k3f*k4f_A / (Keq*k2r_A*k3r*k4r_A)
-        f0 = pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r; act..., ina...,
+        f0 = _testhelper_pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r; act..., ina...,
             L=0.0, Keq=Keq, A=A, B=B, P=P, Q=Q)
-        @test isapprox(f0, segel_pingpong_flux(k1f, k1r, k2f_A, k2r_A,
+        @test isapprox(f0, _testhelper_segel_pingpong_flux(k1f, k1r, k2f_A, k2r_A,
             k3f, k3r, k4f_A, k4r_A, A, B, P, Q); rtol=1e-9)
 
         # (b) identical conformations → the active-only rate, independent of L.
         same = (k2f_I=k2f_A, k4f_I=k4f_A, k4r_I=k4r_A)
-        fe = pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r; act..., same...,
+        fe = _testhelper_pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r; act..., same...,
             L=L, Keq=Keq, A=A, B=B, P=P, Q=Q)
-        fe5 = pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r; act..., same...,
+        fe5 = _testhelper_pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r; act..., same...,
             L=5.0, Keq=Keq, A=A, B=B, P=P, Q=Q)
         @test isapprox(fe, f0; rtol=1e-9)
         @test isapprox(fe, fe5; rtol=1e-9)
@@ -491,16 +499,16 @@ end
         # (c) v = 0 at the equilibrium metabolite ratio P·Q/(A·B) = Keq. Both
         #     conformations are live and unequal, so this pins both Haldanes.
         Qeq = Keq * A * B / P
-        @test abs(pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r; act...,
+        @test abs(_testhelper_pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r; act...,
             ina..., L=L, Keq=Keq, A=A, B=B, P=P, Q=Qeq)) < 1e-9
 
         # (d) FAST-invariance: the free-enzyme flip is the only cut between the
         #     conformation subnetworks, so it carries zero net flux and E_I/E_A is
         #     exactly L for any FAST. The fast-flip limit is therefore exact here.
-        v_live = pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r; act..., ina...,
-            L=L, Keq=Keq, A=A, B=B, P=P, Q=Q)
+        v_live = _testhelper_pingpong_nonequalAI_freeflip_flux(
+            k1f, k3f, k3r; act..., ina..., L=L, Keq=Keq, A=A, B=B, P=P, Q=Q)
         for fast in (1e2, 1e12)
-            @test isapprox(v_live, pingpong_nonequalAI_freeflip_flux(k1f, k3f,
+            @test isapprox(v_live, _testhelper_pingpong_nonequalAI_freeflip_flux(k1f, k3f,
                 k3r; act..., ina..., L=L, Keq=Keq, A=A, B=B, P=P, Q=Q, FAST=fast);
                 rtol=1e-9)
         end
@@ -593,7 +601,7 @@ end
                  :L => L)
         prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
         v_code = real(ER.rate_equation(allo, (A=A, B=B, P=P, Q=Q), prm))
-        v_gt = pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r;
+        v_gt = _testhelper_pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r;
             k2f_A=k2f_A, k2r_A=k2r_A, k4f_A=k4f_A, k4r_A=k4r_A,
             k2f_I=k2f_I, k4f_I=k4f_I, k4r_I=k4r_I,
             L=L, Keq=Keq, A=A, B=B, P=P, Q=Q)
@@ -611,7 +619,7 @@ end
 # reach, hold no mass. At P = Q = 0 the P and Q releases are one-way and the
 # chemistry's reverse never fires, so every form past EA → F(P) drains back to E,
 # and the rate is k·(A/KA)/((1 + A/KA)(1 + L)), free of B.
-function pingpong_re_chemistry_flux(; KA, KB, KP, KQ, K2, k, L, A, B, FAST=1e9)
+function _testhelper_pingpong_re_chemistry_flux(; KA, KB, KP, KQ, K2, k, L, A, B, FAST=1e9)
     species = [:E_A, :EA_A, :FP_A, :F_A, :FB_A, :EQ_A, :E_I, :EA_I, :EQ_I]
     edges = [
         (:E_A, :EA_A, FAST * A), (:EA_A, :E_A, FAST * KA),   # E + A ⇌ EA (RE)
@@ -624,7 +632,7 @@ function pingpong_re_chemistry_flux(; KA, KB, KP, KQ, K2, k, L, A, B, FAST=1e9)
         (:EQ_I, :E_I, FAST * KQ),                            # inactive Q release
         (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),          # free-enzyme flip, ratio L
     ]
-    mwc_ground_truth_flux(species, edges, [(:EA_A, :FP_A, k, 0.0)], 1.0)
+    _testhelper_mwc_ground_truth_flux(species, edges, [(:EA_A, :FP_A, k, 0.0)], 1.0)
 end
 
 # ── Ping-pong rapid-equilibrium-chemistry harness self-validation ─────────────
@@ -635,7 +643,8 @@ end
     p = (KA=0.7, KB=1.3, KP=0.9, KQ=1.1, K2=2.0, k=1.7, A=1.5)
     closed(L) = p.k * (p.A / p.KA) / ((1 + p.A / p.KA) * (1 + L))
     for L in (0.0, 3.0), B in (1e-2, 1.0, 1e2)
-        @test isapprox(pingpong_re_chemistry_flux(; p..., L=L, B=B), closed(L); rtol=1e-5)
+        @test isapprox(
+            _testhelper_pingpong_re_chemistry_flux(; p..., L=L, B=B), closed(L); rtol=1e-5)
     end
 end
 
@@ -677,7 +686,7 @@ end
              Symbol("K_EP_res_+A_-P_to_E_res_+A_-P_P") => p.KP, :L => p.L)
     prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., 2.0, 1.0))
     v_code(B) = real(ER.rate_equation(allo, (A=p.A, B=B, P=0.0, Q=0.0), prm))
-    v_gt(B) = pingpong_re_chemistry_flux(; p..., B=B)
+    v_gt(B) = _testhelper_pingpong_re_chemistry_flux(; p..., B=B)
     for B in (1e-3, 0.1, 1.0, 10.0, 1e3)
         @test isapprox(v_code(B), v_gt(B); rtol=1e-5)
     end
@@ -689,7 +698,7 @@ end
 # Its partition is 1, so the denominator must carry L·1 (not 0). Fast RE bindings
 # and the flip use FAST; catalysis is O(1). Reverse catalysis from the Haldane
 # relation. At L = 0 the reservoir is unpopulated → the non-allosteric rate.
-function inert_inactive_flux(; KS, KP, k, L, Keq, S, P, FAST=1e7)
+function _testhelper_inert_inactive_flux(; KS, KP, k, L, Keq, S, P, FAST=1e7)
     kr = k * KP / (Keq * KS)
     species = [:E_A, :ES_A, :EP_A, :E_I]
     edges = [
@@ -698,7 +707,7 @@ function inert_inactive_flux(; KS, KP, k, L, Keq, S, P, FAST=1e7)
         (:ES_A, :EP_A, k), (:EP_A, :ES_A, kr),              # active catalysis (SS)
         (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),          # free-enzyme flip, ratio L
     ]                                                         # E_I inert: no other edges
-    mwc_ground_truth_flux(species, edges, [(:ES_A, :EP_A, k, kr)], 1.0)
+    _testhelper_mwc_ground_truth_flux(species, edges, [(:ES_A, :EP_A, k, kr)], 1.0)
 end
 
 # ── The gate: a fully-inert inactive contributes L to the denominator ─────────
@@ -726,11 +735,13 @@ end
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, KS, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(inert, (S=S, P=P), prm))
         @test isapprox(v_code,
-            inert_inactive_flux(; KS=KS, KP=KP, k=k, L=L, Keq=Keq, S=S, P=P); rtol=1e-4)
+            _testhelper_inert_inactive_flux(;
+                KS=KS, KP=KP, k=k, L=L, Keq=Keq, S=S, P=P); rtol=1e-4)
         # self-validation: L = 0 → reservoir unpopulated → non-allosteric active rate.
         nonallo = (k * S / KS - (k * KP / (Keq * KS)) * P / KP) / (1 + S / KS + P / KP)
-        @test isapprox(inert_inactive_flux(; KS=KS, KP=KP, k=k, L=0.0, Keq=Keq, S=S, P=P),
-                       nonallo; rtol=1e-4)
+        @test isapprox(
+            _testhelper_inert_inactive_flux(; KS=KS, KP=KP, k=k, L=0.0, Keq=Keq, S=S, P=P),
+            nonallo; rtol=1e-4)
     end
 end
 
@@ -782,7 +793,7 @@ end
 # through the faster conformation.
 const OCC = (:E, :EA, :EAB, :EP)
 
-function biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP; k_A, k_I, L, Keq,
+function _testhelper_biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP; k_A, k_I, L, Keq,
                                  A, B, P, FAST=1e7, freeflip=true)
     krA = k_A * kon * KP / (koff * KB * Keq)
     krI = k_I * kon * KP / (koff * KB * Keq)
@@ -822,7 +833,7 @@ function biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP; k_A, k_I, L, Keq,
             push!(edges, (sp(:I, o), sp(:A, o), FAST))
         end
     end
-    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
+    _testhelper_mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
 # Self-validation. Check (c) is the load-bearing one: it pins the oracle to
@@ -836,32 +847,32 @@ end
         kA = 0.5+2rand(rng); kI = 0.5+2rand(rng); Keq = 2.0+2rand(rng)
         A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng)
         L = 0.5+rand(rng)
-        base = metab_dfree_base_flux(kon, koff, KB, KP, kA, Keq, A, B, P)
+        base = _testhelper_metab_dfree_base_flux(kon, koff, KB, KP, kA, Keq, A, B, P)
 
         # (a) L = 0 : inactive unpopulated -> nprot x the single-protomer rate.
-        @test isapprox(biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+        @test isapprox(_testhelper_biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
                 k_A=kA, k_I=kI, L=0.0, Keq=Keq, A=A, B=B, P=P, freeflip),
             nprot * base; rtol=1e-4)
 
         # (b) k_I = k_A : conformations identical -> L-independent.
-        f1 = biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+        f1 = _testhelper_biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
                 k_A=kA, k_I=kA, L=L, Keq=Keq, A=A, B=B, P=P, freeflip)
-        f5 = biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+        f5 = _testhelper_biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
                 k_A=kA, k_I=kA, L=5.0, Keq=Keq, A=A, B=B, P=P, freeflip)
         @test isapprox(f1, nprot * base; rtol=1e-4)
         @test isapprox(f1, f5; rtol=1e-4)
 
         # (d) v = 0 at the equilibrium metabolite ratio.
         Peq = Keq * A * B
-        @test abs(biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+        @test abs(_testhelper_biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
                 k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=B, P=Peq, freeflip)) < 1e-6
     end
 
     # (e) a live inactive conformation must move the flux, or the gate below
     #     would pass without ever exercising the cross term.
-    v_live = biuni_mwc_oligomer_flux(2, 1.7, 1.1, 0.8, 0.9;
+    v_live = _testhelper_biuni_mwc_oligomer_flux(2, 1.7, 1.1, 0.8, 0.9;
             k_A=2.5, k_I=0.4, L=0.7, Keq=3.0, A=1.1, B=0.5, P=0.6)
-    v_dead = biuni_mwc_oligomer_flux(2, 1.7, 1.1, 0.8, 0.9;
+    v_dead = _testhelper_biuni_mwc_oligomer_flux(2, 1.7, 1.1, 0.8, 0.9;
             k_A=2.5, k_I=0.0, L=0.7, Keq=3.0, A=1.1, B=0.5, P=0.6)
     @test !isapprox(v_live, v_dead; rtol=1e-3)
 
@@ -872,10 +883,10 @@ end
     #     a real number that is not a bug.
     args = (1.7, 1.1, 0.8, 0.9)
     kw = (k_A=2.5, k_I=0.4, L=0.7, Keq=3.0, A=1.1, B=0.5, P=0.6)
-    @test isapprox(biuni_mwc_oligomer_flux(1, args...; kw...),
-                   biuni_nonequalAI_freeflip_flux(args...; kw...); rtol=1e-4)
-    @test !isapprox(biuni_mwc_oligomer_flux(1, args...; freeflip=false, kw...),
-                    biuni_nonequalAI_freeflip_flux(args...; kw...); rtol=1e-4)
+    @test isapprox(_testhelper_biuni_mwc_oligomer_flux(1, args...; kw...),
+                   _testhelper_biuni_nonequalAI_freeflip_flux(args...; kw...); rtol=1e-4)
+    @test !isapprox(_testhelper_biuni_mwc_oligomer_flux(1, args...; freeflip=false, kw...),
+                    _testhelper_biuni_nonequalAI_freeflip_flux(args...; kw...); rtol=1e-4)
 end
 
 # ── The gate: :NonequalAI catalysis for 1, 2 and 3 protomers ──────────────────
@@ -886,7 +897,7 @@ end
 # gate goes red if the derivation reverts to the raw Q_A + L·Q_I combine (which
 # matches a per-form-flip model, not formulation 1) or mis-renders the
 # normalization. At nprot = 1 the oligomer oracle is the free-flip-only reference
-# `biuni_nonequalAI_freeflip_flux` (pinned in the oligomer self-validation).
+# `_testhelper_biuni_nonequalAI_freeflip_flux` (pinned in the oligomer self-validation).
 #
 # The ^n combine also needs a LIVE inactive numerator: `:OnlyA` always yields a dead
 # inactive cycle (the guard forces an `:OnlyA` catalytic tag alongside an `:OnlyA`
@@ -944,7 +955,7 @@ end
             prm = params_for(kon, koff, KP, KB, kA, kI, L, Keq)
             # `rate_equation` is per active site; the oracle is per oligomer.
             v_code = nprot * real(ER.rate_equation(allo, (A=A, B=B, P=P), prm))
-            v_gt = biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+            v_gt = _testhelper_biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
                 k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=B, P=P)
             @test isapprox(v_code, v_gt; rtol=1e-4)
         end
@@ -958,7 +969,7 @@ end
             kA, kI, L, Keq, A, P = 2.5, 0.4, 0.7, 3.0, 1.1, 0.9
             vN = real(ER.rate_equation(allo, (A=A, B=0.0, P=P),
                                        params_for(kon, koff, KP, KB, kA, kI, L, Keq)))
-            @test isapprox(vN, biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
+            @test isapprox(vN, _testhelper_biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
                 k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=0.0, P=P); rtol=1e-4)
             @test abs(vN) > 1e-3
         end

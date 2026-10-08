@@ -9,7 +9,7 @@
 # by lex on form name) and returns its (source, destination) Species. A raw topology
 # step keeps the direction it was built in; the mechanism constructors orient
 # isomerizations (`_canonicalize_step_directions`).
-function _iso_orient(s::EnzymeRates.Step)
+function _testhelper_iso_orient(s::EnzymeRates.Step)
     from, to = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
     nf = count(b -> b isa EnzymeRates.Substrate, EnzymeRates.bound(from))
     nt = count(b -> b isa EnzymeRates.Substrate, EnzymeRates.bound(to))
@@ -20,19 +20,19 @@ end
 
 # Build a Mechanism from a flat topology Step list, each step its own
 # kinetic group.
-_topo_mech(rxn, t::Vector{EnzymeRates.Step}) =
+_testhelper_topo_mech(rxn, t::Vector{EnzymeRates.Step}) =
     EnzymeRates.Mechanism(rxn, [[s] for s in t])
 
 # Form-name set for a flat topology Step list, derived from the decomposed
 # Species of each Step.
-_form_names(t::Vector{EnzymeRates.Step}) = Set{Symbol}(
+_testhelper_form_names(t::Vector{EnzymeRates.Step}) = Set{Symbol}(
     EnzymeRates.name(sp)
     for s in t for sp in (EnzymeRates.from_species(s),
                           EnzymeRates.to_species(s)))
 
 # Flat topology (Vector{Step}) from a compiled mechanism, matching the
 # shape _catalytic_topologies now returns (each step its own kinetic group).
-_flat_topo(m) = EnzymeRates.Step[
+_testhelper_flat_topo(m) = EnzymeRates.Step[
     s for g in EnzymeRates.Mechanism(m).steps for s in g]
 
 # Connectivity invariant: two enzyme forms identical in conformation+residual
@@ -40,7 +40,7 @@ _flat_topo(m) = EnzymeRates.Step[
 # a binding step. Returns the list of (formA, formB) pairs that violate it.
 # Accepts a flat `Vector{Step}` (a topology) or a `Vector{Vector{Step}}`
 # (a Mechanism's kinetic groups).
-function _connectivity_violations(steps)
+function _testhelper_connectivity_violations(steps)
     flat = eltype(steps) <: AbstractVector ?
            collect(Iterators.flatten(steps)) : steps
     _bset(sp) = Set(EnzymeRates.name(m) for m in EnzymeRates.bound(sp))
@@ -188,7 +188,8 @@ _testhelper_plain_moves(m, rxn) = append!(
 # an isomerization, a fused binding or a Theorell–Chance step); otherwise it is
 # a binding group. Mirrors the rule `_expand_to_allosteric` uses to decide
 # whether a group's `:OnlyA` flip needs a paired regulator to be distinguishable.
-_is_catalytic_group(m, g) = any(EnzymeRates._is_chemistry, EnzymeRates.steps(m)[g])
+_testhelper_is_catalytic_group(m, g) =
+    any(EnzymeRates._is_chemistry, EnzymeRates.steps(m)[g])
 
 const uni_uni_rxn = @enzyme_reaction begin
     substrates: S[C]
@@ -274,7 +275,7 @@ const pyruvate_dehydrogenase_rxn = @enzyme_reaction begin
 end
 
 """
-    enumerate_all_mechanism(rxn::EnzymeReaction; max_params::Int=typemax(Int))
+    _testhelper_enumerate_all_mechanism(rxn::EnzymeReaction; max_params::Int=typemax(Int))
         -> Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}
 
 Enumerate all mechanisms reachable by init → expand, bucketed by ACTUAL
@@ -284,7 +285,7 @@ sweep as `_beam_search` (but expands every swept mechanism — no beam
 selection) so Δ=0 expansion children (same param count as the parent) are
 not lost.
 """
-function enumerate_all_mechanism(rxn; max_params::Int=typemax(Int))
+function _testhelper_enumerate_all_mechanism(rxn; max_params::Int=typemax(Int))
     M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
     actual(m) = _testhelper_fitted(m)
     frontier = Dict{Int, Vector{M}}()
@@ -465,11 +466,11 @@ uni_bi_topos = EnzymeRates._catalytic_topologies(uni_bi_rxn)
         (EnzymeRates._catalytic_topologies(ter_bi_rxn), 45),
     ]
         @test length(topos) == n
-        @test all(isempty(_connectivity_violations(t)) for t in topos)
+        @test all(isempty(_testhelper_connectivity_violations(t)) for t in topos)
         # Every topology has exactly one SS step.
         @test all(count(!s.is_equilibrium for s in t) == 1 for t in topos)
     end
-    @test all(EnzymeMechanism(_topo_mech(uni_bi_rxn, t)) isa EnzymeMechanism
+    @test all(EnzymeMechanism(_testhelper_topo_mech(uni_bi_rxn, t)) isa EnzymeMechanism
               for t in uni_bi_topos)
 end
 
@@ -509,14 +510,14 @@ end
     # least one substrate. Use bound list directly (name-parsing is
     # ambiguous with the concat form naming convention).
     @test all(any(b -> EnzymeRates.name(b) ∈ sub_names_set,
-                  EnzymeRates.bound(_iso_orient(s)[1]))
+                  EnzymeRates.bound(_testhelper_iso_orient(s)[1]))
               for t in topos for s in t if EnzymeRates.is_iso(s))
 
     # C8: an iso's product-side (destination) form is built with only
     # products bound, never substrates.
     @test all(EnzymeRates.name(b) ∉ sub_names_set
               for t in topos for s in t if EnzymeRates.is_iso(s)
-              for b in EnzymeRates.bound(_iso_orient(s)[2]))
+              for b in EnzymeRates.bound(_testhelper_iso_orient(s)[2]))
 end
 
 _testhelper_bound_names(sp) = Set(EnzymeRates.name(b) for b in EnzymeRates.bound(sp))
@@ -535,7 +536,7 @@ end
 @testset "pyruvate carboxylase mechanism" begin
     topos = EnzymeRates._catalytic_topologies(
         pyruvate_carboxylase_rxn)
-    @test all(isempty(_connectivity_violations(t)) for t in topos)
+    @test all(isempty(_testhelper_connectivity_violations(t)) for t in topos)
 
     # Known mechanism: ATP+HCO3 → ADP+Pi leaving a CO2 covalent
     # residual on :E, then Pyr+CO2 → OAA. The carboxylation iso converts
@@ -563,7 +564,7 @@ end
 @testset "pyruvate dehydrogenase mechanism" begin
     topos = EnzymeRates._catalytic_topologies(
         pyruvate_dehydrogenase_rxn)
-    @test all(isempty(_connectivity_violations(t)) for t in topos)
+    @test all(isempty(_testhelper_connectivity_violations(t)) for t in topos)
 
     # Known mechanism, with covalent residuals on :E:
     # Pyr→CO2 (leaves an acetyl residual),
@@ -598,7 +599,7 @@ end
         products: P[C], Q[N], R[X], S[Y]
     end
     topos = EnzymeRates._catalytic_topologies(quad_rxn)
-    @test all(isempty(_connectivity_violations(t)) for t in topos)
+    @test all(isempty(_testhelper_connectivity_violations(t)) for t in topos)
     @test length(topos) > 0
     # Every topology must have ≥ 2 iso steps (no 4→4)
     @test all(count(EnzymeRates.is_iso, t) >= 2 for t in topos)
@@ -808,11 +809,11 @@ end
             E(S) <--> E(P)
         end
     end
-    topo = _flat_topo(m)
+    topo = _testhelper_flat_topo(m)
     result =
         EnzymeRates._expand_substrate_product_dead_ends(
             [topo],uni_uni_rxn)
-    @test all(isempty(_connectivity_violations(steps))
+    @test all(isempty(_testhelper_connectivity_violations(steps))
               for steps in result)
     @test length(result) == 1
 end
@@ -848,11 +849,11 @@ end
             E(A, B) <--> E(P, Q)
         end
     end
-    topo = _flat_topo(m)
+    topo = _testhelper_flat_topo(m)
     result =
         EnzymeRates._expand_substrate_product_dead_ends(
             [topo],bi_bi_rxn)
-    @test all(isempty(_connectivity_violations(steps))
+    @test all(isempty(_testhelper_connectivity_violations(steps))
               for steps in result)
     # 4 unique dead-end forms, 7 competition patterns,
     # all 7 produce distinct dead-end sets → 7 variants
@@ -860,8 +861,8 @@ end
 
     # Each variant adds exactly the dead-end forms whose (substrate, product)
     # pair its competition pattern leaves unforbidden.
-    seed_forms = _form_names(topo)
-    @test Set(setdiff(_form_names(r), seed_forms) for r in result) == Set([
+    seed_forms = _testhelper_form_names(topo)
+    @test Set(setdiff(_testhelper_form_names(r), seed_forms) for r in result) == Set([
         Set([:EAQ, :EBP]),     # forbids A↔P, B↔Q
         Set([:EAP, :EBQ]),     # forbids A↔Q, B↔P
         Set([:EBQ]),           # forbids all but B↔Q
@@ -887,11 +888,11 @@ end
             E(S) <--> E(P, Q)
         end
     end
-    topo = _flat_topo(m)
+    topo = _testhelper_flat_topo(m)
     result =
         EnzymeRates._expand_substrate_product_dead_ends(
             [topo],uni_bi_rxn)
-    @test all(isempty(_connectivity_violations(steps))
+    @test all(isempty(_testhelper_connectivity_violations(steps))
               for steps in result)
     @test length(result) == 1
 end
@@ -915,11 +916,11 @@ end
             Estar(B) ⇌ E(Q)
         end
     end
-    topo = _flat_topo(m)
+    topo = _testhelper_flat_topo(m)
     result =
         EnzymeRates._expand_substrate_product_dead_ends(
             [topo],bi_bi_pp_rxn)
-    @test all(isempty(_connectivity_violations(steps))
+    @test all(isempty(_testhelper_connectivity_violations(steps))
               for steps in result)
     # 6 dead-end forms (E_A_P, E_A_Q, E_B_Q from
     # E-side + Estar_A_P, Estar_B_P, Estar_B_Q from
@@ -928,8 +929,8 @@ end
 
     # Each variant adds exactly the dead-end forms whose (substrate, product)
     # pair its competition pattern leaves unforbidden.
-    seed_forms = _form_names(topo)
-    @test Set(setdiff(_form_names(r), seed_forms) for r in result) == Set([
+    seed_forms = _testhelper_form_names(topo)
+    @test Set(setdiff(_testhelper_form_names(r), seed_forms) for r in result) == Set([
         Set([:EAQ, :EstarBP]),                  # forbids A↔P, B↔Q
         Set([:EAP, :EBQ, :EstarAP, :EstarBQ]),  # forbids A↔Q, B↔P
         Set([:EBQ, :EstarBQ]),                  # forbids all but B↔Q
@@ -944,7 +945,7 @@ end
     # conformation).
     new_estar_forms = Set{Symbol}()
     for r in result
-        new_forms = setdiff(_form_names(r), seed_forms)
+        new_forms = setdiff(_testhelper_form_names(r), seed_forms)
         for f in new_forms
             startswith(string(f), "Estar") && string(f) != "Estar" &&
                 push!(new_estar_forms, f)
@@ -964,7 +965,7 @@ end
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
                 [topo], ter_ter_rxn)
-        @test all(isempty(_connectivity_violations(steps))
+        @test all(isempty(_testhelper_connectivity_violations(steps))
                   for steps in result)
         # Competition patterns reduce 2^27 to
         # ≤265 variants per topology
@@ -980,9 +981,10 @@ end
     #   2S+1P: 3 (EABR, EADQ, EBDP)
     #   1S+2P: 3 (EAQR, EBPR, EDPQ)
     topos = EnzymeRates._catalytic_topologies(ter_ter_rxn)
-    _, idx = findmax(length(_form_names(t)) for t in topos)
+    _, idx = findmax(length(_testhelper_form_names(t)) for t in topos)
     result = EnzymeRates._expand_substrate_product_dead_ends([topos[idx]], ter_ter_rxn)
-    added = [setdiff(_form_names(steps), _form_names(topos[idx])) for steps in result]
+    added = [setdiff(_testhelper_form_names(steps), _testhelper_form_names(topos[idx]))
+             for steps in result]
     @test length(union(added...)) == 27
     @test Set([:EAQ, :EAR, :EBP, :EBR, :EDP, :EDQ, :EABR, :EADQ, :EBDP, :EAQR, :EBPR,
                :EDPQ]) in added
@@ -1096,7 +1098,7 @@ uu, ub, bb, pp = (EnzymeRates.init_mechanisms(rxn)
     # more SS steps. The merged and Theorell–Chance variants that follow the
     # seeds hold no isomerization and two or three SS groups.
     for specs in (uu, ub, bb, pp)
-        @test all(isempty(_connectivity_violations(
+        @test all(isempty(_testhelper_connectivity_violations(
             EnzymeRates.steps(m))) for m in specs)
         for s in specs
             if _testhelper_holds_iso(s)
@@ -1246,7 +1248,7 @@ end
     # built. After expand_mechanisms adds the dead-end regulator, it
     # should appear.
     init_mechs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
-    @test all(isempty(_connectivity_violations(
+    @test all(isempty(_testhelper_connectivity_violations(
         EnzymeRates.steps(m))) for m in init_mechs)
     @test !isempty(init_mechs)
     for m in init_mechs
@@ -1275,7 +1277,7 @@ end
         products: D_Ala[CHN]
     end
     specs = EnzymeRates.init_mechanisms(rxn)
-    @test all(isempty(_connectivity_violations(
+    @test all(isempty(_testhelper_connectivity_violations(
         EnzymeRates.steps(m))) for m in specs)
     @test !isempty(specs)
     for spec in first(specs, min(3, length(specs)))
@@ -4325,7 +4327,7 @@ end
     # :OnlyA, each with the chemical step also :OnlyA (a catalytically-dead
     # inactive conformation). 2^4 - 1 = 15 subsets, all Wegscheider-valid.
     n_groups = length(m.steps)
-    n_cat = count(g -> _is_catalytic_group(m, g), 1:n_groups)
+    n_cat = count(g -> _testhelper_is_catalytic_group(m, g), 1:n_groups)
     @test n_cat == 1
     @test length(result) == 15
 
@@ -4377,7 +4379,7 @@ end
     # :OnlyA, each with BOTH chemical steps also :OnlyA (a catalytically-dead
     # inactive conformation). 2^4 - 1 = 15 subsets, all Wegscheider-valid.
     n_groups = length(m.steps)
-    n_cat = count(g -> _is_catalytic_group(m, g), 1:n_groups)
+    n_cat = count(g -> _testhelper_is_catalytic_group(m, g), 1:n_groups)
     @test n_cat == 2
     @test length(result) == 15
 
@@ -4468,7 +4470,7 @@ end
     # No regulator declared → the binding-completion variant set (see the
     # uni-uni case: 3 variants) is emitted once per multiplicity.
     n_groups = length(EnzymeRates.steps(m))
-    n_cat = count(g -> _is_catalytic_group(m, g), 1:n_groups)
+    n_cat = count(g -> _testhelper_is_catalytic_group(m, g), 1:n_groups)
     @test n_cat == 1
     @test length(allo) == 2 * 3
 
@@ -4525,7 +4527,7 @@ end
     # Every V-type has its catalytic group :OnlyA.
     @test all(vtypes) do am
         cat_group = only(g for g in eachindex(EnzymeRates.steps(am))
-                         if _is_catalytic_group(am, g))
+                         if _testhelper_is_catalytic_group(am, g))
         EnzymeRates.cat_allo_states(am)[cat_group] == :OnlyA
     end
     @test length(ktypes) == 3
@@ -4578,7 +4580,7 @@ end
             states = EnzymeRates.cat_allo_states(am)
             @test !all(==(:EqualAI), states)
             binding_gs = [g for g in 1:length(states)
-                          if !_is_catalytic_group(base, g)]
+                          if !_testhelper_is_catalytic_group(base, g)]
             binding_non_equal = any(g -> states[g] != :EqualAI, binding_gs)
             @test binding_non_equal ||
                 !isempty(EnzymeRates.regulatory_sites(am))
@@ -6363,10 +6365,10 @@ end
 # ─── enumerate_all ─────────────────────────────────────────────────────
 @testset "Integration" begin
 
-uni = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
+uni = _testhelper_enumerate_all_mechanism(uni_uni_rxn; max_params=8)
 
 @testset "Mechanism — Uni-uni full enumeration" begin
-    # enumerate_all_mechanism buckets by ACTUAL fitted-parameter count. At
+    # _testhelper_enumerate_all_mechanism buckets by ACTUAL fitted-parameter count. At
     # least 2 param-count buckets, and consecutive buckets separated by at
     # most 4 (max single-move delta).
     @test !isempty(uni)
@@ -6427,7 +6429,7 @@ end
         allosteric_regulators: R
         oligomeric_state: 2
     end
-    results = enumerate_all_mechanism(rxn; max_params=8)
+    results = _testhelper_enumerate_all_mechanism(rxn; max_params=8)
     has_allo = any(
         any(s isa EnzymeRates.AllostericMechanism for s in mechs)
         for (_, mechs) in results)
@@ -6443,7 +6445,7 @@ end
         products: P[C]
         dead_end_inhibitors: I
     end
-    results = enumerate_all_mechanism(rxn; max_params=8)
+    results = _testhelper_enumerate_all_mechanism(rxn; max_params=8)
     @test !isempty(results)
     total_with_reg = sum(length(v) for v in values(results))
     total_plain = sum(length(v) for v in values(uni))
@@ -11131,7 +11133,7 @@ end
     mets = [:A, :B, :P, :Q]
     for m in unique!(collect(EnzymeRates.init_mechanisms(bi_bi_pp_rxn)))
         cm = EnzymeRates.compile_mechanism(m)
-        params = random_reduced_params(cm; rng = Random.MersenneTwister(1))
+        params = _testhelper_random_reduced_params(cm; rng = Random.MersenneTwister(1))
         for zeroed in mets
             cvals = Tuple(n == zeroed ? 0.0 : 1.0 for n in mets)
             concs = NamedTuple{Tuple(mets)}(cvals)

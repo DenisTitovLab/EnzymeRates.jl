@@ -50,7 +50,7 @@ Base.@kwdef struct MechanismTestSpec
     # As-written (source) catalytic-step / regulatory-site order, captured
     # before the constructor canonicalizes. Positional textbook oracles number
     # k1,k2,… (and reg1,reg2,…) by source order; the bridge in
-    # `analytical_oracle_params` uses these to remap onto canonical stored
+    # `_testhelper_analytical_oracle_params` uses these to remap onto canonical stored
     # order. Populated only for oracle-bearing fixtures via `@..._src` macros.
     source_steps::Union{Vector{Vector{EnzymeRates.Step}},Nothing} = nothing
     source_reg_sites::Union{Vector{EnzymeRates.RegulatorySite},Nothing} = nothing
@@ -61,12 +61,12 @@ end
 # groups (and, for allosteric, regulatory sites), captured before the
 # constructor canonicalizes. Used to populate `MechanismTestSpec.source_steps`
 # / `source_reg_sites` so positional oracles bridge to canonical stored order.
-macro enzyme_mechanism_src(block)
+macro _testhelper_enzyme_mechanism_src(block)
     mech_expr, groups_expr, _ = EnzymeRates._parse_mechanism_body(block, false)
     esc(:(($mech_expr, $groups_expr)))
 end
 
-macro allosteric_mechanism_src(block)
+macro _testhelper_allosteric_mechanism_src(block)
     mech_expr, groups_expr, reg_sites_expr =
         EnzymeRates._parse_mechanism_body(block, true)
     esc(:(($mech_expr, $groups_expr, $reg_sites_expr)))
@@ -74,13 +74,13 @@ end
 
 # Build an AllostericEnzymeMechanism binding catalytic allosteric states to the
 # catalytic steps AS WRITTEN (source order). `cm_src` is an
-# `@enzyme_mechanism_src` result `(cm, source_groups)`. Routing through
+# `@_testhelper_enzyme_mechanism_src` result `(cm, source_groups)`. Routing through
 # AllostericMechanism canonicalizes catalytic steps and their allosteric tags
 # together, so each tag stays on its intended step. `cat_sites`/`reg_sites` use
 # the tuple shapes of the compiled type's parameters:
 # `cat_sites = (multiplicity, cat_allo_states)`,
 # `reg_sites = ((ligands, multiplicity, ligand_states), …)`.
-function allo_from_source(cm_src, cat_sites, reg_sites)
+function _testhelper_allo_from_source(cm_src, cat_sites, reg_sites)
     cm, src = cm_src
     mult, cat_states = cat_sites
     sites = EnzymeRates.RegulatorySite[
@@ -141,7 +141,7 @@ _testhelper_regulators(m::EnzymeRates.AllostericEnzymeMechanism) =
     EnzymeRates.name.(EnzymeRates.allosteric_regulators(_testhelper_lift(m)))
 
 """Generate random reduced (fitted) params + Keq + E_total for a mechanism."""
-function random_reduced_params(m; rng=Random.default_rng())
+function _testhelper_random_reduced_params(m; rng=Random.default_rng())
     fp = EnzymeRates.fitted_params(m)
     vals = Tuple(0.1 + 9.9 * rand(rng) for _ in fp)
     Keq_val = 0.1 + 9.9 * rand(rng)
@@ -157,7 +157,7 @@ const MECHANISM_TEST_SPECS = MechanismTestSpec[]
 
 # 1. Uni-Uni (simplest): E + S ⇌ ES ⇌ E + P
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: S
         products: P
         steps: begin
@@ -185,7 +185,7 @@ end
 # 2. Segel Uni Uni (replaces Three-Step Iso): E + A ⇌ EA ⇌ EP ⇌ E + P
 #    Reference: Segel, Enzyme Kinetics, Eq. IX-8
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A
         products: P
         steps: begin
@@ -222,7 +222,7 @@ end
 # 3. Segel Iso Uni Uni (new): E + A ⇌ EA ⇌ EP ⇌ F + P, F ⇌ E
 #    Reference: Segel, Enzyme Kinetics, Eq. IX-45
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A
         products: P
         steps: begin
@@ -261,7 +261,7 @@ end
 # 4. Segel Ordered Uni Bi (replaces Seq Uni-Bi): E + A ⇌ (EA≡EPQ) ⇌ EQ + P ⇌ E + Q
 #    Reference: Segel, Enzyme Kinetics, Eq. IX-60
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A
         products: P, Q
         steps: begin
@@ -302,7 +302,7 @@ end
 #    E + A ⇌ EA + B ⇌ (EAB≡EPQ) ⇌ EQ + P ⇌ E + Q
 #    Reference: Segel, Enzyme Kinetics, Eq. IX-87
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -350,7 +350,7 @@ end
 #    B binds and P leaves in one step, which carries metabolites on both sides.
 #    Reference: Segel, Enzyme Kinetics, Eq. IX-122
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -396,7 +396,7 @@ end
 #    E + A ⇌ (EA≡FP) ⇌ F + P, F + B ⇌ (FB≡EQ) ⇌ E + Q
 #    Reference: Segel, Enzyme Kinetics, Eq. IX-140
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -443,7 +443,7 @@ end
 #     E + A ⇌ EA + B ⇌ EAB + C ⇌ (EABC≡EPQ) ⇌ EQ + P ⇌ E + Q
 #     Reference: Segel, Enzyme Kinetics, Eq. IX-195
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A, B, C
         products: P, Q
         steps: begin
@@ -504,7 +504,7 @@ end
 #     E + A ⇌ EA + B ⇌ EAB + C ⇌ (EABC≡EPQR) ⇌ EQR + P ⇌ ER + Q ⇌ E + R
 #     Reference: Segel, Enzyme Kinetics, Eq. IX-261
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A, B, C
         products: P, Q, R
         steps: begin
@@ -578,7 +578,7 @@ end
 #     E + A ⇌ EA + B ⇌ (EAB≡FP) ⇌ F + P, F + C ⇌ (FC≡EQ) ⇌ E + Q
 #     Reference: Segel, Enzyme Kinetics, Eq. IX-228
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A, B, C
         products: P, Q
         steps: begin
@@ -633,7 +633,7 @@ end
 
 # 11. Random-order Bi-Bi (branched): Two substrate binding orders converge
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -747,7 +747,7 @@ end
 #     E + A ⇌ EA + B ⇌ (EAB≡FP) ⇌ F + P, F + C ⇌ (FC≡EQR) ⇌ ER + Q ⇌ E + R
 #     Reference: Segel, Enzyme Kinetics, Eq. IX-278
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A, B, C
         products: P, Q, R
         steps: begin
@@ -814,7 +814,7 @@ end
 #     E + A ⇌ EA + B ⇌ (EAB≡FPQ) ⇌ FQ + P, FQ ⇌ F + Q, F + C ⇌ (FC≡ER) ⇌ E + R
 #     Reference: Segel, Enzyme Kinetics, Eq. IX-288
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A, B, C
         products: P, Q, R
         steps: begin
@@ -881,7 +881,7 @@ end
 #     E + A ⇌ (EA≡FP) ⇌ F + P, F + B ⇌ (FB≡GQ) ⇌ G + Q, G + C ⇌ (GC≡ER) ⇌ E + R
 #     Reference: Segel, Enzyme Kinetics, Eq. IX-308
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A, B, C
         products: P, Q, R
         steps: begin
@@ -942,7 +942,7 @@ end
 # 15. RE Uni-Uni: E + A ⇌_RE EA <-->_SS E + P
 #     Rapid-equilibrium substrate binding, steady-state catalysis
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A
         products: P
         steps: begin
@@ -978,7 +978,7 @@ end
 # 16. RE Ordered Bi-Bi: substrate binding is RE, catalysis and product release are SS
 #     E + A ⇌_RE EA, EA + B ⇌_RE EAB, (EAB≡EPQ) <-->_SS EQ + P, EQ <-->_SS E + Q
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -1022,7 +1022,7 @@ end
 #     E + A ⇌_RE EA, E + B ⇌_RE EB, EA + B <-->_SS EAB, EB + A <-->_SS EAB,
 #     EAB <-->_SS EPQ, EPQ <-->_SS EQ + P, EQ <-->_SS E + Q
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -1054,7 +1054,7 @@ end
 #     Dead-end inhibitor R binds free enzyme only.
 #     No Cartesian product structure → flat sum denominator.
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: S
         products: P
         regulators: R
@@ -1099,7 +1099,7 @@ end
 #     Forms: E, E_S, E_P, E_R, E_S_R; SS: E_S↔E_P; K5=K4
 #     Denom factors as (1+R/K4)*(1+S/K1) + P/K3
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: S
         products: P
         regulators: R
@@ -1144,7 +1144,7 @@ end
 #     Forms: E, E_S, E_P, E_S_R; SS: E_S↔E_P; No extra constraints
 #     Denom: 1 + P/K3 + S/K1*(1+R/K4)
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: S
         products: P
         regulators: R
@@ -1189,7 +1189,7 @@ end
 #     Num: R/K4 * (k2f*S/K1 - k2r*P/K3)
 #     Denom: 1 + R/K4*(1+S/K1+P/K3)
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: S
         products: P
         regulators: R
@@ -1235,7 +1235,7 @@ end
 #     K8=K7, K9=K7 (R binding independent of S/P)
 #     K4=K1 and K6=K3 are implied by Wegscheider relations
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: S
         products: P
         regulators: R
@@ -1292,7 +1292,7 @@ end
 #     Wegscheider gives K4=K1, K6=K3
 #     Denom: (1+S/K1+P/K3)*(1+A/K7) + I/K10
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: S
         products: P
         regulators: A, I
@@ -1364,7 +1364,7 @@ end
 #      needed — symmetric subunits are captured by the site multiplicity.
 #      Conformational equilibrium: L (= K37 in the EnzymeMechanism above).
 let
-    m, src, src_reg = @allosteric_mechanism_src begin
+    m, src, src_reg = @_testhelper_allosteric_mechanism_src begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -1414,7 +1414,7 @@ end
 #      The Wegscheider closure of the R_00I ⇌ T_00I cycle is automatic in the
 #      conformational assembly formula; the DSL needs no explicit constraint.
 let
-    m, src, src_reg = @allosteric_mechanism_src begin
+    m, src, src_reg = @_testhelper_allosteric_mechanism_src begin
         substrates: S
         products: P
         allosteric_regulators: I::NonequalAI
@@ -1464,7 +1464,7 @@ end
 #     I1 and I2 both bind only free E (competitive with S/P and each other).
 #     Denom: 1 + S/K1 + P/K3 + I1/K4 + I2/K5
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: S
         products: P
         regulators: I1, I2
@@ -1509,7 +1509,7 @@ end
 #     I1 and I2 bind independently to all forms (E, ES, EP) at separate sites.
 #     Denom: (1+S/K1+P/K3) * (1+I1/K4) * (1+I2/K7)
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: S
         products: P
         regulators: I1, I2
@@ -1577,7 +1577,7 @@ end
 #     I2 binds only free E (competitive).
 #     Denom: (1+S/K1+P/K3)*(1+I1/K4) + I2/K9
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: S
         products: P
         regulators: I1, I2
@@ -1629,7 +1629,7 @@ end
 #     I1 binds only ES (uncompetitive). I2 binds only free E (competitive).
 #     Denom: 1 + I2/K5 + P/K3 + (S/K1)*(1+I1/K4)
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: S
         products: P
         regulators: I1, I2
@@ -1676,7 +1676,7 @@ end
 #     Both bind independently of S/P (non-competitive).
 #     Denom: (1+S/K1+P/K3) * (1+I1/K4+I2/K9)
 let
-    m, src = @enzyme_mechanism_src begin
+    m, src = @_testhelper_enzyme_mechanism_src begin
         substrates: S
         products: P
         regulators: I1, I2
@@ -1780,7 +1780,7 @@ end
 #   Reg site 2 T: K_R3_T_reg2
 #   Conformational equilibrium: L
 let
-    m, src, src_reg = @allosteric_mechanism_src begin
+    m, src, src_reg = @_testhelper_allosteric_mechanism_src begin
         substrates: S1, S2
         products: P1, P2
         allosteric_regulators: R1::NonequalAI, R2::NonequalAI, R3::NonequalAI
@@ -1885,7 +1885,7 @@ end
 # broken in both directions and N_cat_T = 0. ATP appears as both
 # substrate and allosteric regulator (different tags per context).
 let
-    m, src, src_reg = @allosteric_mechanism_src begin
+    m, src, src_reg = @_testhelper_allosteric_mechanism_src begin
         substrates: F6P, ATP
         products:   F16BP, ADP
         allosteric_regulators: Pi::EqualAI, ATP::OnlyI, ADP::OnlyA, Citrate::OnlyI, F26BP::NonequalAI
@@ -1980,7 +1980,7 @@ end
 # ATP binding (group 2) is :OnlyA — T-state can't bind ATP, so the
 # catalytic cycle is broken and N_cat_T = 0.
 let
-    m, src, src_reg = @allosteric_mechanism_src begin
+    m, src, src_reg = @_testhelper_allosteric_mechanism_src begin
         substrates: Glucose, ATP
         products:   G6P, ADP
         allosteric_regulators: G6P::OnlyI, Pi::EqualAI
@@ -2102,7 +2102,7 @@ end
 # and denominator.
 # Independent parameters (8): K1, K3, k5f, K6, K8, K_ATP_T_reg1, K_F16BP_reg2, L
 let
-    m, src, src_reg = @allosteric_mechanism_src begin
+    m, src, src_reg = @_testhelper_allosteric_mechanism_src begin
         substrates: PEP, ADP
         products:   Pyruvate, ATP
         allosteric_regulators: ATP::OnlyI, F16BP::OnlyA
@@ -2195,7 +2195,7 @@ end
 # Independent parameters (12): K1, K1_T, K3, k5f, k5f_T, K6, K6_T, K8,
 # K_R1_reg1, K_R1_T_reg1, K_R2_reg1, L
 let
-    m, src, src_reg = @allosteric_mechanism_src begin
+    m, src, src_reg = @_testhelper_allosteric_mechanism_src begin
         substrates: S1, S2
         products:   P1, P2
         allosteric_regulators: R1::NonequalAI, R2::EqualAI
@@ -2276,7 +2276,7 @@ end
 # pattern (S only) IS reachable in T-state (Q_cat_T at sat S = S/K1,
 # same as Q_cat_R), so B_T ≠ 0 and the 1/(1+L) factor appears.
 let
-    m, src, src_reg = @allosteric_mechanism_src begin
+    m, src, src_reg = @_testhelper_allosteric_mechanism_src begin
         substrates: S
         products:   P
 

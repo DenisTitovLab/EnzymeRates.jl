@@ -288,7 +288,7 @@ using Tables
         EnzymeRates.loss!(x, fp)  # warmup/compile
 
         # Minimum over several batches defeats the GC/scheduling inflation a
-        # single mean suffers (matches test_rate_equation_performance); the
+        # single mean suffers (matches _testhelper_test_rate_equation_performance); the
         # accumulator's finiteness check keeps the calls from being elided.
         best_us = Inf
         acc = 0.0
@@ -388,13 +388,14 @@ using Tables
         # forwarding path (fit_rate_equation -> the `common = (; maxtime,
         # maxiters)` merge -> Optimization.solve) can be asserted end-to-end
         # without depending on a real solver's behavior.
-        mutable struct _MaxtimeStubOpt
+        mutable struct _testhelper_MaxtimeStubOpt
             maxtime_seen::Union{Nothing, Real}
         end
-        _MaxtimeStubOpt() = _MaxtimeStubOpt(nothing)
-        Optimization.allowsbounds(::_MaxtimeStubOpt) = true
+        _testhelper_MaxtimeStubOpt() = _testhelper_MaxtimeStubOpt(nothing)
+        Optimization.allowsbounds(::_testhelper_MaxtimeStubOpt) = true
         function Optimization.SciMLBase.__solve(
-                prob::Optimization.OptimizationProblem, opt::_MaxtimeStubOpt; kwargs...)
+                prob::Optimization.OptimizationProblem,
+                opt::_testhelper_MaxtimeStubOpt; kwargs...)
             opt.maxtime_seen = kwargs[:maxtime]
             u = zeros(length(prob.u0))
             cache = DefaultOptimizationCache(prob.f, prob.p)
@@ -405,7 +406,7 @@ using Tables
         data = make_synthetic_data(uni_uni, true_params, concs_list)
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
-        stub = _MaxtimeStubOpt()
+        stub = _testhelper_MaxtimeStubOpt()
         fit_rate_equation(fp, stub; n_restarts=1, maxtime=1.23)
         @test stub.maxtime_seen == 1.23
     end

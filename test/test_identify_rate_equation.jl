@@ -903,7 +903,7 @@ end
 
 # A random-order ter-ter (all binding/release orders, all SS): V×τ ≈ 5.9M, far
 # above any complexity threshold. Shared by the filter and derivation-guard tests.
-_random_terter() = @enzyme_mechanism begin
+_testhelper_random_terter() = @enzyme_mechanism begin
     substrates: S1, S2, S3
     products:   P1, P2, P3
     steps: begin
@@ -950,7 +950,8 @@ end
     # random-order ter-ter (V×τ ≈ 5.9M) is complexity-skipped in PASS-1 — before
     # fitting, so its metabolite mismatch with the bi-bi problem is never reached.
     batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
-        EnzymeRates.Mechanism(random_bibi), EnzymeRates.Mechanism(_random_terter())]
+        EnzymeRates.Mechanism(random_bibi),
+        EnzymeRates.Mechanism(_testhelper_random_terter())]
     entries, failures, n_param_skip, n_cx_skip = EnzymeRates._process_batch(
         batch, prob; optimizer=CMAEvolutionStrategyOpt(),
         max_param_count=20, eq_complexity_filter=337, n_restarts=1, maxtime=1.0)
@@ -981,7 +982,7 @@ end
         P1 = [0.1, 0.2], P2 = [0.1, 0.2], P3 = [0.1, 0.2],
         Rate = [0.5, 0.8], group = [1, 2])
     prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
-    m = EnzymeRates.Mechanism(_random_terter())
+    m = EnzymeRates.Mechanism(_testhelper_random_terter())
     @test EnzymeRates._eq_complexity(m) > EnzymeRates.MAX_RATE_EQUATION_TERMS
     batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m]
     entries, failures, n_param_skip, n_cx_skip = EnzymeRates._process_batch(
@@ -1170,15 +1171,16 @@ end
 # A stub optimizer that counts `solve` invocations and returns a canned
 # log-space optimum (`uval` for every coordinate), so a batch's fits can be
 # counted exactly and the raw→rescale path exercised deterministically.
-mutable struct _CountingStubOpt
+mutable struct _testhelper_CountingStubOpt
     count::Int
     uval::Float64
     throwit::Bool
 end
-_CountingStubOpt(; uval=0.0, throwit=false) = _CountingStubOpt(0, uval, throwit)
-Optimization.allowsbounds(::_CountingStubOpt) = true
+_testhelper_CountingStubOpt(; uval=0.0, throwit=false) =
+    _testhelper_CountingStubOpt(0, uval, throwit)
+Optimization.allowsbounds(::_testhelper_CountingStubOpt) = true
 function Optimization.SciMLBase.__solve(
-        prob::Optimization.OptimizationProblem, opt::_CountingStubOpt; kwargs...)
+        prob::Optimization.OptimizationProblem, opt::_testhelper_CountingStubOpt; kwargs...)
     opt.count += 1
     opt.throwit && error("stub solver forced failure")
     u = fill(opt.uval, length(prob.u0))
@@ -1236,7 +1238,7 @@ end
     pair = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2]
 
     memo = Dict{UInt64, NamedTuple}()
-    opt = _CountingStubOpt(; uval = log(5.0))
+    opt = _testhelper_CountingStubOpt(; uval = log(5.0))
     # Each logged line is stored with the solve count at the moment it was logged.
     batch_log = Tuple{String,Int}[]
     entries, failures = EnzymeRates._process_batch(pair, prob;
@@ -1283,7 +1285,7 @@ end
 
     # A representative whose fit throws fails ALL its duplicates
     # (all-or-nothing per equation).
-    opt_bad = _CountingStubOpt(; throwit=true)
+    opt_bad = _testhelper_CountingStubOpt(; throwit=true)
     bad_entries, bad_failures = EnzymeRates._process_batch(pair, prob;
         optimizer=opt_bad, max_param_count=20, n_restarts=1, maxtime=1.0,
         memo = Dict{UInt64, NamedTuple}())
@@ -1431,7 +1433,7 @@ end
     prob_bad = IdentifyRateEquationProblem(rxn_bad, data_bad; Keq=2.0)
     e1, f1 = EnzymeRates._process_batch(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m_bad],
-        prob_bad; optimizer=_CountingStubOpt(), max_param_count=20,
+        prob_bad; optimizer=_testhelper_CountingStubOpt(), max_param_count=20,
         n_restarts=1, maxtime=1.0, memo=Dict{UInt64, NamedTuple}())
     @test isempty(e1)
     @test length(f1) == 1 && f1[1] isa EnzymeRates.FitFailure
@@ -1671,7 +1673,7 @@ end
     # must come back sorted by it: the 6-parameter row has the lowest loss but sorts last.
     df = EnzymeRates._rows_to_dataframe([mkrow(m6, 0.1), mkrow(m1, 0.5), mkrow(m3, 0.2)])
     save_dir = mktempdir()
-    stub() = _CountingStubOpt(; uval=log(5.0))
+    stub() = _testhelper_CountingStubOpt(; uval=log(5.0))
     res = EnzymeRates._cv_model_selection(cands, df, prob;
         optimizer=stub(), se_threshold=1.0, save_dir, show_progress=false,
         n_restarts=1, maxtime=1.0)

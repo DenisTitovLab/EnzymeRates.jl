@@ -8,7 +8,7 @@ const St=ER.Step; const RA=ER.ReactantAtoms; const Met=ER.Metabolite
 const S=Sub(:S); const P=Prd(:P)
 # `re` flags which of the S-binding, chemistry and P-release steps are rapid
 # equilibrium; a steady-state binding carries kon/koff.
-function uni(states; re=(true,false,true))
+function _testhelper_uni(states; re=(true,false,true))
     E=Sp(Met[],:E); ES=Sp(Met[S],:E); EP=Sp(Met[P],:E)
     rxn=ER.EnzymeReaction(RA[RA(S,[:C=>1]),RA(P,[:C=>1])], ER.RegulatorMults[], Int[2])
     steps=Vector{St}[[St(E,ES,Met[S],Met[],re[1])],[St(ES,EP,Met[],Met[],re[2])],
@@ -16,7 +16,7 @@ function uni(states; re=(true,false,true))
     ER.AllostericMechanism(rxn, steps, collect(Symbol,states), 2, ER.RegulatorySite[])
 end
 # Random-order bi-bi with two Wegscheider boxes; `states` tags its nine one-step groups.
-function ro_bibi(states)
+function _testhelper_ro_bibi(states)
     A2=Sub(:A); B2=Sub(:B); Q2=Prd(:Q)
     E=Sp(Met[],:E); EA=Sp(Met[A2],:E); EB=Sp(Met[B2],:E); EAB=Sp(Met[A2,B2],:E)
     EPQ=Sp(Met[P,Q2],:E); EP=Sp(Met[P],:E); EQ=Sp(Met[Q2],:E)
@@ -29,7 +29,7 @@ function ro_bibi(states)
         St(E,EQ,Met[Q2],Met[],true)]
     ER.AllostericMechanism(rxn, Vector{St}[[s] for s in sd], states, 2, ER.RegulatorySite[])
 end
-function evalrate(am; seed=1, split=nothing)
+function _testhelper_evalrate(am; seed=1, split=nothing)
     cem=ER.compile_mechanism(am); fp=ER.fitted_params(am); rng=MersenneTwister(seed)
     mets=collect(ER.metabolites(cem))
     base=[(k===:L ? 0.6 : 0.4+2rand(rng)) for k in fp]
@@ -43,20 +43,21 @@ function evalrate(am; seed=1, split=nothing)
 end
 
 @testset "strict :EqualAI collapse" begin
-    fp0,_,_ = evalrate(uni([:EqualAI,:EqualAI,:EqualAI]))     # baseline
+    # baseline
+    fp0,_,_ = _testhelper_evalrate(_testhelper_uni([:EqualAI,:EqualAI,:EqualAI]))
 
     @testset "single NonequalAI binding + EqualAI catalysis -> full collapse" begin
-        fp,v,veq = evalrate(uni([:NonequalAI,:EqualAI,:EqualAI]))
+        fp,v,veq = _testhelper_evalrate(_testhelper_uni([:NonequalAI,:EqualAI,:EqualAI]))
         @test isfinite(v); @test abs(veq) < 1e-8
         @test !(:K_I_ES_to_E_S in fp)           # I-twin dropped (collapsed to a mirror)
-        s = ER.rate_equation_string(uni([:NonequalAI,:EqualAI,:EqualAI]))
+        s = ER.rate_equation_string(_testhelper_uni([:NonequalAI,:EqualAI,:EqualAI]))
         @test occursin("K_I_ES_to_E_S=K_A_ES_to_E_S", replace(s," "=>""))  # explicit mirror
         @test !occursin("k_I_", s)              # catalysis not silently un-shared
     end
 
     @testset "two NonequalAI bindings + EqualAI catalysis -> 1 honorable DOF" begin
-        am = uni([:NonequalAI,:EqualAI,:NonequalAI])
-        fp,v,veq = evalrate(am)
+        am = _testhelper_uni([:NonequalAI,:EqualAI,:NonequalAI])
+        fp,v,veq = _testhelper_evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
         # exactly one free I-split survives; the other is a derived mirror.
         nI = count(p->startswith(String(p),"K_I_"), fp)
@@ -65,13 +66,14 @@ end
         @test occursin("k_I_", s) == false                    # catalysis stays shared
         # the surviving split moves the rate (identifiable)
         freeI = fp[findfirst(p->startswith(String(p),"K_I_"), fp)]
-        v1 = evalrate(am; split=(freeI,1.3))[2]; v2 = evalrate(am; split=(freeI,5.0))[2]
+        v1 = _testhelper_evalrate(am; split=(freeI,1.3))[2]
+        v2 = _testhelper_evalrate(am; split=(freeI,5.0))[2]
         @test !isapprox(v1, v2)
     end
 
     @testset "catalysis NonequalAI -> native, no collapse, no mirror" begin
-        am = uni([:NonequalAI,:NonequalAI,:EqualAI])
-        fp,v,veq = evalrate(am)
+        am = _testhelper_uni([:NonequalAI,:NonequalAI,:EqualAI])
+        fp,v,veq = _testhelper_evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
         @test :K_I_ES_to_E_S in fp              # binding split free
         @test any(p->startswith(String(p),"k_I_"), fp)  # catalysis split free (native)
@@ -81,8 +83,8 @@ end
         # random-order bi-bi (two Wegscheider boxes); tag ONE inner box-independent
         # edge (EB+A->EAB) :NonequalAI, rest :EqualAI -> its split is forbidden -> collapses.
         st=fill(:EqualAI,9); st[3]=:NonequalAI
-        am=ro_bibi(st)
-        fp,v,veq = evalrate(am)
+        am=_testhelper_ro_bibi(st)
+        fp,v,veq = _testhelper_evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8             # thermo-consistent
         @test !(:K_I_EAB_to_EB_A in fp)                     # forbidden split collapsed
         s=replace(ER.rate_equation_string(am)," "=>"")
@@ -96,22 +98,22 @@ end
     # whole binding. (The steady-state Wegscheider-box case is covered by `m_ro`
     # in test_rate_eq_derivation.jl.)
     @testset "SS binding + EqualAI catalysis -> affinity collapses, speed free" begin
-        am = uni([:NonequalAI,:EqualAI,:EqualAI]; re=(false,false,false))
-        fp,v,veq = evalrate(am)
+        am = _testhelper_uni([:NonequalAI,:EqualAI,:EqualAI]; re=(false,false,false))
+        fp,v,veq = _testhelper_evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
         @test !(:k_I_ES_to_E_S in fp)           # affinity collapsed: reverse derived
         @test :k_I_E_S_to_ES in fp              # speed (forward) stays free
         s = replace(ER.rate_equation_string(am), " "=>"")
         @test occursin("k_I_ES_to_E_S=", s)     # explicit reverse-rate mirror
         # the surviving speed split moves the rate (identifiable)
-        v1 = evalrate(am; split=(:k_I_E_S_to_ES,1.3))[2]
-        v2 = evalrate(am; split=(:k_I_E_S_to_ES,5.0))[2]
+        v1 = _testhelper_evalrate(am; split=(:k_I_E_S_to_ES,1.3))[2]
+        v2 = _testhelper_evalrate(am; split=(:k_I_E_S_to_ES,5.0))[2]
         @test !isapprox(v1, v2)
     end
 
     @testset "SS binding + NonequalAI catalysis -> not forbidden, stays free" begin
-        am = uni([:NonequalAI,:NonequalAI,:EqualAI]; re=(false,false,false))
-        fp,v,veq = evalrate(am)
+        am = _testhelper_uni([:NonequalAI,:NonequalAI,:EqualAI]; re=(false,false,false))
+        fp,v,veq = _testhelper_evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
         # both free (affinity honorable)
         @test (:k_I_E_S_to_ES in fp) && (:k_I_ES_to_E_S in fp)
@@ -125,8 +127,8 @@ end
         # S-binding RE, P-release SS, both :NonequalAI, catalysis :EqualAI: the two
         # coupled affinities are *different* step types, so the constraint matrix must
         # use one uniform sign — a per-type flip inverts the coupling → nonzero flux.
-        am=uni([:NonequalAI,:EqualAI,:NonequalAI]; re=(true,false,false))
-        fp,v,veq = evalrate(am)
+        am=_testhelper_uni([:NonequalAI,:EqualAI,:NonequalAI]; re=(true,false,false))
+        fp,v,veq = _testhelper_evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
     end
 
@@ -136,7 +138,8 @@ end
         # The combined solve must express every derived symbol purely in free columns
         # (no circular reference ⇒ no UndefVarError) and hold detailed balance.
         st=fill(:EqualAI,9); st[2]=:NonequalAI; st[3]=:NonequalAI
-        fp,v,veq = evalrate(ro_bibi(st))             # must not throw UndefVarError
+        # must not throw UndefVarError
+        fp,v,veq = _testhelper_evalrate(_testhelper_ro_bibi(st))
         @test isfinite(v); @test abs(veq) < 1e-8
     end
 
@@ -144,12 +147,12 @@ end
         # I state cannot turn over (OnlyA catalysis) but binds S with its own
         # affinity: K_A_ES_to_E_S and K_I_ES_to_E_S are BOTH identifiable (a dead-end
         # E_I·S is in no cycle, so nothing pins K_I to K_A). HEAD over-collapses this.
-        am = uni([:NonequalAI, :OnlyA, :EqualAI])
-        fp, v, veq = evalrate(am)
+        am = _testhelper_uni([:NonequalAI, :OnlyA, :EqualAI])
+        fp, v, veq = _testhelper_evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8
         @test :K_I_ES_to_E_S in fp                    # NOT collapsed
-        v1 = evalrate(am; split=(:K_I_ES_to_E_S, 1.3))[2]
-        v2 = evalrate(am; split=(:K_I_ES_to_E_S, 5.0))[2]
+        v1 = _testhelper_evalrate(am; split=(:K_I_ES_to_E_S, 1.3))[2]
+        v2 = _testhelper_evalrate(am; split=(:K_I_ES_to_E_S, 5.0))[2]
         @test !isapprox(v1, v2)                       # identifiable (moves the rate)
         s = replace(ER.rate_equation_string(am), " " => "")
         @test !occursin("K_I_ES_to_E_S=K_A_ES_to_E_S", s)  # no collapse mirror

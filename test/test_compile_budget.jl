@@ -27,7 +27,7 @@ const RELEVANT_PRECOMPILE_PATTERN = r"EnzymeRates\."
 # Runs `runner_script` in a fresh Julia subprocess under --trace-compile. Returns
 # (n, stdout): the number of EnzymeRates-prefixed compilations (-1 on failure) and
 # whatever the script printed.
-function _count_relevant_precompiles(runner_script::String)
+function _testhelper_count_relevant_precompiles(runner_script::String)
     trace_file = tempname()
     julia_exe = Base.julia_cmd().exec[1]
     cmd = Cmd([julia_exe, "--trace-compile=$(trace_file)",
@@ -62,7 +62,7 @@ end
 # Runs `script` in a fresh Julia subprocess; the script is expected to print
 # `<label>:<float>` for each label in `labels`. Returns a Vector{Float64}
 # parallel to `labels` (NaN for any label not found or on subprocess failure).
-function _measure_labeled_subprocess(script::String, labels::Vector{String})
+function _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String})
     julia_exe = Base.julia_cmd().exec[1]
     out_buf = IOBuffer()
     try
@@ -136,9 +136,10 @@ end
         t = @elapsed EnzymeRates.rate_equation(m, concs, params)
         println("ELAPSED:", t)
         """
-    n, trace_out = _count_relevant_precompiles(trace_script)
+    n, trace_out = _testhelper_count_relevant_precompiles(trace_script)
     t_uni_warm = _testhelper_parse_labeled(trace_out, ["UNI_WARM"])[1]
-    t_uni_cold, t_first = _measure_labeled_subprocess(cold_script, ["UNI_COLD", "ELAPSED"])
+    t_uni_cold, t_first = _testhelper_measure_labeled_subprocess(
+        cold_script, ["UNI_COLD", "ELAPSED"])
 
     # Trace-compile: the bi-bi init_mechanisms (the uni-uni that follows compiles
     # nothing new while reuse holds, so it adds no trace lines).
@@ -149,7 +150,7 @@ end
 
     # Wall-clock: rate_equation body-build (first call pays @generated cost). The
     # per-call runtime gate is separately enforced by test_rate_eq_derivation.jl's
-    # test_rate_equation_performance (0 allocs, <120ns per call) for every
+    # _testhelper_test_rate_equation_performance (0 allocs, <120ns per call) for every
     # mechanism in MECHANISM_TEST_SPECS.
     @testset "wall-clock: rate_equation body-build (first call)" begin
         @info "rate_equation first-call wall-clock: $(t_first)s " *

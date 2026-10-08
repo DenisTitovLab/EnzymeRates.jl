@@ -25,11 +25,12 @@ This is the most important architectural decision in the package, and it is
 deliberate. Moving the derivation to compile time leaves
 `rate_equation(m, conc, params)` as a flat numeric expression that must be
 **allocation-free and sub-120 ns per call**, enforced by
-`test_rate_equation_performance` (`test/test_rate_eq_derivation.jl`, asserting
-`allocs == 0` and `t < 120e-9` for every fixture mechanism). That speed is the
-binding constraint on the whole package: the fitter is a multi-start, global,
-gradient-free optimizer that evaluates `rate_equation` millions of times per
-fit, and a single rate equation can take minutes to fit, so any per-call
+`_testhelper_test_rate_equation_performance`
+(`test/test_rate_eq_derivation.jl`, asserting `allocs == 0` and `t < 120e-9` for
+every fixture mechanism). That speed is the binding constraint on the whole
+package: the fitter is a multi-start, global, gradient-free optimizer that
+evaluates `rate_equation` millions of times per fit, and a single rate equation
+can take minutes to fit, so any per-call
 allocation or microsecond-scale overhead would make fitting — and therefore
 `identify_rate_equation`, which fits thousands of candidates — impractical.
 `loss!` is held to the same standard: `FittingProblem` pre-allocates its
