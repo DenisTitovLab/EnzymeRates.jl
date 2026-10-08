@@ -122,6 +122,7 @@ When asked to do something, just do it - including obvious follow-up actions nee
 - YOU MUST NEVER implement mocks in end to end tests. We always use real data and real APIs.
 - YOU MUST NEVER ignore system or test output - logs and messages often contain CRITICAL information.
 - Test output MUST BE PRISTINE TO PASS. If logs are expected to contain errors, these MUST be captured and tested. If a test is intentionally triggering an error, we *must* capture and validate that the error output is as we expect
+- Every file under `test/` prefixes its file-level helpers (functions, macros and structs) with `_testhelper_` so they cannot be mistaken for package functions; a one-line closure local to a testset needs no prefix.
 
 
 ## Issue tracking
@@ -167,6 +168,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Package architecture and how-it-works — the derivation, fitting, and identification pipelines, the enumeration engine, and maintainer internals (Canonical Step Form, the `EnzymeMechanism{Sig}` lift, the derivation/enumeration/optimization architecture) — are documented at <https://DenisTitovLab.github.io/EnzymeRates.jl/>; the Developer page covers the internals.
 
+Known issues, planned work and ideas live in `ROADMAP.md` at the repo root. Read it before starting work, and update it in the same commit when a change fixes, adds or retires an entry.
+
 ## API Design
 
 - `compile_mechanism` is NOT exported (internal). The concrete enumeration types `Mechanism` / `AllostericMechanism` are also not exported; they are the mechanism-construction surface reached as `EnzymeRates.Mechanism` / `EnzymeRates.AllostericMechanism` / `EnzymeRates.init_mechanisms(rxn) → Vector{Mechanism}` (internal-but-usable). Their `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` singleton-type forms are lifted via `compile_mechanism(m)` when the @generated rate-equation derivation is needed.
@@ -183,15 +186,16 @@ julia --project -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hint=2500M"])'
 ```
 
 ```bash
-# Focused run of one test file (warm: skips the full suite's precompile and JIT; ~4 min for
+# Focused run of one test file (warm: skips the full suite's precompile and JIT; ~2.5 min for
 # the enumeration file). TestEnv activates the test environment in place.
 julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<file>.jl")'
 ```
 
 Use the focused run while iterating and the full suite once before committing. Four things to
-know: the focused run skips Aqua and JET; a helper defined in another test file (e.g.
-`random_reduced_params` in `test_rate_eq_derivation.jl`) is undefined under it, so an
-`UndefVarError` for such a helper is an artifact of the focused run; run one Julia process at a
+know: the focused run skips Aqua and JET; it includes only the shared fixtures file and the file
+you name, so a helper defined in another test file is undefined under it (keep shared helpers,
+such as `_testhelper_random_reduced_params`, in
+`test/mechanism_definitions_for_test_enzyme_derivation.jl`); run one Julia process at a
 time (the machine has 7.7 GB and no swap, and the full suite needs about 4 GB free); and never
 park on a background monitor — poll a log in a bounded shell loop. `TestEnv` must be installed
 in the default environment once: `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
@@ -210,7 +214,7 @@ in the default environment once: `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
 
 ### Parameter naming chokepoint (guard)
 
-All `Parameter → Symbol` rendering flows through the `name(p, m)` chokepoint; the AST-walker test at `test/test_types.jl:1577-1644` fails the build on any stray `Symbol("K…")`/`Symbol("k…")`/`Symbol("V…")`/`Symbol("L…")` literal outside a parameter-name renderer.
+All `Parameter → Symbol` rendering flows through the `name(p, m)` chokepoint; the AST-walker testset `chokepoint: no Symbol("[KkVL]...") outside parameter-name renderers` in `test/test_types.jl` fails the build on any stray `Symbol("K…")`/`Symbol("k…")`/`Symbol("V…")`/`Symbol("L…")` literal outside a parameter-name renderer.
 
 ### Canonical Step Form (load-bearing guard)
 Step direction, step order, and group order are canonicalized in the `Step` and `Mechanism`/`AllostericMechanism` constructors. This is **load-bearing, not cosmetic**: the Haldane/Wegscheider reduction picks dependent parameters by step order, so `fitted_params` and the reduced rate equation depend on it; structural deduplication (`unique!`) works by pure `==`/`hash` only because construction is canonical. Do not relax or reorder this without reading the Developer page in the docs.
@@ -220,7 +224,7 @@ Step direction, step order, and group order are canonicalized in the `Step` and 
 
 ### `rate_equation` runtime perf is non-negotiable
 
-`rate_equation` MUST be allocation-free and sub-120-ns per call for every mechanism in `MECHANISM_TEST_SPECS`. Enforced by `test_rate_equation_performance` in `test/test_rate_eq_derivation.jl` (`allocs == 0`, `t < 120e-9`) plus the Expr-shape and flat-string regression tests in the same file. The 120-ns bound carries margin for shared CI runners; the real per-call cost is tens of ns. The fitter evaluates `rate_equation` millions of times per cross-validation fold; any change that introduces allocations or microsecond-scale per-call time makes the package unusable in practice. If a change you are considering would force `rate_equation` to allocate or slow down, YOU MUST STOP and discuss with Denis first before implementing it. This is one of the most important tests in the suite. See the Developer page in the docs for how `rate_equation` is derived and why the 0-allocation / sub-120-ns contract holds.
+`rate_equation` MUST be allocation-free and sub-120-ns per call for every mechanism in `MECHANISM_TEST_SPECS`. Enforced by `_testhelper_test_rate_equation_performance` in `test/test_rate_eq_derivation.jl` (`allocs == 0`, `t < 120e-9`) plus the Expr-shape and flat-string regression tests in the same file. The 120-ns bound carries margin for shared CI runners; the real per-call cost is tens of ns. The fitter evaluates `rate_equation` millions of times per cross-validation fold; any change that introduces allocations or microsecond-scale per-call time makes the package unusable in practice. If a change you are considering would force `rate_equation` to allocate or slow down, YOU MUST STOP and discuss with Denis first before implementing it. This is one of the most important tests in the suite. See the Developer page in the docs for how `rate_equation` is derived and why the 0-allocation / sub-120-ns contract holds.
 
 
 ### Enumeration-engine tests
@@ -230,5 +234,3 @@ Tests of `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`, and the expa
 1. **Write the mechanism in the testset.** Define every fixture inline with `@enzyme_mechanism` or `@allosteric_mechanism`, even when that repeats a mechanism used elsewhere. A fixture pulled from `init_mechanisms`, a shared constant, or a helper cannot be reviewed without leaving the testset. The only exception is an aggregate regression pin over a whole seed set (a count over all `init_mechanisms(rxn)`), which must say so in a comment.
 2. **Assert the exact children.** A move test asserts `length(children) == n` and `Set(children) == Set(expected)` with every expected child written out as a mechanism. Property assertions (every child gains, no superset) are welcome in addition, never instead: a property test passes on wrong output that happens to satisfy the property.
 3. **Write chemistry the enumerator's way.** Unmerged chemistry is an isomerization to the product-bound form followed by release steps (`E(A) <--> E(P; residual = A - P)` then `E(P; residual = A - P) ⇌ E(; residual = A - P) + P`). A merged complex is the product-bound form: the last substrate binds into it in one step (`E(A) + B <--> E(P, Q)`) and the products leave by plain releases. A Theorell–Chance step takes up the substrate and gives off the product in one step (`E(A) + B <--> E(Q) + P`). Never write a merged complex on the substrate side (`E(A, B) <--> E(Q) + P`). The enumerator never emits that form, so a fixture written that way is a different mechanism from the one the move produces.
-
-File-level test helpers are prefixed `_testhelper_` so they cannot be mistaken for package functions; a one-line closure local to a testset needs no prefix.
