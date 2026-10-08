@@ -101,7 +101,7 @@ rate_equation(m, concs, params)
 [Fitting tutorial & data format](@ref) covers the data format, loss function,
 and optimizer options in depth.
 
-Generate noiseless synthetic data from the mechanism above:
+Generate synthetic data with 5% multiplicative noise from the mechanism above:
 
 ```@example getting-started
 using OptimizationCMAEvolutionStrategy, Random
@@ -112,7 +112,7 @@ for g in 1:3, _ in 1:8
     s = 0.1 + 9.9 * rand()
     p = 0.1 + 9.9 * rand()
     push!(groups, "G$g")
-    push!(Rate, rate_equation(m, (S = s, P = p), params))
+    push!(Rate, rate_equation(m, (S = s, P = p), params) * (1 + 0.05 * randn()))
     push!(Svals, s); push!(Pvals, p)
 end
 data = (group = groups, Rate = Rate, S = Svals, P = Pvals)
@@ -154,6 +154,9 @@ results = identify_rate_equation(prob;
 
 print(rate_equation_string(results.best))
 ```
+
+The search recovers the mechanism that generated the data: the larger candidates
+predict held-out groups no better, so the one-standard-error rule keeps the smallest.
 
 `min_beam_width=1` and `loss_rel_threshold=1.0` collapse the beam to exactly
 one survivor per parameter-count level, making the search fast and
