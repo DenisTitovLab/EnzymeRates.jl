@@ -615,6 +615,25 @@ end
     @test_throws "no catalytic cycle" EnzymeRates.init_mechanisms(uni_quad_rxn)
 end
 
+@testset "init_mechanisms stops on two forms that render one name" begin
+    # E with Ac and CoA bound and E with AcCoA bound both render EAcCoA, and the seeds
+    # of Ac + CoA ⇌ AcCoA hold both, so seed construction raises the collision error.
+    rxn = @enzyme_reaction begin
+        substrates: Ac[C], CoA[S]
+        products: AcCoA[CS]
+    end
+    err = try
+        EnzymeRates.init_mechanisms(rxn)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("E(Ac, CoA)", err.msg)
+    @test occursin("E(AcCoA)", err.msg)
+    @test occursin("both render the name EAcCoA", err.msg)
+end
+
 end
 
 # ─── _competition_patterns ──────────────────────────────────────────────
@@ -5075,6 +5094,56 @@ end
     @test EnzymeRates.compile_mechanism(am) isa AllostericEnzymeMechanism
 end
 
+@testset "AllostericMechanism — dead-end move skips a name bound at a regulatory site" begin
+    # The reaction declares ATP both as a competitive inhibitor and as an allosteric
+    # regulator, and the parent binds ATP at a regulatory site. The dead-end move leaves
+    # a site ligand on its site, so its only child binds I.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        competitive_inhibitors: ATP, I
+        allosteric_regulators: ATP
+        oligomeric_state: 2
+    end
+    on_rxn(am) = EnzymeRates.AllostericMechanism(rxn, EnzymeRates.steps(am),
+        EnzymeRates.cat_allo_states(am), EnzymeRates.catalytic_multiplicity(am),
+        EnzymeRates.regulatory_sites(am))
+    parent = on_rxn(EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: ATP::OnlyI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: ATP
+        end
+    end))
+    children = EnzymeRates._expand_add_dead_end_regulator(parent, rxn)
+    expected = [on_rxn(EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S; products: P
+        catalytic_inhibitors: I
+        allosteric_regulators: ATP::OnlyI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)            :: EqualAI
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E(P)          :: EqualAI
+            E + I::Inh ⇌ E(I::Inh)  :: EqualAI
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: ATP
+        end
+    end))]
+    @test length(children) == 1
+    @test Set(children) == Set(expected)
+    atp_inh = EnzymeRates.CompetitiveInhibitor(:ATP)
+    @test !any(EnzymeRates.bound_metabolite(s) == atp_inh
+               for c in children for group in EnzymeRates.steps(c) for s in group)
+end
+
 @testset "skips redundant OnlyI-onto-OnlyA-site append (disjoint states)" begin
     # Appending an :OnlyI regulator onto a site holding only an :OnlyA
     # regulator makes an [OnlyA, OnlyI] single site — disjoint conformations,
@@ -8372,14 +8441,17 @@ end
 @testset "_hyperbolic_catalysis matches the derived denominator" begin
     # The structural predicate against the exponents of the derived denominator,
     # over every mechanism reachable from the seeds in two expansion levels. The
-    # ping-pong-capable reaction's sequential seeds are the bi-bi seeds, and the moves,
-    # the predicate and the derivation read metabolite names, never atoms, so its
-    # population holds every bi-bi mechanism and the allosteric children of the bi-bi
-    # allosteric mechanisms. The reactions declare no inhibitors, so the predicate sees
-    # every step and is compared with each mechanism's own derived denominator. For an
-    # allosteric mechanism the predicate is compared with the A-state, and the I-state
-    # is checked to be hyperbolic whenever the A-state is. Allosteric mechanisms with
-    # the same state graph share one derivation per state.
+    # ping-pong-capable reaction's sequential seeds are the bi-bi seeds (pinned below),
+    # and the moves, the predicate and the derivation read metabolite names, never atoms
+    # (atoms enter enumeration only in seed construction and in the atom-conservation
+    # assertion, which throws rather than filters), so its population holds every
+    # bi-bi mechanism and the allosteric children of the bi-bi allosteric mechanisms.
+    # The reactions declare no inhibitors, so the predicate sees every step and is
+    # compared with each mechanism's own derived denominator. For an allosteric
+    # mechanism the predicate is compared with the A-state, and the I-state is checked
+    # to be hyperbolic whenever the A-state is. Allosteric mechanisms with the same
+    # state graph share one derivation per state: their tags only rename parameters,
+    # which changes no metabolite exponent.
     hyperbolic(p, mets) = all(e <= 1 for mono in keys(p) for (s, e) in mono if s in mets)
     unibi = @enzyme_reaction begin
         substrates: S[AB]
@@ -8391,6 +8463,15 @@ end
         products: P[C], Q[NX]
         oligomeric_state: 2
     end
+    # An aggregate pin over two whole seed sets (the exception to writing every
+    # fixture inline): every bi-bi seed is a seed of the ping-pong-capable reaction.
+    bibi = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        oligomeric_state: 2
+    end
+    @test issubset(Set(EnzymeRates.steps.(EnzymeRates.init_mechanisms(bibi))),
+                   Set(EnzymeRates.steps.(EnzymeRates.init_mechanisms(pingpong))))
     n_checked = 0
     n_nonhyperbolic = 0
     for rxn in (unibi, pingpong)
