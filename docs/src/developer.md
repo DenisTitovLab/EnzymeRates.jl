@@ -96,8 +96,13 @@ resulting mechanism. The `Step` constructor stores a step that takes up nothing
 and gives off one metabolite as the binding it reverses, so every binding is
 stored with its metabolite consumed; the `Mechanism` and `AllostericMechanism`
 constructors orient every other step (`_canonical_step_direction`) and sort steps
-and groups. The `RegulatorySite` constructor sorts a site's ligands by name, and the
-`AllostericMechanism` constructor sorts the sites. The two mechanism constructors
+and groups. The steps of one group that metabolite progression leaves tied, such as
+a conformational change and its mirror at inhibitor-bound forms, turn as one: they
+run between the same two conformations in the same order (`_orient_tied_steps`), so
+the group's shared constants describe one physical direction. A group whose tied
+steps change different pairs of conformations is rejected. The `RegulatorySite`
+constructor sorts a site's ligands by name, and the `AllostericMechanism`
+constructor sorts the sites. The two mechanism constructors
 also enforce the kinetic-group rules. A group's steps take up and
 give off the same metabolites (`_step_kind`, the pair `(consumed, released)`) and
 carry one RE/SS flag (`_assert_uniform_groups`), so a fused and a plain binding

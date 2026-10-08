@@ -1542,14 +1542,15 @@ end
         end
     end
     @test occursin("\nK_E_to_Estar = K_ES_to_EstarS\n", rate_equation_string(iso_tie))
-    # The two isomerizations share one group and run opposite ways around the cycle, so
-    # the Haldane relation fixes the Theorell–Chance constant at Keq; v reads it.
+    # I binding E and I binding Estar share one group and run opposite ways around the
+    # cycle, so the Haldane relation fixes the Theorell–Chance constant at Keq; v reads it.
     keq_tie = @enzyme_mechanism begin
         substrates: S
         products: P
+        regulators: I
         steps: begin
             E + S ⇌ Estar + P
-            (Estar <--> Ez, E <--> Ez)
+            (E + I <--> E(I), Estar + I <--> E(I))
         end
     end
     @test occursin("\nK_E_S_to_Estar_P = Keq\n", rate_equation_string(keq_tie))

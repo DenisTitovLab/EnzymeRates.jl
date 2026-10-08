@@ -463,12 +463,12 @@ are stored with their metabolite consumed by the Step constructor; this
 function orients every other step: isomerizations and transformations.)
 Reversing a step swaps its forms and its lists, and every tier reads the
 two sides symmetrically, so the result does not depend on how the step was
-written.
+written. Returns the step in that direction and the tier that decided it (1, 2 or
+3), or `(s, 0)` for a binding.
 """
 function _canonical_step_direction(s::Step, entry_sides::Dict{Species, Tuple{Bool, Bool}})
-    is_binding(s) && return s
+    is_binding(s) && return s, 0
     f, t = from_species(s), to_species(s)
-    flip() = Step(t, f, released(s), consumed(s), is_equilibrium(s))
 
     # Tier 1: atom-balance progression over bound plus free metabolites, read by role:
     # a competitive-inhibitor copy counts on neither side, whatever its name.
@@ -476,23 +476,55 @@ function _canonical_step_direction(s::Step, entry_sides::Dict{Species, Tuple{Boo
         (count(m -> m isa Substrate, bound(sp)) + count(m -> m isa Substrate, free),
          -count(m -> m isa Product, bound(sp)) - count(m -> m isa Product, free))
     sf, st = score(f, consumed(s)), score(t, released(s))
-    sf > st && return s
-    sf < st && return flip()
+    sf > st && return s, 1
+    sf < st && return _reversed(s), 1
 
     # Tier 2: 1-hop (RE+SS) graph context — whether substrates and products
     # enter or leave solution at each form, as `(any substrate, any product)`.
     fk = get(entry_sides, f, (false, false))
     tk = get(entry_sides, t, (false, false))
-    fk == (false, true) && tk == (true, false) && return s
-    fk == (true, false) && tk == (false, true) && return flip()
+    fk == (false, true) && tk == (true, false) && return s, 2
+    fk == (true, false) && tk == (false, true) && return _reversed(s), 2
 
     # Tier 3: lex fallback (source-independent).
-    string(name(f)) ≤ string(name(t)) ? s : flip()
+    (string(name(f)) ≤ string(name(t)) ? s : _reversed(s)), 3
+end
+
+"""`s` stored in the opposite direction: forms swapped, consumed and released swapped."""
+_reversed(s::Step) =
+    Step(to_species(s), from_species(s), released(s), consumed(s), is_equilibrium(s))
+
+"""
+The steps of one kinetic group, `oriented` one by one by `_canonical_step_direction`
+with the deciding `tiers`, except that the steps Tier 1 leaves tied turn as one: each
+runs between the same two conformations, in the same order, as the group's lead tied
+step, the first by `_step_canonical_key` among those Tier 2 decided, else among those
+Tier 3 decided. A group's steps share their constants, so a conformational change and
+its mirror at other bound forms must be stored in the same physical direction; oriented
+one by one, Tier 2 can run the change one way and Tier 3 its mirror the other, tying a
+forward constant to a reverse one. Errors when a tied step runs between a different
+pair of conformations, since no one orientation then matches the grouping.
+"""
+function _orient_tied_steps(oriented::Vector{Step}, tiers::Vector{Int})
+    tied = findall(>(1), tiers)
+    length(tied) < 2 && return oriented
+    lead = oriented[argmin(i -> (tiers[i], _step_canonical_key(oriented[i])), tied)]
+    pair(s) = (conformation(from_species(s)), conformation(to_species(s)))
+    map(eachindex(oriented)) do i
+        s = oriented[i]
+        (tiers[i] < 2 || pair(s) == pair(lead)) && return s
+        reverse(pair(s)) == pair(lead) && return _reversed(s)
+        error("Mechanism: a kinetic group holds $(join(_forward_sides(lead), " → ")) " *
+              "and $(join(_forward_sides(s), " → ")), which change different pairs of " *
+              "conformations; the steps of a kinetic group share their constants, so " *
+              "they must make the same conformational change")
+    end
 end
 
 """
 Canonicalize the storage direction (RE + SS) of every non-binding step to
-physical-forward for every group. Tier 2 reads each step's free metabolites
+physical-forward for every group, turning the steps of a group that Tier 1 leaves
+tied as one (`_orient_tied_steps`). Tier 2 reads each step's free metabolites
 at both of its ends, so it sees the same context however the steps were
 written. Shared by the `Mechanism` and `AllostericMechanism` constructors so
 the Canonical Step Form invariant cannot drift between them.
@@ -526,7 +558,10 @@ function _canonicalize_step_directions(groups::Vector{Vector{Step}})
         entry_sides[form] = (has_sub  || any(m -> m isa Substrate, free),
                              has_prod || any(m -> m isa Product, free))
     end
-    [[_canonical_step_direction(s, entry_sides) for s in group] for group in groups]
+    map(groups) do group
+        oriented = [_canonical_step_direction(s, entry_sides) for s in group]
+        _orient_tied_steps(first.(oriented), last.(oriented))
+    end
 end
 
 # Canonical key for a `Step`. Gives the sorts a deterministic ordering so two

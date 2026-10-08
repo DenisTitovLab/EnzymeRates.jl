@@ -1660,6 +1660,73 @@ end
     @test ER.name(ER.from_species(iso)) == :F && ER.name(ER.to_species(iso)) == :E
 end
 
+@testset "the tied steps of one kinetic group turn as one" begin
+    # Segel Iso Uni Uni with an inhibitor I binding E and F in one group and the
+    # isomerization mirrored at the I-bound forms. Tier 2 runs F → E; E(I) and F(I) mark
+    # nothing, so on its own the mirror would fall to Tier 3 and run E(I) → F(I), and the
+    # shared constant would tie F → E to the reverse of F(I) → E(I). Both run F-side to
+    # E-side, so the cycle E → E(I) → F(I) → F → E constrains nothing and no line
+    # forces k_F_to_E = k_E_to_F.
+    ss = @enzyme_mechanism begin
+        substrates: A
+        products: P
+        regulators: I
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            (F <--> E, F(I) <--> E(I))
+            (E + I ⇌ E(I), F + I ⇌ F(I))
+        end
+    end
+    m = ER.Mechanism(ss)
+    mirror = only(g for g in ER.steps(m) if length(g) == 2 && all(ER.is_iso, g))
+    @test all(s -> ER.conformation(ER.from_species(s)) == :F &&
+                   ER.conformation(ER.to_species(s)) == :E, mirror)
+    @test !occursin("Wegscheider", rate_equation_string(ss))
+    # The written direction and order of the mirrored steps do not matter.
+    @test ER.Mechanism(@enzyme_mechanism begin
+        substrates: A
+        products: P
+        regulators: I
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            (E(I) <--> F(I), E <--> F)
+            (E + I ⇌ E(I), F + I ⇌ F(I))
+        end
+    end) == m
+
+    # At rapid equilibrium the same cycle would pin K_F_to_E to 1 on its own; the shared
+    # orientation leaves it fitted.
+    re = @enzyme_mechanism begin
+        substrates: A
+        products: P
+        regulators: I
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            (F ⇌ E, F(I) ⇌ E(I))
+            (E + I ⇌ E(I), F + I ⇌ F(I))
+        end
+    end
+    @test :K_F_to_E in ER.fitted_params(re)
+
+    # Tied steps that change different pairs of conformations share no orientation.
+    @test_throws "change different pairs of conformations" @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> E + P
+            (E ⇌ F, F ⇌ G, G ⇌ E)
+        end
+    end
+end
+
 @testset "each reaction appears once in a mechanism" begin
     A, B, P = ER.Substrate(:A), ER.Substrate(:B), ER.Product(:P)
     E, EA, EstarA = _testhelper_sp([]), _testhelper_sp([A]), _testhelper_sp([A], :Estar)
