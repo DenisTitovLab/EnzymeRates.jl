@@ -465,16 +465,16 @@ Reversing a step swaps its forms and its lists, and every tier reads the
 two sides symmetrically, so the result does not depend on how the step was
 written.
 """
-function _canonical_step_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol},
-                                   entry_sides::Dict{Species, Tuple{Bool, Bool}})
+function _canonical_step_direction(s::Step, entry_sides::Dict{Species, Tuple{Bool, Bool}})
     is_binding(s) && return s
     f, t = from_species(s), to_species(s)
     flip() = Step(t, f, released(s), consumed(s), is_equilibrium(s))
 
-    # Tier 1: atom-balance progression over bound plus free metabolites.
+    # Tier 1: atom-balance progression over bound plus free metabolites, read by role:
+    # a competitive-inhibitor copy counts on neither side, whatever its name.
     score(sp, free) =
-        (count(m -> name(m) in subs, bound(sp)) + count(m -> name(m) in subs, free),
-         -count(m -> name(m) in prods, bound(sp)) - count(m -> name(m) in prods, free))
+        (count(m -> m isa Substrate, bound(sp)) + count(m -> m isa Substrate, free),
+         -count(m -> m isa Product, bound(sp)) - count(m -> m isa Product, free))
     sf, st = score(f, consumed(s)), score(t, released(s))
     sf > st && return s
     sf < st && return flip()
@@ -505,8 +505,10 @@ with its metabolite consumed, so it marks the form the metabolite binds to; a
 fused release E(S) → F + P, stored as the binding F + P → E(S), marks F, the form
 P leaves at. Reversing a step swaps its forms and its lists together, so the
 classification does not depend on how any step was written. Isomerizations carry
-no free metabolites and mark nothing. `_canonical_step_direction` Tier 2 reads it
-to decide direction for non-binding steps where Tier 1 ties.
+no free metabolites and mark nothing, and a competitive-inhibitor copy, neither a
+substrate nor a product, marks nothing even when it shares a reactant's name.
+`_canonical_step_direction` Tier 2 reads it to decide direction for non-binding steps
+where Tier 1 ties.
 
 Why ALL steps (not just RE): the "substrate-entry / product-exit"
 property is a chemistry fact about which forms metabolites enter and
@@ -516,19 +518,15 @@ fixtures like Segel Iso Uni Uni (`E + A <--> EA ⇌ EP <--> F + P, F <--> E`)
 use `<-->` throughout, so an RE-only filter would mis-classify both `E`
 and `F` as marking nothing and the F⇌E case would fall through to Tier 3 lex.
 """
-function _canonicalize_step_directions(reaction::EnzymeReaction,
-                                       groups::Vector{Vector{Step}})
-    subs  = Set{Symbol}(name(s) for s in substrates(reaction))
-    prods = Set{Symbol}(name(s) for s in products(reaction))
+function _canonicalize_step_directions(groups::Vector{Vector{Step}})
     entry_sides = Dict{Species, Tuple{Bool, Bool}}()
     for group in groups, s in group, (form, free) in ((from_species(s), consumed(s)),
                                                       (to_species(s), released(s)))
         has_sub, has_prod = get(entry_sides, form, (false, false))
-        entry_sides[form] = (has_sub  || any(m -> name(m) in subs, free),
-                             has_prod || any(m -> name(m) in prods, free))
+        entry_sides[form] = (has_sub  || any(m -> m isa Substrate, free),
+                             has_prod || any(m -> m isa Product, free))
     end
-    [[_canonical_step_direction(s, subs, prods, entry_sides)
-      for s in group] for group in groups]
+    [[_canonical_step_direction(s, entry_sides) for s in group] for group in groups]
 end
 
 # Canonical key for a `Step`. Gives the sorts a deterministic ordering so two
@@ -576,7 +574,7 @@ function _canonical_groups(reaction::EnzymeReaction, groups::Vector{Vector{Step}
         error("Mechanism: kinetic group $bad is empty; a kinetic group holds at least " *
               "one step")
     gs = [g[sortperm(_step_canonical_key.(g))]
-          for g in _canonicalize_step_directions(reaction, groups)]
+          for g in _canonicalize_step_directions(groups)]
     perm = sortperm([_step_canonical_key(first(g)) for g in gs])
     gs = gs[perm]
     _assert_distinct_form_names(gs)

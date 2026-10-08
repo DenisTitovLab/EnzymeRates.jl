@@ -229,8 +229,7 @@ function _positional_flat_idx(mech, source_steps)
     # source groups are direction-canonicalized so their stored direction matches
     # the mechanism's; group/within-group order is preserved, so flat position in
     # `src_flat` IS the as-written step index the oracle numbers k1,k2,….
-    src_canon = EnzymeRates._canonicalize_step_directions(
-        EnzymeRates.reaction(mech), source_steps)
+    src_canon = EnzymeRates._canonicalize_step_directions(source_steps)
     src_flat = EnzymeRates.Step[s for g in src_canon for s in g]
     used = falses(length(src_flat))
     flat_idx = Vector{Vector{Int}}()

@@ -1639,6 +1639,27 @@ end
     @test ER.name(kf, m) == :k_F_to_E && ER.name(kr, m) == :k_E_to_F
 end
 
+@testset "a competitive-inhibitor copy marks no reactant side" begin
+    # P's competitive-inhibitor copy binds E. Tiers 1 and 2 read metabolite roles, so the
+    # copy marks nothing at E, and the Iso Uni Uni isomerization still runs from F, where
+    # P leaves, to E, where A enters.
+    m = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A
+        products: P
+        regulators: P
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            F <--> E
+            E + P::Inh ⇌ E(P::Inh)
+        end
+    end)
+    iso = only(s for g in ER.steps(m) for s in g
+               if ER.is_iso(s) && ER.name(ER.from_species(s)) in (:E, :F))
+    @test ER.name(ER.from_species(iso)) == :F && ER.name(ER.to_species(iso)) == :E
+end
+
 @testset "each reaction appears once in a mechanism" begin
     A, B, P = ER.Substrate(:A), ER.Substrate(:B), ER.Product(:P)
     E, EA, EstarA = _testhelper_sp([]), _testhelper_sp([A]), _testhelper_sp([A], :Estar)
