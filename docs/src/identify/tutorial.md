@@ -179,8 +179,8 @@ undesignated regulator would otherwise produce:
 allosteric_regulators: A::Activator
 ```
 
-[The enumeration engine](@ref) explains how the seed set is built, and the
-[Roadmap](@ref) tracks the moves that refine it.
+[The enumeration engine](@ref) explains how the seed set is built and the moves that
+refine it.
 
 ## Read the result
 
