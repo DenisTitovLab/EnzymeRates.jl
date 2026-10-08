@@ -105,9 +105,10 @@ value becomes one cross-validation fold, so at least two groups are required.
   `metabolites(mechanism)` exactly).
 - Every `Rate` must be a finite, nonzero number — the loss function works in log
   space.
+- Every concentration must be a finite number ≥ 0; zero is valid.
 - At least two distinct `group` values are required for cross-validation.
 
-`Keq` is a required keyword argument, always user-supplied and positive; the
+`Keq` is a required keyword argument, always user-supplied, positive and finite; the
 package never estimates it from data. Most enzyme reactions have a known `Keq` —
 measure it directly, or compute it from a resource such as
 [eQuilibrator](https://equilibrator.weizmann.ac.il).

@@ -149,8 +149,9 @@ end
                  R = [1.0, 1.0]);
                 Keq=1.0))
 
-        # A non-finite or missing rate, or a Keq that is not positive: each error
-        # names the Rate column (with the row) or Keq.
+        # A non-finite or missing rate, a concentration that is not a finite number
+        # ≥ 0, or a Keq or scale_k_to_kcat that is not positive and finite: each error
+        # names the column (with the row), Keq or scale_k_to_kcat.
         two_groups = (group = ["G1", "G2"], Rate = [1.0, 2.0],
                       S = [1.0, 1.0], P = [0.1, 0.1], R = [1.0, 1.0])
         for (bad, shown) in ((NaN, "NaN"), (Inf, "Inf"), (-Inf, "-Inf"),
@@ -160,10 +161,26 @@ end
                 IdentifyRateEquationProblem(
                     test_rxn, merge(two_groups, (Rate = [1.0, bad],)); Keq=1.0))
         end
-        @test_throws(ErrorException("Keq must be positive; got 0"),
-            IdentifyRateEquationProblem(test_rxn, two_groups; Keq=0))
-        @test_throws(ErrorException("Keq must be positive; got -1"),
-            IdentifyRateEquationProblem(test_rxn, two_groups; Keq=-1))
+        for (bad, shown) in ((NaN, "NaN"), (Inf, "Inf"), (-1.0, "-1.0"),
+                             (missing, "missing"), ("1.0", "\"1.0\""))
+            @test_throws(
+                ErrorException(
+                    "Concentration S at row 2 must be a finite number ≥ 0; got $shown"),
+                IdentifyRateEquationProblem(
+                    test_rxn, merge(two_groups, (S = [1.0, bad],)); Keq=1.0))
+        end
+        @test IdentifyRateEquationProblem(
+            test_rxn, merge(two_groups, (S = [0.0, 1.0],)); Keq=1.0) isa
+              IdentifyRateEquationProblem
+        for (bad, shown) in ((0, "0"), (-1, "-1"), (Inf, "Inf"), (NaN, "NaN"))
+            @test_throws(ErrorException("Keq must be positive and finite; got $shown"),
+                IdentifyRateEquationProblem(test_rxn, two_groups; Keq=bad))
+            @test_throws(
+                ErrorException("scale_k_to_kcat must be positive and finite (or " *
+                               "nothing); got $shown"),
+                IdentifyRateEquationProblem(test_rxn, two_groups; Keq=1.0,
+                                            scale_k_to_kcat=bad))
+        end
 
         # Need >= 2 groups
         @test_throws(

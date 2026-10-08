@@ -12,7 +12,7 @@ rate constants.
 - `data`: `NamedTuple` of column vectors (via `Tables.columntable`)
 - `group_point_indexes`: row indices grouped by unique `group` values
 - `Keq`: fixed equilibrium constant
-- `scale_k_to_kcat`: a positive `Real` selects relative mode (per-group-centered
+- `scale_k_to_kcat`: a positive, finite `Real` selects relative mode (per-group-centered
   loss); `nothing` selects absolute per-enzyme-turnover mode (uncentered loss)
 - `log_abs_rates`: pre-computed `log.(abs.(Rate))`
 - `log_ratios_buffer`: pre-allocated working buffer for loss computation
@@ -37,12 +37,13 @@ The table must have columns: `group`, `Rate`, and one column per
 metabolite matching `metabolites(mechanism)`. Uses
 `Tables.columntable` for conversion.
 
-`scale_k_to_kcat` selects the loss mode: a positive `Real` (default `1.0`)
+`scale_k_to_kcat` selects the loss mode: a positive, finite `Real` (default `1.0`)
 treats the data as relative (per-group-centered loss); `nothing` treats it as
 absolute per-enzyme turnover (uncentered loss).
 
 Rate values must be finite and nonzero (the loss takes their log; a zero rate gives
-`-Inf`), and `Keq` must be positive.
+`-Inf`), every concentration must be a finite number ≥ 0 (zero is valid), and `Keq`
+must be positive and finite.
 """
 function FittingProblem(mechanism::AbstractEnzymeMechanism, table;
         Keq::Real, scale_k_to_kcat::Union{Real,Nothing}=1.0)
@@ -61,20 +62,24 @@ end
     _rate_table(table, mnames, scale_k_to_kcat, Keq) → NamedTuple
 
 Validate a rate table and return it as `Tables.columntable(table)`: `scale_k_to_kcat`
-must be positive or `nothing`, `Keq` must be positive, the table needs a `group`
-column, a `Rate` column and one column per name in `mnames`, and every rate must be a
+must be positive and finite or `nothing`, `Keq` must be positive and finite, the table
+needs a `group` column, a `Rate` column and one column per name in `mnames`, every
+concentration must be a finite number ≥ 0 (zero is valid), and every rate must be a
 finite, nonzero number (the loss takes its log).
 """
 function _rate_table(table, mnames, scale_k_to_kcat, Keq)
-    scale_k_to_kcat !== nothing && scale_k_to_kcat <= 0 && error(
-        "scale_k_to_kcat must be positive (or nothing); got $scale_k_to_kcat")
-    Keq > 0 || error("Keq must be positive; got $Keq")
+    scale_k_to_kcat === nothing || 0 < scale_k_to_kcat < Inf || error(
+        "scale_k_to_kcat must be positive and finite (or nothing); got $scale_k_to_kcat")
+    0 < Keq < Inf || error("Keq must be positive and finite; got $Keq")
     data = Tables.columntable(table)
     for req in (:group, :Rate)
         req in keys(data) || error("Missing required column: $req")
     end
     for m in mnames
         m in keys(data) || error("Missing metabolite column: $m")
+        i = findfirst(c -> !(c isa Real && isfinite(c) && c >= 0), data[m])
+        i === nothing || error("Concentration $m at row $i must be a finite number ≥ 0; " *
+                               "got $(repr(data[m][i]))")
     end
     i = findfirst(r -> !(r isa Real && isfinite(r)), data.Rate)
     i === nothing ||

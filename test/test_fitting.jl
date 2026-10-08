@@ -439,12 +439,31 @@ using Tables
                 FittingProblem(uni_uni, data_bad; Keq=1.0))
         end
 
-        # A Keq that is not positive
+        # A concentration that is not a finite number ≥ 0: the error names the column
+        # and the row. Zero is a valid concentration.
+        for (bad, shown) in ((NaN, "NaN"), (Inf, "Inf"), (-1.0, "-1.0"),
+                             (missing, "missing"), ("1.0", "\"1.0\""))
+            data_bad = (group = ["G1", "G1"], Rate = [1.0, 2.0], S = [1.0, bad],
+                        P = [0.1, 0.1])
+            @test_throws(
+                ErrorException(
+                    "Concentration S at row 2 must be a finite number ≥ 0; got $shown"),
+                FittingProblem(uni_uni, data_bad; Keq=1.0))
+        end
+        data_zero_S = (group = ["G1", "G1"], Rate = [1.0, 2.0], S = [0.0, 1.0],
+                       P = [0.1, 0.1])
+        @test FittingProblem(uni_uni, data_zero_S; Keq=1.0) isa FittingProblem
+
+        # A Keq or a scale_k_to_kcat that is not positive and finite
         data_ok = (group = ["G1"], Rate = [1.0], S = [1.0], P = [0.1])
-        @test_throws(ErrorException("Keq must be positive; got 0"),
-            FittingProblem(uni_uni, data_ok; Keq=0))
-        @test_throws(ErrorException("Keq must be positive; got -1"),
-            FittingProblem(uni_uni, data_ok; Keq=-1))
+        for (bad, shown) in ((0, "0"), (-1, "-1"), (Inf, "Inf"), (NaN, "NaN"))
+            @test_throws(ErrorException("Keq must be positive and finite; got $shown"),
+                FittingProblem(uni_uni, data_ok; Keq=bad))
+            @test_throws(
+                ErrorException("scale_k_to_kcat must be positive and finite (or " *
+                               "nothing); got $shown"),
+                FittingProblem(uni_uni, data_ok; Keq=1.0, scale_k_to_kcat=bad))
+        end
     end
 
 end

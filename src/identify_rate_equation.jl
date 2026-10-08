@@ -17,7 +17,7 @@ constant for rate equation identification.
 - `data`: `NamedTuple` of column vectors with `:group`,
   `:Rate`, and metabolite columns
 - `Keq`: fixed equilibrium constant
-- `scale_k_to_kcat`: a positive Float64 is the target kcat the fitted SS rate
+- `scale_k_to_kcat`: a positive, finite Float64 is the target kcat the fitted SS rate
   constants are rescaled to, and selects the relative (per-group-centered) loss;
   `nothing` selects the absolute loss and no rescaling
 """
