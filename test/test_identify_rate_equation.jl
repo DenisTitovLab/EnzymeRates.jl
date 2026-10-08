@@ -1137,8 +1137,10 @@ end
     # run there would append its log to the old one. The lean beam settings keep the
     # run short should the guard ever let it through.
     prob = _testhelper_uni_prob(NamedTuple)
+    crashed_log = "EnzymeRates v$(pkgversion(EnzymeRates))\n" *
+                  "Enumerating initial mechanisms…\n"
     mktempdir() do tmp
-        write(joinpath(tmp, "progress.log"), "Enumerating initial mechanisms…\n")
+        write(joinpath(tmp, "progress.log"), crashed_log)
         @test_throws(
             ErrorException("save_dir already contains results (CSV files or " *
                 "progress.log). Use an empty directory to avoid mixing results."),
@@ -1147,8 +1149,7 @@ end
                 max_param_count=3, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
                 save_dir=tmp))
         @test readdir(tmp) == ["progress.log"]
-        @test read(joinpath(tmp, "progress.log"), String) ==
-              "Enumerating initial mechanisms…\n"
+        @test read(joinpath(tmp, "progress.log"), String) == crashed_log
     end
 end
 
