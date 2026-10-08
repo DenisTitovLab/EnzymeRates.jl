@@ -8441,7 +8441,7 @@ end
 @testset "_hyperbolic_catalysis matches the derived denominator" begin
     # The structural predicate against the exponents of the derived denominator,
     # over every mechanism reachable from the seeds in two expansion levels. The
-    # ping-pong-capable reaction's sequential seeds are the bi-bi seeds (pinned below),
+    # ping-pong-capable reaction's seeds include every bi-bi seed (pinned below),
     # and the moves, the predicate and the derivation read metabolite names, never atoms
     # (atoms enter enumeration only in seed construction and in the atom-conservation
     # assertion, which throws rather than filters), so its population holds every
