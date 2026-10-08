@@ -7,6 +7,20 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Known issues
 
+- **The inactive state can give an `:EqualAI` constant a second, fitted name.**
+  `_state_parts` (`src/rate_eq_derivation.jl`) names the inactive conformation's
+  constants after its pruned graph (`_state_allo_mechanism`), so a shared constant takes
+  a second name when pruning removes its group's naming representative (`_group_rep`)
+  but not the whole group, or reverses a rapid-equilibrium step that metabolite
+  progression leaves unoriented (`F ⇌ E` gives `K_F_to_E` in the active state and
+  `K_E_to_F` in the inactive one). The second name enters `fitted_params` as a free
+  constant, so the rate law describes a larger model than the one declared and the beam
+  overcounts its parameters. Enumerated mechanisms meet the first case: when
+  `E(A) + P ⇌ E(A, P)` and `E(Q) + P ⇌ E(P, Q)` share `K_EAP_to_EA_P` and the inactive
+  state cannot reach `E(A)`, that state names the constant `K_EPQ_to_EQ_P`, and 766 of
+  15,219 bi-bi and ping-pong allosteric mechanisms sampled within two expansion rounds
+  gain one to three such parameters. A fix names each surviving inactive-state group
+  after its active-state representative and keeps the active-state step directions.
 - **A kinetic group cannot tie one metabolite exchange at two conformations.**
   A group holding `E(I) + J ⇌ E(J) + I` and the same exchange at conformation `F` raises
   "change different pairs of conformations", although neither step changes conformation;
