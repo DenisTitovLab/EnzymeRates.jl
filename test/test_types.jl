@@ -689,9 +689,10 @@ end
         (; ES, EP) = _testhelper_uniuni()
 
         # The Step constructor does NOT canonicalize iso steps (RE or SS) —
-        # iso direction depends on the reaction's substrate/product sets and
-        # is decided by `_canonical_step_direction` in the Mechanism / Allosteric
-        # Mechanism constructor. At the bare-Step level, direction is preserved.
+        # iso direction depends on the mechanism's graph context and the step's
+        # kinetic group, and is decided by `_canonical_step_direction` /
+        # `_orient_tied_steps` in the Mechanism / AllostericMechanism constructor.
+        # At the bare-Step level, direction is preserved.
         re_fwd = ER.Step(ES, EP, ER.Metabolite[], ER.Metabolite[], true)
         re_rev = ER.Step(EP, ES, ER.Metabolite[], ER.Metabolite[], true)
         @test re_fwd != re_rev
