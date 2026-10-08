@@ -1307,6 +1307,46 @@ end
         @test ER.bound_metabolite(s_inh) == Ai
     end
 
+    @testset "a binding keeps each metabolite's role" begin
+        Pi, S = ER.CompetitiveInhibitor(:P), ER.Substrate(:S)
+        EP, EPi, EPP = _testhelper_sp([P]), _testhelper_sp([Pi]), _testhelper_sp([P, P])
+        role_change(from, to, m) = ErrorException(
+            "Step $from → $to changes a metabolite's role: $to holds $from's " *
+            "metabolites plus $m by name, not by role; write an inhibitor copy as " *
+            "X::Inh on both sides")
+        # The copy of P binds into the product's form, written as a binding or a release.
+        @test_throws role_change(:E, :EP, :P) ER.Step(E, EP, [Pi], ER.Metabolite[], true)
+        @test_throws role_change(:E, :EP, :P) ER.Step(EP, E, ER.Metabolite[], [Pi], true)
+        # The product binds into the copy's form.
+        @test_throws role_change(:E, :EPinh, :P) ER.Step(
+            E, EPi, [P], ER.Metabolite[], true)
+        # A second P, taken up as the copy, lands in a form holding two products.
+        @test_throws role_change(:EP, :EPP, :P) ER.Step(
+            EP, EPP, [Pi], ER.Metabolite[], true)
+        # Each metabolite keeps its role: accepted.
+        @test ER.bound_metabolite(
+            ER.Step(EP, _testhelper_sp([P, Pi]), [Pi], ER.Metabolite[], true)) == Pi
+        # An isomerization may change how often a name is bound: E(P, S) → E(P, P).
+        @test ER.is_iso(ER.Step(_testhelper_sp([P, S]), EPP, ER.Metabolite[],
+                                ER.Metabolite[], false))
+        # The DSL spellings, with P declared as an inhibitor.
+        for (line, from, to) in ((:(E + P::Inh ⇌ E(P)), :E, :EP),
+                                 (:(E(P) ⇌ E + P::Inh), :E, :EP),
+                                 (:(E(P) + P::Inh ⇌ E(P, P)), :EP, :EPP))
+            @test_throws role_change(from, to, :P) eval(:(@enzyme_mechanism begin
+                substrates: S
+                products:   P
+                regulators: P
+                steps: begin
+                    E + S ⇌ E(S)
+                    E(S) <--> E(P)
+                    E(P) ⇌ E + P
+                    $line
+                end
+            end))
+        end
+    end
+
     @testset "rejections" begin
         err = _testhelper_thrown(() -> ER.Step(E, E, [A], ER.Metabolite[], true))
         @test err isa ErrorException

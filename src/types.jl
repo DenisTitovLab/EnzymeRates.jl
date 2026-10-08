@@ -149,13 +149,37 @@ multiplicity(s::RegulatorySite) = s.multiplicity
 allo_states(s::RegulatorySite)  = s.allo_states
 
 """
+Whether `bound_form` is `free` with metabolite `m` added, two metabolites matching
+when `same` holds: same residual, and `bound(bound_form)` equals `bound(free)` plus `m`
+as a multiset. Both lists are sorted by `_met_sort_key`, so one pass decides it without
+allocating. `m` is not specialized on: callers pass an element of a
+`Vector{Metabolite}`, and a call whose argument type is abstract would otherwise be
+dispatched at run time, which boxes both species.
+"""
+function _adds_metabolite(free::Species, bound_form::Species, @nospecialize(m::Metabolite),
+                          same)
+    f, b = bound(free), bound(bound_form)
+    residual(free) == residual(bound_form) && length(b) == length(f) + 1 || return false
+    j, extra = 1, false
+    for x in b
+        if j <= length(f) && same(x, f[j])
+            j += 1
+        elseif !extra && same(x, m)
+            extra = true
+        else
+            return false
+        end
+    end
+    return true
+end
+
+"""
 Whether `bound_form` is `free` with metabolite `m` added: same residual, and
 `bound(bound_form)` equals `bound(free)` plus `m` as a multiset. The
 conformation may differ (a binding may change the enzyme's conformation).
 """
 _binds_ligand(free::Species, bound_form::Species, m::Metabolite) =
-    residual(free) == residual(bound_form) &&
-    bound(bound_form) == sort(Metabolite[bound(free)..., m]; by = _met_sort_key)
+    _adds_metabolite(free, bound_form, m, ==)
 
 """
     Step
@@ -169,10 +193,11 @@ step (`false`). A binding (`bound_metabolite`) takes up exactly one metabolite a
 gives off none. It is plain when `to_species` holds `from_species`'s metabolites
 plus that one with the same residual, the conformation free to change
 (`_binds_ligand`: E + A → E(A), E + A → E*(A)), and fused otherwise
-(E(A) + B → E(P, Q)). The constructor stores a step that takes up nothing and gives
-off exactly one metabolite as the binding it reverses, so every binding is stored
-with its metabolite consumed; every other step is oriented by the `Mechanism` /
-`AllostericMechanism` constructor. See CLAUDE.md "Canonical Step Form".
+(E(A) + B → E(P, Q)). The constructor rejects a binding whose forms match a plain
+binding by name but not by role (E + P::Inh → E(P)). It stores a step that takes up
+nothing and gives off exactly one metabolite as the binding it reverses, so every
+binding is stored with its metabolite consumed; every other step is oriented by the
+`Mechanism` / `AllostericMechanism` constructor. See CLAUDE.md "Canonical Step Form".
 """
 struct Step
     from_species::Species
@@ -198,6 +223,17 @@ struct Step
         if isempty(c) && length(r) == 1
             from_species, to_species, c, r = to_species, from_species, r, c
         end
+        # A binding whose forms differ by the bound metabolite's name keeps every
+        # metabolite's role: E + P::Inh → E(P) would carry the inhibitor copy into a
+        # product form and give the product a second route into it.
+        length(c) == 1 && isempty(r) &&
+            _adds_metabolite(from_species, to_species, c[1],
+                             (x, y) -> name(x) === name(y)) &&
+            !_binds_ligand(from_species, to_species, c[1]) && error(
+                "Step $(name(from_species)) → $(name(to_species)) changes a " *
+                "metabolite's role: $(name(to_species)) holds $(name(from_species))'s " *
+                "metabolites plus $(name(c[1])) by name, not by role; write an " *
+                "inhibitor copy as X::Inh on both sides")
         new(from_species, to_species, c, r, is_equilibrium)
     end
 end
