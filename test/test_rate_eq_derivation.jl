@@ -1556,6 +1556,26 @@ end
     @test occursin("\nK_E_S_to_Estar_P = Keq\n", rate_equation_string(keq_tie))
 end
 
+@testset "rate_equation_string prints residual names bare in constraint lines" begin
+    # Every step of this ping-pong is at steady state, so the Haldane product holds the
+    # rate constants of the residual-bearing forms, whose names are not identifiers.
+    m = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B <--> E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+            E(Q) <--> E + Q
+        end
+    end
+    s = rate_equation_string(m)
+    @test occursin(r"\nk_EP_res_\+A_-P_to_EA = .* \* k_EA_to_EP_res_\+A_-P \* ", s)
+    @test !occursin("var\"", s)
+end
+
 @testset "rate_equation_string prints flat +/* sums (no nested parens)" begin
     # Orthogonal guard (NOT a perf-fix backstop): _expr_to_string is
     # precedence-aware and flattens nested +/* nodes

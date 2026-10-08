@@ -442,7 +442,7 @@ Return the symbolic rate equation for mechanism `m` as a multi-line
 (default) or `Full`; pass a concrete `Mechanism` / `AllostericMechanism`
 or its compiled [`EnzymeMechanism`](@ref) singleton.
 
-The string is a runnable transcript of how [`rate_equation`](@ref)
+The string spells out how [`rate_equation`](@ref)
 evaluates: a `(; …) = params` destructure line, a `(; …) = concs`
 destructure line, then the `v = E_total * (num) / (den)` line. In
 `Reduced` mode, dependent rate constants are listed first under
@@ -452,6 +452,10 @@ independent set appears in the `params` destructure. In `Full` mode every
 rate constant is independent, so there is no constraint section. `Full`
 mode is defined for `EnzymeMechanism` only; an `AllostericEnzymeMechanism`
 supports `Reduced` mode only.
+
+Names that are not Julia identifiers, such as the residual forms of
+ping-pong mechanisms (`k_EA_to_EP_res_+A_-P`), print bare, so such a
+string reads as text, not code.
 
 Use `print` on the result to see the multi-line layout without escaped
 newlines.
@@ -489,8 +493,8 @@ rate_equation_string(m::Union{Mechanism, AllostericMechanism},
 
 """
 The `rate_equation_string` text of `M`: the `params` destructure of `param_syms`, the
-`concs` destructure, one line `sym = rhs` per dependent parameter of `dep` with `rhs`
-rendered by `rhs_string`, and the `v = E_total * (num) / (den)` line from
+`concs` destructure, one line `sym = rhs` per dependent parameter of `dep`, and the
+`v = E_total * (num) / (den)` line from
 `_num_den_exprs`. A dependent whose right-hand side mentions `Keq` goes under
 `# Haldane constraints:`, every other one under `# Wegscheider constraints:`; the line
 of a dependent in `substituted` ends in `ANNOTATION_SUBSTITUTED`. Each section is sorted
@@ -499,11 +503,11 @@ these strings, so their line order must not depend on the order the solve emits 
 dependents in.
 """
 function _equation_text(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param_syms,
-                        dep; substituted = (), rhs_string = _expr_to_string)
+                        dep; substituted = ())
     weg, hal = String[], String[]
     for (sym, rhs) in sort!(collect(dep); by = first)
         suffix = sym in substituted ? ANNOTATION_SUBSTITUTED : ""
-        push!(_mentions(rhs, :Keq) ? hal : weg, "$sym = $(rhs_string(rhs))$suffix")
+        push!(_mentions(rhs, :Keq) ? hal : weg, "$sym = $(_expr_to_string(rhs))$suffix")
     end
     num, den = _num_den_exprs(M)
     lines = ["(; $(join(param_syms, ", "))) = params",
@@ -518,17 +522,13 @@ rate_equation_string(@nospecialize(m::EnzymeMechanism), ::FullMode) =
     _equation_text(typeof(m), (_raw_param_symbols(m)..., :E_total), Dict())
 
 # The display solves with no Wegscheider rename, so an absorbed single-symbol tie stays
-# visible under `# Wegscheider constraints:`, marked as substituted into v. Its
-# right-hand sides print with Base `string` because the eq_hash of a plain mechanism is
-# computed over this text. Base `string` writes a symbol that is not an identifier (a
-# ping-pong residual name such as `K_EB_res_+A_-P_to_EQ`) inside a product as `var"…"`.
+# visible under `# Wegscheider constraints:`, marked as substituted into v.
 function rate_equation_string(@nospecialize(m::EnzymeMechanism), ::ReducedMode)
     _, indep = _dependent_param_exprs(typeof(m))
     mech = Mechanism(m)
     dep, _ = _solve_dependent_set(_assemble_constraints(mech, Dict{Symbol, Symbol}())...)
     _equation_text(typeof(m), (indep..., :Keq, :E_total), dep;
-                   substituted = keys(_build_wegscheider_rename_map(mech)),
-                   rhs_string = string)
+                   substituted = keys(_build_wegscheider_rename_map(mech)))
 end
 
 function rate_equation_string(@nospecialize(m::AllostericEnzymeMechanism), ::ReducedMode)
