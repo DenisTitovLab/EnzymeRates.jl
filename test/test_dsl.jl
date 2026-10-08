@@ -450,7 +450,7 @@
 
     @testset "@enzyme_reaction rejects a name listed as substrate and product" begin
         # Concentrations and constants are keyed by name, so a name may hold only
-        # one reactant role, whichever label comes first.
+        # one reactant role; either label order is rejected.
         both_roles = ErrorException(
             "EnzymeReaction: S named as both a substrate and a product; " *
             "concentrations and constants are keyed by name")
@@ -1017,6 +1017,8 @@
         end)
         @test EnzymeRates.CompetitiveInhibitor(:R) in
               [EnzymeRates.bound_metabolite(g[1]) for g in EnzymeRates.steps(dual)]
+        @test EnzymeRates.AllostericRegulator(:R) in
+              EnzymeRates.ligands(only(EnzymeRates.regulatory_sites(dual)))
     end
 
     @testset "X::Inh names a declared competitive inhibitor" begin
