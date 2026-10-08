@@ -286,15 +286,17 @@ end
     # passes per level. Tests verify the pipeline runs and
     # produces correct shape — they don't require an exhaustive
     # search. Light n_restarts/maxtime keep each fit under ~1s.
-    results = identify_rate_equation(prob;
-        min_beam_width=1,
-        loss_rel_threshold=1.0,
-        loss_abs_threshold=0.0,
-        max_param_count=8,
-        n_cv_candidates=1,
-        save_dir=save_dir,
-        optimizer=cmaes_opt,
-        n_restarts=1, maxtime=1.0)
+    results = redirect_stdout(devnull) do
+        identify_rate_equation(prob;
+            min_beam_width=1,
+            loss_rel_threshold=1.0,
+            loss_abs_threshold=0.0,
+            max_param_count=8,
+            n_cv_candidates=1,
+            save_dir=save_dir,
+            optimizer=cmaes_opt,
+            n_restarts=1, maxtime=1.0)
+    end
 
     # The selected mechanism is the 1-SE-rule row of cv_results.
     best_row = results.cv_results[
@@ -585,10 +587,12 @@ end
     # `initial_mechanisms.csv` before raising (for cluster debugging).
     prob = _testhelper_uni_prob(NamedTuple)
     tmp = mktempdir()
-    @test_throws ErrorException identify_rate_equation(
-        prob; solver_kwargs=(; not_a_real_solver_option=1),
-        optimizer=CMAEvolutionStrategyOpt(),
-        n_restarts=1, maxtime=1.0, save_dir=tmp)
+    @test_throws ErrorException redirect_stdout(devnull) do
+        identify_rate_equation(
+            prob; solver_kwargs=(; not_a_real_solver_option=1),
+            optimizer=CMAEvolutionStrategyOpt(),
+            n_restarts=1, maxtime=1.0, save_dir=tmp)
+    end
     # Failure rows were written before the re-raise: a CSV exists whose rows
     # are all failures (non-missing `error`, missing `eq_hash`).
     @test isfile(joinpath(tmp, "initial_mechanisms.csv"))
@@ -1059,12 +1063,14 @@ end
     tmp = mktempdir()
     # An explicit non-default loss_parsimony_threshold proves the keyword is accepted
     # (an unknown keyword throws at the call boundary).
-    identify_rate_equation(prob;
-        optimizer=CMAEvolutionStrategyOpt(),
-        min_beam_width=1, loss_rel_threshold=1.0, loss_abs_threshold=0.0,
-        loss_parsimony_threshold=2.0,
-        max_param_count=3, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
-        save_dir=tmp)
+    redirect_stdout(devnull) do
+        identify_rate_equation(prob;
+            optimizer=CMAEvolutionStrategyOpt(),
+            min_beam_width=1, loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+            loss_parsimony_threshold=2.0,
+            max_param_count=3, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
+            save_dir=tmp)
+    end
     log_text = read(joinpath(tmp, "progress.log"), String)
     @test occursin(Regex(
         "^Iteration 1: \\d+ parents → (\\d+) children\\n  0 new fits \\+ 0 inherited \\+ " *
