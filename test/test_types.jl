@@ -357,8 +357,12 @@ end
             [ER.Step(_testhelper_sp([B]), _testhelper_sp([Ainh, B]), [Ainh],
                      ER.Metabolite[], true)],
         ]
-        @test ER._bottomless_re_segment(inh_steps) !== nothing
-        @test ER._bottomless_re_segment(reverse(inh_steps)) !== nothing
+        rxn = @enzyme_reaction(begin
+            substrates: A[C], B[C]
+            products: P[C2]
+        end)
+        @test ER._bottomless_re_segment(rxn, inh_steps) !== nothing
+        @test ER._bottomless_re_segment(rxn, reverse(inh_steps)) !== nothing
         @test_throws "rapid-equilibrium segment" @enzyme_mechanism begin
             substrates: A, B
             products: P
@@ -408,6 +412,31 @@ end
         # so an "unreachable" form simply has its own steps in isolation, which is
         # structurally valid (graph connectivity is a downstream concern caught by
         # Wegscheider analysis if it matters).
+    end
+
+    @testset "an inhibitor copy leaves the inactive state's segment bottomless" begin
+        # Every step that takes up the substrate A is :OnlyA, so the inactive conformation
+        # keeps none of them; the second free conformation F still reaches E(B), and from
+        # it the copy's bindings. The segment {E(A::Inh), E(A::Inh, B), E(B)} then has
+        # every form carrying A (the copy's concentration is A's) or B, so it is empty at
+        # A = B = 0. In the active conformation E + A::Inh ⇌ E(A::Inh) joins E to the
+        # segment as its bottom form.
+        am = ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: A, B
+            products: P
+            catalytic_inhibitors: A
+            catalytic_steps: begin
+                E + A <--> E(A)                   :: OnlyA
+                E(A) + B <--> E(A, B)             :: EqualAI
+                E(A, B) <--> E(P)                 :: OnlyA
+                E(P) <--> E + P                   :: EqualAI
+                E + A::Inh ⇌ E(A::Inh)            :: OnlyA
+                E(A::Inh) + B ⇌ E(A::Inh, B)      :: EqualAI
+                E(B) + A::Inh ⇌ E(A::Inh, B)      :: EqualAI
+                F + B <--> E(B)                   :: EqualAI
+            end
+        end)
+        @test_throws "rapid-equilibrium segment" ER._state_allo_mechanism(am, :I)
     end
 
     @testset "AllostericEnzymeMechanism lift validators" begin

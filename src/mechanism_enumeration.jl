@@ -521,7 +521,7 @@ function _minimal_flips(admissible, base::Vector{Vector{Step}}, rxn::EnzymeReact
              if all(is_equilibrium, base[g]) && flux[g] && eligible(g)]
     flipped(sel) = (gs = copy(base); gs[units[sel]] = steady[units[sel]]; gs)
     passes(sel) = (gs = flipped(sel);
-                   admissible(gs) && _bottomless_re_segment(gs) === nothing &&
+                   admissible(gs) && _bottomless_re_segment(rxn, gs) === nothing &&
                    all(_flux_carrying_groups(gs, rxn)[units[sel]]))
     [flipped(sel) for sel in _minimal_gaining_sets(passes, _ -> 1:length(units))]
 end
@@ -1079,8 +1079,8 @@ function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
     gain = _split_gain_test(m, units)
     gains(sel) =
         (!any(u -> reverted[u], sel) ||
-         _bottomless_re_segment(_bipartitioned_groups(groups, units[sel])[1]) ===
-         nothing) && gain(sel)
+         _bottomless_re_segment(reaction(m), _bipartitioned_groups(groups, units[sel])[1])
+         === nothing) && gain(sel)
     # RE segment ids touched by each kinetic group's steps; empty for a group holding an
     # SS step, which lies on no RE cycle and is never a split partner.
     _, _, _, idx, seg = _re_segment_extras(groups)

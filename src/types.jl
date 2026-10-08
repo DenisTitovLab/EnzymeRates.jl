@@ -582,7 +582,7 @@ function _canonical_groups(reaction::EnzymeReaction, groups::Vector{Vector{Step}
     _assert_distinct_form_names(gs)
     _assert_uniform_groups(gs)
     _assert_each_reaction_once(gs)
-    segment = _bottomless_re_segment(gs)
+    segment = _bottomless_re_segment(reaction, gs)
     segment === nothing ||
         error("Mechanism: rapid-equilibrium segment {" *
               join(name.(segment), ", ") * "} has no form free of one side's " *
@@ -754,10 +754,14 @@ function _re_segment_extras(steps::Vector{Vector{Step}})
 end
 
 """
-    _bottomless_re_segment(steps) -> Union{Nothing, Vector{Species}}
+    _bottomless_re_segment(rxn, steps) -> Union{Nothing, Vector{Species}}
 
-The forms of a rapid-equilibrium segment whose weights all vanish at zero
-products, or all vanish at zero substrates; `nothing` when no segment does.
+The forms of a rapid-equilibrium segment of `steps` whose weights all vanish at zero
+products, or all vanish at zero substrates; `nothing` when no segment does. Each
+metabolite name takes its side from the reactants of `rxn`, so a competitive-inhibitor
+copy, which shares its reactant's name and concentration, counts on that reactant's
+side even in a graph that holds no step taking up or giving off the reactant itself
+(the inactive conformation's pruned graph, `_state_allo_mechanism`).
 
 Within a segment, rapid equilibrium fixes each form's weight relative to any
 other as a monomial in concentrations (one factor per RE binding step on the
@@ -773,11 +777,8 @@ segment whose weights vanish only at a corner mixing a substrate and a product
 (a mixed abortive complex, or the ping-pong `E` / `E(; residual)` pair) is
 harmless: no turnover is possible at that corner.
 """
-function _bottomless_re_segment(steps::Vector{Vector{Step}})
-    # Each name's reactant role over every step: a competitive-inhibitor copy shares
-    # its reactant's name and must not hide that role.
-    side = Dict(name(m) => typeof(m) for g in steps for s in g
-                for m in Iterators.flatten((consumed(s), released(s))) if m isa Reactant)
+function _bottomless_re_segment(rxn::EnzymeReaction, steps::Vector{Vector{Step}})
+    side = Dict(name(metabolite(ra)) => typeof(metabolite(ra)) for ra in reactants(rxn))
     species, segments, extras = _re_segment_extras(steps)
     for segment in segments
         length(segment) < 2 && continue
