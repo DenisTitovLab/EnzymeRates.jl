@@ -719,6 +719,9 @@ function _beam_search(
         (entries, failures)
     end
 
+    # The first log line names the package version that wrote the run's CSVs.
+    progress("EnzymeRates v$(pkgversion(EnzymeRates))")
+
     # ── Base tier: fit every seed, with each degenerate seed replaced by its
     # non-degenerate flip children (`_base_tier`; no bucketing — siblings) ──
     progress("Enumerating initial mechanisms…")

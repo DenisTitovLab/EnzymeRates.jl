@@ -377,6 +377,7 @@ end
         @test isfile(joinpath(save_dir, "progress.log"))
         @test filesize(joinpath(save_dir, "progress.log")) > 0
         log_text = read(joinpath(save_dir, "progress.log"), String)
+        @test startswith(log_text, "EnzymeRates v$(pkgversion(EnzymeRates))\n")
         @test occursin("new fits", log_text)
         @test occursin("skipped (>", log_text)
         @test occursin("best loss by n_params:", log_text)
