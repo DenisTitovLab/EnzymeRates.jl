@@ -451,7 +451,7 @@ function _testhelper_analytical_oracle_params(m, nt::NamedTuple;
 end
 
 """Check if mechanism has any rapid-equilibrium steps."""
-_has_re_steps(m) = any(EnzymeRates.is_equilibrium, _testhelper_flat_steps(m))
+_testhelper_has_re_steps(m) = any(EnzymeRates.is_equilibrium, _testhelper_flat_steps(m))
 
 """
 Test that `rate_equation` is non-allocating and fast for the given mechanism.
@@ -681,9 +681,9 @@ function _testhelper_eval_rate_string(s, params, concs)
     eval(Meta.parse(code))
 end
 
-# ── Modular test functions for MechanismTestSpec ────────────────────────────
+# ── Modular test functions for _testhelper_MechanismTestSpec ────────────────
 
-function _testhelper_test_structure(spec::MechanismTestSpec)
+function _testhelper_test_structure(spec::_testhelper_MechanismTestSpec)
     m = spec.mechanism
     @testset "Structure" begin
         flat = _testhelper_flat_steps(m)
@@ -761,7 +761,7 @@ function _testhelper_dep_graph_is_sound(dep, indep)
     true
 end
 
-function _testhelper_test_constraint_counting(spec::MechanismTestSpec)
+function _testhelper_test_constraint_counting(spec::_testhelper_MechanismTestSpec)
     m = spec.mechanism
     @testset "Constraints" begin
         dep_exprs, indep = EnzymeRates._dependent_param_exprs(typeof(m))
@@ -791,10 +791,12 @@ function _testhelper_test_constraint_counting(spec::MechanismTestSpec)
     end
 end
 
-function _testhelper_test_reference_qssa(spec::MechanismTestSpec; n_trials=20, seed=42)
+function _testhelper_test_reference_qssa(
+    spec::_testhelper_MechanismTestSpec; n_trials=20, seed=42
+)
     m = spec.mechanism
     # Reference QSSA only works for all-SS mechanisms
-    _has_re_steps(m) && return
+    _testhelper_has_re_steps(m) && return
     met_names = spec.metabolite_names
     @testset "Reference QSSA" begin
         rng = Random.MersenneTwister(seed)
@@ -812,7 +814,9 @@ function _testhelper_test_reference_qssa(spec::MechanismTestSpec; n_trials=20, s
     end
 end
 
-function _testhelper_test_analytical_rate(spec::MechanismTestSpec; n_trials=20, seed=1001)
+function _testhelper_test_analytical_rate(
+    spec::_testhelper_MechanismTestSpec; n_trials=20, seed=1001
+)
     # Skip if no analytical rate function provided
     spec.analytical_rate_fn === nothing && return
 
@@ -839,7 +843,7 @@ function _testhelper_test_analytical_rate(spec::MechanismTestSpec; n_trials=20, 
     end
 end
 
-function _testhelper_test_haldane_equilibrium(spec::MechanismTestSpec; seed=42)
+function _testhelper_test_haldane_equilibrium(spec::_testhelper_MechanismTestSpec; seed=42)
     m = spec.mechanism
     met_names = spec.metabolite_names
     @testset "Haldane Equilibrium" begin
@@ -866,7 +870,7 @@ function _testhelper_test_haldane_equilibrium(spec::MechanismTestSpec; seed=42)
     end
 end
 
-function _testhelper_test_performance(spec::MechanismTestSpec; seed=42)
+function _testhelper_test_performance(spec::_testhelper_MechanismTestSpec; seed=42)
     m = spec.mechanism
     met_names = spec.metabolite_names
     @testset "Performance" begin
@@ -882,12 +886,14 @@ function _testhelper_test_performance(spec::MechanismTestSpec; seed=42)
     end
 end
 
-function _testhelper_test_ode_steadystate(spec::MechanismTestSpec; n_trials=10, seed=42)
+function _testhelper_test_ode_steadystate(
+    spec::_testhelper_MechanismTestSpec; n_trials=10, seed=42
+)
     m = spec.mechanism
     met_names = spec.metabolite_names
     @testset "ODE Steady-State" begin
         rng = Random.MersenneTwister(seed)
-        has_re = _has_re_steps(m)
+        has_re = _testhelper_has_re_steps(m)
         @test all(1:n_trials) do _
             new_params, concs, all_params =
                 _testhelper_random_independent_params_concs(
@@ -906,7 +912,7 @@ function _testhelper_test_ode_steadystate(spec::MechanismTestSpec; n_trials=10, 
     end
 end
 
-function _testhelper_test_rate_equation_string(spec::MechanismTestSpec)
+function _testhelper_test_rate_equation_string(spec::_testhelper_MechanismTestSpec)
     m = spec.mechanism
     met_names = spec.metabolite_names
     @testset "Rate Equation String" begin
@@ -968,7 +974,7 @@ function _testhelper_extract_num_denom(v_line::AbstractString)
     return String(num_str), String(denom_str)
 end
 
-function _testhelper_test_analytical_kcat(spec::MechanismTestSpec; seed=42)
+function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec; seed=42)
     spec.analytical_kcat_fn === nothing && return
     m = spec.mechanism
     @testset "Analytical kcat" begin
@@ -988,7 +994,7 @@ function _testhelper_test_analytical_kcat(spec::MechanismTestSpec; seed=42)
     end
 end
 
-function _testhelper_test_kcat_rescaling(spec::MechanismTestSpec; seed=100)
+function _testhelper_test_kcat_rescaling(spec::_testhelper_MechanismTestSpec; seed=100)
     m = spec.mechanism
     @testset "kcat rescaling" begin
         rng = Random.MersenneTwister(seed)
@@ -1071,7 +1077,7 @@ sits in the free-enzyme weight `D[g_free]` also keeps a finite rate with a
 nonzero reverse flux; the mass-action gates in `allosteric_ground_truth.jl`
 check that case against the ground truth.
 """
-function _testhelper_test_zero_metabolite_finite(spec::MechanismTestSpec)
+function _testhelper_test_zero_metabolite_finite(spec::_testhelper_MechanismTestSpec)
     m = spec.mechanism
     @testset "Zero-metabolite finiteness" begin
         rng = Random.MersenneTwister(777 + hash(spec.name) % 1000)
@@ -1093,7 +1099,7 @@ end
 Run all tests for a mechanism specification.
 Organizes tests by mechanism: all tests for one mechanism together.
 """
-function _testhelper_run_all_tests(spec::MechanismTestSpec)
+function _testhelper_run_all_tests(spec::_testhelper_MechanismTestSpec)
     @testset "$(spec.name)" begin
         _testhelper_test_structure(spec)
         _testhelper_test_constraint_counting(spec)

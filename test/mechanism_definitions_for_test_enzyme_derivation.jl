@@ -4,13 +4,13 @@
 using LinearAlgebra
 using Random
 
-# ── MechanismTestSpec struct ────────────────────────────────────────────────
+# ── _testhelper_MechanismTestSpec struct ────────────────────────────────────
 
 """
 Data-driven test specification for enzyme mechanisms.
 Contains all expected properties for comprehensive testing.
 """
-Base.@kwdef struct MechanismTestSpec
+Base.@kwdef struct _testhelper_MechanismTestSpec
     # Core data
     name::String                          # Human-readable name for test labels
     mechanism::Any                        # EnzymeMechanism or AllostericEnzymeMechanism
@@ -59,7 +59,7 @@ end
 # Companion macros: expand exactly like `@enzyme_mechanism` /
 # `@allosteric_mechanism` but ALSO return the as-written source-order step
 # groups (and, for allosteric, regulatory sites), captured before the
-# constructor canonicalizes. Used to populate `MechanismTestSpec.source_steps`
+# constructor canonicalizes. Used to populate `_testhelper_MechanismTestSpec.source_steps`
 # / `source_reg_sites` so positional oracles bridge to canonical stored order.
 macro _testhelper_enzyme_mechanism_src(block)
     mech_expr, groups_expr, _ = EnzymeRates._parse_mechanism_body(block, false)
@@ -153,7 +153,7 @@ end
 
 # ── Mechanism test specifications ───────────────────────────────────────────
 
-const MECHANISM_TEST_SPECS = MechanismTestSpec[]
+const MECHANISM_TEST_SPECS = _testhelper_MechanismTestSpec[]
 
 # 1. Uni-Uni (simplest): E + S ⇌ ES ⇌ E + P
 let
@@ -165,7 +165,7 @@ let
             E(S) <--> E + P
         end
     end
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Uni-Uni",
         mechanism=m,
         source_steps=src,
@@ -206,7 +206,7 @@ let
         return Etotal * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Segel Uni Uni",
         mechanism=m,
         source_steps=src,
@@ -245,7 +245,7 @@ let
         return Etotal * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Segel Iso Uni Uni",
         mechanism=m,
         source_steps=src,
@@ -285,7 +285,7 @@ let
         return Etotal * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Segel Ordered Uni Bi",
         mechanism=m,
         source_steps=src,
@@ -332,7 +332,7 @@ let
         return Etotal * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Segel Ordered Bi Bi",
         mechanism=m,
         source_steps=src,
@@ -377,7 +377,7 @@ let
         return Etotal * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Segel Theorell-Chance Bi Bi",
         mechanism=m,
         source_steps=src,
@@ -423,7 +423,7 @@ let
         return Etotal * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Segel Ping Pong Bi Bi",
         mechanism=m,
         source_steps=src,
@@ -487,7 +487,7 @@ let
         return Etotal * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Segel Ordered Ter Bi",
         mechanism=m,
         source_steps=src,
@@ -559,7 +559,7 @@ let
         return Etotal * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Segel Ordered Ter Ter",
         mechanism=m,
         source_steps=src,
@@ -616,7 +616,7 @@ let
         return Etotal * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Segel Bi Uni Uni Uni PP Ter Bi",
         mechanism=m,
         source_steps=src,
@@ -646,7 +646,7 @@ let
             E(Q) <--> E + Q
         end
     end
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Random-order Bi-Bi",
         mechanism=m,
         source_steps=src,
@@ -674,7 +674,7 @@ let
             E(P) ⇌ E + P
         end
     end
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Numerator: random chem-SS (RE/SS)",
         mechanism=m,
         metabolite_names=[:S1, :S2, :P],
@@ -704,7 +704,7 @@ let
             E(P2) ⇌ E + P2
         end
     end
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Numerator: RE-chemistry",
         mechanism=m,
         metabolite_names=[:S1, :S2, :P1, :P2],
@@ -731,7 +731,7 @@ let
             E(P) ⇌ E + P
         end
     end
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Numerator: redundant SS-bind",
         mechanism=m,
         metabolite_names=[:S1, :S2, :P],
@@ -795,7 +795,7 @@ let
         return Etotal * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Segel Bi Uni Uni Bi PP Ter Ter",
         mechanism=m,
         source_steps=src,
@@ -862,7 +862,7 @@ let
         return Etotal * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Segel Bi Bi Uni Uni PP Ter Ter",
         mechanism=m,
         source_steps=src,
@@ -922,7 +922,7 @@ let
         return Etotal * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Segel Hexa Uni Ping Pong",
         mechanism=m,
         source_steps=src,
@@ -961,7 +961,7 @@ let
         return Et * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="RE Uni-Uni",
         mechanism=m,
         source_steps=src,
@@ -1005,7 +1005,7 @@ let
         return Et * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="RE Ordered Bi-Bi",
         mechanism=m,
         source_steps=src,
@@ -1035,7 +1035,7 @@ let
             E(Q) <--> E + Q
         end
     end
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="RE Random Bi-Bi",
         mechanism=m,
         source_steps=src,
@@ -1075,7 +1075,7 @@ let
         return Et * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Competitive Inhibitor",
         mechanism=m,
         source_steps=src,
@@ -1121,7 +1121,7 @@ let
         return Et * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Non-competitive Inhibitor",
         mechanism=m,
         source_steps=src,
@@ -1165,7 +1165,7 @@ let
         return Et * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Uncompetitive Inhibitor",
         mechanism=m,
         source_steps=src,
@@ -1210,7 +1210,7 @@ let
         return Et * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Essential Activator",
         mechanism=m,
         source_steps=src,
@@ -1263,7 +1263,7 @@ let
         return Et * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Non-essential Activator",
         mechanism=m,
         source_steps=src,
@@ -1322,7 +1322,7 @@ let
         return Et * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Activator + Competitive Inhibitor",
         mechanism=m,
         source_steps=src,
@@ -1386,7 +1386,7 @@ let
                    (r_factor^2 + L * t_factor^2)
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="MWC Dimer [AllostericEnzymeMechanism]",
         mechanism=m,
         source_steps=src,
@@ -1444,7 +1444,7 @@ let
         return Et * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Homodimer + Non-competitive Inhibitor [AllostericEnzymeMechanism]",
         mechanism=m,
         source_steps=src,
@@ -1485,7 +1485,7 @@ let
         return Et * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Two Competitive Inhibitors",
         mechanism=m,
         source_steps=src,
@@ -1553,7 +1553,7 @@ let
         return Et * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Two Non-competitive Inhibitors",
         mechanism=m,
         source_steps=src,
@@ -1606,7 +1606,7 @@ let
         return Et * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Non-competitive + Competitive Inhibitor",
         mechanism=m,
         source_steps=src,
@@ -1651,7 +1651,7 @@ let
         return Et * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Uncompetitive + Competitive Inhibitor",
         mechanism=m,
         source_steps=src,
@@ -1712,7 +1712,7 @@ let
         return Et * num / denom
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Two Same-site Inhibitors",
         mechanism=m,
         source_steps=src,
@@ -1864,7 +1864,7 @@ let
         return Et * num / Z
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites",
         mechanism=m,
         source_steps=src,
@@ -1939,7 +1939,7 @@ let
         return Et * num / (Q_R + L * Q_T)
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="PFK-1",
         mechanism=m,
         source_steps=src,
@@ -2069,7 +2069,7 @@ let
         return Et * num / (Q_R + L * Q_T)
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="HK",
         mechanism=m,
         source_steps=src,
@@ -2167,7 +2167,7 @@ let
         return Et * num / den
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="PK",
         mechanism=m,
         source_steps=src,
@@ -2250,7 +2250,7 @@ let
         return Et * num / den
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="m_all",
         mechanism=m,
         source_steps=src,
@@ -2310,7 +2310,7 @@ let
         return Et * num / den
     end
 
-    push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="m_OnlyA_prod",
         mechanism=m,
         source_steps=src,
@@ -2334,7 +2334,7 @@ end
 # set). Written as @allosteric_mechanism for readability; RE-containing
 # with a products=0 boundary, so the ODE cross-check is skipped. The parameter
 # headers of their golden REDUCED_STRINGs confirm the dependent reverse rate is excluded.
-push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
     name="LDH i-state NonequalAI 6-group",
     mechanism=(@allosteric_mechanism begin
         substrates: NADH, Pyruvate
@@ -2362,7 +2362,7 @@ push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
     expected_n_wegscheider_constraints=2, expected_n_independent_params=9,
     run_ode_test=false))
 
-push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
     name="LDH i-state NonequalAI 5-group",
     mechanism=(@allosteric_mechanism begin
         substrates: NADH, Pyruvate
@@ -2386,7 +2386,7 @@ push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
     expected_n_independent_params=8,
     run_ode_test=false))
 
-push!(MECHANISM_TEST_SPECS, MechanismTestSpec(
+push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
     name="LDH i-state EqualAI-NonequalAI 6-group",
     mechanism=(@allosteric_mechanism begin
         substrates: NADH, Pyruvate

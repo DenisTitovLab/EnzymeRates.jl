@@ -30,9 +30,9 @@ deliberate. Moving the derivation to compile time leaves
 every fixture mechanism). That speed is the binding constraint on the whole
 package: the fitter is a multi-start, global, gradient-free optimizer that
 evaluates `rate_equation` millions of times per fit, and a single rate equation
-can take minutes to fit, so any per-call
-allocation or microsecond-scale overhead would make fitting — and therefore
-`identify_rate_equation`, which fits thousands of candidates — impractical.
+can take minutes to fit, so any per-call allocation or microsecond-scale
+overhead would make fitting — and therefore `identify_rate_equation`, which fits
+thousands of candidates — impractical.
 `loss!` is held to the same standard: `FittingProblem` pre-allocates its
 `log_ratios_buffer` once and `loss!` reuses it, so the inner optimization loop
 allocates nothing. The cost is the flip side of the benefit: each unique
