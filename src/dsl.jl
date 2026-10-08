@@ -28,10 +28,13 @@ Emit an `EnzymeReaction`.
 - `competitive_inhibitors:` / `dead_end_inhibitors:` —
   `CompetitiveInhibitor` entries (catalytic-site binding). May be bare
   `I` (multiplicities default to `allowed_catalytic_multiplicities`) or
-  `I(m1, m2, ...)` to override.
+  `I(m1, m2, ...)` to override. Enumeration reads only the mechanism's
+  catalytic multiplicity; the per-inhibitor list is stored but not read.
 - `allosteric_regulators:` — `AllostericRegulator` entries. May be bare
   `A` (multiplicities default to `allowed_catalytic_multiplicities`),
-  `A(m1, m2, ...)` or a single value `A(m)`. An entry may carry a type
+  `A(m1, m2, ...)` or a single value `A(m)`. Enumeration gives every
+  regulatory site the mechanism's catalytic multiplicity; the per-regulator
+  list is stored but not read. An entry may carry a type
   tag, `A::Activator` or `A::Inhibitor`; untagged entries default to
   `:unspecified`. Type tags are only valid on `allosteric_regulators:`
   entries.
