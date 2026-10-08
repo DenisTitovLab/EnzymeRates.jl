@@ -182,6 +182,7 @@ end
         end
         s = sprint(show, m_b)
         @test startswith(s, "EnzymeMechanism (7 steps, 6 enzyme forms):")
+        @test count(==('\n'), s) == 7
         @test contains(s, "E + A <--> EA")
         @test contains(s, "E + Q <--> EQ")
 

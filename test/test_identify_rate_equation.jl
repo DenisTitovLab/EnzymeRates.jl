@@ -1614,7 +1614,19 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    cands = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m3]
+    # m3 with a steady-state Q release: one more fitted parameter.
+    m6 = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products:   P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q <--> E(Q)
+        end
+    end)
+    cands = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m6, m1, m3]
     data = (group = ["a=b", "a=b", "c,d", "c,d", "x y", "x y"],
             Rate = [0.5, 0.8, 1.0, 1.1, 0.9, 1.2],
             A = [1.0, 2.0, 1.0, 2.0, 1.5, 2.5], B = [0.5, 0.5, 1.0, 1.0, 0.7, 0.7],
@@ -1630,18 +1642,18 @@ end
                         base=16, pad=16),
          fit_inherited=false)
     end
-    # Both candidates fit 5 parameters, so LOOCV orders them by loss: the rows go in
-    # against that order and must come back sorted by (n_params, loss).
-    df = EnzymeRates._rows_to_dataframe([mkrow(m1, 0.5), mkrow(m3, 0.2)])
+    # `cands` and the rows are parallel and go in against (n_params, loss) order; they
+    # must come back sorted by it: the 6-parameter row has the lowest loss but sorts last.
+    df = EnzymeRates._rows_to_dataframe([mkrow(m6, 0.1), mkrow(m1, 0.5), mkrow(m3, 0.2)])
     save_dir = mktempdir()
     stub() = _CountingStubOpt(; uval=log(5.0))
     res = EnzymeRates._cv_model_selection(cands, df, prob;
         optimizer=stub(), se_threshold=1.0, save_dir, show_progress=false,
         n_restarts=1, maxtime=1.0)
-    @test nrow(res.cv_results) == 2
-    @test df.n_params == [5, 5]
-    @test res.cv_results.loss == [0.2, 0.5]
-    @test issorted(collect(zip(res.cv_results.n_params, res.cv_results.loss)))
+    @test nrow(res.cv_results) == 3
+    @test df.n_params == [6, 5, 5]
+    @test res.cv_results.n_params == [5, 5, 6]
+    @test res.cv_results.loss == [0.2, 0.5, 0.1]
 
     groups = unique(prob.data.group)
     folds(r) = [r[Symbol("cv_fold_$g")] for g in groups]

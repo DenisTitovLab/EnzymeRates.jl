@@ -262,7 +262,7 @@ function _raw_symbolic_rate_polys(
     # D[g], the spanning-tree weight of segment g: L without g's row and column.
     D = [(o = setdiff(1:G, g); sym_det(L[o, o])) for g in 1:G]
 
-    # A graph with no unbound, residual-free form (a hand-written mechanism whose
+    # A graph with no unbound, residual-free form (e.g. a hand-written mechanism whose
     # every form carries a residual) has no free enzyme to weight, so `d_free` is 1.
     i_free = findfirst(f -> isempty(bound(f)) && isempty(residual(f)), species)
     d_free = i_free === nothing ? poly_one() : D[seg[i_free]]

@@ -1412,8 +1412,8 @@ exists: the copy's forms are not productive, and its steps attach each complex t
 site's segment and join no two segments, so every form of `m` keeps its segment and
 offsets. A `Mechanism` candidate takes the `_gauge_rescaling` path on `groups` and is
 built only when kept. Only the new group is tested: `m` holds no redundant copy group
-(the parent rule), and in about 218,000 enumerated parents checked the placement never
-made an older one redundant (an empirical finding, not a proof). An allosteric
+(the parent rule), and in each of about 218,000 enumerated parents checked, the
+placement made no older copy redundant (an empirical finding, not a proof). An allosteric
 child is built, and runs `_redundant_copy_groups` only when every complex of the copy
 has a twin in the active state (`_all_twin`), which redundancy needs; it tags the copy's
 group `:EqualAI` and keeps `m`'s multiplicity and regulatory sites.
@@ -1741,11 +1741,10 @@ function _expand_change_allo_state(am::AllostericMechanism)
     chem = [any(_is_chemistry, group) for group in cs]
     # Binding catalytic groups relax individually. Chemistry groups relax together.
     # Inactive catalysis is all-or-nothing, so a fully-`:NonequalAI` catalytic inactive
-    # conformation is unreachable by relaxing chemistry groups one at a time — each
-    # mixed intermediate would leave the inactive catalysis partial, which the
-    # all-or-nothing rule forbids. One variant sets every non-`:NonequalAI` chemistry
-    # group to `:NonequalAI` at once, and only while no binding group is `:OnlyA`,
-    # which would leave the inactive catalysis partial.
+    # conformation is unreachable by relaxing chemistry groups one at a time: each
+    # mixed intermediate is partial. One variant sets every non-`:NonequalAI` chemistry
+    # group to `:NonequalAI` at once, and only while no binding group is `:OnlyA`, which
+    # would also leave the inactive catalysis partial.
     relaxations = [[g] for g in eachindex(cs) if !chem[g] && states[g] != :NonequalAI]
     any(chem .& (states .!= :NonequalAI)) && !any(.!chem .& (states .== :OnlyA)) &&
         push!(relaxations, findall(chem))
