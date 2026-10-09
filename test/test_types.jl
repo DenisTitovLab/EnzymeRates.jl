@@ -1779,6 +1779,95 @@ end
     end
 end
 
+@testset "a kinetic group ties one metabolite exchange at two conformations" begin
+    # Segel Iso Uni Uni with an inhibitor I binding E and F, and J displacing I at both
+    # conformations in one group. Neither exchange changes conformation, so the group
+    # stores both to take up J and give off I, however the steps are written.
+    I, J = ER.CompetitiveInhibitor(:I), ER.CompetitiveInhibitor(:J)
+    plain = @enzyme_mechanism begin
+        substrates: A
+        products: P
+        regulators: I, J
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            F <--> E
+            (E + I ⇌ E(I), F + I ⇌ F(I))
+            (E(I) + J <--> E(J) + I, F(I) + J <--> F(J) + I)
+        end
+    end
+    allo = @allosteric_mechanism begin
+        substrates: A
+        products: P
+        catalytic_inhibitors: I, J
+        catalytic_steps: begin
+            E + A <--> E(A)                                   :: EqualAI
+            E(A) <--> E(P)                                    :: EqualAI
+            E(P) <--> F + P                                   :: EqualAI
+            F <--> E                                          :: EqualAI
+            (E + I ⇌ E(I), F + I ⇌ F(I))                      :: EqualAI
+            (E(I) + J <--> E(J) + I, F(I) + J <--> F(J) + I)  :: NonequalAI
+        end
+    end
+    m, am = ER.Mechanism(plain), ER.AllostericMechanism(allo)
+    for mech in (m, am)
+        exchange = only(g for g in ER.steps(mech)
+                        if !any(s -> ER.is_iso(s) || ER.is_binding(s), g))
+        @test length(exchange) == 2
+        @test all(s -> ER.consumed(s) == ER.Metabolite[J] &&
+                       ER.released(s) == ER.Metabolite[I], exchange)
+    end
+    # The written direction and order of the exchanges do not matter.
+    @test ER.Mechanism(@enzyme_mechanism begin
+        substrates: A
+        products: P
+        regulators: I, J
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            F <--> E
+            (E + I ⇌ E(I), F + I ⇌ F(I))
+            (F(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)
+        end
+    end) == m
+    @test ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A
+        products: P
+        catalytic_inhibitors: I, J
+        catalytic_steps: begin
+            E + A <--> E(A)                                   :: EqualAI
+            E(A) <--> E(P)                                    :: EqualAI
+            E(P) <--> F + P                                   :: EqualAI
+            F <--> E                                          :: EqualAI
+            (E + I ⇌ E(I), F + I ⇌ F(I))                      :: EqualAI
+            (F(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)  :: NonequalAI
+        end
+    end) == am
+    # The rate law derives, with the exchange constants named in the J-in direction.
+    @test occursin("k_EIinh_Jinh_to_EJinh_Iinh", rate_equation_string(plain))
+    allo_law = rate_equation_string(allo)
+    @test occursin("k_A_EIinh_Jinh_to_EJinh_Iinh", allo_law)
+    @test occursin("k_I_EIinh_Jinh_to_EJinh_Iinh", allo_law)
+
+    # Exchanges that switch conformation in opposite directions as J displaces I share no
+    # orientation.
+    @test_throws "change different pairs of conformations" @enzyme_mechanism begin
+        substrates: A
+        products: P
+        regulators: I, J
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            F <--> E
+            (E + I ⇌ E(I), F + I ⇌ F(I))
+            (E(I) + J <--> F(J) + I, F(I) + J <--> E(J) + I)
+        end
+    end
+end
+
 @testset "each reaction appears once in a mechanism" begin
     A, B, P = ER.Substrate(:A), ER.Substrate(:B), ER.Product(:P)
     E, EA, EstarA = _testhelper_sp([]), _testhelper_sp([A]), _testhelper_sp([A], :Estar)

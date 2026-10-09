@@ -537,28 +537,39 @@ _reversed(s::Step) =
 
 """
 The steps of one kinetic group, `oriented` one by one by `_canonical_step_direction`
-with the deciding `tiers`, except that the steps Tier 1 leaves tied turn as one: each
-runs between the same two conformations, in the same order, as the group's lead tied
-step, the first by `_step_canonical_key` among those Tier 2 decided, else among those
-Tier 3 decided. A group's steps share their constants, so a conformational change and
-its mirror at other bound forms must be stored in the same physical direction; oriented
-one by one, Tier 2 can run the change one way and Tier 3 its mirror the other, tying a
-forward constant to a reverse one. Errors when a tied step runs between a different
-pair of conformations, since no one orientation then matches the grouping.
+with the deciding `tiers`, except that the steps Tier 1 leaves tied turn as one. The
+lead is the tied step ranked first by whether it changes conformation (those that do
+first), then by deciding tier, then by `_step_canonical_key`. Every other tied step
+takes up and gives off the lead's metabolites (`_step_kind`), and one that changes
+conformation runs between the lead's two conformations in the same order; a step that
+fits in both orientations keeps its own. A group's steps share their constants, so a
+conformational change and its mirror at other bound forms must be stored in the same
+physical direction; oriented one by one, Tier 2 can run the change one way and Tier 3
+its mirror the other, tying a forward constant to a reverse one. The same holds for one
+metabolite exchange at two conformations, which keeps its conformation and turns by
+its metabolites alone. A tied step whose metabolites match the lead's in neither
+orientation is left for `_assert_uniform_groups` to reject. Errors when a tied step's
+metabolites match the lead's but its conformations do not, since no one orientation
+then matches the grouping.
 """
 function _orient_tied_steps(oriented::Vector{Step}, tiers::Vector{Int})
     tied = findall(>(1), tiers)
     length(tied) < 2 && return oriented
-    lead = oriented[argmin(i -> (tiers[i], _step_canonical_key(oriented[i])), tied)]
     pair(s) = (conformation(from_species(s)), conformation(to_species(s)))
+    turns(s) = pair(s)[1] != pair(s)[2]
+    lead = oriented[argmin(i -> (!turns(oriented[i]), tiers[i],
+                                 _step_canonical_key(oriented[i])), tied)]
     map(eachindex(oriented)) do i
         s = oriented[i]
-        (tiers[i] < 2 || pair(s) == pair(lead)) && return s
-        reverse(pair(s)) == pair(lead) && return _reversed(s)
+        tiers[i] < 2 && return s
+        same_kind = filter(o -> _step_kind(o) == _step_kind(lead), [s, _reversed(s)])
+        isempty(same_kind) && return s
+        fit = findfirst(o -> !turns(o) || pair(o) == pair(lead), same_kind)
+        fit === nothing || return same_kind[fit]
         error("Mechanism: a kinetic group holds $(join(_forward_sides(lead), " → ")) " *
-              "and $(join(_forward_sides(s), " → ")), which change different pairs of " *
-              "conformations; the steps of a kinetic group share their constants, so " *
-              "they must make the same conformational change")
+              "and $(join(_forward_sides(first(same_kind)), " → ")), which change " *
+              "different pairs of conformations; the steps of a kinetic group share " *
+              "their constants, so they must make the same conformational change")
     end
 end
 

@@ -31,16 +31,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   ping-pong reactions, 256 enumerated allosteric mechanisms fold a pair in opposite
   directions and 512 more keep a folded constant in the other conformation. The
   single-equation derivation under Planned removes the cause.
-- **A kinetic group cannot tie one metabolite exchange at two conformations.**
-  A group holding `E(I) + J ⇌ E(J) + I` and the same exchange at conformation `F` raises
-  "change different pairs of conformations", although neither step changes conformation;
-  the same exchange at two forms of one conformation passes. `_orient_tied_steps`
-  (`src/types.jl`) compares the conformation pair of every step that metabolite
-  progression leaves tied with the lead step's pair, and a step that keeps its
-  conformation has the pair `(E, E)` or `(F, F)`. The enumerator never builds such a
-  group, so only hand-written mechanisms meet it. A fix would compare pairs only for
-  tied steps that change conformation and orient the others by their consumed and
-  released metabolites.
 
 ## Planned
 
