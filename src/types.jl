@@ -356,8 +356,8 @@ ping-pong and multi-substrate reactions. Reactants and regulators are sorted
 by name in the constructor, so two equivalent declarations compare equal
 under `==`/`hash`. The constructor rejects a name listed as both a substrate
 and a product: concentrations and constants are keyed by name. For the same
-reason it rejects a reactant or regulator named `Keq` or `E_total`, which every
-rate equation takes as parameters.
+reason it rejects a reactant or regulator named `Keq` or `E_total`: both name
+rate-equation parameters.
 
 ```jldoctest
 julia> using EnzymeRates
