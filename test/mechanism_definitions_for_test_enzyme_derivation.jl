@@ -196,7 +196,7 @@ let
     end
 
     # Segel Eq. IX-8: Uni Uni steady-state rate
-    function rate_uni_uni(params, concs)
+    function _testhelper_rate_uni_uni(params, concs)
         (; k1f, k1r, k2f, k2r, k3f, k3r, Etotal) = params
         (; A, P) = concs
         num = k1f * k2f * k3f * A - k1r * k2r * k3r * P
@@ -215,7 +215,7 @@ let
         expected_n_steps=3,
         expected_n_haldane_constraints=1,
         expected_n_independent_params=5,
-        analytical_rate_fn=(p, c) -> rate_uni_uni(merge(p, (Etotal=p.Et,)), c)
+        analytical_rate_fn=(p, c) -> _testhelper_rate_uni_uni(merge(p, (Etotal=p.Et,)), c)
     ))
 end
 
@@ -234,7 +234,7 @@ let
     end
 
     # Segel Eq. IX-45: Iso Uni Uni steady-state rate
-    function rate_iso_uni_uni(params, concs)
+    function _testhelper_rate_iso_uni_uni(params, concs)
         (; k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, Etotal) = params
         (; A, P) = concs
         num = k1f * k2f * k3f * k4f * A - k1r * k2r * k3r * k4r * P
@@ -254,7 +254,8 @@ let
         expected_n_steps=4,
         expected_n_haldane_constraints=1,
         expected_n_independent_params=7,
-        analytical_rate_fn=(p, c) -> rate_iso_uni_uni(merge(p, (Etotal=p.Et,)), c)
+        analytical_rate_fn=(p, c) ->
+            _testhelper_rate_iso_uni_uni(merge(p, (Etotal=p.Et,)), c)
     ))
 end
 
@@ -272,7 +273,7 @@ let
     end
 
     # Segel Eq. IX-60: Ordered Uni Bi steady-state rate
-    function rate_ordered_uni_bi(params, concs)
+    function _testhelper_rate_ordered_uni_bi(params, concs)
         (; k1f, k1r, k2f, k2r, k3f, k3r, Etotal) = params
         (; A, P, Q) = concs
         num = k1f * k2f * k3f * A - k1r * k2r * k3r * P * Q
@@ -294,7 +295,8 @@ let
         expected_n_steps=3,
         expected_n_haldane_constraints=1,
         expected_n_independent_params=5,
-        analytical_rate_fn=(p, c) -> rate_ordered_uni_bi(merge(p, (Etotal=p.Et,)), c)
+        analytical_rate_fn=(p, c) ->
+            _testhelper_rate_ordered_uni_bi(merge(p, (Etotal=p.Et,)), c)
     ))
 end
 
@@ -314,7 +316,7 @@ let
     end
 
     # Segel Eq. IX-87: Ordered Bi Bi steady-state rate
-    function rate_ordered_bi_bi(params, concs)
+    function _testhelper_rate_ordered_bi_bi(params, concs)
         (; k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, Etotal) = params
         (; A, B, P, Q) = concs
         num = k1f * k2f * k3f * k4f * A * B - k1r * k2r * k3r * k4r * P * Q
@@ -341,7 +343,8 @@ let
         expected_n_steps=4,
         expected_n_haldane_constraints=1,
         expected_n_independent_params=7,
-        analytical_rate_fn=(p, c) -> rate_ordered_bi_bi(merge(p, (Etotal=p.Et,)), c),
+        analytical_rate_fn=(p, c) ->
+            _testhelper_rate_ordered_bi_bi(merge(p, (Etotal=p.Et,)), c),
         analytical_kcat_fn=p -> p.k3f * p.k4f / (p.k3f + p.k4f),
     ))
 end
@@ -361,7 +364,7 @@ let
     end
 
     # Segel Eq. IX-122: Theorell-Chance Bi Bi steady-state rate
-    function rate_theorell_chance_bi_bi(params, concs)
+    function _testhelper_rate_theorell_chance_bi_bi(params, concs)
         (; k1f, k1r, k2f, k2r, k3f, k3r, Etotal) = params
         (; A, B, P, Q) = concs
         num = k1f * k2f * k3f * A * B - k1r * k2r * k3r * P * Q
@@ -387,7 +390,7 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) ->
-            rate_theorell_chance_bi_bi(merge(p, (Etotal=p.Et,)), c),
+            _testhelper_rate_theorell_chance_bi_bi(merge(p, (Etotal=p.Et,)), c),
         analytical_kcat_fn=p -> p.k3f,
     ))
 end
@@ -408,7 +411,7 @@ let
     end
 
     # Segel Eq. IX-140: Ping Pong Bi Bi steady-state rate
-    function rate_ping_pong_bi_bi(params, concs)
+    function _testhelper_rate_ping_pong_bi_bi(params, concs)
         (; k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, Etotal) = params
         (; A, B, P, Q) = concs
         num = k1f * k2f * k3f * k4f * A * B - k1r * k2r * k3r * k4r * P * Q
@@ -433,7 +436,7 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=7,
         analytical_rate_fn=(p, c) ->
-            rate_ping_pong_bi_bi(
+            _testhelper_rate_ping_pong_bi_bi(
                 merge(p, (Etotal=p.Et,)), c),
         analytical_kcat_fn=p -> p.k2f * p.k4f / (p.k2f + p.k4f),
     ))
@@ -456,7 +459,7 @@ let
     end
 
     # Segel Eq. IX-195: Ordered Ter Bi steady-state rate
-    function rate_ordered_ter_bi(params, concs)
+    function _testhelper_rate_ordered_ter_bi(params, concs)
         (; k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, k5f, k5r, Etotal) = params
         (; A, B, C, P, Q) = concs
         num = k1f * k2f * k3f * k4f * k5f * A * B * C -
@@ -496,7 +499,8 @@ let
         expected_n_steps=5,
         expected_n_haldane_constraints=1,
         expected_n_independent_params=9,
-        analytical_rate_fn=(p, c) -> rate_ordered_ter_bi(merge(p, (Etotal=p.Et,)), c)
+        analytical_rate_fn=(p, c) ->
+            _testhelper_rate_ordered_ter_bi(merge(p, (Etotal=p.Et,)), c)
     ))
 end
 
@@ -518,7 +522,7 @@ let
     end
 
     # Segel Eq. IX-261: Ordered Ter Ter steady-state rate
-    function rate_ordered_ter_ter(params, concs)
+    function _testhelper_rate_ordered_ter_ter(params, concs)
         (; k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, k5f, k5r, k6f, k6r, Etotal) = params
         (; A, B, C, P, Q, R) = concs
         num = k1f * k2f * k3f * k4f * k5f * k6f * A * B * C -
@@ -569,7 +573,7 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=11,
         analytical_rate_fn=(p, c) ->
-            rate_ordered_ter_ter(
+            _testhelper_rate_ordered_ter_ter(
                 merge(p, (Etotal=p.Et,)), c)
     ))
 end
@@ -591,7 +595,7 @@ let
     end
 
     # Segel Eq. IX-228: Bi Uni Uni Uni Ping Pong Ter Bi steady-state rate
-    function rate_bi_uni_uni_uni_ping_pong_ter_bi(params, concs)
+    function _testhelper_rate_bi_uni_uni_uni_ping_pong_ter_bi(params, concs)
         (; k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, k5f, k5r, Etotal) = params
         (; A, B, C, P, Q) = concs
         num = k1f * k2f * k3f * k4f * k5f * A * B * C -
@@ -626,7 +630,7 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=9,
         analytical_rate_fn=(p, c) ->
-            rate_bi_uni_uni_uni_ping_pong_ter_bi(
+            _testhelper_rate_bi_uni_uni_uni_ping_pong_ter_bi(
                 merge(p, (Etotal=p.Et,)), c)
     ))
 end
@@ -761,7 +765,7 @@ let
     end
 
     # Segel Eq. IX-278: Bi Uni Uni Bi Ping Pong Ter Ter steady-state rate
-    function rate_bi_uni_uni_bi_ping_pong_ter_ter(params, concs)
+    function _testhelper_rate_bi_uni_uni_bi_ping_pong_ter_ter(params, concs)
         (; k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, k5f, k5r, k6f, k6r, Etotal) = params
         (; A, B, C, P, Q, R) = concs
         num = k1f * k2f * k3f * k4f * k5f * k6f * A * B * C -
@@ -805,7 +809,7 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=11,
         analytical_rate_fn=(p, c) ->
-            rate_bi_uni_uni_bi_ping_pong_ter_ter(
+            _testhelper_rate_bi_uni_uni_bi_ping_pong_ter_ter(
                 merge(p, (Etotal=p.Et,)), c)
     ))
 end
@@ -828,7 +832,7 @@ let
     end
 
     # Segel Eq. IX-288: Bi Bi Uni Uni Ping Pong Ter Ter steady-state rate
-    function rate_bi_bi_uni_uni_ping_pong_ter_ter(params, concs)
+    function _testhelper_rate_bi_bi_uni_uni_ping_pong_ter_ter(params, concs)
         (; k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, k5f, k5r, k6f, k6r, Etotal) = params
         (; A, B, C, P, Q, R) = concs
         num = k1f * k2f * k3f * k4f * k5f * k6f * A * B * C -
@@ -872,7 +876,7 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=11,
         analytical_rate_fn=(p, c) ->
-            rate_bi_bi_uni_uni_ping_pong_ter_ter(
+            _testhelper_rate_bi_bi_uni_uni_ping_pong_ter_ter(
                 merge(p, (Etotal=p.Et,)), c)
     ))
 end
@@ -895,7 +899,7 @@ let
     end
 
     # Segel Eq. IX-308: Hexa Uni Ping Pong steady-state rate
-    function rate_hexa_uni_ping_pong(params, concs)
+    function _testhelper_rate_hexa_uni_ping_pong(params, concs)
         (; k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, k5f, k5r, k6f, k6r, Etotal) = params
         (; A, B, C, P, Q, R) = concs
         num = k1f * k2f * k3f * k4f * k5f * k6f * A * B * C -
@@ -932,7 +936,7 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=11,
         analytical_rate_fn=(p, c) ->
-            rate_hexa_uni_ping_pong(
+            _testhelper_rate_hexa_uni_ping_pong(
                 merge(p, (Etotal=p.Et,)), c)
     ))
 end
@@ -953,7 +957,7 @@ let
 
     # Rapid-equilibrium Michaelis-Menten (K1 = Kd = [E][A]/[EA]):
     # rate = E_t * (k2f * A/K1 - k2r * P) / (1 + A/K1)
-    function rate_re_uni_uni(params, concs)
+    function _testhelper_rate_re_uni_uni(params, concs)
         (; K1, k2f, k2r, Et) = params
         (; A, P) = concs
         num = k2f * A / K1 - k2r * P
@@ -970,7 +974,7 @@ let
         expected_n_steps=2,
         expected_n_haldane_constraints=1,
         expected_n_independent_params=2,
-        analytical_rate_fn=(p, c) -> rate_re_uni_uni(merge(p, (Et=p.Et,)), c),
+        analytical_rate_fn=(p, c) -> _testhelper_rate_re_uni_uni(merge(p, (Et=p.Et,)), c),
         analytical_kcat_fn=p -> p.k2f,
     ))
 end
@@ -994,7 +998,7 @@ let
     #   σ = 1 + A/K1 + A*B/(K1*K2)
     # num = k3f*k4f*A*B/(K1*K2) - k3r*k4r*P*Q
     # denom = (1+A/K1+A*B/(K1*K2))*(k3r*P+k4f) + k3f*A*B/(K1*K2) + k4r*Q
-    function rate_re_ordered_bi_bi(params, concs)
+    function _testhelper_rate_re_ordered_bi_bi(params, concs)
         (; K1, K2, k3f, k3r, k4f, k4r, Et) = params
         (; A, B, P, Q) = concs
         num = k3f * k4f * A * B / (K1 * K2) - k3r * k4r * P * Q
@@ -1014,7 +1018,8 @@ let
         expected_n_steps=4,
         expected_n_haldane_constraints=1,
         expected_n_independent_params=5,
-        analytical_rate_fn=(p, c) -> rate_re_ordered_bi_bi(merge(p, (Et=p.Et,)), c)
+        analytical_rate_fn=(p, c) ->
+            _testhelper_rate_re_ordered_bi_bi(merge(p, (Et=p.Et,)), c)
     ))
 end
 
@@ -1067,7 +1072,7 @@ let
     end
 
     # v = Et * (k2f*S/K1 - k2r*P/K3) / (1 + S/K1 + P/K3 + R/K4)
-    function rate_competitive_inh(params, concs)
+    function _testhelper_rate_competitive_inh(params, concs)
         (; K1, k2f, k2r, K3, K4, Et) = params
         (; S, P, R) = concs
         num = k2f * S / K1 - k2r * P / K3
@@ -1084,7 +1089,7 @@ let
         expected_n_steps=4,
         expected_n_haldane_constraints=1,
         expected_n_independent_params=4,
-        analytical_rate_fn=(p, c) -> rate_competitive_inh(
+        analytical_rate_fn=(p, c) -> _testhelper_rate_competitive_inh(
             merge(p, (Et=p.Et,)), c),
         analytical_kcat_fn=p -> p.k2f,
         # Textbook: flat sum denominator (no Cartesian product structure)
@@ -1113,7 +1118,7 @@ let
     end
 
     # v = Et * (k2f*S/K1 - k2r*P/K3) / ((1+R/K4)*(1+S/K1) + P/K3)
-    function rate_noncompetitive_inh(params, concs)
+    function _testhelper_rate_noncompetitive_inh(params, concs)
         (; K1, k2f, k2r, K3, K4, Et) = params
         (; S, P, R) = concs
         num = k2f * S / K1 - k2r * P / K3
@@ -1130,7 +1135,7 @@ let
         expected_n_steps=6,
         expected_n_haldane_constraints=1,
         expected_n_independent_params=4,
-        analytical_rate_fn=(p, c) -> rate_noncompetitive_inh(
+        analytical_rate_fn=(p, c) -> _testhelper_rate_noncompetitive_inh(
             merge(p, (Et=p.Et,)), c),
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
@@ -1157,7 +1162,7 @@ let
     end
 
     # v = Et * (k2f*S/K1 - k2r*P/K3) / (1 + P/K3 + S/K1*(1+R/K4))
-    function rate_uncompetitive_inh(params, concs)
+    function _testhelper_rate_uncompetitive_inh(params, concs)
         (; K1, k2f, k2r, K3, K4, Et) = params
         (; S, P, R) = concs
         num = k2f * S / K1 - k2r * P / K3
@@ -1174,7 +1179,7 @@ let
         expected_n_steps=4,
         expected_n_haldane_constraints=1,
         expected_n_independent_params=4,
-        analytical_rate_fn=(p, c) -> rate_uncompetitive_inh(
+        analytical_rate_fn=(p, c) -> _testhelper_rate_uncompetitive_inh(
             merge(p, (Et=p.Et,)), c),
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
@@ -1202,7 +1207,7 @@ let
     end
 
     # v = Et * R/K4 * (k2f*S/K1 - k2r*P/K3) / (1 + R/K4*(1+S/K1+P/K3))
-    function rate_essential_activator(params, concs)
+    function _testhelper_rate_essential_activator(params, concs)
         (; K1, k2f, k2r, K3, K4, Et) = params
         (; S, P, R) = concs
         num = (R / K4) * (k2f * S / K1 - k2r * P / K3)
@@ -1219,7 +1224,7 @@ let
         expected_n_steps=4,
         expected_n_haldane_constraints=1,
         expected_n_independent_params=4,
-        analytical_rate_fn=(p, c) -> rate_essential_activator(
+        analytical_rate_fn=(p, c) -> _testhelper_rate_essential_activator(
             merge(p, (Et=p.Et,)), c),
         analytical_kcat_fn=p -> p.k2f,
         expected_factored_num=
@@ -1254,7 +1259,7 @@ let
 
     # v = Et * ((k2f*S/K1-k2r*P/K3) + R/K7*(k5f*S/K1-k5r*P/K3))
     #         / ((1+S/K1+P/K3)*(1+R/K7))
-    function rate_nonessential_activator(params, concs)
+    function _testhelper_rate_nonessential_activator(params, concs)
         (; K1, k2f, k2r, K3, k5f, k5r, K7, Et) = params
         (; S, P, R) = concs
         num = (k2f * S / K1 - k2r * P / K3) +
@@ -1272,7 +1277,7 @@ let
         expected_n_steps=9,
         expected_n_haldane_constraints=2,
         expected_n_independent_params=5,
-        analytical_rate_fn=(p, c) -> rate_nonessential_activator(
+        analytical_rate_fn=(p, c) -> _testhelper_rate_nonessential_activator(
             merge(p, (Et=p.Et,)), c),
         analytical_kcat_fn=p -> max(p.k2f, p.k5f),
         expected_factored_num=
@@ -1312,7 +1317,7 @@ let
 
     # v = Et * [(k2f*S/K1 - k2r*P/K3) + (A/K7)*(k5f*S/K1 - k5r*P/K3)]
     #         / [(1+S/K1+P/K3)*(1+A/K7) + I/K10]
-    function rate_activator_inhibitor(params, concs)
+    function _testhelper_rate_activator_inhibitor(params, concs)
         (; K1, k2f, k2r, K3, k5f, k5r, K7, K10, Et) = params
         (; S, P, A, I) = concs
         num = (k2f * S / K1 - k2r * P / K3) +
@@ -1332,7 +1337,7 @@ let
         expected_n_haldane_constraints=2,
         expected_n_independent_params=6,
         analytical_rate_fn=(p, c) ->
-            rate_activator_inhibitor(
+            _testhelper_rate_activator_inhibitor(
                 merge(p, (Et=p.Et,)), c),
         # Denom has both multiplicative (activator) and additive
         # (inhibitor) structure
@@ -1375,7 +1380,7 @@ let
         end
     end
 
-    function rate_mwc_dimer_oligo(params, concs)
+    function _testhelper_rate_mwc_dimer_oligo(params, concs)
         (; K1, K2, k3f, k3r, K1_T, K2_T, k3f_T, k3r_T, L, Et) = params
         (; S, P) = concs
         r_flux   = k3f * S / K1 - k3r * P / K2
@@ -1397,7 +1402,7 @@ let
         expected_n_haldane_constraints=2,         # k3r per conformation × 2
         expected_n_independent_params=7,
         run_ode_test=false,
-        analytical_rate_fn=rate_mwc_dimer_oligo,
+        analytical_rate_fn=_testhelper_rate_mwc_dimer_oligo,
     ))
 end
 
@@ -1429,7 +1434,7 @@ let
         end
     end
 
-    function rate_homodimer_noncomp_inh_oligo(params, concs)
+    function _testhelper_rate_homodimer_noncomp_inh_oligo(params, concs)
         (; K1, K2, k3f, k3r, K1_T, K2_T, k3f_T, k3r_T,
            L, K_I_reg1, K_I_T_reg1, Et) = params
         (; S, P, I) = concs
@@ -1455,7 +1460,7 @@ let
         expected_n_haldane_constraints=2,
         expected_n_independent_params=9,
         run_ode_test=false,
-        analytical_rate_fn=rate_homodimer_noncomp_inh_oligo,
+        analytical_rate_fn=_testhelper_rate_homodimer_noncomp_inh_oligo,
     ))
 end
 
@@ -1477,7 +1482,7 @@ let
         end
     end
 
-    function rate_two_comp_inh(p, c)
+    function _testhelper_rate_two_comp_inh(p, c)
         (; K1, k2f, k2r, K3, K4, K5, Et) = p
         (; S, P, I1, I2) = c
         num = k2f * S / K1 - k2r * P / K3
@@ -1495,7 +1500,7 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) ->
-            rate_two_comp_inh(merge(p, (Et=p.Et,)), c),
+            _testhelper_rate_two_comp_inh(merge(p, (Et=p.Et,)), c),
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
         expected_factored_denom=
@@ -1544,7 +1549,7 @@ let
 
     # Param names use kinetic-group representative-step indices:
     # K1=S-binding, k5f=iso, K6=P-binding, K10=I1-binding, K16=I2-binding.
-    function rate_two_noncomp_inh(p, c)
+    function _testhelper_rate_two_noncomp_inh(p, c)
         (; K1, k5f, k5r, K6, K10, K16, Et) = p
         (; S, P, I1, I2) = c
         num = k5f * S / K1 - k5r * P / K6
@@ -1563,7 +1568,7 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) ->
-            rate_two_noncomp_inh(merge(p, (Et=p.Et,)), c),
+            _testhelper_rate_two_noncomp_inh(merge(p, (Et=p.Et,)), c),
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
         expected_factored_denom=
@@ -1597,7 +1602,7 @@ let
 
     # Param names use kinetic-group representative-step indices:
     # K1=S, k3f=iso, K4=P, K6=I1-binding, K9=I2-dead-end.
-    function rate_noncomp_comp_inh(p, c)
+    function _testhelper_rate_noncomp_comp_inh(p, c)
         (; K1, k3f, k3r, K4, K6, K9, Et) = p
         (; S, P, I1, I2) = c
         num = k3f * S / K1 - k3r * P / K4
@@ -1616,7 +1621,7 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) ->
-            rate_noncomp_comp_inh(merge(p, (Et=p.Et,)), c),
+            _testhelper_rate_noncomp_comp_inh(merge(p, (Et=p.Et,)), c),
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
         expected_factored_denom=
@@ -1642,7 +1647,7 @@ let
         end
     end
 
-    function rate_uncomp_comp_inh(p, c)
+    function _testhelper_rate_uncomp_comp_inh(p, c)
         (; K1, k2f, k2r, K3, K4, K5, Et) = p
         (; S, P, I1, I2) = c
         num = k2f * S / K1 - k2r * P / K3
@@ -1661,7 +1666,7 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) ->
-            rate_uncomp_comp_inh(merge(p, (Et=p.Et,)), c),
+            _testhelper_rate_uncomp_comp_inh(merge(p, (Et=p.Et,)), c),
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
         expected_factored_denom=
@@ -1703,7 +1708,7 @@ let
 
     # Param names use kinetic-group representative-step indices:
     # K1=S, k4f=iso, K5=P, K8=I1, K11=I2.
-    function rate_two_samesite_inh(p, c)
+    function _testhelper_rate_two_samesite_inh(p, c)
         (; K1, k4f, k4r, K5, K8, K11, Et) = p
         (; S, P, I1, I2) = c
         num = k4f * S / K1 - k4r * P / K5
@@ -1722,7 +1727,7 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) ->
-            rate_two_samesite_inh(merge(p, (Et=p.Et,)), c),
+            _testhelper_rate_two_samesite_inh(merge(p, (Et=p.Et,)), c),
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
         expected_factored_denom=
@@ -1826,7 +1831,7 @@ let
     # K1=S1-binding (group 1, rep step 1), K4=P1-binding (rep step 4),
     # K7=S2-binding (rep step 7), K10=P2-binding (rep step 10),
     # k13f/k13r=catalysis SS (rep step 13).
-    function rate_mwc_tetramer_bi_bi(params, concs)
+    function _testhelper_rate_mwc_tetramer_bi_bi(params, concs)
         (; K1, K4, K7, K10, k13f, k13r,
            K1_T, K4_T, K7_T, K10_T, k13f_T, k13r_T,
            K_R1_reg1, K_R2_reg1, K_R1_T_reg1, K_R2_T_reg1,
@@ -1875,7 +1880,7 @@ let
         expected_n_haldane_constraints=2,          # one k13r per conformation (R and T)
         expected_n_independent_params=17,
         run_ode_test=false,
-        analytical_rate_fn=rate_mwc_tetramer_bi_bi,
+        analytical_rate_fn=_testhelper_rate_mwc_tetramer_bi_bi,
     ))
 end
 
@@ -1904,7 +1909,7 @@ let
         end
     end
 
-    function pfk_rate_analytical(params, concs)
+    function _testhelper_pfk_rate_analytical(params, concs)
         (; K1, K3, k5f, K6, K8,
            K_Pi_reg1, K_ATP_T_reg1,
            K_ADP_reg2, K_Citrate_T_reg3,
@@ -1951,7 +1956,7 @@ let
         expected_n_mirror_constraints=1,
         expected_n_independent_params=12,
         run_ode_test=false,
-        analytical_rate_fn=pfk_rate_analytical,
+        analytical_rate_fn=_testhelper_pfk_rate_analytical,
         # F6P binding (group 1) is :OnlyA → the F6P·ATP saturating
         # pattern is unreachable in T-state, so kcat = k5f
         # for every regulator corner. Guards `_kcat_forward` for a saturating
@@ -2026,7 +2031,7 @@ let
     #   K10 (ADP release, group 5 rep step 10)
     #   K12 (G6P at inhibitory site, group 6 rep step 12) — single K
     #        for all three E_G6Pi-form bindings.
-    function hk_rate_analytical(params, concs)
+    function _testhelper_hk_rate_analytical(params, concs)
         (; K1, K4, k6f, K7, K10, K12,
            K_Pi_reg1, K_G6P_T_reg1,
            L, Keq, Et) = params
@@ -2081,7 +2086,7 @@ let
         expected_n_mirror_constraints=1,
         expected_n_independent_params=9,
         run_ode_test=false,
-        analytical_rate_fn=hk_rate_analytical,
+        analytical_rate_fn=_testhelper_hk_rate_analytical,
         # ATP binding (group 2) is :OnlyA → the Glucose·ATP saturating
         # pattern is unreachable in T-state, so kcat = k6f
         # for every regulator corner. Guards `_kcat_forward` for a saturating
@@ -2140,7 +2145,7 @@ let
     # cycle is dead (N_T = 0) and the T-state is a clean binding partition with
     # no PEP term. k5r derives via the R-state Haldane k5r = k5f·K6·K8/(Keq·K1·K3).
     # At saturation the R-state dominates, so forward kcat = k5f.
-    function pk_rate_analytical(params, concs)
+    function _testhelper_pk_rate_analytical(params, concs)
         (; K1, K3, k5f, K6, K8,
            K_ATP_T_reg1, K_F16BP_reg2,
            L, Keq, Et) = params
@@ -2181,7 +2186,7 @@ let
         # (N_T = 0). One R-state Haldane derives k5r; no Wegscheider tie.
         expected_n_independent_params=8,
         run_ode_test=false,
-        analytical_rate_fn=pk_rate_analytical,
+        analytical_rate_fn=_testhelper_pk_rate_analytical,
         analytical_kcat_fn = p -> p.k5f,
     ))
 end
@@ -2224,7 +2229,7 @@ let
     #   k5f, k5f_T : catalysis SS (group 3, NonequalAI)
     #   K6, K6_T : P1 release (group 4, NonequalAI)
     #   K8       : P2 release (group 5, EqualAI)
-    function m_all_rate_analytical(params, concs)
+    function _testhelper_m_all_rate_analytical(params, concs)
         (; K1, K1_T, K3, k5f, k5f_T, K6, K6_T, K8,
            K_R1_reg1, K_R1_T_reg1, K_R2_reg1,
            L, Keq, Et) = params
@@ -2263,7 +2268,7 @@ let
         expected_n_mirror_constraints=1,
         expected_n_independent_params=12,
         run_ode_test=false,
-        analytical_rate_fn=m_all_rate_analytical,
+        analytical_rate_fn=_testhelper_m_all_rate_analytical,
         analytical_kcat_fn=nothing,      # cat is :NonequalAI → kcat L-dependent
     ))
 end
@@ -2292,7 +2297,7 @@ let
     #   K1   : S binding (group 1, EqualAI)
     #   k2f  : catalysis SS (group 2, EqualAI, k2r derived via Haldane)
     #   K3   : P release (group 3, OnlyA)
-    function m_OnlyA_prod_rate_analytical(params, concs)
+    function _testhelper_m_OnlyA_prod_rate_analytical(params, concs)
         (; K1, k2f, K3, L, Keq, Et) = params
         (; S, P) = concs
 
@@ -2321,7 +2326,7 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=4,
         run_ode_test=false,
-        analytical_rate_fn=m_OnlyA_prod_rate_analytical,
+        analytical_rate_fn=_testhelper_m_OnlyA_prod_rate_analytical,
         # kcat at saturating S, zero P:
         #   A_R = k2f/K1², B_R = 1/K1², B_T = 1/K1² (T-state pattern same as R)
         #   kcat = A_R / (B_R + L · B_T) = k2f / (1 + L)

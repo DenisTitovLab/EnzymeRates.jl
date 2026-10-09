@@ -444,8 +444,9 @@ function _testhelper_pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r;
     _testhelper_mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
-# `rate_ping_pong_bi_bi` in `test/mechanism_definitions_for_test_enzyme_derivation.jl`
-# transcribes this same Segel formula, and both transcriptions are live. Keep them
+# `_testhelper_rate_ping_pong_bi_bi` in
+# `test/mechanism_definitions_for_test_enzyme_derivation.jl` transcribes this same Segel
+# formula, and both transcriptions are live. Keep them
 # independent rather than sharing one: a shared transcription error would green this
 # gate and that one at once, whereas two independent transcriptions cross-check each
 # other. Sharing would also couple this gate to the MECHANISM_TEST_SPECS fixture,
@@ -797,13 +798,14 @@ function _testhelper_biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP; k_A, k_I,
                                  A, B, P, FAST=1e7, freeflip=true)
     krA = k_A * kon * KP / (koff * KB * Keq)
     krI = k_I * kon * KP / (koff * KB * Keq)
-    prot_edges(kX, krX) = [
+    _testhelper_prot_edges(kX, krX) = [
         (:E, :EA, kon * A), (:EA, :E, koff),
         (:EA, :EAB, FAST * B / KB), (:EAB, :EA, FAST),
         (:E, :EP, FAST * P / KP), (:EP, :E, FAST),
         (:EAB, :EP, kX), (:EP, :EAB, krX),
     ]
-    tbl = Dict(:A => prot_edges(k_A, krA), :I => prot_edges(k_I, krI))
+    tbl = Dict(:A => _testhelper_prot_edges(k_A, krA),
+               :I => _testhelper_prot_edges(k_I, krI))
     catrate = Dict(:A => (k_A, krA), :I => (k_I, krI))
 
     occs = collect(Iterators.product(ntuple(_ -> OCC, nprot)...))
@@ -941,7 +943,7 @@ end
         # Map fitted_params -> ground-truth params:
         #   k_E_A_to_EA=kon, k_EA_to_E_A=koff, K_EAB_to_EA_B=KB, K_EP_to_E_P=KP,
         #   k_A_EAB_to_EP=k_A, k_I_EAB_to_EP=k_I.
-        function params_for(kon, koff, KP, KB, kA, kI, L, Keq)
+        function _testhelper_params_for(kon, koff, KP, KB, kA, kI, L, Keq)
             d = Dict(:k_E_A_to_EA=>kon, :k_EA_to_E_A=>koff, :K_EP_to_E_P=>KP,
                      :K_EAB_to_EA_B=>KB, :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L)
             NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
@@ -952,7 +954,7 @@ end
             kA = 0.5+2rand(rng); kI = 0.5+2rand(rng)
             L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
             A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng)
-            prm = params_for(kon, koff, KP, KB, kA, kI, L, Keq)
+            prm = _testhelper_params_for(kon, koff, KP, KB, kA, kI, L, Keq)
             # `rate_equation` is per active site; the oracle is per oligomer.
             v_code = nprot * real(ER.rate_equation(allo, (A=A, B=B, P=P), prm))
             v_gt = _testhelper_biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
@@ -968,7 +970,7 @@ end
             kon, koff, KP, KB = 1.7, 1.1, 0.9, 0.8
             kA, kI, L, Keq, A, P = 2.5, 0.4, 0.7, 3.0, 1.1, 0.9
             vN = real(ER.rate_equation(allo, (A=A, B=0.0, P=P),
-                                       params_for(kon, koff, KP, KB, kA, kI, L, Keq)))
+                _testhelper_params_for(kon, koff, KP, KB, kA, kI, L, Keq)))
             @test isapprox(vN, _testhelper_biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
                 k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=0.0, P=P); rtol=1e-4)
             @test abs(vN) > 1e-3

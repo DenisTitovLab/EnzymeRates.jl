@@ -541,9 +541,9 @@ function _testhelper_raw_to_ode_params(m, raw_params)
         for (s, _) in flat
     ]
     # Resolve a structural param key through the rename map if not present
-    _lookup(k) = haskey(raw_params, k) ? Float64(raw_params[k]) :
-                 haskey(rename, k) ? Float64(raw_params[rename[k]]) :
-                 error("_testhelper_raw_to_ode_params: missing param $k")
+    _testhelper_lookup(k) = haskey(raw_params, k) ? Float64(raw_params[k]) :
+                            haskey(rename, k) ? Float64(raw_params[rename[k]]) :
+                            error("_testhelper_raw_to_ode_params: missing param $k")
     param_keys = Symbol[]
     param_vals = Float64[]
     for (i, (step, g)) in enumerate(flat)
@@ -552,7 +552,8 @@ function _testhelper_raw_to_ode_params(m, raw_params)
         push!(param_keys, Symbol("k$(i)r"))
         if EnzymeRates.is_equilibrium(step)
             # Look up the rep step's structural K key
-            K = _lookup(EnzymeRates.name(EnzymeRates.Krapid(rep_step, :None), mech))
+            K = _testhelper_lookup(
+                EnzymeRates.name(EnzymeRates.Krapid(rep_step, :None), mech))
             if is_binding_step[i]
                 # Binding step (metabolite on LHS): K = Kd = kr/kf
                 push!(param_vals, 1e6)
@@ -566,8 +567,8 @@ function _testhelper_raw_to_ode_params(m, raw_params)
             # SS step: its forward and reverse rate constants
             fwd_key = EnzymeRates.name(EnzymeRates.Kfor(rep_step, :None), mech)
             rev_key = EnzymeRates.name(EnzymeRates.Krev(rep_step, :None), mech)
-            push!(param_vals, _lookup(fwd_key))
-            push!(param_vals, _lookup(rev_key))
+            push!(param_vals, _testhelper_lookup(fwd_key))
+            push!(param_vals, _testhelper_lookup(rev_key))
         end
     end
     push!(param_keys, :E_total)
@@ -613,7 +614,7 @@ function _testhelper_build_ode_rhs(
     end
 
     n = length(enz_names)
-    function rhs!(du, u, p, t)
+    function _testhelper_rhs!(du, u, p, t)
         fill!(du, 0.0)
         for (i, j, rf, rr) in step_data
             flux = rf * u[i] - rr * u[j]
@@ -621,7 +622,7 @@ function _testhelper_build_ode_rhs(
             du[j] += flux
         end
     end
-    return rhs!
+    return _testhelper_rhs!
 end
 
 function _testhelper_ode_steady_state_flux(
@@ -735,7 +736,7 @@ function _testhelper_dep_graph_is_sound(dep, indep)
                  for (k, v) in dep)
     state = Dict{Symbol, Int}()  # 0 = unseen, 1 = on-stack, 2 = done
     ok = true
-    function dfs(n)
+    function _testhelper_dfs(n)
         get(state, n, 0) == 2 && return
         if get(state, n, 0) == 1
             ok = false
@@ -743,13 +744,13 @@ function _testhelper_dep_graph_is_sound(dep, indep)
         end
         state[n] = 1
         for m in get(edges, n, Symbol[])
-            dfs(m)
+            _testhelper_dfs(m)
             ok || return
         end
         state[n] = 2
     end
     for k in keys(dep)
-        dfs(k)
+        _testhelper_dfs(k)
         ok || break
     end
     ok || return false
@@ -1327,13 +1328,14 @@ const _testhelper_tc_cases = (
 end
 
 @testset "reversing written steps changes nothing" begin
-    rev(s) = ER.Step(ER.to_species(s), ER.from_species(s), ER.released(s), ER.consumed(s),
-                     ER.is_equilibrium(s))
+    _testhelper_rev(s) = ER.Step(ER.to_species(s), ER.from_species(s), ER.released(s),
+                                 ER.consumed(s), ER.is_equilibrium(s))
     rng = Random.MersenneTwister(7)
     # Every step reversed, a random subset, and every group's steps in reverse order.
-    variants(groups) = ([[rev(s) for s in g] for g in groups],
-                        [[rand(rng, Bool) ? rev(s) : s for s in g] for g in groups],
-                        [reverse(g) for g in groups])
+    _testhelper_variants(groups) = (
+        [[_testhelper_rev(s) for s in g] for g in groups],
+        [[rand(rng, Bool) ? _testhelper_rev(s) : s for s in g] for g in groups],
+        [reverse(g) for g in groups])
     # The Theorell–Chance step of `tc_ss` written backwards.
     tc_backwards = @enzyme_mechanism begin
         substrates: A, B
@@ -1352,7 +1354,7 @@ end
     append!(ems, _testhelper_fused_cases, values(_testhelper_tc_cases), [tc_backwards])
     for em in ems
         m = ER.Mechanism(em)
-        for flipped in variants(ER.steps(m))
+        for flipped in _testhelper_variants(ER.steps(m))
             m2 = ER.Mechanism(ER.reaction(m), flipped)
             @test m2 == m
             @test ER.rate_equation_string(ER.compile_mechanism(m2)) ==
@@ -1362,7 +1364,7 @@ end
     for spec in MECHANISM_TEST_SPECS
         spec.mechanism isa ER.AllostericEnzymeMechanism || continue
         am = ER.AllostericMechanism(spec.mechanism)
-        for flipped in variants(ER.steps(am))
+        for flipped in _testhelper_variants(ER.steps(am))
             am2 = ER.AllostericMechanism(ER.reaction(am), flipped, ER.cat_allo_states(am),
                                          ER.catalytic_multiplicity(am),
                                          ER.regulatory_sites(am))
@@ -1508,7 +1510,7 @@ end
                 if s.name == "Random-order Bi-Bi")
     num_expr, den_expr = EnzymeRates._num_den_exprs(typeof(spec.mechanism))
     bad = Expr[]
-    function walk!(e)
+    function _testhelper_walk!(e)
         if e isa Expr
             if e.head == :call && !isempty(e.args) &&
                e.args[1] isa Symbol && e.args[1] in (:+, :*) &&
@@ -1517,12 +1519,12 @@ end
             end
             start = e.head == :call ? 2 : 1
             for i in start:length(e.args)
-                walk!(e.args[i])
+                _testhelper_walk!(e.args[i])
             end
         end
     end
-    walk!(num_expr)
-    walk!(den_expr)
+    _testhelper_walk!(num_expr)
+    _testhelper_walk!(den_expr)
     @test isempty(bad)
 end
 

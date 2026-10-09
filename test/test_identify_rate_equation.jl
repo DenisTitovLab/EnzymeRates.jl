@@ -63,7 +63,7 @@ end
         K_I_Rreg = 2.0, L = 0.1,
         Keq = Keq_val, E_total = 1.0)
 
-    function make_test_data(
+    function _testhelper_make_test_data(
         mechanism, params;
         n_per_group=10, n_groups=5
     )
@@ -93,7 +93,7 @@ end
     end
 
     Random.seed!(42)
-    test_data = make_test_data(
+    test_data = _testhelper_make_test_data(
         test_mechanism, true_params)
 
     cmaes_opt = CMAEvolutionStrategyOpt()
@@ -385,11 +385,13 @@ end
         @test occursin("best loss by n_params:", log_text)
         # The base tier and every iteration log the same four-line block: a header, the
         # pre-fit summary, the post-fit summary and the best-loss line.
-        block(header) = Regex("^" * header * "\\n  \\d+ new fits \\+ [^\\n]*\\n" *
-                              "  \\d+ errored \\| Success [^\\n]*\\n" *
-                              "  best loss by n_params: ", "m")
-        @test occursin(block("Fitting \\d+ initial mechanisms…"), log_text)
-        @test occursin(block("Iteration 1: \\d+ parents → \\d+ children"), log_text)
+        _testhelper_block(header) = Regex(
+            "^" * header * "\\n  \\d+ new fits \\+ [^\\n]*\\n" *
+            "  \\d+ errored \\| Success [^\\n]*\\n" *
+            "  best loss by n_params: ", "m")
+        @test occursin(_testhelper_block("Fitting \\d+ initial mechanisms…"), log_text)
+        @test occursin(
+            _testhelper_block("Iteration 1: \\d+ parents → \\d+ children"), log_text)
         @test !any(startswith(f, "params_estimate_") for f in files)
         iters = filter(f -> startswith(f, "equation_search_iteration_"), files)
         @test !isempty(iters)
@@ -529,52 +531,54 @@ end
 @testset "_select_count!: thresholds, floor, best loss, parsimony" begin
     # One call at count 5 with a fresh floor budget: `best` is the count's best loss
     # over the whole search, and `others` holds the best losses of other counts.
-    selected(losses, best; rel, add = 0.0, width = 1, others = Dict{Int,Float64}(),
-             parsimony = 1.0) =
+    _testhelper_selected(losses, best; rel, add = 0.0, width = 1,
+                         others = Dict{Int,Float64}(), parsimony = 1.0) =
         EnzymeRates._select_count!(Dict{Int,Int}(), merge(Dict(5 => best), others), 5,
             losses; loss_rel_threshold = rel, loss_abs_threshold = add,
             loss_parsimony_threshold = parsimony, min_beam_width = width)
 
     losses = [1.0, 1.5, 2.5, 5.0, 10.0]
-    @test selected(losses, 1.0; rel = 2.0) == [1, 2]
-    @test selected(losses, 1.0; rel = 2.0, width = 4) == [1, 2, 3, 4]
+    @test _testhelper_selected(losses, 1.0; rel = 2.0) == [1, 2]
+    @test _testhelper_selected(losses, 1.0; rel = 2.0, width = 4) == [1, 2, 3, 4]
 
     # The additive term keeps a near-zero best loss from collapsing the cutoff.
-    @test selected([1e-6, 0.005, 0.05], 1e-6; rel = 2.0, add = 0.01) == [1, 2]
+    @test _testhelper_selected([1e-6, 0.005, 0.05], 1e-6; rel = 2.0, add = 0.01) == [1, 2]
 
     # Indices come back in INPUT order, not loss order.
-    @test selected([5.0, 1.0, 10.0, 2.0], 1.0; rel = 2.5) == [2, 4]
+    @test _testhelper_selected([5.0, 1.0, 10.0, 2.0], 1.0; rel = 2.5) == [2, 4]
 
     # The relative cutoff uses the count's best loss, which can differ from this
     # sweep's minimum.
     losses = [1.0, 1.5, 3.0]
-    @test selected(losses, 1.0; rel = 1.2) == [1]         # cutoff 1.2
-    @test selected(losses, 2.0; rel = 1.2) == [1, 2]      # cutoff 2.4
-    @test selected(losses, 0.0; rel = 1.0, width = 2) == [1, 2]   # floor still honored
+    @test _testhelper_selected(losses, 1.0; rel = 1.2) == [1]         # cutoff 1.2
+    @test _testhelper_selected(losses, 2.0; rel = 1.2) == [1, 2]      # cutoff 2.4
+    # floor still honored
+    @test _testhelper_selected(losses, 0.0; rel = 1.0, width = 2) == [1, 2]
 
     # Floor guarantee: a parsimony cutoff below every loss admits nothing via
     # the loss filter, yet min_beam_width still keeps the top-k by loss.
     losses = [1.0, 1.5, 2.5, 5.0, 10.0]
-    @test selected(losses, 1.0; rel = 2.0, width = 2, others = Dict(4 => 0.5)) == [1, 2]
+    @test _testhelper_selected(losses, 1.0; rel = 2.0, width = 2,
+                               others = Dict(4 => 0.5)) == [1, 2]
 
     # Tightening: a parsimony cutoff stricter than the rel/abs cutoff lowers the
     # combined cutoff to 2.0, so indices 1 and 2 (losses 1.0, 1.5) pass and
     # index 3 (2.5) is dropped. Without it, rel=10 would admit all four.
     losses = [1.0, 1.5, 2.5, 5.0]
-    @test selected(losses, 1.0; rel = 10.0, others = Dict(4 => 2.0)) == [1, 2]
+    @test _testhelper_selected(losses, 1.0; rel = 10.0, others = Dict(4 => 2.0)) == [1, 2]
 
     # No-op: with no smaller count fit yet the parsimony term is dropped, whatever its
     # threshold, and a larger count is no parsimony reference.
-    @test selected(losses, 1.0; rel = 2.0, parsimony = 0.0) ==
-          selected(losses, 1.0; rel = 2.0, parsimony = Inf) == [1, 2]
-    @test selected(losses, 1.0; rel = 2.0, others = Dict(6 => 0.1)) == [1, 2]
+    @test _testhelper_selected(losses, 1.0; rel = 2.0, parsimony = 0.0) ==
+          _testhelper_selected(losses, 1.0; rel = 2.0, parsimony = Inf) == [1, 2]
+    @test _testhelper_selected(losses, 1.0; rel = 2.0, others = Dict(6 => 0.1)) == [1, 2]
 
     # Interaction: min() picks the smaller cutoff. With best loss 2.0 the
     # rel cutoff is 2.4 (admits 1,2); a tighter parsimony cutoff of 1.0 lowers
     # it to just the single best.
     losses = [1.0, 1.5, 3.0]
-    @test selected(losses, 2.0; rel = 1.2) == [1, 2]
-    @test selected(losses, 2.0; rel = 1.2, others = Dict(4 => 1.0)) == [1]
+    @test _testhelper_selected(losses, 2.0; rel = 1.2) == [1, 2]
+    @test _testhelper_selected(losses, 2.0; rel = 1.2, others = Dict(4 => 1.0)) == [1]
 end
 
 @testset "all base fits fail: failure CSV written, then raises" begin
@@ -757,18 +761,18 @@ end
 @testset "§1 parsimony cutoff = threshold * min over all counts < c" begin
     # No floor and a loose relative cutoff (10 × the count's best), so the parsimony
     # cutoff alone decides: 1.01 × the best loss over the counts below c.
-    selected(best_loss_by_count, c, losses) = EnzymeRates._select_count!(
+    _testhelper_selected(best_loss_by_count, c, losses) = EnzymeRates._select_count!(
         Dict{Int,Int}(), best_loss_by_count, c, losses; loss_rel_threshold=10.0,
         loss_abs_threshold=0.0, loss_parsimony_threshold=1.01, min_beam_width=0)
     # No count < c: no parsimony term (else 0.15 > 1.01*0.02 would be dropped).
-    @test selected(Dict(5=>0.02), 5, [0.02, 0.15]) == [1, 2]
+    @test _testhelper_selected(Dict(5=>0.02), 5, [0.02, 0.15]) == [1, 2]
     # min over <c, not c-1: the cutoff is 1.01*0.02, not 1.01*0.03.
-    @test selected(Dict(5=>0.02, 6=>0.05, 7=>0.03, 8=>0.02), 8,
-                   [0.0201, 0.0203, 0.03]) == [1]
+    @test _testhelper_selected(Dict(5=>0.02, 6=>0.05, 7=>0.03, 8=>0.02), 8,
+                               [0.0201, 0.0203, 0.03]) == [1]
     # count gap: c-1=6 absent, the cutoff is 1.01*0.02.
-    @test selected(Dict(5=>0.02, 7=>0.02), 7, [0.0201, 0.0203]) == [1]
+    @test _testhelper_selected(Dict(5=>0.02, 7=>0.02), 7, [0.0201, 0.0203]) == [1]
     # non-monotone → true min: the cutoff is 1.01*0.01, not 1.01*0.04.
-    @test selected(Dict(5=>0.01, 6=>0.04, 7=>0.01), 7, [0.0100, 0.0102]) == [1]
+    @test _testhelper_selected(Dict(5=>0.01, 6=>0.04, 7=>0.01), 7, [0.0100, 0.0102]) == [1]
 end
 
 @testset "_progress" begin
@@ -996,7 +1000,7 @@ end
 end
 
 @testset "_ingest! and cv pool" begin
-    mk(n, loss, h) = EnzymeRates.BatchEntry(
+    _testhelper_mk(n, loss, h) = EnzymeRates.BatchEntry(
         first(EnzymeRates.init_mechanisms(_testhelper_uni_rxn)),
         n, loss, :Success, hash(h),
         (n_params=n, loss=loss, mechanism_type="M",
@@ -1008,7 +1012,8 @@ end
     best     = Dict{Int,Float64}()
     # two distinct equations + one duplicate-eq with worse loss, n_cv=2
     improved = EnzymeRates._ingest!(frontier, cv_pool, best,
-        [mk(5,2.0,:a), mk(5,1.0,:b), mk(5,3.0,:a)]; n_cv_candidates=2)
+        [_testhelper_mk(5,2.0,:a), _testhelper_mk(5,1.0,:b), _testhelper_mk(5,3.0,:a)];
+        n_cv_candidates=2)
     @test improved == Set([5])                 # count 5 first appeared
     @test length(frontier[5]) == 3            # frontier keeps ALL
     @test best[5] == 1.0                       # running min
@@ -1022,9 +1027,10 @@ end
     # entry is worse than its best (0.5).
     best[7] = 0.5
     @test EnzymeRates._ingest!(frontier, cv_pool, best,
-        [mk(5,1.0,:c), mk(6,4.0,:d), mk(7,0.6,:e)]; n_cv_candidates=2) == Set([6])
+        [_testhelper_mk(5,1.0,:c), _testhelper_mk(6,4.0,:d), _testhelper_mk(7,0.6,:e)];
+        n_cv_candidates=2) == Set([6])
     @test EnzymeRates._ingest!(frontier, cv_pool, best,
-        [mk(5,0.9,:f)]; n_cv_candidates=2) == Set([5])
+        [_testhelper_mk(5,0.9,:f)]; n_cv_candidates=2) == Set([5])
     @test isempty(EnzymeRates._ingest!(frontier, cv_pool, best,
         EnzymeRates.BatchEntry[]; n_cv_candidates=2))
 
@@ -1037,7 +1043,8 @@ end
     cv_pool_nf  = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     best_nf     = Dict{Int,Float64}()
     @test EnzymeRates._ingest!(frontier_nf, cv_pool_nf, best_nf,
-        [mk(5,Inf,:g), mk(5,1.0,:h), mk(6,NaN,:i), mk(7,Inf,:j)];
+        [_testhelper_mk(5,Inf,:g), _testhelper_mk(5,1.0,:h), _testhelper_mk(6,NaN,:i),
+         _testhelper_mk(7,Inf,:j)];
         n_cv_candidates=2) == Set([5])
     @test Set(keys(frontier_nf)) == Set(keys(cv_pool_nf)) == Set([5])
     @test [e.eq_hash for e in frontier_nf[5]] == [hash(:h)]
@@ -1048,7 +1055,7 @@ end
     # slot to the lower loss, never consuming a second.
     pool = EnzymeRates.BatchEntry[]
     for (loss, h) in [(1.0, :a), (0.5, :a), (2.0, :b)]
-        EnzymeRates._offer_cv!(pool, mk(5, loss, h), 5)
+        EnzymeRates._offer_cv!(pool, _testhelper_mk(5, loss, h), 5)
     end
     @test allunique([e.eq_hash for e in pool])
     @test length(pool) == 2
@@ -1392,10 +1399,11 @@ end
             E(NADH, Pyruvate) <--> E(Lactate, NAD)                           :: OnlyA
         end
     end)
-    key(m) = EnzymeRates._rate_eq_dedup_key(
+    _testhelper_key(m) = EnzymeRates._rate_eq_dedup_key(
         rate_equation_string(EnzymeRates.compile_mechanism(m)))
     @test am1 != am2
-    @test key(am1) != key(am2)                  # the two render different equations
+    # the two render different equations
+    @test _testhelper_key(am1) != _testhelper_key(am2)
     # The split form is not a reparameterization of the merged one: it carries
     # K_ELactateNADH_to_ENADH_Lactate on top of the merged form's parameters, in the
     # independent count and in the fitted set alike. A finite-difference rank of ∂v/∂θ,
@@ -1659,7 +1667,7 @@ end
             A = [1.0, 2.0, 1.0, 2.0, 1.5, 2.5], B = [0.5, 0.5, 1.0, 1.0, 0.7, 0.7],
             P = [0.1, 0.2, 0.1, 0.2, 0.15, 0.25], Q = [0.3, 0.3, 0.4, 0.4, 0.35, 0.35])
     prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0)
-    function mkrow(m, loss)
+    function _testhelper_mkrow(m, loss)
         em = EnzymeRates.compile_mechanism(m)
         fkeys = EnzymeRates.fitted_params(em)
         (n_params=length(fkeys), loss=loss, mechanism_type=string(typeof(em)),
@@ -1671,7 +1679,8 @@ end
     end
     # `cands` and the rows are parallel and go in against (n_params, loss) order; they
     # must come back sorted by it: the 6-parameter row has the lowest loss but sorts last.
-    df = EnzymeRates._rows_to_dataframe([mkrow(m6, 0.1), mkrow(m1, 0.5), mkrow(m3, 0.2)])
+    df = EnzymeRates._rows_to_dataframe([_testhelper_mkrow(m6, 0.1),
+        _testhelper_mkrow(m1, 0.5), _testhelper_mkrow(m3, 0.2)])
     save_dir = mktempdir()
     stub() = _testhelper_CountingStubOpt(; uval=log(5.0))
     res = EnzymeRates._cv_model_selection(cands, df, prob;

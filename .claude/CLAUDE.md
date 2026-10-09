@@ -122,7 +122,7 @@ When asked to do something, just do it - including obvious follow-up actions nee
 - YOU MUST NEVER implement mocks in end to end tests. We always use real data and real APIs.
 - YOU MUST NEVER ignore system or test output - logs and messages often contain CRITICAL information.
 - Test output MUST BE PRISTINE TO PASS. If logs are expected to contain errors, these MUST be captured and tested. If a test is intentionally triggering an error, we *must* capture and validate that the error output is as we expect
-- Every file under `test/` prefixes its file-level helpers (functions, macros and structs) with `_testhelper_` so they cannot be mistaken for package functions; a one-line closure local to a testset needs no prefix.
+- Every test helper under `test/` that is defined with `function`, `macro` or `struct`, or with a multi-line body, at any scope (file level, inside a testset, inside another helper), carries the `_testhelper_` prefix so it cannot be mistaken for a package function; a one-line closure local to a testset needs no prefix.
 
 
 ## Issue tracking

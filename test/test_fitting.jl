@@ -30,7 +30,7 @@ using Tables
     ]
 
     # ── Synthetic data generator ──────────────────────────────────────────────
-    function make_synthetic_data(
+    function _testhelper_make_synthetic_data(
             mechanism, true_params, concs_list;
             groups=fill("G1", length(concs_list)),
     )
@@ -55,7 +55,7 @@ using Tables
     # It then stops because the search has converged, a reason Optimization does not
     # recognize, so Optimization warns. Runs `fit`, checks that every warning it logs
     # is that one, and returns its result.
-    function fit_capturing_convergence(fit)
+    function _testhelper_fit_capturing_convergence(fit)
         logs, result = Test.collect_test_logs(fit)
         @test all(l -> l.level < Base.CoreLogging.Warn ||
                        occursin("probably search has converged", string(l.message)), logs)
@@ -73,7 +73,7 @@ using Tables
 
     # ── FittingProblem construction ───────────────────────────────────────────
     @testset "Construction" begin
-        data = make_synthetic_data(uni_uni, true_params, concs5)
+        data = _testhelper_make_synthetic_data(uni_uni, true_params, concs5)
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
         @test length(fp.log_abs_rates) == 5
@@ -84,7 +84,7 @@ using Tables
     # ── Multi-group centering invariance ─────────────────────────────────────
     @testset "Multi-group centering invariance" begin
         # Two groups, each independently scaled
-        data1 = make_synthetic_data(uni_uni, true_params, concs5;
+        data1 = _testhelper_make_synthetic_data(uni_uni, true_params, concs5;
             groups=["G1","G1","G1","G2","G2"])
         fp1 = FittingProblem(uni_uni, data1; Keq=Keq_val)
 
@@ -104,7 +104,7 @@ using Tables
 
     # ── Absolute mode: uncentered loss (scale_k_to_kcat=nothing) ──────────────
     @testset "Absolute mode uncentered loss" begin
-        data = make_synthetic_data(uni_uni, true_params, concs5)
+        data = _testhelper_make_synthetic_data(uni_uni, true_params, concs5)
         pn = EnzymeRates.fitted_params(uni_uni)
         x_true = [log(true_params[p]) for p in pn]
 
@@ -202,7 +202,7 @@ using Tables
 
     @testset "Zero allocations" begin
         concs_list = [(S = Float64(i), P = 0.1) for i in 1:20]
-        data = make_synthetic_data(uni_uni, true_params, concs_list)
+        data = _testhelper_make_synthetic_data(uni_uni, true_params, concs_list)
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
         x = randn(length(EnzymeRates.fitted_params(uni_uni)))
@@ -235,7 +235,7 @@ using Tables
         params = merge(NamedTuple{fps}(ntuple(i -> 1.0 + 0.1 * i, length(fps))),
                        (Keq = Keq_val, E_total = 1.0))
         concs_list = [(S = Float64(i), P = 0.1, R = 0.5) for i in 1:20]
-        data = make_synthetic_data(allo, params, concs_list)
+        data = _testhelper_make_synthetic_data(allo, params, concs_list)
         fp = FittingProblem(allo, data; Keq=Keq_val)
 
         x = randn(length(fps))
@@ -311,7 +311,7 @@ using Tables
             (S = 5.0, P = 0.1), (S = 10.0, P = 0.1),
             (S = 0.5, P = 0.5), (S = 1.0, P = 0.5), (S = 2.0, P = 0.5),
         ]
-        data = make_synthetic_data(uni_uni, true_params, concs_list)
+        data = _testhelper_make_synthetic_data(uni_uni, true_params, concs_list)
         opt = BBO_adaptive_de_rand_1_bin_radiuslimited()
 
         # Default target 1.0 (best of 2 restarts) and a custom target 7.0: the returned
@@ -319,7 +319,7 @@ using Tables
         for (fp_kwargs, n_restarts, target) in
                 (((;), 2, 1.0), ((; scale_k_to_kcat=7.0), 1, 7.0))
             fp = FittingProblem(uni_uni, data; Keq=Keq_val, fp_kwargs...)
-            res = fit_capturing_convergence() do
+            res = _testhelper_fit_capturing_convergence() do
                 fit_rate_equation(fp, opt; n_restarts, maxtime=0.5)
             end
             @test keys(res.params) == EnzymeRates.fitted_params(uni_uni)
@@ -331,7 +331,7 @@ using Tables
 
         # scale_k_to_kcat=nothing: params returned verbatim (data fixes the scale).
         fpN = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
-        resN = fit_capturing_convergence() do
+        resN = _testhelper_fit_capturing_convergence() do
             fit_rate_equation(fpN, opt; n_restarts=1, maxtime=0.5)
         end
         @test keys(resN.params) == EnzymeRates.fitted_params(uni_uni)
@@ -345,7 +345,7 @@ using Tables
             (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
             (S = 5.0, P = 0.1), (S = 10.0, P = 0.1),
         ]
-        data = make_synthetic_data(uni_uni, true_params, concs_list)
+        data = _testhelper_make_synthetic_data(uni_uni, true_params, concs_list)
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
         # Default (empty) solver_kwargs runs on a solver that rejects unknown
@@ -403,7 +403,7 @@ using Tables
         end
 
         concs_list = [(S = 1.0, P = 0.1), (S = 2.0, P = 0.1)]
-        data = make_synthetic_data(uni_uni, true_params, concs_list)
+        data = _testhelper_make_synthetic_data(uni_uni, true_params, concs_list)
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
         stub = _testhelper_MaxtimeStubOpt()
