@@ -446,12 +446,12 @@ end
 
 # `_testhelper_rate_ping_pong_bi_bi` in
 # `test/mechanism_definitions_for_test_enzyme_derivation.jl` transcribes this same Segel
-# formula, and both transcriptions are live. Keep them
-# independent rather than sharing one: a shared transcription error would green this
-# gate and that one at once, whereas two independent transcriptions cross-check each
-# other. Sharing would also couple this gate to the MECHANISM_TEST_SPECS fixture,
-# whose copy takes `(params::NamedTuple, concs::NamedTuple)` with an `Etotal` rather
-# than the 12 positional scalars this one takes.
+# formula, and both transcriptions are live. Keep them independent rather than sharing one:
+# a shared transcription error would green this gate and that one at once, whereas two
+# independent transcriptions cross-check each other. Sharing would also couple this gate to
+# the MECHANISM_TEST_SPECS fixture, whose copy takes
+# `(params::NamedTuple, concs::NamedTuple)` with an `Etotal` rather than the 12 positional
+# scalars this one takes.
 "Segel Eq. IX-140 ping-pong bi-bi rate: E + A ⇌ EA ⇌ F + P; F + B ⇌ FB ⇌ E + Q."
 function _testhelper_segel_pingpong_flux(k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, A, B, P, Q)
     num = k1f*k2f*k3f*k4f*A*B - k1r*k2r*k3r*k4r*P*Q

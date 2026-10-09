@@ -7500,7 +7500,7 @@ end
 @testset "_productive_twin" begin
     ER = EnzymeRates
     # The form named `nm` among the ends of `m`'s steps.
-    _testhelper_form_named(m, nm) = only(unique(sp for g in ER.steps(m) for s in g
+    _testhelper_form_called(m, nm) = only(unique(sp for g in ER.steps(m) for s in g
         for sp in (ER.from_species(s), ER.to_species(s)) if ER.name(sp) == nm))
     Ainh, Binh, Sinh, Qinh, I = ER.CompetitiveInhibitor.((:A, :B, :S, :Q, :I))
 
@@ -7518,12 +7518,12 @@ end
         end
     end)
     twin = ER._productive_twin(ER.steps(ordered))
-    @test twin(_testhelper_form_named(ordered, :E), Ainh) ==
-          _testhelper_form_named(ordered, :EA)
-    @test twin(_testhelper_form_named(ordered, :EQ), Ainh) === nothing
-    @test twin(_testhelper_form_named(ordered, :E), Binh) === nothing
-    @test twin(_testhelper_form_named(ordered, :E), I) === nothing &&
-          twin(_testhelper_form_named(ordered, :EQ), I) === nothing
+    @test twin(_testhelper_form_called(ordered, :E), Ainh) ==
+          _testhelper_form_called(ordered, :EA)
+    @test twin(_testhelper_form_called(ordered, :EQ), Ainh) === nothing
+    @test twin(_testhelper_form_called(ordered, :E), Binh) === nothing
+    @test twin(_testhelper_form_called(ordered, :E), I) === nothing &&
+          twin(_testhelper_form_called(ordered, :EQ), I) === nothing
 
     # With the abortive complex E(A, Q) present, the copy at E(Q) is a twin too.
     abortive = ER.Mechanism(@enzyme_mechanism begin
@@ -7538,8 +7538,8 @@ end
         end
     end)
     @test ER._productive_twin(ER.steps(abortive))(
-              _testhelper_form_named(abortive, :EQ), Ainh) ==
-          _testhelper_form_named(abortive, :EAQ)
+              _testhelper_form_called(abortive, :EQ), Ainh) ==
+          _testhelper_form_called(abortive, :EAQ)
 
     # A copy whose complex already exists is judged against the productive forms only.
     with_copy = ER.Mechanism(@enzyme_mechanism begin
@@ -7556,9 +7556,9 @@ end
         end
     end)
     twin_c = ER._productive_twin(ER.steps(with_copy))
-    @test twin_c(_testhelper_form_named(with_copy, :E), Ainh) ==
-          _testhelper_form_named(with_copy, :EA)
-    @test twin_c(_testhelper_form_named(with_copy, :EQ), Ainh) === nothing
+    @test twin_c(_testhelper_form_called(with_copy, :E), Ainh) ==
+          _testhelper_form_called(with_copy, :EA)
+    @test twin_c(_testhelper_form_called(with_copy, :EQ), Ainh) === nothing
 
     # The offsets key. E ⇌ E* is a rapid-equilibrium isomerization, so E and E*
     # have equal offsets; a copy of S at E has a composition no form has, yet its
@@ -7577,14 +7577,14 @@ end
     estar_s = only(ER.to_species(s) for g in ER.steps(iso) for s in g
                    if ER.bound_metabolite(s) !== nothing &&
                       ER.name(ER.bound_metabolite(s)) == :S)
-    @test ER._productive_twin(ER.steps(iso))(_testhelper_form_named(iso, :E), Sinh) ==
+    @test ER._productive_twin(ER.steps(iso))(_testhelper_form_called(iso, :E), Sinh) ==
           estar_s
     # Twins are found by offsets; composition only breaks a tie between forms with the
     # complex's offsets. This twin differs from the complex in conformation or residual,
     # so no form has the complex's composition.
     @test (ER.conformation(estar_s), ER.residual(estar_s)) !=
-          (ER.conformation(_testhelper_form_named(iso, :E)),
-           ER.residual(_testhelper_form_named(iso, :E)))
+          (ER.conformation(_testhelper_form_called(iso, :E)),
+           ER.residual(_testhelper_form_called(iso, :E)))
     iso_ss = ER.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
@@ -7595,7 +7595,7 @@ end
             E + P ⇌ E(P)
         end
     end)
-    @test ER._productive_twin(ER.steps(iso_ss))(_testhelper_form_named(iso_ss, :E),
+    @test ER._productive_twin(ER.steps(iso_ss))(_testhelper_form_called(iso_ss, :E),
                                                 Sinh) === nothing
 
     # A form of the complex's composition outside the site's segment is no twin. With
@@ -7613,7 +7613,7 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    @test ER._productive_twin(ER.steps(ss_bound))(_testhelper_form_named(ss_bound, :E),
+    @test ER._productive_twin(ER.steps(ss_bound))(_testhelper_form_called(ss_bound, :E),
                                                   Ainh) === nothing
 
     # Ping-pong with the second chemistry step at rapid equilibrium, an abortive
@@ -7672,10 +7672,10 @@ end
         end
     end)
     twin_two = ER._productive_twin(ER.steps(two_copies))
-    @test twin_two(_testhelper_form_named(two_copies, :EA), Qinh) === nothing
-    @test twin_two(_testhelper_form_named(two_copies, :E), Qinh) ==
-          _testhelper_form_named(two_copies, :EQ)
-    @test twin_two(_testhelper_form_named(two_copies, :EQ), Ainh) === nothing
+    @test twin_two(_testhelper_form_called(two_copies, :EA), Qinh) === nothing
+    @test twin_two(_testhelper_form_called(two_copies, :E), Qinh) ==
+          _testhelper_form_called(two_copies, :EQ)
+    @test twin_two(_testhelper_form_called(two_copies, :EQ), Ainh) === nothing
     @test isempty(ER._redundant_copy_groups(two_copies))
 
     # Conformational states. A copy binds the active state always and the inactive state
