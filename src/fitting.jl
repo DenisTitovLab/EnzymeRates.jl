@@ -251,7 +251,10 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     ub=fill(15.0, length(fitted_params(fp.mechanism))),
     solver_kwargs=(;),
 )
-    pnames = fitted_params(fp.mechanism)
+    # `fp` is @nospecialize, so the names need this type for `[pnames]` below to compile
+    # once, as Base's NamedTuple getindex; untyped names, or names typed only as a Tuple,
+    # which Static.jl's getindex method also matches, make it compile per mechanism.
+    pnames = fitted_params(fp.mechanism)::Tuple{Vararg{Symbol}}
     np = length(pnames)
 
     # Common solver options: maxtime/maxiters always forwarded; the optional

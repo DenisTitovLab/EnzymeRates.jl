@@ -450,6 +450,46 @@ using Tables
         @test stub.maxtime_seen == 1.23
     end
 
+    # ── fit_rate_equation compiles no NamedTuple indexing per mechanism ───────
+    # fit_rate_equation takes its FittingProblem @nospecialize and selects the fitted
+    # parameters from the rescaled NamedTuple by their names. Unless it infers them as a
+    # tuple of Symbols, the selection dispatches at run time: each fit whose parameter
+    # names no earlier fit used compiles a getindex method instance for them and infers
+    # Base's slow NamedTuple fallback. Inferred only as a Tuple, the names also match the
+    # getindex method of Static.jl, which the full suite loads before this file. Counts
+    # the getindex method instances, inferred or compiled, on a NamedTuple keyed by any of
+    # `names`.
+    function _testhelper_namedtuple_getindex_instances(names)
+        keyed(T) = T isa DataType && T <: NamedTuple && !isdisjoint(fieldnames(T), names)
+        count(mi -> mi.specTypes isa DataType && any(keyed, mi.specTypes.parameters),
+              (mi for m in methods(getindex) for mi in Base.specializations(m)))
+    end
+
+    @testset "fit_rate_equation compiles no NamedTuple indexing per mechanism" begin
+        using OptimizationCMAEvolutionStrategy
+        optimizer = CMAEvolutionStrategyOpt()
+        # A first fit compiles fit_rate_equation for this optimizer and these options.
+        fp_warm = FittingProblem(uni_uni,
+            _testhelper_make_synthetic_data(uni_uni, true_params, concs5); Keq=Keq_val)
+        fit_rate_equation(fp_warm, optimizer; n_restarts=1, maxiters=10)
+        # Metabolite names no other test uses, so no earlier test has fit this mechanism.
+        unseen = @enzyme_mechanism begin
+            substrates: Sidx
+            products:   Pidx
+            steps: begin
+                E + Sidx <--> E(Sidx)
+                E(Sidx) <--> E + Pidx
+            end
+        end
+        fp_unseen = FittingProblem(unseen, (group = ["G1", "G1", "G2", "G2"],
+            Rate = [0.5, 0.8, 1.0, 1.1], Sidx = [1.0, 2.0, 3.0, 4.0],
+            Pidx = [0.1, 0.2, 0.3, 0.4]); Keq=Keq_val)
+        unseen_names = EnzymeRates.fitted_params(unseen)
+        n = _testhelper_namedtuple_getindex_instances(unseen_names)
+        fit_rate_equation(fp_unseen, optimizer; n_restarts=1, maxiters=10)
+        @test _testhelper_namedtuple_getindex_instances(unseen_names) == n
+    end
+
     # ── Validation errors ──────────────────────────────────────────────────────
     @testset "Validation errors" begin
         # Missing Rate column
