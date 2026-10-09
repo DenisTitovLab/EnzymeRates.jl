@@ -15,7 +15,6 @@ _mono(pairs...) = sort!(MONO(collect(pairs)); by=first)
 
 poly_zero() = POLY()
 poly_one() = POLY(_mono() => 1)
-poly_const(n::Integer) = n == 0 ? POLY() : POLY(_mono() => Int(n))
 poly_sym(s::Symbol) = POLY(_mono(s => 1) => 1)
 
 function _poly_addop(a::POLY, b::POLY, sign::Int)
@@ -25,7 +24,6 @@ function _poly_addop(a::POLY, b::POLY, sign::Int)
 end
 poly_add(a::POLY, b::POLY) = _poly_addop(a, b, 1)
 poly_sub(a::POLY, b::POLY) = _poly_addop(a, b, -1)
-poly_neg(a::POLY) = POLY(k => -v for (k, v) in a)
 
 function poly_mul(a::POLY, b::POLY)
     r = POLY()
@@ -36,14 +34,13 @@ function poly_mul(a::POLY, b::POLY)
     filter!(p -> p.second != 0, r)
 end
 
-function _mono_op(a::MONO, b::MONO, sign::Int)
+function _mono_mul(a::MONO, b::MONO)
     d = Dict{Symbol,Int}()
     for (s, e) in a; d[s] = get(d, s, 0) + e; end
-    for (s, e) in b; d[s] = get(d, s, 0) + sign * e; end
+    for (s, e) in b; d[s] = get(d, s, 0) + e; end
     filter!(p -> p.second != 0, d)
     sort!(MONO(collect(d)); by=first)
 end
-_mono_mul(a::MONO, b::MONO) = _mono_op(a, b, 1)
 
 """
 Reduce num/den to lowest terms over concentrations only. For each concentration
@@ -71,19 +68,9 @@ function _reduce_conc_lowest_terms(num::POLY, den::POLY, weight::POLY,
     end
     filter!(p -> p.second != 0, mins)
     isempty(mins) && return num, den, weight
-    function shift(p)
-        out = POLY()
-        for (mono, v) in p
-            md = Dict{Symbol,Int}(mono)
-            for (s, mn) in mins
-                md[s] = get(md, s, 0) - mn
-            end
-            filter!(pr -> pr.second != 0, md)
-            out[sort!(MONO(collect(md)); by=first)] = v
-        end
-        out
-    end
-    shift(num), shift(den), shift(weight)
+    # Multiplying by a monomial is injective on monomials, so no two terms merge.
+    shift = POLY(_mono((s => -mn for (s, mn) in mins)...) => 1)
+    poly_mul(num, shift), poly_mul(den, shift), poly_mul(weight, shift)
 end
 
 """
@@ -91,7 +78,8 @@ Cofactor determinant expansion for symbolic matrices. The size guard against
 oversized rate equations runs upfront in `_raw_symbolic_rate_polys` (a numeric
 V×τ check on the segment graph), before this O(n!) expansion is ever entered.
 """
-function sym_det(M::Matrix{POLY}, n::Int)
+function sym_det(M::Matrix{POLY})
+    n = size(M, 1)
     n == 0 && return poly_one()
     n == 1 && return M[1,1]
     result = poly_zero()
@@ -102,7 +90,7 @@ function sym_det(M::Matrix{POLY}, n::Int)
             c < j && (minor[r-1, c] = M[r, c])
             c > j && (minor[r-1, c-1] = M[r, c])
         end
-        cofactor = sym_det(minor, n-1)
+        cofactor = sym_det(minor)
         term = poly_mul(M[1,j], cofactor)
         result = iseven(j-1) ? poly_add(result, term) : poly_sub(result, term)
     end
@@ -110,7 +98,7 @@ function sym_det(M::Matrix{POLY}, n::Int)
 end
 
 """Convert `POLY` to a Julia `Expr` for `@generated` function bodies (bare symbols)."""
-function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol})
+function _poly_to_expr(p::POLY, param_syms::Set{Symbol} = Set{Symbol}())
     isempty(p) && return 0
     pos, neg = Any[], Any[]
     sorted = sort(
@@ -140,12 +128,9 @@ function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol})
         term = isempty(df) ? num_part : :($num_part / $(_nest_binary(:*, df)))
         coeff > 0 ? push!(pos, term) : push!(neg, term)
     end
-    pe = isempty(pos) ? nothing : _nest_binary(:+, pos)
-    ne = isempty(neg) ? nothing : _nest_binary(:+, neg)
-    pe !== nothing && ne !== nothing && return :($pe - $ne)
-    pe !== nothing && return pe
-    ne !== nothing && return :(- $ne)
-    return 0
+    isempty(neg) && return _nest_binary(:+, pos)
+    ne = _nest_binary(:+, neg)
+    isempty(pos) ? :(-$ne) : :($(_nest_binary(:+, pos)) - $ne)
 end
 
 """
@@ -153,12 +138,12 @@ Build a balanced binary `+`/`*` tree so every emitted call has exactly two
 operands. Required for zero-allocation `rate_equation` runtime: Julia inlines
 binary `+(::Float64, ::Float64)` into fused scalar arithmetic, but falls back
 to a varargs path that boxes the operand tuple once the chain exceeds ~30
-terms. See `test_rate_equation_performance` for the contract this enforces.
+terms. See `_testhelper_test_rate_equation_performance` for the contract this
+enforces.
 """
 function _nest_binary(op::Symbol, terms::Vector{Any})
     n = length(terms)
     n == 1 && return terms[1]
-    n == 2 && return Expr(:call, op, terms[1], terms[2])
     mid = n >> 1
     Expr(:call, op,
         _nest_binary(op, terms[1:mid]),
@@ -183,7 +168,6 @@ Precedence-aware Expr→String conversion for rate equations.
 Avoids unnecessary parentheses that Julia's `string()` adds.
 """
 function _expr_to_string(x)
-    x isa Union{Number, Symbol} && return string(x)
     x isa Expr && x.head == :call || return string(x)
     op, args = x.args[1], @view(x.args[2:end])
     # Unary minus
@@ -220,24 +204,13 @@ Build a power-product expression for thermodynamic-constraint
 substitution of the form `Keq^keq_exp * prod(k_i^exp_i)` from
 `factors`, an iterable of `(k_i, exp_i)` pairs. Used by the
 constraint solver to materialize the Keq×rate-constant power product
-that replaces a dependent rate constant.
+that replaces a dependent rate constant. The empty product is the
+Float64 `1.0`: a constant that thermodynamics pins to 1.
 """
 function build_power_expr(keq_exp::Rational, factors)
-    function _pa(sym, exp)
-        if exp == 1
-            sym
-        elseif exp == -1
-            :(1 / $sym)
-        elseif denominator(exp) == 1
-            if Int(exp) > 0
-                :($sym ^ $(Int(exp)))
-            else
-                :(1 / $sym ^ $(Int(-exp)))
-            end
-        else
-            :($sym ^ $(Float64(exp)))
-        end
-    end
+    _pa(sym, exp) = exp == 1 ? sym : exp == -1 ? :(1 / $sym) :
+        !isinteger(exp) ? :($sym ^ $(Float64(exp))) :
+        exp > 0 ? :($sym ^ $(Int(exp))) : :(1 / $sym ^ $(Int(-exp)))
     terms = Any[]
     keq_exp != 0 && push!(terms, _pa(:Keq, keq_exp))
     # Sort factors by name so the rendered power product is content-canonical
@@ -246,52 +219,11 @@ function build_power_expr(keq_exp::Rational, factors)
     for (sym, exp) in sort(collect(factors); by = x -> string(first(x)))
         exp != 0 && push!(terms, _pa(sym, exp))
     end
-    if isempty(terms)
-        :(1)
-    elseif length(terms) == 1
-        terms[1]
-    else
-        Expr(:call, :*, terms...)
-    end
+    isempty(terms) ? 1.0 : length(terms) == 1 ? only(terms) : Expr(:call, :*, terms...)
 end
 
-"""Check if an expression references any symbol in the given set."""
-function _expr_references_any(expr, syms::Set{Symbol})
-    if expr isa Symbol
-        return expr ∈ syms
-    elseif expr isa Expr
-        return any(_expr_references_any(a, syms) for a in expr.args)
-    end
-    false
-end
-
-# ─── Symbol renaming in POLY ───────────────────────────────
-
-"""
-Rename symbols in a polynomial. `rename_map` is a `Dict{Symbol, Symbol}`;
-absent keys are left unchanged. Used by the allosteric derivation to rename
-A-state symbols to their I-state counterparts when building the inactive-
-state polynomial (e.g., `:K_A_EATP_to_E_ATP → :K_I_EATP_to_E_ATP`).
-"""
-function _rename_symbols(p::POLY, rename_map::AbstractDict{Symbol, Symbol})
-    isempty(rename_map) && return p
-    result = POLY()
-    for (mono, val) in p
-        new_mono = sort!(
-            MONO([get(rename_map, s, s) => e for (s, e) in mono]);
-            by=first,
-        )
-        # Combine like-monomial entries by exponent merging
-        combined = Dict{Symbol, Int}()
-        for (s, e) in new_mono
-            combined[s] = get(combined, s, 0) + e
-        end
-        filter!(p -> p.second != 0, combined)
-        canon = sort!(MONO(collect(combined)); by=first)
-        result[canon] = get(result, canon, 0) + val
-    end
-    filter!(p -> p.second != 0, result)
-end
+"""Whether the expression mentions the symbol `s`."""
+_mentions(ex, s::Symbol) = ex === s || (ex isa Expr && any(a -> _mentions(a, s), ex.args))
 
 # ─── AllostericEnzymeMechanism POLY helpers ──────────────────────
 

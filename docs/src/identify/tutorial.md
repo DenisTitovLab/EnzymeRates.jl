@@ -103,12 +103,14 @@ value becomes one cross-validation fold, so at least two groups are required.
 - `:group` and `:Rate` columns must be present.
 - One column per substrate, product, and regulator (names match
   `metabolites(mechanism)` exactly).
-- Every `Rate` must be nonzero — the loss function works in log space.
+- Every `Rate` must be a finite, nonzero number — the loss function works in log
+  space.
+- Every concentration must be a finite number ≥ 0; zero is valid.
 - At least two distinct `group` values are required for cross-validation.
 
-`Keq` is a required keyword argument, always user-supplied; the package never
-estimates it from data. Most enzyme reactions have a known `Keq` — measure it
-directly, or compute it from a resource such as
+`Keq` is a required keyword argument, always user-supplied, positive and finite; the
+package never estimates it from data. Most enzyme reactions have a known `Keq` —
+measure it directly, or compute it from a resource such as
 [eQuilibrator](https://equilibrator.weizmann.ac.il).
 
 ## Run the search
@@ -177,8 +179,8 @@ undesignated regulator would otherwise produce:
 allosteric_regulators: A::Activator
 ```
 
-[The enumeration engine](@ref) explains how the seed set is built, and the
-[Roadmap](@ref) tracks the moves that refine it.
+[The enumeration engine](@ref) explains how the seed set is built and the moves that
+refine it.
 
 ## Read the result
 
@@ -219,8 +221,10 @@ model-selection outcome is saved without re-running cross-validation.
 ## Loud failures
 
 A mechanism that throws during compilation or fitting becomes a `FitFailure`
-carrying the exception text. Failures are never silently discarded — they appear
-in `cv_results` (and the saved CSVs) with the `retcode` and `error` columns
-populated. If every mechanism in the base tier fails, the search re-raises the
-first exception, so an unsupported optimizer keyword or a memory overflow
+carrying the exception text. Failures are never silently discarded: each one is a
+row of the search CSVs (`initial_mechanisms.csv` and
+`equation_search_iteration_N.csv`) with `error` set and `retcode` missing. A
+failure never enters cross-validation, so `cv_results` holds none. If every
+mechanism in the base tier fails, the search raises an error quoting the first
+failure's message, so an unsupported optimizer keyword or a memory overflow
 surfaces immediately rather than being swallowed.

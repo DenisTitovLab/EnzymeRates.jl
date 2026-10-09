@@ -12,7 +12,7 @@ rate constants.
 - `data`: `NamedTuple` of column vectors (via `Tables.columntable`)
 - `group_point_indexes`: row indices grouped by unique `group` values
 - `Keq`: fixed equilibrium constant
-- `scale_k_to_kcat`: a positive `Real` selects relative mode (per-group-centered
+- `scale_k_to_kcat`: a positive, finite `Real` selects relative mode (per-group-centered
   loss); `nothing` selects absolute per-enzyme-turnover mode (uncentered loss)
 - `log_abs_rates`: pre-computed `log.(abs.(Rate))`
 - `log_ratios_buffer`: pre-allocated working buffer for loss computation
@@ -37,60 +37,56 @@ The table must have columns: `group`, `Rate`, and one column per
 metabolite matching `metabolites(mechanism)`. Uses
 `Tables.columntable` for conversion.
 
-`scale_k_to_kcat` selects the loss mode: a positive `Real` (default `1.0`)
+`scale_k_to_kcat` selects the loss mode: a positive, finite `Real` (default `1.0`)
 treats the data as relative (per-group-centered loss); `nothing` treats it as
 absolute per-enzyme turnover (uncentered loss).
 
-Rate values must be nonzero (zero rates produce `-Inf` in log space).
+Rate values must be finite and nonzero (the loss takes their log; a zero rate gives
+`-Inf`), every concentration must be a finite number ≥ 0 (zero is valid), and `Keq`
+must be positive and finite.
 """
 function FittingProblem(mechanism::AbstractEnzymeMechanism, table;
         Keq::Real, scale_k_to_kcat::Union{Real,Nothing}=1.0)
-    scale_k_to_kcat !== nothing && scale_k_to_kcat <= 0 && error(
-        "scale_k_to_kcat must be positive (or nothing); got $scale_k_to_kcat")
+    data = _rate_table(table, metabolites(mechanism), scale_k_to_kcat, Keq)
+    group_map = Dict{eltype(data.group), Vector{Int}}()
+    for (i, g) in enumerate(data.group)
+        push!(get!(() -> Int[], group_map, g), i)
+    end
+    # The typed constructor converts Keq and scale_k_to_kcat to the field types.
+    FittingProblem{typeof(mechanism), typeof(data)}(
+        mechanism, data, collect(values(group_map)), Keq, scale_k_to_kcat,
+        log.(abs.(data.Rate)), Vector{Float64}(undef, length(data.Rate)))
+end
+
+"""
+    _rate_table(table, mnames, scale_k_to_kcat, Keq) → NamedTuple
+
+Validate a rate table and return it as `Tables.columntable(table)`: `scale_k_to_kcat`
+must be positive and finite or `nothing`, `Keq` must be positive and finite, the table
+needs a `group` column, a `Rate` column and one column per name in `mnames`, every
+concentration must be a finite number ≥ 0 (zero is valid), and every rate must be a
+finite, nonzero number (the loss takes its log).
+"""
+function _rate_table(table, mnames, scale_k_to_kcat, Keq)
+    scale_k_to_kcat === nothing || 0 < scale_k_to_kcat < Inf || error(
+        "scale_k_to_kcat must be positive and finite (or nothing); got $scale_k_to_kcat")
+    0 < Keq < Inf || error("Keq must be positive and finite; got $Keq")
     data = Tables.columntable(table)
-
-    mnames = metabolites(mechanism)
-
-    # Validate required columns
-    col_names = keys(data)
     for req in (:group, :Rate)
-        req in col_names || error("Missing required column: $req")
+        req in keys(data) || error("Missing required column: $req")
     end
     for m in mnames
-        m in col_names || error("Missing metabolite column: $m")
+        m in keys(data) || error("Missing metabolite column: $m")
+        i = findfirst(c -> !(c isa Real && isfinite(c) && c >= 0), data[m])
+        i === nothing || error("Concentration $m at row $i must be a finite number ≥ 0; " *
+                               "got $(repr(data[m][i]))")
     end
-
-    # Validate no zero rates
-    rates = data.Rate
-    n = length(rates)
-    for i in 1:n
-        rates[i] == 0 && error("Zero rate at row $i: log(0) is undefined")
-    end
-
-    # Pre-compute log(abs(rates))
-    log_abs_rates = log.(abs.(rates))
-
-    # Build group_point_indexes by grouping on group column
-    groups = data.group
-    group_map = Dict{eltype(groups), Vector{Int}}()
-    for i in 1:n
-        key = groups[i]
-        if haskey(group_map, key)
-            push!(group_map[key], i)
-        else
-            group_map[key] = [i]
-        end
-    end
-    group_point_indexes = collect(values(group_map))
-
-    # Allocate working buffer
-    log_ratios_buffer = Vector{Float64}(undef, n)
-
-    sk = scale_k_to_kcat === nothing ? nothing : Float64(scale_k_to_kcat)
-    FittingProblem{typeof(mechanism), typeof(data)}(
-        mechanism, data, group_point_indexes, Float64(Keq), sk,
-        log_abs_rates, log_ratios_buffer
-    )
+    i = findfirst(r -> !(r isa Real && isfinite(r)), data.Rate)
+    i === nothing ||
+        error("Rate at row $i must be a finite number; got $(repr(data.Rate[i]))")
+    i = findfirst(iszero, data.Rate)
+    i === nothing || error("Zero rate at row $i: log(0) is undefined")
+    data
 end
 
 """
@@ -116,11 +112,11 @@ loss invariant to per-group E_total scaling (relative data). When it is
 magnitude is scored (absolute per-enzyme turnover data).
 
 Sign mismatches (predicted vs measured rate sign) incur a flat penalty
-of 100.0 per point, accumulated after the per-point loop. In the
+of 100.0 per point, counted in the per-point loop and added after. In the
 centered mode this prevents all-mismatch groups from contributing zero
 loss (a uniform sentinel would cancel under mean-subtraction).
 """
-function loss!(x::AbstractVector, fp::FittingProblem{M,D}) where {M,D}
+function loss!(x::AbstractVector, fp::FittingProblem)
     buf = fp.log_ratios_buffer
     ParamNames = fitted_params(fp.mechanism)
     MetNames = metabolites(fp.mechanism)
@@ -132,15 +128,18 @@ function loss!(x::AbstractVector, fp::FittingProblem{M,D}) where {M,D}
     fitted = NamedTuple{ParamNames}(ntuple(i -> exp(x[i]), Val(N)))
     params = merge(fitted, (Keq = fp.Keq, E_total = 1.0))
 
-    # Pass 1: fill log_ratios_buffer
+    # Pass 1: fill log_ratios_buffer and count sign mismatches. A zero or NaN
+    # prediction counts as one: its sign never equals a nonzero rate's ±1.
+    n_mismatch = 0
     @inbounds for i in 1:n_data
         concs = NamedTuple{MetNames}(ntuple(
             j -> getproperty(fp.data, MetNames[j])[i], Val(K),
         ))
         pred = rate_equation(fp.mechanism, concs, params)
         meas_sign = sign(fp.data.Rate[i])
-        if sign(pred) != meas_sign || pred == 0.0
+        if sign(pred) != meas_sign
             buf[i] = 10.0
+            n_mismatch += 1
         else
             buf[i] = log(abs(pred)) - fp.log_abs_rates[i]
         end
@@ -175,11 +174,6 @@ function loss!(x::AbstractVector, fp::FittingProblem{M,D}) where {M,D}
     # under mean-subtraction); the post-hoc penalty keeps it positive. In
     # uncentered mode the sentinel already contributes 100.0 per point, so this
     # adds a second 100.0 (stronger steering away from sign flips, intentional).
-    n_mismatch = 0
-    @inbounds for i in 1:n_data
-        buf[i] == 10.0 && (n_mismatch += 1)
-    end
-
     return (total_loss + 100.0 * n_mismatch) / n_data
 end
 
@@ -230,8 +224,9 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
     ub=fill(15.0, length(fitted_params(fp.mechanism))),
     solver_kwargs=(;),
 )
-    obj = Optimization.OptimizationFunction((x, p) -> loss!(x, p))
-    np = length(fitted_params(fp.mechanism))
+    pnames = fitted_params(fp.mechanism)
+    np = length(pnames)
+    obj = Optimization.OptimizationFunction(loss!)
 
     # Common solver options: maxtime/maxiters always forwarded; the optional
     # ones only when set, so each solver keeps its own default otherwise.
@@ -245,7 +240,7 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
     best_x = zeros(np)
     best_loss = Inf
     # Sentinel for "no restart produced a finite objective" (loss stays Inf, so
-    # the fit is dropped by the beam's non-finite filter). Deliberately NOT a
+    # `_ingest!` drops it from the beam search). Deliberately NOT a
     # real SciMLBase ReturnCode name — `Symbol(ReturnCode.Default) === :Default`,
     # so `:NoFiniteLoss` stays distinct from a genuine `:Default` solver return
     # (which only fires when a restart achieves a finite objective).
@@ -262,16 +257,11 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
         end
     end
 
-    pnames = fitted_params(fp.mechanism)
-    result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(length(pnames))))
+    result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(np)))
     if fp.scale_k_to_kcat !== nothing
-        full = merge(result_params, (Keq = fp.Keq, E_total = 1.0))
-        rp = rescale_parameter_values(
-            fp.mechanism, full; scale_k_to_kcat=fp.scale_k_to_kcat,
-        )
-        result_params = NamedTuple{pnames}(
-            ntuple(i -> rp[pnames[i]], Val(length(pnames))),
-        )
+        result_params = rescale_parameter_values(fp.mechanism,
+            merge(result_params, (Keq = fp.Keq, E_total = 1.0));
+            scale_k_to_kcat=fp.scale_k_to_kcat)[pnames]
     end
     return (params = result_params, loss = best_loss, retcode = best_retcode)
 end

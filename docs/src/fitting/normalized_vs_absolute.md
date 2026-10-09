@@ -19,7 +19,7 @@ formula the fitter uses, and how it normalizes the returned parameters.
 
 ### Relative mode (the default)
 
-Pass a positive `Real` — the default is `1.0`. In relative mode:
+Pass a positive, finite `Real` — the default is `1.0`. In relative mode:
 
 - **Loss**: each group's log-ratios are **mean-centered before squaring**,
   which removes the arbitrary per-group `E_total` scale. The loss is invariant

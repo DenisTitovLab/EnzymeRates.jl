@@ -107,5 +107,7 @@ parameters(m, Full)
 
 `Full` mode includes both `k_ES_to_EP` and `k_EP_to_ES` as independent symbols,
 so there is no constraint section.
+Full mode is for plain mechanisms only: an allosteric mechanism has neither a
+Full rate equation nor a Full parameter list.
 See [Rapid equilibrium vs steady state](@ref) for the contrast between RE and
 SS parameters, and how adding SS steps changes this list.

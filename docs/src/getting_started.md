@@ -40,6 +40,15 @@ independent forward and reverse rate constants. The result is an
 `typeof(m)`) is shown deliberately: the `Sig` type parameter that encodes the
 mechanism structure is an unreadable string, so `isa` is the useful check.
 
+An enzyme form's name joins its bound metabolites' names without a separator
+(`E(S)` is `ES`), so two forms can render one name: with `Ac`, `CoA` and `AcCoA`,
+E with Ac and CoA bound and E with AcCoA bound are both `EAcCoA`.
+`@enzyme_reaction` accepts such names; the mechanism constructors reject a
+mechanism that holds two forms whose names coincide. For Ac + CoA ⇌ AcCoA every
+seed holds both E(Ac, CoA) and E(AcCoA), so `init_mechanisms` and
+`identify_rate_equation` stop with an error naming both forms. Rename one, for
+example `Acetyl`.
+
 ---
 
 ## Derive the rate equation
@@ -92,7 +101,7 @@ rate_equation(m, concs, params)
 [Fitting tutorial & data format](@ref) covers the data format, loss function,
 and optimizer options in depth.
 
-Generate noiseless synthetic data from the mechanism above:
+Generate synthetic data with 5% multiplicative noise from the mechanism above:
 
 ```@example getting-started
 using OptimizationCMAEvolutionStrategy, Random
@@ -103,7 +112,7 @@ for g in 1:3, _ in 1:8
     s = 0.1 + 9.9 * rand()
     p = 0.1 + 9.9 * rand()
     push!(groups, "G$g")
-    push!(Rate, rate_equation(m, (S = s, P = p), params))
+    push!(Rate, rate_equation(m, (S = s, P = p), params) * (1 + 0.05 * randn()))
     push!(Svals, s); push!(Pvals, p)
 end
 data = (group = groups, Rate = Rate, S = Svals, P = Pvals)
@@ -146,6 +155,9 @@ results = identify_rate_equation(prob;
 print(rate_equation_string(results.best))
 ```
 
+The search recovers the mechanism that generated the data: the larger candidates
+predict held-out groups no better, so the one-standard-error rule keeps the smallest.
+
 `min_beam_width=1` and `loss_rel_threshold=1.0` collapse the beam to exactly
 one survivor per parameter-count level, making the search fast and
 deterministic. The full production search uses the wider defaults
@@ -153,7 +165,9 @@ deterministic. The full production search uses the wider defaults
 `loss_parsimony_threshold=0.99`, `max_param_count=20`, `eq_complexity_filter=337`)
 and would often run for many hours and require a High
 Performance Compute cluster (see [Running in parallel](identify/parallel.md)).
-`save_dir` is mandatory; the search writes its progress and results there:
+`save_dir` (by default a new `yyyy_mm_dd_results` directory under the working
+directory) must not already hold results; the search writes its progress and
+results there:
 `progress.log`, `initial_mechanisms.csv`, one `equation_search_iteration_N.csv`
 per beam iteration, and — once cross-validation finishes —
 `loocv_results.csv` (the full leave-one-group-out table for every candidate that

@@ -15,31 +15,28 @@ const ER = EnzymeRates
 Independent reference: compute QSSA rate using Laplacian cofactor method.
 Works directly with EnzymeMechanism type parameters.
 """
-function reference_qssa(
+function _testhelper_reference_qssa(
     m::EnzymeMechanism,
     params::NamedTuple,
     concs::NamedTuple,
 )
-    # Walk reactions via accessor so this helper follows the compiled
+    # Walk the steps of the lifted mechanism, so this helper follows the compiled
     # mechanism representation.
-    Reactions = EnzymeRates.reactions(m)
-    enz_names = EnzymeRates.enzyme_forms(m)
+    flat = _testhelper_flat_steps(m)
+    enz_names = _testhelper_enzyme_forms(flat)
     n = length(enz_names)
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
-    enz_set = Set(enz_names)
 
-    ref_name, nu_ref = _reference_metabolite(m)
+    ref_name, nu_ref = _testhelper_reference_metabolite(m)
 
     # Build rate matrix R[i,j] = pseudo-first-order rate from i to j
     R = zeros(n, n)
-    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
-        e_lhs = first(s for s in lhs if s in enz_set)
-        e_rhs = first(s for s in rhs if s in enz_set)
-        i = name_to_idx[e_lhs]
-        j = name_to_idx[e_rhs]
+    for (step_idx, step) in enumerate(flat)
+        i = name_to_idx[EnzymeRates.name(EnzymeRates.from_species(step))]
+        j = name_to_idx[EnzymeRates.name(EnzymeRates.to_species(step))]
 
-        m_lhs = [s for s in lhs if s ∉ enz_set]
-        m_rhs = [s for s in rhs if s ∉ enz_set]
+        m_lhs = EnzymeRates.name.(EnzymeRates.consumed(step))
+        m_rhs = EnzymeRates.name.(EnzymeRates.released(step))
 
         kf = params[Symbol("k$(step_idx)f")]
         kr = params[Symbol("k$(step_idx)r")]
@@ -75,14 +72,12 @@ function reference_qssa(
 
     # Compute net consumption of reference substrate
     v = 0.0
-    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
-        e_lhs = first(s for s in lhs if s in enz_set)
-        e_rhs = first(s for s in rhs if s in enz_set)
-        i = name_to_idx[e_lhs]
-        j = name_to_idx[e_rhs]
+    for (step_idx, step) in enumerate(flat)
+        i = name_to_idx[EnzymeRates.name(EnzymeRates.from_species(step))]
+        j = name_to_idx[EnzymeRates.name(EnzymeRates.to_species(step))]
 
-        m_lhs = [s for s in lhs if s ∉ enz_set]
-        m_rhs = [s for s in rhs if s ∉ enz_set]
+        m_lhs = EnzymeRates.name.(EnzymeRates.consumed(step))
+        m_rhs = EnzymeRates.name.(EnzymeRates.released(step))
 
         kf = params[Symbol("k$(step_idx)f")]
         kr = params[Symbol("k$(step_idx)r")]
@@ -146,7 +141,7 @@ function _testhelper_consistent_point(em, rng)
                  sum((g[ER.name(m)] for m in ER.released(s)); init = big(0)))
         if ER.is_equilibrium(s)
             p = sp[idx][1]
-            vals[ER.name(p, mech)] = p isa ER.Kd ? 1 / Ka : Ka
+            vals[ER.name(p, mech)] = ER.is_binding(s) ? 1 / Ka : Ka
             push!(steps, (s, Ka, nothing))
         else
             kf = get!(() -> exp(4 * big(rand(rng)) - 2), kf_of_group, gi)
@@ -216,7 +211,7 @@ index of its structurally-matching as-written step, so positional textbook
 oracles (numbered k1,k2,… in source order) line up after the constructor
 canonicalizes step order.
 """
-function _positional_flat_idx(mech, source_steps)
+function _testhelper_positional_flat_idx(mech, source_steps)
     if source_steps === nothing
         flat_idx = Vector{Vector{Int}}()
         pos = 0
@@ -234,8 +229,7 @@ function _positional_flat_idx(mech, source_steps)
     # source groups are direction-canonicalized so their stored direction matches
     # the mechanism's; group/within-group order is preserved, so flat position in
     # `src_flat` IS the as-written step index the oracle numbers k1,k2,….
-    src_canon = EnzymeRates._canonicalize_step_directions(
-        EnzymeRates.reaction(mech), source_steps)
+    src_canon = EnzymeRates._canonicalize_step_directions(source_steps)
     src_flat = EnzymeRates.Step[s for g in src_canon for s in g]
     used = falses(length(src_flat))
     flat_idx = Vector{Vector{Int}}()
@@ -244,7 +238,8 @@ function _positional_flat_idx(mech, source_steps)
         for s in group
             j = findfirst(k -> !used[k] && src_flat[k] == s, eachindex(src_flat))
             j === nothing && error(
-                "positional_params bridge: canonical step $s has no as-written match")
+                "_testhelper_positional_params bridge: canonical step $s " *
+                "has no as-written match")
             used[j] = true
             push!(idxs, j)
         end
@@ -259,7 +254,7 @@ As-written index of canonical regulatory site `site` (at canonical position
 matches by ligand-name set so positional Kreg names (`:K_<lig>_reg{site}`) keep
 the oracle's source site numbering after canonical site reordering.
 """
-function _positional_site_idx(site, pos, source_reg_sites)
+function _testhelper_positional_site_idx(site, pos, source_reg_sites)
     source_reg_sites === nothing && return pos
     want = Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(site))
     j = findfirst(source_reg_sites) do ss
@@ -281,7 +276,7 @@ flat-iteration order. `source_steps`/`source_reg_sites` (the as-written orders)
 bridge the oracle's source numbering to canonical stored order; omitting them
 keeps the canonical numbering the ODE/QSSA cross-checks rely on.
 """
-function positional_params(m, nt::NamedTuple;
+function _testhelper_positional_params(m, nt::NamedTuple;
                            source_steps=nothing, source_reg_sites=nothing)
     mech = m isa EnzymeRates.Mechanism             ? m :
            m isa EnzymeRates.AllostericMechanism   ? m :
@@ -292,7 +287,7 @@ function positional_params(m, nt::NamedTuple;
     names = Symbol[]
     vals  = Any[]
 
-    flat_idx = _positional_flat_idx(mech, source_steps)
+    flat_idx = _testhelper_positional_flat_idx(mech, source_steps)
 
     fes = EnzymeRates._free_enz_set(mech)
     for (g, group) in enumerate(EnzymeRates.steps(mech))
@@ -305,12 +300,8 @@ function positional_params(m, nt::NamedTuple;
         has_inactive = is_allo && cat_st === :NonequalAI
 
         if EnzymeRates.is_equilibrium(rep)
-            # RE step: binding → Kd; iso → Kiso
-            act_key = if EnzymeRates.is_binding(rep)
-                EnzymeRates.name(EnzymeRates.Kd(rep, act_st), mech)
-            else
-                EnzymeRates.name(EnzymeRates.Kiso(rep, act_st), mech)
-            end
+            # RE step: its equilibrium constant
+            act_key = EnzymeRates.name(EnzymeRates.Krapid(rep, act_st), mech)
             if haskey(nt, act_key)
                 for idx in gidx
                     push!(names, Symbol("K", idx))
@@ -318,11 +309,7 @@ function positional_params(m, nt::NamedTuple;
                 end
             end
             if has_inactive
-                ina_key = if EnzymeRates.is_binding(rep)
-                    EnzymeRates.name(EnzymeRates.Kd(rep, :I), mech)
-                else
-                    EnzymeRates.name(EnzymeRates.Kiso(rep, :I), mech)
-                end
+                ina_key = EnzymeRates.name(EnzymeRates.Krapid(rep, :I), mech)
                 if haskey(nt, ina_key)
                     for idx in gidx
                         push!(names, Symbol("K", idx, "_T"))
@@ -331,14 +318,9 @@ function positional_params(m, nt::NamedTuple;
                 end
             end
         else
-            # SS step: binding → Kon/Koff; iso → Kfor/Krev
-            act_fwd, act_rev = if EnzymeRates.is_binding(rep)
-                EnzymeRates.name(EnzymeRates.Kon(rep, act_st), mech),
-                EnzymeRates.name(EnzymeRates.Koff(rep, act_st), mech)
-            else
-                EnzymeRates.name(EnzymeRates.Kfor(rep, act_st), mech),
-                EnzymeRates.name(EnzymeRates.Krev(rep, act_st), mech)
-            end
+            # SS step: its forward and reverse rate constants
+            act_fwd = EnzymeRates.name(EnzymeRates.Kfor(rep, act_st), mech)
+            act_rev = EnzymeRates.name(EnzymeRates.Krev(rep, act_st), mech)
             for idx in gidx
                 if haskey(nt, act_fwd)
                     push!(names, Symbol("k", idx, "f")); push!(vals, nt[act_fwd])
@@ -348,13 +330,8 @@ function positional_params(m, nt::NamedTuple;
                 end
             end
             if has_inactive
-                ina_fwd, ina_rev = if EnzymeRates.is_binding(rep)
-                    EnzymeRates.name(EnzymeRates.Kon(rep, :I), mech),
-                    EnzymeRates.name(EnzymeRates.Koff(rep, :I), mech)
-                else
-                    EnzymeRates.name(EnzymeRates.Kfor(rep, :I), mech),
-                    EnzymeRates.name(EnzymeRates.Krev(rep, :I), mech)
-                end
+                ina_fwd = EnzymeRates.name(EnzymeRates.Kfor(rep, :I), mech)
+                ina_rev = EnzymeRates.name(EnzymeRates.Krev(rep, :I), mech)
                 for idx in gidx
                     if haskey(nt, ina_fwd)
                         push!(names, Symbol("k", idx, "f_T")); push!(vals, nt[ina_fwd])
@@ -370,7 +347,7 @@ function positional_params(m, nt::NamedTuple;
     # Kreg: emit positional :K_<lig>_reg{site} / :K_<lig>_T_reg{site} keys.
     if is_allo
         for (pos, site) in enumerate(EnzymeRates.regulatory_sites(mech))
-            site_idx = _positional_site_idx(site, pos, source_reg_sites)
+            site_idx = _testhelper_positional_site_idx(site, pos, source_reg_sites)
             for (lig, tag) in zip(EnzymeRates.ligands(site),
                                   EnzymeRates.allo_states(site))
                 lig_str = String(EnzymeRates.name(lig))
@@ -431,23 +408,23 @@ Positional params for the **hand-written analytical oracles**, which fix
 `k{idx}f` as the chemically-forward (substrate→product) rate of source step
 `idx`. A step that only gives off one product is stored as the binding it reverses
 (`E + P → EP` for a plain release, `E + P → ES` for a fused one), so the
-package's stored-forward rate (the one `positional_params` puts on `k{idx}f`)
+package's stored-forward rate (the one `_testhelper_positional_params` puts on `k{idx}f`)
 is actually the chemical REVERSE (binding) of the oracle's forward (release
 `EP → E + P`). Swap the `k{idx}f`/`k{idx}r` values for those steps so the
 oracle's forward keeps its release meaning. (The QSSA / ODE oracles read the
 canonical stored direction directly and need the un-swapped
-`positional_params`.)
+`_testhelper_positional_params`.)
 """
-function analytical_oracle_params(m, nt::NamedTuple;
+function _testhelper_analytical_oracle_params(m, nt::NamedTuple;
                                   source_steps=nothing, source_reg_sites=nothing)
     mech = m isa EnzymeRates.AllostericEnzymeMechanism ?
                EnzymeRates.AllostericMechanism(m) :
            m isa EnzymeRates.EnzymeMechanism ? EnzymeRates.Mechanism(m) : m
-    pos = positional_params(m, nt; source_steps=source_steps,
+    pos = _testhelper_positional_params(m, nt; source_steps=source_steps,
                             source_reg_sites=source_reg_sites)
     # swap_idxs must live in the SAME index space as `pos`'s positional keys —
     # the as-written source index when bridged, canonical position otherwise.
-    flat_idx = _positional_flat_idx(mech, source_steps)
+    flat_idx = _testhelper_positional_flat_idx(mech, source_steps)
     swap_idxs = Set{Int}()
     for (g, group) in enumerate(EnzymeRates.steps(mech))
         for (within, s) in enumerate(group)
@@ -473,25 +450,14 @@ function analytical_oracle_params(m, nt::NamedTuple;
     NamedTuple{Tuple(names)}(Tuple(vals))
 end
 
-"""Generate random reduced (fitted) params + Keq + E_total for a mechanism."""
-function random_reduced_params(m; rng=Random.default_rng())
-    fp = EnzymeRates.fitted_params(m)
-    vals = Tuple(0.1 + 9.9 * rand(rng) for _ in fp)
-    Keq_val = 0.1 + 9.9 * rand(rng)
-    E_total_val = 0.1 + 9.9 * rand(rng)
-    keys_out = (fp..., :Keq, :E_total)
-    vals_out = (vals..., Keq_val, E_total_val)
-    NamedTuple{keys_out}(vals_out)
-end
-
 """Check if mechanism has any rapid-equilibrium steps."""
-_has_re_steps(m) = any(EnzymeRates.equilibrium_steps(m))
+_testhelper_has_re_steps(m) = any(EnzymeRates.is_equilibrium, _testhelper_flat_steps(m))
 
 """
 Test that `rate_equation` is non-allocating and fast for the given mechanism.
 Must be a standalone function to avoid @testset closure boxing.
 """
-function test_rate_equation_performance(m, params, concs)
+function _testhelper_test_rate_equation_performance(m, params, concs)
     rate_equation(m, concs, params) # warmup/compile
     allocs = @allocated rate_equation(m, concs, params)
     # Minimum over several batches defeats the GC/scheduling inflation a
@@ -511,90 +477,44 @@ function test_rate_equation_performance(m, params, concs)
 end
 
 """
-Get independent parameter symbols from mechanism using internal API.
-"""
-function _get_independent_params(m)
-    _, indep = EnzymeRates._dependent_param_exprs(typeof(m))
-    return indep
-end
-
-"""
-Get dependent parameter expressions from mechanism using internal API.
-Returns vector of (symbol, expression_string) pairs.
-"""
-function _get_dependent_params(m)
-    dep_exprs, _ = EnzymeRates._dependent_param_exprs(typeof(m))
-    pairs = Tuple{Symbol, String}[]
-    for (sym, expr) in sort(collect(dep_exprs); by=first)
-        push!(pairs, (sym, string(expr)))
-    end
-    return pairs
-end
-
-"""
-Build a NamedTuple with only independent params + Keq + E_total,
-given all_params (with all k's + E_total) and a Keq value.
-"""
-function make_independent_params(m, all_params, Keq)
-    indep = _get_independent_params(m)
-    keys_out = (indep..., :Keq, :E_total)
-    vals_out = Tuple(
-        k == :Keq ? Keq :
-        k == :E_total ? all_params.E_total :
-        all_params[k]
-        for k in keys_out
-    )
-    return NamedTuple{keys_out}(vals_out)
-end
-
-"""
 Compute all structural-named params (independent + Haldane-derived dependents)
 plus Keq + E_total for a mechanism. Returns a NamedTuple with structural keys
-(e.g. :K_ES_to_E_S, :k_ES_to_EP) that positional_params can remap to oracle-style
-positional names.
+(e.g. :K_ES_to_E_S, :k_ES_to_EP) that _testhelper_positional_params can remap to
+oracle-style positional names.
 """
-function compute_all_params(m, new_params)
-    indep = _get_independent_params(m)
-    dep = _get_dependent_params(m)
-    dep_dict = Dict{Symbol, Float64}()
-    for (sym, expr_str) in dep
-        dep_dict[sym] = _eval_dep_expr(expr_str, new_params)
-    end
-    all_keys = (indep..., Tuple(keys(dep_dict))..., :Keq, :E_total)
-    all_vals = Tuple(Float64[
-        haskey(dep_dict, k) ? dep_dict[k] :
-        k == :Keq ? Float64(new_params[:Keq]) :
-        k == :E_total ? Float64(new_params[:E_total]) :
-        Float64(new_params[k])
-        for k in all_keys
-    ])
-    NamedTuple{all_keys}(all_vals)
+function _testhelper_compute_all_params(m, new_params)
+    dep, _ = EnzymeRates._dependent_param_exprs(typeof(m))
+    dep_vals = (k => Float64(_testhelper_eval_dep_expr(e, new_params)) for (k, e) in dep)
+    merge(new_params, (; dep_vals...))
 end
 
-function _eval_dep_expr(expr_str::String, params::NamedTuple)
-    # Build let bindings from params - bind each key directly so bare names work
-    bindings = ["$(k) = $(params[k])" for k in keys(params)]
-    code = "let $(join(bindings, ", "))\n  $expr_str\nend"
-    return Float64(eval(Meta.parse(code)))
-end
+"""
+Evaluate a dependent-parameter expression: a Symbol is looked up in `params`, a
+number is itself, and a call applies the named `Base` function to its evaluated
+arguments.
+"""
+_testhelper_eval_dep_expr(x::Symbol, params) = params[x]
+_testhelper_eval_dep_expr(x::Real, params) = x
+_testhelper_eval_dep_expr(e::Expr, params) =
+    getfield(Base, e.args[1])(
+        (_testhelper_eval_dep_expr(a, params) for a in e.args[2:end])...)
 
 """
 Generate random independent params + Keq + E_total for testing.
 Also returns all_params (the full set of k's + E_total) for reference comparison.
 """
-function random_independent_params_concs(
+function _testhelper_random_independent_params_concs(
     m, met_names::Vector{Symbol}; rng=Random.default_rng()
 )
-    indep = _get_independent_params(m)
     # Generate random values for independent params + Keq + E_total
-    param_keys = (indep..., :Keq, :E_total)
+    param_keys = (EnzymeRates.fitted_params(m)..., :Keq, :E_total)
     param_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in param_keys)
     new_params = NamedTuple{param_keys}(param_vals)
 
     conc_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in met_names)
     concs = NamedTuple{Tuple(met_names)}(conc_vals)
 
-    all_params = compute_all_params(m, new_params)
+    all_params = _testhelper_compute_all_params(m, new_params)
     return new_params, concs, all_params
 end
 
@@ -607,59 +527,48 @@ For binding RE steps (metabolite on LHS, canonical form):
 For RE isomerization steps (no metabolite, enzyme-only):
     K = Ka = kf/kr, so k_if = 1e6 * K, k_ir = 1e6.
 """
-function raw_to_ode_params(m, raw_params)
+function _testhelper_raw_to_ode_params(m, raw_params)
     mech = m isa EnzymeRates.Mechanism ? m : EnzymeRates.Mechanism(m)
-    eq = EnzymeRates.equilibrium_steps(m)
-    ns = EnzymeRates.n_steps(m)
-    rxns = EnzymeRates.reactions(m)
-    enz_set = Set(EnzymeRates.enzyme_forms(m))
+    flat = EnzymeRates._flat_steps(mech)
     # Kinetic-group rename map: maps Wegscheider-equivalent RE binding K names
     # (e.g. K_ERinhS_to_ERinh_S → K_ES_to_E_S) so the param lookup succeeds even when the
     # mechanism has sharing via Wegscheider constraints.
-    rename = EnzymeRates._build_wegscheider_rename_map(m)
+    rename = EnzymeRates._build_wegscheider_rename_map(mech)
     # A canonical RE binding step has a metabolite on LHS (canonical form
     # invariant: all RE binding steps are written `E + S ⇌ ES`).
     is_binding_step = Bool[
-        eq[i] && any(s ∉ enz_set for s in rxns[i][1])
-        for i in 1:ns
+        EnzymeRates.is_equilibrium(s) && !isempty(EnzymeRates.consumed(s))
+        for (s, _) in flat
     ]
     # Resolve a structural param key through the rename map if not present
-    _lookup(k) = haskey(raw_params, k) ? Float64(raw_params[k]) :
-                 haskey(rename, k) ? Float64(raw_params[rename[k]]) :
-                 error("raw_to_ode_params: missing param $k")
+    _testhelper_lookup(k) = haskey(raw_params, k) ? Float64(raw_params[k]) :
+                            haskey(rename, k) ? Float64(raw_params[rename[k]]) :
+                            error("_testhelper_raw_to_ode_params: missing param $k")
     param_keys = Symbol[]
     param_vals = Float64[]
-    for i in 1:ns
-        g = EnzymeRates.kinetic_group(m, i)
+    for (i, (step, g)) in enumerate(flat)
         rep_step = first(EnzymeRates.steps(mech)[g])
         push!(param_keys, Symbol("k$(i)f"))
         push!(param_keys, Symbol("k$(i)r"))
-        if eq[i]
-            # Look up structural K key for the rep step (Kd for binding, Kiso for iso)
+        if EnzymeRates.is_equilibrium(step)
+            # Look up the rep step's structural K key
+            K = _testhelper_lookup(
+                EnzymeRates.name(EnzymeRates.Krapid(rep_step, :None), mech))
             if is_binding_step[i]
-                K_key = EnzymeRates.name(EnzymeRates.Kd(rep_step, :None), mech)
-                K = _lookup(K_key)
                 # Binding step (metabolite on LHS): K = Kd = kr/kf
                 push!(param_vals, 1e6)
                 push!(param_vals, 1e6 * K)
             else
-                K_key = EnzymeRates.name(EnzymeRates.Kiso(rep_step, :None), mech)
-                K = _lookup(K_key)
                 # RE isomerization (no metabolite): K = Ka = kf/kr
                 push!(param_vals, 1e6 * K)
                 push!(param_vals, 1e6)
             end
         else
-            # SS step: binding → Kon/Koff; iso → Kfor/Krev
-            fwd_key, rev_key = if EnzymeRates.is_binding(rep_step)
-                EnzymeRates.name(EnzymeRates.Kon(rep_step, :None), mech),
-                EnzymeRates.name(EnzymeRates.Koff(rep_step, :None), mech)
-            else
-                EnzymeRates.name(EnzymeRates.Kfor(rep_step, :None), mech),
-                EnzymeRates.name(EnzymeRates.Krev(rep_step, :None), mech)
-            end
-            push!(param_vals, _lookup(fwd_key))
-            push!(param_vals, _lookup(rev_key))
+            # SS step: its forward and reverse rate constants
+            fwd_key = EnzymeRates.name(EnzymeRates.Kfor(rep_step, :None), mech)
+            rev_key = EnzymeRates.name(EnzymeRates.Krev(rep_step, :None), mech)
+            push!(param_vals, _testhelper_lookup(fwd_key))
+            push!(param_vals, _testhelper_lookup(rev_key))
         end
     end
     push!(param_keys, :E_total)
@@ -667,8 +576,8 @@ function raw_to_ode_params(m, raw_params)
     return NamedTuple{Tuple(param_keys)}(Tuple(param_vals))
 end
 
-function _reference_metabolite(m)
-    subs = EnzymeRates.substrates(m)
+function _testhelper_reference_metabolite(m)
+    subs = _testhelper_substrates(m)
     isempty(subs) && error("No substrate found in mechanism")
     name = subs[1]
     coeff = -count(==(name), subs)
@@ -677,26 +586,23 @@ end
 
 # ── ODE steady-state helpers ────────────────────────────────────────────────
 
-function build_ode_rhs(
+function _testhelper_build_ode_rhs(
     m::EnzymeMechanism,
     params, concs,
 )
-    # Walk reactions via accessor so this helper follows the compiled
+    # Walk the steps of the lifted mechanism, so this helper follows the compiled
     # mechanism representation.
-    Reactions = EnzymeRates.reactions(m)
-    enz_names = EnzymeRates.enzyme_forms(m)
+    flat = _testhelper_flat_steps(m)
+    enz_names = _testhelper_enzyme_forms(flat)
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
-    enz_set = Set(enz_names)
 
     step_data = []
-    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
-        e_lhs = first(s for s in lhs if s in enz_set)
-        e_rhs = first(s for s in rhs if s in enz_set)
-        i = name_to_idx[e_lhs]
-        j = name_to_idx[e_rhs]
+    for (step_idx, step) in enumerate(flat)
+        i = name_to_idx[EnzymeRates.name(EnzymeRates.from_species(step))]
+        j = name_to_idx[EnzymeRates.name(EnzymeRates.to_species(step))]
 
-        m_lhs = [s for s in lhs if s ∉ enz_set]
-        m_rhs = [s for s in rhs if s ∉ enz_set]
+        m_lhs = EnzymeRates.name.(EnzymeRates.consumed(step))
+        m_rhs = EnzymeRates.name.(EnzymeRates.released(step))
 
         kf = Float64(params[Symbol("k$(step_idx)f")])
         kr = Float64(params[Symbol("k$(step_idx)r")])
@@ -708,7 +614,7 @@ function build_ode_rhs(
     end
 
     n = length(enz_names)
-    function rhs!(du, u, p, t)
+    function _testhelper_rhs!(du, u, p, t)
         fill!(du, 0.0)
         for (i, j, rf, rr) in step_data
             flux = rf * u[i] - rr * u[j]
@@ -716,24 +622,23 @@ function build_ode_rhs(
             du[j] += flux
         end
     end
-    return rhs!
+    return _testhelper_rhs!
 end
 
-function ode_steady_state_flux(
+function _testhelper_ode_steady_state_flux(
     m::EnzymeMechanism,
     params, concs,
 )
-    Reactions = EnzymeRates.reactions(m)
+    flat = _testhelper_flat_steps(m)
     E_total = params.E_total
-    enz_names = EnzymeRates.enzyme_forms(m)
+    enz_names = _testhelper_enzyme_forms(flat)
     n = length(enz_names)
-    enz_set = Set(enz_names)
-    ref_name, nu_ref = _reference_metabolite(m)
+    ref_name, nu_ref = _testhelper_reference_metabolite(m)
 
     u0 = zeros(n)
     u0[1] = E_total
 
-    rhs! = build_ode_rhs(m, params, concs)
+    rhs! = _testhelper_build_ode_rhs(m, params, concs)
     prob = ODEProblem(rhs!, u0, (0.0, 1e6))
     # 1e-13 (vs 1e-12) keeps the stiff multi-step solves converged to the
     # exact rate equation regardless of catalytic-step storage order; at 1e-12
@@ -743,14 +648,12 @@ function ode_steady_state_flux(
 
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
     v = 0.0
-    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
-        e_lhs = first(s for s in lhs if s in enz_set)
-        e_rhs = first(s for s in rhs if s in enz_set)
-        i = name_to_idx[e_lhs]
-        j = name_to_idx[e_rhs]
+    for (step_idx, step) in enumerate(flat)
+        i = name_to_idx[EnzymeRates.name(EnzymeRates.from_species(step))]
+        j = name_to_idx[EnzymeRates.name(EnzymeRates.to_species(step))]
 
-        m_lhs = [s for s in lhs if s ∉ enz_set]
-        m_rhs = [s for s in rhs if s ∉ enz_set]
+        m_lhs = EnzymeRates.name.(EnzymeRates.consumed(step))
+        m_rhs = EnzymeRates.name.(EnzymeRates.released(step))
 
         kf = Float64(params[Symbol("k$(step_idx)f")])
         kr = Float64(params[Symbol("k$(step_idx)r")])
@@ -770,36 +673,24 @@ end
 
 # ── Rate equation string evaluation helper ──────────────────────────────────
 
-function _eval_rate_string(s, params, concs)
-    # Filter out destructuring lines ("= params", "= concs"), keep constraint + v = lines
-    lines = split(s, "\n")
-    eval_lines = String[]
-    for line in lines
-        stripped = strip(line)
-        isempty(stripped) && continue
-        endswith(stripped, "= params") && continue
-        endswith(stripped, "= concs") && continue
-        push!(eval_lines, stripped)
-    end
-    # The last line should be "v = ..." — extract the expression after "v = "
-    code_body = join(eval_lines, "\n")
-    eq_line = last(split(code_body, "v = "; limit=2))
-    bindings = vcat(
-        ["$k = $(params[k])" for k in keys(params)],
-        ["$k = $(concs[k])" for k in keys(concs)],
-    )
-    code = "let $(join(bindings, ", "))\n  $eq_line\nend"
+# Runs the rendered code as written: its destructuring lines read `params` and
+# `concs`, its constraint lines define the dependent parameters, and its `v` line
+# is the value.
+function _testhelper_eval_rate_string(s, params, concs)
+    code = "let params = $params, concs = $concs\n" *
+           replace(s, EnzymeRates.ANNOTATION_SUBSTITUTED => "") * "\nend"
     eval(Meta.parse(code))
 end
 
-# ── Modular test functions for MechanismTestSpec ────────────────────────────
+# ── Modular test functions for _testhelper_MechanismTestSpec ────────────────
 
-function test_structure(spec::MechanismTestSpec)
+function _testhelper_test_structure(spec::_testhelper_MechanismTestSpec)
     m = spec.mechanism
     @testset "Structure" begin
-        @test EnzymeRates.n_states(m) == spec.expected_n_states
-        @test EnzymeRates.n_steps(m) == spec.expected_n_steps
-        @test length(metabolites(m)) == spec.expected_n_metabolites
+        flat = _testhelper_flat_steps(m)
+        @test length(_testhelper_enzyme_forms(flat)) == spec.expected_n_states
+        @test length(flat) == spec.expected_n_steps
+        @test metabolites(m) == Tuple(spec.metabolite_names)
         # Structural parameter names must be injective on the load-bearing
         # paths the fitter consumes (Reduced + fitted_params). A collision
         # would silently shorten the destructured params NamedTuple.
@@ -810,25 +701,82 @@ end
 
 """Classify a dep expression as Haldane (RHS references Keq), Mirror
 (RHS is a single Symbol), or Wegscheider (RHS Expr without Keq)."""
-function _classify_dep_expr(expr)
+function _testhelper_classify_dep_expr(expr)
     if expr isa Symbol
         return :mirror
-    elseif EnzymeRates._expr_references_any(expr, Set([:Keq]))
+    elseif EnzymeRates._mentions(expr, :Keq)
         return :haldane
     else
         return :wegscheider
     end
 end
 
-function test_constraint_counting(spec::MechanismTestSpec)
+# Parameter-name symbols referenced on the RHS of a dependent-param expression
+# `x`, skipping the operator/function-name slot of a `:call` Expr (so `:+`,
+# `:*`, `:/`, `:^`, `:sqrt`, ... never appear as candidate parameter names).
+_testhelper_rhs_syms(x) = x isa Symbol ? [x] :
+    x isa Expr ? reduce(
+        vcat,
+        map(_testhelper_rhs_syms, x.head === :call ? x.args[2:end] : x.args);
+        init=Symbol[]) :
+    Symbol[]
+
+"""
+The dependent-parameter graph `dep` (with independent parameters `indep`) is sound
+iff (a) no symbol is both independent (fitted) and dependent, (b) the dep→dep
+dependency graph is acyclic, and (c) every dependent expression's RHS symbol
+is a fitted param, another dependent param, or `Keq`.
+"""
+function _testhelper_dep_graph_is_sound(dep, indep)
+    indepset = Set(indep)
+    isempty(intersect(indepset, keys(dep))) || return false
+
+    depset = Set(keys(dep))
+    edges = Dict(k => Symbol[s for s in _testhelper_rhs_syms(v) if s in depset]
+                 for (k, v) in dep)
+    state = Dict{Symbol, Int}()  # 0 = unseen, 1 = on-stack, 2 = done
+    ok = true
+    function _testhelper_dfs(n)
+        get(state, n, 0) == 2 && return
+        if get(state, n, 0) == 1
+            ok = false
+            return
+        end
+        state[n] = 1
+        for m in get(edges, n, Symbol[])
+            _testhelper_dfs(m)
+            ok || return
+        end
+        state[n] = 2
+    end
+    for k in keys(dep)
+        _testhelper_dfs(k)
+        ok || break
+    end
+    ok || return false
+
+    known = union(indepset, depset, Set([:Keq]))
+    for (_, v) in dep, s in _testhelper_rhs_syms(v)
+        s in known || return false
+    end
+    true
+end
+
+function _testhelper_test_constraint_counting(spec::_testhelper_MechanismTestSpec)
     m = spec.mechanism
     @testset "Constraints" begin
         dep_exprs, indep = EnzymeRates._dependent_param_exprs(typeof(m))
+        # A dependent (Haldane/Wegscheider-derived) parameter must never appear in
+        # the independent set returned as fitted_params. The LDH i-state specs have a
+        # shared :EqualAI catalytic reverse rate that is Haldane-dependent in the
+        # A-state while the dead I-state references it unpinned — the exact leak the
+        # uniform dep-filter closes.
+        @test _testhelper_dep_graph_is_sound(dep_exprs, indep)
         n_haldane = 0
         n_mirror = 0
         n_wegscheider = 0
         for (_, expr) in dep_exprs
-            cat = _classify_dep_expr(expr)
+            cat = _testhelper_classify_dep_expr(expr)
             if cat == :haldane
                 n_haldane += 1
             elseif cat == :mirror
@@ -844,28 +792,32 @@ function test_constraint_counting(spec::MechanismTestSpec)
     end
 end
 
-function test_reference_qssa(spec::MechanismTestSpec; n_trials=20, seed=42)
+function _testhelper_test_reference_qssa(
+    spec::_testhelper_MechanismTestSpec; n_trials=20, seed=42
+)
     m = spec.mechanism
     # Reference QSSA only works for all-SS mechanisms
-    _has_re_steps(m) && return
+    _testhelper_has_re_steps(m) && return
     met_names = spec.metabolite_names
     @testset "Reference QSSA" begin
         rng = Random.MersenneTwister(seed)
         @test all(1:n_trials) do _
             new_params, concs, all_params =
-                random_independent_params_concs(
+                _testhelper_random_independent_params_concs(
                     m, met_names; rng=rng)
-            # reference_qssa uses positional step-indexed k$(i)f/k$(i)r keys
-            pos_params = positional_params(m, all_params)
+            # _testhelper_reference_qssa uses positional step-indexed k$(i)f/k$(i)r keys
+            pos_params = _testhelper_positional_params(m, all_params)
             isapprox(
                 rate_equation(m, concs, new_params),
-                reference_qssa(m, pos_params, concs);
+                _testhelper_reference_qssa(m, pos_params, concs);
                 rtol=spec.reference_rtol)
         end
     end
 end
 
-function test_analytical_rate(spec::MechanismTestSpec; n_trials=20, seed=1001)
+function _testhelper_test_analytical_rate(
+    spec::_testhelper_MechanismTestSpec; n_trials=20, seed=1001
+)
     # Skip if no analytical rate function provided
     spec.analytical_rate_fn === nothing && return
 
@@ -875,10 +827,10 @@ function test_analytical_rate(spec::MechanismTestSpec; n_trials=20, seed=1001)
         rng = Random.MersenneTwister(seed)
         @test all(1:n_trials) do _
             new_params, concs, all_params =
-                random_independent_params_concs(
+                _testhelper_random_independent_params_concs(
                     m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
-            p = merge(analytical_oracle_params(
+            p = merge(_testhelper_analytical_oracle_params(
                           m, all_params;
                           source_steps=spec.source_steps,
                           source_reg_sites=spec.source_reg_sites),
@@ -892,18 +844,19 @@ function test_analytical_rate(spec::MechanismTestSpec; n_trials=20, seed=1001)
     end
 end
 
-function test_haldane_equilibrium(spec::MechanismTestSpec; seed=42)
+function _testhelper_test_haldane_equilibrium(spec::_testhelper_MechanismTestSpec; seed=42)
     m = spec.mechanism
     met_names = spec.metabolite_names
     @testset "Haldane Equilibrium" begin
         rng = Random.MersenneTwister(seed)
-        new_params, _, _ = random_independent_params_concs(m, met_names; rng=rng)
+        new_params, _, _ = _testhelper_random_independent_params_concs(
+            m, met_names; rng=rng)
         Keq = new_params.Keq
-        n_prods = length(EnzymeRates.products(m))
+        n_prods = length(_testhelper_products(m))
         # Build equilibrium concentrations: prod(P_i) / prod(S_i) = Keq
         # Set all substrates to 1.0, distribute Keq^(1/n_prods) across products
-        sub_names = collect(EnzymeRates.substrates(m))
-        prod_names = collect(EnzymeRates.products(m))
+        sub_names = _testhelper_substrates(m)
+        prod_names = _testhelper_products(m)
         eq_vals = Dict{Symbol,Float64}()
         for s in sub_names; eq_vals[s] = 1.0; end
         p_each = Keq^(1.0 / n_prods)
@@ -918,13 +871,14 @@ function test_haldane_equilibrium(spec::MechanismTestSpec; seed=42)
     end
 end
 
-function test_performance(spec::MechanismTestSpec; seed=42)
+function _testhelper_test_performance(spec::_testhelper_MechanismTestSpec; seed=42)
     m = spec.mechanism
     met_names = spec.metabolite_names
     @testset "Performance" begin
         rng = Random.MersenneTwister(seed)
-        params, concs, _ = random_independent_params_concs(m, met_names; rng=rng)
-        allocs, t = test_rate_equation_performance(m, params, concs)
+        params, concs, _ = _testhelper_random_independent_params_concs(
+            m, met_names; rng=rng)
+        allocs, t = _testhelper_test_rate_equation_performance(m, params, concs)
         @test allocs == 0
         # 120ns, not the ~tens-of-ns real per-call cost: shared CI runners'
         # best-case timing runs slower than a dedicated box, so 120ns keeps
@@ -933,22 +887,24 @@ function test_performance(spec::MechanismTestSpec; seed=42)
     end
 end
 
-function test_ode_steadystate(spec::MechanismTestSpec; n_trials=10, seed=42)
+function _testhelper_test_ode_steadystate(
+    spec::_testhelper_MechanismTestSpec; n_trials=10, seed=42
+)
     m = spec.mechanism
     met_names = spec.metabolite_names
     @testset "ODE Steady-State" begin
         rng = Random.MersenneTwister(seed)
-        has_re = _has_re_steps(m)
+        has_re = _testhelper_has_re_steps(m)
         @test all(1:n_trials) do _
             new_params, concs, all_params =
-                random_independent_params_concs(
+                _testhelper_random_independent_params_concs(
                     m, met_names; rng=rng)
             # Convert structural params to positional k_if/k_ir for ODE
-            pos_params = positional_params(m, all_params)
+            pos_params = _testhelper_positional_params(m, all_params)
             ode_params = has_re ?
-                raw_to_ode_params(m, all_params) :
+                _testhelper_raw_to_ode_params(m, all_params) :
                 pos_params
-            v_ode = ode_steady_state_flux(m, ode_params, concs)
+            v_ode = _testhelper_ode_steady_state_flux(m, ode_params, concs)
             v_ka = rate_equation(m, concs, new_params)
             # Use looser tolerance for RE mechanisms (large rate approximation)
             rtol = has_re ? 1e-3 : spec.ode_rtol
@@ -957,7 +913,7 @@ function test_ode_steadystate(spec::MechanismTestSpec; n_trials=10, seed=42)
     end
 end
 
-function test_rate_equation_string(spec::MechanismTestSpec)
+function _testhelper_test_rate_equation_string(spec::_testhelper_MechanismTestSpec)
     m = spec.mechanism
     met_names = spec.metabolite_names
     @testset "Rate Equation String" begin
@@ -974,13 +930,23 @@ function test_rate_equation_string(spec::MechanismTestSpec)
         # Numerical equivalence test
         rng = Random.MersenneTwister(9000 + hash(spec.name) % 1000)
         @test all(1:10) do _
-            new_params, concs, all_params =
-                random_independent_params_concs(
+            new_params, concs, _ =
+                _testhelper_random_independent_params_concs(
                     m, met_names; rng=rng)
             isapprox(
                 rate_equation(m, concs, new_params),
-                _eval_rate_string(s, all_params, concs);
+                _testhelper_eval_rate_string(s, new_params, concs);
                 rtol=1e-10)
+        end
+
+        has_num = spec.expected_factored_num !== nothing
+        has_denom = spec.expected_factored_denom !== nothing
+        if has_num || has_denom
+            num_str, denom_str = _testhelper_extract_num_denom(last(split(s, "\n")))
+            @test num_str !== nothing
+            @test denom_str !== nothing
+            has_num && @test num_str == spec.expected_factored_num
+            has_denom && @test denom_str == spec.expected_factored_denom
         end
     end
 end
@@ -989,7 +955,7 @@ end
 Extract numerator and denominator strings from rate equation v-line.
 Handles nested parentheses via depth counting.
 """
-function _extract_num_denom(v_line::AbstractString)
+function _testhelper_extract_num_denom(v_line::AbstractString)
     marker = "E_total * ("
     start = findfirst(marker, v_line)
     start === nothing && return nothing, nothing
@@ -1009,37 +975,19 @@ function _extract_num_denom(v_line::AbstractString)
     return String(num_str), String(denom_str)
 end
 
-function test_factored_form(spec::MechanismTestSpec)
-    has_num = spec.expected_factored_num !== nothing
-    has_denom = spec.expected_factored_denom !== nothing
-    (has_num || has_denom) || return
-    m = spec.mechanism
-    @testset "Factored Form" begin
-        s = rate_equation_string(m)
-        v_line = last(split(s, "\n"))
-        num_str, denom_str = _extract_num_denom(v_line)
-        @test num_str !== nothing
-        @test denom_str !== nothing
-        if num_str !== nothing && denom_str !== nothing
-            has_num && @test num_str == spec.expected_factored_num
-            has_denom && @test denom_str == spec.expected_factored_denom
-        end
-    end
-end
-
-function test_analytical_kcat(spec::MechanismTestSpec; seed=42)
+function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec; seed=42)
     spec.analytical_kcat_fn === nothing && return
     m = spec.mechanism
     @testset "Analytical kcat" begin
         rng = Random.MersenneTwister(seed)
-        params = random_reduced_params(m; rng)
+        params = _testhelper_random_reduced_params(m; rng)
         kcat = EnzymeRates._kcat_forward(m, params)
         # The oracle's positional formula may reference a forward rate that is
         # Haldane-DEPENDENT under the canonical step order (absent from the
         # reduced params), so bridge the FULL param set (dependent values
         # included) to positional names.
-        p = merge(analytical_oracle_params(
-                      m, compute_all_params(m, params);
+        p = merge(_testhelper_analytical_oracle_params(
+                      m, _testhelper_compute_all_params(m, params);
                       source_steps=spec.source_steps,
                       source_reg_sites=spec.source_reg_sites),
                   (Et=params.E_total,))
@@ -1047,11 +995,11 @@ function test_analytical_kcat(spec::MechanismTestSpec; seed=42)
     end
 end
 
-function test_kcat_rescaling(spec::MechanismTestSpec; seed=100)
+function _testhelper_test_kcat_rescaling(spec::_testhelper_MechanismTestSpec; seed=100)
     m = spec.mechanism
     @testset "kcat rescaling" begin
         rng = Random.MersenneTwister(seed)
-        params = random_reduced_params(m; rng)
+        params = _testhelper_random_reduced_params(m; rng)
 
         # kcat should be positive
         kcat_orig = EnzymeRates._kcat_forward(m, params)
@@ -1094,9 +1042,9 @@ function test_kcat_rescaling(spec::MechanismTestSpec; seed=100)
         @test v_norm / v_orig ≈ 1.0 / kcat_orig rtol=1e-8
 
         # V ≈ 1 at saturating substrates, products=0
-        sub_names = collect(EnzymeRates.substrates(m))
-        prod_names = collect(EnzymeRates.products(m))
-        reg_names = collect(EnzymeRates.regulators(m))
+        sub_names = _testhelper_substrates(m)
+        prod_names = _testhelper_products(m)
+        reg_names = _testhelper_regulators(m)
         n_reg = length(reg_names)
 
         norm_e1 = merge(norm, (E_total=1.0,))
@@ -1124,48 +1072,26 @@ Assert `rate_equation` stays finite when any single metabolite concentration
 is zero (real kinetic data routinely has zeros). Zeroing a substrate or product
 must still leave a nonzero net rate — the opposite-direction metabolites keep
 driving flux — so a `0.0` there normally signals a `1/conc` term that blew the
-denominator to `Inf`. Two cases legitimately zero the rate, so only finiteness
-is required: a regulator zero (essential activator), and — for an MWC mechanism
-whose inactive conformation carries no flux (a dead end) — a metabolite that
-sits in the inactive free-enzyme weight `D[g_free]`. Zeroing the latter sends
-the inactive partition `Q_I/D_I` to infinity: all enzyme drains into the dead-end
-inactive form and the rate goes to zero. This is the correct formulation-1
-physics (validated against the free-flip mass-action ground truth), not a
-`1/conc` blow-up. The `metabolite in D[g_free] at zero concentration` gate in
-`allosteric_ground_truth.jl` checks both the trap (→ 0) and the surviving
-reverse flux (≠ 0) against the ground truth directly.
+denominator to `Inf`. A regulator zero (essential activator) can legitimately
+zero the rate, so only finiteness is required there. Zeroing a metabolite that
+sits in the free-enzyme weight `D[g_free]` also keeps a finite rate with a
+nonzero reverse flux; the mass-action gates in `allosteric_ground_truth.jl`
+check that case against the ground truth.
 """
-function test_zero_metabolite_finite(spec::MechanismTestSpec)
+function _testhelper_test_zero_metabolite_finite(spec::_testhelper_MechanismTestSpec)
     m = spec.mechanism
     @testset "Zero-metabolite finiteness" begin
         rng = Random.MersenneTwister(777 + hash(spec.name) % 1000)
         mets = collect(metabolites(m))
-        sub_prod = Set{Symbol}(EnzymeRates.substrates(m))
-        union!(sub_prod, EnzymeRates.products(m))
-        # Metabolites whose absence traps all enzyme in a dead inactive
-        # conformation: for an MWC mechanism with no inactive-state flux, a
-        # metabolite that divides the inactive free-enzyme weight D[g_free] (it
-        # appears in every monomial, so D_I → 0 when it is zeroed) sends the
-        # inactive partition to infinity. Zeroing one legitimately zeroes the
-        # rate, so it is exempt from the nonzero assertion below.
-        trap_mets = Set{Symbol}()
-        if m isa EnzymeRates.AllostericEnzymeMechanism
-            am = EnzymeRates.AllostericMechanism(m)
-            if EnzymeRates._i_state_num_zero(am)
-                _, _, d_free_I = EnzymeRates._state_rate_polys(am, :I)
-                for s in Set(mets)
-                    all(any(sym === s for (sym, _) in mono) for mono in keys(d_free_I)) &&
-                        push!(trap_mets, s)
-                end
-            end
-        end
-        params = random_reduced_params(m; rng)
+        sub_prod = Set{Symbol}(_testhelper_substrates(m))
+        union!(sub_prod, _testhelper_products(m))
+        params = _testhelper_random_reduced_params(m; rng)
         for zeroed in mets
             cvals = Tuple(n == zeroed ? 0.0 : 0.5 + rand(rng) for n in mets)
             concs = NamedTuple{Tuple(mets)}(cvals)
             v = rate_equation(m, concs, params)
             @test isfinite(v)
-            zeroed in sub_prod && !(zeroed in trap_mets) && @test v != 0.0
+            zeroed in sub_prod && @test v != 0.0
         end
     end
 end
@@ -1174,30 +1100,39 @@ end
 Run all tests for a mechanism specification.
 Organizes tests by mechanism: all tests for one mechanism together.
 """
-function run_all_tests(spec::MechanismTestSpec)
+function _testhelper_run_all_tests(spec::_testhelper_MechanismTestSpec)
     @testset "$(spec.name)" begin
-        test_structure(spec)
-        test_constraint_counting(spec)
-        test_reference_qssa(spec)
-        test_analytical_rate(spec)      # Only runs if analytical_rate_fn provided
-        test_haldane_equilibrium(spec)
-        test_performance(spec)
-        test_rate_equation_string(spec)
-        test_factored_form(spec)        # Only runs if expected strings provided
-        test_zero_metabolite_finite(spec)
-        spec.run_ode_test && test_ode_steadystate(spec)
-        test_analytical_kcat(spec)      # Only runs if analytical_kcat_fn provided
-        test_kcat_rescaling(spec)
+        _testhelper_test_structure(spec)
+        _testhelper_test_constraint_counting(spec)
+        _testhelper_test_reference_qssa(spec)
+        # Only runs if analytical_rate_fn provided
+        _testhelper_test_analytical_rate(spec)
+        _testhelper_test_haldane_equilibrium(spec)
+        _testhelper_test_performance(spec)
+        _testhelper_test_rate_equation_string(spec)
+        _testhelper_test_zero_metabolite_finite(spec)
+        spec.run_ode_test && _testhelper_test_ode_steadystate(spec)
+        # Only runs if analytical_kcat_fn provided
+        _testhelper_test_analytical_kcat(spec)
+        _testhelper_test_kcat_rescaling(spec)
     end
 end
 
 # ── Main test loop ──────────────────────────────────────────────────────────
 
 @testset "Enzyme Derivation Tests" begin
+    # A truncated table would let every per-spec gate pass vacuously.
+    @test length(MECHANISM_TEST_SPECS) == 42
     for spec in MECHANISM_TEST_SPECS
-        run_all_tests(spec)
+        _testhelper_run_all_tests(spec)
     end
 end
+
+# A fused and a plain binding of B share one rapid-equilibrium kinetic group.
+const _testhelper_fused_and_plain_binding =
+    @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
+        E + A <--> E(A); (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))
+        E(Q) + P <--> E(P, Q); E + Q ⇌ E(Q) end end)
 
 # Mechanisms with fused steps, shared by the mass-action and orientation testsets.
 const _testhelper_fused_cases = [
@@ -1278,10 +1213,7 @@ const _testhelper_fused_cases = [
             steps: begin
             E + A ⇌ E(A); E(A) + B <--> E(A, B); E(A, B) <--> E(Q) + P; E(Q) <--> E + Q
             E + A::Inh ⇌ E(A::Inh); E(Q) + A::Inh <--> E(A::Inh, Q) end end),
-        # a fused and a plain binding of B share one rapid-equilibrium kinetic group
-        @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
-            E + A <--> E(A); (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))
-            E(Q) + P <--> E(P, Q); E + Q ⇌ E(Q) end end),
+        _testhelper_fused_and_plain_binding,
 ]
 
 @testset "the free-enzyme weight is free E's weight in the reduced denominator" begin
@@ -1333,6 +1265,9 @@ end
     for em in _testhelper_fused_cases
         _testhelper_check_against_mass_action(em)
     end
+    # The B group holds the fused E(A) + B → E(P, Q) and the dead-end E(Q) + B ⇌ E(B, Q).
+    # Fitted: A (2) + B (1) + P (2) + Q (1) − 1 Haldane = 5.
+    @test length(ER.fitted_params(_testhelper_fused_and_plain_binding)) == 5
 end
 
 # Theorell–Chance and two-metabolite mechanisms, shared by the mass-action and
@@ -1393,12 +1328,14 @@ const _testhelper_tc_cases = (
 end
 
 @testset "reversing written steps changes nothing" begin
-    rev(s) = ER.Step(ER.to_species(s), ER.from_species(s), ER.released(s), ER.consumed(s),
-                     ER.is_equilibrium(s))
+    _testhelper_rev(s) = ER.Step(ER.to_species(s), ER.from_species(s), ER.released(s),
+                                 ER.consumed(s), ER.is_equilibrium(s))
     rng = Random.MersenneTwister(7)
-    # Every step reversed, then a random subset.
-    variants(groups) = ([[rev(s) for s in g] for g in groups],
-                        [[rand(rng, Bool) ? rev(s) : s for s in g] for g in groups])
+    # Every step reversed, a random subset, and every group's steps in reverse order.
+    _testhelper_variants(groups) = (
+        [[_testhelper_rev(s) for s in g] for g in groups],
+        [[rand(rng, Bool) ? _testhelper_rev(s) : s for s in g] for g in groups],
+        [reverse(g) for g in groups])
     # The Theorell–Chance step of `tc_ss` written backwards.
     tc_backwards = @enzyme_mechanism begin
         substrates: A, B
@@ -1417,7 +1354,7 @@ end
     append!(ems, _testhelper_fused_cases, values(_testhelper_tc_cases), [tc_backwards])
     for em in ems
         m = ER.Mechanism(em)
-        for flipped in variants(ER.steps(m))
+        for flipped in _testhelper_variants(ER.steps(m))
             m2 = ER.Mechanism(ER.reaction(m), flipped)
             @test m2 == m
             @test ER.rate_equation_string(ER.compile_mechanism(m2)) ==
@@ -1427,7 +1364,7 @@ end
     for spec in MECHANISM_TEST_SPECS
         spec.mechanism isa ER.AllostericEnzymeMechanism || continue
         am = ER.AllostericMechanism(spec.mechanism)
-        for flipped in variants(ER.steps(am))
+        for flipped in _testhelper_variants(ER.steps(am))
             am2 = ER.AllostericMechanism(ER.reaction(am), flipped, ER.cat_allo_states(am),
                                          ER.catalytic_multiplicity(am),
                                          ER.regulatory_sites(am))
@@ -1448,23 +1385,14 @@ end
 @testset "Allosteric cat_allo_state stays bound to its step" begin
     hk = only(s for s in MECHANISM_TEST_SPECS if s.name == "HK")
     am = EnzymeRates.AllostericMechanism(hk.mechanism)
-    onlyA_groups = [g for g in EnzymeRates.kinetic_groups(am)
+    onlyA_groups = [g for g in eachindex(EnzymeRates.steps(am))
                     if EnzymeRates.cat_allo_state(am, g) === :OnlyA]
     @test length(onlyA_groups) == 2
-    onlyA_bms = [EnzymeRates.bound_metabolite(EnzymeRates.rep_step(am, g))
+    onlyA_bms = [EnzymeRates.bound_metabolite(first(EnzymeRates.steps(am)[g]))
                  for g in onlyA_groups]
     @test count(bm -> bm !== nothing && EnzymeRates.name(bm) === :ATP,
                 onlyA_bms) == 1
     @test count(isnothing, onlyA_bms) == 1
-end
-
-# `parameters(m, Full)` is injective. A forbidden-split collapse emits the same
-# I-state name from two paths — the base I-state mirror and the collapse mirror —
-# so `parameters(Full)` takes their union rather than listing the name twice
-# (PK, whose PEP split collapses, is the only such mechanism in the fixtures).
-@testset "parameters(Full) injective for collapsed allosteric shapes" begin
-    pk = only(s for s in MECHANISM_TEST_SPECS if s.name == "PK")
-    @test allunique(EnzymeRates.parameters(pk.mechanism, EnzymeRates.Full))
 end
 
 # ── §5a regression: every inactive-state parameter must be defined ──────────
@@ -1484,7 +1412,7 @@ const _LDH_ISTATE_MECHS = [spec.mechanism for spec in MECHANISM_TEST_SPECS
 # Parameter Symbols referenced on an assignment/`v` RHS but never defined
 # (destructured from `params`/`concs` or assigned as an LHS). Empty ⟺ the
 # rendered rate equation is closed: every referenced name has a definition.
-function _undefined_rhs_symbols(s::AbstractString)
+function _testhelper_undefined_rhs_symbols(s::AbstractString)
     ident = r"[A-Za-z_][A-Za-z0-9_]*"
     defined = Set{Symbol}()
     referenced = Set{Symbol}()
@@ -1508,140 +1436,48 @@ function _undefined_rhs_symbols(s::AbstractString)
 end
 
 @testset "§5a I-state parameters are all defined (regression)" begin
+    # A renamed spec would silently empty the name filter.
+    @test length(_LDH_ISTATE_MECHS) == 3
     for em in _LDH_ISTATE_MECHS
         pnames = EnzymeRates.fitted_params(em)
         mets = EnzymeRates.metabolites(em)
-        prods = Set(EnzymeRates.products(em))
+        prods = Set(_testhelper_products(em))
         params = merge(NamedTuple{pnames}(ntuple(_ -> 1.3, length(pnames))),
                        (Keq = 20000.0, E_total = 1.0))
-        concs = NamedTuple{mets}(ntuple(_ -> 1.5, length(mets)))
-        # No UndefVarError: the @generated body compiles and evaluates finite.
-        @test isfinite(EnzymeRates.rate_equation(em, concs, params))
-        # Finite at products = 0 too (the kcat evaluation domain).
+        # No UndefVarError: the @generated body compiles and evaluates finite at
+        # products = 0 (the kcat evaluation domain).
         concs0 = NamedTuple{mets}(
             ntuple(i -> mets[i] in prods ? 0.0 : 1.5, length(mets)))
         @test isfinite(EnzymeRates.rate_equation(em, concs0, params))
         # DEFINED ⊇ REFERENCED on the rendered transcript.
-        @test isempty(_undefined_rhs_symbols(EnzymeRates.rate_equation_string(em)))
-        # The fixed I-state codegen must still meet the 0-alloc / sub-120ns
-        # contract (test_rate_equation_performance is the same helper used
-        # for MECHANISM_TEST_SPECS in test_performance above).
-        allocs, t = test_rate_equation_performance(em, params, concs)
-        @test allocs == 0
-        @test t < 120e-9   # CI-runner margin; see test_performance
+        @test isempty(
+            _testhelper_undefined_rhs_symbols(EnzymeRates.rate_equation_string(em)))
     end
-end
-
-@testset "indep ∩ keys(dep) == ∅ (allosteric i-state mechanisms)" begin
-    # A dependent (Haldane/Wegscheider-derived) parameter must never appear in
-    # the independent set returned as fitted_params. These LDH mechanisms have a
-    # shared :EqualAI catalytic reverse rate that is Haldane-dependent in the
-    # A-state while the dead I-state references it unpinned — the exact leak the
-    # uniform dep-filter closes.
-    for m in _LDH_ISTATE_MECHS
-        M = typeof(m)
-        dep, indep = EnzymeRates._dependent_param_exprs(M)
-        @test isempty(intersect(Set(keys(dep)), Set(indep)))
-    end
-end
-
-@testset "indep ∩ keys(dep) == ∅ (all MECHANISM_TEST_SPECS)" begin
-    for spec in MECHANISM_TEST_SPECS
-        dep, indep = EnzymeRates._dependent_param_exprs(typeof(spec.mechanism))
-        @test isempty(intersect(Set(keys(dep)), Set(indep)))
-    end
-end
-
-# Parameter-name symbols referenced on the RHS of a dependent-param expression
-# `x`, skipping the operator/function-name slot of a `:call` Expr (so `:+`,
-# `:*`, `:/`, `:^`, `:sqrt`, ... never appear as candidate parameter names).
-rhs_syms(x) = x isa Symbol ? [x] :
-    x isa Expr ? reduce(vcat, map(rhs_syms, x.head === :call ? x.args[2:end] : x.args);
-                         init=Symbol[]) :
-    Symbol[]
-
-"""
-The dependent-parameter graph for mechanism type `T` is sound iff (a) no
-symbol is both independent (fitted) and dependent, (b) the dep→dep
-dependency graph is acyclic, and (c) every dependent expression's RHS symbol
-is a fitted param, another dependent param, or `Keq`.
-"""
-function _dep_graph_is_sound(T)
-    dep, indep = EnzymeRates._dependent_param_exprs(T)
-    indepset = Set(indep)
-    isempty(intersect(indepset, keys(dep))) || return false
-
-    depset = Set(keys(dep))
-    edges = Dict(k => Symbol[s for s in rhs_syms(v) if s in depset] for (k, v) in dep)
-    state = Dict{Symbol, Int}()  # 0 = unseen, 1 = on-stack, 2 = done
-    ok = true
-    function dfs(n)
-        get(state, n, 0) == 2 && return
-        if get(state, n, 0) == 1
-            ok = false
-            return
-        end
-        state[n] = 1
-        for m in get(edges, n, Symbol[])
-            dfs(m)
-            ok || return
-        end
-        state[n] = 2
-    end
-    for k in keys(dep)
-        dfs(k)
-        ok || break
-    end
-    ok || return false
-
-    known = union(indepset, depset, Set([:Keq]))
-    for (_, v) in dep, s in rhs_syms(v)
-        s in known || return false
-    end
-    true
 end
 
 @testset "allosteric dependent-param graph is sound" begin
     for T in ALLOSTERIC_UNDEFVAR_REPRODUCERS
-        @test _dep_graph_is_sound(T)
-    end
-    for spec in MECHANISM_TEST_SPECS
-        spec.mechanism isa EnzymeRates.AllostericEnzymeMechanism || continue
-        @test _dep_graph_is_sound(typeof(spec.mechanism))
+        @test _testhelper_dep_graph_is_sound(EnzymeRates._dependent_param_exprs(T)...)
     end
 end
 
-@testset "allosteric reproducers: rate_equation is callable" begin
+@testset "allosteric reproducers: detailed balance" begin
     # The dep/indep graph is not always sufficient: a dep expression can be
     # structurally sound (acyclic, every RHS symbol defined) while the
     # code-generated assignment order still leaves a forward reference
     # unresolved, producing a runtime UndefVarError. This is the
     # user-visible symptom for every reproducer, independent of which
-    # structural check above flags it.
-    for T in ALLOSTERIC_UNDEFVAR_REPRODUCERS
-        m = T()
-        pnames = EnzymeRates.fitted_params(m)
-        keys_out = (pnames..., :Keq, :E_total)
-        vals_out = (ntuple(_ -> 1.01, length(pnames))..., 20000.0, 1.0)
-        params = NamedTuple{keys_out}(vals_out)
-        mets = EnzymeRates.metabolites(m)
-        concs = NamedTuple{mets}(ntuple(_ -> 1.0, length(mets)))
-        @test_nowarn EnzymeRates.rate_equation(m, concs, params)
-    end
-end
-
-@testset "allosteric reproducers: detailed balance" begin
-    # Being callable is necessary but not sufficient: the equation must also
-    # satisfy `v = 0` at `Q = Keq` for arbitrary parameter values. The single
-    # combined constraint solve (`_combined_state_dependent_exprs`) ties every
-    # cross-state affinity split directly, so all three reproducers (D1's
-    # `:EqualAI`-shared `koff` merge, D2's `:NonequalAI` split, D3's steady-state
-    # speed) are detailed-balance-correct.
+    # structural check above flags it. Being callable is necessary but not
+    # sufficient: the equation must also satisfy `v = 0` at `Q = Keq` for
+    # arbitrary parameter values. The single combined constraint solve
+    # in `_dependent_param_exprs` ties every cross-state affinity split
+    # directly, so all three reproducers (D1's `:EqualAI`-shared `koff` merge, D2's
+    # `:NonequalAI` split, D3's steady-state speed) are detailed-balance-correct.
     for T in ALLOSTERIC_UNDEFVAR_REPRODUCERS
         m = T()
         pn = collect(EnzymeRates.fitted_params(m))
-        subs = collect(EnzymeRates.substrates(m))
-        prods = collect(EnzymeRates.products(m))
+        subs = _testhelper_substrates(m)
+        prods = _testhelper_products(m)
         mets = collect(EnzymeRates.metabolites(m))
         Keq = 20000.0
         p_each = Keq^(1 / length(prods))
@@ -1672,10 +1508,9 @@ end
     # tuple and turns 100ns/0B into 1µs/2KB per call.
     spec = only(s for s in MECHANISM_TEST_SPECS
                 if s.name == "Random-order Bi-Bi")
-    rate_expr, _, _ = EnzymeRates._raw_rate_expr_and_symbols(
-        typeof(spec.mechanism))
+    num_expr, den_expr = EnzymeRates._num_den_exprs(typeof(spec.mechanism))
     bad = Expr[]
-    function walk!(e)
+    function _testhelper_walk!(e)
         if e isa Expr
             if e.head == :call && !isempty(e.args) &&
                e.args[1] isa Symbol && e.args[1] in (:+, :*) &&
@@ -1684,12 +1519,79 @@ end
             end
             start = e.head == :call ? 2 : 1
             for i in start:length(e.args)
-                walk!(e.args[i])
+                _testhelper_walk!(e.args[i])
             end
         end
     end
-    walk!(rate_expr)
+    _testhelper_walk!(num_expr)
+    _testhelper_walk!(den_expr)
     @test isempty(bad)
+end
+
+@testset "rate_equation_string marks only the ties folded into v as substituted" begin
+    # A binds E and E(B) under one constant while B's two bindings keep their own, so
+    # the RE binding square ties B's two dissociation constants. The tie joins two
+    # binding K's, so the Wegscheider rename folds it into v.
+    folded = @enzyme_mechanism begin
+        substrates: A, B
+        products: P
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+            E + B ⇌ E(B)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    @test occursin("\nK_EAB_to_EA_B = K_EB_to_E_B" * ER.ANNOTATION_SUBSTITUTED * "\n",
+                   rate_equation_string(folded))
+    # S binds E and Estar under one constant, so the square of the two isomerizations
+    # ties their equilibrium constants. The rename folds no isomerization K: v reads
+    # K_E_to_Estar, and the line assigns it.
+    iso_tie = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            (E + S ⇌ E(S), Estar + S ⇌ Estar(S))
+            E ⇌ Estar
+            E(S) ⇌ Estar(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    @test occursin("\nK_E_to_Estar = K_ES_to_EstarS\n", rate_equation_string(iso_tie))
+    # I binding E and I binding Estar share one group and run opposite ways around the
+    # cycle, so the Haldane relation fixes the Theorell–Chance constant at Keq; v reads it.
+    keq_tie = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        regulators: I
+        steps: begin
+            E + S ⇌ Estar + P
+            (E + I <--> E(I), Estar + I <--> E(I))
+        end
+    end
+    @test occursin("\nK_E_S_to_Estar_P = Keq\n", rate_equation_string(keq_tie))
+end
+
+@testset "rate_equation_string prints residual names bare in constraint lines" begin
+    # Every step of this ping-pong is at steady state, so the Haldane product holds the
+    # rate constants of the residual-bearing forms, whose names are not identifiers.
+    m = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B <--> E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+            E(Q) <--> E + Q
+        end
+    end
+    s = rate_equation_string(m)
+    @test occursin(r"\nk_EP_res_\+A_-P_to_EA = .* \* k_EA_to_EP_res_\+A_-P \* ", s)
+    @test !occursin("var\"", s)
 end
 
 @testset "rate_equation_string prints flat +/* sums (no nested parens)" begin
@@ -1763,19 +1665,38 @@ end
         # Multiple factors: returns Expr
         @test bpe(R(0), [(:k1f, R(1)), (:k2f, R(1))]) isa Expr
 
-        # No factors and zero Keq: returns Int literal 1
-        @test bpe(R(0), Tuple{Symbol, R}[]) === 1
+        # No factors and zero Keq: returns the Float64 literal 1.0
+        @test bpe(R(0), Tuple{Symbol, R}[]) === 1.0
 
-        # All return types are valid AST nodes
-        for r in [
-            bpe(R(0), [(:k1f, R(1))]),
-            bpe(R(0), [(:k1f, R(-1))]),
-            bpe(R(1), Tuple{Symbol, R}[]),
-            bpe(R(0), [(:k1f, R(1)), (:k2f, R(1))]),
-            bpe(R(1), [(:k1f, R(1))]),
-        ]
-            @test r isa Union{Int, Symbol, Expr}
+        # Keq times a factor is a valid AST node
+        @test bpe(R(1), [(:k1f, R(1))]) isa Union{Float64, Symbol, Expr}
+    end
+
+    @testset "a constant thermodynamics pins to 1 is the dependent constant 1.0" begin
+        # I binds E and F under one dissociation constant, so the cycle E → E(I) → F → E
+        # forces K_E_to_F = 1 and leaves no other constant in its row.
+        em = @enzyme_mechanism begin
+            substrates: A
+            products: P
+            regulators: I
+            steps: begin
+                E + A <--> E(A)
+                E(A) <--> E(P)
+                E(P) <--> E + P
+                E ⇌ F
+                (E + I ⇌ E(I), F + I ⇌ E(I))
+            end
         end
+        @test occursin("# Wegscheider constraints:\nK_E_to_F = 1.0\n",
+                       rate_equation_string(em))
+        @test :K_E_to_F ∉ EnzymeRates.fitted_params(em)
+        _testhelper_check_against_mass_action(em)
+        # The generated rate equation assigns the literal 1.0 and stays allocation-free.
+        syms = parameters(em)
+        params = NamedTuple{syms}(ntuple(i -> 0.5 + i / 10, length(syms)))
+        allocs, _ = _testhelper_test_rate_equation_performance(
+            em, params, (A = 1.0, P = 0.5, I = 0.2))
+        @test allocs == 0
     end
 
 end
@@ -1783,35 +1704,28 @@ end
 # ── Large equation compilation regression test ────────────────────────────
 
 @testset "Large equation compilation (<20s)" begin
-    # Use the manually-defined large mechanism (11 forms, 16 steps)
-    # from the "Rate equation too large error" test below, but with
-    # all steps as RE to keep it compilable.
-    rxn = @enzyme_reaction begin
-        substrates: A[CX], B[N]
-        products: P[C], Q[NX]
-        competitive_inhibitors: R1
-    end
-    # Add dead-end regulator R1 to the largest topology
-    n_forms_of(mech) = length(Set(
-        sp for grp in EnzymeRates.steps(mech) for st in grp
-        for sp in (EnzymeRates.from_species(st),
-                   EnzymeRates.to_species(st))))
-    topos = EnzymeRates.init_mechanisms(rxn)
-    sort!(topos; by=n_forms_of, rev=true)
-    variants = EnzymeRates._expand_add_dead_end_regulator(topos[1], rxn)
-    # Find largest compilable mechanism
-    sort!(variants; by=n_forms_of, rev=true)
-    m = nothing
-    for s in variants
-        try
-            m = EnzymeMechanism(s)
-            parameters(m)
-            break
-        catch
-            m = nothing
+    # A ping-pong bi-bi with a dead-end inhibitor R1: 13 forms and 13 steps, every
+    # step at rapid equilibrium except the A → P isomerization.
+    m = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        regulators: R1
+        steps: begin
+            (E + A ⇌ E(A),
+             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P))
+            (E + Q ⇌ E(Q),
+             E(B; residual = A - P) + Q ⇌ E(B, Q; residual = A - P))
+            (E + R1 ⇌ E(R1),
+             E(B; residual = A - P) + R1 ⇌ E(B, R1; residual = A - P),
+             E(P; residual = A - P) + R1 ⇌ E(P, R1; residual = A - P))
+            (E(A) + P ⇌ E(A, P),
+             E(; residual = A - P) + P ⇌ E(P; residual = A - P))
+            E(A) <--> E(P; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            (E(Q) + B ⇌ E(B, Q),
+             E(; residual = A - P) + B ⇌ E(B; residual = A - P))
         end
     end
-    @test m !== nothing
 
     metabs = metabolites(m)
     params_tup = parameters(m)
@@ -1827,7 +1741,7 @@ end
     @test t_compile < 20.0
 end
 
-@testset "Numerator: all-RE catalytic cycle raises" begin
+@testset "All-RE catalytic cycle raises" begin
     # Binding stage mixed (S2 SS, S1 RE), release stage mixed (P1 SS, P2 RE),
     # chemistry RE ⇒ a complete all-RE catalytic cycle exists ⇒ no finite rate.
     m_allre = @enzyme_mechanism begin
@@ -1845,14 +1759,6 @@ end
             E(P2) ⇌ E + P2
         end
     end
-    err = try
-        rate_equation_string(m_allre); nothing
-    catch e; e end
-    @test err isa ErrorException
-    @test occursin("no finite rate", err.msg)
-end
-
-@testset "All-RE catalytic cycle raises" begin
     # The activator route E(R) + S ⇌ E(S, R) ⇌ E(P, R) ⇌ E(R) + P is an all-RE
     # catalytic cycle, so the mechanism has no finite rate.
     m_sib = @enzyme_mechanism begin
@@ -1871,11 +1777,13 @@ end
              E(P) + R ⇌ E(P, R))
         end
     end
-    err = try
-        rate_equation_string(m_sib); nothing
-    catch e; e end
-    @test err isa ErrorException
-    @test occursin("no finite rate", err.msg)
+    for m in (m_allre, m_sib)
+        err = try
+            rate_equation_string(m); nothing
+        catch e; e end
+        @test err isa ErrorException
+        @test occursin("no finite rate", err.msg)
+    end
 end
 
 @testset "_eq_complexity (V×τ term-count estimate)" begin
@@ -1943,17 +1851,6 @@ end
     @test EnzymeRates._eq_complexity(EnzymeRates.AllostericMechanism(allo)) == 9
 end
 
-@testset "_bareiss_det exact integer determinant" begin
-    # Segment-graph Laplacian minors are positive-definite, so `_eq_complexity`
-    # never drives `_bareiss_det` into a zero pivot. Exercise that path directly:
-    # a zero leading pivot needs a row swap, and an all-zero pivot column is a
-    # singular matrix (0 spanning trees).
-    @test EnzymeRates._bareiss_det(BigInt[2 1; 1 2]) == 3        # no swap
-    @test EnzymeRates._bareiss_det(BigInt[0 1; 1 0]) == -1       # zero pivot → row swap
-    @test EnzymeRates._bareiss_det(BigInt[0 0; 0 1]) == 0        # singular → 0
-    @test EnzymeRates._bareiss_det(BigInt[0 2 1; 2 0 1; 1 1 0]) == 4  # zero pivot, 3×3
-end
-
 @testset "Rate equation too large error" begin
     # Manually defined mechanism (11 forms, 16 steps; V×τ ≈ 29k denominator
     # terms) exceeds MAX_RATE_EQUATION_TERMS, so the upfront V×τ check
@@ -1982,39 +1879,6 @@ end
         end
     end
     @test_throws "polynomial terms" rate_equation_string(m_manual)
-
-    # A directly-constructed random Bi-Bi with an R1 dead-end that binds
-    # the free enzyme AND every catalytic form, so each `E(X, R1)` form is
-    # reachable two ways (`E(R1)+X` and `E(X)+R1`). Those cycles multiply
-    # the King-Altman spanning-tree count (V×τ) past MAX_RATE_EQUATION_TERMS,
-    # so `_assert_derivable` aborts the derivation before `sym_det` runs. Built
-    # directly rather than enumerated so the guard is exercised deterministically.
-    m_cyclic = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        regulators: R1
-        steps: begin
-            E + A <--> E(A)
-            E + B <--> E(B)
-            E(A) + B <--> E(A, B)
-            E(B) + A <--> E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(P, Q) <--> E(P) + Q
-            E(P, Q) <--> E(Q) + P
-            E + P <--> E(P)
-            E + Q <--> E(Q)
-            E + R1 <--> E(R1)
-            E(R1) + A <--> E(A, R1)
-            E(A) + R1 <--> E(A, R1)
-            E(R1) + B <--> E(B, R1)
-            E(B) + R1 <--> E(B, R1)
-            E(R1) + P <--> E(P, R1)
-            E(P) + R1 <--> E(P, R1)
-            E(R1) + Q <--> E(Q, R1)
-            E(Q) + R1 <--> E(Q, R1)
-        end
-    end
-    @test_throws "polynomial terms" rate_equation_string(m_cyclic)
 end
 
 
@@ -2060,89 +1924,18 @@ end
     rate_T = rate_equation(vtype, concs, merge(vparams, (L=1e10,)))
     @test rate_R > 1.0
     @test rate_T < 1e-6
-    # T-state numerator branch is elided when t_state_dead (any :OnlyA catalytic group);
+    # T-state numerator branch is elided when the T-state cycle is dead (:OnlyA catalysis);
     # rate is E_total · num_R / (Q_R^catN + L · Q_T^catN). At large L, the T-state
     # enzyme mass dominates the denominator → rate ∝ 1/(1+L).
     @test rate_T * 1e10 < 100.0    # bounded as L grows
 
-    # :OnlyI on a substrate-binding catalytic group → constructor error
-    # (R-state convention: relabel so the active state is R, i.e. use :OnlyA).
-    @test_throws Exception eval(:(@allosteric_mechanism begin
-        substrates: S
-        products:   P
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + S ⇌ E(S)     :: OnlyI
-            E(S) <--> E(P)   :: EqualAI
-            E(P) ⇌ E + P     :: EqualAI
-        end
-    end))
-
-    # :OnlyI on a product-binding catalytic group → constructor error
-    @test_throws Exception eval(:(@allosteric_mechanism begin
-        substrates: S
-        products:   P
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + S ⇌ E(S)     :: EqualAI
-            E(S) <--> E(P)   :: EqualAI
-            E(P) ⇌ E + P     :: OnlyI
-        end
-    end))
-
-    # :OnlyI on the catalysis SS step → constructor error
-    @test_throws Exception eval(:(@allosteric_mechanism begin
-        substrates: S
-        products:   P
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + S ⇌ E(S)     :: EqualAI
-            E(S) <--> E(P)   :: OnlyI
-            E(P) ⇌ E + P     :: EqualAI
-        end
-    end))
-
-
-    # Single-ligand :EqualAI reg site is degenerate but valid — the derivation
-    # produces an equation (the regulator is inert); users may write it.
-    @test eval(:(@allosteric_mechanism begin
-        substrates: S
-        products:   P
-        allosteric_regulators: I::EqualAI
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + S ⇌ E(S)     :: EqualAI
-            E(S) <--> E(P)   :: EqualAI
-            E(P) ⇌ E + P     :: EqualAI
-        end
-    end)) isa EnzymeRates.AllostericEnzymeMechanism
-
-    # Stoichiometric infeasibility: Q listed as product but never appears
-    # in any reaction step → invariant check rejects. (S carries both atoms
-    # so the declared reaction balances; the step list omits Q on purpose.)
-    rxn_no_q = @enzyme_reaction begin
-        substrates: S[CN]
-        products:   P[C], Q[N]
-    end
-    s_q1 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-                            EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                            [EnzymeRates.Substrate(:S)], EnzymeRates.Metabolite[], true)
-    s_q2 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                            EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-                            EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
-    s_q3 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-                            EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-                            EnzymeRates.Metabolite[], [EnzymeRates.Product(:P)], true)
-    m_no_q = EnzymeRates.Mechanism(rxn_no_q, [[s_q1], [s_q2], [s_q3]])
-    @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_no_q)
-
     # Regression: T-state binding K's must be in Kd convention even when
     # `:OnlyA` and `:NonequalAI` catalytic groups coexist. Without the fix,
-    # the flat-poly path in _allosteric_num_den_exprs renders T-state K's
+    # the flat-poly path in _num_den_exprs renders T-state K's
     # as `K_T * met` (Ka) instead of `met / K_T` (Kd), silently producing
     # wrong rates whenever a mechanism mixes these two tags. Regression
     # for src/rate_eq_derivation.jl:1395-1396.
-    cm_mix, src_mix = @enzyme_mechanism_src begin
+    cm_mix, src_mix = @_testhelper_enzyme_mechanism_src begin
         substrates: S
         products:   P
         steps: begin
@@ -2153,7 +1946,7 @@ end
     end
     # Bind allosteric states to the steps AS WRITTEN: S binding :NonequalAI,
     # catalysis :OnlyA, P binding :NonequalAI.
-    m_mix = allo_from_source(
+    m_mix = _testhelper_allo_from_source(
         (cm_mix, src_mix), (2, (:NonequalAI, :OnlyA, :NonequalAI)),
         (((:I,), 2, (:OnlyI,)),))
     p_mix = (K_A_ES_to_E_S=0.1, k_A_ES_to_EP=10.0, K_A_EP_to_E_P=0.5,
@@ -2169,34 +1962,6 @@ end
     @test occursin("S / K_I_ES_to_E_S", rate_equation_string(m_mix))
     @test occursin("P / K_I_EP_to_E_P", rate_equation_string(m_mix))
 
-    # Regression: :NonequalAI substrate + :EqualAI catalysis must produce
-    # zero rate at chemical equilibrium. The :NonequalAI S-binding split is
-    # forbidden (its lone cycle is shared with :EqualAI catalysis), so it
-    # collapses to K_I_ES_to_E_S = K_A_ES_to_E_S and K_I_ES_to_E_S leaves the fitted set.
-    cm_mixed, src_mixed = @enzyme_mechanism_src begin
-        substrates: S
-        products:   P
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
-        end
-    end
-    # S binding :NonequalAI, catalysis + P binding :EqualAI — bound to the
-    # steps AS WRITTEN.
-    m_mixed = allo_from_source(
-        (cm_mixed, src_mixed), (2, (:NonequalAI, :EqualAI, :EqualAI)),
-        (((:I,), 2, (:NonequalAI,)),))
-    Keq_val = 5.0
-    p_eq = (K_A_ES_to_E_S=0.3, k_ES_to_EP=8.0, K_EP_to_E_P=0.7,
-            K_A_Ireg=1.0, K_I_Ireg=4.0,
-            L=2.0, Keq=Keq_val, E_total=1.0)
-    # At chemical equilibrium: P = Keq · S
-    S_eq = 1.5
-    P_eq = Keq_val * S_eq
-    rate_eq = rate_equation(m_mixed, (S=S_eq, P=P_eq, I=0.5), p_eq)
-    @test isapprox(rate_eq, 0.0; atol=1e-10)
-
     # Wegscheider-cycle EqualAI×NonequalAI: the Random-order Bi-Bi mechanism has a
     # genuine independent Wegscheider cycle. Group 2 (the steady-state B-binding)
     # is :NonequalAI while its box partners are :EqualAI, so its affinity is
@@ -2205,7 +1970,7 @@ end
     # its speed stays free. Asserts the mechanism-agnostic invariant: zero net rate
     # at chemical equilibrium. (Over-parametrized; the enumerator will skip such
     # degenerate configs in a follow-up PR.)
-    cm_ro, src_ro = @enzyme_mechanism_src begin
+    cm_ro, src_ro = @_testhelper_enzyme_mechanism_src begin
         substrates: A, B
         products:   P, Q
         steps: begin
@@ -2219,7 +1984,7 @@ end
         end
     end
     # B binding (step 2) :NonequalAI, rest :EqualAI — bound to the steps AS WRITTEN.
-    m_ro = allo_from_source(
+    m_ro = _testhelper_allo_from_source(
         (cm_ro, src_ro),
         (2, (:EqualAI, :NonequalAI, :EqualAI, :EqualAI,
              :EqualAI, :EqualAI, :EqualAI)),
@@ -2241,22 +2006,6 @@ end
     @test isapprox(
         rate_equation(m_ro, (A=A_eq, B=B_eq, P=P_eq, Q=Q_eq, I=0.5), p_ro), 0.0;
         atol=1e-9)
-
-    # Empty ligand list at reg site → constructor error
-    cm_simple = @enzyme_mechanism begin
-        substrates: S
-        products:   P
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-        end
-    end
-    @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-        cm_simple,
-        (2, (:NonequalAI, :EqualAI, :EqualAI)),
-        (((), 2, ()),),  # empty ligand tuple
-    )
 end
 
 
@@ -2273,7 +2022,7 @@ end
         end
     end
     actual = rate_equation_string(m_allo)
-    expected = raw"""(; K_A_EP_to_E_P, K_A_ES_to_E_S, k_A_ES_to_EP, K_I_EP_to_E_P, K_I_ES_to_E_S, k_I_ES_to_EP, K_A_Rreg, K_I_Rreg, L, Keq, E_total) = params
+    expected = raw"""(; K_A_EP_to_E_P, K_A_ES_to_E_S, K_I_EP_to_E_P, K_I_ES_to_E_S, k_A_ES_to_EP, k_I_ES_to_EP, K_A_Rreg, K_I_Rreg, L, Keq, E_total) = params
 (; S, P, R) = concs
 # Haldane constraints:
 k_A_EP_to_ES = (1 / Keq) * K_A_EP_to_E_P * (1 / K_A_ES_to_E_S) * k_A_ES_to_EP
@@ -2283,7 +2032,7 @@ v = E_total * ((k_A_ES_to_EP * S / K_A_ES_to_E_S - k_A_EP_to_ES * P / K_A_EP_to_
 end
 
 @testset "Parameter-struct allosteric helpers" begin
-    cm_src = @enzyme_mechanism_src begin
+    cm_src = @_testhelper_enzyme_mechanism_src begin
         substrates: S
         products:   P
         steps: begin
@@ -2293,15 +2042,16 @@ end
         end
     end
 
-    @testset "_all_i_state_parameters" begin
+    @testset "_cat_params and _kreg_params" begin
+        names_of(am, params) = [EnzymeRates.name(p, am) for p in params]
+        i_params(am) = [EnzymeRates._cat_params(am, :I); EnzymeRates._kreg_params(am, :I)]
         # :NonequalAI cat group + :NonequalAI reg ligand → both contribute.
-        aem = allo_from_source(
+        aem = _testhelper_allo_from_source(
             cm_src, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
             (((:R,), 1, (:NonequalAI,)),),
         )
         am = EnzymeRates.AllostericMechanism(aem)
-        params = EnzymeRates._all_i_state_parameters(am)
-        rendered = [EnzymeRates.name(p, am) for p in params]
+        rendered = names_of(am, i_params(am))
 
         # Catalytic side: every non-:OnlyA group contributes an I-state
         # parameter (Kd for RE binding, Kfor/Krev for SS).
@@ -2311,36 +2061,45 @@ end
         @test :K_I_EP_to_E_P in rendered
         # Regulator side: :R is :NonequalAI → K_I_Rreg appears.
         @test :K_I_Rreg in rendered
+        # Active state: the :EqualAI iso takes its shared untagged names; every other
+        # group and the regulator take A-state names.
+        @test names_of(am, EnzymeRates._cat_params(am, :A)) ==
+              [:K_A_EP_to_E_P, :K_A_ES_to_E_S, :k_ES_to_EP, :k_EP_to_ES]
+        @test names_of(am, EnzymeRates._kreg_params(am, :A)) == [:K_A_Rreg]
 
         # Balanced :OnlyA bindings (both S and P) keep the :NonequalAI iso
         # Haldane-valid — a one-sided :OnlyA binding under a non-:OnlyA iso is
         # rejected at construction. Both :OnlyA cat groups and the :OnlyA reg
         # ligand are skipped; the :NonequalAI iso still emits both k params.
-        aem_skip = allo_from_source(
+        aem_skip = _testhelper_allo_from_source(
             cm_src, (2, (:OnlyA, :NonequalAI, :OnlyA)),
             (((:R,), 1, (:OnlyA,)),),
         )
         am_skip = EnzymeRates.AllostericMechanism(aem_skip)
-        rendered_skip = [EnzymeRates.name(p, am_skip)
-                         for p in EnzymeRates._all_i_state_parameters(am_skip)]
+        rendered_skip = names_of(am_skip, i_params(am_skip))
         @test :K_I_ES_to_E_S ∉ rendered_skip    # :OnlyA cat group skipped
         @test :k_I_ES_to_EP in rendered_skip    # :NonequalAI SS iso emits both
         @test :k_I_EP_to_ES in rendered_skip
         @test :K_I_Rreg ∉ rendered_skip    # :OnlyA reg ligand skipped
+        @test names_of(am_skip, EnzymeRates._kreg_params(am_skip, :A)) == [:K_A_Rreg]
+
+        # An :OnlyI reg ligand has an I-state Kreg and no A-state one.
+        am_onlyi = EnzymeRates.AllostericMechanism(_testhelper_allo_from_source(
+            cm_src, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
+            (((:R,), 1, (:OnlyI,)),),
+        ))
+        @test isempty(EnzymeRates._kreg_params(am_onlyi, :A))
+        @test names_of(am_onlyi, EnzymeRates._kreg_params(am_onlyi, :I)) == [:K_I_Rreg]
     end
 end
 
 @testset "structural names + synth-dep routing: allosteric NonequalAI" begin
     # NonequalAI substrate binding (PEP), EqualAI catalysis.
     # k_cat_rev (Haldane dep) references the NonequalAI PEP binding K,
-    # so a synthesized I-state dep name is produced.
-    # After the full atomic change: the synth-dep name must use the
-    # structural mid-name I_ token (from name(_flip_to_inactive(...))),
-    # not string(active) * "_T".
-    # In the intermediate state (chokepoint rewritten, synth-dep sites
-    # not yet updated), rate_equation errors with a KeyError because the
-    # rate polynomial uses structural I-names but indep_T_list has _T-
-    # suffixed structural names.
+    # so an I-state dep name is produced. It must use the structural
+    # mid-name I_ token, not string(active) * "_T"; a rate polynomial with
+    # structural I-names beside _T-suffixed independent names would make
+    # rate_equation error with a KeyError.
     m = @allosteric_mechanism begin
         substrates: PEP, ADP
         products:   Pyruvate, ATP
@@ -2381,91 +2140,39 @@ end
     @test isfinite(v)
 end
 
-@testset "kinetic-group name rep is structurally primary (free-enzyme binding)" begin
-    # A kinetic group joining a free-enzyme binding step (E + S ⇌ E_S) with a
-    # non-free dead-end mirror (EI1_inh + S ⇌ EI1_inh_S) must be NAMED after
-    # the free-enzyme step regardless of the steps' source order. The rep is
-    # the structurally-primary step (argmin _step_priority), not first(group).
-    spec = first(s for s in MECHANISM_TEST_SPECS
-                 if s.name == "Non-competitive + Competitive Inhibitor")
-    mech = EnzymeRates.Mechanism(spec.mechanism)
-    groups = EnzymeRates.steps(mech)
-    # group 1 = the S-binding group {E→E_S (free), EI1inh→EI1inh_S (non-free)}.
-    # Force the non-free mirror to be first(group); structural-primacy naming
-    # must still pick the free-enzyme step → :K_ES_to_E_S (not :K_EI1inhS_to_EI1inh_S).
-    reversed = [gi == 1 ? reverse(g) : g for (gi, g) in enumerate(groups)]
-    mech_rev = EnzymeRates.Mechanism(mech.reaction, reversed)
-    params_rev = EnzymeRates.parameters(EnzymeRates.compile_mechanism(mech_rev))
-    @test :K_ES_to_E_S in params_rev
-    @test !(:K_EI1inhS_to_EI1inh_S in params_rev)
-end
-
-# ── Dependent-parameter choice invariance to kinetic-group naming rep ────────
-#
-# The kinetic-group naming representative must not change WHICH kinetic group
-# becomes the Haldane elimination's dependent parameter — only the rendered
-# name of the representative.
-#
-# A dependent parameter names a kinetic GROUP. We identify each group
-# structurally and order-independently (sorted member step-hashes), so the
-# key is invariant to step order within the group — and therefore invariant
-# to the rep choice. Permuting the step order inside every group (reversing
-# it) changes the rep (and thus the rendered Symbol) but MUST leave the set
-# of dependent groups untouched. If the dependent-parameter choice depends on
-# naming/order, this set differs.
-
-"""
-Structural, order-independent identity of the dependent parameter `sym`:
-`(typeof(p), group_identity, p.state)`. `group_identity` is the hash of the
-sorted member step-hashes of the kinetic group the parameter governs (Kreg:
-the site hash). Recovers the Parameter from the Symbol via `_param_for_symbol`,
-flipping an `_I_`-state name back to its `_A_` source when needed.
-"""
-function _dep_struct_key(sym::Symbol, mech::EnzymeRates.Mechanism)
-    p = try
-        EnzymeRates._param_for_symbol(mech, sym)
-    catch
-        active_sym = Symbol(replace(String(sym), "_I_" => "_A_"; count=1))
-        EnzymeRates._flip_to_inactive(
-            EnzymeRates._param_for_symbol(mech, active_sym))
-    end
-    group_id = if p isa EnzymeRates.Kreg
-        hash(p.site)
-    else
-        gh = UInt(0)
-        for group in EnzymeRates.steps(mech)
-            if p.step in group
-                gh = hash(sort!([hash(s) for s in group]))
-                break
-            end
-        end
-        gh
-    end
-    return (typeof(p), group_id, p.state)
-end
-
-"""Set of structural dep-group keys for a Mechanism."""
-function _dep_struct_key_set(mech::EnzymeRates.Mechanism)
-    M = typeof(EnzymeRates.compile_mechanism(mech))
-    dep_exprs, _ = EnzymeRates._dependent_param_exprs(M)
-    return Set(_dep_struct_key(sym, mech) for sym in keys(dep_exprs))
-end
-
-@testset "dependent-param choice invariant to group-rep" begin
-    for spec in MECHANISM_TEST_SPECS
-        spec.mechanism isa EnzymeRates.EnzymeMechanism || continue
-        @testset "$(spec.name)" begin
-            mech = EnzymeRates.Mechanism(spec.mechanism)
-            base_keys = _dep_struct_key_set(mech)
-            # Reverse step order within every kinetic group. This flips the
-            # naming rep wherever a group has >1 step, but must not change
-            # which groups are dependent.
-            reversed = [reverse(g) for g in EnzymeRates.steps(mech)]
-            mech_rev = EnzymeRates.Mechanism(mech.reaction, reversed)
-            rev_keys = _dep_struct_key_set(mech_rev)
-            @test base_keys == rev_keys
+@testset "allosteric single-symbol Wegscheider tie is absorbed in both states" begin
+    # A binds E and E(B) under one shared K while B's two bindings keep their own, so
+    # the RE binding square ties B's two K's (K_EAB_to_EA_B = K_EB_to_E_B) in each
+    # conformation. Each state's Wegscheider rename folds its tie onto K_EB_to_E_B,
+    # and the folded symbols leave fitted_params, so the mechanism derives exactly as
+    # the one that groups B's two bindings outright.
+    tie = @allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B)) :: NonequalAI
+            E + B ⇌ E(B)                       :: NonequalAI
+            E(A) + B ⇌ E(A, B)                 :: NonequalAI
+            E(A, B) <--> E(P)                  :: NonequalAI
+            E(P) ⇌ E + P                       :: NonequalAI
         end
     end
+    grouped = @allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B)) :: NonequalAI
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B)) :: NonequalAI
+            E(A, B) <--> E(P)                  :: NonequalAI
+            E(P) ⇌ E + P                       :: NonequalAI
+        end
+    end
+    @test EnzymeRates.fitted_params(tie) ==
+        (:K_A_EA_to_E_A, :K_A_EB_to_E_B, :K_A_EP_to_E_P, :K_I_EA_to_E_A,
+         :K_I_EB_to_E_B, :K_I_EP_to_E_P, :k_A_EAB_to_EP, :k_I_EAB_to_EP, :L)
+    @test rate_equation_string(tie) == rate_equation_string(grouped)
 end
 
 @testset "Fix A: dead-inactive-state allosteric body defines all I-state symbols" begin
@@ -2526,6 +2233,83 @@ end
     @test kc ≈ vmax rtol = 1e-3
 end
 
+@testset "allosteric kcat: a one-sided regulator's corner is its conformation's limit" begin
+    # A regulator that binds one conformation only (:OnlyA or :OnlyI) puts all the enzyme
+    # in that conformation when it saturates, so the rate tends to that conformation's own
+    # saturating turnover; with the regulator absent both conformations contribute. kcat
+    # is the largest regulator corner at saturating S.
+    # :NonequalAI catalysis: both conformations turn over.
+    only_a = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: X::OnlyA
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: NonequalAI
+            E(P) ⇌ E + P      :: NonequalAI
+        end
+    end
+    only_i = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: X::OnlyI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: NonequalAI
+            E(P) ⇌ E + P      :: NonequalAI
+        end
+    end
+    # :OnlyA catalysis with :EqualAI binding: the inactive conformation binds S but does
+    # not turn over, so saturating X drives the rate to 0.
+    only_i_dead = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: X::OnlyI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: OnlyA
+            E(P) ⇌ E + P      :: EqualAI
+        end
+    end
+    # Two sites: with X and Y saturating, the inactive conformation's regulator power is
+    # 2 + 1 against the active one's 1.
+    two_site = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: X::OnlyI, Y::NonequalAI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: OnlyA
+            E(P) ⇌ E + P      :: EqualAI
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: X
+        end
+        regulatory_site(multiplicity = 1): begin
+            ligands: Y
+        end
+    end
+    BIG = 1e9
+    for m in (only_a, only_i, only_i_dead, two_site)
+        pn = EnzymeRates.fitted_params(m)
+        regs = Tuple(x for x in metabolites(m) if x ∉ (:S, :P))
+        for seed in 1:5
+            rng = Random.MersenneTwister(seed)
+            p = merge(NamedTuple{pn}(Tuple(0.2 + 5 * rand(rng) for _ in pn)),
+                      (Keq = 2.0, E_total = 1.0))
+            vmax = maximum(0:(2^length(regs) - 1)) do mask
+                r = Tuple((mask >> (i - 1)) & 1 == 1 ? BIG : 0.0 for i in eachindex(regs))
+                rate_equation(m, NamedTuple{(:S, :P, regs...)}((BIG, 0.0, r...)), p)
+            end
+            @test EnzymeRates._kcat_forward(m, p) ≈ vmax rtol = 1e-6
+        end
+    end
+end
+
 @testset "Fix B: non-allosteric random-order bi-bi kcat = peak (contract guard)" begin
     # Sweeps 40 parameter draws; product-containing King–Altman cross-terms
     # (e.g. A·B·P monomials) are spurious candidates at products=0 and can
@@ -2557,26 +2341,22 @@ end
     end
 end
 
-@testset "D[g_free] surfaced per allosteric state" begin
-    # Uni-uni with :OnlyA substrate + :OnlyA catalysis: the inactive state
-    # neither binds S nor catalyzes, so its free-enzyme graph is a single
-    # segment and both states surface D = 1. The genuinely fragmenting
-    # cross-weight regime (D_A ≠ D_I, a metabolite-bearing inactive weight)
-    # needs a steady-state :OnlyA binding and is covered by the
-    # metabolite-bearing-D :OnlyA gate in allosteric_ground_truth.jl.
-    onlyA = @allosteric_mechanism begin
-        substrates: S ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
-            E + S ⇌ E(S)     :: OnlyA
-            E(S) <--> E(P)   :: OnlyA
-            E + P ⇌ E(P)     :: EqualAI
+@testset "kcat with no product-free saturating pattern errors descriptively" begin
+    # Catalysis runs only on the product-bound form E(P), so every forward numerator
+    # term carries P and no pattern survives the products = 0 filter.
+    m = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + P ⇌ E(P)
+            E(P) + S ⇌ E(P, S)
+            E(P, S) <--> E(P, P)
+            E(P, P) ⇌ E(P) + P
         end
     end
-    am = EnzymeRates.AllostericMechanism(onlyA)
-    _, _, dA = EnzymeRates._state_rate_polys(am, :A)
-    _, _, dI = EnzymeRates._state_rate_polys(am, :I)
-    @test dA == EnzymeRates.poly_one()                       # single active segment
-    @test dI == EnzymeRates.poly_one()                       # single inactive segment
+    pn = EnzymeRates.fitted_params(m)
+    params = merge(NamedTuple{pn}(ntuple(_ -> 1.5, length(pn))), (Keq = 2.0,))
+    @test_throws "no kcat components" EnzymeRates._kcat_forward(m, params)
 end
 
 @testset "rendering helpers" begin
@@ -2591,17 +2371,4 @@ end
     @test_throws ErrorException ER._invert_monomial(twoterm)      # non-monomial errors
     @test ER._mwc_cross_weight(:foo, 1, 2) == :foo               # no-op when D==1
     @test ER._mwc_cross_weight(:foo, :D, 1) == :(D * foo)
-end
-
-@testset "kcat consistent with rate_equation under normalization (uni-OnlyA)" begin
-    m = @allosteric_mechanism begin
-        substrates: S ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
-            E + S ⇌ E(S) :: OnlyA ; E(S) <--> E(P) :: OnlyA ; E + P ⇌ E(P) :: EqualAI
-        end
-    end
-    fp = ER.fitted_params(m)            # K_EP_to_E_P, K_A_ES_to_E_S, k_A_ES_to_EP, L
-    prm = NamedTuple{(fp..., :Keq, :E_total)}((0.9, 1.3, 2.1, 0.7, 3.0, 1.0))
-    rescaled = ER.rescale_parameter_values(m, prm; scale_k_to_kcat=5.0)  # ask kcat = 5.0
-    @test isapprox(ER._kcat_forward(m, rescaled), 5.0; rtol=1e-6)
 end

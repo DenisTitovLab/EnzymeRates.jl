@@ -6,7 +6,7 @@ const _ALLO_GOLDEN_PATH =
     joinpath(@__DIR__, "reference", "allosteric_golden_reference.txt")
 
 """Canonical serialization of every allosteric spec's derivation output."""
-function _allosteric_golden_lines()
+function _testhelper_allosteric_golden_lines()
     lines = String[]
     for spec in MECHANISM_TEST_SPECS
         spec.mechanism isa EnzymeRates.AllostericEnzymeMechanism || continue
@@ -14,19 +14,37 @@ function _allosteric_golden_lines()
         push!(lines, "### " * spec.name)
         reduced_string = EnzymeRates.rate_equation_string(m, EnzymeRates.Reduced)
         push!(lines, "REDUCED_STRING " * replace(reduced_string, "\n" => "\\n"))
-        push!(lines, "PARAMS_FULL " * string(parameters(m, EnzymeRates.Full)))
-        push!(lines, "PARAMS_REDUCED " *
-              string(parameters(m, EnzymeRates.Reduced)))
     end
     lines
 end
 
 @testset "allosteric golden reference (D1)" begin
     @test isfile(_ALLO_GOLDEN_PATH)
-    current = _allosteric_golden_lines()
+    current = _testhelper_allosteric_golden_lines()
     reference = readlines(_ALLO_GOLDEN_PATH)
     @test length(current) == length(reference)
     for (c, r) in zip(current, reference)
         @test c == r
+    end
+    # The REDUCED_STRING header pins the reduced parameters; this pins the exported
+    # `parameters(m, Reduced)` wrapper to the fitted parameters plus Keq and E_total.
+    for spec in MECHANISM_TEST_SPECS
+        m = spec.mechanism
+        m isa EnzymeRates.AllostericEnzymeMechanism || continue
+        @test parameters(m, EnzymeRates.Reduced) ==
+              (EnzymeRates.fitted_params(m)..., :Keq, :E_total)
+    end
+    # The fitted parameters list the catalytic constants by name, so rate-equivalent
+    # mechanisms render one params line, then the regulator constants, then L.
+    for spec in MECHANISM_TEST_SPECS
+        m = spec.mechanism
+        m isa EnzymeRates.AllostericEnzymeMechanism || continue
+        fp = EnzymeRates.fitted_params(m)
+        am = EnzymeRates.AllostericMechanism(m)
+        reg = Tuple(EnzymeRates.name(p, am) for st in (:A, :I)
+                    for p in EnzymeRates._kreg_params(am, st))
+        cat = fp[1:end - 1 - count(in(fp), reg)]
+        @test issorted(collect(cat); by = string)
+        @test fp == (cat..., filter(in(fp), reg)..., :L)
     end
 end

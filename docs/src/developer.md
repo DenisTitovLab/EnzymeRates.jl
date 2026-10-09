@@ -25,13 +25,14 @@ This is the most important architectural decision in the package, and it is
 deliberate. Moving the derivation to compile time leaves
 `rate_equation(m, conc, params)` as a flat numeric expression that must be
 **allocation-free and sub-120 ns per call**, enforced by
-`test_rate_equation_performance` (`test/test_rate_eq_derivation.jl`, asserting
-`allocs == 0` and `t < 120e-9` for every fixture mechanism). That speed is the
-binding constraint on the whole package: the fitter is a multi-start, global,
-gradient-free optimizer that evaluates `rate_equation` millions of times per
-fit, and a single rate equation can take minutes to fit, so any per-call
-allocation or microsecond-scale overhead would make fitting — and therefore
-`identify_rate_equation`, which fits thousands of candidates — impractical.
+`_testhelper_test_rate_equation_performance`
+(`test/test_rate_eq_derivation.jl`, asserting `allocs == 0` and `t < 120e-9` for
+every fixture mechanism). That speed is the binding constraint on the whole
+package: the fitter is a multi-start, global, gradient-free optimizer that
+evaluates `rate_equation` millions of times per fit, and a single rate equation
+can take minutes to fit, so any per-call allocation or microsecond-scale
+overhead would make fitting — and therefore `identify_rate_equation`, which fits
+thousands of candidates — impractical.
 `loss!` is held to the same standard: `FittingProblem` pre-allocates its
 `log_ratios_buffer` once and `loss!` reuses it, so the inner optimization loop
 allocates nothing. The cost is the flip side of the benefit: each unique
@@ -42,16 +43,36 @@ enzyme forms or steps can be slow to compile, exhaust memory, or `StackOverflow`
 `compile_mechanism(m::Mechanism) = EnzymeMechanism(m)` and
 `compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)`. The
 lift `EnzymeMechanism(m::Mechanism)` first drops regulators declared on the
-reaction but bound by no step, so they neither appear in `regulators` nor add a
-parameter; `Mechanism(em)` lifts back.
+reaction but bound by no step, so they add no parameter and the reaction of
+`Mechanism(em)`, which lifts back, does not list them.
+
+Only the `@generated` methods (`rate_equation`, `parameters`, `fitted_params`,
+`metabolites`, `_kcat_forward`) do work per singleton type: `rate_equation` and
+`_kcat_forward` run the derivation, `fitted_params` and the reduced `parameters` run
+its constraint solve, and `metabolites` and the full `parameters` read names off the
+lifted mechanism. The lifts `Mechanism(em)` and `AllostericMechanism(aem)` read the
+type parameters at run
+time, and the derivation helpers that take a singleton or its type take it
+`@nospecialize`, so they compile once for all mechanisms. A new mechanism type
+then pays for its generated bodies and the derivation they run, plus a few thin
+methods that still specialize on it: the forwarders that supply the default mode
+(such as `rate_equation(m, concs, params)` and `rate_equation_string(m)`), `show`,
+`catalytic_mechanism` and `catalytic_multiplicity`. `FittingProblem` and `loss!`
+specialize on the type on purpose: `loss!` then reads `fitted_params` and
+`metabolites` as constants and calls the generated `rate_equation` without
+dispatch.
 
 ## Enumeration engine architecture
 
 Mechanism enumeration uses the **concrete types** `Mechanism` and
 `AllostericMechanism` (`src/types.jl`) — internal, not exported — built directly
-from `Step` and `Species` values. `Mechanism` has two fields:
+from `Step` and `Species` values. `Mechanism` has two semantic fields:
 `reaction::EnzymeReaction` and `steps::Vector{Vector{Step}}` — kinetic groups,
 one inner vector per group holding the steps that share that group's parameters.
+It also carries `naming`, a lazily filled cache of data derived from the steps (the
+free-enzyme forms and each group's naming representative and rendered sides), which
+takes no part in `==`, `hash`, the compiled type or display; `AllostericMechanism`
+carries the same cache.
 `Step` has `from_species`, `to_species`, `consumed`, `released`, and
 `is_equilibrium`: going from `from_species` to `to_species`, a step takes up the
 metabolites in `consumed` from solution and gives off those in `released`. Steps
@@ -60,14 +81,17 @@ off none (`bound_metabolite`, `is_binding`). It is plain when `to_species` is
 `from_species` with that metabolite added, the residual unchanged and the
 conformation free to change (`_binds_ligand`), and fused otherwise, as when the
 last substrate binds straight into the product-bound form
-(`E(A) + B → E(P, Q)`). An isomerization has both lists empty (`is_iso`); a
+(`E(A) + B → E(P, Q)`). The `Step` constructor rejects a binding whose forms
+match a plain binding by name but not by role, such as `E + P::Inh ⇌ E(P)`. An
+isomerization has both lists empty (`is_iso`); a
 Theorell–Chance step takes up one metabolite and gives off another. `_is_chemistry`
 is true for every step but a plain binding; the allosteric moves,
-`_onlya_haldane_violation` and `show` read it to tell catalysis from binding. The
-derivation reads every binding alike, so a fused binding's rapid-equilibrium
-constant is a dissociation constant (`Kd`) and its steady-state pair `Kon` and
-`Koff`. Every step's constants are named by its two sides — each side's enzyme
-form followed by its free metabolites (`K_ES_to_E_S` for `E + S ⇌ E(S)`,
+`_onlya_haldane_violation`, the steady-state pivot tie-break in
+`_assemble_constraints` and `_fused_substrate_binding` read it to tell catalysis from
+binding. The derivation reads every binding alike, so a fused binding's rapid-equilibrium
+constant is a dissociation constant and its steady-state pair a binding and a
+release rate constant. Every step's constants are named by its two sides — each
+side's enzyme form followed by its free metabolites (`K_ES_to_E_S` for `E + S ⇌ E(S)`,
 `K_EPQ_to_EA_B` for `E(A) + B ⇌ E(P, Q)`, `k_EA_B_to_EQ_P` for
 `E(A) + B <--> E(Q) + P`). Like the singleton types, these are canonicalized so
 that the order or direction in which steps are written does not change the
@@ -75,12 +99,25 @@ resulting mechanism. The `Step` constructor stores a step that takes up nothing
 and gives off one metabolite as the binding it reverses, so every binding is
 stored with its metabolite consumed; the `Mechanism` and `AllostericMechanism`
 constructors orient every other step (`_canonical_step_direction`) and sort steps
-and groups. They also enforce the kinetic-group rules. A group's steps take up and
+and groups. The steps of one group that metabolite progression leaves tied, such as
+a conformational change and its mirror at inhibitor-bound forms, turn as one
+(`_orient_tied_steps`): each takes up and gives off the same metabolites, and each
+that changes conformation runs between the same two conformations in the same order,
+so the group's shared constants describe one physical direction. A tied step that
+keeps its conformation, such as one metabolite exchange at two conformations
+(`E(I) + J <--> E(J) + I` and `F(I) + J <--> F(J) + I`), turns by its metabolites
+alone. A group whose tied steps share no such direction is rejected. The `RegulatorySite`
+constructor sorts a site's ligands by name, and the `AllostericMechanism`
+constructor sorts the sites. The two mechanism constructors
+also enforce the kinetic-group rules. A group's steps take up and
 give off the same metabolites (`_step_kind`, the pair `(consumed, released)`) and
 carry one RE/SS flag (`_assert_uniform_groups`), so a fused and a plain binding
 of one metabolite may share a group and a Theorell–Chance step cannot share one
 with a binding. A reaction — the pair of a step's two sides — appears in one step
-of one group (`_assert_each_reaction_once`).
+of one group (`_assert_each_reaction_once`). No two distinct forms render one name
+(`_assert_distinct_form_names`): a form's name joins its conformation and bound
+metabolites without a separator, so E with NAD and P bound and E with NADP bound
+would both be `ENADP` and share their constants' names.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see
@@ -142,14 +179,14 @@ product side, so the last substrate's binding becomes fused; `_eliminate_form`
 replaces a form whose only two steps are bindings into it by one Theorell–Chance
 step in a group of its own. Every step of a base starts at rapid equilibrium. The
 variants are the inclusion-minimal sets of the base's flux-carrying groups
-(`_minimal_gaining_sets`) whose flip to steady state leaves no rapid-equilibrium
+(`_minimal_flips`) whose flip to steady state leaves no rapid-equilibrium
 turnover cycle (`_re_turnover_cycle`: each RE step weighted by its uptake of
-substrates minus products, a turnover cycle being an unbalanced block), keeps a
-maximal rate both ways (`_has_vmax`, condition V), keeps chemistry out of
+substrates minus products, a turnover cycle being a cycle of nonzero weight),
+keeps a maximal rate both ways (`_has_vmax`, condition V), keeps chemistry out of
 equilibrium with both sides (`_chemistry_equilibrates_both_sides`, condition C),
 leaves no bottomless segment and keeps every steady-state group flux-carrying.
 `_seed_candidate_screen` runs the first three tests on index arrays with a
-weighted union-find, so a candidate's steps are built only when it passes them. A
+weighted union-find, so the other two run only on a candidate that passes them. A
 merged variant whose every merged complex has two steady-state steps, each alone
 in its group, has the family of the unmerged chain with rapid-equilibrium flanks
 at the same count and is skipped. `_degenerate`, the failure of V or C on the
@@ -174,10 +211,11 @@ the root; the predicate decides "at most 1" with reachability checks
 (`_all_reach`) rather than a max-arborescence solve, since a weight-2 pattern is
 one segment or edge scoring 2, a scoring root plus a compatible scoring edge, or
 two compatible scoring edges. The exactness of the predicate against the derived
-denominator is pinned by a test over the uni-bi, bi-bi, and ping-pong
-enumerations. A future conformational type (KNF, mnemonic, slow isomerization)
-adds one `_requires_hyperbolic_catalysis` method and calls the predicate in its
-promotion move.
+denominator is pinned by a test over the uni-bi enumeration and the
+ping-pong-capable bi-bi enumeration, which contains every bi-bi mechanism. A future
+conformational type (KNF, mnemonic, slow isomerization) adds one
+`_requires_hyperbolic_catalysis` method and calls the predicate in its promotion
+move.
 
 ## Optimization algorithm architecture
 
