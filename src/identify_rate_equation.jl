@@ -32,8 +32,14 @@ function IdentifyRateEquationProblem(
     reaction::EnzymeReaction, table; Keq::Real,
     scale_k_to_kcat::Union{Real,Nothing}=1.0
 )
+    mnames = _metabolite_names(reaction)
+    # The search fits allosteric mechanisms, and their rate equations take the
+    # conformational constant L, so a metabolite named L would fail every one of them.
+    :L in mnames && error(
+        "Metabolite L has the name of the conformational constant L of the allosteric " *
+        "mechanisms the search fits; rename the metabolite")
     # Every metabolite the reaction declares needs a concentration column.
-    data = _rate_table(table, _metabolite_names(reaction), scale_k_to_kcat, Keq)
+    data = _rate_table(table, mnames, scale_k_to_kcat, Keq)
 
     # Validate at least 2 groups for CV
     n_groups = length(unique(data.group))

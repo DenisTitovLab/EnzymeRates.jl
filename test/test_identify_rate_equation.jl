@@ -186,6 +186,21 @@ end
             IdentifyRateEquationProblem(group_named_rxn,
                 (group = [1, 2], Rate = [1.0, 2.0], S = [1.0, 1.0], P = [0.1, 0.1]);
                 Keq=1.0))
+
+        # Every search fits allosteric mechanisms, whose rate equations take the
+        # conformational constant L, so a metabolite named L would fail every allosteric
+        # candidate; the problem refuses it up front.
+        L_named_rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: L[C]
+        end
+        @test_throws(
+            ErrorException("Metabolite L has the name of the conformational constant L " *
+                           "of the allosteric mechanisms the search fits; rename the " *
+                           "metabolite"),
+            IdentifyRateEquationProblem(L_named_rxn,
+                (group = ["G1", "G2"], Rate = [1.0, 2.0], S = [1.0, 1.0], L = [0.1, 0.1]);
+                Keq=1.0))
         for (bad, shown) in ((0, "0"), (-1, "-1"), (Inf, "Inf"), (NaN, "NaN"))
             @test_throws(ErrorException("Keq must be positive and finite; got $shown"),
                 IdentifyRateEquationProblem(test_rxn, two_groups; Keq=bad))

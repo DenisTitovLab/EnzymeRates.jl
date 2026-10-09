@@ -104,6 +104,8 @@ value becomes one cross-validation fold, so at least two groups are required.
 - One column per substrate, product, and regulator (names match
   `metabolites(mechanism)` exactly).
 - No substrate, product, or regulator may be named `group` or `Rate`.
+- No substrate, product, or regulator may be named `L`: the search fits allosteric
+  mechanisms, whose rate equations take the conformational constant `L`.
 - Every `Rate` must be a finite, nonzero number — the loss function works in log
   space.
 - Every concentration must be a finite number ≥ 0; zero is valid.
