@@ -912,9 +912,13 @@ One LOOCV fold: fit `mechanism` on every group except `held_out`, score it on
 `held_out`, and return the finite test loss. A non-finite
 test loss raises (naming the held-out group) — a corrupted fold must abort model
 selection rather than propagate a bad score.
+
+This function and `_fold_problem` take `mechanism` `@nospecialize`. LOOCV runs a
+candidate's folds after its full fit, which compiled `loss!` for the folds' problem type,
+so a fold infers and compiles nothing for the mechanism.
 """
 function _cv_fold_loss(
-    mechanism::AbstractEnzymeMechanism,
+    @nospecialize(mechanism::AbstractEnzymeMechanism),
     prob::IdentifyRateEquationProblem, held_out;
     optimizer, kwargs...)
     held = prob.data.group .== held_out
@@ -935,7 +939,7 @@ The `FittingProblem` of `mechanism` on the rows of `prob.data` that `mask` selec
 fold copies its rows rather than viewing them, so its problem has the full fit's type and
 `loss!` does not compile a second time for it; the copy is small next to a fit.
 """
-function _fold_problem(mechanism::AbstractEnzymeMechanism,
+function _fold_problem(@nospecialize(mechanism::AbstractEnzymeMechanism),
                        prob::IdentifyRateEquationProblem, mask)
     FittingProblem(mechanism, map(col -> col[mask], prob.data);
         Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)

@@ -525,6 +525,63 @@ end
     end
 end
 
+# The number of method instances, inferred or compiled, of the methods EnzymeRates
+# defines, keyword-call methods included.
+function _testhelper_enzymerates_method_instances()
+    ms = [m for m in methods(Core.kwcall) if m.module === EnzymeRates]
+    for n in names(EnzymeRates; all = true)
+        f = isdefined(EnzymeRates, n) ? getfield(EnzymeRates, n) : nothing
+        f isa Function && append!(ms, m for m in methods(f) if m.module === EnzymeRates)
+    end
+    sum(m -> count(_ -> true, Base.specializations(m)), ms)
+end
+
+# LOOCV fits a candidate's folds after the candidate's full fit, and a fold's problem has
+# the full fit's type. `_cv_fold_loss` and `_fold_problem` take the mechanism
+# `@nospecialize`, so the fold then infers and compiles no EnzymeRates method for it.
+@testset "_cv_fold_loss: a fold compiles nothing for its mechanism" begin
+    rxn = @enzyme_reaction begin
+        substrates: Sfold[C]
+        products: Pfold[C]
+    end
+    # Metabolite names no other test uses, so no earlier test has fit these mechanisms.
+    re_binding = @enzyme_mechanism begin
+        substrates: Sfold
+        products: Pfold
+        steps: begin
+            E + Sfold ⇌ E(Sfold)
+            E(Sfold) <--> E(Pfold)
+            E(Pfold) ⇌ E + Pfold
+        end
+    end
+    ss_binding = @enzyme_mechanism begin
+        substrates: Sfold
+        products: Pfold
+        steps: begin
+            E + Sfold <--> E(Sfold)
+            E(Sfold) <--> E(Pfold)
+            E(Pfold) ⇌ E + Pfold
+        end
+    end
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            Sfold = [1.0, 2.0, 3.0, 4.0], Pfold = [0.1, 0.2, 0.3, 0.4])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    optimizer = CMAEvolutionStrategyOpt()
+    added = Int[]
+    # Typed as the abstract mechanism, as in the pipeline, so each call dispatches on the
+    # mechanism's run-time type.
+    for em in EnzymeRates.AbstractEnzymeMechanism[re_binding, ss_binding]
+        full = FittingProblem(em, prob.data; Keq=prob.Keq,
+                              scale_k_to_kcat=prob.scale_k_to_kcat)
+        fit_rate_equation(full, optimizer; n_restarts=1, maxiters=10)
+        n = _testhelper_enzymerates_method_instances()
+        EnzymeRates._cv_fold_loss(em, prob, "G1"; optimizer, n_restarts=1, maxiters=10)
+        push!(added, _testhelper_enzymerates_method_instances() - n)
+    end
+    # The first mechanism's fold compiles the fold path for every mechanism.
+    @test added[2] == 0
+end
+
 # The CSV mechanism_type column holds a mechanism's type as string(typeof(em)) prints it
 # where EnzymeRates is loaded with `using`, and the string parses back to that type.
 @testset "_mechanism_type_string prints the mechanism type" begin
