@@ -886,14 +886,9 @@ function _cv_fold_loss(
     prob::IdentifyRateEquationProblem, held_out;
     optimizer, kwargs...)
     held = prob.data.group .== held_out
-    # Each fold's columns are views, so no fold copies the data: copying every
-    # column for train and test in each of the G folds would cost O(G·N·ncols).
-    fold(mask) = (idx = findall(mask);
-        FittingProblem(mechanism, map(col -> view(col, idx), prob.data);
-            Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat))
-    fit = fit_rate_equation(fold(.!held), optimizer; kwargs...)
+    fit = fit_rate_equation(_fold_problem(mechanism, prob, .!held), optimizer; kwargs...)
     # `fit.params` is keyed by `fitted_params(mechanism)`, the order `loss!` reads.
-    test_loss = loss!([log(v) for v in fit.params], fold(held))
+    test_loss = loss!([log(v) for v in fit.params], _fold_problem(mechanism, prob, held))
     # A non-finite fold loss means the fit is unusable; aborting model
     # selection is correct (re-run CV from the saved CSVs after fixing
     # the fit).
@@ -901,6 +896,17 @@ function _cv_fold_loss(
         "LOOCV produced a non-finite test loss for held-out group " *
         "$held_out — the fit is unusable; aborting model selection.")
     test_loss
+end
+
+"""
+The `FittingProblem` of `mechanism` on the rows of `prob.data` that `mask` selects. The
+fold copies its rows rather than viewing them, so its problem has the full fit's type and
+`loss!` does not compile a second time for it; the copy is small next to a fit.
+"""
+function _fold_problem(mechanism::AbstractEnzymeMechanism,
+                       prob::IdentifyRateEquationProblem, mask)
+    FittingProblem(mechanism, map(col -> col[mask], prob.data);
+        Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
 end
 
 """

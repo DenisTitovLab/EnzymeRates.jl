@@ -507,6 +507,24 @@ end
 
 end
 
+# A fold's problem holds the fold's rows in the full fit's problem type, so the fold
+# fits reuse the code compiled for the full fit.
+@testset "_fold_problem: the fold's rows in the full fit's problem type" begin
+    em = EnzymeRates.compile_mechanism(
+        first(EnzymeRates.init_mechanisms(_testhelper_uni_rxn)))
+    for data_form in (NamedTuple, DataFrame)
+        prob = _testhelper_uni_prob(data_form)
+        full = FittingProblem(em, prob.data; Keq=prob.Keq,
+                              scale_k_to_kcat=prob.scale_k_to_kcat)
+        fold = EnzymeRates._fold_problem(em, prob, prob.data.group .== prob.data.group[3])
+        @test typeof(fold) === typeof(full)
+        @test fold.data.S == [3.0, 4.0]
+        @test fold.data.P == [0.3, 0.4]
+        @test fold.data.Rate == [1.0, 1.1]
+        @test fold.Keq === 10.0 && fold.scale_k_to_kcat === 1.0
+    end
+end
+
 @testset "csv writer" begin
     rows = [(
         n_params = 5, loss = 1.0, mechanism_type = "M",
