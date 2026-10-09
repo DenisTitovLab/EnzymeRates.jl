@@ -19,8 +19,18 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `E(A) + P ⇌ E(A, P)` and `E(Q) + P ⇌ E(P, Q)` share `K_EAP_to_EA_P` and the inactive
   state cannot reach `E(A)`, that state names the constant `K_EPQ_to_EQ_P`, and 766 of
   15,219 bi-bi and ping-pong allosteric mechanisms sampled within two expansion rounds
-  gain one to three such parameters. A fix names each surviving inactive-state group
-  after its active-state representative and keeps the active-state step directions.
+  gain one to three such parameters. The single-equation derivation under Planned
+  removes the cause. A narrower fix, prototyped and measured, names and orients every
+  inactive-state constant by the full mechanism's own step and removes all 766.
+- **The two conformations fold Wegscheider ties separately.**
+  `_dependent_param_exprs(am)` (`src/rate_eq_derivation.jl`) solves each conformation's
+  single-symbol rename on its own and merges the two maps. When the conformations fold a
+  tied pair in opposite directions, or one folds a constant the other still uses,
+  `fitted_params` keeps a constant that thermodynamics ties to another: the model is
+  larger than declared, though identifiable. Within two expansion rounds of the bi-bi and
+  ping-pong reactions, 256 enumerated allosteric mechanisms fold a pair in opposite
+  directions and 512 more keep a folded constant in the other conformation. The
+  single-equation derivation under Planned removes the cause.
 - **A kinetic group cannot tie one metabolite exchange at two conformations.**
   A group holding `E(I) + J ⇌ E(J) + I` and the same exchange at conformation `F` raises
   "change different pairs of conformations", although neither step changes conformation;
@@ -34,6 +44,25 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Planned
 
+- **Derive both conformations from one catalytic rate equation.**
+  Each conformation is derived on its own graph: `_state_parts` rebuilds the inactive one
+  as a pruned mechanism (`_state_allo_mechanism`), and each solves its own Wegscheider
+  rename, which causes the first two known issues. Derive the catalytic mechanism once
+  instead, with one symbol per constant and the constraints solved on that one system,
+  and obtain each conformation from it: relabel a `:NonequalAI` constant for the inactive
+  conformation, and remove an `:OnlyA` or `:OnlyI` step by a limit (`K → ∞` for a
+  rapid-equilibrium binding, both `k → 0` for a steady-state step). Haldane and
+  Wegscheider relations make such a limit come with partner limits, so both conformations
+  stay thermodynamically consistent by construction. Take each limit as the leading-order
+  term in a scaling parameter, not by substitution: zeroing both rate constants of a step
+  that holds the graph together zeroes every spanning tree and leaves 0/0. The design
+  should also settle which free form carries `L` when a hand-written mechanism has two
+  residual-free free forms in different steady-state segments; the first in species
+  order does today. Branch `mwc-solve-then-limit` holds a July design of this approach
+  (spec b067aa0 and 651a821, plan 9c95f12, prototype 6f0011e), whose prototype matched
+  the mass-action ground truth on all six uni-uni tag combinations and would delete the
+  `d_free` cross-weighting; `test/allosteric_ground_truth.jl` is the oracle.
+  Priority: high.
 - **Stop emitting K-type variants whose L is a phantom at one catalytic subunit.**
   At multiplicity 1, `_expand_to_allosteric` (`src/mechanism_enumeration.jl`) emits
   K-type variants whose L the data cannot determine, so the fitter optimizes a flat
@@ -90,8 +119,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   conformations' polynomials to keep any symbol they still reference. Dropping renamed
   symbols in `_assemble_constraints` would delete both filters; the hard case is an
   `:EqualAI` symbol folded in one conformation and used in the other. Pass 2 itself is
-  load-bearing and stays, and the derivation output must stay byte-identical.
-  Priority: low.
+  load-bearing and stays, and the derivation output must stay byte-identical. The
+  single-equation derivation above may absorb this. Priority: low.
 - **Enumerate Cleland iso mechanisms.**
   The derivation handles iso mechanisms, but no enumeration move generates them, and each
   carries a dwell-time-gauge phantom unless the exact rank (see Ideas) or a
