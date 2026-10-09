@@ -1881,6 +1881,55 @@ end
     @test_throws "polynomial terms" rate_equation_string(m_manual)
 end
 
+# The rate equation binds the parameters and the concentrations as local names of one
+# scope, so a metabolite named after a parameter would overwrite it, or be overwritten.
+@testset "a metabolite named after a parameter raises" begin
+    # An allosteric regulator named L takes the name of the conformational constant L.
+    allo_L = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: L::OnlyI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)     :: EqualAI
+            E(S) <--> E(P)   :: OnlyA
+            E(P) ⇌ E + P     :: EqualAI
+        end
+    end
+    clash_L = ErrorException("Metabolite L has the name of a parameter of this " *
+                             "mechanism's rate equation; rename the metabolite")
+    fitted = EnzymeRates.fitted_params(allo_L)
+    params = merge(NamedTuple{fitted}(ntuple(_ -> 1.0, length(fitted))),
+                   (Keq = 2.0, E_total = 1.0))
+    @test_throws clash_L rate_equation(allo_L, (S = 1.0, P = 0.1, L = 0.5), params)
+    @test_throws clash_L rate_equation_string(allo_L)
+
+    # An inhibitor named after the reverse chemistry constant: in Reduced mode the
+    # Haldane assignment would overwrite its concentration, in Full mode its
+    # concentration would overwrite the constant.
+    uni_k = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        regulators: k_EP_to_ES
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+            E + k_EP_to_ES ⇌ E(k_EP_to_ES)
+        end
+    end
+    clash_k = ErrorException("Metabolite k_EP_to_ES has the name of a parameter of " *
+                             "this mechanism's rate equation; rename the metabolite")
+    concs = (S = 1.0, P = 0.1, k_EP_to_ES = 0.5)
+    reduced = merge(NamedTuple{EnzymeRates.fitted_params(uni_k)}((1.0, 2.0, 3.0, 4.0)),
+                    (Keq = 2.0, E_total = 1.0))
+    full = NamedTuple{parameters(uni_k, Full)}((1.0, 2.0, 3.0, 4.0, 5.0, 1.0))
+    @test_throws clash_k rate_equation(uni_k, concs, reduced)
+    @test_throws clash_k rate_equation(uni_k, concs, full, Full)
+    @test_throws clash_k rate_equation_string(uni_k)
+    @test_throws clash_k rate_equation_string(uni_k, Full)
+end
+
 
 # ── Single-feature edge cases ─────────────────────────────────────────────
 @testset "Allosteric edge cases" begin

@@ -372,11 +372,27 @@ _dep_assignments(dep) =
     [Expr(:(=), sym, rhs) for (sym, rhs) in sort!(collect(dep); by = first)]
 
 """
+Error if a metabolite of `M` has the name of a parameter in `param_syms` or `dep`. The
+rate equation binds the parameters, the concentrations and the dependent parameters as
+local names of one scope, so a shared name would let one overwrite another.
+"""
+function _assert_no_name_clash(@nospecialize(M::Type{<:AbstractEnzymeMechanism}),
+                               param_syms, dep)
+    for m in metabolites(M())
+        (m in param_syms || haskey(dep, m)) && error(
+            "Metabolite $m has the name of a parameter of this mechanism's rate " *
+            "equation; rename the metabolite")
+    end
+end
+
+"""
 The body of the generated `rate_equation` of `M`: destructure `param_syms` from
 `params` and the metabolites from `concs`, assign the dependent parameters `dep`, and
-return `E_total * (num) / (den)` with `num` and `den` from `_num_den_exprs`.
+return `E_total * (num) / (den)` with `num` and `den` from `_num_den_exprs`. A metabolite
+named after a parameter raises (`_assert_no_name_clash`).
 """
 function _rate_body(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param_syms, dep)
+    _assert_no_name_clash(M, param_syms, dep)
     num, den = _num_den_exprs(M)
     Expr(:block,
         _destructuring_expr(param_syms, :params),
@@ -500,10 +516,11 @@ The `rate_equation_string` text of `M`: the `params` destructure of `param_syms`
 of a dependent in `substituted` ends in `ANNOTATION_SUBSTITUTED`. Each section is sorted
 by name, which is load-bearing: the eq_hash dedup of rate-equivalent mechanisms compares
 these strings, so their line order must not depend on the order the solve emits its
-dependents in.
+dependents in. A metabolite named after a parameter raises (`_assert_no_name_clash`).
 """
 function _equation_text(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param_syms,
                         dep; substituted = ())
+    _assert_no_name_clash(M, param_syms, dep)
     weg, hal = String[], String[]
     for (sym, rhs) in sort!(collect(dep); by = first)
         suffix = sym in substituted ? ANNOTATION_SUBSTITUTED : ""
