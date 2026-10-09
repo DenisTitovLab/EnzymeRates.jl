@@ -178,6 +178,32 @@ function loss!(x::AbstractVector, fp::FittingProblem)
 end
 
 """
+The objective `fit_rate_equation` hands the optimizer. `loss` holds `x -> loss!(x, fp)`
+behind a `FunctionWrapper`, which hides the mechanism and data types: every fit gives
+`Optimization.solve` one problem type, so the solver compiles once per optimizer rather
+than once per mechanism. `x_buf` takes a copy of each point before `loss` scores it,
+because CMA-ES passes a view and the wrapper takes a `Vector{Float64}`.
+"""
+struct FitObjective
+    loss::FunctionWrapper{Float64, Tuple{Vector{Float64}}}
+    x_buf::Vector{Float64}
+end
+
+"""The optimizer's objective: `obj.loss` at a copy of `x` (see `FitObjective`)."""
+_fit_loss(x, obj::FitObjective) = obj.loss(copyto!(obj.x_buf, x))
+
+"""
+The `OptimizationProblem` minimizing `loss!` of `fp` from `x0` within `lb`/`ub`. Its
+type is the same for every mechanism and data table (see `FitObjective`).
+"""
+function _optimization_problem(@nospecialize(fp::FittingProblem), x0, lb, ub)
+    obj = FitObjective(FunctionWrapper{Float64, Tuple{Vector{Float64}}}(x -> loss!(x, fp)),
+                       Vector{Float64}(undef, length(x0)))
+    Optimization.OptimizationProblem(Optimization.OptimizationFunction(_fit_loss), x0, obj;
+                                     lb=lb, ub=ub)
+end
+
+"""
     fit_rate_equation(fp::FittingProblem, optimizer;
         n_restarts=20, maxtime=60.0, maxiters=10_000_000,
         abstol=nothing, reltol=nothing, callback=nothing,
@@ -213,7 +239,7 @@ Returns a NamedTuple `(params, loss, retcode)` where:
   did not flag success) means the fit should be treated as un-converged (check
   `retcode !== :Success`).
 """
-function fit_rate_equation(fp::FittingProblem, optimizer;
+function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     n_restarts::Int=20,
     maxtime::Real=60.0,
     maxiters::Integer=10_000_000,
@@ -226,7 +252,6 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
 )
     pnames = fitted_params(fp.mechanism)
     np = length(pnames)
-    obj = Optimization.OptimizationFunction(loss!)
 
     # Common solver options: maxtime/maxiters always forwarded; the optional
     # ones only when set, so each solver keeps its own default otherwise.
@@ -248,7 +273,7 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
 
     for _ in 1:n_restarts
         x0 = clamp.(randn(np) .* 2.0, lb, ub)
-        prob = Optimization.OptimizationProblem(obj, x0, fp; lb=lb, ub=ub)
+        prob = _optimization_problem(fp, x0, lb, ub)
         sol = Optimization.solve(prob, optimizer; solve_kwargs...)
         if sol.objective < best_loss
             best_loss = sol.objective

@@ -27,6 +27,7 @@ using LinearAlgebra: det
 using Tables
 using Optimization
 using Distributed
+using FunctionWrappers: FunctionWrapper
 
 include("types.jl")
 include("dsl.jl")
