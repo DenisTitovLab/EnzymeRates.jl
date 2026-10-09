@@ -494,6 +494,21 @@ using Tables
                        P = [0.1, 0.1])
         @test FittingProblem(uni_uni, data_zero_S; Keq=1.0) isa FittingProblem
 
+        # A metabolite named after a required column would read that column, here the
+        # measured rates, as its concentrations.
+        rate_named = @enzyme_mechanism begin
+            substrates: Rate
+            products:   P
+            steps: begin
+                E + Rate <--> E(Rate)
+                E(Rate) <--> E + P
+            end
+        end
+        @test_throws(
+            ErrorException("Metabolite Rate has the name of the required Rate column; " *
+                           "rename the metabolite"),
+            FittingProblem(rate_named, (group = ["G1"], Rate = [1.0], P = [0.1]); Keq=1.0))
+
         # A Keq or a scale_k_to_kcat that is not positive and finite
         data_ok = (group = ["G1"], Rate = [1.0], S = [1.0], P = [0.1])
         for (bad, shown) in ((0, "0"), (-1, "-1"), (Inf, "Inf"), (NaN, "NaN"))

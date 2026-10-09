@@ -43,11 +43,11 @@ end
 metabolites(uni_uni)
 ```
 
-A missing required column, a missing metabolite column, a zero, non-finite or
-missing `Rate`, a concentration that is not a finite number ≥ 0, a `Keq` that is not
-positive and finite, or a `scale_k_to_kcat` that is neither `nothing` nor positive and
-finite each raises an `ErrorException` at construction — the check runs before any
-fitting.
+A missing required column, a missing metabolite column, a metabolite named `group` or
+`Rate`, a zero, non-finite or missing `Rate`, a concentration that is not a finite
+number ≥ 0, a `Keq` that is not positive and finite, or a `scale_k_to_kcat` that is
+neither `nothing` nor positive and finite each raises an `ErrorException` at
+construction — the check runs before any fitting.
 
 ## Building the `FittingProblem`
 

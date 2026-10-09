@@ -34,8 +34,8 @@ end
 Construct a `FittingProblem` from an enzyme mechanism and tabular data.
 
 The table must have columns: `group`, `Rate`, and one column per
-metabolite matching `metabolites(mechanism)`. Uses
-`Tables.columntable` for conversion.
+metabolite matching `metabolites(mechanism)`, so no metabolite may be
+named `group` or `Rate`. Uses `Tables.columntable` for conversion.
 
 `scale_k_to_kcat` selects the loss mode: a positive, finite `Real` (default `1.0`)
 treats the data as relative (per-group-centered loss); `nothing` treats it as
@@ -63,9 +63,9 @@ end
 
 Validate a rate table and return it as `Tables.columntable(table)`: `scale_k_to_kcat`
 must be positive and finite or `nothing`, `Keq` must be positive and finite, the table
-needs a `group` column, a `Rate` column and one column per name in `mnames`, every
-concentration must be a finite number ≥ 0 (zero is valid), and every rate must be a
-finite, nonzero number (the loss takes its log).
+needs a `group` column, a `Rate` column and one column per name in `mnames`, no name in
+`mnames` may be `group` or `Rate`, every concentration must be a finite number ≥ 0 (zero
+is valid), and every rate must be a finite, nonzero number (the loss takes its log).
 """
 function _rate_table(table, mnames, scale_k_to_kcat, Keq)
     scale_k_to_kcat === nothing || 0 < scale_k_to_kcat < Inf || error(
@@ -73,6 +73,8 @@ function _rate_table(table, mnames, scale_k_to_kcat, Keq)
     0 < Keq < Inf || error("Keq must be positive and finite; got $Keq")
     data = Tables.columntable(table)
     for req in (:group, :Rate)
+        req in mnames && error("Metabolite $req has the name of the required $req " *
+                               "column; rename the metabolite")
         req in keys(data) || error("Missing required column: $req")
     end
     for m in mnames

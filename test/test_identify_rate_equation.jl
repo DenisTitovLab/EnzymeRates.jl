@@ -172,6 +172,20 @@ end
         @test IdentifyRateEquationProblem(
             test_rxn, merge(two_groups, (S = [0.0, 1.0],)); Keq=1.0) isa
               IdentifyRateEquationProblem
+
+        # A metabolite named after a required column would read that column, here the
+        # group numbers, as its concentrations.
+        group_named_rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            competitive_inhibitors: group
+        end
+        @test_throws(
+            ErrorException("Metabolite group has the name of the required group " *
+                           "column; rename the metabolite"),
+            IdentifyRateEquationProblem(group_named_rxn,
+                (group = [1, 2], Rate = [1.0, 2.0], S = [1.0, 1.0], P = [0.1, 0.1]);
+                Keq=1.0))
         for (bad, shown) in ((0, "0"), (-1, "-1"), (Inf, "Inf"), (NaN, "NaN"))
             @test_throws(ErrorException("Keq must be positive and finite; got $shown"),
                 IdentifyRateEquationProblem(test_rxn, two_groups; Keq=bad))
