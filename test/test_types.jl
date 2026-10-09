@@ -1767,7 +1767,7 @@ end
     @test :K_F_to_E in ER.fitted_params(re)
 
     # Tied steps that change different pairs of conformations share no orientation.
-    @test_throws "change different pairs of conformations" @enzyme_mechanism begin
+    @test_throws "make different conformational changes" @enzyme_mechanism begin
         substrates: A
         products: P
         steps: begin
@@ -1853,7 +1853,7 @@ end
 
     # Exchanges that switch conformation in opposite directions as J displaces I share no
     # orientation.
-    @test_throws "change different pairs of conformations" @enzyme_mechanism begin
+    @test_throws "make different conformational changes" @enzyme_mechanism begin
         substrates: A
         products: P
         regulators: I, J
@@ -1866,6 +1866,121 @@ end
             (E(I) + J <--> F(J) + I, F(I) + J <--> E(J) + I)
         end
     end
+end
+
+@testset "a tied exchange turns to take up its lead's metabolites" begin
+    # The exchange fixture above plus A binding E(I) and P binding E(J). On its own, Tier 2
+    # runs the exchange at E from E(J), where P binds, to E(I), where A binds, while Tier 3
+    # runs the exchange at F from F(I) to F(J). The exchange at E leads, so the group
+    # turns the one at F to take up I and give off J as well.
+    I, J = ER.CompetitiveInhibitor(:I), ER.CompetitiveInhibitor(:J)
+    is_exchange(g) = !any(s -> ER.is_iso(s) || ER.is_binding(s), g)
+    exchange_group(mech) = only(filter(is_exchange, ER.steps(mech)))
+    takes_up_I(s) = ER.consumed(s) == ER.Metabolite[I] && ER.released(s) == ER.Metabolite[J]
+    plain = @enzyme_mechanism begin
+        substrates: A
+        products: P
+        regulators: I, J
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            F <--> E
+            (E + I ⇌ E(I), F + I ⇌ F(I))
+            E(I) + A ⇌ E(A, I)
+            E(J) + P ⇌ E(J, P)
+            (E(I) + J <--> E(J) + I, F(I) + J <--> F(J) + I)
+        end
+    end
+    allo = @allosteric_mechanism begin
+        substrates: A
+        products: P
+        catalytic_inhibitors: I, J
+        catalytic_steps: begin
+            E + A <--> E(A)                                   :: EqualAI
+            E(A) <--> E(P)                                    :: EqualAI
+            E(P) <--> F + P                                   :: EqualAI
+            F <--> E                                          :: EqualAI
+            (E + I ⇌ E(I), F + I ⇌ F(I))                      :: EqualAI
+            E(I) + A ⇌ E(A, I)                                :: EqualAI
+            E(J) + P ⇌ E(J, P)                                :: EqualAI
+            (E(I) + J <--> E(J) + I, F(I) + J <--> F(J) + I)  :: NonequalAI
+        end
+    end
+    m, am = ER.Mechanism(plain), ER.AllostericMechanism(allo)
+    for mech in (m, am)
+        @test length(exchange_group(mech)) == 2
+        @test all(takes_up_I, exchange_group(mech))
+    end
+    # The written direction and order of the exchanges do not matter.
+    @test ER.Mechanism(@enzyme_mechanism begin
+        substrates: A
+        products: P
+        regulators: I, J
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            F <--> E
+            (E + I ⇌ E(I), F + I ⇌ F(I))
+            E(I) + A ⇌ E(A, I)
+            E(J) + P ⇌ E(J, P)
+            (F(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)
+        end
+    end) == m
+    @test ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A
+        products: P
+        catalytic_inhibitors: I, J
+        catalytic_steps: begin
+            E + A <--> E(A)                                   :: EqualAI
+            E(A) <--> E(P)                                    :: EqualAI
+            E(P) <--> F + P                                   :: EqualAI
+            F <--> E                                          :: EqualAI
+            (E + I ⇌ E(I), F + I ⇌ F(I))                      :: EqualAI
+            E(I) + A ⇌ E(A, I)                                :: EqualAI
+            E(J) + P ⇌ E(J, P)                                :: EqualAI
+            (F(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)  :: NonequalAI
+        end
+    end) == am
+    @test occursin("k_EJinh_Iinh_to_EIinh_Jinh", rate_equation_string(plain))
+    allo_law = rate_equation_string(allo)
+    @test occursin("k_A_EJinh_Iinh_to_EIinh_Jinh", allo_law)
+    @test occursin("k_I_EJinh_Iinh_to_EIinh_Jinh", allo_law)
+
+    # An exchange that changes conformation leads its group. On its own, Tier 3 runs
+    # F(I) + J <--> E(J) + I from E(J) to F(I) and the exchange at E from E(I) to E(J);
+    # the group turns the exchange at E to take up I and give off J as the lead does.
+    mixed = @enzyme_mechanism begin
+        substrates: A
+        products: P
+        regulators: I, J
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            F <--> E
+            (E + I ⇌ E(I), F + I ⇌ F(I))
+            (E(I) + J <--> E(J) + I, F(I) + J <--> E(J) + I)
+        end
+    end
+    mm = ER.Mechanism(mixed)
+    @test length(exchange_group(mm)) == 2
+    @test all(takes_up_I, exchange_group(mm))
+    @test ER.Mechanism(@enzyme_mechanism begin
+        substrates: A
+        products: P
+        regulators: I, J
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            F <--> E
+            (E + I ⇌ E(I), F + I ⇌ F(I))
+            (E(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)
+        end
+    end) == mm
+    @test occursin("k_EJinh_Iinh_to_EIinh_Jinh", rate_equation_string(mixed))
 end
 
 @testset "each reaction appears once in a mechanism" begin

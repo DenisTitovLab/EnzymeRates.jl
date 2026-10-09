@@ -567,8 +567,8 @@ function _orient_tied_steps(oriented::Vector{Step}, tiers::Vector{Int})
         fit = findfirst(o -> !turns(o) || pair(o) == pair(lead), same_kind)
         fit === nothing || return same_kind[fit]
         error("Mechanism: a kinetic group holds $(join(_forward_sides(lead), " → ")) " *
-              "and $(join(_forward_sides(first(same_kind)), " → ")), which change " *
-              "different pairs of conformations; the steps of a kinetic group share " *
+              "and $(join(_forward_sides(first(same_kind)), " → ")), which make " *
+              "different conformational changes; the steps of a kinetic group share " *
               "their constants, so they must make the same conformational change")
     end
 end
