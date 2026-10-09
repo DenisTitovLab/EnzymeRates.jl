@@ -223,9 +223,10 @@ move.
 
 ## Optimization algorithm architecture
 
-Fitting depends only on Optimization.jl; the package ships no solver of its own.
-`fit_rate_equation` (`src/fitting.jl`) wraps `loss!` into an
-`Optimization.OptimizationFunction`, builds an `OptimizationProblem`, and calls
+Fitting reaches solvers only through Optimization.jl; the package ships no solver of
+its own. `fit_rate_equation` (`src/fitting.jl`) builds an `OptimizationProblem`
+whose objective, `_fit_loss`, scores each point with `loss!` through a
+`FitObjective` (see [Derivation architecture](@ref)), and calls
 `Optimization.solve` with whatever optimizer the caller passes. This gives the
 package access to the global, gradient-free optimizers that non-convex
 rate-equation fitting needs — CMA-ES (`OptimizationCMAEvolutionStrategy`) and
