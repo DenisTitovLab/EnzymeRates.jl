@@ -13,10 +13,11 @@ using EnzymeRates
 const INIT_TRACE_BUDGET                  = 200   # baseline 2026-10-09: 57-87; budget ≈ 2×
 const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 6.0   # CI 1.1-1.9 s, local 0.4 s
 # Per fresh mechanism, over PASS1, the fit and one LOOCV fold, with baselines measured on
-# Julia 1.12. A fit path that compiles the solver stack for each mechanism costs about
-# 750 method instances and 650 KB.
-const FIT_INSTANCE_BUDGET                = 150   # baseline 2026-10-09: 64; ≈ 2.3×
-const FIT_NATIVE_BUDGET_KB               = 120   # baseline 2026-10-09: 54; ≈ 2.2×
+# Julia 1.12 (aarch64). A fit path that compiles the solver stack for each mechanism costs
+# about 750 method instances and 650 KB. The budgets sit about 3× below that and leave
+# room for the other Julia versions and architectures CI runs.
+const FIT_INSTANCE_BUDGET                = 250   # baseline 2026-10-09: 64
+const FIT_NATIVE_BUDGET_KB               = 300   # baseline 2026-10-09: 54
 
 # Anchored to the EnzymeRates module prefix only. Counts every method
 # specialization Julia compiles that touches our module — our functions,
