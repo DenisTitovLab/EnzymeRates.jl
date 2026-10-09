@@ -238,9 +238,10 @@ _mechanism_reaction_expr(subs, prods, regs) = _reaction_expr(
 
         steps: begin
             E + S ⇌ E(S)                   # function-call species notation
-            (E(S) ⇌ E(P), E_alt(S) ⇌ E_alt(P))   # parenthesized → shared kinetics
-            E(S) + I ⇌ E(S, I)             # dead-end
+            E(S) <--> E(P)
             E(P) ⇌ E + P
+            # parenthesized → shared kinetics: dead-end I binds E and E(S) alike
+            (E + I ⇌ E(I), E(S) + I ⇌ E(S, I))
         end
     end
 
