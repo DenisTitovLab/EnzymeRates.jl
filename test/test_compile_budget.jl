@@ -8,9 +8,10 @@ using EnzymeRates
 # init_mechanisms trace-compile is dominated by Step / Species / Mechanism
 # struct + @generated accessor specializations (EnzymeReaction is
 # non-parametric, so there is no per-arity reaction-type specialization).
-# The init_mechanisms baseline is 88 on Julia 1.12 and 94 on Julia 1.10.
-const INIT_TRACE_BUDGET                  = 200   # baseline 2026-10-07: 88-94; budget ≈ 2×
-const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 6.0   # CI-runner baseline ~2.8s (local ~1.03s); budget = 2× CI
+# The init_mechanisms baseline is 57 on Julia 1.13 (CI runners), 82 on Julia 1.12 and 87
+# on Julia 1.10.
+const INIT_TRACE_BUDGET                  = 200   # baseline 2026-10-09: 57-87; budget ≈ 2×
+const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 6.0   # CI 1.1-1.9 s, local 0.4 s
 
 # Anchored to the EnzymeRates module prefix only. Counts every method
 # specialization Julia compiles that touches our module — our functions,
@@ -162,9 +163,9 @@ end
     # Compile-reuse: bi-bi init_mechanisms compiles a superset of uni-uni's
     # machinery, so running uni-uni AFTER bi-bi in the same process is essentially
     # free:
-    #   - cold:  uni-uni alone           → t_uni_cold ≈ 1-2 s
-    #   - warm:  bi-bi, then uni-uni      → t_uni_warm ≈ 0.2-1.6 ms
-    # The warm/cold ratio (≈ 1e-4 to 2e-3 on CI runners; macOS is the noisy high
+    #   - cold:  uni-uni alone           → t_uni_cold ≈ 1.6-2.3 s on CI runners
+    #   - warm:  bi-bi, then uni-uni      → t_uni_warm ≈ 0.2-0.5 ms
+    # The warm/cold ratio (≈ 1e-4 to 2.5e-4 on CI runners; macOS is the noisy high
     # end) is robust to machine speed, unlike an absolute wall-clock ceiling on
     # the cold time. The in-process ter-ter ceiling lives in
     # test_mechanism_enumeration.jl.
@@ -175,7 +176,7 @@ end
               "warm/cold=$(round(t_uni_warm / t_uni_cold; sigdigits=2))"
         # Warm uni-uni must be near-instant relative to cold: bi-bi already
         # compiled the superset. A lost reuse recompiles a sizeable fraction of
-        # cold (warm/cold ≳ 0.1); the < 1e-2 gate sits ~6× above the noisiest
+        # cold (warm/cold ≳ 0.1); the < 1e-2 gate sits ~40× above the noisiest
         # observed CI ratio and ~10× below a real failure.
         @test isfinite(t_uni_cold) && t_uni_cold > 0
         @test isfinite(t_uni_warm)

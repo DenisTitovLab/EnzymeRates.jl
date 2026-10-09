@@ -1239,7 +1239,7 @@ end
 @testset "init_mechanisms on ter-ter within 150 s" begin
     # Aggregate pin over the whole ter-ter seed set: 35,665 seeds and their 215,190 merged
     # and Theorell–Chance variants. Enumeration, not compilation, dominates the call: it
-    # takes ~50 s locally and 70-115 s on CI runners. The budget is 2× the Linux runner.
+    # takes ~26 s locally (Julia 1.12); the 150 s budget leaves room for slower CI runners.
     t = @elapsed ms = EnzymeRates.init_mechanisms(ter_ter_rxn)
     @test length(ms) == 250855
     @test t < 150
