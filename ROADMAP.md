@@ -52,12 +52,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   allosteric equation costs and can admit one that evaluates more terms than its limit.
 - **Repeated constraint solves inflate the GC's live-byte count.**
   Each `_dependent_param_exprs` call, whose constraint solves run in `Rational{BigInt}`,
-  adds to `Base.gc_live_bytes` bytes that no live object holds: over 100,000 calls on one
-  mechanism it grew by about 48 KB per call, to 5.0 GiB, while RSS stayed between 1.0 and
-  1.2 GiB. From about 40,000 calls on, every collection is a full sweep, GC time rises two-
-  to threefold and wall time by 40-85%, so a long `identify_rate_equation` run slows as it
-  derives more mechanisms. A loop of `_dependent_param_exprs` calls on one mechanism
-  that prints `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it.
+  raises `Base.gc_live_bytes` by about 36-49 KB that no live object holds. After about
+  40,000 calls every collection is a full sweep: GC time triples and wall time rises 75%,
+  so a long `identify_rate_equation` run slows as it derives more mechanisms. A loop of
+  `_dependent_param_exprs` calls on one mechanism that prints `Base.gc_live_bytes()` and
+  `Base.gc_num().full_sweep` shows it.
 
 ## Planned
 
