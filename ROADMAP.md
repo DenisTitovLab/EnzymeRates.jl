@@ -39,6 +39,25 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   denominator. One constant, the step's equilibrium constant, describes it. Only
   hand-written mechanisms meet this: enumerated dead-end bindings stay at rapid
   equilibrium.
+- **A fit is not thread-safe.**
+  `loss!` (`src/fitting.jl`) writes its problem's shared `log_ratios_buffer`, and
+  `_fit_loss` copies each point into the one `x_buf` of its `FitObjective`, so an
+  optimizer that scores points on several threads at once, such as CMA-ES with
+  `multi_threading` passed through `solver_kwargs`, would race on both buffers. Fits run
+  in parallel only across `pmap` workers, each of which builds its own problem.
+- **`eq_complexity_filter` counts only the active conformation of an allosteric
+  mechanism.** `_eq_complexity(::AllostericMechanism)` (`src/rate_eq_derivation.jl`)
+  measures V×τ on the active-state graph alone, while the generated MWC rate equation
+  evaluates the polynomials of both conformations, so the filter undercounts what an
+  allosteric equation costs and can admit one that evaluates more terms than its limit.
+- **Repeated constraint solves inflate the GC's live-byte count.**
+  Each `_dependent_param_exprs` call, whose constraint solves run in `Rational{BigInt}`,
+  adds to `Base.gc_live_bytes` bytes that no live object holds: over 100,000 calls on one
+  mechanism it grew by about 48 KB per call, to 5.0 GiB, while RSS stayed between 1.0 and
+  1.2 GiB. From about 40,000 calls on, every collection is a full sweep, GC time rises two-
+  to threefold and wall time by 40-85%, so a long `identify_rate_equation` run slows as it
+  derives more mechanisms. A loop of `_dependent_param_exprs` calls on one mechanism
+  that prints `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it.
 
 ## Planned
 
