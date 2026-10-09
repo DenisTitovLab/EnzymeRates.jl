@@ -355,7 +355,9 @@ an atom bracket (`S[C]`, `A[C1H1]`); the brackets are load-bearing for
 ping-pong and multi-substrate reactions. Reactants and regulators are sorted
 by name in the constructor, so two equivalent declarations compare equal
 under `==`/`hash`. The constructor rejects a name listed as both a substrate
-and a product: concentrations and constants are keyed by name.
+and a product: concentrations and constants are keyed by name. For the same
+reason it rejects a reactant or regulator named `Keq` or `E_total`, which every
+rate equation takes as parameters.
 
 ```jldoctest
 julia> using EnzymeRates
@@ -406,6 +408,10 @@ struct EnzymeReaction
         isempty(both_roles) || error(
             "EnzymeReaction: $(join(both_roles, ", ")) named as both a substrate and " *
             "a product; concentrations and constants are keyed by name")
+        reserved = intersect([sub_names; prod_names; first.(reg_keys)], (:Keq, :E_total))
+        isempty(reserved) || error(
+            "EnzymeReaction: $(first(reserved)) is a reserved name; Keq and E_total are " *
+            "rate-equation parameters")
 
         sub_set  = Set(sub_names)
         prod_set = Set(prod_names)
