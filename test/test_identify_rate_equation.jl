@@ -525,6 +525,50 @@ end
     end
 end
 
+# The CSV mechanism_type column holds a mechanism's type as string(typeof(em)) prints it
+# where EnzymeRates is loaded with `using`, and the string parses back to that type.
+@testset "_mechanism_type_string prints the mechanism type" begin
+    plain = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    ping_pong = @enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+            E + Q ⇌ E(Q)
+        end
+    end
+    allosteric = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: A::OnlyA, I::OnlyI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)     :: EqualAI
+            E(S) <--> E(P)   :: OnlyA
+            E(P) ⇌ E + P     :: EqualAI
+        end
+        regulatory_site(multiplicity = 4): begin
+            ligands: A, I
+        end
+    end
+    for em in (plain, ping_pong, allosteric)
+        s = EnzymeRates._mechanism_type_string(em)
+        @test s == string(typeof(em))
+        @test Core.eval(EnzymeRates, Meta.parse(s)) === typeof(em)
+    end
+end
+
 @testset "csv writer" begin
     rows = [(
         n_params = 5, loss = 1.0, mechanism_type = "M",

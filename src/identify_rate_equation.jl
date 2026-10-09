@@ -327,6 +327,38 @@ end
 _exc_string(e) = first(sprint(showerror, e), 200)
 
 """
+The CSV `mechanism_type` of `em`: `string(typeof(em))` as printed where EnzymeRates is
+loaded with `using`, so `Core.eval(EnzymeRates, Meta.parse(s))` gives back the type.
+`show` of a type compiles again for each new shape of the Sig tuples; this printer takes
+every value `@nospecialize` and reads tuples with `nfields`/`getfield`, so it compiles
+once for all mechanisms.
+"""
+_mechanism_type_string(@nospecialize(em::AbstractEnzymeMechanism)) =
+    sprint(_print_type_value, typeof(em))
+
+"""Print `x`, a mechanism type or a value in its parameters, as `show` prints a type."""
+function _print_type_value(io::IO, @nospecialize(x))
+    if x isa DataType
+        print(io, nameof(x), '{')
+        for i in 1:length(x.parameters)
+            i > 1 && print(io, ", ")
+            _print_type_value(io, x.parameters[i])
+        end
+        print(io, '}')
+    elseif x isa Tuple
+        print(io, '(')
+        for i in 1:nfields(x)
+            i > 1 && print(io, ", ")
+            _print_type_value(io, getfield(x, i))
+        end
+        nfields(x) == 1 && print(io, ',')
+        print(io, ')')
+    else
+        show(io, x)       # a Symbol (as repr prints it), an Int or a Bool
+    end
+end
+
+"""
 CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row,
 with `missing` wherever the value is unavailable (compile/fit never produced it).
 `mechanism_type` is the round-trippable parametric `EnzymeMechanism{Sig}` string when
@@ -339,7 +371,7 @@ function _failure_row(f::FitFailure)
      parent_n_params = missing,
      loss = missing,
      mechanism_type = try
-         string(typeof(compile_mechanism(f.mech)))
+         _mechanism_type_string(compile_mechanism(f.mech))
      catch
          string(typeof(f.mech))
      end,
@@ -463,7 +495,7 @@ function _process_batch(
             length(fkeys) > max_param_count && return :param_skip
             eq_text = rate_equation_string(em)
             (mech = m, n_params = length(fkeys),
-             mechanism_type = string(typeof(em)),
+             mechanism_type = _mechanism_type_string(em),
              eq_text = eq_text, eq_hash = _rate_eq_dedup_key(eq_text))
         catch e
             FitFailure(m, _exc_string(e))
