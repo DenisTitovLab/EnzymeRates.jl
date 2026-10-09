@@ -197,8 +197,7 @@ The `OptimizationProblem` minimizing `loss!` of `fp` from `x0` within `lb`/`ub`.
 type is the same for every mechanism and data table (see `FitObjective`).
 """
 function _optimization_problem(@nospecialize(fp::FittingProblem), x0, lb, ub)
-    obj = FitObjective(FunctionWrapper{Float64, Tuple{Vector{Float64}}}(x -> loss!(x, fp)),
-                       Vector{Float64}(undef, length(x0)))
+    obj = FitObjective(x -> loss!(x, fp), Vector{Float64}(undef, length(x0)))
     Optimization.OptimizationProblem(Optimization.OptimizationFunction(_fit_loss), x0, obj;
                                      lb=lb, ub=ub)
 end
