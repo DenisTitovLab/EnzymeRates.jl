@@ -6476,7 +6476,7 @@ end
 # rate-equation-derivation and AllostericEnzymeMechanism integration.
 # ═══════════════════════════════════════════════════════════════════════
 
-@testset "Tagged groups exclude T-state params" begin
+@testset "Tagged groups exclude inactive-state params" begin
 # uni_uni_allo_reg (not uni_uni_allo): the iso group's :OnlyA is only
 # emitted paired with a regulator (V-type), so a declared regulator is
 # required to reach the ":OnlyA iso group" case below.
@@ -6484,40 +6484,36 @@ init_mechs = EnzymeRates.init_mechanisms(uni_uni_allo_reg)
 m_seed = first(init_mechs)
 allo_mechs = EnzymeRates._expand_to_allosteric(m_seed, uni_uni_allo_reg)
 
-@testset ":OnlyA binding group: no K_T param" begin
-    only_r = first(filter(allo_mechs) do am
-        any(eachindex(EnzymeRates.steps(am))) do g
-            EnzymeRates.cat_allo_state(am, g) === :OnlyA || return false
-            # Must NOT be an iso-only group (iso `:OnlyA` is just a relabel
-            # — the test wants a binding group whose K param disappears in T).
-            group_steps = am.cat_steps[g]
-            any(s -> EnzymeRates.bound_metabolite(s) !== nothing,
-                group_steps)
-        end
-    end)
-    m = EnzymeRates.compile_mechanism(only_r)
-    params = parameters(m)
-    t_params = filter(
-        p -> endswith(string(p), "_T"), params)
-    @test isempty(t_params)
+# The :OnlyA group g of am has no inactive-state constant (`K_I_…`/`k_I_…`, rendered
+# through the naming chokepoint) among the parameters. With every :OnlyA group of am
+# tagged :NonequalAI those names do appear, so the first assertion can fail.
+function _testhelper_test_no_inactive_constants(am, g)
+    i_names = EnzymeRates.name.(
+        EnzymeRates._step_constants(EnzymeRates._group_reps(am)[g], :I), Ref(am))
+    @test isempty(intersect(i_names, parameters(EnzymeRates.compile_mechanism(am))))
+    nonequal = EnzymeRates._with(am;
+        states = replace(EnzymeRates.cat_allo_states(am), :OnlyA => :NonequalAI))
+    @test !isempty(
+        intersect(i_names, parameters(EnzymeRates.compile_mechanism(nonequal))))
 end
 
-@testset ":OnlyA iso group: no kf_T/kr_T param" begin
-    only_r_iso = first(filter(allo_mechs) do am
-        any(eachindex(EnzymeRates.steps(am))) do g
-            EnzymeRates.cat_allo_state(am, g) === :OnlyA || return false
-            group_steps = am.cat_steps[g]
-            all(s -> !EnzymeRates.is_equilibrium(s) &&
-                     EnzymeRates.bound_metabolite(s) === nothing,
-                group_steps)
-        end
-    end)
-    m = EnzymeRates.compile_mechanism(only_r_iso)
-    params = parameters(m)
-    t_k_params = filter(
-        p -> contains(string(p), "f_T") ||
-             contains(string(p), "r_T"), params)
-    @test isempty(t_k_params)
+@testset ":OnlyA binding group: no K_I_ param" begin
+    # Must NOT be an iso-only group (iso `:OnlyA` is just a relabel — the test wants a
+    # binding group whose K param disappears in the inactive state).
+    only_r, g = first((am, g) for am in allo_mechs
+        for g in eachindex(EnzymeRates.steps(am))
+        if EnzymeRates.cat_allo_state(am, g) === :OnlyA &&
+           any(s -> EnzymeRates.bound_metabolite(s) !== nothing, am.cat_steps[g]))
+    _testhelper_test_no_inactive_constants(only_r, g)
+end
+
+@testset ":OnlyA iso group: no k_I_ params" begin
+    only_r_iso, g = first((am, g) for am in allo_mechs
+        for g in eachindex(EnzymeRates.steps(am))
+        if EnzymeRates.cat_allo_state(am, g) === :OnlyA &&
+           all(s -> !EnzymeRates.is_equilibrium(s) &&
+                    EnzymeRates.bound_metabolite(s) === nothing, am.cat_steps[g]))
+    _testhelper_test_no_inactive_constants(only_r_iso, g)
 end
 
 @testset "zero inactive-state numerator keeps the :NonequalAI binding constants" begin
