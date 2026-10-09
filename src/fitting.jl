@@ -180,11 +180,11 @@ function loss!(x::AbstractVector, fp::FittingProblem)
 end
 
 """
-The objective `fit_rate_equation` hands the optimizer. `loss` holds `x -> loss!(x, fp)`
-behind a `FunctionWrapper`, which hides the mechanism and data types: every fit gives
-`Optimization.solve` one problem type, so the solver compiles once per optimizer rather
-than once per mechanism. `x_buf` takes a copy of each point before `loss` scores it,
-because CMA-ES passes a view and the wrapper takes a `Vector{Float64}`.
+The objective `fit_rate_equation` hands the optimizer. `loss` holds `loss!(x, fp)` as a
+function of `x` behind a `FunctionWrapper`, which hides the mechanism and data types:
+every fit gives `Optimization.solve` one problem type, so the solver compiles once per
+optimizer rather than once per mechanism. `x_buf` takes a copy of each point before
+`loss` scores it, because CMA-ES passes a view and the wrapper takes a `Vector{Float64}`.
 """
 struct FitObjective
     loss::FunctionWrapper{Float64, Tuple{Vector{Float64}}}
@@ -199,7 +199,10 @@ The `OptimizationProblem` minimizing `loss!` of `fp` from `x0` within `lb`/`ub`.
 type is the same for every mechanism and data table (see `FitObjective`).
 """
 function _optimization_problem(@nospecialize(fp::FittingProblem), x0, lb, ub)
-    obj = FitObjective(x -> loss!(x, fp), Vector{Float64}(undef, length(x0)))
+    # `Base.Fix2` takes the type of `fp` from its value. A closure over the
+    # `@nospecialize` argument may store it untyped (Julia 1.13 does), and then each
+    # call dispatches `loss!` at run time and boxes its result.
+    obj = FitObjective(Base.Fix2(loss!, fp), Vector{Float64}(undef, length(x0)))
     Optimization.OptimizationProblem(Optimization.OptimizationFunction(_fit_loss), x0, obj;
                                      lb=lb, ub=ub)
 end
