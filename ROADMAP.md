@@ -31,6 +31,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   ping-pong reactions, 256 enumerated allosteric mechanisms fold a pair in opposite
   directions and 512 more keep a folded constant in the other conformation. The
   single-equation derivation under Planned removes the cause.
+- **A steady-state step that only reaches dead-end forms fits both rate constants.**
+  When a steady-state step's only role is to reach forms that lead nowhere else, as
+  `E(I) + J <--> E(J) + I` does when `E(J)` binds nothing more, no net flux crosses it, so
+  only the ratio of its two rate constants enters the rate law. `fitted_params` lists
+  both, and the law carries their common factor uncancelled in numerator and
+  denominator. One constant, the step's equilibrium constant, describes it. Only
+  hand-written mechanisms meet this: enumerated dead-end bindings stay at rapid
+  equilibrium.
 
 ## Planned
 
