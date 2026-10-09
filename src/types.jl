@@ -1019,9 +1019,9 @@ _with(am::AllostericMechanism; groups = steps(am), states = cat_allo_states(am),
 # ─── Mechanism ↔ Sig (parametric ↔ non-parametric) conversion ──
 #
 # Every leaf in `sig` MUST be a valid Julia type-parameter value (isbits,
-# Symbol, type, or Tuple of those). `Pair{Symbol,Int}` is NOT valid as a
-# type parameter — encode pairs as `Tuple{Symbol,Int}`. Vectors are
-# NEVER valid — always wrap in `Tuple(...)`.
+# Symbol, or Tuple of those). A type is NOT valid inside a tuple
+# (`Val{(Int,)}` throws), and neither is `Pair{Symbol,Int}` — encode pairs as
+# `Tuple{Symbol,Int}`. Vectors are NEVER valid — always wrap in `Tuple(...)`.
 #
 # `_to_sig` encodes the leaves of a step, `_sig_of` assembles a mechanism's whole
 # tuple from them, and `_mechanism_from_sig` decodes it.
