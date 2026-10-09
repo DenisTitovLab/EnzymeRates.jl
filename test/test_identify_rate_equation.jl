@@ -172,6 +172,15 @@ end
         @test IdentifyRateEquationProblem(
             test_rxn, merge(two_groups, (S = [0.0, 1.0],)); Keq=1.0) isa
               IdentifyRateEquationProblem
+        for (bad, shown) in ((0, "0"), (-1, "-1"), (Inf, "Inf"), (NaN, "NaN"))
+            @test_throws(ErrorException("Keq must be positive and finite; got $shown"),
+                IdentifyRateEquationProblem(test_rxn, two_groups; Keq=bad))
+            @test_throws(
+                ErrorException("scale_k_to_kcat must be positive and finite (or " *
+                               "nothing); got $shown"),
+                IdentifyRateEquationProblem(test_rxn, two_groups; Keq=1.0,
+                                            scale_k_to_kcat=bad))
+        end
 
         # A metabolite named after a required column would read that column, here the
         # group numbers, as its concentrations.
@@ -201,15 +210,6 @@ end
             IdentifyRateEquationProblem(L_named_rxn,
                 (group = ["G1", "G2"], Rate = [1.0, 2.0], S = [1.0, 1.0], L = [0.1, 0.1]);
                 Keq=1.0))
-        for (bad, shown) in ((0, "0"), (-1, "-1"), (Inf, "Inf"), (NaN, "NaN"))
-            @test_throws(ErrorException("Keq must be positive and finite; got $shown"),
-                IdentifyRateEquationProblem(test_rxn, two_groups; Keq=bad))
-            @test_throws(
-                ErrorException("scale_k_to_kcat must be positive and finite (or " *
-                               "nothing); got $shown"),
-                IdentifyRateEquationProblem(test_rxn, two_groups; Keq=1.0,
-                                            scale_k_to_kcat=bad))
-        end
 
         # Need >= 2 groups
         @test_throws(
