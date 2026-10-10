@@ -1500,15 +1500,21 @@ end
 
 # ── Standalone kcat tests ──────────────────────────────────────────────────────
 
+"""The `return E_total * (num) / (den)` expression of the generated `rate_equation` body of
+`m`."""
+function _testhelper_generated_rate_return(m)
+    dep, indep = ER._dependent_param_exprs(typeof(m))
+    last(ER._rate_body(typeof(m), (indep..., :Keq, :E_total), dep).args)
+end
+
 @testset "rate_equation polynomial body uses 2-arg +/* calls" begin
     # The fitter calls rate_equation millions of times per CV fold. The
-    # polynomial body emitted by _poly_to_expr (via _nest_binary) MUST
+    # polynomial body of the generated code MUST
     # have exactly 2 operands per +/* call so LLVM inlines the binary
     # Float64 path; n-ary varargs above ~30 terms boxes the argument
     # tuple and turns 100ns/0B into 1µs/2KB per call.
     spec = only(s for s in MECHANISM_TEST_SPECS
                 if s.name == "Random-order Bi-Bi")
-    num_expr, den_expr = EnzymeRates._num_den_exprs(typeof(spec.mechanism))
     bad = Expr[]
     function _testhelper_walk!(e)
         if e isa Expr
@@ -1523,9 +1529,80 @@ end
             end
         end
     end
-    _testhelper_walk!(num_expr)
-    _testhelper_walk!(den_expr)
+    _testhelper_walk!(_testhelper_generated_rate_return(spec.mechanism))
     @test isempty(bad)
+end
+
+# The three largest rate laws among the children of one `expand_mechanisms` round over
+# 60 bi-bi seeds: random-order merged complexes with dead-end bindings, every step steady
+# state, about 400 denominator terms each.
+const _testhelper_largest_enumerated_mechanisms = [
+    @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
+        (E + A <--> E(A), E(B) + A <--> E(P, Q))
+        (E + B <--> E(B), E(A) + B <--> E(P, Q), E(Q) + B <--> E(B, Q))
+        (E + P <--> E(P), E(Q) + P <--> E(P, Q))
+        (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) end end),
+    @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
+        (E + A <--> E(A), E(B) + A <--> E(P, Q), E(Q) + A <--> E(A, Q))
+        (E + B <--> E(B), E(A) + B <--> E(P, Q))
+        (E + P <--> E(P), E(Q) + P <--> E(P, Q))
+        (E + Q <--> E(Q), E(A) + Q <--> E(A, Q), E(P) + Q <--> E(P, Q)) end end),
+    @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
+        (E + A <--> E(A), E(B) + A <--> E(P, Q), E(P) + A <--> E(A, P))
+        (E + B <--> E(B), E(A) + B <--> E(P, Q))
+        (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))
+        (E + Q <--> E(Q), E(P) + Q <--> E(P, Q)) end end),
+]
+
+@testset "rate_equation stays allocation-free and under 120 ns on the largest laws" begin
+    for m in _testhelper_largest_enumerated_mechanisms
+        params, concs, _ = _testhelper_random_independent_params_concs(
+            m, collect(metabolites(m)); rng = Random.MersenneTwister(42))
+        allocs, t = _testhelper_test_rate_equation_performance(m, params, concs)
+        @test allocs == 0
+        @test t < 120e-9
+    end
+end
+
+"""The summands of the sum `e`, through `+`, `-` and unary minus."""
+function _testhelper_summands(e)
+    e isa Expr && e.head == :call && e.args[1] in (:+, :-) || return Any[e]
+    reduce(vcat, (_testhelper_summands(a) for a in e.args[2:end]))
+end
+
+"""The factors of the product `e`, through `*` and the numerator of `/`; a power counts
+as its base."""
+function _testhelper_factors(e)
+    e isa Expr && e.head == :call || return Any[e]
+    op = e.args[1]
+    op == :* && return reduce(vcat, (_testhelper_factors(a) for a in e.args[2:end]))
+    op == :/ && return _testhelper_factors(e.args[2])
+    op == :^ && return Any[e.args[2]]
+    op == :- && length(e.args) == 2 && return _testhelper_factors(e.args[2])
+    Any[e]
+end
+
+"""The sums in `e` in which some metabolite of `mets` divides more than one summand."""
+function _testhelper_unfactored_sums(e, mets)
+    e isa Expr || return Any[]
+    found = reduce(vcat, (_testhelper_unfactored_sums(a, mets) for a in e.args);
+                   init = Any[])
+    e.head == :call && e.args[1] in (:+, :-) || return found
+    shared(x) = count(s -> x in _testhelper_factors(s), _testhelper_summands(e)) > 1
+    any(shared, mets) ? push!(found, e) : found
+end
+
+@testset "the generated rate_equation body is in Horner form" begin
+    # Horner form multiplies by each factor once per branch instead of once per term,
+    # which keeps the largest laws far below 120 ns. Greedy Horner takes a factor out of
+    # every summand it divides, so no concentration divides two summands of one sum.
+    for m in (_testhelper_largest_enumerated_mechanisms[2],
+              only(s for s in MECHANISM_TEST_SPECS
+                   if s.name == "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites"
+                  ).mechanism)
+        @test isempty(_testhelper_unfactored_sums(
+            _testhelper_generated_rate_return(m), metabolites(m)))
+    end
 end
 
 @testset "rate_equation_string marks only the ties folded into v as substituted" begin
