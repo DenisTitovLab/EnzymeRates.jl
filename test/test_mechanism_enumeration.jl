@@ -4355,20 +4355,22 @@ end
 @testset "Mechanism — Bi-bi ping-pong: binding-group :OnlyA variants only" begin
     # SEED: bi-bi ping-pong topology, 6 kinetic groups: 4 bindings
     # (A, B substrate-side; P, Q product-side) + 2 chemical steps (the
-    # two half-reaction interconversions E(A)<-->Estar(P) and
-    # Estar(B)⇌E(Q)). Neither catalytic group is a bare primary :OnlyA
+    # two half-reaction interconversions E(A) <--> E(P; residual = A - P) and
+    # E(B; residual = A - P) ⇌ E(Q)). Neither catalytic group is a bare primary :OnlyA
     # (that V-type needs a regulator, none declared); each binding's
-    # one-sided :OnlyA is closed over its minimal Haldane completions.
+    # one-sided :OnlyA is closed over its minimal Haldane completions. The covalent
+    # intermediate carries a residual, as the enumerator writes it: written as a second
+    # conformation it would be a second free form, which an allosteric mechanism rejects.
     em_seed = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
             E + A ⇌ E(A)
-            Estar + B ⇌ Estar(B)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
             E + Q ⇌ E(Q)
-            Estar + P ⇌ Estar(P)
-            E(A) <--> Estar(P)
-            Estar(B) ⇌ E(Q)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(A) <--> E(P; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
         end
     end
     m = EnzymeRates.Mechanism(em_seed)

@@ -787,8 +787,8 @@ steps of `groups` (rapid-equilibrium and steady-state alike). Every form
 carrying neither a bound metabolite nor a residual seeds the search: such a form
 interconverts between conformations under formulation 1, and so is a root the
 inactive conformation can be entered through. Enumeration yields exactly one
-such form; the hand-written DSL admits a second conformation name, and every
-match then seeds. A ping-pong covalent intermediate carries a residual and is
+such form; the hand-written DSL admits a second one in rapid equilibrium with the
+first (`_assert_one_flip_segment`), and every match then seeds. A ping-pong covalent intermediate carries a residual and is
 therefore not a root: a component the free enzyme cannot reach holds no inactive
 mass, and leaving it in place would strand the free-enzyme spanning tree
 (`D[g_free] = 0`).
@@ -838,7 +838,8 @@ the step level. After removing the `:OnlyA` groups, a form is kept iff it lies
 in the connected component of the free-enzyme root — a form carrying neither a
 bound metabolite nor a residual, which under formulation 1 is what interconverts
 between conformations; enumeration yields exactly one such form, while the
-hand-written DSL admits a second conformation name — over ALL remaining steps
+hand-written DSL admits a second one in rapid equilibrium with the first — over ALL
+remaining steps
 (rapid-equilibrium and steady-state alike); a step is kept iff both its endpoints
 are kept, so a kinetic group with all its steps dropped disappears. Forms whose only route
 back to free E ran through an `:OnlyA` group become disconnected and drop out;
