@@ -90,7 +90,11 @@ Allosteric regulators bind fast relative to catalysis. And **the enzyme changes
 conformation only while free**: it settles into the active or inactive state
 before it binds anything — the free-enzyme inactive-to-active ratio is `L` — and
 keeps that conformation for a full catalytic cycle. The overall rate is then each
-conformation's catalytic cycle weighted by its free-enzyme population.
+conformation's catalytic cycle weighted by its free-enzyme population. A hand-written
+mechanism may name a second free form, such as a conformation `F` with `F ⇌ E`, only
+when steps outside `:OnlyA` groups hold it at rapid equilibrium with `E`: flipping at
+either then gives the same model with `L` rescaled. The constructor rejects any other
+second free form, which would flip at different forms in the two conformations.
 
 An equivalent statement lets every form interconvert between the A and I states,
 but with a thermodynamically fixed ratio: `L` for the free enzyme, and `L` scaled

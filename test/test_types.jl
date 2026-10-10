@@ -415,29 +415,103 @@ end
         # Wegscheider analysis if it matters).
     end
 
-    @testset "an inhibitor copy leaves the inactive state's segment bottomless" begin
+    @testset "a stray free form cannot leave the inactive state's segment bottomless" begin
         # Every step that takes up the substrate A is :OnlyA, so the inactive conformation
-        # keeps none of them; the second free conformation F still reaches E(B), and from
-        # it the copy's bindings. The segment {E(A::Inh), E(A::Inh, B), E(B)} then has
-        # every form carrying A (the copy's concentration is A's) or B, so it is empty at
-        # A = B = 0. In the active conformation E + A::Inh ⇌ E(A::Inh) joins E to the
-        # segment as its bottom form.
-        am = ER.AllostericMechanism(@allosteric_mechanism begin
-            substrates: A, B
+        # keeps none of them; a second free conformation F that binds B would still reach
+        # E(B), and from it the copy's bindings. The segment {E(A::Inh), E(A::Inh, B),
+        # E(B)} would then have every form carrying A (the copy's concentration is A's)
+        # or B, so it would be empty at A = B = 0. F joins E only through that binding,
+        # not in rapid equilibrium, so the constructor rejects the mechanism before its
+        # inactive state is derived. With one free form, a route back into such a segment
+        # closes a cycle whose only :OnlyA step is the binding, which the :OnlyA guard
+        # rejects unless the binding's group also holds chemistry.
+        @test_throws "are not joined by rapid-equilibrium steps outside :OnlyA groups" (
+            @allosteric_mechanism begin
+                substrates: A, B
+                products: P
+                catalytic_inhibitors: A
+                catalytic_steps: begin
+                    E + A <--> E(A)                   :: OnlyA
+                    E(A) + B <--> E(A, B)             :: EqualAI
+                    E(A, B) <--> E(P)                 :: OnlyA
+                    E(P) <--> E + P                   :: EqualAI
+                    E + A::Inh ⇌ E(A::Inh)            :: OnlyA
+                    E(A::Inh) + B ⇌ E(A::Inh, B)      :: EqualAI
+                    E(B) + A::Inh ⇌ E(A::Inh, B)      :: EqualAI
+                    F + B <--> E(B)                   :: EqualAI
+                end
+            end)
+    end
+
+    @testset "allosteric free forms share one rapid-equilibrium segment" begin
+        # The conformations interconvert at a free form. Two free forms in one
+        # rapid-equilibrium segment give the same model whichever one the conformations
+        # flip at, with L rescaled; joined any other way they flip at different forms in
+        # the two conformations, or the inactive conformation strands one of them.
+        msg = "are not joined by rapid-equilibrium steps outside :OnlyA groups"
+        # F joins E through a steady-state isomerization, which carries flux.
+        @test_throws msg @allosteric_mechanism begin
+            substrates: S
             products: P
-            catalytic_inhibitors: A
+            catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + A <--> E(A)                   :: OnlyA
-                E(A) + B <--> E(A, B)             :: EqualAI
-                E(A, B) <--> E(P)                 :: OnlyA
-                E(P) <--> E + P                   :: EqualAI
-                E + A::Inh ⇌ E(A::Inh)            :: OnlyA
-                E(A::Inh) + B ⇌ E(A::Inh, B)      :: EqualAI
-                E(B) + A::Inh ⇌ E(A::Inh, B)      :: EqualAI
-                F + B <--> E(B)                   :: EqualAI
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: NonequalAI
+                F + P ⇌ E(P)      :: EqualAI
+                F <--> E          :: NonequalAI
             end
-        end)
-        @test_throws "rapid-equilibrium segment" ER._state_allo_mechanism(am, :I)
+        end
+        # Every step at E is :OnlyA, so the inactive conformation keeps only F.
+        @test_throws msg @allosteric_mechanism begin
+            substrates: S
+            products: P
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)      :: OnlyA
+                E(S) <--> E(P)    :: EqualAI
+                F + P ⇌ E(P)      :: EqualAI
+                F <--> E          :: OnlyA
+            end
+        end
+        # F joins E only through an :OnlyA isomerization, so the inactive conformation
+        # strands F with the inhibitor it binds.
+        @test_throws msg @allosteric_mechanism begin
+            substrates: S
+            products: P
+            catalytic_inhibitors: I
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E + P ⇌ E(P)      :: EqualAI
+                E <--> F          :: OnlyA
+                F + I ⇌ F(I)      :: EqualAI
+            end
+        end
+        # A rapid-equilibrium isomerization in an :OnlyA group strands F as well.
+        @test_throws msg @allosteric_mechanism begin
+            substrates: S
+            products: P
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: NonequalAI
+                E + P ⇌ E(P)      :: EqualAI
+                F ⇌ E             :: OnlyA
+            end
+        end
+        # F in E's rapid-equilibrium segment is accepted.
+        @test @allosteric_mechanism(begin
+            substrates: S
+            products: P
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: NonequalAI
+                E + P ⇌ E(P)      :: EqualAI
+                F ⇌ E             :: NonequalAI
+            end
+        end) isa AllostericEnzymeMechanism
     end
 
     @testset "AllostericEnzymeMechanism lift validators" begin
@@ -1799,6 +1873,9 @@ end
     # Segel Iso Uni Uni with an inhibitor I binding E and F, and J displacing I at both
     # conformations in one group. Neither exchange changes conformation, so the group
     # stores both to take up J and give off I, however the steps are written.
+    # The allosteric twin joins F to E at rapid equilibrium: its conformations
+    # interconvert at one free form, so a second free form must be in rapid equilibrium
+    # with it.
     I, J = ER.CompetitiveInhibitor(:I), ER.CompetitiveInhibitor(:J)
     plain = @enzyme_mechanism begin
         substrates: A
@@ -1821,7 +1898,7 @@ end
             E + A <--> E(A)                                   :: EqualAI
             E(A) <--> E(P)                                    :: EqualAI
             E(P) <--> F + P                                   :: EqualAI
-            F <--> E                                          :: EqualAI
+            F ⇌ E                                             :: EqualAI
             (E + I ⇌ E(I), F + I ⇌ F(I))                      :: EqualAI
             (E(I) + J <--> E(J) + I, F(I) + J <--> F(J) + I)  :: NonequalAI
         end
@@ -1856,7 +1933,7 @@ end
             E + A <--> E(A)                                   :: EqualAI
             E(A) <--> E(P)                                    :: EqualAI
             E(P) <--> F + P                                   :: EqualAI
-            F <--> E                                          :: EqualAI
+            F ⇌ E                                             :: EqualAI
             (E + I ⇌ E(I), F + I ⇌ F(I))                      :: EqualAI
             (F(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)  :: NonequalAI
         end
@@ -1916,7 +1993,7 @@ end
             E + A <--> E(A)                                   :: EqualAI
             E(A) <--> E(P)                                    :: EqualAI
             E(P) <--> F + P                                   :: EqualAI
-            F <--> E                                          :: EqualAI
+            F ⇌ E                                             :: EqualAI
             (E + I ⇌ E(I), F + I ⇌ F(I))                      :: EqualAI
             E(I) + A ⇌ E(A, I)                                :: EqualAI
             E(J) + P ⇌ E(J, P)                                :: EqualAI
@@ -1952,7 +2029,7 @@ end
             E + A <--> E(A)                                   :: EqualAI
             E(A) <--> E(P)                                    :: EqualAI
             E(P) <--> F + P                                   :: EqualAI
-            F <--> E                                          :: EqualAI
+            F ⇌ E                                             :: EqualAI
             (E + I ⇌ E(I), F + I ⇌ F(I))                      :: EqualAI
             E(I) + A ⇌ E(A, I)                                :: EqualAI
             E(J) + P ⇌ E(J, P)                                :: EqualAI
