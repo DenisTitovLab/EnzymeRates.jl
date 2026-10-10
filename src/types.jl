@@ -355,7 +355,9 @@ an atom bracket (`S[C]`, `A[C1H1]`); the brackets are load-bearing for
 ping-pong and multi-substrate reactions. Reactants and regulators are sorted
 by name in the constructor, so two equivalent declarations compare equal
 under `==`/`hash`. The constructor rejects a name listed as both a substrate
-and a product: concentrations and constants are keyed by name.
+and a product: concentrations and constants are keyed by name. For the same
+reason it rejects a reactant or regulator named `Keq` or `E_total`: both name
+rate-equation parameters.
 
 ```jldoctest
 julia> using EnzymeRates
@@ -406,6 +408,10 @@ struct EnzymeReaction
         isempty(both_roles) || error(
             "EnzymeReaction: $(join(both_roles, ", ")) named as both a substrate and " *
             "a product; concentrations and constants are keyed by name")
+        reserved = intersect([sub_names; prod_names; first.(reg_keys)], (:Keq, :E_total))
+        isempty(reserved) || error(
+            "EnzymeReaction: $(first(reserved)) is a reserved name; Keq and E_total are " *
+            "rate-equation parameters")
 
         sub_set  = Set(sub_names)
         prod_set = Set(prod_names)
@@ -1013,9 +1019,9 @@ _with(am::AllostericMechanism; groups = steps(am), states = cat_allo_states(am),
 # ─── Mechanism ↔ Sig (parametric ↔ non-parametric) conversion ──
 #
 # Every leaf in `sig` MUST be a valid Julia type-parameter value (isbits,
-# Symbol, type, or Tuple of those). `Pair{Symbol,Int}` is NOT valid as a
-# type parameter — encode pairs as `Tuple{Symbol,Int}`. Vectors are
-# NEVER valid — always wrap in `Tuple(...)`.
+# Symbol, or Tuple of those). A type is NOT valid inside a tuple
+# (`Val{(Int,)}` throws), and neither is `Pair{Symbol,Int}` — encode pairs as
+# `Tuple{Symbol,Int}`. Vectors are NEVER valid — always wrap in `Tuple(...)`.
 #
 # `_to_sig` encodes the leaves of a step, `_sig_of` assembles a mechanism's whole
 # tuple from them, and `_mechanism_from_sig` decodes it.

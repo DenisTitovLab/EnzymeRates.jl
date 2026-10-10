@@ -39,6 +39,24 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   denominator. One constant, the step's equilibrium constant, describes it. Only
   hand-written mechanisms meet this: enumerated dead-end bindings stay at rapid
   equilibrium.
+- **A fit is not thread-safe.**
+  `loss!` (`src/fitting.jl`) writes its problem's shared `log_ratios_buffer`, and
+  `_fit_loss` copies each point into the one `x_buf` of its `FitObjective`, so an
+  optimizer that scores points on several threads at once, such as CMA-ES with
+  `multi_threading` passed through `solver_kwargs`, would race on both buffers. Fits run
+  in parallel only across `pmap` workers, each of which builds its own problem.
+- **`eq_complexity_filter` counts only the active conformation of an allosteric
+  mechanism.** `_eq_complexity(::AllostericMechanism)` (`src/rate_eq_derivation.jl`)
+  measures V×τ on the active-state graph alone, while the generated MWC rate equation
+  evaluates the polynomials of both conformations, so the filter undercounts what an
+  allosteric equation costs and can admit one that evaluates more terms than its limit.
+- **Repeated constraint solves inflate the GC's live-byte count.**
+  Each `_dependent_param_exprs` call, whose constraint solves run in `Rational{BigInt}`,
+  raises `Base.gc_live_bytes` by about 36-49 KB that no live object holds. After about
+  40,000 calls every collection is a full sweep: GC time triples and wall time rises 75%,
+  so a long `identify_rate_equation` run slows as it derives more mechanisms. A loop of
+  `_dependent_param_exprs` calls on one mechanism that prints `Base.gc_live_bytes()` and
+  `Base.gc_num().full_sweep` shows it.
 
 ## Planned
 
@@ -129,6 +147,15 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   reopen it only for a dataset whose curvature MWC cannot fit. Priority: low.
 
 ## Ideas
+
+- **Encode a mechanism's Sig without compiling per mix of step shapes.**
+  `_sig_of` (`src/types.jl`) builds the Sig tuples from generators, so Base's collect
+  widening compiles once per new mix of step shapes. Over a 6,475-mechanism bi-bi run in one
+  process (the seeds, then two expansion rounds; 5,045 allosteric) that totals about 1,500
+  method instances, 0.5 MB of native code and 1 s, 85% of it within the first 250
+  mechanisms, so a search pays it early and once per worker. Building each tuple from a
+  `Vector{Any}` should remove it. `test/test_compile_budget.jl` gates the total for the
+  239 bi-bi seeds.
 
 - **Count identifiable parameters with an exact modular rank.**
   Several phantom classes make the beam count a model above its true dimension: the

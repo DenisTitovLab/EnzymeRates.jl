@@ -29,6 +29,24 @@ using Tables
         (S = 2.0, P = 0.5),
     ]
 
+    # ── Helper: an allosteric uni-uni with an inactive-state regulator R ──────
+    allo = @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        allosteric_regulators: R::OnlyI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)     :: EqualAI
+            E(S) <--> E(P)   :: OnlyA
+            E(P) ⇌ E + P     :: EqualAI
+        end
+    end
+    allo_fitted = EnzymeRates.fitted_params(allo)
+    allo_params = merge(
+        NamedTuple{allo_fitted}(ntuple(i -> 1.0 + 0.1 * i, length(allo_fitted))),
+        (Keq = Keq_val, E_total = 1.0))
+    allo_concs = [(S = Float64(i), P = 0.1, R = 0.5) for i in 1:20]
+
     # ── Synthetic data generator ──────────────────────────────────────────────
     function _testhelper_make_synthetic_data(
             mechanism, true_params, concs_list;
@@ -220,28 +238,49 @@ using Tables
     # loss! builds each data point's concentration NamedTuple from metabolites(m), so an
     # allosteric mechanism's metabolite names must be a compile-time constant as well.
     @testset "Zero allocations: allosteric mechanism" begin
-        allo = @allosteric_mechanism begin
-            substrates: S
-            products:   P
-            allosteric_regulators: R::OnlyI
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + S ⇌ E(S)     :: EqualAI
-                E(S) <--> E(P)   :: OnlyA
-                E(P) ⇌ E + P     :: EqualAI
-            end
-        end
-        fps = EnzymeRates.fitted_params(allo)
-        params = merge(NamedTuple{fps}(ntuple(i -> 1.0 + 0.1 * i, length(fps))),
-                       (Keq = Keq_val, E_total = 1.0))
-        concs_list = [(S = Float64(i), P = 0.1, R = 0.5) for i in 1:20]
-        data = _testhelper_make_synthetic_data(allo, params, concs_list)
+        data = _testhelper_make_synthetic_data(allo, allo_params, allo_concs)
         fp = FittingProblem(allo, data; Keq=Keq_val)
 
-        x = randn(length(fps))
+        x = randn(length(allo_fitted))
         loss_allocs(x, fp)  # warmup
         allocs = loss_allocs(x, fp)
         @test allocs == 0
+    end
+
+    # ── Optimizer boundary ────────────────────────────────────────────────────
+    # fit_rate_equation hands Optimization.jl one problem type whatever the mechanism and
+    # its data, so solve and the solver compile once per optimizer, not once per
+    # mechanism. The objective must still return loss! and allocate nothing, for a Vector
+    # and for the column view of its population that CMA-ES passes.
+    function _testhelper_optimization_problem(fp)
+        n = length(EnzymeRates.fitted_params(fp.mechanism))
+        EnzymeRates._optimization_problem(fp, zeros(n), fill(-15.0, n), fill(15.0, n))
+    end
+    objective_allocs(prob, x) = @allocated prob.f(x, prob.p)
+
+    @testset "Optimizer boundary" begin
+        fp_uni = FittingProblem(uni_uni,
+            _testhelper_make_synthetic_data(uni_uni, true_params, concs5); Keq=Keq_val)
+        fp_allo = FittingProblem(allo,
+            _testhelper_make_synthetic_data(allo, allo_params, allo_concs); Keq=Keq_val)
+
+        @testset "one problem type for every mechanism" begin
+            @test typeof(_testhelper_optimization_problem(fp_uni)) ===
+                  typeof(_testhelper_optimization_problem(fp_allo))
+        end
+
+        @testset "objective returns loss! and allocates nothing" begin
+            for fp in (fp_uni, fp_allo)
+                prob = _testhelper_optimization_problem(fp)
+                population = randn(length(prob.u0), 3)
+                x = population[:, 2]
+                for x_in in (x, view(population, :, 2))
+                    @test prob.f(x_in, prob.p) == EnzymeRates.loss!(x, fp)
+                    objective_allocs(prob, x_in)  # warmup
+                    @test objective_allocs(prob, x_in) == 0
+                end
+            end
+        end
     end
 
     # ── Speed benchmark ───────────────────────────────────────────────────────
@@ -411,6 +450,46 @@ using Tables
         @test stub.maxtime_seen == 1.23
     end
 
+    # ── fit_rate_equation compiles no NamedTuple indexing per mechanism ───────
+    # fit_rate_equation takes its FittingProblem @nospecialize and selects the fitted
+    # parameters from the rescaled NamedTuple by their names. Unless it infers them as a
+    # tuple of Symbols, the selection dispatches at run time: each fit whose parameter
+    # names no earlier fit used compiles a getindex method instance for them and infers
+    # Base's slow NamedTuple fallback. Inferred only as a Tuple, the names also match the
+    # getindex method of Static.jl, which the full suite loads before this file. Counts
+    # the getindex method instances, inferred or compiled, on a NamedTuple keyed by any of
+    # `names`.
+    function _testhelper_namedtuple_getindex_instances(names)
+        keyed(T) = T isa DataType && T <: NamedTuple && !isdisjoint(fieldnames(T), names)
+        count(mi -> mi.specTypes isa DataType && any(keyed, mi.specTypes.parameters),
+              (mi for m in methods(getindex) for mi in Base.specializations(m)))
+    end
+
+    @testset "fit_rate_equation compiles no NamedTuple indexing per mechanism" begin
+        using OptimizationCMAEvolutionStrategy
+        optimizer = CMAEvolutionStrategyOpt()
+        # A first fit compiles fit_rate_equation for this optimizer and these options.
+        fp_warm = FittingProblem(uni_uni,
+            _testhelper_make_synthetic_data(uni_uni, true_params, concs5); Keq=Keq_val)
+        fit_rate_equation(fp_warm, optimizer; n_restarts=1, maxiters=10)
+        # Metabolite names no other test uses, so no earlier test has fit this mechanism.
+        unseen = @enzyme_mechanism begin
+            substrates: Sidx
+            products:   Pidx
+            steps: begin
+                E + Sidx <--> E(Sidx)
+                E(Sidx) <--> E + Pidx
+            end
+        end
+        fp_unseen = FittingProblem(unseen, (group = ["G1", "G1", "G2", "G2"],
+            Rate = [0.5, 0.8, 1.0, 1.1], Sidx = [1.0, 2.0, 3.0, 4.0],
+            Pidx = [0.1, 0.2, 0.3, 0.4]); Keq=Keq_val)
+        unseen_names = EnzymeRates.fitted_params(unseen)
+        n = _testhelper_namedtuple_getindex_instances(unseen_names)
+        fit_rate_equation(fp_unseen, optimizer; n_restarts=1, maxiters=10)
+        @test _testhelper_namedtuple_getindex_instances(unseen_names) == n
+    end
+
     # ── Validation errors ──────────────────────────────────────────────────────
     @testset "Validation errors" begin
         # Missing Rate column
@@ -454,6 +533,21 @@ using Tables
         data_zero_S = (group = ["G1", "G1"], Rate = [1.0, 2.0], S = [0.0, 1.0],
                        P = [0.1, 0.1])
         @test FittingProblem(uni_uni, data_zero_S; Keq=1.0) isa FittingProblem
+
+        # A metabolite named after a required column would read that column, here the
+        # measured rates, as its concentrations.
+        rate_named = @enzyme_mechanism begin
+            substrates: Rate
+            products:   P
+            steps: begin
+                E + Rate <--> E(Rate)
+                E(Rate) <--> E + P
+            end
+        end
+        @test_throws(
+            ErrorException("Metabolite Rate has the name of the required Rate column; " *
+                           "rename the metabolite"),
+            FittingProblem(rate_named, (group = ["G1"], Rate = [1.0], P = [0.1]); Keq=1.0))
 
         # A Keq or a scale_k_to_kcat that is not positive and finite
         data_ok = (group = ["G1"], Rate = [1.0], S = [1.0], P = [0.1])

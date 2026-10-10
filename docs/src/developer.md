@@ -60,7 +60,11 @@ methods that still specialize on it: the forwarders that supply the default mode
 `catalytic_mechanism` and `catalytic_multiplicity`. `FittingProblem` and `loss!`
 specialize on the type on purpose: `loss!` then reads `fitted_params` and
 `metabolites` as constants and calls the generated `rate_equation` without
-dispatch.
+dispatch. The optimizer never sees that type. `fit_rate_equation` takes its
+`FittingProblem` `@nospecialize` and hands `Optimization.solve` a `FitObjective`,
+which holds `x -> loss!(x, fp)` behind a `FunctionWrapper`, so every mechanism gives
+the solver one problem type: `solve` and the solver compile once per optimizer, not
+once per mechanism.
 
 ## Enumeration engine architecture
 
@@ -219,9 +223,10 @@ move.
 
 ## Optimization algorithm architecture
 
-Fitting depends only on Optimization.jl; the package ships no solver of its own.
-`fit_rate_equation` (`src/fitting.jl`) wraps `loss!` into an
-`Optimization.OptimizationFunction`, builds an `OptimizationProblem`, and calls
+Fitting reaches solvers only through Optimization.jl; the package ships no solver of
+its own. `fit_rate_equation` (`src/fitting.jl`) builds an `OptimizationProblem`
+whose objective, `_fit_loss`, scores each point with `loss!` through a
+`FitObjective` (see [Derivation architecture](@ref)), and calls
 `Optimization.solve` with whatever optimizer the caller passes. This gives the
 package access to the global, gradient-free optimizers that non-convex
 rate-equation fitting needs — CMA-ES (`OptimizationCMAEvolutionStrategy`) and

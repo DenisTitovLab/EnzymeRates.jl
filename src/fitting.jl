@@ -34,8 +34,8 @@ end
 Construct a `FittingProblem` from an enzyme mechanism and tabular data.
 
 The table must have columns: `group`, `Rate`, and one column per
-metabolite matching `metabolites(mechanism)`. Uses
-`Tables.columntable` for conversion.
+metabolite matching `metabolites(mechanism)`, so no metabolite may be
+named `group` or `Rate`. Uses `Tables.columntable` for conversion.
 
 `scale_k_to_kcat` selects the loss mode: a positive, finite `Real` (default `1.0`)
 treats the data as relative (per-group-centered loss); `nothing` treats it as
@@ -63,9 +63,9 @@ end
 
 Validate a rate table and return it as `Tables.columntable(table)`: `scale_k_to_kcat`
 must be positive and finite or `nothing`, `Keq` must be positive and finite, the table
-needs a `group` column, a `Rate` column and one column per name in `mnames`, every
-concentration must be a finite number ≥ 0 (zero is valid), and every rate must be a
-finite, nonzero number (the loss takes its log).
+needs a `group` column, a `Rate` column and one column per name in `mnames`, no name in
+`mnames` may be `group` or `Rate`, every concentration must be a finite number ≥ 0 (zero
+is valid), and every rate must be a finite, nonzero number (the loss takes its log).
 """
 function _rate_table(table, mnames, scale_k_to_kcat, Keq)
     scale_k_to_kcat === nothing || 0 < scale_k_to_kcat < Inf || error(
@@ -73,6 +73,8 @@ function _rate_table(table, mnames, scale_k_to_kcat, Keq)
     0 < Keq < Inf || error("Keq must be positive and finite; got $Keq")
     data = Tables.columntable(table)
     for req in (:group, :Rate)
+        req in mnames && error("Metabolite $req has the name of the required $req " *
+                               "column; rename the metabolite")
         req in keys(data) || error("Missing required column: $req")
     end
     for m in mnames
@@ -178,6 +180,34 @@ function loss!(x::AbstractVector, fp::FittingProblem)
 end
 
 """
+The objective `fit_rate_equation` hands the optimizer. `loss` holds `loss!(x, fp)` as a
+function of `x` behind a `FunctionWrapper`, which hides the mechanism and data types:
+every fit gives `Optimization.solve` one problem type, so the solver compiles once per
+optimizer rather than once per mechanism. `x_buf` takes a copy of each point before
+`loss` scores it, because CMA-ES passes a view and the wrapper takes a `Vector{Float64}`.
+"""
+struct FitObjective
+    loss::FunctionWrapper{Float64, Tuple{Vector{Float64}}}
+    x_buf::Vector{Float64}
+end
+
+"""The optimizer's objective: `obj.loss` at a copy of `x` (see `FitObjective`)."""
+_fit_loss(x, obj::FitObjective) = obj.loss(copyto!(obj.x_buf, x))
+
+"""
+The `OptimizationProblem` minimizing `loss!` of `fp` from `x0` within `lb`/`ub`. Its
+type is the same for every mechanism and data table (see `FitObjective`).
+"""
+function _optimization_problem(@nospecialize(fp::FittingProblem), x0, lb, ub)
+    # `Base.Fix2` takes the type of `fp` from its value. A closure over the
+    # `@nospecialize` argument may store it untyped (Julia 1.13 does), and then each
+    # call dispatches `loss!` at run time and boxes its result.
+    obj = FitObjective(Base.Fix2(loss!, fp), Vector{Float64}(undef, length(x0)))
+    Optimization.OptimizationProblem(Optimization.OptimizationFunction(_fit_loss), x0, obj;
+                                     lb=lb, ub=ub)
+end
+
+"""
     fit_rate_equation(fp::FittingProblem, optimizer;
         n_restarts=20, maxtime=60.0, maxiters=10_000_000,
         abstol=nothing, reltol=nothing, callback=nothing,
@@ -213,7 +243,7 @@ Returns a NamedTuple `(params, loss, retcode)` where:
   did not flag success) means the fit should be treated as un-converged (check
   `retcode !== :Success`).
 """
-function fit_rate_equation(fp::FittingProblem, optimizer;
+function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     n_restarts::Int=20,
     maxtime::Real=60.0,
     maxiters::Integer=10_000_000,
@@ -224,9 +254,11 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
     ub=fill(15.0, length(fitted_params(fp.mechanism))),
     solver_kwargs=(;),
 )
-    pnames = fitted_params(fp.mechanism)
+    # `fp` is @nospecialize, so the names need this type for `[pnames]` below to compile
+    # once, as Base's NamedTuple getindex; untyped names, or names typed only as a Tuple,
+    # which Static.jl's getindex method also matches, make it compile per mechanism.
+    pnames = fitted_params(fp.mechanism)::Tuple{Vararg{Symbol}}
     np = length(pnames)
-    obj = Optimization.OptimizationFunction(loss!)
 
     # Common solver options: maxtime/maxiters always forwarded; the optional
     # ones only when set, so each solver keeps its own default otherwise.
@@ -248,7 +280,7 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
 
     for _ in 1:n_restarts
         x0 = clamp.(randn(np) .* 2.0, lb, ub)
-        prob = Optimization.OptimizationProblem(obj, x0, fp; lb=lb, ub=ub)
+        prob = _optimization_problem(fp, x0, lb, ub)
         sol = Optimization.solve(prob, optimizer; solve_kwargs...)
         if sol.objective < best_loss
             best_loss = sol.objective

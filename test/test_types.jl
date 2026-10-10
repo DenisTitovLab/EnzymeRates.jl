@@ -809,6 +809,19 @@ end
             "EnzymeReaction: A named as both a substrate and a product; " *
             "concentrations and constants are keyed by name") ER.EnzymeReaction(
             [As, Bs, Ap, Cp], noregs, Int[1])
+        # Keq and E_total are rate-equation parameters, so a reactant or a regulator
+        # named after either one is rejected.
+        Keq_s = ER.ReactantAtoms(ER.Substrate(:Keq), [:C => 1])
+        @test_throws ErrorException(
+            "EnzymeReaction: Keq is a reserved name; Keq and E_total are " *
+            "rate-equation parameters") ER.EnzymeReaction([Keq_s, P], noregs, Int[1])
+        @test_throws ErrorException(
+            "EnzymeReaction: E_total is a reserved name; Keq and E_total are " *
+            "rate-equation parameters") @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: E_total
+        end
         # A single name MAY be declared in BOTH regulator roles: one
         # AllostericRegulator and one CompetitiveInhibitor. The two roles
         # render to distinct parameter names, so both are kept.

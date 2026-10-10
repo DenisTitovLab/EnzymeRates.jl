@@ -32,8 +32,14 @@ function IdentifyRateEquationProblem(
     reaction::EnzymeReaction, table; Keq::Real,
     scale_k_to_kcat::Union{Real,Nothing}=1.0
 )
+    mnames = _metabolite_names(reaction)
+    # The search fits allosteric mechanisms, and their rate equations take the
+    # conformational constant L, so a metabolite named L would fail every one of them.
+    :L in mnames && error(
+        "Metabolite L has the name of the conformational constant L of the allosteric " *
+        "mechanisms the search fits; rename the metabolite")
     # Every metabolite the reaction declares needs a concentration column.
-    data = _rate_table(table, _metabolite_names(reaction), scale_k_to_kcat, Keq)
+    data = _rate_table(table, mnames, scale_k_to_kcat, Keq)
 
     # Validate at least 2 groups for CV
     n_groups = length(unique(data.group))
@@ -327,6 +333,38 @@ end
 _exc_string(e) = first(sprint(showerror, e), 200)
 
 """
+The CSV `mechanism_type` of `em`: `string(typeof(em))` as printed where EnzymeRates is
+loaded with `using`, so `Core.eval(EnzymeRates, Meta.parse(s))` gives back the type.
+`show` of a type compiles again for each new shape of the Sig tuples; this printer takes
+every value `@nospecialize` and reads tuples with `nfields`/`getfield`, so it compiles
+once for all mechanisms.
+"""
+_mechanism_type_string(@nospecialize(em::AbstractEnzymeMechanism)) =
+    sprint(_print_type_value, typeof(em))
+
+"""Print `x`, a mechanism type or a value in its parameters, as `show` prints a type."""
+function _print_type_value(io::IO, @nospecialize(x))
+    if x isa DataType
+        print(io, nameof(x), '{')
+        for i in 1:length(x.parameters)
+            i > 1 && print(io, ", ")
+            _print_type_value(io, x.parameters[i])
+        end
+        print(io, '}')
+    elseif x isa Tuple
+        print(io, '(')
+        for i in 1:nfields(x)
+            i > 1 && print(io, ", ")
+            _print_type_value(io, getfield(x, i))
+        end
+        nfields(x) == 1 && print(io, ',')
+        print(io, ')')
+    else
+        show(io, x)       # a Symbol (as repr prints it), an Int or a Bool
+    end
+end
+
+"""
 CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row,
 with `missing` wherever the value is unavailable (compile/fit never produced it).
 `mechanism_type` is the round-trippable parametric `EnzymeMechanism{Sig}` string when
@@ -339,7 +377,7 @@ function _failure_row(f::FitFailure)
      parent_n_params = missing,
      loss = missing,
      mechanism_type = try
-         string(typeof(compile_mechanism(f.mech)))
+         _mechanism_type_string(compile_mechanism(f.mech))
      catch
          string(typeof(f.mech))
      end,
@@ -463,7 +501,7 @@ function _process_batch(
             length(fkeys) > max_param_count && return :param_skip
             eq_text = rate_equation_string(em)
             (mech = m, n_params = length(fkeys),
-             mechanism_type = string(typeof(em)),
+             mechanism_type = _mechanism_type_string(em),
              eq_text = eq_text, eq_hash = _rate_eq_dedup_key(eq_text))
         catch e
             FitFailure(m, _exc_string(e))
@@ -880,20 +918,19 @@ One LOOCV fold: fit `mechanism` on every group except `held_out`, score it on
 `held_out`, and return the finite test loss. A non-finite
 test loss raises (naming the held-out group) — a corrupted fold must abort model
 selection rather than propagate a bad score.
+
+This function and `_fold_problem` take `mechanism` `@nospecialize`. LOOCV runs a
+candidate's folds after its full fit, which compiled `loss!` for the folds' problem type,
+so a fold infers and compiles nothing for the mechanism.
 """
 function _cv_fold_loss(
-    mechanism::AbstractEnzymeMechanism,
+    @nospecialize(mechanism::AbstractEnzymeMechanism),
     prob::IdentifyRateEquationProblem, held_out;
     optimizer, kwargs...)
     held = prob.data.group .== held_out
-    # Each fold's columns are views, so no fold copies the data: copying every
-    # column for train and test in each of the G folds would cost O(G·N·ncols).
-    fold(mask) = (idx = findall(mask);
-        FittingProblem(mechanism, map(col -> view(col, idx), prob.data);
-            Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat))
-    fit = fit_rate_equation(fold(.!held), optimizer; kwargs...)
+    fit = fit_rate_equation(_fold_problem(mechanism, prob, .!held), optimizer; kwargs...)
     # `fit.params` is keyed by `fitted_params(mechanism)`, the order `loss!` reads.
-    test_loss = loss!([log(v) for v in fit.params], fold(held))
+    test_loss = loss!([log(v) for v in fit.params], _fold_problem(mechanism, prob, held))
     # A non-finite fold loss means the fit is unusable; aborting model
     # selection is correct (re-run CV from the saved CSVs after fixing
     # the fit).
@@ -901,6 +938,17 @@ function _cv_fold_loss(
         "LOOCV produced a non-finite test loss for held-out group " *
         "$held_out — the fit is unusable; aborting model selection.")
     test_loss
+end
+
+"""
+The `FittingProblem` of `mechanism` on the rows of `prob.data` that `mask` selects. The
+fold copies its rows rather than viewing them, so its problem has the full fit's type and
+`loss!` does not compile a second time for it; the copy is small next to a fit.
+"""
+function _fold_problem(@nospecialize(mechanism::AbstractEnzymeMechanism),
+                       prob::IdentifyRateEquationProblem, mask)
+    FittingProblem(mechanism, map(col -> col[mask], prob.data);
+        Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
 end
 
 """

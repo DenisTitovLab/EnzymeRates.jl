@@ -1,5 +1,5 @@
 # ABOUTME: Compile-time regression gates: init_mechanisms trace-compile, rate_equation
-# ABOUTME: body-build wall-clock, bi-bi→uni-uni compile reuse and dispatch identity.
+# ABOUTME: body-build wall-clock, bi-bi→uni-uni reuse, dispatch identity, fit per mechanism.
 
 using Test
 using EnzymeRates
@@ -12,6 +12,16 @@ using EnzymeRates
 # on Julia 1.10.
 const INIT_TRACE_BUDGET                  = 200   # baseline 2026-10-09: 57-87; budget ≈ 2×
 const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 6.0   # CI 1.1-1.9 s, local 0.4 s
+# Per fresh mechanism, over PASS1, the fit and one LOOCV fold, with baselines measured on
+# Julia 1.12 (aarch64). A fit path that compiles the solver stack for each mechanism costs
+# about 750 method instances and 650 KB. The budgets sit about 3× below that and leave
+# room for the other Julia versions and architectures CI runs.
+const FIT_INSTANCE_BUDGET                = 250   # baseline 2026-10-09: 64
+const FIT_NATIVE_BUDGET_KB               = 300   # baseline 2026-10-09: 54
+# Encoding the Sigs of the 239 bi-bi seeds, once per process: Base's collect widening
+# compiles once per new mix of step shapes, so a search pays this early and once.
+const SIG_INSTANCE_BUDGET                = 4000  # baseline 2026-10-09: 1888
+const SIG_NATIVE_BUDGET_KB               = 1000  # baseline 2026-10-09: 508
 
 # Anchored to the EnzymeRates module prefix only. Counts every method
 # specialization Julia compiles that touches our module — our functions,
@@ -60,14 +70,15 @@ function _testhelper_parse_labeled(out::String, labels::Vector{String})
     end
 end
 
-# Runs `script` in a fresh Julia subprocess; the script is expected to print
-# `<label>:<float>` for each label in `labels`. Returns a Vector{Float64}
-# parallel to `labels` (NaN for any label not found or on subprocess failure).
+# Runs `script` in a fresh Julia subprocess on the test environment, so the script can
+# load test dependencies; the script is expected to print `<label>:<float>` for each
+# label in `labels`. Returns a Vector{Float64} parallel to `labels` (NaN for any label
+# not found or on subprocess failure).
 function _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String})
     julia_exe = Base.julia_cmd().exec[1]
     out_buf = IOBuffer()
     try
-        run(pipeline(Cmd([julia_exe, "--project=.", "-e", script]);
+        run(pipeline(Cmd([julia_exe, "--project=$(Base.active_project())", "-e", script]);
                      stdout=out_buf, stderr=devnull); wait=true)
     catch e
         @warn "labeled subprocess failed: $e"
@@ -77,7 +88,7 @@ function _testhelper_measure_labeled_subprocess(script::String, labels::Vector{S
 end
 
 @testset "compile-budget" begin
-    # Two fresh subprocesses supply every measurement below. Each must be a fresh
+    # Three fresh subprocesses supply every measurement below. Each must be a fresh
     # process: the test process has already loaded the shared fixtures, and whenever
     # another test file runs before this one (a focused or reordered run)
     # init_mechanisms and the same EnzymeMechanism{...} body are already compiled, so
@@ -93,6 +104,17 @@ end
     #     gate), then the first rate_equation call. init_mechanisms compiles none of
     #     the @generated rate_equation body, so the first call costs what it costs in
     #     a process that never ran init_mechanisms.
+    #   - fit: the identify path on bi-bi mechanisms, step for step as _process_batch
+    #     and _cv_fold_loss take it: PASS1 (complexity, compile, fitted names, rate
+    #     equation string, dedup key, mechanism_type string), PASS2 (FittingProblem and
+    #     a CMA-ES fit) and one LOOCV fold. Encoding every seed's Sig and a full pass
+    #     on ms[1] compile everything that does not depend on the mechanism, so each
+    #     fresh mechanism after them compiles only what its own type needs. ms[1] and
+    #     the fresh mechanisms differ in Sig shape and in fitted names. The census
+    #     counts the method instances of every module, since a fit compiled per
+    #     mechanism compiles Optimization, SciMLBase, CMAEvolutionStrategy and Base
+    #     code; it also counts the show instances PASS1 adds, since Base's show prints
+    #     a type by compiling show again for each new Sig shape.
     trace_script = """
         using EnzymeRates
         r = EnzymeRates.EnzymeReaction(
@@ -136,6 +158,69 @@ end
         concs = (S = 1.0, P = 0.5)
         t = @elapsed EnzymeRates.rate_equation(m, concs, params)
         println("ELAPSED:", t)
+        """
+    fit_script = """
+        using EnzymeRates, OptimizationCMAEvolutionStrategy, Random
+        const ER = EnzymeRates
+        rxn = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products:   P[C], Q[N]
+        end
+        const PROB = IdentifyRateEquationProblem(rxn,
+            (group = repeat(["G1", "G2"], inner = 4),
+             Rate = [0.3, 0.5, 0.6, 0.8, 0.2, 0.4, 0.7, 0.9],
+             A = repeat([0.5, 1.0, 2.0, 4.0], 2), B = repeat([1.0, 2.0], 4),
+             P = fill(0.1, 8), Q = fill(0.2, 8)); Keq = 2.0)
+        const OPT = CMAEvolutionStrategyOpt()
+        const FIT_KW = (; n_restarts = 1, maxtime = 10.0, maxiters = 20, abstol = nothing,
+                        reltol = nothing, callback = nothing, solver_kwargs = (;))
+        _testhelper_instances(meths) =
+            sum(m -> count(_ -> true, Base.specializations(m)), meths)
+        function _testhelper_all_instances()
+            meths = Method[]
+            Base.visit(m -> push!(meths, m), Core.methodtable)
+            _testhelper_instances(meths)
+        end
+        # The method instances and native code bytes that PASS1, PASS2 and one LOOCV
+        # fold of m add, their compile time, and the show instances PASS1 adds.
+        function _testhelper_measure(m)
+            n0, b0 = _testhelper_all_instances(), Base.jit_total_bytes()
+            t0 = Base.cumulative_compile_time_ns()[1]
+            s0 = _testhelper_instances(methods(show))
+            ER._eq_complexity(m)
+            em = ER.compile_mechanism(m)
+            ER.fitted_params(em)
+            eq_text = rate_equation_string(em)
+            ER._rate_eq_dedup_key(eq_text)
+            ER._mechanism_type_string(em)
+            s1 = _testhelper_instances(methods(show))
+            fp = FittingProblem(ER.compile_mechanism(m), PROB.data;
+                                Keq = PROB.Keq, scale_k_to_kcat = PROB.scale_k_to_kcat)
+            fit_rate_equation(fp, OPT; FIT_KW...)
+            ER._cv_fold_loss(ER.compile_mechanism(m), PROB, "G1";
+                             optimizer = OPT, FIT_KW...)
+            (_testhelper_all_instances() - n0, Base.jit_total_bytes() - b0,
+             (Base.cumulative_compile_time_ns()[1] - t0) / 1e9, s1 - s0)
+        end
+        ms = ER.init_mechanisms(rxn)
+        # Encoding a Sig compiles Base's collect widening once per new mix of step
+        # shapes, a cost a search pays early and once; encoding every seed first keeps
+        # it out of the per-mechanism counts and measures its total for this process.
+        n_sig, b_sig = _testhelper_all_instances(), Base.jit_total_bytes()
+        foreach(ER._sig_of, ms)
+        println("SIG_INSTANCES:", _testhelper_all_instances() - n_sig,
+                " SIG_NATIVE:", Base.jit_total_bytes() - b_sig)
+        fresh = [2, 6, 11, 18]
+        Random.seed!(1)
+        Base.cumulative_compile_timing(true)
+        _testhelper_measure(ms[1])
+        for (k, (n, b, t, s)) in enumerate(map(i -> _testhelper_measure(ms[i]), fresh))
+            println("FIT_INSTANCES_", k, ":", n, " FIT_NATIVE_", k, ":", b,
+                    " FIT_COMPILE_", k, ":", t, " PASS1_SHOW_", k, ":", s)
+        end
+        ems = ER.compile_mechanism.(ms[[1; fresh]])
+        println("FIT_SHAPES:", length(unique(em -> typeof(typeof(em).parameters[1]), ems)))
+        println("FIT_NAMES:", length(unique(ER.fitted_params, ems)))
         """
     n, trace_out = _testhelper_count_relevant_precompiles(trace_script)
     t_uni_warm = _testhelper_parse_labeled(trace_out, ["UNI_WARM"])[1]
@@ -198,5 +283,57 @@ end
         @test typeof(r_uni) === typeof(r_ter)
         @test which(EnzymeRates.init_mechanisms, (typeof(r_uni),)) ===
               which(EnzymeRates.init_mechanisms, (typeof(r_ter),))
+    end
+
+    # The fit census walks Julia's global method table, which Julia has from 1.12 on.
+    if isdefined(Core, :methodtable)
+        fit_labels = [string(metric, "_", k)
+                      for metric in ("FIT_INSTANCES", "FIT_NATIVE", "FIT_COMPILE",
+                                     "PASS1_SHOW")
+                      for k in 1:4]
+        fit_vals = _testhelper_measure_labeled_subprocess(fit_script,
+            [fit_labels; "FIT_SHAPES"; "FIT_NAMES"; "SIG_INSTANCES"; "SIG_NATIVE"])
+        # One column per metric, one row per fresh mechanism.
+        instances, native, compile_s, pass1_show = eachcol(reshape(fit_vals[1:16], 4, 4))
+        n_shapes, n_name_tuples, sig_instances, sig_native = fit_vals[17:20]
+
+        # Sig encoding: what encoding the 239 bi-bi seeds compiles, once per process. It
+        # grows only with new mixes of step shapes, so a total far above the baseline
+        # means encoding started compiling for each mechanism.
+        @testset "Sig encoding: total compile for the bi-bi seeds" begin
+            @info "Sig encoding of the bi-bi seeds: $sig_instances method instances " *
+                  "(budget: $SIG_INSTANCE_BUDGET), $(round(sig_native / 1024; digits=1)) " *
+                  "KB native code (budget: $SIG_NATIVE_BUDGET_KB KB)"
+            @test sig_instances <= SIG_INSTANCE_BUDGET
+            @test sig_native <= SIG_NATIVE_BUDGET_KB * 1024
+        end
+
+        # Fit compile: what PASS1, PASS2 and one LOOCV fold compile for each fresh
+        # mechanism, counted in every module.
+        @testset "fit compile: PASS1 + fit + LOOCV fold per fresh mechanism" begin
+            @info "fit compile per fresh mechanism: method instances $instances " *
+                  "(budget: $FIT_INSTANCE_BUDGET), native code " *
+                  "$(round.(native ./ 1024; digits=1)) KB " *
+                  "(budget: $FIT_NATIVE_BUDGET_KB KB), " *
+                  "compile $(round.(compile_s; digits=3)) s"
+            # ms[1] and the four fresh mechanisms have five Sig shapes and five
+            # fitted-name tuples, so no fresh mechanism reuses another's per-type code.
+            @test n_shapes == 5
+            @test n_name_tuples == 5
+            # Every fresh type compiles its own rate equation, so a census that counts
+            # nothing is broken.
+            @test minimum(instances) > 0 && minimum(native) > 0
+            @test maximum(instances) <= FIT_INSTANCE_BUDGET
+            @test maximum(native) <= FIT_NATIVE_BUDGET_KB * 1024
+        end
+
+        # mechanism_type: PASS1 prints the type of a mechanism with a fresh Sig shape
+        # without compiling show for it.
+        @testset "fit compile: PASS1 compiles no show for a fresh Sig shape" begin
+            @info "PASS1 show instances per fresh mechanism: $pass1_show (budget: 0)"
+            @test maximum(pass1_show) == 0
+        end
+    else
+        @test_skip "fit compile: the census needs the global method table of Julia 1.12"
     end
 end
