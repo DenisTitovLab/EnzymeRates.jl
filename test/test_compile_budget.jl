@@ -18,6 +18,10 @@ const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 6.0   # CI 1.1-1.9 s, local 0.4 s
 # room for the other Julia versions and architectures CI runs.
 const FIT_INSTANCE_BUDGET                = 250   # baseline 2026-10-09: 64
 const FIT_NATIVE_BUDGET_KB               = 300   # baseline 2026-10-09: 54
+# Encoding the Sigs of the 239 bi-bi seeds, once per process: Base's collect widening
+# compiles once per new mix of step shapes, so a search pays this early and once.
+const SIG_INSTANCE_BUDGET                = 4000  # baseline 2026-10-09: 1888
+const SIG_NATIVE_BUDGET_KB               = 1000  # baseline 2026-10-09: 508
 
 # Anchored to the EnzymeRates module prefix only. Counts every method
 # specialization Julia compiles that touches our module — our functions,
@@ -201,8 +205,11 @@ end
         ms = ER.init_mechanisms(rxn)
         # Encoding a Sig compiles Base's collect widening once per new mix of step
         # shapes, a cost a search pays early and once; encoding every seed first keeps
-        # it out of the per-mechanism counts.
+        # it out of the per-mechanism counts and measures its total for this process.
+        n_sig, b_sig = _testhelper_all_instances(), Base.jit_total_bytes()
         foreach(ER._sig_of, ms)
+        println("SIG_INSTANCES:", _testhelper_all_instances() - n_sig,
+                " SIG_NATIVE:", Base.jit_total_bytes() - b_sig)
         fresh = [2, 6, 11, 18]
         Random.seed!(1)
         Base.cumulative_compile_timing(true)
@@ -284,11 +291,22 @@ end
                       for metric in ("FIT_INSTANCES", "FIT_NATIVE", "FIT_COMPILE",
                                      "PASS1_SHOW")
                       for k in 1:4]
-        fit_vals = _testhelper_measure_labeled_subprocess(
-            fit_script, [fit_labels; "FIT_SHAPES"; "FIT_NAMES"])
+        fit_vals = _testhelper_measure_labeled_subprocess(fit_script,
+            [fit_labels; "FIT_SHAPES"; "FIT_NAMES"; "SIG_INSTANCES"; "SIG_NATIVE"])
         # One column per metric, one row per fresh mechanism.
         instances, native, compile_s, pass1_show = eachcol(reshape(fit_vals[1:16], 4, 4))
-        n_shapes, n_name_tuples = fit_vals[17:18]
+        n_shapes, n_name_tuples, sig_instances, sig_native = fit_vals[17:20]
+
+        # Sig encoding: what encoding the 239 bi-bi seeds compiles, once per process. It
+        # grows only with new mixes of step shapes, so a total far above the baseline
+        # means encoding started compiling for each mechanism.
+        @testset "Sig encoding: total compile for the bi-bi seeds" begin
+            @info "Sig encoding of the bi-bi seeds: $sig_instances method instances " *
+                  "(budget: $SIG_INSTANCE_BUDGET), $(round(sig_native / 1024; digits=1)) " *
+                  "KB native code (budget: $SIG_NATIVE_BUDGET_KB KB)"
+            @test sig_instances <= SIG_INSTANCE_BUDGET
+            @test sig_native <= SIG_NATIVE_BUDGET_KB * 1024
+        end
 
         # Fit compile: what PASS1, PASS2 and one LOOCV fold compile for each fresh
         # mechanism, counted in every module.

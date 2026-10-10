@@ -148,6 +148,15 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Ideas
 
+- **Encode a mechanism's Sig without compiling per mix of step shapes.**
+  `_sig_of` (`src/types.jl`) builds the Sig tuples from generators, so Base's collect
+  widening compiles once per new mix of step shapes. Over a 6,475-mechanism bi-bi run in one
+  process (the seeds, then two expansion rounds; 5,045 allosteric) that totals about 1,500
+  method instances, 0.5 MB of native code and 1 s, 85% of it within the first 250
+  mechanisms, so a search pays it early and once per worker. Building each tuple from a
+  `Vector{Any}` should remove it. `test/test_compile_budget.jl` gates the total for the
+  239 bi-bi seeds.
+
 - **Count identifiable parameters with an exact modular rank.**
   Several phantom classes make the beam count a model above its true dimension: the
   one-subunit L, chain flanks kept after a later split, copy-copy twin pairs,
