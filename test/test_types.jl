@@ -2465,6 +2465,26 @@ end
                                       ER.cat_allo_states(am)) === nothing
 end
 
+@testset ":OnlyA guard reads cycles past an abortive segment it strands" begin
+    # The A group mixes the fused binding into E(P, Q) with A's abortive bindings at
+    # E(P) and E(Q), so it is chemistry, and :OnlyA it leaves the check graph whole.
+    # That strands {E(A, P), E(A, Q), E(A, P, Q)}: a rapid-equilibrium segment whose
+    # every form holds a product, which a mechanism may not have. The check graph is
+    # read only for its cycles, and here the :OnlyA B binding lies on none of them.
+    am = @allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + B <--> E(B)                                              :: OnlyA
+            (E(B) + A ⇌ E(P, Q), E(P) + A ⇌ E(A, P), E(Q) + A ⇌ E(A, Q)) :: OnlyA
+            E(P, Q) <--> E(P) + Q                                        :: EqualAI
+            E(P, Q) <--> E(Q) + P                                        :: EqualAI
+            (E + P ⇌ E(P), E(A, Q) + P ⇌ E(A, P, Q))                     :: EqualAI
+            (E + Q ⇌ E(Q), E(A, P) + Q ⇌ E(A, P, Q))                     :: EqualAI
+        end
+    end
+    @test am isa ER.AllostericEnzymeMechanism
+end
+
 @testset "rational nullspace + Stiemke feasibility helpers" begin
     R = Rational{BigInt}
 

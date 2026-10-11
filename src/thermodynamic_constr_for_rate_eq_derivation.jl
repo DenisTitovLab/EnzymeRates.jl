@@ -168,9 +168,12 @@ function _integer_nullspace(A::Matrix{Int})
     result
 end
 
-function _thermodynamic_constraints(mech::Mechanism)
-    flat = _flat_steps(mech)
-    ras = reactants(mech.reaction)
+_thermodynamic_constraints(mech::Mechanism) =
+    _thermodynamic_constraints(mech.reaction, steps(mech))
+
+function _thermodynamic_constraints(rxn::EnzymeReaction, groups::Vector{Vector{Step}})
+    flat = _flat_steps(groups)
+    ras = reactants(rxn)
 
     # Enzyme incidence matrix (rows = enzyme forms in first-seen step-walk order)
     form = Dict{Symbol, Int}()
@@ -445,7 +448,10 @@ The check graph drops `:OnlyA` chemistry groups (those holding a chemistry step,
 a cycle running through one never appears and never reports a violation: that
 free `k_I` ratio is the escape. The `:OnlyA` bindings are the `:OnlyA` groups of
 plain bindings alone; a fused binding tagged `:OnlyA` is chemistry and leaves the
-graph.
+graph. The check graph is read for its cycles only, so the kept groups enter as
+stored, not as a `Mechanism`: dropping a group that mixes a fused binding with
+abortive bindings can leave abortive complexes in a rapid-equilibrium segment with
+no bottom form, which the `Mechanism` constructor rejects (`_bottomless_re_segment`).
 Bindings completing no cycle (competitive inhibitors, dead ends, regulator
 sites) never enter a row and take no part. Both catalytic (Haldane) and
 binding-only (Wegscheider, `rhs = 0`) cycle rows are inspected, so a one-sided
@@ -468,8 +474,9 @@ bindings alike: an RE binding's `1/Kd` and an SS binding's `kon/koff` both enter
 the cycle's product raised to the step's entry, so a cycle that mixes the two step
 kinds reads its signs on one scale and a balanced pair is accepted.
 
-Builds a plain `Mechanism`; it must not call `_state_allo_mechanism`, which
-would construct an `AllostericMechanism` and recurse.
+Names the offending bindings through the plain `Mechanism` of `cat_steps`; it must
+not call `_state_allo_mechanism`, which would construct an `AllostericMechanism` and
+recurse.
 """
 function _onlya_haldane_violation(rxn::EnzymeReaction,
                                   cat_steps::Vector{Vector{Step}},
@@ -478,16 +485,15 @@ function _onlya_haldane_violation(rxn::EnzymeReaction,
     keep = [g for g in eachindex(cat_steps)
             if !(onlya(g) && any(_is_chemistry, cat_steps[g]))]
     any(onlya, keep) || return nothing
-    onlyA_steps = Set{Step}(s for g in keep if onlya(g) for s in cat_steps[g])
-    cm = Mechanism(rxn, [copy(cat_steps[g]) for g in keep])
-    C, _ = _thermodynamic_constraints(cm)
-    flat = _flat_steps(cm)
-    groups = unique(g for (s, g) in flat if s in onlyA_steps)
-    isempty(groups) && return nothing
+    kept = cat_steps[keep]
+    C, _ = _thermodynamic_constraints(rxn, kept)
+    flat = _flat_steps(kept)
+    groups = [k for (k, g) in enumerate(keep) if onlya(g)]
     # Column k holds `:OnlyA` group k's `ε` exponents: its steps' cycle entries summed.
     M = Rational{BigInt}[sum((C[i, j] for (j, (_, g)) in enumerate(flat) if g == k);
                              init = 0) for i in axes(C, 1), k in groups]
-    labels = [string(name(first(_step_constants(first(steps(cm)[k]), :None)), cm))
+    cm = Mechanism(rxn, cat_steps)
+    labels = [string(name(first(_step_constants(first(kept[k]), :None)), cm))
               for k in groups]
     # Per-row sign test first: sound (an all-one-sign row forces a sum of
     # same-signed positive terms to vanish) and cheap, so it keeps the common

@@ -1297,9 +1297,11 @@ end
 # `reaction` and `steps` fields. Only `metabolites`, `catalytic_mechanism` and
 # `catalytic_multiplicity` are read on the compiled type itself.
 
-"""Walk the steps of `m` in flat order, yielding
+"""Walk the steps of `m`, or of kinetic `groups`, in flat order, yielding
 `(step::Step, kinetic_group::Int)` pairs."""
-_flat_steps(m::Mechanism) = [(s, g) for (g, group) in enumerate(steps(m)) for s in group]
+_flat_steps(groups::Vector{Vector{Step}}) =
+    [(s, g) for (g, group) in enumerate(groups) for s in group]
+_flat_steps(m::Mechanism) = _flat_steps(steps(m))
 
 """
     metabolites(m::EnzymeMechanism) → Tuple{Symbol,...}
