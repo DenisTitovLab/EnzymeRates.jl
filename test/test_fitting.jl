@@ -498,8 +498,8 @@ end
 
     # ── fit_rate_equation compiles no NamedTuple indexing per mechanism ───────
     # fit_rate_equation takes its FittingProblem @nospecialize and passes the fitted
-    # parameters around as a NamedTuple keyed by their names. Indexing it by name
-    # dispatches at run time: each fit whose parameter names no earlier fit used compiles
+    # parameters around as a NamedTuple keyed by their names. Indexing it by name would
+    # dispatch at run time: each fit whose parameter names no earlier fit used compiles
     # a getindex method instance for them and infers Base's slow NamedTuple fallback.
     # Inferred only as a Tuple, the names also match the getindex method of Static.jl,
     # which the full suite loads before this file. Counts the getindex method instances,

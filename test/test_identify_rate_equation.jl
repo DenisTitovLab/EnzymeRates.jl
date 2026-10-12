@@ -449,7 +449,7 @@ end
             @test "eq_hash" in names(df_file)
             @test all(length.(string.(skipmissing(df_file.eq_hash))) .== 16)
             @test all(<=(8), skipmissing(df_file.n_params))     # max_param_count=8
-            # Diagnostic parent columns: every saved CSV carries them.
+            # Diagnostic columns: every saved CSV carries them.
             @test "parent_n_params" in names(df_file)
             @test "parent_mechanism_type" in names(df_file)
             @test "peak_at_range_edge" in names(df_file)

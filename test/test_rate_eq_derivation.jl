@@ -981,8 +981,9 @@ function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec; s
     @testset "Peak turnover approaches the analytical kcat" begin
         rng = Random.MersenneTwister(seed)
         params = _testhelper_random_reduced_params(m; rng)
-        # Every constant lies in 0.1–10, so over a range reaching 1e12 the peak sits at
-        # saturating substrates and zero products and equals kcat to within K/1e12.
+        # Every fitted constant and Keq lies in 0.1–10, so over a range reaching 1e12 the
+        # peak sits at saturating substrates and zero products and equals kcat to within
+        # K/1e12.
         peak = EnzymeRates._peak_turnover(m, params, (1e-12, 1e12)).value
         # The oracle's positional formula may reference a forward rate that is
         # Haldane-DEPENDENT under the canonical step order (absent from the
@@ -1583,8 +1584,8 @@ const _testhelper_large_ter_bi_mechanisms = [
 
 # Seconds per call allowed per denominator term above the 120-ns gate: twice the worst CI
 # measurement, 0.305 ns per term (ubuntu x64, 2026-10-12), rounded up to one significant
-# figure, so the bound stays above shared runners' noise. Worst per runner, in ns per
-# term: ubuntu x64 0.305, macOS aarch64 0.21, windows x64 0.173.
+# figure, so the bound stays above shared runners' noise. Worst per runner over two CI
+# runs, in ns per term: ubuntu x64 0.305, macOS aarch64 0.223, windows x64 0.299.
 const _testhelper_seconds_per_denominator_term = 0.7e-9
 
 """The number of terms in the denominator of `m`'s derived rate law."""
@@ -2371,6 +2372,7 @@ end
 end
 
 @testset "the peak of an allosteric random-order bi-bi reaches the grid maximum" begin
+    # Random-order allosteric bi-bi, live I-state.
     m = @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
