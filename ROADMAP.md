@@ -50,6 +50,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   measures V×τ on the active-state graph alone, while the generated MWC rate equation
   evaluates the polynomials of both conformations, so the filter undercounts what an
   allosteric equation costs and can admit one that evaluates more terms than its limit.
+- **`identify_rate_equation`'s docstring calls `maxtime` the time per fit.**
+  `fit_rate_equation` (`src/fitting.jl`) forwards `maxtime` to every restart's
+  `Optimization.solve`, as its own docstring says, so a fit with `n_restarts` restarts can
+  run for `n_restarts × maxtime`; the docstring in `src/identify_rate_equation.jl` reads
+  "max time per fit".
 - **Repeated constraint solves inflate the GC's live-byte count.**
   Each `_dependent_param_exprs` call, whose constraint solves run in `Rational{BigInt}`,
   raises `Base.gc_live_bytes` by about 36-49 KB that no live object holds. After about
@@ -114,22 +119,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 ## Planned
 
 - **Rewrite the derivation around the reaction graph.**
-  Decided on 2026-10-10 after derisking probes; a vertical-slice probe chains the pieces
-  before the spec is written. A mechanism becomes one value type that holds its graph,
-  with no reaction field; its integer Sig is the only type parameter, and the law is
-  derived in the generator. One `@enzyme_mechanism` macro covers plain and allosteric
-  mechanisms, and `show` prints its text. One log-linear solve over the bare per-step
-  constants (cycle, kinetic-group, `:EqualAI` and rapid-equilibrium-loop rows; a priority
-  independent of grouping; rational exponents) feeds a lean King–Altman/Cha engine and
-  Horner code with rapid-equilibrium nodes and the Haldane factor. One law in independent
-  parameters replaces Full and Reduced, with `all_parameters(m, params)` for the
-  dependents. Printed laws divide by the constant term, or by a virtual one, so every
-  term is dimensionless, and a second form names each coefficient by what it multiplies.
-  A rename-proof key (SHA-256 of the law, parameters labelled by colour refinement)
-  replaces `eq_hash`, and fits are stored by canonical position. kcat stays the analytic
-  saturating limit, with dead-end corners excluded. Phases: the joint solve with one
-  allosteric graph; the graph mechanism with the DSL; the engine with printing, key and
-  kcat; then the `:OnlyA` semantics below. Priority: high.
+  `docs/superpowers/specs/2026-10-12-reaction-graph-rewrite-design.md` records the design,
+  decided between 2026-10-09 and 2026-10-12, and splits the work into five PRs: the
+  fitting scale (relative fits scaled to peak turnover, measured kcats applied after the
+  fit); one thermodynamic solve that derives both conformations from one graph; the graph
+  mechanism type with two macros, `show` and a new CSV format; admission, the
+  well-posedness guard and the flip at free E; then the engine, printing, a rename-proof
+  dedup key and code-generation locals. The table in its section 16 lists the entries
+  that each PR retires. Priority: high.
 - **Derive both conformations from one catalytic rate equation.**
   Each conformation is derived on its own graph: `_state_parts` rebuilds the inactive one
   as a pruned mechanism (`_state_allo_mechanism`), and each solves its own Wegscheider
@@ -143,21 +140,26 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   A tag set is admitted when an exact feasibility test passes and every form the free
   enzyme cannot reach in the inactive conformation lies behind a binding, on its bound
   side; the limit then equals deletion and pruning, and enumeration stops producing the
-  `:OnlyA` ping-pong mechanisms this rejects. The conformations flip at one free form:
-  the constructor admits a second only in rapid equilibrium with it
-  (`_assert_one_flip_segment`), where the choice only rescales `L`. Branch
+  `:OnlyA` ping-pong mechanisms this rejects. The conformations will flip at free E,
+  which every mechanism must then contain; until then the constructor admits a second
+  free form only in rapid equilibrium with the first (`_assert_one_flip_segment`), where
+  the choice only rescales `L`. The rewrite's second PR derives both conformations from
+  one graph with today's deletion and pruning; its fourth brings the limits, admission
+  and the flip at free E. Branch
   `mwc-solve-then-limit` holds a July design of this approach
   (spec b067aa0 and 651a821, plan 9c95f12, prototype 6f0011e), whose prototype matched
   the mass-action ground truth on all six uni-uni tag combinations and would delete the
   `d_free` cross-weighting; `test/allosteric_ground_truth.jl` is the oracle.
   Priority: high.
-- **Stop emitting K-type variants whose L is a phantom at one catalytic subunit.**
+- **Flag one-subunit K-type variants whose L is a phantom instead of fitting them.**
   At multiplicity 1, `_expand_to_allosteric` (`src/mechanism_enumeration.jl`) emits
   K-type variants whose L the data cannot determine, so the fitter optimizes a flat
   direction and the beam counts the model one parameter too high. This hits every
-  reaction that allows one catalytic subunit, which is the default. No exact criterion
-  exists yet: derive a structural test on the dead-inactive law `v = N_A/(Q_A + L·Q_I)`,
-  or apply the exact rank (see Ideas) to this move's children;
+  reaction that allows one catalytic subunit, which is the default. The rewrite keeps the
+  variants in the frontier, since their children can carry laws that the parent's
+  children lack, but stops fitting them: a variant whose inactive conformation binds
+  nothing and does not catalyze, and whose L an exact rank test shows adds no
+  identifiable rank, takes its parent's fit with L = 0 and is flagged.
   `docs/src/identify/enumeration_engine.md` documents the phantom. Priority: medium.
 - **Profile the first v0.9.0 HPC runs.**
   Every search-cost number on hand comes from runs made before 0.8.0: 66% of equations
@@ -244,9 +246,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Decided against
 
-- **Anchor a measured kcat at its assay concentrations.** Decided on 2026-10-10 in favour
-  of the analytic saturating limit with dead-end corners excluded (see the graph rewrite
-  under Planned).
 - **Move dead-end decorations out of `init_mechanisms` into an expansion move.** It is not
   clear this saves time, since the move would have to run again on every child.
 - **Separate the metabolite names inside enzyme-form names (`Ac + CoA ⇌ AcCoA`).** Renaming
