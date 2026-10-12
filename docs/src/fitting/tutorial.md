@@ -121,9 +121,10 @@ own criteria. Any other value — `:Default`, `:MaxTime`, `:Failure`,
 are tight, `:MaxTime` is common; increase `n_restarts` and `maxtime` for
 production fits.
 
-The returned `params` are scaled so the mechanism's peak turnover — its largest net
-forward rate per enzyme over the concentrations in `peak_range` — is 1, and
-`result.peak_at_range_edge` says whether that peak sits at the range's upper edge.
-[Normalized vs absolute rate](@ref) explains the scale, absolute mode, and how to
-rescale a fit to a measured kcat; [Loss & optimizers](@ref) covers the loss
-function and how to supply your own optimizer.
+In relative mode (the default), the returned `params` are scaled so the mechanism's peak
+turnover — its largest net forward rate per enzyme over the concentrations in
+`peak_range` — is 1. `result.peak_at_range_edge` is `true` when the law still rises at
+the range's upper edge (by more than 10% over the range's last decade), so a wider range
+would change the scale. [Normalized vs absolute rate](@ref) explains the scale, absolute
+mode, and how to rescale a fit to a measured kcat; [Loss & optimizers](@ref) covers the
+loss function and how to supply your own optimizer.
