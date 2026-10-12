@@ -297,3 +297,154 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     end
     return (params = result_params, loss = best_loss, retcode = best_retcode)
 end
+
+"""
+The default `peak_range`: the concentrations, in the data's units, over which the peak
+turnover that scales a relative fit is sought. It covers physiological concentrations in M
+or in mM.
+"""
+const DEFAULT_PEAK_RANGE = (1e-12, 1e3)
+
+"""
+`peak_range` as a `Tuple{Float64,Float64}`, after checking that it is a tuple `(lo, hi)`
+with `0 < lo < hi < Inf`.
+"""
+function _peak_range(peak_range)
+    peak_range isa Tuple{Real,Real} && 0 < peak_range[1] < peak_range[2] < Inf ||
+        error("peak_range must be a tuple (lo, hi) with 0 < lo < hi < Inf; got " *
+              repr(peak_range))
+    (Float64(peak_range[1]), Float64(peak_range[2]))
+end
+
+"""
+The turnover `v/E_total` of `mechanism` at `params` (whose `E_total` is 1) as a function
+of the log10 concentrations of `metabolites(mechanism)`, in that order; `N` counts them.
+"""
+struct LogConcentrationTurnover{M<:AbstractEnzymeMechanism, P<:NamedTuple, N}
+    mechanism::M
+    params::P
+end
+
+LogConcentrationTurnover(mechanism::AbstractEnzymeMechanism, params::NamedTuple) =
+    LogConcentrationTurnover{typeof(mechanism), typeof(params),
+                             length(metabolites(mechanism))}(mechanism, params)
+
+(t::LogConcentrationTurnover{M, P, N})(u::Vector{Float64}) where {M, P, N} =
+    rate_equation(t.mechanism,
+        NamedTuple{metabolites(t.mechanism)}(ntuple(i -> exp10(u[i]), Val(N))), t.params)
+
+"""Decades between the points of one coordinate's scan in the peak search."""
+const PEAK_SCAN_STEP = 0.25
+
+"""`v`, or `-Inf` when `v` is NaN or infinite, so the peak search never picks it."""
+_finite_or_minus_inf(v) = isfinite(v) ? v : -Inf
+
+"""
+The largest value of `f` over the box `[a, b]^n` of log10 concentrations, the point that
+reaches it, and whether `f` still rises at the box's upper edge. Points where `f` is NaN
+or infinite never win.
+
+The search is deterministic. It evaluates every corner of the box (the two extreme
+corners only, above 12 coordinates) and its center, then climbs from the four best of
+them one coordinate at a time (`_coordinate_ascent!`). `f` still rises at the upper edge
+when some coordinate of the best point sits at `b` and `f` there exceeds 1.1 times its
+value with that coordinate lowered by one decade (to `a` at most).
+"""
+function _maximize_on_box(f::FunctionWrapper{Float64, Tuple{Vector{Float64}}}, n::Int,
+                          a::Float64, b::Float64)
+    corners = n <= 12 ? (0:(2^n - 1)) : (0, 2^n - 1)
+    starts = [Float64[(k >> (j - 1)) & 1 == 1 ? b : a for j in 1:n] for k in corners]
+    push!(starts, fill((a + b) / 2, n))
+    values = [_finite_or_minus_inf(f(u)) for u in starts]
+    order = sort(eachindex(starts); by = i -> (-values[i], i))
+    best_u, best_v = starts[order[1]], values[order[1]]
+    for i in order[1:min(4, length(order))]
+        u = copy(starts[i])
+        v = _coordinate_ascent!(f, u, values[i], a, b)
+        v > best_v && ((best_u, best_v) = (u, v))
+    end
+    at_edge = any(1:n) do j
+        best_u[j] >= b - 1e-6 || return false
+        lowered = copy(best_u)
+        lowered[j] = max(a, b - 1)
+        best_v > 1.1 * f(lowered)
+    end
+    best_u, best_v, at_edge
+end
+
+"""
+Climb `f` from `u`, where its value is `v`, one coordinate at a time (`_line_maximum!`),
+in place, until a full sweep gains less than one part in 10¹²; returns the final value.
+"""
+function _coordinate_ascent!(f::FunctionWrapper{Float64, Tuple{Vector{Float64}}},
+                             u::Vector{Float64}, v::Float64, a::Float64, b::Float64)
+    for _ in 1:100
+        v_start = v
+        for j in eachindex(u)
+            v = _line_maximum!(f, u, j, v, a, b)
+        end
+        v > v_start && v - v_start > 1e-12 * abs(v) || break
+    end
+    v
+end
+
+"""
+Move `u[j]` to the best point of `f` along coordinate `j` within `[a, b]`, in place, and
+return the value there; `v` is the value at the current `u`. Scans the coordinate every
+`PEAK_SCAN_STEP` decades, then refines the best scan point by golden-section search
+between its neighbours. The current point stays unless a candidate beats it.
+"""
+function _line_maximum!(f::FunctionWrapper{Float64, Tuple{Vector{Float64}}},
+                        u::Vector{Float64}, j::Int, v::Float64, a::Float64, b::Float64)
+    n_steps = max(1, ceil(Int, (b - a) / PEAK_SCAN_STEP))
+    h = (b - a) / n_steps
+    best_t, best_v = u[j], v
+    for k in 0:n_steps
+        u[j] = k == n_steps ? b : a + k * h
+        w = _finite_or_minus_inf(f(u))
+        w > best_v && ((best_t, best_v) = (u[j], w))
+    end
+    lo, hi = max(a, best_t - h), min(b, best_t + h)
+    φ = (sqrt(5) - 1) / 2
+    x1, x2 = hi - φ * (hi - lo), lo + φ * (hi - lo)
+    u[j] = x1; f1 = _finite_or_minus_inf(f(u))
+    u[j] = x2; f2 = _finite_or_minus_inf(f(u))
+    while hi - lo > 1e-9
+        if f1 >= f2
+            hi, x2, f2 = x2, x1, f1
+            x1 = hi - φ * (hi - lo)
+            u[j] = x1; f1 = _finite_or_minus_inf(f(u))
+        else
+            lo, x1, f1 = x1, x2, f2
+            x2 = lo + φ * (hi - lo)
+            u[j] = x2; f2 = _finite_or_minus_inf(f(u))
+        end
+    end
+    f1 > best_v && ((best_t, best_v) = (x1, f1))
+    f2 > best_v && ((best_t, best_v) = (x2, f2))
+    u[j] = best_t
+    best_v
+end
+
+"""
+    _peak_turnover(m, params, peak_range) -> (; value, concs, at_edge)
+
+The peak turnover of mechanism `m` at `params`, which must hold `Keq`: the largest net
+forward rate per enzyme, `v/E_total`, over every metabolite's concentration within
+`peak_range` — substrates, products, inhibitors and regulators alike
+(`_maximize_on_box`). `concs` is the point that reaches it, and `at_edge` says whether
+the turnover still rises at the range's upper edge. The `E_total` of `params` is
+ignored. `value` is not positive when the mechanism has no forward turnover in the range.
+The turnover sits behind a `FunctionWrapper`, so the search compiles once for every
+mechanism.
+"""
+function _peak_turnover(@nospecialize(m::AbstractEnzymeMechanism),
+                        @nospecialize(params::NamedTuple),
+                        peak_range::Tuple{Float64, Float64})
+    mets = metabolites(m)
+    f = FunctionWrapper{Float64, Tuple{Vector{Float64}}}(
+        LogConcentrationTurnover(m, merge(params, (E_total = 1.0,))))
+    u, value, at_edge = _maximize_on_box(f, length(mets), log10(peak_range[1]),
+                                         log10(peak_range[2]))
+    (value = value, concs = NamedTuple{mets}(Tuple(exp10.(u))), at_edge = at_edge)
+end
