@@ -102,7 +102,7 @@ end
         v_code = real(ER.rate_equation(onlyA, (S=S, P=P), prm))
         v_gt = _testhelper_uni_onlyA_flux(KA, KP, k, L=L, Keq=Keq, S=S, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
-        @test isfinite(ER._kcat_forward(onlyA, prm))
+        @test 0 < ER._peak_turnover(onlyA, prm, (1e-12, 1e3)).value < Inf
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) uni-uni rate.
         kr = k * KP / (Keq * KA)
@@ -160,7 +160,7 @@ end
         v_code = real(ER.rate_equation(multiA, (A=A, B=B, P=P), prm))
         v_gt = _testhelper_multi_onlyA_flux(KA, KB, KP, k, L=L, Keq=Keq, A=A, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
-        @test isfinite(ER._kcat_forward(multiA, prm))
+        @test 0 < ER._peak_turnover(multiA, prm, (1e-12, 1e3)).value < Inf
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) bi-uni rate.
         kr = k * KP / (Keq * KA * KB)
@@ -249,7 +249,7 @@ end
         v_gt = _testhelper_metab_dfree_onlyA_flux(
             kon, koff, KB, KP, k, L=L, Keq=Keq, S=S, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
-        @test isfinite(ER._kcat_forward(metabD, prm))
+        @test 0 < ER._peak_turnover(metabD, prm, (1e-12, 1e3)).value < Inf
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) ordered bi-uni rate.
         @test isapprox(
@@ -270,7 +270,7 @@ end
             kon, koff, KB, KP, k; L=L, Keq=Keq, S=S, B=0.0, P=P);
         rtol=1e-4)
     @test v0 < 0    # reverse flux survives at B=0 (invalid :EqualAI-cat trap→0 was fake)
-    @test isfinite(ER._kcat_forward(metabD, prm))
+    @test 0 < ER._peak_turnover(metabD, prm, (1e-12, 1e3)).value < Inf
 end
 
 # ── Free-flip-only ordered bi-uni :NonequalAI-catalysis reference ────────────
@@ -781,7 +781,7 @@ end
     prm = NamedTuple{(fp..., :Keq, :E_total)}(((1.3 for _ in fp)..., 3.0, 1.0))
     concs = (ATP = 1.1, F6P = 0.7, ADP = 0.6, F16BP = 0.9)
     @test isfinite(real(ER.rate_equation(err1, concs, prm)))
-    @test isfinite(ER._kcat_forward(err1, prm))
+    @test 0 < ER._peak_turnover(err1, prm, (1e-12, 1e3)).value < Inf
 end
 
 # ── n-protomer concerted-MWC oracle (formulation 1) ─────────────────────────
@@ -988,7 +988,7 @@ end
 # is therefore the bare constant d_free_I = 1 and it contributes only L·Q_I (no
 # flux) to the denominator. The multi-chemical-step :OnlyA form the enumeration
 # must feed: the derivation admits it, keeps a finite rate as a product goes to
-# zero (no covalent sink), and yields a finite positive kcat.
+# zero (no covalent sink), and has a finite positive peak turnover.
 @testset "dead-inactive ping-pong :OnlyA derivation" begin
     dead = @allosteric_mechanism begin
         substrates: ATP, F6P
@@ -1060,8 +1060,7 @@ end
         @test isfinite(real(ER.rate_equation(dead, concs, prm)))
         @test isfinite(real(ER.rate_equation(dead,
             (ATP=ATP, F6P=F6P, ADP=ADP, F16BP=1e-8), prm)))
-        kcat = ER._kcat_forward(dead, prm)
-        @test isfinite(kcat) && kcat > 0
+        @test 0 < ER._peak_turnover(dead, prm, (1e-12, 1e3)).value < Inf
 
         # v = 0 at the equilibrium metabolite ratio ADP·F16BP = Keq·ATP·F6P.
         @test isapprox(real(ER.rate_equation(dead,

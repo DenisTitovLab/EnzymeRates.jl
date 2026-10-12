@@ -72,13 +72,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   whose plain member sits on a square of `:EqualAI` bindings, whose inactive conformation
   is not a limit of the model, and rejects a split `:OnlyA` binding group whose limit
   exists. The `:OnlyA` semantics under Planned replace the guard.
-- **`_kcat_forward` reports "no kcat components" for mechanisms that never saturate.**
-  In four hand-written mechanisms of the mass-action tests, a rapid-equilibrium fused
-  release, or a Theorell–Chance step between rapid-equilibrium bindings, lets the rate
-  grow without bound with one substrate, so kcat is infinite. `_kcat_forward`
-  (`src/rate_eq_derivation.jl`) finds no saturating pattern and errors with "no kcat
-  components", which neither names the cause nor points to absolute mode
-  (`scale_k_to_kcat = nothing`).
 - **Full mode lists rapid-equilibrium constants that never reach the rate law.**
   When the kinetic groups leave a loop of rapid-equilibrium steps open,
   `rate_equation(m, concs, params, Full)` weights each rapid-equilibrium segment along

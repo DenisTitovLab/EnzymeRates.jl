@@ -1,5 +1,5 @@
 # ABOUTME: Tests for rate-equation derivation (King-Altman/Cha, mass-action oracle),
-# ABOUTME: the parameters API, kcat/rescaling, rate-equation strings, and the perf gate.
+# ABOUTME: the parameters API, peak rescaling, rate-equation strings, and the perf gate.
 
 using OrdinaryDiffEqFIRK
 
@@ -978,10 +978,12 @@ end
 function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec; seed=42)
     spec.analytical_kcat_fn === nothing && return
     m = spec.mechanism
-    @testset "Analytical kcat" begin
+    @testset "Peak turnover approaches the analytical kcat" begin
         rng = Random.MersenneTwister(seed)
         params = _testhelper_random_reduced_params(m; rng)
-        kcat = EnzymeRates._kcat_forward(m, params)
+        # Every constant lies in 0.1–10, so over a range reaching 1e12 the peak sits at
+        # saturating substrates and zero products and equals kcat to within K/1e12.
+        peak = EnzymeRates._peak_turnover(m, params, (1e-12, 1e12)).value
         # The oracle's positional formula may reference a forward rate that is
         # Haldane-DEPENDENT under the canonical step order (absent from the
         # reduced params), so bridge the FULL param set (dependent values
@@ -991,7 +993,7 @@ function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec; s
                       source_steps=spec.source_steps,
                       source_reg_sites=spec.source_reg_sites),
                   (Et=params.E_total,))
-        @test kcat ≈ spec.analytical_kcat_fn(p) rtol=1e-10
+        @test peak ≈ spec.analytical_kcat_fn(p) rtol=1e-9
     end
 end
 
@@ -1422,7 +1424,7 @@ end
         params = merge(NamedTuple{pnames}(ntuple(_ -> 1.3, length(pnames))),
                        (Keq = 20000.0, E_total = 1.0))
         # No UndefVarError: the @generated body compiles and evaluates finite at
-        # products = 0 (the kcat evaluation domain).
+        # products = 0 (initial-rate conditions).
         concs0 = NamedTuple{mets}(
             ntuple(i -> mets[i] in prods ? 0.0 : 1.5, length(mets)))
         @test isfinite(EnzymeRates.rate_equation(em, concs0, params))
@@ -1475,7 +1477,7 @@ end
     end
 end
 
-# ── Standalone kcat tests ──────────────────────────────────────────────────────
+# ── Standalone tests ───────────────────────────────────────────────────────────
 
 """The `return E_total * (num) / (den)` expression of the generated `rate_equation` body of
 `m`."""
@@ -2305,9 +2307,7 @@ end
     @test isfinite(rate_equation(m, concs, params, Reduced))
 end
 
-@testset "Fix B: _kcat_forward handles multiple saturating patterns" begin
-    # Random-order allosteric bi-bi, live I-state. Verified pre-fix to raise
-    # "multiple saturating-substrate kcat components (9 found)".
+@testset "the peak of an allosteric random-order bi-bi reaches the grid maximum" begin
     m = @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2327,20 +2327,20 @@ end
     rng = Random.MersenneTwister(1)
     pn = EnzymeRates.fitted_params(m)
     pv = NamedTuple{pn}(Tuple(0.2 + 2 * rand(rng) for _ in pn))
-    kc = EnzymeRates._kcat_forward(m, merge(pv, (Keq = 1.0,)))
-    @test isfinite(kc)
-    # Peak-productive-turnover contract: equals the numerical peak forward rate.
+    peak = EnzymeRates._peak_turnover(m, merge(pv, (Keq = 1.0,)), (1e-12, 1e9))
+    @test isfinite(peak.value)
     fp = merge(pv, (Keq = 1.0, E_total = 1.0))
-    vmax = maximum(rate_equation(m, (A = x, B = y, P = 0.0, Q = 0.0), fp, Reduced)
-                   for x in 10.0 .^ (0:1:9), y in 10.0 .^ (0:1:9))
-    @test kc ≈ vmax rtol = 1e-3
+    vgrid = maximum(rate_equation(m, (A = x, B = y, P = p, Q = q), fp)
+                    for x in 10.0 .^ (-12:9), y in 10.0 .^ (-12:9),
+                        p in 10.0 .^ (-12:3:9), q in 10.0 .^ (-12:3:9))
+    @test peak.value >= vgrid * (1 - 1e-12)
 end
 
-@testset "allosteric kcat: a one-sided regulator's corner is its conformation's limit" begin
+@testset "the peak turnover covers every regulator corner at saturating substrate" begin
     # A regulator that binds one conformation only (:OnlyA or :OnlyI) puts all the enzyme
     # in that conformation when it saturates, so the rate tends to that conformation's own
-    # saturating turnover; with the regulator absent both conformations contribute. kcat
-    # is the largest regulator corner at saturating S.
+    # saturating turnover; with the regulator absent both conformations contribute. The
+    # peak turnover is at least every regulator corner's turnover at saturating S.
     # :NonequalAI catalysis: both conformations turn over.
     only_a = @allosteric_mechanism begin
         substrates: S
@@ -2404,19 +2404,21 @@ end
             rng = Random.MersenneTwister(seed)
             p = merge(NamedTuple{pn}(Tuple(0.2 + 5 * rand(rng) for _ in pn)),
                       (Keq = 2.0, E_total = 1.0))
+            # Corners of the searched range: each regulator at a bound, saturating S,
+            # the product at the lower bound.
             vmax = maximum(0:(2^length(regs) - 1)) do mask
-                r = Tuple((mask >> (i - 1)) & 1 == 1 ? BIG : 0.0 for i in eachindex(regs))
-                rate_equation(m, NamedTuple{(:S, :P, regs...)}((BIG, 0.0, r...)), p)
+                r = Tuple((mask >> (i - 1)) & 1 == 1 ? BIG : 1e-12
+                          for i in eachindex(regs))
+                rate_equation(m, NamedTuple{(:S, :P, regs...)}((BIG, 1e-12, r...)), p)
             end
-            @test EnzymeRates._kcat_forward(m, p) ≈ vmax rtol = 1e-6
+            @test EnzymeRates._peak_turnover(m, p, (1e-12, BIG)).value >=
+                  vmax * (1 - 1e-12)
         end
     end
 end
 
-@testset "Fix B: non-allosteric random-order bi-bi kcat = peak (contract guard)" begin
-    # Sweeps 40 parameter draws; product-containing King–Altman cross-terms
-    # (e.g. A·B·P monomials) are spurious candidates at products=0 and can
-    # inflate _kcat_forward by >10× before the product filter is applied.
+@testset "the peak turnover of a random-order bi-bi reaches the grid maximum" begin
+    # 40 parameter draws; the grid spans every metabolite, products included.
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2436,17 +2438,18 @@ end
     for seed in 1:40
         rng = Random.MersenneTwister(seed)
         pv = NamedTuple{pn}(Tuple(0.2 + 5 * rand(rng) for _ in pn))
-        kc = EnzymeRates._kcat_forward(m, merge(pv, (Keq = 1.0,)))
+        peak = EnzymeRates._peak_turnover(m, merge(pv, (Keq = 1.0,)), (1e-12, 1e3))
         fp = merge(pv, (Keq = 1.0, E_total = 1.0))
-        vmax = maximum(rate_equation(m, (A = x, B = y, P = 0.0, Q = 0.0), fp, Reduced)
-                       for x in 10.0 .^ (0:1:9), y in 10.0 .^ (0:1:9))
-        @test kc ≈ vmax rtol = 1e-3
+        vgrid = maximum(rate_equation(m, (A = x, B = y, P = p, Q = q), fp)
+                        for x in 10.0 .^ (-12:3), y in 10.0 .^ (-12:3),
+                            p in 10.0 .^ (-12:3:3), q in 10.0 .^ (-12:3:3))
+        @test peak.value >= vgrid * (1 - 1e-12)
     end
 end
 
-@testset "kcat with no product-free saturating pattern errors descriptively" begin
+@testset "the peak of a law that needs bound product lies at a positive product level" begin
     # Catalysis runs only on the product-bound form E(P), so every forward numerator
-    # term carries P and no pattern survives the products = 0 filter.
+    # term carries P and the turnover vanishes at zero product.
     m = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -2459,7 +2462,9 @@ end
     end
     pn = EnzymeRates.fitted_params(m)
     params = merge(NamedTuple{pn}(ntuple(_ -> 1.5, length(pn))), (Keq = 2.0,))
-    @test_throws "no kcat components" EnzymeRates._kcat_forward(m, params)
+    peak = EnzymeRates._peak_turnover(m, params, (1e-12, 1e3))
+    @test peak.value > 0
+    @test 1e-3 < peak.concs.P < 1e3
 end
 
 @testset "rendering helpers" begin
