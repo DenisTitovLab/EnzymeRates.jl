@@ -55,8 +55,8 @@ end
 # hold a `Mechanism` (e.g. the `identify_rate_equation` pipeline) use these
 # without an explicit lift. `compile_mechanism` does Sig conversion (it
 # allocates) — it is NOT the rate_equation hot path. Pass an
-# `EnzymeMechanism` / `AllostericEnzymeMechanism` for the 0-alloc/<100ns
-# `rate_equation` guarantee.
+# `EnzymeMechanism` / `AllostericEnzymeMechanism` for the allocation-free
+# `rate_equation` hot path.
 parameters(m::Union{Mechanism, AllostericMechanism},
            mode::AbstractRateEquationMode) =
     parameters(compile_mechanism(m), mode)

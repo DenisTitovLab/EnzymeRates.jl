@@ -25,12 +25,12 @@ This is the most important architectural decision in the package, and it is
 deliberate. Moving the derivation to compile time leaves
 `rate_equation(m, conc, params)` as one arithmetic expression, written in Horner
 form (`_poly_to_horner`), that must be
-**allocation-free and sub-120 ns per call**, enforced by
-`_testhelper_test_rate_equation_performance`
-(`test/test_rate_eq_derivation.jl`, asserting `allocs == 0` and `t < 120e-9` for
-every fixture mechanism and the three largest enumerated rate laws). Three larger
-ter-bi laws (589, 799 and 858 denominator terms) are held to
-`max(120 ns, 0.7 ns × denominator terms)`. The printed equation of
+**allocation-free and fast**: under 120 ns per call for every fixture mechanism, and
+under `max(120 ns, 0.8 ns × denominator terms)` for the three largest enumerated bi-bi
+laws (396 denominator terms each) and three ter-bi laws (589, 799 and 858 terms).
+`_testhelper_test_rate_equation_performance` (`test/test_rate_eq_derivation.jl`)
+measures each law's allocations and time per call, and the tests assert
+`allocs == 0` and the law's bound. The printed equation of
 `rate_equation_string` keeps flat sums. That speed is the binding
 constraint on the whole package: the fitter is a multi-start, global,
 gradient-free optimizer that
