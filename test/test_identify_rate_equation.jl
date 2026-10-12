@@ -237,6 +237,7 @@ end
             params = (a = 1.0, b = 2.0),
             eq_hash = "0123456789abcdef",
             fit_inherited = false,
+            peak_at_range_edge = true,
         )]
         df = EnzymeRates._rows_to_dataframe(
             rows)
@@ -248,6 +249,7 @@ end
         @test "error" in names(df)
         @test "fit_inherited" in names(df)
         @test df.fit_inherited == [false]
+        @test df.peak_at_range_edge == [true]
         @test !("fit_inherited_from_estimate" in names(df))
 
         # Empty rows
@@ -259,11 +261,12 @@ end
         rows_with_failure = [
             (n_params = 3, loss = 0.5, mechanism_type = "M",
              rate_equation = "v = ...", retcode = "Success", error = missing,
-             params = (a = 1.0,), eq_hash = "0123456789abcdef", fit_inherited = false),
+             params = (a = 1.0,), eq_hash = "0123456789abcdef", fit_inherited = false,
+             peak_at_range_edge = false),
             (n_params = missing, loss = missing, mechanism_type = "M",
              rate_equation = missing, retcode = missing,
              error = "StackOverflowError: ", params = (;), eq_hash = missing,
-             fit_inherited = missing),
+             fit_inherited = missing, peak_at_range_edge = missing),
         ]
         df_with_failure = EnzymeRates._rows_to_dataframe(rows_with_failure)
         @test nrow(df_with_failure) == 2
@@ -273,6 +276,13 @@ end
         @test ismissing(df_with_failure.eq_hash[2])
         @test df_with_failure.fit_inherited[1] == false
         @test ismissing(df_with_failure.fit_inherited[2])
+        @test df_with_failure.peak_at_range_edge[1] == false
+        @test ismissing(df_with_failure.peak_at_range_edge[2])
+        # A row without the field records missing.
+        @test ismissing(EnzymeRates._rows_to_dataframe([(n_params = 1, loss = 0.1,
+            mechanism_type = "M", rate_equation = "v", retcode = "Success",
+            error = missing, params = (;), eq_hash = "0", fit_inherited = false)
+            ]).peak_at_range_edge[1])
         @test "a" in names(df_with_failure)    # param column still built from row 1
         @test ismissing(df_with_failure.a[2])  # failure row contributes no param value
     end
@@ -287,6 +297,7 @@ end
         T = Core.eval(EnzymeRates, Meta.parse(row.mechanism_type))
         @test EnzymeRates.Mechanism(T()) == m
         @test row.error == "boom"
+        @test ismissing(row.peak_at_range_edge)
     end
 
     @testset "_rate_eq_dedup_key" begin
@@ -441,6 +452,7 @@ end
             # Diagnostic parent columns: every saved CSV carries them.
             @test "parent_n_params" in names(df_file)
             @test "parent_mechanism_type" in names(df_file)
+            @test "peak_at_range_edge" in names(df_file)
         end
         # Base tier is parentless.
         @test all(ismissing, init_df.parent_n_params)
@@ -669,6 +681,7 @@ end
         rate_equation = "v = 1", retcode = "Success", error = missing,
         params = (K_a = 2.0,), eq_hash = "abc",
         fit_inherited = false,
+        peak_at_range_edge = true,
     )]
     mktempdir() do tmp
         EnzymeRates._write_rows_csv(tmp, "equation_search_iteration_3.csv", rows)
@@ -676,6 +689,7 @@ end
         df = CSV.read(joinpath(tmp, "equation_search_iteration_3.csv"), DataFrame)
         @test df.n_params == [5]
         @test df.K_a == [2.0]
+        @test df.peak_at_range_edge == [true]
         @test "eq_hash" in names(df)
         # dir-creation branch: save_dir does not exist yet
         subdir = joinpath(tmp, "made")
@@ -1421,6 +1435,9 @@ end
     @test entries[1].retcode === entries[2].retcode === :Success
     # Representative fit first (false); the duplicate is inherited (true).
     @test [e.row.fit_inherited for e in entries] == [false, true]
+    # The edge flag belongs to the equation's fit, so the inherited row copies it.
+    @test entries[1].row.peak_at_range_edge isa Bool
+    @test entries[2].row.peak_at_range_edge === entries[1].row.peak_at_range_edge
 
     # The memo stores the fit; every row sharing this eq_hash copies it verbatim,
     # so both rows carry identical params — same equation ⟹ same fit + rescaling.

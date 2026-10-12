@@ -254,6 +254,8 @@ function _rows_to_dataframe(rows)
         error = Union{Missing,String}[r.error for r in rows],
         eq_hash = [r.eq_hash for r in rows],
         fit_inherited = Union{Missing,Bool}[r.fit_inherited for r in rows],
+        peak_at_range_edge =
+            Union{Missing,Bool}[get(r, :peak_at_range_edge, missing) for r in rows],
     )
     for pn in sorted_pnames
         df[!, pn] = [get(r.params, pn, missing) for r in rows]
@@ -393,7 +395,8 @@ function _failure_row(f::FitFailure)
      error = f.error,
      params = (;),
      eq_hash = missing,
-     fit_inherited = missing)
+     fit_inherited = missing,
+     peak_at_range_edge = missing)
 end
 
 """
@@ -573,6 +576,7 @@ function _process_batch(
             params = fit.params,
             eq_hash = string(c.eq_hash, base=16, pad=16),
             fit_inherited = inherited,
+            peak_at_range_edge = fit.peak_at_range_edge,
         )
         push!(entries, BatchEntry(c.mech, c.n_params, fit.loss, fit.retcode,
                                   c.eq_hash, row))
