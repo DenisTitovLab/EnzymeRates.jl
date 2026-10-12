@@ -349,9 +349,11 @@ end
 # ─── Expr generation from POLY ──────────────────────────────
 
 """The numerator and denominator Exprs of the rate equation of `M`, from its raw
-symbolic rate polys."""
-function _num_den_exprs(@nospecialize(M::Type{<:EnzymeMechanism}))
+symbolic rate polys: flat sums for the printed equation, or in Horner form
+(`_poly_to_horner`) for the generated code when `horner` is true."""
+function _num_den_exprs(@nospecialize(M::Type{<:EnzymeMechanism}); horner = false)
     num, den, _ = _raw_symbolic_rate_polys(M)
+    horner && return _poly_to_horner(num), _poly_to_horner(den)
     param_syms = Set{Symbol}(_raw_param_symbols(M()))
     _poly_to_expr(num, param_syms), _poly_to_expr(den, param_syms)
 end
@@ -388,12 +390,12 @@ end
 """
 The body of the generated `rate_equation` of `M`: destructure `param_syms` from
 `params` and the metabolites from `concs`, assign the dependent parameters `dep`, and
-return `E_total * (num) / (den)` with `num` and `den` from `_num_den_exprs`. A metabolite
-named after a parameter raises (`_assert_no_name_clash`).
+return `E_total * (num) / (den)` with `num` and `den` from `_num_den_exprs` in Horner
+form. A metabolite named after a parameter raises (`_assert_no_name_clash`).
 """
 function _rate_body(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param_syms, dep)
     _assert_no_name_clash(M, param_syms, dep)
-    num, den = _num_den_exprs(M)
+    num, den = _num_den_exprs(M; horner = true)
     Expr(:block,
         _destructuring_expr(param_syms, :params),
         _destructuring_expr(metabolites(M()), :concs),
@@ -1133,11 +1135,14 @@ end
 
 """
 Assemble the MWC numerator and denominator Exprs.
-Returns `(full_num, full_den)`. Per-active-site normalization: the
+Returns `(full_num, full_den)`, written with flat sums for the printed equation, or in
+Horner form (`_poly_to_horner`) for the generated code when `horner` is true.
+Per-active-site normalization: the
 numerator carries no leading `catalytic_multiplicity` factor; only the
 `Q_cat^(CatN-1)` / `Q_cat^CatN` binding-statistics powers remain.
 """
-function _num_den_exprs(@nospecialize(M_type::Type{<:AllostericEnzymeMechanism}))
+function _num_den_exprs(@nospecialize(M_type::Type{<:AllostericEnzymeMechanism});
+                        horner = false)
     m = M_type()
     am = AllostericMechanism(m)
     CatN = catalytic_multiplicity(m)
@@ -1146,17 +1151,18 @@ function _num_den_exprs(@nospecialize(M_type::Type{<:AllostericEnzymeMechanism})
     # A-state catalytic param symbols (the tagged column set) drive `_poly_to_expr`'s
     # param/metabolite ordering split; the I-poly's `:I` symbols sort as non-params.
     cat_params = Set(_param_columns(_state_parts(am, :A)...))
+    to_expr(p) = horner ? _poly_to_horner(p) : _poly_to_expr(p, cat_params)
     num_A_poly, den_A_poly, num_i_poly, den_i_poly, d_A, d_I =
         _mwc_state_polys(am, Set{Symbol}(metabolites(catalytic_mechanism(m))))
     # A free-enzyme weight left for cross-weighting multiplies the other state's terms;
     # a normalized one renders as 1, which `_mwc_cross_weight` skips.
-    D_A_expr = _poly_to_expr(d_A, cat_params)
-    D_I_expr = _poly_to_expr(d_I, cat_params)
+    D_A_expr = to_expr(d_A)
+    D_I_expr = to_expr(d_I)
 
-    N_A = _poly_to_expr(num_A_poly, cat_params)
-    Q_A = _poly_to_expr(den_A_poly, cat_params)
-    N_I = _poly_to_expr(num_i_poly, cat_params)
-    Q_I = _poly_to_expr(den_i_poly, cat_params)
+    N_A = to_expr(num_A_poly)
+    Q_A = to_expr(den_A_poly)
+    N_I = to_expr(num_i_poly)
+    Q_I = to_expr(den_i_poly)
 
     # Each regulatory site's factor at its multiplicity, per conformation.
     reg_A = Any[_power_expr(_reg_site_expr(am, s, false), multiplicity(s)) for s in RS]
