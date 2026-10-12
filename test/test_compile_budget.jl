@@ -195,7 +195,8 @@ end
             ER._mechanism_type_string(em)
             s1 = _testhelper_instances(methods(show))
             fp = FittingProblem(ER.compile_mechanism(m), PROB.data;
-                                Keq = PROB.Keq, scale_k_to_kcat = PROB.scale_k_to_kcat)
+                                Keq = PROB.Keq, absolute = PROB.absolute,
+                                peak_range = PROB.peak_range)
             fit_rate_equation(fp, OPT; FIT_KW...)
             ER._cv_fold_loss(ER.compile_mechanism(m), PROB, "G1";
                              optimizer = OPT, FIT_KW...)

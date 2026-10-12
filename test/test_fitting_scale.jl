@@ -222,6 +222,10 @@ end
         ramp = _testhelper_TurnoverFunction(u -> u[1])
         u, v, at_edge = EnzymeRates._maximize_on_box(ramp, 1, -12.0, 3.0)
         @test u == [3.0] && v == 3.0 && at_edge === true
+        # A best value that is not positive never counts as rising at the edge: this ramp
+        # is -1 at the upper edge and rises only 0.1% over the last decade.
+        negative = _testhelper_TurnoverFunction(u -> -1.0 - 1e-3 * (3 - u[1]))
+        @test EnzymeRates._maximize_on_box(negative, 1, -12.0, 3.0)[3] === false
         # A function undefined everywhere has no peak.
         nowhere = _testhelper_TurnoverFunction(u -> NaN)
         @test EnzymeRates._maximize_on_box(nowhere, 2, -12.0, 3.0)[2] == -Inf

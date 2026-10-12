@@ -108,13 +108,14 @@ end
         @test length(
             unique(prob.data.group)) == 5
 
-        # scale_k_to_kcat field: default 1.0, settable to nothing, validated.
-        @test prob.scale_k_to_kcat == 1.0
+        # absolute and peak_range: relative mode and the default range unless set.
+        @test prob.absolute === false
+        @test prob.peak_range === (1e-12, 1e3)
         prob_abs = IdentifyRateEquationProblem(
-            test_rxn, test_data; Keq=Keq_val, scale_k_to_kcat=nothing)
-        @test prob_abs.scale_k_to_kcat === nothing
-        @test_throws ErrorException IdentifyRateEquationProblem(
-            test_rxn, test_data; Keq=Keq_val, scale_k_to_kcat=0.0)
+            test_rxn, test_data; Keq=Keq_val, absolute=true, peak_range=(1e-9, 1e2))
+        @test prob_abs.absolute === true && prob_abs.peak_range === (1e-9, 1e2)
+        @test_throws MethodError IdentifyRateEquationProblem(
+            test_rxn, test_data; Keq=Keq_val, scale_k_to_kcat=1.0)
         # An integer Keq converts to the Float64 field.
         @test IdentifyRateEquationProblem(test_rxn, test_data; Keq=10).Keq === 10.0
 
@@ -150,8 +151,8 @@ end
                 Keq=1.0))
 
         # A non-finite or missing rate, a concentration that is not a finite number
-        # ≥ 0, or a Keq or scale_k_to_kcat that is not positive and finite: each error
-        # names the column (with the row), Keq or scale_k_to_kcat.
+        # ≥ 0, a Keq that is not positive and finite, or a peak_range out of order: each
+        # error names the column (with the row), Keq or peak_range.
         two_groups = (group = ["G1", "G2"], Rate = [1.0, 2.0],
                       S = [1.0, 1.0], P = [0.1, 0.1], R = [1.0, 1.0])
         for (bad, shown) in ((NaN, "NaN"), (Inf, "Inf"), (-Inf, "-Inf"),
@@ -175,12 +176,12 @@ end
         for (bad, shown) in ((0, "0"), (-1, "-1"), (Inf, "Inf"), (NaN, "NaN"))
             @test_throws(ErrorException("Keq must be positive and finite; got $shown"),
                 IdentifyRateEquationProblem(test_rxn, two_groups; Keq=bad))
-            @test_throws(
-                ErrorException("scale_k_to_kcat must be positive and finite (or " *
-                               "nothing); got $shown"),
-                IdentifyRateEquationProblem(test_rxn, two_groups; Keq=1.0,
-                                            scale_k_to_kcat=bad))
         end
+        @test_throws(
+            ErrorException("peak_range must be a tuple (lo, hi) with 0 < lo < hi < Inf; " *
+                           "got (1.0, 0.5)"),
+            IdentifyRateEquationProblem(test_rxn, two_groups; Keq=1.0,
+                                        peak_range=(1.0, 0.5)))
 
         # A metabolite named after a required column would read that column, here the
         # group numbers, as its concentrations.
@@ -543,14 +544,21 @@ end
         first(EnzymeRates.init_mechanisms(_testhelper_uni_rxn)))
     for data_form in (NamedTuple, DataFrame)
         prob = _testhelper_uni_prob(data_form)
-        full = FittingProblem(em, prob.data; Keq=prob.Keq,
-                              scale_k_to_kcat=prob.scale_k_to_kcat)
+        full = FittingProblem(em, prob.data; Keq=prob.Keq, absolute=prob.absolute,
+                              peak_range=prob.peak_range)
         fold = EnzymeRates._fold_problem(em, prob, prob.data.group .== prob.data.group[3])
         @test typeof(fold) === typeof(full)
         @test fold.data.S == [3.0, 4.0]
         @test fold.data.P == [0.3, 0.4]
         @test fold.data.Rate == [1.0, 1.1]
-        @test fold.Keq === 10.0 && fold.scale_k_to_kcat === 1.0
+        @test fold.Keq === 10.0 && fold.absolute === false &&
+              fold.peak_range === (1e-12, 1e3)
+        # A fold copies the problem's mode and range.
+        prob_abs = IdentifyRateEquationProblem(prob.reaction, prob.data; Keq=prob.Keq,
+                                               absolute=true, peak_range=(1e-9, 1e2))
+        fold_abs = EnzymeRates._fold_problem(em, prob_abs,
+                                             prob.data.group .== prob.data.group[3])
+        @test fold_abs.absolute === true && fold_abs.peak_range === (1e-9, 1e2)
     end
 end
 
@@ -600,8 +608,8 @@ end
     # Typed as the abstract mechanism, as in the pipeline, so each call dispatches on the
     # mechanism's run-time type.
     for em in EnzymeRates.AbstractEnzymeMechanism[re_binding, ss_binding]
-        full = FittingProblem(em, prob.data; Keq=prob.Keq,
-                              scale_k_to_kcat=prob.scale_k_to_kcat)
+        full = FittingProblem(em, prob.data; Keq=prob.Keq, absolute=prob.absolute,
+                              peak_range=prob.peak_range)
         fit_rate_equation(full, optimizer; n_restarts=1, maxiters=10)
         n = _testhelper_enzymerates_method_instances()
         EnzymeRates._cv_fold_loss(em, prob, "G1"; optimizer, n_restarts=1, maxiters=10)
@@ -1423,8 +1431,8 @@ end
         @test e.row.params == fit.params
     end
     @test entries[1].row.params == entries[2].row.params
-    # scale_k_to_kcat=1.0 anchored kcat: the copied params are the rescaled fit,
-    # not the raw 5.0 the stub optimizer returned.
+    # The default peak scale: the copied params are the rescaled fit, not the raw
+    # 5.0 the stub optimizer returned.
     @test !all(v -> v ≈ 5.0, entries[1].row.params)
 
     # Cross-batch memo hit: a later batch with the same eq_hash refits NOTHING.

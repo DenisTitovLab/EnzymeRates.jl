@@ -17,20 +17,25 @@ constant for rate equation identification.
 - `data`: `NamedTuple` of column vectors with `:group`,
   `:Rate`, and metabolite columns
 - `Keq`: fixed equilibrium constant
-- `scale_k_to_kcat`: a positive, finite Float64 is the target kcat the fitted SS rate
-  constants are rescaled to, and selects the relative (per-group-centered) loss;
-  `nothing` selects the absolute loss and no rescaling
+- `absolute`: `false` (the default) treats the data as relative and scales every fit to
+  peak turnover 1; `true` treats it as absolute per-enzyme turnover (see `FittingProblem`)
+- `peak_range`: the concentration range `(lo, hi)` of the peak-turnover scale (see
+  `FittingProblem`)
+
+Construct it with `IdentifyRateEquationProblem(reaction, table; Keq, absolute = false,
+peak_range = (1e-12, 1e3))`.
 """
 struct IdentifyRateEquationProblem{D<:NamedTuple}
     reaction::EnzymeReaction
     data::D
     Keq::Float64
-    scale_k_to_kcat::Union{Float64,Nothing}
+    absolute::Bool
+    peak_range::Tuple{Float64,Float64}
 end
 
 function IdentifyRateEquationProblem(
     reaction::EnzymeReaction, table; Keq::Real,
-    scale_k_to_kcat::Union{Real,Nothing}=1.0
+    absolute::Bool=false, peak_range=DEFAULT_PEAK_RANGE
 )
     mnames = _metabolite_names(reaction)
     # The search fits allosteric mechanisms, and their rate equations take the
@@ -39,7 +44,7 @@ function IdentifyRateEquationProblem(
         "Metabolite L has the name of the conformational constant L of the allosteric " *
         "mechanisms the search fits; rename the metabolite")
     # Every metabolite the reaction declares needs a concentration column.
-    data = _rate_table(table, mnames, scale_k_to_kcat, Keq)
+    data = _rate_table(table, mnames, Keq)
 
     # Validate at least 2 groups for CV
     n_groups = length(unique(data.group))
@@ -47,7 +52,8 @@ function IdentifyRateEquationProblem(
         "Need at least 2 unique groups for " *
         "cross-validation, got $n_groups")
 
-    IdentifyRateEquationProblem{typeof(data)}(reaction, data, Keq, scale_k_to_kcat)
+    IdentifyRateEquationProblem{typeof(data)}(reaction, data, Keq, absolute,
+                                              _peak_range(peak_range))
 end
 
 """
@@ -527,7 +533,7 @@ function _process_batch(
     rep_fits = pmap(reps) do r
         try
             fp = FittingProblem(compile_mechanism(r.mech), prob.data;
-                Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
+                Keq=prob.Keq, absolute=prob.absolute, peak_range=prob.peak_range)
             (eq_hash = r.eq_hash, fit = fit_rate_equation(fp, optimizer; kwargs...),
              error = nothing)
         catch e
@@ -722,8 +728,8 @@ function _beam_search(
     # Mechanisms expanded so far per parameter count — the cumulative floor
     # budget. Spent once over the whole search, never re-granted per sweep.
     expanded_by_count = Dict{Int, Int}()
-    # Fits as `fit_rate_equation` returns them (rescaled when `scale_k_to_kcat` is
-    # set), keyed by `eq_hash`, shared across iterations so each distinct equation is
+    # Fits as `fit_rate_equation` returns them (scaled to peak turnover 1 in relative
+    # mode), keyed by `eq_hash`, shared across iterations so each distinct equation is
     # fit exactly once over the whole search.
     memo = Dict{UInt64,NamedTuple}()
     # Structures already produced — each is expanded at most once (termination).
@@ -948,7 +954,7 @@ fold copies its rows rather than viewing them, so its problem has the full fit's
 function _fold_problem(@nospecialize(mechanism::AbstractEnzymeMechanism),
                        prob::IdentifyRateEquationProblem, mask)
     FittingProblem(mechanism, map(col -> col[mask], prob.data);
-        Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
+        Keq=prob.Keq, absolute=prob.absolute, peak_range=prob.peak_range)
 end
 
 """

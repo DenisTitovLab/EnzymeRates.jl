@@ -574,7 +574,7 @@ Set of Symbol names for SS rate-constant parameters (`Kfor`, `Krev`) of
 names (`I_` tag after the prefix, e.g. `k_I_ES_to_EP`) of every SS rate
 constant that lives in the inactive state polynomial. Routes Symbol production through the
 `name(p, m)` chokepoint via Parameter-subtype dispatch. Used by
-`rescale_parameter_values` to scale only SS k's without touching RE
+`_scale_rate_constants` to scale only SS k's without touching RE
 Kd's, Keq, E_total, L, or regulatory K's.
 """
 function _ss_rate_constant_names(@nospecialize(em::AbstractEnzymeMechanism))

@@ -12,8 +12,10 @@ rate constants.
 - `data`: `NamedTuple` of column vectors (via `Tables.columntable`)
 - `group_point_indexes`: row indices grouped by unique `group` values
 - `Keq`: fixed equilibrium constant
-- `scale_k_to_kcat`: a positive, finite `Real` selects relative mode (per-group-centered
-  loss); `nothing` selects absolute per-enzyme-turnover mode (uncentered loss)
+- `absolute`: `false` selects relative mode (per-group-centered loss, fit scaled to peak
+  turnover 1); `true` selects absolute per-enzyme turnover mode (uncentered loss, no
+  scale)
+- `peak_range`: the concentration range `(lo, hi)` of the peak-turnover scale
 - `log_abs_rates`: pre-computed `log.(abs.(Rate))`
 - `log_ratios_buffer`: pre-allocated working buffer for loss computation
 """
@@ -22,14 +24,15 @@ struct FittingProblem{M<:AbstractEnzymeMechanism, D<:NamedTuple}
     data::D
     group_point_indexes::Vector{Vector{Int}}
     Keq::Float64
-    scale_k_to_kcat::Union{Float64,Nothing}
+    absolute::Bool
+    peak_range::Tuple{Float64,Float64}
     log_abs_rates::Vector{Float64}
     log_ratios_buffer::Vector{Float64}
 end
 
 """
     FittingProblem(mechanism::AbstractEnzymeMechanism, table;
-        Keq::Real, scale_k_to_kcat::Union{Real,Nothing}=1.0)
+        Keq::Real, absolute::Bool = false, peak_range = (1e-12, 1e3))
 
 Construct a `FittingProblem` from an enzyme mechanism and tabular data.
 
@@ -37,39 +40,44 @@ The table must have columns: `group`, `Rate`, and one column per
 metabolite matching `metabolites(mechanism)`, so no metabolite may be
 named `group` or `Rate`. Uses `Tables.columntable` for conversion.
 
-`scale_k_to_kcat` selects the loss mode: a positive, finite `Real` (default `1.0`)
-treats the data as relative (per-group-centered loss); `nothing` treats it as
-absolute per-enzyme turnover (uncentered loss).
+With `absolute = false` (the default) the data are relative: the loss centers each
+group's log-ratios, and `fit_rate_equation` scales the fitted rate constants so the
+mechanism's peak turnover — its largest net forward rate per enzyme over every
+metabolite's concentration within `peak_range`, products and regulators included — is 1.
+With `absolute = true` the data are absolute per-enzyme turnover: the loss is uncentered
+and the fit is returned unscaled. `peak_range = (lo, hi)` is in the data's concentration
+units; the default covers physiological concentrations in M or mM, and data in µM need a
+higher upper bound.
 
 Rate values must be finite and nonzero (the loss takes their log; a zero rate gives
-`-Inf`), every concentration must be a finite number ≥ 0 (zero is valid), and `Keq`
-must be positive and finite.
+`-Inf`), every concentration must be a finite number ≥ 0 (zero is valid), `Keq`
+must be positive and finite, and `peak_range` must be a tuple `(lo, hi)` with
+`0 < lo < hi < Inf`.
 """
 function FittingProblem(mechanism::AbstractEnzymeMechanism, table;
-        Keq::Real, scale_k_to_kcat::Union{Real,Nothing}=1.0)
-    data = _rate_table(table, metabolites(mechanism), scale_k_to_kcat, Keq)
+        Keq::Real, absolute::Bool=false, peak_range=DEFAULT_PEAK_RANGE)
+    data = _rate_table(table, metabolites(mechanism), Keq)
     group_map = Dict{eltype(data.group), Vector{Int}}()
     for (i, g) in enumerate(data.group)
         push!(get!(() -> Int[], group_map, g), i)
     end
-    # The typed constructor converts Keq and scale_k_to_kcat to the field types.
+    # The typed constructor converts Keq to the field type.
     FittingProblem{typeof(mechanism), typeof(data)}(
-        mechanism, data, collect(values(group_map)), Keq, scale_k_to_kcat,
-        log.(abs.(data.Rate)), Vector{Float64}(undef, length(data.Rate)))
+        mechanism, data, collect(values(group_map)), Keq, absolute,
+        _peak_range(peak_range), log.(abs.(data.Rate)),
+        Vector{Float64}(undef, length(data.Rate)))
 end
 
 """
-    _rate_table(table, mnames, scale_k_to_kcat, Keq) → NamedTuple
+    _rate_table(table, mnames, Keq) → NamedTuple
 
-Validate a rate table and return it as `Tables.columntable(table)`: `scale_k_to_kcat`
-must be positive and finite or `nothing`, `Keq` must be positive and finite, the table
-needs a `group` column, a `Rate` column and one column per name in `mnames`, no name in
-`mnames` may be `group` or `Rate`, every concentration must be a finite number ≥ 0 (zero
-is valid), and every rate must be a finite, nonzero number (the loss takes its log).
+Validate a rate table and return it as `Tables.columntable(table)`: `Keq` must be
+positive and finite, the table needs a `group` column, a `Rate` column and one column per
+name in `mnames`, no name in `mnames` may be `group` or `Rate`, every concentration must
+be a finite number ≥ 0 (zero is valid), and every rate must be a finite, nonzero number
+(the loss takes its log).
 """
-function _rate_table(table, mnames, scale_k_to_kcat, Keq)
-    scale_k_to_kcat === nothing || 0 < scale_k_to_kcat < Inf || error(
-        "scale_k_to_kcat must be positive and finite (or nothing); got $scale_k_to_kcat")
+function _rate_table(table, mnames, Keq)
     0 < Keq < Inf || error("Keq must be positive and finite; got $Keq")
     data = Tables.columntable(table)
     for req in (:group, :Rate)
@@ -96,10 +104,8 @@ Accept the concrete working-representation mechanism: compile to the
 singleton once at construction so `loss!`'s hot path operates on the
 @generated `EnzymeMechanism` / `AllostericEnzymeMechanism` (0-alloc).
 """
-FittingProblem(mechanism::Union{Mechanism, AllostericMechanism}, table;
-        Keq::Real, scale_k_to_kcat::Union{Real,Nothing}=1.0) =
-    FittingProblem(compile_mechanism(mechanism), table;
-        Keq=Keq, scale_k_to_kcat=scale_k_to_kcat)
+FittingProblem(mechanism::Union{Mechanism, AllostericMechanism}, table; kwargs...) =
+    FittingProblem(compile_mechanism(mechanism), table; kwargs...)
 
 """
     loss!(x::AbstractVector, fp::FittingProblem)
@@ -107,10 +113,10 @@ FittingProblem(mechanism::Union{Mechanism, AllostericMechanism}, table;
 Compute the log-ratio loss. Zero-allocation on the hot path.
 
 Parameters in `x` are in log-space (i.e., actual rate constants =
-`exp.(x)`). When `fp.scale_k_to_kcat` is a `Real`, each group's
+`exp.(x)`). In relative mode (`fp.absolute == false`) each group's
 log-ratios are centered (mean-subtracted) before squaring, making the
-loss invariant to per-group E_total scaling (relative data). When it is
-`nothing`, the log-ratios are squared without centering, so the absolute
+loss invariant to per-group E_total scaling (relative data). In absolute
+mode (`fp.absolute`) the log-ratios are squared without centering, so the absolute
 magnitude is scored (absolute per-enzyme turnover data).
 
 Sign mismatches (predicted vs measured rate sign) incur a flat penalty
@@ -147,12 +153,11 @@ function loss!(x::AbstractVector, fp::FittingProblem)
         end
     end
 
-    # Pass 2: loss. Relative (scale_k_to_kcat isa Real) → per-group mean-
-    # centered, removing each group's arbitrary scale. Absolute
-    # (scale_k_to_kcat === nothing) → uncentered: the y-axis is absolute
+    # Pass 2: loss. Relative (fp.absolute false) → per-group mean-centered, removing
+    # each group's arbitrary scale. Absolute → uncentered: the y-axis is absolute
     # per-enzyme turnover, so the absolute magnitude is meaningful.
     total_loss = 0.0
-    if fp.scale_k_to_kcat === nothing
+    if fp.absolute
         @inbounds for i in 1:n_data
             total_loss += buf[i] * buf[i]
         end
@@ -229,12 +234,12 @@ present in both a named common option and `solver_kwargs` takes the
 `solver_kwargs` value. `lb`/`ub` are the log-space bounds passed to the
 `OptimizationProblem`.
 
-Rescaling is driven by `fp.scale_k_to_kcat`: when it is a `Real`, the returned
-parameters are rescaled so that `_kcat_forward(mechanism, params) ≈
-fp.scale_k_to_kcat`; when it is `nothing`, the raw (unrescaled) parameters are
-returned (the data fixes the absolute scale).
+In relative mode (`fp.absolute == false`) the returned rate constants are scaled so the
+mechanism's peak turnover within `fp.peak_range` is 1 (see `FittingProblem`); a law with
+no positive turnover in the range is returned unscaled. In absolute mode they are returned
+as fitted.
 
-Returns a NamedTuple `(params, loss, retcode)` where:
+Returns a NamedTuple `(params, loss, retcode, peak_at_range_edge)` where:
 - `params`: fitted rate constants as a NamedTuple
 - `loss`: the best loss value achieved
 - `retcode`: the `Symbol` form of the best restart's `sol.retcode`. Only
@@ -242,6 +247,9 @@ Returns a NamedTuple `(params, loss, retcode)` where:
   value (e.g. `:MaxTime` — hit the time budget; `:Failure`; `:Default` — ran but
   did not flag success) means the fit should be treated as un-converged (check
   `retcode !== :Success`).
+- `peak_at_range_edge`: `true` when the scaled law still rises at the upper edge of
+  `fp.peak_range` — by more than 10% over the range's last decade — so a wider range would
+  change the scale; always `false` in absolute mode
 """
 function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     n_restarts::Int=20,
@@ -254,9 +262,9 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     ub=fill(15.0, length(fitted_params(fp.mechanism))),
     solver_kwargs=(;),
 )
-    # `fp` is @nospecialize, so the names need this type for `[pnames]` below to compile
-    # once, as Base's NamedTuple getindex; untyped names, or names typed only as a Tuple,
-    # which Static.jl's getindex method also matches, make it compile per mechanism.
+    # `fp` is @nospecialize, so `fitted_params(fp.mechanism)` infers as `Any`; asserting a
+    # tuple of Symbols lets `np` infer as an `Int` and the NamedTuple built from the names
+    # as a `NamedTuple`.
     pnames = fitted_params(fp.mechanism)::Tuple{Vararg{Symbol}}
     np = length(pnames)
 
@@ -290,12 +298,29 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     end
 
     result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(np)))
-    if fp.scale_k_to_kcat !== nothing
-        result_params = rescale_parameter_values(fp.mechanism,
-            merge(result_params, (Keq = fp.Keq, E_total = 1.0));
-            scale_k_to_kcat=fp.scale_k_to_kcat)[pnames]
+    peak_at_range_edge = false
+    if !fp.absolute
+        peak = _peak_turnover(fp.mechanism, merge(result_params, (Keq = fp.Keq,)),
+                              fp.peak_range)
+        peak_at_range_edge = peak.at_edge
+        0 < peak.value < Inf && (result_params =
+            _scale_rate_constants(fp.mechanism, result_params, 1 / peak.value))
     end
-    return (params = result_params, loss = best_loss, retcode = best_retcode)
+    return (params = result_params, loss = best_loss, retcode = best_retcode,
+            peak_at_range_edge = peak_at_range_edge)
+end
+
+"""
+`params` with every steady-state rate constant of `m` multiplied by `s`, every other
+entry unchanged. A common factor on those constants multiplies every rate by the same
+factor and leaves the binding constants, `Keq`, `E_total`, `L` and the regulatory
+constants alone.
+"""
+function _scale_rate_constants(@nospecialize(m::AbstractEnzymeMechanism),
+                               params::NamedTuple, s::Real)
+    rate_constants = _ss_rate_constant_names(m)
+    NamedTuple{keys(params)}(map((k, v) -> k in rate_constants ? v * s : v,
+                                 keys(params), values(params)))
 end
 
 """
@@ -348,7 +373,8 @@ The search is deterministic. It evaluates every corner of the box (the two extre
 corners only, above 12 coordinates) and its center, then climbs from the four best of
 them one coordinate at a time (`_coordinate_ascent!`). `f` still rises at the upper edge
 when some coordinate of the best point sits at `b` and `f` there exceeds 1.1 times its
-value with that coordinate lowered by one decade (to `a` at most).
+value with that coordinate lowered by one decade (to `a` at most); a best value that is
+not positive never counts as rising.
 """
 function _maximize_on_box(f::FunctionWrapper{Float64, Tuple{Vector{Float64}}}, n::Int,
                           a::Float64, b::Float64)
@@ -363,11 +389,17 @@ function _maximize_on_box(f::FunctionWrapper{Float64, Tuple{Vector{Float64}}}, n
         v = _coordinate_ascent!(f, u, values[i], a, b)
         v > best_v && ((best_u, best_v) = (u, v))
     end
-    at_edge = any(1:n) do j
-        best_u[j] >= b - 1e-6 || return false
-        lowered = copy(best_u)
-        lowered[j] = max(a, b - 1)
-        best_v > 1.1 * f(lowered)
+    at_edge = false
+    if best_v > 0
+        for j in 1:n
+            best_u[j] >= b - 1e-6 || continue
+            lowered = copy(best_u)
+            lowered[j] = max(a, b - 1)
+            if best_v > 1.1 * f(lowered)
+                at_edge = true
+                break
+            end
+        end
     end
     best_u, best_v, at_edge
 end
