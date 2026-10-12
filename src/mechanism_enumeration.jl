@@ -1051,6 +1051,9 @@ for a `Mechanism` (`_partition_independent_count`, cycle basis once per parent)
 and by the combined state solve on the built child for an `AllostericMechanism`,
 where a candidate the constructor would reject (`_onlya_haldane_violation`) is not built
 and, like a count the derivation refuses as too large, gains nothing (`_split_gain_test`).
+A candidate the constructor would reject also takes as partners the units of every
+`:OnlyA` group: only a split of an `:OnlyA` group changes that check, and the split that
+balances the candidate's cycle may share no rapid-equilibrium segment with it.
 A part of a steady-state group none of whose steps carries flux
 (`_flux_carrying_steps`, computed once on the parent, since a split moves no edge)
 is emitted at rapid equilibrium (`_revert_zero_flux_parts`), the same family with
@@ -1077,13 +1080,13 @@ function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
         push!(units, (g, parts)); push!(reverted, parts != bp)
     end
     isempty(units) && return typeof(m)[]
-    gain = _split_gain_test(m, units)
+    gain, balancers = _split_gain_test(m, units)
     gains(sel) =
         (!any(u -> reverted[u], sel) ||
          _bottomless_re_segment(reaction(m), _bipartitioned_groups(groups, units[sel])[1])
          === nothing) && gain(sel)
     # RE segment ids touched by each kinetic group's steps; empty for a group holding an
-    # SS step, which lies on no RE cycle and is never a split partner.
+    # SS step, which lies on no RE cycle and so never partners a set that does not gain.
     _, _, _, idx, seg = _re_segment_extras(groups)
     segments = [is_equilibrium(first(group)) ?
                 Set{Int}(seg[idx[from_species(s)]] for s in group) : Set{Int}()
@@ -1092,20 +1095,23 @@ function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
         isempty(sel) && return 1:length(units)
         used = Set(units[u][1] for u in sel)
         touched = reduce(union, (segments[units[u][1]] for u in sel))
+        extra = balancers(sel)
         [u for u in 1:length(units)
          if !(units[u][1] in used) &&
-            !isempty(intersect(segments[units[u][1]], touched))]
+            (!isempty(intersect(segments[units[u][1]], touched)) || u in extra)]
     end
     sets = _minimal_gaining_sets(gains, partners)
     filter!(c -> isempty(_redundant_copy_groups(c)),
             typeof(m)[_apply_bipartitions(m, units[sel]) for sel in sets])
 end
 
-"""Gain test for the split move: `sel -> Bool`, true when applying the selected
-units raises the independent-parameter count above the parent's. A unit's steps are
-matched to the parent's flat steps by reaction (forms and metabolite lists), since a
-reverted part carries the other flag; each step is counted under the kind it has in
-the child."""
+"""Gain test for the split move: `(gains, balancers)`. `gains(sel)` is true when applying
+the selected units raises the independent-parameter count above the parent's.
+`balancers(sel)` lists the extra partners of a set whose child the `AllostericMechanism`
+constructor would reject; a `Mechanism` has no such check, so it lists none. A unit's
+steps are matched to the parent's flat steps by reaction (forms and metabolite lists),
+since a reverted part carries the other flag; each step is counted under the kind it has
+in the child."""
 function _split_gain_test(m::Mechanism, units)
     counter = _partition_independent_count(m)
     flat = _flat_steps(m)
@@ -1125,7 +1131,7 @@ function _split_gain_test(m::Mechanism, units)
         end
         counter(ids, kinds) > base
     end
-    gains
+    gains, _ -> ()
 end
 
 """
@@ -1135,8 +1141,11 @@ binding leaves a thermodynamic cycle unsatisfiable, and a split can make one: th
 leaves out an `:OnlyA` group that holds a fused binding but keeps a part of it that holds
 only plain bindings. Each candidate's groups and tags therefore go through the constructor's
 own check (`_onlya_haldane_violation`) before the child is built. A rejected candidate gains
-nothing, and the search extends it like any set that does not gain: splitting another
-`:OnlyA` group on the cycle can balance it, so a superset may be a valid child. The count
+nothing, and the search extends it like any set that does not gain and also by the units
+of every `:OnlyA` group (`balancers`, the second function returned): only a split of an
+`:OnlyA` group changes the check, and splitting another `:OnlyA` group on the cycle can
+balance it, so a superset may be a valid child even when that group is steady state or
+lies in another rapid-equilibrium segment, outside the usual partners. The count
 reads both conformations' rate polynomials when a Wegscheider tie folds a constant, and the
 derivation refuses a law over `MAX_RATE_EQUATION_TERMS` (`RateEquationTooLargeError`). A
 refused count gains nothing: its candidate is not emitted, and the search extends it like
@@ -1153,15 +1162,18 @@ function _split_gain_test(am::AllostericMechanism, units)
         nothing
     end
     base = count_or_nothing(am)
-    base === nothing && return _ -> false
+    base === nothing && return (_ -> false, _ -> ())
+    rejected = Set{Vector{Int}}()
     function gains(sel)
         groups, origin = _bipartitioned_groups(steps(am), units[sel])
         states = cat_allo_states(am)[origin]
-        _onlya_haldane_violation(reaction(am), groups, states) === nothing || return false
+        _onlya_haldane_violation(reaction(am), groups, states) === nothing ||
+            (push!(rejected, sel); return false)
         n = count_or_nothing(_with(am; groups, states))
         n !== nothing && n > base
     end
-    gains
+    onlya = [u for (u, (g, _)) in enumerate(units) if cat_allo_state(am, g) === :OnlyA]
+    gains, sel -> sel in rejected ? onlya : ()
 end
 
 """

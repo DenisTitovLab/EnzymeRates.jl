@@ -2876,6 +2876,144 @@ end
           Set([others; p_split; q_by_p; q_by_a])
 end
 
+@testset "AllostericMechanism — a rejected split is extended by every :OnlyA group" begin
+    # Merged random-order bi-bi with the competitive inhibitor I and the abortive complexes
+    # E(A, P) and E(B, Q). The steady-state A group binds A, fused, at E(B), so the
+    # thermodynamic check leaves it out. Split by I, it leaves E(I) + A alone, a plain
+    # :OnlyA binding on the cycle E, E(I), E(A, I), E(A), E(A, P), E(P), whose two I
+    # bindings share the :OnlyA I group and cancel, and whose other steps are :EqualAI, so
+    # the constructor rejects that child. Splitting the I group by A as well gives E + I and
+    # E(A) + I exponents of their own, of opposite sign on that cycle, which balances it:
+    # the pair is a valid child with two constants more. The I split alone gains nothing,
+    # its new K tied back by the square E, E(A), E(A, I), E(I) that the shared A group
+    # closes. The A group is steady state, so it has no rapid-equilibrium partner, and the
+    # move reaches the pair because it extends a rejected set by the splits of every :OnlyA
+    # group. The other four children split the P group (by Q, by A) and the Q group (by P,
+    # by B).
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_inhibitors: I
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I))   :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))            :: OnlyA
+            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))                                :: OnlyA
+            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))   :: EqualAI
+            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q))   :: OnlyA
+            E(P) + A <--> E(A, P)                                             :: EqualAI
+        end
+    end)
+    base = EnzymeRates._independent_param_count(am)
+    rejection = "an :OnlyA binding (k_EIinh_A_to_EAIinh) leaves a thermodynamic"
+    @test_throws rejection @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_inhibitors: I
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q))                          :: OnlyA
+            E(I) + A <--> E(A, I)                                             :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))            :: OnlyA
+            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))                                :: OnlyA
+            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))   :: EqualAI
+            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q))   :: OnlyA
+            E(P) + A <--> E(A, P)                                             :: EqualAI
+        end
+    end
+    i_by_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_inhibitors: I
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I))   :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))            :: OnlyA
+            E + I ⇌ E(I)                                                      :: OnlyA
+            E(A) + I ⇌ E(A, I)                                                :: OnlyA
+            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))   :: EqualAI
+            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q))   :: OnlyA
+            E(P) + A <--> E(A, P)                                             :: EqualAI
+        end
+    end)
+    @test EnzymeRates._independent_param_count(i_by_a) == base
+    a_by_i_and_i_by_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_inhibitors: I
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q))                          :: OnlyA
+            E(I) + A <--> E(A, I)                                             :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))            :: OnlyA
+            E + I ⇌ E(I)                                                      :: OnlyA
+            E(A) + I ⇌ E(A, I)                                                :: OnlyA
+            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))   :: EqualAI
+            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q))   :: OnlyA
+            E(P) + A <--> E(A, P)                                             :: EqualAI
+        end
+    end)
+    p_by_q = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_inhibitors: I
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I))   :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))            :: OnlyA
+            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))                                :: OnlyA
+            (E + P <--> E(P), E(A) + P <--> E(A, P))                          :: EqualAI
+            E(Q) + P <--> E(P, Q)                                             :: EqualAI
+            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q))   :: OnlyA
+            E(P) + A <--> E(A, P)                                             :: EqualAI
+        end
+    end)
+    p_by_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_inhibitors: I
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I))   :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))            :: OnlyA
+            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))                                :: OnlyA
+            (E + P <--> E(P), E(Q) + P <--> E(P, Q))                          :: EqualAI
+            E(A) + P <--> E(A, P)                                             :: EqualAI
+            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q))   :: OnlyA
+            E(P) + A <--> E(A, P)                                             :: EqualAI
+        end
+    end)
+    q_by_p = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_inhibitors: I
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I))   :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))            :: OnlyA
+            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))                                :: OnlyA
+            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))   :: EqualAI
+            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q))                          :: OnlyA
+            E(P) + Q <--> E(P, Q)                                             :: OnlyA
+            E(P) + A <--> E(A, P)                                             :: EqualAI
+        end
+    end)
+    q_by_b = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_inhibitors: I
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I))   :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))            :: OnlyA
+            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))                                :: OnlyA
+            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))   :: EqualAI
+            (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))                          :: OnlyA
+            E(B) + Q <--> E(B, Q)                                             :: OnlyA
+            E(P) + A <--> E(A, P)                                             :: EqualAI
+        end
+    end)
+    kids = EnzymeRates._expand_split_kinetic_group(am)
+    @test length(kids) == 5
+    @test Set(kids) == Set([a_by_i_and_i_by_a, p_by_q, p_by_a, q_by_p, q_by_b])
+    @test all(c -> EnzymeRates._independent_param_count(c) > base, kids)
+    others = [EnzymeRates._expand_re_to_ss(am); EnzymeRates._expand_change_allo_state(am)]
+    @test Set(EnzymeRates.expand_mechanisms([am], EnzymeRates.reaction(am))) ==
+          Set([others; a_by_i_and_i_by_a; p_by_q; p_by_a; q_by_p; q_by_b])
+end
+
 @testset "AllostericMechanism — the split's :OnlyA check agrees with the constructor" begin
     # An aggregate check over the bi-bi seed set (the exception to writing every fixture
     # inline): each split child of a seed lifted to its allosteric variants, one parent in

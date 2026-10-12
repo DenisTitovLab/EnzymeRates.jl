@@ -147,7 +147,10 @@ polynomials, so a candidate whose law exceeds `MAX_RATE_EQUATION_TERMS` has no c
 gains nothing (`_split_gain_test`). A candidate whose `:OnlyA` binding leaves a
 thermodynamic cycle unsatisfiable, which the constructor rejects, is never built: the move
 runs the constructor's own check (`_onlya_haldane_violation`) on its groups first, and the
-candidate counts as failed and is extended. The RE→SS move flips whole groups and accepts a
+candidate counts as failed. The search extends a failed set by the splits of the groups
+that share its rapid-equilibrium segments, and a rejected one also by the splits of every
+`:OnlyA` group, since the split that balances its cycle may be steady state. The
+RE→SS move flips whole groups and accepts a
 set only if the rapid-equilibrium segment count rises and every flipped group
 carries net flux in the child. In a `Mechanism` it never offers as a unit a flank
 of a qualifying chain whose isomerization is steady state (`_chain_flank_groups`):
