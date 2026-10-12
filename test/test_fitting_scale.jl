@@ -365,14 +365,17 @@ end
                                         "number; got $shown"),
                          rescale_parameter_values(mm, p, [(S = 1.0,) => bad]))
         end
+        anchor_message = "an anchor needs a finite, nonzero predicted turnover of the " *
+                         "measured turnover's sign"
         # No substrate and no product: the predicted turnover is zero.
-        @test_throws("an anchor needs a nonzero predicted turnover of the measured " *
-                     "turnover's sign",
-                     rescale_parameter_values(mm, p, [(S = 0.0,) => 1.0]))
+        @test_throws(anchor_message, rescale_parameter_values(mm, p, [(S = 0.0,) => 1.0]))
         # The product alone runs the reaction backwards, against a forward measurement.
-        @test_throws("an anchor needs a nonzero predicted turnover of the measured " *
-                     "turnover's sign",
-                     rescale_parameter_values(mm, p, [(P = 1.0,) => 1.0]))
+        @test_throws(anchor_message, rescale_parameter_values(mm, p, [(P = 1.0,) => 1.0]))
+        # These constants overflow the predicted turnover at S = 1e300 to Inf, which no
+        # finite scale reproduces.
+        overflow = (k_ES_to_E_P = 1e308, k_ES_to_E_S = 1.0, k_E_S_to_ES = 1.0, Keq = 2.0)
+        @test_throws(anchor_message,
+                     rescale_parameter_values(mm, overflow, [(S = 1e300,) => 1.0]))
         # Every product of two constants underflows to zero: no peak scale exists.
         tiny = (k_ES_to_E_P = 1e-200, k_ES_to_E_S = 1e-200, k_E_S_to_ES = 1e-200,
                 Keq = 2.0)

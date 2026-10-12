@@ -20,7 +20,8 @@ constant for rate equation identification.
 - `absolute`: `false` (the default) treats the data as relative and scales every fit to
   peak turnover 1; `true` treats it as absolute per-enzyme turnover (see `FittingProblem`)
 - `peak_range`: the concentration range `(lo, hi)` of the peak-turnover scale (see
-  `FittingProblem`)
+  `FittingProblem`), in the data's concentration units; the default covers physiological
+  concentrations in M or mM, and data in µM need a higher upper bound
 
 Construct it with `IdentifyRateEquationProblem(reaction, table; Keq, absolute = false,
 peak_range = (1e-12, 1e3))`.

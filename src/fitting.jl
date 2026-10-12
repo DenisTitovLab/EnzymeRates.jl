@@ -365,16 +365,16 @@ const PEAK_SCAN_STEP = 0.25
 _finite_or_minus_inf(v) = isfinite(v) ? v : -Inf
 
 """
-The largest value of `f` over the box `[a, b]^n` of log10 concentrations, the point that
-reaches it, and whether `f` still rises at the box's upper edge. Points where `f` is NaN
-or infinite never win.
+The largest value of `f` that a heuristic search finds over the box `[a, b]^n` of log10
+concentrations, the point that reaches it, and whether `f` still rises at the box's upper
+edge. Points where `f` is NaN or infinite never win.
 
 The search is deterministic. It evaluates every corner of the box (the two extreme
 corners only, above 12 coordinates) and its center, then climbs from the four best of
-them one coordinate at a time (`_coordinate_ascent!`). `f` still rises at the upper edge
-when some coordinate of the best point sits at `b` and `f` there exceeds 1.1 times its
-value with that coordinate lowered by one decade (to `a` at most); a best value that is
-not positive never counts as rising.
+them one coordinate at a time (`_coordinate_ascent!`); it can stop at a local maximum.
+`f` still rises at the upper edge when some coordinate of the best point sits at `b` and
+`f` there exceeds 1.1 times its value with that coordinate lowered by one decade (to `a`
+at most); a best value that is not positive never counts as rising.
 """
 function _maximize_on_box(f::FunctionWrapper{Float64, Tuple{Vector{Float64}}}, n::Int,
                           a::Float64, b::Float64)
@@ -467,8 +467,8 @@ forward rate per enzyme, `v/E_total`, over every metabolite's concentration with
 (`_maximize_on_box`). `concs` is the point that reaches it, and `at_edge` says whether
 the turnover still rises at the range's upper edge. The `E_total` of `params` is
 ignored. `value` is not positive when the mechanism has no forward turnover in the range.
-The turnover sits behind a `FunctionWrapper`, so the search compiles once for every
-mechanism.
+The turnover sits behind a `FunctionWrapper`, so the search compiles once, shared by all
+mechanisms.
 """
 function _peak_turnover(@nospecialize(m::AbstractEnzymeMechanism),
                         @nospecialize(params::NamedTuple),
@@ -499,8 +499,8 @@ active-site concentration, so divide a kcat quoted per oligomer by its number of
 sites first. Several anchors combine by the geometric mean of measured over predicted
 turnover, the least-squares scale in log space. `spread` is the standard deviation of the
 anchors' `log(measured/predicted)`, 0 for one anchor; a large spread says the anchors
-disagree with the model or with each other. An anchor where the model predicts zero
-turnover, or turnover of the other sign, is an error.
+disagree with the model or with each other. An anchor where the model predicts zero or
+non-finite turnover, or turnover of the other sign, is an error.
 
 Without `kcats`, the factor makes the mechanism's peak turnover — its largest net forward
 rate per enzyme over every metabolite's concentration within `peak_range`, in the data's
@@ -545,9 +545,9 @@ function rescale_parameter_values(@nospecialize(m::AbstractEnzymeMechanism),
         predicted = rate_equation(m,
             NamedTuple{mets}(Tuple(Float64(get(concs, k, 0.0)) for k in mets)),
             turnover_params)
-        predicted != 0 && sign(predicted) == sign(measured) || error(
+        isfinite(predicted) && predicted != 0 && sign(predicted) == sign(measured) || error(
             "kcats: at $concs the mechanism predicts turnover $predicted; an anchor " *
-            "needs a nonzero predicted turnover of the measured turnover's sign")
+            "needs a finite, nonzero predicted turnover of the measured turnover's sign")
         log(measured / predicted)
     end
     center = sum(log_ratios) / length(log_ratios)
