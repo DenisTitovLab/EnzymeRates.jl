@@ -1543,6 +1543,65 @@ const _testhelper_largest_enumerated_mechanisms = [
     end
 end
 
+# Three random-order seeds of A + B + C ⇌ P + Q, larger than the bi-bi laws above: 589,
+# 799 and 858 denominator terms.
+const _testhelper_large_ter_bi_mechanisms = [
+    @enzyme_mechanism(begin substrates: A, B, C; products: P, Q; steps: begin
+        (E + A <--> E(A), E(B) + A <--> E(A, B), E(B, C) + A <--> E(P, Q),
+         E(C) + A <--> E(A, C), E(P) + A <--> E(A, P))
+        (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(A, C) + B ⇌ E(P, Q), E(C) + B ⇌ E(B, C),
+         E(C, Q) + B ⇌ E(B, C, Q), E(Q) + B ⇌ E(B, Q))
+        (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(A, B) + C ⇌ E(P, Q), E(B) + C ⇌ E(B, C),
+         E(B, Q) + C ⇌ E(B, C, Q), E(Q) + C ⇌ E(C, Q))
+        (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))
+        (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(B, C) + Q <--> E(B, C, Q),
+         E(C) + Q <--> E(C, Q), E(P) + Q <--> E(P, Q)) end end),
+    @enzyme_mechanism(begin substrates: A, B, C; products: P, Q; steps: begin
+        (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(B, C) + A ⇌ E(P, Q), E(C) + A ⇌ E(A, C),
+         E(P) + A ⇌ E(A, P))
+        (E + B <--> E(B), E(A) + B <--> E(A, B), E(A, C) + B <--> E(P, Q),
+         E(C) + B <--> E(B, C), E(C, Q) + B <--> E(B, C, Q), E(Q) + B <--> E(B, Q))
+        (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(A, B) + C ⇌ E(P, Q), E(B) + C ⇌ E(B, C),
+         E(B, Q) + C ⇌ E(B, C, Q), E(Q) + C ⇌ E(C, Q))
+        (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))
+        (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(B, C) + Q <--> E(B, C, Q),
+         E(C) + Q <--> E(C, Q), E(P) + Q <--> E(P, Q)) end end),
+    @enzyme_mechanism(begin substrates: A, B, C; products: P, Q; steps: begin
+        (E + A <--> E(A), E(C) + A <--> E(Q; residual = A + C - Q),
+         E(C, P) + A <--> E(A, C, P), E(P) + A <--> E(A, P))
+        (E + C <--> E(C), E(A) + C <--> E(Q; residual = A + C - Q),
+         E(A, P) + C <--> E(A, C, P), E(P) + C <--> E(C, P))
+        (E + P <--> E(P), E(A) + P <--> E(A, P), E(C) + P <--> E(C, P),
+         E(Q; residual = A + C - Q) + P <--> E(A, C, P))
+        (E(P) + Q ⇌ E(B, Q; residual = A + C - Q),
+         E(; residual = A + C - Q) + Q ⇌ E(Q; residual = A + C - Q))
+        (E(Q; residual = A + C - Q) + B ⇌ E(B, Q; residual = A + C - Q),
+         E(; residual = A + C - Q) + B ⇌ E(P)) end end),
+]
+
+# Seconds per call allowed per denominator term above the 120-ns gate. Provisional:
+# twice the worst local measurement; Step 3 calibrates it on the CI runners.
+const _testhelper_seconds_per_denominator_term = 0.5e-9
+
+"""The number of terms in the denominator of `m`'s derived rate law."""
+_testhelper_denominator_terms(m) =
+    length(EnzymeRates._raw_symbolic_rate_polys(typeof(m))[2])
+
+@testset "rate_equation time per call grows at most in proportion to the law's size" begin
+    @test _testhelper_denominator_terms.(_testhelper_large_ter_bi_mechanisms) ==
+          [589, 799, 858]
+    for m in _testhelper_large_ter_bi_mechanisms
+        params, concs, _ = _testhelper_random_independent_params_concs(
+            m, collect(metabolites(m)); rng = Random.MersenneTwister(42))
+        allocs, t = _testhelper_test_rate_equation_performance(m, params, concs)
+        n = _testhelper_denominator_terms(m)
+        @info "rate_equation: $(round(1e9 * t; digits = 1)) ns per call, $n denominator " *
+              "terms, $(round(1e9 * t / n; digits = 3)) ns per term"
+        @test allocs == 0
+        @test t < max(120e-9, _testhelper_seconds_per_denominator_term * n)
+    end
+end
+
 """The summands of the sum `e`, through `+`, `-` and unary minus."""
 function _testhelper_summands(e)
     e isa Expr && e.head == :call && e.args[1] in (:+, :-) || return Any[e]
