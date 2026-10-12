@@ -615,9 +615,9 @@ so the fitter fixes it after the fit (E9).
   `peak_range`. It returns `(params, spread)`: the rescaled constants and the standard
   deviation of the anchors' log(measured/predicted) turnover, 0 for one anchor and
   `nothing` without `kcats` (proposal, section 18).
-- **Units.** Every function that takes `peak_range` documents that its default suits data
-  in mM; for data in µM, where 1e3 means 1 mM, raise the upper bound (proposal, section
-  18).
+- **Units.** Every function that takes `peak_range` documents that its default covers
+  physiological concentrations in M, which the fitting tutorial recommends, or in mM; for
+  data in µM, where 1e3 means 1 mM, raise the upper bound (proposal, section 18).
 - **Absolute mode** keeps its loss and never rescales; only its selector changes, from
   `scale_k_to_kcat = nothing` to `absolute = true`.
 - **Docstrings.** `identify_rate_equation`'s docstring calls `maxtime` the "max time per
@@ -813,7 +813,8 @@ unless Denis objects; the sections cited mark them "proposal".
    small files.
 4. **Peak scale (section 12).** Denis set the default `peak_range = (1e-12, 1e3)`. The
    proposals: the range is in the data's concentration units, and the docstrings say the
-   default suits data in mM. A law is flagged when it still rises by more than 10% over the
+   default covers physiological concentrations in M, the unit the fitting tutorial
+   recommends, or in mM. A law is flagged when it still rises by more than 10% over the
    range's last decade; for a hyperbolic law that means an asymptote more than about 1%
    above the range's peak, so ordinary saturating laws stay unflagged.
 5. **`rescale_parameter_values` (section 12).** `params` must include `Keq`, and the
