@@ -58,23 +58,82 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `_dependent_param_exprs` calls on one mechanism that prints `Base.gc_live_bytes()` and
   `Base.gc_num().full_sweep` shows it.
 
+- **The `:OnlyA` guard misjudges groups that mix a binding and a chemistry step.**
+  `_onlya_haldane_violation` (`src/thermodynamic_constr_for_rate_eq_derivation.jl`)
+  skips every `:OnlyA` group that holds a chemistry step, including one that also holds a
+  plain binding of the same metabolite (enumeration builds these by merging and tags
+  every allosteric one `:OnlyA`), and gives the bindings of one group a single rate of
+  divergence. Hand-built mechanisms show both errors: it admits a mixed `:OnlyA` group
+  whose plain member sits on a square of `:EqualAI` bindings, whose inactive conformation
+  is not a limit of the model, and rejects a split `:OnlyA` binding group whose limit
+  exists. The `:OnlyA` semantics under Planned replace the guard.
+- **`_kcat_forward` reports "no kcat components" for mechanisms that never saturate.**
+  In four hand-written mechanisms of the mass-action tests, a rapid-equilibrium fused
+  release, or a Theorell–Chance step between rapid-equilibrium bindings, lets the rate
+  grow without bound with one substrate, so kcat is infinite. `_kcat_forward`
+  (`src/rate_eq_derivation.jl`) finds no saturating pattern and errors with "no kcat
+  components", which neither names the cause nor points to absolute mode
+  (`scale_k_to_kcat = nothing`).
+- **Full mode lists rapid-equilibrium constants that never reach the rate law.**
+  When the kinetic groups leave a loop of rapid-equilibrium steps open,
+  `rate_equation(m, concs, params, Full)` weights each rapid-equilibrium segment along
+  one breadth-first spanning tree whose order follows the form names (`_compute_alpha`,
+  `src/rate_eq_derivation.jl`), so `parameters(m, Full)` lists the constant that closes
+  the loop although the rate never reads it: 23 of 806 plain mechanisms in the derivation
+  probes, 21 of them enumerated. Renaming a metabolite changes which constant is dropped
+  and, when the values break the loop's relation, the rate. Full mode also applies the
+  single-symbol Wegscheider rename, so in three fixture mechanisms it reads one listed
+  constant in place of another. The graph rewrite under Planned drops Full mode.
+- **Splitting a tied kinetic group changes fitted names and `eq_hash` without changing
+  the model.** When a square of rapid-equilibrium bindings already ties two binding
+  constants, splitting their kinetic group leaves the rate function unchanged, but the
+  solve's priority depends on the grouping, so the dependents and the single-symbol
+  rename change: of 663 such splits of enumerated bi-bi mechanisms, 312 change the
+  fitted name set and 327 the dedup key. One split folds the free-enzyme `K_EA_to_E_A`
+  into `K_EAQ_to_EQ_A`, for example. The graph rewrite under Planned removes both.
+- **A rapid-equilibrium isomerization of a covalent intermediate can be unidentifiable.**
+  In 5 of 751 enumerated plain mechanisms in the derivation probes, an isomerization such
+  as `E(B; residual = A - P) ⇌ E(Q)` joins two forms whose rapid-equilibrium weights
+  carry the same concentrations, so the data determine only a combination of its
+  constant and its neighbour's, and `fitted_params` lists one constant more than the
+  identifiable rank. The exact rank under Ideas would count it.
+
 ## Planned
 
+- **Rewrite the derivation around the reaction graph.**
+  Decided on 2026-10-10 after derisking probes; a vertical-slice probe chains the pieces
+  before the spec is written. A mechanism becomes one value type that holds its graph,
+  with no reaction field; its integer Sig is the only type parameter, and the law is
+  derived in the generator. One `@enzyme_mechanism` macro covers plain and allosteric
+  mechanisms, and `show` prints its text. One log-linear solve over the bare per-step
+  constants (cycle, kinetic-group, `:EqualAI` and rapid-equilibrium-loop rows; a priority
+  independent of grouping; rational exponents) feeds a lean King–Altman/Cha engine and
+  Horner code with rapid-equilibrium nodes and the Haldane factor. One law in independent
+  parameters replaces Full and Reduced, with `all_parameters(m, params)` for the
+  dependents. Printed laws divide by the constant term, or by a virtual one, so every
+  term is dimensionless, and a second form names each coefficient by what it multiplies.
+  A rename-proof key (SHA-256 of the law, parameters labelled by colour refinement)
+  replaces `eq_hash`, and fits are stored by canonical position. kcat stays the analytic
+  saturating limit, with dead-end corners excluded. Phases: the joint solve with one
+  allosteric graph; the graph mechanism with the DSL; the engine with printing, key and
+  kcat; then the `:OnlyA` semantics below. Priority: high.
 - **Derive both conformations from one catalytic rate equation.**
   Each conformation is derived on its own graph: `_state_parts` rebuilds the inactive one
   as a pruned mechanism (`_state_allo_mechanism`), and each solves its own Wegscheider
   rename, which causes the first two known issues. Derive the catalytic mechanism once
   instead, with one symbol per constant and the constraints solved on that one system,
   and obtain each conformation from it: relabel a `:NonequalAI` constant for the inactive
-  conformation, and remove an `:OnlyA` or `:OnlyI` step by a limit (`K → ∞` for a
-  rapid-equilibrium binding, both `k → 0` for a steady-state step). Haldane and
-  Wegscheider relations make such a limit come with partner limits, so both conformations
-  stay thermodynamically consistent by construction. Take each limit as the leading-order
-  term in a scaling parameter, not by substitution: zeroing both rate constants of a step
-  that holds the graph together zeroes every spanning tree and leaves 0/0. The design
-  should also settle which free form carries `L` when a hand-written mechanism has two
-  residual-free free forms in different steady-state segments; the first in species
-  order does today. Branch `mwc-solve-then-limit` holds a July design of this approach
+  conformation, and take an `:OnlyA` step to its limit. An `:OnlyA` binding loses its
+  affinity for the inactive conformation (`K → ∞`, or `kon → 0` with `koff` fixed for a
+  steady-state binding); an `:OnlyA` chemistry step is blocked (both rate constants → 0,
+  their ratio set by thermodynamics); each step of an `:OnlyA` group keeps its own class.
+  A tag set is admitted when an exact feasibility test passes and every form the free
+  enzyme cannot reach in the inactive conformation lies behind a binding, on its bound
+  side; the limit then equals deletion and pruning, and enumeration stops producing the
+  `:OnlyA` ping-pong mechanisms this rejects. The conformations flip at one free form:
+  the constructor admits a second only in rapid equilibrium with it
+  (`_assert_one_flip_segment`), where the choice only rescales `L`. Branch
+  `mwc-solve-then-limit` holds a July design of this approach
   (spec b067aa0 and 651a821, plan 9c95f12, prototype 6f0011e), whose prototype matched
   the mass-action ground truth on all six uni-uni tag combinations and would delete the
   `d_free` cross-weighting; `test/allosteric_ground_truth.jl` is the oracle.
@@ -105,14 +164,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `_expand_merge_regulatory_sites`, which must merge only sites of equal multiplicity.
   Keep a bare `A` at the catalytic multiplicity, widen only on an explicit list, and
   reject `I(m)` for a competitive inhibitor. Priority: medium-low.
-- **Anchor a measured kcat at its assay concentrations.**
-  `rescale_parameter_values` (`src/rate_eq_derivation.jl`) divides by `_kcat_forward`, an
-  analytic saturating limit behind a run of NaN, "no kcat components" and mis-scaling
-  bugs. Evaluating `rate_equation` at the assay concentrations is unambiguous and mirrors
-  the experiment: add a `kcat_concs` keyword and thread it like `scale_k_to_kcat` through
-  `FittingProblem` and `identify_rate_equation`. A wider version anchors the relative
-  default at a reference point and deletes `_kcat_forward` (~150 lines), but changes
-  every reported rescaled constant. Priority: medium-low.
 - **Give ping-pong residual forms names that are Julia identifiers.**
   `_species_name` (`src/types.jl`) writes residuals as `_res_+A_-P`, so a name such as
   `k_EA_to_EP_res_+A_-P` needs `var"…"` to pass as a parameter, and the destructuring
@@ -178,6 +229,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Decided against
 
+- **Anchor a measured kcat at its assay concentrations.** Decided on 2026-10-10 in favour
+  of the analytic saturating limit with dead-end corners excluded (see the graph rewrite
+  under Planned).
 - **Move dead-end decorations out of `init_mechanisms` into an expansion move.** It is not
   clear this saves time, since the move would have to run again on every child.
 - **Separate the metabolite names inside enzyme-form names (`Ac + CoA ⇌ AcCoA`).** Renaming

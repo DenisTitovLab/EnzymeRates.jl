@@ -782,6 +782,38 @@ function _assert_each_reaction_once(steps::Vector{Vector{Step}})
     end
 end
 
+"""
+Error unless every free form of the catalytic steps `cat_steps` (a form with no bound
+metabolite and no residual) lies in one rapid-equilibrium segment of the steps outside
+`:OnlyA` groups. Under formulation 1 the conformations interconvert at a free form.
+Within one such segment, flipping at any of its free forms gives the same model with L
+rescaled; free forms joined any other way flip at different forms in the two
+conformations or leave one stranded in the inactive conformation, a different model.
+"""
+function _assert_one_flip_segment(cat_steps, cat_allo_states)
+    free = sort!([name(f) for f in _forms(cat_steps)
+                  if isempty(bound(f)) && isempty(residual(f))])
+    length(free) <= 1 && return nothing
+    re = [s for (g, group) in enumerate(cat_steps) for s in group
+          if cat_allo_states[g] !== :OnlyA && is_equilibrium(s)]
+    segment, changed = Set([first(free)]), true
+    while changed
+        changed = false
+        for s in re
+            a, b = name(from_species(s)), name(to_species(s))
+            (a in segment) == (b in segment) && continue
+            push!(segment, a, b)
+            changed = true
+        end
+    end
+    all(in(segment), free) || error(
+        "AllostericMechanism: the free forms $(join(free, ", ")) are not joined by " *
+        "rapid-equilibrium steps outside :OnlyA groups. The conformations interconvert " *
+        "at one free form, so the other free forms must be in rapid equilibrium with it: " *
+        "join them by ⇌ steps outside :OnlyA groups, or keep one free form.")
+    nothing
+end
+
 """The distinct enzyme forms of the steps of `groups`, in first-seen order, each step's
 `from_species` before its `to_species`."""
 _forms(groups) =
@@ -966,6 +998,7 @@ struct AllostericMechanism
             error("AllostericMechanism: ligand $(ligs[dup]) appears in two " *
                   "distinct regulatory sites; rendered Kreg names would " *
                   "collide. Same-ligand-two-sites is not enumerated.")
+        _assert_one_flip_segment(cat_steps, cat_allo_states)
         violation = _onlya_haldane_violation(reaction, cat_steps, cat_allo_states)
         violation === nothing ||
             error("AllostericMechanism: $violation")
