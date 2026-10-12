@@ -1,0 +1,5 @@
+{
+  "choice": "affinity_bindings",
+  "note": "I need more info to decide about this. My intuition is that when both k go to zero their ratio should stay fixed as the ratio is a thermodynamic quantitity and both rate goes to zero mean that this step is just very very very slow in one of the state such that it can be ignored. But it's thermodynamic consistency must still be evaluated as the step is very slow but probably still present at 1000x less rate that can be ignored in rate equations but other constants should still obey thermodynamics assuming the ratio of these k for this step is presenved.\n\nAdditional questions: I do agree with the kinetic block interpretation when there are no islands, and the K -> Inf interpretation for RE steps. But what is the proposal for one step that can form island and more than one step that can form island. Are those not enumerated? Do those error if written in a mechanism? Or what? I think both one step making an island (creates a phanthom) and two step creating an island (undefined) should not be enumeration but only latter should error prehaps. Thoughts?",
+  "updated": "2026-10-10T08:26:01.233Z"
+}

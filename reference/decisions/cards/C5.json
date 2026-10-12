@@ -1,0 +1,5 @@
+{
+  "choice": "tests_only",
+  "note": "I need more info to decide. What is the coefficient map? What happens to test that are writen with kinetic k parameters if we go with this?\n\nAdditional questions: I'm not sure I understand how we can change the current positional bridge in tests for coefficient map? Please explain more. I am leaning toward dropping Cleland formulations uless there's a clear advantage in identifiablity due to reparametrization. Is there?",
+  "updated": "2026-10-10T08:20:46.803Z"
+}

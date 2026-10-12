@@ -1,0 +1,5 @@
+{
+  "choice": "dropped",
+  "note": "I don;t understand this problem. Please explain more. Specifically why \"Today's Full mode then lists constants that never reach v, and in 23 mechanisms the law depends on spanning-tree order.\"?\n\nAdditional questions: This sounds like the Full mode does not write the full rate equation with all dependent parameters then? Otheriwse I don's see how \"Today's Full mode then lists constants that never reach v, and in 23 mechanisms the law depends on spanning-tree order.\" is possible.\n\nMore comments: Ok it seems that we need to either have proper derivation of AllParameters equations that actually has all parameters or just go with IndependentParameters and have some function connecting dependent to independent. I guess for simplicity I am not leaning towards latter as the test equations can still be tested using the connecting function and independent rate equation. So I guess the answer is neither, as the question disappears. This will probably affect the other questions too.",
+  "updated": "2026-10-10T08:39:10.360Z"
+}

@@ -1,0 +1,3 @@
+{
+  "text": "Hill's numerator writes the rate as a sum over catalytic cycles, so it produces the numerator directly as (ΠS − ΠP/Keq)·Q with only positive terms. That is its one real advantage, and the lean engine keeps it: it derives the ordinary numerator and divides exactly by (ΠS − ΠP/Keq), which gives the same Q on all 806 laws in 21 lines.\n\nAgainst Hill: 78 more lines, and it enumerates every cycle (2^μ), so it fails on large graphs (cycle rank 21 in two adversarial mechanisms). The cycle view could come back later as an analysis tool (which pathway carries the flux), but the derivation does not need it."
+}

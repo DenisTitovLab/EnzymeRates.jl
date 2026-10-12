@@ -1,0 +1,144 @@
+diff --git a/src/rate_eq_derivation.jl b/src/rate_eq_derivation.jl
+index c5dbad1..5c127f9 100644
+--- a/src/rate_eq_derivation.jl
++++ b/src/rate_eq_derivation.jl
+@@ -219,11 +219,11 @@ rename under them; the allosteric derivation passes each conformation's
+ state-tagged constants (`_state_parts`). Aborts, before the King–Altman expansion,
+ a mechanism whose denominator would be too large to derive (`_assert_derivable`).
+ 
+-Also returns `d_free`, the weight in the returned denominator of the free
+-resting enzyme (the form with empty `bound` and empty `residual`): the
+-spanning-tree weight `D[g_free]` of its segment times the concentration monomial
+-that brings `num`/`den` to lowest terms. Free E roots its segment, so its own
+-`alpha` is 1.
++Also returns `d_free`, the weight in the returned denominator of free E
++(`_is_free_E`, the allosteric flip form): its `alpha` times the spanning-tree weight
++`D[g_free]` of its segment, times the concentration monomial that brings `num`/`den`
++to lowest terms. Its `alpha` is 1 unless another free form of its rapid-equilibrium
++segment sorts first and roots the segment (`_segment_root`).
+ """
+ function _raw_symbolic_rate_polys(
+     mech::Mechanism,
+@@ -262,10 +262,11 @@ function _raw_symbolic_rate_polys(
+     # D[g], the spanning-tree weight of segment g: L without g's row and column.
+     D = [(o = setdiff(1:G, g); sym_det(L[o, o])) for g in 1:G]
+ 
+-    # A graph with no unbound, residual-free form (e.g. a hand-written mechanism whose
+-    # every form carries a residual) has no free enzyme to weight, so `d_free` is 1.
+-    i_free = findfirst(f -> isempty(bound(f)) && isempty(residual(f)), species)
+-    d_free = i_free === nothing ? poly_one() : D[seg[i_free]]
++    # A graph without free E (a plain mechanism may lack it) has no flip form to weight,
++    # so `d_free` is 1. Free E's weight is its `alpha` times its segment's tree weight:
++    # another free form of its segment can sort first and root the segment.
++    i_free = findfirst(_is_free_E, species)
++    d_free = i_free === nothing ? poly_one() : poly_mul(alpha[i_free], D[seg[i_free]])
+ 
+     den = poly_zero()
+     for g in 1:G
+@@ -782,21 +783,17 @@ end
+ # ═══════════════════════════════════════════════════════════════════
+ 
+ """
+-Names of enzyme forms in the connected component of the free enzyme over ALL
+-steps of `groups` (rapid-equilibrium and steady-state alike). Every form
+-carrying neither a bound metabolite nor a residual seeds the search: such a form
+-interconverts between conformations under formulation 1, and so is a root the
+-inactive conformation can be entered through. Enumeration yields exactly one
+-such form; the hand-written DSL admits a second one in rapid equilibrium with the
+-first (`_assert_one_flip_segment`), and every match then seeds. A ping-pong covalent intermediate carries a residual and is
+-therefore not a root: a component the free enzyme cannot reach holds no inactive
+-mass, and leaving it in place would strand the free-enzyme spanning tree
+-(`D[g_free] = 0`).
++Names of enzyme forms in the connected component of free E over ALL steps of
++`groups` (rapid-equilibrium and steady-state alike). Free E (`_is_free_E`) alone
++seeds the search: under formulation 1 the conformations interconvert at free E, so
++the inactive conformation is entered through it. Another free form, such as `F`,
++and a ping-pong covalent intermediate, which carries a residual, are not roots: a
++component free E cannot reach holds no inactive mass, and leaving it in place
++would strand the free-enzyme spanning tree (`D[g_free] = 0`).
+ """
+ function _reachable_from_free(groups)
+     reach = Set{Symbol}(name(f) for grp in groups for s in grp
+-                        for f in (from_species(s), to_species(s))
+-                        if isempty(bound(f)) && isempty(residual(f)))
++                        for f in (from_species(s), to_species(s)) if _is_free_E(f))
+     changed = true
+     while changed
+         changed = false
+@@ -835,11 +832,8 @@ The `AllostericMechanism` for `am` in conformational `state`: `am` itself for
+ `_inactive_groups(am)`, with `:OnlyA` catalytic groups
+ dropped AND every enzyme form disconnected from free E by that drop pruned at
+ the step level. After removing the `:OnlyA` groups, a form is kept iff it lies
+-in the connected component of the free-enzyme root — a form carrying neither a
+-bound metabolite nor a residual, which under formulation 1 is what interconverts
+-between conformations; enumeration yields exactly one such form, while the
+-hand-written DSL admits a second one in rapid equilibrium with the first — over ALL
+-remaining steps
++in the connected component of free E (`_is_free_E`), the one form that under
++formulation 1 interconverts between conformations, over ALL remaining steps
+ (rapid-equilibrium and steady-state alike); a step is kept iff both its endpoints
+ are kept, so a kinetic group with all its steps dropped disappears. Forms whose only route
+ back to free E ran through an `:OnlyA` group become disconnected and drop out;
+diff --git a/src/types.jl b/src/types.jl
+index 19c387e..c88f1a8 100644
+--- a/src/types.jl
++++ b/src/types.jl
+@@ -782,35 +782,21 @@ function _assert_each_reaction_once(steps::Vector{Vector{Step}})
+     end
+ end
+ 
++"""Free E: the form of conformation `E` with no bound metabolite and no residual, the one
++form at which the conformations of an allosteric mechanism interconvert (formulation 1)."""
++_is_free_E(f::Species) = conformation(f) === :E && isempty(bound(f)) && isempty(residual(f))
++
+ """
+-Error unless every free form of the catalytic steps `cat_steps` (a form with no bound
+-metabolite and no residual) lies in one rapid-equilibrium segment of the steps outside
+-`:OnlyA` groups. Under formulation 1 the conformations interconvert at a free form.
+-Within one such segment, flipping at any of its free forms gives the same model with L
+-rescaled; free forms joined any other way flip at different forms in the two
+-conformations or leave one stranded in the inactive conformation, a different model.
+-"""
+-function _assert_one_flip_segment(cat_steps, cat_allo_states)
+-    free = sort!([name(f) for f in _forms(cat_steps)
+-                  if isempty(bound(f)) && isempty(residual(f))])
+-    length(free) <= 1 && return nothing
+-    re = [s for (g, group) in enumerate(cat_steps) for s in group
+-          if cat_allo_states[g] !== :OnlyA && is_equilibrium(s)]
+-    segment, changed = Set([first(free)]), true
+-    while changed
+-        changed = false
+-        for s in re
+-            a, b = name(from_species(s)), name(to_species(s))
+-            (a in segment) == (b in segment) && continue
+-            push!(segment, a, b)
+-            changed = true
+-        end
+-    end
+-    all(in(segment), free) || error(
+-        "AllostericMechanism: the free forms $(join(free, ", ")) are not joined by " *
+-        "rapid-equilibrium steps outside :OnlyA groups. The conformations interconvert " *
+-        "at one free form, so the other free forms must be in rapid equilibrium with it: " *
+-        "join them by ⇌ steps outside :OnlyA groups, or keep one free form.")
++Error unless the catalytic steps `cat_steps` hold free E (`_is_free_E`). Under formulation
++1 the conformations interconvert at free E alone; another free form, such as `F` or
++`Eprime`, is an ordinary enzyme form in each conformation. An inactive conformation whose
++every step is pruned (`_state_allo_mechanism`) holds no step and passes.
++"""
++function _assert_free_E(cat_steps)
++    isempty(cat_steps) || any(_is_free_E, _forms(cat_steps)) || error(
++        "AllostericMechanism: no catalytic step holds free E (conformation E with no " *
++        "bound metabolite and no residual). The conformations interconvert at free E, " *
++        "so the catalytic steps must include it.")
+     nothing
+ end
+ 
+@@ -998,7 +984,7 @@ struct AllostericMechanism
+             error("AllostericMechanism: ligand $(ligs[dup]) appears in two " *
+                   "distinct regulatory sites; rendered Kreg names would " *
+                   "collide. Same-ligand-two-sites is not enumerated.")
+-        _assert_one_flip_segment(cat_steps, cat_allo_states)
++        _assert_free_E(cat_steps)
+         violation = _onlya_haldane_violation(reaction, cat_steps, cat_allo_states)
+         violation === nothing ||
+             error("AllostericMechanism: $violation")

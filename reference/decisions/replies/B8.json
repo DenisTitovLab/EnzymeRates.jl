@@ -1,0 +1,3 @@
+{
+  "text": "Agreed: there is no correctness issue. The rate law is right; only its parameterization is redundant (both rate constants are fitted though only their ratio matters), which leaves one flat direction in the fit. Allowing such mechanisms is today's behaviour, and it fits B9: the identifiable-rank tool reports the redundancy, the derivation does not police it. I moved the recommendation to that option."
+}

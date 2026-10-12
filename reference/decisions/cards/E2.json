@@ -1,0 +1,5 @@
+{
+  "choice": "well_defined_only",
+  "note": "It seems that these are unfeasible mechanisms so we should throw an error with an explanation. I don;t think we should say \" to fit in absolute mode (scale_k_to_kcat = nothing), as for a mechanism that never saturates\" as the problem as I see it is that such a mechanism cannot catalyze a reaction. It seems that many mechanisms can be written that have behavior that indicates that SS vs RE labeling of relevant steps makes the enzyme reaction unfeasible and I think we need to have a unified set of guard that prevent those mechanisms from being enumerated and also throw an error if written by user. Thoughts?",
+  "updated": "2026-10-11T18:00:00.000Z"
+}

@@ -1,0 +1,5 @@
+{
+  "choice": "anchors_or_max",
+  "note": "I think this issue of kcat->0 is not only PFK but also many substrate inhibitor mechanisms. In addition mechanisms like SS bibi can have rate at saturating substrates that is lower than at subsaturating substrate concentrations. It seems like it is a bit of a whackamole situation with kcat exclusions. We need a simple, principled solution. Thoughts? Maybe removing all the kcat machinery and just doing concentration dependent values is the way to go after all or can we come with something else simple.",
+  "updated": "2026-10-11T07:00:00.000Z"
+}

@@ -1,0 +1,5 @@
+{
+  "choice": "saturating",
+  "note": "I really don't see how anchor at assay concentrations is workable and I prefer analytic limit. I beleive we recently changed how numerator is calculated so some of these ideas will hopefully make it easier to calculate analytical limir.",
+  "updated": "2026-10-10T05:49:41.488Z"
+}

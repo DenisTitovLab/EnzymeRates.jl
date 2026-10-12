@@ -1,0 +1,717 @@
+<title>Graph Redesign Decisions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,650&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one readable column of decision cards, grouped by section, with a sticky progress bar. */
+:root {
+  --bg: #f4f6f5;
+  --surface: #ffffff;
+  --fg: #1a2321;
+  --muted: #56635f;
+  --line: #d6ddda;
+  --accent: #0b6a64;
+  --accent-weak: #e1f0ee;
+  --rec: #7a4f00;
+  --rec-bg: #fbefd6;
+  --ok: #2c7638;
+  --err: #a33a12;
+  --focus: #0b6a64;
+  --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-body: "Source Sans 3", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111715; --surface: #18201e; --fg: #e4ebe8; --muted: #9eaca8; --line: #2b3633;
+    --accent: #5ec4bb; --accent-weak: #16312e; --rec: #e6b75d; --rec-bg: #392b10;
+    --ok: #71cf88; --err: #f19d78; --focus: #5ec4bb; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111715; --surface: #18201e; --fg: #e4ebe8; --muted: #9eaca8; --line: #2b3633;
+  --accent: #5ec4bb; --accent-weak: #16312e; --rec: #e6b75d; --rec-bg: #392b10;
+  --ok: #71cf88; --err: #f19d78; --focus: #5ec4bb; color-scheme: dark;
+}
+html { background: var(--bg); }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body);
+  font-size: 16px; line-height: 1.55; padding-inline: 16px; padding-block: 0 64px;
+}
+.wrap { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+header.top { padding-block: 32px 4px; display: flex; flex-direction: column; gap: 10px; }
+h1 { font-family: var(--font-display); font-weight: 650; font-size: clamp(1.7rem, 4vw, 2.3rem); line-height: 1.15; margin: 0; text-wrap: balance; }
+.lede { color: var(--muted); max-width: 68ch; margin: 0; }
+.status { font-size: 0.9rem; color: var(--muted); }
+.status.err { color: var(--err); }
+.progress {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg);
+  padding-block: 10px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line);
+}
+.bar { flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.bar > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s ease; }
+.count { font-family: var(--font-mono); font-size: 0.85rem; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+section.findings { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; }
+section.findings h2 { font-family: var(--font-display); font-size: 1.15rem; margin: 0; }
+section.findings ul { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; }
+.group { display: flex; flex-direction: column; gap: 14px; }
+.group > h2 { font-family: var(--font-display); font-weight: 650; font-size: 1.35rem; margin: 8px 0 0; text-wrap: balance; }
+.group > p { margin: 0; color: var(--muted); max-width: 68ch; }
+article.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+article.card.decided { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.tag { font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: .04em; color: var(--accent); background: var(--accent-weak); border-radius: 4px; padding: 1px 7px; }
+.head h3 { font-family: var(--font-display); font-weight: 650; font-size: 1.12rem; margin: 0; flex: 1; min-width: 12ch; text-wrap: balance; }
+.saved { font-size: 0.82rem; color: var(--muted); white-space: nowrap; }
+.saved.ok { color: var(--ok); }
+.saved.err { color: var(--err); white-space: normal; }
+ul.evidence { margin: 0; padding-left: 1.2em; color: var(--fg); display: flex; flex-direction: column; gap: 4px; }
+ul.evidence li { max-width: 72ch; }
+fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+legend { font-size: 0.78rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 4px; }
+label.opt { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; background: var(--surface); }
+label.opt:hover { border-color: var(--accent); }
+label.opt.sel { border-color: var(--accent); background: var(--accent-weak); }
+label.opt input { margin-top: 4px; accent-color: var(--accent); }
+.opt-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.opt-title { font-weight: 600; }
+.opt-desc { color: var(--muted); font-size: 0.93rem; }
+.rec { display: inline-block; font-size: 0.72rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--rec); background: var(--rec-bg); border-radius: 4px; padding: 1px 6px; margin-left: 6px; vertical-align: 1px; }
+.answer { background: var(--accent-weak); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.answer h4 { margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .07em; color: var(--accent); }
+.answer p { margin: 0; max-width: 72ch; }
+.answer ul { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
+.answer p.followup { margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--accent); }
+.answer[hidden] { display: none; }
+.actions { display: flex; gap: 10px; align-items: center; }
+button.clear { font: inherit; font-size: 0.88rem; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+button.clear:hover { color: var(--fg); border-color: var(--accent); }
+button.clear:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+button.clear:disabled { opacity: .45; cursor: default; }
+.note label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); display: block; margin-bottom: 4px; }
+textarea { width: 100%; min-height: 58px; resize: vertical; font: inherit; font-size: 0.95rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; box-sizing: border-box; }
+textarea:focus, label.opt:focus-within { outline: 2px solid var(--focus); outline-offset: 1px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+footer { color: var(--muted); font-size: 0.88rem; }
+@media (prefers-reduced-motion: reduce) { .bar > span { transition: none; } }
+@media (max-width: 480px) { article.card, section.findings { padding: 14px; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Graph Redesign Decisions</h1>
+    <p class="lede">The choices that the derisking probes and the vertical slice put on the table for the reaction-graph rewrite of EnzymeRates.jl. Sections A–D are decided; section E comes from the vertical slice. Each card gives the evidence, the options and my recommendation. Pick one option per card and add a note wherever you want something different. Choices save as you make them; "Clear choice" undoes a pick. Replies to your notes appear inside each card.</p>
+    <p class="status" id="status">Connecting to saved choices…</p>
+  </header>
+
+  <div class="progress" aria-label="Decisions made">
+    <div class="bar"><span id="bar"></span></div>
+    <span class="count" id="count">0 / 25 decided</span>
+  </div>
+
+  <section class="findings" aria-labelledby="f-h">
+    <h2 id="f-h">What the probes found</h2>
+    <ul>
+      <li>The derivation will not shrink much: today it is 1,970 lines but only 920 code lines. The redesigned derivation is about 970 code lines with the scope you added, about 8% smaller like for like. The package still shrinks in <code>types.jl</code>, the DSL, the test bridge and kcat.</li>
+      <li>One joint solve over bare constants is deterministic (0 differences in over 10,000 permutations and regroupings). Today's package changes fitted names in 312 of 663 same-model regroupings.</li>
+      <li>Deriving both conformations from one step list removes ROADMAP known issues 1 and 2 (142 phantom names, 39 fold hazards) and every <code>1 ^ n</code> artifact.</li>
+      <li>Horner code generation keeps 0 allocations and cuts the slowest law from 120.8 to 41.5 ns, compile time by 78% on large laws. It is independent of the rest.</li>
+      <li>The graph <code>Mechanism</code> builds in about 1 µs (13× faster) with exact equality and process-stable hashes on 2,799 mechanisms.</li>
+      <li>A rename-proof key is exact (0 false merges in 809), about 70 µs per law, and merges 17–26% of allosteric expansion classes.</li>
+    </ul>
+  </section>
+
+  <section class="findings" aria-labelledby="s-h">
+    <h2 id="s-h">What the vertical slice found</h2>
+    <ul>
+      <li>One chained prototype of the decided design derived 237,965 laws from 257,698 mechanisms, all 250,855 ter-ter seeds included. Every law matches its oracle, and no compiled law allocates.</li>
+      <li>Keys are stable across processes and about 31,700 rewritten inputs, the solve is identical across 37,849 same-model regroupings, and <code>:OnlyA</code> admission matches an exact LP on all 2,995 allosteric records.</li>
+      <li>Code size stays about the same: derivation 926 → 1,110 lines (printing 72 → 174, for the coefficient form, the Cleland normalizer and allosteric printing), type layer about 708 → 562, enumeration moves about 411 → 308. Total about 2,045 → 1,980 (−3%), before 30–40 lines of fixes.</li>
+      <li>The largest bi-bi laws run in about 42 ns; PR #85 already brings the slowest of them to 54 ns. 343 ter-ter laws run over 120 ns (card E1).</li>
+      <li>Fixes the spec takes without a decision: the key labels concentrations by name (by position, an inhibitor I and an inhibitor J share a key); input checks for an all-rapid-equilibrium mechanism and a declared substrate no step uses; exact roots for exponents such as 1/3; the allosteric size cap on both conformations together; and the tagging move calling admission.</li>
+      <li>AD14 and AD14b are admitted, not rejected: with per-step classes (B2) their cone is feasible and the limit equals deletion.</li>
+      <li>Today's <code>expand_mechanisms</code> crashes on some ter-ter seeds: the <code>:OnlyA</code> guard built its check graph through the validating <code>Mechanism</code> constructor. PR #87 fixes it; old and new guard agree on all 219,894 tag sets where the old one gave a verdict.</li>
+    </ul>
+  </section>
+
+  <div id="groups"></div>
+
+  <footer>
+    <p>Probe reports, scripts and data live in the session scratchpad (<code>proto/</code>, <code>probes/</code>). Claude reads your choices from this page's saved data.</p>
+  </footer>
+</div>
+
+<script>
+const GROUPS = [
+  { id: "A", title: "Direction", intro: "How to proceed now that the code-size picture is clear." },
+  { id: "B", title: "Semantics", intro: "What the derived laws mean. These change results, so they are yours to set." },
+  { id: "C", title: "Engine, code generation, display and keys", intro: "Implementation choices with measured trade-offs." },
+  { id: "D", title: "Bugs found in today's package", intro: "What to fix now and what to fix inside the redesign." },
+  { id: "E", title: "Vertical-slice results", intro: "Decisions the end-to-end prototype raised. Each card cites the slice's measurements." },
+];
+
+const DECISIONS = [
+  { id: "A1", group: "A", title: "Proceed knowing the derivation stays about the same size",
+    evidence: [
+      "Today's three derivation files: 1,970 physical lines, 920 code lines. The rest is docstrings, comments and blank lines.",
+      "The fresh engine is exactly correct (806 of 806 laws identical to today's) and twice as fast, but not smaller: about 205 production lines against 193 today.",
+      "With the scope you added (dedup key, textbook bridge, flux-free rule) the redesigned derivation is about 970 code lines; like for like it is about 8% smaller.",
+      "Package-level cuts: types.jl 746 → about 460 code lines, dsl.jl roughly halved, the test-side bridge 184 → about 25 lines, and _kcat_forward's 107 lines if kcat is anchored at assay concentrations.",
+    ],
+    options: [
+      { v: "proceed", t: "Proceed: the redesign is for correctness, determinism and speed", d: "Keep the scope as decided.", rec: true },
+      { v: "trim", t: "Trim scope to cut more code", d: "Keep the dedup key; move the textbook bridge to the tests and drop the flux-free rule. About 10–15% off the derivation." },
+      { v: "rethink", t: "Stop and rethink before going further", d: "Discuss goals again before any more probes or the spec." },
+    ] },
+  { id: "A2", group: "A", title: "Order of work",
+    evidence: [
+      "Horner code generation is independent of everything else: about 15 lines in today's _poly_to_expr, and it fixes expand_bibi/642, which already runs over the 120 ns gate.",
+      "The joint solve plus the single-graph allosteric derivation delivers most of the correctness gain (known issues 1 and 2, determinism, closed RE cycles) without the engine rewrite.",
+      "The new Mechanism type touches 100 or more testsets and about 700 fixture lines; on its own it keeps diffs reviewable.",
+    ],
+    options: [
+      { v: "phased_prs", t: "Horner PR now, then the redesign as a series of PRs", d: "(1) joint solve + single-graph allosteric, (2) graph Mechanism + DSL + show/CSV, (3) engine + normalization + bridge + key + kcat, (4) :OnlyA semantics.", rec: true },
+      { v: "one_branch", t: "Horner PR now, then the redesign as one branch and one PR", d: "Same phases as commits on one branch, merged together." },
+      { v: "all_in_one", t: "Everything in one branch and one PR", d: "Horner included." },
+    ] },
+  { id: "A3", group: "A", title: "One more probe before the spec",
+    evidence: [
+      "The probes were never chained: code generation was timed on laws built with today's dependents, the key used a frozen snapshot, and the limits never met the fold table.",
+      "Rational exponents such as Keq^(1/2) never passed through the engine, code generation, printer or key.",
+      "There is no ter-ter scaling data, and the compile cost of the new Sig in the identify budget test is unmeasured.",
+    ],
+    options: [
+      { v: "slice", t: "Run a vertical-slice probe first", d: "Chain type → orientation → solve → lean engine → normalization → Horner codegen → K1 key on all 2,799 mechanisms plus the adversarial sets, with ter-ter scaling and the compile budget. Gives a real line count.", rec: true },
+      { v: "spec_now", t: "Write the spec now", d: "Derisk the rest inside the implementation phases." },
+    ] },
+
+  { id: "B1", group: "B", title: "What :OnlyA means",
+    evidence: [
+      "Today :OnlyA deletes the step from the inactive state and prunes forms that free enzyme can no longer reach; a guard rejects some tag sets. That guard errs both ways when a group mixes a binding and a chemistry step.",
+      "The true limit (binding affinity → 0; chemistry with both rate constants → 0 and their ratio free), with each step in its own class, equals deletion in 1,477 of 1,477 bi-bi allosteric mechanisms and 444 of 460 others.",
+      "The exceptions are ping-pong: with both half-reaction chemistry steps :OnlyA, the covalent island has no well-defined limit. That is all 81 enumerated :OnlyA ping-pong mechanisms (P5a's sampling had passed one of them).",
+      "A structural island rule (one graph search, about 24 µs per mechanism) tells whether the limit exists and equals deletion. It matches the numeric limits on all 2,835 mechanisms evaluated in every direction.",
+      "Deletion is always thermodynamically consistent, but it admits inactive states that are not limits of the active-state model, such as the July trap, which holds bound P it can never release.",
+    ],
+    options: [
+      { v: "affinity_bindings", t: "Bindings by affinity, chemistry by kinetic block; compute by deletion", d: "An :OnlyA binding has no affinity in the inactive state (K_I → ∞); an :OnlyA chemistry step has both rate constants → 0 with its equilibrium ratio set by thermodynamics. Admit a tag set exactly when every inactive island sits behind a binding (island rule) and the exact thermodynamic cone test passes; the law then equals deletion plus pruning. Admits 2,760 of 2,841 mechanisms with no phantoms; rejects the 81 :OnlyA ping-pong mechanisms, which enumeration stops producing. About 60–80 lines; replaces today's guard.", rec: true },
+      { v: "kinetic_all", t: "Kinetic block for every steady-state step (your reading)", d: "Both rate constants → 0 with the equilibrium ratio set by thermodynamics; rapid-equilibrium bindings by affinity. Three outcomes: deletion (2,269 of 2,841); a phantom that is unique but not deletion and carries the blocked step's inactive K (43); no limit (529, among them 165 of 1,477 allo_bibi and 2 of the 11 allosteric test specs). Enumeration keeps only the first; no limit is an error; hand-written phantoms error or pass, your call." },
+      { v: "deletion", t: "Deletion by definition, no guard", d: "Keeps every model, including inactive states that trap bound species." },
+      { v: "limit_engine", t: "Full leading-order limit engine", d: "About 230–270 lines; uniqueness of the limit is only sampled today." },
+    ] },
+  { id: "B2", group: "B", title: "Mixed :OnlyA groups (a binding and a chemistry step sharing constants)",
+    evidence: [
+      "Mixed groups come from merging and occur with either flag: about half of the bi-bi seeds have one, and every allosteric mixed group is :OnlyA (71 groups in allo_bibi, 172 in expand_bibi). The chemistry member is always a fused binding, never a Theorell–Chance step.",
+      "Under group-wide tagging, 90 of 105 expand_bibi limit failures and all 39 allo_bibi failures are mixed groups.",
+      "Untying them in the inactive state (each step its own class) makes the limit equal deletion in every allo_bibi mechanism.",
+      "Two hand-built cases (AD1, AD11) have no feasible limit even when untied.",
+    ],
+    options: [
+      { v: "per_step", t: "Untie in the inactive state: each step keeps its own class", d: "With bindings by affinity (B1), every enumerated mechanism with a mixed group then equals deletion; no enumeration change.", rec: true },
+      { v: "as_chemistry", t: "Treat the whole group as chemistry", d: "Today's guard reading." },
+      { v: "forbid", t: "Forbid mixed :OnlyA groups", d: "The expander never tags a mixed group :OnlyA (71 groups in allo_bibi, 172 in expand_bibi)." },
+      { v: "own_group", t: "Give a merged binding its own kinetic group at the merge", d: "Removes mixed groups at the source; a dead-end Kd is no longer tied to the constant of binding into a merged complex. Changes the seeds and their parameter counts (not measured)." },
+    ] },
+  { id: "B3", group: "B", title: "Which free form carries L",
+    evidence: [
+      "No enumerated mechanism has two free forms; hand-written ones can.",
+      "Moving the flip within one RE segment, or across a dead-end isomerization, only rescales L. Across a ping-pong (37%) or a flux-carrying isomerization (12–45%) it changes the model.",
+      "Today's package flips at E in the active state and at F in the inactive one (1–5% off), or returns NaN with 0 ^ 2 in the law.",
+    ],
+    options: [
+      { v: "one_flip_form", t: "One flip form chosen by content; reject other placements", d: "Other free forms are allowed only inside its RE segment.", rec: true },
+      { v: "declare", t: "Let the DSL declare the flip form", d: "" },
+      { v: "all_flip", t: "Every free form flips", d: "A new model." },
+    ] },
+  { id: "B4", group: "B", title: "What kcat means (the reference for rescaling fitted constants)",
+    evidence: [
+      "You chose kcat from the limit engine. The true saturating limit is 0 when a dead-end complex captures the enzyme at saturation (42 mechanisms) and infinite when the mechanism never saturates (4). rescale_parameter_values can use neither.",
+      "Today's _kcat_forward equals the limit in 258 of 297 plain and 213 of 218 allosteric mechanisms, and fails with \"no kcat components\" on 4 valid hand-written mechanisms.",
+      "ROADMAP plans anchoring kcat at assay concentrations: always finite, deletes _kcat_forward (107 code lines), but every reported rescaled constant changes and fitting gains a kcat_concs keyword.",
+    ],
+    options: [
+      { v: "assay", t: "Anchor at assay concentrations", d: "A kcat_concs keyword with a default taken from the data.", rec: true },
+      { v: "saturating", t: "Analytic saturating limit, dead-end corners excluded", d: "Error when the mechanism never saturates." },
+      { v: "keep", t: "Keep today's _kcat_forward", d: "" },
+    ] },
+  { id: "B5", group: "B", title: "RE cycles in AllParameters",
+    evidence: [
+      "27 of 806 plain mechanisms (21 of them enumerated) have a rapid-equilibrium cycle that the kinetic grouping leaves open.",
+      "Without that cycle's relation the RE subsystem has no equilibrium. Today's Full mode computes each RE segment along one spanning tree picked by form names, so in 23 mechanisms a listed K never reaches v, and renaming a metabolite changes which one.",
+    ],
+    options: [
+      { v: "dropped", t: "No AllParameters rate equation (your note)", d: "One law, in independent parameters, where RE loops already get their dependent K from the joint solve. all_parameters(m, params) fills in the dependent constants for tests. Today's Full mode goes away with its two bugs.", rec: true },
+      { v: "impose", t: "Impose RE-only cycle relations in every mode", d: "Adds 1–3 dependents in those 27 mechanisms." },
+      { v: "refuse", t: "Refuse AllParameters for such mechanisms", d: "" },
+    ] },
+  { id: "B6", group: "B", title: "Rational exponents in dependent parameters",
+    evidence: [
+      "Package-valid mechanisms need Keq^(1/2) and half-integer exponents whatever the pivot; today's package already emits Keq^-0.5.",
+      "Forcing unit pivots would make the priority depend on grouping, which breaks determinism.",
+    ],
+    options: [
+      { v: "accept", t: "Accept rational exponents everywhere", d: "Code generation computes each sqrt once.", rec: true },
+      { v: "unit_pivots", t: "Force unit pivots", d: "" },
+    ] },
+  { id: "B7", group: "B", title: "Grouped chemistry steps that change conformation in opposite directions",
+    evidence: [
+      "Tying members by their conformational change gave a different model in the probe: v off by up to 101%.",
+      "Today's package ties forward chemistry with forward chemistry.",
+    ],
+    options: [
+      { v: "forward", t: "Tie forward with forward", d: "Today's rule, taken from the type layer.", rec: true },
+      { v: "by_conformation", t: "Tie by conformational change", d: "" },
+    ] },
+  { id: "B8", group: "B", title: "Flux-free steady-state steps (ROADMAP known issue 3)",
+    evidence: [
+      "A steady-state step whose only role is to reach dead-end forms carries no net flux, so only k+/k− is identifiable; today both are fitted.",
+      "Only hand-written mechanisms reach it (0 of 751 enumerated).",
+      "The structural detector is sound but partial: it misses tie-induced zero flux and dead-end chains.",
+    ],
+    options: [
+      { v: "reject", t: "Reject at the DSL boundary: \"write this step as ⇌\"", d: "About 40 lines." },
+      { v: "convert", t: "Convert such groups to ⇌ automatically", d: "In IndependentParameters only." },
+      { v: "leave", t: "Allow it, as today; the identifiable rank reports the redundancy", d: "The rate law is correct; only one fit direction is flat.", rec: true },
+    ] },
+  { id: "B9", group: "B", title: "Identifiability guarantee",
+    evidence: [
+      "24 of 806 plain and 243 of 1,993 allosteric mechanisms are rank-deficient, mostly from the declared model itself (one-subunit L, RE isomerization gauge, textbook microscopic constants) rather than phantoms.",
+    ],
+    options: [
+      { v: "analysis_tool", t: "Keep the rank an analysis tool", d: "Pin fitted_params lengths in tests.", rec: true },
+      { v: "guarantee", t: "Guarantee identifiable fitted parameters", d: "Needs a rank check in the search." },
+    ] },
+  { id: "B10", group: "B", title: "Names of :EqualAI regulator constants",
+    evidence: [
+      "Catalytic :EqualAI constants are bare names. Regulator ones render K_A_Rreg plus a printed mirror line K_I_Rreg = K_A_Rreg.",
+    ],
+    options: [
+      { v: "bare", t: "Bare name, K_Rreg", d: "Matches catalytic :EqualAI constants.", rec: true },
+      { v: "keep", t: "Keep K_A_Rreg with the mirror line", d: "" },
+    ] },
+
+  { id: "C1", group: "C", title: "Derivation engine",
+    evidence: [
+      "The lean engine (whole-graph spanning trees, the edge-sum numerator, exact division by (1 − Γ/Keq)) equals today's laws on 806 of 806 and runs twice as fast.",
+      "Hill's cycle-flux numerator gives the same polynomial with 78 more lines and fails at cycle rank 21. Block factorization saves 2.6% of terms after group renaming.",
+    ],
+    options: [
+      { v: "lean", t: "Lean engine; drop the Hill numerator and block factorization", d: "", rec: true },
+      { v: "hill_blocks", t: "Keep the Hill numerator and blocks", d: "" },
+    ] },
+  { id: "C2", group: "C", title: "Shape of the generated code (revises \"factored code generation\")",
+    evidence: [
+      "Horner emission gives about 70% of the gain; RE-segment nodes and the Haldane factor add 20–25%; block factors add nothing.",
+      "Result on the measured laws: 0 allocations, maximum 41.5 ns against 120.8 ns today, compile time −78% and native code −65% on the 60 largest laws.",
+    ],
+    options: [
+      { v: "horner_nodes", t: "Horner + RE-segment nodes + Haldane factor, no blocks", d: "", rec: true },
+      { v: "keep_blocks", t: "Also keep block factors", d: "" },
+    ] },
+  { id: "C3", group: "C", title: "Where the derived law lives",
+    evidence: [
+      "Identical positional laws occur in only 0–6% of mechanisms, so shared kernels rarely help. A law in a type costs about 17 KB median (up to 80 KB) and floods stack traces.",
+      "Derivation costs tens of microseconds. Nested heterogeneous tuples recompile helpers per law (0.25–0.66 s each).",
+    ],
+    options: [
+      { v: "mech_type", t: "The mechanism stays the only type parameter; derive in the generator", d: "The Sig becomes one homogeneous integer tuple, decoded by splatting.", rec: true },
+      { v: "law_type", t: "Put the derived law in the type", d: "" },
+    ] },
+  { id: "C4", group: "C", title: "Printed normalization",
+    evidence: [
+      "Rule A (the constant term, else ΠS) is defined for all 806 laws and keeps today's \"1 + …\" strings.",
+      "Its reference coefficient is a single monomial in 569 of 806; steady-state laws need Km-like ratios to show a 1.",
+      "49 laws have no constant term (ping-pong). Dividing by ΠS prints 1/A terms (Dalziel form), which give NaN at A = 0; dividing by the coefficient only keeps strings division-free.",
+      "The numerator prints as (ΠS − ΠP/Keq)·Q, with Q positive.",
+    ],
+    options: [
+      { v: "ruleA_coef", t: "Rule A, dividing by the reference coefficient only", d: "Strings stay division-free in concentrations. Laws without a constant term keep dimensional terms." },
+      { v: "ruleA_virtual", t: "Rule A, and laws without a constant term divide by a virtual constant term", d: "Every printed term is dimensionless and free of division by concentrations. Laws with a constant term print as above (1 + …); ping-pong prints a + b + a·b + … with no 1. Cleland's choice covers 40 of the 49 laws without a constant term and a general construction 8 more (about 40 lines); one hand-written law keeps the coefficient division.", rec: true },
+      { v: "dalziel", t: "Rule A with Dalziel form for laws without a constant term", d: "Prints 1/A terms." },
+      { v: "ruleB", t: "Always normalize by ΠS", d: "Needs a fallback in 5 mechanisms." },
+    ] },
+  { id: "C5", group: "C", title: "Scope of the textbook bridge",
+    evidence: [
+      "Exact identities hold for all 26 test transcriptions and the 5 Cleland families.",
+      "Only 35 of 767 enumerated bi-bi laws are literal Cleland forms; 279 of 806 laws are multilinear.",
+      "Cleland constants give no identifiability gain: the identifiable rank equals the rank of the coefficient map in 806 of 806 laws, and Cleland constants overcount it (ordered bi-bi: 8 free Cleland constants at rank 7).",
+    ],
+    options: [
+      { v: "coef_cleland", t: "Coefficient map + Cleland constants + exact identity check", d: "Bi-bi Cleland table; identity checked modulo a 61-bit prime; test bridges keyed by role." },
+      { v: "coef_only", t: "Coefficient map only", d: "rate_law_coefficients and an exact identity check, without Cleland names; test bridge by role." },
+      { v: "tests_only", t: "Keep the bridge in the tests, rewritten by role", d: "No textbook layer in the package. Each test reads its written steps and takes the package constant of the matching stored step in the written direction. The test-only source-order feature of the DSL goes away; the bridge shrinks from about 207 to about 110 lines.", rec: true },
+    ] },
+  { id: "C6", group: "C", title: "Dedup key",
+    evidence: [
+      "K1 (SHA-256 of the canonical IndependentParameters law, labelled by colour refinement) is exact, about 70 µs per law, and merges 17–26% of allosteric expansion classes.",
+      "Fits must be stored by canonical position: copying by name breaks on 270 merges.",
+      "K2 (the AllParameters law plus relations) also catches the Theorell–Chance twins, for about 12 more lines.",
+    ],
+    options: [
+      { v: "K1", t: "K1, fits stored by canonical position", d: "", rec: true },
+      { v: "K2", t: "K2", d: "" },
+    ] },
+  { id: "C7", group: "C", title: "Duplicate generation at the source",
+    evidence: [
+      "Most renamed duplicates come from :EqualAI ↔ :OnlyA tags on groups the inactive state never contains (233 of 295 merges).",
+    ],
+    options: [
+      { v: "later", t: "Leave enumeration unchanged for now", d: "The key catches these duplicates.", rec: true },
+      { v: "canonicalize", t: "Canonicalize those tags in enumeration", d: "Stops generating the duplicates." },
+    ] },
+  { id: "C8", group: "C", title: "Priority tie-break by content names",
+    evidence: [
+      "The fixed priority breaks ties by content names (metabolite and conformation names). It is invariant under storage order, direction, grouping and same-model regrouping, but not under renaming a metabolite.",
+      "A name decides the Haldane pick in 34 enumerated mechanisms.",
+    ],
+    options: [
+      { v: "accept", t: "Accept and document it", d: "", rec: true },
+      { v: "second_pass", t: "Add a second pass that ranks such classes as chemistry", d: "" },
+    ] },
+  { id: "C9", group: "C", title: "Limits of the graph Mechanism encoding",
+    evidence: [
+      "The compact encoding caps a mechanism at 32 metabolite entries and 15 copies of one metabolite per form; the populations use at most 6, ter-ter with every reactant copy about 14.",
+      "Orientation tier 3 by form index matches tier 3 by name on all 2,799 mechanisms.",
+    ],
+    options: [
+      { v: "accept", t: "Accept the caps with clear errors; tier 3 by form index", d: "", rec: true },
+      { v: "general", t: "Use a general encoding", d: "Unmeasured cost." },
+    ] },
+  { id: "C10", group: "C", title: "Compact coefficient form (your C4 note)",
+    evidence: [
+      "Cleland wrote rate laws in coefficient form: num1·A·B − num2·P·Q over constant + coef_A·A + coef_B·B + … . It shows which concentration terms a law has at a glance.",
+      "Normalization already computes every coefficient, so the form costs only printer code, about 25–30 lines.",
+      "The coefficients are functions of the fitted constants and are tied to each other (ordered bi-bi: 12 coefficient ratios at rank 7), so they are a display, not a parameterization.",
+    ],
+    options: [
+      { v: "monomial_names", t: "Print it next to the full law, each coefficient named by what it multiplies", d: "v = E_total·n_0·(A·B − P·Q/Keq) / (1 + d_A·A + d_B·B + d_A_B·A·B + …), then one legend line per coefficient in the fitted constants. d_A_B multiplies A·B, so a name stays put when terms are added or reordered. Allosteric laws print it per conformation.", rec: true },
+      { v: "numbered", t: "Same, with numbered coefficients", d: "1 + d1·A + d2·B + … over the denominator, n1, n2, … over the numerator." },
+      { v: "skip", t: "Skip it", d: "Only the full law is printed." },
+    ] },
+
+  { id: "D1", group: "D", title: "Bugs the probes found in today's package",
+    evidence: [
+      "Full mode with an open RE cycle: the law depends on form names, which pick the spanning tree, and lists constants that never reach v (27 plain mechanisms, 21 enumerated).",
+      "Full mode applies the Pass-2 fold (3 specs).",
+      "The :OnlyA guard errs both ways for mixed groups (admits AD1, AD11, AD14 with no feasible limit; rejects AD15).",
+      "Allosteric mechanisms with two free forms flip at different forms in the two states, or return NaN (hand-written only).",
+      "_kcat_forward fails with \"no kcat components\" on 4 valid hand-written mechanisms.",
+      "Phantom fitted constants: the \"redundant SS-bind\" spec (6 fitted, 5 identifiable) and an RE isomerization gauge in 5 enumerated ping-pong mechanisms.",
+      "expand_bibi/642 takes 120.8 ns, over the 120 ns gate that does not cover it.",
+      "Same-model regroupings change fitted names (312 of 663) and eq_hash (327 of 663).",
+    ],
+    options: [
+      { v: "split", t: "Fix the cheap, independent ones now; the rest in the first redesign phases", d: "Now: expand_bibi/642 through the Horner PR, and rejecting two free forms in allosteric mechanisms. The rest each get a failing test in the phase that rewrites their code. All go into ROADMAP now.", rec: true },
+      { v: "redesign", t: "Fix all of them in the redesign phases", d: "Record them in ROADMAP now." },
+      { v: "now", t: "Fix all of them in today's code now", d: "Some of that code is then rewritten." },
+    ] },
+
+  { id: "E1", group: "E", title: "Speed gate for large laws",
+    evidence: [
+      "In the slice, the three largest bi-bi laws (expand_bibi/626, 642, 658) run in about 42 ns. PR #85 already brings the slowest of them to 54 ns.",
+      "343 ter-ter laws with more than 1,000 denominator terms run at 120–184 ns in the slice. The largest need about 2,600 floating-point operations; this machine does 15–16 per ns, so 120 ns allows about 1,900.",
+      "Before PR #85, today's package took 2.4–3.2 µs on the 25 slowest ter-ter laws. PR #85 was not measured on ter-ter laws.",
+      "bi_bi_with_inh/1013 runs at 112–118 ns in the slice, which leaves no margin on CI hardware.",
+    ],
+    options: [
+      { v: "scaled", t: "Hard 120 ns for MECHANISM_TEST_SPECS and the largest bi-bi laws; a size-scaled bound above that", d: "The bound grows with the number of denominator terms, so ter-ter laws are gated too. The gate is timed on CI hardware in the first PR.", rec: true },
+      { v: "cap", t: "Lower the size cap until every admitted law fits 120 ns", d: "Drops the largest ter-ter mechanisms from enumeration." },
+      { v: "uniform", t: "Keep 120 ns for every law and push code generation further", d: "The operation count says the largest ter-ter laws cannot reach it on this machine." },
+    ] },
+  { id: "E2", group: "E", title: "Which RE/SS labellings to reject (one well-posedness guard)",
+    evidence: [
+      "The laws whose saturating kcat is 0 all catalyze: the rate is positive at every finite substrate concentration and falls to 0 only as one substrate grows (complete substrate inhibition). With E9's kcat they need no special case.",
+      "Probe on 13,645 records (8,626 of them RE/SS mutants): RE turnover gives v ≡ 0 or, in 3 records, a finite but wrong law; bottomless segments and steady-state dead ends make the law 0/0 (NaN) where every product or every substrate is zero; 1,027 accepted laws are v ≡ 0.",
+      "Face splits and traps: the law is finite on the face, but there exact-zero mass action depends on the RE speeds. With RE speed ratios over 10^±3 the gap is 2.3% median, 47% at the 90th percentile and 314% at most, and up to 80% when only one product is zero. For a trap the law equals the limit when the trap-feeding RE step is the slowest. The enumerator emits them in 0.37% of level-1 and 0.82% of level-2 children; specs \"Numerator: redundant SS-bind\" and \"LDH i-state NonequalAI 6-group\" have them.",
+    ],
+    options: [
+      { v: "well_defined_only", t: "Fit what is well defined; reject what is not", d: "Rejected (an error for a hand-written mechanism): a malformed mechanism (atoms, unused declared reactant, a reaction twice, no catalytic cycle through a steady-state step, i.e. v ≡ 0), an RE cycle that turns the reaction over, a law that is not the unique fast-RE limit on a face where data sit (0/0, splits, traps; every product zero, every substrate zero, each reactant zero), and :OnlyA tags with no inactive limit (B1). Fitted: substrate inhibition, abortive complexes, flux-free steps, product activation. Enumeration may filter useless classes further.", rec: true },
+      { v: "minimal_guard", t: "Reject only what the loss cannot handle", d: "As above, but face splits and traps and v ≡ 0 go to the loss." },
+    ] },
+  { id: "E3", group: "E", title: "Fitted names when a kinetic group is split or merged",
+    evidence: [
+      "Today's rule names a kinetic group after a member picked by rendered names; the solve may keep a different member. In the slice, fitted names then change in 3,561 of 37,849 same-model regroupings (9.4%, 12% on ter-ter), although the key and the law do not.",
+      "Naming each class after the member the solve keeps renames 554 of 27,649 fitted names (2.0%) once, and regrouping then renames nothing.",
+    ],
+    options: [
+      { v: "kept_member", t: "Name each class after the member the solve keeps", d: "", rec: true },
+      { v: "today", t: "Keep today's naming rule", d: "Accept renames on regrouping." },
+    ] },
+  { id: "E4", group: "E", title: "Order of the parameter list",
+    evidence: [
+      "The slice lists parameters in content order: active constants by step and slot, then inactive ones, regulator constants, then L. Today's package sorts names alphabetically.",
+      "The order shows in fitted_params, parameters and every tuple a test or a fit writes out.",
+    ],
+    options: [
+      { v: "alphabetical", t: "Keep alphabetical order", d: "", rec: true },
+      { v: "content", t: "Use content order", d: "Groups constants by step, at the cost of changing every pinned tuple." },
+    ] },
+  { id: "E5", group: "E", title: "Metabolite names that collide with printed names",
+    evidence: [
+      "A metabolite named E_total is accepted and the printed law is 17× off; one named N makes it 8× off; Keq and L fail with an unhelpful message. Today's package rejects Keq and E_total.",
+      "Coefficient names join metabolite names with \"_\", so metabolites A, B and A_B give two coefficients named d_A_B, and the coefficient form is wrong.",
+      "The printed locals (N, Q_A, D_A, d_…, n_…) are not checked against metabolite names.",
+    ],
+    options: [
+      { v: "reserve", t: "Reject \"_\" in metabolite names and reserve E_total, Keq, L, N and the printed locals", d: "Clear errors at the DSL boundary.", rec: true },
+      { v: "separator", t: "Allow \"_\" and join coefficient names with a separator no name may contain", d: "Still reserves E_total, Keq, L, N and the printed locals." },
+    ] },
+  { id: "E6", group: "E", title: "The unexplained GC crash",
+    evidence: [
+      "\"GC error (probable corruption)\" aborted 10 of 10 runs of one timing workload, under Julia 1.12.5 and 1.13.1.",
+      "It needs the law computation run on records read back from disk and then freed; the solve alone does not trigger it. The slice has no unsafe code.",
+      "identify's workers read mechanisms back the same way, so the cause matters before the Mechanism PR.",
+    ],
+    options: [
+      { v: "probe", t: "Probe it for at most half a day before the Mechanism PR", d: "Rebuild the records instead of reading them back, run on Julia 1.10 and on x86, and report it upstream if Julia is at fault.", rec: true },
+      { v: "later", t: "Look at it only if it shows up in the package", d: "" },
+    ] },
+  { id: "E7", group: "E", title: "Which constant of a step counts as \"against\" in the solve priority",
+    evidence: [
+      "The slice's brief said the dependent prefers the constant in slot 2. For a product binding, whose physical-forward direction takes the product up, slot 2 is the release rate. Under that literal rule a catalytic rate constant is the Haldane dependent in 228 of 806 mechanisms (Uni-Uni: k_ES_to_E_P).",
+      "Taking \"against\" against the reaction direction, as the slice does, makes a forward catalytic constant the dependent in 0 of 806, as in the P2 design.",
+    ],
+    options: [
+      { v: "reaction_direction", t: "\"Against\" means against the reaction direction", d: "", rec: true },
+      { v: "slot2", t: "\"Against\" means slot 2", d: "" },
+    ] },
+  { id: "E8", group: "E", title: "Printed laws in independent parameters",
+    evidence: [
+      "The slice prints v in the independent (fitted) parameters only and prints each Haldane and Wegscheider relation as a separate line for reference. Today's strings use the dependents' names inside v.",
+      "Substituting the Haldane dependent gives the textbook numerator: the RE random bi-bi law prints (A·B − P·Q/Keq)·k_EAB_to_EPQ/(K_EA_to_E_A·K_EB_to_E_B).",
+      "It follows your B5 choice: one law, in independent parameters.",
+    ],
+    options: [
+      { v: "independents", t: "Print v in the independent parameters; relations as reference lines", d: "", rec: true },
+      { v: "dependents", t: "Keep the dependents' names inside v", d: "Shorter v; the reader substitutes the relations." },
+    ] },
+  { id: "E9", group: "E", title: "How fitted rate constants are scaled in relative mode (kcat)",
+    evidence: [
+      "In relative mode the loss cannot see a common factor on every steady-state rate constant, so the fitter fixes it after the fit. Today it makes the saturating kcat equal scale_k_to_kcat.",
+      "The saturating kcat is 0 for complete substrate inhibition, infinite when the rate never saturates, dependent on how substrates grow in 2.8% of ter-ter laws, ambiguous for PFK's ATP, and below the peak rate in at least 3.1% of laws, those with abortive complexes or parallel routes. The textbook random-order SS bi-bi peaks above its A → ∞ value at fixed B, but never above its rate with every substrate saturating.",
+      "Discussed in chat: kcat and specific activity are measured at stated concentrations, and the scale should not depend on the data's arbitrary rates.",
+    ],
+    options: [
+      { v: "anchors_or_max", t: "Anchors at stated concentrations when given; otherwise the largest turnover over all concentrations", d: "Each anchor is a measured turnover at stated concentrations of every metabolite; several anchors combine by geometric mean, with their spread reported. With no anchors, the scale makes the fitted mechanism's peak turnover over all concentrations 1, found by a deterministic search in log concentrations (convex for hyperbolic plain mechanisms). An error only when the rate grows without bound. Replaces scale_k_to_kcat, _kcat_forward and the saturating-limit machinery.", rec: true },
+      { v: "saturating_core", t: "Saturating kcat on the catalytic core at zero products", d: "Removes forms that are dead ends once product uptake is gone, then takes the limit; errors on never-saturating and direction-dependent mechanisms." },
+    ] },
+  { id: "E10", group: "E", title: "Where the conformations flip (your iso-mechanism question)",
+    evidence: [
+      "Prototype on PR #86's branch, checked against an independent mass-action oracle: flipping at free E is exact for iso mechanisms (12 shapes, n = 1–3, worst error 3e-69) and changes nothing for the 9,308 enumerated mechanisms checked, which all have one free form.",
+      "For a second free form inside E's RE segment, PR #86's law is the same family; only L's meaning changes.",
+      "In today's package it would also admit the :OnlyA island fixtures by deleting the stranded forms. For two of them that is not the limit under B1's kinetic-block reading (off by 1.4–52%), and one is undefined when products are zero. So it needs B1's island rule, made face-aware per E2.",
+      "Choosing by the name E rejects mechanisms whose only enzyme form has another name (one test fixture uses E_c), and swapping the names of two free forms changes the law by 21–100%. Any rule that picks between two inequivalent free forms has this property.",
+    ],
+    options: [
+      { v: "name_E_in_rewrite", t: "In the rewrite: flip at the free form named E, or at the only free form when none is named E", d: "Stored as a node of the graph Mechanism and lands with B1's island rule. PR #86 keeps rejecting second free forms until then.", rec: true },
+      { v: "declare_in_rewrite", t: "In the rewrite: pick by content within one RE segment; require a DSL line across segments", d: "The critic's choice: explicit, never by name, at the cost of one more DSL label for iso mechanisms." },
+      { v: "now", t: "Flip at E in PR #86 now", d: "Admits the island fixtures with deletion laws until B1's rule exists." },
+    ] },
+  { id: "E11", group: "E", title: "Order of the redesign PRs",
+    evidence: [
+      "The critic suggests a tests-only PR before the redesign: rewrite assertions to check counts and values rather than literal names and strings, so later PRs move fewer pins.",
+      "It also suggests moving :OnlyA admission (61 lines) before the engine PR: it does not need the engine and fixes verdicts that are wrong today (AD1, AD11, AD15).",
+      "The joint-solve PR's tie-break must not depend on how the mechanism is represented (for example the step's DSL text), or the Mechanism PR changes the dependents again.",
+    ],
+    options: [
+      { v: "critic", t: "Horner (#85), tests-only PR, joint solve, graph Mechanism, :OnlyA admission, then engine", d: "", rec: true },
+      { v: "a2", t: "Keep A2's order", d: "Horner, joint solve, graph Mechanism, engine, :OnlyA semantics." },
+    ] },
+];
+
+const state = {};        // id -> {choice, note}
+const saving = {};       // id -> Promise chain
+const noteTimers = {};
+let db = null;
+
+function el(tag, attrs = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") n.className = v;
+    else if (k === "text") n.textContent = v;
+    else n.setAttribute(k, v);
+  }
+  for (const k of kids) if (k) n.append(k);
+  return n;
+}
+
+function render() {
+  const root = document.getElementById("groups");
+  root.textContent = "";
+  for (const g of GROUPS) {
+    const sec = el("section", { class: "group", "aria-labelledby": "g-" + g.id });
+    sec.append(el("h2", { id: "g-" + g.id, text: g.id + ". " + g.title }));
+    sec.append(el("p", { text: g.intro }));
+    for (const d of DECISIONS.filter(x => x.group === g.id)) sec.append(card(d));
+    root.append(sec);
+  }
+  updateProgress();
+}
+
+function card(d) {
+  const a = el("article", { class: "card", id: "card-" + d.id });
+  const head = el("div", { class: "head" },
+    el("span", { class: "tag", text: d.id }),
+    el("h3", { text: d.title }),
+    el("span", { class: "saved", id: "saved-" + d.id, text: "" }));
+  const ev = el("ul", { class: "evidence" });
+  for (const e of d.evidence) ev.append(el("li", { text: e }));
+  const fs = el("fieldset");
+  fs.append(el("legend", { text: "Options" }));
+  for (const o of d.options) {
+    const id = "opt-" + d.id + "-" + o.v;
+    const input = el("input", { type: "radio", name: "r-" + d.id, id, value: o.v });
+    input.addEventListener("change", () => choose(d.id, o.v));
+    const title = el("span", { class: "opt-title", text: o.t });
+    if (o.rec) title.append(el("span", { class: "rec", text: "Recommended" }));
+    const txt = el("span", { class: "opt-text" }, title);
+    if (o.d) txt.append(el("span", { class: "opt-desc", text: o.d }));
+    const lab = el("label", { class: "opt", for: id, id: "lab-" + id }, input, txt);
+    fs.append(lab);
+  }
+  const noteId = "note-" + d.id;
+  const ta = el("textarea", { id: noteId, placeholder: "Optional: what you want instead, or a condition" });
+  ta.addEventListener("input", () => {
+    state[d.id] = { ...(state[d.id] || {}), note: ta.value };
+    clearTimeout(noteTimers[d.id]);
+    noteTimers[d.id] = setTimeout(() => save(d.id), 900);
+    mark(d.id, "Unsaved", "");
+  });
+  ta.addEventListener("blur", () => { clearTimeout(noteTimers[d.id]); if (dirty(d.id)) save(d.id); });
+  const note = el("div", { class: "note" }, el("label", { for: noteId, text: "Note" }), ta);
+  const clear = el("button", { class: "clear", type: "button", id: "clear-" + d.id, text: "Clear choice" });
+  clear.addEventListener("click", () => choose(d.id, ""));
+  const actions = el("div", { class: "actions" }, clear);
+  const answer = el("div", { class: "answer", id: "answer-" + d.id });
+  answer.hidden = true;
+  a.append(head, ev, fs, actions, note, answer);
+  return a;
+}
+
+// Renders a reply: blank lines separate paragraphs, runs of lines starting with "- " form
+// a list, and a paragraph starting with "Follow-up:" gets that label in bold.
+function renderAnswer(id, text) {
+  const box = document.getElementById("answer-" + id);
+  if (!box) return;
+  box.textContent = "";
+  if (!text) { box.hidden = true; return; }
+  box.append(el("h4", { text: "Reply to your note" }));
+  const para = lines => {
+    const t = lines.join(" ");
+    if (!t.startsWith("Follow-up:")) return el("p", { text: t });
+    return el("p", { class: "followup" }, el("strong", { text: "Follow-up:" }),
+              document.createTextNode(t.slice("Follow-up:".length)));
+  };
+  for (const block of text.split(/\n\s*\n/)) {
+    let prose = [], items = [];
+    const flush = () => {
+      if (prose.length) { box.append(para(prose)); prose = []; }
+      if (items.length) {
+        const ul = el("ul");
+        for (const i of items) ul.append(el("li", { text: i }));
+        box.append(ul);
+        items = [];
+      }
+    };
+    for (const l of block.split("\n").map(s => s.trim()).filter(s => s !== "")) {
+      if (l.startsWith("- ")) { if (prose.length) flush(); items.push(l.slice(2)); }
+      else { if (items.length) flush(); prose.push(l); }
+    }
+    flush();
+  }
+  box.hidden = false;
+}
+
+const lastSaved = {};
+function dirty(id) {
+  const s = state[id] || {}, l = lastSaved[id] || {};
+  return (s.choice || "") !== (l.choice || "") || (s.note || "") !== (l.note || "");
+}
+
+function paint(id) {
+  const s = state[id] || {};
+  const d = DECISIONS.find(x => x.id === id);
+  for (const o of d.options) {
+    const input = document.getElementById("opt-" + id + "-" + o.v);
+    input.checked = s.choice === o.v;
+    document.getElementById("lab-opt-" + id + "-" + o.v).classList.toggle("sel", s.choice === o.v);
+  }
+  const ta = document.getElementById("note-" + id);
+  if (document.activeElement !== ta) ta.value = s.note || "";
+  document.getElementById("card-" + id).classList.toggle("decided", !!s.choice);
+  document.getElementById("clear-" + id).disabled = !s.choice;
+}
+
+function updateProgress() {
+  const n = DECISIONS.filter(d => state[d.id] && state[d.id].choice).length;
+  document.getElementById("count").textContent = n + " / " + DECISIONS.length + " decided";
+  document.getElementById("bar").style.width = (100 * n / DECISIONS.length) + "%";
+}
+
+function mark(id, text, cls) {
+  const s = document.getElementById("saved-" + id);
+  s.textContent = text;
+  s.className = "saved" + (cls ? " " + cls : "");
+}
+
+function choose(id, v) {
+  state[id] = { ...(state[id] || {}), choice: v };
+  paint(id);
+  updateProgress();
+  save(id);
+}
+
+function save(id) {
+  if (!db) { mark(id, "Not saved: saving is unavailable here", "err"); return; }
+  const body = { choice: (state[id] && state[id].choice) || "", note: (state[id] && state[id].note) || "",
+                 updated: new Date().toISOString() };
+  mark(id, "Saving…", "");
+  const prev = saving[id] || Promise.resolve();
+  saving[id] = prev.then(async () => {
+    try {
+      await db.doc("decisions/" + id).set(body);
+      lastSaved[id] = { choice: body.choice, note: body.note };
+      mark(id, "Saved", "ok");
+    } catch (e) {
+      mark(id, "Not saved: " + ((e && e.message) || "the store refused the write"), "err");
+    }
+  });
+}
+
+render();
+for (const d of DECISIONS) paint(d.id);
+
+(async () => {
+  const status = document.getElementById("status");
+  try {
+    db = window.claude ? await window.claude.use("db") : null;
+  } catch (e) { db = null; }
+  if (!db) {
+    status.textContent = "Saving is unavailable in this view. You can read everything, but choices made here are not kept.";
+    status.classList.add("err");
+    return;
+  }
+  status.textContent = "Choices save automatically.";
+  db.collection("decisions").onSnapshot(snap => {
+    for (const doc of snap.docs) {
+      const data = doc.data() || {};
+      if (!DECISIONS.some(d => d.id === doc.id)) continue;
+      if (dirty(doc.id) && saving[doc.id]) continue;
+      state[doc.id] = { choice: data.choice || "", note: data.note || "" };
+      lastSaved[doc.id] = { ...state[doc.id] };
+      paint(doc.id);
+      if (data.choice) mark(doc.id, "Saved", "ok");
+    }
+    updateProgress();
+  }, err => {
+    status.textContent = "Lost the connection to saved choices: " + ((err && err.message) || "unknown error") + ". Reload to reconnect.";
+    status.classList.add("err");
+  });
+  db.collection("answers").onSnapshot(snap => {
+    for (const doc of snap.docs) {
+      const data = doc.data() || {};
+      renderAnswer(doc.id, typeof data.text === "string" ? data.text : "");
+    }
+  }, () => {});
+})();
+</script>

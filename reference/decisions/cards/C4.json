@@ -1,0 +1,5 @@
+{
+  "choice": "ruleA_virtual",
+  "note": "Additional questions: I would like normalization that makes dimensionless terms but diving num and den by some combo of kinetics constants. How can we do that?\n\nMore comments: I wonder if for printed equations we should have a version that report concentration terms and collapses all parameters into some constant like 1+d1*S+d2*P ets with name like d1 and n1 for den and num. This will make them much more readable but this should be in addition to the rate equation with all terms. Thoughts?",
+  "updated": "2026-10-10T08:20:31.386Z"
+}
