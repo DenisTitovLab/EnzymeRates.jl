@@ -1411,7 +1411,10 @@ end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             A = [1.0, 2.0, 1.0, 2.0], B = [0.5, 0.5, 1.0, 1.0],
             P = [0.1, 0.2, 0.1, 0.2], Q = [0.3, 0.3, 0.4, 0.4])
-    prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0)
+    # The range stops below the stub fit's binding constants (5), so the fit still rises at
+    # the range's upper edge and carries the edge flag.
+    prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0,
+                                       peak_range=(0.1, 1.0))
     pair = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2]
 
     memo = Dict{UInt64, NamedTuple}()
@@ -1435,9 +1438,6 @@ end
     @test entries[1].retcode === entries[2].retcode === :Success
     # Representative fit first (false); the duplicate is inherited (true).
     @test [e.row.fit_inherited for e in entries] == [false, true]
-    # The edge flag belongs to the equation's fit, so the inherited row copies it.
-    @test entries[1].row.peak_at_range_edge isa Bool
-    @test entries[2].row.peak_at_range_edge === entries[1].row.peak_at_range_edge
 
     # The memo stores the fit; every row sharing this eq_hash copies it verbatim,
     # so both rows carry identical params — same equation ⟹ same fit + rescaling.
@@ -1446,9 +1446,12 @@ end
     for e in entries
         @test keys(e.row.params) == fkeys
         @test e.row.params == fit.params
+        # The edge flag belongs to the equation's fit, so each row copies it.
+        @test e.row.peak_at_range_edge === fit.peak_at_range_edge
     end
+    @test fit.peak_at_range_edge === true
     @test entries[1].row.params == entries[2].row.params
-    # The default peak scale: the copied params are the rescaled fit, not the raw
+    # The peak scale: the copied params are the rescaled fit, not the raw
     # 5.0 the stub optimizer returned.
     @test !all(v -> v ≈ 5.0, entries[1].row.params)
 
