@@ -95,13 +95,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 - **Rewrite the derivation around the reaction graph.**
   `docs/superpowers/specs/2026-10-12-reaction-graph-rewrite-design.md` records the design,
-  decided between 2026-10-09 and 2026-10-12, and splits the work into five PRs: the
-  fitting scale (relative fits scaled to peak turnover, measured kcats applied after the
-  fit); one thermodynamic solve that derives both conformations from one graph; the graph
-  mechanism type with two macros, `show` and a new CSV format; admission, the
-  well-posedness guard and the flip at free E; then the engine, printing, a rename-proof
-  dedup key and code-generation locals. The table in its section 16 lists the entries
-  that each PR retires. Priority: high.
+  decided between 2026-10-09 and 2026-10-12. Four PRs remain: one thermodynamic solve that
+  derives both conformations from one graph; the graph mechanism type with two macros,
+  `show` and a new CSV format; admission, the well-posedness guard and the flip at free E;
+  then the engine, printing, a rename-proof dedup key and code-generation locals. The
+  table in its section 16 lists the entries that each PR retires. Priority: high.
 - **Derive both conformations from one catalytic rate equation.**
   Each conformation is derived on its own graph: `_state_parts` rebuilds the inactive one
   as a pruned mechanism (`_state_allo_mechanism`), and each solves its own Wegscheider
@@ -118,8 +116,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `:OnlyA` ping-pong mechanisms this rejects. The conformations will flip at free E,
   which every mechanism must then contain; until then the constructor admits a second
   free form only in rapid equilibrium with the first (`_assert_one_flip_segment`), where
-  the choice only rescales `L`. The rewrite's second PR derives both conformations from
-  one graph with today's deletion and pruning; its fourth brings the limits, admission
+  the choice only rescales `L`. The rewrite's first PR derives both conformations from
+  one graph with today's deletion and pruning; its third brings the limits, admission
   and the flip at free E. Branch
   `mwc-solve-then-limit` holds a July design of this approach
   (spec b067aa0 and 651a821, plan 9c95f12, prototype 6f0011e), whose prototype matched

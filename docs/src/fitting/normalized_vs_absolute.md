@@ -8,9 +8,9 @@ response: changing the amount of enzyme scales every rate by the same factor and
 leaves that shape intact.
 
 EnzymeRates.jl handles both cases through one `FittingProblem` keyword, `absolute`.
-With the default `absolute = false` the data are relative: the fit ignores an
+With the default `absolute = false` the data is relative: the fit ignores an
 arbitrary factor on each group's rates, and the returned rate constants are scaled so
-the mechanism's peak turnover is 1. With `absolute = true` the data are per-enzyme
+the mechanism's peak turnover is 1. With `absolute = true` the data is per-enzyme
 turnover: the fit scores absolute magnitudes and returns the constants as fitted.
 `IdentifyRateEquationProblem` takes the same keyword.
 
@@ -26,9 +26,11 @@ turnover: the fit scores absolute magnitudes and returns the constants as fitted
   mechanism's **peak turnover** equal 1. The peak turnover is the largest net forward
   rate per enzyme, `v/E_total`, over every metabolite's concentration — substrates,
   products, inhibitors and regulators — within `peak_range`. A deterministic search in
-  log concentrations finds it, the range's corners included. Multiply the returned rate
-  constants by a measured peak turnover to put them in absolute units, or rescale them
-  to measured kcats (below).
+  log concentrations looks for it. The search is a heuristic: it climbs, one
+  concentration at a time, from the four best of the range's corners and its center
+  (every corner for up to 12 metabolites, only the two extreme corners beyond).
+  Multiply the returned rate constants by a measured peak turnover to put them in
+  absolute units, or rescale them to measured kcats (below).
 
 Relative mode is the right choice when your data reports relative rates
 (arbitrary units, percent activity, or values normalized per some `E_total`
@@ -41,7 +43,7 @@ Pass `absolute = true`. In absolute mode:
 - **Loss**: log-ratios are squared **without centering**. The absolute
   magnitude of the rate is scored, so the data must report per-enzyme turnover
   in consistent units.
-- **Output**: the raw fitted parameters, never rescaled. The data fix the absolute
+- **Output**: the raw fitted parameters, never rescaled. The data fixes the absolute
   scale.
 
 Absolute mode is the right choice when your data is already on a per-enzyme
@@ -60,9 +62,10 @@ turnover basis.
 
 `peak_range = (lo, hi)` bounds the concentrations the peak search visits, in the units
 of your data. The default `(1e-12, 1e3)` covers physiological concentrations whether
-your data are in M, the unit [Fitting tutorial & data format](@ref) recommends, or in
-mM. For data in µM, where `1e3` means 1 mM, raise the upper bound. `FittingProblem`,
-`IdentifyRateEquationProblem` and `rescale_parameter_values` all take `peak_range`.
+your data is in M, the unit [Fitting tutorial & data format](@ref) recommends, or in
+mM. For data in µM, where `1e3` means 1 mM, raise the upper bound. `FittingProblem` and
+`IdentifyRateEquationProblem` take `peak_range`, and so does `rescale_parameter_values`
+without `kcats`.
 
 Most laws peak inside the range or saturate well below its upper edge. A law still
 rising at the upper edge — by more than 10% over the range's last decade — is flagged:

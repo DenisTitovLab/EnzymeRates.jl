@@ -28,8 +28,10 @@ form (`_poly_to_horner`), that must be
 **allocation-free and sub-120 ns per call**, enforced by
 `_testhelper_test_rate_equation_performance`
 (`test/test_rate_eq_derivation.jl`, asserting `allocs == 0` and `t < 120e-9` for
-every fixture mechanism and the three largest enumerated rate laws). The printed
-equation of `rate_equation_string` keeps flat sums. That speed is the binding
+every fixture mechanism and the three largest enumerated rate laws). Three larger
+ter-bi laws (589, 799 and 858 denominator terms) are held to
+`max(120 ns, 0.7 ns × denominator terms)`. The printed equation of
+`rate_equation_string` keeps flat sums. That speed is the binding
 constraint on the whole package: the fitter is a multi-start, global,
 gradient-free optimizer that
 evaluates `rate_equation` millions of times per fit, and a single rate equation
