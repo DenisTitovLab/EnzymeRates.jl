@@ -995,75 +995,52 @@ function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec; s
     end
 end
 
-function _testhelper_test_kcat_rescaling(spec::_testhelper_MechanismTestSpec; seed=100)
+function _testhelper_test_peak_rescaling(spec::_testhelper_MechanismTestSpec; seed=100)
     m = spec.mechanism
-    @testset "kcat rescaling" begin
+    @testset "Peak rescaling" begin
         rng = Random.MersenneTwister(seed)
         params = _testhelper_random_reduced_params(m; rng)
+        range = (1e-12, 1e3)
+        peak = EnzymeRates._peak_turnover(m, params, range).value
+        @test peak > 0
 
-        # kcat should be positive
-        kcat_orig = EnzymeRates._kcat_forward(m, params)
-        @test kcat_orig > 0
-
-        # Scale invariance: scaling SS k's by α scales kcat by α
+        # Scaling every steady-state rate constant by α scales the peak by α.
         ss_names = EnzymeRates._ss_rate_constant_names(m)
         α = 0.1 + 9.9 * rand(rng)
         scaled_params = NamedTuple{keys(params)}(Tuple(
             k in ss_names ? v * α : v
             for (k, v) in zip(keys(params), values(params))
         ))
-        @test EnzymeRates._kcat_forward(m, scaled_params) ≈
-            α * kcat_orig rtol=1e-10
+        @test EnzymeRates._peak_turnover(m, scaled_params, range).value ≈
+            α * peak rtol=1e-9
 
-        # Rescale so kcat = 1
-        norm = rescale_parameter_values(m, params)
-        kcat_norm = EnzymeRates._kcat_forward(m, norm)
-        @test kcat_norm ≈ 1.0 rtol=1e-10
-
-        # K values (non-SS params) unchanged
+        # The peak scale makes the peak 1 and leaves every other constant alone.
+        norm, spread = rescale_parameter_values(m, params)
+        @test spread === nothing
+        @test EnzymeRates._peak_turnover(m, norm, range).value ≈ 1.0 rtol=1e-9
         for k in keys(params)
             if !(k in ss_names)
                 @test norm[k] == params[k]
             end
         end
 
-        # Custom kcat target
-        kcat_target = 0.1 + 9.9 * rand(rng)
-        norm_custom = rescale_parameter_values(m, params; scale_k_to_kcat=kcat_target)
-        @test EnzymeRates._kcat_forward(m, norm_custom) ≈
-            kcat_target rtol=1e-10
-
-        # Rate proportionality: v_norm / v_orig = 1 / kcat_orig
+        # Every rate changes by the same factor.
         met_names = metabolites(m)
-        conc_vals = Tuple(0.5 + rand(rng) for _ in met_names)
-        concs = NamedTuple{Tuple(met_names)}(conc_vals)
+        concs = NamedTuple{Tuple(met_names)}(Tuple(0.5 + rand(rng) for _ in met_names))
         v_orig = rate_equation(m, concs, params)
-        v_norm = rate_equation(m, concs, norm)
-        @test v_norm / v_orig ≈ 1.0 / kcat_orig rtol=1e-8
+        @test rate_equation(m, concs, norm) / v_orig ≈ 1.0 / peak rtol=1e-8
 
-        # V ≈ 1 at saturating substrates, products=0
-        sub_names = _testhelper_substrates(m)
-        prod_names = _testhelper_products(m)
-        reg_names = _testhelper_regulators(m)
-        n_reg = length(reg_names)
+        # The peak bounds the rescaled turnover at every corner of the range.
+        norm_turnover = merge(norm, (E_total=1.0,))
+        corners = Iterators.product(ntuple(_ -> range, length(met_names))...)
+        @test all(c -> rate_equation(m, NamedTuple{met_names}(c), norm_turnover) <=
+                       1 + 1e-9, corners)
 
-        norm_e1 = merge(norm, (E_total=1.0,))
-
-        BIG = 1e6
-        max_rate = 0.0
-        for mask in 0:(2^n_reg - 1)
-            conc_dict = Dict{Symbol,Float64}()
-            for s in sub_names; conc_dict[s] = BIG; end
-            for p in prod_names; conc_dict[p] = 0.0; end
-            for (i, r) in enumerate(reg_names)
-                conc_dict[r] = ((mask >> (i - 1)) & 1) == 1 ? BIG : 0.0
-            end
-            concs = NamedTuple{Tuple(met_names)}(
-                Tuple(conc_dict[n] for n in met_names))
-            v = rate_equation(m, concs, norm_e1)
-            max_rate = max(max_rate, v)
-        end
-        @test max_rate ≈ 1.0 rtol=1e-3
+        # An anchor at those concentrations sets the turnover there.
+        target = sign(v_orig) * (0.1 + 9.9 * rand(rng))
+        anchored, spread_one = rescale_parameter_values(m, params, [concs => target])
+        @test spread_one == 0.0
+        @test rate_equation(m, concs, merge(anchored, (E_total=1.0,))) ≈ target rtol=1e-9
     end
 end
 
@@ -1114,7 +1091,7 @@ function _testhelper_run_all_tests(spec::_testhelper_MechanismTestSpec)
         spec.run_ode_test && _testhelper_test_ode_steadystate(spec)
         # Only runs if analytical_kcat_fn provided
         _testhelper_test_analytical_kcat(spec)
-        _testhelper_test_kcat_rescaling(spec)
+        _testhelper_test_peak_rescaling(spec)
     end
 end
 

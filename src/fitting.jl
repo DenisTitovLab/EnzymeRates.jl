@@ -480,3 +480,81 @@ function _peak_turnover(@nospecialize(m::AbstractEnzymeMechanism),
                                          log10(peak_range[2]))
     (value = value, concs = NamedTuple{mets}(Tuple(exp10.(u))), at_edge = at_edge)
 end
+
+"""
+    rescale_parameter_values(m, params; peak_range = (1e-12, 1e3)) -> (params, nothing)
+    rescale_parameter_values(m, params, kcats) -> (params, spread)
+
+Re-express the parameters `params` of mechanism `m` on another rate scale by multiplying
+every steady-state rate constant (the `k_…` constants) by one factor. The binding
+constants `K_…`, `Keq`, `E_total`, `L` and the regulatory constants stay as they are, and
+every rate changes by that factor. `params` must include `Keq`, which the dependent rate
+constants need; merge it into a fit's `params`.
+
+With `kcats`, a vector of `concentrations => turnover` pairs, the factor matches measured
+turnovers — a kcat, or a specific activity in turnover units — at stated concentrations,
+given as a `NamedTuple` per anchor; metabolites an anchor leaves out are zero. Several
+anchors combine by the geometric mean of measured over predicted turnover, the
+least-squares scale in log space. `spread` is the standard deviation of the anchors'
+`log(measured/predicted)`, 0 for one anchor; a large spread says the anchors disagree
+with the model or with each other. An anchor where the model predicts zero turnover, or
+turnover of the other sign, is an error.
+
+Without `kcats`, the factor makes the mechanism's peak turnover — its largest net forward
+rate per enzyme over every metabolite's concentration within `peak_range`, in the data's
+concentration units — equal 1, the scale `fit_rate_equation` gives relative fits, and
+`spread` is `nothing`. The default range covers physiological concentrations in M or mM;
+data in µM need a higher upper bound.
+
+```julia
+fit = fit_rate_equation(FittingProblem(m, data; Keq = 2.0), optimizer)
+kcats = [(A = 10.0, B = 5.0) => 42.0, (A = 20.0, B = 5.0) => 44.0]
+params, spread = rescale_parameter_values(m, merge(fit.params, (; Keq = 2.0)), kcats)
+```
+"""
+function rescale_parameter_values(@nospecialize(m::AbstractEnzymeMechanism),
+                                  params::NamedTuple; peak_range=DEFAULT_PEAK_RANGE)
+    _check_has_keq(params)
+    range = _peak_range(peak_range)
+    peak = _peak_turnover(m, params, range).value
+    0 < peak < Inf || error("the mechanism has no positive forward turnover within " *
+                            "peak_range $range; the peak scale is undefined")
+    (_scale_rate_constants(m, params, 1 / peak), nothing)
+end
+
+function rescale_parameter_values(@nospecialize(m::AbstractEnzymeMechanism),
+                                  params::NamedTuple, kcats::AbstractVector{<:Pair})
+    _check_has_keq(params)
+    isempty(kcats) &&
+        error("kcats is empty; pass at least one (concentrations => turnover) anchor")
+    mets = metabolites(m)
+    turnover_params = merge(params, (E_total = 1.0,))
+    log_ratios = map(kcats) do (concs, measured)
+        concs isa NamedTuple ||
+            error("kcats: concentrations must be a NamedTuple; got $(repr(concs))")
+        for (k, c) in pairs(concs)
+            k in mets || error("kcats: $k is not a metabolite of the mechanism " *
+                               "(metabolites: $(join(mets, ", ")))")
+            c isa Real && isfinite(c) && c >= 0 || error(
+                "kcats: concentration of $k must be a finite number ≥ 0; got $(repr(c))")
+        end
+        measured isa Real && isfinite(measured) && measured != 0 || error(
+            "kcats: turnover must be a finite, nonzero number; got $(repr(measured))")
+        predicted = rate_equation(m,
+            NamedTuple{mets}(Tuple(Float64(get(concs, k, 0.0)) for k in mets)),
+            turnover_params)
+        predicted != 0 && sign(predicted) == sign(measured) || error(
+            "kcats: at $concs the mechanism predicts turnover $predicted; an anchor " *
+            "needs a nonzero predicted turnover of the measured turnover's sign")
+        log(measured / predicted)
+    end
+    center = sum(log_ratios) / length(log_ratios)
+    spread = length(log_ratios) == 1 ? 0.0 :
+        sqrt(sum(r -> (r - center)^2, log_ratios) / (length(log_ratios) - 1))
+    (_scale_rate_constants(m, params, exp(center)), spread)
+end
+
+"""Errors unless `params` holds `Keq`, which the dependent rate constants need."""
+_check_has_keq(params::NamedTuple) = haskey(params, :Keq) || error(
+    "params must include Keq, which the dependent rate constants need; merge it into a " *
+    "fit's params")

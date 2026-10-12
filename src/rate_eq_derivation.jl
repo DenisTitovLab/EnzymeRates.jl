@@ -755,26 +755,6 @@ so this carries no `catalytic_multiplicity` factor.
         :(return $(_max_expr(kcat_exprs))))
 end
 
-# ─── Public API: rescale_parameter_values ──────────────────────────
-
-"""
-    rescale_parameter_values(m, params::NamedTuple; scale_k_to_kcat=1.0)
-
-Rescale SS rate constants so that `_kcat_forward(m, result) ≈ scale_k_to_kcat`.
-Non-SS parameters (K's, Keq, E_total, L, regulatory K's) are unchanged.
-"""
-function rescale_parameter_values(
-    @nospecialize(m::AbstractEnzymeMechanism), params::NamedTuple; scale_k_to_kcat=1.0,
-)
-    kcat_current = _kcat_forward(m, params)
-    scale = scale_k_to_kcat / kcat_current
-    ss_names = _ss_rate_constant_names(m)
-    NamedTuple{keys(params)}(Tuple(
-        k in ss_names ? v * scale : v
-        for (k, v) in zip(keys(params), values(params))
-    ))
-end
-
 # ═══════════════════════════════════════════════════════════════════
 # AllostericEnzymeMechanism rate equations (MWC)
 #

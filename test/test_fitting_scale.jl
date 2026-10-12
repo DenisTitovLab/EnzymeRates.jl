@@ -243,4 +243,97 @@ end
         end
     end
 
+    @testset "rescale_parameter_values: peak scale" begin
+        p = _testhelper_mm_params(1.0)
+        q, spread = rescale_parameter_values(mm, p)
+        @test spread === nothing
+        @test keys(q) == keys(p)
+        # Every fitted constant here is a rate constant; each is divided by the peak
+        # turnover 5·1e3/(1 + 1e3).
+        @test q.k_ES_to_E_P ≈ 1.001 rtol = 1e-12
+        @test q.k_ES_to_E_S ≈ 1.001 rtol = 1e-12
+        @test q.k_E_S_to_ES ≈ 2.002 rtol = 1e-12
+        @test q.Keq == 2.0
+        @test EnzymeRates._peak_turnover(mm, q, (1e-12, 1e3)).value ≈ 1 rtol = 1e-12
+        # E_total passes through and does not enter the scale.
+        qE, _ = rescale_parameter_values(mm, merge(p, (E_total = 3.0,)))
+        @test qE.E_total == 3.0 && qE.k_ES_to_E_P == q.k_ES_to_E_P
+        # peak_range sets the range: capped at S = 10 the peak turnover is 5·10/11.
+        q10, _ = rescale_parameter_values(mm, p; peak_range = (1e-12, 10.0))
+        @test q10.k_ES_to_E_P ≈ 1.1 rtol = 1e-12
+        # Binding constants stay; only the rate constant of the substrate-inhibition law
+        # scales, by 1/1.5.
+        q_si, _ = rescale_parameter_values(si, si_params)
+        @test q_si.k_ES_to_EP ≈ 2.0 rtol = 1e-9
+        @test (q_si.K_EP_to_E_P, q_si.K_ESSinh_to_ES_Sinh, q_si.K_ES_to_E_S) ==
+              (1.0, 4.0, 1.0)
+    end
+
+    @testset "rescale_parameter_values: measured turnovers" begin
+        p = _testhelper_mm_params(1.0)
+        _testhelper_mm_turnover(q, concs) = rate_equation(
+            mm, merge((S = 0.0, P = 0.0), concs), merge(q, (E_total = 1.0,)))
+        # One anchor: the rescaled law predicts the measured turnover there; P, unlisted,
+        # is zero.
+        q, spread = rescale_parameter_values(mm, p, [(S = 10.0,) => 42.0])
+        @test _testhelper_mm_turnover(q, (S = 10.0,)) ≈ 42.0 rtol = 1e-12
+        @test spread == 0.0
+        @test q.Keq == 2.0
+        # Two anchors combine by the geometric mean of measured over predicted turnover
+        # (predicted 50/11 at S = 10 and 5/2 at S = 1); the spread is the standard
+        # deviation of the two log ratios.
+        r1, r2 = 42.0 / (50 / 11), 10.0 / (5 / 2)
+        q2, spread2 = rescale_parameter_values(mm, p,
+                                               [(S = 10.0,) => 42.0, (S = 1.0,) => 10.0])
+        @test q2.k_ES_to_E_P ≈ 5.0 * sqrt(r1 * r2) rtol = 1e-12
+        @test spread2 ≈ abs(log(r1) - log(r2)) / sqrt(2) rtol = 1e-12
+        # Integer concentrations and turnovers work.
+        @test rescale_parameter_values(mm, p, [(S = 10,) => 42])[1] == q
+        # A reverse anchor: the product alone runs the reaction backwards.
+        qr, _ = rescale_parameter_values(mm, p, [(P = 1.0,) => -2.0])
+        @test _testhelper_mm_turnover(qr, (P = 1.0,)) ≈ -2.0 rtol = 1e-12
+    end
+
+    @testset "rescale_parameter_values: errors" begin
+        p = _testhelper_mm_params(1.0)
+        nokeq = (k_ES_to_E_P = 5.0, k_ES_to_E_S = 5.0, k_E_S_to_ES = 10.0)
+        keq_message = "params must include Keq, which the dependent rate constants " *
+                      "need; merge it into a fit's params"
+        @test_throws ErrorException(keq_message) rescale_parameter_values(mm, nokeq)
+        @test_throws ErrorException(keq_message) rescale_parameter_values(
+            mm, nokeq, [(S = 1.0,) => 1.0])
+        @test_throws(ErrorException("kcats is empty; pass at least one " *
+                                    "(concentrations => turnover) anchor"),
+                     rescale_parameter_values(mm, p, Pair{NamedTuple, Float64}[]))
+        @test_throws(ErrorException("kcats: concentrations must be a NamedTuple; got " *
+                                    "(1.0,)"),
+                     rescale_parameter_values(mm, p, [(1.0,) => 1.0]))
+        @test_throws(ErrorException("kcats: X is not a metabolite of the mechanism " *
+                                    "(metabolites: S, P)"),
+                     rescale_parameter_values(mm, p, [(X = 1.0,) => 1.0]))
+        @test_throws(ErrorException("kcats: concentration of S must be a finite number " *
+                                    "≥ 0; got -1.0"),
+                     rescale_parameter_values(mm, p, [(S = -1.0,) => 1.0]))
+        for (bad, shown) in ((0.0, "0.0"), (NaN, "NaN"), (Inf, "Inf"))
+            @test_throws(ErrorException("kcats: turnover must be a finite, nonzero " *
+                                        "number; got $shown"),
+                         rescale_parameter_values(mm, p, [(S = 1.0,) => bad]))
+        end
+        # No substrate and no product: the predicted turnover is zero.
+        @test_throws("an anchor needs a nonzero predicted turnover of the measured " *
+                     "turnover's sign",
+                     rescale_parameter_values(mm, p, [(S = 0.0,) => 1.0]))
+        # The product alone runs the reaction backwards, against a forward measurement.
+        @test_throws("an anchor needs a nonzero predicted turnover of the measured " *
+                     "turnover's sign",
+                     rescale_parameter_values(mm, p, [(P = 1.0,) => 1.0]))
+        # Every product of two constants underflows to zero: no peak scale exists.
+        tiny = (k_ES_to_E_P = 1e-200, k_ES_to_E_S = 1e-200, k_E_S_to_ES = 1e-200,
+                Keq = 2.0)
+        @test_throws(ErrorException("the mechanism has no positive forward turnover " *
+                                    "within peak_range (1.0e-12, 1000.0); the peak scale " *
+                                    "is undefined"),
+                     rescale_parameter_values(mm, tiny))
+    end
+
 end

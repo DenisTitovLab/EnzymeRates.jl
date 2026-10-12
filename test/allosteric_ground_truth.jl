@@ -123,10 +123,11 @@ end
     @test dA == ER.poly_one()                       # single active segment
     @test dI == ER.poly_one()                       # single inactive segment
 
-    # kcat stays consistent with rate_equation under normalization.
+    # The peak scale stays consistent with rate_equation.
     prm = NamedTuple{(fp..., :Keq, :E_total)}((1.3, 0.9, 2.1, 0.7, 3.0, 1.0))
-    rescaled = ER.rescale_parameter_values(onlyA, prm; scale_k_to_kcat=5.0)
-    @test isapprox(ER._kcat_forward(onlyA, rescaled), 5.0; rtol=1e-6)
+    rescaled, _ = ER.rescale_parameter_values(onlyA, prm)
+    @test isapprox(ER._peak_turnover(onlyA, rescaled, (1e-12, 1e3)).value, 1.0;
+                   rtol=1e-9)
 end
 
 # ── The gate: multi-:OnlyA bi-uni derivation matches mass-action ground truth ─
