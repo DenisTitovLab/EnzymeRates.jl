@@ -57,19 +57,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   so a long `identify_rate_equation` run slows as it derives more mechanisms. A loop of
   `_dependent_param_exprs` calls on one mechanism that prints `Base.gc_live_bytes()` and
   `Base.gc_num().full_sweep` shows it.
-- **A split of an `:OnlyA` group can build a mechanism the constructor rejects.**
-  `_expand_split_kinetic_group` builds each candidate (`_apply_bipartitions`) before its
-  gain test, and the `AllostericMechanism` constructor rejects one whose `:OnlyA` binding
-  leaves a thermodynamic cycle unsatisfiable (`_onlya_haldane_violation`). The error
-  aborts the parent's whole expansion, which `identify_rate_equation` records as an
-  expansion failure. The check skips an `:OnlyA` group holding a fused binding, but not
-  the part of it a split leaves without one: in the merged bi-bi with
-  `(E + A <--> E(A), E(B) + A <--> E(P, Q)) :: OnlyA` and
-  `E(Q) + A <--> E(A, Q) :: EqualAI`, splitting off `E + A` leaves the cycle E, E(A),
-  E(A, Q), E(Q) unsatisfiable. Among sampled parents two expansion rounds below the
-  seeds, 4 of 250 bi-bi, 1 of 250 ping-pong and 1 of 248 ter-bi parents meet it. Testing
-  each candidate's groups with `_onlya_haldane_violation` before building it, as
-  `_expand_change_allo_state` does for its relaxations, would let the move skip it.
 
 - **The `:OnlyA` guard misjudges groups that mix a binding and a chemistry step.**
   `_onlya_haldane_violation` (`src/thermodynamic_constr_for_rate_eq_derivation.jl`)

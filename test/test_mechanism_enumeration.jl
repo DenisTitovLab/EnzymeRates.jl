@@ -2793,6 +2793,135 @@ end
     @test Set(EnzymeRates.expand_mechanisms([am], EnzymeRates.reaction(am))) == Set(others)
 end
 
+@testset "AllostericMechanism — a split the constructor would reject gains nothing" begin
+    # Merged random-order bi-bi with the abortive complex E(A, Q). The steady-state A group
+    # binds A at E and, fused, at E(B) into E(P, Q). An :OnlyA group holding a fused binding
+    # is chemistry: its inactive rate constants vanish, their ratio is free to close any
+    # cycle through it, and the thermodynamic check (`_onlya_haldane_violation`) leaves it
+    # out. Split by B, the group leaves E + A alone, a plain :OnlyA binding that the check
+    # keeps, on the cycle E, E(A), E(A, Q), E(Q), whose other steps bind A and Q in both
+    # conformations (:EqualAI). The inactive conformation cannot close that cycle, so the
+    # constructor rejects the child. The move tests each candidate with the same check
+    # before building it, so this split gains nothing, and the A group, steady state, gives
+    # the search no partner to extend it with. Splitting the B group gains nothing either:
+    # the square E, E(A), E(P, Q), E(B), closed by the shared A group, ties the new K back.
+    # The move emits the three splits that gain: the P group, and the Q group by P and by A.
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q))                         :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))                               :: OnlyA
+            (E + P <--> E(P), E(Q) + P <--> E(P, Q))                         :: OnlyA
+            (E + Q <--> E(Q), E(A) + Q <--> E(A, Q), E(P) + Q <--> E(P, Q))  :: EqualAI
+            E(Q) + A <--> E(A, Q)                                            :: EqualAI
+        end
+    end)
+    rejection = "an :OnlyA binding (k_E_A_to_EA) leaves a thermodynamic"
+    @test_throws rejection @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_steps: begin
+            E + A <--> E(A)                                                  :: OnlyA
+            E(B) + A <--> E(P, Q)                                            :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))                               :: OnlyA
+            (E + P <--> E(P), E(Q) + P <--> E(P, Q))                         :: OnlyA
+            (E + Q <--> E(Q), E(A) + Q <--> E(A, Q), E(P) + Q <--> E(P, Q))  :: EqualAI
+            E(Q) + A <--> E(A, Q)                                            :: EqualAI
+        end
+    end
+    p_split = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q))                         :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))                               :: OnlyA
+            E + P <--> E(P)                                                  :: OnlyA
+            E(Q) + P <--> E(P, Q)                                            :: OnlyA
+            (E + Q <--> E(Q), E(A) + Q <--> E(A, Q), E(P) + Q <--> E(P, Q))  :: EqualAI
+            E(Q) + A <--> E(A, Q)                                            :: EqualAI
+        end
+    end)
+    q_by_p = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q))                         :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))                               :: OnlyA
+            (E + P <--> E(P), E(Q) + P <--> E(P, Q))                         :: OnlyA
+            (E + Q <--> E(Q), E(A) + Q <--> E(A, Q))                         :: EqualAI
+            E(P) + Q <--> E(P, Q)                                            :: EqualAI
+            E(Q) + A <--> E(A, Q)                                            :: EqualAI
+        end
+    end)
+    q_by_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(P, Q))                         :: OnlyA
+            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))                               :: OnlyA
+            (E + P <--> E(P), E(Q) + P <--> E(P, Q))                         :: OnlyA
+            (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))                         :: EqualAI
+            E(A) + Q <--> E(A, Q)                                            :: EqualAI
+            E(Q) + A <--> E(A, Q)                                            :: EqualAI
+        end
+    end)
+    kids = EnzymeRates._expand_split_kinetic_group(am)
+    @test length(kids) == 3
+    @test Set(kids) == Set([p_split, q_by_p, q_by_a])
+    base = EnzymeRates._independent_param_count(am)
+    @test all(c -> EnzymeRates._independent_param_count(c) > base, kids)
+    others = [EnzymeRates._expand_re_to_ss(am); EnzymeRates._expand_change_allo_state(am)]
+    @test Set(EnzymeRates.expand_mechanisms([am], EnzymeRates.reaction(am))) ==
+          Set([others; p_split; q_by_p; q_by_a])
+end
+
+@testset "AllostericMechanism — the split's :OnlyA check agrees with the constructor" begin
+    # An aggregate check over the bi-bi seed set (the exception to writing every fixture
+    # inline): each split child of a seed lifted to its allosteric variants, one parent in
+    # ten. Lifting tags :OnlyA every group holding a chemistry step, plain bindings that
+    # share a fused binding's constants included, and a split can then leave such a plain
+    # binding :OnlyA on a cycle the inactive conformation cannot close. The move tests a
+    # candidate's groups with `_onlya_haldane_violation`, the constructor's own check,
+    # before it builds the child. On every split of one group and of two, with parts made
+    # as the move makes them (zero-flux parts at rapid equilibrium, bottomless candidates
+    # skipped), the check passes exactly when the constructor accepts the child, and the
+    # move expands every parent.
+    parents = unique(EnzymeRates.AllostericMechanism[
+        a for m in EnzymeRates.init_mechanisms(bi_bi_rxn)
+        for c in EnzymeRates._expand_split_kinetic_group(m)
+        for a in EnzymeRates._expand_to_allosteric(c, bi_bi_rxn)])[1:10:end]
+    accepted = rejected = 0
+    for am in parents
+        rxn, groups, states = EnzymeRates.reaction(am), EnzymeRates.steps(am),
+                              EnzymeRates.cat_allo_states(am)
+        flux = EnzymeRates._flux_carrying_steps(groups, rxn)
+        units = [(g, EnzymeRates._revert_zero_flux_parts(groups[g], bp, flux[g]))
+                 for g in eachindex(groups)
+                 for bp in EnzymeRates._context_bipartitions(groups[g])]
+        for sel in [[[u] for u in eachindex(units)];
+                    [[u, v] for u in eachindex(units) for v in u+1:length(units)
+                     if units[u][1] != units[v][1]]]
+            gs, origin = EnzymeRates._bipartitioned_groups(groups, units[sel])
+            EnzymeRates._bottomless_re_segment(rxn, gs) === nothing || continue
+            passes =
+                EnzymeRates._onlya_haldane_violation(rxn, gs, states[origin]) === nothing
+            built = try
+                EnzymeRates._apply_bipartitions(am, units[sel])
+                true
+            catch e
+                occursin("leaves a thermodynamic", sprint(showerror, e)) || rethrow()
+                false
+            end
+            @test passes == built
+            built ? (accepted += 1) : (rejected += 1)
+        end
+    end
+    # Both verdicts must occur for the agreement to mean anything.
+    @test accepted > 1000 && rejected > 100
+    @test all(am -> EnzymeRates._expand_split_kinetic_group(am) isa Vector, parents)
+end
+
 end
 
 # ─── _expand_add_dead_end_regulator ────────────────────────────────────

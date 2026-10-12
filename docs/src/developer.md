@@ -144,7 +144,10 @@ building the child, from a cycle basis computed once per parent
 (`_partition_independent_count`). For an `AllostericMechanism` it is taken on the built
 child and, when a Wegscheider tie folds a constant, reads both conformations' rate
 polynomials, so a candidate whose law exceeds `MAX_RATE_EQUATION_TERMS` has no count and
-gains nothing (`_split_gain_test`). The RE→SS move flips whole groups and accepts a
+gains nothing (`_split_gain_test`). A candidate whose `:OnlyA` binding leaves a
+thermodynamic cycle unsatisfiable, which the constructor rejects, is never built: the move
+runs the constructor's own check (`_onlya_haldane_violation`) on its groups first, and the
+candidate counts as failed and is extended. The RE→SS move flips whole groups and accepts a
 set only if the rapid-equilibrium segment count rises and every flipped group
 carries net flux in the child. In a `Mechanism` it never offers as a unit a flank
 of a qualifying chain whose isomerization is steady state (`_chain_flank_groups`):
