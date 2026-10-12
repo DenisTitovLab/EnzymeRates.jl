@@ -108,6 +108,26 @@ end
         @test EnzymeRates._peak_turnover(mm, p, (1e-12, 10.0)).at_edge
     end
 
+    @testset "a law that never saturates peaks at the upper edge and is flagged" begin
+        # E(S) releases P at once (rapid equilibrium), so no enzyme accumulates as E(S)
+        # and S never saturates the enzyme: at zero product v = k_E_S_to_ES·S.
+        fused_release = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S <--> E(S)
+                E(S) ⇌ E + P
+            end
+        end
+        p = (K_ES_to_E_P = 1.5, k_E_S_to_ES = 2.0, Keq = 2.0)
+        for upper in (1e3, 1e5)
+            peak = EnzymeRates._peak_turnover(fused_release, p, (1e-12, upper))
+            @test peak.value ≈ upper * p.k_E_S_to_ES rtol = 1e-9
+            @test peak.concs.S ≈ upper rtol = 1e-12
+            @test peak.at_edge === true
+        end
+    end
+
     @testset "substrate inhibition peaks inside the range" begin
         peak = EnzymeRates._peak_turnover(si, si_params, (1e-12, 1e3))
         @test peak.value ≈ 3 / (1 + 2 * sqrt(1 / 4)) rtol = 1e-9
@@ -229,6 +249,32 @@ end
         # A function undefined everywhere has no peak.
         nowhere = _testhelper_TurnoverFunction(u -> NaN)
         @test EnzymeRates._maximize_on_box(nowhere, 2, -12.0, 3.0)[2] == -Inf
+    end
+
+    @testset "the search handles more than 12 coordinates" begin
+        # Rising in the first six log concentrations and falling in the last seven: the
+        # best point is the upper edge of the first six and the lower edge of the rest, a
+        # corner that is not one of the two extreme corners the search starts from.
+        mixed = _testhelper_TurnoverFunction(u -> prod(
+            (j <= 6 ? 1 / (1 + exp10(-u[j])) : 1 / (1 + exp10(u[j]))) for j in 1:13))
+        u, v, at_edge = EnzymeRates._maximize_on_box(mixed, 13, -12.0, 3.0)
+        @test u ≈ [fill(3.0, 6); fill(-12.0, 7)] atol = 1e-6
+        @test v ≈ (1 / (1 + 1e-3))^6 * (1 / (1 + 1e-12))^7 rtol = 1e-12
+        @test at_edge === false
+        # A bowl with its top at 1 in every coordinate.
+        bowl = _testhelper_TurnoverFunction(u -> -sum(abs2, u .- 1.0))
+        u, v, at_edge = EnzymeRates._maximize_on_box(bowl, 13, -12.0, 3.0)
+        @test u ≈ fill(1.0, 13) atol = 1e-6
+        @test v ≈ 0 atol = 1e-12
+    end
+
+    @testset "a range under one decade compares its upper edge with its lower edge" begin
+        # f = x/(1 + x) with x = 10^u rises 6.6% over u in [1, 1.5], under the 10% bar,
+        # though a decade below the upper edge it is 22% lower: the comparison point is the
+        # range's lower edge, so this law is not flagged. Over [0, 0.5] it rises 52%.
+        saturating = _testhelper_TurnoverFunction(u -> 1 / (1 + exp10(-u[1])))
+        @test EnzymeRates._maximize_on_box(saturating, 1, 1.0, 1.5)[3] === false
+        @test EnzymeRates._maximize_on_box(saturating, 1, 0.0, 0.5)[3] === true
     end
 
     @testset "peak_range must be a tuple (lo, hi) with 0 < lo < hi < Inf" begin

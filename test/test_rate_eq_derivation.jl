@@ -1042,6 +1042,8 @@ function _testhelper_test_peak_rescaling(spec::_testhelper_MechanismTestSpec; se
         target = sign(v_orig) * (0.1 + 9.9 * rand(rng))
         anchored, spread_one = rescale_parameter_values(m, params, [concs => target])
         @test spread_one == 0.0
+        # The anchors' turnover is per enzyme, so the scale leaves E_total as passed in.
+        @test anchored.E_total == params.E_total
         @test rate_equation(m, concs, merge(anchored, (E_total=1.0,))) ≈ target rtol=1e-9
     end
 end
