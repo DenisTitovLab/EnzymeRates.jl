@@ -31,37 +31,60 @@ sections 6 and 7 before starting any task.
 
 - Branch `joint-solve` in the worktree
   `/tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/joint_solve_wt`
-  (below: `$WT`), stacked on `fitting-scale` (PR #91, itself stacked on #85–#89). Never
-  rebase or rewrite the stack. Never touch the main checkout
-  `/home/denis.linux/.julia/dev/EnzymeRates`. Every command below runs from `$WT`.
+  (below: `$WT`), stacked on `fitting-scale` (PR #91, head add414a), whose base is main
+  (b73abbb, where #85–#90 are squash-merged). This PR's commits are those after add414a,
+  the plan commit 04fa60e included. Never rebase or rewrite the stack. Never touch the
+  main checkout `/home/denis.linux/.julia/dev/EnzymeRates` or the worktree
+  `/tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/fitting_scale_wt`.
+  Every command below runs from `$WT`.
+- Never push and never change GitHub state (no PR, comment, label or review) without
+  Denis's explicit go-ahead. Task 12 prepares the PR locally and stops before the push.
 - Run Julia only through the shared lock, one process at a time (7.7 GB, no swap):
-  `timeout -s KILL <seconds> flock -w 14400 /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/proto/julia.lock julia --project=. --heap-size-hint=2500M <args>`
-  (below: `$JL <args>`, with `<seconds>` = 1800 unless a step says otherwise). Never park
-  on a background monitor; poll a log in a bounded shell loop.
+  `timeout -s KILL 3600 flock -w 14400 /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/proto/julia.lock julia --project=. --heap-size-hint=2500M <args>`
+  (below: `$JL <args>`; a step may name a shorter timeout). Never park on a background
+  monitor; poll a log in a bounded shell loop. Any other Julia invocation, such as one
+  with another project or a `Pkg` call that fetches packages, departs from this rule and
+  runs only with the controller's or Denis's approval (CLAUDE.md Rule 1); the docs builds
+  of Task 5 Step 6 and Task 10 Step 5 are the plan's only ones.
 - Focused run of one test file (1–3 minutes):
   `$JL -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<file>.jl")'`
   It skips Aqua and JET and sees only the shared fixtures file and the named file, so a
   helper used by two files lives in `test/mechanism_definitions_for_test_enzyme_derivation.jl`.
-- Full suite (about 7 minutes), before every commit that changes `src/`, logged and
-  polled:
+- Full suite (6.5–8 minutes), before every commit that changes `src/`: the command
+  `JULIA_NUM_PRECOMPILE_TASKS=2 $JL -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hint=2500M"])'`,
+  logged and polled:
   ```bash
-  (JULIA_NUM_PRECOMPILE_TASKS=2 timeout -s KILL 3600 flock -w 14400 /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/proto/julia.lock julia --project=. -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hint=2500M"])' > /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase2/logs/suite.log 2>&1; echo "exit=$?" >> /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase2/logs/suite.log) > /dev/null 2>&1 &
+  (JULIA_NUM_PRECOMPILE_TASKS=2 timeout -s KILL 3600 flock -w 14400 /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/proto/julia.lock julia --project=. --heap-size-hint=2500M -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hint=2500M"])' > /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase2/logs/suite.log 2>&1; echo "exit=$?" >> /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase2/logs/suite.log) > /dev/null 2>&1 &
   for i in $(seq 1 9); do grep -q '^exit=' /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase2/logs/suite.log 2>/dev/null && break; sleep 60; done
   ```
   Repeat the polling loop until the log ends in `exit=…`; then read its `Test Summary`
-  and every `Test Failed` / `Error During Test` block. Baseline at `$WT` HEAD e5fea31:
-  33,120 tests pass in 6m11s.
+  and every `Test Failed` / `Error During Test` block. Baseline at add414a (the parent of
+  the plan commit 04fa60e, which adds only this plan): 37,571 tests pass in 6m26s, and
+  the size-scaled speed testset prints six `rate_equation:` info lines, 54.3, 54.5 and
+  54.4 ns for the 396-term bi-bi laws and 77.8, 118.9 and 103.8 ns for the 589-, 799-
+  and 858-term ter-bi laws. A port of the prototype of Tasks 1–9 onto add414a
+  (`scratchpad/phase2/proto2_wt`, commit 14aa9b1) passed 37,750 tests in 7m48s; it lacks
+  some of this plan's tests (Task 7's introduction lists them), so each task's expected
+  total below is approximate.
 - Code style: 92-character lines, 4-space indentation, match the surrounding code. Every
   new file starts with two `# ABOUTME: ` lines. Names say what code does; no "new",
   "old", "legacy", "improved" or history in names or comments. Comments are evergreen.
-- Tests: every helper under `test/` carries the `_testhelper_` prefix (only a one-line
-  closure local to a testset or helper keeps a bare name). Test output must be pristine.
-  Never delete a failing test: a test of removed behavior is rewritten to test the
-  behavior that replaces it, keeping its fixture. Enumeration tests keep CLAUDE.md's
-  rules: fixtures inline, exact children with counts.
-- `rate_equation` stays allocation-free, under 120 ns per call for every mechanism in
-  `MECHANISM_TEST_SPECS` and the three largest enumerated bi-bi laws, within the
-  size-scaled gate, and `test/test_compile_budget.jl`'s budgets hold.
+- Tests: every helper under `test/` (function, macro, struct or closure, at any scope)
+  carries the `_testhelper_` prefix; only a one-line closure local to a testset or helper
+  keeps a bare name. Test output must be pristine. Never delete a failing test: a test of
+  removed behavior is rewritten to test the behavior that replaces it, keeping its
+  fixture. Enumeration tests keep CLAUDE.md's rules: fixtures inline, exact children with
+  counts.
+- The `rate_equation` contract, from `.claude/CLAUDE.md`: "`rate_equation` MUST be
+  allocation-free and sub-120-ns per call for every mechanism in `MECHANISM_TEST_SPECS`,
+  and allocation-free and under `max(120 ns, 0.8 ns × denominator terms)` for the larger
+  laws in `_testhelper_largest_enumerated_mechanisms` and
+  `_testhelper_large_ter_bi_mechanisms`." The size-scaled testset in
+  `test/test_rate_eq_derivation.jl` also pins those laws' denominator terms,
+  `[396, 396, 396]` and `[589, 799, 858]`; this plan changes neither list. "If a change
+  you are considering would force `rate_equation` to allocate or slow down, YOU MUST STOP
+  and discuss with Denis first before implementing it." `test/test_compile_budget.jl`'s
+  budgets hold.
 - Decided behavior (spec section 6; controller rulings): one joint solve; columns ordered
   by block, then kind (isomerization 3, other chemistry 2, plain binding 1), then both
   forms holding a metabolite, then steady state before rapid equilibrium, then the
@@ -72,6 +95,12 @@ sections 6 and 7 before starting any task.
   regulator ligands are bare `K_<ligand>reg` with no mirror (B10); parameter order stays
   alphabetical (E4); no second rename pass; `Full`/`Reduced` removed (B5);
   `all_parameters(m, params)` exported (spec section 18 item 1).
+- Decided by Denis, so no reviewer treats these as regressions: (1) the test_types
+  testset "_solve_dependent_set rejects a contradictory system" is deleted with that
+  function, because Task 6 tests its fixture against the joint solve (Task 7 Step 8);
+  (2) the fitted-parameter count of some allosteric mechanisms drops and never rises,
+  and plain counts do not change (Task 7); (3) `eq_hash` no longer merges same-model
+  regroupings until phase 5, so identify fits such duplicates twice (Task 7).
 - A re-recorded pin must be backed by a value check in the same task: the oracle
   (`_testhelper_check_law_against_oracle`), the string-evaluation test, or an analytic
   value. Only names and the choice of dependents change, never a law's value.
@@ -102,6 +131,22 @@ sections 6 and 7 before starting any task.
 5. A plain mechanism or allosteric lift called 100,000 times: no live-byte growth from
    the solve itself (Task 11 measures; the allosteric lift's `:OnlyA` guard still runs in
    `Rational{BigInt}` until phase 4).
+6. The split move's allosteric gain test after the switch:
+   `_split_gain_test(::AllostericMechanism)` still returns `(gains, balancers)`, still
+   runs `_onlya_haldane_violation` on each candidate's groups before building it, and
+   counts with `_independent_param_count`, which derives no rate polynomial and so can
+   raise no `RateEquationTooLargeError`. #90's three testsets in
+   `test/test_mechanism_enumeration.jl` ("a split the constructor would reject gains
+   nothing", "a rejected split is extended by every :OnlyA group", "the split's :OnlyA
+   check agrees with the constructor") pass unchanged (Task 7).
+7. The speed gates after the switch: every `MECHANISM_TEST_SPECS` law under 120 ns, the
+   six size-scaled laws under `max(120 ns, 0.8 ns × denominator terms)`, zero allocations,
+   and the term pins `[396, 396, 396]` and `[589, 799, 858]` unchanged (Task 7).
+8. Behavior changes Denis accepted (Global Constraints, "Decided by Denis"): some
+   allosteric fitted counts drop and none rise, plain counts stay; same-model
+   regroupings get distinct `eq_hash` values until phase 5; the
+   `_solve_dependent_set` testset goes with its function because Task 6 retests its
+   fixture. None of these is a regression (Task 7).
 
 ---
 
@@ -120,17 +165,20 @@ sections 6 and 7 before starting any task.
 - `src/rate_eq_derivation.jl` (modify): `all_parameters` (Task 3); the engine over
   `(reaction, groups, names)` (Task 4); modes removed (Task 5); `_step_names`,
   `_state_groups`, the single-graph inactive law, B10, no rename pass (Task 7).
-- `src/EnzymeRates.jl`, `src/mechanism_enumeration.jl`,
-  `src/identify_rate_equation.jl` (modify).
+- `src/EnzymeRates.jl`, `src/mechanism_enumeration.jl` (the allosteric split count keeps
+  #90's structure, Task 7), `src/identify_rate_equation.jl` (modify).
 - `test/test_oracles.jl` (create in Task 1), `test/test_joint_solve.jl` (create in
   Task 6), `test/mechanism_definitions_for_test_enzyme_derivation.jl` (shared oracle,
   balance, dimension and population helpers), `test/runtests.jl`, and the existing test
   files each task names.
 - `docs/src/deriving/{textbooks,thermodynamic_constraints,kinetic_groups,mwc_allostery}.md`,
-  `docs/src/developer.md`, `.claude/CLAUDE.md`, `ROADMAP.md`, `Project.toml` (modify).
+  `docs/src/developer.md`, `docs/src/api.md` (Task 5), `test/reference/allosteric_golden_reference.txt`
+  (Tasks 5 and 7), `.claude/CLAUDE.md` (Task 7), `ROADMAP.md` (Tasks 4, 5, 7, 8 and 11),
+  `Project.toml` (modify).
 
-Line numbers below are those of `$WT` HEAD e5fea31 unless a task says otherwise; earlier
-tasks shift them, so find each anchor by the function or testset it names.
+Line numbers below are those of add414a (the parent of the plan commit 04fa60e) unless a
+task says otherwise; earlier tasks shift them, so find each anchor by the function or
+testset it names.
 
 ---
 
@@ -140,7 +188,8 @@ tasks shift them, so find each anchor by the function or testset it names.
 - Modify: `test/mechanism_definitions_for_test_enzyme_derivation.jl` (two `_testhelper_lift`
   methods; the oracle block before `# ── Mechanism test specifications`)
 - Modify: `test/test_rate_eq_derivation.jl` (delete the 512-bit oracle at lines 99–201;
-  call the new check; add `_testhelper_test_mass_action_oracle` to every spec)
+  call the new check; add `_testhelper_test_mass_action_oracle` to every spec; back the
+  two testsets that check only printed strings with the oracle)
 - Create: `test/test_oracles.jl`
 - Modify: `test/runtests.jl` (include `test_oracles.jl` after `test_rate_eq_derivation.jl`)
 
@@ -248,7 +297,7 @@ function _testhelper_consistent_point(m, rng)
     mi = Dict(x => nconf * nf + i for (i, x) in enumerate(mets))
     n = nconf * nf + length(mets)
     # The form part of step s's free-energy drop in conformation c (1 or 2).
-    function drop(c, s)
+    function _testhelper_drop(c, s)
         v = zeros(BigFloat, n)
         v[(c - 1) * nf + fi[EnzymeRates.from_species(s)]] += 1
         v[(c - 1) * nf + fi[EnzymeRates.to_species(s)]] -= 1
@@ -258,10 +307,11 @@ function _testhelper_consistent_point(m, rng)
     ties = Vector{BigFloat}[]
     for (g, group) in enumerate(groups), s in group
         s1 = first(group)
-        s == s1 || push!(ties, drop(1, s) - drop(1, s1))
+        s == s1 || push!(ties, _testhelper_drop(1, s) - _testhelper_drop(1, s1))
         allo || continue
-        tag(g) === :NonequalAI && s != s1 && push!(ties, drop(2, s) - drop(2, s1))
-        tag(g) === :EqualAI && push!(ties, drop(2, s) - drop(1, s))
+        tag(g) === :NonequalAI && s != s1 &&
+            push!(ties, _testhelper_drop(2, s) - _testhelper_drop(2, s1))
+        tag(g) === :EqualAI && push!(ties, _testhelper_drop(2, s) - _testhelper_drop(1, s))
     end
     basis = Vector{BigFloat}[]
     for v in ties
@@ -275,7 +325,7 @@ function _testhelper_consistent_point(m, rng)
     Keq = exp(sum(gm, EnzymeRates.substrates(rxn)) - sum(gm, EnzymeRates.products(rxn)))
     vals = Dict{Symbol, BigFloat}()
     kf_of = Dict{Symbol, BigFloat}()
-    function conformation_steps(c, law_groups, state)
+    function _testhelper_conformation_steps(c, law_groups, state)
         out = []
         for (g, group) in enumerate(law_groups), s in group
             Ka = exp(u[(c - 1) * nf + fi[EnzymeRates.from_species(s)]] +
@@ -297,8 +347,9 @@ function _testhelper_consistent_point(m, rng)
         end
         out
     end
-    active = conformation_steps(1, groups, allo ? :A : :None)
-    inactive = allo ? conformation_steps(2, EnzymeRates._inactive_groups(mech), :I) : []
+    active = _testhelper_conformation_steps(1, groups, allo ? :A : :None)
+    inactive = allo ? _testhelper_conformation_steps(
+        2, EnzymeRates._inactive_groups(mech), :I) : []
     L = big(0)
     if allo
         L = exp(4 * big(rand(rng)) - 2)
@@ -345,7 +396,7 @@ function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(1
             # Regulators bind each conformation at rapid equilibrium, independently of
             # the catalytic form, so summed over regulator occupancy the flip ratio is
             # L times the ratio of the conformations' regulatory-site factors.
-            function site_factor(inactive)
+            function _testhelper_site_factor(inactive)
                 prod((1 + sum((concs[EnzymeRates.name(lig)] / point.vals[K]
                                for (lig, tag) in zip(EnzymeRates.ligands(site),
                                                      EnzymeRates.allo_states(site))
@@ -357,7 +408,8 @@ function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(1
             end
             flip = _testhelper_flip_form(mech)
             push!(edges, (id(:A, flip), id(:I, flip),
-                          point.L * site_factor(true) / site_factor(false), big(1), 0))
+                          point.L * _testhelper_site_factor(true) /
+                          _testhelper_site_factor(false), big(1), 0))
         end
         n = length(node)
         reached, frontier = Set([1]), [1]
@@ -574,11 +626,11 @@ In `test/runtests.jl`, add `include("test_oracles.jl")` on the line after
 - [ ] **Step 3: Run the oracle tests (they pass against today's code)**
 
 Run the focused command for `test_oracles`.
-Expected: `Exact steady-state oracle | 13 13` (every test passes). These are oracle checks,
-not a red step: the oracle must agree with today's laws before it judges the new ones. If
-the half-exponent assertion fails because today's solve picks an integer-exponent
-dependent for `half`, report it with the printed `rate_equation_string(half)` instead of
-changing the fixture.
+Expected: `Exact steady-state oracle | 13 13` (every test passes; measured with this
+plan's code on add414a). These are oracle checks, not a red step: the oracle must agree
+with today's laws before it judges the new ones. If any assertion fails, stop: do not
+change a fixture or a tolerance and do not commit with it red; report the failure, with
+the printed `rate_equation_string` of the failing fixture, to the controller.
 
 - [ ] **Step 4: Replace the 512-bit oracle in the derivation tests**
 
@@ -609,16 +661,32 @@ end
 4. In `_testhelper_run_all_tests`, add the line
    `        _testhelper_test_mass_action_oracle(spec)` right after
    `        _testhelper_test_constraint_counting(spec)`.
+5. Back the two testsets that check only printed strings with a value check (spec
+   section 14: before a phase changes a test that checks only a string, it adds an oracle
+   value check). Task 7 re-records their strings and keeps these lines.
+   - In the testset "rate_equation_string marks only the ties folded into v as
+     substituted", add `    _testhelper_check_law_against_oracle(folded)` after the
+     two-line `@test occursin(…, rate_equation_string(folded))`,
+     `    _testhelper_check_law_against_oracle(iso_tie)` after the line
+     `    @test occursin("\nK_E_to_Estar = K_ES_to_EstarS\n", rate_equation_string(iso_tie))`,
+     and `    _testhelper_check_law_against_oracle(keq_tie)` after the line
+     `    @test occursin("\nK_E_S_to_Estar_P = Keq\n", rate_equation_string(keq_tie))`.
+   - In the testset "rate_equation_string prints residual names bare in constraint
+     lines", add `    _testhelper_check_law_against_oracle(m)` after the line
+     `    @test !occursin("var\"", s)`.
 
 - [ ] **Step 5: Run the derivation tests**
 
 Run the focused command for `test_rate_eq_derivation`.
 Expected: all pass; each of the 42 spec testsets gains a `Mass-action oracle` testset
-with 6 passing tests (3 points × law and compiled check).
+with 6 passing tests (3 points × law and compiled check), and the two string testsets
+gain 18 and 6 passing tests (measured with this plan's code on add414a).
 
 - [ ] **Step 6: Run the full suite, then commit**
 
-Run the full suite. Expected: all pass (about 33,400 tests).
+Run the full suite. Expected: all pass, about 37,930 tests (37,571, plus 13 in
+`test_oracles.jl`, 252 per-spec and 24 string-testset oracle tests, and three more for
+each of the 24 mechanisms the replaced call sites check).
 
 ```bash
 git status
@@ -628,8 +696,9 @@ git commit -m "Check every spec's law against an exact mass-action oracle" \
   -m "The oracle builds the steady-state network of any plain or one-subunit allosteric
 mechanism in 256-bit BigFloat, runs rapid-equilibrium steps as fast pairs at 1e30 and
 takes its constants from free energies, so it never reads the package's solve. It
-replaces the plain 512-bit solver, rejects a disconnected network, and agrees with every
-spec's law to 1e-20." \
+replaces the plain 512-bit solver, rejects a disconnected network, and agrees to 1e-20
+with every spec's law and with the four fixtures whose tests checked only printed
+strings." \
   -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
 ```
@@ -656,7 +725,9 @@ Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
     constants + `L`)
   - `_testhelper_population(rxn, rounds) -> Vector{Union{Mechanism, AllostericMechanism}}`
 - Produces (`test/test_oracles.jl`): `_testhelper_pingpong_allo_rxn`,
-  `_testhelper_population_sample` (120 mechanisms, the same on every run).
+  `_testhelper_population_one_round` (the 2,344 mechanisms of its seeds and one expansion
+  round, 1,062 of them allosteric) and `_testhelper_population_sample` (120 of them, 51
+  allosteric, the same on every run).
 
 `_testhelper_declared_dimension` is spec success criterion 4's independent count: it
 builds the classes (a group's constant per slot and conformation; one shared class for
@@ -695,8 +766,8 @@ function _testhelper_detailed_balance(m, rng)
         em = m isa EnzymeRates.AbstractEnzymeMechanism ? m :
              EnzymeRates.compile_mechanism(m)
         mech = _testhelper_lift(em)
-        params = Dict{Symbol, BigFloat}(k => exp(4 * big(rand(rng)) - 2)
-                                        for k in EnzymeRates._dependent_param_exprs(typeof(em))[2])
+        fitted = EnzymeRates._dependent_param_exprs(typeof(em))[2]
+        params = Dict{Symbol, BigFloat}(k => exp(4 * big(rand(rng)) - 2) for k in fitted)
         params[:Keq] = exp(4 * big(rand(rng)) - 2)
         rxn = EnzymeRates.reaction(mech)
         subs = EnzymeRates.name.(EnzymeRates.substrates(rxn))
@@ -796,7 +867,7 @@ function _testhelper_declared_dimension(m)
     tag(g) = allo ? EnzymeRates.cat_allo_state(mech, g) : :None
     index = Dict{Any, Int}()
     in_law = Bool[]
-    function class(key, inlaw)
+    function _testhelper_class(key, inlaw)
         i = get!(index, key) do
             push!(in_law, false)
             length(in_law)
@@ -804,21 +875,22 @@ function _testhelper_declared_dimension(m)
         in_law[i] |= inlaw
         i
     end
-    function classes(j, inactive)
+    function _testhelper_classes(j, inactive)
         s, g = flat[j]
         slots = EnzymeRates.is_equilibrium(s) ? (1,) : (1, 2)
-        !inactive || tag(g) === :EqualAI ? [class((:A, g, k), true) for k in slots] :
-        tag(g) === :OnlyA ? [class((:I, j, k), false) for k in slots] :
-                            [class((:I, g, k), s in law) for k in slots]
+        !inactive || tag(g) === :EqualAI ?
+            [_testhelper_class((:A, g, k), true) for k in slots] :
+        tag(g) === :OnlyA ? [_testhelper_class((:I, j, k), false) for k in slots] :
+                            [_testhelper_class((:I, g, k), s in law) for k in slots]
     end
-    foreach(j -> classes(j, false), eachindex(flat))
-    allo && foreach(j -> classes(j, true), eachindex(flat))
+    foreach(j -> _testhelper_classes(j, false), eachindex(flat))
+    allo && foreach(j -> _testhelper_classes(j, true), eachindex(flat))
     rows = Vector{Int}[]
     for z in _testhelper_cycle_basis(groups), inactive in (allo ? (false, true) : (false,))
         row = zeros(Int, length(in_law))
         for (j, (s, _)) in enumerate(flat)
             z[j] == 0 && continue
-            cs = classes(j, inactive)
+            cs = _testhelper_classes(j, inactive)
             if EnzymeRates.is_equilibrium(s)
                 row[cs[1]] += EnzymeRates.is_binding(s) ? -z[j] : z[j]
             else
@@ -865,12 +937,12 @@ const _testhelper_pingpong_allo_rxn = @enzyme_reaction begin
     oligomeric_state: 2
 end
 
-# Mechanisms sampled from the seeds and one expansion round of the reaction above, the
-# same sample on every run.
-const _testhelper_population_sample = let
-    population = _testhelper_population(_testhelper_pingpong_allo_rxn, 1)
-    population[randperm(Random.MersenneTwister(2026), length(population))[1:120]]
-end
+# The seeds and one expansion round of the reaction above, and a sample of them that is
+# the same on every run.
+const _testhelper_population_one_round =
+    _testhelper_population(_testhelper_pingpong_allo_rxn, 1)
+const _testhelper_population_sample = _testhelper_population_one_round[randperm(
+    Random.MersenneTwister(2026), length(_testhelper_population_one_round))[1:120]]
 ```
 
 At the end of the file add:
@@ -900,13 +972,15 @@ In `test/test_rate_eq_derivation.jl`, in `_testhelper_test_constraint_counting`,
 
 Run the focused commands for `test_oracles` and `test_rate_eq_derivation`.
 Expected: all pass. `Detailed balance over a regenerated population | 121 121` (about
-10 s); each spec's `Constraints` testset gains one passing test. Today's laws satisfy
+10 s, plus about 10 s to build the population); each spec's `Constraints` testset gains
+one passing test (all 42 measured with this plan's code on add414a). Today's laws satisfy
 detailed balance; only their parameter counts miss the declared dimension, and only on
-populations (Task 7 adds that test).
+populations (Task 7 adds that test). If a test fails, stop and report it to the
+controller; do not commit with it red.
 
 - [ ] **Step 5: Run the full suite, then commit**
 
-Run the full suite. Expected: all pass.
+Run the full suite. Expected: all pass, about 38,095 tests (Task 1's count plus 163).
 
 ```bash
 git status
@@ -1043,7 +1117,8 @@ julia> m = @enzyme_mechanism begin
            end
        end;
 
-julia> all_parameters(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0))
+julia> all_parameters(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0,
+                          Keq = 4.0))
 (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0, k_EP_to_ES = 0.375)
 ```
 """
@@ -1076,7 +1151,10 @@ to `# ABOUTME: Exports the 19 public names and wires together src/ source files.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run the focused command for `test_accessors`. Expected: all pass.
+Run the focused command for `test_accessors`. Expected: all pass; the two new testsets
+hold 7 and 32 tests (measured with this plan's code on add414a; the prototype of Task 7
+passes the second and the first's value, key and error checks, so they hold across the
+switch). The docstring's `jldoctest` runs only in the docs build (Task 5 Step 6).
 
 - [ ] **Step 5: Replace the test helper**
 
@@ -1095,7 +1173,8 @@ Run the focused command for `test_rate_eq_derivation`. Expected: all pass.
 
 - [ ] **Step 6: Run the full suite, then commit**
 
-Run the full suite (it runs Aqua's export checks). Expected: all pass.
+Run the full suite (it runs Aqua's export checks). Expected: all pass, Task 2's count
+plus 39.
 
 ```bash
 git status
@@ -1118,8 +1197,10 @@ Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
 - Modify: `src/rate_eq_derivation.jl` (`_concentration_symbols`, `_compute_alpha`,
   `_raw_symbolic_rate_polys`, `_eq_complexity`, `_assert_derivable`, `_num_den_exprs` for
   `EnzymeMechanism`, `_state_rate_polys`; new `_leaf_names`)
-- Modify: `test/test_mechanism_enumeration.jl` (lines 73–76, 106–111, 2751, 8553–8554,
-  8675–8677)
+- Modify: `test/test_mechanism_enumeration.jl` (lines 73–76, 106–111, 2751, 8820–8821,
+  8942–8944)
+- Modify: `ROADMAP.md` (the `eq_complexity_filter` known issue names the method this task
+  replaces)
 
 **Interfaces:**
 - Consumes: today's `_step_parameters`, `_build_wegscheider_rename_map`, `_state_parts`.
@@ -1345,18 +1426,41 @@ In `test/test_mechanism_enumeration.jl`:
    ```
    with `                _, den, _ = EnzymeRates._raw_symbolic_rate_polys(m)`.
 
-- [ ] **Step 3: Run the tests**
+- [ ] **Step 3: Update the ROADMAP entry that names the replaced method**
+
+In `ROADMAP.md`, replace the whole known issue (lines 48–52)
+
+```text
+- **`eq_complexity_filter` counts only the active conformation of an allosteric
+  mechanism.** `_eq_complexity(::AllostericMechanism)` (`src/rate_eq_derivation.jl`)
+  measures V×τ on the active-state graph alone, while the generated MWC rate equation
+  evaluates the polynomials of both conformations, so the filter undercounts what an
+  allosteric equation costs and can admit one that evaluates more terms than its limit.
+```
+
+with
+
+```text
+- **`eq_complexity_filter` counts only the active conformation of an allosteric
+  mechanism.** `_eq_complexity` (`src/rate_eq_derivation.jl`) measures an allosteric
+  mechanism's V×τ on its active-state graph (`steps(am)`) alone, while the generated MWC
+  rate equation evaluates the polynomials of both conformations, so the filter
+  undercounts what an allosteric equation costs and can admit one that evaluates more
+  terms than its limit.
+```
+
+- [ ] **Step 4: Run the tests**
 
 Run the focused commands for `test_rate_eq_derivation`, `test_allosteric_golden` and
 `test_mechanism_enumeration`. Expected: all pass, the golden strings byte-identical.
 
-- [ ] **Step 4: Run the full suite, then commit**
+- [ ] **Step 5: Run the full suite, then commit**
 
-Run the full suite. Expected: all pass.
+Run the full suite. Expected: all pass, the same count as after Task 3.
 
 ```bash
 git status
-git add src/rate_eq_derivation.jl test/test_mechanism_enumeration.jl
+git add src/rate_eq_derivation.jl test/test_mechanism_enumeration.jl ROADMAP.md
 git commit -m "Derive rate polynomials from a reaction, kinetic groups and their names" \
   -m "The King–Altman engine reads the groups and each flat step's parameter names instead
 of a Mechanism, so a conformation's law can be derived on a subset of a mechanism's own
@@ -1377,10 +1481,11 @@ Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
   `_raw_param_symbols`)
 - Modify: `src/EnzymeRates.jl` (exports)
 - Modify: `test/mechanism_definitions_for_test_enzyme_derivation.jl`
-  (`_testhelper_step_constant_names`), `test/test_accessors.jl`,
-  `test/test_allosteric_golden.jl`, `test/test_rate_eq_derivation.jl`,
-  `test/test_types.jl`
-- Modify: `docs/src/deriving/textbooks.md`, `docs/src/developer.md`, `ROADMAP.md`
+  (`_testhelper_step_constant_names`; one comment), `test/test_accessors.jl`,
+  `test/test_allosteric_golden.jl`, `test/reference/allosteric_golden_reference.txt`
+  (its line prefix), `test/test_rate_eq_derivation.jl`, `test/test_types.jl`
+- Modify: `docs/src/deriving/textbooks.md`, `docs/src/developer.md`, `docs/src/api.md`,
+  `ROADMAP.md`
 
 **Interfaces:**
 - Consumes: Task 3's `all_parameters` (the docs page shows it where the Full section
@@ -1411,36 +1516,84 @@ _testhelper_step_constant_names(m) =
    (`full_mono = …` through `@test length(full_mono) >= length(reduced_mono)`) with
 
 ```julia
-    reduced_mono = parameters(m_mono)
-    @test :E_total in reduced_mono
-    @test :Keq in reduced_mono
-    values_mono = NamedTuple{reduced_mono}(ntuple(_ -> 1.0, length(reduced_mono)))
-    @test issubset(reduced_mono, keys(all_parameters(m_mono, values_mono)))
+    params_mono = parameters(m_mono)
+    @test :E_total in params_mono
+    @test :Keq in params_mono
+    # all_parameters adds exactly the dependent constants to the parameters.
+    values_mono = NamedTuple{params_mono}(ntuple(_ -> 1.0, length(params_mono)))
+    dep_mono, _ = EnzymeRates._dependent_param_exprs(EnzymeRates.Mechanism(m_mono))
+    @test !isempty(dep_mono)
+    @test Set(keys(all_parameters(m_mono, values_mono))) ==
+          union(Set(params_mono), keys(dep_mono))
 ```
 
-   and replace lines 33–35 (the comment, `@test_throws MethodError parameters(m_allo,
-   Full)` and `reduced_allo = parameters(m_allo, Reduced)`) with
+   and replace lines 33–40 (from the comment
+   `    # Full mode lists the raw rate constants of plain mechanisms only.` through
+   `    @test :E_total in reduced_allo`) with
 
 ```julia
-    reduced_allo = parameters(m_allo)
-    values_allo = NamedTuple{reduced_allo}(ntuple(_ -> 1.0, length(reduced_allo)))
-    @test issubset(reduced_allo, keys(all_parameters(m_allo, values_allo)))
+    params_allo = parameters(m_allo)
+    @test any(occursin("_I_", string(p)) for p in params_allo)
+    @test any(occursin("reg", string(p)) for p in params_allo)
+    @test :L in params_allo
+    @test :Keq in params_allo
+    @test :E_total in params_allo
+    values_allo = NamedTuple{params_allo}(ntuple(_ -> 1.0, length(params_allo)))
+    dep_allo, _ = EnzymeRates._dependent_param_exprs(am)
+    @test !isempty(dep_allo)
+    @test Set(keys(all_parameters(m_allo, values_allo))) ==
+          union(Set(params_allo), keys(dep_allo))
 ```
 
-3. `test/test_allosteric_golden.jl`: replace
-   `EnzymeRates.rate_equation_string(m, EnzymeRates.Reduced)` with
-   `EnzymeRates.rate_equation_string(m)`, and `@test parameters(m, EnzymeRates.Reduced) ==`
-   with `@test parameters(m) ==`; in the comment above that test replace
-   ``# `parameters(m, Reduced)` wrapper`` with ``# `parameters(m)` wrapper``.
+   (`am` is the testset's `AllostericMechanism` that `m_allo` compiles.)
+3. `test/test_allosteric_golden.jl`: in `_testhelper_allosteric_golden_lines`, replace
+   the two lines
+
+```julia
+        reduced_string = EnzymeRates.rate_equation_string(m, EnzymeRates.Reduced)
+        push!(lines, "REDUCED_STRING " * replace(reduced_string, "\n" => "\\n"))
+```
+
+   with
+
+```julia
+        eq_string = EnzymeRates.rate_equation_string(m)
+        push!(lines, "RATE_EQUATION_STRING " * replace(eq_string, "\n" => "\\n"))
+```
+
+   and run
+   `sed -i 's/^REDUCED_STRING /RATE_EQUATION_STRING /' test/reference/allosteric_golden_reference.txt`
+   (the golden test compares the two byte for byte; `git diff --stat` on the reference
+   shows `11 insertions(+), 11 deletions(-)`). Replace
+   `@test parameters(m, EnzymeRates.Reduced) ==` with `@test parameters(m) ==`, and the
+   comment lines above it,
+   ``    # The REDUCED_STRING header pins the reduced parameters; this pins the exported``
+   and ``    # `parameters(m, Reduced)` wrapper to the fitted parameters plus Keq and E_total.``,
+   with
+   ``    # The RATE_EQUATION_STRING header pins the fitted parameters; this pins the``
+   and ``    # exported `parameters(m)` wrapper to the fitted parameters plus Keq and E_total.``.
+   In the fixtures file, in the comment above the spec "LDH i-state NonequalAI 6-group",
+   replace `# headers of their golden REDUCED_STRINGs confirm the dependent reverse rate is excluded.`
+   with `# headers of their golden RATE_EQUATION_STRING lines confirm the dependent reverse`
+   and `# rate is excluded.` (two lines).
 4. `test/test_types.jl`:
    - testset "fused steps are named by their sides": replace
      `    names = Set(ER.parameters(m, ER.Full))` with
      `    names = _testhelper_step_constant_names(m)`, and
      `    kon, koff = ER._step_parameters(mech)[i]` with
      `    kon, koff = ER._step_constants(first(ER._flat_steps(mech)[i]), :None)`.
-   - testset "step constants are named by their reaction": replace
-     `    full_names(m) = Set(ER.parameters(m, ER.Full))` with
-     `    full_names(m) = _testhelper_step_constant_names(m)`; replace the comment
+   - testset "step constants are named by their reaction": delete the line
+     `    full_names(m) = Set(ER.parameters(m, ER.Full))`, and at its six call sites
+     (lines 1660, 1673, 1687, 1698, 1711 and 1747) replace `full_names(` with
+     `_testhelper_step_constant_names(`; at line 1711 break the call after the first
+     argument of `issubset`, so the assertion reads
+
+```julia
+    @test issubset([:K_EAinh_to_E_Ainh, :K_EA_to_E_A],
+                   _testhelper_step_constant_names(inh))
+```
+
+     Replace the comment
      `    # Reduced mode: the Haldane reduction leaves the SS isomerization constant fitted.`
      with `    # The Haldane reduction leaves the SS isomerization constant fitted.`; replace
      `    @test length(pp_names) == length(ER.parameters(pingpong, ER.Full))` with
@@ -1458,7 +1611,8 @@ _testhelper_step_constant_names(m) =
      (line 2094): replace that line with
 
 ```julia
-    names = [ER.name(p, m) for g in ER.steps(m) for p in ER._step_constants(first(g), :None)]
+    names = [ER.name(p, m)
+             for g in ER.steps(m) for p in ER._step_constants(first(g), :None)]
 ```
 
      (one name per class, so `allunique(names)` still checks that no two classes
@@ -1476,7 +1630,7 @@ _testhelper_step_constant_names(m) =
          @test :k_EQ_P_to_EA_B in _testhelper_step_constant_names(tc_ss)
      ```
    - testset "rate_equation_string prints flat +/* sums (no nested parens)": replace
-     its comment and last two lines with
+     the testset body, from its first comment line through its `@test` line, with
      ```julia
          # Orthogonal guard (NOT a perf-fix backstop): _expr_to_string is
          # precedence-aware and flattens nested +/* nodes
@@ -1509,7 +1663,7 @@ _testhelper_step_constant_names(m) =
 
 - [ ] **Step 2: Run the rewritten tests**
 
-Run the focused commands for `test_accessors` and `test_types`.
+Run the focused commands for `test_accessors`, `test_types` and `test_allosteric_golden`.
 Expected: all pass. The rewritten tests read only what stays when the modes go, so they
 pass before Step 3 and after it; running them now shows they are right before the code
 they replace disappears.
@@ -1519,7 +1673,25 @@ they replace disappears.
 1. `src/types.jl`: delete the block from `# --- Rate equation mode types ---` through
    `const Reduced = ReducedMode()` and its blank line (lines 1250–1283).
 2. `src/thermodynamic_constr_for_rate_eq_derivation.jl`: delete `_raw_param_symbols`
-   (both methods and the docstring, lines 16–26).
+   (both methods and the docstring, lines 16–26), and reword its two mentions:
+   - in the comment inside `_dependent_param_exprs(mech::Mechanism)`, replace
+     ``    # mechanism, so `_raw_param_symbols` emits it and the solve keeps it`` with
+     `    # mechanism, so it stays a constraint column and the solve keeps it`;
+   - in the docstring of `_param_columns`, replace the three lines
+
+```text
+belongs to one group, so under the default `_step_parameters(mech)` this is
+`_raw_param_symbols(mech)`; under the allosteric per-state step constants it is the
+state-tagged analog.
+```
+
+     with
+
+```text
+belongs to one group, so under the default `_step_parameters(mech)` these are the
+constants of each group's representative step; under the allosteric per-state step
+constants they are the state-tagged analog.
+```
 3. `src/EnzymeRates.jl`: delete the lines `# Rate equation modes` and
    `export Full, Reduced` and the blank line after them; change the ABOUTME count from
    19 to 17.
@@ -1542,10 +1714,17 @@ every other constant from these (see [`all_parameters`](@ref)).
 end
 ```
 
-   - Replace the concrete forwarder
-     `parameters(m::Union{Mechanism, AllostericMechanism}, mode::AbstractRateEquationMode) =`
-     `    parameters(compile_mechanism(m), mode)` with
-     `parameters(m::Union{Mechanism, AllostericMechanism}) = parameters(compile_mechanism(m))`.
+   - Replace the concrete forwarder, the three lines 60–62
+
+```julia
+parameters(m::Union{Mechanism, AllostericMechanism},
+           mode::AbstractRateEquationMode) =
+    parameters(compile_mechanism(m), mode)
+```
+
+     with `parameters(m::Union{Mechanism, AllostericMechanism}) = parameters(compile_mechanism(m))`.
+     Keep the comment above it (lines 52–59, which ends "…for the allocation-free
+     `rate_equation` hot path.") as it stands; do not copy the prototype's older comment.
    - Replace the block from the line `# ─── Mode-dispatched rate_equation ───…` up to the
      line `# ─── String Representation ───…` (the docstring, `function rate_equation
      end`, the default-mode method, the concrete forwarder and the `FullMode` and
@@ -1726,34 +1905,63 @@ and `catalytic_multiplicity`. `FittingProblem` and `loss!`
 
    then re-wrap the paragraph to 92 characters.
 3. `ROADMAP.md`: delete the known-issue entry **Full mode lists rapid-equilibrium
-   constants that never reach the rate law.** (lines 83–92; spec section 16, phase-2
+   constants that never reach the rate law.** (lines 70–79; spec section 16, phase-2
    row).
+4. `docs/src/api.md`: with `Full` and `Reduced` gone the package exports no constant, so
+   delete the `## Constants` section (its heading, the blank line after it and its
+   `@autodocs` block, lines 40–46, with the blank line before the heading), and in the
+   `@index` block change `Order = [:function, :macro, :type, :constant]` to
+   `Order = [:function, :macro, :type]`.
 
 - [ ] **Step 5: Run the tests**
 
 Run the focused commands for `test_accessors`, `test_types`, `test_rate_eq_derivation`
 and `test_allosteric_golden`. Expected: all pass. Then confirm no mode remains:
-`grep -rn "FullMode\|ReducedMode\|AbstractRateEquationMode\|\bFull\b\|\bReduced\b\|_raw_param_symbols" src test docs/src README.md`
+`grep -rn "FullMode\|ReducedMode\|AbstractRateEquationMode\|\bFull\b\|\bReduced\b\|_raw_param_symbols\|full_names\|full_mono\|reduced_mono\|reduced_allo\|reduced_string\|REDUCED_STRING" src test docs/src README.md`
 prints nothing but prose (`Full documentation`, `Full symbolic`, `Full-rank`,
 `Full multi-tier`, `Reduced row echelon form`).
 
-- [ ] **Step 6: Run the full suite, then commit**
+- [ ] **Step 6: Build the docs (needs approval)**
 
-Run the full suite. Expected: all pass (test_compile_budget's method-instance count per
-fresh mechanism may drop by one: the mode forwarders no longer specialize).
+This step departs from the Julia rule of the Global Constraints: it runs the docs project
+(`--project=docs`), and `Pkg.develop`/`Pkg.instantiate` may fetch packages and write the
+ignored `docs/Manifest.toml`. Run it only after the controller or Denis approves (CLAUDE.md
+Rule 1). Without approval, skip it and say in the task report that the `all_parameters`
+doctest (Task 3) and the textbooks `@example` (Step 4) have not run; Task 10 Step 5 then
+runs the build once approval comes. With approval, run under the lock:
+
+```bash
+timeout -s KILL 3600 flock -w 14400 /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/proto/julia.lock julia --project=docs --heap-size-hint=2500M -e 'using Pkg; Pkg.develop(PackageSpec(path = pwd())); Pkg.instantiate()'
+timeout -s KILL 3600 flock -w 14400 /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/proto/julia.lock julia --project=docs --heap-size-hint=2500M docs/make.jl 2>&1 | tee /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase2/logs/docs_task5.log | tail -40
+```
+
+Expected: `makedocs` finishes without an error (`deploydocs` skips outside CI); the
+`all_parameters` doctest and the textbooks page's new `@example` pass. Commit neither
+`docs/build/` nor a `docs/Project.toml` change the `Pkg.develop` call makes: if
+`git status` shows `docs/Project.toml` modified, restore it with
+`git checkout docs/Project.toml`.
+
+- [ ] **Step 7: Run the full suite, then commit**
+
+Run the full suite. Expected: all pass, Task 4's count less two (the clash testset loses
+its two `Full` assertions; test_accessors keeps its count); test_compile_budget's
+method-instance count per fresh mechanism may drop by one, since the mode forwarders no
+longer specialize.
 
 ```bash
 git status
 git add src/types.jl src/rate_eq_derivation.jl \
         src/thermodynamic_constr_for_rate_eq_derivation.jl src/EnzymeRates.jl \
         test/mechanism_definitions_for_test_enzyme_derivation.jl test/test_accessors.jl \
-        test/test_allosteric_golden.jl test/test_rate_eq_derivation.jl test/test_types.jl \
-        docs/src/deriving/textbooks.md docs/src/developer.md ROADMAP.md
+        test/test_allosteric_golden.jl test/reference/allosteric_golden_reference.txt \
+        test/test_rate_eq_derivation.jl test/test_types.jl \
+        docs/src/deriving/textbooks.md docs/src/developer.md docs/src/api.md ROADMAP.md
 git commit -m "Remove the Full and Reduced modes" \
   -m "parameters, rate_equation and rate_equation_string take no mode: the rate law is the
 thermodynamically reduced one, and all_parameters adds the dependent constants. The
-naming tests read each step constant's name through the chokepoint, and the textbooks
-page shows all_parameters where the Full section stood." \
+naming tests read each step constant's name through the chokepoint, the golden
+reference labels its lines RATE_EQUATION_STRING, the API page drops its empty Constants
+section, and the textbooks page shows all_parameters where the Full section stood." \
   -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
 ```
@@ -1824,6 +2032,13 @@ spec section 6 exactly:
   columns stay attached to the stored `Kfor`/`Krev`, so names and the engine are
   unaffected. Measured: 0 of the steps of 20,867 enumerated mechanisms differ from their
   stored direction; the hand-written `E <--> D` of the test below does.
+- **What phase 3 inherits.** These keys fix more than spec section 4 says (forms "in
+  canonical order with free E as form 1"): the form order (`_form_index_key`: free E
+  first, then `_form_base_key`), the lead of a tied group (`_step_index_key`) and the
+  role encoding (a metabolite as its name and a modifier-copy flag, in stored order,
+  `_metabolites_key`). Section 6 requires phase 3 to reproduce phase 2's dependents on
+  the graph type, so phase 3's canonical form order, lead key and role encoding must
+  equal these three keys; the developer page records this (Task 10).
 - **Reduction.** Exact Gauss–Jordan over `Rational{Int}`, which throws `OverflowError`
   instead of wrapping; on overflow the system is reduced again in `Rational{BigInt}`.
   Rows that reduce to `0 = log Keq` raise today's error text.
@@ -1865,7 +2080,7 @@ function _testhelper_solve_point(m, rng)
     end
     value = Dict(c => exp(x[i]) for (i, c) in enumerate(sys.columns))
     allo = mech isa _testhelper_JS.AllostericMechanism
-    function conformation(inactive)
+    function _testhelper_conformation(inactive)
         out = []
         for (j, (s, g)) in enumerate(sys.flat)
             inactive && !sys.law[j] && continue
@@ -1884,12 +2099,13 @@ function _testhelper_solve_point(m, rng)
     L = big(0)
     if allo
         L = exp(4 * big(rand(rng)) - 2)
-        for p in [_testhelper_JS._kreg_params(mech, :A); _testhelper_JS._kreg_params(mech, :I)]
+        for p in [_testhelper_JS._kreg_params(mech, :A);
+                  _testhelper_JS._kreg_params(mech, :I)]
             vals[_testhelper_JS.name(p, mech)] = exp(4 * big(rand(rng)) - 2)
         end
     end
-    (; vals, Keq = exp(log_keq), active = conformation(false),
-     inactive = allo ? conformation(true) : [], L)
+    (; vals, Keq = exp(log_keq), active = _testhelper_conformation(false),
+     inactive = allo ? _testhelper_conformation(true) : [], L)
 end
 
 # Reversible Michaelis–Menten with every step at steady state.
@@ -2050,7 +2266,7 @@ end
             mech = _testhelper_lift(spec.mechanism)
             sys = EnzymeRates._joint_system(mech)
             _, pivots = EnzymeRates._reduce_joint_system(sys.A, sys.rhs)
-            class(c) = EnzymeRates._class(c, sys.flat[c.step][2], sys.tags[sys.flat[c.step][2]])
+            class(c) = (g = sys.flat[c.step][2]; EnzymeRates._class(c, g, sys.tags[g]))
             last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
             n_law = count(i -> (c = sys.columns[i]; (!c.inactive || sys.law[c.step]) &&
                                                     last_of[class(c)] == i &&
@@ -2478,12 +2694,13 @@ In `src/EnzymeRates.jl`, add `include("thermo.jl")` on the line after
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run the focused command for `test_joint_solve`.
-Expected: `Joint thermodynamic solve | 113 113`. Then run the focused command for
-`test_types` (the orientation refactor): all pass.
+Expected: `Joint thermodynamic solve | 113 113` (the prototype's count for this file).
+Then run the focused command for `test_types` (the orientation refactor): all pass.
 
 - [ ] **Step 6: Run the full suite, then commit**
 
-Run the full suite. Expected: all pass (JET checks the new file).
+Run the full suite. Expected: all pass, Task 5's count plus 113 (JET checks the new
+file).
 
 ```bash
 git status
@@ -2509,15 +2726,19 @@ Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
 - Modify: `src/thermodynamic_constr_for_rate_eq_derivation.jl` (delete the old solve)
 - Modify: `src/types.jl` (the E3 chokepoint; `_assert_bottomed_re_segments`)
 - Modify: `src/rate_eq_derivation.jl` (no rename pass; `_step_names`, `_state_groups`;
-  the inactive law on `_inactive_groups`; B10)
-- Modify: `src/mechanism_enumeration.jl`, `src/identify_rate_equation.jl`
-- Modify: `test/test_oracles.jl` (population laws), and re-record:
+  the inactive law on `_inactive_groups`; B10; the `RateEquationTooLargeError` docstring)
+- Modify: `src/mechanism_enumeration.jl` (the allosteric split count, keeping #90's
+  structure), `src/identify_rate_equation.jl`
+- Modify: `test/test_oracles.jl` (population laws, B10), and re-record:
   `test/mechanism_definitions_for_test_enzyme_derivation.jl`,
   `test/test_rate_eq_derivation.jl`, `test/test_types.jl`,
   `test/test_allosteric_collapse.jl`, `test/test_allosteric_golden.jl`,
   `test/reference/allosteric_golden_reference.txt`, `test/allosteric_ground_truth.jl`,
   `test/test_fitting_scale.jl`, `test/test_mechanism_enumeration.jl`,
   `test/test_identify_rate_equation.jl`, `test/test_pivot_priority_regression.jl`
+- Modify: `ROADMAP.md` (the entries this task fixes or retires, in the same commit, as
+  CLAUDE.md requires) and `.claude/CLAUDE.md` (its "Canonical Step Form" paragraph,
+  which this task makes false)
 
 **Interfaces:**
 - Consumes: everything Task 6 produces; Task 4's engine; Tasks 1–2's oracle helpers.
@@ -2533,16 +2754,39 @@ Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
     `_assert_bottomed_re_segments(reaction, groups)`
   - `_kreg_params(am, :A)` lists an `:EqualAI` ligand once, as `Kreg(site, lig,
     :EqualAI)`; `_reg_K` names it bare in both conformations (B10)
+  - `_split_gain_test(am::AllostericMechanism, units)` still returns
+    `(gains, balancers)`, as #90 left it, with the count taken by the joint solve
   - removed: `ANNOTATION_SUBSTITUTED`, `_build_wegscheider_rename_map`, `_leaf_names`,
     `_step_parameters`, `_free_enz_set`, `_step_priority`, `_group_rep`,
     `_group_reps`, `_rep_sides`, `_enumerate_parameters_full`, `_param_columns`,
     `_assemble_constraints`, `_solve_dependent_set`, `_state_allo_mechanism`,
-    `_state_parts`, `_state_mechanism`, `_cat_params`
+    `_state_parts`, `_state_mechanism`, `_cat_params`, and the split gain test's
+    `count_or_nothing`
 
 This task switches every law to the joint solve in one step and re-records the pins it
-moves. A prototype of exactly this task (the same code, the same test edits) passed the
-full suite at 33,299 tests in 6m54s, Aqua and JET included; `rate_equation` ran 77.3,
-116.6 and 103.2 ns on the three largest bi-bi laws (baseline 77.5, 118.6, 103.8).
+moves. Its source and test edits come from a prototype, ported onto add414a
+(`scratchpad/phase2/proto2_wt`, commit 14aa9b1) with the merge Step 7 describes, which
+passed the full suite at 37,750 tests in 7m48s, Aqua and JET included. `rate_equation`
+ran 54.2, 54.6 and 55.3 ns on the three 396-term bi-bi laws (add414a: 54.3, 54.5, 54.4)
+and 77.2, 116.6 and 103.6 ns on the 589-, 799- and 858-term ter-bi laws (add414a: 77.8,
+118.9, 103.8). The port lacks these tests of the plan, each run as a probe (under
+`scratchpad/phase2/probes/refresh/`) against add414a's code (pre-switch) or the port's
+source loaded from `$WT` (post-switch): Task 1's `half` testset and the oracle lines it
+adds to two string testsets (pass on both), Task 2's per-spec dimension pin (42 pass on
+add414a), Task 3's two `all_parameters` testsets (pass on both), Task 5's
+`all_parameters` assertions in `test_accessors.jl` (pass post-switch), and in Step 1
+below the island testset (passes on both, with the same fitted tuple), the B10 testset
+(fails on add414a as expected, passes post-switch), the names test over the whole
+population (no stray name post-switch), the allosteric half of the regrouping test (98
+allosteric and 75 plain same-count splits in the sample, 2,224 and 1,380 in the whole
+population, no fitted name changes post-switch) and the declared-dimension checks of
+Step 9 (22, 24, 23 and 7, 7 on both counts post-switch).
+
+Between Step 3 and the end of Step 6 the package does not load: Step 3 adds
+`_dependent_param_exprs(::Type{<:AbstractEnzymeMechanism})` and
+`_independent_param_count(::_AnyMech)` to `src/thermo.jl` while the old methods with the
+same signatures stay until Step 4 item 4 and Step 6 item 11, and Julia refuses a method
+overwrite during precompilation. Run no Julia in that span.
 
 What changes, and why every changed pin is the same law:
 
@@ -2564,17 +2808,28 @@ What changes, and why every changed pin is the same law:
   `_testhelper_population(_testhelper_pingpong_allo_rxn, 1)` (818 of 12,985 after two
   rounds) lose one or two phantom or folded parameters and now equal the declared
   dimension. `:EqualAI` regulator ligands print bare (`K_Pireg`) with no mirror
-  dependent (B10).
+  dependent (B10). Decided by Denis: the fitted-parameter count of some allosteric
+  mechanisms drops and never rises, and plain counts do not change; this is the fix,
+  not a regression.
 - **Enumeration.** The allosteric split count is the joint solve's and derives no rate
   polynomial, so a law over `MAX_RATE_EQUATION_TERMS` no longer refuses a count; the
   count also drops the phantoms above, so the split move's children change for parents
-  that carried them. Among the enumeration tests only the two term-cap testsets move: a
-  parent over the cap now splits by its count (two new children, written out below).
+  that carried them. #90's guard stays: each candidate still passes
+  `_onlya_haldane_violation` before it is built, and a rejected one still takes the
+  `:OnlyA` units as partners (Step 7). Among the enumeration tests only the two term-cap
+  testsets move: a parent over the cap now splits by its count (two new children,
+  written out below). #90's three testsets ("a split the constructor would reject gains
+  nothing", "a rejected split is extended by every :OnlyA group", "the split's :OnlyA
+  check agrees with the constructor") keep their pins under the joint solve, so they
+  test Step 7's merge; on the port they pass unchanged, the aggregate one with its
+  4,450 assertions.
 - **identify.** `eq_hash` keeps its role, recomputed from the new printed law; the
   dedup key strips only `#` lines. A same-model regrouping no longer prints the same law,
   so the twin fixture of the batch dedup test becomes a mechanism that compiles to the
   same type (an unbound inhibitor), and the allosteric split/merge pair, whose extra
   parameter was a fold hazard (known issue 2), becomes one model with one fitted set.
+  Decided by Denis: until phase 5 redesigns the key, `eq_hash` no longer merges
+  same-model regroupings, so identify fits such duplicates twice.
 
 - [ ] **Step 1: Write the failing population tests**
 
@@ -2591,48 +2846,55 @@ Append to `test/test_oracles.jl`:
     end
 
     @testset "fitted counts equal the declared dimension" begin
-        population = _testhelper_population(_testhelper_pingpong_allo_rxn, 1)
+        # Success criterion 4: a phantom or folded fitted name would raise the count
+        # above the dimension the test counts on its own.
         @test all(m -> EnzymeRates._independent_param_count(m) ==
-                       _testhelper_declared_dimension(m), population)
+                       _testhelper_declared_dimension(m), _testhelper_population_one_round)
         for m in _testhelper_population_sample[1:10]
             @test length(EnzymeRates.fitted_params(m)) == _testhelper_declared_dimension(m)
         end
     end
 
     @testset "every fitted catalytic name names a constant of the law" begin
-        # Known issues 1 and 2 of the ROADMAP gave an :EqualAI constant a second fitted
-        # name, the name of no step of the law.
-        for m in _testhelper_population_sample
+        # Every fitted catalytic constant names a constant of one conformation's law.
+        stray = Symbol[]
+        for m in _testhelper_population_one_round
             m isa EnzymeRates.AllostericMechanism || continue
             law_names = Set(n for state in (:A, :I)
                             for ns in EnzymeRates._step_names(m, state) for n in ns)
             reg = Set(EnzymeRates.name(p, m) for state in (:A, :I)
                       for p in EnzymeRates._kreg_params(m, state))
             fitted = EnzymeRates._dependent_param_exprs(m)[2]
-            @test issubset(setdiff(fitted, reg, (:L,)), law_names)
+            append!(stray, setdiff(fitted, law_names, reg, (:L,)))
         end
+        @test isempty(stray)
     end
 
     @testset "a same-model regrouping keeps every fitted name" begin
-        n_splits = 0
+        # A split that the cycles tie straight back leaves the count, and so the model,
+        # unchanged, and it leaves every fitted name unchanged too (E3). An allosteric
+        # split is built only when the constructor's :OnlyA check accepts it.
+        n_plain, n_allo = 0, 0
         for m in _testhelper_population_sample
-            m isa EnzymeRates.Mechanism || continue
-            counter = EnzymeRates._partition_independent_count(m)
-            flat = EnzymeRates._flat_steps(m)
-            position = Dict(s => j for (j, (s, _)) in enumerate(flat))
-            ids = [g for (_, g) in flat]
             names = Set(EnzymeRates._dependent_param_exprs(m)[2])
-            for (g, group) in enumerate(EnzymeRates.steps(m)),
+            n = EnzymeRates._independent_param_count(m)
+            groups = EnzymeRates.steps(m)
+            for (g, group) in enumerate(groups),
                 bp in EnzymeRates._context_bipartitions(group)
-                split_ids = copy(ids)
-                for s in bp[2]; split_ids[position[s]] = length(EnzymeRates.steps(m)) + 1; end
-                counter(split_ids) == counter(ids) || continue
+                if m isa EnzymeRates.AllostericMechanism
+                    parts, origin = EnzymeRates._bipartitioned_groups(groups, [(g, bp)])
+                    EnzymeRates._onlya_haldane_violation(
+                        EnzymeRates.reaction(m), parts,
+                        EnzymeRates.cat_allo_states(m)[origin]) === nothing || continue
+                end
                 child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
-                n_splits += 1
+                EnzymeRates._independent_param_count(child) == n || continue
+                m isa EnzymeRates.Mechanism ? (n_plain += 1) : (n_allo += 1)
                 @test Set(EnzymeRates._dependent_param_exprs(child)[2]) == names
             end
         end
-        @test n_splits >= 20
+        @test n_plain >= 20
+        @test n_allo >= 50
     end
 
     @testset "a :NonequalAI group behind an :OnlyA binding takes no inactive name" begin
@@ -2658,17 +2920,47 @@ Append to `test/test_oracles.jl`:
               _testhelper_declared_dimension(island)
         _testhelper_check_law_against_oracle(island)
     end
+
+    @testset "an :EqualAI regulator ligand takes one bare name and no mirror" begin
+        # R binds both conformations with one constant: one bare name, K_Rreg, which both
+        # conformations' site factors read, and no dependent that mirrors it (B10).
+        b10 = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            allosteric_regulators: R::EqualAI
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)      :: NonequalAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: NonequalAI
+            end
+            regulatory_site(multiplicity = 2): begin
+                ligands: R
+            end
+        end
+        dep, indep =
+            EnzymeRates._dependent_param_exprs(EnzymeRates.AllostericMechanism(b10))
+        @test :K_Rreg in indep
+        @test !any(k -> occursin("Rreg", string(k)), keys(dep))
+        _testhelper_check_law_against_oracle(b10)
+    end
 end
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
 
 Run the focused command for `test_oracles`.
-Expected: `fitted counts equal the declared dimension` fails (71 mechanisms carry a
-phantom or folded parameter today), `every fitted catalytic name names a constant of the
-law` errors (`_step_names` does not exist yet), `a same-model regrouping keeps every
-fitted name` fails on many splits (today's names follow the grouping), and the oracle
-and island testsets pass.
+Expected (the 71 from the drafting probes, the island and B10 results measured on
+add414a's code): `fitted counts equal the declared dimension` fails its population test
+(71 mechanisms carry a phantom or folded parameter today), which is the red that matters
+for success criterion 4; `a same-model regrouping keeps every fitted name` fails on many
+splits (today's names follow the grouping); the B10 testset fails its two name
+assertions (today `K_A_Rreg` is fitted and `K_I_Rreg` is a mirror dependent) and passes
+its oracle check; `every fitted catalytic name names a constant of the law` errors only
+because `_step_names` does not exist yet, so it shows nothing before the switch, and the
+count test carries the criterion; the oracle and island testsets pass (today's island
+already fits the pinned tuple). If anything else fails, stop and report it to the
+controller rather than adjusting a test.
 
 - [ ] **Step 3: Add the dependents to `src/thermo.jl`**
 
@@ -3121,35 +3413,96 @@ is 0.
 
 - [ ] **Step 7: Enumeration and identify**
 
+#90 rebuilt the allosteric split count on add414a: `_expand_split_kinetic_group`
+destructures `gain, balancers = _split_gain_test(m, units)` (line 1083), the `Mechanism`
+method returns `gains, _ -> ()`, and the allosteric method runs the constructor's
+`:OnlyA` check on each candidate's groups before it builds the child, records rejected
+sets and offers every `:OnlyA` unit as a partner for them. Keep all of that and change
+only the count; the merge below is the one the port validated (proto2_wt 14aa9b1, whose
+suite and #90's three testsets pass). Dropping `count_or_nothing` is safe: the joint
+solve's count goes through `_joint_system` and `_inactive_groups`, never through
+`_assert_derivable`, so it cannot raise `RateEquationTooLargeError`. Leave the caller
+(line 1083) and the `Mechanism` method unchanged.
+
 1. `src/mechanism_enumeration.jl`, docstring of `_expand_split_kinetic_group`: replace
+   the three lines 1051–1053
 
 ```text
 and by the combined state solve on the built child for an `AllostericMechanism`,
-where a count the derivation refuses as too large gains nothing (`_split_gain_test`).
+where a candidate the constructor would reject (`_onlya_haldane_violation`) is not built
+and, like a count the derivation refuses as too large, gains nothing (`_split_gain_test`).
 ```
 
    with
 
 ```text
-and by the joint solve on the built child for an `AllostericMechanism`
-(`_split_gain_test`).
+and by the joint solve on the built child for an `AllostericMechanism`,
+where a candidate the constructor would reject (`_onlya_haldane_violation`) is not built
+and gains nothing (`_split_gain_test`).
 ```
 
-2. Replace the allosteric `_split_gain_test` and its docstring with:
+   and keep #90's next sentence (lines 1054–1056, "A candidate the constructor would
+   reject also takes as partners the units of every `:OnlyA` group: …") unchanged.
+2. Replace the allosteric `_split_gain_test` and its docstring (lines 1137–1177, from the
+   `"""` above `Gain test of the split move for an allosteric mechanism, which counts each
+   candidate on the` through the function's `end`) with:
 
 ```julia
 """
-Gain test of the split move for an allosteric mechanism: `sel -> Bool`, true when the child
-built from the selected units has more independent parameters than `am`, both counted by
-the joint solve (`_independent_param_count`), which derives no rate polynomial.
+Gain test of the split move for an allosteric mechanism, which counts each candidate on the
+built child by the joint solve (`_independent_param_count`); it derives no rate
+polynomial. The `AllostericMechanism` constructor rejects a candidate whose `:OnlyA`
+binding leaves a thermodynamic cycle unsatisfiable, and a split can make one: the check
+leaves out an `:OnlyA` group that holds a fused binding but keeps a part of it that holds
+only plain bindings. Each candidate's groups and tags therefore go through the constructor's
+own check (`_onlya_haldane_violation`) before the child is built. A rejected candidate gains
+nothing, and the search extends it like any set that does not gain and also by the units
+of every `:OnlyA` group (`balancers`, the second function returned): only a split of an
+`:OnlyA` group changes the check, and splitting another `:OnlyA` group on the cycle can
+balance it, so a superset may be a valid child even when that group is steady state or
+lies in another rapid-equilibrium segment, outside the usual partners.
 """
 function _split_gain_test(am::AllostericMechanism, units)
     base = _independent_param_count(am)
-    sel -> _independent_param_count(_apply_bipartitions(am, units[sel])) > base
+    rejected = Set{Vector{Int}}()
+    function gains(sel)
+        groups, origin = _bipartitioned_groups(steps(am), units[sel])
+        states = cat_allo_states(am)[origin]
+        _onlya_haldane_violation(reaction(am), groups, states) === nothing ||
+            (push!(rejected, sel); return false)
+        _independent_param_count(_with(am; groups, states)) > base
+    end
+    onlya = [u for (u, (g, _)) in enumerate(units) if cat_allo_state(am, g) === :OnlyA]
+    gains, sel -> sel in rejected ? onlya : ()
 end
 ```
 
-3. In the docstring of `_redundant_copy_groups`, replace the lines
+   This is #90's text and body with three changes: the first sentence names the joint
+   solve, the docstring's sentences from "The count reads both conformations' rate
+   polynomials" to its end are gone, and `count_or_nothing`, its try/catch and the
+   `base === nothing` early return are gone.
+3. `src/rate_eq_derivation.jl`: nothing catches `RateEquationTooLargeError` any more, so
+   replace its docstring (lines 334–339)
+
+```text
+"""
+The error `_assert_derivable` raises for a mechanism whose rate equation would have more
+than `MAX_RATE_EQUATION_TERMS` terms. Its own type lets the split move's allosteric gain
+test (`_split_gain_test`) skip a candidate it cannot count while every other error
+propagates.
+"""
+```
+
+   with
+
+```text
+"""
+The error `_assert_derivable` raises for a mechanism whose rate equation would have more
+than `MAX_RATE_EQUATION_TERMS` terms.
+"""
+```
+
+4. In the docstring of `_redundant_copy_groups`, replace the lines
 
 ```text
 is `:OnlyA`. The inactive state's graph is that of `_state_mechanism(am, :I)`: the steps
@@ -3166,7 +3519,7 @@ only at the sites that graph keeps, and a
 ```
 
    (re-wrap the paragraph to 92 characters).
-4. `src/identify_rate_equation.jl`: replace the docstring of `_rate_eq_dedup_key` and its
+5. `src/identify_rate_equation.jl`: replace the docstring of `_rate_eq_dedup_key` and its
    filter with:
 
 ```julia
@@ -3217,6 +3570,24 @@ end
      `           s * "\nend"`; in `_testhelper_undefined_rhs_symbols`, replace
      `        line = replace(raw, EnzymeRates.ANNOTATION_SUBSTITUTED => "")` with
      `        line = raw`.
+   - In `_testhelper_test_constraint_counting`, the comment above
+     `@test _testhelper_dep_graph_is_sound(dep_exprs, indep)` (lines 769–773) ends
+     "…the exact leak the uniform dep-filter closes.", and no such filter remains.
+     Replace its last three lines
+
+```julia
+        # shared :EqualAI catalytic reverse rate that is Haldane-dependent in the
+        # A-state while the dead I-state references it unpinned — the exact leak the
+        # uniform dep-filter closes.
+```
+
+     with
+
+```julia
+        # shared :EqualAI catalytic reverse rate that is Haldane-dependent in the
+        # A-state and that the dead I-state's law reads too: one class in both
+        # conformations, so one dependent.
+```
 2. `test/test_mechanism_enumeration.jl`:
    - In "Tagged groups exclude inactive-state params", replace
      `        EnzymeRates._step_constants(EnzymeRates._group_reps(am)[g], :I), Ref(am))`
@@ -3244,6 +3615,8 @@ end
    - Delete the testset "_solve_dependent_set rejects a contradictory system"; its
      fixture (rows `x = 0` and `x = log Keq`) and assertion test
      `_reduce_joint_system` in `test/test_joint_solve.jl` since Task 6.
+     Decided by Denis: deleting this testset together with `_solve_dependent_set` is
+     OK, because Task 6 re-tests its fixture against the joint solve.
    - In "the naming cache never changes a mechanism's identity", replace the two
      `_testhelper_param_names` methods with
 
@@ -3277,10 +3650,12 @@ end
 
 - [ ] **Step 9: Re-record the pins the switch moves**
 
-Each edit below is backed by a value check that already runs: the spec's
-`Mass-action oracle`, `Analytical Rate` and `Rate Equation String` testsets for the
-fixtures file; the hand-built ground truth for the AGT gate; the peak values for the
-fitting-scale tests; exact children for the enumeration tests.
+Each edit below is backed by a value check: the spec's `Mass-action oracle`,
+`Analytical Rate` and `Rate Equation String` testsets for the fixtures file; Task 1's
+oracle lines for the two string testsets; the hand-built ground truth for the AGT gate;
+the peak values for the fitting-scale tests; exact children for the enumeration tests;
+and, for the new count pins of the term-cap and identify fixtures, the test's own count
+of the dimension (`_testhelper_declared_dimension`), which derives no law.
 
 1. Fixtures file:
    - In the struct, replace
@@ -3288,7 +3663,10 @@ fitting-scale tests; exact children for the enumeration tests.
      and the two `# NOTE:` comment lines under it with
      `    expected_n_mirror_constraints::Int = 0    # RHS is a single Symbol: a tie K_a = K_b`.
    - Delete the line `        expected_n_mirror_constraints=1,` from the PFK-1, HK and
-     m_all specs (B10: no mirror).
+     m_all specs (B10: no mirror). In m_all, replace the comment line above it,
+     `        # structural naming: :EqualAI catalytic groups share one symbol (no rename); only :EqualAI reg ligands emit a mirror`,
+     with
+     `        # :EqualAI catalytic groups and regulator ligands each take one bare name: no mirror`.
    - In "Non-competitive Inhibitor", "Non-essential Activator" and "Activator +
      Competitive Inhibitor", add after their `expected_n_haldane_constraints=…,` line
      `        expected_n_mirror_constraints=1,`, `…=2,` and `…=2,` respectively (the
@@ -3326,6 +3704,7 @@ fitting-scale tests; exact children for the enumeration tests.
     end
     @test occursin("# Wegscheider constraints:\nK_EAB_to_EA_B = K_EB_to_E_B\n",
                    rate_equation_string(folded))
+    _testhelper_check_law_against_oracle(folded)
     # S binds E and Estar under one constant, so the square of the two isomerizations
     # ties their equilibrium constants; the isomerization between occupied forms is the
     # dependent one.
@@ -3341,6 +3720,7 @@ fitting-scale tests; exact children for the enumeration tests.
         end
     end
     @test occursin("\nK_ES_to_EstarS = K_E_to_Estar\n", rate_equation_string(iso_tie))
+    _testhelper_check_law_against_oracle(iso_tie)
     # I binding E and I binding Estar share one group and run opposite ways around the
     # cycle, so the Haldane relation fixes the Theorell–Chance constant at Keq; v reads it.
     keq_tie = @enzyme_mechanism begin
@@ -3353,13 +3733,18 @@ fitting-scale tests; exact children for the enumeration tests.
         end
     end
     @test occursin("\nK_E_S_to_Estar_P = Keq\n", rate_equation_string(keq_tie))
+    _testhelper_check_law_against_oracle(keq_tie)
 end
 ```
 
+     (It keeps the three oracle lines Task 1 added. On the port's source, these string
+     and oracle checks and the next testset's regex and oracle check, 28 in all, pass.)
    - In "rate_equation_string prints residual names bare in constraint lines", replace
      the regex test with
      `    @test occursin(r"\nk_EQ_to_EB_res_\+A_-P = .* \* k_EA_to_EP_res_\+A_-P \* ", s)`
-     (the Haldane dependent is now the uptake of Q into the covalent form, E7).
+     and keep Task 1's `_testhelper_check_law_against_oracle(m)` line (the Haldane
+     dependent is now the reverse of the B-side chemistry step; the content key keeps
+     the A-side one).
    - Replace the testset `"_cat_params and _kreg_params"` (inside "Parameter-struct
      allosteric helpers", keeping `cm_src`) with:
 
@@ -3434,7 +3819,8 @@ end
     for _ in 1:5
         params = _testhelper_random_reduced_params(tie; rng)
         concs = (A = 0.5 + rand(rng), B = 0.5 + rand(rng), P = 0.5 + rand(rng))
-        @test rate_equation(tie, concs, params) ≈ rate_equation(grouped, concs, params) rtol = 1e-12
+        @test rate_equation(tie, concs, params) ≈
+              rate_equation(grouped, concs, params) rtol = 1e-12
     end
 ```
 
@@ -3518,9 +3904,9 @@ end
                   (Keq = 1.0,))
 ```
 
-     (replacing the two lines that build `p` from `k === :k_E_P_to_EP`). With every
-     other constant 1 and `Keq = 1`, each dependent comes out 1 or 1e-3, so the step
-     constants are those the comment describes.
+     (replacing lines 143–145: the `pn` line and the two-line `p = merge(…)` that reads
+     `k === :k_E_P_to_EP`). With every other constant 1 and `Keq = 1`, each dependent
+     comes out 1 or 1e-3, so the step constants are those the comment describes.
 6. `test/test_mechanism_enumeration.jl`:
    - Testset "AllostericMechanism — a split whose count needs a law over the term cap":
      rename it `"AllostericMechanism — the split count of a law over the term cap"`,
@@ -3549,7 +3935,8 @@ end
 
      (its children assertions stay: still exactly `p_by_b` and `a_by_p`).
    - Replace the testset "AllostericMechanism — a parent whose count needs a law over
-     the term cap" (keep the closing `end` of the enclosing testset after it) with:
+     the term cap" (lines 2762–2794 only; keep #90's three testsets that follow it,
+     lines 2796–3061, and the enclosing testset's `end` at line 3063) with:
 
 ```julia
 @testset "AllostericMechanism — a parent over the term cap splits by its count" begin
@@ -3628,6 +4015,10 @@ end
     @test EnzymeRates._independent_param_count(am) == 22
     @test EnzymeRates._independent_param_count(a_by_p) == 24
     @test EnzymeRates._independent_param_count(p_by_b) == 23
+    # The test's own count of each model's dimension, which derives no law either.
+    for x in (am, a_by_p, p_by_b)
+        @test EnzymeRates._independent_param_count(x) == _testhelper_declared_dimension(x)
+    end
     kids = EnzymeRates._expand_split_kinetic_group(am)
     @test length(kids) == 2
     @test Set(kids) == Set([a_by_p, p_by_b])
@@ -3653,8 +4044,10 @@ end
               EnzymeRates._rate_eq_dedup_key(b)
 ```
 
-   - Replace `_testhelper_dedup_twins` and its comment (the regrouping pair no longer
-     prints one law) with:
+   - The regrouping pair of `_testhelper_dedup_twins` no longer prints one law.
+     Decided by Denis: until phase 5 redesigns the key, `eq_hash` no longer merges
+     same-model regroupings, and identify fits such duplicates twice. Replace
+     `_testhelper_dedup_twins` and its comment with:
 
 ```julia
 # Two distinct bi-bi mechanisms that render one rate equation: the second declares a
@@ -3683,16 +4076,28 @@ end
 ```
 
    - Rename the testset "allosteric split/merge pair: the split form carries one more
-     param" to `"allosteric split/merge pair: the split form is the merged form's model"`
+     param" to `"allosteric split/merge pair: the split form is the merged form's model"`;
+     replace the three-line comment above it (lines 1538–1540, from
+     `# LDH ALLOSTERIC split/merge pair: split form (8 cat groups) vs merged (7).` through
+     `# cannot express.`) with
+
+```julia
+# LDH ALLOSTERIC split/merge pair: split form (8 cat groups) vs merged (7).
+# Different eq_hash, though the cycles tie the split form's extra constant back, so
+# both are one model.
+```
+
      and replace its last comment and two assertions with
 
 ```julia
     # The split constant is tied back: the square E, E(Lactate), E(Lactate, NADH),
     # E(NADH), closed by the shared NADH group, makes K_ELactateNADH_to_ENADH_Lactate equal
     # the free-enzyme Lactate constant in the active conformation, and the inactive one
-    # binds no NADH. Both forms fit the same constants.
+    # binds no NADH. Both forms fit the same constants, as many as the test's own count
+    # of the dimension.
     @test EnzymeRates._independent_param_count(am1) ==
           EnzymeRates._independent_param_count(am2) == 7
+    @test _testhelper_declared_dimension(am1) == _testhelper_declared_dimension(am2) == 7
     @test EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am1)) ==
           EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am2))
 ```
@@ -3714,38 +4119,127 @@ git diff --stat test/reference/allosteric_golden_reference.txt
    line: the names may change, the structure may not (each spec's `Rate Equation String`
    test evaluates the string against `rate_equation`).
 
-- [ ] **Step 10: Run the focused tests**
+- [ ] **Step 10: Update the ROADMAP and CLAUDE.md**
+
+CLAUDE.md requires a ROADMAP entry to change in the same commit as the change that fixes
+or retires it, and this task fixes known issues 1 and 2, settles the fitted-name half of
+the regrouping issue, makes the rename-pass entry moot and finishes the one-graph half
+of the conformations entry (spec section 16, phase-2 row). It also makes the "Canonical
+Step Form" paragraph of `.claude/CLAUDE.md` false, which the implementers of Tasks 8 and
+9 read. `docs/src/roadmap.md` lists none of these entries and does not change.
+
+1. `ROADMAP.md`: delete the known issues **The inactive state can give an `:EqualAI`
+   constant a second, fitted name.** and **The two conformations fold Wegscheider ties
+   separately.** (lines 10–33).
+2. Replace the known issue **Splitting a tied kinetic group changes fitted names and
+   `eq_hash` without changing the model.** (lines 80–86) with:
+
+```markdown
+- **Splitting a tied kinetic group changes `eq_hash` without changing the model.**
+  When a square of rapid-equilibrium bindings already ties two binding constants,
+  splitting their kinetic group leaves the rate function and the fitted names unchanged,
+  but the split part's constant becomes a dependent with its own line under
+  `# Wegscheider constraints:`, and the law names it, so the printed equation and the
+  dedup key (`_rate_eq_dedup_key`, `src/identify_rate_equation.jl`) differ, and identify
+  fits both. The rename-proof key under Planned removes this.
+```
+
+3. Replace the Planned entry **Rewrite the derivation around the reaction graph.**
+   (lines 96–102) with:
+
+```markdown
+- **Rewrite the derivation around the reaction graph.**
+  `docs/superpowers/specs/2026-10-12-reaction-graph-rewrite-design.md` records the design,
+  decided between 2026-10-09 and 2026-10-12. Three PRs remain: the graph mechanism type
+  with two macros, `show` and a new CSV format; admission, the well-posedness guard and
+  the flip at free E; then the engine, printing, a rename-proof dedup key and
+  code-generation locals. The table in its section 16 lists the entries that each PR
+  retires. Priority: high.
+```
+
+4. Replace the Planned entry **Derive both conformations from one catalytic rate
+   equation.** (lines 103–126) with this entry, which keeps the old one's pointer to
+   branch `mwc-solve-then-limit` for phase 4:
+
+```markdown
+- **Take `:OnlyA` steps to their limit in the inactive conformation.**
+  Both conformations come from one joint solve on one graph, but the inactive law still
+  deletes every `:OnlyA` group and prunes the forms that deletion strands. An `:OnlyA`
+  binding should lose its affinity for the inactive conformation instead (`K → ∞`, or
+  `kon → 0` with `koff` fixed for a steady-state binding), and an `:OnlyA` chemistry step
+  be blocked (both rate constants → 0, their ratio set by thermodynamics); each step of an
+  `:OnlyA` group already keeps its own class. A tag set is admitted when an exact
+  feasibility test passes and every form the free enzyme cannot reach in the inactive
+  conformation lies behind a binding, on its bound side; the limit then equals deletion
+  and pruning, and enumeration stops producing the `:OnlyA` ping-pong mechanisms this
+  rejects. The conformations will flip at free E, which every mechanism must then
+  contain; until then the constructor admits a second free form only in rapid
+  equilibrium with the first (`_assert_one_flip_segment`), where the choice only rescales
+  `L`. The rewrite's admission PR brings the limits, admission and the flip at free E.
+  Branch `mwc-solve-then-limit` holds a July design of this approach (spec b067aa0 and
+  651a821, plan 9c95f12, prototype 6f0011e), whose prototype matched the mass-action
+  ground truth on all six uni-uni tag combinations and would delete the `d_free`
+  cross-weighting; `test/allosteric_ground_truth.jl` is the oracle. Priority: high.
+```
+
+5. Delete the Planned entry **Build the Wegscheider rename into the constraint
+   columns.** (lines 169–180).
+6. `.claude/CLAUDE.md`: replace the paragraph under
+   `### Canonical Step Form (load-bearing guard)` with the paragraph below. Nothing else
+   in CLAUDE.md changes.
+
+```markdown
+Step direction, step order, and group order are canonicalized in the `Step` and `Mechanism`/`AllostericMechanism` constructors. This is **load-bearing, not cosmetic**: structural deduplication (`unique!`) works by pure `==`/`hash` only because construction is canonical, and every constant is named after the stored sides of its class's kept member. The joint solve (`src/thermo.jl`) picks dependent parameters by a fixed content priority (`_priority_key`), so `fitted_params` and the rate equation do not depend on step order, step direction or group labels; renaming a metabolite can still change which tied constant is dependent. Do not relax or reorder this without reading the Developer page in the docs.
+```
+
+- [ ] **Step 11: Run the focused tests**
 
 Run the focused commands for `test_oracles`, `test_joint_solve`, `test_types`,
 `test_rate_eq_derivation`, `test_allosteric_collapse`, `test_allosteric_golden`,
 `allosteric_ground_truth`, `test_fitting_scale`, `test_identify_rate_equation` and
 `test_mechanism_enumeration`. Expected: all pass; `Laws over a regenerated population`
-passes all its tests (about 30 s). A failure in a pin not listed above means the code
-differs from the prototype: find the cause with superpowers:systematic-debugging before
-touching the pin.
+passes all its tests (about 30 s, plus about 10 s to build the population); #90's three
+testsets in `test_mechanism_enumeration` ("a split the constructor would reject gains
+nothing", "a rejected split is extended by every :OnlyA group", "the split's :OnlyA
+check agrees with the constructor") pass unchanged and test Step 7's merge. A failure in
+a pin not listed above means the code differs from the port: find the cause with
+superpowers:systematic-debugging before touching the pin, and never weaken one of #90's
+pins to make it pass.
 
-- [ ] **Step 11: Confirm nothing reads a removed name**
+- [ ] **Step 12: Confirm nothing reads a removed name**
 
-Run `grep -rn "ANNOTATION_SUBSTITUTED\|_build_wegscheider_rename_map\|_leaf_names\|_step_parameters\|_free_enz_set\|_step_priority\|_group_rep\|_rep_sides\|_enumerate_parameters_full\|_param_columns\|_assemble_constraints\|_solve_dependent_set\|_state_allo_mechanism\|_state_parts\|_state_mechanism\|_cat_params" src test`.
+Run `grep -rn "ANNOTATION_SUBSTITUTED\|_build_wegscheider_rename_map\|_leaf_names\|_step_parameters\|_free_enz_set\|_step_priority\|_group_rep\|_rep_sides\|_enumerate_parameters_full\|_param_columns\|_assemble_constraints\|_solve_dependent_set\|_state_allo_mechanism\|_state_parts\|_state_mechanism\|_cat_params\|count_or_nothing" src test`.
 Expected: no output.
 
-- [ ] **Step 12: Run the full suite, then commit**
+- [ ] **Step 13: Run the full suite, then commit**
 
-Run the full suite. Expected: all pass, about 33,300 tests in about 7 minutes; the three
-`rate_equation` info lines stay near 77, 117 and 103 ns. If JET reports a method error
-on a `Union` argument, give the function one method per type (as `_state_groups` has).
+Run the full suite. Expected: all pass in about 8 minutes. The total is hard to predict:
+the port, which holds Tasks 1–9 but lacks about 190 of this plan's assertions, ran
+37,750 tests, about 760 fewer than its added tests imply. Some ported change removes
+them, most likely this switch through tests that assert once per enumerated child
+(the split move's children change), but the drafting did not localize it, so the total
+may fall by several hundred here even though this task adds about 450. Judge the run by
+its failures, not by its total; after Task 9 it should be near 37,950. The six
+`rate_equation` info lines stay near 54–55 ns for the 396-term bi-bi laws and near 77,
+117–119 and 104 ns for the 589-, 799- and 858-term ter-bi laws, the term pins hold, and
+every `MECHANISM_TEST_SPECS` law stays under 120 ns. If a gate fails, stop and discuss
+with Denis (the `rate_equation` contract in the Global Constraints). If JET reports a
+method error on a `Union` argument, give the function one method per type (as
+`_state_groups` has).
 
 ```bash
 git status
-git add src test
+git add src test ROADMAP.md .claude/CLAUDE.md
 git commit -m "Derive every law from one joint thermodynamic solve" \
   -m "One solve over the constants of both conformations picks the dependents by the fixed
 priority, names each kinetic class after the member it keeps, and drops the second rename
 pass. The inactive conformation's law is derived on the one graph with the mechanism's
 own orientation and names, so an :EqualAI constant can no longer take a second fitted
 name or fold one way in one conformation and the other way in the other (ROADMAP known
-issues 1 and 2). :EqualAI regulator ligands print bare. Every law still equals the exact
-mass-action oracle; the re-recorded pins change names and the choice of dependents only." \
+issues 1 and 2, retired here with the rename-pass entry). :EqualAI regulator ligands
+print bare. The split move's allosteric count keeps its :OnlyA pre-check and balancer
+partners. Every law still equals the exact mass-action oracle; the re-recorded pins
+change names and the choice of dependents only." \
   -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
 ```
@@ -3767,7 +4261,12 @@ Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
 
 A pure move (spec section 3 proposes `thermo.jl` for the solve): no function changes.
 The `:OnlyA` guard keeps its `Rational{BigInt}` null space until phase 4 replaces it with
-admission.
+admission. The move leaves `src/thermo.jl` with two exact row reductions (`_rref!` and
+`_rref_partition`) and two cycle-basis builders (`_fundamental_cycles` and
+`_thermodynamic_constraints`, with the same error text). Phase 4 removes the guard's
+use of the older pair, but the split move's counter (`_partition_independent_count`)
+keeps using it, so Step 1 records the merge as a ROADMAP idea instead of doing it in a
+pure move.
 
 - [ ] **Step 1: Move the code**
 
@@ -3787,7 +4286,22 @@ admission.
    `src/EnzymeRates.jl` delete the line
    `include("thermodynamic_constr_for_rate_eq_derivation.jl")`.
 4. `ROADMAP.md`: in the entries that cite it, replace
-   `src/thermodynamic_constr_for_rate_eq_derivation.jl` with `src/thermo.jl`.
+   `src/thermodynamic_constr_for_rate_eq_derivation.jl` with `src/thermo.jl` (after
+   Task 7 only the known issue **The `:OnlyA` guard misjudges groups that mix a binding
+   and a chemistry step.** cites it). Then add this entry as the last one under
+   `## Ideas`, directly after the last line of the entry **Test the compat bounds in a
+   scheduled CI job.** and before the blank line that precedes `## Decided against`:
+
+```markdown
+- **Give the thermodynamics one row reduction and one cycle basis.**
+  `src/thermo.jl` holds two exact row reductions, `_rref!` (the joint solve, in
+  `Rational{Int}` retried in `Rational{BigInt}`) and `_rref_partition` (in
+  `Rational{BigInt}`), and two cycle-basis builders, `_fundamental_cycles` and
+  `_thermodynamic_constraints`, which raise the same error. The `:OnlyA` guard's use of
+  the second pair goes when admission replaces the guard, but the split move's counter
+  (`_partition_independent_count`) keeps it; computing its rank with `_rref!` over the
+  joint solve's cycles would leave one of each.
+```
 
 - [ ] **Step 2: Verify**
 
@@ -3805,7 +4319,8 @@ git status
 git add src/thermo.jl src/EnzymeRates.jl ROADMAP.md
 git commit -m "Keep the thermodynamics in one file" \
   -m "The cycle-space helpers of the :OnlyA guard and of the split move's counter move
-unchanged into src/thermo.jl beside the joint solve." \
+unchanged into src/thermo.jl beside the joint solve. A ROADMAP idea records that the file
+now holds two row reductions and two cycle-basis builders." \
   -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
 ```
@@ -3820,7 +4335,8 @@ Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
 - Modify: `test/test_rate_eq_derivation.jl` (`_testhelper_positional_flat_idx`,
   `_testhelper_positional_params`, `_testhelper_analytical_oracle_params` replaced;
   four call sites)
-- Modify: `test/mechanism_definitions_for_test_enzyme_derivation.jl` (two comments)
+- Modify: `test/mechanism_definitions_for_test_enzyme_derivation.jl` (the struct's
+  bridge comment and six spec comments that name representative steps)
 
 **Interfaces:**
 - Consumes: `all_parameters` (Task 3), the E3 chokepoint (Task 7),
@@ -3833,15 +4349,18 @@ Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
 Spec section 14 (C5): each textbook test reads its written steps and takes the package
 constant of the matching stored step in the written direction, through
 `all_parameters`. The constructor stores every binding with its metabolite taken up, so
-a written binding's direction comes from its metabolite's role: a product's binding is
-written as its release (every spec writes product steps that way). Every other written
-step keeps its direction in `source_steps`; on the 36 specs that carry them, each
-matches its stored step in the stored direction, but the bridge inverts an RE
-equilibrium constant and swaps a rate pair when one does not. Measured on the Task 7
-state: all 34 analytical rate laws and 11 analytical kcats pass. The by-role bridge
-reads the constants through the chokepoint, so it needs no group representative and no
-rename; it follows the switch because before it, three plain specs had a rename-absorbed
-binding constant that `all_parameters` did not list.
+`source_steps` does not record the direction a binding was written in, and the bridge
+reads it from the metabolite's role: a product's binding is written as its release. This
+narrows section 14 to a convention that every current spec follows; a spec that wrote
+`E + P <--> E(P)` or `E(S) <--> E + S` would get that step's constants swapped (the
+helper's docstring says so). The narrowing stands until phase 3 removes the source-order
+feature. Every other written step keeps its direction in `source_steps`; on the 36 specs
+that carry them, each matches its stored step in the stored direction, but the bridge
+inverts an RE equilibrium constant and swaps a rate pair when one does not. Measured on
+the Task 7 state: all 34 analytical rate laws and 11 analytical kcats pass. The by-role
+bridge reads the constants through the chokepoint, so it needs no group representative
+and no rename; it follows the switch because before it, three plain specs had a
+rename-absorbed binding constant that `all_parameters` did not list.
 
 - [ ] **Step 1: Replace the positional helpers**
 
@@ -3889,9 +4408,11 @@ a binding's dissociation constant or, for any other step, the equilibrium consta
 written direction. The inactive conformation of a `:NonequalAI` group adds `k{i}f_T`,
 `k{i}r_T` or `K{i}_T`. The constructor stores every binding with its metabolite taken up,
 so a written binding's direction is read from its metabolite's role: a product's binding
-is written as its release. A ligand of regulatory site `j` (the order of
-`source_reg_sites`) gives `K_<ligand>_reg{j}` and, when its inactive conformation has a
-constant of its own, `K_<ligand>_T_reg{j}`. Every entry of `all_params` passes through.
+is written as its release. Every spec follows that convention; a binding written against
+it (`E + P <--> E(P)`) would get its constants swapped. A ligand of regulatory site `j`
+(the order of `source_reg_sites`) gives `K_<ligand>_reg{j}` and, when its inactive
+conformation has a constant of its own, `K_<ligand>_T_reg{j}`. Every entry of
+`all_params` passes through.
 """
 function _testhelper_written_params(m, all_params::NamedTuple; source_steps,
                                     source_reg_sites = nothing)
@@ -3921,7 +4442,8 @@ function _testhelper_written_params(m, all_params::NamedTuple; source_steps,
                 kf = all_params[kf_key]
                 kr = all_params[EnzymeRates.name(EnzymeRates.Krev(s, state), mech)]
                 f, r = forward ? (kf, kr) : (kr, kf)
-                push!(out, Symbol("k", i, "f", suffix) => f, Symbol("k", i, "r", suffix) => r)
+                push!(out, Symbol("k", i, "f", suffix) => f,
+                      Symbol("k", i, "r", suffix) => r)
             end
         end
     end
@@ -3977,6 +4499,22 @@ In the fixtures file:
     # (step 7), K10 = P2 binding (step 10), k13f/k13r = catalysis (step 13).
 ```
 
+6. Five more spec comments name "representative-step indices", which no longer exist
+   (`_group_rep` is gone since Task 7). Each list after them still holds, since every
+   written step gives its own `K{i}`. Replace the first line of each with
+   `    # Each written step i gives K{i} or k{i}f/k{i}r; the law reads:`:
+   - the three lines `    # Param names use kinetic-group representative-step indices:`
+     (above `_testhelper_rate_two_noncomp_inh`, `_testhelper_rate_noncomp_comp_inh` and
+     `_testhelper_rate_two_samesite_inh`);
+   - `    # Param naming follows kinetic-group representative-step indices:` (above
+     `_testhelper_hk_rate_analytical`), and in the six list lines under it replace
+     ` rep step ` with `, step ` (so `#   K1  (Glucose binding, group 1, step 1)`);
+   - `    # Param mapping (kinetic-group representative-step convention):` (above
+     `_testhelper_m_all_rate_analytical`).
+
+   Then `grep -n "representative-step\|rep step" test/mechanism_definitions_for_test_enzyme_derivation.jl`
+   prints nothing.
+
 - [ ] **Step 2: Run the derivation tests**
 
 Run the focused command for `test_rate_eq_derivation`.
@@ -3987,7 +4525,8 @@ prints nothing.
 
 - [ ] **Step 3: Run the full suite, then commit**
 
-Run the full suite. Expected: all pass.
+Run the full suite. Expected: all pass, about 37,950 tests (the port ran 37,750 without
+about 190 of this plan's assertions; see Task 7 Step 13).
 
 ```bash
 git status
@@ -4003,21 +4542,21 @@ Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
 
 ---
 
-### Task 10: Document the joint solve; update CLAUDE.md and the ROADMAP
+### Task 10: Document the joint solve
 
 **Files:**
 - Modify: `docs/src/deriving/thermodynamic_constraints.md`,
   `docs/src/deriving/kinetic_groups.md`, `docs/src/deriving/mwc_allostery.md`,
-  `docs/src/developer.md`, `.claude/CLAUDE.md`, `ROADMAP.md`
+  `docs/src/developer.md`
 
 **Interfaces:**
 - Consumes: the behavior of Tasks 3–9. No code changes.
 
 Spec section 16, phase-2 rows: the fixed priority and C8's note in
-`thermodynamic_constraints.md`; the "Canonical Step Form" section of CLAUDE.md (only that
-section changes in CLAUDE.md); the ROADMAP entries phase 2 retires or rewrites; every
-page that states a changed name. Verified against the Task 7 state: the README
-quickstart, `getting_started.md`, `textbooks.md`, `fitting/tutorial.md`,
+`thermodynamic_constraints.md`, and every page that states a changed name. Task 7
+already changed `.claude/CLAUDE.md`'s "Canonical Step Form" section and the ROADMAP
+entries phase 2 settles, in the commit that settles them. Verified against the Task 7
+state: the README quickstart, `getting_started.md`, `textbooks.md`, `fitting/tutorial.md`,
 `normalized_vs_absolute.md`, `identify/tutorial.md`, `iso.md`, `regulators.md`,
 `re_vs_ss.md` and `cha_king_altman.md` name only constants that do not change; the
 `@example` blocks regenerate their output.
@@ -4108,7 +4647,13 @@ Now `K_I_ES_to_E_S = K_A_ES_to_E_S · K_I_EP_to_E_P / K_A_EP_to_E_P`, i.e.
 3. In the paragraph that starts ``Often a K-system`` nothing changes. Confirm the
    statements ``The equation reports `K_I_ES_to_E_S = K_A_ES_to_E_S`.`` and
    ``(`k_I_ES_to_E_S = k_A_ES_to_E_S · k_I_E_S_to_ES / k_A_E_S_to_ES`)`` against the
-   example output in the docs build (Step 7): both hold.
+   example output in the docs build (Step 5): both hold.
+4. An `:EqualAI` regulator ligand now has one bare name (B10), which no page states. In
+   the paragraph after the tag table (it starts ``In the example the two binding steps
+   are `:EqualAI` ``), after the sentence that ends ``and the inhibitor `I` is `:OnlyI`
+   (`K_I_Ireg`, inactive state only).``, add the sentence
+   ``An `:EqualAI` regulator `R` would take one bare constant, `K_Rreg`, in both
+   states.`` and re-wrap the paragraph to 92 characters.
 
 - [ ] **Step 4: `docs/src/developer.md`**
 
@@ -4129,27 +4674,30 @@ binding.
 `_fused_substrate_binding` read it to tell catalysis from binding.
 ```
 
-3. Replace the sentences
+3. In the paragraph that starts `The moves never emit a child that is provably a
+   reparameterization`, replace only the sentence (lines 145–148)
 
 ```text
-(`_partition_independent_count`). For an `AllostericMechanism` it is taken on the built
+For an `AllostericMechanism` it is taken on the built
 child and, when a Wegscheider tie folds a constant, reads both conformations' rate
 polynomials, so a candidate whose law exceeds `MAX_RATE_EQUATION_TERMS` has no count and
-gains nothing (`_split_gain_test`). The RE→SS move flips whole groups and accepts a
+gains nothing (`_split_gain_test`).
 ```
 
    with
 
 ```text
-(`_partition_independent_count`). For an `AllostericMechanism` it is the joint solve's
-count on the built child, which derives no rate polynomial (`_split_gain_test`). The
-RE→SS move flips whole groups and accepts a
+For an `AllostericMechanism` it is the joint solve's count on the built child, which
+derives no rate polynomial (`_split_gain_test`).
 ```
 
-   then re-wrap the paragraph to 92 characters.
-4. After the paragraph that ends ``…compile once per optimizer, not once per mechanism.``
-   (the one Task 5 edited; it ends with the `_peak_turnover` sentence), add a
-   subsection:
+   Keep #90's sentences that follow it, from ``A candidate whose `:OnlyA` binding leaves
+   a`` through ``…since the split that balances its cycle may be steady state.``, and
+   the sentence after them that starts ``The RE→SS move flips whole groups``; then
+   re-wrap the paragraph to 92 characters.
+4. Immediately before the heading `## Enumeration engine architecture` (after the
+   paragraph Task 5 edited, which ends ``…wraps the mechanism's turnover the same way, so
+   its search loop compiles once.``), add a subsection:
 
 ```markdown
 ### The joint thermodynamic solve
@@ -4166,68 +4714,22 @@ come first, so no kept dependent reads them. Each class is named after its membe
 comes last in that order (`_kept_members`), through the `name(p, m)` chokepoint, and
 the engine derives each conformation's polynomials from `(reaction, groups, names)`:
 the inactive one on `_inactive_groups(am)`, with the full mechanism's own steps.
+The order's last tie-breaks read three keys: the canonical form order
+(`_form_index_key`: free E first, then the form's base-name content), the lead of a
+tied group (`_step_index_key`) and each metabolite's role (`_metabolites_key`). They
+decide the dependents and so the fitted names, so any rewrite of the mechanism types
+must order forms, lead tied groups and encode roles exactly as these keys do.
 ```
 
-- [ ] **Step 5: `.claude/CLAUDE.md`**
-
-Replace the paragraph under `### Canonical Step Form (load-bearing guard)` with:
-
-```markdown
-Step direction, step order, and group order are canonicalized in the `Step` and `Mechanism`/`AllostericMechanism` constructors. This is **load-bearing, not cosmetic**: structural deduplication (`unique!`) works by pure `==`/`hash` only because construction is canonical, and every constant is named after the stored sides of its class's kept member. The joint solve (`src/thermo.jl`) picks dependent parameters by a fixed content priority (`_priority_key`), so `fitted_params` and the rate equation do not depend on step order, step direction or group labels; renaming a metabolite can still change which tied constant is dependent. Do not relax or reorder this without reading the Developer page in the docs.
-```
-
-Nothing else in CLAUDE.md changes.
-
-- [ ] **Step 6: `ROADMAP.md`**
-
-1. Delete the known issues **The inactive state can give an `:EqualAI` constant a
-   second, fitted name.** and **The two conformations fold Wegscheider ties
-   separately.**
-2. Replace the known issue **Splitting a tied kinetic group changes fitted names and
-   `eq_hash` without changing the model.** with:
-
-```markdown
-- **Splitting a tied kinetic group changes `eq_hash` without changing the model.**
-  When a square of rapid-equilibrium bindings already ties two binding constants,
-  splitting their kinetic group leaves the rate function and the fitted names unchanged,
-  but the split part's constant becomes a dependent with its own line under
-  `# Wegscheider constraints:`, and the law names it, so the printed equation and the
-  dedup key (`_rate_eq_dedup_key`, `src/identify_rate_equation.jl`) differ, and identify
-  fits both. The rename-proof key under Planned removes this.
-```
-
-3. In the Planned entry **Rewrite the derivation around the reaction graph.**, replace
-   `Four PRs remain: one thermodynamic solve that` / `derives both conformations from one graph; the graph mechanism type` with
-   `Three PRs remain: the graph mechanism type` (re-wrap).
-4. Replace the Planned entry **Derive both conformations from one catalytic rate
-   equation.** with:
-
-```markdown
-- **Take `:OnlyA` steps to their limit in the inactive conformation.**
-  Both conformations come from one joint solve on one graph, but the inactive law still
-  deletes every `:OnlyA` group and prunes the forms that deletion strands. An `:OnlyA`
-  binding should lose its affinity for the inactive conformation instead (`K → ∞`, or
-  `kon → 0` with `koff` fixed for a steady-state binding), and an `:OnlyA` chemistry step
-  be blocked (both rate constants → 0, their ratio set by thermodynamics); each step of an
-  `:OnlyA` group already keeps its own class. A tag set is admitted when an exact
-  feasibility test passes and every form the free enzyme cannot reach in the inactive
-  conformation lies behind a binding, on its bound side; the limit then equals deletion
-  and pruning, and enumeration stops producing the `:OnlyA` ping-pong mechanisms this
-  rejects. The conformations will flip at free E, which every mechanism must then
-  contain; until then the constructor admits a second free form only in rapid
-  equilibrium with the first (`_assert_one_flip_segment`), where the choice only rescales
-  `L`. The rewrite's admission PR brings the limits, admission and the flip at free E;
-  `test/allosteric_ground_truth.jl` is the oracle. Priority: high.
-```
-
-5. Delete the Planned entry **Build the Wegscheider rename into the constraint
-   columns.**
-
-- [ ] **Step 7: Build the docs**
+- [ ] **Step 5: Build the docs (needs approval)**
 
 The docs build runs every `@example` block and doctest and checks that every export has
-a docstring (`docs/make.jl`); the test suite does not. Run, under the lock with
-`timeout -s KILL 3600`:
+a docstring (`docs/make.jl`); the test suite does not. Like Task 5 Step 6, this step
+departs from the Julia rule of the Global Constraints (`--project=docs`, and
+`Pkg.develop`/`Pkg.instantiate` may fetch packages and write the ignored
+`docs/Manifest.toml`), so run it only after the controller or Denis approves (CLAUDE.md
+Rule 1); without approval, skip it and say so in the task report. With approval, run,
+under the lock with `timeout -s KILL 3600`:
 
 ```bash
 timeout -s KILL 3600 flock -w 14400 /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/proto/julia.lock julia --project=docs --heap-size-hint=2500M -e 'using Pkg; Pkg.develop(PackageSpec(path = pwd())); Pkg.instantiate()'
@@ -4235,25 +4737,27 @@ timeout -s KILL 3600 flock -w 14400 /tmp/claude-501/-home-denis-linux--julia-dev
 ```
 
 Expected: `makedocs` finishes without an error (`deploydocs` skips outside CI). Read the
-rendered output of `thermodynamic_constraints.md`'s example and `mwc_allostery.md`'s
-`coupled` and `ss` examples in `docs/build/` and confirm the prose of Steps 1 and 3
-matches them. Do not commit `docs/build/` or any `docs/Manifest.toml` change the
-`Pkg.develop` call makes: `docs/Manifest.toml` is untracked, and if `git status` shows
-`docs/Project.toml` modified, restore it with `git checkout docs/Project.toml`.
+rendered output of `thermodynamic_constraints.md`'s example, `kinetic_groups.md`'s
+`ungrouped` example and `mwc_allostery.md`'s `coupled` and `ss` examples in
+`docs/build/` and confirm the prose of Steps 1, 2 and 3 matches them: the nine fitted
+constants and the four Wegscheider dependents Step 2 names (`K_EAB_to_EB_A`,
+`K_EAQ_to_EQ_A`, `K_EBP_to_EP_B`, `K_EPQ_to_EQ_P`) must be the ones the `ungrouped`
+example prints; if they differ, correct the prose to the printed output. Do not commit
+`docs/build/` or any `docs/Manifest.toml` change the `Pkg.develop` call makes:
+`docs/Manifest.toml` is ignored, and if `git status` shows `docs/Project.toml` modified,
+restore it with `git checkout docs/Project.toml`.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git status
 git add docs/src/deriving/thermodynamic_constraints.md docs/src/deriving/kinetic_groups.md \
-        docs/src/deriving/mwc_allostery.md docs/src/developer.md .claude/CLAUDE.md ROADMAP.md
-git commit -m "Document the joint thermodynamic solve and retire its ROADMAP entries" \
+        docs/src/deriving/mwc_allostery.md docs/src/developer.md
+git commit -m "Document the joint thermodynamic solve" \
   -m "The thermodynamic-constraints page states the fixed priority and that renaming a
 metabolite can change which tied constant is dependent; the kinetic-groups and MWC pages
-name the dependents the solve now picks; the developer page describes the solve; the
-Canonical Step Form note no longer says the reduction follows step order. ROADMAP known
-issues 1 and 2 and the rename-pass entry are retired, and the conformations entry keeps
-its :OnlyA-limit half." \
+name the dependents the solve now picks and the bare name of an :EqualAI regulator; the
+developer page describes the solve and the keys any rewrite must keep." \
   -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
 ```
@@ -4279,7 +4783,10 @@ against 4.85 GB, 123 full sweeps and 33 s before the switch); an allosteric bi-b
 `:OnlyA` groups still grows by 1.5 GB with 17 full sweeps in 34 s (7.6 GB, 219 sweeps
 and 76 s before), because lifting the compiled type constructs an `AllostericMechanism`,
 whose `:OnlyA` guard runs its null space in `Rational{BigInt}`. So the entry is updated,
-not retired.
+not retired. That attribution is an inference: the allosteric loop times the lift and the
+solve together. Step 1 therefore also times the joint solve alone on a concrete
+`AllostericMechanism` and the lift alone, and the entry names what those two readings
+show.
 
 - [ ] **Step 1: Write the measurement script**
 
@@ -4337,6 +4844,9 @@ allo = typeof(@allosteric_mechanism begin
 end)
 measure("plain", () -> ER._dependent_param_exprs(plain))
 measure("allosteric", () -> ER._dependent_param_exprs(allo))
+am = ER.AllostericMechanism(allo())
+measure("allosteric solve", () -> ER._dependent_param_exprs(am))
+measure("allosteric lift", () -> ER.AllostericMechanism(allo()))
 ```
 
 - [ ] **Step 2: Run it**
@@ -4344,55 +4854,74 @@ measure("allosteric", () -> ER._dependent_param_exprs(allo))
 `timeout -s KILL 1200 flock -w 14400 /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/proto/julia.lock julia --project=. --heap-size-hint=2500M /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase2/probes/gc_live_bytes_task11.jl`
 
 Expected: the `plain` lines show no growth trend and `full_sweeps=0`; the `allosteric`
-lines grow by roughly 15 KB per call with a few full sweeps. If the allosteric growth is
-gone too, delete the entry instead of Step 3's rewrite and say so in the commit message.
+lines grow by roughly 15 KB per call with a few full sweeps. The prototype never ran the
+last two loops; the prediction is that the `allosteric solve` lines show no growth trend
+(the joint solve runs in `Int64`) and the `allosteric lift` lines carry the growth. If
+the allosteric growth is gone too, delete the entry instead of Step 3's rewrite and say
+so in the commit message. If the solve alone grows, the entry must name the solve as
+well as the guard; write it from the readings, not from Step 3's draft.
 
 - [ ] **Step 3: Update the entry**
 
 Replace the known issue **Repeated constraint solves inflate the GC's live-byte count.**
-with (put your measured numbers in place of these if they differ):
+with this draft, which assumes Step 2's prediction holds (put your measured numbers in
+place of these, and rewrite the attribution if the readings differ):
 
 ```markdown
 - **The `:OnlyA` guard inflates the GC's live-byte count.**
   Each `AllostericMechanism` construction with an `:OnlyA` group runs
   `_onlya_haldane_violation` (`src/thermo.jl`), whose null space is computed in
-  `Rational{BigInt}`, and so does every lift of a compiled allosteric type. 100,000
-  `_dependent_param_exprs` calls on an allosteric random-order bi-bi raise
-  `Base.gc_live_bytes` by about 1.5 GB that no live object holds, with 17 full sweeps; the
-  joint solve itself runs in `Int64` and leaves no growth on a plain mechanism. Admission,
-  which replaces the guard, runs in integers. A loop of `_dependent_param_exprs` calls on
-  one allosteric mechanism that prints `Base.gc_live_bytes()` and
+  `Rational{BigInt}`, and so do every lift of a compiled allosteric type and the split
+  move's gain test, which runs the check on each allosteric candidate before it builds
+  the child (`_split_gain_test`). 100,000 `_dependent_param_exprs` calls on a compiled
+  allosteric random-order bi-bi raise `Base.gc_live_bytes` by about 1.5 GB that no live
+  object holds, with 17 full sweeps, and 100,000 lifts alone raise it as much; the joint
+  solve itself runs in `Int64` and leaves no growth, on a plain mechanism or on a lifted
+  allosteric one. Admission, which replaces the guard, runs in integers. A loop that
+  lifts one compiled allosteric mechanism and prints `Base.gc_live_bytes()` and
   `Base.gc_num().full_sweep` shows it.
 ```
 
 - [ ] **Step 4: Commit**
+
+The message below assumes Step 2's prediction; write its numbers and attribution from
+your readings.
 
 ```bash
 git status
 git add ROADMAP.md
 git commit -m "Re-measure the GC live-byte growth after the joint solve" \
   -m "100,000 solves of a plain bi-bi no longer grow the live-byte count (4.85 GB and 123
-full sweeps before); an allosteric one still grows by 1.5 GB (7.6 GB before), from the
-:OnlyA guard's Rational{BigInt} null space, so the entry now names the guard." \
+full sweeps before); an allosteric one still grows by 1.5 GB (7.6 GB before). Timing the
+lift and the solve apart puts the growth in the lift's :OnlyA guard, whose null space is
+Rational{BigInt}, so the entry now names the guard." \
   -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
 ```
 
 ---
 
-### Task 12: Propose v0.11.0, verify, open the PR
+### Task 12: Propose v0.11.0, verify, prepare the PR
 
 **Files:**
 - Modify: `Project.toml` (`version = "0.10.0"` → `version = "0.11.0"`)
+- Create (scratch, not committed):
+  `/tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase2/pr_bodies/joint_solve_pr_title.txt`
+  and `/tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase2/pr_bodies/joint_solve_pr_body.md`
 
 Fitted names change (E3, E7, B10), `Full`/`Reduced` go and `all_parameters` arrives:
-a breaking release before 1.0, for Denis to decide.
+a breaking release before 1.0, for Denis to decide. Nothing in Steps 1–3 pushes or
+touches GitHub (Global Constraints): the task ends with a local commit and the PR's
+title and body in the scratchpad. Step 4 runs only on Denis's explicit go-ahead, or the
+controller takes it over.
 
 - [ ] **Step 1: Bump the version**
 
-Edit `Project.toml`, then run the full suite. Expected: all pass (about 33,300 tests).
+Edit `Project.toml`, then run the full suite. Expected: all pass, about 37,950 tests
+(compare Task 7 Step 13); note the total, the time and the six `rate_equation:` info
+lines for the PR body.
 
-- [ ] **Step 2: Commit and push**
+- [ ] **Step 2: Commit locally**
 
 ```bash
 git status
@@ -4400,33 +4929,52 @@ git add Project.toml
 git commit -m "Propose v0.11.0: the joint solve renames fitted constants" \
   -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE"
-git push -u origin joint-solve
+git log --oneline add414a..HEAD
 ```
 
-- [ ] **Step 3: Open the PR (draft, stacked)**
+Expected: the two commits of this plan (04fa60e and the one after it) and one commit
+per task.
 
-Open a draft PR with base `main` and head `joint-solve`, titled "Derive every law from
-one joint thermodynamic solve (v0.11.0)". Body sections: **Why** (two rename passes
-and a rebuilt inactive mechanism made fitted names depend on grouping and gave
-`:EqualAI` constants phantom or folded names; spec sections 6 and 7), **What changes**
-(one bullet per Task 1–11), **Breaking changes** (fitted names: dependents follow the
-fixed priority, so many mechanisms fit a different but equivalent set, e.g. Segel's
-ordered bi-bi fits `k_EA_to_E_A` and derives `k_EQ_P_to_EAB`; classes are named after
-their kept member; `:EqualAI` regulator ligands are bare `K_<ligand>reg`; `Full`,
-`Reduced` and the mode arguments are removed; `all_parameters` is exported; identify's
-CSV parameter columns and `eq_hash` values change, and a same-model regrouping no longer
-shares an `eq_hash`), **Known issues fixed** (ROADMAP known issues 1 and 2: 71 of the
-2,344 mechanisms of the one-round ping-pong-capable bi-bi population lost a phantom or
-folded parameter), **Stacking** (based on `fitting-scale`, PR #91, itself stacked on
-#85–#89; the commits of this PR are those after `e5fea31`; it will be rebased onto main
-once they merge), **Version** (v0.11.0 proposed for Denis to decide), **Tests** (the
-exact oracle and its tolerances, the populations, the counts) and **Verification**
-(full-suite count and time, the three `rate_equation` timings, CI results). End with
+- [ ] **Step 3: Write the PR title and body, and report**
+
+Write the title "Derive every law from one joint thermodynamic solve (v0.11.0)" to
+`joint_solve_pr_title.txt` and the body to `joint_solve_pr_body.md` (both in
+`scratchpad/phase2/pr_bodies/`). Body sections: **Why** (two rename passes and a rebuilt
+inactive mechanism made fitted names depend on grouping and gave `:EqualAI` constants
+phantom or folded names; spec sections 6 and 7), **What changes** (one bullet per Task
+1–11), **Breaking changes** (fitted names: dependents follow the fixed priority, so many
+mechanisms fit a different but equivalent set, e.g. Segel's ordered bi-bi fits
+`k_EA_to_E_A` and derives `k_EQ_P_to_EAB`; classes are named after their kept member;
+`:EqualAI` regulator ligands are bare `K_<ligand>reg`; `Full`, `Reduced` and the mode
+arguments are removed; `all_parameters` is exported; identify's CSV parameter columns
+and `eq_hash` values change, and a same-model regrouping no longer shares an `eq_hash`
+until phase 5, so identify fits such duplicates twice), **Known issues fixed** (ROADMAP
+known issues 1 and 2: 71 of the 2,344 mechanisms of the one-round ping-pong-capable
+bi-bi population lost a phantom or folded parameter; some allosteric counts drop, none
+rise, plain counts stay), **Stacking** (based on `fitting-scale`, PR #91, whose base is
+main, which holds #85–#90; this PR's commits are those after add414a, the plan commit
+04fa60e included; rebase onto main once #91 merges), **Version** (v0.11.0 proposed for
+Denis to decide), **Tests** (the exact oracle and its tolerances, the populations, the
+counts) and **Verification** (full-suite count and time, the six `rate_equation`
+timings; CI results once CI has run). End with
 `🤖 Generated with [Claude Code](https://claude.com/claude-code)`; no session link.
+Report to the controller the branch head (`git rev-parse HEAD`) and the two files'
+paths.
 
-- [ ] **Step 4: Wait for CI and report**
+- [ ] **Step 4: Push, open the PR and watch CI (only on Denis's go-ahead)**
 
-Poll `gh pr checks <n>` in a bounded loop (sleep 60, at most 60 minutes). Expected:
-every job passes, the docs job included (it runs the `@example` blocks and doctests). If
-a job fails, find the root cause with superpowers:systematic-debugging, fix it
-test-first, push, and poll again.
+Run nothing in this step until Denis explicitly says to push. With that go-ahead:
+
+```bash
+git push -u origin joint-solve
+gh pr create --draft --base main --head joint-solve \
+  --title "$(cat /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase2/pr_bodies/joint_solve_pr_title.txt)" \
+  --body-file /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase2/pr_bodies/joint_solve_pr_body.md
+```
+
+Then poll `gh pr checks <n>` in a bounded loop (sleep 60, at most 60 minutes).
+Expected: every job passes, the docs job included (it runs the `@example` blocks and
+doctests). If a job fails, find the root cause with superpowers:systematic-debugging,
+fix it test-first and commit; push the fix only under the same go-ahead, and poll again.
+Add the CI results to the PR body (`gh pr edit`, or the `gh api` PATCH of the Global
+Constraints when that fails).
