@@ -143,6 +143,7 @@ The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
 | `error` | Exception text if the fit errored; otherwise `missing`. |
 | `eq_hash` | Hex hash of the comment-stripped rate equation. Two mechanisms with the same `eq_hash` compute the same rate function. |
 | `fit_inherited` | `true` when the row reuses the fit of another mechanism with the same `eq_hash`; `false` for the mechanism actually fit. |
+| `peak_at_range_edge` | `true` when the fitted law still rises at the upper edge of `peak_range` (by more than 10% over its last decade), so a wider range would change the scale of the reported rate constants; always `false` in absolute mode. |
 | one per fitted parameter | Fitted parameter value, or `missing` if the mechanism lacks that parameter. |
 | `cv_score` | Mean of per-fold losses (lower is better). |
 | `cv_score_se` | Standard error of the per-fold losses: `std(fold_scores) / √n_folds`. |

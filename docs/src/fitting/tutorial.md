@@ -24,7 +24,7 @@ needs before constructing the problem.
     The fitter evaluates every prediction at `E_total = 1`, comparing your
     `Rate` against the per-enzyme turnover — in effect it fits `Rate / E_total`.
     The default relative mode needs no action here: per-group centering cancels
-    each group's enzyme amount. For absolute mode (`scale_k_to_kcat = nothing`),
+    each group's enzyme amount. For absolute mode (`absolute = true`),
     first divide each rate by the enzyme amount used in its group. See
     [Normalized vs absolute rate](@ref) for the full explanation.
 
@@ -45,8 +45,8 @@ metabolites(uni_uni)
 
 A missing required column, a missing metabolite column, a metabolite named `group` or
 `Rate`, a zero, non-finite or missing `Rate`, a concentration that is not a finite
-number ≥ 0, a `Keq` that is not positive and finite, or a `scale_k_to_kcat` that is
-neither `nothing` nor positive and finite each raises an `ErrorException` at
+number ≥ 0, a `Keq` that is not positive and finite, or a `peak_range` that is not a
+tuple `(lo, hi)` with `0 < lo < hi < Inf` each raises an `ErrorException` at
 construction — the check runs before any fitting.
 
 ## Building the `FittingProblem`
@@ -121,8 +121,9 @@ own criteria. Any other value — `:Default`, `:MaxTime`, `:Failure`,
 are tight, `:MaxTime` is common; increase `n_restarts` and `maxtime` for
 production fits.
 
-The returned `params` reflect kcat normalization: with the default
-`scale_k_to_kcat = 1.0`, the SS rate constants are rescaled so that kcat = 1.
-[Normalized vs absolute rate](@ref) explains `scale_k_to_kcat`;
-[Loss & optimizers](@ref) covers the loss function and how to supply your own
-optimizer.
+The returned `params` are scaled so the mechanism's peak turnover — its largest net
+forward rate per enzyme over the concentrations in `peak_range` — is 1, and
+`result.peak_at_range_edge` says whether that peak sits at the range's upper edge.
+[Normalized vs absolute rate](@ref) explains the scale, absolute mode, and how to
+rescale a fit to a measured kcat; [Loss & optimizers](@ref) covers the loss
+function and how to supply your own optimizer.

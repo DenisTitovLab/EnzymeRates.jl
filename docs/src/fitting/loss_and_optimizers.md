@@ -16,13 +16,13 @@ loss = (1/N) Σᵢ (log(|predicted rateᵢ|) − log(|measured rateᵢ|))²
 
 ### Centered vs uncentered
 
-The loss formula switches on `fp.scale_k_to_kcat` (see
+The loss formula switches on `fp.absolute` (see
 [Normalized vs absolute rate](@ref)):
 
-- **Relative mode** (`scale_k_to_kcat` is a `Real`): each group's log-ratios
+- **Relative mode** (`absolute = false`, the default): each group's log-ratios
   are **mean-subtracted before squaring**. This makes the loss invariant to
   multiplying all rates in a group by the same factor.
-- **Absolute mode** (`scale_k_to_kcat === nothing`): the log-ratios are
+- **Absolute mode** (`absolute = true`): the log-ratios are
   **squared without centering**. The absolute magnitude is scored, so the
   data must be in consistent per-enzyme turnover units.
 

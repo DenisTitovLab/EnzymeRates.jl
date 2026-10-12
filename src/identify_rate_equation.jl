@@ -121,8 +121,9 @@ and data using beam search.
 - `optimizer`: Optimization.jl optimizer (required).
   Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
 - `n_restarts::Int = 20`: multi-start restarts per fit
-- `maxtime::Real = 600.0`: max time per fit (seconds; common solver
-  option, forwarded to `Optimization.solve`)
+- `maxtime::Real = 600.0`: max time per optimizer run in seconds (common solver
+  option, forwarded to `Optimization.solve`); each of a fit's `n_restarts` runs
+  gets it, so a fit can take up to `n_restarts × maxtime`
 - `maxiters::Integer = 10_000_000`: max iterations per optimizer run
   (common solver option, forwarded to `Optimization.solve`)
 - `abstol`/`reltol`/`callback = nothing`: Optimization.jl common solver

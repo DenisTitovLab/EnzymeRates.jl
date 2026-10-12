@@ -1,5 +1,5 @@
-# ABOUTME: Fitting rate equations to experimental data.
-# ABOUTME: Constructs FittingProblem, computes loss, and runs multi-start optimization.
+# ABOUTME: Fitting rate equations to experimental data and scaling them to peak turnover.
+# ABOUTME: Constructs FittingProblem, computes loss, runs multi-start fits, rescales fits.
 
 """
     FittingProblem{M, D}
@@ -493,12 +493,14 @@ constants need; merge it into a fit's `params`.
 
 With `kcats`, a vector of `concentrations => turnover` pairs, the factor matches measured
 turnovers — a kcat, or a specific activity in turnover units — at stated concentrations,
-given as a `NamedTuple` per anchor; metabolites an anchor leaves out are zero. Several
-anchors combine by the geometric mean of measured over predicted turnover, the
-least-squares scale in log space. `spread` is the standard deviation of the anchors'
-`log(measured/predicted)`, 0 for one anchor; a large spread says the anchors disagree
-with the model or with each other. An anchor where the model predicts zero turnover, or
-turnover of the other sign, is an error.
+given as a `NamedTuple` per anchor; metabolites an anchor leaves out are zero. Anchor
+concentrations are in the data's concentration units. Turnover is per unit `E_total`, the
+active-site concentration, so divide a kcat quoted per oligomer by its number of active
+sites first. Several anchors combine by the geometric mean of measured over predicted
+turnover, the least-squares scale in log space. `spread` is the standard deviation of the
+anchors' `log(measured/predicted)`, 0 for one anchor; a large spread says the anchors
+disagree with the model or with each other. An anchor where the model predicts zero
+turnover, or turnover of the other sign, is an error.
 
 Without `kcats`, the factor makes the mechanism's peak turnover — its largest net forward
 rate per enzyme over every metabolite's concentration within `peak_range`, in the data's

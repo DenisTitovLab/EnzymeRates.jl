@@ -50,11 +50,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   measures V×τ on the active-state graph alone, while the generated MWC rate equation
   evaluates the polynomials of both conformations, so the filter undercounts what an
   allosteric equation costs and can admit one that evaluates more terms than its limit.
-- **`identify_rate_equation`'s docstring calls `maxtime` the time per fit.**
-  `fit_rate_equation` (`src/fitting.jl`) forwards `maxtime` to every restart's
-  `Optimization.solve`, as its own docstring says, so a fit with `n_restarts` restarts can
-  run for `n_restarts × maxtime`; the docstring in `src/identify_rate_equation.jl` reads
-  "max time per fit".
 - **Repeated constraint solves inflate the GC's live-byte count.**
   Each `_dependent_param_exprs` call, whose constraint solves run in `Rational{BigInt}`,
   raises `Base.gc_live_bytes` by about 36-49 KB that no live object holds. After about
