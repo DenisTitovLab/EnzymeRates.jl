@@ -138,7 +138,10 @@ of its parent. The split move divides a group by binding context and accepts a
 set of splits only if the independent-parameter count rises; the count comes from
 the thermodynamic constraint solve, and for a `Mechanism` it is evaluated without
 building the child, from a cycle basis computed once per parent
-(`_partition_independent_count`). The RE→SS move flips whole groups and accepts a
+(`_partition_independent_count`). For an `AllostericMechanism` it is taken on the built
+child and, when a Wegscheider tie folds a constant, reads both conformations' rate
+polynomials, so a candidate whose law exceeds `MAX_RATE_EQUATION_TERMS` has no count and
+gains nothing (`_split_gain_test`). The RE→SS move flips whole groups and accepts a
 set only if the rapid-equilibrium segment count rises and every flipped group
 carries net flux in the child. In a `Mechanism` it never offers as a unit a flank
 of a qualifying chain whose isomerization is steady state (`_chain_flank_groups`):

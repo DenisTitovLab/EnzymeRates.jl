@@ -1048,7 +1048,8 @@ rejected set are the all-RE groups sharing a rapid-equilibrium segment with any
 step of the split groups: a tie needs an RE cycle through the carve, and every
 group on that cycle lies in that segment. The count is evaluated without building the child
 for a `Mechanism` (`_partition_independent_count`, cycle basis once per parent)
-and by the combined state solve on the built child for an `AllostericMechanism`.
+and by the combined state solve on the built child for an `AllostericMechanism`,
+where a count the derivation refuses as too large gains nothing (`_split_gain_test`).
 A part of a steady-state group none of whose steps carries flux
 (`_flux_carrying_steps`, computed once on the parent, since a split moves no edge)
 is emitted at rapid equilibrium (`_revert_zero_flux_parts`), the same family with
@@ -1126,9 +1127,27 @@ function _split_gain_test(m::Mechanism, units)
     gains
 end
 
+"""
+Gain test of the split move for an allosteric mechanism, which counts each candidate on the
+built child. The count reads both conformations' rate polynomials when a Wegscheider tie
+folds a constant, and the derivation refuses a law over `MAX_RATE_EQUATION_TERMS`
+(`RateEquationTooLargeError`). A refused count gains nothing: its candidate is not emitted,
+and the search extends it like any set that does not gain. When the parent's own count is
+refused, nothing gains. A split moves no step, and a part it turns to rapid equilibrium
+never raises a state's term count (V×τ), so counts are refused only below a parent whose
+own law is over the limit, which `identify_rate_equation` never fits or expands.
+"""
 function _split_gain_test(am::AllostericMechanism, units)
-    base = _independent_param_count(am)
-    sel -> _independent_param_count(_apply_bipartitions(am, units[sel])) > base
+    count_or_nothing(c) = try
+        _independent_param_count(c)
+    catch e
+        e isa RateEquationTooLargeError || rethrow()
+        nothing
+    end
+    base = count_or_nothing(am)
+    base === nothing && return _ -> false
+    sel -> (n = count_or_nothing(_apply_bipartitions(am, units[sel]));
+            n !== nothing && n > base)
 end
 
 """
