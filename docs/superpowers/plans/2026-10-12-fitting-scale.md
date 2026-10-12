@@ -1216,11 +1216,13 @@ Append to `test/test_fitting_scale.jl`, inside the outer testset (before its fin
                          rescale_parameter_values(mm, p, [(S = 1.0,) => bad]))
         end
         # No substrate and no product: the predicted turnover is zero.
-        @test_throws "an anchor needs a nonzero predicted turnover of the measured " *
-                     "turnover's sign" rescale_parameter_values(mm, p, [(S = 0.0,) => 1.0])
+        @test_throws("an anchor needs a nonzero predicted turnover of the measured " *
+                     "turnover's sign",
+                     rescale_parameter_values(mm, p, [(S = 0.0,) => 1.0]))
         # The product alone runs the reaction backwards, against a forward measurement.
-        @test_throws "an anchor needs a nonzero predicted turnover of the measured " *
-                     "turnover's sign" rescale_parameter_values(mm, p, [(P = 1.0,) => 1.0])
+        @test_throws("an anchor needs a nonzero predicted turnover of the measured " *
+                     "turnover's sign",
+                     rescale_parameter_values(mm, p, [(P = 1.0,) => 1.0]))
         # Every product of two constants underflows to zero: no peak scale exists.
         tiny = (k_ES_to_E_P = 1e-200, k_ES_to_E_S = 1e-200, k_E_S_to_ES = 1e-200,
                 Keq = 2.0)
@@ -1683,8 +1685,10 @@ In `src/rate_eq_derivation.jl`:
   its last two sentences ("The normalization is a common factor of kcat's
   saturating-limit ratio, ... consistent with `rate_equation`.").
 
-Then run `grep -rn "_kcat\|_max_expr\|_mwc_power_pair" src test docs/src`. Expected: no
-match.
+Then run
+`grep -rn "_kcat_forward\|_kcat_keys\|_kcat_groups\|_max_expr\|_mwc_power_pair" src test docs/src`.
+Expected: no match (the test helper `_testhelper_test_analytical_kcat` and the spec field
+`analytical_kcat_fn` stay).
 
 In `docs/src/developer.md`, replace "Only the `@generated` methods (`rate_equation`,
 `parameters`, `fitted_params`, `metabolites`, `_kcat_forward`) do work per singleton type:
