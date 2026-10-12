@@ -1579,9 +1579,11 @@ const _testhelper_large_ter_bi_mechanisms = [
          E(; residual = A + C - Q) + B ⇌ E(P)) end end),
 ]
 
-# Seconds per call allowed per denominator term above the 120-ns gate. Provisional:
-# twice the worst local measurement; Step 3 calibrates it on the CI runners.
-const _testhelper_seconds_per_denominator_term = 0.5e-9
+# Seconds per call allowed per denominator term above the 120-ns gate: twice the worst CI
+# measurement, 0.305 ns per term (ubuntu x64, 2026-10-12), rounded up to one significant
+# figure, so the bound stays above shared runners' noise. Worst per runner, in ns per
+# term: ubuntu x64 0.305, macOS aarch64 0.21, windows x64 0.173.
+const _testhelper_seconds_per_denominator_term = 0.7e-9
 
 """The number of terms in the denominator of `m`'s derived rate law."""
 _testhelper_denominator_terms(m) =
