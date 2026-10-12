@@ -2652,6 +2652,147 @@ end
     @test _testhelper_fitted(m) == _testhelper_identifiable_rank(m)
 end
 
+@testset "AllostericMechanism — a split whose count needs a law over the term cap" begin
+    # Merged random-order ter-bi with the abortive complexes E(B, P) and E(A, B, P). Every
+    # steady-state binding sits alone in its group except the A bindings at E(B) and
+    # E(B, P), and the active state has more denominator terms than
+    # MAX_RATE_EQUATION_TERMS. Splitting the P group by A leaves E(A, B) + P alone, and the
+    # square E(B), E(A, B), E(A, B, P), E(B, P), closed by the shared A group, ties its K
+    # to the other part's. Counting that child means folding the tie, which reads both
+    # conformations' rate polynomials, and the derivation refuses a law that large: the
+    # split gains nothing and is not emitted. The move still emits the two splits it can
+    # count, the P group by B and the A group by P, and expand_mechanisms keeps them beside
+    # the other moves' children.
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q
+        catalytic_steps: begin
+            E + A <--> E(A)                                         :: OnlyA
+            (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))    :: OnlyA
+            E(D) + A <--> E(A, D)                                   :: OnlyA
+            E(B, D) + A <--> E(P, Q)                                :: OnlyA
+            E + B <--> E(B)                                         :: OnlyA
+            E(A) + B <--> E(A, B)                                   :: OnlyA
+            E(D) + B <--> E(B, D)                                   :: OnlyA
+            E(A, D) + B <--> E(P, Q)                                :: OnlyA
+            E + D <--> E(D)                                         :: OnlyA
+            E(A) + D <--> E(A, D)                                   :: OnlyA
+            E(B) + D <--> E(B, D)                                   :: OnlyA
+            E(A, B) + D <--> E(P, Q)                                :: OnlyA
+            (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P),
+             E(Q) + P ⇌ E(P, Q))                                    :: OnlyA
+            E + Q <--> E(Q)                                         :: EqualAI
+        end
+    end)
+    p_by_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q
+        catalytic_steps: begin
+            E + A <--> E(A)                                         :: OnlyA
+            (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))    :: OnlyA
+            E(D) + A <--> E(A, D)                                   :: OnlyA
+            E(B, D) + A <--> E(P, Q)                                :: OnlyA
+            E + B <--> E(B)                                         :: OnlyA
+            E(A) + B <--> E(A, B)                                   :: OnlyA
+            E(D) + B <--> E(B, D)                                   :: OnlyA
+            E(A, D) + B <--> E(P, Q)                                :: OnlyA
+            E + D <--> E(D)                                         :: OnlyA
+            E(A) + D <--> E(A, D)                                   :: OnlyA
+            E(B) + D <--> E(B, D)                                   :: OnlyA
+            E(A, B) + D <--> E(P, Q)                                :: OnlyA
+            E(A, B) + P ⇌ E(A, B, P)                                :: OnlyA
+            (E(B) + P ⇌ E(B, P), E(Q) + P ⇌ E(P, Q))                :: OnlyA
+            E + Q <--> E(Q)                                         :: EqualAI
+        end
+    end)
+    p_by_b = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q
+        catalytic_steps: begin
+            E + A <--> E(A)                                         :: OnlyA
+            (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))    :: OnlyA
+            E(D) + A <--> E(A, D)                                   :: OnlyA
+            E(B, D) + A <--> E(P, Q)                                :: OnlyA
+            E + B <--> E(B)                                         :: OnlyA
+            E(A) + B <--> E(A, B)                                   :: OnlyA
+            E(D) + B <--> E(B, D)                                   :: OnlyA
+            E(A, D) + B <--> E(P, Q)                                :: OnlyA
+            E + D <--> E(D)                                         :: OnlyA
+            E(A) + D <--> E(A, D)                                   :: OnlyA
+            E(B) + D <--> E(B, D)                                   :: OnlyA
+            E(A, B) + D <--> E(P, Q)                                :: OnlyA
+            (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P))          :: OnlyA
+            E(Q) + P ⇌ E(P, Q)                                      :: OnlyA
+            E + Q <--> E(Q)                                         :: EqualAI
+        end
+    end)
+    a_by_p = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q
+        catalytic_steps: begin
+            E + A <--> E(A)                                         :: OnlyA
+            E(B) + A <--> E(A, B)                                   :: OnlyA
+            E(B, P) + A <--> E(A, B, P)                             :: OnlyA
+            E(D) + A <--> E(A, D)                                   :: OnlyA
+            E(B, D) + A <--> E(P, Q)                                :: OnlyA
+            E + B <--> E(B)                                         :: OnlyA
+            E(A) + B <--> E(A, B)                                   :: OnlyA
+            E(D) + B <--> E(B, D)                                   :: OnlyA
+            E(A, D) + B <--> E(P, Q)                                :: OnlyA
+            E + D <--> E(D)                                         :: OnlyA
+            E(A) + D <--> E(A, D)                                   :: OnlyA
+            E(B) + D <--> E(B, D)                                   :: OnlyA
+            E(A, B) + D <--> E(P, Q)                                :: OnlyA
+            (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P),
+             E(Q) + P ⇌ E(P, Q))                                    :: OnlyA
+            E + Q <--> E(Q)                                         :: EqualAI
+        end
+    end)
+    @test EnzymeRates._eq_complexity(EnzymeRates._state_mechanism(am, :A)) >
+          EnzymeRates.MAX_RATE_EQUATION_TERMS
+    @test_throws "polynomial terms" EnzymeRates._independent_param_count(p_by_a)
+    kids = EnzymeRates._expand_split_kinetic_group(am)
+    @test length(kids) == 2
+    @test Set(kids) == Set([p_by_b, a_by_p])
+    others = [EnzymeRates._expand_re_to_ss(am); EnzymeRates._expand_change_allo_state(am)]
+    @test Set(EnzymeRates.expand_mechanisms([am], EnzymeRates.reaction(am))) ==
+          Set([others; p_by_b; a_by_p])
+end
+
+@testset "AllostericMechanism — a parent whose count needs a law over the term cap" begin
+    # Merged random-order ter-bi over MAX_RATE_EQUATION_TERMS whose P group is split by A:
+    # E(A, B) + P sits alone, its K tied to the other part's by the square E(B), E(A, B),
+    # E(A, B, P), E(B, P) that the shared A group closes. Its own count must fold the tie,
+    # which reads both conformations' rate polynomials, and the derivation refuses a law
+    # that large. No split can be weighed against a refused count, so the move emits none,
+    # and expand_mechanisms keeps the other moves' children.
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q
+        catalytic_steps: begin
+            E + A <--> E(A)                                         :: OnlyA
+            (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))    :: OnlyA
+            E(D) + A <--> E(A, D)                                   :: OnlyA
+            E(B, D) + A <--> E(P, Q)                                :: OnlyA
+            E + B <--> E(B)                                         :: OnlyA
+            E(A) + B <--> E(A, B)                                   :: OnlyA
+            E(D) + B <--> E(B, D)                                   :: OnlyA
+            E(A, D) + B <--> E(P, Q)                                :: OnlyA
+            E + D <--> E(D)                                         :: OnlyA
+            E(A) + D <--> E(A, D)                                   :: OnlyA
+            E(B) + D <--> E(B, D)                                   :: OnlyA
+            E(A, B) + D <--> E(P, Q)                                :: OnlyA
+            E(A, B) + P ⇌ E(A, B, P)                                :: OnlyA
+            (E(B) + P ⇌ E(B, P), E(Q) + P ⇌ E(P, Q))                :: OnlyA
+            E + Q <--> E(Q)                                         :: EqualAI
+        end
+    end)
+    @test_throws "polynomial terms" EnzymeRates._independent_param_count(am)
+    @test isempty(EnzymeRates._expand_split_kinetic_group(am))
+    others = [EnzymeRates._expand_re_to_ss(am); EnzymeRates._expand_change_allo_state(am)]
+    @test Set(EnzymeRates.expand_mechanisms([am], EnzymeRates.reaction(am))) == Set(others)
+end
+
 end
 
 # ─── _expand_add_dead_end_regulator ────────────────────────────────────

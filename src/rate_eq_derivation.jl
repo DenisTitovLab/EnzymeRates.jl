@@ -332,17 +332,28 @@ end
 _eq_complexity(m::AllostericMechanism) = _eq_complexity(_state_mechanism(m, :A))
 
 """
+The error `_assert_derivable` raises for a mechanism whose rate equation would have more
+than `MAX_RATE_EQUATION_TERMS` terms. Its own type lets the split move's allosteric gain
+test (`_split_gain_test`) skip a candidate it cannot count while every other error
+propagates.
+"""
+struct RateEquationTooLargeError <: Exception end
+
+Base.showerror(io::IO, ::RateEquationTooLargeError) = print(io,
+    "Rate equation for this mechanism has more than $MAX_RATE_EQUATION_TERMS " *
+    "polynomial terms (limit: $MAX_RATE_EQUATION_TERMS). Equations this large " *
+    "take a very long time to compile and are unlikely to be practically " *
+    "useful for parameter fitting.")
+
+"""
 Abort the rate-equation derivation for a mechanism whose denominator term count
 (V×τ) exceeds `MAX_RATE_EQUATION_TERMS`. Called at each num/den derivation entry
 point, before the O(G!) symbolic cofactor expansion in `sym_det` — a numeric
-O(G³) check that errors quickly instead of hanging on the factorial expansion.
+O(G³) check that throws a `RateEquationTooLargeError` quickly instead of hanging on
+the factorial expansion.
 """
 function _assert_derivable(mech::Mechanism)
-    _eq_complexity(mech) > MAX_RATE_EQUATION_TERMS && error(
-        "Rate equation for this mechanism has more than $MAX_RATE_EQUATION_TERMS " *
-        "polynomial terms (limit: $MAX_RATE_EQUATION_TERMS). Equations this large " *
-        "take a very long time to compile and are unlikely to be practically " *
-        "useful for parameter fitting.")
+    _eq_complexity(mech) > MAX_RATE_EQUATION_TERMS && throw(RateEquationTooLargeError())
     return nothing
 end
 
