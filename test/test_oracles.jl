@@ -150,10 +150,25 @@ const _testhelper_population_sample = _testhelper_population_one_round[randperm(
 end
 
 @testset "Detailed balance over a regenerated population" begin
-    rng = Random.MersenneTwister(7)
     @test count(m -> m isa EnzymeRates.AllostericMechanism,
                 _testhelper_population_sample) >= 30
-    for m in _testhelper_population_sample
-        @test all(<(big(10)^-30), _testhelper_detailed_balance(m, rng))
+    for (i, m) in enumerate(_testhelper_population_sample)
+        @testset "population mechanism $i" begin
+            @test all(<(big(10)^-30),
+                      _testhelper_detailed_balance(m, Random.MersenneTwister(i)))
+        end
     end
+end
+
+# The one-round population has no inactive-conformation catalysis, so these specs check it.
+@testset "Detailed balance of every spec, per conformation and combined" begin
+    n_inactive_checked = 0
+    for (i, spec) in enumerate(MECHANISM_TEST_SPECS)
+        @testset "$(spec.name)" begin
+            ratios = _testhelper_detailed_balance(spec.mechanism, Random.MersenneTwister(i))
+            @test all(<(big(10)^-30), ratios)
+            n_inactive_checked += length(ratios) == 3
+        end
+    end
+    @test n_inactive_checked == 5
 end
