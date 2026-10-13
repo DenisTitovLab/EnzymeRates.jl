@@ -36,7 +36,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `Base.gc_num().full_sweep` shows it.
 
 - **The `:OnlyA` guard misjudges groups that mix a binding and a chemistry step.**
-  `_onlya_haldane_violation` (`src/thermodynamic_constr_for_rate_eq_derivation.jl`)
+  `_onlya_haldane_violation` (`src/thermo.jl`)
   skips every `:OnlyA` group that holds a chemistry step, including one that also holds a
   plain binding of the same metabolite (enumeration builds these by merging and tags
   every allosteric one `:OnlyA`), and gives the bindings of one group a single rate of
@@ -165,6 +165,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   and a dependency release that breaks the package only at the next CI run. A scheduled
   workflow that runs the suite at the lower and upper bounds of Julia and the dependencies
   would catch both without adding its run time to every push or pull request.
+- **Give the thermodynamics one row reduction and one cycle basis.**
+  `src/thermo.jl` holds two exact row reductions, `_rref!` (the joint solve, in
+  `Rational{Int}` retried in `Rational{BigInt}`) and `_rref_partition` (in
+  `Rational{BigInt}`), and two cycle-basis builders, `_fundamental_cycles` and
+  `_thermodynamic_constraints`, which raise the same error. The `:OnlyA` guard's use of
+  the second pair goes when admission replaces the guard, but the split move's counter
+  (`_partition_independent_count`) keeps it; computing its rank with `_rref!` over the
+  joint solve's cycles would leave one of each.
 
 ## Decided against
 
