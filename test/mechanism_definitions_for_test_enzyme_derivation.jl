@@ -48,8 +48,8 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
 
     # As-written (source) catalytic-step / regulatory-site order, captured
     # before the constructor canonicalizes. Positional textbook oracles number
-    # k1,k2,… (and reg1,reg2,…) by source order; the bridge in
-    # `_testhelper_analytical_oracle_params` uses these to remap onto canonical stored
+    # k1,k2,… (and reg1,reg2,…) by source order; `_testhelper_written_params` reads
+    # them to take each written step's constants from its stored step, by role
     # order. Populated only for oracle-bearing fixtures via `@..._src` macros.
     source_steps::Union{Vector{Vector{EnzymeRates.Step}},Nothing} = nothing
     source_reg_sites::Union{Vector{EnzymeRates.RegulatorySite},Nothing} = nothing
@@ -1986,7 +1986,7 @@ let
         end
     end
 
-    # Param names use kinetic-group representative-step indices:
+    # Each written step i gives K{i} or k{i}f/k{i}r; the law reads:
     # K1=S-binding, k5f=iso, K6=P-binding, K10=I1-binding, K16=I2-binding.
     function _testhelper_rate_two_noncomp_inh(p, c)
         (; K1, k5f, k5r, K6, K10, K16, Et) = p
@@ -2039,7 +2039,7 @@ let
         end
     end
 
-    # Param names use kinetic-group representative-step indices:
+    # Each written step i gives K{i} or k{i}f/k{i}r; the law reads:
     # K1=S, k3f=iso, K4=P, K6=I1-binding, K9=I2-dead-end.
     function _testhelper_rate_noncomp_comp_inh(p, c)
         (; K1, k3f, k3r, K4, K6, K9, Et) = p
@@ -2145,7 +2145,7 @@ let
         end
     end
 
-    # Param names use kinetic-group representative-step indices:
+    # Each written step i gives K{i} or k{i}f/k{i}r; the law reads:
     # K1=S, k4f=iso, K5=P, K8=I1, K11=I2.
     function _testhelper_rate_two_samesite_inh(p, c)
         (; K1, k4f, k4r, K5, K8, K11, Et) = p
@@ -2266,10 +2266,9 @@ let
     #   Reg site 2, T state:  K_R3_T_reg2
     #   Shared: L (= [E_T]/[E_R] for bare enzyme), Keq, Et
     #
-    # Param naming uses kinetic-group representative-step indices:
-    # K1=S1-binding (group 1, rep step 1), K4=P1-binding (rep step 4),
-    # K7=S2-binding (rep step 7), K10=P2-binding (rep step 10),
-    # k13f/k13r=catalysis SS (rep step 13).
+    # Each written step i gives K{i} or k{i}f/k{i}r; the law reads the first step of
+    # each group: K1 = S1 binding (step 1), K4 = P1 binding (step 4), K7 = S2 binding
+    # (step 7), K10 = P2 binding (step 10), k13f/k13r = catalysis (step 13).
     function _testhelper_rate_mwc_tetramer_bi_bi(params, concs)
         (; K1, K4, K7, K10, k13f, k13r,
            K1_T, K4_T, K7_T, K10_T, k13f_T, k13r_T,
@@ -2460,13 +2459,13 @@ let
         end
     end
 
-    # Param naming follows kinetic-group representative-step indices:
-    #   K1  (Glucose binding, group 1 rep step 1)
-    #   K4  (ATP binding, group 2 rep step 4)
-    #   k6f (catalysis, group 3 rep step 6)
-    #   K7  (G6P at catalytic site, group 4 rep step 7)
-    #   K10 (ADP release, group 5 rep step 10)
-    #   K12 (G6P at inhibitory site, group 6 rep step 12) — single K
+    # Each written step i gives K{i} or k{i}f/k{i}r; the law reads:
+    #   K1  (Glucose binding, group 1, step 1)
+    #   K4  (ATP binding, group 2, step 4)
+    #   k6f (catalysis, group 3, step 6)
+    #   K7  (G6P at catalytic site, group 4, step 7)
+    #   K10 (ADP release, group 5, step 10)
+    #   K12 (G6P at inhibitory site, group 6, step 12) — single K
     #        for all three E_G6Pi-form bindings.
     function _testhelper_hk_rate_analytical(params, concs)
         (; K1, K4, k6f, K7, K10, K12,
@@ -2658,7 +2657,7 @@ let
         end
     end
 
-    # Param mapping (kinetic-group representative-step convention):
+    # Each written step i gives K{i} or k{i}f/k{i}r; the law reads:
     #   K1, K1_T : S1 binding (group 1, NonequalAI)
     #   K3       : S2 binding (group 2, EqualAI)
     #   k5f, k5f_T : catalysis SS (group 3, NonequalAI)

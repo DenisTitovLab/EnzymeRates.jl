@@ -99,52 +99,6 @@ end
 # ── Parameter generation helpers ────────────────────────────────────────────
 
 """
-Per-step flat index for positional oracle naming. `source_steps === nothing`
-keys each canonical step on its canonical stored flat position (group-major) —
-self-consistent for the ODE/QSSA cross-checks. When the as-written source-order
-step groups are supplied, each canonical step instead keys on the SOURCE flat
-index of its structurally-matching as-written step, so positional textbook
-oracles (numbered k1,k2,… in source order) line up after the constructor
-canonicalizes step order.
-"""
-function _testhelper_positional_flat_idx(mech, source_steps)
-    if source_steps === nothing
-        flat_idx = Vector{Vector{Int}}()
-        pos = 0
-        for group in EnzymeRates.steps(mech)
-            idxs = Int[]
-            for _ in group
-                pos += 1
-                push!(idxs, pos)
-            end
-            push!(flat_idx, idxs)
-        end
-        return flat_idx
-    end
-    # Match canonical steps to as-written steps by structural `Step ==`. The
-    # source groups are direction-canonicalized so their stored direction matches
-    # the mechanism's; group/within-group order is preserved, so flat position in
-    # `src_flat` IS the as-written step index the oracle numbers k1,k2,….
-    src_canon = EnzymeRates._canonicalize_step_directions(source_steps)
-    src_flat = EnzymeRates.Step[s for g in src_canon for s in g]
-    used = falses(length(src_flat))
-    flat_idx = Vector{Vector{Int}}()
-    for group in EnzymeRates.steps(mech)
-        idxs = Int[]
-        for s in group
-            j = findfirst(k -> !used[k] && src_flat[k] == s, eachindex(src_flat))
-            j === nothing && error(
-                "_testhelper_positional_params bridge: canonical step $s " *
-                "has no as-written match")
-            used[j] = true
-            push!(idxs, j)
-        end
-        push!(flat_idx, idxs)
-    end
-    flat_idx
-end
-
-"""
 As-written index of canonical regulatory site `site` (at canonical position
 `pos`). `source_reg_sites === nothing` returns the canonical position; otherwise
 matches by ligand-name set so positional Kreg names (`:K_<lig>_reg{site}`) keep
@@ -160,184 +114,92 @@ function _testhelper_positional_site_idx(site, pos, source_reg_sites)
 end
 
 """
-Re-key a structural-named parameter NamedTuple to the **per-step** positional
-names (`K1`, `k1f`, `k1r`, …) that hand-derived analytical oracles destructure.
-Walks every kinetic group; for allosteric mechanisms also emits the T-state
-positional variants (`K1_T`, `k1f_T`, …) for :NonequalAI groups. Kreg
-structural keys (`:K_A_<lig>reg`, `:K_I_<lig>reg`, `:K_<lig>reg`) are mapped
-to positional keys (`:K_<lig>_reg{site}`, `:K_<lig>_T_reg{site}`). Any
-remaining keys (L, Keq, E_total, etc.) are passed through unchanged.
-Permanent test utility — oracles are inherently positional and index by
-flat-iteration order. `source_steps`/`source_reg_sites` (the as-written orders)
-bridge the oracle's source numbering to canonical stored order; omitting them
-keeps the canonical numbering the ODE/QSSA cross-checks rely on.
+The constants of the plain mechanism `m` (values by name in `all_params`, from
+`all_parameters`) under the positional names the QSSA and ODE cross-checks read: stored
+flat step `i` gives `K{i}` at rapid equilibrium and `k{i}f`, `k{i}r` at steady state, in
+its stored direction. Every entry of `all_params` passes through.
 """
-function _testhelper_positional_params(m, nt::NamedTuple;
-                           source_steps=nothing, source_reg_sites=nothing)
-    mech = m isa EnzymeRates.Mechanism             ? m :
-           m isa EnzymeRates.AllostericMechanism   ? m :
-           m isa EnzymeRates.AllostericEnzymeMechanism ?
-               EnzymeRates.AllostericMechanism(m) :
-           EnzymeRates.Mechanism(m)
-    is_allo = mech isa EnzymeRates.AllostericMechanism
-    names = Symbol[]
-    vals  = Any[]
-
-    flat_idx = _testhelper_positional_flat_idx(mech, source_steps)
-
-    for (g, group) in enumerate(EnzymeRates.steps(mech))
-        gidx = flat_idx[g]
-        rep = first(group)
-        cat_st = is_allo ? EnzymeRates.cat_allo_state(mech, g) : :None
-        # Determine which active-branch state token to pass to name()
-        act_st = (cat_st === :EqualAI || cat_st === :None) ? cat_st : :A
-        # Inactive branch exists for :NonequalAI groups only
-        has_inactive = is_allo && cat_st === :NonequalAI
-
-        if EnzymeRates.is_equilibrium(rep)
-            # RE step: its equilibrium constant
-            act_key = EnzymeRates.name(EnzymeRates.Krapid(rep, act_st), mech)
-            if haskey(nt, act_key)
-                for idx in gidx
-                    push!(names, Symbol("K", idx))
-                    push!(vals,  nt[act_key])
-                end
-            end
-            if has_inactive
-                ina_key = EnzymeRates.name(EnzymeRates.Krapid(rep, :I), mech)
-                if haskey(nt, ina_key)
-                    for idx in gidx
-                        push!(names, Symbol("K", idx, "_T"))
-                        push!(vals,  nt[ina_key])
-                    end
-                end
-            end
+function _testhelper_stored_params(m, all_params::NamedTuple)
+    mech = _testhelper_lift(m)
+    out = Pair{Symbol, Any}[]
+    for (i, (s, _)) in enumerate(EnzymeRates._flat_steps(EnzymeRates.steps(mech)))
+        if EnzymeRates.is_equilibrium(s)
+            push!(out, Symbol("K", i) =>
+                all_params[EnzymeRates.name(EnzymeRates.Krapid(s, :None), mech)])
         else
-            # SS step: its forward and reverse rate constants
-            act_fwd = EnzymeRates.name(EnzymeRates.Kfor(rep, act_st), mech)
-            act_rev = EnzymeRates.name(EnzymeRates.Krev(rep, act_st), mech)
-            for idx in gidx
-                if haskey(nt, act_fwd)
-                    push!(names, Symbol("k", idx, "f")); push!(vals, nt[act_fwd])
-                end
-                if haskey(nt, act_rev)
-                    push!(names, Symbol("k", idx, "r")); push!(vals, nt[act_rev])
-                end
-            end
-            if has_inactive
-                ina_fwd = EnzymeRates.name(EnzymeRates.Kfor(rep, :I), mech)
-                ina_rev = EnzymeRates.name(EnzymeRates.Krev(rep, :I), mech)
-                for idx in gidx
-                    if haskey(nt, ina_fwd)
-                        push!(names, Symbol("k", idx, "f_T")); push!(vals, nt[ina_fwd])
-                    end
-                    if haskey(nt, ina_rev)
-                        push!(names, Symbol("k", idx, "r_T")); push!(vals, nt[ina_rev])
-                    end
-                end
-            end
+            push!(out,
+                Symbol("k", i, "f") =>
+                    all_params[EnzymeRates.name(EnzymeRates.Kfor(s, :None), mech)],
+                Symbol("k", i, "r") =>
+                    all_params[EnzymeRates.name(EnzymeRates.Krev(s, :None), mech)])
         end
     end
-
-    # Kreg: emit positional :K_<lig>_reg{site} / :K_<lig>_T_reg{site} keys.
-    if is_allo
-        for (pos, site) in enumerate(EnzymeRates.regulatory_sites(mech))
-            site_idx = _testhelper_positional_site_idx(site, pos, source_reg_sites)
-            for (lig, tag) in zip(EnzymeRates.ligands(site),
-                                  EnzymeRates.allo_states(site))
-                lig_str = String(EnzymeRates.name(lig))
-                act_pos = Symbol("K_", lig_str, "_reg", site_idx)
-                ina_pos = Symbol("K_", lig_str, "_T_reg", site_idx)
-                if tag === :EqualAI
-                    # An :EqualAI ligand has one bare constant in both conformations.
-                    struct_key = EnzymeRates.name(
-                        EnzymeRates.Kreg(site, lig, :EqualAI), mech)
-                    if haskey(nt, struct_key)
-                        push!(names, act_pos); push!(vals, nt[struct_key])
-                    end
-                elseif tag === :OnlyA
-                    struct_key = EnzymeRates.name(
-                        EnzymeRates.Kreg(site, lig, :A), mech)
-                    if haskey(nt, struct_key)
-                        push!(names, act_pos); push!(vals, nt[struct_key])
-                    end
-                elseif tag === :OnlyI
-                    struct_key = EnzymeRates.name(
-                        EnzymeRates.Kreg(site, lig, :I), mech)
-                    if haskey(nt, struct_key)
-                        push!(names, ina_pos); push!(vals, nt[struct_key])
-                    end
-                else  # :NonequalAI
-                    act_key = EnzymeRates.name(
-                        EnzymeRates.Kreg(site, lig, :A), mech)
-                    ina_key = EnzymeRates.name(
-                        EnzymeRates.Kreg(site, lig, :I), mech)
-                    if haskey(nt, act_key)
-                        push!(names, act_pos); push!(vals, nt[act_key])
-                    end
-                    if haskey(nt, ina_key)
-                        push!(names, ina_pos); push!(vals, nt[ina_key])
-                    end
-                end
-            end
-        end
-    end
-
-    # Pass through any remaining keys (L, Keq, E_total, etc.) unchanged.
-    emitted = Set(names)
-    for k in keys(nt)
-        k ∈ emitted && continue
-        push!(names, k)
-        push!(vals, nt[k])
-    end
-    NamedTuple{Tuple(names)}(Tuple(vals))
+    merge((; out...), all_params)
 end
 
 """
-Positional params for the **hand-written analytical oracles**, which fix
-`k{idx}f` as the chemically-forward (substrate→product) rate of source step
-`idx`. A step that only gives off one product is stored as the binding it reverses
-(`E + P → EP` for a plain release, `E + P → ES` for a fused one), so the
-package's stored-forward rate (the one `_testhelper_positional_params` puts on `k{idx}f`)
-is actually the chemical REVERSE (binding) of the oracle's forward (release
-`EP → E + P`). Swap the `k{idx}f`/`k{idx}r` values for those steps so the
-oracle's forward keeps its release meaning. (The QSSA / ODE oracles read the
-canonical stored direction directly and need the un-swapped
-`_testhelper_positional_params`.)
+The constants of `m` (values by name in `all_params`, from `all_parameters`) under the
+positional names a textbook rate law reads, by role. Written step `i` (in the order of
+the flattened `source_steps`) takes the constants of the stored step it matches, in the
+written direction: `k{i}f` and `k{i}r` at steady state, and at rapid equilibrium `K{i}`,
+a binding's dissociation constant or, for any other step, the equilibrium constant of the
+written direction. The inactive conformation of a `:NonequalAI` group adds `k{i}f_T`,
+`k{i}r_T` or `K{i}_T`. The constructor stores every binding with its metabolite taken up,
+so a written binding's direction is read from its metabolite's role: a product's binding
+is written as its release. Every spec follows that convention; a binding written against
+it (`E + P <--> E(P)`) would get its constants swapped. A ligand of regulatory site `j`
+(the order of `source_reg_sites`) gives `K_<ligand>_reg{j}` and, when its inactive
+conformation has a constant of its own, `K_<ligand>_T_reg{j}`. Every entry of
+`all_params` passes through.
 """
-function _testhelper_analytical_oracle_params(m, nt::NamedTuple;
-                                  source_steps=nothing, source_reg_sites=nothing)
-    mech = m isa EnzymeRates.AllostericEnzymeMechanism ?
-               EnzymeRates.AllostericMechanism(m) :
-           m isa EnzymeRates.EnzymeMechanism ? EnzymeRates.Mechanism(m) : m
-    pos = _testhelper_positional_params(m, nt; source_steps=source_steps,
-                            source_reg_sites=source_reg_sites)
-    # swap_idxs must live in the SAME index space as `pos`'s positional keys —
-    # the as-written source index when bridged, canonical position otherwise.
-    flat_idx = _testhelper_positional_flat_idx(mech, source_steps)
-    swap_idxs = Set{Int}()
-    for (g, group) in enumerate(EnzymeRates.steps(mech))
-        for (within, s) in enumerate(group)
-            if EnzymeRates.bound_metabolite(s) isa EnzymeRates.Product
-                push!(swap_idxs, flat_idx[g][within])
+function _testhelper_written_params(m, all_params::NamedTuple; source_steps,
+                                    source_reg_sites = nothing)
+    mech = _testhelper_lift(m)
+    allo = mech isa EnzymeRates.AllostericMechanism
+    stored = EnzymeRates._flat_steps(EnzymeRates.steps(mech))
+    out = Pair{Symbol, Any}[]
+    for (i, w) in enumerate(Iterators.flatten(source_steps))
+        j = findfirst(x -> first(x) == w || first(x) == EnzymeRates._reversed(w), stored)
+        j === nothing && error("written step $i matches no stored step")
+        s, g = stored[j]
+        forward = EnzymeRates.is_binding(w) ?
+                  !(EnzymeRates.bound_metabolite(w) isa EnzymeRates.Product) : s == w
+        tag = allo ? EnzymeRates.cat_allo_state(mech, g) : :None
+        states = tag === :NonequalAI ? ((:A, ""), (:I, "_T")) :
+                 ((tag === :OnlyA ? :A : tag, ""),)
+        for (state, suffix) in states
+            if EnzymeRates.is_equilibrium(s)
+                key = EnzymeRates.name(EnzymeRates.Krapid(s, state), mech)
+                state === :I && !haskey(all_params, key) && continue
+                K = all_params[key]
+                push!(out, Symbol("K", i, suffix) =>
+                    EnzymeRates.is_binding(s) || forward ? K : 1 / K)
+            else
+                kf_key = EnzymeRates.name(EnzymeRates.Kfor(s, state), mech)
+                state === :I && !haskey(all_params, kf_key) && continue
+                kf = all_params[kf_key]
+                kr = all_params[EnzymeRates.name(EnzymeRates.Krev(s, state), mech)]
+                f, r = forward ? (kf, kr) : (kr, kf)
+                push!(out, Symbol("k", i, "f", suffix) => f,
+                      Symbol("k", i, "r", suffix) => r)
             end
         end
     end
-    isempty(swap_idxs) && return pos
-    names = Symbol[]; vals = Any[]
-    for (k, v) in pairs(pos)
-        ks = String(k)
-        swapped = k
-        for i in swap_idxs
-            if ks == "k$(i)f";      swapped = Symbol("k", i, "r"); break
-            elseif ks == "k$(i)r";  swapped = Symbol("k", i, "f"); break
-            elseif ks == "k$(i)f_T"; swapped = Symbol("k", i, "r_T"); break
-            elseif ks == "k$(i)r_T"; swapped = Symbol("k", i, "f_T"); break
+    if allo
+        for (pos, site) in enumerate(EnzymeRates.regulatory_sites(mech))
+            j = _testhelper_positional_site_idx(site, pos, source_reg_sites)
+            for (lig, tag) in zip(EnzymeRates.ligands(site), EnzymeRates.allo_states(site))
+                for (inactive, suffix) in ((false, ""), (true, "_T"))
+                    tag === :EqualAI && inactive && continue
+                    K = EnzymeRates._reg_K(mech, site, lig, tag, inactive)
+                    K === nothing ||
+                        push!(out, Symbol("K_", EnzymeRates.name(lig), suffix, "_reg", j) =>
+                                   all_params[K])
+                end
             end
         end
-        push!(names, swapped); push!(vals, v)
     end
-    NamedTuple{Tuple(names)}(Tuple(vals))
+    merge((; out...), all_params)
 end
 
 """Check if mechanism has any rapid-equilibrium steps."""
@@ -666,8 +528,8 @@ function _testhelper_test_reference_qssa(
             new_params, concs, all_params =
                 _testhelper_random_independent_params_concs(
                     m, met_names; rng=rng)
-            # _testhelper_reference_qssa uses positional step-indexed k$(i)f/k$(i)r keys
-            pos_params = _testhelper_positional_params(m, all_params)
+            # _testhelper_reference_qssa reads stored-step k$(i)f/k$(i)r keys
+            pos_params = _testhelper_stored_params(m, all_params)
             isapprox(
                 rate_equation(m, concs, new_params),
                 _testhelper_reference_qssa(m, pos_params, concs);
@@ -691,7 +553,7 @@ function _testhelper_test_analytical_rate(
                 _testhelper_random_independent_params_concs(
                     m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
-            p = merge(_testhelper_analytical_oracle_params(
+            p = merge(_testhelper_written_params(
                           m, all_params;
                           source_steps=spec.source_steps,
                           source_reg_sites=spec.source_reg_sites),
@@ -762,7 +624,7 @@ function _testhelper_test_ode_steadystate(
                 _testhelper_random_independent_params_concs(
                     m, met_names; rng=rng)
             # Convert structural params to positional k_if/k_ir for ODE
-            pos_params = _testhelper_positional_params(m, all_params)
+            pos_params = _testhelper_stored_params(m, all_params)
             ode_params = has_re ?
                 _testhelper_raw_to_ode_params(m, all_params) :
                 pos_params
@@ -847,11 +709,9 @@ function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec; s
         # peak sits at saturating substrates and zero products and equals kcat to within
         # K/1e12.
         peak = EnzymeRates._peak_turnover(m, params, (1e-12, 1e12)).value
-        # The oracle's positional formula may reference a forward rate that is
-        # Haldane-DEPENDENT under the canonical step order (absent from the
-        # reduced params), so bridge the FULL param set (dependent values
-        # included) to positional names.
-        p = merge(_testhelper_analytical_oracle_params(
+        # The textbook formula may read a dependent rate constant, so the bridge
+        # reads every constant through all_parameters.
+        p = merge(_testhelper_written_params(
                       m, all_parameters(m, params);
                       source_steps=spec.source_steps,
                       source_reg_sites=spec.source_reg_sites),
