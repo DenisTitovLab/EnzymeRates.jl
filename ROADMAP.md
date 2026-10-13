@@ -30,20 +30,23 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **`BigInt` arithmetic inflates the GC's live-byte count.**
   Three functions that compute in `BigInt` raise `Base.gc_live_bytes` by bytes that no
   live object holds: `_onlya_haldane_violation` (`src/thermo.jl`; a `Rational{BigInt}`
-  null space) by about 16 KB per call, the split move's counter for a plain mechanism
-  (`_partition_independent_count`; a `Rational{BigInt}` row reduction) by 14 KB and
-  `_eq_complexity` (a `BigInt` determinant) by 8 KB. A 6×6 determinant outside the package
-  does the same in `BigInt` and `Rational{BigInt}`, not in `Rational{Int}`. An
-  `AllostericMechanism` with an `:OnlyA` group of plain bindings runs the guard when
-  built, so every lift of a compiled allosteric mechanism pays it, as does each candidate
-  of the allosteric split move's gain test: 100,000 lifts add 1.5 GB and 16 full sweeps.
-  The joint solve adds nothing, on a plain mechanism or on a concrete allosteric one; it
-  runs in `Rational{Int}` on 10,226 enumerated bi-bi and ter-bi mechanisms without
-  overflow. The count stays up after a full collection, and later loops slow down: a lift
-  loop that starts 1.5 GB high makes 115 full sweeps in 29 s, against 16 in 20 s from a
-  clean start. Admission under Planned replaces the guard, not the other two. A loop that
-  calls one of these and prints `Base.gc_live_bytes()` and `Base.gc_num().full_sweep`
-  shows it (Julia 1.12.5, aarch64, `--heap-size-hint=2500M`).
+  null space) by about 16 KiB per call, the counter that `_split_gain_test` uses for a
+  plain mechanism (`_partition_independent_count`; a `Rational{BigInt}` row reduction) by
+  14 KiB and `_eq_complexity` (a `BigInt` determinant, skipped for a single
+  rapid-equilibrium segment) by 8 KiB. A 6×6 determinant outside the package does the same
+  in `BigInt` and `Rational{BigInt}`, not in `Rational{Int}`. An `AllostericMechanism`
+  with an `:OnlyA` group of plain bindings runs the guard when built, so every lift of
+  such a compiled mechanism pays it, as does each such candidate of the allosteric
+  `_split_gain_test`. 100,000 such lifts add 1.5 GiB and 16 full sweeps. The joint solve
+  adds nothing, on a plain mechanism or on a concrete allosteric one; it runs in
+  `Rational{Int}` on 10,226 enumerated bi-bi and ter-bi mechanisms without overflow. The
+  count stays up after a full collection: a lift loop that starts 1.4 GiB high makes 115
+  full sweeps in 29 s, against 16 in 20 s from a clean start. Admission under Planned
+  replaces the guard, not the other two. A loop that calls one of these and prints
+  `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it. The figures come from a
+  random-order bi-bi of nine steady-state steps, plain and as a two-subunit allosteric
+  mechanism with `:OnlyA` on both bindings of A and on the chemical step and `:EqualAI`
+  elsewhere (Julia 1.12.5, aarch64, `--heap-size-hint=2500M`).
 
 - **The `:OnlyA` guard misjudges groups that mix a binding and a chemistry step.**
   `_onlya_haldane_violation` (`src/thermo.jl`)

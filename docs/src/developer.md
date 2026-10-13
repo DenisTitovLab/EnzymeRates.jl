@@ -84,12 +84,15 @@ engine derives each conformation's polynomials from `(reaction, groups, names)`;
 inactive one reads `_inactive_groups(am)`, whose steps are the mechanism's own in their
 stored direction, so it keeps the mechanism's orientation and names. Three keys decide
 the order and the direction it reads. The canonical form order (`_form_index_key`: free
-E first, then the form's base-name content) and the lead of a tied group
-(`_step_index_key`) orient the steps no chemistry orients, and the order's last
-tie-break reads each bound metabolite's name and whether it binds as a modifier copy
-(`_metabolites_key`, inside `_form_base_key`). They decide the dependents and so the
-fitted names, so any rewrite of the mechanism types must order forms, lead tied groups
-and encode metabolites exactly as these keys do.
+E first, then the form's base-name key) orients the steps that neither chemistry nor
+graph context orients, and the lead of a tied group (`_step_index_key`) turns the
+group's other tied steps to match it. The order's last tie-break reads the step in the
+solve's direction: its two forms' base-name keys (`_form_base_key`: conformation
+label, bound metabolites, residual names), then the metabolites it takes up and gives
+off. `_metabolites_key` writes each such metabolite as its name and whether it binds
+as a modifier copy. These keys decide the dependents and so the fitted names, so any
+rewrite of the mechanism types must order forms, lead tied groups and encode
+metabolites exactly as they do.
 
 ## Enumeration engine architecture
 
