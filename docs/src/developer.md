@@ -68,6 +68,26 @@ one problem type: `solve` and the solver compile once per optimizer, not once pe
 The peak search that scales a relative fit (`_peak_turnover`) wraps the mechanism's turnover
 the same way, so its search loop compiles once.
 
+### The joint thermodynamic solve
+
+`_dependent_param_exprs` (`src/thermo.jl`) builds one integer system per mechanism
+(`_joint_system`): a column per constant of every step (`_Column`), with an inactive
+copy for each step of a `:NonequalAI` or `:OnlyA` group; a row per fundamental cycle
+and conformation, and a row tying each further member of a kinetic class to its first.
+It orders the columns by `_priority_key` and reduces the system exactly
+(`_reduce_joint_system`: `Rational{Int}`, redone in `Rational{BigInt}` on overflow).
+Pivot columns are dependents. Columns outside the inactive conformation's law (an
+`:OnlyA` step's inactive copy, a step on a form the inactive conformation cannot reach)
+come first, so no kept dependent reads them. Each class is named after its member that
+comes last in that order (`_kept_members`), through the `name(p, m)` chokepoint, and
+the engine derives each conformation's polynomials from `(reaction, groups, names)`:
+the inactive one on `_inactive_groups(am)`, with the full mechanism's own steps.
+The order's last tie-breaks read three keys: the canonical form order
+(`_form_index_key`: free E first, then the form's base-name content), the lead of a
+tied group (`_step_index_key`) and each metabolite's role (`_metabolites_key`). They
+decide the dependents and so the fitted names, so any rewrite of the mechanism types
+must order forms, lead tied groups and encode roles exactly as these keys do.
+
 ## Enumeration engine architecture
 
 Mechanism enumeration uses the **concrete types** `Mechanism` and
@@ -76,9 +96,8 @@ from `Step` and `Species` values. `Mechanism` has two semantic fields:
 `reaction::EnzymeReaction` and `steps::Vector{Vector{Step}}` — kinetic groups,
 one inner vector per group holding the steps that share that group's parameters.
 It also carries `naming`, a lazily filled cache of data derived from the steps (the
-free-enzyme forms and each group's naming representative and rendered sides), which
-takes no part in `==`, `hash`, the compiled type or display; `AllostericMechanism`
-carries the same cache.
+rendered sides of each kinetic class's kept member), which takes no part in `==`, `hash`,
+the compiled type or display; `AllostericMechanism` carries the same cache.
 `Step` has `from_species`, `to_species`, `consumed`, `released`, and
 `is_equilibrium`: going from `from_species` to `to_species`, a step takes up the
 metabolites in `consumed` from solution and gives off those in `released`. Steps
@@ -92,9 +111,9 @@ match a plain binding by name but not by role, such as `E + P::Inh ⇌ E(P)`. An
 isomerization has both lists empty (`is_iso`); a
 Theorell–Chance step takes up one metabolite and gives off another. `_is_chemistry`
 is true for every step but a plain binding; the allosteric moves,
-`_onlya_haldane_violation`, the steady-state pivot tie-break in
-`_assemble_constraints` and `_fused_substrate_binding` read it to tell catalysis from
-binding. The derivation reads every binding alike, so a fused binding's rapid-equilibrium
+`_onlya_haldane_violation`, the joint solve's priority (`_priority_key`) and
+`_fused_substrate_binding` read it to tell catalysis from binding. The derivation reads
+every binding alike, so a fused binding's rapid-equilibrium
 constant is a dissociation constant and its steady-state pair a binding and a
 release rate constant. Every step's constants are named by its two sides — each
 side's enzyme form followed by its free metabolites (`K_ES_to_E_S` for `E + S ⇌ E(S)`,
@@ -140,17 +159,15 @@ of its parent. The split move divides a group by binding context and accepts a
 set of splits only if the independent-parameter count rises; the count comes from
 the thermodynamic constraint solve, and for a `Mechanism` it is evaluated without
 building the child, from a cycle basis computed once per parent
-(`_partition_independent_count`). For an `AllostericMechanism` it is taken on the built
-child and, when a Wegscheider tie folds a constant, reads both conformations' rate
-polynomials, so a candidate whose law exceeds `MAX_RATE_EQUATION_TERMS` has no count and
-gains nothing (`_split_gain_test`). A candidate whose `:OnlyA` binding leaves a
-thermodynamic cycle unsatisfiable, which the constructor rejects, is never built: the move
-runs the constructor's own check (`_onlya_haldane_violation`) on its groups first, and the
-candidate counts as failed. The search extends a failed set by the splits of the groups
-that share its rapid-equilibrium segments, and a rejected one also by the splits of every
-`:OnlyA` group, since the split that balances its cycle may be steady state. The
-RE→SS move flips whole groups and accepts a
-set only if the rapid-equilibrium segment count rises and every flipped group
+(`_partition_independent_count`). For an `AllostericMechanism` it is the joint solve's
+count on the built child, which derives no rate polynomial (`_split_gain_test`). A
+candidate whose `:OnlyA` binding leaves a thermodynamic cycle unsatisfiable, which the
+constructor rejects, is never built: the move runs the constructor's own check
+(`_onlya_haldane_violation`) on its groups first, and the candidate counts as failed. The
+search extends a failed set by the splits of the groups that share its rapid-equilibrium
+segments, and a rejected one also by the splits of every `:OnlyA` group, since the split
+that balances its cycle may be steady state. The RE→SS move flips whole groups and
+accepts a set only if the rapid-equilibrium segment count rises and every flipped group
 carries net flux in the child. In a `Mechanism` it never offers as a unit a flank
 of a qualifying chain whose isomerization is steady state (`_chain_flank_groups`):
 by the chain lemma that flip adds parameters and no rate law. An

@@ -65,9 +65,10 @@ In the example the two binding steps are `:EqualAI`, so they share `K_ES_to_E_S`
 and `K_EP_to_E_P` with no A/I token; the isomerization step is `:NonequalAI`, giving
 independent `k_A_ES_to_EP` and `k_I_ES_to_EP`; the activator `A` is `:OnlyA`
 (`K_A_Areg`, active state only) and the inhibitor `I` is `:OnlyI` (`K_I_Ireg`,
-inactive state only). `L` is the free-enzyme coupling constant. A catalytic step
-can never be `:OnlyI` — the active state must always be able to catalyze — so
-tagging one that way is a hard constructor error.
+inactive state only). An `:EqualAI` regulator `R` would take one bare constant, `K_Rreg`,
+in both states. `L` is the free-enzyme coupling constant. A catalytic step can never be
+`:OnlyI` — the active state must always be able to catalyze — so tagging one that way is
+a hard constructor error.
 
 The mechanism also declares **multiplicities**, which capture the enzyme's
 oligomeric state. `catalytic_multiplicity` is the number of identical catalytic
@@ -156,8 +157,8 @@ A single conformation already carries thermodynamic constraints: every cycle of
 steps must agree with the overall equilibrium constant `Keq` (a **Haldane**
 relation), and every cycle of binding steps must be path-independent (a
 **Wegscheider** relation). The derivation reports both and expresses the
-dependent rate constants through the independent ones. An MWC equation stacks two
-such equations, one per conformation, adding constraints neither has alone. Here
+dependent rate constants through the independent ones. An MWC equation solves the
+relations of both conformations together, adding constraints neither has alone. Here
 we review several examples of such additional constraints.
 
 Tag a lone substrate binding `:NonequalAI` while catalysis and product release
@@ -208,8 +209,8 @@ end
 print(rate_equation_string(coupled))
 ```
 
-Now `K_I_EP_to_E_P = K_A_EP_to_E_P · K_I_ES_to_E_S / K_A_ES_to_E_S`, i.e.
-`K_P^I / K_S^I = K_P^A / K_S^A`:
+Now `K_I_ES_to_E_S = K_A_ES_to_E_S · K_I_EP_to_E_P / K_A_EP_to_E_P`, i.e.
+`K_S^I / K_S^A = K_P^I / K_P^A`:
 the affinities differ freely as long as they differ *together*, holding their
 ratio fixed. This is the thermodynamically consistent form of a **K-system**, and
 it needs two coupled `:NonequalAI` bindings, not one.
