@@ -372,4 +372,28 @@ end
         @test EnzymeRates._form_base_key(eac) < EnzymeRates._form_base_key(eab)
         @test String(EnzymeRates.name(eac)) > String(EnzymeRates.name(eab))
     end
+
+    @testset "content keys have one concrete type whatever a form holds" begin
+        # A key type that follows a form's content makes the solve's sort and comparisons
+        # compile again for every new shape a search meets.
+        pingpong = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) <--> E(P; residual = A - P)
+                E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+                E(; residual = A - P) + B <--> E(Q)
+                E(Q) ⇌ E + Q
+            end
+        end
+        mechanisms = [[spec.mechanism for spec in MECHANISM_TEST_SPECS]; pingpong]
+        forms = unique(f for m in mechanisms
+                       for f in EnzymeRates._forms(EnzymeRates.steps(_testhelper_lift(m))))
+        @test length(unique(typeof.(EnzymeRates._form_base_key.(forms)))) == 1
+        @test isconcretetype(only(Base.return_types(EnzymeRates._form_base_key,
+                                                    (EnzymeRates.Species,))))
+        @test length(unique(typeof.(EnzymeRates._metabolites_key.(
+            EnzymeRates.bound.(forms))))) == 1
+    end
 end

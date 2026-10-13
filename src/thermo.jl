@@ -17,7 +17,8 @@ end
 
 """A metabolite list as the content keys read it: each metabolite's name and whether it
 binds as a modifier copy (a competitive inhibitor), in stored order."""
-_metabolites_key(mets) = Tuple((String(name(x)), x isa CompetitiveInhibitor) for x in mets)
+_metabolites_key(mets) = Tuple{String, Bool}[(String(name(x)), x isa CompetitiveInhibitor)
+                                                for x in mets]
 
 """
 An enzyme form's content key, built from base names: its conformation label, its bound
@@ -26,8 +27,8 @@ names never enter it.
 """
 _form_base_key(sp::Species) =
     (String(conformation(sp)), _metabolites_key(bound(sp)),
-     Tuple(String(name(x)) for x in added(residual(sp))),
-     Tuple(String(name(x)) for x in subtracted(residual(sp))))
+     String[String(name(x)) for x in added(residual(sp))],
+     String[String(name(x)) for x in subtracted(residual(sp))])
 
 """Whether `sp` is free E: conformation label `E`, nothing bound, no residual."""
 _is_free_E(sp::Species) =
