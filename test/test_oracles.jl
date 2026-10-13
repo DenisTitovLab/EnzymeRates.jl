@@ -184,8 +184,10 @@ end
     @testset "fitted counts equal the declared dimension" begin
         # Success criterion 4: a phantom or folded fitted name would raise the count
         # above the dimension the test counts on its own.
-        @test all(m -> EnzymeRates._independent_param_count(m) ==
-                       _testhelper_declared_dimension(m), _testhelper_population_one_round)
+        miscounted = [i for (i, m) in enumerate(_testhelper_population_one_round)
+                      if EnzymeRates._independent_param_count(m) !=
+                         _testhelper_declared_dimension(m)]
+        @test isempty(miscounted)
         for m in _testhelper_population_sample[1:10]
             @test length(EnzymeRates.fitted_params(m)) == _testhelper_declared_dimension(m)
         end

@@ -125,7 +125,8 @@ end
         @test EnzymeRates._metabolites_key([A]) < EnzymeRates._metabolites_key([A_copy])
     end
 
-    @testset "steps no chemistry orients run from the earlier form (C9)" begin
+    @testset "steps neither chemistry nor graph context orients run from the \
+              earlier form (C9)" begin
         # E ⇌ D is decided by neither atom progression nor graph context. The
         # constructor stores it by rendered name, D before E; the solve orients it from
         # free E, the first form of the canonical form order.

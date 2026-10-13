@@ -639,9 +639,10 @@ end
 # Keyed on the species' rendered NAMES (not `hash`): `Substrate`/`Product`
 # use Julia's default struct hash, which mixes in the type's `objectid` and so
 # is NOT stable across precompile sessions — a hash key would make the canonical
-# order (and thus `fitted_params` / the reduced rate equation / dedup keys)
-# non-deterministic. Names are derived purely from metabolite names, so the
-# ordering is fixed and reproducible.
+# order and the lead of a tied group (`_orient_tied_steps`) non-deterministic, and
+# with them the dedup keys and the names in `fitted_params` and the rate equation.
+# Names are derived purely from metabolite names, so the ordering is fixed and
+# reproducible.
 _met_names(v) = join((String(name(m)) for m in v), "+")
 _step_canonical_key(s::Step) =
     (String(name(from_species(s))), String(name(to_species(s))),

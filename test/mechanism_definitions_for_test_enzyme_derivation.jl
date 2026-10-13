@@ -422,10 +422,10 @@ _testhelper_poly_value(p, env) =
 
 Detailed-balance residuals of `m`'s rate law at a random parameter point, in 256-bit
 BigFloat: the law's value at equilibrium concentrations (the first product scaled so
-that Π[P]/Π[S] = Keq) over its value with that product ten times lower, then the same
-ratio for each conformation's numerator that is not identically zero (`_state_rate_polys`;
-for a plain mechanism the law's own numerator). Each is zero in exact arithmetic when the
-law satisfies every Haldane and Wegscheider relation.
+that Π[P]/Π[S] = Keq) over its value with that product ten times lower, then, for an
+allosteric mechanism, the same ratio for each conformation's numerator that is not
+identically zero (`_state_rate_polys`). Each is zero in exact arithmetic when the law
+satisfies every Haldane and Wegscheider relation.
 """
 function _testhelper_detailed_balance(m, rng)
     setprecision(BigFloat, 256) do
@@ -2257,9 +2257,9 @@ let
     end
 
     # Parameter naming convention:
-    #   R-state catalytic Kd: K1=Kd(S1), K2=Kd(P1), K3=Kd(S2), K4=Kd(P2)
+    #   R-state catalytic Kd: K1=Kd(S1), K4=Kd(P1), K7=Kd(S2), K10=Kd(P2)
     #   R-state SS rate:      k13f (k13r is Haldane-derived)
-    #   T-state catalytic:    K1_T, K2_T, K3_T, K4_T, k13f_T, k13r_T
+    #   T-state catalytic:    K1_T, K4_T, K7_T, K10_T, k13f_T, k13r_T
     #   Reg site 1, R state:  K_R1_reg1, K_R2_reg1
     #   Reg site 1, T state:  K_R1_T_reg1, K_R2_T_reg1
     #   Reg site 2, R state:  K_R3_reg2

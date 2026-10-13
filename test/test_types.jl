@@ -1721,7 +1721,7 @@ end
             E(P) ⇌ E + P     :: EqualAI
         end
     end
-    # Every constant the reduced rate equation names, fitted or dependent.
+    # Every constant the rate equation names, fitted or dependent.
     dep, indep = ER._dependent_param_exprs(typeof(allo))
     allo_names = union(keys(dep), indep)
     @test issubset([:K_A_ES_to_E_S, :K_I_ES_to_E_S], allo_names)
@@ -2295,7 +2295,7 @@ end
         end
         am = ER.AllostericMechanism(m)
         tags = copy(ER.cat_allo_states(am))
-        # find each group by its representative step
+        # tag each group by the metabolite its step binds
         for (g, grp) in enumerate(ER.steps(am))
             bm = ER.bound_metabolite(grp[1])
             tags[g] = bm === nothing ? cat_tag :

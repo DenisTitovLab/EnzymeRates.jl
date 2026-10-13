@@ -35,8 +35,8 @@ _is_free_E(sp::Species) =
     conformation(sp) === :E && isempty(bound(sp)) && isempty(residual(sp))
 
 """
-The canonical order of enzyme forms that orients the steps no chemistry orients (C9):
-free E first, then by `_form_base_key`.
+The canonical order of enzyme forms that orients the steps neither chemistry nor graph
+context orients (C9): free E first, then by `_form_base_key`.
 """
 _form_index_key(sp::Species) = (!_is_free_E(sp), _form_base_key(sp))
 
@@ -77,9 +77,9 @@ law, 1: another inactive copy, 0: active). The solve eliminates the larger key f
 a column with a larger key becomes dependent sooner. In turn: the block; the step's kind
 (3 an isomerization, 2 other chemistry, 1 a plain binding); whether both of its forms hold
 a metabolite; steady state before rapid equilibrium; a steady-state constant that runs
-against the reaction (the reverse of the solve's forward direction, except a product
-binding's uptake); then the step's content in the solve's direction, its forms'
-`_form_base_key`s and its metabolites, the smaller key kept.
+against the reaction (for a product binding its uptake, for every other step the reverse
+of the solve's forward direction); then the step's content in the solve's direction, its
+forms' `_form_base_key`s and its metabolites, the smaller key kept.
 """
 function _priority_key(s::Step, fwd::Bool, slot::Int, block::Int)
     kind = is_iso(s) ? 3 : _is_chemistry(s) ? 2 : 1
@@ -210,8 +210,9 @@ function _joint_system(m::_AnyMech)
         end
     end
     block(c) = !c.inactive ? 0 : law[c.step] ? 1 : 2
-    keys = [_priority_key(flat[c.step][1], fwd[c.step], c.slot, block(c)) for c in columns]
-    columns = columns[sortperm(keys; rev = true)]
+    priorities = [_priority_key(flat[c.step][1], fwd[c.step], c.slot, block(c))
+                  for c in columns]
+    columns = columns[sortperm(priorities; rev = true)]
     index = Dict(c => i for (i, c) in enumerate(columns))
     column(j, slot, inactive) =
         index[_Column(j, slot, inactive && _has_inactive_columns(tags[flat[j][2]]))]
@@ -328,14 +329,15 @@ function _kept_members(m::_AnyMech)
     Dict{Tuple{Int, Int, Bool}, Step}(k => last(v) for (k, v) in best)
 end
 
-"""The parameter of column `c` of `m`, whose flat steps are `flat`, in the state its name
-takes: `:None` in a plain mechanism; `:I` for an inactive copy; `:EqualAI` or `:A` for an
-active constant of an allosteric mechanism."""
+"""The parameter of column `c` of `m`, whose flat steps are `flat`: slot `c.slot` of the
+step's `_step_constants`, in the state its name takes: `:None` in a plain mechanism; `:I`
+for an inactive copy; `:EqualAI` or `:A` for an active constant of an allosteric
+mechanism."""
 function _column_parameter(m::_AnyMech, flat, c::_Column)
     s, g = flat[c.step]
     state = m isa Mechanism ? :None : c.inactive ? :I :
             cat_allo_state(m, g) === :EqualAI ? :EqualAI : :A
-    c.slot == 2 ? Krev(s, state) : is_equilibrium(s) ? Krapid(s, state) : Kfor(s, state)
+    _step_constants(s, state)[c.slot]
 end
 
 # ─── Dependents ────────────────────────────────────────────────────────────

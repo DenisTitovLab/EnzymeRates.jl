@@ -270,14 +270,13 @@ function _testhelper_raw_to_ode_params(m, raw_params)
     _testhelper_lookup(k) = Float64(raw_params[k])
     param_keys = Symbol[]
     param_vals = Float64[]
-    for (i, (step, g)) in enumerate(flat)
-        rep_step = first(EnzymeRates.steps(mech)[g])
+    for (i, (step, _)) in enumerate(flat)
         push!(param_keys, Symbol("k$(i)f"))
         push!(param_keys, Symbol("k$(i)r"))
         if EnzymeRates.is_equilibrium(step)
-            # Look up the rep step's structural K key
+            # Look up the step's structural K key, which its kinetic group shares
             K = _testhelper_lookup(
-                EnzymeRates.name(EnzymeRates.Krapid(rep_step, :None), mech))
+                EnzymeRates.name(EnzymeRates.Krapid(step, :None), mech))
             if is_binding_step[i]
                 # Binding step (metabolite on LHS): K = Kd = kr/kf
                 push!(param_vals, 1e6)
@@ -289,8 +288,8 @@ function _testhelper_raw_to_ode_params(m, raw_params)
             end
         else
             # SS step: its forward and reverse rate constants
-            fwd_key = EnzymeRates.name(EnzymeRates.Kfor(rep_step, :None), mech)
-            rev_key = EnzymeRates.name(EnzymeRates.Krev(rep_step, :None), mech)
+            fwd_key = EnzymeRates.name(EnzymeRates.Kfor(step, :None), mech)
+            rev_key = EnzymeRates.name(EnzymeRates.Krev(step, :None), mech)
             push!(param_vals, _testhelper_lookup(fwd_key))
             push!(param_vals, _testhelper_lookup(rev_key))
         end
@@ -1132,8 +1131,7 @@ function _testhelper_undefined_rhs_symbols(s::AbstractString)
     ident = r"[A-Za-z_][A-Za-z0-9_]*"
     defined = Set{Symbol}()
     referenced = Set{Symbol}()
-    for raw in split(s, '\n')
-        line = raw
+    for line in split(s, '\n')
         stripped = strip(line)
         (isempty(stripped) || startswith(stripped, "#")) && continue
         if occursin("= params", line) || occursin("= concs", line)
@@ -1795,9 +1793,9 @@ end
     clash_k = ErrorException("Metabolite k_EP_to_ES has the name of a parameter of " *
                              "this mechanism's rate equation; rename the metabolite")
     concs = (S = 1.0, P = 0.1, k_EP_to_ES = 0.5)
-    reduced = merge(NamedTuple{EnzymeRates.fitted_params(uni_k)}((1.0, 2.0, 3.0, 4.0)),
-                    (Keq = 2.0, E_total = 1.0))
-    @test_throws clash_k rate_equation(uni_k, concs, reduced)
+    params_k = merge(NamedTuple{EnzymeRates.fitted_params(uni_k)}((1.0, 2.0, 3.0, 4.0)),
+                     (Keq = 2.0, E_total = 1.0))
+    @test_throws clash_k rate_equation(uni_k, concs, params_k)
     @test_throws clash_k rate_equation_string(uni_k)
 end
 
