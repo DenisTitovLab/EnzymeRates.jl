@@ -685,6 +685,7 @@ function _testhelper_test_constraint_counting(spec::_testhelper_MechanismTestSpe
         @test n_mirror == spec.expected_n_mirror_constraints
         @test n_wegscheider == spec.expected_n_wegscheider_constraints
         @test length(indep) == spec.expected_n_independent_params
+        @test length(indep) == _testhelper_declared_dimension(m)
     end
 end
 

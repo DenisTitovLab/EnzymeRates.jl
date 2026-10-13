@@ -2,6 +2,21 @@
 # ABOUTME: regenerated populations: agreement, detailed balance and declared dimension.
 using Random
 
+# The ping-pong-capable bi-bi reaction with two catalytic subunits: its seeds hold every
+# bi-bi mechanism, and one expansion round adds the allosteric children.
+const _testhelper_pingpong_allo_rxn = @enzyme_reaction begin
+    substrates: A[CX], B[N]
+    products: P[C], Q[NX]
+    oligomeric_state: 2
+end
+
+# The seeds and one expansion round of the reaction above, and a sample of them that is
+# the same on every run.
+const _testhelper_population_one_round =
+    _testhelper_population(_testhelper_pingpong_allo_rxn, 1)
+const _testhelper_population_sample = _testhelper_population_one_round[randperm(
+    Random.MersenneTwister(2026), length(_testhelper_population_one_round))[1:120]]
+
 @testset "Exact steady-state oracle" begin
     @testset "matches the steady-state Michaelis–Menten law exactly" begin
         m = @enzyme_mechanism begin
@@ -121,5 +136,14 @@ using Random
         dep, _ = EnzymeRates._dependent_param_exprs(typeof(half))
         @test any(ex -> occursin("^ -0.5", string(ex)), values(dep))
         _testhelper_check_law_against_oracle(half)
+    end
+end
+
+@testset "Detailed balance over a regenerated population" begin
+    rng = Random.MersenneTwister(7)
+    @test count(m -> m isa EnzymeRates.AllostericMechanism,
+                _testhelper_population_sample) >= 30
+    for m in _testhelper_population_sample
+        @test all(<(big(10)^-30), _testhelper_detailed_balance(m, rng))
     end
 end

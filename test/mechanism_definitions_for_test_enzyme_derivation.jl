@@ -405,6 +405,183 @@ function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1, compile
     end
 end
 
+# ── Detailed balance, declared dimension and populations ────────────────────
+
+"""The value of the polynomial `p` at the values `env` (by symbol), in BigFloat."""
+_testhelper_poly_value(p, env) =
+    sum((c * prod((env[s]^e for (s, e) in mono); init = big(1)) for (mono, c) in p);
+        init = big(0))
+
+"""
+    _testhelper_detailed_balance(m, rng) -> Vector{BigFloat}
+
+Detailed-balance residuals of `m`'s rate law at a random parameter point, in 256-bit
+BigFloat: the law's value at equilibrium concentrations (the first product scaled so
+that Π[P]/Π[S] = Keq) over its value with that product ten times lower, then the same
+ratio for each conformation's numerator that is not identically zero (`_state_rate_polys`;
+for a plain mechanism the law's own numerator). Each is zero in exact arithmetic when the
+law satisfies every Haldane and Wegscheider relation.
+"""
+function _testhelper_detailed_balance(m, rng)
+    setprecision(BigFloat, 256) do
+        em = m isa EnzymeRates.AbstractEnzymeMechanism ? m :
+             EnzymeRates.compile_mechanism(m)
+        mech = _testhelper_lift(em)
+        fitted = EnzymeRates._dependent_param_exprs(typeof(em))[2]
+        params = Dict{Symbol, BigFloat}(k => exp(4 * big(rand(rng)) - 2) for k in fitted)
+        params[:Keq] = exp(4 * big(rand(rng)) - 2)
+        rxn = EnzymeRates.reaction(mech)
+        subs = EnzymeRates.name.(EnzymeRates.substrates(rxn))
+        prods = EnzymeRates.name.(EnzymeRates.products(rxn))
+        concs = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1)
+                                       for x in EnzymeRates.metabolites(em))
+        p1 = first(prods)
+        concs[p1] = params[:Keq] * prod(concs[x] for x in subs) /
+                    prod((concs[x] for x in prods if x != p1); init = big(1))
+        off = copy(concs)
+        off[p1] /= 10
+        ratios = BigFloat[abs(_testhelper_law_value(em, params, concs)) /
+                          abs(_testhelper_law_value(em, params, off))]
+        mech isa EnzymeRates.AllostericMechanism || return ratios
+        dep, _ = EnzymeRates._dependent_param_exprs(typeof(em))
+        env = copy(params)
+        for (k, ex) in dep
+            env[k] = _testhelper_eval_expr(ex, env)
+        end
+        for state in (:A, :I)
+            num = first(EnzymeRates._state_rate_polys(mech, state))
+            isempty(num) && continue
+            push!(ratios, abs(_testhelper_poly_value(num, merge(env, concs))) /
+                          abs(_testhelper_poly_value(num, merge(env, off))))
+        end
+        ratios
+    end
+end
+
+"""The rank of an integer matrix, by exact elimination over the rationals."""
+function _testhelper_rank(A::AbstractMatrix{<:Integer})
+    R = Rational{BigInt}.(A)
+    rank = 0
+    for c in axes(R, 2)
+        p = findfirst(i -> !iszero(R[i, c]), (rank + 1):size(R, 1))
+        p === nothing && continue
+        p += rank
+        R[rank + 1, :], R[p, :] = R[p, :], R[rank + 1, :]
+        for i in (rank + 2):size(R, 1)
+            iszero(R[i, c]) || (R[i, :] .-= (R[i, c] / R[rank + 1, c]) .* R[rank + 1, :])
+        end
+        rank += 1
+    end
+    rank
+end
+
+"""A basis of the cycle space of the step graph of `groups`: one integer vector over the
+flat steps (each counted in its stored direction) per independent cycle, from the null
+space of the form-by-step incidence matrix."""
+function _testhelper_cycle_basis(groups)
+    flat = [s for group in groups for s in group]
+    forms = unique(f for s in flat for f in (EnzymeRates.from_species(s),
+                                             EnzymeRates.to_species(s)))
+    R = zeros(Rational{BigInt}, length(forms), length(flat))
+    for (j, s) in enumerate(flat)
+        R[findfirst(==(EnzymeRates.from_species(s)), forms), j] -= 1
+        R[findfirst(==(EnzymeRates.to_species(s)), forms), j] += 1
+    end
+    pivots = Int[]
+    for c in axes(R, 2)
+        r = length(pivots) + 1
+        p = findfirst(i -> !iszero(R[i, c]), r:size(R, 1))
+        p === nothing && continue
+        p += r - 1
+        R[r, :], R[p, :] = R[p, :], R[r, :]
+        R[r, :] ./= R[r, c]
+        for i in axes(R, 1)
+            i != r && !iszero(R[i, c]) && (R[i, :] .-= R[i, c] .* R[r, :])
+        end
+        push!(pivots, c)
+    end
+    map(setdiff(axes(R, 2), pivots)) do f
+        z = zeros(Rational{BigInt}, size(R, 2))
+        z[f] = 1
+        for (k, c) in enumerate(pivots); z[c] = -R[k, f]; end
+        Int.(z .* lcm(denominator.(z)))
+    end
+end
+
+"""
+The dimension of the model `m` declares, counted without the package's thermodynamic
+solve: the classes of constants in its law (a kinetic group's constant, slot by slot, in
+each conformation the law holds it; an `:EqualAI` group shares one class between the
+two), less the rank the cycle rows of both conformations impose on them, plus each
+regulator constant and `L`. A cycle row also reads the classes outside the law (the
+inactive copy of each `:OnlyA` step, which is a class of its own, and the inactive
+classes on pruned forms), which absorb what they can: the law keeps
+`n_law − (rank(rows) − rank(rows over the classes outside the law))` dimensions.
+"""
+function _testhelper_declared_dimension(m)
+    mech = _testhelper_lift(m)
+    allo = mech isa EnzymeRates.AllostericMechanism
+    groups = EnzymeRates.steps(mech)
+    flat = [(s, g) for (g, group) in enumerate(groups) for s in group]
+    law = allo ? Set(s for group in EnzymeRates._inactive_groups(mech) for s in group) :
+                 Set{EnzymeRates.Step}()
+    tag(g) = allo ? EnzymeRates.cat_allo_state(mech, g) : :None
+    index = Dict{Any, Int}()
+    in_law = Bool[]
+    function _testhelper_class(key, inlaw)
+        i = get!(index, key) do
+            push!(in_law, false)
+            length(in_law)
+        end
+        in_law[i] |= inlaw
+        i
+    end
+    function _testhelper_classes(j, inactive)
+        s, g = flat[j]
+        slots = EnzymeRates.is_equilibrium(s) ? (1,) : (1, 2)
+        !inactive || tag(g) === :EqualAI ?
+            [_testhelper_class((:A, g, k), true) for k in slots] :
+        tag(g) === :OnlyA ? [_testhelper_class((:I, j, k), false) for k in slots] :
+                            [_testhelper_class((:I, g, k), s in law) for k in slots]
+    end
+    foreach(j -> _testhelper_classes(j, false), eachindex(flat))
+    allo && foreach(j -> _testhelper_classes(j, true), eachindex(flat))
+    rows = Vector{Int}[]
+    for z in _testhelper_cycle_basis(groups), inactive in (allo ? (false, true) : (false,))
+        row = zeros(Int, length(in_law))
+        for (j, (s, _)) in enumerate(flat)
+            z[j] == 0 && continue
+            cs = _testhelper_classes(j, inactive)
+            if EnzymeRates.is_equilibrium(s)
+                row[cs[1]] += EnzymeRates.is_binding(s) ? -z[j] : z[j]
+            else
+                row[cs[1]] += z[j]
+                row[cs[2]] -= z[j]
+            end
+        end
+        push!(rows, row)
+    end
+    A = isempty(rows) ? zeros(Int, 0, length(in_law)) : permutedims(reduce(hcat, rows))
+    n_law = count(in_law) - (_testhelper_rank(A) - _testhelper_rank(A[:, .!in_law]))
+    allo || return n_law
+    n_reg = sum((t === :NonequalAI ? 2 : 1 for site in EnzymeRates.regulatory_sites(mech)
+                 for t in EnzymeRates.allo_states(site)); init = 0)
+    n_law + n_reg + 1
+end
+
+"""The mechanisms `init_mechanisms(rxn)` seeds and `rounds` rounds of `expand_mechanisms`
+reach, without duplicates."""
+function _testhelper_population(rxn, rounds)
+    level = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
+        m for m in EnzymeRates.init_mechanisms(rxn)]
+    mechs = copy(level)
+    for _ in 1:rounds
+        level = unique!(EnzymeRates.expand_mechanisms(level, rxn))
+        append!(mechs, level)
+    end
+    unique!(mechs)
+end
+
 # ── Mechanism test specifications ───────────────────────────────────────────
 
 const MECHANISM_TEST_SPECS = _testhelper_MechanismTestSpec[]
