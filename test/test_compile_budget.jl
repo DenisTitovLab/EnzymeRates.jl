@@ -11,7 +11,7 @@ using EnzymeRates
 # The init_mechanisms baseline is 57 on Julia 1.13 (CI runners), 82 on Julia 1.12 and 87
 # on Julia 1.10.
 const INIT_TRACE_BUDGET                  = 200   # baseline 2026-10-09: 57-87; budget ≈ 2×
-const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 6.0   # CI 1.1-1.9 s, local 0.4 s
+const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 6.0   # CI 2.0-3.4 s (1.13), local 1.4 s (1.12)
 # Per fresh mechanism, over PASS1, the fit and one LOOCV fold, with baselines measured on
 # Julia 1.12 (aarch64). A fit path that compiles the solver stack for each mechanism costs
 # about 750 method instances and 650 KB. The budgets sit about 3× below that and leave
