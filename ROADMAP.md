@@ -46,10 +46,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `multi_threading` passed through `solver_kwargs`, would race on both buffers. Fits run
   in parallel only across `pmap` workers, each of which builds its own problem.
 - **`eq_complexity_filter` counts only the active conformation of an allosteric
-  mechanism.** `_eq_complexity(::AllostericMechanism)` (`src/rate_eq_derivation.jl`)
-  measures V×τ on the active-state graph alone, while the generated MWC rate equation
-  evaluates the polynomials of both conformations, so the filter undercounts what an
-  allosteric equation costs and can admit one that evaluates more terms than its limit.
+  mechanism.** `_eq_complexity` (`src/rate_eq_derivation.jl`) measures an allosteric
+  mechanism's V×τ on its active-state graph (`steps(am)`) alone, while the generated MWC
+  rate equation evaluates the polynomials of both conformations, so the filter
+  undercounts what an allosteric equation costs and can admit one that evaluates more
+  terms than its limit.
 - **Repeated constraint solves inflate the GC's live-byte count.**
   Each `_dependent_param_exprs` call, whose constraint solves run in `Rational{BigInt}`,
   raises `Base.gc_live_bytes` by about 36-49 KB that no live object holds. After about

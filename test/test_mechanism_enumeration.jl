@@ -72,8 +72,7 @@ end
 function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     em = EnzymeRates.compile_mechanism(m)
     fp = collect(EnzymeRates.fitted_params(em))
-    cm = m isa EnzymeRates.Mechanism ? m : EnzymeRates._state_mechanism(m, :A)
-    mets = sort!(collect(EnzymeRates._concentration_symbols(cm)))
+    mets = sort!(collect(EnzymeRates._concentration_symbols(EnzymeRates.reaction(m))))
     # A fixed seed reproduces a failure in a later session; a struct hash mixes in
     # objectid and would not.
     rng = MersenneTwister(1)
@@ -105,10 +104,10 @@ products."""
 function _testhelper_degenerate(m; ndraws = 2)
     em = EnzymeRates.compile_mechanism(m)
     fp = collect(EnzymeRates.fitted_params(em))
-    cm = m isa EnzymeRates.Mechanism ? m : EnzymeRates._state_mechanism(m, :A)
-    subs = [EnzymeRates.name(s) for s in EnzymeRates.substrates(EnzymeRates.reaction(cm))]
-    prods = [EnzymeRates.name(p) for p in EnzymeRates.products(EnzymeRates.reaction(cm))]
-    mets = sort!(collect(EnzymeRates._concentration_symbols(cm)))
+    rxn = EnzymeRates.reaction(m)
+    subs = [EnzymeRates.name(s) for s in EnzymeRates.substrates(rxn)]
+    prods = [EnzymeRates.name(p) for p in EnzymeRates.products(rxn)]
+    mets = sort!(collect(EnzymeRates._concentration_symbols(rxn)))
     rng = MersenneTwister(7)
     for _ in 1:ndraws
         θ = exp.(randn(rng, length(fp)))
@@ -2748,7 +2747,7 @@ end
             E + Q <--> E(Q)                                         :: EqualAI
         end
     end)
-    @test EnzymeRates._eq_complexity(EnzymeRates._state_mechanism(am, :A)) >
+    @test EnzymeRates._eq_complexity(am) >
           EnzymeRates.MAX_RATE_EQUATION_TERMS
     @test_throws "polynomial terms" EnzymeRates._independent_param_count(p_by_a)
     kids = EnzymeRates._expand_split_kinetic_group(am)
@@ -8817,8 +8816,7 @@ end
                                        EnzymeRates.CompetitiveInhibitor)
     with_a = EnzymeRates._expand_add_dead_end_regulator(ordered_ss, rxn_a_inhibits)
     _testhelper_den_a_degree(k) = maximum(get(Dict(mono), :A, 0) for mono in keys(
-        EnzymeRates._raw_symbolic_rate_polys(k, EnzymeRates._step_parameters(k),
-            EnzymeRates._build_wegscheider_rename_map(k))[2]))
+        EnzymeRates._raw_symbolic_rate_polys(k)[2]))
     @test length(with_a) == 4
     @test Set(_testhelper_copy_sites.(with_a)) ==
         Set([Set([:E]), Set([:E, :EQ]), Set([:EA, :EQ]), Set([:E, :EA])])
@@ -8939,9 +8937,7 @@ end
             EnzymeRates._eq_complexity(m) <= 337 || continue
             structural = EnzymeRates._hyperbolic_catalysis(m)
             if m isa EnzymeRates.Mechanism
-                _, den, _ = EnzymeRates._raw_symbolic_rate_polys(
-                    m, EnzymeRates._step_parameters(m),
-                    EnzymeRates._build_wegscheider_rename_map(m))
+                _, den, _ = EnzymeRates._raw_symbolic_rate_polys(m)
                 @test structural == hyperbolic(den, mets)
             else
                 hyp_a = _testhelper_state_hyperbolic(m, :A)
