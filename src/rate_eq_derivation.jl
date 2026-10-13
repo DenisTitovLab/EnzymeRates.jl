@@ -69,8 +69,9 @@ function all_parameters(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericM
                         params::NamedTuple)
     dep, indep = _dependent_param_exprs(m isa AbstractEnzymeMechanism ? _concrete(m) : m)
     absent = [k for k in (indep..., :Keq) if !haskey(params, k)]
-    isempty(absent) || error("all_parameters: params lacks $(join(absent, ", ")), " *
-                             "which the dependent constants need")
+    isempty(absent) || error("all_parameters: params must hold every name of " *
+                             "parameters(m) except E_total; it lacks " *
+                             join(absent, ", "))
     names = sort!(collect(keys(dep)))
     merge(params, NamedTuple{Tuple(names)}(
         Tuple(_evaluate_dependent(dep[k], params) for k in names)))

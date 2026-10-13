@@ -76,8 +76,9 @@ end
           all_p.k_EP_to_ES
     @test all_parameters(m, map(big, p)).k_EP_to_ES == big(3) / 8
     @test all_parameters(m, map(big, p)).k_EP_to_ES isa BigFloat
-    @test_throws ErrorException("all_parameters: params lacks K_ES_to_E_S, Keq, which " *
-                                "the dependent constants need") all_parameters(
+    @test_throws ErrorException("all_parameters: params must hold every name of " *
+                                "parameters(m) except E_total; it lacks " *
+                                "K_ES_to_E_S, Keq") all_parameters(
         m, (K_EP_to_E_P = 1.0, k_ES_to_EP = 3.0))
 end
 
@@ -95,9 +96,7 @@ end
         end
     end
     rng = Random.MersenneTwister(12)
-    plain = [s.mechanism for s in MECHANISM_TEST_SPECS
-             if s.mechanism isa EnzymeRates.EnzymeMechanism]
-    for m in [plain; half]
+    for m in [[s.mechanism for s in MECHANISM_TEST_SPECS]; half]
         point = setprecision(() -> _testhelper_consistent_point(m, rng), BigFloat, 256)
         fitted = EnzymeRates.fitted_params(m)
         p = NamedTuple{(fitted..., :Keq)}((getindex.(Ref(point.vals), fitted)...,
@@ -106,6 +105,12 @@ end
         @test all(isapprox(all_p[k], point.vals[k]; rtol = big(10)^-40)
                   for k in keys(all_p) if k !== :Keq)
         @test issorted(collect(keys(all_p))[length(p) + 1:end])
+        # Every step constant the law reads, in each conformation, is among the keys; the
+        # regulator constants and L are fitted, so p holds them.
+        mech = _testhelper_lift(m)
+        states = mech isa EnzymeRates.Mechanism ? (:None,) : (:A, :I)
+        @test issubset((n for st in states for ns in EnzymeRates._step_names(mech, st)
+                        for n in ns), keys(all_p))
     end
 end
 
