@@ -11735,7 +11735,7 @@ end
     mets = [:A, :B, :P, :Q]
     for m in unique!(collect(EnzymeRates.init_mechanisms(bi_bi_pp_rxn)))
         cm = EnzymeRates.compile_mechanism(m)
-        params = _testhelper_random_reduced_params(cm; rng = Random.MersenneTwister(1))
+        params = _testhelper_random_independent_params(cm; rng = Random.MersenneTwister(1))
         for zeroed in mets
             cvals = Tuple(n == zeroed ? 0.0 : 1.0 for n in mets)
             concs = NamedTuple{Tuple(mets)}(cvals)

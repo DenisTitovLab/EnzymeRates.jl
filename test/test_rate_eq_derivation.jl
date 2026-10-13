@@ -705,7 +705,7 @@ function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec; s
     m = spec.mechanism
     @testset "Peak turnover approaches the analytical kcat" begin
         rng = Random.MersenneTwister(seed)
-        params = _testhelper_random_reduced_params(m; rng)
+        params = _testhelper_random_independent_params(m; rng)
         # Every fitted constant and Keq lies in 0.1–10, so over a range reaching 1e12 the
         # peak sits at saturating substrates and zero products and equals kcat to within
         # K/1e12.
@@ -725,7 +725,7 @@ function _testhelper_test_peak_rescaling(spec::_testhelper_MechanismTestSpec; se
     m = spec.mechanism
     @testset "Peak rescaling" begin
         rng = Random.MersenneTwister(seed)
-        params = _testhelper_random_reduced_params(m; rng)
+        params = _testhelper_random_independent_params(m; rng)
         range = (1e-12, 1e3)
         peak = EnzymeRates._peak_turnover(m, params, range).value
         @test peak > 0
@@ -790,7 +790,7 @@ function _testhelper_test_zero_metabolite_finite(spec::_testhelper_MechanismTest
         mets = collect(metabolites(m))
         sub_prod = Set{Symbol}(_testhelper_substrates(m))
         union!(sub_prod, _testhelper_products(m))
-        params = _testhelper_random_reduced_params(m; rng)
+        params = _testhelper_random_independent_params(m; rng)
         for zeroed in mets
             cvals = Tuple(n == zeroed ? 0.0 : 0.5 + rand(rng) for n in mets)
             concs = NamedTuple{Tuple(mets)}(cvals)
@@ -2164,7 +2164,7 @@ end
          :K_I_EB_to_E_B, :K_I_EP_to_E_P, :k_A_EAB_to_EP, :k_I_EAB_to_EP, :L)
     rng = Random.MersenneTwister(4)
     for _ in 1:5
-        params = _testhelper_random_reduced_params(tie; rng)
+        params = _testhelper_random_independent_params(tie; rng)
         concs = (A = 0.5 + rand(rng), B = 0.5 + rand(rng), P = 0.5 + rand(rng))
         @test rate_equation(tie, concs, params) ≈
               rate_equation(grouped, concs, params) rtol = 1e-12

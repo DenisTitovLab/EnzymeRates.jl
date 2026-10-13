@@ -194,7 +194,7 @@ julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, 
 Use the focused run while iterating and the full suite once before committing. Four things to
 know: the focused run skips Aqua and JET; it includes only the shared fixtures file and the file
 you name, so a helper defined in another test file is undefined under it (keep shared helpers,
-such as `_testhelper_random_reduced_params`, in
+such as `_testhelper_random_independent_params`, in
 `test/mechanism_definitions_for_test_enzyme_derivation.jl`); run one Julia process at a
 time (the machine has 7.7 GB and no swap, and the full suite needs about 4 GB free); and never
 park on a background monitor — poll a log in a bounded shell loop. `TestEnv` must be installed

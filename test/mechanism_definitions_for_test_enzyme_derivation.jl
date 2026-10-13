@@ -147,8 +147,8 @@ _testhelper_regulators(m::EnzymeRates.EnzymeMechanism) = EnzymeRates.name.(
 _testhelper_regulators(m::EnzymeRates.AllostericEnzymeMechanism) =
     EnzymeRates.name.(EnzymeRates.allosteric_regulators(_testhelper_lift(m)))
 
-"""Generate random reduced (fitted) params + Keq + E_total for a mechanism."""
-function _testhelper_random_reduced_params(m; rng=Random.default_rng())
+"""Generate random independent (fitted) params + Keq + E_total for a mechanism."""
+function _testhelper_random_independent_params(m; rng=Random.default_rng())
     fp = EnzymeRates.fitted_params(m)
     vals = Tuple(0.1 + 9.9 * rand(rng) for _ in fp)
     Keq_val = 0.1 + 9.9 * rand(rng)
