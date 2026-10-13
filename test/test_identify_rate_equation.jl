@@ -864,9 +864,10 @@ end
 end
 
 @testset "rate-eq dedup-key partition stability" begin
-    # bi_bi exercises the dedup key's edge cases: substituted-into-v ties across
-    # multiple kinetic groups. uni_uni has one init mechanism, hence one class, so
-    # it adds nothing to a partition test.
+    # bi_bi exercises the dedup key on constraint lines that tie several kinetic groups:
+    # every init mechanism prints one Haldane line over the constants of its groups. The
+    # key strips only the `#` section headers, so it reads those lines. uni_uni has one
+    # init mechanism, hence one class, so it adds nothing to a partition test.
     # ter-ter intentionally omitted — `rate_equation_string` derivation is
     # extremely slow for mechanisms with >~30 enzyme forms (CLAUDE.md
     # "Known Issues"), and the dedup key renders that string per

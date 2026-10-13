@@ -1039,8 +1039,8 @@ Kinetic-group split move. A unit is one context bipartition of one group
 other ligand is already bound). One child is produced per minimal set of units,
 at most one per group, whose joint application raises the independent-parameter
 count (`_minimal_gaining_sets`). A single bipartition whose new constant a
-Wegscheider cycle ties straight back is not a model: the derivation substitutes
-the constant away and the child's equation is the parent's. Such a bipartition
+Wegscheider cycle ties straight back is not a model: the cycle makes the new constant a
+dependent of the others, so the child's rate function is the parent's. Such a bipartition
 is kept as a seed for pairs and larger sets, because the cycle that absorbs it
 is broken by also splitting another group on that cycle — random-order binding
 needs one split per substrate before any constant frees up. Partners for a

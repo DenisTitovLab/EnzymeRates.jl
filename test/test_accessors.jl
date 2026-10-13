@@ -75,6 +75,7 @@ end
     @test all_parameters(m, Base.structdiff(p, (E_total = 0,))).k_EP_to_ES ==
           all_p.k_EP_to_ES
     @test all_parameters(m, map(big, p)).k_EP_to_ES == big(3) / 8
+    @test all_parameters(m, map(big, p)).k_EP_to_ES isa BigFloat
     @test_throws ErrorException("all_parameters: params lacks K_ES_to_E_S, Keq, which " *
                                 "the dependent constants need") all_parameters(
         m, (K_EP_to_E_P = 1.0, k_ES_to_EP = 3.0))

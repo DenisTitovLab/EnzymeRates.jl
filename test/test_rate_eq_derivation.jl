@@ -147,7 +147,9 @@ written direction. The inactive conformation of a `:NonequalAI` group adds `k{i}
 `k{i}r_T` or `K{i}_T`. The constructor stores every binding with its metabolite taken up,
 so a written binding's direction is read from its metabolite's role: a product's binding
 is written as its release. Every spec follows that convention; a binding written against
-it (`E + P <--> E(P)`) would get its constants swapped. A ligand of regulatory site `j`
+it (`E + P <--> E(P)`) would get its constants swapped. No spec in `MECHANISM_TEST_SPECS`
+writes a non-binding step against its stored direction, so the suite never inverts `K`
+or swaps `k{i}f` and `k{i}r` for such a step. A ligand of regulatory site `j`
 (the order of `source_reg_sites`) gives `K_<ligand>_reg{j}` and, when its inactive
 conformation has a constant of its own, `K_<ligand>_T_reg{j}`. Every entry of
 `all_params` passes through.

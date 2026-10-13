@@ -955,9 +955,10 @@ A non-allosteric enzyme mechanism: a `reaction::EnzymeReaction` plus
 each inner vector holds the steps that share that group's kinetic parameters.
 The constructor canonicalizes step direction and sorts steps and groups,
 so two mechanisms that differ only in how their steps were written collapse to
-the same struct. Parameter naming and step ordering derive purely from
-structure and flat iteration order. Lift to the singleton derivation type with
-`EnzymeRates.compile_mechanism(m)` or `EnzymeMechanism(m)`.
+the same struct. Step order derives from structure alone, and each rate constant is
+named after the member of its kinetic class that the joint solve keeps (`_class_sides`).
+Lift to the singleton derivation type with `EnzymeRates.compile_mechanism(m)` or
+`EnzymeMechanism(m)`.
 """
 struct Mechanism
     reaction::EnzymeReaction
