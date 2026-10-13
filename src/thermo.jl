@@ -75,9 +75,9 @@ forward one when `fwd`, in conformation block `block` (2: an inactive copy outsi
 law, 1: another inactive copy, 0: active). The solve eliminates the larger key first, so
 a column with a larger key becomes dependent sooner. In turn: the block; the step's kind
 (3 an isomerization, 2 other chemistry, 1 a plain binding); whether both of its forms hold
-a metabolite; steady state before rapid equilibrium; the constant that runs against the
-reaction (the reverse of the solve's forward direction, except that for a product binding
-the uptake runs against it); then the step's content in the solve's direction, its forms'
+a metabolite; steady state before rapid equilibrium; a steady-state constant that runs
+against the reaction (the reverse of the solve's forward direction, except a product
+binding's uptake); then the step's content in the solve's direction, its forms'
 `_form_base_key`s and its metabolites, the smaller key kept.
 """
 function _priority_key(s::Step, fwd::Bool, slot::Int, block::Int)
