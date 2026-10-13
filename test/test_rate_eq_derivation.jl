@@ -96,110 +96,6 @@ function _testhelper_reference_qssa(
     return v / abs(nu_ref)
 end
 
-# ── Brute-force mass-action oracle (no Cha segments) ────────────────────────
-# A consistent parameter point: free energies g for every enzyme form and
-# metabolite make each step's association constant
-#   Ka = exp(g_from + Σ g_consumed − g_to − Σ g_released),
-# so every cycle multiplies to Keq^n by construction. The steps of a kinetic
-# group share their constants: the form free energies are projected onto
-# g_from − g_to = g_from₁ − g_to₁ for every step after its group's first (the
-# metabolites cancel, since a group's steps take up and give off the same ones),
-# and a steady-state group draws one forward rate.
-function _testhelper_consistent_point(em, rng)
-    mech = ER.Mechanism(em)
-    flat = ER._flat_steps(mech)
-    forms = unique(vcat([[ER.from_species(s), ER.to_species(s)] for (s, _) in flat]...))
-    g = Dict{Any, BigFloat}(f => 4 * big(rand(rng)) - 2 for f in forms)
-    basis = Vector{BigFloat}[]
-    for (s, gi) in flat
-        s1 = first(ER.steps(mech)[gi])
-        s == s1 && continue
-        v = BigFloat[(f == ER.from_species(s)) - (f == ER.to_species(s)) -
-                     (f == ER.from_species(s1)) + (f == ER.to_species(s1)) for f in forms]
-        for b in basis; v -= (b' * v) * b; end
-        norm_v = sqrt(v' * v)
-        norm_v > big(10)^-30 && push!(basis, v / norm_v)
-    end
-    x = BigFloat[g[f] for f in forms]
-    for b in basis; x -= (b' * x) * b; end
-    for (f, xf) in zip(forms, x); g[f] = xf; end
-    rxn = ER.reaction(mech)
-    mets = vcat([ER.name(x) for x in ER.substrates(rxn)],
-                [ER.name(x) for x in ER.products(rxn)],
-                [ER.name(ER.regulator(r)) for r in ER.regulators(rxn)])
-    for x in mets; g[x] = 4 * big(rand(rng)) - 2; end
-    Keq = exp(sum(g[ER.name(x)] for x in ER.substrates(rxn)) -
-              sum(g[ER.name(x)] for x in ER.products(rxn)))
-    steps = []
-    vals = Dict{Symbol, BigFloat}()
-    sp = ER._step_parameters(mech)
-    kf_of_group = Dict{Int, BigFloat}()
-    for (idx, (s, gi)) in enumerate(flat)
-        Ka = exp(g[ER.from_species(s)] +
-                 sum((g[ER.name(m)] for m in ER.consumed(s)); init = big(0)) -
-                 g[ER.to_species(s)] -
-                 sum((g[ER.name(m)] for m in ER.released(s)); init = big(0)))
-        if ER.is_equilibrium(s)
-            p = sp[idx][1]
-            vals[ER.name(p, mech)] = ER.is_binding(s) ? 1 / Ka : Ka
-            push!(steps, (s, Ka, nothing))
-        else
-            kf = get!(() -> exp(4 * big(rand(rng)) - 2), kf_of_group, gi)
-            vals[ER.name(sp[idx][1], mech)] = kf
-            vals[ER.name(sp[idx][2], mech)] = kf / Ka
-            push!(steps, (s, Ka, kf))
-        end
-    end
-    (; steps, vals, Keq)
-end
-
-# v per unit enzyme from the full linear steady state over every form; RE steps
-# run at rate scale Λ. v = net consumption of the first substrate.
-function _testhelper_mass_action_rate(em, point, concs::Dict{Symbol, BigFloat};
-                                      Λ = big(10)^60)
-    setprecision(BigFloat, 512) do
-        mech = ER.Mechanism(em)
-        forms = unique(vcat([[ER.from_species(s), ER.to_species(s)]
-                             for (s, _, _) in point.steps]...))
-        idx = Dict(f => i for (i, f) in enumerate(forms))
-        n = length(forms)
-        M = zeros(BigFloat, n, n)
-        rates = []
-        for (s, Ka, kf) in point.steps
-            f_ = kf === nothing ? Λ : kf
-            r_ = kf === nothing ? Λ / Ka : kf / Ka
-            rf = f_ * prod((concs[ER.name(m)] for m in ER.consumed(s)); init = big(1))
-            rr = r_ * prod((concs[ER.name(m)] for m in ER.released(s)); init = big(1))
-            a, b = idx[ER.from_species(s)], idx[ER.to_species(s)]
-            M[b, a] += rf; M[a, a] -= rf; M[a, b] += rr; M[b, b] -= rr
-            push!(rates, (s, a, b, rf, rr))
-        end
-        M[n, :] .= 1
-        rhs = zeros(BigFloat, n); rhs[n] = 1
-        x = M \ rhs
-        first_sub = ER.name(first(ER.substrates(ER.reaction(mech))))
-        sum(((count(m -> ER.name(m) == first_sub, ER.consumed(s)) -
-              count(m -> ER.name(m) == first_sub, ER.released(s))) * (rf * x[a] - rr * x[b])
-             for (s, a, b, rf, rr) in rates); init = big(0))
-    end
-end
-
-function _testhelper_check_against_mass_action(em; n_points = 3, seed = 1)
-    rng = Random.MersenneTwister(seed)
-    fitted = ER.fitted_params(em)
-    mets = ER.metabolites(em)
-    for _ in 1:n_points
-        point = _testhelper_consistent_point(em, rng)
-        concs = Dict{Symbol, BigFloat}(x => exp(3 * big(rand(rng)) - 1.5) for x in mets)
-        params = NamedTuple{(fitted..., :Keq, :E_total)}(
-            (Float64.(getindex.(Ref(point.vals), fitted))..., Float64(point.Keq), 1.0))
-        concs_nt = NamedTuple{Tuple(mets)}(Tuple(Float64(concs[x]) for x in mets))
-        v_pkg = ER.rate_equation(em, concs_nt, params)
-        v_ref = _testhelper_mass_action_rate(em, point, concs)
-        @test isapprox(v_pkg, Float64(v_ref); rtol = 1e-8)
-    end
-end
-
 # ── Parameter generation helpers ────────────────────────────────────────────
 
 """
@@ -1079,6 +975,14 @@ function _testhelper_test_zero_metabolite_finite(spec::_testhelper_MechanismTest
     end
 end
 
+"""The spec's rate law against the exact steady state of its mass-action network
+(`_testhelper_check_law_against_oracle`)."""
+function _testhelper_test_mass_action_oracle(spec::_testhelper_MechanismTestSpec)
+    @testset "Mass-action oracle" begin
+        _testhelper_check_law_against_oracle(spec.mechanism)
+    end
+end
+
 """
 Run all tests for a mechanism specification.
 Organizes tests by mechanism: all tests for one mechanism together.
@@ -1087,6 +991,7 @@ function _testhelper_run_all_tests(spec::_testhelper_MechanismTestSpec)
     @testset "$(spec.name)" begin
         _testhelper_test_structure(spec)
         _testhelper_test_constraint_counting(spec)
+        _testhelper_test_mass_action_oracle(spec)
         _testhelper_test_reference_qssa(spec)
         # Only runs if analytical_rate_fn provided
         _testhelper_test_analytical_rate(spec)
@@ -1246,7 +1151,7 @@ end
 
 @testset "fused steps derive the mass-action rate" begin
     for em in _testhelper_fused_cases
-        _testhelper_check_against_mass_action(em)
+        _testhelper_check_law_against_oracle(em)
     end
     # The B group holds the fused E(A) + B → E(P, Q) and the dead-end E(Q) + B ⇌ E(B, Q).
     # Fitted: A (2) + B (1) + P (2) + Q (1) − 1 Haldane = 5.
@@ -1299,7 +1204,7 @@ const _testhelper_tc_cases = (
     @test length(ER.fitted_params(tc_ss)) == 5
     @test length(ER.fitted_params(tc_re_outer)) == 3
     for em in (tc_ss, tc_re_outer, tc_re_step, two_in)
-        _testhelper_check_against_mass_action(em)
+        _testhelper_check_law_against_oracle(em)
     end
     # canonical orientation: the substrate side is `from`
     s = only(s for g in ER.steps(ER.Mechanism(tc_ss)) for s in g
@@ -1660,6 +1565,7 @@ end
     end
     @test occursin("\nK_EAB_to_EA_B = K_EB_to_E_B" * ER.ANNOTATION_SUBSTITUTED * "\n",
                    rate_equation_string(folded))
+    _testhelper_check_law_against_oracle(folded)
     # S binds E and Estar under one constant, so the square of the two isomerizations
     # ties their equilibrium constants. The rename folds no isomerization K: v reads
     # K_E_to_Estar, and the line assigns it.
@@ -1675,6 +1581,7 @@ end
         end
     end
     @test occursin("\nK_E_to_Estar = K_ES_to_EstarS\n", rate_equation_string(iso_tie))
+    _testhelper_check_law_against_oracle(iso_tie)
     # I binding E and I binding Estar share one group and run opposite ways around the
     # cycle, so the Haldane relation fixes the Theorell–Chance constant at Keq; v reads it.
     keq_tie = @enzyme_mechanism begin
@@ -1687,6 +1594,7 @@ end
         end
     end
     @test occursin("\nK_E_S_to_Estar_P = Keq\n", rate_equation_string(keq_tie))
+    _testhelper_check_law_against_oracle(keq_tie)
 end
 
 @testset "rate_equation_string prints residual names bare in constraint lines" begin
@@ -1707,6 +1615,7 @@ end
     s = rate_equation_string(m)
     @test occursin(r"\nk_EP_res_\+A_-P_to_EA = .* \* k_EA_to_EP_res_\+A_-P \* ", s)
     @test !occursin("var\"", s)
+    _testhelper_check_law_against_oracle(m)
 end
 
 @testset "rate_equation_string prints flat +/* sums (no nested parens)" begin
@@ -1805,7 +1714,7 @@ end
         @test occursin("# Wegscheider constraints:\nK_E_to_F = 1.0\n",
                        rate_equation_string(em))
         @test :K_E_to_F ∉ EnzymeRates.fitted_params(em)
-        _testhelper_check_against_mass_action(em)
+        _testhelper_check_law_against_oracle(em)
         # The generated rate equation assigns the literal 1.0 and stays allocation-free.
         syms = parameters(em)
         params = NamedTuple{syms}(ntuple(i -> 0.5 + i / 10, length(syms)))

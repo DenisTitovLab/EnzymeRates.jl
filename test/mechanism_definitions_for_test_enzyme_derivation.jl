@@ -119,6 +119,7 @@ end
 _testhelper_lift(m::EnzymeRates.EnzymeMechanism) = EnzymeRates.Mechanism(m)
 _testhelper_lift(m::EnzymeRates.AllostericEnzymeMechanism) =
     EnzymeRates.AllostericMechanism(m)
+_testhelper_lift(m::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}) = m
 
 # The steps of a compiled mechanism in stored order, and the enzyme-form names across
 # a list of steps in order of first appearance.
@@ -150,6 +151,258 @@ function _testhelper_random_reduced_params(m; rng=Random.default_rng())
     keys_out = (fp..., :Keq, :E_total)
     vals_out = (vals..., Keq_val, E_total_val)
     NamedTuple{keys_out}(vals_out)
+end
+
+# ── Exact steady-state oracle ───────────────────────────────────────────────
+
+"""
+Evaluate an expression of the rate law or of a dependent constant in BigFloat: a Symbol
+reads `env`, a number becomes a BigFloat, and a call applies the `Base` function it
+names to its evaluated arguments.
+"""
+_testhelper_eval_expr(x::Symbol, env) = env[x]
+_testhelper_eval_expr(x::Real, env) = BigFloat(x)
+_testhelper_eval_expr(e::Expr, env) =
+    getfield(Base, e.args[1])((_testhelper_eval_expr(a, env) for a in e.args[2:end])...)
+
+"""
+`m` with one catalytic subunit: an allosteric mechanism rebuilt with catalytic
+multiplicity 1, whose MWC law is the exact steady state of one protomer; a plain mechanism
+unchanged.
+"""
+_testhelper_single_subunit(m::EnzymeRates.EnzymeMechanism) = m
+function _testhelper_single_subunit(m::EnzymeRates.AllostericEnzymeMechanism)
+    am = EnzymeRates.AllostericMechanism(m)
+    EnzymeRates.AllostericEnzymeMechanism(EnzymeRates.AllostericMechanism(
+        EnzymeRates.reaction(am), EnzymeRates.steps(am), EnzymeRates.cat_allo_states(am),
+        1, EnzymeRates.regulatory_sites(am)))
+end
+
+"""
+The free form at which the two conformations of an allosteric mechanism interconvert in
+its law: the free form (no bound metabolite, no residual) with the smallest name, which
+roots the rapid-equilibrium segment that holds every free form.
+"""
+_testhelper_flip_form(mech) =
+    argmin(f -> string(EnzymeRates.name(f)),
+           [f for f in EnzymeRates._forms(EnzymeRates.steps(mech))
+            if isempty(EnzymeRates.bound(f)) && isempty(EnzymeRates.residual(f))])
+
+"""
+    _testhelper_consistent_point(m, rng) -> (; vals, Keq, active, inactive, L)
+
+A thermodynamically consistent parameter point of `m`, built from free energies and so
+independent of the package's thermodynamic solve. Each enzyme form has a free energy in
+each conformation and each metabolite one; a step's association constant is
+`exp(g_from + Σ g_consumed − g_to − Σ g_released)`, so every cycle multiplies to `Keq^n`.
+The free energies are projected so that the steps of a kinetic group share their
+constants (their metabolites cancel) and, in an allosteric mechanism, an `:EqualAI` step
+has one constant in both conformations. A steady-state class draws one forward rate.
+
+`vals` maps the name of every step constant of the law (`EnzymeRates.name(p, mech)`; the
+inactive conformation's steps are those of `_inactive_groups`), every regulator constant
+and `L` to its value. `active[j]` (and `inactive[j]` for the inactive law's steps) holds
+a step as `(step, Ka, kf)`, `kf === nothing` for a rapid-equilibrium step.
+"""
+function _testhelper_consistent_point(m, rng)
+    mech = _testhelper_lift(m)
+    allo = mech isa EnzymeRates.AllostericMechanism
+    groups = EnzymeRates.steps(mech)
+    forms = EnzymeRates._forms(groups)
+    rxn = EnzymeRates.reaction(mech)
+    mets = EnzymeRates._metabolite_names(rxn)
+    nf, nconf = length(forms), allo ? 2 : 1
+    fi = Dict(f => i for (i, f) in enumerate(forms))
+    mi = Dict(x => nconf * nf + i for (i, x) in enumerate(mets))
+    n = nconf * nf + length(mets)
+    # The form part of step s's free-energy drop in conformation c (1 or 2).
+    function _testhelper_drop(c, s)
+        v = zeros(BigFloat, n)
+        v[(c - 1) * nf + fi[EnzymeRates.from_species(s)]] += 1
+        v[(c - 1) * nf + fi[EnzymeRates.to_species(s)]] -= 1
+        v
+    end
+    tag(g) = allo ? EnzymeRates.cat_allo_state(mech, g) : :None
+    ties = Vector{BigFloat}[]
+    for (g, group) in enumerate(groups), s in group
+        s1 = first(group)
+        s == s1 || push!(ties, _testhelper_drop(1, s) - _testhelper_drop(1, s1))
+        allo || continue
+        tag(g) === :NonequalAI && s != s1 &&
+            push!(ties, _testhelper_drop(2, s) - _testhelper_drop(2, s1))
+        tag(g) === :EqualAI && push!(ties, _testhelper_drop(2, s) - _testhelper_drop(1, s))
+    end
+    basis = Vector{BigFloat}[]
+    for v in ties
+        for b in basis; v = v - (b' * v) * b; end
+        nv = sqrt(v' * v)
+        nv > big(10)^-30 && push!(basis, v / nv)
+    end
+    u = BigFloat[4 * big(rand(rng)) - 2 for _ in 1:n]
+    for b in basis; u = u - (b' * u) * b; end
+    gm(x) = u[mi[EnzymeRates.name(x)]]
+    Keq = exp(sum(gm, EnzymeRates.substrates(rxn)) - sum(gm, EnzymeRates.products(rxn)))
+    vals = Dict{Symbol, BigFloat}()
+    kf_of = Dict{Symbol, BigFloat}()
+    function _testhelper_conformation_steps(c, law_groups, state)
+        out = []
+        for (g, group) in enumerate(law_groups), s in group
+            Ka = exp(u[(c - 1) * nf + fi[EnzymeRates.from_species(s)]] +
+                     sum((gm(x) for x in EnzymeRates.consumed(s)); init = big(0)) -
+                     u[(c - 1) * nf + fi[EnzymeRates.to_species(s)]] -
+                     sum((gm(x) for x in EnzymeRates.released(s)); init = big(0)))
+            st = tag(g) === :EqualAI ? :EqualAI : state
+            if EnzymeRates.is_equilibrium(s)
+                vals[EnzymeRates.name(EnzymeRates.Krapid(s, st), mech)] =
+                    EnzymeRates.is_binding(s) ? 1 / Ka : Ka
+                push!(out, (s, Ka, nothing))
+            else
+                kf = get!(() -> exp(4 * big(rand(rng)) - 2), kf_of,
+                          EnzymeRates.name(EnzymeRates.Kfor(s, st), mech))
+                vals[EnzymeRates.name(EnzymeRates.Kfor(s, st), mech)] = kf
+                vals[EnzymeRates.name(EnzymeRates.Krev(s, st), mech)] = kf / Ka
+                push!(out, (s, Ka, kf))
+            end
+        end
+        out
+    end
+    active = _testhelper_conformation_steps(1, groups, allo ? :A : :None)
+    inactive = allo ? _testhelper_conformation_steps(
+        2, EnzymeRates._inactive_groups(mech), :I) : []
+    L = big(0)
+    if allo
+        L = exp(4 * big(rand(rng)) - 2)
+        vals[:L] = L
+        for p in [EnzymeRates._kreg_params(mech, :A); EnzymeRates._kreg_params(mech, :I)]
+            vals[EnzymeRates.name(p, mech)] = exp(4 * big(rand(rng)) - 2)
+        end
+    end
+    (; vals, Keq, active, inactive, L)
+end
+
+"""
+    _testhelper_steady_state_rate(m, point, concs; Λ = big(10)^30) -> BigFloat
+
+The exact steady-state rate per enzyme of the mass-action network of `m` at the constants
+of `point` (`_testhelper_consistent_point`) and the concentrations `concs`, in 256-bit
+BigFloat: the net consumption of the first substrate. Each rapid-equilibrium step runs
+as a fast pair at rate scale `Λ`, so the steady state approaches the rapid-equilibrium
+limit with a relative error of about 1/Λ times the spread of the constants. An allosteric
+mechanism (one catalytic subunit) adds the inactive conformation's forms and steps and one
+flip between the two copies of the flip form (`_testhelper_flip_form`) at equilibrium
+ratio `L` times the ratio of the conformations' regulatory-site factors. Errors when the
+network is disconnected, since its steady state is then not unique.
+"""
+function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(10)^30)
+    setprecision(BigFloat, 256) do
+        mech = _testhelper_lift(m)
+        node = Dict{Tuple{Symbol, EnzymeRates.Species}, Int}()
+        id(c, f) = get!(node, (c, f), length(node) + 1)
+        x1 = EnzymeRates.name(first(EnzymeRates.substrates(EnzymeRates.reaction(mech))))
+        edges = Tuple{Int, Int, BigFloat, BigFloat, Int}[]
+        for (c, list) in ((:A, point.active), (:I, point.inactive)), (s, Ka, kf) in list
+            f, r = kf === nothing ? (Λ, Λ / Ka) : (kf, kf / Ka)
+            rf = f * prod((concs[EnzymeRates.name(x)] for x in EnzymeRates.consumed(s));
+                          init = big(1))
+            rr = r * prod((concs[EnzymeRates.name(x)] for x in EnzymeRates.released(s));
+                          init = big(1))
+            ω = count(x -> EnzymeRates.name(x) == x1, EnzymeRates.consumed(s)) -
+                count(x -> EnzymeRates.name(x) == x1, EnzymeRates.released(s))
+            push!(edges, (id(c, EnzymeRates.from_species(s)),
+                          id(c, EnzymeRates.to_species(s)), rf, rr, ω))
+        end
+        if mech isa EnzymeRates.AllostericMechanism
+            # Regulators bind each conformation at rapid equilibrium, independently of
+            # the catalytic form, so summed over regulator occupancy the flip ratio is
+            # L times the ratio of the conformations' regulatory-site factors.
+            function _testhelper_site_factor(inactive)
+                prod((1 + sum((concs[EnzymeRates.name(lig)] / point.vals[K]
+                               for (lig, tag) in zip(EnzymeRates.ligands(site),
+                                                     EnzymeRates.allo_states(site))
+                               for K in (EnzymeRates._reg_K(mech, site, lig, tag,
+                                                            inactive),)
+                               if K !== nothing); init = big(0)))^
+                     EnzymeRates.multiplicity(site)
+                     for site in EnzymeRates.regulatory_sites(mech); init = big(1))
+            end
+            flip = _testhelper_flip_form(mech)
+            push!(edges, (id(:A, flip), id(:I, flip),
+                          point.L * _testhelper_site_factor(true) /
+                          _testhelper_site_factor(false), big(1), 0))
+        end
+        n = length(node)
+        reached, frontier = Set([1]), [1]
+        while !isempty(frontier)
+            u = pop!(frontier)
+            for (a, b, _, _, _) in edges, (p, q) in ((a, b), (b, a))
+                p == u && q ∉ reached && (push!(reached, q); push!(frontier, q))
+            end
+        end
+        length(reached) == n ||
+            error("_testhelper_steady_state_rate: the network of $n enzyme forms is " *
+                  "disconnected, so its steady state is not unique")
+        M = zeros(BigFloat, n, n)
+        for (a, b, rf, rr, _) in edges
+            M[b, a] += rf; M[a, a] -= rf; M[a, b] += rr; M[b, b] -= rr
+        end
+        M[n, :] .= 1
+        rhs = zeros(BigFloat, n); rhs[n] = 1
+        x = M \ rhs
+        sum((ω * (rf * x[a] - rr * x[b]) for (a, b, rf, rr, ω) in edges); init = big(0))
+    end
+end
+
+"""
+The rate law of the compiled mechanism `m` per enzyme, evaluated in 256-bit BigFloat from
+the polynomials `rate_equation` compiles (`_num_den_exprs`) at the parameter values
+`params` (by name: the fitted constants, `Keq` and, for an allosteric mechanism, `L` and
+the regulator constants) and the concentrations `concs`. The dependent constants are
+computed from `_dependent_param_exprs`, as the compiled body computes them.
+"""
+function _testhelper_law_value(m, params::AbstractDict, concs::AbstractDict)
+    setprecision(BigFloat, 256) do
+        num, den = EnzymeRates._num_den_exprs(typeof(m))
+        dep, _ = EnzymeRates._dependent_param_exprs(typeof(m))
+        env = Dict{Symbol, BigFloat}(k => BigFloat(v) for (k, v) in params)
+        for (k, ex) in dep
+            env[k] = _testhelper_eval_expr(ex, env)
+        end
+        for (k, v) in concs
+            env[k] = BigFloat(v)
+        end
+        _testhelper_eval_expr(num, env) / _testhelper_eval_expr(den, env)
+    end
+end
+
+"""
+Check that the rate law of `m` equals the exact steady state of its mass-action network
+(`_testhelper_steady_state_rate`) to `rtol` at `n_points` consistent points
+(`_testhelper_consistent_point`). The law reads the point's fitted constants and computes
+its dependents from them, so a wrong dependent shows as a mismatch. With `compiled`, the
+compiled `rate_equation` is checked too, in Float64 to 1e-8. An allosteric mechanism is
+checked with one catalytic subunit.
+"""
+function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1, compiled = true,
+                                              rtol = big(10)^-20)
+    rng = Random.MersenneTwister(seed)
+    em = _testhelper_single_subunit(m)
+    fitted = EnzymeRates._dependent_param_exprs(typeof(em))[2]
+    mets = EnzymeRates.metabolites(em)
+    for _ in 1:n_points
+        point = setprecision(() -> _testhelper_consistent_point(em, rng), BigFloat, 256)
+        concs = Dict{Symbol, BigFloat}(x => exp(3 * big(rand(rng)) - big(1.5))
+                                       for x in mets)
+        params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
+        params[:Keq] = point.Keq
+        oracle = _testhelper_steady_state_rate(em, point, concs)
+        @test abs(_testhelper_law_value(em, params, concs) - oracle) <=
+              rtol * abs(oracle)
+        compiled || continue
+        p64 = NamedTuple{(fitted..., :Keq, :E_total)}(
+            (Float64.(getindex.(Ref(params), fitted))..., Float64(point.Keq), 1.0))
+        c64 = NamedTuple{mets}(Tuple(Float64(concs[x]) for x in mets))
+        @test isapprox(rate_equation(em, c64, p64), Float64(oracle); rtol = 1e-8)
+    end
 end
 
 # ── Mechanism test specifications ───────────────────────────────────────────
