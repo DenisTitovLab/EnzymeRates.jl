@@ -1,5 +1,5 @@
 # ABOUTME: Top-level module; defines the public API and include order.
-# ABOUTME: Exports the 18 public names and wires together src/ source files.
+# ABOUTME: Exports the 19 public names and wires together src/ source files.
 module EnzymeRates
 
 # Types
@@ -14,7 +14,7 @@ export @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
 export Full, Reduced
 
 # Core API
-export rate_equation, rate_equation_string, parameters, metabolites
+export rate_equation, rate_equation_string, parameters, all_parameters, metabolites
 export rescale_parameter_values
 
 # Fitting & model selection

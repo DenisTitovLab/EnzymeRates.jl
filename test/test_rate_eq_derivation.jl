@@ -373,29 +373,6 @@ function _testhelper_test_rate_equation_performance(m, params, concs)
 end
 
 """
-Compute all structural-named params (independent + Haldane-derived dependents)
-plus Keq + E_total for a mechanism. Returns a NamedTuple with structural keys
-(e.g. :K_ES_to_E_S, :k_ES_to_EP) that _testhelper_positional_params can remap to
-oracle-style positional names.
-"""
-function _testhelper_compute_all_params(m, new_params)
-    dep, _ = EnzymeRates._dependent_param_exprs(typeof(m))
-    dep_vals = (k => Float64(_testhelper_eval_dep_expr(e, new_params)) for (k, e) in dep)
-    merge(new_params, (; dep_vals...))
-end
-
-"""
-Evaluate a dependent-parameter expression: a Symbol is looked up in `params`, a
-number is itself, and a call applies the named `Base` function to its evaluated
-arguments.
-"""
-_testhelper_eval_dep_expr(x::Symbol, params) = params[x]
-_testhelper_eval_dep_expr(x::Real, params) = x
-_testhelper_eval_dep_expr(e::Expr, params) =
-    getfield(Base, e.args[1])(
-        (_testhelper_eval_dep_expr(a, params) for a in e.args[2:end])...)
-
-"""
 Generate random independent params + Keq + E_total for testing.
 Also returns all_params (the full set of k's + E_total) for reference comparison.
 """
@@ -410,7 +387,7 @@ function _testhelper_random_independent_params_concs(
     conc_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in met_names)
     concs = NamedTuple{Tuple(met_names)}(conc_vals)
 
-    all_params = _testhelper_compute_all_params(m, new_params)
+    all_params = all_parameters(m, new_params)
     return new_params, concs, all_params
 end
 
@@ -888,7 +865,7 @@ function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec; s
         # reduced params), so bridge the FULL param set (dependent values
         # included) to positional names.
         p = merge(_testhelper_analytical_oracle_params(
-                      m, _testhelper_compute_all_params(m, params);
+                      m, all_parameters(m, params);
                       source_steps=spec.source_steps,
                       source_reg_sites=spec.source_reg_sites),
                   (Et=params.E_total,))

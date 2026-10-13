@@ -39,3 +39,57 @@
     @test :Keq in reduced_allo
     @test :E_total in reduced_allo
 end
+
+@testset "all_parameters adds every dependent constant" begin
+    m = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    p = (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0, E_total = 1.0)
+    all_p = all_parameters(m, p)
+    # The Haldane relation: k_EP_to_ES = K_EP_to_E_P · k_ES_to_EP / (K_ES_to_E_S · Keq).
+    @test all_p.k_EP_to_ES == 1.0 * 3.0 / (2.0 * 4.0)
+    @test keys(all_p) == (keys(p)..., :k_EP_to_ES)
+    @test all_p[keys(p)] == p
+    # The concrete mechanism gives the same values, E_total may be left out, and the
+    # values may be of any number type.
+    @test all_parameters(EnzymeRates.Mechanism(m), p) == all_p
+    @test all_parameters(m, Base.structdiff(p, (E_total = 0,))).k_EP_to_ES ==
+          all_p.k_EP_to_ES
+    @test all_parameters(m, map(big, p)).k_EP_to_ES == big(3) / 8
+    @test_throws ErrorException("all_parameters: params lacks K_ES_to_E_S, Keq, which " *
+                                "the dependent constants need") all_parameters(
+        m, (K_EP_to_E_P = 1.0, k_ES_to_EP = 3.0))
+end
+
+@testset "all_parameters reproduces the dependent constants of a consistent point" begin
+    # The point's constants come from free energies, independently of the solve; the
+    # fitted ones and Keq determine the rest. `half` has a dependent with
+    # half-integer exponents.
+    half = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            (E(S) <--> F(S), E <--> F)
+            F(S) <--> E + P
+            F + S <--> E(S)
+        end
+    end
+    rng = Random.MersenneTwister(12)
+    plain = [s.mechanism for s in MECHANISM_TEST_SPECS
+             if s.mechanism isa EnzymeRates.EnzymeMechanism]
+    for m in [plain; half]
+        point = setprecision(() -> _testhelper_consistent_point(m, rng), BigFloat, 256)
+        fitted = EnzymeRates.fitted_params(m)
+        p = NamedTuple{(fitted..., :Keq)}((getindex.(Ref(point.vals), fitted)...,
+                                           point.Keq))
+        all_p = setprecision(() -> all_parameters(m, p), BigFloat, 256)
+        @test all(isapprox(all_p[k], point.vals[k]; rtol = big(10)^-40)
+                  for k in keys(all_p) if k !== :Keq)
+    end
+end

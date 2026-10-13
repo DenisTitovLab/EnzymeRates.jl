@@ -64,6 +64,53 @@ fitted_params(m::Union{Mechanism, AllostericMechanism}) =
     fitted_params(compile_mechanism(m))
 
 """
+    all_parameters(m, params) -> NamedTuple
+
+`params` with every dependent constant of `m`'s rate law added, each computed from the
+independent constants and `Keq` in `params` by its Haldane or Wegscheider relation (the
+relations [`rate_equation_string`](@ref) prints). `params` holds the values of
+[`parameters`](@ref)`(m)` by name; `E_total` may be left out, and every entry is kept as
+passed. The values may be of any number type.
+
+```jldoctest
+julia> using EnzymeRates
+
+julia> m = @enzyme_mechanism begin
+           substrates: S
+           products: P
+           steps: begin
+               E + S ⇌ E(S)
+               E(S) <--> E(P)
+               E(P) ⇌ E + P
+           end
+       end;
+
+julia> all_parameters(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0,
+                          Keq = 4.0))
+(K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0, k_EP_to_ES = 0.375)
+```
+"""
+function all_parameters(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism},
+                        params::NamedTuple)
+    dep, indep = _dependent_param_exprs(m isa AbstractEnzymeMechanism ? _concrete(m) : m)
+    absent = [k for k in (indep..., :Keq) if !haskey(params, k)]
+    isempty(absent) || error("all_parameters: params lacks $(join(absent, ", ")), " *
+                             "which the dependent constants need")
+    names = sort!(collect(keys(dep)))
+    merge(params, NamedTuple{Tuple(names)}(
+        Tuple(_evaluate_dependent(dep[k], params) for k in names)))
+end
+
+"""The value at `params` of a dependent constant's expression (`build_power_expr`): a
+power product of `Keq` and independent constants, or the number it is pinned to."""
+_evaluate_dependent(x::Symbol, params) = params[x]
+_evaluate_dependent(x::Real, params) = x
+function _evaluate_dependent(e::Expr, params)
+    op, args = e.args[1], [_evaluate_dependent(a, params) for a in e.args[2:end]]
+    op === :* ? prod(args) : op === :/ ? args[1] / args[2] : args[1]^args[2]
+end
+
+"""
 Build a renaming map for single-symbol Wegscheider RE ties between two
 binding K's of `mech` under `step_params`. Solves the constraint system with
 no rename to discover binding-K-to-binding-K Wegscheider closures of the form
