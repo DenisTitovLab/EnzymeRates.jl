@@ -326,3 +326,62 @@ function _kept_members(m::_AnyMech)
     end
     Dict{Tuple{Int, Int, Bool}, Step}(k => last(v) for (k, v) in best)
 end
+
+"""The parameter of column `c` of `m`, whose flat steps are `flat`, in the state its name
+takes: `:None` in a plain mechanism; `:I` for an inactive copy; `:EqualAI` or `:A` for an
+active constant of an allosteric mechanism."""
+function _column_parameter(m::_AnyMech, flat, c::_Column)
+    s, g = flat[c.step]
+    state = m isa Mechanism ? :None : c.inactive ? :I :
+            cat_allo_state(m, g) === :EqualAI ? :EqualAI : :A
+    c.slot == 2 ? Krev(s, state) : is_equilibrium(s) ? Krapid(s, state) : Kfor(s, state)
+end
+
+# ─── Dependents ────────────────────────────────────────────────────────────
+
+"""
+    _dependent_param_exprs(m) -> (dep, indep)
+
+The dependent constants of `m`'s law and its independent ones, from one joint solve
+(`_joint_system`, `_reduce_joint_system`). Every class of constants of the law is
+independent or dependent, under the name of its kept member (`_kept_members`):
+
+- `indep` holds the classes whose kept column is not a pivot, sorted by name (`isless`
+  on the strings, so `K_…` precedes `k_…`); an allosteric mechanism's list continues with
+  its regulator constants (`_kreg_params`: active, then inactive, site by site) and `L`.
+- `dep` maps each class whose kept column is a pivot to `Keq^q · Π independent^e` with
+  rational exponents (`build_power_expr`); the empty product is `1.0`.
+
+Columns outside the law (an `:OnlyA` step's inactive copy, an inactive copy on a pruned
+form) are eliminated first, so no dependent of the law reads them; a pivot that is not
+its class's kept member equals the kept one and adds no entry. The `Type` method lifts a
+compiled mechanism with `_concrete`.
+"""
+function _dependent_param_exprs(m::_AnyMech)
+    sys = _joint_system(m)
+    M, pivots = _reduce_joint_system(sys.A, sys.rhs)
+    n = length(sys.columns)
+    names = [name(_column_parameter(m, sys.flat, c), m) for c in sys.columns]
+    class(c) = _class(c, sys.flat[c.step][2], sys.tags[sys.flat[c.step][2]])
+    last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
+    kept_in_law(i) = (c = sys.columns[i];
+                      (!c.inactive || sys.law[c.step]) && last_of[class(c)] == i)
+    free = setdiff(1:n, pivots)
+    dep = Dict{Symbol, Union{Symbol, Expr, Float64}}()
+    for (r, p) in enumerate(pivots)
+        kept_in_law(p) || continue
+        factors = [(names[f], -M[r, f]) for f in free if !iszero(M[r, f])]
+        dep[names[p]] = build_power_expr(M[r, n + 1], factors)
+    end
+    indep = sort!([names[f] for f in free if kept_in_law(f)]; by = string)
+    m isa Mechanism && return dep, Tuple(indep)
+    reg = Symbol[name(p, m) for p in [_kreg_params(m, :A); _kreg_params(m, :I)]]
+    dep, Tuple([indep; reg; :L])
+end
+
+_dependent_param_exprs(@nospecialize(M::Type{<:AbstractEnzymeMechanism})) =
+    _dependent_param_exprs(_concrete(M()))
+
+"""Number of independent (fitted) constants of a concrete mechanism, from the joint solve,
+without compiling the mechanism."""
+_independent_param_count(m::_AnyMech) = length(_dependent_param_exprs(m)[2])

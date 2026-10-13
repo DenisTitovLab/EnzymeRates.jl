@@ -217,7 +217,7 @@ in the default environment once: `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
 All `Parameter → Symbol` rendering flows through the `name(p, m)` chokepoint; the AST-walker testset `chokepoint: no Symbol("[KkVL]...") outside parameter-name renderers` in `test/test_types.jl` fails the build on any stray `Symbol("K…")`/`Symbol("k…")`/`Symbol("V…")`/`Symbol("L…")` literal outside a parameter-name renderer.
 
 ### Canonical Step Form (load-bearing guard)
-Step direction, step order, and group order are canonicalized in the `Step` and `Mechanism`/`AllostericMechanism` constructors. This is **load-bearing, not cosmetic**: the Haldane/Wegscheider reduction picks dependent parameters by step order, so `fitted_params` and the reduced rate equation depend on it; structural deduplication (`unique!`) works by pure `==`/`hash` only because construction is canonical. Do not relax or reorder this without reading the Developer page in the docs.
+Step direction, step order, and group order are canonicalized in the `Step` and `Mechanism`/`AllostericMechanism` constructors. This is **load-bearing, not cosmetic**: structural deduplication (`unique!`) works by pure `==`/`hash` only because construction is canonical, and every constant is named after the stored sides of its class's kept member. The joint solve (`src/thermo.jl`) picks dependent parameters by a fixed content priority (`_priority_key`), so `fitted_params` and the rate equation do not depend on step order, step direction or group labels; renaming a metabolite can still change which tied constant is dependent. Do not relax or reorder this without reading the Developer page in the docs.
 
 
 

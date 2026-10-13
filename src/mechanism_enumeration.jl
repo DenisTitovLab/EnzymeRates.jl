@@ -1048,9 +1048,9 @@ rejected set are the all-RE groups sharing a rapid-equilibrium segment with any
 step of the split groups: a tie needs an RE cycle through the carve, and every
 group on that cycle lies in that segment. The count is evaluated without building the child
 for a `Mechanism` (`_partition_independent_count`, cycle basis once per parent)
-and by the combined state solve on the built child for an `AllostericMechanism`,
+and by the joint solve on the built child for an `AllostericMechanism`,
 where a candidate the constructor would reject (`_onlya_haldane_violation`) is not built
-and, like a count the derivation refuses as too large, gains nothing (`_split_gain_test`).
+and gains nothing (`_split_gain_test`).
 A candidate the constructor would reject also takes as partners the units of every
 `:OnlyA` group: only a split of an `:OnlyA` group changes that check, and the split that
 balances the candidate's cycle may share no rapid-equilibrium segment with it.
@@ -1136,7 +1136,8 @@ end
 
 """
 Gain test of the split move for an allosteric mechanism, which counts each candidate on the
-built child. The `AllostericMechanism` constructor rejects a candidate whose `:OnlyA`
+built child by the joint solve (`_independent_param_count`); it derives no rate
+polynomial. The `AllostericMechanism` constructor rejects a candidate whose `:OnlyA`
 binding leaves a thermodynamic cycle unsatisfiable, and a split can make one: the check
 leaves out an `:OnlyA` group that holds a fused binding but keeps a part of it that holds
 only plain bindings. Each candidate's groups and tags therefore go through the constructor's
@@ -1145,32 +1146,17 @@ nothing, and the search extends it like any set that does not gain and also by t
 of every `:OnlyA` group (`balancers`, the second function returned): only a split of an
 `:OnlyA` group changes the check, and splitting another `:OnlyA` group on the cycle can
 balance it, so a superset may be a valid child even when that group is steady state or
-lies in another rapid-equilibrium segment, outside the usual partners. The count
-reads both conformations' rate polynomials when a Wegscheider tie folds a constant, and the
-derivation refuses a law over `MAX_RATE_EQUATION_TERMS` (`RateEquationTooLargeError`). A
-refused count gains nothing: its candidate is not emitted, and the search extends it like
-any set that does not gain. When the parent's own count is refused, nothing gains. A split
-moves no step, and a part it turns to rapid equilibrium never raises a state's term count
-(V×τ), so counts are refused only below a parent whose own law is over the limit, which
-`identify_rate_equation` never fits or expands.
+lies in another rapid-equilibrium segment, outside the usual partners.
 """
 function _split_gain_test(am::AllostericMechanism, units)
-    count_or_nothing(c) = try
-        _independent_param_count(c)
-    catch e
-        e isa RateEquationTooLargeError || rethrow()
-        nothing
-    end
-    base = count_or_nothing(am)
-    base === nothing && return (_ -> false, _ -> ())
+    base = _independent_param_count(am)
     rejected = Set{Vector{Int}}()
     function gains(sel)
         groups, origin = _bipartitioned_groups(steps(am), units[sel])
         states = cat_allo_states(am)[origin]
         _onlya_haldane_violation(reaction(am), groups, states) === nothing ||
             (push!(rejected, sel); return false)
-        n = count_or_nothing(_with(am; groups, states))
-        n !== nothing && n > base
+        _independent_param_count(_with(am; groups, states)) > base
     end
     onlya = [u for (u, (g, _)) in enumerate(units) if cat_allo_state(am, g) === :OnlyA]
     gains, sel -> sel in rejected ? onlya : ()
@@ -1389,16 +1375,15 @@ mirror is steady-state. The gauge is the proof that the copy's constant is invis
 without it the constant may be identifiable. Two copies that are twins only of each other,
 neither pinned, pass the test and carry a phantom: the rule admits them.
 
-An allosteric copy binds the active state always and the inactive state unless its tag
-is `:OnlyA`. The inactive state's graph is that of `_state_mechanism(am, :I)`: the steps
-of the non-`:OnlyA` groups between forms reachable from the free enzyme
-(`_inactive_groups`). The copy binds there only at the sites that graph keeps, and a
-free-enzyme site is always among them. In a state where the copy binds nothing, every
-factor of that state is 1. The two states form one system. A group tagged `:EqualAI`
-has one set of constants in both, so it must take the same rescaling in each. A shared
-class is one number in both states only when its binding group and the copy are both
-`:EqualAI` (one K_h, one K*). The copy's complexes share one factor in both states when
-the copy is `:EqualAI` (one K*). Every other class is a number per state.
+An allosteric copy binds the active state always and the inactive state unless its tag is
+`:OnlyA`. The inactive state's graph is `_inactive_groups(am)`: the steps of the
+non-`:OnlyA` groups between forms reachable from the free enzyme. The copy binds there only
+at the sites that graph keeps, and a free-enzyme site is always among them. In a state where
+the copy binds nothing, every factor of that state is 1. The two states form one system. A
+group tagged `:EqualAI` has one set of constants in both, so it must take the same rescaling
+in each. A shared class is one number in both states only when its binding group and the
+copy are both `:EqualAI` (one K_h, one K*). The copy's complexes share one factor in both
+states when the copy is `:EqualAI` (one K*). Every other class is a number per state.
 """
 function _redundant_copy_groups(m::Union{Mechanism, AllostericMechanism})
     active = steps(m)

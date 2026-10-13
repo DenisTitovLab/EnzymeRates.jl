@@ -2651,17 +2651,16 @@ end
     @test _testhelper_fitted(m) == _testhelper_identifiable_rank(m)
 end
 
-@testset "AllostericMechanism — a split whose count needs a law over the term cap" begin
+@testset "AllostericMechanism — the split count of a law over the term cap" begin
     # Merged random-order ter-bi with the abortive complexes E(B, P) and E(A, B, P). Every
     # steady-state binding sits alone in its group except the A bindings at E(B) and
     # E(B, P), and the active state has more denominator terms than
     # MAX_RATE_EQUATION_TERMS. Splitting the P group by A leaves E(A, B) + P alone, and the
     # square E(B), E(A, B), E(A, B, P), E(B, P), closed by the shared A group, ties its K
-    # to the other part's. Counting that child means folding the tie, which reads both
-    # conformations' rate polynomials, and the derivation refuses a law that large: the
-    # split gains nothing and is not emitted. The move still emits the two splits it can
-    # count, the P group by B and the A group by P, and expand_mechanisms keeps them beside
-    # the other moves' children.
+    # to the other part's: the joint solve counts that child, which derives no rate
+    # polynomial, at the parent's count, so the split gains nothing and is not emitted.
+    # The move emits the two splits that gain, the P group by B and the A group by P, and
+    # expand_mechanisms keeps them beside the other moves' children.
     am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B, D
         products: P, Q
@@ -2749,7 +2748,12 @@ end
     end)
     @test EnzymeRates._eq_complexity(am) >
           EnzymeRates.MAX_RATE_EQUATION_TERMS
-    @test_throws "polynomial terms" EnzymeRates._independent_param_count(p_by_a)
+    @test EnzymeRates._independent_param_count(p_by_a) ==
+          EnzymeRates._independent_param_count(am)
+    # The count derives no law; deriving the law itself still refuses one this large.
+    em_p_by_a = EnzymeRates.compile_mechanism(p_by_a)
+    @test_throws EnzymeRates.RateEquationTooLargeError rate_equation_string(em_p_by_a)
+    @test_throws "polynomial terms" rate_equation_string(em_p_by_a)
     kids = EnzymeRates._expand_split_kinetic_group(am)
     @test length(kids) == 2
     @test Set(kids) == Set([p_by_b, a_by_p])
@@ -2758,13 +2762,13 @@ end
           Set([others; p_by_b; a_by_p])
 end
 
-@testset "AllostericMechanism — a parent whose count needs a law over the term cap" begin
+@testset "AllostericMechanism — a parent over the term cap splits by its count" begin
     # Merged random-order ter-bi over MAX_RATE_EQUATION_TERMS whose P group is split by A:
     # E(A, B) + P sits alone, its K tied to the other part's by the square E(B), E(A, B),
-    # E(A, B, P), E(B, P) that the shared A group closes. Its own count must fold the tie,
-    # which reads both conformations' rate polynomials, and the derivation refuses a law
-    # that large. No split can be weighed against a refused count, so the move emits none,
-    # and expand_mechanisms keeps the other moves' children.
+    # E(A, B, P), E(B, P) that the shared A group closes. The joint solve counts the parent
+    # without deriving its law, so the move weighs every split against that count: the A
+    # group split by P and the remaining P group split by B gain, and expand_mechanisms
+    # keeps them beside the other moves' children.
     am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B, D
         products: P, Q
@@ -2786,10 +2790,64 @@ end
             E + Q <--> E(Q)                                         :: EqualAI
         end
     end)
-    @test_throws "polynomial terms" EnzymeRates._independent_param_count(am)
-    @test isempty(EnzymeRates._expand_split_kinetic_group(am))
+    a_by_p = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q
+        catalytic_steps: begin
+            E + A <--> E(A)                                         :: OnlyA
+            E(B) + A <--> E(A, B)                                   :: OnlyA
+            E(B, P) + A <--> E(A, B, P)                             :: OnlyA
+            E(D) + A <--> E(A, D)                                   :: OnlyA
+            E(B, D) + A <--> E(P, Q)                                :: OnlyA
+            E + B <--> E(B)                                         :: OnlyA
+            E(A) + B <--> E(A, B)                                   :: OnlyA
+            E(D) + B <--> E(B, D)                                   :: OnlyA
+            E(A, D) + B <--> E(P, Q)                                :: OnlyA
+            E + D <--> E(D)                                         :: OnlyA
+            E(A) + D <--> E(A, D)                                   :: OnlyA
+            E(B) + D <--> E(B, D)                                   :: OnlyA
+            E(A, B) + D <--> E(P, Q)                                :: OnlyA
+            E(A, B) + P ⇌ E(A, B, P)                                :: OnlyA
+            (E(B) + P ⇌ E(B, P), E(Q) + P ⇌ E(P, Q))                :: OnlyA
+            E + Q <--> E(Q)                                         :: EqualAI
+        end
+    end)
+    p_by_b = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q
+        catalytic_steps: begin
+            E + A <--> E(A)                                         :: OnlyA
+            (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))    :: OnlyA
+            E(D) + A <--> E(A, D)                                   :: OnlyA
+            E(B, D) + A <--> E(P, Q)                                :: OnlyA
+            E + B <--> E(B)                                         :: OnlyA
+            E(A) + B <--> E(A, B)                                   :: OnlyA
+            E(D) + B <--> E(B, D)                                   :: OnlyA
+            E(A, D) + B <--> E(P, Q)                                :: OnlyA
+            E + D <--> E(D)                                         :: OnlyA
+            E(A) + D <--> E(A, D)                                   :: OnlyA
+            E(B) + D <--> E(B, D)                                   :: OnlyA
+            E(A, B) + D <--> E(P, Q)                                :: OnlyA
+            E(A, B) + P ⇌ E(A, B, P)                                :: OnlyA
+            E(B) + P ⇌ E(B, P)                                      :: OnlyA
+            E(Q) + P ⇌ E(P, Q)                                      :: OnlyA
+            E + Q <--> E(Q)                                         :: EqualAI
+        end
+    end)
+    @test EnzymeRates._eq_complexity(am) > EnzymeRates.MAX_RATE_EQUATION_TERMS
+    @test EnzymeRates._independent_param_count(am) == 22
+    @test EnzymeRates._independent_param_count(a_by_p) == 24
+    @test EnzymeRates._independent_param_count(p_by_b) == 23
+    # The test's own count of each model's dimension, which derives no law either.
+    for x in (am, a_by_p, p_by_b)
+        @test EnzymeRates._independent_param_count(x) == _testhelper_declared_dimension(x)
+    end
+    kids = EnzymeRates._expand_split_kinetic_group(am)
+    @test length(kids) == 2
+    @test Set(kids) == Set([a_by_p, p_by_b])
     others = [EnzymeRates._expand_re_to_ss(am); EnzymeRates._expand_change_allo_state(am)]
-    @test Set(EnzymeRates.expand_mechanisms([am], EnzymeRates.reaction(am))) == Set(others)
+    @test Set(EnzymeRates.expand_mechanisms([am], EnzymeRates.reaction(am))) ==
+          Set([others; a_by_p; p_by_b])
 end
 
 @testset "AllostericMechanism — a split the constructor would reject gains nothing" begin
@@ -3057,6 +3115,109 @@ end
     # Both verdicts must occur for the agreement to mean anything.
     @test accepted > 1000 && rejected > 100
     @test all(am -> EnzymeRates._expand_split_kinetic_group(am) isa Vector, parents)
+end
+
+@testset "AllostericMechanism — an :EqualAI group counts once across conformations" begin
+    # Bi-bi with A bound before B, P and Q released in either order, and the abortive
+    # complexes E(A, P) and E(B, Q); the A group and the chemistry are :OnlyA. The
+    # inactive conformation binds no A, so of the :EqualAI B group it reaches only
+    # E(Q) + B, yet the B constant is one class in both conformations: the parent fits six
+    # constants, its dimension. Splitting the B group gains one, since E(B, Q) lies on no
+    # cycle. The square E, E(A), E(A, P), E(P), closed by the shared A and P groups, ties
+    # back the split of either group by the other, and the square E, E(P), E(P, Q), E(Q)
+    # does the same for the P and Q groups, so splitting the P group by A or by Q gains
+    # nothing alone; with the A or the Q group split too, it gains one. The move emits
+    # those three children, each fitting as many constants as its dimension.
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))                          :: OnlyA
+            (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(Q) + P ⇌ E(P, Q))      :: EqualAI
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))                          :: EqualAI
+            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))                    :: EqualAI
+            E(A, B) <--> E(P, Q)                                        :: OnlyA
+        end
+    end)
+    b_by_q = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))                          :: OnlyA
+            (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(Q) + P ⇌ E(P, Q))      :: EqualAI
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))                          :: EqualAI
+            E(A) + B ⇌ E(A, B)                                          :: EqualAI
+            E(A, B) <--> E(P, Q)                                        :: OnlyA
+            E(Q) + B ⇌ E(B, Q)                                          :: EqualAI
+        end
+    end)
+    a_by_p_and_p_by_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A ⇌ E(A)                                                :: OnlyA
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))                          :: EqualAI
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))                          :: EqualAI
+            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))                    :: EqualAI
+            E(A) + P ⇌ E(A, P)                                          :: EqualAI
+            E(A, B) <--> E(P, Q)                                        :: OnlyA
+            E(P) + A ⇌ E(A, P)                                          :: OnlyA
+        end
+    end)
+    q_by_p_and_p_by_q = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))                          :: OnlyA
+            (E + P ⇌ E(P), E(A) + P ⇌ E(A, P))                          :: EqualAI
+            E + Q ⇌ E(Q)                                                :: EqualAI
+            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))                    :: EqualAI
+            E(A, B) <--> E(P, Q)                                        :: OnlyA
+            E(P) + Q ⇌ E(P, Q)                                          :: EqualAI
+            E(Q) + P ⇌ E(P, Q)                                          :: EqualAI
+        end
+    end)
+    p_by_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))                          :: OnlyA
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))                          :: EqualAI
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))                          :: EqualAI
+            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))                    :: EqualAI
+            E(A) + P ⇌ E(A, P)                                          :: EqualAI
+            E(A, B) <--> E(P, Q)                                        :: OnlyA
+        end
+    end)
+    p_by_q = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))                          :: OnlyA
+            (E + P ⇌ E(P), E(A) + P ⇌ E(A, P))                          :: EqualAI
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))                          :: EqualAI
+            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))                    :: EqualAI
+            E(A, B) <--> E(P, Q)                                        :: OnlyA
+            E(Q) + P ⇌ E(P, Q)                                          :: EqualAI
+        end
+    end)
+    kids = EnzymeRates._expand_split_kinetic_group(am)
+    @test length(kids) == 3
+    @test Set(kids) == Set([b_by_q, a_by_p_and_p_by_a, q_by_p_and_p_by_q])
+    @test !(p_by_a in kids)
+    @test !(p_by_q in kids)
+    # The test's own count of each model's dimension, which derives no law.
+    for (x, n) in ((am, 6), (b_by_q, 7), (a_by_p_and_p_by_a, 7), (q_by_p_and_p_by_q, 7),
+                   (p_by_a, 6), (p_by_q, 6))
+        @test EnzymeRates._independent_param_count(x) ==
+              _testhelper_declared_dimension(x) == n
+    end
 end
 
 end
@@ -6898,7 +7059,7 @@ allo_mechs = EnzymeRates._expand_to_allosteric(m_seed, uni_uni_allo_reg)
 # tagged :NonequalAI those names do appear, so the first assertion can fail.
 function _testhelper_test_no_inactive_constants(am, g)
     i_names = EnzymeRates.name.(
-        EnzymeRates._step_constants(EnzymeRates._group_reps(am)[g], :I), Ref(am))
+        EnzymeRates._step_constants(first(EnzymeRates.steps(am)[g]), :I), Ref(am))
     @test isempty(intersect(i_names, parameters(EnzymeRates.compile_mechanism(am))))
     nonequal = EnzymeRates._with(am;
         states = replace(EnzymeRates.cat_allo_states(am), :OnlyA => :NonequalAI))
@@ -8928,9 +9089,9 @@ end
             append!(mechs, level)
         end
         unique!(mechs)
-        derived = Dict{Tuple{Symbol, EnzymeRates.Mechanism}, Bool}()
+        derived = Dict{Tuple{Symbol, Vector{Vector{EnzymeRates.Step}}}, Bool}()
         _testhelper_state_hyperbolic(m, state) = get!(
-            derived, (state, EnzymeRates._state_mechanism(m, state))) do
+            derived, (state, EnzymeRates._state_groups(m, state))) do
             hyperbolic(EnzymeRates._state_rate_polys(m, state)[2], mets)
         end
         for m in mechs
@@ -11585,15 +11746,11 @@ end
 end
 
 @testset "to_allosteric shares :EqualAI downstream constants across conformations" begin
-    # An inactive-conformation graph (`_state_mechanism(am, :I)`) drops each
-    # `:OnlyA` binding step, so that ligand's downstream complex loses its
-    # binding-in edge and is reached only by conformational flip / reverse
-    # catalysis. It is still a bound form, never free enzyme, so `_free_enz_set`
-    # excludes it — keeping a lumped `:EqualAI` group's naming rep identical in
-    # both conformations. Without that exclusion the inactive-state rep flips
-    # (e.g. `K_ELactateNADH_to_ENADH_Lactate` vs the active-state
-    # `K_ELactateNAD_to_ENAD_Lactate`), un-lumping a shared constant so the combined
-    # solve fails to merge it and over-counts.
+    # The inactive conformation drops each `:OnlyA` binding step, so that ligand's
+    # downstream complex is reached only by conformational flip or reverse catalysis.
+    # A lumped `:EqualAI` group is one class in both conformations, named after the
+    # kept member of the full mechanism, so the inactive conformation cannot give it a
+    # second name and the joint solve counts it once.
     #
     # `_expand_to_allosteric` emits dead-inactive `:OnlyA`-binding combos (all
     # chemical steps `:OnlyA`), so the case this guards is the child that sets

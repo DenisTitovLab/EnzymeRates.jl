@@ -266,11 +266,9 @@ function _rows_to_dataframe(rows)
 end
 
 """
-Equation-identity key: the rendered rate-equation string with provenance
-removed — `# …` header lines and Wegscheider `(substituted into v)` lines
-(the choice of which dependent K was eliminated is cosmetic; it is already
-substituted into v). Two mechanisms with the same key compute the identical
-rate function. Used as a CSV tag and the LOOCV distinct-equation key.
+Equation-identity key: the rendered rate-equation string without its `# …` header
+lines. Two mechanisms with the same key compute the identical rate function. Used as a
+CSV tag and the LOOCV distinct-equation key.
 
 Exact-render identity only: it hashes the (provenance-stripped) equation string
 verbatim, so it detects textually identical equations, not algebraic equivalence.
@@ -278,7 +276,7 @@ verbatim, so it detects textually identical equations, not algebraic equivalence
 function _rate_eq_dedup_key(eq_text::AbstractString)
     kept = Iterators.filter(split(eq_text, '\n')) do ln
         l = strip(ln)
-        !startswith(l, "#") && !occursin(ANNOTATION_SUBSTITUTED, l)
+        !startswith(l, "#")
     end
     hash(join(kept, '\n'))
 end

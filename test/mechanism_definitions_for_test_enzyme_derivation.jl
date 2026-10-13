@@ -22,9 +22,7 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
 
     # Constraint expectations
     expected_n_haldane_constraints::Int       # RHS references Keq (catalytic-cycle closure)
-    expected_n_mirror_constraints::Int = 0    # RHS is a single Symbol (allosteric :EqualAI rename)
-    # NOTE: largely vestigial under structural naming — mostly 0, only nonzero for :EqualAI
-    # reg ligands; candidate for repurposing-or-removal in the structural-naming cleanup.
+    expected_n_mirror_constraints::Int = 0    # RHS is a single Symbol: a tie K_a = K_b
     expected_n_wegscheider_constraints::Int = 0   # RHS Expr without Keq (multi-cycle futile-cycle closure)
     expected_n_independent_params::Int        # 2*n_steps - n_constraints
 
@@ -1572,6 +1570,7 @@ let
         expected_n_states=5,
         expected_n_steps=6,
         expected_n_haldane_constraints=1,
+        expected_n_mirror_constraints=1,
         expected_n_independent_params=4,
         analytical_rate_fn=(p, c) -> _testhelper_rate_noncompetitive_inh(
             merge(p, (Et=p.Et,)), c),
@@ -1579,7 +1578,7 @@ let
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
         expected_factored_denom=
         "1 + P / K_EP_to_E_P + R / K_ERinh_to_E_Rinh + S / K_ES_to_E_S" *
-        " + R * S / (K_ERinh_to_E_Rinh * K_ES_to_E_S)",
+        " + R * S / (K_ERinhS_to_ERinh_S * K_ERinh_to_E_Rinh)",
     ))
 end
 
@@ -1714,14 +1713,15 @@ let
         expected_n_states=6,
         expected_n_steps=9,
         expected_n_haldane_constraints=2,
+        expected_n_mirror_constraints=2,
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) -> _testhelper_rate_nonessential_activator(
             merge(p, (Et=p.Et,)), c),
         analytical_kcat_fn=p -> max(p.k2f, p.k5f),
         expected_factored_num=
-        "k_ES_to_EP * S / K_ES_to_E_S + k_ERinhS_to_EPRinh * R * S / (K_ERinh_to_E_Rinh * K_ES_to_E_S) - (k_EP_to_ES * P / K_EP_to_E_P + k_EPRinh_to_ERinhS * P * R / (K_EP_to_E_P * K_ERinh_to_E_Rinh))",
+        "k_ES_to_EP * S / K_ES_to_E_S + k_ERinhS_to_EPRinh * R * S / (K_ERinhS_to_ERinh_S * K_ERinh_to_E_Rinh) - (k_EP_to_ES * P / K_EP_to_E_P + k_EPRinh_to_ERinhS * P * R / (K_EP_to_E_P * K_ERinh_to_E_Rinh))",
         expected_factored_denom=
-        "1 + P / K_EP_to_E_P + R / K_ERinh_to_E_Rinh + S / K_ES_to_E_S + P * R / (K_EP_to_E_P * K_ERinh_to_E_Rinh) + R * S / (K_ERinh_to_E_Rinh * K_ES_to_E_S)",
+        "1 + P / K_EP_to_E_P + R / K_ERinh_to_E_Rinh + S / K_ES_to_E_S + P * R / (K_EP_to_E_P * K_ERinh_to_E_Rinh) + R * S / (K_ERinhS_to_ERinh_S * K_ERinh_to_E_Rinh)",
     ))
 end
 
@@ -1773,6 +1773,7 @@ let
         expected_n_states=7,
         expected_n_steps=10,
         expected_n_haldane_constraints=2,
+        expected_n_mirror_constraints=2,
         expected_n_independent_params=6,
         analytical_rate_fn=(p, c) ->
             _testhelper_rate_activator_inhibitor(
@@ -1780,9 +1781,9 @@ let
         # Denom has both multiplicative (activator) and additive
         # (inhibitor) structure
         expected_factored_num=
-        "k_ES_to_EP * S / K_ES_to_E_S + k_EAinhS_to_EAinhP * A * S / (K_EAinh_to_E_Ainh * K_ES_to_E_S) - (k_EP_to_ES * P / K_EP_to_E_P + k_EAinhP_to_EAinhS * A * P / (K_EAinh_to_E_Ainh * K_EP_to_E_P))",
+        "k_ES_to_EP * S / K_ES_to_E_S + k_EAinhS_to_EAinhP * A * S / (K_EAinhS_to_EAinh_S * K_EAinh_to_E_Ainh) - (k_EP_to_ES * P / K_EP_to_E_P + k_EAinhP_to_EAinhS * A * P / (K_EAinhP_to_EAinh_P * K_EAinh_to_E_Ainh))",
         expected_factored_denom=
-        "1 + A / K_EAinh_to_E_Ainh + I / K_EIinh_to_E_Iinh + P / K_EP_to_E_P + S / K_ES_to_E_S + A * P / (K_EAinh_to_E_Ainh * K_EP_to_E_P) + A * S / (K_EAinh_to_E_Ainh * K_ES_to_E_S)",
+        "1 + A / K_EAinh_to_E_Ainh + I / K_EIinh_to_E_Iinh + P / K_EP_to_E_P + S / K_ES_to_E_S + A * P / (K_EAinhP_to_EAinh_P * K_EAinh_to_E_Ainh) + A * S / (K_EAinhS_to_EAinh_S * K_EAinh_to_E_Ainh)",
     ))
 end
 
@@ -2391,7 +2392,6 @@ let
         expected_n_states=7,
         expected_n_steps=9,
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=1,
         expected_n_independent_params=12,
         run_ode_test=false,
         analytical_rate_fn=_testhelper_pfk_rate_analytical,
@@ -2520,7 +2520,6 @@ let
         expected_n_states=10,    # 7 catalytic-cycle + 3 G6Pi dead-end
         expected_n_steps=14,     # 3+2+1+3+2+3
         expected_n_haldane_constraints=1,
-        expected_n_mirror_constraints=1,
         expected_n_independent_params=9,
         run_ode_test=false,
         analytical_rate_fn=_testhelper_hk_rate_analytical,
@@ -2700,8 +2699,7 @@ let
         expected_n_states=7,
         expected_n_steps=9,
         expected_n_haldane_constraints=2,
-        # structural naming: :EqualAI catalytic groups share one symbol (no rename); only :EqualAI reg ligands emit a mirror
-        expected_n_mirror_constraints=1,
+        # :EqualAI catalytic groups and regulator ligands each take one bare name: no mirror
         expected_n_independent_params=12,
         run_ode_test=false,
         analytical_rate_fn=_testhelper_m_all_rate_analytical,

@@ -260,8 +260,3 @@ end
 
 """Whether the expression mentions the symbol `s`."""
 _mentions(ex, s::Symbol) = ex === s || (ex isa Expr && any(a -> _mentions(a, s), ex.args))
-
-# ─── AllostericEnzymeMechanism POLY helpers ──────────────────────
-
-"""Set of every Symbol appearing in any monomial of a POLY (params + metabolites)."""
-_poly_param_syms(p::POLY) = Set{Symbol}(s for mono in keys(p) for (s, _) in mono)

@@ -2619,14 +2619,6 @@ end
         # contradicts the third row's -y1 - y2 > 0.
         @test !ER._has_strict_positive_combination(R[1 0; 0 1; -1 -1])
     end
-
-    @testset "_solve_dependent_set rejects a contradictory system" begin
-        # The rows x = 0 and x = log(Keq) subtract to 0 = log(Keq): the reduced
-        # [A rhs] pivots in the rhs column, which no parameter value satisfies.
-        err = @test_throws ErrorException ER._solve_dependent_set(
-            reshape(R[1, 1], 2, 1), R[0, 1], [:K_x], [(false, 0)])
-        @test occursin("Thermodynamically contradictory mechanism", err.value.msg)
-    end
 end
 
 @testset "the naming cache never changes a mechanism's identity" begin
@@ -2660,11 +2652,11 @@ end
                                           EnzymeRates.catalytic_multiplicity(am1),
                                           copy(EnzymeRates.regulatory_sites(am1)))
     # Naming every parameter fills the mechanism's naming cache.
-    _testhelper_param_names(m::EnzymeRates.Mechanism) =
-        [EnzymeRates.name(p, m) for p in EnzymeRates._enumerate_parameters_full(m)]
-    _testhelper_param_names(m::EnzymeRates.AllostericMechanism) = [EnzymeRates.name(p, m)
-        for state in (:A, :I)
-        for p in [EnzymeRates._cat_params(m, state); EnzymeRates._kreg_params(m, state)]]
+    _testhelper_param_names(m::EnzymeRates.Mechanism) = EnzymeRates._step_names(m, :None)
+    _testhelper_param_names(m::EnzymeRates.AllostericMechanism) =
+        [[EnzymeRates._step_names(m, state) for state in (:A, :I)];
+         [[EnzymeRates.name(p, m)] for state in (:A, :I)
+          for p in EnzymeRates._kreg_params(m, state)]]
     # `rebuilt` is `m` constructed again from its fields, with an empty cache.
     function _testhelper_check_identity(m, rebuilt)
         shown = repr(m)

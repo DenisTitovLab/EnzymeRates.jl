@@ -185,10 +185,9 @@ function _testhelper_positional_params(m, nt::NamedTuple;
 
     flat_idx = _testhelper_positional_flat_idx(mech, source_steps)
 
-    fes = EnzymeRates._free_enz_set(mech)
     for (g, group) in enumerate(EnzymeRates.steps(mech))
         gidx = flat_idx[g]
-        rep = EnzymeRates._group_rep(group, fes)
+        rep = first(group)
         cat_st = is_allo ? EnzymeRates.cat_allo_state(mech, g) : :None
         # Determine which active-branch state token to pass to name()
         act_st = (cat_st === :EqualAI || cat_st === :None) ? cat_st : :A
@@ -250,14 +249,9 @@ function _testhelper_positional_params(m, nt::NamedTuple;
                 act_pos = Symbol("K_", lig_str, "_reg", site_idx)
                 ina_pos = Symbol("K_", lig_str, "_T_reg", site_idx)
                 if tag === :EqualAI
-                    # EqualAI emits K_A_<lig>reg as the independent name (with
-                    # K_I_<lig>reg as a Haldane-derived dep equal to it). We look
-                    # up whichever of the two is present in nt.
-                    struct_key_a = EnzymeRates.name(
-                        EnzymeRates.Kreg(site, lig, :A), mech)
-                    struct_key_i = EnzymeRates.name(
-                        EnzymeRates.Kreg(site, lig, :I), mech)
-                    struct_key = haskey(nt, struct_key_a) ? struct_key_a : struct_key_i
+                    # An :EqualAI ligand has one bare constant in both conformations.
+                    struct_key = EnzymeRates.name(
+                        EnzymeRates.Kreg(site, lig, :EqualAI), mech)
                     if haskey(nt, struct_key)
                         push!(names, act_pos); push!(vals, nt[struct_key])
                     end
@@ -403,20 +397,13 @@ For RE isomerization steps (no metabolite, enzyme-only):
 function _testhelper_raw_to_ode_params(m, raw_params)
     mech = m isa EnzymeRates.Mechanism ? m : EnzymeRates.Mechanism(m)
     flat = EnzymeRates._flat_steps(mech)
-    # Kinetic-group rename map: maps Wegscheider-equivalent RE binding K names
-    # (e.g. K_ERinhS_to_ERinh_S → K_ES_to_E_S) so the param lookup succeeds even when the
-    # mechanism has sharing via Wegscheider constraints.
-    rename = EnzymeRates._build_wegscheider_rename_map(mech)
     # A canonical RE binding step has a metabolite on LHS (canonical form
     # invariant: all RE binding steps are written `E + S ⇌ ES`).
     is_binding_step = Bool[
         EnzymeRates.is_equilibrium(s) && !isempty(EnzymeRates.consumed(s))
         for (s, _) in flat
     ]
-    # Resolve a structural param key through the rename map if not present
-    _testhelper_lookup(k) = haskey(raw_params, k) ? Float64(raw_params[k]) :
-                            haskey(rename, k) ? Float64(raw_params[rename[k]]) :
-                            error("_testhelper_raw_to_ode_params: missing param $k")
+    _testhelper_lookup(k) = Float64(raw_params[k])
     param_keys = Symbol[]
     param_vals = Float64[]
     for (i, (step, g)) in enumerate(flat)
@@ -551,7 +538,7 @@ end
 # is the value.
 function _testhelper_eval_rate_string(s, params, concs)
     code = "let params = $params, concs = $concs\n" *
-           replace(s, EnzymeRates.ANNOTATION_SUBSTITUTED => "") * "\nend"
+           s * "\nend"
     eval(Meta.parse(code))
 end
 
@@ -642,8 +629,8 @@ function _testhelper_test_constraint_counting(spec::_testhelper_MechanismTestSpe
         # A dependent (Haldane/Wegscheider-derived) parameter must never appear in
         # the independent set returned as fitted_params. The LDH i-state specs have a
         # shared :EqualAI catalytic reverse rate that is Haldane-dependent in the
-        # A-state while the dead I-state references it unpinned — the exact leak the
-        # uniform dep-filter closes.
+        # A-state and that the dead I-state's law reads too: one class in both
+        # conformations, so one dependent.
         @test _testhelper_dep_graph_is_sound(dep_exprs, indep)
         n_haldane = 0
         n_mirror = 0
@@ -1284,7 +1271,7 @@ function _testhelper_undefined_rhs_symbols(s::AbstractString)
     defined = Set{Symbol}()
     referenced = Set{Symbol}()
     for raw in split(s, '\n')
-        line = replace(raw, EnzymeRates.ANNOTATION_SUBSTITUTED => "")
+        line = raw
         stripped = strip(line)
         (isempty(stripped) || startswith(stripped, "#")) && continue
         if occursin("= params", line) || occursin("= concs", line)
@@ -1527,10 +1514,10 @@ end
     end
 end
 
-@testset "rate_equation_string marks only the ties folded into v as substituted" begin
+@testset "rate_equation_string prints every tie as a constraint line" begin
     # A binds E and E(B) under one constant while B's two bindings keep their own, so
-    # the RE binding square ties B's two dissociation constants. The tie joins two
-    # binding K's, so the Wegscheider rename folds it into v.
+    # the RE binding square ties B's two dissociation constants. The occupied binding's
+    # constant is the dependent one, and v reads it.
     folded = @enzyme_mechanism begin
         substrates: A, B
         products: P
@@ -1542,12 +1529,12 @@ end
             E(P) ⇌ E + P
         end
     end
-    @test occursin("\nK_EAB_to_EA_B = K_EB_to_E_B" * ER.ANNOTATION_SUBSTITUTED * "\n",
+    @test occursin("# Wegscheider constraints:\nK_EAB_to_EA_B = K_EB_to_E_B\n",
                    rate_equation_string(folded))
     _testhelper_check_law_against_oracle(folded)
     # S binds E and Estar under one constant, so the square of the two isomerizations
-    # ties their equilibrium constants. The rename folds no isomerization K: v reads
-    # K_E_to_Estar, and the line assigns it.
+    # ties their equilibrium constants; the isomerization between occupied forms is the
+    # dependent one.
     iso_tie = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -1559,7 +1546,7 @@ end
             E(P) ⇌ E + P
         end
     end
-    @test occursin("\nK_E_to_Estar = K_ES_to_EstarS\n", rate_equation_string(iso_tie))
+    @test occursin("\nK_ES_to_EstarS = K_E_to_Estar\n", rate_equation_string(iso_tie))
     _testhelper_check_law_against_oracle(iso_tie)
     # I binding E and I binding Estar share one group and run opposite ways around the
     # cycle, so the Haldane relation fixes the Theorell–Chance constant at Keq; v reads it.
@@ -1592,7 +1579,7 @@ end
         end
     end
     s = rate_equation_string(m)
-    @test occursin(r"\nk_EP_res_\+A_-P_to_EA = .* \* k_EA_to_EP_res_\+A_-P \* ", s)
+    @test occursin(r"\nk_EQ_to_EB_res_\+A_-P = .* \* k_EA_to_EP_res_\+A_-P \* ", s)
     @test !occursin("var\"", s)
     _testhelper_check_law_against_oracle(m)
 end
@@ -2064,11 +2051,9 @@ end
     A_eq, B_eq = 1.5, 2.0
     P_eq = 3.0
     Q_eq = Keq_ro * A_eq * B_eq / P_eq
-    # This degenerate over-parametrized Wegscheider cycle has an ambiguous
-    # independent-parameter basis (which koff is Wegscheider-dependent can
-    # shift). Generate the param values from the mechanism's actual
-    # fitted_params so the Haldane property (zero net rate at equilibrium)
-    # is verified regardless of the basis the derivation selects.
+    # Which koff is Wegscheider-dependent follows the solve's priority. The values
+    # come from the mechanism's own fitted_params, so the Haldane property (zero net
+    # rate at equilibrium) is verified whatever the priority picks.
     fp_ro = EnzymeRates.fitted_params(m_ro)
     rng_ro = Random.MersenneTwister(123)
     p_ro = NamedTuple{(fp_ro..., :Keq, :E_total)}(
@@ -2112,54 +2097,50 @@ end
         end
     end
 
-    @testset "_cat_params and _kreg_params" begin
+    @testset "_step_names and _kreg_params" begin
         names_of(am, params) = [EnzymeRates.name(p, am) for p in params]
-        i_params(am) = [EnzymeRates._cat_params(am, :I); EnzymeRates._kreg_params(am, :I)]
-        # :NonequalAI cat group + :NonequalAI reg ligand → both contribute.
+        flat_names(am, state) = reduce(vcat, EnzymeRates._step_names(am, state))
+        # :NonequalAI cat groups + :NonequalAI reg ligand → both conformations named.
         aem = _testhelper_allo_from_source(
             cm_src, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
             (((:R,), 1, (:NonequalAI,)),),
         )
         am = EnzymeRates.AllostericMechanism(aem)
-        rendered = names_of(am, i_params(am))
-
-        # Catalytic side: every non-:OnlyA group contributes an I-state
-        # parameter (Kd for RE binding, Kfor/Krev for SS).
-        @test :K_I_ES_to_E_S in rendered
-        @test :k_I_ES_to_EP in rendered
-        @test :k_I_EP_to_ES in rendered
-        @test :K_I_EP_to_E_P in rendered
-        # Regulator side: :R is :NonequalAI → K_I_Rreg appears.
-        @test :K_I_Rreg in rendered
-        # Active state: the :EqualAI iso takes its shared untagged names; every other
-        # group and the regulator take A-state names.
-        @test names_of(am, EnzymeRates._cat_params(am, :A)) ==
-              [:K_A_EP_to_E_P, :K_A_ES_to_E_S, :k_ES_to_EP, :k_EP_to_ES]
+        # Catalytic side: every step of the inactive law takes its inactive name, the
+        # :EqualAI iso its one shared name.
+        @test Set(flat_names(am, :I)) ==
+              Set([:K_I_ES_to_E_S, :k_ES_to_EP, :k_EP_to_ES, :K_I_EP_to_E_P])
+        @test Set(flat_names(am, :A)) ==
+              Set([:K_A_ES_to_E_S, :k_ES_to_EP, :k_EP_to_ES, :K_A_EP_to_E_P])
         @test names_of(am, EnzymeRates._kreg_params(am, :A)) == [:K_A_Rreg]
+        @test names_of(am, EnzymeRates._kreg_params(am, :I)) == [:K_I_Rreg]
 
         # Balanced :OnlyA bindings (both S and P) keep the :NonequalAI iso
-        # Haldane-valid — a one-sided :OnlyA binding under a non-:OnlyA iso is
-        # rejected at construction. Both :OnlyA cat groups and the :OnlyA reg
-        # ligand are skipped; the :NonequalAI iso still emits both k params.
+        # Haldane-valid. The inactive conformation keeps no form but E, so its law has
+        # no step and the :OnlyA reg ligand no inactive constant.
         aem_skip = _testhelper_allo_from_source(
             cm_src, (2, (:OnlyA, :NonequalAI, :OnlyA)),
             (((:R,), 1, (:OnlyA,)),),
         )
         am_skip = EnzymeRates.AllostericMechanism(aem_skip)
-        rendered_skip = names_of(am_skip, i_params(am_skip))
-        @test :K_I_ES_to_E_S ∉ rendered_skip    # :OnlyA cat group skipped
-        @test :k_I_ES_to_EP in rendered_skip    # :NonequalAI SS iso emits both
-        @test :k_I_EP_to_ES in rendered_skip
-        @test :K_I_Rreg ∉ rendered_skip    # :OnlyA reg ligand skipped
+        @test isempty(EnzymeRates._step_names(am_skip, :I))
+        @test isempty(EnzymeRates._kreg_params(am_skip, :I))
         @test names_of(am_skip, EnzymeRates._kreg_params(am_skip, :A)) == [:K_A_Rreg]
 
-        # An :OnlyI reg ligand has an I-state Kreg and no A-state one.
+        # An :OnlyI reg ligand has an inactive constant and no active one; an :EqualAI
+        # ligand one bare constant, listed with the active ones.
         am_onlyi = EnzymeRates.AllostericMechanism(_testhelper_allo_from_source(
             cm_src, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
             (((:R,), 1, (:OnlyI,)),),
         ))
         @test isempty(EnzymeRates._kreg_params(am_onlyi, :A))
         @test names_of(am_onlyi, EnzymeRates._kreg_params(am_onlyi, :I)) == [:K_I_Rreg]
+        am_equal = EnzymeRates.AllostericMechanism(_testhelper_allo_from_source(
+            cm_src, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
+            (((:R,), 1, (:EqualAI,)),),
+        ))
+        @test names_of(am_equal, EnzymeRates._kreg_params(am_equal, :A)) == [:K_Rreg]
+        @test isempty(EnzymeRates._kreg_params(am_equal, :I))
     end
 end
 
@@ -2210,12 +2191,12 @@ end
     @test isfinite(v)
 end
 
-@testset "allosteric single-symbol Wegscheider tie is absorbed in both states" begin
+@testset "an allosteric Wegscheider tie leaves the grouped mechanism's model" begin
     # A binds E and E(B) under one shared K while B's two bindings keep their own, so
     # the RE binding square ties B's two K's (K_EAB_to_EA_B = K_EB_to_E_B) in each
-    # conformation. Each state's Wegscheider rename folds its tie onto K_EB_to_E_B,
-    # and the folded symbols leave fitted_params, so the mechanism derives exactly as
-    # the one that groups B's two bindings outright.
+    # conformation. The tied constants are dependents, so the mechanism fits the same
+    # constants as the one that groups B's two bindings outright, and its law takes the
+    # same values.
     tie = @allosteric_mechanism begin
         substrates: A, B
         products: P
@@ -2239,10 +2220,16 @@ end
             E(P) ⇌ E + P                       :: NonequalAI
         end
     end
-    @test EnzymeRates.fitted_params(tie) ==
+    @test EnzymeRates.fitted_params(tie) == EnzymeRates.fitted_params(grouped) ==
         (:K_A_EA_to_E_A, :K_A_EB_to_E_B, :K_A_EP_to_E_P, :K_I_EA_to_E_A,
          :K_I_EB_to_E_B, :K_I_EP_to_E_P, :k_A_EAB_to_EP, :k_I_EAB_to_EP, :L)
-    @test rate_equation_string(tie) == rate_equation_string(grouped)
+    rng = Random.MersenneTwister(4)
+    for _ in 1:5
+        params = _testhelper_random_reduced_params(tie; rng)
+        concs = (A = 0.5 + rand(rng), B = 0.5 + rand(rng), P = 0.5 + rand(rng))
+        @test rate_equation(tie, concs, params) ≈
+              rate_equation(grouped, concs, params) rtol = 1e-12
+    end
 end
 
 @testset "Fix A: dead-inactive-state allosteric body defines all I-state symbols" begin

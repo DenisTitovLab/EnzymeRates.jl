@@ -258,9 +258,9 @@ off, and `to_species` holding `from_species`'s metabolites plus that one with th
 same residual, the conformation free to change (`_binds_ligand`). Isomerizations,
 fused bindings (`E(A) + B → E(P, Q)`), Theorell–Chance steps and steps with several
 metabolites on a side are chemistry. The allosteric moves (`_expand_to_allosteric`,
-`_expand_change_allo_state`), `_onlya_haldane_violation`, the steady-state pivot
-tie-break in `_assemble_constraints` and `_fused_substrate_binding` read it to tell
-catalysis from binding."""
+`_expand_change_allo_state`), `_onlya_haldane_violation`, the joint solve's priority
+(`_priority_key`) and `_fused_substrate_binding` read it to tell catalysis from
+binding."""
 function _is_chemistry(s::Step)
     m = bound_metabolite(s)
     m === nothing || !_binds_ligand(from_species(s), to_species(s), m)
@@ -670,7 +670,7 @@ run BEFORE the outer one so each group's "first step" key reflects the canonical
 inner order. Each key is rendered once per sort. Then reject two distinct forms that
 render one name (`_assert_distinct_form_names`), enforce the kinetic-group
 rules (`_assert_uniform_groups`, `_assert_each_reaction_once`) and reject a
-rapid-equilibrium segment with no bottom form (`_bottomless_re_segment`). The
+rapid-equilibrium segment with no bottom form (`_assert_bottomed_re_segments`). The
 returned groups are fresh vectors; the input is not mutated.
 """
 function _canonical_groups(reaction::EnzymeReaction, groups::Vector{Vector{Step}})
@@ -685,13 +685,25 @@ function _canonical_groups(reaction::EnzymeReaction, groups::Vector{Vector{Step}
     _assert_distinct_form_names(gs)
     _assert_uniform_groups(gs)
     _assert_each_reaction_once(gs)
-    segment = _bottomless_re_segment(reaction, gs)
+    _assert_bottomed_re_segments(reaction, gs)
+    gs, perm
+end
+
+"""
+Error when a rapid-equilibrium segment of `groups` has no bottom form
+(`_bottomless_re_segment`): its rate is 0/0 where one side's metabolites are absent. The
+mechanism constructors check their groups, and the inactive conformation's derivation
+checks its pruned graph (`_state_rate_polys`).
+"""
+function _assert_bottomed_re_segments(reaction::EnzymeReaction,
+                                      groups::Vector{Vector{Step}})
+    segment = _bottomless_re_segment(reaction, groups)
     segment === nothing ||
         error("Mechanism: rapid-equilibrium segment {" *
               join(name.(segment), ", ") * "} has no form free of one side's " *
               "metabolites, so its rate is undefined when that side is absent " *
               "(0/0). Make one of the segment's binding steps steady-state.")
-    gs, perm
+    nothing
 end
 
 """
@@ -896,7 +908,7 @@ products, or all vanish at zero substrates; `nothing` when no segment does. Each
 metabolite name takes its side from the reactants of `rxn`, so a competitive-inhibitor
 copy, which shares its reactant's name and concentration, counts on that reactant's
 side even in a graph that holds no step taking up or giving off the reactant itself
-(the inactive conformation's pruned graph, `_state_allo_mechanism`).
+(the inactive conformation's pruned graph, `_inactive_groups`).
 
 Within a segment, rapid equilibrium fixes each form's weight relative to any
 other as a monomial in concentrations (one factor per RE binding step on the
@@ -926,16 +938,14 @@ function _bottomless_re_segment(rxn::EnzymeReaction, steps::Vector{Vector{Step}}
 end
 
 """
-Naming data derived from a mechanism's steps, filled on first use: the free-enzyme
-form names, each kinetic group's naming representative and that representative's
-rendered sides. It never takes part in `==`, `hash`, the compiled type or display.
+Naming data derived from a mechanism's steps, filled on first use: the rendered sides
+of each kinetic class's kept member (`_class_sides`). It never takes part in `==`,
+`hash`, the compiled type or display.
 """
 mutable struct _NamingCache
-    free_enz::Union{Nothing, Set{Symbol}}
-    reps::Union{Nothing, Vector{Step}}
-    sides::Union{Nothing, Vector{Tuple{String, String}}}
+    sides::Union{Nothing, Dict{Tuple{Int, Int, Bool}, Tuple{String, String}}}
 end
-_NamingCache() = _NamingCache(nothing, nothing, nothing)
+_NamingCache() = _NamingCache(nothing)
 
 """
     Mechanism
@@ -1383,41 +1393,45 @@ The constant of the reaction `a → b`: `prefix`, the state tag, then
 _render_reaction(prefix::String, (a, b)::Tuple{String, String}, state::Symbol) =
     Symbol(prefix, _state_tag(state), a, "_to_", b)
 
-"""Each kinetic group's naming representative, in group order; cached per mechanism."""
-function _group_reps(m::_AnyMech)
-    c = m.naming
-    reps = c.reps
-    reps === nothing || return reps
-    fes = _free_enz_set(m)
-    c.reps = Step[_group_rep(group, fes) for group in steps(m)]
-end
-
-"""Each kinetic group's naming representative's `_forward_sides`, in group order; cached
-per mechanism."""
-function _group_sides(m::_AnyMech)
+"""The `_forward_sides` of each kinetic class's kept member (`_kept_members`), keyed by
+`(group, slot, inactive)`; cached per mechanism."""
+function _class_sides(m::_AnyMech)
     c = m.naming
     sides = c.sides
     sides === nothing || return sides
-    c.sides = Tuple{String, String}[_forward_sides(rep) for rep in _group_reps(m)]
+    c.sides = Dict{Tuple{Int, Int, Bool}, Tuple{String, String}}(
+        k => _forward_sides(s) for (k, s) in _kept_members(m))
 end
 
-"""Find the kinetic group containing `step`; return its naming rep's `_forward_sides`."""
-function _rep_sides(step::Step, m::_AnyMech)
-    for (g, group) in enumerate(steps(m))
-        step in group && return _group_sides(m)[g]
-    end
-    error("Step not found in mechanism: $step")
+"""
+The sides that name constant `slot` of `step` in `state`: those of the kept member of
+its kinetic class (`_class_sides`). An `:EqualAI` step's constant is one class in both
+conformations; the inactive copy of an `:OnlyA` step is a class of its own, named after
+its own step. A slot the step's group has no class for (the reverse rate of a
+rapid-equilibrium step) takes the sides of its slot-1 class, so every parameter of every
+step renders.
+"""
+function _constant_sides(step::Step, slot::Int, state::Symbol, m::_AnyMech)
+    g = findfirst(group -> step in group, steps(m))
+    g === nothing && error("Step not found in mechanism: $step")
+    tag = m isa AllostericMechanism ? cat_allo_state(m, g) : :None
+    state === :I && tag === :OnlyA && return _forward_sides(step)
+    sides = _class_sides(m)
+    inactive = state === :I && tag === :NonequalAI
+    get(() -> sides[(g, 1, inactive)], sides, (g, slot, inactive))
 end
 
-# Every step constant is named after the reaction of its group's representative:
-# a rate constant (`k_`) after the direction it drives, an equilibrium constant
-# (`K_`) after the direction whose products-over-reactants it is. A binding's K is
-# named in the release direction, so it is a dissociation constant (`K_ES_to_E_S`);
-# an isomerization's or other RE step's K in the stored direction (`K_ES_to_EP`).
-name(p::Kfor, m::_AnyMech) = _render_reaction("k_", _rep_sides(p.step, m), p.state)
-name(p::Krev, m::_AnyMech) = _render_reaction("k_", reverse(_rep_sides(p.step, m)), p.state)
+# Every step constant is named after the reaction of its class's kept member: a rate
+# constant (`k_`) after the direction it drives, an equilibrium constant (`K_`) after
+# the direction whose products-over-reactants it is. A binding's K is named in the
+# release direction, so it is a dissociation constant (`K_ES_to_E_S`); an
+# isomerization's or other RE step's K in the stored direction (`K_ES_to_EP`).
+name(p::Kfor, m::_AnyMech) =
+    _render_reaction("k_", _constant_sides(p.step, 1, p.state, m), p.state)
+name(p::Krev, m::_AnyMech) =
+    _render_reaction("k_", reverse(_constant_sides(p.step, 2, p.state, m)), p.state)
 function name(p::Krapid, m::_AnyMech)
-    sides = _rep_sides(p.step, m)
+    sides = _constant_sides(p.step, 1, p.state, m)
     _render_reaction("K_", is_binding(p.step) ? reverse(sides) : sides, p.state)
 end
 
@@ -1430,22 +1444,10 @@ name(p::Kreg, ::AllostericMechanism) =
     Symbol("K_", _state_tag(p.state), String(name(p.ligand)), "reg")
 
 """
-Enumerate every raw rate-constant Parameter for a non-allosteric
-mechanism, in kinetic-group order. Each kinetic group's representative
-step (the structurally-primary step, `_group_rep`) drives the emit: an RE
-step → `Krapid`, an SS step → `Kfor`+`Krev`. All parameters carry
-`state === :None` because non-allosteric mechanisms have no A/I branches.
-"""
-_enumerate_parameters_full(m::Mechanism) =
-    Parameter[p for rep in _group_reps(m) for p in _step_constants(rep, :None)]
-
-"""
 The Parameter(s) governing step `s` with the given allosteric state, by
-`is_equilibrium(s)`. The walkers over group representatives
-(`_enumerate_parameters_full`, `_cat_params`) apply it to each group's
-representative step; `_step_parameters` applies it to every step, `_state_parts` to
-every step of one conformation, with that conformation's tag, and
-`_onlya_haldane_violation` to a group's first step to label the group.
+`is_equilibrium(s)`. `_step_names` applies it to every step of one conformation, with
+that conformation's tag, `_column_parameter` picks a joint-solve column's, and
+`_onlya_haldane_violation` applies it to a group's first step to label the group.
 
 Returns 1 element for an RE step (`Krapid`) and 2 elements for an SS step
 (`Kfor`+`Krev`). `name` renders a binding's `Krapid`, plain or fused, as a

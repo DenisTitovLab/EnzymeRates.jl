@@ -172,3 +172,112 @@ end
     end
     @test n_inactive_checked == 5
 end
+
+@testset "Laws over a regenerated population" begin
+    @testset "every sampled law matches the exact oracle" begin
+        for (i, m) in enumerate(_testhelper_population_sample)
+            _testhelper_check_law_against_oracle(EnzymeRates.compile_mechanism(m);
+                                                 n_points = 2, seed = i, compiled = false)
+        end
+    end
+
+    @testset "fitted counts equal the declared dimension" begin
+        # Success criterion 4: a phantom or folded fitted name would raise the count
+        # above the dimension the test counts on its own.
+        @test all(m -> EnzymeRates._independent_param_count(m) ==
+                       _testhelper_declared_dimension(m), _testhelper_population_one_round)
+        for m in _testhelper_population_sample[1:10]
+            @test length(EnzymeRates.fitted_params(m)) == _testhelper_declared_dimension(m)
+        end
+    end
+
+    @testset "every fitted catalytic name names a constant of the law" begin
+        # Every fitted catalytic constant names a constant of one conformation's law.
+        stray = Symbol[]
+        for m in _testhelper_population_one_round
+            m isa EnzymeRates.AllostericMechanism || continue
+            law_names = Set(n for state in (:A, :I)
+                            for ns in EnzymeRates._step_names(m, state) for n in ns)
+            reg = Set(EnzymeRates.name(p, m) for state in (:A, :I)
+                      for p in EnzymeRates._kreg_params(m, state))
+            fitted = EnzymeRates._dependent_param_exprs(m)[2]
+            append!(stray, setdiff(fitted, law_names, reg, (:L,)))
+        end
+        @test isempty(stray)
+    end
+
+    @testset "a same-model regrouping keeps every fitted name" begin
+        # A split that the cycles tie straight back leaves the count, and so the model,
+        # unchanged, and it leaves every fitted name unchanged too (E3). An allosteric
+        # split is built only when the constructor's :OnlyA check accepts it.
+        n_plain, n_allo = 0, 0
+        for m in _testhelper_population_sample
+            names = Set(EnzymeRates._dependent_param_exprs(m)[2])
+            n = EnzymeRates._independent_param_count(m)
+            groups = EnzymeRates.steps(m)
+            for (g, group) in enumerate(groups),
+                bp in EnzymeRates._context_bipartitions(group)
+                if m isa EnzymeRates.AllostericMechanism
+                    parts, origin = EnzymeRates._bipartitioned_groups(groups, [(g, bp)])
+                    EnzymeRates._onlya_haldane_violation(
+                        EnzymeRates.reaction(m), parts,
+                        EnzymeRates.cat_allo_states(m)[origin]) === nothing || continue
+                end
+                child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
+                EnzymeRates._independent_param_count(child) == n || continue
+                m isa EnzymeRates.Mechanism ? (n_plain += 1) : (n_allo += 1)
+                @test Set(EnzymeRates._dependent_param_exprs(child)[2]) == names
+            end
+        end
+        @test n_plain >= 20
+        @test n_allo >= 50
+    end
+
+    @testset "a :NonequalAI group behind an :OnlyA binding takes no inactive name" begin
+        # E(S) and E(I, S) lie behind the :OnlyA binding of S, so the inactive
+        # conformation never reaches the I binding: its inactive class is outside the
+        # law, and no K_I_ constant is fitted.
+        island = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            catalytic_inhibitors: I
+            catalytic_multiplicity: 1
+            catalytic_steps: begin
+                E + S <--> E(S)          :: OnlyA
+                E(S) <--> E(P)           :: OnlyA
+                E + P ⇌ E(P)             :: EqualAI
+                E(S) + I ⇌ E(I, S)       :: NonequalAI
+            end
+        end
+        @test EnzymeRates.fitted_params(island) ==
+              (:K_A_EIinhS_to_ES_Iinh, :K_EP_to_E_P, :k_A_ES_to_EP, :k_A_ES_to_E_S,
+               :k_A_E_S_to_ES, :L)
+        @test length(EnzymeRates.fitted_params(island)) ==
+              _testhelper_declared_dimension(island)
+        _testhelper_check_law_against_oracle(island)
+    end
+
+    @testset "an :EqualAI regulator ligand takes one bare name and no mirror" begin
+        # R binds both conformations with one constant: one bare name, K_Rreg, which both
+        # conformations' site factors read, and no dependent that mirrors it (B10).
+        b10 = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            allosteric_regulators: R::EqualAI
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)      :: NonequalAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: NonequalAI
+            end
+            regulatory_site(multiplicity = 2): begin
+                ligands: R
+            end
+        end
+        dep, indep =
+            EnzymeRates._dependent_param_exprs(EnzymeRates.AllostericMechanism(b10))
+        @test :K_Rreg in indep
+        @test !any(k -> occursin("Rreg", string(k)), keys(dep))
+        _testhelper_check_law_against_oracle(b10)
+    end
+end
