@@ -89,8 +89,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `:OnlyA` group already keeps its own class. A tag set is admitted when an exact
   feasibility test passes and every form the free enzyme cannot reach in the inactive
   conformation lies behind a binding, on its bound side; the limit then equals deletion
-  and pruning, and enumeration stops producing the `:OnlyA` ping-pong mechanisms this
-  rejects. The conformations will flip at free E, which every mechanism must then
+  and pruning. A ping-pong with both half-reactions `:OnlyA` fails this, so the tagging
+  move will stop one half per V-type child instead (spec section 7, and the entry
+  below). The conformations will flip at free E, which every mechanism must then
   contain; until then the constructor admits a second free form only in rapid
   equilibrium with the first (`_assert_one_flip_segment`), where the choice only rescales
   `L`. The rewrite's admission PR brings the limits, admission and the flip at free E.
@@ -98,6 +99,17 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   651a821, plan 9c95f12, prototype 6f0011e), whose prototype matched the mass-action
   ground truth on all six uni-uni tag combinations and would delete the `d_free`
   cross-weighting; `test/allosteric_ground_truth.jl` is the oracle. Priority: high.
+- **Let an allosteric ping-pong stop both half-reactions in the inactive conformation.**
+  PDH and OGDH are ping-pong and allosteric, so allosteric ping-pong must stay in the
+  search. With the conformations flipping only at free E, a ping-pong whose inactive
+  conformation runs neither half-reaction strands the covalent forms between the halves:
+  their weight, and with it the rate, depends on how fast each half stops (by up to 100%
+  at one catalytic subunit), so admission rejects it. The admission PR keeps allosteric
+  ping-pong reachable by stopping one half per V-type child, which covers PDH, whose
+  phosphorylation stops E1 and leaves E2 and E3 running. Stopping both halves needs the
+  conformations to flip at the covalent form as well, with an equilibrium constant of
+  its own, and the multi-subunit rate formula rederived for two flip forms. Take it up
+  with iso mechanisms, which add free forms of their own. Priority: medium.
 - **Flag one-subunit K-type variants whose L is a phantom instead of fitting them.**
   At multiplicity 1, `_expand_to_allosteric` (`src/mechanism_enumeration.jl`) emits
   K-type variants whose L the data cannot determine, so the fitter optimizes a flat
@@ -147,7 +159,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   field, and `_requires_hyperbolic_catalysis` (`src/mechanism_enumeration.jl`) is the
   extension hook. Two-conformation kinetic cooperativity stays parked: on PGK data no
   conformational model beat MWC with steady-state steps at equal parameter count, so
-  reopen it only for a dataset whose curvature MWC cannot fit. Priority: low.
+  reopen it only for a dataset whose curvature MWC cannot fit. Revisit allosteric
+  ping-pong with this work: a flip at a second free form is the same question (see
+  "Let an allosteric ping-pong stop both half-reactions"). Priority: low.
 
 ## Ideas
 

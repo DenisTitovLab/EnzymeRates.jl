@@ -399,14 +399,33 @@ hand-written mechanism, dropped by enumeration. Expected changes against today: 
 AD11 flip to rejected, AD15 flips to admitted, and AD14 and AD14b stay admitted. These
 hand-built fixtures live on the reference branch (`reference/proto/skeptic_P5a-onlyA/`:
 `skp_build.jl`, `skp_build3.jl`, `skp_build4.jl`), and phase 4 writes each inline in its
-tests. Every `:OnlyA` ping-pong tag set the tagging move emits is rejected: the move tags
-both half-reaction chemistry steps `:OnlyA`, which leaves an island reached through
-chemistry alone. The probes counted 81 in their samples: 16 in a bi-bi expansion and 65
-among the tagging move's `:OnlyA` children on a ping-pong-capable bi-bi and a ter-bi
-reaction (recipe and sampling seeds in that folder's `skp_export.jl`). R2
-(`E + S ⇌ E(S) :: OnlyA`, `E(S) <--> E(P)`, `F + P ⇌ E(P)`, `F <--> E :: OnlyA`) is
-rejected: at zero product its inactive limit depends on how fast the isomerization
-vanishes.
+tests. R2 (`E + S ⇌ E(S) :: OnlyA`, `E(S) <--> E(P)`, `F + P ⇌ E(P)`,
+`F <--> E :: OnlyA`) is rejected: at zero product its inactive limit depends on how fast
+the isomerization vanishes.
+
+**Allosteric ping-pong.** Today's tagging move tags every chemistry group `:OnlyA`. On a
+ping-pong mechanism that stops both half-reactions in the inactive conformation, and the
+covalent forms between them become an island reached through chemistry alone: its
+weight, and with it the rate, depends on how fast each half stops. The probes counted 81
+such tag sets in their samples: 16 in a bi-bi expansion and 65 among the tagging move's
+`:OnlyA` children on a ping-pong-capable bi-bi and a ter-bi reaction (recipe and sampling
+seeds in that folder's `skp_export.jl`). Every K-type tag set builds on its V-type one,
+and the change-tag move relaxes chemistry only from a parent with no `:OnlyA` binding, so
+dropping these would leave identify no allosteric ping-pong at all. Denis requires
+allosteric ping-pong (2026-10-13): PDH and OGDH are ping-pong and allosteric. Phase 4
+therefore changes the tagging move. It keeps today's V-type child when admission accepts
+it; otherwise it emits each smallest set of chemistry groups that stops every catalytic
+cycle of the inactive conformation and passes admission. A ping-pong mechanism gets one
+V-type child per half-reaction, the other half running in both conformations, as PDH's
+phosphorylation stops E1 and leaves E2 and E3 running. K-type children build on each.
+A mass-action check at one catalytic subunit, with the flip at free E, ε = 1e-60 and
+512-bit arithmetic, backs this on the interior and every single-reactant face: with one
+half `:OnlyA`, alone or with that half's substrate binding, the rate equals the deletion
+law to 1e-57 for every vanishing speed; with both halves, it moves by up to 100% with the
+speeds. Phase 4 adds that check to the oracle tests and confirms every new child against
+the ε-path and RE-speed oracles before its plan. Stopping both halves needs the
+conformations to flip at the covalent form as well, with an equilibrium constant of its
+own; that belongs with iso mechanisms (ROADMAP).
 
 ### Thermodynamic consistency
 
@@ -635,7 +654,8 @@ so the fitter fixes it after the fit (E9).
   (`_assert_emission_rules`). The slice prototyped only the flip, split and dead-end moves.
   Children change in phase 2, where the joint solve fixes known issues 1 and 2 and so
   changes the allosteric split gains, and in phase 4, where admission and the guard
-  replace `_onlya_haldane_violation`.
+  replace `_onlya_haldane_violation` and the tagging move replaces a V-type tag set that
+  admission rejects by the smallest admissible ones (section 7).
 - Every child passes the constructor, the well-posedness guard and, if allosteric,
   admission before identify sees it. Identify keeps today's `_degenerate` screen
   (section 8).
@@ -643,7 +663,8 @@ so the fitter fixes it after the fit (E9).
   site tags.
 - **Islands that no tagged plain binding explains** are rejected by admission (phase 4): an
   island whose component free E's component does not reach along the arcs (section 7),
-  such as the covalent island of a ping-pong reached through chemistry alone.
+  such as the covalent island of a ping-pong reached through chemistry alone. The tagging
+  move no longer emits that tag set (section 7).
 - **Duplicate tag sets** (siblings that differ only in the tags of groups the inactive
   conformation never reaches) stay in the frontier and share one fit through the key
   (phase 5).
@@ -850,6 +871,13 @@ unless Denis objects; the sections cited mark them "proposal".
     gauge as part of the declared model. The spec follows B9: the gauge stays out of
     scope and the rank analysis tool reports it. The alternative gives it a failing test
     and a fix in the phase that rewrites the solve, as D1's option describes.
+13. **Allosteric ping-pong (section 7).** Denis requires that ping-pong mechanisms stay
+    allosteric. The proposal: the tagging move replaces a V-type tag set that admission
+    rejects by its smallest admissible ones, which stops one half-reaction per child on a
+    ping-pong; stopping both halves waits for iso mechanisms. The alternative expands
+    rejected parents without fitting them, so the change-tag move still reaches
+    `:NonequalAI` chemistry, but then no ping-pong with a blocked inactive conformation is
+    ever fitted.
 
 ### Review proposals kept as decided
 
