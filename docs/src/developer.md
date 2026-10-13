@@ -79,14 +79,17 @@ It orders the columns by `_priority_key` and reduces the system exactly
 Pivot columns are dependents. Columns outside the inactive conformation's law (an
 `:OnlyA` step's inactive copy, a step on a form the inactive conformation cannot reach)
 come first, so no kept dependent reads them. Each class is named after its member that
-comes last in that order (`_kept_members`), through the `name(p, m)` chokepoint, and
-the engine derives each conformation's polynomials from `(reaction, groups, names)`:
-the inactive one on `_inactive_groups(am)`, with the full mechanism's own steps.
-The order's last tie-breaks read three keys: the canonical form order
-(`_form_index_key`: free E first, then the form's base-name content), the lead of a
-tied group (`_step_index_key`) and each metabolite's role (`_metabolites_key`). They
-decide the dependents and so the fitted names, so any rewrite of the mechanism types
-must order forms, lead tied groups and encode roles exactly as these keys do.
+comes last in that order (`_kept_members`), through the `name(p, m)` chokepoint. The
+engine derives each conformation's polynomials from `(reaction, groups, names)`; the
+inactive one reads `_inactive_groups(am)`, whose steps are the mechanism's own in their
+stored direction, so it keeps the mechanism's orientation and names. Three keys decide
+the order and the direction it reads. The canonical form order (`_form_index_key`: free
+E first, then the form's base-name content) and the lead of a tied group
+(`_step_index_key`) orient the steps no chemistry orients, and the order's last
+tie-break reads each bound metabolite's name and whether it binds as a modifier copy
+(`_metabolites_key`, inside `_form_base_key`). They decide the dependents and so the
+fitted names, so any rewrite of the mechanism types must order forms, lead tied groups
+and encode metabolites exactly as these keys do.
 
 ## Enumeration engine architecture
 
@@ -115,10 +118,11 @@ is true for every step but a plain binding; the allosteric moves,
 `_fused_substrate_binding` read it to tell catalysis from binding. The derivation reads
 every binding alike, so a fused binding's rapid-equilibrium
 constant is a dissociation constant and its steady-state pair a binding and a
-release rate constant. Every step's constants are named by its two sides — each
-side's enzyme form followed by its free metabolites (`K_ES_to_E_S` for `E + S ⇌ E(S)`,
-`K_EPQ_to_EA_B` for `E(A) + B ⇌ E(P, Q)`, `k_EA_B_to_EQ_P` for
-`E(A) + B <--> E(Q) + P`). Like the singleton types, these are canonicalized so
+release rate constant. Every step's constants are named by the two sides of its
+kinetic class's kept member — each side's enzyme form followed by its free
+metabolites (`K_ES_to_E_S` for `E + S ⇌ E(S)`, `K_EPQ_to_EA_B` for
+`E(A) + B ⇌ E(P, Q)`, `k_EA_B_to_EQ_P` for `E(A) + B <--> E(Q) + P`). Like the
+singleton types, these are canonicalized so
 that the order or direction in which steps are written does not change the
 resulting mechanism. The `Step` constructor stores a step that takes up nothing
 and gives off one metabolite as the binding it reverses, so every binding is

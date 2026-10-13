@@ -109,8 +109,8 @@ print(rate_equation_string(m))
 
 The `# Wegscheider constraints:` section ties the binding constants of the two
 orders together (no `Keq`), and the `# Haldane constraints:` section fixes the
-reverse catalytic rate from `Keq` and the forward constants. Two rate constants
-are therefore dependent and do not appear in the fitted-parameter list:
+reverse catalytic rate from `Keq` and the forward constants. Two constants are
+therefore dependent and do not appear in the fitted-parameter list:
 
 ```@example thermo
 parameters(m)
