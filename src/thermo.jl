@@ -401,8 +401,6 @@ _independent_param_count(m::_AnyMech) = length(_dependent_param_exprs(m)[2])
 
 # ─── Cycle-space helpers of the :OnlyA guard and the split move's counter ─────
 
-# ─── Thermodynamic Constraint Infrastructure ─────────────────────
-
 """
 Reduced row echelon form over `Rational{BigInt}`. Returns the pivot and
 free column indices (pivot_cols in row-pivot order, so pivot_cols[i] is the
