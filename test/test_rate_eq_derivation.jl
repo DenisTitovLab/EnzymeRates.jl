@@ -1801,6 +1801,84 @@ end
     @test_throws clash_k rate_equation_string(uni_k)
 end
 
+# Every constant of a rate equation needs a name of its own: the equation would read two
+# constants that share a name as one.
+@testset "constants that share a name raise" begin
+    # An :EqualAI ligand's constant is bare, K_<ligand>reg, so a ligand named A_R takes
+    # K_A_Rreg, the name of the :OnlyA ligand R's constant.
+    onlya = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        allosteric_regulators: R::OnlyA, A_R::EqualAI
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: NonequalAI
+            E(P) ⇌ E + P      :: EqualAI
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: R
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: A_R
+        end
+    end
+    clash_A = ErrorException("Constants of this mechanism's rate equation share a name " *
+                             "(K_A_Rreg); rename a metabolite so that each constant has " *
+                             "a name of its own")
+    params = (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_A_ES_to_EP = 3.0,
+              k_I_ES_to_EP = 0.5, K_A_Rreg = 0.7, L = 10.0, Keq = 4.0, E_total = 1.0)
+    @test_throws clash_A parameters(onlya)
+    @test_throws clash_A EnzymeRates.fitted_params(onlya)
+    @test_throws clash_A rate_equation(onlya, (S = 1.0, P = 0.1, R = 2.0, A_R = 0.5),
+                                       params)
+    @test_throws clash_A rate_equation_string(onlya)
+    @test_throws clash_A all_parameters(onlya, params)
+    @test_throws clash_A EnzymeRates._independent_param_count(
+        EnzymeRates.AllostericMechanism(onlya))
+
+    # A :NonequalAI ligand X has the inactive-conformation constant K_I_Xreg, which an
+    # :EqualAI ligand named I_X at the same site takes too.
+    nonequal = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        allosteric_regulators: X::NonequalAI, I_X::EqualAI
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: NonequalAI
+            E(P) ⇌ E + P      :: EqualAI
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: X, I_X
+        end
+    end
+    @test_throws ErrorException("Constants of this mechanism's rate equation share a " *
+                                "name (K_I_Xreg); rename a metabolite so that each " *
+                                "constant has a name of its own") parameters(nonequal)
+
+    # Renamed, the :EqualAI ligand has a constant of its own.
+    renamed = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        allosteric_regulators: R::OnlyA, T::EqualAI
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: NonequalAI
+            E(P) ⇌ E + P      :: EqualAI
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: R
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: T
+        end
+    end
+    @test count(==(:K_A_Rreg), parameters(renamed)) == 1
+    @test :K_Treg in parameters(renamed)
+end
+
 
 # ── Single-feature edge cases ─────────────────────────────────────────────
 @testset "Allosteric edge cases" begin

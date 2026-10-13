@@ -357,6 +357,10 @@ Columns outside the law (an `:OnlyA` step's inactive copy, an inactive copy on a
 form) are eliminated first, so no dependent of the law reads them; a pivot that is not
 its class's kept member equals the kept one and adds no entry. The `Type` method lifts a
 compiled mechanism with `_concrete`.
+
+Errors when two constants of the law, regulator constants included, render one name,
+which the law would read as one constant: an `:EqualAI` ligand named `A_R` renders
+`K_A_Rreg`, the name of an `:OnlyA` or `:NonequalAI` ligand `R`'s active constant.
 """
 function _dependent_param_exprs(m::_AnyMech)
     sys = _joint_system(m)
@@ -367,6 +371,13 @@ function _dependent_param_exprs(m::_AnyMech)
     last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
     kept_in_law(i) = (c = sys.columns[i];
                       (!c.inactive || sys.law[c.step]) && last_of[class(c)] == i)
+    reg = m isa Mechanism ? Symbol[] :
+          Symbol[name(p, m) for p in [_kreg_params(m, :A); _kreg_params(m, :I)]]
+    rendered = [names[filter(kept_in_law, 1:n)]; reg]
+    allunique(rendered) || error(
+        "Constants of this mechanism's rate equation share a name (" *
+        join(unique(x for x in rendered if count(==(x), rendered) > 1), ", ") *
+        "); rename a metabolite so that each constant has a name of its own")
     free = setdiff(1:n, pivots)
     dep = Dict{Symbol, Union{Symbol, Expr, Float64}}()
     for (r, p) in enumerate(pivots)
@@ -376,7 +387,6 @@ function _dependent_param_exprs(m::_AnyMech)
     end
     indep = sort!([names[f] for f in free if kept_in_law(f)]; by = string)
     m isa Mechanism && return dep, Tuple(indep)
-    reg = Symbol[name(p, m) for p in [_kreg_params(m, :A); _kreg_params(m, :I)]]
     dep, Tuple([indep; reg; :L])
 end
 
