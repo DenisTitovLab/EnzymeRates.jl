@@ -12039,12 +12039,13 @@ end
         onlya_iso = any(tags[g] === :OnlyA for g in _testhelper_iso_groups(k))
         live_iso = any(tags[g] !== :OnlyA for g in _testhelper_iso_groups(k))
         @test !(onlya_iso && live_iso)   # never a mixed-iso partial
-        # end-to-end: every surviving child's saturating turnover is finite —
-        # no relaxation reintroduces the covalent sink that crashes kcat.
+        # end-to-end: every surviving child turns over without product, so no
+        # relaxation reintroduces a covalent sink.
         cm = EnzymeRates.compile_mechanism(k)
         fp = EnzymeRates.fitted_params(cm)
         prm = NamedTuple{(fp..., :Keq, :E_total)}(((1.3 for _ in fp)..., 3.0, 1.0))
-        @test isfinite(EnzymeRates._kcat_forward(cm, prm))
+        @test EnzymeRates.rate_equation(cm, (ATP = 1.3, F6P = 1.3, ADP = 0.0,
+                                             F16BP = 0.0), prm) > 0
     end
     # The chemical steps relax together, so the fully-productive inactive form
     # (every chemical step :NonequalAI) is reachable in one move — even though

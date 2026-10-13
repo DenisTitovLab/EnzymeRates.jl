@@ -37,7 +37,8 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
     # Signature: (all_params::NamedTuple, concs::NamedTuple) -> Float64
     analytical_rate_fn::Union{Function,Nothing} = nothing
 
-    # Optional analytical kcat function for kcat/rescaling validation
+    # Optional analytical kcat: the turnover at saturating substrates and zero products,
+    # which the peak turnover approaches on a wide range
     # Signature: (params::NamedTuple) -> Float64
     # params contains fitted_params + Keq + E_total
     analytical_kcat_fn::Union{Function,Nothing} = nothing
@@ -1959,9 +1960,8 @@ let
         analytical_rate_fn=_testhelper_pfk_rate_analytical,
         # F6P binding (group 1) is :OnlyA → the F6P·ATP saturating
         # pattern is unreachable in T-state, so kcat = k5f
-        # for every regulator corner. Guards `_kcat_forward` for a saturating
-        # pattern absent from the I-state: the I-state pair is (0, 0) and the
-        # I-dominant regulator corners (ATP, Citrate saturating) are skipped.
+        # for every regulator corner. Guards the peak turnover for a saturating
+        # pattern absent from the I-state.
         analytical_kcat_fn = p -> p.k5f,
     ))
 end
@@ -2089,9 +2089,8 @@ let
         analytical_rate_fn=_testhelper_hk_rate_analytical,
         # ATP binding (group 2) is :OnlyA → the Glucose·ATP saturating
         # pattern is unreachable in T-state, so kcat = k6f
-        # for every regulator corner. Guards `_kcat_forward` for a saturating
-        # pattern absent from the I-state: the I-state pair is (0, 0) and the
-        # I-dominant regulator corner (G6P saturating) is skipped.
+        # for every regulator corner. Guards the peak turnover for a saturating
+        # pattern absent from the I-state.
         analytical_kcat_fn = p -> p.k6f,
     ))
 end

@@ -1,6 +1,21 @@
 # ABOUTME: Tests for fitting rate equations to data via FittingProblem and
 # ABOUTME: fit_rate_equation, including loss evaluation and parameter recovery.
 using Tables
+using Optimization
+using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCache
+
+# An optimizer stub whose every solve returns `u` for each log-space coordinate, so a
+# fit's raw constants are known exactly and the scale applied to them can be checked.
+struct _testhelper_ConstantStubOpt
+    u::Float64
+end
+Optimization.allowsbounds(::_testhelper_ConstantStubOpt) = true
+function Optimization.SciMLBase.__solve(prob::Optimization.OptimizationProblem,
+        opt::_testhelper_ConstantStubOpt; kwargs...)
+    u = fill(opt.u, length(prob.u0))
+    build_solution(DefaultOptimizationCache(prob.f, prob.p), opt, u, prob.f(u, prob.p);
+                   retcode = ReturnCode.Success)
+end
 
 @testset "Fitting" begin
 
@@ -120,14 +135,14 @@ using Tables
         end
     end
 
-    # ── Absolute mode: uncentered loss (scale_k_to_kcat=nothing) ──────────────
+    # ── Absolute mode: uncentered loss (absolute=true) ─────────────────────────
     @testset "Absolute mode uncentered loss" begin
         data = _testhelper_make_synthetic_data(uni_uni, true_params, concs5)
         pn = EnzymeRates.fitted_params(uni_uni)
         x_true = [log(true_params[p]) for p in pn]
 
-        fp_rel = FittingProblem(uni_uni, data; Keq=Keq_val)                        # default 1.0
-        fp_abs = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
+        fp_rel = FittingProblem(uni_uni, data; Keq=Keq_val)  # relative (default)
+        fp_abs = FittingProblem(uni_uni, data; Keq=Keq_val, absolute=true)
 
         # At true params both modes are ~0 (predictions match data exactly).
         @test EnzymeRates.loss!(x_true, fp_rel) ≈ 0.0 atol=1e-20
@@ -138,21 +153,28 @@ using Tables
         # residual becomes log(3), so absolute loss = log(3)^2.
         data3 = merge(data, (Rate = data.Rate .* 3.0,))
         fp_rel3 = FittingProblem(uni_uni, data3; Keq=Keq_val)
-        fp_abs3 = FittingProblem(uni_uni, data3; Keq=Keq_val, scale_k_to_kcat=nothing)
+        fp_abs3 = FittingProblem(uni_uni, data3; Keq=Keq_val, absolute=true)
         @test EnzymeRates.loss!(x_true, fp_rel3) ≈ 0.0 atol=1e-20
         @test EnzymeRates.loss!(x_true, fp_abs3) ≈ log(3.0)^2 rtol=1e-8
     end
 
-    # ── scale_k_to_kcat validation ────────────────────────────────────────────
-    @testset "scale_k_to_kcat validation" begin
+    # ── absolute and peak_range keywords ──────────────────────────────────────
+    @testset "absolute and peak_range keywords" begin
         ok_data = (group = ["G1"], Rate = [1.0], S = [1.0], P = [0.1])
-        @test_throws ErrorException FittingProblem(uni_uni, ok_data; Keq=1.0, scale_k_to_kcat=0.0)
-        @test_throws ErrorException FittingProblem(uni_uni, ok_data; Keq=1.0, scale_k_to_kcat=-5.0)
-        @test FittingProblem(uni_uni, ok_data; Keq=1.0, scale_k_to_kcat=nothing) isa FittingProblem
-        @test FittingProblem(uni_uni, ok_data; Keq=1.0) isa FittingProblem  # default 1.0
-        # Integer Keq and scale_k_to_kcat convert to the Float64 fields.
-        fp = FittingProblem(uni_uni, ok_data; Keq=2, scale_k_to_kcat=3)
-        @test fp.Keq === 2.0 && fp.scale_k_to_kcat === 3.0
+        fp = FittingProblem(uni_uni, ok_data; Keq=1.0)
+        @test fp.absolute === false
+        @test fp.peak_range === (1e-12, 1e3)
+        @test FittingProblem(uni_uni, ok_data; Keq=1.0, absolute=true).absolute === true
+        # Integer Keq and peak_range bounds convert to the Float64 fields.
+        fp_int = FittingProblem(uni_uni, ok_data; Keq=2, peak_range=(1, 1000))
+        @test fp_int.Keq === 2.0 && fp_int.peak_range === (1.0, 1000.0)
+        # The concrete-mechanism constructor passes both keywords on.
+        fp_conc = FittingProblem(EnzymeRates.Mechanism(uni_uni), ok_data; Keq=1.0,
+                                 absolute=true, peak_range=(1e-6, 10.0))
+        @test fp_conc.absolute === true && fp_conc.peak_range === (1e-6, 10.0)
+        # There is no kcat keyword: measured kcats rescale a fit afterwards.
+        @test_throws MethodError FittingProblem(uni_uni, ok_data; Keq=1.0,
+                                                scale_k_to_kcat=1.0)
     end
 
     # ── Sign-mismatch penalty ─────────────────────────────────────────────────
@@ -229,7 +251,7 @@ using Tables
         @test allocs == 0
 
         # Absolute mode (uncentered branch) is equally allocation-free.
-        fp_abs = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
+        fp_abs = FittingProblem(uni_uni, data; Keq=Keq_val, absolute=true)
         loss_allocs(x, fp_abs)  # warmup
         allocs_abs = loss_allocs(x, fp_abs)
         @test allocs_abs == 0
@@ -340,10 +362,10 @@ using Tables
         @test best_us < 70  # 500 datapoints; ~5 μs typical local, min-of-batches strips CI noise
     end
 
-    # ── fit_rate_equation: scale_k_to_kcat anchors kcat; nothing leaves it raw ──
-    # Anchoring rescales every fitted point to the target kcat, so the assertions hold at
-    # any fit quality and a half-second budget is enough.
-    @testset "scale_k_to_kcat normalization + retcode" begin
+    # ── fit_rate_equation: relative fits come back at peak turnover 1 ─────────
+    # The scale applies to every fitted point, so the assertions hold at any fit quality
+    # and a half-second budget is enough.
+    @testset "relative fits come back at peak turnover 1" begin
         using OptimizationBBO
         concs_list = [
             (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
@@ -353,28 +375,55 @@ using Tables
         data = _testhelper_make_synthetic_data(uni_uni, true_params, concs_list)
         opt = BBO_adaptive_de_rand_1_bin_radiuslimited()
 
-        # Default target 1.0 (best of 2 restarts) and a custom target 7.0: the returned
-        # params are anchored so kcat ≈ target.
-        for (fp_kwargs, n_restarts, target) in
-                (((;), 2, 1.0), ((; scale_k_to_kcat=7.0), 1, 7.0))
+        # The default range (best of 2 restarts) and a custom one.
+        for (fp_kwargs, n_restarts, range) in
+                (((;), 2, (1e-12, 1e3)), ((; peak_range=(1e-6, 1e2)), 1, (1e-6, 1e2)))
             fp = FittingProblem(uni_uni, data; Keq=Keq_val, fp_kwargs...)
             res = _testhelper_fit_capturing_convergence() do
                 fit_rate_equation(fp, opt; n_restarts, maxtime=0.5)
             end
+            @test keys(res) == (:params, :loss, :retcode, :peak_at_range_edge)
             @test keys(res.params) == EnzymeRates.fitted_params(uni_uni)
             @test isfinite(res.loss)
             @test res.retcode isa Symbol
-            full = merge(res.params, (Keq = Keq_val, E_total = 1.0))
-            @test EnzymeRates._kcat_forward(uni_uni, full) ≈ target rtol=0.01
+            @test res.peak_at_range_edge isa Bool
+            peak = EnzymeRates._peak_turnover(uni_uni, merge(res.params, (Keq = Keq_val,)),
+                                              range)
+            @test peak.value ≈ 1.0 rtol=1e-9
         end
+    end
 
-        # scale_k_to_kcat=nothing: params returned verbatim (data fixes the scale).
-        fpN = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
-        resN = _testhelper_fit_capturing_convergence() do
-            fit_rate_equation(fpN, opt; n_restarts=1, maxtime=0.5)
-        end
-        @test keys(resN.params) == EnzymeRates.fitted_params(uni_uni)
-        @test resN.retcode isa Symbol
+    # ── fit_rate_equation: the scale on known raw constants ───────────────────
+    @testset "peak scale, edge flag and absolute mode on known raw constants" begin
+        data = _testhelper_make_synthetic_data(uni_uni, true_params, concs5)
+        pn = EnzymeRates.fitted_params(uni_uni)
+        # Every raw constant is exp(0) = 1. At Keq = 2 the peak lies at S = 1e3 and P at
+        # the lower bound, v = 1e3/(2 + 1e3); every fitted constant here is a rate
+        # constant, so each comes back as 1/v.
+        rel = fit_rate_equation(FittingProblem(uni_uni, data; Keq=Keq_val),
+                                _testhelper_ConstantStubOpt(0.0); n_restarts=1)
+        @test all(v -> isapprox(v, (2 + 1e3) / 1e3; rtol=1e-12), values(rel.params))
+        @test rel.peak_at_range_edge === false
+        # Capped at S = 10 the law still rises at the upper edge,
+        # v(10)/v(1) = (10/12)/(1/3) = 2.5, so the fit is flagged and scaled to the
+        # turnover at the edge, v(10) = 10/12.
+        edge = fit_rate_equation(
+            FittingProblem(uni_uni, data; Keq=Keq_val, peak_range=(1e-12, 10.0)),
+            _testhelper_ConstantStubOpt(0.0); n_restarts=1)
+        @test edge.peak_at_range_edge === true
+        @test all(v -> isapprox(v, 12 / 10; rtol=1e-12), values(edge.params))
+        # Absolute mode returns the fitted constants as they are.
+        absolute_fit = fit_rate_equation(
+            FittingProblem(uni_uni, data; Keq=Keq_val, absolute=true),
+            _testhelper_ConstantStubOpt(0.0); n_restarts=1)
+        @test absolute_fit.params == NamedTuple{pn}((1.0, 1.0, 1.0))
+        @test absolute_fit.peak_at_range_edge === false
+        # At exp(-700) every product of two constants underflows to zero, so the law
+        # has no positive turnover anywhere: the fit keeps its constants, unscaled.
+        tiny = fit_rate_equation(FittingProblem(uni_uni, data; Keq=Keq_val),
+                                 _testhelper_ConstantStubOpt(-700.0); n_restarts=1)
+        @test all(==(exp(-700.0)), values(tiny.params))
+        @test tiny.peak_at_range_edge === false
     end
 
     # ── solver-option forwarding (named commons + solver_kwargs) ──
@@ -420,9 +469,6 @@ using Tables
 
     # ── maxtime forwarded from fit_rate_equation to Optimization.solve (§6) ─
     @testset "maxtime forwarded to Optimization.solve" begin
-        using Optimization
-        using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCache
-
         # A stub optimizer that records the `maxtime` kwarg it receives, so the
         # forwarding path (fit_rate_equation -> the `common = (; maxtime,
         # maxiters)` merge -> Optimization.solve) can be asserted end-to-end
@@ -451,14 +497,13 @@ using Tables
     end
 
     # ── fit_rate_equation compiles no NamedTuple indexing per mechanism ───────
-    # fit_rate_equation takes its FittingProblem @nospecialize and selects the fitted
-    # parameters from the rescaled NamedTuple by their names. Unless it infers them as a
-    # tuple of Symbols, the selection dispatches at run time: each fit whose parameter
-    # names no earlier fit used compiles a getindex method instance for them and infers
-    # Base's slow NamedTuple fallback. Inferred only as a Tuple, the names also match the
-    # getindex method of Static.jl, which the full suite loads before this file. Counts
-    # the getindex method instances, inferred or compiled, on a NamedTuple keyed by any of
-    # `names`.
+    # fit_rate_equation takes its FittingProblem @nospecialize and passes the fitted
+    # parameters around as a NamedTuple keyed by their names. Indexing it by name would
+    # dispatch at run time: each fit whose parameter names no earlier fit used compiles
+    # a getindex method instance for them and infers Base's slow NamedTuple fallback.
+    # Inferred only as a Tuple, the names also match the getindex method of Static.jl,
+    # which the full suite loads before this file. Counts the getindex method instances,
+    # inferred or compiled, on a NamedTuple keyed by any of `names`.
     function _testhelper_namedtuple_getindex_instances(names)
         keyed(T) = T isa DataType && T <: NamedTuple && !isdisjoint(fieldnames(T), names)
         count(mi -> mi.specTypes isa DataType && any(keyed, mi.specTypes.parameters),
@@ -549,15 +594,18 @@ using Tables
                            "rename the metabolite"),
             FittingProblem(rate_named, (group = ["G1"], Rate = [1.0], P = [0.1]); Keq=1.0))
 
-        # A Keq or a scale_k_to_kcat that is not positive and finite
+        # A Keq that is not positive and finite, or a peak_range that is not a tuple
+        # (lo, hi) with 0 < lo < hi < Inf
         data_ok = (group = ["G1"], Rate = [1.0], S = [1.0], P = [0.1])
         for (bad, shown) in ((0, "0"), (-1, "-1"), (Inf, "Inf"), (NaN, "NaN"))
             @test_throws(ErrorException("Keq must be positive and finite; got $shown"),
                 FittingProblem(uni_uni, data_ok; Keq=bad))
+        end
+        for bad in ((0.0, 1.0), (2.0, 1.0), (1e-12, Inf), 1.0)
             @test_throws(
-                ErrorException("scale_k_to_kcat must be positive and finite (or " *
-                               "nothing); got $shown"),
-                FittingProblem(uni_uni, data_ok; Keq=1.0, scale_k_to_kcat=bad))
+                ErrorException("peak_range must be a tuple (lo, hi) with 0 < lo < hi < " *
+                               "Inf; got $(repr(bad))"),
+                FittingProblem(uni_uni, data_ok; Keq=1.0, peak_range=bad))
         end
     end
 

@@ -1,5 +1,5 @@
 # ABOUTME: Tests for rate-equation derivation (King-Altman/Cha, mass-action oracle),
-# ABOUTME: the parameters API, kcat/rescaling, rate-equation strings, and the perf gate.
+# ABOUTME: the parameters API, peak rescaling, rate-equation strings, and the perf gate.
 
 using OrdinaryDiffEqFIRK
 
@@ -880,9 +880,10 @@ function _testhelper_test_performance(spec::_testhelper_MechanismTestSpec; seed=
             m, met_names; rng=rng)
         allocs, t = _testhelper_test_rate_equation_performance(m, params, concs)
         @test allocs == 0
-        # 120ns, not the ~tens-of-ns real per-call cost: shared CI runners'
-        # best-case timing runs slower than a dedicated box, so 120ns keeps
-        # margin without flaking. The 0-alloc bound above is the strict part.
+        # Locally 120 ns leaves about 4× headroom over the slowest fixture laws, PFK-1 and
+        # "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites" at about 30 ns. Shared CI
+        # runners occasionally run those two 4-7× slower and miss it; rerun such a job
+        # rather than loosening the bound. The 0-alloc bound above is the strict part.
         @test t < 120e-9
     end
 end
@@ -978,10 +979,13 @@ end
 function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec; seed=42)
     spec.analytical_kcat_fn === nothing && return
     m = spec.mechanism
-    @testset "Analytical kcat" begin
+    @testset "Peak turnover approaches the analytical kcat" begin
         rng = Random.MersenneTwister(seed)
         params = _testhelper_random_reduced_params(m; rng)
-        kcat = EnzymeRates._kcat_forward(m, params)
+        # Every fitted constant and Keq lies in 0.1–10, so over a range reaching 1e12 the
+        # peak sits at saturating substrates and zero products and equals kcat to within
+        # K/1e12.
+        peak = EnzymeRates._peak_turnover(m, params, (1e-12, 1e12)).value
         # The oracle's positional formula may reference a forward rate that is
         # Haldane-DEPENDENT under the canonical step order (absent from the
         # reduced params), so bridge the FULL param set (dependent values
@@ -991,79 +995,58 @@ function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec; s
                       source_steps=spec.source_steps,
                       source_reg_sites=spec.source_reg_sites),
                   (Et=params.E_total,))
-        @test kcat ≈ spec.analytical_kcat_fn(p) rtol=1e-10
+        @test peak ≈ spec.analytical_kcat_fn(p) rtol=1e-9
     end
 end
 
-function _testhelper_test_kcat_rescaling(spec::_testhelper_MechanismTestSpec; seed=100)
+function _testhelper_test_peak_rescaling(spec::_testhelper_MechanismTestSpec; seed=100)
     m = spec.mechanism
-    @testset "kcat rescaling" begin
+    @testset "Peak rescaling" begin
         rng = Random.MersenneTwister(seed)
         params = _testhelper_random_reduced_params(m; rng)
+        range = (1e-12, 1e3)
+        peak = EnzymeRates._peak_turnover(m, params, range).value
+        @test peak > 0
 
-        # kcat should be positive
-        kcat_orig = EnzymeRates._kcat_forward(m, params)
-        @test kcat_orig > 0
-
-        # Scale invariance: scaling SS k's by α scales kcat by α
+        # Scaling every steady-state rate constant by α scales the peak by α.
         ss_names = EnzymeRates._ss_rate_constant_names(m)
         α = 0.1 + 9.9 * rand(rng)
         scaled_params = NamedTuple{keys(params)}(Tuple(
             k in ss_names ? v * α : v
             for (k, v) in zip(keys(params), values(params))
         ))
-        @test EnzymeRates._kcat_forward(m, scaled_params) ≈
-            α * kcat_orig rtol=1e-10
+        @test EnzymeRates._peak_turnover(m, scaled_params, range).value ≈
+            α * peak rtol=1e-9
 
-        # Rescale so kcat = 1
-        norm = rescale_parameter_values(m, params)
-        kcat_norm = EnzymeRates._kcat_forward(m, norm)
-        @test kcat_norm ≈ 1.0 rtol=1e-10
-
-        # K values (non-SS params) unchanged
+        # The peak scale makes the peak 1 and leaves every other constant alone.
+        norm, spread = rescale_parameter_values(m, params)
+        @test spread === nothing
+        @test EnzymeRates._peak_turnover(m, norm, range).value ≈ 1.0 rtol=1e-9
         for k in keys(params)
             if !(k in ss_names)
                 @test norm[k] == params[k]
             end
         end
 
-        # Custom kcat target
-        kcat_target = 0.1 + 9.9 * rand(rng)
-        norm_custom = rescale_parameter_values(m, params; scale_k_to_kcat=kcat_target)
-        @test EnzymeRates._kcat_forward(m, norm_custom) ≈
-            kcat_target rtol=1e-10
-
-        # Rate proportionality: v_norm / v_orig = 1 / kcat_orig
+        # Every rate changes by the same factor.
         met_names = metabolites(m)
-        conc_vals = Tuple(0.5 + rand(rng) for _ in met_names)
-        concs = NamedTuple{Tuple(met_names)}(conc_vals)
+        concs = NamedTuple{Tuple(met_names)}(Tuple(0.5 + rand(rng) for _ in met_names))
         v_orig = rate_equation(m, concs, params)
-        v_norm = rate_equation(m, concs, norm)
-        @test v_norm / v_orig ≈ 1.0 / kcat_orig rtol=1e-8
+        @test rate_equation(m, concs, norm) / v_orig ≈ 1.0 / peak rtol=1e-8
 
-        # V ≈ 1 at saturating substrates, products=0
-        sub_names = _testhelper_substrates(m)
-        prod_names = _testhelper_products(m)
-        reg_names = _testhelper_regulators(m)
-        n_reg = length(reg_names)
+        # The peak bounds the rescaled turnover at every corner of the range.
+        norm_turnover = merge(norm, (E_total=1.0,))
+        corners = Iterators.product(ntuple(_ -> range, length(met_names))...)
+        @test all(c -> rate_equation(m, NamedTuple{met_names}(c), norm_turnover) <=
+                       1 + 1e-9, corners)
 
-        norm_e1 = merge(norm, (E_total=1.0,))
-
-        BIG = 1e6
-        max_rate = 0.0
-        for mask in 0:(2^n_reg - 1)
-            conc_dict = Dict{Symbol,Float64}()
-            for s in sub_names; conc_dict[s] = BIG; end
-            for p in prod_names; conc_dict[p] = 0.0; end
-            for (i, r) in enumerate(reg_names)
-                conc_dict[r] = ((mask >> (i - 1)) & 1) == 1 ? BIG : 0.0
-            end
-            concs = NamedTuple{Tuple(met_names)}(
-                Tuple(conc_dict[n] for n in met_names))
-            v = rate_equation(m, concs, norm_e1)
-            max_rate = max(max_rate, v)
-        end
-        @test max_rate ≈ 1.0 rtol=1e-3
+        # An anchor at those concentrations sets the turnover there.
+        target = sign(v_orig) * (0.1 + 9.9 * rand(rng))
+        anchored, spread_one = rescale_parameter_values(m, params, [concs => target])
+        @test spread_one == 0.0
+        # The anchors' turnover is per enzyme, so the scale leaves E_total as passed in.
+        @test anchored.E_total == params.E_total
+        @test rate_equation(m, concs, merge(anchored, (E_total=1.0,))) ≈ target rtol=1e-9
     end
 end
 
@@ -1114,7 +1097,7 @@ function _testhelper_run_all_tests(spec::_testhelper_MechanismTestSpec)
         spec.run_ode_test && _testhelper_test_ode_steadystate(spec)
         # Only runs if analytical_kcat_fn provided
         _testhelper_test_analytical_kcat(spec)
-        _testhelper_test_kcat_rescaling(spec)
+        _testhelper_test_peak_rescaling(spec)
     end
 end
 
@@ -1445,7 +1428,7 @@ end
         params = merge(NamedTuple{pnames}(ntuple(_ -> 1.3, length(pnames))),
                        (Keq = 20000.0, E_total = 1.0))
         # No UndefVarError: the @generated body compiles and evaluates finite at
-        # products = 0 (the kcat evaluation domain).
+        # products = 0 (initial-rate conditions).
         concs0 = NamedTuple{mets}(
             ntuple(i -> mets[i] in prods ? 0.0 : 1.5, length(mets)))
         @test isfinite(EnzymeRates.rate_equation(em, concs0, params))
@@ -1498,7 +1481,7 @@ end
     end
 end
 
-# ── Standalone kcat tests ──────────────────────────────────────────────────────
+# ── Standalone tests ───────────────────────────────────────────────────────────
 
 """The `return E_total * (num) / (den)` expression of the generated `rate_equation` body of
 `m`."""
@@ -1535,7 +1518,7 @@ end
 
 # The three largest rate laws among the children of one `expand_mechanisms` round over
 # 60 bi-bi seeds: random-order merged complexes with dead-end bindings, every step steady
-# state, about 400 denominator terms each.
+# state, 396 denominator terms each.
 const _testhelper_largest_enumerated_mechanisms = [
     @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
         (E + A <--> E(A), E(B) + A <--> E(P, Q))
@@ -1554,13 +1537,67 @@ const _testhelper_largest_enumerated_mechanisms = [
         (E + Q <--> E(Q), E(P) + Q <--> E(P, Q)) end end),
 ]
 
-@testset "rate_equation stays allocation-free and under 120 ns on the largest laws" begin
-    for m in _testhelper_largest_enumerated_mechanisms
+# Three random-order seeds of A + B + C ⇌ P + Q, larger than the bi-bi laws above: 589,
+# 799 and 858 denominator terms.
+const _testhelper_large_ter_bi_mechanisms = [
+    @enzyme_mechanism(begin substrates: A, B, C; products: P, Q; steps: begin
+        (E + A <--> E(A), E(B) + A <--> E(A, B), E(B, C) + A <--> E(P, Q),
+         E(C) + A <--> E(A, C), E(P) + A <--> E(A, P))
+        (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(A, C) + B ⇌ E(P, Q), E(C) + B ⇌ E(B, C),
+         E(C, Q) + B ⇌ E(B, C, Q), E(Q) + B ⇌ E(B, Q))
+        (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(A, B) + C ⇌ E(P, Q), E(B) + C ⇌ E(B, C),
+         E(B, Q) + C ⇌ E(B, C, Q), E(Q) + C ⇌ E(C, Q))
+        (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))
+        (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(B, C) + Q <--> E(B, C, Q),
+         E(C) + Q <--> E(C, Q), E(P) + Q <--> E(P, Q)) end end),
+    @enzyme_mechanism(begin substrates: A, B, C; products: P, Q; steps: begin
+        (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(B, C) + A ⇌ E(P, Q), E(C) + A ⇌ E(A, C),
+         E(P) + A ⇌ E(A, P))
+        (E + B <--> E(B), E(A) + B <--> E(A, B), E(A, C) + B <--> E(P, Q),
+         E(C) + B <--> E(B, C), E(C, Q) + B <--> E(B, C, Q), E(Q) + B <--> E(B, Q))
+        (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(A, B) + C ⇌ E(P, Q), E(B) + C ⇌ E(B, C),
+         E(B, Q) + C ⇌ E(B, C, Q), E(Q) + C ⇌ E(C, Q))
+        (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))
+        (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(B, C) + Q <--> E(B, C, Q),
+         E(C) + Q <--> E(C, Q), E(P) + Q <--> E(P, Q)) end end),
+    @enzyme_mechanism(begin substrates: A, B, C; products: P, Q; steps: begin
+        (E + A <--> E(A), E(C) + A <--> E(Q; residual = A + C - Q),
+         E(C, P) + A <--> E(A, C, P), E(P) + A <--> E(A, P))
+        (E + C <--> E(C), E(A) + C <--> E(Q; residual = A + C - Q),
+         E(A, P) + C <--> E(A, C, P), E(P) + C <--> E(C, P))
+        (E + P <--> E(P), E(A) + P <--> E(A, P), E(C) + P <--> E(C, P),
+         E(Q; residual = A + C - Q) + P <--> E(A, C, P))
+        (E(P) + Q ⇌ E(B, Q; residual = A + C - Q),
+         E(; residual = A + C - Q) + Q ⇌ E(Q; residual = A + C - Q))
+        (E(Q; residual = A + C - Q) + B ⇌ E(B, Q; residual = A + C - Q),
+         E(; residual = A + C - Q) + B ⇌ E(P)) end end),
+]
+
+# Seconds per call allowed per denominator term: each of the six laws above must run in
+# under the larger of 120 ns and this constant times its denominator terms. It covers
+# the worst CI readings on each runner, in ns per term, ter-bi / bi-bi: ubuntu x64
+# 0.305 / 0.313, windows x64 0.346 / 0.459, macOS aarch64 0.248 / 0.732.
+const _testhelper_seconds_per_denominator_term = 0.8e-9
+
+"""The number of terms in the denominator of `m`'s derived rate law."""
+_testhelper_denominator_terms(m) =
+    length(EnzymeRates._raw_symbolic_rate_polys(typeof(m))[2])
+
+@testset "rate_equation time per call grows at most in proportion to the law's size" begin
+    @test _testhelper_denominator_terms.(_testhelper_largest_enumerated_mechanisms) ==
+          [396, 396, 396]
+    @test _testhelper_denominator_terms.(_testhelper_large_ter_bi_mechanisms) ==
+          [589, 799, 858]
+    for m in vcat(_testhelper_largest_enumerated_mechanisms,
+                  _testhelper_large_ter_bi_mechanisms)
         params, concs, _ = _testhelper_random_independent_params_concs(
             m, collect(metabolites(m)); rng = Random.MersenneTwister(42))
         allocs, t = _testhelper_test_rate_equation_performance(m, params, concs)
+        n = _testhelper_denominator_terms(m)
+        @info "rate_equation: $(round(1e9 * t; digits = 1)) ns per call, $n denominator " *
+              "terms, $(round(1e9 * t / n; digits = 3)) ns per term"
         @test allocs == 0
-        @test t < 120e-9
+        @test t < max(120e-9, _testhelper_seconds_per_denominator_term * n)
     end
 end
 
@@ -1594,8 +1631,9 @@ end
 
 @testset "the generated rate_equation body is in Horner form" begin
     # Horner form multiplies by each factor once per branch instead of once per term,
-    # which keeps the largest laws far below 120 ns. Greedy Horner takes a factor out of
-    # every summand it divides, so no concentration divides two summands of one sum.
+    # which keeps the 396-term laws above at 54-62 ns per call locally. Greedy Horner
+    # takes a factor out of every summand it divides, so no concentration divides two
+    # summands of one sum.
     for m in (_testhelper_largest_enumerated_mechanisms[2],
               only(s for s in MECHANISM_TEST_SPECS
                    if s.name == "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites"
@@ -2328,9 +2366,8 @@ end
     @test isfinite(rate_equation(m, concs, params, Reduced))
 end
 
-@testset "Fix B: _kcat_forward handles multiple saturating patterns" begin
-    # Random-order allosteric bi-bi, live I-state. Verified pre-fix to raise
-    # "multiple saturating-substrate kcat components (9 found)".
+@testset "the peak of an allosteric random-order bi-bi reaches the grid maximum" begin
+    # Random-order allosteric bi-bi, live I-state.
     m = @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2350,20 +2387,20 @@ end
     rng = Random.MersenneTwister(1)
     pn = EnzymeRates.fitted_params(m)
     pv = NamedTuple{pn}(Tuple(0.2 + 2 * rand(rng) for _ in pn))
-    kc = EnzymeRates._kcat_forward(m, merge(pv, (Keq = 1.0,)))
-    @test isfinite(kc)
-    # Peak-productive-turnover contract: equals the numerical peak forward rate.
+    peak = EnzymeRates._peak_turnover(m, merge(pv, (Keq = 1.0,)), (1e-12, 1e9))
+    @test isfinite(peak.value)
     fp = merge(pv, (Keq = 1.0, E_total = 1.0))
-    vmax = maximum(rate_equation(m, (A = x, B = y, P = 0.0, Q = 0.0), fp, Reduced)
-                   for x in 10.0 .^ (0:1:9), y in 10.0 .^ (0:1:9))
-    @test kc ≈ vmax rtol = 1e-3
+    vgrid = maximum(rate_equation(m, (A = x, B = y, P = p, Q = q), fp)
+                    for x in 10.0 .^ (-12:9), y in 10.0 .^ (-12:9),
+                        p in 10.0 .^ (-12:3:9), q in 10.0 .^ (-12:3:9))
+    @test peak.value >= vgrid * (1 - 1e-12)
 end
 
-@testset "allosteric kcat: a one-sided regulator's corner is its conformation's limit" begin
+@testset "the peak turnover covers every regulator corner at saturating substrate" begin
     # A regulator that binds one conformation only (:OnlyA or :OnlyI) puts all the enzyme
     # in that conformation when it saturates, so the rate tends to that conformation's own
-    # saturating turnover; with the regulator absent both conformations contribute. kcat
-    # is the largest regulator corner at saturating S.
+    # saturating turnover; with the regulator absent both conformations contribute. The
+    # peak turnover is at least every regulator corner's turnover at saturating S.
     # :NonequalAI catalysis: both conformations turn over.
     only_a = @allosteric_mechanism begin
         substrates: S
@@ -2427,19 +2464,21 @@ end
             rng = Random.MersenneTwister(seed)
             p = merge(NamedTuple{pn}(Tuple(0.2 + 5 * rand(rng) for _ in pn)),
                       (Keq = 2.0, E_total = 1.0))
+            # Corners of the searched range: each regulator at a bound, saturating S,
+            # the product at the lower bound.
             vmax = maximum(0:(2^length(regs) - 1)) do mask
-                r = Tuple((mask >> (i - 1)) & 1 == 1 ? BIG : 0.0 for i in eachindex(regs))
-                rate_equation(m, NamedTuple{(:S, :P, regs...)}((BIG, 0.0, r...)), p)
+                r = Tuple((mask >> (i - 1)) & 1 == 1 ? BIG : 1e-12
+                          for i in eachindex(regs))
+                rate_equation(m, NamedTuple{(:S, :P, regs...)}((BIG, 1e-12, r...)), p)
             end
-            @test EnzymeRates._kcat_forward(m, p) ≈ vmax rtol = 1e-6
+            @test EnzymeRates._peak_turnover(m, p, (1e-12, BIG)).value >=
+                  vmax * (1 - 1e-12)
         end
     end
 end
 
-@testset "Fix B: non-allosteric random-order bi-bi kcat = peak (contract guard)" begin
-    # Sweeps 40 parameter draws; product-containing King–Altman cross-terms
-    # (e.g. A·B·P monomials) are spurious candidates at products=0 and can
-    # inflate _kcat_forward by >10× before the product filter is applied.
+@testset "the peak turnover of a random-order bi-bi reaches the grid maximum" begin
+    # 40 parameter draws; the grid spans every metabolite, products included.
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2459,17 +2498,18 @@ end
     for seed in 1:40
         rng = Random.MersenneTwister(seed)
         pv = NamedTuple{pn}(Tuple(0.2 + 5 * rand(rng) for _ in pn))
-        kc = EnzymeRates._kcat_forward(m, merge(pv, (Keq = 1.0,)))
+        peak = EnzymeRates._peak_turnover(m, merge(pv, (Keq = 1.0,)), (1e-12, 1e3))
         fp = merge(pv, (Keq = 1.0, E_total = 1.0))
-        vmax = maximum(rate_equation(m, (A = x, B = y, P = 0.0, Q = 0.0), fp, Reduced)
-                       for x in 10.0 .^ (0:1:9), y in 10.0 .^ (0:1:9))
-        @test kc ≈ vmax rtol = 1e-3
+        vgrid = maximum(rate_equation(m, (A = x, B = y, P = p, Q = q), fp)
+                        for x in 10.0 .^ (-12:3), y in 10.0 .^ (-12:3),
+                            p in 10.0 .^ (-12:3:3), q in 10.0 .^ (-12:3:3))
+        @test peak.value >= vgrid * (1 - 1e-12)
     end
 end
 
-@testset "kcat with no product-free saturating pattern errors descriptively" begin
+@testset "the peak of a law that needs bound product lies at a positive product level" begin
     # Catalysis runs only on the product-bound form E(P), so every forward numerator
-    # term carries P and no pattern survives the products = 0 filter.
+    # term carries P and the turnover vanishes at zero product.
     m = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -2482,7 +2522,9 @@ end
     end
     pn = EnzymeRates.fitted_params(m)
     params = merge(NamedTuple{pn}(ntuple(_ -> 1.5, length(pn))), (Keq = 2.0,))
-    @test_throws "no kcat components" EnzymeRates._kcat_forward(m, params)
+    peak = EnzymeRates._peak_turnover(m, params, (1e-12, 1e3))
+    @test peak.value > 0
+    @test 1e-3 < peak.concs.P < 1e3
 end
 
 @testset "rendering helpers" begin

@@ -567,12 +567,12 @@ keys; the census found such pairs, and they are fitted separately.
 - The body allocates nothing and reads inputs by name, so a `NamedTuple` in any field order
   works. `fitted_params`, `parameters` and `metabolites` return constant tuples.
 - **Gates (E1):** zero allocations for every tested law; at most 120 ns per call for
-  `MECHANISM_TEST_SPECS` and the three largest enumerated bi-bi laws
-  (`_testhelper_largest_enumerated_mechanisms` from PR #85, about 400 denominator terms
-  each); above that size, a bound proportional to the number of denominator terms. Its
-  constant is calibrated on CI hardware in phase 1, on PR #85's Horner code, and
-  re-calibrated in phase 5 once the locals land. The compile cost per fresh mechanism stays
-  within `test_compile_budget`'s limits.
+  `MECHANISM_TEST_SPECS`; for the three largest enumerated bi-bi laws
+  (`_testhelper_largest_enumerated_mechanisms` from PR #85, 396 denominator terms each)
+  and larger laws, a bound proportional to the number of denominator terms,
+  `max(120 ns, c × terms)`. Its constant `c` is calibrated on CI hardware in phase 1
+  (0.8 ns per term), on PR #85's Horner code, and re-calibrated in phase 5 once the locals
+  land. The compile cost per fresh mechanism stays within `test_compile_budget`'s limits.
 
 ## 12. Fitting scale (phase 1)
 

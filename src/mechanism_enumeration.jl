@@ -1757,9 +1757,8 @@ inactive conformation's catalysis must be all-or-nothing — fully dead (every
 chemistry group `:OnlyA`, whether because an `:OnlyA` binding blocks the cycle or by
 a dead-inactive V-type) or fully live — and the relaxation leaves every chemistry
 group live. Beside an `:OnlyA` binding it would leave a partial conformation, which
-strands enzyme in a covalent form (a kinetic sink) and crashes the
-saturating-turnover extraction; a one-sided `:OnlyA` binding, legal only because
-`k_I = 0`, would also be stranded by the restored finite `k_I`, leaving no
+strands enzyme in a covalent form (a kinetic sink); a one-sided `:OnlyA` binding, legal
+only because `k_I = 0`, would also be stranded by the restored finite `k_I`, leaving no
 thermodynamic reading (`_onlya_haldane_violation`). Where the inactive conformation
 binds nothing (all bindings `:OnlyA`), the skipped variant is rate-equivalent to the
 fully-dead form emitted directly, so no observable hypothesis is lost.

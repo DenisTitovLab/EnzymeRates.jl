@@ -138,7 +138,7 @@ Write `p` as a Julia `Expr` in greedy Horner form, for the body of the generated
 `rate_equation`. The factor that divides the most terms, a symbol or the reciprocal of
 one, is taken out as `x * (q) + (r)`, and the quotient `q` and the remainder `r` are
 written the same way. The body then multiplies by each factor once per branch instead of
-once per term, which keeps the largest rate laws far below the 120 ns bound; LLVM
+once per term, which keeps the tested 396-term laws at 54-62 ns per call locally; LLVM
 computes a repeated reciprocal `1 / K` once. Ties go to the factor first by name, so the
 body is deterministic, and every call has two operands (see `_nest_binary`).
 """

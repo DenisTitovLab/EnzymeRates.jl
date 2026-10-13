@@ -1,5 +1,5 @@
 # ABOUTME: King-Altman/Cha rate equation derivation via @generated functions.
-# ABOUTME: Parameters API, kcat computation, and MWC allosteric rate assembly.
+# ABOUTME: Parameters API and MWC allosteric rate assembly.
 
 # ─── Parameters API ─────────────────────────────────────────
 
@@ -55,8 +55,8 @@ end
 # hold a `Mechanism` (e.g. the `identify_rate_equation` pipeline) use these
 # without an explicit lift. `compile_mechanism` does Sig conversion (it
 # allocates) — it is NOT the rate_equation hot path. Pass an
-# `EnzymeMechanism` / `AllostericEnzymeMechanism` for the 0-alloc/<100ns
-# `rate_equation` guarantee.
+# `EnzymeMechanism` / `AllostericEnzymeMechanism` for the allocation-free
+# `rate_equation` hot path.
 parameters(m::Union{Mechanism, AllostericMechanism},
            mode::AbstractRateEquationMode) =
     parameters(compile_mechanism(m), mode)
@@ -566,7 +566,7 @@ function rate_equation_string(@nospecialize(m::AllostericEnzymeMechanism), ::Red
     _equation_text(typeof(m), (indep..., :Keq, :E_total), dep)
 end
 
-# ─── kcat Computation Helpers ──────────────────────────────────
+# ─── Steady-state rate-constant names ──────────────────────────
 
 """
 Set of Symbol names for SS rate-constant parameters (`Kfor`, `Krev`) of
@@ -574,7 +574,7 @@ Set of Symbol names for SS rate-constant parameters (`Kfor`, `Krev`) of
 names (`I_` tag after the prefix, e.g. `k_I_ES_to_EP`) of every SS rate
 constant that lives in the inactive state polynomial. Routes Symbol production through the
 `name(p, m)` chokepoint via Parameter-subtype dispatch. Used by
-`rescale_parameter_values` to scale only SS k's without touching RE
+`_scale_rate_constants` to scale only SS k's without touching RE
 Kd's, Keq, E_total, L, or regulatory K's.
 """
 function _ss_rate_constant_names(@nospecialize(em::AbstractEnzymeMechanism))
@@ -582,197 +582,6 @@ function _ss_rate_constant_names(@nospecialize(em::AbstractEnzymeMechanism))
     params = m isa Mechanism ? _enumerate_parameters_full(m) :
         [_cat_params(m, :A); _cat_params(m, :I)]
     Set{Symbol}(name(p, m) for p in params if p isa Union{Kfor, Krev})
-end
-
-"""Group `num` and `den` POLYs by metabolite monomial pattern: each monomial splits
-into its part over the metabolites `mets` (the group key) and its parameter part.
-Returns `(num_groups, den_groups)` where each value is a POLY of parameter monomials
-sharing the same metabolite monomial. Reverse (negative-coefficient) terms are dropped
-from the numerator. Used by `_kcat_forward` to compare saturating metabolite patterns
-across A/I states."""
-function _kcat_groups_from_polys(num::POLY, den::POLY, mets::Set{Symbol})
-    function group(p, forward_only)
-        groups = Dict{MONO, POLY}()
-        for (mono, coeff) in p
-            forward_only && coeff <= 0 && continue
-            g = get!(groups, filter(q -> q.first in mets, mono), POLY())
-            k = filter(q -> q.first ∉ mets, mono)
-            g[k] = get(g, k, 0) + coeff
-        end
-        groups
-    end
-    group(num, true), group(den, false)
-end
-
-"""
-    _kcat_forward(m::EnzymeMechanism, params) → Float64
-
-Compute kcat (forward) analytically from the polynomial structure.
-kcat is the maximum rate at saturating substrates, zero products,
-and E_total=1. For mechanisms with multiple catalytic paths
-(e.g., non-essential activator), returns the max over all paths.
-
-Groups the rate-equation numerator (forward terms only, positive coefficients)
-and denominator by metabolite pattern. For each matching pair, builds k-only
-(num_k_expr / den_k_expr) candidates and emits `max(nk/dk, ...)`. Equilibrium
-constants cancel between num and den at matching metabolite levels.
-
-Multiple candidates arise for mechanisms with alternative catalytic pathways
-(e.g., non-essential activator with/without activator bound).
-"""
-@generated function _kcat_forward(
-    ::M, params::NamedTuple,
-) where {M <: EnzymeMechanism}
-    num, den, _ = _raw_symbolic_rate_polys(M)
-    num_groups, den_groups = _kcat_groups_from_polys(num, den, Set(metabolites(M())))
-    prods = Set(name.(products(reaction(Mechanism(M())))))
-    candidates = [:($(_poly_to_expr(num_groups[k])) / $(_poly_to_expr(den_groups[k])))
-                  for k in _kcat_keys(num_groups, den_groups, prods)]
-    dep, indep = _dependent_param_exprs(M)
-    Expr(:block,
-        _destructuring_expr((indep..., :Keq), :params),
-        _dep_assignments(dep)...,
-        :(return $(_max_expr(candidates))))
-end
-
-"""
-The saturating metabolite patterns `_kcat_forward` takes its candidates from: the keys
-of `num_groups` that are also keys of `den_groups` and name no product of `prods`, in
-sorted order. kcat is evaluated at products = 0, so product-containing monomials are
-outside its domain — King–Altman net-flux cross-terms like A·B·P yield spurious
-candidates that can win the max. Errors when no pattern remains, as when catalysis runs
-only on a product-bound form.
-"""
-function _kcat_keys(num_groups, den_groups, prods)
-    ks = sort!([k for k in keys(num_groups)
-                if haskey(den_groups, k) && !any(first(s) in prods for s in k)])
-    isempty(ks) && error("_kcat_forward: no kcat components — no product-free " *
-        "saturating-substrate pattern appears in both the rate numerator and denominator")
-    ks
-end
-
-"""The `max` of the kcat candidate Exprs `cands`, or the lone candidate itself."""
-_max_expr(cands) = length(cands) == 1 ? only(cands) : Expr(:call, :max, cands...)
-
-"""
-    _kcat_forward(m::AllostericEnzymeMechanism, params) → Float64
-
-Returns the peak achievable forward turnover: `max` over saturating
-substrate patterns and regulator corners (each regulator 0 or saturating)
-at products = 0, E_total = 1. Equals the numerical grid-peak forward rate. At a
-corner whose saturating regulators bind one conformation at a higher total site
-multiplicity than the other (an `:OnlyA` or `:OnlyI` ligand), that conformation holds
-all the enzyme, so the corner is its own turnover.
-Per active site (protomer) — `E_total` is the active-site concentration,
-so this carries no `catalytic_multiplicity` factor.
-"""
-@generated function _kcat_forward(
-    ::AllostericEnzymeMechanism{CM,CS,RS},
-    params::NamedTuple,
-) where {CM,CS,RS}
-    am = AllostericMechanism(AllostericEnzymeMechanism{CM,CS,RS}())
-    CatN = catalytic_multiplicity(am)
-
-    # Both conformations' polys under the free-enzyme normalization `rate_equation` uses
-    # (`_mwc_state_polys`), each multiplied by the other conformation's free-enzyme weight
-    # left for cross-weighting, so the saturating metabolite pattern can be matched
-    # across conformations. A pattern that only exists via an `:OnlyA` step is absent
-    # from the I-state groups, and a dead I-cycle leaves no I-state numerator groups.
-    cat_mets = Set{Symbol}(metabolites(CM()))
-    num_A, den_A, num_I, den_I, d_A, d_I = _mwc_state_polys(am, cat_mets)
-    num_A_groups, den_A_groups =
-        _kcat_groups_from_polys(poly_mul(num_A, d_I), poly_mul(den_A, d_I), cat_mets)
-    num_I_groups, den_I_groups =
-        _kcat_groups_from_polys(poly_mul(num_I, d_A), poly_mul(den_I, d_A), cat_mets)
-
-    # kcat = peak forward turnover at saturation: max over saturating patterns
-    # (met_key) and regulator corners.
-    a_keys = _kcat_keys(num_A_groups, den_A_groups, Set(name.(products(reaction(am)))))
-
-    dep, indep = _dependent_param_exprs(am)
-
-    # Regulator corners: each ligand 0 or saturating, independently of the pattern.
-    all_ligs = allosteric_regulators(am)
-    lig_idx = Dict(lig => i - 1 for (i, lig) in enumerate(all_ligs))
-
-    kcat_exprs = Any[]
-    for met_key in a_keys
-        # A pattern missing from the I-state numerator, or a dead I-cycle, gives A_I = 0.
-        A_A, B_A = _mwc_power_pair(_poly_to_expr(num_A_groups[met_key]),
-                                   _poly_to_expr(den_A_groups[met_key]), CatN)
-        A_I, B_I = haskey(den_I_groups, met_key) ?
-            _mwc_power_pair(_poly_to_expr(get(num_I_groups, met_key, poly_zero())),
-                            _poly_to_expr(den_I_groups[met_key]), CatN) : (0, 0)
-        for mask in 0:(2^length(all_ligs) - 1)
-            W_A_factors = Any[]
-            W_I_factors = Any[]
-            deg_A = deg_I = 0
-            for site in regulatory_sites(am)
-                sat_terms_A = Any[]
-                sat_terms_I = Any[]
-                for (lig, tag) in zip(ligands(site), allo_states(site))
-                    (mask >> lig_idx[lig]) & 1 == 1 || continue
-                    for (terms, inactive) in ((sat_terms_A, false), (sat_terms_I, true))
-                        K = _reg_K(am, site, lig, tag, inactive)
-                        K === nothing || push!(terms, :(inv($K)))
-                    end
-                end
-                n = multiplicity(site)
-                if !isempty(sat_terms_A)
-                    push!(W_A_factors, _power_expr(_nest_binary(:+, sat_terms_A), n))
-                    deg_A += n
-                end
-                if !isempty(sat_terms_I)
-                    push!(W_I_factors, _power_expr(_nest_binary(:+, sat_terms_I), n))
-                    deg_I += n
-                end
-            end
-            # The saturating ligands grow a conformation's regulator factor as the
-            # concentration to the power `deg`. With unequal powers the conformation with
-            # the larger one holds all the enzyme in the limit, so the corner is that
-            # conformation's own turnover; it is skipped when that conformation lacks the
-            # pattern (0/0), which is safe: taking the substrates to saturation first then
-            # gives A_A/B_A, which the corner with no regulator bound already supplies.
-            # Equal powers cancel and leave the weighted combination.
-            if deg_A > deg_I
-                push!(kcat_exprs, :($A_A / $B_A))
-            elseif deg_I > deg_A
-                B_I == 0 || push!(kcat_exprs, :($A_I / $B_I))
-            elseif deg_A == 0
-                push!(kcat_exprs, :($(_mwc_combine(A_A, A_I)) / $(_mwc_combine(B_A, B_I))))
-            else
-                W_A = _nest_binary(:*, W_A_factors)
-                W_I = _nest_binary(:*, W_I_factors)
-                push!(kcat_exprs, :(($(A_A) * $(W_A) + L * $(A_I) * $(W_I)) /
-                    ($(B_A) * $(W_A) + L * $(B_I) * $(W_I))))
-            end
-        end
-    end
-
-    return Expr(:block,
-        _destructuring_expr((indep..., :Keq), :params),
-        _dep_assignments(dep)...,
-        :(return $(_max_expr(kcat_exprs))))
-end
-
-# ─── Public API: rescale_parameter_values ──────────────────────────
-
-"""
-    rescale_parameter_values(m, params::NamedTuple; scale_k_to_kcat=1.0)
-
-Rescale SS rate constants so that `_kcat_forward(m, result) ≈ scale_k_to_kcat`.
-Non-SS parameters (K's, Keq, E_total, L, regulatory K's) are unchanged.
-"""
-function rescale_parameter_values(
-    @nospecialize(m::AbstractEnzymeMechanism), params::NamedTuple; scale_k_to_kcat=1.0,
-)
-    kcat_current = _kcat_forward(m, params)
-    scale = scale_k_to_kcat / kcat_current
-    ss_names = _ss_rate_constant_names(m)
-    NamedTuple{keys(params)}(Tuple(
-        k in ss_names ? v * scale : v
-        for (k, v) in zip(keys(params), values(params))
-    ))
 end
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1070,17 +879,9 @@ end
 """Raise an expression to a positive integer power (returns `expr` itself for n=1)."""
 _power_expr(expr, n::Int) = n == 1 ? expr : :(($expr)^$n)
 
-"""MWC active + L·inactive state-combine `A + L * B`. Shared by `_kcat_forward`
-(numerator/denominator halves of the state ratio) and `_num_den_exprs`
-(the retained num/den sums)."""
+"""MWC active + L·inactive state-combine `A + L * B` of the retained num/den sums
+(`_num_den_exprs`)."""
 _mwc_combine(a, b) = :($a + L * $b)
-
-"""MWC binding-statistics power-pair `(X * Y^(n-1), Y^n)` for a saturating pattern:
-the numerator carries one fewer denominator power than the denominator, where
-`n = catalytic_multiplicity`. A zero numerator `X` stays the literal 0. Used by
-`_kcat_forward` per conformation."""
-_mwc_power_pair(x, y, n) =
-    (n == 1 || x == 0 ? x : :($x * $y^$(n - 1)), :($y^$n))
 
 """Cross-weight an MWC state term by the OTHER conformation's free-enzyme weight
 `D_other^n` (`n = catalytic_multiplicity`). Restores a common free-enzyme basis
@@ -1112,7 +913,7 @@ end
 
 The catalytic rate polys of both conformations of `am` (`_state_rate_polys`) under the
 formulation-1 per-state free-enzyme normalization that `rate_equation`
-(`_num_den_exprs`) and `_kcat_forward` share. The I-state polys are always re-derived
+(`_num_den_exprs`) uses. The I-state polys are always re-derived
 natively on the reachable-form subgraph (`_state_allo_mechanism(am, :I)` drops `:OnlyA`
 groups and every form they disconnect from free E). King–Altman on that subgraph
 derives the inactive conformation's binding partition, and for a dead cycle the pruned
@@ -1126,9 +927,6 @@ value (`mets` are the catalytic metabolites):
 - otherwise: the polys stay raw, and each state is cross-weighted by the other state's
   weight (`d^n` on the rate law's terms).
 Only the third case returns the weights; the first two return `poly_one()` for both.
-The normalization is a common factor of kcat's saturating-limit ratio, so it leaves
-kcat's value unchanged; sharing it keeps kcat's saturating-pattern grouping consistent
-with `rate_equation`.
 """
 function _mwc_state_polys(am::AllostericMechanism, mets::Set{Symbol})
     num_A, den_A, d_A = _state_rate_polys(am, :A)

@@ -102,7 +102,7 @@ end
         v_code = real(ER.rate_equation(onlyA, (S=S, P=P), prm))
         v_gt = _testhelper_uni_onlyA_flux(KA, KP, k, L=L, Keq=Keq, S=S, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
-        @test isfinite(ER._kcat_forward(onlyA, prm))
+        @test ER._peak_turnover(onlyA, prm, (1e-12, 1e3)).value > 0
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) uni-uni rate.
         kr = k * KP / (Keq * KA)
@@ -123,10 +123,11 @@ end
     @test dA == ER.poly_one()                       # single active segment
     @test dI == ER.poly_one()                       # single inactive segment
 
-    # kcat stays consistent with rate_equation under normalization.
+    # The peak scale stays consistent with rate_equation.
     prm = NamedTuple{(fp..., :Keq, :E_total)}((1.3, 0.9, 2.1, 0.7, 3.0, 1.0))
-    rescaled = ER.rescale_parameter_values(onlyA, prm; scale_k_to_kcat=5.0)
-    @test isapprox(ER._kcat_forward(onlyA, rescaled), 5.0; rtol=1e-6)
+    rescaled, _ = ER.rescale_parameter_values(onlyA, prm)
+    @test isapprox(ER._peak_turnover(onlyA, rescaled, (1e-12, 1e3)).value, 1.0;
+                   rtol=1e-9)
 end
 
 # ── The gate: multi-:OnlyA bi-uni derivation matches mass-action ground truth ─
@@ -159,7 +160,7 @@ end
         v_code = real(ER.rate_equation(multiA, (A=A, B=B, P=P), prm))
         v_gt = _testhelper_multi_onlyA_flux(KA, KB, KP, k, L=L, Keq=Keq, A=A, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
-        @test isfinite(ER._kcat_forward(multiA, prm))
+        @test ER._peak_turnover(multiA, prm, (1e-12, 1e3)).value > 0
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) bi-uni rate.
         kr = k * KP / (Keq * KA * KB)
@@ -248,7 +249,7 @@ end
         v_gt = _testhelper_metab_dfree_onlyA_flux(
             kon, koff, KB, KP, k, L=L, Keq=Keq, S=S, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
-        @test isfinite(ER._kcat_forward(metabD, prm))
+        @test ER._peak_turnover(metabD, prm, (1e-12, 1e3)).value > 0
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) ordered bi-uni rate.
         @test isapprox(
@@ -269,7 +270,7 @@ end
             kon, koff, KB, KP, k; L=L, Keq=Keq, S=S, B=0.0, P=P);
         rtol=1e-4)
     @test v0 < 0    # reverse flux survives at B=0 (invalid :EqualAI-cat trap→0 was fake)
-    @test isfinite(ER._kcat_forward(metabD, prm))
+    @test ER._peak_turnover(metabD, prm, (1e-12, 1e3)).value > 0
 end
 
 # ── Free-flip-only ordered bi-uni :NonequalAI-catalysis reference ────────────
@@ -780,7 +781,9 @@ end
     prm = NamedTuple{(fp..., :Keq, :E_total)}(((1.3 for _ in fp)..., 3.0, 1.0))
     concs = (ATP = 1.1, F6P = 0.7, ADP = 0.6, F16BP = 0.9)
     @test isfinite(real(ER.rate_equation(err1, concs, prm)))
-    @test isfinite(ER._kcat_forward(err1, prm))
+    # No covalent sink: with both products at zero the enzyme still turns over.
+    @test real(ER.rate_equation(err1, merge(concs, (ADP = 0.0, F16BP = 0.0)), prm)) > 0
+    @test ER._peak_turnover(err1, prm, (1e-12, 1e3)).value > 0
 end
 
 # ── n-protomer concerted-MWC oracle (formulation 1) ─────────────────────────
@@ -987,7 +990,8 @@ end
 # is therefore the bare constant d_free_I = 1 and it contributes only L·Q_I (no
 # flux) to the denominator. The multi-chemical-step :OnlyA form the enumeration
 # must feed: the derivation admits it, keeps a finite rate as a product goes to
-# zero (no covalent sink), and yields a finite positive kcat.
+# zero, still turns over with both products at zero (no covalent sink), and has
+# a positive peak turnover.
 @testset "dead-inactive ping-pong :OnlyA derivation" begin
     dead = @allosteric_mechanism begin
         substrates: ATP, F6P
@@ -1054,13 +1058,14 @@ end
         prm = NamedTuple{(afp..., :Keq, :E_total)}(
             ((s === :L ? 0.7 : vals[twin_of(s)] for s in afp)..., Keq, 1.0))
 
-        # rate finite at a normal point AND as F16BP -> 0 (the no-sink check: a
-        # dead inactive conformation must not strand enzyme in a covalent form).
+        # rate finite at a normal point AND as F16BP -> 0, and positive with both
+        # products at zero (the no-sink check: a dead inactive conformation must not
+        # strand enzyme in a covalent form, which would stop turnover without product).
         @test isfinite(real(ER.rate_equation(dead, concs, prm)))
         @test isfinite(real(ER.rate_equation(dead,
             (ATP=ATP, F6P=F6P, ADP=ADP, F16BP=1e-8), prm)))
-        kcat = ER._kcat_forward(dead, prm)
-        @test isfinite(kcat) && kcat > 0
+        @test real(ER.rate_equation(dead, merge(concs, (ADP=0.0, F16BP=0.0)), prm)) > 0
+        @test ER._peak_turnover(dead, prm, (1e-12, 1e3)).value > 0
 
         # v = 0 at the equilibrium metabolite ratio ADP·F16BP = Keq·ATP·F6P.
         @test isapprox(real(ER.rate_equation(dead,

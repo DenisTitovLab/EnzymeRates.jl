@@ -7,28 +7,30 @@ measured rate carries no reliable meaning. What survives is the *shape* of the
 response: changing the amount of enzyme scales every rate by the same factor and
 leaves that shape intact.
 
-EnzymeRates.jl handles both cases through one `FittingProblem` field,
-`scale_k_to_kcat`. For a trustworthy per-enzyme turnover scale, set it to
-`nothing`; the fit then scores absolute magnitudes. For an arbitrary scale, set
-it to a number — the enzyme's kcat if you know it, or simply `1`; the fit then
-becomes invariant to that arbitrary factor and pins the returned turnover to the
-number you chose. That single field controls two things at once: which loss
-formula the fitter uses, and how it normalizes the returned parameters.
+EnzymeRates.jl handles both cases through one `FittingProblem` keyword, `absolute`.
+With the default `absolute = false` the data is relative: the fit ignores an
+arbitrary factor on each group's rates, and the returned rate constants are scaled so
+the mechanism's peak turnover is 1. With `absolute = true` the data is per-enzyme
+turnover: the fit scores absolute magnitudes and returns the constants as fitted.
+`IdentifyRateEquationProblem` takes the same keyword.
 
 ## The two modes
 
 ### Relative mode (the default)
 
-Pass a positive, finite `Real` — the default is `1.0`. In relative mode:
-
 - **Loss**: each group's log-ratios are **mean-centered before squaring**,
   which removes the arbitrary per-group `E_total` scale. The loss is invariant
   to rescaling all rates in a group by the same factor.
-- **Output normalization**: the fitted SS rate constants are rescaled so that
-  the forward catalytic rate constant (kcat) equals `scale_k_to_kcat`. With
-  the default `1.0`, the returned equation has kcat = 1; the absolute turnover
-  is recovered by multiplying by a separately measured kcat value. A custom
-  target (e.g. `scale_k_to_kcat = 42.0`) gives kcat = 42 directly.
+- **Output scale**: the loss cannot see a common factor on every steady-state rate
+  constant, so the fitter fixes it after the fit: the returned constants make the
+  mechanism's **peak turnover** equal 1. The peak turnover is the largest net forward
+  rate per enzyme, `v/E_total`, over every metabolite's concentration — substrates,
+  products, inhibitors and regulators — within `peak_range`. A deterministic search in
+  log concentrations looks for it. The search is a heuristic: it climbs, one
+  concentration at a time, from the four best of the range's corners and its center
+  (every corner for up to 12 metabolites, only the two extreme corners beyond).
+  Multiply the returned rate constants by a measured peak turnover to put them in
+  absolute units, or rescale them to measured kcats (below).
 
 Relative mode is the right choice when your data reports relative rates
 (arbitrary units, percent activity, or values normalized per some `E_total`
@@ -36,13 +38,13 @@ estimate that you do not trust).
 
 ### Absolute mode
 
-Pass `nothing`. In absolute mode:
+Pass `absolute = true`. In absolute mode:
 
 - **Loss**: log-ratios are squared **without centering**. The absolute
   magnitude of the rate is scored, so the data must report per-enzyme turnover
   in consistent units.
-- **Output**: the raw fitted parameters are returned without kcat
-  normalization. The data fixes the absolute scale.
+- **Output**: the raw fitted parameters, never rescaled. The data fixes the absolute
+  scale.
 
 Absolute mode is the right choice when your data is already on a per-enzyme
 turnover basis.
@@ -56,29 +58,52 @@ turnover basis.
     the measured `Rate` must already be per-enzyme — divide rates recorded at a
     known enzyme amount by that amount before fitting.
 
-## Rescaling after the fact
+## The peak range
 
-`rescale_parameter_values(mechanism, params; scale_k_to_kcat)` is the public
-API for kcat normalization. It rescales only the rate constants — the
-lowercase-`k` parameters every steady-state step contributes, in both
-directions (`k_<from>_to_<to>`) — while leaving the binding constants `K`,
-`Keq`, `E_total`, the allosteric `L`, and regulatory K values unchanged.
+`peak_range = (lo, hi)` bounds the concentrations the peak search visits, in the units
+of your data. The default `(1e-12, 1e3)` covers physiological concentrations whether
+your data is in M, the unit [Fitting tutorial & data format](@ref) recommends, or in
+mM. For data in µM, where `1e3` means 1 mM, raise the upper bound. `FittingProblem` and
+`IdentifyRateEquationProblem` take `peak_range`, and so does `rescale_parameter_values`
+without `kcats`.
+
+Most laws peak inside the range or saturate well below its upper edge. A law still
+rising at the upper edge — by more than 10% over the range's last decade — is flagged:
+the fit result's `peak_at_range_edge` is `true`, and identify's CSVs record the flag in
+a column of the same name. The fit is still scaled, to the turnover at the edge; the
+flag says that a wider range would change the scale.
+
+## Rescaling after the fit
+
+`rescale_parameter_values` re-expresses fitted parameters on another scale. It rescales
+only the rate constants — the lowercase-`k` parameters every steady-state step
+contributes, in both directions (`k_<from>_to_<to>`) — and leaves the binding constants
+`K`, `Keq`, `E_total`, the allosteric `L`, and regulatory K values unchanged.
 
 The rate constants are the only parameters that carry time in their units, and
 the measured rate is the only thing that supplies a time scale, so it can pin
 down only what lives in them. The binding constants, `Keq`, and `E_total` are
 concentrations or concentration ratios, and `L` is a pure number — none carry a
 time dimension, so the rate constrains them only as far as the response shape
-already does. Multiplying every rate constant by a common factor scales kcat by
-that factor (kcat is homogeneous of degree one in them), and the K's stay put: a
-rapid-equilibrium step stores its binding constant directly, so the rescaling
-never touches it, while a steady-state binding constant is the ratio of its two
-rate constants, in which the common factor cancels. One uniform rescaling
-therefore sets kcat to any target while leaving every other parameter fixed.
+already does. Multiplying every rate constant by a common factor multiplies every
+rate by that factor, and the K's stay put: a rapid-equilibrium step stores its binding
+constant directly, so the rescaling never touches it, while a steady-state binding
+constant is the ratio of its two rate constants, in which the common factor cancels.
 
-`fit_rate_equation` calls this function internally in relative mode. You can
-also call it directly on any parameter `NamedTuple` to renormalize after the
-fact.
+The parameters you pass must include `Keq`, which the dependent rate constants need; a
+fit's `params` holds only the fitted constants, so merge it in.
+
+- **Measured turnovers.** Pass `kcats`, a vector of `concentrations => turnover` pairs,
+  each a measured turnover — a kcat or a specific activity in turnover units — at stated
+  concentrations. Metabolites you leave out are zero. Concentrations use the units of
+  your data. Turnover is per unit `E_total`, the active-site concentration, so divide a
+  kcat quoted per oligomer by its number of active sites first. One anchor makes the
+  predicted turnover equal the measured one there; several combine by the geometric mean
+  of measured over predicted turnover. The second return value, the spread, is the
+  standard deviation of the anchors' `log(measured/predicted)`: 0 for one anchor, and
+  large when the anchors disagree with the model or with each other.
+- **Peak scale.** Without `kcats`, the function applies the scale relative fits get:
+  peak turnover 1 within `peak_range`. Its second return value is `nothing`.
 
 ```@example rescale
 using EnzymeRates
@@ -92,15 +117,24 @@ uni_uni = @enzyme_mechanism begin
     end
 end
 
-# These params have kcat = 3.0 (k_ES_to_E_P is the bottleneck)
-params = (k_ES_to_E_P = 3.0, k_ES_to_E_S = 1.0, k_E_S_to_ES = 4.0, Keq = 2.0, E_total = 1.0)
+params = (k_ES_to_E_P = 3.0, k_ES_to_E_S = 1.0, k_E_S_to_ES = 4.0, Keq = 2.0)
 
-rescaled = rescale_parameter_values(uni_uni, params; scale_k_to_kcat = 1.0)
-rescaled
+# A turnover of 42 measured at S = 1000 with no product
+anchored, spread = rescale_parameter_values(uni_uni, params, [(S = 1e3,) => 42.0])
+anchored
 ```
 
-Notice that only the rate constants changed (`k_ES_to_E_P`, `k_ES_to_E_S`,
-`k_E_S_to_ES`); `Keq` and `E_total` are unchanged. Calling
-`rescale_parameter_values` again on `rescaled` with `scale_k_to_kcat = 1.0`
-returns the same values — the internal kcat computation on `rescaled` gives
-≈ 1.
+The rescaled law reproduces the anchor:
+
+```@example rescale
+rate_equation(uni_uni, (S = 1e3, P = 0.0), merge(anchored, (E_total = 1.0,)))
+```
+
+The peak scale, which relative fits return:
+
+```@example rescale
+peak_scaled, _ = rescale_parameter_values(uni_uni, params)
+peak_scaled
+```
+
+Only the rate constants changed; `Keq` is the same in both.
