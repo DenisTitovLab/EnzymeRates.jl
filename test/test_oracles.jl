@@ -10,12 +10,13 @@ const _testhelper_pingpong_allo_rxn = @enzyme_reaction begin
     oligomeric_state: 2
 end
 
-# The seeds and one expansion round of the reaction above, and a sample of them that is
-# the same on every run.
+# The seeds and one expansion round of the reaction above, and 120 of them spaced evenly
+# through that order. The pick reads no random stream, so every Julia release tests the
+# same sample.
 const _testhelper_population_one_round =
     _testhelper_population(_testhelper_pingpong_allo_rxn, 1)
-const _testhelper_population_sample = _testhelper_population_one_round[randperm(
-    Random.MersenneTwister(2026), length(_testhelper_population_one_round))[1:120]]
+const _testhelper_population_sample = _testhelper_population_one_round[round.(Int,
+    range(1, length(_testhelper_population_one_round); length = 120))]
 
 @testset "Exact steady-state oracle" begin
     @testset "matches the steady-state Michaelis–Menten law exactly" begin
