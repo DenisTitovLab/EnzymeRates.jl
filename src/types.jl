@@ -545,7 +545,8 @@ _reversed(s::Step) =
 The steps of one kinetic group, `oriented` one by one by `_canonical_step_direction`
 with the deciding `tiers`, except that the steps Tier 1 leaves tied turn as one. The
 lead is the tied step ranked first by whether it changes conformation (those that do
-first), then by deciding tier, then by `_step_canonical_key`. Every other tied step
+first), then by deciding tier, then by `lead_key` (by default `_step_canonical_key`;
+the joint solve passes a content key, `_solve_forward`). Every other tied step
 takes up and gives off the lead's metabolites (`_step_kind`), and one that changes
 conformation runs between the lead's two conformations in the same order; a step that
 fits in both orientations keeps its own. A group's steps share their constants, so a
@@ -558,13 +559,14 @@ orientation is left for `_assert_uniform_groups` to reject. Errors when a tied s
 metabolites match the lead's but its conformations do not, since no one orientation
 then matches the grouping.
 """
-function _orient_tied_steps(oriented::Vector{Step}, tiers::Vector{Int})
+function _orient_tied_steps(oriented::Vector{Step}, tiers::Vector{Int};
+                            lead_key = _step_canonical_key)
     tied = findall(>(1), tiers)
     length(tied) < 2 && return oriented
     pair(s) = (conformation(from_species(s)), conformation(to_species(s)))
     turns(s) = pair(s)[1] != pair(s)[2]
     lead = oriented[argmin(i -> (!turns(oriented[i]), tiers[i],
-                                 _step_canonical_key(oriented[i])), tied)]
+                                 lead_key(oriented[i])), tied)]
     map(eachindex(oriented)) do i
         s = oriented[i]
         tiers[i] < 2 && return s
@@ -587,7 +589,7 @@ at both of its ends, so it sees the same context however the steps were
 written. Shared by the `Mechanism` and `AllostericMechanism` constructors so
 the Canonical Step Form invariant cannot drift between them.
 
-The table `entry_sides` built here classifies each species by the metabolites that
+The table `entry_sides` (`_entry_sides`) classifies each species by the metabolites that
 enter or leave solution at it, as `(any substrate, any product)`: the consumed
 metabolites of every step leaving it (its `from_species`) and the released
 metabolites of every step arriving at it (its `to_species`). A binding is stored
@@ -609,6 +611,19 @@ use `<-->` throughout, so an RE-only filter would mis-classify both `E`
 and `F` as marking nothing and the F⇌E case would fall through to Tier 3 lex.
 """
 function _canonicalize_step_directions(groups::Vector{Vector{Step}})
+    entry_sides = _entry_sides(groups)
+    map(groups) do group
+        oriented = [_canonical_step_direction(s, entry_sides) for s in group]
+        _orient_tied_steps(first.(oriented), last.(oriented))
+    end
+end
+
+"""
+Each enzyme form of `groups` with the metabolites that enter or leave solution at it, as
+`(any substrate, any product)`: the consumed metabolites of every step leaving it and the
+released metabolites of every step arriving at it (`_canonicalize_step_directions`).
+"""
+function _entry_sides(groups::Vector{Vector{Step}})
     entry_sides = Dict{Species, Tuple{Bool, Bool}}()
     for group in groups, s in group, (form, free) in ((from_species(s), consumed(s)),
                                                       (to_species(s), released(s)))
@@ -616,10 +631,7 @@ function _canonicalize_step_directions(groups::Vector{Vector{Step}})
         entry_sides[form] = (has_sub  || any(m -> m isa Substrate, free),
                              has_prod || any(m -> m isa Product, free))
     end
-    map(groups) do group
-        oriented = [_canonical_step_direction(s, entry_sides) for s in group]
-        _orient_tied_steps(first.(oriented), last.(oriented))
-    end
+    entry_sides
 end
 
 # Canonical key for a `Step`. Gives the sorts a deterministic ordering so two
