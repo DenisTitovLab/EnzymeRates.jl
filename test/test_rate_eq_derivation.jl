@@ -1481,6 +1481,7 @@ end
     spec = only(s for s in MECHANISM_TEST_SPECS
                 if s.name == "Random-order Bi-Bi")
     s = last(split(rate_equation_string(spec.mechanism), '\n'))
+    @test startswith(s, "v = ")
     @test count(==('('), s) <= 3
 end
 

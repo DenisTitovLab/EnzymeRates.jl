@@ -61,8 +61,12 @@ end
     @test all_p.k_EP_to_ES == 1.0 * 3.0 / (2.0 * 4.0)
     @test keys(all_p) == (keys(p)..., :k_EP_to_ES)
     @test all_p[keys(p)] == p
-    # The concrete mechanism gives the same values, E_total may be left out, and the
-    # values may be of any number type.
+    # A dependent constant already in params keeps its slot and is recomputed.
+    stale = all_parameters(m, merge(p, (k_EP_to_ES = 99.0,)))
+    @test keys(stale) == keys(merge(p, (k_EP_to_ES = 99.0,)))
+    @test stale.k_EP_to_ES == all_p.k_EP_to_ES
+    # The concrete mechanism gives the same values, E_total may be left out, and BigFloat
+    # values stay BigFloat.
     @test all_parameters(EnzymeRates.Mechanism(m), p) == all_p
     @test all_parameters(m, Base.structdiff(p, (E_total = 0,))).k_EP_to_ES ==
           all_p.k_EP_to_ES

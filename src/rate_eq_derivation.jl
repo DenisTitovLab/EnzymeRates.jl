@@ -40,12 +40,12 @@ fitted_params(m::Union{Mechanism, AllostericMechanism}) =
 """
     all_parameters(m, params) -> NamedTuple
 
-Return `params` followed by every dependent constant of `m`'s rate law in name order,
-each computed from the independent constants and `Keq` in `params` by its Haldane or
-Wegscheider relation (the relations [`rate_equation_string`](@ref) prints). `params`
-holds the values of [`parameters`](@ref)`(m)` by name; `E_total` may be left out. A
-dependent constant already in `params` is recomputed. An error names every independent
-constant or `Keq` that `params` lacks.
+Return `params` followed by the dependent constants of `m`'s rate law that it lacks, in
+name order, each computed from the independent constants and `Keq` in `params` by its
+Haldane or Wegscheider relation (the relations [`rate_equation_string`](@ref) prints).
+`params` holds the values of [`parameters`](@ref)`(m)` by name; `E_total` may be left
+out. A dependent constant already in `params` is recomputed in place. An error names
+every independent constant or `Keq` that `params` lacks.
 
 ```jldoctest
 julia> using EnzymeRates
