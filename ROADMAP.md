@@ -27,13 +27,23 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   rate equation evaluates the polynomials of both conformations, so the filter
   undercounts what an allosteric equation costs and can admit one that evaluates more
   terms than its limit.
-- **Repeated constraint solves inflate the GC's live-byte count.**
-  Each `_dependent_param_exprs` call, whose constraint solves run in `Rational{BigInt}`,
-  raises `Base.gc_live_bytes` by about 36-49 KB that no live object holds. After about
-  40,000 calls every collection is a full sweep: GC time triples and wall time rises 75%,
-  so a long `identify_rate_equation` run slows as it derives more mechanisms. A loop of
-  `_dependent_param_exprs` calls on one mechanism that prints `Base.gc_live_bytes()` and
-  `Base.gc_num().full_sweep` shows it.
+- **`BigInt` arithmetic inflates the GC's live-byte count.**
+  Three functions that compute in `BigInt` raise `Base.gc_live_bytes` by bytes that no
+  live object holds: `_onlya_haldane_violation` (`src/thermo.jl`; a `Rational{BigInt}`
+  null space) by about 16 KB per call, the split move's counter for a plain mechanism
+  (`_partition_independent_count`; a `Rational{BigInt}` row reduction) by 14 KB and
+  `_eq_complexity` (a `BigInt` determinant) by 8 KB. A 6×6 determinant outside the package
+  does the same in `BigInt` and `Rational{BigInt}`, not in `Rational{Int}`. An
+  `AllostericMechanism` with an `:OnlyA` group of plain bindings runs the guard when
+  built, so every lift of a compiled allosteric mechanism pays it, as does each candidate
+  of the allosteric split move's gain test: 100,000 lifts add 1.5 GB and 16 full sweeps.
+  The joint solve adds nothing, on a plain mechanism or on a concrete allosteric one; it
+  runs in `Rational{Int}` on 10,226 enumerated bi-bi and ter-bi mechanisms without
+  overflow. The count stays up after a full collection, and later loops slow down: a lift
+  loop that starts 1.5 GB high makes 115 full sweeps in 29 s, against 16 in 20 s from a
+  clean start. Admission under Planned replaces the guard, not the other two. A loop that
+  calls one of these and prints `Base.gc_live_bytes()` and `Base.gc_num().full_sweep`
+  shows it (Julia 1.12.5, aarch64, `--heap-size-hint=2500M`).
 
 - **The `:OnlyA` guard misjudges groups that mix a binding and a chemistry step.**
   `_onlya_haldane_violation` (`src/thermo.jl`)
@@ -170,9 +180,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `Rational{Int}` retried in `Rational{BigInt}`) and `_rref_partition` (in
   `Rational{BigInt}`), and two cycle-basis builders, `_fundamental_cycles` and
   `_thermodynamic_constraints`, which raise the same error. The `:OnlyA` guard's use of
-  the second pair goes when admission replaces the guard, but the split move's counter
-  (`_partition_independent_count`) keeps it; computing its rank with `_rref!` over the
-  joint solve's cycles would leave one of each.
+  `_rref_partition` and `_thermodynamic_constraints` goes when admission replaces the
+  guard, but the split move's counter (`_partition_independent_count`) keeps them;
+  computing its rank with `_rref!` over the joint solve's cycles would leave one of each.
 
 ## Decided against
 
