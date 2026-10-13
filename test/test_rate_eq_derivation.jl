@@ -977,7 +977,8 @@ function _testhelper_test_zero_metabolite_finite(spec::_testhelper_MechanismTest
 end
 
 """The spec's rate law against the exact steady state of its mass-action network
-(`_testhelper_check_law_against_oracle`)."""
+(`_testhelper_check_law_against_oracle`); an allosteric spec runs with one catalytic
+subunit, where the MWC law is the exact steady state."""
 function _testhelper_test_mass_action_oracle(spec::_testhelper_MechanismTestSpec)
     @testset "Mass-action oracle" begin
         _testhelper_check_law_against_oracle(spec.mechanism)
@@ -1617,6 +1618,31 @@ end
     @test occursin(r"\nk_EP_res_\+A_-P_to_EA = .* \* k_EA_to_EP_res_\+A_-P \* ", s)
     @test !occursin("var\"", s)
     _testhelper_check_law_against_oracle(m)
+end
+
+@testset "rate_equation_string runs a half-integer dependent as written" begin
+    # The conformational square ties two isomerizations of one group, so the
+    # Haldane relation fixes a rate constant through square roots. The printed law,
+    # run as written, equals the compiled law, which the oracle checks.
+    half = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            (E(S) <--> F(S), E <--> F)
+            F(S) <--> E + P
+            F + S <--> E(S)
+        end
+    end
+    s = rate_equation_string(half)
+    @test occursin("0.5", s)
+    rng = Random.MersenneTwister(4)
+    point = setprecision(() -> _testhelper_consistent_point(half, rng), BigFloat, 256)
+    fitted = EnzymeRates._dependent_param_exprs(typeof(half))[2]
+    params = NamedTuple{(fitted..., :Keq, :E_total)}(
+        (Float64.(getindex.(Ref(point.vals), fitted))..., Float64(point.Keq), 1.0))
+    concs = (S = 0.7, P = 1.3)
+    @test isapprox(_testhelper_eval_rate_string(s, params, concs),
+                   rate_equation(half, concs, params); rtol = 1e-12)
 end
 
 @testset "rate_equation_string prints flat +/* sums (no nested parens)" begin

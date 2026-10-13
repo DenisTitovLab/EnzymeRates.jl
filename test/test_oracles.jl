@@ -136,6 +136,16 @@ const _testhelper_population_sample = _testhelper_population_one_round[randperm(
         dep, _ = EnzymeRates._dependent_param_exprs(typeof(half))
         @test any(ex -> occursin("^ -0.5", string(ex)), values(dep))
         _testhelper_check_law_against_oracle(half)
+        # A 1% error in Keq moves the dependent constant, and the oracle sees it.
+        rng = Random.MersenneTwister(3)
+        point = setprecision(() -> _testhelper_consistent_point(half, rng), BigFloat, 256)
+        fitted = EnzymeRates._dependent_param_exprs(typeof(half))[2]
+        params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
+        params[:Keq] = point.Keq * big"1.01"
+        concs = Dict{Symbol, BigFloat}(:S => big"0.7", :P => big"1.3")
+        oracle = _testhelper_steady_state_rate(half, point, concs)
+        wrong = _testhelper_law_value(half, params, concs)
+        @test abs(wrong - oracle) > big(10)^-10 * abs(oracle)
     end
 end
 

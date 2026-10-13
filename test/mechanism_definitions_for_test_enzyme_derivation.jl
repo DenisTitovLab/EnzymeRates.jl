@@ -115,7 +115,7 @@ function _testhelper_assert_mechanism_invariants(m)
 end
 
 # The Mechanism lifted from an EnzymeMechanism, or the AllostericMechanism lifted from an
-# AllostericEnzymeMechanism.
+# AllostericEnzymeMechanism; a concrete mechanism is returned as is.
 _testhelper_lift(m::EnzymeRates.EnzymeMechanism) = EnzymeRates.Mechanism(m)
 _testhelper_lift(m::EnzymeRates.AllostericEnzymeMechanism) =
     EnzymeRates.AllostericMechanism(m)
