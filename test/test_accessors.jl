@@ -65,6 +65,10 @@ end
     stale = all_parameters(m, merge(p, (k_EP_to_ES = 99.0,)))
     @test keys(stale) == keys(merge(p, (k_EP_to_ES = 99.0,)))
     @test stale.k_EP_to_ES == all_p.k_EP_to_ES
+    # Its slot need not be the last: a dependent constant given first stays first.
+    q = merge((k_EP_to_ES = 99.0,), p)
+    @test keys(all_parameters(m, q)) == keys(q)
+    @test all_parameters(m, q).k_EP_to_ES == all_p.k_EP_to_ES
     # The concrete mechanism gives the same values, E_total may be left out, and BigFloat
     # values stay BigFloat.
     @test all_parameters(EnzymeRates.Mechanism(m), p) == all_p

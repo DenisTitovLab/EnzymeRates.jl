@@ -49,8 +49,8 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
     # As-written (source) catalytic-step / regulatory-site order, captured
     # before the constructor canonicalizes. Positional textbook oracles number
     # k1,k2,… (and reg1,reg2,…) by source order; `_testhelper_written_params` reads
-    # them to take each written step's constants from its stored step, by role
-    # order. Populated only for oracle-bearing fixtures via `@..._src` macros.
+    # them to take each written step's constants from its stored step, by role.
+    # Populated only for oracle-bearing fixtures via `@..._src` macros.
     source_steps::Union{Vector{Vector{EnzymeRates.Step}},Nothing} = nothing
     source_reg_sites::Union{Vector{EnzymeRates.RegulatorySite},Nothing} = nothing
 end
