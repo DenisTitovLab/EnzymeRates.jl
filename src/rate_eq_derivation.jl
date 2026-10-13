@@ -48,11 +48,12 @@ fitted_params(m::Union{Mechanism, AllostericMechanism}) =
 """
     all_parameters(m, params) -> NamedTuple
 
-`params` with every dependent constant of `m`'s rate law added, each computed from the
-independent constants and `Keq` in `params` by its Haldane or Wegscheider relation (the
-relations [`rate_equation_string`](@ref) prints). `params` holds the values of
-[`parameters`](@ref)`(m)` by name; `E_total` may be left out, and every entry is kept as
-passed. The values may be of any number type.
+Return `params` followed by every dependent constant of `m`'s rate law in name order,
+each computed from the independent constants and `Keq` in `params` by its Haldane or
+Wegscheider relation (the relations [`rate_equation_string`](@ref) prints). `params`
+holds the values of [`parameters`](@ref)`(m)` by name; `E_total` may be left out. A
+dependent constant already in `params` is recomputed. An error names every independent
+constant or `Keq` that `params` lacks.
 
 ```jldoctest
 julia> using EnzymeRates
@@ -89,7 +90,10 @@ _evaluate_dependent(x::Symbol, params) = params[x]
 _evaluate_dependent(x::Real, params) = x
 function _evaluate_dependent(e::Expr, params)
     op, args = e.args[1], [_evaluate_dependent(a, params) for a in e.args[2:end]]
-    op === :* ? prod(args) : op === :/ ? args[1] / args[2] : args[1]^args[2]
+    op === :* && return prod(args)
+    op === :/ && return args[1] / args[2]
+    op === :^ && return args[1]^args[2]
+    error("_evaluate_dependent: no rule for the operator $op")
 end
 
 """
@@ -335,17 +339,17 @@ _leaf_names(mech::Mechanism, step_params, rename) =
 Estimate a mechanism's King–Altman denominator term count, V×τ, from its
 catalytic segment graph WITHOUT deriving the rate equation.
 
-`V` is the number of RE-connected segments (`_re_segment_extras`); `τ` is the
-spanning-tree count of the segment graph, whose edges are the SS steps: by the
-Matrix–Tree theorem, the determinant of its Laplacian with the first row and column
-dropped, computed exactly (`det` of a `BigInt` matrix is fraction-free Bareiss; a
-disconnected graph gives 0). `V×τ` equals the number of spanning-tree
-products in the denominator — the products the compiled equation evaluates on
-every call — so it bounds fit cost. It guards the derivation itself
-(`_assert_derivable` aborts when V×τ exceeds `MAX_RATE_EQUATION_TERMS`, before the
-O(G!) symbolic cofactor expansion) and backs the `eq_complexity_filter` keyword
-of [`identify_rate_equation`](@ref), which skips over-complex mechanisms before
-fitting.
+`V` is the number of RE-connected segments (`_re_segment_extras`); `τ` is the spanning-tree
+count of the segment graph, whose edges are the SS steps: by the Matrix–Tree theorem, the
+determinant of its Laplacian with the first row and column dropped, computed exactly (`det`
+of a `BigInt` matrix is fraction-free Bareiss; a disconnected graph gives 0). `V×τ` equals
+the number of spanning-tree products in the denominator — the products the compiled equation
+evaluates on every call — so it bounds fit cost. It guards the derivation itself
+(`_assert_derivable` aborts when V×τ exceeds `MAX_RATE_EQUATION_TERMS`, before the O(G!)
+symbolic cofactor expansion) and backs the `eq_complexity_filter` keyword of
+[`identify_rate_equation`](@ref), which skips over-complex mechanisms before fitting. The
+method for a mechanism counts an allosteric mechanism on `steps(am)`, its active
+conformation.
 """
 function _eq_complexity(groups::Vector{Vector{Step}})
     _, segments, _, idx, seg = _re_segment_extras(groups)

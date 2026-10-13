@@ -96,5 +96,12 @@ end
         all_p = setprecision(() -> all_parameters(m, p), BigFloat, 256)
         @test all(isapprox(all_p[k], point.vals[k]; rtol = big(10)^-40)
                   for k in keys(all_p) if k !== :Keq)
+        @test issorted(collect(keys(all_p))[length(p) + 1:end])
     end
+end
+
+@testset "_evaluate_dependent reads the solve's power products only" begin
+    p = (a = 2.0, Keq = 4.0)
+    @test EnzymeRates._evaluate_dependent(:(Keq ^ -0.5 * a / a ^ 2), p) == 0.25
+    @test_throws ErrorException EnzymeRates._evaluate_dependent(:(sqrt(Keq)), p)
 end
