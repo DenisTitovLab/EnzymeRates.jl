@@ -352,4 +352,24 @@ end
             end
         end
     end
+
+    @testset "the content key reads base names, never rendered names" begin
+        # The form holding A and C has the smaller base-name key, since its first bound
+        # name, A, sorts before AB, though its rendered name, EAC, sorts after EAB.
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, C
+            products: AB
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) + C ⇌ E(A, C)
+                E(A, C) <--> E(AB)
+                E(AB) ⇌ E + AB
+            end
+        end)
+        forms = EnzymeRates._forms(EnzymeRates.steps(m))
+        eac = only(f for f in forms if EnzymeRates.name.(EnzymeRates.bound(f)) == [:A, :C])
+        eab = only(f for f in forms if EnzymeRates.name.(EnzymeRates.bound(f)) == [:AB])
+        @test EnzymeRates._form_base_key(eac) < EnzymeRates._form_base_key(eab)
+        @test String(EnzymeRates.name(eac)) > String(EnzymeRates.name(eab))
+    end
 end
