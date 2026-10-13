@@ -14,18 +14,6 @@ the equilibrium constant Keq.
 # ─── Shared Helpers ──────────────────────────────────────────────
 
 """
-Collect raw parameter symbols (K_i for RE, k_if/k_ir for SS) for the
-representative step of each kinetic group, in step-order. Routes
-Symbol production through the `name(p::Parameter, m)` chokepoint via
-`_enumerate_parameters_full`.
-"""
-function _raw_param_symbols(m::Mechanism)
-    Symbol[name(p, m) for p in _enumerate_parameters_full(m)]
-end
-
-_raw_param_symbols(@nospecialize(m::EnzymeMechanism)) = _raw_param_symbols(Mechanism(m))
-
-"""
 For each step in `m` (in flat-iteration order), yield the Parameter
 instances that govern that step: `[Krapid]` for an RE step, `[Kfor, Krev]`
 for an SS step. Each Parameter is anchored on the original
@@ -246,7 +234,7 @@ function _dependent_param_exprs(mech::Mechanism)
     # same name. After the merge, the absorbed symbol doesn't appear in
     # the v polynomial — its column has been folded into the target.
     # But the absorbed symbol is still a kinetic-group rep in the
-    # mechanism, so `_raw_param_symbols` emits it and the solve keeps it
+    # mechanism, so it stays a constraint column and the solve keeps it
     # in `indep`. Without this filter, `fitted_params` exposes a fittable
     # dummy dimension that doesn't affect the loss, and finite-restart
     # convergence suffers (the same rate equation can land at noticeably
@@ -332,9 +320,9 @@ end
 The constraint columns of `mech` under `step_params`: the distinct `name(p, mech)` of
 the step constants, in step order (rep names, before any Wegscheider rename). The
 steps of a kinetic group render their representative's names and every reaction
-belongs to one group, so under the default `_step_parameters(mech)` this is
-`_raw_param_symbols(mech)`; under the allosteric per-state step constants it is the
-state-tagged analog.
+belongs to one group, so under the default `_step_parameters(mech)` these are the
+constants of each group's representative step; under the allosteric per-state step
+constants they are the state-tagged analog.
 """
 _param_columns(mech::Mechanism, step_params) =
     unique(Symbol[name(p, mech) for ps in step_params for p in ps])

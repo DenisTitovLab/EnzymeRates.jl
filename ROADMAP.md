@@ -68,16 +68,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   whose plain member sits on a square of `:EqualAI` bindings, whose inactive conformation
   is not a limit of the model, and rejects a split `:OnlyA` binding group whose limit
   exists. The `:OnlyA` semantics under Planned replace the guard.
-- **Full mode lists rapid-equilibrium constants that never reach the rate law.**
-  When the kinetic groups leave a loop of rapid-equilibrium steps open,
-  `rate_equation(m, concs, params, Full)` weights each rapid-equilibrium segment along
-  one breadth-first spanning tree whose order follows the form names (`_compute_alpha`,
-  `src/rate_eq_derivation.jl`), so `parameters(m, Full)` lists the constant that closes
-  the loop although the rate never reads it: 23 of 806 plain mechanisms in the derivation
-  probes, 21 of them enumerated. Renaming a metabolite changes which constant is dropped
-  and, when the values break the loop's relation, the rate. Full mode also applies the
-  single-symbol Wegscheider rename, so in three fixture mechanisms it reads one listed
-  constant in place of another. The graph rewrite under Planned drops Full mode.
 - **Splitting a tied kinetic group changes fitted names and `eq_hash` without changing
   the model.** When a square of rapid-equilibrium bindings already ties two binding
   constants, splitting their kinetic group leaves the rate function unchanged, but the

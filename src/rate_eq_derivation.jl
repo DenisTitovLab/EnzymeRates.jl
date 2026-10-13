@@ -8,7 +8,7 @@
 # or its type, to its concrete form therefore take it `@nospecialize`.
 
 """
-Suffix the `Reduced` `rate_equation_string` of an `EnzymeMechanism` appends to the line
+Suffix the `rate_equation_string` of an `EnzymeMechanism` appends to the line
 of each single-symbol Wegscheider tie that the rename (`_build_wegscheider_rename_map`)
 folds into `v`. The rate-equation dedup key in `identify_rate_equation.jl` strips these
 provenance lines.
@@ -16,29 +16,13 @@ provenance lines.
 const ANNOTATION_SUBSTITUTED = "  (substituted into v)"
 
 """
-    parameters(m::EnzymeMechanism, [mode])
-    parameters(m::AllostericEnzymeMechanism, [mode])
+    parameters(m)
 
-Return the parameter names required for the given mode as a tuple of Symbols.
-
-# Modes
-- `Reduced` (default): independent k's + Keq + E_total. The set of
-  symbols the user supplies to evaluate the Haldane-reduced rate
-  equation. Returned for both `EnzymeMechanism` and
-  `AllostericEnzymeMechanism`.
-- `Full`: all raw rate-constant symbols + `E_total`, that is "all 2N k's +
-  `E_total`." Full mode is for plain `EnzymeMechanism`s only; an
-  `AllostericEnzymeMechanism` has no Full rate equation and no Full parameter list.
+The names of the parameters the rate law of `m` takes, as a tuple of Symbols: its
+independent constants (`fitted_params`), then `Keq` and `E_total`. The rate law computes
+every other constant from these (see [`all_parameters`](@ref)).
 """
-function parameters end
-
-parameters(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism}) =
-    parameters(m, Reduced)
-
-@generated parameters(::EnzymeMechanism{Sig}, ::FullMode) where {Sig} =
-    (_raw_param_symbols(EnzymeMechanism{Sig}())..., :E_total)
-
-@generated function parameters(::M, ::ReducedMode) where {M <: AbstractEnzymeMechanism}
+@generated function parameters(::M) where {M <: AbstractEnzymeMechanism}
     _, indep = _dependent_param_exprs(M)
     (indep..., :Keq, :E_total)
 end
@@ -57,9 +41,7 @@ end
 # allocates) — it is NOT the rate_equation hot path. Pass an
 # `EnzymeMechanism` / `AllostericEnzymeMechanism` for the allocation-free
 # `rate_equation` hot path.
-parameters(m::Union{Mechanism, AllostericMechanism},
-           mode::AbstractRateEquationMode) =
-    parameters(compile_mechanism(m), mode)
+parameters(m::Union{Mechanism, AllostericMechanism}) = parameters(compile_mechanism(m))
 fitted_params(m::Union{Mechanism, AllostericMechanism}) =
     fitted_params(compile_mechanism(m))
 
@@ -465,10 +447,10 @@ function _rate_body(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param_sym
         :(return E_total * ($num) / ($den)))
 end
 
-# ─── Mode-dispatched rate_equation ────────────────────────────
+# ─── rate_equation ─────────────────────────────────────────────
 
 """
-    rate_equation(m, concs, params, [mode])
+    rate_equation(m, concs, params)
 
 Return the net reaction rate of mechanism `m` at the metabolite concentrations
 `concs` and parameters `params` (both `NamedTuple`s). The rate equation itself
@@ -478,60 +460,40 @@ assembled into the King–Altman determinant, and the two combine into the
 quasi-steady-state flux through the whole mechanism — so one call returns the
 overall turnover, not the rate of a single step.
 
-`mode` selects how parameters enter the equation. The default [`Reduced`](@ref)
-applies the Haldane/Wegscheider reduction, deriving the dependent rate constants
-from `Keq` and the independent parameters; [`Full`](@ref) instead takes every
-rate constant as independent.
+`params` holds the independent constants (`parameters(m)`: the fitted constants, `Keq`
+and `E_total`); the rate law computes each dependent constant from them by its
+Haldane or Wegscheider relation.
 
 The derivation runs once, at compile time: the body is generated as a single
 arithmetic expression with no allocations, loops, or matrix operations. Use
 [`rate_equation_string`](@ref) to inspect the derived equation symbolically.
 """
-function rate_equation end
-
-rate_equation(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism},
-              concs, params) = rate_equation(m, concs, params, Reduced)
-
-# Concrete-mechanism convenience: lift to the singleton (see the note on
-# the parameters/fitted_params methods above — allocates, not the hot path).
-rate_equation(m::Union{Mechanism, AllostericMechanism}, concs, params,
-              mode::AbstractRateEquationMode) =
-    rate_equation(compile_mechanism(m), concs, params, mode)
-
-@generated function rate_equation(
-    m::M, concs::NamedTuple, params::NamedTuple, ::FullMode,
-) where {M <: EnzymeMechanism}
-    _rate_body(M, (_raw_param_symbols(M())..., :E_total), Dict())
-end
-
-@generated function rate_equation(
-    m::M, concs::NamedTuple, params::NamedTuple,
-    ::ReducedMode,
-) where {M <: AbstractEnzymeMechanism}
+@generated function rate_equation(m::M, concs::NamedTuple,
+                                  params::NamedTuple) where {M <: AbstractEnzymeMechanism}
     dep, indep = _dependent_param_exprs(M)
     _rate_body(M, (indep..., :Keq, :E_total), dep)
 end
 
+# Concrete-mechanism convenience: lift to the singleton (see the note on
+# the parameters/fitted_params methods above — allocates, not the hot path).
+rate_equation(m::Union{Mechanism, AllostericMechanism}, concs, params) =
+    rate_equation(compile_mechanism(m), concs, params)
+
 # ─── String Representation ────────────────────────────────────
 
 """
-    rate_equation_string(m, [mode]) -> String
+    rate_equation_string(m) -> String
 
 Return the symbolic rate equation for mechanism `m` as a multi-line
-`String` (it returns the text — it does not print). `mode` is `Reduced`
-(default) or `Full`; pass a concrete `Mechanism` / `AllostericMechanism`
-or its compiled [`EnzymeMechanism`](@ref) singleton.
+`String` (it returns the text — it does not print). Pass a concrete `Mechanism` /
+`AllostericMechanism` or its compiled [`EnzymeMechanism`](@ref) singleton.
 
 The string spells out how [`rate_equation`](@ref)
 evaluates: a `(; …) = params` destructure line, a `(; …) = concs`
-destructure line, then the `v = E_total * (num) / (den)` line. In
-`Reduced` mode, dependent rate constants are listed first under
-`# Wegscheider constraints:` and `# Haldane constraints:` headers — the
-thermodynamic identities that eliminate parameters — and only the
-independent set appears in the `params` destructure. In `Full` mode every
-rate constant is independent, so there is no constraint section. `Full`
-mode is defined for `EnzymeMechanism` only; an `AllostericEnzymeMechanism`
-supports `Reduced` mode only.
+destructure line, then the `v = E_total * (num) / (den)` line. Dependent rate
+constants are listed first under `# Wegscheider constraints:` and
+`# Haldane constraints:` headers — the thermodynamic identities that eliminate
+parameters — and only the independent set appears in the `params` destructure.
 
 Names that are not Julia identifiers, such as the residual forms of
 ping-pong mechanisms (`k_EA_to_EP_res_+A_-P`), print bare, so such a
@@ -563,13 +525,9 @@ v = E_total * (k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P) / (1
 """
 function rate_equation_string end
 
-rate_equation_string(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism}) =
-    rate_equation_string(m, Reduced)
-
 # Concrete-mechanism convenience: lift to the singleton.
-rate_equation_string(m::Union{Mechanism, AllostericMechanism},
-                     mode::AbstractRateEquationMode) =
-    rate_equation_string(compile_mechanism(m), mode)
+rate_equation_string(m::Union{Mechanism, AllostericMechanism}) =
+    rate_equation_string(compile_mechanism(m))
 
 """
 The `rate_equation_string` text of `M`: the `params` destructure of `param_syms`, the
@@ -599,12 +557,9 @@ function _equation_text(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param
     join(lines, "\n")
 end
 
-rate_equation_string(@nospecialize(m::EnzymeMechanism), ::FullMode) =
-    _equation_text(typeof(m), (_raw_param_symbols(m)..., :E_total), Dict())
-
 # The display solves with no Wegscheider rename, so an absorbed single-symbol tie stays
 # visible under `# Wegscheider constraints:`, marked as substituted into v.
-function rate_equation_string(@nospecialize(m::EnzymeMechanism), ::ReducedMode)
+function rate_equation_string(@nospecialize(m::EnzymeMechanism))
     _, indep = _dependent_param_exprs(typeof(m))
     mech = Mechanism(m)
     dep, _ = _solve_dependent_set(_assemble_constraints(mech, Dict{Symbol, Symbol}())...)
@@ -612,7 +567,7 @@ function rate_equation_string(@nospecialize(m::EnzymeMechanism), ::ReducedMode)
                    substituted = keys(_build_wegscheider_rename_map(mech)))
 end
 
-function rate_equation_string(@nospecialize(m::AllostericEnzymeMechanism), ::ReducedMode)
+function rate_equation_string(@nospecialize(m::AllostericEnzymeMechanism))
     dep, indep = _dependent_param_exprs(typeof(m))
     _equation_text(typeof(m), (indep..., :Keq, :E_total), dep)
 end

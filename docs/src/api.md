@@ -10,7 +10,7 @@ shown here — see the Developer / Architecture page for those.
 ## Index
 
 ```@index
-Order = [:function, :macro, :type, :constant]
+Order = [:function, :macro, :type]
 ```
 
 ## Functions
@@ -35,12 +35,4 @@ Order = [:macro]
 Modules = [EnzymeRates]
 Private = false
 Order = [:type]
-```
-
-## Constants
-
-```@autodocs
-Modules = [EnzymeRates]
-Private = false
-Order = [:constant]
 ```

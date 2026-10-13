@@ -53,22 +53,20 @@ reaction but bound by no step, so they add no parameter and the reaction of
 
 Only the `@generated` methods (`rate_equation`, `parameters`, `fitted_params`,
 `metabolites`) do work per singleton type: `rate_equation` runs the derivation,
-`fitted_params` and the reduced `parameters` run its constraint solve, and `metabolites` and
-the full `parameters` read names off the lifted mechanism. The lifts `Mechanism(em)` and
-`AllostericMechanism(aem)` read the type parameters at run time, and the derivation helpers
-that take a singleton or its type take it `@nospecialize`, so they compile once for all
-mechanisms. A new mechanism type then pays for its generated bodies and the derivation they
-run, plus a few thin methods that still specialize on it: the forwarders that supply the
-default mode (such as `rate_equation(m, concs, params)` and `rate_equation_string(m)`),
-`show`, `catalytic_mechanism` and `catalytic_multiplicity`. `FittingProblem` and `loss!`
-specialize on the type on purpose: `loss!` then reads `fitted_params` and `metabolites` as
-constants and calls the generated `rate_equation` without dispatch. The optimizer never sees
-that type. `fit_rate_equation` takes its `FittingProblem` `@nospecialize` and hands
-`Optimization.solve` a `FitObjective`, which holds `x -> loss!(x, fp)` behind a
-`FunctionWrapper`, so every mechanism gives the solver one problem type: `solve` and the
-solver compile once per optimizer, not once per mechanism. The peak search that scales a
-relative fit (`_peak_turnover`) wraps the mechanism's turnover the same way, so its search
-loop compiles once.
+`fitted_params` and `parameters` run its constraint solve, and `metabolites` reads names off
+the lifted mechanism. The lifts `Mechanism(em)` and `AllostericMechanism(aem)` read the type
+parameters at run time, and the derivation helpers that take a singleton or its type take it
+`@nospecialize`, so they compile once for all mechanisms. A new mechanism type then pays for
+its generated bodies and the derivation they run, plus a few thin methods that still
+specialize on it: `show`, `catalytic_mechanism` and `catalytic_multiplicity`.
+`FittingProblem` and `loss!` specialize on the type on purpose: `loss!` then reads
+`fitted_params` and `metabolites` as constants and calls the generated `rate_equation`
+without dispatch. The optimizer never sees that type. `fit_rate_equation` takes its
+`FittingProblem` `@nospecialize` and hands `Optimization.solve` a `FitObjective`, which
+holds `x -> loss!(x, fp)` behind a `FunctionWrapper`, so every mechanism gives the solver
+one problem type: `solve` and the solver compile once per optimizer, not once per mechanism.
+The peak search that scales a relative fit (`_peak_turnover`) wraps the mechanism's turnover
+the same way, so its search loop compiles once.
 
 ## Enumeration engine architecture
 

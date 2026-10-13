@@ -565,9 +565,9 @@ function _testhelper_test_structure(spec::_testhelper_MechanismTestSpec)
         @test length(flat) == spec.expected_n_steps
         @test metabolites(m) == Tuple(spec.metabolite_names)
         # Structural parameter names must be injective on the load-bearing
-        # paths the fitter consumes (Reduced + fitted_params). A collision
+        # paths the fitter consumes (parameters + fitted_params). A collision
         # would silently shorten the destructured params NamedTuple.
-        @test allunique(EnzymeRates.parameters(m))           # Reduced (default)
+        @test allunique(EnzymeRates.parameters(m))
         @test allunique(EnzymeRates.fitted_params(m))
     end
 end
@@ -1190,8 +1190,8 @@ const _testhelper_tc_cases = (
              if !ER.is_iso(s) && !ER.is_binding(s))
     @test ER.name(ER.from_species(s)) == :EA &&
           ER.consumed(s) == ER.Metabolite[ER.Substrate(:B)]
-    @test :k_EA_B_to_EQ_P in ER.parameters(tc_ss, ER.Full)
-    @test :k_EQ_P_to_EA_B in ER.parameters(tc_ss, ER.Full)
+    @test :k_EA_B_to_EQ_P in _testhelper_step_constant_names(tc_ss)
+    @test :k_EQ_P_to_EA_B in _testhelper_step_constant_names(tc_ss)
 end
 
 @testset "reversing written steps changes nothing" begin
@@ -1628,16 +1628,13 @@ end
     # transparently: balanced +(+(a,b), +(c,d)) prints as "a + b + c + d"
     # with no added parens. If that flattening regresses, the printed
     # output would gain nested parens but still evaluate correctly —
-    # easy to miss without an explicit guard. Witness count for
-    # Random-order Bi-Bi is 5 in Full mode (params destructure, concs
-    # destructure, num wrap, den wrap, one negatives wrap inside num).
-    # Full mode is the right witness here: Reduced mode adds dep-expr
-    # 1/(…) divisor assignments and lands at ~13 parens, which is
-    # structural noise that would mask a flattening regression.
+    # easy to miss without an explicit guard. The `v =` line of Random-order
+    # Bi-Bi holds three: the numerator, the denominator and the negative terms
+    # inside the numerator.
     spec = only(s for s in MECHANISM_TEST_SPECS
                 if s.name == "Random-order Bi-Bi")
-    s = rate_equation_string(spec.mechanism, EnzymeRates.Full)
-    @test count(==('('), s) <= 6
+    s = last(split(rate_equation_string(spec.mechanism), '\n'))
+    @test count(==('('), s) <= 3
 end
 
 @testset "_ss_rate_constant_names" begin
@@ -1932,9 +1929,8 @@ end
     @test_throws clash_L rate_equation(allo_L, (S = 1.0, P = 0.1, L = 0.5), params)
     @test_throws clash_L rate_equation_string(allo_L)
 
-    # An inhibitor named after the reverse chemistry constant: in Reduced mode the
-    # Haldane assignment would overwrite its concentration, in Full mode its
-    # concentration would overwrite the constant.
+    # An inhibitor named after the reverse chemistry constant: the Haldane assignment
+    # would overwrite its concentration.
     uni_k = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -1951,11 +1947,8 @@ end
     concs = (S = 1.0, P = 0.1, k_EP_to_ES = 0.5)
     reduced = merge(NamedTuple{EnzymeRates.fitted_params(uni_k)}((1.0, 2.0, 3.0, 4.0)),
                     (Keq = 2.0, E_total = 1.0))
-    full = NamedTuple{parameters(uni_k, Full)}((1.0, 2.0, 3.0, 4.0, 5.0, 1.0))
     @test_throws clash_k rate_equation(uni_k, concs, reduced)
-    @test_throws clash_k rate_equation(uni_k, concs, full, Full)
     @test_throws clash_k rate_equation_string(uni_k)
-    @test_throws clash_k rate_equation_string(uni_k, Full)
 end
 
 
@@ -2276,7 +2269,7 @@ end
     params = merge(NamedTuple{pn}(ntuple(_ -> 1.0, length(pn))),
                    (Keq = 1.0, E_total = 1.0))
     concs = (A = 1.0, B = 1.0, P = 1.0, Q = 1.0)
-    @test isfinite(rate_equation(m, concs, params, Reduced))
+    @test isfinite(rate_equation(m, concs, params))
 end
 
 @testset "the peak of an allosteric random-order bi-bi reaches the grid maximum" begin

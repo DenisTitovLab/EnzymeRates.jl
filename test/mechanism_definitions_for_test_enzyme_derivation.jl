@@ -121,6 +121,13 @@ _testhelper_lift(m::EnzymeRates.AllostericEnzymeMechanism) =
     EnzymeRates.AllostericMechanism(m)
 _testhelper_lift(m::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}) = m
 
+"""The name of every step constant of the plain mechanism `m`, fitted or dependent: each
+flat step's constants as the naming chokepoint renders them."""
+_testhelper_step_constant_names(m) =
+    Set(EnzymeRates.name(p, mech) for mech in (_testhelper_lift(m),)
+        for (s, _) in EnzymeRates._flat_steps(mech)
+        for p in EnzymeRates._step_constants(s, :None))
+
 # The steps of a compiled mechanism in stored order, and the enzyme-form names across
 # a list of steps in order of first appearance.
 _testhelper_flat_steps(m) =
@@ -2767,7 +2774,8 @@ end
 # leak (a Haldane-dependent reverse rate that landed in the independent
 # set). Written as @allosteric_mechanism for readability; RE-containing
 # with a products=0 boundary, so the ODE cross-check is skipped. The parameter
-# headers of their golden REDUCED_STRINGs confirm the dependent reverse rate is excluded.
+# headers of their golden RATE_EQUATION_STRING lines confirm the dependent reverse
+# rate is excluded.
 push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
     name="LDH i-state NonequalAI 6-group",
     mechanism=(@allosteric_mechanism begin

@@ -12,8 +12,8 @@ function _testhelper_allosteric_golden_lines()
         spec.mechanism isa EnzymeRates.AllostericEnzymeMechanism || continue
         m = spec.mechanism
         push!(lines, "### " * spec.name)
-        reduced_string = EnzymeRates.rate_equation_string(m, EnzymeRates.Reduced)
-        push!(lines, "REDUCED_STRING " * replace(reduced_string, "\n" => "\\n"))
+        eq_string = EnzymeRates.rate_equation_string(m)
+        push!(lines, "RATE_EQUATION_STRING " * replace(eq_string, "\n" => "\\n"))
     end
     lines
 end
@@ -26,12 +26,12 @@ end
     for (c, r) in zip(current, reference)
         @test c == r
     end
-    # The REDUCED_STRING header pins the reduced parameters; this pins the exported
-    # `parameters(m, Reduced)` wrapper to the fitted parameters plus Keq and E_total.
+    # The RATE_EQUATION_STRING header pins the fitted parameters; this pins the
+    # exported `parameters(m)` wrapper to the fitted parameters plus Keq and E_total.
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
         m isa EnzymeRates.AllostericEnzymeMechanism || continue
-        @test parameters(m, EnzymeRates.Reduced) ==
+        @test parameters(m) ==
               (EnzymeRates.fitted_params(m)..., :Keq, :E_total)
     end
     # The fitted parameters list the catalytic constants by name, so rate-equivalent

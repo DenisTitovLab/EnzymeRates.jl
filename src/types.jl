@@ -1247,40 +1247,6 @@ function AllostericEnzymeMechanism(am::AllostericMechanism)
     }()
 end
 
-# --- Rate equation mode types ---
-
-"""
-    AbstractRateEquationMode
-
-Abstract supertype for rate equation parameterization modes.
-Controls which form of the rate equation is used and what parameters are expected.
-"""
-abstract type AbstractRateEquationMode end
-
-"""
-    FullMode <: AbstractRateEquationMode
-
-Full rate equation mode using all 2N microscopic rate constants (k_ES_to_EP, k_EP_to_ES, ...).
-No thermodynamic constraints applied. Parameters: all k's + E_total. Defined for plain
-`EnzymeMechanism`s only.
-"""
-struct FullMode <: AbstractRateEquationMode end
-
-"""
-    ReducedMode <: AbstractRateEquationMode
-
-Rate equation with Haldane-Wegscheider thermodynamic constraints applied.
-Dependent parameters are substituted in terms of independent k's and Keq.
-Parameters: independent k's + Keq + E_total.
-"""
-struct ReducedMode <: AbstractRateEquationMode end
-
-"""Singleton instance for full (raw) mode."""
-const Full = FullMode()
-
-"""Singleton instance for reduced (Haldane-Wegscheider) mode."""
-const Reduced = ReducedMode()
-
 # --- Pretty printing ---
 
 """A step as text: its entry side, an arrow (`⇌` rapid equilibrium, `<-->` steady state)
