@@ -303,10 +303,14 @@ end
     @testset "_rate_eq_dedup_key" begin
         base = "(; K_a, k_b) = params\n(; A) = concs\n" *
                "# Haldane constraints:\nk_r = (1/Keq)*K_a\nv = k_b*A/K_a"
-        # differs only in a comment header + a substituted-into-v provenance line:
-        a = "# Wegscheider constraints:\nK_x = K_a  (substituted into v)\n" * base
-        b = "# Wegscheider constraints:\nK_y = K_a  (substituted into v)\n" * base
+        # differs only in a comment header line:
+        a = replace(base, "# Haldane constraints:" => "# Haldane constraint:")
         @test EnzymeRates._rate_eq_dedup_key(a) ==
+              EnzymeRates._rate_eq_dedup_key(base)
+        # differs in a Wegscheider tie -> different key:
+        b = replace(base, "# Haldane constraints:" =>
+                          "# Wegscheider constraints:\nK_x = K_a\n# Haldane constraints:")
+        @test EnzymeRates._rate_eq_dedup_key(base) !=
               EnzymeRates._rate_eq_dedup_key(b)
         # differs in a Haldane definition -> different key:
         c = replace(base, "k_r = (1/Keq)*K_a" => "k_r = (2/Keq)*K_a")
@@ -860,9 +864,10 @@ end
 end
 
 @testset "rate-eq dedup-key partition stability" begin
-    # bi_bi exercises the dedup key's edge cases: substituted-into-v ties across
-    # multiple kinetic groups. uni_uni has one init mechanism, hence one class, so
-    # it adds nothing to a partition test.
+    # bi_bi exercises the dedup key on constraint lines that tie several kinetic groups:
+    # every init mechanism prints one Haldane line over the constants of its groups. The
+    # key strips only the `#` section headers, so it reads those lines. uni_uni has one
+    # init mechanism, hence one class, so it adds nothing to a partition test.
     # ter-ter intentionally omitted — `rate_equation_string` derivation is
     # extremely slow for mechanisms with >~30 enzyme forms (CLAUDE.md
     # "Known Issues"), and the dedup key renders that string per
@@ -1365,33 +1370,30 @@ function Optimization.SciMLBase.__solve(
     build_solution(cache, opt, u, prob.f(u, prob.p); retcode = ReturnCode.Success)
 end
 
-# Two structurally-distinct bi-bi mechanisms that render the SAME reduced rate
-# equation: identical 7-edge topology, differing only in kinetic-group partitioning.
-# Written out directly so the tests are self-contained and cheap (no full child
-# enumeration, which would compile ~800 distinct rate equations). The tests re-verify
-# the collision at run time.
+# Two allosteric uni-uni mechanisms that compile to distinct types yet render one rate
+# equation: S and P bind only the active conformation (:OnlyA), so the inactive one keeps
+# no form but E and the tag of the chemistry step (:NonequalAI or :OnlyA) never reaches
+# the law. Written out directly so the tests are self-contained and cheap. The tests
+# re-verify the collision at run time.
 function _testhelper_dedup_twins()
-    m1 = EnzymeRates.Mechanism(@enzyme_mechanism begin
-        substrates: A, B
-        products:   P, Q
-        steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
+    m1 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)       :: OnlyA
+            E(S) <--> E(P)     :: NonequalAI
+            E(P) ⇌ E + P       :: OnlyA
         end
     end)
-    m2 = EnzymeRates.Mechanism(@enzyme_mechanism begin
-        substrates: A, B
-        products:   P, Q
-        steps: begin
-            E + A ⇌ E(A)
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + A ⇌ E(A, Q)
-            E(Q) + P ⇌ E(P, Q)
+    m2 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)       :: OnlyA
+            E(S) <--> E(P)     :: OnlyA
+            E(P) ⇌ E + P       :: OnlyA
         end
     end)
     return m1, m2
@@ -1402,15 +1404,15 @@ end
     em1 = EnzymeRates.compile_mechanism(m1)
     em2 = EnzymeRates.compile_mechanism(m2)
     key = EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1))
-    # Preconditions: distinct structure, identical eq_hash + fitted-param set
-    # (same names AND order — the reuse maps params by name directly).
+    # Preconditions: distinct structure and compiled types, identical eq_hash +
+    # fitted-param set (same names AND order — the reuse maps params by name directly).
     @test m1 != m2
+    @test typeof(em1) != typeof(em2)
     @test key == EnzymeRates._rate_eq_dedup_key(rate_equation_string(em2))
     @test EnzymeRates.fitted_params(em1) == EnzymeRates.fitted_params(em2)
 
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
-            A = [1.0, 2.0, 1.0, 2.0], B = [0.5, 0.5, 1.0, 1.0],
-            P = [0.1, 0.2, 0.1, 0.2], Q = [0.3, 0.3, 0.4, 0.4])
+            S = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2])
     # The range stops below the stub fit's binding constants (5), so the fit still rises at
     # the range's upper edge and carries the edge flag.
     prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0,
@@ -1536,9 +1538,9 @@ end
 
 
 # LDH ALLOSTERIC split/merge pair: split form (8 cat groups) vs merged (7).
-# Different eq_hash, and the split form carries one parameter the merged form
-# cannot express.
-@testset "allosteric split/merge pair: the split form carries one more param" begin
+# Different eq_hash, though the cycles tie the split form's extra constant back, so
+# both are one model.
+@testset "allosteric split/merge pair: the split form is the merged form's model" begin
     # Split form: 8 catalytic groups.
     am1 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: NADH, Pyruvate
@@ -1580,14 +1582,16 @@ end
     @test am1 != am2
     # the two render different equations
     @test _testhelper_key(am1) != _testhelper_key(am2)
-    # The split form is not a reparameterization of the merged one: it carries
-    # K_ELactateNADH_to_ENADH_Lactate on top of the merged form's parameters, in the
-    # independent count and in the fitted set alike. A finite-difference rank of ∂v/∂θ,
-    # measured outside this file, agrees (9 against 8).
+    # The split constant is tied back: the square E, E(Lactate), E(Lactate, NADH),
+    # E(NADH), closed by the shared NADH group, makes K_ELactateNADH_to_ENADH_Lactate equal
+    # the free-enzyme Lactate constant in the active conformation, and the inactive one
+    # binds no NADH. Both forms fit the same constants, as many as the test's own count
+    # of the dimension.
     @test EnzymeRates._independent_param_count(am1) ==
-          EnzymeRates._independent_param_count(am2) + 1
-    @test length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am1))) ==
-          length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am2))) + 1
+          EnzymeRates._independent_param_count(am2) == 7
+    @test _testhelper_declared_dimension(am1) == _testhelper_declared_dimension(am2) == 7
+    @test EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am1)) ==
+          EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am2))
 end
 
 
@@ -1813,7 +1817,17 @@ end
     # fold) grid, so each candidate's fold columns must hold its own serial fold
     # losses; a transposed grid would swap them. Group labels containing `=`, `,`
     # and spaces must come out as valid fold-column names that survive the CSV write.
-    m1, _ = _testhelper_dedup_twins()
+    m1 = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products:   P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
+            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+        end
+    end)
     m3 = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products:   P, Q

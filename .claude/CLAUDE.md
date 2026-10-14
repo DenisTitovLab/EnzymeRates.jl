@@ -194,7 +194,7 @@ julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, 
 Use the focused run while iterating and the full suite once before committing. Four things to
 know: the focused run skips Aqua and JET; it includes only the shared fixtures file and the file
 you name, so a helper defined in another test file is undefined under it (keep shared helpers,
-such as `_testhelper_random_reduced_params`, in
+such as `_testhelper_random_independent_params`, in
 `test/mechanism_definitions_for_test_enzyme_derivation.jl`); run one Julia process at a
 time (the machine has 7.7 GB and no swap, and the full suite needs about 4 GB free); and never
 park on a background monitor — poll a log in a bounded shell loop. `TestEnv` must be installed
@@ -217,7 +217,7 @@ in the default environment once: `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
 All `Parameter → Symbol` rendering flows through the `name(p, m)` chokepoint; the AST-walker testset `chokepoint: no Symbol("[KkVL]...") outside parameter-name renderers` in `test/test_types.jl` fails the build on any stray `Symbol("K…")`/`Symbol("k…")`/`Symbol("V…")`/`Symbol("L…")` literal outside a parameter-name renderer.
 
 ### Canonical Step Form (load-bearing guard)
-Step direction, step order, and group order are canonicalized in the `Step` and `Mechanism`/`AllostericMechanism` constructors. This is **load-bearing, not cosmetic**: the Haldane/Wegscheider reduction picks dependent parameters by step order, so `fitted_params` and the reduced rate equation depend on it; structural deduplication (`unique!`) works by pure `==`/`hash` only because construction is canonical. Do not relax or reorder this without reading the Developer page in the docs.
+Step direction, step order, and group order are canonicalized in the `Step` and `Mechanism`/`AllostericMechanism` constructors. This is **load-bearing, not cosmetic**: structural deduplication (`unique!`) works by pure `==`/`hash` only because construction is canonical, and every constant is named after the stored sides of its class's kept member. The joint solve (`src/thermo.jl`) picks dependent parameters by a fixed content priority (`_priority_key`), so `fitted_params` and the rate equation do not depend on step order, step direction or group labels; renaming a metabolite can still change which tied constant is dependent. Do not relax or reorder this without reading the Developer page in the docs.
 
 
 

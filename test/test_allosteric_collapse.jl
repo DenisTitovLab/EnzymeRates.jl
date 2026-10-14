@@ -87,8 +87,8 @@ end
         fp,v,veq = _testhelper_evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8             # thermo-consistent
         @test !(:K_I_EAB_to_EB_A in fp)                     # forbidden split collapsed
-        s=replace(ER.rate_equation_string(am)," "=>"")
-        @test occursin("K_I_EAB_to_EB_A=K_A_EAB_to_EB_A", s)  # explicit mirror
+        dep,_=ER._dependent_param_exprs(am)
+        @test dep[:K_I_EAB_to_EB_A] == dep[:K_A_EAB_to_EB_A]  # one value in both states
     end
 
     # ── Steady-state binding: affinity/speed decomposition (Option 3) ──

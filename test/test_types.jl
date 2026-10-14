@@ -1631,20 +1631,19 @@ end
             E(Q) <--> E + Q
         end
     end
-    names = Set(ER.parameters(m, ER.Full))
+    names = _testhelper_step_constant_names(m)
     @test :k_EAB_to_EQ_P in names && :k_EQ_P_to_EAB in names
     # The fused release E(A, B) → E(Q) + P is stored as the binding of P it
     # reverses, E(Q) + P → E(A, B), so its forward rate constant binds P.
     mech = ER.Mechanism(m)
     i = only(i for (i, (s, _)) in enumerate(ER._flat_steps(mech)) if ER._is_chemistry(s))
-    kon, koff = ER._step_parameters(mech)[i]
+    kon, koff = ER._step_constants(first(ER._flat_steps(mech)[i]), :None)
     @test kon isa ER.Kfor && koff isa ER.Krev
     @test ER.name(kon, mech) == :k_EQ_P_to_EAB && ER.name(koff, mech) == :k_EAB_to_EQ_P
     @test :k_E_A_to_EA in names && :k_EQ_to_E_Q in names
 end
 
 @testset "step constants are named by their reaction" begin
-    full_names(m) = Set(ER.parameters(m, ER.Full))
     # Michaelis–Menten, every step steady-state: each binding has one rate constant
     # per direction, named after the reaction it drives; the isomerization has k both ways.
     mm_ss = @enzyme_mechanism begin
@@ -1657,8 +1656,8 @@ end
         end
     end
     @test issubset([:k_E_S_to_ES, :k_ES_to_E_S, :k_E_P_to_EP, :k_EP_to_E_P],
-                   full_names(mm_ss))
-    # Reduced mode: the Haldane reduction leaves the SS isomerization constant fitted.
+                   _testhelper_step_constant_names(mm_ss))
+    # The Haldane reduction leaves the SS isomerization constant fitted.
     @test :k_ES_to_EP in ER.parameters(mm_ss)
     # An RE isomerization has one equilibrium constant, in its canonical direction.
     re_iso = @enzyme_mechanism begin
@@ -1670,7 +1669,7 @@ end
             E(P) <--> E + P
         end
     end
-    @test :K_ES_to_EP in full_names(re_iso)
+    @test :K_ES_to_EP in _testhelper_step_constant_names(re_iso)
     # An RE fused release is stored as the binding of P it reverses, so its
     # constant is a dissociation constant, [EQ]·[P]/[EAB], named in the release
     # direction.
@@ -1684,7 +1683,7 @@ end
             E(Q) <--> E + Q
         end
     end
-    @test :K_EAB_to_EQ_P in full_names(re_fused)
+    @test :K_EAB_to_EQ_P in _testhelper_step_constant_names(re_fused)
     # An RE fused binding takes a dissociation constant too, [E]·[S]/[EP], named in
     # the release direction like a plain binding's.
     re_fused_binding = @enzyme_mechanism begin
@@ -1695,7 +1694,7 @@ end
             E(P) <--> E + P
         end
     end
-    @test :K_EP_to_E_S in full_names(re_fused_binding)
+    @test :K_EP_to_E_S in _testhelper_step_constant_names(re_fused_binding)
     # A competitive-inhibitor copy of A and A itself bind E without colliding.
     inh = @enzyme_mechanism begin
         substrates: A
@@ -1708,7 +1707,8 @@ end
             E + A::Inh ⇌ E(A::Inh)
         end
     end
-    @test issubset([:K_EAinh_to_E_Ainh, :K_EA_to_E_A], full_names(inh))
+    @test issubset([:K_EAinh_to_E_Ainh, :K_EA_to_E_A],
+                   _testhelper_step_constant_names(inh))
     # The allosteric state tag follows the prefix: a :NonequalAI binding has an
     # A-state and an I-state constant, an :EqualAI binding one shared constant.
     allo = @allosteric_mechanism begin
@@ -1721,7 +1721,7 @@ end
             E(P) ⇌ E + P     :: EqualAI
         end
     end
-    # Every constant the reduced rate equation names, fitted or dependent.
+    # Every constant the rate equation names, fitted or dependent.
     dep, indep = ER._dependent_param_exprs(typeof(allo))
     allo_names = union(keys(dep), indep)
     @test issubset([:K_A_ES_to_E_S, :K_I_ES_to_E_S], allo_names)
@@ -1744,9 +1744,11 @@ end
             E + Q ⇌ E(Q)
         end
     end
-    pp_names = full_names(pingpong)
+    pp_names = _testhelper_step_constant_names(pingpong)
     @test Symbol("K_EB_res_+A_-P_to_E_res_+A_-P_B") in pp_names
-    @test length(pp_names) == length(ER.parameters(pingpong, ER.Full))
+    # One name per class: a rapid-equilibrium group's K, a steady-state group's kf, kr.
+    @test length(pp_names) == sum(ER.is_equilibrium(first(g)) ? 1 : 2
+                                  for g in ER.steps(ER.Mechanism(pingpong)))
 end
 
 @testset "Tier 2 reads the free metabolites at both ends of a step" begin
@@ -1777,7 +1779,7 @@ end
     i = only(i for (i, (s, _)) in enumerate(flat) if ER.is_iso(s))
     iso = first(flat[i])
     @test ER.name(ER.from_species(iso)) == :F && ER.name(ER.to_species(iso)) == :E
-    kf, kr = ER._step_parameters(m)[i]
+    kf, kr = ER._step_constants(first(ER._flat_steps(m)[i]), :None)
     @test ER.name(kf, m) == :k_F_to_E && ER.name(kr, m) == :k_E_to_F
 end
 
@@ -2091,7 +2093,8 @@ end
         [ER.Step(E, EstarA, [A], ER.Metabolite[], false)],
         [ER.Step(EA, EP, ER.Metabolite[], ER.Metabolite[], false)],
         [ER.Step(E, EP, [P], ER.Metabolite[], false)]])
-    names = [ER.name(p, m) for p in ER._enumerate_parameters_full(m)]
+    names = [ER.name(p, m)
+             for g in ER.steps(m) for p in ER._step_constants(first(g), :None)]
     @test allunique(names)
     @test issubset([:k_E_A_to_EA, :k_E_A_to_EstarA], names)
     # The same binding in two groups, once written as its release: both would be
@@ -2292,7 +2295,7 @@ end
         end
         am = ER.AllostericMechanism(m)
         tags = copy(ER.cat_allo_states(am))
-        # find each group by its representative step
+        # tag each group by the metabolite its step binds
         for (g, grp) in enumerate(ER.steps(am))
             bm = ER.bound_metabolite(grp[1])
             tags[g] = bm === nothing ? cat_tag :
@@ -2616,14 +2619,6 @@ end
         # contradicts the third row's -y1 - y2 > 0.
         @test !ER._has_strict_positive_combination(R[1 0; 0 1; -1 -1])
     end
-
-    @testset "_solve_dependent_set rejects a contradictory system" begin
-        # The rows x = 0 and x = log(Keq) subtract to 0 = log(Keq): the reduced
-        # [A rhs] pivots in the rhs column, which no parameter value satisfies.
-        err = @test_throws ErrorException ER._solve_dependent_set(
-            reshape(R[1, 1], 2, 1), R[0, 1], [:K_x], [(false, 0)])
-        @test occursin("Thermodynamically contradictory mechanism", err.value.msg)
-    end
 end
 
 @testset "the naming cache never changes a mechanism's identity" begin
@@ -2657,11 +2652,11 @@ end
                                           EnzymeRates.catalytic_multiplicity(am1),
                                           copy(EnzymeRates.regulatory_sites(am1)))
     # Naming every parameter fills the mechanism's naming cache.
-    _testhelper_param_names(m::EnzymeRates.Mechanism) =
-        [EnzymeRates.name(p, m) for p in EnzymeRates._enumerate_parameters_full(m)]
-    _testhelper_param_names(m::EnzymeRates.AllostericMechanism) = [EnzymeRates.name(p, m)
-        for state in (:A, :I)
-        for p in [EnzymeRates._cat_params(m, state); EnzymeRates._kreg_params(m, state)]]
+    _testhelper_param_names(m::EnzymeRates.Mechanism) = EnzymeRates._step_names(m, :None)
+    _testhelper_param_names(m::EnzymeRates.AllostericMechanism) =
+        [[EnzymeRates._step_names(m, state) for state in (:A, :I)];
+         [[EnzymeRates.name(p, m)] for state in (:A, :I)
+          for p in EnzymeRates._kreg_params(m, state)]]
     # `rebuilt` is `m` constructed again from its fields, with an empty cache.
     function _testhelper_check_identity(m, rebuilt)
         shown = repr(m)

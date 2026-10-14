@@ -552,11 +552,11 @@ end
     end
     fp = ER.fitted_params(allo)
     @test fp == (Symbol("k_A_EA_to_E_res_+A_-P_P"), Symbol("k_A_EB_res_+A_-P_to_E_Q"),
-                 Symbol("k_A_E_Q_to_EB_res_+A_-P"), Symbol("k_A_E_res_+A_-P_P_to_EA"),
+                 Symbol("k_A_E_Q_to_EB_res_+A_-P"), :k_EA_to_E_A,
                  Symbol("k_EB_res_+A_-P_to_E_res_+A_-P_B"), :k_E_A_to_EA,
                  Symbol("k_E_res_+A_-P_B_to_EB_res_+A_-P"),
                  Symbol("k_I_EA_to_E_res_+A_-P_P"), Symbol("k_I_EB_res_+A_-P_to_E_Q"),
-                 Symbol("k_I_E_res_+A_-P_P_to_EA"), :L)
+                 Symbol("k_I_E_Q_to_EB_res_+A_-P"), :L)
 
     rng = MersenneTwister(20260716)
     for _ in 1:6
@@ -583,13 +583,15 @@ end
         #   k_A_E_Q_to_EB_res_+A_-P=k4r_A            (FB ⇌ E + Q, active)
         #   k_I_EB_res_+A_-P_to_E_Q=k4f_I,
         #   k_I_E_Q_to_EB_res_+A_-P=k4r_I            (FB ⇌ E + Q, inactive)
-        # `k_EA_to_E_A` and `k_I_E_Q_to_EB_res_+A_-P` are absent from
-        # fitted_params: each conformation's Haldane makes one constant dependent.
-        # The oracle takes k4r_I and derives k2r_I by the inactive Haldane, so
-        # k2r_I is computed here the same way, and the derivation rederives k4r_I.
+        # `k_A_E_res_+A_-P_P_to_EA` and `k_I_E_res_+A_-P_P_to_EA`, the P rebinding
+        # rates, are absent from fitted_params: each conformation's Haldane makes the
+        # constant that runs against the reaction dependent. The oracle takes k2r_A and
+        # k4r_I and derives k1r and k2r_I by the Haldane relations, so both are
+        # computed here the same way, and the derivation rederives k2r_A and k2r_I.
         k1r = k1f * k2f_A * k3f * k4f_A / (Keq * k2r_A * k3r * k4r_A)
         k2r_I = k1f * k2f_I * k3f * k4f_I / (Keq * k1r * k3r * k4r_I)
         d = Dict(:k_E_A_to_EA => k1f,
+                 :k_EA_to_E_A => k1r,
                  Symbol("k_E_res_+A_-P_B_to_EB_res_+A_-P") => k3f,
                  Symbol("k_EB_res_+A_-P_to_E_res_+A_-P_B") => k3r,
                  Symbol("k_A_EA_to_E_res_+A_-P_P") => k2f_A,

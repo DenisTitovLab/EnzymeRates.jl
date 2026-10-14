@@ -110,7 +110,9 @@ end
 
     @testset "a law that never saturates peaks at the upper edge and is flagged" begin
         # E(S) releases P at once (rapid equilibrium), so no enzyme accumulates as E(S)
-        # and S never saturates the enzyme: at zero product v = k_E_S_to_ES·S.
+        # and S never saturates the enzyme: at zero product v = k_E_S_to_ES·S. The
+        # release's dissociation constant K_ES_to_E_P = Keq·k_ES_to_E_S/k_E_S_to_ES is
+        # 1.5 here.
         fused_release = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -119,7 +121,7 @@ end
                 E(S) ⇌ E + P
             end
         end
-        p = (K_ES_to_E_P = 1.5, k_E_S_to_ES = 2.0, Keq = 2.0)
+        p = (k_ES_to_E_S = 1.5, k_E_S_to_ES = 2.0, Keq = 2.0)
         for upper in (1e3, 1e5)
             peak = EnzymeRates._peak_turnover(fused_release, p, (1e-12, upper))
             @test peak.value ≈ upper * p.k_E_S_to_ES rtol = 1e-9
@@ -141,7 +143,13 @@ end
         # an intermediate Q, 125.62 times the turnover at saturating A and B without
         # product.
         pn = EnzymeRates.fitted_params(rob)
-        p = merge(NamedTuple{pn}(Tuple(k === :k_E_P_to_EP ? 1e-3 : 1.0 for k in pn)),
+        rob_mech = EnzymeRates.Mechanism(rob)
+        release_p = only(s for (s, _) in EnzymeRates._flat_steps(rob_mech)
+                         if EnzymeRates.consumed(s) == [EnzymeRates.Product(:P)] &&
+                            isempty(EnzymeRates.bound(EnzymeRates.from_species(s))))
+        slow = Set(EnzymeRates.name(c, rob_mech)
+                   for c in EnzymeRates._step_constants(release_p, :None))
+        p = merge(NamedTuple{pn}(Tuple(k in slow ? 1e-3 : 1.0 for k in pn)),
                   (Keq = 1.0,))
         peak = EnzymeRates._peak_turnover(rob, p, (1e-12, 1e8))
         corner = rate_equation(rob, (A = 1e8, B = 1e8, P = 1e-12, Q = 1e-12),

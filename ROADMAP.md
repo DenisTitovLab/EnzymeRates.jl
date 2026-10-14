@@ -7,30 +7,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Known issues
 
-- **The inactive state can give an `:EqualAI` constant a second, fitted name.**
-  `_state_parts` (`src/rate_eq_derivation.jl`) names the inactive conformation's
-  constants after its pruned graph (`_state_allo_mechanism`), so a shared constant takes
-  a second name when pruning removes its group's naming representative (`_group_rep`)
-  but not the whole group, or reverses a rapid-equilibrium step that metabolite
-  progression leaves unoriented (`F ⇌ E` gives `K_F_to_E` in the active state and
-  `K_E_to_F` in the inactive one). The second name enters `fitted_params` as a free
-  constant, so the rate law describes a larger model than the one declared and the beam
-  overcounts its parameters. Enumerated mechanisms meet the first case: when
-  `E(A) + P ⇌ E(A, P)` and `E(Q) + P ⇌ E(P, Q)` share `K_EAP_to_EA_P` and the inactive
-  state cannot reach `E(A)`, that state names the constant `K_EPQ_to_EQ_P`, and 766 of
-  15,219 bi-bi and ping-pong allosteric mechanisms sampled within two expansion rounds
-  gain one to three such parameters. The single-equation derivation under Planned
-  removes the cause. A narrower fix, prototyped and measured, names and orients every
-  inactive-state constant by the full mechanism's own step and removes all 766.
-- **The two conformations fold Wegscheider ties separately.**
-  `_dependent_param_exprs(am)` (`src/rate_eq_derivation.jl`) solves each conformation's
-  single-symbol rename on its own and merges the two maps. When the conformations fold a
-  tied pair in opposite directions, or one folds a constant the other still uses,
-  `fitted_params` keeps a constant that thermodynamics ties to another: the model is
-  larger than declared, though identifiable. Within two expansion rounds of the bi-bi and
-  ping-pong reactions, 256 enumerated allosteric mechanisms fold a pair in opposite
-  directions and 512 more keep a folded constant in the other conformation. The
-  single-equation derivation under Planned removes the cause.
 - **A steady-state step that only reaches dead-end forms fits both rate constants.**
   When a steady-state step's only role is to reach forms that lead nowhere else, as
   `E(I) + J <--> E(J) + I` does when `E(J)` binds nothing more, no net flux crosses it, so
@@ -46,20 +22,34 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `multi_threading` passed through `solver_kwargs`, would race on both buffers. Fits run
   in parallel only across `pmap` workers, each of which builds its own problem.
 - **`eq_complexity_filter` counts only the active conformation of an allosteric
-  mechanism.** `_eq_complexity(::AllostericMechanism)` (`src/rate_eq_derivation.jl`)
-  measures V×τ on the active-state graph alone, while the generated MWC rate equation
-  evaluates the polynomials of both conformations, so the filter undercounts what an
-  allosteric equation costs and can admit one that evaluates more terms than its limit.
-- **Repeated constraint solves inflate the GC's live-byte count.**
-  Each `_dependent_param_exprs` call, whose constraint solves run in `Rational{BigInt}`,
-  raises `Base.gc_live_bytes` by about 36-49 KB that no live object holds. After about
-  40,000 calls every collection is a full sweep: GC time triples and wall time rises 75%,
-  so a long `identify_rate_equation` run slows as it derives more mechanisms. A loop of
-  `_dependent_param_exprs` calls on one mechanism that prints `Base.gc_live_bytes()` and
-  `Base.gc_num().full_sweep` shows it.
+  mechanism.** `_eq_complexity` (`src/rate_eq_derivation.jl`) measures an allosteric
+  mechanism's V×τ on its active-state graph (`steps(am)`) alone, while the generated MWC
+  rate equation evaluates the polynomials of both conformations, so the filter
+  undercounts what an allosteric equation costs and can admit one that evaluates more
+  terms than its limit.
+- **`BigInt` arithmetic inflates the GC's live-byte count.**
+  Three functions that compute in `BigInt` raise `Base.gc_live_bytes` by bytes that no
+  live object holds: `_onlya_haldane_violation` (`src/thermo.jl`; a `Rational{BigInt}`
+  null space) by about 16 KiB per call, the counter that `_split_gain_test` uses for a
+  plain mechanism (`_partition_independent_count`; a `Rational{BigInt}` row reduction) by
+  14 KiB and `_eq_complexity` (a `BigInt` determinant, skipped for a single
+  rapid-equilibrium segment) by 8 KiB. A 6×6 determinant outside the package does the same
+  in `BigInt` and `Rational{BigInt}`, not in `Rational{Int}`. An `AllostericMechanism`
+  with an `:OnlyA` group of plain bindings runs the guard when built, so every lift of
+  such a compiled mechanism pays it, as does each such candidate of the allosteric
+  `_split_gain_test`. 100,000 such lifts add 1.5 GiB and 16 full sweeps. The joint solve
+  adds nothing, on a plain mechanism or on a concrete allosteric one; it runs in
+  `Rational{Int}` on 10,226 enumerated bi-bi and ter-bi mechanisms without overflow. The
+  count stays up after a full collection: a lift loop that starts 1.4 GiB high makes 115
+  full sweeps in 29 s, against 16 in 20 s from a clean start. Admission under Planned
+  replaces the guard, not the other two. A loop that calls one of these and prints
+  `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it. The figures come from a
+  random-order bi-bi of nine steady-state steps, plain and as a two-subunit allosteric
+  mechanism with `:OnlyA` on both bindings of A and on the chemical step and `:EqualAI`
+  elsewhere (Julia 1.12.5, aarch64, `--heap-size-hint=2500M`).
 
 - **The `:OnlyA` guard misjudges groups that mix a binding and a chemistry step.**
-  `_onlya_haldane_violation` (`src/thermodynamic_constr_for_rate_eq_derivation.jl`)
+  `_onlya_haldane_violation` (`src/thermo.jl`)
   skips every `:OnlyA` group that holds a chemistry step, including one that also holds a
   plain binding of the same metabolite (enumeration builds these by merging and tags
   every allosteric one `:OnlyA`), and gives the bindings of one group a single rate of
@@ -67,23 +57,13 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   whose plain member sits on a square of `:EqualAI` bindings, whose inactive conformation
   is not a limit of the model, and rejects a split `:OnlyA` binding group whose limit
   exists. The `:OnlyA` semantics under Planned replace the guard.
-- **Full mode lists rapid-equilibrium constants that never reach the rate law.**
-  When the kinetic groups leave a loop of rapid-equilibrium steps open,
-  `rate_equation(m, concs, params, Full)` weights each rapid-equilibrium segment along
-  one breadth-first spanning tree whose order follows the form names (`_compute_alpha`,
-  `src/rate_eq_derivation.jl`), so `parameters(m, Full)` lists the constant that closes
-  the loop although the rate never reads it: 23 of 806 plain mechanisms in the derivation
-  probes, 21 of them enumerated. Renaming a metabolite changes which constant is dropped
-  and, when the values break the loop's relation, the rate. Full mode also applies the
-  single-symbol Wegscheider rename, so in three fixture mechanisms it reads one listed
-  constant in place of another. The graph rewrite under Planned drops Full mode.
-- **Splitting a tied kinetic group changes fitted names and `eq_hash` without changing
-  the model.** When a square of rapid-equilibrium bindings already ties two binding
-  constants, splitting their kinetic group leaves the rate function unchanged, but the
-  solve's priority depends on the grouping, so the dependents and the single-symbol
-  rename change: of 663 such splits of enumerated bi-bi mechanisms, 312 change the
-  fitted name set and 327 the dedup key. One split folds the free-enzyme `K_EA_to_E_A`
-  into `K_EAQ_to_EQ_A`, for example. The graph rewrite under Planned removes both.
+- **Splitting a tied kinetic group changes `eq_hash` without changing the model.**
+  When a square of rapid-equilibrium bindings already ties two binding constants,
+  splitting their kinetic group leaves the rate function and the fitted names unchanged,
+  but the split part's constant becomes a dependent with its own line under
+  `# Wegscheider constraints:`, and the law names it, so the printed equation and the
+  dedup key (`_rate_eq_dedup_key`, `src/identify_rate_equation.jl`) differ, and identify
+  fits both. The rename-proof key under Planned removes this.
 - **A rapid-equilibrium isomerization of a covalent intermediate can be unidentifiable.**
   In 5 of 751 enumerated plain mechanisms in the derivation probes, an isomerization such
   as `E(B; residual = A - P) ⇌ E(Q)` joins two forms whose rapid-equilibrium weights
@@ -95,35 +75,29 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 - **Rewrite the derivation around the reaction graph.**
   `docs/superpowers/specs/2026-10-12-reaction-graph-rewrite-design.md` records the design,
-  decided between 2026-10-09 and 2026-10-12. Four PRs remain: one thermodynamic solve that
-  derives both conformations from one graph; the graph mechanism type with two macros,
-  `show` and a new CSV format; admission, the well-posedness guard and the flip at free E;
-  then the engine, printing, a rename-proof dedup key and code-generation locals. The
-  table in its section 16 lists the entries that each PR retires. Priority: high.
-- **Derive both conformations from one catalytic rate equation.**
-  Each conformation is derived on its own graph: `_state_parts` rebuilds the inactive one
-  as a pruned mechanism (`_state_allo_mechanism`), and each solves its own Wegscheider
-  rename, which causes the first two known issues. Derive the catalytic mechanism once
-  instead, with one symbol per constant and the constraints solved on that one system,
-  and obtain each conformation from it: relabel a `:NonequalAI` constant for the inactive
-  conformation, and take an `:OnlyA` step to its limit. An `:OnlyA` binding loses its
-  affinity for the inactive conformation (`K → ∞`, or `kon → 0` with `koff` fixed for a
-  steady-state binding); an `:OnlyA` chemistry step is blocked (both rate constants → 0,
-  their ratio set by thermodynamics); each step of an `:OnlyA` group keeps its own class.
-  A tag set is admitted when an exact feasibility test passes and every form the free
-  enzyme cannot reach in the inactive conformation lies behind a binding, on its bound
-  side; the limit then equals deletion and pruning, and enumeration stops producing the
-  `:OnlyA` ping-pong mechanisms this rejects. The conformations will flip at free E,
-  which every mechanism must then contain; until then the constructor admits a second
-  free form only in rapid equilibrium with the first (`_assert_one_flip_segment`), where
-  the choice only rescales `L`. The rewrite's first PR derives both conformations from
-  one graph with today's deletion and pruning; its third brings the limits, admission
-  and the flip at free E. Branch
-  `mwc-solve-then-limit` holds a July design of this approach
-  (spec b067aa0 and 651a821, plan 9c95f12, prototype 6f0011e), whose prototype matched
-  the mass-action ground truth on all six uni-uni tag combinations and would delete the
-  `d_free` cross-weighting; `test/allosteric_ground_truth.jl` is the oracle.
-  Priority: high.
+  decided between 2026-10-09 and 2026-10-12. Three PRs remain: the graph mechanism type
+  with two macros, `show` and a new CSV format; admission, the well-posedness guard and
+  the flip at free E; then the engine, printing, a rename-proof dedup key and
+  code-generation locals. The table in its section 16 lists the entries that each PR
+  retires. Priority: high.
+- **Take `:OnlyA` steps to their limit in the inactive conformation.**
+  Both conformations come from one joint solve on one graph, but the inactive law still
+  deletes every `:OnlyA` group and prunes the forms that deletion strands. An `:OnlyA`
+  binding should lose its affinity for the inactive conformation instead (`K → ∞`, or
+  `kon → 0` with `koff` fixed for a steady-state binding), and an `:OnlyA` chemistry step
+  be blocked (both rate constants → 0, their ratio set by thermodynamics); each step of an
+  `:OnlyA` group already keeps its own class. A tag set is admitted when an exact
+  feasibility test passes and every form the free enzyme cannot reach in the inactive
+  conformation lies behind a binding, on its bound side; the limit then equals deletion
+  and pruning, and enumeration stops producing the `:OnlyA` ping-pong mechanisms this
+  rejects. The conformations will flip at free E, which every mechanism must then
+  contain; until then the constructor admits a second free form only in rapid
+  equilibrium with the first (`_assert_one_flip_segment`), where the choice only rescales
+  `L`. The rewrite's admission PR brings the limits, admission and the flip at free E.
+  Branch `mwc-solve-then-limit` holds a July design of this approach (spec b067aa0 and
+  651a821, plan 9c95f12, prototype 6f0011e), whose prototype matched the mass-action
+  ground truth on all six uni-uni tag combinations and would delete the `d_free`
+  cross-weighting; `test/allosteric_ground_truth.jl` is the oracle. Priority: high.
 - **Flag one-subunit K-type variants whose L is a phantom instead of fitting them.**
   At multiplicity 1, `_expand_to_allosteric` (`src/mechanism_enumeration.jl`) emits
   K-type variants whose L the data cannot determine, so the fitter optimizes a flat
@@ -166,18 +140,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   children whose `_independent_param_count` does not exceed their parent's, and confirm
   them with `_testhelper_identifiable_rank`. A naive filter can drop a different model
   with the same count, so check reachability before filtering. Priority: medium-low.
-- **Build the Wegscheider rename into the constraint columns.**
-  Pass 2 of `_build_wegscheider_rename_map` folds one binding constant into another, but
-  the absorbed symbol stays a constraint column, so both `_dependent_param_exprs` methods
-  (`src/thermodynamic_constr_for_rate_eq_derivation.jl`, `src/rate_eq_derivation.jl`)
-  strip the resulting dummy parameter afterwards; the allosteric one re-derives both
-  conformations' polynomials to keep any symbol they still reference. That derivation
-  refuses a law over `MAX_RATE_EQUATION_TERMS`, so the split move cannot count an
-  allosteric candidate that large and lets it gain nothing (`_split_gain_test`).
-  Dropping renamed symbols in `_assemble_constraints` would delete both filters; the
-  hard case is an `:EqualAI` symbol folded in one conformation and used in the other.
-  Pass 2 itself is load-bearing and stays, and the derivation output must stay
-  byte-identical. The single-equation derivation above may absorb this. Priority: low.
 - **Enumerate Cleland iso mechanisms.**
   The derivation handles iso mechanisms, but no enumeration move generates them, and each
   carries a dwell-time-gauge phantom unless the exact rank (see Ideas) or a
@@ -216,6 +178,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   and a dependency release that breaks the package only at the next CI run. A scheduled
   workflow that runs the suite at the lower and upper bounds of Julia and the dependencies
   would catch both without adding its run time to every push or pull request.
+- **Give the thermodynamics one row reduction and one cycle basis.**
+  `src/thermo.jl` holds two exact row reductions, `_rref!` (the joint solve, in
+  `Rational{Int}` retried in `Rational{BigInt}`) and `_rref_partition` (in
+  `Rational{BigInt}`), and two cycle-basis builders, `_fundamental_cycles` and
+  `_thermodynamic_constraints`, which raise the same error. The `:OnlyA` guard's use of
+  `_rref_partition` and `_thermodynamic_constraints` goes when admission replaces the
+  guard, but the split move's counter (`_partition_independent_count`) keeps them;
+  computing its rank with `_rref!` over the joint solve's cycles would leave one of each.
 
 ## Decided against
 

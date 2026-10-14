@@ -47,8 +47,7 @@ k_EP_to_ES = (1 / Keq) * K_EP_to_E_P * (1 / K_ES_to_E_S) * k_ES_to_EP
 v = E_total * (k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P) / (1 + P / K_EP_to_E_P + S / K_ES_to_E_S)
 ```
 
-The default mode is `Reduced`.
-In `Reduced` mode the string has four sections:
+The string has four sections:
 
 1. A `params` destructuring line listing the independent fitted parameters
    plus `Keq` and `E_total`.
@@ -96,18 +95,16 @@ constants plus `Keq` and `E_total`.
 `metabolites(m)` returns the concentration symbols the rate equation reads
 at runtime.
 
-## Full mode
+## Every constant of the rate law
 
-Passing `Full` lists all raw rate constants, before any thermodynamic
-reduction:
+[`all_parameters`](@ref) adds the dependent constants to a set of independent values,
+each computed from its Haldane or Wegscheider relation:
 
 ```@example textbook_ex
-parameters(m, Full)
+all_parameters(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0))
 ```
 
-`Full` mode includes both `k_ES_to_EP` and `k_EP_to_ES` as independent symbols,
-so there is no constraint section.
-Full mode is for plain mechanisms only: an allosteric mechanism has neither a
-Full rate equation nor a Full parameter list.
-See [Rapid equilibrium vs steady state](@ref) for the contrast between RE and
-SS parameters, and how adding SS steps changes this list.
+Here the Haldane relation fixes the reverse catalytic rate `k_EP_to_ES` from `Keq`, the
+two binding constants and the forward rate. See
+[Rapid equilibrium vs steady state](@ref) for the contrast between RE and SS
+parameters, and how adding SS steps changes the parameter list.

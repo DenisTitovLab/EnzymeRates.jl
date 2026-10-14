@@ -201,7 +201,7 @@ enzyme's conformation, or on its covalent state; with Y a competitive
 inhibitor it separates a catalytic step from its inhibitor-bound mirror.
 
 A single split often frees no parameter. In random-order binding, thermodynamics
-ties the new constant straight back to the old one, and the equation is
+ties the new constant straight back to the old one, and the rate function is
 unchanged. The move therefore emits the smallest sets of simultaneous splits, at
 most one per group, whose combined effect raises the number of independent
 parameters; the thermodynamic constraint solver decides. Random-order bi-bi needs
@@ -447,8 +447,8 @@ groups never merge. A partition that no sequence of context splits produces is
 unreachable.
 
 **A child is never a provable copy of its parent.** The moves reject a child
-whose equation can be shown to equal the parent's: a split the constraint solver
-ties back, a flip that leaves the segment count unchanged, a flip that leaves a
-steady-state group without flux, a flip of a steady-state chain's flank, a
-redundant dead-end copy. A few children whose equation is the parent's up to
+whose rate function can be shown to equal the parent's: a split the constraint
+solver ties back, a flip that leaves the segment count unchanged, a flip that
+leaves a steady-state group without flux, a flip of a steady-state chain's flank,
+a redundant dead-end copy. A few children whose equation is the parent's up to
 renaming the constants survive; they cost one fit each and never win selection.

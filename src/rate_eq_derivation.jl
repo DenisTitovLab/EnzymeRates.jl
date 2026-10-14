@@ -8,37 +8,13 @@
 # or its type, to its concrete form therefore take it `@nospecialize`.
 
 """
-Suffix the `Reduced` `rate_equation_string` of an `EnzymeMechanism` appends to the line
-of each single-symbol Wegscheider tie that the rename (`_build_wegscheider_rename_map`)
-folds into `v`. The rate-equation dedup key in `identify_rate_equation.jl` strips these
-provenance lines.
+    parameters(m)
+
+The names of the parameters the rate law of `m` takes, as a tuple of Symbols: its
+independent constants (`fitted_params`), then `Keq` and `E_total`. The rate law computes
+every other constant from these (see [`all_parameters`](@ref)).
 """
-const ANNOTATION_SUBSTITUTED = "  (substituted into v)"
-
-"""
-    parameters(m::EnzymeMechanism, [mode])
-    parameters(m::AllostericEnzymeMechanism, [mode])
-
-Return the parameter names required for the given mode as a tuple of Symbols.
-
-# Modes
-- `Reduced` (default): independent k's + Keq + E_total. The set of
-  symbols the user supplies to evaluate the Haldane-reduced rate
-  equation. Returned for both `EnzymeMechanism` and
-  `AllostericEnzymeMechanism`.
-- `Full`: all raw rate-constant symbols + `E_total`, that is "all 2N k's +
-  `E_total`." Full mode is for plain `EnzymeMechanism`s only; an
-  `AllostericEnzymeMechanism` has no Full rate equation and no Full parameter list.
-"""
-function parameters end
-
-parameters(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism}) =
-    parameters(m, Reduced)
-
-@generated parameters(::EnzymeMechanism{Sig}, ::FullMode) where {Sig} =
-    (_raw_param_symbols(EnzymeMechanism{Sig}())..., :E_total)
-
-@generated function parameters(::M, ::ReducedMode) where {M <: AbstractEnzymeMechanism}
+@generated function parameters(::M) where {M <: AbstractEnzymeMechanism}
     _, indep = _dependent_param_exprs(M)
     (indep..., :Keq, :E_total)
 end
@@ -57,49 +33,60 @@ end
 # allocates) — it is NOT the rate_equation hot path. Pass an
 # `EnzymeMechanism` / `AllostericEnzymeMechanism` for the allocation-free
 # `rate_equation` hot path.
-parameters(m::Union{Mechanism, AllostericMechanism},
-           mode::AbstractRateEquationMode) =
-    parameters(compile_mechanism(m), mode)
+parameters(m::Union{Mechanism, AllostericMechanism}) = parameters(compile_mechanism(m))
 fitted_params(m::Union{Mechanism, AllostericMechanism}) =
     fitted_params(compile_mechanism(m))
 
 """
-Build a renaming map for single-symbol Wegscheider RE ties between two
-binding K's of `mech` under `step_params`. Solves the constraint system with
-no rename to discover binding-K-to-binding-K Wegscheider closures of the form
-`K_a = K_b` (RHS is a bare Symbol). Both sides must be binding K's (RE step with
-metabolite on LHS) — absorbing a binding-K-to-iso-K tie would produce
-inconsistent sign-flips when the solve runs with the full rename,
-since the binding-K column is sign-flipped (Kd convention) but the
-iso-K column is not. No tie chains onto another: the solve is a full
-Gauss–Jordan elimination, so a dependent's right-hand side holds only
-independent columns, and no target is itself renamed.
+    all_parameters(m, params) -> NamedTuple
 
-`step_params` defaults to the mechanism's own `:None`-state constants. The
-allosteric derivation passes each conformation's state-tagged ones
-(`_state_parts`), so the map holds that state's `K_A_…`/`K_I_…` names. For
-example, a tie arises from an RE binding square whose two bindings of one ligand
-share a group while the other ligand's two bindings do not: the square then
-equates the other ligand's two K's.
+Return `params` followed by the dependent constants of `m`'s rate law that it lacks, in
+name order, each computed from the independent constants and `Keq` in `params` by its
+Haldane or Wegscheider relation (the relations [`rate_equation_string`](@ref) prints).
+`params` holds the values of [`parameters`](@ref)`(m)` by name; `E_total` may be left
+out. A dependent constant already in `params` is recomputed in place. An error names
+every independent constant or `Keq` that `params` lacks.
 
-The rename means the polynomial in `v` uses the representative symbol
-directly, so Source-C duplicates (split kinetic groups that
-Wegscheider ties back together) collapse at hash time.
+```jldoctest
+julia> using EnzymeRates
+
+julia> m = @enzyme_mechanism begin
+           substrates: S
+           products: P
+           steps: begin
+               E + S ⇌ E(S)
+               E(S) <--> E(P)
+               E(P) ⇌ E + P
+           end
+       end;
+
+julia> all_parameters(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0,
+                          Keq = 4.0))
+(K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0, k_EP_to_ES = 0.375)
+```
 """
-function _build_wegscheider_rename_map(mech::Mechanism;
-                                       step_params = _step_parameters(mech))
-    # binding-K set: value-context rep name of each RE binding step. Walk
-    # Mechanism.steps directly — an RE step that is a binding (`is_binding`,
-    # plain or fused) is a binding step; step_params is indexed in the same
-    # flat order.
-    binding_set = Set{Symbol}(name(step_params[j][1], mech)
-                              for (j, (s, _)) in enumerate(_flat_steps(mech))
-                              if is_equilibrium(s) && is_binding(s))
-    # Pass 2: single-symbol Wegscheider RE ties between two binding K's.
-    dep_raw, _ = _solve_dependent_set(
-        _assemble_constraints(mech, Dict{Symbol, Symbol}(); step_params)...)
-    Dict{Symbol, Symbol}(lhs => rhs for (lhs, rhs) in dep_raw
-                         if rhs isa Symbol && lhs in binding_set && rhs in binding_set)
+function all_parameters(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism},
+                        params::NamedTuple)
+    dep, indep = _dependent_param_exprs(m isa AbstractEnzymeMechanism ? _concrete(m) : m)
+    absent = [k for k in (indep..., :Keq) if !haskey(params, k)]
+    isempty(absent) || error("all_parameters: params must hold every name of " *
+                             "parameters(m) except E_total; it lacks " *
+                             join(absent, ", "))
+    names = sort!(collect(keys(dep)))
+    merge(params, NamedTuple{Tuple(names)}(
+        Tuple(_evaluate_dependent(dep[k], params) for k in names)))
+end
+
+"""The value at `params` of a dependent constant's expression (`build_power_expr`): a
+power product of `Keq` and independent constants, or the number it is pinned to."""
+_evaluate_dependent(x::Symbol, params) = params[x]
+_evaluate_dependent(x::Real, params) = x
+function _evaluate_dependent(e::Expr, params)
+    op, args = e.args[1], [_evaluate_dependent(a, params) for a in e.args[2:end]]
+    op === :* && return prod(args)
+    op === :/ && return args[1] / args[2]
+    op === :^ && return args[1]^args[2]
+    error("_evaluate_dependent: no rule for the operator $op")
 end
 
 # ─── RE Group Helpers ───────────────────────────────────────
@@ -111,7 +98,7 @@ concentrations and the only symbols `_reduce_conc_lowest_terms` is allowed to
 shift. Parameter symbols are never in this set, so the concentration-GCD can
 never drop a fitted parameter.
 """
-_concentration_symbols(mech::Mechanism) = Set(_metabolite_names(reaction(mech)))
+_concentration_symbols(rxn::EnzymeReaction) = Set(_metabolite_names(rxn))
 
 """
 Free enzyme of a rapid-equilibrium segment: the form with the fewest bound
@@ -144,17 +131,16 @@ end
 
 """
 Compute alpha factors (relative concentrations within RE segments) as POLY
-values. Iterates `mech.steps` directly; each RE step's weight ratio comes
+values. Iterates the flat steps `flat` directly; each RE step's weight ratio comes
 from `_re_weight_ratio`, entering `to_species` from `from_species` or the
 reverse. `idx[sp]` is the position of form `sp` in `species`; `step_to_K[j]` is
-the parameter Symbol for the RE step at flat position `j` (rep-renamed via the
-`name(p, m)` chokepoint, then through any Wegscheider tie). Raises when the RE
-steps close a catalytic cycle, which gives the mechanism no finite rate.
+the parameter Symbol for the RE step at flat position `j`, and `conc_set` the
+concentration symbols. Raises when the RE steps close a catalytic cycle, which gives
+the mechanism no finite rate.
 """
-function _compute_alpha(mech::Mechanism, species, idx, segments, step_to_K)
+function _compute_alpha(flat, conc_set, species, idx, segments, step_to_K)
     N = length(species)
     alpha = Vector{POLY}(fill(poly_one(), N))
-    flat = _flat_steps(mech)
 
     for segment in segments
         length(segment) == 1 && continue
@@ -182,7 +168,6 @@ function _compute_alpha(mech::Mechanism, species, idx, segments, step_to_K)
 
     # Every RE step must reproduce its own concentration ratio from the weights; a
     # mismatch means a cycle of RE steps performs turnover.
-    conc_set = _concentration_symbols(mech)
     conc(p) = Dict(k => v for (k, v) in only(keys(p)) if k in conc_set)
     for (j, (s, _)) in enumerate(flat)
         is_equilibrium(s) || continue
@@ -207,17 +192,13 @@ end
 # ─── Raw Rate Equation Derivation (Unified Cha / King-Altman) ───
 
 """
-Build raw numerator and denominator POLYs for the rate equation by
-walking the lifted `Mechanism`. Parameter Symbols on the leaves of
-`num`/`den` are produced via the `name(p, mech)` chokepoint (which
-collapses kinetic-group members to their rep's name). `rename_map` applies any
-single-symbol Wegscheider ties at the leaves: each RE step's constant is renamed
-as it enters `step_to_K`, the only route by which an RE binding K (every rename key
-and target is one) reaches the polynomials. `step_params` defaults
-to the mechanism's own `:None`-state constants and `rename_map` to the Wegscheider
-rename under them; the allosteric derivation passes each conformation's
-state-tagged constants (`_state_parts`). Aborts, before the King–Altman expansion,
-a mechanism whose denominator would be too large to derive (`_assert_derivable`).
+    _raw_symbolic_rate_polys(rxn, groups, names) -> (num, den, d_free)
+
+Build raw numerator and denominator POLYs for the rate equation of the kinetic groups
+`groups` of a mechanism of reaction `rxn`. `names[j]` holds the parameter Symbols of
+flat step `j`'s constants (`[K]` or `[kf, kr]`), which are the leaves of `num`/`den`.
+Aborts, before the King–Altman expansion, a graph whose denominator would be too large
+to derive (`_assert_derivable`).
 
 Also returns `d_free`, the weight in the returned denominator of the free
 resting enzyme (the form with empty `bound` and empty `residual`): the
@@ -225,21 +206,18 @@ spanning-tree weight `D[g_free]` of its segment times the concentration monomial
 that brings `num`/`den` to lowest terms. Free E roots its segment, so its own
 `alpha` is 1.
 """
-function _raw_symbolic_rate_polys(
-    mech::Mechanism,
-    step_params = _step_parameters(mech),
-    rename_map = _build_wegscheider_rename_map(mech; step_params),
-)
-    _assert_derivable(mech)
-    species, segments, _, idx, seg = _re_segment_extras(steps(mech))
+function _raw_symbolic_rate_polys(rxn::EnzymeReaction, groups::Vector{Vector{Step}},
+                                  names::Vector{Vector{Symbol}})
+    _assert_derivable(groups)
+    species, segments, _, idx, seg = _re_segment_extras(groups)
     # A fully-inert conformation (every binding pruned) has no enumerated form; it
     # exists only as free enzyme — no flux, partition 1, D[g_free] 1.
     isempty(species) && return poly_zero(), poly_one(), poly_one()
-    flat = _flat_steps(mech)
+    flat = _flat_steps(groups)
+    conc_set = _concentration_symbols(rxn)
     step_to_K = Dict{Int, Symbol}(
-        i => (K = name(step_params[i][1], mech); get(rename_map, K, K))
-        for i in eachindex(flat) if is_equilibrium(flat[i][1]))
-    alpha = _compute_alpha(mech, species, idx, segments, step_to_K)
+        i => names[i][1] for i in eachindex(flat) if is_equilibrium(flat[i][1]))
+    alpha = _compute_alpha(flat, conc_set, species, idx, segments, step_to_K)
     G = length(segments)
 
     # The Laplacian of the segment graph: each SS step joining two segments adds its
@@ -251,8 +229,8 @@ function _raw_symbolic_rate_polys(
     for (j, (s, _)) in enumerate(flat)
         is_equilibrium(s) && continue
         a, b = idx[from_species(s)], idx[to_species(s)]
-        fwd = _ss_contrib(poly_sym(name(step_params[j][1], mech)), consumed(s), a, alpha)
-        rev = _ss_contrib(poly_sym(name(step_params[j][2], mech)), released(s), b, alpha)
+        fwd = _ss_contrib(poly_sym(names[j][1]), consumed(s), a, alpha)
+        rev = _ss_contrib(poly_sym(names[j][2]), released(s), b, alpha)
         push!(ss, (s, a, b, fwd, rev))
         g1, g2 = seg[a], seg[b]
         g1 == g2 && continue
@@ -280,7 +258,7 @@ function _raw_symbolic_rate_polys(
     # form makes the sum equal the net consumption of the first substrate for every
     # parameter value, so it needs no choice of reaction cut and does not depend on
     # the direction a step is written in. Steps with ω_e = 0 contribute nothing.
-    x = name(first(substrates(reaction(mech))))
+    x = name(first(substrates(rxn)))
     expo(p) = (mono = only(keys(p));
                k = findfirst(q -> q.first == x, mono);
                k === nothing ? 0 : mono[k].second)
@@ -293,35 +271,56 @@ function _raw_symbolic_rate_polys(
         num = poly_add(num, POLY(key => ω * c for (key, c) in term))
     end
 
-    conc_set = _concentration_symbols(mech)
     _reduce_conc_lowest_terms(num, den, d_free, conc_set)
 end
 
+_raw_symbolic_rate_polys(m::Mechanism) =
+    _raw_symbolic_rate_polys(reaction(m), steps(m), _step_names(m, :None))
 _raw_symbolic_rate_polys(@nospecialize(M::Type{<:EnzymeMechanism})) =
     _raw_symbolic_rate_polys(Mechanism(M()))
+
+"""The kinetic groups of `m`'s law in conformation `state`: every group for `:None` and
+`:A`; for `:I`, the inactive conformation's pruned graph (`_inactive_groups`)."""
+_state_groups(m::Mechanism, ::Symbol) = steps(m)
+_state_groups(am::AllostericMechanism, state::Symbol) =
+    state === :I ? _inactive_groups(am) : steps(am)
+
+"""
+The parameter Symbols of each flat step's constants in conformation `state` of `m` —
+`[K]` at rapid equilibrium, `[kf, kr]` at steady state — through the naming chokepoint
+(`name(p, m)`), over the steps of `_state_groups(m, state)`: `:None` for a plain
+mechanism; `:A` or `:I` for an allosteric one, an `:EqualAI` group's constants taking its
+one shared name in both.
+"""
+function _step_names(m::_AnyMech, state::Symbol)
+    tag(g) = m isa AllostericMechanism && cat_allo_state(m, g) === :EqualAI ?
+             :EqualAI : state
+    [Symbol[name(p, m) for p in _step_constants(s, tag(g))]
+     for (s, g) in _flat_steps(_state_groups(m, state))]
+end
 
 """
 Estimate a mechanism's King–Altman denominator term count, V×τ, from its
 catalytic segment graph WITHOUT deriving the rate equation.
 
-`V` is the number of RE-connected segments (`_re_segment_extras`); `τ` is the
-spanning-tree count of the segment graph, whose edges are the SS steps: by the
-Matrix–Tree theorem, the determinant of its Laplacian with the first row and column
-dropped, computed exactly (`det` of a `BigInt` matrix is fraction-free Bareiss; a
-disconnected graph gives 0). `V×τ` equals the number of spanning-tree
-products in the denominator — the products the compiled equation evaluates on
-every call — so it bounds fit cost. It guards the derivation itself
-(`_assert_derivable` aborts when V×τ exceeds `MAX_RATE_EQUATION_TERMS`, before the
-O(G!) symbolic cofactor expansion) and backs the `eq_complexity_filter` keyword
-of [`identify_rate_equation`](@ref), which skips over-complex mechanisms before
-fitting.
+`V` is the number of RE-connected segments (`_re_segment_extras`); `τ` is the spanning-tree
+count of the segment graph, whose edges are the SS steps: by the Matrix–Tree theorem, the
+determinant of its Laplacian with the first row and column dropped, computed exactly (`det`
+of a `BigInt` matrix is fraction-free Bareiss; a disconnected graph gives 0). `V×τ` equals
+the number of spanning-tree products in the denominator — the products the compiled equation
+evaluates on every call — so it bounds fit cost. It guards the derivation itself
+(`_assert_derivable` aborts when V×τ exceeds `MAX_RATE_EQUATION_TERMS`, before the O(G!)
+symbolic cofactor expansion) and backs the `eq_complexity_filter` keyword of
+[`identify_rate_equation`](@ref), which skips over-complex mechanisms before fitting. The
+method for a mechanism counts an allosteric mechanism on `steps(am)`, its active
+conformation.
 """
-function _eq_complexity(mech::Mechanism)
-    _, segments, _, idx, seg = _re_segment_extras(steps(mech))
+function _eq_complexity(groups::Vector{Vector{Step}})
+    _, segments, _, idx, seg = _re_segment_extras(groups)
     G = length(segments)
     G <= 1 && return big(G)                          # single RE segment ⇒ τ = 1
     lap = zeros(BigInt, G, G)
-    for group in steps(mech), s in group
+    for group in groups, s in group
         is_equilibrium(s) && continue                # SS steps are the segment-graph edges
         g1, g2 = seg[idx[from_species(s)]], seg[idx[to_species(s)]]
         g1 == g2 && continue
@@ -329,13 +328,11 @@ function _eq_complexity(mech::Mechanism)
     end
     G * det(lap[2:end, 2:end])
 end
-_eq_complexity(m::AllostericMechanism) = _eq_complexity(_state_mechanism(m, :A))
+_eq_complexity(m::_AnyMech) = _eq_complexity(steps(m))
 
 """
 The error `_assert_derivable` raises for a mechanism whose rate equation would have more
-than `MAX_RATE_EQUATION_TERMS` terms. Its own type lets the split move's allosteric gain
-test (`_split_gain_test`) skip a candidate it cannot count while every other error
-propagates.
+than `MAX_RATE_EQUATION_TERMS` terms.
 """
 struct RateEquationTooLargeError <: Exception end
 
@@ -352,8 +349,8 @@ point, before the O(G!) symbolic cofactor expansion in `sym_det` — a numeric
 O(G³) check that throws a `RateEquationTooLargeError` quickly instead of hanging on
 the factorial expansion.
 """
-function _assert_derivable(mech::Mechanism)
-    _eq_complexity(mech) > MAX_RATE_EQUATION_TERMS && throw(RateEquationTooLargeError())
+function _assert_derivable(groups::Vector{Vector{Step}})
+    _eq_complexity(groups) > MAX_RATE_EQUATION_TERMS && throw(RateEquationTooLargeError())
     return nothing
 end
 
@@ -363,9 +360,11 @@ end
 symbolic rate polys: flat sums for the printed equation, or in Horner form
 (`_poly_to_horner`) for the generated code when `horner` is true."""
 function _num_den_exprs(@nospecialize(M::Type{<:EnzymeMechanism}); horner = false)
-    num, den, _ = _raw_symbolic_rate_polys(M)
+    m = Mechanism(M())
+    names = _step_names(m, :None)
+    num, den, _ = _raw_symbolic_rate_polys(reaction(m), steps(m), names)
     horner && return _poly_to_horner(num), _poly_to_horner(den)
-    param_syms = Set{Symbol}(_raw_param_symbols(M()))
+    param_syms = Set{Symbol}(n for ns in names for n in ns)
     _poly_to_expr(num, param_syms), _poly_to_expr(den, param_syms)
 end
 
@@ -376,10 +375,9 @@ end
 
 """
 The assignments `sym = rhs` of the dependent parameters `dep`, in name order.
-`_solve_dependent_set` is a full Gauss–Jordan elimination, so every right-hand side
-reads only `Keq` and independent parameters — as does the `:EqualAI` regulator mirror
-`K_I_reg = K_A_reg` that the allosteric `_dependent_param_exprs` adds — and the
-assignments may run in any order.
+The joint solve is a full Gauss–Jordan elimination (`_reduce_joint_system`), so every
+right-hand side reads only `Keq` and independent parameters, and the assignments may run
+in any order.
 """
 _dep_assignments(dep) =
     [Expr(:(=), sym, rhs) for (sym, rhs) in sort!(collect(dep); by = first)]
@@ -414,10 +412,10 @@ function _rate_body(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param_sym
         :(return E_total * ($num) / ($den)))
 end
 
-# ─── Mode-dispatched rate_equation ────────────────────────────
+# ─── rate_equation ─────────────────────────────────────────────
 
 """
-    rate_equation(m, concs, params, [mode])
+    rate_equation(m, concs, params)
 
 Return the net reaction rate of mechanism `m` at the metabolite concentrations
 `concs` and parameters `params` (both `NamedTuple`s). The rate equation itself
@@ -427,60 +425,40 @@ assembled into the King–Altman determinant, and the two combine into the
 quasi-steady-state flux through the whole mechanism — so one call returns the
 overall turnover, not the rate of a single step.
 
-`mode` selects how parameters enter the equation. The default [`Reduced`](@ref)
-applies the Haldane/Wegscheider reduction, deriving the dependent rate constants
-from `Keq` and the independent parameters; [`Full`](@ref) instead takes every
-rate constant as independent.
+`params` holds the independent constants (`parameters(m)`: the fitted constants, `Keq`
+and `E_total`); the rate law computes each dependent constant from them by its
+Haldane or Wegscheider relation.
 
 The derivation runs once, at compile time: the body is generated as a single
 arithmetic expression with no allocations, loops, or matrix operations. Use
 [`rate_equation_string`](@ref) to inspect the derived equation symbolically.
 """
-function rate_equation end
-
-rate_equation(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism},
-              concs, params) = rate_equation(m, concs, params, Reduced)
-
-# Concrete-mechanism convenience: lift to the singleton (see the note on
-# the parameters/fitted_params methods above — allocates, not the hot path).
-rate_equation(m::Union{Mechanism, AllostericMechanism}, concs, params,
-              mode::AbstractRateEquationMode) =
-    rate_equation(compile_mechanism(m), concs, params, mode)
-
-@generated function rate_equation(
-    m::M, concs::NamedTuple, params::NamedTuple, ::FullMode,
-) where {M <: EnzymeMechanism}
-    _rate_body(M, (_raw_param_symbols(M())..., :E_total), Dict())
-end
-
-@generated function rate_equation(
-    m::M, concs::NamedTuple, params::NamedTuple,
-    ::ReducedMode,
-) where {M <: AbstractEnzymeMechanism}
+@generated function rate_equation(m::M, concs::NamedTuple,
+                                  params::NamedTuple) where {M <: AbstractEnzymeMechanism}
     dep, indep = _dependent_param_exprs(M)
     _rate_body(M, (indep..., :Keq, :E_total), dep)
 end
 
+# Concrete-mechanism convenience: lift to the singleton (see the note on
+# the parameters/fitted_params methods above — allocates, not the hot path).
+rate_equation(m::Union{Mechanism, AllostericMechanism}, concs, params) =
+    rate_equation(compile_mechanism(m), concs, params)
+
 # ─── String Representation ────────────────────────────────────
 
 """
-    rate_equation_string(m, [mode]) -> String
+    rate_equation_string(m) -> String
 
 Return the symbolic rate equation for mechanism `m` as a multi-line
-`String` (it returns the text — it does not print). `mode` is `Reduced`
-(default) or `Full`; pass a concrete `Mechanism` / `AllostericMechanism`
-or its compiled [`EnzymeMechanism`](@ref) singleton.
+`String` (it returns the text — it does not print). Pass a concrete `Mechanism` /
+`AllostericMechanism` or its compiled [`EnzymeMechanism`](@ref) singleton.
 
 The string spells out how [`rate_equation`](@ref)
 evaluates: a `(; …) = params` destructure line, a `(; …) = concs`
-destructure line, then the `v = E_total * (num) / (den)` line. In
-`Reduced` mode, dependent rate constants are listed first under
-`# Wegscheider constraints:` and `# Haldane constraints:` headers — the
-thermodynamic identities that eliminate parameters — and only the
-independent set appears in the `params` destructure. In `Full` mode every
-rate constant is independent, so there is no constraint section. `Full`
-mode is defined for `EnzymeMechanism` only; an `AllostericEnzymeMechanism`
-supports `Reduced` mode only.
+destructure line, then the `v = E_total * (num) / (den)` line. Dependent rate
+constants are listed first under `# Wegscheider constraints:` and
+`# Haldane constraints:` headers — the thermodynamic identities that eliminate
+parameters — and only the independent set appears in the `params` destructure.
 
 Names that are not Julia identifiers, such as the residual forms of
 ping-pong mechanisms (`k_EA_to_EP_res_+A_-P`), print bare, so such a
@@ -512,32 +490,26 @@ v = E_total * (k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P) / (1
 """
 function rate_equation_string end
 
-rate_equation_string(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism}) =
-    rate_equation_string(m, Reduced)
-
 # Concrete-mechanism convenience: lift to the singleton.
-rate_equation_string(m::Union{Mechanism, AllostericMechanism},
-                     mode::AbstractRateEquationMode) =
-    rate_equation_string(compile_mechanism(m), mode)
+rate_equation_string(m::Union{Mechanism, AllostericMechanism}) =
+    rate_equation_string(compile_mechanism(m))
 
 """
 The `rate_equation_string` text of `M`: the `params` destructure of `param_syms`, the
 `concs` destructure, one line `sym = rhs` per dependent parameter of `dep`, and the
-`v = E_total * (num) / (den)` line from
-`_num_den_exprs`. A dependent whose right-hand side mentions `Keq` goes under
-`# Haldane constraints:`, every other one under `# Wegscheider constraints:`; the line
-of a dependent in `substituted` ends in `ANNOTATION_SUBSTITUTED`. Each section is sorted
-by name, which is load-bearing: the eq_hash dedup of rate-equivalent mechanisms compares
-these strings, so their line order must not depend on the order the solve emits its
-dependents in. A metabolite named after a parameter raises (`_assert_no_name_clash`).
+`v = E_total * (num) / (den)` line from `_num_den_exprs`. A dependent whose right-hand
+side mentions `Keq` goes under `# Haldane constraints:`, every other one under
+`# Wegscheider constraints:`. Each section is sorted by name, which is load-bearing: the
+eq_hash dedup of rate-equivalent mechanisms compares these strings, so their line order
+must not depend on the order the solve emits its dependents in. A metabolite named after
+a parameter raises (`_assert_no_name_clash`).
 """
 function _equation_text(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param_syms,
-                        dep; substituted = ())
+                        dep)
     _assert_no_name_clash(M, param_syms, dep)
     weg, hal = String[], String[]
     for (sym, rhs) in sort!(collect(dep); by = first)
-        suffix = sym in substituted ? ANNOTATION_SUBSTITUTED : ""
-        push!(_mentions(rhs, :Keq) ? hal : weg, "$sym = $(_expr_to_string(rhs))$suffix")
+        push!(_mentions(rhs, :Keq) ? hal : weg, "$sym = $(_expr_to_string(rhs))")
     end
     num, den = _num_den_exprs(M)
     lines = ["(; $(join(param_syms, ", "))) = params",
@@ -548,20 +520,7 @@ function _equation_text(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param
     join(lines, "\n")
 end
 
-rate_equation_string(@nospecialize(m::EnzymeMechanism), ::FullMode) =
-    _equation_text(typeof(m), (_raw_param_symbols(m)..., :E_total), Dict())
-
-# The display solves with no Wegscheider rename, so an absorbed single-symbol tie stays
-# visible under `# Wegscheider constraints:`, marked as substituted into v.
-function rate_equation_string(@nospecialize(m::EnzymeMechanism), ::ReducedMode)
-    _, indep = _dependent_param_exprs(typeof(m))
-    mech = Mechanism(m)
-    dep, _ = _solve_dependent_set(_assemble_constraints(mech, Dict{Symbol, Symbol}())...)
-    _equation_text(typeof(m), (indep..., :Keq, :E_total), dep;
-                   substituted = keys(_build_wegscheider_rename_map(mech)))
-end
-
-function rate_equation_string(@nospecialize(m::AllostericEnzymeMechanism), ::ReducedMode)
+function rate_equation_string(@nospecialize(m::AbstractEnzymeMechanism))
     dep, indep = _dependent_param_exprs(typeof(m))
     _equation_text(typeof(m), (indep..., :Keq, :E_total), dep)
 end
@@ -569,19 +528,18 @@ end
 # ─── Steady-state rate-constant names ──────────────────────────
 
 """
-Set of Symbol names for SS rate-constant parameters (`Kfor`, `Krev`) of
-`em`. For `AllostericEnzymeMechanism`, also includes the I-state
-names (`I_` tag after the prefix, e.g. `k_I_ES_to_EP`) of every SS rate
-constant that lives in the inactive state polynomial. Routes Symbol production through the
-`name(p, m)` chokepoint via Parameter-subtype dispatch. Used by
-`_scale_rate_constants` to scale only SS k's without touching RE
-Kd's, Keq, E_total, L, or regulatory K's.
+The names of the steady-state rate constants of `em`'s law (`_step_names`): for an
+`AllostericEnzymeMechanism`, those of both conformations, the inactive one's `I_` names
+included. `_scale_rate_constants` scales exactly these, leaving the rapid-equilibrium
+constants, `Keq`, `E_total`, `L` and the regulator constants alone.
 """
 function _ss_rate_constant_names(@nospecialize(em::AbstractEnzymeMechanism))
     m = _concrete(em)
-    params = m isa Mechanism ? _enumerate_parameters_full(m) :
-        [_cat_params(m, :A); _cat_params(m, :I)]
-    Set{Symbol}(name(p, m) for p in params if p isa Union{Kfor, Krev})
+    states = m isa Mechanism ? (:None,) : (:A, :I)
+    Set{Symbol}(n for st in states
+                for ((s, _), ns) in zip(_flat_steps(_state_groups(m, st)),
+                                        _step_names(m, st))
+                if !is_equilibrium(s) for n in ns)
 end
 
 # ═══════════════════════════════════════════════════════════════════
@@ -637,9 +595,10 @@ end
 """
 The inactive conformation's step graph of `am`, aligned with `steps(am)`: an `:OnlyA`
 group is empty, and every other group keeps the steps whose two forms are reachable
-from the free enzyme over the non-`:OnlyA` groups (`_reachable_from_free`). The
-derivation (`_state_allo_mechanism`) and the copy rule (`_redundant_copy_groups`) read
-the inactive state from it.
+from the free enzyme over the non-`:OnlyA` groups (`_reachable_from_free`). The steps
+are `am`'s own, in their stored direction, so the inactive law reads `am`'s orientation
+and names. The derivation (`_state_rate_polys`), the joint solve (`_inactive_law`) and
+the copy rule (`_redundant_copy_groups`) read the inactive state from it.
 """
 function _inactive_groups(am::AllostericMechanism)
     tags = cat_allo_states(am)
@@ -652,203 +611,36 @@ function _inactive_groups(am::AllostericMechanism)
 end
 
 """
-The `AllostericMechanism` for `am` in conformational `state`: `am` itself for
-`:A`; for `:I`, a fresh `AllostericMechanism` from the nonempty groups of
-`_inactive_groups(am)`, with `:OnlyA` catalytic groups
-dropped AND every enzyme form disconnected from free E by that drop pruned at
-the step level. After removing the `:OnlyA` groups, a form is kept iff it lies
-in the connected component of the free-enzyme root — a form carrying neither a
-bound metabolite nor a residual, which under formulation 1 is what interconverts
-between conformations; enumeration yields exactly one such form, while the
-hand-written DSL admits a second one in rapid equilibrium with the first — over ALL
-remaining steps
-(rapid-equilibrium and steady-state alike); a step is kept iff both its endpoints
-are kept, so a kinetic group with all its steps dropped disappears. Forms whose only route
-back to free E ran through an `:OnlyA` group become disconnected and drop out;
-forms still reachable through the surviving steps — including a substrate
-complex repopulated by reverse catalysis — are retained. A ping-pong covalent
-intermediate carries a residual and so is never itself a root. A mechanism
-with no `:OnlyA` catalytic group keeps its whole graph and re-derives its full
-native I-state.
+    _state_rate_polys(am, state) -> (num, den, d_free)
 
-Routing both the derivation mechanism and the step_params through this one
-struct keeps steps and allo-state tags aligned: the `AllostericMechanism`
-constructor canonicalizes `cat_steps` and applies the SAME permutation to
-`cat_allo_states`, so pruning-induced reorder/iso-flips can't desync the two.
+The rate polynomials of `am`'s catalytic graph in conformation `state` (`:A` or `:I`),
+in that state's names (`_step_names`): the active conformation on the full graph, the
+inactive one on its pruned graph (`_inactive_groups`), each step in `am`'s stored
+direction. King–Altman on the pruned graph derives the inactive conformation's binding
+partition, and for a dead cycle its steady-state fluxes cancel, so `num` is 0. The
+inactive graph is checked for a rapid-equilibrium segment with no bottom form
+(`_assert_bottomed_re_segments`), as the mechanism constructors check the full graph.
 """
-function _state_allo_mechanism(am::AllostericMechanism, state::Symbol)
-    state === :I || return am
-    groups = _inactive_groups(am)
-    keep = findall(!isempty, groups)
-    AllostericMechanism(reaction(am), groups[keep], cat_allo_states(am)[keep],
-                        catalytic_multiplicity(am), regulatory_sites(am))
+function _state_rate_polys(am::AllostericMechanism, state::Symbol)
+    groups = _state_groups(am, state)
+    state === :I && _assert_bottomed_re_segments(reaction(am), groups)
+    _raw_symbolic_rate_polys(reaction(am), groups, _step_names(am, state))
 end
 
 """
-    _state_parts(am, state) -> (cm, sp)
-
-The catalytic `Mechanism` `cm` of `am` in conformational `state` (`:A` or `:I`) and
-its state-tagged step constants `sp`, both read from one
-`_state_allo_mechanism(am, state)`. `cm` is `_state_mechanism(am, state)`. `sp` has
-the shape of `_step_parameters(cm)` — a per-flat-step vector of `Parameter`s — but
-each catalytic group's `Parameter`s carry the group's state tag: a
-`:NonequalAI`/`:OnlyA` group is tagged with `state`; an `:EqualAI` group is tagged
-`:EqualAI` (so `name(p, am)` renders the shared bare Symbol in both states). For
-`state == :I`, `:OnlyA` groups are already pruned from
-`_state_allo_mechanism(am, :I)`, matching the broken-cycle graph.
-
-Walks `_state_allo_mechanism`'s already-canonical, aligned steps/states so the
-per-flat-step order matches `_flat_steps(cm)`. Each `Parameter` is anchored on its
-own step (not the rep), exactly as `_step_parameters` does, so arity follows the
-step's RE/SS type while `name(p, am)` collapses to the rep's structural Symbol via
-the chokepoint.
+The regulator constants of `am` listed with conformation `state`, site by site: for `:A`
+every ligand the active conformation binds, an `:EqualAI` ligand under its one bare name
+(`K_<ligand>reg`, state `:EqualAI`) and an `:OnlyA` or `:NonequalAI` one under its
+`K_A_` name; for `:I` the `K_I_` constant of every `:OnlyI` or `:NonequalAI` ligand.
 """
-function _state_parts(am::AllostericMechanism, state::Symbol)
-    sam = _state_allo_mechanism(am, state)
-    cm = Mechanism(reaction(sam), steps(sam))
-    sp = Vector{Parameter}[
-        _step_constants(s, cat_allo_state(sam, g) === :EqualAI ? :EqualAI : state)
-        for (g, group) in enumerate(steps(sam)) for s in group]
-    @assert length(sp) == length(_flat_steps(cm)) "state step_params/steps misaligned"
-    cm, sp
-end
-
-"""
-The catalytic `Mechanism` for `am` in conformational `state`. `:A` keeps the
-full catalytic graph; `:I` keeps only the reachable-form subgraph (`:OnlyA`
-groups and the forms they disconnect from free E pruned, via
-`_state_allo_mechanism`) so King–Altman re-derives the broken-cycle I-state law
-natively.
-"""
-_state_mechanism(am::AllostericMechanism, state::Symbol) = first(_state_parts(am, state))
-
-"""
-Derive `(num_poly, den_poly, d_free_poly)` for `am`'s catalytic mechanism in
-conformational `state`, natively in that state's parameter names. Runs the
-shared King–Altman engine on the state-tagged `step_params` and state graph, so
-no post-hoc rename is needed (`:EqualAI` groups render the shared bare Symbol
-automatically). The `:I` polynomials reference each `:NonequalAI` group's
-native `K_I_…`/`k_I_…` symbol; a forbidden split's `K_I_…` is defined by the
-combined constraint solve's dependent assignment (`_dep_assignments`).
-`d_free_poly` is free E's weight in that state's denominator (see
-`_raw_symbolic_rate_polys`).
-"""
-_state_rate_polys(am::AllostericMechanism, state::Symbol) =
-    _raw_symbolic_rate_polys(_state_parts(am, state)...)
-
-"""
-Catalytic `Parameter`s of `am` in conformation `state` (`:A` or `:I`): the
-constants of each kinetic group's rep step (`Krapid` or `Kfor`+`Krev`),
-in group order. In `:A` an `:EqualAI` group takes the `:EqualAI` tag, because its
-symbol is shared with the I-state (the chokepoint `name(p, m)` renders both to the
-same `Symbol`), and every other group takes `:A`. In `:I` the `:OnlyA` groups are
-skipped and every other group takes `:I`. Synthesized-dep I-mirrors (deps whose RHS
-references a `:NonequalAI` symbol) belong to dep-parameter machinery and are emitted
-Symbol-level by the dep-assignment builder.
-"""
-function _cat_params(am::AllostericMechanism, state::Symbol)
-    out = Parameter[]
-    for (g, rep) in enumerate(_group_reps(am))
-        tag = cat_allo_state(am, g)
-        state === :I && tag === :OnlyA && continue
-        st = state === :A && tag === :EqualAI ? :EqualAI : state
-        append!(out, _step_constants(rep, st))
-    end
-    out
-end
-
-"""Regulator-site `Kreg`s of `am` in conformation `state` (`:A` or `:I`), site by site:
-a ligand absent from that conformation (`:OnlyI` in `:A`, `:OnlyA` in `:I`) has none."""
 _kreg_params(am::AllostericMechanism, state::Symbol) =
-    Kreg[Kreg(site, lig, state) for site in regulatory_sites(am)
+    state === :A ?
+    Kreg[Kreg(site, lig, tag === :EqualAI ? :EqualAI : :A)
+         for site in regulatory_sites(am)
+         for (lig, tag) in zip(ligands(site), allo_states(site)) if tag !== :OnlyI] :
+    Kreg[Kreg(site, lig, :I) for site in regulatory_sites(am)
          for (lig, tag) in zip(ligands(site), allo_states(site))
-         if tag !== (state === :A ? :OnlyI : :OnlyA)]
-
-# ─── Dependent parameter expressions ─────────────────────────────
-
-"""
-    _dependent_param_exprs(am::AllostericMechanism)
-
-Return `(dep_exprs, indep_params)` for an allosteric mechanism from one combined
-constraint solve. Stacks the A-state and I-state thermodynamic constraint systems
-(`_assemble_constraints` under each state's Wegscheider rename, tagged
-`is_i_state`) over their combined column space and solves once with the shared
-solver (`_solve_dependent_set`). The `(is_i_state, type)` pivot priority alone
-gives the I-above-A collapse direction — an I-state column always outranks its
-A-state counterpart, so a cross-state affinity tie (e.g. a live-forbidden
-`:NonequalAI` split) is expressed onto the free A-side directly, with no post-hoc
-merge step; within a state the catalytic pivot order (`_step_priority`) is
-unchanged.
-
-Regulator-site affinities complete no catalytic thermodynamic cycle, so they
-are independent on top of the combined solve — except an `:EqualAI`
-regulator, whose I-name mirrors its shared A-name (`K_I_reg = K_A_reg`, added
-to `dep`). `L` (the conformational constant) is always independent. The
-independents list the solve's catalytic ones by name, then the active-state
-regulator constants site by site, then the inactive-state ones site by site, then
-`L`. Any symbol the combined solve already made dependent is dropped from `indep`.
-The `Type{<:AbstractEnzymeMechanism}` method lifts with `_concrete` and delegates
-here.
-"""
-function _dependent_param_exprs(am::AllostericMechanism)
-    function state_system(state)
-        cm, sp = _state_parts(am, state)
-        state_rename = _build_wegscheider_rename_map(cm; step_params = sp)
-        state_rename, _assemble_constraints(cm, state_rename; step_params = sp,
-                                            is_i_state = state === :I)
-    end
-    rename_A, (A_A, rhs_A, cols_A, pri_A) = state_system(:A)
-    rename_I, (A_I, rhs_I, cols_I, pri_I) = state_system(:I)
-
-    # Union columns: A-state first, then any I-only column (a shared `:EqualAI` group
-    # carries the same bare Symbol in both states and coincides — it keeps its A tag).
-    columns = unique([cols_A; cols_I])
-    col = Dict(c => i for (i, c) in enumerate(columns))
-    priority = merge(Dict(zip(cols_I, pri_I)), Dict(zip(cols_A, pri_A)))
-
-    # Stack the two per-state constraint blocks over the combined column space and
-    # solve once. Cross-state ties emerge as `I-row − A-row` (the `log Keq` cancels).
-    A = zeros(Rational{BigInt}, size(A_A, 1) + size(A_I, 1), length(columns))
-    A[axes(A_A, 1), [col[c] for c in cols_A]] = A_A
-    A[size(A_A, 1) .+ axes(A_I, 1), [col[c] for c in cols_I]] = A_I
-    dep, indep = _solve_dependent_set(A, [rhs_A; rhs_I], columns,
-                                      [priority[c] for c in columns])
-
-    # A per-state Wegscheider rename folds a single-symbol binding-K tie onto one
-    # representative; the folded symbol enters the combined solve as a zero-column and
-    # lands in `indep` as a fittable dummy. Drop it — unless a retained polynomial
-    # still references it (a shared `:EqualAI` symbol can be folded in one state yet
-    # used by the other state's polynomial, which keeps its own rename). The
-    # non-allosteric analog needs no reference guard because it has a single,
-    # consistent rename. No-op when both state renames are empty (all current specs).
-    rename = merge(rename_A, rename_I)
-    if !isempty(rename)
-        refs = Set{Symbol}()
-        for st in (:A, :I)
-            num, den, _ = _state_rate_polys(am, st)
-            union!(refs, _poly_param_syms(den))
-            isempty(num) || union!(refs, _poly_param_syms(num))
-        end
-        indep = Tuple(p for p in indep if get(rename, p, p) == p || p in refs)
-    end
-
-    # Regulator-site affinities complete no catalytic thermodynamic cycle, so they
-    # are independent — except an `:EqualAI` regulator, whose I-name mirrors its
-    # shared A-name: the mirror joins `dep`, which drops it from the independent list.
-    # `L` (the conformational constant) is always independent.
-    for site in regulatory_sites(am), (lig, tag) in zip(ligands(site), allo_states(site))
-        tag === :EqualAI || continue
-        dep[name(Kreg(site, lig, :I), am)] = name(Kreg(site, lig, :A), am)
-    end
-    reg_params = Symbol[name(p, am) for p in [_kreg_params(am, :A); _kreg_params(am, :I)]]
-    return dep, Tuple(p for p in (indep..., reg_params..., :L) if p ∉ keys(dep))
-end
-
-_dependent_param_exprs(@nospecialize(M::Type{<:AbstractEnzymeMechanism})) =
-    _dependent_param_exprs(_concrete(M()))
-
-# `parameters` and `fitted_params` for `AllostericEnzymeMechanism` are the
-# `AbstractEnzymeMechanism` methods at the top of this file.
+         if tag in (:OnlyI, :NonequalAI)]
 
 # ─── Rate body building helpers ───────────────────────────────────
 
@@ -856,13 +648,14 @@ _dependent_param_exprs(@nospecialize(M::Type{<:AbstractEnzymeMechanism})) =
 The dissociation-constant name of ligand `lig` (allosteric tag `tag`) at regulatory
 `site` of `am` in the active (`inactive = false`) or inactive conformation, or
 `nothing` when the ligand is absent from that conformation (`:OnlyI` in the active
-state, `:OnlyA` in the inactive one). `:EqualAI` ligands share the A-state symbol in
-both conformations (no I-state rename); `:NonequalAI` / `:OnlyI` ligands carry a
-distinct I-state name. Renders the name via the `name(::Kreg, am)` chokepoint.
+state, `:OnlyA` in the inactive one). An `:EqualAI` ligand has one bare name in both
+conformations (`K_<ligand>reg`); an `:OnlyA`, `:OnlyI` or `:NonequalAI` ligand has its
+conformation's `K_A_` or `K_I_` name. Renders the name via the `name(::Kreg, am)`
+chokepoint.
 """
 function _reg_K(am::AllostericMechanism, site, lig, tag::Symbol, inactive::Bool)
     tag === (inactive ? :OnlyA : :OnlyI) && return nothing
-    name(Kreg(site, lig, inactive && tag !== :EqualAI ? :I : :A), am)
+    name(Kreg(site, lig, tag === :EqualAI ? :EqualAI : inactive ? :I : :A), am)
 end
 
 """Build the regulatory site partition function expression: 1 + lig/K_lig_reg_i + ...
@@ -913,11 +706,11 @@ end
 
 The catalytic rate polys of both conformations of `am` (`_state_rate_polys`) under the
 formulation-1 per-state free-enzyme normalization that `rate_equation`
-(`_num_den_exprs`) uses. The I-state polys are always re-derived
-natively on the reachable-form subgraph (`_state_allo_mechanism(am, :I)` drops `:OnlyA`
-groups and every form they disconnect from free E). King–Altman on that subgraph
-derives the inactive conformation's binding partition, and for a dead cycle the pruned
-graph's steady-state fluxes cancel exactly, so `num_I` is 0.
+(`_num_den_exprs`) uses. The I-state polys come from the inactive conformation's pruned
+graph (`_inactive_groups` drops `:OnlyA` groups and every form they disconnect from free
+E). King–Altman on that subgraph derives the inactive conformation's binding partition,
+and for a dead cycle the pruned graph's steady-state fluxes cancel exactly, so `num_I`
+is 0.
 
 The free-enzyme weights `d_A` and `d_I` combine three ways, all rendering the same
 value (`mets` are the catalytic metabolites):
@@ -958,9 +751,9 @@ function _num_den_exprs(@nospecialize(M_type::Type{<:AllostericEnzymeMechanism})
     CatN = catalytic_multiplicity(m)
     RS = regulatory_sites(am)
 
-    # A-state catalytic param symbols (the tagged column set) drive `_poly_to_expr`'s
-    # param/metabolite ordering split; the I-poly's `:I` symbols sort as non-params.
-    cat_params = Set(_param_columns(_state_parts(am, :A)...))
+    # The active conformation's catalytic names drive `_poly_to_expr`'s
+    # param/metabolite ordering split; the I-poly's `I_` names sort as non-params.
+    cat_params = Set{Symbol}(n for ns in _step_names(am, :A) for n in ns)
     to_expr(p) = horner ? _poly_to_horner(p) : _poly_to_expr(p, cat_params)
     num_A_poly, den_A_poly, num_i_poly, den_i_poly, d_A, d_I =
         _mwc_state_polys(am, Set{Symbol}(metabolites(catalytic_mechanism(m))))

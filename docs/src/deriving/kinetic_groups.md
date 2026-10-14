@@ -72,12 +72,11 @@ end
 print(rate_equation_string(ungrouped))
 ```
 
-There are nine independent constants, with form-specific names: `K_EA_to_E_A`,
-`K_EAB_to_EB_A`, and `K_EAQ_to_EQ_A` for `A` on three different forms, and
-similar families for the others. Four more bindings are not fit at all but
-fixed by Wegscheider relations (`K_EAB_to_EA_B`, `K_EBP_to_EB_P`,
-`K_EAQ_to_EA_Q`, `K_EPQ_to_EP_Q`), since each catalytic and abortive loop
-closes a thermodynamic cycle.
+There are nine independent constants, with form-specific names: `K_EA_to_E_A` for `A`
+on free E, `K_EAB_to_EA_B` and `K_EAQ_to_EA_Q` for `B` and `Q` on `E(A)`, and similar
+families for the others. Four more bindings are not fit at all but fixed by Wegscheider
+relations (`K_EAB_to_EB_A`, `K_EAQ_to_EQ_A`, `K_EBP_to_EP_B`, `K_EPQ_to_EQ_P`), since
+each catalytic and abortive loop closes a thermodynamic cycle.
 
 Now group every binding of a given metabolite together — all `A`-binding steps
 in one group, all `B`-binding in another, and likewise for `P` and `Q`. Each

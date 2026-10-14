@@ -44,42 +44,45 @@ to equal weight.
 
 ## How the constraints are found
 
-The package builds the enzyme-form **incidence matrix** — one column per step,
-with `+1` at the step's to-form and `-1` at its from-form — and computes its
-exact-integer null space. Each null-space basis vector is one independent cycle,
-so the constraints come out **linearly independent by construction**; there is
-no redundant set to thin down. The whole computation uses exact rational
-arithmetic, never floating point, so the same cycles are reproduced exactly every
-time.
-
-Each cycle is then classified by its net metabolite change: proportional to the
-overall reaction makes it a Haldane cycle, zero makes it a Wegscheider cycle. If
-a mechanism is thermodynamically infeasible — a cycle whose constraint reduces to
-`0 = c · log(Keq)` with `c ≠ 0` — the package raises an error rather than
-emitting a silent or wrong equation.
+The package takes the fundamental cycles of a spanning forest of the enzyme-form graph,
+one per step outside the forest, so the cycle rows come out **linearly independent by
+construction**. Each cycle is classified by its net metabolite change: proportional to
+the overall reaction makes it a Haldane cycle, zero makes it a Wegscheider cycle. An
+allosteric mechanism writes every cycle once per conformation, and the steps of a kinetic
+group add rows that tie their constants together. One exact rational elimination over
+all of these rows chooses the dependent constants (integer arithmetic that switches to
+big integers if a value grows too large), so the same constraints come out every time.
+If a mechanism is thermodynamically infeasible — its rows combine to
+`0 = c · log(Keq)` with `c ≠ 0` — the package raises an error rather than emitting a
+silent or wrong equation.
 
 ## The choice of independent vs dependent parameters
 
-Each cycle costs one rate constant, and the package chooses which constant to
-keep and which to express in terms of the others by a fixed priority, designed to
-keep the **biochemically meaningful** parameters independent:
+Each independent cycle costs one constant. The package decides which constant becomes
+dependent by a fixed priority, read in turn; the earlier a constant ranks, the sooner it
+becomes dependent:
 
-1. **Free-enzyme binding constants** — the affinity of a substrate or product for
-   the free enzyme, such as `K_ES_to_E_S` — are kept independent whenever possible.
-   These are the quantities an experimentalist measures and reports.
-2. Binding steps on already-occupied enzyme forms are eliminated next, when a
-   cycle needs them.
-3. **Internal isomerization rates** are made dependent first: they are the most
-   eliminable and the least directly measurable.
+1. **Conformation.** In an allosteric mechanism, the inactive conformation's own
+   constants go before the active ones.
+2. **Kind of step.** Isomerizations (steps that exchange no metabolite, on-enzyme
+   chemistry included) go first, then other chemistry (a binding that also converts, a
+   Theorell–Chance step), then plain bindings.
+3. **Occupancy.** Steps whose two enzyme forms both hold a metabolite go before steps
+   that touch free E or a form that holds only a covalent residual.
+4. **Speed.** Steady-state constants go before rapid-equilibrium ones.
+5. **Direction.** Within a steady-state step, the rate constant that runs against the
+   reaction goes first: the reverse rate, except that for the binding of a product the
+   uptake runs against the reaction. So in `E(S) <--> E + P`, stored as the binding
+   `E + P → E(S)`, the product uptake is dependent and the catalytic rate stays fitted.
 
-Within a steady-state step, the reverse rate is preferred dependent over the
-forward rate. A step that gives off a product while changing the enzyme, such as
-`E(S) <--> E + P`, is stored as the binding it reverses, so its forward rate is
-the product rebinding; that rate, which runs against the reaction, is preferred
-dependent instead, and the catalytic rate stays fitted. Because step and group
-order are canonicalized when a mechanism is
-constructed, this choice is deterministic: two mechanisms with the same structure
-written in a different step order produce the identical reduced equation.
+The free-enzyme binding constants a biochemist measures therefore stay independent
+whenever a cycle leaves them free. Ties go to a content key built from the forms and
+metabolites of each step, never from the order in which steps were written, so two
+mechanisms that differ only in step order, step direction or how the kinetic groups were
+labelled have the same dependents. A kinetic group's constant takes the name of the step
+the solve keeps, so splitting a group whose parts the cycles already tie changes no
+fitted name. The key reads metabolite names, though: renaming a metabolite can change
+which of two tied constants is dependent.
 
 ## A concrete example
 
@@ -106,8 +109,8 @@ print(rate_equation_string(m))
 
 The `# Wegscheider constraints:` section ties the binding constants of the two
 orders together (no `Keq`), and the `# Haldane constraints:` section fixes the
-reverse catalytic rate from `Keq` and the forward constants. Two rate constants
-are therefore dependent and do not appear in the fitted-parameter list:
+reverse catalytic rate from `Keq` and the forward constants. Two constants are
+therefore dependent and do not appear in the fitted-parameter list:
 
 ```@example thermo
 parameters(m)
