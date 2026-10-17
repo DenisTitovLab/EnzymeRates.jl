@@ -189,7 +189,7 @@ gives off none. It is plain when `to_species` holds `from_species`'s metabolites
 plus that one with the same residual, the conformation free to change
 (`_binds_ligand`: E + A → E(A), E + A → E*(A)), and fused otherwise
 (E(A) + B → E(P, Q)). The constructor rejects a binding whose forms match a plain
-binding by name but not by role (E + P::Inh → E(P)). It stores a step that takes up
+binding by name but not by role (E + P::Mod → E(P)). It stores a step that takes up
 nothing and gives off exactly one metabolite as the binding it reverses, so every
 binding is stored with its metabolite consumed; every other step is oriented by the
 `Mechanism` / `AllostericMechanism` constructor. See CLAUDE.md "Canonical Step Form".
@@ -219,7 +219,7 @@ struct Step
             from_species, to_species, c, r = to_species, from_species, r, c
         end
         # A binding whose forms differ by the bound metabolite's name keeps every
-        # metabolite's role: E + P::Inh → E(P) would carry the inhibitor copy into a
+        # metabolite's role: E + P::Mod → E(P) would carry the modifier copy into a
         # product form and give the product a second route into it.
         length(c) == 1 && isempty(r) &&
             _adds_metabolite(from_species, to_species, c[1],
@@ -227,8 +227,8 @@ struct Step
             !_binds_ligand(from_species, to_species, c[1]) && error(
                 "Step $(name(from_species)) → $(name(to_species)) changes a " *
                 "metabolite's role: $(name(to_species)) holds $(name(from_species))'s " *
-                "metabolites plus $(name(c[1])) by name, not by role; write an " *
-                "inhibitor copy as X::Inh on both sides")
+                "metabolites plus $(name(c[1])) by name, not by role; write a " *
+                "modifier copy as X::Mod on both sides")
         new(from_species, to_species, c, r, is_equilibrium)
     end
 end

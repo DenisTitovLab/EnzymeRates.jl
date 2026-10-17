@@ -1475,8 +1475,8 @@ end
         EP, EPi, EPP = _testhelper_sp([P]), _testhelper_sp([Pi]), _testhelper_sp([P, P])
         _testhelper_role_change(from, to, m) = ErrorException(
             "Step $from → $to changes a metabolite's role: $to holds $from's " *
-            "metabolites plus $m by name, not by role; write an inhibitor copy as " *
-            "X::Inh on both sides")
+            "metabolites plus $m by name, not by role; write a modifier copy as " *
+            "X::Mod on both sides")
         # The copy of P binds into the product's form, written as a binding or a release.
         @test_throws _testhelper_role_change(:E, :EP, :P) ER.Step(
             E, EP, [Pi], ER.Metabolite[], true)
