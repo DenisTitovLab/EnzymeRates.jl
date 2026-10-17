@@ -294,6 +294,82 @@
             end))
     end
 
+    @testset "list labels may repeat; their names accumulate" begin
+        # Each macro reads a list label written on two lines as one line listing both
+        # lines' entries.
+        @test @enzyme_mechanism(begin
+            substrates: A
+            products:   P
+            modifiers: I
+            substrates: B
+            products:   Q
+            modifiers: J
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) ⇌ E(Q) + P
+                E(Q) ⇌ E + Q
+                E + I ⇌ E(I)
+                E + J ⇌ E(J)
+            end
+        end) == @enzyme_mechanism(begin
+            substrates: A, B
+            products:   P, Q
+            modifiers: I, J
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) ⇌ E(Q) + P
+                E(Q) ⇌ E + Q
+                E + I ⇌ E(I)
+                E + J ⇌ E(J)
+            end
+        end)
+        @test @allosteric_mechanism(begin
+            substrates: S
+            products:   P
+            allosteric_regulators: X
+            allosteric_regulators: Y
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: EqualAI
+            end
+            regulatory_site(2): X::OnlyA, Y::OnlyI
+        end) == @allosteric_mechanism(begin
+            substrates: S
+            products:   P
+            allosteric_regulators: X, Y
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: EqualAI
+            end
+            regulatory_site(2): X::OnlyA, Y::OnlyI
+        end)
+        @test @enzyme_reaction(begin
+            substrates: A[C]
+            products:   P[C]
+            allosteric_regulators: X
+            shared_catalytic_site: (A, P)
+            substrates: B[N]
+            products:   Q[N]
+            allosteric_regulators: Y::Inhibitor
+            shared_catalytic_site: (B, Q)
+            oligomeric_state: 2
+        end) == @enzyme_reaction(begin
+            substrates: A[C], B[N]
+            products:   P[C], Q[N]
+            allosteric_regulators: X, Y::Inhibitor
+            shared_catalytic_site: (A, P), (B, Q)
+            oligomeric_state: 2
+        end)
+    end
+
     @testset "a mechanism macro's list labels take bare names" begin
         # An atom bracket and a role tag each get a hint where they go; another value
         # gets none.
