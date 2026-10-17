@@ -467,8 +467,8 @@
 
     @testset "multi-atom metabolites" begin
         rxn = @enzyme_reaction begin
-            substrates: A[C2H3], B[NP]
-            products: P[C2N], Q[H3P]
+            substrates: A[C2H3], B[N,P]
+            products: P[C2,N], Q[H3,P]
         end
         subs = EnzymeRates.substrates(rxn)
         @test subs[1] == EnzymeRates.Substrate(:A)
@@ -535,13 +535,13 @@
     end
 
     @testset "@enzyme_reaction regulator kinds" begin
-        # competitive_inhibitors: emits CompetitiveInhibitor entries, from every line
-        # that lists them. allosteric_regulators: emits AllostericRegulator; a bare
-        # entry takes the catalytic multiplicities.
+        # dead_end_inhibitors: and competitive_inhibitors: both emit
+        # CompetitiveInhibitor entries. allosteric_regulators: emits
+        # AllostericRegulator; a bare entry takes the catalytic multiplicities.
         spec_kinds = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
-            competitive_inhibitors: I
+            dead_end_inhibitors: I
             allosteric_regulators: A(1)
             competitive_inhibitors: R
         end
@@ -624,7 +624,7 @@
         @test_throws Exception eval(:(@enzyme_reaction begin
             substrates: A[C6H12O6]
             products: B[C6H12O6]
-            competitive_inhibitors: X::Inhibitor
+            dead_end_inhibitors: X::Inhibitor
         end))
     end
 
@@ -740,11 +740,11 @@
         end
         @test EnzymeRates.allowed_catalytic_multiplicities(rxn2) == [1]
 
-        # A tuple of oligomeric states
+        # Explicit allowed_catalytic_multiplicities tuple
         rxn3 = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
-            oligomeric_state: (1, 2, 4)
+            allowed_catalytic_multiplicities: (1, 2, 4)
         end
         @test EnzymeRates.allowed_catalytic_multiplicities(rxn3) == [1, 2, 4]
     end
