@@ -59,12 +59,12 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
 end
 
 """
-    @_testhelper_with_raw @enzyme_mechanism begin ... end
-    @_testhelper_with_raw @allosteric_mechanism begin ... end
+    @_testhelper_with_raw call
 
-`(mechanism, raw)`: the compiled mechanism the wrapped macro call builds, and the raw value
-the package's DSL walker reads from its block, which keeps the steps and regulatory sites
-as written. It fills `_testhelper_MechanismTestSpec.raw`.
+`(mechanism, raw)` for `call`, an `@enzyme_mechanism` or `@allosteric_mechanism` call:
+the compiled mechanism the call builds, and the raw value the package's DSL walker
+reads from its block, which keeps the steps and regulatory sites as written. It fills
+`_testhelper_MechanismTestSpec.raw`.
 """
 macro _testhelper_with_raw(call)
     allosteric = call isa Expr && call.head === :macrocall &&
