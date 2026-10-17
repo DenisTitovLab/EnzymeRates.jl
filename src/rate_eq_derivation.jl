@@ -92,15 +92,6 @@ end
 # ─── RE Group Helpers ───────────────────────────────────────
 
 """
-Concentration symbols (substrates ∪ products ∪ regulators) that may appear in
-the rate-equation polynomials — the same set `_poly_to_expr` treats as
-concentrations and the only symbols `_reduce_conc_lowest_terms` is allowed to
-shift. Parameter symbols are never in this set, so the concentration-GCD can
-never drop a fitted parameter.
-"""
-_concentration_symbols(rxn::EnzymeReaction) = Set(_metabolite_names(rxn))
-
-"""
 Free enzyme of a rapid-equilibrium segment: the form with the fewest bound
 metabolites, tie-broken toward no covalent residual, then a deterministic
 name. Referencing each segment's alphas to this form makes the derivation
@@ -131,14 +122,14 @@ end
 
 """
 Compute alpha factors (relative concentrations within RE segments) as POLY
-values. Iterates the flat steps `flat` of a mechanism of reaction `rxn` directly; each
-RE step's weight ratio comes from `_re_weight_ratio`, entering `to_species` from
-`from_species` or the reverse. `idx[sp]` is the position of form `sp` in `species`;
-`step_to_K[j]` is the parameter Symbol for the RE step at flat position `j`, and
-`conc_set` the concentration symbols. Raises when the RE steps close a catalytic cycle,
-which gives the mechanism no finite rate.
+values. Iterates the flat steps `flat` of a graph over mechanism `m`'s metabolites
+directly; each RE step's weight ratio comes from `_re_weight_ratio`, entering
+`to_species` from `from_species` or the reverse. `idx[sp]` is the position of form `sp`
+in `species`; `step_to_K[j]` is the parameter Symbol for the RE step at flat position
+`j`, and `conc_set` the concentration symbols. Raises when the RE steps close a catalytic
+cycle, which gives the mechanism no finite rate.
 """
-function _compute_alpha(rxn, flat, conc_set, species, idx, segments, step_to_K)
+function _compute_alpha(m, flat, conc_set, species, idx, segments, step_to_K)
     N = length(species)
     alpha = Vector{POLY}(fill(poly_one(), N))
 
@@ -175,8 +166,8 @@ function _compute_alpha(rxn, flat, conc_set, species, idx, segments, step_to_K)
         ratio = poly_mul(alpha[b], _invert_monomial(alpha[a]))
         conc(ratio) == conc(_re_weight_ratio(s, step_to_K[j])) || error(
             "rate_equation: the rapid-equilibrium steps close a catalytic cycle " *
-            "(through $(_form_label(from_species(s), rxn)) ⇌ " *
-            "$(_form_label(to_species(s), rxn))), so the " *
+            "(through $(_form_label(from_species(s), m)) ⇌ " *
+            "$(_form_label(to_species(s), m))), so the " *
             "mechanism has no finite rate. Make one step of the cycle steady-state.")
     end
     alpha
@@ -193,13 +184,13 @@ end
 # ─── Raw Rate Equation Derivation (Unified Cha / King-Altman) ───
 
 """
-    _raw_symbolic_rate_polys(rxn, groups, names) -> (num, den, d_free)
+    _raw_symbolic_rate_polys(m, groups, names) -> (num, den, d_free)
 
 Build raw numerator and denominator POLYs for the rate equation of the kinetic groups
-`groups` of a mechanism of reaction `rxn`. `names[j]` holds the parameter Symbols of
-flat step `j`'s constants (`[K]` or `[kf, kr]`), which are the leaves of `num`/`den`.
-Aborts, before the King–Altman expansion, a graph whose denominator would be too large
-to derive (`_assert_derivable`).
+`groups`, the steps of mechanism `m` or of one of its conformations. `names[j]` holds the
+parameter Symbols of flat step `j`'s constants (`[K]` or `[kf, kr]`), which are the
+leaves of `num`/`den`. Aborts, before the King–Altman expansion, a graph whose
+denominator would be too large to derive (`_assert_derivable`).
 
 Also returns `d_free`, the weight in the returned denominator of the free
 resting enzyme (the form with empty `bound` and empty `residual`): the
@@ -207,7 +198,7 @@ spanning-tree weight `D[g_free]` of its segment times the concentration monomial
 that brings `num`/`den` to lowest terms. Free E roots its segment, so its own
 `alpha` is 1.
 """
-function _raw_symbolic_rate_polys(rxn::EnzymeReaction, groups::Vector{Vector{Step}},
+function _raw_symbolic_rate_polys(m::_AnyMech, groups::Vector{Vector{Step}},
                                   names::Vector{Vector{Symbol}})
     _assert_derivable(groups)
     species, segments, _, idx, seg = _re_segment_extras(groups)
@@ -215,10 +206,13 @@ function _raw_symbolic_rate_polys(rxn::EnzymeReaction, groups::Vector{Vector{Ste
     # exists only as free enzyme — no flux, partition 1, D[g_free] 1.
     isempty(species) && return poly_zero(), poly_one(), poly_one()
     flat = _flat_steps(groups)
-    conc_set = _concentration_symbols(rxn)
+    # The concentration symbols: the same set `_poly_to_expr` treats as concentrations,
+    # and the only symbols `_reduce_conc_lowest_terms` may shift. No parameter symbol is
+    # in it, so the concentration-GCD never drops a fitted parameter.
+    conc_set = Set{Symbol}(metabolites(m))
     step_to_K = Dict{Int, Symbol}(
         i => names[i][1] for i in eachindex(flat) if is_equilibrium(flat[i][1]))
-    alpha = _compute_alpha(rxn, flat, conc_set, species, idx, segments, step_to_K)
+    alpha = _compute_alpha(m, flat, conc_set, species, idx, segments, step_to_K)
     G = length(segments)
 
     # The Laplacian of the segment graph: each SS step joining two segments adds its
@@ -259,7 +253,7 @@ function _raw_symbolic_rate_polys(rxn::EnzymeReaction, groups::Vector{Vector{Ste
     # form makes the sum equal the net consumption of the first substrate for every
     # parameter value, so it needs no choice of reaction cut and does not depend on
     # the direction a step is written in. Steps with ω_e = 0 contribute nothing.
-    x = name(first(substrates(rxn)))
+    x = first(substrates(m))
     expo(p) = (mono = only(keys(p));
                k = findfirst(q -> q.first == x, mono);
                k === nothing ? 0 : mono[k].second)
@@ -276,7 +270,7 @@ function _raw_symbolic_rate_polys(rxn::EnzymeReaction, groups::Vector{Vector{Ste
 end
 
 _raw_symbolic_rate_polys(m::Mechanism) =
-    _raw_symbolic_rate_polys(reaction(m), steps(m), _step_names(m, :None))
+    _raw_symbolic_rate_polys(m, steps(m), _step_names(m, :None))
 _raw_symbolic_rate_polys(@nospecialize(M::Type{<:EnzymeMechanism})) =
     _raw_symbolic_rate_polys(Mechanism(M()))
 
@@ -363,7 +357,7 @@ symbolic rate polys: flat sums for the printed equation, or in Horner form
 function _num_den_exprs(@nospecialize(M::Type{<:EnzymeMechanism}); horner = false)
     m = Mechanism(M())
     names = _step_names(m, :None)
-    num, den, _ = _raw_symbolic_rate_polys(reaction(m), steps(m), names)
+    num, den, _ = _raw_symbolic_rate_polys(m, steps(m), names)
     horner && return _poly_to_horner(num), _poly_to_horner(den)
     param_syms = Set{Symbol}(n for ns in names for n in ns)
     _poly_to_expr(num, param_syms), _poly_to_expr(den, param_syms)
@@ -631,7 +625,7 @@ inactive graph is checked for a rapid-equilibrium segment with no bottom form
 function _state_rate_polys(am::AllostericMechanism, state::Symbol)
     groups = _state_groups(am, state)
     state === :I && _assert_bottomed_re_segments(reaction(am), groups)
-    _raw_symbolic_rate_polys(reaction(am), groups, _step_names(am, state))
+    _raw_symbolic_rate_polys(am, groups, _step_names(am, state))
 end
 
 """

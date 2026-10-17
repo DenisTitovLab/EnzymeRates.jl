@@ -686,7 +686,7 @@ function _base_tier(mechs::Vector, rxn::EnzymeReaction)
         _degenerate(m) || continue
         try
             for child in _expand_re_to_ss(m)
-                _assert_atom_conserving(child)
+                _assert_atom_conserving(child, rxn)
                 _degenerate(child) || push!(base, child)
             end
         catch e

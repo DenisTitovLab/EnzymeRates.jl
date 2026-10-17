@@ -96,16 +96,17 @@ _class(c::_Column, g::Int, tag::Symbol) =
                                    (g, c.slot, c.inactive, false)
 
 """
-    _fundamental_cycles(rxn, groups) -> (Z, multiples)
+    _fundamental_cycles(m, groups) -> (Z, multiples)
 
 The fundamental cycles of a spanning forest of the graph whose nodes are the enzyme forms
-of `groups` and whose edges are its flat steps: row `i` of `Z` counts each flat step of
-cycle `i` with its sign in the step's stored direction, and `multiples[i]` is the multiple
-of the net reaction the cycle runs (0 for a Wegscheider cycle). A metabolite counts by
-name, so a reactant's modifier copy counts as the reactant. Errors on a cycle whose net
-change is no multiple of the net reaction. Integer arithmetic throughout.
+of `groups`, kinetic groups over `m`'s substrates and products, and whose edges are its
+flat steps: row `i` of `Z` counts each flat step of cycle `i` with its sign in the step's
+stored direction, and `multiples[i]` is the multiple of the net reaction the cycle runs
+(0 for a Wegscheider cycle). A metabolite counts by name, so a reactant's modifier copy
+counts as the reactant. Errors on a cycle whose net change is no multiple of the net
+reaction. Integer arithmetic throughout.
 """
-function _fundamental_cycles(rxn::EnzymeReaction, groups::Vector{Vector{Step}})
+function _fundamental_cycles(m::_AnyMech, groups::Vector{Vector{Step}})
     flat = _flat_steps(groups)
     forms = _forms(groups)
     idx = Dict(f => i for (i, f) in enumerate(forms))
@@ -127,9 +128,9 @@ function _fundamental_cycles(rxn::EnzymeReaction, groups::Vector{Vector{Step}})
         end
     end
     net = Dict{Symbol, Int}()
-    foreach(x -> net[name(x)] = -1, substrates(rxn))
-    foreach(x -> net[name(x)] = 1, products(rxn))
-    x1 = name(first(substrates(rxn)))
+    foreach(x -> net[x] = -1, substrates(m))
+    foreach(x -> net[x] = 1, products(m))
+    x1 = first(substrates(m))
     rows, multiples = Vector{Int}[], Int[]
     for (k, (a, b)) in enumerate(ends)
         tree[k] && continue
@@ -189,7 +190,7 @@ function _joint_system(m::_AnyMech)
     index = Dict(c => i for (i, c) in enumerate(columns))
     column(j, slot, inactive) =
         index[_Column(j, slot, inactive && _has_inactive_columns(tags[flat[j][2]]))]
-    Z, multiples = _fundamental_cycles(reaction(m), groups)
+    Z, multiples = _fundamental_cycles(m, groups)
     rows, rhs = Vector{Int}[], Int[]
     for inactive in (allosteric ? (false, true) : (false,)), i in eachindex(multiples)
         row = zeros(Int, length(columns))

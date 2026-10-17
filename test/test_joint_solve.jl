@@ -232,8 +232,7 @@ end
                 E(P) ⇌ E + P
             end
         end)
-        Z, multiples = EnzymeRates._fundamental_cycles(EnzymeRates.reaction(m),
-                                                       EnzymeRates.steps(m))
+        Z, multiples = EnzymeRates._fundamental_cycles(m, EnzymeRates.steps(m))
         @test size(Z) == (2, 6)
         @test sort(abs.(multiples)) == [0, 1]
         # A cycle that turns A into P without B and Q is no multiple of the net reaction.
@@ -251,7 +250,7 @@ end
             end
         end)
         err = @test_throws ErrorException EnzymeRates._fundamental_cycles(
-            EnzymeRates.reaction(slip), EnzymeRates.steps(slip))
+            slip, EnzymeRates.steps(slip))
         @test occursin("produces metabolite change not proportional to net reaction",
                        err.value.msg)
     end
