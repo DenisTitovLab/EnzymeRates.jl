@@ -160,6 +160,31 @@ function _testhelper_random_independent_params(m; rng=Random.default_rng())
     NamedTuple{keys_out}(vals_out)
 end
 
+"""
+Test that `m` stores its steps in the direction the orientation tiers give: orienting the
+stored steps of a group again (`_canonical_step_direction`, then `_orient_tied_steps`)
+leaves them as stored, and writing every step the other way round, in the reverse order,
+builds the same mechanism.
+"""
+function _testhelper_check_stored_orientation(m)
+    mech = _testhelper_lift(m)
+    groups = EnzymeRates.steps(mech)
+    sides = EnzymeRates._entry_sides(groups)
+    for group in groups
+        decided = [EnzymeRates._canonical_step_direction(s, sides) for s in group]
+        @test EnzymeRates._orient_tied_steps(EnzymeRates.reaction(mech), first.(decided),
+                                             last.(decided)) == group
+    end
+    written = [reverse(EnzymeRates._reversed.(g)) for g in reverse(groups)]
+    rebuilt = mech isa EnzymeRates.Mechanism ?
+        EnzymeRates.Mechanism(EnzymeRates.reaction(mech), written) :
+        EnzymeRates.AllostericMechanism(EnzymeRates.reaction(mech), written,
+            reverse(EnzymeRates.cat_allo_states(mech)),
+            EnzymeRates.catalytic_multiplicity(mech),
+            EnzymeRates.regulatory_sites(mech))
+    @test rebuilt == mech
+end
+
 # ── Exact steady-state oracle ───────────────────────────────────────────────
 
 """

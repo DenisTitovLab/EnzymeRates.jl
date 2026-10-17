@@ -1978,6 +1978,7 @@ end
         @test length(exchange) == 2
         @test all(s -> ER.consumed(s) == ER.Metabolite[J] &&
                        ER.released(s) == ER.Metabolite[I], exchange)
+        _testhelper_check_stored_orientation(mech)
     end
     # The written direction and order of the exchanges do not matter.
     @test ER.Mechanism(@enzyme_mechanism begin
@@ -2074,6 +2075,7 @@ end
     for mech in (m, am)
         @test length(exchange_group(mech)) == 2
         @test all(takes_up_I, exchange_group(mech))
+        _testhelper_check_stored_orientation(mech)
     end
     # The written direction and order of the exchanges do not matter.
     @test ER.Mechanism(@enzyme_mechanism begin
@@ -2132,6 +2134,7 @@ end
     mm = ER.Mechanism(mixed)
     @test length(exchange_group(mm)) == 2
     @test all(takes_up_I, exchange_group(mm))
+    _testhelper_check_stored_orientation(mm)
     @test ER.Mechanism(@enzyme_mechanism begin
         substrates: A
         products: P

@@ -148,6 +148,18 @@ end
         kf, kr = EnzymeRates._step_constants(iso, :None)
         @test EnzymeRates.name(kf, m) === :k_E_to_D
         @test EnzymeRates.name(kr, m) === :k_D_to_E
+        # Written E <--> D, the step is stored the same way.
+        @test EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)
+                E(S) <--> E(P)
+                E(P) <--> E + P
+                E <--> D
+            end
+        end) == m
+        _testhelper_check_stored_orientation(m)
         # At rapid equilibrium the step's one constant is the equilibrium constant of that
         # direction, [D]/[E].
         re = @enzyme_mechanism begin
@@ -163,6 +175,7 @@ end
         @test EnzymeRates.fitted_params(re) == (:K_E_to_D, :k_EP_to_E_P, :k_ES_to_EP,
                                                 :k_ES_to_E_S, :k_E_P_to_EP, :k_E_S_to_ES)
         _testhelper_check_law_against_oracle(re)
+        _testhelper_check_stored_orientation(re)
     end
 
     @testset "a tied group turns with the lead the form order ranks first (C9)" begin
@@ -190,6 +203,19 @@ end
         tied = only(g for g in EnzymeRates.steps(m) if length(g) == 2)
         @test all(s -> EnzymeRates.conformation(EnzymeRates.from_species(s)) === :E &&
                        EnzymeRates.conformation(EnzymeRates.to_species(s)) === :D, tied)
+        # Written E <--> D and E(S) <--> D(S), the group is stored the same way.
+        @test EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)
+                E(S) <--> E(P)
+                E(P) <--> E + P
+                D + S <--> D(S)
+                (E <--> D, E(S) <--> D(S))
+            end
+        end) == m
+        _testhelper_check_stored_orientation(m)
         _testhelper_check_law_against_oracle(tied_mm)
     end
 
@@ -350,26 +376,11 @@ end
         # the tiers and turns each tied group with its lead, so orienting the stored
         # steps again leaves each one as stored, and writing every step the other way
         # round, in the reverse order, builds the same mechanism.
+        # The C9 testsets above and the exchange testsets of test_types.jl check the same
+        # on steps that Tier 3 orients and on tied groups.
         for spec in MECHANISM_TEST_SPECS
             @testset "$(spec.name)" begin
-                mech = _testhelper_lift(spec.mechanism)
-                groups = EnzymeRates.steps(mech)
-                sides = EnzymeRates._entry_sides(groups)
-                for group in groups
-                    decided = [EnzymeRates._canonical_step_direction(s, sides)
-                               for s in group]
-                    @test EnzymeRates._orient_tied_steps(EnzymeRates.reaction(mech),
-                                                         first.(decided),
-                                                         last.(decided)) == group
-                end
-                written = [reverse(EnzymeRates._reversed.(g)) for g in reverse(groups)]
-                rebuilt = mech isa EnzymeRates.Mechanism ?
-                    EnzymeRates.Mechanism(EnzymeRates.reaction(mech), written) :
-                    EnzymeRates.AllostericMechanism(EnzymeRates.reaction(mech), written,
-                        reverse(EnzymeRates.cat_allo_states(mech)),
-                        EnzymeRates.catalytic_multiplicity(mech),
-                        EnzymeRates.regulatory_sites(mech))
-                @test rebuilt == mech
+                _testhelper_check_stored_orientation(spec.mechanism)
             end
         end
     end
