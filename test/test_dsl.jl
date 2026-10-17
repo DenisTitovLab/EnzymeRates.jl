@@ -1143,27 +1143,28 @@
             end
         end)))
 
-        # A plain mechanism may release an inhibitor as well as bind it.
+        # A plain mechanism may release a modifier copy as well as bind it: the role tag
+        # that ends the release is no step tag.
         bind_plain = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
             products:   P
-            modifiers: I
+            modifiers: S
             steps: begin
                 E + S ⇌ E(S)
                 E(S) <--> E(P)
                 E(P) ⇌ E + P
-                E + I ⇌ E(I)
+                E + S::Mod ⇌ E(S::Mod)
             end
         end)
         release_plain = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
             products:   P
-            modifiers: I
+            modifiers: S
             steps: begin
                 E + S ⇌ E(S)
                 E(S) <--> E(P)
                 E(P) ⇌ E + P
-                E(I) ⇌ E + I
+                E(S::Mod) ⇌ E + S::Mod
             end
         end)
         @test release_plain == bind_plain
