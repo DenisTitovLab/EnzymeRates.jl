@@ -524,13 +524,13 @@
     end
 
     @testset "@enzyme_reaction regulator kinds" begin
-        # dead_end_inhibitors: and competitive_inhibitors: both emit
-        # CompetitiveInhibitor entries. allosteric_regulators: emits
-        # AllostericRegulator; a bare entry takes the catalytic multiplicities.
+        # competitive_inhibitors: emits CompetitiveInhibitor entries, and its lines
+        # accumulate. allosteric_regulators: emits AllostericRegulator; a bare entry
+        # takes the catalytic multiplicities.
         spec_kinds = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
-            dead_end_inhibitors: I
+            competitive_inhibitors: I
             allosteric_regulators: A(1)
             competitive_inhibitors: R
         end
@@ -610,22 +610,29 @@
             products: B[C6H12O6]
             competitive_inhibitors: X::Activator
         end))
-        @test_throws Exception eval(:(@enzyme_reaction begin
+        @test_throws("@enzyme_reaction: regulator type ::Inhibitor on X::Inhibitor is " *
+                     "only valid on allosteric_regulators: entries.",
+                     eval(:(@enzyme_reaction begin
             substrates: A[C6H12O6]
             products: B[C6H12O6]
-            dead_end_inhibitors: X::Inhibitor
-        end))
+            competitive_inhibitors: X::Inhibitor
+        end)))
     end
 
-    @testset "@enzyme_reaction rejects bare `regulators:` label" begin
-        # The @enzyme_reaction grammar requires `competitive_inhibitors:`,
-        # `dead_end_inhibitors:`, or `allosteric_regulators:`. A bare
-        # `regulators:` label must be reported as unknown.
-        @test_throws "unknown label `regulators:`" eval(:(@enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            regulators: R1, R2
-        end))
+    @testset "@enzyme_reaction names its labels for any other" begin
+        # Regulators go under `competitive_inhibitors:` or `allosteric_regulators:`;
+        # another label is reported as unknown, with the valid ones.
+        for label in (:regulators, :dead_end_inhibitors)
+            @test_throws("@enzyme_reaction: unknown label `$label:`. Valid labels: " *
+                         "substrates, products, competitive_inhibitors, " *
+                         "allosteric_regulators, allowed_catalytic_multiplicities, " *
+                         "oligomeric_state, shared_catalytic_site.",
+                         eval(:(@enzyme_reaction begin
+                substrates: S[C]
+                products: P[C]
+                $label: R1, R2
+            end)))
+        end
     end
 
     @testset "opaque bound-form names are rejected" begin

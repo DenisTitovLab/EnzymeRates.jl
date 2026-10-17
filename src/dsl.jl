@@ -25,7 +25,7 @@ Emit an `EnzymeReaction`.
 - No metabolite is named `E_total`, `Keq`, `L`, `N`, `params`, `concs` or `v`,
   or holds `_`: a rate equation keeps those names, and its constant names join
   names with `_`.
-- `competitive_inhibitors:` / `dead_end_inhibitors:` —
+- `competitive_inhibitors:` —
   `CompetitiveInhibitor` entries (catalytic-site binding). May be bare
   `I` (multiplicities default to the `oligomeric_state:` ones) or
   `I(m1, m2, ...)` to override. Enumeration reads only the mechanism's
@@ -77,8 +77,7 @@ function _parse_reaction_block(block)
             for (name, atoms) in _parse_atom_bracket_entries(values, label)
                 push!(reactants, (type, name, atoms))
             end
-        elseif label === :dead_end_inhibitors ||
-               label === :competitive_inhibitors
+        elseif label === :competitive_inhibitors
             append!(regs, _parse_regulator_entries(values, :CompetitiveInhibitor))
         elseif label === :allosteric_regulators
             append!(regs, _parse_regulator_entries(values, :AllostericRegulator))
@@ -92,7 +91,7 @@ function _parse_reaction_block(block)
             append!(shared, _parse_shared_site_pairs(values))
         else
             error("@enzyme_reaction: unknown label `$label:`. Valid labels: " *
-                  "substrates, products, competitive_inhibitors, dead_end_inhibitors, " *
+                  "substrates, products, competitive_inhibitors, " *
                   "allosteric_regulators, allowed_catalytic_multiplicities, " *
                   "oligomeric_state, shared_catalytic_site.")
         end
