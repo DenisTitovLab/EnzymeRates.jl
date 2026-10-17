@@ -1365,7 +1365,8 @@ end
     end
 
     @testset "every allosteric regulator sits at exactly one regulatory site" begin
-        # The walker's value for the block below with the site lines `sites` appended.
+        # The mechanism `@allosteric_mechanism` builds from the block below with the site
+        # lines `sites` appended.
         declarations = quote
             substrates: S
             products:   P
@@ -1376,8 +1377,8 @@ end
                 E(P) ⇌ E + P      :: EqualAI
             end
         end
-        _testhelper_sites(sites...) = EnzymeRates._raw_mechanism(
-            Expr(:block, declarations.args..., sites...), true)
+        _testhelper_sites(sites...) = eval(:(@allosteric_mechanism $(
+            Expr(:block, declarations.args..., sites...))))
         @test_throws("@allosteric_mechanism: allosteric regulator `Y` sits at no " *
                      "regulatory site; list it on one `regulatory_site(n):` line, as " *
                      "in `regulatory_site(2): Y::OnlyA`.",
@@ -1395,7 +1396,7 @@ end
                      _testhelper_sites(:(regulatory_site(2): X::OnlyA, Y::OnlyI,
                                                              Z::OnlyI)))
         @test_throws("@allosteric_mechanism: `allosteric_regulators:` lists `X` more " *
-                     "than once.", EnzymeRates._raw_mechanism(quote
+                     "than once.", eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
             allosteric_regulators: X, X
@@ -1403,7 +1404,7 @@ end
                 E + S ⇌ E(S)      :: EqualAI
             end
             regulatory_site(2): X::OnlyA
-        end, true))
+        end)))
         # A site lists each ligand with its tag after a positive multiplicity.
         @test_throws("@allosteric_mechanism: `regulatory_site(n):` lists each ligand " *
                      "with its tag, as in `regulatory_site(2): A::OnlyA, I::OnlyI`; " *

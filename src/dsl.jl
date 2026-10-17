@@ -278,8 +278,6 @@ Species notation on step sides:
 Conformation labels cannot shadow declared metabolite names.
 """
 macro enzyme_mechanism(block)
-    _uses_inhibitor_grammar(block) &&
-        return esc(_parse_mechanism_body(block, false)[1])
     return :($_compiled_mechanism($(_raw_mechanism(block, false))))
 end
 
@@ -589,8 +587,6 @@ Build an `AllostericEnzymeMechanism` (MWC, two conformations).
   site.
 """
 macro allosteric_mechanism(block)
-    _uses_inhibitor_grammar(block) &&
-        return esc(_parse_mechanism_body(block, true)[1])
     return :($_compiled_mechanism($(_raw_mechanism(block, true))))
 end
 
@@ -751,27 +747,6 @@ function _parse_mechanism_body(block, allosteric::Bool)
             EnzymeRates.Mechanism($reaction_expr, $groups_expr)))
     end
     (mech_expr, groups_expr, reg_sites_expr)
-end
-
-"""
-Whether the mechanism macro `block` writes a token of the grammar
-`_parse_mechanism_body` reads and `_raw_mechanism` does not: a `regulatory_site(...)` line
-with a `begin ... end` body. Such a block expands through `_parse_mechanism_body`, every
-other one through `_raw_mechanism`.
-"""
-function _uses_inhibitor_grammar(block)
-    block isa Expr && block.head === :block || return false
-    for arg in block.args
-        arg isa LineNumberNode && continue
-        head, rest = arg isa Expr && arg.head === :tuple && !isempty(arg.args) ?
-                     (arg.args[1], arg.args[2:end]) : (arg, Any[])
-        head isa Expr && head.head === :call && length(head.args) == 3 &&
-            head.args[1] === :(:) || continue
-        label, values = head.args[2], Any[head.args[3], rest...]
-        label isa Expr && label.head === :call && label.args[1] === :regulatory_site &&
-            any(v -> v isa Expr && v.head === :block, values) && return true
-    end
-    false
 end
 
 # ─── Mechanism macro blocks as written ─────────────────────────────────
