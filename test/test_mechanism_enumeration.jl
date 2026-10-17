@@ -11700,7 +11700,7 @@ end
     # groups themselves sorted so the key is order-independent.
     function _testhelper_mech_struct_key(m::EnzymeRates.Mechanism)
         grpkeys = String[]
-        for grp in m.steps
+        for grp in EnzymeRates.steps(m)
             stepkeys = sort([
                 string((EnzymeRates.name(EnzymeRates.from_species(s)),
                         EnzymeRates.name(EnzymeRates.to_species(s)),
