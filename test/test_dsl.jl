@@ -292,15 +292,9 @@
     end
 
     @testset "@enzyme_mechanism rejects each allosteric-only label" begin
-        for line in (:(allosteric_regulators: A::OnlyA),
-                     :(catalytic_inhibitors: I),
+        for line in (:(allosteric_regulators: A),
                      :(catalytic_multiplicity: 2),
-                     :(catalytic_steps: begin
-                           E + S ⇌ E(S)
-                       end),
-                     :(regulatory_site(multiplicity = 2): begin
-                           ligands: A
-                       end))
+                     :(regulatory_site(2): A::OnlyA))
             @test_throws "belong in @allosteric_mechanism" eval(:(@enzyme_mechanism begin
                 substrates: S
                 products:   P
@@ -1516,28 +1510,28 @@ end
                        "@allosteric_mechanism."
         for label in (:regulators, :catalytic_steps, :catalytic_inhibitors)
             @test_throws("@enzyme_mechanism: unknown label `$label:`. " * plain_labels,
-                         EnzymeRates._raw_mechanism(quote
+                         eval(:(@enzyme_mechanism begin
                 substrates: S
                 products:   P
                 $label: I
                 steps: begin
                     E + S ⇌ E(S)
                 end
-            end, false))
+            end)))
         end
         allo_labels = "Valid labels: substrates, products, modifiers, " *
                       "allosteric_regulators, catalytic_multiplicity, steps, " *
                       "regulatory_site(n)."
         for label in (:catalytic_steps, :catalytic_inhibitors, :regulators)
             @test_throws("@allosteric_mechanism: unknown label `$label:`. " * allo_labels,
-                         EnzymeRates._raw_mechanism(quote
+                         eval(:(@allosteric_mechanism begin
                 substrates: S
                 products:   P
                 $label: I
                 steps: begin
                     E + S ⇌ E(S)      :: EqualAI
                 end
-            end, true))
+            end)))
         end
         @test_throws("@allosteric_mechanism: `catalytic_multiplicity:` takes one " *
                      "positive Int; got 2, 4.", eval(Meta.parse("""

@@ -278,7 +278,7 @@ Species notation on step sides:
 Conformation labels cannot shadow declared metabolite names.
 """
 macro enzyme_mechanism(block)
-    _uses_inhibitor_grammar(block, false) &&
+    _uses_inhibitor_grammar(block) &&
         return esc(_parse_mechanism_body(block, false)[1])
     return :($_compiled_mechanism($(_raw_mechanism(block, false))))
 end
@@ -589,7 +589,7 @@ Build an `AllostericEnzymeMechanism` (MWC, two conformations).
   site.
 """
 macro allosteric_mechanism(block)
-    _uses_inhibitor_grammar(block, true) &&
+    _uses_inhibitor_grammar(block) &&
         return esc(_parse_mechanism_body(block, true)[1])
     return :($_compiled_mechanism($(_raw_mechanism(block, true))))
 end
@@ -754,15 +754,13 @@ function _parse_mechanism_body(block, allosteric::Bool)
 end
 
 """
-Whether the mechanism macro `block` (`@allosteric_mechanism`'s when `allosteric`) writes
-a token of the grammar `_parse_mechanism_body` reads and `_raw_mechanism` does not: a
-`catalytic_steps:` or `catalytic_inhibitors:` label, `@enzyme_mechanism`'s
-`regulators:` label, an `X::Inh` metabolite, an `allosteric_regulators:` entry with a
-tag, a `regulatory_site(...)` line with a keyword argument or a `begin ... end` body, or
-a parenthesized single step with a tag. Such a block expands through
-`_parse_mechanism_body`, every other one through `_raw_mechanism`.
+Whether the mechanism macro `block` writes a token of the grammar
+`_parse_mechanism_body` reads and `_raw_mechanism` does not: an `X::Inh` metabolite, an
+`allosteric_regulators:` entry with a tag, a `regulatory_site(...)` line with a keyword
+argument or a `begin ... end` body, or a parenthesized single step with a tag. Such a
+block expands through `_parse_mechanism_body`, every other one through `_raw_mechanism`.
 """
-function _uses_inhibitor_grammar(block, allosteric::Bool)
+function _uses_inhibitor_grammar(block)
     block isa Expr && block.head === :block || return false
     is_tagged(v) = v isa Expr && v.head === :(::)
     for arg in block.args
@@ -773,8 +771,6 @@ function _uses_inhibitor_grammar(block, allosteric::Bool)
         head isa Expr && head.head === :call && length(head.args) == 3 &&
             head.args[1] === :(:) || continue
         label, values = head.args[2], Any[head.args[3], rest...]
-        label in (:catalytic_steps, :catalytic_inhibitors) && return true
-        !allosteric && label === :regulators && return true
         label === :allosteric_regulators && any(is_tagged, values) && return true
         if label isa Expr && label.head === :call && label.args[1] === :regulatory_site
             any(a -> a isa Expr && a.head in (:kw, :parameters), label.args[2:end]) &&
