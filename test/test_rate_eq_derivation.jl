@@ -1781,6 +1781,31 @@ end
     @test_throws "polynomial terms" rate_equation_string(m_manual)
 end
 
+# The generated rate_equation reads its mechanism type and its arguments under names of
+# its own; a metabolite may take the names of the type parameter and the first argument.
+@testset "a metabolite named M or m reads as a concentration" begin
+    upper = @enzyme_mechanism begin
+        substrates: M
+        products:   P
+        steps: begin
+            E + M ⇌ E(M)
+            E(M) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    _testhelper_check_law_against_oracle(upper)
+    lower = @enzyme_mechanism begin
+        substrates: m
+        products:   P
+        steps: begin
+            E + m ⇌ E(m)
+            E(m) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    _testhelper_check_law_against_oracle(lower)
+end
+
 # The rate equation binds the parameters and the concentrations as local names of one
 # scope, so a metabolite named after a parameter would overwrite it, or be overwritten.
 @testset "a metabolite named after a parameter raises" begin

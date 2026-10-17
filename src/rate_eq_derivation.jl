@@ -434,10 +434,12 @@ The derivation runs once, at compile time: the body is generated as a single
 arithmetic expression with no allocations, loops, or matrix operations. Use
 [`rate_equation_string`](@ref) to inspect the derived equation symbolically.
 """
-@generated function rate_equation(m::M, concs::NamedTuple,
-                                  params::NamedTuple) where {M <: AbstractEnzymeMechanism}
-    dep, indep = _dependent_param_exprs(M)
-    _rate_body(M, (indep..., :Keq, :E_total), dep)
+@generated function rate_equation(m::M_type, concs::NamedTuple,
+        params::NamedTuple) where {M_type <: AbstractEnzymeMechanism}
+    # The body binds each metabolite's name as a local, so the type parameter's name
+    # holds `_`, which no metabolite name does.
+    dep, indep = _dependent_param_exprs(M_type)
+    _rate_body(M_type, (indep..., :Keq, :E_total), dep)
 end
 
 # Concrete-mechanism convenience: lift to the singleton (see the note on
