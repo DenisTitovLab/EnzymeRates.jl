@@ -535,9 +535,9 @@
     end
 
     @testset "@enzyme_reaction regulator kinds" begin
-        # dead_end_inhibitors: and competitive_inhibitors: both emit
-        # CompetitiveInhibitor entries. allosteric_regulators: emits
-        # AllostericRegulator; a bare entry takes the catalytic multiplicities.
+        # competitive_inhibitors: emits CompetitiveInhibitor entries, from every line
+        # that lists them. allosteric_regulators: emits AllostericRegulator; a bare
+        # entry takes the catalytic multiplicities.
         spec_kinds = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -740,7 +740,7 @@
         end
         @test EnzymeRates.allowed_catalytic_multiplicities(rxn2) == [1]
 
-        # Explicit allowed_catalytic_multiplicities tuple
+        # A tuple of oligomeric states
         rxn3 = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -889,7 +889,7 @@
         end
     end
 
-    @testset "::Inh role tag: product that also competitively inhibits" begin
+    @testset "::Mod role tag: product that also competitively inhibits" begin
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -914,14 +914,13 @@
         _testhelper_check_law_against_oracle(m)
     end
 
-    @testset "dual-role names bind by their catalytic role unless tagged ::Inh" begin
+    @testset "dual-role names bind by their catalytic role unless tagged ::Mod" begin
         _testhelper_bound_types(m) = Dict(
             EnzymeRates.name(EnzymeRates.to_species(s)) =>
                 typeof(EnzymeRates.bound_metabolite(s))
             for g in EnzymeRates.steps(m) for s in g if EnzymeRates.is_binding(s))
-        # A substrate also declared as a competitive inhibitor binds as the
-        # substrate in a bare catalytic step; `E(A::Inh)` writes its inhibitor
-        # form.
+        # A substrate also declared a modifier binds as the substrate in a bare
+        # catalytic step; `E(A::Mod)` writes its modifier form.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A
             products:   P
@@ -1016,7 +1015,7 @@
             end
             regulatory_site(1): R::OnlyA
         end)))
-        # Listed in both, R binds its regulatory site and, as `R::Inh`, the catalytic
+        # Listed in both, R binds its regulatory site and, as a modifier, the catalytic
         # site.
         dual = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: S
@@ -1084,7 +1083,7 @@
 
     @testset "a residual adds substrates and subtracts products" begin
         # `P - S` adds a product and subtracts a substrate; `P` and `-S` each do one of
-        # the two; `S - I` subtracts a competitive inhibitor.
+        # the two; `S - I` subtracts a modifier.
         for residual in (:(P - S), :P, :(-S), :(S - I))
             @test_throws "adds substrates and subtracts products" eval(
                 :(@enzyme_mechanism begin
@@ -1100,9 +1099,9 @@
         end
     end
 
-    @testset "::Inh is never a step tag" begin
-        # `E(S::Inh) ⇌ E + S::Inh :: EqualAI` parses as `(S::Inh)::EqualAI`: the state
-        # after `::Inh` is the step's tag, and the step reads like its binding direction.
+    @testset "::Mod is never a step tag" begin
+        # `E(S::Mod) ⇌ E + S::Mod :: EqualAI` parses as `(S::Mod)::EqualAI`: the state
+        # after `::Mod` is the step's tag, and the step reads like its binding direction.
         bind_inh = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: S
             products:   P

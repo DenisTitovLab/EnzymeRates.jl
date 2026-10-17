@@ -2021,7 +2021,7 @@ end
     # E(Q), the Q binding mirrored onto the copy forms in the Q group, as the
     # dead-end move builds it. The copy group binds a regulator and is never a
     # unit. A, B, P and Q each divide the one segment alone (the Q flip takes its
-    # mirror with it and isolates {E(Q), E(P, Q), E(A::Inh, Q)}), and each flipped
+    # mirror with it and isolates {E(Q), E(P, Q), E(A::Mod, Q)}), and each flipped
     # group shares a block with the chemistry edge, so all four carry flux. The copy
     # binds at E and E(Q), so E(A, B) and E(P, Q) keep one step each beside the
     # isomerization, a binding into that form alone in its group: B and P are the
@@ -2513,9 +2513,9 @@ end
 
 @testset "Mechanism — a split leaving a redundant copy part is not emitted" begin
     # Ordered bi-bi with B also bound as a competitive-inhibitor copy at E(A) and
-    # E(Q). E(A, B::Inh) has the composition of E(A, B); E(Q, B::Inh) is new, so
+    # E(Q). E(A, B::Mod) has the composition of E(A, B); E(Q, B::Mod) is new, so
     # the placement stands. Splitting the copy group by context would leave
-    # E(A) + B::Inh alone, a group that binds only where it duplicates E(A, B), and
+    # E(A) + B::Mod alone, a group that binds only where it duplicates E(A, B), and
     # E(A, B) is formed by the B group alone and left by the chemistry alone, so the
     # gauge exists: the child would be its parent plus a phantom. Every other group
     # holds one step, so the move emits nothing.
@@ -2599,11 +2599,11 @@ end
 
 @testset "Mechanism — two copies split down to complexes of one composition" begin
     # Ordered bi-bi with Q bound as a competitive-inhibitor copy at E(A) and at E(Q) in two
-    # groups, and A as a copy at E(A) and E(Q) in one group. E(Q, A::Inh) has the
-    # composition {A, Q} of E(A, Q::Inh), a copy's complex, and no productive form has
+    # groups, and A as a copy at E(A) and E(Q) in one group. E(Q, A::Mod) has the
+    # composition {A, Q} of E(A, Q::Mod), a copy's complex, and no productive form has
     # it, so neither part of the A copy's context bipartition is twin-only; every other
     # group holds one step, and the move emits the pair. The child carries one phantom:
-    # with E(Q) + A::Inh alone in its group, its complex and E(A, Q::Inh) enter the law
+    # with E(Q) + A::Mod alone in its group, its complex and E(A, Q::Mod) enter the law
     # through one coefficient, K_A·K_Q* + K_Q·K_A*, so 9 fitted constants have rank 8.
     # The rule tolerates it: rejecting it would also reject identifiable splits whose
     # other copy is pinned.
@@ -5240,12 +5240,12 @@ end
 end
 
 @testset "Mechanism — substrate declared as an inhibitor: promotion proceeds" begin
-    # Ordered SS bi-bi with A also declared as a dead-end inhibitor, written
-    # with the ::Inh role tag (src/dsl.jl): a plain `A` occurrence keeps A's
-    # declared substrate role, while `A::Inh` binds CompetitiveInhibitor(:A),
+    # Ordered SS bi-bi with A also declared a modifier, written
+    # with the ::Mod role tag (src/dsl.jl): a plain `A` occurrence keeps A's
+    # declared substrate role, while `A::Mod` binds CompetitiveInhibitor(:A),
     # a distinct species from the catalytic A-bound forms. The inhibitor's
     # own group binds E and E(Q); Q's catalytic binding is mirrored onto the
-    # inhibitor-bound form E(A::Inh), sharing its kinetic group, exactly as
+    # inhibitor-bound form E(A::Mod), sharing its kinetic group, exactly as
     # `_expand_add_dead_end_regulator` builds it.
     parent = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
@@ -8181,9 +8181,9 @@ end
                                                   Ainh) === nothing
 
     # Ping-pong with the second chemistry step at rapid equilibrium, an abortive
-    # E(B, P; residual) and a copy of P at E. A copy of Q at E(P::Inh) has the new
+    # E(B, P; residual) and a copy of P at E. A copy of Q at E(P::Mod) has the new
     # composition {P, Q}, but E(B; residual) ⇌ E(Q) puts E(B, P; residual) at the
-    # offsets P + Q of E's segment, the same as E(P::Inh)·Q: a twin. At
+    # offsets P + Q of E's segment, the same as E(P::Mod)·Q: a twin. At
     # E(; residual) the copy is not.
     pp = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
@@ -11300,7 +11300,7 @@ end
 end
 
 @testset "expand_mechanisms rejects a parent whose copy group is redundant" begin
-    # A bound as its own competitive inhibitor at E alone: E(A::Inh) has the
+    # A bound as its own competitive inhibitor at E alone: E(A::Mod) has the
     # composition of E(A), formed by the A group alone, so the gauge exists and the
     # copy's constant enters the rate only added to K_A's. The dead-end move never
     # emits this child; a hand-written parent is refused.

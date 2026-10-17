@@ -349,7 +349,7 @@ end
         end
 
         # The same segment with A's competitive-inhibitor copy binding E(B) at rapid
-        # equilibrium: E(A::Inh, B) joins it, but every form still carries A or B, so
+        # equilibrium: E(A::Mod, B) joins it, but every form still carries A or B, so
         # the segment stays bottomless. The copy shares A's name and must not hide
         # A's substrate role, whatever the order of the groups.
         A, B, Ainh = ER.Substrate(:A), ER.Substrate(:B), ER.CompetitiveInhibitor(:A)
@@ -426,7 +426,7 @@ end
     @testset "a stray free form cannot leave the inactive state's segment bottomless" begin
         # Every step that takes up the substrate A is :OnlyA, so the inactive conformation
         # keeps none of them; a second free conformation F that binds B would still reach
-        # E(B), and from it the copy's bindings. The segment {E(A::Inh), E(A::Inh, B),
+        # E(B), and from it the copy's bindings. The segment {E(A::Mod), E(A::Mod, B),
         # E(B)} would then have every form carrying A (the copy's concentration is A's)
         # or B, so it would be empty at A = B = 0. F joins E only through that binding,
         # not in rapid equilibrium, so the constructor rejects the mechanism before its
@@ -903,7 +903,7 @@ end
         # Two regulators of the same kind with the same name rejected.
         @test_throws ErrorException ER.EnzymeReaction(
             [S, P], [regA, regA2], Int[1])
-        # A regulator MAY share a substrate/product name (`::Inh` role tag:
+        # A regulator MAY share a substrate/product name (`::Mod` role tag:
         # one metabolite binds as a CompetitiveInhibitor under its real name).
         rxn_inh = ER.EnzymeReaction([S, P], [regS], Int[1])
         @test :S in ER.name.(ER.substrates(rxn_inh))
@@ -1596,7 +1596,7 @@ end
     end
 
     @testset "a substrate binding and its competitive-inhibitor copy in one group" begin
-        # A and its inhibitor copy A::Inh are different metabolites, so their
+        # A and its inhibitor copy A::Mod are different metabolites, so their
         # bindings are different kinds of step and cannot share a constant.
         err = _testhelper_thrown() do
             @enzyme_mechanism begin

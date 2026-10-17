@@ -2414,7 +2414,7 @@ end
 #      the same site, so there are no E_ATP_G6Pi or E_ADP_G6Pi forms.
 #
 #   3. Allosteric site: G6P competes with Pi at a separate regulatory
-#      site — regulatory_site(multiplicity = 2) with G6P::OnlyI and Pi::EqualAI.
+#      site — regulatory_site(2) with G6P::OnlyI and Pi::EqualAI.
 #
 # ATP binding (group 2) is :OnlyA — T-state can't bind ATP, so the
 # catalytic cycle is broken and N_cat_T = 0.
