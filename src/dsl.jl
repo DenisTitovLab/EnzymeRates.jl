@@ -479,7 +479,7 @@ the block's declared names.
 """
 function _raw_steps(steps_block, names, macro_name, allosteric::Bool)
     steps, group, tags = RawStep[], Int[], Symbol[]
-    missing_tag = "`:: <:OnlyA|:EqualAI|:NonequalAI>` annotation. Add `:: <state>` after"
+    missing_tag = "its tag, `:: EqualAI`, `:: NonequalAI` or `:: OnlyA`; add it after"
     n = 0
     for arg in steps_block.args
         arg isa LineNumberNode && continue

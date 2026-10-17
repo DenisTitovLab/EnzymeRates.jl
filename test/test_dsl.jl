@@ -175,8 +175,11 @@
             regulatory_site(2): J::OnlyI
         end)))
 
-        # Reject parenthesized step group without ::AlloState
-        @test_throws Exception eval(:(@allosteric_mechanism begin
+        # Reject a parenthesized step group without a tag.
+        @test_throws("@allosteric_mechanism: parenthesized step group " *
+                     "`(E + S ⇌ E(S), E(A) + S ⇌ E(A, S))` is missing its tag, " *
+                     "`:: EqualAI`, `:: NonequalAI` or `:: OnlyA`; add it after the " *
+                     "closing paren.", eval(:(@allosteric_mechanism begin
             substrates: S, A
             products:   P
             catalytic_multiplicity: 2
@@ -185,7 +188,7 @@
                 E(A, S) <--> E(P)   :: EqualAI
                 E(P) ⇌ E + P        :: EqualAI
             end
-        end))
+        end)))
     end
 
     @testset "@allosteric_mechanism checks names and sites; constructors check states" begin
@@ -1118,11 +1121,11 @@
         end)
         @test release_inh == bind_inh
 
-        # Without a state the step is missing its annotation: the role tag that ends it
-        # is no state.
+        # Without a state the step is missing its tag: the role tag that ends it is no
+        # state.
         @test_throws("@allosteric_mechanism: step `E(S::Mod) ⇌ E + S::Mod` is missing " *
-                     "`:: <:OnlyA|:EqualAI|:NonequalAI>` annotation. Add `:: <state>` " *
-                     "after the step expression.", eval(:(@allosteric_mechanism begin
+                     "its tag, `:: EqualAI`, `:: NonequalAI` or `:: OnlyA`; add it after " *
+                     "the step expression.", eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
             modifiers: S
@@ -1445,9 +1448,9 @@ end
     end
 
     @testset "allosteric steps carry one tag per statement, plain steps none" begin
-        @test_throws("@allosteric_mechanism: step `E(S) <--> E(P)` is missing " *
-                     "`:: <:OnlyA|:EqualAI|:NonequalAI>` annotation. Add `:: <state>` " *
-                     "after the step expression.", eval(:(@allosteric_mechanism begin
+        @test_throws("@allosteric_mechanism: step `E(S) <--> E(P)` is missing its tag, " *
+                     "`:: EqualAI`, `:: NonequalAI` or `:: OnlyA`; add it after the step " *
+                     "expression.", eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
             steps: begin
