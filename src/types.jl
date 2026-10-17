@@ -508,10 +508,12 @@ Applies to RE AND SS steps — the direction question is identical;
 only the parameter count differs. (All binding steps — RE and SS —
 are stored with their metabolite consumed by the Step constructor; this
 function orients every other step: isomerizations and transformations.)
-Reversing a step swaps its forms and its lists, and every tier reads the
-two sides symmetrically, so the result does not depend on how the step was
-written. Returns the step in that direction and the tier that decided it (1, 2 or
-3), or `(s, 0)` for a binding.
+Tier 1 reads atom progression, Tier 2 where substrates enter and products leave, and
+Tier 3, for a step neither decides, runs it from the form earlier in the canonical form
+order (`_form_index_key`: free E first). Reversing a step swaps its forms and its lists,
+and every tier reads the two sides symmetrically, so the result does not depend on how
+the step was written. Returns the step in that direction and the tier that decided it
+(1, 2 or 3), or `(s, 0)` for a binding.
 """
 function _canonical_step_direction(s::Step, entry_sides::Dict{Species, Tuple{Bool, Bool}})
     is_binding(s) && return s, 0
@@ -533,8 +535,8 @@ function _canonical_step_direction(s::Step, entry_sides::Dict{Species, Tuple{Boo
     fk == (false, true) && tk == (true, false) && return s, 2
     fk == (true, false) && tk == (false, true) && return _reversed(s), 2
 
-    # Tier 3: lex fallback (source-independent).
-    (string(name(f)) ≤ string(name(t)) ? s : _reversed(s)), 3
+    # Tier 3: the canonical form order (C9), free E first.
+    (_form_index_key(f) <= _form_index_key(t) ? s : _reversed(s)), 3
 end
 
 """`s` stored in the opposite direction: forms swapped, consumed and released swapped."""
@@ -545,8 +547,8 @@ _reversed(s::Step) =
 The steps of one kinetic group, `oriented` one by one by `_canonical_step_direction`
 with the deciding `tiers`, except that the steps Tier 1 leaves tied turn as one. The
 lead is the tied step ranked first by whether it changes conformation (those that do
-first), then by deciding tier, then by `lead_key` (by default `_step_canonical_key`;
-the joint solve passes a content key, `_solve_forward`). Every other tied step
+first), then by deciding tier, then by `lead_key` (by default `_step_index_key`, the
+canonical form order of its two forms). Every other tied step
 takes up and gives off the lead's metabolites (`_step_kind`), and one that changes
 conformation runs between the lead's two conformations in the same order; a step that
 fits in both orientations keeps its own. A group's steps share their constants, so a
@@ -560,7 +562,7 @@ metabolites match the lead's but its conformations do not, since no one orientat
 then matches the grouping.
 """
 function _orient_tied_steps(oriented::Vector{Step}, tiers::Vector{Int};
-                            lead_key = _step_canonical_key)
+                            lead_key = _step_index_key)
     tied = findall(>(1), tiers)
     length(tied) < 2 && return oriented
     pair(s) = (conformation(from_species(s)), conformation(to_species(s)))
@@ -608,7 +610,7 @@ leave at — it does NOT depend on whether the step is rapid-
 equilibrium or steady-state. The DSL parses `<-->` as SS and `⇌` as RE;
 fixtures like Segel Iso Uni Uni (`E + A <--> EA ⇌ EP <--> F + P, F <--> E`)
 use `<-->` throughout, so an RE-only filter would mis-classify both `E`
-and `F` as marking nothing and the F⇌E case would fall through to Tier 3 lex.
+and `F` as marking nothing and the F⇌E case would fall through to Tier 3.
 """
 function _canonicalize_step_directions(groups::Vector{Vector{Step}})
     entry_sides = _entry_sides(groups)
@@ -639,8 +641,7 @@ end
 # Keyed on the species' rendered NAMES (not `hash`): `Substrate`/`Product`
 # use Julia's default struct hash, which mixes in the type's `objectid` and so
 # is NOT stable across precompile sessions — a hash key would make the canonical
-# order and the lead of a tied group (`_orient_tied_steps`) non-deterministic, and
-# with them the dedup keys and the names in `fitted_params` and the rate equation.
+# order non-deterministic, and with it the dedup keys and the rate equation.
 # Names are derived purely from metabolite names, so the ordering is fixed and
 # reproducible.
 _met_names(v) = join((String(name(m)) for m in v), "+")

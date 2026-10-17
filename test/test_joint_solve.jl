@@ -125,11 +125,11 @@ end
         @test EnzymeRates._metabolites_key([A]) < EnzymeRates._metabolites_key([A_copy])
     end
 
-    @testset "steps neither chemistry nor graph context orients run from the \
+    @testset "a step neither chemistry nor graph context orients runs from the \
               earlier form (C9)" begin
-        # E ⇌ D is decided by neither atom progression nor graph context. The
-        # constructor stores it by rendered name, D before E; the solve orients it from
-        # free E, the first form of the canonical form order.
+        # D <--> E is decided by neither atom progression nor graph context, so it runs
+        # from free E, the first form of the canonical form order, however it is
+        # written: its forward rate constant is k_E_to_D.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
             products: P
@@ -137,29 +137,40 @@ end
                 E + S <--> E(S)
                 E(S) <--> E(P)
                 E(P) <--> E + P
-                E <--> D
+                D <--> E
             end
         end)
-        fwd = EnzymeRates._solve_forward(EnzymeRates.steps(m))
-        flat = EnzymeRates._flat_steps(m)
-        j = only(j for (j, (s, _)) in enumerate(flat)
-                 if EnzymeRates.name(EnzymeRates.from_species(s)) === :D)
-        @test fwd[j] === false
-        @test all(fwd[k] for k in eachindex(fwd) if k != j)
-        # The stored forward rate D → E runs against the solve's direction.
-        @test EnzymeRates._priority_key(first(flat[j]), false, 1, 0)[5] === true
-        @test EnzymeRates._form_index_key(EnzymeRates.to_species(first(flat[j]))) <
-              EnzymeRates._form_index_key(EnzymeRates.from_species(first(flat[j])))
+        iso = only(s for (s, _) in EnzymeRates._flat_steps(m)
+                   if EnzymeRates.conformation(EnzymeRates.to_species(s)) === :D ||
+                      EnzymeRates.conformation(EnzymeRates.from_species(s)) === :D)
+        @test EnzymeRates.conformation(EnzymeRates.from_species(iso)) === :E
+        kf, kr = EnzymeRates._step_constants(iso, :None)
+        @test EnzymeRates.name(kf, m) === :k_E_to_D
+        @test EnzymeRates.name(kr, m) === :k_D_to_E
+        # At rapid equilibrium the step's one constant is the equilibrium constant of that
+        # direction, [D]/[E].
+        re = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)
+                E(S) <--> E(P)
+                E(P) <--> E + P
+                D ⇌ E
+            end
+        end
+        @test EnzymeRates.fitted_params(re) == (:K_E_to_D, :k_EP_to_E_P, :k_ES_to_EP,
+                                                :k_ES_to_E_S, :k_E_P_to_EP, :k_E_S_to_ES)
+        _testhelper_check_law_against_oracle(re)
     end
 
     @testset "a tied group turns with the lead the form order ranks first (C9)" begin
         # E <--> D and E(S) <--> D(S) share their constants, and neither atom progression
-        # nor graph context orients them. The constructor stores the group by rendered
-        # name, D before E. The solve ranks the tied steps by `_step_index_key`: its lead
-        # is E → D, which starts at free E, so both steps turn. Ranked by rendered name,
-        # the default of `_orient_tied_steps`, the lead would be DS → ES and both steps
-        # would stay as stored.
-        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        # nor graph context orients them. On its own, E(S) <--> D(S) would run from D(S),
+        # which precedes E(S) in the canonical form order, but the group turns as one with
+        # its lead, the tied step ranked first by `_step_index_key`: E → D, which starts
+        # at free E. So both steps run from the E side to the D side.
+        tied_mm = @enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -167,18 +178,17 @@ end
                 E(S) <--> E(P)
                 E(P) <--> E + P
                 D + S <--> D(S)
-                (E <--> D, E(S) <--> D(S))
+                (D <--> E, D(S) <--> E(S))
             end
-        end)
-        flat = EnzymeRates._flat_steps(m)
-        texts = EnzymeRates._step_text.(first.(flat))
-        fwd = EnzymeRates._solve_forward(EnzymeRates.steps(m))
-        @test texts == ["D + S <--> DS", "D <--> E", "DS <--> ES", "E + P <--> EP",
-                        "E + S <--> ES", "ES <--> EP"]
-        @test fwd == [true, false, false, true, true, true]
-        # The stored forward rate DS → ES runs against the solve's direction.
-        j = findfirst(==("DS <--> ES"), texts)
-        @test EnzymeRates._priority_key(first(flat[j]), fwd[j], 1, 0)[5] === true
+        end
+        m = EnzymeRates.Mechanism(tied_mm)
+        @test EnzymeRates._step_text.(first.(EnzymeRates._flat_steps(m))) ==
+              ["D + S <--> DS", "E <--> D", "ES <--> DS", "E + P <--> EP", "E + S <--> ES",
+               "ES <--> EP"]
+        tied = only(g for g in EnzymeRates.steps(m) if length(g) == 2)
+        @test all(s -> EnzymeRates.conformation(EnzymeRates.from_species(s)) === :E &&
+                       EnzymeRates.conformation(EnzymeRates.to_species(s)) === :D, tied)
+        _testhelper_check_law_against_oracle(tied_mm)
     end
 
     @testset "fundamental cycles carry their multiple of the net reaction" begin

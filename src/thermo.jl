@@ -52,8 +52,7 @@ direction. Chemistry (orientation tier 1) and graph context (tier 2) orient a st
 the `Mechanism` constructor does; a step neither orients (tier 3) runs from the form
 earlier in the canonical form order (`_form_index_key`) to the later one, and the tied
 steps of a kinetic group then turn with a lead ranked by `_step_index_key`
-(`_orient_tied_steps`). The constructor breaks those last two ties by rendered name, so
-for such a step the stored direction can differ from the solve's.
+(`_orient_tied_steps`). The constructor orients every step by the same rules.
 """
 function _solve_forward(groups::Vector{Vector{Step}})
     sides = _entry_sides(groups)
