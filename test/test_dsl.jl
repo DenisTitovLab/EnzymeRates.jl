@@ -294,6 +294,45 @@
             end))
     end
 
+    @testset "a mechanism macro's list labels take bare names" begin
+        # An atom bracket and a role tag each get a hint where they go; another value
+        # gets none.
+        @test_throws("`substrates:` expects bare names; got S[C]. Atom brackets belong " *
+                     "in @enzyme_reaction.", eval(:(@enzyme_mechanism begin
+            substrates: S[C]
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end)))
+        @test_throws("`modifiers:` expects bare names; got P::Mod. List `P` bare; a role " *
+                     "tag goes on the metabolite in a step.", eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            modifiers: P::Mod
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+                E + P::Mod ⇌ E(P::Mod)
+            end
+        end)))
+        @test_throws("`allosteric_regulators:` expects bare names; got X(2).",
+                     eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: X(2)
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: EqualAI
+            end
+            regulatory_site(2): X::OnlyA
+        end)))
+    end
+
     @testset "@enzyme_mechanism rejects each allosteric-only label" begin
         for line in (:(allosteric_regulators: A),
                      :(catalytic_multiplicity: 2),

@@ -279,13 +279,18 @@ function _parse_labeled_line(arg)
 end
 
 """
-Coerce labeled-line values to bare Symbols. Reject atom brackets and tag
-annotations.
+Coerce labeled-line values to bare Symbols. Reject any other value, with a hint where an
+atom bracket (`S[C]`) or a role tag (`P::Mod`) goes.
 """
 function _bare_symbols_from_values(values, label)
-    all(v -> v isa Symbol, values) ||
-        error("`$label:` expects bare names; got $(join(values, ", ")); " *
-              "atom brackets belong in @enzyme_reaction.")
+    for v in values
+        v isa Symbol && continue
+        hint = !(v isa Expr) ? "" :
+               v.head === :ref ? " Atom brackets belong in @enzyme_reaction." :
+               v.head === :(::) ? " List `$(v.args[1])` bare; a role tag goes on the " *
+                                  "metabolite in a step." : ""
+        error("`$label:` expects bare names; got $(join(values, ", ")).$hint")
+    end
     Symbol[values...]
 end
 
