@@ -69,7 +69,7 @@ a hard constructor error.
 The mechanism also declares **multiplicities**, which capture the enzyme's
 oligomeric state. `catalytic_multiplicity` is the number of identical catalytic
 subunits; it becomes the exponent on each conformation's catalytic partition
-function. Each `regulatory_site(multiplicity = m)` says how many copies of that
+function. Each `regulatory_site(m)` says how many copies of that
 site the oligomer carries, raising the site's binding factor to the power `m`. In
 the example both are `2` — a homodimer with two copies of each regulatory site.
 

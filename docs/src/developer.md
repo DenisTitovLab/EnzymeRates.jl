@@ -113,7 +113,7 @@ off none (`bound_metabolite`, `is_binding`). It is plain when `to_species` is
 conformation free to change (`_binds_ligand`), and fused otherwise, as when the
 last substrate binds straight into the product-bound form
 (`E(A) + B → E(P, Q)`). The `Step` constructor rejects a binding whose forms
-match a plain binding by name but not by role, such as `E + P::Inh ⇌ E(P)`. An
+match a plain binding by name but not by role, such as `E + P::Mod ⇌ E(P)`. An
 isomerization has both lists empty (`is_iso`); a
 Theorell–Chance step takes up one metabolite and gives off another. `_is_chemistry`
 is true for every step but a plain binding; the allosteric moves,

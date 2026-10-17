@@ -14,7 +14,7 @@ This makes the derivation more general than the automatic search. When
 [`@enzyme_mechanism`](@ref), though, can express the full range — competitive,
 non-competitive, and uncompetitive inhibition, essential and non-essential
 activation — simply by choosing which enzyme forms the regulator binds. Declare
-the regulator with `regulators: <name>` and write its binding steps.
+the regulator with `modifiers: <name>` and write its binding steps.
 
 ## A competitive inhibitor
 
