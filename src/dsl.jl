@@ -755,10 +755,10 @@ end
 
 """
 Whether the mechanism macro `block` writes a token of the grammar
-`_parse_mechanism_body` reads and `_raw_mechanism` does not: an `allosteric_regulators:`
-entry with a tag, a `regulatory_site(...)` line with a keyword argument or a
-`begin ... end` body, or a parenthesized single step with a tag. Such a block expands
-through `_parse_mechanism_body`, every other one through `_raw_mechanism`.
+`_parse_mechanism_body` reads and `_raw_mechanism` does not: a `regulatory_site(...)` line
+with a keyword argument or a `begin ... end` body, or a parenthesized single step with a
+tag. Such a block expands through `_parse_mechanism_body`, every other one through
+`_raw_mechanism`.
 """
 function _uses_inhibitor_grammar(block)
     block isa Expr && block.head === :block || return false
@@ -770,7 +770,6 @@ function _uses_inhibitor_grammar(block)
         head isa Expr && head.head === :call && length(head.args) == 3 &&
             head.args[1] === :(:) || continue
         label, values = head.args[2], Any[head.args[3], rest...]
-        label === :allosteric_regulators && any(is_tagged, values) && return true
         if label isa Expr && label.head === :call && label.args[1] === :regulatory_site
             any(a -> a isa Expr && a.head in (:kw, :parameters), label.args[2:end]) &&
                 return true

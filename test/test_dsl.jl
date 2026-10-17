@@ -1426,11 +1426,12 @@ end
                      _testhelper_sites(:(regulatory_site(2): begin
                                              ligands: X, Y
                                          end)))
-        # The allosteric regulators list names; their tags sit on the site lines.
-        @test_throws("@allosteric_mechanism: `allosteric_regulators:` lists names; got " *
-                     "`X::OnlyA`. A ligand's tag goes on its `regulatory_site(n):` line, " *
-                     "as in `regulatory_site(2): X::OnlyA`.",
-                     EnzymeRates._raw_mechanism(quote
+        # The allosteric regulators list names; each tag sits on a site line. A tagged
+        # regulator is rejected whether or not a site line lists it.
+        tagged = "@allosteric_mechanism: `allosteric_regulators:` lists names; got " *
+                 "`X::OnlyA`. A ligand's tag goes on its `regulatory_site(n):` line, as " *
+                 "in `regulatory_site(2): X::OnlyA`."
+        @test_throws tagged eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
             allosteric_regulators: X::OnlyA
@@ -1438,7 +1439,15 @@ end
                 E + S ⇌ E(S)      :: EqualAI
             end
             regulatory_site(2): X::OnlyA
-        end, true))
+        end))
+        @test_throws tagged eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: X::OnlyA
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+            end
+        end))
     end
 
     @testset "allosteric steps carry one tag per statement, plain steps none" begin
