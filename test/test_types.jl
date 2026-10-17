@@ -529,6 +529,15 @@ end
             ER.reaction(cm), ER.steps(cm), [:NonequalAI, :NonequalAI, :NonequalAI, :OnlyA],
             2, ER.RegulatorySite[])
 
+        # A ligand on two regulatory sites → error: both sites would render its Kreg name
+        @test_throws(ErrorException(
+            "AllostericMechanism: ligand A appears in two distinct regulatory sites; " *
+            "rendered Kreg names would collide. Same-ligand-two-sites is not enumerated."),
+            ER.AllostericMechanism(
+                ER.reaction(cm), ER.steps(cm), [:EqualAI, :EqualAI, :EqualAI], 2,
+                [ER.RegulatorySite([ER.AllostericRegulator(:A)], n, [:OnlyA])
+                 for n in (2, 4)]))
+
         # Invalid allo state value → error
         @test_throws ErrorException @allosteric_mechanism begin
             substrates: S
