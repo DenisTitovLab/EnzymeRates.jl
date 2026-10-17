@@ -1037,21 +1037,21 @@
               EnzymeRates.ligands(only(EnzymeRates.regulatory_sites(dual)))
     end
 
-    @testset "X::Inh names a declared competitive inhibitor" begin
-        # A substrate or a product written `X::Inh` must also be listed in
-        # `regulators:`; the reaction then lists it as a competitive inhibitor.
+    @testset "X::Mod names a declared modifier" begin
+        # A substrate or a product written `X::Mod` must also be listed under
+        # `modifiers:`; the reaction then lists it as a competitive inhibitor.
         for x in (:S, :P)
             @test_throws(
-                "@enzyme_mechanism: `$x::Inh` names `$x`, which `regulators:` does " *
-                "not declare; add `$x` to `regulators:` to let it bind the catalytic " *
-                "site as a competitive inhibitor.", eval(:(@enzyme_mechanism begin
+                "@enzyme_mechanism: `$x::Mod` names `$x`, which `modifiers:` does " *
+                "not declare; add `$x` to `modifiers:` to let it bind the catalytic " *
+                "site as a modifier.", eval(:(@enzyme_mechanism begin
                 substrates: S
                 products:   P
                 steps: begin
                     E + S ⇌ E(S)
                     E(S) <--> E(P)
                     E(P) ⇌ E + P
-                    E + $x::Inh ⇌ E($x::Inh)
+                    E + $x::Mod ⇌ E($x::Mod)
                 end
             end)))
         end

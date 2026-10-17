@@ -1485,15 +1485,15 @@ end
         # An isomerization may change how often a name is bound: E(P, S) → E(P, P).
         @test ER.is_iso(ER.Step(_testhelper_sp([P, S]), EPP, ER.Metabolite[],
                                 ER.Metabolite[], false))
-        # The DSL spellings, with P declared as an inhibitor.
-        for (line, from, to) in ((:(E + P::Inh ⇌ E(P)), :E, :EP),
-                                 (:(E(P) ⇌ E + P::Inh), :E, :EP),
-                                 (:(E(P) + P::Inh ⇌ E(P, P)), :EP, :EPP))
+        # The DSL spellings, with P declared as a modifier.
+        for (line, from, to) in ((:(E + P::Mod ⇌ E(P)), :E, :EP),
+                                 (:(E(P) ⇌ E + P::Mod), :E, :EP),
+                                 (:(E(P) + P::Mod ⇌ E(P, P)), :EP, :EPP))
             @test_throws _testhelper_role_change(from, to, :P) eval(
                 :(@enzyme_mechanism begin
                     substrates: S
                     products:   P
-                    regulators: P
+                    modifiers: P
                     steps: begin
                         E + S ⇌ E(S)
                         E(S) <--> E(P)
