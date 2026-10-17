@@ -781,16 +781,16 @@
         end
         @test EnzymeRates.allowed_catalytic_multiplicities(several) == [1, 2, 4]
         # An empty tuple leaves the search no multiplicity.
-        @test_throws(ErrorException("EnzymeReaction: allowed_catalytic_multiplicities " *
-                                    "must be a nonempty list of Ints ≥ 1, got Int64[]"),
-                     @enzyme_reaction begin
+        @test_throws("@enzyme_reaction: `oligomeric_state:` takes one Int or a tuple of " *
+                     "one or more Ints, such as `(1, 2, 4)`; got ().",
+                     eval(:(@enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
             oligomeric_state: ()
-        end)
+        end)))
         # Two values after the label, not one tuple.
-        @test_throws("@enzyme_reaction: `oligomeric_state:` takes one Int or one tuple " *
-                     "such as `(1, 2, 4)`; got 1, 2.", eval(Meta.parse("""
+        @test_throws("@enzyme_reaction: `oligomeric_state:` takes one Int or a tuple of " *
+                     "one or more Ints, such as `(1, 2, 4)`; got 1, 2.", eval(Meta.parse("""
             @enzyme_reaction begin
                 substrates: S[C]
                 products:   P[C]

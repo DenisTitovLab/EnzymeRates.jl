@@ -180,10 +180,10 @@ end
 
 """Parse `(1, 2, 4)` or `4` into `Vector{Int}`."""
 function _parse_multiplicity_tuple(values, label)
-    length(values) == 1 ||
-        error("@enzyme_reaction: `$label:` takes one Int or one tuple such as " *
-              "`(1, 2, 4)`; got $(join(values, ", ")).")
     v = values[1]
+    length(values) == 1 && v != Expr(:tuple) ||
+        error("@enzyme_reaction: `$label:` takes one Int or a tuple of one or more " *
+              "Ints, such as `(1, 2, 4)`; got $(join(values, ", ")).")
     Int[_positive_int(a, "@enzyme_reaction: `$label:` entry")
         for a in (v isa Expr && v.head === :tuple ? v.args : (v,))]
 end
