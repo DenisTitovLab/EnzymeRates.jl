@@ -95,6 +95,62 @@ end
         @test ER.metabolites(m) == (:S, :P, :I)
     end
 
+    @testset "a mechanism names its substrates, products and modifiers" begin
+        # A modifier-only name and a reactant's modifier copy. The concentration order
+        # is substrates, products, then the other modifiers, each by name, as the
+        # compiled mechanism lists them.
+        em = @enzyme_mechanism begin
+            substrates: B, A
+            products: Q, P
+            modifiers: J, A, I
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) ⇌ E + Q
+                E + J ⇌ E(J)
+                E(A) + I ⇌ E(A, I)
+                E(Q) + A::Mod ⇌ E(A::Mod, Q)
+            end
+        end
+        m = ER.Mechanism(em)
+        @test ER.substrates(m) == [:A, :B]
+        @test ER.products(m) == [:P, :Q]
+        @test ER.modifiers(m) == [:A, :I, :J]
+        @test ER.metabolites(m) == [:A, :B, :P, :Q, :I, :J]
+        @test ER.metabolites(em) == (:A, :B, :P, :Q, :I, :J)
+        # A declared modifier that no step binds is no concentration of the mechanism.
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            competitive_inhibitors: K
+        end
+        on_rxn = ER.Mechanism(rxn, ER.steps(ER.Mechanism(_testhelper_re_mm)))
+        @test ER.modifiers(on_rxn) == Symbol[]
+        @test ER.metabolites(on_rxn) == [:S, :P]
+        # An allosteric mechanism lists its site ligands last, site by site; a name that
+        # is both a modifier and a ligand is listed once.
+        am = ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            modifiers: I
+            allosteric_regulators: Y, X, I
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)     :: EqualAI
+                E(S) <--> E(P)   :: OnlyA
+                E(P) ⇌ E + P     :: EqualAI
+                E + I ⇌ E(I)     :: EqualAI
+            end
+            regulatory_site(2): Y::OnlyI
+            regulatory_site(2): X::OnlyA, I::OnlyI
+        end)
+        @test (ER.substrates(am), ER.products(am), ER.modifiers(am)) == ([:S], [:P], [:I])
+        @test ER.metabolites(am) == [:S, :P, :I, :X, :Y]
+        @test Tuple(ER.metabolites(am)) == ER.metabolites(ER.compile_mechanism(am))
+    end
+
     @testset "AllostericEnzymeMechanism lift + DSL" begin
         # Single-ligand :EqualAI reg site is allowed (degenerate but valid —
         # the enumerator won't emit it, but users may write it for teaching).

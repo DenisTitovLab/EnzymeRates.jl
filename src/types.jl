@@ -1261,6 +1261,28 @@ end
 const _AnyMech = Union{Mechanism, AllostericMechanism}
 
 reaction(m::_AnyMech) = m.reaction
+
+"""The names of `m`'s substrates, sorted."""
+substrates(m::_AnyMech) = Symbol[name(x) for x in substrates(reaction(m))]
+
+"""The names of `m`'s products, sorted."""
+products(m::_AnyMech) = Symbol[name(x) for x in products(reaction(m))]
+
+"""Every name `m`'s steps bind as a modifier, a reactant's modifier copy included,
+sorted."""
+modifiers(m::_AnyMech) =
+    sort!(unique!(Symbol[name(x) for group in steps(m) for s in group
+                         for sp in (from_species(s), to_species(s))
+                         for x in bound(sp) if x isa CompetitiveInhibitor]))
+
+# The concentration names of a mechanism in the order its rate law reads them: the
+# substrates, the products, then the other names its steps bind as modifiers, each by
+# name; an allosteric mechanism's site ligands follow, site by site, each once.
+metabolites(m::Mechanism) = unique!([substrates(m); products(m); modifiers(m)])
+metabolites(am::AllostericMechanism) =
+    unique!([substrates(am); products(am); modifiers(am);
+             [name(l) for site in regulatory_sites(am) for l in ligands(site)]])
+
 steps(m::AllostericMechanism) = m.cat_steps
 cat_allo_state(m::AllostericMechanism, g::Int) = m.cat_allo_states[g]
 cat_allo_states(m::AllostericMechanism) = m.cat_allo_states
@@ -1569,8 +1591,7 @@ function Base.show(io::IO, em::EnzymeMechanism)
         print(io, "\n  ", _step_text(s, reaction(m)))
     end
     # The names the steps bind as modifiers, each once.
-    mods = sort!(unique!(Symbol[name(x) for sp in forms for x in bound(sp)
-                                if x isa CompetitiveInhibitor]))
+    mods = modifiers(m)
     isempty(mods) || print(io, " | modifiers: ", join(mods, ", "))
 end
 
@@ -1635,7 +1656,7 @@ julia> metabolites(m)
     # Kept `@generated`: `loss!` uses `metabolites(m)` as a compile-time-constant
     # tuple to build the per-datapoint `NamedTuple{MetNames}` concs on the fitting
     # hot path. A runtime body would make that NamedTuple type-unstable and allocate.
-    Tuple(_metabolite_names(reaction(Mechanism(EnzymeMechanism{Sig}()))))
+    Tuple(metabolites(Mechanism(EnzymeMechanism{Sig}())))
 end
 
 # ─── AllostericEnzymeMechanism Accessors ────────────────────────
