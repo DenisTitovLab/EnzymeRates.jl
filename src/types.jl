@@ -756,10 +756,10 @@ first step; `perm` is that group order (a permutation of 1:length),
 which the caller applies to any data parallel to the groups. The inner sort must
 run BEFORE the outer one so each group's "first step" key reflects the canonical
 inner order. Each key is rendered once per sort. Then reject two distinct forms that
-render one name (`_assert_distinct_form_names`), enforce the kinetic-group
-rules (`_assert_uniform_groups`, `_assert_each_reaction_once`) and reject a
-rapid-equilibrium segment with no bottom form (`_assert_bottomed_re_segments`). The
-returned groups are fresh vectors; the input is not mutated.
+render one name (`_assert_distinct_form_names`) and enforce the kinetic-group rules
+(`_assert_uniform_groups`, `_assert_each_reaction_once`). Whether the groups give a
+defined rate law is the boundary check's question (`_check_well_posed`), not the
+constructors'. The returned groups are fresh vectors; the input is not mutated.
 """
 function _canonical_groups(reaction::EnzymeReaction, groups::Vector{Vector{Step}})
     bad = findfirst(isempty, groups)
@@ -773,26 +773,7 @@ function _canonical_groups(reaction::EnzymeReaction, groups::Vector{Vector{Step}
     _assert_distinct_form_names(reaction, gs)
     _assert_uniform_groups(reaction, gs)
     _assert_each_reaction_once(reaction, gs)
-    _assert_bottomed_re_segments(reaction, gs)
     gs, perm
-end
-
-"""
-Error when a rapid-equilibrium segment of `groups` has no bottom form
-(`_bottomless_re_segment`): its rate is 0/0 where one side's metabolites are absent. The
-mechanism constructors check their groups, and the inactive conformation's derivation
-checks its pruned graph (`_state_rate_polys`).
-"""
-function _assert_bottomed_re_segments(reaction::EnzymeReaction,
-                                      groups::Vector{Vector{Step}})
-    segment = _bottomless_re_segment(reaction, groups)
-    segment === nothing ||
-        error("Mechanism: rapid-equilibrium segment {" *
-              join(_form_label.(segment, Ref(reaction)), ", ") *
-              "} has no form free of one side's " *
-              "metabolites, so its rate is undefined when that side is absent " *
-              "(0/0). Make one of the segment's binding steps steady-state.")
-    nothing
 end
 
 """Whether `n` names a substrate or product of `rxn`."""
@@ -941,38 +922,6 @@ function _assert_each_reaction_once(reaction::EnzymeReaction,
     end
 end
 
-"""
-Error unless every free form of the catalytic steps `cat_steps` (a form with no bound
-metabolite and no residual) lies in one rapid-equilibrium segment of the steps outside
-`:OnlyA` groups. Under formulation 1 the conformations interconvert at a free form.
-Within one such segment, flipping at any of its free forms gives the same model with L
-rescaled; free forms joined any other way flip at different forms in the two
-conformations or leave one stranded in the inactive conformation, a different model.
-"""
-function _assert_one_flip_segment(cat_steps, cat_allo_states)
-    free = sort!([name(f) for f in _forms(cat_steps)
-                  if isempty(bound(f)) && isempty(residual(f))])
-    length(free) <= 1 && return nothing
-    re = [s for (g, group) in enumerate(cat_steps) for s in group
-          if cat_allo_states[g] !== :OnlyA && is_equilibrium(s)]
-    segment, changed = Set([first(free)]), true
-    while changed
-        changed = false
-        for s in re
-            a, b = name(from_species(s)), name(to_species(s))
-            (a in segment) == (b in segment) && continue
-            push!(segment, a, b)
-            changed = true
-        end
-    end
-    all(in(segment), free) || error(
-        "AllostericMechanism: the free forms $(join(free, ", ")) are not joined by " *
-        "rapid-equilibrium steps outside :OnlyA groups. The conformations interconvert " *
-        "at one free form, so the other free forms must be in rapid equilibrium with it: " *
-        "join them by ⇌ steps outside :OnlyA groups, or keep one free form.")
-    nothing
-end
-
 """The distinct enzyme forms of the steps of `groups`, in first-seen order, each step's
 `from_species` before its `to_species`."""
 _forms(groups) =
@@ -1036,14 +985,15 @@ function _re_segment_extras(steps::Vector{Vector{Step}})
 end
 
 """
-    _bottomless_re_segment(rxn, steps) -> Union{Nothing, Vector{Species}}
+    _bottomless_re_segment(m, steps) -> Union{Nothing, Vector{Species}}
 
-The forms of a rapid-equilibrium segment of `steps` whose weights all vanish at zero
-products, or all vanish at zero substrates; `nothing` when no segment does. Each
-metabolite name takes its side from the reactants of `rxn`, so a competitive-inhibitor
-copy, which shares its reactant's name and concentration, counts on that reactant's
-side even in a graph that holds no step taking up or giving off the reactant itself
-(the inactive conformation's pruned graph, `_inactive_groups`).
+The forms of a rapid-equilibrium segment of `steps`, kinetic groups over mechanism `m`'s
+metabolites, whose weights all vanish at zero products, or all vanish at zero
+substrates; `nothing` when no segment does. Each metabolite name takes its side from
+`m`'s substrates and products, so a competitive-inhibitor copy, which shares its
+reactant's name and concentration, counts on that reactant's side even in a graph that
+holds no step taking up or giving off the reactant itself (the inactive conformation's
+pruned graph, `_inactive_groups`).
 
 Within a segment, rapid equilibrium fixes each form's weight relative to any
 other as a monomial in concentrations (one factor per RE binding step on the
@@ -1059,14 +1009,12 @@ segment whose weights vanish only at a corner mixing a substrate and a product
 (a mixed abortive complex, or the ping-pong `E` / `E(; residual)` pair) is
 harmless: no turnover is possible at that corner.
 """
-function _bottomless_re_segment(rxn::EnzymeReaction, steps::Vector{Vector{Step}})
-    side = Dict(name(metabolite(ra)) => typeof(metabolite(ra)) for ra in reactants(rxn))
+function _bottomless_re_segment(m, steps::Vector{Vector{Step}})
     species, segments, extras = _re_segment_extras(steps)
     for segment in segments
         length(segment) < 2 && continue
-        for S in (Product, Substrate)
-            all(i -> any(x -> get(side, x, Nothing) === S, keys(extras[i])),
-                segment) && return species[segment]
+        for side in (products(m), substrates(m))
+            all(i -> any(in(side), keys(extras[i])), segment) && return species[segment]
         end
     end
     nothing
@@ -1161,10 +1109,6 @@ struct AllostericMechanism
             error("AllostericMechanism: ligand $(ligs[dup]) appears in two " *
                   "distinct regulatory sites; rendered Kreg names would " *
                   "collide. Same-ligand-two-sites is not enumerated.")
-        _assert_one_flip_segment(cat_steps, cat_allo_states)
-        violation = _onlya_haldane_violation(reaction, cat_steps, cat_allo_states)
-        violation === nothing ||
-            error("AllostericMechanism: $violation")
         new(reaction, cat_steps, cat_allo_states,
             catalytic_multiplicity, regulatory_sites, _NamingCache())
     end

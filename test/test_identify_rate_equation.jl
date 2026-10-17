@@ -1806,6 +1806,35 @@ end
     @test occursin("= Dict(:N => 1)", failures[1].error)
 end
 
+@testset "_base_tier records a flip child whose rate law is not defined" begin
+    # Every step is rapid equilibrium, so the catalytic cycle E, E(S), E(P), F turns over
+    # at rapid equilibrium: the seed is degenerate and expanded. Its free forms E and F
+    # share one rapid-equilibrium segment through F ⇌ E; the flips that cut the cycle at
+    # F ⇌ E and one more step leave them in two segments, which the boundary check
+    # (`_check_well_posed`) rejects: the conformations interconvert at one free form.
+    ER = EnzymeRates
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    seed = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) ⇌ E(P)       :: EqualAI
+            E(P) ⇌ F + P      :: EqualAI
+            F ⇌ E             :: EqualAI
+        end
+    end)
+    @test ER._degenerate(seed)
+    base, failures = ER._base_tier([seed], rxn)
+    @test isempty(base)
+    @test length(failures) == 1 && failures[1].mech == seed
+    @test occursin("the free forms E, F are not joined by rapid-equilibrium steps " *
+                   "outside :OnlyA groups", failures[1].error)
+end
+
 @testset "_cv_model_selection: flatten reproduces serial LOOCV per candidate" begin
     # Two candidates with distinct equations. A deterministic stub optimizer gives
     # identical fits whether folds run serially or across the flattened (candidate,

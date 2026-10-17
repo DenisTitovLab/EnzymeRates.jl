@@ -212,7 +212,7 @@ end
     @testset "a same-model regrouping keeps every fitted name" begin
         # A split that the cycles tie straight back leaves the count, and so the model,
         # unchanged, and it leaves every fitted name unchanged too (E3). An allosteric
-        # split is built only when the constructor's :OnlyA check accepts it.
+        # split is built only when the boundary check's :OnlyA test accepts it.
         n_plain, n_allo = 0, 0
         for m in _testhelper_population_sample
             names = Set(EnzymeRates._dependent_param_exprs(m)[2])
@@ -222,9 +222,8 @@ end
                 bp in EnzymeRates._context_bipartitions(group)
                 if m isa EnzymeRates.AllostericMechanism
                     parts, origin = EnzymeRates._bipartitioned_groups(groups, [(g, bp)])
-                    EnzymeRates._onlya_haldane_violation(
-                        EnzymeRates.reaction(m), parts,
-                        EnzymeRates.cat_allo_states(m)[origin]) === nothing || continue
+                    isempty(EnzymeRates._onlya_haldane_violation(
+                        m, parts, EnzymeRates.cat_allo_states(m)[origin])) || continue
                 end
                 child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
                 EnzymeRates._independent_param_count(child) == n || continue

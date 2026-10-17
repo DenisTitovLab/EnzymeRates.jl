@@ -90,8 +90,8 @@ keeps that conformation for a full catalytic cycle. The overall rate is then eac
 conformation's catalytic cycle weighted by its free-enzyme population. A hand-written
 mechanism may name a second free form, such as a conformation `F` with `F ⇌ E`, only
 when steps outside `:OnlyA` groups hold it at rapid equilibrium with `E`: flipping at
-either then gives the same model with `L` rescaled. The constructor rejects any other
-second free form, which would flip at different forms in the two conformations.
+either then gives the same model with `L` rescaled. `@allosteric_mechanism` rejects any
+other second free form, which would flip at different forms in the two conformations.
 
 An equivalent statement lets every form interconvert between the A and I states,
 but with a thermodynamically fixed ratio: `L` for the free enzyme, and `L` scaled
@@ -212,8 +212,8 @@ state alone, and the inactive cycle is pruned (`N_I = 0`). Its catalytic step
 **must** be `:OnlyA` too. This is a thermodynamic requirement, not a convention:
 the two conformations share `Keq`, so a ligand that binds only the active state
 (`K_I → ∞`) forces the inactive catalytic rate to zero, and an `:EqualAI` or
-`:NonequalAI` catalytic tag would assert a rate the Haldane relation forbids. The
-constructor rejects the inconsistent combination.
+`:NonequalAI` catalytic tag would assert a rate the Haldane relation forbids.
+`@allosteric_mechanism` rejects the inconsistent combination.
 
 The exception is a balanced K-system. When `:OnlyA` binds both a substrate and a
 product, the two `K_I → ∞` limits cancel in the Haldane relation: the affinities

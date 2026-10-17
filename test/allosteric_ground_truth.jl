@@ -772,8 +772,8 @@ end
             E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
-    # The constructor errors on any `_onlya_haldane_violation`, so building `am`
-    # proves the guard accepts it.
+    # The macro's boundary check (`_check_well_posed`) errors on any
+    # `_onlya_haldane_violation`, so building `err1` proves the guard accepts it.
     am = ER.AllostericMechanism(err1)
 
     _, _, d_free_I = ER._state_rate_polys(am, :I)
@@ -1015,8 +1015,8 @@ end
                   :K_EF16BP_res_plusATP_minusF16BP_to_E_res_plusATP_minusF16BP_F16BP,
                   :k_A_EATP_to_EF16BP_res_plusATP_minusF16BP, :L)
 
-    # The constructor errors on any `_onlya_haldane_violation`, so building `am`
-    # proves the guard accepts it.
+    # The macro's boundary check (`_check_well_posed`) errors on any
+    # `_onlya_haldane_violation`, so building `dead` proves the guard accepts it.
     am = ER.AllostericMechanism(dead)
     _, _, d_free_I = ER._state_rate_polys(am, :I)
     @test ER._poly_to_expr(d_free_I) == 1

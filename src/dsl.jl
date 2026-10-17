@@ -430,8 +430,8 @@ end
 The mechanism a mechanism macro's `begin ... end` block writes, as raw input:
 `@allosteric_mechanism`'s grammar when `allosteric`, else `@enzyme_mechanism`'s. It reads
 the block's expression without evaluating it or building code, and throws the DSL's
-syntax errors; the constructors check the mechanism (`Mechanism(raw)`,
-`AllostericMechanism(raw)`).
+syntax errors; the constructors (`Mechanism(raw)`, `AllostericMechanism(raw)`) and the
+boundary check (`_check_well_posed`) check the mechanism.
 
 `substrates:`, `products:` and `modifiers:` list bare names and may repeat; `steps:`
 holds one `begin ... end` block (`_raw_steps`). `@allosteric_mechanism` adds
@@ -799,9 +799,9 @@ end
     _compiled_mechanism(raw) -> EnzymeMechanism or AllostericEnzymeMechanism
 
 The compiled mechanism of `raw`, the walker's value for a mechanism macro's block
-(`_raw_mechanism`): the macros' expansion calls it, so the constructors check the
-mechanism when the expanded code runs.
+(`_raw_mechanism`): the macros' expansion calls it, so the constructors and the boundary
+check (`_check_well_posed`) check the mechanism when the expanded code runs.
 """
-_compiled_mechanism(raw::RawMechanism) = EnzymeMechanism(Mechanism(raw))
+_compiled_mechanism(raw::RawMechanism) = EnzymeMechanism(_well_posed(Mechanism(raw)))
 _compiled_mechanism(raw::RawAllostericMechanism) =
-    AllostericEnzymeMechanism(AllostericMechanism(raw))
+    AllostericEnzymeMechanism(_well_posed(AllostericMechanism(raw)))

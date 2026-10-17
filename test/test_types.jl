@@ -388,7 +388,7 @@ end
             "  ES <--> EP :: OnlyA\n  reg site 1 (n=3): I, J [I::OnlyI, J::EqualAI]"
     end
 
-    @testset "Mechanism rejects a rapid-equilibrium segment with no bottom form" begin
+    @testset "the macro rejects a rapid-equilibrium segment with no bottom form" begin
         # Random product release from E(P, Q) at rapid equilibrium, but release
         # from E(P) and E(Q) at steady state: the RE segment {E(P), E(Q), E(P, Q)}
         # has weights P·Q : Kq·P : Kp·Q, all zero at P = Q = 0. The RE
@@ -451,8 +451,10 @@ end
             substrates: A[C], B[C]
             products: P[C2]
         end)
-        @test ER._bottomless_re_segment(rxn, inh_steps) !== nothing
-        @test ER._bottomless_re_segment(rxn, reverse(inh_steps)) !== nothing
+        # The constructor checks the representation only, so it builds the mechanism.
+        inh_m = ER.Mechanism(rxn, inh_steps)
+        @test ER._bottomless_re_segment(inh_m, inh_steps) !== nothing
+        @test ER._bottomless_re_segment(inh_m, reverse(inh_steps)) !== nothing
         @test_throws "rapid-equilibrium segment" @enzyme_mechanism begin
             substrates: A, B
             products: P
@@ -511,10 +513,10 @@ end
         # E(B), and from it the copy's bindings. The segment {E(A::Mod), E(A::Mod, B),
         # E(B)} would then have every form carrying A (the copy's concentration is A's)
         # or B, so it would be empty at A = B = 0. F joins E only through that binding,
-        # not in rapid equilibrium, so the constructor rejects the mechanism before its
-        # inactive state is derived. With one free form, a route back into such a segment
-        # closes a cycle whose only :OnlyA step is the binding, which the :OnlyA guard
-        # rejects unless the binding's group also holds chemistry.
+        # not in rapid equilibrium, so the boundary check (`_check_well_posed`) rejects the
+        # mechanism before it reads the inactive state. With one free form, a route back
+        # into such a segment closes a cycle whose only :OnlyA step is the binding, which
+        # the :OnlyA guard rejects unless the binding's group also holds chemistry.
         @test_throws "are not joined by rapid-equilibrium steps outside :OnlyA groups" (
             @allosteric_mechanism begin
                 substrates: A, B
@@ -602,6 +604,33 @@ end
                 F ⇌ E             :: NonequalAI
             end
         end) isa AllostericEnzymeMechanism
+    end
+
+    @testset "the inactive conformation's segments need a bottom form too" begin
+        # The :OnlyA P group holds the fused binding E(Q) + P ⇌ Estar(S), so it is
+        # chemistry and the :OnlyA guard reads no cycle through it. In the active
+        # conformation its plain binding E + P ⇌ E(P) joins E(P), E(P, Q) and E(Q) to free
+        # E at rapid equilibrium, and E is the segment's bottom form. The inactive
+        # conformation lacks the group, reaches those forms only through the steady-state
+        # chemistry and the steady-state Q binding at E, and its segment
+        # {E(Q), E(P, Q), E(P)} holds a product in every form: its rate is 0/0 at zero
+        # products. The boundary check rejects the mechanism when the macro's code runs.
+        @test_throws ErrorException(
+            "Mechanism: rapid-equilibrium segment {EQ, EPQ, EP} has no form free of one " *
+            "side's metabolites, so its rate is undefined when that side is absent " *
+            "(0/0). Make one of the segment's binding steps steady-state.") (
+            @allosteric_mechanism begin
+                substrates: S
+                products: P, Q
+                steps: begin
+                    E + S ⇌ E(S)                               :: EqualAI
+                    E(S) <--> E(P, Q)                          :: EqualAI
+                    E(P, Q) ⇌ E(P) + Q                         :: EqualAI
+                    E(P, Q) ⇌ E(Q) + P                         :: EqualAI
+                    (E + P ⇌ E(P), E(Q) + P ⇌ Estar(S))        :: OnlyA
+                    E + Q <--> E(Q)                            :: EqualAI
+                end
+            end)
     end
 
     @testset "AllostericEnzymeMechanism lift validators" begin
@@ -2562,7 +2591,8 @@ end
 end
 
 @testset "OnlyA Haldane validator" begin
-    # Uni-uni S -> P. Tags: (S binding, chemical step, P binding).
+    # Uni-uni S -> P. Tags: (S binding, chemical step, P binding). The names of the
+    # metabolites the offending :OnlyA groups bind.
     function _testhelper_uni(s_tag, cat_tag, p_tag)
         m = @allosteric_mechanism begin
             substrates: S
@@ -2582,30 +2612,24 @@ end
             tags[g] = bm === nothing ? cat_tag :
                       ER.name(bm) === :S ? s_tag : p_tag
         end
-        (ER.reaction(am), ER.steps(am), tags)
+        [ER.name(ER.bound_metabolite(first(ER.steps(am)[g])))
+         for g in ER._onlya_haldane_violation(am, ER.steps(am), tags)]
     end
 
     # no :OnlyA anywhere -> valid
-    @test ER._onlya_haldane_violation(
-        _testhelper_uni(:EqualAI, :EqualAI, :EqualAI)...) === nothing
-    # :OnlyA on the substrate only, catalysis :EqualAI -> VIOLATION
-    @test ER._onlya_haldane_violation(
-        _testhelper_uni(:OnlyA, :EqualAI, :EqualAI)...) isa String
-    # :OnlyA on the product only, catalysis :EqualAI -> VIOLATION
-    @test ER._onlya_haldane_violation(
-        _testhelper_uni(:EqualAI, :EqualAI, :OnlyA)...) isa String
+    @test isempty(_testhelper_uni(:EqualAI, :EqualAI, :EqualAI))
+    # :OnlyA on the substrate only, catalysis :EqualAI -> VIOLATION by the S binding
+    @test _testhelper_uni(:OnlyA, :EqualAI, :EqualAI) == [:S]
+    # :OnlyA on the product only, catalysis :EqualAI -> VIOLATION by the P binding
+    @test _testhelper_uni(:EqualAI, :EqualAI, :OnlyA) == [:P]
     # :OnlyA on the substrate, catalysis :OnlyA -> the k_I = 0 escape -> valid
-    @test ER._onlya_haldane_violation(
-        _testhelper_uni(:OnlyA, :OnlyA, :EqualAI)...) === nothing
+    @test isempty(_testhelper_uni(:OnlyA, :OnlyA, :EqualAI))
     # balanced: :OnlyA on both sides, catalysis :EqualAI -> valid
-    @test ER._onlya_haldane_violation(
-        _testhelper_uni(:OnlyA, :EqualAI, :OnlyA)...) === nothing
+    @test isempty(_testhelper_uni(:OnlyA, :EqualAI, :OnlyA))
     # V-system: :OnlyA chemical step only -> valid
-    @test ER._onlya_haldane_violation(
-        _testhelper_uni(:EqualAI, :OnlyA, :EqualAI)...) === nothing
+    @test isempty(_testhelper_uni(:EqualAI, :OnlyA, :EqualAI))
     # :NonequalAI catalysis is also a finite-nonzero assertion -> same verdict
-    @test ER._onlya_haldane_violation(
-        _testhelper_uni(:OnlyA, :NonequalAI, :EqualAI)...) isa String
+    @test _testhelper_uni(:OnlyA, :NonequalAI, :EqualAI) == [:S]
 
     # Whether a binding is rapid-equilibrium or steady-state does not change
     # which affinities diverge, so the balanced both-:OnlyA verdict must not
@@ -2637,10 +2661,10 @@ end
         am = ER.AllostericMechanism(m)
         tags = [ER.bound_metabolite(g[1]) === nothing ? :EqualAI : :OnlyA
                 for g in ER.steps(am)]
-        ER._onlya_haldane_violation(ER.reaction(am), ER.steps(am), tags)
+        ER._onlya_haldane_violation(am, ER.steps(am), tags)
     end
-    @test _testhelper_both_bindings_onlya(mixed_uni_re_ss) === nothing
-    @test _testhelper_both_bindings_onlya(mixed_uni_ss_re) === nothing
+    @test isempty(_testhelper_both_bindings_onlya(mixed_uni_re_ss))
+    @test isempty(_testhelper_both_bindings_onlya(mixed_uni_ss_re))
 
     # A random-order binding square contributes a Wegscheider row: rhs = 0 and
     # no k columns. There is no k to zero out, so balance is the only escape and
@@ -2671,15 +2695,21 @@ end
                 key in want ? :OnlyA : :EqualAI
             end
         end
-        _testhelper_verdict(t) = ER._onlya_haldane_violation(ER.reaction(bu_am),
-                                                             ER.steps(bu_am), t)
+        _testhelper_verdict(t) = ER._onlya_haldane_violation(bu_am, ER.steps(bu_am), t)
+        # The group whose first step binds `x` at the form named `free`.
+        _testhelper_group(free, x) = only(
+            g for (g, grp) in enumerate(ER.steps(bu_am))
+            if ER.name(ER.from_species(grp[1])) === free &&
+               ER.bound_metabolite(grp[1]) !== nothing &&
+               ER.name(ER.bound_metabolite(grp[1])) === x)
 
         # the square alone trips nothing: no :OnlyA anywhere -> valid
-        @test _testhelper_verdict(_testhelper_tags()) === nothing
+        @test isempty(_testhelper_verdict(_testhelper_tags()))
         # one square edge :OnlyA -> VIOLATION (unbalanced in the square and
-        # in the Haldane row)
-        @test _testhelper_verdict(_testhelper_tags((:E, :A))) isa String
-        # ...and the constructor rejects that tagging with the full message
+        # in the Haldane row), by that edge's group
+        @test _testhelper_verdict(_testhelper_tags((:E, :A))) ==
+              [_testhelper_group(:E, :A)]
+        # ...and the macro's boundary check rejects that tagging with the full message
         lone_onlya = ErrorException(
             "AllostericMechanism: an :OnlyA binding (K_EA_to_E_A) leaves a " *
             "thermodynamic (Haldane/Wegscheider) cycle unsatisfiable: the inactive " *
@@ -2701,16 +2731,17 @@ end
         end
         # both A-side bindings :OnlyA balances the square, but the Haldane row
         # is still unbalanced against P -> VIOLATION
-        @test _testhelper_verdict(_testhelper_tags((:E, :A), (:EB, :A))) isa String
+        @test !isempty(_testhelper_verdict(_testhelper_tags((:E, :A), (:EB, :A))))
         # ...and :OnlyA on P balances the Haldane row too -> valid
-        @test _testhelper_verdict(
-            _testhelper_tags((:E, :A), (:EB, :A), (:E, :P))) === nothing
+        @test isempty(_testhelper_verdict(
+            _testhelper_tags((:E, :A), (:EB, :A), (:E, :P))))
         # :OnlyA on the chemical step drops that group, killing the Haldane row
         # and leaving only the square, whose lone :OnlyA edge is unbalanced ->
         # VIOLATION. A keep filter that dropped *every* :OnlyA group rather than
         # only the is_iso ones would drop the square edge as well and wrongly
         # report valid.
-        @test _testhelper_verdict(_testhelper_tags((:EAB, nothing), (:E, :A))) isa String
+        @test _testhelper_verdict(_testhelper_tags((:EAB, nothing), (:E, :A))) ==
+              [_testhelper_group(:E, :A)]
     end
 end
 
@@ -2822,8 +2853,7 @@ end
     end
     am = ER.AllostericMechanism(pingpong)
     @test am isa ER.AllostericMechanism
-    @test ER._onlya_haldane_violation(ER.reaction(am), ER.steps(am),
-                                      ER.cat_allo_states(am)) === nothing
+    @test isempty(ER._onlya_haldane_violation(am, ER.steps(am), ER.cat_allo_states(am)))
 end
 
 @testset ":OnlyA guard reads cycles past an abortive segment it strands" begin
@@ -2997,6 +3027,42 @@ end
                                                 EnzymeRates.regulatory_sites(am))
     @test EnzymeRates.reaction(am_on_rxn) != EnzymeRates.reaction(am)
     @test am_on_rxn == am && hash(am_on_rxn) == hash(am)
+end
+
+@testset "every derivation entry checks that the rate law is defined" begin
+    # Random product release at rapid equilibrium between steady-state releases leaves
+    # the segment {E(P), E(P, Q), E(Q)} without a bottom form, so the rate is 0/0 at zero
+    # products. The macro's boundary check (`_check_well_posed`) rejects the mechanism.
+    # The constructor checks the representation only, so it builds the mechanism from
+    # the walker's raw value, and the mechanism compiles; every derivation entry then
+    # rejects it with the same message.
+    raw = EnzymeRates._raw_mechanism(:(begin
+        substrates: S
+        products: P, Q
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P, Q)
+            E(P, Q) ⇌ E(Q) + P
+            E(P, Q) ⇌ E(P) + Q
+            E(P) <--> E + P
+            E(Q) <--> E + Q
+        end
+    end), false)
+    msg = ErrorException(
+        "Mechanism: rapid-equilibrium segment {EP, EPQ, EQ} has no form free of one " *
+        "side's metabolites, so its rate is undefined when that side is absent (0/0). " *
+        "Make one of the segment's binding steps steady-state.")
+    @test_throws msg EnzymeRates._compiled_mechanism(raw)
+    m = EnzymeRates.Mechanism(raw)
+    em = EnzymeRates.compile_mechanism(m)
+    @test_throws msg parameters(em)
+    @test_throws msg EnzymeRates.fitted_params(em)
+    @test_throws msg rate_equation(em, (S = 1.0, P = 1.0, Q = 1.0),
+                                   (Keq = 1.0, E_total = 1.0))
+    @test_throws msg rate_equation_string(em)
+    @test_throws msg all_parameters(em, (Keq = 1.0,))
+    @test_throws msg all_parameters(m, (Keq = 1.0,))
+    @test_throws msg EnzymeRates._ss_rate_constant_names(em)
 end
 
 """A raw-input value of each type: a metabolite, a form with a residual, a step, a

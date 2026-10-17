@@ -1301,7 +1301,7 @@ end
     # ring E–E(P)–E(P, Q)–E(Q)–E needs two cuts to raise the segment count, so
     # every pair of ring edges gains. Cutting the two edges at E ({P@E, Q@E})
     # would leave {E(P), E(Q), E(P, Q)} with no bottom form — a mechanism the
-    # constructor rejects — so that pair counts as failed and is not emitted.
+    # boundary check rejects — so that pair counts as failed and is not emitted.
     # Its supersets are reached by one more flip from the other pairs' children.
     # The two pairs at E(P) and at E(Q) isolate one form joined to the rest by two
     # edges of stored weights −1 and +1, whose 2-cycle sums to 0 (a balanced block):
@@ -2847,7 +2847,7 @@ end
           Set([others; a_by_p; p_by_b])
 end
 
-@testset "AllostericMechanism — a split the constructor would reject gains nothing" begin
+@testset "AllostericMechanism — a split the boundary check would reject gains nothing" begin
     # Merged random-order bi-bi with the abortive complex E(A, Q). The steady-state A group
     # binds A at E and, fused, at E(B) into E(P, Q). An :OnlyA group holding a fused binding
     # is chemistry: its inactive rate constants vanish, their ratio is free to close any
@@ -2855,7 +2855,7 @@ end
     # out. Split by B, the group leaves E + A alone, a plain :OnlyA binding that the check
     # keeps, on the cycle E, E(A), E(A, Q), E(Q), whose other steps bind A and Q in both
     # conformations (:EqualAI). The inactive conformation cannot close that cycle, so the
-    # constructor rejects the child. The move tests each candidate with the same check
+    # boundary check rejects the child. The move tests each candidate with the same check
     # before building it, so this split gains nothing, and the A group, steady state, gives
     # the search no partner to extend it with. Splitting the B group gains nothing either:
     # the square E, E(A), E(P, Q), E(B), closed by the shared A group, ties the new K back.
@@ -2936,14 +2936,14 @@ end
     # thermodynamic check leaves it out. Split by I, it leaves E(I) + A alone, a plain
     # :OnlyA binding on the cycle E, E(I), E(A, I), E(A), E(A, P), E(P), whose two I
     # bindings share the :OnlyA I group and cancel, and whose other steps are :EqualAI, so
-    # the constructor rejects that child. Splitting the I group by A as well gives E + I and
-    # E(A) + I exponents of their own, of opposite sign on that cycle, which balances it:
-    # the pair is a valid child with two constants more. The I split alone gains nothing,
-    # its new K tied back by the square E, E(A), E(A, I), E(I) that the shared A group
-    # closes. The A group is steady state, so it has no rapid-equilibrium partner, and the
-    # move reaches the pair because it extends a rejected set by the splits of every :OnlyA
-    # group. The other four children split the P group (by Q, by A) and the Q group (by P,
-    # by B).
+    # the boundary check rejects that child. Splitting the I group by A as well gives E + I
+    # and E(A) + I exponents of their own, of opposite sign on that cycle, which balances
+    # it: the pair is a valid child with two constants more. The I split alone gains
+    # nothing, its new K tied back by the square E, E(A), E(A, I), E(I) that the shared A
+    # group closes. The A group is steady state, so it has no rapid-equilibrium partner, and
+    # the move reaches the pair because it extends a rejected set by the splits of every
+    # :OnlyA group. The other four children split the P group (by Q, by A) and the Q group
+    # (by P, by B).
     am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -3068,25 +3068,24 @@ end
           Set([others; a_by_i_and_i_by_a; p_by_q; p_by_a; q_by_p; q_by_b])
 end
 
-@testset "AllostericMechanism — the split's :OnlyA check agrees with the constructor" begin
+@testset "AllostericMechanism — the split's :OnlyA test agrees with _check_well_posed" begin
     # An aggregate check over the bi-bi seed set (the exception to writing every fixture
     # inline): each split child of a seed lifted to its allosteric variants, one parent in
     # ten. Lifting tags :OnlyA every group holding a chemistry step, plain bindings that
     # share a fused binding's constants included, and a split can then leave such a plain
     # binding :OnlyA on a cycle the inactive conformation cannot close. The move tests a
-    # candidate's groups with `_onlya_haldane_violation`, the constructor's own check,
+    # candidate's groups with `_onlya_haldane_violation`, the boundary check's own test,
     # before it builds the child. On every split of one group and of two, with parts made
     # as the move makes them (zero-flux parts at rapid equilibrium, bottomless candidates
-    # skipped), the check passes exactly when the constructor accepts the child, and the
-    # move expands every parent.
+    # skipped), the check passes exactly when the boundary check (`_check_well_posed`)
+    # accepts the built child, and the move expands every parent.
     parents = unique(EnzymeRates.AllostericMechanism[
         a for m in EnzymeRates.init_mechanisms(bi_bi_rxn)
         for c in EnzymeRates._expand_split_kinetic_group(m)
         for a in EnzymeRates._expand_to_allosteric(c, bi_bi_rxn)])[1:10:end]
     accepted = rejected = 0
     for am in parents
-        rxn, groups, states = EnzymeRates.reaction(am), EnzymeRates.steps(am),
-                              EnzymeRates.cat_allo_states(am)
+        groups, states = EnzymeRates.steps(am), EnzymeRates.cat_allo_states(am)
         flux = EnzymeRates._flux_carrying_steps(groups, am)
         units = [(g, EnzymeRates._revert_zero_flux_parts(groups[g], bp, flux[g]))
                  for g in eachindex(groups)
@@ -3095,11 +3094,11 @@ end
                     [[u, v] for u in eachindex(units) for v in u+1:length(units)
                      if units[u][1] != units[v][1]]]
             gs, origin = EnzymeRates._bipartitioned_groups(groups, units[sel])
-            EnzymeRates._bottomless_re_segment(rxn, gs) === nothing || continue
-            passes =
-                EnzymeRates._onlya_haldane_violation(rxn, gs, states[origin]) === nothing
+            EnzymeRates._bottomless_re_segment(am, gs) === nothing || continue
+            passes = isempty(EnzymeRates._onlya_haldane_violation(am, gs, states[origin]))
             built = try
-                EnzymeRates._apply_bipartitions(am, units[sel])
+                child = EnzymeRates._apply_bipartitions(am, units[sel])
+                EnzymeRates._check_well_posed(child)
                 true
             catch e
                 occursin("leaves a thermodynamic", sprint(showerror, e)) || rethrow()
@@ -9905,7 +9904,7 @@ end
         # joined through its sibling, so nothing flips one part by itself; C, P, Q
         # and R still flip alone. Of the six pairs, {A1, B1} cuts both binding edges
         # at E and E(C) and leaves {E(A), E(B), E(A, B), E(A, C), E(B, C), E(A, B, C)}
-        # as a segment with no substrate-free form, which the constructor rejects.
+        # as a segment with no substrate-free form, which the boundary check rejects.
         # {A1, B2} isolates {E(A), E(A, C)}: its four edges to the rest all have
         # weight 1 inward (A uptake) and −1 outward (B uptake against the +2 offset
         # of E(A, B)), so every cycle through them is balanced and the pair carries
@@ -11372,6 +11371,38 @@ end
     end)
     @test EnzymeRates._assert_emission_rules(no_gauge) === nothing
     @test !isempty(EnzymeRates.expand_mechanisms([no_gauge], rxn))
+end
+
+@testset "expand_mechanisms checks that every child's rate law is defined" begin
+    # Random product release at rapid equilibrium between steady-state releases leaves
+    # the segment {E(P), E(P, Q), E(Q)} without a bottom form. The macro rejects such a
+    # mechanism; the constructor, which checks the representation only, builds it from
+    # the walker's raw value. Its dead-end children keep the segment, the first of them
+    # with the copy's complex E(I, Q) in it, and `expand_mechanisms` rejects them
+    # (`_check_well_posed`) instead of returning them.
+    rxn = @enzyme_reaction begin
+        substrates: S[C2]
+        products: P[C], Q[C]
+        competitive_inhibitors: I
+    end
+    parent = EnzymeRates.Mechanism(EnzymeRates._raw_mechanism(:(begin
+        substrates: S
+        products: P, Q
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P, Q)
+            E(P, Q) ⇌ E(Q) + P
+            E(P, Q) ⇌ E(P) + Q
+            E(P) <--> E + P
+            E(Q) <--> E + Q
+        end
+    end), false))
+    @test !isempty(EnzymeRates._expand_add_dead_end_regulator(parent, rxn))
+    @test_throws ErrorException(
+        "Mechanism: rapid-equilibrium segment {EQ, EIQ, EPQ, EP} has no form free of one " *
+        "side's metabolites, so its rate is undefined when that side is absent (0/0). " *
+        "Make one of the segment's binding steps steady-state.") (
+        EnzymeRates.expand_mechanisms([parent], rxn))
 end
 
 @testset "_expand_add_dead_end_regulator: inhibitor mirrors one half-reaction" begin

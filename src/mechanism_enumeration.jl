@@ -429,7 +429,7 @@ metabolite's binding steps, or a catalytic step from its inhibitor-bound
 mirror. A flip that leaves the segment count unchanged adds an SS step whose
 endpoints share a segment, which the rate equation never sees. A flip set
 that leaves a rapid-equilibrium segment with no bottom form
-(`_bottomless_re_segment`, which the constructor rejects) also counts as
+(`_bottomless_re_segment`, which the boundary check rejects) also counts as
 failed, so the minimal-set search extends it instead of emitting it; so does
 a set one of whose flipped groups carries no flux in the child
 (`_flux_carrying_groups` on the flipped groups): the child is its parent plus
@@ -523,7 +523,7 @@ function _minimal_flips(admissible, base::Vector{Vector{Step}}, m::_AnyMech,
              if all(is_equilibrium, base[g]) && flux[g] && eligible(g)]
     flipped(sel) = (gs = copy(base); gs[units[sel]] = steady[units[sel]]; gs)
     passes(sel) = (gs = flipped(sel);
-                   admissible(gs) && _bottomless_re_segment(reaction(m), gs) === nothing &&
+                   admissible(gs) && _bottomless_re_segment(m, gs) === nothing &&
                    all(_flux_carrying_groups(gs, m)[units[sel]]))
     [flipped(sel) for sel in _minimal_gaining_sets(passes, _ -> 1:length(units))]
 end
@@ -989,7 +989,7 @@ end
 
 """Number of rapid-equilibrium segments (connected components of the RE subgraph) of
 `groups`, by a union-find over the forms. The flip move measures each candidate on its
-groups, so a candidate the constructors would reject is never constructed."""
+groups, so it builds only the candidates that pass."""
 function _re_segment_count(groups::Vector{Vector{Step}})
     index = Dict{Species, Int}()
     parent = Int[]
@@ -1053,9 +1053,9 @@ step of the split groups: a tie needs an RE cycle through the carve, and every
 group on that cycle lies in that segment. The count is evaluated without building the child
 for a `Mechanism` (`_partition_independent_count`, cycle basis once per parent)
 and by the joint solve on the built child for an `AllostericMechanism`,
-where a candidate the constructor would reject (`_onlya_haldane_violation`) is not built
-and gains nothing (`_split_gain_test`).
-A candidate the constructor would reject also takes as partners the units of every
+where a candidate the boundary check would reject (`_onlya_haldane_violation`) is not
+built and gains nothing (`_split_gain_test`).
+A candidate the boundary check would reject also takes as partners the units of every
 `:OnlyA` group: only a split of an `:OnlyA` group changes that check, and the split that
 balances the candidate's cycle may share no rapid-equilibrium segment with it.
 A part of a steady-state group none of whose steps carries flux
@@ -1087,7 +1087,7 @@ function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
     gain, balancers = _split_gain_test(m, units)
     gains(sel) =
         (!any(u -> reverted[u], sel) ||
-         _bottomless_re_segment(reaction(m), _bipartitioned_groups(groups, units[sel])[1])
+         _bottomless_re_segment(m, _bipartitioned_groups(groups, units[sel])[1])
          === nothing) && gain(sel)
     # RE segment ids touched by each kinetic group's steps; empty for a group holding an
     # SS step, which lies on no RE cycle and so never partners a set that does not gain.
@@ -1111,11 +1111,11 @@ end
 
 """Gain test for the split move: `(gains, balancers)`. `gains(sel)` is true when applying
 the selected units raises the independent-parameter count above the parent's.
-`balancers(sel)` lists the extra partners of a set whose child the `AllostericMechanism`
-constructor would reject; a `Mechanism` has no such check, so it lists none. A unit's
-steps are matched to the parent's flat steps by reaction (forms and metabolite lists),
-since a reverted part carries the other flag; each step is counted under the kind it has
-in the child."""
+`balancers(sel)` lists the extra partners of a set whose child the boundary check would
+reject for an `:OnlyA` binding; a `Mechanism` has no `:OnlyA` group, so it lists none. A
+unit's steps are matched to the parent's flat steps by reaction (forms and metabolite
+lists), since a reverted part carries the other flag; each step is counted under the kind
+it has in the child."""
 function _split_gain_test(m::Mechanism, units)
     counter = _partition_independent_count(m)
     flat = _flat_steps(m)
@@ -1141,11 +1141,11 @@ end
 """
 Gain test of the split move for an allosteric mechanism, which counts each candidate on the
 built child by the joint solve (`_independent_param_count`); it derives no rate
-polynomial. The `AllostericMechanism` constructor rejects a candidate whose `:OnlyA`
+polynomial. The boundary check (`_check_well_posed`) rejects a mechanism whose `:OnlyA`
 binding leaves a thermodynamic cycle unsatisfiable, and a split can make one: the check
 leaves out an `:OnlyA` group that holds a fused binding but keeps a part of it that holds
-only plain bindings. Each candidate's groups and tags therefore go through the constructor's
-own check (`_onlya_haldane_violation`) before the child is built. A rejected candidate gains
+only plain bindings. Each candidate's groups and tags therefore go through that check
+(`_onlya_haldane_violation`) before the child is built. A rejected candidate gains
 nothing, and the search extends it like any set that does not gain and also by the units
 of every `:OnlyA` group (`balancers`, the second function returned): only a split of an
 `:OnlyA` group changes the check, and splitting another `:OnlyA` group on the cycle can
@@ -1158,7 +1158,7 @@ function _split_gain_test(am::AllostericMechanism, units)
     function gains(sel)
         groups, origin = _bipartitioned_groups(steps(am), units[sel])
         states = cat_allo_states(am)[origin]
-        _onlya_haldane_violation(reaction(am), groups, states) === nothing ||
+        isempty(_onlya_haldane_violation(am, groups, states)) ||
             (push!(rejected, sel); return false)
         _independent_param_count(_with(am; groups, states)) > base
     end
@@ -1628,8 +1628,7 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     for sel in _subsets(findall(!, chem))[2:end]
         tags = copy(vtags)
         tags[sel] .= :OnlyA
-        _onlya_haldane_violation(reaction(m), steps(m), tags) === nothing &&
-            push!(ktags, tags)
+        isempty(_onlya_haldane_violation(m, steps(m), tags)) && push!(ktags, tags)
     end
     results = AllostericMechanism[]
     for cn in cns
@@ -1784,7 +1783,7 @@ function _expand_change_allo_state(am::AllostericMechanism)
     for gs in relaxations
         new_states = copy(states)
         new_states[gs] .= :NonequalAI
-        _onlya_haldane_violation(reaction(am), cs, new_states) === nothing || continue
+        isempty(_onlya_haldane_violation(am, cs, new_states)) || continue
         push!(results, _with(am; states = new_states))
     end
     for (si, site) in enumerate(regulatory_sites(am)), li in eachindex(ligands(site))
@@ -1919,7 +1918,10 @@ merge regulatory sites) to each input mechanism and return the children as
 a flat vector. Bucketing by parameter count is the caller's job, not
 enumeration's. Each parent must satisfy the two emission rules
 (`_assert_emission_rules`): every steady-state group carries flux and no
-competitive-inhibitor group is redundant (`_redundant_copy_groups`).
+competitive-inhibitor group is redundant (`_redundant_copy_groups`). Every child that
+passes the regulator-type filter must conserve atoms (`_assert_atom_conserving`) and give
+a defined rate law (`_check_well_posed`); either check errors on the first child that
+fails it.
 """
 function expand_mechanisms(
     mechs::Vector{<:Union{Mechanism, AllostericMechanism}},
@@ -1939,6 +1941,7 @@ function expand_mechanisms(
     filter!(c -> _respects_reg_type(c, rxn), result)
     for child in result
         _assert_atom_conserving(child, rxn)
+        _check_well_posed(child)
     end
     result
 end
@@ -1959,7 +1962,8 @@ enumeration respects `shared_catalytic_site`. The variants of each seed
 (`_seed_variants`) follow in the seeds' order, each once. The parameter counts
 are mixed: a three-group merged variant or a decorated Theorell–Chance variant
 fits more parameters than its seed, a merged ping-pong variant fewer. Errors when
-the reaction has no catalytic topology.
+the reaction has no catalytic topology, and when a mechanism it returns gives no defined
+rate law (`_check_well_posed`).
 """
 function init_mechanisms(r::EnzymeReaction)
     seeds = _expand_substrate_product_dead_ends(_catalytic_topologies(r), r)
@@ -1970,6 +1974,7 @@ function init_mechanisms(r::EnzymeReaction)
     for m in unique(mechs), v in _seed_variants(m, r)
         v in seen || (push!(seen, v); push!(out, v))
     end
+    foreach(_check_well_posed, out)
     out
 end
 
@@ -2004,7 +2009,8 @@ Returned deduped (each node is visited once). Explored as a wave-parallel BFS:
 each level's child generation is distributed via `pmap`, then deduped and
 folded back into the next frontier in frontier order — the same order the
 serial FIFO BFS would enqueue in — so the result is byte-identical to a serial
-traversal. Errors when no mechanism binds every required regulator.
+traversal. Errors when no mechanism binds every required regulator, and when a seed it
+returns gives no defined rate law (`_check_well_posed`).
 """
 function seed_mechanisms(rxn::EnzymeReaction, required_allo::Set{Symbol},
                          required_comp::Set{Symbol})
@@ -2049,6 +2055,7 @@ function seed_mechanisms(rxn::EnzymeReaction, required_allo::Set{Symbol},
               "optional with `optional_competitive_inhibitors` or " *
               "`optional_allosteric_regulators`, or remove its declaration")
     end
+    foreach(_check_well_posed, seeds)
     seeds
 end
 

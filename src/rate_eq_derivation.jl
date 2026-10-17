@@ -67,7 +67,8 @@ julia> all_parameters(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0
 """
 function all_parameters(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism},
                         params::NamedTuple)
-    dep, indep = _dependent_param_exprs(m isa AbstractEnzymeMechanism ? _concrete(m) : m)
+    dep, indep = _dependent_param_exprs(m isa AbstractEnzymeMechanism ? typeof(m) :
+                                        _well_posed(m))
     absent = [k for k in (indep..., :Keq) if !haskey(params, k)]
     isempty(absent) || error("all_parameters: params must hold every name of " *
                              "parameters(m) except E_total; it lacks " *
@@ -535,7 +536,7 @@ included. `_scale_rate_constants` scales exactly these, leaving the rapid-equili
 constants, `Keq`, `E_total`, `L` and the regulator constants alone.
 """
 function _ss_rate_constant_names(@nospecialize(em::AbstractEnzymeMechanism))
-    m = _concrete(em)
+    m = _derivation_input(typeof(em))
     states = m isa Mechanism ? (:None,) : (:A, :I)
     Set{Symbol}(n for st in states
                 for ((s, _), ns) in zip(_flat_steps(_state_groups(m, st)),
@@ -618,13 +619,12 @@ The rate polynomials of `am`'s catalytic graph in conformation `state` (`:A` or 
 in that state's names (`_step_names`): the active conformation on the full graph, the
 inactive one on its pruned graph (`_inactive_groups`), each step in `am`'s stored
 direction. King–Altman on the pruned graph derives the inactive conformation's binding
-partition, and for a dead cycle its steady-state fluxes cancel, so `num` is 0. The
-inactive graph is checked for a rapid-equilibrium segment with no bottom form
-(`_assert_bottomed_re_segments`), as the mechanism constructors check the full graph.
+partition, and for a dead cycle its steady-state fluxes cancel, so `num` is 0. Every
+derivation entry first runs the boundary check (`_check_well_posed`), which rejects a
+rapid-equilibrium segment with no bottom form in either graph.
 """
 function _state_rate_polys(am::AllostericMechanism, state::Symbol)
     groups = _state_groups(am, state)
-    state === :I && _assert_bottomed_re_segments(reaction(am), groups)
     _raw_symbolic_rate_polys(am, groups, _step_names(am, state))
 end
 

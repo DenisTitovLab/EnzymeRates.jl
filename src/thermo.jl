@@ -330,8 +330,8 @@ independent or dependent, under the name of its kept member (`_kept_members`):
 
 Columns outside the law (an `:OnlyA` step's inactive copy, an inactive copy on a pruned
 form) are eliminated first, so no dependent of the law reads them; a pivot that is not
-its class's kept member equals the kept one and adds no entry. The `Type` method lifts a
-compiled mechanism with `_concrete`.
+its class's kept member equals the kept one and adds no entry. The `Type` method decodes
+a compiled mechanism and checks that its rate law is defined (`_derivation_input`).
 
 Errors when two constants of the law, regulator constants included, render one name,
 which the law would read as one constant: with a conformation labelled `A`, the uptake
@@ -368,7 +368,7 @@ function _dependent_param_exprs(m::_AnyMech)
 end
 
 _dependent_param_exprs(@nospecialize(M::Type{<:AbstractEnzymeMechanism})) =
-    _dependent_param_exprs(_concrete(M()))
+    _dependent_param_exprs(_derivation_input(M))
 
 """Number of independent (fitted) constants of a concrete mechanism, from the joint solve,
 without compiling the mechanism."""
@@ -432,12 +432,11 @@ function _integer_nullspace(A::Matrix{Int})
     result
 end
 
-_thermodynamic_constraints(mech::Mechanism) =
-    _thermodynamic_constraints(mech.reaction, steps(mech))
+_thermodynamic_constraints(mech::Mechanism) = _thermodynamic_constraints(mech, steps(mech))
 
-function _thermodynamic_constraints(rxn::EnzymeReaction, groups::Vector{Vector{Step}})
+function _thermodynamic_constraints(m::_AnyMech, groups::Vector{Vector{Step}})
     flat = _flat_steps(groups)
-    ras = reactants(rxn)
+    reactant_names = [substrates(m); products(m)]
 
     # Enzyme incidence matrix (rows = enzyme forms in first-seen step-walk order)
     form = Dict{Symbol, Int}()
@@ -459,17 +458,14 @@ function _thermodynamic_constraints(rxn::EnzymeReaction, groups::Vector{Vector{S
     # that double-counts metabolites already accounted for by the
     # binding/release steps and inflates the cycle's net change (e.g.
     # 1/Keq -> 1/Keq^2).
-    met_idx = Dict(name(metabolite(ra)) => i for (i, ra) in enumerate(ras))
-    stoich_mat = zeros(Int, length(ras), length(flat))
+    met_idx = Dict(x => i for (i, x) in enumerate(reactant_names))
+    stoich_mat = zeros(Int, length(reactant_names), length(flat))
     for (j, (s, _)) in enumerate(flat), (mets, sgn) in ((consumed(s), -1), (released(s), 1))
-        for m in mets
-            haskey(met_idx, name(m)) && (stoich_mat[met_idx[name(m)], j] += sgn)
+        for x in mets
+            haskey(met_idx, name(x)) && (stoich_mat[met_idx[name(x)], j] += sgn)
         end
     end
-    nu_net = zeros(Int, length(ras))
-    for ra in ras
-        nu_net[met_idx[name(metabolite(ra))]] += metabolite(ra) isa Substrate ? -1 : 1
-    end
+    nu_net = [x in substrates(m) ? -1 : 1 for x in reactant_names]
 
     # Classify each null-space cycle as Haldane (proportional to the
     # net reaction → contributes log(Keq)) or Wegscheider (closed
@@ -579,20 +575,31 @@ function _has_strict_positive_combination(N::AbstractMatrix{Rational{BigInt}})
     true
 end
 
-_onlya_violation_message(offenders) =
-    "an :OnlyA binding ($(join(offenders, ", "))) leaves a " *
+"""
+The error text for the offending `:OnlyA` binding groups `groups` of `am`
+(`_onlya_haldane_violation`), each named by its constant in `am`'s plain catalytic
+mechanism: its first step's slot-1 constant without a state tag, which takes the name of
+the group's active-class kept member.
+"""
+function _onlya_violation_message(am::AllostericMechanism, groups::Vector{Int})
+    labels = sort!([string(name(first(_step_constants(first(steps(am)[g]), :None)), am))
+                    for g in groups])
+    "an :OnlyA binding ($(join(labels, ", "))) leaves a " *
     "thermodynamic (Haldane/Wegscheider) cycle unsatisfiable: the " *
     "inactive conformation cannot close that cycle at finite nonzero " *
     "affinity. Tag the cycle's chemical step :OnlyA, or tag an " *
     "opposing binding :OnlyA so the affinities diverge together."
+end
 
 """
-    _onlya_haldane_violation(rxn, cat_steps, cat_allo_states)
-        → Union{Nothing, String}
+    _onlya_haldane_violation(m, cat_steps, cat_allo_states) → Vector{Int}
 
-Return `nothing` when every catalytic thermodynamic cycle's Haldane relation
-stays satisfiable under the `K_I = K_A/ε`, `ε → 0⁺` limit an `:OnlyA` binding
-asserts; otherwise return a message naming the offending `:OnlyA` bindings.
+The `:OnlyA` binding groups of `cat_steps`, kinetic groups over mechanism `m`'s
+metabolites tagged `cat_allo_states`, that leave a catalytic thermodynamic cycle's
+Haldane relation unsatisfiable under the `K_I = K_A/ε`, `ε → 0⁺` limit an `:OnlyA`
+binding asserts; empty when every cycle stays satisfiable. The boundary check
+(`_check_well_posed`) names them in its error (`_onlya_violation_message`); the moves read
+only whether any group offends.
 
 A cycle's Haldane carries `∏ε_p/∏ε_s` on the inactive side. The `ε` are
 independent, so that monomial can be held finite only when its exponents
@@ -608,9 +615,9 @@ a cycle running through one never appears and never reports a violation: that
 free `k_I` ratio is the escape. The `:OnlyA` bindings are the `:OnlyA` groups of
 plain bindings alone; a fused binding tagged `:OnlyA` is chemistry and leaves the
 graph. The check graph is read for its cycles only, so the kept groups enter as
-stored, not as a `Mechanism`: dropping a group that mixes a fused binding with
+stored, not as a mechanism: dropping a group that mixes a fused binding with
 abortive bindings can leave abortive complexes in a rapid-equilibrium segment with
-no bottom form, which the `Mechanism` constructor rejects (`_bottomless_re_segment`).
+no bottom form, which the boundary check rejects (`_bottomless_re_segment`).
 Bindings completing no cycle (competitive inhibitors, dead ends, regulator
 sites) never enter a row and take no part. Both catalytic (Haldane) and
 binding-only (Wegscheider, `rhs = 0`) cycle rows are inspected, so a one-sided
@@ -632,34 +639,26 @@ that row of the cycle basis (`_thermodynamic_constraints`), for RE and SS
 bindings alike: an RE binding's `1/Kd` and an SS binding's `kon/koff` both enter
 the cycle's product raised to the step's entry, so a cycle that mixes the two step
 kinds reads its signs on one scale and a balanced pair is accepted.
-
-Names the offending bindings through the plain `Mechanism` of `cat_steps`; it must
-not construct an `AllostericMechanism`, whose constructor calls it.
 """
-function _onlya_haldane_violation(rxn::EnzymeReaction,
-                                  cat_steps::Vector{Vector{Step}},
+function _onlya_haldane_violation(m::_AnyMech, cat_steps::Vector{Vector{Step}},
                                   cat_allo_states::Vector{Symbol})
     onlya(g) = cat_allo_states[g] === :OnlyA
     keep = [g for g in eachindex(cat_steps)
             if !(onlya(g) && any(_is_chemistry, cat_steps[g]))]
-    any(onlya, keep) || return nothing
+    any(onlya, keep) || return Int[]
     kept = cat_steps[keep]
-    C, _ = _thermodynamic_constraints(rxn, kept)
+    C, _ = _thermodynamic_constraints(m, kept)
     flat = _flat_steps(kept)
     groups = [k for (k, g) in enumerate(keep) if onlya(g)]
     # Column k holds `:OnlyA` group k's `ε` exponents: its steps' cycle entries summed.
     M = Rational{BigInt}[sum((C[i, j] for (j, (_, g)) in enumerate(flat) if g == k);
                              init = 0) for i in axes(C, 1), k in groups]
-    cm = Mechanism(rxn, cat_steps)
-    labels = [string(name(first(_step_constants(first(kept[k]), :None)), cm))
-              for k in groups]
     # Per-row sign test first: sound (an all-one-sign row forces a sum of
     # same-signed positive terms to vanish) and cheap, so it keeps the common
     # rejections on the fast path.
     for row in eachrow(M)
         nz = findall(!iszero, row)
-        !isempty(nz) && allequal(sign.(row[nz])) &&
-            return _onlya_violation_message(sort!(labels[nz]))
+        !isempty(nz) && allequal(sign.(row[nz])) && return keep[groups[nz]]
     end
 
     # The complete condition: the `ε` exponents must admit a strictly-positive
@@ -668,6 +667,6 @@ function _onlya_haldane_violation(rxn::EnzymeReaction,
     # inconsistency passes it. `nothing` from the cone test means elimination
     # blew up; fall back to the per-row verdict (sound, just incomplete) rather
     # than reject a mechanism we could not decide.
-    _has_strict_positive_combination(_rational_nullspace(M)) === false || return nothing
-    return _onlya_violation_message(sort(labels))
+    _has_strict_positive_combination(_rational_nullspace(M)) === false || return Int[]
+    return keep[groups]
 end
