@@ -2360,6 +2360,20 @@ end
             E + I ⇌ E(I)
         end
     end
+    # The error writes a reactant's modifier copy as the DSL does, P::Mod: E(P::Mod) and
+    # E(Pinh) render EPmod and EPinh but share the internal name EPinh.
+    @test_throws("E(P::Mod) and E(Pinh) share the internal name EPinh",
+                 @enzyme_mechanism begin
+        substrates: Pinh
+        products: P
+        modifiers: P
+        steps: begin
+            E + Pinh ⇌ E(Pinh)
+            E(Pinh) <--> E(P)
+            E(P) ⇌ E + P
+            E + P::Mod ⇌ E(P::Mod)
+        end
+    end)
 end
 
 # Chokepoint guard: no `Symbol("[KkVL]...")` literal is constructed outside

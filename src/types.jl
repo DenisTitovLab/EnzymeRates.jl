@@ -844,10 +844,10 @@ would share constant names. The forms' internal names (`name(::Species)`), which
 steps and identify forms, must differ as well.
 """
 function _assert_distinct_form_names(reaction::EnzymeReaction, steps::Vector{Vector{Step}})
-    # A form as `@enzyme_mechanism` writes it: `E(NAD, P)`, `E(A::Inh)`, `E(I)`,
+    # A form as `@enzyme_mechanism` writes it: `E(NAD, P)`, `E(A::Mod)`, `E(I)`,
     # `E(B; residual = A - P)`.
     function text(sp)
-        mets = [_is_reactant_copy(m, reaction) ? "$(name(m))::Inh" : "$(name(m))"
+        mets = [_is_reactant_copy(m, reaction) ? "$(name(m))::Mod" : "$(name(m))"
                 for m in bound(sp)]
         r = residual(sp)
         terms = join(name.(added(r)), " + ") * join(" - $(name(p))" for p in subtracted(r))
