@@ -1842,7 +1842,7 @@ let
         mechanism=m,
         raw=raw,
         metabolite_names=[:S, :P],
-        expected_n_states=3,          # catalytic subunit: E_c, E_S, E_P
+        expected_n_states=3,          # catalytic subunit: E, E(S), E(P)
         expected_n_steps=3,           # 2 RE + 1 SS per subunit
         expected_n_haldane_constraints=2,         # k3r per conformation × 2
         expected_n_independent_params=7,
