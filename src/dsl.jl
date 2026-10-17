@@ -40,7 +40,6 @@ Emit an `EnzymeReaction`.
   entries.
 - `oligomeric_state:` — the catalytic multiplicities the search may assign: one positive
   Int, or a tuple of them such as `(1, 2, 4)` (default 1).
-  `allowed_catalytic_multiplicities:` is the same label.
 - `shared_catalytic_site: (sub, prod), ...` — pairs of substrate/product
   names (in either order) that bind at the same catalytic site.
 """
@@ -81,19 +80,16 @@ function _parse_reaction_block(block)
             append!(regs, _parse_regulator_entries(values, :CompetitiveInhibitor))
         elseif label === :allosteric_regulators
             append!(regs, _parse_regulator_entries(values, :AllostericRegulator))
-        elseif label === :allowed_catalytic_multiplicities || label === :oligomeric_state
+        elseif label === :oligomeric_state
             mults === nothing ||
-                error("@enzyme_reaction: `$label:` sets the catalytic multiplicities, " *
-                      "which an earlier `allowed_catalytic_multiplicities:` or " *
-                      "`oligomeric_state:` line already set.")
+                error("@enzyme_reaction: `oligomeric_state:` given more than once.")
             mults = _parse_multiplicity_tuple(values, label)
         elseif label === :shared_catalytic_site
             append!(shared, _parse_shared_site_pairs(values))
         else
             error("@enzyme_reaction: unknown label `$label:`. Valid labels: " *
                   "substrates, products, competitive_inhibitors, " *
-                  "allosteric_regulators, allowed_catalytic_multiplicities, " *
-                  "oligomeric_state, shared_catalytic_site.")
+                  "allosteric_regulators, oligomeric_state, shared_catalytic_site.")
         end
     end
 
@@ -154,8 +150,8 @@ _positive_int(v, what) =
 """
 Parse `R`, `R(1, 2)`, or `R(4)` entries, optionally tagged with a regulator
 type: `R::Activator`, `R::Inhibitor`, or `R(1, 2)::Inhibitor`, into
-`(type, name, mults, reg_type)`. Bare `R` produces `nothing` mults (filled from
-`allowed_catalytic_multiplicities`, default `[1]`) and reg_type `:unspecified`.
+`(type, name, mults, reg_type)`. Bare `R` produces `nothing` mults (filled from the
+`oligomeric_state:` multiplicities, default `[1]`) and reg_type `:unspecified`.
 A type tag is only valid on `type === :AllostericRegulator` entries.
 """
 function _parse_regulator_entries(values, type::Symbol)

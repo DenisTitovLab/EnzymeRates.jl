@@ -292,8 +292,9 @@ declared allosteric regulator, one variant per `(regulator, tag)` with
 identifiable). The all-`:EqualAI` baseline is never emitted (the conformations
 would be identical and `L` would cancel). A binding subset that leaves a
 binding-only Wegscheider cycle unsatisfiable is dropped (see
-[Thermodynamic constraints of MWC equations](@ref)). Enumeration runs over
-`allowed_catalytic_multiplicities`. No-op on an already allosteric input.
+[Thermodynamic constraints of MWC equations](@ref)). Enumeration runs over the
+catalytic multiplicities the reaction's `oligomeric_state:` allows
+(`allowed_catalytic_multiplicities`). No-op on an already allosteric input.
 
 A K-type variant does not always reveal `L`. Over more than one catalytic
 subunit the conformational equilibrium enters the rate with the multiplicity's

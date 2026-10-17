@@ -620,13 +620,13 @@
     end
 
     @testset "@enzyme_reaction names its labels for any other" begin
-        # Regulators go under `competitive_inhibitors:` or `allosteric_regulators:`;
-        # another label is reported as unknown, with the valid ones.
-        for label in (:regulators, :dead_end_inhibitors)
+        # Regulators go under `competitive_inhibitors:` or `allosteric_regulators:`, the
+        # catalytic multiplicities under `oligomeric_state:`; any other label is reported
+        # as unknown, with the valid ones.
+        for label in (:regulators, :dead_end_inhibitors, :allowed_catalytic_multiplicities)
             @test_throws("@enzyme_reaction: unknown label `$label:`. Valid labels: " *
                          "substrates, products, competitive_inhibitors, " *
-                         "allosteric_regulators, allowed_catalytic_multiplicities, " *
-                         "oligomeric_state, shared_catalytic_site.",
+                         "allosteric_regulators, oligomeric_state, shared_catalytic_site.",
                          eval(:(@enzyme_reaction begin
                 substrates: S[C]
                 products: P[C]
@@ -736,38 +736,23 @@
         end
         @test EnzymeRates.allowed_catalytic_multiplicities(rxn2) == [1]
 
-        # Explicit allowed_catalytic_multiplicities tuple
+        # A tuple of multiplicities
         rxn3 = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
-            allowed_catalytic_multiplicities: (1, 2, 4)
+            oligomeric_state: (1, 2, 4)
         end
         @test EnzymeRates.allowed_catalytic_multiplicities(rxn3) == [1, 2, 4]
     end
 
     @testset "@enzyme_reaction sets the catalytic multiplicities once" begin
-        # `oligomeric_state:` and `allowed_catalytic_multiplicities:` set the same
-        # value, so a second line of either label errors, in either order.
-        @test_throws "`allowed_catalytic_multiplicities:` sets the catalytic" eval(
+        # A second `oligomeric_state:` line errors; it never replaces the first.
+        @test_throws "@enzyme_reaction: `oligomeric_state:` given more than once." eval(
             :(@enzyme_reaction begin
                 substrates: S[C]
                 products:   P[C]
                 oligomeric_state: 2
-                allowed_catalytic_multiplicities: (1, 2)
-            end))
-        @test_throws "`oligomeric_state:` sets the catalytic" eval(
-            :(@enzyme_reaction begin
-                substrates: S[C]
-                products:   P[C]
-                allowed_catalytic_multiplicities: (1, 2)
-                oligomeric_state: 2
-            end))
-        @test_throws "`allowed_catalytic_multiplicities:` sets the catalytic" eval(
-            :(@enzyme_reaction begin
-                substrates: S[C]
-                products:   P[C]
-                allowed_catalytic_multiplicities: (1, 2)
-                allowed_catalytic_multiplicities: (4,)
+                oligomeric_state: (1, 2)
             end))
 
         # `oligomeric_state:` takes one Int or one tuple of them, so a search can span
