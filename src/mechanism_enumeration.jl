@@ -56,7 +56,7 @@ it flips. The split, the dead-end move, and `_expand_change_allo_state` filter t
 children; the other moves preserve both rules.
 """
 function _assert_emission_rules(m::Union{Mechanism, AllostericMechanism})
-    label(g) = join((join(_forward_sides(s, reaction(m)), " → ") for s in steps(m)[g]),
+    label(g) = join((join(_forward_sides(s, m), " → ") for s in steps(m)[g]),
                     ", ")
     flux = _flux_carrying_groups(steps(m), reaction(m))
     for (g, group) in enumerate(steps(m))

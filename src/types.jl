@@ -795,30 +795,35 @@ function _assert_bottomed_re_segments(reaction::EnzymeReaction,
     nothing
 end
 
-"""Whether `x` is the competitive-inhibitor copy of a substrate or product of `rxn`: a
-reactant bound as a modifier."""
-_is_reactant_copy(x::Metabolite, rxn::EnzymeReaction) =
-    x isa CompetitiveInhibitor &&
-    any(ra -> name(metabolite(ra)) === name(x), reactants(rxn))
+"""Whether `n` names a substrate or product of `rxn`."""
+_is_reactant(rxn::EnzymeReaction, n::Symbol) =
+    any(ra -> name(metabolite(ra)) === n, reactants(rxn))
+
+"""Whether `x` is the competitive-inhibitor copy of a substrate or product of `ctx` (a
+mechanism, or the reaction of one under construction; `_is_reactant`): a reactant bound
+as a modifier."""
+_is_reactant_copy(x::Metabolite, ctx) =
+    x isa CompetitiveInhibitor && _is_reactant(ctx, name(x))
 
 """
 A metabolite as written in parameter names: its name, with suffix `mod` on a
-competitive-inhibitor copy of a substrate or product of `rxn` (`_is_reactant_copy`), so
-the copy's forms and constants stay distinct from those of the reactant itself. A
-competitive inhibitor that is no reactant binds only as a modifier, so its name stands
-bare.
+competitive-inhibitor copy of a substrate or product of `ctx` (a mechanism, or the
+reaction of one under construction; `_is_reactant_copy`), so the copy's forms and
+constants stay distinct from those of the reactant itself. A competitive inhibitor that
+is no reactant binds only as a modifier, so its name stands bare.
 """
-_met_label(x::Metabolite, rxn::EnzymeReaction) =
-    _is_reactant_copy(x, rxn) ? String(name(x)) * "mod" : String(name(x))
+_met_label(x::Metabolite, ctx) =
+    _is_reactant_copy(x, ctx) ? String(name(x)) * "mod" : String(name(x))
 
 """
-An enzyme form as written in parameter names: its conformation label, then the labels
-(`_met_label`) of its bound metabolites without a separator, then, for a residual,
-`_res`, `_plus<name>` per substrate it adds and `_minus<name>` per product it subtracts,
-each in name order: `E`, `EAB`, `EPmodQ`, `EB_res_plusA_minusP`.
+An enzyme form of `ctx` (a mechanism, or the reaction of one under construction) as
+written in parameter names: its conformation label, then the labels (`_met_label`) of its
+bound metabolites without a separator, then, for a residual, `_res`, `_plus<name>` per
+substrate it adds and `_minus<name>` per product it subtracts, each in name order: `E`,
+`EAB`, `EPmodQ`, `EB_res_plusA_minusP`.
 """
-function _form_label(sp::Species, rxn::EnzymeReaction)
-    head = String(conformation(sp)) * join(_met_label(x, rxn) for x in bound(sp))
+function _form_label(sp::Species, ctx)
+    head = String(conformation(sp)) * join(_met_label(x, ctx) for x in bound(sp))
     r = residual(sp)
     isempty(r) && return head
     head * "_res" * join("_plus" * String(name(a)) for a in added(r)) *
@@ -826,20 +831,22 @@ function _form_label(sp::Species, rxn::EnzymeReaction)
 end
 
 """
-A step side as written in parameter names: its enzyme form (`_form_label`) followed by
-its free metabolites (`_met_label`), joined by `_`, e.g. `"EA_B"` for `E(A) + B`.
+A step side of `ctx` (a mechanism, or the reaction of one under construction) as
+written in parameter names: its enzyme form (`_form_label`) followed by its free
+metabolites (`_met_label`), joined by `_`, e.g. `"EA_B"` for `E(A) + B`.
 """
-_side_label(form::Species, mets::Vector{Metabolite}, rxn::EnzymeReaction) =
-    join([_form_label(form, rxn); [_met_label(x, rxn) for x in mets]], "_")
+_side_label(form::Species, mets::Vector{Metabolite}, ctx) =
+    join([_form_label(form, ctx); [_met_label(x, ctx) for x in mets]], "_")
 
 """
-The two sides of `s` in its stored direction, as parameter names write them for a
-mechanism of reaction `rxn`: `from_species` with the consumed metabolites, then
-`to_species` with the released ones. Every step constant is named after them.
+The two sides of `s` in its stored direction, as parameter names write them for `ctx`
+(a mechanism, or the reaction of one under construction): `from_species` with the
+consumed metabolites, then `to_species` with the released ones. Every step constant is
+named after them.
 """
-_forward_sides(s::Step, rxn::EnzymeReaction) =
-    (_side_label(from_species(s), consumed(s), rxn),
-     _side_label(to_species(s), released(s), rxn))
+_forward_sides(s::Step, ctx) =
+    (_side_label(from_species(s), consumed(s), ctx),
+     _side_label(to_species(s), released(s), ctx))
 
 """
 The kind of a step for kinetic grouping: the metabolites it takes up and gives off,
@@ -1268,6 +1275,9 @@ substrates(m::_AnyMech) = Symbol[name(x) for x in substrates(reaction(m))]
 """The names of `m`'s products, sorted."""
 products(m::_AnyMech) = Symbol[name(x) for x in products(reaction(m))]
 
+"""Whether `n` names a substrate or product of `m`."""
+_is_reactant(m::_AnyMech, n::Symbol) = _is_reactant(reaction(m), n)
+
 """Every name `m`'s steps bind as a modifier, a reactant's modifier copy included,
 sorted."""
 modifiers(m::_AnyMech) =
@@ -1572,14 +1582,14 @@ end
 
 # --- Pretty printing ---
 
-"""A step of a mechanism of reaction `rxn` as text: its entry side, an arrow (`⇌` rapid
-equilibrium, `<-->` steady state) and its exit side. A side lists the enzyme form as
-parameter names write it (`_form_label`), then the metabolites the step consumes or
-releases."""
-_step_text(s::Step, rxn::EnzymeReaction) =
-    join((_form_label(from_species(s), rxn), name.(consumed(s))...), " + ") *
+"""A step of `ctx` (a mechanism, or the reaction of one under construction) as text: its
+entry side, an arrow (`⇌` rapid equilibrium, `<-->` steady state) and its exit side. A
+side lists the enzyme form as parameter names write it (`_form_label`), then the
+metabolites the step consumes or releases."""
+_step_text(s::Step, ctx) =
+    join((_form_label(from_species(s), ctx), name.(consumed(s))...), " + ") *
     (is_equilibrium(s) ? " ⇌ " : " <--> ") *
-    join((_form_label(to_species(s), rxn), name.(released(s))...), " + ")
+    join((_form_label(to_species(s), ctx), name.(released(s))...), " + ")
 
 function Base.show(io::IO, em::EnzymeMechanism)
     m = Mechanism(em)
@@ -1588,7 +1598,7 @@ function Base.show(io::IO, em::EnzymeMechanism)
     print(io, "EnzymeMechanism (", length(flat), " steps, ", length(forms),
           " enzyme forms):")
     for s in flat
-        print(io, "\n  ", _step_text(s, reaction(m)))
+        print(io, "\n  ", _step_text(s, m))
     end
     # The names the steps bind as modifiers, each once.
     mods = modifiers(m)
@@ -1604,7 +1614,7 @@ function Base.show(io::IO, aem::AllostericEnzymeMechanism)
     isempty(sites) || print(io, ", ", length(sites), " reg sites")
     print(io, "):")
     for (g, group) in enumerate(steps(am))
-        body = join(_step_text.(group, Ref(reaction(am))), ", ")
+        body = join(_step_text.(group, Ref(am)), ", ")
         print(io, "\n  ", length(group) == 1 ? body : "($body)", " :: ",
               cat_allo_state(am, g))
     end
@@ -1704,7 +1714,7 @@ function _class_sides(m::_AnyMech)
     sides = c.sides
     sides === nothing || return sides
     c.sides = Dict{Tuple{Int, Int, Bool}, Tuple{String, String}}(
-        k => _forward_sides(s, reaction(m)) for (k, s) in _kept_members(m))
+        k => _forward_sides(s, m) for (k, s) in _kept_members(m))
 end
 
 """
@@ -1719,7 +1729,7 @@ function _constant_sides(step::Step, slot::Int, state::Symbol, m::_AnyMech)
     g = findfirst(group -> step in group, steps(m))
     g === nothing && error("Step not found in mechanism: $step")
     tag = m isa AllostericMechanism ? cat_allo_state(m, g) : :None
-    state === :I && tag === :OnlyA && return _forward_sides(step, reaction(m))
+    state === :I && tag === :OnlyA && return _forward_sides(step, m)
     sides = _class_sides(m)
     inactive = state === :I && tag === :NonequalAI
     get(() -> sides[(g, 1, inactive)], sides, (g, slot, inactive))
