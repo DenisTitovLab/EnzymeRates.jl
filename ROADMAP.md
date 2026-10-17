@@ -198,9 +198,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 - **Move dead-end decorations out of `init_mechanisms` into an expansion move.** It is not
   clear this saves time, since the move would have to run again on every child.
-- **Separate the metabolite names inside enzyme-form names (`Ac + CoA ⇌ AcCoA`).** Renaming
-  one metabolite removes any collision, and the error names both forms; the same answer
-  covers a separator only for colliding reactions and a collision check at reaction build.
+- **Separate the metabolite names inside enzyme-form names (`Ac + CoA ⇌ AcCoA`).**
+  `@enzyme_reaction` rejects a reaction whose names spell one name two ways and names both
+  spellings, and renaming one metabolite removes the collision, so no separator is needed.
 - **Map BlackBoxOptim's convergence stop to `Success` upstream in OptimizationBase.** Only
   BlackBoxOptim users meet the warning, `test/test_fitting.jl` captures it, and the docs
   and HPC scripts use CMA-ES.

@@ -350,6 +350,50 @@ function _check_metabolite_names(who::String, names)
 end
 
 """
+Error unless the metabolite labels `spellings` (each a label `=>` how the DSL writes it)
+are uniquely decodable: no string splits into labels two ways. Enzyme forms and their
+constants join the labels of the metabolites they bind without a separator
+(`_form_label`), so with `Ac`, `CoA` and `AcCoA` the forms E(Ac, CoA) and E(AcCoA) would
+share a name. A reaction's labels are its substrate, product and competitive-inhibitor
+names, and `Xmod`, written `X::Mod`, for a reactant `X` also declared a competitive
+inhibitor; an allosteric regulator binds no form, so its name takes no part. The
+Sardinas–Patterson test decides it, and the error spells both splits.
+"""
+function _check_uniquely_decodable(spellings::Vector{Pair{String, String}})
+    spelled = Dict{String, String}()
+    for (label, written) in spellings
+        other = get!(spelled, label, written)
+        other == written || _spelled_twice_error([other], [written])
+    end
+    words = sort!(collect(keys(spelled)))
+    tail(w, prefix) = w[ncodeunits(prefix) + 1:end]
+    # Each entry holds a dangling suffix `d` and two splits: join(long) == join(short) * d.
+    queue = [(tail(v, u), [v], [u]) for u in words for v in words
+             if u != v && startswith(v, u)]
+    seen = Set{String}()
+    while !isempty(queue)
+        d, long, short = popfirst!(queue)
+        d in seen && continue
+        push!(seen, d)
+        haskey(spelled, d) && _spelled_twice_error(getindex.(Ref(spelled), [short; d]),
+                                                   getindex.(Ref(spelled), long))
+        for w in words
+            startswith(w, d) && push!(queue, (tail(w, d), [short; w], long))
+            startswith(d, w) && push!(queue, (tail(d, w), long, [short; w]))
+        end
+    end
+end
+
+"""Error that the label splits `a` and `b`, each a list of DSL spellings, spell one
+string."""
+function _spelled_twice_error(a::Vector{String}, b::Vector{String})
+    spelled = join(replace.(a, "::Mod" => "mod"))
+    error("EnzymeReaction: $(join(a, " + ")) and $(join(b, " + ")) both spell $spelled: " *
+          "enzyme forms and their constants join the names of the metabolites they bind " *
+          "without a separator, so two forms would share a name; rename a metabolite")
+end
+
+"""
     EnzymeReaction
 
 The public concrete reaction descriptor: substrates, products, optional
@@ -379,7 +423,10 @@ and a product: concentrations and constants are keyed by name. For the same
 reason it rejects a reactant or regulator named `E_total`, `Keq`, `L`, `N`,
 `params`, `concs` or `v`, names a rate equation keeps for its constants and the
 local names of its code, and a name holding `_`, since constant names join
-names with `_`.
+names with `_`. It also rejects names that spell one string two ways, such as
+`Ac`, `CoA` and `AcCoA`: an enzyme form's name joins the names of the
+metabolites it binds without a separator, so E with `Ac` and `CoA` bound and E
+with `AcCoA` bound would share a name.
 
 ```jldoctest
 julia> using EnzymeRates
@@ -431,6 +478,11 @@ struct EnzymeReaction
             "EnzymeReaction: $(join(both_roles, ", ")) named as both a substrate and " *
             "a product; concentrations and constants are keyed by name")
         _check_metabolite_names("EnzymeReaction", [sub_names; prod_names; first.(reg_keys)])
+        reactant_names = [sub_names; prod_names]
+        _check_uniquely_decodable(Pair{String, String}[
+            [String(n) => String(n) for n in reactant_names];
+            [n in reactant_names ? "$(n)mod" => "$n::Mod" : String(n) => String(n)
+             for (n, kind) in reg_keys if kind === CompetitiveInhibitor]])
 
         sub_set  = Set(sub_names)
         prod_set = Set(prod_names)

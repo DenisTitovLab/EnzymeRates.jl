@@ -4,7 +4,7 @@
 """
     @enzyme_reaction begin
         substrates: S[C6H12O6], ATP[C10H16N5O13P3]
-        products:   P[C6H13O9P]
+        products:   P[C6H13O9P], ADP[C10H15N5O10P2]
         competitive_inhibitors: I            # bare OK; mults default to catalytic
         allosteric_regulators: A(1, 2, 4)    # bare OK; mults default to catalytic
         oligomeric_state: (1, 2, 4)          # or one Int: oligomeric_state: 2
@@ -16,13 +16,12 @@ Emit an `EnzymeReaction`.
   brackets (`S[C6H12O6]`). Multi-atom forms like `[C2,N]` are allowed.
   A name may appear under only one of the two labels.
   An enzyme form's name joins its bound metabolites' names without a
-  separator, so two forms can render one name: with `Ac`, `CoA` and
-  `AcCoA`, E with Ac and CoA bound and E with AcCoA bound are both
-  `EAcCoA`. `@enzyme_reaction` accepts such names; the mechanism
-  constructors reject a mechanism that holds two forms whose names
-  coincide. For Ac + CoA ⇌ AcCoA every seed holds both E(Ac, CoA) and
-  E(AcCoA), so `init_mechanisms` and `identify_rate_equation` stop with an
-  error naming both forms. Rename one (`Acetyl`).
+  separator, so the names may not spell one string two ways: with `Ac`,
+  `CoA` and `AcCoA`, E with Ac and CoA bound and E with AcCoA bound would
+  both be `EAcCoA`. `@enzyme_reaction` rejects such a reaction and names
+  both spellings (`Ac + CoA and AcCoA both spell AcCoA`); rename one
+  (`Acetyl`). A competitive inhibitor that is also a substrate or product
+  binds as its modifier copy, named `Xmod`, which counts as a name too.
 - No metabolite is named `E_total`, `Keq`, `L`, `N`, `params`, `concs` or `v`,
   or holds `_`: a rate equation keeps those names, and its constant names join
   names with `_`.

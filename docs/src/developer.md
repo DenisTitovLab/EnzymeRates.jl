@@ -148,8 +148,10 @@ of one metabolite may share a group and a Theorell–Chance step cannot share on
 with a binding. A reaction — the pair of a step's two sides — appears in one step
 of one group (`_assert_each_reaction_once`). No two distinct forms render one name
 (`_assert_distinct_form_names`): a form's name joins its conformation and bound
-metabolites without a separator, so E with NAD and P bound and E with NADP bound
-would both be `ENADP` and share their constants' names.
+metabolites without a separator, so E with a metabolite `star` bound and the free
+conformation `Estar` would both be `Estar` and share their constants' names. Names that
+spell one string two ways, such as `NAD`, `P` and `NADP`, never reach the constructor:
+`@enzyme_reaction` and the mechanism macros reject them (`_check_uniquely_decodable`).
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see

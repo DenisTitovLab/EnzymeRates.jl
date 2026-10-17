@@ -104,12 +104,15 @@ value becomes one cross-validation fold, so at least two groups are required.
 - One column per substrate, product, and regulator (names match
   `metabolites(mechanism)` exactly).
 - No substrate, product, or regulator may be named `group` or `Rate`.
-- No substrate, product, or regulator may be named `L`: the search fits allosteric
-  mechanisms, whose rate equations take the conformational constant `L`.
 - Every `Rate` must be a finite, nonzero number — the loss function works in log
   space.
 - Every concentration must be a finite number ≥ 0; zero is valid.
 - At least two distinct `group` values are required for cross-validation.
+
+The reaction checks the names before a problem exists: [`@enzyme_reaction`](@ref)
+rejects a metabolite named `L`, the conformational constant of the allosteric
+mechanisms the search fits, the other names a rate equation keeps (`E_total`, `Keq`,
+`N`, `params`, `concs`, `v`) and any name holding `_`.
 
 `Keq` is a required keyword argument, always user-supplied, positive and finite; the
 package never estimates it from data. Most enzyme reactions have a known `Keq` —

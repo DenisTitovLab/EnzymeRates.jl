@@ -617,23 +617,17 @@ end
     @test_throws "no catalytic cycle" EnzymeRates.init_mechanisms(uni_quad_rxn)
 end
 
-@testset "init_mechanisms stops on two forms that render one name" begin
-    # E with Ac and CoA bound and E with AcCoA bound both render EAcCoA, and the seeds
-    # of Ac + CoA ⇌ AcCoA hold both, so seed construction raises the collision error.
-    rxn = @enzyme_reaction begin
-        substrates: Ac[C], CoA[S]
-        products: AcCoA[CS]
-    end
-    err = try
-        EnzymeRates.init_mechanisms(rxn)
-        nothing
-    catch e
-        e
-    end
-    @test err isa ErrorException
-    @test occursin("E(Ac, CoA)", err.msg)
-    @test occursin("E(AcCoA)", err.msg)
-    @test occursin("both render the name EAcCoA", err.msg)
+@testset "a reaction whose names spell one name two ways never reaches enumeration" begin
+    # E with Ac and CoA bound and E with AcCoA bound would both render EAcCoA, and the
+    # seeds of Ac + CoA ⇌ AcCoA hold both, so the reaction itself is rejected.
+    @test_throws(ErrorException(
+        "EnzymeReaction: Ac + CoA and AcCoA both spell AcCoA: enzyme forms and their " *
+        "constants join the names of the metabolites they bind without a separator, so " *
+        "two forms would share a name; rename a metabolite"),
+        @enzyme_reaction begin
+            substrates: Ac[C], CoA[S]
+            products: AcCoA[CS]
+        end)
 end
 
 end

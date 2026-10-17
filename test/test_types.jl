@@ -2245,34 +2245,36 @@ end
 end
 
 @testset "two distinct forms that render one name are rejected" begin
-    # E with NAD and P bound and E with NADP bound both render :ENADP, so every
-    # constant named after one form would also name the other.
-    NAD, P, NADP = ER.Substrate(:NAD), ER.Substrate(:P), ER.Product(:NADP)
-    E, ENAD = _testhelper_sp([]), _testhelper_sp([NAD])
-    E_NAD_P, E_NADP = _testhelper_sp([NAD, P]), _testhelper_sp([NADP])
-    @test ER.name(E_NAD_P) == ER.name(E_NADP) == :ENADP
+    # E with `star` bound and the conformation Estar with nothing bound both render
+    # :Estar, so every constant named after one form would also name the other. The
+    # reaction's names spell each name one way; the clash comes from a conformation label.
+    star, P = ER.Substrate(:star), ER.Product(:P)
+    E, E_star, EP = _testhelper_sp([]), _testhelper_sp([star]), _testhelper_sp([P])
+    Estar = _testhelper_sp([], :Estar)
+    @test ER.name(E_star) == ER.name(Estar) == :Estar
     rxn = @enzyme_reaction(begin
-        substrates: NAD[C], P[N]
-        products: NADP[CN]
+        substrates: star[C]
+        products: P[C]
     end)
     err = _testhelper_thrown() do
         ER.Mechanism(rxn, [
-            [ER.Step(E, ENAD, [NAD], ER.Metabolite[], true)],
-            [ER.Step(ENAD, E_NAD_P, [P], ER.Metabolite[], true)],
-            [ER.Step(E_NAD_P, E_NADP, ER.Metabolite[], ER.Metabolite[], false)],
-            [ER.Step(E, E_NADP, [NADP], ER.Metabolite[], true)]])
+            [ER.Step(E, E_star, [star], ER.Metabolite[], true)],
+            [ER.Step(E_star, EP, ER.Metabolite[], ER.Metabolite[], false)],
+            [ER.Step(E, EP, [P], ER.Metabolite[], true)],
+            [ER.Step(E, Estar, ER.Metabolite[], ER.Metabolite[], false)]])
     end
     @test err isa ErrorException
-    @test occursin("E(NAD, P)", err.msg)
-    @test occursin("E(NADP)", err.msg)
-    @test occursin("both render the name ENADP; ", err.msg)
+    @test occursin("E(star)", err.msg)
+    @test occursin("Estar()", err.msg)
+    @test occursin("both render the name Estar; ", err.msg)
     @test occursin("rename a metabolite", err.msg)
 end
 
 @testset "two forms whose constants would share a name are rejected" begin
-    # P's modifier copy bound to E and the modifier Pmod bound to E both name their
-    # constants EPmod, so K_EPmod_to_E_Pmod would name both bindings.
-    @test_throws "E(P::Inh) and E(Pmod) both render the name EPmod" @enzyme_mechanism begin
+    # P's modifier copy bound to E and the modifier Pmod bound to E would both name their
+    # constants EPmod, so K_EPmod_to_E_Pmod would name both bindings. P::Mod and Pmod
+    # spell one name, so the mechanism's reaction rejects them.
+    @test_throws "P::Mod and Pmod both spell Pmod" @enzyme_mechanism begin
         substrates: S
         products: P
         regulators: P, Pmod
@@ -2909,4 +2911,57 @@ end
             end
             regulatory_site(2): A_R::EqualAI
         end)
+end
+
+@testset "a reaction's metabolite names spell each name one way" begin
+    # Enzyme forms and their constants join the names of the metabolites they bind, so a
+    # reaction is rejected when its names spell one string two ways; a reactant also
+    # declared a competitive inhibitor binds as its copy, spelled X::Mod, named Xmod.
+    _testhelper_two_ways(a, b, x) = ErrorException(
+        "EnzymeReaction: $a and $b both spell $x: enzyme forms and their constants join " *
+        "the names of the metabolites they bind without a separator, so two forms would " *
+        "share a name; rename a metabolite")
+    @test_throws _testhelper_two_ways("Ac + CoA", "AcCoA", "AcCoA") @enzyme_reaction begin
+        substrates: Ac[C], CoA[S]
+        products:   AcCoA[CS]
+    end
+    @test_throws _testhelper_two_ways("A + I", "AI", "AI") @enzyme_reaction begin
+        substrates: A[C], AI[N]
+        products:   P[CN]
+        competitive_inhibitors: I
+    end
+    # The split can take several steps to find: XY + Z and X + YZ both spell XYZ.
+    @test_throws _testhelper_two_ways("XY + Z", "X + YZ", "XYZ") @enzyme_reaction begin
+        substrates: X[C], YZ[N]
+        products:   XY[C], Z[N]
+    end
+    # A reactant's modifier copy is named Xmod.
+    @test_throws _testhelper_two_ways("P::Mod", "Pmod", "Pmod") @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+        competitive_inhibitors: P, Pmod
+    end
+    @test_throws _testhelper_two_ways("X + mod", "X::Mod", "Xmod") @enzyme_reaction begin
+        substrates: X[C]
+        products:   mod[C]
+        competitive_inhibitors: X
+    end
+    # NAD and NADH spell no name two ways; with H, NAD + H spells NADH.
+    nadh = @enzyme_reaction begin
+        substrates: NAD[C]
+        products:   NADH[C]
+    end
+    @test ER.name.(ER.products(nadh)) == [:NADH]
+    @test_throws _testhelper_two_ways("NAD + H", "NADH", "NADH") @enzyme_reaction begin
+        substrates: NAD[C], H[N]
+        products:   NADH[CN]
+    end
+    # An allosteric regulator binds no enzyme form, so its name takes no part.
+    allosteric = @enzyme_reaction begin
+        substrates: A[C]
+        products:   P[C]
+        competitive_inhibitors: I
+        allosteric_regulators: AI
+    end
+    @test ER.name.(ER.regulator.(ER.regulators(allosteric))) == [:AI, :I]
 end
