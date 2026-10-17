@@ -1,4 +1,4 @@
-# ABOUTME: Core concrete types (EnzymeReaction, Mechanism, Step, Species,
+# ABOUTME: Core concrete types (EnzymeReaction, Mechanism, Step, Species, raw input,
 # ABOUTME: Parameter family) plus the Mechanism↔Sig bridge and name(p,m) chokepoint.
 
 # ─── Concrete type hierarchy ──────────────────────────────────────────
@@ -1068,11 +1068,92 @@ struct AllostericMechanism
     end
 end
 
+# ─── Raw input: a mechanism as the DSL writes it ─────────────────────
+#
+# The mechanism macros read a block into these plain values (`_raw_mechanism`), before
+# any constructor orients, sorts or checks it; `Mechanism(raw)` and
+# `AllostericMechanism(raw)` build the mechanism they write.
+
+"""
+A metabolite as a form holds it or a step exchanges it: its name, and whether it binds
+as a modifier (a name under `modifiers:` written bare, or a reactant's copy `A::Mod`). A
+reactant and its modifier copy are two different `Met`s.
+"""
+struct Met
+    name::Symbol
+    modifier::Bool
+end
+Base.isless(x::Met, y::Met) = isless((x.name, x.modifier), (y.name, y.modifier))
+Base.hash(x::Met, h::UInt) = hash(x.modifier, hash(x.name, hash(:Met, h)))
+
+"""An enzyme form as written: its conformation label, its bound metabolites and its
+residual (the substrates it adds, the products it subtracts). The constructor sorts each
+list, so two writings of one form are `==`."""
+struct RawForm
+    conformation::Symbol
+    bound::Vector{Met}
+    added::Vector{Symbol}
+    subtracted::Vector{Symbol}
+    RawForm(conformation::Symbol, bound::Vector{Met},
+            added::Vector{Symbol} = Symbol[], subtracted::Vector{Symbol} = Symbol[]) =
+        new(conformation, sort(bound), sort(added), sort(subtracted))
+end
+
+"""A step as written, in its written direction: going `from → to` it takes up `consumed`
+and gives off `released`; `rapid_equilibrium` marks `⇌`. The constructor sorts both
+lists; it neither turns the step nor checks it."""
+struct RawStep
+    from::RawForm
+    to::RawForm
+    consumed::Vector{Met}
+    released::Vector{Met}
+    rapid_equilibrium::Bool
+    RawStep(from::RawForm, to::RawForm, consumed::Vector{Met}, released::Vector{Met},
+            rapid_equilibrium::Bool) =
+        new(from, to, sort(consumed), sort(released), rapid_equilibrium)
+end
+
+"""
+A plain mechanism as written: the declared substrates, products and modifiers (every
+name under `modifiers:`, a reactant that binds as a modifier included), the steps in
+written order and direction, and `group[j]`, the kinetic group label of step `j`: labels
+run 1, 2, … in order of first appearance, one per written statement (a step or a
+parenthesized group).
+"""
+struct RawMechanism
+    substrates::Vector{Symbol}
+    products::Vector{Symbol}
+    modifiers::Vector{Symbol}
+    steps::Vector{RawStep}
+    group::Vector{Int}
+end
+
+"""A regulatory site as written: its ligands, its multiplicity and each ligand's tag."""
+struct RawSite
+    ligands::Vector{Symbol}
+    multiplicity::Int
+    allo_states::Vector{Symbol}
+end
+
+"""An allosteric mechanism as written: its catalytic part, the tag of each written
+group label (`cat_allo_states[l]`), the catalytic multiplicity (1 when the DSL omits it)
+and the regulatory sites."""
+struct RawAllostericMechanism
+    catalytic::RawMechanism
+    cat_allo_states::Vector{Symbol}
+    catalytic_multiplicity::Int
+    sites::Vector{RawSite}
+end
+
 # `==` and `hash` by content for the value types whose fields are Vectors or structs: the
 # default `==` would compare identity. Every field takes part, in declaration order, except
 # a mechanism's `naming` cache. `Species` keeps its own pair: its stored `name` is derived.
+# `Met` keeps Julia's `==`, which compares its two fields, and has its own `hash`: a
+# struct's default hash mixes in its type's identity, which changes between precompile
+# sessions.
 for T in (Residual, RegulatorySite, Step, Krapid, Kfor, Krev, Kreg,
-          ReactantAtoms, RegulatorMults, EnzymeReaction, Mechanism, AllostericMechanism)
+          ReactantAtoms, RegulatorMults, EnzymeReaction, Mechanism, AllostericMechanism,
+          RawForm, RawStep, RawMechanism, RawSite, RawAllostericMechanism)
     fs = filter(!=(:naming), fieldnames(T))
     @eval Base.:(==)(a::$T, b::$T) =
         $(reduce((l, r) -> :($l && $r), [:(a.$f == b.$f) for f in fs]))

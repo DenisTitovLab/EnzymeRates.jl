@@ -2788,3 +2788,74 @@ end
     @test EnzymeRates.name(sp2) === EnzymeRates.name(sp) === :EAB
     @test !occursin("EAB", repr(sp))
 end
+
+"""A raw-input value of each type: a metabolite, a form with a residual, a step, a
+mechanism, a site and an allosteric mechanism."""
+function _testhelper_raw_examples()
+    R = EnzymeRates
+    a, p, i = R.Met(:A, false), R.Met(:P, false), R.Met(:I, true)
+    free = R.RawForm(:E, R.Met[])
+    bind = R.RawStep(free, R.RawForm(:E, [a]), [a], R.Met[], true)
+    chem = R.RawStep(R.RawForm(:E, [a]), R.RawForm(:E, [p]), R.Met[], R.Met[], false)
+    release = R.RawStep(R.RawForm(:E, [p]), free, R.Met[], [p], true)
+    dead_end = R.RawStep(free, R.RawForm(:E, [i]), [i], R.Met[], true)
+    mech = R.RawMechanism([:A], [:P], [:I], [bind, chem, release, dead_end], [1, 2, 3, 4])
+    site = R.RawSite([:X], 2, [:OnlyI])
+    allo = R.RawAllostericMechanism(mech, [:EqualAI, :OnlyA, :EqualAI, :EqualAI], 2,
+                                    [site])
+    (i, R.RawForm(:Estar, [a, i], [:A], [:P]), bind, mech, site, allo)
+end
+
+@testset "raw input: sorted lists, content equality and hash" begin
+    R = EnzymeRates
+    a, b, i = R.Met(:A, false), R.Met(:B, false), R.Met(:I, true)
+    # A metabolite orders by name, a modifier after the reactant of its name.
+    @test sort([R.Met(:P, true), R.Met(:P, false), R.Met(:A, true)]) ==
+          [R.Met(:A, true), R.Met(:P, false), R.Met(:P, true)]
+    @test R.Met(:A, true) != a && hash(R.Met(:A, true)) != hash(a)
+    # A form sorts its bound metabolites and its residual's two lists, so two writings
+    # of one form are equal and hash alike.
+    form = R.RawForm(:E, [i, b, a], [:B, :A], [:Q, :P])
+    @test form.bound == [a, b, i] && form.added == [:A, :B] && form.subtracted == [:P, :Q]
+    same = R.RawForm(:E, [a, i, b], [:A, :B], [:P, :Q])
+    @test form == same && hash(form) == hash(same)
+    @test R.RawForm(:E, [a]) == R.RawForm(:E, [a], Symbol[], Symbol[])
+    @test R.RawForm(:Estar, [a]) != R.RawForm(:E, [a])
+    # A step sorts its lists and keeps its written direction: a release stays a release.
+    free, ea, eab = R.RawForm(:E, R.Met[]), R.RawForm(:E, [a]), R.RawForm(:E, [a, b])
+    release = R.RawStep(ea, free, R.Met[], [a], true)
+    @test (release.from, release.to) == (ea, free)
+    @test isempty(release.consumed) && release.released == [a]
+    @test release != R.RawStep(free, ea, [a], R.Met[], true)
+    both = R.RawStep(free, eab, [b, a], R.Met[], false)
+    @test both.consumed == [a, b]
+    @test both == R.RawStep(free, eab, [a, b], R.Met[], false)
+    @test hash(both) == hash(R.RawStep(free, eab, [a, b], R.Met[], false))
+    @test both != R.RawStep(free, eab, [a, b], R.Met[], true)
+    # Mechanisms, sites and allosteric mechanisms built twice are equal and hash alike;
+    # each field takes part.
+    examples, again = _testhelper_raw_examples(), _testhelper_raw_examples()
+    @test all(examples .== again) && hash.(examples) == hash.(again)
+    _, _, _, mech, site, allo = examples
+    @test mech != R.RawMechanism(mech.substrates, mech.products, Symbol[], mech.steps,
+                                 mech.group)
+    @test mech != R.RawMechanism(mech.substrates, mech.products, mech.modifiers,
+                                 mech.steps, [1, 1, 2, 3])
+    @test site != R.RawSite([:X], 4, [:OnlyI])
+    @test site != R.RawSite([:X], 2, [:OnlyA])
+    @test allo != R.RawAllostericMechanism(mech, [:EqualAI, :NonequalAI, :EqualAI,
+                                                  :EqualAI], 2, [site])
+    @test allo != R.RawAllostericMechanism(mech, allo.cat_allo_states, 1, [site])
+    @test allo != R.RawAllostericMechanism(mech, allo.cat_allo_states, 2, R.RawSite[])
+end
+
+@testset "a raw value's hash reads its type's name and its fields only" begin
+    # Base hashes names, flags, numbers and vectors alike in every process, but a
+    # struct's default hash mixes in its type's identity, which changes between
+    # precompile sessions; so each raw type hashes its name, then its fields in order.
+    h = UInt(17)
+    for x in _testhelper_raw_examples()
+        @test hash(x, h) == foldl((acc, f) -> hash(getfield(x, f), acc),
+                                  fieldnames(typeof(x)); init = hash(nameof(typeof(x)), h))
+    end
+end
