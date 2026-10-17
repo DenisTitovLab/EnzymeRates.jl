@@ -547,8 +547,8 @@ _reversed(s::Step) =
 The steps of one kinetic group, `oriented` one by one by `_canonical_step_direction`
 with the deciding `tiers`, except that the steps Tier 1 leaves tied turn as one. The
 lead is the tied step ranked first by whether it changes conformation (those that do
-first), then by deciding tier, then by `lead_key` (by default `_step_index_key`, the
-canonical form order of its two forms). Every other tied step
+first), then by deciding tier, then by `_step_index_key` (the canonical form order of
+its two forms). Every other tied step
 takes up and gives off the lead's metabolites (`_step_kind`), and one that changes
 conformation runs between the lead's two conformations in the same order; a step that
 fits in both orientations keeps its own. A group's steps share their constants, so a
@@ -561,14 +561,13 @@ orientation is left for `_assert_uniform_groups` to reject. Errors when a tied s
 metabolites match the lead's but its conformations do not, since no one orientation
 then matches the grouping.
 """
-function _orient_tied_steps(oriented::Vector{Step}, tiers::Vector{Int};
-                            lead_key = _step_index_key)
+function _orient_tied_steps(oriented::Vector{Step}, tiers::Vector{Int})
     tied = findall(>(1), tiers)
     length(tied) < 2 && return oriented
     pair(s) = (conformation(from_species(s)), conformation(to_species(s)))
     turns(s) = pair(s)[1] != pair(s)[2]
     lead = oriented[argmin(i -> (!turns(oriented[i]), tiers[i],
-                                 lead_key(oriented[i])), tied)]
+                                 _step_index_key(oriented[i])), tied)]
     map(eachindex(oriented)) do i
         s = oriented[i]
         tiers[i] < 2 && return s

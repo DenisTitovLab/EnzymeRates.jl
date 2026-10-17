@@ -94,7 +94,7 @@ end
         occupied_re = EnzymeRates.Step(EA, EAB, [B], EnzymeRates.Metabolite[], true)
         key = EnzymeRates._priority_key
         # block first: an inactive copy outside the law before any other column
-        @test key(plain, true, 1, 2) > key(occupied, true, 2, 1) > key(occupied, true, 2, 0)
+        @test key(plain, 1, 2) > key(occupied, 2, 1) > key(occupied, 2, 0)
         # kind next, ahead of every later column: an isomerization, then other chemistry (a
         # binding fused with chemistry), then a plain binding. In the first chain the later
         # columns tie or sort the other way, so kind alone orders it.
@@ -108,15 +108,15 @@ end
         fused = EnzymeRates.Step(EA, EPQ, [B], no_mets, false)
         binding = EnzymeRates.Step(EB, EAB, [A], no_mets, false)
         free_iso = EnzymeRates.Step(E, F, no_mets, no_mets, false)
-        @test key(iso, true, 2, 0) > key(fused, true, 2, 0) > key(binding, true, 2, 0)
+        @test key(iso, 2, 0) > key(fused, 2, 0) > key(binding, 2, 0)
         # kind before the constant against the reaction, and before occupancy
-        @test key(iso, true, 1, 0) > key(fused, true, 2, 0)
-        @test key(free_iso, true, 1, 0) > key(occupied, true, 1, 0)
+        @test key(iso, 1, 0) > key(fused, 2, 0)
+        @test key(free_iso, 1, 0) > key(occupied, 1, 0)
         # a binding between two occupied forms before one that touches free E
-        @test key(occupied, true, 1, 0) > key(plain, true, 2, 0)
+        @test key(occupied, 1, 0) > key(plain, 2, 0)
         # steady state before rapid equilibrium, then the constant against the reaction
-        @test key(occupied, true, 1, 0) > key(occupied_re, true, 1, 0)
-        @test key(occupied, true, 2, 0) > key(occupied, true, 1, 0)
+        @test key(occupied, 1, 0) > key(occupied_re, 1, 0)
+        @test key(occupied, 2, 0) > key(occupied, 1, 0)
     end
 
     @testset "a modifier copy keys after the reactant of its name" begin
@@ -335,6 +335,36 @@ end
                     last_of_class[(g, c.slot, c.inactive)] = sys.flat[c.step][1]
                 end
                 @test EnzymeRates._kept_members(mech) == last_of_class
+            end
+        end
+    end
+
+    @testset "every spec stores its steps in the direction the orientation tiers give" begin
+        # The solve reads each stored step as the physical-forward direction of its
+        # constants: the rate constant against the reaction is the reverse one, and the
+        # content key reads the step as stored. The constructor orients every step by
+        # the tiers and turns each tied group with its lead, so orienting the stored
+        # steps again leaves each one as stored, and writing every step the other way
+        # round, in the reverse order, builds the same mechanism.
+        for spec in MECHANISM_TEST_SPECS
+            @testset "$(spec.name)" begin
+                mech = _testhelper_lift(spec.mechanism)
+                groups = EnzymeRates.steps(mech)
+                sides = EnzymeRates._entry_sides(groups)
+                for group in groups
+                    decided = [EnzymeRates._canonical_step_direction(s, sides)
+                               for s in group]
+                    @test EnzymeRates._orient_tied_steps(first.(decided),
+                                                         last.(decided)) == group
+                end
+                written = [reverse(EnzymeRates._reversed.(g)) for g in reverse(groups)]
+                rebuilt = mech isa EnzymeRates.Mechanism ?
+                    EnzymeRates.Mechanism(EnzymeRates.reaction(mech), written) :
+                    EnzymeRates.AllostericMechanism(EnzymeRates.reaction(mech), written,
+                        reverse(EnzymeRates.cat_allo_states(mech)),
+                        EnzymeRates.catalytic_multiplicity(mech),
+                        EnzymeRates.regulatory_sites(mech))
+                @test rebuilt == mech
             end
         end
     end

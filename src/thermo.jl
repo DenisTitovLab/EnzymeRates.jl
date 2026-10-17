@@ -47,48 +47,24 @@ _step_index_key(s::Step) =
      _metabolites_key(consumed(s)), _metabolites_key(released(s)))
 
 """
-Whether each flat step of `groups`, as stored, runs in the joint solve's forward
-direction. Chemistry (orientation tier 1) and graph context (tier 2) orient a step as
-the `Mechanism` constructor does; a step neither orients (tier 3) runs from the form
-earlier in the canonical form order (`_form_index_key`) to the later one, and the tied
-steps of a kinetic group then turn with a lead ranked by `_step_index_key`
-(`_orient_tied_steps`). The constructor orients every step by the same rules.
+The priority key of constant `slot` of step `s` in conformation block `block` (2: an
+inactive copy outside the law, 1: another inactive copy, 0: active). The solve eliminates
+the larger key first, so a column with a larger key becomes dependent sooner. In turn: the
+block; the step's kind (3 an isomerization, 2 other chemistry, 1 a plain binding); whether
+both of its forms hold a metabolite; steady state before rapid equilibrium; a steady-state
+constant that runs against the reaction (for a product binding its uptake, for every other
+step its reverse rate: the constructor stores each step in its physical-forward
+direction); then the step's content as stored, its forms' `_form_base_key`s and its
+metabolites, the smaller key kept.
 """
-function _solve_forward(groups::Vector{Vector{Step}})
-    sides = _entry_sides(groups)
-    fwd = Bool[]
-    for group in groups
-        decided = [_canonical_step_direction(s, sides) for s in group]
-        tiers = [last(d) for d in decided]
-        by_index = Step[t == 3 ? (_form_index_key(from_species(s)) <=
-                                  _form_index_key(to_species(s)) ? s : _reversed(s)) : d
-                        for (s, (d, t)) in zip(group, decided)]
-        aligned = _orient_tied_steps(by_index, tiers; lead_key = _step_index_key)
-        append!(fwd, [a == s for (a, s) in zip(aligned, group)])
-    end
-    fwd
-end
-
-"""
-The priority key of constant `slot` of step `s`, whose stored direction is the solve's
-forward one when `fwd`, in conformation block `block` (2: an inactive copy outside the
-law, 1: another inactive copy, 0: active). The solve eliminates the larger key first, so
-a column with a larger key becomes dependent sooner. In turn: the block; the step's kind
-(3 an isomerization, 2 other chemistry, 1 a plain binding); whether both of its forms hold
-a metabolite; steady state before rapid equilibrium; a steady-state constant that runs
-against the reaction (for a product binding its uptake, for every other step the reverse
-of the solve's forward direction); then the step's content in the solve's direction, its
-forms' `_form_base_key`s and its metabolites, the smaller key kept.
-"""
-function _priority_key(s::Step, fwd::Bool, slot::Int, block::Int)
+function _priority_key(s::Step, slot::Int, block::Int)
     kind = is_iso(s) ? 3 : _is_chemistry(s) ? 2 : 1
     occupied = !isempty(bound(from_species(s))) && !isempty(bound(to_species(s)))
     ss = !is_equilibrium(s)
-    against = ss && ((slot == 2) == fwd) != (bound_metabolite(s) isa Product)
-    a, b, c, r = fwd ? (from_species(s), to_species(s), consumed(s), released(s)) :
-                       (to_species(s), from_species(s), released(s), consumed(s))
+    against = ss && (slot == 2) != (bound_metabolite(s) isa Product)
     (block, kind, occupied, ss, against,
-     (_form_base_key(a), _form_base_key(b), _metabolites_key(c), _metabolites_key(r)))
+     (_form_base_key(from_species(s)), _form_base_key(to_species(s)),
+      _metabolites_key(consumed(s)), _metabolites_key(released(s))))
 end
 
 # ─── The joint system ──────────────────────────────────────────────────────
@@ -183,7 +159,7 @@ The thermodynamic system of `m`, `A · log(constants) = rhs · log(Keq)`, over o
 per bare constant (`_Column`): one per slot of every flat step, and for an allosteric
 mechanism one more per slot of every step of a `:NonequalAI` or `:OnlyA` group, for its
 inactive copy. `columns` lists them in elimination order: by `_priority_key`, larger
-first, the steps oriented by `_solve_forward`.
+first.
 
 Rows: every fundamental cycle (`_fundamental_cycles`) once per conformation, the inactive
 rows over the whole graph (islands included) with an `:EqualAI` step reading its active
@@ -199,7 +175,6 @@ function _joint_system(m::_AnyMech)
     flat = _flat_steps(groups)
     tags = _solve_tags(m)
     law = _inactive_law(m)
-    fwd = _solve_forward(groups)
     allosteric = m isa AllostericMechanism
     columns = _Column[]
     for (j, (s, g)) in enumerate(flat), inactive in (false, true)
@@ -209,8 +184,7 @@ function _joint_system(m::_AnyMech)
         end
     end
     block(c) = !c.inactive ? 0 : law[c.step] ? 1 : 2
-    priorities = [_priority_key(flat[c.step][1], fwd[c.step], c.slot, block(c))
-                  for c in columns]
+    priorities = [_priority_key(flat[c.step][1], c.slot, block(c)) for c in columns]
     columns = columns[sortperm(priorities; rev = true)]
     index = Dict(c => i for (i, c) in enumerate(columns))
     column(j, slot, inactive) =
@@ -315,12 +289,11 @@ function _kept_members(m::_AnyMech)
     flat = _flat_steps(steps(m))
     tags = _solve_tags(m)
     law = _inactive_law(m)
-    fwd = _solve_forward(steps(m))
     best = Dict{Tuple{Int, Int, Bool}, Tuple{Any, Step}}()
     for (j, (s, g)) in enumerate(flat), inactive in (false, true)
         inactive && tags[g] !== :NonequalAI && continue
         for slot in 1:(is_equilibrium(s) ? 1 : 2)
-            key = _priority_key(s, fwd[j], slot, !inactive ? 0 : law[j] ? 1 : 2)
+            key = _priority_key(s, slot, !inactive ? 0 : law[j] ? 1 : 2)
             cur = get(best, (g, slot, inactive), nothing)
             (cur === nothing || key < first(cur)) && (best[(g, slot, inactive)] = (key, s))
         end
