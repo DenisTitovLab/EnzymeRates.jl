@@ -12,8 +12,8 @@
 
 Emit an `EnzymeReaction`.
 
-- `substrates:` / `products:` — comma-separated entries with required atom
-  brackets (`S[C6H12O6]`). Multi-atom forms like `[C2,N]` are allowed.
+- `substrates:` / `products:` — comma-separated entries, each a name with one
+  chemical formula in brackets (`S[C6H12O6]`).
   A name may appear under only one of the two labels.
   An enzyme form's name joins its bound metabolites' names without a
   separator, so the names may not spell one string two ways: with `Ac`,
@@ -103,15 +103,15 @@ function _parse_reaction_block(block)
 end
 
 """
-Parse `S[C6H12O6]` / `B[N, P]` entries into `(name, atoms)` pairs, `atoms` a
-`Vector{Pair{Symbol,Int}}` of `element => count`.
+Parse `S[C6H12O6]` entries, each a name and one chemical formula in brackets, into
+`(name, atoms)` pairs, `atoms` a `Vector{Pair{Symbol,Int}}` of `element => count`.
 """
 function _parse_atom_bracket_entries(values, label)
     map(values) do v
-        v isa Expr && v.head === :ref && v.args[1] isa Symbol ||
-            error("@enzyme_reaction `$label:`: expected `Sym[atoms]`; got $v.")
-        (v.args[1]::Symbol, Pair{Symbol,Int}[
-            p for a in v.args[2:end] for p in _parse_chemical_formula(string(a))])
+        v isa Expr && v.head === :ref && length(v.args) == 2 && v.args[1] isa Symbol ||
+            error("@enzyme_reaction: `$label:` lists each reactant with one chemical " *
+                  "formula in brackets, such as `S[C6H12O6]`; got `$v`.")
+        (v.args[1]::Symbol, _parse_chemical_formula(string(v.args[2])))
     end
 end
 

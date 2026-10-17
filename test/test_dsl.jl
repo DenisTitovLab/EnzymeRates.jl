@@ -456,8 +456,8 @@
 
     @testset "multi-atom metabolites" begin
         rxn = @enzyme_reaction begin
-            substrates: A[C2H3], B[N,P]
-            products: P[C2,N], Q[H3,P]
+            substrates: A[C2H3], B[NP]
+            products: P[C2N], Q[H3P]
         end
         subs = EnzymeRates.substrates(rxn)
         @test subs[1] == EnzymeRates.Substrate(:A)
@@ -472,6 +472,17 @@
         @test prods[2] == EnzymeRates.Product(:Q)
         @test ra_map[:P] == [:C => 2, :N => 1]
         @test ra_map[:Q] == [:H => 3, :P => 1]
+
+        # A reactant takes one formula in brackets: several formulas, an empty bracket and
+        # a bare name are errors.
+        for entry in (:(B[N, P]), :(B[]), :B)
+            @test_throws("@enzyme_reaction: `substrates:` lists each reactant with one " *
+                         "chemical formula in brackets, such as `S[C6H12O6]`; got " *
+                         "`$entry`.", eval(:(@enzyme_reaction begin
+                substrates: A[C2H3], $entry
+                products: P[C2N], Q[H3P]
+            end)))
+        end
     end
 
     @testset "chemical formulas and multiplicities are validated" begin
