@@ -350,25 +350,27 @@
     end
 
     @testset "regulatory_site takes exactly one multiplicity" begin
-        # Repeated, missing, misnamed and positional arguments are all errors.
-        for site in (:(regulatory_site(multiplicity = 2, multiplicity = 4)),
+        # The multiplicity is one positional Int: keyword, repeated, missing, misnamed and
+        # second arguments are all errors.
+        for site in (:(regulatory_site(multiplicity = 2)),
+                     :(regulatory_site(multiplicity = 2, multiplicity = 4)),
                      :(regulatory_site()),
                      :(regulatory_site(size = 2)),
-                     :(regulatory_site(2)))
-            @test_throws "exactly one `multiplicity = N`" eval(
-                :(@allosteric_mechanism begin
-                    substrates: S
-                    products:   P
-                    allosteric_regulators: A::OnlyA
-                    catalytic_steps: begin
-                        E + S ⇌ E(S)      :: EqualAI
-                        E(S) <--> E(P)    :: EqualAI
-                        E(P) ⇌ E + P      :: EqualAI
-                    end
-                    $site: begin
-                        ligands: A
-                    end
-                end))
+                     :(regulatory_site(2, 4)))
+            @test_throws("@allosteric_mechanism: `regulatory_site(n):` takes one " *
+                         "positive Int multiplicity, as in `regulatory_site(2): " *
+                         "A::OnlyA, I::OnlyI`; got `$site`.",
+                         eval(:(@allosteric_mechanism begin
+                substrates: S
+                products:   P
+                allosteric_regulators: A
+                steps: begin
+                    E + S ⇌ E(S)      :: EqualAI
+                    E(S) <--> E(P)    :: EqualAI
+                    E(P) ⇌ E + P      :: EqualAI
+                end
+                $site: A::OnlyA
+            end)))
         end
     end
 
@@ -1415,11 +1417,6 @@ end
                      "got `X`.", _testhelper_sites(:(regulatory_site(2): X, Y::OnlyI)))
         @test_throws("`regulatory_site` multiplicity must be a positive Int, got 0.",
                      _testhelper_sites(:(regulatory_site(0): X::OnlyA, Y::OnlyI)))
-        @test_throws("@allosteric_mechanism: `regulatory_site(n):` takes one positive " *
-                     "Int multiplicity, as in `regulatory_site(2): A::OnlyA, I::OnlyI`; " *
-                     "got `regulatory_site(multiplicity = 2)`.",
-                     _testhelper_sites(:(regulatory_site(multiplicity = 2): X::OnlyA,
-                                                                           Y::OnlyI)))
         @test_throws("@allosteric_mechanism: `regulatory_site(n):` lists each ligand " *
                      "with its tag, as in `regulatory_site(2): A::OnlyA, I::OnlyI`; " *
                      "got a `begin ... end` block.",
