@@ -38,10 +38,8 @@ end
 print(rate_equation_string(competitive))
 ```
 
-The inhibitor adds a single `I / K_EIinh_to_E_Iinh` term to the denominator and
-leaves the numerator untouched — the textbook competitive form. (`I` renders
-with an `inh` marker, `K_EIinh_to_E_Iinh`, because it occupies a regulator
-binding site.)
+The inhibitor adds a single `I / K_EI_to_E_I` term to the denominator and
+leaves the numerator untouched — the textbook competitive form.
 
 ## An essential activator
 

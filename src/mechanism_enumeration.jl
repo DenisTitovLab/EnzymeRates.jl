@@ -37,7 +37,8 @@ function _assert_step_atom_conserving(reaction::EnzymeReaction, s::Step)
     diff = _net_atoms(reaction, side(to_species(s), from_species(s), released(s)),
                       side(from_species(s), to_species(s), consumed(s)))
     isempty(diff) || error(
-        "atom-non-conserving step $(name(from_species(s))) → $(name(to_species(s))) " *
+        "atom-non-conserving step $(_form_label(from_species(s), reaction)) → " *
+        "$(_form_label(to_species(s), reaction)) " *
         "(consumed $(name.(consumed(s))), released $(name.(released(s)))): " *
         "atoms(to) + atoms(released) − atoms(from) − atoms(consumed) = $diff")
     nothing
@@ -55,7 +56,8 @@ it flips. The split, the dead-end move, and `_expand_change_allo_state` filter t
 children; the other moves preserve both rules.
 """
 function _assert_emission_rules(m::Union{Mechanism, AllostericMechanism})
-    label(g) = join((join(_forward_sides(s), " → ") for s in steps(m)[g]), ", ")
+    label(g) = join((join(_forward_sides(s, reaction(m)), " → ") for s in steps(m)[g]),
+                    ", ")
     flux = _flux_carrying_groups(steps(m), reaction(m))
     for (g, group) in enumerate(steps(m))
         is_equilibrium(first(group)) || flux[g] || error(

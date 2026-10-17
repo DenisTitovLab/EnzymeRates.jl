@@ -49,18 +49,11 @@ metabolite of the same name.
 _met_sort_key(m::Metabolite) = (name(m), m isa CompetitiveInhibitor)
 
 """
-A metabolite as written in enzyme-form and parameter names: its name, with an
-`inh` marker on a competitive-inhibitor copy, so the copy's forms and constants
-stay distinct from those of the same metabolite in its reactant role.
-"""
-_met_label(m::Metabolite) =
-    m isa CompetitiveInhibitor ? String(name(m)) * "inh" : String(name(m))
-
-"""
-Species: an enzyme form. `bound` is sorted by `_met_sort_key`; the
-rendered Symbol name reads `:E` / `:EATP` / `:Estar...` / `:EATP_res_+P`.
-The name is rendered once at construction and stored in `name`; it never
-takes part in `==`, `hash` or display.
+Species: an enzyme form. `bound` is sorted by `_met_sort_key`. Its internal name
+(`_species_name`: `:E` / `:EATP` / `:Estar...` / `:EB_res_+A_-P`) is rendered once at
+construction from the form alone and stored in `name`; it orders steps and identifies
+forms inside the package, and never takes part in `==`, `hash` or display. Parameter
+names write a form with `_form_label`, which also reads the mechanism's reactants.
 """
 struct Species
     bound::Vector{Metabolite}
@@ -100,16 +93,18 @@ function _show_fields(io::IO, x, fields::Tuple)
 end
 
 """
-Render species name deterministically from fields:
+The internal name of a form (`name(::Species)`), rendered from its fields alone:
   :<conformation><bound1><bound2>...[_res[_+<added>...][_-<subtracted>...]]
-Conformation and bound metabolites are concatenated without separator.
-Metabolite Symbols must not contain `_` (domain convention): `:EATP`
-unambiguously means E with ATP bound, not a conformation named "EATP".
-Examples: `:E`, `:ES`, `:EATP`, `:EstarA_res_+P`.
+Conformation and bound metabolites are concatenated without separator, a
+competitive-inhibitor copy with an `inh` marker. Metabolite Symbols must not contain
+`_` (domain convention): `:EATP` unambiguously means E with ATP bound, not a
+conformation named "EATP". Examples: `:E`, `:ES`, `:EATP`, `:EIinh`, `:EstarB_res_+A_-P`.
 """
 function _species_name(bound::Vector{Metabolite}, conformation::Symbol,
                        residual::Residual)
-    head = String(conformation) * join(_met_label(m) for m in bound)
+    head = String(conformation) *
+           join(m isa CompetitiveInhibitor ? String(name(m)) * "inh" : String(name(m))
+                for m in bound)
     isempty(residual) && return Symbol(head)
     Symbol(head, "_res", join("_+" * String(name(a)) for a in added(residual)),
            join("_-" * String(name(p)) for p in subtracted(residual)))
@@ -548,20 +543,20 @@ The steps of one kinetic group, `oriented` one by one by `_canonical_step_direct
 with the deciding `tiers`, except that the steps Tier 1 leaves tied turn as one. The
 lead is the tied step ranked first by whether it changes conformation (those that do
 first), then by deciding tier, then by `_step_index_key` (the canonical form order of
-its two forms). Every other tied step
-takes up and gives off the lead's metabolites (`_step_kind`), and one that changes
-conformation runs between the lead's two conformations in the same order; a step that
-fits in both orientations keeps its own. A group's steps share their constants, so a
-conformational change and its mirror at other bound forms must be stored in the same
-physical direction; oriented one by one, Tier 2 can run the change one way and Tier 3
-its mirror the other, tying a forward constant to a reverse one. The same holds for one
-metabolite exchange at two conformations, which keeps its conformation and turns by
-its metabolites alone. A tied step whose metabolites match the lead's in neither
-orientation is left for `_assert_uniform_groups` to reject. Errors when a tied step's
-metabolites match the lead's but its conformations do not, since no one orientation
-then matches the grouping.
+its two forms). Every other tied step takes up and gives off the lead's metabolites
+(`_step_kind`), and one that changes conformation runs between the lead's two
+conformations in the same order; a step that fits in both orientations keeps its own. A
+group's steps share their constants, so a conformational change and its mirror at other
+bound forms must be stored in the same physical direction; oriented one by one, Tier 2
+can run the change one way and Tier 3 its mirror the other, tying a forward constant to
+a reverse one. The same holds for one metabolite exchange at two conformations, which
+keeps its conformation and turns by its metabolites alone. A tied step whose metabolites
+match the lead's in neither orientation is left for `_assert_uniform_groups` to reject.
+Errors when a tied step's metabolites match the lead's but its conformations do not,
+since no one orientation then matches the grouping.
 """
-function _orient_tied_steps(oriented::Vector{Step}, tiers::Vector{Int})
+function _orient_tied_steps(reaction::EnzymeReaction, oriented::Vector{Step},
+                            tiers::Vector{Int})
     tied = findall(>(1), tiers)
     length(tied) < 2 && return oriented
     pair(s) = (conformation(from_species(s)), conformation(to_species(s)))
@@ -575,8 +570,9 @@ function _orient_tied_steps(oriented::Vector{Step}, tiers::Vector{Int})
         isempty(same_kind) && return s
         fit = findfirst(o -> !turns(o) || pair(o) == pair(lead), same_kind)
         fit === nothing || return same_kind[fit]
-        error("Mechanism: a kinetic group holds $(join(_forward_sides(lead), " → ")) " *
-              "and $(join(_forward_sides(first(same_kind)), " → ")), which make " *
+        error("Mechanism: a kinetic group holds " *
+              "$(join(_forward_sides(lead, reaction), " → ")) and " *
+              "$(join(_forward_sides(first(same_kind), reaction), " → ")), which make " *
               "different conformational changes; the steps of a kinetic group share " *
               "their constants, so they must make the same conformational change")
     end
@@ -611,11 +607,12 @@ fixtures like Segel Iso Uni Uni (`E + A <--> EA ⇌ EP <--> F + P, F <--> E`)
 use `<-->` throughout, so an RE-only filter would mis-classify both `E`
 and `F` as marking nothing and the F⇌E case would fall through to Tier 3.
 """
-function _canonicalize_step_directions(groups::Vector{Vector{Step}})
+function _canonicalize_step_directions(reaction::EnzymeReaction,
+                                       groups::Vector{Vector{Step}})
     entry_sides = _entry_sides(groups)
     map(groups) do group
         oriented = [_canonical_step_direction(s, entry_sides) for s in group]
-        _orient_tied_steps(first.(oriented), last.(oriented))
+        _orient_tied_steps(reaction, first.(oriented), last.(oriented))
     end
 end
 
@@ -680,12 +677,12 @@ function _canonical_groups(reaction::EnzymeReaction, groups::Vector{Vector{Step}
         error("Mechanism: kinetic group $bad is empty; a kinetic group holds at least " *
               "one step")
     gs = [g[sortperm(_step_canonical_key.(g))]
-          for g in _canonicalize_step_directions(groups)]
+          for g in _canonicalize_step_directions(reaction, groups)]
     perm = sortperm([_step_canonical_key(first(g)) for g in gs])
     gs = gs[perm]
-    _assert_distinct_form_names(gs)
-    _assert_uniform_groups(gs)
-    _assert_each_reaction_once(gs)
+    _assert_distinct_form_names(reaction, gs)
+    _assert_uniform_groups(reaction, gs)
+    _assert_each_reaction_once(reaction, gs)
     _assert_bottomed_re_segments(reaction, gs)
     gs, perm
 end
@@ -701,27 +698,58 @@ function _assert_bottomed_re_segments(reaction::EnzymeReaction,
     segment = _bottomless_re_segment(reaction, groups)
     segment === nothing ||
         error("Mechanism: rapid-equilibrium segment {" *
-              join(name.(segment), ", ") * "} has no form free of one side's " *
+              join(_form_label.(segment, Ref(reaction)), ", ") *
+              "} has no form free of one side's " *
               "metabolites, so its rate is undefined when that side is absent " *
               "(0/0). Make one of the segment's binding steps steady-state.")
     nothing
 end
 
-"""
-A step side as written in parameter names: its enzyme form followed by its free
-metabolites, joined by `_` (a competitive-inhibitor copy carries `inh`, as in
-`name(::Species)`), e.g. `"EA_B"` for `E(A) + B`.
-"""
-_side_label(form::Species, mets::Vector{Metabolite}) =
-    join([String(name(form)); _met_label.(mets)], "_")
+"""Whether `x` is the competitive-inhibitor copy of a substrate or product of `rxn`: a
+reactant bound as a modifier."""
+_is_reactant_copy(x::Metabolite, rxn::EnzymeReaction) =
+    x isa CompetitiveInhibitor &&
+    any(ra -> name(metabolite(ra)) === name(x), reactants(rxn))
 
 """
-The two sides of `s` in its stored direction: `from_species` with the consumed
-metabolites, then `to_species` with the released ones. Every step constant is
-named after them.
+A metabolite as written in parameter names: its name, with suffix `mod` on a
+competitive-inhibitor copy of a substrate or product of `rxn` (`_is_reactant_copy`), so
+the copy's forms and constants stay distinct from those of the reactant itself. A
+competitive inhibitor that is no reactant binds only as a modifier, so its name stands
+bare.
 """
-_forward_sides(s::Step) = (_side_label(from_species(s), consumed(s)),
-                           _side_label(to_species(s), released(s)))
+_met_label(x::Metabolite, rxn::EnzymeReaction) =
+    _is_reactant_copy(x, rxn) ? String(name(x)) * "mod" : String(name(x))
+
+"""
+An enzyme form as written in parameter names: its conformation label, then the labels
+(`_met_label`) of its bound metabolites without a separator, then, for a residual,
+`_res`, `_plus<name>` per substrate it adds and `_minus<name>` per product it subtracts,
+each in name order: `E`, `EAB`, `EPmodQ`, `EB_res_plusA_minusP`.
+"""
+function _form_label(sp::Species, rxn::EnzymeReaction)
+    head = String(conformation(sp)) * join(_met_label(x, rxn) for x in bound(sp))
+    r = residual(sp)
+    isempty(r) && return head
+    head * "_res" * join("_plus" * String(name(a)) for a in added(r)) *
+        join("_minus" * String(name(p)) for p in subtracted(r))
+end
+
+"""
+A step side as written in parameter names: its enzyme form (`_form_label`) followed by
+its free metabolites (`_met_label`), joined by `_`, e.g. `"EA_B"` for `E(A) + B`.
+"""
+_side_label(form::Species, mets::Vector{Metabolite}, rxn::EnzymeReaction) =
+    join([_form_label(form, rxn); [_met_label(x, rxn) for x in mets]], "_")
+
+"""
+The two sides of `s` in its stored direction, as parameter names write them for a
+mechanism of reaction `rxn`: `from_species` with the consumed metabolites, then
+`to_species` with the released ones. Every step constant is named after them.
+"""
+_forward_sides(s::Step, rxn::EnzymeReaction) =
+    (_side_label(from_species(s), consumed(s), rxn),
+     _side_label(to_species(s), released(s), rxn))
 
 """
 The kind of a step for kinetic grouping: the metabolites it takes up and gives off,
@@ -732,30 +760,37 @@ kind whether or not either runs chemistry, and every isomerization is one kind.
 _step_kind(s::Step) = (consumed(s), released(s))
 
 """
-Error when two distinct enzyme forms of `steps` render the same name. A form's name
-joins its conformation and bound metabolites without a separator, so E with NAD and P
-bound and E with NADP bound are both `:ENADP`. Every constant is named after the forms
-its step joins, so the two forms would share constant names.
+Error when two distinct enzyme forms of `steps`, a mechanism of `reaction`, render the
+same name. A form's name joins its conformation and bound metabolites without a
+separator, so E with NAD and P bound and E with NADP bound are both `ENADP`. Every
+constant is named after the forms its step joins (`_form_label`), so the two forms
+would share constant names. The forms' internal names (`name(::Species)`), which order
+steps and identify forms, must differ as well.
 """
-function _assert_distinct_form_names(steps::Vector{Vector{Step}})
-    # A form as `@enzyme_mechanism` writes it: `E(NAD, P)`, `E(A::Inh)`,
+function _assert_distinct_form_names(reaction::EnzymeReaction, steps::Vector{Vector{Step}})
+    # A form as `@enzyme_mechanism` writes it: `E(NAD, P)`, `E(A::Inh)`, `E(I)`,
     # `E(B; residual = A - P)`.
     function text(sp)
-        mets = [m isa CompetitiveInhibitor ? "$(name(m))::Inh" : "$(name(m))"
+        mets = [_is_reactant_copy(m, reaction) ? "$(name(m))::Inh" : "$(name(m))"
                 for m in bound(sp)]
         r = residual(sp)
         terms = join(name.(added(r)), " + ") * join(" - $(name(p))" for p in subtracted(r))
         res = isempty(r) ? "" : "; residual = " * lstrip(terms)
         "$(conformation(sp))(" * join(mets, ", ") * res * ")"
     end
-    seen = Dict{Symbol, Species}()
-    for group in steps, s in group, sp in (from_species(s), to_species(s))
-        other = get!(seen, name(sp), sp)
-        other == sp || error("Mechanism: the enzyme forms $(text(other)) and $(text(sp)) " *
-                             "both render the name $(name(sp)); every constant is named " *
-                             "after the forms its step joins, so rename a metabolite to " *
-                             "tell the two forms apart")
+    function check(key, seen, clash)
+        for group in steps, s in group, sp in (from_species(s), to_species(s))
+            other = get!(seen, key(sp), sp)
+            other == sp || error("Mechanism: the enzyme forms $(text(other)) and " *
+                                 "$(text(sp)) $(clash(key(sp))), so rename a metabolite " *
+                                 "to tell the two forms apart")
+        end
     end
+    check(sp -> _form_label(sp, reaction), Dict{String, Species}(),
+          k -> "both render the name $k; every constant is named after the forms its " *
+               "step joins")
+    check(name, Dict{Symbol, Species}(),
+          k -> "share the internal name $k, which orders steps and identifies forms")
 end
 
 """
@@ -763,8 +798,9 @@ Error unless the steps of every kinetic group take up and give off the same
 metabolites (`_step_kind`) and carry one RE/SS flag: a shared constant means the
 same reaction type at the same speed.
 """
-function _assert_uniform_groups(steps::Vector{Vector{Step}})
-    label(s) = join(_forward_sides(s), " → ") * (is_equilibrium(s) ? " (RE)" : " (SS)")
+function _assert_uniform_groups(reaction::EnzymeReaction, steps::Vector{Vector{Step}})
+    label(s) = join(_forward_sides(s, reaction), " → ") *
+               (is_equilibrium(s) ? " (RE)" : " (SS)")
     for group in steps
         s1 = first(group)
         for s in group
@@ -787,20 +823,21 @@ represents both groups; an RE group and an SS group holding it would make one
 reaction both fast and slow. One group holding it twice would count its edge twice
 in the derivation.
 """
-function _assert_each_reaction_once(steps::Vector{Vector{Step}})
+function _assert_each_reaction_once(reaction::EnzymeReaction,
+                                    steps::Vector{Vector{Step}})
     seen = Dict{Tuple{String, String}, Tuple{Int, Step}}()
     flag(s) = is_equilibrium(s) ? "RE" : "SS"
     for (g, group) in enumerate(steps), s in group
-        sides = minmax(_forward_sides(s)...)
+        sides = minmax(_forward_sides(s, reaction)...)
         if haskey(seen, sides)
             g0, s0 = seen[sides]
-            reaction = join(_forward_sides(s0), " ⇌ ")
+            text = join(_forward_sides(s0, reaction), " ⇌ ")
             g0 == g && error("Mechanism: kinetic group $g holds the reaction " *
-                             "$reaction twice; a mechanism holds each reaction once")
+                             "$text twice; a mechanism holds each reaction once")
             flags = flag(s0) == flag(s) ? "" :
                 " ($(flag(s0)) in group $g0, $(flag(s)) in group $g)"
             error("Mechanism: kinetic groups $g0 and $g both hold the reaction " *
-                  "$reaction$flags; a reaction belongs to one kinetic group, whose " *
+                  "$text$flags; a reaction belongs to one kinetic group, whose " *
                   "constants are named after it")
         end
         seen[sides] = (g, s)
@@ -1273,13 +1310,14 @@ end
 
 # --- Pretty printing ---
 
-"""A step as text: its entry side, an arrow (`⇌` rapid equilibrium, `<-->` steady state)
-and its exit side. A side lists the enzyme form, then the metabolites the step consumes
-or releases."""
-_step_text(s::Step) =
-    join((name(from_species(s)), name.(consumed(s))...), " + ") *
+"""A step of a mechanism of reaction `rxn` as text: its entry side, an arrow (`⇌` rapid
+equilibrium, `<-->` steady state) and its exit side. A side lists the enzyme form as
+parameter names write it (`_form_label`), then the metabolites the step consumes or
+releases."""
+_step_text(s::Step, rxn::EnzymeReaction) =
+    join((_form_label(from_species(s), rxn), name.(consumed(s))...), " + ") *
     (is_equilibrium(s) ? " ⇌ " : " <--> ") *
-    join((name(to_species(s)), name.(released(s))...), " + ")
+    join((_form_label(to_species(s), rxn), name.(released(s))...), " + ")
 
 function Base.show(io::IO, em::EnzymeMechanism)
     m = Mechanism(em)
@@ -1287,7 +1325,7 @@ function Base.show(io::IO, em::EnzymeMechanism)
     print(io, "EnzymeMechanism (", length(flat), " steps, ", length(_forms(steps(m))),
           " enzyme forms):")
     for s in flat
-        print(io, "\n  ", _step_text(s))
+        print(io, "\n  ", _step_text(s, reaction(m)))
     end
     regs = regulators(reaction(m))
     isempty(regs) || print(io, " | regulators: ", join(name.(regulator.(regs)), ", "))
@@ -1302,7 +1340,7 @@ function Base.show(io::IO, aem::AllostericEnzymeMechanism)
     isempty(sites) || print(io, ", ", length(sites), " reg sites")
     print(io, "):")
     for (g, group) in enumerate(steps(am))
-        body = join(_step_text.(group), ", ")
+        body = join(_step_text.(group, Ref(reaction(am))), ", ")
         print(io, "\n  ", length(group) == 1 ? body : "($body)", " :: ",
               cat_allo_state(am, g))
     end
@@ -1402,7 +1440,7 @@ function _class_sides(m::_AnyMech)
     sides = c.sides
     sides === nothing || return sides
     c.sides = Dict{Tuple{Int, Int, Bool}, Tuple{String, String}}(
-        k => _forward_sides(s) for (k, s) in _kept_members(m))
+        k => _forward_sides(s, reaction(m)) for (k, s) in _kept_members(m))
 end
 
 """
@@ -1417,7 +1455,7 @@ function _constant_sides(step::Step, slot::Int, state::Symbol, m::_AnyMech)
     g = findfirst(group -> step in group, steps(m))
     g === nothing && error("Step not found in mechanism: $step")
     tag = m isa AllostericMechanism ? cat_allo_state(m, g) : :None
-    state === :I && tag === :OnlyA && return _forward_sides(step)
+    state === :I && tag === :OnlyA && return _forward_sides(step, reaction(m))
     sides = _class_sides(m)
     inactive = state === :I && tag === :NonequalAI
     get(() -> sides[(g, 1, inactive)], sides, (g, slot, inactive))

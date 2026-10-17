@@ -2961,7 +2961,7 @@ end
         end
     end)
     base = EnzymeRates._independent_param_count(am)
-    rejection = "an :OnlyA binding (k_EIinh_A_to_EAIinh) leaves a thermodynamic"
+    rejection = "an :OnlyA binding (k_EI_A_to_EAI) leaves a thermodynamic"
     @test_throws rejection @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -3666,7 +3666,7 @@ end
     # form (non-competing); ≥1 variant has I2 forms that never
     # coexist with I1 (fully-competing). Dead-end species carry the
     # inhibitor as a `CompetitiveInhibitor` in `bound`, rendered with
-    # an `inh` marker in the form name (e.g., `:E_I1inh_I2inh`). The
+    # an `inh` marker in the form name (e.g., `:EI1inhI2inh`). The
     # substring checks below match the bare inhibitor names within
     # those rendered form names. Collect ALL form names per variant
     # from both from_species and to_species across every step.
@@ -5648,29 +5648,31 @@ end
 end
 
 @testset "AllostericMechanism — dual-role name derives distinct params" begin
-    # ATP bound BOTH at a regulatory site AND as a competitive dead-end step
-    # must yield two distinct constants (…ATPreg vs …ATPinh…), never a name
-    # collision, and the mechanism must compile.
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        competitive_inhibitors: ATP
-        allosteric_regulators: ATP(1)
+    # ATP binds BOTH at a regulatory site AND as a competitive dead-end step, so it
+    # takes two distinct constants (K_A_EATP_to_E_ATP at the catalytic site, K_A_ATPreg
+    # and K_I_ATPreg at the regulatory one), never one name for both, and the mechanism
+    # compiles.
+    am = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_inhibitors: ATP
+        allosteric_regulators: ATP::NonequalAI
+        catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E(P)          :: OnlyA
+            E + P ⇌ E(P)            :: EqualAI
+            E + ATP ⇌ E(ATP)        :: OnlyA
+        end
+        regulatory_site(multiplicity = 1): begin
+            ligands: ATP
+        end
     end
-    base = first(EnzymeRates.init_mechanisms(rxn))
-    with_de = first(EnzymeRates._expand_add_dead_end_regulator(base, rxn))
-    am0 = first(EnzymeRates._expand_to_allosteric(with_de, rxn))
-    # Force an ATP regulatory site on top of the ATP dead-end step.
-    am = EnzymeRates._make_am_with_added_reg(am0, :ATP, :NonequalAI, 0)
-    _testhelper_assert_mechanism_invariants(am)
-
-    fp = collect(EnzymeRates.fitted_params(am))
-    @test length(fp) == length(unique(fp))          # no duplicate symbol
-    atp_params = filter(s -> occursin("ATP", String(s)), fp)
-    @test any(s -> occursin("ATPreg", String(s)), atp_params)
-    @test any(s -> occursin("ATPinh", String(s)), atp_params)
-    @test EnzymeRates.compile_mechanism(am) isa AllostericEnzymeMechanism
-    _testhelper_check_law_against_oracle(EnzymeRates.compile_mechanism(am))
+    _testhelper_assert_mechanism_invariants(EnzymeRates.AllostericMechanism(am))
+    @test EnzymeRates.fitted_params(am) ==
+          (:K_A_EATP_to_E_ATP, :K_EP_to_E_P, :K_ES_to_E_S, :k_A_ES_to_EP, :K_A_ATPreg,
+           :K_I_ATPreg, :L)
+    _testhelper_check_law_against_oracle(am)
 end
 
 @testset "AllostericMechanism — dead-end move skips a name bound at a regulatory site" begin

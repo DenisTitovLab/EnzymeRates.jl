@@ -253,7 +253,7 @@ end
             end
         end
         @test EnzymeRates.fitted_params(island) ==
-              (:K_A_EIinhS_to_ES_Iinh, :K_EP_to_E_P, :k_A_ES_to_EP, :k_A_ES_to_E_S,
+              (:K_A_EIS_to_ES_I, :K_EP_to_E_P, :k_A_ES_to_EP, :k_A_ES_to_E_S,
                :k_A_E_S_to_ES, :L)
         @test length(EnzymeRates.fitted_params(island)) ==
               _testhelper_declared_dimension(island)

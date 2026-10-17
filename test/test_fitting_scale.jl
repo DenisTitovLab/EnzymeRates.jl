@@ -45,7 +45,7 @@ end
             E(S) + S::Inh ⇌ E(S, S::Inh)
         end
     end
-    si_params = (K_EP_to_E_P = 1.0, K_ESSinh_to_ES_Sinh = 4.0, K_ES_to_E_S = 1.0,
+    si_params = (K_EP_to_E_P = 1.0, K_ESSmod_to_ES_Smod = 4.0, K_ES_to_E_S = 1.0,
                  k_ES_to_EP = 3.0, Keq = 2.0)
 
     # Random-order steady-state bi-bi.
@@ -319,7 +319,7 @@ end
         # scales, by 1/1.5.
         q_si, _ = rescale_parameter_values(si, si_params)
         @test q_si.k_ES_to_EP ≈ 2.0 rtol = 1e-9
-        @test (q_si.K_EP_to_E_P, q_si.K_ESSinh_to_ES_Sinh, q_si.K_ES_to_E_S) ==
+        @test (q_si.K_EP_to_E_P, q_si.K_ESSmod_to_ES_Smod, q_si.K_ES_to_E_S) ==
               (1.0, 4.0, 1.0)
     end
 

@@ -138,13 +138,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `_expand_merge_regulatory_sites`, which must merge only sites of equal multiplicity.
   Keep a bare `A` at the catalytic multiplicity, widen only on an explicit list, and
   reject `I(m)` for a competitive inhibitor. Priority: medium-low.
-- **Give ping-pong residual forms names that are Julia identifiers.**
-  `_species_name` (`src/types.jl`) writes residuals as `_res_+A_-P`, so a name such as
-  `k_EA_to_EP_res_+A_-P` needs `var"…"` to pass as a parameter, and the destructuring
-  line of `rate_equation_string` is not valid Julia. An encoding such as `_res_pA_mP`
-  fixes this but renames every ping-pong parameter and moves its `eq_hash`, and it stays
-  unambiguous only if `EnzymeReaction` also rejects `_` in metabolite names.
-  Priority: medium-low.
 - **Drop `change_allo_state` relaxations that free no parameter, if measurement finds any.**
   `_expand_change_allo_state` (`src/mechanism_enumeration.jl`) has no gain test, unlike
   the split and RE→SS moves, and in a past LDH run it produced 20 of 33 zero-gain edges,

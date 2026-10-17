@@ -1444,9 +1444,10 @@ end
     _testhelper_check_law_against_oracle(keq_tie)
 end
 
-@testset "rate_equation_string prints residual names bare in constraint lines" begin
+@testset "rate_equation_string prints residual names that run as written" begin
     # Every step of this ping-pong is at steady state, so the Haldane product holds the
-    # rate constants of the residual-bearing forms, whose names are not identifiers.
+    # rate constants of the residual-bearing forms. Their names are Julia identifiers, so
+    # the printed law, run as written, equals the compiled law, which the oracle checks.
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -1460,8 +1461,13 @@ end
         end
     end
     s = rate_equation_string(m)
-    @test occursin(r"\nk_EQ_to_EB_res_\+A_-P = .* \* k_EA_to_EP_res_\+A_-P \* ", s)
+    @test occursin(
+        r"\nk_EQ_to_EB_res_plusA_minusP = .* \* k_EA_to_EP_res_plusA_minusP \* ", s)
     @test !occursin("var\"", s)
+    params = _testhelper_random_independent_params(m; rng = Random.MersenneTwister(6))
+    concs = (A = 0.7, B = 1.3, P = 0.4, Q = 0.9)
+    @test isapprox(_testhelper_eval_rate_string(s, params, concs),
+                   rate_equation(m, concs, params); rtol = 1e-12)
     _testhelper_check_law_against_oracle(m)
 end
 

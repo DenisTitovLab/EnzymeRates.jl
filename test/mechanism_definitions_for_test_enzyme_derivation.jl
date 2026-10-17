@@ -1534,7 +1534,7 @@ let
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
         expected_factored_denom=
-        "1 + P / K_EP_to_E_P + R / K_ERinh_to_E_Rinh + S / K_ES_to_E_S",
+        "1 + P / K_EP_to_E_P + R / K_ER_to_E_R + S / K_ES_to_E_S",
     ))
 end
 
@@ -1579,8 +1579,8 @@ let
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
         expected_factored_denom=
-        "1 + P / K_EP_to_E_P + R / K_ERinh_to_E_Rinh + S / K_ES_to_E_S" *
-        " + R * S / (K_ERinhS_to_ERinh_S * K_ERinh_to_E_Rinh)",
+        "1 + P / K_EP_to_E_P + R / K_ER_to_E_R + S / K_ES_to_E_S" *
+        " + R * S / (K_ERS_to_ER_S * K_ER_to_E_R)",
     ))
 end
 
@@ -1624,7 +1624,7 @@ let
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
         expected_factored_denom=
         "1 + P / K_EP_to_E_P + S / K_ES_to_E_S" *
-        " + R * S / (K_ERinhS_to_ES_Rinh * K_ES_to_E_S)",
+        " + R * S / (K_ERS_to_ES_R * K_ES_to_E_S)",
     ))
 end
 
@@ -1667,9 +1667,9 @@ let
             merge(p, (Et=p.Et,)), c),
         analytical_kcat_fn=p -> p.k2f,
         expected_factored_num=
-        "k_ERinhS_to_EPRinh * R * S / (K_ERinhS_to_ERinh_S * K_ERinh_to_E_Rinh) - k_EPRinh_to_ERinhS * P * R / (K_EPRinh_to_ERinh_P * K_ERinh_to_E_Rinh)",
+        "k_ERS_to_EPR * R * S / (K_ERS_to_ER_S * K_ER_to_E_R) - k_EPR_to_ERS * P * R / (K_EPR_to_ER_P * K_ER_to_E_R)",
         expected_factored_denom=
-        "1 + R / K_ERinh_to_E_Rinh + P * R / (K_EPRinh_to_ERinh_P * K_ERinh_to_E_Rinh) + R * S / (K_ERinhS_to_ERinh_S * K_ERinh_to_E_Rinh)",
+        "1 + R / K_ER_to_E_R + P * R / (K_EPR_to_ER_P * K_ER_to_E_R) + R * S / (K_ERS_to_ER_S * K_ER_to_E_R)",
     ))
 end
 
@@ -1721,9 +1721,9 @@ let
             merge(p, (Et=p.Et,)), c),
         analytical_kcat_fn=p -> max(p.k2f, p.k5f),
         expected_factored_num=
-        "k_ES_to_EP * S / K_ES_to_E_S + k_ERinhS_to_EPRinh * R * S / (K_ERinhS_to_ERinh_S * K_ERinh_to_E_Rinh) - (k_EP_to_ES * P / K_EP_to_E_P + k_EPRinh_to_ERinhS * P * R / (K_EP_to_E_P * K_ERinh_to_E_Rinh))",
+        "k_ES_to_EP * S / K_ES_to_E_S + k_ERS_to_EPR * R * S / (K_ERS_to_ER_S * K_ER_to_E_R) - (k_EP_to_ES * P / K_EP_to_E_P + k_EPR_to_ERS * P * R / (K_EP_to_E_P * K_ER_to_E_R))",
         expected_factored_denom=
-        "1 + P / K_EP_to_E_P + R / K_ERinh_to_E_Rinh + S / K_ES_to_E_S + P * R / (K_EP_to_E_P * K_ERinh_to_E_Rinh) + R * S / (K_ERinhS_to_ERinh_S * K_ERinh_to_E_Rinh)",
+        "1 + P / K_EP_to_E_P + R / K_ER_to_E_R + S / K_ES_to_E_S + P * R / (K_EP_to_E_P * K_ER_to_E_R) + R * S / (K_ERS_to_ER_S * K_ER_to_E_R)",
     ))
 end
 
@@ -1783,9 +1783,9 @@ let
         # Denom has both multiplicative (activator) and additive
         # (inhibitor) structure
         expected_factored_num=
-        "k_ES_to_EP * S / K_ES_to_E_S + k_EAinhS_to_EAinhP * A * S / (K_EAinhS_to_EAinh_S * K_EAinh_to_E_Ainh) - (k_EP_to_ES * P / K_EP_to_E_P + k_EAinhP_to_EAinhS * A * P / (K_EAinhP_to_EAinh_P * K_EAinh_to_E_Ainh))",
+        "k_ES_to_EP * S / K_ES_to_E_S + k_EAS_to_EAP * A * S / (K_EAS_to_EA_S * K_EA_to_E_A) - (k_EP_to_ES * P / K_EP_to_E_P + k_EAP_to_EAS * A * P / (K_EAP_to_EA_P * K_EA_to_E_A))",
         expected_factored_denom=
-        "1 + A / K_EAinh_to_E_Ainh + I / K_EIinh_to_E_Iinh + P / K_EP_to_E_P + S / K_ES_to_E_S + A * P / (K_EAinhP_to_EAinh_P * K_EAinh_to_E_Ainh) + A * S / (K_EAinhS_to_EAinh_S * K_EAinh_to_E_Ainh)",
+        "1 + A / K_EA_to_E_A + I / K_EI_to_E_I + P / K_EP_to_E_P + S / K_ES_to_E_S + A * P / (K_EAP_to_EA_P * K_EA_to_E_A) + A * S / (K_EAS_to_EA_S * K_EA_to_E_A)",
     ))
 end
 
@@ -1945,7 +1945,7 @@ let
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
         expected_factored_denom=
-        "1 + I1 / K_EI1inh_to_E_I1inh + I2 / K_EI2inh_to_E_I2inh + P / K_EP_to_E_P" *
+        "1 + I1 / K_EI1_to_E_I1 + I2 / K_EI2_to_E_I2 + P / K_EP_to_E_P" *
         " + S / K_ES_to_E_S",
     ))
 end
@@ -2013,7 +2013,7 @@ let
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
         expected_factored_denom=
-        "1 + I1 / K_EI1inh_to_E_I1inh + I2 / K_EI2inh_to_E_I2inh + P / K_EP_to_E_P + S / K_ES_to_E_S + I1 * I2 / (K_EI1inh_to_E_I1inh * K_EI2inh_to_E_I2inh) + I1 * P / (K_EI1inh_to_E_I1inh * K_EP_to_E_P) + I1 * S / (K_EI1inh_to_E_I1inh * K_ES_to_E_S) + I2 * P / (K_EI2inh_to_E_I2inh * K_EP_to_E_P) + I2 * S / (K_EI2inh_to_E_I2inh * K_ES_to_E_S) + I1 * I2 * P / (K_EI1inh_to_E_I1inh * K_EI2inh_to_E_I2inh * K_EP_to_E_P) + I1 * I2 * S / (K_EI1inh_to_E_I1inh * K_EI2inh_to_E_I2inh * K_ES_to_E_S)",
+        "1 + I1 / K_EI1_to_E_I1 + I2 / K_EI2_to_E_I2 + P / K_EP_to_E_P + S / K_ES_to_E_S + I1 * I2 / (K_EI1_to_E_I1 * K_EI2_to_E_I2) + I1 * P / (K_EI1_to_E_I1 * K_EP_to_E_P) + I1 * S / (K_EI1_to_E_I1 * K_ES_to_E_S) + I2 * P / (K_EI2_to_E_I2 * K_EP_to_E_P) + I2 * S / (K_EI2_to_E_I2 * K_ES_to_E_S) + I1 * I2 * P / (K_EI1_to_E_I1 * K_EI2_to_E_I2 * K_EP_to_E_P) + I1 * I2 * S / (K_EI1_to_E_I1 * K_EI2_to_E_I2 * K_ES_to_E_S)",
     ))
 end
 
@@ -2066,7 +2066,7 @@ let
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
         expected_factored_denom=
-        "1 + I1 / K_EI1inh_to_E_I1inh + I2 / K_EI2inh_to_E_I2inh + P / K_EP_to_E_P + S / K_ES_to_E_S + I1 * P / (K_EI1inh_to_E_I1inh * K_EP_to_E_P) + I1 * S / (K_EI1inh_to_E_I1inh * K_ES_to_E_S)",
+        "1 + I1 / K_EI1_to_E_I1 + I2 / K_EI2_to_E_I2 + P / K_EP_to_E_P + S / K_ES_to_E_S + I1 * P / (K_EI1_to_E_I1 * K_EP_to_E_P) + I1 * S / (K_EI1_to_E_I1 * K_ES_to_E_S)",
     ))
 end
 
@@ -2111,8 +2111,8 @@ let
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
         expected_factored_denom=
-        "1 + I2 / K_EI2inh_to_E_I2inh + P / K_EP_to_E_P + S / K_ES_to_E_S" *
-        " + I1 * S / (K_EI1inhS_to_ES_I1inh * K_ES_to_E_S)",
+        "1 + I2 / K_EI2_to_E_I2 + P / K_EP_to_E_P + S / K_ES_to_E_S" *
+        " + I1 * S / (K_EI1S_to_ES_I1 * K_ES_to_E_S)",
     ))
 end
 
@@ -2172,7 +2172,7 @@ let
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
         expected_factored_denom=
-        "1 + I1 / K_EI1inh_to_E_I1inh + I2 / K_EI2inh_to_E_I2inh + P / K_EP_to_E_P + S / K_ES_to_E_S + I1 * P / (K_EI1inh_to_E_I1inh * K_EP_to_E_P) + I1 * S / (K_EI1inh_to_E_I1inh * K_ES_to_E_S) + I2 * P / (K_EI2inh_to_E_I2inh * K_EP_to_E_P) + I2 * S / (K_EI2inh_to_E_I2inh * K_ES_to_E_S)",
+        "1 + I1 / K_EI1_to_E_I1 + I2 / K_EI2_to_E_I2 + P / K_EP_to_E_P + S / K_ES_to_E_S + I1 * P / (K_EI1_to_E_I1 * K_EP_to_E_P) + I1 * S / (K_EI1_to_E_I1 * K_ES_to_E_S) + I2 * P / (K_EI2_to_E_I2 * K_EP_to_E_P) + I2 * S / (K_EI2_to_E_I2 * K_ES_to_E_S)",
     ))
 end
 

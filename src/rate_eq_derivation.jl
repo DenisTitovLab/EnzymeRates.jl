@@ -131,14 +131,14 @@ end
 
 """
 Compute alpha factors (relative concentrations within RE segments) as POLY
-values. Iterates the flat steps `flat` directly; each RE step's weight ratio comes
-from `_re_weight_ratio`, entering `to_species` from `from_species` or the
-reverse. `idx[sp]` is the position of form `sp` in `species`; `step_to_K[j]` is
-the parameter Symbol for the RE step at flat position `j`, and `conc_set` the
-concentration symbols. Raises when the RE steps close a catalytic cycle, which gives
-the mechanism no finite rate.
+values. Iterates the flat steps `flat` of a mechanism of reaction `rxn` directly; each
+RE step's weight ratio comes from `_re_weight_ratio`, entering `to_species` from
+`from_species` or the reverse. `idx[sp]` is the position of form `sp` in `species`;
+`step_to_K[j]` is the parameter Symbol for the RE step at flat position `j`, and
+`conc_set` the concentration symbols. Raises when the RE steps close a catalytic cycle,
+which gives the mechanism no finite rate.
 """
-function _compute_alpha(flat, conc_set, species, idx, segments, step_to_K)
+function _compute_alpha(rxn, flat, conc_set, species, idx, segments, step_to_K)
     N = length(species)
     alpha = Vector{POLY}(fill(poly_one(), N))
 
@@ -175,7 +175,8 @@ function _compute_alpha(flat, conc_set, species, idx, segments, step_to_K)
         ratio = poly_mul(alpha[b], _invert_monomial(alpha[a]))
         conc(ratio) == conc(_re_weight_ratio(s, step_to_K[j])) || error(
             "rate_equation: the rapid-equilibrium steps close a catalytic cycle " *
-            "(through $(name(from_species(s))) ⇌ $(name(to_species(s)))), so the " *
+            "(through $(_form_label(from_species(s), rxn)) ⇌ " *
+            "$(_form_label(to_species(s), rxn))), so the " *
             "mechanism has no finite rate. Make one step of the cycle steady-state.")
     end
     alpha
@@ -217,7 +218,7 @@ function _raw_symbolic_rate_polys(rxn::EnzymeReaction, groups::Vector{Vector{Ste
     conc_set = _concentration_symbols(rxn)
     step_to_K = Dict{Int, Symbol}(
         i => names[i][1] for i in eachindex(flat) if is_equilibrium(flat[i][1]))
-    alpha = _compute_alpha(flat, conc_set, species, idx, segments, step_to_K)
+    alpha = _compute_alpha(rxn, flat, conc_set, species, idx, segments, step_to_K)
     G = length(segments)
 
     # The Laplacian of the segment graph: each SS step joining two segments adds its
@@ -460,9 +461,9 @@ constants are listed first under `# Wegscheider constraints:` and
 `# Haldane constraints:` headers — the thermodynamic identities that eliminate
 parameters — and only the independent set appears in the `params` destructure.
 
-Names that are not Julia identifiers, such as the residual forms of
-ping-pong mechanisms (`k_EA_to_EP_res_+A_-P`), print bare, so such a
-string reads as text, not code.
+Every name prints as a Julia identifier, the residual forms of ping-pong
+mechanisms included (`k_EA_to_EP_res_plusA_minusP`), so with `params` and
+`concs` bound the string runs as Julia code.
 
 Use `print` on the result to see the multi-line layout without escaped
 newlines.

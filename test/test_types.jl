@@ -56,7 +56,8 @@ end
         @test ER.metabolites(m) == (:S, :P)
         # Steps are canonicalized at construction, so compare content
         # order-independently.
-        @test Set(ER._step_text.(_testhelper_flat_steps(m))) ==
+        rxn = ER.reaction(ER.Mechanism(m))
+        @test Set(ER._step_text.(_testhelper_flat_steps(m), Ref(rxn))) ==
               Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
         @test length(ER.steps(ER.Mechanism(m))) == 3
         @test Set(_testhelper_enzyme_forms(_testhelper_flat_steps(m))) ==
@@ -1534,7 +1535,7 @@ end
             end
         end
         @test err isa ErrorException
-        @test occursin("a kinetic group holds E_A → EA (RE) and EQ_Ainh → EAinhQ (RE)",
+        @test occursin("a kinetic group holds E_A → EA (RE) and EQ_Amod → EAmodQ (RE)",
                        err.msg)
     end
 
@@ -1707,7 +1708,7 @@ end
             E + A::Inh ⇌ E(A::Inh)
         end
     end
-    @test issubset([:K_EAinh_to_E_Ainh, :K_EA_to_E_A],
+    @test issubset([:K_EAmod_to_E_Amod, :K_EA_to_E_A],
                    _testhelper_step_constant_names(inh))
     _testhelper_check_law_against_oracle(inh)
     # The allosteric state tag follows the prefix: a :NonequalAI binding has an
@@ -1730,7 +1731,8 @@ end
     @test :K_EP_to_E_P in ER.parameters(allo) && !(:K_A_EP_to_E_P in allo_names)
     @test :K_I_EP_to_E_P ∉ ER.parameters(allo)
     # A ping-pong residual form: B binds E(; residual = A - P), whose name is
-    # E_res_+A_-P, so the release-direction K reads EB_res_+A_-P → E_res_+A_-P + B.
+    # E_res_plusA_minusP, so the release-direction K reads
+    # EB_res_plusA_minusP → E_res_plusA_minusP + B.
     # E and the covalent E(; residual) share one RE segment whose weights vanish only
     # at B = Q = 0 (mixed), so the mechanism is accepted.
     pingpong = @enzyme_mechanism begin
@@ -1746,11 +1748,73 @@ end
         end
     end
     pp_names = _testhelper_step_constant_names(pingpong)
-    @test Symbol("K_EB_res_+A_-P_to_E_res_+A_-P_B") in pp_names
+    @test :K_EB_res_plusA_minusP_to_E_res_plusA_minusP_B in pp_names
     _testhelper_check_law_against_oracle(pingpong)
     # One name per class: a rapid-equilibrium group's K, a steady-state group's kf, kr.
     @test length(pp_names) == sum(ER.is_equilibrium(first(g)) ? 1 : 2
                                   for g in ER.steps(ER.Mechanism(pingpong)))
+end
+
+@testset "a modifier-only name is bare in constant names, a reactant's copy is Xmod" begin
+    # I binds only as a modifier, so nothing else carries its name.
+    modifier_only = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        regulators: I
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+            E + I ⇌ E(I)
+        end
+    end
+    @test _testhelper_step_constant_names(modifier_only) ==
+          Set([:K_ES_to_E_S, :k_ES_to_EP, :k_EP_to_ES, :K_EP_to_E_P, :K_EI_to_E_I])
+    _testhelper_check_law_against_oracle(modifier_only)
+    # P is a product that also binds as a modifier, so its modifier copy reads Pmod.
+    reactant_copy = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        regulators: P
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P, Q) ⇌ E(Q) + P
+            E(Q) ⇌ E + Q
+            E(Q) + P::Inh ⇌ E(P::Inh, Q)
+        end
+    end
+    @test _testhelper_step_constant_names(reactant_copy) ==
+          Set([:K_EA_to_E_A, :K_EAB_to_EA_B, :k_EAB_to_EPQ, :k_EPQ_to_EAB,
+               :K_EPQ_to_EQ_P, :K_EQ_to_E_Q, :K_EPmodQ_to_EQ_Pmod])
+    _testhelper_check_law_against_oracle(reactant_copy)
+end
+
+@testset "a residual reads _res, then _plus per added and _minus per subtracted name" begin
+    # The residual adds A and B and subtracts P; each run lists its names in order.
+    m = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B <--> E(A, B)
+            E(A, B) <--> E(P; residual = B + A - P)
+            E(P; residual = B + A - P) <--> E(; residual = B + A - P) + P
+            E(; residual = B + A - P) <--> E(Q)
+            E(Q) <--> E + Q
+        end
+    end
+    @test _testhelper_step_constant_names(m) == Set([
+        :k_E_A_to_EA, :k_EA_to_E_A, :k_EA_B_to_EAB, :k_EAB_to_EA_B,
+        :k_EAB_to_EP_res_plusA_plusB_minusP, :k_EP_res_plusA_plusB_minusP_to_EAB,
+        :k_E_res_plusA_plusB_minusP_P_to_EP_res_plusA_plusB_minusP,
+        :k_EP_res_plusA_plusB_minusP_to_E_res_plusA_plusB_minusP_P,
+        :k_E_res_plusA_plusB_minusP_to_EQ, :k_EQ_to_E_res_plusA_plusB_minusP,
+        :k_E_Q_to_EQ, :k_EQ_to_E_Q])
+    # Every name is a Julia identifier, so a parameter tuple needs no var"…".
+    @test all(Base.isidentifier, ER.parameters(m))
+    _testhelper_check_law_against_oracle(m)
 end
 
 @testset "Tier 2 reads the free metabolites at both ends of a step" begin
@@ -1943,10 +2007,10 @@ end
         end
     end) == am
     # The rate law derives, with the exchange constants named in the J-in direction.
-    @test occursin("k_EIinh_Jinh_to_EJinh_Iinh", rate_equation_string(plain))
+    @test occursin("k_EI_J_to_EJ_I", rate_equation_string(plain))
     allo_law = rate_equation_string(allo)
-    @test occursin("k_A_EIinh_Jinh_to_EJinh_Iinh", allo_law)
-    @test occursin("k_I_EIinh_Jinh_to_EJinh_Iinh", allo_law)
+    @test occursin("k_A_EI_J_to_EJ_I", allo_law)
+    @test occursin("k_I_EI_J_to_EJ_I", allo_law)
     _testhelper_check_law_against_oracle(plain)
     _testhelper_check_law_against_oracle(allo)
 
@@ -2042,10 +2106,10 @@ end
             (F(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)  :: NonequalAI
         end
     end) == am
-    @test occursin("k_EJinh_Iinh_to_EIinh_Jinh", rate_equation_string(plain))
+    @test occursin("k_EJ_I_to_EI_J", rate_equation_string(plain))
     allo_law = rate_equation_string(allo)
-    @test occursin("k_A_EJinh_Iinh_to_EIinh_Jinh", allo_law)
-    @test occursin("k_I_EJinh_Iinh_to_EIinh_Jinh", allo_law)
+    @test occursin("k_A_EJ_I_to_EI_J", allo_law)
+    @test occursin("k_I_EJ_I_to_EI_J", allo_law)
     _testhelper_check_law_against_oracle(plain)
     _testhelper_check_law_against_oracle(allo)
 
@@ -2081,7 +2145,7 @@ end
             (E(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)
         end
     end) == mm
-    @test occursin("k_EJinh_Iinh_to_EIinh_Jinh", rate_equation_string(mixed))
+    @test occursin("k_EJ_I_to_EI_J", rate_equation_string(mixed))
     _testhelper_check_law_against_oracle(mixed)
 end
 
@@ -2182,6 +2246,39 @@ end
     @test occursin("E(NADP)", err.msg)
     @test occursin("both render the name ENADP; ", err.msg)
     @test occursin("rename a metabolite", err.msg)
+end
+
+@testset "two forms whose constants would share a name are rejected" begin
+    # P's modifier copy bound to E and the modifier Pmod bound to E both name their
+    # constants EPmod, so K_EPmod_to_E_Pmod would name both bindings.
+    @test_throws "E(P::Inh) and E(Pmod) both render the name EPmod" @enzyme_mechanism begin
+        substrates: S
+        products: P
+        regulators: P, Pmod
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+            E + P::Inh ⇌ E(P::Inh)
+            E + Pmod ⇌ E(Pmod)
+        end
+    end
+end
+
+@testset "two forms with one internal name are rejected" begin
+    # The modifier-only I renders bare, so E(I) and E(Iinh) name their constants apart,
+    # but both take the internal name EIinh, which orders steps and identifies forms.
+    @test_throws "E(I) and E(Iinh) share the internal name EIinh" @enzyme_mechanism begin
+        substrates: Iinh
+        products: P
+        regulators: I
+        steps: begin
+            E + Iinh ⇌ E(Iinh)
+            E(Iinh) <--> E(P)
+            E(P) ⇌ E + P
+            E + I ⇌ E(I)
+        end
+    end
 end
 
 # Chokepoint guard: no `Symbol("[KkVL]...")` literal is constructed outside

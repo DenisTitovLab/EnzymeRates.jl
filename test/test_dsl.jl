@@ -895,11 +895,12 @@
         @test :EP in forms        # product-bound form (catalytic release)
         @test :EPinh in forms     # inhibitor-bound form — DISTINCT from :EP
         @test :EP != :EPinh
-        # rate_equation must reference concs.P for the inhibitor term, not concs.Pinh:
+        # rate_equation must reference concs.P for the inhibitor term, not concs.Pmod:
         re_str = rate_equation_string(m)
         @test occursin("P", re_str)             # real metabolite name appears
-        @test occursin("(; S, P) = concs", re_str)  # concentration is P, never Pinh
-        @test !occursin("Pinh = concs", re_str)     # the inh marker never names a concentration
+        @test occursin("(; S, P) = concs", re_str)  # concentration is P, never Pmod
+        # The mod marker never names a concentration.
+        @test !occursin("Pmod = concs", re_str)
         _testhelper_check_law_against_oracle(m)
     end
 
