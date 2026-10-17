@@ -755,17 +755,16 @@ end
 
 """
 Whether the mechanism macro `block` writes a token of the grammar
-`_parse_mechanism_body` reads and `_raw_mechanism` does not: an `X::Inh` metabolite, an
-`allosteric_regulators:` entry with a tag, a `regulatory_site(...)` line with a keyword
-argument or a `begin ... end` body, or a parenthesized single step with a tag. Such a
-block expands through `_parse_mechanism_body`, every other one through `_raw_mechanism`.
+`_parse_mechanism_body` reads and `_raw_mechanism` does not: an `allosteric_regulators:`
+entry with a tag, a `regulatory_site(...)` line with a keyword argument or a
+`begin ... end` body, or a parenthesized single step with a tag. Such a block expands
+through `_parse_mechanism_body`, every other one through `_raw_mechanism`.
 """
 function _uses_inhibitor_grammar(block)
     block isa Expr && block.head === :block || return false
     is_tagged(v) = v isa Expr && v.head === :(::)
     for arg in block.args
         arg isa LineNumberNode && continue
-        _holds_inh_tag(arg) && return true
         head, rest = arg isa Expr && arg.head === :tuple && !isempty(arg.args) ?
                      (arg.args[1], arg.args[2:end]) : (arg, Any[])
         head isa Expr && head.head === :call && length(head.args) == 3 &&
@@ -784,10 +783,6 @@ function _uses_inhibitor_grammar(block)
     end
     false
 end
-
-"""Whether the expression `x` holds a metabolite tagged `::Inh`."""
-_holds_inh_tag(x) = x isa Expr && (x.head === :(::) && length(x.args) == 2 &&
-                                   x.args[2] === :Inh || any(_holds_inh_tag, x.args))
 
 # ─── Mechanism macro blocks as written ─────────────────────────────────
 

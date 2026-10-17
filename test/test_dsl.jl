@@ -1351,19 +1351,22 @@ end
             end
             regulatory_site(1): R::OnlyA
         end))
-        @test_throws("@enzyme_mechanism: unknown role tag ::Inh on P; the one role tag " *
-                     "is ::Mod, which marks a substrate or product bound as a modifier.",
-                     EnzymeRates._raw_mechanism(quote
-            substrates: S
-            products:   P
-            modifiers:  P
-            steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-                E + P::Inh ⇌ E(P::Inh)
-            end
-        end, false))
+        # ::Mod is the one role tag, also where a role tag ends a step.
+        for line in (:(E + P::Inh ⇌ E(P::Inh)), :(E(P) ⇌ E + P::Inh))
+            @test_throws("@enzyme_mechanism: unknown role tag ::Inh on P; the one role " *
+                         "tag is ::Mod, which marks a substrate or product bound as a " *
+                         "modifier.", eval(:(@enzyme_mechanism begin
+                substrates: S
+                products:   P
+                modifiers:  P
+                steps: begin
+                    E + S ⇌ E(S)
+                    E(S) <--> E(P)
+                    E(P) ⇌ E + P
+                    $line
+                end
+            end)))
+        end
     end
 
     @testset "every allosteric regulator sits at exactly one regulatory site" begin
