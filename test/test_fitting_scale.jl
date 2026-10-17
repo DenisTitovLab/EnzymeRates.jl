@@ -37,12 +37,12 @@ end
     si = @enzyme_mechanism begin
         substrates: S
         products:   P
-        regulators: S
+        modifiers: S
         steps: begin
             E + S ⇌ E(S)
             E(S) <--> E(P)
             E(P) ⇌ E + P
-            E(S) + S::Inh ⇌ E(S, S::Inh)
+            E(S) + S::Mod ⇌ E(S, S::Mod)
         end
     end
     si_params = (K_EP_to_E_P = 1.0, K_ESSmod_to_ES_Smod = 4.0, K_ES_to_E_S = 1.0,
@@ -69,19 +69,15 @@ end
     two_site = @allosteric_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: X::OnlyI, Y::NonequalAI
+        allosteric_regulators: X, Y
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)      :: EqualAI
             E(S) <--> E(P)    :: OnlyA
             E(P) ⇌ E + P      :: EqualAI
         end
-        regulatory_site(multiplicity = 2): begin
-            ligands: X
-        end
-        regulatory_site(multiplicity = 1): begin
-            ligands: Y
-        end
+        regulatory_site(2): X::OnlyI
+        regulatory_site(1): Y::NonequalAI
     end
 
     @testset "a saturating law peaks at the range's upper substrate corner" begin
@@ -170,7 +166,7 @@ end
             substrates: S
             products: P
             catalytic_multiplicity: 2
-            catalytic_steps: begin
+            steps: begin
                 E + S ⇌ E(S)      :: NonequalAI
                 E(S) <--> E(P)    :: NonequalAI
                 E(P) ⇌ E + P      :: EqualAI

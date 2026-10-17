@@ -41,12 +41,13 @@ generator = @allosteric_mechanism begin
     substrates: S
     products:   P
     catalytic_multiplicity: 2
-    allosteric_regulators: A::OnlyA
-    catalytic_steps: begin
+    allosteric_regulators: A
+    steps: begin
         E + S ⇌ E(S)         :: EqualAI
         E(S) <--> E(P)       :: OnlyA
         E(P) ⇌ E + P         :: EqualAI
     end
+    regulatory_site(2): A::OnlyA
 end
 
 println("fitted params: ", EnzymeRates.fitted_params(generator))

@@ -658,16 +658,14 @@ end
     allosteric = @allosteric_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: A::OnlyA, I::OnlyI
+        allosteric_regulators: A, I
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)     :: EqualAI
             E(S) <--> E(P)   :: OnlyA
             E(P) ⇌ E + P     :: EqualAI
         end
-        regulatory_site(multiplicity = 4): begin
-            ligands: A, I
-        end
+        regulatory_site(4): A::OnlyA, I::OnlyI
     end
     for em in (plain, ping_pong, allosteric)
         s = EnzymeRates._mechanism_type_string(em)
@@ -1377,7 +1375,7 @@ function _testhelper_dedup_twins()
         substrates: S
         products: P
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)       :: OnlyA
             E(S) <--> E(P)     :: NonequalAI
             E(P) ⇌ E + P       :: OnlyA
@@ -1387,7 +1385,7 @@ function _testhelper_dedup_twins()
         substrates: S
         products: P
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)       :: OnlyA
             E(S) <--> E(P)     :: OnlyA
             E(P) ⇌ E + P       :: OnlyA
@@ -1543,7 +1541,7 @@ end
         substrates: NADH, Pyruvate
         products:   Lactate, NAD
         catalytic_multiplicity: 4
-        catalytic_steps: begin
+        steps: begin
             (E + Lactate ⇌ E(Lactate), E(NAD) + Lactate ⇌ E(Lactate, NAD))   :: EqualAI
             (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD),
              E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate))                           :: EqualAI
@@ -1561,7 +1559,7 @@ end
         substrates: NADH, Pyruvate
         products:   Lactate, NAD
         catalytic_multiplicity: 4
-        catalytic_steps: begin
+        steps: begin
             (E + Lactate ⇌ E(Lactate), E(NAD) + Lactate ⇌ E(Lactate, NAD),
              E(NADH) + Lactate ⇌ E(Lactate, NADH))                           :: EqualAI
             (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD),
@@ -1669,7 +1667,7 @@ end
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
-        dead_end_inhibitors: I
+        competitive_inhibitors: I
     end
     M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
     # The seed's children as parents: their own children overlap, so the

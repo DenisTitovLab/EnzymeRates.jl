@@ -82,7 +82,7 @@ end
 @testset "OnlyA MWC derivation matches mass-action ground truth" begin
     onlyA = @allosteric_mechanism begin
         substrates: S ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)     :: OnlyA
             E(S) <--> E(P)   :: OnlyA
             E + P ⇌ E(P)     :: EqualAI
@@ -138,7 +138,7 @@ end
 @testset "multi-OnlyA MWC derivation matches mass-action ground truth" begin
     multiA = @allosteric_mechanism begin
         substrates: A, B ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + A ⇌ E(A)          :: OnlyA
             E(A) + B ⇌ E(A, B)    :: OnlyA
             E(A, B) <--> E(P)     :: OnlyA
@@ -224,7 +224,7 @@ end
 @testset "metabolite-bearing-D MWC derivation matches mass-action ground truth" begin
     metabD = @allosteric_mechanism begin
         substrates: S, B ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + S <--> E(S)      :: OnlyA
             E(S) + B ⇌ E(S, B)   :: EqualAI
             E(S, B) <--> E(P)    :: OnlyA
@@ -379,7 +379,7 @@ end
     end
     alloEq = @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + A <--> E(A)                                       :: EqualAI
             E(A) <--> E(; residual = A - P) + P                   :: EqualAI
             E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
@@ -543,7 +543,7 @@ end
 @testset ":NonequalAI ping-pong MWC derivation matches mass-action ground truth" begin
     allo = @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + A <--> E(A)                                       :: EqualAI
             E(A) <--> E(; residual = A - P) + P                   :: NonequalAI
             E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
@@ -663,7 +663,7 @@ end
 @testset "ping-pong MWC derivation with free E and F in one RE segment" begin
     allo = @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + A ⇌ E(A)                                          :: EqualAI
             E(A) <--> E(P; residual = A - P)                      :: OnlyA
             E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
@@ -720,7 +720,7 @@ end
 @testset "fully-inert inactive contributes L to the denominator" begin
     inert = @allosteric_mechanism begin
         substrates: S ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)   :: OnlyA
             E(S) <--> E(P) :: EqualAI
             E + P ⇌ E(P)   :: OnlyA
@@ -763,7 +763,7 @@ end
         substrates: ATP, F6P
         products: ADP, F16BP
         catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + ATP ⇌ E(ATP)                                                      :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
             E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
@@ -917,7 +917,7 @@ end
         allo = nprot == 1 ?
             @allosteric_mechanism(begin
                 substrates: A, B ; products: P ; catalytic_multiplicity: 1
-                catalytic_steps: begin
+                steps: begin
                     E + A <--> E(A)        :: EqualAI
                     E(A) + B ⇌ E(A, B)     :: EqualAI
                     E(A, B) <--> E(P)      :: NonequalAI
@@ -926,7 +926,7 @@ end
             end) : nprot == 2 ?
             @allosteric_mechanism(begin
                 substrates: A, B ; products: P ; catalytic_multiplicity: 2
-                catalytic_steps: begin
+                steps: begin
                     E + A <--> E(A)        :: EqualAI
                     E(A) + B ⇌ E(A, B)     :: EqualAI
                     E(A, B) <--> E(P)      :: NonequalAI
@@ -935,7 +935,7 @@ end
             end) :
             @allosteric_mechanism(begin
                 substrates: A, B ; products: P ; catalytic_multiplicity: 3
-                catalytic_steps: begin
+                steps: begin
                     E + A <--> E(A)        :: EqualAI
                     E(A) + B ⇌ E(A, B)     :: EqualAI
                     E(A, B) <--> E(P)      :: NonequalAI
@@ -999,7 +999,7 @@ end
         substrates: ATP, F6P
         products: ADP, F16BP
         catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + ATP ⇌ E(ATP)                                                      :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
             E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI

@@ -44,7 +44,7 @@
         m_multi = @enzyme_mechanism begin
             substrates: A, B
             products:   P
-            regulators: I
+            modifiers: I
             steps: begin
                 E + A <--> E(A)
                 E(A) + B <--> E(A, B)
@@ -77,7 +77,7 @@
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
-            regulators: I
+            modifiers: I
 
             steps: begin
                 (E + S ⇌ E(S), E(P) + S ⇌ E(P, S))
@@ -124,9 +124,7 @@
         @test_throws "belong in @allosteric_mechanism" eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
-            regulatory_site(multiplicity = 2): begin
-                ligands: A
-            end
+            regulatory_site(2): A
             steps: begin
                 E + S ⇌ E(S)
                 E(S) <--> E(P)
@@ -141,7 +139,7 @@
             substrates: F6P
             products:   F16BP
             catalytic_multiplicity: 2
-            catalytic_steps: begin
+            steps: begin
                 E + F6P ⇌ E(F6P) :: EqualAI
                 E(F6P) <--> E(F16BP)
                 E(F16BP) ⇌ E + F16BP :: EqualAI
@@ -154,7 +152,7 @@
                 substrates: F6P
                 products:   F16BP
                 catalytic_multiplicity: 2
-                catalytic_steps: begin
+                steps: begin
                     E + F6P ⇌ E(F6P) :: EqualAI
                     E(F6P) <--> E(F16BP) :: OnlyI
                     E(F16BP) ⇌ E + F16BP :: EqualAI
@@ -179,7 +177,7 @@
             substrates: S, A
             products:   P
             catalytic_multiplicity: 2
-            catalytic_steps: begin
+            steps: begin
                 (E + S ⇌ E(S), E(A) + S ⇌ E(A, S))
                 E(A, S) <--> E(P)   :: EqualAI
                 E(P) ⇌ E + P        :: EqualAI
@@ -193,25 +191,25 @@
         @test_throws "lists `A` more than once" eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
-            allosteric_regulators: A::Bogus, A::OnlyA
-            catalytic_steps: begin
+            allosteric_regulators: A, A
+            steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: EqualAI
                 E(P) ⇌ E + P      :: EqualAI
             end
-            regulatory_site(multiplicity = 2): begin
-                ligands: A
-            end
+            regulatory_site(2): A::OnlyA
         end))
         @test_throws "lists `A` more than once" eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
-            allosteric_regulators: A::OnlyA, A::OnlyA
-            catalytic_steps: begin
+            allosteric_regulators: A, A
+            steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: EqualAI
                 E(P) ⇌ E + P      :: EqualAI
             end
+            regulatory_site(1): A::OnlyA
+            regulatory_site(1): A::OnlyA
         end))
 
         # An unknown regulator state is reported by RegulatorySite when the expansion
@@ -219,12 +217,13 @@
         @test_throws "allo state Bogus must be one of" eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
-            allosteric_regulators: X::Bogus
-            catalytic_steps: begin
+            allosteric_regulators: X
+            steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: EqualAI
                 E(P) ⇌ E + P      :: EqualAI
             end
+            regulatory_site(1): X::Bogus
         end))
 
         # Unknown and :OnlyI catalytic states are reported by AllostericMechanism.
@@ -232,7 +231,7 @@
             @test_throws "catalytic group" eval(:(@allosteric_mechanism begin
                 substrates: S
                 products:   P
-                catalytic_steps: begin
+                steps: begin
                     E + S ⇌ E(S)      :: EqualAI
                     E(S) <--> E(P)    :: EqualAI
                     E(P) ⇌ E + P     :: $state
@@ -282,7 +281,7 @@
                 products:   P
                 catalytic_multiplicity: 2
                 catalytic_multiplicity: 4
-                catalytic_steps: begin
+                steps: begin
                     E + S ⇌ E(S)      :: EqualAI
                     E(S) <--> E(P)    :: EqualAI
                     E(P) ⇌ E + P      :: EqualAI
@@ -466,8 +465,8 @@
 
     @testset "multi-atom metabolites" begin
         rxn = @enzyme_reaction begin
-            substrates: A[C2H3], B[N,P]
-            products: P[C2,N], Q[H3,P]
+            substrates: A[C2H3], B[NP]
+            products: P[C2N], Q[H3P]
         end
         subs = EnzymeRates.substrates(rxn)
         @test subs[1] == EnzymeRates.Substrate(:A)
@@ -513,7 +512,7 @@
                 substrates: S
                 products:   P
                 catalytic_multiplicity: 2.0
-                catalytic_steps: begin
+                steps: begin
                     E + S ⇌ E(S)      :: EqualAI
                     E(S) <--> E(P)    :: EqualAI
                     E(P) ⇌ E + P      :: EqualAI
@@ -523,15 +522,13 @@
             :(@allosteric_mechanism begin
                 substrates: S
                 products:   P
-                allosteric_regulators: A::OnlyA
-                catalytic_steps: begin
+                allosteric_regulators: A
+                steps: begin
                     E + S ⇌ E(S)      :: EqualAI
                     E(S) <--> E(P)    :: EqualAI
                     E(P) ⇌ E + P      :: EqualAI
                 end
-                regulatory_site(multiplicity = 0): begin
-                    ligands: A
-                end
+                regulatory_site(0): A::OnlyA
             end))
     end
 
@@ -542,7 +539,7 @@
         spec_kinds = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
-            dead_end_inhibitors: I
+            competitive_inhibitors: I
             allosteric_regulators: A(1)
             competitive_inhibitors: R
         end
@@ -625,7 +622,7 @@
         @test_throws Exception eval(:(@enzyme_reaction begin
             substrates: A[C6H12O6]
             products: B[C6H12O6]
-            dead_end_inhibitors: X::Inhibitor
+            competitive_inhibitors: X::Inhibitor
         end))
     end
 
@@ -693,7 +690,7 @@
             :(@allosteric_mechanism begin
                 substrates: S
                 products: P
-                catalytic_steps: begin
+                steps: begin
                     E + ATP ⇌ E(ATP)    :: EqualAI
                     E + S ⇌ E(S)        :: EqualAI
                     E(S) <--> E(P)      :: EqualAI
@@ -707,11 +704,12 @@
             eval(:(@allosteric_mechanism begin
                 substrates: S
                 products: P
-                allosteric_regulators: I::OnlyI
-                catalytic_steps: begin
+                allosteric_regulators: I
+                steps: begin
                     E + S <--> ES :: EqualAI
                     ES <--> E + P :: EqualAI
                 end
+                regulatory_site(1): I::OnlyI
             end))
             nothing
         catch e
@@ -744,7 +742,7 @@
         rxn3 = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
-            allowed_catalytic_multiplicities: (1, 2, 4)
+            oligomeric_state: (1, 2, 4)
         end
         @test EnzymeRates.allowed_catalytic_multiplicities(rxn3) == [1, 2, 4]
     end
@@ -893,12 +891,12 @@
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
-            regulators: P
+            modifiers: P
             steps: begin
                 E + S <--> E(S)
                 E(S) <--> E(P)
                 E(P) <--> E + P
-                E + P::Inh <--> E(P::Inh)
+                E + P::Mod <--> E(P::Mod)
             end
         end
         forms = _testhelper_enzyme_forms(_testhelper_flat_steps(m))
@@ -925,12 +923,12 @@
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A
             products:   P
-            regulators: A
+            modifiers: A
             steps: begin
                 E + A ⇌ E(A)
                 E(A) <--> E(P)
                 E(P) ⇌ E + P
-                E + A::Inh ⇌ E(A::Inh)
+                E + A::Mod ⇌ E(A::Mod)
             end
         end)
         types = _testhelper_bound_types(m)
@@ -944,16 +942,14 @@
         am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: A
             products:   P
-            allosteric_regulators: A::OnlyI, P::OnlyA
+            allosteric_regulators: A, P
             catalytic_multiplicity: 2
-            catalytic_steps: begin
+            steps: begin
                 E + A ⇌ E(A)          :: EqualAI
                 E(A) <--> E(P)        :: NonequalAI
                 E(P) ⇌ E + P          :: EqualAI
             end
-            regulatory_site(multiplicity = 2): begin
-                ligands: A, P
-            end
+            regulatory_site(2): A::OnlyI, P::OnlyA
         end)
         types = _testhelper_bound_types(am)
         @test types[:EA] === EnzymeRates.Substrate
@@ -969,33 +965,36 @@
         @test_throws "`R` is an allosteric regulator" eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
-            allosteric_regulators: R::OnlyA
-            catalytic_steps: begin
+            allosteric_regulators: R
+            steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: EqualAI
                 E(P) ⇌ E + P      :: EqualAI
                 E + R ⇌ E(R)      :: EqualAI
             end
+            regulatory_site(1): R::OnlyA
         end))
         @test_throws "`R` is an allosteric regulator" eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
-            allosteric_regulators: R::OnlyA
-            catalytic_steps: begin
+            allosteric_regulators: R
+            steps: begin
                 E + S ⇌ E(S)        :: EqualAI
                 E(S) <--> E(P, R)   :: EqualAI
                 E(P, R) ⇌ E + P     :: EqualAI
             end
+            regulatory_site(1): R::OnlyA
         end))
         @test_throws "got `R`" eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
-            allosteric_regulators: R::OnlyA
-            catalytic_steps: begin
+            allosteric_regulators: R
+            steps: begin
                 E + S ⇌ E(S)                       :: EqualAI
                 E(S) <--> Estar(; residual = S - R) :: EqualAI
                 Estar(; residual = S - R) ⇌ E + P   :: EqualAI
             end
+            regulatory_site(1): R::OnlyA
         end))
         # Tagged `R::Inh`, it needs `catalytic_inhibitors:` as well. The macro raises
         # the error while it expands, so `eval` wraps it in a LoadError: match the text.
@@ -1018,14 +1017,15 @@
         dual = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: S
             products:   P
-            catalytic_inhibitors: R
-            allosteric_regulators: R::OnlyA
-            catalytic_steps: begin
+            modifiers: R
+            allosteric_regulators: R
+            steps: begin
                 E + S ⇌ E(S)              :: EqualAI
                 E(S) <--> E(P)            :: EqualAI
                 E(P) ⇌ E + P              :: EqualAI
-                E + R::Inh ⇌ E(R::Inh)    :: EqualAI
+                E + R ⇌ E(R)    :: EqualAI
             end
+            regulatory_site(1): R::OnlyA
         end)
         @test EnzymeRates.CompetitiveInhibitor(:R) in
               [EnzymeRates.bound_metabolite(g[1]) for g in EnzymeRates.steps(dual)]
@@ -1054,12 +1054,12 @@
         declared = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
             products:   P
-            regulators: P
+            modifiers: P
             steps: begin
                 E + S ⇌ E(S)
                 E(S) <--> E(P)
                 E(P) ⇌ E + P
-                E + P::Inh ⇌ E(P::Inh)
+                E + P::Mod ⇌ E(P::Mod)
             end
         end)
         @test EnzymeRates.regulators(EnzymeRates.reaction(declared)) ==
@@ -1086,7 +1086,7 @@
                 :(@enzyme_mechanism begin
                     substrates: S
                     products:   P
-                    regulators: I
+                    modifiers: I
                     steps: begin
                         E + S ⇌ E(S)
                         E(S) <--> Estar(; residual = $residual)
@@ -1102,23 +1102,23 @@
         bind_inh = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: S
             products:   P
-            catalytic_inhibitors: S
-            catalytic_steps: begin
+            modifiers: S
+            steps: begin
                 E + S ⇌ E(S)             :: EqualAI
                 E(S) <--> E(P)           :: EqualAI
                 E(P) ⇌ E + P             :: EqualAI
-                E + S::Inh ⇌ E(S::Inh)   :: EqualAI
+                E + S::Mod ⇌ E(S::Mod)   :: EqualAI
             end
         end)
         release_inh = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: S
             products:   P
-            catalytic_inhibitors: S
-            catalytic_steps: begin
+            modifiers: S
+            steps: begin
                 E + S ⇌ E(S)             :: EqualAI
                 E(S) <--> E(P)           :: EqualAI
                 E(P) ⇌ E + P             :: EqualAI
-                E(S::Inh) ⇌ E + S::Inh   :: EqualAI
+                E(S::Mod) ⇌ E + S::Mod   :: EqualAI
             end
         end)
         @test release_inh == bind_inh
@@ -1140,23 +1140,23 @@
         bind_plain = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
             products:   P
-            regulators: I
+            modifiers: I
             steps: begin
                 E + S ⇌ E(S)
                 E(S) <--> E(P)
                 E(P) ⇌ E + P
-                E + I::Inh ⇌ E(I::Inh)
+                E + I ⇌ E(I)
             end
         end)
         release_plain = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
             products:   P
-            regulators: I
+            modifiers: I
             steps: begin
                 E + S ⇌ E(S)
                 E(S) <--> E(P)
                 E(P) ⇌ E + P
-                E(I::Inh) ⇌ E + I::Inh
+                E(I) ⇌ E + I
             end
         end)
         @test release_plain == bind_plain
@@ -1165,7 +1165,7 @@
         @test_throws "must be a Symbol" eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
-            catalytic_steps: begin
+            steps: begin
                 E + S ⇌ E(S)    :: EqualAI
                 E(S) <--> E(P)  :: EqualAI
                 E(P) ⇌ E + P    :: 3

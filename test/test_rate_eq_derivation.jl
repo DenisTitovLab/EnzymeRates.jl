@@ -100,16 +100,13 @@ end
 
 """
 As-written index of canonical regulatory site `site` (at canonical position
-`pos`). `source_reg_sites === nothing` returns the canonical position; otherwise
+`pos`) among `written_sites`, the sites of a raw value in written order: it
 matches by ligand-name set so positional Kreg names (`:K_<lig>_reg{site}`) keep
-the oracle's source site numbering after canonical site reordering.
+the oracle's written site numbering after canonical site reordering.
 """
-function _testhelper_positional_site_idx(site, pos, source_reg_sites)
-    source_reg_sites === nothing && return pos
+function _testhelper_positional_site_idx(site, pos, written_sites)
     want = Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(site))
-    j = findfirst(source_reg_sites) do ss
-        Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(ss)) == want
-    end
+    j = findfirst(ws -> Set(ws.ligands) == want, written_sites)
     j === nothing ? pos : j
 end
 
@@ -140,7 +137,7 @@ end
 """
 The constants of `m` (values by name in `all_params`, from `all_parameters`) under the
 positional names a textbook rate law reads, by role. Written step `i` (in the order of
-the flattened `source_steps`) takes the constants of the stored step it matches, in the
+`raw`'s written steps) takes the constants of the stored step it matches, in the
 written direction: `k{i}f` and `k{i}r` at steady state, and at rapid equilibrium `K{i}`,
 a binding's dissociation constant or, for any other step, the equilibrium constant of the
 written direction. The inactive conformation of a `:NonequalAI` group adds `k{i}f_T`,
@@ -150,17 +147,18 @@ is written as its release. Every spec follows that convention; a binding written
 it (`E + P <--> E(P)`) would get its constants swapped. No spec in `MECHANISM_TEST_SPECS`
 writes a non-binding step against its stored direction, so the suite never inverts `K`
 or swaps `k{i}f` and `k{i}r` for such a step. A ligand of regulatory site `j`
-(the order of `source_reg_sites`) gives `K_<ligand>_reg{j}` and, when its inactive
-conformation has a constant of its own, `K_<ligand>_T_reg{j}`. Every entry of
+(the written order of `raw`'s sites) gives `K_<ligand>_reg{j}` and, when its inactive
+conformation has a constant of its own, `K_<ligand>_T_reg{j}`. `raw` is the mechanism as
+written, the DSL walker's value (`_testhelper_MechanismTestSpec.raw`). Every entry of
 `all_params` passes through.
 """
-function _testhelper_written_params(m, all_params::NamedTuple; source_steps,
-                                    source_reg_sites = nothing)
+function _testhelper_written_params(m, all_params::NamedTuple; raw)
     mech = _testhelper_lift(m)
     allo = mech isa EnzymeRates.AllostericMechanism
     stored = EnzymeRates._flat_steps(EnzymeRates.steps(mech))
+    written = EnzymeRates._step_groups(allo ? raw.catalytic : raw)
     out = Pair{Symbol, Any}[]
-    for (i, w) in enumerate(Iterators.flatten(source_steps))
+    for (i, w) in enumerate(Iterators.flatten(written))
         j = findfirst(x -> first(x) == w || first(x) == EnzymeRates._reversed(w), stored)
         j === nothing && error("written step $i matches no stored step")
         s, g = stored[j]
@@ -189,7 +187,7 @@ function _testhelper_written_params(m, all_params::NamedTuple; source_steps,
     end
     if allo
         for (pos, site) in enumerate(EnzymeRates.regulatory_sites(mech))
-            j = _testhelper_positional_site_idx(site, pos, source_reg_sites)
+            j = _testhelper_positional_site_idx(site, pos, raw.sites)
             for (lig, tag) in zip(EnzymeRates.ligands(site), EnzymeRates.allo_states(site))
                 for (inactive, suffix) in ((false, ""), (true, "_T"))
                     tag === :EqualAI && inactive && continue
@@ -554,10 +552,7 @@ function _testhelper_test_analytical_rate(
                 _testhelper_random_independent_params_concs(
                     m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
-            p = merge(_testhelper_written_params(
-                          m, all_params;
-                          source_steps=spec.source_steps,
-                          source_reg_sites=spec.source_reg_sites),
+            p = merge(_testhelper_written_params(m, all_params; raw=spec.raw),
                       (Et=Et,))
             p_pkg = merge(new_params, (E_total=Et,))
             isapprox(
@@ -719,10 +714,7 @@ function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec;
         peak = EnzymeRates._peak_turnover(m, params, (1e-12, 1e12)).value
         # The textbook formula may read a dependent rate constant, so the bridge
         # reads every constant through all_parameters.
-        p = merge(_testhelper_written_params(
-                      m, all_parameters(m, params);
-                      source_steps=spec.source_steps,
-                      source_reg_sites=spec.source_reg_sites),
+        p = merge(_testhelper_written_params(m, all_parameters(m, params); raw=spec.raw),
                   (Et=params.E_total,))
         @test peak ≈ spec.analytical_kcat_fn(p) rtol=1e-9
     end
@@ -918,12 +910,12 @@ const _testhelper_fused_cases = [
             E(P, Q) <--> E(B) + A; E(P, Q) <--> E(Q) + P; E(P, Q) <--> E(P) + Q
             E(Q) <--> E + Q; E(P) <--> E + P end end),
         # dead ends on a merged complex
-        @enzyme_mechanism(begin substrates: A, B; products: P, Q; regulators: I
+        @enzyme_mechanism(begin substrates: A, B; products: P, Q; modifiers: I
             steps: begin
             E + A ⇌ E(A); E(A) + B ⇌ E(A, B); E(A, B) <--> E(Q) + P; E(Q) ⇌ E + Q
             E + I ⇌ E(I); E(Q) + I ⇌ E(I, Q) end end),
         # ping-pong: parallel product-release route via a mixed substrate/product complex
-        @enzyme_mechanism(begin substrates: A, B; products: P, Q; regulators: I
+        @enzyme_mechanism(begin substrates: A, B; products: P, Q; modifiers: I
             steps: begin
             E + A ⇌ E(A); E(I) + A ⇌ E(A, I); E(Q) + A ⇌ E(A, Q)
             E + I ⇌ E(I); E(A) + I ⇌ E(A, I)
@@ -945,10 +937,10 @@ const _testhelper_fused_cases = [
         # the first substrate also binds as a dead-end inhibitor copy, at rapid
         # equilibrium on E and at steady state on E(Q); both the derivation and
         # the oracle count the first substrate by name
-        @enzyme_mechanism(begin substrates: A, B; products: P, Q; regulators: A
+        @enzyme_mechanism(begin substrates: A, B; products: P, Q; modifiers: A
             steps: begin
             E + A ⇌ E(A); E(A) + B <--> E(A, B); E(A, B) <--> E(Q) + P; E(Q) <--> E + Q
-            E + A::Inh ⇌ E(A::Inh); E(Q) + A::Inh <--> E(A::Inh, Q) end end),
+            E + A::Mod ⇌ E(A::Mod); E(Q) + A::Mod <--> E(A::Mod, Q) end end),
         _testhelper_fused_and_plain_binding,
 ]
 
@@ -1434,7 +1426,7 @@ end
     keq_tie = @enzyme_mechanism begin
         substrates: S
         products: P
-        regulators: I
+        modifiers: I
         steps: begin
             E + S ⇌ Estar + P
             (E + I <--> E(I), Estar + I <--> E(I))
@@ -1578,7 +1570,7 @@ end
         em = @enzyme_mechanism begin
             substrates: A
             products: P
-            regulators: I
+            modifiers: I
             steps: begin
                 E + A <--> E(A)
                 E(A) <--> E(P)
@@ -1609,7 +1601,7 @@ end
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        regulators: R1
+        modifiers: R1
         steps: begin
             (E + A ⇌ E(A),
              E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P))
@@ -1664,7 +1656,7 @@ end
     m_sib = @enzyme_mechanism begin
         substrates: S
         products: P
-        regulators: R
+        modifiers: R
         steps: begin
             E + S ⇌ E(S)
             E(S) ⇌ E(P)
@@ -1741,12 +1733,13 @@ end
         substrates: F6P
         products: F16BP
         catalytic_multiplicity: 2
-        allosteric_regulators: I::OnlyI
-        catalytic_steps: begin
+        allosteric_regulators: I
+        steps: begin
             E + F6P <--> E(F6P)      :: EqualAI
             E(F6P) <--> E(F16BP)     :: EqualAI
             E(F16BP) <--> E + F16BP  :: EqualAI
         end
+        regulatory_site(2): I::OnlyI
     end
     @test EnzymeRates._eq_complexity(EnzymeRates.AllostericMechanism(allo)) == 9
 end
@@ -1758,7 +1751,7 @@ end
     m_manual = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        regulators: R1
+        modifiers: R1
         steps: begin
             E + A <--> E(A)
             E(A) <--> F(P)
@@ -1817,13 +1810,14 @@ end
         @allosteric_mechanism begin
             substrates: S
             products: P
-            allosteric_regulators: L::OnlyI
+            allosteric_regulators: L
             catalytic_multiplicity: 2
-            catalytic_steps: begin
+            steps: begin
                 E + S ⇌ E(S)     :: EqualAI
                 E(S) <--> E(P)   :: OnlyA
                 E(P) ⇌ E + P     :: EqualAI
             end
+            regulatory_site(2): L::OnlyI
         end)
     # An inhibitor named after the reverse chemistry constant holds `_`.
     @test_throws(ErrorException(
@@ -1832,7 +1826,7 @@ end
         @enzyme_mechanism begin
             substrates: S
             products: P
-            regulators: k_EP_to_ES
+            modifiers: k_EP_to_ES
             steps: begin
                 E + S ⇌ E(S)
                 E(S) <--> E(P)
@@ -1854,18 +1848,14 @@ end
             substrates: S
             products: P
             catalytic_multiplicity: 2
-            allosteric_regulators: R::OnlyA, A_R::EqualAI
-            catalytic_steps: begin
+            allosteric_regulators: R, A_R
+            steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: NonequalAI
                 E(P) ⇌ E + P      :: EqualAI
             end
-            regulatory_site(multiplicity = 2): begin
-                ligands: R
-            end
-            regulatory_site(multiplicity = 2): begin
-                ligands: A_R
-            end
+            regulatory_site(2): R::OnlyA
+            regulatory_site(2): A_R::EqualAI
         end)
     @test_throws(ErrorException(
         "AllostericMechanism: the metabolite name I_X holds `_`; constant names join " *
@@ -1874,15 +1864,13 @@ end
             substrates: S
             products: P
             catalytic_multiplicity: 2
-            allosteric_regulators: X::NonequalAI, I_X::EqualAI
-            catalytic_steps: begin
+            allosteric_regulators: X, I_X
+            steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: NonequalAI
                 E(P) ⇌ E + P      :: EqualAI
             end
-            regulatory_site(multiplicity = 2): begin
-                ligands: X, I_X
-            end
+            regulatory_site(2): X::NonequalAI, I_X::EqualAI
         end)
 
     # Renamed, the :EqualAI ligand has a constant of its own.
@@ -1890,18 +1878,14 @@ end
         substrates: S
         products: P
         catalytic_multiplicity: 2
-        allosteric_regulators: R::OnlyA, T::EqualAI
-        catalytic_steps: begin
+        allosteric_regulators: R, T
+        steps: begin
             E + S ⇌ E(S)      :: EqualAI
             E(S) <--> E(P)    :: NonequalAI
             E(P) ⇌ E + P      :: EqualAI
         end
-        regulatory_site(multiplicity = 2): begin
-            ligands: R
-        end
-        regulatory_site(multiplicity = 2): begin
-            ligands: T
-        end
+        regulatory_site(2): R::OnlyA
+        regulatory_site(2): T::EqualAI
     end
     @test count(==(:K_A_Rreg), parameters(renamed)) == 1
     @test :K_Treg in parameters(renamed)
@@ -2011,7 +1995,7 @@ end
         substrates: S
         products:   P
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)     :: OnlyA
             E(S) <--> E(P)   :: OnlyA
             E(P) ⇌ E + P     :: EqualAI
@@ -2032,7 +2016,7 @@ end
         substrates: S
         products:   P
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)     :: EqualAI
             E(S) <--> E(P)   :: OnlyA
             E(P) ⇌ E + P     :: EqualAI
@@ -2127,13 +2111,14 @@ end
     m_allo = @allosteric_mechanism begin
         substrates: S
         products:   P
-        allosteric_regulators: R::NonequalAI
+        allosteric_regulators: R
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + P ⇌ E(P)     :: NonequalAI
             E + S ⇌ E(S)     :: NonequalAI
             E(S) <--> E(P)   :: NonequalAI
         end
+        regulatory_site(2): R::NonequalAI
     end
     actual = rate_equation_string(m_allo)
     expected = raw"""(; K_A_EP_to_E_P, K_A_ES_to_E_S, K_I_EP_to_E_P, K_I_ES_to_E_S, k_A_ES_to_EP, k_I_ES_to_EP, K_A_Rreg, K_I_Rreg, L, Keq, E_total) = params
@@ -2235,9 +2220,9 @@ end
     m = @allosteric_mechanism begin
         substrates: PEP, ADP
         products:   Pyruvate, ATP
-        allosteric_regulators: ATP::OnlyI, F16BP::OnlyA
+        allosteric_regulators: ATP, F16BP
         catalytic_multiplicity: 4
-        catalytic_steps: begin
+        steps: begin
             (E + PEP ⇌ E(PEP),
              E(ADP) + PEP ⇌ E(PEP, ADP))                          :: NonequalAI
             (E + ADP ⇌ E(ADP),
@@ -2248,12 +2233,8 @@ end
             (E(Pyruvate, ATP) ⇌ E(Pyruvate) + ATP,
              E(ATP) ⇌ E + ATP)                                    :: EqualAI
         end
-        regulatory_site(multiplicity = 2): begin
-            ligands: ATP
-        end
-        regulatory_site(multiplicity = 4): begin
-            ligands: F16BP
-        end
+        regulatory_site(2): ATP::OnlyI
+        regulatory_site(4): F16BP::OnlyA
     end
     ps_str = String.(collect(EnzymeRates.parameters(m)))
     # I-state param names use mid-name I_ token, not _T suffix.
@@ -2282,7 +2263,7 @@ end
         substrates: A, B
         products: P
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             (E + A ⇌ E(A), E(B) + A ⇌ E(A, B)) :: NonequalAI
             E + B ⇌ E(B)                       :: NonequalAI
             E(A) + B ⇌ E(A, B)                 :: NonequalAI
@@ -2294,7 +2275,7 @@ end
         substrates: A, B
         products: P
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             (E + A ⇌ E(A), E(B) + A ⇌ E(A, B)) :: NonequalAI
             (E + B ⇌ E(B), E(A) + B ⇌ E(A, B)) :: NonequalAI
             E(A, B) <--> E(P)                  :: NonequalAI
@@ -2321,7 +2302,7 @@ end
         substrates: A, B
         products: P, Q
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + A <--> E(A)        :: NonequalAI
             E + B <--> E(B)        :: NonequalAI
             E(A) + B <--> E(A, B)  :: NonequalAI
@@ -2346,7 +2327,7 @@ end
         substrates: A, B
         products: P, Q
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + A <--> E(A)        :: NonequalAI
             E + B <--> E(B)        :: NonequalAI
             E(A) + B <--> E(A, B)  :: NonequalAI
@@ -2379,56 +2360,55 @@ end
     only_a = @allosteric_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: X::OnlyA
+        allosteric_regulators: X
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)      :: NonequalAI
             E(S) <--> E(P)    :: NonequalAI
             E(P) ⇌ E + P      :: NonequalAI
         end
+        regulatory_site(2): X::OnlyA
     end
     only_i = @allosteric_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: X::OnlyI
+        allosteric_regulators: X
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)      :: NonequalAI
             E(S) <--> E(P)    :: NonequalAI
             E(P) ⇌ E + P      :: NonequalAI
         end
+        regulatory_site(2): X::OnlyI
     end
     # :OnlyA catalysis with :EqualAI binding: the inactive conformation binds S but does
     # not turn over, so saturating X drives the rate to 0.
     only_i_dead = @allosteric_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: X::OnlyI
+        allosteric_regulators: X
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)      :: EqualAI
             E(S) <--> E(P)    :: OnlyA
             E(P) ⇌ E + P      :: EqualAI
         end
+        regulatory_site(2): X::OnlyI
     end
     # Two sites: with X and Y saturating, the inactive conformation's regulator power is
     # 2 + 1 against the active one's 1.
     two_site = @allosteric_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: X::OnlyI, Y::NonequalAI
+        allosteric_regulators: X, Y
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)      :: EqualAI
             E(S) <--> E(P)    :: OnlyA
             E(P) ⇌ E + P      :: EqualAI
         end
-        regulatory_site(multiplicity = 2): begin
-            ligands: X
-        end
-        regulatory_site(multiplicity = 1): begin
-            ligands: Y
-        end
+        regulatory_site(2): X::OnlyI
+        regulatory_site(1): Y::NonequalAI
     end
     BIG = 1e9
     for m in (only_a, only_i, only_i_dead, two_site)

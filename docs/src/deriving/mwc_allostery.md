@@ -29,18 +29,14 @@ allo = @allosteric_mechanism begin
     substrates: S
     products:   P
     catalytic_multiplicity: 2
-    allosteric_regulators: A::OnlyA, I::OnlyI
-    catalytic_steps: begin
+    allosteric_regulators: A, I
+    steps: begin
         E + S ⇌ E(S)        :: EqualAI
         E(S) <--> E(P)       :: NonequalAI
         E(P) ⇌ E + P        :: EqualAI
     end
-    regulatory_site(multiplicity = 2): begin
-        ligands: A
-    end
-    regulatory_site(multiplicity = 2): begin
-        ligands: I
-    end
+    regulatory_site(2): A::OnlyA
+    regulatory_site(2): I::OnlyI
 end
 print(rate_equation_string(allo))
 ```
@@ -169,15 +165,13 @@ collapse = @allosteric_mechanism begin
     substrates: S
     products:   P
     catalytic_multiplicity: 2
-    allosteric_regulators: R::OnlyI
-    catalytic_steps: begin
+    allosteric_regulators: R
+    steps: begin
         E + S ⇌ E(S)      :: NonequalAI
         E(S) <--> E(P)    :: EqualAI
         E(P) ⇌ E + P      :: EqualAI
     end
-    regulatory_site(multiplicity = 2): begin
-        ligands: R
-    end
+    regulatory_site(2): R::OnlyI
 end
 print(rate_equation_string(collapse))
 ```
@@ -196,15 +190,13 @@ coupled = @allosteric_mechanism begin
     substrates: S
     products:   P
     catalytic_multiplicity: 2
-    allosteric_regulators: R::OnlyI
-    catalytic_steps: begin
+    allosteric_regulators: R
+    steps: begin
         E + S ⇌ E(S)      :: NonequalAI
         E(S) <--> E(P)    :: EqualAI
         E(P) ⇌ E + P      :: NonequalAI
     end
-    regulatory_site(multiplicity = 2): begin
-        ligands: R
-    end
+    regulatory_site(2): R::OnlyI
 end
 print(rate_equation_string(coupled))
 ```
@@ -240,15 +232,13 @@ ss = @allosteric_mechanism begin
     substrates: S
     products:   P
     catalytic_multiplicity: 2
-    allosteric_regulators: R::OnlyI
-    catalytic_steps: begin
+    allosteric_regulators: R
+    steps: begin
         E + S <--> E(S)    :: NonequalAI
         E(S) <--> E(P)     :: EqualAI
         E(P) ⇌ E + P       :: EqualAI
     end
-    regulatory_site(multiplicity = 2): begin
-        ligands: R
-    end
+    regulatory_site(2): R::OnlyI
 end
 parameters(ss)
 ```

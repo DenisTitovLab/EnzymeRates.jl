@@ -48,13 +48,14 @@ end
     allo = @allosteric_mechanism begin
         substrates: S
         products:   P
-        allosteric_regulators: R::OnlyI
+        allosteric_regulators: R
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)     :: EqualAI
             E(S) <--> E(P)   :: OnlyA
             E(P) ⇌ E + P     :: EqualAI
         end
+        regulatory_site(2): R::OnlyI
     end
     allo_fitted = EnzymeRates.fitted_params(allo)
     allo_params = merge(

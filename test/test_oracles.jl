@@ -94,7 +94,7 @@ const _testhelper_population_sample = _testhelper_population_one_round[round.(In
             substrates: S
             products: P
             catalytic_multiplicity: 1
-            catalytic_steps: begin
+            steps: begin
                 E + S ⇌ E(S)      :: NonequalAI
                 E(S) <--> E(P)    :: NonequalAI
                 E(P) ⇌ E + P      :: EqualAI
@@ -243,9 +243,9 @@ end
         island = @allosteric_mechanism begin
             substrates: S
             products: P
-            catalytic_inhibitors: I
+            modifiers: I
             catalytic_multiplicity: 1
-            catalytic_steps: begin
+            steps: begin
                 E + S <--> E(S)          :: OnlyA
                 E(S) <--> E(P)           :: OnlyA
                 E + P ⇌ E(P)             :: EqualAI
@@ -266,16 +266,14 @@ end
         b10 = @allosteric_mechanism begin
             substrates: S
             products: P
-            allosteric_regulators: R::EqualAI
+            allosteric_regulators: R
             catalytic_multiplicity: 2
-            catalytic_steps: begin
+            steps: begin
                 E + S ⇌ E(S)      :: NonequalAI
                 E(S) <--> E(P)    :: EqualAI
                 E(P) ⇌ E + P      :: NonequalAI
             end
-            regulatory_site(multiplicity = 2): begin
-                ligands: R
-            end
+            regulatory_site(2): R::EqualAI
         end
         dep, indep =
             EnzymeRates._dependent_param_exprs(EnzymeRates.AllostericMechanism(b10))

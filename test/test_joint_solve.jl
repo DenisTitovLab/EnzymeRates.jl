@@ -275,9 +275,9 @@ end
         am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: A
             products: P
-            catalytic_inhibitors: I
+            modifiers: I
             catalytic_multiplicity: 1
-            catalytic_steps: begin
+            steps: begin
                 E + A <--> E(A)                                   :: OnlyA
                 E(A) <--> E(P)                                    :: OnlyA
                 E + P ⇌ E(P)                                      :: EqualAI
@@ -307,9 +307,9 @@ end
         am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: A
             products: P
-            catalytic_inhibitors: I
+            modifiers: I
             catalytic_multiplicity: 1
-            catalytic_steps: begin
+            steps: begin
                 E + A <--> E(A)                                   :: OnlyA
                 E(A) <--> E(P)                                    :: OnlyA
                 E + P ⇌ E(P)                                      :: EqualAI

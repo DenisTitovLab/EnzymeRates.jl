@@ -27,7 +27,7 @@ using EnzymeRates
 competitive = @enzyme_mechanism begin
     substrates: S
     products:   P
-    regulators: I
+    modifiers: I
     steps: begin
         E + S ⇌ E(S)
         E(S) <--> E(P)
@@ -51,7 +51,7 @@ enzyme, and every catalytic form carries it:
 essential = @enzyme_mechanism begin
     substrates: S
     products:   P
-    regulators: R
+    modifiers: R
     steps: begin
         E + R ⇌ E(R)
         E(R) + S ⇌ E(S, R)

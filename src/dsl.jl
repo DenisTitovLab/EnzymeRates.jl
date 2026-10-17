@@ -232,7 +232,7 @@ _mechanism_reaction_expr(subs, prods, regs) = _reaction_expr(
     @enzyme_mechanism begin
         substrates: S
         products:   P
-        regulators: I
+        modifiers: I
 
         steps: begin
             E + S ⇌ E(S)                   # function-call species notation
@@ -548,20 +548,16 @@ end
         substrates: F6P
         products:   F16BP
         catalytic_multiplicity: 2
-        allosteric_regulators: A::OnlyA, I::OnlyI
+        allosteric_regulators: A, I
 
-        catalytic_steps: begin
+        steps: begin
             E + F6P ⇌ E(F6P)        :: EqualAI
             E(F6P) <--> E(F16BP)    :: EqualAI
-            (E(F16BP) ⇌ E + F16BP)  :: EqualAI
+            E(F16BP) ⇌ E + F16BP    :: EqualAI
         end
 
-        regulatory_site(multiplicity = 4): begin
-            ligands: A
-        end
-        regulatory_site(multiplicity = 4): begin
-            ligands: I
-        end
+        regulatory_site(4): A::OnlyA
+        regulatory_site(4): I::OnlyI
     end
 
 Build an `AllostericEnzymeMechanism` (MWC, two conformations).
