@@ -1545,13 +1545,16 @@ _step_text(s::Step, rxn::EnzymeReaction) =
 function Base.show(io::IO, em::EnzymeMechanism)
     m = Mechanism(em)
     flat = collect(Iterators.flatten(steps(m)))
-    print(io, "EnzymeMechanism (", length(flat), " steps, ", length(_forms(steps(m))),
+    forms = _forms(steps(m))
+    print(io, "EnzymeMechanism (", length(flat), " steps, ", length(forms),
           " enzyme forms):")
     for s in flat
         print(io, "\n  ", _step_text(s, reaction(m)))
     end
-    regs = regulators(reaction(m))
-    isempty(regs) || print(io, " | regulators: ", join(name.(regulator.(regs)), ", "))
+    # The names the steps bind as modifiers, each once.
+    mods = sort!(unique!(Symbol[name(x) for sp in forms for x in bound(sp)
+                                if x isa CompetitiveInhibitor]))
+    isempty(mods) || print(io, " | modifiers: ", join(mods, ", "))
 end
 
 # Mirrors `@allosteric_mechanism` syntax: a kinetic group of several steps prints in

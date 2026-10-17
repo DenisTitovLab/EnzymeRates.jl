@@ -238,7 +238,7 @@ end
         end
         @test contains(sprint(show, m_fb), "EA + B <--> EPQ")
 
-        # Mechanism with regulators: appended at end.
+        # A mechanism with modifiers lists them at the end.
         m_reg = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -249,7 +249,25 @@ end
                 E + I <--> E(I)
             end
         end
-        @test contains(sprint(show, m_reg), "| regulators: I")
+        @test contains(sprint(show, m_reg), "| modifiers: I")
+
+        # The summary lists the names the steps bind as modifiers, each once. A
+        # reactant whose name the reaction also declares as a regulator binds only as
+        # itself here; I binds as a modifier and is also an allosteric regulator.
+        uni = _testhelper_uniuni()
+        E_I = _testhelper_sp([ER.CompetitiveInhibitor(:I)])
+        bind_I = ER.Step(uni.E, E_I, [ER.CompetitiveInhibitor(:I)], ER.Metabolite[], true)
+        _testhelper_summary(regs, groups) = sprint(show, ER.EnzymeMechanism(ER.Mechanism(
+            ER.EnzymeReaction(ER.reactants(uni.rxn), regs, [1]), groups)))
+        cycle = [[uni.bind], [uni.iso], [uni.rel]]
+        for reg in (ER.AllostericRegulator(:S), ER.CompetitiveInhibitor(:S))
+            @test !contains(_testhelper_summary([ER.RegulatorMults(reg, [1])], cycle),
+                            "modifiers")
+        end
+        @test endswith(_testhelper_summary(
+            [ER.RegulatorMults(ER.CompetitiveInhibitor(:I), [1]),
+             ER.RegulatorMults(ER.AllostericRegulator(:I), [1])], [cycle; [[bind_I]]]),
+            " | modifiers: I")
 
         # EnzymeReaction with oligomeric_state > 1.
         rxn_oligo = @enzyme_reaction begin
