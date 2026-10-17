@@ -7109,6 +7109,7 @@ end
     # I-state denominator always appears in the rate's denominator).
     @test :K_I_E_cS_to_E_c_S in params
     @test :K_I_E_cP_to_E_c_P in params
+    _testhelper_check_law_against_oracle(m)
 end
 end
 
