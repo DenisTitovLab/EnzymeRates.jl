@@ -7094,21 +7094,21 @@ end
         substrates: S
         products: P
         catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E_c + S ⇌ E_c(S)      :: NonequalAI
-            E_c + P ⇌ E_c(P)      :: NonequalAI
-            E_c(S) <--> E_c(P)    :: OnlyA
+        steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E + P ⇌ E(P)      :: NonequalAI
+            E(S) <--> E(P)    :: OnlyA
         end
     end
     @test isempty(first(
         EnzymeRates._state_rate_polys(EnzymeRates.AllostericMechanism(m), :I)))
     params = parameters(m)
-    # K_I_E_cS_to_E_c_S and K_I_E_cP_to_E_c_P are referenced in the I-state
+    # K_I_ES_to_E_S and K_I_EP_to_E_P are referenced in the I-state
     # denominator of the body (the binding partition function for :NonequalAI
     # groups is built whether or not the I-state numerator is zero, since the
     # I-state denominator always appears in the rate's denominator).
-    @test :K_I_E_cS_to_E_c_S in params
-    @test :K_I_E_cP_to_E_c_P in params
+    @test :K_I_ES_to_E_S in params
+    @test :K_I_EP_to_E_P in params
     _testhelper_check_law_against_oracle(m)
 end
 end
