@@ -1191,6 +1191,69 @@ _with(am::AllostericMechanism; groups = steps(am), states = cat_allo_states(am),
       sites = regulatory_sites(am)) =
     AllostericMechanism(reaction(am), groups, states, catalytic_multiplicity(am), sites)
 
+"""
+    Mechanism(raw::RawMechanism)
+
+The mechanism `raw` writes, built and checked by the `Mechanism` constructor: its
+reaction holds `raw`'s names (`_placeholder_reaction`), and its kinetic groups hold
+`raw`'s steps by group label (`_step_groups`).
+"""
+Mechanism(raw::RawMechanism) = Mechanism(_placeholder_reaction(raw), _step_groups(raw))
+
+"""
+    AllostericMechanism(raw::RawAllostericMechanism)
+
+The allosteric mechanism `raw` writes, built and checked by the `AllostericMechanism`
+constructor: its catalytic part read as `Mechanism(raw.catalytic)` reads it, the tag of
+each group label, the catalytic multiplicity and the regulatory sites.
+"""
+function AllostericMechanism(raw::RawAllostericMechanism)
+    cat = raw.catalytic
+    reaction, groups = _placeholder_reaction(cat), _step_groups(cat)
+    sites = RegulatorySite[
+        RegulatorySite(AllostericRegulator[AllostericRegulator(l) for l in site.ligands],
+                       site.multiplicity, site.allo_states)
+        for site in raw.sites]
+    AllostericMechanism(reaction, groups, raw.cat_allo_states, raw.catalytic_multiplicity,
+                        sites)
+end
+
+"""
+The reaction of the mechanism `raw` writes: its substrates and products, with
+placeholder atoms that balance for any counts (each substrate `length(products)`
+carbons, each product `length(substrates)`), and its modifiers as competitive
+inhibitors at multiplicity 1. A reaction's real atoms are written with
+`@enzyme_reaction`.
+"""
+function _placeholder_reaction(raw::RawMechanism)
+    n_subs, n_prods = length(raw.substrates), length(raw.products)
+    reactant_atoms = ReactantAtoms[
+        [ReactantAtoms(Substrate(s), [:C => n_prods]) for s in raw.substrates];
+        [ReactantAtoms(Product(p), [:C => n_subs]) for p in raw.products]]
+    EnzymeReaction(reactant_atoms,
+        RegulatorMults[RegulatorMults(CompetitiveInhibitor(x), [1]) for x in raw.modifiers],
+        [1])
+end
+
+"""The steps of `raw`, in written order and direction, as one vector of `Step`s per
+group label: a modifier binds as its `CompetitiveInhibitor`, any other metabolite as the
+substrate or product of its name."""
+function _step_groups(raw::RawMechanism)
+    metabolite_of(m::Met) = m.modifier ? CompetitiveInhibitor(m.name) :
+                            m.name in raw.substrates ? Substrate(m.name) : Product(m.name)
+    species_of(f::RawForm) = Species(Metabolite[metabolite_of(m) for m in f.bound],
+        f.conformation, Residual(Substrate[Substrate(a) for a in f.added],
+                                 Product[Product(p) for p in f.subtracted]))
+    groups = [Step[] for _ in 1:maximum(raw.group; init = 0)]
+    for (s, g) in zip(raw.steps, raw.group)
+        push!(groups[g], Step(species_of(s.from), species_of(s.to),
+                              Metabolite[metabolite_of(m) for m in s.consumed],
+                              Metabolite[metabolite_of(m) for m in s.released],
+                              s.rapid_equilibrium))
+    end
+    groups
+end
+
 # ─── Mechanism ↔ Sig (parametric ↔ non-parametric) conversion ──
 #
 # Every leaf in `sig` MUST be a valid Julia type-parameter value (isbits,

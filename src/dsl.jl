@@ -278,7 +278,9 @@ Species notation on step sides:
 Conformation labels cannot shadow declared metabolite names.
 """
 macro enzyme_mechanism(block)
-    return esc(_parse_mechanism_body(block, false)[1])
+    _uses_inhibitor_grammar(block, false) &&
+        return esc(_parse_mechanism_body(block, false)[1])
+    return :($_compiled_mechanism($(_raw_mechanism(block, false))))
 end
 
 """
@@ -590,7 +592,9 @@ Build an `AllostericEnzymeMechanism` (MWC, two conformations).
   bind the catalytic site.
 """
 macro allosteric_mechanism(block)
-    return esc(_parse_mechanism_body(block, true)[1])
+    _uses_inhibitor_grammar(block, true) &&
+        return esc(_parse_mechanism_body(block, true)[1])
+    return :($_compiled_mechanism($(_raw_mechanism(block, true))))
 end
 
 """
@@ -751,3 +755,426 @@ function _parse_mechanism_body(block, allosteric::Bool)
     end
     (mech_expr, groups_expr, reg_sites_expr)
 end
+
+"""
+Whether the mechanism macro `block` (`@allosteric_mechanism`'s when `allosteric`) writes
+a token of the grammar `_parse_mechanism_body` reads and `_raw_mechanism` does not: a
+`catalytic_steps:` or `catalytic_inhibitors:` label, `@enzyme_mechanism`'s
+`regulators:` label, an `X::Inh` metabolite, an `allosteric_regulators:` entry with a
+tag, a `regulatory_site(...)` line with a keyword argument or a `begin ... end` body, or
+a parenthesized single step with a tag. Such a block expands through
+`_parse_mechanism_body`, every other one through `_raw_mechanism`.
+"""
+function _uses_inhibitor_grammar(block, allosteric::Bool)
+    block isa Expr && block.head === :block || return false
+    is_tagged(v) = v isa Expr && v.head === :(::)
+    for arg in block.args
+        arg isa LineNumberNode && continue
+        _holds_inh_tag(arg) && return true
+        head, rest = arg isa Expr && arg.head === :tuple && !isempty(arg.args) ?
+                     (arg.args[1], arg.args[2:end]) : (arg, Any[])
+        head isa Expr && head.head === :call && length(head.args) == 3 &&
+            head.args[1] === :(:) || continue
+        label, values = head.args[2], Any[head.args[3], rest...]
+        label in (:catalytic_steps, :catalytic_inhibitors) && return true
+        !allosteric && label === :regulators && return true
+        label === :allosteric_regulators && any(is_tagged, values) && return true
+        if label isa Expr && label.head === :call && label.args[1] === :regulatory_site
+            any(a -> a isa Expr && a.head in (:kw, :parameters), label.args[2:end]) &&
+                return true
+            any(v -> v isa Expr && v.head === :block, values) && return true
+        end
+        label === :steps || continue
+        for v in values, s in (v isa Expr && v.head === :block ? v.args : ())
+            is_tagged(s) && s.args[1] isa Expr && s.args[1].head === :call && return true
+        end
+    end
+    false
+end
+
+"""Whether the expression `x` holds a metabolite tagged `::Inh`."""
+_holds_inh_tag(x) = x isa Expr && (x.head === :(::) && length(x.args) == 2 &&
+                                   x.args[2] === :Inh || any(_holds_inh_tag, x.args))
+
+# ─── Mechanism macro blocks as written ─────────────────────────────────
+
+"""
+    _raw_mechanism(block, allosteric::Bool) -> RawMechanism or RawAllostericMechanism
+
+The mechanism a mechanism macro's `begin ... end` block writes, as raw input:
+`@allosteric_mechanism`'s grammar when `allosteric`, else `@enzyme_mechanism`'s. It reads
+the block's expression without evaluating it or building code, and throws the DSL's
+syntax errors; the constructors check the mechanism (`Mechanism(raw)`,
+`AllostericMechanism(raw)`).
+
+`substrates:`, `products:` and `modifiers:` list bare names and may repeat; `steps:`
+holds one `begin ... end` block (`_raw_steps`). `@allosteric_mechanism` adds
+`allosteric_regulators:` (bare names), `catalytic_multiplicity:` (one positive Int, 1
+when omitted) and `regulatory_site(n):` lines, each listing its ligands as `X::Tag`
+(`_raw_site`); every allosteric regulator sits on exactly one of them.
+"""
+function _raw_mechanism(block, allosteric::Bool)
+    macro_name = allosteric ? "@allosteric_mechanism" : "@enzyme_mechanism"
+    block isa Expr && block.head === :block ||
+        error("$macro_name: expected a `begin ... end` block, got $block")
+    substrates, products, modifiers, regulators = Symbol[], Symbol[], Symbol[], Symbol[]
+    steps_block, multiplicity, sites = nothing, nothing, RawSite[]
+    for arg in block.args
+        arg isa LineNumberNode && continue
+        label, values = _parse_labeled_line(arg)
+        if label === :substrates
+            append!(substrates, _bare_symbols_from_values(values, label))
+        elseif label === :products
+            append!(products, _bare_symbols_from_values(values, label))
+        elseif label === :modifiers
+            append!(modifiers, _bare_symbols_from_values(values, label))
+        elseif label === :steps
+            steps_block === nothing ||
+                error("$macro_name: `steps:` given more than once.")
+            length(values) == 1 || error("$macro_name: `steps:` takes one " *
+                                         "`begin ... end` block; got $(length(values)) " *
+                                         "values.")
+            steps_block = only(values)
+            steps_block isa Expr && steps_block.head === :block ||
+                error("$macro_name: `steps:` takes a `begin ... end` block of steps; " *
+                      "got $steps_block.")
+        elseif allosteric && label === :allosteric_regulators
+            tagged = findfirst(v -> v isa Expr && v.head === :(::), values)
+            tagged === nothing ||
+                error("$macro_name: `allosteric_regulators:` lists names; got " *
+                      "`$(values[tagged])`. A ligand's tag goes on its " *
+                      "`regulatory_site(n):` line, as in " *
+                      "`regulatory_site(2): $(values[tagged])`.")
+            append!(regulators, _bare_symbols_from_values(values, label))
+        elseif allosteric && label === :catalytic_multiplicity
+            multiplicity === nothing ||
+                error("$macro_name: `catalytic_multiplicity:` given more than once.")
+            length(values) == 1 ||
+                error("$macro_name: `catalytic_multiplicity:` takes one positive Int; " *
+                      "got $(join(values, ", ")).")
+            multiplicity = _positive_int(only(values),
+                                         "$macro_name: `catalytic_multiplicity:`")
+        elseif allosteric && label isa Expr && label.head === :call &&
+               label.args[1] === :regulatory_site
+            push!(sites, _raw_site(label, values))
+        else
+            error("$macro_name: unknown label `$label:`. Valid labels: " * (allosteric ?
+                  "substrates, products, modifiers, allosteric_regulators, " *
+                  "catalytic_multiplicity, steps, regulatory_site(n)." :
+                  "substrates, products, modifiers, steps. Allosteric declarations " *
+                  "(`allosteric_regulators:`, `catalytic_multiplicity:`, " *
+                  "`regulatory_site(n):`) belong in @allosteric_mechanism."))
+        end
+    end
+    isempty(substrates) && error("$macro_name: `substrates:` not specified.")
+    isempty(products) && error("$macro_name: `products:` not specified.")
+    steps_block === nothing && error("$macro_name: `steps:` not specified.")
+    names = (; substrates, products, modifiers, regulators)
+    steps, group, tags = _raw_steps(steps_block, names, macro_name, allosteric)
+    raw = RawMechanism(substrates, products, modifiers, steps, group)
+    allosteric || return raw
+    _check_site_ligands(regulators, sites)
+    RawAllostericMechanism(raw, tags, something(multiplicity, 1), sites)
+end
+
+"""
+A `regulatory_site(n): X::Tag, ...` line as written: `label` is its `regulatory_site(n)`
+call, whose one argument is the site's multiplicity, and `values` its ligand entries,
+each a name with its tag.
+"""
+function _raw_site(label, values)
+    length(label.args) == 2 && !(label.args[2] isa Expr) ||
+        error("@allosteric_mechanism: `regulatory_site(n):` takes one positive Int " *
+              "multiplicity, as in `regulatory_site(2): A::OnlyA, I::OnlyI`; got " *
+              "`$label`.")
+    multiplicity = _positive_int(label.args[2],
+                                 "@allosteric_mechanism: `regulatory_site` multiplicity")
+    ligands, tags = Symbol[], Symbol[]
+    for v in values
+        v isa Expr && v.head === :(::) && length(v.args) == 2 &&
+            v.args[1] isa Symbol && v.args[2] isa Symbol ||
+            error("@allosteric_mechanism: `regulatory_site(n):` lists each ligand with " *
+                  "its tag, as in `regulatory_site(2): A::OnlyA, I::OnlyI`; got " *
+                  (v isa Expr && v.head === :block ? "a `begin ... end` block." : "`$v`."))
+        push!(ligands, v.args[1])
+        push!(tags, v.args[2])
+    end
+    RawSite(ligands, multiplicity, tags)
+end
+
+"""
+Error unless the `regulatory_site(n):` lines `sites` place each allosteric regulator of
+`regulators`, the names `allosteric_regulators:` lists once each, exactly once, and list
+no other ligand.
+"""
+function _check_site_ligands(regulators::Vector{Symbol}, sites::Vector{RawSite})
+    repeated = unique(n for (i, n) in enumerate(regulators)
+                      if n in view(regulators, 1:i-1))
+    isempty(repeated) ||
+        error("@allosteric_mechanism: `allosteric_regulators:` lists " *
+              "$(join(("`$n`" for n in repeated), ", ")) more than once.")
+    for site in sites, l in site.ligands
+        l in regulators ||
+            error("@allosteric_mechanism: ligand `$l` on a `regulatory_site(n):` line is " *
+                  "not declared in `allosteric_regulators:`.")
+    end
+    for r in regulators
+        n = sum(count(==(r), site.ligands) for site in sites; init = 0)
+        n == 0 && error("@allosteric_mechanism: allosteric regulator `$r` sits at no " *
+                        "regulatory site; list it on one `regulatory_site(n):` line, as " *
+                        "in `regulatory_site(2): $r::OnlyA`.")
+        n == 1 || error("@allosteric_mechanism: allosteric regulator `$r` is listed $n " *
+                        "times on `regulatory_site(n):` lines; an allosteric regulator " *
+                        "sits at exactly one regulatory site.")
+    end
+end
+
+"""
+The steps of a `steps:` block as written, each statement's group label per step and,
+for an allosteric block, each statement's tag: `(steps, group, tags)`. A statement is
+one kinetic group: a step (`lhs ⇌ rhs` rapid equilibrium, `lhs <--> rhs` steady state)
+or a parenthesized tuple of steps (`(step,)` for one). An allosteric statement ends in
+its tag (`step :: Tag`, `(step, step) :: Tag`); a plain one carries none. `names` holds
+the block's declared names.
+"""
+function _raw_steps(steps_block, names, macro_name, allosteric::Bool)
+    steps, group, tags = RawStep[], Int[], Symbol[]
+    missing_tag = "`:: <:OnlyA|:EqualAI|:NonequalAI>` annotation. Add `:: <state>` after"
+    n = 0
+    for arg in steps_block.args
+        arg isa LineNumberNode && continue
+        n += 1
+        if arg isa Expr && arg.head === :(::) && length(arg.args) == 2 &&
+           arg.args[1] isa Expr && arg.args[1].head in (:tuple, :call)
+            inner, tag = arg.args
+            allosteric || error("$macro_name: tag annotation `$arg` is not allowed")
+            inner isa Expr && inner.head === :tuple ||
+                error("$macro_name: a single step carries its tag after its right-hand " *
+                      "side, as in `E + S ⇌ E(S) :: EqualAI`. Got `$arg`.")
+            tag isa Symbol ||
+                error("$macro_name: step-group tag must be a Symbol; got $tag")
+            push!(tags, tag)
+            members = inner.args
+        elseif arg isa Expr && arg.head === :tuple
+            allosteric && error("$macro_name: parenthesized step group `$arg` is missing " *
+                                "$missing_tag the closing paren.")
+            members = arg.args
+        elseif arg isa Expr && arg.head === :call && length(arg.args) == 3
+            op, lhs, rhs = _step_parts(arg, macro_name)
+            tag = _peel_tag!(rhs)
+            if tag !== nothing
+                tag isa Symbol || error("$macro_name: step tag must be a Symbol; got $tag")
+                allosteric || error("$macro_name: tag annotation on `$arg` is not allowed")
+                push!(tags, tag)
+            elseif allosteric
+                error("$macro_name: step `$arg` is missing $missing_tag the step " *
+                      "expression.")
+            end
+            push!(steps, _raw_step(op, lhs, rhs, names, macro_name))
+            push!(group, n)
+            continue
+        else
+            error("$macro_name: expected step or step-group; got $arg")
+        end
+        isempty(members) && error("$macro_name: a parenthesized group holds no step; a " *
+                                  "kinetic group holds at least one step.")
+        for s in members
+            push!(steps, _raw_step(_step_parts(s, macro_name)..., names, macro_name))
+            push!(group, n)
+        end
+    end
+    steps, group, tags
+end
+
+"""A step expression's operator, `⇌` or `<-->`, and the terms of its two sides; a side
+is a `+` chain of terms or a single term."""
+function _step_parts(expr, macro_name)
+    expr isa Expr && expr.head === :call ||
+        error("$macro_name: expected lhs ⇌ rhs or lhs <--> rhs; got $expr")
+    op = expr.args[1]
+    op === :⇌ || op === :(<-->) ||
+        error("$macro_name: expected ⇌ or <--> step operator; got $op")
+    length(expr.args) == 3 ||
+        error("$macro_name: expected lhs ⇌ rhs or lhs <--> rhs; got $expr")
+    op, _side_terms(expr.args[2]), _side_terms(expr.args[3])
+end
+
+"""The terms of a step side: the operands of a `+` chain, or the side itself."""
+_side_terms(side) = side isa Expr && side.head === :call && side.args[1] === :+ ?
+                    side.args[2:end] : Any[side]
+
+"""
+The tag a step's right-hand terms `rhs` end in, taken off the last term, or `nothing`.
+`::` binds tighter than `+`, so `E(P) ⇌ E + P :: EqualAI` reads `P :: EqualAI` as its
+last term, while `E(P) ⇌ (E + P) :: EqualAI` tags the whole side, whose terms then
+replace it. A role tag (`::Mod`, `::Inh`) marks a metabolite, never a step.
+"""
+function _peel_tag!(rhs::Vector{Any})
+    t = rhs[end]
+    t isa Expr && t.head === :(::) && length(t.args) == 2 &&
+        t.args[2] ∉ (:Mod, :Inh) || return nothing
+    rhs[end] = t.args[1]
+    length(rhs) == 1 && splice!(rhs, 1, _side_terms(t.args[1]))
+    t.args[2]
+end
+
+"""
+One step as written: `op` is `⇌` (rapid equilibrium) or `<-->` (steady state), `lhs`
+and `rhs` the terms of its two sides. Each side holds exactly one enzyme form and any
+number of metabolites (`_raw_met`): the left-hand metabolites are consumed, the
+right-hand ones released. Every term of both sides is read before either side's enzyme
+forms are counted, so a misspelled bound metabolite is reported as undeclared rather
+than as a second enzyme form. Each form's conformation label is checked
+(`_check_conformation_label`).
+"""
+function _raw_step(op, lhs, rhs, names, macro_name)
+    is_met(t) = t isa Symbol ? _is_declared(t, names) : t isa Expr && t.head === :(::)
+    read_term(t) = is_met(t) ? _raw_met(t, names, macro_name) :
+                   _raw_form(t, names, macro_name)
+    term_name(t) = t isa Expr && !isempty(t.args) ? t.args[1] : t
+    parsed = (Any[read_term(t) for t in lhs], Any[read_term(t) for t in rhs])
+    (from, consumed), (to, released) = map((lhs, rhs), parsed) do terms, side
+        i = findall(x -> x isa RawForm, side)
+        isempty(i) && error("$macro_name: step side has no enzyme-form term (terms: " *
+                            "$(join(term_name.(terms), ", "))).")
+        length(i) == 1 ||
+            error("$macro_name: step side has more than one enzyme-form term " *
+                  "($(term_name(terms[i[1]])), $(term_name(terms[i[2]]))); each " *
+                  "elementary step has exactly one enzyme form per side.")
+        _check_conformation_label(side[only(i)].conformation, macro_name)
+        side[only(i)], Met[x for x in side if x isa Met]
+    end
+    RawStep(from, to, consumed, released, op === :⇌)
+end
+
+"""Whether `x` is a name the block declares (`names`: substrates, products, modifiers
+and allosteric regulators)."""
+_is_declared(x, names) = x in names.substrates || x in names.products ||
+                         x in names.modifiers || x in names.regulators
+
+"""The block's declared names (`names`), each once, in name order, for error messages."""
+_declared_names(names) =
+    sort!(unique!([names.substrates; names.products; names.modifiers; names.regulators]))
+
+"""
+A metabolite term as written: a declared name `X`, or `X::Mod`. A substrate or product
+written bare binds as itself, a name under `modifiers:` that is no reactant as a modifier,
+and `X::Mod` as the modifier copy of a reactant `X` that `modifiers:` also lists. An
+allosteric regulator binds only at its regulatory site. `species` is the enzyme-form term
+that binds the metabolite, or `nothing` for a free metabolite of a step.
+"""
+function _raw_met(t, names, macro_name, species = nothing)
+    name, tag = t isa Expr && length(t.args) == 2 ? (t.args[1], t.args[2]) : (t, nothing)
+    in_species = species === nothing ? "" : " in species `$species`"
+    name isa Symbol || error("$macro_name: expected `name::Mod`$in_species; got $t")
+    tag === nothing || tag === :Mod ||
+        error("$macro_name: unknown role tag ::$tag on $name; the one role tag is " *
+              "::Mod, which marks a substrate or product bound as a modifier.")
+    _is_declared(name, names) ||
+        error("$macro_name: " * (species === nothing ? "tagged metabolite `$name` in `$t`" :
+                                 "bound metabolite `$name` in species `$species`") *
+              " is not declared. Declared: $(_declared_names(names)).")
+    reactant = name in names.substrates || name in names.products
+    if tag === :Mod
+        reactant ||
+            error("$macro_name: `$name::Mod` marks a substrate or product bound as a " *
+                  "modifier, and `$name` is neither; write a name under `modifiers:` " *
+                  "bare.")
+        name in names.modifiers ||
+            error("$macro_name: `$name::Mod` names `$name`, which `modifiers:` does not " *
+                  "declare; add `$name` to `modifiers:` to let it bind the catalytic " *
+                  "site as a modifier.")
+        return Met(name, true)
+    end
+    reactant && return Met(name, false)
+    name in names.modifiers && return Met(name, true)
+    error("$macro_name: `$name` is an allosteric regulator; it binds only at its " *
+          "regulatory site.")
+end
+
+"""
+An enzyme-form term as written: a bare conformation label `E`, or a call
+`E(S, X::Mod; residual = A - P)` whose head is the conformation label, whose positional
+arguments are the bound metabolites (`_raw_met`) and whose `residual` lists the
+substrates added to and the products subtracted from the enzyme (`_read_residual!`). A
+conformation label may not be a declared name.
+"""
+function _raw_form(t, names, macro_name)
+    t isa Symbol || t isa Expr && t.head === :call && t.args[1] isa Symbol ||
+        error("$macro_name: expected metabolite Symbol or species expression on step " *
+              "side; got $t")
+    conformation, args = t isa Symbol ? (t, Any[]) : (t.args[1], t.args[2:end])
+    _is_declared(conformation, names) &&
+        error("$macro_name: conformation label `$conformation` collides with declared " *
+              "metabolite `$conformation`; choose a different conformation label.")
+    bound, added, subtracted = Met[], Symbol[], Symbol[]
+    for a in args
+        if a isa Expr && a.head === :parameters
+            for kw in a.args
+                kw isa Expr && kw.head === :kw && kw.args[1] === :residual ||
+                    error("$macro_name: unknown keyword in species `$t`: $kw. Only " *
+                          "`residual = ...` is allowed.")
+                _read_residual!(added, subtracted, kw.args[2], true, names, macro_name)
+            end
+        else
+            a isa Symbol || a isa Expr && a.head === :(::) ||
+                error("$macro_name: invalid entry in species `$t`: $a")
+            push!(bound, _raw_met(a, names, macro_name, t))
+        end
+    end
+    RawForm(conformation, bound, added, subtracted)
+end
+
+"""
+Read a residual expression (`A`, `A - P`, `S1 + S2 - P1 - P3`, ...) into `added` (its
+positive names) and `subtracted` (its negative ones); `positive` is the sign of `e`. A
+residual adds substrates and subtracts products.
+"""
+function _read_residual!(added, subtracted, e, positive::Bool, names, macro_name)
+    if e isa Symbol
+        _is_declared(e, names) ||
+            error("$macro_name: residual entry `$e` is not a declared metabolite. " *
+                  "Declared: $(_declared_names(names)).")
+        e in (positive ? names.substrates : names.products) ||
+            error("$macro_name: a residual adds substrates and subtracts products; got " *
+                  "`$e`.")
+        push!(positive ? added : subtracted, e)
+    elseif e isa Expr && e.head === :call && e.args[1] === :+ && length(e.args) >= 3
+        for a in e.args[2:end]
+            _read_residual!(added, subtracted, a, positive, names, macro_name)
+        end
+    elseif e isa Expr && e.head === :call && e.args[1] === :- && length(e.args) in (2, 3)
+        length(e.args) == 3 &&
+            _read_residual!(added, subtracted, e.args[2], positive, names, macro_name)
+        _read_residual!(added, subtracted, e.args[end], !positive, names, macro_name)
+    else
+        error("$macro_name: invalid residual expression: $e")
+    end
+end
+
+"""
+Error unless the conformation label `c` is a capital letter followed by lowercase
+letters and digits (`E`, `Estar`, `F2`). A label with a second capital reads as an
+opaque bound-form name (`ES`), which is written in call notation (`E(S)`). Constant
+names join form names with `_`, so a label holds none.
+"""
+function _check_conformation_label(c::Symbol, macro_name)
+    occursin(r"^[A-Z][a-z0-9]*$", String(c)) && return nothing
+    occursin(r"^[A-Z].*[A-Z]", String(c)) &&
+        error("$macro_name: `$c` looks like an opaque bound-form name; write it as " *
+              "decomposed call notation, e.g. `E(S)` or `E(A, B)`.")
+    error("$macro_name: `$c` is not a conformation label: a conformation label is a " *
+          "capital letter followed by lowercase letters and digits, such as `E`, `Estar` " *
+          "or `F2`.")
+end
+
+"""
+    _compiled_mechanism(raw) -> EnzymeMechanism or AllostericEnzymeMechanism
+
+The compiled mechanism of `raw`, the walker's value for a mechanism macro's block
+(`_raw_mechanism`): the macros' expansion calls it, so the constructors check the
+mechanism when the expanded code runs.
+"""
+_compiled_mechanism(raw::RawMechanism) = EnzymeMechanism(Mechanism(raw))
+_compiled_mechanism(raw::RawAllostericMechanism) =
+    AllostericEnzymeMechanism(AllostericMechanism(raw))

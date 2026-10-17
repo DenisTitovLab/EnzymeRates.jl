@@ -330,7 +330,7 @@
             :(@enzyme_mechanism begin
                 products: P
             end))
-        @test_throws "@allosteric_mechanism: `catalytic_steps:` not specified" eval(
+        @test_throws "@allosteric_mechanism: `steps:` not specified" eval(
             :(@allosteric_mechanism begin
                 substrates: S
                 products:   P
@@ -1161,5 +1161,470 @@
                 E(P) ⇌ E + P    :: 3
             end
         end))
+    end
+end
+
+@testset "DSL: modifiers, ::Mod and regulatory_site(n)" begin
+    @testset "a modifier binds bare, a reactant's modifier copy as X::Mod" begin
+        # I binds only as a modifier; P is a product that also binds as a modifier.
+        m = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            modifiers:  I, P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+                E(S) + I ⇌ E(S, I)
+                E + P::Mod ⇌ E(P::Mod)
+            end
+        end
+        @test m isa EnzymeMechanism
+        @test EnzymeRates.fitted_params(m) == (:K_EIS_to_ES_I, :K_EP_to_E_P,
+            :K_EPmod_to_E_Pmod, :K_ES_to_E_S, :k_ES_to_EP)
+        @test metabolites(m) == (:S, :P, :I)
+        _testhelper_check_law_against_oracle(m)
+    end
+
+    @testset "the allosteric grammar: one tag per statement, ligands at their sites" begin
+        am = @allosteric_mechanism begin
+            substrates: A, B
+            products:   P, Q
+            modifiers:  I, P
+            allosteric_regulators: X, Y
+            catalytic_multiplicity: 2
+            steps: begin
+                E + A ⇌ E(A)                              :: EqualAI
+                E(A) + B ⇌ E(A, B)                        :: NonequalAI
+                E(A, B) <--> E(P, Q)                      :: OnlyA
+                E(P, Q) ⇌ E(Q) + P                        :: EqualAI
+                E(Q) ⇌ E + Q                              :: EqualAI
+                (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))        :: EqualAI
+                E(Q) + P::Mod ⇌ E(P::Mod, Q)              :: EqualAI
+            end
+            regulatory_site(2): X::OnlyA, Y::OnlyI
+        end
+        @test am isa AllostericEnzymeMechanism
+        @test EnzymeRates.catalytic_multiplicity(am) == 2
+        @test EnzymeRates.fitted_params(am) == (:K_A_EAB_to_EA_B, :K_EA_to_E_A,
+            :K_EI_to_E_I, :K_EPQ_to_EQ_P, :K_EPmodQ_to_EQ_Pmod, :K_EQ_to_E_Q,
+            :K_I_EAB_to_EA_B, :k_A_EAB_to_EPQ, :K_A_Xreg, :K_I_Yreg, :L)
+        @test metabolites(am) == (:A, :B, :P, :Q, :I, :X, :Y)
+        _testhelper_check_law_against_oracle(am)
+    end
+
+    @testset "catalytic_multiplicity: defaults to 1" begin
+        am = @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: X
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: OnlyA
+                E(P) ⇌ E + P      :: EqualAI
+            end
+            regulatory_site(1): X::OnlyI
+        end
+        @test EnzymeRates.catalytic_multiplicity(am) == 1
+        @test EnzymeRates.fitted_params(am) ==
+              (:K_EP_to_E_P, :K_ES_to_E_S, :k_A_ES_to_EP, :K_I_Xreg, :L)
+        _testhelper_check_law_against_oracle(am)
+    end
+
+    @testset "a name can be a modifier and an allosteric regulator" begin
+        # R binds the catalytic site as a modifier and its regulatory site as a ligand.
+        dual = @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            modifiers:  R
+            allosteric_regulators: R
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: EqualAI
+                E + R ⇌ E(R)      :: EqualAI
+            end
+            regulatory_site(1): R::OnlyA
+        end
+        @test EnzymeRates.fitted_params(dual) ==
+              (:K_EP_to_E_P, :K_ER_to_E_R, :K_ES_to_E_S, :k_ES_to_EP, :K_A_Rreg, :L)
+        @test metabolites(dual) == (:S, :P, :R)
+        _testhelper_check_law_against_oracle(dual)
+    end
+
+    @testset "the walker returns each block as written" begin
+        # Steps keep their written order and direction, each statement is one kinetic
+        # group label, and a metabolite is a modifier when written bare under
+        # `modifiers:` or as a reactant's X::Mod.
+        M, F = EnzymeRates.Met, EnzymeRates.RawForm
+        s, p, i, smod = M(:S, false), M(:P, false), M(:I, true), M(:S, true)
+        raw = EnzymeRates._raw_mechanism(quote
+            substrates: S
+            products:   P
+            modifiers:  I, S
+            steps: begin
+                E(S) ⇌ E + S
+                (E + I ⇌ E(I), E(S) + I ⇌ E(I, S))
+                E(S) <--> Estar(; residual = S - P) + P
+                E + S::Mod ⇌ E(S::Mod)
+            end
+        end, false)
+        @test raw == EnzymeRates.RawMechanism([:S], [:P], [:I, :S], [
+            EnzymeRates.RawStep(F(:E, [s]), F(:E, M[]), M[], [s], true),
+            EnzymeRates.RawStep(F(:E, M[]), F(:E, [i]), [i], M[], true),
+            EnzymeRates.RawStep(F(:E, [s]), F(:E, [i, s]), [i], M[], true),
+            EnzymeRates.RawStep(F(:E, [s]), F(:Estar, M[], [:S], [:P]), M[], [p], false),
+            EnzymeRates.RawStep(F(:E, M[]), F(:E, [smod]), [smod], M[], true)],
+            [1, 2, 2, 3, 4])
+        # An allosteric block adds a tag per group label, the catalytic multiplicity
+        # (1 when omitted) and its sites, each ligand list as written.
+        allo = EnzymeRates._raw_mechanism(quote
+            substrates: S
+            products:   P
+            allosteric_regulators: X, Y
+            steps: begin
+                E + S ⇌ E(S)              :: EqualAI
+                E(S) <--> E(P)            :: OnlyA
+                (E(P) ⇌ E + P,)           :: NonequalAI
+            end
+            regulatory_site(2): Y::OnlyI, X::OnlyA
+        end, true)
+        @test allo == EnzymeRates.RawAllostericMechanism(
+            EnzymeRates.RawMechanism([:S], [:P], Symbol[], [
+                EnzymeRates.RawStep(F(:E, M[]), F(:E, [s]), [s], M[], true),
+                EnzymeRates.RawStep(F(:E, [s]), F(:E, [p]), M[], M[], false),
+                EnzymeRates.RawStep(F(:E, [p]), F(:E, M[]), M[], [p], true)],
+                [1, 2, 3]),
+            [:EqualAI, :OnlyA, :NonequalAI], 1,
+            [EnzymeRates.RawSite([:Y, :X], 2, [:OnlyI, :OnlyA])])
+    end
+
+    @testset "::Mod marks a substrate or product under modifiers: only" begin
+        # A modifier-only name binds bare, so ::Mod on it is an error.
+        @test_throws("@enzyme_mechanism: `I::Mod` marks a substrate or product bound " *
+                     "as a modifier, and `I` is neither; write a name under " *
+                     "`modifiers:` bare.", eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            modifiers:  I
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+                E + I::Mod ⇌ E(I::Mod)
+            end
+        end)))
+        # A reactant written X::Mod must be listed under modifiers:.
+        @test_throws("@enzyme_mechanism: `P::Mod` names `P`, which `modifiers:` does " *
+                     "not declare; add `P` to `modifiers:` to let it bind the catalytic " *
+                     "site as a modifier.", eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+                E + P::Mod ⇌ E(P::Mod)
+            end
+        end)))
+        # An allosteric regulator binds only at its site, bare or tagged.
+        @test_throws "`R` is an allosteric regulator" eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: R
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: EqualAI
+                E + R ⇌ E(R)      :: EqualAI
+            end
+            regulatory_site(1): R::OnlyA
+        end))
+        @test_throws("@enzyme_mechanism: unknown role tag ::Inh on P; the one role tag " *
+                     "is ::Mod, which marks a substrate or product bound as a modifier.",
+                     EnzymeRates._raw_mechanism(quote
+            substrates: S
+            products:   P
+            modifiers:  P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+                E + P::Inh ⇌ E(P::Inh)
+            end
+        end, false))
+    end
+
+    @testset "every allosteric regulator sits at exactly one regulatory site" begin
+        # The walker's value for the block below with the site lines `sites` appended.
+        declarations = quote
+            substrates: S
+            products:   P
+            allosteric_regulators: X, Y
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: OnlyA
+                E(P) ⇌ E + P      :: EqualAI
+            end
+        end
+        _testhelper_sites(sites...) = EnzymeRates._raw_mechanism(
+            Expr(:block, declarations.args..., sites...), true)
+        @test_throws("@allosteric_mechanism: allosteric regulator `Y` sits at no " *
+                     "regulatory site; list it on one `regulatory_site(n):` line, as " *
+                     "in `regulatory_site(2): Y::OnlyA`.",
+                     _testhelper_sites(:(regulatory_site(2): X::OnlyA)))
+        @test_throws("@allosteric_mechanism: allosteric regulator `X` is listed 2 times " *
+                     "on `regulatory_site(n):` lines; an allosteric regulator sits at " *
+                     "exactly one regulatory site.",
+                     _testhelper_sites(:(regulatory_site(2): X::OnlyA, Y::OnlyI),
+                                       :(regulatory_site(4): X::OnlyA)))
+        @test_throws("@allosteric_mechanism: allosteric regulator `X` is listed 2 times",
+                     _testhelper_sites(:(regulatory_site(2): X::OnlyA, Y::OnlyI,
+                                                             X::OnlyI)))
+        @test_throws("@allosteric_mechanism: ligand `Z` on a `regulatory_site(n):` line " *
+                     "is not declared in `allosteric_regulators:`.",
+                     _testhelper_sites(:(regulatory_site(2): X::OnlyA, Y::OnlyI,
+                                                             Z::OnlyI)))
+        @test_throws("@allosteric_mechanism: `allosteric_regulators:` lists `X` more " *
+                     "than once.", EnzymeRates._raw_mechanism(quote
+            substrates: S
+            products:   P
+            allosteric_regulators: X, X
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+            end
+            regulatory_site(2): X::OnlyA
+        end, true))
+        # A site lists each ligand with its tag after a positive multiplicity.
+        @test_throws("@allosteric_mechanism: `regulatory_site(n):` lists each ligand " *
+                     "with its tag, as in `regulatory_site(2): A::OnlyA, I::OnlyI`; " *
+                     "got `X`.", _testhelper_sites(:(regulatory_site(2): X, Y::OnlyI)))
+        @test_throws("`regulatory_site` multiplicity must be a positive Int, got 0.",
+                     _testhelper_sites(:(regulatory_site(0): X::OnlyA, Y::OnlyI)))
+        @test_throws("@allosteric_mechanism: `regulatory_site(n):` takes one positive " *
+                     "Int multiplicity, as in `regulatory_site(2): A::OnlyA, I::OnlyI`; " *
+                     "got `regulatory_site(multiplicity = 2)`.",
+                     _testhelper_sites(:(regulatory_site(multiplicity = 2): X::OnlyA,
+                                                                           Y::OnlyI)))
+        @test_throws("@allosteric_mechanism: `regulatory_site(n):` lists each ligand " *
+                     "with its tag, as in `regulatory_site(2): A::OnlyA, I::OnlyI`; " *
+                     "got a `begin ... end` block.",
+                     _testhelper_sites(:(regulatory_site(2): begin
+                                             ligands: X, Y
+                                         end)))
+        # The allosteric regulators list names; their tags sit on the site lines.
+        @test_throws("@allosteric_mechanism: `allosteric_regulators:` lists names; got " *
+                     "`X::OnlyA`. A ligand's tag goes on its `regulatory_site(n):` line, " *
+                     "as in `regulatory_site(2): X::OnlyA`.",
+                     EnzymeRates._raw_mechanism(quote
+            substrates: S
+            products:   P
+            allosteric_regulators: X::OnlyA
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+            end
+            regulatory_site(2): X::OnlyA
+        end, true))
+    end
+
+    @testset "allosteric steps carry one tag per statement, plain steps none" begin
+        @test_throws("@allosteric_mechanism: step `E(S) <--> E(P)` is missing " *
+                     "`:: <:OnlyA|:EqualAI|:NonequalAI>` annotation. Add `:: <state>` " *
+                     "after the step expression.", eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)
+                E(P) ⇌ E + P      :: EqualAI
+            end
+        end)))
+        @test_throws("@enzyme_mechanism: tag annotation on `E(S) <--> E(P)::EqualAI` is " *
+                     "not allowed", eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P
+            end
+        end)))
+        # A single step carries its tag after its right-hand side; a parenthesized group
+        # is a tuple of steps, `(step,)` for one.
+        @test_throws("@allosteric_mechanism: a single step carries its tag after its " *
+                     "right-hand side, as in `E + S ⇌ E(S) :: EqualAI`. Got " *
+                     "`(E(P) ⇌ E + P)::EqualAI`.",
+                     EnzymeRates._raw_mechanism(quote
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)              :: EqualAI
+                E(S) <--> E(P)            :: EqualAI
+                (E(P) ⇌ E + P)            :: EqualAI
+            end
+        end, true))
+        # A tag after a parenthesized right-hand side tags the step, as after a bare one.
+        M, F = EnzymeRates.Met, EnzymeRates.RawForm
+        s, p = M(:S, false), M(:P, false)
+        @test EnzymeRates._raw_mechanism(quote
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)        :: EqualAI
+                E(S) <--> E(P)      :: OnlyA
+                E(P) ⇌ (E + P)      :: EqualAI
+            end
+        end, true) == EnzymeRates.RawAllostericMechanism(
+            EnzymeRates.RawMechanism([:S], [:P], Symbol[], [
+                EnzymeRates.RawStep(F(:E, M[]), F(:E, [s]), [s], M[], true),
+                EnzymeRates.RawStep(F(:E, [s]), F(:E, [p]), M[], M[], false),
+                EnzymeRates.RawStep(F(:E, [p]), F(:E, M[]), M[], [p], true)],
+                [1, 2, 3]),
+            [:EqualAI, :OnlyA, :EqualAI], 1, EnzymeRates.RawSite[])
+        @test_throws "@enzyme_mechanism: a parenthesized group holds no step" eval(
+            :(@enzyme_mechanism begin
+                substrates: S
+                products:   P
+                steps: begin
+                    E + S ⇌ E(S)
+                    ()
+                end
+            end))
+    end
+
+    @testset "labels: the valid ones, each single-valued label once with one value" begin
+        plain_labels = "Valid labels: substrates, products, modifiers, steps. " *
+                       "Allosteric declarations (`allosteric_regulators:`, " *
+                       "`catalytic_multiplicity:`, `regulatory_site(n):`) belong in " *
+                       "@allosteric_mechanism."
+        for label in (:regulators, :catalytic_steps, :catalytic_inhibitors)
+            @test_throws("@enzyme_mechanism: unknown label `$label:`. " * plain_labels,
+                         EnzymeRates._raw_mechanism(quote
+                substrates: S
+                products:   P
+                $label: I
+                steps: begin
+                    E + S ⇌ E(S)
+                end
+            end, false))
+        end
+        allo_labels = "Valid labels: substrates, products, modifiers, " *
+                      "allosteric_regulators, catalytic_multiplicity, steps, " *
+                      "regulatory_site(n)."
+        for label in (:catalytic_steps, :catalytic_inhibitors, :regulators)
+            @test_throws("@allosteric_mechanism: unknown label `$label:`. " * allo_labels,
+                         EnzymeRates._raw_mechanism(quote
+                substrates: S
+                products:   P
+                $label: I
+                steps: begin
+                    E + S ⇌ E(S)      :: EqualAI
+                end
+            end, true))
+        end
+        @test_throws("@allosteric_mechanism: `catalytic_multiplicity:` takes one " *
+                     "positive Int; got 2, 4.", eval(Meta.parse("""
+            @allosteric_mechanism begin
+                substrates: S
+                products:   P
+                catalytic_multiplicity: 2, 4
+                steps: begin
+                    E + S ⇌ E(S)      :: EqualAI
+                end
+            end""")))
+        @test_throws("@enzyme_mechanism: `steps:` takes a `begin ... end` block of " *
+                     "steps; got S.", eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: S
+        end)))
+        @test_throws("@enzyme_mechanism: `steps:` takes one `begin ... end` block; got " *
+                     "2 values.", eval(Meta.parse("""
+            @enzyme_mechanism begin
+                substrates: S
+                products:   P
+                steps: begin
+                    E + S ⇌ E(S)
+                end, S
+            end""")))
+        @test_throws "`steps:` given more than once" eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)
+            end
+            steps: begin
+                E(S) <--> E + P
+            end
+        end))
+        @test_throws "`catalytic_multiplicity:` given more than once" eval(
+            :(@allosteric_mechanism begin
+                substrates: S
+                products:   P
+                catalytic_multiplicity: 2
+                catalytic_multiplicity: 2
+                steps: begin
+                    E + S ⇌ E(S)      :: EqualAI
+                end
+            end))
+    end
+
+    @testset "a conformation label: a capital, then lowercase letters and digits" begin
+        @test_throws("@enzyme_mechanism: `E_c` is not a conformation label: a " *
+                     "conformation label is a capital letter followed by lowercase " *
+                     "letters and digits, such as `E`, `Estar` or `F2`.",
+                     eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E_c + S ⇌ E_c(S)
+                E_c(S) <--> E_c + P
+            end
+        end)))
+        m = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> Estar2(P)
+                Estar2(P) ⇌ Estar2 + P
+                Estar2 <--> E
+            end
+        end
+        @test EnzymeRates.fitted_params(m) == (:K_ES_to_E_S, :K_Estar2P_to_Estar2_P,
+            :k_ES_to_Estar2P, :k_E_to_Estar2, :k_Estar2_to_E)
+        _testhelper_check_law_against_oracle(m)
+    end
+
+    @testset "constructor errors throw when the expanded code runs" begin
+        # The walker reads the block at expansion; the constructors check the mechanism
+        # when the macro's code runs, so these throw outside `eval`.
+        @test_throws ":OnlyI is rejected for catalytic groups" @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: OnlyI
+                E(P) ⇌ E + P      :: EqualAI
+            end
+        end
+        @test_throws "allo state Bogus must be one of" @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: X
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: EqualAI
+            end
+            regulatory_site(2): X::Bogus
+        end
+        @test_throws "S named as both a substrate and a product" @enzyme_mechanism begin
+            substrates: S
+            products:   S
+            steps: begin
+                E + S ⇌ E(S)
+            end
+        end
     end
 end
