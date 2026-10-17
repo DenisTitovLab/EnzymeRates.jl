@@ -1709,6 +1709,7 @@ end
     end
     @test issubset([:K_EAinh_to_E_Ainh, :K_EA_to_E_A],
                    _testhelper_step_constant_names(inh))
+    _testhelper_check_law_against_oracle(inh)
     # The allosteric state tag follows the prefix: a :NonequalAI binding has an
     # A-state and an I-state constant, an :EqualAI binding one shared constant.
     allo = @allosteric_mechanism begin
@@ -1746,6 +1747,7 @@ end
     end
     pp_names = _testhelper_step_constant_names(pingpong)
     @test Symbol("K_EB_res_+A_-P_to_E_res_+A_-P_B") in pp_names
+    _testhelper_check_law_against_oracle(pingpong)
     # One name per class: a rapid-equilibrium group's K, a steady-state group's kf, kr.
     @test length(pp_names) == sum(ER.is_equilibrium(first(g)) ? 1 : 2
                                   for g in ER.steps(ER.Mechanism(pingpong)))
@@ -1945,6 +1947,8 @@ end
     allo_law = rate_equation_string(allo)
     @test occursin("k_A_EIinh_Jinh_to_EJinh_Iinh", allo_law)
     @test occursin("k_I_EIinh_Jinh_to_EJinh_Iinh", allo_law)
+    _testhelper_check_law_against_oracle(plain)
+    _testhelper_check_law_against_oracle(allo)
 
     # Exchanges that switch conformation in opposite directions as J displaces I share no
     # orientation.
@@ -2042,6 +2046,8 @@ end
     allo_law = rate_equation_string(allo)
     @test occursin("k_A_EJinh_Iinh_to_EIinh_Jinh", allo_law)
     @test occursin("k_I_EJinh_Iinh_to_EIinh_Jinh", allo_law)
+    _testhelper_check_law_against_oracle(plain)
+    _testhelper_check_law_against_oracle(allo)
 
     # An exchange that changes conformation leads its group. On its own, Tier 3 runs
     # F(I) + J <--> E(J) + I from E(J) to F(I) and the exchange at E from E(I) to E(J);
@@ -2076,6 +2082,7 @@ end
         end
     end) == mm
     @test occursin("k_EJinh_Iinh_to_EIinh_Jinh", rate_equation_string(mixed))
+    _testhelper_check_law_against_oracle(mixed)
 end
 
 @testset "each reaction appears once in a mechanism" begin

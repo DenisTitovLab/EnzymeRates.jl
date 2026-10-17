@@ -19,6 +19,11 @@ function _testhelper_allosteric_golden_lines()
 end
 
 @testset "allosteric golden reference (D1)" begin
+    # The per-spec mass-action oracle of test_rate_eq_derivation.jl
+    # (`_testhelper_test_mass_action_oracle`) checks each spec's law, with one catalytic
+    # subunit, against the exact steady state of the spec's mass-action network, and the
+    # per-spec string check (`_testhelper_test_rate_equation_string`) ties the printed
+    # string to the compiled law.
     @test isfile(_ALLO_GOLDEN_PATH)
     current = _testhelper_allosteric_golden_lines()
     reference = readlines(_ALLO_GOLDEN_PATH)

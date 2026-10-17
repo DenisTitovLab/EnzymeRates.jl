@@ -900,6 +900,7 @@
         @test occursin("P", re_str)             # real metabolite name appears
         @test occursin("(; S, P) = concs", re_str)  # concentration is P, never Pinh
         @test !occursin("Pinh = concs", re_str)     # the inh marker never names a concentration
+        _testhelper_check_law_against_oracle(m)
     end
 
     @testset "dual-role names bind by their catalytic role unless tagged ::Inh" begin

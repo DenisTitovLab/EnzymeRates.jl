@@ -258,6 +258,7 @@ end
                                      sys.flat[c.step][2] == key[1], sys.columns)
             @test sys.flat[sys.columns[last_col].step][1] == step
         end
+        _testhelper_check_law_against_oracle(EnzymeRates.compile_mechanism(am))
     end
 
     @testset "the inactive cycle row runs over the whole graph, islands included" begin

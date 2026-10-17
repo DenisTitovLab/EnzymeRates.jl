@@ -5670,6 +5670,7 @@ end
     @test any(s -> occursin("ATPreg", String(s)), atp_params)
     @test any(s -> occursin("ATPinh", String(s)), atp_params)
     @test EnzymeRates.compile_mechanism(am) isa AllostericEnzymeMechanism
+    _testhelper_check_law_against_oracle(EnzymeRates.compile_mechanism(am))
 end
 
 @testset "AllostericMechanism — dead-end move skips a name bound at a regulatory site" begin
