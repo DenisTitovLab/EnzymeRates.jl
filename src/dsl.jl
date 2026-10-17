@@ -1,47 +1,69 @@
 # ABOUTME: DSL macros @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism.
-# ABOUTME: Parse reaction/mechanism declarations into concrete struct constructors.
+# ABOUTME: Each reads its block into plain data; the code it expands to builds the value.
 
 """
     @enzyme_reaction begin
-        substrates: S[C6H12O6], ATP[C10H16N5O13P3]
-        products:   P[C6H13O9P], ADP[C10H15N5O10P2]
-        competitive_inhibitors: I            # bare OK; mults default to catalytic
-        allosteric_regulators: A(1, 2, 4)    # bare OK; mults default to catalytic
-        oligomeric_state: (1, 2, 4)          # or one Int: oligomeric_state: 2
+        substrates: S[C6H12O6], ...
+        products: P[C6H13O9P], ...
+        competitive_inhibitors: I, ...
+        allosteric_regulators: A, ...
+        oligomeric_state: 2
+        shared_catalytic_site: (S, P), ...
     end
 
-Emit an `EnzymeReaction`.
+Build the [`EnzymeReaction`](@ref) that the mechanism search starts from: its reactants
+with their atoms, and the regulators and oligomeric states the search may use.
 
-- `substrates:` / `products:` — comma-separated entries, each a name with one
-  chemical formula in brackets (`S[C6H12O6]`).
-  A name may appear under only one of the two labels.
-  An enzyme form's name joins its bound metabolites' names without a
-  separator, so the names may not spell one string two ways: with `Ac`,
-  `CoA` and `AcCoA`, E with Ac and CoA bound and E with AcCoA bound would
-  both be `EAcCoA`. `@enzyme_reaction` rejects such a reaction and names
-  both spellings (`Ac + CoA and AcCoA both spell AcCoA`); rename one
-  (`Acetyl`). A competitive inhibitor that is also a substrate or product
-  binds as its modifier copy, named `Xmod`, which counts as a name too.
-- No metabolite is named `E_total`, `Keq`, `L`, `N`, `params`, `concs` or `v`,
-  or holds `_`: a rate equation keeps those names, and its constant names join
-  names with `_`.
-- `competitive_inhibitors:` —
-  `CompetitiveInhibitor` entries (catalytic-site binding). May be bare
-  `I` (multiplicities default to the `oligomeric_state:` ones) or
-  `I(m1, m2, ...)` to override. Enumeration reads only the mechanism's
-  catalytic multiplicity; the per-inhibitor list is stored but not read.
-- `allosteric_regulators:` — `AllostericRegulator` entries. May be bare
-  `A` (multiplicities default to the `oligomeric_state:` ones),
-  `A(m1, m2, ...)` or a single value `A(m)`. Enumeration gives every
-  regulatory site the mechanism's catalytic multiplicity; the per-regulator
-  list is stored but not read. An entry may carry a type
-  tag, `A::Activator` or `A::Inhibitor`; untagged entries default to
-  `:unspecified`. Type tags are only valid on `allosteric_regulators:`
-  entries.
-- `oligomeric_state:` — the catalytic multiplicities the search may assign: one positive
-  Int, or a tuple of them such as `(1, 2, 4)` (default 1).
-- `shared_catalytic_site: (sub, prod), ...` — pairs of substrate/product
-  names (in either order) that bind at the same catalytic site.
+- `substrates:` and `products:` (required) list each reactant with its atoms, one
+  chemical formula in brackets: `S[C6H12O6]`. The atoms of the two sides balance, and a
+  name is a substrate or a product, not both.
+- `competitive_inhibitors:` lists the `CompetitiveInhibitor`s, names that bind the
+  catalytic site without reacting. A substrate or product listed here may also bind as
+  its modifier copy, which a mechanism writes `X::Mod`.
+- `allosteric_regulators:` lists the `AllostericRegulator`s, names that bind regulatory
+  sites. A type tag, `A::Activator` or `A::Inhibitor`, pins the regulator to the
+  allosteric state that activates or inhibits; an untagged one (`:unspecified`) may take
+  either. Only these entries take a type tag. A name may be both a competitive
+  inhibitor and an allosteric regulator.
+- A regulator may list its multiplicities, `I(1, 2)` or `A(4)`; a bare name takes the
+  `oligomeric_state:` ones. The search reads only the mechanism's catalytic
+  multiplicity, which it also gives every regulatory site; the per-regulator lists are
+  stored but not read.
+- `oligomeric_state:` gives the catalytic multiplicities the search may assign: one
+  positive Int, or a tuple of them such as `(1, 2, 4)`. It defaults to 1 and is given at
+  most once.
+- `shared_catalytic_site:` lists `(substrate, product)` pairs, in either order, that bind
+  one catalytic site, so never both at once.
+- The list labels may repeat; their entries accumulate.
+
+No metabolite is named `E_total`, `Keq`, `L`, `N`, `params`, `concs` or `v`, or holds
+`_`: a rate equation keeps those names, and its constant names join names with `_`. An
+enzyme form's name joins its bound metabolites' names without a separator, so the names
+may not spell one string two ways: with `Ac`, `CoA` and `AcCoA`, E with Ac and CoA bound
+and E with AcCoA bound would both be `EAcCoA`. `@enzyme_reaction` rejects such a
+reaction and names both spellings (`Ac + CoA and AcCoA both spell AcCoA`); rename one
+(`Acetyl`). A reactant's modifier copy is named `Xmod`, which counts as a name too.
+
+A reaction prints as the block that builds it, its names sorted:
+
+```jldoctest
+julia> using EnzymeRates
+
+julia> @enzyme_reaction begin
+           substrates: S[C6H12O6], ATP[C10H16N5O13P3]
+           products: P[C6H13O9P], ADP[C10H15N5O10P2]
+           competitive_inhibitors: P
+           allosteric_regulators: A::Activator, I(2)::Inhibitor
+           oligomeric_state: (1, 2)
+       end
+@enzyme_reaction begin
+    substrates: ATP[C10H16N5O13P3], S[C6H12O6]
+    products: ADP[C10H15N5O10P2], P[C6H13O9P]
+    competitive_inhibitors: P
+    allosteric_regulators: A::Activator, I(2)::Inhibitor
+    oligomeric_state: (1, 2)
+end
+```
 """
 macro enzyme_reaction(block)
     (; reactants, regs, mults, shared) = _parse_reaction_block(block)
@@ -211,52 +233,80 @@ end
 
 """
     @enzyme_mechanism begin
-        substrates: S
-        products:   P
-        modifiers: I
-
+        substrates: S, ...
+        products: P, ...
+        modifiers: I, ...
         steps: begin
-            E + S ⇌ E(S)                   # function-call species notation
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-            # parenthesized → shared kinetics: dead-end I binds E and E(S) alike
-            (E + I ⇌ E(I), E(S) + I ⇌ E(S, I))
+            E + S ⇌ E(S)
+            ...
         end
     end
 
-Build a plain (non-allosteric) `EnzymeMechanism`.
+Build a mechanism from its elementary steps. The value is an `EnzymeMechanism`, the
+compiled form that [`rate_equation`](@ref) evaluates without allocating.
 
-- `substrates:`, `products:`, `modifiers:` accept comma-separated bare
-  symbols. Atom brackets (`S[C]`) are rejected at the mechanism level.
-- `modifiers:` lists names that bind the catalytic graph without reacting; they
-  are treated as `CompetitiveInhibitor`s when later passed to `EnzymeReaction`.
-- A name listed both as a substrate or product and in `modifiers:` binds as
-  the substrate or product in a bare `E(X)`; its modifier form is written
-  `E(X::Mod)`. `X::Mod` requires `X` in `modifiers:`; a name that is only a
-  modifier is written bare.
-- Same-kinetics groups are expressed via parenthesized step-groups; no
-  `constraints:` block needed.
-- Allosteric-only constructs (`regulatory_site(n):` / `::Tag` /
-  `allosteric_regulators:` / `catalytic_multiplicity:`) are rejected.
+Labels:
+- `substrates:` and `products:` (required) name the reactants, without atoms; atoms
+  belong in [`@enzyme_reaction`](@ref).
+- `modifiers:` names the metabolites that bind the enzyme without reacting, such as
+  inhibitors and activators; the mechanism's reaction lists them as competitive
+  inhibitors. A substrate or product listed here may bind as a modifier as well.
+- `steps:` (required) holds the steps in one `begin ... end` block.
+- `substrates:`, `products:` and `modifiers:` may repeat; their names accumulate. The
+  allosteric labels and step tags belong in [`@allosteric_mechanism`](@ref).
 
-Species notation on step sides:
+Steps, one per line:
+- `lhs ⇌ rhs` is a rapid-equilibrium step and `lhs <--> rhs` a steady-state one; either
+  direction may be written.
+- Each side holds one enzyme form and the metabolites the step takes up (left) or gives
+  off (right): `E + S ⇌ E(S)`, `E(A) + B <--> E(Q) + P`.
+- An enzyme form is a conformation label with its bound metabolites in parentheses:
+  `E`, `E(S)`, `E(A, B)`. `E` is the free enzyme; another conformation takes another
+  label, a capital letter followed by lowercase letters and digits such as `Estar` or
+  `F2`, and never a metabolite's name. A label such as `ES` reads as an opaque name and
+  is rejected; write `E(S)`.
+- `residual =` records the atoms a covalent intermediate keeps, the substrates it took
+  up minus the products it gave off (ping-pong): `E(; residual = A - P)` is the enzyme
+  without bound metabolites after A bound and P left.
+- A parenthesized tuple of steps is one kinetic group, whose steps share their
+  constants: `(E + I ⇌ E(I), E(S) + I ⇌ E(I, S))`.
+- A name binds in its own role; a name that is only a modifier is written bare. A
+  substrate or product that `modifiers:` lists binds as a modifier where it is written
+  `X::Mod`: `E(S) + S::Mod ⇌ E(S, S::Mod)`.
 
-- Bare Symbol that matches a declared metabolite → that metabolite.
-- Bare Symbol otherwise (e.g. `E`, `Estar`, `F2`) → conformation-only species
-  named after the Symbol; a conformation label is a capital letter followed by
-  lowercase letters and digits. A multi-capital conformation label such as `ES`,
-  bare or as a call head (`ES(P)`), is rejected as an opaque bound-form name; write
-  `E(S)`.
-- `E(S)` / `E(S, P)` → species with conformation `:E` and bound
-  metabolites; synthesized name is `:E<bound...>` (the conformation
-  followed by the bound names, sorted alphabetically, with no separator:
-  `:ES`, `:EPS`), matching `name(::Species)`.
-- `Estar(; residual = A - P)` → species with empty bound and a residual
-  recording `+A` / `−P`; synthesized name is `:Estar_res_+A_-P`.
-- `Estar(B; residual = A - P)` → bound + residual; name
-  `:EstarB_res_+A_-P`.
+Constants are named after the forms a step joins, each form written as its label and
+its bound names without a separator: `K_ES_to_E_S` for `E + S ⇌ E(S)`, `k_ES_to_EP` and
+`k_EP_to_ES` for `E(S) <--> E(P)`. A modifier copy writes `Smod`, and a residual
+`_res_plusA_minusP`.
 
-Conformation labels cannot shadow declared metabolite names.
+Below, the inhibitor I binds E and E(S) with one constant, and a second S binds E(S) as
+a modifier, which inhibits at high substrate:
+
+```jldoctest
+julia> using EnzymeRates
+
+julia> m = @enzyme_mechanism begin
+           substrates: S
+           products: P
+           modifiers: I, S
+           steps: begin
+               E + S ⇌ E(S)
+               E(S) <--> E(P)
+               E(P) ⇌ E + P
+               (E + I ⇌ E(I), E(S) + I ⇌ E(I, S))
+               E(S) + S::Mod ⇌ E(S, S::Mod)
+           end
+       end;
+
+julia> foreach(println, parameters(m))
+K_EI_to_E_I
+K_EP_to_E_P
+K_ESSmod_to_ES_Smod
+K_ES_to_E_S
+k_ES_to_EP
+Keq
+E_total
+```
 """
 macro enzyme_mechanism(block)
     return :($_compiled_mechanism($(_raw_mechanism(block, false))))
@@ -296,46 +346,77 @@ end
 
 """
     @allosteric_mechanism begin
-        substrates: F6P
-        products:   F16BP
+        substrates: S, ...
+        products: P, ...
+        modifiers: I, ...
+        allosteric_regulators: X, ...
         catalytic_multiplicity: 2
-        allosteric_regulators: A, I
-
         steps: begin
-            E + F6P ⇌ E(F6P)        :: EqualAI
-            E(F6P) <--> E(F16BP)    :: EqualAI
-            E(F16BP) ⇌ E + F16BP    :: EqualAI
+            E + S ⇌ E(S) :: EqualAI
+            ...
         end
-
-        regulatory_site(4): A::OnlyA
-        regulatory_site(4): I::OnlyI
+        regulatory_site(2): X::OnlyA, ...
     end
 
-Build an `AllostericEnzymeMechanism` (MWC, two conformations).
+Build a two-conformation (MWC) mechanism: the enzyme is active (A) or inactive (I), the
+free enzyme's inactive-to-active ratio is `L`, and allosteric regulators bind regulatory
+sites apart from the catalytic one. The value is an `AllostericEnzymeMechanism`, the
+compiled form that [`rate_equation`](@ref) evaluates without allocating.
 
-- `substrates:`, `products:`, `modifiers:` accept comma-separated
-  bare symbols.
-- `allosteric_regulators:` lists the allosteric regulators by name; each sits on
-  one `regulatory_site(n):` line, which carries its tag.
-- `catalytic_multiplicity: N` is the subunit count for the catalytic site
-  (default 1).
-- `steps: begin ... end` is required (exactly once); each step or
-  parenthesized step-group must carry a `::Tag`, one of `OnlyA`, `EqualAI` or
-  `NonequalAI` (`OnlyI` is rejected on catalytic groups). A single step carries
-  its tag after its right-hand side, a group after its closing parenthesis.
-  Function-call species notation (`E(F6P)`, `Estar(B; residual = A - P)`) is
-  supported.
-- `regulatory_site(N): L1::Tag, L2::Tag` declares one regulatory site with
-  multiplicity `N` and its ligands, in any order, each with its tag: one of
-  `OnlyA`, `OnlyI`, `EqualAI`, `NonequalAI`. Each ligand must appear in
-  `allosteric_regulators:`, and each allosteric regulator sits at exactly one
-  site.
-- A name with several roles binds in a bare catalytic-step `E(X)` as its
-  substrate or product role first, then as a modifier; an allosteric regulator
-  binds only at its regulatory site. A substrate or product bound as a modifier
-  is written `E(X::Mod)`, and `X::Mod` requires `X` in `modifiers:`; list an
-  allosteric regulator under `modifiers:` as well to let it bind the catalytic
-  site.
+It takes the labels and step syntax of [`@enzyme_mechanism`](@ref), and:
+- `allosteric_regulators:` names the metabolites that bind regulatory sites. An
+  allosteric regulator binds only its regulatory site, unless `modifiers:` lists it too,
+  which lets it bind the catalytic site as well.
+- `catalytic_multiplicity:` (default 1) is the number of catalytic subunits.
+- `regulatory_site(n): X::Tag, Y::Tag` is one regulatory site, present `n` times, and
+  its ligands in any order, each with its tag. Each ligand is an allosteric regulator,
+  and each allosteric regulator sits on exactly one site line.
+- Every statement of `steps:` ends with its tag: a step after its right-hand side, a
+  parenthesized group after its closing parenthesis, and `(step,) :: Tag` for a group of
+  one.
+
+A tag says how a statement's constants, or a ligand's binding, differ between the
+conformations: `EqualAI` shares one constant, `NonequalAI` takes one for each (`K_A_…`
+and `K_I_…`), `OnlyA` acts in the active conformation only and `OnlyI` in the inactive
+one only. A catalytic statement takes `EqualAI`, `NonequalAI` or `OnlyA`; a ligand takes
+any of the four.
+
+```jldoctest
+julia> using EnzymeRates
+
+julia> am = @allosteric_mechanism begin
+           substrates: A, B
+           products: P, Q
+           modifiers: I, P
+           allosteric_regulators: X, Y
+           catalytic_multiplicity: 2
+           steps: begin
+               E + A ⇌ E(A)                          :: EqualAI
+               E(A) + B ⇌ E(A, B)                    :: NonequalAI
+               E(A, B) <--> E(P, Q)                  :: OnlyA
+               E(P, Q) ⇌ E(Q) + P                    :: EqualAI
+               E(Q) ⇌ E + Q                          :: EqualAI
+               (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))    :: EqualAI
+               E(Q) + P::Mod ⇌ E(P::Mod, Q)          :: EqualAI
+           end
+           regulatory_site(2): X::OnlyA, Y::OnlyI
+       end;
+
+julia> foreach(println, parameters(am))
+K_A_EAB_to_EA_B
+K_EA_to_E_A
+K_EI_to_E_I
+K_EPQ_to_EQ_P
+K_EPmodQ_to_EQ_Pmod
+K_EQ_to_E_Q
+K_I_EAB_to_EA_B
+k_A_EAB_to_EPQ
+K_A_Xreg
+K_I_Yreg
+L
+Keq
+E_total
+```
 """
 macro allosteric_mechanism(block)
     return :($_compiled_mechanism($(_raw_mechanism(block, true))))
