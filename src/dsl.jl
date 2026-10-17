@@ -7,9 +7,7 @@
         products:   P[C6H13O9P]
         competitive_inhibitors: I            # bare OK; mults default to catalytic
         allosteric_regulators: A(1, 2, 4)    # bare OK; mults default to catalytic
-        allowed_catalytic_multiplicities: (1, 2, 4)
-        # or shorthand:
-        # oligomeric_state: 2
+        oligomeric_state: (1, 2, 4)          # or one Int: oligomeric_state: 2
     end
 
 Emit an `EnzymeReaction`.
@@ -27,19 +25,20 @@ Emit an `EnzymeReaction`.
   error naming both forms. Rename one (`Acetyl`).
 - `competitive_inhibitors:` / `dead_end_inhibitors:` —
   `CompetitiveInhibitor` entries (catalytic-site binding). May be bare
-  `I` (multiplicities default to `allowed_catalytic_multiplicities`) or
+  `I` (multiplicities default to the `oligomeric_state:` ones) or
   `I(m1, m2, ...)` to override. Enumeration reads only the mechanism's
   catalytic multiplicity; the per-inhibitor list is stored but not read.
 - `allosteric_regulators:` — `AllostericRegulator` entries. May be bare
-  `A` (multiplicities default to `allowed_catalytic_multiplicities`),
+  `A` (multiplicities default to the `oligomeric_state:` ones),
   `A(m1, m2, ...)` or a single value `A(m)`. Enumeration gives every
   regulatory site the mechanism's catalytic multiplicity; the per-regulator
   list is stored but not read. An entry may carry a type
   tag, `A::Activator` or `A::Inhibitor`; untagged entries default to
   `:unspecified`. Type tags are only valid on `allosteric_regulators:`
   entries.
-- `allowed_catalytic_multiplicities:` — tuple of positive Ints (default `(1,)`).
-- `oligomeric_state: N` — shorthand for `allowed_catalytic_multiplicities: (N,)`.
+- `oligomeric_state:` — the catalytic multiplicities the search may assign: one positive
+  Int, or a tuple of them such as `(1, 2, 4)` (default 1).
+  `allowed_catalytic_multiplicities:` is the same label.
 - `shared_catalytic_site: (sub, prod), ...` — pairs of substrate/product
   names (in either order) that bind at the same catalytic site.
 """
@@ -87,8 +86,6 @@ function _parse_reaction_block(block)
                       "which an earlier `allowed_catalytic_multiplicities:` or " *
                       "`oligomeric_state:` line already set.")
             mults = _parse_multiplicity_tuple(values, label)
-            label === :oligomeric_state && length(mults) != 1 &&
-                error("@enzyme_reaction: `oligomeric_state:` takes a single Int.")
         elseif label === :shared_catalytic_site
             append!(shared, _parse_shared_site_pairs(values))
         else
@@ -187,9 +184,8 @@ end
 """Parse `(1, 2, 4)` or `4` into `Vector{Int}`."""
 function _parse_multiplicity_tuple(values, label)
     length(values) == 1 ||
-        error("@enzyme_reaction: `$label:` takes a single " *
-              "$(label === :oligomeric_state ? "Int" : "tuple"), " *
-              "got $(join(values, ", ")).")
+        error("@enzyme_reaction: `$label:` takes one Int or one tuple such as " *
+              "`(1, 2, 4)`; got $(join(values, ", ")).")
     v = values[1]
     Int[_positive_int(a, "@enzyme_reaction: `$label:` entry")
         for a in (v isa Expr && v.head === :tuple ? v.args : (v,))]

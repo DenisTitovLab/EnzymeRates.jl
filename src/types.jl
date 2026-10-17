@@ -339,8 +339,8 @@ it to `EnzymeRates.init_mechanisms` to enumerate candidate mechanisms.
   and atom conservation across steps).
 - `regulators::Vector{RegulatorMults}` — competitive inhibitors and
   allosteric regulators, each with its allowed oligomeric multiplicities.
-- `allowed_catalytic_multiplicities::Vector{Int}` — the oligomeric states
-  the allosteric enumerator may assign to the catalytic core.
+- `allowed_catalytic_multiplicities::Vector{Int}` — the oligomeric states, one
+  or more, that the allosteric enumerator may assign to the catalytic core.
 - `shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}` — `(substrate,
   product)` pairs that bind the same catalytic site, and so are never both
   bound to it at once.
@@ -382,9 +382,9 @@ struct EnzymeReaction
         sorted_reactants = sort(reactants; by = ra -> name(metabolite(ra)))
         sorted_regulators = sort(regulators; by = rm -> name(regulator(rm)))
         sorted_mults = sort(unique(allowed_catalytic_multiplicities))
-        all(m -> m ≥ 1, sorted_mults) ||
-            error("EnzymeReaction: allowed_catalytic_multiplicities must " *
-                  "all be ≥ 1, got $allowed_catalytic_multiplicities")
+        !isempty(sorted_mults) && all(m -> m ≥ 1, sorted_mults) ||
+            error("EnzymeReaction: allowed_catalytic_multiplicities must be a " *
+                  "nonempty list of Ints ≥ 1, got $allowed_catalytic_multiplicities")
 
         sub_names  = Symbol[name(metabolite(ra)) for ra in sorted_reactants
                             if metabolite(ra) isa Substrate]

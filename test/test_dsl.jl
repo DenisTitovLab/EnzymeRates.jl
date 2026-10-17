@@ -774,26 +774,36 @@
                 allowed_catalytic_multiplicities: (4,)
             end))
 
-        # `oligomeric_state:` takes one multiplicity, bare or as a one-element tuple.
+        # `oligomeric_state:` takes one Int or one tuple of them, so a search can span
+        # several multiplicities.
         one_tuple = eval(:(@enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
             oligomeric_state: (2,)
         end))
         @test EnzymeRates.allowed_catalytic_multiplicities(one_tuple) == [2]
-        @test_throws "`oligomeric_state:` takes a single Int" eval(
-            :(@enzyme_reaction begin
-                substrates: S[C]
-                products:   P[C]
-                oligomeric_state: (1, 2)
-            end))
+        several = @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+            oligomeric_state: (4, 1, 2)
+        end
+        @test EnzymeRates.allowed_catalytic_multiplicities(several) == [1, 2, 4]
+        # An empty tuple leaves the search no multiplicity.
+        @test_throws(ErrorException("EnzymeReaction: allowed_catalytic_multiplicities " *
+                                    "must be a nonempty list of Ints ≥ 1, got Int64[]"),
+                     @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+            oligomeric_state: ()
+        end)
         # Two values after the label, not one tuple.
-        @test_throws "`oligomeric_state:` takes a single Int" eval(Meta.parse("""
+        @test_throws("@enzyme_reaction: `oligomeric_state:` takes one Int or one tuple " *
+                     "such as `(1, 2, 4)`; got 1, 2.", eval(Meta.parse("""
             @enzyme_reaction begin
                 substrates: S[C]
                 products:   P[C]
                 oligomeric_state: 1, 2
-            end"""))
+            end""")))
     end
 
     @testset "@enzyme_reaction shared_catalytic_site" begin

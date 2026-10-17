@@ -1038,14 +1038,18 @@ end
         @test hash(r1) == hash(r2)
     end
 
-    @testset "EnzymeReaction rejects multiplicity < 1" begin
-        @test_throws ErrorException EnzymeReaction(
-            ER.ReactantAtoms[
-                ER.ReactantAtoms(
-                    ER.Substrate(:S), [:C => 1])],
-            ER.RegulatorMults[],
-            [0, 1],
-        )
+    @testset "EnzymeReaction takes one or more catalytic multiplicities, each ≥ 1" begin
+        _testhelper_reaction(mults) = EnzymeReaction(
+            ER.ReactantAtoms[ER.ReactantAtoms(ER.Substrate(:S), [:C => 1]),
+                             ER.ReactantAtoms(ER.Product(:P), [:C => 1])],
+            ER.RegulatorMults[], mults)
+        @test_throws(ErrorException("EnzymeReaction: allowed_catalytic_multiplicities " *
+                                    "must be a nonempty list of Ints ≥ 1, got [0, 1]"),
+                     _testhelper_reaction([0, 1]))
+        # An empty list would leave the search no multiplicity to assign.
+        @test_throws(ErrorException("EnzymeReaction: allowed_catalytic_multiplicities " *
+                                    "must be a nonempty list of Ints ≥ 1, got Int64[]"),
+                     _testhelper_reaction(Int[]))
     end
 
     @testset "pure conformational isomerization runs product-exit to substrate-entry" begin
