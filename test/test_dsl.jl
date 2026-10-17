@@ -159,18 +159,21 @@
                 end
             end))
 
-        # Reject untagged allosteric regulator
-        @test_throws Exception eval(:(@allosteric_mechanism begin
+        # Reject an allosteric regulator without a tag: it sits at no regulatory site
+        @test_throws("@allosteric_mechanism: allosteric regulator `I` sits at no " *
+                     "regulatory site; list it on one `regulatory_site(n):` line, as in " *
+                     "`regulatory_site(2): I::OnlyA`.", eval(:(@allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
             catalytic_multiplicity: 2
-            allosteric_regulators: I, J::OnlyI
-            catalytic_steps: begin
+            allosteric_regulators: I, J
+            steps: begin
                 E + F6P ⇌ E(F6P) :: EqualAI
                 E(F6P) <--> E(F16BP) :: EqualAI
                 E(F16BP) ⇌ E + F16BP :: EqualAI
             end
-        end))
+            regulatory_site(2): J::OnlyI
+        end)))
 
         # Reject parenthesized step group without ::AlloState
         @test_throws Exception eval(:(@allosteric_mechanism begin
@@ -185,9 +188,9 @@
         end))
     end
 
-    @testset "@allosteric_mechanism leaves states and ligands to the constructors" begin
-        # A name listed twice in `allosteric_regulators:` is rejected, even when an
-        # explicit site would let the last tag silently replace the first.
+    @testset "@allosteric_mechanism checks names and sites; constructors check states" begin
+        # A name listed twice in `allosteric_regulators:` is rejected, with one site line
+        # for it or two.
         @test_throws "lists `A` more than once" eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
@@ -239,24 +242,23 @@
             end))
         end
 
-        # A ligand on two regulatory sites is reported by AllostericMechanism.
-        @test_throws "appears in two distinct regulatory sites" eval(
+        # A ligand on two regulatory sites is reported by the macro, which reads the
+        # site lines.
+        @test_throws("@allosteric_mechanism: allosteric regulator `A` is listed 2 times " *
+                     "on `regulatory_site(n):` lines; an allosteric regulator sits at " *
+                     "exactly one regulatory site.", eval(
             :(@allosteric_mechanism begin
                 substrates: S
                 products:   P
-                allosteric_regulators: A::OnlyA
-                catalytic_steps: begin
+                allosteric_regulators: A
+                steps: begin
                     E + S ⇌ E(S)      :: EqualAI
                     E(S) <--> E(P)    :: EqualAI
                     E(P) ⇌ E + P      :: EqualAI
                 end
-                regulatory_site(multiplicity = 2): begin
-                    ligands: A
-                end
-                regulatory_site(multiplicity = 4): begin
-                    ligands: A
-                end
-            end))
+                regulatory_site(2): A::OnlyA
+                regulatory_site(4): A::OnlyA
+            end)))
     end
 
     @testset "a mechanism macro's single-valued labels are written once" begin
@@ -335,17 +337,17 @@
                 products:   P
             end))
 
-        # A repeated `catalytic_steps:` line names the label.
-        @test_throws "`catalytic_steps:` given more than once" eval(
+        # A repeated `steps:` line names the label.
+        @test_throws "@allosteric_mechanism: `steps:` given more than once" eval(
             :(@allosteric_mechanism begin
                 substrates: S
                 products:   P
-                catalytic_steps: begin
+                steps: begin
                     E + S ⇌ E(S)      :: EqualAI
                     E(S) <--> E(P)    :: EqualAI
                     E(P) ⇌ E + P      :: EqualAI
                 end
-                catalytic_steps: begin
+                steps: begin
                     E + S ⇌ E(S)      :: EqualAI
                     E(S) <--> E(P)    :: EqualAI
                     E(P) ⇌ E + P      :: EqualAI
@@ -996,21 +998,23 @@
             end
             regulatory_site(1): R::OnlyA
         end))
-        # Tagged `R::Inh`, it needs `catalytic_inhibitors:` as well. The macro raises
-        # the error while it expands, so `eval` wraps it in a LoadError: match the text.
+        # Tagged `R::Mod`, it is neither a substrate nor a product to bind as a modifier.
+        # The macro raises the error while it expands, so `eval` wraps it in a LoadError:
+        # match the text.
         @test_throws(
-            "@allosteric_mechanism: `R::Inh` names `R`, which `catalytic_inhibitors:` " *
-            "does not declare; add `R` to `catalytic_inhibitors:` to let it bind the " *
-            "catalytic site as a competitive inhibitor.", eval(:(@allosteric_mechanism begin
+            "@allosteric_mechanism: `R::Mod` marks a substrate or product bound as a " *
+            "modifier, and `R` is neither; write a name under `modifiers:` bare.",
+            eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
-            allosteric_regulators: R::OnlyA
-            catalytic_steps: begin
+            allosteric_regulators: R
+            steps: begin
                 E + S ⇌ E(S)              :: EqualAI
                 E(S) <--> E(P)            :: EqualAI
                 E(P) ⇌ E + P              :: EqualAI
-                E + R::Inh ⇌ E(R::Inh)    :: EqualAI
+                E + R::Mod ⇌ E(R::Mod)    :: EqualAI
             end
+            regulatory_site(1): R::OnlyA
         end)))
         # Listed in both, R binds its regulatory site and, as `R::Inh`, the catalytic
         # site.
@@ -1123,18 +1127,21 @@
         end)
         @test release_inh == bind_inh
 
-        # Without a state the step is missing its annotation.
-        @test_throws "is missing" eval(:(@allosteric_mechanism begin
+        # Without a state the step is missing its annotation: the role tag that ends it
+        # is no state.
+        @test_throws("@allosteric_mechanism: step `E(S::Mod) ⇌ E + S::Mod` is missing " *
+                     "`:: <:OnlyA|:EqualAI|:NonequalAI>` annotation. Add `:: <state>` " *
+                     "after the step expression.", eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
-            catalytic_inhibitors: I
-            catalytic_steps: begin
+            modifiers: S
+            steps: begin
                 E + S ⇌ E(S)           :: EqualAI
                 E(S) <--> E(P)         :: EqualAI
                 E(P) ⇌ E + P           :: EqualAI
-                E(I::Inh) ⇌ E + I::Inh
+                E(S::Mod) ⇌ E + S::Mod
             end
-        end))
+        end)))
 
         # A plain mechanism may release an inhibitor as well as bind it.
         bind_plain = EnzymeRates.Mechanism(@enzyme_mechanism begin
