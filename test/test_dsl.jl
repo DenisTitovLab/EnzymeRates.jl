@@ -617,6 +617,15 @@
         @test Set(typeof(EnzymeRates.regulator(rm)) for rm in atp_regs) ==
               Set([EnzymeRates.AllostericRegulator,
                    EnzymeRates.CompetitiveInhibitor])
+        # The order of the two labels does not matter: both orders build one reaction.
+        allosteric_first = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: ATP(1)
+            competitive_inhibitors: ATP
+        end
+        @test allosteric_first == rxn
+        @test hash(allosteric_first) == hash(rxn)
         # Two allosteric ATPs are rejected.
         @test_throws Exception eval(:(@enzyme_reaction begin
             substrates: S[C]
@@ -876,6 +885,63 @@
             products:   P[C]
             shared_catalytic_site: (A, 5)
         end))
+    end
+
+    @testset "a reaction prints as the @enzyme_reaction text that builds it" begin
+        # The reaction shapes the tests use: one formula per reactant, competitive
+        # inhibitors with a reactant among them, allosteric regulators with types and
+        # multiplicities, a name in both regulator roles, declared in either order, one
+        # or several catalytic multiplicities and shared catalytic sites. The printed
+        # text builds an equal reaction.
+        reactions = [
+            @enzyme_reaction(begin
+                substrates: S[C]
+                products:   P[C]
+            end),
+            @enzyme_reaction(begin
+                substrates: S[C6H12O6], ATP[C10H16N5O13P3]
+                products:   P[C6H13O9P], ADP[C10H15N5O10P2]
+                competitive_inhibitors: I, P
+                allosteric_regulators: X::Activator, Y(1, 2)::Inhibitor, Z, W(4)
+                oligomeric_state: 4
+            end),
+            @enzyme_reaction(begin
+                substrates: A[C2H3], B[NP]
+                products:   P[C2N], Q[H3P]
+                competitive_inhibitors: ATP, I(1, 2)
+                allosteric_regulators: ATP(1)
+                oligomeric_state: (4, 1, 2)
+                shared_catalytic_site: (A, P), (Q, B)
+            end),
+            @enzyme_reaction(begin
+                substrates: S[C]
+                products:   P[C]
+                allosteric_regulators: ATP(1)
+                competitive_inhibitors: ATP
+                oligomeric_state: 2
+            end)]
+        for rxn in reactions
+            @test eval(Meta.parse(sprint(show, rxn))) == rxn
+        end
+        # A regulator whose multiplicities are the catalytic ones prints bare (W), any
+        # other with its multiplicities (Y).
+        @test sprint(show, reactions[2]) == """
+            @enzyme_reaction begin
+                substrates: ATP[C10H16N5O13P3], S[C6H12O6]
+                products: ADP[C10H15N5O10P2], P[C6H13O9P]
+                competitive_inhibitors: I, P
+                allosteric_regulators: W, X::Activator, Y(1, 2)::Inhibitor, Z
+                oligomeric_state: 4
+            end"""
+        @test sprint(show, reactions[3]) == """
+            @enzyme_reaction begin
+                substrates: A[C2H3], B[NP]
+                products: P[C2N], Q[H3P]
+                competitive_inhibitors: ATP, I(1, 2)
+                allosteric_regulators: ATP(1)
+                oligomeric_state: (1, 2, 4)
+                shared_catalytic_site: (A, P), (B, Q)
+            end"""
     end
 
     @testset "@enzyme_mechanism" begin

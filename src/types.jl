@@ -417,8 +417,9 @@ it to `EnzymeRates.init_mechanisms` to enumerate candidate mechanisms.
 Construct one with the [`@enzyme_reaction`](@ref) DSL. Each reactant takes
 an atom bracket (`S[C]`, `A[C1H1]`); the brackets are load-bearing for
 ping-pong and multi-substrate reactions. Reactants and regulators are sorted
-by name in the constructor, so two equivalent declarations compare equal
-under `==`/`hash`. The constructor rejects a name listed as both a substrate
+by name in the constructor, a name's competitive inhibitor before its
+allosteric regulator, so two equivalent declarations compare equal under
+`==`/`hash`. The constructor rejects a name listed as both a substrate
 and a product: concentrations and constants are keyed by name. For the same
 reason it rejects a reactant or regulator named `E_total`, `Keq`, `L`, `N`,
 `params`, `concs` or `v`, names a rate equation keeps for its constants and the
@@ -426,7 +427,8 @@ local names of its code, and a name holding `_`, since constant names join
 names with `_`. It also rejects names that spell one string two ways, such as
 `Ac`, `CoA` and `AcCoA`: an enzyme form's name joins the names of the
 metabolites it binds without a separator, so E with `Ac` and `CoA` bound and E
-with `AcCoA` bound would share a name.
+with `AcCoA` bound would share a name. A reaction prints as the `@enzyme_reaction`
+block that builds it.
 
 ```jldoctest
 julia> using EnzymeRates
@@ -440,7 +442,10 @@ julia> rxn isa EnzymeReaction
 true
 
 julia> rxn
-EnzymeReaction: S ⇌ P
+@enzyme_reaction begin
+    substrates: S[C]
+    products: P[C]
+end
 ```
 """
 struct EnzymeReaction
@@ -454,7 +459,8 @@ struct EnzymeReaction
                             allowed_catalytic_multiplicities::Vector{Int};
                             shared_catalytic_site = Tuple{Symbol,Symbol}[])
         sorted_reactants = sort(reactants; by = ra -> name(metabolite(ra)))
-        sorted_regulators = sort(regulators; by = rm -> name(regulator(rm)))
+        sorted_regulators = sort(regulators;
+            by = rm -> (name(regulator(rm)), regulator(rm) isa AllostericRegulator))
         sorted_mults = sort(unique(allowed_catalytic_multiplicities))
         !isempty(sorted_mults) && all(m -> m ≥ 1, sorted_mults) ||
             error("EnzymeReaction: allowed_catalytic_multiplicities must be a " *
@@ -549,27 +555,35 @@ _metabolite_names(rxn::EnzymeReaction) =
     unique!(Symbol[name.(substrates(rxn)); name.(products(rxn));
                    [name(regulator(rm)) for rm in regulators(rxn)]])
 
+"""
+Print `r` as the `@enzyme_reaction` text that builds it: each reactant with its atoms as
+one formula, the competitive inhibitors and allosteric regulators, the catalytic
+multiplicities unless they are the default 1, and the shared catalytic sites. A
+regulator whose multiplicities are the catalytic ones prints bare, as a bare name takes
+them; any other prints with its own, as in `I(1, 2)`.
+"""
 function Base.show(io::IO, r::EnzymeReaction)
-    subs_str  = join(String.(name.(substrates(r))), " + ")
-    prods_str = join(String.(name.(products(r))),   " + ")
-    print(io, "EnzymeReaction: ", subs_str, " ⇌ ", prods_str)
-    if !isempty(regulators(r))
-        regs_str = join(
-            (String(name(regulator(rm))) for rm in regulators(r)), ", ")
-        print(io, " | regulators: ", regs_str)
-    end
     mults = allowed_catalytic_multiplicities(r)
-    if length(mults) == 1 && mults[1] > 1
-        print(io, " | oligomeric_state: ", mults[1])
-    elseif length(mults) > 1
-        print(io, " | allowed_catalytic_multiplicities: (",
-              join(mults, ", "), ")")
+    formula(ra) = join("$e" * (c == 1 ? "" : "$c") for (e, c) in atoms(ra))
+    tag(rm) = reg_type(rm) === :activator ? "::Activator" :
+              reg_type(rm) === :inhibitor ? "::Inhibitor" : ""
+    entry(rm) = "$(name(regulator(rm)))" * (allowed_multiplicities(rm) == mults ? "" :
+                 "(" * join(allowed_multiplicities(rm), ", ") * ")") * tag(rm)
+    line(label, entries) = isempty(entries) ||
+                           print(io, "\n    ", label, ": ", join(entries, ", "))
+    print(io, "@enzyme_reaction begin")
+    for (label, T) in (("substrates", Substrate), ("products", Product))
+        line(label, ["$(name(metabolite(ra)))[$(formula(ra))]"
+                     for ra in reactants(r) if metabolite(ra) isa T])
     end
-    if !isempty(shared_catalytic_site(r))
-        sites_str = join(
-            ("($(p[1]), $(p[2]))" for p in shared_catalytic_site(r)), ", ")
-        print(io, " | shared_catalytic_site: ", sites_str)
+    for (label, T) in (("competitive_inhibitors", CompetitiveInhibitor),
+                       ("allosteric_regulators", AllostericRegulator))
+        line(label, [entry(rm) for rm in regulators(r) if regulator(rm) isa T])
     end
+    mults == [1] || print(io, "\n    oligomeric_state: ",
+                          length(mults) == 1 ? only(mults) : "(" * join(mults, ", ") * ")")
+    line("shared_catalytic_site", ["($s, $p)" for (s, p) in shared_catalytic_site(r)])
+    print(io, "\nend")
 end
 
 """

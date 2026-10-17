@@ -614,7 +614,10 @@ end
         substrates: S[CNOX]
         products: P[C], Q[N], R[O], T[X]
     end
-    @test_throws "no catalytic cycle" EnzymeRates.init_mechanisms(uni_quad_rxn)
+    @test_throws(ErrorException(
+        "no catalytic cycle for S ⇌ P + Q + R + T: every route needs an isomerization " *
+        "converting more than three substrates, or more than three products counting a " *
+        "covalent residue as one"), EnzymeRates.init_mechanisms(uni_quad_rxn))
 end
 
 @testset "a reaction whose names spell one name two ways never reaches enumeration" begin

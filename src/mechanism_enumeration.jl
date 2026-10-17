@@ -235,7 +235,8 @@ function _catalytic_topologies(reaction::EnzymeReaction)
                                for (i, s) in enumerate(steps)])
         end
     end
-    isempty(result) && error("no catalytic cycle for $(reaction): every route needs an " *
+    isempty(result) && error("no catalytic cycle for $(join(sub_names, " + ")) ⇌ " *
+                             "$(join(prod_names, " + ")): every route needs an " *
                              "isomerization converting more than three substrates, or " *
                              "more than three products counting a covalent residue as one")
     result
