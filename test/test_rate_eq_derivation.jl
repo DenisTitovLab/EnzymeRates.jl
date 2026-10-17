@@ -2054,20 +2054,19 @@ end
     # as `K_T * met` (Ka) instead of `met / K_T` (Kd), silently producing
     # wrong rates whenever a mechanism mixes these two tags. Regression
     # for src/rate_eq_derivation.jl:1395-1396.
-    cm_mix, src_mix = @_testhelper_enzyme_mechanism_src begin
+    # S binding :NonequalAI, catalysis :OnlyA, P binding :NonequalAI.
+    m_mix = @allosteric_mechanism begin
         substrates: S
         products:   P
+        allosteric_regulators: I
+        catalytic_multiplicity: 2
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: OnlyA
+            E(P) ⇌ E + P      :: NonequalAI
         end
+        regulatory_site(2): I::OnlyI
     end
-    # Bind allosteric states to the steps AS WRITTEN: S binding :NonequalAI,
-    # catalysis :OnlyA, P binding :NonequalAI.
-    m_mix = _testhelper_allo_from_source(
-        (cm_mix, src_mix), (2, (:NonequalAI, :OnlyA, :NonequalAI)),
-        (((:I,), 2, (:OnlyI,)),))
     p_mix = (K_A_ES_to_E_S=0.1, k_A_ES_to_EP=10.0, K_A_EP_to_E_P=0.5,
              K_I_ES_to_E_S=10.0, K_I_EP_to_E_P=10.0,
              K_I_Ireg=1.0, L=1.0, Keq=1000.0, E_total=1.0)
@@ -2089,25 +2088,23 @@ end
     # its speed stays free. Asserts the mechanism-agnostic invariant: zero net rate
     # at chemical equilibrium. (Over-parametrized; the enumerator will skip such
     # degenerate configs in a follow-up PR.)
-    cm_ro, src_ro = @_testhelper_enzyme_mechanism_src begin
+    # B binding (step 2) :NonequalAI, rest :EqualAI.
+    m_ro = @allosteric_mechanism begin
         substrates: A, B
         products:   P, Q
+        allosteric_regulators: I
+        catalytic_multiplicity: 2
         steps: begin
-            E + A <--> E(A)
-            E + B <--> E(B)
-            E(A) + B <--> E(A, B)
-            E(B) + A <--> E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(P, Q) <--> E(Q) + P
-            E(Q) <--> E + Q
+            E + A <--> E(A)            :: EqualAI
+            E + B <--> E(B)            :: NonequalAI
+            E(A) + B <--> E(A, B)      :: EqualAI
+            E(B) + A <--> E(A, B)      :: EqualAI
+            E(A, B) <--> E(P, Q)       :: EqualAI
+            E(P, Q) <--> E(Q) + P      :: EqualAI
+            E(Q) <--> E + Q            :: EqualAI
         end
+        regulatory_site(2): I::NonequalAI
     end
-    # B binding (step 2) :NonequalAI, rest :EqualAI — bound to the steps AS WRITTEN.
-    m_ro = _testhelper_allo_from_source(
-        (cm_ro, src_ro),
-        (2, (:EqualAI, :NonequalAI, :EqualAI, :EqualAI,
-             :EqualAI, :EqualAI, :EqualAI)),
-        (((:I,), 2, (:NonequalAI,)),))
     # Overall A + B ⇌ P + Q, so Keq = P·Q/(A·B).
     Keq_ro = 4.0
     A_eq, B_eq = 1.5, 2.0
@@ -2149,24 +2146,22 @@ v = E_total * ((k_A_ES_to_EP * S / K_A_ES_to_E_S - k_A_EP_to_ES * P / K_A_EP_to_
 end
 
 @testset "Parameter-struct allosteric helpers" begin
-    cm_src = @_testhelper_enzyme_mechanism_src begin
-        substrates: S
-        products:   P
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-        end
-    end
-
     @testset "_step_names and _kreg_params" begin
         names_of(am, params) = [EnzymeRates.name(p, am) for p in params]
         flat_names(am, state) = reduce(vcat, EnzymeRates._step_names(am, state))
         # :NonequalAI cat groups + :NonequalAI reg ligand → both conformations named.
-        aem = _testhelper_allo_from_source(
-            cm_src, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
-            (((:R,), 1, (:NonequalAI,)),),
-        )
+        aem = @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: R
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: NonequalAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: NonequalAI
+            end
+            regulatory_site(1): R::NonequalAI
+        end
         am = EnzymeRates.AllostericMechanism(aem)
         # Catalytic side: every step of the inactive law takes its inactive name, the
         # :EqualAI iso its one shared name.
@@ -2180,10 +2175,18 @@ end
         # Balanced :OnlyA bindings (both S and P) keep the :NonequalAI iso
         # Haldane-valid. The inactive conformation keeps no form but E, so its law has
         # no step and the :OnlyA reg ligand no inactive constant.
-        aem_skip = _testhelper_allo_from_source(
-            cm_src, (2, (:OnlyA, :NonequalAI, :OnlyA)),
-            (((:R,), 1, (:OnlyA,)),),
-        )
+        aem_skip = @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: R
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: OnlyA
+                E(S) <--> E(P)    :: NonequalAI
+                E(P) ⇌ E + P      :: OnlyA
+            end
+            regulatory_site(1): R::OnlyA
+        end
         am_skip = EnzymeRates.AllostericMechanism(aem_skip)
         @test isempty(EnzymeRates._step_names(am_skip, :I))
         @test isempty(EnzymeRates._kreg_params(am_skip, :I))
@@ -2191,16 +2194,32 @@ end
 
         # An :OnlyI reg ligand has an inactive constant and no active one; an :EqualAI
         # ligand one bare constant, listed with the active ones.
-        am_onlyi = EnzymeRates.AllostericMechanism(_testhelper_allo_from_source(
-            cm_src, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
-            (((:R,), 1, (:OnlyI,)),),
-        ))
+        am_onlyi = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: R
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: NonequalAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: NonequalAI
+            end
+            regulatory_site(1): R::OnlyI
+        end)
         @test isempty(EnzymeRates._kreg_params(am_onlyi, :A))
         @test names_of(am_onlyi, EnzymeRates._kreg_params(am_onlyi, :I)) == [:K_I_Rreg]
-        am_equal = EnzymeRates.AllostericMechanism(_testhelper_allo_from_source(
-            cm_src, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
-            (((:R,), 1, (:EqualAI,)),),
-        ))
+        am_equal = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: R
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: NonequalAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: NonequalAI
+            end
+            regulatory_site(1): R::EqualAI
+        end)
         @test names_of(am_equal, EnzymeRates._kreg_params(am_equal, :A)) == [:K_Rreg]
         @test isempty(EnzymeRates._kreg_params(am_equal, :I))
     end

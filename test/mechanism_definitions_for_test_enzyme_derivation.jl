@@ -73,29 +73,6 @@ macro _testhelper_allosteric_mechanism_src(block)
     esc(:(($mech_expr, $groups_expr, $reg_sites_expr)))
 end
 
-# Build an AllostericEnzymeMechanism binding catalytic allosteric states to the
-# catalytic steps AS WRITTEN (source order). `cm_src` is an
-# `@_testhelper_enzyme_mechanism_src` result `(cm, source_groups)`. Routing through
-# AllostericMechanism canonicalizes catalytic steps and their allosteric tags
-# together, so each tag stays on its intended step. `cat_sites`/`reg_sites` use
-# the tuple shapes of the compiled type's parameters:
-# `cat_sites = (multiplicity, cat_allo_states)`,
-# `reg_sites = ((ligands, multiplicity, ligand_states), …)`.
-function _testhelper_allo_from_source(cm_src, cat_sites, reg_sites)
-    cm, src = cm_src
-    mult, cat_states = cat_sites
-    sites = EnzymeRates.RegulatorySite[
-        EnzymeRates.RegulatorySite(
-            EnzymeRates.AllostericRegulator[
-                EnzymeRates.AllostericRegulator(l) for l in ligs],
-            m, collect(Symbol, states))
-        for (ligs, m, states) in reg_sites]
-    EnzymeRates.AllostericEnzymeMechanism(
-        EnzymeRates.AllostericMechanism(
-            EnzymeRates.reaction(EnzymeRates.Mechanism(cm)),
-            src, collect(Symbol, cat_states), mult, sites))
-end
-
 # Every declared substrate and product appears in some step. Regulators are exempt:
 # init_mechanisms declares a dead-end inhibitor that no step binds yet (expand_mechanisms
 # binds it later; _sig_of leaves it out of the compiled type). Substrates and

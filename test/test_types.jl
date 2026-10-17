@@ -6,12 +6,6 @@ const ER = EnzymeRates
 _testhelper_sp(bound, conf = :E) = ER.Species(ER.Metabolite[bound...], conf)
 _testhelper_sp(bound, conf, res) = ER.Species(ER.Metabolite[bound...], conf, res)
 
-# The AllostericEnzymeMechanism over catalytic mechanism `cm`, its catalytic allosteric
-# states given in `cm`'s canonical group order (`_testhelper_allo_from_source` with the
-# canonical groups as the source).
-_testhelper_aem(cm, cat_sites, reg_sites) =
-    _testhelper_allo_from_source((cm, ER.steps(ER.Mechanism(cm))), cat_sites, reg_sites)
-
 # Michaelis–Menten with rapid-equilibrium bindings and a steady-state isomerization.
 const _testhelper_re_mm = @enzyme_mechanism begin
     substrates: S
@@ -102,19 +96,32 @@ end
     end
 
     @testset "AllostericEnzymeMechanism lift + DSL" begin
-        cm = _testhelper_re_mm
-
         # Single-ligand :EqualAI reg site is allowed (degenerate but valid —
         # the enumerator won't emit it, but users may write it for teaching).
-        @test _testhelper_aem(
-            cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)),
-            (((:I,), 2, (:EqualAI,)),),
-        ) isa ER.AllostericEnzymeMechanism
+        @test @allosteric_mechanism(begin
+            substrates: S
+            products:   P
+            allosteric_regulators: I
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: NonequalAI
+                E(S) <--> E(P)    :: NonequalAI
+                E(P) ⇌ E + P      :: NonequalAI
+            end
+            regulatory_site(2): I::EqualAI
+        end) isa ER.AllostericEnzymeMechanism
 
         # Catalytic group :OnlyI → error
-        @test_throws ErrorException _testhelper_aem(
-            cm, (2, (:NonequalAI, :OnlyI, :NonequalAI)), (),
-        )
+        @test_throws ErrorException @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: OnlyI
+                E(S) <--> E(P)    :: NonequalAI
+                E(P) ⇌ E + P      :: NonequalAI
+            end
+        end
 
         # Build via DSL
         m = @allosteric_mechanism begin
@@ -516,25 +523,51 @@ end
     end
 
     @testset "AllostericEnzymeMechanism lift validators" begin
-        cm = _testhelper_re_mm
         # Wrong-length cat_allo_states (4 entries for 3 kinetic groups) → error
-        @test_throws ErrorException _testhelper_aem(
-            cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI, :OnlyA)), ())
+        cm = ER.Mechanism(_testhelper_re_mm)
+        @test_throws ErrorException ER.AllostericMechanism(
+            ER.reaction(cm), ER.steps(cm), [:NonequalAI, :NonequalAI, :NonequalAI, :OnlyA],
+            2, ER.RegulatorySite[])
 
         # Invalid allo state value → error
-        @test_throws ErrorException _testhelper_aem(
-            cm, (2, (:NotAState, :NonequalAI, :NonequalAI)), ())
+        @test_throws ErrorException @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: NonequalAI
+                E(S) <--> E(P)    :: NonequalAI
+                E(P) ⇌ E + P      :: NotAState
+            end
+        end
 
         # Reg site with all-:EqualAI ligands is allowed (degenerate but valid).
-        @test _testhelper_aem(
-            cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)),
-            (((:I, :J), 2, (:EqualAI, :EqualAI)),)) isa
-              ER.AllostericEnzymeMechanism
+        @test @allosteric_mechanism(begin
+            substrates: S
+            products:   P
+            allosteric_regulators: I, J
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: NonequalAI
+                E(S) <--> E(P)    :: NonequalAI
+                E(P) ⇌ E + P      :: NonequalAI
+            end
+            regulatory_site(2): I::EqualAI, J::EqualAI
+        end) isa ER.AllostericEnzymeMechanism
 
         # Invalid reg-site ligand allo state → error
-        @test_throws ErrorException _testhelper_aem(
-            cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)),
-            (((:I,), 2, (:NotAState,)),))
+        @test_throws ErrorException @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: I
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: NonequalAI
+                E(S) <--> E(P)    :: NonequalAI
+                E(P) ⇌ E + P      :: NonequalAI
+            end
+            regulatory_site(2): I::NotAState
+        end
     end
 
     @testset "Base.show displays all dense states" begin
@@ -567,17 +600,16 @@ end
     end
 
     @testset "AllostericEnzymeMechanism display: shared kinetic group" begin
-        cm = @enzyme_mechanism begin
+        am = @allosteric_mechanism begin
             substrates: S
             products:   P
+            catalytic_multiplicity: 2
             steps: begin
-                (E + S ⇌ E(S), E(P) + S ⇌ E(P, S))
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
+                (E + S ⇌ E(S), E(P) + S ⇌ E(P, S))  :: EqualAI
+                E(S) <--> E(P)                      :: EqualAI
+                E(P) ⇌ E + P                        :: EqualAI
             end
         end
-        am = _testhelper_aem(
-            cm, (2, (:EqualAI, :EqualAI, :EqualAI)), ())
         s = repr(am)
 
         # The parenthesized-group branch must execute: look for the
@@ -1160,10 +1192,18 @@ end
 
     @testset "AllostericMechanism(::AllostericEnzymeMechanism) converter" begin
         cm = _testhelper_re_mm
-        aem = _testhelper_aem(
-            cm, (2, (:EqualAI, :NonequalAI, :OnlyA)),
-            (((:A, :B), 1, (:OnlyA, :NonequalAI)),),
-        )
+        aem = @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: A, B
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: NonequalAI
+                E(S) <--> E(P)    :: OnlyA
+                E(P) ⇌ E + P      :: EqualAI
+            end
+            regulatory_site(1): A::OnlyA, B::NonequalAI
+        end
 
         @test ER.catalytic_mechanism(aem) === cm
         @test ER.catalytic_multiplicity(aem) == 2
@@ -1195,11 +1235,18 @@ end
     end
 
     @testset "name(p, ::AllostericMechanism) chokepoint" begin
-        cm = _testhelper_re_mm
-        aem = _testhelper_aem(
-            cm, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
-            (((:R,), 1, (:NonequalAI,)),),
-        )
+        aem = @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: R
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: NonequalAI
+                E(P) ⇌ E + P      :: NonequalAI
+            end
+            regulatory_site(1): R::NonequalAI
+        end
         am = ER.AllostericMechanism(aem)
 
         # Step-bound parameters. Group order is canonical, so pick the
