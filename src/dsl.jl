@@ -245,23 +245,25 @@ _mechanism_reaction_expr(subs, prods, regs) = _reaction_expr(
 
 Build a plain (non-allosteric) `EnzymeMechanism`.
 
-- `substrates:`, `products:`, `regulators:` accept comma-separated bare
+- `substrates:`, `products:`, `modifiers:` accept comma-separated bare
   symbols. Atom brackets (`S[C]`) are rejected at the mechanism level.
-- `regulators:` entries are treated as `CompetitiveInhibitor`s when later
-  passed to `EnzymeReaction`.
-- A name listed both as a substrate or product and in `regulators:` binds as
-  the substrate or product in a bare `E(X)`; its inhibitor form is written
-  `E(X::Inh)`. `X::Inh` requires `X` in `regulators:`.
+- `modifiers:` lists names that bind the catalytic graph without reacting; they
+  are treated as `CompetitiveInhibitor`s when later passed to `EnzymeReaction`.
+- A name listed both as a substrate or product and in `modifiers:` binds as
+  the substrate or product in a bare `E(X)`; its modifier form is written
+  `E(X::Mod)`. `X::Mod` requires `X` in `modifiers:`; a name that is only a
+  modifier is written bare.
 - Same-kinetics groups are expressed via parenthesized step-groups; no
   `constraints:` block needed.
-- Allosteric-only constructs (`regulatory_site(...)` / `::Tag` /
-  `allosteric_regulators:` / `catalytic_inhibitors:`) are rejected.
+- Allosteric-only constructs (`regulatory_site(n):` / `::Tag` /
+  `allosteric_regulators:` / `catalytic_multiplicity:`) are rejected.
 
 Species notation on step sides:
 
 - Bare Symbol that matches a declared metabolite → that metabolite.
-- Bare Symbol otherwise (e.g. `E`, `Estar`, `E_c`) → conformation-only
-  species named after the Symbol. A multi-capital conformation label such as `ES`,
+- Bare Symbol otherwise (e.g. `E`, `Estar`, `F2`) → conformation-only species
+  named after the Symbol; a conformation label is a capital letter followed by
+  lowercase letters and digits. A multi-capital conformation label such as `ES`,
   bare or as a call head (`ES(P)`), is rejected as an opaque bound-form name; write
   `E(S)`.
 - `E(S)` / `E(S, P)` → species with conformation `:E` and bound
@@ -562,28 +564,29 @@ end
 
 Build an `AllostericEnzymeMechanism` (MWC, two conformations).
 
-- `substrates:`, `products:`, `catalytic_inhibitors:` accept comma-separated
+- `substrates:`, `products:`, `modifiers:` accept comma-separated
   bare symbols.
-- `allosteric_regulators:` requires `name::Tag` per entry, where Tag is one of
-  `OnlyA`, `OnlyI`, `EqualAI`, `NonequalAI`.
+- `allosteric_regulators:` lists the allosteric regulators by name; each sits on
+  one `regulatory_site(n):` line, which carries its tag.
 - `catalytic_multiplicity: N` is the subunit count for the catalytic site
   (default 1).
-- `catalytic_steps: begin ... end` is required (exactly once); each step or
+- `steps: begin ... end` is required (exactly once); each step or
   parenthesized step-group must carry a `::Tag`, one of `OnlyA`, `EqualAI` or
-  `NonequalAI` (`OnlyI` is rejected on catalytic groups). Function-
-  call species notation (`E(F6P)`, `Estar(B; residual = A - P)`) is supported.
-- `regulatory_site(multiplicity = N): begin ligands: L1, L2 end` declares one
-  regulatory site per block with multiplicity `N` and the ligands listed
-  inside, in any order. Each ligand must appear in `allosteric_regulators:`; a
-  ligand may not appear in two sites. Ligands declared in
-  `allosteric_regulators:` but not assigned to any `regulatory_site(...):` block
-  default to a single-ligand site at the catalytic multiplicity.
+  `NonequalAI` (`OnlyI` is rejected on catalytic groups). A single step carries
+  its tag after its right-hand side, a group after its closing parenthesis.
+  Function-call species notation (`E(F6P)`, `Estar(B; residual = A - P)`) is
+  supported.
+- `regulatory_site(N): L1::Tag, L2::Tag` declares one regulatory site with
+  multiplicity `N` and its ligands, in any order, each with its tag: one of
+  `OnlyA`, `OnlyI`, `EqualAI`, `NonequalAI`. Each ligand must appear in
+  `allosteric_regulators:`, and each allosteric regulator sits at exactly one
+  site.
 - A name with several roles binds in a bare catalytic-step `E(X)` as its
-  substrate or product role first, then as a catalytic inhibitor; an
-  allosteric regulator binds only at its regulatory site. A catalytic
-  inhibitor's form is written `E(X::Inh)`, and `X::Inh` requires `X` in
-  `catalytic_inhibitors:`; list an allosteric regulator there as well to let it
-  bind the catalytic site.
+  substrate or product role first, then as a modifier; an allosteric regulator
+  binds only at its regulatory site. A substrate or product bound as a modifier
+  is written `E(X::Mod)`, and `X::Mod` requires `X` in `modifiers:`; list an
+  allosteric regulator under `modifiers:` as well to let it bind the catalytic
+  site.
 """
 macro allosteric_mechanism(block)
     _uses_inhibitor_grammar(block, true) &&

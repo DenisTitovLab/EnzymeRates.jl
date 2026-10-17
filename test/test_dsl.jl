@@ -379,8 +379,8 @@
     end
 
     @testset "a parenthesized single step carries a group tag" begin
-        # The @allosteric_mechanism docstring's example: its last step is a
-        # parenthesized one-step group, the same mechanism as the bare tagged step.
+        # A parenthesized one-step group with a tag is the same mechanism as the bare
+        # tagged step.
         parenthesized = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
