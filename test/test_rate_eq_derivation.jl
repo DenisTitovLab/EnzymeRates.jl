@@ -1806,106 +1806,84 @@ end
     _testhelper_check_law_against_oracle(lower)
 end
 
-# The rate equation binds the parameters and the concentrations as local names of one
-# scope, so a metabolite named after a parameter would overwrite it, or be overwritten.
-@testset "a metabolite named after a parameter raises" begin
-    # An allosteric regulator named L takes the name of the conformational constant L.
-    allo_L = @allosteric_mechanism begin
-        substrates: S
-        products: P
-        allosteric_regulators: L::OnlyI
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + S ⇌ E(S)     :: EqualAI
-            E(S) <--> E(P)   :: OnlyA
-            E(P) ⇌ E + P     :: EqualAI
-        end
-    end
-    clash_L = ErrorException("Metabolite L has the name of a parameter of this " *
-                             "mechanism's rate equation; rename the metabolite")
-    fitted = EnzymeRates.fitted_params(allo_L)
-    params = merge(NamedTuple{fitted}(ntuple(_ -> 1.0, length(fitted))),
-                   (Keq = 2.0, E_total = 1.0))
-    @test_throws clash_L rate_equation(allo_L, (S = 1.0, P = 0.1, L = 0.5), params)
-    @test_throws clash_L rate_equation_string(allo_L)
-
-    # An inhibitor named after the reverse chemistry constant: the Haldane assignment
-    # would overwrite its concentration.
-    uni_k = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        regulators: k_EP_to_ES
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-            E + k_EP_to_ES ⇌ E(k_EP_to_ES)
-        end
-    end
-    clash_k = ErrorException("Metabolite k_EP_to_ES has the name of a parameter of " *
-                             "this mechanism's rate equation; rename the metabolite")
-    concs = (S = 1.0, P = 0.1, k_EP_to_ES = 0.5)
-    params_k = merge(NamedTuple{EnzymeRates.fitted_params(uni_k)}((1.0, 2.0, 3.0, 4.0)),
-                     (Keq = 2.0, E_total = 1.0))
-    @test_throws clash_k rate_equation(uni_k, concs, params_k)
-    @test_throws clash_k rate_equation_string(uni_k)
+# The rate equation binds its constants and the concentrations as local names of one
+# scope, so no metabolite takes a constant's name: a reserved name, or one holding `_`,
+# is rejected when a mechanism macro's code runs.
+@testset "a metabolite named after a constant is rejected" begin
+    # An allosteric regulator named L would take the conformational constant's name.
+    @test_throws(ErrorException(
+        "AllostericMechanism: L is a reserved name; E_total, Keq, L, N, params, concs " *
+        "and v are kept for a rate equation's constants and local names"),
+        @allosteric_mechanism begin
+            substrates: S
+            products: P
+            allosteric_regulators: L::OnlyI
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)     :: EqualAI
+                E(S) <--> E(P)   :: OnlyA
+                E(P) ⇌ E + P     :: EqualAI
+            end
+        end)
+    # An inhibitor named after the reverse chemistry constant holds `_`.
+    @test_throws(ErrorException(
+        "EnzymeReaction: the metabolite name k_EP_to_ES holds `_`; constant names join " *
+        "metabolite names with `_`, so a metabolite name holds none"),
+        @enzyme_mechanism begin
+            substrates: S
+            products: P
+            regulators: k_EP_to_ES
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+                E + k_EP_to_ES ⇌ E(k_EP_to_ES)
+            end
+        end)
 end
 
-# Every constant of a rate equation needs a name of its own: the equation would read two
-# constants that share a name as one.
-@testset "constants that share a name raise" begin
-    # An :EqualAI ligand's constant is bare, K_<ligand>reg, so a ligand named A_R takes
-    # K_A_Rreg, the name of the :OnlyA ligand R's constant.
-    onlya = @allosteric_mechanism begin
-        substrates: S
-        products: P
-        catalytic_multiplicity: 2
-        allosteric_regulators: R::OnlyA, A_R::EqualAI
-        catalytic_steps: begin
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: NonequalAI
-            E(P) ⇌ E + P      :: EqualAI
-        end
-        regulatory_site(multiplicity = 2): begin
-            ligands: R
-        end
-        regulatory_site(multiplicity = 2): begin
-            ligands: A_R
-        end
-    end
-    clash_A = ErrorException("Constants of this mechanism's rate equation share a name " *
-                             "(K_A_Rreg); rename a metabolite so that each constant has " *
-                             "a name of its own")
-    params = (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_A_ES_to_EP = 3.0,
-              k_I_ES_to_EP = 0.5, K_A_Rreg = 0.7, L = 10.0, Keq = 4.0, E_total = 1.0)
-    @test_throws clash_A parameters(onlya)
-    @test_throws clash_A EnzymeRates.fitted_params(onlya)
-    @test_throws clash_A rate_equation(onlya, (S = 1.0, P = 0.1, R = 2.0, A_R = 0.5),
-                                       params)
-    @test_throws clash_A rate_equation_string(onlya)
-    @test_throws clash_A all_parameters(onlya, params)
-    @test_throws clash_A EnzymeRates._independent_param_count(
-        EnzymeRates.AllostericMechanism(onlya))
-
-    # A :NonequalAI ligand X has the inactive-conformation constant K_I_Xreg, which an
-    # :EqualAI ligand named I_X at the same site takes too.
-    nonequal = @allosteric_mechanism begin
-        substrates: S
-        products: P
-        catalytic_multiplicity: 2
-        allosteric_regulators: X::NonequalAI, I_X::EqualAI
-        catalytic_steps: begin
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: NonequalAI
-            E(P) ⇌ E + P      :: EqualAI
-        end
-        regulatory_site(multiplicity = 2): begin
-            ligands: X, I_X
-        end
-    end
-    @test_throws ErrorException("Constants of this mechanism's rate equation share a " *
-                                "name (K_I_Xreg); rename a metabolite so that each " *
-                                "constant has a name of its own") parameters(nonequal)
+# Every constant of a rate equation needs a name of its own. An :EqualAI ligand's
+# constant is bare, K_<ligand>reg, while an :OnlyA or :NonequalAI ligand's names its
+# conformation, K_A_<ligand>reg or K_I_<ligand>reg, so a ligand named A_R or I_X would
+# take the constant of a ligand R or X. A ligand name holds no `_`.
+@testset "a ligand name holding `_` is rejected" begin
+    @test_throws(ErrorException(
+        "AllostericMechanism: the metabolite name A_R holds `_`; constant names join " *
+        "metabolite names with `_`, so a metabolite name holds none"),
+        @allosteric_mechanism begin
+            substrates: S
+            products: P
+            catalytic_multiplicity: 2
+            allosteric_regulators: R::OnlyA, A_R::EqualAI
+            catalytic_steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: NonequalAI
+                E(P) ⇌ E + P      :: EqualAI
+            end
+            regulatory_site(multiplicity = 2): begin
+                ligands: R
+            end
+            regulatory_site(multiplicity = 2): begin
+                ligands: A_R
+            end
+        end)
+    @test_throws(ErrorException(
+        "AllostericMechanism: the metabolite name I_X holds `_`; constant names join " *
+        "metabolite names with `_`, so a metabolite name holds none"),
+        @allosteric_mechanism begin
+            substrates: S
+            products: P
+            catalytic_multiplicity: 2
+            allosteric_regulators: X::NonequalAI, I_X::EqualAI
+            catalytic_steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: NonequalAI
+                E(P) ⇌ E + P      :: EqualAI
+            end
+            regulatory_site(multiplicity = 2): begin
+                ligands: X, I_X
+            end
+        end)
 
     # Renamed, the :EqualAI ligand has a constant of its own.
     renamed = @allosteric_mechanism begin
@@ -1927,6 +1905,99 @@ end
     end
     @test count(==(:K_A_Rreg), parameters(renamed)) == 1
     @test :K_Treg in parameters(renamed)
+end
+
+# Every constant of a rate equation needs a name of its own. An :EqualAI step's constants
+# are bare, while a :NonequalAI step's name their conformation, k_A_… for the active one
+# and k_I_… for the inactive one. A conformation labelled A or I renders the same letter
+# at the start of a step side, so an :EqualAI step can take a :NonequalAI step's name.
+@testset "constants that share a name raise" begin
+    # The uptake constant of the :EqualAI step A(Eb) <--> A + Eb is k_A_Eb_to_AEb, the
+    # name of the active constant of the :NonequalAI step E(b) <--> A(Eb).
+    conformation_a = @allosteric_mechanism begin
+        substrates: b
+        products:   Eb
+        steps: begin
+            E + b ⇌ E(b)          :: EqualAI
+            E(b) <--> A(Eb)       :: NonequalAI
+            A(Eb) <--> A + Eb     :: EqualAI
+            A ⇌ E                 :: EqualAI
+        end
+    end
+    clash_a = ErrorException("Constants of this mechanism's rate equation share a name " *
+                             "(k_A_Eb_to_AEb); rename a metabolite or a conformation " *
+                             "label so that each constant has a name of its own")
+    params = (K_Eb_to_E_b = 1.0, K_A_to_E = 2.0, k_A_Eb_to_AEb = 3.0, k_AEb_to_A_Eb = 4.0,
+              k_I_Eb_to_AEb = 0.5, L = 10.0, Keq = 4.0, E_total = 1.0)
+    @test_throws clash_a parameters(conformation_a)
+    @test_throws clash_a EnzymeRates.fitted_params(conformation_a)
+    @test_throws clash_a rate_equation(conformation_a, (b = 1.0, Eb = 0.1), params)
+    @test_throws clash_a rate_equation_string(conformation_a)
+    @test_throws clash_a all_parameters(conformation_a, params)
+    @test_throws clash_a EnzymeRates._independent_param_count(
+        EnzymeRates.AllostericMechanism(conformation_a))
+
+    # Labelled I, the :EqualAI uptake constant k_I_Eb_to_IEb is the name of the
+    # :NonequalAI step's inactive constant.
+    conformation_i = @allosteric_mechanism begin
+        substrates: b
+        products:   Eb
+        steps: begin
+            E + b ⇌ E(b)          :: EqualAI
+            E(b) <--> I(Eb)       :: NonequalAI
+            I(Eb) <--> I + Eb     :: EqualAI
+            I ⇌ E                 :: EqualAI
+        end
+    end
+    clash_i = ErrorException("Constants of this mechanism's rate equation share a name " *
+                             "(k_I_Eb_to_IEb); rename a metabolite or a conformation " *
+                             "label so that each constant has a name of its own")
+    @test_throws clash_i parameters(conformation_i)
+    @test_throws clash_i rate_equation_string(conformation_i)
+
+    # Labelled F, each constant has a name of its own.
+    renamed = @allosteric_mechanism begin
+        substrates: b
+        products:   Eb
+        steps: begin
+            E + b ⇌ E(b)          :: EqualAI
+            E(b) <--> F(Eb)       :: NonequalAI
+            F(Eb) <--> F + Eb     :: EqualAI
+            F ⇌ E                 :: EqualAI
+        end
+    end
+    @test parameters(renamed) == (:K_Eb_to_E_b, :K_F_to_E, :k_A_Eb_to_FEb, :k_FEb_to_F_Eb,
+                                  :k_F_Eb_to_FEb, :k_I_Eb_to_FEb, :L, :Keq, :E_total)
+end
+
+"""Every name the expression `ex` binds or reads: each symbol except a called
+function's."""
+function _testhelper_names_read(ex)
+    ex isa Symbol && return Set([ex])
+    ex isa Expr || return Set{Symbol}()
+    union(Set{Symbol}(),
+          (_testhelper_names_read(a) for a in (ex.head === :call ? ex.args[2:end] :
+                                                ex.args))...)
+end
+
+# The names no metabolite takes: E_total, Keq, L, N, params, concs, v and every name
+# holding `_` (test_types.jl checks that the reaction rejects each). Besides the
+# metabolites, the generated rate_equation body and the printed law bind or read only
+# such names, so no concentration can overwrite a constant or a local.
+@testset "the reserved names cover every non-metabolite name of a law" begin
+    reserved = (:E_total, :Keq, :L, :N, :params, :concs, :v)
+    for spec in MECHANISM_TEST_SPECS
+        m = spec.mechanism
+        dep, indep = EnzymeRates._dependent_param_exprs(typeof(m))
+        body = EnzymeRates._rate_body(typeof(m), (indep..., :Keq, :E_total), dep)
+        printed = Meta.parseall(rate_equation_string(m))
+        others = setdiff(_testhelper_names_read(body) ∪ _testhelper_names_read(printed),
+                         metabolites(m))
+        @test all(n -> occursin('_', String(n)) || n in reserved, others)
+        # The law destructures params and concs and reads Keq; the printed one assigns v.
+        @test (:params, :concs, :Keq) ⊆ others
+        @test :v in _testhelper_names_read(printed)
+    end
 end
 
 

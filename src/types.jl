@@ -325,6 +325,31 @@ allowed_multiplicities(r::RegulatorMults) = r.allowed_multiplicities
 reg_type(r::RegulatorMults)               = r.reg_type
 
 """
+The names no metabolite takes: `E_total`, `Keq`, `L` and `N`, which name or are kept for
+rate-equation constants, and `params`, `concs` and `v`, the local names of a rate
+equation's code (`rate_equation_string`). A rate equation binds its constants, its
+locals and the concentrations in one scope, so a metabolite of one of these names would
+overwrite another or be overwritten.
+"""
+const _RESERVED_NAMES = (:E_total, :Keq, :L, :N, :params, :concs, :v)
+
+"""
+Error when a metabolite name of `names` is reserved (`_RESERVED_NAMES`) or holds `_`:
+constant names join form and metabolite names with `_`, so a metabolite name holds none
+and no constant takes another's name. `who` names the constructor that checks.
+"""
+function _check_metabolite_names(who::String, names)
+    for n in names
+        n in _RESERVED_NAMES &&
+            error("$who: $n is a reserved name; E_total, Keq, L, N, params, concs and v " *
+                  "are kept for a rate equation's constants and local names")
+        occursin('_', String(n)) &&
+            error("$who: the metabolite name $n holds `_`; constant names join " *
+                  "metabolite names with `_`, so a metabolite name holds none")
+    end
+end
+
+"""
     EnzymeReaction
 
 The public concrete reaction descriptor: substrates, products, optional
@@ -351,8 +376,10 @@ ping-pong and multi-substrate reactions. Reactants and regulators are sorted
 by name in the constructor, so two equivalent declarations compare equal
 under `==`/`hash`. The constructor rejects a name listed as both a substrate
 and a product: concentrations and constants are keyed by name. For the same
-reason it rejects a reactant or regulator named `Keq` or `E_total`: both name
-rate-equation parameters.
+reason it rejects a reactant or regulator named `E_total`, `Keq`, `L`, `N`,
+`params`, `concs` or `v`, names a rate equation keeps for its constants and the
+local names of its code, and a name holding `_`, since constant names join
+names with `_`.
 
 ```jldoctest
 julia> using EnzymeRates
@@ -403,10 +430,7 @@ struct EnzymeReaction
         isempty(both_roles) || error(
             "EnzymeReaction: $(join(both_roles, ", ")) named as both a substrate and " *
             "a product; concentrations and constants are keyed by name")
-        reserved = intersect([sub_names; prod_names; first.(reg_keys)], (:Keq, :E_total))
-        isempty(reserved) || error(
-            "EnzymeReaction: $(first(reserved)) is a reserved name; Keq and E_total are " *
-            "rate-equation parameters")
+        _check_metabolite_names("EnzymeReaction", [sub_names; prod_names; first.(reg_keys)])
 
         sub_set  = Set(sub_names)
         prod_set = Set(prod_names)
@@ -1054,6 +1078,9 @@ struct AllostericMechanism
         # sites would produce identical rendered Kreg names (no site
         # discriminator). Not enumerated; constructor rejects it.
         ligs = [name(l) for site in regulatory_sites for l in ligands(site)]
+        # The reaction a mechanism macro builds lists no allosteric regulator, so the
+        # ligands' names are checked here.
+        _check_metabolite_names("AllostericMechanism", ligs)
         dup = findfirst(i -> ligs[i] in view(ligs, 1:i-1), eachindex(ligs))
         dup === nothing ||
             error("AllostericMechanism: ligand $(ligs[dup]) appears in two " *

@@ -199,18 +199,15 @@ end
 
         # Every search fits allosteric mechanisms, whose rate equations take the
         # conformational constant L, so a metabolite named L would fail every allosteric
-        # candidate; the problem refuses it up front.
-        L_named_rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: L[C]
-        end
+        # candidate; the reaction refuses it up front.
         @test_throws(
-            ErrorException("Metabolite L has the name of the conformational constant L " *
-                           "of the allosteric mechanisms the search fits; rename the " *
-                           "metabolite"),
-            IdentifyRateEquationProblem(L_named_rxn,
-                (group = ["G1", "G2"], Rate = [1.0, 2.0], S = [1.0, 1.0], L = [0.1, 0.1]);
-                Keq=1.0))
+            ErrorException("EnzymeReaction: L is a reserved name; E_total, Keq, L, N, " *
+                           "params, concs and v are kept for a rate equation's constants " *
+                           "and local names"),
+            @enzyme_reaction begin
+                substrates: S[C]
+                products: L[C]
+            end)
 
         # Need >= 2 groups
         @test_throws(

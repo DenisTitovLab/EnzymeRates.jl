@@ -386,7 +386,10 @@ _dep_assignments(dep) =
 """
 Error if a metabolite of `M` has the name of a parameter in `param_syms` or `dep`. The
 rate equation binds the parameters, the concentrations and the dependent parameters as
-local names of one scope, so a shared name would let one overwrite another.
+local names of one scope, so a shared name would let one overwrite another. Every
+parameter name holds `_` or is `Keq` or `L`, and the reaction and mechanism constructors
+reject those metabolite names (`_check_metabolite_names`), so this check cannot fire for
+a mechanism the constructors build.
 """
 function _assert_no_name_clash(@nospecialize(M::Type{<:AbstractEnzymeMechanism}),
                                param_syms, dep)
@@ -401,7 +404,8 @@ end
 The body of the generated `rate_equation` of `M`: destructure `param_syms` from
 `params` and the metabolites from `concs`, assign the dependent parameters `dep`, and
 return `E_total * (num) / (den)` with `num` and `den` from `_num_den_exprs` in Horner
-form. A metabolite named after a parameter raises (`_assert_no_name_clash`).
+form. It first runs `_assert_no_name_clash`, which cannot fire for a mechanism the
+constructors build.
 """
 function _rate_body(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param_syms, dep)
     _assert_no_name_clash(M, param_syms, dep)
@@ -504,8 +508,8 @@ The `rate_equation_string` text of `M`: the `params` destructure of `param_syms`
 side mentions `Keq` goes under `# Haldane constraints:`, every other one under
 `# Wegscheider constraints:`. Each section is sorted by name, which is load-bearing: the
 eq_hash dedup of rate-equivalent mechanisms compares these strings, so their line order
-must not depend on the order the solve emits its dependents in. A metabolite named after
-a parameter raises (`_assert_no_name_clash`).
+must not depend on the order the solve emits its dependents in. It first runs
+`_assert_no_name_clash`, which cannot fire for a mechanism the constructors build.
 """
 function _equation_text(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param_syms,
                         dep)

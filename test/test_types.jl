@@ -884,18 +884,32 @@ end
             "EnzymeReaction: A named as both a substrate and a product; " *
             "concentrations and constants are keyed by name") ER.EnzymeReaction(
             [As, Bs, Ap, Cp], noregs, Int[1])
-        # Keq and E_total are rate-equation parameters, so a reactant or a regulator
-        # named after either one is rejected.
-        Keq_s = ER.ReactantAtoms(ER.Substrate(:Keq), [:C => 1])
-        @test_throws ErrorException(
-            "EnzymeReaction: Keq is a reserved name; Keq and E_total are " *
-            "rate-equation parameters") ER.EnzymeReaction([Keq_s, P], noregs, Int[1])
-        @test_throws ErrorException(
-            "EnzymeReaction: E_total is a reserved name; Keq and E_total are " *
-            "rate-equation parameters") @enzyme_reaction begin
+        # A reactant or a regulator takes no name a rate equation keeps for its constants
+        # and the local names of its code, and no name holding `_`, which constant names
+        # use to join names.
+        _testhelper_reserved(n) = ErrorException(
+            "EnzymeReaction: $n is a reserved name; E_total, Keq, L, N, params, concs " *
+            "and v are kept for a rate equation's constants and local names")
+        for n in (:E_total, :Keq, :L, :N, :params, :concs, :v)
+            @test_throws _testhelper_reserved(n) ER.EnzymeReaction(
+                [ER.ReactantAtoms(ER.Substrate(n), [:C => 1]), P], noregs, Int[1])
+            @test_throws _testhelper_reserved(n) ER.EnzymeReaction(
+                [S, P], [ER.RegulatorMults(ER.AllostericRegulator(n), [1])], Int[1])
+        end
+        @test_throws _testhelper_reserved(:E_total) @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
             allosteric_regulators: E_total
+        end
+        _testhelper_underscore(n) = ErrorException(
+            "EnzymeReaction: the metabolite name $n holds `_`; constant names join " *
+            "metabolite names with `_`, so a metabolite name holds none")
+        @test_throws _testhelper_underscore(:L_Ala) ER.EnzymeReaction(
+            [ER.ReactantAtoms(ER.Substrate(:L_Ala), [:C => 1]), P], noregs, Int[1])
+        @test_throws _testhelper_underscore(:I_X) @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            competitive_inhibitors: I_X
         end
         # A single name MAY be declared in BOTH regulator roles: one
         # AllostericRegulator and one CompetitiveInhibitor. The two roles
@@ -2862,4 +2876,37 @@ end
         @test hash(x, h) == foldl((acc, f) -> hash(getfield(x, f), acc),
                                   fieldnames(typeof(x)); init = hash(nameof(typeof(x)), h))
     end
+end
+
+@testset "a regulatory-site ligand takes no reserved name and no `_`" begin
+    # A mechanism macro's reaction lists no allosteric regulator, so the
+    # AllostericMechanism constructor checks the names of its sites' ligands.
+    @test_throws(ErrorException(
+        "AllostericMechanism: L is a reserved name; E_total, Keq, L, N, params, concs " *
+        "and v are kept for a rate equation's constants and local names"),
+        @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: L
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: OnlyA
+                E(P) ⇌ E + P      :: EqualAI
+            end
+            regulatory_site(2): L::OnlyI
+        end)
+    @test_throws(ErrorException(
+        "AllostericMechanism: the metabolite name A_R holds `_`; constant names join " *
+        "metabolite names with `_`, so a metabolite name holds none"),
+        @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: A_R
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: OnlyA
+                E(P) ⇌ E + P      :: EqualAI
+            end
+            regulatory_site(2): A_R::EqualAI
+        end)
 end

@@ -1277,8 +1277,8 @@ end
     # (e.g., L-Ala → D-Ala) but the same atomic composition. Init
     # mechanisms must compile correctly.
     rxn = @enzyme_reaction begin
-        substrates: L_Ala[CHN]
-        products: D_Ala[CHN]
+        substrates: LAla[CHN]
+        products: DAla[CHN]
     end
     specs = EnzymeRates.init_mechanisms(rxn)
     @test all(isempty(_testhelper_connectivity_violations(

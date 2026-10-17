@@ -333,8 +333,9 @@ its class's kept member equals the kept one and adds no entry. The `Type` method
 compiled mechanism with `_concrete`.
 
 Errors when two constants of the law, regulator constants included, render one name,
-which the law would read as one constant: an `:EqualAI` ligand named `A_R` renders
-`K_A_Rreg`, the name of an `:OnlyA` or `:NonequalAI` ligand `R`'s active constant.
+which the law would read as one constant: with a conformation labelled `A`, the uptake
+constant of the `:EqualAI` step `A(Eb) <--> A + Eb` renders `k_A_Eb_to_AEb`, the name of
+the active constant of a `:NonequalAI` step `E(b) <--> A(Eb)`.
 """
 function _dependent_param_exprs(m::_AnyMech)
     sys = _joint_system(m)
@@ -351,7 +352,8 @@ function _dependent_param_exprs(m::_AnyMech)
     allunique(rendered) || error(
         "Constants of this mechanism's rate equation share a name (" *
         join(unique(x for x in rendered if count(==(x), rendered) > 1), ", ") *
-        "); rename a metabolite so that each constant has a name of its own")
+        "); rename a metabolite or a conformation label so that each constant has a " *
+        "name of its own")
     free = setdiff(1:n, pivots)
     dep = Dict{Symbol, Union{Symbol, Expr, Float64}}()
     for (r, p) in enumerate(pivots)

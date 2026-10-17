@@ -23,6 +23,9 @@ Emit an `EnzymeReaction`.
   coincide. For Ac + CoA ⇌ AcCoA every seed holds both E(Ac, CoA) and
   E(AcCoA), so `init_mechanisms` and `identify_rate_equation` stop with an
   error naming both forms. Rename one (`Acetyl`).
+- No metabolite is named `E_total`, `Keq`, `L`, `N`, `params`, `concs` or `v`,
+  or holds `_`: a rate equation keeps those names, and its constant names join
+  names with `_`.
 - `competitive_inhibitors:` / `dead_end_inhibitors:` —
   `CompetitiveInhibitor` entries (catalytic-site binding). May be bare
   `I` (multiplicities default to the `oligomeric_state:` ones) or
