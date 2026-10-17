@@ -700,15 +700,22 @@ function _testhelper_extract_num_denom(v_line::AbstractString)
     return String(num_str), String(denom_str)
 end
 
-function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec; seed=42)
+"""
+Test that the peak turnover of `spec`'s mechanism at `params` (fitted constants, `Keq`
+and `E_total`; seed 42's draw unless given) equals `spec.analytical_kcat_fn`'s value.
+"""
+function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec;
+                                          params=nothing)
     spec.analytical_kcat_fn === nothing && return
     m = spec.mechanism
+    if params === nothing
+        params = _testhelper_random_independent_params(m; rng=Random.MersenneTwister(42))
+    end
     @testset "Peak turnover approaches the analytical kcat" begin
-        rng = Random.MersenneTwister(seed)
-        params = _testhelper_random_independent_params(m; rng)
         # Every fitted constant and Keq lies in 0.1–10, so over a range reaching 1e12 the
-        # peak sits at saturating substrates and zero products and equals kcat to within
-        # K/1e12.
+        # peak sits at saturating substrates and equals the spec's analytical value to
+        # within K/1e12: the kcat at zero products or, where a product raises the
+        # turnover, the supremum over product levels.
         peak = EnzymeRates._peak_turnover(m, params, (1e-12, 1e12)).value
         # The textbook formula may read a dependent rate constant, so the bridge
         # reads every constant through all_parameters.
@@ -841,6 +848,20 @@ end
     for spec in MECHANISM_TEST_SPECS
         _testhelper_run_all_tests(spec)
     end
+end
+
+# Seed 42 puts m_OnlyA_prod's peak turnover at zero products on some Julia versions and
+# above it on others (MersenneTwister's stream differs), so fixed constants test the
+# peak at a nonzero product on every version.
+@testset "m_OnlyA_prod's peak turnover at a nonzero product" begin
+    spec = only(s for s in MECHANISM_TEST_SPECS if s.name == "m_OnlyA_prod")
+    # K1 = K3 = k2f = 1 and Keq = 10, so k2r = k2f·K3/(Keq·K1) = 0.1 and
+    # k2f·(L − 1) = 8 exceeds k2r·(1 + L) = 1: the product raises the turnover.
+    params = (K_A_EP_to_E_P=1.0, K_ES_to_E_S=1.0, k_A_ES_to_EP=1.0, L=9.0, Keq=10.0,
+              E_total=1.0)
+    # Above the zero-product kcat k2f/(1 + L) = 0.1 (the peak is 0.140).
+    @test EnzymeRates._peak_turnover(spec.mechanism, params, (1e-12, 1e12)).value > 0.13
+    _testhelper_test_analytical_kcat(spec; params)
 end
 
 # A fused and a plain binding of B share one rapid-equilibrium kinetic group.

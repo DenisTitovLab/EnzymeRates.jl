@@ -35,10 +35,12 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
     # Signature: (all_params::NamedTuple, concs::NamedTuple) -> Float64
     analytical_rate_fn::Union{Function,Nothing} = nothing
 
-    # Optional analytical kcat: the turnover at saturating substrates and zero products,
-    # which the peak turnover approaches on a wide range
+    # Optional analytical peak turnover, which the peak search approaches on a wide range:
+    # the kcat (saturating substrates, zero products), or, for a spec whose product raises
+    # the turnover (m_OnlyA_prod), the supremum over product levels
     # Signature: (params::NamedTuple) -> Float64
-    # params contains fitted_params + Keq + E_total
+    # params holds `_testhelper_written_params`' constants (the textbook names `k1f`,
+    # `K2`, ... beside every name `all_parameters` gives) and `Et`
     analytical_kcat_fn::Union{Function,Nothing} = nothing
 
     # Factored form validation (optional — for mechanisms with known factored forms)
@@ -2710,7 +2712,7 @@ end
 # Exercises the zero I-state numerator when the catalytic conversion is
 # :OnlyA: the T-state cannot run the reaction (forward or reverse), so its
 # cycle is dead — N_T is 0 and the L*num_T branch is dropped. Analytical
-# kcat = 2·k2f/(1+L) — L-dependent because the saturating R-state
+# kcat = k2f/(1+L) — L-dependent because the saturating R-state
 # pattern (S only) IS reachable in T-state (Q_cat_T at sat S = S/K1,
 # same as Q_cat_R), so B_T ≠ 0 and the 1/(1+L) factor appears.
 let
@@ -2728,7 +2730,7 @@ let
 
     # Param mapping:
     #   K1   : S binding (group 1, EqualAI)
-    #   k2f  : catalysis SS (group 2, EqualAI, k2r derived via Haldane)
+    #   k2f  : catalysis SS (group 2, OnlyA, k2r derived via Haldane)
     #   K3   : P release (group 3, OnlyA)
     function _testhelper_m_OnlyA_prod_rate_analytical(params, concs)
         (; K1, k2f, K3, L, Keq, Et) = params
@@ -2748,6 +2750,24 @@ let
         return Et * num / den
     end
 
+    # The peak turnover over S and P, from the written constants `p`.
+    # kcat at saturating S, zero P:
+    #   A_R = k2f/K1², B_R = 1/K1², B_T = 1/K1² (T-state pattern same as R)
+    #   kcat = A_R / (B_R + L · B_T) = k2f / (1 + L)
+    # P binds the R state only, so it can draw the enzyme out of T and raise the
+    # turnover above kcat. At any fixed P/S the turnover rises with S, so the peak
+    # lies at saturating S, where, with P/K3 = c·S/K1, it is
+    #   g(c) = (k2f − k2r·c)(1 + c) / ((1 + c)² + L).
+    # g rises at c = 0 when k2f·(L − 1) > k2r·(1 + L). Its peak over c ≥ 0 sits at
+    # 1 + c = u, the positive root of (k2f + k2r)·u² + 2·k2r·L·u − (k2f + k2r)·L = 0,
+    # or at c = 0 when u ≤ 1.
+    function _testhelper_m_OnlyA_prod_peak_turnover(p)
+        g(c) = (p.k2f - p.k2r * c) * (1 + c) / ((1 + c)^2 + p.L)
+        s = p.k2f + p.k2r
+        u = (sqrt((p.k2r * p.L)^2 + s^2 * p.L) - p.k2r * p.L) / s
+        g(max(0.0, u - 1))
+    end
+
     push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="m_OnlyA_prod",
         mechanism=m,
@@ -2760,10 +2780,7 @@ let
         expected_n_independent_params=4,
         run_ode_test=false,
         analytical_rate_fn=_testhelper_m_OnlyA_prod_rate_analytical,
-        # kcat at saturating S, zero P:
-        #   A_R = k2f/K1², B_R = 1/K1², B_T = 1/K1² (T-state pattern same as R)
-        #   kcat = A_R / (B_R + L · B_T) = k2f / (1 + L)
-        analytical_kcat_fn = p -> p.k2f / (1 + p.L),
+        analytical_kcat_fn=_testhelper_m_OnlyA_prod_peak_turnover,
     ))
 end
 
