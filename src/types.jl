@@ -1083,8 +1083,10 @@ A non-allosteric enzyme mechanism: a `reaction::EnzymeReaction` plus
 each inner vector holds the steps that share that group's kinetic parameters.
 The constructor canonicalizes step direction and sorts steps and groups,
 so two mechanisms that differ only in how their steps were written collapse to
-the same struct. Step order derives from structure alone, and each rate constant is
-named after the member of its kinetic class that the joint solve keeps (`_class_sides`).
+the same struct. `==` and `hash` read the steps, not the reaction, so the same steps
+built on two reactions are one mechanism. Step order derives from structure alone, and
+each rate constant is named after the member of its kinetic class that the joint solve
+keeps (`_class_sides`).
 Lift to the singleton derivation type with `EnzymeRates.compile_mechanism(m)` or
 `EnzymeMechanism(m)`.
 """
@@ -1240,14 +1242,15 @@ end
 
 # `==` and `hash` by content for the value types whose fields are Vectors or structs: the
 # default `==` would compare identity. Every field takes part, in declaration order, except
-# a mechanism's `naming` cache. `Species` keeps its own pair: its stored `name` is derived.
-# `Met` keeps Julia's `==`, which compares its two fields, and has its own `hash`: a
-# struct's default hash mixes in its type's identity, which changes between precompile
-# sessions.
+# a mechanism's `reaction` and `naming` cache: a mechanism is its steps, tags,
+# multiplicity and sites, whatever reaction it was built on. `Species` keeps its own pair:
+# its stored `name` is derived. `Met` keeps Julia's `==`, which compares its two fields,
+# and has its own `hash`: a struct's default hash mixes in its type's identity, which
+# changes between precompile sessions.
 for T in (Residual, RegulatorySite, Step, Krapid, Kfor, Krev, Kreg,
           ReactantAtoms, RegulatorMults, EnzymeReaction, Mechanism, AllostericMechanism,
           RawForm, RawStep, RawMechanism, RawSite, RawAllostericMechanism)
-    fs = filter(!=(:naming), fieldnames(T))
+    fs = filter(∉((:reaction, :naming)), fieldnames(T))
     @eval Base.:(==)(a::$T, b::$T) =
         $(reduce((l, r) -> :($l && $r), [:(a.$f == b.$f) for f in fs]))
     @eval Base.hash(x::$T, h::UInt) =

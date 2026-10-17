@@ -2908,6 +2908,41 @@ end
     @test !occursin("EAB", repr(sp))
 end
 
+@testset "a mechanism's identity leaves out its reaction" begin
+    # A macro builds its mechanism on a placeholder reaction; the same steps built on a
+    # declared reaction, with real atoms and a regulator no step binds, are the same
+    # mechanism: `==` and `hash` read the steps, tags, multiplicity and sites only.
+    rxn = @enzyme_reaction begin
+        substrates: S[C6H12O6]
+        products: P[C6H12O6]
+        competitive_inhibitors: J
+        allosteric_regulators: I
+        oligomeric_state: 2
+    end
+    m = EnzymeRates.Mechanism(_testhelper_re_mm)
+    m_on_rxn = EnzymeRates.Mechanism(rxn, EnzymeRates.steps(m))
+    @test EnzymeRates.reaction(m_on_rxn) != EnzymeRates.reaction(m)
+    @test m_on_rxn == m && hash(m_on_rxn) == hash(m)
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: I
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)     :: EqualAI
+            E(S) <--> E(P)   :: OnlyA
+            E(P) ⇌ E + P     :: EqualAI
+        end
+        regulatory_site(2): I::OnlyI
+    end)
+    am_on_rxn = EnzymeRates.AllostericMechanism(rxn, EnzymeRates.steps(am),
+                                                EnzymeRates.cat_allo_states(am),
+                                                EnzymeRates.catalytic_multiplicity(am),
+                                                EnzymeRates.regulatory_sites(am))
+    @test EnzymeRates.reaction(am_on_rxn) != EnzymeRates.reaction(am)
+    @test am_on_rxn == am && hash(am_on_rxn) == hash(am)
+end
+
 """A raw-input value of each type: a metabolite, a form with a residual, a step, a
 mechanism, a site and an allosteric mechanism."""
 function _testhelper_raw_examples()
