@@ -756,12 +756,11 @@ end
 """
 Whether the mechanism macro `block` writes a token of the grammar
 `_parse_mechanism_body` reads and `_raw_mechanism` does not: a `regulatory_site(...)` line
-with a `begin ... end` body, or a parenthesized single step with a tag. Such a block
-expands through `_parse_mechanism_body`, every other one through `_raw_mechanism`.
+with a `begin ... end` body. Such a block expands through `_parse_mechanism_body`, every
+other one through `_raw_mechanism`.
 """
 function _uses_inhibitor_grammar(block)
     block isa Expr && block.head === :block || return false
-    is_tagged(v) = v isa Expr && v.head === :(::)
     for arg in block.args
         arg isa LineNumberNode && continue
         head, rest = arg isa Expr && arg.head === :tuple && !isempty(arg.args) ?
@@ -771,10 +770,6 @@ function _uses_inhibitor_grammar(block)
         label, values = head.args[2], Any[head.args[3], rest...]
         label isa Expr && label.head === :call && label.args[1] === :regulatory_site &&
             any(v -> v isa Expr && v.head === :block, values) && return true
-        label === :steps || continue
-        for v in values, s in (v isa Expr && v.head === :block ? v.args : ())
-            is_tagged(s) && s.args[1] isa Expr && s.args[1].head === :call && return true
-        end
     end
     false
 end

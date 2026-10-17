@@ -374,52 +374,45 @@
         end
     end
 
-    @testset "a parenthesized single step carries a group tag" begin
-        # A parenthesized one-step group with a tag is the same mechanism as the bare
-        # tagged step.
-        parenthesized = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    @testset "a tagged tuple of one step is a one-step group" begin
+        # A parenthesized group is a tuple of steps, `(step,)` for one: tagged, it is the
+        # same mechanism as the bare tagged step.
+        one_tuple = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
             catalytic_multiplicity: 2
-            allosteric_regulators: A::OnlyA, I::OnlyI
+            allosteric_regulators: A, I
 
-            catalytic_steps: begin
+            steps: begin
                 E + F6P ⇌ E(F6P)        :: EqualAI
                 E(F6P) <--> E(F16BP)    :: EqualAI
-                (E(F16BP) ⇌ E + F16BP)  :: EqualAI
+                (E(F16BP) ⇌ E + F16BP,) :: EqualAI
             end
 
-            regulatory_site(multiplicity = 4): begin
-                ligands: A
-            end
-            regulatory_site(multiplicity = 4): begin
-                ligands: I
-            end
+            regulatory_site(4): A::OnlyA
+            regulatory_site(4): I::OnlyI
         end)
         bare = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
             catalytic_multiplicity: 2
-            allosteric_regulators: A::OnlyA, I::OnlyI
+            allosteric_regulators: A, I
 
-            catalytic_steps: begin
+            steps: begin
                 E + F6P ⇌ E(F6P)        :: EqualAI
                 E(F6P) <--> E(F16BP)    :: EqualAI
                 E(F16BP) ⇌ E + F16BP    :: EqualAI
             end
 
-            regulatory_site(multiplicity = 4): begin
-                ligands: A
-            end
-            regulatory_site(multiplicity = 4): begin
-                ligands: I
-            end
+            regulatory_site(4): A::OnlyA
+            regulatory_site(4): I::OnlyI
         end)
-        @test parenthesized == bare
-        @test length(EnzymeRates.steps(parenthesized)) == 3
+        @test one_tuple == bare
+        @test length(EnzymeRates.steps(one_tuple)) == 3
 
         # A plain mechanism has no group tags, parenthesized or not.
-        @test_throws "tag annotation" eval(:(@enzyme_mechanism begin
+        @test_throws("@enzyme_mechanism: tag annotation `(E(P) ⇌ E + P)::EqualAI` is not " *
+                     "allowed", eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
@@ -427,7 +420,7 @@
                 E(S) <--> E(P)
                 (E(P) ⇌ E + P) :: EqualAI
             end
-        end))
+        end)))
     end
 
     @testset "@enzyme_reaction" begin
@@ -1473,8 +1466,7 @@ end
         # is a tuple of steps, `(step,)` for one.
         @test_throws("@allosteric_mechanism: a single step carries its tag after its " *
                      "right-hand side, as in `E + S ⇌ E(S) :: EqualAI`. Got " *
-                     "`(E(P) ⇌ E + P)::EqualAI`.",
-                     EnzymeRates._raw_mechanism(quote
+                     "`(E(P) ⇌ E + P)::EqualAI`.", eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
             steps: begin
@@ -1482,7 +1474,7 @@ end
                 E(S) <--> E(P)            :: EqualAI
                 (E(P) ⇌ E + P)            :: EqualAI
             end
-        end, true))
+        end)))
         # A tag after a parenthesized right-hand side tags the step, as after a bare one.
         M, F = EnzymeRates.Met, EnzymeRates.RawForm
         s, p = M(:S, false), M(:P, false)
