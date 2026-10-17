@@ -547,7 +547,8 @@ _side_terms(side) = side isa Expr && side.head === :call && side.args[1] === :+ 
 The tag a step's right-hand terms `rhs` end in, taken off the last term, or `nothing`.
 `::` binds tighter than `+`, so `E(P) ⇌ E + P :: EqualAI` reads `P :: EqualAI` as its
 last term, while `E(P) ⇌ (E + P) :: EqualAI` tags the whole side, whose terms then
-replace it. A role tag (`::Mod`, `::Inh`) marks a metabolite, never a step.
+replace it. The role tag `::Mod` marks a metabolite, never a step. `::Inh` is read the
+same way, so `_raw_met` reports it as an unknown role tag rather than as a step's state.
 """
 function _peel_tag!(rhs::Vector{Any})
     t = rhs[end]
