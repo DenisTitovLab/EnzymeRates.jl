@@ -1,5 +1,5 @@
-# ABOUTME: Tests for the @enzyme_reaction / @enzyme_mechanism DSL parsing,
-# ABOUTME: including decomposed-Species notation and opaque-form rejection.
+# ABOUTME: Tests for @enzyme_reaction, @enzyme_mechanism and @allosteric_mechanism: their
+# ABOUTME: grammar and errors, the walker's raw values and the printed reaction text.
 @testset "DSL" begin
     @testset "DSL: decomposed-Species notation parses to Mechanism" begin
         # Decomposed call-form on every step → parser emits a structured
@@ -1278,7 +1278,7 @@
     @testset "::Mod is never a step tag" begin
         # `E(S::Mod) ⇌ E + S::Mod :: EqualAI` parses as `(S::Mod)::EqualAI`: the state
         # after `::Mod` is the step's tag, and the step reads like its binding direction.
-        bind_inh = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        bind_mod = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: S
             products:   P
             modifiers: S
@@ -1289,7 +1289,7 @@
                 E + S::Mod ⇌ E(S::Mod)   :: EqualAI
             end
         end)
-        release_inh = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        release_mod = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: S
             products:   P
             modifiers: S
@@ -1300,7 +1300,7 @@
                 E(S::Mod) ⇌ E + S::Mod   :: EqualAI
             end
         end)
-        @test release_inh == bind_inh
+        @test release_mod == bind_mod
 
         # Without a state the step is missing its tag: the role tag that ends it is no
         # state.

@@ -934,7 +934,7 @@ const _testhelper_fused_cases = [
         @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
             E + A + B ⇌ E(A, B); E(A, B) <--> E(P, Q); E(P, Q) <--> E(Q) + P
             E(Q) <--> E + Q end end),
-        # the first substrate also binds as a dead-end inhibitor copy, at rapid
+        # the first substrate also binds as a dead-end modifier copy, at rapid
         # equilibrium on E and at steady state on E(Q); both the derivation and
         # the oracle count the first substrate by name
         @enzyme_mechanism(begin substrates: A, B; products: P, Q; modifiers: A

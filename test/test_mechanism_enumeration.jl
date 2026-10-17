@@ -2019,7 +2019,7 @@ end
     end
 end
 
-@testset "Mechanism — a substrate's inhibitor copy never flips; catalytic groups do" begin
+@testset "Mechanism — a substrate's modifier copy never flips; catalytic groups do" begin
     # Ordered bi-bi with A also bound as a competitive-inhibitor copy at E and
     # E(Q), the Q binding mirrored onto the copy forms in the Q group, as the
     # dead-end move builds it. The copy group binds a regulator and is never a
@@ -2116,7 +2116,7 @@ end
     end
 end
 
-@testset "AllostericMechanism — the inhibitor copy never flips; tags are preserved" begin
+@testset "AllostericMechanism — the modifier copy never flips; tags are preserved" begin
     # The same mechanism as an allosteric one with a dead inactive conformation
     # (the chemistry `:OnlyA`, every binding `:EqualAI`) and one catalytic subunit.
     # All four groups A, B, P and Q flip: an allosteric mechanism has no chain

@@ -1488,12 +1488,12 @@ end
         @test m isa ER.Mechanism
     end
 
-    @testset "inhibitor copy stays distinct from the substrate" begin
+    @testset "modifier copy stays distinct from the substrate" begin
         Ai = ER.CompetitiveInhibitor(:A)
         s_sub = ER.Step(E, EA, [A], ER.Metabolite[], true)
-        s_inh = ER.Step(E, _testhelper_sp([Ai]), [Ai], ER.Metabolite[], true)
-        @test s_sub != s_inh && hash(s_sub) != hash(s_inh)
-        @test ER.bound_metabolite(s_inh) == Ai
+        s_mod = ER.Step(E, _testhelper_sp([Ai]), [Ai], ER.Metabolite[], true)
+        @test s_sub != s_mod && hash(s_sub) != hash(s_mod)
+        @test ER.bound_metabolite(s_mod) == Ai
     end
 
     @testset "a binding keeps each metabolite's role" begin
@@ -1622,7 +1622,7 @@ end
     end
 
     @testset "a substrate binding and its competitive-inhibitor copy in one group" begin
-        # A and its inhibitor copy A::Mod are different metabolites, so their
+        # A and its modifier copy A::Mod are different metabolites, so their
         # bindings are different kinds of step and cannot share a constant.
         err = _testhelper_thrown() do
             @enzyme_mechanism begin
