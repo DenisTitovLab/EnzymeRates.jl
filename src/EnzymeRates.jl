@@ -25,6 +25,7 @@ using Tables
 using Optimization
 using Distributed
 using FunctionWrappers: FunctionWrapper
+import Unicode
 
 include("types.jl")
 include("names.jl")

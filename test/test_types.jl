@@ -1031,6 +1031,24 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                                   noregs, Int[1])
             @test eval(Meta.parse(sprint(show, r))) == r
         end
+        # Julia reads some identifiers as others: a micro sign as μ, a decomposed é as one
+        # character. Such a name prints as text that builds another reaction, so it is
+        # rejected; a name already in the form Julia reads, Greek or with a subscript,
+        # reads back. The rejected strings are written with escapes: Julia would read the
+        # characters themselves as the other names.
+        for (n, read) in (("\u00b5M", "\u03bcM"), ("e\u0301", "\u00e9"))
+            @test_throws(ErrorException("EnzymeReaction: Julia reads the name \"$n\" as " *
+                                        "\"$read\", so no DSL text can write it; use " *
+                                        "\"$read\""),
+                         ER.EnzymeReaction([ER.ReactantAtoms(ER.Substrate(Symbol(n)),
+                                                             [:C => 1]), P],
+                                           noregs, Int[1]))
+        end
+        for n in (:α, :Δ, :μM, :S₁, :é)
+            r = ER.EnzymeReaction([ER.ReactantAtoms(ER.Substrate(n), [:C => 1]), P],
+                                  noregs, Int[1])
+            @test eval(Meta.parse(sprint(show, r))) == r
+        end
         # A single name MAY be declared in BOTH regulator roles: one
         # AllostericRegulator and one CompetitiveInhibitor. The two roles
         # render to distinct parameter names, so both are kept.

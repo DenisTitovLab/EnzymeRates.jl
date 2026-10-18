@@ -476,6 +476,19 @@ end
                                 "names join metabolite names with `_`, so a metabolite " *
                                 "name holds none"),
                  ER.Mechanism(_testhelper_uniuni_raw(modifiers = [:S_1])))
+    # A name Julia reads as another (a micro sign as μ, a decomposed é as one character)
+    # prints as text that builds another mechanism, so no DSL text can write it. The
+    # strings are written with escapes: Julia would read the characters themselves as
+    # the other names.
+    _testhelper_read_as(who, x, read) = ErrorException(
+        "$who: Julia reads the name \"$x\" as \"$read\", so no DSL text can write it; " *
+        "use \"$read\"")
+    @test_throws(_testhelper_read_as("Mechanism", "\u00b5M", "\u03bcM"),
+                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [Symbol("\u00b5M")])))
+    @test_throws(_testhelper_read_as("Mechanism", "e\u0301", "\u00e9"),
+                 ER.Mechanism(_testhelper_uniuni_raw(substrates = [:S, Symbol("e\u0301")])))
+    @test_throws(_testhelper_read_as("AllostericMechanism", "\u025b", "\u03b5"),
+                 _testhelper_allosteric(tags, 2, [site([Symbol("\u025b")], 2, [:OnlyA])]))
     # Names: undeclared; a modifier entry of a name modifiers: does not list; a plain
     # entry of a modifier-only name; residuals by role.
     @test_throws(ErrorException("Mechanism: P is not declared; declare it under " *

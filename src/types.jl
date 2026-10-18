@@ -165,10 +165,12 @@ const _KEYWORDS = (:baremodule, :begin, :break, :catch, :const, :continue, :do, 
 
 """
 Error when a metabolite name of `names` is no name a DSL text can write (an identifier
-that is no keyword), is `E`, the label of the free enzyme form, is reserved
-(`_RESERVED_NAMES`) or holds `_`: constant names join form and metabolite names with `_`,
-so a metabolite name holds none and no constant takes another's name. `who` names the
-constructor that checks.
+that is no keyword, in the form Julia reads it), is `E`, the label of the free enzyme
+form, is reserved (`_RESERVED_NAMES`) or holds `_`: constant names join form and
+metabolite names with `_`, so a metabolite name holds none and no constant takes
+another's name. Julia's parser normalizes an identifier (NFC, and
+`Unicode.julia_chartransform`: a micro sign reads as `μ`), so a name in another form would
+print as text that reads as another name. `who` names the constructor that checks.
 """
 function _check_metabolite_names(who::String, names::Vector{Symbol})
     for n in names
@@ -176,6 +178,11 @@ function _check_metabolite_names(who::String, names::Vector{Symbol})
         Base.isidentifier(s) && !(n in _KEYWORDS) ||
             error("$who: \"$s\" cannot name a metabolite; a metabolite name is an " *
                   "identifier that is no keyword")
+        read = isascii(s) ? s :
+               Unicode.normalize(s; stable = true, compose = true,
+                                 chartransform = Unicode.julia_chartransform)
+        read == s || error("$who: Julia reads the name \"$s\" as \"$read\", so no DSL " *
+                           "text can write it; use \"$read\"")
         n === :E &&
             error("$who: E cannot name a metabolite; it labels the free enzyme form")
         n in _RESERVED_NAMES &&
@@ -298,7 +305,8 @@ reason it rejects a reactant or regulator named `E_total`, `Keq`, `L`, `N`,
 `params`, `concs` or `v`, names a rate equation keeps for its constants and the
 local names of its code, a name holding `_`, since constant names join
 names with `_`, the name `E`, which labels the free enzyme form, and a name that is
-no identifier or is a keyword, which no DSL text can write. It also rejects names
+no identifier, is a keyword or reads in Julia code as another name (a micro sign as `μ`),
+which no DSL text can write. It also rejects names
 that spell one string two ways, such as
 `Ac`, `CoA` and `AcCoA`: an enzyme form's name joins the names of the
 metabolites it binds without a separator, so E with `Ac` and `CoA` bound and E
