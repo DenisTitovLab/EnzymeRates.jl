@@ -70,12 +70,12 @@ end
 # ─── The joint system ──────────────────────────────────────────────────────
 
 """Each kinetic group's allosteric tag, `:None` for a plain mechanism."""
-_solve_tags(m::Mechanism) = fill(:None, length(steps(m)))
+_solve_tags(m::Mechanism) = fill(:None, ngroups(m))
 _solve_tags(am::AllostericMechanism) = cat_allo_states(am)
 
 """Whether each flat step lies in the inactive conformation's law (`_inactive_groups`);
 false for every step of a plain mechanism."""
-_inactive_law(m::Mechanism) = falses(length(_flat_steps(m)))
+_inactive_law(m::Mechanism) = falses(length(m.edges))
 function _inactive_law(am::AllostericMechanism)
     kept = _inactive_groups(am)
     BitVector([s in kept[g] for (s, g) in _flat_steps(steps(am))])

@@ -56,10 +56,10 @@ it flips. The split, the dead-end move, and `_expand_change_allo_state` filter t
 children; the other moves preserve both rules.
 """
 function _assert_emission_rules(m::Union{Mechanism, AllostericMechanism})
-    label(g) = join((join(_forward_sides(s, m), " → ") for s in steps(m)[g]),
-                    ", ")
-    flux = _flux_carrying_groups(steps(m), m)
-    for (g, group) in enumerate(steps(m))
+    groups = steps(m)
+    label(g) = join((join(_forward_sides(s, m), " → ") for s in groups[g]), ", ")
+    flux = _flux_carrying_groups(groups, m)
+    for (g, group) in enumerate(groups)
         is_equilibrium(first(group)) || flux[g] || error(
             "expand_mechanisms: steady-state kinetic group {" * label(g) * "} has no " *
             "step that carries net flux, so its two constants enter the rate only as " *
@@ -446,12 +446,13 @@ flips, and more steady-state steps never restore a hyperbolic equation, so its
 supersets need no visit.
 """
 function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
+    groups = steps(m)
     flanks = _chain_flank_groups(m)
     eligible(g) = !(g in flanks) &&
         !any(s -> any(x -> x isa Regulator, consumed(s)) ||
-                  any(x -> x isa Regulator, released(s)), steps(m)[g])
-    base = _re_segment_count(steps(m))
-    flips = _minimal_flips(gs -> _re_segment_count(gs) > base, steps(m), m, eligible)
+                  any(x -> x isa Regulator, released(s)), groups[g])
+    base = _re_segment_count(groups)
+    flips = _minimal_flips(gs -> _re_segment_count(gs) > base, groups, m, eligible)
     children = typeof(m)[_with(m; groups = gs) for gs in flips]
     _requires_hyperbolic_catalysis(m) ? filter(_hyperbolic_catalysis, children) : children
 end
@@ -868,8 +869,9 @@ holds its groups in canonical order (`_canonical_order`), so the variants come i
 order of their flip sets over those groups.
 """
 function _seed_variants(m::Mechanism, rxn::EnzymeReaction)
-    isos = [s for group in steps(m) for s in group if is_iso(s)]
-    merged = foldl(_merge_isomerization, isos; init = steps(m))
+    groups = steps(m)
+    isos = [s for group in groups for s in group if is_iso(s)]
+    merged = foldl(_merge_isomerization, isos; init = groups)
     merged = [_with_equilibrium.(group, true) for group in merged]
     complexes = [to_species(s) for s in isos]
     built = Vector{Vector{Step}}[[merged];
@@ -1131,7 +1133,7 @@ function _split_gain_test(m::Mechanism, units)
         for (i, u) in enumerate(sel), (part_number, part) in enumerate(units[u][2]),
             s in part
             j = position[reaction_key(s)]
-            part_number == 2 && (ids[j] = length(steps(m)) + i)
+            part_number == 2 && (ids[j] = ngroups(m) + i)
             kinds[j] = _count_kind(s)
         end
         counter(ids, kinds) > base
@@ -1501,7 +1503,8 @@ function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism}
                                         rxn::EnzymeReaction)
     sub_names = Set(name(s) for s in substrates(rxn))
     prod_names = Set(name(p) for p in products(rxn))
-    bound_regs = Set{Symbol}(name(bm) for group in steps(m) for s in group
+    parent = steps(m)
+    bound_regs = Set{Symbol}(name(bm) for group in parent for s in group
                              for bm in consumed(s) if bm isa Regulator)
     excluded = union(bound_regs, _bound_allo_regs(m))
     eligible_regs = [name(regulator(rm)) for rm in regulators(rxn)
@@ -1511,7 +1514,7 @@ function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism}
 
     # Per form, the names bound productively and the names bound as competitive
     # inhibitors: a reactant's copy sits at a dead-end site, not at its reactant's.
-    forms = _forms(steps(m))
+    forms = _forms(parent)
     productive = Dict(f => Set(name(b) for b in bound(f) if b isa Reactant) for f in forms)
     inhibiting = Dict(f => Set(name(b) for b in bound(f) if b isa CompetitiveInhibitor)
                       for f in forms)
@@ -1538,7 +1541,7 @@ function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism}
     unique!(filter!(!isempty, placements))
 
     results = typeof(m)[]
-    twin = _productive_twin(steps(m))
+    twin = _productive_twin(parent)
     for reg_name in eligible_regs, active in placements
         inhibitor = CompetitiveInhibitor(reg_name)
         # The complex the copy forms at each site, in the site's conformation and residual.
@@ -1549,7 +1552,7 @@ function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism}
         groups = [Step[group; [Step(complex[from_species(s)], complex[to_species(s)],
                                     consumed(s), released(s), is_equilibrium(s))
                                for s in group if mirrored(s)]]
-                  for group in steps(m)]
+                  for group in parent]
         push!(groups, [Step(f, complex[f], Metabolite[inhibitor], Metabolite[], true)
                        for f in active])
         child = _dead_end_child(m, groups, rxn, twin)
@@ -1614,7 +1617,8 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     hyperbolic = _hyperbolic_catalysis(m)
     cns = [cn for cn in allowed_catalytic_multiplicities(rxn) if cn == 1 || hyperbolic]
     isempty(cns) && return AllostericMechanism[]
-    chem = [any(_is_chemistry, group) for group in steps(m)]
+    groups = steps(m)
+    chem = [any(_is_chemistry, group) for group in groups]
     vtags = [c ? :OnlyA : :EqualAI for c in chem]
     regs = [name(regulator(rm)) for rm in regulators(rxn)
             if regulator(rm) isa AllostericRegulator]
@@ -1628,21 +1632,20 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     for sel in _subsets(findall(!, chem))[2:end]
         tags = copy(vtags)
         tags[sel] .= :OnlyA
-        isempty(_onlya_haldane_violation(m, steps(m), tags)) && push!(ktags, tags)
+        isempty(_onlya_haldane_violation(m, groups, tags)) && push!(ktags, tags)
     end
     results = AllostericMechanism[]
     for cn in cns
         for tags in ktags
-            push!(results,
-                  AllostericMechanism(rxn, steps(m), tags, cn, RegulatorySite[]))
+            push!(results, AllostericMechanism(m, tags, cn, RegulatorySite[]))
         end
         # V-type: no :OnlyA binding, every chemistry group :OnlyA. The inactive
         # state binds identically but cannot catalyze, so L folds into kcat and is
         # unobservable — emit only paired with a declared regulator.
         any(chem) || continue
         for reg in regs, tag in (:OnlyA, :OnlyI)
-            push!(results, AllostericMechanism(rxn, steps(m), vtags, cn,
-                [RegulatorySite([reg], cn, [tag])]))
+            push!(results,
+                  AllostericMechanism(m, vtags, cn, [RegulatorySite([reg], cn, [tag])]))
         end
     end
     results

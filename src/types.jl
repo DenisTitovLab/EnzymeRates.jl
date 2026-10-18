@@ -1757,8 +1757,9 @@ end
 
 function Base.show(io::IO, em::EnzymeMechanism)
     m = Mechanism(em)
-    flat = collect(Iterators.flatten(steps(m)))
-    forms = _forms(steps(m))
+    groups = steps(m)
+    flat = collect(Iterators.flatten(groups))
+    forms = _forms(groups)
     print(io, "EnzymeMechanism (", length(flat), " steps, ", length(forms),
           " enzyme forms):")
     for s in flat

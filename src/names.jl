@@ -131,11 +131,14 @@ The constant of the reaction `a → b`: `prefix`, the state tag, then
 _render_reaction(prefix::String, (a, b)::Tuple{String, String}, state::Symbol) =
     Symbol(prefix, _state_tag(state), a, "_to_", b)
 
-"""The `_forward_sides` of each kinetic class's kept member (`_kept_members`), keyed by
-`(group, slot, inactive)`. `name(p, m)` computes them for each call, so a caller that
-names many constants of one mechanism computes them once and passes them."""
-_class_sides(m::_AnyMech) = Dict{Tuple{Int, Int, Bool}, Tuple{String, String}}(
-    k => _forward_sides(s, m) for (k, s) in _kept_members(m))
+"""What `name(p, m, sides)` reads to name `m`'s constants: `groups`, `m`'s kinetic groups as
+`Step`s (`steps`), and `kept`, the `_forward_sides` of each kinetic class's kept member
+(`_kept_members`), keyed by `(group, slot, inactive)`. `name(p, m)` computes it for each
+call, so a caller that names many constants of one mechanism computes it once and passes
+it."""
+_class_sides(m::_AnyMech) = (groups = steps(m),
+    kept = Dict{Tuple{Int, Int, Bool}, Tuple{String, String}}(
+        k => _forward_sides(s, m) for (k, s) in _kept_members(m)))
 
 """
 The sides that name constant `slot` of `step` in `state`: those of the kept member of
@@ -146,12 +149,12 @@ a rapid-equilibrium step) takes the sides of its slot-1 class, so every paramete
 every step renders.
 """
 function _constant_sides(step::Step, slot::Int, state::Symbol, m::_AnyMech, sides)
-    g = findfirst(group -> step in group, steps(m))
+    g = findfirst(group -> step in group, sides.groups)
     g === nothing && error("Step not found in mechanism: $step")
     tag = m isa AllostericMechanism ? cat_allo_state(m, g) : :None
     state === :I && tag === :OnlyA && return _forward_sides(step, m)
     inactive = state === :I && tag === :NonequalAI
-    get(() -> sides[(g, 1, inactive)], sides, (g, slot, inactive))
+    get(() -> sides.kept[(g, 1, inactive)], sides.kept, (g, slot, inactive))
 end
 
 # Every step constant is named after the reaction of its class's kept member: a rate
@@ -159,7 +162,7 @@ end
 # the direction whose products-over-reactants it is. A binding's K is named in the
 # release direction, so it is a dissociation constant (`K_ES_to_E_S`); an
 # isomerization's or other RE step's K in the stored direction (`K_ES_to_EP`). `sides`
-# holds the kept members' sides (`_class_sides`).
+# is `_class_sides(m)`.
 name(p::Kfor, m::_AnyMech, sides = _class_sides(m)) =
     _render_reaction("k_", _constant_sides(p.step, 1, p.state, m, sides), p.state)
 name(p::Krev, m::_AnyMech, sides = _class_sides(m)) =

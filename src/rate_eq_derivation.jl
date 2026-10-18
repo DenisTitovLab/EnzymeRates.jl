@@ -285,7 +285,7 @@ _state_groups(am::AllostericMechanism, state::Symbol) =
 """
 The parameter Symbols of each flat step's constants in conformation `state` of `m` —
 `[K]` at rapid equilibrium, `[kf, kr]` at steady state — through the naming chokepoint
-(`name(p, m, sides)`, `sides` the kept members' sides, `_class_sides(m)`), over the steps
+(`name(p, m, sides)`, `sides = _class_sides(m)`), over the steps
 of `_state_groups(m, state)`: `:None` for a plain mechanism; `:A` or `:I` for an
 allosteric one, an `:EqualAI` group's constants taking its one shared name in both.
 """
@@ -605,12 +605,12 @@ and names. The derivation (`_state_rate_polys`), the joint solve (`_inactive_law
 the copy rule (`_redundant_copy_groups`) read the inactive state from it.
 """
 function _inactive_groups(am::AllostericMechanism)
-    tags = cat_allo_states(am)
+    tags, groups = cat_allo_states(am), steps(am)
     reach = _reachable_from_free(
-        [group for (g, group) in enumerate(steps(am)) if tags[g] !== :OnlyA])
+        [group for (g, group) in enumerate(groups) if tags[g] !== :OnlyA])
     [tags[g] === :OnlyA ? Step[] :
      Step[s for s in group if from_species(s) in reach && to_species(s) in reach]
-     for (g, group) in enumerate(steps(am))]
+     for (g, group) in enumerate(groups)]
 end
 
 """

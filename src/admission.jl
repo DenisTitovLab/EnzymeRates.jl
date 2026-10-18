@@ -19,9 +19,10 @@ function _check_well_posed(m::Mechanism)
     nothing
 end
 function _check_well_posed(am::AllostericMechanism)
-    _assert_bottomed_re_segments(am, steps(am))
-    _assert_one_flip_segment(am)
-    offenders = _onlya_haldane_violation(am, steps(am), cat_allo_states(am))
+    groups = steps(am)
+    _assert_bottomed_re_segments(am, groups)
+    _assert_one_flip_segment(am, groups)
+    offenders = _onlya_haldane_violation(am, groups, cat_allo_states(am))
     isempty(offenders) ||
         error("AllostericMechanism: ", _onlya_violation_message(am, offenders))
     _assert_bottomed_re_segments(am, _inactive_groups(am))
@@ -83,15 +84,16 @@ function _assert_bottomed_re_segments(m::_AnyMech, groups::Vector{Vector{Step}})
 end
 
 """
-Error unless every free form of the allosteric mechanism `am`'s catalytic steps (a form
-with no bound metabolite and no residual) lies in one rapid-equilibrium segment of the
-steps outside `:OnlyA` groups. Under formulation 1 the conformations interconvert at a
-free form. Within one such segment, flipping at any of its free forms gives the same
-model with L rescaled; free forms joined any other way flip at different forms in the two
-conformations or leave one stranded in the inactive conformation, a different model.
+Error unless every free form (no bound metabolite, no residual) of `groups`, the
+allosteric mechanism `am`'s catalytic kinetic groups (`steps(am)`), lies in one
+rapid-equilibrium segment of the steps outside `:OnlyA` groups. Under formulation 1 the
+conformations interconvert at a free form. Within one such segment, flipping at any of
+its free forms gives the same model with L rescaled; free forms joined any other way flip
+at different forms in the two conformations or leave one stranded in the inactive
+conformation, a different model.
 """
-function _assert_one_flip_segment(am::AllostericMechanism)
-    groups, tags = steps(am), cat_allo_states(am)
+function _assert_one_flip_segment(am::AllostericMechanism, groups::Vector{Vector{Step}})
+    tags = cat_allo_states(am)
     free = [f for f in _forms(groups) if isempty(bound(f)) && isempty(residual(f))]
     length(free) <= 1 && return nothing
     re = [s for (g, group) in enumerate(groups) for s in group
