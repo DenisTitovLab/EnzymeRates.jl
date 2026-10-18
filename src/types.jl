@@ -80,7 +80,8 @@ end
 
 # Per-reactant and per-regulator bundling structs. Canonical
 # ordering of atoms / multiplicities so two equivalent constructions
-# compare equal under `==` / `hash`.
+# compare equal under `==` / `hash`; an element listed twice (`S[CHC]`) counts once with
+# the summed count, as `S[C2H]` writes it.
 struct ReactantAtoms
     metabolite::Reactant
     atoms::Vector{Pair{Symbol,Int}}
@@ -99,7 +100,15 @@ struct ReactantAtoms
             error("ReactantAtoms: $(name(metabolite)) has the element " *
                   "$(atoms[bad].first); an element is a capital letter and any lowercase " *
                   "letters, such as C or Cl")
-        new(metabolite, sort(Vector{Pair{Symbol,Int}}(atoms); by=first))
+        merged = Pair{Symbol,Int}[]
+        for (e, c) in sort(Vector{Pair{Symbol,Int}}(atoms); by=first)
+            if !isempty(merged) && merged[end].first === e
+                merged[end] = e => merged[end].second + c
+            else
+                push!(merged, e => c)
+            end
+        end
+        new(metabolite, merged)
     end
 end
 

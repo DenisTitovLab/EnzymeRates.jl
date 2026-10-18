@@ -592,6 +592,22 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         @test ra_map[:P] == [:C => 2, :N => 1]
         @test ra_map[:Q] == [:H => 3, :P => 1]
 
+        # A formula that repeats an element means the summed count: S[CHC] is S[C2H], and
+        # both print as S[C2H].
+        repeated = @enzyme_reaction begin
+            substrates: S[CHC]
+            products: P[C2H]
+        end
+        @test repeated == @enzyme_reaction(begin
+            substrates: S[C2H]
+            products: P[C2H]
+        end)
+        @test sprint(show, repeated) == """
+            @enzyme_reaction begin
+                substrates: S[C2H]
+                products: P[C2H]
+            end"""
+
         # A reactant takes one formula in brackets: several formulas, an empty bracket and
         # a bare name are errors.
         for entry in (:(B[N, P]), :(B[]), :B)

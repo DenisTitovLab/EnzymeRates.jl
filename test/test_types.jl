@@ -897,6 +897,13 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         ra_p = ER.ReactantAtoms(
             ER.Product(:ATP), [:C => 10, :H => 16, :N => 5])
         @test ra1 != ra_p
+
+        # An element listed twice counts once with the summed count, so every writing of
+        # one formula gives one value.
+        ra3 = ER.ReactantAtoms(ER.Substrate(:ATP),
+                               [:C => 4, :N => 5, :C => 6, :H => 16])
+        @test ra3 == ra1 && hash(ra3) == hash(ra1)
+        @test ER.atoms(ra3) == [:C => 10, :H => 16, :N => 5]
     end
 
     @testset "ReactantAtoms validation" begin
