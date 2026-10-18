@@ -1733,13 +1733,10 @@ target site, tag) combination, emit a variant:
     building one.
 
 New sites inherit `am.catalytic_multiplicity` as their multiplicity.
-The mechanism's catalytic side, regulatory_sites' multiplicities, and
-reaction payload pass through unchanged.
+The mechanism's catalytic side and regulatory_sites' multiplicities pass
+through unchanged.
 
-The regulators declared in `rxn`, not those of `am`'s reaction, decide which
-regulators are eligible: the reaction of an `@allosteric_mechanism` fixture
-declares no allosteric regulator, only the competitive inhibitors its steps bind.
-The child keeps `am`'s reaction.
+The regulators declared in `rxn` decide which regulators are eligible.
 """
 function _expand_add_allosteric_regulator(
     am::AllostericMechanism, rxn::EnzymeReaction,
