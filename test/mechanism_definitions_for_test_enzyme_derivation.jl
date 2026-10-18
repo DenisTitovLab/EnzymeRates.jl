@@ -436,8 +436,8 @@ function _testhelper_consistent_point(m, rng)
     # Every edge's equilibrium constant in both conformations and, for a steady-state
     # edge, its forward rate: the law's own where the law holds the edge, an `:EqualAI`
     # edge's active one, and otherwise one draw per kinetic group and conformation (each
-    # member of an `:OnlyA` group in the inactive conformation its own). The phase-4
-    # oracles read these for the edges the inactive law deletes or prunes.
+    # member of an `:OnlyA` group in the inactive conformation its own). The
+    # well-posedness oracles read these for the edges the inactive law deletes or prunes.
     # (`forward` holds the forward rates: a local named `kf` would be the one the closure
     # `_testhelper_conformation_steps` assigns.)
     cm = EnzymeRates.catalytic(mech)
@@ -742,7 +742,7 @@ function _testhelper_population(rxn, rounds)
     unique!(mechs)
 end
 
-# ── Phase-4 oracles ─────────────────────────────────────────────────────────
+# ── Well-posedness oracles ──────────────────────────────────────────────────
 #
 # The well-posedness guard's oracles (spec section 14): mass-action networks of one
 # catalytic subunit, read from the graph read API and never from the guard's code, whose
@@ -1209,8 +1209,7 @@ end
 The RE-speed oracle's verdict on each face of `m` (`_testhelper_faces`), the worst over
 `npoints` points (`_testhelper_consistent_point`, concentrations log-uniform over
 10^±1) in the order nonunique, diverges, unconverged, pattern, law_nan, mismatch, agree.
-An allosteric mechanism is judged at one catalytic subunit (P4-24a,
-`_testhelper_single_subunit`).
+An allosteric mechanism is judged at one catalytic subunit (`_testhelper_single_subunit`).
 """
 function _testhelper_respeed_verdicts(m; rng, npoints::Int = 1, law::Symbol = :package)
     mech = _testhelper_single_subunit(_testhelper_lift(m))
@@ -1303,12 +1302,11 @@ function _testhelper_component_potentials(ex, start::Vector{BigFloat},
 end
 
 """
-The ε-path's six standard directions for `am` (research section 3.1, P4-25): integer
-potentials, arcs rising by 1 and every component other than free E's starting at +1 or
-at -1, each with one speed exponent σ ∈ {½, 1, 2} for every blocked edge and the even
-split θ = ½ of each vanishing rapid-equilibrium binding. Each is `(; potentials, sigma,
-theta)`, `potentials[c][f]` the potential of form `f` in conformation `c` (empty where `c`
-excludes nothing).
+The ε-path's six standard directions for `am`: integer potentials, arcs rising by 1 and
+every component other than free E's starting at +1 or at -1, each with one speed exponent
+σ ∈ {½, 1, 2} for every blocked edge and the even split θ = ½ of each vanishing
+rapid-equilibrium binding. Each is `(; potentials, sigma, theta)`, `potentials[c][f]` the
+potential of form `f` in conformation `c` (empty where `c` excludes nothing).
 """
 function _testhelper_standard_directions(am)
     ne = length(EnzymeRates.catalytic(am).edges)
@@ -1327,7 +1325,7 @@ function _testhelper_standard_directions(am)
 end
 
 """The corners of a box of `k` binary choices, each a vector of `k` zeros and ones: all
-`2^k` when there are at most 128, else 128 distinct ones drawn from `rng` (P4-24a)."""
+`2^k` when there are at most 128, else 128 distinct ones drawn from `rng`."""
 function _testhelper_corners(k::Int, rng)
     k == 0 && return [Int[]]
     k <= 7 && return [digits(x; base = 2, pad = k) for x in 0:(2^k - 1)]
@@ -1339,11 +1337,11 @@ function _testhelper_corners(k::Int, rng)
 end
 
 """
-The ε-path's corner directions for `am` (P4-24a): the corners of the admissible cone,
-every binary choice made one way or the other. Every arc rises by 1 or 20, every component
-other than free E's that no arc enters starts at -5 or 5, every blocked edge's σ is 1/8 or
-16 and every vanishing rapid-equilibrium binding's θ is 0 or 1; all corners when there
-are at most 128, else 128 of them (`_testhelper_corners`).
+The ε-path's corner directions for `am`: the corners of the admissible cone, every binary
+choice made one way or the other. Every arc rises by 1 or 20, every component other than
+free E's that no arc enters starts at -5 or 5, every blocked edge's σ is 1/8 or 16 and
+every vanishing rapid-equilibrium binding's θ is 0 or 1; all corners when there are at
+most 128, else 128 of them (`_testhelper_corners`).
 """
 function _testhelper_corner_directions(am, rng)
     cm = EnzymeRates.catalytic(am)
@@ -1382,9 +1380,11 @@ function _testhelper_corner_directions(am, rng)
     end
 end
 
-"""How far the ε-network of `am` along direction `d` spreads its rates' ε-exponents: the
-sum over the excluded edges of the gap between their two exponents. The RE-first order
-lets Λ outgrow it."""
+"""How far the ε-network of `am` along direction `d` spreads its rates' ε-exponents
+(`_testhelper_network`): the sum over the excluded edges of the magnitudes of each edge's
+two rate exponents. With δ the potential's rise across the edge and σ its speed exponent,
+that is |δ| for a plain binding and 2σ + |δ| for any other edge, whose exponents are
+σ + max(δ, 0) and σ + max(-δ, 0). The RE-first order lets Λ outgrow it."""
 function _testhelper_epsilon_span(am, d)
     cm = EnzymeRates.catalytic(am)
     span = big(0.0)
@@ -1429,10 +1429,10 @@ end
     _testhelper_epath_verdict(m; rng, face = Set{Symbol}(), corners = false,
                               precision = 256) -> Symbol
 
-The ε-path oracle (spec section 14; P4-7, P4-24a) on the face of `m` where the names
-`face` vanish, one catalytic subunit: along each direction (the six standard ones, or the
-corners with `corners`) and each order κ ∈ (RE first, 8, 2, ½, ε first) of the two
-limits, the turnover of the ε-network against the deletion law's value there
+The ε-path oracle (spec section 14) on the face of `m` where the names `face` vanish, one
+catalytic subunit: along each direction (the six standard ones, or the corners with
+`corners`) and each order κ ∈ (RE first, 8, 2, ½, ε first) of the two limits, the
+turnover of the ε-network against the deletion law's value there
 (`_testhelper_limit_law`). The first verdict that applies:
 - `:no_path`: an excluding conformation has no path to the limit (`_testhelper_exclusion`);
 - `:nonunique`: an ε-network has more than one closed class on the face;
@@ -1497,10 +1497,10 @@ end
 
 """
 Whether every standard direction (`_testhelper_standard_directions`) of `m`'s ε-path at an
-interior point approaches the deletion law at a power of ε (P4-25): over ε = 1e-9 … 1e-18
-the error relative to the rate is `C·ε^p` within 10% at every decade, `p` a positive
-multiple of ½, with exact rapid-equilibrium limits (`_testhelper_re_limit`) in 512-bit
-BigFloat; an error below 1e-60 throughout passes.
+interior point approaches the deletion law at a power of ε: over ε = 1e-9 … 1e-18 the
+error relative to the rate is `C·ε^p` within 10% at every decade, `p` a positive multiple
+of ½, with exact rapid-equilibrium limits (`_testhelper_re_limit`) in 512-bit BigFloat; an
+error below 1e-60 throughout passes.
 """
 function _testhelper_in_epath_window(m; rng)
     setprecision(BigFloat, 512) do
@@ -1574,9 +1574,9 @@ end
 
 """
 Whether the test's own certified direction for conformation `c` of `am` exists and keeps
-every cycle row (P4-26): the component potentials of `_testhelper_exclusion` (free E's at
-0, every other source at 1, arcs rising by 1) give each excluded edge the exponent of its
-bound side over its unbound side; each arc's must be at least 1 and every row of
+every cycle row: the component potentials of `_testhelper_exclusion` (free E's at 0, every
+other source at 1, arcs rising by 1) give each excluded edge the exponent of its bound
+side over its unbound side; each arc's must be at least 1 and every row of
 `_testhelper_cycle_basis` must sum to 0.
 """
 function _testhelper_certified(am, c::Int)
@@ -1611,11 +1611,11 @@ function _testhelper_uniuni_grid()
 end
 
 """
-The concerted network of `n` catalytic subunits (research section 3.1, P4-24a): each
-subunit moves through its conformation's law network (`_testhelper_network`) on its own,
-and the oligomer flips only with every subunit at free E, at the single-subunit flip
-ratio. Its nodes are `(state, conformation)`, a state numbering one assignment of the law
-network's nodes to the subunits.
+The concerted network of `n` catalytic subunits: each subunit moves through its
+conformation's law network (`_testhelper_network`) on its own, and the oligomer flips only
+with every subunit at free E, at the single-subunit flip ratio. Its nodes are
+`(state, conformation)`, a state numbering one assignment of the law network's nodes to
+the subunits.
 """
 function _testhelper_protomer_network(m, point, concs::AbstractDict; n::Int,
                                       speeds::Matrix{BigFloat})

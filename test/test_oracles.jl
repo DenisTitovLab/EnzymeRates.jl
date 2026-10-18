@@ -733,9 +733,8 @@ end
 
 @testset "the ε-path oracle rejects islands, and R2 only at P = 0" begin
     # R3 and R4 strand F behind tagged chemistry in the inactive conformation, an island:
-    # its weight follows the potential the path gives it. The research ε-path read two
-    # orders; this oracle reads five, so an island may read direction-dependent or a
-    # wrong limit.
+    # its weight follows the potential the path gives it, so along the oracle's five
+    # orders of the two limits an island may read direction-dependent or a wrong limit.
     r3 = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
