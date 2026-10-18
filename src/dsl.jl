@@ -274,6 +274,10 @@ Steps, one per line:
   substrate or product that `modifiers:` lists binds as a modifier where it is written
   `X::Mod`: `E(S) + S::Mod ⇌ E(S, S::Mod)`.
 
+Every mechanism holds the free enzyme `E`, with nothing bound and no residual, and its
+steps join every form to it. Each declared name takes part in some step: a step takes up
+or gives off each substrate and product, and binds each modifier.
+
 Constants are named after the forms a step joins, each form written as its label and
 its bound names without a separator: `K_ES_to_E_S` for `E + S ⇌ E(S)`, `k_ES_to_EP` and
 `k_EP_to_ES` for `E(S) <--> E(P)`. A modifier copy writes `Smod`, and a residual

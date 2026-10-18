@@ -680,6 +680,26 @@ end
             Estar(S) <--> Estar(P)
         end
     end))))
+    # Declared names no step exchanges: a substrate, a product, a modifier; a substrate
+    # exchanged only as its modifier copy; a reactant declared a modifier whose copy no
+    # step binds.
+    _testhelper_unused(kind, x) = ErrorException(
+        "Mechanism: $kind $x is declared, but no step " *
+        (kind == "modifier" ? "binds" : "uses") * " it")
+    @test_throws(_testhelper_unused("substrate", :T),
+                 ER.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :T])))
+    @test_throws(_testhelper_unused("product", :Q),
+                 ER.Mechanism(_testhelper_uniuni_raw(products = [:P, :Q])))
+    @test_throws(_testhelper_unused("modifier", :I),
+                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [:I])))
+    mod_T = EnzymeRates.Met(:T, true)
+    @test_throws(_testhelper_unused("substrate", :T),
+                 ER.Mechanism(_testhelper_adding(
+                     _testhelper_uniuni_raw(substrates = [:S, :T], modifiers = [:T]),
+                     EnzymeRates.RawStep(free, EnzymeRates.RawForm(:E, [mod_T]), [mod_T],
+                                         EnzymeRates.Met[], true))))
+    @test_throws(_testhelper_unused("modifier", :P),
+                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [:P])))
 end
 
 @testset "a form's name and text read as constants and the macros write them" begin

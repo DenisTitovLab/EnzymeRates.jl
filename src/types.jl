@@ -1224,7 +1224,8 @@ add substrates and subtract products; no step joining a form to itself, taking u
 giving off one metabolite, or binding a metabolite into a form that holds it in another
 role; tied steps that make one conformational change (`misaligned`, from
 `_canonicalize`); no two forms that render one name; each kinetic group one kind of step
-with one flag; each reaction once; free E; one connected graph.
+with one flag; each reaction once; free E; one connected graph; and a step that
+exchanges each declared name, a modifier as a modifier.
 """
 function _check_representation(m::Mechanism, misaligned::Vector{Edge},
                                modifiers::Vector{Symbol})
@@ -1268,6 +1269,7 @@ function _check_representation(m::Mechanism, misaligned::Vector{Edge},
     _check_each_reaction_once(m, groups)
     _check_free_E(m)
     _check_connected(m)
+    _check_declared_used(m, modifiers)
 end
 
 """Error unless form 1 of `m` is free E: label `E`, nothing bound, no residual. Canonical
@@ -1297,6 +1299,26 @@ function _check_connected(m::Mechanism)
     f === nothing ||
         error("Mechanism: the steps do not form one connected graph; no steps lead from " *
               "free E to $(_form_name(m, f))")
+end
+
+"""Error unless some step of `m` takes up or gives off each declared substrate and
+product, and some step takes up or gives off each modifier `modifiers` declares as a
+modifier: a declared name that no step exchanges takes no part in the rate law."""
+function _check_declared_used(m::Mechanism, modifiers::Vector{Symbol})
+    exchanged = mapreduce(e -> _occupied(e.consumed) | _occupied(e.released), |, m.edges;
+                          init = Counts(0))
+    function used(x::Met)
+        i = searchsortedfirst(m.table, x)
+        i <= length(m.table) && m.table[i] == x && copies(exchanged, i) > 0
+    end
+    for (names, kind) in ((m.substrates, "substrate"), (m.products, "product"))
+        k = findfirst(n -> !used(Met(n, false)), names)
+        k === nothing ||
+            error("Mechanism: $kind $(names[k]) is declared, but no step uses it")
+    end
+    k = findfirst(n -> !used(Met(n, true)), modifiers)
+    k === nothing ||
+        error("Mechanism: modifier $(modifiers[k]) is declared, but no step binds it")
 end
 
 """Error unless `misaligned`, from `_canonicalize`, is empty: it holds the lead and a member

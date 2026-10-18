@@ -1601,25 +1601,24 @@ end
 
 
 @testset "_process_batch failures report the ORIGINAL mechanism" begin
-    # A mechanism whose derivation throws — its chemistry step consumes an atom
-    # of the never-binding substrate T, so the thermodynamic-cycle check inside
-    # compile_mechanism raises "Cycle 1 produces metabolite change not
-    # proportional to net reaction". The FitFailure must carry the ORIGINAL `m0`.
+    # A mechanism whose derivation throws: T binds free E only in a dead end, so the
+    # catalytic cycle turns S alone into P, and the thermodynamic-cycle check inside
+    # compile_mechanism raises "Cycle 1 produces metabolite change not proportional to
+    # net reaction". The FitFailure must carry the ORIGINAL `m0`.
     rxn_bad = @enzyme_reaction begin
         substrates: S[C], T[N]
         products:   P[CN]
     end
-    e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
-    e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
-    e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
-    m_bad = EnzymeRates.Mechanism(rxn_bad, [
-        [EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
-                          EnzymeRates.Metabolite[], true)],
-        [EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
-                          EnzymeRates.Metabolite[], false)],
-        [EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
-                          EnzymeRates.Metabolite[], true)],
-    ])
+    m_bad = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S, T
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+            E + T ⇌ E(T)
+        end
+    end)
     data_bad = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
                 S = [1.0, 2.0, 1.0, 2.0], T = [0.5, 0.5, 1.0, 1.0],
                 P = [0.1, 0.2, 0.1, 0.2])
@@ -1635,25 +1634,24 @@ end
 
 @testset "_expand_parents records an expansion error instead of aborting" begin
     # expand_mechanisms asserts its input conserves atoms; this mechanism's
-    # chemistry step does not (T is a declared substrate that never binds, so the
-    # step loses an N), and the assertion raises. _expand_parents must catch that
+    # chemistry step does not (T binds free E only in a dead end, so the step makes
+    # P's N from nothing), and the assertion raises. _expand_parents must catch that
     # and return the parent as a FitFailure (so the beam records it in CSV and
     # continues), not propagate and abort the search.
     rxn_bad = @enzyme_reaction begin
         substrates: S[C], T[N]
         products:   P[CN]
     end
-    e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
-    e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
-    e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
-    m_bad = EnzymeRates.Mechanism(rxn_bad, [
-        [EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
-                          EnzymeRates.Metabolite[], true)],
-        [EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
-                          EnzymeRates.Metabolite[], false)],
-        [EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
-                          EnzymeRates.Metabolite[], true)],
-    ])
+    m_bad = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S, T
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+            E + T ⇌ E(T)
+        end
+    end)
     # Sanity: expansion of this mechanism genuinely raises.
     @test_throws ErrorException EnzymeRates.expand_mechanisms(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m_bad],
@@ -1664,7 +1662,7 @@ end
     failure = only(failures)
     @test failure isa EnzymeRates.FitFailure
     @test failure.mech == m_bad                    # the ORIGINAL parent
-    # The recorded error is the assertion's: the chemistry step ES → EP loses T's N.
+    # The recorded error is the assertion's: the chemistry step ES → EP makes an N.
     @test occursin("atom-non-conserving step ES → EP", failure.error)
     @test occursin("= Dict(:N => 1)", failure.error)
     # A well-formed parent, a seed of the reaction, expands with no failure.
@@ -1796,31 +1794,31 @@ end
 end
 
 @testset "_base_tier records a degenerate seed's expansion error" begin
-    # The chemistry step E(S) ⇌ E(P) loses the N of T, a declared substrate that never
-    # binds, so expand_mechanisms' atom-conservation assertion raises. With the P binding
-    # steady state the seed has no maximal rate in products (turning that binding rapid
-    # equilibrium closes an all-RE turnover cycle), so it is degenerate and expanded.
+    # The chemistry step E(S) ⇌ E(P) makes P's N from nothing (T binds free E only in a
+    # dead end), so expand_mechanisms' atom-conservation assertion raises. With the P
+    # binding steady state the seed has no maximal rate in products (turning that
+    # binding rapid equilibrium closes an all-RE turnover cycle), so it is degenerate and
+    # expanded.
     rxn_bad = @enzyme_reaction begin
         substrates: S[C], T[N]
         products:   P[CN]
     end
-    e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
-    e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
-    e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
-    m_bad = EnzymeRates.Mechanism(rxn_bad, [
-        [EnzymeRates.Step(e, e_s, [EnzymeRates.Substrate(:S)],
-                          EnzymeRates.Metabolite[], true)],
-        [EnzymeRates.Step(e_s, e_p, EnzymeRates.Metabolite[],
-                          EnzymeRates.Metabolite[], true)],
-        [EnzymeRates.Step(e, e_p, [EnzymeRates.Product(:P)],
-                          EnzymeRates.Metabolite[], false)],
-    ])
+    m_bad = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S, T
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) ⇌ E(P)
+            E + P <--> E(P)
+            E + T ⇌ E(T)
+        end
+    end)
     @test EnzymeRates._degenerate(m_bad)
     base, failures = EnzymeRates._base_tier([m_bad], rxn_bad)
     @test isempty(base)
     @test length(failures) == 1 && failures[1] isa EnzymeRates.FitFailure
     @test failures[1].mech == m_bad
-    # The recorded error is the assertion's: the chemistry step ES → EP loses T's N.
+    # The recorded error is the assertion's: the chemistry step ES → EP makes an N.
     @test occursin("atom-non-conserving step ES → EP", failures[1].error)
     @test occursin("= Dict(:N => 1)", failures[1].error)
 end

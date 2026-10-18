@@ -436,6 +436,7 @@ end
         # the segment stays bottomless. The copy shares A's name and must not hide
         # A's substrate role, whatever the order of the groups.
         A, B, Ainh = ER.Substrate(:A), ER.Substrate(:B), ER.CompetitiveInhibitor(:A)
+        P = ER.Product(:P)
         inh_steps = [
             [ER.Step(_testhelper_sp([]), _testhelper_sp([A]), [A], ER.Metabolite[],
                      false)],
@@ -447,6 +448,10 @@ end
                      true)],
             [ER.Step(_testhelper_sp([B]), _testhelper_sp([Ainh, B]), [Ainh],
                      ER.Metabolite[], true)],
+            [ER.Step(_testhelper_sp([]), _testhelper_sp([P]), [P], ER.Metabolite[],
+                     true)],
+            [ER.Step(_testhelper_sp([A, B]), _testhelper_sp([P]), ER.Metabolite[],
+                     ER.Metabolite[], false)],
         ]
         rxn = @enzyme_reaction(begin
             substrates: A[C], B[C]

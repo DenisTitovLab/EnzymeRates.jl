@@ -249,9 +249,11 @@ end
         @test e30 < big(10)^-20
     end
 
-    @testset "a disconnected network is no mechanism" begin
-        # Two enzymes that never meet have no single steady state; the constructor
-        # rejects their network, so no oracle meets one.
+    @testset "rejects a disconnected network" begin
+        # Two enzymes that never meet have no single steady state. The constructor
+        # rejects their network; the canonical graph of the walker's raw value, which no
+        # constructor check has read, holds it, and the oracle rejects it too, concrete
+        # or compiled.
         @test_throws(ErrorException("Mechanism: the steps do not form one connected " *
                                     "graph; no steps lead from free E to F"),
                      @enzyme_mechanism begin
@@ -264,6 +266,24 @@ end
                 F(S) <--> F + P
             end
         end)
+        two_enzymes = EnzymeRates._canonicalize(EnzymeRates._raw_mechanism(:(begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)
+                E(S) <--> E + P
+                F + S <--> F(S)
+                F(S) <--> F + P
+            end
+        end), false)).mechanism
+        for m in (two_enzymes, EnzymeRates.compile_mechanism(two_enzymes))
+            point = _testhelper_consistent_point(m, Random.MersenneTwister(1))
+            @test_throws(ErrorException("_testhelper_steady_state_rate: the network of " *
+                                        "4 enzyme forms is disconnected, so its steady " *
+                                        "state is not unique"),
+                         _testhelper_steady_state_rate(m, point,
+                                                       Dict(:S => big(1), :P => big(1))))
+        end
     end
 
     @testset "the two conformations combine at the flip ratio L" begin

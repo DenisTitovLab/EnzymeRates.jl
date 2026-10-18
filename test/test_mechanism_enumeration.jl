@@ -371,9 +371,8 @@ end
 end
 
 @testset "_testhelper_assert_mechanism_invariants: coverage of every reactant" begin
-    # POSITIVE: an init mechanism with an unbound declared inhibitor must NOT
-    # error — regulators are intentionally excluded from the coverage check
-    # (init_mechanisms declares dead-end inhibitors that no step binds yet).
+    # POSITIVE: the init mechanisms of a reaction with an inhibitor bind no inhibitor
+    # yet; the coverage check reads substrates and products only.
     rxn_inh = @enzyme_reaction begin
         substrates: S[C]
         products:   P[C]
@@ -383,23 +382,31 @@ end
         @test _testhelper_assert_mechanism_invariants(m) === nothing
     end
 
-    # NEGATIVE 1: a declared SUBSTRATE that no step binds → error. This half checks
-    # that the oracle can fail.
-    rxn_unused = @enzyme_reaction begin
-        substrates: S[C], T[C]
-        products:   P[C2]
-    end
-    s1 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-                          EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                          [EnzymeRates.Substrate(:S)], EnzymeRates.Metabolite[], true)
-    s2 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                          EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-                          EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
-    s3 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-                          EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-                          EnzymeRates.Metabolite[], [EnzymeRates.Product(:P)], true)
-    m_unused = EnzymeRates.Mechanism(rxn_unused, [[s1], [s2], [s3]])
-    @test_throws ErrorException _testhelper_assert_mechanism_invariants(m_unused)
+    # NEGATIVE: a declared substrate T that no step takes up. The macro rejects such a
+    # mechanism; the canonical graph of the walker's raw value, which no constructor
+    # check has read, holds it, and the helper must fail on it. This half checks that the
+    # oracle can fail.
+    @test_throws(ErrorException("Mechanism: substrate T is declared, but no step uses it"),
+                 @enzyme_mechanism begin
+        substrates: S, T
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
+    m_unused = EnzymeRates._canonicalize(EnzymeRates._raw_mechanism(:(begin
+        substrates: S, T
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end), false)).mechanism
+    @test_throws(ErrorException("declared substrate/product T appears in no step"),
+                 _testhelper_assert_mechanism_invariants(m_unused))
 end
 
 @testset "_assert_atom_conserving" begin
@@ -9500,12 +9507,14 @@ end
     @test EnzymeRates._context_bipartitions([none, a_p, ab_p]) ==
           [([none], [a_p, ab_p]), ([none, ab_p], [a_p]), ([none, a_p], [ab_p])]
 
-    # Conformation as a context: A binds E, Estar, and Estar(B).
+    # Conformation as a context: A binds E, Estar, and Estar(B), which B's binding to
+    # Estar forms.
     conf = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
             (E + A ⇌ E(A), Estar + A ⇌ Estar(A), Estar(B) + A ⇌ Estar(A, B))
+            Estar + B ⇌ Estar(B)
             E(A) <--> Estar(A)
             Estar(A, B) <--> Estar(P, Q)
             Estar(P, Q) ⇌ Estar(P) + Q
