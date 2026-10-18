@@ -51,8 +51,8 @@ _met_sort_key(m::Metabolite) = (name(m), m isa CompetitiveInhibitor)
 """
 Species: an enzyme form. `bound` is sorted by `_met_sort_key`. Its internal name
 (`_species_name`: `:E` / `:EATP` / `:Estar...` / `:EB_res_+A_-P`) is rendered once at
-construction from the form alone and stored in `name`; it orders and identifies forms
-inside the package, and never takes part in `==`, `hash` or display. Parameter
+construction from the form alone and stored in `name`; it orders forms inside the
+package, and never takes part in `==`, `hash` or display. Parameter
 names write a form with `_form_label`, which also reads the mechanism's reactants.
 """
 struct Species
@@ -840,7 +840,7 @@ same name. A form's name joins its conformation and bound metabolites without a
 separator, so E with NAD and P bound and E with NADP bound are both `ENADP`. Every
 constant is named after the forms its step joins (`_form_label`), so the two forms
 would share constant names. The forms' internal names (`name(::Species)`), which order
-and identify forms inside the package, must differ as well.
+forms inside the package, must differ as well.
 """
 function _assert_distinct_form_names(reaction::EnzymeReaction, steps::Vector{Vector{Step}})
     # A form as `@enzyme_mechanism` writes it: `E(NAD, P)`, `E(A::Mod)`, `E(I)`,
@@ -865,8 +865,7 @@ function _assert_distinct_form_names(reaction::EnzymeReaction, steps::Vector{Vec
           k -> "both render the name $k; every constant is named after the forms its " *
                "step joins")
     check(name, Dict{Symbol, Species}(),
-          k -> "share the internal name $k, which orders and identifies forms inside " *
-               "the package")
+          k -> "share the internal name $k, which orders forms inside the package")
 end
 
 """

@@ -56,8 +56,7 @@ conformations or leave one stranded in the inactive conformation, a different mo
 """
 function _assert_one_flip_segment(am::AllostericMechanism)
     groups, tags = steps(am), cat_allo_states(am)
-    free = sort!([name(f) for f in _forms(groups)
-                  if isempty(bound(f)) && isempty(residual(f))])
+    free = [f for f in _forms(groups) if isempty(bound(f)) && isempty(residual(f))]
     length(free) <= 1 && return nothing
     re = [s for (g, group) in enumerate(groups) for s in group
           if tags[g] !== :OnlyA && is_equilibrium(s)]
@@ -65,17 +64,18 @@ function _assert_one_flip_segment(am::AllostericMechanism)
     while changed
         changed = false
         for s in re
-            a, b = name(from_species(s)), name(to_species(s))
+            a, b = from_species(s), to_species(s)
             (a in segment) == (b in segment) && continue
             push!(segment, a, b)
             changed = true
         end
     end
     all(in(segment), free) || error(
-        "AllostericMechanism: the free forms $(join(free, ", ")) are not joined by " *
-        "rapid-equilibrium steps outside :OnlyA groups. The conformations interconvert " *
-        "at one free form, so the other free forms must be in rapid equilibrium with it: " *
-        "join them by ⇌ steps outside :OnlyA groups, or keep one free form.")
+        "AllostericMechanism: the free forms $(join(_form_label.(free, Ref(am)), ", ")) " *
+        "are not joined by rapid-equilibrium steps outside :OnlyA groups. The " *
+        "conformations interconvert at one free form, so the other free forms must be " *
+        "in rapid equilibrium with it: join them by ⇌ steps outside :OnlyA groups, or " *
+        "keep one free form.")
     nothing
 end
 

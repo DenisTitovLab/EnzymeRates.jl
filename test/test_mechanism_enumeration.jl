@@ -30,6 +30,10 @@ _testhelper_form_names(t::Vector{EnzymeRates.Step}) = Set{Symbol}(
     for s in t for sp in (EnzymeRates.from_species(s),
                           EnzymeRates.to_species(s)))
 
+# The labels of the forms `forms` of mechanism `m`, as constant names write them
+# (`_form_label`).
+_testhelper_form_labels(m, forms) = Set(EnzymeRates._form_label(f, m) for f in forms)
+
 # Flat topology (Vector{Step}) from a compiled mechanism, matching the
 # shape _catalytic_topologies now returns (each step its own kinetic group).
 _testhelper_flat_topo(m) = EnzymeRates.Step[
@@ -713,10 +717,10 @@ m_uu = @enzyme_mechanism begin
     end
 end
 mech_uu = EnzymeRates.Mechanism(m_uu)
-@test EnzymeRates._forms_where_free(
-    mech_uu, EnzymeRates.Reactant, :S) == Set([:E])
-@test EnzymeRates._forms_where_free(
-    mech_uu, EnzymeRates.Reactant, :P) == Set([:E])
+@test _testhelper_form_labels(mech_uu, EnzymeRates._forms_where_free(
+    mech_uu, EnzymeRates.Reactant, :S)) == Set(["E"])
+@test _testhelper_form_labels(mech_uu, EnzymeRates._forms_where_free(
+    mech_uu, EnzymeRates.Reactant, :P)) == Set(["E"])
 
 # Bi-bi random: B binds to E and E_A
 m_bb = @enzyme_mechanism begin
@@ -735,14 +739,14 @@ m_bb = @enzyme_mechanism begin
     end
 end
 mech_bb = EnzymeRates.Mechanism(m_bb)
-@test EnzymeRates._forms_where_free(
-    mech_bb, EnzymeRates.Reactant, :B) == Set([:E, :EA])
-@test EnzymeRates._forms_where_free(
-    mech_bb, EnzymeRates.Reactant, :A) == Set([:E, :EB])
-@test EnzymeRates._forms_where_free(
-    mech_bb, EnzymeRates.Reactant, :P) == Set([:E, :EQ])
-@test EnzymeRates._forms_where_free(
-    mech_bb, EnzymeRates.Reactant, :Q) == Set([:E, :EP])
+@test _testhelper_form_labels(mech_bb, EnzymeRates._forms_where_free(
+    mech_bb, EnzymeRates.Reactant, :B)) == Set(["E", "EA"])
+@test _testhelper_form_labels(mech_bb, EnzymeRates._forms_where_free(
+    mech_bb, EnzymeRates.Reactant, :A)) == Set(["E", "EB"])
+@test _testhelper_form_labels(mech_bb, EnzymeRates._forms_where_free(
+    mech_bb, EnzymeRates.Reactant, :P)) == Set(["E", "EQ"])
+@test _testhelper_form_labels(mech_bb, EnzymeRates._forms_where_free(
+    mech_bb, EnzymeRates.Reactant, :Q)) == Set(["E", "EP"])
 end
 
 @testset "a copy binds at its own sites, apart from its reactant's" begin
@@ -761,12 +765,12 @@ end
             (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
         end
     end)
-    @test EnzymeRates._forms_where_free(
-        m, EnzymeRates.Reactant, :A) == Set([:E])
-    @test EnzymeRates._forms_where_free(
-        m, EnzymeRates.CompetitiveInhibitor, :A) == Set([:E, :EQ])
-    @test EnzymeRates._forms_where_free(
-        m, EnzymeRates.Reactant, :Q) == Set([:E, :EAinh])
+    @test _testhelper_form_labels(m, EnzymeRates._forms_where_free(
+        m, EnzymeRates.Reactant, :A)) == Set(["E"])
+    @test _testhelper_form_labels(m, EnzymeRates._forms_where_free(
+        m, EnzymeRates.CompetitiveInhibitor, :A)) == Set(["E", "EQ"])
+    @test _testhelper_form_labels(m, EnzymeRates._forms_where_free(
+        m, EnzymeRates.Reactant, :Q)) == Set(["E", "EAmod"])
     @test isempty(EnzymeRates._forms_where_free(
         m, EnzymeRates.CompetitiveInhibitor, :Q))
 end
@@ -783,10 +787,14 @@ end
             E + Q <--> E(Q)
         end
     end)
-    @test EnzymeRates._forms_where_free(m, EnzymeRates.Reactant, :A) == Set([:E])
-    @test EnzymeRates._forms_where_free(m, EnzymeRates.Reactant, :B) == Set([:EA])
-    @test EnzymeRates._forms_where_free(m, EnzymeRates.Reactant, :P) == Set([:EQ])
-    @test EnzymeRates._forms_where_free(m, EnzymeRates.Reactant, :Q) == Set([:E])
+    @test _testhelper_form_labels(m, EnzymeRates._forms_where_free(
+        m, EnzymeRates.Reactant, :A)) == Set(["E"])
+    @test _testhelper_form_labels(m, EnzymeRates._forms_where_free(
+        m, EnzymeRates.Reactant, :B)) == Set(["EA"])
+    @test _testhelper_form_labels(m, EnzymeRates._forms_where_free(
+        m, EnzymeRates.Reactant, :P)) == Set(["EQ"])
+    @test _testhelper_form_labels(m, EnzymeRates._forms_where_free(
+        m, EnzymeRates.Reactant, :Q)) == Set(["E"])
 end
 end
 

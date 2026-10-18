@@ -1418,20 +1418,20 @@ function _redundant_copy_groups(m::Union{Mechanism, AllostericMechanism})
 end
 
 """
-Names of the forms where the metabolite named `met_name`, in the role `role`, is free on
-some step: the step's `from_species` when it takes the metabolite up, its `to_species`
-when it gives it off, so a Theorell–Chance step E(A) + B → E(Q) + P frees B at E(A) and
-P at E(Q). `Reactant` asks where a substrate or product binds productively;
+The forms where the metabolite named `met_name`, in the role `role`, is free on some
+step: the step's `from_species` when it takes the metabolite up, its `to_species` when it
+gives it off, so a Theorell–Chance step E(A) + B → E(Q) + P frees B at E(A) and P at
+E(Q). `Reactant` asks where a substrate or product binds productively;
 `CompetitiveInhibitor` where an inhibitor, a reactant's copy included, binds its dead-end
 site. A reactant and its copy share a name but bind different sites, so the role tells
 them apart. The dead-end move targets these forms for competition with the metabolite.
 """
 function _forms_where_free(m::Union{Mechanism, AllostericMechanism},
                            role::Type{<:Metabolite}, met_name::Symbol)
-    forms = Set{Symbol}()
+    forms = Set{Species}()
     for group in steps(m), s in group,
         (form, mets) in ((from_species(s), consumed(s)), (to_species(s), released(s)))
-        any(x -> x isa role && name(x) == met_name, mets) && push!(forms, name(form))
+        any(x -> x isa role && name(x) == met_name, mets) && push!(forms, form)
     end
     forms
 end
@@ -1506,28 +1506,26 @@ function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism}
                         name(regulator(rm)) ∉ excluded]
     isempty(eligible_regs) && return typeof(m)[]
 
-    form_sp = Dict(name(sp) => sp for group in steps(m) for s in group
-                   for sp in (from_species(s), to_species(s)))
     # Per form, the names bound productively and the names bound as competitive
     # inhibitors: a reactant's copy sits at a dead-end site, not at its reactant's.
-    productive = Dict(f => Set(name(b) for b in bound(sp) if b isa Reactant)
-                      for (f, sp) in form_sp)
-    inhibiting = Dict(f => Set(name(b) for b in bound(sp) if b isa CompetitiveInhibitor)
-                      for (f, sp) in form_sp)
+    forms = _forms(steps(m))
+    productive = Dict(f => Set(name(b) for b in bound(f) if b isa Reactant) for f in forms)
+    inhibiting = Dict(f => Set(name(b) for b in bound(f) if b isa CompetitiveInhibitor)
+                      for f in forms)
 
     # The sites of each competition pattern, sorted, once each in pattern order.
-    placements = Vector{Symbol}[]
+    placements = Vector{Species}[]
     for (comp_subs, comp_prods, comp_inhibitors) in
             _inhibitor_competition_patterns(sub_names, prod_names, collect(bound_regs))
         comp_reactants = union(comp_subs, comp_prods)
-        target_forms = Set{Symbol}()
+        target_forms = Set{Species}()
         for met in comp_reactants
             union!(target_forms, _forms_where_free(m, Reactant, met))
         end
         for inh in comp_inhibitors
             union!(target_forms, _forms_where_free(m, CompetitiveInhibitor, inh))
         end
-        push!(placements, [f for f in sort!(collect(target_forms))
+        push!(placements, [f for f in sort!(collect(target_forms); by = name)
                            if !issubset(sub_names, productive[f]) &&
                               !issubset(prod_names, productive[f]) &&
                               isempty(intersect(productive[f], comp_reactants)) &&
@@ -1540,18 +1538,16 @@ function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism}
     for reg_name in eligible_regs, active in placements
         inhibitor = CompetitiveInhibitor(reg_name)
         # The complex the copy forms at each site, in the site's conformation and residual.
-        complex = Dict(f => Species(Metabolite[bound(form_sp[f])..., inhibitor],
-                                    conformation(form_sp[f]), residual(form_sp[f]))
+        complex = Dict(f => Species(Metabolite[bound(f)..., inhibitor], conformation(f),
+                                    residual(f))
                        for f in active)
-        mirrored(s) = haskey(complex, name(from_species(s))) &&
-                      haskey(complex, name(to_species(s)))
-        groups = [Step[group; [Step(complex[name(from_species(s))],
-                                    complex[name(to_species(s))],
+        mirrored(s) = haskey(complex, from_species(s)) && haskey(complex, to_species(s))
+        groups = [Step[group; [Step(complex[from_species(s)], complex[to_species(s)],
                                     consumed(s), released(s), is_equilibrium(s))
                                for s in group if mirrored(s)]]
                   for group in steps(m)]
-        push!(groups, [Step(form_sp[f], complex[f], Metabolite[inhibitor], Metabolite[],
-                            true) for f in active])
+        push!(groups, [Step(f, complex[f], Metabolite[inhibitor], Metabolite[], true)
+                       for f in active])
         child = _dead_end_child(m, groups, rxn, twin)
         child === nothing || push!(results, child)
     end

@@ -566,7 +566,7 @@ end
 # ═══════════════════════════════════════════════════════════════════
 
 """
-Names of enzyme forms in the connected component of the free enzyme over ALL
+The enzyme forms in the connected component of the free enzyme over ALL
 steps of `groups` (rapid-equilibrium and steady-state alike). Every form
 carrying neither a bound metabolite nor a residual seeds the search: such a form
 interconverts between conformations under formulation 1, and so is a root the
@@ -578,18 +578,18 @@ mass, and leaving it in place would strand the free-enzyme spanning tree
 (`D[g_free] = 0`).
 """
 function _reachable_from_free(groups)
-    reach = Set{Symbol}(name(f) for grp in groups for s in grp
-                        for f in (from_species(s), to_species(s))
-                        if isempty(bound(f)) && isempty(residual(f)))
+    reach = Set{Species}(f for grp in groups for s in grp
+                         for f in (from_species(s), to_species(s))
+                         if isempty(bound(f)) && isempty(residual(f)))
     changed = true
     while changed
         changed = false
         for grp in groups, s in grp
-            fn, tn = name(from_species(s)), name(to_species(s))
-            if fn in reach && tn ∉ reach
-                push!(reach, tn); changed = true
-            elseif tn in reach && fn ∉ reach
-                push!(reach, fn); changed = true
+            f, t = from_species(s), to_species(s)
+            if f in reach && t ∉ reach
+                push!(reach, t); changed = true
+            elseif t in reach && f ∉ reach
+                push!(reach, f); changed = true
             end
         end
     end
@@ -609,8 +609,7 @@ function _inactive_groups(am::AllostericMechanism)
     reach = _reachable_from_free(
         [group for (g, group) in enumerate(steps(am)) if tags[g] !== :OnlyA])
     [tags[g] === :OnlyA ? Step[] :
-     Step[s for s in group if name(from_species(s)) in reach &&
-                              name(to_species(s)) in reach]
+     Step[s for s in group if from_species(s) in reach && to_species(s) in reach]
      for (g, group) in enumerate(steps(am))]
 end
 
