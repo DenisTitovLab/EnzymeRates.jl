@@ -1704,40 +1704,6 @@ _raw_sites(am::AllostericMechanism) =
     RawSite[RawSite(copy(s.ligands), s.multiplicity, copy(s.allo_states))
             for s in am.regulatory_sites]
 
-# ─── Pretty printing ────────────────────────────────────────────────────
-
-function Base.show(io::IO, em::EnzymeMechanism)
-    m = Mechanism(em)
-    print(io, "EnzymeMechanism (", length(m.edges), " steps, ", length(m.forms),
-          " enzyme forms):")
-    for k in _flat_edges(m)
-        print(io, "\n  ", _edge_text(m, k))
-    end
-    # The names the steps bind as modifiers, each once.
-    mods = modifiers(m)
-    isempty(mods) || print(io, " | modifiers: ", join(mods, ", "))
-end
-
-# Mirrors `@allosteric_mechanism` syntax: a kinetic group of several steps prints in
-# parentheses, and each group carries its allosteric-state tag.
-function Base.show(io::IO, aem::AllostericEnzymeMechanism)
-    am = AllostericMechanism(aem)
-    sites = regulatory_sites(am)
-    print(io, "AllostericEnzymeMechanism (cat_n=", catalytic_multiplicity(am))
-    isempty(sites) || print(io, ", ", length(sites), " reg sites")
-    print(io, "):")
-    for (g, members) in enumerate(_group_members(am.catalytic))
-        body = join([_edge_text(am.catalytic, k) for k in members], ", ")
-        print(io, "\n  ", length(members) == 1 ? body : "($body)", " :: ",
-              cat_allo_state(am, g))
-    end
-    for (i, site) in enumerate(sites)
-        ligs = ligands(site)
-        print(io, "\n  reg site $i (n=", multiplicity(site), "): ", join(ligs, ", "),
-              " [", join(("$l::$t" for (l, t) in zip(ligs, allo_states(site))), ", "), "]")
-    end
-end
-
 # ─── Accessors ─────────────────────────────────────────────────
 #
 # A compiled mechanism is read by lifting it to its concrete `Mechanism` or

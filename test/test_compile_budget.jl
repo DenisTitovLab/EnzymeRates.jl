@@ -117,8 +117,10 @@ end
     #     and are picked by content, not by their place in the seeds. The census
     #     counts the method instances of every module, since a fit compiled per
     #     mechanism compiles Optimization, SciMLBase, CMAEvolutionStrategy and Base
-    #     code; it also counts the show instances PASS1 adds, since Base's show prints
-    #     a type by compiling show again for each new Sig shape.
+    #     code. It also counts the show instances that PASS1 adds and, after the census,
+    #     those that printing the compiled mechanism adds: Base's show prints a type by
+    #     compiling show again for each new Sig shape, and a mechanism's show that
+    #     specialized on the Sig would compile again for each fresh mechanism.
     trace_script = """
         using EnzymeRates
         r = EnzymeRates.EnzymeReaction(
@@ -186,7 +188,8 @@ end
             _testhelper_instances(meths)
         end
         # The method instances and native code bytes that PASS1, PASS2 and one LOOCV
-        # fold of m add, their compile time, and the show instances PASS1 adds.
+        # fold of m add, their compile time, and the show instances that PASS1 and then
+        # printing the compiled mechanism add.
         function _testhelper_measure(m)
             n0, b0 = _testhelper_all_instances(), Base.jit_total_bytes()
             t0 = Base.cumulative_compile_time_ns()[1]
@@ -204,8 +207,11 @@ end
             fit_rate_equation(fp, OPT; FIT_KW...)
             ER._cv_fold_loss(ER.compile_mechanism(m), PROB, "G1";
                              optimizer = OPT, FIT_KW...)
-            (_testhelper_all_instances() - n0, Base.jit_total_bytes() - b0,
-             (Base.cumulative_compile_time_ns()[1] - t0) / 1e9, s1 - s0)
+            fit = (_testhelper_all_instances() - n0, Base.jit_total_bytes() - b0,
+                   (Base.cumulative_compile_time_ns()[1] - t0) / 1e9)
+            s2 = _testhelper_instances(methods(show))
+            sprint(show, em)
+            (fit..., s1 - s0 + _testhelper_instances(methods(show)) - s2)
         end
         ms = ER.init_mechanisms(rxn)
         # Encoding a Sig compiles once, whatever the mechanism, a cost a search pays early
@@ -390,9 +396,10 @@ end
         end
 
         # mechanism_type: PASS1 prints the type of a mechanism with a fresh Sig shape
-        # without compiling show for it.
-        @testset "fit compile: PASS1 compiles no show for a fresh Sig shape" begin
-            @info "PASS1 show instances per fresh mechanism: $pass1_show (budget: 0)"
+        # without compiling show for it, and the compiled mechanism prints its text
+        # through the concrete one, compiling no show for the fresh Sig either.
+        @testset "fit compile: PASS1 and a compiled mechanism's text compile no show" begin
+            @info "show instances per fresh mechanism: $pass1_show (budget: 0)"
             @test maximum(pass1_show) == 0
         end
     else

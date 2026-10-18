@@ -1,13 +1,17 @@
-# ABOUTME: The parameter-naming chokepoint name(p, m) and the renderers it builds on:
-# ABOUTME: metabolite labels, enzyme-form names, step sides and step text.
+# ABOUTME: The parameter-naming chokepoint name(p, m) and the renderers it builds on
+# ABOUTME: (metabolite labels, form names, step sides), and forms and steps as DSL text.
 
-# ─── Form names, step sides and step text ─────────────────────────────
+# ─── Form names, step sides, and forms and steps as DSL text ───────────
+
+"""Whether entry `i` of `m` is a reactant's modifier copy (`A::Mod`); a modifier-only
+name has no copy, so its entry is not one."""
+_is_reactant_copy(m::Mechanism, i::Int) =
+    m.table[i].modifier && _is_reactant(m, m.table[i].name)
 
 """Entry `i` as names write it: its name, with `mod` on a reactant's modifier copy; a
 modifier-only name stays bare."""
 _entry_label(m::Mechanism, i::Int) =
-    m.table[i].modifier && _is_reactant(m, m.table[i].name) ?
-        string(m.table[i].name, "mod") : String(m.table[i].name)
+    _is_reactant_copy(m, i) ? string(m.table[i].name, "mod") : String(m.table[i].name)
 
 """Form `f`'s name: its label, its bound entries' labels in table order, then any
 residual as `_res`, `_plus<name>` per substrate it adds and `_minus<name>` per product it
@@ -25,16 +29,23 @@ function _form_name(m::Mechanism, f::Int)
     String(take!(io))
 end
 
-"""Form `f` as a mechanism macro writes it: `E(NAD, P)`, `E(A::Mod)`, `E(I)`,
-`E(B; residual = A - P)`."""
+"""Entry `i` of `m` as a mechanism macro writes a metabolite: its name, with `::Mod` on a
+reactant's modifier copy; a modifier-only name stays bare."""
+_met_text(m::Mechanism, i::Int) =
+    _is_reactant_copy(m, i) ? "$(m.table[i].name)::Mod" : String(m.table[i].name)
+
+"""Form `f` as a mechanism macro writes it: its label alone when it binds nothing and
+keeps no residual (`E`, `Estar`), else its label with its bound metabolites (`_met_text`)
+and residual in parentheses: `E(NAD, P)`, `E(A::Mod)`, `E(B; residual = A - P)`,
+`E(; residual = A - P)`."""
 function _form_text(m::Mechanism, f::Int)
     x = m.forms[f]
-    mets = [_is_reactant(m, m.table[i].name) && m.table[i].modifier ?
-            "$(m.table[i].name)::Mod" : "$(m.table[i].name)" for i in entries(x.bound)]
+    label = String(m.conformations[x.conformation])
+    _is_free(x) && return label
     terms = join(_entry_names(m, x.added), " + ") *
             join(" - $(m.table[i].name)" for i in entries(x.subtracted))
     res = _has_residual(x) ? "; residual = " * lstrip(terms) : ""
-    "$(m.conformations[x.conformation])(" * join(mets, ", ") * res * ")"
+    label * "(" * join((_met_text(m, i) for i in entries(x.bound)), ", ") * res * ")"
 end
 
 """A step side: form `f`'s name and the labels of the free entries `c`, joined by `_`
@@ -47,17 +58,15 @@ _sides(m::Mechanism, e::Edge) =
     (_side_name(m, e.from, e.consumed), _side_name(m, e.to, e.released))
 _sides(m::Mechanism, k::Int) = _sides(m, m.edges[k])
 
-"""A step side as text: form `f`'s name, then the names of the entries `c` (`E + S`)."""
-_side_text(m::Mechanism, f::Int, c::Counts) =
-    join([_form_name(m, f); String.(_entry_names(m, c))], " + ")
-
-"""Edge `k` of `m` as text in its stored direction: its entry side, an arrow (`⇌` rapid
-equilibrium, `<-->` steady state) and its exit side (`_side_text`): `E + S ⇌ ES`,
-`EA + B <--> EQ + P`."""
-function _edge_text(m::Mechanism, k::Int)
+"""Edge `k` of `m` as a mechanism macro writes its step, in its stored direction: each
+side is its form (`_form_text`) and the metabolites the step takes up or gives off there
+(`_met_text`), joined by `⇌` (rapid equilibrium) or `<-->` (steady state):
+`E + S ⇌ E(S)`, `E(A) + B <--> E(Q) + P`."""
+function _step_text(m::Mechanism, k::Int)
     e = m.edges[k]
-    _side_text(m, e.from, e.consumed) * (e.rapid_equilibrium ? " ⇌ " : " <--> ") *
-        _side_text(m, e.to, e.released)
+    side(f, c) = join([_form_text(m, f); [_met_text(m, i) for i in entries(c)]], " + ")
+    side(e.from, e.consumed) * (e.rapid_equilibrium ? " ⇌ " : " <--> ") *
+        side(e.to, e.released)
 end
 
 # ─── name(p::Parameter, m) chokepoint ─────────────────────────────────

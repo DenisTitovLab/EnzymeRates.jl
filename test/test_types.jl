@@ -212,9 +212,14 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test ER.allo_states(only(ER.regulatory_sites(am_c))) == [:OnlyI]
     end
 
-    @testset "Pretty printing" begin
-        # Linear mechanism: one line per step, in stored order, under a header that
-        # counts steps and enzyme forms.
+    @testset "a mechanism prints as the text of the macro that builds it" begin
+        # The text prints alike from the compiled and the concrete mechanism, and the
+        # macro builds the same mechanism from it.
+        _testhelper_builds_back(m) = (t = sprint(show, m);
+                                      t == sprint(show, ER._concrete(m)) &&
+                                          eval(Meta.parse(t)) === m)
+        # One step per line in stored order, a release written as the binding it
+        # reverses, a form with nothing bound as its bare label.
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -223,9 +228,16 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(S) <--> E + P
             end
         end
-        @test sprint(show, m) ==
-            "EnzymeMechanism (2 steps, 2 enzyme forms):\n  E + P <--> ES\n" *
-            "  E + S <--> ES"
+        @test sprint(show, m) == """
+            @enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + P <--> E(S)
+                    E + S <--> E(S)
+                end
+            end"""
+        @test _testhelper_builds_back(m)
 
         # A block with no steps holds no free E, so the macro builds no mechanism to print.
         @test_throws(ErrorException("Mechanism: no free enzyme form E; every mechanism " *
@@ -238,8 +250,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             end
         end)
 
-        # Branched mechanism: the header counts every step and enzyme form, and each
-        # step prints.
+        # A branched mechanism: every step, each form with its bound metabolites.
         m_b = @enzyme_mechanism begin
             substrates: A, B
             products:   P, Q
@@ -253,13 +264,24 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(Q) <--> E + Q
             end
         end
-        s = sprint(show, m_b)
-        @test startswith(s, "EnzymeMechanism (7 steps, 6 enzyme forms):")
-        @test count(==('\n'), s) == 7
-        @test contains(s, "E + A <--> EA")
-        @test contains(s, "E + Q <--> EQ")
+        @test sprint(show, m_b) == """
+            @enzyme_mechanism begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A <--> E(A)
+                    E + B <--> E(B)
+                    E + Q <--> E(Q)
+                    E(A) + B <--> E(A, B)
+                    E(A, B) <--> E(P, Q)
+                    E(B) + A <--> E(A, B)
+                    E(Q) + P <--> E(P, Q)
+                end
+            end"""
+        @test _testhelper_builds_back(m_b)
 
-        # Catalytic 3-cycle: the steps print in stored order, not chain order.
+        # Catalytic 3-cycle: the steps print in stored order, not chain order, and
+        # rapid-equilibrium and steady-state steps keep their arrows.
         m_re = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -269,12 +291,19 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(P) ⇌ E + P
             end
         end
-        @test sprint(show, m_re) ==
-            "EnzymeMechanism (3 steps, 3 enzyme forms):\n  E + P ⇌ EP\n" *
-            "  E + S ⇌ ES\n  ES <--> EP"
+        @test sprint(show, m_re) == """
+            @enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + P ⇌ E(P)
+                    E + S ⇌ E(S)
+                    E(S) <--> E(P)
+                end
+            end"""
+        @test _testhelper_builds_back(m_re)
 
-        # Theorell–Chance: B binds and P leaves in one step, and the step prints
-        # both on its own line.
+        # Theorell–Chance: B binds and P leaves in one step, written on one line.
         m_tc = @enzyme_mechanism begin
             substrates: A, B
             products:   P, Q
@@ -284,12 +313,20 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(Q) <--> E + Q
             end
         end
-        @test sprint(show, m_tc) ==
-            "EnzymeMechanism (3 steps, 3 enzyme forms):\n  E + A <--> EA\n" *
-            "  E + Q <--> EQ\n  EA + B <--> EQ + P"
+        @test sprint(show, m_tc) == """
+            @enzyme_mechanism begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A <--> E(A)
+                    E + Q <--> E(Q)
+                    E(A) + B <--> E(Q) + P
+                end
+            end"""
+        @test _testhelper_builds_back(m_tc)
 
-        # A fused binding (B binds and chemistry runs in one step) prints B on its
-        # entry side, since E(P, Q) does not name it.
+        # A fused binding (B binds and chemistry runs in one step) prints B on its entry
+        # side, since E(P, Q) does not name it.
         m_fb = @enzyme_mechanism begin
             substrates: A, B
             products:   P, Q
@@ -300,26 +337,24 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(Q) <--> E + Q
             end
         end
-        @test contains(sprint(show, m_fb), "EA + B <--> EPQ")
+        @test sprint(show, m_fb) == """
+            @enzyme_mechanism begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A <--> E(A)
+                    E + Q <--> E(Q)
+                    E(A) + B <--> E(P, Q)
+                    E(Q) + P <--> E(P, Q)
+                end
+            end"""
+        @test _testhelper_builds_back(m_fb)
 
-        # A mechanism with modifiers lists them at the end.
-        m_reg = @enzyme_mechanism begin
-            substrates: S
-            products:   P
-            modifiers: I
-            steps: begin
-                E + S <--> E(S)
-                E(S) <--> E + P
-                E + I <--> E(I)
-            end
-        end
-        @test contains(sprint(show, m_reg), "| modifiers: I")
-
-        # The summary lists the names the steps bind as modifiers, each once: none for a
-        # cycle that binds only its reactants, and I once where two forms bind it in one
-        # group; a reactant's modifier copy is listed by its reactant's name.
+        # The modifiers: line lists the names the steps bind as modifiers, a reactant's
+        # copy by its name; a kinetic group of several steps prints as a tuple, a
+        # reactant's copy as X::Mod.
         @test !contains(sprint(show, _testhelper_re_mm), "modifiers")
-        @test endswith(sprint(show, @enzyme_mechanism begin
+        m_reg = @enzyme_mechanism begin
             substrates: S
             products: P
             modifiers: I
@@ -329,8 +364,21 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(P) ⇌ E + P
                 (E + I ⇌ E(I), E(P) + I ⇌ E(I, P))
             end
-        end), " | modifiers: I")
-        @test endswith(sprint(show, @enzyme_mechanism begin
+        end
+        @test sprint(show, m_reg) == """
+            @enzyme_mechanism begin
+                substrates: S
+                products: P
+                modifiers: I
+                steps: begin
+                    (E + I ⇌ E(I), E(P) + I ⇌ E(I, P))
+                    E + P ⇌ E(P)
+                    E + S ⇌ E(S)
+                    E(S) <--> E(P)
+                end
+            end"""
+        @test _testhelper_builds_back(m_reg)
+        m_copy = @enzyme_mechanism begin
             substrates: S
             products: P
             modifiers: S
@@ -340,7 +388,49 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(P) ⇌ E + P
                 E(P) + S::Mod ⇌ E(P, S::Mod)
             end
-        end), " | modifiers: S")
+        end
+        @test sprint(show, m_copy) == """
+            @enzyme_mechanism begin
+                substrates: S
+                products: P
+                modifiers: S
+                steps: begin
+                    E + P ⇌ E(P)
+                    E + S ⇌ E(S)
+                    E(P) + S::Mod ⇌ E(P, S::Mod)
+                    E(S) <--> E(P)
+                end
+            end"""
+        @test _testhelper_builds_back(m_copy)
+
+        # A ping-pong: a form that keeps a residual prints it, with or without bound
+        # metabolites.
+        m_pp = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) <--> E(P; residual = A - P)
+                E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+                E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+                E(B; residual = A - P) <--> E(Q)
+                E + Q ⇌ E(Q)
+            end
+        end
+        @test sprint(show, m_pp) == """
+            @enzyme_mechanism begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E + Q ⇌ E(Q)
+                    E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+                    E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+                    E(A) <--> E(P; residual = A - P)
+                    E(B; residual = A - P) <--> E(Q)
+                end
+            end"""
+        @test _testhelper_builds_back(m_pp)
 
         # EnzymeReaction with oligomeric_state > 1.
         rxn_oligo = @enzyme_reaction begin
@@ -368,7 +458,8 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 shared_catalytic_site: (A, P)
             end"""
 
-        # AllostericEnzymeMechanism (smoke).
+        # An allosteric mechanism adds its regulators, its catalytic multiplicity, a tag
+        # after each kinetic group and a line per regulatory site.
         m_allo = @allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
@@ -381,12 +472,22 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             end
             regulatory_site(2): I::OnlyI
         end
-        s_allo = sprint(show, m_allo)
-        @test contains(s_allo, "AllostericEnzymeMechanism (cat_n=2")
-        @test contains(s_allo, "reg sites")
-        @test contains(s_allo, "I::OnlyI")
+        @test sprint(show, m_allo) == """
+            @allosteric_mechanism begin
+                substrates: F6P
+                products: F16BP
+                allosteric_regulators: I
+                catalytic_multiplicity: 2
+                steps: begin
+                    E + F16BP ⇌ E(F16BP) :: EqualAI
+                    E + F6P ⇌ E(F6P) :: EqualAI
+                    E(F6P) <--> E(F16BP) :: EqualAI
+                end
+                regulatory_site(2): I::OnlyI
+            end"""
+        @test _testhelper_builds_back(m_allo)
 
-        # A regulatory site with two ligands lists both with their states.
+        # A regulatory site with two ligands lists both with their tags.
         m_site = @allosteric_mechanism begin
             substrates: S
             products:   P
@@ -399,10 +500,20 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             end
             regulatory_site(3): I::OnlyI, J::EqualAI
         end
-        @test sprint(show, m_site) ==
-            "AllostericEnzymeMechanism (cat_n=2, 1 reg sites):\n" *
-            "  E + P ⇌ EP :: EqualAI\n  E + S ⇌ ES :: EqualAI\n" *
-            "  ES <--> EP :: OnlyA\n  reg site 1 (n=3): I, J [I::OnlyI, J::EqualAI]"
+        @test sprint(show, m_site) == """
+            @allosteric_mechanism begin
+                substrates: S
+                products: P
+                allosteric_regulators: I, J
+                catalytic_multiplicity: 2
+                steps: begin
+                    E + P ⇌ E(P) :: EqualAI
+                    E + S ⇌ E(S) :: EqualAI
+                    E(S) <--> E(P) :: OnlyA
+                end
+                regulatory_site(3): I::OnlyI, J::EqualAI
+            end"""
+        @test _testhelper_builds_back(m_site)
     end
 
     @testset "the macro rejects a rapid-equilibrium segment with no bottom form" begin
@@ -718,7 +829,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         end
     end
 
-    @testset "Base.show displays all dense states" begin
+    @testset "an allosteric mechanism prints every tag and every site" begin
         m = @allosteric_mechanism begin
             substrates: S
             products:   P
@@ -733,10 +844,20 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             regulatory_site(2): J::OnlyI
         end
         s = sprint(show, m)
-        @test s == "AllostericEnzymeMechanism (cat_n=2, 2 reg sites):\n" *
-                   "  E + P ⇌ EP :: EqualAI\n  E + S ⇌ ES :: NonequalAI\n" *
-                   "  ES <--> EP :: OnlyA\n  reg site 1 (n=2): I [I::NonequalAI]\n" *
-                   "  reg site 2 (n=2): J [J::OnlyI]"
+        @test s == """
+            @allosteric_mechanism begin
+                substrates: S
+                products: P
+                allosteric_regulators: I, J
+                catalytic_multiplicity: 2
+                steps: begin
+                    E + P ⇌ E(P) :: EqualAI
+                    E + S ⇌ E(S) :: NonequalAI
+                    E(S) <--> E(P) :: OnlyA
+                end
+                regulatory_site(2): I::NonequalAI
+                regulatory_site(2): J::OnlyI
+            end"""
         am = ER.AllostericMechanism(m)
         # Every catalytic state appears in cat_allo_states line
         for g in eachindex(ER.cat_allo_states(am))
@@ -749,7 +870,9 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         end
     end
 
-    @testset "AllostericEnzymeMechanism display: shared kinetic group" begin
+    @testset "an allosteric kinetic group prints as one tagged tuple" begin
+        # A mechanism with no regulatory site prints no allosteric_regulators: line, but
+        # its catalytic multiplicity always.
         am = @allosteric_mechanism begin
             substrates: S
             products:   P
@@ -760,21 +883,17 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(P) ⇌ E + P                        :: EqualAI
             end
         end
-        s = repr(am)
-
-        # The parenthesized-group branch must execute: look for the
-        # exact "(...) :: EqualAI" shape with a comma-separated body.
-        paren_group_match = match(
-            r"\([^()]*,[^()]*\) :: EqualAI", s)
-        @test paren_group_match !== nothing
-        # Format: lhs/rhs joined with " + " (no brackets).
-        @test occursin("ES <--> EP :: EqualAI", s)
-        @test occursin(":: EqualAI", s)
-        @test !occursin("cat_allo_states:", s)
-        # One line per kinetic group: a multi-line catalytic display.
-        @test count(==('\n'), s) >= 3
-        @test s == "AllostericEnzymeMechanism (cat_n=2):\n  E + P ⇌ EP :: EqualAI\n" *
-                   "  (E + S ⇌ ES, EP + S ⇌ EPS) :: EqualAI\n  ES <--> EP :: EqualAI"
+        @test repr(am) == """
+            @allosteric_mechanism begin
+                substrates: S
+                products: P
+                catalytic_multiplicity: 2
+                steps: begin
+                    E + P ⇌ E(P) :: EqualAI
+                    (E + S ⇌ E(S), E(P) + S ⇌ E(P, S)) :: EqualAI
+                    E(S) <--> E(P) :: EqualAI
+                end
+            end"""
     end
 
     # ─── Concrete type hierarchy ──────────────────────────────────────
@@ -2387,7 +2506,7 @@ end
     end
     @test err isa ErrorException
     @test occursin("E(star)", err.msg)
-    @test occursin("Estar()", err.msg)
+    @test occursin(" and Estar both render", err.msg)
     @test occursin("both render the name Estar; ", err.msg)
     @test occursin("rename a metabolite", err.msg)
 end

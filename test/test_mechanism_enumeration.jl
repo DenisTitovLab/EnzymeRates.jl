@@ -3766,7 +3766,7 @@ end
         end
     end)
     @test EnzymeRates._redundant_copy_groups(dropped) ==
-          [dropped.group[_testhelper_edge(dropped, "E + A ⇌ EAmod")]]
+          [dropped.group[_testhelper_edge(dropped, "E + Amod ⇌ EAmod")]]
     # The copy's entry moves those of B, P and Q: the child's table is not the parent's
     # with an entry appended.
     @test [x.name for x in parent.table] == [:A, :B, :P, :Q]
@@ -10088,7 +10088,7 @@ end
         end
     end)
     members = ER._group_members(m)
-    copy_g = m.group[_testhelper_edge(m, "E + A ⇌ EAmod")]
+    copy_g = m.group[_testhelper_edge(m, "E + Amod ⇌ EAmod")]
     twin = _testhelper_twin(m)
     @test copy_g == 2
     @test ER._form_name(m, 2) == "EA"

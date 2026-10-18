@@ -303,17 +303,26 @@ function _testhelper_re_segments(g, kept = trues(length(g.steps)))
     segments, [filter(p -> p.second > 0, exponent[f]) for f in findall(present)]
 end
 
-"""The text of `s`, a step of `g` (`_testhelper_graph`), as `_edge_text` writes an edge,
-each side its form's name and its metabolites' names: `"E + S ⇌ ES"`, `"ES <--> EP"`."""
+"""The text of `s`, a step of `g` (`_testhelper_graph`), each side its form's name and its
+metabolites' names, a modifier copy by its reactant's name: `"E + S ⇌ ES"`,
+`"ES <--> EP"`, `"ES + P ⇌ EPmodS"`."""
 _testhelper_step_text(g, s) =
     join([g.forms[s.from]; String.(s.consumed)], " + ") *
     (s.rapid_equilibrium ? " ⇌ " : " <--> ") *
     join([g.forms[s.to]; String.(s.released)], " + ")
 
 """Edge `k` of the catalytic graph of `m` (concrete or compiled) as text, in its stored
-direction (`_edge_text`): `"E + S ⇌ ES"`, `"ES <--> EP"`."""
-_testhelper_edge_text(m, k::Int) =
-    EnzymeRates._edge_text(EnzymeRates.catalytic(_testhelper_lift(m)), k)
+direction, each side its form's name (`_form_name`) and the labels of the metabolites the
+edge takes up or gives off there (`_entry_label`, so a reactant's modifier copy reads
+`Amod`): `"E + S ⇌ ES"`, `"EA + B <--> EQ + P"`, `"E + Amod ⇌ EAmod"`."""
+function _testhelper_edge_text(m, k::Int)
+    g = EnzymeRates.catalytic(_testhelper_lift(m))
+    e = g.edges[k]
+    labels(c) = [EnzymeRates._entry_label(g, i) for i in EnzymeRates.entries(c)]
+    side(f, c) = join([EnzymeRates._form_name(g, f); labels(c)], " + ")
+    side(e.from, e.consumed) * (e.rapid_equilibrium ? " ⇌ " : " <--> ") *
+        side(e.to, e.released)
+end
 
 """The edge of the catalytic graph of `m` whose text (`_testhelper_edge_text`) is `text`."""
 _testhelper_edge(m, text) =

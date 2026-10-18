@@ -603,7 +603,7 @@ end
                 E(NADP) ⇌ E + NADP
             end
         end)))
-    @test_throws _testhelper_one_name("E(star)", "Estar()", "Estar") ER.Mechanism(
+    @test_throws _testhelper_one_name("E(star)", "Estar", "Estar") ER.Mechanism(
         _testhelper_walk(:(begin
             substrates: star
             products: P
@@ -826,7 +826,7 @@ end
     @test [ER._form_name(m, f) for f in eachindex(m.forms)] ==
           ["E", "E_res_plusA_minusP", "EA", "EB_res_plusA_minusP", "EI", "EQ", "EQQmod"]
     @test [ER._form_text(m, f) for f in eachindex(m.forms)] ==
-          ["E()", "E(; residual = A - P)", "E(A)", "E(B; residual = A - P)", "E(I)",
+          ["E", "E(; residual = A - P)", "E(A)", "E(B; residual = A - P)", "E(I)",
            "E(Q)", "E(Q, Q::Mod)"]
     # Each edge's sides in its stored direction: releases stored as bindings.
     @test [join(ER._sides(m, k), " → ") for k in eachindex(m.edges)] ==
