@@ -147,7 +147,7 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
     c = EnzymeRates._canonicalize(allo ? raw.catalytic : raw)
     c.mechanism == EnzymeRates.catalytic(mech) ||
         error("raw writes another mechanism than m")
-    # The adapter's steps run group by group, each group in edge order.
+    # The test reader's steps run group by group, each group in edge order.
     flat = reduce(vcat, EnzymeRates._group_members(EnzymeRates.catalytic(mech)))
     out = Pair{Symbol, Any}[]
     for i in eachindex(c.edge_of)

@@ -2406,9 +2406,9 @@ end
     end
 end
 
-@testset "two forms that render apart are accepted, whatever their internal names" begin
-    # The modifier-only I renders bare, so E(I) and E(Iinh) name their constants apart,
-    # though both take the internal name EIinh, which nothing reads to tell forms apart.
+@testset "E(I) and E(Iinh), E(P::Mod) and E(Pinh) name their constants apart" begin
+    # E(I) and E(Iinh) render EI and EIinh: the mechanism is accepted, and each constant
+    # takes a name of its own.
     iinh = @enzyme_mechanism begin
         substrates: Iinh
         products: P
@@ -2424,8 +2424,7 @@ end
           Set([:K_EIinh_to_E_Iinh, :k_EIinh_to_EP, :k_EP_to_EIinh, :K_EP_to_E_P,
                :K_EI_to_E_I])
     _testhelper_check_law_against_oracle(iinh)
-    # So with a reactant's modifier copy: E(P::Mod) and E(Pinh) render EPmod and EPinh,
-    # though both take the internal name EPinh.
+    # So with a reactant's modifier copy: E(P::Mod) and E(Pinh) render EPmod and EPinh.
     pinh = @enzyme_mechanism begin
         substrates: Pinh
         products: P

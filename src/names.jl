@@ -1,48 +1,7 @@
 # ABOUTME: The parameter-naming chokepoint name(p, m) and the renderers it builds on:
 # ABOUTME: metabolite labels, enzyme-form names, step sides and step text.
 
-# ─── Labels, form names and step text ─────────────────────────────────
-
-"""Whether `x` is the competitive-inhibitor copy of a substrate or product of `ctx` (a
-mechanism or a reaction; `_is_reactant`): a reactant bound as a modifier."""
-_is_reactant_copy(x::Metabolite, ctx) =
-    x isa CompetitiveInhibitor && _is_reactant(ctx, name(x))
-
-"""
-A metabolite as written in parameter names: its name, with suffix `mod` on a
-competitive-inhibitor copy of a substrate or product of `ctx` (a mechanism or a
-reaction; `_is_reactant_copy`), so the copy's forms and constants stay distinct from
-those of the reactant itself. A competitive inhibitor that is no reactant binds only as
-a modifier, so its name stands bare.
-"""
-_met_label(x::Metabolite, ctx) =
-    _is_reactant_copy(x, ctx) ? String(name(x)) * "mod" : String(name(x))
-
-"""
-An enzyme form as parameter names write it for `ctx` (a mechanism or a reaction): its
-conformation label, then the labels (`_met_label`) of its bound metabolites without a
-separator, then, for a residual, `_res`, `_plus<name>` per substrate it adds and
-`_minus<name>` per product it subtracts, each in name order: `E`, `EAB`, `EPmodQ`,
-`EB_res_plusA_minusP`.
-"""
-function _form_label(sp::Species, ctx)
-    head = String(conformation(sp)) * join(_met_label(x, ctx) for x in bound(sp))
-    r = residual(sp)
-    isempty(r) && return head
-    head * "_res" * join("_plus" * String(name(a)) for a in added(r)) *
-        join("_minus" * String(name(p)) for p in subtracted(r))
-end
-
-"""A step as text for `ctx` (a mechanism or a reaction): its entry side, an arrow (`⇌`
-rapid equilibrium, `<-->` steady state) and its exit side. A side lists the enzyme form
-as parameter names write it (`_form_label`), then the metabolites the step consumes or
-releases."""
-_step_text(s::Step, ctx) =
-    join((_form_label(from_species(s), ctx), name.(consumed(s))...), " + ") *
-    (is_equilibrium(s) ? " ⇌ " : " <--> ") *
-    join((_form_label(to_species(s), ctx), name.(released(s))...), " + ")
-
-# ─── Graph form names and step sides ─────────────────────────────────
+# ─── Form names, step sides and step text ─────────────────────────────
 
 """Entry `i` as names write it: its name, with `mod` on a reactant's modifier copy; a
 modifier-only name stays bare."""

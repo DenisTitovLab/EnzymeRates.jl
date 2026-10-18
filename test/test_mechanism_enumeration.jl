@@ -158,7 +158,7 @@ _testhelper_keeps_reaction(child, parent) =
 
 # Whether `m` holds an isomerization step. It reads the graph's edges, not
 # `_testhelper_graph`: the population tests call it on every child of two expansion
-# levels, where building the adapter each time would dominate their run time.
+# levels, where building the test reader each time would dominate their run time.
 _testhelper_holds_iso(m) = any(EnzymeRates._is_iso, EnzymeRates.catalytic(m).edges)
 
 # The rapid-equilibrium flags of each kinetic group's edges of `m`, group by group.

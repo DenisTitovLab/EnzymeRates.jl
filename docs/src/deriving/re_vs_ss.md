@@ -10,7 +10,7 @@ while SS steps cost two.
 
 In [`@enzyme_mechanism`](@ref), `⇌` marks a step as rapid equilibrium and
 `<-->` marks it as steady state.
-The distinction is stored on each `Step` as the `is_equilibrium` field.
+The mechanism stores it as each step's `rapid_equilibrium` flag.
 
 ## Parameter count per step
 

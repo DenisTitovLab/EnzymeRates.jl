@@ -13,36 +13,6 @@ struct _Column
     inactive::Bool
 end
 
-# ─── Content keys of Step views ────────────────────────────────────────────
-#
-# `_forms` orders the forms of Step views by these keys, as canonical form orders a
-# graph's forms.
-
-"""A metabolite list as the content keys read it: each metabolite's name and whether it
-binds as a modifier copy (a competitive inhibitor), in stored order."""
-_metabolites_key(mets) = Tuple{String, Bool}[(String(name(x)), x isa CompetitiveInhibitor)
-                                                for x in mets]
-
-"""
-An enzyme form's content key, built from base names: its conformation label, its bound
-metabolites (`_metabolites_key`) and the names its residual adds and subtracts. Rendered
-names never enter it.
-"""
-_form_base_key(sp::Species) =
-    (String(conformation(sp)), _metabolites_key(bound(sp)),
-     String[String(name(x)) for x in added(residual(sp))],
-     String[String(name(x)) for x in subtracted(residual(sp))])
-
-"""Whether `sp` is free E: conformation label `E`, nothing bound, no residual."""
-_is_free_E(sp::Species) =
-    conformation(sp) === :E && isempty(bound(sp)) && isempty(residual(sp))
-
-"""
-The canonical order of enzyme forms that orients the steps neither chemistry nor graph
-context orients (C9): free E first, then by `_form_base_key`.
-"""
-_form_index_key(sp::Species) = (!_is_free_E(sp), _form_base_key(sp))
-
 """
 The priority key of constant `slot` of edge `k` of `m` in conformation block `block` (2:
 an inactive copy outside the law, 1: another inactive copy, 0: active). The solve
