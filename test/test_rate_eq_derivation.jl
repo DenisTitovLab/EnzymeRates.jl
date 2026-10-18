@@ -926,10 +926,10 @@ const _testhelper_fused_cases = [
     # metabolites, then the one without a residual, then the first in the canonical form
     # order (`_form_index_key`). There A's modifier copy comes before Ab, though the
     # copy's internal name, EAinh, sorts after EAb.
-    copy = ER.Species(ER.Metabolite[ER.CompetitiveInhibitor(:A)], :E)
+    a_copy = ER.Species(ER.Metabolite[ER.CompetitiveInhibitor(:A)], :E)
     ab = ER.Species(ER.Metabolite[ER.Substrate(:Ab)], :E)
-    @test ER._segment_root([1, 2], [ab, copy]) == 2
-    @test ER._segment_root([1, 2], [copy, ab]) == 1
+    @test ER._segment_root([1, 2], [ab, a_copy]) == 2
+    @test ER._segment_root([1, 2], [a_copy, ab]) == 1
 end
 
 @testset "the free-enzyme weight is free E's weight in the reduced denominator" begin
