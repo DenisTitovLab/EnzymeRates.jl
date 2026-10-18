@@ -16,9 +16,9 @@
             end
         end
         mech = EnzymeRates.Mechanism(m)
-        @test length(mech.steps) == 3
+        @test length(EnzymeRates.steps(mech)) == 3
         # Steps are canonicalized; pick each by content, not position.
-        es_step = only(s for g in mech.steps for s in g           # E + S ⇌ E(S)
+        es_step = only(s for g in EnzymeRates.steps(mech) for s in g   # E + S ⇌ E(S)
             if EnzymeRates.bound_metabolite(s) == EnzymeRates.Substrate(:S))
         @test EnzymeRates.conformation(es_step.to_species) == :E
         @test EnzymeRates.bound(es_step.to_species) ==
@@ -31,7 +31,7 @@
         # canonicalizes iso direction physical-forward (substrate-bound
         # `from`, product-bound `to`) via `_canonical_step_direction`, so
         # `E_S` is `from_species` and `E_P` is `to_species`.
-        iso_step = only(s for g in mech.steps for s in g
+        iso_step = only(s for g in EnzymeRates.steps(mech) for s in g
                         if EnzymeRates.bound_metabolite(s) === nothing)
         @test EnzymeRates.bound(iso_step.from_species) ==
               EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)]
@@ -55,7 +55,7 @@
         end
         mech_multi = EnzymeRates.Mechanism(m_multi)
         eab = only(EnzymeRates.to_species(s)            # E(A, B)
-            for g in mech_multi.steps for s in g
+            for g in EnzymeRates.steps(mech_multi) for s in g
             if Set(EnzymeRates.name(b)
                    for b in EnzymeRates.bound(EnzymeRates.to_species(s))) ==
                Set([:A, :B]))
@@ -65,7 +65,7 @@
                                      EnzymeRates.Substrate(:B)]
         # Dead-end inhibitor lookup picks the correct Metabolite subtype.
         ei = only(EnzymeRates.to_species(s)             # E(I)
-            for g in mech_multi.steps for s in g
+            for g in EnzymeRates.steps(mech_multi) for s in g
             if EnzymeRates.bound_metabolite(s) ==
                EnzymeRates.CompetitiveInhibitor(:I))
         @test EnzymeRates.bound(ei) ==

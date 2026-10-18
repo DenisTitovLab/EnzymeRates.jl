@@ -72,7 +72,7 @@ end
         # Steps are canonicalized; the two R-binding steps share one kinetic
         # group → 5 steps, 4 groups (one 2-step group binding R).
         @test length(ER.steps(ER.Mechanism(m2))) == 4
-        shared = only(g for g in ER.Mechanism(m2).steps if length(g) == 2)
+        shared = only(g for g in ER.steps(ER.Mechanism(m2)) if length(g) == 2)
         @test all(ER.bound_metabolite(s) ==
                   ER.CompetitiveInhibitor(:R) for s in shared)
     end

@@ -1116,10 +1116,10 @@ uu, ub, bb, pp = (EnzymeRates.init_mechanisms(rxn)
         for s in specs
             if _testhelper_holds_iso(s)
                 @test count(st -> !st.is_equilibrium,
-                            Iterators.flatten(s.steps)) == 1
+                            Iterators.flatten(EnzymeRates.steps(s))) == 1
             else
                 @test count(g -> !EnzymeRates.is_equilibrium(first(g)),
-                            s.steps) in (2, 3)
+                            EnzymeRates.steps(s)) in (2, 3)
             end
         end
     end
@@ -1137,7 +1137,7 @@ end
         # position) of every RE binding step that binds it. Same-group
         # sharing is structural: same inner vector == same kinetic group.
         by_metabolite = Dict{Symbol, Vector{Int}}()
-        for (gi, group) in enumerate(spec.steps)
+        for (gi, group) in enumerate(EnzymeRates.steps(spec))
             for step in group
                 EnzymeRates.is_equilibrium(step) || continue
                 bm = EnzymeRates.bound_metabolite(step)
@@ -1749,7 +1749,8 @@ end
     # group to all-SS. The flipped group is distinct across variants.
     flipped_groups = Int[]
     for r in result
-        for (gi, (old_grp, new_grp)) in enumerate(zip(m.steps, r.steps))
+        for (gi, (old_grp, new_grp)) in
+                enumerate(zip(EnzymeRates.steps(m), EnzymeRates.steps(r)))
             if all(EnzymeRates.is_equilibrium, old_grp) &&
                !any(EnzymeRates.is_equilibrium, new_grp)
                 push!(flipped_groups, gi)
@@ -2019,7 +2020,8 @@ end
             _testhelper_assert_mechanism_invariants(r)
             # Exactly one group newly all-SS; every tag, the multiplicity, the
             # regulatory sites and the reaction preserved.
-            n_newly_ss = count(zip(am.cat_steps, r.cat_steps)) do (old, new)
+            n_newly_ss = count(zip(EnzymeRates.steps(am),
+                                   EnzymeRates.steps(r))) do (old, new)
                 all(EnzymeRates.is_equilibrium, old) &&
                     !any(EnzymeRates.is_equilibrium, new)
             end
@@ -2218,7 +2220,7 @@ end
     for r in kids
         @test count(==(:OnlyA), r.cat_allo_states) == 1
         onlya = findfirst(==(:OnlyA), r.cat_allo_states)
-        @test EnzymeRates.is_iso(first(r.cat_steps[onlya]))
+        @test EnzymeRates.is_iso(first(EnzymeRates.steps(r)[onlya]))
         @test r.catalytic_multiplicity == am.catalytic_multiplicity
         @test r.regulatory_sites == am.regulatory_sites
         @test _testhelper_keeps_reaction(r, am)
@@ -2349,7 +2351,7 @@ end
     # The SS A-binding group has no equilibrium constant to tie, so its
     # context split by B gains alone and is emitted as a single split.
     a_split = [r for r in result
-               if length(EnzymeRates.steps(r)) == length(m.steps) + 1 &&
+               if length(EnzymeRates.steps(r)) == length(EnzymeRates.steps(m)) + 1 &&
                any(grp -> length(grp) == 1 && !EnzymeRates.is_equilibrium(only(grp)) &&
                    EnzymeRates.name(EnzymeRates.bound_metabolite(only(grp))) == :A,
                    EnzymeRates.steps(r))]
@@ -2386,10 +2388,10 @@ end
     # 2. the :NonequalAI A-binding group is SS, so it has no equilibrium
     # constant to tie and its context split gains on its own: a child
     # that splits that group and nothing else is emitted.
-    a_group = only(grp for grp in am.cat_steps
+    a_group = only(grp for grp in EnzymeRates.steps(am)
                    if length(grp) == 2 && EnzymeRates.name(
                        EnzymeRates.bound_metabolite(first(grp))) == :A)
-    @test any(r -> length(EnzymeRates.steps(r)) == length(am.cat_steps) + 1 &&
+    @test any(r -> length(EnzymeRates.steps(r)) == length(EnzymeRates.steps(am)) + 1 &&
                    count(grp -> Set(grp) ⊆ Set(a_group),
                          EnzymeRates.steps(r)) == 2, result)
 
@@ -2406,11 +2408,11 @@ end
     # keeps its own. Group ORDER is canonical (not source-preserved), so match each
     # result group to its parent by step content rather than by position.
     for r in result
-        @test length(r.cat_allo_states) == length(r.cat_steps)
-        for (g, grp) in enumerate(r.cat_steps)
+        @test length(r.cat_allo_states) == length(EnzymeRates.steps(r))
+        for (g, grp) in enumerate(EnzymeRates.steps(r))
             sset = Set(grp)
-            parent = only(ag for ag in 1:length(am.cat_steps)
-                          if sset ⊆ Set(am.cat_steps[ag]))
+            parent = only(ag for ag in 1:length(EnzymeRates.steps(am))
+                          if sset ⊆ Set(EnzymeRates.steps(am)[ag]))
             @test r.cat_allo_states[g] == am.cat_allo_states[parent]
         end
     end
@@ -3660,7 +3662,7 @@ end
     # Pick variant where I1 binds at multiple forms.
     multi = filter(result1) do r
         i1_forms = Set{Symbol}()
-        for group in r.steps, s in group
+        for group in EnzymeRates.steps(r), s in group
             bm = EnzymeRates.bound_metabolite(s)
             if bm !== nothing && EnzymeRates.name(bm) === :I1
                 push!(i1_forms, EnzymeRates.name(
@@ -3686,7 +3688,7 @@ end
     # from both from_species and to_species across every step.
     function _testhelper_all_forms(r)
         forms = String[]
-        for group in r.steps, s in group
+        for group in EnzymeRates.steps(r), s in group
             push!(forms, string(EnzymeRates.name(
                 EnzymeRates.from_species(s))))
             push!(forms, string(EnzymeRates.name(
@@ -4822,7 +4824,7 @@ end
     # 4. property: exactly one new cat_steps group; its tag is
     # :EqualAI. Pre-existing tags are unchanged.
     for r in result
-        @test length(r.cat_steps) == length(am.cat_steps) + 1
+        @test length(EnzymeRates.steps(r)) == length(EnzymeRates.steps(am)) + 1
         @test length(r.cat_allo_states) == length(am.cat_allo_states) + 1
         # The new group's tag is :EqualAI (appended at the end by the
         # AllostericMechanism wrap kernel).
@@ -4908,7 +4910,7 @@ end
     # 1. count: every non-empty subset of the 4 binding groups is set
     # :OnlyA, each with the chemical step also :OnlyA (a catalytically-dead
     # inactive conformation). 2^4 - 1 = 15 subsets, all Wegscheider-valid.
-    n_groups = length(m.steps)
+    n_groups = length(EnzymeRates.steps(m))
     n_cat = count(g -> _testhelper_is_catalytic_group(m, g), 1:n_groups)
     @test n_cat == 1
     @test length(result) == 15
@@ -4962,7 +4964,7 @@ end
     # 1. count: every non-empty subset of the 4 binding groups is set
     # :OnlyA, each with BOTH chemical steps also :OnlyA (a catalytically-dead
     # inactive conformation). 2^4 - 1 = 15 subsets, all Wegscheider-valid.
-    n_groups = length(m.steps)
+    n_groups = length(EnzymeRates.steps(m))
     n_cat = count(g -> _testhelper_is_catalytic_group(m, g), 1:n_groups)
     @test n_cat == 2
     @test length(result) == 15
@@ -6595,7 +6597,7 @@ end
 # cat_allo_states alongside cat_steps (catalytic side) and produce the same
 # regulatory_sites ordering (regulatory side) regardless of input site order.
 base = first(EnzymeRates.init_mechanisms(uni_uni_allo))
-cat_states = [:EqualAI for _ in base.steps]
+cat_states = [:EqualAI for _ in EnzymeRates.steps(base)]
 site_a = EnzymeRates.RegulatorySite(
     [:A], 2, [:OnlyA])
 site_b = EnzymeRates.RegulatorySite(
@@ -6622,7 +6624,7 @@ end
 # AllostericMechanism: differing site multiplicities → unequal because
 # multiplicities are part of the structural identity.
 base = first(EnzymeRates.init_mechanisms(uni_uni_allo))
-cat_states = [:EqualAI for _ in base.steps]
+cat_states = [:EqualAI for _ in EnzymeRates.steps(base)]
 am_m2 = EnzymeRates.AllostericMechanism(
     uni_uni_allo,
     [copy(g) for g in EnzymeRates.steps(base)], cat_states, 2,
@@ -6666,7 +6668,7 @@ end
     # struct.
     m_seed = first(EnzymeRates.init_mechanisms(bi_bi_rxn))
     _testhelper_assert_mechanism_invariants(m_seed)
-    n_groups = length(m_seed.steps)
+    n_groups = length(EnzymeRates.steps(m_seed))
     @assert n_groups >= 3 "bi-bi init seed must have ≥3 kinetic groups " *
         "to exercise a non-trivial permutation"
     # Cyclic-rotate-by-1 permutation: [g1, g2, …, gN] → [g2, …, gN, g1].
@@ -6810,9 +6812,7 @@ end
     am = EnzymeRates.AllostericMechanism(aem)
     result = EnzymeRates.expand_mechanisms([am], uni_uni_allo_reg)
     for r in result
-        groups = r isa EnzymeRates.AllostericMechanism ?
-            r.cat_steps : r.steps
-        for group in groups, st in group
+        for group in EnzymeRates.steps(r), st in group
             bm = EnzymeRates.bound_metabolite(st)
             bm === nothing && continue
             @test EnzymeRates.name(bm) !== :R
@@ -7076,7 +7076,7 @@ end
     only_r, g = first((am, g) for am in allo_mechs
         for g in eachindex(EnzymeRates.steps(am))
         if EnzymeRates.cat_allo_state(am, g) === :OnlyA &&
-           any(s -> EnzymeRates.bound_metabolite(s) !== nothing, am.cat_steps[g]))
+           any(s -> EnzymeRates.bound_metabolite(s) !== nothing, EnzymeRates.steps(am)[g]))
     _testhelper_test_no_inactive_constants(only_r, g)
 end
 
@@ -7085,7 +7085,7 @@ end
         for g in eachindex(EnzymeRates.steps(am))
         if EnzymeRates.cat_allo_state(am, g) === :OnlyA &&
            all(s -> !EnzymeRates.is_equilibrium(s) &&
-                    EnzymeRates.bound_metabolite(s) === nothing, am.cat_steps[g]))
+                    EnzymeRates.bound_metabolite(s) === nothing, EnzymeRates.steps(am)[g]))
     _testhelper_test_no_inactive_constants(only_r_iso, g)
 end
 
@@ -9730,7 +9730,7 @@ end
         kids = EnzymeRates._expand_re_to_ss(m)
         @test EnzymeRates._chain_flank_groups(m) ==
               Set(g for g in eachindex(EnzymeRates.steps(m))
-                  if !EnzymeRates.is_iso(only(m.steps[g])))
+                  if !EnzymeRates.is_iso(only(EnzymeRates.steps(m)[g])))
         @test isempty(kids)
         @test _testhelper_identifiable_rank(absent) == _testhelper_identifiable_rank(m)
     end
