@@ -151,23 +151,9 @@ _testhelper_keeps_reaction(child, parent) =
 # Whether `m` holds an isomerization step.
 _testhelper_holds_iso(m) = any(_testhelper_is_iso, _testhelper_graph(m).steps)
 
-# The kinetic groups of `m` whose first step is an isomerization.
-_testhelper_iso_groups(m) = [g for g in eachindex(EnzymeRates.steps(m))
-                             if EnzymeRates.is_iso(EnzymeRates.steps(m)[g][1])]
-
-# `em` rebuilt on the declared reaction `rxn`. A move's child, a seed and a merged variant
-# carry the declared reaction (its atoms and inhibitors), so every fixture is rebuilt on it
-# for `==`.
-_testhelper_on_reaction(rxn, em) =
-    EnzymeRates.Mechanism(rxn, EnzymeRates.steps(EnzymeRates.Mechanism(em)))
-
-# The allosteric mechanism `em` rebuilt on `rxn` at catalytic multiplicity 2 with no
-# regulatory sites.
-function _testhelper_on_reaction_mult2(rxn, em)
-    am = EnzymeRates.AllostericMechanism(em)
-    EnzymeRates.AllostericMechanism(rxn, EnzymeRates.steps(am),
-        EnzymeRates.cat_allo_states(am), 2, EnzymeRates.RegulatorySite[])
-end
+# The kinetic groups of `m` whose steps are isomerizations.
+_testhelper_iso_groups(m) =
+    unique(s.group for s in _testhelper_graph(m).steps if _testhelper_is_iso(s))
 
 # Whether a step binds the metabolite named `x`.
 _testhelper_binds(x) = s -> EnzymeRates.bound_metabolite(s) !== nothing &&
@@ -1215,7 +1201,7 @@ end
     # (E(P, Q) has three steps), {Pˣ, Qˣ} has no reverse maximal rate, and ELIM refuses the
     # three-step complex. Each variant fits 2 + 1 + 2 − 1 = 4 (2 + 2 + 1 − 1 = 4 for the
     # random seed's), the seeds' count.
-    ordered_p = _testhelper_on_reaction(uni_bi_rxn, @enzyme_mechanism begin
+    ordered_p = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S; products: P, Q
         steps: begin
             E + S <--> E(P, Q)
@@ -1223,7 +1209,7 @@ end
             E + Q <--> E(Q)
         end
     end)
-    ordered_q = _testhelper_on_reaction(uni_bi_rxn, @enzyme_mechanism begin
+    ordered_q = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S; products: P, Q
         steps: begin
             E + S <--> E(P, Q)
@@ -1231,7 +1217,7 @@ end
             E + P <--> E(P)
         end
     end)
-    random_p = _testhelper_on_reaction(uni_bi_rxn, @enzyme_mechanism begin
+    random_p = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S; products: P, Q
         steps: begin
             E + S <--> E(P, Q)
@@ -1239,7 +1225,7 @@ end
             (E(P) + Q ⇌ E(P, Q), E + Q ⇌ E(Q))
         end
     end)
-    random_q = _testhelper_on_reaction(uni_bi_rxn, @enzyme_mechanism begin
+    random_q = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S; products: P, Q
         steps: begin
             E + S <--> E(P, Q)
@@ -3500,7 +3486,7 @@ end
 
         # 1. count and the exact children
         @test length(result) == n_variants
-        @test Set(result) == Set(_testhelper_on_reaction(rxn, em) for em in expected)
+        @test Set(result) == Set(EnzymeRates.Mechanism(em) for em in expected)
 
         # 2. Δ params: +1 each (one new K_I parameter), measured against ground-truth
         # `fitted_params(compile_mechanism(...))` — the canonical source for exact
@@ -3765,7 +3751,7 @@ end
         products: P[C], Q[N]
         competitive_inhibitors: A
     end
-    m = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -3776,7 +3762,7 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    at_E_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A
@@ -3789,7 +3775,7 @@ end
             (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
         end
     end)
-    at_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_EA_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A
@@ -3802,7 +3788,7 @@ end
             (E(A) + A::Mod ⇌ E(A, A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
         end
     end)
-    at_E_EA = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EA = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A
@@ -3815,7 +3801,7 @@ end
             (E + A::Mod ⇌ E(A::Mod), E(A) + A::Mod ⇌ E(A, A::Mod))
         end
     end)
-    at_E = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A
@@ -3864,7 +3850,7 @@ end
         products: P[C], Q[N]
         competitive_inhibitors: A
     end
-    m = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -3875,7 +3861,7 @@ end
             (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
         end
     end)
-    at_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_EA_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A
@@ -3888,7 +3874,7 @@ end
             (E(A) + A::Mod ⇌ E(A, A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
         end
     end)
-    at_E_EA = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EA = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A
@@ -3901,7 +3887,7 @@ end
             (E + A::Mod ⇌ E(A::Mod), E(A) + A::Mod ⇌ E(A, A::Mod))
         end
     end)
-    at_E = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A
@@ -3914,7 +3900,7 @@ end
             E + A::Mod ⇌ E(A::Mod)
         end
     end)
-    at_E_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A
@@ -3961,7 +3947,7 @@ end
         products: P[C], Q[N]
         competitive_inhibitors: A, Q
     end
-    m = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: Q
@@ -3974,7 +3960,7 @@ end
             (E + Q::Mod ⇌ E(Q::Mod), E(A) + Q::Mod ⇌ E(A, Q::Mod))
         end
     end)
-    at_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_EA_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A, Q
@@ -3988,7 +3974,7 @@ end
             (E(A) + A::Mod ⇌ E(A, A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
         end
     end)
-    at_E_EA = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EA = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A, Q
@@ -4002,7 +3988,7 @@ end
             (E + A::Mod ⇌ E(A::Mod), E(A) + A::Mod ⇌ E(A, A::Mod))
         end
     end)
-    at_E_EQ_EQinh = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EQ_EQinh = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A, Q
@@ -4018,7 +4004,7 @@ end
              E(Q::Mod) + A::Mod ⇌ E(A::Mod, Q::Mod))
         end
     end)
-    at_E_EQinh = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EQinh = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A, Q
@@ -4033,7 +4019,7 @@ end
             (E + A::Mod ⇌ E(A::Mod), E(Q::Mod) + A::Mod ⇌ E(A::Mod, Q::Mod))
         end
     end)
-    at_E_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A, Q
@@ -4047,7 +4033,7 @@ end
             (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
         end
     end)
-    at_E_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EA_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A, Q
@@ -4062,7 +4048,7 @@ end
              E(Q) + A::Mod ⇌ E(A::Mod, Q))
         end
     end)
-    at_E = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A, Q
@@ -4118,7 +4104,7 @@ end
         products: P[C], Q[N]
         competitive_inhibitors: A, Q
     end
-    m = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A
@@ -4131,7 +4117,7 @@ end
             (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
         end
     end)
-    at_E_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A, Q
@@ -4145,7 +4131,7 @@ end
             (E + Q::Mod ⇌ E(Q::Mod), E(Q) + Q::Mod ⇌ E(Q, Q::Mod))
         end
     end)
-    at_E_EAinh = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EAinh = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A, Q
@@ -4160,7 +4146,7 @@ end
             (E + Q::Mod ⇌ E(Q::Mod), E(A::Mod) + Q::Mod ⇌ E(A::Mod, Q::Mod))
         end
     end)
-    at_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_EA_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A, Q
@@ -4174,7 +4160,7 @@ end
             (E(A) + Q::Mod ⇌ E(A, Q::Mod), E(Q) + Q::Mod ⇌ E(Q, Q::Mod))
         end
     end)
-    at_E_EA_EAinh = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EA_EAinh = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A, Q
@@ -4190,7 +4176,7 @@ end
              E(A::Mod) + Q::Mod ⇌ E(A::Mod, Q::Mod))
         end
     end)
-    at_E_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EA_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A, Q
@@ -4205,7 +4191,7 @@ end
              E(Q) + Q::Mod ⇌ E(Q, Q::Mod))
         end
     end)
-    at_E_EA = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EA = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A, Q
@@ -4219,7 +4205,7 @@ end
             (E + Q::Mod ⇌ E(Q::Mod), E(A) + Q::Mod ⇌ E(A, Q::Mod))
         end
     end)
-    at_E = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A, Q
@@ -4267,7 +4253,7 @@ end
         products: P[C], Q[N]
         competitive_inhibitors: A, I
     end
-    m = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A
@@ -4280,7 +4266,7 @@ end
             (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
         end
     end)
-    at_E_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I, A
@@ -4294,7 +4280,7 @@ end
             (E + I ⇌ E(I), E(Q) + I ⇌ E(I, Q))
         end
     end)
-    at_E_EAinh = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EAinh = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I, A
@@ -4309,7 +4295,7 @@ end
             (E + I ⇌ E(I), E(A::Mod) + I ⇌ E(A::Mod, I))
         end
     end)
-    at_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_EA_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I, A
@@ -4323,7 +4309,7 @@ end
             (E(A) + I ⇌ E(A, I), E(Q) + I ⇌ E(I, Q))
         end
     end)
-    at_E_EA_EAinh = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EA_EAinh = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I, A
@@ -4338,7 +4324,7 @@ end
             (E + I ⇌ E(I), E(A) + I ⇌ E(A, I), E(A::Mod) + I ⇌ E(A::Mod, I))
         end
     end)
-    at_E_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EA_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I, A
@@ -4352,7 +4338,7 @@ end
             (E + I ⇌ E(I), E(A) + I ⇌ E(A, I), E(Q) + I ⇌ E(I, Q))
         end
     end)
-    at_E_EA = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EA = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I, A
@@ -4366,7 +4352,7 @@ end
             (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))
         end
     end)
-    at_E = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I, A
@@ -4405,7 +4391,7 @@ end
         products: P[C], Q[N]
         competitive_inhibitors: S, I
     end
-    m = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P, Q
         modifiers: S
@@ -4417,7 +4403,7 @@ end
             (E + S::Mod ⇌ E(S::Mod), E(Q) + S::Mod ⇌ E(Q, S::Mod))
         end
     end)
-    at_E_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P, Q
         modifiers: I, S
@@ -4430,7 +4416,7 @@ end
             (E + I ⇌ E(I), E(Q) + I ⇌ E(I, Q))
         end
     end)
-    at_E_ESinh = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_ESinh = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P, Q
         modifiers: I, S
@@ -4444,7 +4430,7 @@ end
             (E + I ⇌ E(I), E(S::Mod) + I ⇌ E(I, S::Mod))
         end
     end)
-    at_E = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P, Q
         modifiers: I, S
@@ -4486,7 +4472,7 @@ end
         products: P[C], Q[N]
         competitive_inhibitors: B, I
     end
-    m = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: B
@@ -4499,7 +4485,7 @@ end
             E + B::Mod ⇌ E(B::Mod)
         end
     end)
-    at_E_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I, B
@@ -4513,7 +4499,7 @@ end
             (E + I ⇌ E(I), E(Q) + I ⇌ E(I, Q))
         end
     end)
-    at_E = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I, B
@@ -4527,7 +4513,7 @@ end
             E + I ⇌ E(I)
         end
     end)
-    at_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_EA_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I, B
@@ -4541,7 +4527,7 @@ end
             (E(A) + I ⇌ E(A, I), E(Q) + I ⇌ E(I, Q))
         end
     end)
-    at_E_EA = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EA = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I, B
@@ -4555,7 +4541,7 @@ end
             (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))
         end
     end)
-    at_E_EA_EQ = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    at_E_EA_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I, B
@@ -4592,7 +4578,7 @@ end
         competitive_inhibitors: S
         oligomeric_state: 2
     end
-    onlya = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
+    onlya = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -4602,7 +4588,7 @@ end
             E + P ⇌ E(P)      :: EqualAI
         end
     end)
-    kept = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
+    kept = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -4619,7 +4605,7 @@ end
     @test Set(kids) == Set([kept])
     @test _testhelper_identifiable_rank(kept) == _testhelper_identifiable_rank(onlya) + 1
     @test isempty(EnzymeRates._redundant_copy_groups(kept))
-    nonequal = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
+    nonequal = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -4643,7 +4629,7 @@ end
         competitive_inhibitors: S
         oligomeric_state: 2
     end
-    dead_inactive = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
+    dead_inactive = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -4653,7 +4639,7 @@ end
             E + P ⇌ E(P)      :: OnlyA
         end
     end)
-    kept = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
+    kept = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -4686,13 +4672,7 @@ end
     # constant per state, duplicates E(S) in the active state and is new in the
     # inactive one, so it keeps one phantom, its active-state constant; the copy rule
     # keeps such a `:NonequalAI` copy.
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        competitive_inhibitors: S
-        oligomeric_state: 2
-    end
-    kept = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
+    kept = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -4704,7 +4684,7 @@ end
             E + S::Mod ⇌ E(S::Mod)      :: EqualAI
         end
     end)
-    relaxed_p = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
+    relaxed_p = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -4716,7 +4696,7 @@ end
             E + S::Mod ⇌ E(S::Mod)      :: EqualAI
         end
     end)
-    relaxed_copy = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
+    relaxed_copy = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -4728,7 +4708,7 @@ end
             E + S::Mod ⇌ E(S::Mod)      :: NonequalAI
         end
     end)
-    relaxed_s = _testhelper_on_reaction_mult2(rxn, @allosteric_mechanism begin
+    relaxed_s = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -5008,7 +4988,7 @@ end
     # alone leaves the Haldane unsatisfiable. Each binding's one-sided :OnlyA is closed
     # over its minimal Haldane completion: every non-empty subset of the 2 bindings
     # (S, P) is set :OnlyA, each with the chemical step also :OnlyA (dead inactive).
-    m = _testhelper_on_reaction(uni_uni_allo, @enzyme_mechanism begin
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -5017,7 +4997,7 @@ end
             E + P ⇌ E(P)
         end
     end)
-    only_s = _testhelper_on_reaction_mult2(uni_uni_allo, @allosteric_mechanism begin
+    only_s = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -5027,7 +5007,7 @@ end
             E + P ⇌ E(P)      :: EqualAI
         end
     end)
-    only_p = _testhelper_on_reaction_mult2(uni_uni_allo, @allosteric_mechanism begin
+    only_p = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -5037,7 +5017,7 @@ end
             E + P ⇌ E(P)      :: OnlyA
         end
     end)
-    both = _testhelper_on_reaction_mult2(uni_uni_allo, @allosteric_mechanism begin
+    both = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -7406,7 +7386,7 @@ end
         substrates: A[C], B[N]
         products: P[C], Q[N]
     end
-    groups(em) = ER.steps(_testhelper_on_reaction(rxn, em))
+    groups(em) = ER.steps(EnzymeRates.Mechanism(em))
     seed = groups(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
@@ -7513,7 +7493,7 @@ end
 
 @testset "ELIM refuses the uni-uni merged complex" begin
     ER = EnzymeRates
-    groups(em) = ER.steps(_testhelper_on_reaction(uni_uni_rxn, em))
+    groups(em) = ER.steps(EnzymeRates.Mechanism(em))
     seed = groups(@enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
@@ -7561,7 +7541,7 @@ end
 
 @testset "C on the ping-pong seed and its single flips" begin
     ER = EnzymeRates
-    groups(em) = ER.steps(_testhelper_on_reaction(bi_bi_pp_rxn, em))
+    groups(em) = ER.steps(EnzymeRates.Mechanism(em))
     seed = groups(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
@@ -7625,7 +7605,7 @@ end
 
 @testset "_seed_variants: the uni-uni seed has none" begin
     ER = EnzymeRates
-    seed = _testhelper_on_reaction(uni_uni_rxn, @enzyme_mechanism begin
+    seed = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
             E + S ⇌ E(S)
@@ -7640,21 +7620,21 @@ end
     # alone in its group), so it is skipped. Both steps at E(P) start at E, so ELIM gives no
     # Theorell–Chance base.
     @test isempty(ER._seed_variants(seed, uni_uni_rxn))
-    only_s = _testhelper_on_reaction(uni_uni_rxn, @enzyme_mechanism begin
+    only_s = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
             E + S <--> E(P)
             E + P ⇌ E(P)
         end
     end)
-    only_p = _testhelper_on_reaction(uni_uni_rxn, @enzyme_mechanism begin
+    only_p = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
             E + S ⇌ E(P)
             E + P <--> E(P)
         end
     end)
-    twin = _testhelper_on_reaction(uni_uni_rxn, @enzyme_mechanism begin
+    twin = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
             E + S <--> E(P)
@@ -7670,7 +7650,7 @@ end
 
 @testset "_seed_variants: the undecorated ordered seed" begin
     ER = EnzymeRates
-    seed = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    seed = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -7689,7 +7669,7 @@ end
     # Theorell–Chance base (A, Q, TC = E(A) + B → E(Q) + P) fails every set of one or two
     # groups and gives {A, Q, TC}. Each variant fits two SS groups and two RE groups
     # (2 + 2 + 1 + 1) or three SS groups (2 + 2 + 2), less the Haldane relation: 5.
-    a_p = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    a_p = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A <--> E(A)
@@ -7698,7 +7678,7 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    b_q = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    b_q = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -7707,7 +7687,7 @@ end
             E + Q <--> E(Q)
         end
     end)
-    tc = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    tc = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A <--> E(A)
@@ -7727,7 +7707,7 @@ end
 
 @testset "_seed_variants: an ordered seed whose B group is shared" begin
     ER = EnzymeRates
-    seed = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    seed = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -7748,7 +7728,7 @@ end
     # in the all-steady-state base, so it is no unit and stays RE. As in the undecorated
     # base, every set of one or two of A, Q and TC fails, and {A, Q, TC} fits
     # 2 + 2 + 2 + 1 − 1 = 6.
-    b_p = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    b_p = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -7757,7 +7737,7 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    a_p = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    a_p = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A <--> E(A)
@@ -7766,7 +7746,7 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    b_q = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    b_q = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -7775,7 +7755,7 @@ end
             E + Q <--> E(Q)
         end
     end)
-    tc = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    tc = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A <--> E(A)
@@ -7813,7 +7793,7 @@ end
 
 @testset "_seed_variants: the undecorated ping-pong seed" begin
     ER = EnzymeRates
-    seed = _testhelper_on_reaction(bi_bi_pp_rxn, @enzyme_mechanism begin
+    seed = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -7837,7 +7817,7 @@ end
     # or two groups leaves the TC step RE (C fails) or turns both of one side's groups RE
     # (V fails); all three steady state pass. Each variant fits 2 + 2 + 1 + 1 − 1 or
     # 2 + 2 + 2 − 1 = 5.
-    pp_aq = _testhelper_on_reaction(bi_bi_pp_rxn, @enzyme_mechanism begin
+    pp_aq = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A <--> E(P; residual = A - P)
@@ -7846,7 +7826,7 @@ end
             E + Q <--> E(Q)
         end
     end)
-    pp_bp = _testhelper_on_reaction(bi_bi_pp_rxn, @enzyme_mechanism begin
+    pp_bp = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(P; residual = A - P)
@@ -7855,7 +7835,7 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    half_tc1 = _testhelper_on_reaction(bi_bi_pp_rxn, @enzyme_mechanism begin
+    half_tc1 = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A <--> E(; residual = A - P) + P
@@ -7863,7 +7843,7 @@ end
             E + Q <--> E(Q)
         end
     end)
-    half_tc2 = _testhelper_on_reaction(bi_bi_pp_rxn, @enzyme_mechanism begin
+    half_tc2 = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A <--> E(P; residual = A - P)
@@ -7907,7 +7887,7 @@ end
 
 @testset "_seed_variants: the ordered/random seed" begin
     ER = EnzymeRates
-    seed = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    seed = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -7930,7 +7910,7 @@ end
     # keeps the one RE exit Bˣ. Fitted: 1 + 2 + 2 + 1 − 1 = 5 for the pairs, and
     # 2 + 1 + 2 + 2 − 1 = 6 for the triple; the shared P and Q groups satisfy the square's
     # Wegscheider relation by themselves.
-    b_p = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    b_p = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -7939,7 +7919,7 @@ end
             (E(P) + Q ⇌ E(P, Q), E + Q ⇌ E(Q))
         end
     end)
-    b_q = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    b_q = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -7948,7 +7928,7 @@ end
             (E(P) + Q <--> E(P, Q), E + Q <--> E(Q))
         end
     end)
-    a_p_q = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    a_p_q = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A <--> E(A)
@@ -7989,7 +7969,7 @@ end
     # variants in this order: the merged base flipped at {B, P}, {R, D}, {P, D}, {P, A},
     # {D, Q}, then the Theorell–Chance base (TC = E(A, B) + D → E(Q, R) + P, which
     # replaces E(P, Q, R)) flipped at {B, R, TC}, {B, TC, Q}, {R, TC, A}, {TC, A, Q}.
-    seed = _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+    seed = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B, D; products: P, Q, R
         steps: begin
             E + B ⇌ E(B)
@@ -8002,7 +7982,7 @@ end
         end
     end)
     expected = [
-        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+        EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
                 E + B <--> E(B)
@@ -8014,7 +7994,7 @@ end
                 E(R) + Q ⇌ E(Q, R)
             end
         end),
-        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+        EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
                 E + B ⇌ E(B)
@@ -8025,7 +8005,7 @@ end
                 E(R) + Q ⇌ E(Q, R)
             end
         end),
-        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+        EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
                 E + B ⇌ E(B)
@@ -8037,7 +8017,7 @@ end
                 E(R) + Q ⇌ E(Q, R)
             end
         end),
-        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+        EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
                 E + B ⇌ E(B)
@@ -8049,7 +8029,7 @@ end
                 E(R) + Q ⇌ E(Q, R)
             end
         end),
-        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+        EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
                 E + B ⇌ E(B)
@@ -8060,7 +8040,7 @@ end
                 E(R) + Q <--> E(Q, R)
             end
         end),
-        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+        EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
                 E + B <--> E(B)
@@ -8071,7 +8051,7 @@ end
                 E(A, B) + D <--> E(Q, R) + P
             end
         end),
-        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+        EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
                 E + B <--> E(B)
@@ -8082,7 +8062,7 @@ end
                 E(A, B) + D <--> E(Q, R) + P
             end
         end),
-        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+        EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
                 E + B ⇌ E(B)
@@ -8093,7 +8073,7 @@ end
                 E(A, B) + D <--> E(Q, R) + P
             end
         end),
-        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+        EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
                 E + B ⇌ E(B)
@@ -8121,7 +8101,7 @@ end
         tcs = [ER._eliminate_form(merged, ER.to_species(s)) for s in isos]
         vcat([merged], filter(!isnothing, tcs))
     end
-    ordered = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    ordered = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -8131,7 +8111,7 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    shared_b = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    shared_b = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -8141,7 +8121,7 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    ordered_random = _testhelper_on_reaction(bi_bi_rxn, @enzyme_mechanism begin
+    ordered_random = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -8151,7 +8131,7 @@ end
             (E(P) + Q ⇌ E(P, Q), E + Q ⇌ E(Q))
         end
     end)
-    ping_pong = _testhelper_on_reaction(bi_bi_pp_rxn, @enzyme_mechanism begin
+    ping_pong = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -11026,7 +11006,7 @@ end
         substrates: S[C]
         products: P[C]
     end
-    m = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -11034,7 +11014,7 @@ end
             E + P ⇌ E(P)
         end
     end)
-    flipped = _testhelper_on_reaction(rxn, @enzyme_mechanism begin
+    flipped = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
