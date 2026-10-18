@@ -447,6 +447,10 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         @test_throws(ErrorException("`modifiers:` expects bare names; got (A isa B)::Mod."),
                      EnzymeRates._bare_symbols_from_values(Any[:((A isa B)::Mod)],
                                                            :modifiers))
+        @test_throws(ErrorException("`modifiers:` expects bare names; got (in)(2)::Mod. " *
+                                    "List `in` bare; a role tag goes on the metabolite " *
+                                    "in a step."),
+                     EnzymeRates._bare_symbols_from_values(Any[:(in(2)::Mod)], :modifiers))
         @test_throws(ErrorException("`modifiers:` expects bare names; got (-2)::Mod."),
                      EnzymeRates._bare_symbols_from_values(Any[:((-(2))::Mod)],
                                                            :modifiers))
