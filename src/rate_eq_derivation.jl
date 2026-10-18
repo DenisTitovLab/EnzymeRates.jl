@@ -359,11 +359,10 @@ end
 
 # ─── Expr generation from POLY ──────────────────────────────
 
-"""The numerator and denominator Exprs of the rate equation of `M`, from its raw
+"""The numerator and denominator Exprs of the rate equation of `m`, from its raw
 symbolic rate polys: flat sums for the printed equation, or in Horner form
 (`_poly_to_horner`) for the generated code when `horner` is true."""
-function _num_den_exprs(@nospecialize(M::Type{<:EnzymeMechanism}); horner = false)
-    m = Mechanism(M())
+function _num_den_exprs(m::Mechanism; horner = false)
     names = _edge_names(m, :None)
     num, den, _ = _raw_symbolic_rate_polys(m, trues(length(m.edges)), names)
     horner && return _poly_to_horner(num), _poly_to_horner(den)
@@ -386,35 +385,35 @@ _dep_assignments(dep) =
     [Expr(:(=), sym, rhs) for (sym, rhs) in sort!(collect(dep); by = first)]
 
 """
-Error if a metabolite of `M` has the name of a parameter in `param_syms` or `dep`. The
+Error if a metabolite of `m` has the name of a parameter in `param_syms` or `dep`. The
 rate equation binds the parameters, the concentrations and the dependent parameters as
 local names of one scope, so a shared name would let one overwrite another. Every
 parameter name holds `_` or is `Keq` or `L`, and the reaction and mechanism constructors
 reject those metabolite names (`_check_metabolite_names`), so this check cannot fire for
 a mechanism the constructors build.
 """
-function _assert_no_name_clash(@nospecialize(M::Type{<:AbstractEnzymeMechanism}),
-                               param_syms, dep)
-    for m in metabolites(M())
-        (m in param_syms || haskey(dep, m)) && error(
-            "Metabolite $m has the name of a parameter of this mechanism's rate " *
+function _assert_no_name_clash(m::_AnyMech, param_syms, dep)
+    for x in metabolites(m)
+        (x in param_syms || haskey(dep, x)) && error(
+            "Metabolite $x has the name of a parameter of this mechanism's rate " *
             "equation; rename the metabolite")
     end
 end
 
 """
-The body of the generated `rate_equation` of `M`: destructure `param_syms` from
+The body of the generated `rate_equation` of `m`, the mechanism its compiled type
+decodes to: destructure `param_syms` from
 `params` and the metabolites from `concs`, assign the dependent parameters `dep`, and
 return `E_total * (num) / (den)` with `num` and `den` from `_num_den_exprs` in Horner
 form. It first runs `_assert_no_name_clash`, which cannot fire for a mechanism the
 constructors build.
 """
-function _rate_body(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param_syms, dep)
-    _assert_no_name_clash(M, param_syms, dep)
-    num, den = _num_den_exprs(M; horner = true)
+function _rate_body(m::_AnyMech, param_syms, dep)
+    _assert_no_name_clash(m, param_syms, dep)
+    num, den = _num_den_exprs(m; horner = true)
     Expr(:block,
         _destructuring_expr(param_syms, :params),
-        _destructuring_expr(metabolites(M()), :concs),
+        _destructuring_expr(metabolites(m), :concs),
         _dep_assignments(dep)...,
         :(return E_total * ($num) / ($den)))
 end
@@ -443,9 +442,11 @@ arithmetic expression with no allocations, loops, or matrix operations. Use
 @generated function rate_equation(m::M_type, concs::NamedTuple,
         params::NamedTuple) where {M_type <: AbstractEnzymeMechanism}
     # The body binds each metabolite's name as a local, so the type parameter's name
-    # holds `_`, which no metabolite name does.
-    dep, indep = _dependent_param_exprs(M_type)
-    _rate_body(M_type, (indep..., :Keq, :E_total), dep)
+    # holds `_`, which no metabolite name does. The generator decodes the mechanism and
+    # checks its rate law once (`_derivation_input`).
+    m_decoded = _derivation_input(M_type)
+    dep, indep = _dependent_param_exprs(m_decoded)
+    _rate_body(m_decoded, (indep..., :Keq, :E_total), dep)
 end
 
 # Concrete-mechanism convenience: lift to the singleton (see the note on
@@ -504,7 +505,7 @@ rate_equation_string(m::Union{Mechanism, AllostericMechanism}) =
     rate_equation_string(compile_mechanism(m))
 
 """
-The `rate_equation_string` text of `M`: the `params` destructure of `param_syms`, the
+The `rate_equation_string` text of `m`: the `params` destructure of `param_syms`, the
 `concs` destructure, one line `sym = rhs` per dependent parameter of `dep`, and the
 `v = E_total * (num) / (den)` line from `_num_den_exprs`. A dependent whose right-hand
 side mentions `Keq` goes under `# Haldane constraints:`, every other one under
@@ -513,16 +514,15 @@ eq_hash dedup of rate-equivalent mechanisms compares these strings, so their lin
 must not depend on the order the solve emits its dependents in. It first runs
 `_assert_no_name_clash`, which cannot fire for a mechanism the constructors build.
 """
-function _equation_text(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param_syms,
-                        dep)
-    _assert_no_name_clash(M, param_syms, dep)
+function _equation_text(m::_AnyMech, param_syms, dep)
+    _assert_no_name_clash(m, param_syms, dep)
     weg, hal = String[], String[]
     for (sym, rhs) in sort!(collect(dep); by = first)
         push!(_mentions(rhs, :Keq) ? hal : weg, "$sym = $(_expr_to_string(rhs))")
     end
-    num, den = _num_den_exprs(M)
+    num, den = _num_den_exprs(m)
     lines = ["(; $(join(param_syms, ", "))) = params",
-             "(; $(join(metabolites(M()), ", "))) = concs"]
+             "(; $(join(metabolites(m), ", "))) = concs"]
     isempty(weg) || push!(lines, "# Wegscheider constraints:", weg...)
     isempty(hal) || push!(lines, "# Haldane constraints:", hal...)
     push!(lines, "v = E_total * ($(_expr_to_string(num))) / ($(_expr_to_string(den)))")
@@ -530,8 +530,9 @@ function _equation_text(@nospecialize(M::Type{<:AbstractEnzymeMechanism}), param
 end
 
 function rate_equation_string(@nospecialize(m::AbstractEnzymeMechanism))
-    dep, indep = _dependent_param_exprs(typeof(m))
-    _equation_text(typeof(m), (indep..., :Keq, :E_total), dep)
+    mech = _derivation_input(typeof(m))
+    dep, indep = _dependent_param_exprs(mech)
+    _equation_text(mech, (indep..., :Keq, :E_total), dep)
 end
 
 # ─── Steady-state rate-constant names ──────────────────────────
@@ -707,9 +708,10 @@ function _is_metabolite_free_monomial(p::POLY, mets::Set{Symbol})
 end
 
 """
-    _mwc_state_polys(am, mets) -> (num_A, den_A, num_I, den_I, d_A, d_I)
+    _mwc_state_polys(am, mets, kept) -> (num_A, den_A, num_I, den_I, d_A, d_I)
 
-The catalytic rate polys of both conformations of `am` (`_state_rate_polys`) under the
+The catalytic rate polys of both conformations of `am` (`_state_rate_polys`, with `kept`
+as `_kept_members(am)`) under the
 formulation-1 per-state free-enzyme normalization that `rate_equation`
 (`_num_den_exprs`) uses. The I-state polys come from the inactive conformation's pruned
 graph (`_inactive_mask` drops `:OnlyA` groups and every form they disconnect from free
@@ -726,9 +728,10 @@ value (`mets` are the catalytic metabolites):
   weight (`d^n` on the rate law's terms).
 Only the third case returns the weights; the first two return `poly_one()` for both.
 """
-function _mwc_state_polys(am::AllostericMechanism, mets::Set{Symbol})
-    num_A, den_A, d_A = _state_rate_polys(am, :A)
-    num_I, den_I, d_I = _state_rate_polys(am, :I)
+function _mwc_state_polys(am::AllostericMechanism, mets::Set{Symbol},
+                          kept::Dict{Tuple{Int, Int, Bool}, Int})
+    num_A, den_A, d_A = _state_rate_polys(am, :A, kept)
+    num_I, den_I, d_I = _state_rate_polys(am, :I, kept)
     if d_A == d_I
         d_A = d_I = poly_one()
     elseif _is_metabolite_free_monomial(d_A, mets) &&
@@ -742,26 +745,25 @@ function _mwc_state_polys(am::AllostericMechanism, mets::Set{Symbol})
 end
 
 """
-Assemble the MWC numerator and denominator Exprs.
+Assemble the MWC numerator and denominator Exprs of `am`, the mechanism its compiled type
+decodes to.
 Returns `(full_num, full_den)`, written with flat sums for the printed equation, or in
 Horner form (`_poly_to_horner`) for the generated code when `horner` is true.
 Per-active-site normalization: the
 numerator carries no leading `catalytic_multiplicity` factor; only the
 `Q_cat^(CatN-1)` / `Q_cat^CatN` binding-statistics powers remain.
 """
-function _num_den_exprs(@nospecialize(M_type::Type{<:AllostericEnzymeMechanism});
-                        horner = false)
-    m = M_type()
-    am = AllostericMechanism(m)
-    CatN = catalytic_multiplicity(m)
+function _num_den_exprs(am::AllostericMechanism; horner = false)
+    CatN = catalytic_multiplicity(am)
     RS = regulatory_sites(am)
+    kept = _kept_members(am)
 
     # The active conformation's catalytic names drive `_poly_to_expr`'s
     # param/metabolite ordering split; the I-poly's `I_` names sort as non-params.
-    cat_params = Set{Symbol}(n for ns in _edge_names(am, :A) for n in ns)
+    cat_params = Set{Symbol}(n for ns in _edge_names(am, :A, kept) for n in ns)
     to_expr(p) = horner ? _poly_to_horner(p) : _poly_to_expr(p, cat_params)
     num_A_poly, den_A_poly, num_i_poly, den_i_poly, d_A, d_I =
-        _mwc_state_polys(am, Set{Symbol}(metabolites(catalytic_mechanism(m))))
+        _mwc_state_polys(am, Set{Symbol}(metabolites(am.catalytic)), kept)
     # A free-enzyme weight left for cross-weighting multiplies the other state's terms;
     # a normalized one renders as 1, which `_mwc_cross_weight` skips.
     D_A_expr = to_expr(d_A)

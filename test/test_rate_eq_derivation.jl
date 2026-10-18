@@ -1233,8 +1233,9 @@ end
 """The `return E_total * (num) / (den)` expression of the generated `rate_equation` body of
 `m`."""
 function _testhelper_generated_rate_return(m)
-    dep, indep = ER._dependent_param_exprs(typeof(m))
-    last(ER._rate_body(typeof(m), (indep..., :Keq, :E_total), dep).args)
+    mech = ER._derivation_input(typeof(m))
+    dep, indep = ER._dependent_param_exprs(mech)
+    last(ER._rate_body(mech, (indep..., :Keq, :E_total), dep).args)
 end
 
 @testset "rate_equation polynomial body uses 2-arg +/* calls" begin
@@ -1975,8 +1976,9 @@ end
     reserved = (:E_total, :Keq, :L, :N, :params, :concs, :v)
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
-        dep, indep = EnzymeRates._dependent_param_exprs(typeof(m))
-        body = EnzymeRates._rate_body(typeof(m), (indep..., :Keq, :E_total), dep)
+        mech = EnzymeRates._derivation_input(typeof(m))
+        dep, indep = EnzymeRates._dependent_param_exprs(mech)
+        body = EnzymeRates._rate_body(mech, (indep..., :Keq, :E_total), dep)
         printed = Meta.parseall(rate_equation_string(m))
         others = setdiff(_testhelper_names_read(body) ∪ _testhelper_names_read(printed),
                          metabolites(m))

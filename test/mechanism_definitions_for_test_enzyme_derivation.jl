@@ -458,8 +458,9 @@ computed from `_dependent_param_exprs`, as the compiled body computes them.
 """
 function _testhelper_law_value(m, params::AbstractDict, concs::AbstractDict)
     setprecision(BigFloat, 256) do
-        num, den = EnzymeRates._num_den_exprs(typeof(m))
-        dep, _ = EnzymeRates._dependent_param_exprs(typeof(m))
+        mech = EnzymeRates._derivation_input(typeof(m))
+        num, den = EnzymeRates._num_den_exprs(mech)
+        dep, _ = EnzymeRates._dependent_param_exprs(mech)
         env = Dict{Symbol, BigFloat}(k => BigFloat(v) for (k, v) in params)
         for (k, ex) in dep
             env[k] = _testhelper_eval_expr(ex, env)
