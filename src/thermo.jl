@@ -342,7 +342,8 @@ function _dependent_param_exprs(m::_AnyMech)
     sys = _joint_system(m)
     M, pivots = _reduce_joint_system(sys.A, sys.rhs)
     n = length(sys.columns)
-    names = [name(_column_parameter(m, sys.flat, c), m) for c in sys.columns]
+    sides = _class_sides(m)
+    names = [name(_column_parameter(m, sys.flat, c), m, sides) for c in sys.columns]
     class(c) = _class(c, sys.flat[c.step][2], sys.tags[sys.flat[c.step][2]])
     last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
     kept_in_law(i) = (c = sys.columns[i];
@@ -582,7 +583,9 @@ mechanism: its first step's slot-1 constant without a state tag, which takes the
 the group's active-class kept member.
 """
 function _onlya_violation_message(am::AllostericMechanism, groups::Vector{Int})
-    labels = sort!([string(name(first(_step_constants(first(steps(am)[g]), :None)), am))
+    sides = _class_sides(am)
+    labels = sort!([string(name(first(_step_constants(first(steps(am)[g]), :None)), am,
+                                sides))
                     for g in groups])
     "an :OnlyA binding ($(join(labels, ", "))) leaves a " *
     "thermodynamic (Haldane/Wegscheider) cycle unsatisfiable: the " *

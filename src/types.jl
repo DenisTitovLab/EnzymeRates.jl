@@ -1021,16 +1021,6 @@ function _bottomless_re_segment(m, steps::Vector{Vector{Step}})
 end
 
 """
-Naming data derived from a mechanism's steps, filled on first use: the rendered sides
-of each kinetic class's kept member (`_class_sides`). It never takes part in `==`,
-`hash`, the compiled type or display.
-"""
-mutable struct _NamingCache
-    sides::Union{Nothing, Dict{Tuple{Int, Int, Bool}, Tuple{String, String}}}
-end
-_NamingCache() = _NamingCache(nothing)
-
-"""
     Mechanism
 
 A non-allosteric enzyme mechanism: a `reaction::EnzymeReaction` plus
@@ -1048,10 +1038,9 @@ Lift to the singleton derivation type with `EnzymeRates.compile_mechanism(m)` or
 struct Mechanism
     reaction::EnzymeReaction
     steps::Vector{Vector{Step}}
-    naming::_NamingCache
     function Mechanism(reaction::EnzymeReaction,
                        steps::Vector{Vector{Step}})
-        new(reaction, first(_canonical_groups(reaction, steps)), _NamingCache())
+        new(reaction, first(_canonical_groups(reaction, steps)))
     end
 end
 
@@ -1070,7 +1059,6 @@ struct AllostericMechanism
     cat_allo_states::Vector{Symbol}
     catalytic_multiplicity::Int
     regulatory_sites::Vector{RegulatorySite}
-    naming::_NamingCache
 
     function AllostericMechanism(reaction::EnzymeReaction,
                                  cat_steps::Vector{Vector{Step}},
@@ -1109,8 +1097,7 @@ struct AllostericMechanism
             error("AllostericMechanism: ligand $(ligs[dup]) appears in two " *
                   "distinct regulatory sites; rendered Kreg names would " *
                   "collide. Same-ligand-two-sites is not enumerated.")
-        new(reaction, cat_steps, cat_allo_states,
-            catalytic_multiplicity, regulatory_sites, _NamingCache())
+        new(reaction, cat_steps, cat_allo_states, catalytic_multiplicity, regulatory_sites)
     end
 end
 
@@ -1193,15 +1180,15 @@ end
 
 # `==` and `hash` by content for the value types whose fields are Vectors or structs: the
 # default `==` would compare identity. Every field takes part, in declaration order, except
-# a mechanism's `reaction` and `naming` cache: a mechanism is its steps, tags,
-# multiplicity and sites, whatever reaction it was built on. `Species` keeps its own pair:
-# its stored `name` is derived. `Met` keeps Julia's `==`, which compares its two fields,
-# and has its own `hash`: a struct's default hash mixes in its type's identity, which
-# changes between precompile sessions.
+# a mechanism's `reaction`: a mechanism is its steps, tags, multiplicity and sites, whatever
+# reaction it was built on. `Species` keeps its own pair: its stored `name` is derived.
+# `Met` keeps Julia's `==`, which compares its two fields, and has its own `hash`: a
+# struct's default hash mixes in its type's identity, which changes between precompile
+# sessions.
 for T in (Residual, RegulatorySite, Step, Krapid, Kfor, Krev, Kreg,
           ReactantAtoms, RegulatorMults, EnzymeReaction, Mechanism, AllostericMechanism,
           RawForm, RawStep, RawMechanism, RawSite, RawAllostericMechanism)
-    fs = filter(∉((:reaction, :naming)), fieldnames(T))
+    fs = filter(!=(:reaction), fieldnames(T))
     @eval Base.:(==)(a::$T, b::$T) =
         $(reduce((l, r) -> :($l && $r), [:(a.$f == b.$f) for f in fs]))
     @eval Base.hash(x::$T, h::UInt) =
@@ -1652,29 +1639,24 @@ _render_reaction(prefix::String, (a, b)::Tuple{String, String}, state::Symbol) =
     Symbol(prefix, _state_tag(state), a, "_to_", b)
 
 """The `_forward_sides` of each kinetic class's kept member (`_kept_members`), keyed by
-`(group, slot, inactive)`; cached per mechanism."""
-function _class_sides(m::_AnyMech)
-    c = m.naming
-    sides = c.sides
-    sides === nothing || return sides
-    c.sides = Dict{Tuple{Int, Int, Bool}, Tuple{String, String}}(
-        k => _forward_sides(s, m) for (k, s) in _kept_members(m))
-end
+`(group, slot, inactive)`. `name(p, m)` computes them for each call, so a caller that
+names many constants of one mechanism computes them once and passes them."""
+_class_sides(m::_AnyMech) = Dict{Tuple{Int, Int, Bool}, Tuple{String, String}}(
+    k => _forward_sides(s, m) for (k, s) in _kept_members(m))
 
 """
 The sides that name constant `slot` of `step` in `state`: those of the kept member of
-its kinetic class (`_class_sides`). An `:EqualAI` step's constant is one class in both
-conformations; the inactive copy of an `:OnlyA` step is a class of its own, named after
-its own step. A slot the step's group has no class for (the reverse rate of a
-rapid-equilibrium step) takes the sides of its slot-1 class, so every parameter of every
-step renders.
+its kinetic class, from `sides` (`_class_sides(m)`). An `:EqualAI` step's constant is one
+class in both conformations; the inactive copy of an `:OnlyA` step is a class of its own,
+named after its own step. A slot the step's group has no class for (the reverse rate of
+a rapid-equilibrium step) takes the sides of its slot-1 class, so every parameter of
+every step renders.
 """
-function _constant_sides(step::Step, slot::Int, state::Symbol, m::_AnyMech)
+function _constant_sides(step::Step, slot::Int, state::Symbol, m::_AnyMech, sides)
     g = findfirst(group -> step in group, steps(m))
     g === nothing && error("Step not found in mechanism: $step")
     tag = m isa AllostericMechanism ? cat_allo_state(m, g) : :None
     state === :I && tag === :OnlyA && return _forward_sides(step, m)
-    sides = _class_sides(m)
     inactive = state === :I && tag === :NonequalAI
     get(() -> sides[(g, 1, inactive)], sides, (g, slot, inactive))
 end
@@ -1683,14 +1665,16 @@ end
 # constant (`k_`) after the direction it drives, an equilibrium constant (`K_`) after
 # the direction whose products-over-reactants it is. A binding's K is named in the
 # release direction, so it is a dissociation constant (`K_ES_to_E_S`); an
-# isomerization's or other RE step's K in the stored direction (`K_ES_to_EP`).
-name(p::Kfor, m::_AnyMech) =
-    _render_reaction("k_", _constant_sides(p.step, 1, p.state, m), p.state)
-name(p::Krev, m::_AnyMech) =
-    _render_reaction("k_", reverse(_constant_sides(p.step, 2, p.state, m)), p.state)
-function name(p::Krapid, m::_AnyMech)
-    sides = _constant_sides(p.step, 1, p.state, m)
-    _render_reaction("K_", is_binding(p.step) ? reverse(sides) : sides, p.state)
+# isomerization's or other RE step's K in the stored direction (`K_ES_to_EP`). `sides`
+# holds the kept members' sides (`_class_sides`).
+name(p::Kfor, m::_AnyMech, sides = _class_sides(m)) =
+    _render_reaction("k_", _constant_sides(p.step, 1, p.state, m, sides), p.state)
+name(p::Krev, m::_AnyMech, sides = _class_sides(m)) =
+    _render_reaction("k_", reverse(_constant_sides(p.step, 2, p.state, m, sides)),
+                     p.state)
+function name(p::Krapid, m::_AnyMech, sides = _class_sides(m))
+    s = _constant_sides(p.step, 1, p.state, m, sides)
+    _render_reaction("K_", is_binding(p.step) ? reverse(s) : s, p.state)
 end
 
 """

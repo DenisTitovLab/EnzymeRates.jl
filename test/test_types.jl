@@ -2932,7 +2932,7 @@ end
     end
 end
 
-@testset "the naming cache never changes a mechanism's identity" begin
+@testset "naming a mechanism's constants never changes its identity" begin
     m1 = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2963,13 +2963,13 @@ end
                                           copy(EnzymeRates.cat_allo_states(am1)),
                                           EnzymeRates.catalytic_multiplicity(am1),
                                           copy(EnzymeRates.regulatory_sites(am1)))
-    # Naming every parameter fills the mechanism's naming cache.
+    # Every parameter's name, which reads the mechanism and stores nothing in it.
     _testhelper_param_names(m::EnzymeRates.Mechanism) = EnzymeRates._step_names(m, :None)
     _testhelper_param_names(m::EnzymeRates.AllostericMechanism) =
         [[EnzymeRates._step_names(m, state) for state in (:A, :I)];
          [[EnzymeRates.name(p, m)] for state in (:A, :I)
           for p in EnzymeRates._kreg_params(m, state)]]
-    # `rebuilt` is `m` constructed again from its fields, with an empty cache.
+    # `rebuilt` is `m` constructed again from its fields.
     function _testhelper_check_identity(m, rebuilt)
         shown = repr(m)
         names = _testhelper_param_names(m)

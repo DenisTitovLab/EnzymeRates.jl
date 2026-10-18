@@ -284,14 +284,14 @@ _state_groups(am::AllostericMechanism, state::Symbol) =
 """
 The parameter Symbols of each flat step's constants in conformation `state` of `m` —
 `[K]` at rapid equilibrium, `[kf, kr]` at steady state — through the naming chokepoint
-(`name(p, m)`), over the steps of `_state_groups(m, state)`: `:None` for a plain
-mechanism; `:A` or `:I` for an allosteric one, an `:EqualAI` group's constants taking its
-one shared name in both.
+(`name(p, m, sides)`, `sides` the kept members' sides, `_class_sides(m)`), over the steps
+of `_state_groups(m, state)`: `:None` for a plain mechanism; `:A` or `:I` for an
+allosteric one, an `:EqualAI` group's constants taking its one shared name in both.
 """
-function _step_names(m::_AnyMech, state::Symbol)
+function _step_names(m::_AnyMech, state::Symbol, sides = _class_sides(m))
     tag(g) = m isa AllostericMechanism && cat_allo_state(m, g) === :EqualAI ?
              :EqualAI : state
-    [Symbol[name(p, m) for p in _step_constants(s, tag(g))]
+    [Symbol[name(p, m, sides) for p in _step_constants(s, tag(g))]
      for (s, g) in _flat_steps(_state_groups(m, state))]
 end
 
@@ -538,9 +538,10 @@ constants, `Keq`, `E_total`, `L` and the regulator constants alone.
 function _ss_rate_constant_names(@nospecialize(em::AbstractEnzymeMechanism))
     m = _derivation_input(typeof(em))
     states = m isa Mechanism ? (:None,) : (:A, :I)
+    sides = _class_sides(m)
     Set{Symbol}(n for st in states
                 for ((s, _), ns) in zip(_flat_steps(_state_groups(m, st)),
-                                        _step_names(m, st))
+                                        _step_names(m, st, sides))
                 if !is_equilibrium(s) for n in ns)
 end
 
