@@ -928,8 +928,9 @@ The mechanism `text` writes: one unqualified `@enzyme_mechanism` or `@allosteric
 block, such as `show` prints for a mechanism, with any whitespace around it. It reads the
 parsed expression with the macros' walker (`_raw_mechanism`), never evaluating it, and
 checks the mechanism as the macros do (`_checked_mechanism`). A block the macros reject
-fails with the macros' message; any other text fails with this function's own. The text
-`show` prints for a mechanism the macros accept reads back as that mechanism.
+fails with the macros' message and text with a syntax error with `Meta.parse`'s
+`ParseError`; any other text, incomplete text included, fails with this function's own.
+The text `show` prints for a mechanism the macros accept reads back as that mechanism.
 """
 function _parse_mechanism(text::AbstractString)
     ex = Meta.parse(strip(text))
