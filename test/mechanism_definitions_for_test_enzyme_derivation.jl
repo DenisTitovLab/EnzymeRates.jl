@@ -41,7 +41,7 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
     # Signature: (params::NamedTuple) -> Float64
     # params holds `_testhelper_written_params`' constants (the textbook names `k1f`,
     # `K2`, ... beside every name `all_parameters` gives) and `Et`
-    analytical_kcat_fn::Union{Function,Nothing} = nothing
+    analytical_peak_turnover_fn::Union{Function,Nothing} = nothing
 
     # Factored form validation (optional — for mechanisms with known factored forms)
     # Expected numerator/denominator from rate_equation_string output
@@ -903,7 +903,7 @@ let
         expected_n_independent_params=7,
         analytical_rate_fn=(p, c) ->
             _testhelper_rate_ordered_bi_bi(merge(p, (Etotal=p.Et,)), c),
-        analytical_kcat_fn=p -> p.k3f * p.k4f / (p.k3f + p.k4f),
+        analytical_peak_turnover_fn=p -> p.k3f * p.k4f / (p.k3f + p.k4f),
     ))
 end
 
@@ -949,7 +949,7 @@ let
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) ->
             _testhelper_rate_theorell_chance_bi_bi(merge(p, (Etotal=p.Et,)), c),
-        analytical_kcat_fn=p -> p.k3f,
+        analytical_peak_turnover_fn=p -> p.k3f,
     ))
 end
 
@@ -996,7 +996,7 @@ let
         analytical_rate_fn=(p, c) ->
             _testhelper_rate_ping_pong_bi_bi(
                 merge(p, (Etotal=p.Et,)), c),
-        analytical_kcat_fn=p -> p.k2f * p.k4f / (p.k2f + p.k4f),
+        analytical_peak_turnover_fn=p -> p.k2f * p.k4f / (p.k2f + p.k4f),
     ))
 end
 
@@ -1536,7 +1536,7 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=2,
         analytical_rate_fn=(p, c) -> _testhelper_rate_re_uni_uni(merge(p, (Et=p.Et,)), c),
-        analytical_kcat_fn=p -> p.k2f,
+        analytical_peak_turnover_fn=p -> p.k2f,
     ))
 end
 
@@ -1652,7 +1652,7 @@ let
         expected_n_independent_params=4,
         analytical_rate_fn=(p, c) -> _testhelper_rate_competitive_inh(
             merge(p, (Et=p.Et,)), c),
-        analytical_kcat_fn=p -> p.k2f,
+        analytical_peak_turnover_fn=p -> p.k2f,
         # Textbook: flat sum denominator (no Cartesian product structure)
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
@@ -1788,7 +1788,7 @@ let
         expected_n_independent_params=4,
         analytical_rate_fn=(p, c) -> _testhelper_rate_essential_activator(
             merge(p, (Et=p.Et,)), c),
-        analytical_kcat_fn=p -> p.k2f,
+        analytical_peak_turnover_fn=p -> p.k2f,
         expected_factored_num=
         "k_ERS_to_EPR * R * S / (K_ERS_to_ER_S * K_ER_to_E_R) - k_EPR_to_ERS * P * R / (K_EPR_to_ER_P * K_ER_to_E_R)",
         expected_factored_denom=
@@ -1842,7 +1842,7 @@ let
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) -> _testhelper_rate_nonessential_activator(
             merge(p, (Et=p.Et,)), c),
-        analytical_kcat_fn=p -> max(p.k2f, p.k5f),
+        analytical_peak_turnover_fn=p -> max(p.k2f, p.k5f),
         expected_factored_num=
         "k_ES_to_EP * S / K_ES_to_E_S + k_ERS_to_EPR * R * S / (K_ERS_to_ER_S * K_ER_to_E_R) - (k_EP_to_ES * P / K_EP_to_E_P + k_EPR_to_ERS * P * R / (K_EP_to_E_P * K_ER_to_E_R))",
         expected_factored_denom=
@@ -2514,7 +2514,7 @@ let
         # pattern is unreachable in T-state, so kcat = k5f
         # for every regulator corner. Guards the peak turnover for a saturating
         # pattern absent from the I-state.
-        analytical_kcat_fn = p -> p.k5f,
+        analytical_peak_turnover_fn = p -> p.k5f,
     ))
 end
 
@@ -2639,7 +2639,7 @@ let
         # pattern is unreachable in T-state, so kcat = k6f
         # for every regulator corner. Guards the peak turnover for a saturating
         # pattern absent from the I-state.
-        analytical_kcat_fn = p -> p.k6f,
+        analytical_peak_turnover_fn = p -> p.k6f,
     ))
 end
 
@@ -2729,7 +2729,7 @@ let
         expected_n_independent_params=8,
         run_ode_test=false,
         analytical_rate_fn=_testhelper_pk_rate_analytical,
-        analytical_kcat_fn = p -> p.k5f,
+        analytical_peak_turnover_fn = p -> p.k5f,
     ))
 end
 
@@ -2807,7 +2807,7 @@ let
         expected_n_independent_params=12,
         run_ode_test=false,
         analytical_rate_fn=_testhelper_m_all_rate_analytical,
-        analytical_kcat_fn=nothing,      # cat is :NonequalAI → kcat L-dependent
+        analytical_peak_turnover_fn=nothing,      # cat is :NonequalAI → kcat L-dependent
     ))
 end
 
@@ -2882,7 +2882,7 @@ let
         expected_n_independent_params=4,
         run_ode_test=false,
         analytical_rate_fn=_testhelper_m_OnlyA_prod_rate_analytical,
-        analytical_kcat_fn=_testhelper_m_OnlyA_prod_peak_turnover,
+        analytical_peak_turnover_fn=_testhelper_m_OnlyA_prod_peak_turnover,
     ))
 end
 

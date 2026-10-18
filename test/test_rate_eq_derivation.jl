@@ -669,16 +669,17 @@ end
 
 """
 Test that the peak turnover of `spec`'s mechanism at `params` (fitted constants, `Keq`
-and `E_total`; seed 42's draw unless given) equals `spec.analytical_kcat_fn`'s value.
+and `E_total`; seed 42's draw unless given) equals
+`spec.analytical_peak_turnover_fn`'s value.
 """
-function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec;
-                                          params=nothing)
-    spec.analytical_kcat_fn === nothing && return
+function _testhelper_test_analytical_peak_turnover(spec::_testhelper_MechanismTestSpec;
+                                                   params=nothing)
+    spec.analytical_peak_turnover_fn === nothing && return
     m = spec.mechanism
     if params === nothing
         params = _testhelper_random_independent_params(m; rng=Random.MersenneTwister(42))
     end
-    @testset "Peak turnover approaches the analytical kcat" begin
+    @testset "Peak turnover approaches the analytical value" begin
         # Every fitted constant and Keq lies in 0.1–10, so over a range reaching 1e12 the
         # peak sits at saturating substrates and equals the spec's analytical value to
         # within K/1e12: the kcat at zero products or, where a product raises the
@@ -688,7 +689,7 @@ function _testhelper_test_analytical_kcat(spec::_testhelper_MechanismTestSpec;
         # reads every constant through all_parameters.
         p = merge(_testhelper_written_params(m, all_parameters(m, params); raw=spec.raw),
                   (Et=params.E_total,))
-        @test peak ≈ spec.analytical_kcat_fn(p) rtol=1e-9
+        @test peak ≈ spec.analytical_peak_turnover_fn(p) rtol=1e-9
     end
 end
 
@@ -798,8 +799,8 @@ function _testhelper_run_all_tests(spec::_testhelper_MechanismTestSpec)
         _testhelper_test_rate_equation_string(spec)
         _testhelper_test_zero_metabolite_finite(spec)
         spec.run_ode_test && _testhelper_test_ode_steadystate(spec)
-        # Only runs if analytical_kcat_fn provided
-        _testhelper_test_analytical_kcat(spec)
+        # Only runs if analytical_peak_turnover_fn provided
+        _testhelper_test_analytical_peak_turnover(spec)
         _testhelper_test_peak_rescaling(spec)
     end
 end
@@ -825,7 +826,7 @@ end
               E_total=1.0)
     # Above the zero-product kcat k2f/(1 + L) = 0.1 (the peak is 0.140).
     @test EnzymeRates._peak_turnover(spec.mechanism, params, (1e-12, 1e12)).value > 0.13
-    _testhelper_test_analytical_kcat(spec; params)
+    _testhelper_test_analytical_peak_turnover(spec; params)
 end
 
 # A fused and a plain binding of B share one rapid-equilibrium kinetic group.
