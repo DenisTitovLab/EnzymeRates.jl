@@ -3215,8 +3215,8 @@ end
 end
 
 @testset "a regulatory-site ligand takes no reserved name and no `_`" begin
-    # A mechanism macro's reaction lists no allosteric regulator, so the
-    # AllostericMechanism constructor checks the names of its sites' ligands.
+    # An allosteric regulator reaches the constructor only as a site ligand, so the
+    # AllostericMechanism constructor checks the ligands' names.
     @test_throws(ErrorException(
         "AllostericMechanism: L is a reserved name; E_total, Keq, L, N, params, concs " *
         "and v are kept for a rate equation's constants and local names"),
