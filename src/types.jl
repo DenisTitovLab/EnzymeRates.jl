@@ -2060,13 +2060,10 @@ AllostericMechanism(rxn::EnzymeReaction, groups::Vector{Vector{Step}},
 
 function Base.show(io::IO, em::EnzymeMechanism)
     m = Mechanism(em)
-    groups = steps(m)
-    flat = collect(Iterators.flatten(groups))
-    forms = _forms(groups)
-    print(io, "EnzymeMechanism (", length(flat), " steps, ", length(forms),
+    print(io, "EnzymeMechanism (", length(m.edges), " steps, ", length(m.forms),
           " enzyme forms):")
-    for s in flat
-        print(io, "\n  ", _step_text(s, m))
+    for k in _flat_edges(m)
+        print(io, "\n  ", _edge_text(m, k))
     end
     # The names the steps bind as modifiers, each once.
     mods = modifiers(m)
@@ -2081,9 +2078,9 @@ function Base.show(io::IO, aem::AllostericEnzymeMechanism)
     print(io, "AllostericEnzymeMechanism (cat_n=", catalytic_multiplicity(am))
     isempty(sites) || print(io, ", ", length(sites), " reg sites")
     print(io, "):")
-    for (g, group) in enumerate(steps(am))
-        body = join(_step_text.(group, Ref(am)), ", ")
-        print(io, "\n  ", length(group) == 1 ? body : "($body)", " :: ",
+    for (g, members) in enumerate(_group_members(am.catalytic))
+        body = join([_edge_text(am.catalytic, k) for k in members], ", ")
+        print(io, "\n  ", length(members) == 1 ? body : "($body)", " :: ",
               cat_allo_state(am, g))
     end
     for (i, site) in enumerate(sites)

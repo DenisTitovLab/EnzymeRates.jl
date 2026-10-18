@@ -88,6 +88,19 @@ _sides(m::Mechanism, e::Edge) =
     (_side_name(m, e.from, e.consumed), _side_name(m, e.to, e.released))
 _sides(m::Mechanism, k::Int) = _sides(m, m.edges[k])
 
+"""A step side as text: form `f`'s name, then the names of the entries `c` (`E + S`)."""
+_side_text(m::Mechanism, f::Int, c::Counts) =
+    join([_form_name(m, f); String.(_entry_names(m, c))], " + ")
+
+"""Edge `k` of `m` as text in its stored direction: its entry side, an arrow (`⇌` rapid
+equilibrium, `<-->` steady state) and its exit side (`_side_text`): `E + S ⇌ ES`,
+`EA + B <--> EQ + P`."""
+function _edge_text(m::Mechanism, k::Int)
+    e = m.edges[k]
+    _side_text(m, e.from, e.consumed) * (e.rapid_equilibrium ? " ⇌ " : " <--> ") *
+        _side_text(m, e.to, e.released)
+end
+
 # ─── name(p::Parameter, m) chokepoint ─────────────────────────────────
 #
 # Single chokepoint for parameter Symbol production. Renders structural
