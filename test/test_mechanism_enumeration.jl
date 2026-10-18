@@ -6515,15 +6515,13 @@ end
         @test _testhelper_respects((:Nope,), (state,))
         @test _testhelper_respects((:U, :Nope), (state, :EqualAI))
     end
-    # A CompetitiveInhibitor carrying a reg_type (only reachable by direct
-    # construction; the DSL restricts type tags to allosteric_regulators:)
-    # is not an AllostericRegulator, so its reg_type is ignored.
-    rxn_ci = EnzymeRates.EnzymeReaction(
-        [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
-         EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])],
-        [EnzymeRates.RegulatorMults(
-            EnzymeRates.CompetitiveInhibitor(:X), [1], :activator)],
-        [1])
+    # A name declared only as a competitive inhibitor, which takes no type, is
+    # :unspecified at a regulatory site.
+    rxn_ci = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        competitive_inhibitors: X
+    end
     @test _testhelper_respects((:X,), (:OnlyI,), rxn_ci)
     # A designated effector is never the opposite pure state; the matching pure state
     # and :NonequalAI always pass. :EqualAI (an antagonist) passes alone and beside an

@@ -323,6 +323,10 @@ struct RegulatorMults
         reg_type in (:activator, :inhibitor, :unspecified) ||
             error("RegulatorMults: reg_type must be :activator, :inhibitor, or " *
                   ":unspecified, got $reg_type")
+        regulator isa CompetitiveInhibitor && reg_type !== :unspecified &&
+            error("RegulatorMults: $(name(regulator)) is a competitive inhibitor, which " *
+                  "takes no regulator type, got $(repr(reg_type)); only an allosteric " *
+                  "regulator is an activator (::Activator) or an inhibitor (::Inhibitor)")
         new(regulator, sort(allowed_multiplicities), reg_type)
     end
 end

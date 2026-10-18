@@ -743,18 +743,18 @@
             allosteric_regulators: X::Bogus
             oligomeric_state: 2
         end))
-        @test_throws Exception eval(:(@enzyme_reaction begin
-            substrates: A[C6H12O6]
-            products: B[C6H12O6]
-            competitive_inhibitors: X::Activator
-        end))
-        @test_throws("@enzyme_reaction: regulator type ::Inhibitor on X::Inhibitor is " *
-                     "only valid on allosteric_regulators: entries.",
-                     eval(:(@enzyme_reaction begin
-            substrates: A[C6H12O6]
-            products: B[C6H12O6]
-            competitive_inhibitors: X::Inhibitor
-        end)))
+        # A competitive inhibitor takes no type tag; the reaction's regulator rejects it.
+        for (tag, t) in ((:Activator, :activator), (:Inhibitor, :inhibitor))
+            @test_throws(ErrorException("RegulatorMults: X is a competitive inhibitor, " *
+                                        "which takes no regulator type, got :$t; only an " *
+                                        "allosteric regulator is an activator " *
+                                        "(::Activator) or an inhibitor (::Inhibitor)"),
+                         eval(:(@enzyme_reaction begin
+                substrates: A[C6H12O6]
+                products: B[C6H12O6]
+                competitive_inhibitors: X::$tag
+            end)))
+        end
     end
 
     @testset "@enzyme_reaction names its labels for any other" begin

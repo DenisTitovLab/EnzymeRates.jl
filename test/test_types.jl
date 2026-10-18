@@ -1226,6 +1226,15 @@ end
         @test hash(rmA) != hash(rm0)
         @test_throws ErrorException ER.RegulatorMults(
             ER.AllostericRegulator(:X), [2], :bogus)
+        # A competitive inhibitor takes no type: only an allosteric regulator activates or
+        # inhibits through the conformation it favors.
+        for t in (:activator, :inhibitor)
+            @test_throws(ErrorException("RegulatorMults: X is a competitive inhibitor, " *
+                                        "which takes no regulator type, got :$t; only an " *
+                                        "allosteric regulator is an activator " *
+                                        "(::Activator) or an inhibitor (::Inhibitor)"),
+                         ER.RegulatorMults(ER.CompetitiveInhibitor(:X), [1], t))
+        end
     end
 
     @testset "EnzymeReaction canonicalizes reactant + regulator ordering" begin

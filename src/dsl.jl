@@ -175,7 +175,7 @@ Parse `R`, `R(1, 2)`, or `R(4)` entries, optionally tagged with a regulator
 type: `R::Activator`, `R::Inhibitor`, or `R(1, 2)::Inhibitor`, into
 `(type, name, mults, reg_type)`. Bare `R` produces `nothing` mults (filled from the
 `oligomeric_state:` multiplicities, default `[1]`) and reg_type `:unspecified`.
-A type tag is only valid on `type === :AllostericRegulator` entries.
+`RegulatorMults` rejects a type tag on a competitive inhibitor.
 """
 function _parse_regulator_entries(values, type::Symbol)
     map(values) do v
@@ -186,9 +186,6 @@ function _parse_regulator_entries(values, type::Symbol)
                    tag === :Inhibitor ? :inhibitor :
                    error("@enzyme_reaction: unknown regulator type tag ::$tag " *
                          "on $v; use ::Activator or ::Inhibitor.")
-            type === :AllostericRegulator ||
-                error("@enzyme_reaction: regulator type ::$tag on $v is only " *
-                      "valid on allosteric_regulators: entries.")
         end
         inner isa Symbol && return (type, inner, nothing, reg_type)
         inner isa Expr && inner.head === :call && length(inner.args) >= 2 &&
