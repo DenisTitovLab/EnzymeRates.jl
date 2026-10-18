@@ -385,12 +385,19 @@ end
 
 """
 Error unless the conformation label `c` is a capital letter followed by lowercase
-letters and digits (`E`, `Estar`, `F2`). A label with a second capital reads as an
-opaque bound-form name (`ES`), which is written in call notation (`E(S)`). Constant
-names join form names with `_`, so a label holds none. `who` names the macro or the
-constructor that checks.
+letters and digits (`E`, `Estar`, `F2`), other than `A` and `I`. A label with a second
+capital reads as an opaque bound-form name (`ES`), which is written in call notation
+(`E(S)`). Constant names join form names with `_`, so a label holds none, and they tag a
+conformation with `A_` or `I_`, so a step side that starts with a form labelled `A` or
+`I` could give an `:EqualAI` step's constant the tagged name of another step's
+(`A(Eb) <--> A + Eb` and the active constant of `E(b) <--> A(Eb)` both render
+`k_A_Eb_to_AEb`). `who` names the macro or the constructor that checks.
 """
 function _check_conformation_label(c::Symbol, who::String)
+    c in (:A, :I) &&
+        error("$who: `$c` cannot be a conformation label: constant names tag a " *
+              "conformation with A_ or I_ (`k_A_ES_to_EP`), so the labels A and I " *
+              "could give two constants one name; choose another label.")
     occursin(r"^[A-Z][a-z0-9]*$", String(c)) && return nothing
     occursin(r"^[A-Z].*[A-Z]", String(c)) &&
         error("$who: `$c` looks like an opaque bound-form name; write it as " *

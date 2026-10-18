@@ -761,7 +761,8 @@ end
     @test_throws(_testhelper_unused("modifier", :P),
                  ER.Mechanism(_testhelper_uniuni_raw(modifiers = [:P])))
     # Conformation labels: a label shaped otherwise than E, Estar or F2; an opaque
-    # bound-form name; a metabolite's name, of the catalytic graph or of a ligand.
+    # bound-form name; A or I, which constant names use as conformation tags; a
+    # metabolite's name, of the catalytic graph or of a ligand.
     _testhelper_turning_to(label) = _testhelper_adding(_testhelper_uniuni_raw(),
         EnzymeRates.RawStep(free, EnzymeRates.RawForm(label, EnzymeRates.Met[]),
                             EnzymeRates.Met[], EnzymeRates.Met[], false))
@@ -774,6 +775,13 @@ end
                                 "write it as decomposed call notation, e.g. `E(S)` or " *
                                 "`E(A, B)`."),
                  ER.Mechanism(_testhelper_turning_to(:ES)))
+    for label in (:A, :I)
+        @test_throws(ErrorException("Mechanism: `$label` cannot be a conformation label: " *
+                                    "constant names tag a conformation with A_ or I_ " *
+                                    "(`k_A_ES_to_EP`), so the labels A and I could give " *
+                                    "two constants one name; choose another label."),
+                     ER.Mechanism(_testhelper_turning_to(label)))
+    end
     @test_throws(ErrorException("Mechanism: conformation label `S` collides with " *
                                 "declared metabolite `S`; choose a different " *
                                 "conformation label."),

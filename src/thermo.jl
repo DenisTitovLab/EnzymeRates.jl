@@ -341,7 +341,9 @@ a compiled mechanism and checks that its rate law is defined (`_derivation_input
 Errors when two constants of the law, regulator constants included, render one name,
 which the law would read as one constant: with a conformation labelled `A`, the uptake
 constant of the `:EqualAI` step `A(Eb) <--> A + Eb` renders `k_A_Eb_to_AEb`, the name of
-the active constant of a `:NonequalAI` step `E(b) <--> A(Eb)`.
+the active constant of a `:NonequalAI` step `E(b) <--> A(Eb)`. The macros and the
+constructors reject the labels `A` and `I` (`_check_conformation_label`), so this check
+cannot fire for a mechanism they build; it guards a graph built without them.
 """
 function _dependent_param_exprs(m::_AnyMech)
     cols = _ordered_columns(m)

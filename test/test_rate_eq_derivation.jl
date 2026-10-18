@@ -1897,21 +1897,68 @@ end
 
 # Every constant of a rate equation needs a name of its own. An :EqualAI step's constants
 # are bare, while a :NonequalAI step's name their conformation, k_A_… for the active one
-# and k_I_… for the inactive one. A conformation labelled A or I renders the same letter
-# at the start of a step side, so an :EqualAI step can take a :NonequalAI step's name.
-@testset "constants that share a name raise" begin
-    # The uptake constant of the :EqualAI step A(Eb) <--> A + Eb is k_A_Eb_to_AEb, the
-    # name of the active constant of the :NonequalAI step E(b) <--> A(Eb).
-    conformation_a = @allosteric_mechanism begin
-        substrates: b
-        products:   Eb
-        steps: begin
-            E + b ⇌ E(b)          :: EqualAI
-            E(b) <--> A(Eb)       :: NonequalAI
-            A(Eb) <--> A + Eb     :: EqualAI
-            A ⇌ E                 :: EqualAI
-        end
+# and k_I_… for the inactive one. A conformation labelled A or I would render the same
+# letter at the start of a step side, so an :EqualAI step could take a :NonequalAI step's
+# name; the macros and the constructors reject those two labels, and the derivation
+# checks the names of a graph built without them.
+
+"""The block of an allosteric mechanism whose second conformation is labelled `label`:
+`E(b) <--> label(Eb)` at :NonequalAI, then `label(Eb) <--> label + Eb` and `label ⇌ E`
+at :EqualAI."""
+_testhelper_relabelled_block(label) = :(begin
+    substrates: b
+    products:   Eb
+    steps: begin
+        E + b ⇌ E(b)             :: EqualAI
+        E(b) <--> $label(Eb)     :: NonequalAI
+        $label(Eb) <--> $label + Eb :: EqualAI
+        $label ⇌ E               :: EqualAI
     end
+end)
+
+"""The raw value of `_testhelper_relabelled_block(label)`, written field by field so that
+no label check reads it."""
+function _testhelper_relabelled_raw(label)
+    R = EnzymeRates
+    b, eb, none = R.Met(:b, false), R.Met(:Eb, false), R.Met[]
+    steps = [R.RawStep(R.RawForm(:E, none), R.RawForm(:E, [b]), [b], none, true),
+             R.RawStep(R.RawForm(:E, [b]), R.RawForm(label, [eb]), none, none, false),
+             R.RawStep(R.RawForm(label, [eb]), R.RawForm(label, none), none, [eb], false),
+             R.RawStep(R.RawForm(label, none), R.RawForm(:E, none), none, none, true)]
+    R.RawAllostericMechanism(R.RawMechanism([:b], [:Eb], Symbol[], steps, [1, 2, 3, 4]),
+                             [:EqualAI, :NonequalAI, :EqualAI, :EqualAI], 1, R.RawSite[])
+end
+
+"""The allosteric graph `raw` writes, in canonical form and composed with its tags,
+multiplicity and sites, with no representation check: the constructors' label check
+would reject it."""
+function _testhelper_unchecked(raw::EnzymeRates.RawAllostericMechanism)
+    c = EnzymeRates._canonicalize(raw.catalytic)
+    tags = similar(raw.cat_allo_states)
+    for (l, t) in enumerate(raw.cat_allo_states)
+        tags[c.group_of[l]] = t
+    end
+    EnzymeRates.AllostericMechanism(c.mechanism, tags, raw.catalytic_multiplicity,
+                                    EnzymeRates.RegulatorySite[])
+end
+
+@testset "constants that would share a name are rejected" begin
+    # The walker reads the block the field-by-field raw value writes.
+    @test EnzymeRates._raw_mechanism(_testhelper_relabelled_block(:F), true) ==
+          _testhelper_relabelled_raw(:F)
+    for label in (:A, :I)
+        @test_throws("@allosteric_mechanism: `$label` cannot be a conformation label: " *
+                     "constant names tag a conformation with A_ or I_ (`k_A_ES_to_EP`), " *
+                     "so the labels A and I could give two constants one name; choose " *
+                     "another label.",
+                     eval(:(@allosteric_mechanism $(_testhelper_relabelled_block(label)))))
+    end
+
+    # The derivation checks the names of a graph built without the label check. The
+    # uptake constant of the :EqualAI step A(Eb) <--> A + Eb is k_A_Eb_to_AEb, the name
+    # of the active constant of the :NonequalAI step E(b) <--> A(Eb).
+    am_a = _testhelper_unchecked(_testhelper_relabelled_raw(:A))
+    conformation_a = EnzymeRates.compile_mechanism(am_a)
     clash_a = ErrorException("Constants of this mechanism's rate equation share a name " *
                              "(k_A_Eb_to_AEb); rename a metabolite or a conformation " *
                              "label so that each constant has a name of its own")
@@ -1922,21 +1969,12 @@ end
     @test_throws clash_a rate_equation(conformation_a, (b = 1.0, Eb = 0.1), params)
     @test_throws clash_a rate_equation_string(conformation_a)
     @test_throws clash_a all_parameters(conformation_a, params)
-    @test_throws clash_a EnzymeRates._independent_param_count(
-        EnzymeRates.AllostericMechanism(conformation_a))
+    @test_throws clash_a EnzymeRates._independent_param_count(am_a)
 
     # Labelled I, the :EqualAI uptake constant k_I_Eb_to_IEb is the name of the
     # :NonequalAI step's inactive constant.
-    conformation_i = @allosteric_mechanism begin
-        substrates: b
-        products:   Eb
-        steps: begin
-            E + b ⇌ E(b)          :: EqualAI
-            E(b) <--> I(Eb)       :: NonequalAI
-            I(Eb) <--> I + Eb     :: EqualAI
-            I ⇌ E                 :: EqualAI
-        end
-    end
+    conformation_i =
+        EnzymeRates.compile_mechanism(_testhelper_unchecked(_testhelper_relabelled_raw(:I)))
     clash_i = ErrorException("Constants of this mechanism's rate equation share a name " *
                              "(k_I_Eb_to_IEb); rename a metabolite or a conformation " *
                              "label so that each constant has a name of its own")
@@ -1944,18 +1982,11 @@ end
     @test_throws clash_i rate_equation_string(conformation_i)
 
     # Labelled F, each constant has a name of its own.
-    renamed = @allosteric_mechanism begin
-        substrates: b
-        products:   Eb
-        steps: begin
-            E + b ⇌ E(b)          :: EqualAI
-            E(b) <--> F(Eb)       :: NonequalAI
-            F(Eb) <--> F + Eb     :: EqualAI
-            F ⇌ E                 :: EqualAI
-        end
-    end
+    renamed = eval(:(@allosteric_mechanism $(_testhelper_relabelled_block(:F))))
     @test parameters(renamed) == (:K_Eb_to_E_b, :K_F_to_E, :k_A_Eb_to_FEb, :k_FEb_to_F_Eb,
                                   :k_F_Eb_to_FEb, :k_I_Eb_to_FEb, :L, :Keq, :E_total)
+    @test EnzymeRates.AllostericMechanism(renamed) ==
+          _testhelper_unchecked(_testhelper_relabelled_raw(:F))
 end
 
 """Every name the expression `ex` binds or reads: each symbol except a called

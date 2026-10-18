@@ -266,8 +266,9 @@ Steps, one per line:
 - An enzyme form is a conformation label with its bound metabolites in parentheses:
   `E`, `E(S)`, `E(A, B)`. `E` is the free enzyme; another conformation takes another
   label, a capital letter followed by lowercase letters and digits such as `Estar` or
-  `F2`, and never a metabolite's name. A label such as `ES` reads as an opaque name and
-  is rejected; write `E(S)`.
+  `F2`, never `A` or `I` (constant names tag the active and inactive conformations with
+  `A_` and `I_`) and never a metabolite's name. A label such as `ES` reads as an opaque
+  name and is rejected; write `E(S)`.
 - `residual =` records the atoms a covalent intermediate keeps, the substrates it took
   up minus the products it gave off (ping-pong): `E(; residual = A - P)` is the enzyme
   without bound metabolites after A bound and P left.
