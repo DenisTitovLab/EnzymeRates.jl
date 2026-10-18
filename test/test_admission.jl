@@ -1086,8 +1086,14 @@ end
         end
     end
     @test written == rewritten
+    @test hash(written) == hash(rewritten)
     @test _testhelper_face_verdicts(written) == _testhelper_face_verdicts(rewritten)
     @test _testhelper_face_verdicts(written)[7].limit === EnzymeRates._LIMIT_DIFFER
+    # The residue stream is pinned so that every process and Julia version draws the same
+    # residues.
+    r = EnzymeRates._ResidueStream(UInt64(0))
+    @test [EnzymeRates._residue!(r) for _ in 1:3] ==
+          [153307352162749901, 1042757494553273858, 487617019471545681]
 end
 
 @testset "the flip move's predicate reads class 3 through the rapid-equilibrium flags" begin
