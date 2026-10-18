@@ -22,45 +22,6 @@ end
 # ─── Atom-conservation validation ────────────────────────────
 
 """
-Error unless a step from the form named `from` to the form named `to` conserves the
-atoms reaction `reaction` gives its metabolites: `plus` names what its target side holds
-(the target form's bound metabolites and residual additions, the source form's residual
-subtractions and the metabolites it gives off) and `minus` what its source side holds,
-alike. `consumed` and `released` are the metabolites it takes up and gives off, for the
-message.
-"""
-function _check_step_atoms(reaction::EnzymeReaction, plus::Vector{Symbol},
-                           minus::Vector{Symbol}, from::String, to::String,
-                           consumed::Vector{Symbol}, released::Vector{Symbol})
-    diff = _net_atoms(reaction, plus, minus)
-    isempty(diff) || error(
-        "atom-non-conserving step $from → $to (consumed $consumed, released $released): " *
-        "atoms(to) + atoms(released) − atoms(from) − atoms(consumed) = $diff")
-    nothing
-end
-
-"""
-Assert one `Step` of a seed variant's base conserves atoms (`_check_step_atoms`): the
-atoms of `from_species` plus those of the consumed metabolites must equal the atoms of
-`to_species` plus those of the released metabolites (an iso step leaves the atom
-multiset unchanged). A form carries the atoms of its bound metabolites and of its
-residual's added substrates, less those of its residual's subtracted products, read from
-the reaction's inventory by name (`_net_atoms`).
-"""
-function _assert_step_atom_conserving(reaction::EnzymeReaction, s::Step)
-    names(ms) = Symbol[name(x) for x in ms]
-    # The names counted on one side of `s`: `form`'s bound metabolites and residual
-    # additions, the residual subtractions of the `other` form, and the free metabolites.
-    side(form, other, free) = [names(bound(form)); names(added(residual(form)));
-                               names(subtracted(residual(other))); names(free)]
-    _check_step_atoms(reaction, side(to_species(s), from_species(s), released(s)),
-                      side(from_species(s), to_species(s), consumed(s)),
-                      _form_label(from_species(s), reaction),
-                      _form_label(to_species(s), reaction), names(consumed(s)),
-                      names(released(s)))
-end
-
-"""
     _assert_emission_rules(m)
 
 The two rules every mechanism the moves emit satisfies, checked on a parent before
@@ -96,13 +57,15 @@ end
     _assert_atom_conserving(m, rxn::EnzymeReaction)
 
 Assert every edge of an enumerated mechanism `m`'s catalytic graph conserves the atoms
-that reaction `rxn` gives its metabolites (`_check_step_atoms`): the atoms of its source
-form plus those it takes up equal the atoms of its target form plus those it gives off, a
-form carrying the atoms of its bound metabolites and of its residual's added substrates,
-less those of its residual's subtracted products. Errors on the first edge that does not,
-group by group. This is the enumeration-path guardrail against atom-non-conserving
-covalent intermediates; it is intentionally NOT a `Mechanism` constructor check, since a
-hand-written `@enzyme_mechanism` block carries no atoms and may fold steps.
+that reaction `rxn` gives its metabolites: the atoms of its source form plus those it
+takes up equal the atoms of its target form plus those it gives off, a form carrying the
+atoms of its bound metabolites and of its residual's added substrates, less those of its
+residual's subtracted products, each read from the reaction's inventory by name
+(`_net_atoms`). Errors on the first edge that does not, group by group, naming its forms
+and the metabolites it exchanges. This is the enumeration-path guardrail against
+atom-non-conserving covalent intermediates; it is intentionally NOT a `Mechanism`
+constructor check, since a hand-written `@enzyme_mechanism` block carries no atoms and
+may fold steps.
 """
 function _assert_atom_conserving(m::Union{Mechanism, AllostericMechanism},
                                  rxn::EnzymeReaction)
@@ -115,9 +78,12 @@ function _assert_atom_conserving(m::Union{Mechanism, AllostericMechanism},
     for k in _flat_edges(cm)
         e = cm.edges[k]
         f, t = cm.forms[e.from], cm.forms[e.to]
-        _check_step_atoms(rxn, side(t, f, e.released), side(f, t, e.consumed),
-                          _form_name(cm, e.from), _form_name(cm, e.to), names(e.consumed),
-                          names(e.released))
+        diff = _net_atoms(rxn, side(t, f, e.released), side(f, t, e.consumed))
+        isempty(diff) && continue
+        from, to = _form_name(cm, e.from), _form_name(cm, e.to)
+        error("atom-non-conserving step $from → $to (consumed $(names(e.consumed)), " *
+              "released $(names(e.released))): " *
+              "atoms(to) + atoms(released) − atoms(from) − atoms(consumed) = $diff")
     end
     nothing
 end
@@ -536,18 +502,6 @@ function _chain_flank_groups(m::Mechanism)
 end
 _chain_flank_groups(::AllostericMechanism) = Set{Int}()
 
-"""`s` with its rapid-equilibrium flag set to `flag`; `s` itself when it has that flag, so
-mechanisms built from one another share their unchanged steps."""
-_with_equilibrium(s::Step, flag::Bool) = is_equilibrium(s) == flag ? s :
-    Step(from_species(s), to_species(s), consumed(s), released(s), flag)
-
-"""Every step of `groups` rebuilt at steady state. The seed variants' Step
-`_minimal_flips` pre-filters its units on this graph: a step that carries no flux with
-every step steady-state carries none under any assignment (flips only refine segments),
-so a group with no such step can never flip usefully."""
-_all_steady_state(groups::Vector{Vector{Step}}) =
-    [_with_equilibrium.(group, false) for group in groups]
-
 """
     _minimal_flips(admissible, m, eligible = _ -> true) -> Vector{BitVector}
 
@@ -582,33 +536,6 @@ function _minimal_flips(admissible, m::Mechanism, eligible = _ -> true)
 end
 
 """
-    _minimal_flips(admissible, base, m, eligible = _ -> true)
-
-`_minimal_flips` for `base`, kinetic groups of `Step`s over mechanism `m`'s metabolites,
-as the seed variants read their bases: the groups of `base` after every
-inclusion-minimal flip to steady state that passes. A unit is a rapid-equilibrium group
-of `base` that carries flux on the all-steady-state graph (`_all_steady_state`,
-`_flux_carrying_groups`) and passes `eligible`. A candidate
-takes each flipped group from that graph, so the candidates share their steady-state
-steps, and every other group from `base` by reference. It passes when `admissible` holds
-on its groups, it leaves no rapid-equilibrium segment without a bottom form
-(`_bottomless_re_segment`) and every flipped group carries flux in it. The sets come from
-`_minimal_gaining_sets`, so a failing set is extended and a passing one is not.
-"""
-function _minimal_flips(admissible, base::Vector{Vector{Step}}, m::_AnyMech,
-                        eligible = _ -> true)
-    steady = _all_steady_state(base)
-    flux = _flux_carrying_groups(steady, m)
-    units = [g for g in eachindex(base)
-             if all(is_equilibrium, base[g]) && flux[g] && eligible(g)]
-    flipped(sel) = (gs = copy(base); gs[units[sel]] = steady[units[sel]]; gs)
-    passes(sel) = (gs = flipped(sel);
-                   admissible(gs) && _bottomless_re_segment(m, gs) === nothing &&
-                   all(_flux_carrying_groups(gs, m)[units[sel]]))
-    [flipped(sel) for sel in _minimal_gaining_sets(passes, _ -> 1:length(units))]
-end
-
-"""
     _flux_carrying_edges(m, re) -> BitVector
 
 Whether each edge of graph `m`, edge `k` at rapid equilibrium where `re[k]` holds,
@@ -635,16 +562,13 @@ function _flux_carrying_edges(m::Mechanism, re::BitVector)
     s = _segments(m, trues(length(m.edges)), re)
     name_of = _name_index(m)
     # The net uptake sign of each table entry and of each metabolite name.
-    sign = [insorted(x.name, m.substrates) ? 1 : insorted(x.name, m.products) ? -1 : 0
-            for x in m.table]
+    sign = _entry_signs(m)
     rho = zeros(Int, size(s.offsets, 1))
     for (i, n) in enumerate(name_of)
         rho[n] = sign[i]
     end
     offset(f) = sum(rho[n] * s.offsets[n, f] for n in eachindex(rho); init = 0)
-    weight(e) = sum(sign[i] for i in entries(e.consumed); init = 0) -
-                sum(sign[i] for i in entries(e.released); init = 0) +
-                offset(e.from) - offset(e.to)
+    weight(e) = _uptake_weight(e, sign) + offset(e.from) - offset(e.to)
     flags = falses(length(m.edges))
     edges = Tuple{Int, Int}[]; weights = Int[]; owner = Int[]
     for (k, e) in enumerate(m.edges)
@@ -678,65 +602,17 @@ function _flux_carrying_groups(m::Mechanism, re::BitVector)
     _groups_with(k -> flux[k], m.group, ngroups(m))
 end
 
-"""
-    _flux_carrying_steps(groups, m) -> Vector{BitVector}
+"""Each table entry's net uptake sign by its name: +1 for a substrate, −1 for a product,
+0 for a modifier-only name. A reactant's modifier copy counts as its reactant, whose
+concentration it shares."""
+_entry_signs(m::Mechanism) = Int[insorted(x.name, m.substrates) ? 1 :
+                                 insorted(x.name, m.products) ? -1 : 0 for x in m.table]
 
-`_flux_carrying_edges` for `groups`, kinetic groups of `Step`s over mechanism `m`'s
-metabolites, as the seed variants read their candidates: one flag per step, parallel to
-`groups`, whether the step carries net steady-state flux for generic parameter values.
-
-Contract each rapid-equilibrium segment to one vertex (`_re_segment_extras`) and
-make every steady-state step an edge between its two forms' segments, weighted by
-the substrates it takes up minus the products, plus its `from` form's offsets minus
-its `to` form's. Around any cycle the offsets telescope and the uptakes sum to the
-net turnover times the reactant count, so a cycle has weight zero exactly when it
-runs no net reaction. A self-loop (both forms in one segment) carries flux iff its
-weight is nonzero. Any other edge carries flux iff its biconnected block
-(`_unbalanced_blocks`) holds a cycle of nonzero weight: every edge of such a block lies
-on one (join the edge to the cycle by two disjoint paths; one of the two resulting
-cycles is unbalanced), while in a balanced block detailed balance holds along every
-cycle and each step's flux vanishes. The zero-flux verdict holds for any parameters
-and grouping; the flux-carrying verdict for one-way steps, which every step the
-enumerator emits is. The test reads each step's metabolite lists, so it holds for
-fused and Theorell–Chance steps as well.
-"""
-function _flux_carrying_steps(groups::Vector{Vector{Step}}, m::_AnyMech)
-    species, segments, extras, idx, seg = _re_segment_extras(groups)
-    rho = _reactant_signs(m)
-    offset(i) = sum(get(rho, x, 0) * e for (x, e) in extras[i]; init = 0)
-    weight(s) = _uptake_weight(s, rho) +
-                offset(idx[from_species(s)]) - offset(idx[to_species(s)])
-    flags = [falses(length(group)) for group in groups]
-    edges = Tuple{Int, Int}[]; weights = Int[]; owner = Tuple{Int, Int}[]
-    for (g, group) in enumerate(groups), (j, s) in enumerate(group)
-        is_equilibrium(s) && continue
-        a, b = seg[idx[from_species(s)]], seg[idx[to_species(s)]]
-        if a == b
-            flags[g][j] = weight(s) != 0
-        else
-            push!(edges, (a, b)); push!(weights, weight(s)); push!(owner, (g, j))
-        end
-    end
-    block, unbalanced = _unbalanced_blocks(length(segments), edges, weights)
-    for (e, (g, j)) in enumerate(owner)
-        flags[g][j] = block[e] in unbalanced
-    end
-    flags
-end
-
-"""Net uptake sign of each reactant name of `m`: +1 for a substrate, −1 for a product."""
-function _reactant_signs(m::_AnyMech)
-    rho = Dict{Symbol, Int}()
-    for s in substrates(m); rho[s] = get(rho, s, 0) + 1; end
-    for p in products(m);   rho[p] = get(rho, p, 0) - 1; end
-    rho
-end
-
-"""The signs `rho` (`_reactant_signs`) summed over the metabolites `s` takes up, minus
-those summed over the metabolites it gives off."""
-_uptake_weight(s::Step, rho::Dict{Symbol, Int}) =
-    sum(get(rho, name(x), 0) for x in consumed(s); init = 0) -
-    sum(get(rho, name(x), 0) for x in released(s); init = 0)
+"""The signs `sign` (`_entry_signs`) summed over the entries edge `e` takes up, minus
+those summed over the entries it gives off."""
+_uptake_weight(e::Edge, sign::Vector{Int}) =
+    sum(sign[i] for i in entries(e.consumed); init = 0) -
+    sum(sign[i] for i in entries(e.released); init = 0)
 
 """
     _unbalanced_blocks(nv, edges, weights) -> (block, unbalanced)
@@ -791,47 +667,42 @@ function _unbalanced_blocks(nv::Int, edges::Vector{Tuple{Int, Int}}, weights::Ve
 end
 
 """
-    _flux_carrying_groups(groups, m) -> BitVector
-
-`_flux_carrying_groups` for `groups`, kinetic groups of `Step`s over mechanism `m`'s
-metabolites, as the seed variants read their candidates: whether some step of each group
-carries net steady-state flux (`_flux_carrying_steps`).
+`raw` with the isomerization `s0`, alone in its kinetic group, merged onto its product
+side: `s0` and its group are removed, and every other step at `s0.from` moves onto
+`s0.to`. The last substrate's binding into the substrate side becomes a fused binding
+into the product side; the releases stay plain. The other groups keep their order.
 """
-_flux_carrying_groups(groups::Vector{Vector{Step}}, m::_AnyMech) =
-    BitVector([any(f) for f in _flux_carrying_steps(groups, m)])
-
-"""
-`groups` with the isomerization `s0`, alone in its group, merged onto its product side:
-`s0` and its group are removed, and every other step at `from_species(s0)` moves onto
-`to_species(s0)`. The last substrate's binding into the substrate side becomes a fused
-binding into the product side; the releases stay plain.
-"""
-function _merge_isomerization(groups::Vector{Vector{Step}}, s0::Step)
-    x1, x2 = from_species(s0), to_species(s0)
-    move(sp) = sp == x1 ? x2 : sp
-    moved(s) = x1 in (from_species(s), to_species(s)) ?
-        Step(move(from_species(s)), move(to_species(s)), consumed(s), released(s),
-             is_equilibrium(s)) : s
-    [Step[moved(s) for s in group] for group in groups if group != [s0]]
+function _merge_isomerization(raw::RawMechanism, s0::RawStep)
+    move(f::RawForm) = f == s0.from ? s0.to : f
+    keep = [s != s0 for s in raw.steps]
+    steps = RawStep[RawStep(move(s.from), move(s.to), s.consumed, s.released,
+                            s.rapid_equilibrium) for s in raw.steps[keep]]
+    RawMechanism(raw.substrates, raw.products, raw.modifiers, steps,
+                 first(_number_groups(raw.group[keep], maximum(raw.group))))
 end
 
 """
-`groups` with the form `x` eliminated, or `nothing` when that is not possible: `x` must
+`raw` with the form `x` eliminated, or `nothing` when that is not possible: `x` must
 have exactly two steps, both bindings into it, Y + L → x and Z + R → x with Y ≠ Z. They
-become one Theorell–Chance step Y + L → Z + R, rapid equilibrium, in a group of its own,
-where Y + L is the binding of a substrate when one of the two is; their groups keep their
-other steps.
+become one Theorell–Chance step Y + L → Z + R, rapid equilibrium, in a group of its own
+after the others, where Y + L is the binding of a substrate when one of the two is; their
+groups keep their other steps.
 """
-function _eliminate_form(groups::Vector{Vector{Step}}, x::Species)
-    at_x = [s for group in groups for s in group if x in (from_species(s), to_species(s))]
-    length(at_x) == 2 && all(s -> is_binding(s) && to_species(s) == x, at_x) ||
+function _eliminate_form(raw::RawMechanism, x::RawForm)
+    at_x = findall(s -> x in (s.from, s.to), raw.steps)
+    length(at_x) == 2 && all(j -> raw.steps[j].to == x && isempty(raw.steps[j].released) &&
+                                  length(raw.steps[j].consumed) == 1, at_x) ||
         return nothing
-    entry, release = sort(at_x; by = s -> !(bound_metabolite(s) isa Substrate))
-    from_species(entry) == from_species(release) && return nothing
-    fused = Step(from_species(entry), from_species(release), consumed(entry),
-                 consumed(release), true)
-    kept = [filter(s -> !(s in at_x), group) for group in groups]
-    push!(filter!(!isempty, kept), [fused])
+    binds_substrate(j) = (y = only(raw.steps[j].consumed);
+                          !y.modifier && y.name in raw.substrates)
+    entry, release = raw.steps[sort(at_x; by = j -> !binds_substrate(j))]
+    entry.from == release.from && return nothing
+    keep = [!(j in at_x) for j in eachindex(raw.steps)]
+    steps = [raw.steps[keep]; RawStep(entry.from, release.from, entry.consumed,
+                                      release.consumed, true)]
+    group = [raw.group[keep]; maximum(raw.group) + 1]
+    RawMechanism(raw.substrates, raw.products, raw.modifiers, steps,
+                 first(_number_groups(group, maximum(group))))
 end
 
 """Whether the steps `k` with `on[k]` close a cycle of nonzero weight, step `k` joining
@@ -859,136 +730,116 @@ function _has_unbalanced_cycle(from, to, weight, on, parent, offset)
     false
 end
 
-"""Whether a cycle of rapid-equilibrium steps of `groups`, kinetic groups over mechanism
-`m`'s metabolites, runs net turnover, which makes the rate infinite. The steps for which
-`fast` holds count as rapid equilibrium, by default those flagged so. Each RE step joins
-its two forms with its uptake of the reaction's substrates minus its products as weight
-(`_uptake_weight`); a turnover cycle has weight n·Σρ², never zero, so the RE steps hold
-one iff they close a cycle of nonzero weight (`_has_unbalanced_cycle`)."""
-function _re_turnover_cycle(groups::Vector{Vector{Step}}, m::_AnyMech,
-                            fast = is_equilibrium)
-    rho = _reactant_signs(m)
-    re = [s for group in groups for s in group if fast(s)]
-    idx = Dict{Species, Int}()
-    vertex(sp) = get!(idx, sp, length(idx) + 1)
-    ends = [(vertex(from_species(s)), vertex(to_species(s))) for s in re]
-    n = length(idx)
-    _has_unbalanced_cycle(first.(ends), last.(ends), [_uptake_weight(s, rho) for s in re],
-                          trues(length(re)), zeros(Int, n), zeros(Int, n))
+"""Whether a cycle of the edges of graph `m` that `fast` flags runs net turnover, which
+makes the rate infinite when those edges are at rapid equilibrium. Each edge joins its two
+forms with its uptake of the reaction's substrates minus its products as weight
+(`_uptake_weight`); a turnover cycle has weight n·Σρ², never zero, so the flagged edges
+hold one iff they close a cycle of nonzero weight (`_has_unbalanced_cycle`)."""
+function _re_turnover_cycle(m::Mechanism, fast::BitVector)
+    sign = _entry_signs(m)
+    n = length(m.forms)
+    _has_unbalanced_cycle([e.from for e in m.edges], [e.to for e in m.edges],
+                          [_uptake_weight(e, sign) for e in m.edges], fast, zeros(Int, n),
+                          zeros(Int, n))
 end
 
-"""Whether the rate of `groups`, kinetic groups over mechanism `m`'s metabolites, has a
-maximum as the metabolites of `side` (`Substrate` or `Product`) grow: turning rapid
-equilibrium every steady-state step that takes up or gives off one of them leaves no
+"""Whether the rate of graph `m`, edge `k` at rapid equilibrium where `re[k]` holds, has a
+maximum as the metabolites `names` (its substrates or its products, sorted) grow: turning
+rapid equilibrium every steady-state edge that takes up or gives off one of them leaves no
 rapid-equilibrium turnover cycle (condition V)."""
-function _has_vmax(groups::Vector{Vector{Step}}, m::_AnyMech, side::Type)
-    names = Set(side === Substrate ? substrates(m) : products(m))
-    touches(s) = _any_named(consumed(s), names) || _any_named(released(s), names)
-    !_re_turnover_cycle(groups, m, s -> is_equilibrium(s) || touches(s))
+function _has_vmax(m::Mechanism, re::BitVector, names::Vector{Symbol})
+    side = _names_mask(m, names)
+    !_re_turnover_cycle(m, re .| BitVector([(e.consumed | e.released) & side != 0
+                                            for e in m.edges]))
 end
 
-"""Whether some metabolite of `ms` has its name in `names`."""
-_any_named(ms, names) = any(m -> name(m) in names, ms)
+"""Whether edge `e` of `m` is a fused binding of a substrate: a chemistry edge
+(`_is_chemistry`) that binds an entry of the mask `subs`. The form it enters is a merged
+complex."""
+_fused_substrate_binding(m::Mechanism, e::Edge, subs::Counts) =
+    _is_binding(e) && e.consumed & subs != 0 && _is_chemistry(m, e)
 
-"""Whether `s` is a fused binding of a substrate: a chemistry step (`_is_chemistry`) that
-binds a metabolite named in `subs`. The form it enters is a merged complex."""
-_fused_substrate_binding(s::Step, subs) =
-    (m = bound_metabolite(s); m !== nothing && _is_chemistry(s) && name(m) in subs)
-
-"""Whether `s` takes up a reactant of one side of the reaction (names `subs` or `prods`)
-and gives off one of the other, as a Theorell–Chance step does."""
-_crosses_sides(s::Step, subs, prods) =
-    _any_named(consumed(s), subs) && _any_named(released(s), prods) ||
-    _any_named(consumed(s), prods) && _any_named(released(s), subs)
+"""Whether edge `e` takes up an entry of one of the masks `subs` and `prods` (a reactant
+of one side of the reaction) and gives off one of the other, as a Theorell–Chance step
+does."""
+_crosses_sides(e::Edge, subs::Counts, prods::Counts) =
+    e.consumed & subs != 0 && e.released & prods != 0 ||
+    e.consumed & prods != 0 && e.released & subs != 0
 
 """
-Whether some chemistry node of `groups`, kinetic groups over mechanism `m`'s metabolites,
-is left both by a rapid-equilibrium step that releases a substrate and by one that
-releases a product (condition C). A chemistry
-node is a merged complex (a form entered by a fused binding of a substrate) with every form
-joined to it by RE isomerizations, a set of forms joined to each other by RE isomerizations,
-or an RE Theorell–Chance step. An RE step leaves a node through a node form F and releases M
-when traversing it away from F gives M off: F is its `to_species` and M is consumed, or F is
-its `from_species` and M is released. An RE Theorell–Chance node leaves through its own step
-in both directions. Then the chemistry sits in rapid equilibrium with both sides and some
-reactant is not needed at zero products or substrates.
+Whether some chemistry node of graph `m`, edge `k` at rapid equilibrium where `re[k]`
+holds, is left both by a rapid-equilibrium edge that releases a substrate and by one that
+releases a product (condition C). A chemistry node is a merged complex (a form entered by
+a fused binding of a substrate) with every form joined to it by RE isomerizations, a set
+of forms joined to each other by RE isomerizations, or an RE Theorell–Chance step. An RE
+edge leaves a node through a node form F and releases M when traversing it away from F
+gives M off: F is its `to` form and M is consumed, or F is its `from` form and M is
+released. An RE Theorell–Chance node leaves through its own edge in both directions.
+Then the chemistry sits in rapid equilibrium with both sides and some reactant is not
+needed at zero products or substrates. A reactant's modifier copy counts as its reactant.
 """
-function _chemistry_equilibrates_both_sides(groups::Vector{Vector{Step}}, m::_AnyMech)
-    subs = Set(substrates(m))
-    prods = Set(products(m))
-    re = [s for group in groups for s in group if is_equilibrium(s)]
-    releases(n, names) = any(re) do t
-        to_species(t) in n && !(from_species(t) in n) && _any_named(consumed(t), names) ||
-            from_species(t) in n && !(to_species(t) in n) && _any_named(released(t), names)
+function _chemistry_equilibrates_both_sides(m::Mechanism, re::BitVector)
+    subs, prods = _names_mask(m, m.substrates), _names_mask(m, m.products)
+    releases(node, side) = any(eachindex(m.edges)) do k
+        e = m.edges[k]
+        re[k] && (e.to in node && !(e.from in node) && e.consumed & side != 0 ||
+                  e.from in node && !(e.to in node) && e.released & side != 0)
     end
     # The forms joined by RE isomerizations, one node per segment; a merged complex
     # outside every RE isomerization is a node of its own.
-    species, segments, _, idx, _ = _re_segment_extras([filter(is_iso, re)])
-    merged = [to_species(s) for group in groups for s in group
-              if _fused_substrate_binding(s, subs)]
-    nodes = [[Set(species[k]) for k in segments];
-             [Set([x]) for x in merged if !haskey(idx, x)]]
-    any(n -> releases(n, subs) && releases(n, prods), nodes) ||
-        any(t -> _crosses_sides(t, subs, prods), re)
+    isos = BitVector([re[k] && _is_iso(e) for (k, e) in enumerate(m.edges)])
+    s = _segments(m, isos, isos)
+    merged = [e.to for e in m.edges if _fused_substrate_binding(m, e, subs)]
+    nodes = [s.segments; [[x] for x in merged if s.segment_of[x] == 0]]
+    any(node -> releases(node, subs) && releases(node, prods), nodes) ||
+        any(k -> re[k] && _crosses_sides(m.edges[k], subs, prods), eachindex(m.edges))
 end
 
 """Whether `m` is degenerate by the structural conditions V and C: no maximal rate in one
 direction (`_has_vmax`), or chemistry in rapid equilibrium with both sides
-(`_chemistry_equilibrates_both_sides`). Read on `steps(m)`, an allosteric mechanism's
-active-state graph. The beam expands a degenerate seed without fitting it (`_base_tier`)."""
+(`_chemistry_equilibrates_both_sides`). Read on the catalytic graph with its own flags,
+an allosteric mechanism's active-state graph. The beam expands a degenerate seed without
+fitting it (`_base_tier`)."""
 function _degenerate(m::Union{Mechanism, AllostericMechanism})
-    groups = steps(m)
-    !(_has_vmax(groups, m, Substrate) && _has_vmax(groups, m, Product)) ||
-        _chemistry_equilibrates_both_sides(groups, m)
+    cm = catalytic(m)
+    re = _flags(cm)
+    !(_has_vmax(cm, re, cm.substrates) && _has_vmax(cm, re, cm.products)) ||
+        _chemistry_equilibrates_both_sides(cm, re)
 end
 
 """
-The tests of `_seed_variants` that build no `Step`, for one base `groups` of the seed
-`m`: a function of a candidate's groups (those of `groups`, some flipped to steady state)
-that reads each step's flag from them and is true when the candidate has no
-rapid-equilibrium turnover cycle (`_re_turnover_cycle`), a maximal rate both ways
-(`_has_vmax`) and no chemistry in equilibrium with both sides
-(`_chemistry_equilibrates_both_sides`). The forms
-and each step's ends, uptake weight and reactants are indexed once per base, so a
-candidate costs a few passes over arrays. A base holds no isomerization, so each chemistry
-node is a merged complex or a Theorell–Chance step. A set of steps holds a turnover cycle
-iff it closes a cycle of nonzero weight (`_has_unbalanced_cycle`), which reuses the
-screen's buffers. Each maximal-rate test runs on the candidate's rapid-equilibrium steps
-and more, and adding steps never removes such a cycle, so a turnover cycle of the
-candidate fails both tests.
+The tests of `_seed_variants` that build nothing, for the graph `m` of one base of a
+seed: a function of a candidate's rapid-equilibrium flags (one per edge of `m`, some
+turned steady state) that is true when the candidate has no rapid-equilibrium turnover
+cycle (`_re_turnover_cycle`), a maximal rate both ways (`_has_vmax`) and no chemistry in
+equilibrium with both sides (`_chemistry_equilibrates_both_sides`). Each edge's ends,
+uptake weight and reactants are read once per base, so a candidate costs a few passes
+over arrays. A base holds no isomerization, so each chemistry node is a merged complex
+or a Theorell–Chance step. A set of edges holds a turnover cycle iff it closes a cycle of
+nonzero weight (`_has_unbalanced_cycle`), which reuses the screen's buffers. Each
+maximal-rate test runs on the candidate's rapid-equilibrium edges and more, and adding
+edges never removes such a cycle, so a turnover cycle of the candidate fails both tests.
 """
-function _seed_candidate_screen(groups::Vector{Vector{Step}}, m::Mechanism)
-    flat = [s for group in groups for s in group]
-    any(is_iso, flat) && error("_seed_candidate_screen: a seed base holds no isomerization")
-    rho = _reactant_signs(m)
-    subs = Set(substrates(m))
-    prods = Set(products(m))
-    index = Dict{Species, Int}()
-    for s in flat, sp in (from_species(s), to_species(s))
-        get!(index, sp, length(index) + 1)
-    end
-    from = [index[from_species(s)] for s in flat]
-    to = [index[to_species(s)] for s in flat]
-    weight = [_uptake_weight(s, rho) for s in flat]
-    touches(names) = BitVector([_any_named(consumed(s), names) ||
-                                _any_named(released(s), names) for s in flat])
+function _seed_candidate_screen(m::Mechanism)
+    any(_is_iso, m.edges) &&
+        error("_seed_candidate_screen: a seed base holds no isomerization")
+    sign = _entry_signs(m)
+    subs, prods = _names_mask(m, m.substrates), _names_mask(m, m.products)
+    from = [e.from for e in m.edges]
+    to = [e.to for e in m.edges]
+    weight = [_uptake_weight(e, sign) for e in m.edges]
+    touches(side) = BitVector([(e.consumed | e.released) & side != 0 for e in m.edges])
     sub_step, prod_step = touches(subs), touches(prods)
-    crossing = BitVector([_crosses_sides(s, subs, prods) for s in flat])
-    complexes = unique(to[k] for k in eachindex(flat)
-                       if _fused_substrate_binding(flat[k], subs))
-    leaves(x, names) = BitVector([to[k] == x && _any_named(consumed(flat[k]), names) ||
-                                  from[k] == x && _any_named(released(flat[k]), names)
-                                  for k in eachindex(flat)])
+    crossing = BitVector([_crosses_sides(e, subs, prods) for e in m.edges])
+    complexes = unique(e.to for e in m.edges if _fused_substrate_binding(m, e, subs))
+    leaves(x, side) = BitVector([e.to == x && e.consumed & side != 0 ||
+                                 e.from == x && e.released & side != 0 for e in m.edges])
     exits = [(leaves(x, subs), leaves(x, prods)) for x in complexes]
-    parent = zeros(Int, length(index)); offset = zeros(Int, length(index))
+    parent = zeros(Int, length(m.forms)); offset = zeros(Int, length(m.forms))
     turnover(on) = _has_unbalanced_cycle(from, to, weight, on, parent, offset)
     meets(a::BitVector, b::BitVector) = any(k -> a[k] && b[k], eachindex(a))
-    re = falses(length(flat)); kept = falses(length(flat))
-    function screen(gs::Vector{Vector{Step}})
-        k = 0
-        for g in gs, s in g
-            re[k += 1] = is_equilibrium(s)
-        end
+    kept = falses(length(m.edges))
+    function screen(re::BitVector)
         kept .= re .| sub_step
         turnover(kept) && return false
         kept .= re .| prod_step
@@ -1000,45 +851,52 @@ end
 
 """
 The merged and Theorell–Chance variants of the seed `m` of reaction `rxn`, whose atoms
-each base's steps must conserve. Merging every isomerization of `m` onto its product side
+each base's edges must conserve. Merging every isomerization of `m` onto its product side
 (`_merge_isomerization`) and setting every step at rapid equilibrium gives the merged
 base; eliminating one merged complex with two steps (`_eliminate_form`) gives a
-Theorell–Chance base. MERGE and ELIM conserve atoms, which each base asserts. For
-each base, every inclusion-minimal set of its groups (`_minimal_flips`) whose flip to
-steady state gives a valid, flux-carrying, non-degenerate candidate is a variant: no
-rapid-equilibrium turnover cycle (`_re_turnover_cycle`), a maximal rate both ways
-(`_has_vmax`), no chemistry in equilibrium with both sides
+Theorell–Chance base. MERGE and ELIM run on raw input (`_raw`), and each base is read as
+the graph `_canonicalize` gives it, unchecked; MERGE and ELIM conserve atoms, which each
+base asserts. For each base, every inclusion-minimal set of its groups (`_minimal_flips`)
+whose flip to steady state gives a valid, flux-carrying, non-degenerate candidate is a
+variant: no rapid-equilibrium turnover cycle (`_re_turnover_cycle`), a maximal rate both
+ways (`_has_vmax`), no chemistry in equilibrium with both sides
 (`_chemistry_equilibrates_both_sides`), no bottomless segment, and every steady-state group
 carrying flux. The first three tests read index arrays (`_seed_candidate_screen`); the
 other two run only on a candidate that passes them. A merged variant whose every merged
 complex has both its steps steady state, each alone in its group, is skipped: the
-unmerged form with rapid-equilibrium flanks has its family at the same count. Each base
-holds its groups in canonical order (`_canonical_order`), so the variants come in the
-order of their flip sets over those groups.
+unmerged form with rapid-equilibrium flanks has its family at the same count. A base's
+groups come in canonical order, so the variants come in the order of their flip sets
+over those groups; each is built and checked.
 """
 function _seed_variants(m::Mechanism, rxn::EnzymeReaction)
-    groups = steps(m)
-    isos = [s for group in groups for s in group if is_iso(s)]
-    merged = foldl(_merge_isomerization, isos; init = groups)
-    merged = [_with_equilibrium.(group, true) for group in merged]
-    complexes = [to_species(s) for s in isos]
-    built = Vector{Vector{Step}}[[merged];
-        filter(!isnothing, [_eliminate_form(merged, x) for x in complexes])]
-    bases = [_canonical_order(rxn, base) for base in built]
-    lumping_twin(gs) = all(complexes) do x
-        at_x = [(s, group) for group in gs for s in group
-                if x in (from_species(s), to_species(s))]
-        length(at_x) == 2 &&
-            all(((s, group),) -> !is_equilibrium(s) && length(group) == 1, at_x)
-    end
+    raw = _raw(m)
+    isos = filter(s -> isempty(s.consumed) && isempty(s.released), raw.steps)
+    joined = foldl(_merge_isomerization, isos; init = raw)
+    merged = RawMechanism(joined.substrates, joined.products, joined.modifiers,
+                          RawStep[RawStep(s.from, s.to, s.consumed, s.released, true)
+                                  for s in joined.steps], joined.group)
+    complexes = [s.to for s in isos]
+    eliminated = [_eliminate_form(merged, x) for x in complexes]
+    built = RawMechanism[merged; filter(!isnothing, eliminated)]
     variants = Mechanism[]
-    for (i, base) in enumerate(bases)
-        for group in base, s in group
-            _assert_step_atom_conserving(rxn, s)
+    for (i, b) in enumerate(built)
+        c = _canonicalize(b)
+        _check_aligned(c.mechanism, c.misaligned)
+        base = c.mechanism
+        _assert_atom_conserving(base, rxn)
+        # The forms of the merged base that the merged complexes became (`form_of`, one
+        # entry per written step end); a merged variant is its seed's lumping twin when
+        # each has two edges, both steady state and each alone in its group.
+        ends = [f for s in b.steps for f in (s.from, s.to)]
+        cx = i == 1 ? [c.form_of[findfirst(==(x), ends)] for x in complexes] : Int[]
+        twin(re) = i == 1 && all(cx) do f
+            at = findall(e -> f in (e.from, e.to), base.edges)
+            length(at) == 2 && all(k -> !re[k] && count(==(base.group[k]), base.group) == 1,
+                                   at)
         end
-        for gs in _minimal_flips(_seed_candidate_screen(base, m), base, m)
-            i == 1 && lumping_twin(gs) && continue
-            push!(variants, Mechanism(rxn, gs))
+        for re in _minimal_flips(_seed_candidate_screen(base), base)
+            twin(re) && continue
+            push!(variants, Mechanism(_raw(base, re)))
         end
     end
     variants

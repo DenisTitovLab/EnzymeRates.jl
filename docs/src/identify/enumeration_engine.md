@@ -67,11 +67,12 @@ steps around it:
    around a steady-state isomerization.
 5. **Duplicates.** A variant equal to a seed or to an earlier variant is dropped.
 
-The tests run on a candidate's groups; a mechanism is built only for a variant:
+The tests run on a candidate's flags over the base's graph; a mechanism is built only
+for a variant:
 
 - **Valid.** No cycle of rapid-equilibrium steps runs the net reaction
   (`_re_turnover_cycle`), and no rapid-equilibrium segment is bottomless
-  (`_bottomless_re_segment`, the rule the `Mechanism` constructor enforces).
+  (`_bottomless_segment`, the rule the boundary check `_check_well_posed` enforces).
 - **Flux-carrying.** Every steady-state group carries net flux.
 - **Non-degenerate.** A degenerate mechanism's rate at zero products ignores some
   substrate or grows without bound as the substrates grow, or the same holds for
@@ -328,7 +329,8 @@ constant. `:OnlyA` zeroes out the I-state and adds no parameter of its own.
 
 ### 5. Add an allosteric ligand
 
-Adds one `AllostericRegulator` at a new or an existing regulatory site, with
+Adds one of the reaction's allosteric regulators as a ligand at a new or an existing
+regulatory site, with
 an allosteric-state tag drawn from `{:OnlyA, :OnlyI, :NonequalAI}` (plus
 `:EqualAI` only at a mixed existing site). No-op on a non-allosteric input.
 

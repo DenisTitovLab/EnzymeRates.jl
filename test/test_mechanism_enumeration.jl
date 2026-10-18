@@ -165,23 +165,51 @@ _testhelper_holds_iso(m) = any(EnzymeRates._is_iso, EnzymeRates.catalytic(m).edg
 _testhelper_iso_groups(m) =
     unique(s.group for s in _testhelper_graph(m).steps if _testhelper_is_iso(s))
 
-# Whether a step binds the metabolite named `x`.
-_testhelper_binds(x) = s -> EnzymeRates.bound_metabolite(s) !== nothing &&
-                            EnzymeRates.name(EnzymeRates.bound_metabolite(s)) == x
+# Whether an edge of graph `m` binds a metabolite named in `xs`.
+_testhelper_binds(m, xs...) = e -> EnzymeRates._is_binding(e) &&
+                                   m.table[EnzymeRates._bound_entry(e)].name in xs
 
 # The kinetic-group index of every step of `m` that binds the metabolite named `x`.
 _testhelper_groups_binding(m, x) = [s.group for s in _testhelper_graph(m).steps
                                     if _testhelper_is_binding(s) && only(s.consumed) == x]
 
-# Whether a step is a Theorell–Chance step: it takes up one metabolite and gives off
+# Whether an edge is a Theorell–Chance step: it takes up one metabolite and gives off
 # another.
-_testhelper_is_tc(s) =
-    !isempty(EnzymeRates.consumed(s)) && !isempty(EnzymeRates.released(s))
+_testhelper_is_tc(e) = e.consumed != 0 && e.released != 0
 
-# `gs` with every group holding a step that satisfies one of `preds` turned steady state.
-_testhelper_flip_matching(gs, preds) = [
-    any(s -> any(p -> p(s), preds), g) ? EnzymeRates._with_equilibrium.(g, false) : g
-    for g in gs]
+# The flags of graph `m` with every kinetic group that holds an edge satisfying one of
+# `preds` turned steady state.
+function _testhelper_flip_flags(m, preds...)
+    re = EnzymeRates._flags(m)
+    hit = EnzymeRates._groups_with(k -> any(p -> p(m.edges[k]), preds), m.group,
+                                   EnzymeRates.ngroups(m))
+    re[hit[m.group]] .= false
+    re
+end
+
+# Graph `m` with every kinetic group that holds an edge satisfying one of `preds` turned
+# steady state (`_testhelper_flip_flags`), built through the checked constructor.
+_testhelper_flip_matching(m, preds...) =
+    EnzymeRates.Mechanism(EnzymeRates._raw(m, _testhelper_flip_flags(m, preds...)))
+
+# Raw input `raw` with every step at rapid equilibrium.
+_testhelper_all_re(raw) = EnzymeRates.RawMechanism(raw.substrates, raw.products,
+    raw.modifiers, [EnzymeRates.RawStep(s.from, s.to, s.consumed, s.released, true)
+                    for s in raw.steps], raw.group)
+
+# The bases of the seed `m`'s variants, as `_seed_variants` reads them: its isomerizations
+# merged (`_merge_isomerization`) with every step at rapid equilibrium, then each merged
+# complex eliminated where `_eliminate_form` can, as raw input.
+function _testhelper_seed_bases(m)
+    raw = EnzymeRates._raw(m)
+    isos = filter(_testhelper_raw_iso, raw.steps)
+    merged = _testhelper_all_re(foldl(EnzymeRates._merge_isomerization, isos; init = raw))
+    [[merged]; filter(!isnothing, [EnzymeRates._eliminate_form(merged, s.to)
+                                   for s in isos])]
+end
+
+# The graph raw input `raw` gives, unchecked, as a seed variant reads its base.
+_testhelper_base(raw) = EnzymeRates._canonicalize(raw).mechanism
 
 # The children of the four moves `expand_mechanisms` runs on a plain `Mechanism` `m`, in
 # its order, before its regulator-type filter.
@@ -8209,12 +8237,7 @@ end
 
 @testset "MERGE, ELIM and the seed tests on the ordered bi-bi seed" begin
     ER = EnzymeRates
-    rxn = @enzyme_reaction begin
-        substrates: A[C], B[N]
-        products: P[C], Q[N]
-    end
-    groups(em) = ER.steps(EnzymeRates.Mechanism(em))
-    seed = groups(@enzyme_mechanism begin
+    seed = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -8224,13 +8247,14 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    # The seed tests read the metabolite names of the seed mechanism.
-    seed_m = ER.Mechanism(rxn, seed)
-    @test ER._reactant_signs(seed_m) == Dict(:A => 1, :B => 1, :P => -1, :Q => -1)
-    iso = only(s for g in seed for s in g if ER.is_iso(s))
-    merged = ER._merge_isomerization(seed, iso)
+    # Each entry's uptake sign, by name: the table is A, B, P, Q.
+    @test ER._entry_signs(seed) == [1, 1, -1, -1]
+    raw = ER._raw(seed)
+    iso = only(filter(_testhelper_raw_iso, raw.steps))
+    merged = ER._merge_isomerization(raw, iso)
     # The isomerization's product side E(P, Q) takes over E(A, B)'s steps.
-    @test Set(s for g in merged for s in g) == Set(s for g in groups(@enzyme_mechanism begin
+    base = _testhelper_base(merged)
+    @test base == ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -8238,18 +8262,17 @@ end
             E(Q) + P ⇌ E(P, Q)
             E + Q ⇌ E(Q)
         end
-    end) for s in g)
+    end)
     # The merged cycle E → E(A) → E(P, Q) → E(Q) → E takes up A and B and gives off P and
     # Q, weight 1 + 1 + 1 + 1 = 4, all at rapid equilibrium. The seed's cycle runs
     # through its steady-state isomerization, and its RE steps form a tree.
-    @test ER._re_turnover_cycle(merged, seed_m)        # every step RE: infinite rate
-    @test !ER._re_turnover_cycle(seed, seed_m)
-    _testhelper_variant(ss) = [[ER._with_equilibrium(s,
-            !(ER.bound_metabolite(s) !== nothing &&
-              ER.name(ER.bound_metabolite(s)) in ss)) for s in g] for g in merged]
-    _testhelper_clean(gs) = !ER._re_turnover_cycle(gs, seed_m) &&
-        ER._has_vmax(gs, seed_m, ER.Substrate) && ER._has_vmax(gs, seed_m, ER.Product) &&
-        !ER._chemistry_equilibrates_both_sides(gs, seed_m)
+    @test ER._re_turnover_cycle(base, ER._flags(base))  # every step RE: infinite rate
+    @test !ER._re_turnover_cycle(seed, ER._flags(seed))
+    _testhelper_variant(ss) = .!BitVector([_testhelper_binds(base, ss...)(e)
+                                           for e in base.edges])
+    _testhelper_clean(m, re) = !ER._re_turnover_cycle(m, re) &&
+        ER._has_vmax(m, re, m.substrates) && ER._has_vmax(m, re, m.products) &&
+        !ER._chemistry_equilibrates_both_sides(m, re)
     # Track 4 table 4.3: {A, Pˣ}, {Bˣ, Q}, {Bˣ, Pˣ} clean; {A, Q} fails C (B is not
     # needed); {A, Bˣ} has no forward Vmax; {Pˣ, Q} no reverse Vmax; singletons none.
     # The merged groups are A (E + A ⇌ E(A)), Bˣ (E(A) + B → E(P, Q)), Pˣ
@@ -8259,89 +8282,113 @@ end
     # {A, Bˣ}. V for products fails exactly when it lies in {Pˣ, Q}. Every singleton
     # lies in one of the two. C fails exactly when Bˣ (giving B off from E(P, Q)) and Pˣ
     # (giving P off) both stay RE: among the pairs, {A, Q} only.
-    @test _testhelper_clean(_testhelper_variant([:A, :P])) &&
-          _testhelper_clean(_testhelper_variant([:B, :Q])) &&
-          _testhelper_clean(_testhelper_variant([:B, :P]))
-    @test ER._chemistry_equilibrates_both_sides(_testhelper_variant([:A, :Q]), seed_m)
-    @test !ER._has_vmax(_testhelper_variant([:A, :B]), seed_m, ER.Substrate)
-    @test !ER._has_vmax(_testhelper_variant([:P, :Q]), seed_m, ER.Product)
-    @test all(x -> !_testhelper_clean(_testhelper_variant([x])), (:A, :B, :P, :Q))
-    # ELIM of the merged complex: one step E(A) + B → E(Q) + P; all three SS is clean.
-    x = ER.to_species(iso)
-    tc = ER._eliminate_form(merged, x)
-    group_of(pred) = only(g for (g, grp) in enumerate(tc) if any(pred, grp))
-    gA, gQ = group_of(_testhelper_binds(:A)), group_of(_testhelper_binds(:Q))
-    gTC = group_of(_testhelper_is_tc)
-    @test length(tc) == 3 &&
-        ER.consumed(only(tc[gTC])) == ER.Metabolite[ER.Substrate(:B)] &&
-        ER.released(only(tc[gTC])) == ER.Metabolite[ER.Product(:P)]
-    @test Set(s for g in tc for s in g) == Set(s for g in groups(@enzyme_mechanism begin
+    @test _testhelper_clean(base, _testhelper_variant([:A, :P])) &&
+          _testhelper_clean(base, _testhelper_variant([:B, :Q])) &&
+          _testhelper_clean(base, _testhelper_variant([:B, :P]))
+    @test ER._chemistry_equilibrates_both_sides(base, _testhelper_variant([:A, :Q]))
+    @test !ER._has_vmax(base, _testhelper_variant([:A, :B]), base.substrates)
+    @test !ER._has_vmax(base, _testhelper_variant([:P, :Q]), base.products)
+    @test all(x -> !_testhelper_clean(base, _testhelper_variant([x])), (:A, :B, :P, :Q))
+    # ELIM of the merged complex: one step E(A) + B → E(Q) + P, written from the binding
+    # of a substrate, in a group of its own after the others; all three SS is clean.
+    form(xs...) = ER.RawForm(:E, ER.Met[ER.Met(x, false) for x in xs])
+    tc_raw = ER._eliminate_form(merged, iso.to)
+    @test last(tc_raw.steps) == ER.RawStep(form(:A), form(:Q), [ER.Met(:B, false)],
+                                           [ER.Met(:P, false)], true)
+    @test tc_raw.group == [1, 2, 3]
+    tc = _testhelper_base(tc_raw)
+    @test tc == ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
             E(A) + B ⇌ E(Q) + P
             E + Q ⇌ E(Q)
         end
-    end) for s in g)
-    @test ER._re_turnover_cycle(tc, seed_m)            # E → E(A) → E(Q) → E, all RE
-    _testhelper_ss(which) = [g in which ? ER._with_equilibrium.(grp, false) : grp
-                             for (g, grp) in enumerate(tc)]
+    end)
+    group_of(pred) = tc.group[only(findall(pred, tc.edges))]
+    gA, gQ = group_of(_testhelper_binds(tc, :A)), group_of(_testhelper_binds(tc, :Q))
+    gTC = group_of(_testhelper_is_tc)
+    @test ER._re_turnover_cycle(tc, ER._flags(tc))      # E → E(A) → E(Q) → E, all RE
+    _testhelper_ss(which) = BitVector([!(g in which) for g in tc.group])
     # The Theorell–Chance step takes up B and gives off P, so V turns it RE for either
     # side. {A, Q, TC}: V for substrates leaves Q steady state, V for products leaves A,
     # and no RE step is left for C. {A, Q}: the RE Theorell–Chance step gives B off one
     # way and P the other, so C fails. {A, TC}: V for substrates closes the cycle with
     # the RE Q step, no forward Vmax; {Q, TC} is the mirror.
-    @test _testhelper_clean(_testhelper_ss([gA, gQ, gTC]))
-    @test !_testhelper_clean(_testhelper_ss([gA, gQ])) &&
-          !_testhelper_clean(_testhelper_ss([gA, gTC])) &&
-          !_testhelper_clean(_testhelper_ss([gQ, gTC]))
-    @test ER._chemistry_equilibrates_both_sides(_testhelper_ss([gA, gQ]), seed_m)
-    @test !ER._has_vmax(_testhelper_ss([gA, gTC]), seed_m, ER.Substrate)
-    @test !ER._has_vmax(_testhelper_ss([gQ, gTC]), seed_m, ER.Product)
+    @test _testhelper_clean(tc, _testhelper_ss([gA, gQ, gTC]))
+    @test !_testhelper_clean(tc, _testhelper_ss([gA, gQ])) &&
+          !_testhelper_clean(tc, _testhelper_ss([gA, gTC])) &&
+          !_testhelper_clean(tc, _testhelper_ss([gQ, gTC]))
+    @test ER._chemistry_equilibrates_both_sides(tc, _testhelper_ss([gA, gQ]))
+    @test !ER._has_vmax(tc, _testhelper_ss([gA, gTC]), tc.substrates)
+    @test !ER._has_vmax(tc, _testhelper_ss([gQ, gTC]), tc.products)
     # ELIM needs two bindings into the form: E(A)'s second step binds B out of it.
-    ea = ER.to_species(only(s for g in merged for s in g if _testhelper_binds(:A)(s)))
-    @test ER._eliminate_form(merged, ea) === nothing
+    @test ER._eliminate_form(merged, form(:A)) === nothing
     # The seed itself is not degenerate; the probe agrees on every verdict above.
-    @test !ER._degenerate(ER.Mechanism(rxn, seed))
-    @test !_testhelper_degenerate(ER.Mechanism(rxn, seed))
+    @test !ER._degenerate(seed)
+    @test !_testhelper_degenerate(seed)
     pairs = [(:A, :B), (:A, :P), (:A, :Q), (:B, :P), (:B, :Q), (:P, :Q)]
-    candidates = vcat([string(x) => _testhelper_variant([x]) for x in (:A, :B, :P, :Q)],
-                      [string(x, y) => _testhelper_variant([x, y]) for (x, y) in pairs],
-                      ["TC: A Q TC" => _testhelper_ss([gA, gQ, gTC]),
-                       "TC: A Q" => _testhelper_ss([gA, gQ]),
-                       "TC: A TC" => _testhelper_ss([gA, gTC]),
-                       "TC: Q TC" => _testhelper_ss([gQ, gTC])])
-    for (label, gs) in candidates
-        m = ER.Mechanism(rxn, gs)
-        @test (label, ER._degenerate(m)) == (label, !_testhelper_clean(gs))
-        @test (label, _testhelper_degenerate(m)) == (label, !_testhelper_clean(gs))
+    candidates = vcat(
+        [(string(x), base, _testhelper_variant([x])) for x in (:A, :B, :P, :Q)],
+        [(string(x, y), base, _testhelper_variant([x, y])) for (x, y) in pairs],
+        [("TC: A Q TC", tc, _testhelper_ss([gA, gQ, gTC])),
+         ("TC: A Q", tc, _testhelper_ss([gA, gQ])),
+         ("TC: A TC", tc, _testhelper_ss([gA, gTC])),
+         ("TC: Q TC", tc, _testhelper_ss([gQ, gTC]))])
+    for (label, g, re) in candidates
+        m = ER.Mechanism(ER._raw(g, re))
+        @test (label, ER._degenerate(m)) == (label, !_testhelper_clean(g, re))
+        @test (label, _testhelper_degenerate(m)) == (label, !_testhelper_clean(g, re))
     end
+end
+
+@testset "a reactant's modifier copy counts as its reactant in the seed tests" begin
+    ER = EnzymeRates
+    # Ordered bi-bi with A also bound as a modifier copy at E(Q). The copy shares A's
+    # concentration, so its entry takes A's uptake sign and falls in the substrates' mask:
+    # the table is A, A::Mod, B, P, Q.
+    m = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        modifiers: A
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+            E(Q) + A::Mod ⇌ E(A::Mod, Q)
+        end
+    end)
+    @test m.table == [ER.Met(:A, false), ER.Met(:A, true), ER.Met(:B, false),
+                      ER.Met(:P, false), ER.Met(:Q, false)]
+    @test ER._entry_signs(m) == [1, 1, 1, -1, -1]
+    @test ER._names_mask(m, m.substrates) == ER.Counts(0xfff)
+    @test ER._names_mask(m, m.products) == ER.Counts(0xff000)
 end
 
 @testset "ELIM refuses the uni-uni merged complex" begin
     ER = EnzymeRates
-    groups(em) = ER.steps(EnzymeRates.Mechanism(em))
-    seed = groups(@enzyme_mechanism begin
+    raw = ER._raw(ER.Mechanism(@enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
             E + S ⇌ E(S)
             E(S) <--> E(P)
             E + P ⇌ E(P)
         end
-    end)
-    iso = only(s for g in seed for s in g if ER.is_iso(s))
-    merged = ER._merge_isomerization(seed, iso)
+    end))
+    iso = only(filter(_testhelper_raw_iso, raw.steps))
+    merged = ER._merge_isomerization(raw, iso)
     # S binds E into the merged complex E(P), and P binds E into it as well.
-    @test Set(s for g in merged for s in g) == Set(s for g in groups(@enzyme_mechanism begin
+    @test _testhelper_base(merged) == ER.Mechanism(@enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
             E + S ⇌ E(P)
             E + P ⇌ E(P)
         end
-    end) for s in g)
+    end)
     # Both of E(P)'s steps start at E, so a Theorell–Chance step E + S → E + P would join
     # E to itself.
-    @test ER._eliminate_form(merged, ER.to_species(iso)) === nothing
+    @test ER._eliminate_form(merged, iso.to) === nothing
 end
 
 @testset "_re_turnover_cycle: a balanced rapid-equilibrium cycle runs no turnover" begin
@@ -8362,14 +8409,13 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    @test !ER._re_turnover_cycle(ER.steps(m), m)
-    @test ER._re_turnover_cycle([ER._with_equilibrium.(g, true) for g in ER.steps(m)], m)
+    @test !ER._re_turnover_cycle(m, ER._flags(m))
+    @test ER._re_turnover_cycle(m, trues(length(m.edges)))
 end
 
 @testset "C on the ping-pong seed and its single flips" begin
     ER = EnzymeRates
-    groups(em) = ER.steps(EnzymeRates.Mechanism(em))
-    seed = groups(@enzyme_mechanism begin
+    seed = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -8380,32 +8426,28 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    _testhelper_flip(x) = [[_testhelper_binds(x)(s) ? ER._with_equilibrium(s, false) : s
-                            for s in g]
-                           for g in seed]
     # The steady-state isomerization E(A) → E(P; res) cuts the one catalytic cycle, and
     # no step it would turn RE touches a substrate or a product, so both maximal rates
     # exist. The RE isomerization E(B; res) ⇌ E(Q) makes {E(B; res), E(Q)} a chemistry
     # node, left by the RE B binding (traversed away from E(B; res) it gives B off) and
     # by the RE Q binding (away from E(Q) it gives Q off): C fails. At zero products the
     # forms past the steady-state step drain to E and E(A), so B is not needed.
-    rxn = bi_bi_pp_rxn
-    # The tests read the metabolite names of the seed mechanism.
-    seed_m = ER.Mechanism(rxn, seed)
-    @test ER._has_vmax(seed, seed_m, ER.Substrate) && ER._has_vmax(seed, seed_m, ER.Product)
-    @test ER._chemistry_equilibrates_both_sides(seed, seed_m)
-    @test ER._degenerate(ER.Mechanism(rxn, seed))
-    @test _testhelper_degenerate(ER.Mechanism(rxn, seed))
+    re = ER._flags(seed)
+    @test ER._has_vmax(seed, re, seed.substrates) && ER._has_vmax(seed, re, seed.products)
+    @test ER._chemistry_equilibrates_both_sides(seed, re)
+    @test ER._degenerate(seed)
+    @test _testhelper_degenerate(seed)
     # Flipping B or Q leaves the node one RE exit, Q's or B's: C holds (the B flip is the
     # steady-state half of the SRR ping-pong). Flipping A or P leaves both exits RE: C
     # still fails. V never turns the steady-state isomerization RE (it touches no
     # metabolite), so it still cuts the cycle and every flip keeps both maximal rates.
     for x in (:A, :B, :P, :Q)
-        gs = _testhelper_flip(x)
-        m = ER.Mechanism(rxn, gs)
+        re = _testhelper_flip_flags(seed, _testhelper_binds(seed, x))
+        m = ER.Mechanism(ER._raw(seed, re))
         fails_c = x in (:A, :P)
-        @test ER._has_vmax(gs, m, ER.Substrate) && ER._has_vmax(gs, m, ER.Product)
-        @test (x, ER._chemistry_equilibrates_both_sides(gs, m)) == (x, fails_c)
+        @test ER._has_vmax(seed, re, seed.substrates) &&
+              ER._has_vmax(seed, re, seed.products)
+        @test (x, ER._chemistry_equilibrates_both_sides(seed, re)) == (x, fails_c)
         @test (x, ER._degenerate(m)) == (x, fails_c)
         @test (x, _testhelper_degenerate(m)) == (x, fails_c)
     end
@@ -8468,8 +8510,8 @@ end
             E + P <--> E(P)
         end
     end)
-    @test !ER._has_vmax(ER.steps(only_s), only_s, ER.Substrate)
-    @test !ER._has_vmax(ER.steps(only_p), only_p, ER.Product)
+    @test !ER._has_vmax(only_s, ER._flags(only_s), only_s.substrates)
+    @test !ER._has_vmax(only_p, ER._flags(only_p), only_p.products)
     @test _testhelper_degenerate(only_s) && _testhelper_degenerate(only_p)
     # The twin is skipped as the seed's twin, not as degenerate.
     @test !ER._degenerate(twin) && !_testhelper_degenerate(twin)
@@ -8600,20 +8642,17 @@ end
         @test !_testhelper_degenerate(v)
     end
     # The rejected candidates, each degenerate by the probe as well.
-    iso = only(s for g in ER.steps(seed) for s in g if ER.is_iso(s))
-    base = [ER._with_equilibrium.(g, true)
-            for g in ER._merge_isomerization(ER.steps(seed), iso)]
-    tc_base = ER._eliminate_form(base, ER.to_species(iso))
-    bA, bQ = _testhelper_binds(:A), _testhelper_binds(:Q)
+    base, tc_base = _testhelper_base.(_testhelper_seed_bases(seed))
+    bA, bQ = _testhelper_binds(tc_base, :A), _testhelper_binds(tc_base, :Q)
     rejected = vcat(
-        [_testhelper_flip_matching(base, [_testhelper_binds(x)]) for x in (:A, :B, :P, :Q)],
-        [_testhelper_flip_matching(base, _testhelper_binds.(xs))
+        [_testhelper_flip_matching(base, _testhelper_binds(base, x))
+         for x in (:A, :B, :P, :Q)],
+        [_testhelper_flip_matching(base, _testhelper_binds(base, xs...))
          for xs in ([:A, :Q], [:A, :B], [:P, :Q])],
-        [_testhelper_flip_matching(tc_base, ps)
+        [_testhelper_flip_matching(tc_base, ps...)
          for ps in ([bA], [bQ], [_testhelper_is_tc], [bA, bQ],
                     [bA, _testhelper_is_tc], [bQ, _testhelper_is_tc])])
-    for gs in rejected
-        m = ER.Mechanism(bi_bi_rxn, gs)
+    for m in rejected
         @test ER._degenerate(m) && _testhelper_degenerate(m)
     end
 end
@@ -8687,27 +8726,23 @@ end
         @test !_testhelper_degenerate(v)
     end
     # The rejected candidates, each degenerate by the probe as well.
-    isos = [s for g in ER.steps(seed) for s in g if ER.is_iso(s)]
-    base = [ER._with_equilibrium.(g, true)
-            for g in foldl(ER._merge_isomerization, isos; init = ER.steps(seed))]
-    tc_bases = [ER._eliminate_form(base, ER.to_species(s)) for s in isos]
+    base, tc1, tc2 = _testhelper_base.(_testhelper_seed_bases(seed))
     # A Theorell–Chance base holds its TC step and the bindings of the other half's two
     # metabolites, x and y.
-    function _testhelper_tc_rejected(gs)
-        x, y = [ER.name(ER.bound_metabolite(first(g)))
-                for g in gs if ER.is_binding(first(g))]
-        bx, by = _testhelper_binds(x), _testhelper_binds(y)
-        [_testhelper_flip_matching(gs, ps)
+    function _testhelper_tc_rejected(g)
+        x, y = [g.table[ER._bound_entry(e)].name for e in g.edges if ER._is_binding(e)]
+        bx, by = _testhelper_binds(g, x), _testhelper_binds(g, y)
+        [_testhelper_flip_matching(g, ps...)
          for ps in ([_testhelper_is_tc], [bx], [by], [_testhelper_is_tc, bx],
                     [_testhelper_is_tc, by], [bx, by])]
     end
     rejected = vcat(
-        [_testhelper_flip_matching(base, [_testhelper_binds(x)]) for x in (:A, :B, :P, :Q)],
-        [_testhelper_flip_matching(base, _testhelper_binds.(xs))
+        [_testhelper_flip_matching(base, _testhelper_binds(base, x))
+         for x in (:A, :B, :P, :Q)],
+        [_testhelper_flip_matching(base, _testhelper_binds(base, xs...))
          for xs in ([:A, :P], [:B, :Q], [:A, :B], [:P, :Q])],
-        _testhelper_tc_rejected(tc_bases[1]), _testhelper_tc_rejected(tc_bases[2]))
-    for gs in rejected
-        m = ER.Mechanism(bi_bi_pp_rxn, gs)
+        _testhelper_tc_rejected(tc1), _testhelper_tc_rejected(tc2))
+    for m in rejected
         @test ER._degenerate(m) && _testhelper_degenerate(m)
     end
 end
@@ -8773,16 +8808,16 @@ end
         @test !_testhelper_degenerate(v)
     end
     # ELIM refuses the merged complex: it has three steps.
-    iso = only(s for g in ER.steps(seed) for s in g if ER.is_iso(s))
-    base = [ER._with_equilibrium.(g, true)
-            for g in ER._merge_isomerization(ER.steps(seed), iso)]
-    @test count(s -> ER.to_species(s) == ER.to_species(iso), Iterators.flatten(base)) == 3
-    @test ER._eliminate_form(base, ER.to_species(iso)) === nothing
+    raw = ER._raw(seed)
+    iso = only(filter(_testhelper_raw_iso, raw.steps))
+    merged = _testhelper_all_re(ER._merge_isomerization(raw, iso))
+    @test count(s -> s.to == iso.to, merged.steps) == 3
+    @test ER._eliminate_form(merged, iso.to) === nothing
+    @test _testhelper_seed_bases(seed) == [merged]
     # The rejected candidates, each degenerate by the probe as well.
-    _testhelper_flip(gs, xs) = [any(s -> any(x -> _testhelper_binds(x)(s), xs), g) ?
-                                ER._with_equilibrium.(g, false) : g for g in gs]
+    base = _testhelper_base(merged)
     for xs in ([:A], [:B], [:P], [:Q], [:A, :P], [:A, :Q], [:A, :B], [:P, :Q])
-        m = ER.Mechanism(bi_bi_rxn, _testhelper_flip(base, xs))
+        m = _testhelper_flip_matching(base, _testhelper_binds(base, xs...))
         @test (xs, ER._degenerate(m), _testhelper_degenerate(m)) == (xs, true, true)
     end
 end
@@ -8920,14 +8955,7 @@ end
     # The screen reads the turnover, maximal-rate and chemistry tests of a candidate from
     # index arrays. On every subset of the groups of eight bases flipped to steady state it
     # must give the verdict of `_re_turnover_cycle`, `_has_vmax` both ways and
-    # `_chemistry_equilibrates_both_sides` on the flipped groups.
-    function _testhelper_bases(seed)
-        isos = [s for g in ER.steps(seed) for s in g if ER.is_iso(s)]
-        merged = [ER._with_equilibrium.(g, true)
-                  for g in foldl(ER._merge_isomerization, isos; init = ER.steps(seed))]
-        tcs = [ER._eliminate_form(merged, ER.to_species(s)) for s in isos]
-        vcat([merged], filter(!isnothing, tcs))
-    end
+    # `_chemistry_equilibrates_both_sides` on the flipped flags.
     ordered = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
@@ -8971,27 +8999,25 @@ end
     end)
     # Bases: merged and Theorell–Chance for the two ordered seeds, merged only for the
     # ordered/random seed, merged and both halves for the ping-pong seed.
-    all_bases = [(seed, b)
+    all_bases = [_testhelper_base(b)
                  for seed in (ordered, shared_b, ordered_random, ping_pong)
-                 for b in _testhelper_bases(seed)]
-    @test length.(last.(all_bases)) == [4, 3, 4, 4, 4, 4, 3, 3]
-    # The screen's verdict and the predicates' verdict on every subset of `base`'s groups,
-    # a base of `seed`, whose metabolite names they read.
-    function _testhelper_sweep(seed, base)
-        screen = ER._seed_candidate_screen(base, seed)
-        map(0:(2^length(base) - 1)) do bits
-            ss = BitVector([isodd(bits >> (g - 1)) for g in eachindex(base)])
-            gs = [ss[g] ? ER._with_equilibrium.(grp, false) : grp
-                  for (g, grp) in enumerate(base)]
-            expected = !ER._re_turnover_cycle(gs, seed) &&
-                ER._has_vmax(gs, seed, ER.Substrate) &&
-                ER._has_vmax(gs, seed, ER.Product) &&
-                !ER._chemistry_equilibrates_both_sides(gs, seed)
-            (ss, screen(gs), expected)
+                 for b in _testhelper_seed_bases(seed)]
+    @test ER.ngroups.(all_bases) == [4, 3, 4, 4, 4, 4, 3, 3]
+    # The screen's verdict and the predicates' verdict on every subset of the groups of the
+    # base `m`, every edge of which is at rapid equilibrium.
+    function _testhelper_sweep(m)
+        screen = ER._seed_candidate_screen(m)
+        map(0:(2^ER.ngroups(m) - 1)) do bits
+            ss = BitVector([isodd(bits >> (g - 1)) for g in 1:ER.ngroups(m)])
+            re = BitVector([!ss[g] for g in m.group])
+            expected = !ER._re_turnover_cycle(m, re) &&
+                ER._has_vmax(m, re, m.substrates) && ER._has_vmax(m, re, m.products) &&
+                !ER._chemistry_equilibrates_both_sides(m, re)
+            (ss, screen(re), expected)
         end
     end
     verdicts = Bool[]
-    for (seed, base) in all_bases, (ss, screened, expected) in _testhelper_sweep(seed, base)
+    for base in all_bases, (ss, screened, expected) in _testhelper_sweep(base)
         @test (ss, screened) == (ss, expected)
         push!(verdicts, expected)
     end
@@ -9005,22 +9031,22 @@ end
     # form into one, and leaves that merged complex with three steps. The 35 merged bases
     # of the seeds with a random-order side hold a merged complex of three or four steps.
     pp_seeds = filter(_testhelper_holds_iso, ER.init_mechanisms(bi_bi_pp_rxn))
-    pp_bases = [b for seed in pp_seeds for b in _testhelper_bases(seed)]
-    _testhelper_fused(b, side) = [s for s in Iterators.flatten(b) if ER.is_binding(s) &&
-                                  ER._is_chemistry(s) && ER.bound_metabolite(s) isa side]
-    function _testhelper_three_step_complex(b)
-        n = Dict{ER.Species, Int}()
-        for s in Iterators.flatten(b), sp in (ER.from_species(s), ER.to_species(s))
-            n[sp] = get(n, sp, 0) + 1
-        end
-        any(s -> n[ER.to_species(s)] >= 3, _testhelper_fused(b, ER.Substrate))
+    pp_bases = [_testhelper_base(b)
+                for seed in pp_seeds for b in _testhelper_seed_bases(seed)]
+    # The fused bindings of base `b` that bind one of `names`, not as a modifier copy.
+    _testhelper_fused(b, names) = [e for e in b.edges
+        if ER._is_binding(e) && ER._is_chemistry(b, e) &&
+           (x = b.table[ER._bound_entry(e)]; !x.modifier && x.name in names)]
+    # Whether a fused binding of a substrate enters a form of three or more edges.
+    _testhelper_three_step_complex(b) = any(_testhelper_fused(b, b.substrates)) do e
+        count(d -> e.to in (d.from, d.to), b.edges) >= 3
     end
     @test (length(pp_seeds), length(pp_bases)) == (62, 86)
-    @test count(b -> !isempty(_testhelper_fused(b, ER.Product)), pp_bases) == 8
-    @test count(b -> !isempty(_testhelper_fused(b, ER.Product)) &&
+    @test count(b -> !isempty(_testhelper_fused(b, b.products)), pp_bases) == 8
+    @test count(b -> !isempty(_testhelper_fused(b, b.products)) &&
                      _testhelper_three_step_complex(b), pp_bases) == 8
     @test count(_testhelper_three_step_complex, pp_bases) == 35 + 8
-    outcomes = [o for b in pp_bases for o in _testhelper_sweep(ping_pong, b)]
+    outcomes = [o for b in pp_bases for o in _testhelper_sweep(b)]
     @test length(outcomes) == 1344
     @test isempty([(ss, screened) for (ss, screened, expected) in outcomes
                    if screened != expected])
@@ -10150,7 +10176,7 @@ end
 
     # Aggregate regression pin over the bi-bi seed set: on every single RE→SS group flip
     # the count agrees with the segmentation that `_re_segment_extras` gives the Step
-    # views, flipped alike.
+    # views of the flipped graph.
     flips = [(seed, g) for seed in EnzymeRates.init_mechanisms(bi_bi_rxn)
              for (g, ks) in enumerate(EnzymeRates._group_members(seed))
              if all(k -> seed.edges[k].rapid_equilibrium, ks)]
@@ -10158,8 +10184,8 @@ end
     @test all(flips) do (seed, g)
         re = EnzymeRates._flags(seed)
         re[seed.group .== g] .= false
-        views = [h == g ? EnzymeRates._with_equilibrium.(grp, false) : grp
-                 for (h, grp) in enumerate(EnzymeRates.steps(seed))]
+        views = EnzymeRates.steps(
+            EnzymeRates._canonicalize(EnzymeRates._raw(seed, re)).mechanism)
         EnzymeRates._re_segment_count(seed, re) ==
             length(EnzymeRates._re_segment_extras(views)[2])
     end

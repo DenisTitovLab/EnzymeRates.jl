@@ -254,8 +254,7 @@ is_iso(s::Step)     = isempty(s.consumed) && isempty(s.released)
 off, and `to_species` holding `from_species`'s metabolites plus that one with the
 same residual, the conformation free to change (`_binds_ligand`). Isomerizations,
 fused bindings (`E(A) + B → E(P, Q)`), Theorell–Chance steps and steps with several
-metabolites on a side are chemistry. The seed variants' `_fused_substrate_binding` reads
-it to tell catalysis from binding; code that reads the reaction graph asks
+metabolites on a side are chemistry. Code that reads the reaction graph asks
 `_is_chemistry(m, e)`."""
 function _is_chemistry(s::Step)
     m = bound_metabolite(s)
@@ -1766,15 +1765,22 @@ _flat_edges(m::Mechanism) = reduce(vcat, _group_members(m); init = Int[])
 _is_free(f::Form) = f.bound == 0 && !_has_residual(f)
 """Each edge's rapid-equilibrium flag."""
 _flags(m::Mechanism) = BitVector([e.rapid_equilibrium for e in m.edges])
-"""The nibbles of `m`'s modifier entries: a count of `m`'s entries meets this mask when it
-holds a modifier."""
-function _modifier_mask(m::Mechanism)
+"""The nibbles of the entries of `m` for which `pred` holds: a count of `m`'s entries
+meets this mask when it holds such an entry."""
+function _entry_mask(pred, m::Mechanism)
     mask = Counts(0)
     for (i, x) in enumerate(m.table)
-        x.modifier && (mask |= Counts(0xf) << (4 * (i - 1)))
+        pred(x) && (mask |= Counts(0xf) << (4 * (i - 1)))
     end
     mask
 end
+"""The nibbles of `m`'s modifier entries: a count of `m`'s entries meets this mask when it
+holds a modifier."""
+_modifier_mask(m::Mechanism) = _entry_mask(x -> x.modifier, m)
+"""The nibbles of the entries of `m` whose name is among the sorted `names`, a reactant's
+modifier copy included: a count meets this mask when it holds one of those names."""
+_names_mask(m::Mechanism, names::Vector{Symbol}) =
+    _entry_mask(x -> insorted(x.name, names), m)
 """Whether edge `e` of `m` binds a product: it takes up one product, not as a modifier."""
 _binds_product(m::Mechanism, e::Edge) =
     (i = _bound_entry(e); i != 0 && !m.table[i].modifier &&
@@ -2049,20 +2055,6 @@ AllostericMechanism(rxn::EnzymeReaction, groups::Vector{Vector{Step}},
     AllostericMechanism(RawAllostericMechanism(_raw_of(rxn, groups), cat_allo_states,
         catalytic_multiplicity,
         RawSite[RawSite(s.ligands, s.multiplicity, s.allo_states) for s in sites]))
-
-"""
-    _canonical_order(rxn, groups) -> Vector{Vector{Step}}
-
-`groups`, kinetic groups of `Step`s over `rxn`'s substrates and products, in canonical
-form (`_canonicalize`) and read back as `Step`s (`steps`), with no check but the one
-orienting needs: errors on a tied group no orientation aligns. The seed variants hold
-their bases in it (`_seed_variants`).
-"""
-function _canonical_order(rxn::EnzymeReaction, groups::Vector{Vector{Step}})
-    c = _canonicalize(_raw_of(rxn, groups))
-    _check_aligned(c.mechanism, c.misaligned)
-    steps(c.mechanism)
-end
 
 # ─── Pretty printing ────────────────────────────────────────────────────
 

@@ -459,8 +459,9 @@ end
         end)
         # The constructor checks the representation only, so it builds the mechanism.
         inh_m = ER.Mechanism(rxn, inh_steps)
-        @test ER._bottomless_re_segment(inh_m, inh_steps) !== nothing
-        @test ER._bottomless_re_segment(inh_m, reverse(inh_steps)) !== nothing
+        @test !isempty(ER._bottomless_segment(inh_m, trues(length(inh_m.edges)),
+                                              ER._flags(inh_m)))
+        @test ER.Mechanism(rxn, reverse(inh_steps)) == inh_m
         @test_throws "rapid-equilibrium segment" @enzyme_mechanism begin
             substrates: A, B
             products: P

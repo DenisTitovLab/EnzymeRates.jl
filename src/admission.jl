@@ -73,25 +73,6 @@ function _bottomless_segment(m::Mechanism, mask::BitVector, re::BitVector)
 end
 
 """
-    _bottomless_re_segment(m, steps) -> Union{Nothing, Vector{Species}}
-
-`_bottomless_segment` for `steps`, kinetic groups of `Step`s over mechanism `m`'s
-metabolites, as the seed variants' Step `_minimal_flips` reads its candidates: the forms
-of the first rapid-equilibrium segment of `steps` whose weights all vanish at zero
-products, or all vanish at zero substrates; `nothing` when no segment does.
-"""
-function _bottomless_re_segment(m::_AnyMech, steps::Vector{Vector{Step}})
-    species, segments, extras = _re_segment_extras(steps)
-    for segment in segments
-        length(segment) < 2 && continue
-        for side in (products(m), substrates(m))
-            all(i -> any(in(side), keys(extras[i])), segment) && return species[segment]
-        end
-    end
-    nothing
-end
-
-"""
 Error when a rapid-equilibrium segment of the edges of `m` that `mask` keeps has no
 bottom form (`_bottomless_segment`): its rate is 0/0 where one side's metabolites are
 absent. The boundary check (`_check_well_posed`) checks a mechanism's graph and, for an
