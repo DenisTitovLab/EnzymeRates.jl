@@ -1213,10 +1213,37 @@ end
 end
 
 """
+The inactive conformation's steps of `am` read off its Step views alone, aligned with
+`steps(am)`: an `:OnlyA` group is empty, and every other group keeps the steps whose two
+forms the steps outside `:OnlyA` groups reach from a free form (no metabolite, no
+residual).
+"""
+function _testhelper_inactive_steps(am)
+    tags, groups = ER.cat_allo_states(am), ER.steps(am)
+    outside = [s for (g, group) in enumerate(groups) if tags[g] !== :OnlyA for s in group]
+    reach = Set(f for s in outside for f in (ER.from_species(s), ER.to_species(s))
+                if isempty(ER.bound(f)) && isempty(ER.residual(f)))
+    grew = true
+    while grew
+        grew = false
+        for s in outside
+            f, t = ER.from_species(s), ER.to_species(s)
+            (f in reach) == (t in reach) && continue
+            push!(reach, f, t)
+            grew = true
+        end
+    end
+    [tags[g] === :OnlyA ? ER.Step[] :
+     ER.Step[s for s in group if ER.from_species(s) in reach && ER.to_species(s) in reach]
+     for (g, group) in enumerate(groups)]
+end
+
+"""
 Whether the sub-graph reads of `x` (`_segments`, `_inactive_mask`) give what the Step
-helpers give on its Step views (`_re_segment_extras`, `_inactive_groups`): the catalytic
-graph's segments, form by form and breadth-first, with each form's positive offsets, and,
-for an allosteric mechanism, the inactive conformation's edges and their segments.
+helpers give on its Step views (`_re_segment_extras`, `_testhelper_inactive_steps`): the
+catalytic graph's segments, form by form and breadth-first, with each form's positive
+offsets, and, for an allosteric mechanism, the inactive conformation's edges and their
+segments.
 """
 function _testhelper_subgraphs_agree(x)
     m, groups = ER.catalytic(x), ER.steps(x)
@@ -1233,7 +1260,7 @@ function _testhelper_subgraphs_agree(x)
     _testhelper_segments_agree(trues(length(m.edges)), groups) || return false
     x isa ER.AllostericMechanism || return true
     inactive = ER._inactive_mask(x)
-    kept = ER._inactive_groups(x)
+    kept = _testhelper_inactive_steps(x)
     [inactive[k] for members in ER._group_members(m) for k in members] ==
         [s in kept[g] for (g, group) in enumerate(groups) for s in group] &&
         _testhelper_segments_agree(inactive, kept)

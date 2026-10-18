@@ -1400,10 +1400,7 @@ modifier: a declared name that no step exchanges takes no part in the rate law."
 function _check_declared_used(m::Mechanism, modifiers::Vector{Symbol})
     exchanged = mapreduce(e -> _occupied(e.consumed) | _occupied(e.released), |, m.edges;
                           init = Counts(0))
-    function used(x::Met)
-        i = searchsortedfirst(m.table, x)
-        i <= length(m.table) && m.table[i] == x && copies(exchanged, i) > 0
-    end
+    used(x::Met) = (i = _entry(m, x); i != 0 && copies(exchanged, i) > 0)
     for (names, kind) in ((m.substrates, "substrate"), (m.products, "product"))
         k = findfirst(n -> !used(Met(n, false)), names)
         k === nothing ||
@@ -1674,6 +1671,11 @@ metabolites(m::Mechanism) = unique!([m.substrates; m.products; modifiers(m)])
 metabolites(am::AllostericMechanism) =
     unique!([metabolites(am.catalytic);
              [l for s in am.regulatory_sites for l in s.ligands]])
+"""The index of `x` in `m`'s table, or 0 when `m` holds no such entry."""
+function _entry(m::Mechanism, x::Met)
+    i = searchsortedfirst(m.table, x)
+    i <= length(m.table) && m.table[i] == x ? i : 0
+end
 """Whether `x` names a substrate or a product of `m`."""
 _is_reactant(m::Mechanism, x::Symbol) = insorted(x, m.substrates) || insorted(x, m.products)
 _role_masks(m::Mechanism) = _role_masks(m.table, m.substrates)

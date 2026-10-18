@@ -572,54 +572,6 @@ end
 # ═══════════════════════════════════════════════════════════════════
 
 """
-The enzyme forms in the connected component of the free enzyme over ALL
-steps of `groups` (rapid-equilibrium and steady-state alike). Every form
-carrying neither a bound metabolite nor a residual seeds the search: such a form
-interconverts between conformations under formulation 1, and so is a root the
-inactive conformation can be entered through. Enumeration yields exactly one
-such form; the hand-written DSL admits a second one in rapid equilibrium with the
-first (`_assert_one_flip_segment`), and every match then seeds. A ping-pong covalent intermediate carries a residual and is
-therefore not a root: a component the free enzyme cannot reach holds no inactive
-mass, and leaving it in place would strand the free-enzyme spanning tree
-(`D[g_free] = 0`).
-"""
-function _reachable_from_free(groups)
-    reach = Set{Species}(f for grp in groups for s in grp
-                         for f in (from_species(s), to_species(s))
-                         if isempty(bound(f)) && isempty(residual(f)))
-    changed = true
-    while changed
-        changed = false
-        for grp in groups, s in grp
-            f, t = from_species(s), to_species(s)
-            if f in reach && t ∉ reach
-                push!(reach, t); changed = true
-            elseif t in reach && f ∉ reach
-                push!(reach, f); changed = true
-            end
-        end
-    end
-    reach
-end
-
-"""
-The inactive conformation's step graph of `am`, aligned with `steps(am)`: an `:OnlyA`
-group is empty, and every other group keeps the steps whose two forms are reachable
-from the free enzyme over the non-`:OnlyA` groups (`_reachable_from_free`). The steps
-are `am`'s own, in their stored direction, so the inactive law reads `am`'s orientation
-and names. The copy rule (`_redundant_copy_groups`) reads the inactive state from it;
-it views the edges of `_inactive_mask`, which the derivation and the joint solve read.
-"""
-function _inactive_groups(am::AllostericMechanism)
-    tags, groups = cat_allo_states(am), steps(am)
-    reach = _reachable_from_free(
-        [group for (g, group) in enumerate(groups) if tags[g] !== :OnlyA])
-    [tags[g] === :OnlyA ? Step[] :
-     Step[s for s in group if from_species(s) in reach && to_species(s) in reach]
-     for (g, group) in enumerate(groups)]
-end
-
-"""
     _state_rate_polys(am, state) -> (num, den, d_free)
 
 The rate polynomials of `am`'s catalytic graph in conformation `state` (`:A` or `:I`),

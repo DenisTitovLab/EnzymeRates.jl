@@ -1062,7 +1062,7 @@ function _hyperbolic_catalysis(m::Union{Mechanism, AllostericMechanism})
     end
     n = length(s.segments)
     for y in [cm.substrates; cm.products]
-        x = name_of[searchsortedfirst(cm.table, Met(y, false))]
+        x = name_of[_entry(cm, Met(y, false))]
         score(e) = count(==(x), e[4]) + s.offsets[x, e[3]]
         carrying = [e for e in edges if score(e) > 0]
         any(e -> score(e) > 1, carrying) && return false
@@ -1354,14 +1354,35 @@ function _bipartitioned_groups(groups::Vector{Vector{Step}}, selection)
 end
 
 """
-    _productive_twin(groups) -> (site, ligand) -> Union{Species, Nothing}
+A class of the dwell gauge (`_gauge_rescaling`): a kinetic group's class (`group > 0`)
+or a twin form's class of its own (`form > 0`), in one conformational state (`state` 1,
+or 2 for the inactive one) or in both (0). Group and form indices count apart, so group
+2 and form 2 are two classes.
+"""
+struct _GaugeClass
+    group::Int
+    form::Int
+    state::Int
+end
 
-The productive form of `groups`, a form bound to no competitive inhibitor, whose weight
-is proportional to that of the complex `ligand` forms at `site` by a rapid-equilibrium
-step, or `nothing` when none is: a form of the site's rapid-equilibrium segment with the
-complex's offsets (`_re_segment_extras`), the one of the complex's composition when
-several are, else the first in the canonical form order (`_form_index_key`). Within a
-segment rapid equilibrium fixes each weight relative to another as a constant times the
+"""The class of the factor 1, which every form outside a copy's complexes and twins
+takes."""
+const _NO_RESCALING = _GaugeClass(0, 0, 0)
+
+"""The gauge class of group `h` or form `t` (`_GaugeClass`) in a mechanism with one
+conformational state."""
+_one_state_class(h::Int, t::Int) = _GaugeClass(h, t, 1)
+
+"""
+    _productive_twin(m, mask) -> (site, ligand) -> Int
+
+The productive form of the sub-graph of `m` whose edges `mask` keeps, a form that holds
+no modifier, whose weight is proportional to that of the complex a modifier named
+`ligand` forms at form `site` by a rapid-equilibrium step, or 0 when none is: a form of
+the site's rapid-equilibrium segment with the complex's offsets (`_segments`; the
+modifier counts as its name, so a reactant's copy as the reactant), the one of the
+complex's composition when several are, else the first in form order. Within a segment
+rapid equilibrium fixes each weight relative to another as a constant times the
 metabolites bound along the route between them, so equal offsets mean proportional
 weights, and steady-state data see only their sum. The offsets reach a copy across a
 rapid-equilibrium isomerization (a ping-pong second chemistry step, a conformational
@@ -1373,101 +1394,105 @@ copy's constant may stay visible.
 Only productive forms are twin sources, so the complex itself never is one. A complex
 that duplicates only a copy's complex shares its weight with that copy's constant, and
 the sites that pin either copy may keep both constants separable, so such a match never
-makes a twin.
+makes a twin. The forms are `m`'s own, so the twins of a mechanism the dead-end move
+builds are found on that mechanism (`_dead_end_child`).
 """
-function _productive_twin(groups::Vector{Vector{Step}})
-    species, segments, extras, idx, seg = _re_segment_extras(groups)
-    productive(sp) = !any(b -> b isa CompetitiveInhibitor, bound(sp))
-    # Sorted names of a form's bound metabolites with `extra` also bound (a copy counts as
-    # the reactant it copies), with its conformation and residual.
-    composition(sp::Species, extra::Metabolite...) =
-        (sort!(vcat(Symbol[name(b) for b in bound(sp)],
-                    Symbol[name(x) for x in extra])), conformation(sp), residual(sp))
-    function (site::Species, ligand::Metabolite)
-        i = idx[site]
-        target = mergewith(+, extras[i], Dict(name(ligand) => 1))
-        twins = [species[j] for j in segments[seg[i]]
-                 if productive(species[j]) && extras[j] == target]
-        isempty(twins) && return nothing
-        wanted = composition(site, ligand)
+function _productive_twin(m::Mechanism, mask::BitVector)
+    s = _segments(m, mask, _flags(m))
+    name_of = _name_index(m)
+    modifiers = _modifier_mask(m)
+    # A form's bound names, sorted, its conformation and its residual.
+    composition(f) = (Symbol[m.table[i].name for i in entries(m.forms[f].bound)],
+                      m.forms[f].conformation, m.forms[f].added, m.forms[f].subtracted)
+    function (site::Int, ligand::Symbol)
+        i = findfirst(x -> x.name === ligand, m.table)
+        i === nothing && return 0
+        n = name_of[i]
+        twins = [f for f in s.segments[s.segment_of[site]]
+                 if m.forms[f].bound & modifiers == 0 &&
+                    all(x -> s.offsets[x, f] == s.offsets[x, site] + (x == n),
+                        axes(s.offsets, 1))]
+        isempty(twins) && return 0
+        names, label, added, subtracted = composition(site)
+        wanted = (sort!(push!(names, ligand)), label, added, subtracted)
         k = findfirst(t -> composition(t) == wanted, twins)
-        k === nothing ? argmin(_form_index_key, twins) : twins[k]
+        k === nothing ? minimum(twins) : twins[k]
     end
 end
 
 """
-Whether `group`, the steps of one kinetic group, binds a competitive inhibitor, and only
-at sites whose complex has a productive twin (`twin`, a `_productive_twin` of one state's
-graph).
+Whether the edges `ks` of one kinetic group of `m` bind a modifier, and only at sites
+whose complex has a productive twin (`twin`, a `_productive_twin` of one state's graph).
 """
-function _all_twin(group::Vector{Step}, twin)
-    ligand = bound_metabolite(first(group))
-    ligand isa CompetitiveInhibitor &&
-        all(s -> twin(from_species(s), ligand) !== nothing, group)
+function _all_twin(m::Mechanism, ks::Vector{Int}, twin)
+    i = _bound_entry(m.edges[first(ks)])
+    i != 0 && m.table[i].modifier &&
+        all(k -> twin(m.edges[k].from, m.table[i].name) != 0, ks)
 end
 
 """
-    _gauge_rescaling(groups, g, twin, label) -> Union{Dict{Int, Tuple}, Nothing}
+    _gauge_rescaling(m, members, g, twin, label)
+        -> Union{Dict{Int, Tuple{_GaugeClass, _GaugeClass}}, Nothing}
 
-The dwell gauge of the competitive-inhibitor copy bound by kinetic group `g` of
-`groups`, one conformational state's step graph: the rescaling each nonempty kinetic
-group needs, or `nothing` when the gauge does not exist. It does not exist when group `g`
-binds no competitive inhibitor or a complex it forms has no productive twin (`_all_twin`,
-with `twin` a `_productive_twin` of `groups`), or when some group would need two
-rescalings. The gauge gives every form a factor σ: ρ_T to each twin T, one factor s to
-every complex of the copy and 1 to every other form. Multiplying a rapid-equilibrium
-group's K by σ(from)/σ(to), and a steady-state group's forward constant by σ(from) and
-its reverse by σ(to), divides each form's weight by its factor and leaves every flux
-as it was. A twin's weight is a constant multiple of its complexes', so the factors
-can keep each twin's total with its complexes, and the rate law, unchanged while K*
-moves: the copy's constant is a phantom. A kinetic group shares its constants, so every
-group, the copy's own included, must have one ratio σ(from)/σ(to) over its steps (rapid
-equilibrium), or one σ(from) and one σ(to) (steady state). The copy's group, at 1 on
-each site, holds all its complexes at the one factor s, and a complex never takes its
-twin's factor: its weight moves opposite to the twin's. A rapid-equilibrium mirror step,
-between two complexes, therefore has ratio 1, as its parent step between two sites
-has, whatever the twins; a steady-state mirror needs s beside its parent step's 1, and
-the gauge fails. When each site binds the copied ligand at rapid equilibrium, the gauge
-is the merge of each complex into its twin, the twin's binding group taking K_h + K* in
-place of K_h, and the family is that of the mechanism without the copy.
+The dwell gauge of the modifier copy bound by kinetic group `g` of `m`, in one
+conformational state's graph, whose groups hold the edges `members`: the rescaling each
+nonempty kinetic group needs, or `nothing` when the gauge does not exist. It does not
+exist when group `g` binds no modifier or a complex it forms has no productive twin
+(`_all_twin`, with `twin` a `_productive_twin` of that graph), or when some group would
+need two rescalings. The gauge gives every form a factor σ: ρ_T to each twin T, one factor
+s to every complex of the copy and 1 to every other form. Multiplying a rapid-equilibrium
+group's K by σ(from)/σ(to), and a steady-state group's forward constant by σ(from) and its
+reverse by σ(to), divides each form's weight by its factor and leaves every flux as it
+was. A twin's weight is a constant multiple of its complexes', so the factors can keep
+each twin's total with its complexes, and the rate law, unchanged while K* moves: the
+copy's constant is a phantom. A kinetic group shares its constants, so every group, the
+copy's own included, must have one ratio σ(from)/σ(to) over its edges (rapid
+equilibrium), or one σ(from) and one σ(to) (steady state). The copy's group, at 1 on each
+site, holds all its complexes at the one factor s, and a complex never takes its twin's
+factor: its weight moves opposite to the twin's. A rapid-equilibrium mirror edge, between
+two complexes, therefore has ratio 1, as its parent edge between two sites has, whatever
+the twins; a steady-state mirror needs s beside its parent edge's 1, and the gauge fails.
+When each site binds the copied ligand at rapid equilibrium, the gauge is the merge of
+each complex into its twin, the twin's binding group taking K_h + K* in place of K_h, and
+the family is that of the mechanism without the copy.
 
 The ρ are generic numbers, equal only where the structure makes them equal: twins
 formed from their sites by RE bindings of the copied ligand in one kinetic group h, each
 the twin of one complex, share one factor (the merge gives it as ρ = K_h/(K_h + K*));
-every other twin has its own. `label` names the classes: it
-receives the group index of a shared class (h) or of the copy's complexes (g), or the
-twin of a class of its own, and returns the class's symbol, so the caller decides which
-classes are one number. A group's rescaling is the pair of its ends' symbols, `nothing`
-standing for the factor 1, and `(nothing, nothing)` for a rapid-equilibrium group whose
-two ends scale alike.
-The test is bookkeeping over the steps, with no parameters and no numerics.
+every other twin has its own. `label(h, t)` names the classes (`_GaugeClass`): it
+receives the group of a shared class (h) or of the copy's complexes (g) with `t = 0`, or
+`h = 0` and the twin `t` of a class of its own, so the caller decides which classes are
+one number. A group's rescaling is the pair of its ends' classes, `_NO_RESCALING` standing
+for the factor 1, and two of them for a rapid-equilibrium group whose two ends scale
+alike. The test is bookkeeping over the edges, with no parameters and no numerics.
 """
-function _gauge_rescaling(groups::Vector{Vector{Step}}, g::Int, twin, label)
-    _all_twin(groups[g], twin) || return nothing
-    ligand = bound_metabolite(first(groups[g]))::Metabolite
-    twin_of = Dict(to_species(s) => twin(from_species(s), ligand) for s in groups[g])
-    binding_group = Dict{Tuple{Species, Species}, Int}()
-    for (h, group) in enumerate(groups), s in group
-        bm = bound_metabolite(s)
-        is_equilibrium(s) && bm isa Reactant && name(bm) == name(ligand) &&
-            (binding_group[(from_species(s), to_species(s))] = h)
+function _gauge_rescaling(m::Mechanism, members::Vector{Vector{Int}}, g::Int, twin, label)
+    _all_twin(m, members[g], twin) || return nothing
+    ligand = m.table[_bound_entry(m.edges[first(members[g])])].name
+    twin_of = Dict(m.edges[k].to => twin(m.edges[k].from, ligand) for k in members[g])
+    binding_group = Dict{Tuple{Int, Int}, Int}()
+    for (h, ks) in enumerate(members), k in ks
+        e = m.edges[k]
+        i = _bound_entry(e)
+        e.rapid_equilibrium && i != 0 && !m.table[i].modifier &&
+            m.table[i].name === ligand && (binding_group[(e.from, e.to)] = h)
     end
-    class = Dict{Species, Any}(complex => label(g) for complex in keys(twin_of))
-    for s in groups[g]
-        t = twin_of[to_species(s)]
+    class = Dict{Int, _GaugeClass}(complex => label(g, 0) for complex in keys(twin_of))
+    for k in members[g]
+        t = twin_of[m.edges[k].to]
         haskey(class, t) && continue
         h = count(==(t), values(twin_of)) == 1 ?
-            get(binding_group, (from_species(s), t), 0) : 0
-        class[t] = label(h > 0 ? h : t)
+            get(binding_group, (m.edges[k].from, t), 0) : 0
+        class[t] = h > 0 ? label(h, 0) : label(0, t)
     end
-    σ(sp) = get(class, sp, nothing)
-    rescale(s) = (a = σ(from_species(s)); b = σ(to_species(s));
-                  is_equilibrium(s) && isequal(a, b) ? (nothing, nothing) : (a, b))
-    rescaling = Dict{Int, Tuple{Any, Any}}()
-    for (h, group) in enumerate(groups)
-        isempty(group) && continue
-        r = rescale(first(group))
-        all(s -> isequal(rescale(s), r), group) || return nothing
+    σ(f) = get(class, f, _NO_RESCALING)
+    rescale(e) = (a = σ(e.from); b = σ(e.to);
+                  e.rapid_equilibrium && a == b ? (_NO_RESCALING, _NO_RESCALING) : (a, b))
+    rescaling = Dict{Int, Tuple{_GaugeClass, _GaugeClass}}()
+    for (h, ks) in enumerate(members)
+        isempty(ks) && continue
+        r = rescale(m.edges[first(ks)])
+        all(k -> rescale(m.edges[k]) == r, ks) || return nothing
         rescaling[h] = r
     end
     rescaling
@@ -1476,103 +1501,141 @@ end
 """
     _redundant_copy_groups(m) -> Vector{Int}
 
-Kinetic groups of `m` that bind a competitive inhibitor redundantly: in every
-conformational state where the copy binds, every complex has a productive twin, a form
-whose weight is proportional to the complex's (`_productive_twin`, `_all_twin`), and the
-dwell gauge exists over the states together (`_gauge_rescaling`). The gauge then moves
-the copy's constant along a direction the rate law cannot see, so the copy
-adds a phantom, and the mechanism's family is its family without the copy
-(`_gauge_rescaling`). A copy group whose complexes all have twins but whose gauge fails is
-not redundant: a group that forms or leaves a twin also binds where no copy does (a shared
-group that pins the existing binding), a group holds a step that leaves a complex beside
-one that leaves another form (a second copy bound at the complex and at a twin), or a
-mirror is steady-state. The gauge is the proof that the copy's constant is invisible, and
-without it the constant may be identifiable. Two copies that are twins only of each other,
-neither pinned, pass the test and carry a phantom: the rule admits them.
+Kinetic groups of `m` that bind a modifier redundantly: in every conformational state
+where the copy binds, every complex has a productive twin, a form whose weight is
+proportional to the complex's (`_productive_twin`, `_all_twin`), and the dwell gauge
+exists over the states together (`_gauge_rescaling`). The gauge then moves the copy's
+constant along a direction the rate law cannot see, so the copy adds a phantom, and the
+mechanism's family is its family without the copy (`_gauge_rescaling`). A copy group
+whose complexes all have twins but whose gauge fails is not redundant: a group that forms
+or leaves a twin also binds where no copy does (a shared group that pins the existing
+binding), a group holds a step that leaves a complex beside one that leaves another form
+(a second copy bound at the complex and at a twin), or a mirror is steady-state. The gauge
+is the proof that the copy's constant is invisible, and without it the constant may be
+identifiable. Two copies that are twins only of each other, neither pinned, pass the test
+and carry a phantom: the rule admits them.
 
 An allosteric copy binds the active state always and the inactive state unless its tag is
-`:OnlyA`. The inactive state's graph is `_inactive_groups(am)`: the steps of the
-non-`:OnlyA` groups between forms reachable from the free enzyme. The copy binds there only
-at the sites that graph keeps, and a free-enzyme site is always among them. In a state where
-the copy binds nothing, every factor of that state is 1. The two states form one system. A
-group tagged `:EqualAI` has one set of constants in both, so it must take the same rescaling
-in each. A shared class is one number in both states only when its binding group and the
-copy are both `:EqualAI` (one K_h, one K*). The copy's complexes share one factor in both
-states when the copy is `:EqualAI` (one K*). Every other class is a number per state.
+`:OnlyA`. The inactive state's graph is `_inactive_mask(am)`: the edges outside `:OnlyA`
+groups between forms that such edges reach from a free form. The copy binds there only at
+the sites that graph keeps, and a free-enzyme site is always among them. In a state where
+the copy binds nothing, every factor of that state is 1. The two states form one system.
+A group tagged `:EqualAI` has one set of constants in both, so it must take the same
+rescaling in each. A shared class is one number in both states only when its binding
+group and the copy are both `:EqualAI` (one K_h, one K*). The copy's complexes share one
+factor in both states when the copy is `:EqualAI` (one K*). Every other class is a number
+per state.
 """
 function _redundant_copy_groups(m::Union{Mechanism, AllostericMechanism})
-    active = steps(m)
-    any(group -> bound_metabolite(first(group)) isa CompetitiveInhibitor, active) ||
-        return Int[]
-    twin_active = _productive_twin(active)
+    cm = catalytic(m)
+    members = _group_members(cm)
+    binds_copy(ks) = (i = _bound_entry(cm.edges[first(ks)]); i != 0 && cm.table[i].modifier)
+    any(binds_copy, members) || return Int[]
+    twin_active = _productive_twin(cm, trues(length(cm.edges)))
     m isa Mechanism &&
-        return [g for g in eachindex(active)
-                if _gauge_rescaling(active, g, twin_active, identity) !== nothing]
+        return [g for g in eachindex(members)
+                if _gauge_rescaling(cm, members, g, twin_active, _one_state_class) !==
+                   nothing]
     tags = cat_allo_states(m)
-    inactive = _inactive_groups(m)
-    twin_inactive = _productive_twin(inactive)
-    filter(collect(eachindex(active))) do g
-        one_number(c) = c isa Int && tags[c] === :EqualAI && tags[g] === :EqualAI
-        label(state) = c -> one_number(c) ? c : (state, c)
-        rescaling_active = _gauge_rescaling(active, g, twin_active, label(:A))
+    mask = _inactive_mask(m)
+    inactive = [filter(k -> mask[k], ks) for ks in members]
+    twin_inactive = _productive_twin(cm, mask)
+    filter(collect(eachindex(members))) do g
+        one_number(h) = h > 0 && tags[h] === :EqualAI && tags[g] === :EqualAI
+        label(state) = (h, t) -> _GaugeClass(h, t, one_number(h) ? 0 : state)
+        rescaling_active = _gauge_rescaling(cm, members, g, twin_active, label(1))
         rescaling_active === nothing && return false
-        binds_inactive = !isempty(inactive[g])
-        rescaling_inactive = binds_inactive ?
-            _gauge_rescaling(inactive, g, twin_inactive, label(:I)) :
-            Dict(h => (nothing, nothing) for h in eachindex(inactive)
+        rescaling_inactive = !isempty(inactive[g]) ?
+            _gauge_rescaling(cm, inactive, g, twin_inactive, label(2)) :
+            Dict(h => (_NO_RESCALING, _NO_RESCALING) for h in eachindex(inactive)
                  if !isempty(inactive[h]))
         rescaling_inactive === nothing && return false
         all(h -> tags[h] !== :EqualAI || !haskey(rescaling_inactive, h) ||
-                 isequal(rescaling_active[h], rescaling_inactive[h]),
+                 rescaling_active[h] == rescaling_inactive[h],
             keys(rescaling_active))
     end
 end
 
 """
-The forms where the metabolite named `met_name`, in the role `role`, is free on some
-step: the step's `from_species` when it takes the metabolite up, its `to_species` when it
-gives it off, so a Theorell–Chance step E(A) + B → E(Q) + P frees B at E(A) and P at
-E(Q). `Reactant` asks where a substrate or product binds productively;
-`CompetitiveInhibitor` where an inhibitor, a reactant's copy included, binds its dead-end
-site. A reactant and its copy share a name but bind different sites, so the role tells
-them apart. The dead-end move targets these forms for competition with the metabolite.
+The forms of graph `m` where table entry `entry` is free on some edge: the edge's `from`
+when it takes the entry up, its `to` when it gives it off, so a Theorell–Chance step
+E(A) + B → E(Q) + P frees B at E(A) and P at E(Q). A reactant and its modifier copy are
+two entries that share a name but bind different sites: the reactant's entry asks where
+the metabolite binds productively, the copy's where it binds its dead-end site. The
+dead-end move targets these forms for competition with the metabolite. Entry 0, which
+`_entry` gives for an entry `m` lacks, is free nowhere.
 """
-function _forms_where_free(m::Union{Mechanism, AllostericMechanism},
-                           role::Type{<:Metabolite}, met_name::Symbol)
-    forms = Set{Species}()
-    for group in steps(m), s in group,
-        (form, mets) in ((from_species(s), consumed(s)), (to_species(s), released(s)))
-        any(x -> x isa role && name(x) == met_name, mets) && push!(forms, form)
+function _forms_where_free(m::Mechanism, entry::Int)
+    free = falses(length(m.forms))
+    entry == 0 && return free
+    for e in m.edges
+        copies(e.consumed, entry) > 0 && (free[e.from] = true)
+        copies(e.released, entry) > 0 && (free[e.to] = true)
     end
-    forms
+    free
 end
 
 """
-The dead-end move's child of `m`: `groups`, `m`'s groups with the new copy's mirrors
-and the copy's group last, on reaction `rxn`; `nothing` when the new copy is redundant
-in it (`_redundant_copy_groups`). `twin` is the `_productive_twin` of `m`'s steps, the
-graph of its only (or active) state, and finds the child's twins there before the child
-exists: the copy's forms are not productive, and its steps attach each complex to its
-site's segment and join no two segments, so every form of `m` keeps its segment and
-offsets. A `Mechanism` candidate takes the `_gauge_rescaling` path on `groups` and is
-built only when kept. Only the new group is tested: `m` holds no redundant copy group
-(the parent rule), and in each of about 218,000 enumerated parents checked, the
-placement made no older copy redundant (an empirical finding, not a proof). An allosteric
-child is built, and runs `_redundant_copy_groups` only when every complex of the copy
-has a twin in the active state (`_all_twin`), which redundancy needs; it tags the copy's
-group `:EqualAI` and keeps `m`'s multiplicity and regulatory sites.
+The dead-end move's raw child of graph `m`: `m` as raw input (`_raw`) with modifier `reg`
+also bound at each form of `sites`, a complex in the site's conformation and residual;
+each edge between two sites mirrored between their complexes, in the edge's own group;
+and one new group, after `m`'s, of the rapid-equilibrium bindings of `reg` at the sites.
+`reg` joins the declared modifiers, and the child's table gains its entry.
 """
-function _dead_end_child(::Mechanism, groups::Vector{Vector{Step}}, rxn::EnzymeReaction,
-                         twin)
-    _gauge_rescaling(groups, length(groups), twin, identity) !== nothing && return nothing
-    Mechanism(rxn, groups)
+function _dead_end_raw(m::Mechanism, reg::Symbol, sites::Vector{Int})
+    raw = _raw(m)
+    inhibitor = Met(reg, true)
+    complex = Dict(f => _raw_form(m, f, inhibitor) for f in sites)
+    steps, group = copy(raw.steps), copy(raw.group)
+    for (k, e) in enumerate(m.edges)
+        haskey(complex, e.from) && haskey(complex, e.to) || continue
+        push!(steps, RawStep(complex[e.from], complex[e.to], raw.steps[k].consumed,
+                             raw.steps[k].released, e.rapid_equilibrium))
+        push!(group, m.group[k])
+    end
+    for f in sites
+        push!(steps, RawStep(_raw_form(m, f), complex[f], [inhibitor], Met[], true))
+        push!(group, ngroups(m) + 1)
+    end
+    RawMechanism(raw.substrates, raw.products, sort!(unique!(push!(raw.modifiers, reg))),
+                 steps, group)
 end
-function _dead_end_child(am::AllostericMechanism, groups::Vector{Vector{Step}},
-                         rxn::EnzymeReaction, twin)
-    child = AllostericMechanism(rxn, groups, vcat(cat_allo_states(am), [:EqualAI]),
-                                catalytic_multiplicity(am), regulatory_sites(am))
-    _all_twin(groups[end], twin) && !isempty(_redundant_copy_groups(child)) ?
-        nothing : child
+
+"""
+The dead-end move's child of `m` that `raw` (`_dead_end_raw`) writes, binding modifier
+`reg` in a new group; `nothing` when the copy is redundant in it (`_redundant_copy_groups`).
+A `Mechanism` candidate is canonicalized (`_canonicalize`) and its new group tested by
+`_gauge_rescaling` on the candidate's own twins (`_productive_twin`), before any check
+runs; it is built through the checked constructor only when kept. The twins are the
+candidate's, not the parent's, though they are the same forms: the complexes are not
+productive, and their edges attach each complex to its site's segment and join no two
+segments, so every form of `m` keeps its segment and offsets; but the complexes sort in
+among `m`'s forms and the copy's table entry moves every later one, so `m`'s form and entry
+indices do not hold in the candidate. Only the new group is tested: `m` holds no redundant
+copy group (the parent rule), and in each of about 218,000 enumerated parents checked, the
+placement made no older copy redundant (an empirical finding, not a proof). An allosteric
+child is built through the checked constructor, its copy's group tagged `:EqualAI`, with
+`m`'s multiplicity and regulatory sites, and runs `_redundant_copy_groups` only when every
+complex of the copy has a twin in the active state (`_all_twin`), which redundancy needs.
+"""
+function _dead_end_child(m::Mechanism, raw::RawMechanism, reg::Symbol)
+    c = _canonicalize(raw)
+    cm = c.mechanism
+    twin = _productive_twin(cm, trues(length(cm.edges)))
+    _gauge_rescaling(cm, _group_members(cm), c.group_of[ngroups(m) + 1], twin,
+                     _one_state_class) === nothing || return nothing
+    Mechanism(raw)
+end
+function _dead_end_child(am::AllostericMechanism, raw::RawMechanism, reg::Symbol)
+    child = AllostericMechanism(RawAllostericMechanism(raw, [am.cat_allo_states; :EqualAI],
+                                                       am.catalytic_multiplicity,
+                                                       _raw_sites(am)))
+    cm = child.catalytic
+    # The copy's own bindings, the only edges that take its entry up.
+    i = _entry(cm, Met(reg, true))
+    bindings = findall(e -> copies(e.consumed, i) > 0, cm.edges)
+    _all_twin(cm, bindings, _productive_twin(cm, trues(length(cm.edges)))) &&
+        !isempty(_redundant_copy_groups(child)) ? nothing : child
 end
 
 """
@@ -1590,55 +1653,55 @@ own, and that site and the reactant's catalytic site are different sites by
 definition. Competition with a substrate or product M targets the forms where
 M is free on a productive step and excludes the forms that hold M productively;
 competition with an existing inhibitor I targets the forms where I binds as a
-`CompetitiveInhibitor` (its binding steps' source forms) and excludes the forms
-that hold I; the capacity test counts productive bindings only. A form that
-carries only the copy of M is therefore a site for an inhibitor that competes
-with M. Mirror steps inherit their catalytic counterpart's `kinetic_group`. All
-new binding steps for a single regulator share one fresh trailing kinetic group
-(one K_R parameter).
+modifier (its binding steps' source forms) and excludes the forms that hold I; the
+capacity test counts productive bindings only. A form that carries only the copy of M
+is therefore a site for an inhibitor that competes with M. Mirror steps inherit their
+catalytic counterpart's kinetic group. All new binding steps for a single regulator
+share one fresh trailing kinetic group (one K_R parameter). Each child is the parent's
+raw input with the copy added (`_dead_end_raw`).
 A pattern is skipped when its child binds the new copy redundantly
 (`_redundant_copy_groups`). A `Mechanism` candidate is tested by `_gauge_rescaling`
 inside `_dead_end_child`, before the child is built; an allosteric child is built and
 tested directly. Ligands of an allosteric mechanism's regulatory sites are not eligible:
 they belong on a regulatory site.
 
-The caller must pass the declared `rxn`: its regulators, not those of `m`'s reaction,
-decide which inhibitors are eligible. The child's reaction is `rxn` itself.
+The caller must pass the declared `rxn`: its regulators decide which inhibitors are
+eligible.
 """
 function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism},
                                         rxn::EnzymeReaction)
+    cm = catalytic(m)
     sub_names = Set(name(s) for s in substrates(rxn))
     prod_names = Set(name(p) for p in products(rxn))
-    parent = steps(m)
-    bound_regs = Set{Symbol}(name(bm) for group in parent for s in group
-                             for bm in consumed(s) if bm isa Regulator)
+    modifiers = _modifier_mask(cm)
+    # The names bound as modifiers, read group by group in edge order.
+    bound_regs = Set{Symbol}(cm.table[i].name for k in _flat_edges(cm)
+                             for i in entries(cm.edges[k].consumed & modifiers))
     excluded = union(bound_regs, _bound_allo_regs(m))
     eligible_regs = [name(regulator(rm)) for rm in regulators(rxn)
                      if regulator(rm) isa CompetitiveInhibitor &&
                         name(regulator(rm)) ∉ excluded]
     isempty(eligible_regs) && return typeof(m)[]
 
-    # Per form, the names bound productively and the names bound as competitive
-    # inhibitors: a reactant's copy sits at a dead-end site, not at its reactant's.
-    forms = _forms(parent)
-    productive = Dict(f => Set(name(b) for b in bound(f) if b isa Reactant) for f in forms)
-    inhibiting = Dict(f => Set(name(b) for b in bound(f) if b isa CompetitiveInhibitor)
-                      for f in forms)
+    # Per form, the names bound productively and the names bound as modifiers: a
+    # reactant's copy sits at a dead-end site, not at its reactant's.
+    names(c::Counts) = Set(cm.table[i].name for i in entries(c))
+    productive = [names(f.bound & ~modifiers) for f in cm.forms]
+    inhibiting = [names(f.bound & modifiers) for f in cm.forms]
 
-    # The sites of each competition pattern in the canonical form order, once each in
-    # pattern order.
-    placements = Vector{Species}[]
+    # The sites of each competition pattern in form order, once each in pattern order.
+    placements = Vector{Int}[]
     for (comp_subs, comp_prods, comp_inhibitors) in
             _inhibitor_competition_patterns(sub_names, prod_names, collect(bound_regs))
         comp_reactants = union(comp_subs, comp_prods)
-        target_forms = Set{Species}()
+        target_forms = falses(length(cm.forms))
         for met in comp_reactants
-            union!(target_forms, _forms_where_free(m, Reactant, met))
+            target_forms .|= _forms_where_free(cm, _entry(cm, Met(met, false)))
         end
         for inh in comp_inhibitors
-            union!(target_forms, _forms_where_free(m, CompetitiveInhibitor, inh))
+            target_forms .|= _forms_where_free(cm, _entry(cm, Met(inh, true)))
         end
-        push!(placements, [f for f in sort!(collect(target_forms); by = _form_index_key)
+        push!(placements, [f for f in findall(target_forms)
                            if !issubset(sub_names, productive[f]) &&
                               !issubset(prod_names, productive[f]) &&
                               isempty(intersect(productive[f], comp_reactants)) &&
@@ -1647,21 +1710,8 @@ function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism}
     unique!(filter!(!isempty, placements))
 
     results = typeof(m)[]
-    twin = _productive_twin(parent)
-    for reg_name in eligible_regs, active in placements
-        inhibitor = CompetitiveInhibitor(reg_name)
-        # The complex the copy forms at each site, in the site's conformation and residual.
-        complex = Dict(f => Species(Metabolite[bound(f)..., inhibitor], conformation(f),
-                                    residual(f))
-                       for f in active)
-        mirrored(s) = haskey(complex, from_species(s)) && haskey(complex, to_species(s))
-        groups = [Step[group; [Step(complex[from_species(s)], complex[to_species(s)],
-                                    consumed(s), released(s), is_equilibrium(s))
-                               for s in group if mirrored(s)]]
-                  for group in parent]
-        push!(groups, [Step(f, complex[f], Metabolite[inhibitor], Metabolite[], true)
-                       for f in active])
-        child = _dead_end_child(m, groups, rxn, twin)
+    for reg in eligible_regs, sites in placements
+        child = _dead_end_child(m, _dead_end_raw(cm, reg, sites), reg)
         child === nothing || push!(results, child)
     end
     results

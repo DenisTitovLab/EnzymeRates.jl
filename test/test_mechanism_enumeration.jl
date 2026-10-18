@@ -30,9 +30,11 @@ _testhelper_form_names(t::Vector{EnzymeRates.Step}) = Set{Symbol}(
     for s in t for sp in (EnzymeRates.from_species(s),
                           EnzymeRates.to_species(s)))
 
-# The labels of the forms `forms` of mechanism `m`, as constant names write them
-# (`_form_label`).
-_testhelper_form_labels(m, forms) = Set(EnzymeRates._form_label(f, m) for f in forms)
+# The names (`_form_name`) of the forms of graph `m` where the entry of `name` (a modifier
+# entry when `modifier` holds) is free on some edge (`_forms_where_free`).
+_testhelper_free_at(m, name, modifier = false) =
+    Set(EnzymeRates._form_name(m, f) for f in findall(EnzymeRates._forms_where_free(
+        m, EnzymeRates._entry(m, EnzymeRates.Met(name, modifier)))))
 
 # Flat topology (Vector{Step}) from a compiled mechanism, matching the
 # shape _catalytic_topologies now returns (each step its own kinetic group).
@@ -756,10 +758,8 @@ m_uu = @enzyme_mechanism begin
     end
 end
 mech_uu = EnzymeRates.Mechanism(m_uu)
-@test _testhelper_form_labels(mech_uu, EnzymeRates._forms_where_free(
-    mech_uu, EnzymeRates.Reactant, :S)) == Set(["E"])
-@test _testhelper_form_labels(mech_uu, EnzymeRates._forms_where_free(
-    mech_uu, EnzymeRates.Reactant, :P)) == Set(["E"])
+@test _testhelper_free_at(mech_uu, :S) == Set(["E"])
+@test _testhelper_free_at(mech_uu, :P) == Set(["E"])
 
 # Bi-bi random: B binds to E and E_A
 m_bb = @enzyme_mechanism begin
@@ -778,14 +778,10 @@ m_bb = @enzyme_mechanism begin
     end
 end
 mech_bb = EnzymeRates.Mechanism(m_bb)
-@test _testhelper_form_labels(mech_bb, EnzymeRates._forms_where_free(
-    mech_bb, EnzymeRates.Reactant, :B)) == Set(["E", "EA"])
-@test _testhelper_form_labels(mech_bb, EnzymeRates._forms_where_free(
-    mech_bb, EnzymeRates.Reactant, :A)) == Set(["E", "EB"])
-@test _testhelper_form_labels(mech_bb, EnzymeRates._forms_where_free(
-    mech_bb, EnzymeRates.Reactant, :P)) == Set(["E", "EQ"])
-@test _testhelper_form_labels(mech_bb, EnzymeRates._forms_where_free(
-    mech_bb, EnzymeRates.Reactant, :Q)) == Set(["E", "EP"])
+@test _testhelper_free_at(mech_bb, :B) == Set(["E", "EA"])
+@test _testhelper_free_at(mech_bb, :A) == Set(["E", "EB"])
+@test _testhelper_free_at(mech_bb, :P) == Set(["E", "EQ"])
+@test _testhelper_free_at(mech_bb, :Q) == Set(["E", "EP"])
 end
 
 @testset "a copy binds at its own sites, apart from its reactant's" begin
@@ -804,14 +800,10 @@ end
             (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
         end
     end)
-    @test _testhelper_form_labels(m, EnzymeRates._forms_where_free(
-        m, EnzymeRates.Reactant, :A)) == Set(["E"])
-    @test _testhelper_form_labels(m, EnzymeRates._forms_where_free(
-        m, EnzymeRates.CompetitiveInhibitor, :A)) == Set(["E", "EQ"])
-    @test _testhelper_form_labels(m, EnzymeRates._forms_where_free(
-        m, EnzymeRates.Reactant, :Q)) == Set(["E", "EAmod"])
-    @test isempty(EnzymeRates._forms_where_free(
-        m, EnzymeRates.CompetitiveInhibitor, :Q))
+    @test _testhelper_free_at(m, :A) == Set(["E"])
+    @test _testhelper_free_at(m, :A, true) == Set(["E", "EQ"])
+    @test _testhelper_free_at(m, :Q) == Set(["E", "EAmod"])
+    @test isempty(_testhelper_free_at(m, :Q, true))
 end
 
 @testset "a Theorell–Chance step frees B at E(A) and P at E(Q)" begin
@@ -826,14 +818,10 @@ end
             E + Q <--> E(Q)
         end
     end)
-    @test _testhelper_form_labels(m, EnzymeRates._forms_where_free(
-        m, EnzymeRates.Reactant, :A)) == Set(["E"])
-    @test _testhelper_form_labels(m, EnzymeRates._forms_where_free(
-        m, EnzymeRates.Reactant, :B)) == Set(["EA"])
-    @test _testhelper_form_labels(m, EnzymeRates._forms_where_free(
-        m, EnzymeRates.Reactant, :P)) == Set(["EQ"])
-    @test _testhelper_form_labels(m, EnzymeRates._forms_where_free(
-        m, EnzymeRates.Reactant, :Q)) == Set(["E"])
+    @test _testhelper_free_at(m, :A) == Set(["E"])
+    @test _testhelper_free_at(m, :B) == Set(["EA"])
+    @test _testhelper_free_at(m, :P) == Set(["EQ"])
+    @test _testhelper_free_at(m, :Q) == Set(["E"])
 end
 end
 
@@ -3622,6 +3610,93 @@ end
     for k in kids
         @test _testhelper_fitted(k) == _testhelper_identifiable_rank(k) == 6
     end
+end
+
+@testset "Mechanism — a copy whose table entry sorts before the other reactants'" begin
+    # A as its own competitive inhibitor: the copy's entry A::Mod sorts right after A,
+    # before B, P and Q, and its complexes sort in among the parent's forms, so every
+    # later entry and form of the parent moves in the child. The copy rule reads each
+    # candidate's own twins: A::Mod at E alone duplicates E(A) and is dropped; at E(Q),
+    # with E + Q mirrored onto E(A::Mod), and at E(A) and E(Q) it is new.
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        competitive_inhibitors: A
+    end
+    parent = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    kids = EnzymeRates._expand_add_dead_end_regulator(parent, rxn)
+    expected = EnzymeRates.Mechanism.([
+        @enzyme_mechanism(begin
+            substrates: A, B
+            products: P, Q
+            modifiers: A
+            steps: begin
+                E + A ⇌ E(A)
+                (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+                (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(Q) + P ⇌ E(P, Q)
+            end
+        end),
+        @enzyme_mechanism(begin
+            substrates: A, B
+            products: P, Q
+            modifiers: A
+            steps: begin
+                E + A ⇌ E(A)
+                E + Q ⇌ E(Q)
+                (E(A) + A::Mod ⇌ E(A, A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(Q) + P ⇌ E(P, Q)
+            end
+        end),
+        @enzyme_mechanism(begin
+            substrates: A, B
+            products: P, Q
+            modifiers: A
+            steps: begin
+                (E + A ⇌ E(A), E(A::Mod) + A ⇌ E(A, A::Mod))
+                (E + A::Mod ⇌ E(A::Mod), E(A) + A::Mod ⇌ E(A, A::Mod))
+                E + Q ⇌ E(Q)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(Q) + P ⇌ E(P, Q)
+            end
+        end)])
+    @test length(kids) == 3
+    @test Set(kids) == Set(expected)
+    # The dropped copy: E(A::Mod) at E alone, whose twin E(A) the A binding forms.
+    dropped = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        modifiers: A
+        steps: begin
+            E + A ⇌ E(A)
+            E + A::Mod ⇌ E(A::Mod)
+            E + Q ⇌ E(Q)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+        end
+    end)
+    @test EnzymeRates._redundant_copy_groups(dropped) ==
+          [dropped.group[_testhelper_edge(dropped, "E + A ⇌ EAmod")]]
+    # The copy's entry moves those of B, P and Q: the child's table is not the parent's
+    # with an entry appended.
+    @test [x.name for x in parent.table] == [:A, :B, :P, :Q]
+    @test all(k -> [x.name for x in k.table] == [:A, :A, :B, :P, :Q], kids)
 end
 
 @testset "Mechanism — Two regulators chain: J added after I preserves I" begin
@@ -8211,10 +8286,12 @@ end
 
 @testset "_productive_twin" begin
     ER = EnzymeRates
-    # The form named `nm` among the ends of `m`'s steps.
-    _testhelper_form_called(m, nm) = only(unique(sp for g in ER.steps(m) for s in g
-        for sp in (ER.from_species(s), ER.to_species(s)) if ER._form_label(sp, m) == "$nm"))
-    Ainh, Binh, Sinh, Qinh, I = ER.CompetitiveInhibitor.((:A, :B, :S, :Q, :I))
+    # The form of graph `m` whose name (`_form_name`) is `nm`.
+    _testhelper_form_called(m, nm) =
+        only(f for f in eachindex(m.forms) if ER._form_name(m, f) == "$nm")
+    # Each mechanism's twins over its whole graph; a twin is asked for a modifier copy
+    # by its name, and 0 means none.
+    _testhelper_twin(m) = ER._productive_twin(m, trues(length(m.edges)))
 
     # Ordered bi-bi. A copy of A at E has the composition of E(A), its twin; at E(Q)
     # it is new; a copy of B at E is new; a foreign inhibitor is never a twin.
@@ -8229,13 +8306,13 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    twin = ER._productive_twin(ER.steps(ordered))
-    @test twin(_testhelper_form_called(ordered, :E), Ainh) ==
+    twin = _testhelper_twin(ordered)
+    @test twin(_testhelper_form_called(ordered, :E), :A) ==
           _testhelper_form_called(ordered, :EA)
-    @test twin(_testhelper_form_called(ordered, :EQ), Ainh) === nothing
-    @test twin(_testhelper_form_called(ordered, :E), Binh) === nothing
-    @test twin(_testhelper_form_called(ordered, :E), I) === nothing &&
-          twin(_testhelper_form_called(ordered, :EQ), I) === nothing
+    @test twin(_testhelper_form_called(ordered, :EQ), :A) == 0
+    @test twin(_testhelper_form_called(ordered, :E), :B) == 0
+    @test twin(_testhelper_form_called(ordered, :E), :I) == 0 &&
+          twin(_testhelper_form_called(ordered, :EQ), :I) == 0
 
     # With the abortive complex E(A, Q) present, the copy at E(Q) is a twin too.
     abortive = ER.Mechanism(@enzyme_mechanism begin
@@ -8249,8 +8326,7 @@ end
             (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
         end
     end)
-    @test ER._productive_twin(ER.steps(abortive))(
-              _testhelper_form_called(abortive, :EQ), Ainh) ==
+    @test _testhelper_twin(abortive)(_testhelper_form_called(abortive, :EQ), :A) ==
           _testhelper_form_called(abortive, :EAQ)
 
     # A copy whose complex already exists is judged against the productive forms only.
@@ -8267,10 +8343,10 @@ end
             (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
         end
     end)
-    twin_c = ER._productive_twin(ER.steps(with_copy))
-    @test twin_c(_testhelper_form_called(with_copy, :E), Ainh) ==
+    twin_c = _testhelper_twin(with_copy)
+    @test twin_c(_testhelper_form_called(with_copy, :E), :A) ==
           _testhelper_form_called(with_copy, :EA)
-    @test twin_c(_testhelper_form_called(with_copy, :EQ), Ainh) === nothing
+    @test twin_c(_testhelper_form_called(with_copy, :EQ), :A) == 0
 
     # The offsets key. E ⇌ E* is a rapid-equilibrium isomerization, so E and E*
     # have equal offsets; a copy of S at E has a composition no form has, yet its
@@ -8286,17 +8362,15 @@ end
             E + P ⇌ E(P)
         end
     end)
-    estar_s = only(ER.to_species(s) for g in ER.steps(iso) for s in g
-                   if ER.bound_metabolite(s) !== nothing &&
-                      ER.name(ER.bound_metabolite(s)) == :S)
-    @test ER._productive_twin(ER.steps(iso))(_testhelper_form_called(iso, :E), Sinh) ==
-          estar_s
+    estar_s = _testhelper_form_called(iso, :EstarS)
+    @test _testhelper_twin(iso)(_testhelper_form_called(iso, :E), :S) == estar_s
     # Twins are found by offsets; composition only breaks a tie between forms with the
     # complex's offsets. This twin differs from the complex in conformation or residual,
     # so no form has the complex's composition.
-    @test (ER.conformation(estar_s), ER.residual(estar_s)) !=
-          (ER.conformation(_testhelper_form_called(iso, :E)),
-           ER.residual(_testhelper_form_called(iso, :E)))
+    _testhelper_label_residual(f) = (iso.forms[f].conformation, iso.forms[f].added,
+                                     iso.forms[f].subtracted)
+    @test _testhelper_label_residual(estar_s) !=
+          _testhelper_label_residual(_testhelper_form_called(iso, :E))
     iso_ss = ER.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
@@ -8307,13 +8381,12 @@ end
             E + P ⇌ E(P)
         end
     end)
-    @test ER._productive_twin(ER.steps(iso_ss))(_testhelper_form_called(iso_ss, :E),
-                                                Sinh) === nothing
+    @test _testhelper_twin(iso_ss)(_testhelper_form_called(iso_ss, :E), :S) == 0
 
     # Several forms can tie as twins. E ⇌ F and E ⇌ F2 put F(S) and F2(S) at the
     # offsets of a copy of S at E, and no form holds the copy's composition, S at E.
-    # The twin is then the first of them in the canonical form order, F(S), though its
-    # internal name, FS, sorts after F2S.
+    # The twin is then the first of them in form order, F(S), though its name, FS, sorts
+    # after F2S.
     tied = ER.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
@@ -8326,7 +8399,7 @@ end
             E + P ⇌ E(P)
         end
     end)
-    @test ER._productive_twin(ER.steps(tied))(_testhelper_form_called(tied, :E), Sinh) ==
+    @test _testhelper_twin(tied)(_testhelper_form_called(tied, :E), :S) ==
           _testhelper_form_called(tied, :FS)
 
     # A form of the complex's composition outside the site's segment is no twin. With
@@ -8344,8 +8417,7 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    @test ER._productive_twin(ER.steps(ss_bound))(_testhelper_form_called(ss_bound, :E),
-                                                  Ainh) === nothing
+    @test _testhelper_twin(ss_bound)(_testhelper_form_called(ss_bound, :E), :A) == 0
 
     # Ping-pong with the second chemistry step at rapid equilibrium, an abortive
     # E(B, P; residual) and a copy of P at E. A copy of Q at E(P::Mod) has the new
@@ -8367,19 +8439,10 @@ end
             E + P::Mod ⇌ E(P::Mod)
         end
     end)
-    copy_form = only(ER.to_species(s) for g in ER.steps(pp) for s in g
-                     if ER.bound_metabolite(s) isa ER.CompetitiveInhibitor)
-    free_res = only(ER.from_species(s) for g in ER.steps(pp) for s in g
-                    if ER.bound_metabolite(s) !== nothing &&
-                       ER.name(ER.bound_metabolite(s)) == :B)
-    abortive_res = only(ER.to_species(s) for g in ER.steps(pp) for s in g
-                        if ER.bound_metabolite(s) !== nothing &&
-                           ER.name(ER.bound_metabolite(s)) == :P &&
-                           ER.has_residual(ER.to_species(s)) &&
-                           length(ER.bound(ER.to_species(s))) == 2)
-    twin_pp = ER._productive_twin(ER.steps(pp))
-    @test twin_pp(copy_form, Qinh) == abortive_res
-    @test twin_pp(free_res, Qinh) === nothing
+    twin_pp = _testhelper_twin(pp)
+    @test twin_pp(_testhelper_form_called(pp, :EPmod), :Q) ==
+          _testhelper_form_called(pp, :EBP_res_plusA_minusP)
+    @test twin_pp(_testhelper_form_called(pp, :E_res_plusA_minusP), :Q) == 0
 
     # Groups that bind a copy redundantly: only at twin sites, with a consistent gauge.
     @test isempty(ER._redundant_copy_groups(with_copy))
@@ -8402,11 +8465,11 @@ end
             (E(A) + A::Mod ⇌ E(A, A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
         end
     end)
-    twin_two = ER._productive_twin(ER.steps(two_copies))
-    @test twin_two(_testhelper_form_called(two_copies, :EA), Qinh) === nothing
-    @test twin_two(_testhelper_form_called(two_copies, :E), Qinh) ==
+    twin_two = _testhelper_twin(two_copies)
+    @test twin_two(_testhelper_form_called(two_copies, :EA), :Q) == 0
+    @test twin_two(_testhelper_form_called(two_copies, :E), :Q) ==
           _testhelper_form_called(two_copies, :EQ)
-    @test twin_two(_testhelper_form_called(two_copies, :EQ), Ainh) === nothing
+    @test twin_two(_testhelper_form_called(two_copies, :EQ), :A) == 0
     @test isempty(ER._redundant_copy_groups(two_copies))
 
     # Conformational states. A copy binds the active state always and the inactive state
@@ -8516,9 +8579,15 @@ end
     # holds all its complexes at one factor, and a complex's weight moves opposite to
     # its twin's, so no complex takes its twin's factor.
     ER = EnzymeRates
-    _testhelper_copy_group(m) = only(g for (g, grp) in enumerate(ER.steps(m))
-                                     if ER.bound_metabolite(first(grp)) isa
-                                        ER.CompetitiveInhibitor)
+    # The kinetic groups of graph `m` whose bindings take up the entry `x`.
+    _testhelper_groups_binding_entry(m, x) =
+        unique(m.group[k] for (k, e) in enumerate(m.edges)
+               if ER._bound_entry(e) == ER._entry(m, x))
+    # The one group of `m` that binds a modifier copy.
+    _testhelper_copy_group(m) = only(unique(m.group[k] for (k, e) in enumerate(m.edges)
+                                            if ER._bound_entry(e) != 0 &&
+                                               m.table[ER._bound_entry(e)].modifier))
+    _testhelper_twin(m) = ER._productive_twin(m, trues(length(m.edges)))
 
     # B1: ordered bi-bi with A* at E. The twin E(A) is formed
     # by E + A ⇌ E(A), alone in its group, so the A group's ratio is 1/ρ, the B group's
@@ -8558,7 +8627,7 @@ end
         end
     end)
     g3 = _testhelper_copy_group(case3)
-    @test ER._all_twin(ER.steps(case3)[g3], ER._productive_twin(ER.steps(case3)))
+    @test ER._all_twin(case3, ER._group_members(case3)[g3], _testhelper_twin(case3))
     @test isempty(ER._redundant_copy_groups(case3))
     @test _testhelper_fitted(case3) == 6 && _testhelper_identifiable_rank(case3) == 6
 
@@ -8603,7 +8672,7 @@ end
         end
     end)
     gh = _testhelper_copy_group(h1)
-    @test ER._all_twin(ER.steps(h1)[gh], ER._productive_twin(ER.steps(h1)))
+    @test ER._all_twin(h1, ER._group_members(h1)[gh], _testhelper_twin(h1))
     @test isempty(ER._redundant_copy_groups(h1))
     @test _testhelper_fitted(h1) == 7 && _testhelper_identifiable_rank(h1) == 7
 
@@ -8736,9 +8805,8 @@ end
              E(A::Mod, Q) + P::Mod ⇌ E(A::Mod, P::Mod, Q))
         end
     end)
-    a_group = only(g for (g, grp) in enumerate(ER.steps(p_at_complexes))
-                   if ER.bound_metabolite(first(grp)) == ER.CompetitiveInhibitor(:A))
-    @test ER._redundant_copy_groups(p_at_complexes) == [a_group]
+    @test ER._redundant_copy_groups(p_at_complexes) ==
+          _testhelper_groups_binding_entry(p_at_complexes, ER.Met(:A, true))
     @test _testhelper_fitted(p_at_complexes) == 8 &&
           _testhelper_identifiable_rank(p_at_complexes) == 7
 
@@ -8784,17 +8852,17 @@ end
             E + P <--> E(P)
         end
     end)
+    members = ER._group_members(fused_re)
     copy_g = _testhelper_copy_group(fused_re)
-    fused_g = only(k for (k, grp) in enumerate(ER.steps(fused_re))
-                   if ER._is_chemistry(first(grp)))
-    p_g = only(setdiff(eachindex(ER.steps(fused_re)), (copy_g, fused_g)))
-    copy_step = only(ER.steps(fused_re)[copy_g])
-    twin = ER._productive_twin(ER.steps(fused_re))
-    @test twin(ER.from_species(copy_step), ER.bound_metabolite(copy_step)) ==
-        ER.to_species(only(ER.steps(fused_re)[fused_g]))
-    @test ER._gauge_rescaling(ER.steps(fused_re), copy_g, twin, identity) ==
-        Dict(copy_g => (nothing, copy_g), fused_g => (nothing, fused_g),
-             p_g => (nothing, fused_g))
+    fused_k = _testhelper_edge(fused_re, "E + A ⇌ EP")
+    fused_g, p_g = fused_re.group[fused_k], fused_re.group[_testhelper_edge(fused_re,
+                                                                            "E + P <--> EP")]
+    twin = _testhelper_twin(fused_re)
+    @test twin(fused_re.edges[only(members[copy_g])].from, :A) == fused_re.edges[fused_k].to
+    C(g) = ER._GaugeClass(g, 0, 1)
+    @test ER._gauge_rescaling(fused_re, members, copy_g, twin, ER._one_state_class) ==
+        Dict(copy_g => (ER._NO_RESCALING, C(copy_g)), fused_g => (ER._NO_RESCALING,
+             C(fused_g)), p_g => (ER._NO_RESCALING, C(fused_g)))
     @test ER._redundant_copy_groups(fused_re) == [copy_g]
     @test _testhelper_fitted(fused_re) == 3 && _testhelper_identifiable_rank(fused_re) == 2
     @test _testhelper_fitted(fused_parent) ==
@@ -8838,9 +8906,8 @@ end
         end
     end)
     @test isempty(ER._redundant_copy_groups(pp))
-    q_group = only(g for (g, grp) in enumerate(ER.steps(pp_q))
-                   if ER.bound_metabolite(first(grp)) == ER.CompetitiveInhibitor(:Q))
-    @test ER._redundant_copy_groups(pp_q) == [q_group]
+    @test ER._redundant_copy_groups(pp_q) ==
+          _testhelper_groups_binding_entry(pp_q, ER.Met(:Q, true))
     @test _testhelper_fitted(pp) == 8 && _testhelper_identifiable_rank(pp) == 7
     @test _testhelper_fitted(pp_q) == 9 && _testhelper_identifiable_rank(pp_q) == 7
 
@@ -8883,15 +8950,7 @@ end
     # asks K_B·ρ_A, the inactive K_B·ρ_I. Each state alone has a gauge; the two together
     # have none, and the copy adds an identifiable constant (rank one above the
     # mechanism without it).
-    rxn2 = @enzyme_reaction begin
-        substrates: A[C], B[N]
-        products: P[C], Q[N]
-        competitive_inhibitors: A
-        oligomeric_state: 2
-    end
-    _testhelper_lift2(em) = ER.AllostericMechanism(rxn2, ER.steps(em),
-        ER.cat_allo_states(em), 2, ER.RegulatorySite[])
-    tied = _testhelper_lift2(ER.AllostericMechanism(@allosteric_mechanism begin
+    tied = ER.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A
@@ -8904,8 +8963,8 @@ end
             E + Q ⇌ E(Q)                :: EqualAI
             E + A::Mod ⇌ E(A::Mod)      :: EqualAI
         end
-    end))
-    tied_parent = _testhelper_lift2(ER.AllostericMechanism(@allosteric_mechanism begin
+    end)
+    tied_parent = ER.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B
         products: P, Q
         catalytic_multiplicity: 2
@@ -8916,10 +8975,44 @@ end
             E(Q) + P ⇌ E(P, Q)          :: EqualAI
             E + Q ⇌ E(Q)                :: EqualAI
         end
-    end))
+    end)
     @test isempty(ER._redundant_copy_groups(tied))
     @test _testhelper_identifiable_rank(tied) ==
         _testhelper_identifiable_rank(tied_parent) + 1
+end
+
+@testset "_gauge_rescaling: group 2 and form 2 are two classes" begin
+    # A::Mod binds E and Estar, which E ⇌ Estar keeps at one weight ratio, so both
+    # complexes have the twin E(A), form 2, in a class of its own; the copy's group is
+    # group 2. P::Mod binds the complex E(A::Mod) and the twin E(A) in one group, which
+    # then needs the complexes' factor at one step and the twin's at the other: the
+    # A::Mod gauge fails. A class keyed by one index would make group 2 and form 2 one
+    # number, that group would rescale alike, and the gauge would hold.
+    ER = EnzymeRates
+    m = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A
+        products: P
+        modifiers: A, P
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P)
+            E + P ⇌ E(P)
+            E ⇌ Estar
+            (E + A::Mod ⇌ E(A::Mod), Estar + A::Mod ⇌ Estar(A::Mod))
+            (E(A::Mod) + P::Mod ⇌ E(A::Mod, P::Mod), E(A) + P::Mod ⇌ E(A, P::Mod))
+        end
+    end)
+    members = ER._group_members(m)
+    copy_g = m.group[_testhelper_edge(m, "E + A ⇌ EAmod")]
+    twin = ER._productive_twin(m, trues(length(m.edges)))
+    @test copy_g == 2
+    @test ER._form_name(m, 2) == "EA"
+    @test [twin(m.edges[k].from, :A) for k in members[copy_g]] == [2, 2]
+    @test ER._GaugeClass(2, 0, 1) != ER._GaugeClass(0, 2, 1)
+    @test ER._gauge_rescaling(m, members, copy_g, twin, ER._one_state_class) === nothing
+    @test ER._gauge_rescaling(m, members, copy_g, twin,
+                              (h, t) -> ER._GaugeClass(h + t, 0, 1)) !== nothing
+    @test isempty(ER._redundant_copy_groups(m))
 end
 
 @testset "_hyperbolic_catalysis" begin
