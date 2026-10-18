@@ -1008,6 +1008,32 @@ end
     @test all(_testhelper_agrees.(faults, verdicts))
     @test all(v -> _testhelper_names_its_step(mixed, v),
               _testhelper_face_verdicts(mixed)[4:6])
+    # At zero I and S the slow reverse catalysis fills E(S), and the rapid-equilibrium
+    # binding of I that joins it to free E's segment takes up I.
+    v = _testhelper_face_verdicts(mixed)[6]
+    @test (v.fault, v.limit, v.conformation, v.edge) ==
+          (EnzymeRates._TRAP, EnzymeRates._LIMIT_DIFFER, 1,
+           _testhelper_edge(mixed, "ES + I ⇌ EIS"))
+    @test EnzymeRates._guard_message(mixed, v) ==
+          "Mechanism: at zero I and S, the forms {E(S)} hold enzyme, but the " *
+          "rapid-equilibrium step E(S) + I ⇌ E(I, S) that joins them to the rest of " *
+          "their segment takes up a zeroed metabolite, so the rate law misweights them. " *
+          "Make that step's kinetic group steady-state."
+    # The fix: the binding of I steady-state.
+    mixed_fixed = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E + P
+            (E + I <--> E(I), E(S) + I <--> E(I, S))
+            E(I) + S ⇌ E(I, S)
+        end
+    end
+    @test EnzymeRates._guard(mixed_fixed) === EnzymeRates._WELL_POSED
+    @test all(==(:agree),
+              _testhelper_respeed_verdicts(mixed_fixed; rng = Random.MersenneTwister(32)))
 end
 
 @testset "the limit test draws one verdict for every writing of a mechanism" begin

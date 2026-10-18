@@ -673,13 +673,14 @@ _exits(net::_Network, s, C::Vector{Int}) =
                 net.edge[t] != 0])
 
 """
-The trap class 3 found fed on a face (stage `_TRAP`) and the rapid-equilibrium edge that
-feeds it, as `(trap, edge)`, the trap an index into
+The trap class 3 found on a face (stage `_TRAP`) and the rapid-equilibrium edge that feeds
+it or joins it to its segment, as `(trap, edge, joined)`, the trap an index into
 `s.fast_classes`. For an alive slow transition out of a class of the aggregated chain's
 closed class, the edge is the last fast transition of an alive fast path from its target
-into a trap of that class; when the slow transition lands in the trap, or no transition
-feeds one (the closed class is a trap alone), it is the rapid-equilibrium edge that joins
-the trap to the rest of its segment, whose way out takes up a zeroed name.
+into a trap of that class (`joined` false); when the slow transition lands in the trap, or
+no transition feeds one (the closed class is a trap alone), it is the rapid-equilibrium
+edge that joins the trap to the rest of its segment, whose way out takes up a zeroed name
+(`joined` true).
 """
 function _trap_feeder(net::_Network, s)
     nn = net.nforms * net.ncopies
@@ -689,9 +690,9 @@ function _trap_feeder(net::_Network, s)
     function joining(q)
         for t in eachindex(net.from)
             net.fast[t] && s.class_of[net.from[t]] == q && s.class_of[net.to[t]] != q &&
-                return (q, net.edge[t])
+                return (q, net.edge[t], true)
         end
-        (q, 0)
+        (q, 0, true)
     end
     fast_out = [Int[] for _ in 1:nn]
     for t in eachindex(net.from)
@@ -711,7 +712,7 @@ function _trap_feeder(net::_Network, s)
             for t2 in fast_out[x]
                 y = net.to[t2]
                 fed = trap_of(y)
-                fed > 0 && s.class_of[x] != fed && return (fed, net.edge[t2])
+                fed > 0 && s.class_of[x] != fed && return (fed, net.edge[t2], false)
                 seen[y] || (seen[y] = true; push!(todo, y))
             end
         end
@@ -1481,7 +1482,12 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
                "metabolites, so the rate is 0/0 there. Make one of the segment's binding " *
                "steps steady-state."
     elseif v.fault === _TRAP
-        trap, edge = _trap_feeder(net, s)
+        trap, edge, joined = _trap_feeder(net, s)
+        joined &&
+            return "$who: $at, the forms $(forms(s.fast_classes[trap])) hold enzyme, but " *
+                   "the rapid-equilibrium step $(_step_text(m, edge)) that joins them to " *
+                   "the rest of their segment takes up a zeroed metabolite, so the rate " *
+                   "law misweights them. Make that step's kinetic group steady-state."
         return "$who: $at, the rapid-equilibrium step $(_step_text(m, edge)) fills the " *
                "forms $(forms(s.fast_classes[trap])), which no rapid-equilibrium step " *
                "running there empties, so the rate law misweights them. Make that " *
