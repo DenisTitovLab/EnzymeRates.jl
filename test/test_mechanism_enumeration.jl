@@ -6211,7 +6211,7 @@ end
 @testset "AllostericMechanism — dual-role name gains an allosteric site" begin
     # A reaction may declare one name (ATP) in BOTH roles. Starting from an
     # allosteric mechanism that already binds ATP as a competitive dead-end
-    # inhibitor, `_expand_add_allosteric_regulator` now also adds ATP at a
+    # inhibitor, `_expand_add_allosteric_regulator` also adds ATP at a
     # regulatory site — the two roles carry distinct parameter names.
     rxn = @enzyme_reaction begin
         substrates: S[C]
@@ -6236,7 +6236,7 @@ end
                    only(s.consumed_modifier), _testhelper_graph(am).steps)
 
     result = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
-    # ATP is now reachable at a regulatory site despite its dead-end role: one site of
+    # ATP reaches a regulatory site despite its dead-end role: one site of
     # multiplicity 1 per tag the site can carry.
     expected = [EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
                     substrates: S
@@ -8002,7 +8002,7 @@ end
 
 @testset "Merge move wired for two-site allosteric; no-op for Mechanism" begin
     # A two-regulatory-site AllostericMechanism: A::Activator on one site,
-    # I::Inhibitor on the other. expand_mechanisms must now yield the Δ0
+    # I::Inhibitor on the other. expand_mechanisms yields the Δ0
     # one-site merged children (both ligands sharing a single site).
     merge_rxn = @enzyme_reaction begin
         substrates: S[C]
