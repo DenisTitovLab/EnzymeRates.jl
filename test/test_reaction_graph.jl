@@ -1177,10 +1177,10 @@ let population = _testhelper_census_population(),
                   [["# $(spec.name)";
                     _testhelper_canonical_text(_testhelper_build(spec.raw))]
                    for spec in MECHANISM_TEST_SPECS])
-    fixture = joinpath(@__DIR__, "fixtures", "phase3_canonical_golden.txt")
+    fixture = joinpath(@__DIR__, "fixtures", "canonical_text_golden.txt")
     if !isfile(fixture)
         mkpath(dirname(fixture)); write(fixture, join(text, "\n") * "\n")
-        @warn "bootstrapped phase3 canonical golden fixture; commit it" fixture
+        @warn "bootstrapped canonical text golden fixture; commit it" fixture
     end
     @test text == readlines(fixture)
     # Free E comes first, also where another label sorts before E.
