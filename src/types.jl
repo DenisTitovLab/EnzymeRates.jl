@@ -167,8 +167,8 @@ const _KEYWORDS = (:baremodule, :begin, :break, :catch, :const, :continue, :do, 
 Error when a metabolite name of `names` is no name a DSL text can write (an identifier
 that is no keyword, in the form Julia reads it), is `E`, the label of the free enzyme
 form, is reserved (`_RESERVED_NAMES`) or holds `_`: constant names join form and
-metabolite names with `_`, so a metabolite name holds none and no constant takes
-another's name. Julia's parser normalizes an identifier (NFC, and
+metabolite names with `_`, so a metabolite name holds none.
+Julia's parser normalizes an identifier (NFC, and
 `Unicode.julia_chartransform`: a micro sign reads as `μ`), so a name in another form would
 print as text that reads as another name. `who` names the constructor that checks.
 """

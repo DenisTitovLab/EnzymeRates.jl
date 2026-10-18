@@ -1908,7 +1908,8 @@ end
 # and k_I_… for the inactive one. A conformation labelled A or I would render the same
 # letter at the start of a step side, so an :EqualAI step could take a :NonequalAI step's
 # name; the macros and the constructors reject those two labels, and the derivation
-# checks the names of a graph built without them.
+# checks the names of a graph built without them. A metabolite named minusQ imitates a
+# residual, so the derivation also rejects a mechanism the macros build.
 
 """The block of an allosteric mechanism whose second conformation is labelled `label`:
 `E(b) <--> label(Eb)` at :NonequalAI, then `label(Eb) <--> label + Eb` and `label ⇌ E`
@@ -2008,6 +2009,31 @@ end
                                   :k_F_Eb_to_FEb, :k_I_Eb_to_FEb, :L, :Keq, :E_total)
     @test EnzymeRates.AllostericMechanism(renamed) ==
           _testhelper_unchecked(_testhelper_relabelled_raw(:F))
+
+    # A modifier named minusQ imitates a residual: the side E(; residual = A - P) + minusQ
+    # and the form E(; residual = A - P - Q) both render E_res_plusA_minusP_minusQ, so the
+    # two constants of the step between them share a name.
+    residual_clash = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        modifiers: minusQ
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+            E(Q) ⇌ E + Q
+            E(; residual = A - P) + minusQ <--> E(minusQ; residual = A - P)
+            E(minusQ; residual = A - P) <--> E(; residual = A - P - Q)
+        end
+    end
+    @test_throws(ErrorException(
+        "Constants of this mechanism's rate equation share a name " *
+        "(k_EminusQ_res_plusA_minusP_to_E_res_plusA_minusP_minusQ, " *
+        "k_E_res_plusA_minusP_minusQ_to_EminusQ_res_plusA_minusP); rename a metabolite " *
+        "or a conformation label so that each constant has a name of its own"),
+        EnzymeRates.fitted_params(residual_clash))
 end
 
 """Every name the expression `ex` binds or reads: each symbol except a called
