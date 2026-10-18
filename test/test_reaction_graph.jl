@@ -926,6 +926,82 @@ end
     @test all(_testhelper_build(RG._raw(x)) == x for x in graphs)
 end
 
+"""Today's mechanism that `raw` writes, built by today's constructors."""
+_testhelper_today(raw::EnzymeRates.RawMechanism) = EnzymeRates.Mechanism(raw)
+_testhelper_today(raw::EnzymeRates.RawAllostericMechanism) =
+    EnzymeRates.AllostericMechanism(raw)
+
+@testset "the graph orients as today where tier 3 and tied groups decide" begin
+    # No spec and no census population holds a step that only form order orients or a
+    # tied group whose alignment turns a step, so these cases are compared here, each in
+    # two writings.
+    _testhelper_tied_steps(iso, exchange) = :(begin
+        E + A <--> E(A)
+        E(A) <--> E(P)
+        E(P) <--> F + P
+        ($iso, F(I) <--> E(I))
+        (E + I ⇌ E(I), F + I ⇌ F(I))
+        E(I) + A ⇌ E(A, I)
+        E(J) + P ⇌ E(J, P)
+        $exchange
+    end)
+    blocks = [
+        :(begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)
+                F(S) <--> E(S)
+                F(S) <--> F(P)
+                F(P) <--> F + P
+                F <--> E
+            end
+        end),
+        :(begin
+            substrates: S
+            products: P
+            steps: begin
+                E(S) <--> F(S)
+                E + S <--> E(S)
+                F + P <--> F(P)
+                F(P) <--> F(S)
+                E <--> F
+            end
+        end)]
+    for (iso, exchange) in (
+            (:(F <--> E), :((E(I) + J <--> E(J) + I, F(I) + J <--> F(J) + I))),
+            (:(E <--> F), :((F(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J))))
+        push!(blocks, :(begin
+            substrates: A
+            products: P
+            modifiers: I, J
+            steps: $(_testhelper_tied_steps(iso, exchange))
+        end))
+    end
+    for raw in _testhelper_walk.(blocks)
+        @test _testhelper_graph_view(RG.Mechanism(raw)) ==
+              _testhelper_today_view(_testhelper_today(raw))
+    end
+    for exchange in (:((E(I) + J <--> E(J) + I, F(I) + J <--> F(J) + I)),
+                     :((F(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)))
+        raw = _testhelper_walk(:(begin
+            substrates: A
+            products: P
+            modifiers: I, J
+            steps: begin
+                E + A <--> E(A)                  :: EqualAI
+                E(A) <--> E(P)                   :: EqualAI
+                E(P) <--> F + P                  :: EqualAI
+                F ⇌ E                            :: EqualAI
+                (E + I ⇌ E(I), F + I ⇌ F(I))     :: EqualAI
+                $exchange                        :: NonequalAI
+            end
+        end); allosteric = true)
+        @test _testhelper_graph_view(RG.AllostericMechanism(raw)) ==
+              _testhelper_today_view(_testhelper_today(raw))
+    end
+end
+
 @testset "the constructor builds a spec's graph in under 10 µs, the median over specs" begin
     # Each spec's time per call is the best of five batches; the gate is on their median
     # (R17: the design aims at about 2 µs and leaves room for shared CI runners).
