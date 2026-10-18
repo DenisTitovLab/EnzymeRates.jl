@@ -2486,7 +2486,7 @@ end
 
 @testset "two forms with one internal name are rejected" begin
     # The modifier-only I renders bare, so E(I) and E(Iinh) name their constants apart,
-    # but both take the internal name EIinh, which orders forms inside the package.
+    # but both take the internal name EIinh.
     @test_throws "E(I) and E(Iinh) share the internal name EIinh" @enzyme_mechanism begin
         substrates: Iinh
         products: P

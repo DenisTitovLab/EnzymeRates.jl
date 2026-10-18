@@ -1513,7 +1513,8 @@ function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism}
     inhibiting = Dict(f => Set(name(b) for b in bound(f) if b isa CompetitiveInhibitor)
                       for f in forms)
 
-    # The sites of each competition pattern, sorted, once each in pattern order.
+    # The sites of each competition pattern in the canonical form order, once each in
+    # pattern order.
     placements = Vector{Species}[]
     for (comp_subs, comp_prods, comp_inhibitors) in
             _inhibitor_competition_patterns(sub_names, prod_names, collect(bound_regs))
@@ -1525,7 +1526,7 @@ function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism}
         for inh in comp_inhibitors
             union!(target_forms, _forms_where_free(m, CompetitiveInhibitor, inh))
         end
-        push!(placements, [f for f in sort!(collect(target_forms); by = name)
+        push!(placements, [f for f in sort!(collect(target_forms); by = _form_index_key)
                            if !issubset(sub_names, productive[f]) &&
                               !issubset(prod_names, productive[f]) &&
                               isempty(intersect(productive[f], comp_reactants)) &&
