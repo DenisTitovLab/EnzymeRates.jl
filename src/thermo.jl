@@ -532,11 +532,11 @@ function _cycle_basis(B::Matrix{Int}, stoich::Matrix{Int}, ns::Int)
     return C, Int[classify(i) for i in axes(C, 1)]
 end
 
-"""How a step's constants enter the constraint columns: `:ss` (a forward and a
-reverse rate), `:binding_K` (a dissociation constant, whose column carries a sign
-flip) or `:iso_K` (an equilibrium constant)."""
-_count_kind(s::Step) = is_equilibrium(s) ? (is_binding(s) ? :binding_K : :iso_K) : :ss
-_count_kind(e::Edge) = e.rapid_equilibrium ? (_is_binding(e) ? :binding_K : :iso_K) : :ss
+"""How an edge's constants enter the constraint columns at rapid-equilibrium flag `re`
+(by default its own): `:ss` (a forward and a reverse rate), `:binding_K` (a dissociation
+constant, whose column carries a sign flip) or `:iso_K` (an equilibrium constant)."""
+_count_kind(e::Edge, re::Bool = e.rapid_equilibrium) =
+    re ? (_is_binding(e) ? :binding_K : :iso_K) : :ss
 
 """
 Add flat step `j`'s cycle incidence `C[:, j]` into the constraint matrix `A` at the

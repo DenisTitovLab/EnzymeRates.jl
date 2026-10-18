@@ -3114,8 +3114,8 @@ end
     # ten. Lifting tags :OnlyA every group holding a chemistry step, plain bindings that
     # share a fused binding's constants included, and a split can then leave such a plain
     # binding :OnlyA on a cycle the inactive conformation cannot close. The move tests a
-    # candidate's groups with `_onlya_haldane_violation`, the boundary check's own test,
-    # before it builds the child. On every split of one group and of two, with parts made
+    # candidate's groups with `_onlya_offenders`, the boundary check's own test, before it
+    # builds the child. On every split of one group and of two, with parts made
     # as the move makes them (zero-flux parts at rapid equilibrium, bottomless candidates
     # skipped), the check passes exactly when the boundary check (`_check_well_posed`)
     # accepts the built child, and the move expands every parent.
@@ -3125,19 +3125,22 @@ end
         for a in EnzymeRates._expand_to_allosteric(c, bi_bi_rxn)])[1:10:end]
     accepted = rejected = 0
     for am in parents
-        groups, states = EnzymeRates.steps(am), EnzymeRates.cat_allo_states(am)
-        flux = EnzymeRates._flux_carrying_steps(groups, am)
-        units = [(g, EnzymeRates._revert_zero_flux_parts(groups[g], bp, flux[g]))
-                 for g in eachindex(groups)
-                 for bp in EnzymeRates._context_bipartitions(groups[g])]
+        cm, states = am.catalytic, EnzymeRates.cat_allo_states(am)
+        flux = EnzymeRates._flux_carrying_edges(cm, EnzymeRates._flags(cm))
+        units = [(g, bp) for g in 1:EnzymeRates.ngroups(cm)
+                 for bp in EnzymeRates._context_bipartitions(cm, g)]
+        reverted = [EnzymeRates._revert_zero_flux_parts(cm, bp, flux) for (_, bp) in units]
         for sel in [[[u] for u in eachindex(units)];
                     [[u, v] for u in eachindex(units) for v in u+1:length(units)
                      if units[u][1] != units[v][1]]]
-            gs, origin = EnzymeRates._bipartitioned_groups(groups, units[sel])
-            EnzymeRates._bottomless_re_segment(am, gs) === nothing || continue
-            passes = isempty(EnzymeRates._onlya_haldane_violation(am, gs, states[origin]))
+            re = EnzymeRates._flags(cm)
+            foreach(u -> re[reverted[u]] .= true, sel)
+            group, origin = EnzymeRates._bipartitioned_groups(cm, units[sel])
+            isempty(EnzymeRates._bottomless_segment(cm, trues(length(cm.edges)), re)) ||
+                continue
+            passes = isempty(EnzymeRates._onlya_offenders(cm, group, states[origin]))
             built = try
-                child = EnzymeRates._apply_bipartitions(am, units[sel])
+                child = EnzymeRates._apply_bipartitions(am, units[sel], re)
                 EnzymeRates._check_well_posed(child)
                 true
             catch e
@@ -8855,8 +8858,8 @@ end
     members = ER._group_members(fused_re)
     copy_g = _testhelper_copy_group(fused_re)
     fused_k = _testhelper_edge(fused_re, "E + A ⇌ EP")
-    fused_g, p_g = fused_re.group[fused_k], fused_re.group[_testhelper_edge(fused_re,
-                                                                            "E + P <--> EP")]
+    fused_g = fused_re.group[fused_k]
+    p_g = fused_re.group[_testhelper_edge(fused_re, "E + P <--> EP")]
     twin = _testhelper_twin(fused_re)
     @test twin(fused_re.edges[only(members[copy_g])].from, :A) == fused_re.edges[fused_k].to
     C(g) = ER._GaugeClass(g, 0, 1)
@@ -9456,13 +9459,15 @@ end
             E(A, B) <--> E(P, Q)
         end
     end)
-    # The labels of the forms the steps of `part`, a part of mechanism `ctx`, start from.
+    # The names of the forms the edges of `part`, a part of graph `ctx`, start from.
     _testhelper_src_forms(part, ctx) =
-        Set(Symbol(EnzymeRates._form_label(EnzymeRates.from_species(s), ctx)) for s in part)
-    a_group = only(grp for grp in EnzymeRates.steps(m)
-                   if length(grp) == 3 &&
-                      EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp))) == :A)
-    bps = EnzymeRates._context_bipartitions(a_group)
+        Set(Symbol(EnzymeRates._form_name(ctx, ctx.edges[k].from)) for k in part)
+    # The kinetic group of the edge of `ctx` whose text is `text`.
+    _testhelper_group_of(ctx, text) = ctx.group[_testhelper_edge(ctx, text)]
+    ga = _testhelper_group_of(m, "E + A ⇌ EA")
+    a_group = findall(==(ga), m.group)
+    @test length(a_group) == 3
+    bps = EnzymeRates._context_bipartitions(m, ga)
     @test length(bps) == 2
     for (with, without) in bps
         @test !isempty(with) && !isempty(without)
@@ -9470,45 +9475,40 @@ end
         @test first(a_group) in with
         @test isempty(intersect(with, without))
     end
-    # Contexts are ordered by ligand role (Product before Substrate) then
+    # Contexts are ordered by ligand role (product before substrate) then
     # name: bps[1] is the P-context division, bps[2] the B-context division.
-    p_step = only(s for s in a_group
-                  if any(b -> b isa EnzymeRates.Product,
-                         EnzymeRates.bound(EnzymeRates.from_species(s))))
-    b_step = only(s for s in a_group
-                  if any(b -> b isa EnzymeRates.Substrate,
-                         EnzymeRates.bound(EnzymeRates.from_species(s))))
-    @test bps[1][2] == [p_step]
-    @test bps[2][2] == [b_step]
+    @test bps[1][2] == [_testhelper_edge(m, "EP + A ⇌ EAP")]
+    @test bps[2][2] == [_testhelper_edge(m, "EB + A ⇌ EAB")]
     # By P: the P-free forms E, E(B) against the P-bound form E(P).
     @test _testhelper_src_forms(bps[1][1], m) == Set([:E, :EB])
     @test _testhelper_src_forms(bps[1][2], m) == Set([:EP])
     # By B: the B-free forms E, E(P) against the B-bound form E(B).
     @test _testhelper_src_forms(bps[2][1], m) == Set([:E, :EP])
     @test _testhelper_src_forms(bps[2][2], m) == Set([:EB])
-    # _context_form: canonical RE binding puts the metabolite on to_species,
-    # so the context form is from_species.
-    @test EnzymeRates._context_form(first(a_group)) ==
-          EnzymeRates.from_species(first(a_group))
-    # _context_form: an SS dissociation step whose released metabolite is in
-    # neither endpoint's bound list (the Segel ping-pong step shape) is stored
-    # as the binding it reverses, F + P → E(A), so its context form is F, the
-    # form P binds to.
-    ping_pong_step = EnzymeRates.Step(
-        EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E),
-        EnzymeRates.Species(EnzymeRates.Metabolite[], :F),
-        EnzymeRates.Metabolite[], [EnzymeRates.Product(:P)], false)
-    @test EnzymeRates._context_form(ping_pong_step) ==
-          EnzymeRates.Species(EnzymeRates.Metabolite[], :F) ==
-          EnzymeRates.from_species(ping_pong_step)
+    # _context_form: a binding is stored taking its metabolite up, so the context form
+    # is its source.
+    @test EnzymeRates._context_form(m.edges[first(a_group)]) == m.edges[first(a_group)].from
+    # _context_form: a steady-state step that gives off one metabolite found in neither
+    # end's bound list (the Segel ping-pong step shape) is stored as the binding it
+    # reverses, F + P → E(A), so its context form is F, the form P binds to.
+    segel = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> F + P
+            F <--> E
+        end
+    end)
+    segel_k = _testhelper_edge(segel, "F + P <--> EA")
+    @test EnzymeRates._context_form(segel.edges[segel_k]) == segel.edges[segel_k].from ==
+          only(f for f in eachindex(segel.forms) if EnzymeRates._form_name(segel, f) == "F")
     # A two-step group with one context has one bipartition; a group whose
     # source forms carry no other ligand has none.
-    b_group = only(grp for grp in EnzymeRates.steps(m)
-                   if length(grp) == 2 &&
-                      EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp))) == :B)
-    @test length(EnzymeRates._context_bipartitions(b_group)) == 1
-    iso_group = only(grp for grp in EnzymeRates.steps(m) if EnzymeRates.is_iso(first(grp)))
-    @test isempty(EnzymeRates._context_bipartitions(iso_group))
+    @test length(EnzymeRates._context_bipartitions(m, _testhelper_group_of(m,
+                                                                     "E + B ⇌ EB"))) == 1
+    @test isempty(EnzymeRates._context_bipartitions(m, _testhelper_group_of(m,
+                                                                     "EAB <--> EPQ")))
 
     # Ter-ter substrate cube: each of the two other substrates divides the A
     # group's four steps two and two.
@@ -9528,10 +9528,8 @@ end
             E + R ⇌ E(R)
         end
     end)
-    cube_a = only(grp for grp in EnzymeRates.steps(cube)
-                  if length(grp) == 4 &&
-                     EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp))) == :A)
-    cube_bps = EnzymeRates._context_bipartitions(cube_a)
+    cube_bps = EnzymeRates._context_bipartitions(cube, _testhelper_group_of(cube,
+                                                                          "E + A ⇌ EA"))
     @test length(cube_bps) == 2
     # Both contexts are substrates, so they are ordered by name: B then C.
     # By B: the B-free forms E, E(C) against the B-bound forms E(B), E(B,C).
@@ -9557,8 +9555,7 @@ end
             E(B; residual = A - P) <--> E(Q)
         end
     end)
-    q_group = only(grp for grp in EnzymeRates.steps(res) if length(grp) == 3)
-    rbps = EnzymeRates._context_bipartitions(q_group)
+    rbps = EnzymeRates._context_bipartitions(res, _testhelper_group_of(res, "E + Q ⇌ EQ"))
     @test length(rbps) == 2
     Er, EBr = :E_res_plusA_minusP, :EB_res_plusA_minusP
     # By B, then by the residual.
@@ -9571,15 +9568,24 @@ end
     # those it subtracts. Q binds at E, at E(; residual = A - P) and at
     # E(; residual = A + B - P), so each residual parts one binding from the other two:
     # no residual first, then A - P, then A + B - P.
-    A, B = EnzymeRates.Substrate(:A), EnzymeRates.Substrate(:B)
-    P, Q = EnzymeRates.Product(:P), EnzymeRates.Product(:Q)
-    _testhelper_q_at(r) = EnzymeRates.Step(
-        EnzymeRates.Species(EnzymeRates.Metabolite[], :E, r),
-        EnzymeRates.Species([Q], :E, r), [Q], EnzymeRates.Metabolite[], true)
-    none, a_p, ab_p = _testhelper_q_at.([EnzymeRates.Residual(),
-                                         EnzymeRates.Residual([A], [P]),
-                                         EnzymeRates.Residual([A, B], [P])])
-    @test EnzymeRates._context_bipartitions([none, a_p, ab_p]) ==
+    residues = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + Q ⇌ E(Q), E(; residual = A - P) + Q ⇌ E(Q; residual = A - P),
+             E(; residual = A + B - P) + Q ⇌ E(Q; residual = A + B - P))
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(; residual = A + B - P)
+            E(; residual = A + B - P) <--> E(Q)
+        end
+    end)
+    none, a_p, ab_p = [_testhelper_edge(residues, t) for t in (
+        "E + Q ⇌ EQ", "E_res_plusA_minusP + Q ⇌ EQ_res_plusA_minusP",
+        "E_res_plusA_plusB_minusP + Q ⇌ EQ_res_plusA_plusB_minusP")]
+    @test EnzymeRates._context_bipartitions(residues, residues.group[none]) ==
           [([none], [a_p, ab_p]), ([none, ab_p], [a_p]), ([none, a_p], [ab_p])]
 
     # Conformation as a context: A binds E, Estar, and Estar(B), which B's binding to
@@ -9596,8 +9602,8 @@ end
             Estar(P) ⇌ E + P
         end
     end)
-    a_conf_group = only(grp for grp in EnzymeRates.steps(conf) if length(grp) == 3)
-    cbps = EnzymeRates._context_bipartitions(a_conf_group)
+    cbps = EnzymeRates._context_bipartitions(conf, _testhelper_group_of(conf,
+                                                                      "E + A ⇌ EA"))
     @test length(cbps) == 2
     # By B, then by the conformation.
     @test _testhelper_src_forms(cbps[1][1], conf) == Set([:E, :Estar])
@@ -9618,10 +9624,11 @@ end
             E + I ⇌ E(I)                          :: EqualAI
         end
     end)
-    s_group = only(grp for grp in EnzymeRates.steps(am) if length(grp) == 2)
-    bps = EnzymeRates._context_bipartitions(s_group)
-    @test length(bps) == 1
-    @test all(part -> length(part) == 1, bps[1])
+    cm = am.catalytic
+    bps = EnzymeRates._context_bipartitions(cm, cm.group[_testhelper_edge(cm,
+                                                                         "E + S ⇌ ES")])
+    @test bps == [([_testhelper_edge(cm, "E + S ⇌ ES")],
+                   [_testhelper_edge(cm, "EI + S ⇌ EIS")])]
 end
 
 @testset "_apply_bipartitions" begin
@@ -9636,16 +9643,15 @@ end
             E(A, B) <--> E(P, Q)
         end
     end)
-    groups = EnzymeRates.steps(m)
-    g = findfirst(grp -> length(grp) == 2, groups)
-    bp = only(EnzymeRates._context_bipartitions(groups[g]))
+    g = m.group[_testhelper_edge(m, "E + A ⇌ EA")]
+    bp = only(EnzymeRates._context_bipartitions(m, g))
     child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
-    @test length(EnzymeRates.steps(child)) == length(groups) + 1
-    @test sum(length, EnzymeRates.steps(child)) == sum(length, EnzymeRates.steps(m))
-    @test Set(s for grp in EnzymeRates.steps(child) for s in grp) ==
-          Set(s for grp in groups for s in grp)
-    @test any(grp -> Set(grp) == Set(bp[1]), EnzymeRates.steps(child))
-    @test any(grp -> Set(grp) == Set(bp[2]), EnzymeRates.steps(child))
+    # The edges stay; only the group of the second part is new.
+    @test EnzymeRates.ngroups(child) == EnzymeRates.ngroups(m) + 1
+    @test child.forms == m.forms && child.edges == m.edges
+    _testhelper_members(c, k) = findall(==(c.group[k]), c.group)
+    @test _testhelper_members(child, first(bp[1])) == bp[1]
+    @test _testhelper_members(child, first(bp[2])) == bp[2]
 
     am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B
@@ -9661,15 +9667,13 @@ end
             E(A, B) <--> E(P, Q)     :: EqualAI
         end
     end)
-    ga = findfirst(grp -> length(grp) == 2 &&
-                   EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp))) == :A,
-                   EnzymeRates.steps(am))
-    bpa = only(EnzymeRates._context_bipartitions(EnzymeRates.steps(am)[ga]))
+    cm = am.catalytic
+    ga = cm.group[_testhelper_edge(cm, "E + A ⇌ EA")]
+    bpa = only(EnzymeRates._context_bipartitions(cm, ga))
     achild = EnzymeRates._apply_bipartitions(am, [(ga, bpa)])
-    for (gi, grp) in enumerate(EnzymeRates.steps(achild))
-        Set(grp) ⊆ Set(bpa[1]) || Set(grp) ⊆ Set(bpa[2]) || continue
-        @test EnzymeRates.cat_allo_state(achild, gi) == :NonequalAI
-    end
+    @test achild.catalytic.edges == cm.edges
+    @test [EnzymeRates.cat_allo_state(achild, achild.catalytic.group[first(part)])
+           for part in bpa] == [:NonequalAI, :NonequalAI]
     @test EnzymeRates.catalytic_multiplicity(achild) == 2
     @test EnzymeRates.regulatory_sites(achild) == EnzymeRates.regulatory_sites(am)
 end
@@ -9678,8 +9682,7 @@ end
     # Random-order product release with B also bound abortively at E(Q) and at E(P),
     # the two abortive bindings one steady-state group. Neither abortive step carries
     # flux, so with both flags false both parts of the group's context bipartition
-    # come back at rapid equilibrium; with both flags true the bipartition is returned
-    # as it is.
+    # revert to rapid equilibrium; with both flags true neither does.
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -9694,24 +9697,25 @@ end
             (E(Q) + B <--> E(B, Q), E(P) + B <--> E(B, P))
         end
     end)
-    groups = EnzymeRates.steps(m)
-    g = only(findall(grp -> length(grp) == 2, groups))
-    group = groups[g]
-    @test !any(EnzymeRates.is_equilibrium, group)
-    @test EnzymeRates._flux_carrying_steps(groups, m)[g] == falses(2)
-    bp = only(EnzymeRates._context_bipartitions(group))
-    parts = EnzymeRates._revert_zero_flux_parts(group, bp, falses(2))
-    for (part, raw) in zip(parts, bp)
-        @test length(part) == length(raw) == 1
-        for (s, r) in zip(part, raw)
-            @test EnzymeRates.is_equilibrium(s)
-            @test EnzymeRates.from_species(s) == EnzymeRates.from_species(r)
-            @test EnzymeRates.to_species(s) == EnzymeRates.to_species(r)
-            @test EnzymeRates.consumed(s) == EnzymeRates.consumed(r)
-            @test EnzymeRates.released(s) == EnzymeRates.released(r)
-        end
-    end
-    @test EnzymeRates._revert_zero_flux_parts(group, bp, trues(2)) == bp
+    abortive = [_testhelper_edge(m, "EQ + B <--> EBQ"),
+                _testhelper_edge(m, "EP + B <--> EBP")]
+    g = only(unique(m.group[abortive]))
+    @test sort(findall(==(g), m.group)) == sort(abortive)
+    @test !any(k -> m.edges[k].rapid_equilibrium, abortive)
+    @test EnzymeRates._flux_carrying_edges(m, EnzymeRates._flags(m))[abortive] == falses(2)
+    bp = only(EnzymeRates._context_bipartitions(m, g))
+    @test all(part -> length(part) == 1, bp)
+    reverted = EnzymeRates._revert_zero_flux_parts(m, bp, falses(length(m.edges)))
+    @test sort(reverted) == sort(abortive)
+    @test isempty(EnzymeRates._revert_zero_flux_parts(m, bp, trues(length(m.edges))))
+    # The child built with those flags holds both parts at rapid equilibrium, each its
+    # forms and lists unchanged.
+    re = EnzymeRates._flags(m)
+    re[reverted] .= true
+    child = EnzymeRates._apply_bipartitions(m, [(g, bp)], re)
+    @test [(e.from, e.to, e.consumed, e.released) for e in child.edges] ==
+          [(e.from, e.to, e.consumed, e.released) for e in m.edges]
+    @test all(k -> child.edges[k].rapid_equilibrium, abortive)
 end
 
 @testset "_partition_independent_count agrees with _independent_param_count" begin
@@ -9719,16 +9723,12 @@ end
     checked = 0
     for m in seeds
         counter = EnzymeRates._partition_independent_count(m)
-        flat = EnzymeRates._flat_steps(m)
-        parent_ids = [g for (_, g) in flat]
+        flat = EnzymeRates._flat_edges(m)
+        parent_ids = m.group[flat]
         @test counter(parent_ids) == EnzymeRates._independent_param_count(m)
-        pos = Dict(s => j for (j, (s, _)) in enumerate(flat))
-        groups = EnzymeRates.steps(m)
-        for g in eachindex(groups), bp in EnzymeRates._context_bipartitions(groups[g])
+        for g in 1:EnzymeRates.ngroups(m), bp in EnzymeRates._context_bipartitions(m, g)
             ids = copy(parent_ids)
-            for s in bp[2]
-                ids[pos[s]] = length(groups) + 1
-            end
+            ids[[k in bp[2] for k in flat]] .= EnzymeRates.ngroups(m) + 1
             child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
             @test counter(ids) == EnzymeRates._independent_param_count(child)
             checked += 1
@@ -9765,16 +9765,13 @@ end
         end
     end)
     counter = EnzymeRates._partition_independent_count(m)
-    flat = EnzymeRates._flat_steps(m)
-    ids = [g for (_, g) in flat]
-    kinds = [EnzymeRates._count_kind(s) for (s, _) in flat]
-    j = only(j for (j, (s, _)) in enumerate(flat)
-             if EnzymeRates.name(EnzymeRates.from_species(s)) == :EQ &&
-                EnzymeRates.bound_metabolite(s) !== nothing &&
-                EnzymeRates.name(EnzymeRates.bound_metabolite(s)) == :B)
+    flat = EnzymeRates._flat_edges(m)
+    ids = m.group[flat]
+    kinds = [EnzymeRates._count_kind(m.edges[k]) for k in flat]
+    j = findfirst(==(_testhelper_edge(m, "EQ + B <--> EBQ")), flat)
     @test kinds[j] == :ss
     base = counter(ids)
-    ids[j] = length(EnzymeRates.steps(m)) + 1
+    ids[j] = EnzymeRates.ngroups(m) + 1
     kinds[j] = :binding_K
     @test counter(ids, kinds) == EnzymeRates._independent_param_count(child)
     @test counter(ids, kinds) == base + 1
@@ -10850,18 +10847,16 @@ end
             end
         end)
         counter = EnzymeRates._partition_independent_count(m)
-        flat = EnzymeRates._flat_steps(m)
-        pos = Dict(s => j for (j, (s, _)) in enumerate(flat))
-        ids0 = [g for (_, g) in flat]
+        flat = EnzymeRates._flat_edges(m)
+        ids0 = m.group[flat]
         base = counter(ids0)
         r0 = _testhelper_identifiable_rank(m)
         @test r0 == base
         rejected = 0
-        g = findfirst(grp -> EnzymeRates.bound_metabolite(first(grp)) ==
-                             EnzymeRates.Substrate(:A), EnzymeRates.steps(m))
-        for bp in EnzymeRates._context_bipartitions(EnzymeRates.steps(m)[g])
+        g = m.group[_testhelper_edge(m, "E + A ⇌ EA")]
+        for bp in EnzymeRates._context_bipartitions(m, g)
             ids = copy(ids0)
-            for s in bp[2]; ids[pos[s]] = length(EnzymeRates.steps(m)) + 1; end
+            ids[[k in bp[2] for k in flat]] .= EnzymeRates.ngroups(m) + 1
             counter(ids) > base && continue
             rejected += 1
             child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
@@ -10885,18 +10880,17 @@ end
                 E(A, B) <--> E(P, Q)
             end
         end)
-        binder(grp) = EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp)))
-        a_group = only(grp for grp in EnzymeRates.steps(m)
-                       if length(grp) == 4 && binder(grp) == :A)
-        bps = EnzymeRates._context_bipartitions(a_group)
+        gi = m.group[_testhelper_edge(m, "E + A ⇌ EA")]
+        a_group = findall(==(gi), m.group)
+        @test length(a_group) == 4
+        bps = EnzymeRates._context_bipartitions(m, gi)
         # Context B and context P each divide the four A steps two and two, a
         # division no carve of a single step can produce.
         @test count(bp -> length(bp[1]) == 2 && length(bp[2]) == 2, bps) == 2
-        gi = findfirst(==(a_group), EnzymeRates.steps(m))
         even_bp = first(bp for bp in bps if length(bp[1]) == 2)
         child = EnzymeRates._apply_bipartitions(m, [(gi, even_bp)])
-        @test count(grp -> length(grp) == 2 && Set(grp) ⊆ Set(a_group),
-                    EnzymeRates.steps(child)) == 2
+        @test Set(findall(==(child.group[k]), child.group) for k in a_group) ==
+              Set(even_bp)
     end
 end
 

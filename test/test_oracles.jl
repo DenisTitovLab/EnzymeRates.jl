@@ -440,13 +440,13 @@ end
         for m in _testhelper_population_sample
             names = Set(EnzymeRates._dependent_param_exprs(m)[2])
             n = EnzymeRates._independent_param_count(m)
-            groups = EnzymeRates.steps(m)
-            for (g, group) in enumerate(groups),
-                bp in EnzymeRates._context_bipartitions(group)
+            cm = EnzymeRates.catalytic(m)
+            for g in 1:EnzymeRates.ngroups(cm),
+                bp in EnzymeRates._context_bipartitions(cm, g)
                 if m isa EnzymeRates.AllostericMechanism
-                    parts, origin = EnzymeRates._bipartitioned_groups(groups, [(g, bp)])
-                    isempty(EnzymeRates._onlya_haldane_violation(
-                        m, parts, EnzymeRates.cat_allo_states(m)[origin])) || continue
+                    group, origin = EnzymeRates._bipartitioned_groups(cm, [(g, bp)])
+                    isempty(EnzymeRates._onlya_offenders(
+                        cm, group, EnzymeRates.cat_allo_states(m)[origin])) || continue
                 end
                 child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
                 EnzymeRates._independent_param_count(child) == n || continue

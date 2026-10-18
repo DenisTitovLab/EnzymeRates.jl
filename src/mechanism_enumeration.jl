@@ -1162,13 +1162,13 @@ step of the split groups: a tie needs an RE cycle through the carve, and every
 group on that cycle lies in that segment. The count is evaluated without building the child
 for a `Mechanism` (`_partition_independent_count`, cycle basis once per parent)
 and by the joint solve on the built child for an `AllostericMechanism`,
-where a candidate the boundary check would reject (`_onlya_haldane_violation`) is not
+where a candidate the boundary check would reject (`_onlya_offenders`) is not
 built and gains nothing (`_split_gain_test`).
 A candidate the boundary check would reject also takes as partners the units of every
 `:OnlyA` group: only a split of an `:OnlyA` group changes that check, and the split that
 balances the candidate's cycle may share no rapid-equilibrium segment with it.
-A part of a steady-state group none of whose steps carries flux
-(`_flux_carrying_steps`, computed once on the parent, since a split moves no edge)
+A part of a steady-state group none of whose edges carries flux
+(`_flux_carrying_edges`, computed once on the parent, since a split moves no edge)
 is emitted at rapid equilibrium (`_revert_zero_flux_parts`), the same family with
 one constant fewer; the gain test counts the reverted part under
 its new kind, so a reverted constant the Wegscheider ties pull back is absorbed
@@ -1180,30 +1180,40 @@ copy its shared group pinned), and a split of a group that forms a copy's
 twins can break the gauge, so the copy rule is decided on each child: a child with a
 redundant copy group (`_redundant_copy_groups`) is not emitted; its family is that of
 the same split without the copy.
-The reaction and (for allosteric) multiplicity and regulatory sites are
-preserved; both parts of a split group inherit its catalytic allo-state tag.
+The declared names and, for an allosteric mechanism, the multiplicity and regulatory
+sites are kept; both parts of a split group inherit its catalytic allo-state tag. Each
+child is the parent's raw input regrouped (`_apply_bipartitions`), through the checked
+constructor, since a regrouping can turn a tied group's member.
 """
 function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
-    groups = steps(m)
-    flux = _flux_carrying_steps(groups, m)
-    units = Tuple{Int, Tuple{Vector{Step}, Vector{Step}}}[]
-    reverted = Bool[]
-    for g in eachindex(groups), bp in _context_bipartitions(groups[g])
-        parts = _revert_zero_flux_parts(groups[g], bp, flux[g])
-        push!(units, (g, parts)); push!(reverted, parts != bp)
+    cm = catalytic(m)
+    members = _group_members(cm)
+    flags = _flags(cm)
+    flux = _flux_carrying_edges(cm, flags)
+    units = Tuple{Int, Tuple{Vector{Int}, Vector{Int}}}[]
+    reverted = Vector{Int}[]
+    for g in eachindex(members), bp in _context_bipartitions(cm, g)
+        push!(units, (g, bp)); push!(reverted, _revert_zero_flux_parts(cm, bp, flux))
     end
     isempty(units) && return typeof(m)[]
-    gain, balancers = _split_gain_test(m, units)
-    gains(sel) =
-        (!any(u -> reverted[u], sel) ||
-         _bottomless_re_segment(m, _bipartitioned_groups(groups, units[sel])[1])
-         === nothing) && gain(sel)
-    # RE segment ids touched by each kinetic group's steps; empty for a group holding an
-    # SS step, which lies on no RE cycle and so never partners a set that does not gain.
-    _, _, _, idx, seg = _re_segment_extras(groups)
-    segments = [is_equilibrium(first(group)) ?
-                Set{Int}(seg[idx[from_species(s)]] for s in group) : Set{Int}()
-                for group in groups]
+    # The flags of a candidate: the parent's, with each selected unit's reverted edges at
+    # rapid equilibrium.
+    function flags_of(sel)
+        re = copy(flags)
+        for u in sel
+            re[reverted[u]] .= true
+        end
+        re
+    end
+    gain, balancers = _split_gain_test(m, units, flags_of)
+    every = trues(length(cm.edges))
+    gains(sel) = (all(u -> isempty(reverted[u]), sel) ||
+                  isempty(_bottomless_segment(cm, every, flags_of(sel)))) && gain(sel)
+    # RE segment ids touched by each kinetic group's edges; empty for a steady-state
+    # group, which lies on no RE cycle and so never partners a set that does not gain.
+    segment_of = _segments(cm, every, flags).segment_of
+    segments = [flags[first(ks)] ? Set{Int}(segment_of[cm.edges[k].from] for k in ks) :
+                Set{Int}() for ks in members]
     partners(sel) = begin
         isempty(sel) && return 1:length(units)
         used = Set(units[u][1] for u in sel)
@@ -1215,34 +1225,23 @@ function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
     end
     sets = _minimal_gaining_sets(gains, partners)
     filter!(c -> isempty(_redundant_copy_groups(c)),
-            typeof(m)[_apply_bipartitions(m, units[sel]) for sel in sets])
+            typeof(m)[_apply_bipartitions(m, units[sel], flags_of(sel)) for sel in sets])
 end
 
 """Gain test for the split move: `(gains, balancers)`. `gains(sel)` is true when applying
-the selected units raises the independent-parameter count above the parent's.
-`balancers(sel)` lists the extra partners of a set whose child the boundary check would
-reject for an `:OnlyA` binding; a `Mechanism` has no `:OnlyA` group, so it lists none. A
-unit's steps are matched to the parent's flat steps by reaction (forms and metabolite
-lists), since a reverted part carries the other flag; each step is counted under the kind
-it has in the child."""
-function _split_gain_test(m::Mechanism, units)
+the selected units, with the flags `flags_of(sel)`, raises the independent-parameter count
+above the parent's. `balancers(sel)` lists the extra partners of a set whose child the
+boundary check would reject for an `:OnlyA` binding; a `Mechanism` has no `:OnlyA` group,
+so it lists none. Each edge is counted under its group in the child
+(`_bipartitioned_groups`) and the kind its flag in the child gives it."""
+function _split_gain_test(m::Mechanism, units, flags_of)
     counter = _partition_independent_count(m)
-    flat = _flat_steps(m)
-    reaction_key(s) = (from_species(s), to_species(s), consumed(s), released(s))
-    position = Dict(reaction_key(s) => j for (j, (s, _)) in enumerate(flat))
-    parent_ids = [g for (_, g) in flat]
-    parent_kinds = [_count_kind(s) for (s, _) in flat]
-    base = counter(parent_ids, parent_kinds)
+    flat = _flat_edges(m)
+    kinds(re) = Symbol[_count_kind(m.edges[k], re[k]) for k in flat]
+    base = counter(m.group[flat], kinds(_flags(m)))
     function gains(sel)
-        ids = copy(parent_ids)
-        kinds = copy(parent_kinds)
-        for (i, u) in enumerate(sel), (part_number, part) in enumerate(units[u][2]),
-            s in part
-            j = position[reaction_key(s)]
-            part_number == 2 && (ids[j] = ngroups(m) + i)
-            kinds[j] = _count_kind(s)
-        end
-        counter(ids, kinds) > base
+        group, _ = _bipartitioned_groups(m, units[sel])
+        counter(group[flat], kinds(flags_of(sel))) > base
     end
     gains, _ -> ()
 end
@@ -1254,104 +1253,117 @@ polynomial. The boundary check (`_check_well_posed`) rejects a mechanism whose `
 binding leaves a thermodynamic cycle unsatisfiable, and a split can make one: the check
 leaves out an `:OnlyA` group that holds a fused binding but keeps a part of it that holds
 only plain bindings. Each candidate's groups and tags therefore go through that check
-(`_onlya_haldane_violation`) before the child is built. A rejected candidate gains
+(`_onlya_offenders`) before the child is built. A rejected candidate gains
 nothing, and the search extends it like any set that does not gain and also by the units
 of every `:OnlyA` group (`balancers`, the second function returned): only a split of an
 `:OnlyA` group changes the check, and splitting another `:OnlyA` group on the cycle can
 balance it, so a superset may be a valid child even when that group is steady state or
 lies in another rapid-equilibrium segment, outside the usual partners.
 """
-function _split_gain_test(am::AllostericMechanism, units)
+function _split_gain_test(am::AllostericMechanism, units, flags_of)
     base = _independent_param_count(am)
     rejected = Set{Vector{Int}}()
     function gains(sel)
-        groups, origin = _bipartitioned_groups(steps(am), units[sel])
+        group, origin = _bipartitioned_groups(am.catalytic, units[sel])
         states = cat_allo_states(am)[origin]
-        isempty(_onlya_haldane_violation(am, groups, states)) ||
+        isempty(_onlya_offenders(am.catalytic, group, states)) ||
             (push!(rejected, sel); return false)
-        _independent_param_count(_with(am; groups, states)) > base
+        _independent_param_count(AllostericMechanism(_raw(am, flags_of(sel), group,
+                                                          states))) > base
     end
     onlya = [u for (u, (g, _)) in enumerate(units) if cat_allo_state(am, g) === :OnlyA]
     gains, sel -> sel in rejected ? onlya : ()
 end
 
 """
-The endpoint of `s` that does not carry the step's free metabolites: the form
-they bind to. `from_species(s)` when the step consumes a metabolite (every
-binding, plain or fused, is stored with its metabolite consumed), `to_species(s)`
-when it only releases metabolites (two or more: a step releasing one is stored
-as the binding it reverses), and `from_species(s)` for an iso step (both lists
-empty).
+The end of edge `e` that does not carry the edge's free metabolites: the form they
+bind to. `e.from` when the edge takes a metabolite up (every binding, plain or fused,
+is stored with its metabolite taken up), `e.to` when it only gives metabolites off (two
+or more: an edge giving off one is stored as the binding it reverses), and `e.from` for
+an isomerization (both lists empty).
 """
-_context_form(s::Step) =
-    isempty(consumed(s)) && !isempty(released(s)) ? to_species(s) : from_species(s)
+_context_form(e::Edge) = e.consumed == 0 && e.released != 0 ? e.to : e.from
 
 """
-    _context_bipartitions(group) -> Vector{Tuple{Vector{Step}, Vector{Step}}}
+    _context_bipartitions(m, g) -> Vector{Tuple{Vector{Int}, Vector{Int}}}
 
-Ways to divide one kinetic group in two by binding context: another ligand
-already bound, the enzyme's conformation, or its covalent residual. Encodes
-"the affinity for this metabolite may depend on what else is bound, on the
-conformation, or on the covalent state" — the ligand family includes a
-competitive inhibitor, which separates a catalytic step from its inhibitor-bound
-mirror. Each context value divides the steps whose context form
-(`_context_form`) carries it from the rest; the group's own bound metabolite is
-never a context, and a group whose forms share one conformation and one residual
-gets no bipartition from those two families. Both parts are nonempty, the first
-part holds the group's first step, context values that induce the same division
-give one bipartition, and the order is ligands (by role then name), then
-conformations (by name), then residuals (by the names they add, then those they
+Ways to divide kinetic group `g` of graph `m` in two by binding context, each part a
+list of edges: another ligand already bound, the enzyme's conformation, or its covalent
+residual. Encodes "the affinity for this metabolite may depend on what else is bound, on
+the conformation, or on the covalent state" — the ligand family includes a modifier,
+which separates a catalytic step from its inhibitor-bound mirror. Each context value
+divides the edges whose context form (`_context_form`) carries it from the rest; the
+group's own bound entry is never a context, and a group whose forms share one
+conformation and one residual gets no bipartition from those two families. Both parts
+are nonempty, the first part holds the group's first edge, each part lists its edges in
+edge order, context values that induce the same division give one bipartition, and the
+order is ligands (modifiers, then products, then substrates, each by name), then
+conformations (by label), then residuals (by the names they add, then those they
 subtract), for deterministic output.
 """
-function _context_bipartitions(group::Vector{Step})
-    own = bound_metabolite(first(group))
-    forms = [_context_form(s) for s in group]
-    ligands = unique!(Metabolite[b for f in forms for b in bound(f) if b != own])
-    division(carries) = Step[s for (s, f) in zip(group, forms) if carries(f)]
-    divisions = [division(f -> y in bound(f))
-                 for y in sort!(ligands; by = b -> (string(typeof(b)), string(name(b))))]
-    append!(divisions, division(f -> conformation(f) == c)
-            for c in sort!(unique(conformation(f) for f in forms); by = string))
-    append!(divisions, division(f -> residual(f) == r)
-            for r in sort!(unique(residual(f) for f in forms);
-                           by = r -> (name.(added(r)), name.(subtracted(r)))))
-    parts(with) = (without = Step[s for s in group if !(s in with)];
-                   first(group) in with ? (with, without) : (without, with))
-    unique!(first, Tuple{Vector{Step}, Vector{Step}}[
-        parts(with) for with in divisions if 0 < length(with) < length(group)])
+function _context_bipartitions(m::Mechanism, g::Int)
+    ks = findall(==(g), m.group)
+    own = _bound_entry(m.edges[first(ks)])
+    forms = [m.forms[_context_form(m.edges[k])] for k in ks]
+    ligands = unique!([i for f in forms for i in entries(f.bound) if i != own])
+    role(i) = m.table[i].modifier ? 0 : insorted(m.table[i].name, m.products) ? 1 : 2
+    names(c::Counts) = [m.table[i].name for i in entries(c)]
+    division(carries) = Int[k for (k, f) in zip(ks, forms) if carries(f)]
+    divisions = [division(f -> copies(f.bound, i) > 0)
+                 for i in sort!(ligands; by = i -> (role(i), m.table[i].name))]
+    append!(divisions, division(f -> f.conformation == c)
+            for c in sort!(unique(f.conformation for f in forms)))
+    append!(divisions, division(f -> (f.added, f.subtracted) == r)
+            for r in sort!(unique((f.added, f.subtracted) for f in forms);
+                           by = r -> (names(r[1]), names(r[2]))))
+    parts(with) = (without = Int[k for k in ks if !(k in with)];
+                   first(ks) in with ? (with, without) : (without, with))
+    unique!(first, Tuple{Vector{Int}, Vector{Int}}[
+        parts(with) for with in divisions if 0 < length(with) < length(ks)])
 end
 
 """
-Replace each selected group by its two bipartition parts. `selection` pairs a
-group index with one of that group's `_context_bipartitions`; each group appears
-at most once. For an allosteric mechanism both parts inherit the group's
-catalytic allo-state tag (splitting is a parameter-relaxation move that must not
-change A/I semantics).
+`m` regrouped by `selection`, pairs of a kinetic group of `m` and one of its
+`_context_bipartitions`, each group at most once, as `(group, origin)`: edge `k` in
+group `group[k]`, the groups numbered as `m`'s with each selected group's second part
+in a group of its own right after it, and the group of `m` that each new group `l` came
+from, `origin[l]`.
 """
-function _apply_bipartitions(m::Union{Mechanism, AllostericMechanism}, selection)
-    groups, origin = _bipartitioned_groups(steps(m), selection)
-    m isa Mechanism ? _with(m; groups) :
-        _with(m; groups, states = cat_allo_states(m)[origin])
+function _bipartitioned_groups(m::Mechanism, selection)
+    second = Dict(g => last(bp) for (g, bp) in selection)
+    group, origin = similar(m.group), Int[]
+    for (g, ks) in enumerate(_group_members(m))
+        push!(origin, g)
+        group[ks] .= length(origin)
+        haskey(second, g) || continue
+        push!(origin, g)
+        group[second[g]] .= length(origin)
+    end
+    group, origin
 end
 
 """
-The bipartition `bp` of `group` with every part none of whose steps carries flux
-(`flags`, one per step of `group`) rebuilt at rapid equilibrium. A rapid-equilibrium
-group's steps are all flagged `false` (`_flux_carrying_steps`) and rebuild as themselves,
-so its bipartition comes back equal to `bp`.
+The child of `m` with each selected group divided in two (`_bipartitioned_groups`) and
+edge `k` at rapid equilibrium where `re[k]` holds, built through the checked constructor.
+For an allosteric mechanism both parts inherit the group's catalytic allo-state tag
+(splitting is a parameter-relaxation move that must not change A/I semantics).
 """
-function _revert_zero_flux_parts(group::Vector{Step}, bp, flags::BitVector)
-    carries = Dict(zip(group, flags))
-    map(part -> any(s -> carries[s], part) ? part : _with_equilibrium.(part, true), bp)
+function _apply_bipartitions(m::Union{Mechanism, AllostericMechanism}, selection,
+                             re::BitVector = _flags(catalytic(m)))
+    group, origin = _bipartitioned_groups(catalytic(m), selection)
+    m isa Mechanism ? Mechanism(_raw(m, re, group)) :
+        AllostericMechanism(_raw(m, re, group, cat_allo_states(m)[origin]))
 end
 
-"""Groups of `groups` with each selected group replaced by its two parts, plus
-the index of the original group each new group came from."""
-function _bipartitioned_groups(groups::Vector{Vector{Step}}, selection)
-    parts = Dict(selection)
-    ([part for (g, group) in enumerate(groups) for part in get(parts, g, (group,))],
-     [g for (g, group) in enumerate(groups) for _ in get(parts, g, (group,))])
-end
+"""
+The steady-state edges of the bipartition `bp` of a group of `m` that the split emits at
+rapid equilibrium: those of each part none of whose edges carries flux (`flux`, the
+parent's `_flux_carrying_edges`). A rapid-equilibrium group's edges carry none and are
+rapid equilibrium already, so it reverts none.
+"""
+_revert_zero_flux_parts(m::Mechanism, bp, flux::BitVector) =
+    Int[k for part in bp if !any(k -> flux[k], part)
+        for k in part if !m.edges[k].rapid_equilibrium]
 
 """
 A class of the dwell gauge (`_gauge_rescaling`): a kinetic group's class (`group > 0`)
