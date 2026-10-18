@@ -59,6 +59,21 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
 end
 
 """
+    _testhelper_mechanism_call(call, who) -> (allosteric, raw)
+
+Whether `call`, an `@enzyme_mechanism` or `@allosteric_mechanism` call, is the allosteric
+one, and the raw value the package's DSL walker reads from its block; an error naming the
+test macro `who` for any other expression.
+"""
+function _testhelper_mechanism_call(call, who::String)
+    head = call isa Expr && call.head === :macrocall ? call.args[1] : nothing
+    head in (Symbol("@enzyme_mechanism"), Symbol("@allosteric_mechanism")) ||
+        error("$who wraps an @enzyme_mechanism or @allosteric_mechanism call; got $call")
+    allosteric = head === Symbol("@allosteric_mechanism")
+    allosteric, EnzymeRates._raw_mechanism(call.args[end], allosteric)
+end
+
+"""
     @_testhelper_with_raw call
 
 `(mechanism, raw)` for `call`, an `@enzyme_mechanism` or `@allosteric_mechanism` call:
@@ -67,13 +82,8 @@ reads from its block, which keeps the steps and regulatory sites as written. It 
 `_testhelper_MechanismTestSpec.raw`.
 """
 macro _testhelper_with_raw(call)
-    allosteric = call isa Expr && call.head === :macrocall &&
-                 call.args[1] === Symbol("@allosteric_mechanism")
-    allosteric || call isa Expr && call.head === :macrocall &&
-                  call.args[1] === Symbol("@enzyme_mechanism") ||
-        error("@_testhelper_with_raw wraps an @enzyme_mechanism or " *
-              "@allosteric_mechanism call; got $call")
-    esc(:(($call, $(EnzymeRates._raw_mechanism(call.args[end], allosteric)))))
+    _, raw = _testhelper_mechanism_call(call, "@_testhelper_with_raw")
+    esc(:(($call, $raw)))
 end
 
 # Every declared substrate and product appears in some step: some step takes it up or
@@ -219,17 +229,18 @@ _testhelper_eval_expr(e::Expr, env) =
     getfield(Base, e.args[1])((_testhelper_eval_expr(a, env) for a in e.args[2:end])...)
 
 """
-`m` with one catalytic subunit: an allosteric mechanism rebuilt with catalytic
-multiplicity 1, whose MWC law is the exact steady state of one protomer; a plain mechanism
-unchanged.
+`m`, compiled or concrete, with one catalytic subunit: an allosteric mechanism rebuilt
+with catalytic multiplicity 1, whose MWC law is the exact steady state of one protomer; a
+plain mechanism unchanged.
 """
 _testhelper_single_subunit(m::EnzymeRates.EnzymeMechanism) = m
-function _testhelper_single_subunit(m::EnzymeRates.AllostericEnzymeMechanism)
-    am = EnzymeRates.AllostericMechanism(m)
-    EnzymeRates.AllostericEnzymeMechanism(EnzymeRates.AllostericMechanism(
-        EnzymeRates.catalytic(am), EnzymeRates.cat_allo_states(am), 1,
-        EnzymeRates.regulatory_sites(am)))
-end
+_testhelper_single_subunit(m::EnzymeRates.AllostericEnzymeMechanism) =
+    EnzymeRates.AllostericEnzymeMechanism(
+        _testhelper_single_subunit(EnzymeRates.AllostericMechanism(m)))
+_testhelper_single_subunit(m::EnzymeRates.Mechanism) = m
+_testhelper_single_subunit(am::EnzymeRates.AllostericMechanism) =
+    EnzymeRates.AllostericMechanism(am.catalytic, copy(am.cat_allo_states), 1,
+                                    am.regulatory_sites)
 
 """
 The free form at which the two conformations of an allosteric mechanism interconvert in
@@ -334,7 +345,7 @@ _testhelper_edge(m, text) =
          if _testhelper_edge_text(m, k) == text)
 
 """
-    _testhelper_consistent_point(m, rng) -> (; vals, Keq, active, inactive, L)
+    _testhelper_consistent_point(m, rng) -> (; vals, Keq, active, inactive, L, K, kf)
 
 A thermodynamically consistent parameter point of `m`, built from free energies and so
 independent of the package's thermodynamic solve. Each enzyme form has a free energy in
@@ -348,6 +359,11 @@ has one constant in both conformations. A steady-state class draws one forward r
 the inactive law's steps, in `_testhelper_graph`), every regulator constant and `L` to its
 value. `active[j]` (and `inactive[j]` for the inactive law's steps) holds a step of
 `_testhelper_graph` as `(step, Ka, kf)`, `kf === nothing` for a rapid-equilibrium step.
+
+`K[k, c]` is edge `k`'s equilibrium constant in its stored direction in conformation `c`
+and `kf[k, c]`, for a steady-state edge, its forward rate, for every edge of the
+catalytic graph, the ones the inactive law deletes or prunes included; a plain
+mechanism repeats column 1 in column 2. The law's constants are among them.
 """
 function _testhelper_consistent_point(m, rng)
     mech = _testhelper_lift(m)
@@ -417,7 +433,32 @@ function _testhelper_consistent_point(m, rng)
             vals[EnzymeRates.name(p, mech)] = exp(4 * big(rand(rng)) - 2)
         end
     end
-    (; vals, Keq, active, inactive, L)
+    # Every edge's equilibrium constant in both conformations and, for a steady-state
+    # edge, its forward rate: the law's own where the law holds the edge, an `:EqualAI`
+    # edge's active one, and otherwise one draw per kinetic group and conformation (each
+    # member of an `:OnlyA` group in the inactive conformation its own). The phase-4
+    # oracles read these for the edges the inactive law deletes or prunes.
+    # (`forward` holds the forward rates: a local named `kf` would be the one the closure
+    # `_testhelper_conformation_steps` assigns.)
+    cm = EnzymeRates.catalytic(mech)
+    flat = EnzymeRates._flat_edges(cm)
+    K = ones(BigFloat, length(cm.edges), 2)
+    forward = ones(BigFloat, length(cm.edges), 2)
+    rates = Dict{Tuple{Int, Int}, BigFloat}()
+    for c in 1:nconf, s in g.steps
+        names = c == 1 || tag(s.group) === :EqualAI ? s.names : s.inactive_names
+        s.rapid_equilibrium || isempty(names) || (rates[(s.group, c)] = vals[names[1]])
+    end
+    for c in 1:nconf, (j, s) in enumerate(g.steps)
+        k = flat[j]
+        K[k, c] = exp(u[(c - 1) * nf + s.from] + sum(gm, s.consumed; init = big(0)) -
+                      u[(c - 1) * nf + s.to] - sum(gm, s.released; init = big(0)))
+        s.rapid_equilibrium && continue
+        key = c == 2 && tag(s.group) === :OnlyA ? (-k, 2) : (s.group, c)
+        forward[k, c] = get!(() -> exp(4 * big(rand(rng)) - 2), rates, key)
+    end
+    allo || (K[:, 2] .= K[:, 1]; forward[:, 2] .= forward[:, 1])
+    (; vals, Keq, active, inactive, L, K, kf = forward)
 end
 
 """
@@ -449,20 +490,9 @@ function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(1
             push!(edges, (id(c, s.from), id(c, s.to), rf, rr, ω))
         end
         if g.catalytic_multiplicity !== nothing
-            # Regulators bind each conformation at rapid equilibrium, independently of
-            # the catalytic form, so summed over regulator occupancy the flip ratio is
-            # L times the ratio of the conformations' regulatory-site factors.
-            function _testhelper_site_factor(inactive)
-                prod((1 + sum((concs[lig] / point.vals[K]
-                               for (lig, tag) in zip(site.ligands, site.allo_states)
-                               for K in (EnzymeRates._reg_K(mech, lig, tag, inactive),)
-                               if K !== nothing); init = big(0)))^site.multiplicity
-                     for site in g.sites; init = big(1))
-            end
             flip = _testhelper_flip_form(g)
             push!(edges, (id(:A, flip), id(:I, flip),
-                          point.L * _testhelper_site_factor(true) /
-                          _testhelper_site_factor(false), big(1), 0))
+                          _testhelper_flip_ratio(mech, point, concs), big(1), 0))
         end
         n = length(node)
         reached, frontier = Set([1]), [1]
@@ -487,15 +517,18 @@ function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(1
 end
 
 """
-The rate law of the compiled mechanism `m` per enzyme, evaluated in 256-bit BigFloat from
-the polynomials `rate_equation` compiles (`_num_den_exprs`) at the parameter values
-`params` (by name: the fitted constants, `Keq` and, for an allosteric mechanism, `L` and
-the regulator constants) and the concentrations `concs`. The dependent constants are
-computed from `_dependent_param_exprs`, as the compiled body computes them.
+The rate law of `m` per enzyme, evaluated in 256-bit BigFloat from the polynomials
+`rate_equation` compiles (`_num_den_exprs`) at the parameter values `params` (by name: the
+fitted constants, `Keq` and, for an allosteric mechanism, `L` and the regulator
+constants) and the concentrations `concs`. A compiled `m` goes through its derivation
+entry, which runs the boundary check; a concrete `m` is read as it is, so the oracles can
+evaluate the law of a mechanism the guard rejects. The dependent constants are computed
+from `_dependent_param_exprs`, as the compiled body computes them.
 """
 function _testhelper_law_value(m, params::AbstractDict, concs::AbstractDict)
     setprecision(BigFloat, 256) do
-        mech = EnzymeRates._derivation_input(typeof(m))
+        mech = m isa EnzymeRates.AbstractEnzymeMechanism ?
+               EnzymeRates._derivation_input(typeof(m)) : m
         num, den = EnzymeRates._num_den_exprs(mech)
         dep, _ = EnzymeRates._dependent_param_exprs(mech)
         env = Dict{Symbol, BigFloat}(k => BigFloat(v) for (k, v) in params)
@@ -707,6 +740,914 @@ function _testhelper_population(rxn, rounds)
         append!(mechs, level)
     end
     unique!(mechs)
+end
+
+# ── Phase-4 oracles ─────────────────────────────────────────────────────────
+#
+# The well-posedness guard's oracles (spec section 14): mass-action networks of one
+# catalytic subunit, read from the graph read API and never from the guard's code, whose
+# conformations flip at free E (form 1); the RE-speed oracle on the guard's faces; the
+# ε-path oracle of admission, along integer potentials or the corners of the admissible
+# cone and five orders of the two limits; the exact LP of admission's existence test; and
+# the concerted n-protomer oracle.
+
+"""
+    @_testhelper_unguarded call
+
+The concrete mechanism that `call`, an `@enzyme_mechanism` or `@allosteric_mechanism`
+call, writes: the constructors on the DSL walker's raw value, without the well-posedness
+check the macros run, so a test can hold a mechanism the macros refuse.
+"""
+macro _testhelper_unguarded(call)
+    allosteric, raw = _testhelper_mechanism_call(call, "@_testhelper_unguarded")
+    esc(allosteric ? :(EnzymeRates.AllostericMechanism($raw)) :
+                     :(EnzymeRates.Mechanism($raw)))
+end
+
+"""
+The faces of `m` (concrete or compiled) that the guard checks (spec section 8), each as
+the set of names it zeroes, in the guard's order: the interior, every product zero, every
+substrate zero, each substrate and then each product alone on a side of two or more; then
+each of these with every modifier-only name zero too. A reactant's `::Mod` copy carries
+its reactant's name, so it is zeroed with it; a regulatory-site ligand never is.
+"""
+function _testhelper_faces(m)
+    cm = EnzymeRates.catalytic(_testhelper_lift(m))
+    mods = Set(x.name for x in cm.table
+               if x.modifier && !(x.name in cm.substrates || x.name in cm.products))
+    base = [Set{Symbol}(), Set(cm.products), Set(cm.substrates)]
+    length(cm.substrates) >= 2 && append!(base, [Set([x]) for x in cm.substrates])
+    length(cm.products) >= 2 && append!(base, [Set([x]) for x in cm.products])
+    isempty(mods) ? base : [base; [union(z, mods) for z in base]]
+end
+
+"""Whether conformation `c` (1 active, 2 inactive) of `m` excludes edge `k` of its
+catalytic graph: an `:OnlyA` group's edge in the inactive conformation, an `:OnlyI`
+group's in the active one. A plain mechanism excludes nothing."""
+function _testhelper_excludes(m, k::Int, c::Int)
+    m isa EnzymeRates.AllostericMechanism || return false
+    tag = EnzymeRates.cat_allo_state(m, m.catalytic.group[k])
+    (c == 2 && tag === :OnlyA) || (c == 1 && tag === :OnlyI)
+end
+
+"""One reversible step of an oracle network between nodes `i` and `j`: forward rate `f`
+and reverse rate `r`, concentrations included, `w` copies of the first substrate taken up
+from `i` to `j`; a `fast` link runs at Λ times its rates."""
+struct _testhelper_Link
+    i::Int
+    j::Int
+    f::BigFloat
+    r::BigFloat
+    w::Int
+    fast::Bool
+end
+
+"""A mass-action network of the oracles: its nodes, each `(form, conformation)` (`(state,
+conformation)` for the n-protomer oracle's product states), and its links."""
+struct _testhelper_Network
+    nodes::Vector{Tuple{Int, Int}}
+    links::Vector{_testhelper_Link}
+end
+
+"""The equilibrium ratio of the flip at free E, inactive over active, of the allosteric
+mechanism `mech` at `concs`: `L` times the ratio of the two conformations'
+regulatory-site factors. Regulators bind each conformation at rapid equilibrium whatever
+its catalytic form, so summed over regulator occupancy the flip takes this ratio."""
+function _testhelper_flip_ratio(mech, point, concs::AbstractDict)
+    function _testhelper_site_factor(inactive)
+        prod((1 + sum((concs[lig] / point.vals[K]
+                       for (lig, tag) in zip(site.ligands, site.allo_states)
+                       for K in (EnzymeRates._reg_K(mech, lig, tag, inactive),)
+                       if K !== nothing); init = big(0)))^site.multiplicity
+             for site in EnzymeRates.regulatory_sites(mech); init = big(1))
+    end
+    point.L * _testhelper_site_factor(true) / _testhelper_site_factor(false)
+end
+
+"""Speed factors of the rapid-equilibrium edges, one per edge of `m`'s catalytic graph and
+conformation, log-uniform over `10^±3`: a speed pattern of the RE-speed oracle."""
+_testhelper_draw_speeds(m, rng) =
+    BigFloat[big(10)^(3 * (2 * big(rand(rng)) - 1))
+             for _ in EnzymeRates.catalytic(_testhelper_lift(m)).edges, _ in 1:2]
+
+"""
+    _testhelper_network(m, point, concs; speeds, mode = :law, ε = 1, potentials, sigma,
+                        theta) -> _testhelper_Network
+
+The mass-action network of `m`'s catalytic graph, one catalytic subunit, at the constants
+of `point` (`_testhelper_consistent_point`) and the concentrations `concs`: one copy of
+the forms for a plain mechanism, two for an allosteric one, joined by a fast flip between
+the copies of free E at `_testhelper_flip_ratio`. A rapid-equilibrium edge of
+conformation `c` runs fast at speed `speeds[k, c]`, a steady-state one at
+`point.kf[k, c]`.
+
+`mode = :law` is the law's network: each conformation keeps the edges it does not
+exclude, on the forms they join to free E (deletion and pruning). `mode = :vanish` is the
+ε-network: every form and edge, each excluded edge vanishing as ε → 0 along a direction,
+with `potentials[c][f]` the potential of form `f`'s component in conformation `c` and
+`d = potentials[c][to] - potentials[c][from]`. A plain binding's equilibrium constant
+scales by `ε^d`: a rapid-equilibrium one stays fast, its on rate scaled by `ε^(θ d)` and
+its off rate by `ε^(-(1 - θ) d)`; a steady-state one keeps its off rate. Any other
+excluded edge is slow, its rates scaled by `ε^(σ + max(±d, 0))`. `sigma` (σ) and `theta`
+(θ) are one value for every edge or one per edge.
+"""
+function _testhelper_network(m, point, concs::AbstractDict; speeds::Matrix{BigFloat},
+                             mode::Symbol = :law, ε::BigFloat = big(1.0),
+                             potentials::Vector{Vector{BigFloat}} = Vector{BigFloat}[],
+                             sigma::Union{BigFloat, Vector{BigFloat}} = big(1.0),
+                             theta::Union{BigFloat, Vector{BigFloat}} = big(1.0) / 2)
+    mech = _testhelper_lift(m)
+    cm = EnzymeRates.catalytic(mech)
+    nf = length(cm.forms)
+    nc = mech isa EnzymeRates.AllostericMechanism ? 2 : 1
+    x1 = first(cm.substrates)
+    met_names(c) = [cm.table[i].name for i in EnzymeRates.entries(c)]
+    keep = [trues(nf) for _ in 1:nc]
+    if mode === :law
+        for c in 1:nc
+            reached = falses(nf)
+            reached[1] = true
+            grew = true
+            while grew
+                grew = false
+                for (k, e) in enumerate(cm.edges)
+                    !_testhelper_excludes(mech, k, c) &&
+                        reached[e.from] != reached[e.to] || continue
+                    reached[e.from] = reached[e.to] = true
+                    grew = true
+                end
+            end
+            keep[c] = reached
+        end
+    end
+    nodes = [(f, c) for c in 1:nc for f in 1:nf if keep[c][f]]
+    id = Dict(node => n for (n, node) in enumerate(nodes))
+    links = _testhelper_Link[]
+    for c in 1:nc, (k, e) in enumerate(cm.edges)
+        keep[c][e.from] && keep[c][e.to] || continue
+        excluded = _testhelper_excludes(mech, k, c)
+        mode === :law && excluded && continue
+        K, kf = point.K[k, c], point.kf[k, c]
+        fast = e.rapid_equilibrium
+        f, r = fast ? (speeds[k, c] * sqrt(K), speeds[k, c] / sqrt(K)) : (kf, kf / K)
+        if excluded
+            d = potentials[c][e.to] - potentials[c][e.from]
+            if EnzymeRates._is_plain_binding(cm, e)
+                θ = theta isa BigFloat ? theta : theta[k]
+                f, r = fast ? (f * ε^(θ * d), r * ε^(-(1 - θ) * d)) : (f * ε^d, r)
+            else
+                σ = sigma isa BigFloat ? sigma : sigma[k]
+                f, r, fast = f * ε^(σ + max(d, 0)), r * ε^(σ + max(-d, 0)), false
+            end
+        end
+        w = count(==(x1), met_names(e.consumed)) - count(==(x1), met_names(e.released))
+        conc_in = prod((concs[x] for x in met_names(e.consumed)); init = big(1))
+        conc_out = prod((concs[x] for x in met_names(e.released)); init = big(1))
+        push!(links, _testhelper_Link(id[(e.from, c)], id[(e.to, c)], f * conc_in,
+                                      r * conc_out, w, fast))
+    end
+    if nc == 2
+        ratio = _testhelper_flip_ratio(mech, point, concs)
+        push!(links, _testhelper_Link(id[(1, 1)], id[(1, 2)], sqrt(ratio),
+                                      1 / sqrt(ratio), 0, true))
+    end
+    _testhelper_Network(nodes, links)
+end
+
+"""The closed classes (strongly connected, no transition leaving) of the digraph on nodes
+`1:n` with transitions `arcs`, by Tarjan's algorithm, each as its sorted nodes."""
+function _testhelper_closed_classes(n::Int, arcs::Vector{Tuple{Int, Int}})
+    next = [Int[] for _ in 1:n]
+    foreach(((a, b),) -> push!(next[a], b), arcs)
+    index, low, comp = zeros(Int, n), zeros(Int, n), zeros(Int, n)
+    onstack, stack = falses(n), Int[]
+    counter, ncomp = 0, 0
+    for s in 1:n
+        index[s] == 0 || continue
+        counter += 1
+        index[s] = low[s] = counter
+        push!(stack, s)
+        onstack[s] = true
+        work = [(s, 1)]
+        while !isempty(work)
+            u, i = work[end]
+            if i <= length(next[u])
+                work[end] = (u, i + 1)
+                v = next[u][i]
+                if index[v] == 0
+                    counter += 1
+                    index[v] = low[v] = counter
+                    push!(stack, v)
+                    onstack[v] = true
+                    push!(work, (v, 1))
+                elseif onstack[v]
+                    low[u] = min(low[u], index[v])
+                end
+            else
+                pop!(work)
+                isempty(work) || (low[work[end][1]] = min(low[work[end][1]], low[u]))
+                if low[u] == index[u]
+                    ncomp += 1
+                    while true
+                        v = pop!(stack)
+                        onstack[v] = false
+                        comp[v] = ncomp
+                        v == u && break
+                    end
+                end
+            end
+        end
+    end
+    leaves = falses(ncomp)
+    for (a, b) in arcs
+        comp[a] != comp[b] && (leaves[comp[a]] = true)
+    end
+    [findall(==(k), comp) for k in 1:ncomp if !leaves[k]]
+end
+
+"""The stationary distribution of the irreducible chain with off-diagonal rates `R[i, j]`
+(`i → j`), by Grassmann–Taksar–Heyman state reduction: sums of non-negative terms only, so
+every entry keeps its relative precision whatever the spread of the rates."""
+function _testhelper_gth(R::Matrix{BigFloat})
+    n = size(R, 1)
+    A = copy(R)
+    for k in n:-1:2
+        s = sum(A[k, j] for j in 1:(k - 1))
+        iszero(s) && error("_testhelper_gth: state $k has no exit to states 1:$(k - 1)")
+        for i in 1:(k - 1)
+            iszero(A[i, k]) && continue
+            A[i, k] /= s
+            for j in 1:(k - 1)
+                i == j || iszero(A[k, j]) || (A[i, j] += A[i, k] * A[k, j])
+            end
+        end
+    end
+    p = zeros(BigFloat, n)
+    p[1] = 1
+    for j in 2:n
+        p[j] = sum((p[i] * A[i, j] for i in 1:(j - 1) if !iszero(A[i, j])); init = big(0))
+    end
+    p ./ sum(p)
+end
+
+"""Each node's potential of the first substrate along `links` (node `j`'s is node `i`'s
+plus the link's uptake `w`), component by component on nodes `1:n`; `nothing` when a
+cycle of the links takes the substrate up."""
+function _testhelper_offsets(n::Int, links)
+    h = fill(typemin(Int), n)
+    adjacent = [Tuple{Int, Int}[] for _ in 1:n]
+    for l in links
+        push!(adjacent[l.i], (l.j, l.w))
+        push!(adjacent[l.j], (l.i, -l.w))
+    end
+    for s in 1:n
+        h[s] == typemin(Int) || continue
+        h[s] = 0
+        todo = [s]
+        while !isempty(todo)
+            u = pop!(todo)
+            for (v, w) in adjacent[u]
+                if h[v] == typemin(Int)
+                    h[v] = h[u] + w
+                    push!(todo, v)
+                elseif h[v] != h[u] + w
+                    return nothing
+                end
+            end
+        end
+    end
+    h
+end
+
+"""
+    _testhelper_steady_rate(nw; Λ) -> (; v, nclasses)
+
+The steady-state turnover per enzyme of `nw` (net uptake of the first substrate) with
+every fast link at `Λ` times its rates, in the current BigFloat precision; `v` is NaN when
+the chain has more than one closed class (`nclasses` of them). It weights each link's flux
+by its uptake plus the fall of the first substrate's potential along the fast links that
+run both ways, so those links, whose fluxes nearly cancel at large Λ, drop out; when they
+close a cycle that takes the substrate up, every link counts with its own uptake.
+"""
+function _testhelper_steady_rate(nw::_testhelper_Network; Λ::BigFloat)
+    n = length(nw.nodes)
+    rates(l) = l.fast ? (Λ * l.f, Λ * l.r) : (l.f, l.r)
+    arcs = Tuple{Int, Int}[]
+    for l in nw.links
+        l.f > 0 && push!(arcs, (l.i, l.j))
+        l.r > 0 && push!(arcs, (l.j, l.i))
+    end
+    classes = _testhelper_closed_classes(n, arcs)
+    length(classes) == 1 || return (v = big(NaN), nclasses = length(classes))
+    C = only(classes)
+    at = zeros(Int, n)
+    at[C] .= eachindex(C)
+    inside = [l for l in nw.links if at[l.i] > 0 && at[l.j] > 0]
+    R = zeros(BigFloat, length(C), length(C))
+    for l in inside
+        rf, rr = rates(l)
+        R[at[l.i], at[l.j]] += rf
+        R[at[l.j], at[l.i]] += rr
+    end
+    p = length(C) == 1 ? BigFloat[1] : _testhelper_gth(R)
+    two_way(l) = l.fast && l.f > 0 && l.r > 0
+    h = _testhelper_offsets(n, filter(two_way, inside))
+    v = big(0.0)
+    for l in inside
+        rf, rr = rates(l)
+        k = h === nothing ? l.w : two_way(l) ? 0 : l.w + h[l.i] - h[l.j]
+        k == 0 || (v += k * (rf * p[at[l.i]] - rr * p[at[l.j]]))
+    end
+    (v = v, nclasses = 1)
+end
+
+"""
+The rapid-equilibrium limit (Λ = ∞) of `nw`, exactly, at an interior point: the forms of
+each segment of fast links take their equilibrium weights, the segments form the chain of
+the slow links, and the turnover sums the slow links as `_testhelper_steady_rate` does.
+`Inf` when the fast links close a cycle that takes the first substrate up, NaN when the
+slow chain has more than one closed class.
+"""
+function _testhelper_re_limit(nw::_testhelper_Network)
+    n = length(nw.nodes)
+    fast = [l for l in nw.links if l.fast]
+    all(l -> l.f > 0 && l.r > 0, fast) ||
+        error("_testhelper_re_limit: a fast link has a zero rate; the limit is taken at " *
+              "interior points")
+    h = _testhelper_offsets(n, fast)
+    h === nothing && return big(Inf)
+    segment, weight = zeros(Int, n), zeros(BigFloat, n)
+    adjacent = [Tuple{Int, BigFloat}[] for _ in 1:n]
+    for l in fast
+        push!(adjacent[l.i], (l.j, l.f / l.r))
+        push!(adjacent[l.j], (l.i, l.r / l.f))
+    end
+    ns = 0
+    for s in 1:n
+        segment[s] == 0 || continue
+        ns += 1
+        segment[s], weight[s] = ns, big(1)
+        todo = [s]
+        while !isempty(todo)
+            u = pop!(todo)
+            for (v, q) in adjacent[u]
+                segment[v] == 0 || continue
+                segment[v], weight[v] = ns, weight[u] * q
+                push!(todo, v)
+            end
+        end
+    end
+    W = zeros(BigFloat, ns)
+    foreach(i -> W[segment[i]] += weight[i], 1:n)
+    R, arcs = zeros(BigFloat, ns, ns), Tuple{Int, Int}[]
+    for l in nw.links
+        l.fast && continue
+        a, b = segment[l.i], segment[l.j]
+        a == b && continue
+        rf, rr = l.f * weight[l.i] / W[a], l.r * weight[l.j] / W[b]
+        rf > 0 && (R[a, b] += rf; push!(arcs, (a, b)))
+        rr > 0 && (R[b, a] += rr; push!(arcs, (b, a)))
+    end
+    classes = _testhelper_closed_classes(ns, arcs)
+    length(classes) == 1 || return big(NaN)
+    C = only(classes)
+    P = zeros(BigFloat, ns)
+    P[C] .= length(C) == 1 ? BigFloat[1] : _testhelper_gth(R[C, C])
+    p = [P[segment[i]] * weight[i] / W[segment[i]] for i in 1:n]
+    v = big(0.0)
+    for l in nw.links
+        l.fast && continue
+        k = l.w + h[l.i] - h[l.j]
+        k == 0 || (v += k * (l.f * p[l.i] - l.r * p[l.j]))
+    end
+    v
+end
+
+"""The relative gap between `x` and `y`, with an absolute floor `least`."""
+_testhelper_relgap(x, y; least = big(10)^-14) = abs(x - y) / max(abs(x), abs(y), least)
+
+"""The package's rate law of the concrete mechanism `mech` at the constants of `point`
+(its fitted values and `Keq`) and the concentrations `concs`, read without the boundary
+check (`_testhelper_law_value`); NaN where it has no value."""
+function _testhelper_package_law(mech, point, concs::AbstractDict)
+    params = Dict{Symbol, BigFloat}(k => point.vals[k]
+                                    for k in EnzymeRates._dependent_param_exprs(mech)[2])
+    params[:Keq] = point.Keq
+    _testhelper_law_value(mech, params, concs)
+end
+
+"""
+The law's value on the face of `mech` where the names `face` vanish, computed without the
+package: the rapid-equilibrium limit of the law's own network (`_testhelper_re_limit`) at
+the interior points `face = δ·u`, δ = 1e-40, 1e-80, 1e-160, along two random directions
+`u`; NaN when it grows without bound, has not settled by δ = 1e-160 or depends on `u` (the
+law's 0/0 does not cancel). With `face` empty, the limit at `concs`.
+"""
+function _testhelper_limit_law(mech, point, concs::AbstractDict, face::Set{Symbol}; rng)
+    speeds = _testhelper_draw_speeds(mech, rng)
+    value(c) = _testhelper_re_limit(_testhelper_network(mech, point, c; speeds))
+    inner = value(concs)
+    isempty(face) && return inner
+    tiny = big(10)^-30 * max(abs(inner), big(10)^-40)
+    limits = BigFloat[]
+    for _ in 1:2
+        u = Dict(z => big(10)^(2 * big(rand(rng)) - 1) for z in face)
+        vals = [value(merge(concs, Dict(z => δ * u[z] for z in face)))
+                for δ in (big(10)^-40, big(10)^-80, big(10)^-160)]
+        all(isfinite, vals) || return big(NaN)
+        abs(vals[3]) > 1e10 * max(abs(vals[2]), tiny) && return big(NaN)
+        _testhelper_relgap(vals[2], vals[3]; least = tiny) > big(10)^-25 && return big(NaN)
+        push!(limits, vals[3])
+    end
+    _testhelper_relgap(limits[1], limits[2]; least = tiny) > big(10)^-20 ? big(NaN) :
+        limits[1]
+end
+
+"""
+    _testhelper_respeed(m, point, concs, face; rng, law = :package, Λs, npat = 2) -> Symbol
+
+The RE-speed oracle (spec section 14) on the face of `m` where the names `face` vanish:
+the law's network (`_testhelper_network`, one subunit) at each Λ of `Λs` under `npat`
+speed patterns of 10^±3, its rapid-equilibrium edges at Λ times their pattern's factor.
+The first verdict that applies:
+- `:nonunique`: the face chain has more than one closed class;
+- `:diverges`: |v| grows more than 1e3-fold from the first Λ to the last (RE turnover);
+- `:unconverged`: the change from the first Λ to the last, scaled by their ratio, exceeds
+  1e-10 relative, so the last Λ is too small to judge 1e-8;
+- `:pattern`: the values at the last Λ differ between patterns by more than 1e-8;
+- `:law_nan`: the law has no value on the face;
+- `:mismatch`: the limit differs from the law by more than 1e-8 relative;
+- `:agree`.
+The law is the package's (`law = :package`, read unchecked) or the oracle's own
+(`law = :limit`, `_testhelper_limit_law`).
+"""
+function _testhelper_respeed(m, point, concs::AbstractDict, face::Set{Symbol}; rng,
+                             law::Symbol = :package, Λs = (big(10.0)^10, big(10.0)^20),
+                             npat::Int = 2)
+    mech = _testhelper_lift(m)
+    c0 = merge(concs, Dict(z => big(0) for z in face))
+    patterns = [_testhelper_draw_speeds(mech, rng) for _ in 1:npat]
+    solved = [_testhelper_steady_rate(_testhelper_network(mech, point, c0; speeds); Λ)
+              for speeds in patterns, Λ in Λs]
+    any(x -> x.nclasses > 1, solved) && return :nonunique
+    v = [x.v for x in solved]
+    top = size(v, 2)
+    any(i -> abs(v[i, top]) > 1e3 * max(abs(v[i, 1]), big(10)^-30), axes(v, 1)) &&
+        return :diverges
+    any(i -> abs(v[i, 1] - v[i, top]) * Λs[1] / Λs[end] >
+             1e-10 * max(abs(v[i, top]), big(10)^-14), axes(v, 1)) && return :unconverged
+    any(i -> _testhelper_relgap(v[i, top], v[1, top]) > 1e-8, axes(v, 1)) &&
+        return :pattern
+    vlaw = law === :package ? _testhelper_package_law(mech, point, c0) :
+           _testhelper_limit_law(mech, point, concs, face; rng)
+    isfinite(vlaw) || return :law_nan
+    _testhelper_relgap(v[1, top], vlaw) > 1e-8 ? :mismatch : :agree
+end
+
+"""
+The RE-speed oracle's verdict on each face of `m` (`_testhelper_faces`), the worst over
+`npoints` points (`_testhelper_consistent_point`, concentrations log-uniform over
+10^±1) in the order nonunique, diverges, unconverged, pattern, law_nan, mismatch, agree.
+An allosteric mechanism is judged at one catalytic subunit (P4-24a,
+`_testhelper_single_subunit`).
+"""
+function _testhelper_respeed_verdicts(m; rng, npoints::Int = 1, law::Symbol = :package)
+    mech = _testhelper_single_subunit(_testhelper_lift(m))
+    faces = _testhelper_faces(mech)
+    order = (:nonunique, :diverges, :unconverged, :pattern, :law_nan, :mismatch, :agree)
+    worst = fill(:agree, length(faces))
+    setprecision(BigFloat, 256) do
+        for _ in 1:npoints
+            point = _testhelper_consistent_point(mech, rng)
+            concs = Dict{Symbol, BigFloat}(x => big(10)^(2 * big(rand(rng)) - 1)
+                                           for x in EnzymeRates.metabolites(mech))
+            for (i, face) in enumerate(faces)
+                v = _testhelper_respeed(mech, point, concs, face; rng, law)
+                findfirst(==(v), order) < findfirst(==(worst[i]), order) &&
+                    (worst[i] = v)
+            end
+        end
+    end
+    worst
+end
+
+"""
+    _testhelper_exclusion(am, c) -> (; component, arcs, failure, lost)
+
+The exclusion structure of conformation `c` of `am` (spec section 7): `component[f]`, the
+component of form `f` under the edges `c` keeps, numbered by first form; `arcs`,
+`(unbound side's component, bound side's, edge)` for each plain binding `c` excludes;
+`failure`, `:inside` when an arc stays inside one component, `:cycle` when the arcs close
+a directed cycle, else `:none` (a path to the limit exists); `lost`, the components free
+E's does not reach along the arcs (islands).
+"""
+function _testhelper_exclusion(am, c::Int)
+    cm = EnzymeRates.catalytic(am)
+    nf = length(cm.forms)
+    parent = collect(1:nf)
+    root(i) = parent[i] == i ? i : root(parent[i])
+    for (k, e) in enumerate(cm.edges)
+        _testhelper_excludes(am, k, c) || (parent[root(e.from)] = root(e.to))
+    end
+    roots = [root(f) for f in 1:nf]
+    label = Dict(r => q for (q, r) in enumerate(unique(roots)))
+    component = [label[r] for r in roots]
+    n = length(label)
+    arcs = Tuple{Int, Int, Int}[(component[e.from], component[e.to], k)
+                                for (k, e) in enumerate(cm.edges)
+                                if _testhelper_excludes(am, k, c) &&
+                                   EnzymeRates._is_plain_binding(cm, e)]
+    failure = any(a -> a[1] == a[2], arcs) ? :inside : :none
+    if failure === :none
+        indegree = zeros(Int, n)
+        foreach(a -> indegree[a[2]] += 1, arcs)
+        todo = findall(iszero, indegree)
+        while !isempty(todo)
+            u = pop!(todo)
+            for a in arcs
+                a[1] == u && (indegree[a[2]] -= 1) == 0 && push!(todo, a[2])
+            end
+        end
+        any(>(0), indegree) && (failure = :cycle)
+    end
+    reached = falses(n)
+    reached[component[1]] = true
+    grew = true
+    while grew
+        grew = false
+        for a in arcs
+            reached[a[1]] && !reached[a[2]] && (reached[a[2]] = true; grew = true)
+        end
+    end
+    (; component, arcs, failure, lost = findall(!, reached))
+end
+
+"""The excluding conformations of `am` with their exclusion structures, `[(c, ex)]`."""
+function _testhelper_excluding(am)
+    edges = eachindex(EnzymeRates.catalytic(am).edges)
+    [(c, _testhelper_exclusion(am, c)) for c in 1:2
+     if any(k -> _testhelper_excludes(am, k, c), edges)]
+end
+
+"""Potentials of the components of `ex` (`_testhelper_exclusion` with no failure): each
+starts at `start[x]`, each arc raises its bound side to at least its unbound side's plus
+`rise[q]`, and free E's component is shifted back to 0."""
+function _testhelper_component_potentials(ex, start::Vector{BigFloat},
+                                          rise::Vector{BigFloat})
+    φ = copy(start)
+    for _ in eachindex(φ), (q, a) in enumerate(ex.arcs)
+        φ[a[2]] = max(φ[a[2]], φ[a[1]] + rise[q])
+    end
+    φ .- φ[ex.component[1]]
+end
+
+"""
+The ε-path's six standard directions for `am` (research section 3.1, P4-25): integer
+potentials, arcs rising by 1 and every component other than free E's starting at +1 or
+at -1, each with one speed exponent σ ∈ {½, 1, 2} for every blocked edge and the even
+split θ = ½ of each vanishing rapid-equilibrium binding. Each is `(; potentials, sigma,
+theta)`, `potentials[c][f]` the potential of form `f` in conformation `c` (empty where `c`
+excludes nothing).
+"""
+function _testhelper_standard_directions(am)
+    ne = length(EnzymeRates.catalytic(am).edges)
+    directions = []
+    for offset in (1, -1), σ in (big(0.5), big(1.0), big(2.0))
+        potentials = [BigFloat[] for _ in 1:2]
+        for (c, ex) in _testhelper_excluding(am)
+            start = [x == ex.component[1] ? big(0.0) : BigFloat(offset)
+                     for x in 1:maximum(ex.component)]
+            φ = _testhelper_component_potentials(ex, start, ones(BigFloat, length(ex.arcs)))
+            potentials[c] = [φ[x] for x in ex.component]
+        end
+        push!(directions, (; potentials, sigma = fill(σ, ne), theta = fill(big(0.5), ne)))
+    end
+    directions
+end
+
+"""The corners of a box of `k` binary choices, each a vector of `k` zeros and ones: all
+`2^k` when there are at most 128, else 128 distinct ones drawn from `rng` (P4-24a)."""
+function _testhelper_corners(k::Int, rng)
+    k == 0 && return [Int[]]
+    k <= 7 && return [digits(x; base = 2, pad = k) for x in 0:(2^k - 1)]
+    drawn = Set{Vector{Int}}()
+    while length(drawn) < 128
+        push!(drawn, rand(rng, 0:1, k))
+    end
+    sort!(collect(drawn))
+end
+
+"""
+The ε-path's corner directions for `am` (P4-24a): the corners of the admissible cone,
+every binary choice made one way or the other. Every arc rises by 1 or 20, every component
+other than free E's that no arc enters starts at -5 or 5, every blocked edge's σ is 1/8 or
+16 and every vanishing rapid-equilibrium binding's θ is 0 or 1; all corners when there
+are at most 128, else 128 of them (`_testhelper_corners`).
+"""
+function _testhelper_corner_directions(am, rng)
+    cm = EnzymeRates.catalytic(am)
+    excluding = _testhelper_excluding(am)
+    slots = Tuple{Symbol, Int, Int}[]
+    for (c, ex) in excluding
+        append!(slots, [(:rise, c, q) for q in eachindex(ex.arcs)])
+        entered = Set(a[2] for a in ex.arcs)
+        append!(slots, [(:start, c, x) for x in 1:maximum(ex.component)
+                        if x != ex.component[1] && !(x in entered)])
+    end
+    for (k, e) in enumerate(cm.edges)
+        any(c -> _testhelper_excludes(am, k, c), 1:2) || continue
+        if !EnzymeRates._is_plain_binding(cm, e)
+            push!(slots, (:sigma, k, 0))
+        elseif e.rapid_equilibrium
+            push!(slots, (:theta, k, 0))
+        end
+    end
+    map(_testhelper_corners(length(slots), rng)) do bits
+        high(slot) = (q = findfirst(==(slot), slots); q !== nothing && bits[q] == 1)
+        potentials = [BigFloat[] for _ in 1:2]
+        for (c, ex) in excluding
+            entered = Set(a[2] for a in ex.arcs)
+            start = [x == ex.component[1] ? big(0.0) : x in entered ? big(-Inf) :
+                     high((:start, c, x)) ? big(5.0) : big(-5.0)
+                     for x in 1:maximum(ex.component)]
+            rise = [high((:rise, c, q)) ? big(20.0) : big(1.0) for q in eachindex(ex.arcs)]
+            φ = _testhelper_component_potentials(ex, start, rise)
+            potentials[c] = [φ[x] for x in ex.component]
+        end
+        edges = eachindex(cm.edges)
+        (; potentials,
+         sigma = [high((:sigma, k, 0)) ? big(16.0) : big(0.125) for k in edges],
+         theta = [high((:theta, k, 0)) ? big(1.0) : big(0.0) for k in edges])
+    end
+end
+
+"""How far the ε-network of `am` along direction `d` spreads its rates' ε-exponents: the
+sum over the excluded edges of the gap between their two exponents. The RE-first order
+lets Λ outgrow it."""
+function _testhelper_epsilon_span(am, d)
+    cm = EnzymeRates.catalytic(am)
+    span = big(0.0)
+    for c in 1:2, (k, e) in enumerate(cm.edges)
+        _testhelper_excludes(am, k, c) || continue
+        rise = abs(d.potentials[c][e.to] - d.potentials[c][e.from])
+        span += EnzymeRates._is_plain_binding(cm, e) ? rise : 2 * d.sigma[k] + rise
+    end
+    span
+end
+
+"""
+The limit of the turnover of the ε-network `network(ε)` along Λ = ε^-κ as ε → 0, ε =
+10^-E with E doubling: `(; v, converged)`. κ is `:re_first` (Λ outgrows every ε-scale,
+`2 span + 10`), `:eps_first` (Λ grows slower than any rate vanishes, `1/(8(nodes + 1))`)
+or a number. Converged once Λ ≥ 1e40 and the last two steps move by less than 1e-12 and
+1e-6 of `scale`; infinite when the rate keeps growing by orders of magnitude.
+"""
+function _testhelper_path_limit(network, κ, span::BigFloat, nnodes::Int, scale::BigFloat)
+    k = κ === :re_first ? 2 * span + 10 :
+        κ === :eps_first ? big(1) / (8 * (nnodes + 1)) : BigFloat(κ)
+    E, Emax = κ === :eps_first ? (4, 2^18) : (2, 2^14)
+    vals = BigFloat[]
+    while E <= Emax
+        ε = big(10.0)^(-E)
+        push!(vals, _testhelper_steady_rate(network(ε); Λ = ε^(-k)).v)
+        n = length(vals)
+        if n >= 3
+            d1, d2 = abs(vals[n] - vals[n - 1]), abs(vals[n - 1] - vals[n - 2])
+            k * E >= 40 && d1 <= big(10)^-12 * scale && d2 <= big(10)^-6 * scale &&
+                return (v = vals[n], converged = true)
+            abs(vals[n]) > 1e6 * max(abs(vals[n - 1]), scale) &&
+                abs(vals[n - 1]) > 1e3 * max(abs(vals[n - 2]), scale) &&
+                return (v = big(Inf), converged = true)
+        end
+        E *= 2
+    end
+    (v = vals[end], converged = false)
+end
+
+"""
+    _testhelper_epath_verdict(m; rng, face = Set{Symbol}(), corners = false,
+                              precision = 256) -> Symbol
+
+The ε-path oracle (spec section 14; P4-7, P4-24a) on the face of `m` where the names
+`face` vanish, one catalytic subunit: along each direction (the six standard ones, or the
+corners with `corners`) and each order κ ∈ (RE first, 8, 2, ½, ε first) of the two
+limits, the turnover of the ε-network against the deletion law's value there
+(`_testhelper_limit_law`). The first verdict that applies:
+- `:no_path`: an excluding conformation has no path to the limit (`_testhelper_exclusion`);
+- `:nonunique`: an ε-network has more than one closed class on the face;
+- `:diverges`: some path's turnover grows without bound (a fast cycle of the ε-network
+  turns over);
+- `:del_nonunique`: the deletion law has no value on the face;
+- `:converges`: every path tends to it, to 1e-8 of the rate's scale;
+- `:wrong_limit`: every path settles, none on it, all on one other value;
+- `:direction_dependent`: otherwise (some paths tend to it and some do not, or some never
+  settle).
+"""
+function _testhelper_epath_verdict(m; rng, face::Set{Symbol} = Set{Symbol}(),
+                                   corners::Bool = false, precision::Int = 256)
+    setprecision(BigFloat, precision) do
+        am = _testhelper_single_subunit(_testhelper_lift(m))
+        any(((_, ex),) -> ex.failure !== :none, _testhelper_excluding(am)) &&
+            return :no_path
+        point = _testhelper_consistent_point(am, rng)
+        concs = Dict{Symbol, BigFloat}(x => big(10)^(2 * big(rand(rng)) - 1)
+                                       for x in EnzymeRates.metabolites(am))
+        c0 = merge(concs, Dict(z => big(0) for z in face))
+        vdel = _testhelper_limit_law(am, point, concs, face; rng)
+        vin = _testhelper_limit_law(am, point, concs, Set{Symbol}(); rng)
+        scale = max(isfinite(vdel) ? abs(vdel) : big(0), isfinite(vin) ? abs(vin) : big(1),
+                    big(10)^-30)
+        directions = corners ? _testhelper_corner_directions(am, rng) :
+                     _testhelper_standard_directions(am)
+        speeds = _testhelper_draw_speeds(am, rng)
+        outcomes, ends = Symbol[], BigFloat[]
+        for d in directions
+            function _testhelper_eps_network(ε)
+                _testhelper_network(am, point, c0; speeds, mode = :vanish, ε,
+                                    potentials = d.potentials, sigma = d.sigma,
+                                    theta = d.theta)
+            end
+            nw = _testhelper_eps_network(big(10)^-2)
+            _testhelper_steady_rate(nw; Λ = big(1.0)).nclasses > 1 && return :nonunique
+            span = _testhelper_epsilon_span(am, d)
+            for κ in (:re_first, 8, 2, 1 // 2, :eps_first)
+                r = _testhelper_path_limit(_testhelper_eps_network, κ, span,
+                                           length(nw.nodes), scale)
+                if !r.converged
+                    push!(outcomes, :unsettled)
+                elseif !isfinite(r.v)
+                    push!(outcomes, :infinite)
+                elseif abs(r.v - vdel) <= big(10)^-8 * scale
+                    push!(outcomes, :tends)
+                else
+                    push!(outcomes, :elsewhere)
+                    push!(ends, r.v)
+                end
+            end
+        end
+        :infinite in outcomes && return :diverges
+        isfinite(vdel) || return :del_nonunique
+        all(==(:tends), outcomes) && return :converges
+        all(==(:elsewhere), outcomes) &&
+            all(x -> abs(x - ends[1]) <= big(10)^-6 * scale, ends) && return :wrong_limit
+        :direction_dependent
+    end
+end
+
+"""
+Whether every standard direction (`_testhelper_standard_directions`) of `m`'s ε-path at an
+interior point approaches the deletion law at a power of ε (P4-25): over ε = 1e-9 … 1e-18
+the error relative to the rate is `C·ε^p` within 10% at every decade, `p` a positive
+multiple of ½, with exact rapid-equilibrium limits (`_testhelper_re_limit`) in 512-bit
+BigFloat; an error below 1e-60 throughout passes.
+"""
+function _testhelper_in_epath_window(m; rng)
+    setprecision(BigFloat, 512) do
+        am = _testhelper_single_subunit(_testhelper_lift(m))
+        point = _testhelper_consistent_point(am, rng)
+        concs = Dict{Symbol, BigFloat}(x => big(10)^(2 * big(rand(rng)) - 1)
+                                       for x in EnzymeRates.metabolites(am))
+        speeds = _testhelper_draw_speeds(am, rng)
+        vdel = _testhelper_re_limit(_testhelper_network(am, point, concs; speeds))
+        scale = max(abs(vdel), big(10)^-30)
+        eps = [big(10.0)^-j for j in 9:18]
+        all(_testhelper_standard_directions(am)) do d
+            errors = [abs(_testhelper_re_limit(_testhelper_network(
+                          am, point, concs; speeds, mode = :vanish, ε,
+                          potentials = d.potentials, sigma = d.sigma,
+                          theta = d.theta)) - vdel) / scale for ε in eps]
+            all(<(big(10)^-60), errors) && return true
+            any(iszero, errors) && return false
+            slopes = sort([log10(errors[j] / errors[j + 1]) for j in 1:(length(eps) - 1)])
+            p = slopes[(length(slopes) + 1) ÷ 2]
+            q = round(2 * p) / 2
+            q >= 1 // 2 && abs(p - q) < 0.05 || return false
+            C = errors[end] / eps[end]^q
+            all(j -> abs(errors[j] / (C * eps[j]^q) - 1) < 0.1, eachindex(eps))
+        end
+    end
+end
+
+"""Whether `{x ≥ 0 : M x = b}` is nonempty: phase 1 of the simplex method with Bland's
+rule, in exact rational arithmetic."""
+function _testhelper_feasible(M::Matrix{Rational{BigInt}}, b::Vector{Rational{BigInt}})
+    m, n = size(M)
+    flip = [x < 0 ? -1 : 1 for x in b]
+    T = hcat(flip .* M, Matrix{Rational{BigInt}}(LinearAlgebra.I, m, m), flip .* b)
+    basis = collect((n + 1):(n + m))
+    cost = [zeros(Rational{BigInt}, n); ones(Rational{BigInt}, m)]
+    while true
+        reduced(j) = cost[j] - sum(cost[basis[i]] * T[i, j] for i in 1:m)
+        j = findfirst(j -> reduced(j) < 0, 1:(n + m))
+        j === nothing && break
+        rows = [i for i in 1:m if T[i, j] > 0]
+        ratio = minimum(i -> T[i, end] / T[i, j], rows)
+        i = argmin(i -> basis[i], [i for i in rows if T[i, end] / T[i, j] == ratio])
+        T[i, :] ./= T[i, j]
+        for k in 1:m
+            k == i || iszero(T[k, j]) || (T[k, :] .-= T[k, j] .* T[i, :])
+        end
+        basis[i] = j
+    end
+    iszero(sum(cost[basis[i]] * T[i, end] for i in 1:m))
+end
+
+"""
+Admission's existence test as an exact LP (spec section 7): whether conformation `c` of
+`am` has a direction of vanishing exponents for its excluded constants that keeps every
+cycle row of the catalytic graph (`_testhelper_cycle_basis`) with every other constant
+fixed. A plain binding's equilibrium constant must fall (exponent at least 1, after
+scaling); any other excluded edge's exponent is free.
+"""
+function _testhelper_lp_existence(am, c::Int)
+    cm = EnzymeRates.catalytic(am)
+    excluded = [k for k in eachindex(cm.edges) if _testhelper_excludes(am, k, c)]
+    plain = [k for k in excluded if EnzymeRates._is_plain_binding(cm, cm.edges[k])]
+    isempty(plain) && return true
+    rows = _testhelper_cycle_basis((forms = cm.forms, steps = cm.edges))
+    isempty(rows) && return true
+    Z = Rational{BigInt}.(permutedims(reduce(hcat, rows)))
+    AP, AF = Z[:, plain], Z[:, setdiff(excluded, plain)]
+    _testhelper_feasible([AP AF -AF], -AP * ones(Rational{BigInt}, length(plain)))
+end
+
+"""
+Whether the test's own certified direction for conformation `c` of `am` exists and keeps
+every cycle row (P4-26): the component potentials of `_testhelper_exclusion` (free E's at
+0, every other source at 1, arcs rising by 1) give each excluded edge the exponent of its
+bound side over its unbound side; each arc's must be at least 1 and every row of
+`_testhelper_cycle_basis` must sum to 0.
+"""
+function _testhelper_certified(am, c::Int)
+    ex = _testhelper_exclusion(am, c)
+    ex.failure === :none || return false
+    cm = EnzymeRates.catalytic(am)
+    start = [x == ex.component[1] ? big(0.0) : big(1.0) for x in 1:maximum(ex.component)]
+    φ = _testhelper_component_potentials(ex, start, ones(BigFloat, length(ex.arcs)))
+    a = [_testhelper_excludes(am, k, c) ? φ[ex.component[e.to]] - φ[ex.component[e.from]] :
+         big(0.0) for (k, e) in enumerate(cm.edges)]
+    rows = _testhelper_cycle_basis((forms = cm.forms, steps = cm.edges))
+    all(arc -> a[arc[3]] >= 1, ex.arcs) && all(z -> iszero(sum(z .* a)), rows)
+end
+
+"""The uni-uni grid of admission's existence test: `E + S ⇌ E(S)` or `<-->`,
+`E(S) <--> E(P)` and `E + P ⇌ E(P)` or `<-->`, each step with each of `:OnlyA`,
+`:EqualAI` and `:NonequalAI`, 4 × 27 = 108 allosteric mechanisms, built unguarded."""
+function _testhelper_uniuni_grid()
+    tags = (:OnlyA, :EqualAI, :NonequalAI)
+    [EnzymeRates.AllostericMechanism(EnzymeRates._raw_mechanism(Meta.parse("""
+         begin
+             substrates: S
+             products: P
+             steps: begin
+                 E + S $s E(S) :: $tS
+                 E(S) <--> E(P) :: $tC
+                 E + P $p E(P) :: $tP
+             end
+         end"""), true))
+     for s in ("⇌", "<-->") for p in ("⇌", "<-->")
+     for tS in tags for tC in tags for tP in tags]
+end
+
+"""
+The concerted network of `n` catalytic subunits (research section 3.1, P4-24a): each
+subunit moves through its conformation's law network (`_testhelper_network`) on its own,
+and the oligomer flips only with every subunit at free E, at the single-subunit flip
+ratio. Its nodes are `(state, conformation)`, a state numbering one assignment of the law
+network's nodes to the subunits.
+"""
+function _testhelper_protomer_network(m, point, concs::AbstractDict; n::Int,
+                                      speeds::Matrix{BigFloat})
+    single = _testhelper_network(m, point, concs; speeds)
+    conformation(u) = single.nodes[u][2]
+    states = Vector{Int}[]
+    for c in sort!(unique(last.(single.nodes)))
+        members = [u for u in eachindex(single.nodes) if conformation(u) == c]
+        append!(states, [collect(t) for t in Iterators.product(ntuple(_ -> members, n)...)])
+    end
+    index = Dict(s => q for (q, s) in enumerate(states))
+    links = _testhelper_Link[]
+    for (q, s) in enumerate(states), p in 1:n, l in single.links
+        conformation(l.i) == conformation(l.j) && l.i == s[p] || continue
+        t = copy(s)
+        t[p] = l.j
+        push!(links, _testhelper_Link(q, index[t], l.f, l.r, l.w, l.fast))
+    end
+    for l in single.links
+        conformation(l.i) == conformation(l.j) && continue
+        push!(links, _testhelper_Link(index[fill(l.i, n)], index[fill(l.j, n)], l.f, l.r,
+                                      0, true))
+    end
+    _testhelper_Network([(q, conformation(s[1])) for (q, s) in enumerate(states)], links)
+end
+
+"""The steady-state turnover per active site of the concerted `n`-subunit network of `m`
+(`_testhelper_protomer_network`), its rapid-equilibrium edges at `Λ` times `speeds`."""
+function _testhelper_protomer_rate(m, point, concs::AbstractDict; n::Int,
+                                   speeds::Matrix{BigFloat} = fill(big(1.0), size(point.K)),
+                                   Λ::BigFloat = big(10.0)^30)
+    network = _testhelper_protomer_network(m, point, concs; n, speeds)
+    _testhelper_steady_rate(network; Λ).v / n
 end
 
 # ── Mechanism test specifications ───────────────────────────────────────────

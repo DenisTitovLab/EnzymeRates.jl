@@ -1,5 +1,5 @@
-# ABOUTME: Tests of the test helpers' mechanism reader and exact steady-state oracle, and
-# ABOUTME: of the laws over regenerated populations: agreement, detailed balance, dimension.
+# ABOUTME: Tests of the test helpers' mechanism reader and of the exact, RE-speed, ε-path,
+# ABOUTME: LP and n-protomer oracles, and of the laws over regenerated populations.
 using Random
 
 # The ping-pong-capable bi-bi reaction with two catalytic subunits: its seeds hold every
@@ -503,5 +503,339 @@ end
         @test :K_Rreg in indep
         @test !any(k -> occursin("Rreg", string(k)), keys(dep))
         _testhelper_check_law_against_oracle(b10)
+    end
+end
+
+@testset "the unguarded macro builds what the guard refuses" begin
+    # R2 (spec section 7), which the macro refuses: at zero product its inactive limit
+    # depends on how fast the isomerization vanishes. The unguarded macro builds it, as
+    # the constructors do from the walker's raw value.
+    r2 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            F + P ⇌ E(P)      :: EqualAI
+            F <--> E          :: OnlyA
+        end
+    end
+    @test r2 isa EnzymeRates.AllostericMechanism
+    @test r2 == EnzymeRates.AllostericMechanism(EnzymeRates._raw_mechanism(:(begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            F + P ⇌ E(P)      :: EqualAI
+            F <--> E          :: OnlyA
+        end
+    end), true))
+    @test_throws ErrorException @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            F + P ⇌ E(P)      :: EqualAI
+            F <--> E          :: OnlyA
+        end
+    end
+    mm = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E + P
+        end
+    end
+    @test mm == EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E + P
+        end
+    end)
+end
+
+@testset "the oracle's faces follow the spec's list" begin
+    bibi = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P, Q) ⇌ E(Q) + P
+            E(Q) ⇌ E + Q
+        end
+    end
+    @test _testhelper_faces(bibi) == [Set{Symbol}(), Set([:P, :Q]), Set([:A, :B]),
+                                      Set([:A]), Set([:B]), Set([:P]), Set([:Q])]
+    inhibited = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        modifiers: I
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P, Q) ⇌ E(Q) + P
+            E(Q) ⇌ E + Q
+            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))
+        end
+    end
+    faces = _testhelper_faces(inhibited)
+    @test length(faces) == 14
+    @test faces[8:14] == [union(z, Set([:I])) for z in faces[1:7]]
+    terter = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B, C
+        products: P, Q, R
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) + C ⇌ E(A, B, C)
+            E(A, B, C) <--> E(P, Q, R)
+            E(P, Q, R) ⇌ E(Q, R) + P
+            E(Q, R) ⇌ E(R) + Q
+            E(R) ⇌ E + R
+        end
+    end
+    @test length(_testhelper_faces(terter)) == 9
+    # P's modifier copy carries P's name: it is zeroed with P, and P adds no modifier face.
+    copy_P = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+            E(S) + P::Mod ⇌ E(P::Mod, S)
+        end
+    end
+    @test _testhelper_faces(copy_P) == [Set{Symbol}(), Set([:P]), Set([:S])]
+    # A regulatory-site ligand is never zeroed.
+    regulated = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R
+        steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: EqualAI
+            E(P) ⇌ E + P      :: EqualAI
+        end
+        regulatory_site(1): R::OnlyA
+    end
+    @test _testhelper_faces(regulated) == [Set{Symbol}(), Set([:P]), Set([:S])]
+end
+
+@testset "the RE-speed oracle's error falls as 1/Λ on Michaelis–Menten" begin
+    mm = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E + P
+        end
+    end
+    setprecision(BigFloat, 256) do
+        rng = Random.MersenneTwister(11)
+        point = _testhelper_consistent_point(mm, rng)
+        concs = Dict(:S => big"0.7", :P => big"1.3")
+        speeds = _testhelper_draw_speeds(mm, rng)
+        net = _testhelper_network(mm, point, concs; speeds)
+        law = _testhelper_package_law(mm, point, concs)
+        # The steady state approaches the law as c/Λ, so the gap times Λ is constant.
+        gap(Λ) = (_testhelper_steady_rate(net; Λ).v - law) * Λ
+        @test isapprox(gap(big(10.0)^10), gap(big(10.0)^20); rtol = 1e-3)
+        @test abs(_testhelper_re_limit(net) - law) <= big(10)^-60 * abs(law)
+        @test _testhelper_respeed_verdicts(mm; rng) == [:agree, :agree, :agree]
+    end
+end
+
+@testset "the RE-speed oracle sees a trap's pattern and an unfed closed class" begin
+    # LDH-like: at zero products the forms behind E(P) + Q ⇌ E(P, Q) trap enzyme, and
+    # at Q = 0 the segment of free E splits; both limits move with the RE speeds.
+    ldh = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P) + Q ⇌ E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + P <--> E(P)
+            E + Q ⇌ E(Q)
+        end
+    end
+    @test _testhelper_respeed_verdicts(ldh; rng = Random.MersenneTwister(1)) ==
+          [:agree, :pattern, :agree, :agree, :agree, :agree, :pattern]
+    # At zero products F(P, P) is a closed set the enzyme never leaves.
+    fuzz5 = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E ⇌ F
+            E + I ⇌ F(I)
+            (E + P <--> E(P), E(P) + P <--> E(P, P))
+            E + S <--> E(P)
+            E + S ⇌ F(S)
+            E(P, P) + S <--> F(P, P) + P
+        end
+    end
+    @test _testhelper_respeed_verdicts(fuzz5; rng = Random.MersenneTwister(2))[2] ===
+          :nonunique
+end
+
+@testset "the RE-speed oracle sees RE turnover beside a steady-state route diverge" begin
+    beside = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) ⇌ E(P)
+            E + P ⇌ E(P)
+            E(S) <--> F(P)
+            F(P) <--> E + P
+        end
+    end
+    @test _testhelper_respeed_verdicts(beside; rng = Random.MersenneTwister(3))[1] ===
+          :diverges
+end
+
+@testset "the ε-path oracle rejects islands, and R2 only at P = 0" begin
+    # R3 and R4 strand F behind tagged chemistry in the inactive conformation, an island:
+    # its weight follows the potential the path gives it. The research ε-path read two
+    # orders; this oracle reads five, so an island may read direction-dependent or a
+    # wrong limit.
+    r3 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ E(P)      :: EqualAI
+            E <--> F          :: OnlyA
+            F + I ⇌ F(I)      :: EqualAI
+        end
+    end
+    r4 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: NonequalAI
+            E + P ⇌ E(P)      :: EqualAI
+            F ⇌ E             :: OnlyA
+        end
+    end
+    @test _testhelper_epath_verdict(r3; rng = Random.MersenneTwister(31)) in
+          (:direction_dependent, :wrong_limit)
+    @test _testhelper_epath_verdict(r4; rng = Random.MersenneTwister(32)) in
+          (:direction_dependent, :wrong_limit)
+    r2 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            F + P ⇌ E(P)      :: EqualAI
+            F <--> E          :: OnlyA
+        end
+    end
+    @test _testhelper_epath_verdict(r2; rng = Random.MersenneTwister(33)) === :converges
+    @test _testhelper_epath_verdict(r2; rng = Random.MersenneTwister(34),
+                                    face = Set([:P])) === :direction_dependent
+    @test _testhelper_epath_verdict(r2; rng = Random.MersenneTwister(35),
+                                    face = Set([:S])) === :converges
+    # An exclusion that no direction can reach: no path.
+    no_path = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end
+    @test _testhelper_epath_verdict(no_path; rng = Random.MersenneTwister(36)) === :no_path
+end
+
+@testset "an admitted law converges inside the ε window" begin
+    # The inactive conformation's chemistry is blocked: the error falls as ε^σ.
+    chem = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: OnlyA
+            E(P) ⇌ E + P      :: EqualAI
+        end
+    end
+    @test _testhelper_in_epath_window(chem; rng = Random.MersenneTwister(41))
+    @test _testhelper_epath_verdict(chem; rng = Random.MersenneTwister(42)) === :converges
+end
+
+@testset "the test's certified direction satisfies every cycle row" begin
+    grid = _testhelper_uniuni_grid()
+    @test length(grid) == 108
+    certified = 0
+    for am in grid
+        ex = _testhelper_exclusion(am, 2)
+        @test _testhelper_certified(am, 2) == (ex.failure === :none)
+        certified += ex.failure === :none
+    end
+    # 44 tag sets with an :OnlyA group have a direction, and the 32 without one.
+    @test certified == 76
+end
+
+@testset "the exact LP agrees with the test's graph test on the uni-uni grid" begin
+    grid = _testhelper_uniuni_grid()
+    @test count(am -> _testhelper_lp_existence(am, 2) ==
+                      (_testhelper_exclusion(am, 2).failure === :none), grid) == 108
+    @test count(am -> _testhelper_lp_existence(am, 2), grid) == 76
+end
+
+@testset "the corner set holds every corner up to 128" begin
+    rng = Random.MersenneTwister(51)
+    seven = _testhelper_corners(7, rng)
+    @test length(seven) == 128
+    @test Set(seven) == Set(digits(x; base = 2, pad = 7) for x in 0:127)
+    eight = _testhelper_corners(8, rng)
+    @test length(eight) == 128 && length(Set(eight)) == 128
+    @test all(c -> length(c) == 8 && all(in((0, 1)), c), eight)
+    @test _testhelper_corners(0, rng) == [Int[]]
+end
+
+@testset "the n-protomer oracle equals the one-subunit solver at n = 1" begin
+    am = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R
+        steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: OnlyA
+            E(P) ⇌ E + P      :: EqualAI
+        end
+        regulatory_site(2): R::NonequalAI
+    end
+    setprecision(BigFloat, 256) do
+        rng = Random.MersenneTwister(61)
+        point = _testhelper_consistent_point(am, rng)
+        concs = Dict{Symbol, BigFloat}(x => big(10)^(2 * big(rand(rng)) - 1)
+                                       for x in EnzymeRates.metabolites(am))
+        exact = _testhelper_steady_state_rate(am, point, concs)
+        @test abs(_testhelper_protomer_rate(am, point, concs; n = 1) - exact) <=
+              big(10)^-20 * abs(exact)
+        # Two subunits, each at one of a conformation's three law forms: nine states per
+        # conformation.
+        two = _testhelper_protomer_network(am, point, concs; n = 2,
+                                           speeds = _testhelper_draw_speeds(am, rng))
+        @test length(two.nodes) == 3^2 + 3^2
     end
 end
