@@ -249,8 +249,8 @@ Labels:
 - `substrates:` and `products:` (required) name the reactants, without atoms; atoms
   belong in [`@enzyme_reaction`](@ref).
 - `modifiers:` names the metabolites that bind the enzyme without reacting, such as
-  inhibitors and activators; the mechanism's reaction lists them as competitive
-  inhibitors. A substrate or product listed here may bind as a modifier as well.
+  inhibitors and activators. A substrate or product listed here may bind as a modifier
+  as well.
 - `steps:` (required) holds the steps in one `begin ... end` block.
 - `substrates:`, `products:` and `modifiers:` may repeat; their names accumulate. The
   allosteric labels and step tags belong in [`@allosteric_mechanism`](@ref).
@@ -799,9 +799,16 @@ end
     _compiled_mechanism(raw) -> EnzymeMechanism or AllostericEnzymeMechanism
 
 The compiled mechanism of `raw`, the walker's value for a mechanism macro's block
-(`_raw_mechanism`): the macros' expansion calls it, so the constructors and the boundary
-check (`_check_well_posed`) check the mechanism when the expanded code runs.
+(`_raw_mechanism`): the macros' expansion calls it, so its checks run when the expanded
+code runs. It checks `raw`'s names as a reaction's (`_placeholder_reaction`), then the
+constructors (`Mechanism(raw)`, `AllostericMechanism(raw)`) and the boundary check
+(`_check_well_posed`) check the mechanism.
 """
-_compiled_mechanism(raw::RawMechanism) = EnzymeMechanism(_well_posed(Mechanism(raw)))
-_compiled_mechanism(raw::RawAllostericMechanism) =
+function _compiled_mechanism(raw::RawMechanism)
+    _placeholder_reaction(raw)
+    EnzymeMechanism(_well_posed(Mechanism(raw)))
+end
+function _compiled_mechanism(raw::RawAllostericMechanism)
+    _placeholder_reaction(raw.catalytic)
     AllostericEnzymeMechanism(_well_posed(AllostericMechanism(raw)))
+end

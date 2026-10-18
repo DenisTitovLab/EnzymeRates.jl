@@ -4,27 +4,26 @@
 # ─── Labels, form names and step sides ────────────────────────────────
 
 """Whether `x` is the competitive-inhibitor copy of a substrate or product of `ctx` (a
-mechanism, or the reaction of one under construction; `_is_reactant`): a reactant bound
-as a modifier."""
+mechanism or a reaction; `_is_reactant`): a reactant bound as a modifier."""
 _is_reactant_copy(x::Metabolite, ctx) =
     x isa CompetitiveInhibitor && _is_reactant(ctx, name(x))
 
 """
 A metabolite as written in parameter names: its name, with suffix `mod` on a
-competitive-inhibitor copy of a substrate or product of `ctx` (a mechanism, or the
-reaction of one under construction; `_is_reactant_copy`), so the copy's forms and
-constants stay distinct from those of the reactant itself. A competitive inhibitor that
-is no reactant binds only as a modifier, so its name stands bare.
+competitive-inhibitor copy of a substrate or product of `ctx` (a mechanism or a
+reaction; `_is_reactant_copy`), so the copy's forms and constants stay distinct from
+those of the reactant itself. A competitive inhibitor that is no reactant binds only as
+a modifier, so its name stands bare.
 """
 _met_label(x::Metabolite, ctx) =
     _is_reactant_copy(x, ctx) ? String(name(x)) * "mod" : String(name(x))
 
 """
-An enzyme form of `ctx` (a mechanism, or the reaction of one under construction) as
-written in parameter names: its conformation label, then the labels (`_met_label`) of its
-bound metabolites without a separator, then, for a residual, `_res`, `_plus<name>` per
-substrate it adds and `_minus<name>` per product it subtracts, each in name order: `E`,
-`EAB`, `EPmodQ`, `EB_res_plusA_minusP`.
+An enzyme form as parameter names write it for `ctx` (a mechanism or a reaction): its
+conformation label, then the labels (`_met_label`) of its bound metabolites without a
+separator, then, for a residual, `_res`, `_plus<name>` per substrate it adds and
+`_minus<name>` per product it subtracts, each in name order: `E`, `EAB`, `EPmodQ`,
+`EB_res_plusA_minusP`.
 """
 function _form_label(sp::Species, ctx)
     head = String(conformation(sp)) * join(_met_label(x, ctx) for x in bound(sp))
@@ -35,31 +34,76 @@ function _form_label(sp::Species, ctx)
 end
 
 """
-A step side of `ctx` (a mechanism, or the reaction of one under construction) as
-written in parameter names: its enzyme form (`_form_label`) followed by its free
-metabolites (`_met_label`), joined by `_`, e.g. `"EA_B"` for `E(A) + B`.
+A step side as parameter names write it for `ctx` (a mechanism or a reaction): its
+enzyme form (`_form_label`) followed by its free metabolites (`_met_label`), joined by
+`_`, e.g. `"EA_B"` for `E(A) + B`.
 """
 _side_label(form::Species, mets::Vector{Metabolite}, ctx) =
     join([_form_label(form, ctx); [_met_label(x, ctx) for x in mets]], "_")
 
 """
 The two sides of `s` in its stored direction, as parameter names write them for `ctx`
-(a mechanism, or the reaction of one under construction): `from_species` with the
-consumed metabolites, then `to_species` with the released ones. Every step constant is
-named after them.
+(a mechanism or a reaction): `from_species` with the consumed metabolites, then
+`to_species` with the released ones. Every step constant is named after them.
 """
 _forward_sides(s::Step, ctx) =
     (_side_label(from_species(s), consumed(s), ctx),
      _side_label(to_species(s), released(s), ctx))
 
-"""A step of `ctx` (a mechanism, or the reaction of one under construction) as text: its
-entry side, an arrow (`⇌` rapid equilibrium, `<-->` steady state) and its exit side. A
-side lists the enzyme form as parameter names write it (`_form_label`), then the
-metabolites the step consumes or releases."""
+"""A step as text for `ctx` (a mechanism or a reaction): its entry side, an arrow (`⇌`
+rapid equilibrium, `<-->` steady state) and its exit side. A side lists the enzyme form
+as parameter names write it (`_form_label`), then the metabolites the step consumes or
+releases."""
 _step_text(s::Step, ctx) =
     join((_form_label(from_species(s), ctx), name.(consumed(s))...), " + ") *
     (is_equilibrium(s) ? " ⇌ " : " <--> ") *
     join((_form_label(to_species(s), ctx), name.(released(s))...), " + ")
+
+# ─── Graph form names and step sides ─────────────────────────────────
+
+"""Entry `i` as names write it: its name, with `mod` on a reactant's modifier copy; a
+modifier-only name stays bare."""
+_entry_label(m::Mechanism, i::Int) =
+    m.table[i].modifier && _is_reactant(m, m.table[i].name) ?
+        string(m.table[i].name, "mod") : String(m.table[i].name)
+
+"""Form `f`'s name: its label, its bound entries' labels in table order, then any
+residual as `_res`, `_plus<name>` per substrate it adds and `_minus<name>` per product it
+subtracts (`E`, `EAB`, `EPmodQ`, `EB_res_plusA_minusP`)."""
+function _form_name(m::Mechanism, f::Int)
+    x = m.forms[f]
+    io = IOBuffer()
+    print(io, m.conformations[x.conformation])
+    foreach(i -> print(io, _entry_label(m, i)), entries(x.bound))
+    if _has_residual(x)
+        print(io, "_res")
+        foreach(i -> print(io, "_plus", m.table[i].name), entries(x.added))
+        foreach(i -> print(io, "_minus", m.table[i].name), entries(x.subtracted))
+    end
+    String(take!(io))
+end
+
+"""Form `f` as a mechanism macro writes it: `E(NAD, P)`, `E(A::Mod)`, `E(I)`,
+`E(B; residual = A - P)`."""
+function _form_text(m::Mechanism, f::Int)
+    x = m.forms[f]
+    mets = [_is_reactant(m, m.table[i].name) && m.table[i].modifier ?
+            "$(m.table[i].name)::Mod" : "$(m.table[i].name)" for i in entries(x.bound)]
+    terms = join([m.table[i].name for i in entries(x.added)], " + ") *
+            join(" - $(m.table[i].name)" for i in entries(x.subtracted))
+    res = _has_residual(x) ? "; residual = " * lstrip(terms) : ""
+    "$(m.conformations[x.conformation])(" * join(mets, ", ") * res * ")"
+end
+
+"""A step side: form `f`'s name and the labels of the free entries `c`, joined by `_`
+(`EA_B` for `E(A) + B`)."""
+_side_name(m::Mechanism, f::Int, c::Counts) =
+    join([_form_name(m, f); [_entry_label(m, i) for i in entries(c)]], "_")
+"""An edge's two sides in its stored direction; every step constant is named after
+them."""
+_sides(m::Mechanism, e::Edge) =
+    (_side_name(m, e.from, e.consumed), _side_name(m, e.to, e.released))
+_sides(m::Mechanism, k::Int) = _sides(m, m.edges[k])
 
 # ─── name(p::Parameter, m) chokepoint ─────────────────────────────────
 #

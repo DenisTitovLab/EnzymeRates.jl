@@ -191,27 +191,28 @@ _testhelper_placeholder_reaction(m) = let g = _testhelper_graph(m)
 end
 
 """
-Test that `m` stores its steps in the direction the orientation tiers give: orienting the
-stored steps of a group again (`_canonical_step_direction`, then `_orient_tied_steps`)
-leaves them as stored, and writing every step the other way round, in the reverse order,
-builds the same mechanism.
+Test that `m` stores its steps in the direction the orientation tiers give: `m` written
+back as raw input (`_raw`), each step as stored, has no step that canonical form turns
+(`_canonicalize`), group by group, and writing every step the other way round, in the
+reverse order, builds the same mechanism.
 """
 function _testhelper_check_stored_orientation(m)
     mech = _testhelper_lift(m)
-    rxn = _testhelper_placeholder_reaction(mech)
-    groups = EnzymeRates.steps(mech)
-    sides = EnzymeRates._entry_sides(groups)
-    for group in groups
-        decided = [EnzymeRates._canonical_step_direction(s, sides) for s in group]
-        @test EnzymeRates._orient_tied_steps(rxn, first.(decided), last.(decided)) == group
+    raw = EnzymeRates._raw(mech)
+    allo = raw isa EnzymeRates.RawAllostericMechanism
+    cat = allo ? raw.catalytic : raw
+    # `_raw` writes edge `k` as step `k`.
+    flipped = EnzymeRates._canonicalize(cat).flipped
+    for members in EnzymeRates._group_members(EnzymeRates.catalytic(mech))
+        @test !any(flipped[members])
     end
-    written = [reverse(EnzymeRates._reversed.(g)) for g in reverse(groups)]
-    rebuilt = mech isa EnzymeRates.Mechanism ?
-        EnzymeRates.Mechanism(rxn, written) :
-        EnzymeRates.AllostericMechanism(rxn, written,
-            reverse(EnzymeRates.cat_allo_states(mech)),
-            EnzymeRates.catalytic_multiplicity(mech),
-            EnzymeRates.regulatory_sites(mech))
+    written = EnzymeRates.RawMechanism(cat.substrates, cat.products, cat.modifiers,
+        reverse([EnzymeRates.RawStep(s.to, s.from, s.released, s.consumed,
+                                     s.rapid_equilibrium) for s in cat.steps]),
+        reverse(cat.group))
+    rebuilt = !allo ? EnzymeRates.Mechanism(written) :
+        EnzymeRates.AllostericMechanism(EnzymeRates.RawAllostericMechanism(written,
+            raw.cat_allo_states, raw.catalytic_multiplicity, raw.sites))
     @test rebuilt == mech
 end
 

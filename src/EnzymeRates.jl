@@ -28,7 +28,6 @@ using FunctionWrappers: FunctionWrapper
 
 include("types.jl")
 include("names.jl")
-include("reaction_graph.jl")
 include("dsl.jl")
 include("sym_poly_for_rate_eq_derivation.jl")
 include("rate_eq_derivation.jl")

@@ -874,7 +874,7 @@ function _seed_variants(m::Mechanism, rxn::EnzymeReaction)
     complexes = [to_species(s) for s in isos]
     built = Vector{Vector{Step}}[[merged];
         filter(!isnothing, [_eliminate_form(merged, x) for x in complexes])]
-    bases = [first(_canonical_order(rxn, base)) for base in built]
+    bases = [_canonical_order(rxn, base) for base in built]
     lumping_twin(gs) = all(complexes) do x
         at_x = [(s, group) for group in gs for s in group
                 if x in (from_species(s), to_species(s))]
@@ -1634,14 +1634,14 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     for cn in cns
         for tags in ktags
             push!(results,
-                  AllostericMechanism(reaction(m), steps(m), tags, cn, RegulatorySite[]))
+                  AllostericMechanism(rxn, steps(m), tags, cn, RegulatorySite[]))
         end
         # V-type: no :OnlyA binding, every chemistry group :OnlyA. The inactive
         # state binds identically but cannot catalyze, so L folds into kcat and is
         # unobservable — emit only paired with a declared regulator.
         any(chem) || continue
         for reg in regs, tag in (:OnlyA, :OnlyI)
-            push!(results, AllostericMechanism(reaction(m), steps(m), vtags, cn,
+            push!(results, AllostericMechanism(rxn, steps(m), vtags, cn,
                 [RegulatorySite([reg], cn, [tag])]))
         end
     end

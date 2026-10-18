@@ -128,35 +128,31 @@ end
 """
 The constants of `m` (values by name in `all_params`, from `all_parameters`) under the
 positional names a textbook rate law reads, by role. Written step `i` (in the order of
-`raw`'s written steps) takes the constants of the stored step it matches, in the
-written direction: `k{i}f` and `k{i}r` at steady state, and at rapid equilibrium `K{i}`,
-a binding's dissociation constant or, for any other step, the equilibrium constant of the
-written direction. The inactive conformation of a `:NonequalAI` group adds `k{i}f_T`,
-`k{i}r_T` or `K{i}_T`. The constructor stores every binding with its metabolite taken up,
-so a written binding's direction is read from its metabolite's role: a product's binding
-is written as its release. Every spec follows that convention; a binding written against
-it (`E + P <--> E(P)`) would get its constants swapped. No spec in `MECHANISM_TEST_SPECS`
-writes a non-binding step against its stored direction, so the suite never inverts `K`
-or swaps `k{i}f` and `k{i}r` for such a step. A ligand of regulatory site `j`
-(the written order of `raw`'s sites) gives `K_<ligand>_reg{j}` and, when its inactive
-conformation has a constant of its own, `K_<ligand>_T_reg{j}`. `raw` is the mechanism as
-written, the DSL walker's value (`_testhelper_MechanismTestSpec.raw`). Every entry of
-`all_params` passes through.
+`raw`'s written steps) takes the constants of the edge it became (`_canonicalize`), in
+the written direction: `k{i}f` and `k{i}r` at steady state, and at rapid equilibrium
+`K{i}`, a binding's dissociation constant or, for any other step, the equilibrium
+constant of the written direction. The inactive conformation of a `:NonequalAI` group
+adds `k{i}f_T`, `k{i}r_T` or `K{i}_T`. No spec in `MECHANISM_TEST_SPECS` writes a
+non-binding step against its stored direction, so the suite never inverts `K` or swaps
+`k{i}f` and `k{i}r` for such a step. A ligand of regulatory site `j` (the written order
+of `raw`'s sites) gives `K_<ligand>_reg{j}` and, when its inactive conformation has a
+constant of its own, `K_<ligand>_T_reg{j}`. `raw` is the mechanism as written, the DSL
+walker's value (`_testhelper_MechanismTestSpec.raw`); errors unless its catalytic steps
+canonicalize to `m`'s catalytic graph. Every entry of `all_params` passes through.
 """
 function _testhelper_written_params(m, all_params::NamedTuple; raw)
     mech = _testhelper_lift(m)
     allo = mech isa EnzymeRates.AllostericMechanism
     g = _testhelper_graph(mech)
-    stored = first.(EnzymeRates._flat_steps(EnzymeRates.steps(mech)))
-    written = EnzymeRates._step_groups(allo ? raw.catalytic : raw)
+    c = EnzymeRates._canonicalize(allo ? raw.catalytic : raw)
+    c.mechanism == EnzymeRates.catalytic(mech) ||
+        error("raw writes another mechanism than m")
+    # The adapter's steps run group by group, each group in edge order.
+    flat = reduce(vcat, EnzymeRates._group_members(EnzymeRates.catalytic(mech)))
     out = Pair{Symbol, Any}[]
-    for (i, w) in enumerate(Iterators.flatten(written))
-        j = findfirst(x -> x == w || x == EnzymeRates._reversed(w), stored)
-        j === nothing && error("written step $i matches no stored step")
-        s = g.steps[j]
-        forward = EnzymeRates.is_binding(w) ?
-                  !(EnzymeRates.bound_metabolite(w) isa EnzymeRates.Product) :
-                  stored[j] == w
+    for i in eachindex(c.edge_of)
+        s = g.steps[findfirst(==(c.edge_of[i]), flat)]
+        forward = !c.flipped[i]
         tag = allo ? g.tags[s.group] : :None
         states = tag === :NonequalAI ? ((s.names, ""), (s.inactive_names, "_T")) :
                  ((s.names, ""),)

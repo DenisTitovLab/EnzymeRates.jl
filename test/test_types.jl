@@ -937,8 +937,8 @@ end
 
         # The Step constructor does NOT canonicalize iso steps (RE or SS) —
         # iso direction depends on the mechanism's graph context and the step's
-        # kinetic group, and is decided by `_canonical_step_direction` /
-        # `_orient_tied_steps` in the Mechanism / AllostericMechanism constructor.
+        # kinetic group, and is decided by `_orientation` (with
+        # `_align_tied_groups!`) in the Mechanism / AllostericMechanism constructor.
         # At the bare-Step level, direction is preserved.
         re_fwd = ER.Step(ES, EP, ER.Metabolite[], ER.Metabolite[], true)
         re_rev = ER.Step(EP, ES, ER.Metabolite[], ER.Metabolite[], true)
@@ -1268,10 +1268,10 @@ end
         m_perm = ER.Mechanism(rxn, [[rel], [bind], [iso]])
         @test ER._flat_steps(m) == ER._flat_steps(m_perm)
         @test m == m_perm && hash(m) == hash(m_perm)
-        # Steps and groups sort by content (`_step_canonical_key`), each form by its
-        # content key with free E first. The residual form E(; residual = A - P) binds
-        # nothing, so its steps come before those of E(A), though its internal name,
-        # E_res_+A_-P, sorts after EA.
+        # Steps and groups sort by content (`isless(::Edge)`), each form by its
+        # content (`isless(::Form)`) with free E first. The residual form
+        # E(; residual = A - P) binds nothing, so its steps come before those of E(A),
+        # though its internal name, E_res_+A_-P, sorts after EA.
         pingpong = ER.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
@@ -1437,14 +1437,14 @@ end
     end
 
     @testset "_sig_of / _mechanism_from_sig roundtrip" begin
-        # One fixture holds every Sig leaf kind: all four metabolite tags (a
-        # competitive inhibitor and an allosteric regulator each bound by a step), a
-        # covalent residual, a Theorell–Chance step and multi-element atom data.
-        # Pair{Symbol,Int} is NOT a valid type-parameter value; atoms must encode
-        # as Tuple{Symbol,Int} leaves.
+        # One fixture built from Step groups: two substrates, two products, a
+        # modifier-only name bound by a step, a covalent residual, a Theorell–Chance step,
+        # and steps at rapid equilibrium and at steady state. It holds no reactant's
+        # modifier copy. The reaction supplies only its reactants' names; its atoms and
+        # multiplicities do not reach the Sig.
         A, B = ER.Substrate(:A), ER.Substrate(:B)
         P, Q = ER.Product(:P), ER.Product(:Q)
-        I, R = ER.CompetitiveInhibitor(:I), ER.AllostericRegulator(:R)
+        I = ER.CompetitiveInhibitor(:I)
         _testhelper_rxn(regs) = ER.EnzymeReaction(
             [ER.ReactantAtoms(A, [:C => 2, :X => 1]), ER.ReactantAtoms(B, [:N => 1]),
              ER.ReactantAtoms(P, [:C => 2]), ER.ReactantAtoms(Q, [:N => 1, :X => 1])],
@@ -1457,23 +1457,15 @@ end
                   [ER.Step(F, EQ, [B], none, false)],
                   [ER.Step(EA, EQ, [B], [P], false)],                  # Theorell–Chance
                   [ER.Step(E, EQ, [Q], none, true)],
-                  [ER.Step(E, _testhelper_sp([I]), [I], none, true)],
-                  [ER.Step(EA, _testhelper_sp([A, R]), [R], none, true)]]
-        regs = [ER.RegulatorMults(I, [1]), ER.RegulatorMults(R, [1, 2])]
+                  [ER.Step(E, _testhelper_sp([I]), [I], none, true)]]
+        regs = [ER.RegulatorMults(I, [1])]
         m = ER.Mechanism(_testhelper_rxn(regs), groups)
 
-        for x in (A, P, I, R)
-            @test ER._to_sig(x) == (nameof(typeof(x)), ER.name(x))
-        end
-        @test ER._to_sig(F) == ((), :E, (((:Substrate, :A),), ((:Product, :P),)))
-
         sig = ER._sig_of(m)
-        @test sig isa Tuple
-        @test length(sig) == 2   # (reaction_sig, steps_sig)
-        @test ER._mechanism_from_sig(sig) == m   # roundtrip
+        @test sig isa Tuple{Vararg{Int}}
+        @test ER._mechanism_from_sig(sig...) == m   # roundtrip
 
-        # CRITICAL: sig MUST be usable as a type parameter. Throws TypeError
-        # if any leaf is invalid (Pair, Vector, DataType inside value-tuple).
+        # The Sig is the compiled type's only parameter.
         em_type = ER.EnzymeMechanism{sig}
         @test em_type <: ER.EnzymeMechanism
         em_inst = em_type()
@@ -1482,8 +1474,8 @@ end
         # Roundtrip through the type-parameter form preserves everything.
         @test ER.Mechanism(em_inst) == m
 
-        # A regulator that no step binds is left out of the Sig, so the mechanism
-        # declaring it compiles to the same type as the one without it.
+        # A regulator that no step binds is no part of the mechanism, so the mechanism
+        # whose reaction declares it compiles to the same type as the one without it.
         U = ER.CompetitiveInhibitor(:U)
         m_unbound = ER.Mechanism(_testhelper_rxn([regs; ER.RegulatorMults(U, [1])]), groups)
         @test ER._sig_of(m_unbound) == sig
@@ -1673,19 +1665,6 @@ end
         err = _testhelper_thrown(() -> ER.Step(EA, EQ, [A], [A], false))
         @test err isa ErrorException
         @test occursin("both consumed and released", err.msg)
-    end
-
-    @testset "sort key orders bindings and isomerizations" begin
-        # Each form by its content key, free E first, then the metabolites the step takes
-        # up and gives off as (name, modifier copy) pairs, then the RE/SS flag.
-        s = ER.Step(E, EA, [A], ER.Metabolite[], true)
-        @test ER._step_canonical_key(s) ==
-              ((false, ("E", [], [], [])), (true, ("E", [("A", false)], [], [])),
-               [("A", false)], [], true)
-        iso = ER.Step(EAB, _testhelper_sp([P, Q]), ER.Metabolite[], ER.Metabolite[], false)
-        @test ER._step_canonical_key(iso) ==
-              ((true, ("E", [("A", false), ("B", false)], [], [])),
-               (true, ("E", [("P", false), ("Q", false)], [], [])), [], [], false)
     end
 end
 

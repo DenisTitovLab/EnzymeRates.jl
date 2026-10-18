@@ -8,7 +8,7 @@
 # Orients an isomerization Step substrate-rich side → product-rich side (ties
 # by lex on form name) and returns its (source, destination) Species. A raw topology
 # step keeps the direction it was built in; the mechanism constructors orient
-# isomerizations (`_canonicalize_step_directions`).
+# isomerizations (`_orientation`).
 function _testhelper_iso_orient(s::EnzymeRates.Step)
     from, to = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
     nf = count(b -> b isa EnzymeRates.Substrate, EnzymeRates.bound(from))
@@ -4823,7 +4823,7 @@ end
             AllostericEnzymeMechanism
     end
 
-    # 4. property: exactly one new cat_steps group; its tag is
+    # 4. property: exactly one new catalytic group; its tag is
     # :EqualAI. Pre-existing tags are unchanged.
     for r in result
         @test length(EnzymeRates.steps(r)) == length(EnzymeRates.steps(am)) + 1
@@ -6596,7 +6596,7 @@ end
 
 @testset "AllostericMechanism — canonical by construction" begin
 # Site permutation with DISTINCT multiplicities. The constructor must permute
-# cat_allo_states alongside cat_steps (catalytic side) and produce the same
+# cat_allo_states alongside the catalytic groups and produce the same
 # regulatory_sites ordering (regulatory side) regardless of input site order.
 base = first(EnzymeRates.init_mechanisms(uni_uni_allo))
 cat_states = [:EqualAI for _ in EnzymeRates.steps(base)]
@@ -6785,7 +6785,7 @@ end
                           result)
     @test !isempty(allo_results)
     # Every rewrapped allosteric result must preserve the input's
-    # catalytic_multiplicity and reaction — cat_steps may differ (a
+    # catalytic_multiplicity and reaction — the catalytic steps may differ (a
     # base move may have changed them) but the allosteric-side
     # metadata is preserved.
     for r in allo_results
@@ -6799,7 +6799,7 @@ end
     # allosteric regulator (:OnlyA). expand_mechanisms must never add R
     # as a dead-end inhibitor — no Step in any expansion may have
     # ligand named :R (allosteric regulators live in
-    # regulatory_sites, not in cat_steps).
+    # regulatory_sites, not in the catalytic steps).
     aem = @allosteric_mechanism begin
         substrates: S; products: P
         allosteric_regulators: R

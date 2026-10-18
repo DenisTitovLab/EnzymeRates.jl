@@ -29,7 +29,7 @@
 
         # Second step: E(S) ⇌ E(P) — RE iso. The Mechanism constructor
         # canonicalizes iso direction physical-forward (substrate-bound
-        # `from`, product-bound `to`) via `_canonical_step_direction`, so
+        # `from`, product-bound `to`) via `_orientation`, so
         # `E_S` is `from_species` and `E_P` is `to_species`.
         iso_step = only(s for g in EnzymeRates.steps(mech) for s in g
                         if EnzymeRates.bound_metabolite(s) === nothing)

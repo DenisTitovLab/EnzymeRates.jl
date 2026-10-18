@@ -37,8 +37,8 @@ m isa EnzymeMechanism
 constant K. `<-->` marks a steady-state interconversion, described by
 independent forward and reverse rate constants. The result is an
 `EnzymeMechanism` value. The expression `m isa EnzymeMechanism` (rather than
-`typeof(m)`) is shown deliberately: the `Sig` type parameter that encodes the
-mechanism structure is an unreadable string, so `isa` is the useful check.
+`typeof(m)`) is shown deliberately: the `Sig` type parameter encodes the mechanism
+as a long tuple of integers, so `isa` is the useful check.
 
 An enzyme form's name joins its bound metabolites' names without a separator
 (`E(S)` is `ES`), so two forms could render one name: with `Ac`, `CoA` and
