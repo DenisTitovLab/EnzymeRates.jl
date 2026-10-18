@@ -77,6 +77,17 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   carry the same concentrations, so the data determine only a combination of its
   constant and its neighbour's, and `fitted_params` lists one constant more than the
   identifiable rank. The exact rank under Ideas would count it.
+- **On Julia 1.10 the full suite can peak above 4 GB.**
+  With the full-suite command in `.claude/CLAUDE.md`, Julia 1.10.12 peaked at 3.30-4.36 GB
+  in seven runs, and an eighth was killed at 4.49 GB, most likely by the OOM killer of a
+  7.7 GB machine; Julia 1.12 peaks at 2.6-3.0 GB and Julia 1.13 at 2.6-2.7 GB. The ter-ter
+  `init_mechanisms` testset (`test/test_mechanism_enumeration.jl`) leaves about 1 GB of
+  garbage. On 1.10 the full suite still counts it after the enumeration file, 1.83-1.84 GiB
+  live there against 0.55-0.65 GiB with one `GC.gc()` after the testset; with the file run
+  alone, the count drops at the ter-ter seed testset. No test value retains the garbage: a
+  full collection after the testset frees it (live bytes fall from 0.94 to 0.055 GiB), and
+  that `GC.gc()` brings the suite to 2.93-3.05 GB. CI runs Julia 1 alone, so nothing checks
+  the compat floor against the 4 GB that `.claude/CLAUDE.md` sets aside for the suite.
 
 ## Planned
 
