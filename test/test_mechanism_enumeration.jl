@@ -154,10 +154,10 @@ _testhelper_keeps_reaction(child, parent) =
     EnzymeRates.products(child) == EnzymeRates.products(parent) &&
     EnzymeRates.modifiers(parent) ⊆ EnzymeRates.modifiers(child)
 
-# Whether `m` holds an isomerization step. It reads the steps, not `_testhelper_graph`: the
-# population tests call it on every child of two expansion levels, where building the
-# adapter each time would dominate their run time.
-_testhelper_holds_iso(m) = any(EnzymeRates.is_iso, Iterators.flatten(EnzymeRates.steps(m)))
+# Whether `m` holds an isomerization step. It reads the graph's edges, not
+# `_testhelper_graph`: the population tests call it on every child of two expansion
+# levels, where building the adapter each time would dominate their run time.
+_testhelper_holds_iso(m) = any(EnzymeRates._is_iso, EnzymeRates.catalytic(m).edges)
 
 # The kinetic groups of `m` whose steps are isomerizations.
 _testhelper_iso_groups(m) =
@@ -193,8 +193,8 @@ _testhelper_plain_moves(m, rxn) = append!(
 # an isomerization, a fused binding or a Theorell–Chance step); otherwise it is
 # a binding group. Mirrors the rule `_expand_to_allosteric` uses to decide
 # whether a group's `:OnlyA` flip needs a paired regulator to be distinguishable.
-_testhelper_is_catalytic_group(m, g) =
-    any(EnzymeRates._is_chemistry, EnzymeRates.steps(m)[g])
+_testhelper_is_catalytic_group(m, g) = (cm = EnzymeRates.catalytic(m);
+    any(k -> EnzymeRates._is_chemistry(cm, cm.edges[k]), findall(==(g), cm.group)))
 
 const uni_uni_rxn = @enzyme_reaction begin
     substrates: S[C]
@@ -2886,7 +2886,7 @@ end
     # Merged random-order bi-bi with the abortive complex E(A, Q). The steady-state A group
     # binds A at E and, fused, at E(B) into E(P, Q). An :OnlyA group holding a fused binding
     # is chemistry: its inactive rate constants vanish, their ratio is free to close any
-    # cycle through it, and the thermodynamic check (`_onlya_haldane_violation`) leaves it
+    # cycle through it, and the thermodynamic check (`_onlya_offenders`) leaves it
     # out. Split by B, the group leaves E + A alone, a plain :OnlyA binding that the check
     # keeps, on the cycle E, E(A), E(A, Q), E(Q), whose other steps bind A and Q in both
     # conformations (:EqualAI). The inactive conformation cannot close that cycle, so the
@@ -4776,7 +4776,7 @@ end
     # alone, so the gauge exists in each, its constant shows only beside K_S, and
     # the child is not emitted (one fitted constant above its rank).
     # Relaxing the chemistry while S binds the active state only is rejected by
-    # `_onlya_haldane_violation` first, since the Haldane row then has one `:OnlyA`
+    # `_onlya_offenders` first, since the Haldane row then has one `:OnlyA`
     # column, and partial catalysis would reject it too: the inactive state would
     # catalyze in part. The P binding and the copy relax. The relaxed copy, with one
     # constant per state, duplicates E(S) in the active state and is new in the
@@ -5311,7 +5311,7 @@ end
     # only multiplicity 1; multiplicity 2 would stack a second source of powers
     # and emits nothing. Three binding groups (S, P, Q), each subset :OnlyA with
     # the chemistry :OnlyA: 2^3 - 1 = 7 K-type children, none rejected by
-    # `_onlya_haldane_violation`.
+    # `_onlya_offenders`.
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P, Q
@@ -5393,7 +5393,7 @@ end
 
     # Five binding groups (A, B, Q with its inhibitor-bound mirror, P, and the
     # inhibitor's own group), each subset :OnlyA with the chemistry :OnlyA:
-    # 2^5 - 1 = 31 candidate K-type children; _onlya_haldane_violation drops
+    # 2^5 - 1 = 31 candidate K-type children; _onlya_offenders drops
     # none of them. The reaction declares no allosteric regulator, so no
     # V-type variant is emitted. N = 31. The derived denominator carries A²,
     # but from the inhibitor site, so the catalytic scheme is hyperbolic and
@@ -11200,7 +11200,7 @@ end
     # P's binding is :OnlyA: that would restore inactive catalysis beside it, a partial
     # :OnlyA catalysis whose one-sided :OnlyA binding also leaves the Haldane cycle
     # unsatisfiable once the chemistry is back in the check graph
-    # (`_onlya_haldane_violation`). One child.
+    # (`_onlya_offenders`). One child.
     k_type = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
@@ -11232,7 +11232,7 @@ end
 @testset "_expand_to_allosteric on an ordered Theorell–Chance mechanism" begin
     # E(A) + B → E(Q) + P takes up B and gives off P in one step: the chemistry group.
     # Each K-type child sets it :OnlyA and ranges the binding subsets over {A, Q}:
-    # {A}, {Q} and {A, Q}. `_onlya_haldane_violation` drops the :OnlyA chemistry group
+    # {A}, {Q} and {A, Q}. `_onlya_offenders` drops the :OnlyA chemistry group
     # from its cycle graph; the A and Q bindings left form the tree E(A) – E – E(Q),
     # so no cycle row remains and no subset is refused. No regulator, so no V-type:
     # three children.
@@ -11296,7 +11296,7 @@ end
     # state. The fused B group is the chemistry group, :OnlyA in every K-type child,
     # and the subsets range over the A, P and Q groups: 2^3 − 1 = 7. Without the
     # :OnlyA chemistry group the bindings form the tree E(A) – E – E(Q) – E(P, Q), so
-    # `_onlya_haldane_violation` refuses none. The scheme is hyperbolic, so
+    # `_onlya_offenders` refuses none. The scheme is hyperbolic, so
     # multiplicity 2 stays open: the RE segments are {E, E(Q)}, where E(Q) carries one
     # Q, and {E(A), E(P, Q)}, where E(P, Q) carries one B; the steady-state A and P
     # bindings join them, and each metabolite scores on one edge only, an edge that
@@ -11402,7 +11402,7 @@ end
     # included, is :OnlyA in every K-type child, and the subsets range over the A, P
     # and Q groups: 2^3 − 1 = 7. Without the :OnlyA B group the check graph keeps the
     # tree E(A) – E – E(Q) – E(P, Q) (E(B, Q) leaves with B's group), so
-    # `_onlya_haldane_violation` refuses none. No regulator, so no V-type: seven
+    # `_onlya_offenders` refuses none. No regulator, so no V-type: seven
     # children.
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
@@ -11511,7 +11511,7 @@ end
     # a chemistry step is chemistry whatever its first step, so both are :OnlyA in every
     # K-type child, and the subsets range over the Q and P groups: 2^2 − 1 = 3. Without
     # the :OnlyA A and B groups the check graph keeps the path E – E(Q) – E(P, Q), so
-    # `_onlya_haldane_violation` refuses none. The reaction allows one catalytic subunit
+    # `_onlya_offenders` refuses none. The reaction allows one catalytic subunit
     # and declares no regulator, so no V-type: three children. Read by its first step,
     # neither group would be chemistry, and the subsets would range over all four groups.
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin

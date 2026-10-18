@@ -213,7 +213,6 @@ function _raw_symbolic_rate_polys(m::_AnyMech, mask::BitVector,
     alpha = _compute_alpha(cm, flat, conc_set, segments.segments, names)
     seg = segments.segment_of
     G = length(segments.segments)
-    metabolite_names(c::Counts) = Symbol[cm.table[i].name for i in entries(c)]
 
     # The Laplacian of the segment graph: each SS edge joining two segments adds its
     # forward flux out of its source segment and its reverse flux out of its target. An
@@ -225,8 +224,8 @@ function _raw_symbolic_rate_polys(m::_AnyMech, mask::BitVector,
         e = cm.edges[k]
         e.rapid_equilibrium && continue
         a, b = e.from, e.to
-        fwd = _ss_contrib(poly_sym(names[k][1]), metabolite_names(e.consumed), a, alpha)
-        rev = _ss_contrib(poly_sym(names[k][2]), metabolite_names(e.released), b, alpha)
+        fwd = _ss_contrib(poly_sym(names[k][1]), _entry_names(cm, e.consumed), a, alpha)
+        rev = _ss_contrib(poly_sym(names[k][2]), _entry_names(cm, e.released), b, alpha)
         push!(ss, (e, a, b, fwd, rev))
         g1, g2 = seg[a], seg[b]
         g1 == g2 && continue
@@ -260,8 +259,8 @@ function _raw_symbolic_rate_polys(m::_AnyMech, mask::BitVector,
                k === nothing ? 0 : mono[k].second)
     num = poly_zero()
     for (e, a, b, fwd, rev) in ss
-        ω = count(==(x), metabolite_names(e.consumed)) -
-            count(==(x), metabolite_names(e.released)) + expo(alpha[a]) - expo(alpha[b])
+        ω = count(==(x), _entry_names(cm, e.consumed)) -
+            count(==(x), _entry_names(cm, e.released)) + expo(alpha[a]) - expo(alpha[b])
         ω == 0 && continue
         term = poly_sub(poly_mul(fwd, D[seg[a]]), poly_mul(rev, D[seg[b]]))
         num = poly_add(num, POLY(key => ω * c for (key, c) in term))

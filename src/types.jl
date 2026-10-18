@@ -254,10 +254,9 @@ is_iso(s::Step)     = isempty(s.consumed) && isempty(s.released)
 off, and `to_species` holding `from_species`'s metabolites plus that one with the
 same residual, the conformation free to change (`_binds_ligand`). Isomerizations,
 fused bindings (`E(A) + B → E(P, Q)`), Theorell–Chance steps and steps with several
-metabolites on a side are chemistry. The allosteric moves (`_expand_to_allosteric`,
-`_expand_change_allo_state`), their `:OnlyA` test (`_onlya_haldane_violation`) and
-`_fused_substrate_binding` read it to tell catalysis from binding; code that reads the
-reaction graph asks `_is_chemistry(m, e)`."""
+metabolites on a side are chemistry. The seed variants' `_fused_substrate_binding` reads
+it to tell catalysis from binding; code that reads the reaction graph asks
+`_is_chemistry(m, e)`."""
 function _is_chemistry(s::Step)
     m = bound_metabolite(s)
     m === nothing || !_binds_ligand(from_species(s), to_species(s), m)
@@ -1237,6 +1236,17 @@ it."""
 _build(raw::RawMechanism) = Mechanism(raw)
 _build(raw::RawAllostericMechanism) = AllostericMechanism(raw)
 
+"""
+    _with(am; states, sites)
+
+`am` with its tags `states` (one per kinetic group) or its regulatory sites `sites`
+replaced, through the composition constructor, which checks both; the catalytic graph
+is `am`'s, shared. The allosteric moves change one part of a mechanism with it.
+"""
+_with(am::AllostericMechanism; states::Vector{Symbol} = cat_allo_states(am),
+      sites::Vector{RegulatorySite} = regulatory_sites(am)) =
+    AllostericMechanism(am.catalytic, states, catalytic_multiplicity(am), sites)
+
 # ─── Checks ─────────────────────────────────────────────────────────────
 
 """Error unless `cat_allo_states` holds one valid tag for each of `G` kinetic groups and
@@ -1346,7 +1356,7 @@ function _check_representation(m::Mechanism, misaligned::Vector{Edge},
         shared = _occupied(e.consumed) & _occupied(e.released)
         shared == 0 ||
             error("Step $(_form_name(m, e.from)) → $(_form_name(m, e.to)): " *
-                  "$(join([m.table[i].name for i in entries(shared)], ", ")) both " *
+                  "$(join(_entry_names(m, shared), ", ")) both " *
                   "consumed and released")
         _binds_by_name(m, e) && !_is_plain_binding(m, e) &&
             error("Step $(_form_name(m, e.from)) → $(_form_name(m, e.to)) changes a " *
@@ -1676,6 +1686,9 @@ function _entry(m::Mechanism, x::Met)
     i = searchsortedfirst(m.table, x)
     i <= length(m.table) && m.table[i] == x ? i : 0
 end
+"""The names of the table entries of `m` that `c` counts (`entries`), a copy by its
+reactant's name, in entry order, each as often as counted."""
+_entry_names(m::Mechanism, c::Counts) = Symbol[m.table[i].name for i in entries(c)]
 """Whether `x` names a substrate or a product of `m`."""
 _is_reactant(m::Mechanism, x::Symbol) = insorted(x, m.substrates) || insorted(x, m.products)
 _role_masks(m::Mechanism) = _role_masks(m.table, m.substrates)
@@ -1732,14 +1745,28 @@ reactant where its modifier copy sits, or the reverse."""
 function _binds_by_name(m::Mechanism, e::Edge)
     i, f, t = _binding_ends(m, e)
     i == 0 && return false
-    names(c::Counts) = [m.table[j].name for j in entries(c)]
-    names(t) == sort!(push!(names(f), m.table[i].name))
+    _entry_names(m, t) == sort!(push!(_entry_names(m, f), m.table[i].name))
 end
 """Whether `e` of `m` is anything but a plain binding (`_is_plain_binding`): an
 isomerization, a fused binding (`E(A) + B → E(P, Q)`), a Theorell–Chance step or a step
 with several metabolites on a side. The joint solve's priority (`_priority_key`) and the
 `:OnlyA` test (`_onlya_offenders`) read it to tell catalysis from binding."""
 _is_chemistry(m::Mechanism, e::Edge) = !_is_plain_binding(m, e)
+"""Whether each of `n` kinetic groups, edge `k` in group `group[k]`, holds some edge `k`
+with `pred(k)`."""
+function _groups_with(pred, group::Vector{Int}, n::Int)
+    out = falses(n)
+    for (k, g) in enumerate(group)
+        pred(k) && (out[g] = true)
+    end
+    out
+end
+"""Whether each of the `n` kinetic groups of graph `m`, edge `k` in group `group[k]`
+(by default its own), holds a chemistry edge (`_is_chemistry`). The allosteric moves tag
+a chemistry group apart from a binding group."""
+_chemistry_groups(m::Mechanism, group::Vector{Int} = m.group,
+                  n::Int = maximum(group; init = 0)) =
+    _groups_with(k -> _is_chemistry(m, m.edges[k]), group, n)
 """The edges group by group, each group in edge order: the order the joint solve and the
 derivation read them in, which is the order of the Step views' steps (`steps`)."""
 _flat_edges(m::Mechanism) = reduce(vcat, _group_members(m); init = Int[])
@@ -1902,8 +1929,7 @@ function _raw_form(m::Mechanism, f::Int, extra::Met...)
     x = m.forms[f]
     RawForm(m.conformations[x.conformation], Met[[m.table[i] for i in entries(x.bound)];
                                                  extra...],
-            Symbol[m.table[i].name for i in entries(x.added)],
-            Symbol[m.table[i].name for i in entries(x.subtracted)])
+            _entry_names(m, x.added), _entry_names(m, x.subtracted))
 end
 
 """
@@ -2028,34 +2054,9 @@ catalytic multiplicity and regulatory sites.
 AllostericMechanism(rxn::EnzymeReaction, groups::Vector{Vector{Step}},
                     cat_allo_states::Vector{Symbol}, catalytic_multiplicity::Int,
                     sites::Vector{RegulatorySite}) =
-    _allosteric_of(_raw_of(rxn, groups), cat_allo_states, catalytic_multiplicity, sites)
-
-"""The allosteric mechanism of catalytic raw input `raw`, its group label `l` tagged
-`cat_allo_states[l]`, with the given catalytic multiplicity and regulatory sites."""
-_allosteric_of(raw::RawMechanism, cat_allo_states::Vector{Symbol},
-               catalytic_multiplicity::Int, sites::Vector{RegulatorySite}) =
-    AllostericMechanism(RawAllostericMechanism(raw, cat_allo_states, catalytic_multiplicity,
+    AllostericMechanism(RawAllostericMechanism(_raw_of(rxn, groups), cat_allo_states,
+        catalytic_multiplicity,
         RawSite[RawSite(s.ligands, s.multiplicity, s.allo_states) for s in sites]))
-
-"""
-    _with(m; groups) / _with(am; groups, states, sites)
-
-`m` built again with the given parts replaced: `groups`, the kinetic groups as `Step`s
-over `m`'s substrates and products (`_raw_of`); for an `AllostericMechanism` also
-`states`, the tags parallel to `groups`, and `sites`, the regulatory sites. Parts not
-given keep `m`'s; an allosteric mechanism given no groups keeps its catalytic graph.
-Expansion moves use it to change one part of a mechanism. The child shares with `m`
-only values no code changes: the catalytic graph it keeps and the regulatory sites.
-"""
-_with(m::Mechanism; groups = steps(m)) =
-    Mechanism(_raw_of(substrates(m), products(m), groups))
-function _with(am::AllostericMechanism; groups = nothing, states = cat_allo_states(am),
-               sites = regulatory_sites(am))
-    groups === nothing &&
-        return AllostericMechanism(am.catalytic, states, catalytic_multiplicity(am), sites)
-    _allosteric_of(_raw_of(substrates(am), products(am), groups), states,
-                   catalytic_multiplicity(am), sites)
-end
 
 """
     _canonical_order(rxn, groups) -> Vector{Vector{Step}}

@@ -15,8 +15,8 @@ end
 
 # ─── Content keys of Step views ────────────────────────────────────────────
 #
-# The moves order the forms of their Step views by these keys, as canonical form orders
-# a graph's forms.
+# The seeds' topology sort (`_catalytic_topologies`) and `_forms` order the forms of Step
+# views by these keys, as canonical form orders a graph's forms.
 
 """A metabolite list as the content keys read it: each metabolite's name and whether it
 binds as a modifier copy (a competitive inhibitor), in stored order."""
@@ -443,33 +443,6 @@ function _integer_nullspace(A::Matrix{Int})
 end
 
 """
-    _thermodynamic_constraints(m, groups) -> (C, multiples)
-
-`_thermodynamic_constraints(m, flat)` for `groups`, kinetic groups of `Step`s over mechanism
-`m`'s substrates and products, as the moves' pre-filters read their candidates: column
-`j` of `C` is flat step `j` (`_flat_steps`), and the rows of the incidence matrix are
-the groups' forms in the canonical form order (`_forms`).
-"""
-function _thermodynamic_constraints(m::_AnyMech, groups::Vector{Vector{Step}})
-    flat = _flat_steps(groups)
-    reactant_names = [substrates(m); products(m)]
-    form = Dict(sp => i for (i, sp) in enumerate(_forms(groups)))
-    B = zeros(Int, length(form), length(flat))
-    for (j, (s, _)) in enumerate(flat)
-        B[form[from_species(s)], j] -= 1
-        B[form[to_species(s)], j] += 1
-    end
-    met_idx = Dict(x => i for (i, x) in enumerate(reactant_names))
-    stoich = zeros(Int, length(reactant_names), length(flat))
-    for (j, (s, _)) in enumerate(flat), (mets, sgn) in ((consumed(s), -1), (released(s), 1))
-        for x in mets
-            haskey(met_idx, name(x)) && (stoich[met_idx[name(x)], j] += sgn)
-        end
-    end
-    _cycle_basis(B, stoich, length(substrates(m)))
-end
-
-"""
     _thermodynamic_constraints(m, flat) -> (C, multiples)
 
 The cycle basis of the sub-graph of graph `m` whose edges are `flat`, in that order: row
@@ -563,7 +536,7 @@ end
 
 Return `counter(group_of_step, kind_of_step = kinds of the parent's steps)`, the
 independent-parameter count of the mechanism obtained by regrouping `parent`'s
-edges, group by group (`_flat_edges`, the order of `_flat_steps`), into the groups
+edges, group by group (`_flat_edges`), into the groups
 labelled by `group_of_step`,
 each step counted under the constant kind `kind_of_step` gives it (`_count_kind`).
 Regrouping moves no edges and a flag changes none, so the cycle basis of the step
@@ -697,10 +670,7 @@ kinds reads its signs on one scale and a balanced pair is accepted.
 """
 function _onlya_offenders(m::Mechanism, group::Vector{Int}, tags::Vector{Symbol})
     onlya(g) = tags[g] === :OnlyA
-    chemistry = falses(length(tags))
-    for (k, e) in enumerate(m.edges)
-        _is_chemistry(m, e) && (chemistry[group[k]] = true)
-    end
+    chemistry = _chemistry_groups(m, group, length(tags))
     keep = [g for g in eachindex(tags) if !(onlya(g) && chemistry[g])]
     any(onlya, keep) || return Int[]
     flat = [k for g in keep for k in eachindex(group) if group[k] == g]
@@ -712,23 +682,6 @@ end
 Haldane relation unsatisfiable (`_onlya_offenders` over its own groups and tags)."""
 _onlya_haldane_violation(am::AllostericMechanism) =
     _onlya_offenders(am.catalytic, am.catalytic.group, am.cat_allo_states)
-
-"""
-    _onlya_haldane_violation(m, cat_steps, cat_allo_states) → Vector{Int}
-
-`_onlya_offenders` for `cat_steps`, kinetic groups of `Step`s over mechanism `m`'s
-metabolites tagged `cat_allo_states`, as the moves read their candidate groups: the
-offending `:OnlyA` binding groups, as indices into `cat_steps`.
-"""
-function _onlya_haldane_violation(m::_AnyMech, cat_steps::Vector{Vector{Step}},
-                                  cat_allo_states::Vector{Symbol})
-    onlya(g) = cat_allo_states[g] === :OnlyA
-    keep = [g for g in eachindex(cat_steps)
-            if !(onlya(g) && any(_is_chemistry, cat_steps[g]))]
-    any(onlya, keep) || return Int[]
-    C, _ = _thermodynamic_constraints(m, cat_steps[keep])
-    _onlya_cone_offenders(C, [g for g in keep for _ in cat_steps[g]], filter(onlya, keep))
-end
 
 """
 The offenders among the `:OnlyA` groups `onlya` (`_onlya_offenders`) by the cycle basis

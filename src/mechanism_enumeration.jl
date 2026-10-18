@@ -22,45 +22,63 @@ end
 # ─── Atom-conservation validation ────────────────────────────
 
 """
-Assert one `Step` conserves atoms: the atoms of `from_species` plus those of
-the consumed metabolites must equal the atoms of `to_species` plus those of the
-released metabolites (an iso step leaves the atom multiset unchanged). A form
-carries the atoms of its bound metabolites and of its residual's added substrates,
-less those of its residual's subtracted products, read from the reaction's
-inventory by name (`_net_atoms`). Errors naming the offending step.
+Error unless a step from the form named `from` to the form named `to` conserves the
+atoms reaction `reaction` gives its metabolites: `plus` names what its target side holds
+(the target form's bound metabolites and residual additions, the source form's residual
+subtractions and the metabolites it gives off) and `minus` what its source side holds,
+alike. `consumed` and `released` are the metabolites it takes up and gives off, for the
+message.
 """
-function _assert_step_atom_conserving(reaction::EnzymeReaction, s::Step)
-    # The names counted on one side of `s`: `form`'s bound metabolites and residual
-    # additions, the residual subtractions of the `other` form, and the free metabolites.
-    side(form, other, free) = [name.(bound(form)); name.(added(residual(form)));
-                               name.(subtracted(residual(other))); name.(free)]
-    diff = _net_atoms(reaction, side(to_species(s), from_species(s), released(s)),
-                      side(from_species(s), to_species(s), consumed(s)))
+function _check_step_atoms(reaction::EnzymeReaction, plus::Vector{Symbol},
+                           minus::Vector{Symbol}, from::String, to::String,
+                           consumed::Vector{Symbol}, released::Vector{Symbol})
+    diff = _net_atoms(reaction, plus, minus)
     isempty(diff) || error(
-        "atom-non-conserving step $(_form_label(from_species(s), reaction)) → " *
-        "$(_form_label(to_species(s), reaction)) " *
-        "(consumed $(name.(consumed(s))), released $(name.(released(s)))): " *
+        "atom-non-conserving step $from → $to (consumed $consumed, released $released): " *
         "atoms(to) + atoms(released) − atoms(from) − atoms(consumed) = $diff")
     nothing
+end
+
+"""
+Assert one `Step` of a seed variant's base conserves atoms (`_check_step_atoms`): the
+atoms of `from_species` plus those of the consumed metabolites must equal the atoms of
+`to_species` plus those of the released metabolites (an iso step leaves the atom
+multiset unchanged). A form carries the atoms of its bound metabolites and of its
+residual's added substrates, less those of its residual's subtracted products, read from
+the reaction's inventory by name (`_net_atoms`).
+"""
+function _assert_step_atom_conserving(reaction::EnzymeReaction, s::Step)
+    names(ms) = Symbol[name(x) for x in ms]
+    # The names counted on one side of `s`: `form`'s bound metabolites and residual
+    # additions, the residual subtractions of the `other` form, and the free metabolites.
+    side(form, other, free) = [names(bound(form)); names(added(residual(form)));
+                               names(subtracted(residual(other))); names(free)]
+    _check_step_atoms(reaction, side(to_species(s), from_species(s), released(s)),
+                      side(from_species(s), to_species(s), consumed(s)),
+                      _form_label(from_species(s), reaction),
+                      _form_label(to_species(s), reaction), names(consumed(s)),
+                      names(released(s)))
 end
 
 """
     _assert_emission_rules(m)
 
 The two rules every mechanism the moves emit satisfies, checked on a parent before
-it is expanded. Every steady-state kinetic group holds a step that carries net flux
-(`_flux_carrying_groups` on `steps(m)`, which for an allosteric mechanism is its
-active-state graph). No kinetic group binds a competitive inhibitor redundantly
+it is expanded. Every steady-state kinetic group holds an edge that carries net flux
+(`_flux_carrying_groups` on the catalytic graph, an allosteric mechanism's active
+state). No kinetic group binds a competitive inhibitor redundantly
 (`_redundant_copy_groups`). A parent must obey both because a flip tests only the groups
 it flips. The split, the dead-end move, and `_expand_change_allo_state` filter their
 children; the other moves preserve both rules.
 """
 function _assert_emission_rules(m::Union{Mechanism, AllostericMechanism})
-    groups = steps(m)
-    label(g) = join((join(_forward_sides(s, m), " → ") for s in groups[g]), ", ")
-    flux = _flux_carrying_groups(groups, m)
-    for (g, group) in enumerate(groups)
-        is_equilibrium(first(group)) || flux[g] || error(
+    cm = catalytic(m)
+    members = _group_members(cm)
+    # A group as its edges' sides (`_sides`), the names its constants take.
+    label(g) = join((join(_sides(cm, k), " → ") for k in members[g]), ", ")
+    flux = _flux_carrying_groups(cm, _flags(cm))
+    for (g, ks) in enumerate(members)
+        cm.edges[first(ks)].rapid_equilibrium || flux[g] || error(
             "expand_mechanisms: steady-state kinetic group {" * label(g) * "} has no " *
             "step that carries net flux, so its two constants enter the rate only as " *
             "their ratio; write the group at rapid equilibrium")
@@ -77,16 +95,29 @@ end
 """
     _assert_atom_conserving(m, rxn::EnzymeReaction)
 
-Assert every step of an enumerated mechanism `m` conserves the atoms that reaction `rxn`
-gives its metabolites (see `_assert_step_atom_conserving`). This is the
-enumeration-path guardrail against atom-non-conserving covalent intermediates; it is
-intentionally NOT a `Step` / `Mechanism` constructor check, since a hand-written
-`@enzyme_mechanism` block carries no atoms and may fold steps.
+Assert every edge of an enumerated mechanism `m`'s catalytic graph conserves the atoms
+that reaction `rxn` gives its metabolites (`_check_step_atoms`): the atoms of its source
+form plus those it takes up equal the atoms of its target form plus those it gives off, a
+form carrying the atoms of its bound metabolites and of its residual's added substrates,
+less those of its residual's subtracted products. Errors on the first edge that does not,
+group by group. This is the enumeration-path guardrail against atom-non-conserving
+covalent intermediates; it is intentionally NOT a `Mechanism` constructor check, since a
+hand-written `@enzyme_mechanism` block carries no atoms and may fold steps.
 """
 function _assert_atom_conserving(m::Union{Mechanism, AllostericMechanism},
                                  rxn::EnzymeReaction)
-    for group in steps(m), s in group
-        _assert_step_atom_conserving(rxn, s)
+    cm = catalytic(m)
+    names(c::Counts) = _entry_names(cm, c)
+    # The names counted on one side of an edge: `form`'s bound metabolites and residual
+    # additions, the residual subtractions of the `other` form, and the free metabolites.
+    side(form::Form, other::Form, free::Counts) =
+        [names(form.bound); names(form.added); names(other.subtracted); names(free)]
+    for k in _flat_edges(cm)
+        e = cm.edges[k]
+        f, t = cm.forms[e.from], cm.forms[e.to]
+        _check_step_atoms(rxn, side(t, f, e.released), side(f, t, e.consumed),
+                          _form_name(cm, e.from), _form_name(cm, e.to), names(e.consumed),
+                          names(e.released))
     end
     nothing
 end
@@ -449,11 +480,9 @@ function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
     cm = catalytic(m)
     flanks = _chain_flank_groups(m)
     modifiers = _modifier_mask(cm)
-    exchanges_modifier = falses(ngroups(cm))
-    for (k, e) in enumerate(cm.edges)
-        (e.consumed | e.released) & modifiers == 0 ||
-            (exchanges_modifier[cm.group[k]] = true)
-    end
+    exchanges_modifier = _groups_with(
+        k -> (cm.edges[k].consumed | cm.edges[k].released) & modifiers != 0, cm.group,
+        ngroups(cm))
     eligible(g) = !(g in flanks) && !exchanges_modifier[g]
     base = _re_segment_count(cm, _flags(cm))
     flips = _minimal_flips(re -> _re_segment_count(cm, re) > base, cm, eligible)
@@ -502,10 +531,10 @@ mechanisms built from one another share their unchanged steps."""
 _with_equilibrium(s::Step, flag::Bool) = is_equilibrium(s) == flag ? s :
     Step(from_species(s), to_species(s), consumed(s), released(s), flag)
 
-"""Every step of `groups` rebuilt at steady state. The flip move pre-filters its
-units on this graph: a step that carries no flux with every step steady-state
-carries none under any assignment (flips only refine segments), so a group with
-no such step can never flip usefully."""
+"""Every step of `groups` rebuilt at steady state. The seed variants' Step
+`_minimal_flips` pre-filters its units on this graph: a step that carries no flux with
+every step steady-state carries none under any assignment (flips only refine segments),
+so a group with no such step can never flip usefully."""
 _all_steady_state(groups::Vector{Vector{Step}}) =
     [_with_equilibrium.(group, false) for group in groups]
 
@@ -636,11 +665,7 @@ pinned by the edge that carries flux.
 """
 function _flux_carrying_groups(m::Mechanism, re::BitVector)
     flux = _flux_carrying_edges(m, re)
-    carries = falses(ngroups(m))
-    for (k, g) in enumerate(m.group)
-        flux[k] && (carries[g] = true)
-    end
-    carries
+    _groups_with(k -> flux[k], m.group, ngroups(m))
 end
 
 """
@@ -1307,7 +1332,6 @@ function _context_bipartitions(m::Mechanism, g::Int)
     forms = [m.forms[_context_form(m.edges[k])] for k in ks]
     ligands = unique!([i for f in forms for i in entries(f.bound) if i != own])
     role(i) = m.table[i].modifier ? 0 : insorted(m.table[i].name, m.products) ? 1 : 2
-    names(c::Counts) = [m.table[i].name for i in entries(c)]
     division(carries) = Int[k for (k, f) in zip(ks, forms) if carries(f)]
     divisions = [division(f -> copies(f.bound, i) > 0)
                  for i in sort!(ligands; by = i -> (role(i), m.table[i].name))]
@@ -1315,7 +1339,7 @@ function _context_bipartitions(m::Mechanism, g::Int)
             for c in sort!(unique(f.conformation for f in forms)))
     append!(divisions, division(f -> (f.added, f.subtracted) == r)
             for r in sort!(unique((f.added, f.subtracted) for f in forms);
-                           by = r -> (names(r[1]), names(r[2]))))
+                           by = r -> (_entry_names(m, r[1]), _entry_names(m, r[2]))))
     parts(with) = (without = Int[k for k in ks if !(k in with)];
                    first(ks) in with ? (with, without) : (without, with))
     unique!(first, Tuple{Vector{Int}, Vector{Int}}[
@@ -1414,8 +1438,8 @@ function _productive_twin(m::Mechanism, mask::BitVector)
     name_of = _name_index(m)
     modifiers = _modifier_mask(m)
     # A form's bound names, sorted, its conformation and its residual.
-    composition(f) = (Symbol[m.table[i].name for i in entries(m.forms[f].bound)],
-                      m.forms[f].conformation, m.forms[f].added, m.forms[f].subtracted)
+    composition(f) = (_entry_names(m, m.forms[f].bound), m.forms[f].conformation,
+                      m.forms[f].added, m.forms[f].subtracted)
     function (site::Int, ligand::Symbol)
         i = findfirst(x -> x.name === ligand, m.table)
         i === nothing && return 0
@@ -1598,19 +1622,18 @@ function _dead_end_raw(m::Mechanism, reg::Symbol, sites::Vector{Int})
     raw = _raw(m)
     inhibitor = Met(reg, true)
     complex = Dict(f => _raw_form(m, f, inhibitor) for f in sites)
-    steps, group = copy(raw.steps), copy(raw.group)
     for (k, e) in enumerate(m.edges)
         haskey(complex, e.from) && haskey(complex, e.to) || continue
-        push!(steps, RawStep(complex[e.from], complex[e.to], raw.steps[k].consumed,
-                             raw.steps[k].released, e.rapid_equilibrium))
-        push!(group, m.group[k])
+        push!(raw.steps, RawStep(complex[e.from], complex[e.to], raw.steps[k].consumed,
+                                 raw.steps[k].released, e.rapid_equilibrium))
+        push!(raw.group, m.group[k])
     end
     for f in sites
-        push!(steps, RawStep(_raw_form(m, f), complex[f], [inhibitor], Met[], true))
-        push!(group, ngroups(m) + 1)
+        push!(raw.steps, RawStep(_raw_form(m, f), complex[f], [inhibitor], Met[], true))
+        push!(raw.group, ngroups(m) + 1)
     end
-    RawMechanism(raw.substrates, raw.products, sort!(unique!(push!(raw.modifiers, reg))),
-                 steps, group)
+    sort!(unique!(push!(raw.modifiers, reg)))
+    raw
 end
 
 """
@@ -1630,7 +1653,7 @@ child is built through the checked constructor, its copy's group tagged `:EqualA
 `m`'s multiplicity and regulatory sites, and runs `_redundant_copy_groups` only when every
 complex of the copy has a twin in the active state (`_all_twin`), which redundancy needs.
 """
-function _dead_end_child(m::Mechanism, raw::RawMechanism, reg::Symbol)
+function _dead_end_child(m::Mechanism, raw::RawMechanism, ::Symbol)
     c = _canonicalize(raw)
     cm = c.mechanism
     twin = _productive_twin(cm, trues(length(cm.edges)))
@@ -1697,9 +1720,8 @@ function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism}
 
     # Per form, the names bound productively and the names bound as modifiers: a
     # reactant's copy sits at a dead-end site, not at its reactant's.
-    names(c::Counts) = Set(cm.table[i].name for i in entries(c))
-    productive = [names(f.bound & ~modifiers) for f in cm.forms]
-    inhibiting = [names(f.bound & modifiers) for f in cm.forms]
+    productive = [Set(_entry_names(cm, f.bound & ~modifiers)) for f in cm.forms]
+    inhibiting = [Set(_entry_names(cm, f.bound & modifiers)) for f in cm.forms]
 
     # The sites of each competition pattern in form order, once each in pattern order.
     placements = Vector{Int}[]
@@ -1760,7 +1782,7 @@ Theorell–Chance step; every other group is a binding group.
     bi-bi, whose A group takes A up at E and at E(B) under one rate
     constant, `L` shows in every K-type variant. A subset that leaves a
     binding-only Wegscheider cycle unsatisfiable
-    (`_onlya_haldane_violation`) is dropped.
+    (`_onlya_offenders`) is dropped.
   * V-type: no `:OnlyA` binding, every chemistry group `:OnlyA`. The
     inactive state binds substrate/product identically to the active
     state but cannot catalyze, so `L` folds entirely into `kcat`
@@ -1770,9 +1792,10 @@ Theorell–Chance step; every other group is a binding group.
     reaction with no declared allosteric regulators emits no V-type.
 
 For each value in `rxn`'s `allowed_catalytic_multiplicities`, the move emits
-the K-types, then the V-types, at that `catalytic_multiplicity`. Catalytic
-steps are reused by reference. The variants are distinct by construction: each
-differs from the others in its tags, its regulatory site or its multiplicity.
+the K-types, then the V-types, at that `catalytic_multiplicity`. Every variant
+composes `m`'s graph, which it shares, with its tags, multiplicity and sites. The
+variants are distinct by construction: each differs from the others in its tags, its
+regulatory site or its multiplicity.
 
 A parent whose catalytic scheme fails `_hyperbolic_catalysis` (random-order
 steady-state binding, or a substrate that traps a steady-state intermediate in
@@ -1785,8 +1808,7 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     hyperbolic = _hyperbolic_catalysis(m)
     cns = [cn for cn in allowed_catalytic_multiplicities(rxn) if cn == 1 || hyperbolic]
     isempty(cns) && return AllostericMechanism[]
-    groups = steps(m)
-    chem = [any(_is_chemistry, group) for group in groups]
+    chem = _chemistry_groups(m)
     vtags = [c ? :OnlyA : :EqualAI for c in chem]
     regs = [name(regulator(rm)) for rm in regulators(rxn)
             if regulator(rm) isa AllostericRegulator]
@@ -1794,13 +1816,13 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     # chemistry group :OnlyA — a catalytically-dead inactive conformation.
     # A state that cannot bind a catalytic metabolite cannot complete the
     # cycle, so it runs no chemistry. Each is emitted bare; over one subunit
-    # L can be a phantom (see the docstring). `_onlya_haldane_violation` drops
-    # a subset that leaves a binding-only Wegscheider cycle unsatisfiable.
+    # L can be a phantom (see the docstring). `_onlya_offenders` drops a subset
+    # that leaves a binding-only Wegscheider cycle unsatisfiable.
     ktags = Vector{Symbol}[]
     for sel in _subsets(findall(!, chem))[2:end]
         tags = copy(vtags)
         tags[sel] .= :OnlyA
-        isempty(_onlya_haldane_violation(m, groups, tags)) && push!(ktags, tags)
+        isempty(_onlya_offenders(m, m.group, tags)) && push!(ktags, tags)
     end
     results = AllostericMechanism[]
     for cn in cns
@@ -1917,12 +1939,12 @@ a dead-inactive V-type) or fully live — and the relaxation leaves every chemis
 group live. Beside an `:OnlyA` binding it would leave a partial conformation, which
 strands enzyme in a covalent form (a kinetic sink); a one-sided `:OnlyA` binding, legal
 only because `k_I = 0`, would also be stranded by the restored finite `k_I`, leaving no
-thermodynamic reading (`_onlya_haldane_violation`). Where the inactive conformation
+thermodynamic reading (`_onlya_offenders`). Where the inactive conformation
 binds nothing (all bindings `:OnlyA`), the skipped variant is rate-equivalent to the
 fully-dead form emitted directly, so no observable hypothesis is lost.
 
 A binding relaxation is dropped when it leaves an `:OnlyA` binding's cycle
-unsatisfiable (`_onlya_haldane_violation`). It needs no all-or-nothing test: it tags
+unsatisfiable (`_onlya_offenders`). It needs no all-or-nothing test: it tags
 no group `:OnlyA` and leaves the chemistry tags alone, so a parent whose inactive
 catalysis is fully dead or fully live stays so. Every mechanism the moves emit is one
 of the two; a hand-built partial parent keeps its partial binding relaxations.
@@ -1938,22 +1960,22 @@ where a copy that was new there can become its twin with a consistent gauge, and
 the copy's constant then shows in neither state.
 """
 function _expand_change_allo_state(am::AllostericMechanism)
-    cs, states = steps(am), cat_allo_states(am)
-    chem = [any(_is_chemistry, group) for group in cs]
+    states = cat_allo_states(am)
+    chem = _chemistry_groups(am.catalytic)
     # Binding catalytic groups relax individually. Chemistry groups relax together.
     # Inactive catalysis is all-or-nothing, so a fully-`:NonequalAI` catalytic inactive
     # conformation is unreachable by relaxing chemistry groups one at a time: each
     # mixed intermediate is partial. One variant sets every non-`:NonequalAI` chemistry
     # group to `:NonequalAI` at once, and only while no binding group is `:OnlyA`, which
     # would also leave the inactive catalysis partial.
-    relaxations = [[g] for g in eachindex(cs) if !chem[g] && states[g] != :NonequalAI]
+    relaxations = [[g] for g in eachindex(states) if !chem[g] && states[g] != :NonequalAI]
     any(chem .& (states .!= :NonequalAI)) && !any(.!chem .& (states .== :OnlyA)) &&
         push!(relaxations, findall(chem))
     results = AllostericMechanism[]
     for gs in relaxations
         new_states = copy(states)
         new_states[gs] .= :NonequalAI
-        isempty(_onlya_haldane_violation(am, cs, new_states)) || continue
+        isempty(_onlya_offenders(am.catalytic, am.catalytic.group, new_states)) || continue
         push!(results, _with(am; states = new_states))
     end
     for (si, site) in enumerate(regulatory_sites(am)), li in eachindex(ligands(site))
@@ -2235,13 +2257,11 @@ _bound_allo_regs(::Mechanism) = Set{Symbol}()
 _bound_allo_regs(am::AllostericMechanism) =
     Set{Symbol}(lig for site in regulatory_sites(am) for lig in ligands(site))
 
-"""Names of the competitive inhibitors bound at a dead-end step in `m`."""
+"""Names of the competitive inhibitors some step of `m` takes up as a modifier."""
 function _bound_comp_inhibitors(m::Union{Mechanism, AllostericMechanism})
-    bound = Set{Symbol}()
-    for group in steps(m), s in group, bm in consumed(s)
-        bm isa CompetitiveInhibitor && push!(bound, name(bm))
-    end
-    bound
+    cm = catalytic(m)
+    modifiers = _modifier_mask(cm)
+    Set{Symbol}(cm.table[i].name for e in cm.edges for i in entries(e.consumed & modifiers))
 end
 
 """

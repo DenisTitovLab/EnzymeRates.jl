@@ -49,8 +49,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   elsewhere (Julia 1.12.5, aarch64, `--heap-size-hint=2500M`).
 
 - **The `:OnlyA` guard misjudges groups that mix a binding and a chemistry step.**
-  `_onlya_haldane_violation` (`src/thermo.jl`)
-  skips every `:OnlyA` group that holds a chemistry step, including one that also holds a
+  The guard's test, `_onlya_offenders` (`src/thermo.jl`), which the boundary check runs
+  through `_onlya_haldane_violation`, skips every `:OnlyA` group that holds a chemistry
+  step (`_chemistry_groups`), including one that also holds a
   plain binding of the same metabolite (enumeration builds these by merging and tags
   every allosteric one `:OnlyA`), and gives the bindings of one group a single rate of
   divergence. Hand-built mechanisms show both errors: it admits a mixed `:OnlyA` group

@@ -1,7 +1,7 @@
 # ABOUTME: The parameter-naming chokepoint name(p, m) and the renderers it builds on:
 # ABOUTME: metabolite labels, enzyme-form names, step sides and step text.
 
-# ─── Labels, form names and step sides ────────────────────────────────
+# ─── Labels, form names and step text ─────────────────────────────────
 
 """Whether `x` is the competitive-inhibitor copy of a substrate or product of `ctx` (a
 mechanism or a reaction; `_is_reactant`): a reactant bound as a modifier."""
@@ -32,24 +32,6 @@ function _form_label(sp::Species, ctx)
     head * "_res" * join("_plus" * String(name(a)) for a in added(r)) *
         join("_minus" * String(name(p)) for p in subtracted(r))
 end
-
-"""
-A step side as parameter names write it for `ctx` (a mechanism or a reaction): its
-enzyme form (`_form_label`) followed by its free metabolites (`_met_label`), joined by
-`_`, e.g. `"EA_B"` for `E(A) + B`.
-"""
-_side_label(form::Species, mets::Vector{Metabolite}, ctx) =
-    join([_form_label(form, ctx); [_met_label(x, ctx) for x in mets]], "_")
-
-"""
-The two sides of `s` in its stored direction, as parameter names write them for `ctx`
-(a mechanism or a reaction): `from_species` with the consumed metabolites, then
-`to_species` with the released ones, as an edge's constants are named after its sides
-(`_sides`). The moves' emission rules name a kinetic group's steps by them.
-"""
-_forward_sides(s::Step, ctx) =
-    (_side_label(from_species(s), consumed(s), ctx),
-     _side_label(to_species(s), released(s), ctx))
 
 """A step as text for `ctx` (a mechanism or a reaction): its entry side, an arrow (`⇌`
 rapid equilibrium, `<-->` steady state) and its exit side. A side lists the enzyme form
@@ -90,7 +72,7 @@ function _form_text(m::Mechanism, f::Int)
     x = m.forms[f]
     mets = [_is_reactant(m, m.table[i].name) && m.table[i].modifier ?
             "$(m.table[i].name)::Mod" : "$(m.table[i].name)" for i in entries(x.bound)]
-    terms = join([m.table[i].name for i in entries(x.added)], " + ") *
+    terms = join(_entry_names(m, x.added), " + ") *
             join(" - $(m.table[i].name)" for i in entries(x.subtracted))
     res = _has_residual(x) ? "; residual = " * lstrip(terms) : ""
     "$(m.conformations[x.conformation])(" * join(mets, ", ") * res * ")"

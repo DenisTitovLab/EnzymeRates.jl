@@ -76,9 +76,9 @@ end
     _bottomless_re_segment(m, steps) -> Union{Nothing, Vector{Species}}
 
 `_bottomless_segment` for `steps`, kinetic groups of `Step`s over mechanism `m`'s
-metabolites, as the moves' pre-filters read their candidates: the forms of the first
-rapid-equilibrium segment of `steps` whose weights all vanish at zero products, or all
-vanish at zero substrates; `nothing` when no segment does.
+metabolites, as the seed variants' Step `_minimal_flips` reads its candidates: the forms
+of the first rapid-equilibrium segment of `steps` whose weights all vanish at zero
+products, or all vanish at zero substrates; `nothing` when no segment does.
 """
 function _bottomless_re_segment(m::_AnyMech, steps::Vector{Vector{Step}})
     species, segments, extras = _re_segment_extras(steps)
