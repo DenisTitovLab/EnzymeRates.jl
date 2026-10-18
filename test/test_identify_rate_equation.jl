@@ -1416,8 +1416,12 @@ end
             S = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2])
     # The range stops below the stub fit's binding constants (5), so the fit still rises at
     # the range's upper edge and carries the edge flag.
-    prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0,
-                                       peak_range=(0.1, 1.0))
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        oligomeric_state: 2
+    end
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0, peak_range=(0.1, 1.0))
     pair = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2]
 
     memo = Dict{UInt64, NamedTuple}()
@@ -1895,7 +1899,11 @@ end
             Rate = [0.5, 0.8, 1.0, 1.1, 0.9, 1.2],
             A = [1.0, 2.0, 1.0, 2.0, 1.5, 2.5], B = [0.5, 0.5, 1.0, 1.0, 0.7, 0.7],
             P = [0.1, 0.2, 0.1, 0.2, 0.15, 0.25], Q = [0.3, 0.3, 0.4, 0.4, 0.35, 0.35])
-    prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0)
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+    end
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
     function _testhelper_mkrow(m, loss)
         em = EnzymeRates.compile_mechanism(m)
         fkeys = EnzymeRates.fitted_params(em)

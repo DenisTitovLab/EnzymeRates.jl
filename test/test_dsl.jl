@@ -1212,7 +1212,7 @@
 
     @testset "X::Mod names a declared modifier" begin
         # A substrate or a product written `X::Mod` must also be listed under
-        # `modifiers:`; the reaction then lists it as a competitive inhibitor.
+        # `modifiers:`; the mechanism then names it among its modifiers.
         for x in (:S, :P)
             @test_throws(
                 "@enzyme_mechanism: `$x::Mod` names `$x`, which `modifiers:` does " *
@@ -1239,8 +1239,7 @@
                 E + P::Mod ⇌ E(P::Mod)
             end
         end)
-        @test EnzymeRates.regulators(EnzymeRates.reaction(declared)) ==
-              [EnzymeRates.RegulatorMults(EnzymeRates.CompetitiveInhibitor(:P), [1])]
+        @test EnzymeRates.modifiers(declared) == [:P]
     end
 
     @testset "a step side holds one enzyme form" begin

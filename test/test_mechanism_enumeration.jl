@@ -141,6 +141,13 @@ function _testhelper_param_deltas(parent, kids)
     sort([_testhelper_fitted(k) - base for k in kids])
 end
 
+# Whether `child` keeps the reaction of `parent`: the same substrates and products, and
+# every modifier `parent` binds still bound.
+_testhelper_keeps_reaction(child, parent) =
+    EnzymeRates.substrates(child) == EnzymeRates.substrates(parent) &&
+    EnzymeRates.products(child) == EnzymeRates.products(parent) &&
+    EnzymeRates.modifiers(parent) ⊆ EnzymeRates.modifiers(child)
+
 # Whether `m` holds an isomerization step.
 _testhelper_holds_iso(m) = any(_testhelper_is_iso, _testhelper_graph(m).steps)
 
@@ -1767,7 +1774,7 @@ end
 
     # 3. preservation
     for r in result
-        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+        @test _testhelper_keeps_reaction(r, m)
     end
 
     # 4. The A and P flank flips, absent, keep the seed's rank (chain lemma).
@@ -2034,7 +2041,7 @@ end
             @test r.cat_allo_states == am.cat_allo_states
             @test r.catalytic_multiplicity == am.catalytic_multiplicity
             @test r.regulatory_sites == am.regulatory_sites
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+            @test _testhelper_keeps_reaction(r, am)
         end
     end
 end
@@ -2228,7 +2235,7 @@ end
         @test EnzymeRates.is_iso(first(r.cat_steps[onlya]))
         @test r.catalytic_multiplicity == am.catalytic_multiplicity
         @test r.regulatory_sites == am.regulatory_sites
-        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+        @test _testhelper_keeps_reaction(r, am)
     end
 end
 
@@ -2351,7 +2358,7 @@ end
         _testhelper_assert_mechanism_invariants(r)
         @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
         @test sum(length, EnzymeRates.steps(r)) == sum(length, EnzymeRates.steps(m))
-        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+        @test _testhelper_keeps_reaction(r, m)
     end
     # The SS A-binding group has no equilibrium constant to tie, so its
     # context split by B gains alone and is emitted as a single split.
@@ -2426,7 +2433,7 @@ end
     for r in result
         @test r.catalytic_multiplicity == am.catalytic_multiplicity
         @test r.regulatory_sites == am.regulatory_sites
-        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+        @test _testhelper_keeps_reaction(r, am)
     end
 end
 
@@ -2775,7 +2782,7 @@ end
     @test length(kids) == 2
     @test Set(kids) == Set([p_by_b, a_by_p])
     others = [EnzymeRates._expand_re_to_ss(am); EnzymeRates._expand_change_allo_state(am)]
-    @test Set(EnzymeRates.expand_mechanisms([am], EnzymeRates.reaction(am))) ==
+    @test Set(EnzymeRates.expand_mechanisms([am], ter_bi_rxn)) ==
           Set([others; p_by_b; a_by_p])
 end
 
@@ -2863,7 +2870,7 @@ end
     @test length(kids) == 2
     @test Set(kids) == Set([a_by_p, p_by_b])
     others = [EnzymeRates._expand_re_to_ss(am); EnzymeRates._expand_change_allo_state(am)]
-    @test Set(EnzymeRates.expand_mechanisms([am], EnzymeRates.reaction(am))) ==
+    @test Set(EnzymeRates.expand_mechanisms([am], ter_bi_rxn)) ==
           Set([others; a_by_p; p_by_b])
 end
 
@@ -2946,7 +2953,7 @@ end
     base = EnzymeRates._independent_param_count(am)
     @test all(c -> EnzymeRates._independent_param_count(c) > base, kids)
     others = [EnzymeRates._expand_re_to_ss(am); EnzymeRates._expand_change_allo_state(am)]
-    @test Set(EnzymeRates.expand_mechanisms([am], EnzymeRates.reaction(am))) ==
+    @test Set(EnzymeRates.expand_mechanisms([am], bi_bi_rxn)) ==
           Set([others; p_split; q_by_p; q_by_a])
 end
 
@@ -3084,7 +3091,12 @@ end
     @test Set(kids) == Set([a_by_i_and_i_by_a, p_by_q, p_by_a, q_by_p, q_by_b])
     @test all(c -> EnzymeRates._independent_param_count(c) > base, kids)
     others = [EnzymeRates._expand_re_to_ss(am); EnzymeRates._expand_change_allo_state(am)]
-    @test Set(EnzymeRates.expand_mechanisms([am], EnzymeRates.reaction(am))) ==
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        competitive_inhibitors: I
+    end
+    @test Set(EnzymeRates.expand_mechanisms([am], rxn)) ==
           Set([others; a_by_i_and_i_by_a; p_by_q; p_by_a; q_by_p; q_by_b])
 end
 
@@ -5375,7 +5387,7 @@ end
             _testhelper_assert_mechanism_invariants(r)
             @test r.catalytic_multiplicity == am.catalytic_multiplicity
             @test r.cat_allo_states == am.cat_allo_states
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+            @test _testhelper_keeps_reaction(r, am)
         end
     end
 end
@@ -5549,7 +5561,7 @@ end
         _testhelper_assert_mechanism_invariants(r)
         @test r.catalytic_multiplicity == am.catalytic_multiplicity
         @test r.cat_allo_states == am.cat_allo_states
-        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+        @test _testhelper_keeps_reaction(r, am)
     end
 end
 
@@ -6201,7 +6213,7 @@ end
     m_seed = first(init_mechs)
     n_groups = length(EnzymeRates.steps(m_seed))
     am = EnzymeRates.AllostericMechanism(
-        EnzymeRates.reaction(m_seed), copy(EnzymeRates.steps(m_seed)),
+        rxn, copy(EnzymeRates.steps(m_seed)),
         Symbol[:EqualAI for _ in 1:n_groups], 2, EnzymeRates.RegulatorySite[])
     @test all(t -> t == :EqualAI, am.cat_allo_states)
 
@@ -6222,7 +6234,7 @@ end
 
     # 3. preservation: reaction, multiplicity, sites.
     for r in result
-        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+        @test _testhelper_keeps_reaction(r, am)
         @test r.catalytic_multiplicity == am.catalytic_multiplicity
         @test r.regulatory_sites == am.regulatory_sites
     end
@@ -6240,8 +6252,8 @@ end
     am_seed = first(allo_mechs)
     # Manually build an all-:NonequalAI version.
     am_all_neq = EnzymeRates.AllostericMechanism(
-        EnzymeRates.reaction(am_seed),
-        copy(am_seed.cat_steps),
+        rxn,
+        copy(EnzymeRates.steps(am_seed)),
         fill(:NonequalAI, length(am_seed.cat_allo_states)),
         am_seed.catalytic_multiplicity,
         copy(am_seed.regulatory_sites))
@@ -6609,11 +6621,11 @@ site_a = EnzymeRates.RegulatorySite(
 site_b = EnzymeRates.RegulatorySite(
     [:B], 4, [:OnlyI])
 am_ab = EnzymeRates.AllostericMechanism(
-    EnzymeRates.reaction(base),
-    [copy(g) for g in base.steps], cat_states, 2, [site_a, site_b])
+    uni_uni_allo,
+    [copy(g) for g in EnzymeRates.steps(base)], cat_states, 2, [site_a, site_b])
 am_ba = EnzymeRates.AllostericMechanism(   # sites swapped
-    EnzymeRates.reaction(base),
-    [copy(g) for g in base.steps], cat_states, 2, [site_b, site_a])
+    uni_uni_allo,
+    [copy(g) for g in EnzymeRates.steps(base)], cat_states, 2, [site_b, site_a])
 _testhelper_assert_mechanism_invariants(am_ab)
 _testhelper_assert_mechanism_invariants(am_ba)
 @test am_ab == am_ba
@@ -6632,13 +6644,13 @@ end
 base = first(EnzymeRates.init_mechanisms(uni_uni_allo))
 cat_states = [:EqualAI for _ in base.steps]
 am_m2 = EnzymeRates.AllostericMechanism(
-    EnzymeRates.reaction(base),
-    [copy(g) for g in base.steps], cat_states, 2,
+    uni_uni_allo,
+    [copy(g) for g in EnzymeRates.steps(base)], cat_states, 2,
     [EnzymeRates.RegulatorySite(
         [:A], 2, [:OnlyA])])
 am_m4 = EnzymeRates.AllostericMechanism(   # different multiplicity
-    EnzymeRates.reaction(base),
-    [copy(g) for g in base.steps], cat_states, 2,
+    uni_uni_allo,
+    [copy(g) for g in EnzymeRates.steps(base)], cat_states, 2,
     [EnzymeRates.RegulatorySite(
         [:A], 4, [:OnlyA])])
 _testhelper_assert_mechanism_invariants(am_m2)
@@ -6679,8 +6691,7 @@ end
         "to exercise a non-trivial permutation"
     # Cyclic-rotate-by-1 permutation: [g1, g2, …, gN] → [g2, …, gN, g1].
     perm = vcat(2:n_groups, 1)
-    m_rotated = EnzymeRates.Mechanism(
-        EnzymeRates.reaction(m_seed), m_seed.steps[perm])
+    m_rotated = EnzymeRates.Mechanism(bi_bi_rxn, EnzymeRates.steps(m_seed)[perm])
     v = EnzymeRates.Mechanism[m_seed, m_rotated]
     unique!(v)
     @test length(v) == 1
@@ -6795,7 +6806,7 @@ end
     # metadata is preserved.
     for r in allo_results
         @test r.catalytic_multiplicity == am.catalytic_multiplicity
-        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+        @test _testhelper_keeps_reaction(r, am)
     end
 end
 
@@ -11716,7 +11727,7 @@ end
     kids = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
     @test length(kids) == 6
     @test Set(EnzymeRates.steps.(kids)) == Set(EnzymeRates.steps.(expected))
-    @test all(c -> EnzymeRates.reaction(c) == rxn, kids)
+    @test all(c -> _testhelper_keeps_reaction(c, m) && :I in EnzymeRates.modifiers(c), kids)
 end
 
 @testset "_expand_add_dead_end_regulator: inhibitor never runs the net reaction" begin
@@ -12019,7 +12030,7 @@ end
     # 2^n one-ligand-site state assignments of a lineage collapse to one key.
     # The catalytic backbone and cat_allo_states are preserved.
     _testhelper_skeleton_key(m) = hash(EnzymeRates.AllostericMechanism(
-        EnzymeRates.reaction(m), EnzymeRates.steps(m),
+        _testhelper_placeholder_reaction(m), EnzymeRates.steps(m),
         EnzymeRates.cat_allo_states(m), EnzymeRates.catalytic_multiplicity(m),
         [EnzymeRates.RegulatorySite(EnzymeRates.ligands(s),
              EnzymeRates.multiplicity(s),
@@ -12113,8 +12124,7 @@ end
         # conformations, so a seed carries its base catalytic count + n_required
         # + 1 (L). Compile is slow; sample a few seeds.
         for s in seeds_xy[1:min(3, length(seeds_xy))]
-            base = EnzymeRates.Mechanism(
-                EnzymeRates.reaction(s), copy(EnzymeRates.steps(s)))
+            base = EnzymeRates.Mechanism(rxn_xy, copy(EnzymeRates.steps(s)))
             base_count = _testhelper_fitted(base)
             seed_count = _testhelper_fitted(s)
             @test seed_count == base_count + n_required + 1
@@ -12337,7 +12347,10 @@ end
             E + ADP ⇌ E(ADP)
         end
     end)
-    rxn = EnzymeRates.reaction(m)
+    rxn = @enzyme_reaction begin
+        substrates: ATP[AP], F6P[F]
+        products: ADP[A], F16BP[FP]
+    end
     kids = EnzymeRates._expand_to_allosteric(m, rxn)
     onlya = [k for k in kids if any(==(:OnlyA), EnzymeRates.cat_allo_states(k))]
     # every :OnlyA child is dead-inactive: all iso steps :OnlyA
@@ -12478,5 +12491,5 @@ end
     @test Set(kids) == Set([a_relaxed, b_relaxed, p_relaxed, q_relaxed])
     # expand_mechanisms passes them on.
     @test issubset(kids,
-                   EnzymeRates.expand_mechanisms([partial], EnzymeRates.reaction(partial)))
+                   EnzymeRates.expand_mechanisms([partial], bi_bi_rxn))
 end

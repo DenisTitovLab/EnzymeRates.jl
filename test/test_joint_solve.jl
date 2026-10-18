@@ -70,8 +70,7 @@ end
     @testset "the priority key orders the columns" begin
         mech = EnzymeRates.Mechanism(_testhelper_mm_ss)
         sys = EnzymeRates._joint_system(mech)
-        rxn = EnzymeRates.reaction(mech)
-        describe(c) = (EnzymeRates._step_text(sys.flat[c.step][1], rxn), c.slot)
+        describe(c) = (EnzymeRates._step_text(sys.flat[c.step][1], mech), c.slot)
         # The isomerization goes first, its reverse rate (against the reaction) before
         # its forward one; then the two bindings' constants that run against the
         # reaction, the release of S and the uptake of P (a product binding's uptake runs
@@ -198,8 +197,7 @@ end
         end
         m = EnzymeRates.Mechanism(tied_mm)
         # Groups and steps in canonical order: the steps at free E first, then by form.
-        @test EnzymeRates._step_text.(first.(EnzymeRates._flat_steps(m)),
-                                      Ref(EnzymeRates.reaction(m))) ==
+        @test EnzymeRates._step_text.(first.(EnzymeRates._flat_steps(m)), Ref(m)) ==
               ["E <--> D", "ES <--> DS", "E + P <--> EP", "E + S <--> ES", "D + S <--> DS",
                "ES <--> EP"]
         tied = only(g for g in EnzymeRates.steps(m) if length(g) == 2)
@@ -289,9 +287,8 @@ end
         g = only(g for (g, group) in enumerate(EnzymeRates.steps(am)) if length(group) == 2)
         # Active: E(A) + I sorts before E(P) + I (A before P), so it is kept; inactive:
         # the member in the law is kept.
-        rxn = EnzymeRates.reaction(am)
-        @test EnzymeRates._step_text(kept[(g, 1, false)], rxn) == "EA + I ⇌ EAI"
-        @test EnzymeRates._step_text(kept[(g, 1, true)], rxn) == "EP + I ⇌ EIP"
+        @test EnzymeRates._step_text(kept[(g, 1, false)], am) == "EA + I ⇌ EAI"
+        @test EnzymeRates._step_text(kept[(g, 1, true)], am) == "EP + I ⇌ EIP"
         sys = EnzymeRates._joint_system(am)
         for (key, step) in kept
             last_col = findlast(c -> c.slot == key[2] && c.inactive == key[3] &&
@@ -323,8 +320,7 @@ end
         @test size(sys.A) == (4, 13)
         # Row 1 is the active cycle, row 2 the inactive one. The :EqualAI binding of P has
         # no inactive constant, so the inactive row reads its active one.
-        reads = Set((EnzymeRates._step_text(sys.flat[c.step][1], EnzymeRates.reaction(am)),
-                     c.slot, c.inactive)
+        reads = Set((EnzymeRates._step_text(sys.flat[c.step][1], am), c.slot, c.inactive)
                     for c in sys.columns[findall(!iszero, sys.A[2, :])])
         @test reads == Set([("E + A <--> EA", 1, true), ("E + A <--> EA", 2, true),
                             ("EA <--> EP", 1, true), ("EA <--> EP", 2, true),
@@ -394,9 +390,7 @@ end
                 point = setprecision(BigFloat, 256) do
                     _testhelper_solve_point(mech, rng)
                 end
-                rxn = EnzymeRates.reaction(mech)
-                subs = EnzymeRates.name.(EnzymeRates.substrates(rxn))
-                prods = EnzymeRates.name.(EnzymeRates.products(rxn))
+                subs, prods = _testhelper_substrates(mech), _testhelper_products(mech)
                 concs = Dict{Symbol, BigFloat}(
                     x => exp(2 * big(rand(rng)) - 1)
                     for x in EnzymeRates.metabolites(spec.mechanism))

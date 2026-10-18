@@ -1071,7 +1071,7 @@ end
     for em in ems
         m = ER.Mechanism(em)
         for flipped in _testhelper_variants(ER.steps(m))
-            m2 = ER.Mechanism(ER.reaction(m), flipped)
+            m2 = ER.Mechanism(_testhelper_placeholder_reaction(m), flipped)
             @test m2 == m
             @test ER.rate_equation_string(ER.compile_mechanism(m2)) ==
                   ER.rate_equation_string(em)
@@ -1081,7 +1081,8 @@ end
         spec.mechanism isa ER.AllostericEnzymeMechanism || continue
         am = ER.AllostericMechanism(spec.mechanism)
         for flipped in _testhelper_variants(ER.steps(am))
-            am2 = ER.AllostericMechanism(ER.reaction(am), flipped, ER.cat_allo_states(am),
+            am2 = ER.AllostericMechanism(_testhelper_placeholder_reaction(am), flipped,
+                                         ER.cat_allo_states(am),
                                          ER.catalytic_multiplicity(am),
                                          ER.regulatory_sites(am))
             @test am2 == am

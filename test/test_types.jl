@@ -635,8 +635,9 @@ end
     @testset "AllostericEnzymeMechanism lift validators" begin
         # Wrong-length cat_allo_states (4 entries for 3 kinetic groups) → error
         cm = ER.Mechanism(_testhelper_re_mm)
+        rxn = _testhelper_placeholder_reaction(cm)
         @test_throws ErrorException ER.AllostericMechanism(
-            ER.reaction(cm), ER.steps(cm), [:NonequalAI, :NonequalAI, :NonequalAI, :OnlyA],
+            rxn, ER.steps(cm), [:NonequalAI, :NonequalAI, :NonequalAI, :OnlyA],
             2, ER.RegulatorySite[])
 
         # A ligand on two regulatory sites → error: both sites would render its Kreg name
@@ -644,7 +645,7 @@ end
             "AllostericMechanism: ligand A appears in two distinct regulatory sites; " *
             "rendered Kreg names would collide. Same-ligand-two-sites is not enumerated."),
             ER.AllostericMechanism(
-                ER.reaction(cm), ER.steps(cm), [:EqualAI, :EqualAI, :EqualAI], 2,
+                rxn, ER.steps(cm), [:EqualAI, :EqualAI, :EqualAI], 2,
                 [ER.RegulatorySite([:A], n, [:OnlyA]) for n in (2, 4)]))
 
         # Invalid allo state value → error
@@ -1239,7 +1240,7 @@ end
         (; rxn, bind, iso, rel) = _testhelper_uniuni()
 
         m = ER.Mechanism(rxn, [[bind], [iso], [rel]])
-        @test ER.reaction(m) == rxn
+        @test (ER.substrates(m), ER.products(m)) == ([:S], [:P])
         flat = ER._flat_steps(m)
         @test Set(s for (s, _) in flat) == Set([bind, iso, rel])
         @test [g for (_, g) in flat] == [1, 2, 3]
@@ -1286,7 +1287,7 @@ end
             [:EqualAI, :OnlyA, :NonequalAI], 2,
             [site])
 
-        @test ER.reaction(m) == rxn
+        @test (ER.substrates(m), ER.products(m)) == ([:S], [:P])
         # Steps canonicalized; allosteric tags stay bound to their steps.
         @test Set(only(g) for g in ER.steps(m)) ==
               Set([bind, iso, rel])
@@ -1357,8 +1358,10 @@ end
         @test am isa ER.AllostericMechanism
 
         # Catalytic side lifted via Mechanism(CM())
-        @test ER.steps(am) == ER.Mechanism(cm).steps
-        @test ER.reaction(am) == ER.Mechanism(cm).reaction
+        lifted = ER.Mechanism(cm)
+        @test ER.steps(am) == ER.steps(lifted)
+        @test (ER.substrates(am), ER.products(am), ER.modifiers(am)) ==
+              (ER.substrates(lifted), ER.products(lifted), ER.modifiers(lifted))
 
         # cat_allo_states and multiplicity extracted from CS
         @test ER.cat_allo_state(am, 1) === :EqualAI
@@ -1817,8 +1820,8 @@ end
     bind_p = group_of(s -> ER.bound_metabolite(s) == ER.Product(:P))
     iso = group_of(ER.is_iso)
     _testhelper_rebuild(groups) = _testhelper_thrown() do
-        ER.AllostericMechanism(ER.reaction(am), groups, fill(:EqualAI, length(groups)),
-                               2, ER.RegulatorySite[])
+        ER.AllostericMechanism(_testhelper_placeholder_reaction(am), groups,
+                               fill(:EqualAI, length(groups)), 2, ER.RegulatorySite[])
     end
     # The two bindings in one group: different metabolites.
     err = _testhelper_rebuild([[bind_s; bind_p], iso])
@@ -2969,7 +2972,7 @@ end
             E(Q) ⇌ E + Q
         end
     end)
-    m2 = EnzymeRates.Mechanism(EnzymeRates.reaction(m1),
+    m2 = EnzymeRates.Mechanism(_testhelper_placeholder_reaction(m1),
                                deepcopy(EnzymeRates.steps(m1)))
     am1 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
@@ -2983,7 +2986,7 @@ end
         end
         regulatory_site(2): I::OnlyI
     end)
-    am2 = EnzymeRates.AllostericMechanism(EnzymeRates.reaction(am1),
+    am2 = EnzymeRates.AllostericMechanism(_testhelper_placeholder_reaction(am1),
                                           deepcopy(EnzymeRates.steps(am1)),
                                           copy(EnzymeRates.cat_allo_states(am1)),
                                           EnzymeRates.catalytic_multiplicity(am1),
@@ -3032,7 +3035,7 @@ end
     end
     m = EnzymeRates.Mechanism(_testhelper_re_mm)
     m_on_rxn = EnzymeRates.Mechanism(rxn, EnzymeRates.steps(m))
-    @test EnzymeRates.reaction(m_on_rxn) != EnzymeRates.reaction(m)
+    @test rxn != _testhelper_placeholder_reaction(m)
     @test m_on_rxn == m && hash(m_on_rxn) == hash(m)
     am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
@@ -3050,7 +3053,7 @@ end
                                                 EnzymeRates.cat_allo_states(am),
                                                 EnzymeRates.catalytic_multiplicity(am),
                                                 EnzymeRates.regulatory_sites(am))
-    @test EnzymeRates.reaction(am_on_rxn) != EnzymeRates.reaction(am)
+    @test rxn != _testhelper_placeholder_reaction(am)
     @test am_on_rxn == am && hash(am_on_rxn) == hash(am)
 end
 
