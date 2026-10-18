@@ -134,3 +134,157 @@ end
         RG.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 2,
                                [EnzymeRates.RegulatorySite([:L], 2, [:OnlyI])]))
 end
+
+"""`raw` written another way, the same mechanism: with `order`, its steps in reverse
+order; with `direction`, each from its other end; with `labels`, its group labels
+numbered from the last. Its declared names come in reverse order."""
+function _testhelper_rewrite(raw::EnzymeRates.RawMechanism;
+                             order = true, direction = true, labels = true)
+    steps, group = raw.steps, raw.group
+    direction && (steps = [EnzymeRates.RawStep(s.to, s.from, s.released, s.consumed,
+                                               s.rapid_equilibrium) for s in steps])
+    labels && (group = maximum(group; init = 0) + 1 .- group)
+    order && ((steps, group) = (reverse(steps), reverse(group)))
+    EnzymeRates.RawMechanism(reverse(raw.substrates), reverse(raw.products),
+                             reverse(raw.modifiers), steps, group)
+end
+
+"""The catalytic part of `raw`, a spec's raw value."""
+_testhelper_plain(raw::EnzymeRates.RawMechanism) = raw
+_testhelper_plain(raw::EnzymeRates.RawAllostericMechanism) = raw.catalytic
+
+@testset "every writing of a mechanism gives one canonical graph" begin
+    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
+        raw = _testhelper_plain(spec.raw)
+        m = RG._canonicalize(raw).mechanism
+        for (order, direction, labels) in ((true, false, false), (false, true, false),
+                                           (false, false, true), (true, true, true))
+            other = RG._canonicalize(
+                _testhelper_rewrite(raw; order, direction, labels)).mechanism
+            @test other == m && hash(other) == hash(m)
+        end
+    end
+end
+
+@testset "canonical form maps each written step to its edge, group and forms" begin
+    c = RG._canonicalize(EnzymeRates._raw_mechanism(:(begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end), false))
+    # Forms E, E(P), E(S); the release of P is stored as the binding it reverses.
+    @test c.mechanism == _testhelper_graph_uniuni()
+    @test c.edge_of == [2, 3, 1]
+    @test c.flipped == [false, false, true]
+    @test c.group_of == [2, 3, 1]
+    @test c.form_of == [1, 3, 3, 2, 2, 1]
+    @test isempty(c.misaligned)
+end
+
+@testset "canonical form runs each step physical-forward, tied steps as one" begin
+    _testhelper_flipped(block) =
+        RG._canonicalize(EnzymeRates._raw_mechanism(block, false)).flipped
+    # A step with one metabolite takes it up; a fused release F(P) → F + P too. Then the
+    # side with more substrates comes first (E(S) → E(P)); then the form where only
+    # products enter or leave (F → E); then the earlier form, F(S) → E(S) running E(S)
+    # → F(S), E(S) and F(S) seeing no metabolite enter or leave.
+    @test _testhelper_flipped(:(begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(S)
+            F(S) <--> E(S)
+            F(S) <--> F(P)
+            F(P) <--> F + P
+            F <--> E
+        end
+    end)) == [false, true, false, true, false]
+    @test _testhelper_flipped(:(begin
+        substrates: S
+        products: P
+        steps: begin
+            E(S) <--> E + S
+            E(S) <--> F(S)
+            F(P) <--> F(S)
+            F + P <--> F(P)
+            E <--> F
+        end
+    end)) == [true, false, true, false, true]
+    # The mirror of F → E at the I-bound forms would run E(I) → F(I) on its own (the
+    # earlier form); in one kinetic group with F → E it runs F(I) → E(I). The release
+    # of P is stored as the binding it reverses.
+    _testhelper_mirrored(iso) = EnzymeRates._raw_mechanism(:(begin
+        substrates: A
+        products: P
+        modifiers: I
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            (F <--> E, $iso)
+            (E + I ⇌ E(I), F + I ⇌ F(I))
+        end
+    end), false)
+    c, d = RG._canonicalize(_testhelper_mirrored(:(F(I) <--> E(I)))),
+           RG._canonicalize(_testhelper_mirrored(:(E(I) <--> F(I))))
+    @test c.flipped == [false, false, true, false, false, false, false]
+    @test d.flipped == [false, false, true, false, true, false, false]
+    @test c.mechanism == d.mechanism
+    # Tied steps that change different pairs of conformations: no orientation aligns
+    # them, and canonical form returns the lead and the first that misses it.
+    c = RG._canonicalize(EnzymeRates._raw_mechanism(:(begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> E + P
+            (E ⇌ F, F ⇌ G, G ⇌ E)
+        end
+    end), false))
+    @test c.misaligned == [RG.Edge(1, 4, 0, 0, true), RG.Edge(4, 5, 0, 0, true)]
+end
+
+"""Bindings of each name of `names` to free E, at rapid equilibrium."""
+_testhelper_bindings(names) =
+    [EnzymeRates.RawStep(EnzymeRates.RawForm(:E, EnzymeRates.Met[]),
+                         EnzymeRates.RawForm(:E, [EnzymeRates.Met(x, false)]),
+                         [EnzymeRates.Met(x, false)], EnzymeRates.Met[], true)
+     for x in names]
+
+@testset "a graph holds at most 32 table entries and 15 copies of one entry" begin
+    names = [Symbol("S", i) for i in 1:32]
+    _testhelper_raw(n) = EnzymeRates.RawMechanism(names[1:(n - 1)], [:P], Symbol[],
+                                      _testhelper_bindings([names[1:(n - 1)]; :P]),
+                                      collect(1:n))
+    @test length(RG._canonicalize(_testhelper_raw(32)).mechanism.table) == 32
+    @test_throws(ErrorException("Mechanism: a mechanism holds at most 32 metabolite " *
+                                "entries (a name and its modifier copy count apart); " *
+                                "this one has 33"),
+                 RG._canonicalize(_testhelper_raw(33)))
+    # A reactant and its modifier copy are two entries.
+    _testhelper_copy_of(x) = EnzymeRates.RawStep(EnzymeRates.RawForm(:E, EnzymeRates.Met[]),
+                                     EnzymeRates.RawForm(:E, [EnzymeRates.Met(x, true)]),
+                                     [EnzymeRates.Met(x, true)], EnzymeRates.Met[], true)
+    both = EnzymeRates.RawMechanism(names[1:16], [:P], names[1:16],
+                                    [_testhelper_bindings([names[1:16]; :P]);
+                                     _testhelper_copy_of.(names[1:16])], collect(1:33))
+    @test_throws(ErrorException("Mechanism: a mechanism holds at most 32 metabolite " *
+                                "entries (a name and its modifier copy count apart); " *
+                                "this one has 33"),
+                 RG._canonicalize(both))
+    _testhelper_holding(n) = EnzymeRates.RawMechanism([:A], [:P], Symbol[],
+        [EnzymeRates.RawStep(EnzymeRates.RawForm(:E, fill(EnzymeRates.Met(:A, false), n)),
+                             EnzymeRates.RawForm(:F, fill(EnzymeRates.Met(:A, false), n)),
+                             EnzymeRates.Met[], EnzymeRates.Met[], false)], [1])
+    @test RG.copies(
+        RG._canonicalize(_testhelper_holding(15)).mechanism.forms[1].bound, 1) == 15
+    @test_throws(ErrorException("Mechanism: a form or a step side holds A more than 15 " *
+                                "times; a mechanism holds at most 15 copies of one " *
+                                "metabolite there"),
+                 RG._canonicalize(_testhelper_holding(16)))
+end

@@ -52,8 +52,9 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
     # allosteric mechanism, its regulatory sites in written order, before the
     # constructors canonicalize them. Positional textbook oracles number k1,k2,… (and
     # reg1,reg2,…) by written order; `_testhelper_written_params` reads it to take each
-    # written step's constants from its stored step, by role. Populated only for
-    # oracle-bearing fixtures, through `@_testhelper_with_raw`.
+    # written step's constants from its stored step, by role. The reaction-graph tests
+    # build each spec's graph from it. Every spec fills it, through
+    # `@_testhelper_with_raw`.
     raw::Union{EnzymeRates.RawMechanism,EnzymeRates.RawAllostericMechanism,Nothing} =
         nothing
 end
@@ -1156,7 +1157,7 @@ end
 # 11b. Random-order, chemistry-SS Bi-Bi: two substrate binding orders,
 #      a steady-state chemistry step, single product. ODE is ground truth.
 let
-    m = @enzyme_mechanism begin
+    m, raw = @_testhelper_with_raw @enzyme_mechanism begin
         substrates: S1, S2
         products: P
         steps: begin
@@ -1171,6 +1172,7 @@ let
     push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Numerator: random chem-SS (RE/SS)",
         mechanism=m,
+        raw=raw,
         metabolite_names=[:S1, :S2, :P],
         expected_n_states=5,
         expected_n_steps=6,
@@ -1183,7 +1185,7 @@ end
 # 11c. Catalytic isomerization RE, binding+release SS: random-order binding
 #      and product release around a rapid-equilibrium chemistry step.
 let
-    m = @enzyme_mechanism begin
+    m, raw = @_testhelper_with_raw @enzyme_mechanism begin
         substrates: S1, S2
         products: P1, P2
         steps: begin
@@ -1201,6 +1203,7 @@ let
     push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Numerator: RE-chemistry",
         mechanism=m,
+        raw=raw,
         metabolite_names=[:S1, :S2, :P1, :P2],
         expected_n_states=7,
         expected_n_steps=9,
@@ -1213,7 +1216,7 @@ end
 # 11d. Single-RE-segment with a redundant SS binding branch (one branch
 #      RE, one SS). ODE is ground truth.
 let
-    m = @enzyme_mechanism begin
+    m, raw = @_testhelper_with_raw @enzyme_mechanism begin
         substrates: S1, S2
         products: P
         steps: begin
@@ -1228,6 +1231,7 @@ let
     push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="Numerator: redundant SS-bind",
         mechanism=m,
+        raw=raw,
         metabolite_names=[:S1, :S2, :P],
         expected_n_states=5,
         expected_n_steps=6,
@@ -2821,9 +2825,8 @@ end
 # with a products=0 boundary, so the ODE cross-check is skipped. The parameter
 # headers of their golden RATE_EQUATION_STRING lines confirm the dependent reverse
 # rate is excluded.
-push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
-    name="LDH i-state NonequalAI 6-group",
-    mechanism=(@allosteric_mechanism begin
+let
+    m, raw = @_testhelper_with_raw @allosteric_mechanism begin
         substrates: NADH, Pyruvate
         products: Lactate, NAD
         catalytic_multiplicity: 4
@@ -2842,16 +2845,20 @@ push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
             E(NAD) + Lactate ⇌ E(Lactate, NAD) :: EqualAI
             E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA
         end
-    end),
-    metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
-    expected_n_states=9, expected_n_steps=13,
-    expected_n_haldane_constraints=1,
-    expected_n_wegscheider_constraints=2, expected_n_independent_params=9,
-    run_ode_test=false))
+    end
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
+        name="LDH i-state NonequalAI 6-group",
+        mechanism=m,
+        raw=raw,
+        metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
+        expected_n_states=9, expected_n_steps=13,
+        expected_n_haldane_constraints=1,
+        expected_n_wegscheider_constraints=2, expected_n_independent_params=9,
+        run_ode_test=false))
+end
 
-push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
-    name="LDH i-state NonequalAI 5-group",
-    mechanism=(@allosteric_mechanism begin
+let
+    m, raw = @_testhelper_with_raw @allosteric_mechanism begin
         substrates: NADH, Pyruvate
         products: Lactate, NAD
         catalytic_multiplicity: 4
@@ -2866,16 +2873,20 @@ push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
             E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate) :: EqualAI
             E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA
         end
-    end),
-    metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
-    expected_n_states=7, expected_n_steps=9,
-    expected_n_haldane_constraints=1,
-    expected_n_independent_params=8,
-    run_ode_test=false))
+    end
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
+        name="LDH i-state NonequalAI 5-group",
+        mechanism=m,
+        raw=raw,
+        metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
+        expected_n_states=7, expected_n_steps=9,
+        expected_n_haldane_constraints=1,
+        expected_n_independent_params=8,
+        run_ode_test=false))
+end
 
-push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
-    name="LDH i-state EqualAI-NonequalAI 6-group",
-    mechanism=(@allosteric_mechanism begin
+let
+    m, raw = @_testhelper_with_raw @allosteric_mechanism begin
         substrates: NADH, Pyruvate
         products: Lactate, NAD
         catalytic_multiplicity: 4
@@ -2891,12 +2902,17 @@ push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
             E(NADH, Pyruvate) <--> E(Lactate, NAD) :: EqualAI
             E(Pyruvate) + NAD <--> E(NAD, Pyruvate) :: NonequalAI
         end
-    end),
-    metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
-    expected_n_states=8, expected_n_steps=10,
-    expected_n_haldane_constraints=1,
-    expected_n_wegscheider_constraints=2, expected_n_independent_params=8,
-    run_ode_test=false))
+    end
+    push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
+        name="LDH i-state EqualAI-NonequalAI 6-group",
+        mechanism=m,
+        raw=raw,
+        metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
+        expected_n_states=8, expected_n_steps=10,
+        expected_n_haldane_constraints=1,
+        expected_n_wegscheider_constraints=2, expected_n_independent_params=8,
+        run_ode_test=false))
+end
 
 # The PFK-1, HK and PK specs above pair one :OnlyA binding with :OnlyA catalysis. A
 # mechanism that binds both substrates :OnlyA has no spec here; its derivation is

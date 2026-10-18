@@ -1,8 +1,9 @@
 # ABOUTME: The mechanism value types as a reaction graph of enzyme forms and steps in
-# ABOUTME: canonical form: its content order and identity.
+# ABOUTME: canonical form: raw input to canonical graph, its content order and identity.
 module ReactionGraph
 
-using ..EnzymeRates: Met, RegulatorySite, _VALID_CAT_ALLO_STATES, _check_metabolite_names
+using ..EnzymeRates: Met, RawForm, RawMechanism, RegulatorySite, _VALID_CAT_ALLO_STATES,
+                     _check_metabolite_names
 
 # ─── Types ──────────────────────────────────────────────────────────────
 
@@ -150,6 +151,197 @@ end
 
 """`e` stored in the opposite direction: forms swapped, consumed and released swapped."""
 _reversed(e::Edge) = Edge(e.to, e.from, e.released, e.consumed, e.rapid_equilibrium)
+
+# ─── Canonical form ─────────────────────────────────────────────────────
+
+"""
+    _canonicalize(raw::RawMechanism)
+        -> (; mechanism, edge_of, flipped, group_of, form_of, misaligned)
+
+The canonical `Mechanism` that `raw` writes, with no representation check. `edge_of[j]`
+is the edge written step `j` became, `flipped[j]` whether that edge runs against step
+`j` as written, `group_of[l]` the kinetic group written label `l` became,
+`form_of[2j - 1]` and `form_of[2j]` the forms step `j`'s two written ends became, and
+`misaligned` the lead and member of a tied kinetic group that no orientation aligns, or
+no edge. Alignment stops at that group, so a result with a misaligned pair is not
+canonical. Errors only where no encoding exists: more than 32 table entries or more than
+15 copies of one entry on a form or a step side.
+"""
+function _canonicalize(raw::RawMechanism)
+    substrates, products = sort(raw.substrates), sort(raw.products)
+    table = _metabolite_table(raw)
+    conformations = sort!(unique!([f.conformation for s in raw.steps
+                                   for f in (s.from, s.to)]))
+    n = length(raw.steps)
+    ends = Vector{Form}(undef, 2n)
+    for (j, s) in enumerate(raw.steps)
+        ends[2j - 1] = _form(table, conformations, s.from)
+        ends[2j] = _form(table, conformations, s.to)
+    end
+    forms, form_of = _sorted_forms(ends, conformations)
+    written = [Edge(form_of[2j - 1], form_of[2j], _counts(table, s.consumed),
+                    _counts(table, s.released), s.rapid_equilibrium)
+               for (j, s) in enumerate(raw.steps)]
+    substrate_mask, product_mask = _role_masks(table, substrates)
+    fwd, misaligned = _orientation(forms, written, raw.group, substrate_mask, product_mask)
+    stored = [fwd[j] ? written[j] : _reversed(written[j]) for j in 1:n]
+    p = sortperm(stored)
+    group, group_of = _number_groups(raw.group[p], maximum(raw.group; init = 0))
+    m = Mechanism(substrates, products, table, conformations, forms, stored[p], group)
+    (; mechanism = m, edge_of = invperm(p), flipped = .!fwd, group_of, form_of,
+     misaligned)
+end
+
+"""Every metabolite entry `raw` holds, sorted and once each: bound, consumed and released
+metabolites, and the residual names as non-modifier entries."""
+function _metabolite_table(raw::RawMechanism)
+    seen = Met[]
+    for s in raw.steps
+        append!(seen, s.consumed, s.released)
+        for f in (s.from, s.to)
+            append!(seen, f.bound)
+            foreach(x -> push!(seen, Met(x, false)), f.added)
+            foreach(x -> push!(seen, Met(x, false)), f.subtracted)
+        end
+    end
+    table = unique!(sort!(seen))
+    length(table) <= 32 || error("Mechanism: a mechanism holds at most 32 metabolite " *
+        "entries (a name and its modifier copy count apart); this one has " *
+        "$(length(table))")
+    table
+end
+
+"""The counts of `mets`, entries of the sorted `table`."""
+function _counts(table::Vector{Met}, mets)
+    c = Counts(0)
+    for x in mets
+        i = searchsortedfirst(table, x)
+        copies(c, i) == 15 && error("Mechanism: a form or a step side holds $(x.name) " *
+            "more than 15 times; a mechanism holds at most 15 copies of one metabolite " *
+            "there")
+        c += Counts(1) << (4 * (i - 1))
+    end
+    c
+end
+
+"""Form `f` as entries of the sorted `table` and `conformations`."""
+_form(table::Vector{Met}, conformations::Vector{Symbol}, f::RawForm) =
+    Form(searchsortedfirst(conformations, f.conformation), _counts(table, f.bound),
+         _counts(table, (Met(x, false) for x in f.added)),
+         _counts(table, (Met(x, false) for x in f.subtracted)))
+
+"""The distinct forms of `ends` in canonical order, free E (label `E`, nothing bound, no
+residual) first, and the index each end became."""
+function _sorted_forms(ends::Vector{Form}, conformations::Vector{Symbol})
+    free_E = Form(something(findfirst(==(:E), conformations), 0), 0, 0, 0)
+    forms, form_of = Form[], Vector{Int}(undef, length(ends))
+    for t in sortperm(ends; by = f -> (f != free_E, f))
+        (isempty(forms) || forms[end] != ends[t]) && push!(forms, ends[t])
+        form_of[t] = length(forms)
+    end
+    forms, form_of
+end
+
+"""Masks of the table's substrate entries and of its product entries; a modifier entry
+is in neither, so it counts on neither side of a reaction."""
+function _role_masks(table::Vector{Met}, substrates::Vector{Symbol})
+    substrate_mask = product_mask = Counts(0)
+    for (i, x) in enumerate(table)
+        x.modifier && continue
+        nibble = Counts(0xf) << (4 * (i - 1))
+        insorted(x.name, substrates) ? (substrate_mask |= nibble) :
+                                       (product_mask |= nibble)
+    end
+    substrate_mask, product_mask
+end
+
+"""
+    _orientation(forms, written, labels, substrate_mask, product_mask)
+        -> (fwd::BitVector, misaligned::Vector{Edge})
+
+Whether each written edge runs in its physical-forward direction. A step with one
+metabolite in all takes it up (tier 0). Otherwise the side holding more substrates,
+bound plus free, then fewer products, comes first (tier 1); otherwise the step runs from
+a form where only products enter or leave to one where only substrates do (tier 2);
+otherwise from the earlier form (tier 3). A modifier entry counts on neither side. Entry
+sides are read over every edge as written; reversing an edge swaps its ends and lists
+together, so they do not depend on any written direction. Tied groups then turn as one
+(`_align_tied_groups!`).
+"""
+function _orientation(forms::Vector{Form}, written::Vector{Edge}, labels::Vector{Int},
+                      substrate_mask::Counts, product_mask::Counts)
+    side(c::Counts) = UInt8((c & substrate_mask != 0) + 2 * (c & product_mask != 0))
+    enters = zeros(UInt8, length(forms))
+    for e in written
+        enters[e.from] |= side(e.consumed)
+        enters[e.to] |= side(e.released)
+    end
+    score(f::Int, free::Counts) =
+        (total(forms[f].bound & substrate_mask) + total(free & substrate_mask),
+         -total(forms[f].bound & product_mask) - total(free & product_mask))
+    n = length(written)
+    fwd, tier = trues(n), zeros(Int, n)
+    for (k, e) in enumerate(written)
+        if total(e.consumed) + total(e.released) == 1
+            fwd[k] = e.consumed != 0
+        elseif (a = score(e.from, e.consumed)) != (b = score(e.to, e.released))
+            fwd[k], tier[k] = a > b, 1
+        elseif (enters[e.from], enters[e.to]) in ((0x02, 0x01), (0x01, 0x02))
+            fwd[k], tier[k] = enters[e.from] == 0x02, 2
+        else
+            fwd[k], tier[k] = e.from < e.to, 3
+        end
+    end
+    misaligned = _align_tied_groups!(fwd, tier, forms, written, labels)
+    fwd, misaligned
+end
+
+"""
+Turn the steps tiers 2 and 3 decide in each kinetic group (`labels`) with the group's
+lead: the tied step that changes conformation first, then by tier, then by its oriented
+edge. A group's steps share their constants, so a conformational change and its mirror
+at other bound forms must run the same way. Every other tied step that takes up and
+gives off the lead's metabolites takes the orientation that does, and, if it changes
+conformation, makes the lead's change; a step that fits both ways keeps its own. Returns
+the lead and the first step that fits the lead's metabolites but not its change, or no
+edge.
+"""
+function _align_tied_groups!(fwd::BitVector, tier::Vector{Int}, forms::Vector{Form},
+                             written::Vector{Edge}, labels::Vector{Int})
+    label_pair(e::Edge) = (forms[e.from].conformation, forms[e.to].conformation)
+    turns(e::Edge) = label_pair(e)[1] != label_pair(e)[2]
+    oriented(k::Int) = fwd[k] ? written[k] : _reversed(written[k])
+    for l in unique(labels)
+        tied = [k for k in eachindex(written) if labels[k] == l && tier[k] > 1]
+        length(tied) < 2 && continue
+        lead = oriented(argmin(k -> (!turns(oriented(k)), tier[k], oriented(k)), tied))
+        for k in tied
+            o = oriented(k)
+            same = [x for x in (o, _reversed(o))
+                    if (x.consumed, x.released) == (lead.consumed, lead.released)]
+            isempty(same) && continue
+            i = findfirst(x -> !turns(x) || label_pair(x) == label_pair(lead), same)
+            i === nothing && return [lead, same[1]]
+            fwd[k] = same[i] == written[k]
+        end
+    end
+    Edge[]
+end
+
+"""Group labels in edge order renumbered by first occurrence, and the number each
+written label took."""
+function _number_groups(labels::Vector{Int}, G::Int)
+    group_of, group = zeros(Int, G), similar(labels)
+    next = 0
+    for (k, l) in enumerate(labels)
+        if group_of[l] == 0
+            next += 1
+            group_of[l] = next
+        end
+        group[k] = group_of[l]
+    end
+    group, group_of
+end
 
 # ─── Checks ─────────────────────────────────────────────────────────────
 
