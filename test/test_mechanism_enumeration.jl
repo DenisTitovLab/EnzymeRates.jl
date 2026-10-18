@@ -11392,7 +11392,7 @@ end
     end), false))
     @test !isempty(EnzymeRates._expand_add_dead_end_regulator(parent, rxn))
     @test_throws ErrorException(
-        "Mechanism: rapid-equilibrium segment {EQ, EIQ, EPQ, EP} has no form free of one " *
+        "Mechanism: rapid-equilibrium segment {EIQ, EQ, EPQ, EP} has no form free of one " *
         "side's metabolites, so its rate is undefined when that side is absent (0/0). " *
         "Make one of the segment's binding steps steady-state.") (
         EnzymeRates.expand_mechanisms([parent], rxn))

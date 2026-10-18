@@ -920,10 +920,12 @@ function _assert_each_reaction_once(reaction::EnzymeReaction,
     end
 end
 
-"""The distinct enzyme forms of the steps of `groups`, in first-seen order, each step's
-`from_species` before its `to_species`."""
-_forms(groups) =
-    unique(sp for g in groups for s in g for sp in (from_species(s), to_species(s)))
+"""The distinct enzyme forms of the steps of `groups`, in the canonical form order
+(`_form_index_key`: free E first, then by content)."""
+function _forms(groups)
+    forms = unique(sp for g in groups for s in g for sp in (from_species(s), to_species(s)))
+    forms[sortperm(_form_index_key.(forms))]
+end
 
 """
 Rapid-equilibrium segments of `steps` with each form's metabolite exponents

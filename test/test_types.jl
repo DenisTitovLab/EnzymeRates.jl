@@ -616,7 +616,7 @@ end
         # {E(Q), E(P, Q), E(P)} holds a product in every form: its rate is 0/0 at zero
         # products. The boundary check rejects the mechanism when the macro's code runs.
         @test_throws ErrorException(
-            "Mechanism: rapid-equilibrium segment {EQ, EPQ, EP} has no form free of one " *
+            "Mechanism: rapid-equilibrium segment {EP, EPQ, EQ} has no form free of one " *
             "side's metabolites, so its rate is undefined when that side is absent " *
             "(0/0). Make one of the segment's binding steps steady-state.") (
             @allosteric_mechanism begin
@@ -1272,6 +1272,10 @@ end
             "E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP",
             "EA <--> EP_res_plusA_minusP",
             "EB_res_plusA_minusP ⇌ EQ"]
+        # The forms come in that order too (`_forms`): free E, then by content key.
+        @test [ER._form_label(f, pingpong) for f in ER._forms(ER.steps(pingpong))] ==
+              ["E", "E_res_plusA_minusP", "EA", "EB_res_plusA_minusP",
+               "EP_res_plusA_minusP", "EQ"]
     end
 
     @testset "AllostericMechanism (non-parametric)" begin
