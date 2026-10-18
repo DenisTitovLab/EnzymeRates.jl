@@ -7971,6 +7971,134 @@ end
     end
 end
 
+@testset "_seed_variants: the variants follow each base's canonical group order" begin
+    ER = EnzymeRates
+    # A ter-ter seed whose merged base moves the D binding into E(P, Q, R). That
+    # binding's group then sorts after the P group, which binds P at E(A, B) first, so in
+    # the canonical group order of the base the P group comes before the D group. The
+    # minimal flip sets, by level and then by their groups' canonical places, give the
+    # variants in this order: the merged base flipped at {B, P}, {R, D}, {P, D}, {P, A},
+    # {D, Q}, then the Theorell–Chance base (TC = E(A, B) + D → E(Q, R) + P, which
+    # replaces E(P, Q, R)) flipped at {B, R, TC}, {B, TC, Q}, {R, TC, A}, {TC, A, Q}.
+    seed = _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+        substrates: A, B, D; products: P, Q, R
+        steps: begin
+            E + B ⇌ E(B)
+            E + R ⇌ E(R)
+            E(A, B) + D ⇌ E(A, B, D)
+            (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P), E(Q, R) + P ⇌ E(P, Q, R))
+            E(A, B, D) <--> E(P, Q, R)
+            (E(B) + A ⇌ E(A, B), E(B, P) + A ⇌ E(A, B, P))
+            E(R) + Q ⇌ E(Q, R)
+        end
+    end)
+    expected = [
+        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+            substrates: A, B, D; products: P, Q, R
+            steps: begin
+                E + B <--> E(B)
+                E + R ⇌ E(R)
+                E(A, B) + D ⇌ E(P, Q, R)
+                (E(A, B) + P <--> E(A, B, P), E(B) + P <--> E(B, P),
+                 E(Q, R) + P <--> E(P, Q, R))
+                (E(B) + A ⇌ E(A, B), E(B, P) + A ⇌ E(A, B, P))
+                E(R) + Q ⇌ E(Q, R)
+            end
+        end),
+        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+            substrates: A, B, D; products: P, Q, R
+            steps: begin
+                E + B ⇌ E(B)
+                E + R <--> E(R)
+                E(A, B) + D <--> E(P, Q, R)
+                (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P), E(Q, R) + P ⇌ E(P, Q, R))
+                (E(B) + A ⇌ E(A, B), E(B, P) + A ⇌ E(A, B, P))
+                E(R) + Q ⇌ E(Q, R)
+            end
+        end),
+        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+            substrates: A, B, D; products: P, Q, R
+            steps: begin
+                E + B ⇌ E(B)
+                E + R ⇌ E(R)
+                E(A, B) + D <--> E(P, Q, R)
+                (E(A, B) + P <--> E(A, B, P), E(B) + P <--> E(B, P),
+                 E(Q, R) + P <--> E(P, Q, R))
+                (E(B) + A ⇌ E(A, B), E(B, P) + A ⇌ E(A, B, P))
+                E(R) + Q ⇌ E(Q, R)
+            end
+        end),
+        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+            substrates: A, B, D; products: P, Q, R
+            steps: begin
+                E + B ⇌ E(B)
+                E + R ⇌ E(R)
+                E(A, B) + D ⇌ E(P, Q, R)
+                (E(A, B) + P <--> E(A, B, P), E(B) + P <--> E(B, P),
+                 E(Q, R) + P <--> E(P, Q, R))
+                (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))
+                E(R) + Q ⇌ E(Q, R)
+            end
+        end),
+        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+            substrates: A, B, D; products: P, Q, R
+            steps: begin
+                E + B ⇌ E(B)
+                E + R ⇌ E(R)
+                E(A, B) + D <--> E(P, Q, R)
+                (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P), E(Q, R) + P ⇌ E(P, Q, R))
+                (E(B) + A ⇌ E(A, B), E(B, P) + A ⇌ E(A, B, P))
+                E(R) + Q <--> E(Q, R)
+            end
+        end),
+        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+            substrates: A, B, D; products: P, Q, R
+            steps: begin
+                E + B <--> E(B)
+                E + R <--> E(R)
+                (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P))
+                (E(B) + A ⇌ E(A, B), E(B, P) + A ⇌ E(A, B, P))
+                E(R) + Q ⇌ E(Q, R)
+                E(A, B) + D <--> E(Q, R) + P
+            end
+        end),
+        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+            substrates: A, B, D; products: P, Q, R
+            steps: begin
+                E + B <--> E(B)
+                E + R ⇌ E(R)
+                (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P))
+                (E(B) + A ⇌ E(A, B), E(B, P) + A ⇌ E(A, B, P))
+                E(R) + Q <--> E(Q, R)
+                E(A, B) + D <--> E(Q, R) + P
+            end
+        end),
+        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+            substrates: A, B, D; products: P, Q, R
+            steps: begin
+                E + B ⇌ E(B)
+                E + R <--> E(R)
+                (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P))
+                (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))
+                E(R) + Q ⇌ E(Q, R)
+                E(A, B) + D <--> E(Q, R) + P
+            end
+        end),
+        _testhelper_on_reaction(ter_ter_rxn, @enzyme_mechanism begin
+            substrates: A, B, D; products: P, Q, R
+            steps: begin
+                E + B ⇌ E(B)
+                E + R ⇌ E(R)
+                (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P))
+                (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))
+                E(R) + Q <--> E(Q, R)
+                E(A, B) + D <--> E(Q, R) + P
+            end
+        end)
+    ]
+    @test ER._seed_variants(seed, ter_ter_rxn) == expected
+end
+
 @testset "_seed_candidate_screen agrees with the group predicates on every candidate" begin
     ER = EnzymeRates
     # The screen reads the turnover, maximal-rate and chemistry tests of a candidate from

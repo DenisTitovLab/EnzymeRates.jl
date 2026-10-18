@@ -863,15 +863,18 @@ rapid-equilibrium turnover cycle (`_re_turnover_cycle`), a maximal rate both way
 carrying flux. The first three tests read index arrays (`_seed_candidate_screen`); the
 other two run only on a candidate that passes them. A merged variant whose every merged
 complex has both its steps steady state, each alone in its group, is skipped: the
-unmerged form with rapid-equilibrium flanks has its family at the same count.
+unmerged form with rapid-equilibrium flanks has its family at the same count. Each base
+holds its groups in canonical order (`_canonical_order`), so the variants come in the
+order of their flip sets over those groups.
 """
 function _seed_variants(m::Mechanism, rxn::EnzymeReaction)
     isos = [s for group in steps(m) for s in group if is_iso(s)]
     merged = foldl(_merge_isomerization, isos; init = steps(m))
     merged = [_with_equilibrium.(group, true) for group in merged]
     complexes = [to_species(s) for s in isos]
-    bases = Vector{Vector{Step}}[[merged];
+    built = Vector{Vector{Step}}[[merged];
         filter(!isnothing, [_eliminate_form(merged, x) for x in complexes])]
+    bases = [first(_canonical_order(rxn, base)) for base in built]
     lumping_twin(gs) = all(complexes) do x
         at_x = [(s, group) for group in gs for s in group
                 if x in (from_species(s), to_species(s))]

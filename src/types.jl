@@ -743,30 +743,42 @@ _regulatory_site_canonical_key(site::RegulatorySite) =
      Tuple(allo_states(site)))
 
 """
+    _canonical_order(reaction, groups) -> (groups, perm)
+
+The nonempty kinetic groups `groups` of a mechanism of `reaction` in Canonical Step Form,
+with no check but the one orienting needs (`_orient_tied_steps` errors on a tied group no
+orientation aligns): every step oriented (`_canonicalize_step_directions`), the steps
+within each group sorted by `_step_canonical_key`, then the groups sorted by the
+canonical key of each group's first step; `perm` is that group order (a permutation of
+1:length), which the caller applies to any data parallel to the groups. The inner sort
+must run BEFORE the outer one so each group's "first step" key reflects the canonical
+inner order. Each key is computed once per sort. The returned groups are fresh vectors;
+the input is not mutated.
+"""
+function _canonical_order(reaction::EnzymeReaction, groups::Vector{Vector{Step}})
+    gs = [g[sortperm(_step_canonical_key.(g))]
+          for g in _canonicalize_step_directions(reaction, groups)]
+    perm = sortperm([_step_canonical_key(first(g)) for g in gs])
+    gs[perm], perm
+end
+
+"""
     _canonical_groups(reaction, groups) -> (groups, perm)
 
-The kinetic groups in Canonical Step Form, as both mechanism constructors store
-them. First reject an empty kinetic group. Then orient every step
-(`_canonicalize_step_directions`), sort the steps within each group by
-`_step_canonical_key`, then sort the groups by the canonical key of each group's
-first step; `perm` is that group order (a permutation of 1:length),
-which the caller applies to any data parallel to the groups. The inner sort must
-run BEFORE the outer one so each group's "first step" key reflects the canonical
-inner order. Each key is computed once per sort. Then reject two distinct forms that
-render one name (`_assert_distinct_form_names`) and enforce the kinetic-group rules
-(`_assert_uniform_groups`, `_assert_each_reaction_once`). Whether the groups give a
-defined rate law is the boundary check's question (`_check_well_posed`), not the
-constructors'. The returned groups are fresh vectors; the input is not mutated.
+The kinetic groups in Canonical Step Form (`_canonical_order`), as both mechanism
+constructors store them, checked: first reject an empty kinetic group, then reject two
+distinct forms that render one name (`_assert_distinct_form_names`) and enforce the
+kinetic-group rules (`_assert_uniform_groups`, `_assert_each_reaction_once`). Whether
+the groups give a defined rate law is the boundary check's question
+(`_check_well_posed`), not the constructors'. The returned groups are fresh vectors; the
+input is not mutated.
 """
 function _canonical_groups(reaction::EnzymeReaction, groups::Vector{Vector{Step}})
     bad = findfirst(isempty, groups)
     bad === nothing ||
         error("Mechanism: kinetic group $bad is empty; a kinetic group holds at least " *
               "one step")
-    gs = [g[sortperm(_step_canonical_key.(g))]
-          for g in _canonicalize_step_directions(reaction, groups)]
-    perm = sortperm([_step_canonical_key(first(g)) for g in gs])
-    gs = gs[perm]
+    gs, perm = _canonical_order(reaction, groups)
     _assert_distinct_form_names(reaction, gs)
     _assert_uniform_groups(reaction, gs)
     _assert_each_reaction_once(reaction, gs)
