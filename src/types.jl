@@ -1224,7 +1224,7 @@ add substrates and subtract products; no step joining a form to itself, taking u
 giving off one metabolite, or binding a metabolite into a form that holds it in another
 role; tied steps that make one conformational change (`misaligned`, from
 `_canonicalize`); no two forms that render one name; each kinetic group one kind of step
-with one flag; each reaction once.
+with one flag; each reaction once; free E.
 """
 function _check_representation(m::Mechanism, misaligned::Vector{Edge},
                                modifiers::Vector{Symbol})
@@ -1266,6 +1266,16 @@ function _check_representation(m::Mechanism, misaligned::Vector{Edge},
     groups = _group_members(m)
     _check_uniform_groups(m, groups)
     _check_each_reaction_once(m, groups)
+    _check_free_E(m)
+end
+
+"""Error unless form 1 of `m` is free E: label `E`, nothing bound, no residual. Canonical
+form puts free E first wherever a mechanism holds it."""
+function _check_free_E(m::Mechanism)
+    E = findfirst(==(:E), m.conformations)
+    E !== nothing && !isempty(m.forms) && m.forms[1] == Form(E, 0, 0, 0) ||
+        error("Mechanism: no free enzyme form E; every mechanism holds the free form E, " *
+              "with nothing bound and no residual")
 end
 
 """Error unless `misaligned`, from `_canonicalize`, is empty: it holds the lead and a member

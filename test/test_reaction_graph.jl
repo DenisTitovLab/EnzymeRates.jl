@@ -644,6 +644,29 @@ end
             E(S) <--> E(P)
             E(P) <--> E + P
         end)))
+    # No free E: no step at all, a free form labelled F, or E only with S or P bound.
+    no_free_E = ErrorException("Mechanism: no free enzyme form E; every mechanism holds " *
+                               "the free form E, with nothing bound and no residual")
+    @test_throws no_free_E ER.Mechanism(EnzymeRates.RawMechanism(
+        [:S], [:P], Symbol[], EnzymeRates.RawStep[], Int[]))
+    @test_throws no_free_E ER.Mechanism(_testhelper_walk(:(begin
+        substrates: S
+        products: P
+        steps: begin
+            F + S ⇌ F(S)
+            F(S) <--> F(P)
+            F(P) ⇌ F + P
+        end
+    end)))
+    @test_throws no_free_E ER.Mechanism(_testhelper_walk(:(begin
+        substrates: S
+        products: P
+        steps: begin
+            F + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ F + P
+        end
+    end)))
 end
 
 @testset "a form's name and text read as constants and the macros write them" begin

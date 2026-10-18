@@ -220,14 +220,16 @@ end
             "EnzymeMechanism (2 steps, 2 enzyme forms):\n  E + P <--> ES\n" *
             "  E + S <--> ES"
 
-        # A mechanism with no steps prints the bare header.
-        m_none = @enzyme_mechanism begin
+        # A block with no steps holds no free E, so the macro builds no mechanism to print.
+        @test_throws(ErrorException("Mechanism: no free enzyme form E; every mechanism " *
+                                    "holds the free form E, with nothing bound and no " *
+                                    "residual"),
+                     @enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
             end
-        end
-        @test sprint(show, m_none) == "EnzymeMechanism (0 steps, 0 enzyme forms):"
+        end)
 
         # Branched mechanism: the header counts every step and enzyme form, and each
         # step prints.

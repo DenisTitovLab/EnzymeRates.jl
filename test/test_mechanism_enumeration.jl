@@ -401,13 +401,22 @@ end
         products:   Lac[C3H5O3], NAD[C21H27N7O14P2]
     end
 
-    # NEGATIVE: bound NADH → bound Lac, no residual (atoms don't balance).
-    bad_iso = EnzymeRates.Step(
-        EnzymeRates.Species([EnzymeRates.Substrate(:NADH)], :E),
-        EnzymeRates.Species([EnzymeRates.Product(:Lac)], :E),
-        EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
-    bad_m = EnzymeRates.Mechanism(ldh_rxn, [[bad_iso]])
+    # NEGATIVE: bound NADH → bound Lac, no residual (atoms don't balance). Pyr and NAD
+    # bind free E in dead ends, which conserve atoms, so that step is the one offender.
+    bad_m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: NADH, Pyr
+        products: Lac, NAD
+        steps: begin
+            E + NADH ⇌ E(NADH)
+            E(NADH) <--> E(Lac)
+            E(Lac) ⇌ E + Lac
+            E + Pyr ⇌ E(Pyr)
+            E + NAD ⇌ E(NAD)
+        end
+    end)
     @test_throws ErrorException EnzymeRates._assert_atom_conserving(bad_m, ldh_rxn)
+    @test_throws("atom-non-conserving step ENADH → ELac",
+                 EnzymeRates._assert_atom_conserving(bad_m, ldh_rxn))
     # The label names the difference the message prints: Lac has 18 fewer C than NADH.
     label = "atoms(to) + atoms(released) − atoms(from) − atoms(consumed) = "
     @test_throws label EnzymeRates._assert_atom_conserving(bad_m, ldh_rxn)

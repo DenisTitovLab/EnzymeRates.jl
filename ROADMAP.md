@@ -91,10 +91,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   conformation lies behind a binding, on its bound side; the limit then equals deletion
   and pruning. A ping-pong with both half-reactions `:OnlyA` fails this, so the tagging
   move will stop one half per V-type child instead (spec section 7, and the entry
-  below). The conformations will flip at free E, which every mechanism must then
-  contain; until then the constructor admits a second free form only in rapid
-  equilibrium with the first (`_assert_one_flip_segment`), where the choice only rescales
-  `L`. The rewrite's admission PR brings the limits, admission and the flip at free E.
+  below). The conformations will flip at free E, which every mechanism holds; until
+  then the boundary check admits a second free form of an allosteric mechanism only in
+  rapid equilibrium with the first (`_assert_one_flip_segment`, `src/admission.jl`),
+  where the choice only rescales `L`. The rewrite's admission PR brings the limits,
+  admission and the flip at free E.
   Branch `mwc-solve-then-limit` holds a July design of this approach (spec b067aa0 and
   651a821, plan 9c95f12, prototype 6f0011e), whose prototype matched the mass-action
   ground truth on all six uni-uni tag combinations and would delete the `d_free`
