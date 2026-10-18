@@ -61,8 +61,9 @@ Only the `@generated` methods (`rate_equation`, `parameters`, `fitted_params`,
 `fitted_params` and `parameters` run its constraint solve, and `metabolites` reads names off
 the lifted mechanism. The lifts read the Sig at run time, and the derivation helpers that
 take a singleton or its type take it `@nospecialize`, so they compile once for all
-mechanisms. A new mechanism type then pays only for its generated bodies and the
-derivation they run.
+mechanisms. Each mechanism type then pays for its generated bodies and the derivation
+they run, and for the methods that specialize on it: `all_parameters`, Base's
+`text/plain` display, `LogConcentrationTurnover`, and `FittingProblem` and `loss!` below.
 `FittingProblem` and `loss!` specialize on the type on purpose: `loss!` then reads
 `fitted_params` and `metabolites` as constants and calls the generated `rate_equation`
 without dispatch. The optimizer never sees that type. `fit_rate_equation` takes its
