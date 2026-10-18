@@ -1383,9 +1383,8 @@ EnzymeMechanism(m::Mechanism) = EnzymeMechanism{_sig_of(m)}()
 AllostericEnzymeMechanism(am::AllostericMechanism) =
     AllostericEnzymeMechanism{_sig_of(am)}()
 
-# The lifts back read the Sig at run time, so they compile once, whatever the mechanism,
-# and no method specializes on a Sig but the derivation's own. Each gives back the
-# mechanism its Sig encodes.
+# The lifts back read the Sig at run time, so they compile once, whatever the mechanism.
+# Each gives back the mechanism its Sig encodes.
 """The `Mechanism` the compiled mechanism `em` encodes."""
 Mechanism(@nospecialize(em::EnzymeMechanism)) =
     _mechanism_from_sig(typeof(em).parameters[1]...)
