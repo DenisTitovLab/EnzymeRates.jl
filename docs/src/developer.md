@@ -48,9 +48,11 @@ enzyme forms or steps can be slow to compile, exhaust memory, or `StackOverflow`
 `compile_mechanism(m::Mechanism) = EnzymeMechanism(m)` and
 `compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)`. The
 lifts back, `Mechanism(em)` and `AllostericMechanism(aem)`, decode the Sig
-(`_mechanism_from_sig`) into the mechanism it encodes, so a mechanism survives the round
-trip unchanged; decoding checks nothing, since only `_sig_of` writes a Sig. A mechanism
-of either representation prints as the macro block that builds it (`show`,
+(`_mechanism_from_sig`, `_allosteric_mechanism_from_sig`) into the mechanism it encodes,
+so a mechanism survives the round trip unchanged. Decoding trusts the Sig, which only
+`_sig_of` writes: a plain Sig's decoding checks nothing, and an allosteric one's runs only
+the composition constructor's tag and site checks. A mechanism of either representation
+prints as the macro block that builds it (`show`,
 `src/dsl.jl`), from the concrete mechanism, so the compiled types' `show` takes its
 argument `@nospecialize` and `@nospecializeinfer` and compiles once. `_parse_mechanism`
 reads that text back through the macros' walker and checks, never evaluating it, and
