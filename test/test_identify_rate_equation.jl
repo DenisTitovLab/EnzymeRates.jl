@@ -1741,8 +1741,7 @@ end
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
     end
-    attach(em) = ER.Mechanism(rxn, ER.steps(ER.Mechanism(em)))
-    seed = attach(@enzyme_mechanism begin
+    seed = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -1753,7 +1752,7 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    chemistry_flipped = attach(@enzyme_mechanism begin
+    chemistry_flipped = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -1764,7 +1763,7 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    b_flipped = attach(@enzyme_mechanism begin
+    b_flipped = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -1775,7 +1774,7 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    q_flipped = attach(@enzyme_mechanism begin
+    q_flipped = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)

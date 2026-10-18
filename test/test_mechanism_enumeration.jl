@@ -3561,18 +3561,16 @@ end
         products: P[C], Q[N]
         competitive_inhibitors: I
     end
-    withrxn(em) = EnzymeRates.Mechanism(rxn, EnzymeRates.steps(EnzymeRates.Mechanism(em)))
-    m = EnzymeRates.Mechanism(rxn, EnzymeRates.steps(EnzymeRates.Mechanism(
-        @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A <--> E(A)
-                E(A) + B <--> E(Q) + P
-                E + Q <--> E(Q)
-            end
-        end)))
-    at_E = withrxn(@enzyme_mechanism begin
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B <--> E(Q) + P
+            E + Q <--> E(Q)
+        end
+    end)
+    at_E = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q; modifiers: I
         steps: begin
             E + A <--> E(A)
@@ -3581,7 +3579,7 @@ end
             E + I ⇌ E(I)
         end
     end)
-    at_E_EQ = withrxn(@enzyme_mechanism begin
+    at_E_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q; modifiers: I
         steps: begin
             E + A <--> E(A)
@@ -3590,7 +3588,7 @@ end
             (E + I ⇌ E(I), E(Q) + I ⇌ E(I, Q))
         end
     end)
-    at_EA_EQ = withrxn(@enzyme_mechanism begin
+    at_EA_EQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q; modifiers: I
         steps: begin
             E + A <--> E(A)
@@ -3599,7 +3597,7 @@ end
             (E(A) + I ⇌ E(A, I), E(Q) + I ⇌ E(I, Q))
         end
     end)
-    at_E_EA = withrxn(@enzyme_mechanism begin
+    at_E_EA = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q; modifiers: I
         steps: begin
             (E + A <--> E(A), E(I) + A <--> E(A, I))
@@ -5726,10 +5724,7 @@ end
         allosteric_regulators: ATP
         oligomeric_state: 2
     end
-    _testhelper_on_rxn(am) = EnzymeRates.AllostericMechanism(rxn, EnzymeRates.steps(am),
-        EnzymeRates.cat_allo_states(am), EnzymeRates.catalytic_multiplicity(am),
-        EnzymeRates.regulatory_sites(am))
-    parent = _testhelper_on_rxn(EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    parent = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S; products: P
         allosteric_regulators: ATP
         catalytic_multiplicity: 2
@@ -5739,9 +5734,9 @@ end
             E(S) <--> E(P)  :: EqualAI
         end
         regulatory_site(2): ATP::OnlyI
-    end))
+    end)
     children = EnzymeRates._expand_add_dead_end_regulator(parent, rxn)
-    expected = [_testhelper_on_rxn(EnzymeRates.AllostericMechanism(
+    expected = [EnzymeRates.AllostericMechanism(
         @allosteric_mechanism begin
             substrates: S; products: P
             modifiers: I
@@ -5754,7 +5749,7 @@ end
                 E + I ⇌ E(I)  :: EqualAI
             end
             regulatory_site(2): ATP::OnlyI
-        end))]
+        end)]
     @test length(children) == 1
     @test Set(children) == Set(expected)
     atp_inh = EnzymeRates.CompetitiveInhibitor(:ATP)

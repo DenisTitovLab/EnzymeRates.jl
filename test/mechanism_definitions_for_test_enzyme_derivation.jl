@@ -78,9 +78,9 @@ macro _testhelper_with_raw(call)
 end
 
 # Every declared substrate and product appears in some step: some step takes it up or
-# gives it off. Regulators are exempt: init_mechanisms declares a dead-end inhibitor that
-# no step binds yet (expand_mechanisms binds it later; _sig_of leaves it out of the
-# compiled type). Substrates and products are never dropped.
+# gives it off. The constructor rejects a mechanism that declares a reactant no step
+# exchanges, so this checks that the test helpers' reader (`_testhelper_graph`) reads
+# every exchange.
 function _testhelper_assert_mechanism_invariants(m)
     g = _testhelper_graph(m)
     appearing = Set(x for s in g.steps for x in [s.consumed; s.released])
@@ -161,13 +161,10 @@ _testhelper_step_constant_names(m) =
     Set(x for s in _testhelper_graph(m).steps for x in s.names)
 
 # The names of a compiled mechanism's substrates and products, and of its regulators: the
-# modifiers an EnzymeMechanism's steps bind, an AllostericEnzymeMechanism's
-# regulatory-site ligands.
+# modifiers an EnzymeMechanism's steps bind.
 _testhelper_substrates(m) = _testhelper_graph(m).substrates
 _testhelper_products(m) = _testhelper_graph(m).products
 _testhelper_regulators(m::EnzymeRates.EnzymeMechanism) = _testhelper_graph(m).modifiers
-_testhelper_regulators(m::EnzymeRates.AllostericEnzymeMechanism) =
-    unique(Symbol[l for site in _testhelper_graph(m).sites for l in site.ligands])
 
 """Generate random independent (fitted) params + Keq + E_total for a mechanism."""
 function _testhelper_random_independent_params(m; rng=Random.default_rng())
