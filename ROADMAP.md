@@ -178,6 +178,16 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   phantom classes; performance may keep it out of `src/`, where it would otherwise replace
   the beam's parameter count. It must never filter children, since a phantom child can
   carry families its parent lacks.
+- **Seed each identify fit from its mechanism's content.**
+  `fit_rate_equation` (`src/fitting.jl`) draws each restart's starting point with `randn`
+  from the running task's random stream, and `_process_batch`
+  (`src/identify_rate_equation.jl`) fits a batch's representatives in the iteration order
+  of a `Dict` keyed by `eq_hash`, filled in the order the moves emit the mechanisms. So a
+  change of emission order or of a law's printed text moves the starting points of every
+  later fit, and a fit-dependent test can flip with no change to any model. A seed per fit
+  from a process-stable content key, mixed with one master seed drawn per
+  `identify_rate_equation` call, would make each fit independent of the processing order
+  while `Random.seed!` still reproduces a run; every saved fit would move once.
 - **Test the compat bounds in a scheduled CI job.**
   `.github/workflows/CI.yml` tests only the latest Julia release with the newest
   dependencies, while `Project.toml` declares `julia = "1.10"` and a lower bound for every
