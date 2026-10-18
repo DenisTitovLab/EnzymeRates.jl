@@ -1787,8 +1787,9 @@ end
     @test_throws "polynomial terms" rate_equation_string(m_manual)
 end
 
-# The generated rate_equation reads its mechanism type and its arguments under names of
-# its own; a metabolite may take the names of the type parameter and the first argument.
+# The generated rate_equation names its type parameter M_type, which holds `_` as no
+# metabolite name does, and its first argument m; metabolites named M and m read as
+# concentrations.
 @testset "a metabolite named M or m reads as a concentration" begin
     upper = @enzyme_mechanism begin
         substrates: M
