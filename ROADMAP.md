@@ -82,11 +82,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 - **Rewrite the derivation around the reaction graph.**
   `docs/superpowers/specs/2026-10-12-reaction-graph-rewrite-design.md` records the design,
-  decided between 2026-10-09 and 2026-10-12. Three PRs remain: the graph mechanism type
-  with two macros, `show` and a new CSV format; admission, the well-posedness guard and
-  the flip at free E; then the engine, printing, a rename-proof dedup key and
-  code-generation locals. The table in its section 16 lists the entries that each PR
-  retires. Priority: high.
+  decided between 2026-10-09 and 2026-10-12. Two PRs remain: admission, the
+  well-posedness guard and the flip at free E; then the engine, printing, a rename-proof
+  dedup key, code-generation locals and the CSV columns that go with them (`key`,
+  `fit_source_id`, `L_phantom`). The table in its section 16 lists the entries that each
+  PR retires. Priority: high.
 - **Take `:OnlyA` steps to their limit in the inactive conformation.**
   Both conformations come from one joint solve on one graph, but the inactive law still
   deletes every `:OnlyA` group and prunes the forms that deletion strands. An `:OnlyA`
@@ -213,7 +213,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Map BlackBoxOptim's convergence stop to `Success` upstream in OptimizationBase.** Only
   BlackBoxOptim users meet the warning, `test/test_fitting.jl` captures it, and the docs
   and HPC scripts use CMA-ES.
-- **Load identify CSVs written by EnzymeRates 0.7 or earlier.** The loader would be a
+- **Load identify CSVs written by EnzymeRates 0.7 or earlier, or that name a mechanism by
+  its type string (`mechanism_type`) instead of its text and id.** The loader would be a
   backward-compatibility shim; rerunning is cleaner, and the CSVs read as plain tables.
 - **Replay the 0.8 LOOCV random stream so seeded runs reproduce its fold scores.** Nothing
   needs this backward-compatibility code, and unseeded workers never made HPC fold scores

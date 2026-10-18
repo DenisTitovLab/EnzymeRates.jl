@@ -236,7 +236,9 @@ end
         rows = [(
             n_params = 3,
             loss = 0.5,
-            mechanism_type = "test",
+            mechanism = "test",
+            mechanism_id = "0123456789abcdef",
+            parent_id = "fedcba9876543210",
             rate_equation = "v = ...",
             retcode = "Success",
             error = missing,
@@ -248,6 +250,13 @@ end
         df = EnzymeRates._rows_to_dataframe(
             rows)
         @test nrow(df) == 1
+        # The schema: the fit's columns, then one column per fitted parameter.
+        @test names(df) == ["n_params", "parent_n_params", "loss", "mechanism",
+                            "mechanism_id", "parent_id", "rate_equation", "retcode",
+                            "error", "eq_hash", "fit_inherited", "peak_at_range_edge",
+                            "a", "b"]
+        @test (df.mechanism, df.mechanism_id, df.parent_id) ==
+              (["test"], ["0123456789abcdef"], ["fedcba9876543210"])
         @test "a" in names(df)
         @test "b" in names(df)
         @test "eq_hash" in names(df)
@@ -265,12 +274,12 @@ end
 
         # A failure row (every fit field missing) beside a fitted row.
         rows_with_failure = [
-            (n_params = 3, loss = 0.5, mechanism_type = "M",
+            (n_params = 3, loss = 0.5, mechanism = "M", mechanism_id = "0000000000000001",
              rate_equation = "v = ...", retcode = "Success", error = missing,
              params = (a = 1.0,), eq_hash = "0123456789abcdef", fit_inherited = false,
              peak_at_range_edge = false),
-            (n_params = missing, loss = missing, mechanism_type = "M",
-             rate_equation = missing, retcode = missing,
+            (n_params = missing, loss = missing, mechanism = "M",
+             mechanism_id = "0000000000000001", rate_equation = missing, retcode = missing,
              error = "StackOverflowError: ", params = (;), eq_hash = missing,
              fit_inherited = missing, peak_at_range_edge = missing),
         ]
@@ -284,24 +293,26 @@ end
         @test ismissing(df_with_failure.fit_inherited[2])
         @test df_with_failure.peak_at_range_edge[1] == false
         @test ismissing(df_with_failure.peak_at_range_edge[2])
+        @test all(ismissing, df_with_failure.parent_id)
         # A row without the field records missing.
         @test ismissing(EnzymeRates._rows_to_dataframe([(n_params = 1, loss = 0.1,
-            mechanism_type = "M", rate_equation = "v", retcode = "Success",
+            mechanism = "M", mechanism_id = "0", rate_equation = "v", retcode = "Success",
             error = missing, params = (;), eq_hash = "0", fit_inherited = false)
             ]).peak_at_range_edge[1])
         @test "a" in names(df_with_failure)    # param column still built from row 1
         @test ismissing(df_with_failure.a[2])  # failure row contributes no param value
     end
 
-    @testset "failure row preserves round-trippable mechanism" begin
+    @testset "a failure row holds its mechanism's text and id" begin
         m = _testhelper_uni_seed
         f = EnzymeRates.FitFailure(m, "boom")
         row = EnzymeRates._failure_row(f)
-        # Round-trippable parametric Sig, not the bare concrete type name.
-        @test row.mechanism_type == string(typeof(EnzymeRates.compile_mechanism(m)))
-        @test row.mechanism_type != "EnzymeRates.Mechanism"
-        T = Core.eval(EnzymeRates, Meta.parse(row.mechanism_type))
-        @test EnzymeRates.Mechanism(T()) == m
+        # The text of the mechanism, which reads back as it, and the text's id; a failure
+        # row records no parent.
+        @test row.mechanism == sprint(show, m)
+        @test EnzymeRates._parse_mechanism(row.mechanism) == m
+        @test row.mechanism_id == EnzymeRates._mechanism_id(row.mechanism)
+        @test ismissing(row.parent_id)
         @test row.error == "boom"
         @test ismissing(row.peak_at_range_edge)
     end
@@ -398,7 +409,9 @@ end
             @test row.cv_score_se ≈ std(folds) / sqrt(length(folds))
         end
 
-        @test best_row.mechanism_type == string(typeof(results.best))
+        # The best row's text reads back as the selected mechanism.
+        @test EnzymeRates.compile_mechanism(EnzymeRates._parse_mechanism(
+            best_row.mechanism)) === results.best
 
         # Per-fold columns named by held-out group label.
         groups = unique(prob.data.group)
@@ -424,7 +437,7 @@ end
         @test length(req) > 0
     end
 
-    @testset "CSV output (new schema)" begin
+    @testset "CSV output: every file's columns, texts and ids" begin
         files = sort(filter(f -> endswith(f, ".csv"), readdir(save_dir)))
         @test "initial_mechanisms.csv" in files
         @test isfile(joinpath(save_dir, "progress.log"))
@@ -449,41 +462,51 @@ end
         nums = sort(parse.(Int, replace.(iters,
             "equation_search_iteration_" => "", ".csv" => "")))
         @test nums == collect(1:length(nums))      # sequential, no gaps
-        init_df = CSV.read(joinpath(save_dir, "initial_mechanisms.csv"), DataFrame)
+        # An id is 16 hex digits, which CSV.read would take for a number when they look
+        # like one (decimal digits, or digits around one `e`), so the ids are read as text.
+        _testhelper_read_csv(f) = CSV.read(joinpath(save_dir, f), DataFrame;
+            types = Dict(:mechanism_id => String, :parent_id => String))
+        init_df = _testhelper_read_csv("initial_mechanisms.csv")
         @test nrow(init_df) == length(unique!(
             collect(EnzymeRates.init_mechanisms(prob.reaction))))
         @test "eq_hash" in names(init_df)
         @test !("fit_inherited_from_estimate" in names(init_df))
+        texts = Dict{String, Set{String}}()
         for f in files
-            df_file = CSV.read(joinpath(save_dir, f), DataFrame)
+            df_file = _testhelper_read_csv(f)
             @test "eq_hash" in names(df_file)
             @test all(length.(string.(skipmissing(df_file.eq_hash))) .== 16)
             @test all(<=(8), skipmissing(df_file.n_params))     # max_param_count=8
             # Diagnostic columns: every saved CSV carries them.
             @test "parent_n_params" in names(df_file)
-            @test "parent_mechanism_type" in names(df_file)
+            @test "parent_id" in names(df_file)
             @test "peak_at_range_edge" in names(df_file)
+            # Each row holds its mechanism's text, which reads back as the mechanism that
+            # prints it, and the text's id.
+            @test all(EnzymeRates._mechanism_id.(df_file.mechanism) .==
+                      df_file.mechanism_id)
+            @test all(t -> sprint(show, EnzymeRates._parse_mechanism(t)) == t,
+                      df_file.mechanism)
+            for (id, t) in zip(df_file.mechanism_id, df_file.mechanism)
+                push!(get!(texts, id, Set{String}()), t)
+            end
         end
+        # Across the run's files, each id names one text.
+        @test all(==(1) ∘ length, values(texts))
         # Base tier is parentless.
         @test all(ismissing, init_df.parent_n_params)
-        @test all(ismissing, init_df.parent_mechanism_type)
+        @test all(ismissing, init_df.parent_id)
         # Iteration 1's parents are exactly the base-tier mechanisms; each child
-        # records the round-trippable type of the parent it expanded from, with
-        # the parent's own param count.
-        iter1 = CSV.read(joinpath(save_dir,
-                                  "equation_search_iteration_1.csv"), DataFrame)
-        parent_np = Dict(string(t) => n
-                         for (t, n) in zip(init_df.mechanism_type, init_df.n_params))
-        @test any(!ismissing, iter1.parent_mechanism_type)   # children have parents
+        # records the id of the parent it expanded from, with the parent's own param
+        # count.
+        iter1 = _testhelper_read_csv("equation_search_iteration_1.csv")
+        parent_np = Dict(zip(init_df.mechanism_id, init_df.n_params))
+        @test any(!ismissing, iter1.parent_id)   # children have parents
         for r in eachrow(iter1)
-            ismissing(r.parent_mechanism_type) && continue
-            @test string(r.parent_mechanism_type) in keys(parent_np)
-            @test r.parent_n_params == parent_np[string(r.parent_mechanism_type)]
+            ismissing(r.parent_id) && continue
+            @test r.parent_id in keys(parent_np)
+            @test r.parent_n_params == parent_np[r.parent_id]
         end
-        # The stored parent type round-trips back to a mechanism.
-        pt = String(first(skipmissing(iter1.parent_mechanism_type)))
-        @test EnzymeRates.Mechanism(
-            Core.eval(EnzymeRates, Meta.parse(pt))()) isa EnzymeRates.Mechanism
     end
 
     @testset "loocv_results.csv and best_equation.csv saved" begin
@@ -639,9 +662,11 @@ end
     @test added[2] == 0
 end
 
-# The CSV mechanism_type column holds a mechanism's type as string(typeof(em)) prints it
-# where EnzymeRates is loaded with `using`, and the string parses back to that type.
-@testset "_mechanism_type_string prints the mechanism type" begin
+# The CSV mechanism_id column: the first 16 hex digits of the SHA-256 of a mechanism's
+# text, so every process and Julia version gives one id. The ids pinned here come from
+# another SHA-256 implementation (Python's hashlib), applied to the texts that
+# test_types.jl pins for these three mechanisms.
+@testset "_mechanism_id cuts the SHA-256 of a mechanism's text to 16 hex digits" begin
     plain = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -665,42 +690,53 @@ end
     allosteric = @allosteric_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: A, I
+        allosteric_regulators: I, J
         catalytic_multiplicity: 2
         steps: begin
             E + S ⇌ E(S)     :: EqualAI
             E(S) <--> E(P)   :: OnlyA
             E(P) ⇌ E + P     :: EqualAI
         end
-        regulatory_site(4): A::OnlyA, I::OnlyI
+        regulatory_site(3): I::OnlyI, J::EqualAI
     end
-    for em in (plain, ping_pong, allosteric)
-        s = EnzymeRates._mechanism_type_string(em)
-        @test s == string(typeof(em))
-        @test Core.eval(EnzymeRates, Meta.parse(s)) === typeof(em)
-    end
+    @test [EnzymeRates._mechanism_id(sprint(show, em))
+           for em in (plain, ping_pong, allosteric)] ==
+          ["f4ce3f6878d7229f", "dbcebb00ac48b73f", "3d6c468d7b38224b"]
 end
 
 @testset "csv writer" begin
     rows = [(
-        n_params = 5, loss = 1.0, mechanism_type = "M",
+        n_params = 5, loss = 1.0, mechanism = "M", mechanism_id = "00000000000000aa",
         rate_equation = "v = 1", retcode = "Success", error = missing,
         params = (K_a = 2.0,), eq_hash = "abc",
         fit_inherited = false,
         peak_at_range_edge = true,
     )]
     mktempdir() do tmp
-        EnzymeRates._write_rows_csv(tmp, "equation_search_iteration_3.csv", rows)
+        # `texts` holds the run's ids, each with its mechanism's text.
+        texts = Dict{String, String}()
+        EnzymeRates._write_rows_csv(tmp, "equation_search_iteration_3.csv", rows, texts)
         @test isfile(joinpath(tmp, "equation_search_iteration_3.csv"))
         df = CSV.read(joinpath(tmp, "equation_search_iteration_3.csv"), DataFrame)
         @test df.n_params == [5]
         @test df.K_a == [2.0]
         @test df.peak_at_range_edge == [true]
         @test "eq_hash" in names(df)
-        # dir-creation branch: save_dir does not exist yet
+        @test texts == Dict("00000000000000aa" => "M")
+        # dir-creation branch: save_dir does not exist yet. A row may repeat an id with
+        # its text (an expansion failure's row repeats its parent's).
         subdir = joinpath(tmp, "made")
-        EnzymeRates._write_rows_csv(subdir, "initial_mechanisms.csv", rows)
+        EnzymeRates._write_rows_csv(subdir, "initial_mechanisms.csv", rows, texts)
         @test isfile(joinpath(subdir, "initial_mechanisms.csv"))
+        # An id that names a second text is an error, raised before the file is written.
+        clash = [merge(rows[1], (mechanism = "N",))]
+        @test_throws(ErrorException("two mechanisms share the mechanism_id " *
+                                    "00000000000000aa, the first 16 hex digits of the " *
+                                    "SHA-256 of their texts, so the run's CSVs cannot " *
+                                    "tell them apart:\nM\nN"),
+                     EnzymeRates._write_rows_csv(tmp, "equation_search_iteration_4.csv",
+                                                 clash, texts))
+        @test !isfile(joinpath(tmp, "equation_search_iteration_4.csv"))
     end
 end
 
@@ -994,7 +1030,7 @@ end
 
     # _postfit_summary: errored + success/non-Success over the fitted set.
     mech = _testhelper_uni_seed
-    row = (n_params=3, loss=0.5, mechanism_type="M", rate_equation="v",
+    row = (n_params=3, loss=0.5, mechanism="M", rate_equation="v",
            retcode="Success", error=missing, params=(K = 1.0,), eq_hash="abc",
            fit_inherited=false)
     e_succ = EnzymeRates.BatchEntry(mech, 3, 0.5, :Success, hash(:a), row)
@@ -1179,7 +1215,7 @@ end
 @testset "_ingest! and cv pool" begin
     _testhelper_mk(n, loss, h) = EnzymeRates.BatchEntry(
         _testhelper_uni_seed, n, loss, :Success, hash(h),
-        (n_params=n, loss=loss, mechanism_type="M",
+        (n_params=n, loss=loss, mechanism="M",
          rate_equation="v", retcode="Success", error=missing,
          params=(K = 1.0,), eq_hash=string(hash(h),base=16,pad=16),
          fit_inherited=false))
@@ -1656,7 +1692,7 @@ end
     @test_throws ErrorException EnzymeRates.expand_mechanisms(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m_bad],
         rxn_bad)
-    entry(m) = EnzymeRates.BatchEntry(m, 0, 0.0, :Success, UInt64(0), (mechanism_type="M",))
+    entry(m) = EnzymeRates.BatchEntry(m, 0, 0.0, :Success, UInt64(0), (mechanism="M",))
     kids, parent_of, failures = EnzymeRates._expand_parents([entry(m_bad)], rxn_bad)
     @test isempty(kids) && isempty(parent_of)
     failure = only(failures)
@@ -1690,7 +1726,7 @@ end
     # The seed's children as parents: their own children overlap, so the
     # first-parent dedup and attribution are exercised.
     parents = EnzymeRates.expand_mechanisms(M[EnzymeRates.init_mechanisms(rxn)...], rxn)
-    to_expand = [EnzymeRates.BatchEntry(m, 3, 0.0, :Success, hash(m), (mechanism_type="M",))
+    to_expand = [EnzymeRates.BatchEntry(m, 3, 0.0, :Success, hash(m), (mechanism="M",))
                  for m in parents]
 
     children, parent_of, failures = EnzymeRates._expand_parents(to_expand, rxn)
@@ -1904,7 +1940,8 @@ end
     function _testhelper_mkrow(m, loss)
         em = EnzymeRates.compile_mechanism(m)
         fkeys = EnzymeRates.fitted_params(em)
-        (n_params=length(fkeys), loss=loss, mechanism_type=string(typeof(em)),
+        (n_params=length(fkeys), loss=loss, mechanism=sprint(show, m),
+         mechanism_id=EnzymeRates._mechanism_id(sprint(show, m)),
          rate_equation="v", retcode="Success", error=missing,
          params=NamedTuple{fkeys}(ntuple(_ -> 1.0, length(fkeys))),
          eq_hash=string(EnzymeRates._rate_eq_dedup_key(rate_equation_string(em)),
@@ -1928,8 +1965,7 @@ end
     groups = unique(prob.data.group)
     folds(r) = [r[Symbol("cv_fold_$g")] for g in groups]
     for r in eachrow(res.cv_results)
-        m = only(c for c in cands
-                 if string(typeof(EnzymeRates.compile_mechanism(c))) == r.mechanism_type)
+        m = only(c for c in cands if sprint(show, c) == r.mechanism)
         serial = [EnzymeRates._cv_fold_loss(EnzymeRates.compile_mechanism(m), prob, g;
             optimizer=stub(), n_restarts=1, maxtime=1.0) for g in groups]
         @test folds(r) == serial

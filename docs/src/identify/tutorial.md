@@ -197,8 +197,8 @@ refine it.
 results.best
 ```
 
-`results.best` is an `AbstractEnzymeMechanism`. Pass it to
-[`rate_equation_string`](@ref) to see the symbolic rate equation:
+`results.best` is an `AbstractEnzymeMechanism`, displayed as the macro block that builds
+it. Pass it to [`rate_equation_string`](@ref) to see the symbolic rate equation:
 
 ```@example identify_fast
 print(rate_equation_string(results.best))
@@ -213,17 +213,19 @@ and the Haldane constraint fixes the dependent reverse rate `k_A_EP_to_ES` from
 
 `results.cv_results` is a `DataFrame` with one row per candidate equation that
 entered cross-validation, scored as detailed on the [Best mechanism selection](@ref)
-page:
+page, which lists its columns. Its first five rows, in five of its columns:
 
 ```@example identify_fast
-first(results.cv_results, 5)
+first(results.cv_results[:, [:n_params, :loss, :cv_score, :cv_score_se, :mechanism_id]], 5)
 ```
 
 `results.cv_results` and the selected `results.best` are also written to
 `save_dir`, as `loocv_results.csv` (this whole table) and `best_equation.csv`
 (the winning row: equation string plus fitted parameters). They sit alongside
 the per-iteration `equation_search_iteration_N.csv` files, so a cluster run's
-model-selection outcome is saved without re-running cross-validation.
+model-selection outcome is saved without re-running cross-validation. Every row
+names its mechanism by its text (`mechanism`) and a short id (`mechanism_id`), and a
+child names its parent's id (`parent_id`).
 
 ## Loud failures
 

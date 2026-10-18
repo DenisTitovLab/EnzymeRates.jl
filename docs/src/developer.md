@@ -49,15 +49,20 @@ enzyme forms or steps can be slow to compile, exhaust memory, or `StackOverflow`
 `compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)`. The
 lifts back, `Mechanism(em)` and `AllostericMechanism(aem)`, decode the Sig
 (`_mechanism_from_sig`) into the mechanism it encodes, so a mechanism survives the round
-trip unchanged; decoding checks nothing, since only `_sig_of` writes a Sig.
+trip unchanged; decoding checks nothing, since only `_sig_of` writes a Sig. A mechanism
+of either representation prints as the macro block that builds it (`show`,
+`src/dsl.jl`), from the concrete mechanism, so the compiled types' `show` takes its
+argument `@nospecialize` and `@nospecializeinfer` and compiles once. `_parse_mechanism`
+reads that text back through the macros' walker and checks, never evaluating it, and
+identify's CSVs store it with a short id (`_mechanism_id`).
 
 Only the `@generated` methods (`rate_equation`, `parameters`, `fitted_params`,
 `metabolites`) do work per singleton type: `rate_equation` runs the derivation,
 `fitted_params` and `parameters` run its constraint solve, and `metabolites` reads names off
 the lifted mechanism. The lifts read the Sig at run time, and the derivation helpers that
 take a singleton or its type take it `@nospecialize`, so they compile once for all
-mechanisms. A new mechanism type then pays for its generated bodies and the derivation they
-run, plus `show`, which still specializes on it.
+mechanisms. A new mechanism type then pays only for its generated bodies and the
+derivation they run.
 `FittingProblem` and `loss!` specialize on the type on purpose: `loss!` then reads
 `fitted_params` and `metabolites` as constants and calls the generated `rate_equation`
 without dispatch. The optimizer never sees that type. `fit_rate_equation` takes its

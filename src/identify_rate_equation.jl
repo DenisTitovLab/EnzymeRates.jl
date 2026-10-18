@@ -5,6 +5,7 @@
 using DataFrames
 using CSV
 using Statistics
+using SHA: sha256
 
 """
     IdentifyRateEquationProblem{D}
@@ -229,8 +230,21 @@ function identify_rate_equation(
     return result
 end
 
-"""Write result rows to `<save_dir>/<filename>`, creating `save_dir` if absent."""
-function _write_rows_csv(save_dir::String, filename::String, rows)
+"""
+Write result rows to `<save_dir>/<filename>`, creating `save_dir` if absent. `texts` maps
+each `mechanism_id` the run has written to its mechanism's text, and gains the rows' ids.
+A row whose id names another text is an error, raised before the file is written: the
+run's CSVs could not tell the two mechanisms apart.
+"""
+function _write_rows_csv(save_dir::String, filename::String, rows,
+                         texts::Dict{String,String})
+    for r in rows
+        other = get!(texts, r.mechanism_id, r.mechanism)
+        other == r.mechanism ||
+            error("two mechanisms share the mechanism_id $(r.mechanism_id), the first " *
+                  "16 hex digits of the SHA-256 of their texts, so the run's CSVs cannot " *
+                  "tell them apart:\n$other\n$(r.mechanism)")
+    end
     mkpath(save_dir)
     CSV.write(joinpath(save_dir, filename), _rows_to_dataframe(rows))
 end
@@ -250,9 +264,9 @@ function _rows_to_dataframe(rows)
         parent_n_params =
             Union{Missing,Int}[get(r, :parent_n_params, missing) for r in rows],
         loss = [r.loss for r in rows],
-        mechanism_type = [r.mechanism_type for r in rows],
-        parent_mechanism_type = Union{Missing,String}[
-            get(r, :parent_mechanism_type, missing) for r in rows],
+        mechanism = [r.mechanism for r in rows],
+        mechanism_id = [r.mechanism_id for r in rows],
+        parent_id = Union{Missing,String}[get(r, :parent_id, missing) for r in rows],
         rate_equation = [r.rate_equation for r in rows],
         retcode = Union{Missing,String}[r.retcode for r in rows],
         error = Union{Missing,String}[r.error for r in rows],
@@ -282,6 +296,13 @@ function _rate_eq_dedup_key(eq_text::AbstractString)
     end
     hash(join(kept, '\n'))
 end
+
+"""
+A mechanism's id in identify's CSVs: the first 16 hex digits of the SHA-256 of `text`,
+the mechanism's DSL text (`show`), so every process and Julia version gives one mechanism
+one id.
+"""
+_mechanism_id(text::AbstractString) = bytes2hex(sha256(text))[1:16]
 
 """
 Select this sweep's parents among the count-`c` mechanisms with `losses`, and advance
@@ -343,55 +364,19 @@ end
 _exc_string(e) = first(sprint(showerror, e), 200)
 
 """
-The CSV `mechanism_type` of `em`: `string(typeof(em))` as printed where EnzymeRates is
-loaded with `using`, so `Core.eval(EnzymeRates, Meta.parse(s))` gives back the type.
-`show` of a type compiles again for each new shape of the Sig tuples; this printer takes
-every value `@nospecialize` and reads tuples with `nfields`/`getfield`, so it compiles
-once for all mechanisms.
-"""
-_mechanism_type_string(@nospecialize(em::AbstractEnzymeMechanism)) =
-    sprint(_print_type_value, typeof(em))
-
-"""Print `x`, a mechanism type or a value in its parameters, as `show` prints a type."""
-function _print_type_value(io::IO, @nospecialize(x))
-    if x isa DataType
-        print(io, nameof(x), '{')
-        for i in 1:length(x.parameters)
-            i > 1 && print(io, ", ")
-            _print_type_value(io, x.parameters[i])
-        end
-        print(io, '}')
-    elseif x isa Tuple
-        print(io, '(')
-        for i in 1:nfields(x)
-            i > 1 && print(io, ", ")
-            _print_type_value(io, getfield(x, i))
-        end
-        nfields(x) == 1 && print(io, ',')
-        print(io, ')')
-    else
-        show(io, x)       # a Symbol (as repr prints it), an Int or a Bool
-    end
-end
-
-"""
 CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row,
 with `missing` wherever the value is unavailable (compile/fit never produced it).
-`mechanism_type` is the round-trippable parametric `EnzymeMechanism{Sig}` string when
-the mechanism compiles; falls back to the bare concrete type name
-(`"EnzymeRates.Mechanism"` / `"EnzymeRates.AllostericMechanism"`) when compilation
-itself fails, so the row still identifies the mechanism family.
+`mechanism` is the mechanism's text, rendered from the concrete mechanism, so a row
+names its mechanism even when it does not compile; `parent_id` is missing.
 """
 function _failure_row(f::FitFailure)
+    text = sprint(show, f.mech)
     (n_params = missing,
      parent_n_params = missing,
      loss = missing,
-     mechanism_type = try
-         _mechanism_type_string(compile_mechanism(f.mech))
-     catch
-         string(typeof(f.mech))
-     end,
-     parent_mechanism_type = missing,
+     mechanism = text,
+     mechanism_id = _mechanism_id(text),
+     parent_id = missing,
      rate_equation = missing,
      retcode = missing,
      error = f.error,
@@ -468,10 +453,11 @@ PASS-1: skip mechanisms already produced, in an earlier batch or earlier in this
 mechanism whose structural `hash` is already in `seen` is dropped before compiling;
 `seen` gets every structure on first sight regardless of outcome). Compile, cap-check
 (`max_param_count`), and render every fresh mechanism in parallel (`pmap`) to get its
-`eq_hash`; a mechanism over `eq_complexity_filter` or `max_param_count` is recorded as a
-skip, not fit. Then pick one fit representative per `eq_hash` not already in `memo`, and
-pass the pre-fit summary (`_prefit_summary`) to `log`. `mechs` is already structurally
-deduped by the caller (`unique!`).
+`eq_hash`, and its text and the text's id (`_mechanism_id`) from the concrete mechanism;
+a mechanism over `eq_complexity_filter` or `max_param_count` is recorded as a skip, not
+fit. Then pick one fit representative per `eq_hash` not already in `memo`, and pass the
+pre-fit summary (`_prefit_summary`) to `log`. `mechs` is already structurally deduped by
+the caller (`unique!`).
 
 PASS-2: fit ONE representative per `eq_hash` not already in `memo`, in parallel across
 all workers (`pmap`); the fit is stored in `memo` and copied to every mechanism sharing
@@ -511,8 +497,9 @@ function _process_batch(
             fkeys = fitted_params(em)
             length(fkeys) > max_param_count && return :param_skip
             eq_text = rate_equation_string(em)
+            text = sprint(show, m)
             (mech = m, n_params = length(fkeys),
-             mechanism_type = _mechanism_type_string(em),
+             mechanism = text, mechanism_id = _mechanism_id(text),
              eq_text = eq_text, eq_hash = _rate_eq_dedup_key(eq_text))
         catch e
             FitFailure(m, _exc_string(e))
@@ -569,9 +556,9 @@ function _process_batch(
             n_params = c.n_params,
             parent_n_params = parent === nothing ? missing : parent.n_params,
             loss = fit.loss,
-            mechanism_type = c.mechanism_type,
-            parent_mechanism_type =
-                parent === nothing ? missing : parent.row.mechanism_type,
+            mechanism = c.mechanism,
+            mechanism_id = c.mechanism_id,
+            parent_id = parent === nothing ? missing : parent.row.mechanism_id,
             rate_equation = c.eq_text,
             retcode = string(fit.retcode),
             error = missing,
@@ -751,6 +738,8 @@ function _beam_search(
     # on the first. If `_select_count!` ever gains a non-monotone budget, this
     # invariant breaks.
     seen = Set{UInt64}()
+    # Every mechanism_id the run's CSVs hold, with its mechanism's text (`_write_rows_csv`).
+    texts = Dict{String,String}()
 
     progress(msg) = _progress(save_dir, show_progress, msg)
     # Fit one batch and record it: log `header` with the pre-fit summary, write the
@@ -764,7 +753,7 @@ function _beam_search(
         append!(failures, extra_failures)
         isempty(entries) && isempty(failures) && return nothing
         _write_rows_csv(save_dir, csv,
-            vcat([e.row for e in entries], [_failure_row(f) for f in failures]))
+            vcat([e.row for e in entries], [_failure_row(f) for f in failures]), texts)
         improved = _ingest!(frontier, cv_pool, best_loss_by_count, entries;
                             n_cv_candidates)
         progress(string("  ", _postfit_summary(entries, failures),
@@ -820,11 +809,10 @@ function _beam_search(
 
         # Expand each parent and record which parent produced each child
         # (first parent wins on structural dedup, matching `unique!`), so the
-        # saved CSV can carry the parent's round-trippable mechanism type and
-        # parameter count for diagnosing per-move parameter changes. The
-        # parent's `mechanism_type` is already on its `BatchEntry.row`, so no
-        # recompile. Typed for dispatch: expand_mechanisms needs a concrete
-        # Vector{<:Union{Mechanism, AllostericMechanism}} eltype.
+        # saved CSV can carry the parent's mechanism_id and parameter count for
+        # diagnosing per-move parameter changes. The parent's `mechanism_id` is
+        # already on its `BatchEntry.row`. Typed for dispatch: expand_mechanisms
+        # needs a concrete Vector{<:Union{Mechanism, AllostericMechanism}} eltype.
         children, parent_of, expand_failures =
             _expand_parents(to_expand, prob.reaction)
         # A per-parent expansion error is recorded like a fit failure (CSV row

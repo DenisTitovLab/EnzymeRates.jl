@@ -109,18 +109,17 @@ end
     #     a process that never ran init_mechanisms.
     #   - fit: the identify path on bi-bi mechanisms, step for step as _process_batch
     #     and _cv_fold_loss take it: PASS1 (complexity, compile, fitted names, rate
-    #     equation string, dedup key, mechanism_type string), PASS2 (FittingProblem and
-    #     a CMA-ES fit) and one LOOCV fold. Encoding every seed's Sig and a full pass
+    #     equation string, dedup key, the mechanism's text and id), PASS2 (FittingProblem
+    #     and a CMA-ES fit) and one LOOCV fold. Encoding every seed's Sig and a full pass
     #     on the first of five written-out seeds compile everything that does not
     #     depend on the mechanism, so each fresh mechanism after them compiles only
     #     what its own type needs. The five differ in Sig length and in fitted names,
     #     and are picked by content, not by their place in the seeds. The census
     #     counts the method instances of every module, since a fit compiled per
     #     mechanism compiles Optimization, SciMLBase, CMAEvolutionStrategy and Base
-    #     code. It also counts the show instances that PASS1 adds and, after the census,
-    #     those that printing the compiled mechanism adds: Base's show prints a type by
-    #     compiling show again for each new Sig shape, and a mechanism's show that
-    #     specialized on the Sig would compile again for each fresh mechanism.
+    #     code. It also counts the show instances that PASS1's text adds and, after the
+    #     census, those that printing the compiled mechanism adds: a mechanism's show
+    #     that specialized on the Sig would compile again for each fresh mechanism.
     trace_script = """
         using EnzymeRates
         r = EnzymeRates.EnzymeReaction(
@@ -199,7 +198,7 @@ end
             ER.fitted_params(em)
             eq_text = rate_equation_string(em)
             ER._rate_eq_dedup_key(eq_text)
-            ER._mechanism_type_string(em)
+            ER._mechanism_id(sprint(show, m))
             s1 = _testhelper_instances(methods(show))
             fp = FittingProblem(ER.compile_mechanism(m), PROB.data;
                                 Keq = PROB.Keq, absolute = PROB.absolute,
@@ -395,9 +394,9 @@ end
             @test maximum(native) <= FIT_NATIVE_BUDGET_KB * 1024
         end
 
-        # mechanism_type: PASS1 prints the type of a mechanism with a fresh Sig shape
-        # without compiling show for it, and the compiled mechanism prints its text
-        # through the concrete one, compiling no show for the fresh Sig either.
+        # PASS1 prints the text of a mechanism with a fresh Sig from the concrete
+        # mechanism, and the compiled mechanism prints its text through the concrete one,
+        # so neither compiles show for the fresh Sig.
         @testset "fit compile: PASS1 and a compiled mechanism's text compile no show" begin
             @info "show instances per fresh mechanism: $pass1_show (budget: 0)"
             @test maximum(pass1_show) == 0

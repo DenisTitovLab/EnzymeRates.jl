@@ -136,8 +136,9 @@ The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
 | `n_params` | Actual fitted-parameter count. |
 | `parent_n_params` | Fitted-parameter count of the parent the mechanism was expanded from; `missing` for a starting mechanism. |
 | `loss` | Training loss (ranks which equations enter LOOCV). |
-| `mechanism_type` | Julia type name of the compiled mechanism. |
-| `parent_mechanism_type` | Julia type name of the compiled parent; `missing` for a starting mechanism. |
+| `mechanism` | The mechanism as the `@enzyme_mechanism` or `@allosteric_mechanism` block that builds it, the text `show` prints. `EnzymeRates._parse_mechanism(text)` reads it back without evaluating it. |
+| `mechanism_id` | The first 16 hex digits of the SHA-256 of `mechanism`, the same in every process and Julia version. Read the ids as text, `CSV.read(file, DataFrame; types = Dict(:mechanism_id => String, :parent_id => String))`: CSV.jl reads an id that looks like a number (decimal digits, or digits around one `e`) as a number. |
+| `parent_id` | `mechanism_id` of the parent the mechanism was expanded from; `missing` for a starting mechanism. |
 | `rate_equation` | Full symbolic rate-equation string. |
 | `retcode` | Optimizer return code (`"Success"` = converged). |
 | `error` | Exception text if the fit errored; otherwise `missing`. |
