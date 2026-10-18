@@ -76,20 +76,15 @@ macro _testhelper_with_raw(call)
     esc(:(($call, $(EnzymeRates._raw_mechanism(call.args[end], allosteric)))))
 end
 
-# Every declared substrate and product appears in some step. Regulators are exempt:
-# init_mechanisms declares a dead-end inhibitor that no step binds yet (expand_mechanisms
-# binds it later; _sig_of leaves it out of the compiled type). Substrates and
-# products are never dropped.
+# Every declared substrate and product appears in some step: some step takes it up or
+# gives it off. Regulators are exempt: init_mechanisms declares a dead-end inhibitor that
+# no step binds yet (expand_mechanisms binds it later; _sig_of leaves it out of the
+# compiled type). Substrates and products are never dropped.
 function _testhelper_assert_mechanism_invariants(m)
-    flat = collect(Iterators.flatten(EnzymeRates.steps(m)))
-    appearing = Set(EnzymeRates.name(met) for s in flat for met in Iterators.flatten((
-        EnzymeRates.bound(EnzymeRates.from_species(s)),
-        EnzymeRates.bound(EnzymeRates.to_species(s)),
-        EnzymeRates.consumed(s), EnzymeRates.released(s))))
-    rxn = EnzymeRates.reaction(m)
-    for met in (EnzymeRates.substrates(rxn)..., EnzymeRates.products(rxn)...)
-        EnzymeRates.name(met) in appearing ||
-            error("declared substrate/product $(EnzymeRates.name(met)) appears in no step")
+    g = _testhelper_graph(m)
+    appearing = Set(x for s in g.steps for x in [s.consumed; s.released])
+    for x in [g.substrates; g.products]
+        x in appearing || error("declared substrate/product $x appears in no step")
     end
     nothing
 end
@@ -105,15 +100,16 @@ _testhelper_lift(m::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism
     _testhelper_graph(m) -> NamedTuple
 
 `m` (concrete or compiled) as the test helpers read it, a `NamedTuple`: `forms`, each
-form's name (`Vector{String}`, stored order); `steps`, one `NamedTuple` per step in
-stored order and direction with `from` and `to` (form positions), `consumed` and
-`released` (metabolite names, a copy by its reactant's name), `consumed_modifier` and
-`released_modifier` (which of them bind as modifiers), `rapid_equilibrium`, `group`, and
-`names` and `inactive_names`, the package names of its constants in the active (or
-only) and the inactive conformation; `tags`; `inactive`, which steps the inactive law
-keeps; `catalytic_multiplicity`; `sites`, each `(; multiplicity, ligands,
-allo_states)`; `substrates`, `products` and `modifiers`. A plain mechanism has no tags,
-no inactive conformation (`inactive` and every `inactive_names` empty), no sites and
+form's name (`Vector{String}`, stored order); `free`, whether each form holds no
+metabolite and no residual; `steps`, one `NamedTuple` per step in stored order and
+direction with `from` and `to` (form positions), `consumed` and `released` (metabolite
+names, a copy by its reactant's name), `consumed_modifier` and `released_modifier` (which
+of them bind as modifiers), `rapid_equilibrium`, `group`, and `names` and
+`inactive_names`, the package names of its constants in the active (or only) and the
+inactive conformation; `tags`; `inactive`, which steps the inactive law keeps;
+`catalytic_multiplicity`; `sites`, each `(; multiplicity, ligands, allo_states)`;
+`substrates`, `products` and `modifiers`. A plain mechanism has no tags, no inactive
+conformation (`inactive` and every `inactive_names` empty), no sites and
 `catalytic_multiplicity` `nothing`. Forms come in the canonical form order: free E first,
 then by content.
 """
@@ -148,7 +144,10 @@ function _testhelper_graph(m)
               allo_states = copy(EnzymeRates.allo_states(site)))
              for site in (allo ? EnzymeRates.regulatory_sites(mech) :
                                  EnzymeRates.RegulatorySite[])]
-    (forms = String[EnzymeRates._form_label(f, mech) for f in forms], steps, tags,
+    (forms = String[EnzymeRates._form_label(f, mech) for f in forms],
+     free = Bool[isempty(EnzymeRates.bound(f)) && isempty(EnzymeRates.residual(f))
+                 for f in forms],
+     steps, tags,
      inactive = Int[j for (j, (s, g)) in enumerate(flat) if allo && s in kept[g]],
      catalytic_multiplicity = allo ? EnzymeRates.catalytic_multiplicity(mech) : nothing,
      sites, substrates = EnzymeRates.substrates(mech),
@@ -156,32 +155,18 @@ function _testhelper_graph(m)
 end
 
 """The name of every step constant of the plain mechanism `m`, fitted or dependent: each
-flat step's constants as the naming chokepoint renders them."""
+step's constants as the naming chokepoint renders them."""
 _testhelper_step_constant_names(m) =
-    Set(EnzymeRates.name(p, mech) for mech in (_testhelper_lift(m),)
-        for (s, _) in EnzymeRates._flat_steps(mech)
-        for p in EnzymeRates._step_constants(s, :None))
+    Set(x for s in _testhelper_graph(m).steps for x in s.names)
 
-# The steps of a compiled mechanism in stored order, and the enzyme-form names across
-# a list of steps in order of first appearance.
-_testhelper_flat_steps(m) =
-    collect(Iterators.flatten(EnzymeRates.steps(_testhelper_lift(m))))
-_testhelper_enzyme_forms(steps) = unique(
-    EnzymeRates.name(sp) for s in steps
-    for sp in (EnzymeRates.from_species(s), EnzymeRates.to_species(s)))
-
-# The names of a compiled mechanism's substrates and products, and of its regulators: an
-# EnzymeMechanism's catalytic regulators, an AllostericEnzymeMechanism's regulatory-site
-# ligands.
-_testhelper_substrates(m) =
-    EnzymeRates.name.(EnzymeRates.substrates(EnzymeRates.reaction(_testhelper_lift(m))))
-_testhelper_products(m) =
-    EnzymeRates.name.(EnzymeRates.products(EnzymeRates.reaction(_testhelper_lift(m))))
-_testhelper_regulators(m::EnzymeRates.EnzymeMechanism) = EnzymeRates.name.(
-    EnzymeRates.regulator.(
-        EnzymeRates.regulators(EnzymeRates.reaction(_testhelper_lift(m)))))
+# The names of a compiled mechanism's substrates and products, and of its regulators: the
+# modifiers an EnzymeMechanism's steps bind, an AllostericEnzymeMechanism's
+# regulatory-site ligands.
+_testhelper_substrates(m) = _testhelper_graph(m).substrates
+_testhelper_products(m) = _testhelper_graph(m).products
+_testhelper_regulators(m::EnzymeRates.EnzymeMechanism) = _testhelper_graph(m).modifiers
 _testhelper_regulators(m::EnzymeRates.AllostericEnzymeMechanism) =
-    EnzymeRates.allosteric_regulators(_testhelper_lift(m))
+    unique(Symbol[l for site in _testhelper_graph(m).sites for l in site.ligands])
 
 """Generate random independent (fitted) params + Keq + E_total for a mechanism."""
 function _testhelper_random_independent_params(m; rng=Random.default_rng())
@@ -195,6 +180,16 @@ function _testhelper_random_independent_params(m; rng=Random.default_rng())
 end
 
 """
+The reaction the mechanism macros build for the names of `m` (`_placeholder_reaction`):
+its substrates and products with placeholder atoms, and its modifiers. The mechanism
+constructors take a reaction, so a helper that rebuilds a mechanism passes this one.
+"""
+_testhelper_placeholder_reaction(m) = let g = _testhelper_graph(m)
+    EnzymeRates._placeholder_reaction(EnzymeRates.RawMechanism(
+        g.substrates, g.products, g.modifiers, EnzymeRates.RawStep[], Int[]))
+end
+
+"""
 Test that `m` stores its steps in the direction the orientation tiers give: orienting the
 stored steps of a group again (`_canonical_step_direction`, then `_orient_tied_steps`)
 leaves them as stored, and writing every step the other way round, in the reverse order,
@@ -202,17 +197,17 @@ builds the same mechanism.
 """
 function _testhelper_check_stored_orientation(m)
     mech = _testhelper_lift(m)
+    rxn = _testhelper_placeholder_reaction(mech)
     groups = EnzymeRates.steps(mech)
     sides = EnzymeRates._entry_sides(groups)
     for group in groups
         decided = [EnzymeRates._canonical_step_direction(s, sides) for s in group]
-        @test EnzymeRates._orient_tied_steps(EnzymeRates.reaction(mech), first.(decided),
-                                             last.(decided)) == group
+        @test EnzymeRates._orient_tied_steps(rxn, first.(decided), last.(decided)) == group
     end
     written = [reverse(EnzymeRates._reversed.(g)) for g in reverse(groups)]
     rebuilt = mech isa EnzymeRates.Mechanism ?
-        EnzymeRates.Mechanism(EnzymeRates.reaction(mech), written) :
-        EnzymeRates.AllostericMechanism(EnzymeRates.reaction(mech), written,
+        EnzymeRates.Mechanism(rxn, written) :
+        EnzymeRates.AllostericMechanism(rxn, written,
             reverse(EnzymeRates.cat_allo_states(mech)),
             EnzymeRates.catalytic_multiplicity(mech),
             EnzymeRates.regulatory_sites(mech))
@@ -240,20 +235,36 @@ _testhelper_single_subunit(m::EnzymeRates.EnzymeMechanism) = m
 function _testhelper_single_subunit(m::EnzymeRates.AllostericEnzymeMechanism)
     am = EnzymeRates.AllostericMechanism(m)
     EnzymeRates.AllostericEnzymeMechanism(EnzymeRates.AllostericMechanism(
-        EnzymeRates.reaction(am), EnzymeRates.steps(am), EnzymeRates.cat_allo_states(am),
-        1, EnzymeRates.regulatory_sites(am)))
+        _testhelper_placeholder_reaction(am), EnzymeRates.steps(am),
+        EnzymeRates.cat_allo_states(am), 1, EnzymeRates.regulatory_sites(am)))
 end
 
 """
 The free form at which the two conformations of an allosteric mechanism interconvert in
-its law: the free form (no bound metabolite, no residual) first in the canonical form
-order (`_form_index_key`, free E first), which roots the rapid-equilibrium segment that
-holds every free form.
+its law, as its position in `g` (`_testhelper_graph`): the free form (no bound
+metabolite, no residual) first in the canonical form order (free E first), which roots
+the rapid-equilibrium segment that holds every free form.
 """
-_testhelper_flip_form(mech) =
-    argmin(EnzymeRates._form_index_key,
-           [f for f in EnzymeRates._forms(EnzymeRates.steps(mech))
-            if isempty(EnzymeRates.bound(f)) && isempty(EnzymeRates.residual(f))])
+_testhelper_flip_form(g) = findfirst(g.free)
+
+"""Whether `s`, a step of `_testhelper_graph`, is a binding: it takes up one metabolite and
+gives off none."""
+_testhelper_is_binding(s) = length(s.consumed) == 1 && isempty(s.released)
+
+"""Whether `s`, a step of `_testhelper_graph`, is an isomerization: it takes up and gives
+off nothing."""
+_testhelper_is_iso(s) = isempty(s.consumed) && isempty(s.released)
+
+"""The first step of each kinetic group of `g` (`_testhelper_graph`), in group order."""
+_testhelper_first_steps(g) = [g.steps[findfirst(s -> s.group == k, g.steps)]
+                              for k in unique(s.group for s in g.steps)]
+
+"""The text of `s`, a step of `g` (`_testhelper_graph`), as `_step_text` writes it, each
+side its form's name and its metabolites' names: `"E + S ⇌ ES"`, `"ES <--> EP"`."""
+_testhelper_step_text(g, s) =
+    join([g.forms[s.from]; String.(s.consumed)], " + ") *
+    (s.rapid_equilibrium ? " ⇌ " : " <--> ") *
+    join([g.forms[s.to]; String.(s.released)], " + ")
 
 """
     _testhelper_consistent_point(m, rng) -> (; vals, Keq, active, inactive, L)
@@ -266,38 +277,37 @@ The free energies are projected so that the steps of a kinetic group share their
 constants (their metabolites cancel) and, in an allosteric mechanism, an `:EqualAI` step
 has one constant in both conformations. A steady-state class draws one forward rate.
 
-`vals` maps the name of every step constant of the law (`EnzymeRates.name(p, mech)`; the
-inactive conformation's steps are those of `_inactive_groups`), every regulator constant
-and `L` to its value. `active[j]` (and `inactive[j]` for the inactive law's steps) holds
-a step as `(step, Ka, kf)`, `kf === nothing` for a rapid-equilibrium step.
+`vals` maps the name of every step constant of the law (`names`, and `inactive_names` of
+the inactive law's steps, in `_testhelper_graph`), every regulator constant and `L` to its
+value. `active[j]` (and `inactive[j]` for the inactive law's steps) holds a step of
+`_testhelper_graph` as `(step, Ka, kf)`, `kf === nothing` for a rapid-equilibrium step.
 """
 function _testhelper_consistent_point(m, rng)
     mech = _testhelper_lift(m)
-    allo = mech isa EnzymeRates.AllostericMechanism
-    groups = EnzymeRates.steps(mech)
-    forms = EnzymeRates._forms(groups)
-    rxn = EnzymeRates.reaction(mech)
-    mets = EnzymeRates._metabolite_names(rxn)
-    nf, nconf = length(forms), allo ? 2 : 1
-    fi = Dict(f => i for (i, f) in enumerate(forms))
+    g = _testhelper_graph(mech)
+    allo = g.catalytic_multiplicity !== nothing
+    mets = unique!([g.substrates; g.products; g.modifiers])
+    nf, nconf = length(g.forms), allo ? 2 : 1
     mi = Dict(x => nconf * nf + i for (i, x) in enumerate(mets))
     n = nconf * nf + length(mets)
     # The form part of step s's free-energy drop in conformation c (1 or 2).
     function _testhelper_drop(c, s)
         v = zeros(BigFloat, n)
-        v[(c - 1) * nf + fi[EnzymeRates.from_species(s)]] += 1
-        v[(c - 1) * nf + fi[EnzymeRates.to_species(s)]] -= 1
+        v[(c - 1) * nf + s.from] += 1
+        v[(c - 1) * nf + s.to] -= 1
         v
     end
-    tag(g) = allo ? EnzymeRates.cat_allo_state(mech, g) : :None
+    tag(k) = allo ? g.tags[k] : :None
     ties = Vector{BigFloat}[]
-    for (g, group) in enumerate(groups), s in group
-        s1 = first(group)
-        s == s1 || push!(ties, _testhelper_drop(1, s) - _testhelper_drop(1, s1))
+    for (j, s) in enumerate(g.steps)
+        j1 = findfirst(t -> t.group == s.group, g.steps)
+        s1 = g.steps[j1]
+        j == j1 || push!(ties, _testhelper_drop(1, s) - _testhelper_drop(1, s1))
         allo || continue
-        tag(g) === :NonequalAI && s != s1 &&
+        tag(s.group) === :NonequalAI && j != j1 &&
             push!(ties, _testhelper_drop(2, s) - _testhelper_drop(2, s1))
-        tag(g) === :EqualAI && push!(ties, _testhelper_drop(2, s) - _testhelper_drop(1, s))
+        tag(s.group) === :EqualAI &&
+            push!(ties, _testhelper_drop(2, s) - _testhelper_drop(1, s))
     end
     basis = Vector{BigFloat}[]
     for v in ties
@@ -307,35 +317,31 @@ function _testhelper_consistent_point(m, rng)
     end
     u = BigFloat[4 * big(rand(rng)) - 2 for _ in 1:n]
     for b in basis; u = u - (b' * u) * b; end
-    gm(x) = u[mi[EnzymeRates.name(x)]]
-    Keq = exp(sum(gm, EnzymeRates.substrates(rxn)) - sum(gm, EnzymeRates.products(rxn)))
+    gm(x) = u[mi[x]]
+    Keq = exp(sum(gm, g.substrates) - sum(gm, g.products))
     vals = Dict{Symbol, BigFloat}()
     kf_of = Dict{Symbol, BigFloat}()
-    function _testhelper_conformation_steps(c, law_groups, state)
+    function _testhelper_conformation_steps(c, inactive)
         out = []
-        for (g, group) in enumerate(law_groups), s in group
-            Ka = exp(u[(c - 1) * nf + fi[EnzymeRates.from_species(s)]] +
-                     sum((gm(x) for x in EnzymeRates.consumed(s)); init = big(0)) -
-                     u[(c - 1) * nf + fi[EnzymeRates.to_species(s)]] -
-                     sum((gm(x) for x in EnzymeRates.released(s)); init = big(0)))
-            st = tag(g) === :EqualAI ? :EqualAI : state
-            if EnzymeRates.is_equilibrium(s)
-                vals[EnzymeRates.name(EnzymeRates.Krapid(s, st), mech)] =
-                    EnzymeRates.is_binding(s) ? 1 / Ka : Ka
+        for (j, s) in enumerate(g.steps)
+            inactive && j ∉ g.inactive && continue
+            Ka = exp(u[(c - 1) * nf + s.from] + sum(gm, s.consumed; init = big(0)) -
+                     u[(c - 1) * nf + s.to] - sum(gm, s.released; init = big(0)))
+            names = inactive ? s.inactive_names : s.names
+            if s.rapid_equilibrium
+                vals[only(names)] = _testhelper_is_binding(s) ? 1 / Ka : Ka
                 push!(out, (s, Ka, nothing))
             else
-                kf = get!(() -> exp(4 * big(rand(rng)) - 2), kf_of,
-                          EnzymeRates.name(EnzymeRates.Kfor(s, st), mech))
-                vals[EnzymeRates.name(EnzymeRates.Kfor(s, st), mech)] = kf
-                vals[EnzymeRates.name(EnzymeRates.Krev(s, st), mech)] = kf / Ka
+                kf = get!(() -> exp(4 * big(rand(rng)) - 2), kf_of, names[1])
+                vals[names[1]] = kf
+                vals[names[2]] = kf / Ka
                 push!(out, (s, Ka, kf))
             end
         end
         out
     end
-    active = _testhelper_conformation_steps(1, groups, allo ? :A : :None)
-    inactive = allo ? _testhelper_conformation_steps(
-        2, EnzymeRates._inactive_groups(mech), :I) : []
+    active = _testhelper_conformation_steps(1, false)
+    inactive = allo ? _testhelper_conformation_steps(2, true) : []
     L = big(0)
     if allo
         L = exp(4 * big(rand(rng)) - 2)
@@ -363,35 +369,30 @@ network is disconnected, since its steady state is then not unique.
 function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(10)^30)
     setprecision(BigFloat, 256) do
         mech = _testhelper_lift(m)
-        node = Dict{Tuple{Symbol, EnzymeRates.Species}, Int}()
+        g = _testhelper_graph(mech)
+        node = Dict{Tuple{Symbol, Int}, Int}()
         id(c, f) = get!(node, (c, f), length(node) + 1)
-        x1 = EnzymeRates.name(first(EnzymeRates.substrates(EnzymeRates.reaction(mech))))
+        x1 = first(g.substrates)
         edges = Tuple{Int, Int, BigFloat, BigFloat, Int}[]
         for (c, list) in ((:A, point.active), (:I, point.inactive)), (s, Ka, kf) in list
             f, r = kf === nothing ? (Λ, Λ / Ka) : (kf, kf / Ka)
-            rf = f * prod((concs[EnzymeRates.name(x)] for x in EnzymeRates.consumed(s));
-                          init = big(1))
-            rr = r * prod((concs[EnzymeRates.name(x)] for x in EnzymeRates.released(s));
-                          init = big(1))
-            ω = count(x -> EnzymeRates.name(x) == x1, EnzymeRates.consumed(s)) -
-                count(x -> EnzymeRates.name(x) == x1, EnzymeRates.released(s))
-            push!(edges, (id(c, EnzymeRates.from_species(s)),
-                          id(c, EnzymeRates.to_species(s)), rf, rr, ω))
+            rf = f * prod((concs[x] for x in s.consumed); init = big(1))
+            rr = r * prod((concs[x] for x in s.released); init = big(1))
+            ω = count(==(x1), s.consumed) - count(==(x1), s.released)
+            push!(edges, (id(c, s.from), id(c, s.to), rf, rr, ω))
         end
-        if mech isa EnzymeRates.AllostericMechanism
+        if g.catalytic_multiplicity !== nothing
             # Regulators bind each conformation at rapid equilibrium, independently of
             # the catalytic form, so summed over regulator occupancy the flip ratio is
             # L times the ratio of the conformations' regulatory-site factors.
             function _testhelper_site_factor(inactive)
                 prod((1 + sum((concs[lig] / point.vals[K]
-                               for (lig, tag) in zip(EnzymeRates.ligands(site),
-                                                     EnzymeRates.allo_states(site))
+                               for (lig, tag) in zip(site.ligands, site.allo_states)
                                for K in (EnzymeRates._reg_K(mech, lig, tag, inactive),)
-                               if K !== nothing); init = big(0)))^
-                     EnzymeRates.multiplicity(site)
-                     for site in EnzymeRates.regulatory_sites(mech); init = big(1))
+                               if K !== nothing); init = big(0)))^site.multiplicity
+                     for site in g.sites; init = big(1))
             end
-            flip = _testhelper_flip_form(mech)
+            flip = _testhelper_flip_form(g)
             push!(edges, (id(:A, flip), id(:I, flip),
                           point.L * _testhelper_site_factor(true) /
                           _testhelper_site_factor(false), big(1), 0))
@@ -496,9 +497,8 @@ function _testhelper_detailed_balance(m, rng)
         fitted = EnzymeRates._dependent_param_exprs(typeof(em))[2]
         params = Dict{Symbol, BigFloat}(k => exp(4 * big(rand(rng)) - 2) for k in fitted)
         params[:Keq] = exp(4 * big(rand(rng)) - 2)
-        rxn = EnzymeRates.reaction(mech)
-        subs = EnzymeRates.name.(EnzymeRates.substrates(rxn))
-        prods = EnzymeRates.name.(EnzymeRates.products(rxn))
+        g = _testhelper_graph(mech)
+        subs, prods = g.substrates, g.products
         concs = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1)
                                        for x in EnzymeRates.metabolites(em))
         p1 = first(prods)
@@ -508,7 +508,7 @@ function _testhelper_detailed_balance(m, rng)
         off[p1] /= 10
         ratios = BigFloat[abs(_testhelper_law_value(em, params, concs)) /
                           abs(_testhelper_law_value(em, params, off))]
-        mech isa EnzymeRates.AllostericMechanism || return ratios
+        g.catalytic_multiplicity === nothing && return ratios
         dep, _ = EnzymeRates._dependent_param_exprs(typeof(em))
         env = copy(params)
         for (k, ex) in dep
@@ -541,17 +541,14 @@ function _testhelper_rank(A::AbstractMatrix{<:Integer})
     rank
 end
 
-"""A basis of the cycle space of the step graph of `groups`: one integer vector over the
-flat steps (each counted in its stored direction) per independent cycle, from the null
-space of the form-by-step incidence matrix."""
-function _testhelper_cycle_basis(groups)
-    flat = [s for group in groups for s in group]
-    forms = unique(f for s in flat for f in (EnzymeRates.from_species(s),
-                                             EnzymeRates.to_species(s)))
-    R = zeros(Rational{BigInt}, length(forms), length(flat))
-    for (j, s) in enumerate(flat)
-        R[findfirst(==(EnzymeRates.from_species(s)), forms), j] -= 1
-        R[findfirst(==(EnzymeRates.to_species(s)), forms), j] += 1
+"""A basis of the cycle space of the step graph of `g` (`_testhelper_graph`): one integer
+vector over its steps (each counted in its stored direction) per independent cycle, from
+the null space of the form-by-step incidence matrix."""
+function _testhelper_cycle_basis(g)
+    R = zeros(Rational{BigInt}, length(g.forms), length(g.steps))
+    for (j, s) in enumerate(g.steps)
+        R[s.from, j] -= 1
+        R[s.to, j] += 1
     end
     pivots = Int[]
     for c in axes(R, 2)
@@ -585,13 +582,9 @@ classes on pruned forms), which absorb what they can: the law keeps
 `n_law − (rank(rows) − rank(rows over the classes outside the law))` dimensions.
 """
 function _testhelper_declared_dimension(m)
-    mech = _testhelper_lift(m)
-    allo = mech isa EnzymeRates.AllostericMechanism
-    groups = EnzymeRates.steps(mech)
-    flat = [(s, g) for (g, group) in enumerate(groups) for s in group]
-    law = allo ? Set(s for group in EnzymeRates._inactive_groups(mech) for s in group) :
-                 Set{EnzymeRates.Step}()
-    tag(g) = allo ? EnzymeRates.cat_allo_state(mech, g) : :None
+    g = _testhelper_graph(m)
+    allo = g.catalytic_multiplicity !== nothing
+    tag(k) = allo ? g.tags[k] : :None
     index = Dict{Any, Int}()
     in_law = Bool[]
     function _testhelper_class(key, inlaw)
@@ -603,23 +596,23 @@ function _testhelper_declared_dimension(m)
         i
     end
     function _testhelper_classes(j, inactive)
-        s, g = flat[j]
-        slots = EnzymeRates.is_equilibrium(s) ? (1,) : (1, 2)
-        !inactive || tag(g) === :EqualAI ?
-            [_testhelper_class((:A, g, k), true) for k in slots] :
-        tag(g) === :OnlyA ? [_testhelper_class((:I, j, k), false) for k in slots] :
-                            [_testhelper_class((:I, g, k), s in law) for k in slots]
+        s = g.steps[j]
+        slots = s.rapid_equilibrium ? (1,) : (1, 2)
+        !inactive || tag(s.group) === :EqualAI ?
+            [_testhelper_class((:A, s.group, k), true) for k in slots] :
+        tag(s.group) === :OnlyA ? [_testhelper_class((:I, j, k), false) for k in slots] :
+            [_testhelper_class((:I, s.group, k), j in g.inactive) for k in slots]
     end
-    foreach(j -> _testhelper_classes(j, false), eachindex(flat))
-    allo && foreach(j -> _testhelper_classes(j, true), eachindex(flat))
+    foreach(j -> _testhelper_classes(j, false), eachindex(g.steps))
+    allo && foreach(j -> _testhelper_classes(j, true), eachindex(g.steps))
     rows = Vector{Int}[]
-    for z in _testhelper_cycle_basis(groups), inactive in (allo ? (false, true) : (false,))
+    for z in _testhelper_cycle_basis(g), inactive in (allo ? (false, true) : (false,))
         row = zeros(Int, length(in_law))
-        for (j, (s, _)) in enumerate(flat)
+        for (j, s) in enumerate(g.steps)
             z[j] == 0 && continue
             cs = _testhelper_classes(j, inactive)
-            if EnzymeRates.is_equilibrium(s)
-                row[cs[1]] += EnzymeRates.is_binding(s) ? -z[j] : z[j]
+            if s.rapid_equilibrium
+                row[cs[1]] += _testhelper_is_binding(s) ? -z[j] : z[j]
             else
                 row[cs[1]] += z[j]
                 row[cs[2]] -= z[j]
@@ -630,8 +623,8 @@ function _testhelper_declared_dimension(m)
     A = isempty(rows) ? zeros(Int, 0, length(in_law)) : permutedims(reduce(hcat, rows))
     n_law = count(in_law) - (_testhelper_rank(A) - _testhelper_rank(A[:, .!in_law]))
     allo || return n_law
-    n_reg = sum((t === :NonequalAI ? 2 : 1 for site in EnzymeRates.regulatory_sites(mech)
-                 for t in EnzymeRates.allo_states(site)); init = 0)
+    n_reg = sum((t === :NonequalAI ? 2 : 1 for site in g.sites for t in site.allo_states);
+                init = 0)
     n_law + n_reg + 1
 end
 

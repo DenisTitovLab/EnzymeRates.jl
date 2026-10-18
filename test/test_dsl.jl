@@ -1031,7 +1031,7 @@
         end
         @test m isa EnzymeMechanism
         @test sum(length, EnzymeRates.steps(EnzymeRates.Mechanism(m))) == 2
-        @test Set(_testhelper_enzyme_forms(_testhelper_flat_steps(m))) == Set([:E, :ES])
+        @test Set(_testhelper_graph(m).forms) == Set(["E", "ES"])
         @test Set(metabolites(m)) == Set([:S, :P])
     end
 
@@ -1077,10 +1077,10 @@
                 E + P::Mod <--> E(P::Mod)
             end
         end
-        forms = _testhelper_enzyme_forms(_testhelper_flat_steps(m))
-        @test :EP in forms        # product-bound form (catalytic release)
-        @test :EPinh in forms     # inhibitor-bound form — DISTINCT from :EP
-        @test :EP != :EPinh
+        forms = _testhelper_graph(m).forms
+        @test "EP" in forms       # product-bound form (catalytic release)
+        @test "EPmod" in forms    # inhibitor-bound form — DISTINCT from EP
+        @test "EP" != "EPmod"
         # rate_equation must reference concs.P for the inhibitor term, not concs.Pmod:
         re_str = rate_equation_string(m)
         @test occursin("P", re_str)             # real metabolite name appears

@@ -50,12 +50,11 @@ end
         @test ER.metabolites(m) == (:S, :P)
         # Steps are canonicalized at construction, so compare content
         # order-independently.
-        rxn = ER.reaction(ER.Mechanism(m))
-        @test Set(ER._step_text.(_testhelper_flat_steps(m), Ref(rxn))) ==
+        mech = ER.Mechanism(m)
+        @test Set(ER._step_text(s, mech) for (s, _) in ER._flat_steps(mech)) ==
               Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
         @test length(ER.steps(ER.Mechanism(m))) == 3
-        @test Set(_testhelper_enzyme_forms(_testhelper_flat_steps(m))) ==
-              Set([:E, :ES, :EP])
+        @test Set(_testhelper_graph(m).forms) == Set(["E", "ES", "EP"])
 
         # Shared kinetic-group: two steps in group 1 (regulator R binds
         # both E and E(S) sharing one K).
@@ -2639,14 +2638,11 @@ end
             end
         end
         am = ER.AllostericMechanism(m)
-        tags = copy(ER.cat_allo_states(am))
+        firsts = _testhelper_first_steps(_testhelper_graph(am))
         # tag each group by the metabolite its step binds
-        for (g, grp) in enumerate(ER.steps(am))
-            bm = ER.bound_metabolite(grp[1])
-            tags[g] = bm === nothing ? cat_tag :
-                      ER.name(bm) === :S ? s_tag : p_tag
-        end
-        [ER.name(ER.bound_metabolite(first(ER.steps(am)[g])))
+        tags = [!_testhelper_is_binding(s) ? cat_tag :
+                only(s.consumed) === :S ? s_tag : p_tag for s in firsts]
+        [only(firsts[g].consumed)
          for g in ER._onlya_haldane_violation(am, ER.steps(am), tags)]
     end
 
@@ -2693,8 +2689,8 @@ end
     # every binding :OnlyA, catalysis :EqualAI -> balanced -> valid
     function _testhelper_both_bindings_onlya(m)
         am = ER.AllostericMechanism(m)
-        tags = [ER.bound_metabolite(g[1]) === nothing ? :EqualAI : :OnlyA
-                for g in ER.steps(am)]
+        tags = [_testhelper_is_binding(s) ? :OnlyA : :EqualAI
+                for s in _testhelper_first_steps(_testhelper_graph(am))]
         ER._onlya_haldane_violation(am, ER.steps(am), tags)
     end
     @test isempty(_testhelper_both_bindings_onlya(mixed_uni_re_ss))
@@ -2720,22 +2716,17 @@ end
         bu_am = ER.AllostericMechanism(biuni)
         # Tag :OnlyA the groups named by (free form, bound metabolite); every
         # other group is :EqualAI. The chemical step's key is (:EAB, nothing).
-        function _testhelper_tags(onlya_keys...)
-            want = Set{Tuple{Symbol, Union{Symbol, Nothing}}}(onlya_keys)
-            map(ER.steps(bu_am)) do grp
-                bm = ER.bound_metabolite(grp[1])
-                key = (ER.name(ER.from_species(grp[1])),
-                       bm === nothing ? nothing : ER.name(bm))
-                key in want ? :OnlyA : :EqualAI
-            end
-        end
+        bu = _testhelper_graph(bu_am)
+        # Each group's key: the form its first step starts from, and the metabolite it
+        # binds (`nothing` for the chemical step).
+        bu_keys = [(Symbol(bu.forms[s.from]),
+                    _testhelper_is_binding(s) ? only(s.consumed) : nothing)
+                   for s in _testhelper_first_steps(bu)]
+        _testhelper_tags(onlya_keys...) =
+            [key in onlya_keys ? :OnlyA : :EqualAI for key in bu_keys]
         _testhelper_verdict(t) = ER._onlya_haldane_violation(bu_am, ER.steps(bu_am), t)
         # The group whose first step binds `x` at the form named `free`.
-        _testhelper_group(free, x) = only(
-            g for (g, grp) in enumerate(ER.steps(bu_am))
-            if ER.name(ER.from_species(grp[1])) === free &&
-               ER.bound_metabolite(grp[1]) !== nothing &&
-               ER.name(ER.bound_metabolite(grp[1])) === x)
+        _testhelper_group(free, x) = only(findall(==((free, x)), bu_keys))
 
         # the square alone trips nothing: no :OnlyA anywhere -> valid
         @test isempty(_testhelper_verdict(_testhelper_tags()))

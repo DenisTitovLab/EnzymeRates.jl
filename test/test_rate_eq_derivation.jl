@@ -22,21 +22,18 @@ function _testhelper_reference_qssa(
 )
     # Walk the steps of the lifted mechanism, so this helper follows the compiled
     # mechanism representation.
-    flat = _testhelper_flat_steps(m)
-    enz_names = _testhelper_enzyme_forms(flat)
-    n = length(enz_names)
-    name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
+    g = _testhelper_graph(m)
+    n = length(g.forms)
 
     ref_name, nu_ref = _testhelper_reference_metabolite(m)
 
     # Build rate matrix R[i,j] = pseudo-first-order rate from i to j
     R = zeros(n, n)
-    for (step_idx, step) in enumerate(flat)
-        i = name_to_idx[EnzymeRates.name(EnzymeRates.from_species(step))]
-        j = name_to_idx[EnzymeRates.name(EnzymeRates.to_species(step))]
+    for (step_idx, step) in enumerate(g.steps)
+        i, j = step.from, step.to
 
-        m_lhs = EnzymeRates.name.(EnzymeRates.consumed(step))
-        m_rhs = EnzymeRates.name.(EnzymeRates.released(step))
+        m_lhs = step.consumed
+        m_rhs = step.released
 
         kf = params[Symbol("k$(step_idx)f")]
         kr = params[Symbol("k$(step_idx)r")]
@@ -72,12 +69,11 @@ function _testhelper_reference_qssa(
 
     # Compute net consumption of reference substrate
     v = 0.0
-    for (step_idx, step) in enumerate(flat)
-        i = name_to_idx[EnzymeRates.name(EnzymeRates.from_species(step))]
-        j = name_to_idx[EnzymeRates.name(EnzymeRates.to_species(step))]
+    for (step_idx, step) in enumerate(g.steps)
+        i, j = step.from, step.to
 
-        m_lhs = EnzymeRates.name.(EnzymeRates.consumed(step))
-        m_rhs = EnzymeRates.name.(EnzymeRates.released(step))
+        m_lhs = step.consumed
+        m_rhs = step.released
 
         kf = params[Symbol("k$(step_idx)f")]
         kr = params[Symbol("k$(step_idx)r")]
@@ -117,18 +113,13 @@ flat step `i` gives `K{i}` at rapid equilibrium and `k{i}f`, `k{i}r` at steady s
 its stored direction. Every entry of `all_params` passes through.
 """
 function _testhelper_stored_params(m, all_params::NamedTuple)
-    mech = _testhelper_lift(m)
     out = Pair{Symbol, Any}[]
-    for (i, (s, _)) in enumerate(EnzymeRates._flat_steps(EnzymeRates.steps(mech)))
-        if EnzymeRates.is_equilibrium(s)
-            push!(out, Symbol("K", i) =>
-                all_params[EnzymeRates.name(EnzymeRates.Krapid(s, :None), mech)])
+    for (i, s) in enumerate(_testhelper_graph(m).steps)
+        if s.rapid_equilibrium
+            push!(out, Symbol("K", i) => all_params[only(s.names)])
         else
-            push!(out,
-                Symbol("k", i, "f") =>
-                    all_params[EnzymeRates.name(EnzymeRates.Kfor(s, :None), mech)],
-                Symbol("k", i, "r") =>
-                    all_params[EnzymeRates.name(EnzymeRates.Krev(s, :None), mech)])
+            push!(out, Symbol("k", i, "f") => all_params[s.names[1]],
+                  Symbol("k", i, "r") => all_params[s.names[2]])
         end
     end
     merge((; out...), all_params)
@@ -155,30 +146,32 @@ written, the DSL walker's value (`_testhelper_MechanismTestSpec.raw`). Every ent
 function _testhelper_written_params(m, all_params::NamedTuple; raw)
     mech = _testhelper_lift(m)
     allo = mech isa EnzymeRates.AllostericMechanism
-    stored = EnzymeRates._flat_steps(EnzymeRates.steps(mech))
+    g = _testhelper_graph(mech)
+    stored = first.(EnzymeRates._flat_steps(EnzymeRates.steps(mech)))
     written = EnzymeRates._step_groups(allo ? raw.catalytic : raw)
     out = Pair{Symbol, Any}[]
     for (i, w) in enumerate(Iterators.flatten(written))
-        j = findfirst(x -> first(x) == w || first(x) == EnzymeRates._reversed(w), stored)
+        j = findfirst(x -> x == w || x == EnzymeRates._reversed(w), stored)
         j === nothing && error("written step $i matches no stored step")
-        s, g = stored[j]
+        s = g.steps[j]
         forward = EnzymeRates.is_binding(w) ?
-                  !(EnzymeRates.bound_metabolite(w) isa EnzymeRates.Product) : s == w
-        tag = allo ? EnzymeRates.cat_allo_state(mech, g) : :None
-        states = tag === :NonequalAI ? ((:A, ""), (:I, "_T")) :
-                 ((tag === :OnlyA ? :A : tag, ""),)
-        for (state, suffix) in states
-            if EnzymeRates.is_equilibrium(s)
-                key = EnzymeRates.name(EnzymeRates.Krapid(s, state), mech)
-                state === :I && !haskey(all_params, key) && continue
+                  !(EnzymeRates.bound_metabolite(w) isa EnzymeRates.Product) :
+                  stored[j] == w
+        tag = allo ? g.tags[s.group] : :None
+        states = tag === :NonequalAI ? ((s.names, ""), (s.inactive_names, "_T")) :
+                 ((s.names, ""),)
+        for (names, suffix) in states
+            if s.rapid_equilibrium
+                key = only(names)
+                suffix == "_T" && !haskey(all_params, key) && continue
                 K = all_params[key]
                 push!(out, Symbol("K", i, suffix) =>
-                    EnzymeRates.is_binding(s) || forward ? K : 1 / K)
+                    _testhelper_is_binding(s) || forward ? K : 1 / K)
             else
-                kf_key = EnzymeRates.name(EnzymeRates.Kfor(s, state), mech)
-                state === :I && !haskey(all_params, kf_key) && continue
+                kf_key, kr_key = names
+                suffix == "_T" && !haskey(all_params, kf_key) && continue
                 kf = all_params[kf_key]
-                kr = all_params[EnzymeRates.name(EnzymeRates.Krev(s, state), mech)]
+                kr = all_params[kr_key]
                 f, r = forward ? (kf, kr) : (kr, kf)
                 push!(out, Symbol("k", i, "f", suffix) => f,
                       Symbol("k", i, "r", suffix) => r)
@@ -202,7 +195,7 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
 end
 
 """Check if mechanism has any rapid-equilibrium steps."""
-_testhelper_has_re_steps(m) = any(EnzymeRates.is_equilibrium, _testhelper_flat_steps(m))
+_testhelper_has_re_steps(m) = any(s -> s.rapid_equilibrium, _testhelper_graph(m).steps)
 
 """
 Test that `rate_equation` is non-allocating and fast for the given mechanism.
@@ -256,24 +249,19 @@ For RE isomerization steps (no metabolite, enzyme-only):
     K = Ka = kf/kr, so k_if = 1e6 * K, k_ir = 1e6.
 """
 function _testhelper_raw_to_ode_params(m, raw_params)
-    mech = m isa EnzymeRates.Mechanism ? m : EnzymeRates.Mechanism(m)
-    flat = EnzymeRates._flat_steps(mech)
+    flat = _testhelper_graph(m).steps
     # A canonical RE binding step has a metabolite on LHS (canonical form
     # invariant: all RE binding steps are written `E + S ⇌ ES`).
-    is_binding_step = Bool[
-        EnzymeRates.is_equilibrium(s) && !isempty(EnzymeRates.consumed(s))
-        for (s, _) in flat
-    ]
+    is_binding_step = Bool[s.rapid_equilibrium && !isempty(s.consumed) for s in flat]
     _testhelper_lookup(k) = Float64(raw_params[k])
     param_keys = Symbol[]
     param_vals = Float64[]
-    for (i, (step, _)) in enumerate(flat)
+    for (i, step) in enumerate(flat)
         push!(param_keys, Symbol("k$(i)f"))
         push!(param_keys, Symbol("k$(i)r"))
-        if EnzymeRates.is_equilibrium(step)
+        if step.rapid_equilibrium
             # Look up the step's structural K key, which its kinetic group shares
-            K = _testhelper_lookup(
-                EnzymeRates.name(EnzymeRates.Krapid(step, :None), mech))
+            K = _testhelper_lookup(only(step.names))
             if is_binding_step[i]
                 # Binding step (metabolite on LHS): K = Kd = kr/kf
                 push!(param_vals, 1e6)
@@ -285,8 +273,7 @@ function _testhelper_raw_to_ode_params(m, raw_params)
             end
         else
             # SS step: its forward and reverse rate constants
-            fwd_key = EnzymeRates.name(EnzymeRates.Kfor(step, :None), mech)
-            rev_key = EnzymeRates.name(EnzymeRates.Krev(step, :None), mech)
+            fwd_key, rev_key = step.names
             push!(param_vals, _testhelper_lookup(fwd_key))
             push!(param_vals, _testhelper_lookup(rev_key))
         end
@@ -312,17 +299,12 @@ function _testhelper_build_ode_rhs(
 )
     # Walk the steps of the lifted mechanism, so this helper follows the compiled
     # mechanism representation.
-    flat = _testhelper_flat_steps(m)
-    enz_names = _testhelper_enzyme_forms(flat)
-    name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
-
     step_data = []
-    for (step_idx, step) in enumerate(flat)
-        i = name_to_idx[EnzymeRates.name(EnzymeRates.from_species(step))]
-        j = name_to_idx[EnzymeRates.name(EnzymeRates.to_species(step))]
+    for (step_idx, step) in enumerate(_testhelper_graph(m).steps)
+        i, j = step.from, step.to
 
-        m_lhs = EnzymeRates.name.(EnzymeRates.consumed(step))
-        m_rhs = EnzymeRates.name.(EnzymeRates.released(step))
+        m_lhs = step.consumed
+        m_rhs = step.released
 
         kf = Float64(params[Symbol("k$(step_idx)f")])
         kr = Float64(params[Symbol("k$(step_idx)r")])
@@ -333,7 +315,6 @@ function _testhelper_build_ode_rhs(
         push!(step_data, (i, j, rf, rr))
     end
 
-    n = length(enz_names)
     function _testhelper_rhs!(du, u, p, t)
         fill!(du, 0.0)
         for (i, j, rf, rr) in step_data
@@ -349,10 +330,9 @@ function _testhelper_ode_steady_state_flux(
     m::EnzymeMechanism,
     params, concs,
 )
-    flat = _testhelper_flat_steps(m)
+    g = _testhelper_graph(m)
     E_total = params.E_total
-    enz_names = _testhelper_enzyme_forms(flat)
-    n = length(enz_names)
+    n = length(g.forms)
     ref_name, nu_ref = _testhelper_reference_metabolite(m)
 
     u0 = zeros(n)
@@ -366,14 +346,12 @@ function _testhelper_ode_steady_state_flux(
     sol = solve(prob, RadauIIA9(); abstol=1e-13, reltol=1e-13)
     u_ss = sol.u[end]
 
-    name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
     v = 0.0
-    for (step_idx, step) in enumerate(flat)
-        i = name_to_idx[EnzymeRates.name(EnzymeRates.from_species(step))]
-        j = name_to_idx[EnzymeRates.name(EnzymeRates.to_species(step))]
+    for (step_idx, step) in enumerate(g.steps)
+        i, j = step.from, step.to
 
-        m_lhs = EnzymeRates.name.(EnzymeRates.consumed(step))
-        m_rhs = EnzymeRates.name.(EnzymeRates.released(step))
+        m_lhs = step.consumed
+        m_rhs = step.released
 
         kf = Float64(params[Symbol("k$(step_idx)f")])
         kr = Float64(params[Symbol("k$(step_idx)r")])
@@ -407,9 +385,9 @@ end
 function _testhelper_test_structure(spec::_testhelper_MechanismTestSpec)
     m = spec.mechanism
     @testset "Structure" begin
-        flat = _testhelper_flat_steps(m)
-        @test length(_testhelper_enzyme_forms(flat)) == spec.expected_n_states
-        @test length(flat) == spec.expected_n_steps
+        g = _testhelper_graph(m)
+        @test length(g.forms) == spec.expected_n_states
+        @test length(g.steps) == spec.expected_n_steps
         @test metabolites(m) == Tuple(spec.metabolite_names)
         # Structural parameter names must be injective on the load-bearing
         # paths the fitter consumes (parameters + fitted_params). A collision

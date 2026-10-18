@@ -37,7 +37,7 @@ _testhelper_form_labels(m, forms) = Set(EnzymeRates._form_label(f, m) for f in f
 # Flat topology (Vector{Step}) from a compiled mechanism, matching the
 # shape _catalytic_topologies now returns (each step its own kinetic group).
 _testhelper_flat_topo(m) = EnzymeRates.Step[
-    s for g in EnzymeRates.Mechanism(m).steps for s in g]
+    s for g in EnzymeRates.steps(EnzymeRates.Mechanism(m)) for s in g]
 
 # Connectivity invariant: two enzyme forms identical in conformation+residual
 # whose bound-metabolite sets differ by exactly one metabolite MUST be joined by
@@ -76,7 +76,7 @@ end
 function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     em = EnzymeRates.compile_mechanism(m)
     fp = collect(EnzymeRates.fitted_params(em))
-    mets = sort(EnzymeRates._metabolite_names(EnzymeRates.reaction(m)))
+    mets = sort(collect(EnzymeRates.metabolites(em)))
     # A fixed seed reproduces a failure in a later session; a struct hash mixes in
     # objectid and would not.
     rng = MersenneTwister(1)
@@ -108,10 +108,9 @@ products."""
 function _testhelper_degenerate(m; ndraws = 2)
     em = EnzymeRates.compile_mechanism(m)
     fp = collect(EnzymeRates.fitted_params(em))
-    rxn = EnzymeRates.reaction(m)
-    subs = [EnzymeRates.name(s) for s in EnzymeRates.substrates(rxn)]
-    prods = [EnzymeRates.name(p) for p in EnzymeRates.products(rxn)]
-    mets = sort(EnzymeRates._metabolite_names(rxn))
+    g = _testhelper_graph(em)
+    subs, prods = g.substrates, g.products
+    mets = sort(collect(EnzymeRates.metabolites(em)))
     rng = MersenneTwister(7)
     for _ in 1:ndraws
         θ = exp.(randn(rng, length(fp)))
@@ -143,7 +142,7 @@ function _testhelper_param_deltas(parent, kids)
 end
 
 # Whether `m` holds an isomerization step.
-_testhelper_holds_iso(m) = any(EnzymeRates.is_iso, Iterators.flatten(EnzymeRates.steps(m)))
+_testhelper_holds_iso(m) = any(_testhelper_is_iso, _testhelper_graph(m).steps)
 
 # The kinetic groups of `m` whose first step is an isomerization.
 _testhelper_iso_groups(m) = [g for g in eachindex(EnzymeRates.steps(m))
@@ -168,8 +167,8 @@ _testhelper_binds(x) = s -> EnzymeRates.bound_metabolite(s) !== nothing &&
                             EnzymeRates.name(EnzymeRates.bound_metabolite(s)) == x
 
 # The kinetic-group index of every step of `m` that binds the metabolite named `x`.
-_testhelper_groups_binding(m, x) = [gi for (gi, group) in enumerate(EnzymeRates.steps(m))
-                                    for s in group if _testhelper_binds(x)(s)]
+_testhelper_groups_binding(m, x) = [s.group for s in _testhelper_graph(m).steps
+                                    if _testhelper_is_binding(s) && only(s.consumed) == x]
 
 # Whether a step is a Theorell–Chance step: it takes up one metabolite and gives off
 # another.
@@ -1266,10 +1265,9 @@ end
 @testset "Drops unbound regulators from init Mechanism" begin
     # init_mechanisms produces Mechanisms without dead-end regulators
     # bound. When compiled to EnzymeMechanism, the regulator must NOT
-    # appear among the regulators of the lifted reaction
-    # (`_testhelper_regulators`) — only the catalytic mechanism is
-    # built. After expand_mechanisms adds the dead-end regulator, it
-    # should appear.
+    # appear among the modifiers its steps bind (`_testhelper_regulators`)
+    # — only the catalytic mechanism is built. After expand_mechanisms
+    # adds the dead-end regulator, it should appear.
     init_mechs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
     @test all(isempty(_testhelper_connectivity_violations(
         EnzymeRates.steps(m))) for m in init_mechs)
@@ -11912,17 +11910,13 @@ end
     # the sorted set of (from form, to form, bound metabolite, RE/SS) tuples;
     # groups themselves sorted so the key is order-independent.
     function _testhelper_mech_struct_key(m::EnzymeRates.Mechanism)
-        grpkeys = String[]
-        for grp in EnzymeRates.steps(m)
-            stepkeys = sort([
-                string((EnzymeRates.name(EnzymeRates.from_species(s)),
-                        EnzymeRates.name(EnzymeRates.to_species(s)),
-                        EnzymeRates.bound_metabolite(s) === nothing ? :iso :
-                            EnzymeRates.name(EnzymeRates.bound_metabolite(s)),
-                        EnzymeRates.is_equilibrium(s)))
-                for s in grp])
-            push!(grpkeys, join(stepkeys, "|"))
-        end
+        g = _testhelper_graph(m)
+        grpkeys = [join(sort([
+                       string((Symbol(g.forms[s.from]), Symbol(g.forms[s.to]),
+                               _testhelper_is_binding(s) ? only(s.consumed) : :iso,
+                               s.rapid_equilibrium))
+                       for s in g.steps if s.group == k]), "|")
+                   for k in unique(s.group for s in g.steps)]
         join(sort(grpkeys), " ;; ")
     end
 

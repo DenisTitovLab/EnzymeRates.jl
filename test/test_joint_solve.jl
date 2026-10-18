@@ -8,11 +8,12 @@ const _testhelper_JS = EnzymeRates
 A parameter point of `m` built from its joint solve: every column that is not a pivot
 takes a random log value, `log Keq` one more, and each pivot column the value its row of
 the reduced system gives. Returns the steps of each conformation as
-`_testhelper_steady_state_rate` reads them, with `L` and the regulator constants drawn at
-random.
+`_testhelper_steady_state_rate` reads them (the steps of `_testhelper_graph`, whose order
+is the solve's flat order), with `L` and the regulator constants drawn at random.
 """
 function _testhelper_solve_point(m, rng)
     mech = _testhelper_lift(m)
+    g = _testhelper_graph(mech)
     sys = _testhelper_JS._joint_system(mech)
     M, pivots = _testhelper_JS._reduce_joint_system(sys.A, sys.rhs)
     n = length(sys.columns)
@@ -25,16 +26,16 @@ function _testhelper_solve_point(m, rng)
                sum((M[r, f] * x[f] for f in free); init = big(0))
     end
     value = Dict(c => exp(x[i]) for (i, c) in enumerate(sys.columns))
-    allo = mech isa _testhelper_JS.AllostericMechanism
+    allo = g.catalytic_multiplicity !== nothing
     function _testhelper_conformation(inactive)
         out = []
-        for (j, (s, g)) in enumerate(sys.flat)
+        for (j, s) in enumerate(g.steps)
             inactive && !sys.law[j] && continue
-            own = inactive && _testhelper_JS._has_inactive_columns(sys.tags[g])
+            own = inactive && _testhelper_JS._has_inactive_columns(sys.tags[s.group])
             col(slot) = value[_testhelper_JS._Column(j, slot, own)]
-            if _testhelper_JS.is_equilibrium(s)
+            if s.rapid_equilibrium
                 K = col(1)
-                push!(out, (s, _testhelper_JS.is_binding(s) ? 1 / K : K, nothing))
+                push!(out, (s, _testhelper_is_binding(s) ? 1 / K : K, nothing))
             else
                 push!(out, (s, col(1) / col(2), col(1)))
             end
