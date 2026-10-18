@@ -94,14 +94,15 @@ end
 
 """
 Free enzyme of a rapid-equilibrium segment: the form with the fewest bound
-metabolites, tie-broken toward no covalent residual, then a deterministic
-name. Referencing each segment's alphas to this form makes the derivation
-independent of the step order and yields the readable `1 + [S]/K + …` form.
+metabolites, tie-broken toward no covalent residual, then toward the first in the
+canonical form order (`_form_index_key`). Referencing each segment's alphas to this
+form makes the derivation independent of the step order and yields the readable
+`1 + [S]/K + …` form.
 """
 function _segment_root(segment, species)
     argmin(i -> (length(bound(species[i])),
                  has_residual(species[i]) ? 1 : 0,
-                 string(name(species[i]))), segment)
+                 _form_index_key(species[i])), segment)
 end
 
 """

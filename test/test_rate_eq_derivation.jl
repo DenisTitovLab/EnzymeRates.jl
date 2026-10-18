@@ -943,6 +943,17 @@ const _testhelper_fused_cases = [
         _testhelper_fused_and_plain_binding,
 ]
 
+@testset "a segment's root ties go to the canonical form order" begin
+    # The root of a rapid-equilibrium segment is its form with the fewest bound
+    # metabolites, then the one without a residual, then the first in the canonical form
+    # order (`_form_index_key`). There A's modifier copy comes before Ab, though the
+    # copy's internal name, EAinh, sorts after EAb.
+    copy = ER.Species(ER.Metabolite[ER.CompetitiveInhibitor(:A)], :E)
+    ab = ER.Species(ER.Metabolite[ER.Substrate(:Ab)], :E)
+    @test ER._segment_root([1, 2], [ab, copy]) == 2
+    @test ER._segment_root([1, 2], [copy, ab]) == 1
+end
+
 @testset "the free-enzyme weight is free E's weight in the reduced denominator" begin
     # Ping-pong with a rapid-equilibrium second chemistry step: every form lies in one
     # rapid-equilibrium segment rooted at free E, where E(; residual = A - P) sits at

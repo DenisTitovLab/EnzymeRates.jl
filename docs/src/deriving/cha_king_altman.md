@@ -20,7 +20,8 @@ steps.
 
 **Within each RE segment**, the package picks the form with the fewest bound
 metabolites as the **segment root** (the free-enzyme reference form), with
-ties broken toward no covalent residual and then by name.
+ties broken toward no covalent residual and then toward the form that comes first in
+the mechanism's form order.
 Every other form in the segment gets an alpha factor — its relative abundance
 expressed as a ratio to the root.
 Referencing to the free-enzyme form is what produces the readable

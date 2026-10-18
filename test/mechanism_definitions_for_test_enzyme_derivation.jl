@@ -192,11 +192,12 @@ end
 
 """
 The free form at which the two conformations of an allosteric mechanism interconvert in
-its law: the free form (no bound metabolite, no residual) with the smallest name, which
-roots the rapid-equilibrium segment that holds every free form.
+its law: the free form (no bound metabolite, no residual) first in the canonical form
+order (`_form_index_key`, free E first), which roots the rapid-equilibrium segment that
+holds every free form.
 """
 _testhelper_flip_form(mech) =
-    argmin(f -> string(EnzymeRates.name(f)),
+    argmin(EnzymeRates._form_index_key,
            [f for f in EnzymeRates._forms(EnzymeRates.steps(mech))
             if isempty(EnzymeRates.bound(f)) && isempty(EnzymeRates.residual(f))])
 
