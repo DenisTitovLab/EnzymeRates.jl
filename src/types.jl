@@ -1224,7 +1224,7 @@ add substrates and subtract products; no step joining a form to itself, taking u
 giving off one metabolite, or binding a metabolite into a form that holds it in another
 role; tied steps that make one conformational change (`misaligned`, from
 `_canonicalize`); no two forms that render one name; each kinetic group one kind of step
-with one flag; each reaction once; free E.
+with one flag; each reaction once; free E; one connected graph.
 """
 function _check_representation(m::Mechanism, misaligned::Vector{Edge},
                                modifiers::Vector{Symbol})
@@ -1267,6 +1267,7 @@ function _check_representation(m::Mechanism, misaligned::Vector{Edge},
     _check_uniform_groups(m, groups)
     _check_each_reaction_once(m, groups)
     _check_free_E(m)
+    _check_connected(m)
 end
 
 """Error unless form 1 of `m` is free E: label `E`, nothing bound, no residual. Canonical
@@ -1276,6 +1277,26 @@ function _check_free_E(m::Mechanism)
     E !== nothing && !isempty(m.forms) && m.forms[1] == Form(E, 0, 0, 0) ||
         error("Mechanism: no free enzyme form E; every mechanism holds the free form E, " *
               "with nothing bound and no residual")
+end
+
+"""Error unless the edges of `m` join every form to free E, form 1: forms that never
+meet free E split the enzyme between parts with no single steady state."""
+function _check_connected(m::Mechanism)
+    reached = falses(length(m.forms))
+    reached[1] = true
+    grew = true
+    while grew
+        grew = false
+        for e in m.edges
+            reached[e.from] == reached[e.to] && continue
+            reached[e.from] = reached[e.to] = true
+            grew = true
+        end
+    end
+    f = findfirst(!, reached)
+    f === nothing ||
+        error("Mechanism: the steps do not form one connected graph; no steps lead from " *
+              "free E to $(_form_name(m, f))")
 end
 
 """Error unless `misaligned`, from `_canonicalize`, is empty: it holds the lead and a member

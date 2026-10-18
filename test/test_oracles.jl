@@ -249,8 +249,12 @@ end
         @test e30 < big(10)^-20
     end
 
-    @testset "rejects a disconnected network" begin
-        two_enzymes = @enzyme_mechanism begin
+    @testset "a disconnected network is no mechanism" begin
+        # Two enzymes that never meet have no single steady state; the constructor
+        # rejects their network, so no oracle meets one.
+        @test_throws(ErrorException("Mechanism: the steps do not form one connected " *
+                                    "graph; no steps lead from free E to F"),
+                     @enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -259,12 +263,7 @@ end
                 F + S <--> F(S)
                 F(S) <--> F + P
             end
-        end
-        point = _testhelper_consistent_point(two_enzymes, Random.MersenneTwister(1))
-        @test_throws ErrorException("_testhelper_steady_state_rate: the network of 4 " *
-                                    "enzyme forms is disconnected, so its steady state " *
-                                    "is not unique") _testhelper_steady_state_rate(
-            two_enzymes, point, Dict(:S => big(1), :P => big(1)))
+        end)
     end
 
     @testset "the two conformations combine at the flip ratio L" begin

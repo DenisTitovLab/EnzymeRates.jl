@@ -317,37 +317,48 @@ function _testhelper_enumerate_all_mechanism(rxn; max_params::Int=typemax(Int))
 end
 
 @testset "Canonical-by-construction representation independence" begin
-    rxn = @enzyme_reaction begin
-        substrates: S[C], A[N]
-        products:   P[CN]
-    end
     # One kinetic group holding two bindings of the same metabolite S (context-
-    # shared: S binds free E, and S binds A-bound E, with the same K) + a
-    # second group with an iso step. Built two ways: reversed outer group
-    # order AND swapped inner step order. Canonical-by-construction must
-    # collapse them to one struct.
-    bind_S = EnzymeRates.Step(
-        EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-        EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-        [EnzymeRates.Substrate(:S)], EnzymeRates.Metabolite[], true)
-    bind_S_on_A = EnzymeRates.Step(
-        EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E_A),
-        EnzymeRates.Species([EnzymeRates.Substrate(:A), EnzymeRates.Substrate(:S)], :E_A_S),
-        [EnzymeRates.Substrate(:S)], EnzymeRates.Metabolite[], true)
-    iso = EnzymeRates.Step(
-        EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-        EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-        EnzymeRates.Metabolite[], EnzymeRates.Metabolite[], false)
-
-    m_orderA = EnzymeRates.Mechanism(rxn, [[bind_S, bind_S_on_A], [iso]])
-    m_orderB = EnzymeRates.Mechanism(rxn, [[iso], [bind_S_on_A, bind_S]])
+    # shared: S binds free E, and S binds A-bound E, with the same K), A's binding, the
+    # chemistry and P's release. Written two ways: the statements in reverse order AND
+    # the group's two steps swapped. Canonical-by-construction must collapse them to one
+    # struct.
+    m_orderA = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S, A
+        products: P
+        steps: begin
+            (E + S ⇌ E(S), E(A) + S ⇌ E(A, S))
+            E + A ⇌ E(A)
+            E(A, S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
+    m_orderB = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S, A
+        products: P
+        steps: begin
+            E(P) ⇌ E + P
+            E(A, S) <--> E(P)
+            E + A ⇌ E(A)
+            (E(A) + S ⇌ E(A, S), E + S ⇌ E(S))
+        end
+    end)
     @test m_orderA == m_orderB
     @test hash(m_orderA) == hash(m_orderB)
 
     # unique! collapses the duplicate orderings; the mechanisms are not mutated.
     # m_split groups the two binding steps separately, so it is structurally
     # distinct and survives alongside the collapsed orderA/orderB.
-    m_split = EnzymeRates.Mechanism(rxn, [[bind_S], [bind_S_on_A], [iso]])
+    m_split = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S, A
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(A) + S ⇌ E(A, S)
+            E + A ⇌ E(A)
+            E(A, S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
     mechs = [m_orderA, m_split, m_orderB]
     snapshot = deepcopy(mechs)
     result = unique!(mechs)

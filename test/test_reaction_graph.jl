@@ -667,6 +667,19 @@ end
             E(P) ⇌ F + P
         end
     end)))
+    # Forms that no steps join to free E: an isomerization between unreached forms.
+    @test_throws(ErrorException("Mechanism: the steps do not form one connected graph; " *
+                                "no steps lead from free E to EstarP"),
+                 ER.Mechanism(_testhelper_walk(:(begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+            Estar(S) <--> Estar(P)
+        end
+    end))))
 end
 
 @testset "a form's name and text read as constants and the macros write them" begin

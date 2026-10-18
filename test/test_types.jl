@@ -500,12 +500,6 @@ end
             end
         end
         @test m_abortive isa EnzymeMechanism
-
-        # NOTE: unreachable enzyme forms are accepted. The constructor does not
-        # enforce a connectivity invariant — enzyme forms are inferred from steps,
-        # so an "unreachable" form simply has its own steps in isolation, which is
-        # structurally valid (graph connectivity is a downstream concern caught by
-        # Wegscheider analysis if it matters).
     end
 
     @testset "a stray free form cannot leave the inactive state's segment bottomless" begin
@@ -1790,17 +1784,17 @@ end
         # Two different conformational isomerizations, free and A-bound,
         # sharing one rate by a symmetry assumption: both are `:iso`, so
         # they are the same kind and may share a kinetic group.
-        A = ER.Substrate(:A)
-        e, e2   = _testhelper_sp([], :E), _testhelper_sp([], :Estar)
-        ea, e2a = _testhelper_sp([A], :E), _testhelper_sp([A], :Estar)
-        iso1 = ER.Step(e, e2, ER.Metabolite[], ER.Metabolite[], false)
-        iso2 = ER.Step(ea, e2a, ER.Metabolite[], ER.Metabolite[], false)
-        rxn = @enzyme_reaction(begin
-            substrates: A[C]
-            products: P[C]
-        end)
-        m = ER.Mechanism(rxn, [[iso1, iso2]])
-        @test m isa ER.Mechanism
+        m = @enzyme_mechanism begin
+            substrates: A
+            products: P
+            steps: begin
+                E + A ⇌ E(A)
+                (E <--> Estar, E(A) <--> Estar(A))
+                Estar(A) <--> Estar(P)
+                Estar(P) ⇌ Estar + P
+            end
+        end
+        @test m isa EnzymeMechanism
     end
 end
 
