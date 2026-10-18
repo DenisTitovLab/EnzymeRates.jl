@@ -2,8 +2,8 @@
 # ABOUTME: canonical form: raw input to checked graph, content order, identity, Sig.
 module ReactionGraph
 
-using ..EnzymeRates: Met, RawForm, RawMechanism, RawAllostericMechanism, RegulatorySite,
-                     _VALID_CAT_ALLO_STATES, _check_metabolite_names
+using ..EnzymeRates: Met, RawForm, RawStep, RawMechanism, RawSite, RawAllostericMechanism,
+                     RegulatorySite, _VALID_CAT_ALLO_STATES, _check_metabolite_names
 
 # ─── Types ──────────────────────────────────────────────────────────────
 
@@ -779,6 +779,24 @@ function _binds_by_name(m::Mechanism, e::Edge)
     names(c::Counts) = [m.table[j].name for j in entries(c)]
     names(t.bound) == sort!(push!(names(f.bound), m.table[i].name))
 end
+
+"""`m` as raw input: every edge a step in its stored direction, labelled with its group.
+Every vector is fresh, so a move that edits the raw value never edits `m`."""
+function _raw(m::Mechanism)
+    form(f::Int) = (x = m.forms[f];
+        RawForm(m.conformations[x.conformation], [m.table[i] for i in entries(x.bound)],
+                [m.table[i].name for i in entries(x.added)],
+                [m.table[i].name for i in entries(x.subtracted)]))
+    steps = [RawStep(form(e.from), form(e.to), [m.table[i] for i in entries(e.consumed)],
+                     [m.table[i] for i in entries(e.released)], e.rapid_equilibrium)
+             for e in m.edges]
+    RawMechanism(copy(m.substrates), copy(m.products), modifiers(m), steps,
+                 copy(m.group))
+end
+_raw(am::AllostericMechanism) = RawAllostericMechanism(_raw(am.catalytic),
+    copy(am.cat_allo_states), am.catalytic_multiplicity,
+    [RawSite(copy(s.ligands), s.multiplicity, copy(s.allo_states))
+     for s in am.regulatory_sites])
 
 # ─── Names ──────────────────────────────────────────────────────────────
 

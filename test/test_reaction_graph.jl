@@ -699,3 +699,30 @@ end
         @test instances(decoder) == before
     end
 end
+
+@testset "a graph written back as raw input builds the same graph" begin
+    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
+        x = _testhelper_build(spec.raw)
+        raw = RG._raw(x)
+        @test _testhelper_build(raw) == x
+        # Its steps are the edges in stored order and direction, labelled by group.
+        c = RG._canonicalize(_testhelper_plain(raw))
+        @test c.edge_of == eachindex(c.edge_of) && !any(c.flipped)
+        @test c.group_of == 1:RG.ngroups(RG.catalytic(x))
+        @test _testhelper_plain(raw).modifiers == RG.modifiers(RG.catalytic(x))
+    end
+    # Every vector is fresh: editing the raw value leaves the graph as it was.
+    am = RG.AllostericMechanism(_testhelper_graph_uniuni(), [:EqualAI, :OnlyA, :OnlyA], 2,
+                                [EnzymeRates.RegulatorySite([:R], 2, [:OnlyI])])
+    before = deepcopy(am)
+    raw = RG._raw(am)
+    for v in (raw.catalytic.substrates, raw.catalytic.products, raw.catalytic.modifiers,
+              raw.sites[1].ligands)
+        push!(v, :X)
+    end
+    push!(raw.catalytic.group, 4)
+    push!(raw.cat_allo_states, :EqualAI)
+    raw.sites[1].allo_states[1] = :OnlyA
+    empty!(raw.catalytic.steps)
+    @test am == before
+end
