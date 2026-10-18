@@ -1,19 +1,21 @@
-# ABOUTME: The well-posedness check the mechanism macros, the enumerator's exits and the
-# ABOUTME: derivation entries run on a mechanism; constructors check representation only.
+# ABOUTME: The well-posedness check the mechanism macros, the parser, the enumerator's
+# ABOUTME: exits and the derivation entries run; constructors check representation only.
 
 """
     _check_well_posed(m)
 
 Error unless `m`'s rate law is defined where data sit: no rapid-equilibrium segment
 without a bottom form (`_assert_bottomed_segments`), in the catalytic graph and, for an
-allosteric mechanism, in the inactive conformation's graph (`_inactive_mask`); every
-free form in one rapid-equilibrium segment of the edges outside `:OnlyA` groups
-(`_assert_one_flip_segment`); no `:OnlyA` binding that leaves a thermodynamic cycle
-unsatisfiable (`_onlya_haldane_violation`). It reads the reaction graph through masks
-and builds nothing. The mechanism macros, `init_mechanisms`, `seed_mechanisms`,
-`expand_mechanisms`, identify's base tier and every derivation entry
-(`_derivation_input`) call it; the constructors and the Sig decoder do not, so code that
-builds a mechanism internally never trips a check meant for the mechanisms it returns.
+allosteric mechanism, in the inactive conformation's graph (`_inactive_mask`). An
+allosteric mechanism must also keep all its free forms in one rapid-equilibrium segment
+of the edges outside `:OnlyA` groups (`_assert_one_flip_segment`) and hold no `:OnlyA`
+binding that leaves a thermodynamic cycle unsatisfiable (`_onlya_haldane_violation`).
+It reads the reaction graph through masks and builds nothing. The mechanism macros and
+the parser (`_parse_mechanism`) call it through `_checked_mechanism`; `init_mechanisms`,
+`seed_mechanisms`, `expand_mechanisms`, identify's base tier and every derivation entry
+(`_derivation_input`) call it too; the constructors and the Sig decoder do not, so
+code that builds a mechanism internally never trips a check meant for the mechanisms
+it returns.
 """
 function _check_well_posed(m::Mechanism)
     _assert_bottomed_segments(m, trues(length(m.edges)))

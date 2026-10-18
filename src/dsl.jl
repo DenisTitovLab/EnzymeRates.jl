@@ -1,5 +1,5 @@
 # ABOUTME: The DSL macros @enzyme_reaction, @enzyme_mechanism and @allosteric_mechanism,
-# ABOUTME: which read a block into plain data, and a mechanism printed as its macro text.
+# ABOUTME: which read a block into plain data; a mechanism's macro text, printed and parsed.
 
 """
     @enzyme_reaction begin
@@ -811,24 +811,34 @@ function _read_residual!(added, subtracted, e, positive::Bool, names, macro_name
 end
 
 """
-    _compiled_mechanism(raw) -> EnzymeMechanism or AllostericEnzymeMechanism
+    _checked_mechanism(raw) -> Mechanism or AllostericMechanism
 
-The compiled mechanism of `raw`, the walker's value for a mechanism macro's block
-(`_raw_mechanism`): the macros' expansion calls it, so its checks run when the expanded
-code runs. It checks that `raw`'s names spell every string one way only
+The mechanism that `raw`, the walker's value for a mechanism block (`_raw_mechanism`),
+writes, checked: its names must spell every string one way only
 (`_check_uniquely_decodable`, as a reaction's are checked), then the constructors
 (`Mechanism(raw)`, `AllostericMechanism(raw)`) and the boundary check
-(`_check_well_posed`) check the mechanism.
+(`_check_well_posed`) check the mechanism. The macros (`_compiled_mechanism`) and the
+parser (`_parse_mechanism`) build every mechanism through it, so they accept the same
+mechanisms.
 """
-function _compiled_mechanism(raw::RawMechanism)
+function _checked_mechanism(raw::RawMechanism)
     _check_uniquely_decodable([raw.substrates; raw.products], raw.modifiers, "Mechanism")
-    EnzymeMechanism(_well_posed(Mechanism(raw)))
+    _well_posed(Mechanism(raw))
 end
-function _compiled_mechanism(raw::RawAllostericMechanism)
+function _checked_mechanism(raw::RawAllostericMechanism)
     c = raw.catalytic
     _check_uniquely_decodable([c.substrates; c.products], c.modifiers, "Mechanism")
-    AllostericEnzymeMechanism(_well_posed(AllostericMechanism(raw)))
+    _well_posed(AllostericMechanism(raw))
 end
+
+"""
+    _compiled_mechanism(raw) -> EnzymeMechanism or AllostericEnzymeMechanism
+
+The compiled mechanism of `raw` (`_checked_mechanism`): the macros' expansion calls it,
+so its checks run when the expanded code runs.
+"""
+_compiled_mechanism(raw::Union{RawMechanism, RawAllostericMechanism}) =
+    compile_mechanism(_checked_mechanism(raw))
 
 # ─── Mechanisms as text ─────────────────────────────────────────────────
 
@@ -836,7 +846,9 @@ end
 Print `m` as the `@enzyme_mechanism` text that builds it: its substrates, products and
 modifiers (the names its steps bind as modifiers), each list sorted and an empty one left
 out, then its steps (`_print_steps`). The text is a function of `m` alone, so equal
-mechanisms print one text.
+mechanisms print one text. `_parse_mechanism` reads the text of a mechanism the macros
+accept back as that mechanism: one that is well posed (`_check_well_posed`) and whose
+names spell every string one way (`_check_uniquely_decodable`).
 """
 function Base.show(io::IO, m::Mechanism)
     print(io, "@enzyme_mechanism begin")
@@ -902,4 +914,23 @@ function _print_steps(io::IO, m::Mechanism, tags::Vector{Symbol})
     end
     print(io, "\n    end")
     nothing
+end
+
+"""
+    _parse_mechanism(text) -> Mechanism or AllostericMechanism
+
+The mechanism `text` writes: one `@enzyme_mechanism` or `@allosteric_mechanism` block,
+such as `show` prints for a mechanism, with any whitespace around it. It reads the parsed
+expression with the macros' walker (`_raw_mechanism`), never evaluating it, and checks the
+mechanism as the macros do (`_checked_mechanism`), so it accepts the texts the macros
+accept and rejects the others with the macros' messages. The text `show` prints for a
+mechanism the macros accept reads back as that mechanism.
+"""
+function _parse_mechanism(text::AbstractString)
+    ex = Meta.parse(strip(text))
+    macros = (Symbol("@enzyme_mechanism"), Symbol("@allosteric_mechanism"))
+    ex isa Expr && ex.head === :macrocall && length(ex.args) == 3 && ex.args[1] in macros ||
+        error("_parse_mechanism: expected the text of one @enzyme_mechanism or " *
+              "@allosteric_mechanism block; got $ex")
+    _checked_mechanism(_raw_mechanism(ex.args[3], ex.args[1] === macros[2]))
 end

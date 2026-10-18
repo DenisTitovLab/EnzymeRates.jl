@@ -96,6 +96,10 @@ _testhelper_lift(m::EnzymeRates.AllostericEnzymeMechanism) =
     EnzymeRates.AllostericMechanism(m)
 _testhelper_lift(m::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}) = m
 
+"""Whether the concrete mechanism `x` reads back from the text `show` prints for it
+(`_parse_mechanism`) as itself."""
+_testhelper_reads_back(x) = EnzymeRates._parse_mechanism(sprint(show, x)) == x
+
 """
     _testhelper_graph(m) -> NamedTuple
 

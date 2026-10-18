@@ -163,10 +163,11 @@ conformation `Estar` would both be `Estar` and share their constants' names. Nam
 spell one string two ways, such as `NAD`, `P` and `NADP`, never reach the constructor:
 `@enzyme_reaction` and the mechanism macros reject them (`_check_uniquely_decodable`).
 Whether a mechanism's rate law is defined is the boundary check's question
-(`_check_well_posed`, `src/admission.jl`): no rapid-equilibrium segment lacks a bottom
-form, in the catalytic graph or the inactive conformation's; every free form lies in one
-rapid-equilibrium segment outside `:OnlyA` groups; and no `:OnlyA` binding leaves a
-thermodynamic cycle unsatisfiable. The macros, the parser, the enumerator's exits and
+(`_check_well_posed`, `src/admission.jl`): no rapid-equilibrium segment of the catalytic
+graph lacks a bottom form; and, for an allosteric mechanism, no segment of the inactive
+conformation's graph lacks one, all free forms lie in one rapid-equilibrium segment
+outside `:OnlyA` groups, and no `:OnlyA` binding leaves a thermodynamic cycle
+unsatisfiable. The macros, the parser, the enumerator's exits and
 every derivation entry run it; the constructors and the Sig decoder do not.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,

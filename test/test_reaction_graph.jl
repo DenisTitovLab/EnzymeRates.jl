@@ -1027,10 +1027,10 @@ end
 
 # ── The canonical form pinned as text, and the sub-graph reads against oracles ──
 
-"""The mechanisms the regression census enumerates first: the init populations of its six
-reactions, then the children of every init mechanism of its bi-bi reaction."""
-function _testhelper_census_population()
-    reactions = [
+"""The regression census's six reactions: uni-uni, bi-bi, ping-pong, two sites, ter-bi and
+the reaction whose names hold one another as prefixes."""
+function _testhelper_census_reactions()
+    [
         @enzyme_reaction(begin
             substrates: S[C]
             products: P[C]
@@ -1066,6 +1066,12 @@ function _testhelper_census_population()
             competitive_inhibitors: GTI
             shared_catalytic_site: (G, Gl)
         end)]
+end
+
+"""The mechanisms the regression census enumerates first: the init populations of its six
+reactions, then the children of every init mechanism of its bi-bi reaction."""
+function _testhelper_census_population()
+    reactions = _testhelper_census_reactions()
     population = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
     foreach(r -> append!(population, EnzymeRates.init_mechanisms(r)), reactions)
     bibi = reactions[2]
@@ -1073,13 +1079,17 @@ function _testhelper_census_population()
             EnzymeRates.expand_mechanisms(EnzymeRates.init_mechanisms(bibi), bibi))
 end
 
-"""A step side of graph `m` as text: form `f`'s name, then its free entries `c`."""
-_testhelper_side_text(m::ER.Mechanism, f::Int, c::ER.Counts) =
-    join([ER._form_name(m, f); [ER._entry_label(m, i) for i in ER.entries(c)]], " + ")
+"""The census's first allosteric mechanisms: the allosteric children of the init
+mechanisms of its three reactions that declare an allosteric regulator."""
+function _testhelper_census_allosteric()
+    children = [EnzymeRates.expand_mechanisms(EnzymeRates.init_mechanisms(r), r)
+                for r in _testhelper_census_reactions()[[1, 3, 4]]]
+    filter(x -> x isa EnzymeRates.AllostericMechanism, reduce(vcat, children))
+end
 
 """Graph `x`'s canonical form as text lines: its names, its forms in order, each edge in
-its stored direction with its group (and the group's tag), then any catalytic
-multiplicity and sites."""
+its stored direction (`_testhelper_edge_text`) with its group (and the group's tag), then
+any catalytic multiplicity and sites."""
 function _testhelper_canonical_text(x)
     m, allo = ER.catalytic(x), x isa ER.AllostericMechanism
     mods = ER.modifiers(m)
@@ -1087,12 +1097,10 @@ function _testhelper_canonical_text(x)
              "$(join(m.products, ", "))" *
              (isempty(mods) ? "" : " | modifiers: $(join(mods, ", "))"),
              "forms: " * join([ER._form_name(m, f) for f in eachindex(m.forms)], ", ")]
-    for (k, e) in enumerate(m.edges)
+    for k in eachindex(m.edges)
         g = m.group[k]
-        push!(lines, "$k: $(_testhelper_side_text(m, e.from, e.consumed)) " *
-                     "$(e.rapid_equilibrium ? "⇌" : "<-->") " *
-                     "$(_testhelper_side_text(m, e.to, e.released)) " *
-                     "| group $g" * (allo ? " :: $(x.cat_allo_states[g])" : ""))
+        push!(lines, "$k: $(_testhelper_edge_text(m, k)) | group $g" *
+                     (allo ? " :: $(x.cat_allo_states[g])" : ""))
     end
     allo && push!(lines, "catalytic_multiplicity: $(x.catalytic_multiplicity)")
     for s in (allo ? x.regulatory_sites : EnzymeRates.RegulatorySite[])
@@ -1155,9 +1163,11 @@ function _testhelper_subgraphs_agree(x)
     inactive[flat] == kept && _testhelper_segments_agree(inactive, kept)
 end
 
-# The census's first populations (`_testhelper_census_population`), enumerated once for
-# the two testsets that read them and released after them.
-let population = _testhelper_census_population()
+# The census's first populations (`_testhelper_census_population`,
+# `_testhelper_census_allosteric`), enumerated once for the three testsets that read them
+# and released after them.
+let population = _testhelper_census_population(),
+    allosteric = _testhelper_census_allosteric()
 @testset "a graph's canonical form, pinned as text, read back from its Sig and raw" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         @test ER._concrete(spec.mechanism) == _testhelper_build(spec.raw)
@@ -1201,6 +1211,20 @@ end
     end
     @test isempty([i for (i, x) in enumerate(population)
                    if !_testhelper_subgraphs_agree(x)])
+end
+
+@testset "a graph's DSL text reads back as the graph" begin
+    # `show` prints the macro text that builds a mechanism and `_parse_mechanism` reads it
+    # back, for the specs, plain and allosteric, and the census's first populations, plain
+    # and allosteric.
+    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
+        @test _testhelper_reads_back(_testhelper_lift(spec.mechanism))
+        @test ER.compile_mechanism(ER._parse_mechanism(sprint(show, spec.mechanism))) ===
+              spec.mechanism
+    end
+    @test length(allosteric) == 5 + 934 + 5
+    @test isempty([i for (i, x) in enumerate(population) if !_testhelper_reads_back(x)])
+    @test isempty([i for (i, x) in enumerate(allosteric) if !_testhelper_reads_back(x)])
 end
 end
 

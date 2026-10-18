@@ -1,5 +1,5 @@
 # ABOUTME: Tests for @enzyme_reaction, @enzyme_mechanism and @allosteric_mechanism: their
-# ABOUTME: grammar and errors, the walker's raw values and the printed reaction text.
+# ABOUTME: grammar and errors, the walker's raw values, and the texts printed and read back.
 
 """The role metabolite entry `t` of graph `x` binds in: `:modifier` for a modifier-only
 name or a reactant's copy, else `:substrate` or `:product` as `x` declares it."""
@@ -2082,5 +2082,219 @@ end
                 E + S ⇌ E(S)
             end
         end
+    end
+end
+
+@testset "DSL text: _parse_mechanism reads a mechanism back from its text" begin
+    @testset "every mechanism the macros accept reads back" begin
+        # Names a block may use and labels at the edge of the shape rule, each through
+        # the macro, then printed and read back: contextual keywords, Greek letters and a
+        # subscript as names; conformation labels with digits, one letter, or the names
+        # of the role tag and of a removed role tag; residuals with and without bound
+        # metabolites, one that only subtracts; two copies of a modifier copy; a name that
+        # is both a modifier and an allosteric regulator, a substrate that is also an
+        # allosteric regulator; an allosteric mechanism without sites; multiplicities of
+        # two digits.
+        mechanisms = [
+            @enzyme_mechanism(begin
+                substrates: abstract, mutable
+                products: outer, primitive
+                modifiers: public, type, var
+                steps: begin
+                    E + abstract ⇌ E(abstract)
+                    E(abstract) + mutable ⇌ E(abstract, mutable)
+                    E(abstract, mutable) <--> E(outer, primitive)
+                    E(outer, primitive) ⇌ E(primitive) + outer
+                    E(primitive) ⇌ E + primitive
+                    E + public ⇌ E(public)
+                    E + type ⇌ E(type)
+                    E + var ⇌ E(var)
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: α
+                products: β₂
+                modifiers: Δ
+                steps: begin
+                    E + α ⇌ E(α)
+                    E(α) <--> E(β₂)
+                    E(β₂) ⇌ E + β₂
+                    E + Δ ⇌ E(Δ)
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + S <--> E(S)
+                    E(S) <--> Z9(S)
+                    Z9(S) <--> Mod(P)
+                    Mod(P) <--> Inh + P
+                    Inh <--> F
+                    F <--> E
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A <--> E(A)
+                    E(A) <--> F(; residual = A - P) + P
+                    F(; residual = A - P) + B <--> F(B; residual = A - P)
+                    F(B; residual = A - P) <--> E(Q)
+                    E(Q) <--> E + Q
+                    E(Q) <--> Estar(; residual = -Q)
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: S
+                products: P
+                modifiers: S
+                steps: begin
+                    E + S ⇌ E(S)
+                    E(S) <--> E(P)
+                    E(P) ⇌ E + P
+                    E(S) + S::Mod ⇌ E(S, S::Mod)
+                    E(S, S::Mod) + S::Mod ⇌ E(S, S::Mod, S::Mod)
+                end
+            end),
+            @allosteric_mechanism(begin
+                substrates: S
+                products: P
+                modifiers: I
+                allosteric_regulators: I, S
+                catalytic_multiplicity: 12
+                steps: begin
+                    E + S ⇌ E(S)                         :: EqualAI
+                    E(S) <--> E(P)                       :: OnlyA
+                    E(P) ⇌ E + P                         :: EqualAI
+                    (E + I ⇌ E(I), E(S) + I ⇌ E(I, S))   :: NonequalAI
+                end
+                regulatory_site(16): I::OnlyI, S::EqualAI
+            end),
+            @allosteric_mechanism(begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + S ⇌ E(S)     :: EqualAI
+                    E(S) <--> E(P)   :: OnlyA
+                    E(P) ⇌ E + P     :: EqualAI
+                end
+            end)]
+        for m in mechanisms
+            @test _testhelper_reads_back(EnzymeRates._concrete(m))
+            @test EnzymeRates.compile_mechanism(
+                EnzymeRates._parse_mechanism(sprint(show, m))) === m
+        end
+        # A residual that only subtracts prints its first term as `- Q`.
+        @test contains(sprint(show, mechanisms[4]), "Estar(; residual = - Q)")
+    end
+
+    @testset "the text is one mechanism block, read without evaluation" begin
+        text = """
+            @enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + P ⇌ E(P)
+                    E + S ⇌ E(S)
+                    E(S) <--> E(P)
+                end
+            end"""
+        @test EnzymeRates._parse_mechanism(text) == EnzymeRates.Mechanism(
+            @enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + S ⇌ E(S)
+                    E(S) <--> E(P)
+                    E(P) ⇌ E + P
+                end
+            end)
+        # Blank lines around the block, as a text copied from a CSV cell may hold, are
+        # whitespace, not text.
+        @test EnzymeRates._parse_mechanism("\n  " * text * "\n\n") ==
+              EnzymeRates._parse_mechanism(text)
+        # Anything but one unqualified mechanism macro call is no mechanism text.
+        for other in ("1 + 2", "EnzymeRates." * text,
+                      "@enzyme_reaction begin\n    substrates: S[C]\n" *
+                      "    products: P[C]\nend")
+            ex = Meta.parse(other)
+            @test_throws(ErrorException("_parse_mechanism: expected the text of one " *
+                                        "@enzyme_mechanism or @allosteric_mechanism " *
+                                        "block; got $ex"),
+                         EnzymeRates._parse_mechanism(other))
+        end
+        @test_throws Meta.ParseError EnzymeRates._parse_mechanism(text * "\nE")
+        # An interpolation stays unevaluated: the walker meets an expression where a
+        # name belongs.
+        unevaluated = replace(text, "substrates: S" =>
+                                    "substrates: \$(error(\"evaluated\"))")
+        @test_throws("`substrates:` expects bare names; got \$(error(\"evaluated\")).",
+                     EnzymeRates._parse_mechanism(unevaluated))
+    end
+
+    @testset "a text the macros reject is rejected with their message" begin
+        # A syntax error, a constructor error, the boundary check and the decodability
+        # check, each as the macro reports it, thrown at once rather than wrapped in a
+        # LoadError.
+        @test_throws(ErrorException("@enzyme_mechanism: `steps:` not specified."),
+                     EnzymeRates._parse_mechanism("""
+            @enzyme_mechanism begin
+                substrates: S
+                products: P
+            end"""))
+        @test_throws(ErrorException("Mechanism: no free enzyme form E; every mechanism " *
+                                    "holds the free form E, with nothing bound and no " *
+                                    "residual"),
+                     EnzymeRates._parse_mechanism("""
+            @enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    F + S ⇌ F(S)
+                    F(S) <--> F(P)
+                    F(P) ⇌ F + P
+                end
+            end"""))
+        bottomless = """
+            @enzyme_mechanism begin
+                substrates: S
+                products: P, Q
+                steps: begin
+                    E + S ⇌ E(S)
+                    E + P <--> E(P)
+                    E + Q <--> E(Q)
+                    E(P) + Q ⇌ E(P, Q)
+                    E(Q) + P ⇌ E(P, Q)
+                    E(S) <--> E(P, Q)
+                end
+            end"""
+        macro_error = try
+            eval(Meta.parse(bottomless))
+            nothing
+        catch e
+            e
+        end
+        @test macro_error isa ErrorException &&
+              occursin("rapid-equilibrium segment", macro_error.msg)
+        @test_throws macro_error EnzymeRates._parse_mechanism(bottomless)
+        @test_throws(ErrorException("Mechanism: Ac + CoA and AcCoA both spell AcCoA: " *
+                                    "enzyme forms and their constants join the names " *
+                                    "of the metabolites they bind without a separator, " *
+                                    "so two forms would share a name; rename a " *
+                                    "metabolite"),
+                     EnzymeRates._parse_mechanism("""
+            @allosteric_mechanism begin
+                substrates: Ac, CoA
+                products: AcCoA
+                catalytic_multiplicity: 1
+                steps: begin
+                    E + Ac ⇌ E(Ac) :: EqualAI
+                    E(Ac) + CoA ⇌ E(Ac, CoA) :: EqualAI
+                    E(Ac, CoA) <--> E(AcCoA) :: OnlyA
+                    E + AcCoA ⇌ E(AcCoA) :: EqualAI
+                end
+            end"""))
     end
 end

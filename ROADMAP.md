@@ -29,24 +29,30 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   terms than its limit.
 - **`BigInt` arithmetic inflates the GC's live-byte count.**
   Three functions that compute in `BigInt` raise `Base.gc_live_bytes` by bytes that no
-  live object holds: `_onlya_haldane_violation` (`src/thermo.jl`; a `Rational{BigInt}`
-  null space) by about 16 KiB per call, the counter that `_split_gain_test` uses for a
-  plain mechanism (`_partition_independent_count`; a `Rational{BigInt}` row reduction) by
-  14 KiB and `_eq_complexity` (a `BigInt` determinant, skipped for a single
-  rapid-equilibrium segment) by 8 KiB. A 6×6 determinant outside the package does the same
-  in `BigInt` and `Rational{BigInt}`, not in `Rational{Int}`. An `AllostericMechanism`
-  with an `:OnlyA` group of plain bindings runs the guard when built, so every lift of
-  such a compiled mechanism pays it, as does each such candidate of the allosteric
-  `_split_gain_test`. 100,000 such lifts add 1.5 GiB and 16 full sweeps. The joint solve
-  adds nothing, on a plain mechanism or on a concrete allosteric one; it runs in
+  live object holds: the `:OnlyA` guard's test `_onlya_offenders` (`src/thermo.jl`; a
+  `Rational{BigInt}` null space) by about 15 KiB per call, the counter that
+  `_split_gain_test` uses for a plain mechanism (`_partition_independent_count`; a
+  `Rational{BigInt}` row reduction) by 18 KiB and `_eq_complexity` (a `BigInt`
+  determinant, skipped for a single rapid-equilibrium segment) by 15 KiB. A 6×6
+  determinant outside the package does the same in `BigInt` and `Rational{BigInt}`, not in
+  `Rational{Int}`. The boundary check (`_check_well_posed`, `src/admission.jl`) runs the
+  guard on every allosteric mechanism the macros or the parser build, at the enumerator's
+  exits and at every derivation entry, and the allosteric `_split_gain_test` runs its test
+  on each candidate. 100,000 runs of the guard add 1.46 GiB and 12 full sweeps. The joint
+  solve adds nothing, on a plain mechanism or on a concrete allosteric one; it runs in
   `Rational{Int}` on 10,226 enumerated bi-bi and ter-bi mechanisms without overflow. The
-  count stays up after a full collection: a lift loop that starts 1.4 GiB high makes 115
-  full sweeps in 29 s, against 16 in 20 s from a clean start. Admission under Planned
-  replaces the guard, not the other two. A loop that calls one of these and prints
-  `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it. The figures come from a
-  random-order bi-bi of nine steady-state steps, plain and as a two-subunit allosteric
-  mechanism with `:OnlyA` on both bindings of A and on the chemical step and `:EqualAI`
-  elsewhere (Julia 1.12.5, aarch64, `--heap-size-hint=2500M`).
+  count stays up after a full collection: 100,000 guard runs that start 1.47 GiB high make
+  52 full sweeps in 10.0 s, against 12 in 6.5 s from a clean start. The count holds no
+  memory and raises no peak: a process whose count reaches 2.8 GiB peaks at 1.2 GB RSS,
+  and the enumeration tests' count after a full collection stays near 1.8 GiB whether
+  their peak RSS is 2.2 or 3.5 GB. The higher peak came from mechanisms that kept vectors
+  at the capacity their builds grew to; `_canonicalize` stores each at its length, and
+  `test/test_reaction_graph.jl` pins it. Admission under Planned replaces the guard, not
+  the other two. A loop that calls one of these and prints `Base.gc_live_bytes()` and
+  `Base.gc_num().full_sweep` shows it. The figures come from a random-order bi-bi of nine
+  steady-state steps, plain and as a two-subunit allosteric mechanism with `:OnlyA` on
+  both bindings of A and on the chemical step and `:EqualAI` elsewhere (Julia 1.12.5,
+  aarch64, `--heap-size-hint=2500M`).
 
 - **The `:OnlyA` guard misjudges groups that mix a binding and a chemistry step.**
   The guard's test, `_onlya_offenders` (`src/thermo.jl`), which the boundary check runs
