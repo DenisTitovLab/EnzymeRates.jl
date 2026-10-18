@@ -527,6 +527,18 @@ end
                          E(Q) ⇌ E + Q
                      end
                  end))))
+    # One copy of B taken up and two given off: the sides share B though their counts
+    # differ.
+    @test_throws(ErrorException("Step EA → EQ: B both consumed and released"),
+                 ER.Mechanism(_testhelper_walk(:(begin
+                     substrates: A, B
+                     products: Q
+                     steps: begin
+                         E + A ⇌ E(A)
+                         E(A) + B <--> E(Q) + B + B
+                         E(Q) ⇌ E + Q
+                     end
+                 end))))
     _testhelper_role_change(from, to) = ErrorException(
         "Step $from → $to changes a metabolite's role: $to holds $from's metabolites " *
         "plus P by name, not by role; write a modifier copy as X::Mod on both sides")
@@ -1186,8 +1198,8 @@ end
 end
 
 @testset "the constructor builds a spec's graph in under 10 µs, the median over specs" begin
-    # Each spec's time per call is the best of five batches; the gate is on their median
-    # (R17: the design aims at about 2 µs and leaves room for shared CI runners).
+    # Each spec's time per call is the best of five batches; the gate is on their median.
+    # The spec's goal is about 2 µs; the gate leaves room for shared CI runners.
     per_call = map(MECHANISM_TEST_SPECS) do spec
         _testhelper_build(spec.raw)
         minimum(@elapsed(for _ in 1:200

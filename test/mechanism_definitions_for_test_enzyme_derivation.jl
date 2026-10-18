@@ -55,8 +55,7 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
     # written step's constants from its stored step, by role. The reaction-graph tests
     # build each spec's graph from it. Every spec fills it, through
     # `@_testhelper_with_raw`.
-    raw::Union{EnzymeRates.RawMechanism,EnzymeRates.RawAllostericMechanism,Nothing} =
-        nothing
+    raw::Union{EnzymeRates.RawMechanism,EnzymeRates.RawAllostericMechanism}
 end
 
 """
