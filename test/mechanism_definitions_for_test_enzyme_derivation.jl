@@ -1164,12 +1164,12 @@ function _testhelper_limit_law(mech, point, concs::AbstractDict, face::Set{Symbo
 end
 
 """
-    _testhelper_respeed(m, point, concs, face; rng, law = :package, Λs, npat = 2) -> Symbol
+    _testhelper_respeed(m, point, concs, face; rng, law = :package) -> Symbol
 
 The RE-speed oracle (spec section 14) on the face of `m` where the names `face` vanish:
-the law's network (`_testhelper_network`, one subunit) at each Λ of `Λs` under `npat`
-speed patterns of 10^±3, its rapid-equilibrium edges at Λ times their pattern's factor.
-An allosteric `m` is judged at one catalytic subunit (`_testhelper_single_subunit`).
+the law's network (`_testhelper_network`, one subunit) solved at Λ = 1e10 and 1e20 under
+two speed patterns of 10^±3, its rapid-equilibrium edges at Λ times their pattern's
+factor. An allosteric `m` is judged at one catalytic subunit (`_testhelper_single_subunit`).
 The first verdict that applies:
 - `:nonunique`: the face chain has more than one closed class;
 - `:diverges`: |v| grows more than 1e3-fold from the first Λ to the last (RE turnover);
@@ -1183,11 +1183,11 @@ The law is the package's (`law = :package`, read unchecked) or the oracle's own
 (`law = :limit`, `_testhelper_limit_law`).
 """
 function _testhelper_respeed(m, point, concs::AbstractDict, face::Set{Symbol}; rng,
-                             law::Symbol = :package, Λs = (big(10.0)^10, big(10.0)^20),
-                             npat::Int = 2)
+                             law::Symbol = :package)
     mech = _testhelper_single_subunit(_testhelper_lift(m))
+    Λs = (big(10.0)^10, big(10.0)^20)
     c0 = merge(concs, Dict(z => big(0) for z in face))
-    patterns = [_testhelper_draw_speeds(mech, rng) for _ in 1:npat]
+    patterns = [_testhelper_draw_speeds(mech, rng) for _ in 1:2]
     solved = [_testhelper_steady_rate(_testhelper_network(mech, point, c0; speeds); Λ)
               for speeds in patterns, Λ in Λs]
     any(x -> x.nclasses > 1, solved) && return :nonunique
