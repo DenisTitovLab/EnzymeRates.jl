@@ -707,6 +707,30 @@ end
           :diverges
 end
 
+@testset "the RE-speed oracle judges an oligomer at one catalytic subunit" begin
+    # The oracle's network is one subunit, so it compares with the one-subunit law, not
+    # the law of the two subunits the mechanism declares.
+    am = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: OnlyA
+            E(P) ⇌ E + P      :: EqualAI
+        end
+        regulatory_site(2): R::NonequalAI
+    end
+    setprecision(BigFloat, 256) do
+        rng = Random.MersenneTwister(71)
+        point = _testhelper_consistent_point(am, rng)
+        concs = Dict{Symbol, BigFloat}(x => big(10)^(2 * big(rand(rng)) - 1)
+                                       for x in EnzymeRates.metabolites(am))
+        @test _testhelper_respeed(am, point, concs, Set{Symbol}(); rng) === :agree
+    end
+end
+
 @testset "the ε-path oracle rejects islands, and R2 only at P = 0" begin
     # R3 and R4 strand F behind tagged chemistry in the inactive conformation, an island:
     # its weight follows the potential the path gives it. The research ε-path read two
