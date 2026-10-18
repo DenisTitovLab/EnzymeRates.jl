@@ -210,10 +210,9 @@ struct Step
             "Step: both ends are the form $(name(from_species)); a step joins two forms")
         c = sort(Vector{Metabolite}(consumed); by = _met_sort_key)
         r = sort(Vector{Metabolite}(released); by = _met_sort_key)
-        shared = intersect(c, r)
-        isempty(shared) || error(
+        any(in(r), c) && error(
             "Step $(name(from_species)) → $(name(to_species)): " *
-            "$(join(name.(shared), ", ")) both consumed and released")
+            "$(join(name.(intersect(c, r)), ", ")) both consumed and released")
         # A step that only gives off one metabolite is stored as the binding it
         # reverses (metabolite consumed), so a binding written in either direction
         # dedups to the same Step; binding constants are named after the step's
