@@ -148,8 +148,10 @@ _testhelper_keeps_reaction(child, parent) =
     EnzymeRates.products(child) == EnzymeRates.products(parent) &&
     EnzymeRates.modifiers(parent) ⊆ EnzymeRates.modifiers(child)
 
-# Whether `m` holds an isomerization step.
-_testhelper_holds_iso(m) = any(_testhelper_is_iso, _testhelper_graph(m).steps)
+# Whether `m` holds an isomerization step. It reads the steps, not `_testhelper_graph`: the
+# population tests call it on every child of two expansion levels, where building the
+# adapter each time would dominate their run time.
+_testhelper_holds_iso(m) = any(EnzymeRates.is_iso, Iterators.flatten(EnzymeRates.steps(m)))
 
 # The kinetic groups of `m` whose steps are isomerizations.
 _testhelper_iso_groups(m) =
