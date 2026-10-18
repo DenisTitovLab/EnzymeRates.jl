@@ -4,9 +4,9 @@
 """
     _check_well_posed(m)
 
-Error unless `m`'s rate law is defined where data sit: no rapid-equilibrium segment
-without a bottom form (`_assert_bottomed_segments`), in the catalytic graph and, for an
-allosteric mechanism, in the inactive conformation's graph (`_inactive_mask`). An
+Error when a rapid-equilibrium segment of `m` has no bottom form
+(`_assert_bottomed_segments`), in the catalytic graph and, for an allosteric mechanism,
+in the inactive conformation's graph (`_inactive_mask`). An
 allosteric mechanism must also keep all its free forms in one rapid-equilibrium segment
 of the edges outside `:OnlyA` groups (`_assert_one_flip_segment`) and hold no `:OnlyA`
 binding that leaves a thermodynamic cycle unsatisfiable (`_onlya_haldane_violation`).

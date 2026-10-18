@@ -3107,7 +3107,7 @@ end
     @test am_on_rxn == am && hash(am_on_rxn) == hash(am)
 end
 
-@testset "every derivation entry checks that the rate law is defined" begin
+@testset "every derivation entry rejects a bottomless rapid-equilibrium segment" begin
     # Random product release at rapid equilibrium between steady-state releases leaves
     # the segment {E(P), E(P, Q), E(Q)} without a bottom form, so the rate is 0/0 at zero
     # products. The macro's boundary check (`_check_well_posed`) rejects the mechanism.
