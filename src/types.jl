@@ -336,36 +336,56 @@ overwrite another or be overwritten.
 const _RESERVED_NAMES = (:E_total, :Keq, :L, :N, :params, :concs, :v)
 
 """
-Error when a metabolite name of `names` is reserved (`_RESERVED_NAMES`) or holds `_`:
-constant names join form and metabolite names with `_`, so a metabolite name holds none
-and no constant takes another's name. `who` names the constructor that checks.
+Julia's reserved words and the infix keywords `in`, `isa` and `where`. `Base.isidentifier`
+accepts each of them, but a DSL text cannot write one as a metabolite's name.
 """
-function _check_metabolite_names(who::String, names)
+const _KEYWORDS = (:baremodule, :begin, :break, :catch, :const, :continue, :do, :else,
+                   :elseif, :end, :export, :finally, :for, :function, :global, :if,
+                   :import, :in, :isa, :let, :local, :macro, :module, :quote, :return,
+                   :struct, :try, :using, :where, :while)
+
+"""
+Error when a metabolite name of `names` is no name a DSL text can write (an identifier
+that is no keyword), is `E`, the label of the free enzyme form, is reserved
+(`_RESERVED_NAMES`) or holds `_`: constant names join form and metabolite names with `_`,
+so a metabolite name holds none and no constant takes another's name. `who` names the
+constructor that checks.
+"""
+function _check_metabolite_names(who::String, names::Vector{Symbol})
     for n in names
+        s = String(n)
+        Base.isidentifier(s) && !(n in _KEYWORDS) ||
+            error("$who: \"$s\" cannot name a metabolite; a metabolite name is an " *
+                  "identifier that is no keyword")
+        n === :E &&
+            error("$who: E cannot name a metabolite; it labels the free enzyme form")
         n in _RESERVED_NAMES &&
             error("$who: $n is a reserved name; E_total, Keq, L, N, params, concs and v " *
                   "are kept for a rate equation's constants and local names")
-        occursin('_', String(n)) &&
+        occursin('_', s) &&
             error("$who: the metabolite name $n holds `_`; constant names join " *
                   "metabolite names with `_`, so a metabolite name holds none")
     end
 end
 
 """
-Error unless the metabolite labels `spellings` (each a label `=>` how the DSL writes it)
-are uniquely decodable: no string splits into labels two ways. Enzyme forms and their
-constants join the labels of the metabolites they bind without a separator
-(`_form_label`), so with `Ac`, `CoA` and `AcCoA` the forms E(Ac, CoA) and E(AcCoA) would
-share a name. A reaction's labels are its substrate, product and competitive-inhibitor
-names, and `Xmod`, written `X::Mod`, for a reactant `X` also declared a competitive
-inhibitor; an allosteric regulator binds no form, so its name takes no part. The
-Sardinas–Patterson test decides it, and the error spells both splits.
+Error unless the labels of `reactants` (substrate and product names) and `modifiers`
+(names that bind as modifiers) are uniquely decodable: no string splits into labels two
+ways. Enzyme forms and their constants join the labels of the metabolites they bind
+without a separator (`_form_label`), so with `Ac`, `CoA` and `AcCoA` the forms
+E(Ac, CoA) and E(AcCoA) would share a name. Each name is its own label, but a reactant
+that also binds as a modifier does so as its copy `Xmod`, written `X::Mod`; an allosteric
+regulator binds no form, so its name takes no part. The Sardinas–Patterson test decides
+it, and the error, which `who` begins, spells both splits.
 """
-function _check_uniquely_decodable(spellings::Vector{Pair{String, String}})
+function _check_uniquely_decodable(reactants::Vector{Symbol}, modifiers::Vector{Symbol},
+                                   who::String)
     spelled = Dict{String, String}()
-    for (label, written) in spellings
+    modifier_label(n) = n in reactants ? "$(n)mod" => "$n::Mod" : String(n) => String(n)
+    for (label, written) in [[String(n) => String(n) for n in reactants];
+                             modifier_label.(modifiers)]
         other = get!(spelled, label, written)
-        other == written || _spelled_twice_error([other], [written])
+        other == written || _spelled_twice_error([other], [written], who)
     end
     words = sort!(collect(keys(spelled)))
     tail(w, prefix) = w[ncodeunits(prefix) + 1:end]
@@ -378,7 +398,7 @@ function _check_uniquely_decodable(spellings::Vector{Pair{String, String}})
         d in seen && continue
         push!(seen, d)
         haskey(spelled, d) && _spelled_twice_error(getindex.(Ref(spelled), [short; d]),
-                                                   getindex.(Ref(spelled), long))
+                                                   getindex.(Ref(spelled), long), who)
         for w in words
             startswith(w, d) && push!(queue, (tail(w, d), [short; w], long))
             startswith(d, w) && push!(queue, (tail(d, w), long, [short; w]))
@@ -386,11 +406,11 @@ function _check_uniquely_decodable(spellings::Vector{Pair{String, String}})
     end
 end
 
-"""Error that the label splits `a` and `b`, each a list of DSL spellings, spell one
-string."""
-function _spelled_twice_error(a::Vector{String}, b::Vector{String})
+"""Error, which `who` begins, that the label splits `a` and `b`, each a list of DSL
+spellings, spell one string."""
+function _spelled_twice_error(a::Vector{String}, b::Vector{String}, who::String)
     spelled = join(replace.(a, "::Mod" => "mod"))
-    error("EnzymeReaction: $(join(a, " + ")) and $(join(b, " + ")) both spell $spelled: " *
+    error("$who: $(join(a, " + ")) and $(join(b, " + ")) both spell $spelled: " *
           "enzyme forms and their constants join the names of the metabolites they bind " *
           "without a separator, so two forms would share a name; rename a metabolite")
 end
@@ -425,8 +445,10 @@ allosteric regulator, so two equivalent declarations compare equal under
 and a product: concentrations and constants are keyed by name. For the same
 reason it rejects a reactant or regulator named `E_total`, `Keq`, `L`, `N`,
 `params`, `concs` or `v`, names a rate equation keeps for its constants and the
-local names of its code, and a name holding `_`, since constant names join
-names with `_`. It also rejects names that spell one string two ways, such as
+local names of its code, a name holding `_`, since constant names join
+names with `_`, the name `E`, which labels the free enzyme form, and a name that is
+no identifier or is a keyword, which no DSL text can write. It also rejects names
+that spell one string two ways, such as
 `Ac`, `CoA` and `AcCoA`: an enzyme form's name joins the names of the
 metabolites it binds without a separator, so E with `Ac` and `CoA` bound and E
 with `AcCoA` bound would share a name. A reaction prints as the `@enzyme_reaction`
@@ -485,12 +507,11 @@ struct EnzymeReaction
         isempty(both_roles) || error(
             "EnzymeReaction: $(join(both_roles, ", ")) named as both a substrate and " *
             "a product; concentrations and constants are keyed by name")
-        _check_metabolite_names("EnzymeReaction", [sub_names; prod_names; first.(reg_keys)])
-        reactant_names = [sub_names; prod_names]
-        _check_uniquely_decodable(Pair{String, String}[
-            [String(n) => String(n) for n in reactant_names];
-            [n in reactant_names ? "$(n)mod" => "$n::Mod" : String(n) => String(n)
-             for (n, kind) in reg_keys if kind === CompetitiveInhibitor]])
+        _check_metabolite_names("EnzymeReaction",
+                                Symbol[sub_names; prod_names; first.(reg_keys)])
+        _check_uniquely_decodable([sub_names; prod_names],
+            Symbol[n for (n, kind) in reg_keys if kind === CompetitiveInhibitor],
+            "EnzymeReaction")
 
         sub_set  = Set(sub_names)
         prod_set = Set(prod_names)
@@ -1179,10 +1200,10 @@ function _check_tags(cat_allo_states::Vector{Symbol}, G::Int, catalytic_multipli
     nothing
 end
 
-"""Error when a site ligand's name is reserved or holds `_`, or when a ligand sits on two
-sites: each ligand's constant is named after the ligand alone."""
+"""Error when a site ligand cannot name a metabolite (`_check_metabolite_names`), or when
+a ligand sits on two sites: each ligand's constant is named after the ligand alone."""
 function _check_ligands(sites::Vector{RegulatorySite})
-    ligs = [l for s in sites for l in s.ligands]
+    ligs = Symbol[l for s in sites for l in s.ligands]
     _check_metabolite_names("AllostericMechanism", ligs)
     dup = findfirst(i -> ligs[i] in view(ligs, 1:(i - 1)), eachindex(ligs))
     dup === nothing ||
@@ -1193,8 +1214,9 @@ function _check_ligands(sites::Vector{RegulatorySite})
 end
 
 """Error unless `raw` declares substrates and products, each name once, no name both a
-substrate and a product, and gives each step one kinetic group label from 1 to the
-number of groups, every label used."""
+substrate and a product, gives each step one kinetic group label from 1 to the number of
+groups, every label used, and declares only names a metabolite can take
+(`_check_metabolite_names`)."""
 function _check_declarations(raw::RawMechanism)
     isempty(raw.substrates) && error("Mechanism: substrates must not be empty")
     isempty(raw.products) && error("Mechanism: products must not be empty")
@@ -1213,7 +1235,9 @@ function _check_declarations(raw::RawMechanism)
     empty === nothing ||
         error("Mechanism: kinetic group $empty is empty; a kinetic group holds at least " *
               "one step")
-    nothing
+    for names in (raw.substrates, raw.products, raw.modifiers)
+        _check_metabolite_names("Mechanism", names)
+    end
 end
 
 """
@@ -1785,25 +1809,6 @@ function _canonical_order(rxn::EnzymeReaction, groups::Vector{Vector{Step}})
     c = _canonicalize(_raw_of(rxn, groups))
     _check_aligned(c.mechanism, c.misaligned)
     steps(c.mechanism)
-end
-
-"""
-The reaction of the mechanism `raw` writes: its substrates and products, with
-placeholder atoms that balance for any counts (each substrate `length(products)`
-carbons, each product `length(substrates)`), and its modifiers as competitive
-inhibitors at multiplicity 1. Building it checks `raw`'s names as `EnzymeReaction`
-checks a reaction's: none reserved, none holding `_`, and labels that spell every string
-one way only. The mechanism macros build it before the mechanism
-(`_compiled_mechanism`); a reaction's real atoms are written with `@enzyme_reaction`.
-"""
-function _placeholder_reaction(raw::RawMechanism)
-    n_subs, n_prods = length(raw.substrates), length(raw.products)
-    reactant_atoms = ReactantAtoms[
-        [ReactantAtoms(Substrate(s), [:C => n_prods]) for s in raw.substrates];
-        [ReactantAtoms(Product(p), [:C => n_subs]) for p in raw.products]]
-    EnzymeReaction(reactant_atoms,
-        RegulatorMults[RegulatorMults(CompetitiveInhibitor(x), [1]) for x in raw.modifiers],
-        [1])
 end
 
 # ─── Pretty printing ────────────────────────────────────────────────────

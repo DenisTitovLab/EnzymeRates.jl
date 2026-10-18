@@ -408,6 +408,13 @@ end
         "AllostericMechanism: ligand R appears in two distinct regulatory sites; " *
         "rendered Kreg names would collide. Same-ligand-two-sites is not enumerated."),
         _testhelper_allosteric(tags, 2, [site([:R], 2, [:OnlyA]), site([:R], 4, [:OnlyI])]))
+    # A ligand takes no name a metabolite cannot take.
+    @test_throws(ErrorException("AllostericMechanism: \"1R\" cannot name a metabolite; a " *
+                                "metabolite name is an identifier that is no keyword"),
+                 _testhelper_allosteric(tags, 2, [site([Symbol("1R")], 2, [:OnlyA])]))
+    @test_throws(ErrorException("AllostericMechanism: E cannot name a metabolite; it " *
+                                "labels the free enzyme form"),
+                 _testhelper_allosteric(tags, 2, [site([:E], 2, [:OnlyA])]))
     # Tags, by written group label: label 2 is canonical group 3.
     @test_throws(ErrorException("AllostericMechanism: cat_allo_states length 2 must " *
                                 "match the number of kinetic groups 3"),
@@ -442,6 +449,26 @@ end
     @test_throws(ErrorException("Mechanism: kinetic group 2 is empty; a kinetic group " *
                                 "holds at least one step"),
                  ER.Mechanism(_testhelper_uniuni_raw(group = [1, 3, 3])))
+    # Declared names a metabolite cannot take: no identifier, a keyword, E, a reserved
+    # name, a name holding `_`.
+    _testhelper_unwritable(x) = ErrorException(
+        "Mechanism: \"$x\" cannot name a metabolite; a metabolite name is an identifier " *
+        "that is no keyword")
+    @test_throws(_testhelper_unwritable("1I"),
+                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [Symbol("1I")])))
+    @test_throws(_testhelper_unwritable("end"),
+                 ER.Mechanism(_testhelper_uniuni_raw(products = [:P, :end])))
+    @test_throws(ErrorException("Mechanism: E cannot name a metabolite; it labels the " *
+                                "free enzyme form"),
+                 ER.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :E])))
+    @test_throws(ErrorException("Mechanism: Keq is a reserved name; E_total, Keq, L, N, " *
+                                "params, concs and v are kept for a rate equation's " *
+                                "constants and local names"),
+                 ER.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :Keq])))
+    @test_throws(ErrorException("Mechanism: the metabolite name S_1 holds `_`; constant " *
+                                "names join metabolite names with `_`, so a metabolite " *
+                                "name holds none"),
+                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [:S_1])))
     # Names: undeclared; a modifier entry of a name modifiers: does not list; a plain
     # entry of a modifier-only name; residuals by role.
     @test_throws(ErrorException("Mechanism: P is not declared; declare it under " *

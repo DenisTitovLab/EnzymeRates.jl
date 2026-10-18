@@ -37,12 +37,13 @@ with their atoms, and the regulators and oligomeric states the search may use.
 - The list labels may repeat; their entries accumulate.
 
 No metabolite is named `E_total`, `Keq`, `L`, `N`, `params`, `concs` or `v`, or holds
-`_`: a rate equation keeps those names, and its constant names join names with `_`. An
-enzyme form's name joins its bound metabolites' names without a separator, so the names
-may not spell one string two ways: with `Ac`, `CoA` and `AcCoA`, E with Ac and CoA bound
-and E with AcCoA bound would both be `EAcCoA`. `@enzyme_reaction` rejects such a
-reaction and names both spellings (`Ac + CoA and AcCoA both spell AcCoA`); rename one
-(`Acetyl`). A reactant's modifier copy is named `Xmod`, which counts as a name too.
+`_`: a rate equation keeps those names, and its constant names join names with `_`. Nor
+is one named `E`, the label of the free enzyme form; a name is an identifier that is no
+keyword. An enzyme form's name joins its bound metabolites' names without a separator,
+so the names may not spell one string two ways: with `Ac`, `CoA` and `AcCoA`, E with Ac
+and CoA bound and E with AcCoA bound would both be `EAcCoA`. `@enzyme_reaction` rejects
+such a reaction and names both spellings (`Ac + CoA and AcCoA both spell AcCoA`); rename
+one (`Acetyl`). A reactant's modifier copy is named `Xmod`, which counts as a name too.
 
 A reaction prints as the block that builds it, its names sorted:
 
@@ -804,15 +805,17 @@ end
 
 The compiled mechanism of `raw`, the walker's value for a mechanism macro's block
 (`_raw_mechanism`): the macros' expansion calls it, so its checks run when the expanded
-code runs. It checks `raw`'s names as a reaction's (`_placeholder_reaction`), then the
-constructors (`Mechanism(raw)`, `AllostericMechanism(raw)`) and the boundary check
+code runs. It checks that `raw`'s names spell every string one way only
+(`_check_uniquely_decodable`, as a reaction's are checked), then the constructors
+(`Mechanism(raw)`, `AllostericMechanism(raw)`) and the boundary check
 (`_check_well_posed`) check the mechanism.
 """
 function _compiled_mechanism(raw::RawMechanism)
-    _placeholder_reaction(raw)
+    _check_uniquely_decodable([raw.substrates; raw.products], raw.modifiers, "Mechanism")
     EnzymeMechanism(_well_posed(Mechanism(raw)))
 end
 function _compiled_mechanism(raw::RawAllostericMechanism)
-    _placeholder_reaction(raw.catalytic)
+    c = raw.catalytic
+    _check_uniquely_decodable([c.substrates; c.products], c.modifiers, "Mechanism")
     AllostericEnzymeMechanism(_well_posed(AllostericMechanism(raw)))
 end

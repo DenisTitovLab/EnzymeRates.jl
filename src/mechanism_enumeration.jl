@@ -80,8 +80,8 @@ end
 Assert every step of an enumerated mechanism `m` conserves the atoms that reaction `rxn`
 gives its metabolites (see `_assert_step_atom_conserving`). This is the
 enumeration-path guardrail against atom-non-conserving covalent intermediates; it is
-intentionally NOT a `Step` / `Mechanism` constructor check, since hand-written
-`@enzyme_mechanism` fixtures use placeholder atoms and folded steps.
+intentionally NOT a `Step` / `Mechanism` constructor check, since a hand-written
+`@enzyme_mechanism` block carries no atoms and may fold steps.
 """
 function _assert_atom_conserving(m::Union{Mechanism, AllostericMechanism},
                                  rxn::EnzymeReaction)

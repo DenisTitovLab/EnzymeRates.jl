@@ -181,13 +181,22 @@ function _testhelper_random_independent_params(m; rng=Random.default_rng())
 end
 
 """
-The reaction the mechanism macros build for the names of `m` (`_placeholder_reaction`):
-its substrates and products with placeholder atoms, and its modifiers. The mechanism
-constructors take a reaction, so a helper that rebuilds a mechanism passes this one.
+A reaction over the names of `m`: its substrates and products with placeholder atoms that
+balance for any counts (each substrate as many carbons as `m` has products, each product
+as many as it has substrates), and its modifiers as competitive inhibitors. The
+constructors over Step groups take a reaction for its names, so a helper that rebuilds a
+mechanism passes this one.
 """
-_testhelper_placeholder_reaction(m) = let g = _testhelper_graph(m)
-    EnzymeRates._placeholder_reaction(EnzymeRates.RawMechanism(
-        g.substrates, g.products, g.modifiers, EnzymeRates.RawStep[], Int[]))
+function _testhelper_placeholder_reaction(m)
+    g = _testhelper_graph(m)
+    reactants = EnzymeRates.ReactantAtoms[
+        [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(s), [:C => length(g.products)])
+         for s in g.substrates];
+        [EnzymeRates.ReactantAtoms(EnzymeRates.Product(p), [:C => length(g.substrates)])
+         for p in g.products]]
+    EnzymeRates.EnzymeReaction(reactants, EnzymeRates.RegulatorMults[
+        EnzymeRates.RegulatorMults(EnzymeRates.CompetitiveInhibitor(x), [1])
+        for x in g.modifiers], [1])
 end
 
 """

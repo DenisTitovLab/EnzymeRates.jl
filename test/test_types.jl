@@ -1084,6 +1084,33 @@ end
             products: P[C]
             competitive_inhibitors: I_X
         end
+        # Nor is a metabolite named E, the free enzyme form's label, which would make the
+        # enumerator's forms read as the metabolite; nor does it take a name that no DSL
+        # text can write.
+        free_E = ErrorException("EnzymeReaction: E cannot name a metabolite; it labels " *
+                                "the free enzyme form")
+        @test_throws free_E ER.EnzymeReaction(
+            [ER.ReactantAtoms(ER.Substrate(:E), [:C => 1]), P], noregs, Int[1])
+        @test_throws free_E @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: E
+        end
+        for n in (Symbol("1A"), Symbol("A B"), :end, :in)
+            @test_throws(ErrorException("EnzymeReaction: \"$n\" cannot name a " *
+                                        "metabolite; a metabolite name is an identifier " *
+                                        "that is no keyword"),
+                         ER.EnzymeReaction([S, P],
+                             [ER.RegulatorMults(ER.CompetitiveInhibitor(n), [1])], Int[1]))
+        end
+        # A contextual keyword is a keyword only in its own construct (`abstract type`,
+        # `for outer`, `var"..."`), which no DSL text writes, so it names a metabolite and
+        # the reaction's text reads back.
+        for n in (:abstract, :mutable, :outer, :primitive, :public, :type, :var)
+            r = ER.EnzymeReaction([ER.ReactantAtoms(ER.Substrate(n), [:C => 1]), P],
+                                  noregs, Int[1])
+            @test eval(Meta.parse(sprint(show, r))) == r
+        end
         # A single name MAY be declared in BOTH regulator roles: one
         # AllostericRegulator and one CompetitiveInhibitor. The two roles
         # render to distinct parameter names, so both are kept.
@@ -2470,8 +2497,11 @@ end
 @testset "two forms whose constants would share a name are rejected" begin
     # P's modifier copy bound to E and the modifier Pmod bound to E would both name their
     # constants EPmod, so K_EPmod_to_E_Pmod would name both bindings. P::Mod and Pmod
-    # spell one name, so the mechanism's reaction rejects them.
-    @test_throws "P::Mod and Pmod both spell Pmod" @enzyme_mechanism begin
+    # spell one name, so the macro rejects them before it builds the mechanism.
+    @test_throws ErrorException(
+        "Mechanism: P::Mod and Pmod both spell Pmod: enzyme forms and their constants " *
+        "join the names of the metabolites they bind without a separator, so two forms " *
+        "would share a name; rename a metabolite") @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: P, Pmod
@@ -2482,6 +2512,24 @@ end
             E + P::Mod ⇌ E(P::Mod)
             E + Pmod ⇌ E(Pmod)
         end
+    end
+    # The allosteric macro checks its catalytic names alike: E(Ac, CoA) and E(AcCoA)
+    # would both render EAcCoA.
+    @test_throws ErrorException(
+        "Mechanism: Ac + CoA and AcCoA both spell AcCoA: enzyme forms and their " *
+        "constants join the names of the metabolites they bind without a separator, so " *
+        "two forms would share a name; rename a metabolite") @allosteric_mechanism begin
+        substrates: Ac, CoA
+        products: AcCoA
+        allosteric_regulators: X
+        catalytic_multiplicity: 2
+        steps: begin
+            E + Ac ⇌ E(Ac)            :: EqualAI
+            E(Ac) + CoA ⇌ E(Ac, CoA)  :: EqualAI
+            E(Ac, CoA) <--> E(AcCoA)  :: OnlyA
+            E(AcCoA) ⇌ E + AcCoA      :: EqualAI
+        end
+        regulatory_site(2): X::OnlyI
     end
 end
 
@@ -3022,7 +3070,7 @@ end
 end
 
 @testset "a mechanism's identity leaves out its reaction" begin
-    # A macro builds its mechanism on a placeholder reaction; the same steps built on a
+    # A macro builds its mechanism from its block alone; the same steps built on a
     # declared reaction, with real atoms and a regulator no step binds, are the same
     # mechanism: `==` and `hash` read the steps, tags, multiplicity and sites only.
     rxn = @enzyme_reaction begin

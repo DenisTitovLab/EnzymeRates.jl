@@ -1806,7 +1806,7 @@ end
         end)
     # An inhibitor named after the reverse chemistry constant holds `_`.
     @test_throws(ErrorException(
-        "EnzymeReaction: the metabolite name k_EP_to_ES holds `_`; constant names join " *
+        "Mechanism: the metabolite name k_EP_to_ES holds `_`; constant names join " *
         "metabolite names with `_`, so a metabolite name holds none"),
         @enzyme_mechanism begin
             substrates: S
