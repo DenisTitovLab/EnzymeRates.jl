@@ -463,7 +463,8 @@ end
             "equation_search_iteration_" => "", ".csv" => "")))
         @test nums == collect(1:length(nums))      # sequential, no gaps
         # An id is 16 hex digits, which CSV.read would take for a number when they look
-        # like one (decimal digits, or digits around one `e`), so the ids are read as text.
+        # like one (decimal digits, or digits around one `e` or `f`), so the ids are read
+        # as text.
         _testhelper_read_csv(f) = CSV.read(joinpath(save_dir, f), DataFrame;
             types = Dict(:mechanism_id => String, :parent_id => String))
         init_df = _testhelper_read_csv("initial_mechanisms.csv")
