@@ -19,9 +19,12 @@ const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 6.0   # CI 2.0-3.4 s (1.13), local 1.
 const FIT_INSTANCE_BUDGET                = 250   # baseline 2026-10-09: 64
 const FIT_NATIVE_BUDGET_KB               = 300   # baseline 2026-10-09: 54
 # Encoding the Sigs of the 239 bi-bi seeds, once per process: each Sig is one vector of
-# Ints made a tuple, so encoding compiles once for every mechanism.
-const SIG_INSTANCE_BUDGET                = 4000  # baseline 2026-10-14: 52
-const SIG_NATIVE_BUDGET_KB               = 1000  # baseline 2026-10-14: 34
+# Ints made a tuple, so encoding compiles once, whatever the mechanism. Both budgets sit
+# a few times above the baseline: the instance budget fails a compile of one method
+# instance per seed, the native-code budget a compile that emits more than about 0.3 KB
+# of code per seed.
+const SIG_INSTANCE_BUDGET                = 250   # baseline 2026-10-14: 52
+const SIG_NATIVE_BUDGET_KB               = 100   # baseline 2026-10-14: 34
 
 # Anchored to the EnzymeRates module prefix only. Counts every method
 # specialization Julia compiles that touches our module — our functions,
@@ -205,7 +208,7 @@ end
              (Base.cumulative_compile_time_ns()[1] - t0) / 1e9, s1 - s0)
         end
         ms = ER.init_mechanisms(rxn)
-        # Encoding a Sig compiles once for every mechanism, a cost a search pays early
+        # Encoding a Sig compiles once, whatever the mechanism, a cost a search pays early
         # and once; encoding every seed first keeps it out of the per-mechanism counts
         # and measures its total for this process.
         n_sig, b_sig = _testhelper_all_instances(), Base.jit_total_bytes()

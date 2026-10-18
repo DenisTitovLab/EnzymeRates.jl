@@ -801,7 +801,7 @@ end
 end
 
 """The graph whose Sig is `sig`, `x`'s kind of graph. `sig` is splatted with its length
-left open, as the lifts splat it, so the decoders compile once for every length."""
+left open, as the lifts splat it, so the decoders compile once, whatever the Sig length."""
 _testhelper_decode(::ER.Mechanism, @nospecialize(sig)) = ER._mechanism_from_sig(sig...)
 _testhelper_decode(::ER.AllostericMechanism, @nospecialize(sig)) =
     ER._allosteric_mechanism_from_sig(sig...)
@@ -850,9 +850,9 @@ end
 
 @testset "the Sig decoders compile once, whatever a Sig's length" begin
     # The lifts splat a Sig whose length their code leaves open, so each varargs decoder
-    # compiles once for every length: after one lift, lifting mechanisms of three Sig
-    # lengths no other test decodes adds no method instance. A decoder that took its Sig
-    # as an `NTuple{N, Int}` would compile once per length.
+    # compiles once, whatever the Sig length: after one lift, lifting mechanisms of three
+    # Sig lengths no other test decodes adds no method instance. A decoder that took its
+    # Sig as an `NTuple{N, Int}` would compile once per length.
     instances(f) = count(_ -> true, Base.specializations(only(methods(f))))
     _testhelper_allosteric_long_named(n) =
         ER.AllostericMechanism(_testhelper_long_named(n), [:EqualAI, :EqualAI, :OnlyA], 2,
