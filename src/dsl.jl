@@ -358,7 +358,8 @@ function _bare_symbols_from_values(values, label)
 end
 
 """`x` without the `::` tags written after it, however many: `X` for `X::A::B`."""
-_untagged(x) = x isa Expr && x.head === :(::) ? _untagged(x.args[1]) : x
+_untagged(x) =
+    x isa Expr && x.head === :(::) && length(x.args) == 2 ? _untagged(x.args[1]) : x
 
 """
 The name `x` writes under its `::` tags (`X` for `X::A::B`), or `nothing` when no name

@@ -424,6 +424,11 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                                                            :modifiers))
         @test_throws(ErrorException("`modifiers:` expects bare names; got 1::Mod."),
                      EnzymeRates._bare_symbols_from_values(Any[:(1::Mod)], :modifiers))
+        # A tag with nothing before it names no metabolite, so it gets no hint.
+        @test EnzymeRates._bare_name(Expr(:(::), :OnlyA)) === nothing
+        @test_throws(ErrorException("`modifiers:` expects bare names; got ::Mod."),
+                     EnzymeRates._bare_symbols_from_values(Any[Expr(:(::), :Mod)],
+                                                           :modifiers))
         # An operator call is no multiplicity call: its head names no metabolite, so it
         # gets no hint. An atom bracket under the tag gets the atom-bracket hint.
         @test_throws(ErrorException("`modifiers:` expects bare names; got (A + B)::Mod."),
@@ -456,6 +461,19 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                 E(P) ⇌ E + P      :: EqualAI
             end
             regulatory_site(2): X::OnlyA
+        end)))
+        # A tag with nothing before it names no ligand, so it leaves no example.
+        @test_throws("@allosteric_mechanism: `allosteric_regulators:` lists names; got " *
+                     "`::OnlyA`. A ligand's tag goes on its `regulatory_site(n):` line.",
+                     eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: ::OnlyA
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: EqualAI
+            end
         end)))
     end
 
