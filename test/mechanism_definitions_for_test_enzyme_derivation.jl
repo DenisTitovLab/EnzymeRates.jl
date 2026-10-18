@@ -1654,6 +1654,33 @@ function _testhelper_protomer_rate(m, point, concs::AbstractDict; n::Int,
     _testhelper_steady_rate(network; Λ).v / n
 end
 
+"""The guard's class-3 verdict (`_check_face`) on each face of `m`, in `_faces` order."""
+function _testhelper_face_verdicts(m)
+    mech = _testhelper_lift(m)
+    net = EnzymeRates._law_network(mech)
+    faces = EnzymeRates._faces(EnzymeRates.catalytic(mech))
+    [EnzymeRates._check_face(mech, net, faces, i) for i in eachindex(faces)]
+end
+
+"""The guard's class-3 fault on each face of `m` (`_testhelper_face_verdicts`)."""
+_testhelper_face_faults(m) = [v.fault for v in _testhelper_face_verdicts(m)]
+
+"""Whether the guard's fault on a face agrees with the RE-speed oracle's verdict there: an
+accepted face exactly when the oracle agrees, a rejected one exactly when it reads a speed
+pattern, a second closed class, divergence, no law value or a mismatch."""
+_testhelper_agrees(fault::EnzymeRates._Fault, verdict::Symbol) =
+    fault === EnzymeRates._NO_FAULT ? verdict === :agree :
+        verdict in (:pattern, :nonunique, :diverges, :law_nan, :mismatch)
+
+"""Whether the guard's message for the class-3 verdict `v` on `m` names the face and, when
+`v` leads with an edge, that edge's step line."""
+function _testhelper_names_its_step(m, v::EnzymeRates._Verdict)
+    mech = _testhelper_lift(m)
+    msg = EnzymeRates._guard_message(mech, v)
+    line = v.edge == 0 ? "" : EnzymeRates._step_text(EnzymeRates.catalytic(mech), v.edge)
+    occursin(": at zero ", msg) && occursin(line, msg)
+end
+
 # ── Mechanism test specifications ───────────────────────────────────────────
 
 const MECHANISM_TEST_SPECS = _testhelper_MechanismTestSpec[]
