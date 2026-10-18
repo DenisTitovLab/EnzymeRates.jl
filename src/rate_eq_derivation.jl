@@ -637,27 +637,26 @@ every ligand the active conformation binds, an `:EqualAI` ligand under its one b
 """
 _kreg_params(am::AllostericMechanism, state::Symbol) =
     state === :A ?
-    Kreg[Kreg(site, lig, tag === :EqualAI ? :EqualAI : :A)
+    Kreg[Kreg(lig, tag === :EqualAI ? :EqualAI : :A)
          for site in regulatory_sites(am)
          for (lig, tag) in zip(ligands(site), allo_states(site)) if tag !== :OnlyI] :
-    Kreg[Kreg(site, lig, :I) for site in regulatory_sites(am)
+    Kreg[Kreg(lig, :I) for site in regulatory_sites(am)
          for (lig, tag) in zip(ligands(site), allo_states(site))
          if tag in (:OnlyI, :NonequalAI)]
 
 # ─── Rate body building helpers ───────────────────────────────────
 
 """
-The dissociation-constant name of ligand `lig` (allosteric tag `tag`) at regulatory
-`site` of `am` in the active (`inactive = false`) or inactive conformation, or
-`nothing` when the ligand is absent from that conformation (`:OnlyI` in the active
-state, `:OnlyA` in the inactive one). An `:EqualAI` ligand has one bare name in both
-conformations (`K_<ligand>reg`); an `:OnlyA`, `:OnlyI` or `:NonequalAI` ligand has its
-conformation's `K_A_` or `K_I_` name. Renders the name via the `name(::Kreg, am)`
-chokepoint.
+The dissociation-constant name of the ligand named `lig` (allosteric tag `tag`) of `am`
+in the active (`inactive = false`) or inactive conformation, or `nothing` when the
+ligand is absent from that conformation (`:OnlyI` in the active state, `:OnlyA` in the
+inactive one). An `:EqualAI` ligand has one bare name in both conformations
+(`K_<ligand>reg`); an `:OnlyA`, `:OnlyI` or `:NonequalAI` ligand has its conformation's
+`K_A_` or `K_I_` name. Renders the name via the `name(::Kreg, am)` chokepoint.
 """
-function _reg_K(am::AllostericMechanism, site, lig, tag::Symbol, inactive::Bool)
+function _reg_K(am::AllostericMechanism, lig::Symbol, tag::Symbol, inactive::Bool)
     tag === (inactive ? :OnlyA : :OnlyI) && return nothing
-    name(Kreg(site, lig, tag === :EqualAI ? :EqualAI : inactive ? :I : :A), am)
+    name(Kreg(lig, tag === :EqualAI ? :EqualAI : inactive ? :I : :A), am)
 end
 
 """Build the regulatory site partition function expression: 1 + lig/K_lig_reg_i + ...
@@ -665,8 +664,8 @@ over the ligands of `site` present in the given conformation (`_reg_K`)."""
 function _reg_site_expr(am::AllostericMechanism, site, inactive::Bool)
     terms = Any[1]
     for (lig, tag) in zip(ligands(site), allo_states(site))
-        K = _reg_K(am, site, lig, tag, inactive)
-        K === nothing || push!(terms, :($(name(lig)) / $K))
+        K = _reg_K(am, lig, tag, inactive)
+        K === nothing || push!(terms, :($lig / $K))
     end
     _nest_binary(:+, terms)
 end

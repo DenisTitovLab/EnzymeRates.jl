@@ -113,16 +113,16 @@ name(s::Species) = s.name
 
 """
 RegulatorySite: a binding site (possibly multimeric) for one or
-more allosteric ligands. `ligands[i]` and `allo_states[i]` are parallel.
-The constructor sorts the ligands by name and carries each ligand's state
+more allosteric ligands, each given by its name. `ligands[i]` and `allo_states[i]` are
+parallel. The constructor sorts the ligands by name and carries each ligand's state
 along, so the order the ligands are given in never changes `==`, `hash` or
 the compiled type.
 """
 struct RegulatorySite
-    ligands::Vector{AllostericRegulator}
+    ligands::Vector{Symbol}
     multiplicity::Int
     allo_states::Vector{Symbol}
-    function RegulatorySite(ligands::Vector{AllostericRegulator},
+    function RegulatorySite(ligands::Vector{Symbol},
                             multiplicity::Int, allo_states::Vector{Symbol})
         isempty(ligands) && error("RegulatorySite: needs at least one ligand")
         length(ligands) == length(allo_states) ||
@@ -134,7 +134,7 @@ struct RegulatorySite
         bad === nothing ||
             error("RegulatorySite: allo state $(allo_states[bad]) must be one of " *
                   "$_VALID_REG_ALLO_STATES")
-        p = sortperm(ligands; by = name)
+        p = sortperm(ligands)
         new(ligands[p], multiplicity, allo_states[p])
     end
 end
@@ -271,12 +271,12 @@ struct Kfor   <: Parameter; step::Step; state::Symbol end
 struct Krev   <: Parameter; step::Step; state::Symbol end
 
 """
-Regulator-site parameter: a single ligand at a single site can appear
-in either the A (active) or I (inactive) branch of the polynomial.
+Regulator-site parameter: the constant of the ligand named `ligand` in the A (active) or
+I (inactive) branch of the polynomial (`state`). A ligand sits at one site, so its name
+and state determine the constant.
 """
 struct Kreg <: Parameter
-    site::RegulatorySite
-    ligand::AllostericRegulator
+    ligand::Symbol
     state::Symbol
 end
 
@@ -741,7 +741,7 @@ Canonical key for a `RegulatorySite`. Orders the outer site vector so two
 Keyed on ligand names (stable) rather than `hash` for the same reason.
 """
 _regulatory_site_canonical_key(site::RegulatorySite) =
-    (Tuple(String(name(l)) for l in ligands(site)),
+    (Tuple(String(l) for l in ligands(site)),
      multiplicity(site),
      Tuple(allo_states(site)))
 
@@ -1088,7 +1088,7 @@ struct AllostericMechanism
         # Detect Kreg name collision: a ligand in two distinct regulatory
         # sites would produce identical rendered Kreg names (no site
         # discriminator). Not enumerated; constructor rejects it.
-        ligs = [name(l) for site in regulatory_sites for l in ligands(site)]
+        ligs = [l for site in regulatory_sites for l in ligands(site)]
         # The reaction a mechanism macro builds lists no allosteric regulator, so the
         # ligands' names are checked here.
         _check_metabolite_names("AllostericMechanism", ligs)
@@ -1222,7 +1222,7 @@ modifiers(m::_AnyMech) =
 metabolites(m::Mechanism) = unique!([substrates(m); products(m); modifiers(m)])
 metabolites(am::AllostericMechanism) =
     unique!([substrates(am); products(am); modifiers(am);
-             [name(l) for site in regulatory_sites(am) for l in ligands(site)]])
+             [l for site in regulatory_sites(am) for l in ligands(site)]])
 
 steps(m::AllostericMechanism) = m.cat_steps
 cat_allo_state(m::AllostericMechanism, g::Int) = m.cat_allo_states[g]
@@ -1230,7 +1230,7 @@ cat_allo_states(m::AllostericMechanism) = m.cat_allo_states
 catalytic_multiplicity(m::AllostericMechanism) = m.catalytic_multiplicity
 regulatory_sites(m::AllostericMechanism) = m.regulatory_sites
 allosteric_regulators(m::AllostericMechanism) =
-    unique(AllostericRegulator[l for s in regulatory_sites(m) for l in ligands(s)])
+    unique(Symbol[l for s in regulatory_sites(m) for l in ligands(s)])
 
 Base.show(io::IO, m::AllostericMechanism) = _show_fields(io, m,
     (:reaction, :cat_steps, :cat_allo_states, :catalytic_multiplicity, :regulatory_sites))
@@ -1269,10 +1269,8 @@ each group label, the catalytic multiplicity and the regulatory sites.
 function AllostericMechanism(raw::RawAllostericMechanism)
     cat = raw.catalytic
     reaction, groups = _placeholder_reaction(cat), _step_groups(cat)
-    sites = RegulatorySite[
-        RegulatorySite(AllostericRegulator[AllostericRegulator(l) for l in site.ligands],
-                       site.multiplicity, site.allo_states)
-        for site in raw.sites]
+    sites = RegulatorySite[RegulatorySite(site.ligands, site.multiplicity, site.allo_states)
+                           for site in raw.sites]
     AllostericMechanism(reaction, groups, raw.cat_allo_states, raw.catalytic_multiplicity,
                         sites)
 end
@@ -1467,9 +1465,8 @@ Lift an `AllostericEnzymeMechanism{CM, CS, RS}` to the non-parametric
 `AllostericMechanism` struct. The catalytic mechanism is lifted via
 `Mechanism(CM())`; `CS = (multiplicity, cat_allo_states)` provides the
 catalytic-side data; each `RS` entry `(ligands, mult, reg_allo_states)`
-becomes a `RegulatorySite` whose ligand `Symbol`s are wrapped as
-`AllostericRegulator`. Mirrors `Mechanism(::EnzymeMechanism)` — bridges
-the parametric ↔ non-parametric boundary so derivation code can walk
+becomes a `RegulatorySite` of those ligand names. Mirrors `Mechanism(::EnzymeMechanism)`
+— bridges the parametric ↔ non-parametric boundary so derivation code can walk
 `AllostericMechanism` uniformly. It reads the type parameters at run time,
 so it compiles once rather than once per mechanism type.
 """
@@ -1477,10 +1474,9 @@ function AllostericMechanism(@nospecialize(aem::AllostericEnzymeMechanism))
     CM, CS, RS = typeof(aem).parameters
     cm_mech = Mechanism(CM())
     multiplicity, cat_allo_states = CS
-    sites = RegulatorySite[
-        RegulatorySite(AllostericRegulator[AllostericRegulator(l) for l in ligands_syms],
-                       mult, collect(Symbol, reg_allo_states))
-        for (ligands_syms, mult, reg_allo_states) in RS]
+    sites = RegulatorySite[RegulatorySite(collect(Symbol, ligands_syms), mult,
+                                          collect(Symbol, reg_allo_states))
+                           for (ligands_syms, mult, reg_allo_states) in RS]
     AllostericMechanism(reaction(cm_mech), steps(cm_mech),
                         collect(Symbol, cat_allo_states),
                         multiplicity, sites)
@@ -1506,7 +1502,7 @@ function AllostericEnzymeMechanism(am::AllostericMechanism)
     AllostericEnzymeMechanism{
         typeof(cm),
         (catalytic_multiplicity(am), Tuple(cat_allo_states(am))),
-        Tuple((Tuple(name.(ligands(s))), multiplicity(s), Tuple(allo_states(s)))
+        Tuple((Tuple(ligands(s)), multiplicity(s), Tuple(allo_states(s)))
               for s in regulatory_sites(am)),
     }()
 end
@@ -1550,7 +1546,7 @@ function Base.show(io::IO, aem::AllostericEnzymeMechanism)
               cat_allo_state(am, g))
     end
     for (i, site) in enumerate(sites)
-        ligs = name.(ligands(site))
+        ligs = ligands(site)
         print(io, "\n  reg site $i (n=", multiplicity(site), "): ", join(ligs, ", "),
               " [", join(("$l::$t" for (l, t) in zip(ligs, allo_states(site))), ", "), "]")
     end
@@ -1683,7 +1679,7 @@ the AllostericMechanism constructor enforces that each ligand appears at most
 once across all sites.
 """
 name(p::Kreg, ::AllostericMechanism) =
-    Symbol("K_", _state_tag(p.state), String(name(p.ligand)), "reg")
+    Symbol("K_", _state_tag(p.state), String(p.ligand), "reg")
 
 """
 The Parameter(s) governing step `s` with the given allosteric state, by

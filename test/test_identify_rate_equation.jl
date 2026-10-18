@@ -49,8 +49,7 @@ end
         tag = (met isa EnzymeRates.Reactant) ? :OnlyA : :NonequalAI
         push!(_cat_allo_states, tag)
     end
-    _site = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:R)], 1, [:OnlyI])
+    _site = EnzymeRates.RegulatorySite([:R], 1, [:OnlyI])
     _am = EnzymeRates.AllostericMechanism(
         EnzymeRates.reaction(_base), copy(EnzymeRates.steps(_base)),
         _cat_allo_states, 1, [_site])

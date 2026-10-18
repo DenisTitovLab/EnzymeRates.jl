@@ -127,7 +127,7 @@ _testhelper_regulators(m::EnzymeRates.EnzymeMechanism) = EnzymeRates.name.(
     EnzymeRates.regulator.(
         EnzymeRates.regulators(EnzymeRates.reaction(_testhelper_lift(m)))))
 _testhelper_regulators(m::EnzymeRates.AllostericEnzymeMechanism) =
-    EnzymeRates.name.(EnzymeRates.allosteric_regulators(_testhelper_lift(m)))
+    EnzymeRates.allosteric_regulators(_testhelper_lift(m))
 
 """Generate random independent (fitted) params + Keq + E_total for a mechanism."""
 function _testhelper_random_independent_params(m; rng=Random.default_rng())
@@ -328,11 +328,10 @@ function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(1
             # the catalytic form, so summed over regulator occupancy the flip ratio is
             # L times the ratio of the conformations' regulatory-site factors.
             function _testhelper_site_factor(inactive)
-                prod((1 + sum((concs[EnzymeRates.name(lig)] / point.vals[K]
+                prod((1 + sum((concs[lig] / point.vals[K]
                                for (lig, tag) in zip(EnzymeRates.ligands(site),
                                                      EnzymeRates.allo_states(site))
-                               for K in (EnzymeRates._reg_K(mech, site, lig, tag,
-                                                            inactive),)
+                               for K in (EnzymeRates._reg_K(mech, lig, tag, inactive),)
                                if K !== nothing); init = big(0)))^
                      EnzymeRates.multiplicity(site)
                      for site in EnzymeRates.regulatory_sites(mech); init = big(1))

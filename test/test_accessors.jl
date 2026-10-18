@@ -25,8 +25,7 @@
     end
     base = first(EnzymeRates.init_mechanisms(rxn_allo))
     cat_allo_states = fill(:NonequalAI, length(EnzymeRates.steps(base)))
-    site = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:R)], 2, [:NonequalAI])
+    site = EnzymeRates.RegulatorySite([:R], 2, [:NonequalAI])
     am = EnzymeRates.AllostericMechanism(
         EnzymeRates.reaction(base), copy(EnzymeRates.steps(base)),
         cat_allo_states, 2, [site])

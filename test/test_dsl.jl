@@ -1132,8 +1132,7 @@
         @test types[:EA] === EnzymeRates.Substrate
         @test types[:EP] === EnzymeRates.Product
         site = only(EnzymeRates.regulatory_sites(am))
-        @test Set(EnzymeRates.name.(EnzymeRates.ligands(site))) == Set([:A, :P])
-        @test all(l -> l isa EnzymeRates.AllostericRegulator, EnzymeRates.ligands(site))
+        @test Set(EnzymeRates.ligands(site)) == Set([:A, :P])
     end
 
     @testset "an allosteric regulator binds only at its regulatory site" begin
@@ -1208,8 +1207,7 @@
         end)
         @test EnzymeRates.CompetitiveInhibitor(:R) in
               [EnzymeRates.bound_metabolite(g[1]) for g in EnzymeRates.steps(dual)]
-        @test EnzymeRates.AllostericRegulator(:R) in
-              EnzymeRates.ligands(only(EnzymeRates.regulatory_sites(dual)))
+        @test :R in EnzymeRates.ligands(only(EnzymeRates.regulatory_sites(dual)))
     end
 
     @testset "X::Mod names a declared modifier" begin

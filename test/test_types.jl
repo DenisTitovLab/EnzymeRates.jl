@@ -202,7 +202,7 @@ end
         @test ER.bound_metabolite(first(ER.steps(am_c)[onlyA_g])) === nothing
         @test all(ER.cat_allo_state(am_c, g) === :EqualAI
                   for g in eachindex(ER.steps(am_c)) if g != onlyA_g)
-        @test ER.allosteric_regulators(am_c) == [ER.AllostericRegulator(:I)]
+        @test ER.allosteric_regulators(am_c) == [:I]
         @test ER.allo_states(only(ER.regulatory_sites(am_c))) == [:OnlyI]
     end
 
@@ -646,8 +646,7 @@ end
             "rendered Kreg names would collide. Same-ligand-two-sites is not enumerated."),
             ER.AllostericMechanism(
                 ER.reaction(cm), ER.steps(cm), [:EqualAI, :EqualAI, :EqualAI], 2,
-                [ER.RegulatorySite([ER.AllostericRegulator(:A)], n, [:OnlyA])
-                 for n in (2, 4)]))
+                [ER.RegulatorySite([:A], n, [:OnlyA]) for n in (2, 4)]))
 
         # Invalid allo state value → error
         @test_throws ErrorException @allosteric_mechanism begin
@@ -717,7 +716,7 @@ end
         # No :NonequalAI ligand silently hidden from reg-site display
         for site in ER.regulatory_sites(am),
             (lig, state) in zip(ER.ligands(site), ER.allo_states(site))
-            @test occursin("$(ER.name(lig))::$state", s)
+            @test occursin("$lig::$state", s)
         end
     end
 
@@ -860,12 +859,12 @@ end
     end
 
     @testset "RegulatorySite: validation + accessors" begin
-        lig_a = ER.AllostericRegulator(:A)
-        lig_b = ER.AllostericRegulator(:B)
+        # A site's ligands are names.
+        lig_a, lig_b = :A, :B
         site = ER.RegulatorySite(
             [lig_a, lig_b], 4, [:OnlyA, :NonequalAI],
         )
-        @test ER.ligands(site) == [lig_a, lig_b]
+        @test ER.ligands(site) == [:A, :B]
         @test ER.multiplicity(site) == 4
         @test ER.allo_states(site) == [:OnlyA, :NonequalAI]
 
@@ -878,8 +877,7 @@ end
             [lig_a], 0, [:OnlyA])
 
         # No ligands → error
-        @test_throws ErrorException ER.RegulatorySite(
-            ER.AllostericRegulator[], 2, Symbol[])
+        @test_throws ErrorException ER.RegulatorySite(Symbol[], 2, Symbol[])
 
         # Invalid allo state → error
         @test_throws ErrorException ER.RegulatorySite(
@@ -948,11 +946,12 @@ end
             @test p != T(step, :I)
         end
 
-        lig_a = ER.AllostericRegulator(:A)
-        site = ER.RegulatorySite([lig_a], 2, [:OnlyA])
-        kr = ER.Kreg(site, lig_a, :A)
+        # A regulator constant is its ligand's in one state; it needs no site, since a
+        # ligand sits at one site.
+        kr = ER.Kreg(:A, :A)
         @test kr isa ER.Parameter
-        @test kr == ER.Kreg(site, lig_a, :A)
+        @test kr == ER.Kreg(:A, :A)
+        @test kr != ER.Kreg(:A, :I) && kr != ER.Kreg(:B, :A)
     end
 
     @testset "ReactantAtoms canonicalizes atom ordering" begin
@@ -1255,8 +1254,7 @@ end
     @testset "AllostericMechanism (non-parametric)" begin
         (; rxn, bind, iso, rel) = _testhelper_uniuni(mults = [2])
 
-        site = ER.RegulatorySite(
-            [ER.AllostericRegulator(:I)], 1, [:OnlyI])
+        site = ER.RegulatorySite([:I], 1, [:OnlyI])
         m = ER.AllostericMechanism(
             rxn, [[bind], [iso], [rel]],
             [:EqualAI, :OnlyA, :NonequalAI], 2,
@@ -1276,8 +1274,7 @@ end
         @test ER.regulatory_sites(m) == [site]
         @test sum(length, ER.steps(m)) == 3
         @test iso in first.(ER.steps(m))
-        @test ER.allosteric_regulators(m) ==
-              [ER.AllostericRegulator(:I)]
+        @test ER.allosteric_regulators(m) == [:I]
 
         m2 = ER.AllostericMechanism(
             rxn, [[bind], [iso], [rel]],
@@ -1343,12 +1340,10 @@ end
         @test ER.cat_allo_state(am, 3) === :OnlyA
         @test ER.catalytic_multiplicity(am) == 2
 
-        # Regulatory sites: ligand Symbols wrapped as AllostericRegulator
+        # Regulatory sites: ligand names
         sites = ER.regulatory_sites(am)
         @test length(sites) == 1
-        @test sites[1].ligands ==
-              [ER.AllostericRegulator(:A),
-               ER.AllostericRegulator(:B)]
+        @test sites[1].ligands == [:A, :B]
         @test sites[1].multiplicity == 1
         @test sites[1].allo_states == [:OnlyA, :NonequalAI]
 
@@ -1383,15 +1378,14 @@ end
         @test ER.name(ER.Krapid(rep_iso, :None), am) === :K_ES_to_EP
         @test ER.name(ER.Krev(rep_iso, :None), am) === :k_EP_to_ES
 
-        site = ER.regulatory_sites(am)[1]
-        lig  = first(site.ligands)
-        @test ER.name(ER.Kreg(site, lig, :A), am) === :K_A_Rreg
-        @test ER.name(ER.Kreg(site, lig, :I), am) === :K_I_Rreg
+        lig = first(ER.regulatory_sites(am)[1].ligands)
+        @test ER.name(ER.Kreg(lig, :A), am) === :K_A_Rreg
+        @test ER.name(ER.Kreg(lig, :I), am) === :K_I_Rreg
 
         # The chokepoint renders on the concrete mechanism only; a compiled type
         # is lifted first.
         @test_throws MethodError ER.name(ER.Krapid(rep_bind, :None), aem)
-        @test_throws MethodError ER.name(ER.Kreg(site, lig, :A), aem)
+        @test_throws MethodError ER.name(ER.Kreg(lig, :A), aem)
     end
 
     @testset "_sig_of / _mechanism_from_sig roundtrip" begin

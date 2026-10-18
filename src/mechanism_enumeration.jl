@@ -1642,7 +1642,7 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
         any(chem) || continue
         for reg in regs, tag in (:OnlyA, :OnlyI)
             push!(results, AllostericMechanism(reaction(m), steps(m), vtags, cn,
-                [RegulatorySite([AllostericRegulator(reg)], cn, [tag])]))
+                [RegulatorySite([reg], cn, [tag])]))
         end
     end
     results
@@ -1715,13 +1715,12 @@ function _make_am_with_added_reg(
     am::AllostericMechanism, reg::Symbol, tag::Symbol, site_idx::Int,
 )
     sites = copy(regulatory_sites(am))
-    lig = AllostericRegulator(reg)
     if site_idx == 0
-        push!(sites, RegulatorySite([lig], catalytic_multiplicity(am), [tag]))
+        push!(sites, RegulatorySite([reg], catalytic_multiplicity(am), [tag]))
     else
         s = sites[site_idx]
         sites[site_idx] =
-            RegulatorySite([ligands(s); lig], multiplicity(s), [allo_states(s); tag])
+            RegulatorySite([ligands(s); reg], multiplicity(s), [allo_states(s); tag])
     end
     _with(am; sites)
 end
@@ -1899,7 +1898,7 @@ function _respects_reg_type(am::AllostericMechanism, rxn::EnzymeReaction)
     declared = Dict(name(regulator(rm)) => reg_type(rm) for rm in regulators(rxn)
                     if regulator(rm) isa AllostericRegulator)
     all(regulatory_sites(am)) do site
-        types = [get(declared, name(l), :unspecified) for l in ligands(site)]
+        types = [get(declared, l, :unspecified) for l in ligands(site)]
         all(zip(types, allo_states(site))) do (t, state)
             t === :unspecified ||
                 !(t === :activator && state === :OnlyI ||
@@ -2063,7 +2062,7 @@ end
 a `Mechanism`)."""
 _bound_allo_regs(::Mechanism) = Set{Symbol}()
 _bound_allo_regs(am::AllostericMechanism) =
-    Set{Symbol}(name(lig) for site in regulatory_sites(am) for lig in ligands(site))
+    Set{Symbol}(lig for site in regulatory_sites(am) for lig in ligands(site))
 
 """Names of the competitive inhibitors bound at a dead-end step in `m`."""
 function _bound_comp_inhibitors(m::Union{Mechanism, AllostericMechanism})

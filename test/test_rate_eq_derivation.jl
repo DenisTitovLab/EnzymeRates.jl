@@ -105,7 +105,7 @@ matches by ligand-name set so positional Kreg names (`:K_<lig>_reg{site}`) keep
 the oracle's written site numbering after canonical site reordering.
 """
 function _testhelper_positional_site_idx(site, pos, written_sites)
-    want = Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(site))
+    want = Set(EnzymeRates.ligands(site))
     j = findfirst(ws -> Set(ws.ligands) == want, written_sites)
     j === nothing ? pos : j
 end
@@ -191,10 +191,9 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
             for (lig, tag) in zip(EnzymeRates.ligands(site), EnzymeRates.allo_states(site))
                 for (inactive, suffix) in ((false, ""), (true, "_T"))
                     tag === :EqualAI && inactive && continue
-                    K = EnzymeRates._reg_K(mech, site, lig, tag, inactive)
+                    K = EnzymeRates._reg_K(mech, lig, tag, inactive)
                     K === nothing ||
-                        push!(out, Symbol("K_", EnzymeRates.name(lig), suffix, "_reg", j) =>
-                                   all_params[K])
+                        push!(out, Symbol("K_", lig, suffix, "_reg", j) => all_params[K])
                 end
             end
         end

@@ -5107,7 +5107,7 @@ end
 
     # The four V-types cover R1/R2 × :OnlyA/:OnlyI, each a single regulator
     # at a single site.
-    combos = Set((only([EnzymeRates.name(l)
+    combos = Set((only([l
                         for s in EnzymeRates.regulatory_sites(am)
                         for l in EnzymeRates.ligands(s)]),
                   only([t for s in EnzymeRates.regulatory_sites(am)
@@ -5132,7 +5132,7 @@ end
     vt_ci = filter(am -> !isempty(EnzymeRates.regulatory_sites(am)),
                    EnzymeRates._expand_to_allosteric(
                        seed_ci, uni_uni_reg_and_inhibitor))
-    site_regs = Set(EnzymeRates.name(l) for am in vt_ci
+    site_regs = Set(l for am in vt_ci
                     for s in EnzymeRates.regulatory_sites(am)
                     for l in EnzymeRates.ligands(s))
     @test !isempty(vt_ci)
@@ -5341,7 +5341,7 @@ end
         # and the tags across the 3 variants are exactly {:OnlyA, :OnlyI, :NonequalAI}.
         # The added site's multiplicity is am.catalytic_multiplicity.
         @test all(r -> length(r.regulatory_sites) == 1, result)
-        @test Set((Symbol[EnzymeRates.name(l) for l in EnzymeRates.ligands(site)],
+        @test Set((EnzymeRates.ligands(site),
                    collect(EnzymeRates.allo_states(site)),
                    EnzymeRates.multiplicity(site))
                   for r in result for site in r.regulatory_sites) == Set([
@@ -5495,7 +5495,7 @@ end
     # 3. structural: every result has :R2 in some regulatory site.
     for r in result
         has_r2 = any(r.regulatory_sites) do site
-            any(l -> EnzymeRates.name(l) === :R2,
+            any(l -> l === :R2,
                 EnzymeRates.ligands(site))
         end
         @test has_r2
@@ -5509,7 +5509,7 @@ end
         site = r.regulatory_sites[1]
         ligs = EnzymeRates.ligands(site)
         states = EnzymeRates.allo_states(site)
-        idx = findfirst(l -> EnzymeRates.name(l) === :R2, ligs)
+        idx = findfirst(l -> l === :R2, ligs)
         idx === nothing && return false
         states[idx] == :EqualAI
     end
@@ -5575,7 +5575,7 @@ end
         site = r.regulatory_sites[1]
         ligs = EnzymeRates.ligands(site)
         states = EnzymeRates.allo_states(site)
-        idx = findfirst(l -> EnzymeRates.name(l) === :R2, ligs)
+        idx = findfirst(l -> l === :R2, ligs)
         idx === nothing && return false
         states[idx] == :EqualAI
     end
@@ -5639,7 +5639,7 @@ end
     @test !isempty(result)
     for r in result
         @test any(r.regulatory_sites) do site
-            any(l -> EnzymeRates.name(l) === :ATP,
+            any(l -> l === :ATP,
                 EnzymeRates.ligands(site))
         end
         _testhelper_assert_mechanism_invariants(r)
@@ -5733,25 +5733,24 @@ end
     base = first(EnzymeRates.init_mechanisms(rxn))
     cat = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(base))]
     site_a = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:A)], 4, [:OnlyA])
+        [:A], 4, [:OnlyA])
     am = EnzymeRates.AllostericMechanism(
         rxn, copy(EnzymeRates.steps(base)), cat, 4, [site_a])
     kids = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
     _testhelper_st(child, sidx, lig) = begin
         s = EnzymeRates.regulatory_sites(child)[sidx]
-        i = findfirst(l -> EnzymeRates.name(l) == lig, EnzymeRates.ligands(s))
+        i = findfirst(l -> l == lig, EnzymeRates.ligands(s))
         i === nothing ? nothing : EnzymeRates.allo_states(s)[i]
     end
     _testhelper_one_AI_site(c) = length(EnzymeRates.regulatory_sites(c)) == 1 &&
-        Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(
-            only(EnzymeRates.regulatory_sites(c)))) == Set([:A, :I])
+        Set(EnzymeRates.ligands(only(EnzymeRates.regulatory_sites(c)))) == Set([:A, :I])
     # redundant: one site with A:OnlyA + I:OnlyI — must be skipped
     @test !any(c -> _testhelper_one_AI_site(c) && _testhelper_st(c,1,:A)==:OnlyA &&
                     _testhelper_st(c,1,:I)==:OnlyI, kids)
     # kept: two-site new-site form carrying I:OnlyI on its own site
     @test any(kids) do c
         length(EnzymeRates.regulatory_sites(c)) == 2 &&
-            any(s -> [EnzymeRates.name(l) for l in EnzymeRates.ligands(s)] == [:I] &&
+            any(s -> EnzymeRates.ligands(s) == [:I] &&
                      EnzymeRates.allo_states(s) == [:OnlyI],
                 EnzymeRates.regulatory_sites(c))
     end
@@ -5960,7 +5959,7 @@ seed = first(EnzymeRates.init_mechanisms(uni_uni_reg_and_inhibitor))
         seed, uni_uni_reg_and_inhibitor))
     added = EnzymeRates._expand_add_allosteric_regulator(
         am, uni_uni_reg_and_inhibitor)
-    site_regs = Set(EnzymeRates.name(l) for m in added
+    site_regs = Set(l for m in added
                     for s in EnzymeRates.regulatory_sites(m)
                     for l in EnzymeRates.ligands(s))
     @test !isempty(added)
@@ -6119,7 +6118,7 @@ end
         for site in r.regulatory_sites
             for (l, st) in zip(EnzymeRates.ligands(site),
                                EnzymeRates.allo_states(site))
-                EnzymeRates.name(l) === lig_name && return st
+                l === lig_name && return st
             end
         end
         error("ligand $lig_name not found")
@@ -6234,7 +6233,7 @@ end
 # ─── _site_active_states ─────────────────────────────────────────────────
 @testset "_site_active_states" begin
 _testhelper_mk(states) = EnzymeRates.RegulatorySite(
-    [EnzymeRates.AllostericRegulator(Symbol("R", i)) for i in eachindex(states)],
+    [Symbol("R", i) for i in eachindex(states)],
     4, collect(Symbol, states))
 @test EnzymeRates._site_active_states(_testhelper_mk([:OnlyA])) == Set([:active])
 @test EnzymeRates._site_active_states(_testhelper_mk([:OnlyI])) == Set([:inactive])
@@ -6259,9 +6258,9 @@ end
 base = first(EnzymeRates.init_mechanisms(merge_rxn))
 cat = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(base))]
 site_a = EnzymeRates.RegulatorySite(
-    [EnzymeRates.AllostericRegulator(:A)], 4, [:OnlyA])
+    [:A], 4, [:OnlyA])
 site_i = EnzymeRates.RegulatorySite(
-    [EnzymeRates.AllostericRegulator(:I)], 4, [:OnlyI])
+    [:I], 4, [:OnlyI])
 parent = EnzymeRates.AllostericMechanism(
     merge_rxn, copy(EnzymeRates.steps(base)), cat, 4, [site_a, site_i])
 
@@ -6270,13 +6269,12 @@ children = EnzymeRates._expand_merge_regulatory_sites(parent)
 # The allo state of ligand `lig` in a child's single merged site.
 _testhelper_merged_state(child, lig) = begin
     site = only(EnzymeRates.regulatory_sites(child))
-    idx = findfirst(l -> EnzymeRates.name(l) == lig,
+    idx = findfirst(l -> l == lig,
                     EnzymeRates.ligands(site))
     EnzymeRates.allo_states(site)[idx]
 end
 _testhelper_single_site_names(child) =
-    Set(EnzymeRates.name(l)
-        for l in EnzymeRates.ligands(only(EnzymeRates.regulatory_sites(child))))
+    Set(EnzymeRates.ligands(only(EnzymeRates.regulatory_sites(child))))
 
 @testset "disjoint OnlyA/OnlyI co-binding skipped; antagonists kept" begin
     # A (:OnlyA) acts only on the active state, I (:OnlyI) only on the
@@ -6329,9 +6327,9 @@ end
     b_aa = first(EnzymeRates.init_mechanisms(rxn_aa))
     cat_aa = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(b_aa))]
     s1 = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:A1)], 4, [:OnlyA])
+        [:A1], 4, [:OnlyA])
     s2 = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:A2)], 4, [:OnlyA])
+        [:A2], 4, [:OnlyA])
     p_aa = EnzymeRates.AllostericMechanism(
         rxn_aa, copy(EnzymeRates.steps(b_aa)), cat_aa, 4, [s1, s2])
     kids = EnzymeRates._expand_merge_regulatory_sites(p_aa)
@@ -6353,10 +6351,9 @@ end
     b3 = first(EnzymeRates.init_mechanisms(rxn3))
     cat3 = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(b3))]
     _testhelper_mk1(n) = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(n)], 4, [:OnlyA])
+        [n], 4, [:OnlyA])
     _testhelper_mk2(n1, n2) = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(n1),
-         EnzymeRates.AllostericRegulator(n2)], 4, [:OnlyA, :OnlyA])
+        [n1, n2], 4, [:OnlyA, :OnlyA])
     # Route 1: {A,B} co-site + {C} single site → merge → {A,B,C}.
     p_ab_c = EnzymeRates.AllostericMechanism(
         rxn3, copy(EnzymeRates.steps(b3)), cat3, 4,
@@ -6393,10 +6390,9 @@ end
     b3 = first(EnzymeRates.init_mechanisms(rxn3))
     cat3 = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(b3))]
     site_ac = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:A),
-         EnzymeRates.AllostericRegulator(:C)], 4, [:OnlyA, :OnlyI])
+        [:A, :C], 4, [:OnlyA, :OnlyI])
     site_b = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:B)], 4, [:OnlyA])
+        [:B], 4, [:OnlyA])
     p = EnzymeRates.AllostericMechanism(
         rxn3, copy(EnzymeRates.steps(b3)), cat3, 4, [site_ac, site_b])
     kids = EnzymeRates._expand_merge_regulatory_sites(p)
@@ -6422,8 +6418,8 @@ end
 # numerically over random parameters and concentrations.
 _testhelper_mkm(sites) = EnzymeRates.AllostericMechanism(
     merge_rxn, copy(EnzymeRates.steps(base)), cat, 4, sites)
-A = EnzymeRates.AllostericRegulator(:A)
-I = EnzymeRates.AllostericRegulator(:I)
+A = :A
+I = :I
 separate = _testhelper_mkm([EnzymeRates.RegulatorySite([A], 4, [:OnlyA]),
                             EnzymeRates.RegulatorySite([I], 4, [:OnlyI])])
 merged = _testhelper_mkm([EnzymeRates.RegulatorySite([A, I], 4, [:OnlyA, :OnlyI])])
@@ -6467,7 +6463,7 @@ end
     # declares.
     _testhelper_respects(ligs, states, r = rxn) = EnzymeRates._respects_reg_type(
         EnzymeRates._with(core; sites = [EnzymeRates.RegulatorySite(
-            EnzymeRates.AllostericRegulator.(collect(ligs)), 2, collect(states))]), r)
+            collect(Symbol, ligs), 2, collect(states))]), r)
 
     # An :unspecified ligand passes in every state, alone or beside another
     # :unspecified ligand: U is declared untyped and Nope is not declared at all.
@@ -6519,12 +6515,12 @@ end
     cat_states = Symbol[:EqualAI for _ in 1:n_groups]
 
     site_bad = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:R)], 2, [:OnlyI])
+        [:R], 2, [:OnlyI])
     am_bad = EnzymeRates.AllostericMechanism(
         rxn, copy(EnzymeRates.steps(m_seed)), cat_states, 2, [site_bad])
 
     site_good = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:R)], 2, [:OnlyA])
+        [:R], 2, [:OnlyA])
     am_good = EnzymeRates.AllostericMechanism(
         rxn, copy(EnzymeRates.steps(m_seed)), cat_states, 2, [site_good])
 
@@ -6552,8 +6548,7 @@ end
     m_aa = first(EnzymeRates.init_mechanisms(rxn_aa))
     cat_aa = Symbol[:EqualAI for _ in 1:length(EnzymeRates.steps(m_aa))]
     site_aa = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:A1),
-         EnzymeRates.AllostericRegulator(:A2)], 2, [:EqualAI, :EqualAI])
+        [:A1, :A2], 2, [:EqualAI, :EqualAI])
     am_aa = EnzymeRates.AllostericMechanism(
         rxn_aa, copy(EnzymeRates.steps(m_aa)), cat_aa, 2, [site_aa])
     @test !EnzymeRates._respects_reg_type(am_aa, rxn_aa)
@@ -6570,8 +6565,7 @@ end
     m_ai = first(EnzymeRates.init_mechanisms(rxn_ai))
     cat_ai = Symbol[:EqualAI for _ in 1:length(EnzymeRates.steps(m_ai))]
     site_ai = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:A),
-         EnzymeRates.AllostericRegulator(:I)], 2, [:EqualAI, :OnlyI])
+        [:A, :I], 2, [:EqualAI, :OnlyI])
     am_ai = EnzymeRates.AllostericMechanism(
         rxn_ai, copy(EnzymeRates.steps(m_ai)), cat_ai, 2, [site_ai])
     @test EnzymeRates._respects_reg_type(am_ai, rxn_ai)
@@ -6591,9 +6585,9 @@ end
 base = first(EnzymeRates.init_mechanisms(uni_uni_allo))
 cat_states = [:EqualAI for _ in base.steps]
 site_a = EnzymeRates.RegulatorySite(
-    [EnzymeRates.AllostericRegulator(:A)], 2, [:OnlyA])
+    [:A], 2, [:OnlyA])
 site_b = EnzymeRates.RegulatorySite(
-    [EnzymeRates.AllostericRegulator(:B)], 4, [:OnlyI])
+    [:B], 4, [:OnlyI])
 am_ab = EnzymeRates.AllostericMechanism(
     EnzymeRates.reaction(base),
     [copy(g) for g in base.steps], cat_states, 2, [site_a, site_b])
@@ -6621,12 +6615,12 @@ am_m2 = EnzymeRates.AllostericMechanism(
     EnzymeRates.reaction(base),
     [copy(g) for g in base.steps], cat_states, 2,
     [EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:A)], 2, [:OnlyA])])
+        [:A], 2, [:OnlyA])])
 am_m4 = EnzymeRates.AllostericMechanism(   # different multiplicity
     EnzymeRates.reaction(base),
     [copy(g) for g in base.steps], cat_states, 2,
     [EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:A)], 4, [:OnlyA])])
+        [:A], 4, [:OnlyA])])
 _testhelper_assert_mechanism_invariants(am_m2)
 _testhelper_assert_mechanism_invariants(am_m4)
 @test am_m2 != am_m4
@@ -6822,7 +6816,7 @@ end
         for site in EnzymeRates.regulatory_sites(m)
             for (lig, s) in zip(EnzymeRates.ligands(site),
                                 EnzymeRates.allo_states(site))
-                EnzymeRates.name(lig) == reg && s == st && return true
+                lig == reg && s == st && return true
             end
         end
         false
@@ -6876,9 +6870,9 @@ end
     base = first(EnzymeRates.init_mechanisms(merge_rxn))
     cat = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(base))]
     site_a = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:A)], 4, [:OnlyA])
+        [:A], 4, [:OnlyA])
     site_i = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:I)], 4, [:OnlyI])
+        [:I], 4, [:OnlyI])
     parent = EnzymeRates.AllostericMechanism(
         merge_rxn, copy(EnzymeRates.steps(base)), cat, 4, [site_a, site_i])
 
@@ -6886,8 +6880,7 @@ end
     _testhelper_is_merged(c) =
         c isa EnzymeRates.AllostericMechanism &&
         length(EnzymeRates.regulatory_sites(c)) == 1 &&
-        Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(
-            only(EnzymeRates.regulatory_sites(c)))) == Set([:A, :I])
+        Set(EnzymeRates.ligands(only(EnzymeRates.regulatory_sites(c)))) == Set([:A, :I])
     # The two Δ0 antagonist merge children survive the reg_type filter and
     # appear in the output; the redundant OnlyA/OnlyI co-binding is skipped.
     @test count(_testhelper_is_merged, children) == 2
@@ -11860,7 +11853,7 @@ end
         for site in EnzymeRates.regulatory_sites(m)
             for (lig, st) in zip(EnzymeRates.ligands(site),
                                  EnzymeRates.allo_states(site))
-                EnzymeRates.name(lig) == reg && return st
+                lig == reg && return st
             end
         end
         :none
