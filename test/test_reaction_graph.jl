@@ -630,3 +630,72 @@ end
            "E_res_plusA_minusP_B → EB_res_plusA_minusP", "EB_res_plusA_minusP → EQ",
            "EQ_Qmod → EQQmod"]
 end
+
+"""The graph whose Sig is `sig`, `x`'s kind of graph. `sig` is splatted with its length
+left open, as the lifts splat it, so the decoders compile once for every length."""
+_testhelper_decode(::RG.Mechanism, @nospecialize(sig)) = RG._mechanism_from_sig(sig...)
+_testhelper_decode(::RG.AllostericMechanism, @nospecialize(sig)) =
+    RG._allosteric_mechanism_from_sig(sig...)
+
+@testset "a graph's Sig decodes to the graph, and equal graphs share one type" begin
+    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
+        x = _testhelper_build(spec.raw)
+        sig = RG._sig_of(x)
+        @test sig isa Tuple{Vararg{Int}}
+        @test _testhelper_decode(x, sig) == x
+        cx = RG.compile_mechanism(x)
+        @test typeof(cx).parameters[1] === sig
+        @test RG._concrete(cx) == x
+        @test RG.compile_mechanism(_testhelper_build(_testhelper_rewrite(spec.raw))) === cx
+    end
+    m = _testhelper_graph_uniuni()
+    @test RG.Mechanism(RG.EnzymeMechanism(m)) == m
+    am = RG.AllostericMechanism(m, [:EqualAI, :NonequalAI, :OnlyA], 4,
+                                [EnzymeRates.RegulatorySite([:X, :R], 2, [:OnlyA, :OnlyI])])
+    aem = RG.AllostericEnzymeMechanism(am)
+    @test RG.AllostericMechanism(aem) == am
+    @test RG.catalytic_mechanism(aem) === RG.EnzymeMechanism(m)
+    @test RG.catalytic_multiplicity(aem) == 4
+    # A name outside ASCII, and table entries past the sixteenth, whose counts fill the
+    # high half of a packed count: αKG sorts last, entry 32, the top four bits.
+    names = [[Symbol("S", i) for i in 1:30]; :αKG]
+    wide = RG.Mechanism(EnzymeRates.RawMechanism(
+        names, [:P], Symbol[], _testhelper_bindings([names; :P]), collect(1:32)))
+    @test wide.table[32] == EnzymeRates.Met(:αKG, false)
+    @test _testhelper_decode(wide, RG._sig_of(wide)) == wide
+end
+
+"""Uni-uni whose substrate's name holds `n` characters, so its Sig is longer than any
+other test's: a Sig length no other test decodes."""
+_testhelper_long_named(n) = let S = Symbol("S", "x"^(n - 1))
+    RG.Mechanism(_testhelper_walk(:(begin
+        substrates: $S
+        products: P
+        steps: begin
+            E + $S ⇌ E($S)
+            E($S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)))
+end
+
+@testset "the Sig decoders compile once, whatever a Sig's length" begin
+    # The lifts splat a Sig whose length their code leaves open, so each varargs decoder
+    # compiles once for every length: after one lift, lifting mechanisms of three Sig
+    # lengths no other test decodes adds no method instance. A decoder that took its Sig
+    # as an `NTuple{N, Int}` would compile once per length.
+    instances(f) = count(_ -> true, Base.specializations(only(methods(f))))
+    _testhelper_allosteric_long_named(n) =
+        RG.AllostericMechanism(_testhelper_long_named(n), [:EqualAI, :EqualAI, :OnlyA], 2,
+                               EnzymeRates.RegulatorySite[])
+    for (decoder, build) in ((RG._mechanism_from_sig, _testhelper_long_named),
+                             (RG._allosteric_mechanism_from_sig,
+                              _testhelper_allosteric_long_named))
+        lengths = (301, 401, 501, 601)
+        compiled = [RG.compile_mechanism(build(n)) for n in lengths]
+        @test RG._concrete(compiled[1]) == build(lengths[1])
+        before = instances(decoder)
+        foreach(RG._concrete, compiled[2:4])
+        @test instances(decoder) == before
+    end
+end

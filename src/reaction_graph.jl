@@ -1,5 +1,5 @@
 # ABOUTME: The mechanism value types as a reaction graph of enzyme forms and steps in
-# ABOUTME: canonical form: raw input to checked graph, content order, identity, names.
+# ABOUTME: canonical form: raw input to checked graph, content order, identity, Sig.
 module ReactionGraph
 
 using ..EnzymeRates: Met, RawForm, RawMechanism, RawAllostericMechanism, RegulatorySite,
@@ -75,7 +75,8 @@ each metabolite entry once, sorted by (name, modifier), a reactant and its modif
 being two entries; `forms` hold free E first, then the other forms in content order;
 `edges` run physical-forward, in content order; `group[k]` is edge `k`'s kinetic group,
 the groups numbered by their first edge. `Mechanism(raw::RawMechanism)` builds one and
-checks it; the field constructor checks nothing and serves canonical form.
+checks it; the field constructor checks nothing and serves canonical form and the Sig
+decoder.
 """
 struct Mechanism
     substrates::Vector{Symbol}
@@ -112,6 +113,17 @@ end
 """A site's place in the order of a mechanism's sites: its ligands, its multiplicity,
 then its ligands' tags."""
 _site_key(s::RegulatorySite) = (s.ligands, s.multiplicity, s.allo_states)
+
+abstract type AbstractEnzymeMechanism end
+
+"""A plain mechanism as a type: `Sig`, its only parameter, is the mechanism encoded as
+integers (`_sig_of`), so equal mechanisms share one type and the derivation compiles once
+per mechanism."""
+struct EnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
+
+"""An allosteric mechanism as a type: `Sig`, its only parameter, is the mechanism
+encoded as integers (`_sig_of`)."""
+struct AllostericEnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
 
 # ─── Content order ──────────────────────────────────────────────────────
 
@@ -576,6 +588,152 @@ for T in (Mechanism, AllostericMechanism)
     @eval Base.:(==)(a::$T, b::$T) =
         $(reduce((l, r) -> :($l && $r), [:(a.$f == b.$f) for f in fieldnames(T)]))
 end
+
+# ─── Sig ────────────────────────────────────────────────────────────────
+#
+# A mechanism's Sig, every entry an `Int`:
+#   plain       the numbers of substrates, products, table entries, conformation labels,
+#               forms and edges; the substrate and product names; each table entry's
+#               name and modifier flag; the conformation labels; each form (label,
+#               bound, added, subtracted); each edge (from, to, consumed, released,
+#               flag); each edge's group. A packed count takes two entries, high half
+#               first.
+#   name        its number of characters, then each character's code point.
+#   allosteric  the plain Sig of its catalytic mechanism; one tag code per group; the
+#               catalytic multiplicity; the number of sites, then per site its
+#               multiplicity, its number of ligands and per ligand its name and tag code.
+
+"""The allosteric tags, coded by position: catalytic groups and site ligands share it."""
+const _TAG_CODES = (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
+_tag_code(t::Symbol) = findfirst(==(t), _TAG_CODES)::Int
+
+function _sig_name!(out::Vector{Int}, s::Symbol)
+    str = String(s)
+    push!(out, length(str))
+    for c in str
+        push!(out, Int(c))
+    end
+    out
+end
+_sig_counts!(out::Vector{Int}, c::Counts) = push!(out, (c >> 64) % Int, c % Int)
+
+function _sig_mechanism!(out::Vector{Int}, m::Mechanism)
+    push!(out, length(m.substrates), length(m.products), length(m.table),
+          length(m.conformations), length(m.forms), length(m.edges))
+    foreach(s -> _sig_name!(out, s), m.substrates)
+    foreach(s -> _sig_name!(out, s), m.products)
+    for x in m.table
+        _sig_name!(out, x.name)
+        push!(out, x.modifier)
+    end
+    foreach(s -> _sig_name!(out, s), m.conformations)
+    for f in m.forms
+        push!(out, f.conformation)
+        _sig_counts!(out, f.bound)
+        _sig_counts!(out, f.added)
+        _sig_counts!(out, f.subtracted)
+    end
+    for e in m.edges
+        push!(out, e.from, e.to)
+        _sig_counts!(out, e.consumed)
+        _sig_counts!(out, e.released)
+        push!(out, e.rapid_equilibrium)
+    end
+    append!(out, m.group)
+end
+
+"""`m` as one homogeneous integer tuple, the only type parameter of its compiled type."""
+_sig_of(m::Mechanism) = Tuple(_sig_mechanism!(Int[], m))
+function _sig_of(am::AllostericMechanism)
+    out = _sig_mechanism!(Int[], am.catalytic)
+    foreach(t -> push!(out, _tag_code(t)), am.cat_allo_states)
+    push!(out, am.catalytic_multiplicity, length(am.regulatory_sites))
+    for s in am.regulatory_sites
+        push!(out, s.multiplicity, length(s.ligands))
+        for (l, t) in zip(s.ligands, s.allo_states)
+            _sig_name!(out, l)
+            push!(out, _tag_code(t))
+        end
+    end
+    Tuple(out)
+end
+
+"""A Sig read from its start: a struct, not captured variables, so nothing is boxed."""
+mutable struct _SigReader
+    sig::Vector{Int}
+    at::Int
+end
+_next!(r::_SigReader) = r.sig[r.at += 1]
+function _next_name!(r::_SigReader)
+    n = _next!(r)
+    Symbol(String([Char(_next!(r)) for _ in 1:n]))
+end
+function _next_counts!(r::_SigReader)
+    hi = _next!(r) % UInt64
+    lo = _next!(r) % UInt64
+    (Counts(hi) << 64) | Counts(lo)
+end
+
+function _read_mechanism!(r::_SigReader)
+    ns = _next!(r); np = _next!(r); nt = _next!(r)
+    nc = _next!(r); nf = _next!(r); ne = _next!(r)
+    substrates = [_next_name!(r) for _ in 1:ns]
+    products = [_next_name!(r) for _ in 1:np]
+    table = [Met(_next_name!(r), _next!(r) == 1) for _ in 1:nt]
+    conformations = [_next_name!(r) for _ in 1:nc]
+    forms = [Form(_next!(r), _next_counts!(r), _next_counts!(r), _next_counts!(r))
+             for _ in 1:nf]
+    edges = [Edge(_next!(r), _next!(r), _next_counts!(r), _next_counts!(r),
+                  _next!(r) == 1) for _ in 1:ne]
+    group = [_next!(r) for _ in 1:ne]
+    Mechanism(substrates, products, table, conformations, forms, edges, group)
+end
+
+function _read_site!(r::_SigReader)
+    multiplicity = _next!(r)
+    n = _next!(r)
+    ligands, states = Symbol[], Symbol[]
+    for _ in 1:n
+        push!(ligands, _next_name!(r))
+        push!(states, _TAG_CODES[_next!(r)])
+    end
+    RegulatorySite(ligands, multiplicity, states)
+end
+
+"""The mechanism whose Sig is `sig`, splatted. Decoding trusts the Sig, which only
+`_sig_of` writes, so it canonicalizes and checks nothing. The varargs method compiles
+once for every Sig length, as long as callers splat a Sig whose length their code leaves
+open."""
+_mechanism_from_sig(sig::Int...) = _read_mechanism!(_SigReader(collect(sig), 0))
+"""The allosteric mechanism whose Sig is `sig`, splatted; only the composition
+constructor's tag and site checks run."""
+function _allosteric_mechanism_from_sig(sig::Int...)
+    r = _SigReader(collect(sig), 0)
+    m = _read_mechanism!(r)
+    tags = [_TAG_CODES[_next!(r)] for _ in 1:ngroups(m)]
+    multiplicity = _next!(r)
+    sites = [_read_site!(r) for _ in 1:_next!(r)]
+    AllostericMechanism(m, tags, multiplicity, sites)
+end
+
+EnzymeMechanism(m::Mechanism) = EnzymeMechanism{_sig_of(m)}()
+AllostericEnzymeMechanism(am::AllostericMechanism) =
+    AllostericEnzymeMechanism{_sig_of(am)}()
+compile_mechanism(m::Mechanism) = EnzymeMechanism(m)
+compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)
+
+# The lifts read the Sig at run time, so they compile once and no method specializes on
+# a Sig but the derivation's own.
+Mechanism(@nospecialize(em::EnzymeMechanism)) =
+    _mechanism_from_sig(typeof(em).parameters[1]...)
+AllostericMechanism(@nospecialize(aem::AllostericEnzymeMechanism)) =
+    _allosteric_mechanism_from_sig(typeof(aem).parameters[1]...)
+_concrete(@nospecialize(em::EnzymeMechanism)) = Mechanism(em)
+_concrete(@nospecialize(aem::AllostericEnzymeMechanism)) = AllostericMechanism(aem)
+catalytic_mechanism(@nospecialize(aem::AllostericEnzymeMechanism)) =
+    EnzymeMechanism(AllostericMechanism(aem).catalytic)
+catalytic_multiplicity(@nospecialize(aem::AllostericEnzymeMechanism)) =
+    AllostericMechanism(aem).catalytic_multiplicity
 
 # ─── Reads ──────────────────────────────────────────────────────────────
 
