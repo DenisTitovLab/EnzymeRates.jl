@@ -29,6 +29,42 @@ function _check_well_posed(am::AllostericMechanism)
 end
 
 """
+    _bottomless_re_segment(m, steps) -> Union{Nothing, Vector{Species}}
+
+The forms of a rapid-equilibrium segment of `steps`, kinetic groups over mechanism `m`'s
+metabolites, whose weights all vanish at zero products, or all vanish at zero
+substrates; `nothing` when no segment does. Each metabolite name takes its side from
+`m`'s substrates and products, so a competitive-inhibitor copy, which shares its
+reactant's name and concentration, counts on that reactant's side even in a graph that
+holds no step taking up or giving off the reactant itself (the inactive conformation's
+pruned graph, `_inactive_groups`).
+
+Within a segment, rapid equilibrium fixes each form's weight relative to any
+other as a monomial in concentrations (one factor per RE binding step on the
+path between them). Once the weights are scaled to clear every negative
+exponent, a segment normally has a bottom form whose weight is free of one
+side's metabolites — the form the others drain to when that side is absent. A
+segment with no such form (e.g. `{E(P), E(Q), E(P, Q)}` with `E + P` and
+`E + Q` at steady state: weights `Kq·P : Kp·Q : P·Q`) is empty at zero
+products, and the rate there depends on how `E(P, Q)` splits between `E(P)`
+and `E(Q)` — a ratio of two fast release rates the RE approximation does not
+carry. The rate equation is `0/0` exactly where initial-rate data sit. A
+segment whose weights vanish only at a corner mixing a substrate and a product
+(a mixed abortive complex, or the ping-pong `E` / `E(; residual)` pair) is
+harmless: no turnover is possible at that corner.
+"""
+function _bottomless_re_segment(m::_AnyMech, steps::Vector{Vector{Step}})
+    species, segments, extras = _re_segment_extras(steps)
+    for segment in segments
+        length(segment) < 2 && continue
+        for side in (products(m), substrates(m))
+            all(i -> any(in(side), keys(extras[i])), segment) && return species[segment]
+        end
+    end
+    nothing
+end
+
+"""
 Error when a rapid-equilibrium segment of `groups`, kinetic groups over mechanism `m`'s
 metabolites, has no bottom form (`_bottomless_re_segment`): its rate is 0/0 where one
 side's metabolites are absent. The boundary check (`_check_well_posed`) checks a
