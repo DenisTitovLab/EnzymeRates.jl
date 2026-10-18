@@ -1536,6 +1536,12 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                  "expected metabolite Symbol or species expression on step side; got 2"),
                 (:(E + S ⇌ E(S, f(I))), "invalid entry in species `E(S, f(I))`: f(I)"),
                 (:(E + S ⇌ E(S; residual = 2S)), "invalid residual expression: 2S"),
+                (:(E + S ⇌ E(S; foo = P)),
+                 "unknown keyword in species `E(S; foo = P)`: foo = P. Only " *
+                 "`residual = ...` is allowed."),
+                (:(E + S ⇌ E(S; foo)),
+                 "unknown keyword in species `E(S; foo)`: foo. Only `residual = ...` is " *
+                 "allowed."),
                 (:(E + S ⇌ E((I + S)::Mod)),
                  "expected `name::Mod` in species `E((I + S)::Mod)`; got (I + S)::Mod"),
                 (:(E + 2::Mod ⇌ E(S)), "expected `name::Mod`; got 2::Mod"))

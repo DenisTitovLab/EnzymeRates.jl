@@ -773,7 +773,8 @@ function _raw_form(t, names, macro_name)
         if a isa Expr && a.head === :parameters
             for kw in a.args
                 kw isa Expr && kw.head === :kw && kw.args[1] === :residual ||
-                    error("$macro_name: unknown keyword in species `$t`: $kw. Only " *
+                    error("$macro_name: unknown keyword in species `$t`: " *
+                          "$(Meta.isexpr(kw, :kw) ? Expr(:(=), kw.args...) : kw). Only " *
                           "`residual = ...` is allowed.")
                 _read_residual!(added, subtracted, kw.args[2], true, names, macro_name)
             end
