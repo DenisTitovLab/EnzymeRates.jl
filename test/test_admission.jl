@@ -141,6 +141,11 @@ end
     @test eps.vanishing[uptake] && !eps.vanishing[release]
     # The tagged isomerization is blocked: slow, vanishing both ways.
     @test !any(eps.fast[blocked]) && all(eps.vanishing[blocked])
+    # Made rapid-equilibrium, the tagged isomerization stays fast where its group is kept
+    # and turns slow where it is excluded, since it is not a plain binding.
+    eps_re = EnzymeRates._eps_network(r2, trues(4))
+    iso_re = [_testhelper_transition(eps_re, iso, c, d) for c in 1:2, d in (true, false)]
+    @test all(eps_re.fast[iso_re[1, :]]) && !any(eps_re.fast[iso_re[2, :]])
     @test !any(eps.vanishing[t] for t in eachindex(eps.from) if eps.conformation[t] == 1)
     # Names index the table [P, S]: the binding takes up one S, its release gives it off.
     active_uptake = _testhelper_transition(eps, bind, 1, true)

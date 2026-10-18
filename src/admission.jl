@@ -324,7 +324,7 @@ _turnover_name(m::Mechanism) =
     _name_index(m)[searchsortedfirst(m.table, Met(m.substrates[1], false))]
 
 """
-Whether a cycle of the edges `mask` keeps turns the reaction over: no potential of the
+Whether a cycle of the edges that `mask` keeps turns the reaction over: no potential of the
 forms rises along each edge by its uptake of the first substrate (a modifier copy counting
 as it), which a weighted union-find finds (`_has_unbalanced_cycle`). Class 1 rejects a
 mechanism with none; its rate is zero everywhere.
