@@ -113,8 +113,8 @@ name(s::Species) = s.name
 
 """
 RegulatorySite: a binding site (possibly multimeric) for one or
-more allosteric ligands, each given by its name. `ligands[i]` and `allo_states[i]` are
-parallel. The constructor sorts the ligands by name and carries each ligand's state
+more allosteric ligands, each given by its name, once. `ligands[i]` and `allo_states[i]`
+are parallel. The constructor sorts the ligands by name and carries each ligand's state
 along, so the order the ligands are given in never changes `==`, `hash` or
 the compiled type.
 """
@@ -134,6 +134,9 @@ struct RegulatorySite
         bad === nothing ||
             error("RegulatorySite: allo state $(allo_states[bad]) must be one of " *
                   "$_VALID_REG_ALLO_STATES")
+        dup = findfirst(i -> ligands[i] in view(ligands, 1:(i - 1)), eachindex(ligands))
+        dup === nothing || error("RegulatorySite: ligand $(ligands[dup]) appears twice " *
+                                 "in one regulatory site")
         p = sortperm(ligands)
         new(ligands[p], multiplicity, allo_states[p])
     end

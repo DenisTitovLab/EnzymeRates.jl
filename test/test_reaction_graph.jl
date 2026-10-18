@@ -357,6 +357,10 @@ end
     @test_throws(ErrorException("RegulatorySite: allo state Bogus must be one of " *
                                 "(:OnlyA, :OnlyI, :EqualAI, :NonequalAI)"),
                  _testhelper_allosteric(tags, 2, [site([:R], 2, [:Bogus])]))
+    @test_throws(ErrorException("RegulatorySite: ligand R appears twice in one " *
+                                "regulatory site"),
+                 _testhelper_allosteric(tags, 2, [site([:R, :X, :R], 2,
+                                                       [:OnlyA, :OnlyI, :OnlyI])]))
     @test_throws(ErrorException(
         "AllostericMechanism: ligand R appears in two distinct regulatory sites; " *
         "rendered Kreg names would collide. Same-ligand-two-sites is not enumerated."),
