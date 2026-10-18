@@ -320,12 +320,14 @@ function _faces(m::Mechanism)
     mods == 0 ? base : [base; base .| mods]
 end
 
+"""Whether face `face` (`_faces`) zeroes metabolite name `n` of `_name_index`."""
+_zeroes(face::UInt64, n::Int) = (face >> (n - 1)) & 1 == 1
+
 """The metabolite names that face `face` of `m` zeroes (`_faces`), in table order."""
 function _face_names(m::Mechanism, face::UInt64)
     name_of = _name_index(m)
     Symbol[x.name for (i, x) in enumerate(m.table)
-           if (i == 1 || name_of[i] != name_of[i - 1]) &&
-              (face >> (name_of[i] - 1)) & 1 == 1]
+           if (i == 1 || name_of[i] != name_of[i - 1]) && _zeroes(face, name_of[i])]
 end
 
 """The metabolite-name index (`_name_index`) of `m`'s first substrate, whose net uptake
@@ -560,7 +562,7 @@ function _face_structure(net::_Network, face::UInt64)
     nn, nt = net.nforms * net.ncopies, length(net.from)
     alive = BitVector([net.takes[t] & face == 0 for t in 1:nt])
     closed = _closed_classes(net, alive)
-    zeroed = [n for n in axes(net.change, 1) if (face >> (n - 1)) & 1 == 1]
+    zeroed = [n for n in axes(net.change, 1) if _zeroes(face, n)]
     adjacent = [Int[] for _ in 1:nn]
     for t in 1:nt
         net.fast[t] && push!(adjacent[net.from[t]], t)
@@ -847,15 +849,22 @@ function _residue!(r::_ResidueStream)
     Int64(2 + (z ⊻ (z >> 31)) % UInt64(_P61 - 3))
 end
 
-"""`A \\ B` mod p for square `A`; an empty matrix when `A` is singular."""
+"""`(A \\ B, det(A))` mod p for square `A`, by Gauss–Jordan elimination: the determinant is
+the product of the pivots, its sign flipped by each row swap; `A \\ B` is an empty matrix,
+and the determinant 0, when `A` is singular."""
 function _solvep(A::Matrix{Int64}, B::Matrix{Int64})
     n = size(A, 1)
     M = hcat(A, B)
+    d = Int64(1)
     for j in 1:n
         k = findfirst(i -> M[i, j] != 0, j:n)
-        k === nothing && return Matrix{Int64}(undef, 0, 0)
+        k === nothing && return Matrix{Int64}(undef, 0, 0), Int64(0)
         k += j - 1
-        k != j && (M[[j, k], :] = M[[k, j], :])
+        if k != j
+            M[[j, k], :] = M[[k, j], :]
+            d = _subp(Int64(0), d)
+        end
+        d = _mulp(d, M[j, j])
         pivot = _invp(M[j, j])
         for c in j:size(M, 2)
             M[j, c] = _mulp(M[j, c], pivot)
@@ -868,40 +877,15 @@ function _solvep(A::Matrix{Int64}, B::Matrix{Int64})
             end
         end
     end
-    M[:, (n + 1):end]
-end
-
-"""The determinant of `A` mod p."""
-function _detp(A::Matrix{Int64})
-    n = size(A, 1)
-    M = copy(A)
-    d = Int64(1)
-    for j in 1:n
-        k = findfirst(i -> M[i, j] != 0, j:n)
-        k === nothing && return Int64(0)
-        k += j - 1
-        if k != j
-            M[[j, k], :] = M[[k, j], :]
-            d = _subp(Int64(0), d)
-        end
-        d = _mulp(d, M[j, j])
-        pivot = _invp(M[j, j])
-        for i in (j + 1):n
-            M[i, j] == 0 && continue
-            f = _mulp(M[i, j], pivot)
-            for c in j:n
-                M[i, c] = _subp(M[i, c], _mulp(f, M[j, c]))
-            end
-        end
-    end
-    d
+    M[:, (n + 1):end], d
 end
 
 """The stationary distribution mod p of the chain with off-diagonal rates `R[i, j]`
-(`i → j`) and one closed class covering every state; empty when singular."""
+(`i → j`) and one closed class covering every state, and the determinant of the system that
+gives it (the generator's transpose, its last row ones); empty, and 0, when singular."""
 function _stationaryp(R::Matrix{Int64})
     n = size(R, 1)
-    n == 1 && return Int64[1]
+    n == 1 && return Int64[1], Int64(1)
     A = zeros(Int64, n, n)
     for i in 1:n, j in 1:n
         i == j && continue
@@ -911,8 +895,8 @@ function _stationaryp(R::Matrix{Int64})
     A[n, :] .= 1
     b = zeros(Int64, n, 1)
     b[n] = 1
-    x = _solvep(A, b)
-    isempty(x) ? Int64[] : vec(x)
+    x, d = _solvep(A, b)
+    vec(x), d
 end
 
 # Polynomials mod p: coefficient vectors, constant term first.
@@ -1065,8 +1049,8 @@ function _model_point(m::Mechanism, tags::Vector{Symbol}, ncopies::Int, face::UI
     re = [_residue!(rng) for _ in m.edges, _ in 1:ncopies]
     flip = _residue!(rng)
     L = ncopies == 2 ? _mulp(x[1], _invp(x[nf + 1])) : Int64(1)
-    conc = [(face >> (n - 1)) & 1 == 1 ? Int64(0) : _residue!(rng) for n in 1:nnames]
-    concw = [(face >> (n - 1)) & 1 == 1 ? Int64(1) : conc[n] for n in 1:nnames]
+    conc = [_zeroes(face, n) ? Int64(0) : _residue!(rng) for n in 1:nnames]
+    concw = [_zeroes(face, n) ? Int64(1) : conc[n] for n in 1:nnames]
     (; K, ss, re, flip, L, conc, concw)
 end
 
@@ -1209,7 +1193,7 @@ function _limit_by_aggregation(m::Mechanism, net::_Network, s, pt, h::Vector{Int
                 rhs[slot[u], q] = _addp(rhs[slot[u], q], r[t])
             end
         end
-        X = _solvep(M, rhs)
+        X = first(_solvep(M, rhs))
         isempty(X) && error("_face_limit_check: singular absorption system")
     end
     Q = zeros(Int64, length(R), length(R))
@@ -1228,7 +1212,7 @@ function _limit_by_aggregation(m::Mechanism, net::_Network, s, pt, h::Vector{Int
             end
         end
     end
-    mu = _stationaryp(Q)
+    mu = first(_stationaryp(Q))
     isempty(mu) && error("_face_limit_check: singular aggregated chain")
     rho = _slow_rho(net, r, h, x1)
     v = Int64(0)
@@ -1256,17 +1240,11 @@ function _limit_by_interpolation(m::Mechanism, net::_Network, s, pt, h::Vector{I
             a, b = pos[net.from[t]], pos[net.to[t]]
             s.alive[t] && r[t] != 0 && a > 0 && b > 0 && a != b || continue
             Q[a, b] = _addp(Q[a, b], r[t])
-            Q[a, a] = _subp(Q[a, a], r[t])
         end
-        A = permutedims(Q)
-        A[n, :] .= 1
-        rhs = zeros(Int64, n, 1)
-        rhs[n] = 1
-        x = _solvep(A, rhs)
+        x, D = _stationaryp(Q)
         isempty(x) && error("_face_limit_check: singular at a random Λ")
         rho = _slow_rho(net, r, h, x1)
-        v = reduce(_addp, (_mulp(x[pos[u], 1], rho[u]) for u in C); init = Int64(0))
-        D = _detp(A)
+        v = reduce(_addp, (_mulp(x[pos[u]], rho[u]) for u in C); init = Int64(0))
         push!(xs, Λ)
         push!(Ds, D)
         push!(Ns, _mulp(D, v))
@@ -1304,7 +1282,7 @@ function _law_on_face(m::Mechanism, net::_Network, s, pt, h::Vector{Int}, x1::In
         at[sb] == 0 && error("_face_limit_check: the law's closed class is not closed")
         Q[at[sa], at[sb]] = _addp(Q[at[sa], at[sb]], _mulp(share[u], r[t]))
     end
-    mu = _stationaryp(Q)
+    mu = first(_stationaryp(Q))
     isempty(mu) && error("_face_limit_check: singular law segment chain")
     rho = _slow_rho(net, r, h, x1)
     v = Int64(0)
@@ -1328,7 +1306,7 @@ function _law_inside(m::Mechanism, net::_Network, s, pt, conc::Vector{Int64},
         a == b && continue
         Q[a, b] = _addp(Q[a, b], _mulp(_mulp(w[net.from[t]], W[a]), r[t]))
     end
-    mu = _stationaryp(Q)
+    mu = first(_stationaryp(Q))
     isempty(mu) && error("_face_limit_check: singular segment chain")
     rho = _slow_rho(net, r, h, x1)
     v = Int64(0)
@@ -1348,8 +1326,8 @@ function _law_by_reconstruction(m::Mechanism, net::_Network, s, pt, h::Vector{In
     for _ in 1:2
         direction = [_residue!(rng) for _ in pt.conc]
         law_at(δ) = _law_inside(m, net, s, pt,
-                                [(face >> (n - 1)) & 1 == 1 ? _mulp(direction[n], δ) :
-                                 pt.conc[n] for n in eachindex(pt.conc)], h, x1)
+                                [_zeroes(face, n) ? _mulp(direction[n], δ) : pt.conc[n]
+                                 for n in eachindex(pt.conc)], h, x1)
         num, den = _reconstructp(law_at, rng)
         isempty(den) && error("_face_limit_check: no reconstruction under the degree cap")
         (a, lead_num), (b, lead_den) = _plowp(num), _plowp(den)
