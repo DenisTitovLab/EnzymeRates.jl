@@ -934,7 +934,38 @@ _testhelper_step_built(raw::EnzymeRates.RawAllostericMechanism) =
 @testset "the graph orients as the Step types do where tier 3 and tied groups decide" begin
     # No spec and no census population holds a step that only form order orients or a
     # tied group whose alignment turns a step, so these cases are compared here, each in
-    # two writings.
+    # two writings, and each case's canonical text is pinned.
+    ss_text = ["substrates: S | products: P",
+               "forms: E, ES, F, FP, FS",
+               "1: E + S <--> ES | group 1",
+               "2: ES <--> FS | group 2",
+               "3: F <--> E | group 3",
+               "4: F + P <--> FP | group 4",
+               "5: FS <--> FP | group 5"]
+    tied_text = ["substrates: A | products: P | modifiers: I, J",
+                 "forms: E, EA, EAI, EI, EJ, EJP, EP, F, FI, FJ",
+                 "1: E + A <--> EA | group 1",
+                 "2: E + I ⇌ EI | group 2",
+                 "3: EA <--> EP | group 3",
+                 "4: EI + A ⇌ EAI | group 4",
+                 "5: EJ + I <--> EI + J | group 5",
+                 "6: EJ + P ⇌ EJP | group 6",
+                 "7: F <--> E | group 7",
+                 "8: F + P <--> EP | group 8",
+                 "9: F + I ⇌ FI | group 2",
+                 "10: FI <--> EI | group 7",
+                 "11: FJ + I <--> FI + J | group 5"]
+    allosteric_text = ["substrates: A | products: P | modifiers: I, J",
+                       "forms: E, EA, EI, EJ, EP, F, FI, FJ",
+                       "1: E + A <--> EA | group 1 :: EqualAI",
+                       "2: E + I ⇌ EI | group 2 :: EqualAI",
+                       "3: EA <--> EP | group 3 :: EqualAI",
+                       "4: EI + J <--> EJ + I | group 4 :: NonequalAI",
+                       "5: F ⇌ E | group 5 :: EqualAI",
+                       "6: F + P <--> EP | group 6 :: EqualAI",
+                       "7: F + I ⇌ FI | group 2 :: EqualAI",
+                       "8: FI + J <--> FJ + I | group 4 :: NonequalAI",
+                       "catalytic_multiplicity: 1"]
     _testhelper_tied_steps(iso, exchange) = :(begin
         E + A <--> E(A)
         E(A) <--> E(P)
@@ -978,9 +1009,11 @@ _testhelper_step_built(raw::EnzymeRates.RawAllostericMechanism) =
             steps: $(_testhelper_tied_steps(iso, exchange))
         end))
     end
-    for raw in _testhelper_walk.(blocks)
+    texts = [ss_text, ss_text, tied_text, tied_text]
+    for (raw, text) in zip(_testhelper_walk.(blocks), texts)
         @test _testhelper_graph_view(RG.Mechanism(raw)) ==
               _testhelper_step_view(_testhelper_step_built(raw))
+        @test _testhelper_canonical_text(RG.Mechanism(raw)) == text
     end
     for exchange in (:((E(I) + J <--> E(J) + I, F(I) + J <--> F(J) + I)),
                      :((F(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)))
@@ -999,6 +1032,7 @@ _testhelper_step_built(raw::EnzymeRates.RawAllostericMechanism) =
         end); allosteric = true)
         @test _testhelper_graph_view(RG.AllostericMechanism(raw)) ==
               _testhelper_step_view(_testhelper_step_built(raw))
+        @test _testhelper_canonical_text(RG.AllostericMechanism(raw)) == allosteric_text
     end
 end
 
