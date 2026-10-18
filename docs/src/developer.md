@@ -14,10 +14,10 @@ The two halves and the optimizer layer are described below.
 A mechanism's rate equation is derived once, at compile time, by the
 King–Altman/Cha method in `@generated` functions (`src/rate_eq_derivation.jl`).
 To make that possible, a mechanism is encoded as a **singleton type** — the
-exported `EnzymeMechanism{Sig}` or `AllostericEnzymeMechanism{CatalyticMech,
-CatSites, RegSites}` (`src/types.jl`) — that carries all of the mechanism's
-structure as Julia type parameters, canonicalized so that the order or direction
-in which the steps were written does not change the resulting type. The compiler
+exported `EnzymeMechanism{Sig}` or `AllostericEnzymeMechanism{Sig}`
+(`src/types.jl`) — whose one type parameter, `Sig`, encodes the mechanism's canonical
+reaction graph as a tuple of integers (`_sig_of`), so the order or direction in which
+the steps were written does not change the resulting type. The compiler
 specializes the derivation per type, so the symbolic King–Altman work runs
 during precompilation rather than at every call.
 
@@ -47,18 +47,17 @@ enzyme forms or steps can be slow to compile, exhaust memory, or `StackOverflow`
 `compile_mechanism` (internal) is the boundary between the two representations:
 `compile_mechanism(m::Mechanism) = EnzymeMechanism(m)` and
 `compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)`. The
-lift `EnzymeMechanism(m::Mechanism)` first drops regulators declared on the
-reaction but bound by no step, so they add no parameter and the reaction of
-`Mechanism(em)`, which lifts back, does not list them.
+lifts back, `Mechanism(em)` and `AllostericMechanism(aem)`, decode the Sig
+(`_mechanism_from_sig`) into the mechanism it encodes, so a mechanism survives the round
+trip unchanged; decoding checks nothing, since only `_sig_of` writes a Sig.
 
 Only the `@generated` methods (`rate_equation`, `parameters`, `fitted_params`,
 `metabolites`) do work per singleton type: `rate_equation` runs the derivation,
 `fitted_params` and `parameters` run its constraint solve, and `metabolites` reads names off
-the lifted mechanism. The lifts `Mechanism(em)` and `AllostericMechanism(aem)` read the type
-parameters at run time, and the derivation helpers that take a singleton or its type take it
-`@nospecialize`, so they compile once for all mechanisms. A new mechanism type then pays for
-its generated bodies and the derivation they run, plus a few thin methods that still
-specialize on it: `show`, `catalytic_mechanism` and `catalytic_multiplicity`.
+the lifted mechanism. The lifts read the Sig at run time, and the derivation helpers that
+take a singleton or its type take it `@nospecialize`, so they compile once for all
+mechanisms. A new mechanism type then pays for its generated bodies and the derivation they
+run, plus `show`, which still specializes on it.
 `FittingProblem` and `loss!` specialize on the type on purpose: `loss!` then reads
 `fitted_params` and `metabolites` as constants and calls the generated `rate_equation`
 without dispatch. The optimizer never sees that type. `fit_rate_equation` takes its
@@ -71,87 +70,104 @@ the same way, so its search loop compiles once.
 ### The joint thermodynamic solve
 
 `_dependent_param_exprs` (`src/thermo.jl`) builds one integer system per mechanism
-(`_joint_system`): a column per constant of every step (`_Column`), with an inactive
-copy for each step of a `:NonequalAI` or `:OnlyA` group; a row per fundamental cycle
+(`_joint_system`): a column per constant of every edge (`_Column`), with an inactive
+copy for each edge of a `:NonequalAI` or `:OnlyA` group; a row per fundamental cycle
 and conformation, and a row tying each further member of a kinetic class to its first.
-It orders the columns by `_priority_key` and reduces the system exactly
-(`_reduce_joint_system`: `Rational{Int}`, redone in `Rational{BigInt}` on overflow).
-Pivot columns are dependents. Columns outside the inactive conformation's law (an
-`:OnlyA` step's inactive copy, a step on a form the inactive conformation cannot reach)
-come first, so no kept dependent reads them. Each class is named after its member that
-comes last in that order (`_kept_members`), through the `name(p, m)` chokepoint. The
-engine derives each conformation's polynomials from `(reaction, groups, names)`; the
-inactive one reads `_inactive_groups(am)`, whose steps are the mechanism's own in their
-stored direction, so it keeps the mechanism's orientation and names. Three keys decide
-the order and the direction it reads. The canonical form order (`_form_index_key`: free
-E first, then the form's base-name key) orients the steps that neither chemistry nor
-graph context orients, and the lead of a tied group (`_step_index_key`) turns the
-group's other tied steps to match it. The order's last tie-break reads the step in the
-solve's direction: its two forms' base-name keys (`_form_base_key`: conformation
-label, bound metabolites, residual names), then the metabolites it takes up and gives
-off. `_metabolites_key` writes each such metabolite as its name and whether it binds
-as a modifier copy. These keys decide the dependents and so the fitted names, so any
-rewrite of the mechanism types must order forms, lead tied groups and encode
-metabolites exactly as they do.
+It orders the columns by `_priority_key` (`_ordered_columns`) and reduces the system
+exactly (`_reduce_joint_system`: `Rational{Int}`, redone in `Rational{BigInt}` on
+overflow). Pivot columns are dependents. Columns outside the inactive conformation's law
+(an `:OnlyA` edge's inactive copy, an edge on a form the inactive conformation cannot
+reach) come first, so no kept dependent reads them. Each class is named after its member
+that comes last in that order (`_kept_members`), through the `name(p, m)` chokepoint. The
+engine derives each conformation's polynomials from the mechanism, a mask of the edges
+its law keeps (`_state_mask`; the inactive conformation's is `_inactive_mask(am)`) and
+the names of their constants (`_edge_names`). Every edge keeps its stored direction, so
+both conformations share the mechanism's orientation and names. The canonical form
+decides the order and the direction it reads: free E is form 1 and the other forms follow
+in content order (conformation label, bound metabolites, residual); an edge that neither
+chemistry nor graph context orients runs from the earlier form; and a tied group's lead
+turns the group's other tied edges to match it (`_align_tied_groups!`). The order's last
+tie-break reads each edge's content as stored: its forms' places in content order, then
+the metabolites it takes up and gives off (`_edge_base_rank`). The canonical form thus
+decides the dependents and so the fitted names: a change to it changes fitted names.
 
 ## Enumeration engine architecture
 
 Mechanism enumeration uses the **concrete types** `Mechanism` and
-`AllostericMechanism` (`src/types.jl`) — internal, not exported — built directly
-from `Step` and `Species` values. `Mechanism` has two semantic fields:
-`reaction::EnzymeReaction` and `steps::Vector{Vector{Step}}` — kinetic groups,
-one inner vector per group holding the steps that share that group's parameters.
-It also carries `naming`, a lazily filled cache of data derived from the steps (the
-rendered sides of each kinetic class's kept member), which takes no part in `==`, `hash`,
-the compiled type or display; `AllostericMechanism` carries the same cache.
-`Step` has `from_species`, `to_species`, `consumed`, `released`, and
-`is_equilibrium`: going from `from_species` to `to_species`, a step takes up the
-metabolites in `consumed` from solution and gives off those in `released`. Steps
-are classified by these lists. A binding takes up exactly one metabolite and gives
-off none (`bound_metabolite`, `is_binding`). It is plain when `to_species` is
-`from_species` with that metabolite added, the residual unchanged and the
-conformation free to change (`_binds_ligand`), and fused otherwise, as when the
-last substrate binds straight into the product-bound form
-(`E(A) + B → E(P, Q)`). The `Step` constructor rejects a binding whose forms
-match a plain binding by name but not by role, such as `E + P::Mod ⇌ E(P)`. An
-isomerization has both lists empty (`is_iso`); a
-Theorell–Chance step takes up one metabolite and gives off another. `_is_chemistry`
-is true for every step but a plain binding; the allosteric moves,
-`_onlya_haldane_violation`, the joint solve's priority (`_priority_key`) and
-`_fused_substrate_binding` read it to tell catalysis from binding. The derivation reads
-every binding alike, so a fused binding's rapid-equilibrium
-constant is a dissociation constant and its steady-state pair a binding and a
-release rate constant. Every step's constants are named by the two sides of its
-kinetic class's kept member — each side's enzyme form followed by its free
-metabolites (`K_ES_to_E_S` for `E + S ⇌ E(S)`, `K_EPQ_to_EA_B` for
-`E(A) + B ⇌ E(P, Q)`, `k_EA_B_to_EQ_P` for `E(A) + B <--> E(Q) + P`). Like the
-singleton types, these are canonicalized so
-that the order or direction in which steps are written does not change the
-resulting mechanism. The `Step` constructor stores a step that takes up nothing
-and gives off one metabolite as the binding it reverses, so every binding is
-stored with its metabolite consumed; the `Mechanism` and `AllostericMechanism`
-constructors orient every other step (`_canonical_step_direction`) and sort steps
-and groups. The steps of one group that metabolite progression leaves tied, such as
+`AllostericMechanism` (`src/types.jl`) — internal, not exported. A `Mechanism` is a
+reaction graph in canonical form: its sorted `substrates` and `products`; `table`, each
+metabolite entry its forms and steps hold, once, sorted by name and then by whether it
+binds as a modifier (`Met`), a reactant and its modifier copy being two entries;
+`conformations`, the sorted conformation labels; `forms` (`Form`: a label's index, and the
+entries it binds, adds and subtracts, each a packed count of table entries, `Counts`);
+`edges` (`Edge`: two form indices, the entries the step takes up and gives off, and its
+rapid-equilibrium flag); and `group[k]`, edge `k`'s kinetic group. It holds no reaction,
+and `==` and `hash` read its fields alone, alike in every process. An
+`AllostericMechanism` holds a catalytic `Mechanism`, one allosteric tag per kinetic
+group, the catalytic multiplicity and the regulatory sites.
+
+The macros, the parser and the enumeration moves write a mechanism as raw input
+(`RawMechanism` of `RawStep`s between `RawForm`s, and `RawAllostericMechanism`): its
+steps in written order and direction. `Mechanism(raw)` and `AllostericMechanism(raw)`
+build its canonical graph (`_canonicalize`) and check it. Going `from → to`, an edge takes
+up the entries in `consumed` and gives off those in `released`. Steps are classified by
+these counts. A binding takes up exactly one metabolite and gives off none
+(`_is_binding`). It is plain when its target form is its source form with that metabolite
+added, the residual unchanged and the conformation free to change (`_is_plain_binding`),
+and fused otherwise, as when the last substrate binds straight into the product-bound
+form (`E(A) + B → E(P, Q)`). The constructor rejects a binding whose forms match a plain
+binding by name but not by role, such as `E + P::Mod ⇌ E(P)`. An isomerization takes up
+and gives off nothing (`_is_iso`); a Theorell–Chance step takes up one metabolite and
+gives off another. `_is_chemistry` is true for every edge but a plain binding; the
+allosteric moves (`_chemistry_groups`), the `:OnlyA` test (`_onlya_offenders`), the joint
+solve's priority (`_priority_key`) and `_merged_complexes` read it to tell catalysis from
+binding. The derivation reads every binding alike, so a fused binding's rapid-equilibrium
+constant is a dissociation constant and its steady-state pair a binding and a release
+rate constant. Every step's constants are named by the two sides of its kinetic class's
+kept member — each side's enzyme form followed by its free metabolites (`K_ES_to_E_S` for
+`E + S ⇌ E(S)`, `K_EPQ_to_EA_B` for `E(A) + B ⇌ E(P, Q)`, `k_EA_B_to_EQ_P` for
+`E(A) + B <--> E(Q) + P`).
+
+Like the singleton types, the graph is canonical, so the order or direction in which
+steps are written does not change the resulting mechanism. `_canonicalize` stores free E
+first and the other forms in content order, and stores every edge in its
+physical-forward direction (`_orientation`): a step with one metabolite takes it up, so a
+release is stored as the binding it reverses; otherwise the side holding more substrates,
+then fewer products, comes first, then the form where only products enter or leave, and
+failing those the earlier form. It sorts the edges and numbers the kinetic groups by
+their first edge. The edges of one group that metabolite progression leaves tied, such as
 a conformational change and its mirror at inhibitor-bound forms, turn as one
-(`_orient_tied_steps`): each takes up and gives off the same metabolites, and each
-that changes conformation runs between the same two conformations in the same order,
-so the group's shared constants describe one physical direction. A tied step that
-keeps its conformation, such as one metabolite exchange at two conformations
-(`E(I) + J <--> E(J) + I` and `F(I) + J <--> F(J) + I`), turns by its metabolites
-alone. A group whose tied steps share no such direction is rejected. The `RegulatorySite`
-constructor sorts a site's ligands by name, and the `AllostericMechanism`
-constructor sorts the sites. The two mechanism constructors
-also enforce the kinetic-group rules. A group's steps take up and
-give off the same metabolites (`_step_kind`, the pair `(consumed, released)`) and
-carry one RE/SS flag (`_assert_uniform_groups`), so a fused and a plain binding
-of one metabolite may share a group and a Theorell–Chance step cannot share one
-with a binding. A reaction — the pair of a step's two sides — appears in one step
-of one group (`_assert_each_reaction_once`). No two distinct forms render one name
-(`_assert_distinct_form_names`): a form's name joins its conformation and bound
+(`_align_tied_groups!`): each takes up and gives off the same metabolites, and each that
+changes conformation runs between the same two conformations in the same order, so the
+group's shared constants describe one physical direction. A tied edge that keeps its
+conformation, such as one metabolite exchange at two conformations
+(`E(I) + J <--> E(J) + I` and `F(I) + J <--> F(J) + I`), turns by its metabolites alone.
+A group whose tied edges share no such direction is rejected. The `RegulatorySite`
+constructor sorts a site's ligands by name, and the `AllostericMechanism` constructor
+sorts the sites.
+
+The constructors check representation only (`_check_declarations`,
+`_check_representation`, and for an allosteric mechanism `_check_tags` and
+`_check_ligands`): names a metabolite can take and conformation labels shaped as labels,
+none a metabolite's name; every name the steps hold declared, and every declared name
+taken up, given off or bound by some step; residuals that add substrates and subtract
+products; the free form E (nothing bound, no residual), and edges that join every form to
+it. They also enforce the kinetic-group rules. A group's edges take up and give off the
+same entries and carry one RE/SS flag (`_check_uniform_groups`), so a fused and a plain
+binding of one metabolite may share a group and a Theorell–Chance step cannot share one
+with a binding. A reaction — the pair of an edge's two sides — appears in one edge
+(`_check_each_reaction_once`). No two distinct forms render one name
+(`_check_distinct_form_names`): a form's name joins its conformation and bound
 metabolites without a separator, so E with a metabolite `star` bound and the free
 conformation `Estar` would both be `Estar` and share their constants' names. Names that
 spell one string two ways, such as `NAD`, `P` and `NADP`, never reach the constructor:
 `@enzyme_reaction` and the mechanism macros reject them (`_check_uniquely_decodable`).
+Whether a mechanism's rate law is defined is the boundary check's question
+(`_check_well_posed`, `src/admission.jl`): no rapid-equilibrium segment lacks a bottom
+form, in the catalytic graph or the inactive conformation's; every free form lies in one
+rapid-equilibrium segment outside `:OnlyA` groups; and no `:OnlyA` binding leaves a
+thermodynamic cycle unsatisfiable. The macros, the parser, the enumerator's exits and
+every derivation entry run it; the constructors and the Sig decoder do not.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see
@@ -171,8 +187,9 @@ building the child, from a cycle basis computed once per parent
 (`_partition_independent_count`). For an `AllostericMechanism` it is the joint solve's
 count on the built child, which derives no rate polynomial (`_split_gain_test`). A
 candidate whose `:OnlyA` binding leaves a thermodynamic cycle unsatisfiable, which the
-constructor rejects, is never built: the move runs the constructor's own check
-(`_onlya_haldane_violation`) on its groups first, and the candidate counts as failed. The
+boundary check rejects, is never built: the move first runs that check's `:OnlyA` test
+(`_onlya_offenders`) on the parent's graph under the candidate's groups and tags, and the
+candidate counts as failed. The
 search extends a failed set by the splits of the groups that share its rapid-equilibrium
 segments, and a rejected one also by the splits of every `:OnlyA` group, since the split
 that balances its cycle may be steady state. The RE→SS move flips whole groups and
@@ -190,7 +207,7 @@ steady-state group with no such step exposes only the ratio of its constants, so
 flip set that leaves one counts as failed and is extended, and a split part with
 none is emitted at rapid equilibrium. A dead-end copy of a substrate or product
 is redundant, and never emitted, when in every conformation where it binds each of
-its complexes has a productive twin (a form bound to no competitive inhibitor, in
+its complexes has a productive twin (a form that holds no modifier, in
 the complex's rapid-equilibrium segment with its offsets, so the two weights are
 proportional: `_productive_twin`, tested over a group by `_all_twin`; every
 conformation holds its free enzyme, `_redundant_copy_groups`), and the dwell gauge,
@@ -198,7 +215,8 @@ which rescales each twin by
 its own factor and all of the copy's complexes by one factor, is consistent with
 every kinetic group's shared constants, the copy's own included, an `:EqualAI`
 group taking one rescaling in both conformations (`_gauge_rescaling`, bookkeeping
-over the steps); a copy whose complexes all have twins but whose gauge fails is
+over the edges whose classes, `_GaugeClass`, are a kinetic group's or a twin form's own,
+per conformation); a copy whose complexes all have twins but whose gauge fails is
 kept, since only the gauge proves the copy's constant invisible. The
 dead-end move skips a redundant placement, the split drops every child that holds
 a redundant copy group (a split can complete a gauge, and splitting a group that
@@ -242,11 +260,12 @@ that can give such a mechanism a non-hyperbolic catalytic scheme consult
 parent at multiplicity 1 only, and `_expand_re_to_ss` filters its emitted
 children. The predicate scores
 the rapid-equilibrium segment graph of the catalytic scheme, leaving out every
-step that touches a form carrying a declared inhibitor: for each substrate and
-product, a directed steady-state edge scores one if the step binds it in that
-direction plus the count the edge's source form carries beyond its segment's
-bottom form (`_re_segment_extras`, shared with `_bottomless_re_segment`), and a
-segment scores the most any of its forms carries. The equation's degree in the
+edge that touches a form holding a modifier, a reactant's modifier copy included: for
+each substrate and product, a directed steady-state edge scores one if it binds the
+metabolite in that direction plus the count the edge's source form carries beyond its
+segment's bottom form (the offsets of `_segments`, which the boundary check's
+`_bottomless_segment` also reads), and a segment scores the most any of its forms
+carries. The equation's degree in the
 metabolite is the best score over root segments and spanning arborescences toward
 the root; the predicate decides "at most 1" with reachability checks
 (`_all_reach`) rather than a max-arborescence solve, since a weight-2 pattern is

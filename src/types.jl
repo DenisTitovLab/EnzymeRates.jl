@@ -1435,8 +1435,9 @@ function _group_members(m::Mechanism)
 end
 _has_residual(f::Form) = f.added != 0 || f.subtracted != 0
 _is_binding(e::Edge) = e.released == 0 && total(e.consumed) == 1
-"""Whether edge `e` takes up and gives off nothing: an isomerization."""
+"""Whether edge `e`, or raw step `s`, takes up and gives off nothing: an isomerization."""
 _is_iso(e::Edge) = e.consumed == 0 && e.released == 0
+_is_iso(s::RawStep) = isempty(s.consumed) && isempty(s.released)
 """The entry a binding takes up; 0 for any other edge."""
 _bound_entry(e::Edge) = _is_binding(e) ? (trailing_zeros(e.consumed) >> 2) + 1 : 0
 """The entry binding `e` takes up and the bound entries of its two forms; the entry is 0

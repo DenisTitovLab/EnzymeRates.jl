@@ -1561,9 +1561,9 @@ end
     end
     @test ER._is_iso(m.edges[c.edge_of[3]]) && ER._is_iso(m.edges[c.edge_of[11]])
     # The copy's binding takes up an entry of its own, into a form of its own.
-    plain, copy = m.edges[c.edge_of[1]], m.edges[c.edge_of[10]]
-    @test m.table[ER._bound_entry(copy)] == A_copy &&
-          m.table[ER._bound_entry(plain)] == met(:A) && copy.to != plain.to
+    plain, copy_binding = m.edges[c.edge_of[1]], m.edges[c.edge_of[10]]
+    @test m.table[ER._bound_entry(copy_binding)] == A_copy &&
+          m.table[ER._bound_entry(plain)] == met(:A) && copy_binding.to != plain.to
 end
 
 @testset "the macros reject a binding that changes a metabolite's role" begin
@@ -1726,7 +1726,7 @@ end
     step_of(pred) = only(s for s in cat.steps if pred(s))
     bind_s = step_of(s -> s.consumed == [ER.Met(:S, false)])
     bind_p = step_of(s -> s.consumed == [ER.Met(:P, false)])
-    iso = step_of(s -> isempty(s.consumed) && isempty(s.released))
+    iso = step_of(ER._is_iso)
     # The catalytic steps written as `steps`, labelled `group`, every group :EqualAI.
     _testhelper_rebuild(steps, group) = _testhelper_thrown() do
         ER.AllostericMechanism(ER.RawAllostericMechanism(

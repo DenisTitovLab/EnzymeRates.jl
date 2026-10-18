@@ -125,7 +125,6 @@ function _catalytic_topologies(reaction::EnzymeReaction)
         isempty(_net_atoms(reaction, added, subtracted)) ? RawForm(:E, bound) :
             RawForm(:E, bound, added, subtracted)
     end
-    iso(s::RawStep) = isempty(s.consumed) && isempty(s.released)
 
     # Collect all complete catalytic paths as raw step lists. A route starts at free E,
     # binds substrates, isomerizes a substrate-bound form to a product-bound one, releases
@@ -186,7 +185,7 @@ function _catalytic_topologies(reaction::EnzymeReaction)
     # --- Group paths by isomerization pattern ---
     iso_groups = Dict{Set{RawStep}, Vector{Vector{RawStep}}}()
     for path in paths
-        push!(get!(iso_groups, Set(filter(iso, path)), Vector{RawStep}[]), path)
+        push!(get!(iso_groups, Set(filter(_is_iso, path)), Vector{RawStep}[]), path)
     end
 
     # --- Build topologies: union whole paths consistent with each
@@ -233,10 +232,10 @@ function _catalytic_topologies(reaction::EnzymeReaction)
             (isempty(topo_keys) || topo_keys ∈ seen_topos) && continue
             push!(seen_topos, topo_keys)
 
-            steps = sort!(collect(topo_keys); by = s -> (iso(s), form_pair(s)...))
+            steps = sort!(collect(topo_keys); by = s -> (_is_iso(s), form_pair(s)...))
 
             # The first iso step is the (single) SS step; every other step is RE.
-            iso_idx = findfirst(iso, steps)
+            iso_idx = findfirst(_is_iso, steps)
             push!(result, RawStep[RawStep(s.from, s.to, s.consumed, s.released,
                                           i != iso_idx) for (i, s) in enumerate(steps)])
         end
@@ -409,8 +408,8 @@ is a group of its own.
 """
 function _seed_groups(steps::Vector{RawStep})
     label = Dict{Tuple{Vector{Met}, Vector{Met}, Bool, Int}, Int}()
-    [get!(label, (s.consumed, s.released, s.rapid_equilibrium,
-                  isempty(s.consumed) && isempty(s.released) ? j : 0), length(label) + 1)
+    [get!(label, (s.consumed, s.released, s.rapid_equilibrium, _is_iso(s) ? j : 0),
+          length(label) + 1)
      for (j, s) in enumerate(steps)]
 end
 
@@ -753,11 +752,12 @@ function _has_vmax(m::Mechanism, re::BitVector, names::Vector{Symbol})
                                             for e in m.edges]))
 end
 
-"""Whether edge `e` of `m` is a fused binding of a substrate: a chemistry edge
-(`_is_chemistry`) that binds an entry of the mask `subs`. The form it enters is a merged
-complex."""
-_fused_substrate_binding(m::Mechanism, e::Edge, subs::Counts) =
-    _is_binding(e) && e.consumed & subs != 0 && _is_chemistry(m, e)
+"""The merged complexes of graph `m`, each once: the forms that a fused binding of a
+substrate enters, a chemistry edge (`_is_chemistry`) that binds an entry of the mask
+`subs`."""
+_merged_complexes(m::Mechanism, subs::Counts) =
+    unique(e.to for e in m.edges
+           if _is_binding(e) && e.consumed & subs != 0 && _is_chemistry(m, e))
 
 """Whether edge `e` takes up an entry of one of the masks `subs` and `prods` (a reactant
 of one side of the reaction) and gives off one of the other, as a Theorell–Chance step
@@ -789,8 +789,7 @@ function _chemistry_equilibrates_both_sides(m::Mechanism, re::BitVector)
     # outside every RE isomerization is a node of its own.
     isos = BitVector([re[k] && _is_iso(e) for (k, e) in enumerate(m.edges)])
     s = _segments(m, isos, isos)
-    merged = [e.to for e in m.edges if _fused_substrate_binding(m, e, subs)]
-    nodes = [s.segments; [[x] for x in merged if s.segment_of[x] == 0]]
+    nodes = [s.segments; [[x] for x in _merged_complexes(m, subs) if s.segment_of[x] == 0]]
     any(node -> releases(node, subs) && releases(node, prods), nodes) ||
         any(k -> re[k] && _crosses_sides(m.edges[k], subs, prods), eachindex(m.edges))
 end
@@ -822,7 +821,8 @@ edges never removes such a cycle, so a turnover cycle of the candidate fails bot
 """
 function _seed_candidate_screen(m::Mechanism)
     any(_is_iso, m.edges) &&
-        error("_seed_candidate_screen: a seed base holds no isomerization")
+        error("_seed_candidate_screen: the seed base holds an isomerization; a base " *
+              "has every isomerization merged")
     sign = _entry_signs(m)
     subs, prods = _names_mask(m, m.substrates), _names_mask(m, m.products)
     from = [e.from for e in m.edges]
@@ -831,7 +831,7 @@ function _seed_candidate_screen(m::Mechanism)
     touches(side) = BitVector([(e.consumed | e.released) & side != 0 for e in m.edges])
     sub_step, prod_step = touches(subs), touches(prods)
     crossing = BitVector([_crosses_sides(e, subs, prods) for e in m.edges])
-    complexes = unique(e.to for e in m.edges if _fused_substrate_binding(m, e, subs))
+    complexes = _merged_complexes(m, subs)
     leaves(x, side) = BitVector([e.to == x && e.consumed & side != 0 ||
                                  e.from == x && e.released & side != 0 for e in m.edges])
     exits = [(leaves(x, subs), leaves(x, prods)) for x in complexes]
@@ -850,54 +850,60 @@ function _seed_candidate_screen(m::Mechanism)
 end
 
 """
+The bases of the seed `m`'s variants, as raw input (`_raw`), the merged base first:
+merging every isomerization of `m` onto its product side (`_merge_isomerization`) and
+setting every step at rapid equilibrium gives the merged base; eliminating one merged
+complex with two steps (`_eliminate_form`) gives a Theorell–Chance base, one per complex
+that can be eliminated, in the order of the isomerizations.
+"""
+function _seed_bases(m::Mechanism)
+    raw = _raw(m)
+    isos = filter(_is_iso, raw.steps)
+    joined = foldl(_merge_isomerization, isos; init = raw)
+    merged = RawMechanism(joined.substrates, joined.products, joined.modifiers,
+                          RawStep[RawStep(s.from, s.to, s.consumed, s.released, true)
+                                  for s in joined.steps], joined.group)
+    RawMechanism[merged; filter(!isnothing, [_eliminate_form(merged, s.to) for s in isos])]
+end
+
+"""Whether the flags `re` make the merged base `base` its seed's lumping twin: each merged
+complex, forms `cx` of `base`, has two edges, both steady state and each alone in its
+group."""
+_lumping_twin(base::Mechanism, cx::Vector{Int}, re::BitVector) = all(cx) do f
+    at = findall(e -> f in (e.from, e.to), base.edges)
+    length(at) == 2 && all(k -> !re[k] && count(==(base.group[k]), base.group) == 1, at)
+end
+
+"""
 The merged and Theorell–Chance variants of the seed `m` of reaction `rxn`, whose atoms
-each base's edges must conserve. Merging every isomerization of `m` onto its product side
-(`_merge_isomerization`) and setting every step at rapid equilibrium gives the merged
-base; eliminating one merged complex with two steps (`_eliminate_form`) gives a
-Theorell–Chance base. MERGE and ELIM run on raw input (`_raw`), and each base is read as
-the graph `_canonicalize` gives it, unchecked; MERGE and ELIM conserve atoms, which each
+each base's edges must conserve. Each base (`_seed_bases`) is read as the graph
+`_canonicalize` gives it, unchecked; a base whose tied groups no orientation aligns raises
+the representation error (`_check_aligned`). MERGE and ELIM conserve atoms, which each
 base asserts. For each base, every inclusion-minimal set of its groups (`_minimal_flips`)
 whose flip to steady state gives a valid, flux-carrying, non-degenerate candidate is a
 variant: no rapid-equilibrium turnover cycle (`_re_turnover_cycle`), a maximal rate both
 ways (`_has_vmax`), no chemistry in equilibrium with both sides
 (`_chemistry_equilibrates_both_sides`), no bottomless segment, and every steady-state group
 carrying flux. The first three tests read index arrays (`_seed_candidate_screen`); the
-other two run only on a candidate that passes them. A merged variant whose every merged
-complex has both its steps steady state, each alone in its group, is skipped: the
-unmerged form with rapid-equilibrium flanks has its family at the same count. A base's
-groups come in canonical order, so the variants come in the order of their flip sets
-over those groups; each is built and checked.
+other two run only on a candidate that passes them. A merged variant that is its seed's
+lumping twin (`_lumping_twin`) is skipped: the unmerged form with rapid-equilibrium flanks
+has its family at the same count. A base's groups come in canonical order, so the
+variants come in the order of their flip sets over those groups; each is built and
+checked.
 """
 function _seed_variants(m::Mechanism, rxn::EnzymeReaction)
-    raw = _raw(m)
-    isos = filter(s -> isempty(s.consumed) && isempty(s.released), raw.steps)
-    joined = foldl(_merge_isomerization, isos; init = raw)
-    merged = RawMechanism(joined.substrates, joined.products, joined.modifiers,
-                          RawStep[RawStep(s.from, s.to, s.consumed, s.released, true)
-                                  for s in joined.steps], joined.group)
-    complexes = [s.to for s in isos]
-    eliminated = [_eliminate_form(merged, x) for x in complexes]
-    built = RawMechanism[merged; filter(!isnothing, eliminated)]
     variants = Mechanism[]
-    for (i, b) in enumerate(built)
+    for (i, b) in enumerate(_seed_bases(m))
         c = _canonicalize(b)
         _check_aligned(c.mechanism, c.misaligned)
         base = c.mechanism
         _assert_atom_conserving(base, rxn)
-        # The forms of the merged base that the merged complexes became (`form_of`, one
-        # entry per written step end); a merged variant is its seed's lumping twin when
-        # each has two edges, both steady state and each alone in its group.
-        ends = [f for s in b.steps for f in (s.from, s.to)]
-        cx = i == 1 ? [c.form_of[findfirst(==(x), ends)] for x in complexes] : Int[]
-        twin(re) = i == 1 && all(cx) do f
-            at = findall(e -> f in (e.from, e.to), base.edges)
-            length(at) == 2 && all(k -> !re[k] && count(==(base.group[k]), base.group) == 1,
-                                   at)
+        flips = _minimal_flips(_seed_candidate_screen(base), base)
+        if i == 1
+            cx = _merged_complexes(base, _names_mask(base, base.substrates))
+            filter!(re -> !_lumping_twin(base, cx, re), flips)
         end
-        for re in _minimal_flips(_seed_candidate_screen(base), base)
-            twin(re) && continue
-            push!(variants, Mechanism(_raw(base, re)))
-        end
+        append!(variants, [Mechanism(_raw(base, re)) for re in flips])
     end
     variants
 end
@@ -1577,9 +1583,7 @@ function _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism}
     sub_names = Set(name(s) for s in substrates(rxn))
     prod_names = Set(name(p) for p in products(rxn))
     modifiers = _modifier_mask(cm)
-    # The names bound as modifiers, read group by group in edge order.
-    bound_regs = Set{Symbol}(cm.table[i].name for k in _flat_edges(cm)
-                             for i in entries(cm.edges[k].consumed & modifiers))
+    bound_regs = _bound_comp_inhibitors(m)
     excluded = union(bound_regs, _bound_allo_regs(m))
     eligible_regs = [name(regulator(rm)) for rm in regulators(rxn)
                      if regulator(rm) isa CompetitiveInhibitor &&
@@ -2128,11 +2132,13 @@ _bound_allo_regs(::Mechanism) = Set{Symbol}()
 _bound_allo_regs(am::AllostericMechanism) =
     Set{Symbol}(lig for site in regulatory_sites(am) for lig in ligands(site))
 
-"""Names of the competitive inhibitors some step of `m` takes up as a modifier."""
+"""Names of the competitive inhibitors some step of `m` takes up as a modifier, collected
+group by group in edge order (`_flat_edges`)."""
 function _bound_comp_inhibitors(m::Union{Mechanism, AllostericMechanism})
     cm = catalytic(m)
     modifiers = _modifier_mask(cm)
-    Set{Symbol}(cm.table[i].name for e in cm.edges for i in entries(e.consumed & modifiers))
+    Set{Symbol}(cm.table[i].name for k in _flat_edges(cm)
+                for i in entries(cm.edges[k].consumed & modifiers))
 end
 
 """
