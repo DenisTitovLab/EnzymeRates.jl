@@ -140,11 +140,9 @@ end
         # product.
         pn = EnzymeRates.fitted_params(rob)
         rob_mech = EnzymeRates.Mechanism(rob)
-        release_p = only(s for (s, _) in EnzymeRates._flat_steps(rob_mech)
-                         if EnzymeRates.consumed(s) == [EnzymeRates.Product(:P)] &&
-                            isempty(EnzymeRates.bound(EnzymeRates.from_species(s))))
+        release_p = _testhelper_edge(rob_mech, "E + P <--> EP")
         slow = Set(EnzymeRates.name(c, rob_mech)
-                   for c in EnzymeRates._step_constants(release_p, :None))
+                   for c in EnzymeRates._edge_constants(rob_mech, release_p, :None))
         p = merge(NamedTuple{pn}(Tuple(k in slow ? 1e-3 : 1.0 for k in pn)),
                   (Keq = 1.0,))
         peak = EnzymeRates._peak_turnover(rob, p, (1e-12, 1e8))

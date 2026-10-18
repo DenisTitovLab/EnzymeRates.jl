@@ -23,8 +23,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   in parallel only across `pmap` workers, each of which builds its own problem.
 - **`eq_complexity_filter` counts only the active conformation of an allosteric
   mechanism.** `_eq_complexity` (`src/rate_eq_derivation.jl`) measures an allosteric
-  mechanism's V×τ on its active-state graph (`steps(am)`) alone, while the generated MWC
-  rate equation evaluates the polynomials of both conformations, so the filter
+  mechanism's V×τ on its catalytic graph, the active conformation, alone, while the
+  generated MWC rate equation evaluates the polynomials of both conformations, so the filter
   undercounts what an allosteric equation costs and can admit one that evaluates more
   terms than its limit.
 - **`BigInt` arithmetic inflates the GC's live-byte count.**

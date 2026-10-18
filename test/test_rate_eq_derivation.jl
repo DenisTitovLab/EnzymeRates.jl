@@ -919,12 +919,31 @@ const _testhelper_fused_cases = [
 @testset "a segment's root ties go to the canonical form order" begin
     # The root of a rapid-equilibrium segment is its form with the fewest bound
     # metabolites, then the one without a residual, then the first in the canonical form
-    # order (`_form_index_key`). There A's modifier copy comes before Ab, though the
-    # copy's internal name, EAinh, sorts after EAb.
-    a_copy = ER.Species(ER.Metabolite[ER.CompetitiveInhibitor(:A)], :E)
-    ab = ER.Species(ER.Metabolite[ER.Substrate(:Ab)], :E)
-    @test ER._segment_root([1, 2], [ab, a_copy]) == 2
-    @test ER._segment_root([1, 2], [a_copy, ab]) == 1
+    # order (its index). There A's modifier copy comes before Ab: the table sorts A's
+    # copy just after A, before Ab.
+    m = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, Ab
+        products: P
+        modifiers: A
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + Ab ⇌ E(A, Ab)
+            E(A, Ab) <--> E(P)
+            E(P) ⇌ E + P
+            E + A::Mod ⇌ E(A::Mod)
+            E + Ab ⇌ E(Ab)
+            E(Ab) + A ⇌ E(A, Ab)
+            E(A) <--> E(; residual = A - P) + P
+        end
+    end)
+    form(text) = only(f for f in eachindex(m.forms) if ER._form_name(m, f) == text)
+    a_copy, ab, e = form("EAmod"), form("EAb"), form("E")
+    @test a_copy < ab
+    @test ER._segment_root(m, [ab, a_copy]) == a_copy
+    @test ER._segment_root(m, [a_copy, ab]) == a_copy
+    # Fewer bound metabolites first, then no residual.
+    @test ER._segment_root(m, [ab, e]) == e
+    @test ER._segment_root(m, [form("E_res_plusA_minusP"), e]) == e
 end
 
 @testset "the free-enzyme weight is free E's weight in the reduced denominator" begin
@@ -2115,9 +2134,9 @@ v = E_total * ((k_A_ES_to_EP * S / K_A_ES_to_E_S - k_A_EP_to_ES * P / K_A_EP_to_
 end
 
 @testset "Parameter-struct allosteric helpers" begin
-    @testset "_step_names and _kreg_params" begin
+    @testset "_edge_names and _kreg_params" begin
         names_of(am, params) = [EnzymeRates.name(p, am) for p in params]
-        flat_names(am, state) = reduce(vcat, EnzymeRates._step_names(am, state))
+        flat_names(am, state) = reduce(vcat, EnzymeRates._edge_names(am, state))
         # :NonequalAI cat groups + :NonequalAI reg ligand → both conformations named.
         aem = @allosteric_mechanism begin
             substrates: S
@@ -2157,7 +2176,7 @@ end
             regulatory_site(1): R::OnlyA
         end
         am_skip = EnzymeRates.AllostericMechanism(aem_skip)
-        @test isempty(EnzymeRates._step_names(am_skip, :I))
+        @test all(isempty, EnzymeRates._edge_names(am_skip, :I))
         @test isempty(EnzymeRates._kreg_params(am_skip, :I))
         @test names_of(am_skip, EnzymeRates._kreg_params(am_skip, :A)) == [:K_A_Rreg]
 

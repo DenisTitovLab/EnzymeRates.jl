@@ -255,9 +255,9 @@ off, and `to_species` holding `from_species`'s metabolites plus that one with th
 same residual, the conformation free to change (`_binds_ligand`). Isomerizations,
 fused bindings (`E(A) + B → E(P, Q)`), Theorell–Chance steps and steps with several
 metabolites on a side are chemistry. The allosteric moves (`_expand_to_allosteric`,
-`_expand_change_allo_state`), `_onlya_haldane_violation`, the joint solve's priority
-(`_priority_key`) and `_fused_substrate_binding` read it to tell catalysis from
-binding."""
+`_expand_change_allo_state`), their `:OnlyA` test (`_onlya_haldane_violation`) and
+`_fused_substrate_binding` read it to tell catalysis from binding; code that reads the
+reaction graph asks `_is_chemistry(m, e)`."""
 function _is_chemistry(s::Step)
     m = bound_metabolite(s)
     m === nothing || !_binds_ligand(from_species(s), to_species(s), m)
@@ -266,11 +266,12 @@ end
 # Parameter family.
 abstract type Parameter end
 
-# Step-bound parameters: a rapid-equilibrium step's equilibrium constant, and a
-# steady-state step's forward and reverse rate constants.
-struct Krapid <: Parameter; step::Step; state::Symbol end
-struct Kfor   <: Parameter; step::Step; state::Symbol end
-struct Krev   <: Parameter; step::Step; state::Symbol end
+# Edge parameters: a rapid-equilibrium edge's equilibrium constant, and a steady-state
+# edge's forward and reverse rate constants, `edge` indexing the edges of a mechanism's
+# catalytic graph.
+struct Krapid <: Parameter; edge::Int; state::Symbol end
+struct Kfor   <: Parameter; edge::Int; state::Symbol end
+struct Krev   <: Parameter; edge::Int; state::Symbol end
 
 """
 Regulator-site parameter: the constant of the ligand named `ligand` in the A (active) or
@@ -1693,6 +1694,8 @@ function _group_members(m::Mechanism)
 end
 _has_residual(f::Form) = f.added != 0 || f.subtracted != 0
 _is_binding(e::Edge) = e.released == 0 && total(e.consumed) == 1
+"""Whether edge `e` takes up and gives off nothing: an isomerization."""
+_is_iso(e::Edge) = e.consumed == 0 && e.released == 0
 """The entry a binding takes up; 0 for any other edge."""
 _bound_entry(e::Edge) = _is_binding(e) ? (trailing_zeros(e.consumed) >> 2) + 1 : 0
 """The entry binding `e` takes up and the bound entries of its two forms; the entry is 0
@@ -1719,7 +1722,8 @@ function _binds_by_name(m::Mechanism, e::Edge)
 end
 """Whether `e` of `m` is anything but a plain binding (`_is_plain_binding`): an
 isomerization, a fused binding (`E(A) + B → E(P, Q)`), a Theorell–Chance step or a step
-with several metabolites on a side."""
+with several metabolites on a side. The joint solve's priority (`_priority_key`) and the
+`:OnlyA` test (`_onlya_offenders`) read it to tell catalysis from binding."""
 _is_chemistry(m::Mechanism, e::Edge) = !_is_plain_binding(m, e)
 """The edges group by group, each group in edge order: the order the joint solve and the
 derivation read them in, which is the order of the Step views' steps (`steps`)."""
@@ -1728,6 +1732,22 @@ _flat_edges(m::Mechanism) = reduce(vcat, _group_members(m); init = Int[])
 _is_free(f::Form) = f.bound == 0 && !_has_residual(f)
 """Each edge's rapid-equilibrium flag."""
 _flags(m::Mechanism) = BitVector([e.rapid_equilibrium for e in m.edges])
+"""Whether edge `e` of `m` binds a product: it takes up one product, not as a modifier."""
+_binds_product(m::Mechanism, e::Edge) =
+    (i = _bound_entry(e); i != 0 && !m.table[i].modifier &&
+                          insorted(m.table[i].name, m.products))
+"""Each form's position in content order (`isless(::Form)`: label, bound, added,
+subtracted): its index, except that free E moves behind the forms whose label sorts before
+`E` (a free form labelled D)."""
+_base_rank(m::Mechanism) = invperm(sortperm(m.forms))
+"""Each edge's position by the base ranks (`_base_rank`) of its two forms, then its
+consumed and released entries as lists: the content order of the joint solve's ties
+(`_priority_key`)."""
+function _edge_base_rank(m::Mechanism)
+    rank = _base_rank(m)
+    invperm(sortperm([Edge(rank[e.from], rank[e.to], e.consumed, e.released,
+                           e.rapid_equilibrium) for e in m.edges]))
+end
 
 # Sub-graphs: a mask says which edges of a mechanism a sub-graph keeps, such as an
 # allosteric mechanism's inactive conformation. Nothing here constructs a mechanism, so no

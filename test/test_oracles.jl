@@ -423,7 +423,7 @@ end
         for m in _testhelper_population_one_round
             m isa EnzymeRates.AllostericMechanism || continue
             law_names = Set(n for state in (:A, :I)
-                            for ns in EnzymeRates._step_names(m, state) for n in ns)
+                            for ns in EnzymeRates._edge_names(m, state) for n in ns)
             reg = Set(EnzymeRates.name(p, m) for state in (:A, :I)
                       for p in EnzymeRates._kreg_params(m, state))
             fitted = EnzymeRates._dependent_param_exprs(m)[2]

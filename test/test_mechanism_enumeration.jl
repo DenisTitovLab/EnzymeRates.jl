@@ -7083,8 +7083,9 @@ allo_mechs = EnzymeRates._expand_to_allosteric(m_seed, uni_uni_allo_reg)
 # through the naming chokepoint) among the parameters. With every :OnlyA group of am
 # tagged :NonequalAI those names do appear, so the first assertion can fail.
 function _testhelper_test_no_inactive_constants(am, g)
-    i_names = EnzymeRates.name.(
-        EnzymeRates._step_constants(first(EnzymeRates.steps(am)[g]), :I), Ref(am))
+    cm = EnzymeRates.catalytic(am)
+    i_names = EnzymeRates.name.(EnzymeRates._edge_constants(
+        cm, first(EnzymeRates._group_members(cm)[g]), :I), Ref(am))
     @test isempty(intersect(i_names, parameters(EnzymeRates.compile_mechanism(am))))
     nonequal = EnzymeRates._with(am;
         states = replace(EnzymeRates.cat_allo_states(am), :OnlyA => :NonequalAI))
@@ -9267,9 +9268,9 @@ end
             append!(mechs, level)
         end
         unique!(mechs)
-        derived = Dict{Tuple{Symbol, Vector{Vector{EnzymeRates.Step}}}, Bool}()
-        _testhelper_state_hyperbolic(m, state) = get!(
-            derived, (state, EnzymeRates._state_groups(m, state))) do
+        derived = Dict{Tuple{Symbol, EnzymeRates.Mechanism, BitVector}, Bool}()
+        _testhelper_state_hyperbolic(m, state) = get!(derived,
+            (state, EnzymeRates.catalytic(m), EnzymeRates._state_mask(m, state))) do
             hyperbolic(EnzymeRates._state_rate_polys(m, state)[2], mets)
         end
         for m in mechs

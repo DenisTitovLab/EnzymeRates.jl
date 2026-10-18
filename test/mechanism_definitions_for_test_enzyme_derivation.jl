@@ -120,14 +120,16 @@ function _testhelper_graph(m)
     groups = EnzymeRates.steps(mech)
     forms = EnzymeRates._forms(groups)
     position = Dict(f => i for (i, f) in enumerate(forms))
-    sides = EnzymeRates._class_sides(mech)
+    cm = EnzymeRates.catalytic(mech)
+    kept = EnzymeRates._kept_members(mech)
     tags = allo ? copy(EnzymeRates.cat_allo_states(mech)) : Symbol[]
+    # The Step views' flat steps, and the edge each one views (`_flat_edges`).
     flat = EnzymeRates._flat_steps(groups)
-    _testhelper_names(s, state) = Symbol[EnzymeRates.name(p, mech, sides)
-                                         for p in EnzymeRates._step_constants(s, state)]
-    kept = allo ? EnzymeRates._inactive_groups(mech) : nothing
-    in_inactive(s, g) = allo && s in kept[g]
-    steps = map(flat) do (s, g)
+    edges = EnzymeRates._flat_edges(cm)
+    _testhelper_names(k, state) = Symbol[EnzymeRates.name(p, mech, kept)
+                                         for p in EnzymeRates._edge_constants(cm, k, state)]
+    in_law = allo ? EnzymeRates._inactive_mask(mech) : falses(length(cm.edges))
+    steps = map(zip(flat, edges)) do ((s, g), k)
         shared = allo && tags[g] === :EqualAI
         (from = position[EnzymeRates.from_species(s)],
          to = position[EnzymeRates.to_species(s)],
@@ -138,8 +140,8 @@ function _testhelper_graph(m)
          released_modifier = Bool[x isa EnzymeRates.CompetitiveInhibitor
                                   for x in EnzymeRates.released(s)],
          rapid_equilibrium = EnzymeRates.is_equilibrium(s), group = g,
-         names = _testhelper_names(s, !allo ? :None : shared ? :EqualAI : :A),
-         inactive_names = in_inactive(s, g) ? _testhelper_names(s, shared ? :EqualAI : :I) :
+         names = _testhelper_names(k, !allo ? :None : shared ? :EqualAI : :A),
+         inactive_names = in_law[k] ? _testhelper_names(k, shared ? :EqualAI : :I) :
                           Symbol[])
     end
     sites = [(multiplicity = EnzymeRates.multiplicity(site),
@@ -151,7 +153,7 @@ function _testhelper_graph(m)
      free = Bool[isempty(EnzymeRates.bound(f)) && isempty(EnzymeRates.residual(f))
                  for f in forms],
      steps, tags,
-     inactive = Int[j for (j, (s, g)) in enumerate(flat) if in_inactive(s, g)],
+     inactive = Int[j for (j, k) in enumerate(edges) if in_law[k]],
      catalytic_multiplicity = allo ? EnzymeRates.catalytic_multiplicity(mech) : nothing,
      sites, substrates = EnzymeRates.substrates(mech),
      products = EnzymeRates.products(mech), modifiers = EnzymeRates.modifiers(mech))

@@ -885,6 +885,29 @@ end
           ["E", "EIP", "EP"]
 end
 
+@testset "base ranks order forms and edges by content, free E among the forms" begin
+    # Free E is form 1, but by content it sorts after the free form D.
+    m = ER.Mechanism(_testhelper_walk(:(begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> D + P
+            D <--> E
+        end
+    end)))
+    @test [ER._form_name(m, f) for f in eachindex(m.forms)] == ["E", "D", "EA", "EP"]
+    @test ER._base_rank(m) == [2, 1, 3, 4]
+    # P enters at D and A at E, so the isomerization runs from D (orientation tier 2).
+    texts = [_testhelper_edge_text(m, k) for k in eachindex(m.edges)]
+    @test texts == ["E + A <--> EA", "D <--> E", "D + P <--> EP", "EA <--> EP"]
+    # By base rank the edges from D come first.
+    @test ER._edge_base_rank(m) == [3, 1, 2, 4]
+    @test [ER._is_iso(e) for e in m.edges] == [false, true, false, true]
+    @test [ER._binds_product(m, e) for e in m.edges] == [false, false, true, false]
+end
+
 """The graph whose Sig is `sig`, `x`'s kind of graph. `sig` is splatted with its length
 left open, as the lifts splat it, so the decoders compile once, whatever the Sig length."""
 _testhelper_decode(::ER.Mechanism, @nospecialize(sig)) = ER._mechanism_from_sig(sig...)

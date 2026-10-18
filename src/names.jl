@@ -44,7 +44,8 @@ _side_label(form::Species, mets::Vector{Metabolite}, ctx) =
 """
 The two sides of `s` in its stored direction, as parameter names write them for `ctx`
 (a mechanism or a reaction): `from_species` with the consumed metabolites, then
-`to_species` with the released ones. Every step constant is named after them.
+`to_species` with the released ones, as an edge's constants are named after its sides
+(`_sides`). The moves' emission rules name a kinetic group's steps by them.
 """
 _forward_sides(s::Step, ctx) =
     (_side_label(from_species(s), consumed(s), ctx),
@@ -131,46 +132,40 @@ The constant of the reaction `a → b`: `prefix`, the state tag, then
 _render_reaction(prefix::String, (a, b)::Tuple{String, String}, state::Symbol) =
     Symbol(prefix, _state_tag(state), a, "_to_", b)
 
-"""What `name(p, m, sides)` reads to name `m`'s constants: `groups`, `m`'s kinetic groups as
-`Step`s (`steps`), and `kept`, the `_forward_sides` of each kinetic class's kept member
-(`_kept_members`), keyed by `(group, slot, inactive)`. `name(p, m)` computes it for each
-call, so a caller that names many constants of one mechanism computes it once and passes
-it."""
-_class_sides(m::_AnyMech) = (groups = steps(m),
-    kept = Dict{Tuple{Int, Int, Bool}, Tuple{String, String}}(
-        k => _forward_sides(s, m) for (k, s) in _kept_members(m)))
-
 """
-The sides that name constant `slot` of `step` in `state`: those of the kept member of
-its kinetic class, from `sides` (`_class_sides(m)`). An `:EqualAI` step's constant is one
-class in both conformations; the inactive copy of an `:OnlyA` step is a class of its own,
-named after its own step. A slot the step's group has no class for (the reverse rate of
-a rapid-equilibrium step) takes the sides of its slot-1 class, so every parameter of
-every step renders.
+The sides that name constant `slot` of edge `k` of `m`'s catalytic graph in `state`: those
+of the kept member of its kinetic class (`kept`, `_kept_members(m)`). An `:EqualAI`
+edge's constant is one class in both conformations; the inactive copy of an `:OnlyA`
+edge is a class of its own, named after its own edge. A slot the edge's group has no
+class for (the reverse rate of a rapid-equilibrium edge) takes the sides of its slot-1
+class, so every parameter of every edge renders.
 """
-function _constant_sides(step::Step, slot::Int, state::Symbol, m::_AnyMech, sides)
-    g = findfirst(group -> step in group, sides.groups)
-    g === nothing && error("Step not found in mechanism: $step")
+function _constant_sides(m::_AnyMech, k::Int, slot::Int, state::Symbol,
+                         kept::Dict{Tuple{Int, Int, Bool}, Int})
+    cm = catalytic(m)
+    g = cm.group[k]
     tag = m isa AllostericMechanism ? cat_allo_state(m, g) : :None
-    state === :I && tag === :OnlyA && return _forward_sides(step, m)
+    state === :I && tag === :OnlyA && return _sides(cm, k)
     inactive = state === :I && tag === :NonequalAI
-    get(() -> sides.kept[(g, 1, inactive)], sides.kept, (g, slot, inactive))
+    _sides(cm, get(() -> kept[(g, 1, inactive)], kept, (g, slot, inactive)))
 end
 
-# Every step constant is named after the reaction of its class's kept member: a rate
+# Every edge constant is named after the reaction of its class's kept member: a rate
 # constant (`k_`) after the direction it drives, an equilibrium constant (`K_`) after
 # the direction whose products-over-reactants it is. A binding's K is named in the
 # release direction, so it is a dissociation constant (`K_ES_to_E_S`); an
-# isomerization's or other RE step's K in the stored direction (`K_ES_to_EP`). `sides`
-# is `_class_sides(m)`.
-name(p::Kfor, m::_AnyMech, sides = _class_sides(m)) =
-    _render_reaction("k_", _constant_sides(p.step, 1, p.state, m, sides), p.state)
-name(p::Krev, m::_AnyMech, sides = _class_sides(m)) =
-    _render_reaction("k_", reverse(_constant_sides(p.step, 2, p.state, m, sides)),
+# isomerization's or other RE step's K in the stored direction (`K_ES_to_EP`). `kept` is
+# `_kept_members(m)`, which a caller that names many constants of one mechanism computes
+# once and passes.
+name(p::Kfor, m::_AnyMech, kept = _kept_members(m)) =
+    _render_reaction("k_", _constant_sides(m, p.edge, 1, p.state, kept), p.state)
+name(p::Krev, m::_AnyMech, kept = _kept_members(m)) =
+    _render_reaction("k_", reverse(_constant_sides(m, p.edge, 2, p.state, kept)),
                      p.state)
-function name(p::Krapid, m::_AnyMech, sides = _class_sides(m))
-    s = _constant_sides(p.step, 1, p.state, m, sides)
-    _render_reaction("K_", is_binding(p.step) ? reverse(s) : s, p.state)
+function name(p::Krapid, m::_AnyMech, kept = _kept_members(m))
+    s = _constant_sides(m, p.edge, 1, p.state, kept)
+    _render_reaction("K_", _is_binding(catalytic(m).edges[p.edge]) ? reverse(s) : s,
+                     p.state)
 end
 
 """
@@ -182,17 +177,17 @@ name(p::Kreg, ::AllostericMechanism) =
     Symbol("K_", _state_tag(p.state), String(p.ligand), "reg")
 
 """
-The Parameter(s) governing step `s` with the given allosteric state, by
-`is_equilibrium(s)`. `_step_names` applies it to every step of one conformation, with
-that conformation's tag, `_column_parameter` picks a joint-solve column's, and
-`_onlya_haldane_violation` applies it to a group's first step to label the group.
+The Parameter(s) governing edge `k` of `m` in the given allosteric state, by its flag.
+`_edge_names` applies it to every edge of one conformation, with that conformation's
+tag, `_column_parameter` picks a joint-solve column's, and `_onlya_violation_message`
+applies it to a group's first edge to label the group.
 
-Returns 1 element for an RE step (`Krapid`) and 2 elements for an SS step
+Returns 1 element for an RE edge (`Krapid`) and 2 elements for an SS edge
 (`Kfor`+`Krev`). `name` renders a binding's `Krapid`, plain or fused, as a
-dissociation constant and every other step's — an isomerization, a Theorell–Chance
+dissociation constant and every other edge's — an isomerization, a Theorell–Chance
 step, a step with two metabolites on one side — as the equilibrium constant of its
 stored direction.
 """
-_step_constants(s::Step, state::Symbol) =
-    is_equilibrium(s) ? Parameter[Krapid(s, state)] :
-    Parameter[Kfor(s, state), Krev(s, state)]
+_edge_constants(m::Mechanism, k::Int, state::Symbol) =
+    m.edges[k].rapid_equilibrium ? Parameter[Krapid(k, state)] :
+                                   Parameter[Kfor(k, state), Krev(k, state)]

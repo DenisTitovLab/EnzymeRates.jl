@@ -954,16 +954,15 @@ end
         @test ER.from_species(ss_rev) === EP
     end
 
-    @testset "Parameter family: step constants and Kreg" begin
-        step = _testhelper_uniuni().bind
-
-        # One RE constant and one forward/reverse rate pair serve every kind of step.
+    @testset "Parameter family: edge constants and Kreg" begin
+        # One RE constant and one forward/reverse rate pair serve every kind of edge, each
+        # an edge of a mechanism's catalytic graph in one state.
         for T in (ER.Krapid, ER.Kfor, ER.Krev)
-            p = T(step, :None)
+            p = T(1, :None)
             @test p isa T
             @test p isa ER.Parameter
-            @test p == T(step, :None)
-            @test p != T(step, :I)
+            @test p == T(1, :None)
+            @test p != T(1, :I) && p != T(2, :None)
         end
 
         # A regulator constant is its ligand's in one state; it needs no site, since a
@@ -1477,14 +1476,12 @@ end
         end
         am = ER.AllostericMechanism(aem)
 
-        # Step-bound parameters. Group order is canonical, so pick the
-        # substrate-binding and iso steps by content.
-        reps = first.(ER.steps(am))
-        rep_bind = only(r for r in reps if ER.bound_metabolite(r) isa ER.Substrate)
+        # Edge parameters, edges of the catalytic graph picked by content.
+        rep_bind = _testhelper_edge(am, "E + S ⇌ ES")
         @test ER.name(ER.Krapid(rep_bind, :None), am) === :K_ES_to_E_S
         @test ER.name(ER.Krapid(rep_bind, :I), am) === :K_I_ES_to_E_S
 
-        rep_iso  = only(r for r in reps if ER.bound_metabolite(r) === nothing)
+        rep_iso = _testhelper_edge(am, "ES <--> EP")
         @test ER.name(ER.Kfor(rep_iso, :None), am) === :k_ES_to_EP
         @test ER.name(ER.Krapid(rep_iso, :None), am) === :K_ES_to_EP
         @test ER.name(ER.Krev(rep_iso, :None), am) === :k_EP_to_ES
@@ -1548,6 +1545,9 @@ end
     @testset "name(p::Parameter, m) chokepoint" begin
         (; rxn, bind, iso, rel) = _testhelper_uniuni()
         m = ER.Mechanism(rxn, [[bind], [iso], [rel]])
+        # Each Step as the edge of `m` it became.
+        bind, iso, rel = (_testhelper_edge(m, ER._step_text(s, m))
+                          for s in (bind, iso, rel))
 
         # Structural naming: every step constant encodes its reaction's two sides;
         # a binding K reads in the release direction, iso params in the stored one.
@@ -1584,8 +1584,10 @@ end
         m = ER.Mechanism(rxn, [[bind, bind_into_EP], [iso], [rel]])
 
         # Both steps bind S; rep = bind. Both yield the same name.
-        @test ER.name(ER.Krapid(bind, :None), m) === :K_ES_to_E_S
-        @test ER.name(ER.Krapid(bind_into_EP, :None), m) === :K_ES_to_E_S
+        @test ER.name(ER.Krapid(_testhelper_edge(m, "E + S ⇌ ES"), :None), m) ===
+              :K_ES_to_E_S
+        @test ER.name(ER.Krapid(_testhelper_edge(m, "EP + S ⇌ EPS"), :None), m) ===
+              :K_ES_to_E_S
     end
 end
 
@@ -1915,7 +1917,7 @@ end
     # reverses, E(Q) + P → E(A, B), so its forward rate constant binds P.
     mech = ER.Mechanism(m)
     i = only(i for (i, (s, _)) in enumerate(ER._flat_steps(mech)) if ER._is_chemistry(s))
-    kon, koff = ER._step_constants(first(ER._flat_steps(mech)[i]), :None)
+    kon, koff = ER._edge_constants(mech, ER._flat_edges(mech)[i], :None)
     @test kon isa ER.Kfor && koff isa ER.Krev
     @test ER.name(kon, mech) == :k_EQ_P_to_EAB && ER.name(koff, mech) == :k_EAB_to_EQ_P
     @test :k_E_A_to_EA in names && :k_EQ_to_E_Q in names
@@ -2122,7 +2124,7 @@ end
     i = only(i for (i, (s, _)) in enumerate(flat) if ER.is_iso(s))
     iso = first(flat[i])
     @test ER.name(ER.from_species(iso)) == :F && ER.name(ER.to_species(iso)) == :E
-    kf, kr = ER._step_constants(first(ER._flat_steps(m)[i]), :None)
+    kf, kr = ER._edge_constants(m, ER._flat_edges(m)[i], :None)
     @test ER.name(kf, m) == :k_F_to_E && ER.name(kr, m) == :k_E_to_F
 end
 
@@ -2444,8 +2446,8 @@ end
         [ER.Step(E, EstarA, [A], ER.Metabolite[], false)],
         [ER.Step(EA, EP, ER.Metabolite[], ER.Metabolite[], false)],
         [ER.Step(E, EP, [P], ER.Metabolite[], false)]])
-    names = [ER.name(p, m)
-             for g in ER.steps(m) for p in ER._step_constants(first(g), :None)]
+    names = [ER.name(p, m) for members in ER._group_members(m)
+             for p in ER._edge_constants(m, first(members), :None)]
     @test allunique(names)
     @test issubset([:k_E_A_to_EA, :k_E_A_to_EstarA], names)
     # The same binding in two groups, once written as its release: both would be
@@ -3084,9 +3086,9 @@ end
                                           EnzymeRates.catalytic_multiplicity(am1),
                                           copy(EnzymeRates.regulatory_sites(am1)))
     # Every parameter's name, which reads the mechanism and stores nothing in it.
-    _testhelper_param_names(m::EnzymeRates.Mechanism) = EnzymeRates._step_names(m, :None)
+    _testhelper_param_names(m::EnzymeRates.Mechanism) = EnzymeRates._edge_names(m, :None)
     _testhelper_param_names(m::EnzymeRates.AllostericMechanism) =
-        [[EnzymeRates._step_names(m, state) for state in (:A, :I)];
+        [[EnzymeRates._edge_names(m, state) for state in (:A, :I)];
          [[EnzymeRates.name(p, m)] for state in (:A, :I)
           for p in EnzymeRates._kreg_params(m, state)]]
     # `rebuilt` is `m` constructed again from its fields.
