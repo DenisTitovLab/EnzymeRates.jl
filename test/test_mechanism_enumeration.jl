@@ -8204,7 +8204,7 @@ end
     ER = EnzymeRates
     # The form named `nm` among the ends of `m`'s steps.
     _testhelper_form_called(m, nm) = only(unique(sp for g in ER.steps(m) for s in g
-        for sp in (ER.from_species(s), ER.to_species(s)) if ER.name(sp) == nm))
+        for sp in (ER.from_species(s), ER.to_species(s)) if ER._form_label(sp, m) == "$nm"))
     Ainh, Binh, Sinh, Qinh, I = ER.CompetitiveInhibitor.((:A, :B, :S, :Q, :I))
 
     # Ordered bi-bi. A copy of A at E has the composition of E(A), its twin; at E(Q)
@@ -9352,7 +9352,9 @@ end
             E(A, B) <--> E(P, Q)
         end
     end)
-    src_forms(part) = Set(EnzymeRates.name(EnzymeRates.from_species(s)) for s in part)
+    # The labels of the forms the steps of `part`, a part of mechanism `ctx`, start from.
+    _testhelper_src_forms(part, ctx) =
+        Set(Symbol(EnzymeRates._form_label(EnzymeRates.from_species(s), ctx)) for s in part)
     a_group = only(grp for grp in EnzymeRates.steps(m)
                    if length(grp) == 3 &&
                       EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp))) == :A)
@@ -9375,11 +9377,11 @@ end
     @test bps[1][2] == [p_step]
     @test bps[2][2] == [b_step]
     # By P: the P-free forms E, E(B) against the P-bound form E(P).
-    @test src_forms(bps[1][1]) == Set([:E, :EB])
-    @test src_forms(bps[1][2]) == Set([:EP])
+    @test _testhelper_src_forms(bps[1][1], m) == Set([:E, :EB])
+    @test _testhelper_src_forms(bps[1][2], m) == Set([:EP])
     # By B: the B-free forms E, E(P) against the B-bound form E(B).
-    @test src_forms(bps[2][1]) == Set([:E, :EP])
-    @test src_forms(bps[2][2]) == Set([:EB])
+    @test _testhelper_src_forms(bps[2][1], m) == Set([:E, :EP])
+    @test _testhelper_src_forms(bps[2][2], m) == Set([:EB])
     # _context_form: canonical RE binding puts the metabolite on to_species,
     # so the context form is from_species.
     @test EnzymeRates._context_form(first(a_group)) ==
@@ -9429,11 +9431,11 @@ end
     @test length(cube_bps) == 2
     # Both contexts are substrates, so they are ordered by name: B then C.
     # By B: the B-free forms E, E(C) against the B-bound forms E(B), E(B,C).
-    @test src_forms(cube_bps[1][1]) == Set([:E, :EC])
-    @test src_forms(cube_bps[1][2]) == Set([:EB, :EBC])
+    @test _testhelper_src_forms(cube_bps[1][1], cube) == Set([:E, :EC])
+    @test _testhelper_src_forms(cube_bps[1][2], cube) == Set([:EB, :EBC])
     # By C: the C-free forms E, E(B) against the C-bound forms E(C), E(B,C).
-    @test src_forms(cube_bps[2][1]) == Set([:E, :EB])
-    @test src_forms(cube_bps[2][2]) == Set([:EC, :EBC])
+    @test _testhelper_src_forms(cube_bps[2][1], cube) == Set([:E, :EB])
+    @test _testhelper_src_forms(cube_bps[2][2], cube) == Set([:EC, :EBC])
 
     # Residual as a context: Q binds free E, the modified enzyme, and the
     # modified enzyme with B bound. Context B divides {E, E(;res)} from
@@ -9454,10 +9456,12 @@ end
     q_group = only(grp for grp in EnzymeRates.steps(res) if length(grp) == 3)
     rbps = EnzymeRates._context_bipartitions(q_group)
     @test length(rbps) == 2
-    Er, EBr = Symbol("E_res_+A_-P"), Symbol("EB_res_+A_-P")
+    Er, EBr = :E_res_plusA_minusP, :EB_res_plusA_minusP
     # By B, then by the residual.
-    @test src_forms(rbps[1][1]) == Set([:E, Er]) && src_forms(rbps[1][2]) == Set([EBr])
-    @test src_forms(rbps[2][1]) == Set([:E]) && src_forms(rbps[2][2]) == Set([Er, EBr])
+    @test _testhelper_src_forms(rbps[1][1], res) == Set([:E, Er]) &&
+          _testhelper_src_forms(rbps[1][2], res) == Set([EBr])
+    @test _testhelper_src_forms(rbps[2][1], res) == Set([:E]) &&
+          _testhelper_src_forms(rbps[2][2], res) == Set([Er, EBr])
 
     # Residual contexts come in content order: by the names a residual adds, then by
     # those it subtracts. Q binds at E, at E(; residual = A - P) and at
@@ -9490,10 +9494,10 @@ end
     cbps = EnzymeRates._context_bipartitions(a_conf_group)
     @test length(cbps) == 2
     # By B, then by the conformation.
-    @test src_forms(cbps[1][1]) == Set([:E, :Estar])
-    @test src_forms(cbps[1][2]) == Set([:EstarB])
-    @test src_forms(cbps[2][1]) == Set([:E])
-    @test src_forms(cbps[2][2]) == Set([:Estar, :EstarB])
+    @test _testhelper_src_forms(cbps[1][1], conf) == Set([:E, :Estar])
+    @test _testhelper_src_forms(cbps[1][2], conf) == Set([:EstarB])
+    @test _testhelper_src_forms(cbps[2][1], conf) == Set([:E])
+    @test _testhelper_src_forms(cbps[2][2], conf) == Set([:Estar, :EstarB])
 end
 
 @testset "_context_bipartitions separates an inhibitor-bound mirror" begin

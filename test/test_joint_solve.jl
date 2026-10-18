@@ -423,7 +423,7 @@ end
         eac = only(f for f in forms if EnzymeRates.name.(EnzymeRates.bound(f)) == [:A, :C])
         eab = only(f for f in forms if EnzymeRates.name.(EnzymeRates.bound(f)) == [:AB])
         @test EnzymeRates._form_base_key(eac) < EnzymeRates._form_base_key(eab)
-        @test String(EnzymeRates.name(eac)) > String(EnzymeRates.name(eab))
+        @test EnzymeRates._form_label(eac, m) > EnzymeRates._form_label(eab, m)
     end
 
     @testset "content keys have one concrete type whatever a form holds" begin
