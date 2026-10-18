@@ -690,7 +690,8 @@ end
             E(S) <--> E(P)
             E(P) <--> E + P
         end)))
-    # No free E: no step at all, a free form labelled F, or E only with S or P bound.
+    # No free E: no step at all, a free form labelled F, E only with S or P bound, or E
+    # with nothing bound only where it holds a residual.
     no_free_E = ErrorException("Mechanism: no free enzyme form E; every mechanism holds " *
                                "the free form E, with nothing bound and no residual")
     @test_throws no_free_E ER.Mechanism(EnzymeRates.RawMechanism(
@@ -711,6 +712,19 @@ end
             F + S ⇌ E(S)
             E(S) <--> E(P)
             E(P) ⇌ F + P
+        end
+    end)))
+    # A ping-pong enzyme whose free form is F: every declared name takes part, and E
+    # with nothing bound appears only after A's chemistry has left its residual.
+    @test_throws no_free_E ER.Mechanism(_testhelper_walk(:(begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            F + A ⇌ F(A)
+            F(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> F(Q)
+            F(Q) ⇌ F + Q
         end
     end)))
     # Forms that no steps join to free E: an isomerization between unreached forms.
