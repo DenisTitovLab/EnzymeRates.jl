@@ -139,6 +139,32 @@ end
     @test (g.substrates, g.products, g.modifiers) == ([:A, :B], [:P, :Q], Symbol[])
     @test _testhelper_graph(EnzymeRates.Mechanism(pingpong)) == g
 
+    # A Theorell–Chance step takes up B and gives off P in one step, so its `released`
+    # holds a name; it runs physical-forward, B in and P out.
+    theorell_chance = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(Q) + P
+            E(Q) ⇌ E + Q
+        end
+    end
+    g = _testhelper_graph(theorell_chance)
+    @test g.forms == ["E", "EA", "EQ"]
+    @test g.steps == [
+        (from = 1, to = 2, consumed = [:A], released = Symbol[],
+         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+         group = 1, names = [:K_EA_to_E_A], inactive_names = Symbol[]),
+        (from = 1, to = 3, consumed = [:Q], released = Symbol[],
+         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+         group = 2, names = [:K_EQ_to_E_Q], inactive_names = Symbol[]),
+        (from = 2, to = 3, consumed = [:B], released = [:P], consumed_modifier = [false],
+         released_modifier = [false], rapid_equilibrium = false, group = 3,
+         names = [:k_EA_B_to_EQ_P, :k_EQ_P_to_EA_B], inactive_names = Symbol[])]
+    @test _testhelper_step_text.(Ref(g), g.steps) ==
+          ["E + A ⇌ EA", "E + Q ⇌ EQ", "EA + B <--> EQ + P"]
+
     # Two conformations, so two free forms: free E first, then F among the forms of F.
     two_free = @enzyme_mechanism begin
         substrates: S
@@ -155,7 +181,8 @@ end
     # An allosteric mechanism: the inactive conformation reaches neither E(P) nor E(I, P),
     # behind the :OnlyA binding of P and the :OnlyA chemistry, so its law keeps the I
     # binding at E and the S binding only. An :EqualAI group's constant takes one bare
-    # name in both conformations; an :OnlyA step's inactive copy is named after itself.
+    # name in both conformations; a step the inactive law does not keep has no inactive
+    # names.
     allo = @allosteric_mechanism begin
         substrates: S
         products: P
@@ -180,17 +207,16 @@ end
          names = [:K_A_EI_to_E_I], inactive_names = [:K_I_EI_to_E_I]),
         (from = 4, to = 3, consumed = [:I], released = Symbol[], consumed_modifier = [true],
          released_modifier = Bool[], rapid_equilibrium = true, group = 1,
-         names = [:K_A_EI_to_E_I], inactive_names = [:K_I_EI_to_E_I]),
+         names = [:K_A_EI_to_E_I], inactive_names = Symbol[]),
         (from = 1, to = 4, consumed = [:P], released = Symbol[],
          consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
-         group = 2, names = [:K_A_EP_to_E_P], inactive_names = [:K_I_EP_to_E_P]),
+         group = 2, names = [:K_A_EP_to_E_P], inactive_names = Symbol[]),
         (from = 1, to = 5, consumed = [:S], released = Symbol[],
          consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
          group = 3, names = [:K_ES_to_E_S], inactive_names = [:K_ES_to_E_S]),
         (from = 5, to = 4, consumed = Symbol[], released = Symbol[],
          consumed_modifier = Bool[], released_modifier = Bool[], rapid_equilibrium = false,
-         group = 4, names = [:k_A_ES_to_EP, :k_A_EP_to_ES],
-         inactive_names = [:k_I_ES_to_EP, :k_I_EP_to_ES])]
+         group = 4, names = [:k_A_ES_to_EP, :k_A_EP_to_ES], inactive_names = Symbol[])]
     @test g.tags == [:NonequalAI, :OnlyA, :EqualAI, :OnlyA]
     @test g.inactive == [1, 4]
     @test g.catalytic_multiplicity == 2

@@ -131,8 +131,8 @@ positional names a textbook rate law reads, by role. Written step `i` (in the or
 `raw`'s written steps) takes the constants of the edge it became (`_canonicalize`), in
 the written direction: `k{i}f` and `k{i}r` at steady state, and at rapid equilibrium
 `K{i}`, a binding's dissociation constant or, for any other step, the equilibrium
-constant of the written direction. The inactive conformation of a `:NonequalAI` group
-adds `k{i}f_T`, `k{i}r_T` or `K{i}_T`. No spec in `MECHANISM_TEST_SPECS` writes a
+constant of the written direction. The inactive law's kept steps in a `:NonequalAI` group
+add `k{i}f_T`, `k{i}r_T` or `K{i}_T`. No spec in `MECHANISM_TEST_SPECS` writes a
 non-binding step against its stored direction, so the suite never inverts `K` or swaps
 `k{i}f` and `k{i}r` for such a step. A ligand of regulatory site `j` (the written order
 of `raw`'s sites) gives `K_<ligand>_reg{j}` and, when its inactive conformation has a
@@ -156,16 +156,15 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
         tag = allo ? g.tags[s.group] : :None
         states = tag === :NonequalAI ? ((s.names, ""), (s.inactive_names, "_T")) :
                  ((s.names, ""),)
+        # A step the inactive law does not keep has no inactive constants.
         for (names, suffix) in states
+            isempty(names) && continue
             if s.rapid_equilibrium
-                key = only(names)
-                suffix == "_T" && !haskey(all_params, key) && continue
-                K = all_params[key]
+                K = all_params[only(names)]
                 push!(out, Symbol("K", i, suffix) =>
                     _testhelper_is_binding(s) || forward ? K : 1 / K)
             else
                 kf_key, kr_key = names
-                suffix == "_T" && !haskey(all_params, kf_key) && continue
                 kf = all_params[kf_key]
                 kr = all_params[kr_key]
                 f, r = forward ? (kf, kr) : (kr, kf)
