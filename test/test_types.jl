@@ -552,6 +552,25 @@ end
                 F <--> E          :: NonequalAI
             end
         end
+        # The message lists the free forms in the canonical form order, free E first,
+        # though D's label sorts before E's.
+        @test_throws ErrorException(
+            "AllostericMechanism: the free forms E, D are not joined by " *
+            "rapid-equilibrium steps outside :OnlyA groups. The conformations " *
+            "interconvert at one free form, so the other free forms must be in rapid " *
+            "equilibrium with it: join them by ⇌ steps outside :OnlyA groups, or keep " *
+            "one free form.") (
+            @allosteric_mechanism begin
+                substrates: S
+                products: P
+                catalytic_multiplicity: 2
+                steps: begin
+                    E + S ⇌ E(S)      :: EqualAI
+                    E(S) <--> E(P)    :: NonequalAI
+                    D + P ⇌ E(P)      :: EqualAI
+                    D <--> E          :: NonequalAI
+                end
+            end)
         # Every step at E is :OnlyA, so the inactive conformation keeps only F.
         @test_throws msg @allosteric_mechanism begin
             substrates: S
