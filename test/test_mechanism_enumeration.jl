@@ -8170,6 +8170,25 @@ end
     @test ER._productive_twin(ER.steps(iso_ss))(_testhelper_form_called(iso_ss, :E),
                                                 Sinh) === nothing
 
+    # Several forms can tie as twins. E ⇌ F and E ⇌ F2 put F(S) and F2(S) at the
+    # offsets of a copy of S at E, and no form holds the copy's composition, S at E.
+    # The twin is then the first of them in the canonical form order, F(S), though its
+    # internal name, FS, sorts after F2S.
+    tied = ER.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E ⇌ F
+            E ⇌ F2
+            F + S ⇌ F(S)
+            F2 + S ⇌ F2(S)
+            F(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    @test ER._productive_twin(ER.steps(tied))(_testhelper_form_called(tied, :E), Sinh) ==
+          _testhelper_form_called(tied, :FS)
+
     # A form of the complex's composition outside the site's segment is no twin. With
     # A bound at steady state, E(A) has the composition of E·A* but sits in another
     # segment, its weight set by the steady state rather than by K·A·[E]: the two

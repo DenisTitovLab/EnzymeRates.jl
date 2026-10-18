@@ -1249,15 +1249,15 @@ The productive form of `groups`, a form bound to no competitive inhibitor, whose
 is proportional to that of the complex `ligand` forms at `site` by a rapid-equilibrium
 step, or `nothing` when none is: a form of the site's rapid-equilibrium segment with the
 complex's offsets (`_re_segment_extras`), the one of the complex's composition when
-several are, else the first by name. Within a segment rapid equilibrium fixes each
-weight relative to another as a constant times the metabolites bound along the route
-between them, so equal offsets mean proportional weights, and steady-state data see only
-their sum. The offsets reach a copy across a rapid-equilibrium isomerization (a
-ping-pong second chemistry step, a conformational isomer), where no form shares the
-complex's composition. A form of the same composition in another segment, formed by a
-steady-state binding, is no twin: its weight is not a constant multiple of the
-complex's, merging the two is no reparameterization, and the copy's constant may stay
-visible.
+several are, else the first in the canonical form order (`_form_index_key`). Within a
+segment rapid equilibrium fixes each weight relative to another as a constant times the
+metabolites bound along the route between them, so equal offsets mean proportional
+weights, and steady-state data see only their sum. The offsets reach a copy across a
+rapid-equilibrium isomerization (a ping-pong second chemistry step, a conformational
+isomer), where no form shares the complex's composition. A form of the same composition
+in another segment, formed by a steady-state binding, is no twin: its weight is not a
+constant multiple of the complex's, merging the two is no reparameterization, and the
+copy's constant may stay visible.
 
 Only productive forms are twin sources, so the complex itself never is one. A complex
 that duplicates only a copy's complex shares its weight with that copy's constant, and
@@ -1280,7 +1280,7 @@ function _productive_twin(groups::Vector{Vector{Step}})
         isempty(twins) && return nothing
         wanted = composition(site, ligand)
         k = findfirst(t -> composition(t) == wanted, twins)
-        k === nothing ? argmin(name, twins) : twins[k]
+        k === nothing ? argmin(_form_index_key, twins) : twins[k]
     end
 end
 
