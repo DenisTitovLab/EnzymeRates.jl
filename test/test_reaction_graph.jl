@@ -1,6 +1,8 @@
 # ABOUTME: Tests of the reaction-graph mechanism types: content order and identity,
 # ABOUTME: canonical form and checks, agreement with today's types, the Sig and speed.
 
+using Statistics: median
+
 const RG = EnzymeRates.ReactionGraph
 
 """The counts of `list`, table entries listed with repeats."""
@@ -922,4 +924,16 @@ end
     @test length(unique(graphs)) == length(unique(population))
     @test all(_testhelper_decode(x, RG._sig_of(x)) == x for x in graphs)
     @test all(_testhelper_build(RG._raw(x)) == x for x in graphs)
+end
+
+@testset "the constructor builds a spec's graph in under 10 µs, the median over specs" begin
+    # Each spec's time per call is the best of five batches; the gate is on their median
+    # (R17: the design aims at about 2 µs and leaves room for shared CI runners).
+    per_call = map(MECHANISM_TEST_SPECS) do spec
+        _testhelper_build(spec.raw)
+        minimum(@elapsed(for _ in 1:200
+                             _testhelper_build(spec.raw)
+                         end) / 200 for _ in 1:5)
+    end
+    @test median(per_call) < 10e-6
 end
