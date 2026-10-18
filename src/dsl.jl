@@ -166,9 +166,10 @@ function _parse_chemical_formula(s::String)
      for m in eachmatch(r"([A-Z][a-z]*)(\d*)", s)]
 end
 
-"""`v` as an `Int`; errors unless it is a positive integer literal. `what` names it."""
-_positive_int(v, what) =
-    v isa Integer && v >= 1 ? Int(v) : error("$what must be a positive Int, got $v.")
+"""`v` as an `Int`; errors unless it is a positive integer literal, which `true` is not.
+`what` names it."""
+_positive_int(v, what) = v isa Integer && !(v isa Bool) && v >= 1 ? Int(v) :
+    error("$what must be a positive Int, got $v.")
 
 """
 Parse `R`, `R(1, 2)`, or `R(4)` entries, optionally tagged with a regulator

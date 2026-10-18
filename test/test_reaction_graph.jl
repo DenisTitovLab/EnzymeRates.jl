@@ -422,6 +422,13 @@ end
     @test_throws(ErrorException("AllostericMechanism: catalytic_multiplicity must be ≥ " *
                                 "1, got 0"),
                  _testhelper_allosteric(tags, 0, EnzymeRates.RawSite[]))
+    # A Bool is no multiplicity: each constructor takes an Int and converts no Bool.
+    @test_throws MethodError site([:R], true, [:OnlyA])
+    @test_throws MethodError EnzymeRates.RawAllostericMechanism(
+        _testhelper_uniuni_raw(), tags, true, EnzymeRates.RawSite[])
+    @test_throws MethodError EnzymeRates.RegulatorySite([:R], true, [:OnlyA])
+    @test_throws MethodError ER.AllostericMechanism(
+        ER.Mechanism(_testhelper_uniuni_raw()), tags, true, EnzymeRates.RegulatorySite[])
     @test_throws(ErrorException(
         "AllostericMechanism: catalytic group 2 has invalid allo state OnlyI (must be " *
         "one of (:OnlyA, :EqualAI, :NonequalAI)); :OnlyI is rejected for catalytic " *

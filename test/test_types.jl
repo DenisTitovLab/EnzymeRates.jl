@@ -1214,6 +1214,8 @@ end
                                         "be a nonempty list of distinct Ints ≥ 1, got $ms"),
                          ER.RegulatorMults(ER.AllostericRegulator(:A), ms))
         end
+        # A Bool is no multiplicity: the list is a Vector{Int}, and none is converted.
+        @test_throws MethodError ER.RegulatorMults(ER.AllostericRegulator(:A), Bool[true])
 
         # CompetitiveInhibitor also accepted
         rm_ci = ER.RegulatorMults(
@@ -1295,6 +1297,8 @@ end
                                     "must be a nonempty list of distinct Ints ≥ 1, got " *
                                     "[2, 2]"),
                      _testhelper_reaction([2, 2]))
+        # A Bool is no multiplicity: the list is a Vector{Int}, and none is converted.
+        @test_throws MethodError _testhelper_reaction(Bool[true])
     end
 
     @testset "pure conformational isomerization runs product-exit to substrate-entry" begin

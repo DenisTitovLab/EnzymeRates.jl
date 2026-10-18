@@ -650,6 +650,42 @@
                 end
                 regulatory_site(0): A::OnlyA
             end))
+        # `true` is no multiplicity, though Julia counts a Bool an integer.
+        @test_throws "regulator A multiplicity must be a positive Int, got true." eval(
+            :(@enzyme_reaction begin
+                substrates: S[C]
+                products:   P[C]
+                allosteric_regulators: A(true)
+            end))
+        @test_throws "`oligomeric_state:` entry must be a positive Int, got true." eval(
+            :(@enzyme_reaction begin
+                substrates: S[C]
+                products:   P[C]
+                oligomeric_state: true
+            end))
+        @test_throws "`catalytic_multiplicity:` must be a positive Int, got true." eval(
+            :(@allosteric_mechanism begin
+                substrates: S
+                products:   P
+                catalytic_multiplicity: true
+                steps: begin
+                    E + S ⇌ E(S)      :: EqualAI
+                    E(S) <--> E(P)    :: EqualAI
+                    E(P) ⇌ E + P      :: EqualAI
+                end
+            end))
+        @test_throws("`regulatory_site` multiplicity must be a positive Int, got true.",
+                     eval(:(@allosteric_mechanism begin
+                substrates: S
+                products:   P
+                allosteric_regulators: A
+                steps: begin
+                    E + S ⇌ E(S)      :: EqualAI
+                    E(S) <--> E(P)    :: EqualAI
+                    E(P) ⇌ E + P      :: EqualAI
+                end
+                regulatory_site(true): A::OnlyA
+            end)))
     end
 
     @testset "@enzyme_reaction regulator kinds" begin

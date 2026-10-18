@@ -788,21 +788,27 @@ struct RawMechanism
     group::Vector{Int}
 end
 
-"""A regulatory site as written: its ligands, its multiplicity and each ligand's tag."""
+"""A regulatory site as written: its ligands, its multiplicity (an `Int`; the constructor
+converts no `Bool`) and each ligand's tag."""
 struct RawSite
     ligands::Vector{Symbol}
     multiplicity::Int
     allo_states::Vector{Symbol}
+    RawSite(ligands::Vector{Symbol}, multiplicity::Int, allo_states::Vector{Symbol}) =
+        new(ligands, multiplicity, allo_states)
 end
 
 """An allosteric mechanism as written: its catalytic part, the tag of each written
-group label (`cat_allo_states[l]`), the catalytic multiplicity (1 when the DSL omits it)
-and the regulatory sites."""
+group label (`cat_allo_states[l]`), the catalytic multiplicity (an `Int`, 1 when the DSL
+omits it; the constructor converts no `Bool`) and the regulatory sites."""
 struct RawAllostericMechanism
     catalytic::RawMechanism
     cat_allo_states::Vector{Symbol}
     catalytic_multiplicity::Int
     sites::Vector{RawSite}
+    RawAllostericMechanism(catalytic::RawMechanism, cat_allo_states::Vector{Symbol},
+                           catalytic_multiplicity::Int, sites::Vector{RawSite}) =
+        new(catalytic, cat_allo_states, catalytic_multiplicity, sites)
 end
 
 # ─── The reaction graph ───────────────────────────────────────────────
