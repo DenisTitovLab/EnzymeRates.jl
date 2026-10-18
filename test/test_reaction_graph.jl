@@ -1,5 +1,5 @@
 # ABOUTME: Tests of the reaction-graph mechanism types: content order and identity,
-# ABOUTME: canonical form and checks, agreement with today's types, the Sig and speed.
+# ABOUTME: canonical form and checks, agreement with the Step types, the Sig and speed.
 
 using Statistics: median
 
@@ -330,7 +330,7 @@ _testhelper_walk(block; allosteric = false) =
     @test am.cat_allo_states == [:NonequalAI, :EqualAI, :OnlyA]
 end
 
-@testset "the constructors reject what no graph represents, with today's messages" begin
+@testset "the constructors reject what no graph represents, each with its message" begin
     _testhelper_uniuni_raw(; substrates = [:S], products = [:P], modifiers = Symbol[],
                            group = [1, 2, 3]) =
         EnzymeRates.RawMechanism(substrates, products, modifiers,
@@ -729,20 +729,20 @@ end
     @test am == before
 end
 
-# ── The graph against today's types ─────────────────────────────────────────
+# ── The graph against the Step types: mechanisms built from Step and Species ──
 
-"""Metabolite `x` of today's types as raw input: its name, and whether it binds as a
+"""Metabolite `x` of a `Species` as raw input: its name, and whether it binds as a
 modifier (a competitive-inhibitor copy)."""
 _testhelper_met(x) = EnzymeRates.Met(EnzymeRates.name(x),
                                      x isa EnzymeRates.CompetitiveInhibitor)
 
-"""Form `sp` of today's types as raw input."""
+"""Form `sp`, a `Species`, as raw input."""
 _testhelper_raw_form(sp) = EnzymeRates.RawForm(EnzymeRates.conformation(sp),
     EnzymeRates.Met[_testhelper_met(x) for x in EnzymeRates.bound(sp)],
     Symbol[EnzymeRates.name(x) for x in EnzymeRates.added(EnzymeRates.residual(sp))],
     Symbol[EnzymeRates.name(x) for x in EnzymeRates.subtracted(EnzymeRates.residual(sp))])
 
-"""The steps of today's mechanism `m` as raw input, written against the way `m` stores
+"""The steps of Step-type mechanism `m` as raw input, written against the way `m` stores
 them: in reverse order, each from its other end, each labelled with its kinetic group."""
 function _testhelper_raw_steps(m)
     flat = reverse(EnzymeRates._flat_steps(EnzymeRates.steps(m)))
@@ -756,7 +756,7 @@ function _testhelper_raw_steps(m)
         [g for (_, g) in flat])
 end
 
-"""Today's mechanism `m` as raw input (`_testhelper_raw_steps`); an allosteric one with
+"""Step-type mechanism `m` as raw input (`_testhelper_raw_steps`); an allosteric one with
 its tags, catalytic multiplicity and sites."""
 _testhelper_raw_of(m::EnzymeRates.Mechanism) = _testhelper_raw_steps(m)
 _testhelper_raw_of(am::EnzymeRates.AllostericMechanism) =
@@ -766,10 +766,9 @@ _testhelper_raw_of(am::EnzymeRates.AllostericMechanism) =
                              copy(EnzymeRates.allo_states(s)))
          for s in EnzymeRates.regulatory_sites(am)])
 
-"""Today's mechanism `m` (concrete or compiled) as `_testhelper_graph` reads it, without
-the constant names, which the graph does not render yet, and with its concentration
-names."""
-function _testhelper_today_view(m)
+"""Step-type mechanism `m` (concrete or compiled) as `_testhelper_graph` reads it, without
+the constant names and with its concentration names."""
+function _testhelper_step_view(m)
     g = _testhelper_graph(m)
     (forms = g.forms, free = g.free,
      steps = [(; s.from, s.to, s.consumed, s.released, s.consumed_modifier,
@@ -789,7 +788,7 @@ function _testhelper_edge_view(m::RG.Mechanism, k::Int)
      rapid_equilibrium = e.rapid_equilibrium, group = m.group[k])
 end
 
-"""Graph `x` read as `_testhelper_today_view` reads today's mechanism: its steps group
+"""Graph `x` read as `_testhelper_step_view` reads a Step-type mechanism: its steps group
 by group, each group in edge order."""
 function _testhelper_graph_view(x)
     m, allo = RG.catalytic(x), x isa RG.AllostericMechanism
@@ -806,8 +805,8 @@ function _testhelper_graph_view(x)
      modifiers = RG.modifiers(m), metabolites = RG.metabolites(x))
 end
 
-"""Today's mechanisms the regression census enumerates first: the init populations of
-its six reactions, then the children of every init mechanism of its bi-bi reaction."""
+"""The Step-type mechanisms the regression census enumerates first: the init populations
+of its six reactions, then the children of every init mechanism of its bi-bi reaction."""
 function _testhelper_census_population()
     reactions = [
         @enzyme_reaction(begin
@@ -881,13 +880,13 @@ function _testhelper_canonical_text(x)
     lines
 end
 
-@testset "the graph agrees with today's canonical form, in order" begin
+@testset "the graph agrees with the Step types' canonical form, in order" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         @test _testhelper_graph_view(_testhelper_build(spec.raw)) ==
-              _testhelper_today_view(spec.mechanism)
+              _testhelper_step_view(spec.mechanism)
     end
-    # The specs' canonical text, a blank line between specs, kept so the comparison
-    # outlives today's types.
+    # The specs' canonical text, a blank line between specs, kept as a fixture so the
+    # comparison holds without the Step types.
     text = reduce((a, b) -> [a; ""; b],
                   [["# $(spec.name)";
                     _testhelper_canonical_text(_testhelper_build(spec.raw))]
@@ -912,13 +911,13 @@ end
     x = RG.Mechanism(raw)
     @test x.conformations == [:D, :E] && x.forms[1:2] == [RG.Form(2, 0, 0, 0),
                                                           RG.Form(1, 0, 0, 0)]
-    @test _testhelper_graph_view(x) == _testhelper_today_view(EnzymeRates.Mechanism(raw))
+    @test _testhelper_graph_view(x) == _testhelper_step_view(EnzymeRates.Mechanism(raw))
     # The census's first populations, each written against its stored form; in
     # agreement, the graph also decodes from its Sig and from its raw form.
     population = _testhelper_census_population()
     graphs = [_testhelper_build(_testhelper_raw_of(m)) for m in population]
     disagree = [i for (i, (m, x)) in enumerate(zip(population, graphs))
-                if _testhelper_graph_view(x) != _testhelper_today_view(m)]
+                if _testhelper_graph_view(x) != _testhelper_step_view(m)]
     @test isempty(disagree)
     @test length(population) == 5508 + 5505
     @test length(unique(graphs)) == length(unique(population))
@@ -926,12 +925,12 @@ end
     @test all(_testhelper_build(RG._raw(x)) == x for x in graphs)
 end
 
-"""Today's mechanism that `raw` writes, built by today's constructors."""
-_testhelper_today(raw::EnzymeRates.RawMechanism) = EnzymeRates.Mechanism(raw)
-_testhelper_today(raw::EnzymeRates.RawAllostericMechanism) =
+"""The Step-type mechanism that `raw` writes, built by the Step types' constructors."""
+_testhelper_step_built(raw::EnzymeRates.RawMechanism) = EnzymeRates.Mechanism(raw)
+_testhelper_step_built(raw::EnzymeRates.RawAllostericMechanism) =
     EnzymeRates.AllostericMechanism(raw)
 
-@testset "the graph orients as today where tier 3 and tied groups decide" begin
+@testset "the graph orients as the Step types do where tier 3 and tied groups decide" begin
     # No spec and no census population holds a step that only form order orients or a
     # tied group whose alignment turns a step, so these cases are compared here, each in
     # two writings.
@@ -980,7 +979,7 @@ _testhelper_today(raw::EnzymeRates.RawAllostericMechanism) =
     end
     for raw in _testhelper_walk.(blocks)
         @test _testhelper_graph_view(RG.Mechanism(raw)) ==
-              _testhelper_today_view(_testhelper_today(raw))
+              _testhelper_step_view(_testhelper_step_built(raw))
     end
     for exchange in (:((E(I) + J <--> E(J) + I, F(I) + J <--> F(J) + I)),
                      :((F(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)))
@@ -998,7 +997,7 @@ _testhelper_today(raw::EnzymeRates.RawAllostericMechanism) =
             end
         end); allosteric = true)
         @test _testhelper_graph_view(RG.AllostericMechanism(raw)) ==
-              _testhelper_today_view(_testhelper_today(raw))
+              _testhelper_step_view(_testhelper_step_built(raw))
     end
 end
 
