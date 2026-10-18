@@ -923,6 +923,23 @@
                 products:   P[C]
                 oligomeric_state: 1, 2
             end""")))
+        # Each multiplicity once: a bare regulator takes the list as its own, so a
+        # repeat would give the regulator a list the reaction does not hold.
+        @test_throws("@enzyme_reaction: `oligomeric_state:` lists a multiplicity more " *
+                     "than once; got (2, 2).", eval(:(@enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+            allosteric_regulators: A
+            oligomeric_state: (2, 2)
+        end)))
+        @test_throws(ErrorException("RegulatorMults: A's allowed_multiplicities must be " *
+                                    "a nonempty list of distinct Ints ≥ 1, got [2, 2]"),
+                     @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+            allosteric_regulators: A(2, 2)
+            oligomeric_state: 2
+        end)
     end
 
     @testset "@enzyme_reaction shared_catalytic_site" begin

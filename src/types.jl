@@ -305,6 +305,12 @@ end
 metabolite(r::ReactantAtoms) = r.metabolite
 atoms(r::ReactantAtoms)      = r.atoms
 
+"""Error unless `ms`, the multiplicities `what` names, is a nonempty list of distinct Ints
+≥ 1, as a DSL text writes one."""
+_check_multiplicities(ms::Vector{Int}, what::String) =
+    !isempty(ms) && all(≥(1), ms) && allunique(ms) ||
+        error("$what must be a nonempty list of distinct Ints ≥ 1, got $ms")
+
 struct RegulatorMults
     regulator::Regulator
     allowed_multiplicities::Vector{Int}
@@ -312,9 +318,8 @@ struct RegulatorMults
     function RegulatorMults(regulator::Regulator,
                             allowed_multiplicities::Vector{Int},
                             reg_type::Symbol = :unspecified)
-        all(m -> m ≥ 1, allowed_multiplicities) ||
-            error("RegulatorMults: allowed_multiplicities must all be ≥ 1, " *
-                  "got $allowed_multiplicities")
+        _check_multiplicities(allowed_multiplicities,
+                              "RegulatorMults: $(name(regulator))'s allowed_multiplicities")
         reg_type in (:activator, :inhibitor, :unspecified) ||
             error("RegulatorMults: reg_type must be :activator, :inhibitor, or " *
                   ":unspecified, got $reg_type")
@@ -510,10 +515,9 @@ struct EnzymeReaction
         sorted_reactants = sort(reactants; by = ra -> name(metabolite(ra)))
         sorted_regulators = sort(regulators;
             by = rm -> (name(regulator(rm)), regulator(rm) isa AllostericRegulator))
-        sorted_mults = sort(unique(allowed_catalytic_multiplicities))
-        !isempty(sorted_mults) && all(m -> m ≥ 1, sorted_mults) ||
-            error("EnzymeReaction: allowed_catalytic_multiplicities must be a " *
-                  "nonempty list of Ints ≥ 1, got $allowed_catalytic_multiplicities")
+        _check_multiplicities(allowed_catalytic_multiplicities,
+                              "EnzymeReaction: allowed_catalytic_multiplicities")
+        sorted_mults = sort(allowed_catalytic_multiplicities)
 
         sub_names  = Symbol[name(metabolite(ra)) for ra in sorted_reactants
                             if metabolite(ra) isa Substrate]

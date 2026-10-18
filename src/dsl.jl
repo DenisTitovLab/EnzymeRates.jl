@@ -25,13 +25,13 @@ with their atoms, and the regulators and oligomeric states the search may use.
   allosteric state that activates or inhibits; an untagged one (`:unspecified`) may take
   either. Only these entries take a type tag. A name may be both a competitive
   inhibitor and an allosteric regulator.
-- A regulator may list its multiplicities, `I(1, 2)` or `A(4)`; a bare name takes the
-  `oligomeric_state:` ones. The search reads only the mechanism's catalytic
+- A regulator may list its multiplicities, each once, `I(1, 2)` or `A(4)`; a bare name
+  takes the `oligomeric_state:` ones. The search reads only the mechanism's catalytic
   multiplicity, which it also gives every regulatory site; the per-regulator lists are
   stored but not read.
 - `oligomeric_state:` gives the catalytic multiplicities the search may assign: one
-  positive Int, or a tuple of them such as `(1, 2, 4)`. It defaults to 1 and is given at
-  most once.
+  positive Int, or a tuple of distinct ones such as `(1, 2, 4)`. It defaults to 1 and is
+  given at most once.
 - `shared_catalytic_site:` lists `(substrate, product)` pairs, in either order, that bind
   one catalytic site, so never both at once.
 - The list labels may repeat; their entries accumulate.
@@ -201,14 +201,18 @@ function _parse_regulator_entries(values, type::Symbol)
     end
 end
 
-"""Parse `(1, 2, 4)` or `4` into `Vector{Int}`."""
+"""Parse `(1, 2, 4)` or `4` into `Vector{Int}`, each multiplicity listed once: a bare
+regulator takes the list as its own."""
 function _parse_multiplicity_tuple(values, label)
     v = values[1]
     length(values) == 1 && v != Expr(:tuple) ||
         error("@enzyme_reaction: `$label:` takes one Int or a tuple of one or more " *
               "Ints, such as `(1, 2, 4)`; got $(join(values, ", ")).")
-    Int[_positive_int(a, "@enzyme_reaction: `$label:` entry")
-        for a in (v isa Expr && v.head === :tuple ? v.args : (v,))]
+    ms = Int[_positive_int(a, "@enzyme_reaction: `$label:` entry")
+             for a in (v isa Expr && v.head === :tuple ? v.args : (v,))]
+    allunique(ms) ||
+        error("@enzyme_reaction: `$label:` lists a multiplicity more than once; got $v.")
+    ms
 end
 
 """

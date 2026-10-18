@@ -1199,6 +1199,13 @@ end
             ER.AllostericRegulator(:A), [0, 1])
         @test_throws Exception ER.RegulatorMults(
             ER.AllostericRegulator(:A), [-1])
+        # As a DSL text writes it, the list holds at least one multiplicity and each
+        # once.
+        for ms in (Int[], [2, 2])
+            @test_throws(ErrorException("RegulatorMults: A's allowed_multiplicities must " *
+                                        "be a nonempty list of distinct Ints ≥ 1, got $ms"),
+                         ER.RegulatorMults(ER.AllostericRegulator(:A), ms))
+        end
 
         # CompetitiveInhibitor also accepted
         rm_ci = ER.RegulatorMults(
@@ -1258,12 +1265,19 @@ end
                              ER.ReactantAtoms(ER.Product(:P), [:C => 1])],
             ER.RegulatorMults[], mults)
         @test_throws(ErrorException("EnzymeReaction: allowed_catalytic_multiplicities " *
-                                    "must be a nonempty list of Ints ≥ 1, got [0, 1]"),
+                                    "must be a nonempty list of distinct Ints ≥ 1, got " *
+                                    "[0, 1]"),
                      _testhelper_reaction([0, 1]))
         # An empty list would leave the search no multiplicity to assign.
         @test_throws(ErrorException("EnzymeReaction: allowed_catalytic_multiplicities " *
-                                    "must be a nonempty list of Ints ≥ 1, got Int64[]"),
+                                    "must be a nonempty list of distinct Ints ≥ 1, got " *
+                                    "Int64[]"),
                      _testhelper_reaction(Int[]))
+        # A multiplicity listed twice is no list a DSL text writes.
+        @test_throws(ErrorException("EnzymeReaction: allowed_catalytic_multiplicities " *
+                                    "must be a nonempty list of distinct Ints ≥ 1, got " *
+                                    "[2, 2]"),
+                     _testhelper_reaction([2, 2]))
     end
 
     @testset "pure conformational isomerization runs product-exit to substrate-entry" begin
