@@ -557,6 +557,49 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         @test EnzymeRates.regulators(spec) == EnzymeRates.RegulatorMults[]
     end
 
+    @testset "the macros work in a module that names the package otherwise" begin
+        # A module that imports the package under another name, or imports only the
+        # macros, calls each macro and gets the value it builds here: an expansion names
+        # nothing from the caller's scope.
+        calls = [
+            :(@enzyme_reaction begin
+                substrates: S[C]
+                products: P[C]
+            end),
+            :(@enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + S ⇌ E(S)
+                    E(S) <--> E(P)
+                    E(P) ⇌ E + P
+                end
+            end),
+            :(@allosteric_mechanism begin
+                substrates: S
+                products: P
+                allosteric_regulators: X
+                steps: begin
+                    E + S ⇌ E(S)     :: EqualAI
+                    E(S) <--> E(P)   :: OnlyA
+                    E(P) ⇌ E + P     :: EqualAI
+                end
+                regulatory_site(2): X::OnlyI
+            end)]
+        values = [eval(call) for call in calls]
+        renamed, macros_only = Module(), Module()
+        Core.eval(renamed, :(import EnzymeRates as ER2))
+        Core.eval(macros_only,
+                  :(using EnzymeRates: @enzyme_reaction, @enzyme_mechanism,
+                                       @allosteric_mechanism))
+        for (call, value) in zip(calls, values)
+            qualified = Expr(:macrocall, Expr(:., :ER2, QuoteNode(call.args[1])),
+                             call.args[2:end]...)
+            @test Core.eval(renamed, qualified) == value
+            @test Core.eval(macros_only, call) == value
+        end
+    end
+
     @testset "@enzyme_reaction rejects a name listed as substrate and product" begin
         # Concentrations and constants are keyed by name, so a name may hold only
         # one reactant role; either label order is rejected.

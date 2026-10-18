@@ -68,7 +68,7 @@ end
 """
 macro enzyme_reaction(block)
     (; reactants, regs, mults, shared) = _parse_reaction_block(block)
-    return esc(_reaction_expr(reactants, regs, mults, shared))
+    return _reaction_expr(reactants, regs, mults, shared)
 end
 
 """
@@ -216,7 +216,9 @@ end
 """
 Build the `EnzymeReaction` `Expr` from parsed declarations: `reactants` as
 `(type, name, atoms)` and `regulators` as `(type, name, mults, reg_type)`, each
-`type` naming the `Metabolite` subtype to construct.
+`type` naming the `Metabolite` subtype to construct. The macro returns it unescaped, so
+hygiene resolves its names in EnzymeRates itself and the macro works in a module that
+imports the package under another name or imports only the macro.
 """
 function _reaction_expr(reactants, regulators, mults, shared)
     reactant_exprs = [
