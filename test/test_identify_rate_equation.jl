@@ -1639,9 +1639,10 @@ end
 
 @testset "_process_batch failures report the ORIGINAL mechanism" begin
     # A mechanism whose derivation throws: T binds free E only in a dead end, so the
-    # catalytic cycle turns S alone into P, and the thermodynamic-cycle check inside
-    # compile_mechanism raises "Cycle 1 produces metabolite change not proportional to
-    # net reaction". The FitFailure must carry the ORIGINAL `m0`.
+    # catalytic cycle turns S alone into P, and the derivation's thermodynamic-cycle
+    # check (`fitted_params`, which `_process_batch` calls after compiling) raises
+    # "Cycle 1 produces metabolite change not proportional to net reaction". The
+    # FitFailure must carry the ORIGINAL `m0`.
     rxn_bad = @enzyme_reaction begin
         substrates: S[C], T[N]
         products:   P[CN]
