@@ -1,9 +1,9 @@
 # ABOUTME: The mechanism value types as a reaction graph of enzyme forms and steps in
-# ABOUTME: canonical form: raw input to canonical graph, its content order and identity.
+# ABOUTME: canonical form: raw input to checked graph, content order, identity, names.
 module ReactionGraph
 
-using ..EnzymeRates: Met, RawForm, RawMechanism, RegulatorySite, _VALID_CAT_ALLO_STATES,
-                     _check_metabolite_names
+using ..EnzymeRates: Met, RawForm, RawMechanism, RawAllostericMechanism, RegulatorySite,
+                     _VALID_CAT_ALLO_STATES, _check_metabolite_names
 
 # ─── Types ──────────────────────────────────────────────────────────────
 
@@ -74,7 +74,8 @@ equal fields. `substrates`, `products` and `conformations` are sorted; `table` h
 each metabolite entry once, sorted by (name, modifier), a reactant and its modifier copy
 being two entries; `forms` hold free E first, then the other forms in content order;
 `edges` run physical-forward, in content order; `group[k]` is edge `k`'s kinetic group,
-the groups numbered by their first edge. The field constructor checks nothing.
+the groups numbered by their first edge. `Mechanism(raw::RawMechanism)` builds one and
+checks it; the field constructor checks nothing and serves canonical form.
 """
 struct Mechanism
     substrates::Vector{Symbol}
@@ -165,7 +166,7 @@ is the edge written step `j` became, `flipped[j]` whether that edge runs against
 `misaligned` the lead and member of a tied kinetic group that no orientation aligns, or
 no edge. Alignment stops at that group, so a result with a misaligned pair is not
 canonical. Errors only where no encoding exists: more than 32 table entries or more than
-15 copies of one entry on a form or a step side.
+15 copies of one entry on a form or a step side. The checked constructors build on it.
 """
 function _canonicalize(raw::RawMechanism)
     substrates, products = sort(raw.substrates), sort(raw.products)
@@ -343,6 +344,43 @@ function _number_groups(labels::Vector{Int}, G::Int)
     group, group_of
 end
 
+# ─── Constructors and their checks ──────────────────────────────────────
+
+"""
+    Mechanism(raw::RawMechanism)
+
+The mechanism `raw` writes, in canonical form, checked: its declarations
+(`_check_declarations`), then its representation (`_check_representation`). Whether its
+rate law is defined is the boundary check's question, not the constructor's.
+"""
+function Mechanism(raw::RawMechanism)
+    _check_declarations(raw)
+    c = _canonicalize(raw)
+    _check_representation(c.mechanism, c.misaligned, raw.modifiers)
+    c.mechanism
+end
+
+"""
+    AllostericMechanism(raw::RawAllostericMechanism)
+
+The allosteric mechanism `raw` writes: its regulatory sites, its tags (each written
+group label's), then its catalytic part as `Mechanism(raw.catalytic)` checks it, each
+tag moved to the canonical group its label became.
+"""
+function AllostericMechanism(raw::RawAllostericMechanism)
+    sites = [RegulatorySite(s.ligands, s.multiplicity, s.allo_states) for s in raw.sites]
+    _check_tags(raw.cat_allo_states, maximum(raw.catalytic.group; init = 0),
+                raw.catalytic_multiplicity)
+    _check_declarations(raw.catalytic)
+    c = _canonicalize(raw.catalytic)
+    _check_representation(c.mechanism, c.misaligned, raw.catalytic.modifiers)
+    tags = similar(raw.cat_allo_states)
+    for (l, g) in enumerate(c.group_of)
+        tags[g] = raw.cat_allo_states[l]
+    end
+    AllostericMechanism(c.mechanism, tags, raw.catalytic_multiplicity, sites)
+end
+
 # ─── Checks ─────────────────────────────────────────────────────────────
 
 """Error unless `cat_allo_states` holds one valid tag for each of `G` kinetic groups and
@@ -377,6 +415,151 @@ function _check_ligands(sites::Vector{RegulatorySite})
     nothing
 end
 
+"""Error unless `raw` declares substrates and products, each name once, no name both a
+substrate and a product, and gives each step one kinetic group label from 1 to the
+number of groups, every label used."""
+function _check_declarations(raw::RawMechanism)
+    isempty(raw.substrates) && error("Mechanism: substrates must not be empty")
+    isempty(raw.products) && error("Mechanism: products must not be empty")
+    for (names, kind) in ((raw.substrates, "substrate"), (raw.products, "product"),
+                          (raw.modifiers, "modifier"))
+        allunique(names) || error("Mechanism: duplicate $kind names")
+    end
+    both = findfirst(in(raw.products), raw.substrates)
+    both === nothing ||
+        error("Mechanism: $(raw.substrates[both]) named as both a substrate and a " *
+              "product; concentrations and constants are keyed by name")
+    length(raw.group) == length(raw.steps) && all(≥(1), raw.group) ||
+        error("Mechanism: each step takes one kinetic group label from 1 to the number " *
+              "of groups")
+    empty = findfirst(∉(raw.group), 1:maximum(raw.group; init = 0))
+    empty === nothing ||
+        error("Mechanism: kinetic group $empty is empty; a kinetic group holds at least " *
+              "one step")
+    nothing
+end
+
+"""
+Error unless the canonical mechanism `m` represents one: every name declared (in
+`modifiers`, the declared modifiers, or among its substrates and products), a modifier
+entry only for a declared modifier and a plain entry only for a reactant, residuals that
+add substrates and subtract products; no step joining a form to itself, taking up and
+giving off one metabolite, or binding a metabolite into a form that holds it in another
+role; tied steps that make one conformational change (`misaligned`, from
+`_canonicalize`); no two forms that render one name; each kinetic group one kind of step
+with one flag; each reaction once.
+"""
+function _check_representation(m::Mechanism, misaligned::Vector{Edge},
+                               modifiers::Vector{Symbol})
+    for x in m.table
+        _is_reactant(m, x.name) || x.name in modifiers ||
+            error("Mechanism: $(x.name) is not declared; declare it under substrates:, " *
+                  "products: or modifiers:")
+        x.modifier && !(x.name in modifiers) &&
+            error("Mechanism: $(x.name) binds as a modifier, but modifiers: does not " *
+                  "declare it")
+        x.modifier || _is_reactant(m, x.name) ||
+            error("Mechanism: $(x.name) is a modifier, so it binds only as a modifier")
+    end
+    substrate_mask, product_mask = _role_masks(m)
+    for f in m.forms, (bad, verb) in ((f.added & product_mask, "adds"),
+                                      (f.subtracted & substrate_mask, "subtracts"))
+        bad == 0 ||
+            error("Mechanism: a residual adds substrates and subtracts products; one " *
+                  "$verb $(m.table[first(entries(bad))].name)")
+    end
+    for e in m.edges
+        e.from == e.to &&
+            error("Step: both ends are the form $(_form_name(m, e.from)); a step joins " *
+                  "two forms")
+        shared = _occupied(e.consumed) & _occupied(e.released)
+        shared == 0 ||
+            error("Step $(_form_name(m, e.from)) → $(_form_name(m, e.to)): " *
+                  "$(join([m.table[i].name for i in entries(shared)], ", ")) both " *
+                  "consumed and released")
+        _binds_by_name(m, e) && !_is_plain_binding(m, e) &&
+            error("Step $(_form_name(m, e.from)) → $(_form_name(m, e.to)) changes a " *
+                  "metabolite's role: $(_form_name(m, e.to)) holds " *
+                  "$(_form_name(m, e.from))'s metabolites plus " *
+                  "$(m.table[_bound_entry(e)].name) by name, not by role; write a " *
+                  "modifier copy as X::Mod on both sides")
+    end
+    isempty(misaligned) ||
+        error("Mechanism: a kinetic group holds $(join(_sides(m, misaligned[1]), " → ")) " *
+              "and $(join(_sides(m, misaligned[2]), " → ")), which make different " *
+              "conformational changes; the steps of a kinetic group share their " *
+              "constants, so they must make the same conformational change")
+    _check_distinct_form_names(m)
+    groups = _group_members(m)
+    _check_uniform_groups(m, groups)
+    _check_each_reaction_once(m, groups)
+end
+
+"""A count of 1 for every entry `c` counts at least once."""
+function _occupied(c::Counts)
+    x = c | (c >> 1)
+    x |= x >> 2
+    x & Counts(0x11111111111111111111111111111111)
+end
+
+"""Error when two forms of `m` render one name: every constant is named after the forms
+its step joins (`_form_name`)."""
+function _check_distinct_form_names(m::Mechanism)
+    seen = Dict{String, Int}()
+    for f in eachindex(m.forms)
+        other = get!(seen, _form_name(m, f), f)
+        other == f ||
+            error("Mechanism: the enzyme forms $(_form_text(m, other)) and " *
+                  "$(_form_text(m, f)) both render the name $(_form_name(m, f)); every " *
+                  "constant is named after the forms its step joins, so rename a " *
+                  "metabolite to tell the two forms apart")
+    end
+end
+
+"""Error unless the edges of each kinetic group (`groups`) take up and give off the same
+entries and carry one flag: they share their constants."""
+function _check_uniform_groups(m::Mechanism, groups::Vector{Vector{Int}})
+    label(e::Edge) = join(_sides(m, e), " → ") * (e.rapid_equilibrium ? " (RE)" : " (SS)")
+    for members in groups
+        e1 = m.edges[first(members)]
+        for k in members
+            e = m.edges[k]
+            (e.consumed, e.released, e.rapid_equilibrium) ==
+                (e1.consumed, e1.released, e1.rapid_equilibrium) && continue
+            error("Mechanism: a kinetic group holds $(label(e1)) and $(label(e)), " *
+                  "which differ in kind or in RE/SS; the steps of a kinetic group " *
+                  "share their constants, so they must be the same kind of step " *
+                  "with the same flag")
+        end
+    end
+end
+
+"""Error when one reaction, the unordered pair of an edge's two sides, appears in two
+edges: a reaction belongs to one kinetic group, whose constants are named after it, and
+one group holding it twice would count its edge twice. Reads the groups (`groups`) in
+order, each in edge order, and names the reaction as the edge seen first stores it."""
+function _check_each_reaction_once(m::Mechanism, groups::Vector{Vector{Int}})
+    seen = Dict{NTuple{2, Tuple{Int, Counts}}, Tuple{Int, Int}}()
+    flag(e::Edge) = e.rapid_equilibrium ? "RE" : "SS"
+    for (g, members) in enumerate(groups), k in members
+        e = m.edges[k]
+        key = minmax((e.from, e.consumed), (e.to, e.released))
+        if haskey(seen, key)
+            g0, k0 = seen[key]
+            text = join(_sides(m, k0), " ⇌ ")
+            g0 == g && error("Mechanism: kinetic group $g holds the reaction $text " *
+                             "twice; a mechanism holds each reaction once")
+            e0 = m.edges[k0]
+            flags = flag(e0) == flag(e) ? "" :
+                " ($(flag(e0)) in group $g0, $(flag(e)) in group $g)"
+            error("Mechanism: kinetic groups $g0 and $g both hold the reaction " *
+                  "$text$flags; a reaction belongs to one kinetic group, whose " *
+                  "constants are named after it")
+        end
+        seen[key] = (g, k)
+    end
+end
+
 # ─── Identity ───────────────────────────────────────────────────────────
 
 # `hash` by content for every graph type, and `==` by content for those whose fields hold
@@ -396,7 +579,93 @@ end
 
 # ─── Reads ──────────────────────────────────────────────────────────────
 
+substrates(m::Mechanism) = m.substrates
+products(m::Mechanism) = m.products
+"""Every name bound as a modifier, reactant copies included, sorted."""
+modifiers(m::Mechanism) = unique!([x.name for x in m.table if x.modifier])
+"""Whether `x` names a substrate or a product of `m`."""
+_is_reactant(m::Mechanism, x::Symbol) = insorted(x, m.substrates) || insorted(x, m.products)
+_role_masks(m::Mechanism) = _role_masks(m.table, m.substrates)
+
+catalytic(m::Mechanism) = m
+catalytic(am::AllostericMechanism) = am.catalytic
 """The number of kinetic groups of `m`."""
 ngroups(m::Mechanism) = maximum(m.group; init = 0)
+"""Each kinetic group's edges, in edge order."""
+function _group_members(m::Mechanism)
+    members = [Int[] for _ in 1:ngroups(m)]
+    for (k, g) in enumerate(m.group)
+        push!(members[g], k)
+    end
+    members
+end
+_has_residual(f::Form) = f.added != 0 || f.subtracted != 0
+_is_binding(e::Edge) = e.released == 0 && total(e.consumed) == 1
+"""The entry a binding takes up; 0 for any other edge."""
+_bound_entry(e::Edge) = _is_binding(e) ? (trailing_zeros(e.consumed) >> 2) + 1 : 0
+"""Whether binding `e` takes up its entry into a form that holds its source's entries plus
+that one, with the same residual; the label may change."""
+function _is_plain_binding(m::Mechanism, e::Edge)
+    i = _bound_entry(e)
+    f, t = m.forms[e.from], m.forms[e.to]
+    i != 0 && (f.added, f.subtracted) == (t.added, t.subtracted) &&
+        copies(f.bound, i) < 15 && t.bound == f.bound + (Counts(1) << (4 * (i - 1)))
+end
+"""Whether binding `e` takes up its entry into a form that holds its source's metabolites
+plus that one by name, with the same residual: a plain binding, or one that binds a
+reactant where its modifier copy sits, or the reverse."""
+function _binds_by_name(m::Mechanism, e::Edge)
+    i = _bound_entry(e)
+    f, t = m.forms[e.from], m.forms[e.to]
+    i != 0 && (f.added, f.subtracted) == (t.added, t.subtracted) || return false
+    names(c::Counts) = [m.table[j].name for j in entries(c)]
+    names(t.bound) == sort!(push!(names(f.bound), m.table[i].name))
+end
+
+# ─── Names ──────────────────────────────────────────────────────────────
+
+"""Entry `i` as names write it: its name, with `mod` on a reactant's modifier copy; a
+modifier-only name stays bare."""
+_entry_label(m::Mechanism, i::Int) =
+    m.table[i].modifier && _is_reactant(m, m.table[i].name) ?
+        string(m.table[i].name, "mod") : String(m.table[i].name)
+
+"""Form `f`'s name: its label, its bound entries' labels in table order, then any
+residual as `_res`, `_plus<name>` per substrate it adds and `_minus<name>` per product it
+subtracts (`E`, `EAB`, `EPmodQ`, `EB_res_plusA_minusP`)."""
+function _form_name(m::Mechanism, f::Int)
+    x = m.forms[f]
+    io = IOBuffer()
+    print(io, m.conformations[x.conformation])
+    foreach(i -> print(io, _entry_label(m, i)), entries(x.bound))
+    if _has_residual(x)
+        print(io, "_res")
+        foreach(i -> print(io, "_plus", m.table[i].name), entries(x.added))
+        foreach(i -> print(io, "_minus", m.table[i].name), entries(x.subtracted))
+    end
+    String(take!(io))
+end
+
+"""Form `f` as a mechanism macro writes it: `E(NAD, P)`, `E(A::Mod)`, `E(I)`,
+`E(B; residual = A - P)`."""
+function _form_text(m::Mechanism, f::Int)
+    x = m.forms[f]
+    mets = [_is_reactant(m, m.table[i].name) && m.table[i].modifier ?
+            "$(m.table[i].name)::Mod" : "$(m.table[i].name)" for i in entries(x.bound)]
+    terms = join([m.table[i].name for i in entries(x.added)], " + ") *
+            join(" - $(m.table[i].name)" for i in entries(x.subtracted))
+    res = _has_residual(x) ? "; residual = " * lstrip(terms) : ""
+    "$(m.conformations[x.conformation])(" * join(mets, ", ") * res * ")"
+end
+
+"""A step side: form `f`'s name and the labels of the free entries `c`, joined by `_`
+(`EA_B` for `E(A) + B`)."""
+_side_name(m::Mechanism, f::Int, c::Counts) =
+    join([_form_name(m, f); [_entry_label(m, i) for i in entries(c)]], "_")
+"""An edge's two sides in its stored direction; every step constant is named after
+them."""
+_sides(m::Mechanism, e::Edge) =
+    (_side_name(m, e.from, e.consumed), _side_name(m, e.to, e.released))
+_sides(m::Mechanism, k::Int) = _sides(m, m.edges[k])
 
 end

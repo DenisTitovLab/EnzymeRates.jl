@@ -288,3 +288,341 @@ _testhelper_bindings(names) =
                                 "metabolite there"),
                  RG._canonicalize(_testhelper_holding(16)))
 end
+
+"""An allosteric `raw` written another way, the same mechanism: its catalytic steps
+rewritten (`_testhelper_rewrite`), its tags following their labels, and its sites and
+each site's ligands in reverse order."""
+_testhelper_rewrite(raw::EnzymeRates.RawAllostericMechanism) =
+    EnzymeRates.RawAllostericMechanism(
+        _testhelper_rewrite(raw.catalytic), reverse(raw.cat_allo_states),
+        raw.catalytic_multiplicity,
+        [EnzymeRates.RawSite(reverse(s.ligands), s.multiplicity, reverse(s.allo_states))
+         for s in reverse(raw.sites)])
+
+"""The graph a spec's raw value `raw` writes, built and checked."""
+_testhelper_build(raw::EnzymeRates.RawMechanism) = RG.Mechanism(raw)
+_testhelper_build(raw::EnzymeRates.RawAllostericMechanism) = RG.AllostericMechanism(raw)
+
+"""The raw value of `block`, a mechanism macro's block, read by the DSL walker."""
+_testhelper_walk(block; allosteric = false) =
+    EnzymeRates._raw_mechanism(block, allosteric)
+
+@testset "the constructors build one value from every writing of a mechanism" begin
+    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
+        x = _testhelper_build(spec.raw)
+        @test RG.catalytic(x) == RG._canonicalize(_testhelper_plain(spec.raw)).mechanism
+        other = _testhelper_build(_testhelper_rewrite(spec.raw))
+        @test other == x && hash(other) == hash(x)
+    end
+    # Each tag goes to the canonical group its label became.
+    am = RG.AllostericMechanism(_testhelper_walk(:(begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S) :: EqualAI
+            E(S) <--> E(P) :: OnlyA
+            E(P) ⇌ E + P :: NonequalAI
+        end
+    end); allosteric = true))
+    @test am.cat_allo_states == [:NonequalAI, :EqualAI, :OnlyA]
+end
+
+@testset "the constructors reject what no graph represents, with today's messages" begin
+    _testhelper_uniuni_raw(; substrates = [:S], products = [:P], modifiers = Symbol[],
+                           group = [1, 2, 3]) =
+        EnzymeRates.RawMechanism(substrates, products, modifiers,
+                                 _testhelper_walk(:(begin
+                                     substrates: S
+                                     products: P
+                                     steps: begin
+                                         E + S ⇌ E(S)
+                                         E(S) <--> E(P)
+                                         E(P) ⇌ E + P
+                                     end
+                                 end)).steps, group)
+    _testhelper_allosteric(tags, n, sites) =
+        RG.AllostericMechanism(EnzymeRates.RawAllostericMechanism(
+            _testhelper_uniuni_raw(), tags, n, sites))
+    tags = [:EqualAI, :OnlyA, :EqualAI]
+    site(ligands, n, states) = EnzymeRates.RawSite(ligands, n, states)
+    # Regulatory sites.
+    @test_throws(ErrorException("RegulatorySite: needs at least one ligand"),
+                 _testhelper_allosteric(tags, 2, [site(Symbol[], 2, Symbol[])]))
+    @test_throws(ErrorException("RegulatorySite: length(ligands)=1 must equal " *
+                                "length(allo_states)=0"),
+                 _testhelper_allosteric(tags, 2, [site([:R], 2, Symbol[])]))
+    @test_throws(ErrorException("RegulatorySite: multiplicity must be ≥ 1, got 0"),
+                 _testhelper_allosteric(tags, 2, [site([:R], 0, [:OnlyA])]))
+    @test_throws(ErrorException("RegulatorySite: allo state Bogus must be one of " *
+                                "(:OnlyA, :OnlyI, :EqualAI, :NonequalAI)"),
+                 _testhelper_allosteric(tags, 2, [site([:R], 2, [:Bogus])]))
+    @test_throws(ErrorException(
+        "AllostericMechanism: ligand R appears in two distinct regulatory sites; " *
+        "rendered Kreg names would collide. Same-ligand-two-sites is not enumerated."),
+        _testhelper_allosteric(tags, 2, [site([:R], 2, [:OnlyA]), site([:R], 4, [:OnlyI])]))
+    # Tags, by written group label: label 2 is canonical group 3.
+    @test_throws(ErrorException("AllostericMechanism: cat_allo_states length 2 must " *
+                                "match the number of kinetic groups 3"),
+                 _testhelper_allosteric(tags[1:2], 2, EnzymeRates.RawSite[]))
+    @test_throws(ErrorException("AllostericMechanism: catalytic_multiplicity must be ≥ " *
+                                "1, got 0"),
+                 _testhelper_allosteric(tags, 0, EnzymeRates.RawSite[]))
+    @test_throws(ErrorException(
+        "AllostericMechanism: catalytic group 2 has invalid allo state OnlyI (must be " *
+        "one of (:OnlyA, :EqualAI, :NonequalAI)); :OnlyI is rejected for catalytic " *
+        "groups (active-state-active convention)"),
+        _testhelper_allosteric([:EqualAI, :OnlyI, :EqualAI], 2, EnzymeRates.RawSite[]))
+    # Declarations and group labels.
+    @test_throws(ErrorException("Mechanism: substrates must not be empty"),
+                 RG.Mechanism(_testhelper_uniuni_raw(substrates = Symbol[])))
+    @test_throws(ErrorException("Mechanism: products must not be empty"),
+                 RG.Mechanism(_testhelper_uniuni_raw(products = Symbol[])))
+    @test_throws(ErrorException("Mechanism: duplicate substrate names"),
+                 RG.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :S])))
+    @test_throws(ErrorException("Mechanism: duplicate product names"),
+                 RG.Mechanism(_testhelper_uniuni_raw(products = [:P, :P])))
+    @test_throws(ErrorException("Mechanism: duplicate modifier names"),
+                 RG.Mechanism(_testhelper_uniuni_raw(modifiers = [:I, :I])))
+    @test_throws(ErrorException("Mechanism: S named as both a substrate and a product; " *
+                                "concentrations and constants are keyed by name"),
+                 RG.Mechanism(_testhelper_uniuni_raw(products = [:P, :S])))
+    for group in ([1, 2], [1, 2, 3, 3], [0, 1, 2])
+        @test_throws(ErrorException("Mechanism: each step takes one kinetic group label " *
+                                    "from 1 to the number of groups"),
+                     RG.Mechanism(_testhelper_uniuni_raw(; group)))
+    end
+    @test_throws(ErrorException("Mechanism: kinetic group 2 is empty; a kinetic group " *
+                                "holds at least one step"),
+                 RG.Mechanism(_testhelper_uniuni_raw(group = [1, 3, 3])))
+    # Names: undeclared; a modifier entry of a name modifiers: does not list; a plain
+    # entry of a modifier-only name; residuals by role.
+    @test_throws(ErrorException("Mechanism: P is not declared; declare it under " *
+                                "substrates:, products: or modifiers:"),
+                 RG.Mechanism(_testhelper_uniuni_raw(products = [:Q])))
+    mod_P = EnzymeRates.Met(:P, true)
+    free = EnzymeRates.RawForm(:E, EnzymeRates.Met[])
+    copy_binding = EnzymeRates.RawStep(free, EnzymeRates.RawForm(:E, [mod_P]), [mod_P],
+                                       EnzymeRates.Met[], true)
+    _testhelper_adding(raw, steps...) = EnzymeRates.RawMechanism(
+        raw.substrates, raw.products, raw.modifiers, [raw.steps; steps...],
+        [raw.group; length(raw.steps) .+ (1:length(steps))])
+    @test_throws(ErrorException("Mechanism: P binds as a modifier, but modifiers: does " *
+                                "not declare it"),
+                 RG.Mechanism(_testhelper_adding(_testhelper_uniuni_raw(), copy_binding)))
+    @test RG.Mechanism(_testhelper_adding(_testhelper_uniuni_raw(modifiers = [:P]),
+                                          copy_binding)) isa RG.Mechanism
+    I = EnzymeRates.Met(:I, false)
+    @test_throws(ErrorException("Mechanism: I is a modifier, so it binds only as a " *
+                                "modifier"),
+                 RG.Mechanism(_testhelper_adding(
+                     _testhelper_uniuni_raw(modifiers = [:I]),
+                     EnzymeRates.RawStep(free, EnzymeRates.RawForm(:E, [I]), [I],
+                                         EnzymeRates.Met[], true))))
+    S = EnzymeRates.Met(:S, false)
+    for (added, subtracted, verb, x) in (([:P], Symbol[], "adds", :P),
+                                         (Symbol[], [:S], "subtracts", :S))
+        residual = EnzymeRates.RawForm(:E, EnzymeRates.Met[], added, subtracted)
+        @test_throws(ErrorException("Mechanism: a residual adds substrates and subtracts " *
+                                    "products; one $verb $x"),
+                     RG.Mechanism(_testhelper_adding(_testhelper_uniuni_raw(),
+                         EnzymeRates.RawStep(EnzymeRates.RawForm(:E, [S]), residual,
+                                             EnzymeRates.Met[], EnzymeRates.Met[],
+                                             false))))
+    end
+    # Steps: a self-loop, a metabolite taken up and given off, a role change.
+    EA = EnzymeRates.RawForm(:E, [EnzymeRates.Met(:A, false)])
+    @test_throws(ErrorException("Step: both ends are the form EA; a step joins two forms"),
+                 RG.Mechanism(EnzymeRates.RawMechanism([:A], [:P], Symbol[],
+                     [EnzymeRates.RawStep(EA, EA, EnzymeRates.Met[], EnzymeRates.Met[],
+                                          false)], [1])))
+    @test_throws(ErrorException("Step EA → EQ: B both consumed and released"),
+                 RG.Mechanism(_testhelper_walk(:(begin
+                     substrates: A, B
+                     products: Q
+                     steps: begin
+                         E + A ⇌ E(A)
+                         E(A) + B <--> E(Q) + B
+                         E(Q) ⇌ E + Q
+                     end
+                 end))))
+    _testhelper_role_change(from, to) = ErrorException(
+        "Step $from → $to changes a metabolite's role: $to holds $from's metabolites " *
+        "plus P by name, not by role; write a modifier copy as X::Mod on both sides")
+    for (line, from, to) in ((:(E + P::Mod ⇌ E(P)), :E, :EP),
+                             (:(E(P) ⇌ E + P::Mod), :E, :EP),
+                             (:(E + P ⇌ E(P::Mod)), :E, :EPmod),
+                             (:(E(P) + P::Mod ⇌ E(P, P)), :EP, :EPP))
+        @test_throws _testhelper_role_change(from, to) RG.Mechanism(_testhelper_walk(:(begin
+            substrates: S
+            products: P
+            modifiers: P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+                $line
+            end
+        end)))
+    end
+    # Tied steps that make different conformational changes.
+    @test_throws(ErrorException(
+        "Mechanism: a kinetic group holds E → F and F → G, which make different " *
+        "conformational changes; the steps of a kinetic group share their constants, so " *
+        "they must make the same conformational change"),
+        RG.Mechanism(_testhelper_walk(:(begin
+            substrates: A
+            products: P
+            steps: begin
+                E + A <--> E(A)
+                E(A) <--> E(P)
+                E(P) <--> E + P
+                (E ⇌ F, F ⇌ G, G ⇌ E)
+            end
+        end))))
+    # Two forms that render one name: bound names that concatenate, a label that holds a
+    # bound name, a reactant's modifier copy beside a modifier named Xmod.
+    _testhelper_one_name(a, b, name) = ErrorException(
+        "Mechanism: the enzyme forms $a and $b both render the name $name; every " *
+        "constant is named after the forms its step joins, so rename a metabolite to " *
+        "tell the two forms apart")
+    @test_throws _testhelper_one_name("E(NAD, P)", "E(NADP)", "ENADP") RG.Mechanism(
+        _testhelper_walk(:(begin
+            substrates: NAD, P
+            products: NADP
+            steps: begin
+                E + NAD ⇌ E(NAD)
+                E(NAD) + P ⇌ E(NAD, P)
+                E(NAD, P) <--> E(NADP)
+                E(NADP) ⇌ E + NADP
+            end
+        end)))
+    @test_throws _testhelper_one_name("E(star)", "Estar()", "Estar") RG.Mechanism(
+        _testhelper_walk(:(begin
+            substrates: star
+            products: P
+            steps: begin
+                E + star ⇌ E(star)
+                E(star) <--> E(P)
+                E(P) ⇌ E + P
+                E <--> Estar
+            end
+        end)))
+    @test_throws _testhelper_one_name("E(P::Mod)", "E(Pmod)", "EPmod") RG.Mechanism(
+        _testhelper_walk(:(begin
+            substrates: S
+            products: P
+            modifiers: P, Pmod
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+                E + P::Mod ⇌ E(P::Mod)
+                E + Pmod ⇌ E(Pmod)
+            end
+        end)))
+    # A kinetic group of steps of different kinds or flags.
+    for (steps, text) in (
+            (:(begin
+                 E + A <--> E(A)
+                 (E(A) + B <--> E(A, B), E(A) + B <--> E(Q) + P)
+                 E(Q) <--> E + Q
+             end), "EA_B → EAB (SS) and EA_B → EQ_P (SS)"),
+            (:(begin
+                 (E + A ⇌ E(A), E(Q) + A <--> E(A, Q))
+                 E(A) <--> E(Q) + P
+                 E(Q) <--> E + Q
+             end), "E_A → EA (RE) and EQ_A → EAQ (SS)"))
+        @test_throws(ErrorException(
+            "Mechanism: a kinetic group holds $text, which differ in kind or in RE/SS; " *
+            "the steps of a kinetic group share their constants, so they must be the " *
+            "same kind of step with the same flag"),
+            RG.Mechanism(_testhelper_walk(:(begin
+                substrates: A, B
+                products: P, Q
+                steps: $steps
+            end))))
+    end
+    # One reaction twice: in two groups, with different flags, stored once each way, and in
+    # one group.
+    _testhelper_twice(steps) = RG.Mechanism(_testhelper_walk(:(begin
+        substrates: S
+        products: P
+        steps: $steps
+    end)))
+    @test_throws(ErrorException(
+        "Mechanism: kinetic groups 2 and 3 both hold the reaction E_S ⇌ ES (SS in group " *
+        "2, RE in group 3); a reaction belongs to one kinetic group, whose constants are " *
+        "named after it"),
+        _testhelper_twice(:(begin
+            E + S <--> E(S)
+            E + S ⇌ E(S)
+            E(S) ⇌ E(P)
+            E(P) ⇌ E + P
+        end)))
+    @test_throws(ErrorException(
+        "Mechanism: kinetic groups 3 and 4 both hold the reaction ES ⇌ EP; a reaction " *
+        "belongs to one kinetic group, whose constants are named after it"),
+        _testhelper_twice(:(begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) <--> E(S)
+            E(P) <--> E + P
+        end)))
+    # The tied pair stores E → F in group 3, the lone step F → E in group 6.
+    @test_throws(ErrorException(
+        "Mechanism: kinetic groups 3 and 6 both hold the reaction E ⇌ F; a reaction " *
+        "belongs to one kinetic group, whose constants are named after it"),
+        RG.Mechanism(_testhelper_walk(:(begin
+            substrates: A
+            products: P
+            modifiers: I
+            steps: begin
+                E + A <--> E(A)
+                E(A) <--> E(P)
+                E(P) <--> F + P
+                F <--> E
+                (E <--> F, E(I) <--> F(I))
+                E + I ⇌ E(I)
+                F + I ⇌ F(I)
+                E(I) + P <--> E(I, P)
+                F(I) + A <--> F(A, I)
+            end
+        end))))
+    @test_throws(ErrorException(
+        "Mechanism: kinetic group 2 holds the reaction E_S ⇌ ES twice; a mechanism holds " *
+        "each reaction once"),
+        _testhelper_twice(:(begin
+            (E + S <--> E(S), E(S) <--> E + S)
+            E(S) <--> E(P)
+            E(P) <--> E + P
+        end)))
+end
+
+@testset "a form's name and text read as constants and the macros write them" begin
+    m = RG.Mechanism(_testhelper_walk(:(begin
+        substrates: A, B
+        products: P, Q
+        modifiers: I, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B <--> E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+            E(Q) <--> E + Q
+            E(Q) + Q::Mod ⇌ E(Q, Q::Mod)
+            E + I ⇌ E(I)
+        end
+    end)))
+    # Forms in content order: a residual form binds nothing, so it follows free E.
+    @test [RG._form_name(m, f) for f in eachindex(m.forms)] ==
+          ["E", "E_res_plusA_minusP", "EA", "EB_res_plusA_minusP", "EI", "EQ", "EQQmod"]
+    @test [RG._form_text(m, f) for f in eachindex(m.forms)] ==
+          ["E()", "E(; residual = A - P)", "E(A)", "E(B; residual = A - P)", "E(I)",
+           "E(Q)", "E(Q, Q::Mod)"]
+    # Each edge's sides in its stored direction: releases stored as bindings.
+    @test [join(RG._sides(m, k), " → ") for k in eachindex(m.edges)] ==
+          ["E_A → EA", "E_I → EI", "E_Q → EQ", "E_res_plusA_minusP_P → EA",
+           "E_res_plusA_minusP_B → EB_res_plusA_minusP", "EB_res_plusA_minusP → EQ",
+           "EQ_Qmod → EQQmod"]
+end
