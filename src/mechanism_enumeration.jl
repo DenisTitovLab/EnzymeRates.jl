@@ -198,18 +198,17 @@ function _catalytic_topologies(reaction::EnzymeReaction)
     # steps back to an earlier level; every path binds every substrate and
     # releases every product once.
     #
-    # Iterate iso_groups deterministically (smaller iso-step counts first,
-    # then by sorted iso-step names) so topology output order is stable —
-    # `Set{Step}` hashing is not value-stable.
+    # Iterate iso_groups deterministically (smaller iso-step counts first, then by
+    # their iso steps' forms in the canonical form order) so topology output order is
+    # stable — `Set{Step}` hashing is not value-stable.
     level_of(wo) = Dict{Symbol,Int}(m => i for (i, level) in enumerate(wo) for m in level)
     sub_levels = level_of.(_weak_orderings(sub_names))
     prod_levels = level_of.(_weak_orderings(prod_names))
     route_order(path, ::Type{T}) where {T} =
         Symbol[name(bound_metabolite(s)::T) for s in path if bound_metabolite(s) isa T]
+    form_pair(s) = (_form_index_key(from_species(s)), _form_index_key(to_species(s)))
     sorted_iso_pats = sort!(collect(keys(iso_groups));
-        by = pat -> (length(pat),
-                     sort([(string(name(from_species(s))), string(name(to_species(s))))
-                           for s in pat])))
+                            by = pat -> (length(pat), sort([form_pair(s) for s in pat])))
     result = Vector{Step}[]
     for iso_pat in sorted_iso_pats
         group = [(path, route_order(path, Substrate), route_order(path, Product))
@@ -224,8 +223,7 @@ function _catalytic_topologies(reaction::EnzymeReaction)
             (isempty(topo_keys) || topo_keys ∈ seen_topos) && continue
             push!(seen_topos, topo_keys)
 
-            steps = sort!(collect(topo_keys); by = s -> (is_iso(s),
-                string(name(from_species(s))), string(name(to_species(s)))))
+            steps = sort!(collect(topo_keys); by = s -> (is_iso(s), form_pair(s)...))
 
             # The first iso step is the (single) SS step; every other step is
             # RE. Rebuild each Step with that tag (Step is immutable; direction

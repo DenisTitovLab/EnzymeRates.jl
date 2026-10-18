@@ -479,6 +479,20 @@ uni_bi_topos = EnzymeRates._catalytic_topologies(uni_bi_rxn)
               for t in uni_bi_topos)
 end
 
+@testset "isomerization patterns come in the canonical form order" begin
+    # Ter-bi's ping-pongs run their first half-reaction on A and D or on B and D. The
+    # patterns sort by their isomerizations' forms in the canonical form order, so the
+    # one with E(A; residual = B + D - Q) comes before the one with E(A, D): that
+    # residual form binds fewer metabolites, though its internal name sorts after EAD.
+    # Each topology's first isomerization in that order is its steady-state step.
+    _testhelper_iso_texts(t) = sort([EnzymeRates._step_text(s, ter_bi_rxn)
+                                     for s in t if EnzymeRates.is_iso(s)])
+    @test unique(_testhelper_iso_texts.(EnzymeRates._catalytic_topologies(ter_bi_rxn))) ==
+          [["EABD <--> EPQ"],
+           ["EA_res_plusB_plusD_minusQ <--> EP", "EBD ⇌ EQ_res_plusB_plusD_minusQ"],
+           ["EAD <--> EQ_res_plusA_plusD_minusQ", "EB_res_plusA_plusD_minusQ ⇌ EP"]]
+end
+
 @testset "admissible-residual ping-pong" begin
     # The admissible-residual rule rejects degenerate empty-residue
     # ping-pong (which would return the enzyme to apo E mid-cycle,
