@@ -862,3 +862,23 @@ end
         @test length(two.nodes) == 3^2 + 3^2
     end
 end
+
+@testset "on a plain mechanism class 2 equals the moves' RE-turnover test" begin
+    # A plain mechanism's ε-network is its law network, so class 2 must flag exactly the
+    # cycles the moves' test flags: on each plain spec and population member as written,
+    # with one more kinetic group at rapid equilibrium, and with every step at it.
+    plain = [m for m in [[_testhelper_lift(s.mechanism) for s in MECHANISM_TEST_SPECS];
+                         _testhelper_population_sample] if m isa EnzymeRates.Mechanism]
+    found = Bool[]
+    for m in plain
+        flags = EnzymeRates._flags(m)
+        for re in [[flags]; [flags .| (m.group .== g) for g in 1:EnzymeRates.ngroups(m)];
+                   [trues(length(m.edges))]]
+            net = EnzymeRates._eps_network(m, re)
+            turnover = !isempty(EnzymeRates._re_turnover_transitions(net))
+            @test turnover == EnzymeRates._re_turnover_cycle(m, re)
+            push!(found, turnover)
+        end
+    end
+    @test any(found) && !all(found)
+end

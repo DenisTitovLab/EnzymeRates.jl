@@ -1662,6 +1662,36 @@ function _inactive_mask(am::AllostericMechanism)
                for (k, e) in enumerate(m.edges)])
 end
 
+"""Whether conformation `c` (1 active, 2 inactive) of `am` excludes edge `k`: an `:OnlyA`
+group's edge in the inactive conformation, an `:OnlyI` group's in the active one. There a
+plain binding loses its affinity and any other edge is blocked (spec section 7)."""
+function _excludes(am::AllostericMechanism, k::Int, c::Int)
+    tag = am.cat_allo_states[am.catalytic.group[k]]
+    (c == 2 && tag === :OnlyA) || (c == 1 && tag === :OnlyI)
+end
+
+"""
+The edges of conformation `c`'s law (1 active, 2 inactive) in `am`'s catalytic graph:
+those `c` does not exclude (`_excludes`) between forms they join to free E, form 1. The
+law deletes the excluded edges and prunes the forms this strands; admission decides when
+that is the limit of the vanishing constants (spec section 7).
+"""
+function _law_mask(am::AllostericMechanism, c::Int)
+    m = am.catalytic
+    reached = falses(length(m.forms))
+    reached[1] = true
+    grew = true
+    while grew
+        grew = false
+        for (k, e) in enumerate(m.edges)
+            !_excludes(am, k, c) && reached[e.from] != reached[e.to] || continue
+            reached[e.from] = reached[e.to] = true
+            grew = true
+        end
+    end
+    BitVector([!_excludes(am, k, c) && reached[e.from] for (k, e) in enumerate(m.edges)])
+end
+
 """Form `f` of `m` as raw input, holding also the metabolites `extra`."""
 function _raw_form(m::Mechanism, f::Int, extra::Met...)
     x = m.forms[f]

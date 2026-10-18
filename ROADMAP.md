@@ -77,6 +77,19 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   carry the same concentrations, so the data determine only a combination of its
   constant and its neighbour's, and `fitted_params` lists one constant more than the
   identifiable rank. The exact rank under Ideas would count it.
+- **A law the guard admits can be 0/0 where one substrate and every product are zero.**
+  The guard checks the faces of the rewrite spec's section 8 (every product zero, every
+  substrate zero, each single reactant zero, each also with every modifier zero), never a
+  corner that zeroes one substrate with every product. Of 65,423 census mechanisms, 357
+  pass the guard yet have a law that is 0/0 at such a corner: 293 plain ter-bi, 38 plain
+  ping-pong and 26 allosteric ter-bi mechanisms; there 264 of these laws have no limit and
+  93 a removable 0/0, census mechanism `d7a09031d5dd2fc6` at B = P = Q = 0 among them.
+  Another 12 allosteric ping-pongs that pass the guard have a non-unique steady state at
+  such a corner. `rate_equation` returns NaN there, where a well-posed law returns 0. Fits
+  never meet it: `FittingProblem` refuses a zero rate, and the loss scores a NaN prediction
+  as a sign mismatch, the penalty a 0 prediction gets (`test/test_admission.jl`). Adding
+  these corners to the faces would drop at least these 369 mechanisms, 93 of whose laws
+  have a limit there.
 - **On Julia 1.10 the full suite can peak above 4 GB.**
   With the full-suite command in `.claude/CLAUDE.md`, Julia 1.10.12 peaked at 3.30-4.36 GB
   in seven runs, and an eighth was killed at 4.49 GB, most likely by the OOM killer of a
