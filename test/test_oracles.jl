@@ -10,13 +10,36 @@ const _testhelper_pingpong_allo_rxn = @enzyme_reaction begin
     oligomeric_state: 2
 end
 
+"""
+`m` as text that reads its content alone: each kinetic group as the sorted texts of its
+steps (`_step_text`), with its tag when `m` is allosteric, the groups sorted, then an
+allosteric mechanism's catalytic multiplicity and its regulatory sites, sorted.
+"""
+function _testhelper_content_text(m)
+    allo = m isa EnzymeRates.AllostericMechanism
+    groups = sort([join(sort([EnzymeRates._step_text(s, m) for s in group]), ", ") *
+                   (allo ? " :: $(EnzymeRates.cat_allo_state(m, g))" : "")
+                   for (g, group) in enumerate(EnzymeRates.steps(m))])
+    allo || return join(groups, " / ")
+    sites = sort([string(EnzymeRates.multiplicity(site), ": ",
+                         join(("$l::$t" for (l, t) in zip(EnzymeRates.ligands(site),
+                                                          EnzymeRates.allo_states(site))),
+                              ", "))
+                  for site in EnzymeRates.regulatory_sites(m)])
+    join(groups, " / ") * " | n = $(EnzymeRates.catalytic_multiplicity(m)) | " *
+        join(sites, " / ")
+end
+
 # The seeds and one expansion round of the reaction above, and 120 of them spaced evenly
-# through that order. The pick reads no random stream, so every Julia release tests the
-# same sample.
+# through their content order (`_testhelper_content_text`). The pick reads neither the
+# order the moves emit in nor a random stream, so every Julia release tests the same
+# sample.
 const _testhelper_population_one_round =
     _testhelper_population(_testhelper_pingpong_allo_rxn, 1)
-const _testhelper_population_sample = _testhelper_population_one_round[round.(Int,
-    range(1, length(_testhelper_population_one_round); length = 120))]
+const _testhelper_population_sample = let ms = _testhelper_population_one_round
+    sorted = ms[sortperm(_testhelper_content_text.(ms))]
+    sorted[round.(Int, range(1, length(sorted); length = 120))]
+end
 
 @testset "Exact steady-state oracle" begin
     @testset "matches the steady-state Michaelis–Menten law exactly" begin

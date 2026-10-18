@@ -108,9 +108,10 @@ end
     #     and _cv_fold_loss take it: PASS1 (complexity, compile, fitted names, rate
     #     equation string, dedup key, mechanism_type string), PASS2 (FittingProblem and
     #     a CMA-ES fit) and one LOOCV fold. Encoding every seed's Sig and a full pass
-    #     on ms[1] compile everything that does not depend on the mechanism, so each
-    #     fresh mechanism after them compiles only what its own type needs. ms[1] and
-    #     the fresh mechanisms differ in Sig shape and in fitted names. The census
+    #     on the first of five written-out seeds compile everything that does not
+    #     depend on the mechanism, so each fresh mechanism after them compiles only
+    #     what its own type needs. The five differ in Sig shape and in fitted names,
+    #     and are picked by content, not by their place in the seeds. The census
     #     counts the method instances of every module, since a fit compiled per
     #     mechanism compiles Optimization, SciMLBase, CMAEvolutionStrategy and Base
     #     code; it also counts the show instances PASS1 adds, since Base's show prints
@@ -211,15 +212,72 @@ end
         foreach(ER._sig_of, ms)
         println("SIG_INSTANCES:", _testhelper_all_instances() - n_sig,
                 " SIG_NATIVE:", Base.jit_total_bytes() - b_sig)
-        fresh = [2, 6, 11, 18]
+        # Five bi-bi seeds with five Sig shapes and five fitted-name tuples, written out:
+        # the first warms the fit path, and the other four are measured fresh.
+        picks = ER.Mechanism.([
+            @enzyme_mechanism(begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E + Q ⇌ E(Q)
+                    (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+                    (E(A) + P ⇌ E(A, P), E(Q) + P ⇌ E(P, Q))
+                    E(A, B) <--> E(P, Q)
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E + Q ⇌ E(Q)
+                    (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+                    E(A, B) <--> E(P, Q)
+                    E(Q) + P ⇌ E(P, Q)
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))
+                    (E + P ⇌ E(P), E(A) + P ⇌ E(A, P))
+                    E(A) + B ⇌ E(A, B)
+                    E(A, B) <--> E(P, Q)
+                    E(P) + Q ⇌ E(P, Q)
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))
+                    (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(Q) + P ⇌ E(P, Q))
+                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                    (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+                    E(A, B) <--> E(P, Q)
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    (E + B ⇌ E(B), E(Q) + B ⇌ E(B, Q))
+                    (E + Q ⇌ E(Q), E(B) + Q ⇌ E(B, Q))
+                    E(A, B) <--> E(P, Q)
+                    E(B) + A ⇌ E(A, B)
+                    E(Q) + P ⇌ E(P, Q)
+                end
+            end)])
         Random.seed!(1)
         Base.cumulative_compile_timing(true)
-        _testhelper_measure(ms[1])
-        for (k, (n, b, t, s)) in enumerate(map(i -> _testhelper_measure(ms[i]), fresh))
+        _testhelper_measure(picks[1])
+        for (k, (n, b, t, s)) in enumerate(map(_testhelper_measure, picks[2:end]))
             println("FIT_INSTANCES_", k, ":", n, " FIT_NATIVE_", k, ":", b,
                     " FIT_COMPILE_", k, ":", t, " PASS1_SHOW_", k, ":", s)
         end
-        ems = ER.compile_mechanism.(ms[[1; fresh]])
+        ems = ER.compile_mechanism.(picks)
         println("FIT_SHAPES:", length(unique(em -> typeof(typeof(em).parameters[1]), ems)))
         println("FIT_NAMES:", length(unique(ER.fitted_params, ems)))
         """
@@ -317,8 +375,8 @@ end
                   "$(round.(native ./ 1024; digits=1)) KB " *
                   "(budget: $FIT_NATIVE_BUDGET_KB KB), " *
                   "compile $(round.(compile_s; digits=3)) s"
-            # ms[1] and the four fresh mechanisms have five Sig shapes and five
-            # fitted-name tuples, so no fresh mechanism reuses another's per-type code.
+            # The five picks have five Sig shapes and five fitted-name tuples, so no fresh
+            # mechanism reuses another's per-type code.
             @test n_shapes == 5
             @test n_name_tuples == 5
             # Every fresh type compiles its own rate equation, so a census that counts
