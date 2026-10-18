@@ -1516,6 +1516,44 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             end
         end))
     end
+
+    @testset "a malformed step is rejected with the walker's message" begin
+        # Each statement replaces the S binding of a uni-uni block with modifier I.
+        _testhelper_block_with(step) = :(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            modifiers: I
+            steps: begin
+                $step
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+                E + I ⇌ E(I)
+            end
+        end)
+        for (step, text) in (
+                (:(E + S → E(S)), "expected ⇌ or <--> step operator; got →"),
+                (:(E + 2 ⇌ E(S)),
+                 "expected metabolite Symbol or species expression on step side; got 2"),
+                (:(E + S ⇌ E(S, f(I))), "invalid entry in species `E(S, f(I))`: f(I)"),
+                (:(E + S ⇌ E(S; residual = 2S)), "invalid residual expression: 2S"),
+                (:(E + S ⇌ E((I + S)::Mod)),
+                 "expected `name::Mod` in species `E((I + S)::Mod)`; got (I + S)::Mod"),
+                (:(E + 2::Mod ⇌ E(S)), "expected `name::Mod`; got 2::Mod"))
+            # A syntax error throws at expansion, so `eval` wraps it in a LoadError.
+            @test_throws "@enzyme_mechanism: " * text eval(_testhelper_block_with(step))
+        end
+
+        # A step group's tag is a name.
+        @test_throws("@allosteric_mechanism: step-group tag must be a Symbol; got 1",
+                     eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                (E + S ⇌ E(S), E(S) <--> E(P)) :: 1
+                E(P) ⇌ E + P                   :: EqualAI
+            end
+        end)))
+    end
 end
 
 @testset "DSL: modifiers, ::Mod and regulatory_site(n)" begin
