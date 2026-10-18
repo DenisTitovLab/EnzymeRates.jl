@@ -1189,7 +1189,8 @@ never a context, and a group whose forms share one conformation and one residual
 gets no bipartition from those two families. Both parts are nonempty, the first
 part holds the group's first step, context values that induce the same division
 give one bipartition, and the order is ligands (by role then name), then
-conformations (by name), then residuals, for deterministic output.
+conformations (by name), then residuals (by the names they add, then those they
+subtract), for deterministic output.
 """
 function _context_bipartitions(group::Vector{Step})
     own = bound_metabolite(first(group))
@@ -1201,7 +1202,8 @@ function _context_bipartitions(group::Vector{Step})
     append!(divisions, division(f -> conformation(f) == c)
             for c in sort!(unique(conformation(f) for f in forms); by = string))
     append!(divisions, division(f -> residual(f) == r)
-            for r in sort!(unique(residual(f) for f in forms); by = string))
+            for r in sort!(unique(residual(f) for f in forms);
+                           by = r -> (name.(added(r)), name.(subtracted(r)))))
     parts(with) = (without = Step[s for s in group if !(s in with)];
                    first(group) in with ? (with, without) : (without, with))
     unique!(first, Tuple{Vector{Step}, Vector{Step}}[

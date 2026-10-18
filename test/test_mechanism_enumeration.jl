@@ -9342,6 +9342,21 @@ end
     @test src_forms(rbps[1][1]) == Set([:E, Er]) && src_forms(rbps[1][2]) == Set([EBr])
     @test src_forms(rbps[2][1]) == Set([:E]) && src_forms(rbps[2][2]) == Set([Er, EBr])
 
+    # Residual contexts come in content order: by the names a residual adds, then by
+    # those it subtracts. Q binds at E, at E(; residual = A - P) and at
+    # E(; residual = A + B - P), so each residual parts one binding from the other two:
+    # no residual first, then A - P, then A + B - P.
+    A, B = EnzymeRates.Substrate(:A), EnzymeRates.Substrate(:B)
+    P, Q = EnzymeRates.Product(:P), EnzymeRates.Product(:Q)
+    _testhelper_q_at(r) = EnzymeRates.Step(
+        EnzymeRates.Species(EnzymeRates.Metabolite[], :E, r),
+        EnzymeRates.Species([Q], :E, r), [Q], EnzymeRates.Metabolite[], true)
+    none, a_p, ab_p = _testhelper_q_at.([EnzymeRates.Residual(),
+                                         EnzymeRates.Residual([A], [P]),
+                                         EnzymeRates.Residual([A, B], [P])])
+    @test EnzymeRates._context_bipartitions([none, a_p, ab_p]) ==
+          [([none], [a_p, ab_p]), ([none, ab_p], [a_p]), ([none, a_p], [ab_p])]
+
     # Conformation as a context: A binds E, Estar, and Estar(B).
     conf = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
