@@ -1618,8 +1618,8 @@ end
 
 """The mechanism whose Sig is `sig`, splatted. Decoding trusts the Sig, which only
 `_sig_of` writes, so it canonicalizes and checks nothing. The varargs method compiles
-once for every Sig length, as long as callers splat a Sig whose length their code leaves
-open."""
+once, whatever the Sig length, as long as callers splat a Sig whose length their code
+leaves open."""
 _mechanism_from_sig(sig::Int...) = _read_mechanism!(_SigReader(collect(sig), 0))
 """The allosteric mechanism whose Sig is `sig`, splatted; only the composition
 constructor's tag and site checks run."""

@@ -476,14 +476,13 @@ The cycle basis of the sub-graph of graph `m` whose edges are `flat`, in that or
 `i` of `C` counts each edge of cycle `i` (column `j` is edge `flat[j]`) with its sign in
 the edge's stored direction, and `multiples[i]` is the multiple of the net reaction
 cycle `i` runs (0 for a Wegscheider cycle). The incidence matrix's rows are the forms
-the edges touch, in form order. A metabolite counts by name, so a reactant's modifier
-copy counts as the reactant (`_cycle_basis`).
+the edges touch (`_present_forms`), in form order. A metabolite counts by name, so a
+reactant's modifier copy counts as the reactant (`_cycle_basis`).
 """
 function _thermodynamic_constraints(m::Mechanism, flat::Vector{Int})
-    present = falses(length(m.forms))
-    for k in flat
-        present[m.edges[k].from] = present[m.edges[k].to] = true
-    end
+    kept = falses(length(m.edges))
+    kept[flat] .= true
+    present = _present_forms(m, kept)
     row = cumsum(present)
     B = zeros(Int, count(present), length(flat))
     for (j, k) in enumerate(flat)

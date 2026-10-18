@@ -200,8 +200,10 @@ end
         # E <--> D and E(S) <--> D(S) share their constants, and neither atom progression
         # nor graph context orients them. On its own, E(S) <--> D(S) would run from D(S),
         # which precedes E(S) in the canonical form order, but the group turns as one with
-        # its lead, the tied step whose oriented edge comes first (`_align_tied_groups!`):
-        # E → D, which starts at free E. So both steps run from the E side to the D side.
+        # its lead, the tied step `_align_tied_groups!` ranks first: one that changes
+        # conformation, then the lower tier, then the earlier oriented edge. Both steps
+        # change conformation at tier 3, and E → D, which starts at free E, is the earlier
+        # edge. So both steps run from the E side to the D side.
         tied_mm = @enzyme_mechanism begin
             substrates: S
             products: P

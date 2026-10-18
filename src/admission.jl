@@ -57,12 +57,16 @@ harmless: no turnover is possible at that corner.
 """
 function _bottomless_segment(m::Mechanism, mask::BitVector, re::BitVector)
     s = _segments(m, mask, re)
-    names = unique!([x.name for x in m.table])
-    sides = [BitVector([insorted(n, side) for n in names])
-             for side in (m.products, m.substrates)]
-    for segment in s.segments, on_side in sides
+    name_of = _name_index(m)
+    # Whether each metabolite name (`_name_index`) is a product, and whether a substrate.
+    products, substrates = falses(size(s.offsets, 1)), falses(size(s.offsets, 1))
+    for (i, x) in enumerate(m.table)
+        products[name_of[i]] = insorted(x.name, m.products)
+        substrates[name_of[i]] = insorted(x.name, m.substrates)
+    end
+    for segment in s.segments, on_side in (products, substrates)
         length(segment) >= 2 &&
-            all(f -> any(n -> on_side[n] && s.offsets[n, f] > 0, eachindex(names)),
+            all(f -> any(n -> on_side[n] && s.offsets[n, f] > 0, eachindex(on_side)),
                 segment) && return segment
     end
     Int[]
