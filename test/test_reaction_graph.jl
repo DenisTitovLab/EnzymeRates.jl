@@ -1135,10 +1135,6 @@ function _testhelper_census_population()
             EnzymeRates.expand_mechanisms(EnzymeRates.init_mechanisms(bibi), bibi))
 end
 
-"""The census's first populations (`_testhelper_census_population`), enumerated once for
-the testsets that read them."""
-const _testhelper_census_mechanisms = _testhelper_census_population()
-
 """A step side of graph `m` as text: form `f`'s name, then its free entries `c`."""
 _testhelper_side_text(m::ER.Mechanism, f::Int, c::ER.Counts) =
     join([ER._form_name(m, f); [ER._entry_label(m, i) for i in ER.entries(c)]], " + ")
@@ -1166,50 +1162,6 @@ function _testhelper_canonical_text(x)
                      join(["$l::$t" for (l, t) in zip(s.ligands, s.allo_states)], ", "))
     end
     lines
-end
-
-@testset "a graph's Step views read its canonical form, in order" begin
-    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
-        @test _testhelper_graph_view(_testhelper_build(spec.raw)) ==
-              _testhelper_step_view(spec.mechanism)
-    end
-    # The specs' canonical text, a blank line between specs, pinned as a fixture.
-    text = reduce((a, b) -> [a; ""; b],
-                  [["# $(spec.name)";
-                    _testhelper_canonical_text(_testhelper_build(spec.raw))]
-                   for spec in MECHANISM_TEST_SPECS])
-    fixture = joinpath(@__DIR__, "fixtures", "phase3_canonical_golden.txt")
-    if !isfile(fixture)
-        mkpath(dirname(fixture)); write(fixture, join(text, "\n") * "\n")
-        @warn "bootstrapped phase3 canonical golden fixture; commit it" fixture
-    end
-    @test text == readlines(fixture)
-    # Free E comes first, also where another label sorts before E.
-    raw = _testhelper_walk(:(begin
-        substrates: A
-        products: P
-        steps: begin
-            E + A <--> E(A)
-            E(A) <--> E(P)
-            E(P) <--> D + P
-            D <--> E
-        end
-    end))
-    x = ER.Mechanism(raw)
-    @test x.conformations == [:D, :E] && x.forms[1:2] == [ER.Form(2, 0, 0, 0),
-                                                          ER.Form(1, 0, 0, 0)]
-    @test _testhelper_graph_view(x) == _testhelper_step_view(x)
-    # The census's first populations, each written against its stored form; in
-    # agreement, the graph also decodes from its Sig and from its raw form.
-    population = _testhelper_census_mechanisms
-    graphs = [_testhelper_build(_testhelper_raw_of(m)) for m in population]
-    disagree = [i for (i, (m, x)) in enumerate(zip(population, graphs))
-                if _testhelper_graph_view(x) != _testhelper_step_view(m)]
-    @test isempty(disagree)
-    @test length(population) == 5508 + 5505
-    @test length(unique(graphs)) == length(unique(population))
-    @test all(_testhelper_decode(x, ER._sig_of(x)) == x for x in graphs)
-    @test all(_testhelper_build(ER._raw(x)) == x for x in graphs)
 end
 
 """
@@ -1266,12 +1218,59 @@ function _testhelper_subgraphs_agree(x)
         _testhelper_segments_agree(inactive, kept)
 end
 
+# The census's first populations (`_testhelper_census_population`), enumerated once for
+# the two testsets that read them and released after them.
+let population = _testhelper_census_population()
+@testset "a graph's Step views read its canonical form, in order" begin
+    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
+        @test _testhelper_graph_view(_testhelper_build(spec.raw)) ==
+              _testhelper_step_view(spec.mechanism)
+    end
+    # The specs' canonical text, a blank line between specs, pinned as a fixture.
+    text = reduce((a, b) -> [a; ""; b],
+                  [["# $(spec.name)";
+                    _testhelper_canonical_text(_testhelper_build(spec.raw))]
+                   for spec in MECHANISM_TEST_SPECS])
+    fixture = joinpath(@__DIR__, "fixtures", "phase3_canonical_golden.txt")
+    if !isfile(fixture)
+        mkpath(dirname(fixture)); write(fixture, join(text, "\n") * "\n")
+        @warn "bootstrapped phase3 canonical golden fixture; commit it" fixture
+    end
+    @test text == readlines(fixture)
+    # Free E comes first, also where another label sorts before E.
+    raw = _testhelper_walk(:(begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> D + P
+            D <--> E
+        end
+    end))
+    x = ER.Mechanism(raw)
+    @test x.conformations == [:D, :E] && x.forms[1:2] == [ER.Form(2, 0, 0, 0),
+                                                          ER.Form(1, 0, 0, 0)]
+    @test _testhelper_graph_view(x) == _testhelper_step_view(x)
+    # The census's first populations, each written against its stored form; in
+    # agreement, the graph also decodes from its Sig and from its raw form.
+    graphs = [_testhelper_build(_testhelper_raw_of(m)) for m in population]
+    disagree = [i for (i, (m, x)) in enumerate(zip(population, graphs))
+                if _testhelper_graph_view(x) != _testhelper_step_view(m)]
+    @test isempty(disagree)
+    @test length(population) == 5508 + 5505
+    @test length(unique(graphs)) == length(unique(population))
+    @test all(_testhelper_decode(x, ER._sig_of(x)) == x for x in graphs)
+    @test all(_testhelper_build(ER._raw(x)) == x for x in graphs)
+end
+
 @testset "a sub-graph's segments and inactive edges are its Step views'" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         @test _testhelper_subgraphs_agree(_testhelper_lift(spec.mechanism))
     end
-    @test isempty([i for (i, x) in enumerate(_testhelper_census_mechanisms)
+    @test isempty([i for (i, x) in enumerate(population)
                    if !_testhelper_subgraphs_agree(x)])
+end
 end
 
 @testset "tier 3 and a tied group's lead orient steps alike in every writing" begin
