@@ -369,6 +369,31 @@ function _check_metabolite_names(who::String, names::Vector{Symbol})
 end
 
 """
+Error unless the conformation label `c` is a capital letter followed by lowercase
+letters and digits (`E`, `Estar`, `F2`). A label with a second capital reads as an
+opaque bound-form name (`ES`), which is written in call notation (`E(S)`). Constant
+names join form names with `_`, so a label holds none. `who` names the macro or the
+constructor that checks.
+"""
+function _check_conformation_label(c::Symbol, who::String)
+    occursin(r"^[A-Z][a-z0-9]*$", String(c)) && return nothing
+    occursin(r"^[A-Z].*[A-Z]", String(c)) &&
+        error("$who: `$c` looks like an opaque bound-form name; write it as " *
+              "decomposed call notation, e.g. `E(S)` or `E(A, B)`.")
+    error("$who: `$c` is not a conformation label: a conformation label is a " *
+          "capital letter followed by lowercase letters and digits, such as `E`, `Estar` " *
+          "or `F2`.")
+end
+
+"""Error that the conformation label `c` also names a metabolite, which `kind` calls a
+`"declared metabolite"` or a `"ligand"`: a form's text starts with its label, so a DSL
+text would read the label as the metabolite. `who` names the macro or the constructor
+that checks."""
+_label_collision_error(c::Symbol, who::String, kind::String) =
+    error("$who: conformation label `$c` collides with $kind `$c`; choose a different " *
+          "conformation label.")
+
+"""
 Error unless the labels of `reactants` (substrate and product names) and `modifiers`
 (names that bind as modifiers) are uniquely decodable: no string splits into labels two
 ways. Enzyme forms and their constants join the labels of the metabolites they bind
@@ -868,7 +893,7 @@ struct AllostericMechanism
                                  regulatory_sites::Vector{RegulatorySite})
         _check_tags(cat_allo_states, ngroups(catalytic), catalytic_multiplicity)
         sites = sort(regulatory_sites; by = _site_key)
-        _check_ligands(sites)
+        _check_ligands(sites, catalytic)
         new(catalytic, copy(cat_allo_states), catalytic_multiplicity, sites)
     end
 end
@@ -1200,11 +1225,16 @@ function _check_tags(cat_allo_states::Vector{Symbol}, G::Int, catalytic_multipli
     nothing
 end
 
-"""Error when a site ligand cannot name a metabolite (`_check_metabolite_names`), or when
-a ligand sits on two sites: each ligand's constant is named after the ligand alone."""
-function _check_ligands(sites::Vector{RegulatorySite})
+"""Error when a site ligand cannot name a metabolite (`_check_metabolite_names`) or is a
+conformation label of `catalytic`, or when a ligand sits on two sites: each ligand's
+constant is named after the ligand alone."""
+function _check_ligands(sites::Vector{RegulatorySite}, catalytic::Mechanism)
     ligs = Symbol[l for s in sites for l in s.ligands]
     _check_metabolite_names("AllostericMechanism", ligs)
+    for l in ligs
+        insorted(l, catalytic.conformations) &&
+            _label_collision_error(l, "AllostericMechanism", "ligand")
+    end
     dup = findfirst(i -> ligs[i] in view(ligs, 1:(i - 1)), eachindex(ligs))
     dup === nothing ||
         error("AllostericMechanism: ligand $(ligs[dup]) appears in two " *
@@ -1241,7 +1271,8 @@ function _check_declarations(raw::RawMechanism)
 end
 
 """
-Error unless the canonical mechanism `m` represents one: every name declared (in
+Error unless the canonical mechanism `m` represents one: conformation labels shaped as
+labels (`_check_conformation_label`), none a metabolite's name; every name declared (in
 `modifiers`, the declared modifiers, or among its substrates and products), a modifier
 entry only for a declared modifier and a plain entry only for a reactant, residuals that
 add substrates and subtract products; no step joining a form to itself, taking up and
@@ -1253,6 +1284,11 @@ exchanges each declared name, a modifier as a modifier.
 """
 function _check_representation(m::Mechanism, misaligned::Vector{Edge},
                                modifiers::Vector{Symbol})
+    for c in m.conformations
+        _check_conformation_label(c, "Mechanism")
+        any(x -> x.name === c, m.table) &&
+            _label_collision_error(c, "Mechanism", "declared metabolite")
+    end
     for x in m.table
         _is_reactant(m, x.name) || x.name in modifiers ||
             error("Mechanism: $(x.name) is not declared; declare it under substrates:, " *

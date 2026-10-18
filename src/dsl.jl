@@ -737,8 +737,7 @@ function _raw_form(t, names, macro_name)
               "side; got $t")
     conformation, args = t isa Symbol ? (t, Any[]) : (t.args[1], t.args[2:end])
     _is_declared(conformation, names) &&
-        error("$macro_name: conformation label `$conformation` collides with declared " *
-              "metabolite `$conformation`; choose a different conformation label.")
+        _label_collision_error(conformation, macro_name, "declared metabolite")
     bound, added, subtracted = Met[], Symbol[], Symbol[]
     for a in args
         if a isa Expr && a.head === :parameters
@@ -782,22 +781,6 @@ function _read_residual!(added, subtracted, e, positive::Bool, names, macro_name
     else
         error("$macro_name: invalid residual expression: $e")
     end
-end
-
-"""
-Error unless the conformation label `c` is a capital letter followed by lowercase
-letters and digits (`E`, `Estar`, `F2`). A label with a second capital reads as an
-opaque bound-form name (`ES`), which is written in call notation (`E(S)`). Constant
-names join form names with `_`, so a label holds none.
-"""
-function _check_conformation_label(c::Symbol, macro_name)
-    occursin(r"^[A-Z][a-z0-9]*$", String(c)) && return nothing
-    occursin(r"^[A-Z].*[A-Z]", String(c)) &&
-        error("$macro_name: `$c` looks like an opaque bound-form name; write it as " *
-              "decomposed call notation, e.g. `E(S)` or `E(A, B)`.")
-    error("$macro_name: `$c` is not a conformation label: a conformation label is a " *
-          "capital letter followed by lowercase letters and digits, such as `E`, `Estar` " *
-          "or `F2`.")
 end
 
 """

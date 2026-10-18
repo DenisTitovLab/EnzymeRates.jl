@@ -727,6 +727,30 @@ end
                                          EnzymeRates.Met[], true))))
     @test_throws(_testhelper_unused("modifier", :P),
                  ER.Mechanism(_testhelper_uniuni_raw(modifiers = [:P])))
+    # Conformation labels: a label shaped otherwise than E, Estar or F2; an opaque
+    # bound-form name; a metabolite's name, of the catalytic graph or of a ligand.
+    _testhelper_turning_to(label) = _testhelper_adding(_testhelper_uniuni_raw(),
+        EnzymeRates.RawStep(free, EnzymeRates.RawForm(label, EnzymeRates.Met[]),
+                            EnzymeRates.Met[], EnzymeRates.Met[], false))
+    @test_throws(ErrorException("Mechanism: `Ex_1` is not a conformation label: a " *
+                                "conformation label is a capital letter followed by " *
+                                "lowercase letters and digits, such as `E`, `Estar` or " *
+                                "`F2`."),
+                 ER.Mechanism(_testhelper_turning_to(:Ex_1)))
+    @test_throws(ErrorException("Mechanism: `ES` looks like an opaque bound-form name; " *
+                                "write it as decomposed call notation, e.g. `E(S)` or " *
+                                "`E(A, B)`."),
+                 ER.Mechanism(_testhelper_turning_to(:ES)))
+    @test_throws(ErrorException("Mechanism: conformation label `S` collides with " *
+                                "declared metabolite `S`; choose a different " *
+                                "conformation label."),
+                 ER.Mechanism(_testhelper_turning_to(:S)))
+    @test_throws(ErrorException("AllostericMechanism: conformation label `F` collides " *
+                                "with ligand `F`; choose a different conformation " *
+                                "label."),
+                 ER.AllostericMechanism(EnzymeRates.RawAllostericMechanism(
+                     _testhelper_turning_to(:F), [tags; :EqualAI], 2,
+                     [site([:F], 2, [:OnlyA])])))
 end
 
 @testset "a form's name and text read as constants and the macros write them" begin
