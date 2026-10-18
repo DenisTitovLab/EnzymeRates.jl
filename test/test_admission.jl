@@ -811,8 +811,9 @@ end
     @test _testhelper_face_faults(unfed)[2] === bottomless
     @test _testhelper_respeed_verdicts(unfed; rng = Random.MersenneTwister(8),
                                        law = :limit)[2] === :agree
-    @test _testhelper_respeed_verdicts(unfed; rng = Random.MersenneTwister(9))[2] ===
-          :law_nan
+    verdicts = _testhelper_respeed_verdicts(unfed; rng = Random.MersenneTwister(9))
+    @test verdicts[2] === :law_nan
+    @test all(_testhelper_agrees.(_testhelper_face_faults(unfed), verdicts))
 end
 
 @testset "class 3 rejects a second closed class on a face" begin
@@ -888,6 +889,17 @@ end
           "step that leaves them takes up a zeroed metabolite " *
           "($(EnzymeRates._step_text(weighted, leaving))), so the steady state is not " *
           "unique."
+    # An allosteric message names the conformation the closed set lies in.
+    at_P, at_PX = _testhelper_face_verdicts(detour)[[2, 5]]
+    @test EnzymeRates._guard_message(detour, at_P) ==
+          "AllostericMechanism: at zero P in the inactive conformation, the forms {F(P)} " *
+          "keep enzyme away from free E: every step that leaves them takes up a zeroed " *
+          "metabolite (F(P) + P <--> E(P, P)), so the steady state is not unique."
+    @test EnzymeRates._guard_message(detour, at_PX) ==
+          "AllostericMechanism: at zero P and X in the active conformation, the forms " *
+          "{F(P)} keep enzyme away from free E: every step that leaves them takes up a " *
+          "zeroed metabolite (F(P) + P <--> E(P, P) and F(P) + X <--> F(P, X)), so the " *
+          "steady state is not unique."
 end
 
 @testset "the limit test decides what structure cannot" begin
@@ -937,6 +949,8 @@ end
             E(P) + Q <--> E(P, Q)
         end
     end
+    # At zero P the aggregated chain has two closed classes, and so does the law's segment
+    # chain, so the face stops at `_LAW_MULTI`.
     multilevel = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
@@ -965,21 +979,31 @@ end
             E + Q ⇌ E(Q)
         end
     end
-    rows = ((unlumped, [2, 7], EnzymeRates._LIMIT_SPEED, :pattern),
-            (lumpable_732, [7], EnzymeRates._LIMIT_DIFFER, :mismatch),
-            (unfed_trap, [7], EnzymeRates._LIMIT_SPEED, :pattern),
-            (dead_end, [2], EnzymeRates._LIMIT_LAW_NAN, :law_nan),
-            (multilevel, [2], EnzymeRates._LIMIT_SPEED, :pattern),
-            (two_transients, [2, 7], EnzymeRates._LIMIT_SPEED, :pattern))
-    for (i, (m, faces, limit, oracle)) in enumerate(rows)
+    split, trap, multi = EnzymeRates._SPLIT, EnzymeRates._TRAP, EnzymeRates._LAW_MULTI
+    rows = ((unlumped, [2, 7], [split, split], EnzymeRates._LIMIT_SPEED, :pattern),
+            (lumpable_732, [7], [split], EnzymeRates._LIMIT_DIFFER, :mismatch),
+            (unfed_trap, [7], [split], EnzymeRates._LIMIT_SPEED, :pattern),
+            (dead_end, [2], [multi], EnzymeRates._LIMIT_LAW_NAN, :law_nan),
+            (multilevel, [2], [multi], EnzymeRates._LIMIT_SPEED, :pattern),
+            (two_transients, [2, 7], [trap, split], EnzymeRates._LIMIT_SPEED, :pattern))
+    for (i, (m, faces, faults, limit, oracle)) in enumerate(rows)
         verdicts = _testhelper_face_verdicts(m)
-        @test all(f -> verdicts[f].fault !== EnzymeRates._NO_FAULT &&
-                       verdicts[f].limit === limit, faces)
+        @test [verdicts[f].fault for f in faces] == faults
+        @test all(f -> verdicts[f].limit === limit, faces)
         oracles = _testhelper_respeed_verdicts(m; rng = Random.MersenneTwister(20 + i))
         @test all(==(oracle), oracles[faces])
         @test all(_testhelper_agrees.([v.fault for v in verdicts], oracles))
         @test all(f -> _testhelper_names_its_step(m, verdicts[f]), faces)
     end
+    # Where the law's segment chain has two closed classes, the message names the face and
+    # what the limit test found, with no fix.
+    message(m, f) = EnzymeRates._guard_message(m, _testhelper_face_verdicts(m)[f])
+    @test message(dead_end, 2) ==
+          "Mechanism: at zero P and Q, the rate law has no value (0/0), while the steady " *
+          "state does."
+    @test message(multilevel, 2) ==
+          "Mechanism: at zero P, the steady state depends on how fast the " *
+          "rapid-equilibrium steps run, which the rate law does not carry."
     # unfed_trap at zero products: A2 accepts, since no transition feeds the trap there,
     # and the limit test does not run.
     @test _testhelper_face_verdicts(unfed_trap)[2] ===
