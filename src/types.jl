@@ -663,14 +663,6 @@ _is_reactant(rxn::EnzymeReaction, n::Symbol) =
 # Code that reads a mechanism through its Step views (`steps`) finds the groups' forms
 # and rapid-equilibrium segments with these.
 
-"""
-The kind of a step for kinetic grouping: the metabolites it takes up and gives off,
-`(consumed, released)`. Steps that share a kinetic group share their constants, so
-they must take up and give off the same metabolites: two bindings of `m` share a
-kind whether or not either runs chemistry, and every isomerization is one kind.
-"""
-_step_kind(s::Step) = (consumed(s), released(s))
-
 """The distinct enzyme forms of the steps of `groups`, in the canonical form order
 (`_form_index_key`: free E first, then by content)."""
 function _forms(groups)

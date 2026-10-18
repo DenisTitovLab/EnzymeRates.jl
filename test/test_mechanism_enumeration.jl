@@ -5,30 +5,36 @@
 # every mechanism inline via the macro, every move test asserts the exact
 # child set.
 
-# Orients an isomerization Step substrate-rich side → product-rich side (ties
-# by lex on form name) and returns its (source, destination) Species. A raw topology
-# step keeps the direction it was built in; the mechanism constructors orient
-# isomerizations (`_orientation`).
-function _testhelper_iso_orient(s::EnzymeRates.Step)
-    from, to = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
-    nf = count(b -> b isa EnzymeRates.Substrate, EnzymeRates.bound(from))
-    nt = count(b -> b isa EnzymeRates.Substrate, EnzymeRates.bound(to))
-    forward = nf > nt || (nf == nt &&
-        string(EnzymeRates.name(from)) <= string(EnzymeRates.name(to)))
-    forward ? (from, to) : (to, from)
+# Orients an isomerization raw step substrate-rich side → product-rich side, counting
+# the names in `subs` as substrates (ties by content), and returns its (source,
+# destination) forms. A raw topology step keeps the direction it was written in; the
+# mechanism constructors orient isomerizations (`_orientation`).
+function _testhelper_iso_orient(s::EnzymeRates.RawStep, subs)
+    nf, nt = (count(x -> x.name in subs, f.bound) for f in (s.from, s.to))
+    key(f) = (f.conformation, f.bound, f.added, f.subtracted)
+    nf > nt || (nf == nt && !isless(key(s.to), key(s.from))) ? (s.from, s.to) :
+                                                                (s.to, s.from)
 end
 
-# Build a Mechanism from a flat topology Step list, each step its own
-# kinetic group.
-_testhelper_topo_mech(rxn, t::Vector{EnzymeRates.Step}) =
-    EnzymeRates.Mechanism(rxn, [[s] for s in t])
+# Whether a raw step is an isomerization: it takes up and gives off nothing.
+_testhelper_raw_iso(s::EnzymeRates.RawStep) = isempty(s.consumed) && isempty(s.released)
 
-# Form-name set for a flat topology Step list, derived from the decomposed
-# Species of each Step.
-_testhelper_form_names(t::Vector{EnzymeRates.Step}) = Set{Symbol}(
-    EnzymeRates.name(sp)
-    for s in t for sp in (EnzymeRates.from_species(s),
-                          EnzymeRates.to_species(s)))
+# Whether a raw form carries a covalent residual.
+_testhelper_raw_residual(f::EnzymeRates.RawForm) =
+    !isempty(f.added) || !isempty(f.subtracted)
+
+# Build a Mechanism over `rxn`'s names from a topology's raw steps, each step its own
+# kinetic group.
+_testhelper_topo_mech(rxn, t::Vector{EnzymeRates.RawStep}) = EnzymeRates.Mechanism(
+    EnzymeRates.RawMechanism(EnzymeRates.name.(EnzymeRates.substrates(rxn)),
+                             EnzymeRates.name.(EnzymeRates.products(rxn)), Symbol[], t,
+                             collect(eachindex(t))))
+
+# The names (`_form_name`) of the forms the raw steps `t` of a topology or a seed join,
+# over `rxn`'s names.
+_testhelper_form_names(rxn, t::Vector{EnzymeRates.RawStep}) =
+    (m = _testhelper_topo_mech(rxn, t);
+     Set(Symbol(EnzymeRates._form_name(m, f)) for f in eachindex(m.forms)))
 
 # The names (`_form_name`) of the forms of graph `m` where the entry of `name` (a modifier
 # entry when `modifier` holds) is free on some edge (`_forms_where_free`).
@@ -36,39 +42,35 @@ _testhelper_free_at(m, name, modifier = false) =
     Set(EnzymeRates._form_name(m, f) for f in findall(EnzymeRates._forms_where_free(
         m, EnzymeRates._entry(m, EnzymeRates.Met(name, modifier)))))
 
-# Flat topology (Vector{Step}) from a compiled mechanism, matching the
-# shape _catalytic_topologies now returns (each step its own kinetic group).
-_testhelper_flat_topo(m) = EnzymeRates.Step[
-    s for g in EnzymeRates.steps(EnzymeRates.Mechanism(m)) for s in g]
+# A compiled mechanism's raw steps in their stored direction, the shape a topology of
+# `_catalytic_topologies` takes: every binding takes its metabolite up.
+_testhelper_flat_topo(m) = EnzymeRates._raw(EnzymeRates.Mechanism(m)).steps
 
 # Connectivity invariant: two enzyme forms identical in conformation+residual
 # whose bound-metabolite sets differ by exactly one metabolite MUST be joined by
-# a binding step. Returns the list of (formA, formB) pairs that violate it.
-# Accepts a flat `Vector{Step}` (a topology) or a `Vector{Vector{Step}}`
-# (a Mechanism's kinetic groups).
-function _testhelper_connectivity_violations(steps)
-    flat = eltype(steps) <: AbstractVector ?
-           collect(Iterators.flatten(steps)) : steps
-    _bset(sp) = Set(EnzymeRates.name(m) for m in EnzymeRates.bound(sp))
-    _testhelper_key(sp) = (EnzymeRates.conformation(sp), EnzymeRates.residual(sp),
-                           Tuple(sort(collect(_bset(sp)))))
+# a binding step. Returns the list of (formA, formB) pairs that violate it among the raw
+# steps of a topology or a seed (`_raw(m).steps` for a mechanism `m`).
+function _testhelper_connectivity_violations(steps::Vector{EnzymeRates.RawStep})
+    _bset(f) = Set(x.name for x in f.bound)
+    _testhelper_key(f) = (f.conformation, f.added, f.subtracted,
+                          Tuple(sort(collect(_bset(f)))))
     forms = Dict{Any,Any}()
     edges = Set{Tuple{Any,Any}}()
-    for s in flat
-        a, b = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+    for s in steps
+        a, b = s.from, s.to
         forms[_testhelper_key(a)] = a; forms[_testhelper_key(b)] = b
         push!(edges, (_testhelper_key(a), _testhelper_key(b)))
         push!(edges, (_testhelper_key(b), _testhelper_key(a)))
     end
-    viol = Tuple{Symbol,Symbol}[]
+    viol = Tuple{EnzymeRates.RawForm, EnzymeRates.RawForm}[]
     fv = collect(values(forms))
     for s1 in fv, s2 in fv
-        (EnzymeRates.conformation(s1) == EnzymeRates.conformation(s2) &&
-         EnzymeRates.residual(s1) == EnzymeRates.residual(s2)) || continue
+        (s1.conformation == s2.conformation &&
+         (s1.added, s1.subtracted) == (s2.added, s2.subtracted)) || continue
         b1, b2 = _bset(s1), _bset(s2)
         if length(b2) == length(b1) + 1 && issubset(b1, b2) &&
            !((_testhelper_key(s1), _testhelper_key(s2)) in edges)
-            push!(viol, (EnzymeRates.name(s1), EnzymeRates.name(s2)))
+            push!(viol, (s1, s2))
         end
     end
     viol
@@ -493,10 +495,23 @@ uni_bi_topos = EnzymeRates._catalytic_topologies(uni_bi_rxn)
         @test length(topos) == n
         @test all(isempty(_testhelper_connectivity_violations(t)) for t in topos)
         # Every topology has exactly one SS step.
-        @test all(count(!s.is_equilibrium for s in t) == 1 for t in topos)
+        @test all(count(!s.rapid_equilibrium for s in t) == 1 for t in topos)
     end
     @test all(EnzymeMechanism(_testhelper_topo_mech(uni_bi_rxn, t)) isa EnzymeMechanism
               for t in uni_bi_topos)
+end
+
+@testset "a topology writes each release as the binding it reverses" begin
+    ER = EnzymeRates
+    form(xs...) = ER.RawForm(:E, ER.Met[ER.Met(x, false) for x in xs])
+    # Uni-uni: the route binds S at E, isomerizes E(S) to E(P) and gives P off from E(P).
+    # The topology writes that release as the binding E + P → E(P), which takes P up, and
+    # lists its bindings first, by their forms in the canonical form order, then its
+    # steady-state isomerization.
+    @test ER._catalytic_topologies(uni_uni_rxn) == [[
+        ER.RawStep(form(), form(:P), [ER.Met(:P, false)], ER.Met[], true),
+        ER.RawStep(form(), form(:S), [ER.Met(:S, false)], ER.Met[], true),
+        ER.RawStep(form(:S), form(:P), ER.Met[], ER.Met[], false)]]
 end
 
 @testset "isomerization patterns come in the canonical form order" begin
@@ -505,8 +520,11 @@ end
     # one with E(A; residual = B + D - Q) comes before the one with E(A, D): that
     # residual form binds fewer metabolites, though its internal name sorts after EAD.
     # Each topology's first isomerization in that order is its steady-state step.
-    _testhelper_iso_texts(t) = sort([EnzymeRates._step_text(s, ter_bi_rxn)
-                                     for s in t if EnzymeRates.is_iso(s)])
+    function _testhelper_iso_texts(t)
+        m = _testhelper_topo_mech(ter_bi_rxn, t)
+        sort([join(EnzymeRates._sides(m, k), e.rapid_equilibrium ? " ⇌ " : " <--> ")
+              for (k, e) in enumerate(m.edges) if EnzymeRates._is_iso(e)])
+    end
     @test unique(_testhelper_iso_texts.(EnzymeRates._catalytic_topologies(ter_bi_rxn))) ==
           [["EABD <--> EPQ"],
            ["EA_res_plusB_plusD_minusQ <--> EP", "EBD ⇌ EQ_res_plusB_plusD_minusQ"],
@@ -523,53 +541,46 @@ end
     # release P[C] leaving an N residue), so ping-pong topologies survive.
     topos = ter_ter_topos
     # Every enzyme form lives on conformation :E.
-    @test all(EnzymeRates.conformation(sp) === :E
-              for t in topos for s in t
-              for sp in (EnzymeRates.from_species(s), EnzymeRates.to_species(s)))
+    @test all(f.conformation === :E for t in topos for s in t for f in (s.from, s.to))
     # Surviving ping-pong topologies each carry a genuine (non-empty)
     # covalent intermediate — no empty-residue ping-pong remains.
-    pingpong = filter(t -> count(EnzymeRates.is_iso, t) >= 2, topos)
+    pingpong = filter(t -> count(_testhelper_raw_iso, t) >= 2, topos)
     @test !isempty(pingpong)
-    @test all(any(EnzymeRates.has_residual(sp)
-                  for s in t
-                  for sp in (EnzymeRates.from_species(s), EnzymeRates.to_species(s)))
+    @test all(any(_testhelper_raw_residual(f) for s in t for f in (s.from, s.to))
               for t in pingpong)
 end
 
 @testset "isomerization constraints" begin
     topos = ter_ter_topos
     sub_names_set = Set([:A, :B, :D])
-    forms(s) = (EnzymeRates.from_species(s), EnzymeRates.to_species(s))
 
     # C5: at most max(n_subs, n_prods) = 3 metabolites bound on any form.
-    @test all(length(EnzymeRates.bound(sp)) <= 3
-              for t in topos for s in t for sp in forms(s))
+    @test all(length(f.bound) <= 3 for t in topos for s in t for f in (s.from, s.to))
 
     # C7: every iso source must contain at
     # least one substrate. Use bound list directly (name-parsing is
     # ambiguous with the concat form naming convention).
-    @test all(any(b -> EnzymeRates.name(b) ∈ sub_names_set,
-                  EnzymeRates.bound(_testhelper_iso_orient(s)[1]))
-              for t in topos for s in t if EnzymeRates.is_iso(s))
+    @test all(any(b -> b.name ∈ sub_names_set,
+                  _testhelper_iso_orient(s, sub_names_set)[1].bound)
+              for t in topos for s in t if _testhelper_raw_iso(s))
 
     # C8: an iso's product-side (destination) form is built with only
     # products bound, never substrates.
-    @test all(EnzymeRates.name(b) ∉ sub_names_set
-              for t in topos for s in t if EnzymeRates.is_iso(s)
-              for b in EnzymeRates.bound(_testhelper_iso_orient(s)[2]))
+    @test all(b.name ∉ sub_names_set
+              for t in topos for s in t if _testhelper_raw_iso(s)
+              for b in _testhelper_iso_orient(s, sub_names_set)[2].bound)
 end
 
-_testhelper_bound_names(sp) = Set(EnzymeRates.name(b) for b in EnzymeRates.bound(sp))
-# An enzyme form binding exactly the metabolites `names`, with or without a
+_testhelper_bound_names(f) = Set(x.name for x in f.bound)
+# A raw enzyme form binding exactly the metabolites `names`, with or without a
 # covalent residual.
-_testhelper_form(names, residual) = sp ->
-    _testhelper_bound_names(sp) == Set(names) && EnzymeRates.has_residual(sp) == residual
-# Whether `spec` holds an isomerization with one end satisfying `p` and the
+_testhelper_form(names, residual) = f ->
+    _testhelper_bound_names(f) == Set(names) && _testhelper_raw_residual(f) == residual
+# Whether the raw steps `spec` hold an isomerization with one end satisfying `p` and the
 # other `q`, whichever way the step is oriented.
 _testhelper_iso_between(spec, p, q) = any(spec) do s
-    EnzymeRates.is_iso(s) || return false
-    f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
-    (p(f) && q(t)) || (p(t) && q(f))
+    _testhelper_raw_iso(s) || return false
+    (p(s.from) && q(s.to)) || (p(s.to) && q(s.from))
 end
 
 @testset "pyruvate carboxylase mechanism" begin
@@ -584,9 +595,9 @@ end
     # bare E(OAA).
     @test any(topos) do spec
         _testhelper_iso_between(spec, _testhelper_form([:ATP, :HCO3], false),
-                                EnzymeRates.has_residual) &&
+                                _testhelper_raw_residual) &&
         _testhelper_iso_between(spec, _testhelper_form([:OAA], false),
-            t -> :Pyr in _testhelper_bound_names(t) && EnzymeRates.has_residual(t))
+            t -> :Pyr in _testhelper_bound_names(t) && _testhelper_raw_residual(t))
     end
 
     # 312 = 169 seq + 143 pp, classified by iso-step count: sequential
@@ -594,7 +605,7 @@ end
     # pp) has exactly one SS step — for ping-pong only one of the iso
     # steps is steady-state, the rest are rapid-equilibrium.
     @test length(topos) == 312
-    seq_count = count(t -> count(EnzymeRates.is_iso, t) == 1, topos)
+    seq_count = count(t -> count(_testhelper_raw_iso, t) == 1, topos)
     pp_count = length(topos) - seq_count
     @test seq_count == 169
     @test pp_count == 143
@@ -623,7 +634,7 @@ end
     # pp) has exactly one SS step — for ping-pong only one of the iso
     # steps is steady-state, the rest are rapid-equilibrium.
     @test length(topos) == 334
-    seq_count = count(t -> count(EnzymeRates.is_iso, t) == 1, topos)
+    seq_count = count(t -> count(_testhelper_raw_iso, t) == 1, topos)
     pp_count = length(topos) - seq_count
     @test seq_count == 169
     @test pp_count == 165
@@ -641,7 +652,7 @@ end
     @test all(isempty(_testhelper_connectivity_violations(t)) for t in topos)
     @test length(topos) > 0
     # Every topology must have ≥ 2 iso steps (no 4→4)
-    @test all(count(EnzymeRates.is_iso, t) >= 2 for t in topos)
+    @test all(count(_testhelper_raw_iso, t) >= 2 for t in topos)
 end
 
 @testset "no admissible catalytic cycle throws" begin
@@ -887,8 +898,9 @@ end
 
     # Each variant adds exactly the dead-end forms whose (substrate, product)
     # pair its competition pattern leaves unforbidden.
-    seed_forms = _testhelper_form_names(topo)
-    @test Set(setdiff(_testhelper_form_names(r), seed_forms) for r in result) == Set([
+    seed_forms = _testhelper_form_names(bi_bi_rxn, topo)
+    @test Set(setdiff(_testhelper_form_names(bi_bi_rxn, r), seed_forms)
+              for r in result) == Set([
         Set([:EAQ, :EBP]),     # forbids A↔P, B↔Q
         Set([:EAP, :EBQ]),     # forbids A↔Q, B↔P
         Set([:EBQ]),           # forbids all but B↔Q
@@ -955,8 +967,9 @@ end
 
     # Each variant adds exactly the dead-end forms whose (substrate, product)
     # pair its competition pattern leaves unforbidden.
-    seed_forms = _testhelper_form_names(topo)
-    @test Set(setdiff(_testhelper_form_names(r), seed_forms) for r in result) == Set([
+    seed_forms = _testhelper_form_names(bi_bi_pp_rxn, topo)
+    @test Set(setdiff(_testhelper_form_names(bi_bi_pp_rxn, r), seed_forms)
+              for r in result) == Set([
         Set([:EAQ, :EstarBP]),                  # forbids A↔P, B↔Q
         Set([:EAP, :EBQ, :EstarAP, :EstarBQ]),  # forbids A↔Q, B↔P
         Set([:EBQ, :EstarBQ]),                  # forbids all but B↔Q
@@ -971,7 +984,7 @@ end
     # conformation).
     new_estar_forms = Set{Symbol}()
     for r in result
-        new_forms = setdiff(_testhelper_form_names(r), seed_forms)
+        new_forms = setdiff(_testhelper_form_names(bi_bi_pp_rxn, r), seed_forms)
         for f in new_forms
             startswith(string(f), "Estar") && string(f) != "Estar" &&
                 push!(new_estar_forms, f)
@@ -1007,9 +1020,10 @@ end
     #   2S+1P: 3 (EABR, EADQ, EBDP)
     #   1S+2P: 3 (EAQR, EBPR, EDPQ)
     topos = EnzymeRates._catalytic_topologies(ter_ter_rxn)
-    _, idx = findmax(length(_testhelper_form_names(t)) for t in topos)
+    _, idx = findmax(length(_testhelper_form_names(ter_ter_rxn, t)) for t in topos)
     result = EnzymeRates._expand_substrate_product_dead_ends([topos[idx]], ter_ter_rxn)
-    added = [setdiff(_testhelper_form_names(steps), _testhelper_form_names(topos[idx]))
+    added = [setdiff(_testhelper_form_names(ter_ter_rxn, steps),
+                     _testhelper_form_names(ter_ter_rxn, topos[idx]))
              for steps in result]
     @test length(union(added...)) == 27
     @test Set([:EAQ, :EAR, :EBP, :EBR, :EDP, :EDQ, :EABR, :EADQ, :EBDP, :EAQR, :EBPR,
@@ -1126,7 +1140,7 @@ uu, ub, bb, pp = (EnzymeRates.init_mechanisms(rxn)
     # seeds hold no isomerization and two or three SS groups.
     for specs in (uu, ub, bb, pp)
         @test all(isempty(_testhelper_connectivity_violations(
-            EnzymeRates.steps(m))) for m in specs)
+            EnzymeRates._raw(m).steps)) for m in specs)
         for s in specs
             if _testhelper_holds_iso(s)
                 @test count(st -> !st.is_equilibrium,
@@ -1137,6 +1151,21 @@ uu, ub, bb, pp = (EnzymeRates.init_mechanisms(rxn)
             end
         end
     end
+end
+
+@testset "_seed_groups labels one metabolite's bindings at one flag as one group" begin
+    ER = EnzymeRates
+    form(xs...) = ER.RawForm(:E, ER.Met[ER.Met(x, false) for x in xs])
+    step(f, t, xs, r) = ER.RawStep(f, t, ER.Met[ER.Met(x, false) for x in xs], ER.Met[], r)
+    # The A bindings at rapid equilibrium share label 1; B's rapid-equilibrium and
+    # steady-state bindings take labels 2 and 3; each isomerization has a label of its
+    # own though both take up and give off nothing. Labels run in order of first use.
+    steps = [step(form(), form(:A), [:A], true), step(form(), form(:B), [:B], true),
+             step(form(:B), form(:A, :B), [:A], true),
+             step(form(:A), form(:A, :B), [:B], false),
+             step(form(:A, :B), form(:P, :Q), [], false),
+             step(form(:P), form(:Q), [], false)]
+    @test ER._seed_groups(steps) == [1, 2, 1, 3, 4, 5]
 end
 
 @testset "Same-metabolite RE bindings share kinetic_group" begin
@@ -1277,7 +1306,7 @@ end
     # adds the dead-end regulator, it should appear.
     init_mechs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
     @test all(isempty(_testhelper_connectivity_violations(
-        EnzymeRates.steps(m))) for m in init_mechs)
+        EnzymeRates._raw(m).steps)) for m in init_mechs)
     @test !isempty(init_mechs)
     for m in init_mechs
         em = EnzymeRates.compile_mechanism(m)
@@ -1306,7 +1335,7 @@ end
     end
     specs = EnzymeRates.init_mechanisms(rxn)
     @test all(isempty(_testhelper_connectivity_violations(
-        EnzymeRates.steps(m))) for m in specs)
+        EnzymeRates._raw(m).steps)) for m in specs)
     @test !isempty(specs)
     for spec in first(specs, min(3, length(specs)))
         m = EnzymeMechanism(spec)

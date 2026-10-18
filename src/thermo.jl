@@ -15,8 +15,8 @@ end
 
 # ─── Content keys of Step views ────────────────────────────────────────────
 #
-# The seeds' topology sort (`_catalytic_topologies`) and `_forms` order the forms of Step
-# views by these keys, as canonical form orders a graph's forms.
+# `_forms` orders the forms of Step views by these keys, as canonical form orders a
+# graph's forms.
 
 """A metabolite list as the content keys read it: each metabolite's name and whether it
 binds as a modifier copy (a competitive inhibitor), in stored order."""

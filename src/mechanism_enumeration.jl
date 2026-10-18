@@ -138,11 +138,12 @@ function _weak_orderings(items::Vector{Symbol})
 end
 
 """
-    _catalytic_topologies(reaction) -> Vector{Vector{Step}}
+    _catalytic_topologies(reaction) -> Vector{Vector{RawStep}}
 
-Build catalytic cycle topologies by constructive backtracking.
-Each topology is a set of steps forming one or more complete
-catalytic cycles (E -> ... -> E). Errors when the reaction has none.
+Build catalytic cycle topologies by constructive backtracking. Each topology is a set of
+raw steps forming one or more complete catalytic cycles (E -> ... -> E), every release
+written as the binding it reverses, so every binding takes its metabolite up. Errors
+when the reaction has none.
 """
 function _catalytic_topologies(reaction::EnzymeReaction)
     sub_names = Symbol[name(s) for s in substrates(reaction)]
@@ -150,47 +151,51 @@ function _catalytic_topologies(reaction::EnzymeReaction)
 
     # The form on :E binding `on_subs` and `on_prods` after a route consumed `consumed`
     # and released `released`. Its covalent residual adds the consumed substrates not
-    # bound and subtracts the released and bound products; it is `Residual()` exactly
-    # when their atoms cancel (no covalent residue remains).
+    # bound and subtracts the released and bound products; it has none exactly when
+    # their atoms cancel (no covalent residue remains).
     function form(consumed, released, on_subs, on_prods)
         added, subtracted = setdiff(consumed, on_subs), [released; on_prods]
-        res = isempty(_net_atoms(reaction, added, subtracted)) ? Residual() :
-              Residual(Substrate.(added), Product.(subtracted))
-        Species(Metabolite[Substrate.(on_subs); Product.(on_prods)], :E, res)
+        bound = Met[Met.(on_subs, false); Met.(on_prods, false)]
+        isempty(_net_atoms(reaction, added, subtracted)) ? RawForm(:E, bound) :
+            RawForm(:E, bound, added, subtracted)
     end
+    iso(s::RawStep) = isempty(s.consumed) && isempty(s.released)
 
-    # Collect all complete catalytic paths as Step lists. A route starts at free E, binds
-    # substrates, isomerizes a substrate-bound form to a product-bound one, releases those
-    # products one at a time in every order, and repeats until it has consumed every
-    # substrate and released every product. `cur` is the current form, `consumed` and
-    # `released` are the route's history, and `on_subs` and `on_prods` are what `cur`
+    # Collect all complete catalytic paths as raw step lists. A route starts at free E,
+    # binds substrates, isomerizes a substrate-bound form to a product-bound one, releases
+    # those products one at a time in every order, and repeats until it has consumed
+    # every substrate and released every product. `cur` is the current form, `consumed`
+    # and `released` are the route's history, and `on_subs` and `on_prods` are what `cur`
     # binds; the atoms on the enzyme are those of `consumed` minus those of `released`.
-    paths = Vector{Step}[]
+    paths = Vector{RawStep}[]
     function walk!(cur, consumed, released, on_subs, on_prods, path)
-        if isempty(bound(cur)) && length(consumed) == length(sub_names) &&
+        if isempty(cur.bound) && length(consumed) == length(sub_names) &&
                 length(released) == length(prod_names)
             push!(paths, copy(path))
             return
         end
-        # Steps from `cur` to the form the arguments describe, then walks on from it.
-        function step!(takes_up, gives_off, con, rel, on_s, on_p)
+        # The step from `cur` to the form the arguments describe, taking up `takes_up`,
+        # or, for a release, the binding into `cur` it reverses; then the walk on from
+        # that form.
+        function step!(takes_up::Vector{Met}, release::Bool, con, rel, on_s, on_p)
             to = form(con, rel, on_s, on_p)
-            push!(path, Step(cur, to, takes_up, gives_off, true))
+            push!(path, release ? RawStep(to, cur, takes_up, Met[], true) :
+                                  RawStep(cur, to, takes_up, Met[], true))
             walk!(to, con, rel, on_s, on_p, path)
             pop!(path)
         end
         if !isempty(on_prods)
             # Release a bound product; nothing binds until every bound product is gone.
             for p in on_prods
-                step!(Metabolite[], Metabolite[Product(p)], consumed, [released; p],
-                      Symbol[], filter(!=(p), on_prods))
+                step!([Met(p, false)], true, consumed, [released; p], Symbol[],
+                      filter(!=(p), on_prods))
             end
             return
         end
         remaining_subs = setdiff(sub_names, consumed)
         for s in remaining_subs
-            step!(Metabolite[Substrate(s)], Metabolite[], [consumed; s], released,
-                  [on_subs; s], Symbol[])
+            step!([Met(s, false)], false, [consumed; s], released, [on_subs; s],
+                  Symbol[])
         end
         # C7: only a substrate-bound form isomerizes. C6: at most three substrates react.
         (isempty(on_subs) || length(on_subs) > 3) && return
@@ -206,16 +211,16 @@ function _catalytic_topologies(reaction::EnzymeReaction)
             # C6: iso size limit, the residue counting as one product
             length(subset) + !isempty(residue) > 3 && continue
             # C8: product-only iso form
-            step!(Metabolite[], Metabolite[], consumed, released, Symbol[], subset)
+            step!(Met[], false, consumed, released, Symbol[], subset)
         end
     end
     # Start from free enzyme (:E, no bound metabolites).
-    walk!(Species(Metabolite[], :E), Symbol[], Symbol[], Symbol[], Symbol[], Step[])
+    walk!(RawForm(:E, Met[]), Symbol[], Symbol[], Symbol[], Symbol[], RawStep[])
 
     # --- Group paths by isomerization pattern ---
-    iso_groups = Dict{Set{Step}, Vector{Vector{Step}}}()
+    iso_groups = Dict{Set{RawStep}, Vector{Vector{RawStep}}}()
     for path in paths
-        push!(get!(iso_groups, Set(filter(is_iso, path)), Vector{Step}[]), path)
+        push!(get!(iso_groups, Set(filter(iso, path)), Vector{RawStep}[]), path)
     end
 
     # --- Build topologies: union whole paths consistent with each
@@ -231,22 +236,30 @@ function _catalytic_topologies(reaction::EnzymeReaction)
     #
     # Iterate iso_groups deterministically (smaller iso-step counts first, then by
     # their iso steps' forms in the canonical form order) so topology output order is
-    # stable — `Set{Step}` hashing is not value-stable.
+    # stable — a `Set`'s iteration order is not.
     level_of(wo) = Dict{Symbol,Int}(m => i for (i, level) in enumerate(wo) for m in level)
     sub_levels = level_of.(_weak_orderings(sub_names))
     prod_levels = level_of.(_weak_orderings(prod_names))
-    route_order(path, ::Type{T}) where {T} =
-        Symbol[name(bound_metabolite(s)::T) for s in path if bound_metabolite(s) isa T]
-    form_pair(s) = (_form_index_key(from_species(s)), _form_index_key(to_species(s)))
+    # The names a path binds, in order, among `names`: a release counts as the binding it
+    # is written as.
+    route_order(path, names) =
+        Symbol[s.consumed[1].name for s in path
+               if !isempty(s.consumed) && s.consumed[1].name in names]
+    # A form's place in the canonical form order (`_sorted_forms`): free E first, then by
+    # label, bound metabolites, residual additions and residual subtractions.
+    key(f::RawForm) = (!(isempty(f.bound) && isempty(f.added) && isempty(f.subtracted) &&
+                         f.conformation === :E),
+                       f.conformation, f.bound, f.added, f.subtracted)
+    form_pair(s) = (key(s.from), key(s.to))
     sorted_iso_pats = sort!(collect(keys(iso_groups));
                             by = pat -> (length(pat), sort([form_pair(s) for s in pat])))
-    result = Vector{Step}[]
+    result = Vector{RawStep}[]
     for iso_pat in sorted_iso_pats
-        group = [(path, route_order(path, Substrate), route_order(path, Product))
+        group = [(path, route_order(path, sub_names), route_order(path, prod_names))
                  for path in iso_groups[iso_pat]]
-        seen_topos = Set{Set{Step}}()
+        seen_topos = Set{Set{RawStep}}()
         for sl in sub_levels, pl in prod_levels
-            topo_keys = Set{Step}()
+            topo_keys = Set{RawStep}()
             for (path, binds, releases) in group
                 issorted(binds; by = m -> sl[m]) && issorted(releases; by = m -> pl[m]) &&
                     union!(topo_keys, path)
@@ -254,14 +267,12 @@ function _catalytic_topologies(reaction::EnzymeReaction)
             (isempty(topo_keys) || topo_keys ∈ seen_topos) && continue
             push!(seen_topos, topo_keys)
 
-            steps = sort!(collect(topo_keys); by = s -> (is_iso(s), form_pair(s)...))
+            steps = sort!(collect(topo_keys); by = s -> (iso(s), form_pair(s)...))
 
-            # The first iso step is the (single) SS step; every other step is
-            # RE. Rebuild each Step with that tag (Step is immutable; direction
-            # is unaffected by is_equilibrium).
-            iso_idx = findfirst(is_iso, steps)
-            push!(result, Step[_with_equilibrium(s, i != iso_idx)
-                               for (i, s) in enumerate(steps)])
+            # The first iso step is the (single) SS step; every other step is RE.
+            iso_idx = findfirst(iso, steps)
+            push!(result, RawStep[RawStep(s.from, s.to, s.consumed, s.released,
+                                          i != iso_idx) for (i, s) in enumerate(steps)])
         end
     end
     isempty(result) && error("no catalytic cycle for $(join(sub_names, " + ")) ⇌ " *
@@ -313,11 +324,11 @@ function _inhibitor_competition_patterns(
 end
 
 """
-    _expand_substrate_product_dead_ends(topos, reaction) -> Vector{Vector{Step}}
+    _expand_substrate_product_dead_ends(topos, reaction) -> Vector{Vector{RawStep}}
 
 For each catalytic topology, enumerate substrate/product dead-end
 form combinations and return each resulting mechanism as a flat
-`Vector{Step}`. A dead-end form is a catalytic form with one more
+`Vector{RawStep}`. A dead-end form is a catalytic form with one more
 substrate or product bound, subject to:
 - The resulting form binds at least one substrate AND
   at least one product (mixed binding required)
@@ -339,7 +350,7 @@ cycle and leaves no isomerization a dead-end parallel, so bindings are the only 
 the dead-end forms need.
 """
 function _expand_substrate_product_dead_ends(
-    topos::Vector{Vector{Step}},
+    topos::Vector{Vector{RawStep}},
     reaction::EnzymeReaction,
 )
     sub_names = Set(name(s) for s in substrates(reaction))
@@ -355,26 +366,25 @@ function _expand_substrate_product_dead_ends(
     patterns = filter(pat -> all(in(pat), shared_catalytic_site(reaction)),
                       _competition_patterns(sub_names, prod_names))
 
-    role(m::Symbol) = m in sub_names ? Substrate(m) : Product(m)
-    held(sp::Species) = Set(name(b) for b in bound(sp))
-    result = Vector{Step}[]
+    held(f::RawForm) = Set(x.name for x in f.bound)
+    result = Vector{RawStep}[]
     for topo in topos
-        catalytic = _forms([topo])
-        dead_ends = Species[]
-        for sp in catalytic, m in mets
-            b = held(sp)
+        catalytic = unique!([f for s in topo for f in (s.from, s.to)])
+        dead_ends = RawForm[]
+        for f in catalytic, m in mets
+            b = held(f)
             m in b && continue
             push!(b, m)
             subs, prods = intersect(b, sub_names), intersect(b, prod_names)
             (isempty(subs) || isempty(prods) || subs == sub_names || prods == prod_names) &&
                 continue
-            push!(dead_ends, Species(Metabolite[bound(sp)..., role(m)], conformation(sp),
-                                     residual(sp)))
+            push!(dead_ends, RawForm(f.conformation, [f.bound; Met(m, false)], f.added,
+                                     f.subtracted))
         end
         # Several catalytic forms can give the same dead end.
         unique!(dead_ends)
-        edges = Set((from_species(s), to_species(s)) for s in topo)
-        seen = Set{Vector{Species}}()
+        edges = Set((s.from, s.to) for s in topo)
+        seen = Set{Vector{RawForm}}()
         for pattern in patterns
             active = filter(dead_ends) do d
                 b = held(d)
@@ -395,12 +405,13 @@ function _expand_substrate_product_dead_ends(
             forms = [catalytic; active]
             hs = held.(forms)
             steps = copy(topo)
-            for (i, sp1) in enumerate(forms), (j, sp2) in enumerate(forms)
-                conformation(sp1) == conformation(sp2) && residual(sp1) == residual(sp2) &&
+            for (i, f1) in enumerate(forms), (j, f2) in enumerate(forms)
+                f1.conformation == f2.conformation &&
+                    (f1.added, f1.subtracted) == (f2.added, f2.subtracted) &&
                     length(hs[j]) == length(hs[i]) + 1 && issubset(hs[i], hs[j]) &&
-                    !((sp1, sp2) in edges) || continue
+                    !((f1, f2) in edges) || continue
                 met = only(setdiff(hs[j], hs[i]))
-                push!(steps, Step(sp1, sp2, Metabolite[role(met)], Metabolite[], true))
+                push!(steps, RawStep(f1, f2, [Met(met, false)], Met[], true))
             end
             push!(result, steps)
         end
@@ -423,19 +434,18 @@ compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)
 # ─── Mechanism Enumeration ───────────────────────────────────
 
 """
-    _seed_groups(steps) -> Vector{Vector{Step}}
+    _seed_groups(steps) -> Vector{Int}
 
-The kinetic groups of a seed's flat step list. Steps that take up and give off the
-same metabolites (`_step_kind`) with the same RE/SS flag share one group; every
-isomerization is a group of its own. The `Mechanism` constructor canonicalizes group
-and step order, so the order returned here does not matter.
+The kinetic group label of each raw step of a seed, labels numbered in order of first
+use: steps that take up and give off the same metabolites with the same RE/SS flag
+share one group, since the steps of a group share their constants; every isomerization
+is a group of its own.
 """
-function _seed_groups(steps::Vector{Step})
-    groups = Dict{Any, Vector{Step}}()
-    for (i, s) in enumerate(steps)
-        push!(get!(groups, is_iso(s) ? i : (_step_kind(s), is_equilibrium(s)), Step[]), s)
-    end
-    collect(values(groups))
+function _seed_groups(steps::Vector{RawStep})
+    label = Dict{Tuple{Vector{Met}, Vector{Met}, Bool, Int}, Int}()
+    [get!(label, (s.consumed, s.released, s.rapid_equilibrium,
+                  isempty(s.consumed) && isempty(s.released) ? j : 0), length(label) + 1)
+     for (j, s) in enumerate(steps)]
 end
 
 
@@ -2158,8 +2168,11 @@ the reaction has no catalytic topology, and when a mechanism it returns gives no
 rate law (`_check_well_posed`).
 """
 function init_mechanisms(r::EnzymeReaction)
+    subs = Symbol[name(s) for s in substrates(r)]
+    prods = Symbol[name(p) for p in products(r)]
     seeds = _expand_substrate_product_dead_ends(_catalytic_topologies(r), r)
-    mechs = [Mechanism(r, _seed_groups(steps)) for steps in seeds]
+    mechs = [Mechanism(RawMechanism(subs, prods, Symbol[], steps, _seed_groups(steps)))
+             for steps in seeds]
     foreach(m -> _assert_atom_conserving(m, r), mechs)
     seen = Set(mechs)
     out = copy(mechs)
