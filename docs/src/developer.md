@@ -114,10 +114,14 @@ and `==` and `hash` read its fields alone, alike in every process. An
 `AllostericMechanism` holds a catalytic `Mechanism`, one allosteric tag per kinetic
 group, the catalytic multiplicity and the regulatory sites.
 
-The macros, the parser and the enumeration moves write a mechanism as raw input
-(`RawMechanism` of `RawStep`s between `RawForm`s, and `RawAllostericMechanism`): its
-steps in written order and direction. `Mechanism(raw)` and `AllostericMechanism(raw)`
-build its canonical graph (`_canonicalize`) and check it. Going `from → to`, an edge takes
+The macros, the parser and the moves that change flags, groups or steps write a mechanism
+as raw input (`RawMechanism` of `RawStep`s between `RawForm`s, and
+`RawAllostericMechanism`): its steps in written order and direction. `Mechanism(raw)` and
+`AllostericMechanism(raw)` build its canonical graph (`_canonicalize`) and check it. The
+moves that tag a mechanism or change its regulatory sites compose the parent's catalytic
+graph with other tags or sites through the composition constructor,
+`AllostericMechanism(m, tags, multiplicity, sites)` (directly or by `_with`), which runs
+only its tag and site checks. Going `from → to`, an edge takes
 up the entries in `consumed` and gives off those in `released`. Steps are classified by
 these counts. A binding takes up exactly one metabolite and gives off none
 (`_is_binding`). It is plain when its target form is its source form with that metabolite
