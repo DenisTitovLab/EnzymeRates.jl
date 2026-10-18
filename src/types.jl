@@ -638,8 +638,9 @@ end
     AllostericMechanism
 
 An MWC enzyme: its catalytic `Mechanism`, one allosteric tag per kinetic group of it
-(`cat_allo_states[g]`), the catalytic multiplicity and the regulatory sites, sorted. A
-future model with its own derivation wraps the same `Mechanism` in a type of its own.
+(`cat_allo_states[g]`), the catalytic multiplicity and the regulatory sites, sorted. Its
+catalytic graph is a plain `Mechanism`, so a model with another derivation can wrap the
+same graph in a type of its own.
 """
 struct AllostericMechanism
     catalytic::Mechanism
