@@ -741,12 +741,23 @@ substrates(m::Mechanism) = m.substrates
 products(m::Mechanism) = m.products
 """Every name bound as a modifier, reactant copies included, sorted."""
 modifiers(m::Mechanism) = unique!([x.name for x in m.table if x.modifier])
+# The concentration names in the order the rate law reads them: substrates, products,
+# then the modifier-only names, each by name; an allosteric mechanism appends each site's
+# ligands in site order, once each.
+metabolites(m::Mechanism) = unique!([m.substrates; m.products; modifiers(m)])
+metabolites(am::AllostericMechanism) =
+    unique!([metabolites(am.catalytic);
+             [l for s in am.regulatory_sites for l in s.ligands]])
 """Whether `x` names a substrate or a product of `m`."""
 _is_reactant(m::Mechanism, x::Symbol) = insorted(x, m.substrates) || insorted(x, m.products)
 _role_masks(m::Mechanism) = _role_masks(m.table, m.substrates)
 
 catalytic(m::Mechanism) = m
 catalytic(am::AllostericMechanism) = am.catalytic
+cat_allo_states(am::AllostericMechanism) = am.cat_allo_states
+cat_allo_state(am::AllostericMechanism, g::Int) = am.cat_allo_states[g]
+catalytic_multiplicity(am::AllostericMechanism) = am.catalytic_multiplicity
+regulatory_sites(am::AllostericMechanism) = am.regulatory_sites
 """The number of kinetic groups of `m`."""
 ngroups(m::Mechanism) = maximum(m.group; init = 0)
 """Each kinetic group's edges, in edge order."""

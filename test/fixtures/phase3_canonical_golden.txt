@@ -1,0 +1,472 @@
+# Uni-Uni
+substrates: S | products: P
+forms: E, ES
+1: E + P <--> ES | group 1
+2: E + S <--> ES | group 2
+
+# Segel Uni Uni
+substrates: A | products: P
+forms: E, EA, EP
+1: E + A <--> EA | group 1
+2: E + P <--> EP | group 2
+3: EA <--> EP | group 3
+
+# Segel Iso Uni Uni
+substrates: A | products: P
+forms: E, EA, EP, F
+1: E + A <--> EA | group 1
+2: EA <--> EP | group 2
+3: F <--> E | group 3
+4: F + P <--> EP | group 4
+
+# Segel Ordered Uni Bi
+substrates: A | products: P, Q
+forms: E, EA, EQ
+1: E + A <--> EA | group 1
+2: E + Q <--> EQ | group 2
+3: EQ + P <--> EA | group 3
+
+# Segel Ordered Bi Bi
+substrates: A, B | products: P, Q
+forms: E, EA, EAB, EQ
+1: E + A <--> EA | group 1
+2: E + Q <--> EQ | group 2
+3: EA + B <--> EAB | group 3
+4: EQ + P <--> EAB | group 4
+
+# Segel Theorell-Chance Bi Bi
+substrates: A, B | products: P, Q
+forms: E, EA, EQ
+1: E + A <--> EA | group 1
+2: E + Q <--> EQ | group 2
+3: EA + B <--> EQ + P | group 3
+
+# Segel Ping Pong Bi Bi
+substrates: A, B | products: P, Q
+forms: E, EA, F, FB
+1: E + A <--> EA | group 1
+2: E + Q <--> FB | group 2
+3: F + P <--> EA | group 3
+4: F + B <--> FB | group 4
+
+# Segel Ordered Ter Bi
+substrates: A, B, C | products: P, Q
+forms: E, EA, EAB, EABC, EQ
+1: E + A <--> EA | group 1
+2: E + Q <--> EQ | group 2
+3: EA + B <--> EAB | group 3
+4: EAB + C <--> EABC | group 4
+5: EQ + P <--> EABC | group 5
+
+# Segel Ordered Ter Ter
+substrates: A, B, C | products: P, Q, R
+forms: E, EA, EAB, EABC, EQR, ER
+1: E + A <--> EA | group 1
+2: E + R <--> ER | group 2
+3: EA + B <--> EAB | group 3
+4: EAB + C <--> EABC | group 4
+5: EQR + P <--> EABC | group 5
+6: ER + Q <--> EQR | group 6
+
+# Segel Bi Uni Uni Uni PP Ter Bi
+substrates: A, B, C | products: P, Q
+forms: E, EA, EAB, F, FC
+1: E + A <--> EA | group 1
+2: E + Q <--> FC | group 2
+3: EA + B <--> EAB | group 3
+4: F + P <--> EAB | group 4
+5: F + C <--> FC | group 5
+
+# Random-order Bi-Bi
+substrates: A, B | products: P, Q
+forms: E, EA, EAB, EB, EPQ, EQ
+1: E + A <--> EA | group 1
+2: E + B <--> EB | group 2
+3: E + Q <--> EQ | group 3
+4: EA + B <--> EAB | group 4
+5: EAB <--> EPQ | group 5
+6: EB + A <--> EAB | group 6
+7: EQ + P <--> EPQ | group 7
+
+# Numerator: random chem-SS (RE/SS)
+substrates: S1, S2 | products: P
+forms: E, EP, ES1, ES1S2, ES2
+1: E + P ⇌ EP | group 1
+2: E + S1 ⇌ ES1 | group 2
+3: E + S2 ⇌ ES2 | group 3
+4: ES1 + S2 <--> ES1S2 | group 4
+5: ES1S2 <--> EP | group 5
+6: ES2 + S1 <--> ES1S2 | group 6
+
+# Numerator: RE-chemistry
+substrates: S1, S2 | products: P1, P2
+forms: E, EP1, EP1P2, EP2, ES1, ES1S2, ES2
+1: E + P1 ⇌ EP1 | group 1
+2: E + P2 ⇌ EP2 | group 2
+3: E + S1 ⇌ ES1 | group 3
+4: E + S2 ⇌ ES2 | group 4
+5: EP1 + P2 <--> EP1P2 | group 5
+6: EP2 + P1 <--> EP1P2 | group 6
+7: ES1 + S2 <--> ES1S2 | group 7
+8: ES1S2 ⇌ EP1P2 | group 8
+9: ES2 + S1 <--> ES1S2 | group 9
+
+# Numerator: redundant SS-bind
+substrates: S1, S2 | products: P
+forms: E, EP, ES1, ES1S2, ES2
+1: E + P ⇌ EP | group 1
+2: E + S1 <--> ES1 | group 2
+3: E + S2 ⇌ ES2 | group 3
+4: ES1 + S2 ⇌ ES1S2 | group 4
+5: ES1S2 <--> EP | group 5
+6: ES2 + S1 ⇌ ES1S2 | group 6
+
+# Segel Bi Uni Uni Bi PP Ter Ter
+substrates: A, B, C | products: P, Q, R
+forms: E, EA, EAB, ER, F, FC
+1: E + A <--> EA | group 1
+2: E + R <--> ER | group 2
+3: EA + B <--> EAB | group 3
+4: ER + Q <--> FC | group 4
+5: F + P <--> EAB | group 5
+6: F + C <--> FC | group 6
+
+# Segel Bi Bi Uni Uni PP Ter Ter
+substrates: A, B, C | products: P, Q, R
+forms: E, EA, EAB, F, FC, FQ
+1: E + A <--> EA | group 1
+2: E + R <--> FC | group 2
+3: EA + B <--> EAB | group 3
+4: F + C <--> FC | group 4
+5: F + Q <--> FQ | group 5
+6: FQ + P <--> EAB | group 6
+
+# Segel Hexa Uni Ping Pong
+substrates: A, B, C | products: P, Q, R
+forms: E, EA, F, FB, G, GC
+1: E + A <--> EA | group 1
+2: E + R <--> GC | group 2
+3: F + P <--> EA | group 3
+4: F + B <--> FB | group 4
+5: G + Q <--> FB | group 5
+6: G + C <--> GC | group 6
+
+# RE Uni-Uni
+substrates: A | products: P
+forms: E, EA
+1: E + A ⇌ EA | group 1
+2: E + P <--> EA | group 2
+
+# RE Ordered Bi-Bi
+substrates: A, B | products: P, Q
+forms: E, EA, EAB, EQ
+1: E + A ⇌ EA | group 1
+2: E + Q <--> EQ | group 2
+3: EA + B ⇌ EAB | group 3
+4: EQ + P <--> EAB | group 4
+
+# RE Random Bi-Bi
+substrates: A, B | products: P, Q
+forms: E, EA, EAB, EB, EPQ, EQ
+1: E + A ⇌ EA | group 1
+2: E + B ⇌ EB | group 2
+3: E + Q <--> EQ | group 3
+4: EA + B <--> EAB | group 4
+5: EAB <--> EPQ | group 5
+6: EB + A <--> EAB | group 6
+7: EQ + P <--> EPQ | group 7
+
+# Competitive Inhibitor
+substrates: S | products: P | modifiers: R
+forms: E, EP, ER, ES
+1: E + P ⇌ EP | group 1
+2: E + R ⇌ ER | group 2
+3: E + S ⇌ ES | group 3
+4: ES <--> EP | group 4
+
+# Non-competitive Inhibitor
+substrates: S | products: P | modifiers: R
+forms: E, EP, ER, ERS, ES
+1: E + P ⇌ EP | group 1
+2: E + R ⇌ ER | group 2
+3: E + S ⇌ ES | group 3
+4: ER + S ⇌ ERS | group 4
+5: ES <--> EP | group 5
+6: ES + R ⇌ ERS | group 2
+
+# Uncompetitive Inhibitor
+substrates: S | products: P | modifiers: R
+forms: E, EP, ERS, ES
+1: E + P ⇌ EP | group 1
+2: E + S ⇌ ES | group 2
+3: ES <--> EP | group 3
+4: ES + R ⇌ ERS | group 4
+
+# Essential Activator
+substrates: S | products: P | modifiers: R
+forms: E, EPR, ER, ERS
+1: E + R ⇌ ER | group 1
+2: ER + P ⇌ EPR | group 2
+3: ER + S ⇌ ERS | group 3
+4: ERS <--> EPR | group 4
+
+# Non-essential Activator
+substrates: S | products: P | modifiers: R
+forms: E, EP, EPR, ER, ERS, ES
+1: E + P ⇌ EP | group 1
+2: E + R ⇌ ER | group 2
+3: E + S ⇌ ES | group 3
+4: EP + R ⇌ EPR | group 2
+5: ER + P ⇌ EPR | group 4
+6: ER + S ⇌ ERS | group 5
+7: ERS <--> EPR | group 6
+8: ES <--> EP | group 7
+9: ES + R ⇌ ERS | group 2
+
+# Activator + Competitive Inhibitor
+substrates: S | products: P | modifiers: A, I
+forms: E, EA, EAP, EAS, EI, EP, ES
+1: E + A ⇌ EA | group 1
+2: E + I ⇌ EI | group 2
+3: E + P ⇌ EP | group 3
+4: E + S ⇌ ES | group 4
+5: EA + P ⇌ EAP | group 5
+6: EA + S ⇌ EAS | group 6
+7: EAS <--> EAP | group 7
+8: EP + A ⇌ EAP | group 1
+9: ES + A ⇌ EAS | group 1
+10: ES <--> EP | group 8
+
+# MWC Dimer [AllostericEnzymeMechanism]
+substrates: S | products: P
+forms: E, EP, ES
+1: E + P ⇌ EP | group 1 :: NonequalAI
+2: E + S ⇌ ES | group 2 :: NonequalAI
+3: ES <--> EP | group 3 :: NonequalAI
+catalytic_multiplicity: 2
+
+# Homodimer + Non-competitive Inhibitor [AllostericEnzymeMechanism]
+substrates: S | products: P
+forms: E, EP, ES
+1: E + P ⇌ EP | group 1 :: NonequalAI
+2: E + S ⇌ ES | group 2 :: NonequalAI
+3: ES <--> EP | group 3 :: NonequalAI
+catalytic_multiplicity: 2
+regulatory_site(1): I::NonequalAI
+
+# Two Competitive Inhibitors
+substrates: S | products: P | modifiers: I1, I2
+forms: E, EI1, EI2, EP, ES
+1: E + I1 ⇌ EI1 | group 1
+2: E + I2 ⇌ EI2 | group 2
+3: E + P ⇌ EP | group 3
+4: E + S ⇌ ES | group 4
+5: ES <--> EP | group 5
+
+# Two Non-competitive Inhibitors
+substrates: S | products: P | modifiers: I1, I2
+forms: E, EI1, EI1I2, EI1I2P, EI1I2S, EI1P, EI1S, EI2, EI2P, EI2S, EP, ES
+1: E + I1 ⇌ EI1 | group 1
+2: E + I2 ⇌ EI2 | group 2
+3: E + P ⇌ EP | group 3
+4: E + S ⇌ ES | group 4
+5: EI1 + I2 ⇌ EI1I2 | group 2
+6: EI1 + P ⇌ EI1P | group 3
+7: EI1 + S ⇌ EI1S | group 4
+8: EI1I2 + P ⇌ EI1I2P | group 3
+9: EI1I2 + S ⇌ EI1I2S | group 4
+10: EI1P + I2 ⇌ EI1I2P | group 2
+11: EI1S + I2 ⇌ EI1I2S | group 2
+12: EI2 + I1 ⇌ EI1I2 | group 1
+13: EI2 + P ⇌ EI2P | group 3
+14: EI2 + S ⇌ EI2S | group 4
+15: EI2P + I1 ⇌ EI1I2P | group 1
+16: EI2S + I1 ⇌ EI1I2S | group 1
+17: EP + I1 ⇌ EI1P | group 1
+18: EP + I2 ⇌ EI2P | group 2
+19: ES + I1 ⇌ EI1S | group 1
+20: ES + I2 ⇌ EI2S | group 2
+21: ES <--> EP | group 5
+
+# Non-competitive + Competitive Inhibitor
+substrates: S | products: P | modifiers: I1, I2
+forms: E, EI1, EI1P, EI1S, EI2, EP, ES
+1: E + I1 ⇌ EI1 | group 1
+2: E + I2 ⇌ EI2 | group 2
+3: E + P ⇌ EP | group 3
+4: E + S ⇌ ES | group 4
+5: EI1 + P ⇌ EI1P | group 3
+6: EI1 + S ⇌ EI1S | group 4
+7: EP + I1 ⇌ EI1P | group 1
+8: ES + I1 ⇌ EI1S | group 1
+9: ES <--> EP | group 5
+
+# Uncompetitive + Competitive Inhibitor
+substrates: S | products: P | modifiers: I1, I2
+forms: E, EI1S, EI2, EP, ES
+1: E + I2 ⇌ EI2 | group 1
+2: E + P ⇌ EP | group 2
+3: E + S ⇌ ES | group 3
+4: ES + I1 ⇌ EI1S | group 4
+5: ES <--> EP | group 5
+
+# Two Same-site Inhibitors
+substrates: S | products: P | modifiers: I1, I2
+forms: E, EI1, EI1P, EI1S, EI2, EI2P, EI2S, EP, ES
+1: E + I1 ⇌ EI1 | group 1
+2: E + I2 ⇌ EI2 | group 2
+3: E + P ⇌ EP | group 3
+4: E + S ⇌ ES | group 4
+5: EI1 + P ⇌ EI1P | group 3
+6: EI1 + S ⇌ EI1S | group 4
+7: EI2 + P ⇌ EI2P | group 3
+8: EI2 + S ⇌ EI2S | group 4
+9: EP + I1 ⇌ EI1P | group 1
+10: EP + I2 ⇌ EI2P | group 2
+11: ES + I1 ⇌ EI1S | group 1
+12: ES + I2 ⇌ EI2S | group 2
+13: ES <--> EP | group 5
+
+# MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites
+substrates: S1, S2 | products: P1, P2
+forms: E, EP1, EP1P2, EP1S2, EP2, EP2S1, ES1, ES1S2, ES2
+1: E + P1 ⇌ EP1 | group 1 :: NonequalAI
+2: E + P2 ⇌ EP2 | group 2 :: NonequalAI
+3: E + S1 ⇌ ES1 | group 3 :: NonequalAI
+4: E + S2 ⇌ ES2 | group 4 :: NonequalAI
+5: EP1 + P2 ⇌ EP1P2 | group 2 :: NonequalAI
+6: EP1 + S2 ⇌ EP1S2 | group 4 :: NonequalAI
+7: EP2 + P1 ⇌ EP1P2 | group 1 :: NonequalAI
+8: EP2 + S1 ⇌ EP2S1 | group 3 :: NonequalAI
+9: ES1 + P2 ⇌ EP2S1 | group 2 :: NonequalAI
+10: ES1 + S2 ⇌ ES1S2 | group 4 :: NonequalAI
+11: ES1S2 <--> EP1P2 | group 5 :: NonequalAI
+12: ES2 + P1 ⇌ EP1S2 | group 1 :: NonequalAI
+13: ES2 + S1 ⇌ ES1S2 | group 3 :: NonequalAI
+catalytic_multiplicity: 4
+regulatory_site(4): R1::NonequalAI, R2::NonequalAI
+regulatory_site(4): R3::NonequalAI
+
+# PFK-1
+substrates: ATP, F6P | products: ADP, F16BP
+forms: E, EADP, EADPF16BP, EATP, EATPF6P, EF16BP, EF6P
+1: E + ADP ⇌ EADP | group 1 :: EqualAI
+2: E + ATP ⇌ EATP | group 2 :: EqualAI
+3: E + F16BP ⇌ EF16BP | group 3 :: EqualAI
+4: E + F6P ⇌ EF6P | group 4 :: OnlyA
+5: EADP + F16BP ⇌ EADPF16BP | group 3 :: EqualAI
+6: EATP + F6P ⇌ EATPF6P | group 4 :: OnlyA
+7: EATPF6P <--> EADPF16BP | group 5 :: OnlyA
+8: EF16BP + ADP ⇌ EADPF16BP | group 1 :: EqualAI
+9: EF6P + ATP ⇌ EATPF6P | group 2 :: EqualAI
+catalytic_multiplicity: 4
+regulatory_site(4): ADP::OnlyA
+regulatory_site(4): ATP::OnlyI, Pi::EqualAI
+regulatory_site(4): Citrate::OnlyI
+regulatory_site(4): F26BP::NonequalAI
+
+# HK
+substrates: ATP, Glucose | products: ADP, G6P | modifiers: G6P
+forms: E, EADP, EADPG6P, EATP, EATPGlucose, EG6P, EG6PG6Pmod, EG6Pmod, EG6PmodGlucose, EGlucose
+1: E + ADP ⇌ EADP | group 1 :: EqualAI
+2: E + ATP ⇌ EATP | group 2 :: OnlyA
+3: E + G6P ⇌ EG6P | group 3 :: EqualAI
+4: E + G6Pmod ⇌ EG6Pmod | group 4 :: EqualAI
+5: E + Glucose ⇌ EGlucose | group 5 :: EqualAI
+6: EADP + G6P ⇌ EADPG6P | group 3 :: EqualAI
+7: EATP + Glucose ⇌ EATPGlucose | group 5 :: EqualAI
+8: EATPGlucose <--> EADPG6P | group 6 :: OnlyA
+9: EG6P + ADP ⇌ EADPG6P | group 1 :: EqualAI
+10: EG6P + G6Pmod ⇌ EG6PG6Pmod | group 4 :: EqualAI
+11: EG6Pmod + G6P ⇌ EG6PG6Pmod | group 3 :: EqualAI
+12: EG6Pmod + Glucose ⇌ EG6PmodGlucose | group 5 :: EqualAI
+13: EGlucose + ATP ⇌ EATPGlucose | group 2 :: OnlyA
+14: EGlucose + G6Pmod ⇌ EG6PmodGlucose | group 4 :: EqualAI
+catalytic_multiplicity: 2
+regulatory_site(2): G6P::OnlyI, Pi::EqualAI
+
+# PK
+substrates: ADP, PEP | products: ATP, Pyruvate
+forms: E, EADP, EADPPEP, EATP, EATPPyruvate, EPEP, EPyruvate
+1: E + ADP ⇌ EADP | group 1 :: EqualAI
+2: E + ATP ⇌ EATP | group 2 :: EqualAI
+3: E + PEP ⇌ EPEP | group 3 :: OnlyA
+4: E + Pyruvate ⇌ EPyruvate | group 4 :: EqualAI
+5: EADP + PEP ⇌ EADPPEP | group 3 :: OnlyA
+6: EADPPEP <--> EATPPyruvate | group 5 :: OnlyA
+7: EATP + Pyruvate ⇌ EATPPyruvate | group 4 :: EqualAI
+8: EPEP + ADP ⇌ EADPPEP | group 1 :: EqualAI
+9: EPyruvate + ATP ⇌ EATPPyruvate | group 2 :: EqualAI
+catalytic_multiplicity: 4
+regulatory_site(2): ATP::OnlyI
+regulatory_site(4): F16BP::OnlyA
+
+# m_all
+substrates: S1, S2 | products: P1, P2
+forms: E, EP1, EP1P2, EP2, ES1, ES1S2, ES2
+1: E + P1 ⇌ EP1 | group 1 :: NonequalAI
+2: E + P2 ⇌ EP2 | group 2 :: EqualAI
+3: E + S1 ⇌ ES1 | group 3 :: NonequalAI
+4: E + S2 ⇌ ES2 | group 4 :: EqualAI
+5: EP1 + P2 ⇌ EP1P2 | group 2 :: EqualAI
+6: EP2 + P1 ⇌ EP1P2 | group 1 :: NonequalAI
+7: ES1 + S2 ⇌ ES1S2 | group 4 :: EqualAI
+8: ES1S2 <--> EP1P2 | group 5 :: NonequalAI
+9: ES2 + S1 ⇌ ES1S2 | group 3 :: NonequalAI
+catalytic_multiplicity: 2
+regulatory_site(2): R1::NonequalAI, R2::EqualAI
+
+# m_OnlyA_prod
+substrates: S | products: P
+forms: E, EP, ES
+1: E + P ⇌ EP | group 1 :: OnlyA
+2: E + S ⇌ ES | group 2 :: EqualAI
+3: ES <--> EP | group 3 :: OnlyA
+catalytic_multiplicity: 2
+
+# LDH i-state NonequalAI 6-group
+substrates: NADH, Pyruvate | products: Lactate, NAD
+forms: E, ELactate, ELactateNAD, ELactateNADH, ENAD, ENADPyruvate, ENADH, ENADHPyruvate, EPyruvate
+1: E + Lactate <--> ELactate | group 1 :: NonequalAI
+2: E + NAD ⇌ ENAD | group 2 :: EqualAI
+3: E + NADH <--> ENADH | group 3 :: OnlyA
+4: E + Pyruvate ⇌ EPyruvate | group 4 :: EqualAI
+5: ELactate + NAD ⇌ ELactateNAD | group 2 :: EqualAI
+6: ELactate + NADH <--> ELactateNADH | group 3 :: OnlyA
+7: ENAD + Lactate ⇌ ELactateNAD | group 5 :: EqualAI
+8: ENAD + Pyruvate ⇌ ENADPyruvate | group 4 :: EqualAI
+9: ENADH + Lactate <--> ELactateNADH | group 1 :: NonequalAI
+10: ENADH + Pyruvate ⇌ ENADHPyruvate | group 4 :: EqualAI
+11: ENADHPyruvate <--> ELactateNAD | group 6 :: OnlyA
+12: EPyruvate + NAD ⇌ ENADPyruvate | group 2 :: EqualAI
+13: EPyruvate + NADH <--> ENADHPyruvate | group 3 :: OnlyA
+catalytic_multiplicity: 4
+
+# LDH i-state NonequalAI 5-group
+substrates: NADH, Pyruvate | products: Lactate, NAD
+forms: E, ELactate, ELactateNAD, ELactateNADH, ENAD, ENADH, ENADHPyruvate
+1: E + Lactate ⇌ ELactate | group 1 :: NonequalAI
+2: E + NAD ⇌ ENAD | group 2 :: EqualAI
+3: E + NADH <--> ENADH | group 3 :: OnlyA
+4: ELactate + NAD ⇌ ELactateNAD | group 2 :: EqualAI
+5: ELactate + NADH <--> ELactateNADH | group 3 :: OnlyA
+6: ENAD + Lactate ⇌ ELactateNAD | group 1 :: NonequalAI
+7: ENADH + Lactate ⇌ ELactateNADH | group 1 :: NonequalAI
+8: ENADH + Pyruvate ⇌ ENADHPyruvate | group 4 :: EqualAI
+9: ENADHPyruvate <--> ELactateNAD | group 5 :: OnlyA
+catalytic_multiplicity: 4
+
+# LDH i-state EqualAI-NonequalAI 6-group
+substrates: NADH, Pyruvate | products: Lactate, NAD
+forms: E, ELactateNAD, ELactateNADH, ENAD, ENADPyruvate, ENADH, ENADHPyruvate, EPyruvate
+1: E + NAD ⇌ ENAD | group 1 :: EqualAI
+2: E + NADH ⇌ ENADH | group 2 :: EqualAI
+3: E + Pyruvate ⇌ EPyruvate | group 3 :: EqualAI
+4: ENAD + Lactate ⇌ ELactateNAD | group 4 :: EqualAI
+5: ENAD + Pyruvate ⇌ ENADPyruvate | group 3 :: EqualAI
+6: ENADH + Lactate ⇌ ELactateNADH | group 4 :: EqualAI
+7: ENADH + Pyruvate ⇌ ENADHPyruvate | group 3 :: EqualAI
+8: ENADHPyruvate <--> ELactateNAD | group 5 :: EqualAI
+9: EPyruvate + NAD <--> ENADPyruvate | group 6 :: NonequalAI
+10: EPyruvate + NADH ⇌ ENADHPyruvate | group 2 :: EqualAI
+catalytic_multiplicity: 4

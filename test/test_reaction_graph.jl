@@ -726,3 +726,200 @@ end
     empty!(raw.catalytic.steps)
     @test am == before
 end
+
+# ── The graph against today's types ─────────────────────────────────────────
+
+"""Metabolite `x` of today's types as raw input: its name, and whether it binds as a
+modifier (a competitive-inhibitor copy)."""
+_testhelper_met(x) = EnzymeRates.Met(EnzymeRates.name(x),
+                                     x isa EnzymeRates.CompetitiveInhibitor)
+
+"""Form `sp` of today's types as raw input."""
+_testhelper_raw_form(sp) = EnzymeRates.RawForm(EnzymeRates.conformation(sp),
+    EnzymeRates.Met[_testhelper_met(x) for x in EnzymeRates.bound(sp)],
+    Symbol[EnzymeRates.name(x) for x in EnzymeRates.added(EnzymeRates.residual(sp))],
+    Symbol[EnzymeRates.name(x) for x in EnzymeRates.subtracted(EnzymeRates.residual(sp))])
+
+"""The steps of today's mechanism `m` as raw input, written against the way `m` stores
+them: in reverse order, each from its other end, each labelled with its kinetic group."""
+function _testhelper_raw_steps(m)
+    flat = reverse(EnzymeRates._flat_steps(EnzymeRates.steps(m)))
+    EnzymeRates.RawMechanism(EnzymeRates.substrates(m), EnzymeRates.products(m),
+        EnzymeRates.modifiers(m),
+        [EnzymeRates.RawStep(_testhelper_raw_form(EnzymeRates.to_species(s)),
+                             _testhelper_raw_form(EnzymeRates.from_species(s)),
+                             _testhelper_met.(EnzymeRates.released(s)),
+                             _testhelper_met.(EnzymeRates.consumed(s)),
+                             EnzymeRates.is_equilibrium(s)) for (s, _) in flat],
+        [g for (_, g) in flat])
+end
+
+"""Today's mechanism `m` as raw input (`_testhelper_raw_steps`); an allosteric one with
+its tags, catalytic multiplicity and sites."""
+_testhelper_raw_of(m::EnzymeRates.Mechanism) = _testhelper_raw_steps(m)
+_testhelper_raw_of(am::EnzymeRates.AllostericMechanism) =
+    EnzymeRates.RawAllostericMechanism(_testhelper_raw_steps(am),
+        copy(EnzymeRates.cat_allo_states(am)), EnzymeRates.catalytic_multiplicity(am),
+        [EnzymeRates.RawSite(copy(EnzymeRates.ligands(s)), EnzymeRates.multiplicity(s),
+                             copy(EnzymeRates.allo_states(s)))
+         for s in EnzymeRates.regulatory_sites(am)])
+
+"""Today's mechanism `m` (concrete or compiled) as `_testhelper_graph` reads it, without
+the constant names, which the graph does not render yet, and with its concentration
+names."""
+function _testhelper_today_view(m)
+    g = _testhelper_graph(m)
+    (forms = g.forms, free = g.free,
+     steps = [(; s.from, s.to, s.consumed, s.released, s.consumed_modifier,
+               s.released_modifier, s.rapid_equilibrium, s.group) for s in g.steps],
+     g.tags, g.catalytic_multiplicity, g.sites, g.substrates, g.products, g.modifiers,
+     metabolites = EnzymeRates.metabolites(_testhelper_lift(m)))
+end
+
+"""Edge `k` of graph `m` as `_testhelper_graph` reads a step."""
+function _testhelper_edge_view(m::RG.Mechanism, k::Int)
+    e = m.edges[k]
+    c, r = RG.entries(e.consumed), RG.entries(e.released)
+    (from = e.from, to = e.to, consumed = Symbol[m.table[i].name for i in c],
+     released = Symbol[m.table[i].name for i in r],
+     consumed_modifier = Bool[m.table[i].modifier for i in c],
+     released_modifier = Bool[m.table[i].modifier for i in r],
+     rapid_equilibrium = e.rapid_equilibrium, group = m.group[k])
+end
+
+"""Graph `x` read as `_testhelper_today_view` reads today's mechanism: its steps group
+by group, each group in edge order."""
+function _testhelper_graph_view(x)
+    m, allo = RG.catalytic(x), x isa RG.AllostericMechanism
+    (forms = [RG._form_name(m, f) for f in eachindex(m.forms)],
+     free = Bool[f.bound == 0 && f.added == 0 && f.subtracted == 0 for f in m.forms],
+     steps = [_testhelper_edge_view(m, k) for members in RG._group_members(m)
+              for k in members],
+     tags = allo ? RG.cat_allo_states(x) : Symbol[],
+     catalytic_multiplicity = allo ? RG.catalytic_multiplicity(x) : nothing,
+     sites = [(multiplicity = s.multiplicity, ligands = s.ligands,
+               allo_states = s.allo_states)
+              for s in (allo ? RG.regulatory_sites(x) : EnzymeRates.RegulatorySite[])],
+     substrates = RG.substrates(m), products = RG.products(m),
+     modifiers = RG.modifiers(m), metabolites = RG.metabolites(x))
+end
+
+"""Today's mechanisms the regression census enumerates first: the init populations of
+its six reactions, then the children of every init mechanism of its bi-bi reaction."""
+function _testhelper_census_population()
+    reactions = [
+        @enzyme_reaction(begin
+            substrates: S[C]
+            products: P[C]
+            competitive_inhibitors: I
+            allosteric_regulators: R
+            oligomeric_state: 2
+        end),
+        @enzyme_reaction(begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            competitive_inhibitors: A, I
+        end),
+        @enzyme_reaction(begin
+            substrates: A[CX], B[N]
+            products: P[C], Q[NX]
+            allosteric_regulators: R
+            oligomeric_state: 2
+            shared_catalytic_site: (A, P)
+        end),
+        @enzyme_reaction(begin
+            substrates: A[C6H12O6]
+            products: B[C6H12O6]
+            allosteric_regulators: X::Activator, Y::Inhibitor
+            oligomeric_state: 2
+        end),
+        @enzyme_reaction(begin
+            substrates: A[C], B[N], D[X]
+            products: P[CN], Q[X]
+        end),
+        @enzyme_reaction(begin
+            substrates: G[CX], GT[N]
+            products: Gl[C], U[NX]
+            competitive_inhibitors: GTI
+            shared_catalytic_site: (G, Gl)
+        end)]
+    population = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
+    foreach(r -> append!(population, EnzymeRates.init_mechanisms(r)), reactions)
+    bibi = reactions[2]
+    append!(population,
+            EnzymeRates.expand_mechanisms(EnzymeRates.init_mechanisms(bibi), bibi))
+end
+
+"""A step side of graph `m` as text: form `f`'s name, then its free entries `c`."""
+_testhelper_side_text(m::RG.Mechanism, f::Int, c::RG.Counts) =
+    join([RG._form_name(m, f); [RG._entry_label(m, i) for i in RG.entries(c)]], " + ")
+
+"""Graph `x`'s canonical form as text lines: its names, its forms in order, each edge in
+its stored direction with its group (and the group's tag), then any catalytic
+multiplicity and sites."""
+function _testhelper_canonical_text(x)
+    m, allo = RG.catalytic(x), x isa RG.AllostericMechanism
+    mods = RG.modifiers(m)
+    lines = ["substrates: $(join(m.substrates, ", ")) | products: " *
+             "$(join(m.products, ", "))" *
+             (isempty(mods) ? "" : " | modifiers: $(join(mods, ", "))"),
+             "forms: " * join([RG._form_name(m, f) for f in eachindex(m.forms)], ", ")]
+    for (k, e) in enumerate(m.edges)
+        g = m.group[k]
+        push!(lines, "$k: $(_testhelper_side_text(m, e.from, e.consumed)) " *
+                     "$(e.rapid_equilibrium ? "⇌" : "<-->") " *
+                     "$(_testhelper_side_text(m, e.to, e.released)) " *
+                     "| group $g" * (allo ? " :: $(x.cat_allo_states[g])" : ""))
+    end
+    allo && push!(lines, "catalytic_multiplicity: $(x.catalytic_multiplicity)")
+    for s in (allo ? x.regulatory_sites : EnzymeRates.RegulatorySite[])
+        push!(lines, "regulatory_site($(s.multiplicity)): " *
+                     join(["$l::$t" for (l, t) in zip(s.ligands, s.allo_states)], ", "))
+    end
+    lines
+end
+
+@testset "the graph agrees with today's canonical form, in order" begin
+    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
+        @test _testhelper_graph_view(_testhelper_build(spec.raw)) ==
+              _testhelper_today_view(spec.mechanism)
+    end
+    # The specs' canonical text, a blank line between specs, kept so the comparison
+    # outlives today's types.
+    text = reduce((a, b) -> [a; ""; b],
+                  [["# $(spec.name)";
+                    _testhelper_canonical_text(_testhelper_build(spec.raw))]
+                   for spec in MECHANISM_TEST_SPECS])
+    fixture = joinpath(@__DIR__, "fixtures", "phase3_canonical_golden.txt")
+    if !isfile(fixture)
+        mkpath(dirname(fixture)); write(fixture, join(text, "\n") * "\n")
+        @warn "bootstrapped phase3 canonical golden fixture; commit it" fixture
+    end
+    @test text == readlines(fixture)
+    # Free E comes first, also where another label sorts before E.
+    raw = _testhelper_walk(:(begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> D + P
+            D <--> E
+        end
+    end))
+    x = RG.Mechanism(raw)
+    @test x.conformations == [:D, :E] && x.forms[1:2] == [RG.Form(2, 0, 0, 0),
+                                                          RG.Form(1, 0, 0, 0)]
+    @test _testhelper_graph_view(x) == _testhelper_today_view(EnzymeRates.Mechanism(raw))
+    # The census's first populations, each written against its stored form; in
+    # agreement, the graph also decodes from its Sig and from its raw form.
+    population = _testhelper_census_population()
+    graphs = [_testhelper_build(_testhelper_raw_of(m)) for m in population]
+    disagree = [i for (i, (m, x)) in enumerate(zip(population, graphs))
+                if _testhelper_graph_view(x) != _testhelper_today_view(m)]
+    @test isempty(disagree)
+    @test length(population) == 5508 + 5505
+    @test length(unique(graphs)) == length(unique(population))
+    @test all(_testhelper_decode(x, RG._sig_of(x)) == x for x in graphs)
+    @test all(_testhelper_build(RG._raw(x)) == x for x in graphs)
+end
