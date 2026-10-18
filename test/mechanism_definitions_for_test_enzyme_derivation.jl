@@ -554,15 +554,18 @@ function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1, compile
                                               rtol = big(10)^-20)
     rng = Random.MersenneTwister(seed)
     em = _testhelper_single_subunit(m)
+    # The point and the solver take the concrete mechanism: each compiled mechanism is
+    # its own type, so given one they would compile again for every mechanism.
+    mech = _testhelper_lift(em)
     fitted = EnzymeRates._dependent_param_exprs(typeof(em))[2]
     mets = EnzymeRates.metabolites(em)
     for _ in 1:n_points
-        point = setprecision(() -> _testhelper_consistent_point(em, rng), BigFloat, 256)
+        point = setprecision(() -> _testhelper_consistent_point(mech, rng), BigFloat, 256)
         concs = Dict{Symbol, BigFloat}(x => exp(3 * big(rand(rng)) - big(1.5))
                                        for x in mets)
         params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
         params[:Keq] = point.Keq
-        oracle = _testhelper_steady_state_rate(em, point, concs)
+        oracle = _testhelper_steady_state_rate(mech, point, concs)
         @test abs(_testhelper_law_value(em, params, concs) - oracle) <=
               rtol * abs(oracle)
         compiled || continue
