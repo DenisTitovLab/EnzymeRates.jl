@@ -11571,6 +11571,72 @@ end
         EnzymeRates.expand_mechanisms([parent], rxn))
 end
 
+@testset "expand_mechanisms binds an inhibitor I beside a substrate Iinh" begin
+    # The forms E(I) and E(Iinh) render apart (EI, EIinh), so the dead-end child holds
+    # both. The other three children tag the seed's groups (no oligomeric state is
+    # declared, so they keep one catalytic subunit): the substrate binding, the product
+    # binding, or both, :OnlyA with the chemistry.
+    rxn = @enzyme_reaction begin
+        substrates: Iinh[C]
+        products: P[C]
+        competitive_inhibitors: I
+    end
+    seed = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: Iinh
+        products: P
+        steps: begin
+            E + Iinh ⇌ E(Iinh)
+            E(Iinh) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
+    @test EnzymeRates.init_mechanisms(rxn) == [seed]
+    children = EnzymeRates.expand_mechanisms([seed], rxn)
+    dead_end = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: Iinh
+        products: P
+        modifiers: I
+        steps: begin
+            E + Iinh ⇌ E(Iinh)
+            E(Iinh) <--> E(P)
+            E(P) ⇌ E + P
+            E + I ⇌ E(I)
+        end
+    end)
+    iinh_only_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: Iinh
+        products: P
+        catalytic_multiplicity: 1
+        steps: begin
+            E + Iinh ⇌ E(Iinh)      :: OnlyA
+            E(Iinh) <--> E(P)       :: OnlyA
+            E(P) ⇌ E + P            :: EqualAI
+        end
+    end)
+    p_only_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: Iinh
+        products: P
+        catalytic_multiplicity: 1
+        steps: begin
+            E + Iinh ⇌ E(Iinh)      :: EqualAI
+            E(Iinh) <--> E(P)       :: OnlyA
+            E(P) ⇌ E + P            :: OnlyA
+        end
+    end)
+    both_only_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: Iinh
+        products: P
+        catalytic_multiplicity: 1
+        steps: begin
+            E + Iinh ⇌ E(Iinh)      :: OnlyA
+            E(Iinh) <--> E(P)       :: OnlyA
+            E(P) ⇌ E + P            :: OnlyA
+        end
+    end)
+    @test length(children) == 4
+    @test Set(children) == Set([dead_end, iinh_only_a, p_only_a, both_only_a])
+end
+
 @testset "_expand_add_dead_end_regulator: inhibitor mirrors one half-reaction" begin
     # The inhibitor binds the forms that bind a competing ligand, never a form
     # already carrying one, so a competing substrate's binding step is never
