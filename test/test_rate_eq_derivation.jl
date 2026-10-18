@@ -2013,8 +2013,9 @@ end
           _testhelper_unchecked(_testhelper_relabelled_raw(:F))
 
     # A modifier named minusQ imitates a residual: the side E(; residual = A - P) + minusQ
-    # and the form E(; residual = A - P - Q) both render E_res_plusA_minusP_minusQ, so the
-    # two constants of the step between them share a name.
+    # and the form E(; residual = A - P - Q) both render E_res_plusA_minusP_minusQ, so each
+    # constant of the minusQ binding takes the name of a constant of the step from
+    # E(minusQ; residual = A - P) to that form.
     residual_clash = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
