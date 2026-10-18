@@ -186,7 +186,7 @@ function _check_metabolite_names(who::String, names::Vector{Symbol})
         n === :E &&
             error("$who: E cannot name a metabolite; it labels the free enzyme form")
         n in _RESERVED_NAMES &&
-            error("$who: $n is a reserved name; E_total, Keq, L, N, params, concs and v " *
+            error("$who: $n is a reserved name; $(join(_RESERVED_NAMES, ", ", " and ")) " *
                   "are kept for a rate equation's constants and local names")
         occursin('_', s) &&
             error("$who: the metabolite name $n holds `_`; constant names join " *
