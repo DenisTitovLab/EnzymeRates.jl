@@ -439,15 +439,12 @@ function _thermodynamic_constraints(m::_AnyMech, groups::Vector{Vector{Step}})
     flat = _flat_steps(groups)
     reactant_names = [substrates(m); products(m)]
 
-    # Enzyme incidence matrix (rows = enzyme forms in first-seen step-walk order)
-    form = Dict{Symbol, Int}()
-    for (s, _) in flat, sp in (from_species(s), to_species(s))
-        get!(form, name(sp), length(form) + 1)
-    end
+    # Enzyme incidence matrix (rows = enzyme forms in the canonical form order, `_forms`)
+    form = Dict(sp => i for (i, sp) in enumerate(_forms(groups)))
     B = zeros(Int, length(form), length(flat))
     for (j, (s, _)) in enumerate(flat)
-        B[form[name(from_species(s))], j] -= 1
-        B[form[name(to_species(s))], j] += 1
+        B[form[from_species(s)], j] -= 1
+        B[form[to_species(s)], j] += 1
     end
 
     # Stoichiometry matrix (rows = metabolites, cols = steps), read from each
