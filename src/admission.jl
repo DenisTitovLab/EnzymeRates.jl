@@ -754,8 +754,9 @@ Class 3 (spec section 8) on face `faces[i]` of `mech`, whose law
 network is `net`: procedure A rejects a second closed class or a bottomless segment and
 accepts a face whose structure fixes the limit (`_face_stage`); otherwise the limit test
 (`_face_limit_check`, seeded by the content hash and the face) decides, and a rejection
-carries the stage it stopped at, the trap's feeding edge and the split's first joining
-edge. A face the limit test accepts reports `_LIMIT_EQUAL`.
+carries the stage it stopped at, the edge that feeds the trap or joins it to its segment
+(`_trap_feeder`) and the split's first joining edge. A face the limit test accepts reports
+`_LIMIT_EQUAL`.
 """
 function _check_face(mech::_AnyMech, net::_Network, faces::Vector{UInt64}, i::Int)
     s = _face_structure(net, faces[i])
