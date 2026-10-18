@@ -10894,6 +10894,46 @@ end
     end
 end
 
+@testset "_expand_split_kinetic_group: a split member of a tied group turns alone" begin
+    # E <--> D and E(S) <--> D(S) share their constants, and neither atom progression nor
+    # graph context orients them, so the group turns as one with its lead E → D:
+    # E(S) → D(S). Split by S, E(S) <--> D(S) is a group of its own and runs from the
+    # earlier form in form order, D(S). The child goes through the checked constructor,
+    # which turns it; a child built from the parent's stored directions would keep
+    # E(S) → D(S).
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) <--> E + P
+            D + S <--> D(S)
+            (D <--> E, D(S) <--> E(S))
+        end
+    end)
+    @test m.group[_testhelper_edge(m, "ES <--> DS")] ==
+          m.group[_testhelper_edge(m, "E <--> D")]
+    kids = EnzymeRates._expand_split_kinetic_group(m)
+    expected = [EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) <--> E + P
+            D + S <--> D(S)
+            D <--> E
+            D(S) <--> E(S)
+        end
+    end)]
+    @test length(kids) == 1
+    @test Set(kids) == Set(expected)
+    child = only(kids)
+    @test _testhelper_edge(child, "DS <--> ES") isa Int
+    @test !any(EnzymeRates._canonicalize(EnzymeRates._raw(child)).flipped)
+end
+
 @testset "_expand_split_kinetic_group: by conformation" begin
     # S binds both conformations in one kinetic group; Estar(S) is a dead end
     # whose dissociation constant no cycle ties, so dividing the group by
@@ -11095,6 +11135,20 @@ end
     @test [count(m -> free(m) && !_testhelper_holds_iso(m), l) for l in copies] ==
           [202, 669, 1237]
     @test [count(free, l) for l in copies] == [264, 1018, 2371]
+end
+
+@testset "every bi-bi init mechanism and child is what its raw input builds" begin
+    # An aggregate regression pin over the bi-bi seed set and its first expansion level
+    # (the exception to writing every fixture inline). Every mechanism the moves emit
+    # goes through the checked constructor, so writing it back as raw input (`_raw`) and
+    # building that again gives the same mechanism: no child keeps a direction, an order
+    # or a group number the constructor would change.
+    init = EnzymeRates.init_mechanisms(bi_bi_rxn)
+    kids = EnzymeRates.expand_mechanisms(init, bi_bi_rxn)
+    @test length(init) == 239
+    @test length(kids) == 2831
+    @test count(k -> k isa EnzymeRates.AllostericMechanism, kids) == 1833
+    @test all(c -> EnzymeRates._build(EnzymeRates._raw(c)) == c, [init; kids])
 end
 
 @testset "expand_mechanisms on a merged uni-uni" begin
