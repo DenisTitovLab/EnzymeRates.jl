@@ -101,6 +101,60 @@ _testhelper_lift(m::EnzymeRates.AllostericEnzymeMechanism) =
     EnzymeRates.AllostericMechanism(m)
 _testhelper_lift(m::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}) = m
 
+"""
+    _testhelper_graph(m) -> NamedTuple
+
+`m` (concrete or compiled) as the test helpers read it, a `NamedTuple`: `forms`, each
+form's name (`Vector{String}`, stored order); `steps`, one `NamedTuple` per step in
+stored order and direction with `from` and `to` (form positions), `consumed` and
+`released` (metabolite names, a copy by its reactant's name), `consumed_modifier` and
+`released_modifier` (which of them bind as modifiers), `rapid_equilibrium`, `group`, and
+`names` and `inactive_names`, the package names of its constants in the active (or
+only) and the inactive conformation; `tags`; `inactive`, which steps the inactive law
+keeps; `catalytic_multiplicity`; `sites`, each `(; multiplicity, ligands,
+allo_states)`; `substrates`, `products` and `modifiers`. A plain mechanism has no tags,
+no inactive conformation (`inactive` and every `inactive_names` empty), no sites and
+`catalytic_multiplicity` `nothing`. Forms come in the canonical form order: free E first,
+then by content.
+"""
+function _testhelper_graph(m)
+    mech = _testhelper_lift(m)
+    allo = mech isa EnzymeRates.AllostericMechanism
+    groups = EnzymeRates.steps(mech)
+    forms = EnzymeRates._forms(groups)
+    position = Dict(f => i for (i, f) in enumerate(forms))
+    sides = EnzymeRates._class_sides(mech)
+    tags = allo ? copy(EnzymeRates.cat_allo_states(mech)) : Symbol[]
+    flat = EnzymeRates._flat_steps(groups)
+    _testhelper_names(s, state) = Symbol[EnzymeRates.name(p, mech, sides)
+                                         for p in EnzymeRates._step_constants(s, state)]
+    steps = map(flat) do (s, g)
+        shared = allo && tags[g] === :EqualAI
+        (from = position[EnzymeRates.from_species(s)],
+         to = position[EnzymeRates.to_species(s)],
+         consumed = Symbol[EnzymeRates.name(x) for x in EnzymeRates.consumed(s)],
+         released = Symbol[EnzymeRates.name(x) for x in EnzymeRates.released(s)],
+         consumed_modifier = Bool[x isa EnzymeRates.CompetitiveInhibitor
+                                  for x in EnzymeRates.consumed(s)],
+         released_modifier = Bool[x isa EnzymeRates.CompetitiveInhibitor
+                                  for x in EnzymeRates.released(s)],
+         rapid_equilibrium = EnzymeRates.is_equilibrium(s), group = g,
+         names = _testhelper_names(s, !allo ? :None : shared ? :EqualAI : :A),
+         inactive_names = allo ? _testhelper_names(s, shared ? :EqualAI : :I) : Symbol[])
+    end
+    kept = allo ? EnzymeRates._inactive_groups(mech) : nothing
+    sites = [(multiplicity = EnzymeRates.multiplicity(site),
+              ligands = copy(EnzymeRates.ligands(site)),
+              allo_states = copy(EnzymeRates.allo_states(site)))
+             for site in (allo ? EnzymeRates.regulatory_sites(mech) :
+                                 EnzymeRates.RegulatorySite[])]
+    (forms = String[EnzymeRates._form_label(f, mech) for f in forms], steps, tags,
+     inactive = Int[j for (j, (s, g)) in enumerate(flat) if allo && s in kept[g]],
+     catalytic_multiplicity = allo ? EnzymeRates.catalytic_multiplicity(mech) : nothing,
+     sites, substrates = EnzymeRates.substrates(mech),
+     products = EnzymeRates.products(mech), modifiers = EnzymeRates.modifiers(mech))
+end
+
 """The name of every step constant of the plain mechanism `m`, fitted or dependent: each
 flat step's constants as the naming chokepoint renders them."""
 _testhelper_step_constant_names(m) =

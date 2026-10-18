@@ -1,5 +1,5 @@
-# ABOUTME: Tests of the exact steady-state oracle, and of the laws against it over
-# ABOUTME: regenerated populations: agreement, detailed balance and declared dimension.
+# ABOUTME: Tests of the test helpers' mechanism reader and exact steady-state oracle, and
+# ABOUTME: of the laws over regenerated populations: agreement, detailed balance, dimension.
 using Random
 
 # The ping-pong-capable bi-bi reaction with two catalytic subunits: its seeds hold every
@@ -39,6 +39,145 @@ const _testhelper_population_one_round =
 const _testhelper_population_sample = let ms = _testhelper_population_one_round
     sorted = ms[sortperm(_testhelper_content_text.(ms))]
     sorted[round.(Int, range(1, length(sorted); length = 120))]
+end
+
+@testset "the test helpers read a mechanism's forms, steps, tags and sites" begin
+    # A plain mechanism: a two-step group binding the modifier I, and the product's
+    # modifier copy bound at E(S). Forms come free E first, then by content; steps and
+    # groups by content, each binding stored with its metabolite taken up.
+    plain = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I, P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+            (E + I ⇌ E(I), E(S) + I ⇌ E(I, S))
+            E(S) + P::Mod ⇌ E(P::Mod, S)
+        end
+    end
+    g = _testhelper_graph(plain)
+    @test keys(g) == (:forms, :steps, :tags, :inactive, :catalytic_multiplicity, :sites,
+                      :substrates, :products, :modifiers)
+    @test keys(first(g.steps)) == (:from, :to, :consumed, :released, :consumed_modifier,
+                                   :released_modifier, :rapid_equilibrium, :group, :names,
+                                   :inactive_names)
+    @test g.forms == ["E", "EI", "EIS", "EP", "EPmodS", "ES"]
+    @test g.steps == [
+        (from = 1, to = 2, consumed = [:I], released = Symbol[], consumed_modifier = [true],
+         released_modifier = Bool[], rapid_equilibrium = true, group = 1,
+         names = [:K_EI_to_E_I], inactive_names = Symbol[]),
+        (from = 6, to = 3, consumed = [:I], released = Symbol[], consumed_modifier = [true],
+         released_modifier = Bool[], rapid_equilibrium = true, group = 1,
+         names = [:K_EI_to_E_I], inactive_names = Symbol[]),
+        (from = 1, to = 4, consumed = [:P], released = Symbol[],
+         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+         group = 2, names = [:K_EP_to_E_P], inactive_names = Symbol[]),
+        (from = 1, to = 6, consumed = [:S], released = Symbol[],
+         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+         group = 3, names = [:K_ES_to_E_S], inactive_names = Symbol[]),
+        (from = 6, to = 4, consumed = Symbol[], released = Symbol[],
+         consumed_modifier = Bool[], released_modifier = Bool[], rapid_equilibrium = false,
+         group = 4, names = [:k_ES_to_EP, :k_EP_to_ES], inactive_names = Symbol[]),
+        (from = 6, to = 5, consumed = [:P], released = Symbol[], consumed_modifier = [true],
+         released_modifier = Bool[], rapid_equilibrium = true, group = 5,
+         names = [:K_EPmodS_to_ES_Pmod], inactive_names = Symbol[])]
+    @test (g.tags, g.inactive, g.catalytic_multiplicity, g.sites) ==
+          (Symbol[], Int[], nothing, [])
+    @test (g.substrates, g.products, g.modifiers) == ([:S], [:P], [:I, :P])
+    @test _testhelper_graph(EnzymeRates.Mechanism(plain)) == g
+
+    # A ping-pong: the residual forms sort by their bound metabolites, the residual-only
+    # form before E(A), and each half-reaction's isomerization runs to the product side.
+    pingpong = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+            E(Q) ⇌ E + Q
+        end
+    end
+    g = _testhelper_graph(pingpong)
+    @test g.forms == ["E", "E_res_plusA_minusP", "EA", "EB_res_plusA_minusP",
+                      "EP_res_plusA_minusP", "EQ"]
+    @test g.steps == [
+        (from = 1, to = 3, consumed = [:A], released = Symbol[],
+         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+         group = 1, names = [:K_EA_to_E_A], inactive_names = Symbol[]),
+        (from = 1, to = 6, consumed = [:Q], released = Symbol[],
+         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+         group = 2, names = [:K_EQ_to_E_Q], inactive_names = Symbol[]),
+        (from = 2, to = 4, consumed = [:B], released = Symbol[],
+         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+         group = 3, names = [:K_EB_res_plusA_minusP_to_E_res_plusA_minusP_B],
+         inactive_names = Symbol[]),
+        (from = 2, to = 5, consumed = [:P], released = Symbol[],
+         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+         group = 4, names = [:K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P],
+         inactive_names = Symbol[]),
+        (from = 3, to = 5, consumed = Symbol[], released = Symbol[],
+         consumed_modifier = Bool[], released_modifier = Bool[], rapid_equilibrium = false,
+         group = 5, names = [:k_EA_to_EP_res_plusA_minusP, :k_EP_res_plusA_minusP_to_EA],
+         inactive_names = Symbol[]),
+        (from = 4, to = 6, consumed = Symbol[], released = Symbol[],
+         consumed_modifier = Bool[], released_modifier = Bool[], rapid_equilibrium = false,
+         group = 6, names = [:k_EB_res_plusA_minusP_to_EQ, :k_EQ_to_EB_res_plusA_minusP],
+         inactive_names = Symbol[])]
+    @test (g.tags, g.inactive, g.catalytic_multiplicity, g.sites) ==
+          (Symbol[], Int[], nothing, [])
+    @test (g.substrates, g.products, g.modifiers) == ([:A, :B], [:P, :Q], Symbol[])
+
+    # An allosteric mechanism: the inactive conformation reaches neither E(P) nor E(I, P),
+    # behind the :OnlyA binding of P and the :OnlyA chemistry, so its law keeps the I
+    # binding at E and the S binding only. An :EqualAI group's constant takes one bare
+    # name in both conformations; an :OnlyA step's inactive copy is named after itself.
+    allo = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        allosteric_regulators: R1, R2, R3
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)                          :: EqualAI
+            E(S) <--> E(P)                        :: OnlyA
+            E + P ⇌ E(P)                          :: OnlyA
+            (E + I ⇌ E(I), E(P) + I ⇌ E(I, P))    :: NonequalAI
+        end
+        regulatory_site(2): R1::OnlyI, R2::EqualAI
+        regulatory_site(1): R3::NonequalAI
+    end
+    g = _testhelper_graph(allo)
+    @test g.forms == ["E", "EI", "EIP", "EP", "ES"]
+    @test g.steps == [
+        (from = 1, to = 2, consumed = [:I], released = Symbol[], consumed_modifier = [true],
+         released_modifier = Bool[], rapid_equilibrium = true, group = 1,
+         names = [:K_A_EI_to_E_I], inactive_names = [:K_I_EI_to_E_I]),
+        (from = 4, to = 3, consumed = [:I], released = Symbol[], consumed_modifier = [true],
+         released_modifier = Bool[], rapid_equilibrium = true, group = 1,
+         names = [:K_A_EI_to_E_I], inactive_names = [:K_I_EI_to_E_I]),
+        (from = 1, to = 4, consumed = [:P], released = Symbol[],
+         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+         group = 2, names = [:K_A_EP_to_E_P], inactive_names = [:K_I_EP_to_E_P]),
+        (from = 1, to = 5, consumed = [:S], released = Symbol[],
+         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+         group = 3, names = [:K_ES_to_E_S], inactive_names = [:K_ES_to_E_S]),
+        (from = 5, to = 4, consumed = Symbol[], released = Symbol[],
+         consumed_modifier = Bool[], released_modifier = Bool[], rapid_equilibrium = false,
+         group = 4, names = [:k_A_ES_to_EP, :k_A_EP_to_ES],
+         inactive_names = [:k_I_ES_to_EP, :k_I_EP_to_ES])]
+    @test g.tags == [:NonequalAI, :OnlyA, :EqualAI, :OnlyA]
+    @test g.inactive == [1, 4]
+    @test g.catalytic_multiplicity == 2
+    @test g.sites ==
+          [(multiplicity = 2, ligands = [:R1, :R2], allo_states = [:OnlyI, :EqualAI]),
+           (multiplicity = 1, ligands = [:R3], allo_states = [:NonequalAI])]
+    @test (g.substrates, g.products, g.modifiers) == ([:S], [:P], [:I])
+    @test _testhelper_graph(EnzymeRates.AllostericMechanism(allo)) == g
 end
 
 @testset "Exact steady-state oracle" begin
