@@ -851,8 +851,7 @@ Error when two distinct enzyme forms of `steps`, a mechanism of `reaction`, rend
 same name. A form's name joins its conformation and bound metabolites without a
 separator, so E with NAD and P bound and E with NADP bound are both `ENADP`. Every
 constant is named after the forms its step joins (`_form_label`), so the two forms
-would share constant names. The forms' internal names (`name(::Species)`) must differ as
-well.
+would share constant names.
 """
 function _assert_distinct_form_names(reaction::EnzymeReaction, steps::Vector{Vector{Step}})
     # A form as `@enzyme_mechanism` writes it: `E(NAD, P)`, `E(A::Mod)`, `E(I)`,
@@ -865,19 +864,15 @@ function _assert_distinct_form_names(reaction::EnzymeReaction, steps::Vector{Vec
         res = isempty(r) ? "" : "; residual = " * lstrip(terms)
         "$(conformation(sp))(" * join(mets, ", ") * res * ")"
     end
-    function check(key, seen, clash)
-        for group in steps, s in group, sp in (from_species(s), to_species(s))
-            other = get!(seen, key(sp), sp)
-            other == sp || error("Mechanism: the enzyme forms $(text(other)) and " *
-                                 "$(text(sp)) $(clash(key(sp))), so rename a metabolite " *
-                                 "to tell the two forms apart")
-        end
+    seen = Dict{String, Species}()
+    for group in steps, s in group, sp in (from_species(s), to_species(s))
+        label = _form_label(sp, reaction)
+        other = get!(seen, label, sp)
+        other == sp || error("Mechanism: the enzyme forms $(text(other)) and " *
+                             "$(text(sp)) both render the name $label; every constant " *
+                             "is named after the forms its step joins, so rename a " *
+                             "metabolite to tell the two forms apart")
     end
-    check(sp -> _form_label(sp, reaction), Dict{String, Species}(),
-          k -> "both render the name $k; every constant is named after the forms its " *
-               "step joins")
-    check(name, Dict{Symbol, Species}(),
-          k -> "share the internal name $k")
 end
 
 """

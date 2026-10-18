@@ -2484,10 +2484,10 @@ end
     end
 end
 
-@testset "two forms with one internal name are rejected" begin
+@testset "two forms that render apart are accepted, whatever their internal names" begin
     # The modifier-only I renders bare, so E(I) and E(Iinh) name their constants apart,
-    # but both take the internal name EIinh.
-    @test_throws "E(I) and E(Iinh) share the internal name EIinh" @enzyme_mechanism begin
+    # though both take the internal name EIinh, which nothing reads to tell forms apart.
+    iinh = @enzyme_mechanism begin
         substrates: Iinh
         products: P
         modifiers: I
@@ -2498,10 +2498,13 @@ end
             E + I ⇌ E(I)
         end
     end
-    # The error writes a reactant's modifier copy as the DSL does, P::Mod: E(P::Mod) and
-    # E(Pinh) render EPmod and EPinh but share the internal name EPinh.
-    @test_throws("E(P::Mod) and E(Pinh) share the internal name EPinh",
-                 @enzyme_mechanism begin
+    @test _testhelper_step_constant_names(iinh) ==
+          Set([:K_EIinh_to_E_Iinh, :k_EIinh_to_EP, :k_EP_to_EIinh, :K_EP_to_E_P,
+               :K_EI_to_E_I])
+    _testhelper_check_law_against_oracle(iinh)
+    # So with a reactant's modifier copy: E(P::Mod) and E(Pinh) render EPmod and EPinh,
+    # though both take the internal name EPinh.
+    pinh = @enzyme_mechanism begin
         substrates: Pinh
         products: P
         modifiers: P
@@ -2511,7 +2514,11 @@ end
             E(P) ⇌ E + P
             E + P::Mod ⇌ E(P::Mod)
         end
-    end)
+    end
+    @test _testhelper_step_constant_names(pinh) ==
+          Set([:K_EPinh_to_E_Pinh, :k_EPinh_to_EP, :k_EP_to_EPinh, :K_EP_to_E_P,
+               :K_EPmod_to_E_Pmod])
+    _testhelper_check_law_against_oracle(pinh)
 end
 
 # Chokepoint guard: no `Symbol("[KkVL]...")` literal is constructed outside
