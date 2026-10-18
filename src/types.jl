@@ -1231,6 +1231,12 @@ function AllostericMechanism(raw::RawAllostericMechanism)
     AllostericMechanism(c.mechanism, tags, raw.catalytic_multiplicity, sites)
 end
 
+"""The mechanism `raw` writes, built and checked: `Mechanism(raw)` for plain input,
+`AllostericMechanism(raw)` for allosteric input. The moves build every child through
+it."""
+_build(raw::RawMechanism) = Mechanism(raw)
+_build(raw::RawAllostericMechanism) = AllostericMechanism(raw)
+
 # ─── Checks ─────────────────────────────────────────────────────────────
 
 """Error unless `cat_allo_states` holds one valid tag for each of `G` kinetic groups and
@@ -1739,6 +1745,15 @@ _flat_edges(m::Mechanism) = reduce(vcat, _group_members(m); init = Int[])
 _is_free(f::Form) = f.bound == 0 && !_has_residual(f)
 """Each edge's rapid-equilibrium flag."""
 _flags(m::Mechanism) = BitVector([e.rapid_equilibrium for e in m.edges])
+"""The nibbles of `m`'s modifier entries: a count of `m`'s entries meets this mask when it
+holds a modifier."""
+function _modifier_mask(m::Mechanism)
+    mask = Counts(0)
+    for (i, x) in enumerate(m.table)
+        x.modifier && (mask |= Counts(0xf) << (4 * (i - 1)))
+    end
+    mask
+end
 """Whether edge `e` of `m` binds a product: it takes up one product, not as a modifier."""
 _binds_product(m::Mechanism, e::Edge) =
     (i = _bound_entry(e); i != 0 && !m.table[i].modifier &&
@@ -1880,23 +1895,48 @@ function _inactive_mask(am::AllostericMechanism)
                for (k, e) in enumerate(m.edges)])
 end
 
-"""`m` as raw input: every edge a step in its stored direction, labelled with its group.
-Every vector is fresh, so a move that edits the raw value never edits `m`."""
-function _raw(m::Mechanism)
-    form(f::Int) = (x = m.forms[f];
-        RawForm(m.conformations[x.conformation], [m.table[i] for i in entries(x.bound)],
-                [m.table[i].name for i in entries(x.added)],
-                [m.table[i].name for i in entries(x.subtracted)]))
-    steps = [RawStep(form(e.from), form(e.to), [m.table[i] for i in entries(e.consumed)],
-                     [m.table[i] for i in entries(e.released)], e.rapid_equilibrium)
-             for e in m.edges]
-    RawMechanism(copy(m.substrates), copy(m.products), modifiers(m), steps,
-                 copy(m.group))
+"""Form `f` of `m` as raw input, holding also the metabolites `extra`."""
+function _raw_form(m::Mechanism, f::Int, extra::Met...)
+    x = m.forms[f]
+    RawForm(m.conformations[x.conformation], Met[[m.table[i] for i in entries(x.bound)];
+                                                 extra...],
+            Symbol[m.table[i].name for i in entries(x.added)],
+            Symbol[m.table[i].name for i in entries(x.subtracted)])
 end
-_raw(am::AllostericMechanism) = RawAllostericMechanism(_raw(am.catalytic),
-    copy(am.cat_allo_states), am.catalytic_multiplicity,
-    [RawSite(copy(s.ligands), s.multiplicity, copy(s.allo_states))
-     for s in am.regulatory_sites])
+
+"""
+    _raw(m, re = _flags(m), group = m.group)
+
+`m` as raw input: every edge a step in its stored direction, edge `k` at rapid
+equilibrium where `re[k]` holds and labelled `group[k]`, by default its own flag and
+group. Every vector is fresh, so a move that edits the raw value never edits `m`. The
+moves build children from it: the checked constructor canonicalizes the new flags and
+groups.
+"""
+function _raw(m::Mechanism, re::BitVector = _flags(m), group::Vector{Int} = m.group)
+    steps = [RawStep(_raw_form(m, e.from), _raw_form(m, e.to),
+                     Met[m.table[i] for i in entries(e.consumed)],
+                     Met[m.table[i] for i in entries(e.released)], re[k])
+             for (k, e) in enumerate(m.edges)]
+    RawMechanism(copy(m.substrates), copy(m.products), modifiers(m), steps, copy(group))
+end
+
+"""
+    _raw(am, re = _flags(am.catalytic), group = am.catalytic.group,
+         tags = am.cat_allo_states)
+
+`am` as raw input: its catalytic graph as `_raw(am.catalytic, re, group)` writes it, its
+group label `l` tagged `tags[l]`, and its multiplicity and regulatory sites.
+"""
+_raw(am::AllostericMechanism, re::BitVector = _flags(am.catalytic),
+     group::Vector{Int} = am.catalytic.group, tags::Vector{Symbol} = am.cat_allo_states) =
+    RawAllostericMechanism(_raw(am.catalytic, re, group), copy(tags),
+                           am.catalytic_multiplicity, _raw_sites(am))
+
+"""The regulatory sites of `am` as raw input, each vector fresh."""
+_raw_sites(am::AllostericMechanism) =
+    RawSite[RawSite(copy(s.ligands), s.multiplicity, copy(s.allo_states))
+            for s in am.regulatory_sites]
 
 # ─── Step views and Step input ─────────────────────────────────────────
 #

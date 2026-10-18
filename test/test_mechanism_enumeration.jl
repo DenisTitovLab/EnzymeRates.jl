@@ -131,6 +131,10 @@ function _testhelper_degenerate(m; ndraws = 2)
     false
 end
 
+# The number of rapid-equilibrium segments of the catalytic graph of `m`.
+_testhelper_segment_count(m) = (cm = EnzymeRates.catalytic(m);
+                                EnzymeRates._re_segment_count(cm, EnzymeRates._flags(cm)))
+
 # Ground truth for the parameter counts the enumeration moves report: the number of
 # fitted parameters of the compiled rate equation.
 _testhelper_fitted(x) = length(EnzymeRates.fitted_params(x))
@@ -1443,8 +1447,7 @@ end
         end)
     ])
         @test !(absent in children)
-        @test EnzymeRates._re_segment_count(EnzymeRates.steps(absent)) >
-              EnzymeRates._re_segment_count(EnzymeRates.steps(parent))
+        @test _testhelper_segment_count(absent) > _testhelper_segment_count(parent)
         @test _testhelper_identifiable_rank(absent) == r0
     end
 end
@@ -7181,6 +7184,8 @@ end
 end
 
 @testset "_flux_carrying_groups" begin
+    # Every edge of `m` steady state.
+    _testhelper_all_ss(m) = falses(length(m.edges))
     # Ordered uni-uni: every step is on the catalytic cycle.
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
@@ -7191,8 +7196,7 @@ end
             E + P ⇌ E(P)
         end
     end)
-    @test all(EnzymeRates._flux_carrying_groups(
-        EnzymeRates._all_steady_state(EnzymeRates.steps(m)), m))
+    @test all(EnzymeRates._flux_carrying_groups(m, _testhelper_all_ss(m)))
 
     # A dead-end leaf hanging off the cycle is a bridge: not flux-carrying.
     leaf = EnzymeRates.Mechanism(@enzyme_mechanism begin
@@ -7205,13 +7209,9 @@ end
             E(P) + S ⇌ E(P, S)
         end
     end)
-    fc = EnzymeRates._flux_carrying_groups(
-        EnzymeRates._all_steady_state(EnzymeRates.steps(leaf)), leaf)
+    fc = EnzymeRates._flux_carrying_groups(leaf, _testhelper_all_ss(leaf))
     # The leaf group is the one whose step forms the doubly-bound E(P, S).
-    leaf_group = only(g for (g, grp) in enumerate(EnzymeRates.steps(leaf))
-                      if any(s -> length(EnzymeRates.bound(
-                                       EnzymeRates.to_species(s))) == 2, grp))
-    @test !fc[leaf_group]
+    @test !fc[leaf.group[_testhelper_edge(leaf, "EP + S ⇌ EPS")]]
     @test count(!, fc) == 1
 
     # Ping-pong: the second chemistry step starts at rapid equilibrium and lies
@@ -7228,9 +7228,7 @@ end
             Estar(B) ⇌ E(Q)
         end
     end)
-    @test all(EnzymeRates._flux_carrying_groups(
-        EnzymeRates._all_steady_state(EnzymeRates.steps(pingpong)),
-        pingpong))
+    @test all(EnzymeRates._flux_carrying_groups(pingpong, _testhelper_all_ss(pingpong)))
 
     # An inhibitor bound to both E and E(S), with the mirror E(I)+S ⇌ E(I,S): the
     # inhibitor square shares the edge E→E(S) with the catalytic cycle, so the
@@ -7250,9 +7248,8 @@ end
             E(S) + I ⇌ E(I, S)    :: EqualAI
         end
     end)
-    @test all(EnzymeRates._flux_carrying_groups(
-        EnzymeRates._all_steady_state(EnzymeRates.steps(mirror)),
-        mirror))
+    @test all(EnzymeRates._flux_carrying_groups(mirror.catalytic,
+                                                _testhelper_all_ss(mirror.catalytic)))
 
     # Two inhibitors binding only free E form a binding-only square joined to the
     # cycle at the single form E: no cycle through it contains chemistry, so its
@@ -7271,13 +7268,11 @@ end
             E(J) + I ⇌ E(I, J)    :: EqualAI
         end
     end)
-    pfc = EnzymeRates._flux_carrying_groups(
-        EnzymeRates._all_steady_state(EnzymeRates.steps(pendant)),
-        pendant)
-    _testhelper_inhibits(grp) = (bm = EnzymeRates.bound_metabolite(first(grp));
-                                 bm !== nothing && EnzymeRates.name(bm) in (:I, :J))
-    inhibitor_groups = [g for (g, grp) in enumerate(EnzymeRates.steps(pendant))
-                        if _testhelper_inhibits(grp)]
+    cp = pendant.catalytic
+    pfc = EnzymeRates._flux_carrying_groups(cp, _testhelper_all_ss(cp))
+    inhibitor_groups = unique(cp.group[k] for (k, e) in enumerate(cp.edges)
+                              if EnzymeRates._bound_entry(e) != 0 &&
+                                 cp.table[EnzymeRates._bound_entry(e)].name in (:I, :J))
     @test length(inhibitor_groups) == 4
     @test !any(pfc[g] for g in inhibitor_groups)
     @test all(pfc[g] for g in eachindex(pfc) if !(g in inhibitor_groups))
@@ -7296,8 +7291,7 @@ end
             E(Q) ⇌ E + Q
         end
     end)
-    @test all(EnzymeRates._flux_carrying_groups(
-        EnzymeRates._all_steady_state(EnzymeRates.steps(pp)), pp))
+    @test all(EnzymeRates._flux_carrying_groups(pp, _testhelper_all_ss(pp)))
     # A Theorell–Chance step consumes B and releases P in one edge, so the
     # mechanism has no isomerization step. The cycle E → E(A) → E(Q) → E has
     # weight 1 + 2 + 1 = 4 = one turnover times the four reactants, so it is
@@ -7311,11 +7305,9 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    @test all(EnzymeRates._flux_carrying_groups(
-        EnzymeRates._all_steady_state(EnzymeRates.steps(tc)), tc))
-    @test EnzymeRates._flux_carrying_groups(EnzymeRates.steps(tc),
-                                            tc) ==
-        [!EnzymeRates.is_equilibrium(first(g)) for g in EnzymeRates.steps(tc)]
+    @test all(EnzymeRates._flux_carrying_groups(tc, _testhelper_all_ss(tc)))
+    @test EnzymeRates._flux_carrying_groups(tc, EnzymeRates._flags(tc)) ==
+        [!tc.edges[first(ks)].rapid_equilibrium for ks in EnzymeRates._group_members(tc)]
 
     # A merged central complex X with two fused steps into it and no
     # isomerization: E + A ⇌ E(A), E(A) + B → X, E(Q) + P → X, E + Q ⇌ E(Q).
@@ -7330,9 +7322,7 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    @test all(EnzymeRates._flux_carrying_groups(
-        EnzymeRates._all_steady_state(EnzymeRates.steps(merged)),
-        merged))
+    @test all(EnzymeRates._flux_carrying_groups(merged, _testhelper_all_ss(merged)))
 
     # An RE shunt. E + A and E + Q are steady-state while the abortive route
     # E(Q) + A ⇌ E(A, Q) ⇌ E(A) + Q stays at rapid equilibrium. The segment
@@ -7355,24 +7345,21 @@ end
             E(Q) + P ⇌ E(P, Q)
         end
     end)
-    binder(grp) = EnzymeRates.bound_metabolite(first(grp))
-    source(grp) = EnzymeRates.name(EnzymeRates.from_species(first(grp)))
-    ss_binding(grp) = binder(grp) !== nothing && !EnzymeRates.is_equilibrium(first(grp))
-    flags = EnzymeRates._flux_carrying_groups(EnzymeRates.steps(shunt),
-                                              shunt)
-    for (g, grp) in enumerate(EnzymeRates.steps(shunt))
-        if ss_binding(grp)
-            @test source(grp) == :E && !flags[g]
-        elseif EnzymeRates.is_iso(first(grp))
+    # Each group's first edge.
+    _testhelper_firsts(m) = [m.edges[first(ks)] for ks in EnzymeRates._group_members(m)]
+    ss_binding(e) = EnzymeRates._is_binding(e) && !e.rapid_equilibrium
+    flags = EnzymeRates._flux_carrying_groups(shunt, EnzymeRates._flags(shunt))
+    for (g, e) in enumerate(_testhelper_firsts(shunt))
+        if ss_binding(e)
+            @test EnzymeRates._form_name(shunt, e.from) == "E" && !flags[g]
+        elseif EnzymeRates._is_iso(e)
             @test flags[g]
         else
-            @test EnzymeRates.is_equilibrium(first(grp)) && !flags[g]
+            @test e.rapid_equilibrium && !flags[g]
         end
     end
-    @test count(ss_binding, EnzymeRates.steps(shunt)) == 2
-    @test all(EnzymeRates._flux_carrying_groups(
-        EnzymeRates._all_steady_state(EnzymeRates.steps(shunt)),
-        shunt))
+    @test count(ss_binding, _testhelper_firsts(shunt)) == 2
+    @test all(EnzymeRates._flux_carrying_groups(shunt, _testhelper_all_ss(shunt)))
 
     # A balanced self-loop: E + A is steady-state, but E and E(A) already share
     # a segment through E ⇌ E(Q) ⇌ E(A, Q) ⇌ E(A), so the step is a self-loop
@@ -7390,17 +7377,16 @@ end
             E(Q) + P ⇌ E(P, Q)
         end
     end)
-    lflags = EnzymeRates._flux_carrying_groups(EnzymeRates.steps(loop),
-                                               loop)
-    for (g, grp) in enumerate(EnzymeRates.steps(loop))
-        if ss_binding(grp)
+    lflags = EnzymeRates._flux_carrying_groups(loop, EnzymeRates._flags(loop))
+    for (g, e) in enumerate(_testhelper_firsts(loop))
+        if ss_binding(e)
             @test !lflags[g]
-        elseif EnzymeRates.is_iso(first(grp))
+        elseif EnzymeRates._is_iso(e)
             @test lflags[g]
         end
     end
-    @test count(ss_binding, EnzymeRates.steps(loop)) == 1
-    @test EnzymeRates._re_segment_count(EnzymeRates.steps(loop)) == 1
+    @test count(ss_binding, _testhelper_firsts(loop)) == 1
+    @test EnzymeRates._re_segment_count(loop, EnzymeRates._flags(loop)) == 1
 end
 
 @testset "MERGE, ELIM and the seed tests on the ordered bi-bi seed" begin
@@ -9304,12 +9290,11 @@ end
             E + P ⇌ E(P)
         end
     end)
-    groups = EnzymeRates.steps(m)
-    @test EnzymeRates._re_segment_count(groups) == 1
-    g = findfirst(grp -> all(EnzymeRates.is_equilibrium, grp), groups)
-    flipped = [i == g ? EnzymeRates._with_equilibrium.(grp, false) : grp
-               for (i, grp) in enumerate(groups)]
-    @test EnzymeRates._re_segment_count(flipped) == 2
+    # Flipping E + S ⇌ E(S) cuts the one segment in two.
+    @test EnzymeRates._re_segment_count(m, EnzymeRates._flags(m)) == 1
+    flipped = EnzymeRates._flags(m)
+    flipped[_testhelper_edge(m, "E + S ⇌ ES")] = false
+    @test EnzymeRates._re_segment_count(m, flipped) == 2
 
     # Allosteric: measured on its catalytic groups.
     am = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
@@ -9322,23 +9307,26 @@ end
             E + P ⇌ E(P)   :: EqualAI
         end
     end)
-    am_groups = EnzymeRates.steps(am)
-    @test EnzymeRates._re_segment_count(am_groups) == 1
-    am_g = findfirst(grp -> all(EnzymeRates.is_equilibrium, grp), am_groups)
-    am_flipped = [i == am_g ? EnzymeRates._with_equilibrium.(grp, false) : grp
-                  for (i, grp) in enumerate(am_groups)]
-    @test EnzymeRates._re_segment_count(am_flipped) == 2
+    @test _testhelper_segment_count(am) == 1
+    am_flipped = EnzymeRates._flags(am.catalytic)
+    am_flipped[_testhelper_edge(am, "E + S ⇌ ES")] = false
+    @test EnzymeRates._re_segment_count(am.catalytic, am_flipped) == 2
 
-    # Aggregate cross-check over the bi-bi seed set: on every single RE→SS flip the count
-    # agrees with the segmentation `_re_segment_extras` produces.
-    flips = [[i == g ? EnzymeRates._with_equilibrium.(grp, false) : grp
-              for (i, grp) in enumerate(EnzymeRates.steps(seed))]
-             for seed in EnzymeRates.init_mechanisms(bi_bi_rxn)
-             for g in eachindex(EnzymeRates.steps(seed))
-             if all(EnzymeRates.is_equilibrium, EnzymeRates.steps(seed)[g])]
+    # Aggregate regression pin over the bi-bi seed set: on every single RE→SS group flip
+    # the count agrees with the segmentation that `_re_segment_extras` gives the Step
+    # views, flipped alike.
+    flips = [(seed, g) for seed in EnzymeRates.init_mechanisms(bi_bi_rxn)
+             for (g, ks) in enumerate(EnzymeRates._group_members(seed))
+             if all(k -> seed.edges[k].rapid_equilibrium, ks)]
     @test length(flips) == 508
-    @test all(gs -> EnzymeRates._re_segment_count(gs) ==
-                    length(EnzymeRates._re_segment_extras(gs)[2]), flips)
+    @test all(flips) do (seed, g)
+        re = EnzymeRates._flags(seed)
+        re[seed.group .== g] .= false
+        views = [h == g ? EnzymeRates._with_equilibrium.(grp, false) : grp
+                 for (h, grp) in enumerate(EnzymeRates.steps(seed))]
+        EnzymeRates._re_segment_count(seed, re) ==
+            length(EnzymeRates._re_segment_extras(views)[2])
+    end
 end
 
 @testset "_minimal_gaining_sets" begin
@@ -9357,9 +9345,9 @@ end
 
 "Whole-group flip of groups `gs` of `m` to steady state (test helper)."
 function _testhelper_flip_groups(m, gs)
-    groups = [g in gs ? EnzymeRates._with_equilibrium.(grp, false) : grp
-              for (g, grp) in enumerate(EnzymeRates.steps(m))]
-    EnzymeRates._with(m; groups)
+    re = EnzymeRates._flags(m)
+    re[[g in gs for g in m.group]] .= false
+    EnzymeRates.Mechanism(EnzymeRates._raw(m, re))
 end
 
 @testset "_context_bipartitions" begin
@@ -9966,8 +9954,7 @@ end
                 end
             end))
             @test !(single in kids)
-            @test EnzymeRates._re_segment_count(EnzymeRates.steps(single)) ==
-                  EnzymeRates._re_segment_count(EnzymeRates.steps(m))
+            @test _testhelper_segment_count(single) == _testhelper_segment_count(m)
         end
     end
 
@@ -10161,8 +10148,7 @@ end
         # flip(A2, B1) is flip(A1, B2) with A and B swapped.
         for absent in (flip(A1, B2), flip(A2, B1))
             @test !(absent in kids)
-            @test EnzymeRates._re_segment_count(EnzymeRates.steps(absent)) >
-                  EnzymeRates._re_segment_count(EnzymeRates.steps(m))
+            @test _testhelper_segment_count(absent) > _testhelper_segment_count(m)
         end
         @test _testhelper_identifiable_rank(flip(A1, B2)) ==
             _testhelper_identifiable_rank(m)
@@ -10472,8 +10458,7 @@ end
                 end
             end))
             @test !(absent in kids)
-            @test EnzymeRates._re_segment_count(EnzymeRates.steps(absent)) >
-                  EnzymeRates._re_segment_count(EnzymeRates.steps(m))
+            @test _testhelper_segment_count(absent) > _testhelper_segment_count(m)
             @test _testhelper_identifiable_rank(absent) == r0
         end
     end

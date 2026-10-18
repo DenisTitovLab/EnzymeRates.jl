@@ -413,11 +413,11 @@ end
 """
     _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
 
-RE→SS expansion move. A flip unit is a whole kinetic group that is all-RE, binds
-no regulator (competitive-inhibitor binding stays at rapid equilibrium by
-modeling choice), and holds a flux-carrying step (`_flux_carrying_groups` on the
-all-steady-state graph, `_all_steady_state`; a group with none exposes only
-equilibrium ratios under every assignment and would gain a phantom parameter).
+RE→SS expansion move. A flip unit is a whole kinetic group that is all-RE, takes up
+or gives off no modifier (competitive-inhibitor binding stays at rapid equilibrium by
+modeling choice), and holds a flux-carrying step (`_flux_carrying_groups` with every
+edge steady state; a group with none exposes only equilibrium ratios under every
+assignment and would gain a phantom parameter).
 A flank of a qualifying chain whose isomerization is steady state is no unit
 (`_chain_flank_groups`). One child is produced per minimal set of units whose joint flip
 raises the RE segment count (`_minimal_flips`): a single group when it
@@ -427,16 +427,16 @@ metabolite's binding steps, or a catalytic step from its inhibitor-bound
 mirror. A flip that leaves the segment count unchanged adds an SS step whose
 endpoints share a segment, which the rate equation never sees. A flip set
 that leaves a rapid-equilibrium segment with no bottom form
-(`_bottomless_re_segment`, which the boundary check rejects) also counts as
+(`_bottomless_segment`, which the boundary check rejects) also counts as
 failed, so the minimal-set search extends it instead of emitting it; so does
 a set one of whose flipped groups carries no flux in the child
 (`_flux_carrying_groups` on the flipped groups): the child is its parent plus
 one phantom per such group, and its flux-carrying supersets are the smallest
 identifiable relaxations. The non-degenerate mechanisms beyond these stay reachable —
 through the other cut orders of the same ring, or through the extended set when
-no other order gains. All other groups, the reaction, and (for allosteric) the
-catalytic-allo tags, multiplicity, and regulatory sites are preserved
-verbatim.
+no other order gains. Every other flag, the declared names and, for an allosteric
+mechanism, the tags, multiplicity and regulatory sites are kept; each child goes
+through the checked constructor.
 
 A parent that `_requires_hyperbolic_catalysis` (a conformational mechanism over
 more than one catalytic subunit) keeps only the children whose catalytic scheme
@@ -446,14 +446,18 @@ flips, and more steady-state steps never restore a hyperbolic equation, so its
 supersets need no visit.
 """
 function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
-    groups = steps(m)
+    cm = catalytic(m)
     flanks = _chain_flank_groups(m)
-    eligible(g) = !(g in flanks) &&
-        !any(s -> any(x -> x isa Regulator, consumed(s)) ||
-                  any(x -> x isa Regulator, released(s)), groups[g])
-    base = _re_segment_count(groups)
-    flips = _minimal_flips(gs -> _re_segment_count(gs) > base, groups, m, eligible)
-    children = typeof(m)[_with(m; groups = gs) for gs in flips]
+    modifiers = _modifier_mask(cm)
+    exchanges_modifier = falses(ngroups(cm))
+    for (k, e) in enumerate(cm.edges)
+        (e.consumed | e.released) & modifiers == 0 ||
+            (exchanges_modifier[cm.group[k]] = true)
+    end
+    eligible(g) = !(g in flanks) && !exchanges_modifier[g]
+    base = _re_segment_count(cm, _flags(cm))
+    flips = _minimal_flips(re -> _re_segment_count(cm, re) > base, cm, eligible)
+    children = typeof(m)[_build(_raw(m, re)) for re in flips]
     _requires_hyperbolic_catalysis(m) ? filter(_hyperbolic_catalysis, children) : children
 end
 
@@ -467,23 +471,27 @@ parameters and no rate law. An allosteric mechanism has none: at more than one c
 subunit a flank's flip can be visible through the two conformations.
 """
 function _chain_flank_groups(m::Mechanism)
-    groups = steps(m)
-    lone = Dict(only(group) => g for (g, group) in enumerate(groups) if length(group) == 1)
-    at = Dict{Species, Vector{Step}}()
-    for group in groups, s in group, sp in (from_species(s), to_species(s))
-        push!(get!(at, sp, Step[]), s)
+    # The group of each edge alone in its group, 0 for any other edge.
+    lone = zeros(Int, length(m.edges))
+    for (g, ks) in enumerate(_group_members(m))
+        length(ks) == 1 && (lone[only(ks)] = g)
     end
-    flank(s0, x) = begin
-        rest = filter(!=(s0), at[x])
-        length(rest) == 1 || return nothing
-        s = only(rest)
-        is_binding(s) && to_species(s) == x ? get(lone, s, nothing) : nothing
+    at = [Int[] for _ in m.forms]
+    for (k, e) in enumerate(m.edges)
+        push!(at[e.from], k); push!(at[e.to], k)
+    end
+    # The group of the flank of edge `k0` at form `x`, 0 when there is none.
+    function flank(k0, x)
+        rest = filter(!=(k0), at[x])
+        length(rest) == 1 || return 0
+        e = m.edges[only(rest)]
+        _is_binding(e) && e.to == x ? lone[only(rest)] : 0
     end
     out = Set{Int}()
-    for s0 in keys(lone)
-        is_iso(s0) && !is_equilibrium(s0) || continue
-        f1, f2 = flank(s0, from_species(s0)), flank(s0, to_species(s0))
-        f1 === nothing || f2 === nothing || union!(out, (f1, f2))
+    for (k0, e0) in enumerate(m.edges)
+        lone[k0] != 0 && _is_iso(e0) && !e0.rapid_equilibrium || continue
+        f1, f2 = flank(k0, e0.from), flank(k0, e0.to)
+        f1 == 0 || f2 == 0 || union!(out, (f1, f2))
     end
     out
 end
@@ -502,9 +510,43 @@ _all_steady_state(groups::Vector{Vector{Step}}) =
     [_with_equilibrium.(group, false) for group in groups]
 
 """
+    _minimal_flips(admissible, m, eligible = _ -> true) -> Vector{BitVector}
+
+The rapid-equilibrium flags of graph `m` after every inclusion-minimal flip to steady
+state that passes, one flag per edge for each flip set. A unit is a rapid-equilibrium
+kinetic group of `m` that carries flux with every edge steady state
+(`_flux_carrying_groups`) and passes `eligible`. A candidate turns its units' edges
+steady state and keeps every other flag. It passes when `admissible` holds on its flags,
+it leaves no rapid-equilibrium segment without a bottom form (`_bottomless_segment`) and
+every flipped group carries flux in it. The sets come from `_minimal_gaining_sets`, so a
+failing set is extended and a passing one is not. Nothing is built: a candidate is its
+flags.
+"""
+function _minimal_flips(admissible, m::Mechanism, eligible = _ -> true)
+    flags = _flags(m)
+    members = _group_members(m)
+    every = trues(length(m.edges))
+    flux = _flux_carrying_groups(m, falses(length(m.edges)))
+    units = [g for g in eachindex(members)
+             if all(k -> flags[k], members[g]) && flux[g] && eligible(g)]
+    function flipped(sel)
+        re = copy(flags)
+        for u in units[sel], k in members[u]
+            re[k] = false
+        end
+        re
+    end
+    passes(sel) = (re = flipped(sel);
+                   admissible(re) && isempty(_bottomless_segment(m, every, re)) &&
+                   all(_flux_carrying_groups(m, re)[units[sel]]))
+    [flipped(sel) for sel in _minimal_gaining_sets(passes, _ -> 1:length(units))]
+end
+
+"""
     _minimal_flips(admissible, base, m, eligible = _ -> true)
 
-The groups of `base`, kinetic groups over mechanism `m`'s metabolites, after every
+`_minimal_flips` for `base`, kinetic groups of `Step`s over mechanism `m`'s metabolites,
+as the seed variants read their bases: the groups of `base` after every
 inclusion-minimal flip to steady state that passes. A unit is a rapid-equilibrium group
 of `base` that carries flux on the all-steady-state graph (`_all_steady_state`,
 `_flux_carrying_groups`) and passes `eligible`. A candidate
@@ -528,12 +570,85 @@ function _minimal_flips(admissible, base::Vector{Vector{Step}}, m::_AnyMech,
 end
 
 """
+    _flux_carrying_edges(m, re) -> BitVector
+
+Whether each edge of graph `m`, edge `k` at rapid equilibrium where `re[k]` holds,
+carries net steady-state flux for generic parameter values. Rapid-equilibrium edges hold
+equilibrium mass and are flagged `false`; the rule that uses these flags concerns
+steady-state groups only.
+
+Contract each rapid-equilibrium segment to one vertex (`_segments`) and make every
+steady-state edge an edge between its two forms' segments, weighted by the substrates it
+takes up minus the products, plus its `from` form's offsets minus its `to` form's (a
+modifier copy counts as its reactant). Around any cycle the offsets telescope and the
+uptakes sum to the net turnover times the reactant count, so a cycle has weight zero
+exactly when it runs no net reaction. A self-loop (both forms in one segment) carries
+flux iff its weight is nonzero. Any other edge carries flux iff its biconnected block
+(`_unbalanced_blocks`) holds a cycle of nonzero weight: every edge of such a block lies
+on one (join the edge to the cycle by two disjoint paths; one of the two resulting
+cycles is unbalanced), while in a balanced block detailed balance holds along every
+cycle and each edge's flux vanishes. The zero-flux verdict holds for any parameters and
+grouping; the flux-carrying verdict for one-way steps, which every step the enumerator
+emits is. The test reads each edge's metabolite lists, so it holds for fused and
+Theorell–Chance steps as well.
+"""
+function _flux_carrying_edges(m::Mechanism, re::BitVector)
+    s = _segments(m, trues(length(m.edges)), re)
+    name_of = _name_index(m)
+    # The net uptake sign of each table entry and of each metabolite name.
+    sign = [insorted(x.name, m.substrates) ? 1 : insorted(x.name, m.products) ? -1 : 0
+            for x in m.table]
+    rho = zeros(Int, size(s.offsets, 1))
+    for (i, n) in enumerate(name_of)
+        rho[n] = sign[i]
+    end
+    offset(f) = sum(rho[n] * s.offsets[n, f] for n in eachindex(rho); init = 0)
+    weight(e) = sum(sign[i] for i in entries(e.consumed); init = 0) -
+                sum(sign[i] for i in entries(e.released); init = 0) +
+                offset(e.from) - offset(e.to)
+    flags = falses(length(m.edges))
+    edges = Tuple{Int, Int}[]; weights = Int[]; owner = Int[]
+    for (k, e) in enumerate(m.edges)
+        re[k] && continue
+        a, b = s.segment_of[e.from], s.segment_of[e.to]
+        if a == b
+            flags[k] = weight(e) != 0
+        else
+            push!(edges, (a, b)); push!(weights, weight(e)); push!(owner, k)
+        end
+    end
+    block, unbalanced = _unbalanced_blocks(length(s.segments), edges, weights)
+    for (j, k) in enumerate(owner)
+        flags[k] = block[j] in unbalanced
+    end
+    flags
+end
+
+"""
+    _flux_carrying_groups(m, re) -> BitVector
+
+One flag per kinetic group of graph `m`, edge `k` at rapid equilibrium where `re[k]`
+holds: whether some edge of the group carries net steady-state flux
+(`_flux_carrying_edges`). A steady-state group with no such edge exposes only the ratio
+of its two constants, so the moves never emit one; a zero-flux edge inside a group that
+also holds a flux-carrying edge costs nothing, because the group's shared constants are
+pinned by the edge that carries flux.
+"""
+function _flux_carrying_groups(m::Mechanism, re::BitVector)
+    flux = _flux_carrying_edges(m, re)
+    carries = falses(ngroups(m))
+    for (k, g) in enumerate(m.group)
+        flux[k] && (carries[g] = true)
+    end
+    carries
+end
+
+"""
     _flux_carrying_steps(groups, m) -> Vector{BitVector}
 
-One flag per step of `groups`, kinetic groups over mechanism `m`'s metabolites, parallel
-to `groups`: whether the step carries net steady-state flux for generic parameter values.
-Rapid-equilibrium steps hold equilibrium mass and are flagged `false`; the rule that uses
-these flags concerns steady-state groups only.
+`_flux_carrying_edges` for `groups`, kinetic groups of `Step`s over mechanism `m`'s
+metabolites, as the seed variants read their candidates: one flag per step, parallel to
+`groups`, whether the step carries net steady-state flux for generic parameter values.
 
 Contract each rapid-equilibrium segment to one vertex (`_re_segment_extras`) and
 make every steady-state step an edge between its two forms' segments, weighted by
@@ -643,11 +758,9 @@ end
 """
     _flux_carrying_groups(groups, m) -> BitVector
 
-One flag per kinetic group: whether some step of the group carries net
-steady-state flux (`_flux_carrying_steps`). A steady-state group with no such step
-exposes only the ratio of its two constants, so the moves never emit one; a
-zero-flux step inside a group that also holds a flux-carrying step costs nothing,
-because the group's shared constants are pinned by the step that carries flux.
+`_flux_carrying_groups` for `groups`, kinetic groups of `Step`s over mechanism `m`'s
+metabolites, as the seed variants read their candidates: whether some step of each group
+carries net steady-state flux (`_flux_carrying_steps`).
 """
 _flux_carrying_groups(groups::Vector{Vector{Step}}, m::_AnyMech) =
     BitVector([any(f) for f in _flux_carrying_steps(groups, m)])
@@ -911,10 +1024,10 @@ _requires_hyperbolic_catalysis(am::AllostericMechanism) = catalytic_multiplicity
 
 Whether the King–Altman denominator of `m`'s catalytic scheme has degree at most
 1 in every substrate and product concentration. Every binding of a substrate or
-product at its catalytic site counts, abortive complexes included. Steps touching
-a form that carries a declared inhibitor are left out: an inhibitor binds a site
-of its own by definition, so the powers its binding adds, including those of a
-substrate declared as a dead-end inhibitor, are a separate source that
+product at its catalytic site counts, abortive complexes included. Edges touching
+a form that holds a modifier are left out (a mask of the catalytic-site edges): a
+modifier binds a site of its own by definition, so the powers its binding adds,
+including those of a reactant's modifier copy, are a separate source that
 conformational mechanisms keep.
 
 The equation is a sum over rapid-equilibrium (RE) segments and spanning
@@ -923,7 +1036,7 @@ the root segment's weight times the weight of every tree edge, so the exponent
 of `X` in a term is the most `X` any form of the root segment carries beyond
 the segment's bottom form, plus, per tree edge, one if the step binds `X` in
 the tree direction and the count of `X` the edge's source form carries beyond
-its bottom (`_re_segment_extras`). The degree exceeds 1 exactly when one
+its bottom (`_segments`). The degree exceeds 1 exactly when one
 segment or one edge scores 2 or more, or the root scores 1 and some
 arborescence toward it holds a scoring edge, or some arborescence holds two
 scoring edges. An arborescence toward `S` containing given edges exists iff
@@ -931,27 +1044,29 @@ every segment still reaches `S` once each given edge's source keeps that edge
 as its only way out (`_all_reach`).
 """
 function _hyperbolic_catalysis(m::Union{Mechanism, AllostericMechanism})
-    on_catalytic_site(s) = !any(b -> b isa Regulator,
-                                vcat(bound(from_species(s)), bound(to_species(s))))
-    groups = [filter(on_catalytic_site, group) for group in steps(m)]
-    species, segments, extras, idx, seg_of = _re_segment_extras(groups)
-    # Directed segment-graph edges: source segment, target segment, source form,
-    # metabolites bound in that direction.
-    edges = Tuple{Int, Int, Int, Vector{Symbol}}[]
-    for group in groups, s in group
-        is_equilibrium(s) && continue
-        a, b = idx[from_species(s)], idx[to_species(s)]
-        seg_of[a] == seg_of[b] && continue
-        push!(edges, (seg_of[a], seg_of[b], a, name.(consumed(s))))
-        push!(edges, (seg_of[b], seg_of[a], b, name.(released(s))))
+    cm = catalytic(m)
+    modifiers = _modifier_mask(cm)
+    on_site = BitVector([(cm.forms[e.from].bound | cm.forms[e.to].bound) & modifiers == 0
+                         for e in cm.edges])
+    s = _segments(cm, on_site, _flags(cm))
+    name_of = _name_index(cm)
+    # Directed segment-graph edges: source segment, target segment, source form, the
+    # names (`_name_index`) bound in that direction.
+    edges = Tuple{Int, Int, Int, Vector{Int}}[]
+    for (k, e) in enumerate(cm.edges)
+        on_site[k] && !e.rapid_equilibrium || continue
+        a, b = s.segment_of[e.from], s.segment_of[e.to]
+        a == b && continue
+        push!(edges, (a, b, e.from, [name_of[i] for i in entries(e.consumed)]))
+        push!(edges, (b, a, e.to, [name_of[i] for i in entries(e.released)]))
     end
-    mets = [substrates(m); products(m)]
-    n = length(segments)
-    for x in mets
-        score(e) = count(==(x), e[4]) + get(extras[e[3]], x, 0)
+    n = length(s.segments)
+    for y in [cm.substrates; cm.products]
+        x = name_of[searchsortedfirst(cm.table, Met(y, false))]
+        score(e) = count(==(x), e[4]) + s.offsets[x, e[3]]
         carrying = [e for e in edges if score(e) > 0]
         any(e -> score(e) > 1, carrying) && return false
-        root_score(k) = maximum((get(extras[i], x, 0) for i in segments[k]); init=0)
+        root_score(k) = maximum((s.offsets[x, f] for f in s.segments[k]); init=0)
         any(k -> root_score(k) > 1, 1:n) && return false
         roots = [k for k in 1:n if root_score(k) == 1]
         for e in carrying, k in roots
@@ -990,20 +1105,11 @@ function _all_reach(n::Int, edges, root::Int, fixed)
     all(seen)
 end
 
-"""Number of rapid-equilibrium segments (connected components of the RE subgraph) of
-`groups`, by a union-find over the forms. The flip move measures each candidate on its
-groups, so it builds only the candidates that pass."""
-function _re_segment_count(groups::Vector{Vector{Step}})
-    index = Dict{Species, Int}()
-    parent = Int[]
-    vertex(sp) = get!(() -> (push!(parent, length(parent) + 1); length(parent)), index, sp)
-    find(x) = (while parent[x] != x; x = parent[x] = parent[parent[x]]; end; x)
-    for group in groups, s in group
-        a, b = vertex(from_species(s)), vertex(to_species(s))
-        is_equilibrium(s) && (parent[find(a)] = find(b))
-    end
-    count(i -> parent[i] == i, eachindex(parent))
-end
+"""Number of rapid-equilibrium segments of graph `m`, edge `k` at rapid equilibrium where
+`re[k]` holds (`_segments`). The flip move measures each candidate on its flags, so it
+builds only the candidates that pass."""
+_re_segment_count(m::Mechanism, re::BitVector) =
+    length(_segments(m, trues(length(m.edges)), re).segments)
 
 """
     _minimal_gaining_sets(gains, partners) -> Vector{Vector{Int}}
