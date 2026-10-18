@@ -158,7 +158,7 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
                  ((s.names, ""),)
         # A step the inactive law does not keep has no inactive constants.
         for (names, suffix) in states
-            isempty(names) && continue
+            isempty(names) && suffix == "_T" && continue
             if s.rapid_equilibrium
                 K = all_params[only(names)]
                 push!(out, Symbol("K", i, suffix) =>
@@ -1939,7 +1939,8 @@ function _testhelper_unchecked(raw::EnzymeRates.RawAllostericMechanism)
         tags[c.group_of[l]] = t
     end
     EnzymeRates.AllostericMechanism(c.mechanism, tags, raw.catalytic_multiplicity,
-                                    EnzymeRates.RegulatorySite[])
+        [EnzymeRates.RegulatorySite(s.ligands, s.multiplicity, s.allo_states)
+         for s in raw.sites])
 end
 
 @testset "constants that would share a name are rejected" begin
@@ -1947,11 +1948,23 @@ end
     @test EnzymeRates._raw_mechanism(_testhelper_relabelled_block(:F), true) ==
           _testhelper_relabelled_raw(:F)
     for label in (:A, :I)
-        @test_throws("@allosteric_mechanism: `$label` cannot be a conformation label: " *
-                     "constant names tag a conformation with A_ or I_ (`k_A_ES_to_EP`), " *
-                     "so the labels A and I could give two constants one name; choose " *
-                     "another label.",
+        reason = "`$label` cannot be a conformation label: constant names tag a " *
+                 "conformation with A_ or I_ (`k_A_ES_to_EP`), so the labels A and I " *
+                 "could give two constants one name; choose another label."
+        @test_throws("@allosteric_mechanism: " * reason,
                      eval(:(@allosteric_mechanism $(_testhelper_relabelled_block(label)))))
+        @test_throws("@enzyme_mechanism: " * reason, eval(:(@enzyme_mechanism begin
+            substrates: b
+            products:   Eb
+            steps: begin
+                E + b ⇌ E(b)
+                E(b) <--> $label(Eb)
+                $label(Eb) <--> $label + Eb
+                $label ⇌ E
+            end
+        end)))
+        @test_throws(ErrorException("Mechanism: " * reason),
+                     EnzymeRates.AllostericMechanism(_testhelper_relabelled_raw(label)))
     end
 
     # The derivation checks the names of a graph built without the label check. The
