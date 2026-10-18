@@ -716,7 +716,7 @@ end
     mktempdir() do tmp
         # `texts` holds the run's ids, each with its mechanism's text.
         texts = Dict{String, String}()
-        EnzymeRates._write_rows_csv(tmp, "equation_search_iteration_3.csv", rows, texts)
+        EnzymeRates._write_rows_csv!(tmp, "equation_search_iteration_3.csv", rows, texts)
         @test isfile(joinpath(tmp, "equation_search_iteration_3.csv"))
         df = CSV.read(joinpath(tmp, "equation_search_iteration_3.csv"), DataFrame)
         @test df.n_params == [5]
@@ -727,7 +727,7 @@ end
         # dir-creation branch: save_dir does not exist yet. A row may repeat an id with
         # its text (an expansion failure's row repeats its parent's).
         subdir = joinpath(tmp, "made")
-        EnzymeRates._write_rows_csv(subdir, "initial_mechanisms.csv", rows, texts)
+        EnzymeRates._write_rows_csv!(subdir, "initial_mechanisms.csv", rows, texts)
         @test isfile(joinpath(subdir, "initial_mechanisms.csv"))
         # An id that names a second text is an error, raised before the file is written.
         clash = [merge(rows[1], (mechanism = "N",))]
@@ -735,8 +735,8 @@ end
                                     "00000000000000aa, the first 16 hex digits of the " *
                                     "SHA-256 of their texts, so the run's CSVs cannot " *
                                     "tell them apart:\nM\nN"),
-                     EnzymeRates._write_rows_csv(tmp, "equation_search_iteration_4.csv",
-                                                 clash, texts))
+                     EnzymeRates._write_rows_csv!(tmp, "equation_search_iteration_4.csv",
+                                                  clash, texts))
         @test !isfile(joinpath(tmp, "equation_search_iteration_4.csv"))
     end
 end

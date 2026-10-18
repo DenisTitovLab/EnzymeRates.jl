@@ -236,8 +236,8 @@ each `mechanism_id` the run has written to its mechanism's text, and gains the r
 A row whose id names another text is an error, raised before the file is written: the
 run's CSVs could not tell the two mechanisms apart.
 """
-function _write_rows_csv(save_dir::String, filename::String, rows,
-                         texts::Dict{String,String})
+function _write_rows_csv!(save_dir::String, filename::String, rows,
+                          texts::Dict{String,String})
     for r in rows
         other = get!(texts, r.mechanism_id, r.mechanism)
         other == r.mechanism ||
@@ -738,7 +738,8 @@ function _beam_search(
     # on the first. If `_select_count!` ever gains a non-monotone budget, this
     # invariant breaks.
     seen = Set{UInt64}()
-    # Every mechanism_id the run's CSVs hold, with its mechanism's text (`_write_rows_csv`).
+    # Every mechanism_id the run's CSVs hold, with its mechanism's text
+    # (`_write_rows_csv!`).
     texts = Dict{String,String}()
 
     progress(msg) = _progress(save_dir, show_progress, msg)
@@ -752,7 +753,7 @@ function _beam_search(
             log = msg -> progress(header * "\n  " * msg), kwargs...)
         append!(failures, extra_failures)
         isempty(entries) && isempty(failures) && return nothing
-        _write_rows_csv(save_dir, csv,
+        _write_rows_csv!(save_dir, csv,
             vcat([e.row for e in entries], [_failure_row(f) for f in failures]), texts)
         improved = _ingest!(frontier, cv_pool, best_loss_by_count, entries;
                             n_cv_candidates)
