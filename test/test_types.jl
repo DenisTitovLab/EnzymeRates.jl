@@ -1249,6 +1249,29 @@ end
         m_perm = ER.Mechanism(rxn, [[rel], [bind], [iso]])
         @test ER._flat_steps(m) == ER._flat_steps(m_perm)
         @test m == m_perm && hash(m) == hash(m_perm)
+        # Steps and groups sort by content (`_step_canonical_key`), each form by its
+        # content key with free E first. The residual form E(; residual = A - P) binds
+        # nothing, so its steps come before those of E(A), though its internal name,
+        # E_res_+A_-P, sorts after EA.
+        pingpong = ER.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) <--> E(P; residual = A - P)
+                E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+                E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+                E(B; residual = A - P) ⇌ E(Q)
+                E + Q ⇌ E(Q)
+            end
+        end)
+        @test [ER._step_text(s, pingpong) for (s, _) in ER._flat_steps(pingpong)] == [
+            "E + A ⇌ EA",
+            "E + Q ⇌ EQ",
+            "E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP",
+            "E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP",
+            "EA <--> EP_res_plusA_minusP",
+            "EB_res_plusA_minusP ⇌ EQ"]
     end
 
     @testset "AllostericMechanism (non-parametric)" begin
@@ -1628,10 +1651,16 @@ end
     end
 
     @testset "sort key orders bindings and isomerizations" begin
+        # Each form by its content key, free E first, then the metabolites the step takes
+        # up and gives off as (name, modifier copy) pairs, then the RE/SS flag.
         s = ER.Step(E, EA, [A], ER.Metabolite[], true)
-        @test ER._step_canonical_key(s) == ("E", "EA", "A", "", true)
+        @test ER._step_canonical_key(s) ==
+              ((false, ("E", [], [], [])), (true, ("E", [("A", false)], [], [])),
+               [("A", false)], [], true)
         iso = ER.Step(EAB, _testhelper_sp([P, Q]), ER.Metabolite[], ER.Metabolite[], false)
-        @test ER._step_canonical_key(iso) == ("EAB", "EPQ", "", "", false)
+        @test ER._step_canonical_key(iso) ==
+              ((true, ("E", [("A", false), ("B", false)], [], [])),
+               (true, ("E", [("P", false), ("Q", false)], [], [])), [], [], false)
     end
 end
 
@@ -2453,7 +2482,8 @@ end
 
 @testset "two forms with one internal name are rejected" begin
     # The modifier-only I renders bare, so E(I) and E(Iinh) name their constants apart,
-    # but both take the internal name EIinh, which orders steps and identifies forms.
+    # but both take the internal name EIinh, which orders and identifies forms inside the
+    # package.
     @test_throws "E(I) and E(Iinh) share the internal name EIinh" @enzyme_mechanism begin
         substrates: Iinh
         products: P

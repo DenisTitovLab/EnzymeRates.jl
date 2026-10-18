@@ -51,8 +51,8 @@ _met_sort_key(m::Metabolite) = (name(m), m isa CompetitiveInhibitor)
 """
 Species: an enzyme form. `bound` is sorted by `_met_sort_key`. Its internal name
 (`_species_name`: `:E` / `:EATP` / `:Estar...` / `:EB_res_+A_-P`) is rendered once at
-construction from the form alone and stored in `name`; it orders steps and identifies
-forms inside the package, and never takes part in `==`, `hash` or display. Parameter
+construction from the form alone and stored in `name`; it orders and identifies forms
+inside the package, and never takes part in `==`, `hash` or display. Parameter
 names write a form with `_form_label`, which also reads the mechanism's reactants.
 """
 struct Species
@@ -722,18 +722,15 @@ function _entry_sides(groups::Vector{Vector{Step}})
     entry_sides
 end
 
-# Canonical key for a `Step`. Gives the sorts a deterministic ordering so two
-# physically-equivalent `Mechanism`s end up with identical step storage.
-# Keyed on the species' rendered NAMES (not `hash`): `Substrate`/`Product`
-# use Julia's default struct hash, which mixes in the type's `objectid` and so
-# is NOT stable across precompile sessions — a hash key would make the canonical
-# order non-deterministic, and with it the dedup keys and the rate equation.
-# Names are derived purely from metabolite names, so the ordering is fixed and
-# reproducible.
-_met_names(v) = join((String(name(m)) for m in v), "+")
-_step_canonical_key(s::Step) =
-    (String(name(from_species(s))), String(name(to_species(s))),
-     _met_names(consumed(s)), _met_names(released(s)), is_equilibrium(s))
+# Canonical key for a `Step`: its content in the canonical form order
+# (`_step_index_key`: each form's `_form_index_key`, free E first, then the metabolites
+# it takes up and gives off), then its RE/SS flag. Gives the sorts a deterministic
+# ordering so two physically-equivalent `Mechanism`s end up with identical step storage.
+# Keyed on content (base names and role flags), not on `hash`: `Substrate`/`Product` use
+# Julia's default struct hash, which mixes in the type's `objectid` and so is NOT stable
+# across precompile sessions — a hash key would make the canonical order
+# non-deterministic, and with it the dedup keys and the rate equation.
+_step_canonical_key(s::Step) = (_step_index_key(s)..., is_equilibrium(s))
 
 """
 Canonical key for a `RegulatorySite`. Orders the outer site vector so two
@@ -755,7 +752,7 @@ them. First reject an empty kinetic group. Then orient every step
 first step; `perm` is that group order (a permutation of 1:length),
 which the caller applies to any data parallel to the groups. The inner sort must
 run BEFORE the outer one so each group's "first step" key reflects the canonical
-inner order. Each key is rendered once per sort. Then reject two distinct forms that
+inner order. Each key is computed once per sort. Then reject two distinct forms that
 render one name (`_assert_distinct_form_names`) and enforce the kinetic-group rules
 (`_assert_uniform_groups`, `_assert_each_reaction_once`). Whether the groups give a
 defined rate law is the boundary check's question (`_check_well_posed`), not the
@@ -843,7 +840,7 @@ same name. A form's name joins its conformation and bound metabolites without a
 separator, so E with NAD and P bound and E with NADP bound are both `ENADP`. Every
 constant is named after the forms its step joins (`_form_label`), so the two forms
 would share constant names. The forms' internal names (`name(::Species)`), which order
-steps and identify forms, must differ as well.
+and identify forms inside the package, must differ as well.
 """
 function _assert_distinct_form_names(reaction::EnzymeReaction, steps::Vector{Vector{Step}})
     # A form as `@enzyme_mechanism` writes it: `E(NAD, P)`, `E(A::Mod)`, `E(I)`,
@@ -868,7 +865,8 @@ function _assert_distinct_form_names(reaction::EnzymeReaction, steps::Vector{Vec
           k -> "both render the name $k; every constant is named after the forms its " *
                "step joins")
     check(name, Dict{Symbol, Species}(),
-          k -> "share the internal name $k, which orders steps and identifies forms")
+          k -> "share the internal name $k, which orders and identifies forms inside " *
+               "the package")
 end
 
 """

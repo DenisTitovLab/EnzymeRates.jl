@@ -196,9 +196,10 @@ end
             end
         end
         m = EnzymeRates.Mechanism(tied_mm)
+        # Groups and steps in canonical order: the steps at free E first, then by form.
         @test EnzymeRates._step_text.(first.(EnzymeRates._flat_steps(m)),
                                       Ref(EnzymeRates.reaction(m))) ==
-              ["D + S <--> DS", "E <--> D", "ES <--> DS", "E + P <--> EP", "E + S <--> ES",
+              ["E <--> D", "ES <--> DS", "E + P <--> EP", "E + S <--> ES", "D + S <--> DS",
                "ES <--> EP"]
         tied = only(g for g in EnzymeRates.steps(m) if length(g) == 2)
         @test all(s -> EnzymeRates.conformation(EnzymeRates.from_species(s)) === :E &&
