@@ -276,6 +276,24 @@ _testhelper_step_text(g, s) =
     (s.rapid_equilibrium ? " ⇌ " : " <--> ") *
     join([g.forms[s.to]; String.(s.released)], " + ")
 
+"""Edge `k` of the catalytic graph of `m` (concrete or compiled) as text, in its stored
+direction, each side its form's name and its metabolites' names, as
+`_testhelper_step_text` writes a step: `"E + S ⇌ ES"`, `"ES <--> EP"`."""
+function _testhelper_edge_text(m, k::Int)
+    cm = EnzymeRates.catalytic(_testhelper_lift(m))
+    e = cm.edges[k]
+    _testhelper_side(f, c) =
+        join([EnzymeRates._form_name(cm, f);
+              [String(cm.table[i].name) for i in EnzymeRates.entries(c)]], " + ")
+    _testhelper_side(e.from, e.consumed) * (e.rapid_equilibrium ? " ⇌ " : " <--> ") *
+        _testhelper_side(e.to, e.released)
+end
+
+"""The edge of the catalytic graph of `m` whose text (`_testhelper_edge_text`) is `text`."""
+_testhelper_edge(m, text) =
+    only(k for k in eachindex(EnzymeRates.catalytic(_testhelper_lift(m)).edges)
+         if _testhelper_edge_text(m, k) == text)
+
 """
     _testhelper_consistent_point(m, rng) -> (; vals, Keq, active, inactive, L)
 

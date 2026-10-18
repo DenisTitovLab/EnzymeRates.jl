@@ -2727,8 +2727,10 @@ end
         # tag each group by the metabolite its step binds
         tags = [!_testhelper_is_binding(s) ? cat_tag :
                 only(s.consumed) === :S ? s_tag : p_tag for s in firsts]
-        [only(firsts[g].consumed)
-         for g in ER._onlya_haldane_violation(am, ER.steps(am), tags)]
+        offenders = ER._onlya_haldane_violation(am, ER.steps(am), tags)
+        # The graph's own test reads the same offenders off the catalytic graph.
+        @test ER._onlya_offenders(am.catalytic, am.catalytic.group, tags) == offenders
+        [only(firsts[g].consumed) for g in offenders]
     end
 
     # no :OnlyA anywhere -> valid
@@ -2776,7 +2778,9 @@ end
         am = ER.AllostericMechanism(m)
         tags = [_testhelper_is_binding(s) ? :OnlyA : :EqualAI
                 for s in _testhelper_first_steps(_testhelper_graph(am))]
-        ER._onlya_haldane_violation(am, ER.steps(am), tags)
+        offenders = ER._onlya_haldane_violation(am, ER.steps(am), tags)
+        @test ER._onlya_offenders(am.catalytic, am.catalytic.group, tags) == offenders
+        offenders
     end
     @test isempty(_testhelper_both_bindings_onlya(mixed_uni_re_ss))
     @test isempty(_testhelper_both_bindings_onlya(mixed_uni_ss_re))
@@ -2809,7 +2813,12 @@ end
                    for s in _testhelper_first_steps(bu)]
         _testhelper_tags(onlya_keys...) =
             [key in onlya_keys ? :OnlyA : :EqualAI for key in bu_keys]
-        _testhelper_verdict(t) = ER._onlya_haldane_violation(bu_am, ER.steps(bu_am), t)
+        function _testhelper_verdict(t)
+            offenders = ER._onlya_haldane_violation(bu_am, ER.steps(bu_am), t)
+            @test ER._onlya_offenders(bu_am.catalytic, bu_am.catalytic.group, t) ==
+                  offenders
+            offenders
+        end
         # The group whose first step binds `x` at the form named `free`.
         _testhelper_group(free, x) = only(findall(==((free, x)), bu_keys))
 
@@ -2964,6 +2973,7 @@ end
     am = ER.AllostericMechanism(pingpong)
     @test am isa ER.AllostericMechanism
     @test isempty(ER._onlya_haldane_violation(am, ER.steps(am), ER.cat_allo_states(am)))
+    @test isempty(ER._onlya_haldane_violation(am))
 end
 
 @testset ":OnlyA guard reads cycles past an abortive segment it strands" begin

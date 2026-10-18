@@ -435,44 +435,89 @@ end
 
 _thermodynamic_constraints(mech::Mechanism) = _thermodynamic_constraints(mech, steps(mech))
 
+"""
+    _thermodynamic_constraints(m, groups) -> (C, multiples)
+
+`_thermodynamic_constraints(m, flat)` for `groups`, kinetic groups of `Step`s over mechanism
+`m`'s substrates and products, as the moves' pre-filters read their candidates: column
+`j` of `C` is flat step `j` (`_flat_steps`), and the rows of the incidence matrix are
+the groups' forms in the canonical form order (`_forms`).
+"""
 function _thermodynamic_constraints(m::_AnyMech, groups::Vector{Vector{Step}})
     flat = _flat_steps(groups)
     reactant_names = [substrates(m); products(m)]
-
-    # Enzyme incidence matrix (rows = enzyme forms in the canonical form order, `_forms`)
     form = Dict(sp => i for (i, sp) in enumerate(_forms(groups)))
     B = zeros(Int, length(form), length(flat))
     for (j, (s, _)) in enumerate(flat)
         B[form[from_species(s)], j] -= 1
         B[form[to_species(s)], j] += 1
     end
-
-    # Stoichiometry matrix (rows = metabolites, cols = steps), read from each
-    # step's consumed (-1) and released (+1) lists.
-    #
-    # Iso steps carry no free-pool metabolite — their bound content is
-    # encoded in the enzyme-form identity — so both lists are empty and they
-    # contribute zero. Do NOT add a from_bound/to_bound diff for iso steps:
-    # that double-counts metabolites already accounted for by the
-    # binding/release steps and inflates the cycle's net change (e.g.
-    # 1/Keq -> 1/Keq^2).
     met_idx = Dict(x => i for (i, x) in enumerate(reactant_names))
-    stoich_mat = zeros(Int, length(reactant_names), length(flat))
+    stoich = zeros(Int, length(reactant_names), length(flat))
     for (j, (s, _)) in enumerate(flat), (mets, sgn) in ((consumed(s), -1), (released(s), 1))
         for x in mets
-            haskey(met_idx, name(x)) && (stoich_mat[met_idx[name(x)], j] += sgn)
+            haskey(met_idx, name(x)) && (stoich[met_idx[name(x)], j] += sgn)
         end
     end
-    nu_net = [x in substrates(m) ? -1 : 1 for x in reactant_names]
+    _cycle_basis(B, stoich, length(substrates(m)))
+end
 
-    # Classify each null-space cycle as Haldane (proportional to the
-    # net reaction → contributes log(Keq)) or Wegscheider (closed
-    # cycle, zero net change). Errors on cycles that touch metabolites
-    # but aren't proportional to the net reaction.
+"""
+    _thermodynamic_constraints(m, flat) -> (C, multiples)
+
+The cycle basis of the sub-graph of graph `m` whose edges are `flat`, in that order: row
+`i` of `C` counts each edge of cycle `i` (column `j` is edge `flat[j]`) with its sign in
+the edge's stored direction, and `multiples[i]` is the multiple of the net reaction
+cycle `i` runs (0 for a Wegscheider cycle). The incidence matrix's rows are the forms
+the edges touch, in form order. A metabolite counts by name, so a reactant's modifier
+copy counts as the reactant (`_cycle_basis`).
+"""
+function _thermodynamic_constraints(m::Mechanism, flat::Vector{Int})
+    present = falses(length(m.forms))
+    for k in flat
+        present[m.edges[k].from] = present[m.edges[k].to] = true
+    end
+    row = cumsum(present)
+    B = zeros(Int, count(present), length(flat))
+    for (j, k) in enumerate(flat)
+        B[row[m.edges[k].from], j] -= 1
+        B[row[m.edges[k].to], j] += 1
+    end
+    reactants = [m.substrates; m.products]
+    stoich_row = [something(findfirst(==(x.name), reactants), 0) for x in m.table]
+    stoich = zeros(Int, length(reactants), length(flat))
+    for (j, k) in enumerate(flat), (c, sgn) in ((m.edges[k].consumed, -1),
+                                                (m.edges[k].released, 1))
+        for i in entries(c)
+            stoich_row[i] == 0 || (stoich[stoich_row[i], j] += sgn)
+        end
+    end
+    _cycle_basis(B, stoich, length(m.substrates))
+end
+
+"""
+    _cycle_basis(B, stoich, ns) -> (C, multiples)
+
+The cycles of the graph whose incidence matrix is `B` (rows: forms, columns: steps), each
+classified by the net change `stoich` (rows: the substrates, the first `ns`, then the
+products; columns: steps) gives it: the rows of `C` are a basis of `B`'s nullspace from
+its reduced row echelon form, in coprime integers, and `multiples[i]` is the multiple of
+the net reaction cycle `i` runs (a Haldane cycle, which contributes `log(Keq)`), or 0 for
+a Wegscheider cycle with no net change. Errors on a cycle that touches metabolites
+without running a multiple of the net reaction.
+
+The stoichiometry reads each step's consumed (-1) and released (+1) metabolites only. An
+isomerization carries no free-pool metabolite — its bound content is encoded in the
+enzyme forms it joins — so it contributes zero. Do NOT add a from-bound/to-bound
+difference for it: that double-counts metabolites already accounted for by the binding
+and release steps and inflates the cycle's net change (e.g. 1/Keq -> 1/Keq^2).
+"""
+function _cycle_basis(B::Matrix{Int}, stoich::Matrix{Int}, ns::Int)
+    nu_net = [i <= ns ? -1 : 1 for i in axes(stoich, 1)]
     C = _integer_nullspace(B)'
     j0 = findfirst(!iszero, nu_net)
     function classify(i)
-        nu = stoich_mat * C[i, :]
+        nu = stoich * C[i, :]
         c = nu[j0] // nu_net[j0]
         nu == c .* nu_net && isinteger(c) ||
             error("Cycle $i produces metabolite change not proportional to net reaction")
@@ -592,10 +637,10 @@ function _onlya_violation_message(am::AllostericMechanism, groups::Vector{Int})
 end
 
 """
-    _onlya_haldane_violation(m, cat_steps, cat_allo_states) → Vector{Int}
+    _onlya_offenders(m, group, tags) → Vector{Int}
 
-The `:OnlyA` binding groups of `cat_steps`, kinetic groups over mechanism `m`'s
-metabolites tagged `cat_allo_states`, that leave a catalytic thermodynamic cycle's
+The `:OnlyA` binding groups of graph `m`, its edges labelled `group` (edge `k` in group
+`group[k]`) and the groups tagged `tags`, that leave a catalytic thermodynamic cycle's
 Haldane relation unsatisfiable under the `K_I = K_A/ε`, `ε → 0⁺` limit an `:OnlyA`
 binding asserts; empty when every cycle stays satisfiable. The boundary check
 (`_check_well_posed`) names them in its error (`_onlya_violation_message`); the moves read
@@ -614,19 +659,19 @@ The check graph drops `:OnlyA` chemistry groups (those holding a chemistry step,
 a cycle running through one never appears and never reports a violation: that
 free `k_I` ratio is the escape. The `:OnlyA` bindings are the `:OnlyA` groups of
 plain bindings alone; a fused binding tagged `:OnlyA` is chemistry and leaves the
-graph. The check graph is read for its cycles only, so the kept groups enter as
-stored, not as a mechanism: dropping a group that mixes a fused binding with
-abortive bindings can leave abortive complexes in a rapid-equilibrium segment with
-no bottom form, which the boundary check rejects (`_bottomless_re_segment`).
+graph. The check graph is read for its cycles only, over the kept groups' edges group by
+group, each group in edge order; it is no mechanism: dropping a group that mixes a fused
+binding with abortive bindings can leave abortive complexes in a rapid-equilibrium
+segment with no bottom form, which the boundary check rejects (`_bottomless_segment`).
 Bindings completing no cycle (competitive inhibitors, dead ends, regulator
 sites) never enter a row and take no part. Both catalytic (Haldane) and
 binding-only (Wegscheider, `rhs = 0`) cycle rows are inspected, so a one-sided
 `:OnlyA` binding on a pure random-order binding square is caught.
 
-The verdict comes from two stages. The per-row sign test runs first: it flags a
-cycle whose single row's `:OnlyA` exponents are all one sign, which forces a sum
-of same-signed positive terms to vanish and so is a sound rejection. It is cheap
-and keeps the common rejections on the fast path, but it reads one row at a time
+The verdict comes from two stages (`_onlya_cone_offenders`). The per-row sign test runs
+first: it flags a cycle whose single row's `:OnlyA` exponents are all one sign, which
+forces a sum of same-signed positive terms to vanish and so is a sound rejection. It is
+cheap and keeps the common rejections on the fast path, but it reads one row at a time
 and a multi-cycle coupled inconsistency passes it. The complete condition
 follows: writing `ε_p = δ^{w_p}`, every cycle's monomial is finite nonzero for
 some `δ → 0⁺` exactly when the coupled `ε`-exponent system admits a
@@ -640,25 +685,59 @@ bindings alike: an RE binding's `1/Kd` and an SS binding's `kon/koff` both enter
 the cycle's product raised to the step's entry, so a cycle that mixes the two step
 kinds reads its signs on one scale and a balanced pair is accepted.
 """
+function _onlya_offenders(m::Mechanism, group::Vector{Int}, tags::Vector{Symbol})
+    onlya(g) = tags[g] === :OnlyA
+    chemistry = falses(length(tags))
+    for (k, e) in enumerate(m.edges)
+        _is_chemistry(m, e) && (chemistry[group[k]] = true)
+    end
+    keep = [g for g in eachindex(tags) if !(onlya(g) && chemistry[g])]
+    any(onlya, keep) || return Int[]
+    flat = [k for g in keep for k in eachindex(group) if group[k] == g]
+    C, _ = _thermodynamic_constraints(m, flat)
+    _onlya_cone_offenders(C, group[flat], filter(onlya, keep))
+end
+
+"""The `:OnlyA` binding groups of `am` that leave a catalytic thermodynamic cycle's
+Haldane relation unsatisfiable (`_onlya_offenders` over its own groups and tags)."""
+_onlya_haldane_violation(am::AllostericMechanism) =
+    _onlya_offenders(am.catalytic, am.catalytic.group, am.cat_allo_states)
+
+"""
+    _onlya_haldane_violation(m, cat_steps, cat_allo_states) → Vector{Int}
+
+`_onlya_offenders` for `cat_steps`, kinetic groups of `Step`s over mechanism `m`'s
+metabolites tagged `cat_allo_states`, as the moves read their candidate groups: the
+offending `:OnlyA` binding groups, as indices into `cat_steps`.
+"""
 function _onlya_haldane_violation(m::_AnyMech, cat_steps::Vector{Vector{Step}},
                                   cat_allo_states::Vector{Symbol})
     onlya(g) = cat_allo_states[g] === :OnlyA
     keep = [g for g in eachindex(cat_steps)
             if !(onlya(g) && any(_is_chemistry, cat_steps[g]))]
     any(onlya, keep) || return Int[]
-    kept = cat_steps[keep]
-    C, _ = _thermodynamic_constraints(m, kept)
-    flat = _flat_steps(kept)
-    groups = [k for (k, g) in enumerate(keep) if onlya(g)]
+    C, _ = _thermodynamic_constraints(m, cat_steps[keep])
+    _onlya_cone_offenders(C, [g for g in keep for _ in cat_steps[g]], filter(onlya, keep))
+end
+
+"""
+The offenders among the `:OnlyA` groups `onlya` (`_onlya_offenders`) by the cycle basis
+`C`, whose column `j` is a step of group `step_group[j]`: the groups of the first cycle
+whose `:OnlyA` exponents carry one sign, or else all of `onlya` when no strictly positive
+combination of the exponents balances every cycle; empty when one does.
+"""
+function _onlya_cone_offenders(C::AbstractMatrix{Int}, step_group::Vector{Int},
+                               onlya::Vector{Int})
     # Column k holds `:OnlyA` group k's `ε` exponents: its steps' cycle entries summed.
-    M = Rational{BigInt}[sum((C[i, j] for (j, (_, g)) in enumerate(flat) if g == k);
-                             init = 0) for i in axes(C, 1), k in groups]
+    M = Rational{BigInt}[sum((C[i, j] for j in eachindex(step_group)
+                              if step_group[j] == g); init = 0)
+                         for i in axes(C, 1), g in onlya]
     # Per-row sign test first: sound (an all-one-sign row forces a sum of
     # same-signed positive terms to vanish) and cheap, so it keeps the common
     # rejections on the fast path.
     for row in eachrow(M)
         nz = findall(!iszero, row)
-        !isempty(nz) && allequal(sign.(row[nz])) && return keep[groups[nz]]
+        !isempty(nz) && allequal(sign.(row[nz])) && return onlya[nz]
     end
 
     # The complete condition: the `ε` exponents must admit a strictly-positive
@@ -668,5 +747,5 @@ function _onlya_haldane_violation(m::_AnyMech, cat_steps::Vector{Vector{Step}},
     # blew up; fall back to the per-row verdict (sound, just incomplete) rather
     # than reject a mechanism we could not decide.
     _has_strict_positive_combination(_rational_nullspace(M)) === false || return Int[]
-    return keep[groups]
+    return onlya
 end

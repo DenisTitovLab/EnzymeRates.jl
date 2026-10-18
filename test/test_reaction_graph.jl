@@ -814,6 +814,77 @@ end
            "EQ_Qmod → EQQmod"]
 end
 
+@testset "a sub-graph reads the forms, segments and bottom of the edges a mask keeps" begin
+    # Random release of P and Q at rapid equilibrium between steady-state releases: the
+    # segment {E(P), E(P, Q), E(Q)} has every form holding a product.
+    m = ER.Mechanism(_testhelper_walk(:(begin
+        substrates: S
+        products: P, Q
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P, Q)
+            E(P, Q) ⇌ E(Q) + P
+            E(P, Q) ⇌ E(P) + Q
+            E(P) <--> E + P
+            E(Q) <--> E + Q
+        end
+    end)))
+    names(forms) = [ER._form_name(m, f) for f in forms]
+    @test names(eachindex(m.forms)) == ["E", "EP", "EPQ", "EQ", "ES"]
+    # One edge per group, so the edges group by group are the edges in order.
+    @test [_testhelper_edge_text(m, k) for k in ER._flat_edges(m)] ==
+          ["E + P <--> EP", "E + Q <--> EQ", "E + S ⇌ ES", "EP + Q ⇌ EPQ", "EQ + P ⇌ EPQ",
+           "ES <--> EPQ"]
+    @test ER._flags(m) == BitVector([0, 0, 1, 1, 1, 0])
+    @test [ER._is_free(f) for f in m.forms] == [true, false, false, false, false]
+    every = trues(length(m.edges))
+    @test ER._present_forms(m, every) == trues(5)
+    # Each segment breadth-first from its first form; offsets per metabolite name (rows
+    # P, Q, S) above the segment's lowest.
+    s = ER._segments(m, every, ER._flags(m))
+    @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ", "EQ"]]
+    @test s.segment_of == [1, 2, 2, 2, 1]
+    @test s.offsets == [0 1 1 0 0; 0 0 1 1 0; 0 0 0 0 1]
+    @test names(ER._bottomless_segment(m, every, ER._flags(m))) == ["EP", "EPQ", "EQ"]
+    # Without the release of P from E(P, Q), E(Q) stands alone and E(P) is the bottom of
+    # {E(P), E(P, Q)}.
+    no_p = BitVector([1, 1, 1, 1, 0, 1])
+    @test ER._present_forms(m, no_p) == trues(5)
+    s = ER._segments(m, no_p, ER._flags(m))
+    @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ"], ["EQ"]]
+    @test isempty(ER._bottomless_segment(m, no_p, ER._flags(m)))
+    # A mask keeps only the forms its edges touch; a form it leaves is in no segment.
+    bindings = BitVector([1, 1, 0, 0, 0, 0])
+    @test ER._present_forms(m, bindings) == BitVector([1, 1, 0, 1, 0])
+    s = ER._segments(m, bindings, ER._flags(m))
+    @test [names(seg) for seg in s.segments] == [["E"], ["EP"], ["EQ"]]
+    @test s.segment_of == [1, 2, 0, 3, 0]
+    # `re` picks the edges that join segments: with none, each present form stands alone.
+    @test length(ER._segments(m, every, falses(6)).segments) == 5
+
+    # The inactive conformation keeps the edges outside :OnlyA groups between forms that
+    # such edges reach from a free form: here E(A) and E(A, I) lie behind the :OnlyA
+    # binding of A.
+    am = ER.AllostericMechanism(_testhelper_walk(:(begin
+        substrates: A
+        products: P
+        modifiers: I
+        catalytic_multiplicity: 1
+        steps: begin
+            E + A <--> E(A)                                   :: OnlyA
+            E(A) <--> E(P)                                    :: OnlyA
+            E + P ⇌ E(P)                                      :: EqualAI
+            (E(A) + I ⇌ E(A, I), E(P) + I ⇌ E(I, P))          :: NonequalAI
+        end
+    end); allosteric = true))
+    inactive = ER._inactive_mask(am)
+    @test [_testhelper_edge_text(am, k) for k in findall(inactive)] ==
+          ["E + P ⇌ EP", "EP + I ⇌ EIP"]
+    @test [ER._form_name(am.catalytic, f)
+           for f in findall(ER._present_forms(am.catalytic, inactive))] ==
+          ["E", "EIP", "EP"]
+end
+
 """The graph whose Sig is `sig`, `x`'s kind of graph. `sig` is splatted with its length
 left open, as the lifts splat it, so the decoders compile once, whatever the Sig length."""
 _testhelper_decode(::ER.Mechanism, @nospecialize(sig)) = ER._mechanism_from_sig(sig...)
@@ -1033,6 +1104,10 @@ function _testhelper_census_population()
             EnzymeRates.expand_mechanisms(EnzymeRates.init_mechanisms(bibi), bibi))
 end
 
+"""The census's first populations (`_testhelper_census_population`), enumerated once for
+the testsets that read them."""
+const _testhelper_census_mechanisms = _testhelper_census_population()
+
 """A step side of graph `m` as text: form `f`'s name, then its free entries `c`."""
 _testhelper_side_text(m::ER.Mechanism, f::Int, c::ER.Counts) =
     join([ER._form_name(m, f); [ER._entry_label(m, i) for i in ER.entries(c)]], " + ")
@@ -1095,7 +1170,7 @@ end
     @test _testhelper_graph_view(x) == _testhelper_step_view(x)
     # The census's first populations, each written against its stored form; in
     # agreement, the graph also decodes from its Sig and from its raw form.
-    population = _testhelper_census_population()
+    population = _testhelper_census_mechanisms
     graphs = [_testhelper_build(_testhelper_raw_of(m)) for m in population]
     disagree = [i for (i, (m, x)) in enumerate(zip(population, graphs))
                 if _testhelper_graph_view(x) != _testhelper_step_view(m)]
@@ -1104,6 +1179,41 @@ end
     @test length(unique(graphs)) == length(unique(population))
     @test all(_testhelper_decode(x, ER._sig_of(x)) == x for x in graphs)
     @test all(_testhelper_build(ER._raw(x)) == x for x in graphs)
+end
+
+"""
+Whether the sub-graph reads of `x` (`_segments`, `_inactive_mask`) give what the Step
+helpers give on its Step views (`_re_segment_extras`, `_inactive_groups`): the catalytic
+graph's segments, form by form and breadth-first, with each form's positive offsets, and,
+for an allosteric mechanism, the inactive conformation's edges and their segments.
+"""
+function _testhelper_subgraphs_agree(x)
+    m, groups = ER.catalytic(x), ER.steps(x)
+    function _testhelper_segments_agree(mask, step_groups)
+        s = ER._segments(m, mask, ER._flags(m))
+        _, segments, extras = ER._re_segment_extras(step_groups)
+        present = findall(!=(0), s.segment_of)
+        names = unique!([e.name for e in m.table])
+        _testhelper_offsets(f) = Dict(names[n] => s.offsets[n, f]
+                                      for n in eachindex(names) if s.offsets[n, f] > 0)
+        s.segments == [present[seg] for seg in segments] &&
+            [_testhelper_offsets(f) for f in present] == extras
+    end
+    _testhelper_segments_agree(trues(length(m.edges)), groups) || return false
+    x isa ER.AllostericMechanism || return true
+    inactive = ER._inactive_mask(x)
+    kept = ER._inactive_groups(x)
+    [inactive[k] for members in ER._group_members(m) for k in members] ==
+        [s in kept[g] for (g, group) in enumerate(groups) for s in group] &&
+        _testhelper_segments_agree(inactive, kept)
+end
+
+@testset "a sub-graph's segments and inactive edges are its Step views'" begin
+    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
+        @test _testhelper_subgraphs_agree(_testhelper_lift(spec.mechanism))
+    end
+    @test isempty([i for (i, x) in enumerate(_testhelper_census_mechanisms)
+                   if !_testhelper_subgraphs_agree(x)])
 end
 
 @testset "tier 3 and a tied group's lead orient steps alike in every writing" begin

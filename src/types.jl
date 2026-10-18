@@ -1717,6 +1717,141 @@ function _binds_by_name(m::Mechanism, e::Edge)
     names(c::Counts) = [m.table[j].name for j in entries(c)]
     names(t) == sort!(push!(names(f), m.table[i].name))
 end
+"""Whether `e` of `m` is anything but a plain binding (`_is_plain_binding`): an
+isomerization, a fused binding (`E(A) + B → E(P, Q)`), a Theorell–Chance step or a step
+with several metabolites on a side."""
+_is_chemistry(m::Mechanism, e::Edge) = !_is_plain_binding(m, e)
+"""The edges group by group, each group in edge order: the order the joint solve and the
+derivation read them in, which is the order of the Step views' steps (`steps`)."""
+_flat_edges(m::Mechanism) = reduce(vcat, _group_members(m); init = Int[])
+"""Whether `f` is a free form: nothing bound and no residual, whatever its label."""
+_is_free(f::Form) = f.bound == 0 && !_has_residual(f)
+"""Each edge's rapid-equilibrium flag."""
+_flags(m::Mechanism) = BitVector([e.rapid_equilibrium for e in m.edges])
+
+# Sub-graphs: a mask says which edges of a mechanism a sub-graph keeps, such as an
+# allosteric mechanism's inactive conformation. Nothing here constructs a mechanism, so no
+# check meant for the mechanisms a user writes fires on a sub-graph.
+
+"""The forms the edges `mask` keeps touch: a sub-graph's law and segments cover these."""
+function _present_forms(m::Mechanism, mask::BitVector)
+    present = falses(length(m.forms))
+    for (k, e) in enumerate(m.edges)
+        mask[k] && (present[e.from] = present[e.to] = true)
+    end
+    present
+end
+
+"""Each table entry's metabolite name as a position among the distinct names of the table
+(`unique` of its names, in table order): a reactant and its modifier copy share one, as
+they share a concentration."""
+function _name_index(m::Mechanism)
+    index = Vector{Int}(undef, length(m.table))
+    n = 0
+    for (i, x) in enumerate(m.table)
+        (i > 1 && m.table[i - 1].name === x.name) || (n += 1)
+        index[i] = n
+    end
+    index
+end
+
+"""
+    _segments(m, mask, re) -> (; segment_of, segments, offsets)
+
+The rapid-equilibrium segments of the edges `mask` keeps, joined by the kept edges that
+`re` flags. `segments[s]` lists segment `s`'s forms breadth-first from its first form,
+each form's edges in the order `_flat_edges` reads them, and the segments are numbered by
+their first forms; `segment_of[f]` is form `f`'s segment, 0 for a form no kept edge
+touches (`_present_forms`). `offsets[n, f]` is how many more of metabolite name `n`
+(`_name_index`) form `f` carries than the form of its segment that carries fewest of it.
+Within a segment, rapid equilibrium fixes each form's weight relative to any other as a
+monomial in concentrations, one factor per metabolite taken up or given off along the
+path between them; chemistry passes the counts through unchanged.
+"""
+function _segments(m::Mechanism, mask::BitVector, re::BitVector)
+    nf = length(m.forms)
+    name_of = _name_index(m)
+    offsets = zeros(Int, maximum(name_of; init = 0), nf)
+    # Each kept rapid-equilibrium edge at both of its forms: the form at its other end,
+    # the edge, and +1 at its source, -1 at its target.
+    adjacent = [Tuple{Int, Int, Int}[] for _ in 1:nf]
+    for k in _flat_edges(m)
+        mask[k] && re[k] || continue
+        e = m.edges[k]
+        push!(adjacent[e.from], (e.to, k, 1))
+        push!(adjacent[e.to], (e.from, k, -1))
+    end
+    present = _present_forms(m, mask)
+    segment_of = zeros(Int, nf)
+    segments = Vector{Int}[]
+    for root in 1:nf
+        present[root] && segment_of[root] == 0 || continue
+        segment = [root]
+        push!(segments, segment)
+        segment_of[root] = length(segments)
+        head = 0
+        while head < length(segment)
+            head += 1
+            u = segment[head]
+            for (v, k, sign) in adjacent[u]
+                segment_of[v] == 0 || continue
+                segment_of[v] = length(segments)
+                push!(segment, v)
+                e = m.edges[k]
+                for n in axes(offsets, 1)
+                    offsets[n, v] = offsets[n, u]
+                end
+                for i in entries(e.consumed)
+                    offsets[name_of[i], v] += sign
+                end
+                for i in entries(e.released)
+                    offsets[name_of[i], v] -= sign
+                end
+            end
+        end
+        for n in axes(offsets, 1)
+            low = minimum(f -> offsets[n, f], segment)
+            for f in segment
+                offsets[n, f] -= low
+            end
+        end
+    end
+    (; segment_of, segments, offsets)
+end
+
+"""Which edges of `am`'s catalytic graph lie outside `:OnlyA` groups."""
+_outside_onlya(am::AllostericMechanism) =
+    BitVector([am.cat_allo_states[g] !== :OnlyA for g in am.catalytic.group])
+
+"""
+The edges of `am`'s inactive conformation: those outside `:OnlyA` groups between forms
+that such edges reach from a free form (`_is_free`). Under formulation 1 the
+conformations interconvert at a free form, so a form those edges do not reach holds no
+inactive enzyme; a ping-pong covalent intermediate carries a residual, so it seeds
+nothing. The inactive law (`_state_rate_polys`), the joint solve (`_inactive_law`) and
+the boundary check (`_check_well_posed`) read the inactive conformation from it, each
+edge in `am`'s stored direction.
+"""
+function _inactive_mask(am::AllostericMechanism)
+    m, outside = am.catalytic, _outside_onlya(am)
+    reached = falses(length(m.forms))
+    for (k, e) in enumerate(m.edges)
+        outside[k] || continue
+        _is_free(m.forms[e.from]) && (reached[e.from] = true)
+        _is_free(m.forms[e.to]) && (reached[e.to] = true)
+    end
+    grew = true
+    while grew
+        grew = false
+        for (k, e) in enumerate(m.edges)
+            outside[k] && reached[e.from] != reached[e.to] || continue
+            reached[e.from] = reached[e.to] = true
+            grew = true
+        end
+    end
+    BitVector([outside[k] && reached[e.from] && reached[e.to]
+               for (k, e) in enumerate(m.edges)])
+end
 
 """`m` as raw input: every edge a step in its stored direction, labelled with its group.
 Every vector is fresh, so a move that edits the raw value never edits `m`."""
