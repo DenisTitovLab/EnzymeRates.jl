@@ -345,13 +345,33 @@ atom bracket (`S[C]`) or a role tag (`P::Mod`) goes.
 function _bare_symbols_from_values(values, label)
     for v in values
         v isa Symbol && continue
+        name, untagged = _bare_name(v), _untagged(v)
         hint = !(v isa Expr) ? "" :
-               v.head === :ref ? " Atom brackets belong in @enzyme_reaction." :
-               v.head === :(::) ? " List `$(v.args[1])` bare; a role tag goes on the " *
-                                  "metabolite in a step." : ""
+               untagged isa Expr && untagged.head === :ref ?
+                   " Atom brackets belong in @enzyme_reaction." :
+               v.head === :(::) && name !== nothing ?
+                   " List `$name` bare; a role tag goes on the metabolite in a step." : ""
         error("`$label:` expects bare names; got $(join(values, ", ")).$hint")
     end
     Symbol[values...]
+end
+
+"""`x` without the `::` tags written after it, however many: `X` for `X::A::B`."""
+_untagged(x) = x isa Expr && x.head === :(::) ? _untagged(x.args[1]) : x
+
+"""
+The name `x` writes under its `::` tags (`X` for `X::A::B`), or `nothing` when no name
+stands there. It unwraps only a multiplicity call: a Symbol head that `Base.isoperator`
+does not flag, applied to one or more Integers (`X` for `X(2)::A` and `X(1, 2)::A`). That
+test passes the word operators, so `in(2)::A` gives `in`. Every other call gives `nothing`
+(`(A + B)::A`, `(A in B)::A`, `(-(2))::A`), as does a number (`1::A`).
+"""
+function _bare_name(x)
+    x = _untagged(x)
+    x isa Expr && x.head === :call && length(x.args) >= 2 && x.args[1] isa Symbol &&
+        !Base.isoperator(x.args[1]) && all(a -> a isa Integer, x.args[2:end]) &&
+        return x.args[1]
+    x isa Symbol ? x : nothing
 end
 
 """
@@ -476,11 +496,13 @@ function _raw_mechanism(block, allosteric::Bool)
                       "got $steps_block.")
         elseif allosteric && label === :allosteric_regulators
             tagged = findfirst(v -> v isa Expr && v.head === :(::), values)
-            tagged === nothing ||
+            if tagged !== nothing
+                name = _bare_name(values[tagged])
                 error("$macro_name: `allosteric_regulators:` lists names; got " *
                       "`$(values[tagged])`. A ligand's tag goes on its " *
-                      "`regulatory_site(n):` line, as in " *
-                      "`regulatory_site(2): $(values[tagged])`.")
+                      "`regulatory_site(n):` line" * (name === nothing ? "." :
+                      ", as in `regulatory_site(2): $name::OnlyA`."))
+            end
             append!(regulators, _bare_symbols_from_values(values, label))
         elseif allosteric && label === :catalytic_multiplicity
             multiplicity === nothing ||

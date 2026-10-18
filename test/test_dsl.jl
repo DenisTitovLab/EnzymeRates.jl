@@ -396,6 +396,55 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                 E + P::Mod ⇌ E(P::Mod)
             end
         end)))
+        # Under nested tags the hint still names the metabolite alone.
+        @test_throws("`modifiers:` expects bare names; got (P::Mod)::Mod. List `P` bare; " *
+                     "a role tag goes on the metabolite in a step.",
+                     eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            modifiers: P::Mod::Mod
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+                E + P::Mod ⇌ E(P::Mod)
+            end
+        end)))
+        # A multiplicity call (`P(2)`, `X(1, 2)`) under the tag leaves the metabolite's
+        # name in the hint; a value that is no name gets no hint (the whole message is
+        # pinned).
+        @test_throws(ErrorException("`modifiers:` expects bare names; got P(2)::Mod. " *
+                                    "List `P` bare; a role tag goes on the metabolite " *
+                                    "in a step."),
+                     EnzymeRates._bare_symbols_from_values(Any[:(P(2)::Mod)], :modifiers))
+        @test_throws(ErrorException("`modifiers:` expects bare names; got X(1, 2)::Mod. " *
+                                    "List `X` bare; a role tag goes on the metabolite " *
+                                    "in a step."),
+                     EnzymeRates._bare_symbols_from_values(Any[:(X(1, 2)::Mod)],
+                                                           :modifiers))
+        @test_throws(ErrorException("`modifiers:` expects bare names; got 1::Mod."),
+                     EnzymeRates._bare_symbols_from_values(Any[:(1::Mod)], :modifiers))
+        # An operator call is no multiplicity call: its head names no metabolite, so it
+        # gets no hint. An atom bracket under the tag gets the atom-bracket hint.
+        @test_throws(ErrorException("`modifiers:` expects bare names; got (A + B)::Mod."),
+                     EnzymeRates._bare_symbols_from_values(Any[:((A + B)::Mod)],
+                                                           :modifiers))
+        @test_throws(ErrorException("`modifiers:` expects bare names; got S[C]::Mod. " *
+                                    "Atom brackets belong in @enzyme_reaction."),
+                     EnzymeRates._bare_symbols_from_values(Any[:(S[C]::Mod)], :modifiers))
+        # `Base.isoperator` does not flag the word operators `in` and `isa`, so `in(2)`
+        # counts as a multiplicity call; the infix `A in B` and `A isa B` do not (their
+        # arguments are no Integers), nor does an operator called with one Integer
+        # (`(-(2))`, which prints as `(-2)`): none gets a hint.
+        @test_throws(ErrorException("`modifiers:` expects bare names; got (A in B)::Mod."),
+                     EnzymeRates._bare_symbols_from_values(Any[:((A in B)::Mod)],
+                                                           :modifiers))
+        @test_throws(ErrorException("`modifiers:` expects bare names; got (A isa B)::Mod."),
+                     EnzymeRates._bare_symbols_from_values(Any[:((A isa B)::Mod)],
+                                                           :modifiers))
+        @test_throws(ErrorException("`modifiers:` expects bare names; got (-2)::Mod."),
+                     EnzymeRates._bare_symbols_from_values(Any[:((-(2))::Mod)],
+                                                           :modifiers))
         @test_throws("`allosteric_regulators:` expects bare names; got X(2).",
                      eval(:(@allosteric_mechanism begin
             substrates: S
@@ -1738,6 +1787,101 @@ end
                 E + S ⇌ E(S)      :: EqualAI
             end
         end))
+        # The example shows a site tag, never the tag the user wrote, which need not be
+        # one (`::Activator` types a regulator in @enzyme_reaction).
+        @test_throws("@allosteric_mechanism: `allosteric_regulators:` lists names; got " *
+                     "`X::Activator`. A ligand's tag goes on its `regulatory_site(n):` " *
+                     "line, as in `regulatory_site(2): X::OnlyA`.",
+                     eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: X::Activator
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+            end
+        end)))
+        # Under nested tags the example still names the ligand alone.
+        @test_throws("@allosteric_mechanism: `allosteric_regulators:` lists names; got " *
+                     "`(X::Activator)::OnlyA`. A ligand's tag goes on its " *
+                     "`regulatory_site(n):` line, as in `regulatory_site(2): X::OnlyA`.",
+                     eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: X::Activator::OnlyA
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+            end
+        end)))
+        # A multiplicity call, as @enzyme_reaction writes one (`X(2)`, `X(1, 2)`), leaves
+        # the ligand's name in the example; a value that is no name leaves no example.
+        @test_throws("@allosteric_mechanism: `allosteric_regulators:` lists names; got " *
+                     "`X(2)::OnlyA`. A ligand's tag goes on its `regulatory_site(n):` " *
+                     "line, as in `regulatory_site(2): X::OnlyA`.",
+                     eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: X(2)::OnlyA
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+            end
+        end)))
+        @test_throws("@allosteric_mechanism: `allosteric_regulators:` lists names; got " *
+                     "`X(1, 2)::OnlyA`. A ligand's tag goes on its `regulatory_site(n):` " *
+                     "line, as in `regulatory_site(2): X::OnlyA`.",
+                     eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: X(1, 2)::OnlyA
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+            end
+        end)))
+        @test_throws("@allosteric_mechanism: `allosteric_regulators:` lists names; got " *
+                     "`1::OnlyA`. A ligand's tag goes on its `regulatory_site(n):` line.",
+                     eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: 1::OnlyA
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+            end
+        end)))
+        # An operator call names no ligand, so it leaves no example.
+        @test_throws("@allosteric_mechanism: `allosteric_regulators:` lists names; got " *
+                     "`(A + B)::OnlyA`. A ligand's tag goes on its `regulatory_site(n):` " *
+                     "line.",
+                     eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: (A + B)::OnlyA
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+            end
+        end)))
+        # Nor does the infix `A in B` or `A isa B`: `Base.isoperator` does not flag `in`
+        # and `isa`, but their arguments are no Integers.
+        @test_throws("@allosteric_mechanism: `allosteric_regulators:` lists names; got " *
+                     "`(A in B)::OnlyA`. A ligand's tag goes on its " *
+                     "`regulatory_site(n):` line.",
+                     eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: (A in B)::OnlyA
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+            end
+        end)))
+        @test_throws("@allosteric_mechanism: `allosteric_regulators:` lists names; got " *
+                     "`(A isa B)::OnlyA`. A ligand's tag goes on its " *
+                     "`regulatory_site(n):` line.",
+                     eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: (A isa B)::OnlyA
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+            end
+        end)))
     end
 
     @testset "allosteric steps carry one tag per statement, plain steps none" begin
