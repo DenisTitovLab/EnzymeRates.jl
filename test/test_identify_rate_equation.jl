@@ -17,6 +17,18 @@ const _testhelper_uni_rxn = @enzyme_reaction begin
     products: P[C]
 end
 
+# The seed of that reaction: rapid-equilibrium bindings around a steady-state
+# isomerization.
+const _testhelper_uni_seed = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E + S ⇌ E(S)
+        E(S) <--> E(P)
+        E(P) ⇌ E + P
+    end
+end)
+
 function _testhelper_uni_prob(data_form)
     columns = (S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4],
                Rate = [0.5, 0.8, 1.0, 1.1])
@@ -38,22 +50,20 @@ end
         competitive_inhibitors: R
     end
 
-    # Build the constrained allosteric mechanism: K-type
-    # allosteric with S, P only in R-state (`:OnlyA` group
-    # tags) and R only in T-state (`:OnlyI` ligand tag).
-    _base = first(EnzymeRates.init_mechanisms(test_rxn))
-    _cat_allo_states = Symbol[]
-    for g in eachindex(EnzymeRates.steps(_base))
-        rep = first(EnzymeRates.steps(_base)[g])
-        met = EnzymeRates.bound_metabolite(rep)
-        tag = (met isa EnzymeRates.Reactant) ? :OnlyA : :NonequalAI
-        push!(_cat_allo_states, tag)
+    # The constrained allosteric mechanism: K-type allosteric
+    # with S, P only in R-state (`:OnlyA` binding groups) and R
+    # only in T-state (`:OnlyI` ligand tag).
+    test_mechanism = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R
+        steps: begin
+            E + S ⇌ E(S)     :: OnlyA
+            E(S) <--> E(P)   :: NonequalAI
+            E(P) ⇌ E + P     :: OnlyA
+        end
+        regulatory_site(1): R::OnlyI
     end
-    _site = EnzymeRates.RegulatorySite([:R], 1, [:OnlyI])
-    _am = EnzymeRates.AllostericMechanism(
-        EnzymeRates.reaction(_base), copy(EnzymeRates.steps(_base)),
-        _cat_allo_states, 1, [_site])
-    test_mechanism = EnzymeRates.AllostericEnzymeMechanism(_am)
 
     Keq_val = 2.0
     # 5 fitted params: K_A_EP_to_E_P, K_A_ES_to_E_S, k_A_ES_to_EP, K_I_Rreg, L
@@ -284,7 +294,7 @@ end
     end
 
     @testset "failure row preserves round-trippable mechanism" begin
-        m = first(EnzymeRates.init_mechanisms(_testhelper_uni_rxn))
+        m = _testhelper_uni_seed
         f = EnzymeRates.FitFailure(m, "boom")
         row = EnzymeRates._failure_row(f)
         # Round-trippable parametric Sig, not the bare concrete type name.
@@ -512,8 +522,7 @@ end
     end
 
     @testset "_cv_fold_loss: finite per-fold scores, loud on fit failure" begin
-        m = EnzymeRates.EnzymeMechanism(
-            first(EnzymeRates.init_mechanisms(_testhelper_uni_rxn)))
+        m = EnzymeRates.EnzymeMechanism(_testhelper_uni_seed)
 
         # 3 groups × 2 rows each so per-fold fits aren't degenerate
         data = DataFrame(
@@ -552,8 +561,7 @@ end
 # A fold's problem holds the fold's rows in the full fit's problem type, so the fold
 # fits reuse the code compiled for the full fit.
 @testset "_fold_problem: the fold's rows in the full fit's problem type" begin
-    em = EnzymeRates.compile_mechanism(
-        first(EnzymeRates.init_mechanisms(_testhelper_uni_rxn)))
+    em = EnzymeRates.compile_mechanism(_testhelper_uni_seed)
     for data_form in (NamedTuple, DataFrame)
         prob = _testhelper_uni_prob(data_form)
         full = FittingProblem(em, prob.data; Keq=prob.Keq, absolute=prob.absolute,
@@ -985,7 +993,7 @@ end
     @test !occursin("Success", pre)
 
     # _postfit_summary: errored + success/non-Success over the fitted set.
-    mech = first(EnzymeRates.init_mechanisms(_testhelper_uni_rxn))
+    mech = _testhelper_uni_seed
     row = (n_params=3, loss=0.5, mechanism_type="M", rate_equation="v",
            retcode="Success", error=missing, params=(K = 1.0,), eq_hash="abc",
            fit_inherited=false)
@@ -1170,8 +1178,7 @@ end
 
 @testset "_ingest! and cv pool" begin
     _testhelper_mk(n, loss, h) = EnzymeRates.BatchEntry(
-        first(EnzymeRates.init_mechanisms(_testhelper_uni_rxn)),
-        n, loss, :Success, hash(h),
+        _testhelper_uni_seed, n, loss, :Success, hash(h),
         (n_params=n, loss=loss, mechanism_type="M",
          rate_equation="v", retcode="Success", error=missing,
          params=(K = 1.0,), eq_hash=string(hash(h),base=16,pad=16),
@@ -1656,8 +1663,17 @@ end
     # The recorded error is the assertion's: the chemistry step ES → EP loses T's N.
     @test occursin("atom-non-conserving step ES → EP", failure.error)
     @test occursin("= Dict(:N => 1)", failure.error)
-    # A well-formed parent expands with no failure.
-    good = first(EnzymeRates.init_mechanisms(rxn_bad))
+    # A well-formed parent, a seed of the reaction, expands with no failure.
+    good = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S, T
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) + T ⇌ E(S, T)
+            E(S, T) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
     gkids, _, gfail = EnzymeRates._expand_parents([entry(good)], rxn_bad)
     @test isempty(gfail) && !isempty(gkids)
 end
