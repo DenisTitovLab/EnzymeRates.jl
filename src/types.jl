@@ -298,6 +298,11 @@ struct ReactantAtoms
             error("ReactantAtoms: $(name(metabolite)) atom count for element " *
                   "$(atoms[bad].first) must be a positive integer, got " *
                   "$(atoms[bad].second).")
+        bad = findfirst(a -> !occursin(r"^[A-Z][a-z]*$", String(a.first)), atoms)
+        bad === nothing ||
+            error("ReactantAtoms: $(name(metabolite)) has the element " *
+                  "$(atoms[bad].first); an element is a capital letter and any lowercase " *
+                  "letters, such as C or Cl")
         new(metabolite, sort(Vector{Pair{Symbol,Int}}(atoms); by=first))
     end
 end

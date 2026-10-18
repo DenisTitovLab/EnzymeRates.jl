@@ -1007,6 +1007,14 @@ end
         # the constructor (Pair{Symbol,Int}[:C => true] would convert true→1).
         @test_throws ErrorException ER.ReactantAtoms(
             ER.Substrate(:S), [:C => true])
+        # An element is what a formula in `@enzyme_reaction` writes: a capital letter and
+        # any lowercase letters.
+        for el in (:c, :CL, Symbol("C1"))
+            @test_throws(ErrorException("ReactantAtoms: S has the element $el; an " *
+                                        "element is a capital letter and any lowercase " *
+                                        "letters, such as C or Cl"),
+                         ER.ReactantAtoms(ER.Substrate(:S), [el => 1]))
+        end
         # Valid construction still works.
         ra = ER.ReactantAtoms(ER.Substrate(:S), [:C => 6, :H => 12])
         @test ER.atoms(ra) == [:C => 6, :H => 12]
