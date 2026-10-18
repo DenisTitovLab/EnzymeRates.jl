@@ -5,9 +5,9 @@ using Test
 using EnzymeRates
 
 # Budgets calibrated against the current branch tip with 2× headroom.
-# init_mechanisms trace-compile is dominated by Step / Species / Mechanism
-# struct + @generated accessor specializations (EnzymeReaction is
-# non-parametric, so there is no per-arity reaction-type specialization).
+# init_mechanisms trace-compile counts the method specializations that building the
+# init set compiles (EnzymeReaction is non-parametric, so there is no per-arity
+# reaction-type specialization).
 # The init_mechanisms baseline is 57 on Julia 1.13 (CI runners), 82 on Julia 1.12 and 87
 # on Julia 1.10.
 const INIT_TRACE_BUDGET                  = 200   # baseline 2026-10-09: 57-87; budget ≈ 2×
@@ -29,7 +29,7 @@ const SIG_NATIVE_BUDGET_KB               = 100   # baseline 2026-10-14: 34
 # Anchored to the EnzymeRates module prefix only. Counts every method
 # specialization Julia compiles that touches our module — our functions,
 # our types, Base methods specialized on our types (e.g.
-# Base.hash(::EnzymeRates.Step, ...)), Core.kwcall plumbing, show/print.
+# Base.hash(::EnzymeRates.Edge, ...)), Core.kwcall plumbing, show/print.
 # Filters out unrelated package precompiles (Optimization.jl, Tables.jl,
 # etc.) which would create dependency-noise false positives.
 #

@@ -101,13 +101,13 @@ _testhelper_lift(m::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism
 
 `m` (concrete or compiled) as the test helpers read it, a `NamedTuple`: `forms`, each
 form's name (`Vector{String}`, stored order); `free`, whether each form holds no
-metabolite and no residual; `steps`, one `NamedTuple` per step in stored order and
-direction with `from` and `to` (form positions), `consumed` and `released` (metabolite
-names, a copy by its reactant's name), `consumed_modifier` and `released_modifier` (which
-of them bind as modifiers), `rapid_equilibrium`, `group`, and `names` and
-`inactive_names`, the package names of its constants in the active (or only) and the
-inactive conformation (empty for a step the inactive law does not keep); `tags`;
-`inactive`, which steps the inactive law keeps;
+metabolite and no residual; `steps`, one `NamedTuple` per step, group by group, each group
+in edge order, in stored direction, with `from` and `to` (form positions), `consumed`
+and `released` (metabolite names, a copy by its reactant's name), `consumed_modifier`
+and `released_modifier` (which of them bind as modifiers), `rapid_equilibrium`, `group`,
+and `names` and `inactive_names`, the package names of its constants in the active (or
+only) and the inactive conformation (empty for a step the inactive law does not keep);
+`tags`; `inactive`, which steps the inactive law keeps;
 `catalytic_multiplicity`; `sites`, each `(; multiplicity, ligands, allo_states)`;
 `substrates`, `products` and `modifiers`. A plain mechanism has no tags, no inactive
 conformation (`inactive` and every `inactive_names` empty), no sites and
@@ -117,29 +117,25 @@ then by content.
 function _testhelper_graph(m)
     mech = _testhelper_lift(m)
     allo = mech isa EnzymeRates.AllostericMechanism
-    groups = EnzymeRates.steps(mech)
-    forms = EnzymeRates._forms(groups)
-    position = Dict(f => i for (i, f) in enumerate(forms))
     cm = EnzymeRates.catalytic(mech)
     kept = EnzymeRates._kept_members(mech)
     tags = allo ? copy(EnzymeRates.cat_allo_states(mech)) : Symbol[]
-    # The Step views' flat steps, and the edge each one views (`_flat_edges`).
-    flat = EnzymeRates._flat_steps(groups)
+    # The edges group by group, each group's in edge order, as the derivation reads them.
     edges = EnzymeRates._flat_edges(cm)
     _testhelper_names(k, state) = Symbol[EnzymeRates.name(p, mech, kept)
                                          for p in EnzymeRates._edge_constants(cm, k, state)]
     in_law = allo ? EnzymeRates._inactive_mask(mech) : falses(length(cm.edges))
-    steps = map(zip(flat, edges)) do ((s, g), k)
+    steps = map(edges) do k
+        e, g = cm.edges[k], cm.group[k]
+        consumed = cm.table[EnzymeRates.entries(e.consumed)]
+        released = cm.table[EnzymeRates.entries(e.released)]
         shared = allo && tags[g] === :EqualAI
-        (from = position[EnzymeRates.from_species(s)],
-         to = position[EnzymeRates.to_species(s)],
-         consumed = Symbol[EnzymeRates.name(x) for x in EnzymeRates.consumed(s)],
-         released = Symbol[EnzymeRates.name(x) for x in EnzymeRates.released(s)],
-         consumed_modifier = Bool[x isa EnzymeRates.CompetitiveInhibitor
-                                  for x in EnzymeRates.consumed(s)],
-         released_modifier = Bool[x isa EnzymeRates.CompetitiveInhibitor
-                                  for x in EnzymeRates.released(s)],
-         rapid_equilibrium = EnzymeRates.is_equilibrium(s), group = g,
+        (from = e.from, to = e.to,
+         consumed = Symbol[x.name for x in consumed],
+         released = Symbol[x.name for x in released],
+         consumed_modifier = Bool[x.modifier for x in consumed],
+         released_modifier = Bool[x.modifier for x in released],
+         rapid_equilibrium = e.rapid_equilibrium, group = g,
          names = _testhelper_names(k, !allo ? :None : shared ? :EqualAI : :A),
          inactive_names = in_law[k] ? _testhelper_names(k, shared ? :EqualAI : :I) :
                           Symbol[])
@@ -149,9 +145,8 @@ function _testhelper_graph(m)
               allo_states = copy(EnzymeRates.allo_states(site)))
              for site in (allo ? EnzymeRates.regulatory_sites(mech) :
                                  EnzymeRates.RegulatorySite[])]
-    (forms = String[EnzymeRates._form_label(f, mech) for f in forms],
-     free = Bool[isempty(EnzymeRates.bound(f)) && isempty(EnzymeRates.residual(f))
-                 for f in forms],
+    (forms = String[EnzymeRates._form_name(cm, f) for f in eachindex(cm.forms)],
+     free = Bool[EnzymeRates._is_free(f) for f in cm.forms],
      steps, tags,
      inactive = Int[j for (j, k) in enumerate(edges) if in_law[k]],
      catalytic_multiplicity = allo ? EnzymeRates.catalytic_multiplicity(mech) : nothing,
@@ -179,25 +174,6 @@ function _testhelper_random_independent_params(m; rng=Random.default_rng())
     keys_out = (fp..., :Keq, :E_total)
     vals_out = (vals..., Keq_val, E_total_val)
     NamedTuple{keys_out}(vals_out)
-end
-
-"""
-A reaction over the names of `m`: its substrates and products with placeholder atoms that
-balance for any counts (each substrate as many carbons as `m` has products, each product
-as many as it has substrates), and its modifiers as competitive inhibitors. The
-constructors over Step groups take a reaction for its names, so a helper that rebuilds a
-mechanism passes this one.
-"""
-function _testhelper_placeholder_reaction(m)
-    g = _testhelper_graph(m)
-    reactants = EnzymeRates.ReactantAtoms[
-        [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(s), [:C => length(g.products)])
-         for s in g.substrates];
-        [EnzymeRates.ReactantAtoms(EnzymeRates.Product(p), [:C => length(g.substrates)])
-         for p in g.products]]
-    EnzymeRates.EnzymeReaction(reactants, EnzymeRates.RegulatorMults[
-        EnzymeRates.RegulatorMults(EnzymeRates.CompetitiveInhibitor(x), [1])
-        for x in g.modifiers], [1])
 end
 
 """
@@ -247,8 +223,8 @@ _testhelper_single_subunit(m::EnzymeRates.EnzymeMechanism) = m
 function _testhelper_single_subunit(m::EnzymeRates.AllostericEnzymeMechanism)
     am = EnzymeRates.AllostericMechanism(m)
     EnzymeRates.AllostericEnzymeMechanism(EnzymeRates.AllostericMechanism(
-        _testhelper_placeholder_reaction(am), EnzymeRates.steps(am),
-        EnzymeRates.cat_allo_states(am), 1, EnzymeRates.regulatory_sites(am)))
+        EnzymeRates.catalytic(am), EnzymeRates.cat_allo_states(am), 1,
+        EnzymeRates.regulatory_sites(am)))
 end
 
 """
@@ -267,29 +243,77 @@ _testhelper_is_binding(s) = length(s.consumed) == 1 && isempty(s.released)
 off nothing."""
 _testhelper_is_iso(s) = isempty(s.consumed) && isempty(s.released)
 
-"""The first step of each kinetic group of `g` (`_testhelper_graph`), in group order."""
-_testhelper_first_steps(g) = [g.steps[findfirst(s -> s.group == k, g.steps)]
-                              for k in unique(s.group for s in g.steps)]
+"""The steps of `g` (`_testhelper_graph`) kinetic group by kinetic group, in group
+order."""
+_testhelper_groups(g) = [[s for s in g.steps if s.group == k]
+                         for k in unique(s.group for s in g.steps)]
 
-"""The text of `s`, a step of `g` (`_testhelper_graph`), as `_step_text` writes it, each
-side its form's name and its metabolites' names: `"E + S ⇌ ES"`, `"ES <--> EP"`."""
+"""The first step of each kinetic group of `g` (`_testhelper_graph`), in group order."""
+_testhelper_first_steps(g) = first.(_testhelper_groups(g))
+
+"""
+    _testhelper_re_segments(g, kept = trues(length(g.steps))) -> (segments, extras)
+
+The rapid-equilibrium segments of `g` (`_testhelper_graph`) over the steps `kept` keeps,
+read off its steps alone: `segments`, each segment's forms breadth-first from its first
+form (each form's rapid-equilibrium steps in step order), the segments in the order of
+their first forms; `extras`, for each form some kept step touches, in form order, how many
+more of each metabolite name it carries than the lowest form of its segment, the names it
+carries no more of left out. Rapid equilibrium fixes the ratio of two forms of a segment
+as a monomial, one factor per metabolite bound or released between them.
+"""
+function _testhelper_re_segments(g, kept = trues(length(g.steps)))
+    nf = length(g.forms)
+    present = falses(nf)
+    adjacent = [Tuple{Int, Dict{Symbol, Int}}[] for _ in 1:nf]
+    for (j, s) in enumerate(g.steps)
+        kept[j] || continue
+        present[s.from] = present[s.to] = true
+        s.rapid_equilibrium || continue
+        change = Dict{Symbol, Int}()
+        foreach(x -> change[x] = get(change, x, 0) + 1, s.consumed)
+        foreach(x -> change[x] = get(change, x, 0) - 1, s.released)
+        push!(adjacent[s.from], (s.to, change))
+        push!(adjacent[s.to], (s.from, Dict(x => -n for (x, n) in change)))
+    end
+    exponent = [Dict{Symbol, Int}() for _ in 1:nf]
+    reached = falses(nf)
+    segments = Vector{Int}[]
+    for root in findall(present)
+        reached[root] && continue
+        reached[root] = true
+        segment = [root]
+        i = 1
+        while i <= length(segment)
+            u = segment[i]
+            i += 1
+            for (v, change) in adjacent[u]
+                reached[v] && continue
+                reached[v] = true
+                exponent[v] = mergewith(+, exponent[u], change)
+                push!(segment, v)
+            end
+        end
+        for x in union(Set{Symbol}(), (keys(exponent[f]) for f in segment)...)
+            lowest = minimum(get(exponent[f], x, 0) for f in segment)
+            foreach(f -> exponent[f][x] = get(exponent[f], x, 0) - lowest, segment)
+        end
+        push!(segments, segment)
+    end
+    segments, [filter(p -> p.second > 0, exponent[f]) for f in findall(present)]
+end
+
+"""The text of `s`, a step of `g` (`_testhelper_graph`), as `_edge_text` writes an edge,
+each side its form's name and its metabolites' names: `"E + S ⇌ ES"`, `"ES <--> EP"`."""
 _testhelper_step_text(g, s) =
     join([g.forms[s.from]; String.(s.consumed)], " + ") *
     (s.rapid_equilibrium ? " ⇌ " : " <--> ") *
     join([g.forms[s.to]; String.(s.released)], " + ")
 
 """Edge `k` of the catalytic graph of `m` (concrete or compiled) as text, in its stored
-direction, each side its form's name and its metabolites' names, as
-`_testhelper_step_text` writes a step: `"E + S ⇌ ES"`, `"ES <--> EP"`."""
-function _testhelper_edge_text(m, k::Int)
-    cm = EnzymeRates.catalytic(_testhelper_lift(m))
-    e = cm.edges[k]
-    _testhelper_side(f, c) =
-        join([EnzymeRates._form_name(cm, f);
-              [String(cm.table[i].name) for i in EnzymeRates.entries(c)]], " + ")
-    _testhelper_side(e.from, e.consumed) * (e.rapid_equilibrium ? " ⇌ " : " <--> ") *
-        _testhelper_side(e.to, e.released)
-end
+direction (`_edge_text`): `"E + S ⇌ ES"`, `"ES <--> EP"`."""
+_testhelper_edge_text(m, k::Int) =
+    EnzymeRates._edge_text(EnzymeRates.catalytic(_testhelper_lift(m)), k)
 
 """The edge of the catalytic graph of `m` whose text (`_testhelper_edge_text`) is `text`."""
 _testhelper_edge(m, text) =

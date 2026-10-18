@@ -140,9 +140,20 @@ end
     end
 
     @testset "a modifier copy keys after the reactant of its name" begin
-        A = EnzymeRates.Substrate(:A)
-        A_copy = EnzymeRates.CompetitiveInhibitor(:A)
-        @test EnzymeRates._metabolites_key([A]) < EnzymeRates._metabolites_key([A_copy])
+        @test isless(EnzymeRates.Met(:A, false), EnzymeRates.Met(:A, true))
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A
+            products: P
+            modifiers: A
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) <--> E(P)
+                E(P) ⇌ E + P
+                E + A::Mod ⇌ E(A::Mod)
+            end
+        end)
+        @test m.table == [EnzymeRates.Met(:A, false), EnzymeRates.Met(:A, true),
+                          EnzymeRates.Met(:P, false)]
     end
 
     @testset "a step neither chemistry nor graph context orients runs from the \
@@ -217,12 +228,12 @@ end
         end
         m = EnzymeRates.Mechanism(tied_mm)
         # Groups and steps in canonical order: the steps at free E first, then by form.
-        @test EnzymeRates._step_text.(first.(EnzymeRates._flat_steps(m)), Ref(m)) ==
+        @test [_testhelper_edge_text(m, k) for k in EnzymeRates._flat_edges(m)] ==
               ["E <--> D", "ES <--> DS", "E + P <--> EP", "E + S <--> ES", "D + S <--> DS",
                "ES <--> EP"]
-        tied = only(g for g in EnzymeRates.steps(m) if length(g) == 2)
-        @test all(s -> EnzymeRates.conformation(EnzymeRates.from_species(s)) === :E &&
-                       EnzymeRates.conformation(EnzymeRates.to_species(s)) === :D, tied)
+        label(f) = m.conformations[m.forms[f].conformation]
+        tied = only(ks for ks in EnzymeRates._group_members(m) if length(ks) == 2)
+        @test all(k -> label(m.edges[k].from) === :E && label(m.edges[k].to) === :D, tied)
         # Written E <--> D and E(S) <--> D(S), the group is stored the same way.
         @test EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
@@ -430,9 +441,9 @@ end
         end
     end
 
-    @testset "the content key reads base names, never rendered names" begin
-        # The form holding A and C has the smaller base-name key, since its first bound
-        # name, A, sorts before AB, though its rendered name, EAC, sorts after EAB.
+    @testset "the content order reads base names, never rendered names" begin
+        # The form holding A and C comes first in the content order, since its first
+        # bound name, A, sorts before AB, though its rendered name, EAC, sorts after EAB.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, C
             products: AB
@@ -443,41 +454,23 @@ end
                 E(AB) ⇌ E + AB
             end
         end)
-        forms = EnzymeRates._forms(EnzymeRates.steps(m))
-        eac = only(f for f in forms if EnzymeRates.name.(EnzymeRates.bound(f)) == [:A, :C])
-        eab = only(f for f in forms if EnzymeRates.name.(EnzymeRates.bound(f)) == [:AB])
-        @test EnzymeRates._form_base_key(eac) < EnzymeRates._form_base_key(eab)
-        @test EnzymeRates._form_label(eac, m) > EnzymeRates._form_label(eab, m)
-        # The solve's content tie ranks the graph's forms the same way (`_base_rank`).
         names = [EnzymeRates._form_name(m, f) for f in eachindex(m.forms)]
+        eac, eab = findfirst(==("EAC"), names), findfirst(==("EAB"), names)
+        @test isless(m.forms[eac], m.forms[eab]) && eac < eab
+        @test names[eac] > names[eab]
+        # The solve's content tie ranks the graph's forms the same way (`_base_rank`).
         rank = EnzymeRates._base_rank(m)
-        @test rank[findfirst(==("EAC"), names)] < rank[findfirst(==("EAB"), names)]
+        @test rank[eac] < rank[eab]
     end
 
-    @testset "content keys have one concrete type whatever a form holds" begin
-        # A key type that follows a form's content makes the sorts and comparisons that
-        # read it compile again for every new shape a search meets: the moves order forms
-        # by these keys, and the solve breaks its ties by integer ranks.
-        pingpong = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A <--> E(A)
-                E(A) <--> E(P; residual = A - P)
-                E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-                E(; residual = A - P) + B <--> E(Q)
-                E(Q) ⇌ E + Q
-            end
-        end
-        mechanisms = [[spec.mechanism for spec in MECHANISM_TEST_SPECS]; pingpong]
-        forms = unique(f for m in mechanisms
-                       for f in EnzymeRates._forms(EnzymeRates.steps(_testhelper_lift(m))))
-        @test length(unique(typeof.(EnzymeRates._form_base_key.(forms)))) == 1
-        @test isconcretetype(only(Base.return_types(EnzymeRates._form_base_key,
-                                                    (EnzymeRates.Species,))))
-        @test length(unique(typeof.(EnzymeRates._metabolites_key.(
-            EnzymeRates.bound.(forms))))) == 1
+    @testset "the content order's ranks have one concrete type whatever a graph holds" begin
+        # A rank type that follows a graph's content makes the sorts and comparisons that
+        # read it compile again for every new shape a search meets: the solve breaks its
+        # ties by integer ranks of forms and edges, which compare by content.
+        @test isconcretetype(only(Base.return_types(EnzymeRates._base_rank,
+                                                    (EnzymeRates.Mechanism,))))
         @test isconcretetype(only(Base.return_types(EnzymeRates._edge_base_rank,
                                                     (EnzymeRates.Mechanism,))))
+        @test isbitstype(EnzymeRates.Form) && isbitstype(EnzymeRates.Edge)
     end
 end

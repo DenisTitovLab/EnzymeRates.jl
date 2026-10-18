@@ -1049,23 +1049,30 @@ const _testhelper_tc_cases = (
         _testhelper_check_law_against_oracle(em)
     end
     # canonical orientation: the substrate side is `from`
-    s = only(s for g in ER.steps(ER.Mechanism(tc_ss)) for s in g
-             if !ER.is_iso(s) && !ER.is_binding(s))
-    @test ER.name(ER.from_species(s)) == :EA &&
-          ER.consumed(s) == ER.Metabolite[ER.Substrate(:B)]
+    m = ER.Mechanism(tc_ss)
+    e = only(e for e in m.edges if !ER._is_iso(e) && !ER._is_binding(e))
+    @test ER._form_name(m, e.from) == "EA" &&
+          m.table[ER.entries(e.consumed)] == [ER.Met(:B, false)]
     @test :k_EA_B_to_EQ_P in _testhelper_step_constant_names(tc_ss)
     @test :k_EQ_P_to_EA_B in _testhelper_step_constant_names(tc_ss)
 end
 
 @testset "reversing written steps changes nothing" begin
-    _testhelper_rev(s) = ER.Step(ER.to_species(s), ER.from_species(s), ER.released(s),
-                                 ER.consumed(s), ER.is_equilibrium(s))
+    _testhelper_rev(s) = ER.RawStep(s.to, s.from, s.released, s.consumed,
+                                    s.rapid_equilibrium)
     rng = Random.MersenneTwister(7)
+    # The raw input `raw` written as `steps`, labelled `group`.
+    _testhelper_rewritten(raw, steps, group) =
+        ER.RawMechanism(raw.substrates, raw.products, raw.modifiers, steps, group)
     # Every step reversed, a random subset, and every group's steps in reverse order.
-    _testhelper_variants(groups) = (
-        [[_testhelper_rev(s) for s in g] for g in groups],
-        [[rand(rng, Bool) ? _testhelper_rev(s) : s for s in g] for g in groups],
-        [reverse(g) for g in groups])
+    function _testhelper_variants(raw)
+        within = reduce(vcat,
+                        [reverse(findall(==(l), raw.group)) for l in unique(raw.group)])
+        (_testhelper_rewritten(raw, _testhelper_rev.(raw.steps), raw.group),
+         _testhelper_rewritten(raw, [rand(rng, Bool) ? _testhelper_rev(s) : s
+                                     for s in raw.steps], raw.group),
+         _testhelper_rewritten(raw, raw.steps[within], raw.group[within]))
+    end
     # The Theorell–Chance step of `tc_ss` written backwards.
     tc_backwards = @enzyme_mechanism begin
         substrates: A, B
@@ -1084,8 +1091,8 @@ end
     append!(ems, _testhelper_fused_cases, values(_testhelper_tc_cases), [tc_backwards])
     for em in ems
         m = ER.Mechanism(em)
-        for flipped in _testhelper_variants(ER.steps(m))
-            m2 = ER.Mechanism(_testhelper_placeholder_reaction(m), flipped)
+        for flipped in _testhelper_variants(ER._raw(m))
+            m2 = ER.Mechanism(flipped)
             @test m2 == m
             @test ER.rate_equation_string(ER.compile_mechanism(m2)) ==
                   ER.rate_equation_string(em)
@@ -1094,11 +1101,10 @@ end
     for spec in MECHANISM_TEST_SPECS
         spec.mechanism isa ER.AllostericEnzymeMechanism || continue
         am = ER.AllostericMechanism(spec.mechanism)
-        for flipped in _testhelper_variants(ER.steps(am))
-            am2 = ER.AllostericMechanism(_testhelper_placeholder_reaction(am), flipped,
-                                         ER.cat_allo_states(am),
-                                         ER.catalytic_multiplicity(am),
-                                         ER.regulatory_sites(am))
+        raw = ER._raw(am)
+        for flipped in _testhelper_variants(raw.catalytic)
+            am2 = ER.AllostericMechanism(ER.RawAllostericMechanism(flipped,
+                raw.cat_allo_states, raw.catalytic_multiplicity, raw.sites))
             @test am2 == am
             @test ER.rate_equation_string(ER.compile_mechanism(am2)) ==
                   ER.rate_equation_string(spec.mechanism)
@@ -1116,14 +1122,16 @@ end
 @testset "Allosteric cat_allo_state stays bound to its step" begin
     hk = only(s for s in MECHANISM_TEST_SPECS if s.name == "HK")
     am = EnzymeRates.AllostericMechanism(hk.mechanism)
-    onlyA_groups = [g for g in eachindex(EnzymeRates.steps(am))
+    cm = am.catalytic
+    members = EnzymeRates._group_members(cm)
+    onlyA_groups = [g for g in eachindex(members)
                     if EnzymeRates.cat_allo_state(am, g) === :OnlyA]
     @test length(onlyA_groups) == 2
-    onlyA_bms = [EnzymeRates.bound_metabolite(first(EnzymeRates.steps(am)[g]))
-                 for g in onlyA_groups]
-    @test count(bm -> bm !== nothing && EnzymeRates.name(bm) === :ATP,
-                onlyA_bms) == 1
-    @test count(isnothing, onlyA_bms) == 1
+    onlyA_firsts = [cm.edges[first(members[g])] for g in onlyA_groups]
+    @test count(e -> EnzymeRates._is_binding(e) &&
+                     cm.table[EnzymeRates._bound_entry(e)].name === :ATP,
+                onlyA_firsts) == 1
+    @test count(!EnzymeRates._is_binding, onlyA_firsts) == 1
 end
 
 # ── §5a regression: every inactive-state parameter must be defined ──────────

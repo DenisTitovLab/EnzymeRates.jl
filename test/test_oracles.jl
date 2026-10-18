@@ -87,7 +87,8 @@ end
     @test (g.tags, g.inactive, g.catalytic_multiplicity, g.sites) ==
           (Symbol[], Int[], nothing, [])
     @test (g.substrates, g.products, g.modifiers) == ([:S], [:P], [:I, :P])
-    # A step's text names each side's form and metabolites, as `_step_text` does.
+    # A step's text names each side's form and metabolites, as `_edge_text` writes an
+    # edge.
     @test _testhelper_step_text.(Ref(g), g.steps) ==
           ["E + I ⇌ EI", "ES + I ⇌ EIS", "E + P ⇌ EP", "E + S ⇌ ES", "ES <--> EP",
            "ES + P ⇌ EPmodS"]

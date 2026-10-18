@@ -33,11 +33,9 @@
             E(P) ⇌ E + P
         end
     end)
-    cat_allo_states = fill(:NonequalAI, length(EnzymeRates.steps(base)))
+    cat_allo_states = fill(:NonequalAI, EnzymeRates.ngroups(base))
     site = EnzymeRates.RegulatorySite([:R], 2, [:NonequalAI])
-    am = EnzymeRates.AllostericMechanism(
-        _testhelper_placeholder_reaction(base), copy(EnzymeRates.steps(base)),
-        cat_allo_states, 2, [site])
+    am = EnzymeRates.AllostericMechanism(base, cat_allo_states, 2, [site])
     @test EnzymeRates.cat_allo_states(am) == cat_allo_states
     m_allo = EnzymeRates.AllostericEnzymeMechanism(am)
     params_allo = parameters(m_allo)

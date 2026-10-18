@@ -1,5 +1,5 @@
 # ABOUTME: Tests of the reaction-graph mechanism types: content order and identity,
-# ABOUTME: canonical form and checks, the Step views of its steps, the Sig and speed.
+# ABOUTME: canonical form and checks, its sub-graph reads, the Sig and speed.
 
 using Statistics: median
 
@@ -1012,82 +1012,7 @@ end
     @test am == before
 end
 
-# ── The graph against its Step views, which code that walks steps reads (`steps`) ──
-
-"""Metabolite `x` of a `Species` as raw input: its name, and whether it binds as a
-modifier (a competitive-inhibitor copy)."""
-_testhelper_met(x) = EnzymeRates.Met(EnzymeRates.name(x),
-                                     x isa EnzymeRates.CompetitiveInhibitor)
-
-"""Form `sp`, a `Species`, as raw input."""
-_testhelper_raw_form(sp) = EnzymeRates.RawForm(EnzymeRates.conformation(sp),
-    EnzymeRates.Met[_testhelper_met(x) for x in EnzymeRates.bound(sp)],
-    Symbol[EnzymeRates.name(x) for x in EnzymeRates.added(EnzymeRates.residual(sp))],
-    Symbol[EnzymeRates.name(x) for x in EnzymeRates.subtracted(EnzymeRates.residual(sp))])
-
-"""The steps of mechanism `m`, read through its Step views, as raw input, written against
-the way `m` stores them: in reverse order, each from its other end, each labelled with its
-kinetic group."""
-function _testhelper_raw_steps(m)
-    flat = reverse(EnzymeRates._flat_steps(EnzymeRates.steps(m)))
-    EnzymeRates.RawMechanism(EnzymeRates.substrates(m), EnzymeRates.products(m),
-        EnzymeRates.modifiers(m),
-        [EnzymeRates.RawStep(_testhelper_raw_form(EnzymeRates.to_species(s)),
-                             _testhelper_raw_form(EnzymeRates.from_species(s)),
-                             _testhelper_met.(EnzymeRates.released(s)),
-                             _testhelper_met.(EnzymeRates.consumed(s)),
-                             EnzymeRates.is_equilibrium(s)) for (s, _) in flat],
-        [g for (_, g) in flat])
-end
-
-"""Mechanism `m` as raw input read through its Step views (`_testhelper_raw_steps`); an
-allosteric one with its tags, catalytic multiplicity and sites."""
-_testhelper_raw_of(m::EnzymeRates.Mechanism) = _testhelper_raw_steps(m)
-_testhelper_raw_of(am::EnzymeRates.AllostericMechanism) =
-    EnzymeRates.RawAllostericMechanism(_testhelper_raw_steps(am),
-        copy(EnzymeRates.cat_allo_states(am)), EnzymeRates.catalytic_multiplicity(am),
-        [EnzymeRates.RawSite(copy(EnzymeRates.ligands(s)), EnzymeRates.multiplicity(s),
-                             copy(EnzymeRates.allo_states(s)))
-         for s in EnzymeRates.regulatory_sites(am)])
-
-"""Mechanism `m` (concrete or compiled) as `_testhelper_graph` reads it through its Step
-views, without the constant names and with its concentration names."""
-function _testhelper_step_view(m)
-    g = _testhelper_graph(m)
-    (forms = g.forms, free = g.free,
-     steps = [(; s.from, s.to, s.consumed, s.released, s.consumed_modifier,
-               s.released_modifier, s.rapid_equilibrium, s.group) for s in g.steps],
-     g.tags, g.catalytic_multiplicity, g.sites, g.substrates, g.products, g.modifiers,
-     metabolites = EnzymeRates.metabolites(_testhelper_lift(m)))
-end
-
-"""Edge `k` of graph `m` as `_testhelper_graph` reads a step."""
-function _testhelper_edge_view(m::ER.Mechanism, k::Int)
-    e = m.edges[k]
-    c, r = ER.entries(e.consumed), ER.entries(e.released)
-    (from = e.from, to = e.to, consumed = Symbol[m.table[i].name for i in c],
-     released = Symbol[m.table[i].name for i in r],
-     consumed_modifier = Bool[m.table[i].modifier for i in c],
-     released_modifier = Bool[m.table[i].modifier for i in r],
-     rapid_equilibrium = e.rapid_equilibrium, group = m.group[k])
-end
-
-"""Graph `x` read from its fields as `_testhelper_step_view` reads its Step views: its
-steps group by group, each group in edge order."""
-function _testhelper_graph_view(x)
-    m, allo = ER.catalytic(x), x isa ER.AllostericMechanism
-    (forms = [ER._form_name(m, f) for f in eachindex(m.forms)],
-     free = Bool[f.bound == 0 && f.added == 0 && f.subtracted == 0 for f in m.forms],
-     steps = [_testhelper_edge_view(m, k) for members in ER._group_members(m)
-              for k in members],
-     tags = allo ? ER.cat_allo_states(x) : Symbol[],
-     catalytic_multiplicity = allo ? ER.catalytic_multiplicity(x) : nothing,
-     sites = [(multiplicity = s.multiplicity, ligands = s.ligands,
-               allo_states = s.allo_states)
-              for s in (allo ? ER.regulatory_sites(x) : EnzymeRates.RegulatorySite[])],
-     substrates = ER.substrates(m), products = ER.products(m),
-     modifiers = ER.modifiers(m), metabolites = ER.metabolites(x))
-end
+# ── The canonical form pinned as text, and the sub-graph reads against oracles ──
 
 """The mechanisms the regression census enumerates first: the init populations of its six
 reactions, then the children of every init mechanism of its bi-bi reaction."""
@@ -1165,66 +1090,64 @@ function _testhelper_canonical_text(x)
 end
 
 """
-The inactive conformation's steps of `am` read off its Step views alone, aligned with
-`steps(am)`: an `:OnlyA` group is empty, and every other group keeps the steps whose two
-forms the steps outside `:OnlyA` groups reach from a free form (no metabolite, no
-residual).
+The inactive edges of the allosteric mechanism whose test reader (`_testhelper_graph`) is
+`g`, read off `g`'s steps alone, one flag per step: no step of an `:OnlyA` group, and every
+other step whose two forms the steps outside `:OnlyA` groups reach from a free form (no
+metabolite, no residual).
 """
-function _testhelper_inactive_steps(am)
-    tags, groups = ER.cat_allo_states(am), ER.steps(am)
-    outside = [s for (g, group) in enumerate(groups) if tags[g] !== :OnlyA for s in group]
-    reach = Set(f for s in outside for f in (ER.from_species(s), ER.to_species(s))
-                if isempty(ER.bound(f)) && isempty(ER.residual(f)))
+function _testhelper_inactive_reach(g)
+    outside = [g.tags[s.group] !== :OnlyA for s in g.steps]
+    reach = falses(length(g.forms))
+    for (j, s) in enumerate(g.steps)
+        outside[j] || continue
+        g.free[s.from] && (reach[s.from] = true)
+        g.free[s.to] && (reach[s.to] = true)
+    end
     grew = true
     while grew
         grew = false
-        for s in outside
-            f, t = ER.from_species(s), ER.to_species(s)
-            (f in reach) == (t in reach) && continue
-            push!(reach, f, t)
+        for (j, s) in enumerate(g.steps)
+            outside[j] && reach[s.from] != reach[s.to] || continue
+            reach[s.from] = reach[s.to] = true
             grew = true
         end
     end
-    [tags[g] === :OnlyA ? ER.Step[] :
-     ER.Step[s for s in group if ER.from_species(s) in reach && ER.to_species(s) in reach]
-     for (g, group) in enumerate(groups)]
+    BitVector([outside[j] && reach[s.from] && reach[s.to] for (j, s) in enumerate(g.steps)])
 end
 
 """
-Whether the sub-graph reads of `x` (`_segments`, `_inactive_mask`) give what the Step
-helpers give on its Step views (`_re_segment_extras`, `_testhelper_inactive_steps`): the
-catalytic graph's segments, form by form and breadth-first, with each form's positive
-offsets, and, for an allosteric mechanism, the inactive conformation's edges and their
-segments.
+Whether the sub-graph reads of `x` (`_segments`, `_inactive_mask`) give what the oracles
+read off its test reader's steps give (`_testhelper_re_segments`,
+`_testhelper_inactive_reach`): the catalytic graph's segments, form by form and
+breadth-first, with each form's positive offsets, and, for an allosteric mechanism, the
+inactive conformation's edges and their segments.
 """
 function _testhelper_subgraphs_agree(x)
-    m, groups = ER.catalytic(x), ER.steps(x)
-    function _testhelper_segments_agree(mask, step_groups)
+    m, g = ER.catalytic(x), _testhelper_graph(x)
+    # Step `j` of the reader is edge `flat[j]`.
+    flat = ER._flat_edges(m)
+    function _testhelper_segments_agree(mask, kept)
         s = ER._segments(m, mask, ER._flags(m))
-        _, segments, extras = ER._re_segment_extras(step_groups)
+        segments, extras = _testhelper_re_segments(g, kept)
         present = findall(!=(0), s.segment_of)
         names = unique!([e.name for e in m.table])
         _testhelper_offsets(f) = Dict(names[n] => s.offsets[n, f]
                                       for n in eachindex(names) if s.offsets[n, f] > 0)
-        s.segments == [present[seg] for seg in segments] &&
-            [_testhelper_offsets(f) for f in present] == extras
+        s.segments == segments && [_testhelper_offsets(f) for f in present] == extras
     end
-    _testhelper_segments_agree(trues(length(m.edges)), groups) || return false
+    _testhelper_segments_agree(trues(length(m.edges)), trues(length(flat))) || return false
     x isa ER.AllostericMechanism || return true
     inactive = ER._inactive_mask(x)
-    kept = _testhelper_inactive_steps(x)
-    [inactive[k] for members in ER._group_members(m) for k in members] ==
-        [s in kept[g] for (g, group) in enumerate(groups) for s in group] &&
-        _testhelper_segments_agree(inactive, kept)
+    kept = _testhelper_inactive_reach(g)
+    inactive[flat] == kept && _testhelper_segments_agree(inactive, kept)
 end
 
 # The census's first populations (`_testhelper_census_population`), enumerated once for
 # the two testsets that read them and released after them.
 let population = _testhelper_census_population()
-@testset "a graph's Step views read its canonical form, in order" begin
+@testset "a graph's canonical form, pinned as text, read back from its Sig and raw" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
-        @test _testhelper_graph_view(_testhelper_build(spec.raw)) ==
-              _testhelper_step_view(spec.mechanism)
+        @test ER._concrete(spec.mechanism) == _testhelper_build(spec.raw)
     end
     # The specs' canonical text, a blank line between specs, pinned as a fixture.
     text = reduce((a, b) -> [a; ""; b],
@@ -1251,20 +1174,15 @@ let population = _testhelper_census_population()
     x = ER.Mechanism(raw)
     @test x.conformations == [:D, :E] && x.forms[1:2] == [ER.Form(2, 0, 0, 0),
                                                           ER.Form(1, 0, 0, 0)]
-    @test _testhelper_graph_view(x) == _testhelper_step_view(x)
-    # The census's first populations, each written against its stored form; in
-    # agreement, the graph also decodes from its Sig and from its raw form.
-    graphs = [_testhelper_build(_testhelper_raw_of(m)) for m in population]
-    disagree = [i for (i, (m, x)) in enumerate(zip(population, graphs))
-                if _testhelper_graph_view(x) != _testhelper_step_view(m)]
-    @test isempty(disagree)
+    @test _testhelper_graph(x).forms[1:2] == ["E", "D"]
+    # The census's first populations: each graph decodes from its Sig and builds again
+    # from the raw input it writes back.
     @test length(population) == 5508 + 5505
-    @test length(unique(graphs)) == length(unique(population))
-    @test all(_testhelper_decode(x, ER._sig_of(x)) == x for x in graphs)
-    @test all(_testhelper_build(ER._raw(x)) == x for x in graphs)
+    @test all(_testhelper_decode(x, ER._sig_of(x)) == x for x in population)
+    @test all(_testhelper_build(ER._raw(x)) == x for x in population)
 end
 
-@testset "a sub-graph's segments and inactive edges are its Step views'" begin
+@testset "a sub-graph's segments and inactive edges are what its steps give" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         @test _testhelper_subgraphs_agree(_testhelper_lift(spec.mechanism))
     end
@@ -1353,8 +1271,6 @@ end
     end
     texts = [ss_text, ss_text, tied_text, tied_text]
     for (raw, text) in zip(_testhelper_walk.(blocks), texts)
-        @test _testhelper_graph_view(ER.Mechanism(raw)) ==
-              _testhelper_step_view(ER.Mechanism(raw))
         @test _testhelper_canonical_text(ER.Mechanism(raw)) == text
     end
     for exchange in (:((E(I) + J <--> E(J) + I, F(I) + J <--> F(J) + I)),
@@ -1372,8 +1288,6 @@ end
                 $exchange                        :: NonequalAI
             end
         end); allosteric = true)
-        @test _testhelper_graph_view(ER.AllostericMechanism(raw)) ==
-              _testhelper_step_view(ER.AllostericMechanism(raw))
         @test _testhelper_canonical_text(ER.AllostericMechanism(raw)) == allosteric_text
     end
 end
