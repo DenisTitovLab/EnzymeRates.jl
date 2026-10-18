@@ -772,23 +772,27 @@ _has_residual(f::Form) = f.added != 0 || f.subtracted != 0
 _is_binding(e::Edge) = e.released == 0 && total(e.consumed) == 1
 """The entry a binding takes up; 0 for any other edge."""
 _bound_entry(e::Edge) = _is_binding(e) ? (trailing_zeros(e.consumed) >> 2) + 1 : 0
+"""The entry binding `e` takes up and the bound entries of its two forms; the entry is 0
+unless `e` is a binding whose two forms carry one residual."""
+function _binding_ends(m::Mechanism, e::Edge)
+    f, t = m.forms[e.from], m.forms[e.to]
+    i = (f.added, f.subtracted) == (t.added, t.subtracted) ? _bound_entry(e) : 0
+    i, f.bound, t.bound
+end
 """Whether binding `e` takes up its entry into a form that holds its source's entries plus
 that one, with the same residual; the label may change."""
 function _is_plain_binding(m::Mechanism, e::Edge)
-    i = _bound_entry(e)
-    f, t = m.forms[e.from], m.forms[e.to]
-    i != 0 && (f.added, f.subtracted) == (t.added, t.subtracted) &&
-        copies(f.bound, i) < 15 && t.bound == f.bound + (Counts(1) << (4 * (i - 1)))
+    i, f, t = _binding_ends(m, e)
+    i != 0 && copies(f, i) < 15 && t == f + (Counts(1) << (4 * (i - 1)))
 end
 """Whether binding `e` takes up its entry into a form that holds its source's metabolites
 plus that one by name, with the same residual: a plain binding, or one that binds a
 reactant where its modifier copy sits, or the reverse."""
 function _binds_by_name(m::Mechanism, e::Edge)
-    i = _bound_entry(e)
-    f, t = m.forms[e.from], m.forms[e.to]
-    i != 0 && (f.added, f.subtracted) == (t.added, t.subtracted) || return false
+    i, f, t = _binding_ends(m, e)
+    i == 0 && return false
     names(c::Counts) = [m.table[j].name for j in entries(c)]
-    names(t.bound) == sort!(push!(names(f.bound), m.table[i].name))
+    names(t) == sort!(push!(names(f), m.table[i].name))
 end
 
 """`m` as raw input: every edge a step in its stored direction, labelled with its group.
