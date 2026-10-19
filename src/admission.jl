@@ -1342,24 +1342,6 @@ end
 
 # ─── Admission: the interior (spec section 7) ──────────────────────────
 
-"""
-Each form's component under the edges of `am`'s catalytic graph that conformation `c`
-(1 active, 2 inactive) keeps (`_excludes`), every form included, labelled by its smallest
-form index. Admission reads each plain binding `c` excludes as an arc from its unbound
-side's component to its bound side's (`_arcs`).
-"""
-function _exclusion_components(am::AllostericMechanism, c::Int)
-    m = am.catalytic
-    parent = collect(eachindex(m.forms))
-    top(i) = (while parent[i] != i; i = parent[i]; end; i)
-    for (k, e) in enumerate(m.edges)
-        _excludes(am, k, c) && continue
-        a, b = top(e.from), top(e.to)
-        a == b || (parent[max(a, b)] = min(a, b))
-    end
-    [top(f) for f in eachindex(m.forms)]
-end
-
 """The plain bindings of `am`'s catalytic graph that conformation `c` excludes, in edge
 order: admission's arcs, each stored as its uptake, unbound side first."""
 _arcs(am::AllostericMechanism, c::Int) =

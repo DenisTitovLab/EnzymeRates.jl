@@ -1672,25 +1672,33 @@ function _excludes(am::AllostericMechanism, k::Int, c::Int)
 end
 
 """
+Each form's component under the edges of `am`'s catalytic graph that conformation `c`
+(1 active, 2 inactive) keeps (`_excludes`), every form included, labelled by its smallest
+form index, so free E's label is 1. Admission reads each plain binding `c` excludes as an
+arc from its unbound side's component to its bound side's (`_arcs`).
+"""
+function _exclusion_components(am::AllostericMechanism, c::Int)
+    m = am.catalytic
+    parent = collect(eachindex(m.forms))
+    top(i) = (while parent[i] != i; i = parent[i]; end; i)
+    for (k, e) in enumerate(m.edges)
+        _excludes(am, k, c) && continue
+        a, b = top(e.from), top(e.to)
+        a == b || (parent[max(a, b)] = min(a, b))
+    end
+    [top(f) for f in eachindex(m.forms)]
+end
+
+"""
 The edges of conformation `c`'s law (1 active, 2 inactive) in `am`'s catalytic graph:
 those `c` does not exclude (`_excludes`) between forms they join to free E, form 1. The
 law deletes the excluded edges and prunes the forms this strands; admission decides when
 that is the limit of the vanishing constants (spec section 7).
 """
 function _law_mask(am::AllostericMechanism, c::Int)
-    m = am.catalytic
-    reached = falses(length(m.forms))
-    reached[1] = true
-    grew = true
-    while grew
-        grew = false
-        for (k, e) in enumerate(m.edges)
-            !_excludes(am, k, c) && reached[e.from] != reached[e.to] || continue
-            reached[e.from] = reached[e.to] = true
-            grew = true
-        end
-    end
-    BitVector([!_excludes(am, k, c) && reached[e.from] for (k, e) in enumerate(m.edges)])
+    comp = _exclusion_components(am, c)
+    BitVector([!_excludes(am, k, c) && comp[e.from] == 1
+               for (k, e) in enumerate(am.catalytic.edges)])
 end
 
 """Form `f` of `m` as raw input, holding also the metabolites `extra`."""
