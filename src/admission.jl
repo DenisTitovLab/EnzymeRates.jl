@@ -1784,38 +1784,12 @@ every strongly connected part (`_strong_components`) of the transitions `keep` f
 no cycle of them turns the reaction over.
 """
 function _potential_on_sccs(net::_Network, keep::BitVector, x::Int)
+    comp = _strong_components(_successors(net, keep), net.present)
+    inside = BitVector([keep[t] && comp[net.from[t]] == comp[net.to[t]]
+                        for t in eachindex(net.from)])
     n = length(net.present)
-    next = [Int[] for _ in 1:n]
-    for t in eachindex(net.from)
-        keep[t] && push!(next[net.from[t]], net.to[t])
-    end
-    comp = _strong_components(next, net.present)
-    adj = [Tuple{Int, Int}[] for _ in 1:n]
-    for t in eachindex(net.from)
-        u, v = net.from[t], net.to[t]
-        keep[t] && comp[u] == comp[v] || continue
-        push!(adj[u], (v, net.change[x, t]))
-        push!(adj[v], (u, -net.change[x, t]))
-    end
-    h, seen = zeros(Int, n), falses(n)
-    for s in 1:n
-        seen[s] && continue
-        seen[s] = true
-        todo = [s]
-        while !isempty(todo)
-            u = pop!(todo)
-            for (v, w) in adj[u]
-                if !seen[v]
-                    seen[v] = true
-                    h[v] = h[u] + w
-                    push!(todo, v)
-                elseif h[v] != h[u] + w
-                    return false
-                end
-            end
-        end
-    end
-    true
+    !_has_unbalanced_cycle(net.from, net.to, view(net.change, x, :), inside, zeros(Int, n),
+                           zeros(Int, n))
 end
 
 """Whether the transitions `extra` shorten the cheapest spanning in-tree of `nodes` over
