@@ -226,6 +226,21 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `_rref_partition` and `_thermodynamic_constraints` goes when admission replaces the
   guard, but the split move's counter (`_partition_independent_count`) keeps them;
   computing its rank with `_rref!` over the joint solve's cycles would leave one of each.
+- **Admit the equilibrium bridges and the vanishing-fed basins that admission rejects.**
+  Admission's face condition (`_face_condition`, `src/admission.jl`) is sound but not
+  exact: it rejects two rare classes whose limit exists. In an equilibrium bridge (R-B1) a
+  tagged binding joins forms its conformation's other steps keep apart, yet those forms
+  already sit at equilibrium, so the limit is deletion's (`bridge_deadend` in
+  `test/test_admission.jl`). In a stranded basin fed only through vanishing sources (R-B2)
+  the basin's weight vanishes along every path, but no structural test proves it (`BS1`).
+  The phase-4 research found R-B1 on 332 faces and R-B2 on 21, all in fuzzed or hand-built
+  mechanisms, none among the census mechanisms or their `:OnlyI` variants. No exact
+  narrower structural rule is known: the one candidate tried, T0++, admits faces the
+  ε-path oracle rejects. The exact test compares Freidlin–Wentzell exponents over the
+  admissible directions: the basin vanishes when, for every rise of the tagged constants,
+  every per-member rate and every order of the two limits, its cheapest in-tree costs more
+  than the law network's; each comparison is one linear-programming feasibility test, not
+  yet prototyped.
 
 ## Decided against
 

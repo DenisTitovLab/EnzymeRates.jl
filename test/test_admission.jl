@@ -2412,3 +2412,280 @@ end
     @test EnzymeRates._guard(am) == EnzymeRates._WELL_POSED
     @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(43)) === :converges
 end
+
+"""The tag sets of `_testhelper_tag_sets` that a face rejects; every other one passes every
+face."""
+const _testhelper_face_rejected = Set(["R2", "BS1", "BS2", "BS3", "BS4", "ADbridge",
+    "ADbridge_noturnover", "bridge_drain", "bridge_deadend", "R2funnel", "R2funnel_SS",
+    "S1", "AD7b", "fz101_10232"])
+
+@testset "R2's limit at zero product depends on how fast its isomerization vanishes" begin
+    rng = Random.MersenneTwister(43)
+    NO, PU = EnzymeRates._NO_FAULT, EnzymeRates._PUMPED
+    # Classes 1-3 and admission's interior accept R2, so the face condition alone rejects
+    # it (spec section 7): at P zero, F's exits vanish (F <--> E) or take up P (F + P ⇌
+    # E(P)), and E(P) feeds it by a release whose reverse is dead.
+    am = _testhelper_tag_sets["R2"]
+    m = am.catalytic
+    @test _testhelper_face_faults(am) == fill(NO, 3)
+    @test EnzymeRates._admission_interior(am) == EnzymeRates._WELL_POSED
+    @test _testhelper_admission_faults(am) == [NO, PU, NO]
+    @test _testhelper_epath_verdict(am; rng, face = _testhelper_faces(am)[2]) ===
+          :direction_dependent
+    @test all(_testhelper_admission_agreement(am; rng))
+    k, iso = _testhelper_edge(am, "F + P ⇌ EP"), _testhelper_edge(am, "F <--> E")
+    v = EnzymeRates._guard(am)
+    @test v == EnzymeRates._Verdict(PU, EnzymeRates._LIMIT_UNTESTED, 2, 2, k)
+    line(j) = EnzymeRates._step_text(m, j)
+    @test EnzymeRates._guard_message(am, v) ==
+          "AllostericMechanism: at zero P, $(line(k)) feeds the forms F of the inactive " *
+          "conformation, which leave only through the vanishing steps $(line(iso)) while " *
+          "nothing runs back the way it came, so their weight depends on how fast those " *
+          "steps vanish."
+end
+
+@testset "admitted tag sets converge on every face" begin
+    rng = Random.MersenneTwister(47)
+    names = sort!([n for n in keys(_testhelper_tag_sets) if n ∉ _testhelper_face_rejected])
+    @test length(names) == 39
+    @testset "$name" for name in names
+        am = _testhelper_tag_sets[name]
+        @test EnzymeRates._guard(am) == EnzymeRates._WELL_POSED
+        @test all(==(EnzymeRates._NO_FAULT), _testhelper_admission_faults(am))
+        @test all(_testhelper_admission_agreement(am; rng))
+    end
+end
+
+@testset "a sealed basin drains, and a pumped one does not" begin
+    rng = Random.MersenneTwister(53)
+    NO, PU = EnzymeRates._NO_FAULT, EnzymeRates._PUMPED
+    function _testhelper_stranded(am, i)
+        face = EnzymeRates._faces(am.catalytic)[i]
+        s = EnzymeRates._face_sets(EnzymeRates._eps_network(am),
+                                   EnzymeRates._law_network(am).present, face)
+        any(s.stranded)
+    end
+    # A stranded basin entered only reversibly from the law network is sealed: its weight
+    # vanishes with the tagged constants, and the face passes. R2P_sealed at P zero,
+    # B_uphill and BS4 with X or I zero.
+    for (name, sealed) in (("R2P_sealed", [2]), ("B_uphill", [4, 5, 6]), ("BS4", [4, 5, 6]))
+        am = _testhelper_tag_sets[name]
+        @test all(i -> _testhelper_stranded(am, i), sealed)
+        @test all(==(NO), _testhelper_admission_faults(am)[sealed])
+    end
+    # A basin fed by a step whose reverse is dead is pumped: BS2, BS3 and BS4 at P zero.
+    @test _testhelper_admission_faults(_testhelper_tag_sets["BS2"]) == [NO, PU, NO]
+    @test _testhelper_admission_faults(_testhelper_tag_sets["BS3"]) == [NO, PU, NO]
+    @test _testhelper_admission_faults(_testhelper_tag_sets["BS4"]) ==
+          [NO, PU, NO, NO, NO, NO]
+    for name in ("R2P_sealed", "B_uphill", "BS2", "BS3", "BS4")
+        @test all(_testhelper_admission_agreement(_testhelper_tag_sets[name]; rng))
+    end
+end
+
+@testset "a tagged binding that bridges two basins is rejected" begin
+    rng = Random.MersenneTwister(59)
+    NO, BR = EnzymeRates._NO_FAULT, EnzymeRates._BRIDGE
+    SP, TR = EnzymeRates._SPLIT, EnzymeRates._TRAP
+    # ADbridge: the :OnlyA bindings of I join E and E(S) of the inactive conformation, which
+    # turns over through its steady-state S binding. With them the fed forms' cheapest
+    # in-tree needs one slow step fewer (R1 fails), and the turnover is no potential (T0+
+    # fails). With I zero the bridge is dead, and class 3 finds the inhibitor square split.
+    am = _testhelper_tag_sets["ADbridge"]
+    m = am.catalytic
+    @test _testhelper_admission_faults(am) == [BR, BR, BR, SP, SP, TR]
+    @test all(_testhelper_admission_agreement(am; rng))
+    k = _testhelper_edge(am, "ES + I ⇌ EIS")
+    v = EnzymeRates._guard(am)
+    @test v == EnzymeRates._Verdict(BR, EnzymeRates._LIMIT_UNTESTED, 1, 2, k)
+    line = EnzymeRates._step_text(m, k)
+    @test EnzymeRates._guard_message(am, v) ==
+          "AllostericMechanism: the :OnlyA step $line bridges forms of the inactive " *
+          "conformation that its other steps keep apart, so the limit depends on how " *
+          "fast the tagged constants vanish. Make the group of $line steady-state."
+    fixed = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S <--> E(S)                         :: EqualAI
+            E(S) <--> E + P                         :: EqualAI
+            (E + I <--> E(I), E(S) + I <--> E(I, S)) :: OnlyA
+            E(I) + S ⇌ E(I, S)                      :: EqualAI
+        end
+    end
+    @test EnzymeRates._guard(fixed) == EnzymeRates._WELL_POSED
+    # The same bridge with the chemistry :OnlyA turns nothing over in the inactive
+    # conformation: R1 still fails, but the first substrate's uptake is a potential on
+    # every strongly connected part, so T0+ admits the first three faces.
+    noturn = _testhelper_tag_sets["ADbridge_noturnover"]
+    @test _testhelper_admission_faults(noturn) == [NO, NO, NO, SP, SP, TR]
+    @test all(_testhelper_admission_agreement(noturn; rng))
+    for (x, potential) in ((am, false), (noturn, true))
+        eps, law = EnzymeRates._eps_network(x), EnzymeRates._law_network(x)
+        row = EnzymeRates._turnover_name(x.catalytic)
+        for face in EnzymeRates._faces(x.catalytic)[1:3]
+            s = EnzymeRates._face_sets(eps, law.present, face)
+            nodes = s.fed .& .!s.stranded
+            (; van, held) = EnzymeRates._copy_transitions(eps, s.alive, nodes, 2)
+            @test EnzymeRates._bridges_jointly(eps, nodes, s.n0, van)
+            @test EnzymeRates._potential_on_sccs(eps, held, row) == potential
+        end
+    end
+    # bridge_drain: :OnlyA bindings of I let the inactive F return to E.
+    @test _testhelper_admission_faults(_testhelper_tag_sets["bridge_drain"]) ==
+          [BR, BR, BR, SP, NO, SP]
+    @test all(_testhelper_admission_agreement(_testhelper_tag_sets["bridge_drain"]; rng))
+    # R2funnel: at P zero the trap {F, F(S)} drains only through a slow step out of a fast
+    # transient; its bridge stays with the S binding steady-state (R2funnel_SS), so the
+    # message offers no fix.
+    for name in ("R2funnel", "R2funnel_SS")
+        x = _testhelper_tag_sets[name]
+        @test _testhelper_admission_faults(x) == [NO, BR, NO]
+        @test all(_testhelper_admission_agreement(x; rng))
+        v = EnzymeRates._guard(x)
+        @test (v.fault, v.face, v.conformation) === (BR, 2, 2)
+        @test !occursin("Make the group", EnzymeRates._guard_message(x, v))
+    end
+end
+
+@testset "the census ter-bi mechanism passes by a potential on every component" begin
+    rng = Random.MersenneTwister(61)
+    am = _testhelper_tag_sets["terbi_d75d2415361c4dae"]
+    m = am.catalytic
+    @test EnzymeRates._guard(am) == EnzymeRates._WELL_POSED
+    @test all(_testhelper_admission_agreement(am; rng))
+    # With P zero its :OnlyA bindings shorten the inactive conformation's in-tree (R1
+    # fails), yet the first substrate's uptake is a potential on each strongly connected
+    # part of its kept and fast transitions (T0+): the census's case for T0+.
+    eps, law = EnzymeRates._eps_network(am), EnzymeRates._law_network(am)
+    row = EnzymeRates._turnover_name(m)
+    faces = EnzymeRates._faces(m)
+    by_potential = map(faces) do face
+        s = EnzymeRates._face_sets(eps, law.present, face)
+        nodes = s.fed .& .!s.stranded
+        (; van, held) = EnzymeRates._copy_transitions(eps, s.alive, nodes, 2)
+        EnzymeRates._bridges_jointly(eps, nodes, s.n0, van) &&
+            EnzymeRates._potential_on_sccs(eps, held, row)
+    end
+    @test [Set(EnzymeRates._face_names(m, f)) for f in faces[by_potential]] ==
+          [Set([:P, :Q]), Set([:P])]
+end
+
+@testset "conservative rejections the oracle admits stay rejected" begin
+    rng = Random.MersenneTwister(67)
+    NO, BR, PU = EnzymeRates._NO_FAULT, EnzymeRates._BRIDGE, EnzymeRates._PUMPED
+    _testhelper_corner_verdict(am, i) =
+        _testhelper_epath_verdict(am; rng, face = _testhelper_faces(am)[i], corners = true)
+    # R-B1, an equilibrium bridge: the bridge joins E and the dead end E(J), which deletion
+    # already holds at its equilibrium ratio, so the limit is deletion's, but no potential
+    # proves it. The steady-state fix passes and the message offers it.
+    am = _testhelper_tag_sets["bridge_deadend"]
+    @test _testhelper_admission_faults(am) == [BR, BR, BR, NO, NO, NO]
+    @test all(i -> _testhelper_corner_verdict(am, i) === :converges, 1:3)
+    @test all(_testhelper_admission_agreement(am; rng)[4:6])
+    k = _testhelper_edge(am, "EJ + I ⇌ EIJ")
+    v = EnzymeRates._guard(am)
+    @test v == EnzymeRates._Verdict(BR, EnzymeRates._LIMIT_UNTESTED, 1, 2, k)
+    @test endswith(EnzymeRates._guard_message(am, v),
+                   "Make the group of $(EnzymeRates._step_text(am.catalytic, k)) " *
+                   "steady-state.")
+    fixed = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I, J
+        steps: begin
+            E + S <--> E(S)         :: EqualAI
+            E(S) <--> E + P         :: EqualAI
+            E + J <--> E(J)         :: EqualAI
+            E + I ⇌ E(I)            :: OnlyA
+            E(J) + I <--> E(I, J)   :: OnlyA
+            E(I) + J ⇌ E(I, J)      :: EqualAI
+        end
+    end
+    @test EnzymeRates._guard(fixed) == EnzymeRates._WELL_POSED
+    # R-B2, a stranded basin fed only through vanishing sources: BS1 with I zero and P or
+    # S zero, fz101_10232 with S zero. Every corner direction converges.
+    bs1 = _testhelper_tag_sets["BS1"]
+    @test _testhelper_admission_faults(bs1) == [NO, NO, NO, NO, PU, PU]
+    @test all(i -> _testhelper_corner_verdict(bs1, i) === :converges, 5:6)
+    @test all(_testhelper_admission_agreement(bs1; rng)[1:4])
+    fz = _testhelper_tag_sets["fz101_10232"]
+    @test _testhelper_admission_faults(fz) == [NO, PU, PU, NO, PU, PU]
+    @test _testhelper_corner_verdict(fz, 3) === :converges
+    # At P zero the rejection is right: F's only alive exit, the blocked F <--> E, can
+    # vanish faster than its inflow, which one corner direction shows.
+    @test _testhelper_corner_verdict(fz, 2) !== :converges
+    @test all(_testhelper_admission_agreement(fz; rng)[[1, 4]])
+end
+
+@testset "S1 and AD7b pass admission's interior and fail class 3" begin
+    rng = Random.MersenneTwister(71)
+    NO, NU = EnzymeRates._NO_FAULT, EnzymeRates._NONUNIQUE
+    # S1's stray free form F binds B at steady state: with A or B zero the law network has
+    # a second closed class. The ε-network's closed-class count sees the same split, so
+    # admission alone rejects those faces too; the guard reports class 3, which runs first.
+    s1 = _testhelper_tag_sets["S1"]
+    @test EnzymeRates._admission_interior(s1) == EnzymeRates._WELL_POSED
+    @test _testhelper_admission_faults(s1) == [NO, NO, NU, NU, NU]
+    @test EnzymeRates._guard(s1).fault === NU
+    @test all(_testhelper_admission_agreement(s1; rng))
+    v = EnzymeRates._admission(s1)
+    @test (v.fault, v.face) === (EnzymeRates._EPS_NONUNIQUE, 3)
+    @test startswith(EnzymeRates._guard_message(s1, v),
+                     "AllostericMechanism: at zero A and B, the forms ")
+    # AD7b: with I zero no spanning in-tree reaches the fed forms, so the face condition
+    # passes and class 3 decides.
+    ad7b = _testhelper_tag_sets["AD7b"]
+    @test EnzymeRates._admission(ad7b) == EnzymeRates._WELL_POSED
+    @test _testhelper_admission_faults(ad7b) == [NO, NO, NO, NU, NU, NU]
+    @test all(_testhelper_admission_agreement(ad7b; rng))
+end
+
+@testset "joint R1 catches a tree that only both conformations' bridges shorten" begin
+    # The in-tree costs where each conformation passes R1 and both together fail it,
+    # written in the guard's own type: the smallest network that shows the pattern, for
+    # the in-tree arithmetic.
+    # Copy A holds E and X (nodes 1, 2), copy I holds E, Y and Z (nodes 4, 5, 6), and the
+    # flip joins the two copies of E. Alone, copy A's vanishing E → X and copy I's
+    # vanishing Y → E each leave the cheapest spanning in-tree at one slow transition;
+    # together they make it free, rooted at X. Transitions in order: E→X slow, X→E slow,
+    # E→X fast and vanishing (copy A); E→Y fast, Y→Z slow, Z→Y fast, Z→E slow, Y→E fast and
+    # vanishing (copy I); the flip. Only the transitions these costs need are present, so
+    # most lack the reverse partner a mechanism's would have; the face condition reads the
+    # partners only on a stranded basin, which this network has none of.
+    net = EnzymeRates._Network(3, 2, BitVector([1, 1, 0, 1, 1, 1]),
+        [1, 2, 1, 4, 5, 6, 6, 5, 1, 4],                  # from
+        [2, 1, 2, 5, 6, 5, 4, 4, 4, 1],                  # to
+        [1, 1, 2, 3, 4, 5, 6, 7, 0, 0],                  # edge
+        [1, 1, 1, 2, 2, 2, 2, 2, 0, 0],                  # conformation
+        BitVector([1, 0, 1, 1, 1, 1, 1, 1, 1, 0]),       # forward
+        BitVector([0, 0, 1, 1, 0, 1, 0, 1, 1, 1]),       # fast
+        BitVector([0, 0, 1, 0, 0, 0, 0, 1, 0, 0]),       # vanishing
+        zeros(Int, 1, 10), zeros(UInt64, 10))
+    s = EnzymeRates._face_sets(net, net.present, UInt64(0))
+    nodes = s.fed .& .!s.stranded
+    @test nodes == net.present
+    @test EnzymeRates._fewest_slow(net, nodes, s.n0) == 1
+    for c in 1:2
+        (; van) = EnzymeRates._copy_transitions(net, s.alive, nodes, c)
+        @test count(van) == 1
+        @test !EnzymeRates._bridges_jointly(net, nodes, s.n0, van)
+    end
+    @test EnzymeRates._fewest_slow(net, nodes, s.alive) == 0
+    @test EnzymeRates._face_condition(net, net.present, UInt64(0), 1) ==
+          EnzymeRates._Verdict(EnzymeRates._BRIDGE, EnzymeRates._LIMIT_UNTESTED, 0, 0, 0)
+    # The in-tree test reports -1 when no in-tree spans the nodes: nodes 2 and 6 share no
+    # transition.
+    @test EnzymeRates._fewest_slow(net, BitVector([0, 1, 0, 0, 0, 1]), trues(10)) == -1
+    # T0+'s potential: the copy-I cycle E → Y → Z → E taking up one first substrate is no
+    # potential; without its first transition the cycle is broken and one exists.
+    change = zeros(Int, 1, 10)
+    change[1, 4] = 1
+    turning = EnzymeRates._Network(net.nforms, net.ncopies, net.present, net.from, net.to,
+        net.edge, net.conformation, net.forward, net.fast, net.vanishing, change, net.takes)
+    @test EnzymeRates._potential_on_sccs(net, trues(10), 1)
+    @test !EnzymeRates._potential_on_sccs(turning, trues(10), 1)
+    broken = BitVector([1, 1, 1, 0, 1, 1, 1, 1, 1, 1])
+    @test EnzymeRates._potential_on_sccs(turning, broken, 1)
+end

@@ -136,7 +136,10 @@ classes (`_LAW_MULTI`) or an aggregated chain with several (`_MULTILEVEL`); in a
 interior (class 4, spec section 7), a tagged binding whose two sides the conformation's
 other steps join (`_NO_LIMIT`), tagged bindings that close a directed cycle
 (`_ARC_CYCLE`), or forms free E's component does not reach along the tagged bindings
-(`_ISLAND`).
+(`_ISLAND`); on a face, in admission's face condition, a second closed class of the
+ε-network (`_EPS_NONUNIQUE`), a stranded basin a step feeds that does not run back from the
+law's forms (`_PUMPED`), or tagged steps that shorten the fed forms' cheapest spanning
+in-tree where no potential absorbs their turnover (`_BRIDGE`).
 """
 @enum _Fault::UInt8 begin
     _NO_FAULT
@@ -151,10 +154,14 @@ other steps join (`_NO_LIMIT`), tagged bindings that close a directed cycle
     _NO_LIMIT
     _ARC_CYCLE
     _ISLAND
+    _EPS_NONUNIQUE
+    _PUMPED
+    _BRIDGE
 end
 
 """The faults admission reports (spec section 7); `_admission_message` writes their text."""
-const _ADMISSION_FAULTS = (_NO_LIMIT, _ARC_CYCLE, _ISLAND)
+const _ADMISSION_FAULTS = (_NO_LIMIT, _ARC_CYCLE, _ISLAND, _EPS_NONUNIQUE, _PUMPED,
+                           _BRIDGE)
 
 """
 The limit test's verdict on a face (class 3): not run (`_LIMIT_UNTESTED`); the fast-RE
@@ -439,9 +446,10 @@ The well-posedness guard (spec section 8) on `m`, plain or allosteric: class 1 (
 turns the reaction over, `_has_turnover_cycle`); class 2 (no cycle of fast transitions
 does, `_re_turnover_transitions`, on the ε-network, where an excluded rapid-equilibrium
 binding stays fast while its affinity vanishes); for an allosteric mechanism, admission's
-interior (`_admission_interior`); then class 3 on every face (`_check_face`, on the law
-network), the first fault winning. `_WELL_POSED` when every check passes. It reads the
-reaction graph through masks and builds nothing.
+interior (`_admission_interior`); then on every face class 3 (`_check_face`, on the law
+network) and, for an allosteric mechanism, admission's face condition (`_admission_face`,
+on the ε-network), the first fault winning. `_WELL_POSED` when every check passes. It
+reads the reaction graph through masks and builds nothing.
 """
 function _guard(m::Mechanism)
     _has_turnover_cycle(m, trues(length(m.edges))) ||
@@ -455,11 +463,19 @@ function _guard(am::AllostericMechanism)
     m = am.catalytic
     _has_turnover_cycle(m, trues(length(m.edges))) ||
         return _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0)
-    v = _re_turnover_verdict(_eps_network(am))
+    eps = _eps_network(am)
+    v = _re_turnover_verdict(eps)
     v === _WELL_POSED || return v
     v = _admission_interior(am)
     v === _WELL_POSED || return v
-    _faces_verdict(am, _law_network(am))
+    law, faces = _law_network(am), _faces(m)
+    for i in eachindex(faces)
+        v = _check_face(am, law, faces, i)
+        v.fault === _NO_FAULT || return v
+        v = _admission_face(am, eps, law, faces, i)
+        v.fault === _NO_FAULT || return v
+    end
+    _WELL_POSED
 end
 
 """Class 2's verdict on the ε-network `net`: `_RE_TURNOVER` in the conformation of the
@@ -474,10 +490,10 @@ end
 
 # ─── Class 3: procedure A on every face ────────────────────────────────
 
-"""The closed classes (bottom strongly connected components) of the digraph with successor
-lists `next`, over the nodes `nodes` marks, by Tarjan's algorithm, each as its sorted
-nodes; a node with no successor is a class of its own."""
-function _bottom_sccs(next::Vector{Vector{Int}}, nodes::BitVector)
+"""Each node's strongly connected component in the digraph with successor lists `next`,
+searched from the nodes `nodes` marks, numbered in the order Tarjan's algorithm closes
+them; 0 for a node no search reaches."""
+function _strong_components(next::Vector{Vector{Int}}, nodes::BitVector)
     n = length(next)
     index, low, comp = zeros(Int, n), zeros(Int, n), zeros(Int, n)
     onstack, stack, work = falses(n), Int[], Tuple{Int, Int}[]
@@ -518,12 +534,21 @@ function _bottom_sccs(next::Vector{Vector{Int}}, nodes::BitVector)
             end
         end
     end
+    comp
+end
+
+"""The closed classes (bottom strongly connected components, `_strong_components`) of the
+digraph with successor lists `next`, over the nodes `nodes` marks, each as its sorted
+nodes; a node with no successor is a class of its own."""
+function _bottom_sccs(next::Vector{Vector{Int}}, nodes::BitVector)
+    comp = _strong_components(next, nodes)
+    ncomp = maximum(comp; init = 0)
     leaves = falses(ncomp)
-    for u in 1:n, v in next[u]
+    for u in eachindex(next), v in next[u]
         nodes[u] && comp[u] != comp[v] && (leaves[comp[u]] = true)
     end
     classes = [Int[] for _ in 1:ncomp]
-    for u in 1:n
+    for u in eachindex(next)
         nodes[u] && push!(classes[comp[u]], u)
     end
     [classes[k] for k in 1:ncomp if !leaves[k]]
@@ -1582,7 +1607,7 @@ end
 
 """
 Whether `am` with the kinetic group of each edge in `ks` tagged `tag` passes the guard
-(`_guard`). Every fix admission's messages print is checked this way.
+(`_guard`). Every fix that retags steps in admission's messages is checked this way.
 """
 function _retag_passes(am::AllostericMechanism, ks, tag::Symbol)
     states = copy(cat_allo_states(am))
@@ -1647,9 +1672,342 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
               "such as $(line(k)), so their weight depends on how fast those steps vanish."
         return c == 2 && fixable ?
                msg * " Tag the group of $(line(k)) :EqualAI or :NonequalAI." : msg
+    elseif v.fault in (_EPS_NONUNIQUE, _PUMPED, _BRIDGE)
+        eps, law = _eps_network(am), _law_network(am)
+        faces = _faces(m)
+        face = faces[v.face]
+        phrase = _face_phrase(m, face)
+        s = _face_sets(eps, law.present, face)
+        if v.fault === _EPS_NONUNIQUE
+            unfed = _unfed_class(_closed_classes(eps, s.alive), s.fed)
+            forms = [_form_text(m, _form_of(eps, u)) *
+                     (_copy_of(eps, u) == 1 ? " (active)" : " (inactive)") for u in unfed]
+            return "AllostericMechanism: $(phrase)the forms $(join(forms, ", ")) " *
+                   "hold the enzyme they receive and are reached only through tagged " *
+                   "steps, so the steady state depends on where the enzyme starts."
+        elseif v.fault === _PUMPED
+            basin = [u for u in findall(s.stranded) if _copy_of(eps, u) == c]
+            exits = unique!([eps.edge[t] for t in eachindex(eps.from)
+                             if s.alive[t] && eps.vanishing[t] && eps.from[t] in basin &&
+                                !s.stranded[eps.to[t]]])
+            out = isempty(exits) ?
+                "which no step running there leaves, so the enzyme collects in them" :
+                "which leave only through the vanishing steps $(lines(exits)) while " *
+                "nothing runs back the way it came, so their weight depends on how fast " *
+                "those steps vanish"
+            return "AllostericMechanism: $(phrase)$(line(k)) feeds the forms " *
+                   "$(join([_form_text(m, _form_of(eps, u)) for u in basin], ", ")) of " *
+                   "the $conf conformation, $out."
+        elseif c == 0
+            return "AllostericMechanism: $(phrase)the tagged steps of both " *
+                   "conformations together bridge forms that each conformation's other " *
+                   "steps keep apart, so the limit depends on how fast those steps vanish."
+        end
+        nodes = s.fed .& .!s.stranded
+        (; van) = _copy_transitions(eps, s.alive, nodes, c)
+        ks = _bridging_edges(eps, nodes, s.n0, van)
+        bridge = length(ks) == 1 ? "step $(line(k)) bridges" : "steps $(lines(ks)) bridge"
+        msg = "AllostericMechanism: $(phrase)the $tag $bridge forms of the $conf " *
+              "conformation that its other steps keep apart, so the limit depends on how " *
+              "fast the tagged constants vanish."
+        # Offer the steady-state fix only where its variant passes the guard: R2funnel
+        # keeps its bridge with its tagged S binding steady-state (R2funnel_SS).
+        re = _flags(m)
+        re[_group_members(m)[m.group[k]]] .= false
+        return _guard(_build(_raw(am, re))) === _WELL_POSED ?
+               msg * " Make the group of $(line(k)) steady-state." : msg
     else
         error("_admission_message: $(v.fault) is no admission fault")
     end
+end
+
+# ─── Admission: the face condition B v3 ────────────────────────────────
+
+"""The nodes of `net` that the nodes `start` reach along the transitions `keep` flags,
+`start` included; against the transitions' direction when `backward`."""
+function _reach(net::_Network, keep::BitVector, start::BitVector, backward::Bool)
+    seen = copy(start)
+    todo = findall(seen)
+    while !isempty(todo)
+        u = pop!(todo)
+        for t in eachindex(net.from)
+            keep[t] || continue
+            a, b = backward ? (net.to[t], net.from[t]) : (net.from[t], net.to[t])
+            a == u && !seen[b] && (seen[b] = true; push!(todo, b))
+        end
+    end
+    seen
+end
+
+"""
+    _face_sets(net, law_nodes, face) -> (; alive, fed, n0, stranded)
+
+What admission's face condition reads on face `face` of the ε-network `net`, whose law
+network holds the nodes `law_nodes`: the transitions alive there (taking up no zeroed
+name), the nodes free E's active copy reaches along them, the alive transitions that do
+not vanish, and the stranded basin: fed nodes outside the law network that reach it along
+no chain of alive transitions that do not vanish.
+"""
+function _face_sets(net::_Network, law_nodes::BitVector, face::UInt64)
+    alive = BitVector([(net.takes[t] & face) == 0 for t in eachindex(net.takes)])
+    n0 = alive .& .!net.vanishing
+    start = falses(length(net.present))
+    start[_node(net, 1, 1)] = true
+    fed = _reach(net, alive, start, false)
+    drains = _reach(net, n0, law_nodes .& net.present, true)
+    (; alive, fed, n0, stranded = fed .& .!law_nodes .& .!drains)
+end
+
+"""Copy `c`'s alive transitions with both ends in `nodes`: `van`, those that vanish with
+their tags, and `held`, those T0+ reads (not vanishing, or fast)."""
+function _copy_transitions(net::_Network, alive::BitVector, nodes::BitVector, c::Int)
+    van, held = falses(length(net.from)), falses(length(net.from))
+    for t in eachindex(net.from)
+        alive[t] && net.conformation[t] == c && nodes[net.from[t]] && nodes[net.to[t]] ||
+            continue
+        van[t] = net.vanishing[t]
+        held[t] = !net.vanishing[t] || net.fast[t]
+    end
+    (; van, held)
+end
+
+"""
+The cost of a cheapest spanning out-arborescence of the nodes `1:n` rooted at `root` over
+`arcs`, each `(from, to, cost)`, by Chu–Liu/Edmonds: take each node's cheapest entering
+arc, contract the cycles they close and repeat; -1 when some node has no entering arc.
+"""
+function _min_arborescence(n::Int, arcs::Vector{NTuple{3, Int}}, root::Int)
+    INF = typemax(Int) ÷ 4
+    cost = 0
+    while true
+        inw, pre = fill(INF, n), zeros(Int, n)
+        for (u, v, w) in arcs
+            u != v && w < inw[v] && (inw[v] = w; pre[v] = u)
+        end
+        for v in 1:n
+            v != root && inw[v] == INF && return -1
+        end
+        inw[root] = 0
+        id, vis = zeros(Int, n), zeros(Int, n)
+        cnt = 0
+        for v in 1:n
+            cost += inw[v]
+            x = v
+            while vis[x] != v && id[x] == 0 && x != root
+                vis[x] = v
+                x = pre[x]
+            end
+            if x != root && id[x] == 0
+                cnt += 1
+                y = pre[x]
+                while y != x
+                    id[y] = cnt
+                    y = pre[y]
+                end
+                id[x] = cnt
+            end
+        end
+        cnt == 0 && return cost
+        for v in 1:n
+            id[v] == 0 && (cnt += 1; id[v] = cnt)
+        end
+        next = NTuple{3, Int}[]
+        for (u, v, w) in arcs
+            id[u] != id[v] && push!(next, (id[u], id[v], w - inw[v]))
+        end
+        arcs, n, root = next, cnt, id[root]
+    end
+end
+
+"""
+    _fewest_slow(net, nodes, keep) -> Int
+
+MINSLOW: the fewest slow transitions in a spanning in-tree of the nodes `nodes` over the
+transitions `keep` flags (cost 1 slow, 0 fast), any root; -1 when no in-tree spans them. A
+virtual root joined to every node at a cost above any tree's turns the in-tree into
+Chu–Liu/Edmonds's out-arborescence (`_min_arborescence`) on reversed transitions; a cost of
+two such joins means no single root serves.
+"""
+function _fewest_slow(net::_Network, nodes::BitVector, keep::BitVector)
+    at = zeros(Int, length(nodes))
+    n = 0
+    for u in eachindex(nodes)
+        nodes[u] && (n += 1; at[u] = n)
+    end
+    arcs = NTuple{3, Int}[]
+    for t in eachindex(net.from)
+        a, b = at[net.from[t]], at[net.to[t]]
+        keep[t] && a != 0 && b != 0 && push!(arcs, (b, a, net.fast[t] ? 0 : 1))
+    end
+    for u in 1:n
+        push!(arcs, (n + 1, u, n + 1))
+    end
+    c = _min_arborescence(n + 1, arcs, n + 1)
+    c < 0 || c >= 2 * (n + 1) ? -1 : c - (n + 1)
+end
+
+"""
+    _potential_on_sccs(net, keep, x) -> Bool
+
+T0+: whether the uptake of name `x` (a `change` row, `_turnover_name`) is a potential on
+every strongly connected part (`_strong_components`) of the transitions `keep` flags, so
+no cycle of them turns the reaction over.
+"""
+function _potential_on_sccs(net::_Network, keep::BitVector, x::Int)
+    n = length(net.present)
+    next = [Int[] for _ in 1:n]
+    for t in eachindex(net.from)
+        keep[t] && push!(next[net.from[t]], net.to[t])
+    end
+    comp = _strong_components(next, net.present)
+    adj = [Tuple{Int, Int}[] for _ in 1:n]
+    for t in eachindex(net.from)
+        u, v = net.from[t], net.to[t]
+        keep[t] && comp[u] == comp[v] || continue
+        push!(adj[u], (v, net.change[x, t]))
+        push!(adj[v], (u, -net.change[x, t]))
+    end
+    h, seen = zeros(Int, n), falses(n)
+    for s in 1:n
+        seen[s] && continue
+        seen[s] = true
+        todo = [s]
+        while !isempty(todo)
+            u = pop!(todo)
+            for (v, w) in adj[u]
+                if !seen[v]
+                    seen[v] = true
+                    h[v] = h[u] + w
+                    push!(todo, v)
+                elseif h[v] != h[u] + w
+                    return false
+                end
+            end
+        end
+    end
+    true
+end
+
+"""Whether the transitions `vanishing` shorten the cheapest spanning in-tree of `fed` over
+`base` (`_fewest_slow`): R1's failure for one conformation's vanishing transitions, joint
+R1's for both."""
+function _bridges_jointly(net::_Network, fed::BitVector, base::BitVector,
+                          vanishing::BitVector)
+    without = _fewest_slow(net, fed, base)
+    with = _fewest_slow(net, fed, base .| vanishing)
+    with >= 0 && (without < 0 || with < without)
+end
+
+"""
+The edges of the vanishing transitions on a cheapest spanning in-tree of `nodes` over
+`base` and `van` (`_BRIDGE`), in transition order: an inclusion-minimal set of the
+transitions `van` with which `base` still gives that tree's cost (`_fewest_slow`), so
+every such tree uses each of them.
+"""
+function _bridging_edges(net::_Network, nodes::BitVector, base::BitVector, van::BitVector)
+    best = _fewest_slow(net, nodes, base .| van)
+    kept = copy(van)
+    for t in eachindex(van)
+        kept[t] || continue
+        kept[t] = false
+        _fewest_slow(net, nodes, base .| kept) == best || (kept[t] = true)
+    end
+    unique!([net.edge[t] for t in findall(kept)])
+end
+
+"""Of two or more closed classes, the first that no `fed` node lies in, else the second:
+the class an `_EPS_NONUNIQUE` verdict names."""
+function _unfed_class(closed::Vector{Vector{Int}}, fed::BitVector)
+    for cls in closed
+        any(view(fed, cls)) || return cls
+    end
+    closed[2]
+end
+
+"""How a message names face `face` of `m`, as the class-3 messages do: nothing for the
+interior, else `at zero ` and its zeroed names (`_face_names`), then a comma."""
+_face_phrase(m::Mechanism, face::UInt64) =
+    face == 0 ? "" : "at zero " * join(String.(_face_names(m, face)), ", ", " and ") * ", "
+
+"""
+    _face_condition(net, law_nodes, face, x) -> _Verdict
+
+Admission's face condition, B v3, on face `face` of the ε-network `net` of an allosteric
+mechanism, whose law network holds the nodes `law_nodes`; `x` is the `change` row of its
+first substrate (`_turnover_name`). In order:
+- `_EPS_NONUNIQUE`: the alive transitions leave two closed classes, so at every ε the
+  steady state depends on where the enzyme starts;
+- `_PUMPED`: a stranded basin (`_face_sets`) is entered by, or holds, an alive transition
+  whose reverse is dead, or is entered from outside it and the law network, so its weight
+  depends on how fast its exits vanish; a basin entered only reversibly from the law
+  network is sealed: its weight vanishes, and it leaves the fed nodes;
+- `_BRIDGE`: in some conformation the vanishing transitions shorten the cheapest spanning
+  in-tree of the fed nodes (R1 fails, `_bridges_jointly`) and the first substrate's uptake
+  is no potential on the strongly connected parts of its alive transitions that are not
+  vanishing or are fast (T0+ fails, `_potential_on_sccs`), led by the first of its
+  vanishing steps on a cheapest tree (`_bridging_edges`); or both conformations pass R1 and
+  their vanishing transitions together shorten it (joint R1, no conformation or step).
+A face whose fed nodes no in-tree spans passes: class 3 decides it. The verdict leaves the
+face index 0 (`_admission_face` sets it).
+"""
+function _face_condition(net::_Network, law_nodes::BitVector, face::UInt64, x::Int)
+    s = _face_sets(net, law_nodes, face)
+    closed = _closed_classes(net, s.alive)
+    length(closed) > 1 && return _Verdict(_EPS_NONUNIQUE, _LIMIT_UNTESTED, 0,
+                                          _copy_of(net, _unfed_class(closed, s.fed)[1]), 0)
+    for t in eachindex(net.from)
+        u, w = net.from[t], net.to[t]
+        s.alive[t] && s.fed[u] && s.stranded[w] || continue
+        s.alive[isodd(t) ? t + 1 : t - 1] && (s.stranded[u] || law_nodes[u]) && continue
+        return _Verdict(_PUMPED, _LIMIT_UNTESTED, 0, net.conformation[t], net.edge[t])
+    end
+    nodes = s.fed .& .!s.stranded
+    _fewest_slow(net, nodes, s.n0) < 0 && return _WELL_POSED
+    passed = 0
+    for c in 1:net.ncopies
+        (; van, held) = _copy_transitions(net, s.alive, nodes, c)
+        any(van) || continue
+        if !_bridges_jointly(net, nodes, s.n0, van)
+            passed += 1
+        elseif !_potential_on_sccs(net, held, x)
+            return _Verdict(_BRIDGE, _LIMIT_UNTESTED, 0, c,
+                            first(_bridging_edges(net, nodes, s.n0, van)))
+        end
+    end
+    passed == 2 && _bridges_jointly(net, nodes, s.n0, s.alive .& net.vanishing) &&
+        return _Verdict(_BRIDGE, _LIMIT_UNTESTED, 0, 0, 0)
+    _WELL_POSED
+end
+
+"""
+    _admission_face(am, eps, law, faces, i) -> _Verdict
+
+Admission's face condition (`_face_condition`) on face `faces[i]` of `am`, from its
+ε-network `eps` and law network `law`; a rejection carries the face index `i`.
+"""
+function _admission_face(am::AllostericMechanism, eps::_Network, law::_Network,
+                         faces::Vector{UInt64}, i::Int)
+    v = _face_condition(eps, law.present, faces[i], _turnover_name(am.catalytic))
+    v.fault === _NO_FAULT ? v : _Verdict(v.fault, v.limit, i, v.conformation, v.edge)
+end
+
+"""
+    _admission(am) -> _Verdict
+
+Admission alone (spec section 7): the interior checks (`_admission_interior`), then the
+face condition on every face (`_admission_face`), class 3 not run, as the tagging and
+change-tag moves filter their children.
+"""
+function _admission(am::AllostericMechanism)
+    v = _admission_interior(am)
+    v.fault === _NO_FAULT || return v
+    eps, law = _eps_network(am), _law_network(am)
+    faces = _faces(am.catalytic)
+    for i in eachindex(faces)
+        v = _admission_face(am, eps, law, faces, i)
+        v.fault === _NO_FAULT || return v
+    end
+    _WELL_POSED
 end
 
 # ─── Guard messages ────────────────────────────────────────────────────

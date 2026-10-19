@@ -1681,6 +1681,53 @@ function _testhelper_names_its_step(m, v::EnzymeRates._Verdict)
     occursin(": at zero ", msg) && occursin(line, msg)
 end
 
+"""The faults class 3 reports on a face (`_check_face`): the faces the RE-speed oracle
+judges."""
+const _testhelper_class3_faults = (EnzymeRates._NONUNIQUE, EnzymeRates._BOTTOMLESS,
+    EnzymeRates._TRAP, EnzymeRates._SPLIT, EnzymeRates._LAW_MULTI, EnzymeRates._MULTILEVEL)
+
+"""
+The guard's fault on each face of the allosteric mechanism `am`, in the order of `_faces`
+(and `_testhelper_faces`), after its interior checks pass: class 3's where `_check_face`
+rejects the face, else that of admission's face condition (`_admission_face`).
+"""
+function _testhelper_admission_faults(am)
+    eps, law = EnzymeRates._eps_network(am), EnzymeRates._law_network(am)
+    faces = EnzymeRates._faces(am.catalytic)
+    map(eachindex(faces)) do i
+        v = EnzymeRates._check_face(am, law, faces, i)
+        v.fault === EnzymeRates._NO_FAULT ?
+            EnzymeRates._admission_face(am, eps, law, faces, i).fault : v.fault
+    end
+end
+
+"""Whether admission's `fault` on a face agrees with the ε-path oracle's `verdict` there:
+an accepted face converges, a rejected one does not."""
+_testhelper_admission_agrees(fault::EnzymeRates._Fault, verdict::Symbol) =
+    fault === EnzymeRates._NO_FAULT ? verdict === :converges :
+    verdict in (:no_path, :del_nonunique, :nonunique, :direction_dependent, :wrong_limit)
+
+"""
+Whether the guard's fault on each face of the allosteric mechanism `am`
+(`_testhelper_admission_faults`) agrees with the oracle that judges it: a class-3 fault
+with the RE-speed oracle (`_testhelper_agrees`), an admission fault with the ε-path oracle
+(`_testhelper_admission_agrees`), and an accepted face with both. The RE-speed oracle
+compares with its own deletion limit (`law = :limit`): the package cannot derive the law
+of a mechanism the guard rejects. One `Bool` per face.
+"""
+function _testhelper_admission_agreement(am; rng)
+    faults = _testhelper_admission_faults(am)
+    faces = _testhelper_faces(am)
+    respeed = _testhelper_respeed_verdicts(am; rng, law = :limit)
+    map(eachindex(faults)) do i
+        f = faults[i]
+        f in _testhelper_class3_faults && return _testhelper_agrees(f, respeed[i])
+        epath = _testhelper_admission_agrees(f, _testhelper_epath_verdict(am; rng,
+                                                                          face = faces[i]))
+        f === EnzymeRates._NO_FAULT ? epath && respeed[i] === :agree : epath
+    end
+end
+
 # ── Mechanism test specifications ───────────────────────────────────────────
 
 const MECHANISM_TEST_SPECS = _testhelper_MechanismTestSpec[]
