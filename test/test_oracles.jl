@@ -1080,6 +1080,16 @@ const _testhelper_inhibitor_rxn = @enzyme_reaction begin
     competitive_inhibitors: A, I
 end
 
+"""`m` built by the constructors, without the guard, from its raw form (`_raw`) with
+`graph` applied to its catalytic `RawMechanism` and `site` to each `RawSite`."""
+function _testhelper_rebuilt(m, graph, site = identity)
+    raw = EnzymeRates._raw(m)
+    m isa EnzymeRates.Mechanism && return EnzymeRates.Mechanism(graph(raw))
+    EnzymeRates.AllostericMechanism(EnzymeRates.RawAllostericMechanism(
+        graph(raw.catalytic), raw.cat_allo_states, raw.catalytic_multiplicity,
+        EnzymeRates.RawSite[site(s) for s in raw.sites]))
+end
+
 """`m` with every metabolite renamed by `rename`, built by the constructors from its raw
 form (`_raw`), without the guard."""
 function _testhelper_renamed(m, rename::Dict{Symbol, Symbol})
@@ -1095,19 +1105,19 @@ function _testhelper_renamed(m, rename::Dict{Symbol, Symbol})
     _testhelper_raw_graph(c::EnzymeRates.RawMechanism) = EnzymeRates.RawMechanism(
         Symbol[r(x) for x in c.substrates], Symbol[r(x) for x in c.products],
         Symbol[r(x) for x in c.modifiers],
-        EnzymeRates.RawStep[_testhelper_raw_step(s) for s in c.steps], copy(c.group))
-    raw = EnzymeRates._raw(m)
-    m isa EnzymeRates.Mechanism && return EnzymeRates.Mechanism(_testhelper_raw_graph(raw))
-    EnzymeRates.AllostericMechanism(EnzymeRates.RawAllostericMechanism(
-        _testhelper_raw_graph(raw.catalytic), copy(raw.cat_allo_states),
-        raw.catalytic_multiplicity,
-        [EnzymeRates.RawSite(Symbol[r(x) for x in s.ligands], s.multiplicity,
-                             copy(s.allo_states)) for s in raw.sites]))
+        EnzymeRates.RawStep[_testhelper_raw_step(s) for s in c.steps], c.group)
+    _testhelper_raw_site(s::EnzymeRates.RawSite) =
+        EnzymeRates.RawSite(Symbol[r(x) for x in s.ligands], s.multiplicity, s.allo_states)
+    _testhelper_rebuilt(m, _testhelper_raw_graph, _testhelper_raw_site)
 end
 
 """The renaming of `m`'s metabolites that reverses their name order, so the table order and
-the first substrate change: the first name in order becomes `Z`, the next `Y`, and so on,
-skipping the reserved `N` and `L`."""
+the first substrate change. In sorted order the names become `Z`, `Y`, `X`, `W`, `U`, `T`,
+`R`, `M`, `H` and `G`, so `m` holds at most ten metabolites (with more, the slice throws a
+`BoundsError`). The letters descend, so the order reverses. None of them is a name no
+metabolite may take (`E`, `L`, `N`) or the conformation label `F`, and none is a metabolite
+name of the population sample or of the four rejected fixtures below (`A`, `B`, `P`, `Q`
+and `S`), so every name changes."""
 function _testhelper_reversing_rename(m)
     names = sort(EnzymeRates.metabolites(m))
     Dict(zip(names, [:Z, :Y, :X, :W, :U, :T, :R, :M, :H, :G][1:length(names)]))
@@ -1121,11 +1131,7 @@ function _testhelper_written_backwards(m)
     _testhelper_raw_graph(c::EnzymeRates.RawMechanism) = EnzymeRates.RawMechanism(
         c.substrates, c.products, c.modifiers, reverse(_testhelper_turn.(c.steps)),
         reverse(c.group))
-    raw = EnzymeRates._raw(m)
-    m isa EnzymeRates.Mechanism && return EnzymeRates.Mechanism(_testhelper_raw_graph(raw))
-    EnzymeRates.AllostericMechanism(EnzymeRates.RawAllostericMechanism(
-        _testhelper_raw_graph(raw.catalytic), raw.cat_allo_states,
-        raw.catalytic_multiplicity, raw.sites))
+    _testhelper_rebuilt(m, _testhelper_raw_graph)
 end
 
 @testset "the guard equals the RE-speed oracle on every face of the population sample" begin
@@ -1177,10 +1183,9 @@ let children = [c for m in EnzymeRates.init_mechanisms(_testhelper_inhibitor_rxn
     # guard, so expand_mechanisms drops none of them, and no allosteric child tags a
     # catalytic group :OnlyI (spec section 13). An aggregate regression pin over the
     # declaration's whole seed set (CLAUDE.md enumeration rule 1's exception).
-    kids = children
-    @test length(kids) == 5505
-    @test count(!EnzymeRates._is_well_posed, kids) == 0
-    allo = [c for c in kids if c isa EnzymeRates.AllostericMechanism]
+    @test length(children) == 5505
+    @test count(!EnzymeRates._is_well_posed, children) == 0
+    allo = [c for c in children if c isa EnzymeRates.AllostericMechanism]
     @test !isempty(allo)
     @test all(c -> :OnlyI ∉ EnzymeRates.cat_allo_states(c), allo)
 end
