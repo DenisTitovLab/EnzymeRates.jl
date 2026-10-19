@@ -1413,11 +1413,12 @@ is the proof that the copy's constant is invisible, and without it the constant 
 identifiable. Two copies that are twins only of each other, neither pinned, pass the test
 and carry a phantom: the rule admits them.
 
-An allosteric copy binds the active state always and the inactive state unless its tag is
-`:OnlyA`. The inactive state's graph is `_inactive_mask(am)`: the edges outside `:OnlyA`
-groups between forms that such edges join to free E. The copy binds there only at
-the sites that graph keeps, and a free-enzyme site is always among them. In a state where
-the copy binds nothing, every factor of that state is 1. The two states form one system.
+An allosteric copy binds the active state unless its tag is `:OnlyI` and the inactive
+state unless it is `:OnlyA`. Each state's graph is its law's (`_active_mask`,
+`_inactive_mask`): the edges its tags keep between forms they join to free E. The copy
+binds in a state only at the sites that graph keeps; in a state where it binds nothing,
+every factor of that state is 1. A copy that binds in neither state is not redundant: its
+constant enters neither law and is not fitted. The two states form one system.
 A group tagged `:EqualAI` has one set of constants in both, so it must take the same
 rescaling in each. A shared class is one number in both states only when its binding
 group and the copy are both `:EqualAI` (one K_h, one K*). The copy's complexes share one

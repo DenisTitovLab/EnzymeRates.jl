@@ -3612,9 +3612,9 @@ end
 end
 
 @testset "_redundant_copy_groups builds each conformation from its own law" begin
-    # The thirteen :OnlyI fixtures: the copy rule reads the active conformation without
-    # its :OnlyI groups and the inactive one without its :OnlyA groups; it flags none of
-    # them.
+    # An aggregate regression pin over the thirteen :OnlyI fixtures: the copy rule reads
+    # the active conformation without its :OnlyI groups and the inactive one without its
+    # :OnlyA groups, and it flags none of them.
     for (label, am) in pairs(_testhelper_onlyi_fixtures())
         @test (label, EnzymeRates._redundant_copy_groups(am)) == (label, Int[])
     end

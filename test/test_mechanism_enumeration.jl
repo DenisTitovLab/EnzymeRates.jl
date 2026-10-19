@@ -9559,6 +9559,67 @@ end
         _testhelper_identifiable_rank(all_onlya_with_onlya_copy) + 1
 end
 
+@testset "_redundant_copy_groups: an :OnlyI copy binds the inactive state alone" begin
+    ER = EnzymeRates
+    # The copy binds E in the inactive conformation, where E(S) is its twin and the
+    # :NonequalAI S binding's inactive constant absorbs it. Its binding at E(S, J) lies
+    # in neither law: the active law drops the :OnlyI group, and the inactive law prunes
+    # E(S, J) behind the :OnlyA J binding. Read over every step, E(S, J, S::Mod) would
+    # have no twin and the copy would be kept.
+    copy_beyond = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: S, J
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)                :: NonequalAI
+            E(S) <--> E(P)              :: OnlyA
+            E + P ⇌ E(P)                :: EqualAI
+            E(S) + J ⇌ E(S, J)          :: OnlyA
+            (E + S::Mod ⇌ E(S::Mod), E(S, J) + S::Mod ⇌ E(S, J, S::Mod)) :: OnlyI
+        end
+    end)
+    cm = copy_beyond.catalytic
+    g = only(unique(cm.group[k] for (k, e) in enumerate(cm.edges)
+                    if ER._bound_entry(e) == ER._entry(cm, ER.Met(:S, true))))
+    @test ER._redundant_copy_groups(copy_beyond) == [g]
+    @test _testhelper_fitted(copy_beyond) == _testhelper_identifiable_rank(copy_beyond) + 1
+    # Tagged :EqualAI, the copy also binds the active conformation, at E and at E(S, J),
+    # where E(S, J, S::Mod) has no twin: kept.
+    equalai_copy = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: S, J
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)                :: NonequalAI
+            E(S) <--> E(P)              :: OnlyA
+            E + P ⇌ E(P)                :: EqualAI
+            E(S) + J ⇌ E(S, J)          :: OnlyA
+            (E + S::Mod ⇌ E(S::Mod), E(S, J) + S::Mod ⇌ E(S, J, S::Mod)) :: EqualAI
+        end
+    end)
+    @test isempty(ER._redundant_copy_groups(equalai_copy))
+    @test _testhelper_fitted(equalai_copy) == _testhelper_identifiable_rank(equalai_copy)
+    # Every catalytic group is :OnlyA, so the inactive law holds free E alone, and the
+    # active law drops the :OnlyI I binding: the copy binds in neither state, and its
+    # constant is not fitted.
+    neither = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)                :: OnlyA
+            E(S) <--> E(P)              :: OnlyA
+            E + P ⇌ E(P)                :: OnlyA
+            E(S) + I ⇌ E(S, I)          :: OnlyI
+        end
+    end)
+    @test isempty(ER._redundant_copy_groups(neither))
+    @test _testhelper_fitted(neither) == _testhelper_identifiable_rank(neither) == 4
+end
+
 @testset "_redundant_copy_groups: every complex a twin and a consistent dwell gauge" begin
     # A copy group is redundant when every complex duplicates a productive form and the
     # dwell gauge exists: scale factors σ, ρ_class on
