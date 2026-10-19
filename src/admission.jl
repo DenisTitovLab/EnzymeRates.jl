@@ -1679,9 +1679,9 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
         phrase = _face_phrase(m, face)
         s = _face_sets(eps, law.present, face)
         if v.fault === _EPS_NONUNIQUE
-            unfed = _unfed_class(_closed_classes(eps, s.alive), s.fed)
+            outside = _class_outside_law(_closed_classes(eps, s.alive), law.present)
             forms = [_form_text(m, _form_of(eps, u)) *
-                     (_copy_of(eps, u) == 1 ? " (active)" : " (inactive)") for u in unfed]
+                     (_copy_of(eps, u) == 1 ? " (active)" : " (inactive)") for u in outside]
             return "AllostericMechanism: $(phrase)the forms $(join(forms, ", ")) " *
                    "hold the enzyme they receive and are reached only through tagged " *
                    "steps, so the steady state depends on where the enzyme starts."
@@ -1915,11 +1915,16 @@ function _bridging_edges(net::_Network, nodes::BitVector, base::BitVector, van::
     unique!([net.edge[t] for t in findall(kept)])
 end
 
-"""Of two or more closed classes, the first that no `fed` node lies in, else the second:
-the class an `_EPS_NONUNIQUE` verdict names."""
-function _unfed_class(closed::Vector{Vector{Int}}, fed::BitVector)
+"""
+Of two or more closed classes of the ε-network, the first that holds no node `law_nodes`
+marks, else the second: the class an `_EPS_NONUNIQUE` verdict names. Whenever class 3 has
+accepted the face such a class exists, because a closed class of the ε-network that holds
+a law node holds a closed class of the law network, and class 3 leaves that network only
+one. The fallback arises only from `_admission` on a face that class 3 rejects.
+"""
+function _class_outside_law(closed::Vector{Vector{Int}}, law_nodes::BitVector)
     for cls in closed
-        any(view(fed, cls)) || return cls
+        any(view(law_nodes, cls)) || return cls
     end
     closed[2]
 end
@@ -1936,7 +1941,8 @@ Admission's face condition, B v3, on face `face` of the ε-network `net` of an a
 mechanism, whose law network holds the nodes `law_nodes`; `x` is the `change` row of its
 first substrate (`_turnover_name`). In order:
 - `_EPS_NONUNIQUE`: the alive transitions leave two closed classes, so at every ε the
-  steady state depends on where the enzyme starts;
+  steady state depends on where the enzyme starts; the verdict names the closed class
+  outside the law network (`_class_outside_law`);
 - `_PUMPED`: a stranded basin (`_face_sets`) is entered by, or holds, an alive transition
   whose reverse is dead, or is entered from outside it and the law network, so its weight
   depends on how fast its exits vanish; a basin entered only reversibly from the law
@@ -1953,8 +1959,9 @@ face index 0 (`_admission_face` sets it).
 function _face_condition(net::_Network, law_nodes::BitVector, face::UInt64, x::Int)
     s = _face_sets(net, law_nodes, face)
     closed = _closed_classes(net, s.alive)
-    length(closed) > 1 && return _Verdict(_EPS_NONUNIQUE, _LIMIT_UNTESTED, 0,
-                                          _copy_of(net, _unfed_class(closed, s.fed)[1]), 0)
+    length(closed) > 1 &&
+        return _Verdict(_EPS_NONUNIQUE, _LIMIT_UNTESTED, 0,
+                        _copy_of(net, _class_outside_law(closed, law_nodes)[1]), 0)
     for t in eachindex(net.from)
         u, w = net.from[t], net.to[t]
         s.alive[t] && s.fed[u] && s.stranded[w] || continue

@@ -2631,9 +2631,11 @@ end
     @test EnzymeRates._guard(s1).fault === NU
     @test all(_testhelper_admission_agreement(s1; rng))
     v = EnzymeRates._admission(s1)
-    @test (v.fault, v.face) === (EnzymeRates._EPS_NONUNIQUE, 3)
-    @test startswith(EnzymeRates._guard_message(s1, v),
-                     "AllostericMechanism: at zero A and B, the forms ")
+    @test (v.fault, v.face, v.conformation) === (EnzymeRates._EPS_NONUNIQUE, 3, 2)
+    @test EnzymeRates._guard_message(s1, v) ==
+          "AllostericMechanism: at zero A and B, the forms F (inactive) hold the enzyme " *
+          "they receive and are reached only through tagged steps, so the steady state " *
+          "depends on where the enzyme starts."
     # AD7b: with I zero no spanning in-tree reaches the fed forms, so the face condition
     # passes and class 3 decides.
     ad7b = _testhelper_tag_sets["AD7b"]
