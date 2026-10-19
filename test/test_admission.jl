@@ -3451,6 +3451,34 @@ end
     end
 end
 
+@testset "an :OnlyI activator whose retags fail is offered no fix" begin
+    # X binds E and E(S) in the inactive conformation only, and P leaves only from
+    # E(S, X), so the active conformation turns nothing over. Tagging the X bindings
+    # :EqualAI or :NonequalAI joins E, E(X), E(S, X) and E(S) in one rapid-equilibrium
+    # segment that only the X bindings hold together, so each variant splits it at zero
+    # X and the message offers no fix.
+    am = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + S <--> E(S)         :: EqualAI
+            E(S) + X ⇌ E(S, X)      :: OnlyI
+            E(S, X) ⇌ E(X) + P      :: EqualAI
+            E + X ⇌ E(X)            :: OnlyI
+        end
+    end
+    v = EnzymeRates._guard(am)
+    @test (v.fault, v.face, v.conformation) == (EnzymeRates._NO_ACTIVE_TURNOVER, 0, 1)
+    ks = [k for k in eachindex(am.catalytic.edges) if EnzymeRates._excludes(am, k, 1)]
+    @test !EnzymeRates._retag_passes(am, ks, :EqualAI)
+    @test !EnzymeRates._retag_passes(am, ks, :NonequalAI)
+    @test EnzymeRates._guard_message(am, v) ==
+          "AllostericMechanism: without its :OnlyI steps E + X ⇌ E(X); E(S) + X ⇌ " *
+          "E(S, X) the active conformation turns no substrate into product, so the " *
+          "enzyme never turns the reaction over."
+end
+
 @testset "the active conformation's interior faults name the :OnlyI step" begin
     # The mirror of the :OnlyA interior faults, in conformation 1. The messages offer no
     # fix: a step tagged :OnlyI binds modifiers alone, and no test shows an untagged
