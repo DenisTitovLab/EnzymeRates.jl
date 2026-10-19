@@ -1693,6 +1693,8 @@ end
     m = am.catalytic
     bind, release, chem = (_testhelper_edge(am, t) for t in
                            ("E + S ⇌ ES", "E + P ⇌ EP", "ES <--> EP"))
+    # The chemistry is stored substrate side first, so it runs toward products as stored.
+    @test EnzymeRates._runs_toward_products(m, m.edges[chem])
     v = EnzymeRates._guard(am)
     @test v == EnzymeRates._Verdict(NL, U, 0, 2, bind)
     @test EnzymeRates._admission_interior(am) == v
@@ -1786,9 +1788,10 @@ end
         @test _testhelper_exclusion(x, 2).failure === :inside
         @test _testhelper_epath_verdict(x; rng) === :no_path
     end
-    # On AD1 and AD3c the message's steps that join the sides run from the binding's
-    # unbound side to its bound side, and both fixes pass there too.
+    # On AD1 SS, AD1 RE and AD3c the message's steps that join the sides run from the
+    # binding's unbound side to its bound side, and both fixes pass there too.
     for (x, path) in ((ad1_ss, ("E + Q ⇌ EQ", "E + B ⇌ EB", "EB + Q ⇌ EBQ")),
+                      (ad1_re, ("E + Q ⇌ EQ", "E + B ⇌ EB", "EB + Q ⇌ EBQ")),
                       (ad3c, ("E + S ⇌ ES", "ES + Smod ⇌ ESSmod", "ESmod + S ⇌ ESSmod")))
         joins = join((EnzymeRates._step_text(x.catalytic, _testhelper_edge(x, t))
                       for t in path), "; ")
@@ -1817,6 +1820,30 @@ end
             E + Q ⇌ E(Q)                                    :: OnlyA
             E + B ⇌ E(B)                                    :: OnlyA
             E(B) + Q ⇌ E(B, Q)                              :: OnlyA
+        end
+    end
+    ad1_re_untagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                :: EqualAI
+            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))    :: EqualAI
+            E(Q) + P <--> E(P, Q)                       :: EqualAI
+            E + Q ⇌ E(Q)                                :: EqualAI
+            E + B ⇌ E(B)                                :: EqualAI
+            E(B) + Q ⇌ E(B, Q)                          :: EqualAI
+        end
+    end
+    ad1_re_joins_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                :: EqualAI
+            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))    :: OnlyA
+            E(Q) + P <--> E(P, Q)                       :: EqualAI
+            E + Q ⇌ E(Q)                                :: OnlyA
+            E + B ⇌ E(B)                                :: OnlyA
+            E(B) + Q ⇌ E(B, Q)                          :: OnlyA
         end
     end
     ad3c_untagged = @_testhelper_unguarded @allosteric_mechanism begin
@@ -1879,10 +1906,121 @@ end
                   for t in ("E + Q ⇌ EQ", "E + B ⇌ EB", "EB + Q ⇌ EBQ")), "; ")
     @test endswith(EnzymeRates._guard_message(ad11, EnzymeRates._guard(ad11)),
                    "tag :OnlyA the steps that join its sides: $joins.")
-    for y in (ad1_untagged, ad1_joins_tagged, ad3c_untagged, ad3c_joins_tagged,
-              ad11_untagged, ad11_joins_tagged)
+    for y in (ad1_untagged, ad1_joins_tagged, ad1_re_untagged, ad1_re_joins_tagged,
+              ad3c_untagged, ad3c_joins_tagged, ad11_untagged, ad11_joins_tagged)
         @test EnzymeRates._guard(y) == EnzymeRates._WELL_POSED
     end
+    # The message prints a fix only when its variant passes. A dead-end I joins the S
+    # binding's sides a second way, through E(I) and E(I, S), so tagging the steps of the
+    # path the message would name leaves that binding inside one component: the message
+    # offers only the untag fix.
+    _testhelper_no_limit_cause(x, k) =
+        "AllostericMechanism: in the inactive conformation, steps outside :OnlyA " *
+        "groups still join the two sides of the :OnlyA binding " *
+        "$(EnzymeRates._step_text(x.catalytic, k)), so thermodynamics keeps its " *
+        "affinity finite and the binding has no limit there."
+    deadend = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)        :: OnlyA
+            E(S) <--> E(P)      :: EqualAI
+            E + P ⇌ E(P)        :: EqualAI
+            E + I ⇌ E(I)        :: EqualAI
+            E(S) + I ⇌ E(I, S)  :: EqualAI
+            E(I) + S ⇌ E(I, S)  :: EqualAI
+        end
+    end
+    deadend_untagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)        :: EqualAI
+            E(S) <--> E(P)      :: EqualAI
+            E + P ⇌ E(P)        :: EqualAI
+            E + I ⇌ E(I)        :: EqualAI
+            E(S) + I ⇌ E(I, S)  :: EqualAI
+            E(I) + S ⇌ E(I, S)  :: EqualAI
+        end
+    end
+    deadend_joins_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)        :: OnlyA
+            E(S) <--> E(P)      :: OnlyA
+            E + P ⇌ E(P)        :: OnlyA
+            E + I ⇌ E(I)        :: EqualAI
+            E(S) + I ⇌ E(I, S)  :: EqualAI
+            E(I) + S ⇌ E(I, S)  :: EqualAI
+        end
+    end
+    v = EnzymeRates._guard(deadend)
+    @test v == EnzymeRates._Verdict(NL, U, 0, 2, _testhelper_edge(deadend, "E + S ⇌ ES"))
+    @test _testhelper_epath_verdict(deadend; rng) === :no_path
+    @test EnzymeRates._guard_message(deadend, v) ==
+          _testhelper_no_limit_cause(deadend, v.edge) *
+          " Tag its group :EqualAI or :NonequalAI."
+    @test EnzymeRates._guard(deadend_untagged) == EnzymeRates._WELL_POSED
+    @test EnzymeRates._guard(deadend_joins_tagged).fault === NL
+    # I's binding at E :OnlyA too: untagging it leaves the S binding inside one component,
+    # while tagging the steps that join its sides separates every binding, so the message
+    # offers only the joins fix.
+    two_bindings = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)        :: OnlyA
+            E(S) <--> E(P)      :: EqualAI
+            E + P ⇌ E(P)        :: EqualAI
+            E + I ⇌ E(I)        :: OnlyA
+            E(S) + I ⇌ E(I, S)  :: EqualAI
+            E(I) + S ⇌ E(I, S)  :: EqualAI
+        end
+    end
+    two_bindings_untagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)        :: OnlyA
+            E(S) <--> E(P)      :: EqualAI
+            E + P ⇌ E(P)        :: EqualAI
+            E + I ⇌ E(I)        :: EqualAI
+            E(S) + I ⇌ E(I, S)  :: EqualAI
+            E(I) + S ⇌ E(I, S)  :: EqualAI
+        end
+    end
+    two_bindings_joins_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)        :: OnlyA
+            E(S) <--> E(P)      :: OnlyA
+            E + P ⇌ E(P)        :: OnlyA
+            E + I ⇌ E(I)        :: OnlyA
+            E(S) + I ⇌ E(I, S)  :: OnlyA
+            E(I) + S ⇌ E(I, S)  :: OnlyA
+        end
+    end
+    v = EnzymeRates._guard(two_bindings)
+    @test v ==
+          EnzymeRates._Verdict(NL, U, 0, 2, _testhelper_edge(two_bindings, "E + I ⇌ EI"))
+    @test _testhelper_epath_verdict(two_bindings; rng) === :no_path
+    joins = join((EnzymeRates._step_text(two_bindings.catalytic,
+                                         _testhelper_edge(two_bindings, t))
+                  for t in ("E + P ⇌ EP", "ES <--> EP", "ES + I ⇌ EIS", "EI + S ⇌ EIS")),
+                 "; ")
+    @test EnzymeRates._guard_message(two_bindings, v) ==
+          _testhelper_no_limit_cause(two_bindings, v.edge) *
+          " Tag :OnlyA the steps that join its sides: $joins."
+    @test EnzymeRates._guard(two_bindings_untagged).fault === NL
+    @test EnzymeRates._guard(two_bindings_joins_tagged) == EnzymeRates._WELL_POSED
 end
 
 @testset "tagged bindings that close a directed cycle have no limit" begin
@@ -1960,6 +2098,11 @@ end
     end
     @test EnzymeRates._guard(cube_untagged) == EnzymeRates._WELL_POSED
     @test EnzymeRates._guard(cube_joins_tagged) == EnzymeRates._WELL_POSED
+    joins = join((EnzymeRates._step_text(cube.catalytic, _testhelper_edge(cube, t))
+                  for t in ("EA + C ⇌ EAC", "EC + A ⇌ EAC", "EC + B ⇌ EBC",
+                            "EB + C ⇌ EBC", "EB + A ⇌ EAB")), "; ")
+    @test endswith(EnzymeRates._guard_message(cube, EnzymeRates._guard(cube)),
+                   "tag :OnlyA the steps that join its sides: $joins.")
     # Both bindings of the ordered bi-uni :OnlyA: the chemistry and the P binding join
     # E(A, B) back to E, so the arcs E → E(A) → {E, E(A, B), E(P)} close a cycle and the
     # two affinities cannot vanish together.
@@ -2024,6 +2167,66 @@ end
     @test EnzymeRates._guard(untagged) == EnzymeRates._WELL_POSED
     @test EnzymeRates._guard(joins_tagged) == EnzymeRates._WELL_POSED
     @test EnzymeRates._guard(one_untagged).fault === EnzymeRates._NO_LIMIT
+    # With I forms, I's bindings join E(A, B) back to E a second way, so tagging the
+    # chemistry and the P binding leaves the cycle closed: the message offers only the
+    # untag fix.
+    with_i = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        modifiers: I
+        steps: begin
+            E + A ⇌ E(A)                :: OnlyA
+            E(A) + B ⇌ E(A, B)          :: OnlyA
+            E(A, B) <--> E(P)           :: EqualAI
+            E + P ⇌ E(P)                :: EqualAI
+            E + I ⇌ E(I)                :: EqualAI
+            E(A, B) + I ⇌ E(A, B, I)    :: EqualAI
+            E(I) + A ⇌ E(A, I)          :: EqualAI
+            E(A, I) + B ⇌ E(A, B, I)    :: EqualAI
+        end
+    end
+    with_i_untagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        modifiers: I
+        steps: begin
+            E + A ⇌ E(A)                :: EqualAI
+            E(A) + B ⇌ E(A, B)          :: EqualAI
+            E(A, B) <--> E(P)           :: EqualAI
+            E + P ⇌ E(P)                :: EqualAI
+            E + I ⇌ E(I)                :: EqualAI
+            E(A, B) + I ⇌ E(A, B, I)    :: EqualAI
+            E(I) + A ⇌ E(A, I)          :: EqualAI
+            E(A, I) + B ⇌ E(A, B, I)    :: EqualAI
+        end
+    end
+    with_i_joins_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        modifiers: I
+        steps: begin
+            E + A ⇌ E(A)                :: OnlyA
+            E(A) + B ⇌ E(A, B)          :: OnlyA
+            E(A, B) <--> E(P)           :: OnlyA
+            E + P ⇌ E(P)                :: OnlyA
+            E + I ⇌ E(I)                :: EqualAI
+            E(A, B) + I ⇌ E(A, B, I)    :: EqualAI
+            E(I) + A ⇌ E(A, I)          :: EqualAI
+            E(A, I) + B ⇌ E(A, B, I)    :: EqualAI
+        end
+    end
+    line_i(k) = EnzymeRates._step_text(with_i.catalytic, k)
+    a_i, b_i = (_testhelper_edge(with_i, t) for t in ("E + A ⇌ EA", "EA + B ⇌ EAB"))
+    v = EnzymeRates._guard(with_i)
+    @test v == EnzymeRates._Verdict(EnzymeRates._ARC_CYCLE, U, 0, 2, a_i)
+    @test _testhelper_epath_verdict(with_i; rng) === :no_path
+    @test EnzymeRates._guard_message(with_i, v) ==
+          "AllostericMechanism: the :OnlyA bindings $(line_i(a_i)); $(line_i(b_i)) " *
+          "close a cycle in the inactive conformation: steps outside :OnlyA groups join " *
+          "each one's bound side to the next one's unbound side, so thermodynamics " *
+          "forbids their affinities to vanish together. Tag them :EqualAI or :NonequalAI."
+    @test EnzymeRates._guard(with_i_untagged) == EnzymeRates._WELL_POSED
+    @test EnzymeRates._guard(with_i_joins_tagged).fault === EnzymeRates._ARC_CYCLE
 end
 
 @testset "forms reached only through tagged chemistry are an island" begin
@@ -2108,6 +2311,8 @@ end
     end
     for (x, fixed, forms) in ((r3, r3_untagged, "F, F(I)"), (r4, r4_untagged, "F"))
         iso = _testhelper_edge_between(x, "E", "F")
+        # An isomerization of free forms ties on both sides, so it runs as stored.
+        @test EnzymeRates._runs_toward_products(x.catalytic, x.catalytic.edges[iso])
         v = EnzymeRates._guard(x)
         @test v == EnzymeRates._Verdict(IS, U, 0, 2, iso)
         @test _testhelper_island_verdict(x)
@@ -2147,6 +2352,46 @@ end
         @test _testhelper_island_verdict(x)
         @test !occursin("Tag the group", EnzymeRates._guard_message(x, v))
     end
+    # Half 1 and its copy at E(A, I) share one :OnlyA group, and I's binding at E is
+    # :OnlyA too. Untagging that group joins E(I) to E through the island, so I's binding
+    # falls inside one component and the message offers no fix.
+    shared_half1 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        modifiers: I
+        steps: begin
+            E + A <--> E(A)                                       :: EqualAI
+            (E(A) <--> E(; residual = A - P) + P,
+             E(A, I) <--> E(I; residual = A - P) + P)             :: OnlyA
+            E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
+            E(B; residual = A - P) <--> E + Q                     :: OnlyA
+            E + I ⇌ E(I)                                          :: OnlyA
+            E(I) + A <--> E(A, I)                                 :: EqualAI
+            E(; residual = A - P) + I ⇌ E(I; residual = A - P)    :: EqualAI
+        end
+    end
+    shared_half1_untagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        modifiers: I
+        steps: begin
+            E + A <--> E(A)                                       :: EqualAI
+            (E(A) <--> E(; residual = A - P) + P,
+             E(A, I) <--> E(I; residual = A - P) + P)             :: EqualAI
+            E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
+            E(B; residual = A - P) <--> E + Q                     :: OnlyA
+            E + I ⇌ E(I)                                          :: OnlyA
+            E(I) + A <--> E(A, I)                                 :: EqualAI
+            E(; residual = A - P) + I ⇌ E(I; residual = A - P)    :: EqualAI
+        end
+    end
+    v = EnzymeRates._guard(shared_half1)
+    @test v == EnzymeRates._Verdict(IS, U, 0, 2,
+                                    _testhelper_edge(shared_half1,
+                                                     "E_res_plusA_minusP + P <--> EA"))
+    @test _testhelper_island_verdict(shared_half1)
+    @test !occursin("Tag the group", EnzymeRates._guard_message(shared_half1, v))
+    @test EnzymeRates._guard(shared_half1_untagged).fault === EnzymeRates._NO_LIMIT
 end
 
 @testset "the admitted tag sets pass admission's interior" begin

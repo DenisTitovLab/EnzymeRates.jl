@@ -1583,10 +1583,20 @@ function _kept_path(am::AllostericMechanism, c::Int, a::Int, b::Int)
 end
 
 """
+Whether `am` with the kinetic group of each edge in `ks` tagged `tag` passes the guard
+(`_guard`). Every fix admission's messages print is checked this way.
+"""
+function _retag_passes(am::AllostericMechanism, ks, tag::Symbol)
+    states = copy(cat_allo_states(am))
+    states[am.catalytic.group[ks]] .= tag
+    _guard(_with(am; states)) === _WELL_POSED
+end
+
+"""
 The message of admission's verdict `v` on `am`: the cause, naming each step by its DSL
-line (`_step_text`), and a fix where a test shows its variant passes the guard.
-A fix that tags steps is offered for the inactive conformation only, since a step tagged
-`:OnlyI` must bind modifiers alone.
+line (`_step_text`), and each fix only when its variant passes the guard
+(`_retag_passes`). A fix that tags steps is offered for the inactive conformation only,
+since a step tagged `:OnlyI` must bind modifiers alone.
 """
 function _admission_message(am::AllostericMechanism, v::_Verdict)
     m = am.catalytic
@@ -1595,6 +1605,16 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
     tag = c == 1 ? ":OnlyI" : ":OnlyA"
     line(j) = _step_text(m, j)
     lines(js) = join((_step_text(m, j) for j in js), "; ")
+    untag_passes(ks) = all(t -> _retag_passes(am, ks, t), (:EqualAI, :NonequalAI))
+    # The fixes whose variants pass: the groups of `untag` (`what`) tagged :EqualAI or
+    # :NonequalAI, and the steps `joins` that join `sides` tagged :OnlyA.
+    function fixes(untag::Vector{Int}, what::String, joins::Vector{Int}, sides::String)
+        found = String[]
+        untag_passes(untag) && push!(found, "tag $what :EqualAI or :NonequalAI")
+        _retag_passes(am, joins, :OnlyA) &&
+            push!(found, "tag :OnlyA the steps that join $sides: $(lines(joins))")
+        isempty(found) ? "" : " " * uppercasefirst(join(found, ", or ")) * "."
+    end
     if v.fault === _NO_LIMIT
         msg = "AllostericMechanism: in the $conf conformation, steps outside $tag " *
               "groups still join the two sides of the $tag binding $(line(k)), so " *
@@ -1602,8 +1622,7 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
               "there."
         c == 2 || return msg
         e = m.edges[k]
-        return msg * " Tag its group :EqualAI or :NonequalAI, or tag :OnlyA the steps " *
-               "that join its sides: $(lines(_kept_path(am, c, e.from, e.to)))."
+        return msg * fixes([k], "its group", _kept_path(am, c, e.from, e.to), "its sides")
     elseif v.fault === _ARC_CYCLE
         cycle = _arc_cycle(m, _exclusion_components(am, c), _arcs(am, c))
         msg = "AllostericMechanism: the $tag bindings $(lines(cycle)) close a cycle in " *
@@ -1616,20 +1635,13 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
             next = cycle[mod1(i + 1, length(cycle))]
             append!(joins, _kept_path(am, c, m.edges[j].to, m.edges[next].from))
         end
-        return msg * " Tag them :EqualAI or :NonequalAI, or tag :OnlyA the steps that " *
-               "join them: $(lines(unique!(joins)))."
+        return msg * fixes(cycle, "them", unique!(joins), "them")
     elseif v.fault === _ISLAND
         comp = _exclusion_components(am, c)
         reached = _reached_components(m, comp, _arcs(am, c))
         e = m.edges[k]
         lost = reached[comp[e.from]] ? comp[e.to] : comp[e.from]
-        # Untagging the named step joins every lost form to free E's component only when
-        # one component is lost and the tagged steps it borders are all chemistry.
-        fixable = all(f -> reached[comp[f]] || comp[f] == lost, eachindex(m.forms))
-        for (j, d) in enumerate(m.edges)
-            _excludes(am, j, c) && reached[comp[d.from]] != reached[comp[d.to]] &&
-                !_is_chemistry(m, d) && (fixable = false)
-        end
+        fixable = c == 2 && untag_passes([k])
         msg = "AllostericMechanism: in the $conf conformation the forms " *
               join([_form_text(m, f) for f in eachindex(m.forms) if comp[f] == lost],
                    ", ") *
