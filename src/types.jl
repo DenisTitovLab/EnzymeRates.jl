@@ -838,6 +838,12 @@ function _role_masks(table::Vector{Met}, substrates::Vector{Symbol})
     substrate_mask, product_mask
 end
 
+"""Canonical form's tier-1 side order: substrates, bound plus free, then fewer products."""
+_side_score(forms::Vector{Form}, f::Int, free::Counts, substrate_mask::Counts,
+            product_mask::Counts) =
+    (total(forms[f].bound & substrate_mask) + total(free & substrate_mask),
+     -total(forms[f].bound & product_mask) - total(free & product_mask))
+
 """
     _orientation(forms, written, labels, substrate_mask, product_mask)
         -> (fwd::BitVector, misaligned::Vector{Edge})
@@ -859,15 +865,14 @@ function _orientation(forms::Vector{Form}, written::Vector{Edge}, labels::Vector
         enters[e.from] |= side(e.consumed)
         enters[e.to] |= side(e.released)
     end
-    score(f::Int, free::Counts) =
-        (total(forms[f].bound & substrate_mask) + total(free & substrate_mask),
-         -total(forms[f].bound & product_mask) - total(free & product_mask))
     n = length(written)
     fwd, tier = trues(n), zeros(Int, n)
     for (k, e) in enumerate(written)
+        a = _side_score(forms, e.from, e.consumed, substrate_mask, product_mask)
+        b = _side_score(forms, e.to, e.released, substrate_mask, product_mask)
         if total(e.consumed) + total(e.released) == 1
             fwd[k] = e.consumed != 0
-        elseif (a = score(e.from, e.consumed)) != (b = score(e.to, e.released))
+        elseif a != b
             fwd[k], tier[k] = a > b, 1
         elseif (enters[e.from], enters[e.to]) in ((0x02, 0x01), (0x01, 0x02))
             fwd[k], tier[k] = enters[e.from] == 0x02, 2

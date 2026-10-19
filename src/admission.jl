@@ -1488,10 +1488,8 @@ A step whose two sides tie, such as an isomerization of free forms, runs as stor
 """
 function _runs_toward_products(m::Mechanism, e::Edge)
     substrate_mask, product_mask = _role_masks(m)
-    score(f::Int, free::Counts) =
-        (total(m.forms[f].bound & substrate_mask) + total(free & substrate_mask),
-         -total(m.forms[f].bound & product_mask) - total(free & product_mask))
-    score(e.from, e.consumed) >= score(e.to, e.released)
+    _side_score(m.forms, e.from, e.consumed, substrate_mask, product_mask) >=
+        _side_score(m.forms, e.to, e.released, substrate_mask, product_mask)
 end
 
 """
