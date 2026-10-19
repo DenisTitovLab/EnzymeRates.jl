@@ -2112,6 +2112,60 @@ end
     @test !EnzymeRates._has_vmax(cm, re .& on, cm.substrates)
     @test EnzymeRates._has_vmax(cm, re, cm.substrates, on)
     @test !EnzymeRates._degenerate(tc_route)
+    # Read over every step, the X route's merged complex E(P, X) sits in rapid
+    # equilibrium with both sides (condition C), while the maximal rate exists both
+    # ways: the steady-state F(X) <--> E(X) keeps the route from closing a
+    # rapid-equilibrium turnover cycle. Read through the edge mask, the route lies
+    # outside the active law.
+    merged_route = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + S <--> E(S)           :: EqualAI
+            E(S) <--> E(P)            :: EqualAI
+            E(P) <--> E + P           :: EqualAI
+            E + X ⇌ E(X)              :: OnlyI
+            E(X) + S ⇌ E(P, X)        :: EqualAI
+            E(P, X) ⇌ F(X) + P        :: EqualAI
+            F(X) <--> E(X)            :: EqualAI
+        end
+    end
+    cm, on = merged_route.catalytic, EnzymeRates._active_mask(merged_route)
+    re = EnzymeRates._flags(cm)
+    subs = EnzymeRates._names_mask(cm, cm.substrates)
+    @test EnzymeRates._form_text.(Ref(cm), EnzymeRates._merged_complexes(cm, subs)) ==
+          ["E(P, X)"]
+    @test isempty(EnzymeRates._merged_complexes(cm, subs, on))
+    @test EnzymeRates._chemistry_equilibrates_both_sides(cm, re)
+    @test !EnzymeRates._chemistry_equilibrates_both_sides(cm, re, on)
+    @test EnzymeRates._has_vmax(cm, re, cm.substrates) &&
+          EnzymeRates._has_vmax(cm, re, cm.products)
+    @test !EnzymeRates._degenerate(merged_route)
+    # The same route through a rapid-equilibrium Theorell–Chance step. Read over every
+    # step, that step takes up S and gives off P in rapid equilibrium (condition C), and
+    # the maximal rate again exists both ways; read through the edge mask, the step lies
+    # outside the active law.
+    re_tc_route = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + S <--> E(S)           :: EqualAI
+            E(S) <--> E(P)            :: EqualAI
+            E(P) <--> E + P           :: EqualAI
+            E + X ⇌ E(X)              :: OnlyI
+            E(X) + S ⇌ F(X) + P       :: EqualAI
+            F(X) <--> E(X)            :: EqualAI
+        end
+    end
+    cm, on = re_tc_route.catalytic, EnzymeRates._active_mask(re_tc_route)
+    re = EnzymeRates._flags(cm)
+    @test EnzymeRates._chemistry_equilibrates_both_sides(cm, re)
+    @test !EnzymeRates._chemistry_equilibrates_both_sides(cm, re, on)
+    @test EnzymeRates._has_vmax(cm, re, cm.substrates) &&
+          EnzymeRates._has_vmax(cm, re, cm.products)
+    @test !EnzymeRates._degenerate(re_tc_route)
 end
 
 @testset "_cv_model_selection: flatten reproduces serial LOOCV per candidate" begin
