@@ -211,7 +211,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `test/test_admission.jl`). In a stranded basin fed only through vanishing sources (R-B2)
   the basin's weight vanishes along every path, but no structural test proves it (`BS1`).
   The phase-4 research found R-B1 on 332 faces and R-B2 on 21, all in fuzzed or hand-built
-  mechanisms, none among the census mechanisms or their `:OnlyI` variants. No exact
+  mechanisms, none among the census mechanisms or their `:OnlyI` variants. Tag sets that
+  stop the inactive conformation's catalysis one half-reaction at a time, built on the
+  census ping-pong and ter-bi parents and filtered by admission, lose 5,342 candidates
+  to such basins, and the RE-speed and ε-path oracles confirm every one. No exact
   narrower structural rule is known: the one candidate tried, T0++, admits faces the
   ε-path oracle rejects. The exact test compares Freidlin–Wentzell exponents over the
   admissible directions: the basin vanishes when, for every rise of the tagged constants,
