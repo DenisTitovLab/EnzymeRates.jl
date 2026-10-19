@@ -141,8 +141,8 @@ allosteric mechanism one more per slot of every edge of a `:NonequalAI`, `:OnlyA
 `:OnlyI` group, for its inactive copy, ordered by `_priority_key`, larger first. `flat`
 holds the edges group by group (`_flat_edges`), `tags` each group's tag (`_solve_tags`),
 `law[k]` whether edge `k` lies in the inactive conformation's law (`_inactive_law`) and
-`alaw[k]` whether its active column enters the law (in the active conformation's law,
-`_active_law`, or read by the inactive one, `_in_active_law`).
+`alaw[k]` whether it lies in the active conformation's law (`_active_law`; `_in_active_law`
+adds the `:EqualAI` constants the inactive law reads).
 """
 function _ordered_columns(m::_AnyMech)
     cm = catalytic(m)
