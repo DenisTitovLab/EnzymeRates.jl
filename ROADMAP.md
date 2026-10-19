@@ -96,6 +96,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   child, so the search never gives this ping-pong an inactive conformation that runs
   both half-reactions. On the three-step ping-pong, whose steps are all steady-state,
   the same relaxation passes.
+- **The six-step bi-bi ping-pong keeps no allosteric child with a forward rate.**
+  The guard rejects every child built on the base that stops the first half-reaction
+  (`_SPLIT` at zero A and B), at one and at two subunits. On the base that stops the second
+  half, the inactive conformation's first half-reaction fills the covalent forms, which only
+  P's binding drains, so the rate is exactly 0 at zero products in every allosteric child
+  the exit keeps and in every allosteric child of those on the same graph: 33 with a
+  regulator declared, at one subunit and again at two, and 13 at two subunits without one.
+  Forward initial-rate data cannot fit any of them.
 
 ## Planned
 
@@ -113,15 +121,17 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   their weight, and with it the rate, depends on how fast each half stops (by up to 100%
   at one catalytic subunit), so admission rejects it. The tagging move keeps allosteric
   ping-pong reachable by stopping one half per V-type base (`_tagging_bases`,
-  `src/mechanism_enumeration.jl`), which covers PDH, whose phosphorylation stops E1 and
-  leaves E2 and E3 running. Above one subunit it drops a child whose inactive law is not
-  hyperbolic (`_hyperbolic_catalysis`), as when the running half joins two segments that
-  each hold an abortive complex, so a ping-pong seed with no shared site and abortive
-  complexes on both sides keeps no well-posed allosteric child at two subunits. Stopping
-  both halves needs the
-  conformations to flip at the covalent form as well, with an equilibrium constant of
-  its own, and the multi-subunit rate formula rederived for two flip forms. Take it up
-  with iso mechanisms, which add free forms of their own. Priority: medium.
+  `src/mechanism_enumeration.jl`), as PDH's phosphorylation stops E1 and leaves E2 and E3
+  running; on the six-step bi-bi ping-pong no child left turns over at zero products (Known
+  issues). Above one subunit it drops a child whose inactive law is not hyperbolic
+  (`_hyperbolic_catalysis`), as when the running half joins two segments that each hold an
+  abortive complex, so the six-step ping-pong seed whose A and P groups each hold an
+  abortive binding keeps no well-posed tagging child at two subunits; its descendant with
+  both abortive bindings in groups of their own, two split rounds away, keeps four. Stopping
+  both halves needs the conformations to flip at the covalent form as well, with an
+  equilibrium constant of its own, and the multi-subunit rate formula rederived for two flip
+  forms. Take it up with iso mechanisms, which add free forms of their own. Priority:
+  medium.
 - **Flag one-subunit K-type variants whose L is a phantom instead of fitting them.**
   At multiplicity 1, `_expand_to_allosteric` (`src/mechanism_enumeration.jl`) emits
   K-type variants whose L the data cannot determine, so the fitter optimizes a flat
