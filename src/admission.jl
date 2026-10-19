@@ -1529,7 +1529,7 @@ function _admission_interior(am::AllostericMechanism)
         k == 0 || return _Verdict(_ISLAND, _LIMIT_UNTESTED, 0, c, k)
     end
     k = _first_excluded(am, 1)
-    k != 0 && !_has_turnover_cycle(m, _law_mask(am, 1)) &&
+    k != 0 && !_has_turnover_cycle(m, _active_mask(am)) &&
         return _Verdict(_NO_ACTIVE_TURNOVER, _LIMIT_UNTESTED, 0, 1, k)
     _WELL_POSED
 end

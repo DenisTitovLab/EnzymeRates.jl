@@ -808,7 +808,7 @@ fitting it (`_base_tier`)."""
 function _degenerate(m::Union{Mechanism, AllostericMechanism})
     cm = catalytic(m)
     re = _flags(cm)
-    on = m isa AllostericMechanism ? _active_mask(m) : trues(length(cm.edges))
+    on = _active_law(m)
     !(_has_vmax(cm, re, cm.substrates, on) && _has_vmax(cm, re, cm.products, on)) ||
         _chemistry_equilibrates_both_sides(cm, re, on)
 end
