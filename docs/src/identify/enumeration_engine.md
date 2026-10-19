@@ -145,7 +145,7 @@ children — every set of rapid-equilibrium groups that can flip to steady state
 every way a group can be split by binding context, every way an inhibitor can
 bind, and so on.
 Every child is checked to conserve atoms, and a child the well-posedness guard rejects
-(see [Mechanisms with allosteric regulators](@ref)) is dropped.
+(see [What the package rejects](@ref)) is dropped.
 
 The seven moves:
 

@@ -106,8 +106,9 @@ decides the dependents and so the fitted names: a change to it changes fitted na
 limit of mass-action kinetics wherever data sit. `_guard(m)` reads the reaction graph
 through masks and flag overrides and never constructs a mechanism, so a move can judge a
 candidate on its flags (`_faces_pass(m, re)`). It returns an isbits `_Verdict` (fault,
-limit-test verdict, face, conformation, edge), never a `Union` that a loop reads, the rule
-the GC probe set for hot code. `_check_well_posed(m)` throws `_guard_message(m, v)`, which
+limit-test verdict, face, conformation, edge), never a `Union` that a loop reads: Julia
+1.12 and 1.13 can hoist the box of a `Union` value out of a loop without a write barrier,
+which corrupts the heap. `_check_well_posed(m)` throws `_guard_message(m, v)`, which
 names each step by its DSL line (`_step_text`) and the face; `_is_well_posed(m)` is the
 enumerator's drop test.
 

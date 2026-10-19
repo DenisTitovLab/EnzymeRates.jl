@@ -121,7 +121,8 @@ den = (Q_A/D_A)^cat_n * W_A                 + L * (Q_I/D_I)^cat_n               
 ```
 
 `N_A`, `Q_A` are the active state's catalytic numerator and partition function
-(the King–Altman/Cha polynomials for the catalytic cycle), and `D_A` is free E's
+(the King–Altman/Cha polynomials for the catalytic cycle, on the active-state
+graph with its `:OnlyI` groups pruned), and `D_A` is free E's
 weight in `Q_A`: the spanning-tree weight of its free-enzyme segment, times the
 concentration monomial with which the derivation clears reciprocal concentrations.
 `N_I`, `Q_I`, `D_I` are the
@@ -166,8 +167,9 @@ constants; `:OnlyI` says the same of the active conformation:
 - each step of a tagged group vanishes at its own rate, and a group may mix a plain and a
   fused binding of one metabolite.
 
-The derivation reads the inactive conformation's law by deleting the tagged steps and the
-forms that the deletion cuts off from free E. **Admission** decides when that is the limit,
+The derivation reads each conformation's law by deleting the steps it lacks (the `:OnlyA`
+groups in the inactive conformation, the `:OnlyI` groups in the active one) and the forms
+that the deletion cuts off from free E. **Admission** decides when that is the limit,
 whatever the rates at which the tagged constants vanish:
 
 1. **Existence.** Join the forms by the conformation's untagged steps, and draw each tagged
