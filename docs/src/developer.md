@@ -79,13 +79,14 @@ the same way, so its search loop compiles once.
 
 `_dependent_param_exprs` (`src/thermo.jl`) builds one integer system per mechanism
 (`_joint_system`): a column per constant of every edge (`_Column`), with an inactive
-copy for each edge of a `:NonequalAI` or `:OnlyA` group; a row per fundamental cycle
-and conformation, and a row tying each further member of a kinetic class to its first.
+copy for each edge of a `:NonequalAI`, `:OnlyA` or `:OnlyI` group; a row per fundamental
+cycle and conformation, and a row tying each further member of a kinetic class to its first.
 It orders the columns by `_priority_key` (`_ordered_columns`) and reduces the system
 exactly (`_reduce_joint_system`: `Rational{Int}`, redone in `Rational{BigInt}` on
-overflow). Pivot columns are dependents. Columns outside the inactive conformation's law
-(an `:OnlyA` edge's inactive copy, an edge on a form the inactive conformation cannot
-reach) come first, so no kept dependent reads them. Each class is named after its member
+overflow). Pivot columns are dependents.
+Columns outside a conformation's law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's
+active copy, an edge on a form that conformation cannot reach) come first, so no kept
+dependent reads them. Each class is named after its member
 that comes last in that order (`_kept_members`), through the `name(p, m)` chokepoint. The
 engine derives each conformation's polynomials from the mechanism, a mask of the edges
 its law keeps (`_state_mask`; the inactive conformation's is `_inactive_mask(am)`) and
@@ -98,6 +99,36 @@ turns the group's other tied edges to match it (`_align_tied_groups!`). The orde
 tie-break reads each edge's content as stored: its forms' places in content order, then
 the metabolites it takes up and gives off (`_edge_base_rank`). The canonical form thus
 decides the dependents and so the fitted names: a change to it changes fitted names.
+
+## Well-posedness guard
+
+`src/admission.jl` decides whether a mechanism's rate law is the unique fast-equilibrium
+limit of mass-action kinetics wherever data sit. `_guard(m)` reads the reaction graph
+through masks and flag overrides and never constructs a mechanism, so a move can judge a
+candidate on its flags (`_faces_pass(m, re)`). It returns an isbits `_Verdict` (fault,
+limit-test verdict, face, conformation, edge), never a `Union` that a loop reads, the rule
+the GC probe set for hot code. `_check_well_posed(m)` throws `_guard_message(m, v)`, which
+names each step by its DSL line (`_step_text`) and the face; `_is_well_posed(m)` is the
+enumerator's drop test.
+
+The guard builds two networks of one catalytic subunit whose conformations flip at free E
+(`_Network`): the **law network**, each conformation's kept steps on the forms free E
+reaches through them (`_law_mask`), and the **ε-network**, every step of both
+conformations, each excluded step marked vanishing and an excluded rapid-equilibrium plain
+binding kept fast (`_eps_network`). The faces (`_faces`) are bit masks over the metabolite
+names. In order it checks class 1, a cycle that turns the reaction over
+(`_has_turnover_cycle`); class 2, no fast cycle of the ε-network that takes up a name net;
+admission's interior (`_admission_interior`: existence by components and arcs, islands,
+the active conformation's turnover); then on each face class 3 (`_check_face`: closed
+classes, bottomless segments, the aggregated chains, and a limit test modulo 2^61 − 1 where
+structure decides nothing) and admission's face condition (`_admission_face`: the
+ε-network's closed classes, stranded basins, and the fewest-slow-transitions in-tree test
+per excluding conformation and for both together). Class 5, a denominator that keeps no
+monomial on a face, runs on the derived law in `_num_den_exprs`. The macros, the parser
+and the derivation entry throw; `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`
+and identify's `_base_tier` drop; the flip move runs classes 2 and 3 on each candidate's
+flags; the tagging and change-tag moves filter by admission alone (`_admits`) and leave
+class 3 to the exit.
 
 ## Enumeration engine architecture
 
@@ -131,7 +162,7 @@ form (`E(A) + B → E(P, Q)`). The constructor rejects a binding whose forms mat
 binding by name but not by role, such as `E + P::Mod ⇌ E(P)`. An isomerization takes up
 and gives off nothing (`_is_iso`); a Theorell–Chance step takes up one metabolite and
 gives off another. `_is_chemistry` is true for every edge but a plain binding; the
-allosteric moves (`_chemistry_groups`), the `:OnlyA` test (`_onlya_offenders`), the joint
+allosteric moves (`_chemistry_groups`), admission, the joint
 solve's priority (`_priority_key`) and `_merged_complexes` read it to tell catalysis from
 binding. The derivation reads every binding alike, so a fused binding's rapid-equilibrium
 constant is a dissociation constant and its steady-state pair a binding and a release
@@ -158,9 +189,10 @@ A group whose tied edges share no such direction is rejected. The `RegulatorySit
 constructor sorts a site's ligands by name, and the `AllostericMechanism` constructor
 sorts the sites.
 
-The constructors check representation only (`_check_declarations`,
-`_check_representation`, and for an allosteric mechanism `_check_tags` and
-`_check_ligands`): names a metabolite can take and conformation labels shaped as labels,
+The constructors check representation and the `:OnlyI` rule only (`_check_declarations`,
+`_check_representation`, and for an allosteric mechanism `_check_tags`,
+`_check_onlyi_groups` and `_check_ligands`): names a metabolite can take and conformation
+labels shaped as labels,
 none a metabolite's name; every name the steps hold declared, and every declared name
 taken up, given off or bound by some step; residuals that add substrates and subtract
 products; the free form E (nothing bound, no residual), and edges that join every form to
@@ -174,13 +206,11 @@ metabolites without a separator, so E with a metabolite `star` bound and the fre
 conformation `Estar` would both be `Estar` and share their constants' names. Names that
 spell one string two ways, such as `NAD`, `P` and `NADP`, never reach the constructor:
 `@enzyme_reaction` and the mechanism macros reject them (`_check_uniquely_decodable`).
-Whether a mechanism's rate law is defined is the boundary check's question
-(`_check_well_posed`, `src/admission.jl`): no rapid-equilibrium segment of the catalytic
-graph lacks a bottom form; and, for an allosteric mechanism, no segment of the inactive
-conformation's graph lacks one, all free forms lie in one rapid-equilibrium segment
-outside `:OnlyA` groups, and no `:OnlyA` binding leaves a thermodynamic cycle
-unsatisfiable. The macros, the parser, the enumerator's exits and
-every derivation entry run it; the constructors and the Sig decoder do not.
+Whether a mechanism's rate law is defined is the well-posedness guard's question
+(`src/admission.jl`; see [Well-posedness guard](@ref)). The macros, the parser and every
+derivation entry throw on a mechanism it rejects (`_check_well_posed`), and the
+enumerator's exits and identify's base tier drop one (`_is_well_posed`); the
+constructors and the Sig decoder do not run it.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see
@@ -198,14 +228,11 @@ set of splits only if the independent-parameter count rises; the count comes fro
 the thermodynamic constraint solve, and for a `Mechanism` it is evaluated without
 building the child, from a cycle basis computed once per parent
 (`_partition_independent_count`). For an `AllostericMechanism` it is the joint solve's
-count on the built child, which derives no rate polynomial (`_split_gain_test`). A
-candidate whose `:OnlyA` binding leaves a thermodynamic cycle unsatisfiable, which the
-boundary check rejects, is never built: the move first runs that check's `:OnlyA` test
-(`_onlya_offenders`) on the parent's graph under the candidate's groups and tags, and the
-candidate counts as failed. The
-search extends a failed set by the splits of the groups that share its rapid-equilibrium
-segments, and a rejected one also by the splits of every `:OnlyA` group, since the split
-that balances its cycle may be steady state. The RE→SS move flips whole groups and
+count on the built child, which derives no rate polynomial (`_split_gain_test`).
+A split never changes admission's interior verdict, since both parts keep the group's tag,
+and a child the guard rejects, inside or on a face, is dropped where `expand_mechanisms`
+returns it. The search extends a failed set by the splits of the groups that share its
+rapid-equilibrium segments. The RE→SS move flips whole groups and
 accepts a set only if the rapid-equilibrium segment count rises and every flipped group
 carries net flux in the child. In a `Mechanism` it never offers as a unit a flank
 of a qualifying chain whose isomerization is steady state (`_chain_flank_groups`):
@@ -256,7 +283,7 @@ turnover cycle (`_re_turnover_cycle`: each RE step weighted by its uptake of
 substrates minus products, a turnover cycle being a cycle of nonzero weight),
 keeps a maximal rate both ways (`_has_vmax`, condition V), keeps chemistry out of
 equilibrium with both sides (`_chemistry_equilibrates_both_sides`, condition C),
-leaves no bottomless segment and keeps every steady-state group flux-carrying.
+passes the guard's face check and keeps every steady-state group flux-carrying.
 `_seed_candidate_screen` runs the first three tests on index arrays with a
 weighted union-find, so the other two run only on a candidate that passes them. A
 merged variant whose every merged complex has two steady-state steps, each alone
@@ -270,13 +297,17 @@ Conformational mechanism types declare `_requires_hyperbolic_catalysis` (true fo
 an `AllostericMechanism` whose catalytic multiplicity is above 1), and the moves
 that can give such a mechanism a non-hyperbolic catalytic scheme consult
 `_hyperbolic_catalysis`: `_expand_to_allosteric` promotes a non-hyperbolic
-parent at multiplicity 1 only, and `_expand_re_to_ss` filters its emitted
-children. The predicate scores
+parent at multiplicity 1 only, and above one subunit the tagging and change-tag
+moves (`_expand_to_allosteric`, `_expand_change_allo_state`), like the flip move
+(`_expand_re_to_ss`), drop a child that fails the predicate. On an
+`AllostericMechanism` the predicate reads each conformation's law (`_active_mask`,
+`_inactive_mask`), since a conformation that runs part of the catalytic graph can
+carry a power the whole graph lacks. The predicate scores
 the rapid-equilibrium segment graph of the catalytic scheme, leaving out every
 edge that touches a form holding a modifier, a reactant's modifier copy included: for
 each substrate and product, a directed steady-state edge scores one if it binds the
 metabolite in that direction plus the count the edge's source form carries beyond its
-segment's bottom form (the offsets of `_segments`, which the boundary check's
+segment's bottom form (the offsets of `_segments`, which the split move's
 `_bottomless_segment` also reads), and a segment scores the most any of its forms
 carries. The equation's degree in the
 metabolite is the best score over root segments and spanning arborescences toward

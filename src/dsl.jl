@@ -420,14 +420,16 @@ It takes the labels and step syntax of [`@enzyme_mechanism`](@ref), and:
 A tag says how a statement's constants, or a ligand's binding, differ between the
 conformations: `EqualAI` shares one constant, `NonequalAI` takes one for each (`K_A_…`
 and `K_I_…`), `OnlyA` acts in the active conformation only and `OnlyI` in the inactive
-one only. A catalytic statement takes `EqualAI`, `NonequalAI` or `OnlyA`; a ligand takes
-any of the four.
+one only. A catalytic statement takes `EqualAI`, `NonequalAI` or `OnlyA`, or `OnlyI` when
+its steps bind only modifiers (`modifiers:` names or `::Mod` copies); a ligand takes any of
+the four. The conformations interconvert only at free E.
 
 A tagged step's constants vanish in the conformation that lacks it, and the macro rejects a
-tag set whose limit does not exist or is not unique: an `:OnlyA` binding whose two sides
-untagged steps still join, forms that join free E only through tagged chemistry, or a face
-where the limit depends on how fast the tagged constants vanish. The checks of
-[`@enzyme_mechanism`](@ref) apply as well.
+tag set whose limit does not exist or is not unique: an `:OnlyA` or `:OnlyI` binding whose
+two sides untagged steps still join in the conformation that lacks it, forms that join free
+E only through tagged chemistry, `:OnlyI` groups without which the active conformation
+turns nothing over, or a face where the limit depends on how fast the tagged constants
+vanish. The checks of [`@enzyme_mechanism`](@ref) apply as well.
 
 ```jldoctest
 julia> using EnzymeRates

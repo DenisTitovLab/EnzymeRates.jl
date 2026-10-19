@@ -62,9 +62,11 @@ and `K_EP_to_E_P` with no A/I token; the isomerization step is `:NonequalAI`, gi
 independent `k_A_ES_to_EP` and `k_I_ES_to_EP`; the activator `A` is `:OnlyA`
 (`K_A_Areg`, active state only) and the inhibitor `I` is `:OnlyI` (`K_I_Ireg`,
 inactive state only). An `:EqualAI` regulator `R` would take one bare constant, `K_Rreg`,
-in both states. `L` is the free-enzyme coupling constant. A catalytic step can never be
-`:OnlyI` — the active state must always be able to catalyze — so tagging one that way is
-a hard constructor error.
+in both states. `L` is the free-enzyme coupling constant.
+A catalytic group takes `:OnlyI` only when its steps bind a modifier and nothing else (a
+name under `modifiers:` or a reactant's `::Mod` copy), such as an inhibitor that binds only
+the inactive conformation. The active conformation must still catalyze, so the
+constructor rejects `:OnlyI` on a step that takes up or gives off a substrate or product.
 
 The mechanism also declares **multiplicities**, which capture the enzyme's
 oligomeric state. `catalytic_multiplicity` is the number of identical catalytic
@@ -87,11 +89,13 @@ Allosteric regulators bind fast relative to catalysis. And **the enzyme changes
 conformation only while free**: it settles into the active or inactive state
 before it binds anything — the free-enzyme inactive-to-active ratio is `L` — and
 keeps that conformation for a full catalytic cycle. The overall rate is then each
-conformation's catalytic cycle weighted by its free-enzyme population. A hand-written
-mechanism may name a second free form, such as a conformation `F` with `F ⇌ E`, only
-when steps outside `:OnlyA` groups hold it at rapid equilibrium with `E`: flipping at
-either then gives the same model with `L` rescaled. `@allosteric_mechanism` rejects any
-other second free form, which would flip at different forms in the two conformations.
+conformation's catalytic cycle weighted by its free-enzyme population.
+The conformations interconvert only at free E, the form `E` with nothing bound, and `L` is
+its inactive-to-active ratio. A mechanism may hold other free forms, such as a
+conformation `F` with `F <--> E`; they change conformation only by way of E. When another
+free form sits at rapid equilibrium with E, its own inactive-to-active ratio is `L·r_I/r_A`,
+where `r_c` is the equilibrium ratio `[F]/[E]` in conformation c across the step that joins
+F to E, so a fit reports `L` at E whatever the free forms are named.
 
 An equivalent statement lets every form interconvert between the A and I states,
 but with a thermodynamically fixed ratio: `L` for the free enzyme, and `L` scaled
@@ -138,14 +142,74 @@ conformations on a common free-enzyme basis,
 which is what stops a bare rate constant from leaking into the `L`-term. The
 package divides `Q/D` directly when `D` is a single rate constant — giving the
 readable `1 + [S]/K + …` form — and clears the fraction to a polynomial when `D`
-carries a metabolite. When a catalytic group is `:OnlyA`, the inactive cycle
-cannot close, so the package sets `N_I = 0`: the inactive branch still
-contributes to the denominator as enzyme mass but carries no forward flux.
+carries a metabolite.
+When the `:OnlyA` groups stop every catalytic cycle of the inactive conformation, as the
+tagging move's bases do, its numerator `N_I` is 0: the inactive branch still contributes
+to the denominator as enzyme mass but carries no forward flux.
 
 In the printed equation above `cat_n = 2`, so each partition function is squared:
 the active branch carries `(1 + A / K_A_Areg) ^ 2` and a trivial `1 ^ 2` from the
 inhibitor site (absent in the active state), and the inactive branch mirrors it
 with `(1 + I / K_I_Ireg) ^ 2`.
+
+## Tags as limits, and admission
+
+An `:OnlyA` tag says what the inactive conformation lacks, as the limit of ordinary
+constants; `:OnlyI` says the same of the active conformation:
+
+- a plain binding loses its affinity: its dissociation constant grows without bound, or, for
+  a steady-state binding, its binding rate constant falls to zero with its release rate
+  fixed;
+- any other step (an isomerization, a fused binding, a Theorell–Chance step) is blocked:
+  both rate constants fall to zero with their ratio held by the thermodynamic cycles, and a
+  rapid-equilibrium step keeps the constant the cycles set while its speed vanishes;
+- each step of a tagged group vanishes at its own rate, and a group may mix a plain and a
+  fused binding of one metabolite.
+
+The derivation reads the inactive conformation's law by deleting the tagged steps and the
+forms that the deletion cuts off from free E. **Admission** decides when that is the limit,
+whatever the rates at which the tagged constants vanish:
+
+1. **Existence.** Join the forms by the conformation's untagged steps, and draw each tagged
+   plain binding as an arrow from its unbound side's component to its bound side's. A path
+   to the limit exists exactly when no arrow stays inside one component and the arrows
+   close no cycle.
+2. **Uniqueness.** Every form that free E reaches only through tagged steps lies behind a
+   tagged plain binding, on its bound side, and the limit is the same on every face where
+   data sit (below).
+3. **Turnover.** With `:OnlyI` groups, the active conformation still turns the reaction
+   over.
+
+A tag set that fails is rejected with an error that names the step. Tagging `E + S ⇌ E(S)`
+`:OnlyA` while the catalytic step and the product binding stay `:EqualAI` fails existence:
+in the inactive conformation those steps still join E to E(S), so no path takes that
+affinity to zero. Admission is sound but not exact. It also rejects two rare shapes whose
+limit exists, equilibrium bridges and stranded basins fed only through vanishing steps,
+which the repository's `ROADMAP.md` lists.
+
+### What the package rejects
+
+A mechanism is well defined when its rate law is the unique fast-equilibrium limit of
+mass-action kinetics wherever data sit: at interior concentrations and on every **face**,
+where every product is zero, every substrate, each reactant alone on a side of two or more,
+or any of these with every modifier-only name zero. The macros throw an error that names
+the step and the face; `init_mechanisms` and `expand_mechanisms` drop the mechanism. The
+package rejects:
+
+1. no catalytic cycle: no cycle of steps turns substrates into products, so the rate is
+   zero;
+2. a cycle of rapid-equilibrium steps that turns the reaction over, so the rate is
+   infinite;
+3. a face where the law is not the unique limit: a rapid-equilibrium segment with no form
+   free of the face's metabolites, a segment whose lowest forms are joined only through
+   other forms, a trap that the face feeds and its fast exits cannot drain, or a second
+   closed set of forms;
+4. tags with no limit (admission, above);
+5. a denominator that vanishes on a face, found when the law is first derived.
+
+The faces leave out the corners that zero one substrate with every product. A law the
+package accepts can be 0/0 there, where a well-defined law is 0, so `rate_equation`
+returns `NaN` at such a point; a fit never meets one, since a measured rate there is zero.
 
 ## Thermodynamic constraints of MWC equations
 
@@ -209,11 +273,11 @@ it needs two coupled `:NonequalAI` bindings, not one.
 
 Often a K-system uses exclusive `:OnlyA` binding: the substrate binds the active
 state alone, and the inactive cycle is pruned (`N_I = 0`). Its catalytic step
-**must** be `:OnlyA` too. This is a thermodynamic requirement, not a convention:
-the two conformations share `Keq`, so a ligand that binds only the active state
-(`K_I → ∞`) forces the inactive catalytic rate to zero, and an `:EqualAI` or
-`:NonequalAI` catalytic tag would assert a rate the Haldane relation forbids.
-`@allosteric_mechanism` rejects the inconsistent combination.
+**must** be `:OnlyA` too. This is a thermodynamic requirement, not a convention: with
+`:EqualAI` or `:NonequalAI` catalysis and an `:EqualAI` product binding, the inactive
+conformation still joins E to E(S) through catalysis and product release, so no path takes
+the substrate affinity to zero while every cycle keeps `Keq`. Admission's existence test
+rejects the combination.
 
 The exception is a balanced K-system. When `:OnlyA` binds both a substrate and a
 product, the two `K_I → ∞` limits cancel in the Haldane relation: the affinities

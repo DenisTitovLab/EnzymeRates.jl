@@ -71,8 +71,8 @@ The tests run on a candidate's flags over the base's graph; a mechanism is built
 for a variant:
 
 - **Valid.** No cycle of rapid-equilibrium steps runs the net reaction
-  (`_re_turnover_cycle`), and no rapid-equilibrium segment is bottomless
-  (`_bottomless_segment`, the rule the boundary check `_check_well_posed` enforces).
+  (`_re_turnover_cycle`), and the guard's face check accepts every face (`_faces_pass`,
+  read on the candidate's flags).
 - **Flux-carrying.** Every steady-state group carries net flux.
 - **Non-degenerate.** A degenerate mechanism's rate at zero products ignores some
   substrate or grows without bound as the substrates grow, or the same holds for
@@ -143,7 +143,9 @@ mechanism and returns the resulting child mechanisms pooled into one list. Each
 move is applied in every applicable way, so one input mechanism yields many
 children — every set of rapid-equilibrium groups that can flip to steady state,
 every way a group can be split by binding context, every way an inhibitor can
-bind, and so on. Every child is checked to conserve atoms before it is returned.
+bind, and so on.
+Every child is checked to conserve atoms, and a child the well-posedness guard rejects
+(see [Mechanisms with allosteric regulators](@ref)) is dropped.
 
 The seven moves:
 
@@ -277,25 +279,37 @@ dissociation constant `K_R`).
 
 ### 4. Promote a non-allosteric to allosteric mechanism
 
-Converts a `Mechanism` to an `AllostericMechanism` variant set. An `:OnlyA`
-catalytic binding asserts `K_I → ∞`: the inactive conformation cannot bind
-that metabolite, so it cannot complete the catalytic cycle. The MWC reading is a
-**catalytically-dead** inactive conformation — every chemistry group `:OnlyA` —
-that binds ligands but runs no chemistry. A chemistry group holds an
-isomerization, a fused binding or a Theorell–Chance step (`_is_chemistry`), so a
-merged mechanism's variants tag its fused binding `:OnlyA` with the rest of its
-chemistry and never tag that binding on its own. The engine emits, per
-multiplicity: every non-empty subset of binding groups `:OnlyA`, each with every
-chemistry group `:OnlyA` (a K-type mechanism, emitted bare); plus the empty subset
-(every chemistry group `:OnlyA`, every binding group `:EqualAI`) paired with a
-declared allosteric regulator, one variant per `(regulator, tag)` with
-`tag ∈ {:OnlyA, :OnlyI}` (a V-type mechanism, where the regulator makes `L`
-identifiable). The all-`:EqualAI` baseline is never emitted (the conformations
-would be identical and `L` would cancel). A binding subset that leaves a
-binding-only Wegscheider cycle unsatisfiable is dropped (see
-[Thermodynamic constraints of MWC equations](@ref)). Enumeration runs over the
-catalytic multiplicities the reaction's `oligomeric_state:` allows
-(`allowed_catalytic_multiplicities`). No-op on an already allosteric input.
+Converts a `Mechanism` to `AllostericMechanism` variants, each built on a **base** tag set
+(`_tagging_bases`). A chemistry group holds an isomerization, a fused binding or a
+Theorell–Chance step (`_is_chemistry`); every other group is a binding group. The first
+candidate base tags every chemistry group `:OnlyA` and every binding group `:EqualAI`: an
+inactive conformation that binds ligands but runs no chemistry. When admission accepts it
+(see [Mechanisms with allosteric regulators](@ref)), it is the only base. Otherwise the
+bases are the smallest sets of chemistry groups, tagged `:OnlyA` with every other group
+`:EqualAI`, that stop every catalytic cycle of the inactive conformation and pass
+admission. A ping-pong mechanism is the common case: tagging both half-reactions strands
+the covalent forms between them, whose weight then depends on how fast each half stops,
+so it gets one base per half-reaction, the other half running in both conformations, as
+phosphorylation stops PDH's E1 and leaves E2 and E3 running. Stopping both halves needs the
+conformations to flip at the covalent form too, with a constant of its own, which waits for
+iso mechanisms.
+
+On its bases the engine emits, per multiplicity:
+
+- **K-types:** every nonempty set of binding groups tagged `:OnlyA` on top of a base, and,
+  when admission rejects the every-chemistry set, on top of that set too, since a tagged
+  binding can restore the limit (as in a bi-bi whose group mixes a plain binding with a
+  fused one); each is emitted bare and kept when admission accepts it;
+- **V-types:** each base paired with a declared allosteric regulator at a new site, one
+  variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`, where the regulator makes
+  `L` identifiable.
+
+The all-`:EqualAI` baseline is never emitted (the conformations would be identical and `L`
+would cancel). Admission does not run the guard's face check, so a child that fails it is
+dropped where `expand_mechanisms` returns it, as for every move. A ping-pong parent with no
+declared regulator can end with no child, when every K-type strands a form or a basin.
+Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an already allosteric
+input.
 
 A K-type variant does not always reveal `L`. Over more than one catalytic
 subunit the conformational equilibrium enters the rate with the multiplicity's
@@ -343,6 +357,9 @@ an allosteric-state tag drawn from `{:OnlyA, :OnlyI, :NonequalAI}` (plus
 Changes one `:EqualAI` or `:OnlyA`/`:OnlyI` allosteric-state tag to
 `:NonequalAI`, giving the active-state and inactive-state versions of the
 group independent parameters. No-op on a non-allosteric input.
+The chemistry groups relax together, and only while no binding group is `:OnlyA`. A
+catalytic relaxation is kept when admission accepts it (`_admits`); a child the guard's face
+check rejects is dropped where `expand_mechanisms` returns it.
 
 **Parameter delta:**
 - RE binding group: **+1** (one shared K splits into `K_A` and `K_I`).
@@ -391,13 +408,17 @@ conformational equilibrium and a random-order steady-state catalytic scheme
 each put a metabolite concentration to a power in the rate equation, and
 sigmoidal data cannot tell the two sources apart. The moves therefore never
 combine them: promotion to allosteric gives a parent whose catalytic scheme
-already carries a power no variant above one catalytic subunit, and the flip
-move on an allosteric parent with more than one subunit drops a child that
+already carries a power no variant above one catalytic subunit, and above one
+subunit the tagging and change-tag moves, like the flip move, drop a child that
 would introduce one. With one catalytic subunit the conformational equilibrium
 only reweights each enzyme form and adds no power of its own, so such a
 mechanism may carry any catalytic scheme. The test is structural
 (`_hyperbolic_catalysis`): the equation's degree in a metabolite is read from
-the rapid-equilibrium segment graph without deriving it. Every binding of a
+the rapid-equilibrium segment graph without deriving it. On an allosteric
+mechanism it reads each conformation's law (`_active_mask`, `_inactive_mask`),
+since a conformation that runs part of the catalytic graph can carry a power
+the whole graph lacks: once the inactive conformation stops one half-reaction
+of a ping-pong, its abortive complexes can put A² into its law. Every binding of a
 substrate or product at its catalytic site counts, abortive complexes included,
 so an ordered scheme whose substrate traps a steady-state intermediate, as
 pyruvate does with E·NAD⁺ in lactate dehydrogenase, stays out of allosteric
