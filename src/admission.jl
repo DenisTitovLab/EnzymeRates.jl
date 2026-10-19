@@ -442,28 +442,22 @@ network) and, for an allosteric mechanism, admission's face condition (`_admissi
 on the ε-network), the first fault winning. `_WELL_POSED` when every check passes. It
 reads the reaction graph through masks and builds nothing.
 """
-function _guard(m::Mechanism)
+function _guard(mech::_AnyMech)
+    m = catalytic(mech)
     _has_turnover_cycle(m, trues(length(m.edges))) ||
         return _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0)
-    net = _law_network(m)
-    v = _re_turnover_verdict(net)
-    v === _WELL_POSED || return v
-    _faces_verdict(m, net)
-end
-function _guard(am::AllostericMechanism)
-    m = am.catalytic
-    _has_turnover_cycle(m, trues(length(m.edges))) ||
-        return _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0)
-    eps = _eps_network(am)
+    eps = _eps_network(mech)
     v = _re_turnover_verdict(eps)
     v === _WELL_POSED || return v
-    v = _admission_interior(am)
+    # A plain mechanism's ε-network is its law network, and admission reads no tag of it.
+    mech isa AllostericMechanism || return _faces_verdict(mech, eps)
+    v = _admission_interior(mech)
     v === _WELL_POSED || return v
-    law, faces = _law_network(am), _faces(m)
+    law, faces = _law_network(mech), _faces(m)
     for i in eachindex(faces)
-        v = _check_face(am, law, faces, i)
+        v = _check_face(mech, law, faces, i)
         v.fault === _NO_FAULT || return v
-        v = _admission_face(am, eps, law, faces, i)
+        v = _admission_face(mech, eps, law, faces, i)
         v.fault === _NO_FAULT || return v
     end
     _WELL_POSED
@@ -796,8 +790,9 @@ reads through the override, building nothing. Class 2 runs first because a candi
 flags may close a fast cycle its parent's did not.
 """
 function _faces_pass(mech::_AnyMech, re::BitVector)
-    isempty(_re_turnover_transitions(_eps_network(mech, re))) || return false
-    _faces_verdict(mech, _law_network(mech, re)) === _WELL_POSED
+    eps = _eps_network(mech, re)
+    isempty(_re_turnover_transitions(eps)) || return false
+    _faces_verdict(mech, mech isa Mechanism ? eps : _law_network(mech, re)) === _WELL_POSED
 end
 
 # ─── Class 3: the limit test mod 2^61 − 1 ───────────────────────────────
