@@ -672,13 +672,14 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                   _testhelper_respeed_verdicts(m_abortive; rng = Random.MersenneTwister(4)))
     end
 
-    @testset "a stray free form cannot leave the inactive state's segment bottomless" begin
+    @testset "a free form that holds the enzyme it receives is a second closed class" begin
         # Every step that takes up the substrate A is :OnlyA, and the conformations flip at
         # free E, so the inactive conformation keeps E and E(P) alone: a second free form
         # F, which binds B and joins E only through F + B <--> E(B), holds no inactive
-        # enzyme. With every substrate absent, or A, or B, the forms F, E(B), E(A::Mod)
-        # and E(A::Mod, B) hold the enzyme they receive and never return it to E: a second
-        # closed class, which class 3 rejects (`_NONUNIQUE`) and the RE-speed oracle sees.
+        # enzyme. In the active conformation, with every substrate absent, or A, or B, F
+        # holds the enzyme it receives, together with E(B) while B is present, and never
+        # returns it to E: a second closed class, which class 3 rejects (`_NONUNIQUE`) and
+        # the RE-speed oracle sees.
         s1 = @_testhelper_unguarded @allosteric_mechanism begin
             substrates: A, B
             products: P
