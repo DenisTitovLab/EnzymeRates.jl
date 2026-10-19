@@ -1702,6 +1702,21 @@ function _testhelper_names_its_step(m, v::EnzymeRates._Verdict)
     occursin(": at zero ", msg) && occursin(line, msg)
 end
 
+"""
+Class 5's branches (`EnzymeRates._law_branches`) of the derived denominator of `mech`, a
+`Mechanism` or an `AllostericMechanism`: a plain mechanism's denominator in lowest terms
+(`_raw_symbolic_rate_polys`); an allosteric one's two conformations' denominators and
+free-enzyme weights (`_mwc_state_polys`).
+"""
+function _testhelper_law_branches(mech)
+    mech isa EnzymeRates.Mechanism &&
+        return EnzymeRates._law_branches(EnzymeRates._raw_symbolic_rate_polys(mech)[2])
+    mets = Set{Symbol}(EnzymeRates.metabolites(mech.catalytic))
+    _, den_A, _, den_I, d_A, d_I =
+        EnzymeRates._mwc_state_polys(mech, mets, EnzymeRates._kept_members(mech))
+    EnzymeRates._law_branches(den_A, den_I, d_A, d_I)
+end
+
 """The faults class 3 reports on a face (`_check_face`): the faces the RE-speed oracle
 judges."""
 const _testhelper_class3_faults = (EnzymeRates._NONUNIQUE, EnzymeRates._BOTTOMLESS,

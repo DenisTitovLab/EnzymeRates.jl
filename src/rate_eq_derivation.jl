@@ -352,7 +352,7 @@ denominator vanishes on a face of the guard (`_assert_support`)."""
 function _num_den_exprs(m::Mechanism; horner = false)
     names = _edge_names(m, :None)
     num, den, _ = _raw_symbolic_rate_polys(m, trues(length(m.edges)), names)
-    _assert_support(m, [(den, poly_one())])
+    _assert_support(m, _law_branches(den))
     horner && return _poly_to_horner(num), _poly_to_horner(den)
     param_syms = Set{Symbol}(n for ns in names for n in ns)
     _poly_to_expr(num, param_syms), _poly_to_expr(den, param_syms)

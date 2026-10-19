@@ -1897,24 +1897,19 @@ end
 # ─── Class 5: the support test on the derived law (spec section 8) ─────
 
 """
-    _law_branches(m) -> Vector{Tuple{POLY, POLY}}
+    _law_branches(den) -> Vector{Tuple{POLY, POLY}}
     _law_branches(den_A, den_I, d_A, d_I) -> Vector{Tuple{POLY, POLY}}
 
-The derived denominator of `m`'s rate law as branches of positive terms, so that it keeps
+The derived denominator of a rate law as branches of positive terms, so that it keeps
 a monomial free of a face's names exactly when some branch's two factors both do: a plain
-mechanism's denominator in lowest terms (`_raw_symbolic_rate_polys`) times 1; an allosteric
-one's two conformations, each denominator times the other conformation's free-enzyme
-weight (`_mwc_state_polys`). Powers of a branch and the regulatory sites' factors, whose 1
-never vanishes, keep the same faces. The second form pairs the two conformations'
-denominators `den_A`, `den_I` and free-enzyme weights `d_A`, `d_I` that the allosteric
-derivation already holds (`_num_den_exprs`); the first form derives them.
+mechanism's denominator `den` in lowest terms (`_raw_symbolic_rate_polys`) times 1; an
+allosteric one's two conformations, each denominator times the other conformation's
+free-enzyme weight (`_mwc_state_polys`). Powers of a branch and the regulatory sites'
+factors, whose 1 never vanishes, keep the same faces. The second form pairs the two
+conformations' denominators `den_A`, `den_I` and free-enzyme weights `d_A`, `d_I`. Both
+forms take the polynomials the derivation already holds (`_num_den_exprs`).
 """
-_law_branches(m::Mechanism) = [(_raw_symbolic_rate_polys(m)[2], poly_one())]
-function _law_branches(am::AllostericMechanism)
-    _, den_A, _, den_I, d_A, d_I =
-        _mwc_state_polys(am, Set{Symbol}(metabolites(am.catalytic)), _kept_members(am))
-    _law_branches(den_A, den_I, d_A, d_I)
-end
+_law_branches(den::POLY) = [(den, poly_one())]
 _law_branches(den_A::POLY, den_I::POLY, d_A::POLY, d_I::POLY) =
     [(den_A, d_I), (den_I, d_A)]
 

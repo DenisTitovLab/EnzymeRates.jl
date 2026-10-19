@@ -870,7 +870,7 @@ end
     @test _testhelper_respeed_verdicts(unfed; rng = Random.MersenneTwister(8),
                                        law = :limit)[2] === :agree
     # The package law is 0/0 at zero products: class 5 refuses to derive it.
-    @test EnzymeRates._support_verdict(unfed, EnzymeRates._law_branches(unfed)).face == 2
+    @test EnzymeRates._support_verdict(unfed, _testhelper_law_branches(unfed)).face == 2
     @test_throws "every term of the rate law's denominator vanishes" (
         EnzymeRates._num_den_exprs(unfed))
 end
@@ -1060,7 +1060,7 @@ end
         @test all(f -> _testhelper_names_its_step(m, verdicts[f]), faces)
     end
     @test EnzymeRates._support_verdict(dead_end,
-                                       EnzymeRates._law_branches(dead_end)).face == 2
+                                       _testhelper_law_branches(dead_end)).face == 2
     # Where the law's segment chain has two closed classes, the message names the face and
     # what the limit test found, with no fix.
     message(m, f) = EnzymeRates._guard_message(m, _testhelper_face_verdicts(m)[f])
@@ -2802,7 +2802,7 @@ end
             E(P) + Q <--> E(P, Q)
         end
     end
-    v = EnzymeRates._support_verdict(m, EnzymeRates._law_branches(m))
+    v = EnzymeRates._support_verdict(m, _testhelper_law_branches(m))
     @test v == EnzymeRates._Verdict(EnzymeRates._DENOMINATOR_VANISHES,
                                     EnzymeRates._LIMIT_UNTESTED, 2, 0, 0)
     @test EnzymeRates._guard_message(m, v) ==
@@ -2823,7 +2823,7 @@ end
             E(P) + Q <--> E(P, Q) :: OnlyA
         end
     end
-    w = EnzymeRates._support_verdict(am, EnzymeRates._law_branches(am))
+    w = EnzymeRates._support_verdict(am, _testhelper_law_branches(am))
     @test w == EnzymeRates._Verdict(EnzymeRates._DENOMINATOR_VANISHES,
                                     EnzymeRates._LIMIT_UNTESTED, 2, 0, 0)
     @test EnzymeRates._guard_message(am, w) ==
@@ -2836,7 +2836,7 @@ end
 @testset "every spec's denominator keeps a monomial on every face" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         x = _testhelper_lift(spec.mechanism)
-        @test EnzymeRates._support_verdict(x, EnzymeRates._law_branches(x)) ==
+        @test EnzymeRates._support_verdict(x, _testhelper_law_branches(x)) ==
               EnzymeRates._WELL_POSED
     end
 end
@@ -2878,7 +2878,7 @@ end
     @test _testhelper_respeed_verdicts(spec.mechanism; rng, law = :package) ==
           fill(:agree, 5)
     @test EnzymeRates._guard(x) == EnzymeRates._WELL_POSED
-    @test EnzymeRates._support_verdict(x, EnzymeRates._law_branches(x)) ==
+    @test EnzymeRates._support_verdict(x, _testhelper_law_branches(x)) ==
           EnzymeRates._WELL_POSED
     @test length(EnzymeRates.fitted_params(spec.mechanism)) == 6
     # The fix the message prints, the feeding step steady-state, passes as well.
@@ -2943,7 +2943,7 @@ end
     @test _testhelper_respeed_verdicts(spec.mechanism; rng, law = :package) ==
           fill(:agree, 7)
     @test EnzymeRates._guard(x) == EnzymeRates._WELL_POSED
-    @test EnzymeRates._support_verdict(x, EnzymeRates._law_branches(x)) ==
+    @test EnzymeRates._support_verdict(x, _testhelper_law_branches(x)) ==
           EnzymeRates._WELL_POSED
     @test length(EnzymeRates.fitted_params(spec.mechanism)) == 10
 end
