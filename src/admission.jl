@@ -2172,9 +2172,10 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
     net = _law_network(mech)
     face = _faces(m)[v.face]
     s = _face_structure(net, face)
-    at = "at zero " * join(String.(_face_names(m, face)), ", ", " and ") *
-         _place(mech, v.conformation)
-    forms(nodes) = "{" * join([_form_text(m, _form_of(net, u)) for u in nodes], ", ") * "}"
+    zeroed = "at zero " * join(String.(_face_names(m, face)), ", ", " and ")
+    at = zeroed * _place(mech, v.conformation)
+    forms(nodes, label = _ -> "") =
+        "{" * join([_form_text(m, _form_of(net, u)) * label(u) for u in nodes], ", ") * "}"
     lines(edges) = join([_step_text(m, k) for k in edges], ", ", " and ")
     if v.fault === _NONUNIQUE
         C = _away_class(s)
@@ -2199,7 +2200,15 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
                "step's kinetic group steady-state."
     elseif v.fault === _SPLIT
         split = _split_parts(net, s)
-        return "$who: $at, the forms $(join(forms.(split.parts), " and ")) of one " *
+        # Parts that lie in different conformations name each form's conformation.
+        if allequal(_copy_of(net, u) for part in split.parts for u in part)
+            parts = forms.(split.parts)
+        else
+            at = zeroed
+            state(u) = _copy_of(net, u) == 1 ? " (active)" : " (inactive)"
+            parts = [forms(part, state) for part in split.parts]
+        end
+        return "$who: $at, the forms $(join(parts, " and ")) of one " *
                "rapid-equilibrium segment are joined only by steps that take up a " *
                "zeroed metabolite ($(lines(split.joins))), so the rate law cannot weight " *
                "one against the other."

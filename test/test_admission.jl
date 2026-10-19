@@ -749,6 +749,63 @@ end
           "against the other."
 end
 
+@testset "a split across both conformations names each form's conformation" begin
+    # Both halves of the ping-pong :NonequalAI run chemistry in both conformations on one
+    # rapid-equilibrium segment, joined through the flip at free E. At zero ATP and F6P
+    # the covalent forms of each conformation make a part of their own, joined to the
+    # rest only by steps that take up a zeroed metabolite. The two parts hold the same
+    # forms, one part in each conformation, so the message names each form's
+    # conformation and none for the whole split.
+    am = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: ATP, F6P
+        products: ADP, F16BP
+        catalytic_multiplicity: 1
+        steps: begin
+            E + ATP ⇌ E(ATP) :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP) :: NonequalAI
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP) :: EqualAI
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP) :: NonequalAI
+            E + ADP ⇌ E(ADP) :: EqualAI
+        end
+    end
+    v = EnzymeRates._guard(am)
+    @test (v.fault, v.face) == (EnzymeRates._SPLIT, 3)
+    @test EnzymeRates._guard_message(am, v) ==
+          "AllostericMechanism: at zero ATP and F6P, the forms " *
+          "{E(; residual = ATP - F16BP) (active), " *
+          "E(F16BP; residual = ATP - F16BP) (active)} and " *
+          "{E(; residual = ATP - F16BP) (inactive), " *
+          "E(F16BP; residual = ATP - F16BP) (inactive)} of one rapid-equilibrium segment " *
+          "are joined only by steps that take up a zeroed metabolite (E + ATP ⇌ E(ATP) " *
+          "and E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)), so " *
+          "the rate law cannot weight one against the other."
+    # The LDH-like split at zero Q, every group :EqualAI: one part holds free E and E(A)
+    # of both conformations, joined through the flip, so the labels go on the forms.
+    ldh = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_multiplicity: 1
+        steps: begin
+            E + A ⇌ E(A) :: EqualAI
+            E(A) + B <--> E(A, B) :: EqualAI
+            E(A, B) <--> E(P, Q) :: EqualAI
+            E(P) + Q ⇌ E(P, Q) :: EqualAI
+            E(Q) + P ⇌ E(P, Q) :: EqualAI
+            E + P <--> E(P) :: EqualAI
+            E + Q ⇌ E(Q) :: EqualAI
+        end
+    end
+    at_Q = _testhelper_face_verdicts(ldh)[7]
+    @test at_Q.fault === EnzymeRates._SPLIT
+    @test EnzymeRates._guard_message(ldh, at_Q) ==
+          "AllostericMechanism: at zero Q, the forms {E (active), E(A) (active), " *
+          "E (inactive), E(A) (inactive)} and {E(P) (active)} and {E(P) (inactive)} of " *
+          "one rapid-equilibrium segment are joined only by steps that take up a zeroed " *
+          "metabolite (E + Q ⇌ E(Q) and E(P) + Q ⇌ E(P, Q)), so the rate law cannot " *
+          "weight one against the other."
+end
+
 @testset "class 3 rejects a bottomless segment" begin
     ok, bottomless = EnzymeRates._NO_FAULT, EnzymeRates._BOTTOMLESS
     entered = @_testhelper_unguarded @enzyme_mechanism begin
