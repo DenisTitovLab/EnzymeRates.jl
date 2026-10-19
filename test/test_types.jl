@@ -3106,11 +3106,10 @@ end
 end
 
 @testset ":OnlyA guard rejects a multi-cycle ter-substrate inconsistency" begin
-    # A full random-order ter binding cube with seven :OnlyA edges and the cross
-    # bindings :EqualAI. In the inactive conformation the untagged bindings join forms
-    # across the cube, so a tagged binding's two sides share a component: no path takes
-    # its affinity to zero, and admission rejects the cube (`_NO_LIMIT`).
-    # Admission finds untagged steps that join the two sides of an :OnlyA binding
+    # A full random-order ter binding cube with seven :OnlyA edges and the cross bindings
+    # :EqualAI. In the inactive conformation the untagged bindings join forms across the
+    # cube, so a tagged binding's two sides share a component: no path takes its affinity to
+    # zero. Admission finds untagged steps that join the two sides of an :OnlyA binding
     # (`_NO_LIMIT`).
     cube = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B, C

@@ -12954,7 +12954,7 @@ end
     end
 end
 
-@testset "K-types build on today's V-type set when admission rejects it" begin
+@testset "K-types build on the every-chemistry set when admission rejects it" begin
     # Census bi-bi parent 1291abb91f537c6b (census/base6), one of the 12 bi-bi parents
     # whose V-type set fails admission. A's group mixes its plain bindings at E
     # and E(P) with its fused binding into E(P, Q), and B's mixes its plain binding at E
@@ -13147,14 +13147,13 @@ end
 end
 
 @testset "change_allo_state keeps only the relaxations admission accepts" begin
-    # A K-type of census bi-bi parent 1291abb91f537c6b (testset "K-types build on
-    # today's V-type set when admission rejects it"): A's and B's mixed groups and Q's
+    # A K-type of census bi-bi parent 1291abb91f537c6b (testset "K-types build on the
+    # every-chemistry set when admission rejects it"): A's and B's mixed groups and Q's
     # bindings :OnlyA. Relaxing Q's bindings to :NonequalAI gives back the every-chemistry
     # set, whose plain binding of B at E has its two sides joined in the inactive
-    # conformation, through Q's bindings and B's binding at E(Q) (`_NO_LIMIT`), so the
-    # move drops it. Relaxing P's bindings or B's binding at E(Q) leaves Q's cut, and
-    # admission accepts both. The chemistry does not relax while a binding is :OnlyA.
-    # Two children.
+    # conformation, through Q's bindings and B's binding at E(Q) (`_NO_LIMIT`), so the move
+    # drops it. Relaxing P's bindings or B's binding at E(Q) leaves Q's cut, and admission
+    # accepts both. The chemistry does not relax while a binding is :OnlyA. Two children.
     q_tagged = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
         steps: begin
@@ -13821,16 +13820,14 @@ end
     # kept member of the full mechanism, so the inactive conformation cannot give it a
     # second name and the joint solve counts it once.
     #
-    # Among its K-types `_expand_to_allosteric` always emits dead-inactive
-    # `:OnlyA`-binding combos (all chemical steps `:OnlyA`), so the case this guards is
-    # the child that sets
-    # the free-enzyme bindings (a substrate/product pair on free E) `:OnlyA`,
-    # leaving the lumped downstream group's binding `:EqualAI`, outside the inactive
-    # law, which holds only the forms its untagged steps join to free E; the constant stays
-    # merged, so the child adds only `L` — parent + 1 fitted params. A child
-    # that instead sets a downstream binding `:OnlyA` orphans a bound form of
-    # the lumped group; its multi-`:OnlyA` derivation is a separate, documented
-    # concern and is not asserted here.
+    # Among its K-types `_expand_to_allosteric` always emits dead-inactive `:OnlyA`-binding
+    # combos (all chemical steps `:OnlyA`), so the case this guards is the child that sets
+    # the free-enzyme bindings (a substrate/product pair on free E) `:OnlyA`, leaving the
+    # lumped downstream group's binding `:EqualAI`, outside the inactive law, which holds
+    # only the forms its untagged steps join to free E; the constant stays merged, so the
+    # child adds only `L` — parent + 1 fitted params. A child that instead sets a downstream
+    # binding `:OnlyA` orphans a bound form of the lumped group; its multi-`:OnlyA`
+    # derivation is a separate, documented concern and is not asserted here.
     rxn = @enzyme_reaction begin
         substrates: NADH[C21H29N7O14P2], Pyruvate[C3H4O3]
         products:   Lactate[C3H6O3], NAD[C21H27N7O14P2]
@@ -14311,16 +14308,15 @@ end
 end
 
 @testset "change_allo_state relaxes a one-half V-type, leaving class 3 to the exit" begin
-    # The tagging move's V-type on the second half-reaction of the six-step bi-bi
-    # ping-pong (testset "Mechanism — Bi-bi ping-pong: …" above), at one subunit: that
-    # half :OnlyA, every binding :EqualAI, R at an :OnlyA site. Each binding relaxes
-    # alone, the two half-reactions relax together, and the site ligand relaxes;
-    # admission accepts every catalytic relaxation. With both halves :NonequalAI the
-    # conformations run
-    # different chemistry on one rapid-equilibrium segment, and with every substrate zero
-    # or B zero the covalent forms hold the enzyme in both, joined only through free E: a
-    # split whose limit depends on the speeds. Class 3 rejects it, so expand_mechanisms
-    # drops that child.
+    # The tagging move's V-type on the second half-reaction of the six-step bi-bi ping-pong
+    # (testset "Mechanism — Bi-bi ping-pong: …" above), at one subunit: that half :OnlyA,
+    # every binding :EqualAI, R at an :OnlyA site. Each binding relaxes alone, the two
+    # half-reactions relax together, and the site ligand relaxes; admission accepts every
+    # catalytic relaxation. With both halves :NonequalAI the conformations run different
+    # chemistry on one rapid-equilibrium segment, and with every substrate zero or B zero
+    # the covalent forms hold the enzyme in both, joined only through free E: a split whose
+    # limit depends on the speeds. Class 3 rejects it, so expand_mechanisms drops that
+    # child.
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
