@@ -2299,23 +2299,23 @@ let
     ))
 end
 
-# 11d. Two binding orders into one complex: S1 then S2 at steady state, S2 then S1 at
-#      rapid equilibrium. ODE is ground truth.
+# 11d. Single-RE-segment with a redundant SS binding branch (one branch
+#      RE, one SS). ODE is ground truth.
 let
     m, raw = @_testhelper_with_raw @enzyme_mechanism begin
         substrates: S1, S2
         products: P
         steps: begin
-            E + S1 <--> E(S1)
+            E + S1 ⇌ E(S1)
             E + S2 ⇌ E(S2)
-            E(S1) + S2 <--> E(S1, S2)
-            E(S2) + S1 ⇌ E(S1, S2)
+            E(S1) + S2 ⇌ E(S1, S2)
+            E(S2) + S1 <--> E(S1, S2)
             E(S1, S2) <--> E(P)
             E(P) ⇌ E + P
         end
     end
     push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
-        name="Numerator: redundant SS-bind, steady-state feeder",
+        name="Numerator: redundant SS-bind",
         mechanism=m,
         raw=raw,
         metabolite_names=[:S1, :S2, :P],
@@ -2323,7 +2323,7 @@ let
         expected_n_steps=6,
         expected_n_haldane_constraints=1,
         expected_n_wegscheider_constraints=1,
-        expected_n_independent_params=7,
+        expected_n_independent_params=6,
     ))
 end
 

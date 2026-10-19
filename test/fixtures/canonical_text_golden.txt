@@ -111,15 +111,15 @@ forms: E, EP1, EP1P2, EP2, ES1, ES1S2, ES2
 8: ES1S2 ⇌ EP1P2 | group 8
 9: ES2 + S1 <--> ES1S2 | group 9
 
-# Numerator: redundant SS-bind, steady-state feeder
+# Numerator: redundant SS-bind
 substrates: S1, S2 | products: P
 forms: E, EP, ES1, ES1S2, ES2
 1: E + P ⇌ EP | group 1
-2: E + S1 <--> ES1 | group 2
+2: E + S1 ⇌ ES1 | group 2
 3: E + S2 ⇌ ES2 | group 3
-4: ES1 + S2 <--> ES1S2 | group 4
+4: ES1 + S2 ⇌ ES1S2 | group 4
 5: ES1S2 <--> EP | group 5
-6: ES2 + S1 ⇌ ES1S2 | group 6
+6: ES2 + S1 <--> ES1S2 | group 6
 
 # Segel Bi Uni Uni Bi PP Ter Ter
 substrates: A, B, C | products: P, Q, R

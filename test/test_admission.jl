@@ -2777,7 +2777,7 @@ end
     end
 end
 
-@testset "the redundant steady-state binding spec traps substrate-free enzyme" begin
+@testset "a redundant steady-state binding traps S1-bound enzyme at zero substrates" begin
     rng = Random.MersenneTwister(73)
     NO, TR, SP = EnzymeRates._NO_FAULT, EnzymeRates._TRAP, EnzymeRates._SPLIT
     # With S1 and S2 zero, E(S1, S2) feeds E(S1) by the fast release of S2, and E(S1)
@@ -2803,10 +2803,11 @@ end
     @test (v.fault, v.limit, v.face, v.edge) ===
           (TR, EnzymeRates._LIMIT_SPEED, 3, feed)
     @test occursin(EnzymeRates._step_text(m, feed), EnzymeRates._guard_message(m, v))
-    # The variant makes the feeding step steady-state: every face passes, and its law is
-    # the exact steady state, before any pin.
+    # The variant moves the steady-state binding of S1 from free E to E(S2), where it
+    # stays redundant inside the one RE segment: every face passes, and its law is the
+    # exact steady state, before any pin.
     spec = only(s for s in MECHANISM_TEST_SPECS
-                if s.name == "Numerator: redundant SS-bind, steady-state feeder")
+                if s.name == "Numerator: redundant SS-bind")
     x = _testhelper_lift(spec.mechanism)
     _testhelper_check_law_against_oracle(spec.mechanism)
     @test _testhelper_face_faults(x) == fill(NO, 5)
@@ -2815,10 +2816,25 @@ end
     @test EnzymeRates._guard(x) == EnzymeRates._WELL_POSED
     @test EnzymeRates._support_verdict(x, EnzymeRates._law_branches(x)) ==
           EnzymeRates._WELL_POSED
-    @test length(EnzymeRates.fitted_params(spec.mechanism)) == 7
+    @test length(EnzymeRates.fitted_params(spec.mechanism)) == 6
+    # The fix the message prints, the feeding step steady-state, passes as well.
+    fed = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S1, S2
+        products: P
+        steps: begin
+            E + S1 <--> E(S1)
+            E + S2 ⇌ E(S2)
+            E(S1) + S2 <--> E(S1, S2)
+            E(S2) + S1 ⇌ E(S1, S2)
+            E(S1, S2) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    @test EnzymeRates._guard(fed) === EnzymeRates._WELL_POSED
+    @test _testhelper_respeed_verdicts(fed; rng) == fill(:agree, 5)
 end
 
-@testset "the LDH inactive-state spec traps lactate-bound enzyme" begin
+@testset "the LDH i-state 6-group mechanism traps active lactate-bound enzyme" begin
     rng = Random.MersenneTwister(79)
     NO, TR, SP = EnzymeRates._NO_FAULT, EnzymeRates._TRAP, EnzymeRates._SPLIT
     # With Lactate and NAD zero, E(Lactate, NAD) feeds E(Lactate) by the fast release of
