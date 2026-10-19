@@ -3050,6 +3050,7 @@ end
     v = EnzymeRates._guard(am)
     @test v.fault === EnzymeRates._NO_LIMIT
     @test EnzymeRates._step_text(am.catalytic, v.edge) == "E + A <--> E(A)"
+    @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(95)) === :no_path
     msg = EnzymeRates._guard_message(am, v)
     @test_throws ErrorException(msg) @allosteric_mechanism begin
         substrates: A, B
@@ -8408,7 +8409,11 @@ end
     # At zero products its segment's steady state depends on how fast the
     # rapid-equilibrium steps run (class 3); the flux test reads the graph alone.
     v = EnzymeRates._guard(loop)
-    @test v.face == 2 && v.limit === EnzymeRates._LIMIT_SPEED
+    @test (v.fault, v.limit, v.face) ===
+          (EnzymeRates._SPLIT, EnzymeRates._LIMIT_SPEED, 2)
+    @test EnzymeRates._step_text(loop, v.edge) == "E + Q ⇌ E(Q)"
+    @test _testhelper_respeed_verdicts(loop; rng = Random.MersenneTwister(92),
+                                       law = :limit)[2] === :pattern
     lflags = EnzymeRates._flux_carrying_groups(loop, EnzymeRates._flags(loop))
     for (g, e) in enumerate(_testhelper_firsts(loop))
         if ss_binding(e)
@@ -9770,8 +9775,11 @@ end
     # The guard rejects ss_mirror at zero substrates, where its segment's steady state
     # depends on how fast its rapid-equilibrium steps run; its law is still counted
     # and ranked, unchecked.
-    v = EnzymeRates._guard(ss_mirror)
-    @test v.face == 3 && v.limit === EnzymeRates._LIMIT_SPEED
+    v = ER._guard(ss_mirror)
+    @test (v.fault, v.limit, v.face) === (ER._SPLIT, ER._LIMIT_SPEED, 3)
+    @test ER._step_text(ss_mirror, v.edge) == "E + A ⇌ E(A)"
+    @test _testhelper_respeed_verdicts(ss_mirror; rng = Random.MersenneTwister(94),
+                                       law = :limit)[3] === :pattern
     @test ER._independent_param_count(ss_mirror) == 8 &&
           _testhelper_identifiable_rank(ss_mirror) == 6
     # One factor for all of a copy's complexes, whatever their twins' classes: the
@@ -11020,7 +11028,11 @@ end
             end
         end
         v = EnzymeRates._guard(single_A)
-        @test v.face == 3 && v.limit === EnzymeRates._LIMIT_SPEED
+        @test (v.fault, v.limit, v.face) ===
+              (EnzymeRates._TRAP, EnzymeRates._LIMIT_SPEED, 3)
+        @test EnzymeRates._step_text(single_A, v.edge) == "E(A) + B ⇌ E(A, B)"
+        @test _testhelper_respeed_verdicts(single_A; rng = Random.MersenneTwister(93),
+                                           law = :limit)[3] === :pattern
         for single in (
             single_A,
             EnzymeRates.Mechanism(@enzyme_mechanism begin
@@ -13877,7 +13889,9 @@ end
         end
     end
     v = EnzymeRates._guard(a_alone)
-    @test v.fault !== EnzymeRates._NO_FAULT && v.limit === EnzymeRates._LIMIT_SPEED
+    @test (v.fault, v.limit, v.face) ===
+          (EnzymeRates._SPLIT, EnzymeRates._LIMIT_SPEED, 2)
+    @test EnzymeRates._step_text(a_alone, v.edge) == "E + P ⇌ E(P)"
     @test _testhelper_respeed_verdicts(a_alone; rng = Random.MersenneTwister(91),
                                        law = :limit)[v.face] === :pattern
     flags = EnzymeRates._flags(parent)

@@ -620,6 +620,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         v = ER._guard(copy_last)
         @test (v.fault, v.face) == (ER._BOTTOMLESS, 3)
         @test ER._guard(copy_first) == v
+        @test copy_first == copy_last
         @test_throws ErrorException(ER._guard_message(copy_last, v)) @enzyme_mechanism begin
             substrates: A, B
             products: P

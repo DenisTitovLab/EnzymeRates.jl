@@ -2834,6 +2834,8 @@ end
     @test EnzymeRates._guard_message(am, w) ==
           "AllostericMechanism: at zero P and Q, every term of the rate law's " *
           "denominator vanishes, so the rate is 0/0 there."
+    @test_throws(ErrorException(EnzymeRates._guard_message(am, w)),
+                 EnzymeRates._num_den_exprs(am))
 end
 
 @testset "every spec's denominator keeps a monomial on every face" begin
