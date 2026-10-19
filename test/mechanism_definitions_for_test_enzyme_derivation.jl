@@ -139,9 +139,8 @@ function _testhelper_graph(m)
     edges = EnzymeRates._flat_edges(cm)
     _testhelper_names(k, state) = Symbol[EnzymeRates.name(p, mech, kept)
                                          for p in EnzymeRates._edge_constants(cm, k, state)]
-    in_law = allo ? EnzymeRates._inactive_mask(mech) : falses(length(cm.edges))
     # The active law keeps the steps outside :OnlyI groups on forms they join to free E.
-    in_active = allo ? EnzymeRates._law_mask(mech, 1) : trues(length(cm.edges))
+    in_law, in_active = EnzymeRates._inactive_law(mech), EnzymeRates._active_law(mech)
     steps = map(edges) do k
         e, g = cm.edges[k], cm.group[k]
         consumed = cm.table[EnzymeRates.entries(e.consumed)]
@@ -871,37 +870,23 @@ with `potentials[c][f]` the potential of form `f`'s component in conformation `c
 scales by `ε^d`: a rapid-equilibrium one stays fast, its on rate scaled by `ε^(θ d)` and
 its off rate by `ε^(-(1 - θ) d)`; a steady-state one keeps its off rate. Any other
 excluded edge is slow, its rates scaled by `ε^(σ + max(±d, 0))`. `sigma` (σ) and `theta`
-(θ) are one value for every edge or one per edge.
+(θ) hold one value per edge.
 """
 function _testhelper_network(m, point, concs::AbstractDict; speeds::Matrix{BigFloat},
                              mode::Symbol = :law, ε::BigFloat = big(1.0),
                              potentials::Vector{Vector{BigFloat}} = Vector{BigFloat}[],
-                             sigma::Union{BigFloat, Vector{BigFloat}} = big(1.0),
-                             theta::Union{BigFloat, Vector{BigFloat}} = big(1.0) / 2)
+                             sigma::Vector{BigFloat} = BigFloat[],
+                             theta::Vector{BigFloat} = BigFloat[])
     mech = _testhelper_lift(m)
     cm = EnzymeRates.catalytic(mech)
     nf = length(cm.forms)
     nc = mech isa EnzymeRates.AllostericMechanism ? 2 : 1
     x1 = first(cm.substrates)
     met_names(c) = [cm.table[i].name for i in EnzymeRates.entries(c)]
-    keep = [trues(nf) for _ in 1:nc]
-    if mode === :law
-        for c in 1:nc
-            reached = falses(nf)
-            reached[1] = true
-            grew = true
-            while grew
-                grew = false
-                for (k, e) in enumerate(cm.edges)
-                    !_testhelper_excludes(mech, k, c) &&
-                        reached[e.from] != reached[e.to] || continue
-                    reached[e.from] = reached[e.to] = true
-                    grew = true
-                end
-            end
-            keep[c] = reached
-        end
-    end
+    # The law keeps the forms in free E's component (`_testhelper_exclusion`, numbered by
+    # first form); the ε-network keeps every form.
+    keep = [mode === :law ? _testhelper_exclusion(mech, c).component .== 1 : trues(nf)
+            for c in 1:nc]
     nodes = [(f, c) for c in 1:nc for f in 1:nf if keep[c][f]]
     id = Dict(node => n for (n, node) in enumerate(nodes))
     links = _testhelper_Link[]
@@ -915,11 +900,11 @@ function _testhelper_network(m, point, concs::AbstractDict; speeds::Matrix{BigFl
         if excluded
             d = potentials[c][e.to] - potentials[c][e.from]
             if EnzymeRates._is_plain_binding(cm, e)
-                θ = theta isa BigFloat ? theta : theta[k]
-                f, r = fast ? (f * ε^(θ * d), r * ε^(-(1 - θ) * d)) : (f * ε^d, r)
+                f, r = fast ? (f * ε^(theta[k] * d), r * ε^(-(1 - theta[k]) * d)) :
+                       (f * ε^d, r)
             else
-                σ = sigma isa BigFloat ? sigma : sigma[k]
-                f, r, fast = f * ε^(σ + max(d, 0)), r * ε^(σ + max(-d, 0)), false
+                f, r, fast = f * ε^(sigma[k] + max(d, 0)), r * ε^(sigma[k] + max(-d, 0)),
+                             false
             end
         end
         w = count(==(x1), met_names(e.consumed)) - count(==(x1), met_names(e.released))
@@ -1228,29 +1213,19 @@ function _testhelper_respeed(m, point, concs::AbstractDict, face::Set{Symbol}; r
 end
 
 """
-The RE-speed oracle's verdict on each face of `m` (`_testhelper_faces`), the worst over
-`npoints` points (`_testhelper_consistent_point`, concentrations log-uniform over
-10^±1) in the order nonunique, diverges, unconverged, pattern, law_nan, mismatch, agree.
-An allosteric mechanism is judged at one catalytic subunit (`_testhelper_single_subunit`).
+The RE-speed oracle's verdict on each face of `m` (`_testhelper_faces`) at one point
+(`_testhelper_consistent_point`, concentrations log-uniform over 10^±1). An allosteric
+mechanism is judged at one catalytic subunit (`_testhelper_single_subunit`).
 """
-function _testhelper_respeed_verdicts(m; rng, npoints::Int = 1, law::Symbol = :package)
+function _testhelper_respeed_verdicts(m; rng, law::Symbol = :package)
     mech = _testhelper_single_subunit(_testhelper_lift(m))
-    faces = _testhelper_faces(mech)
-    order = (:nonunique, :diverges, :unconverged, :pattern, :law_nan, :mismatch, :agree)
-    worst = fill(:agree, length(faces))
     setprecision(BigFloat, 256) do
-        for _ in 1:npoints
-            point = _testhelper_consistent_point(mech, rng)
-            concs = Dict{Symbol, BigFloat}(x => big(10)^(2 * big(rand(rng)) - 1)
-                                           for x in EnzymeRates.metabolites(mech))
-            for (i, face) in enumerate(faces)
-                v = _testhelper_respeed(mech, point, concs, face; rng, law)
-                findfirst(==(v), order) < findfirst(==(worst[i]), order) &&
-                    (worst[i] = v)
-            end
-        end
+        point = _testhelper_consistent_point(mech, rng)
+        concs = Dict{Symbol, BigFloat}(x => big(10)^(2 * big(rand(rng)) - 1)
+                                       for x in EnzymeRates.metabolites(mech))
+        [_testhelper_respeed(mech, point, concs, face; rng, law)
+         for face in _testhelper_faces(mech)]
     end
-    worst
 end
 
 """
