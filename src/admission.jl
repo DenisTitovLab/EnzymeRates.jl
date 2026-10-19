@@ -7,17 +7,15 @@
 Error unless `m`'s rate law is the unique limit of mass-action kinetics, as its
 rapid-equilibrium steps speed up and its tagged constants vanish, on every face where data
 sit (spec section 8): the guard (`_guard`) finds no fault, and the error is its message
-(`_guard_message`), which names each step at fault by its DSL line. An allosteric
-mechanism must also hold every free form in one rapid-equilibrium segment of the edges
-outside `:OnlyA` groups (`_assert_one_flip_segment`). It reads the reaction graph through
-masks and builds nothing. The mechanism macros, the parser and every derivation entry
-(`_derivation_input`) call it; the enumerator's exits and identify's base tier keep what
-`_is_well_posed` accepts; the constructors and the Sig decoder call neither, so code that
-builds a mechanism internally never trips a check meant for the mechanisms it returns.
-Class 5 reads the derived law and runs where the law is derived (`_assert_support`).
+(`_guard_message`), which names each step at fault by its DSL line. It reads the reaction
+graph through masks and builds nothing. The mechanism macros, the parser and every
+derivation entry (`_derivation_input`) call it; the enumerator's exits and identify's base
+tier keep what `_is_well_posed` accepts; the constructors and the Sig decoder call
+neither, so code that builds a mechanism internally never trips a check meant for the
+mechanisms it returns. Class 5 reads the derived law and runs where the law is derived
+(`_assert_support`).
 """
 function _check_well_posed(m::_AnyMech)
-    m isa AllostericMechanism && _assert_one_flip_segment(m)
     v = _guard(m)
     v.fault === _NO_FAULT || error(_guard_message(m, v))
     nothing
@@ -25,9 +23,7 @@ end
 
 """Whether `_check_well_posed(m)` passes: the enumerator's exits and identify's base tier
 keep a child exactly when it does."""
-_is_well_posed(m::Mechanism) = _guard(m).fault === _NO_FAULT
-_is_well_posed(am::AllostericMechanism) =
-    _free_forms_flip_together(am) && _guard(am).fault === _NO_FAULT
+_is_well_posed(m::_AnyMech) = _guard(m).fault === _NO_FAULT
 
 """
     _bottomless_segment(m, mask, re) -> Vector{Int}
@@ -69,38 +65,6 @@ function _bottomless_segment(m::Mechanism, mask::BitVector, re::BitVector)
                 segment) && return segment
     end
     Int[]
-end
-
-"""Whether every free form (`_is_free`) of `am`'s catalytic graph lies in one
-rapid-equilibrium segment of the edges outside `:OnlyA` groups
-(`_assert_one_flip_segment`)."""
-function _free_forms_flip_together(am::AllostericMechanism)
-    m = am.catalytic
-    free = [f for f in eachindex(m.forms) if _is_free(m.forms[f])]
-    length(free) <= 1 && return true
-    segment_of = _segments(m, trues(length(m.edges)),
-                           _flags(m) .& _outside_onlya(am)).segment_of
-    all(f -> segment_of[f] == segment_of[first(free)], free)
-end
-
-"""
-Error unless every free form (no bound metabolite, no residual) of the allosteric
-mechanism `am`'s catalytic graph lies in one rapid-equilibrium segment of the edges
-outside `:OnlyA` groups. Under formulation 1 the conformations interconvert at a free
-form. Within one such segment, flipping at any of its free forms gives the same model
-with L rescaled; free forms joined any other way flip at different forms in the two
-conformations or leave one stranded in the inactive conformation, a different model.
-"""
-function _assert_one_flip_segment(am::AllostericMechanism)
-    _free_forms_flip_together(am) && return nothing
-    m = am.catalytic
-    free = [f for f in eachindex(m.forms) if _is_free(m.forms[f])]
-    error("AllostericMechanism: the free forms " *
-          "$(join([_form_name(m, f) for f in free], ", ")) " *
-          "are not joined by rapid-equilibrium steps outside :OnlyA groups. The " *
-          "conformations interconvert at one free form, so the other free forms must be " *
-          "in rapid equilibrium with it: join them by ⇌ steps outside :OnlyA groups, or " *
-          "keep one free form.")
 end
 
 """`m`, once `_check_well_posed(m)` passes."""

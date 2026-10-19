@@ -108,26 +108,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   dedup key, code-generation locals and the CSV columns that go with them (`key`,
   `fit_source_id`, `L_phantom`). The table in its section 16 lists the entries that each
   PR retires. Priority: high.
-- **Take `:OnlyA` steps to their limit in the inactive conformation.**
-  Both conformations come from one joint solve on one graph, but the inactive law still
-  deletes every `:OnlyA` group and prunes the forms that deletion strands. An `:OnlyA`
-  binding should lose its affinity for the inactive conformation instead (`K → ∞`, or
-  `kon → 0` with `koff` fixed for a steady-state binding), and an `:OnlyA` chemistry step
-  be blocked (both rate constants → 0, their ratio set by thermodynamics); each step of an
-  `:OnlyA` group already keeps its own class. A tag set is admitted when an exact
-  feasibility test passes and every form the free enzyme cannot reach in the inactive
-  conformation lies behind a binding, on its bound side; the limit then equals deletion
-  and pruning. A ping-pong with both half-reactions `:OnlyA` fails this, so the tagging
-  move will stop one half per V-type child instead (spec section 7, and the entry
-  below). The conformations will flip at free E, which every mechanism holds; until
-  then the boundary check admits a second free form of an allosteric mechanism only in
-  rapid equilibrium with the first (`_assert_one_flip_segment`, `src/admission.jl`),
-  where the choice only rescales `L`. The rewrite's admission PR brings the limits,
-  admission and the flip at free E.
-  Branch `mwc-solve-then-limit` holds a July design of this approach (spec b067aa0 and
-  651a821, plan 9c95f12, prototype 6f0011e), whose prototype matched the mass-action
-  ground truth on all six uni-uni tag combinations and would delete the `d_free`
-  cross-weighting; `test/allosteric_ground_truth.jl` is the oracle. Priority: high.
 - **Let an allosteric ping-pong stop both half-reactions in the inactive conformation.**
   PDH and OGDH are ping-pong and allosteric, so allosteric ping-pong must stay in the
   search. With the conformations flipping only at free E, a ping-pong whose inactive

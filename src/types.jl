@@ -1633,39 +1633,15 @@ function _segments(m::Mechanism, mask::BitVector, re::BitVector)
     (; segment_of, segments, offsets)
 end
 
-"""Which edges of `am`'s catalytic graph lie outside `:OnlyA` groups."""
-_outside_onlya(am::AllostericMechanism) =
-    BitVector([am.cat_allo_states[g] !== :OnlyA for g in am.catalytic.group])
-
 """
 The edges of `am`'s inactive conformation: those outside `:OnlyA` groups between forms
-that such edges reach from a free form (`_is_free`). Under formulation 1 the
-conformations interconvert at a free form, so a form those edges do not reach holds no
-inactive enzyme; a ping-pong covalent intermediate carries a residual, so it seeds
-nothing. The inactive law (`_state_rate_polys`), the joint solve (`_inactive_law`) and
-the boundary check (`_check_well_posed`) read the inactive conformation from it, each
-edge in `am`'s stored direction.
+they join to free E (`_law_mask`). The conformations interconvert at free E alone, so a
+form those edges do not join to it holds no inactive enzyme, a second free form included.
+The inactive law (`_state_rate_polys`), the joint solve (`_inactive_law`) and the copy rule
+(`_redundant_copy_groups`) read the inactive conformation from it, each edge in `am`'s
+stored direction.
 """
-function _inactive_mask(am::AllostericMechanism)
-    m, outside = am.catalytic, _outside_onlya(am)
-    reached = falses(length(m.forms))
-    for (k, e) in enumerate(m.edges)
-        outside[k] || continue
-        _is_free(m.forms[e.from]) && (reached[e.from] = true)
-        _is_free(m.forms[e.to]) && (reached[e.to] = true)
-    end
-    grew = true
-    while grew
-        grew = false
-        for (k, e) in enumerate(m.edges)
-            outside[k] && reached[e.from] != reached[e.to] || continue
-            reached[e.from] = reached[e.to] = true
-            grew = true
-        end
-    end
-    BitVector([outside[k] && reached[e.from] && reached[e.to]
-               for (k, e) in enumerate(m.edges)])
-end
+_inactive_mask(am::AllostericMechanism) = _law_mask(am, 2)
 
 """Whether conformation `c` (1 active, 2 inactive) of `am` excludes edge `k`: an `:OnlyA`
 group's edge in the inactive conformation, an `:OnlyI` group's in the active one. There a

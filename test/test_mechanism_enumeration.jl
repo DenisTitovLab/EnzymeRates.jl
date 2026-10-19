@@ -4992,8 +4992,7 @@ end
     # E(B; residual = A - P) ⇌ E(Q)). Neither catalytic group is a bare primary :OnlyA
     # (that V-type needs a regulator, none declared); each binding's
     # one-sided :OnlyA is closed over its minimal Haldane completions. The covalent
-    # intermediate carries a residual, as the enumerator writes it: written as a second
-    # conformation it would be a second free form, which an allosteric mechanism rejects.
+    # intermediate carries a residual, as the enumerator writes it.
     em_seed = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q

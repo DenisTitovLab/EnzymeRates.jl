@@ -242,14 +242,6 @@ _testhelper_single_subunit(am::EnzymeRates.AllostericMechanism) =
     EnzymeRates.AllostericMechanism(am.catalytic, copy(am.cat_allo_states), 1,
                                     am.regulatory_sites)
 
-"""
-The free form at which the two conformations of an allosteric mechanism interconvert in
-its law, as its position in `g` (`_testhelper_graph`): the free form (no bound
-metabolite, no residual) first in the canonical form order (free E first), which roots
-the rapid-equilibrium segment that holds every free form.
-"""
-_testhelper_flip_form(g) = findfirst(g.free)
-
 """Whether `s`, a step of `_testhelper_graph`, is a binding: it takes up one metabolite and
 gives off none."""
 _testhelper_is_binding(s) = length(s.consumed) == 1 && isempty(s.released)
@@ -462,7 +454,7 @@ function _testhelper_consistent_point(m, rng)
 end
 
 """
-    _testhelper_steady_state_rate(m, point, concs; Λ = big(10)^30) -> BigFloat
+    _testhelper_steady_state_rate(m, point, concs; Λ = big(10)^30, flip = 1) -> BigFloat
 
 The exact steady-state rate per enzyme of the mass-action network of `m` at the constants
 of `point` (`_testhelper_consistent_point`) and the concentrations `concs`, in 256-bit
@@ -470,11 +462,12 @@ BigFloat: the net consumption of the first substrate. Each rapid-equilibrium ste
 as a fast pair at rate scale `Λ`, so the steady state approaches the rapid-equilibrium
 limit with a relative error of about 1/Λ times the spread of the constants. An allosteric
 mechanism (one catalytic subunit) adds the inactive conformation's forms and steps and one
-flip between the two copies of the flip form (`_testhelper_flip_form`) at equilibrium
-ratio `L` times the ratio of the conformations' regulatory-site factors. Errors when the
-network is disconnected, since its steady state is then not unique.
+flip between the two copies of form `flip`, free E unless a test asks for another, at
+equilibrium ratio `L` times the ratio of the conformations' regulatory-site factors. Errors
+when the network is disconnected, since its steady state is then not unique.
 """
-function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(10)^30)
+function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(10)^30,
+                                       flip::Int = 1)
     setprecision(BigFloat, 256) do
         mech = _testhelper_lift(m)
         g = _testhelper_graph(mech)
@@ -490,7 +483,6 @@ function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(1
             push!(edges, (id(c, s.from), id(c, s.to), rf, rr, ω))
         end
         if g.catalytic_multiplicity !== nothing
-            flip = _testhelper_flip_form(g)
             push!(edges, (id(:A, flip), id(:I, flip),
                           _testhelper_flip_ratio(mech, point, concs), big(1), 0))
         end
@@ -1726,6 +1718,35 @@ function _testhelper_admission_agreement(am; rng)
         epath = _testhelper_admission_agrees(f, _testhelper_epath_verdict(am; rng,
                                                                           face = faces[i]))
         f === EnzymeRates._NO_FAULT ? epath && respeed[i] === :agree : epath
+    end
+end
+
+"""
+Check that the rate law of `m`, with one catalytic subunit, equals to 1e-20 the exact
+rapid-equilibrium limit of the oracle's own law network (`_testhelper_network`,
+`_testhelper_re_limit`), which deletes each conformation's excluded steps and prunes from
+free E by itself, at `n_points` consistent points (`_testhelper_consistent_point`). A
+compiled `m` is read through its derivation entry, which runs the guard; a concrete `m` is
+read without it (`_testhelper_law_value`).
+"""
+function _testhelper_check_law_against_limit(m; n_points::Int = 3, seed::Int = 1)
+    sub = _testhelper_single_subunit(m)
+    am = _testhelper_lift(sub)
+    fitted = EnzymeRates._dependent_param_exprs(
+        sub isa EnzymeRates.AbstractEnzymeMechanism ? typeof(sub) : sub)[2]
+    rng = Random.MersenneTwister(seed)
+    setprecision(BigFloat, 256) do
+        for _ in 1:n_points
+            point = _testhelper_consistent_point(am, rng)
+            concs = Dict{Symbol, BigFloat}(x => exp(3 * big(rand(rng)) - big(1.5))
+                                           for x in EnzymeRates.metabolites(am))
+            params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
+            params[:Keq] = point.Keq
+            speeds = _testhelper_draw_speeds(am, rng)
+            exact = _testhelper_re_limit(_testhelper_network(am, point, concs; speeds))
+            @test abs(_testhelper_law_value(sub, params, concs) - exact) <=
+                  big(10)^-20 * abs(exact)
+        end
     end
 end
 

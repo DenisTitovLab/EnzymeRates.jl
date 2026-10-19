@@ -884,7 +884,7 @@ end
     @test length(ER._segments(m, every, falses(6)).segments) == 5
 
     # The inactive conformation keeps the edges outside :OnlyA groups between forms that
-    # such edges reach from a free form: here E(A) and E(A, I) lie behind the :OnlyA
+    # such edges reach from free E: here E(A) and E(A, I) lie behind the :OnlyA
     # binding of A.
     am = ER.AllostericMechanism(_testhelper_walk(:(begin
         substrates: A
@@ -1113,16 +1113,15 @@ end
 """
 The inactive edges of the allosteric mechanism whose test reader (`_testhelper_graph`) is
 `g`, read off `g`'s steps alone, one flag per step: no step of an `:OnlyA` group, and every
-other step whose two forms the steps outside `:OnlyA` groups reach from a free form (no
-metabolite, no residual).
+other step whose two forms the steps outside `:OnlyA` groups reach from free E.
 """
 function _testhelper_inactive_reach(g)
     outside = [g.tags[s.group] !== :OnlyA for s in g.steps]
     reach = falses(length(g.forms))
     for (j, s) in enumerate(g.steps)
         outside[j] || continue
-        g.free[s.from] && (reach[s.from] = true)
-        g.free[s.to] && (reach[s.to] = true)
+        s.from == 1 && (reach[s.from] = true)
+        s.to == 1 && (reach[s.to] = true)
     end
     grew = true
     while grew

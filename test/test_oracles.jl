@@ -878,3 +878,113 @@ end
     end
     @test any(found) && !all(found)
 end
+
+"""
+The iso-mechanism families that test the flip at free E, as `@allosteric_mechanism` text:
+Iso Uni Uni (`:uu_ss`, steady-state bindings; `:uu_re`, rapid-equilibrium bindings) and
+iso ordered Bi Bi (`:bibi`), the tags in step order, and `extra` steps appended.
+"""
+function _testhelper_iso_text(family::Symbol, tags; n::Int = 1, extra::String = "")
+    steps = family === :bibi ?
+        ["E + A ⇌ E(A)", "E(A) + B <--> E(A, B)", "E(A, B) <--> Eprime(P, Q)",
+         "Eprime(Q) + P <--> Eprime(P, Q)", "Eprime + Q <--> Eprime(Q)", "Eprime <--> E"] :
+        family === :uu_ss ?
+        ["E + S <--> E(S)", "E(S) <--> Eprime(P)", "Eprime + P <--> Eprime(P)",
+         "Eprime <--> E"] :
+        ["E + S ⇌ E(S)", "E(S) <--> Eprime(P)", "Eprime + P ⇌ Eprime(P)",
+         "Eprime <--> E"]
+    reactants = family === :bibi ? "substrates: A, B\nproducts: P, Q" :
+                                   "substrates: S\nproducts: P"
+    lines = join(["$s :: $t" for (s, t) in zip(steps, tags)], "\n")
+    "@allosteric_mechanism begin\n$reactants\ncatalytic_multiplicity: $n\n" *
+        "steps: begin\n$lines\n$extra\nend\nend"
+end
+
+@testset "the conformations flip at free E" begin
+    E_, N_, O_ = :EqualAI, :NonequalAI, :OnlyA
+    uu_tags = ((E_, E_, E_, N_), (E_, N_, E_, E_), (E_, O_, E_, E_), (N_, E_, E_, E_),
+               (E_, E_, E_, O_), (E_, O_, E_, N_), (N_, N_, N_, N_), (O_, O_, E_, E_))
+    bibi_tags = ((E_, E_, E_, E_, E_, N_), (E_, E_, N_, E_, E_, E_),
+                 (E_, E_, O_, E_, E_, E_), (E_, N_, E_, E_, E_, E_),
+                 (E_, E_, E_, E_, E_, O_), (N_, E_, E_, E_, E_, E_),
+                 (E_, E_, E_, N_, E_, N_), (O_, E_, O_, E_, E_, E_),
+                 (N_, N_, N_, N_, N_, N_))
+    texts = [[_testhelper_iso_text(:uu_ss, t) for t in uu_tags];
+             [_testhelper_iso_text(:uu_re, t) for t in uu_tags];
+             [_testhelper_iso_text(:bibi, t) for t in bibi_tags];
+             _testhelper_iso_text(:uu_ss, (E_, E_, E_, E_); extra = "D ⇌ E :: NonequalAI");
+             _testhelper_iso_text(:uu_ss, (E_, N_, E_, E_); extra = "D ⇌ E :: NonequalAI")]
+    # Each family member at one subunit equals the exact two-conformation steady state,
+    # the conformations flipping at free E only. The macro builds every one: a second
+    # free form needs no rapid-equilibrium link to E.
+    for (i, text) in enumerate(texts)
+        @testset "family member $i" begin
+            _testhelper_check_law_against_oracle(eval(Meta.parse(text)); seed = i)
+        end
+    end
+    # More subunits: the concerted oracle, in which only the fully unliganded oligomer
+    # flips, at free E.
+    for (i, (family, tags, n)) in enumerate(((:uu_ss, (E_, E_, E_, N_), 2),
+                                             (:uu_ss, (E_, O_, E_, N_), 2),
+                                             (:bibi, (E_, E_, E_, N_, E_, N_), 2),
+                                             (:uu_ss, (E_, E_, E_, N_), 3)))
+        m = eval(Meta.parse(_testhelper_iso_text(family, tags; n)))
+        am = EnzymeRates.AllostericMechanism(m)
+        fitted = EnzymeRates._dependent_param_exprs(typeof(m))[2]
+        rng = Random.MersenneTwister(100 + i)
+        point = setprecision(() -> _testhelper_consistent_point(am, rng), BigFloat, 256)
+        concs = Dict{Symbol, BigFloat}(x => exp(3 * big(rand(rng)) - big(1.5))
+                                       for x in EnzymeRates.metabolites(am))
+        params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
+        params[:Keq] = point.Keq
+        exact = setprecision(() -> _testhelper_protomer_rate(am, point, concs; n),
+                             BigFloat, 256)
+        @test abs(_testhelper_law_value(m, params, concs) - exact) <=
+              big(10)^-20 * abs(exact)
+    end
+    # A flip at the other free form gives another law: the law tells the flip form.
+    m = eval(Meta.parse(_testhelper_iso_text(:uu_ss, (E_, E_, E_, N_))))
+    am = EnzymeRates.AllostericMechanism(m)
+    eprime = only(f for f in 2:length(am.catalytic.forms)
+                  if EnzymeRates._is_free(am.catalytic.forms[f]))
+    fitted = EnzymeRates._dependent_param_exprs(typeof(m))[2]
+    rng = Random.MersenneTwister(201)
+    for _ in 1:3
+        point = setprecision(() -> _testhelper_consistent_point(am, rng), BigFloat, 256)
+        concs = Dict{Symbol, BigFloat}(x => exp(3 * big(rand(rng)) - big(1.5))
+                                       for x in EnzymeRates.metabolites(am))
+        params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
+        params[:Keq] = point.Keq
+        law = _testhelper_law_value(m, params, concs)
+        at_e = _testhelper_steady_state_rate(am, point, concs)
+        at_eprime = _testhelper_steady_state_rate(am, point, concs; flip = eprime)
+        @test abs(law - at_e) <= big(10)^-20 * abs(at_e)
+        @test abs(law - at_eprime) > big(10)^-4 * abs(at_e)
+    end
+    # A free form D in rapid equilibrium with E (D's label sorts before E's) changes no
+    # law: flipping at D with ratio L_D is flipping at E with ratio L_D·r_I/r_A, where
+    # r_c = [D_c]/[E_c]. So L means [E_I]/[E_A].
+    m = eval(Meta.parse(_testhelper_iso_text(:uu_ss, (E_, E_, E_, E_);
+                                             extra = "D ⇌ E :: NonequalAI")))
+    am = EnzymeRates.AllostericMechanism(m)
+    cm = am.catalytic
+    d = only(f for f in 2:length(cm.forms)
+             if EnzymeRates._is_free(cm.forms[f]) &&
+                cm.conformations[cm.forms[f].conformation] === :D)
+    kd = only(j for (j, e) in enumerate(cm.edges) if Set((e.from, e.to)) == Set((1, d)))
+    fitted = EnzymeRates._dependent_param_exprs(typeof(m))[2]
+    rng = Random.MersenneTwister(202)
+    for _ in 1:3
+        point = setprecision(() -> _testhelper_consistent_point(am, rng), BigFloat, 256)
+        concs = Dict{Symbol, BigFloat}(x => exp(3 * big(rand(rng)) - big(1.5))
+                                       for x in EnzymeRates.metabolites(am))
+        params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
+        params[:Keq] = point.Keq
+        ratio(c) = cm.edges[kd].from == d ? 1 / point.K[kd, c] : point.K[kd, c]
+        at_d = _testhelper_steady_state_rate(am, merge(point, (L = point.L * ratio(2) /
+                                                               ratio(1),)),
+                                             concs; flip = d)
+        @test abs(_testhelper_law_value(m, params, concs) - at_d) <=
+              big(10)^-20 * abs(at_d)
+    end
+end

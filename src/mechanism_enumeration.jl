@@ -1407,7 +1407,7 @@ and carry a phantom: the rule admits them.
 
 An allosteric copy binds the active state always and the inactive state unless its tag is
 `:OnlyA`. The inactive state's graph is `_inactive_mask(am)`: the edges outside `:OnlyA`
-groups between forms that such edges reach from a free form. The copy binds there only at
+groups between forms that such edges join to free E. The copy binds there only at
 the sites that graph keeps, and a free-enzyme site is always among them. In a state where
 the copy binds nothing, every factor of that state is 1. The two states form one system.
 A group tagged `:EqualAI` has one set of constants in both, so it must take the same

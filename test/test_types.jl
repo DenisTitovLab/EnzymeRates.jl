@@ -673,41 +673,99 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
     end
 
     @testset "a stray free form cannot leave the inactive state's segment bottomless" begin
-        # Every step that takes up the substrate A is :OnlyA, so the inactive conformation
-        # keeps none of them; a second free conformation F that binds B would still reach
-        # E(B), and from it the copy's bindings. The segment {E(A::Mod), E(A::Mod, B),
-        # E(B)} would then have every form carrying A (the copy's concentration is A's)
-        # or B, so it would be empty at A = B = 0. F joins E only through that binding,
-        # not in rapid equilibrium, so the boundary check (`_check_well_posed`) rejects the
-        # mechanism before it reads the inactive state. With one free form, a route back
-        # into such a segment closes a cycle whose only :OnlyA step is the binding, which
-        # the :OnlyA guard rejects unless the binding's group also holds chemistry.
-        @test_throws "are not joined by rapid-equilibrium steps outside :OnlyA groups" (
-            @allosteric_mechanism begin
-                substrates: A, B
-                products: P
-                modifiers: A
-                steps: begin
-                    E + A <--> E(A)                   :: OnlyA
-                    E(A) + B <--> E(A, B)             :: EqualAI
-                    E(A, B) <--> E(P)                 :: OnlyA
-                    E(P) <--> E + P                   :: EqualAI
-                    E + A::Mod ⇌ E(A::Mod)            :: OnlyA
-                    E(A::Mod) + B ⇌ E(A::Mod, B)      :: EqualAI
-                    E(B) + A::Mod ⇌ E(A::Mod, B)      :: EqualAI
-                    F + B <--> E(B)                   :: EqualAI
-                end
-            end)
+        # Every step that takes up the substrate A is :OnlyA, and the conformations flip at
+        # free E, so the inactive conformation keeps E and E(P) alone: a second free form
+        # F, which binds B and joins E only through F + B <--> E(B), holds no inactive
+        # enzyme. With every substrate absent, or A, or B, the forms F, E(B), E(A::Mod)
+        # and E(A::Mod, B) hold the enzyme they receive and never return it to E: a second
+        # closed class, which class 3 rejects (`_NONUNIQUE`) and the RE-speed oracle sees.
+        s1 = @_testhelper_unguarded @allosteric_mechanism begin
+            substrates: A, B
+            products: P
+            modifiers: A
+            steps: begin
+                E + A <--> E(A)                   :: OnlyA
+                E(A) + B <--> E(A, B)             :: EqualAI
+                E(A, B) <--> E(P)                 :: OnlyA
+                E(P) <--> E + P                   :: EqualAI
+                E + A::Mod ⇌ E(A::Mod)            :: OnlyA
+                E(A::Mod) + B ⇌ E(A::Mod, B)      :: EqualAI
+                E(B) + A::Mod ⇌ E(A::Mod, B)      :: EqualAI
+                F + B <--> E(B)                   :: EqualAI
+            end
+        end
+        @test _testhelper_face_faults(s1)[3:5] == fill(ER._NONUNIQUE, 3)
+        v = ER._guard(s1)
+        @test (v.fault, v.face) == (ER._NONUNIQUE, 3)
+        @test _testhelper_respeed_verdicts(s1; rng = Random.MersenneTwister(12),
+                                           law = :limit)[3:5] == fill(:nonunique, 3)
+        @test_throws ErrorException(ER._guard_message(s1, v)) @allosteric_mechanism begin
+            substrates: A, B
+            products: P
+            modifiers: A
+            steps: begin
+                E + A <--> E(A)                   :: OnlyA
+                E(A) + B <--> E(A, B)             :: EqualAI
+                E(A, B) <--> E(P)                 :: OnlyA
+                E(P) <--> E + P                   :: EqualAI
+                E + A::Mod ⇌ E(A::Mod)            :: OnlyA
+                E(A::Mod) + B ⇌ E(A::Mod, B)      :: EqualAI
+                E(B) + A::Mod ⇌ E(A::Mod, B)      :: EqualAI
+                F + B <--> E(B)                   :: EqualAI
+            end
+        end
+        # Two variants keep F and pass every face: F <--> E tagged :OnlyA; or F <--> E
+        # untagged with the modifier binding of A untagged, so that no :OnlyA binding has
+        # its two sides joined by untagged steps.
+        f_onlya = @allosteric_mechanism begin
+            substrates: A, B
+            products: P
+            modifiers: A
+            steps: begin
+                E + A <--> E(A)                   :: OnlyA
+                E(A) + B <--> E(A, B)             :: EqualAI
+                E(A, B) <--> E(P)                 :: OnlyA
+                E(P) <--> E + P                   :: EqualAI
+                E + A::Mod ⇌ E(A::Mod)            :: OnlyA
+                E(A::Mod) + B ⇌ E(A::Mod, B)      :: EqualAI
+                E(B) + A::Mod ⇌ E(A::Mod, B)      :: EqualAI
+                F + B <--> E(B)                   :: EqualAI
+                F <--> E                          :: OnlyA
+            end
+        end
+        copy_untagged = @allosteric_mechanism begin
+            substrates: A, B
+            products: P
+            modifiers: A
+            steps: begin
+                E + A <--> E(A)                   :: OnlyA
+                E(A) + B <--> E(A, B)             :: EqualAI
+                E(A, B) <--> E(P)                 :: OnlyA
+                E(P) <--> E + P                   :: EqualAI
+                E + A::Mod ⇌ E(A::Mod)            :: EqualAI
+                E(A::Mod) + B ⇌ E(A::Mod, B)      :: EqualAI
+                E(B) + A::Mod ⇌ E(A::Mod, B)      :: EqualAI
+                F + B <--> E(B)                   :: EqualAI
+                F <--> E                          :: EqualAI
+            end
+        end
+        # Both oracles agree on every face: the RE-speed oracle (class 3) and the ε-path
+        # (admission of the :OnlyA tags).
+        for (i, variant) in enumerate((f_onlya, copy_untagged))
+            @test all(_testhelper_admission_agreement(
+                ER.AllostericMechanism(variant); rng = Random.MersenneTwister(12 + i)))
+        end
     end
 
-    @testset "allosteric free forms share one rapid-equilibrium segment" begin
-        # The conformations interconvert at a free form. Two free forms in one
-        # rapid-equilibrium segment give the same model whichever one the conformations
-        # flip at, with L rescaled; joined any other way they flip at different forms in
-        # the two conformations, or the inactive conformation strands one of them.
-        msg = "are not joined by rapid-equilibrium steps outside :OnlyA groups"
-        # F joins E through a steady-state isomerization, which carries flux.
-        @test_throws msg @allosteric_mechanism begin
+    @testset "a second free form is admitted unless a tag strands it" begin
+        # The conformations flip at free E alone. A second free form joined to E by a
+        # steady-state step is an ordinary form, whatever its label (R1, and its twin
+        # labelled D, which sorts before E). Where tags strand it, admission decides:
+        # every step at E :OnlyA leaves F fed at zero product with a dead way back
+        # (`_PUMPED`); a tagged isomerization alone joining F to E makes F an island
+        # (`_ISLAND`). Each rejection has an admitted variant: the S binding untagged
+        # (AD2d), or the catalysis tagged in place of the isomerization.
+        r1 = @allosteric_mechanism begin
             substrates: S
             products: P
             catalytic_multiplicity: 2
@@ -718,27 +776,25 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 F <--> E          :: NonequalAI
             end
         end
-        # The message lists the free forms in the canonical form order, free E first,
-        # though D's label sorts before E's.
-        @test_throws ErrorException(
-            "AllostericMechanism: the free forms E, D are not joined by " *
-            "rapid-equilibrium steps outside :OnlyA groups. The conformations " *
-            "interconvert at one free form, so the other free forms must be in rapid " *
-            "equilibrium with it: join them by ⇌ steps outside :OnlyA groups, or keep " *
-            "one free form.") (
-            @allosteric_mechanism begin
-                substrates: S
-                products: P
-                catalytic_multiplicity: 2
-                steps: begin
-                    E + S ⇌ E(S)      :: EqualAI
-                    E(S) <--> E(P)    :: NonequalAI
-                    D + P ⇌ E(P)      :: EqualAI
-                    D <--> E          :: NonequalAI
-                end
-            end)
-        # Every step at E is :OnlyA, so the inactive conformation keeps only F.
-        @test_throws msg @allosteric_mechanism begin
+        r1_d = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: NonequalAI
+                D + P ⇌ E(P)      :: EqualAI
+                D <--> E          :: NonequalAI
+            end
+        end
+        # R1's oracle is the RE-speed one (no tag excludes a step); the law also equals the
+        # exact limit at one subunit, where L means [E_I]/[E_A] for D too.
+        for (i, m) in enumerate((r1, r1_d))
+            @test all(==(:agree), _testhelper_respeed_verdicts(
+                m; rng = Random.MersenneTwister(20 + i)))
+            _testhelper_check_law_against_limit(m; seed = 20 + i)
+        end
+        r2 = @_testhelper_unguarded @allosteric_mechanism begin
             substrates: S
             products: P
             catalytic_multiplicity: 2
@@ -749,9 +805,35 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 F <--> E          :: OnlyA
             end
         end
-        # F joins E only through an :OnlyA isomerization, so the inactive conformation
-        # strands F with the inhibitor it binds.
-        @test_throws msg @allosteric_mechanism begin
+        v = ER._guard(r2)
+        @test (v.fault, v.face) == (ER._PUMPED, 2)
+        @test _testhelper_epath_verdict(r2; rng = Random.MersenneTwister(23),
+                                        face = Set([:P])) === :direction_dependent
+        @test_throws ErrorException(ER._guard_message(r2, v)) @allosteric_mechanism begin
+            substrates: S
+            products: P
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: OnlyA
+                E(S) <--> E(P)    :: EqualAI
+                F + P ⇌ E(P)      :: EqualAI
+                F <--> E          :: OnlyA
+            end
+        end
+        ad2d = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                F + P ⇌ E(P)      :: EqualAI
+                F <--> E          :: OnlyA
+            end
+        end
+        @test _testhelper_epath_verdict(ER.AllostericMechanism(ad2d);
+                                        rng = Random.MersenneTwister(24)) === :converges
+        r3 = @_testhelper_unguarded @allosteric_mechanism begin
             substrates: S
             products: P
             modifiers: I
@@ -764,8 +846,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 F + I ⇌ F(I)      :: EqualAI
             end
         end
-        # A rapid-equilibrium isomerization in an :OnlyA group strands F as well.
-        @test_throws msg @allosteric_mechanism begin
+        r4 = @_testhelper_unguarded @allosteric_mechanism begin
             substrates: S
             products: P
             catalytic_multiplicity: 2
@@ -776,7 +857,68 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 F ⇌ E             :: OnlyA
             end
         end
-        # F in E's rapid-equilibrium segment is accepted.
+        for (i, m) in enumerate((r3, r4))
+            v = ER._guard(m)
+            @test v.fault === ER._ISLAND
+            @test _testhelper_epath_verdict(m; rng = Random.MersenneTwister(25 + i)) in
+                  (:direction_dependent, :wrong_limit)
+        end
+        msg = ER._guard_message(r3, ER._guard(r3))
+        @test_throws ErrorException(msg) @allosteric_mechanism begin
+            substrates: S
+            products: P
+            modifiers: I
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E + P ⇌ E(P)      :: EqualAI
+                E <--> F          :: OnlyA
+                F + I ⇌ F(I)      :: EqualAI
+            end
+        end
+        msg = ER._guard_message(r4, ER._guard(r4))
+        @test_throws ErrorException(msg) @allosteric_mechanism begin
+            substrates: S
+            products: P
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: NonequalAI
+                E + P ⇌ E(P)      :: EqualAI
+                F ⇌ E             :: OnlyA
+            end
+        end
+        r3_base = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            modifiers: I
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: OnlyA
+                E + P ⇌ E(P)      :: EqualAI
+                E <--> F          :: EqualAI
+                F + I ⇌ F(I)      :: EqualAI
+            end
+        end
+        r4_base = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            catalytic_multiplicity: 2
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: OnlyA
+                E + P ⇌ E(P)      :: EqualAI
+                F ⇌ E             :: EqualAI
+            end
+        end
+        for (i, m) in enumerate((r3_base, r4_base))
+            @test _testhelper_epath_verdict(
+                ER.AllostericMechanism(m); rng = Random.MersenneTwister(27 + i)) ===
+                :converges
+        end
+        # F in E's rapid-equilibrium segment, untagged, is an ordinary form too (A5).
         @test @allosteric_mechanism(begin
             substrates: S
             products: P
@@ -2278,9 +2420,7 @@ end
     # Segel Iso Uni Uni with an inhibitor I binding E and F, and J displacing I at both
     # conformations in one group. Neither exchange changes conformation, so the group
     # stores both to take up J and give off I, however the steps are written.
-    # The allosteric twin joins F to E at rapid equilibrium: its conformations
-    # interconvert at one free form, so a second free form must be in rapid equilibrium
-    # with it.
+    # The allosteric twin joins F to E at rapid equilibrium.
     # J binds E and F as well: without those bindings E(J) and F(J) are dead ends at zero
     # modifiers, a second closed class the guard rejects.
     I, J = ER.Met(:I, true), ER.Met(:J, true)

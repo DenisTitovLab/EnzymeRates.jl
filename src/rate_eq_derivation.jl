@@ -178,11 +178,10 @@ or `[kf, kr]`), which are the leaves of `num`/`den`. The law covers only the for
 kept edges touch (`_present_forms`). Aborts, before the King–Altman expansion, a graph
 whose denominator would be too large to derive (`_assert_derivable`).
 
-Also returns `d_free`, the weight in the returned denominator of the free
-resting enzyme (the first form with empty `bound` and empty `residual`): the
-spanning-tree weight `D[g_free]` of its segment times the concentration monomial
-that brings `num`/`den` to lowest terms. Free E roots its segment, so its own
-`alpha` is 1.
+Also returns `d_free`, the weight in the returned denominator of free E, form 1, where the
+conformations interconvert: the spanning-tree weight `D[g_free]` of its segment times the
+concentration monomial that brings `num`/`den` to lowest terms. Free E roots its segment,
+so its own `alpha` is 1.
 """
 function _raw_symbolic_rate_polys(m::_AnyMech, mask::BitVector,
                                   names::Vector{Vector{Symbol}})
@@ -222,10 +221,10 @@ function _raw_symbolic_rate_polys(m::_AnyMech, mask::BitVector,
     # D[g], the spanning-tree weight of segment g: L without g's row and column.
     D = [(o = setdiff(1:G, g); sym_det(L[o, o])) for g in 1:G]
 
-    # A graph with no unbound, residual-free form (e.g. a hand-written mechanism whose
-    # every form carries a residual) has no free enzyme to weight, so `d_free` is 1.
-    i_free = findfirst(f -> seg[f] != 0 && _is_free(cm.forms[f]), eachindex(cm.forms))
-    d_free = i_free === nothing ? poly_one() : D[seg[i_free]]
+    # The conformations interconvert at free E, form 1, which every state's edges reach
+    # (`_state_mask`). It roots its segment (`_segment_root` ranks it first), so its own
+    # alpha is 1 and its weight is its segment's tree weight.
+    d_free = D[seg[1]]
 
     den = poly_zero()
     for g in 1:G

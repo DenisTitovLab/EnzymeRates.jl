@@ -3075,3 +3075,23 @@ end
     @test occursin("is not supported yet (see the Roadmap page)", msg)
     @test_throws ErrorException(msg) EnzymeRates._parse_mechanism(sprint(show, both))
 end
+
+@testset "a second free form keeps its law exact once the conformations flip at E" begin
+    # Every admitted tag set of `_testhelper_tag_sets` that holds a free form besides E:
+    # R1, AD2a, AD2d, AD5, R2P_sealed and B_uphill join it to E by a steady-state or
+    # tagged step, A5, AD7a, AD7c and the AD13 family in rapid equilibrium (its label
+    # sorting before or after E). The conformations flip at E alone, so every one
+    # derives through its derivation entry, and each law equals the exact limit of the
+    # oracle's own network, which prunes from free E by itself (R2P_sealed and B_uphill
+    # lose their second free form in the inactive conformation).
+    tag_sets = [["R1", "AD2a", "AD2d", "AD5", "R2P_sealed", "B_uphill", "A5", "AD7a",
+                 "AD7c"];
+                ["AD13_$(chem)_$label" for chem in (:NonequalAI, :OnlyA)
+                 for label in (:D, :Ca, :Ea, :F, :Z)]]
+    for (i, name) in enumerate(tag_sets)
+        @testset "$name" begin
+            _testhelper_check_law_against_limit(
+                EnzymeRates.compile_mechanism(_testhelper_tag_sets[name]); seed = i)
+        end
+    end
+end
