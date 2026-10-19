@@ -1860,6 +1860,110 @@ end
     @test occursin("= Dict(:N => 1)", failures[1].error)
 end
 
+@testset "_base_tier drops a flip child whose rate law the guard rejects" begin
+    # The guard admits the seed. Its chemistry E(S) ⇌ E(P) sits in rapid equilibrium with
+    # both sides, so the seed is degenerate and expanded, into six flips. Three of them
+    # (the S binding, the chemistry, or the pair E(P) ⇌ F(P) and F + P ⇌ E(P) made
+    # steady state) leave the :OnlyA step E <--> F bridging forms of the inactive
+    # conformation at zero P. That is admission's face condition, which the flip move's
+    # own check (`_faces_pass`, classes 2 and 3) does not run, so `_base_tier`'s guard
+    # filter drops them. Two of the other flips keep the chemistry in rapid equilibrium
+    # with both sides, which makes them degenerate. The base tier keeps the last flip.
+    ER = EnzymeRates
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    seed = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)        :: OnlyA
+            E(S) ⇌ E(P)         :: EqualAI
+            F + P ⇌ E(P)        :: EqualAI
+            F <--> E            :: OnlyA
+            F + S ⇌ F(S)        :: EqualAI
+            F(S) <--> F(P)      :: EqualAI
+            F + P ⇌ F(P)        :: EqualAI
+            F(P) ⇌ E(P)         :: EqualAI
+        end
+    end)
+    # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
+    dropped = [
+        @_testhelper_unguarded(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)     :: OnlyA
+                E(S) ⇌ E(P)         :: EqualAI
+                F + P ⇌ E(P)        :: EqualAI
+                F <--> E            :: OnlyA
+                F + S ⇌ F(S)        :: EqualAI
+                F(S) <--> F(P)      :: EqualAI
+                F + P ⇌ F(P)        :: EqualAI
+                F(P) ⇌ E(P)         :: EqualAI
+            end
+        end),
+        @_testhelper_unguarded(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)        :: OnlyA
+                E(S) <--> E(P)      :: EqualAI
+                F + P ⇌ E(P)        :: EqualAI
+                F <--> E            :: OnlyA
+                F + S ⇌ F(S)        :: EqualAI
+                F(S) <--> F(P)      :: EqualAI
+                F + P ⇌ F(P)        :: EqualAI
+                F(P) ⇌ E(P)         :: EqualAI
+            end
+        end),
+        @_testhelper_unguarded(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)        :: OnlyA
+                E(S) ⇌ E(P)         :: EqualAI
+                F + P <--> E(P)     :: EqualAI
+                F <--> E            :: OnlyA
+                F + S ⇌ F(S)        :: EqualAI
+                F(S) <--> F(P)      :: EqualAI
+                F + P ⇌ F(P)        :: EqualAI
+                F(P) <--> E(P)      :: EqualAI
+            end
+        end)]
+    kept = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)        :: OnlyA
+            E(S) ⇌ E(P)         :: EqualAI
+            F + P <--> E(P)     :: EqualAI
+            F <--> E            :: OnlyA
+            F + S ⇌ F(S)        :: EqualAI
+            F(S) <--> F(P)      :: EqualAI
+            F + P <--> F(P)     :: EqualAI
+            F(P) ⇌ E(P)         :: EqualAI
+        end
+    end)
+    @test ER._is_well_posed(seed)
+    @test ER._degenerate(seed)
+    kids = ER._expand_re_to_ss(seed)
+    @test length(kids) == 6
+    @test Set(k for k in kids if !ER._is_well_posed(k)) == Set(dropped)
+    @test all(k -> ER._guard(k).fault === ER._BRIDGE, dropped)
+    # The guard filter drops them, not the degeneracy test.
+    @test !any(ER._degenerate, dropped)
+    @test ER._guard_message(dropped[1], ER._guard(dropped[1])) ==
+          "AllostericMechanism: at zero P, the :OnlyA step E <--> F bridges forms of " *
+          "the inactive conformation that its other steps keep apart, so the limit " *
+          "depends on how fast the tagged constants vanish."
+    base, failures = ER._base_tier([seed], rxn)
+    @test isempty(failures)
+    @test length(base) == 1
+    @test Set(base) == Set([kept])
+end
+
 @testset "_base_tier keeps every flip child the guard admits" begin
     # Every step is rapid equilibrium, so the catalytic cycle E, E(S), E(P), F turns over
     # at rapid equilibrium: the seed is degenerate and expanded. The six flips of two steps
