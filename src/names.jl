@@ -142,8 +142,7 @@ name(p::Kreg, ::AllostericMechanism) =
 """
 The Parameter(s) governing edge `k` of `m` in the given allosteric state, by its flag.
 `_edge_names` applies it to every edge of one conformation, with that conformation's
-tag, `_column_parameter` picks a joint-solve column's, and `_onlya_violation_message`
-applies it to a group's first edge to label the group.
+tag, and `_column_parameter` picks a joint-solve column's.
 
 Returns 1 element for an RE edge (`Krapid`) and 2 elements for an SS edge
 (`Kfor`+`Krev`). `name` renders a binding's `Krapid`, plain or fused, as a

@@ -1860,18 +1860,19 @@ end
     @test occursin("= Dict(:N => 1)", failures[1].error)
 end
 
-@testset "_base_tier records a flip child whose rate law is not defined" begin
+@testset "_base_tier drops a flip child whose rate law the guard rejects" begin
     # Every step is rapid equilibrium, so the catalytic cycle E, E(S), E(P), F turns over
     # at rapid equilibrium: the seed is degenerate and expanded. Its free forms E and F
-    # share one rapid-equilibrium segment through F ⇌ E; the flips that cut the cycle at
-    # F ⇌ E and one more step leave them in two segments, which the boundary check
-    # (`_check_well_posed`) rejects: the conformations interconvert at one free form.
+    # share one rapid-equilibrium segment through F ⇌ E. The six flips of two steps of the
+    # ring cut it; the three that cut it at F ⇌ E leave E and F in two segments, which the
+    # one-flip check rejects, so the base tier drops them and keeps the other three (each
+    # passes every face of the guard). No failure is recorded.
     ER = EnzymeRates
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
     end
-    seed = ER.AllostericMechanism(@allosteric_mechanism begin
+    seed = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -1880,13 +1881,46 @@ end
             E(P) ⇌ F + P      :: EqualAI
             F ⇌ E             :: EqualAI
         end
-    end)
+    end
+    # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
+    kept = [
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)   :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ F + P      :: EqualAI
+                F ⇌ E             :: EqualAI
+            end
+        end),
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)   :: EqualAI
+                E(S) ⇌ E(P)       :: EqualAI
+                E(P) <--> F + P   :: EqualAI
+                F ⇌ E             :: EqualAI
+            end
+        end),
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) <--> F + P   :: EqualAI
+                F ⇌ E             :: EqualAI
+            end
+        end)]
     @test ER._degenerate(seed)
+    @test length(ER._expand_re_to_ss(seed)) == 6
+    @test count(!ER._is_well_posed, ER._expand_re_to_ss(seed)) == 3
     base, failures = ER._base_tier([seed], rxn)
-    @test isempty(base)
-    @test length(failures) == 1 && failures[1].mech == seed
-    @test occursin("the free forms E, F are not joined by rapid-equilibrium steps " *
-                   "outside :OnlyA groups", failures[1].error)
+    @test isempty(failures)
+    @test length(base) == 3
+    @test Set(base) == Set(kept)
 end
 
 @testset "_cv_model_selection: flatten reproduces serial LOOCV per candidate" begin

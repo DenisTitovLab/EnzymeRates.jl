@@ -522,8 +522,9 @@ The rate law of `m` per enzyme, evaluated in 256-bit BigFloat from the polynomia
 fitted constants, `Keq` and, for an allosteric mechanism, `L` and the regulator
 constants) and the concentrations `concs`. A compiled `m` goes through its derivation
 entry, which runs the boundary check; a concrete `m` is read as it is, so the oracles can
-evaluate the law of a mechanism the guard rejects. The dependent constants are computed
-from `_dependent_param_exprs`, as the compiled body computes them.
+evaluate the law of a mechanism the guard rejects, though class 5 still refuses a law that
+is 0/0 on a face (`_num_den_exprs` throws its message). The dependent constants are
+computed from `_dependent_param_exprs`, as the compiled body computes them.
 """
 function _testhelper_law_value(m, params::AbstractDict, concs::AbstractDict)
     setprecision(BigFloat, 256) do

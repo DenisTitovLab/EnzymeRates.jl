@@ -664,8 +664,8 @@ worth a fit, but it is the only parent of mechanisms that are not degenerate (su
 ping-pong seeds' children). Only a flip can cure it: the other moves keep every catalytic
 step's rapid-equilibrium flag, and the steps they add bind regulators, which neither
 degeneracy condition reads. An expansion error is returned as a failure, one per seed,
-carrying the seed; a flip child whose rate law is not defined (`_check_well_posed`) is
-one, and then none of that seed's flips enters the tier.
+carrying the seed; a flip child whose rate law the guard rejects (`_is_well_posed`) is
+dropped, as `expand_mechanisms` drops one.
 """
 function _base_tier(mechs::Vector, rxn::EnzymeReaction)
     base = Union{Mechanism, AllostericMechanism}[m for m in mechs if !_degenerate(m)]
@@ -673,8 +673,7 @@ function _base_tier(mechs::Vector, rxn::EnzymeReaction)
     for m in mechs
         _degenerate(m) || continue
         try
-            children = _expand_re_to_ss(m)
-            foreach(_check_well_posed, children)
+            children = filter!(_is_well_posed, _expand_re_to_ss(m))
             for child in children
                 _assert_atom_conserving(child, rxn)
                 _degenerate(child) || push!(base, child)

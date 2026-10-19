@@ -290,6 +290,14 @@ its bound names without a separator: `K_ES_to_E_S` for `E + S ⇌ E(S)`, `k_ES_t
 `k_EP_to_ES` for `E(S) <--> E(P)`. A modifier copy writes `Smod`, and a residual
 `_res_plusA_minusP`.
 
+When the macro's code runs, it rejects a mechanism whose rate law is not defined where data
+sit, with an error that names the steps at fault: no cycle of steps turns substrates into
+products; a cycle of rapid-equilibrium steps does, so the rate has no finite value; or, with
+every product, every substrate, one reactant or every modifier absent, the steady state is
+not unique or is not the limit the rate law gives as the rapid-equilibrium steps speed up. A
+law whose denominator vanishes there (0/0) is rejected where it is first derived, by
+[`rate_equation`](@ref) or [`rate_equation_string`](@ref).
+
 Below, the inhibitor I binds E and E(S) with one constant, and a second S binds E(S) as
 a modifier, which inhibits at high substrate:
 
@@ -414,6 +422,12 @@ conformations: `EqualAI` shares one constant, `NonequalAI` takes one for each (`
 and `K_I_…`), `OnlyA` acts in the active conformation only and `OnlyI` in the inactive
 one only. A catalytic statement takes `EqualAI`, `NonequalAI` or `OnlyA`; a ligand takes
 any of the four.
+
+A tagged step's constants vanish in the conformation that lacks it, and the macro rejects a
+tag set whose limit does not exist or is not unique: an `:OnlyA` binding whose two sides
+untagged steps still join, forms that join free E only through tagged chemistry, or a face
+where the limit depends on how fast the tagged constants vanish. The checks of
+[`@enzyme_mechanism`](@ref) apply as well.
 
 ```jldoctest
 julia> using EnzymeRates

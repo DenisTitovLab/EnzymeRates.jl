@@ -24,7 +24,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         # Call-form notation on every step: the parser reads each form as its
         # conformation label and the metabolites it holds, each in its declared role.
         # The form E(S) of `E + S ⇌ E(S)` has conformation E and holds S as a substrate.
-        m = @enzyme_mechanism begin
+        mech = @_testhelper_unguarded @enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
@@ -33,7 +33,10 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                 E(P) ⇌ E + P
             end
         end
-        mech = EnzymeRates.Mechanism(m)
+        # Every step at rapid equilibrium closes a fast cycle that turns the reaction
+        # over (class 2); the parse is the subject, so the constructor builds it
+        # unchecked.
+        @test EnzymeRates._guard(mech).fault === EnzymeRates._RE_TURNOVER
         @test EnzymeRates.ngroups(mech) == 3
         # Steps are canonicalized; pick each by content, not position.
         es_step = _testhelper_binding_of(mech, EnzymeRates.Met(:S, false))  # E + S ⇌ E(S)

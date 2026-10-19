@@ -29,41 +29,38 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   terms than its limit.
 - **`BigInt` arithmetic inflates the GC's live-byte count.**
   Three functions that compute in `BigInt` raise `Base.gc_live_bytes` by bytes that no
-  live object holds: the `:OnlyA` guard's test `_onlya_offenders` (`src/thermo.jl`; a
-  `Rational{BigInt}` null space) by about 15 KiB per call, the counter that
-  `_split_gain_test` uses for a plain mechanism (`_partition_independent_count`; a
-  `Rational{BigInt}` row reduction) by 18 KiB and `_eq_complexity` (a `BigInt`
-  determinant, skipped for a single rapid-equilibrium segment) by 15 KiB. A 6×6
-  determinant outside the package does the same in `BigInt` and `Rational{BigInt}`, not in
-  `Rational{Int}`. The boundary check (`_check_well_posed`, `src/admission.jl`) runs the
-  guard on every allosteric mechanism the macros or the parser build, at the enumerator's
-  exits and at every derivation entry, and the allosteric `_split_gain_test` runs its test
-  on each candidate. 100,000 runs of the guard add 1.46 GiB and 12 full sweeps. The joint
-  solve adds nothing, on a plain mechanism or on a concrete allosteric one; it runs in
+  live object holds: `_onlya_offenders` (`src/thermo.jl`; a `Rational{BigInt}` null
+  space), the tagging and change-tag moves' `:OnlyA` test, by about 15 KiB per call; the
+  counter that `_split_gain_test` uses for a plain mechanism
+  (`_partition_independent_count`; a `Rational{BigInt}` row reduction) by 18 KiB; and
+  `_eq_complexity` (a `BigInt` determinant, skipped for a single rapid-equilibrium
+  segment) by 15 KiB. A 6×6 determinant outside the package does the same in `BigInt`
+  and `Rational{BigInt}`, not in `Rational{Int}`. The moves run the `:OnlyA` test on
+  every tag set they try: 100,000 calls add 1.46 GiB and 12 full sweeps. The joint solve
+  adds nothing, on a plain mechanism or on a concrete allosteric one; it runs in
   `Rational{Int}` on 10,226 enumerated bi-bi and ter-bi mechanisms without overflow. The
-  count stays up after a full collection: 100,000 guard runs that start 1.47 GiB high make
-  52 full sweeps in 10.0 s, against 12 in 6.5 s from a clean start. The count holds no
+  count stays up after a full collection: 100,000 calls that start 1.47 GiB high make 52
+  full sweeps in 10.0 s, against 12 in 6.5 s from a clean start. The count holds no
   memory and raises no peak: a process whose count reaches 2.8 GiB peaks at 1.2 GB RSS,
   and the enumeration tests' count after a full collection stays near 1.8 GiB whether
   their peak RSS is 2.2 or 3.5 GB. The higher peak came from mechanisms that kept vectors
   at the capacity their builds grew to; `_canonicalize` stores each at its length, and
-  `test/test_reaction_graph.jl` pins it. Admission under Planned replaces the guard, not
-  the other two. A loop that calls one of these and prints `Base.gc_live_bytes()` and
-  `Base.gc_num().full_sweep` shows it. The figures come from a random-order bi-bi of nine
-  steady-state steps, plain and as a two-subunit allosteric mechanism with `:OnlyA` on
-  both bindings of A and on the chemical step and `:EqualAI` elsewhere (Julia 1.12.5,
-  aarch64, `--heap-size-hint=2500M`).
+  `test/test_reaction_graph.jl` pins it. Filtering the moves through admission replaces
+  the `:OnlyA` test, not the other two. A loop that calls one of these and prints
+  `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it. The figures come from a
+  random-order bi-bi of nine steady-state steps, plain and as a two-subunit allosteric
+  mechanism with `:OnlyA` on both bindings of A and on the chemical step and `:EqualAI`
+  elsewhere (Julia 1.12.5, aarch64, `--heap-size-hint=2500M`).
 
-- **The `:OnlyA` guard misjudges groups that mix a binding and a chemistry step.**
-  The guard's test, `_onlya_offenders` (`src/thermo.jl`), which the boundary check runs
-  through `_onlya_haldane_violation`, skips every `:OnlyA` group that holds a chemistry
-  step (`_chemistry_groups`), including one that also holds a
-  plain binding of the same metabolite (enumeration builds these by merging and tags
-  every allosteric one `:OnlyA`), and gives the bindings of one group a single rate of
-  divergence. Hand-built mechanisms show both errors: it admits a mixed `:OnlyA` group
-  whose plain member sits on a square of `:EqualAI` bindings, whose inactive conformation
-  is not a limit of the model, and rejects a split `:OnlyA` binding group whose limit
-  exists. The `:OnlyA` semantics under Planned replace the guard.
+- **The tagging and change-tag moves misjudge `:OnlyA` groups that mix a binding and a
+  chemistry step.** Their filter, `_onlya_offenders` (`src/thermo.jl`), skips every
+  `:OnlyA` group that holds a chemistry step, including one that also holds a plain
+  binding of the same metabolite (enumeration builds these by merging and tags every
+  allosteric one `:OnlyA`), and gives the bindings of one group a single rate of
+  divergence. The moves therefore emit tag sets that admission rejects, such as a mixed
+  `:OnlyA` group whose plain member sits on a square of `:EqualAI` bindings (the exit
+  drops them), and miss tag sets that admission admits, such as a split `:OnlyA` binding
+  group whose limit exists. Filtering the moves through admission replaces the test.
 - **Splitting a tied kinetic group changes `eq_hash` without changing the model.**
   When a square of rapid-equilibrium bindings already ties two binding constants,
   splitting their kinetic group leaves the rate function and the fitted names unchanged,

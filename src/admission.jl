@@ -4,33 +4,30 @@
 """
     _check_well_posed(m)
 
-Error when a rapid-equilibrium segment of `m` has no bottom form
-(`_assert_bottomed_segments`), in the catalytic graph and, for an allosteric mechanism,
-in the inactive conformation's graph (`_inactive_mask`). An
-allosteric mechanism must also keep all its free forms in one rapid-equilibrium segment
-of the edges outside `:OnlyA` groups (`_assert_one_flip_segment`) and hold no `:OnlyA`
-binding that leaves a thermodynamic cycle unsatisfiable (`_onlya_haldane_violation`).
-It reads the reaction graph through masks and builds nothing. The mechanism macros and
-the parser (`_parse_mechanism`) call it through `_checked_mechanism`; `init_mechanisms`,
-`seed_mechanisms`, `expand_mechanisms`, identify's base tier and every derivation entry
-(`_derivation_input`) call it too; the constructors and the Sig decoder do not, so
-code that builds a mechanism internally never trips a check meant for the mechanisms
-it returns.
+Error unless `m`'s rate law is the unique limit of mass-action kinetics, as its
+rapid-equilibrium steps speed up and its tagged constants vanish, on every face where data
+sit (spec section 8): the guard (`_guard`) finds no fault, and the error is its message
+(`_guard_message`), which names each step at fault by its DSL line. An allosteric
+mechanism must also hold every free form in one rapid-equilibrium segment of the edges
+outside `:OnlyA` groups (`_assert_one_flip_segment`). It reads the reaction graph through
+masks and builds nothing. The mechanism macros, the parser and every derivation entry
+(`_derivation_input`) call it; the enumerator's exits and identify's base tier keep what
+`_is_well_posed` accepts; the constructors and the Sig decoder call neither, so code that
+builds a mechanism internally never trips a check meant for the mechanisms it returns.
+Class 5 reads the derived law and runs where the law is derived (`_assert_support`).
 """
-function _check_well_posed(m::Mechanism)
-    _assert_bottomed_segments(m, trues(length(m.edges)))
+function _check_well_posed(m::_AnyMech)
+    m isa AllostericMechanism && _assert_one_flip_segment(m)
+    v = _guard(m)
+    v.fault === _NO_FAULT || error(_guard_message(m, v))
     nothing
 end
-function _check_well_posed(am::AllostericMechanism)
-    m = am.catalytic
-    _assert_bottomed_segments(m, trues(length(m.edges)))
-    _assert_one_flip_segment(am)
-    offenders = _onlya_haldane_violation(am)
-    isempty(offenders) ||
-        error("AllostericMechanism: ", _onlya_violation_message(am, offenders))
-    _assert_bottomed_segments(m, _inactive_mask(am))
-    nothing
-end
+
+"""Whether `_check_well_posed(m)` passes: the enumerator's exits and identify's base tier
+keep a child exactly when it does."""
+_is_well_posed(m::Mechanism) = _guard(m).fault === _NO_FAULT
+_is_well_posed(am::AllostericMechanism) =
+    _free_forms_flip_together(am) && _guard(am).fault === _NO_FAULT
 
 """
     _bottomless_segment(m, mask, re) -> Vector{Int}
@@ -74,21 +71,16 @@ function _bottomless_segment(m::Mechanism, mask::BitVector, re::BitVector)
     Int[]
 end
 
-"""
-Error when a rapid-equilibrium segment of the edges of `m` that `mask` keeps has no
-bottom form (`_bottomless_segment`): its rate is 0/0 where one side's metabolites are
-absent. The boundary check (`_check_well_posed`) checks a mechanism's graph and, for an
-allosteric mechanism, the inactive conformation's (`_inactive_mask`).
-"""
-function _assert_bottomed_segments(m::Mechanism, mask::BitVector)
-    segment = _bottomless_segment(m, mask, _flags(m))
-    isempty(segment) ||
-        error("Mechanism: rapid-equilibrium segment {" *
-              join([_form_name(m, f) for f in segment], ", ") *
-              "} has no form free of one side's " *
-              "metabolites, so its rate is undefined when that side is absent " *
-              "(0/0). Make one of the segment's binding steps steady-state.")
-    nothing
+"""Whether every free form (`_is_free`) of `am`'s catalytic graph lies in one
+rapid-equilibrium segment of the edges outside `:OnlyA` groups
+(`_assert_one_flip_segment`)."""
+function _free_forms_flip_together(am::AllostericMechanism)
+    m = am.catalytic
+    free = [f for f in eachindex(m.forms) if _is_free(m.forms[f])]
+    length(free) <= 1 && return true
+    segment_of = _segments(m, trues(length(m.edges)),
+                           _flags(m) .& _outside_onlya(am)).segment_of
+    all(f -> segment_of[f] == segment_of[first(free)], free)
 end
 
 """
@@ -100,19 +92,15 @@ with L rescaled; free forms joined any other way flip at different forms in the 
 conformations or leave one stranded in the inactive conformation, a different model.
 """
 function _assert_one_flip_segment(am::AllostericMechanism)
+    _free_forms_flip_together(am) && return nothing
     m = am.catalytic
     free = [f for f in eachindex(m.forms) if _is_free(m.forms[f])]
-    length(free) <= 1 && return nothing
-    segment_of = _segments(m, trues(length(m.edges)),
-                           _flags(m) .& _outside_onlya(am)).segment_of
-    all(f -> segment_of[f] == segment_of[first(free)], free) || error(
-        "AllostericMechanism: the free forms " *
-        "$(join([_form_name(m, f) for f in free], ", ")) " *
-        "are not joined by rapid-equilibrium steps outside :OnlyA groups. The " *
-        "conformations interconvert at one free form, so the other free forms must be " *
-        "in rapid equilibrium with it: join them by ⇌ steps outside :OnlyA groups, or " *
-        "keep one free form.")
-    nothing
+    error("AllostericMechanism: the free forms " *
+          "$(join([_form_name(m, f) for f in free], ", ")) " *
+          "are not joined by rapid-equilibrium steps outside :OnlyA groups. The " *
+          "conformations interconvert at one free form, so the other free forms must be " *
+          "in rapid equilibrium with it: join them by ⇌ steps outside :OnlyA groups, or " *
+          "keep one free form.")
 end
 
 """`m`, once `_check_well_posed(m)` passes."""
@@ -1672,8 +1660,17 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
                    ", ") *
               " join free E only through $tag steps that are not bindings toward them, " *
               "such as $(line(k)), so their weight depends on how fast those steps vanish."
-        return c == 2 && fixable ?
-               msg * " Tag the group of $(line(k)) :EqualAI or :NonequalAI." : msg
+        msg = c == 2 && fixable ?
+              msg * " Tag the group of $(line(k)) :EqualAI or :NonequalAI." : msg
+        # A ping-pong whose inactive conformation runs neither half-reaction strands the
+        # covalent forms between the halves; the roadmap lists what would hold them.
+        neither = c == 2 && all(j -> !_is_chemistry(m, m.edges[j]) || _excludes(am, j, 2),
+                                eachindex(m.edges))
+        covalent = any(f -> comp[f] == lost && _has_residual(m.forms[f]),
+                       eachindex(m.forms))
+        return neither && covalent ?
+               msg * " An inactive conformation that runs neither half-reaction of a " *
+                     "ping-pong is not supported yet (see the Roadmap page)." : msg
     elseif v.fault in (_EPS_NONUNIQUE, _PUMPED, _BRIDGE)
         eps, law = _eps_network(am), _law_network(am)
         faces = _faces(m)
@@ -2026,20 +2023,25 @@ end
 
 """
     _law_branches(m) -> Vector{Tuple{POLY, POLY}}
+    _law_branches(den_A, den_I, d_A, d_I) -> Vector{Tuple{POLY, POLY}}
 
 The derived denominator of `m`'s rate law as branches of positive terms, so that it keeps
 a monomial free of a face's names exactly when some branch's two factors both do: a plain
 mechanism's denominator in lowest terms (`_raw_symbolic_rate_polys`) times 1; an allosteric
 one's two conformations, each denominator times the other conformation's free-enzyme
 weight (`_mwc_state_polys`). Powers of a branch and the regulatory sites' factors, whose 1
-never vanishes, keep the same faces.
+never vanishes, keep the same faces. The second form pairs the two conformations'
+denominators `den_A`, `den_I` and free-enzyme weights `d_A`, `d_I` that the allosteric
+derivation already holds (`_num_den_exprs`); the first form derives them.
 """
 _law_branches(m::Mechanism) = [(_raw_symbolic_rate_polys(m)[2], poly_one())]
 function _law_branches(am::AllostericMechanism)
     _, den_A, _, den_I, d_A, d_I =
         _mwc_state_polys(am, Set{Symbol}(metabolites(am.catalytic)), _kept_members(am))
-    [(den_A, d_I), (den_I, d_A)]
+    _law_branches(den_A, den_I, d_A, d_I)
 end
+_law_branches(den_A::POLY, den_I::POLY, d_A::POLY, d_I::POLY) =
+    [(den_A, d_I), (den_I, d_A)]
 
 """Whether some monomial of `p` holds none of the names `z` to a positive power."""
 function _keeps_monomial(p::POLY, z::Vector{Symbol})
@@ -2073,6 +2075,19 @@ function _support_verdict(m::Mechanism, branches::Vector{Tuple{POLY, POLY}})
 end
 _support_verdict(am::AllostericMechanism, branches::Vector{Tuple{POLY, POLY}}) =
     _support_verdict(am.catalytic, branches)
+
+"""
+    _assert_support(m, branches)
+
+Error with class 5's message (`_guard_message`) when the derived denominator of `m`, given
+as `branches` (`_law_branches`), loses every monomial on some face (`_support_verdict`):
+the law is 0/0 there. Both `_num_den_exprs` methods call it with the polynomials they hold.
+"""
+function _assert_support(m::_AnyMech, branches::Vector{Tuple{POLY, POLY}})
+    v = _support_verdict(m, branches)
+    v.fault === _NO_FAULT || error(_guard_message(m, v))
+    nothing
+end
 
 """The message of class 5's verdict `v` on a mechanism that `who` names and whose catalytic
 graph is `m`: the face where every term of the law's denominator vanishes."""

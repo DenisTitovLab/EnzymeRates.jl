@@ -772,7 +772,8 @@ end
           "Mechanism: at zero P and Q, the rapid-equilibrium segment " *
           "{E(P), E(P, Q), E(Q)} has no form free of the zeroed metabolites, so the rate " *
           "is 0/0 there. Make one of the segment's binding steps steady-state."
-    verdicts = _testhelper_respeed_verdicts(entered; rng = Random.MersenneTwister(6))
+    verdicts = _testhelper_respeed_verdicts(entered; rng = Random.MersenneTwister(6),
+                                            law = :limit)
     @test verdicts[2] === :pattern
     @test all(_testhelper_agrees.(faults, verdicts))
     # The fix: one of the segment's binding steps steady-state.
@@ -811,9 +812,10 @@ end
     @test _testhelper_face_faults(unfed)[2] === bottomless
     @test _testhelper_respeed_verdicts(unfed; rng = Random.MersenneTwister(8),
                                        law = :limit)[2] === :agree
-    verdicts = _testhelper_respeed_verdicts(unfed; rng = Random.MersenneTwister(9))
-    @test verdicts[2] === :law_nan
-    @test all(_testhelper_agrees.(_testhelper_face_faults(unfed), verdicts))
+    # The package law is 0/0 at zero products: class 5 refuses to derive it.
+    @test EnzymeRates._support_verdict(unfed, EnzymeRates._law_branches(unfed)).face == 2
+    @test_throws "every term of the rate law's denominator vanishes" (
+        EnzymeRates._num_den_exprs(unfed))
 end
 
 @testset "class 3 rejects a second closed class on a face" begin
@@ -872,7 +874,9 @@ end
     for (i, (m, zero_products)) in enumerate(cases)
         faults = _testhelper_face_faults(m)
         @test all(==(EnzymeRates._NONUNIQUE), faults[zero_products])
-        verdicts = _testhelper_respeed_verdicts(m; rng = Random.MersenneTwister(10 + i))
+        # detour's package law is 0/0 at face 5, which class 5 refuses to derive.
+        verdicts = _testhelper_respeed_verdicts(m; rng = Random.MersenneTwister(10 + i),
+                                                law = m === detour ? :limit : :package)
         @test all(==(:nonunique), verdicts[zero_products])
         @test all(_testhelper_agrees.(faults, verdicts))
         @test all(v -> _testhelper_names_its_step(m, v),
@@ -990,11 +994,16 @@ end
         verdicts = _testhelper_face_verdicts(m)
         @test [verdicts[f].fault for f in faces] == faults
         @test all(f -> verdicts[f].limit === limit, faces)
-        oracles = _testhelper_respeed_verdicts(m; rng = Random.MersenneTwister(20 + i))
+        # dead_end's package law is 0/0 at zero products, which class 5 refuses to
+        # derive; the oracle's own deletion limit has no value there either.
+        oracles = _testhelper_respeed_verdicts(m; rng = Random.MersenneTwister(20 + i),
+                                               law = m === dead_end ? :limit : :package)
         @test all(==(oracle), oracles[faces])
         @test all(_testhelper_agrees.([v.fault for v in verdicts], oracles))
         @test all(f -> _testhelper_names_its_step(m, verdicts[f]), faces)
     end
+    @test EnzymeRates._support_verdict(dead_end,
+                                       EnzymeRates._law_branches(dead_end)).face == 2
     # Where the law's segment chain has two closed classes, the message names the face and
     # what the limit test found, with no fix.
     message(m, f) = EnzymeRates._guard_message(m, _testhelper_face_verdicts(m)[f])
@@ -2262,7 +2271,8 @@ end
           "E(; residual = A - P), E(B; residual = A - P) join free E only through " *
           ":OnlyA steps that are not bindings toward them, such as $line, so their " *
           "weight depends on how fast those steps vanish. Tag the group of $line " *
-          ":EqualAI or :NonequalAI."
+          ":EqualAI or :NonequalAI. An inactive conformation that runs neither " *
+          "half-reaction of a ping-pong is not supported yet (see the Roadmap page)."
     @test EnzymeRates._guard(_testhelper_tag_sets["pp_V_half2"]) == EnzymeRates._WELL_POSED
     # R3 and R4: a second free form behind a tagged isomerization; untagging it passes.
     r3 = @_testhelper_unguarded @allosteric_mechanism begin
@@ -2882,4 +2892,127 @@ end
     @test EnzymeRates._support_verdict(x, EnzymeRates._law_branches(x)) ==
           EnzymeRates._WELL_POSED
     @test length(EnzymeRates.fitted_params(spec.mechanism)) == 10
+end
+
+# ── The guard wired: macros, exits, flip move and parser ──────────────────────
+
+@testset "the macros reject what the guard rejects when the expanded code runs" begin
+    # One mechanism per class: no cycle turns the reaction over (class 1); a cycle of
+    # rapid-equilibrium steps does (class 2); a trap at zero products (class 3); an
+    # :OnlyA binding whose two sides untagged steps join (class 4). Each `@test_throws`
+    # holds the macro call itself, not an `eval`: had a macro thrown at expansion, this
+    # file would not load.
+    no_cycle = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) <--> F + P
+        end
+    end
+    re_cycle = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) ⇌ E(P)
+            E + P ⇌ E(P)
+            E(S) <--> F(P)
+            F(P) <--> E + P
+        end
+    end
+    trap = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P) + Q ⇌ E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + P <--> E(P)
+            E + Q ⇌ E(Q)
+        end
+    end
+    no_limit = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end
+    faults = [EnzymeRates._guard(m).fault for m in (no_cycle, re_cycle, trap, no_limit)]
+    @test faults == [EnzymeRates._NO_CYCLE, EnzymeRates._RE_TURNOVER, EnzymeRates._TRAP,
+                     EnzymeRates._NO_LIMIT]
+    thrown(m) = ErrorException(EnzymeRates._guard_message(m, EnzymeRates._guard(m)))
+    @test_throws thrown(no_cycle) @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) <--> F + P
+        end
+    end
+    @test_throws thrown(re_cycle) @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) ⇌ E(P)
+            E + P ⇌ E(P)
+            E(S) <--> F(P)
+            F(P) <--> E + P
+        end
+    end
+    @test_throws thrown(trap) @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P) + Q ⇌ E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + P <--> E(P)
+            E + Q ⇌ E(Q)
+        end
+    end
+    @test_throws thrown(no_limit) @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end
+end
+
+@testset "the parser rejects a mechanism the guard rejects, naming its step" begin
+    # An identify CSV row or `show` text can hold an allosteric ping-pong with both
+    # half-reactions :OnlyA. Read back, such text raises the guard's message, not a parse
+    # error, and the message names the half-reaction whose untagging fixes it.
+    both = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                          :: EqualAI
+            E(A) <--> E(P; residual = A - P)                      :: OnlyA
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)    :: EqualAI
+            E(B; residual = A - P) ⇌ E(Q)                         :: OnlyA
+            E + Q ⇌ E(Q)                                          :: EqualAI
+        end
+    end
+    v = EnzymeRates._guard(both)
+    @test v.fault === EnzymeRates._ISLAND
+    msg = EnzymeRates._guard_message(both, v)
+    @test occursin("Tag the group of E(A) <--> E(P; residual = A - P) :EqualAI or " *
+                   ":NonequalAI.", msg)
+    @test occursin("is not supported yet (see the Roadmap page)", msg)
+    @test_throws ErrorException(msg) EnzymeRates._parse_mechanism(sprint(show, both))
 end

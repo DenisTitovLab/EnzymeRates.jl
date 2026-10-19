@@ -1222,7 +1222,7 @@ end
         @test ER.compile_mechanism(ER._parse_mechanism(sprint(show, spec.mechanism))) ===
               spec.mechanism
     end
-    @test length(allosteric) == 5 + 934 + 5
+    @test length(allosteric) == 5 + 844 + 5
     @test isempty([i for (i, x) in enumerate(population) if !_testhelper_reads_back(x)])
     @test isempty([i for (i, x) in enumerate(allosteric) if !_testhelper_reads_back(x)])
 end

@@ -574,33 +574,14 @@ function _has_strict_positive_combination(N::AbstractMatrix{Rational{BigInt}})
 end
 
 """
-The error text for the offending `:OnlyA` binding groups `groups` of `am`
-(`_onlya_haldane_violation`), each named by its constant in `am`'s catalytic graph: its
-first edge's slot-1 constant without a state tag, which takes the name of the group's
-active-class kept member. It reads the catalytic graph and constructs no mechanism.
-"""
-function _onlya_violation_message(am::AllostericMechanism, groups::Vector{Int})
-    m = am.catalytic
-    kept, members = _kept_members(m), _group_members(m)
-    labels = sort!([string(name(first(_edge_constants(m, first(members[g]), :None)), m,
-                                kept))
-                    for g in groups])
-    "an :OnlyA binding ($(join(labels, ", "))) leaves a " *
-    "thermodynamic (Haldane/Wegscheider) cycle unsatisfiable: the " *
-    "inactive conformation cannot close that cycle at finite nonzero " *
-    "affinity. Tag the cycle's chemical step :OnlyA, or tag an " *
-    "opposing binding :OnlyA so the affinities diverge together."
-end
-
-"""
     _onlya_offenders(m, group, tags) → Vector{Int}
 
 The `:OnlyA` binding groups of graph `m`, its edges labelled `group` (edge `k` in group
 `group[k]`) and the groups tagged `tags`, that leave a catalytic thermodynamic cycle's
 Haldane relation unsatisfiable under the `K_I = K_A/ε`, `ε → 0⁺` limit an `:OnlyA`
-binding asserts; empty when every cycle stays satisfiable. The boundary check
-(`_check_well_posed`) names them in its error (`_onlya_violation_message`); the moves read
-only whether any group offends.
+binding asserts; empty when every cycle stays satisfiable. The tagging and change-tag moves
+read only whether any group offends; admission (`_admission`) decides what the guard
+accepts.
 
 A cycle's Haldane carries `∏ε_p/∏ε_s` on the inactive side. The `ε` are
 independent, so that monomial can be held finite only when its exponents
@@ -618,7 +599,7 @@ plain bindings alone; a fused binding tagged `:OnlyA` is chemistry and leaves th
 graph. The check graph is read for its cycles only, over the kept groups' edges group by
 group, each group in edge order; it is no mechanism: dropping a group that mixes a fused
 binding with abortive bindings can leave abortive complexes in a rapid-equilibrium
-segment with no bottom form, which the boundary check rejects (`_bottomless_segment`).
+segment with no bottom form, which class 3 rejects (`_check_face`).
 Bindings completing no cycle (competitive inhibitors, dead ends, regulator
 sites) never enter a row and take no part. Both catalytic (Haldane) and
 binding-only (Wegscheider, `rhs = 0`) cycle rows are inspected, so a one-sided
@@ -650,11 +631,6 @@ function _onlya_offenders(m::Mechanism, group::Vector{Int}, tags::Vector{Symbol}
     C, _ = _thermodynamic_constraints(m, flat)
     _onlya_cone_offenders(C, group[flat], filter(onlya, keep))
 end
-
-"""The `:OnlyA` binding groups of `am` that leave a catalytic thermodynamic cycle's
-Haldane relation unsatisfiable (`_onlya_offenders` over its own groups and tags)."""
-_onlya_haldane_violation(am::AllostericMechanism) =
-    _onlya_offenders(am.catalytic, am.catalytic.group, am.cat_allo_states)
 
 """
 The offenders among the `:OnlyA` groups `onlya` (`_onlya_offenders`) by the cycle basis

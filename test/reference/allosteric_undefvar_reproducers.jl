@@ -43,7 +43,10 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
                 E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate) :: NonequalAI
             end
         end),
-        # k_I_E_NAD_to_ENAD family (SS-speed dependent-param partition)
+        # k_I_E_NAD_to_ENAD family (SS-speed dependent-param partition), with the Lactate
+        # binding at E(NAD) steady-state: at rapid equilibrium beside the steady-state NAD
+        # binding it traps E(NAD) at zero products, which the guard rejects
+        # (test_rate_eq_derivation.jl).
         @allosteric_mechanism(begin
             substrates: NADH, Pyruvate
             products: Lactate, NAD
@@ -57,7 +60,7 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
                 E(Lactate) + NAD ⇌ E(Lactate, NAD) :: EqualAI
                 (E(Lactate) + NADH ⇌ E(Lactate, NADH),
                  E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)) :: OnlyA
-                E(NAD) + Lactate ⇌ E(Lactate, NAD) :: EqualAI
+                E(NAD) + Lactate <--> E(Lactate, NAD) :: EqualAI
                 E(NAD) + Pyruvate <--> E(NAD, Pyruvate) :: EqualAI
                 E(NADH) + Lactate ⇌ E(Lactate, NADH) :: EqualAI
                 E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA

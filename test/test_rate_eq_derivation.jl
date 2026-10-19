@@ -1200,6 +1200,73 @@ end
     end
 end
 
+@testset "the third reproducer with a rapid-equilibrium Lactate release traps E(NAD)" begin
+    # Written with E(NAD) + Lactate ⇌ E(Lactate, NAD) at rapid equilibrium beside the
+    # steady-state NAD binding, the mechanism fills E(NAD) by the fast Lactate release at
+    # zero products, and only steady-state steps empty it: a trap (`_TRAP`), which the
+    # RE-speed oracle sees as a pattern, as it does the split at zero Lactate. The
+    # reproducer takes the fix the message prints, that step steady-state, which passes
+    # every face and keeps the steady-state speed k_I_E_NAD_to_ENAD dependent.
+    NO = EnzymeRates._NO_FAULT
+    trap = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: NADH, Pyruvate
+        products: Lactate, NAD
+        catalytic_multiplicity: 4
+        steps: begin
+            E + Lactate ⇌ E(Lactate) :: EqualAI
+            E + NAD <--> E(NAD) :: NonequalAI
+            E + NADH ⇌ E(NADH) :: OnlyA
+            (E + Pyruvate <--> E(Pyruvate),
+             E(NADH) + Pyruvate <--> E(NADH, Pyruvate)) :: EqualAI
+            E(Lactate) + NAD ⇌ E(Lactate, NAD) :: EqualAI
+            (E(Lactate) + NADH ⇌ E(Lactate, NADH),
+             E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)) :: OnlyA
+            E(NAD) + Lactate ⇌ E(Lactate, NAD) :: EqualAI
+            E(NAD) + Pyruvate <--> E(NAD, Pyruvate) :: EqualAI
+            E(NADH) + Lactate ⇌ E(Lactate, NADH) :: EqualAI
+            E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA
+            E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate) :: EqualAI
+        end
+    end
+    v = EnzymeRates._guard(trap)
+    @test (v.fault, v.limit, v.face) ==
+          (EnzymeRates._TRAP, EnzymeRates._LIMIT_SPEED, 2)
+    @test EnzymeRates._step_text(trap.catalytic, v.edge) ==
+          "E(NAD) + Lactate ⇌ E(Lactate, NAD)"
+    @test _testhelper_admission_faults(trap) ==
+          [NO, EnzymeRates._TRAP, NO, NO, NO, EnzymeRates._SPLIT, NO]
+    @test _testhelper_respeed_verdicts(trap; rng = Random.MersenneTwister(1),
+                                       law = :limit) ==
+          [:agree, :pattern, :agree, :agree, :agree, :pattern, :agree]
+    msg = EnzymeRates._guard_message(trap, v)
+    @test_throws ErrorException(msg) @allosteric_mechanism begin
+        substrates: NADH, Pyruvate
+        products: Lactate, NAD
+        catalytic_multiplicity: 4
+        steps: begin
+            E + Lactate ⇌ E(Lactate) :: EqualAI
+            E + NAD <--> E(NAD) :: NonequalAI
+            E + NADH ⇌ E(NADH) :: OnlyA
+            (E + Pyruvate <--> E(Pyruvate),
+             E(NADH) + Pyruvate <--> E(NADH, Pyruvate)) :: EqualAI
+            E(Lactate) + NAD ⇌ E(Lactate, NAD) :: EqualAI
+            (E(Lactate) + NADH ⇌ E(Lactate, NADH),
+             E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)) :: OnlyA
+            E(NAD) + Lactate ⇌ E(Lactate, NAD) :: EqualAI
+            E(NAD) + Pyruvate <--> E(NAD, Pyruvate) :: EqualAI
+            E(NADH) + Lactate ⇌ E(Lactate, NADH) :: EqualAI
+            E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA
+            E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate) :: EqualAI
+        end
+    end
+    fixed = EnzymeRates.AllostericMechanism(ALLOSTERIC_UNDEFVAR_REPRODUCERS[3]())
+    @test _testhelper_admission_faults(fixed) == fill(NO, 7)
+    @test _testhelper_respeed_verdicts(fixed; rng = Random.MersenneTwister(2)) ==
+          fill(:agree, 7)
+    @test :k_I_E_NAD_to_ENAD in keys(EnzymeRates._dependent_param_exprs(fixed)[1])
+    _testhelper_check_law_against_oracle(ALLOSTERIC_UNDEFVAR_REPRODUCERS[3]())
+end
+
 @testset "allosteric reproducers: detailed balance" begin
     # The dep/indep graph is not always sufficient: a dep expression can be
     # structurally sound (acyclic, every RHS symbol defined) while the
@@ -1647,9 +1714,13 @@ end
 end
 
 @testset "All-RE catalytic cycle raises" begin
-    # Binding stage mixed (S2 SS, S1 RE), release stage mixed (P1 SS, P2 RE),
-    # chemistry RE ⇒ a complete all-RE catalytic cycle exists ⇒ no finite rate.
-    m_allre = @enzyme_mechanism begin
+    # A cycle of rapid-equilibrium steps that turns the reaction over gives the mechanism
+    # no finite rate. The guard's class 2 finds it, and the macro throws when its expanded
+    # code runs, naming the cycle's steps.
+    msg = "close a cycle that turns the reaction over, so the mechanism has no finite rate"
+    # Binding stage mixed (S2 SS, S1 RE), release stage mixed (P1 SS, P2 RE), chemistry
+    # RE: a complete all-RE catalytic cycle.
+    @test_throws msg @enzyme_mechanism begin
         substrates: S1, S2
         products: P1, P2
         steps: begin
@@ -1664,9 +1735,9 @@ end
             E(P2) ⇌ E + P2
         end
     end
-    # The activator route E(R) + S ⇌ E(S, R) ⇌ E(P, R) ⇌ E(R) + P is an all-RE
-    # catalytic cycle, so the mechanism has no finite rate.
-    m_sib = @enzyme_mechanism begin
+    # The activator route E(R) + S ⇌ E(S, R) ⇌ E(P, R) ⇌ E(R) + P is an all-RE catalytic
+    # cycle.
+    @test_throws msg @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: R
@@ -1681,13 +1752,6 @@ end
              E(S) + R ⇌ E(S, R),
              E(P) + R ⇌ E(P, R))
         end
-    end
-    for m in (m_allre, m_sib)
-        err = try
-            rate_equation_string(m); nothing
-        catch e; e end
-        @test err isa ErrorException
-        @test occursin("no finite rate", err.msg)
     end
 end
 
