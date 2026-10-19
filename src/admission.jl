@@ -1344,12 +1344,8 @@ _arcs(am::AllostericMechanism, c::Int) =
 
 """The first edge of `am`'s catalytic graph that conformation `c` excludes; 0 when it
 excludes none."""
-function _first_excluded(am::AllostericMechanism, c::Int)
-    for k in eachindex(am.catalytic.edges)
-        _excludes(am, k, c) && return k
-    end
-    0
-end
+_first_excluded(am::AllostericMechanism, c::Int) =
+    something(findfirst(k -> _excludes(am, k, c), eachindex(am.catalytic.edges)), 0)
 
 """
 The arcs of one directed cycle that `arcs` close over the components `comp` (each arc an
