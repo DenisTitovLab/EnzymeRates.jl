@@ -2726,8 +2726,9 @@ end
 end
 
 @testset "the law of a steady-state dead end vanishes at zero products" begin
-    # E(Q) + P ⇌ E(P, Q) puts every form downstream of the chemistry behind a product: each
-    # term of the denominator holds P or Q, so the law is 0/0 with both zero (face 2).
+    # E(P) leaves only by binding Q, so every other form's weight holds Q, and E(P) is fed
+    # only from E(P, Q), which E(Q) + P ⇌ E(P, Q) ties to P: each term of the denominator
+    # holds P or Q, so the law is 0/0 with both zero (face 2).
     m = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P, Q
@@ -2745,13 +2746,27 @@ end
     @test EnzymeRates._guard_message(m, v) ==
           "Mechanism: at zero P and Q, every term of the rate law's denominator " *
           "vanishes, so the rate is 0/0 there."
-    am = _testhelper_tag_sets["AD3a"]
-    @test length(EnzymeRates._law_branches(am)) == 2
-    w = EnzymeRates._Verdict(EnzymeRates._DENOMINATOR_VANISHES,
-                             EnzymeRates._LIMIT_UNTESTED, 2, 0, 0)
+    # The same dead end with E(P) + Q <--> E(P, Q) in the active conformation only. The
+    # active denominator holds P or Q in every term, as above, and the inactive one is
+    # weighted by the active free-enzyme weight, which holds Q in every term: both branches
+    # vanish with P and Q zero, though the inactive denominator alone keeps a constant term.
+    am = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P, Q
+        steps: begin
+            E + S ⇌ E(S)          :: EqualAI
+            E(S) <--> E(P, Q)     :: EqualAI
+            E(Q) + P ⇌ E(P, Q)    :: EqualAI
+            E + Q <--> E(Q)       :: EqualAI
+            E(P) + Q <--> E(P, Q) :: OnlyA
+        end
+    end
+    w = EnzymeRates._support_verdict(am, EnzymeRates._law_branches(am))
+    @test w == EnzymeRates._Verdict(EnzymeRates._DENOMINATOR_VANISHES,
+                                    EnzymeRates._LIMIT_UNTESTED, 2, 0, 0)
     @test EnzymeRates._guard_message(am, w) ==
-          "AllostericMechanism: at zero P, every term of the rate law's denominator " *
-          "vanishes, so the rate is 0/0 there."
+          "AllostericMechanism: at zero P and Q, every term of the rate law's " *
+          "denominator vanishes, so the rate is 0/0 there."
 end
 
 @testset "every spec's denominator keeps a monomial on every face" begin
