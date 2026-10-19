@@ -58,8 +58,8 @@ end
         end
     end
     g = _testhelper_graph(plain)
-    @test keys(g) == (:forms, :free, :steps, :tags, :inactive, :catalytic_multiplicity,
-                      :sites, :substrates, :products, :modifiers)
+    @test keys(g) == (:forms, :free, :steps, :tags, :inactive, :active,
+                      :catalytic_multiplicity, :sites, :substrates, :products, :modifiers)
     @test keys(first(g.steps)) == (:from, :to, :consumed, :released, :consumed_modifier,
                                    :released_modifier, :rapid_equilibrium, :group, :names,
                                    :inactive_names)
@@ -86,6 +86,7 @@ end
          names = [:K_EPmodS_to_ES_Pmod], inactive_names = Symbol[])]
     @test (g.tags, g.inactive, g.catalytic_multiplicity, g.sites) ==
           (Symbol[], Int[], nothing, [])
+    @test g.active == 1:6
     @test (g.substrates, g.products, g.modifiers) == ([:S], [:P], [:I, :P])
     # A step's text names each side's form and metabolites, a modifier copy by its
     # reactant's name.
@@ -220,6 +221,7 @@ end
          group = 4, names = [:k_A_ES_to_EP, :k_A_EP_to_ES], inactive_names = Symbol[])]
     @test g.tags == [:NonequalAI, :OnlyA, :EqualAI, :OnlyA]
     @test g.inactive == [1, 4]
+    @test g.active == 1:5
     @test g.catalytic_multiplicity == 2
     @test g.sites ==
           [(multiplicity = 2, ligands = [:R1, :R2], allo_states = [:OnlyI, :EqualAI]),
@@ -975,4 +977,43 @@ end
         @test abs(_testhelper_law_value(m, params, concs) - at_d) <=
               big(10)^-20 * abs(at_d)
     end
+end
+
+@testset "an :OnlyI law is exact, balanced and counts its declared dimension" begin
+    # The thirteen mechanisms whose :OnlyI groups bind modifiers alone. Each law, read
+    # unchecked from the concrete mechanism, equals the exact limit of the oracle's own
+    # deletion network (each conformation without the steps it excludes and the forms
+    # that strands, pruned by the oracle itself; the conformations flip at free E),
+    # satisfies detailed balance, and fits as many constants as the model declares. The
+    # guard rejects two of them; the identities hold for their laws as well.
+    for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
+        @testset "$label" begin
+            _testhelper_check_law_against_limit(am; seed = 400 + i)
+            rng = Random.MersenneTwister(450 + i)
+            @test all(<(big(10)^-30), _testhelper_detailed_balance(am, rng))
+            @test length(EnzymeRates._dependent_param_exprs(am)[2]) ==
+                  _testhelper_declared_dimension(am)
+        end
+    end
+end
+
+@testset "a 512-bit ε-path of bridge_REcycle2 converges at zero modifiers" begin
+    # bridge_REcycle2: at zero modifiers the I bindings vanish with I, and every path of
+    # the ε-network tends to the law. At 256 bits the paths lose the limit to rounding, so
+    # the check runs at 512. Class 2 rejects the mechanism on the interior ("an RE binding
+    # whose affinity vanishes still closes a fast cycle").
+    m = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)                      :: EqualAI
+            E(S) ⇌ F + P                      :: OnlyA
+            F <--> E                          :: EqualAI
+            (E + I ⇌ E(I), F + I ⇌ F(I))      :: OnlyI
+            F(I) ⇌ E(I)                       :: OnlyA
+        end
+    end
+    @test _testhelper_epath_verdict(m; rng = Random.MersenneTwister(91),
+                                    face = Set([:I]), precision = 512) === :converges
 end

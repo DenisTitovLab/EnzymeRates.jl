@@ -133,9 +133,9 @@ end
                                 "1, got 0"),
                  ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 0, sites))
     @test_throws(ErrorException(
-        "AllostericMechanism: catalytic group 2 has invalid allo state OnlyI (must be " *
-        "one of (:OnlyA, :EqualAI, :NonequalAI)); :OnlyI is rejected for catalytic " *
-        "groups (active-state-active convention)"),
+        "AllostericMechanism: E + S ⇌ E(S) is tagged :OnlyI but does more than bind a " *
+        "modifier. Only the active conformation catalyzes, so :OnlyI fits only a group " *
+        "whose steps take up or give off modifiers alone. Tag its group :NonequalAI."),
         ER.AllostericMechanism(m, [:EqualAI, :OnlyI, :OnlyA], 2, sites))
     @test_throws(ErrorException(
         "AllostericMechanism: ligand X appears in two distinct regulatory sites; " *
@@ -430,9 +430,9 @@ end
     @test_throws MethodError ER.AllostericMechanism(
         ER.Mechanism(_testhelper_uniuni_raw()), tags, true, EnzymeRates.RegulatorySite[])
     @test_throws(ErrorException(
-        "AllostericMechanism: catalytic group 2 has invalid allo state OnlyI (must be " *
-        "one of (:OnlyA, :EqualAI, :NonequalAI)); :OnlyI is rejected for catalytic " *
-        "groups (active-state-active convention)"),
+        "AllostericMechanism: E(S) <--> E(P) is tagged :OnlyI but does more than bind a " *
+        "modifier. Only the active conformation catalyzes, so :OnlyI fits only a group " *
+        "whose steps take up or give off modifiers alone. Tag its group :NonequalAI."),
         _testhelper_allosteric([:EqualAI, :OnlyI, :EqualAI], 2, EnzymeRates.RawSite[]))
     # Declarations and group labels.
     @test_throws(ErrorException("Mechanism: substrates must not be empty"),

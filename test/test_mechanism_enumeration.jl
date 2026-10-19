@@ -13963,3 +13963,24 @@ end
     @test Set(children) == Set(expected)
     @test a_alone ∉ children
 end
+
+@testset "no move tags a catalytic group :OnlyI" begin
+    # Aggregate check over the whole uni-uni seed set with an allosteric regulator and a
+    # competitive inhibitor, and its first expansion round: no seed or child tags a
+    # catalytic group :OnlyI (only a hand-written mechanism may), while the tagging move
+    # still gives regulatory sites the tag.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R
+        competitive_inhibitors: I
+        oligomeric_state: 2
+    end
+    seeds = EnzymeRates.init_mechanisms(rxn)
+    children = EnzymeRates.expand_mechanisms(seeds, rxn)
+    allo = [m for m in [seeds; children] if m isa EnzymeRates.AllostericMechanism]
+    @test !isempty(allo)
+    @test all(m -> :OnlyI ∉ EnzymeRates.cat_allo_states(m), allo)
+    @test any(m -> any(s -> :OnlyI in EnzymeRates.allo_states(s),
+                       EnzymeRates.regulatory_sites(m)), allo)
+end

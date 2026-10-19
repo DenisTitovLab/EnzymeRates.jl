@@ -172,8 +172,9 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             regulatory_site(2): I::EqualAI
         end) isa ER.AllostericEnzymeMechanism
 
-        # Catalytic group :OnlyI → error
-        @test_throws ErrorException @allosteric_mechanism begin
+        # A catalytic group may be :OnlyI only when its steps bind modifiers alone.
+        @test_throws ("AllostericMechanism: E + S ⇌ E(S) is tagged :OnlyI but does more " *
+                      "than bind a modifier.") @allosteric_mechanism begin
             substrates: S
             products:   P
             catalytic_multiplicity: 2
@@ -183,6 +184,17 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(P) ⇌ E + P      :: NonequalAI
             end
         end
+        onlyi = @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            modifiers: I
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E + P   :: EqualAI
+                E + I ⇌ E(I)      :: OnlyI
+            end
+        end
+        @test :OnlyI in ER.cat_allo_states(ER.AllostericMechanism(onlyi))
 
         # Build via DSL
         m = @allosteric_mechanism begin
@@ -1640,13 +1652,27 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         steps = collect(_testhelper_uniuni_steps())
         _testhelper_invalid_tag(tag) = ErrorException(
             "AllostericMechanism: catalytic group 1 has invalid allo state $tag (must be " *
-            "one of (:OnlyA, :EqualAI, :NonequalAI)); :OnlyI is rejected for catalytic " *
-            "groups (active-state-active convention)")
+            "one of (:OnlyA, :OnlyI, :EqualAI, :NonequalAI))")
 
-        # :OnlyI for catalytic group is rejected (R-state-active convention)
-        @test_throws(_testhelper_invalid_tag(:OnlyI),
-                     _testhelper_tagged_uniuni(steps, [:OnlyI, :EqualAI, :EqualAI], 1,
-                                               ER.RawSite[]))
+        # :OnlyI fits only a group that binds modifiers alone: the active conformation
+        # is the one that catalyzes.
+        uni = ER.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end)
+        onlyi_tags = fill(:EqualAI, ER.ngroups(uni))
+        onlyi_tags[uni.group[_testhelper_edge(uni, "E + S ⇌ ES")]] = :OnlyI
+        @test_throws ErrorException(
+            "AllostericMechanism: E + S ⇌ E(S) is tagged :OnlyI but does more than " *
+            "bind a modifier. Only the active conformation catalyzes, so :OnlyI fits " *
+            "only a group whose steps take up or give off modifiers alone. Tag its " *
+            "group :NonequalAI.") ER.AllostericMechanism(uni, onlyi_tags, 1,
+                                                          ER.RegulatorySite[])
 
         # Length mismatch
         @test_throws(ErrorException("AllostericMechanism: cat_allo_states length 2 must " *

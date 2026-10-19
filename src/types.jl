@@ -42,10 +42,10 @@ struct RegulatorySite
                   "must equal length(allo_states)=$(length(allo_states))")
         multiplicity ≥ 1 ||
             error("RegulatorySite: multiplicity must be ≥ 1, got $multiplicity")
-        bad = findfirst(∉(_VALID_REG_ALLO_STATES), allo_states)
+        bad = findfirst(∉(_TAG_CODES), allo_states)
         bad === nothing ||
             error("RegulatorySite: allo state $(allo_states[bad]) must be one of " *
-                  "$_VALID_REG_ALLO_STATES")
+                  "$_TAG_CODES")
         dup = findfirst(i -> ligands[i] in view(ligands, 1:(i - 1)), eachindex(ligands))
         dup === nothing || error("RegulatorySite: ligand $(ligands[dup]) appears twice " *
                                  "in one regulatory site")
@@ -651,6 +651,7 @@ struct AllostericMechanism
                                  catalytic_multiplicity::Int,
                                  regulatory_sites::Vector{RegulatorySite})
         _check_tags(cat_allo_states, ngroups(catalytic), catalytic_multiplicity)
+        _check_onlyi_groups(catalytic, cat_allo_states)
         sites = sort(regulatory_sites; by = _site_key)
         _check_ligands(sites, catalytic)
         new(catalytic, copy(cat_allo_states), catalytic_multiplicity, sites)
@@ -660,12 +661,6 @@ end
 """A site's place in the order of a mechanism's sites: its ligands, its multiplicity,
 then its ligands' tags."""
 _site_key(s::RegulatorySite) = (s.ligands, s.multiplicity, s.allo_states)
-
-# Each catalytic kinetic group carries an allosteric-state tag (`:OnlyA`, `:EqualAI` or
-# `:NonequalAI`; `:OnlyI` is rejected by the active-state convention); a site ligand
-# may also be `:OnlyI`.
-const _VALID_CAT_ALLO_STATES = (:OnlyA, :EqualAI, :NonequalAI)
-const _VALID_REG_ALLO_STATES = (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
 
 abstract type AbstractEnzymeMechanism end
 
@@ -987,9 +982,8 @@ _with(am::AllostericMechanism; states::Vector{Symbol} = cat_allo_states(am),
 
 # ─── Checks ─────────────────────────────────────────────────────────────
 
-"""Error unless `cat_allo_states` holds one valid tag for each of `G` kinetic groups and
-the catalytic multiplicity is at least 1. No catalytic group is `:OnlyI`: the active
-conformation is the one that catalyzes."""
+"""Error unless `cat_allo_states` holds one valid tag (`_TAG_CODES`) for each of `G`
+kinetic groups and the catalytic multiplicity is at least 1."""
 function _check_tags(cat_allo_states::Vector{Symbol}, G::Int, catalytic_multiplicity::Int)
     length(cat_allo_states) == G ||
         error("AllostericMechanism: cat_allo_states length $(length(cat_allo_states)) " *
@@ -997,12 +991,28 @@ function _check_tags(cat_allo_states::Vector{Symbol}, G::Int, catalytic_multipli
     catalytic_multiplicity ≥ 1 ||
         error("AllostericMechanism: catalytic_multiplicity must be ≥ 1, " *
               "got $catalytic_multiplicity")
-    bad = findfirst(∉(_VALID_CAT_ALLO_STATES), cat_allo_states)
+    bad = findfirst(∉(_TAG_CODES), cat_allo_states)
     bad === nothing ||
         error("AllostericMechanism: catalytic group $bad has invalid " *
-              "allo state $(cat_allo_states[bad]) (must be one of " *
-              "$_VALID_CAT_ALLO_STATES); :OnlyI is rejected for " *
-              "catalytic groups (active-state-active convention)")
+              "allo state $(cat_allo_states[bad]) (must be one of $_TAG_CODES)")
+    nothing
+end
+
+"""Error when a kinetic group of `catalytic` tagged `:OnlyI` (`cat_allo_states`) holds a
+step that does more than take up or give off modifiers (`_modifier_mask`): only the
+active conformation catalyzes, so a group it lacks binds modifiers alone (spec
+section 7)."""
+function _check_onlyi_groups(catalytic::Mechanism, cat_allo_states::Vector{Symbol})
+    modifiers = _modifier_mask(catalytic)
+    for (k, e) in enumerate(catalytic.edges)
+        cat_allo_states[catalytic.group[k]] === :OnlyI || continue
+        exchanged = e.consumed | e.released
+        exchanged != 0 && exchanged & ~modifiers == 0 && continue
+        error("AllostericMechanism: $(_step_text(catalytic, k)) is tagged :OnlyI but " *
+              "does more than bind a modifier. Only the active conformation " *
+              "catalyzes, so :OnlyI fits only a group whose steps take up or give off " *
+              "modifiers alone. Tag its group :NonequalAI.")
+    end
     nothing
 end
 
@@ -1269,7 +1279,8 @@ end
 #               catalytic multiplicity; the number of sites, then per site its
 #               multiplicity, its number of ligands and per ligand its name and tag code.
 
-"""The allosteric tags, coded by position: catalytic groups and site ligands share it."""
+"""The allosteric tags, coded by position: catalytic groups and site ligands share them,
+and the constructors accept no other (`_check_tags`, `RegulatorySite`)."""
 const _TAG_CODES = (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
 _tag_code(t::Symbol) = findfirst(==(t), _TAG_CODES)::Int
 
@@ -1642,6 +1653,15 @@ The inactive law (`_state_rate_polys`), the joint solve (`_inactive_law`) and th
 stored direction.
 """
 _inactive_mask(am::AllostericMechanism) = _law_mask(am, 2)
+
+"""
+The edges of `am`'s active conformation: those outside `:OnlyI` groups between forms they
+join to free E (`_law_mask`), the mirror of `_inactive_mask`. The active law
+(`_state_rate_polys`), the joint solve (`_active_law`), the copy rule
+(`_redundant_copy_groups`) and the degeneracy test (`_degenerate`) read the active
+conformation from it, each edge in `am`'s stored direction.
+"""
+_active_mask(am::AllostericMechanism) = _law_mask(am, 1)
 
 """Whether conformation `c` (1 active, 2 inactive) of `am` excludes edge `k`: an `:OnlyA`
 group's edge in the inactive conformation, an `:OnlyI` group's in the active one. There a

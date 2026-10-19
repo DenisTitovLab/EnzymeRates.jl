@@ -2727,7 +2727,8 @@ end
 @testset "joint R1 catches a tree that only both conformations' bridges shorten" begin
     # The in-tree costs where each conformation passes R1 and both together fail it,
     # written in the guard's own type: the smallest network that shows the pattern, for
-    # the in-tree arithmetic.
+    # the in-tree arithmetic; "joint R1 rejects a mechanism whose bridges cut the tree
+    # only together" tests the check on a mechanism.
     # Copy A holds E and X (nodes 1, 2), copy I holds E, Y and Z (nodes 4, 5, 6), and the
     # flip joins the two copies of E. Alone, copy A's vanishing E → X and copy I's
     # vanishing Y → E each leave the cheapest spanning in-tree at one slow transition;
@@ -3093,5 +3094,500 @@ end
             _testhelper_check_law_against_limit(
                 EnzymeRates.compile_mechanism(_testhelper_tag_sets[name]); seed = i)
         end
+    end
+end
+
+# ── :OnlyI on modifier-binding groups ─────────────────────────────────────────
+
+@testset "an :OnlyI modifier binding mirrors :OnlyA in the active conformation" begin
+    fx = _testhelper_onlyi_fixtures()
+    # The fixtures but the inhibitor bridge and the essential activator pass the guard,
+    # and the oracles agree on every face of four of them: steady-state and
+    # rapid-equilibrium steps, a substrate's modifier copy and an activator route.
+    admitted = [k for k in keys(fx) if !(k in (:copy_group_bridge, :essential_activator))]
+    @test length(admitted) == 11
+    for k in admitted
+        @test (k, EnzymeRates._guard(fx[k]).fault) == (k, EnzymeRates._NO_FAULT)
+    end
+    for (i, k) in enumerate((:competitive_SS, :uncompetitive_RE, :mod_copy_substrate,
+                             :nonessential_activator))
+        agree = _testhelper_admission_agreement(
+            fx[k]; rng = Random.MersenneTwister(500 + i))
+        @test (k, all(agree)) == (k, true)
+    end
+    # The competitive inhibitor tagged :OnlyI is the :OnlyA one with the conformations
+    # swapped: each conformation's law keeps what the other's drops.
+    onlya = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E + P         :: EqualAI
+            E + I ⇌ E(I)            :: OnlyA
+        end
+    end
+    onlyi = fx.competitive_RE
+    @test EnzymeRates._active_mask(onlyi) == EnzymeRates._inactive_mask(onlya)
+    @test EnzymeRates._inactive_mask(onlyi) == EnzymeRates._active_mask(onlya)
+    @test !all(EnzymeRates._active_mask(onlyi))
+end
+
+@testset "an RE binding whose affinity vanishes still closes a fast cycle" begin
+    # The B1 set: an :OnlyI binding at rapid equilibrium loses its affinity in the active
+    # conformation, yet on the ε-network it stays fast and closes, with the other
+    # rapid-equilibrium steps, a cycle that turns the reaction over: class 2 rejects on
+    # the interior. The law networks hold no such cycle, so class 3 and the RE-speed
+    # oracle agree on every face, while the ε-path does not converge (checked on B1a).
+    b1a = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E(P)          :: EqualAI
+            E + P ⇌ E(P)            :: EqualAI
+            E + I ⇌ E(I)            :: OnlyI
+            E(I) + S ⇌ E(I, S)      :: EqualAI
+            E(I, S) ⇌ E(I, P)       :: OnlyA
+            E(P) + I ⇌ E(I, P)      :: OnlyI
+        end
+    end
+    b1b = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)            :: OnlyA
+            E + P ⇌ E(P)            :: OnlyA
+            E(S) <--> E(P)          :: EqualAI
+            E(S) + I ⇌ E(I, S)      :: OnlyI
+            E(I, S) ⇌ E(I, P)       :: EqualAI
+            E(P) + I ⇌ E(I, P)      :: OnlyI
+        end
+    end
+    b1d = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)                          :: EqualAI
+            E(S) <--> E(P)                        :: EqualAI
+            E + P ⇌ E(P)                          :: EqualAI
+            (E + I ⇌ E(I), E(P) + I ⇌ E(I, P))    :: OnlyI
+            E(I) + S ⇌ E(I, S)                    :: EqualAI
+            E(I, S) ⇌ E(I, P)                     :: OnlyA
+        end
+    end
+    b1e = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: P
+        steps: begin
+            E + S ⇌ E(S)                    :: EqualAI
+            E(S) <--> E(P)                  :: EqualAI
+            E + P ⇌ E(P)                    :: EqualAI
+            E + P::Mod ⇌ E(P::Mod)          :: OnlyI
+            E(P::Mod) + S ⇌ E(P::Mod, S)    :: EqualAI
+            E(P::Mod, S) ⇌ E(P::Mod, P)     :: OnlyA
+            E(P) + P::Mod ⇌ E(P::Mod, P)    :: OnlyI
+        end
+    end
+    b1f = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        modifiers: I
+        steps: begin
+            E + A ⇌ E(A)                    :: EqualAI
+            E(A) + B ⇌ E(A, B)              :: EqualAI
+            E(A, B) <--> E(P, Q)            :: EqualAI
+            E(Q) + P ⇌ E(P, Q)              :: EqualAI
+            E + Q ⇌ E(Q)                    :: EqualAI
+            E(A, B) + I ⇌ E(A, B, I)        :: OnlyI
+            E(A, B, I) ⇌ E(I, P, Q)         :: OnlyA
+            E(P, Q) + I ⇌ E(I, P, Q)        :: OnlyI
+        end
+    end
+    bridge_REcycle = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)                      :: EqualAI
+            E(S) ⇌ F + P                      :: EqualAI
+            F <--> E                          :: EqualAI
+            (E + I ⇌ E(I), F + I ⇌ F(I))      :: OnlyI
+            F(I) ⇌ E(I)                       :: OnlyA
+        end
+    end
+    bridge_REcycle2 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)                      :: EqualAI
+            E(S) ⇌ F + P                      :: OnlyA
+            F <--> E                          :: EqualAI
+            (E + I ⇌ E(I), F + I ⇌ F(I))      :: OnlyI
+            F(I) ⇌ E(I)                       :: OnlyA
+        end
+    end
+    for (i, (label, m)) in enumerate(pairs((; b1a, b1b, b1d, b1e, b1f, bridge_REcycle,
+                                               bridge_REcycle2)))
+        v = EnzymeRates._guard(m)
+        @test (label, v.fault, v.face) == (label, EnzymeRates._RE_TURNOVER, 0)
+        msg = EnzymeRates._guard_message(m, v)
+        @test (label, occursin("(whose affinity vanishes in the ", msg) &&
+                      occursin("turns the reaction over", msg)) == (label, true)
+        # The law networks agree with the RE-speed oracle face by face: class 3 accepts
+        # every face but bridge_REcycle's zero products, where both see the steady state
+        # move with the speeds.
+        respeed = _testhelper_respeed_verdicts(m; rng = Random.MersenneTwister(60 + i),
+                                               law = :limit)
+        @test (label, all(_testhelper_agrees.(_testhelper_face_faults(m), respeed))) ==
+              (label, true)
+    end
+    @test all(==(:agree), _testhelper_respeed_verdicts(
+        b1a; rng = Random.MersenneTwister(61), law = :limit))
+    @test _testhelper_epath_verdict(b1a; rng = Random.MersenneTwister(62)) in
+          (:diverges, :direction_dependent, :wrong_limit)
+    # B1c: the inhibitor complex's chemistry at steady state breaks the fast cycle.
+    b1c = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E(P)          :: EqualAI
+            E + P ⇌ E(P)            :: EqualAI
+            E + I ⇌ E(I)            :: OnlyI
+            E(I) + S ⇌ E(I, S)      :: EqualAI
+            E(I, S) <--> E(I, P)    :: OnlyA
+            E(P) + I ⇌ E(I, P)      :: OnlyI
+        end
+    end)
+    @test all(_testhelper_admission_agreement(b1c; rng = Random.MersenneTwister(63)))
+    # With bridge_REcycle's I bindings at steady state no fast cycle is left; class 3
+    # then rejects zero products, where the steady state depends on how fast the
+    # rapid-equilibrium steps run, and passes the other faces.
+    ssbind = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)                          :: EqualAI
+            E(S) ⇌ F + P                          :: EqualAI
+            F <--> E                              :: EqualAI
+            (E + I <--> E(I), F + I <--> F(I))    :: OnlyI
+            F(I) ⇌ E(I)                           :: OnlyA
+        end
+    end
+    v = EnzymeRates._guard(ssbind)
+    @test v.face == 2 && v.limit === EnzymeRates._LIMIT_SPEED
+    @test _testhelper_respeed_verdicts(ssbind; rng = Random.MersenneTwister(64),
+                                       law = :limit) ==
+          [:agree, :pattern, :agree, :agree, :agree, :agree]
+end
+
+@testset "a fast cycle that only the inactive conformation keeps is named there" begin
+    # The two :OnlyI steps each take up I and J at once, so the active conformation blocks
+    # them, while the inactive one keeps them fast: the only cycle of rapid-equilibrium
+    # steps, which turns the reaction over, runs in the inactive conformation, through
+    # the :OnlyA product binding, whose affinity vanishes there but stays fast.
+    m = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I, J
+        steps: begin
+            E + S ⇌ E(S)                    :: EqualAI
+            E(S) + I + J ⇌ E(I, J, S)       :: OnlyI
+            E(I, J, S) ⇌ E(I, J, P)         :: EqualAI
+            E(P) + I + J ⇌ E(I, J, P)       :: OnlyI
+            E + P ⇌ E(P)                    :: OnlyA
+        end
+    end
+    v = EnzymeRates._guard(m)
+    @test (v.fault, v.face, v.conformation) == (EnzymeRates._RE_TURNOVER, 0, 2)
+    @test EnzymeRates._guard_message(m, v) ==
+          "AllostericMechanism: the rapid-equilibrium steps E(I, J, P) ⇌ E(P) + I + J, " *
+          "E + P ⇌ E(P) (whose affinity vanishes in the inactive conformation), " *
+          "E + S ⇌ E(S), E(I, J, S) ⇌ E(S) + I + J and E(I, J, S) ⇌ E(I, J, P) close a " *
+          "cycle in the inactive conformation that turns the reaction over, so the " *
+          "mechanism has no finite rate. Make one step of the cycle steady-state."
+end
+
+@testset "the ε-network's second closed class rejects the face" begin
+    # fz101_1964: at zero products the :OnlyA steps vanish in the inactive conformation
+    # and the :OnlyI binding in the active one, and the alive transitions of the
+    # ε-network leave two closed classes, so the steady state depends on where the enzyme
+    # starts; the same at zero products and modifiers. Class 3 passes every face: the law
+    # networks keep one class each.
+    fz = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)            :: OnlyA
+            E(S) <--> E + P         :: OnlyA
+            E(S) + I ⇌ E(I, S)      :: OnlyI
+            E(I, S) ⇌ E(I) + P      :: NonequalAI
+        end
+    end
+    v = EnzymeRates._guard(fz)
+    @test (v.fault, v.face, v.conformation) == (EnzymeRates._EPS_NONUNIQUE, 2, 1)
+    # The class the message names, E(I) of the active conformation, which only the
+    # vanishing I binding at E(S) feeds, holds no form of the law networks.
+    @test EnzymeRates._guard_message(fz, v) ==
+          "AllostericMechanism: at zero P, the forms E(I) (active) hold the enzyme they " *
+          "receive and are reached only through tagged steps, so the steady state " *
+          "depends on where the enzyme starts."
+    eps, law = EnzymeRates._eps_network(fz), EnzymeRates._law_network(fz)
+    s = EnzymeRates._face_sets(eps, law.present, EnzymeRates._faces(fz.catalytic)[2])
+    named = EnzymeRates._class_outside_law(EnzymeRates._closed_classes(eps, s.alive),
+                                           law.present)
+    @test !any(view(law.present, named))
+    NO, NU = EnzymeRates._NO_FAULT, EnzymeRates._EPS_NONUNIQUE
+    @test _testhelper_admission_faults(fz) == [NO, NU, NO, NO, NU, NO]
+    @test all(==(NO), _testhelper_face_faults(fz))
+    @test _testhelper_epath_verdict(fz; rng = Random.MersenneTwister(65),
+                                    face = Set([:P])) === :nonunique
+    @test _testhelper_epath_verdict(fz; rng = Random.MersenneTwister(66),
+                                    face = Set([:P, :I])) === :nonunique
+end
+
+@testset "an :OnlyI bridge is rejected" begin
+    # copy_group_bridge and B2b: the :OnlyI bindings of I at E and E(S) bridge, in the
+    # active conformation, forms its other steps keep apart, so the limit depends on how
+    # fast the vanishing affinities fall; the ε-path settles on another value. With the
+    # bridging group at steady state the guard admits the mechanism, the fix the message
+    # prints. At zero modifiers class 3 also rejects copy_group_bridge.
+    bridge = _testhelper_onlyi_fixtures().copy_group_bridge
+    b2b = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I, J
+        steps: begin
+            E + S <--> E(S)                       :: EqualAI
+            E(S) <--> E + P                       :: NonequalAI
+            (E + I ⇌ E(I), E(S) + I ⇌ E(I, S))    :: OnlyI
+            E(I) + S ⇌ E(I, S)                    :: EqualAI
+            E + J ⇌ E(J)                          :: OnlyA
+        end
+    end
+    for m in (bridge, b2b)
+        v = EnzymeRates._guard(m)
+        @test (v.fault, v.face, v.conformation) == (EnzymeRates._BRIDGE, 1, 1)
+        @test _testhelper_admission_faults(m)[1:3] == fill(EnzymeRates._BRIDGE, 3)
+        @test all(!=(EnzymeRates._NO_FAULT), _testhelper_face_faults(m)[4:6])
+    end
+    msg = EnzymeRates._guard_message(bridge, EnzymeRates._guard(bridge))
+    @test startswith(msg, "AllostericMechanism: the :OnlyI step ") &&
+          occursin(" bridges forms of the active conformation that its other steps " *
+                   "keep apart, so the limit depends on how fast the tagged constants " *
+                   "vanish. Make the group of ", msg) && endswith(msg, " steady-state.")
+    # Along the oracle's five orders the ε-path settles on another value or depends on
+    # the order.
+    @test _testhelper_epath_verdict(bridge; rng = Random.MersenneTwister(71)) in
+          (:wrong_limit, :direction_dependent)
+    fixed = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S <--> E(S)                           :: EqualAI
+            E(S) <--> E + P                           :: EqualAI
+            (E + I <--> E(I), E(S) + I <--> E(S, I))  :: OnlyI
+            E(I) + S ⇌ E(S, I)                        :: EqualAI
+        end
+    end)
+    @test all(_testhelper_admission_agreement(fixed; rng = Random.MersenneTwister(72)))
+    # B2a bridges in both conformations, yet admission passes every face; class 3
+    # rejects the three faces with zero modifiers, where the limit differs from the law.
+    b2a = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I, J
+        steps: begin
+            E + S <--> E(S)                       :: EqualAI
+            E(S) <--> E + P                       :: EqualAI
+            (E + I ⇌ E(I), E(S) + I ⇌ E(I, S))    :: OnlyA
+            E(I) + S ⇌ E(I, S)                    :: EqualAI
+            (E + J ⇌ E(J), E(S) + J ⇌ E(J, S))    :: OnlyI
+            E(J) + S ⇌ E(J, S)                    :: EqualAI
+        end
+    end
+    v = EnzymeRates._guard(b2a)
+    @test v.face == 4 && v.limit === EnzymeRates._LIMIT_DIFFER
+    @test _testhelper_admission_faults(b2a)[1:3] == fill(EnzymeRates._NO_FAULT, 3)
+    @test _testhelper_respeed_verdicts(b2a; rng = Random.MersenneTwister(73),
+                                       law = :limit) ==
+          [:agree, :agree, :agree, :mismatch, :mismatch, :mismatch]
+end
+
+@testset "an essential activator tagged :OnlyI stops catalysis" begin
+    # X binds only the inactive conformation, and every turnover passes through E(X):
+    # the active conformation, which alone the convention lets catalyze, turns nothing
+    # over. Tagging the X binding :EqualAI or :NonequalAI, the message's fix, passes.
+    ea = _testhelper_onlyi_fixtures().essential_activator
+    v = EnzymeRates._guard(ea)
+    @test (v.fault, v.face, v.conformation) == (EnzymeRates._NO_ACTIVE_TURNOVER, 0, 1)
+    @test EnzymeRates._guard_message(ea, v) ==
+          "AllostericMechanism: without its :OnlyI steps E + X ⇌ E(X) the active " *
+          "conformation turns no substrate into product, so the enzyme never turns " *
+          "the reaction over. Tag their groups :EqualAI or :NonequalAI."
+    for (i, tag) in enumerate((:EqualAI, :NonequalAI))
+        fixed = EnzymeRates.AllostericMechanism(eval(:(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            modifiers: X
+            steps: begin
+                E + X ⇌ E(X)            :: $tag
+                E(X) + S ⇌ E(S, X)      :: EqualAI
+                E(S, X) <--> E(X) + P   :: EqualAI
+            end
+        end)))
+        @test all(_testhelper_admission_agreement(fixed;
+                                                  rng = Random.MersenneTwister(80 + i)))
+    end
+end
+
+@testset "the active conformation's interior faults name the :OnlyI step" begin
+    # The mirror of the :OnlyA interior faults, in conformation 1. The messages offer no
+    # fix: a step tagged :OnlyI binds modifiers alone, and no test shows an untagged
+    # variant well-posed. The ε-path oracle agrees with each verdict.
+    rng = Random.MersenneTwister(91)
+    U = EnzymeRates._LIMIT_UNTESTED
+    # I binds E and E(S); without E + I ⇌ E(I), the untagged I binding at E(S) and S
+    # binding at E(I) still join E to E(I), so the I affinity cannot vanish.
+    no_limit = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E + P         :: EqualAI
+            E + I ⇌ E(I)            :: OnlyI
+            E(I) + S ⇌ E(I, S)      :: EqualAI
+            E(S) + I ⇌ E(I, S)      :: EqualAI
+        end
+    end
+    k = _testhelper_edge(no_limit, "E + I ⇌ EI")
+    v = EnzymeRates._guard(no_limit)
+    @test v == EnzymeRates._Verdict(EnzymeRates._NO_LIMIT, U, 0, 1, k)
+    @test EnzymeRates._guard_message(no_limit, v) ==
+          "AllostericMechanism: in the active conformation, steps outside :OnlyI " *
+          "groups still join the two sides of the :OnlyI binding " *
+          "$(EnzymeRates._step_text(no_limit.catalytic, k)), so thermodynamics keeps " *
+          "its affinity finite and the binding has no limit there."
+    @test _testhelper_epath_verdict(no_limit; rng) === :no_path
+    # I binds E and J binds E(I), both :OnlyI; the untagged J binding at E and I binding
+    # at E(J) join E(I, J) back to E, so the two arcs close a cycle.
+    arc_cycle = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I, J
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E + P         :: EqualAI
+            E + I ⇌ E(I)            :: OnlyI
+            E(I) + J ⇌ E(I, J)      :: OnlyI
+            E + J ⇌ E(J)            :: EqualAI
+            E(J) + I ⇌ E(I, J)      :: EqualAI
+        end
+    end
+    arcs = [_testhelper_edge(arc_cycle, t) for t in ("E + I ⇌ EI", "EI + J ⇌ EIJ")]
+    v = EnzymeRates._guard(arc_cycle)
+    @test (v.fault, v.face, v.conformation) == (EnzymeRates._ARC_CYCLE, 0, 1)
+    @test v.edge in arcs
+    msg = EnzymeRates._guard_message(arc_cycle, v)
+    @test startswith(msg, "AllostericMechanism: the :OnlyI bindings ")
+    @test all(j -> occursin(EnzymeRates._step_text(arc_cycle.catalytic, j), msg), arcs)
+    @test endswith(msg, " close a cycle in the active conformation: steps outside " *
+                        ":OnlyI groups join each one's bound side to the next one's " *
+                        "unbound side, so thermodynamics forbids their affinities to " *
+                        "vanish together.")
+    @test _testhelper_epath_verdict(arc_cycle; rng) === :no_path
+    # E(I) is reached only as E(I, J) gives off J, and in the active conformation J's
+    # affinity for E(I) vanishes: an island on the :OnlyI binding's unbound side, which
+    # collects the active enzyme.
+    island = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I, J
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E + P         :: EqualAI
+            E + J ⇌ E(J)            :: EqualAI
+            E(J) + I ⇌ E(I, J)      :: EqualAI
+            E(I) + J ⇌ E(I, J)      :: OnlyI
+        end
+    end
+    k = _testhelper_edge(island, "EI + J ⇌ EIJ")
+    v = EnzymeRates._guard(island)
+    @test v == EnzymeRates._Verdict(EnzymeRates._ISLAND, U, 0, 1, k)
+    @test EnzymeRates._guard_message(island, v) ==
+          "AllostericMechanism: in the active conformation the forms E(I) join free E " *
+          "only through :OnlyI steps that are not bindings toward them, such as " *
+          "$(EnzymeRates._step_text(island.catalytic, k)), so their weight depends on " *
+          "how fast those steps vanish."
+    @test _testhelper_epath_verdict(island; rng) in (:direction_dependent, :wrong_limit)
+end
+
+@testset "joint R1 rejects a mechanism whose bridges cut the tree only together" begin
+    # The hand-built joint-R1 network's pattern on a mechanism. Half 2 :OnlyA strands the
+    # inactive conformation's covalent forms at zero P, so no in-tree of that
+    # conformation reaches its free E without half 2's vanishing steps. M binds E(A) and
+    # the covalent form :OnlyI, and M-bound half 1 runs at rapid equilibrium in the active
+    # conformation, where the vanishing M binding at E(A) lets free E's fast class leave,
+    # one way, for the M-bound covalent form. Each conformation's vanishing transitions
+    # alone leave the cheapest spanning in-tree at 4 slow transitions; together they cut
+    # it to 3. Every other check passes, and the ε-path does not converge on those faces,
+    # so the rejection is right; both oracles agree on every face.
+    am = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        modifiers: M
+        steps: begin
+            E + A ⇌ E(A)                                             :: EqualAI
+            E(A) <--> E(; residual = A - P) + P                      :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: EqualAI
+            E(B; residual = A - P) <--> E + Q                        :: OnlyA
+            E(A) + M ⇌ E(A, M)                                       :: OnlyI
+            E(; residual = A - P) + M <--> E(M; residual = A - P)    :: OnlyI
+            E(A, M) ⇌ E(M; residual = A - P) + P                     :: OnlyA
+        end
+    end
+    NO, BR, U = EnzymeRates._NO_FAULT, EnzymeRates._BRIDGE, EnzymeRates._LIMIT_UNTESTED
+    v = EnzymeRates._guard(am)
+    @test v == EnzymeRates._Verdict(BR, U, 2, 0, 0)
+    @test _testhelper_admission_faults(am) == [[NO, BR, NO, NO, NO, BR, NO]; fill(NO, 7)]
+    eps, law = EnzymeRates._eps_network(am), EnzymeRates._law_network(am)
+    faces = EnzymeRates._faces(am.catalytic)
+    for i in (2, 6)   # zero P and Q, zero P
+        s = EnzymeRates._face_sets(eps, law.present, faces[i])
+        nodes = s.fed .& .!s.stranded
+        @test EnzymeRates._fewest_slow(eps, nodes, s.n0) == 4
+        for c in 1:2
+            (; van) = EnzymeRates._copy_transitions(eps, s.alive, nodes, c)
+            @test EnzymeRates._fewest_slow(eps, nodes, s.n0 .| van) == 4
+        end
+        @test EnzymeRates._fewest_slow(eps, nodes, s.alive) == 3
+        @test EnzymeRates._face_condition(eps, law.present, faces[i],
+                                          EnzymeRates._turnover_name(am.catalytic)) ==
+              EnzymeRates._Verdict(BR, U, 0, 0, 0)
+    end
+    @test EnzymeRates._guard_message(am, v) ==
+          "AllostericMechanism: at zero P and Q, the tagged steps of both conformations " *
+          "together bridge forms that each conformation's other steps keep apart, so " *
+          "the limit depends on how fast those steps vanish."
+    @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(95)))
+end
+
+@testset "_redundant_copy_groups builds each conformation from its own law" begin
+    # The thirteen :OnlyI fixtures: the copy rule reads the active conformation without
+    # its :OnlyI groups and the inactive one without its :OnlyA groups; it flags none of
+    # them.
+    for (label, am) in pairs(_testhelper_onlyi_fixtures())
+        @test (label, EnzymeRates._redundant_copy_groups(am)) == (label, Int[])
     end
 end

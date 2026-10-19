@@ -2055,6 +2055,65 @@ end
     @test Set(base) == Set(kept)
 end
 
+@testset "_degenerate reads the active conformation's law" begin
+    # An activator X that binds only the inactive conformation opens a route whose
+    # chemistry only the inactive law holds. The active law, three steady-state steps,
+    # has a maximal rate both ways; read over every step, the route's product release
+    # turns rapid equilibrium and closes a turnover cycle with the X complex's substrate
+    # binding, so the whole graph has no reverse maximal rate. The guard admits the
+    # mechanism.
+    route = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + S <--> E(S)         :: EqualAI
+            E(S) <--> E(P)          :: EqualAI
+            E(P) <--> E + P         :: EqualAI
+            E + X ⇌ E(X)            :: OnlyI
+            E(X) + S ⇌ E(S, X)      :: EqualAI
+            E(S, X) <--> E(X) + P   :: EqualAI
+        end
+    end)
+    @test !EnzymeRates._degenerate(route)
+    @test EnzymeRates._degenerate(EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) <--> E + P
+            E + X ⇌ E(X)
+            E(X) + S ⇌ E(S, X)
+            E(S, X) <--> E(X) + P
+        end
+    end))
+    # The maximal-rate test turns rapid equilibrium every step that takes up or gives
+    # off a substrate, so masking only the flags would bring the excluded steps back:
+    # here the X route's two Theorell–Chance steps, each taking up S and giving off P,
+    # would close a turnover cycle. Read through the edge mask, the active law keeps
+    # only its three steady-state steps, which have a maximal rate both ways.
+    tc_route = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + S <--> E(S)           :: EqualAI
+            E(S) <--> E(P)            :: EqualAI
+            E(P) <--> E + P           :: EqualAI
+            E + X ⇌ E(X)              :: OnlyI
+            E(X) + S <--> F(X) + P    :: EqualAI
+            F(X) + S <--> E(X) + P    :: EqualAI
+        end
+    end
+    cm, on = tc_route.catalytic, EnzymeRates._active_mask(tc_route)
+    re = EnzymeRates._flags(cm)
+    @test !EnzymeRates._has_vmax(cm, re .& on, cm.substrates)
+    @test EnzymeRates._has_vmax(cm, re, cm.substrates, on)
+    @test !EnzymeRates._degenerate(tc_route)
+end
+
 @testset "_cv_model_selection: flatten reproduces serial LOOCV per candidate" begin
     # Two candidates with distinct equations. A deterministic stub optimizer gives
     # identical fits whether folds run serially or across the flattened (candidate,

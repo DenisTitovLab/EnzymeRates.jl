@@ -121,7 +121,8 @@ and `released` (metabolite names, a copy by its reactant's name), `consumed_modi
 and `released_modifier` (which of them bind as modifiers), `rapid_equilibrium`, `group`,
 and `names` and `inactive_names`, the package names of its constants in the active (or
 only) and the inactive conformation (empty for a step the inactive law does not keep);
-`tags`; `inactive`, which steps the inactive law keeps;
+`tags`; `inactive` and `active`, which steps the inactive and the active law keep (every
+step of a plain mechanism is active);
 `catalytic_multiplicity`; `sites`, each `(; multiplicity, ligands, allo_states)`;
 `substrates`, `products` and `modifiers`. A plain mechanism has no tags, no inactive
 conformation (`inactive` and every `inactive_names` empty), no sites and
@@ -139,6 +140,8 @@ function _testhelper_graph(m)
     _testhelper_names(k, state) = Symbol[EnzymeRates.name(p, mech, kept)
                                          for p in EnzymeRates._edge_constants(cm, k, state)]
     in_law = allo ? EnzymeRates._inactive_mask(mech) : falses(length(cm.edges))
+    # The active law keeps the steps outside :OnlyI groups on forms they join to free E.
+    in_active = allo ? EnzymeRates._law_mask(mech, 1) : trues(length(cm.edges))
     steps = map(edges) do k
         e, g = cm.edges[k], cm.group[k]
         consumed = cm.table[EnzymeRates.entries(e.consumed)]
@@ -163,6 +166,7 @@ function _testhelper_graph(m)
      free = Bool[EnzymeRates._is_free(f) for f in cm.forms],
      steps, tags,
      inactive = Int[j for (j, k) in enumerate(edges) if in_law[k]],
+     active = Int[j for (j, k) in enumerate(edges) if in_active[k]],
      catalytic_multiplicity = allo ? EnzymeRates.catalytic_multiplicity(mech) : nothing,
      sites, substrates = EnzymeRates.substrates(mech),
      products = EnzymeRates.products(mech), modifiers = EnzymeRates.modifiers(mech))
@@ -349,8 +353,9 @@ has one constant in both conformations. A steady-state class draws one forward r
 
 `vals` maps the name of every step constant of the law (`names`, and `inactive_names` of
 the inactive law's steps, in `_testhelper_graph`), every regulator constant and `L` to its
-value. `active[j]` (and `inactive[j]` for the inactive law's steps) holds a step of
-`_testhelper_graph` as `(step, Ka, kf)`, `kf === nothing` for a rapid-equilibrium step.
+value. `active[j]` for the active law's steps (and `inactive[j]` for the inactive law's)
+holds a step of `_testhelper_graph` as `(step, Ka, kf)`, `kf === nothing` for a
+rapid-equilibrium step.
 
 `K[k, c]` is edge `k`'s equilibrium constant in its stored direction in conformation `c`
 and `kf[k, c]`, for a steady-state edge, its forward rate, for every edge of the
@@ -377,9 +382,12 @@ function _testhelper_consistent_point(m, rng)
     for (j, s) in enumerate(g.steps)
         j1 = findfirst(t -> t.group == s.group, g.steps)
         s1 = g.steps[j1]
-        j == j1 || push!(ties, _testhelper_drop(1, s) - _testhelper_drop(1, s1))
+        # Each conformation's copy of an excluded step is a class of its own: no
+        # conformation-1 tie for :OnlyI, no conformation-2 tie for :OnlyA.
+        j == j1 || tag(s.group) === :OnlyI ||
+            push!(ties, _testhelper_drop(1, s) - _testhelper_drop(1, s1))
         allo || continue
-        tag(s.group) === :NonequalAI && j != j1 &&
+        tag(s.group) in (:NonequalAI, :OnlyI) && j != j1 &&
             push!(ties, _testhelper_drop(2, s) - _testhelper_drop(2, s1))
         tag(s.group) === :EqualAI &&
             push!(ties, _testhelper_drop(2, s) - _testhelper_drop(1, s))
@@ -399,7 +407,7 @@ function _testhelper_consistent_point(m, rng)
     function _testhelper_conformation_steps(c, inactive)
         out = []
         for (j, s) in enumerate(g.steps)
-            inactive && j ∉ g.inactive && continue
+            j ∉ (inactive ? g.inactive : g.active) && continue
             Ka = exp(u[(c - 1) * nf + s.from] + sum(gm, s.consumed; init = big(0)) -
                      u[(c - 1) * nf + s.to] - sum(gm, s.released; init = big(0)))
             names = inactive ? s.inactive_names : s.names
@@ -428,7 +436,8 @@ function _testhelper_consistent_point(m, rng)
     # Every edge's equilibrium constant in both conformations and, for a steady-state
     # edge, its forward rate: the law's own where the law holds the edge, an `:EqualAI`
     # edge's active one, and otherwise one draw per kinetic group and conformation (each
-    # member of an `:OnlyA` group in the inactive conformation its own). The
+    # member of a group in the conformation that excludes it its own: an `:OnlyA`
+    # group's in the inactive conformation, an `:OnlyI` group's in the active one). The
     # well-posedness oracles read these for the edges the inactive law deletes or prunes.
     # (`forward` holds the forward rates: a local named `kf` would be the one the closure
     # `_testhelper_conformation_steps` assigns.)
@@ -439,14 +448,15 @@ function _testhelper_consistent_point(m, rng)
     rates = Dict{Tuple{Int, Int}, BigFloat}()
     for c in 1:nconf, s in g.steps
         names = c == 1 || tag(s.group) === :EqualAI ? s.names : s.inactive_names
-        s.rapid_equilibrium || isempty(names) || (rates[(s.group, c)] = vals[names[1]])
+        s.rapid_equilibrium || isempty(names) || !haskey(vals, names[1]) ||
+            (rates[(s.group, c)] = vals[names[1]])
     end
     for c in 1:nconf, (j, s) in enumerate(g.steps)
         k = flat[j]
         K[k, c] = exp(u[(c - 1) * nf + s.from] + sum(gm, s.consumed; init = big(0)) -
                       u[(c - 1) * nf + s.to] - sum(gm, s.released; init = big(0)))
         s.rapid_equilibrium && continue
-        key = c == 2 && tag(s.group) === :OnlyA ? (-k, 2) : (s.group, c)
+        key = _testhelper_excludes(mech, k, c) ? (-k, c) : (s.group, c)
         forward[k, c] = get!(() -> exp(4 * big(rand(rng)) - 2), rates, key)
     end
     allo || (K[:, 2] .= K[:, 1]; forward[:, 2] .= forward[:, 1])
@@ -598,29 +608,28 @@ BigFloat: the law's value at equilibrium concentrations (the first product scale
 that Π[P]/Π[S] = Keq) over its value with that product ten times lower, then, for an
 allosteric mechanism, the same ratio for each conformation's numerator that is not
 identically zero (`_state_rate_polys`). Each is zero in exact arithmetic when the law
-satisfies every Haldane and Wegscheider relation.
+satisfies every Haldane and Wegscheider relation. `m`, compiled or concrete, is read as the
+concrete mechanism, without the guard (`_testhelper_law_value`), so a law the guard
+rejects is checked too.
 """
 function _testhelper_detailed_balance(m, rng)
     setprecision(BigFloat, 256) do
-        em = m isa EnzymeRates.AbstractEnzymeMechanism ? m :
-             EnzymeRates.compile_mechanism(m)
-        mech = _testhelper_lift(em)
-        fitted = EnzymeRates._dependent_param_exprs(typeof(em))[2]
+        mech = _testhelper_lift(m)
+        dep, fitted = EnzymeRates._dependent_param_exprs(mech)
         params = Dict{Symbol, BigFloat}(k => exp(4 * big(rand(rng)) - 2) for k in fitted)
         params[:Keq] = exp(4 * big(rand(rng)) - 2)
         g = _testhelper_graph(mech)
         subs, prods = g.substrates, g.products
         concs = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1)
-                                       for x in EnzymeRates.metabolites(em))
+                                       for x in EnzymeRates.metabolites(mech))
         p1 = first(prods)
         concs[p1] = params[:Keq] * prod(concs[x] for x in subs) /
                     prod((concs[x] for x in prods if x != p1); init = big(1))
         off = copy(concs)
         off[p1] /= 10
-        ratios = BigFloat[abs(_testhelper_law_value(em, params, concs)) /
-                          abs(_testhelper_law_value(em, params, off))]
+        ratios = BigFloat[abs(_testhelper_law_value(mech, params, concs)) /
+                          abs(_testhelper_law_value(mech, params, off))]
         g.catalytic_multiplicity === nothing && return ratios
-        dep, _ = EnzymeRates._dependent_param_exprs(typeof(em))
         env = copy(params)
         for (k, ex) in dep
             env[k] = _testhelper_eval_expr(ex, env)
@@ -685,11 +694,12 @@ end
 """
 The dimension of the model `m` declares, counted without the package's thermodynamic
 solve: the classes of constants in its law (a kinetic group's constant, slot by slot, in
-each conformation the law holds it; an `:EqualAI` group shares one class between the
-two), less the rank the cycle rows of both conformations impose on them, plus each
-regulator constant and `L`. A cycle row also reads the classes outside the law (the
-inactive copy of each `:OnlyA` step, which is a class of its own, and the inactive
-classes on pruned forms), which absorb what they can: the law keeps
+each conformation whose law keeps a step of the group; an `:EqualAI` group shares one
+class between the two), less the rank the cycle rows of both conformations impose on
+them, plus each regulator constant and `L`. A cycle row also reads the classes outside
+the law (the copy of a step in the conformation that excludes it, an `:OnlyA` step's
+inactive copy or an `:OnlyI` step's active one, each a class of its own, and the classes
+on forms a conformation prunes), which absorb what they can: the law keeps
 `n_law − (rank(rows) − rank(rows over the classes outside the law))` dimensions.
 """
 function _testhelper_declared_dimension(m)
@@ -708,11 +718,13 @@ function _testhelper_declared_dimension(m)
     end
     function _testhelper_classes(j, inactive)
         s = g.steps[j]
+        t = tag(s.group)
         slots = s.rapid_equilibrium ? (1,) : (1, 2)
-        !inactive || tag(s.group) === :EqualAI ?
-            [_testhelper_class((:A, s.group, k), true) for k in slots] :
-        tag(s.group) === :OnlyA ? [_testhelper_class((:I, j, k), false) for k in slots] :
-            [_testhelper_class((:I, s.group, k), j in g.inactive) for k in slots]
+        t === (inactive ? :OnlyA : :OnlyI) &&
+            return [_testhelper_class((:copy, j, k, inactive), false) for k in slots]
+        kept = j in (inactive ? g.inactive : g.active)
+        key = !inactive || t === :EqualAI ? :A : :I
+        [_testhelper_class((key, s.group, k), kept) for k in slots]
     end
     foreach(j -> _testhelper_classes(j, false), eachindex(g.steps))
     allo && foreach(j -> _testhelper_classes(j, true), eachindex(g.steps))
@@ -1758,6 +1770,163 @@ function _testhelper_check_law_against_limit(m; n_points::Int = 3, seed::Int = 1
                   big(10)^-20 * abs(exact)
         end
     end
+end
+
+"""
+Thirteen mechanisms whose `:OnlyI` groups bind modifiers alone, by name, built without
+the guard (`@_testhelper_unguarded`): a competitive and an uncompetitive inhibitor, each
+with rapid-equilibrium and with steady-state steps; a substrate's and a product's modifier
+copy (the product's twice); a copy group; an inhibitor that bridges it; an essential and
+a nonessential activator; an `:OnlyI` binding beside an `:OnlyA` one; and an ordered bi-bi
+with a regulator. The guard rejects `copy_group_bridge` (`_BRIDGE`) and
+`essential_activator` (`_NO_ACTIVE_TURNOVER`); their laws still exist.
+"""
+function _testhelper_onlyi_fixtures()
+    competitive_RE = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E + P         :: EqualAI
+            E + I ⇌ E(I)            :: OnlyI
+        end
+    end
+    competitive_SS = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E + P         :: NonequalAI
+            E + I <--> E(I)         :: OnlyI
+        end
+    end
+    uncompetitive_RE = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E + P         :: EqualAI
+            E(S) + I ⇌ E(S, I)      :: OnlyI
+        end
+    end
+    uncompetitive_SS = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S <--> E(S)         :: EqualAI
+            E(S) <--> E + P         :: EqualAI
+            E(S) + I <--> E(S, I)   :: OnlyI
+        end
+    end
+    mod_copy_substrate = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: S
+        steps: begin
+            E + S ⇌ E(S)                    :: EqualAI
+            E(S) <--> E + P                 :: EqualAI
+            E(S) + S::Mod ⇌ E(S, S::Mod)    :: OnlyI
+        end
+    end
+    mod_copy_product_twin = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: P
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E(P)          :: EqualAI
+            E + P ⇌ E(P)            :: EqualAI
+            E + P::Mod ⇌ E(P::Mod)  :: OnlyI
+        end
+    end
+    mod_copy_product_twin_nonequal = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: P
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E(P)          :: EqualAI
+            E + P ⇌ E(P)            :: NonequalAI
+            E + P::Mod ⇌ E(P::Mod)  :: OnlyI
+        end
+    end
+    copy_group_mixed = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)                          :: EqualAI
+            E(S) <--> E + P                       :: EqualAI
+            (E + I ⇌ E(I), E(S) + I ⇌ E(S, I))    :: OnlyI
+        end
+    end
+    copy_group_bridge = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S <--> E(S)                       :: EqualAI
+            E(S) <--> E + P                       :: EqualAI
+            (E + I ⇌ E(I), E(S) + I ⇌ E(S, I))    :: OnlyI
+            E(I) + S ⇌ E(S, I)                    :: EqualAI
+        end
+    end
+    essential_activator = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + X ⇌ E(X)            :: OnlyI
+            E(X) + S ⇌ E(S, X)      :: EqualAI
+            E(S, X) <--> E(X) + P   :: EqualAI
+        end
+    end
+    nonessential_activator = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E + P         :: EqualAI
+            E + X ⇌ E(X)            :: OnlyI
+            E(X) + S ⇌ E(S, X)      :: EqualAI
+            E(S, X) <--> E(X) + P   :: NonequalAI
+        end
+    end
+    with_OnlyA = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I, J
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E + P         :: NonequalAI
+            E + I ⇌ E(I)            :: OnlyI
+            E(S) + J ⇌ E(S, J)      :: OnlyA
+        end
+    end
+    bibi_regulator = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        modifiers: I
+        allosteric_regulators: R
+        steps: begin
+            E + A ⇌ E(A)            :: EqualAI
+            E(A) + B ⇌ E(A, B)      :: EqualAI
+            E(A, B) <--> E(P, Q)    :: NonequalAI
+            E(Q) + P ⇌ E(P, Q)      :: EqualAI
+            E + Q <--> E(Q)         :: EqualAI
+            E(A) + I ⇌ E(A, I)      :: OnlyI
+        end
+        regulatory_site(1): R::NonequalAI
+    end
+    (; competitive_RE, competitive_SS, uncompetitive_RE, uncompetitive_SS,
+     mod_copy_substrate, mod_copy_product_twin, mod_copy_product_twin_nonequal,
+     copy_group_mixed, copy_group_bridge, essential_activator, nonessential_activator,
+     with_OnlyA, bibi_regulator)
 end
 
 # ── Mechanism test specifications ───────────────────────────────────────────

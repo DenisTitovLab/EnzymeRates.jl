@@ -744,19 +744,21 @@ end
 """Whether the rate of graph `m`, edge `k` at rapid equilibrium where `re[k]` holds, has a
 maximum as the metabolites `names` (its substrates or its products, sorted) grow: turning
 rapid equilibrium every steady-state edge that takes up or gives off one of them leaves no
-rapid-equilibrium turnover cycle (condition V)."""
-function _has_vmax(m::Mechanism, re::BitVector, names::Vector{Symbol})
+rapid-equilibrium turnover cycle (condition V). Only the edges `on` flags count, so an
+allosteric mechanism's test can read its active law (`_degenerate`)."""
+function _has_vmax(m::Mechanism, re::BitVector, names::Vector{Symbol},
+                   on::BitVector = trues(length(m.edges)))
     side = _names_mask(m, names)
-    !_re_turnover_cycle(m, re .| BitVector([(e.consumed | e.released) & side != 0
-                                            for e in m.edges]))
+    touches = BitVector([(e.consumed | e.released) & side != 0 for e in m.edges])
+    !_re_turnover_cycle(m, (re .| touches) .& on)
 end
 
 """The merged complexes of graph `m`, each once: the forms that a fused binding of a
 substrate enters, a chemistry edge (`_is_chemistry`) that binds an entry of the mask
-`subs`."""
-_merged_complexes(m::Mechanism, subs::Counts) =
-    unique(e.to for e in m.edges
-           if _is_binding(e) && e.consumed & subs != 0 && _is_chemistry(m, e))
+`subs`. Only the edges `on` flags count."""
+_merged_complexes(m::Mechanism, subs::Counts, on::BitVector = trues(length(m.edges))) =
+    unique(e.to for (k, e) in enumerate(m.edges)
+           if on[k] && _is_binding(e) && e.consumed & subs != 0 && _is_chemistry(m, e))
 
 """Whether edge `e` takes up an entry of one of the masks `subs` and `prods` (a reactant
 of one side of the reaction) and gives off one of the other, as a Theorell–Chance step
@@ -776,8 +778,11 @@ gives M off: F is its `to` form and M is consumed, or F is its `from` form and M
 released. An RE Theorell–Chance node leaves through its own edge in both directions.
 Then the chemistry sits in rapid equilibrium with both sides and some reactant is not
 needed at zero products or substrates. A reactant's modifier copy counts as its reactant.
+Only the edges `on` flags count (`_degenerate`).
 """
-function _chemistry_equilibrates_both_sides(m::Mechanism, re::BitVector)
+function _chemistry_equilibrates_both_sides(m::Mechanism, re::BitVector,
+                                            on::BitVector = trues(length(m.edges)))
+    re = re .& on
     subs, prods = _names_mask(m, m.substrates), _names_mask(m, m.products)
     releases(node, side) = any(eachindex(m.edges)) do k
         e = m.edges[k]
@@ -788,7 +793,8 @@ function _chemistry_equilibrates_both_sides(m::Mechanism, re::BitVector)
     # outside every RE isomerization is a node of its own.
     isos = BitVector([re[k] && _is_iso(e) for (k, e) in enumerate(m.edges)])
     s = _segments(m, isos, isos)
-    nodes = [s.segments; [[x] for x in _merged_complexes(m, subs) if s.segment_of[x] == 0]]
+    nodes = [s.segments; [[x] for x in _merged_complexes(m, subs, on)
+                          if s.segment_of[x] == 0]]
     any(node -> releases(node, subs) && releases(node, prods), nodes) ||
         any(k -> re[k] && _crosses_sides(m.edges[k], subs, prods), eachindex(m.edges))
 end
@@ -796,13 +802,15 @@ end
 """Whether `m` is degenerate by the structural conditions V and C: no maximal rate in one
 direction (`_has_vmax`), or chemistry in rapid equilibrium with both sides
 (`_chemistry_equilibrates_both_sides`). Read on the catalytic graph with its own flags,
-an allosteric mechanism's active-state graph. The beam expands a degenerate seed without
+over the active conformation's law: every edge of a plain mechanism, and the edges
+`_active_mask` keeps of an allosteric one. The beam expands a degenerate seed without
 fitting it (`_base_tier`)."""
 function _degenerate(m::Union{Mechanism, AllostericMechanism})
     cm = catalytic(m)
     re = _flags(cm)
-    !(_has_vmax(cm, re, cm.substrates) && _has_vmax(cm, re, cm.products)) ||
-        _chemistry_equilibrates_both_sides(cm, re)
+    on = m isa AllostericMechanism ? _active_mask(m) : trues(length(cm.edges))
+    !(_has_vmax(cm, re, cm.substrates, on) && _has_vmax(cm, re, cm.products, on)) ||
+        _chemistry_equilibrates_both_sides(cm, re, on)
 end
 
 """
@@ -1421,28 +1429,29 @@ function _redundant_copy_groups(m::Union{Mechanism, AllostericMechanism})
     members = _group_members(cm)
     binds_copy(ks) = (i = _bound_entry(cm.edges[first(ks)]); i != 0 && cm.table[i].modifier)
     any(binds_copy, members) || return Int[]
-    twin_active = _productive_twin(cm, trues(length(cm.edges)))
-    m isa Mechanism &&
+    if m isa Mechanism
+        twin = _productive_twin(cm, trues(length(cm.edges)))
         return [g for g in eachindex(members)
-                if _gauge_rescaling(cm, members, g, twin_active, _one_state_class) !==
-                   nothing]
+                if _gauge_rescaling(cm, members, g, twin, _one_state_class) !== nothing]
+    end
     tags = cat_allo_states(m)
-    mask = _inactive_mask(m)
-    inactive = [filter(k -> mask[k], ks) for ks in members]
-    twin_inactive = _productive_twin(cm, mask)
+    masks = (_active_mask(m), _inactive_mask(m))
+    kept = [[filter(k -> mask[k], ks) for ks in members] for mask in masks]
+    twins = [_productive_twin(cm, mask) for mask in masks]
+    unscaled(c) = Dict(h => (_NO_RESCALING, _NO_RESCALING)
+                       for h in eachindex(kept[c]) if !isempty(kept[c][h]))
     filter(collect(eachindex(members))) do g
+        all(c -> isempty(kept[c][g]), 1:2) && return false
         one_number(h) = h > 0 && tags[h] === :EqualAI && tags[g] === :EqualAI
         label(state) = (h, t) -> _GaugeClass(h, t, one_number(h) ? 0 : state)
-        rescaling_active = _gauge_rescaling(cm, members, g, twin_active, label(1))
-        rescaling_active === nothing && return false
-        rescaling_inactive = !isempty(inactive[g]) ?
-            _gauge_rescaling(cm, inactive, g, twin_inactive, label(2)) :
-            Dict(h => (_NO_RESCALING, _NO_RESCALING) for h in eachindex(inactive)
-                 if !isempty(inactive[h]))
-        rescaling_inactive === nothing && return false
-        all(h -> tags[h] !== :EqualAI || !haskey(rescaling_inactive, h) ||
-                 rescaling_active[h] == rescaling_inactive[h],
-            keys(rescaling_active))
+        rescaling(c) = isempty(kept[c][g]) ? unscaled(c) :
+                       _gauge_rescaling(cm, kept[c], g, twins[c], label(c))
+        active = rescaling(1)
+        active === nothing && return false
+        inactive = rescaling(2)
+        inactive === nothing && return false
+        all(h -> tags[h] !== :EqualAI || !haskey(inactive, h) || active[h] == inactive[h],
+            keys(active))
     end
 end
 

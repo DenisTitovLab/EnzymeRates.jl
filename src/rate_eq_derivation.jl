@@ -260,11 +260,12 @@ _raw_symbolic_rate_polys(m::Mechanism) =
 _raw_symbolic_rate_polys(@nospecialize(M::Type{<:EnzymeMechanism})) =
     _raw_symbolic_rate_polys(Mechanism(M()))
 
-"""The edges of `m`'s law in conformation `state`: every edge for `:None` and `:A`; for
-`:I`, the inactive conformation's (`_inactive_mask`)."""
+"""The edges of `m`'s law in conformation `state`: every edge for `:None`; for `:A` the
+active conformation's (`_active_mask`), for `:I` the inactive one's
+(`_inactive_mask`)."""
 _state_mask(m::Mechanism, ::Symbol) = trues(length(m.edges))
 _state_mask(am::AllostericMechanism, state::Symbol) =
-    state === :I ? _inactive_mask(am) : trues(length(am.catalytic.edges))
+    state === :I ? _inactive_mask(am) : _active_mask(am)
 
 """
 The parameter Symbols of each edge's constants in conformation `state` of `m` — `[K]` at
@@ -562,9 +563,10 @@ end
     _state_rate_polys(am, state) -> (num, den, d_free)
 
 The rate polynomials of `am`'s catalytic graph in conformation `state` (`:A` or `:I`),
-in that state's names (`_edge_names`, `kept` as `_kept_members(am)`): the active
-conformation on the full graph, the inactive one on its pruned graph (`_inactive_mask`),
-each edge in `am`'s stored direction. King–Altman on the pruned graph derives the
+in that state's names (`_edge_names`, `kept` as `_kept_members(am)`): each conformation on
+its own pruned graph (`_state_mask`: the active one without its `:OnlyI` groups, the
+inactive one without its `:OnlyA` groups, each without the forms that strands), each edge
+in `am`'s stored direction. King–Altman on the pruned graph derives the
 inactive conformation's binding partition, and for a dead cycle its steady-state fluxes
 cancel, so `num` is 0. Every derivation entry first runs the boundary check
 (`_check_well_posed`), whose class 3 rejects, among other faults, a face where a segment
@@ -652,11 +654,11 @@ end
 The catalytic rate polys of both conformations of `am` (`_state_rate_polys`, with `kept`
 as `_kept_members(am)`) under the
 formulation-1 per-state free-enzyme normalization that `rate_equation`
-(`_num_den_exprs`) uses. The I-state polys come from the inactive conformation's pruned
-graph (`_inactive_mask` drops `:OnlyA` groups and every form they disconnect from free
-E). King–Altman on that subgraph derives the inactive conformation's binding partition,
-and for a dead cycle the pruned graph's steady-state fluxes cancel exactly, so `num_I`
-is 0.
+(`_num_den_exprs`) uses. Each state's polys come from its conformation's pruned graph
+(`_state_mask`: `_active_mask` drops the `:OnlyI` groups and `_inactive_mask` the
+`:OnlyA` ones, each with every form they disconnect from free E). King–Altman on that
+subgraph derives the inactive conformation's binding partition, and for a dead cycle the
+pruned graph's steady-state fluxes cancel exactly, so `num_I` is 0.
 
 The free-enzyme weights `d_A` and `d_I` combine three ways, all rendering the same
 value (`mets` are the catalytic metabolites):

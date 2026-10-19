@@ -15,14 +15,14 @@ end
 
 """
 The priority key of constant `slot` of edge `k` of `m` in conformation block `block` (2:
-an inactive copy outside the law, 1: another inactive copy, 0: active). The solve
-eliminates the larger key first, so a column with a larger key becomes dependent sooner.
-In turn: the block; the edge's kind (3 an isomerization, 2 other chemistry, 1 a plain
-binding); whether both of its forms hold a metabolite; steady state before rapid
-equilibrium; a steady-state constant that runs against the reaction (for a product
-binding its uptake, for every other edge its reverse rate: the constructor stores each
-edge in its physical-forward direction); then the edge's content as stored, its rank
-`edge_rank[k]` (`_edge_base_rank`), the smaller rank kept.
+a copy outside its conformation's law, 1: an inactive copy in the law, 0: an active copy
+in the law). The solve eliminates the larger key first, so a column with a larger key
+becomes dependent sooner. In turn: the block; the edge's kind (3 an isomerization, 2
+other chemistry, 1 a plain binding); whether both of its forms hold a metabolite; steady
+state before rapid equilibrium; a steady-state constant that runs against the reaction
+(for a product binding its uptake, for every other edge its reverse rate: the constructor
+stores each edge in its physical-forward direction); then the edge's content as stored,
+its rank `edge_rank[k]` (`_edge_base_rank`), the smaller rank kept.
 """
 function _priority_key(m::Mechanism, k::Int, slot::Int, block::Int,
                        edge_rank::Vector{Int})
@@ -45,19 +45,32 @@ for every edge of a plain mechanism."""
 _inactive_law(m::Mechanism) = falses(length(m.edges))
 _inactive_law(am::AllostericMechanism) = _inactive_mask(am)
 
+"""Whether each edge lies in the active conformation's law (`_active_mask`); true for
+every edge of a plain mechanism."""
+_active_law(m::Mechanism) = trues(length(m.edges))
+_active_law(am::AllostericMechanism) = _active_mask(am)
+
+"""Whether the active column of edge `k`, in a group `group[k]` tagged `tags`, enters the
+law: its edge lies in the active conformation's law (`alaw`), or it is an `:EqualAI`
+edge of the inactive conformation's law (`law`), whose one constant the inactive law
+reads."""
+_in_active_law(k::Int, group::Vector{Int}, tags::Vector{Symbol}, law::BitVector,
+               alaw::BitVector) = alaw[k] || (tags[group[k]] === :EqualAI && law[k])
+
 """Whether the steps of a group with allosteric tag `tag` take their own constants in the
-inactive conformation: those of a `:NonequalAI` or `:OnlyA` group do; an `:EqualAI` group's
-read the active ones."""
-_has_inactive_columns(tag::Symbol) = tag in (:NonequalAI, :OnlyA)
+inactive conformation: those of a `:NonequalAI`, `:OnlyA` or `:OnlyI` group do; an
+`:EqualAI` group's read the active ones."""
+_has_inactive_columns(tag::Symbol) = tag in (:NonequalAI, :OnlyA, :OnlyI)
 
 """
 The kinetic class of column `c`, whose edge lies in group `g` with tag `tag`: the group's
-constant in the column's slot and conformation, except that the inactive copy of each
-`:OnlyA` edge is a class of its own.
+constant in the column's slot and conformation, except that the copy of an edge in the
+conformation that excludes it (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's
+active one) is a class of its own.
 """
 _class(c::_Column, g::Int, tag::Symbol) =
-    c.inactive && tag === :OnlyA ? (c.edge, c.slot, true, true) :
-                                   (g, c.slot, c.inactive, false)
+    c.inactive && tag === :OnlyA || !c.inactive && tag === :OnlyI ?
+        (c.edge, c.slot, c.inactive, true) : (g, c.slot, c.inactive, false)
 
 """
     _fundamental_cycles(m, flat) -> (Z, multiples)
@@ -120,20 +133,23 @@ function _fundamental_cycles(m::Mechanism, flat::Vector{Int})
 end
 
 """
-    _ordered_columns(m) -> (; columns, flat, tags, law)
+    _ordered_columns(m) -> (; columns, flat, tags, law, alaw)
 
 The joint solve's columns of `m` in elimination order, which `_joint_system` and
 `_kept_members` share: one column (`_Column`) per slot of every edge, and for an
-allosteric mechanism one more per slot of every edge of a `:NonequalAI` or `:OnlyA`
-group, for its inactive copy, ordered by `_priority_key`, larger first. `flat` holds the
-edges group by group (`_flat_edges`), `tags` each group's tag (`_solve_tags`) and
-`law[k]` whether edge `k` lies in the inactive conformation's law (`_inactive_law`).
+allosteric mechanism one more per slot of every edge of a `:NonequalAI`, `:OnlyA` or
+`:OnlyI` group, for its inactive copy, ordered by `_priority_key`, larger first. `flat`
+holds the edges group by group (`_flat_edges`), `tags` each group's tag (`_solve_tags`),
+`law[k]` whether edge `k` lies in the inactive conformation's law (`_inactive_law`) and
+`alaw[k]` whether its active column enters the law (in the active conformation's law,
+`_active_law`, or read by the inactive one, `_in_active_law`).
 """
 function _ordered_columns(m::_AnyMech)
     cm = catalytic(m)
     flat = _flat_edges(cm)
     tags = _solve_tags(m)
     law = _inactive_law(m)
+    alaw = _active_law(m)
     allosteric = m isa AllostericMechanism
     columns = _Column[]
     for k in flat, inactive in (false, true)
@@ -143,9 +159,10 @@ function _ordered_columns(m::_AnyMech)
         end
     end
     rank = _edge_base_rank(cm)
-    block(c) = !c.inactive ? 0 : law[c.edge] ? 1 : 2
+    block(c) = c.inactive ? (law[c.edge] ? 1 : 2) :
+               _in_active_law(c.edge, cm.group, tags, law, alaw) ? 0 : 2
     priorities = [_priority_key(cm, c.edge, c.slot, block(c), rank) for c in columns]
-    (; columns = columns[sortperm(priorities; rev = true)], flat, tags, law)
+    (; columns = columns[sortperm(priorities; rev = true)], flat, tags, law, alaw)
 end
 
 """
@@ -263,16 +280,18 @@ end
 The kept member of each kinetic class of `m`, keyed by `(group, slot, inactive)`: the
 edge whose column comes last in elimination order (`cols`, `_ordered_columns(m)`), its
 smallest `_priority_key`, so the solve keeps it whenever it keeps one of the class (E3).
-A `:NonequalAI` group has an inactive class, kept by a member in the inactive law when it
-has one; an `:EqualAI` group's edges share their active class, and each `:OnlyA` edge's
-inactive copy is a class of its own, so neither appears.
+A `:NonequalAI` or `:OnlyI` group has an inactive class, kept by a member in the inactive
+law when it has one; an `:EqualAI` group's edges share their active class; the copy of an
+edge in the conformation that excludes it (an `:OnlyA` edge's inactive copy, an `:OnlyI`
+edge's active one) is a class of its own, so neither of these appears.
 """
 function _kept_members(m::_AnyMech, cols = _ordered_columns(m))
     group = catalytic(m).group
     kept = Dict{Tuple{Int, Int, Bool}, Int}()
     for c in cols.columns
         g = group[c.edge]
-        c.inactive && cols.tags[g] !== :NonequalAI && continue
+        tag = cols.tags[g]
+        (c.inactive ? !(tag in (:NonequalAI, :OnlyI)) : tag === :OnlyI) && continue
         kept[(g, c.slot, c.inactive)] = c.edge
     end
     kept
@@ -303,10 +322,11 @@ independent or dependent, under the name of its kept member (`_kept_members`):
 - `dep` maps each class whose kept column is a pivot to `Keq^q · Π independent^e` with
   rational exponents (`build_power_expr`); the empty product is `1.0`.
 
-Columns outside the law (an `:OnlyA` edge's inactive copy, an inactive copy on a pruned
-form) are eliminated first, so no dependent of the law reads them; a pivot that is not
-its class's kept member equals the kept one and adds no entry. The `Type` method decodes
-a compiled mechanism and checks that its rate law is defined (`_derivation_input`).
+Columns outside the law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's active
+copy, a copy on a form its conformation prunes) are eliminated first, so no dependent of
+the law reads them; a pivot that is not its class's kept member equals the kept one and
+adds no entry. The `Type` method decodes a compiled mechanism and checks that its rate
+law is defined (`_derivation_input`).
 
 Errors when two constants of the law, regulator constants included, render one name,
 which the law would read as one constant: with a conformation labelled `A`, the uptake
@@ -329,7 +349,9 @@ function _dependent_param_exprs(m::_AnyMech)
     class(c) = _class(c, group[c.edge], sys.tags[group[c.edge]])
     last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
     kept_in_law(i) = (c = sys.columns[i];
-                      (!c.inactive || sys.law[c.edge]) && last_of[class(c)] == i)
+                      (c.inactive ? sys.law[c.edge] :
+                       _in_active_law(c.edge, group, sys.tags, sys.law, cols.alaw)) &&
+                      last_of[class(c)] == i)
     reg = m isa Mechanism ? Symbol[] :
           Symbol[name(p, m) for p in [_kreg_params(m, :A); _kreg_params(m, :I)]]
     rendered = [names[filter(kept_in_law, 1:n)]; reg]

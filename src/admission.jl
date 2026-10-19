@@ -87,12 +87,13 @@ segment whose lowest forms split (`_SPLIT`), a law segment chain with several cl
 classes (`_LAW_MULTI`) or an aggregated chain with several (`_MULTILEVEL`); in admission's
 interior (class 4, spec section 7), a tagged binding whose two sides the conformation's
 other steps join (`_NO_LIMIT`), tagged bindings that close a directed cycle
-(`_ARC_CYCLE`), or forms free E's component does not reach along the tagged bindings
-(`_ISLAND`); on a face, in admission's face condition, a second closed class of the
-ε-network (`_EPS_NONUNIQUE`), a stranded basin a step feeds that does not run back from the
-law's forms (`_PUMPED`), or tagged steps that shorten the fed forms' cheapest spanning
-in-tree where no potential absorbs their turnover (`_BRIDGE`); on a face of the derived
-law (class 5), a denominator that loses every term (`_DENOMINATOR_VANISHES`).
+(`_ARC_CYCLE`), forms free E's component does not reach along the tagged bindings
+(`_ISLAND`), or an active conformation that no longer turns the reaction over
+(`_NO_ACTIVE_TURNOVER`); on a face, in admission's face condition, a second closed class
+of the ε-network (`_EPS_NONUNIQUE`), a stranded basin a step feeds that does not run back
+from the law's forms (`_PUMPED`), or tagged steps that shorten the fed forms' cheapest
+spanning in-tree where no potential absorbs their turnover (`_BRIDGE`); on a face of the
+derived law (class 5), a denominator that loses every term (`_DENOMINATOR_VANISHES`).
 """
 @enum _Fault::UInt8 begin
     _NO_FAULT
@@ -110,12 +111,13 @@ law (class 5), a denominator that loses every term (`_DENOMINATOR_VANISHES`).
     _EPS_NONUNIQUE
     _PUMPED
     _BRIDGE
+    _NO_ACTIVE_TURNOVER
     _DENOMINATOR_VANISHES
 end
 
 """The faults admission reports (spec section 7); `_admission_message` writes their text."""
-const _ADMISSION_FAULTS = (_NO_LIMIT, _ARC_CYCLE, _ISLAND, _EPS_NONUNIQUE, _PUMPED,
-                           _BRIDGE)
+const _ADMISSION_FAULTS = (_NO_LIMIT, _ARC_CYCLE, _ISLAND, _NO_ACTIVE_TURNOVER,
+                           _EPS_NONUNIQUE, _PUMPED, _BRIDGE)
 
 """
 The limit test's verdict on a face (class 3): not run (`_LIMIT_UNTESTED`); the fast-RE
@@ -1506,7 +1508,9 @@ an edge (`_excludes`), on the components of the forms its other edges join
   potentials and only the arcs need a sign;
 - uniqueness: free E's component reaches every component along the arcs, so every island
   lies behind a tagged plain binding on its bound side and the limit is deletion plus
-  pruning (`_ISLAND`).
+  pruning (`_ISLAND`);
+- turnover: when tags exclude edges of the active conformation, its law network still
+  holds a cycle that turns the reaction over (`_NO_ACTIVE_TURNOVER`).
 The verdict carries the conformation and the edge its message leads with (face 0).
 """
 function _admission_interior(am::AllostericMechanism)
@@ -1524,6 +1528,9 @@ function _admission_interior(am::AllostericMechanism)
         k = _island_edge(am, c, comp, _reached_components(m, comp, arcs))
         k == 0 || return _Verdict(_ISLAND, _LIMIT_UNTESTED, 0, c, k)
     end
+    k = _first_excluded(am, 1)
+    k != 0 && !_has_turnover_cycle(m, _law_mask(am, 1)) &&
+        return _Verdict(_NO_ACTIVE_TURNOVER, _LIMIT_UNTESTED, 0, 1, k)
     _WELL_POSED
 end
 
@@ -1682,6 +1689,11 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
         re[_group_members(m)[m.group[k]]] .= false
         return _guard(_build(_raw(am, re))) === _WELL_POSED ?
                msg * " Make the group of $(line(k)) steady-state." : msg
+    elseif v.fault === _NO_ACTIVE_TURNOVER
+        ks = [j for j in eachindex(m.edges) if _excludes(am, j, 1)]
+        return "AllostericMechanism: without its :OnlyI steps $(lines(ks)) the active " *
+               "conformation turns no substrate into product, so the enzyme never turns " *
+               "the reaction over. Tag their groups :EqualAI or :NonequalAI."
     else
         error("_admission_message: $(v.fault) is no admission fault")
     end
