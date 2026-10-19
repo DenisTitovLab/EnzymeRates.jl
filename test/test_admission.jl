@@ -2605,7 +2605,7 @@ end
     end
     @test EnzymeRates._guard(fixed) == EnzymeRates._WELL_POSED
     # R-B2, a stranded basin fed only through vanishing sources: BS1 with I zero and P or
-    # S zero, fz101_10232 with S zero. Every corner direction converges.
+    # S zero, fz101_10232 on its two faces with S zero. Every corner direction converges.
     bs1 = _testhelper_tag_sets["BS1"]
     @test _testhelper_admission_faults(bs1) == [NO, NO, NO, NO, PU, PU]
     @test all(i -> _testhelper_corner_verdict(bs1, i) === :converges, 5:6)
@@ -2622,10 +2622,14 @@ end
     fz = _testhelper_tag_sets["fz101_10232"]
     @test _testhelper_admission_faults(fz) == [NO, PU, PU, NO, PU, PU]
     @test _testhelper_corner_verdict(fz, 3) === :converges
-    # At P zero the rejection is right: F's only alive exit, the blocked F <--> E, can
-    # vanish faster than its inflow, which one corner direction shows.
+    # On both faces with P zero, I zero or not (faces 2 and 5), the rejection is right: at
+    # face 2 F's only alive exit, the blocked F <--> E, can vanish faster than its inflow,
+    # which one corner direction shows.
     @test _testhelper_corner_verdict(fz, 2) !== :converges
     @test all(_testhelper_admission_agreement(fz; rng)[[1, 4]])
+    # The faces with I zero as well come last, so the earlier draws of `rng` stay put.
+    @test _testhelper_corner_verdict(fz, 5) !== :converges
+    @test _testhelper_corner_verdict(fz, 6) === :converges
 end
 
 @testset "S1 and AD7b pass admission's interior and fail class 3" begin
