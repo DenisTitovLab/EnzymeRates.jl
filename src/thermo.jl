@@ -379,7 +379,7 @@ _dependent_param_exprs(@nospecialize(M::Type{<:AbstractEnzymeMechanism})) =
 without compiling the mechanism."""
 _independent_param_count(m::_AnyMech) = length(_dependent_param_exprs(m)[2])
 
-# ─── Cycle-space helpers of the :OnlyA guard and the split move's counter ─────
+# ─── Cycle-space helpers of the split move's counter and the limit test ────
 
 """
 Reduced row echelon form over `Rational{BigInt}`. Returns the pivot and
@@ -566,120 +566,4 @@ function _partition_independent_count(parent::Mechanism)
         length(column) - length(_rref_partition(A)[1])
     end
     counter
-end
-
-"""
-True when some `y` makes every row of `N·y` strictly positive — i.e. the open
-cone `{y : N·y > 0}` is nonempty. Exact Fourier-Motzkin elimination: to drop
-variable `v`, every (positive, negative) row pair is combined with positive
-coefficients, which preserves strictness; a row that reduces to all-zero
-encodes `0 > 0` and refutes the system. Returns `nothing` if elimination blows
-up, so the caller can fall back to the sound per-row test rather than error on
-the enumeration hot path.
-"""
-function _has_strict_positive_combination(N::AbstractMatrix{Rational{BigInt}})
-    d = size(N, 2)
-    d == 0 && return false
-    rows = [collect(N[i, :]) for i in axes(N, 1)]
-    for v in d:-1:1
-        pos = [r for r in rows if r[v] > 0]
-        neg = [r for r in rows if r[v] < 0]
-        nxt = [r for r in rows if r[v] == 0]
-        length(nxt) + length(pos) * length(neg) > 4000 && return nothing
-        for p in pos, q in neg
-            push!(nxt, p .* (-q[v]) .+ q .* p[v])
-        end
-        any(r -> all(iszero, r), nxt) && return false
-        rows = nxt
-    end
-    true
-end
-
-"""
-    _onlya_offenders(m, group, tags) → Vector{Int}
-
-The `:OnlyA` binding groups of graph `m`, its edges labelled `group` (edge `k` in group
-`group[k]`) and the groups tagged `tags`, that leave a catalytic thermodynamic cycle's
-Haldane relation unsatisfiable under the `K_I = K_A/ε`, `ε → 0⁺` limit an `:OnlyA`
-binding asserts; empty when every cycle stays satisfiable. The tagging and change-tag moves
-read only whether any group offends; admission (`_admission`) decides what the guard
-accepts.
-
-A cycle's Haldane carries `∏ε_p/∏ε_s` on the inactive side. The `ε` are
-independent, so that monomial can be held finite only when its exponents
-carry both signs. All-same-sign drives it to `0` or `∞`; the only thing that
-absorbs the imbalance is a free inactive catalytic ratio `k_I_f/k_I_r`. An
-`:OnlyA` catalytic tag supplies exactly that — its rate constants vanish from
-the rate equation, so their ratio is free to satisfy the cycle's Haldane at any
-affinity — which is why the inactive Haldane is present but never binding here.
-
-The check graph drops `:OnlyA` chemistry groups (those holding a chemistry step,
-`_is_chemistry`: an isomerization, a fused binding or a Theorell–Chance step), so
-a cycle running through one never appears and never reports a violation: that
-free `k_I` ratio is the escape. The `:OnlyA` bindings are the `:OnlyA` groups of
-plain bindings alone; a fused binding tagged `:OnlyA` is chemistry and leaves the
-graph. The check graph is read for its cycles only, over the kept groups' edges group by
-group, each group in edge order; it is no mechanism: dropping a group that mixes a fused
-binding with abortive bindings can leave abortive complexes in a rapid-equilibrium
-segment with no bottom form, which class 3 rejects (`_check_face`).
-Bindings completing no cycle (competitive inhibitors, dead ends, regulator
-sites) never enter a row and take no part. Both catalytic (Haldane) and
-binding-only (Wegscheider, `rhs = 0`) cycle rows are inspected, so a one-sided
-`:OnlyA` binding on a pure random-order binding square is caught.
-
-The verdict comes from two stages (`_onlya_cone_offenders`). The per-row sign test runs
-first: it flags a cycle whose single row's `:OnlyA` exponents are all one sign, which
-forces a sum of same-signed positive terms to vanish and so is a sound rejection. It is
-cheap and keeps the common rejections on the fast path, but it reads one row at a time
-and a multi-cycle coupled inconsistency passes it. The complete condition
-follows: writing `ε_p = δ^{w_p}`, every cycle's monomial is finite nonzero for
-some `δ → 0⁺` exactly when the coupled `ε`-exponent system admits a
-strictly-positive nullspace vector, `M·w = 0` with `w > 0` (Stiemke
-feasibility). The two stages agree for every random-order mechanism up to bi-bi;
-they part from ter-substrate up.
-
-An `:OnlyA` group's `ε` exponent in a cycle is the sum of its steps' entries in
-that row of the cycle basis (`_thermodynamic_constraints`), for RE and SS
-bindings alike: an RE binding's `1/Kd` and an SS binding's `kon/koff` both enter
-the cycle's product raised to the step's entry, so a cycle that mixes the two step
-kinds reads its signs on one scale and a balanced pair is accepted.
-"""
-function _onlya_offenders(m::Mechanism, group::Vector{Int}, tags::Vector{Symbol})
-    onlya(g) = tags[g] === :OnlyA
-    chemistry = _chemistry_groups(m, group, length(tags))
-    keep = [g for g in eachindex(tags) if !(onlya(g) && chemistry[g])]
-    any(onlya, keep) || return Int[]
-    flat = [k for g in keep for k in eachindex(group) if group[k] == g]
-    C, _ = _thermodynamic_constraints(m, flat)
-    _onlya_cone_offenders(C, group[flat], filter(onlya, keep))
-end
-
-"""
-The offenders among the `:OnlyA` groups `onlya` (`_onlya_offenders`) by the cycle basis
-`C`, whose column `j` is a step of group `step_group[j]`: the groups of the first cycle
-whose `:OnlyA` exponents carry one sign, or else all of `onlya` when no strictly positive
-combination of the exponents balances every cycle; empty when one does.
-"""
-function _onlya_cone_offenders(C::AbstractMatrix{Int}, step_group::Vector{Int},
-                               onlya::Vector{Int})
-    # Column k holds `:OnlyA` group k's `ε` exponents: its steps' cycle entries summed.
-    M = Rational{BigInt}[sum((C[i, j] for j in eachindex(step_group)
-                              if step_group[j] == g); init = 0)
-                         for i in axes(C, 1), g in onlya]
-    # Per-row sign test first: sound (an all-one-sign row forces a sum of
-    # same-signed positive terms to vanish) and cheap, so it keeps the common
-    # rejections on the fast path.
-    for row in eachrow(M)
-        nz = findall(!iszero, row)
-        !isempty(nz) && allequal(sign.(row[nz])) && return onlya[nz]
-    end
-
-    # The complete condition: the `ε` exponents must admit a strictly-positive
-    # solution of `M·w = 0` (Stiemke feasibility). The per-row test above only
-    # inspects one row at a time, so from ter-substrate up a multi-cycle coupled
-    # inconsistency passes it. `nothing` from the cone test means elimination
-    # blew up; fall back to the per-row verdict (sound, just incomplete) rather
-    # than reject a mechanism we could not decide.
-    _has_strict_positive_combination(_rational_nullspace(M)) === false || return Int[]
-    return onlya
 end

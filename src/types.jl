@@ -1497,7 +1497,7 @@ end
 """Whether `e` of `m` is anything but a plain binding (`_is_plain_binding`): an
 isomerization, a fused binding (`E(A) + B → E(P, Q)`), a Theorell–Chance step or a step
 with several metabolites on a side. The joint solve's priority (`_priority_key`) and the
-`:OnlyA` test (`_onlya_offenders`) read it to tell catalysis from binding."""
+allosteric moves (`_chemistry_groups`) read it to tell catalysis from binding."""
 _is_chemistry(m::Mechanism, e::Edge) = !_is_plain_binding(m, e)
 """Whether each of `n` kinetic groups, edge `k` in group `group[k]`, holds some edge `k`
 with `pred(k)`."""
@@ -1508,12 +1508,10 @@ function _groups_with(pred, group::Vector{Int}, n::Int)
     end
     out
 end
-"""Whether each of the `n` kinetic groups of graph `m`, edge `k` in group `group[k]`
-(by default its own), holds a chemistry edge (`_is_chemistry`). The allosteric moves tag
-a chemistry group apart from a binding group."""
-_chemistry_groups(m::Mechanism, group::Vector{Int} = m.group,
-                  n::Int = maximum(group; init = 0)) =
-    _groups_with(k -> _is_chemistry(m, m.edges[k]), group, n)
+"""Whether each kinetic group of `m` holds a chemistry edge (`_is_chemistry`). The
+allosteric moves tag a chemistry group apart from a binding group."""
+_chemistry_groups(m::Mechanism) =
+    _groups_with(k -> _is_chemistry(m, m.edges[k]), m.group, ngroups(m))
 """The edges group by group, each group in edge order: the order the joint solve and the
 derivation read them in."""
 _flat_edges(m::Mechanism) = reduce(vcat, _group_members(m); init = Int[])
@@ -1648,9 +1646,10 @@ end
 The edges of `am`'s inactive conformation: those outside `:OnlyA` groups between forms
 they join to free E (`_law_mask`). The conformations interconvert at free E alone, so a
 form those edges do not join to it holds no inactive enzyme, a second free form included.
-The inactive law (`_state_rate_polys`), the joint solve (`_inactive_law`) and the copy rule
-(`_redundant_copy_groups`) read the inactive conformation from it, each edge in `am`'s
-stored direction.
+The inactive law (`_state_rate_polys`), the joint solve (`_inactive_law`), the copy rule
+(`_redundant_copy_groups`), the tagging move's stopping test (`_stops_inactive_turnover`)
+and the hyperbolic test (`_hyperbolic_catalysis`) read the inactive conformation from it,
+each edge in `am`'s stored direction.
 """
 _inactive_mask(am::AllostericMechanism) = _law_mask(am, 2)
 
@@ -1658,8 +1657,9 @@ _inactive_mask(am::AllostericMechanism) = _law_mask(am, 2)
 The edges of `am`'s active conformation: those outside `:OnlyI` groups between forms they
 join to free E (`_law_mask`), the mirror of `_inactive_mask`. The active law
 (`_state_rate_polys`), the joint solve (`_active_law`), the copy rule
-(`_redundant_copy_groups`) and the degeneracy test (`_degenerate`) read the active
-conformation from it, each edge in `am`'s stored direction.
+(`_redundant_copy_groups`), the degeneracy test (`_degenerate`) and the hyperbolic test
+(`_hyperbolic_catalysis`) read the active conformation from it, each edge in `am`'s
+stored direction.
 """
 _active_mask(am::AllostericMechanism) = _law_mask(am, 1)
 

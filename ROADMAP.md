@@ -28,39 +28,25 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   undercounts what an allosteric equation costs and can admit one that evaluates more
   terms than its limit.
 - **`BigInt` arithmetic inflates the GC's live-byte count.**
-  Three functions that compute in `BigInt` raise `Base.gc_live_bytes` by bytes that no
-  live object holds: `_onlya_offenders` (`src/thermo.jl`; a `Rational{BigInt}` null
-  space), the tagging and change-tag moves' `:OnlyA` test, by about 15 KiB per call; the
-  counter that `_split_gain_test` uses for a plain mechanism
-  (`_partition_independent_count`; a `Rational{BigInt}` row reduction) by 18 KiB; and
-  `_eq_complexity` (a `BigInt` determinant, skipped for a single rapid-equilibrium
-  segment) by 15 KiB. A 6×6 determinant outside the package does the same in `BigInt`
-  and `Rational{BigInt}`, not in `Rational{Int}`. The moves run the `:OnlyA` test on
-  every tag set they try: 100,000 calls add 1.46 GiB and 12 full sweeps. The joint solve
+  Two functions that compute in `BigInt` raise `Base.gc_live_bytes` by bytes that no
+  live object holds: the counter that `_split_gain_test` uses for a plain mechanism
+  (`_partition_independent_count`; a `Rational{BigInt}` row reduction), by 18 KiB per
+  call, and `_eq_complexity` (a `BigInt` determinant, skipped for a single
+  rapid-equilibrium segment), by 15 KiB. A 6×6 determinant outside the package does
+  the same in `BigInt` and `Rational{BigInt}`, not in `Rational{Int}`. The joint solve
   adds nothing, on a plain mechanism or on a concrete allosteric one; it runs in
-  `Rational{Int}` on 10,226 enumerated bi-bi and ter-bi mechanisms without overflow. The
-  count stays up after a full collection: 100,000 calls that start 1.47 GiB high make 52
-  full sweeps in 10.0 s, against 12 in 6.5 s from a clean start. The count holds no
-  memory and raises no peak: a process whose count reaches 2.8 GiB peaks at 1.2 GB RSS,
-  and the enumeration tests' count after a full collection stays near 1.8 GiB whether
-  their peak RSS is 2.2 or 3.5 GB. The higher peak came from mechanisms that kept vectors
-  at the capacity their builds grew to; `_canonicalize` stores each at its length, and
-  `test/test_reaction_graph.jl` pins it. Filtering the moves through admission replaces
-  the `:OnlyA` test, not the other two. A loop that calls one of these and prints
-  `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it. The figures come from a
-  random-order bi-bi of nine steady-state steps, plain and as a two-subunit allosteric
-  mechanism with `:OnlyA` on both bindings of A and on the chemical step and `:EqualAI`
-  elsewhere (Julia 1.12.5, aarch64, `--heap-size-hint=2500M`).
+  `Rational{Int}` on 10,226 enumerated bi-bi and ter-bi mechanisms without overflow.
+  The count holds no memory and raises no peak: a process whose count reaches
+  2.8 GiB peaks at 1.2 GB RSS, and the enumeration tests' count after a full
+  collection stays near 1.8 GiB whether their peak RSS is 2.2 or 3.5 GB. The higher
+  peak came from mechanisms that kept vectors at the capacity their builds grew to;
+  `_canonicalize` stores each at its length, and `test/test_reaction_graph.jl` pins
+  it. A loop that calls one of these and prints `Base.gc_live_bytes()` and
+  `Base.gc_num().full_sweep` shows it. The figures come from a random-order bi-bi of
+  nine steady-state steps, plain and as a two-subunit allosteric mechanism with
+  `:OnlyA` on both bindings of A and on the chemical step and `:EqualAI` elsewhere
+  (Julia 1.12.5, aarch64, `--heap-size-hint=2500M`).
 
-- **The tagging and change-tag moves misjudge `:OnlyA` groups that mix a binding and a
-  chemistry step.** Their filter, `_onlya_offenders` (`src/thermo.jl`), skips every
-  `:OnlyA` group that holds a chemistry step, including one that also holds a plain
-  binding of the same metabolite (enumeration builds these by merging and tags every
-  allosteric one `:OnlyA`), and gives the bindings of one group a single rate of
-  divergence. The moves therefore emit tag sets that admission rejects, such as a mixed
-  `:OnlyA` group whose plain member sits on a square of `:EqualAI` bindings (the exit
-  drops them), and miss tag sets that admission admits, such as a split `:OnlyA` binding
-  group whose limit exists. Filtering the moves through admission replaces the test.
 - **Splitting a tied kinetic group changes `eq_hash` without changing the model.**
   When a square of rapid-equilibrium bindings already ties two binding constants,
   splitting their kinetic group leaves the rate function and the fitted names unchanged,
@@ -98,6 +84,18 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   full collection after the testset frees it (live bytes fall from 0.94 to 0.055 GiB), and
   that `GC.gc()` brings the suite to 2.93-3.05 GB. CI runs Julia 1 alone, so nothing checks
   the compat floor against the 4 GB that `.claude/CLAUDE.md` sets aside for the suite.
+- **Change-tag cannot give the six-step bi-bi ping-pong a live inactive conformation.**
+  The tagging move gives the bi-bi ping-pong of six steps, whose second half-reaction
+  is the rapid-equilibrium step `E(B; residual = A - P) ⇌ E(Q)`, one V-type per
+  half-reaction, each stopping that half in the inactive conformation. On the V-type
+  that stops the second half, change-tag's relaxation of both half-reactions to
+  `:NonequalAI` passes admission, but the guard rejects it: at zero substrates, and at
+  zero B, the covalent forms of both conformations lie on one rapid-equilibrium
+  segment, joined only through free E, so the rate's limit depends on how fast each
+  conformation's steps run (`_SPLIT`, `_LIMIT_SPEED`). `expand_mechanisms` drops that
+  child, so the search never gives this ping-pong an inactive conformation that runs
+  both half-reactions. On the three-step ping-pong, whose steps are all steady-state,
+  the same relaxation passes.
 
 ## Planned
 
@@ -113,9 +111,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   search. With the conformations flipping only at free E, a ping-pong whose inactive
   conformation runs neither half-reaction strands the covalent forms between the halves:
   their weight, and with it the rate, depends on how fast each half stops (by up to 100%
-  at one catalytic subunit), so admission rejects it. The admission PR keeps allosteric
-  ping-pong reachable by stopping one half per V-type child, which covers PDH, whose
-  phosphorylation stops E1 and leaves E2 and E3 running. Stopping both halves needs the
+  at one catalytic subunit), so admission rejects it. The tagging move keeps allosteric
+  ping-pong reachable by stopping one half per V-type base (`_tagging_bases`,
+  `src/mechanism_enumeration.jl`), which covers PDH, whose phosphorylation stops E1 and
+  leaves E2 and E3 running. Above one subunit it drops a child whose inactive law is not
+  hyperbolic (`_hyperbolic_catalysis`), as when the running half joins two segments that
+  each hold an abortive complex, so a ping-pong seed with no shared site and abortive
+  complexes on both sides keeps no well-posed allosteric child at two subunits. Stopping
+  both halves needs the
   conformations to flip at the covalent form as well, with an equilibrium constant of
   its own, and the multi-subunit rate formula rederived for two flip forms. Take it up
   with iso mechanisms, which add free forms of their own. Priority: medium.
@@ -199,10 +202,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `src/thermo.jl` holds two exact row reductions, `_rref!` (the joint solve, in
   `Rational{Int}` retried in `Rational{BigInt}`) and `_rref_partition` (in
   `Rational{BigInt}`), and two cycle-basis builders, `_fundamental_cycles` and
-  `_thermodynamic_constraints`, which raise the same error. The `:OnlyA` guard's use of
-  `_rref_partition` and `_thermodynamic_constraints` goes when admission replaces the
-  guard, but the split move's counter (`_partition_independent_count`) keeps them;
-  computing its rank with `_rref!` over the joint solve's cycles would leave one of each.
+  `_thermodynamic_constraints`, which raise the same error. `_rref_partition` and
+  `_thermodynamic_constraints` serve the split move's counter
+  (`_partition_independent_count`); computing its rank with `_rref!` over the joint
+  solve's cycles would leave one of each.
 - **Admit the equilibrium bridges and the vanishing-fed basins that admission rejects.**
   Admission's face condition (`_face_condition`, `src/admission.jl`) is sound but not
   exact: it rejects two rare classes whose limit exists. In an equilibrium bridge (R-B1) a
@@ -211,9 +214,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `test/test_admission.jl`). In a stranded basin fed only through vanishing sources (R-B2)
   the basin's weight vanishes along every path, but no structural test proves it (`BS1`).
   The phase-4 research found R-B1 on 332 faces and R-B2 on 21, all in fuzzed or hand-built
-  mechanisms, none among the census mechanisms or their `:OnlyI` variants. Tag sets that
-  stop the inactive conformation's catalysis one half-reaction at a time, built on the
-  census ping-pong and ter-bi parents and filtered by admission, lose 4,854 candidates
+  mechanisms, none among the census mechanisms or their `:OnlyI` variants. The tagging
+  move (`_tagging_bases`) stops the inactive conformation's catalysis one
+  half-reaction at a time and filters by admission; on the census ping-pong and ter-bi
+  parents it loses 4,854 candidates
   to stranded basins admission cannot seal. On each the ε-path oracle finds a limit that
   depends on the direction, so none is an R-B2 false alarm. No exact
   narrower structural rule is known: the one candidate tried, T0++, admits faces the

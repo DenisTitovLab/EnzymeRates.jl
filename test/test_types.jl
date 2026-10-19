@@ -2945,9 +2945,20 @@ end
     end
 end
 
-@testset "OnlyA Haldane validator" begin
-    # Uni-uni S -> P. Tags: (S binding, chemical step, P binding). The names of the
-    # metabolites the offending :OnlyA groups bind.
+@testset "admission rejects a one-sided :OnlyA binding and admits balanced ones" begin
+    # Admission's fault for `am`'s graph tagged `tags`, and the metabolite of the
+    # binding it names (`nothing` when it names none).
+    function _testhelper_admission_reads(am, tags)
+        cm = am.catalytic
+        v = ER._admission(ER.AllostericMechanism(cm, tags, 1, ER.RegulatorySite[]))
+        e = v.edge == 0 ? nothing : cm.edges[v.edge]
+        (v.fault, e === nothing || !ER._is_binding(e) ? nothing :
+                  cm.table[ER._bound_entry(e)].name)
+    end
+    NO, NL = ER._NO_FAULT, ER._NO_LIMIT
+
+    # Uni-uni S -> P. Tags: (S binding, chemical step, P binding). Admission's fault,
+    # and the metabolite of the binding it names.
     function _testhelper_uni(s_tag, cat_tag, p_tag)
         m = @allosteric_mechanism begin
             substrates: S
@@ -2964,35 +2975,28 @@ end
         # tag each group by the metabolite its step binds
         tags = [!_testhelper_is_binding(s) ? cat_tag :
                 only(s.consumed) === :S ? s_tag : p_tag for s in firsts]
-        offenders = ER._onlya_offenders(am.catalytic, am.catalytic.group, tags)
-        # Admission (`_admission`) gives the same verdict: a tag set the moves' test
-        # rejects has no limit (`_NO_LIMIT`).
-        v = ER._admission(ER.AllostericMechanism(am.catalytic, tags, 2,
-                                                 ER.RegulatorySite[]))
-        @test v.fault === (isempty(offenders) ? ER._NO_FAULT : ER._NO_LIMIT)
-        [only(firsts[g].consumed) for g in offenders]
+        _testhelper_admission_reads(am, tags)
     end
 
-    # no :OnlyA anywhere -> valid
-    @test isempty(_testhelper_uni(:EqualAI, :EqualAI, :EqualAI))
-    # :OnlyA on the substrate only, catalysis :EqualAI -> VIOLATION by the S binding
-    @test _testhelper_uni(:OnlyA, :EqualAI, :EqualAI) == [:S]
-    # :OnlyA on the product only, catalysis :EqualAI -> VIOLATION by the P binding
-    @test _testhelper_uni(:EqualAI, :EqualAI, :OnlyA) == [:P]
-    # :OnlyA on the substrate, catalysis :OnlyA -> the k_I = 0 escape -> valid
-    @test isempty(_testhelper_uni(:OnlyA, :OnlyA, :EqualAI))
-    # balanced: :OnlyA on both sides, catalysis :EqualAI -> valid
-    @test isempty(_testhelper_uni(:OnlyA, :EqualAI, :OnlyA))
-    # V-system: :OnlyA chemical step only -> valid
-    @test isempty(_testhelper_uni(:EqualAI, :OnlyA, :EqualAI))
-    # :NonequalAI catalysis is also a finite-nonzero assertion -> same verdict
-    @test _testhelper_uni(:OnlyA, :NonequalAI, :EqualAI) == [:S]
+    # no :OnlyA anywhere -> admitted
+    @test _testhelper_uni(:EqualAI, :EqualAI, :EqualAI) == (NO, nothing)
+    # :OnlyA on the substrate only, catalysis :EqualAI: catalysis and the P binding
+    # join E to E(S) in the inactive conformation -> no limit, by the S binding
+    @test _testhelper_uni(:OnlyA, :EqualAI, :EqualAI) == (NL, :S)
+    # :OnlyA on the product only, catalysis :EqualAI -> no limit, by the P binding
+    @test _testhelper_uni(:EqualAI, :EqualAI, :OnlyA) == (NL, :P)
+    # :OnlyA on the substrate and the catalysis: E(S) lies behind the binding
+    @test _testhelper_uni(:OnlyA, :OnlyA, :EqualAI) == (NO, nothing)
+    # balanced: :OnlyA on both bindings, catalysis :EqualAI -> admitted
+    @test _testhelper_uni(:OnlyA, :EqualAI, :OnlyA) == (NO, nothing)
+    # V-system: :OnlyA chemical step only -> admitted
+    @test _testhelper_uni(:EqualAI, :OnlyA, :EqualAI) == (NO, nothing)
+    # :NonequalAI catalysis joins E to E(S) too -> same verdict
+    @test _testhelper_uni(:OnlyA, :NonequalAI, :EqualAI) == (NL, :S)
 
     # Whether a binding is rapid-equilibrium or steady-state does not change
-    # which affinities diverge, so the balanced both-:OnlyA verdict must not
-    # depend on it: an RE binding's 1/Kd and an SS binding's kon/koff enter the
-    # cycle product with the same exponent. Both orientations of the mix are equally
-    # valid mechanisms and must both pass.
+    # admission's verdict: with both bindings :OnlyA, E(S) and E(P) lie behind them.
+    # Both orientations of the mix are admitted.
     mixed_uni_re_ss = @allosteric_mechanism begin
         substrates: S
         products:   P
@@ -3018,18 +3022,14 @@ end
         am = ER.AllostericMechanism(m)
         tags = [_testhelper_is_binding(s) ? :OnlyA : :EqualAI
                 for s in _testhelper_first_steps(_testhelper_graph(am))]
-        offenders = ER._onlya_offenders(am.catalytic, am.catalytic.group, tags)
-        v = ER._admission(ER.AllostericMechanism(am.catalytic, tags, 2,
-                                                 ER.RegulatorySite[]))
-        @test v.fault === (isempty(offenders) ? ER._NO_FAULT : ER._NO_LIMIT)
-        offenders
+        _testhelper_admission_reads(am, tags)
     end
-    @test isempty(_testhelper_both_bindings_onlya(mixed_uni_re_ss))
-    @test isempty(_testhelper_both_bindings_onlya(mixed_uni_ss_re))
+    @test _testhelper_both_bindings_onlya(mixed_uni_re_ss) == (NO, nothing)
+    @test _testhelper_both_bindings_onlya(mixed_uni_ss_re) == (NO, nothing)
 
-    # A random-order binding square contributes a Wegscheider row: rhs = 0 and
-    # no k columns. There is no k to zero out, so balance is the only escape and
-    # the :OnlyA-chemical-step escape deliberately does not reach it.
+    # A random-order binding square: E binds A and B, and each of E(A) and E(B) binds
+    # the other. A lone :OnlyA edge has both sides joined by the other three, so
+    # admission finds no limit; tagging P's binding too separates them.
     @testset "random-order binding square" begin
         biuni = @allosteric_mechanism begin
             substrates: A, B
@@ -3055,22 +3055,12 @@ end
                    for s in _testhelper_first_steps(bu)]
         _testhelper_tags(onlya_keys...) =
             [key in onlya_keys ? :OnlyA : :EqualAI for key in bu_keys]
-        function _testhelper_verdict(t)
-            offenders = ER._onlya_offenders(bu_am.catalytic, bu_am.catalytic.group, t)
-            v = ER._admission(ER.AllostericMechanism(bu_am.catalytic, t, 2,
-                                                     ER.RegulatorySite[]))
-            @test v.fault === (isempty(offenders) ? ER._NO_FAULT : ER._NO_LIMIT)
-            offenders
-        end
-        # The group whose first step binds `x` at the form named `free`.
-        _testhelper_group(free, x) = only(findall(==((free, x)), bu_keys))
+        _testhelper_verdict(t) = _testhelper_admission_reads(bu_am, t)
 
-        # the square alone trips nothing: no :OnlyA anywhere -> valid
-        @test isempty(_testhelper_verdict(_testhelper_tags()))
-        # one square edge :OnlyA -> VIOLATION (unbalanced in the square and
-        # in the Haldane row), by that edge's group
-        @test _testhelper_verdict(_testhelper_tags((:E, :A))) ==
-              [_testhelper_group(:E, :A)]
+        # the square alone trips nothing: no :OnlyA anywhere -> admitted
+        @test _testhelper_verdict(_testhelper_tags()) == (NO, nothing)
+        # one square edge :OnlyA: the square's other three bindings join its sides
+        @test _testhelper_verdict(_testhelper_tags((:E, :A))) == (NL, :A)
         # ...and the macro rejects that tagging: untagged steps join the two sides of the
         # :OnlyA binding of A, so its affinity has no limit (`_NO_LIMIT`).
         lone = @_testhelper_unguarded @allosteric_mechanism begin
@@ -3102,32 +3092,26 @@ end
                 E(P) ⇌ E + P          :: EqualAI
             end
         end
-        # both A-side bindings :OnlyA balances the square, but the Haldane row
-        # is still unbalanced against P -> VIOLATION
-        @test !isempty(_testhelper_verdict(_testhelper_tags((:E, :A), (:EB, :A))))
-        # ...and :OnlyA on P balances the Haldane row too -> valid
-        @test isempty(_testhelper_verdict(
-            _testhelper_tags((:E, :A), (:EB, :A), (:E, :P))))
-        # :OnlyA on the chemical step drops that group, killing the Haldane row
-        # and leaving only the square, whose lone :OnlyA edge is unbalanced ->
-        # VIOLATION. A keep filter that dropped *every* :OnlyA group rather than
-        # only the is_iso ones would drop the square edge as well and wrongly
-        # report valid.
+        # both A-side bindings :OnlyA: the B bindings, the catalysis and the P binding
+        # still join E to E(A) -> no limit
+        @test _testhelper_verdict(_testhelper_tags((:E, :A), (:EB, :A)))[1] === NL
+        # ...and :OnlyA on P cuts the last join -> admitted
+        @test _testhelper_verdict(
+            _testhelper_tags((:E, :A), (:EB, :A), (:E, :P))) == (NO, nothing)
+        # :OnlyA on the chemical step leaves the square, whose lone :OnlyA edge still
+        # has its sides joined -> no limit, by that edge
         @test _testhelper_verdict(_testhelper_tags((:EAB, nothing), (:E, :A))) ==
-              [_testhelper_group(:E, :A)]
+              (NL, :A)
     end
 end
 
 @testset ":OnlyA guard rejects a multi-cycle ter-substrate inconsistency" begin
-    # A full random-order ter binding cube with seven :OnlyA edges. Every single
-    # constraint row carries BOTH signs on its :OnlyA eps-exponents, so the
-    # per-row sign test sees no violation — but the coupled system has no
-    # strictly-positive solution: rows 2, 4 and 5 combine to force the
-    # eps-exponent of K_EAB_to_EA_B to zero, i.e. K_I = K_A, contradicting its :OnlyA
-    # tag. The inactive cube circulates flux around the E(A)->E(A,B)<-E(B)->
-    # E(B,C)<-E(C)->E(A,C)<-E(A) hexagon at equilibrium — perpetual motion.
+    # A full random-order ter binding cube with seven :OnlyA edges and the cross
+    # bindings :EqualAI. In the inactive conformation the untagged bindings join forms
+    # across the cube, so a tagged binding's two sides share a component: no path takes
+    # its affinity to zero, and admission rejects the cube (`_NO_LIMIT`).
     # Admission finds untagged steps that join the two sides of an :OnlyA binding
-    # (`_NO_LIMIT`), as the moves' Stiemke test finds the coupled system infeasible.
+    # (`_NO_LIMIT`).
     cube = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B, C
         products:   P
@@ -3149,8 +3133,6 @@ end
             E + P ⇌ E(P)             :: EqualAI
         end
     end
-    @test !isempty(ER._onlya_offenders(cube.catalytic, cube.catalytic.group,
-                                       ER.cat_allo_states(cube)))
     v = ER._guard(cube)
     @test v.fault === ER._NO_LIMIT
     @test_throws ErrorException(ER._guard_message(cube, v)) @allosteric_mechanism begin
@@ -3176,23 +3158,15 @@ end
     end
 end
 
-# The rejection testset above pins the reject direction of the moves' :OnlyA test
-# (`_onlya_offenders`); this one pins its ACCEPT direction, which nothing else covers. The
-# test runs a cheap per-row sign test (sound but incomplete) and then an exact Stiemke
-# eps-feasibility test. The two agree on every mechanism up to bi-bi and diverge only from
-# ter-substrate up, so ter is the only place a regression in the exact test can show.
-# Over-rejection was measured at 0 across 17,814 tag assignments — every feasible
-# assignment is admitted. That is what makes this direction worth a test: an
-# over-rejection does not fail loudly, it silently shrinks the enumeration search space by
-# dropping valid mechanisms before they are ever fitted. The cube below is the
-# load-bearing witness — its sign test finds nothing to flag, so the verdict genuinely
-# comes from the Stiemke stage (M is 5x12, nullity 7, feasible = true).
+# The rejection testset above pins admission's reject direction on a ter-substrate
+# binding cube; this one pins its accept direction there. An over-rejection does not
+# fail loudly: it silently shrinks the enumeration's search space by dropping valid
+# mechanisms before they are fitted.
 @testset ":OnlyA guard admits feasible ter-substrate mechanisms" begin
-    # A full random-order A/B/C binding lattice, every substrate binding :OnlyA.
-    # The :OnlyA chemical step drops the catalytic Haldane row from the check
-    # graph, leaving the lattice's five Wegscheider squares; each carries both
-    # signs on its eps-exponents, so the coupled system is feasible (w = 1 solves
-    # it) and the cube is admitted.
+    # A full random-order A/B/C binding lattice, every substrate binding and the
+    # chemical step :OnlyA: in the inactive conformation every form stands alone but E
+    # and E(P), the bindings point away from free E and close no cycle, so admission
+    # accepts the cube.
     cube = @allosteric_mechanism begin
         substrates: A, B, C
         products:   P
@@ -3215,13 +3189,9 @@ end
         end
     end
     @test cube isa ER.AllostericEnzymeMechanism
-    # The moves' :OnlyA test decides it in its Stiemke stage (feasible, w = 1).
-    cube_m = ER.AllostericMechanism(cube)
-    @test isempty(ER._onlya_offenders(cube_m.catalytic, cube_m.catalytic.group,
-                                      ER.cat_allo_states(cube_m)))
 
-    # Ordered ter with an :OnlyA binding and an :OnlyA chemical step: the free
-    # inactive k_I ratio absorbs the B affinity's divergence, so this is valid.
+    # Ordered ter with an :OnlyA B binding and an :OnlyA chemical step: E(A, B) and
+    # E(A, B, C) lie behind the B binding, on its bound side, so this is admitted.
     ordered = @allosteric_mechanism begin
         substrates: A, B, C
         products:   P
@@ -3240,8 +3210,7 @@ end
 @testset "a ping-pong with both fused releases :OnlyA is an island; one half passes" begin
     # E(A) → E(; residual = A - P) + P runs the first half-reaction and releases P in
     # one step, E(B; residual = A - P) → E + Q the second and releases Q: chemistry
-    # (`_is_chemistry`), though each gives off one metabolite and takes up none. Tagged
-    # :OnlyA, both leave the moves' :OnlyA test, which reads no cycle through chemistry.
+    # (`_is_chemistry`), though each gives off one metabolite and takes up none.
     # Admission reads each edge: in the inactive conformation the covalent forms join
     # free E only through the tagged chemistry, an island (`_ISLAND`) whose weight depends
     # on how fast the tagged constants vanish. Either half alone :OnlyA is admitted, and
@@ -3255,8 +3224,6 @@ end
             E(B; residual = A - P) <--> E + Q                     :: OnlyA
         end
     end
-    @test isempty(ER._onlya_offenders(both.catalytic, both.catalytic.group,
-                                      ER.cat_allo_states(both)))
     v = ER._guard(both)
     @test v.fault === ER._ISLAND
     @test _testhelper_epath_verdict(both; rng = Random.MersenneTwister(6)) in
@@ -3298,10 +3265,9 @@ end
 
 @testset ":OnlyA guard reads cycles past an abortive segment it strands" begin
     # The A group mixes the fused binding into E(P, Q) with A's abortive bindings at
-    # E(P) and E(Q), so it is chemistry, and :OnlyA it leaves the check graph whole.
-    # That strands {E(A, P), E(A, Q), E(A, P, Q)}: a rapid-equilibrium segment whose
-    # every form holds a product, which a mechanism may not have. The check graph is
-    # read only for its cycles, and here the :OnlyA B binding lies on none of them.
+    # E(P) and E(Q), so it is chemistry. Tagged :OnlyA, it strands
+    # {E(A, P), E(A, Q), E(A, P, Q)} in the inactive conformation: a rapid-equilibrium
+    # segment whose every form holds a product, which a mechanism may not have.
     am = @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
         steps: begin
@@ -3317,13 +3283,9 @@ end
     # Admission reads each edge: the abortive bindings reach {E(A, P), E(A, Q),
     # E(A, P, Q)} from the product forms on their unbound side only, so the inactive
     # conformation holds no enzyme there and every face passes (the macro accepted it).
-    # The moves' :OnlyA test, which reads no cycle through the chemistry group, agrees.
-    am_m = ER.AllostericMechanism(am)
-    @test isempty(ER._onlya_offenders(am_m.catalytic, am_m.catalytic.group,
-                                      ER.cat_allo_states(am_m)))
 end
 
-@testset "rational nullspace + Stiemke feasibility helpers" begin
+@testset "the rational nullspace helper" begin
     R = Rational{BigInt}
 
     @testset "_rational_nullspace" begin
@@ -3358,24 +3320,6 @@ end
         N = ER._rational_nullspace(M)
         @test M * N == zeros(R, 2, size(N, 2))
         @test size(N, 2) == 3 - 2
-    end
-
-    @testset "_has_strict_positive_combination" begin
-        # Single row [1]: y = 1 gives N * y = 1 > 0.
-        @test ER._has_strict_positive_combination(reshape(R[1], 1, 1))
-        # Rows [1] and [-1] demand y > 0 and -y > 0 at once -> infeasible.
-        @test !ER._has_strict_positive_combination(reshape(R[1, -1], 2, 1))
-        # An all-zero row encodes 0 > 0 and refutes the system outright,
-        # regardless of the other row.
-        @test !ER._has_strict_positive_combination(R[0 0; 1 1])
-        # No columns: y has no entries, so every row's dot product with y is
-        # 0, and each row still demands 0 > 0 -> infeasible.
-        @test !ER._has_strict_positive_combination(zeros(R, 3, 0))
-        # 2-D feasible cone: y1 + y2 > 0 and y1 - y2 > 0, e.g. y = (1, 0).
-        @test ER._has_strict_positive_combination(R[1 1; 1 -1])
-        # 2-D infeasible cone: y1 > 0 and y2 > 0 force y1 + y2 > 0, which
-        # contradicts the third row's -y1 - y2 > 0.
-        @test !ER._has_strict_positive_combination(R[1 0; 0 1; -1 -1])
     end
 end
 

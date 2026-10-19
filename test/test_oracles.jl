@@ -1017,3 +1017,54 @@ end
     @test _testhelper_epath_verdict(m; rng = Random.MersenneTwister(91),
                                     face = Set([:I]), precision = 512) === :converges
 end
+
+# The census ping-pong declaration (census/README.md, "Reactions"): the
+# ping-pong-capable bi-bi reaction with the allosteric regulator R, two catalytic
+# subunits and A and P on one shared site.
+const _testhelper_pingpong_census_rxn = @enzyme_reaction begin
+    substrates: A[CX], B[N]
+    products: P[C], Q[NX]
+    allosteric_regulators: R
+    oligomeric_state: 2
+    shared_catalytic_site: (A, P)
+end
+
+@testset "ping-pong seeds' tagging children are admitted, distinct and oracle-checked" begin
+    # An aggregate pin over the seed set: the 18 ping-pong seeds (seeds with a covalent
+    # form) of the census ping-pong reaction. Each seed's bases stop the inactive
+    # conformation's catalysis, pass admission, and tag disjoint sets of chemistry
+    # groups, one half-reaction each: 14 seeds get two bases and 4 get one. Every child
+    # is admitted and distinct; on every face its guard verdict agrees with the RE-speed
+    # oracle, and a child the guard admits converges along the ε-path at the interior,
+    # the one face the suite's time budget allows it. The children number 66, as a
+    # separate implementation of the rules counts them.
+    rxn = _testhelper_pingpong_census_rxn
+    rng = Random.MersenneTwister(406)
+    seeds = [m for m in EnzymeRates.init_mechanisms(rxn)
+             if any(EnzymeRates._has_residual, m.forms)]
+    @test length(seeds) == 18
+    nbases, n_kids = Dict{Int, Int}(), 0
+    for m in seeds
+        tags = EnzymeRates._tagging_bases(m)
+        nbases[length(tags)] = get(nbases, length(tags), 0) + 1
+        onlya = [Set(findall(==(:OnlyA), t)) for t in tags]
+        @test all(isdisjoint(onlya[i], onlya[j]) for i in eachindex(onlya)
+                  for j in (i + 1):length(onlya))
+        @test all(t -> EnzymeRates._admits(m, t) &&
+                       EnzymeRates._stops_inactive_turnover(m, t), tags)
+        kids = EnzymeRates._expand_to_allosteric(m, rxn)
+        n_kids += length(kids)
+        @test allunique(kids)
+        for c in kids
+            @test EnzymeRates._admits(c.catalytic, c.cat_allo_states)
+            faults = _testhelper_face_faults(c)
+            admitted = all(==(EnzymeRates._NO_FAULT), faults)
+            verdicts = _testhelper_respeed_verdicts(c; rng,
+                                                    law = admitted ? :package : :limit)
+            @test all(_testhelper_agrees.(faults, verdicts))
+            admitted && @test _testhelper_epath_verdict(c; rng) === :converges
+        end
+    end
+    @test nbases == Dict(1 => 4, 2 => 14)
+    @test n_kids == 66
+end
