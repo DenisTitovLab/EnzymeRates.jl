@@ -1119,3 +1119,1051 @@ end
     # Every step at rapid equilibrium: a fast cycle turns the reaction over.
     @test !EnzymeRates._faces_pass(ldh, trues(length(ldh.edges)))
 end
+
+# ── Tag sets admission's interior accepts ───────────────────────────────────
+
+"""
+The tag sets that admission's interior accepts, by name, each built without the guard
+(`@_testhelper_unguarded`): those that pass every face, and those a face rejects. The
+ping-pong tag sets write their covalent form `E(; residual = A - P)`, which gives the graph
+a free form `F` would; AD2a_iso_chemNonequal is R1, AD2e is R2 and AD2c is R3 written
+again, and AD6 holds one reaction in two groups, which the constructor rejects.
+"""
+const _testhelper_tag_sets = Dict{String, EnzymeRates.AllostericMechanism}()
+
+_testhelper_tag_sets["R1"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E + S ⇌ E(S)        :: EqualAI
+        E(S) <--> E(P)      :: NonequalAI
+        F + P ⇌ E(P)        :: EqualAI
+        F <--> E            :: NonequalAI
+    end
+end
+_testhelper_tag_sets["A5"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E + S ⇌ E(S)        :: EqualAI
+        E(S) <--> E(P)      :: NonequalAI
+        E + P ⇌ E(P)        :: EqualAI
+        F ⇌ E               :: NonequalAI
+    end
+end
+_testhelper_tag_sets["AD2a"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E + S ⇌ E(S)        :: EqualAI
+        E(S) <--> E(P)      :: OnlyA
+        F + P ⇌ E(P)        :: EqualAI
+        F <--> E            :: EqualAI
+    end
+end
+_testhelper_tag_sets["AD2d"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E + S ⇌ E(S)        :: EqualAI
+        E(S) <--> E(P)      :: EqualAI
+        F + P ⇌ E(P)        :: EqualAI
+        F <--> E            :: OnlyA
+    end
+end
+_testhelper_tag_sets["AD3a"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    modifiers: I
+    steps: begin
+        E + S ⇌ E(S)        :: EqualAI
+        E(S) <--> E(P)      :: NonequalAI
+        E + P ⇌ E(P)        :: EqualAI
+        E + I ⇌ E(I)        :: OnlyA
+    end
+end
+_testhelper_tag_sets["AD3b"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    modifiers: S
+    steps: begin
+        E + S ⇌ E(S)                                       :: EqualAI
+        E(S) <--> E(P)                                     :: EqualAI
+        E + P ⇌ E(P)                                       :: EqualAI
+        (E + S::Mod ⇌ E(S::Mod), E(S) + S::Mod ⇌ E(S, S::Mod)) :: OnlyA
+        E(S::Mod) + S ⇌ E(S, S::Mod)                       :: EqualAI
+    end
+end
+_testhelper_tag_sets["AD3d"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    modifiers: S
+    steps: begin
+        E + S ⇌ E(S)                    :: EqualAI
+        E(S) <--> E(P)                  :: EqualAI
+        E + P ⇌ E(P)                    :: EqualAI
+        E + S::Mod <--> E(S::Mod)       :: OnlyA
+        E(S) + S::Mod <--> E(S, S::Mod) :: OnlyA
+        E(S::Mod) + S ⇌ E(S, S::Mod)    :: EqualAI
+    end
+end
+_testhelper_tag_sets["AD4"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P, Q
+    steps: begin
+        E + S ⇌ E(S)            :: EqualAI
+        E(S) <--> E(P, Q)       :: EqualAI
+        E(P, Q) <--> E + P + Q  :: OnlyA
+    end
+end
+_testhelper_tag_sets["AD4b"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P, Q
+    steps: begin
+        E + S ⇌ E(S)            :: EqualAI
+        E(S) <--> E(P, Q)       :: OnlyA
+        E(P, Q) ⇌ E + P + Q     :: EqualAI
+    end
+end
+_testhelper_tag_sets["AD5"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E <--> F                        :: EqualAI
+        (E + S ⇌ E(S), F + S ⇌ F(S))    :: OnlyA
+        E(S) <--> F(S)                  :: EqualAI
+        F(S) <--> F(P)                  :: OnlyA
+        F + P ⇌ F(P)                    :: EqualAI
+    end
+end
+_testhelper_tag_sets["AD7a"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A
+    products: P
+    modifiers: I
+    steps: begin
+        E + A <--> E(A)                 :: EqualAI
+        (E + I ⇌ E(I), F + I ⇌ E(I))    :: OnlyA
+        E + P <--> E(P)                 :: EqualAI
+        E ⇌ F                           :: EqualAI
+        E(A) <--> E(P)                  :: EqualAI
+    end
+end
+_testhelper_tag_sets["AD7b"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A
+    products: P
+    modifiers: I
+    steps: begin
+        E + A <--> E(A)                 :: EqualAI
+        (E + I ⇌ E(I), F + I ⇌ E(I))    :: EqualAI
+        E + P <--> E(P)                 :: EqualAI
+        E ⇌ F                           :: OnlyA
+        E(A) <--> E(P)                  :: EqualAI
+    end
+end
+_testhelper_tag_sets["AD7c"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A
+    products: P
+    modifiers: I
+    steps: begin
+        E + A <--> E(A)                 :: EqualAI
+        (E + I ⇌ E(I), F + I ⇌ E(I))    :: EqualAI
+        E + P <--> E(P)                 :: EqualAI
+        E ⇌ F                           :: EqualAI
+        E(A) <--> E(P)                  :: OnlyA
+    end
+end
+_testhelper_tag_sets["AD8"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A, B
+    products: P, Q
+    steps: begin
+        E + A ⇌ E(A)            :: EqualAI
+        E(A) + B <--> E(Q) + P  :: OnlyA
+        E + Q ⇌ E(Q)            :: EqualAI
+        E(Q) + B ⇌ E(B, Q)      :: EqualAI
+    end
+end
+_testhelper_tag_sets["AD9"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A, B
+    products: P, Q
+    steps: begin
+        E + A ⇌ E(A)            :: EqualAI
+        E(A) + B ⇌ E(A, B)      :: EqualAI
+        E(A, B) ⇌ E(P, Q)       :: OnlyA
+        E(Q) + P <--> E(P, Q)   :: EqualAI
+        E + Q <--> E(Q)         :: EqualAI
+        E(A) + Q <--> E(A, Q)   :: OnlyA
+    end
+end
+_testhelper_tag_sets["AD10"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A, B
+    products: P, Q
+    steps: begin
+        E + A <--> E(A)         :: OnlyA
+        E + B ⇌ E(B)            :: EqualAI
+        E(A) + B ⇌ E(A, B)      :: EqualAI
+        E(B) + A <--> E(A, B)   :: OnlyA
+        E(A, B) <--> E(P, Q)    :: OnlyA
+        E(Q) + P ⇌ E(P, Q)      :: EqualAI
+        E + Q ⇌ E(Q)            :: EqualAI
+    end
+end
+# AD13: a second free form joined to E at rapid equilibrium, each label sorting before or
+# after E, with the chemistry :NonequalAI or :OnlyA.
+for label in (:D, :Ca, :Ea, :F, :Z), chem in (:NonequalAI, :OnlyA)
+    block = quote
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)        :: EqualAI
+            E(S) <--> E(P)      :: $chem
+            E + P ⇌ E(P)        :: EqualAI
+            $label ⇌ E          :: NonequalAI
+        end
+    end
+    _testhelper_tag_sets["AD13_$(chem)_$label"] =
+        EnzymeRates.AllostericMechanism(EnzymeRates._raw_mechanism(block, true))
+end
+_testhelper_tag_sets["AD14"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    modifiers: I
+    steps: begin
+        E + S ⇌ E(S)                            :: EqualAI
+        E + P ⇌ E(P)                            :: EqualAI
+        (E(S) <--> E(P), E(S, I) <--> E(P, I))  :: OnlyA
+        E(I) + S ⇌ E(S, I)                      :: OnlyA
+        E(I) + P ⇌ E(P, I)                      :: EqualAI
+        E + I ⇌ E(I)                            :: EqualAI
+    end
+end
+_testhelper_tag_sets["AD14b"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    modifiers: I
+    steps: begin
+        E + S ⇌ E(S)                            :: EqualAI
+        E + P ⇌ E(P)                            :: EqualAI
+        (E(S) <--> E(P), E(S, I) <--> E(P, I))  :: OnlyA
+        E(I) + S <--> E(S, I)                   :: OnlyA
+        E(I) + P ⇌ E(P, I)                      :: EqualAI
+        E + I ⇌ E(I)                            :: EqualAI
+    end
+end
+_testhelper_tag_sets["AD14c"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    modifiers: I
+    steps: begin
+        E + S ⇌ E(S)                            :: EqualAI
+        E + P ⇌ E(P)                            :: EqualAI
+        (E(S) <--> E(P), E(S, I) <--> E(P, I))  :: OnlyA
+        E(I) + S ⇌ E(S, I)                      :: EqualAI
+        E(I) + P ⇌ E(P, I)                      :: EqualAI
+        E + I ⇌ E(I)                            :: EqualAI
+    end
+end
+_testhelper_tag_sets["AD15"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A, B
+    products: P, Q
+    steps: begin
+        (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))  :: OnlyA
+        E(A) + B ⇌ E(A, B)                  :: OnlyA
+        E + B ⇌ E(B)                        :: EqualAI
+        E(A, B) <--> E(P, Q)                :: OnlyA
+        E(Q) + P ⇌ E(P, Q)                  :: EqualAI
+        E + Q ⇌ E(Q)                        :: EqualAI
+    end
+end
+_testhelper_tag_sets["R2P_sealed"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E + S ⇌ E(S)        :: EqualAI
+        E(S) <--> E + P     :: EqualAI
+        E + P ⇌ E(P)        :: OnlyA
+        F + P ⇌ E(P)        :: EqualAI
+        F <--> E            :: OnlyA
+    end
+end
+_testhelper_tag_sets["B_uphill"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    modifiers: X
+    steps: begin
+        E + S ⇌ E(S)        :: EqualAI
+        E(S) <--> E(P)      :: EqualAI
+        E + P ⇌ E(P)        :: EqualAI
+        E + X ⇌ E(X)        :: OnlyA
+        F + X <--> E(X)     :: EqualAI
+        F <--> E            :: OnlyA
+    end
+end
+_testhelper_tag_sets["TC1"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A, B
+    products: P, Q
+    steps: begin
+        E + A ⇌ E(A)            :: EqualAI
+        E(A) + B ⇌ E(Q) + P     :: OnlyA
+        E(Q) <--> E + Q         :: EqualAI
+        E(A) + B <--> E(A, B)   :: EqualAI
+        E(A, B) <--> E(P, Q)    :: EqualAI
+        E(P, Q) ⇌ E(Q) + P      :: EqualAI
+    end
+end
+_testhelper_tag_sets["pp_V_half1"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A, B
+    products: P, Q
+    steps: begin
+        E + A <--> E(A)                                       :: EqualAI
+        E(A) <--> E(; residual = A - P) + P                   :: OnlyA
+        E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
+        E(B; residual = A - P) <--> E + Q                     :: EqualAI
+    end
+end
+_testhelper_tag_sets["pp_V_half2"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A, B
+    products: P, Q
+    steps: begin
+        E + A <--> E(A)                                       :: EqualAI
+        E(A) <--> E(; residual = A - P) + P                   :: EqualAI
+        E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
+        E(B; residual = A - P) <--> E + Q                     :: OnlyA
+    end
+end
+_testhelper_tag_sets["pp_K_Abind_half1"] =
+    @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A, B
+    products: P, Q
+    steps: begin
+        E + A <--> E(A)                                       :: OnlyA
+        E(A) <--> E(; residual = A - P) + P                   :: OnlyA
+        E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
+        E(B; residual = A - P) <--> E + Q                     :: EqualAI
+    end
+end
+_testhelper_tag_sets["PP1"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A, B
+    products: P, Q
+    steps: begin
+        E + A ⇌ E(A)                                          :: EqualAI
+        E(A) <--> E(; residual = A - P) + P                   :: OnlyA
+        E(; residual = A - P) + B ⇌ E(B; residual = A - P)    :: EqualAI
+        E(B; residual = A - P) <--> E + Q                     :: EqualAI
+    end
+end
+_testhelper_tag_sets["PP2"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A, B
+    products: P, Q
+    modifiers: I
+    steps: begin
+        E + A <--> E(A)                                       :: EqualAI
+        E(A) <--> E(; residual = A - P) + P                   :: EqualAI
+        E(; residual = A - P) + B ⇌ E(B; residual = A - P)    :: EqualAI
+        E(B; residual = A - P) <--> E + Q                     :: OnlyA
+        E(; residual = A - P) + I ⇌ E(I; residual = A - P)    :: OnlyA
+    end
+end
+# Census ter-bi d75d2415361c4dae: its faces with P zero pass by T0+ alone.
+_testhelper_tag_sets["terbi_d75d2415361c4dae"] =
+    @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A, B, D
+    products: P, Q
+    steps: begin
+        (E + A ⇌ E(A), E(B, P) + A ⇌ E(A, B, P), E(P) + A ⇌ E(A, P))       :: OnlyA
+        (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(A, B) + P ⇌ E(A, B, P),
+         E(Q) + P ⇌ E(P, Q))                                               :: EqualAI
+        (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))                           :: OnlyA
+        (E(A) + B <--> E(A, B), E(A, P) + B <--> E(A, B, P),
+         E(P) + B <--> E(B, P))                                            :: EqualAI
+        (E(A, B) + D <--> E(P, Q), E(Q) + D <--> E(D, Q))                  :: OnlyA
+    end
+end
+# An :OnlyA group mixing B's fused binding into E(P, Q) with its plain binding at E(Q),
+# which no untagged step joins to E(B, Q): its limit exists (spec section 7, "Mixed groups
+# stay allowed").
+_testhelper_tag_sets["mixed_group_limit"] =
+    @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A, B
+    products: P, Q
+    steps: begin
+        E + A ⇌ E(A)                                    :: EqualAI
+        (E(A) + B <--> E(P, Q), E(Q) + B <--> E(B, Q))  :: OnlyA
+        E(Q) + P ⇌ E(P, Q)                              :: EqualAI
+        E + Q ⇌ E(Q)                                    :: EqualAI
+    end
+end
+_testhelper_tag_sets["R2"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E + S ⇌ E(S)        :: OnlyA
+        E(S) <--> E(P)      :: EqualAI
+        F + P ⇌ E(P)        :: EqualAI
+        F <--> E            :: OnlyA
+    end
+end
+_testhelper_tag_sets["BS1"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    modifiers: I
+    steps: begin
+        E + S ⇌ E(S)        :: EqualAI
+        E(S) <--> E(P)      :: EqualAI
+        E(P) ⇌ E + P        :: EqualAI
+        E <--> F            :: OnlyA
+        E + I ⇌ F(I)        :: OnlyA
+        F + I ⇌ F(I)        :: EqualAI
+        F + S ⇌ F(S)        :: EqualAI
+        F(S) <--> F(P)      :: EqualAI
+        F(P) ⇌ F + P        :: EqualAI
+    end
+end
+_testhelper_tag_sets["BS2"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E + S ⇌ E(S)        :: OnlyA
+        E(S) <--> E(P)      :: EqualAI
+        F + P ⇌ E(P)        :: EqualAI
+        F ⇌ E               :: OnlyA
+    end
+end
+_testhelper_tag_sets["BS3"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E + S <--> E(S)     :: OnlyA
+        E(S) <--> E(P)      :: EqualAI
+        F + P ⇌ E(P)        :: EqualAI
+        F <--> E            :: OnlyA
+    end
+end
+_testhelper_tag_sets["BS4"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    modifiers: I
+    steps: begin
+        E + S ⇌ E(S)            :: EqualAI
+        E(S) <--> E + P         :: EqualAI
+        E + I ⇌ E(I)            :: OnlyA
+        E(I) + S <--> E(I, S)   :: EqualAI
+        E(I, S) <--> F(I) + P   :: EqualAI
+        F(I) ⇌ F + I            :: EqualAI
+        F <--> E                :: OnlyA
+    end
+end
+_testhelper_tag_sets["ADbridge"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    modifiers: I
+    steps: begin
+        E + S <--> E(S)                     :: EqualAI
+        E(S) <--> E + P                     :: EqualAI
+        (E + I ⇌ E(I), E(S) + I ⇌ E(I, S))  :: OnlyA
+        E(I) + S ⇌ E(I, S)                  :: EqualAI
+    end
+end
+_testhelper_tag_sets["ADbridge_noturnover"] =
+    @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    modifiers: I
+    steps: begin
+        E + S <--> E(S)                     :: EqualAI
+        E(S) <--> E + P                     :: OnlyA
+        (E + I ⇌ E(I), E(S) + I ⇌ E(I, S))  :: OnlyA
+        E(I) + S ⇌ E(I, S)                  :: EqualAI
+    end
+end
+_testhelper_tag_sets["bridge_drain"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    modifiers: I
+    steps: begin
+        E + S ⇌ E(S)        :: EqualAI
+        E(S) <--> F + P     :: EqualAI
+        F <--> E            :: OnlyA
+        E + I ⇌ E(I)        :: OnlyA
+        F + I ⇌ F(I)        :: OnlyA
+        F(I) ⇌ E(I)         :: EqualAI
+    end
+end
+_testhelper_tag_sets["bridge_deadend"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    modifiers: I, J
+    steps: begin
+        E + S <--> E(S)         :: EqualAI
+        E(S) <--> E + P         :: EqualAI
+        E + J <--> E(J)         :: EqualAI
+        E + I ⇌ E(I)            :: OnlyA
+        E(J) + I ⇌ E(I, J)      :: OnlyA
+        E(I) + J ⇌ E(I, J)      :: EqualAI
+    end
+end
+_testhelper_tag_sets["R2funnel"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E + S ⇌ E(S)        :: OnlyA
+        E(S) <--> E(P)      :: EqualAI
+        F + P ⇌ E(P)        :: EqualAI
+        F <--> E            :: OnlyA
+        F + S ⇌ F(S)        :: EqualAI
+        F(S) <--> F(P)      :: EqualAI
+        F + P ⇌ F(P)        :: EqualAI
+        F(P) ⇌ E(P)         :: EqualAI
+    end
+end
+_testhelper_tag_sets["R2funnel_SS"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E + S <--> E(S)     :: OnlyA
+        E(S) <--> E(P)      :: EqualAI
+        F + P ⇌ E(P)        :: EqualAI
+        F <--> E            :: OnlyA
+        F + S ⇌ F(S)        :: EqualAI
+        F(S) <--> F(P)      :: EqualAI
+        F + P ⇌ F(P)        :: EqualAI
+        F(P) ⇌ E(P)         :: EqualAI
+    end
+end
+_testhelper_tag_sets["S1"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: A, B
+    products: P
+    modifiers: A
+    steps: begin
+        E + A <--> E(A)                 :: OnlyA
+        E(A) + B <--> E(A, B)           :: EqualAI
+        E(A, B) <--> E(P)               :: OnlyA
+        E(P) <--> E + P                 :: EqualAI
+        E + A::Mod ⇌ E(A::Mod)          :: OnlyA
+        E(A::Mod) + B ⇌ E(A::Mod, B)    :: EqualAI
+        E(B) + A::Mod ⇌ E(A::Mod, B)    :: EqualAI
+        F + B <--> E(B)                 :: EqualAI
+    end
+end
+# Fuzz mechanism fz101_10232 (seed 101).
+_testhelper_tag_sets["fz101_10232"] = @_testhelper_unguarded @allosteric_mechanism begin
+    substrates: S
+    products: P
+    modifiers: I
+    steps: begin
+        E + S <--> E(S)                             :: OnlyA
+        E(S) <--> E(P)                              :: OnlyA
+        E(P) <--> F + P                             :: EqualAI
+        F <--> E                                    :: OnlyA
+        (E(S) + I <--> E(I, S), F + I <--> F(I))    :: OnlyA
+        E(P) + S ⇌ E(S) + P                         :: EqualAI
+    end
+end
+
+@testset "the graph test equals the exact LP on the uni-uni grid" begin
+    # Existence holds exactly when no arc stays inside a component and the arcs close no
+    # cycle (spec section 7); the test oracle's exact simplex decides the same question
+    # from the cycle rows, and its own exclusion structure names the same failure.
+    grid = _testhelper_uniuni_grid()
+    @test length(grid) == 108
+    for am in grid
+        v = EnzymeRates._admission_interior(am)
+        exists = v.fault ∉ (EnzymeRates._NO_LIMIT, EnzymeRates._ARC_CYCLE)
+        @test exists == _testhelper_lp_existence(am, 2)
+        ex = _testhelper_exclusion(am, 2)
+        @test v.fault === (ex.failure === :inside ? EnzymeRates._NO_LIMIT :
+                           ex.failure === :cycle ? EnzymeRates._ARC_CYCLE :
+                           isempty(ex.lost) ? EnzymeRates._NO_FAULT : EnzymeRates._ISLAND)
+    end
+end
+
+@testset "a tagged binding that untagged steps join on both sides has no limit" begin
+    rng = Random.MersenneTwister(31)
+    NL, U = EnzymeRates._NO_LIMIT, EnzymeRates._LIMIT_UNTESTED
+    # The uni-uni S binding :OnlyA: the chemistry and the P binding join E to E(S) in the
+    # inactive conformation, so the S affinity cannot vanish there.
+    am = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)        :: OnlyA
+            E(S) <--> E(P)      :: EqualAI
+            E + P ⇌ E(P)        :: EqualAI
+        end
+    end
+    m = am.catalytic
+    bind, release, chem = (_testhelper_edge(am, t) for t in
+                           ("E + S ⇌ ES", "E + P ⇌ EP", "ES <--> EP"))
+    v = EnzymeRates._guard(am)
+    @test v == EnzymeRates._Verdict(NL, U, 0, 2, bind)
+    @test EnzymeRates._admission_interior(am) == v
+    @test _testhelper_epath_verdict(am; rng) === :no_path
+    line(k) = EnzymeRates._step_text(m, k)
+    @test EnzymeRates._guard_message(am, v) ==
+          "AllostericMechanism: in the inactive conformation, steps outside :OnlyA " *
+          "groups still join the two sides of the :OnlyA binding $(line(bind)), so " *
+          "thermodynamics keeps its affinity finite and the binding has no limit " *
+          "there. Tag its group :EqualAI or :NonequalAI, or tag :OnlyA the steps that " *
+          "join its sides: $(line(release)); $(line(chem))."
+    # Both fixes pass the guard: the binding untagged, and the steps that join its sides
+    # tagged.
+    untagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)        :: EqualAI
+            E(S) <--> E(P)      :: EqualAI
+            E + P ⇌ E(P)        :: EqualAI
+        end
+    end
+    joins_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)        :: OnlyA
+            E(S) <--> E(P)      :: OnlyA
+            E + P ⇌ E(P)        :: OnlyA
+        end
+    end
+    @test EnzymeRates._guard(untagged) == EnzymeRates._WELL_POSED
+    @test EnzymeRates._guard(joins_tagged) == EnzymeRates._WELL_POSED
+    # AD1 and AD11: a mixed :OnlyA group whose plain member's two sides untagged steps
+    # still join (spec section 7: AD1 and AD11 are rejected). AD3c: a ::Mod copy's binding.
+    ad1_ss = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                    :: EqualAI
+            (E(A) + B <--> E(P, Q), E(Q) + B <--> E(B, Q))  :: OnlyA
+            E(Q) + P ⇌ E(P, Q)                              :: EqualAI
+            E + Q ⇌ E(Q)                                    :: EqualAI
+            E + B ⇌ E(B)                                    :: EqualAI
+            E(B) + Q ⇌ E(B, Q)                              :: EqualAI
+        end
+    end
+    ad1_re = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                :: EqualAI
+            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))    :: OnlyA
+            E(Q) + P <--> E(P, Q)                       :: EqualAI
+            E + Q ⇌ E(Q)                                :: EqualAI
+            E + B ⇌ E(B)                                :: EqualAI
+            E(B) + Q ⇌ E(B, Q)                          :: EqualAI
+        end
+    end
+    ad11 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                            :: EqualAI
+            (E(A) + B <--> E(P, Q), E(Q) + B <--> E(B, Q),
+             E(P) + B <--> E(B, P))                                 :: OnlyA
+            E(Q) + P ⇌ E(P, Q)                                      :: EqualAI
+            E + Q ⇌ E(Q)                                            :: EqualAI
+            E + P ⇌ E(P)                                            :: EqualAI
+            E + B ⇌ E(B)                                            :: EqualAI
+            E(B) + Q ⇌ E(B, Q)                                      :: EqualAI
+        end
+    end
+    ad3c = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: S
+        steps: begin
+            E + S ⇌ E(S)                    :: EqualAI
+            E(S) <--> E(P)                  :: OnlyA
+            E + P ⇌ E(P)                    :: EqualAI
+            E + S::Mod ⇌ E(S::Mod)          :: OnlyA
+            E(S) + S::Mod ⇌ E(S, S::Mod)    :: EqualAI
+            E(S::Mod) + S ⇌ E(S, S::Mod)    :: EqualAI
+        end
+    end
+    for (x, text) in ((ad1_ss, "EQ + B <--> EBQ"), (ad1_re, "EQ + B ⇌ EBQ"),
+                      (ad11, "EQ + B <--> EBQ"), (ad3c, "E + Smod ⇌ ESmod"))
+        @test EnzymeRates._guard(x) ==
+              EnzymeRates._Verdict(NL, U, 0, 2, _testhelper_edge(x, text))
+        @test _testhelper_exclusion(x, 2).failure === :inside
+        @test _testhelper_epath_verdict(x; rng) === :no_path
+    end
+    # On AD1 and AD3c the message's steps that join the sides run from the binding's
+    # unbound side to its bound side, and both fixes pass there too.
+    for (x, path) in ((ad1_ss, ("E + Q ⇌ EQ", "E + B ⇌ EB", "EB + Q ⇌ EBQ")),
+                      (ad3c, ("E + S ⇌ ES", "ES + Smod ⇌ ESSmod", "ESmod + S ⇌ ESSmod")))
+        joins = join((EnzymeRates._step_text(x.catalytic, _testhelper_edge(x, t))
+                      for t in path), "; ")
+        @test endswith(EnzymeRates._guard_message(x, EnzymeRates._guard(x)),
+                       "tag :OnlyA the steps that join its sides: $joins.")
+    end
+    ad1_untagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                    :: EqualAI
+            (E(A) + B <--> E(P, Q), E(Q) + B <--> E(B, Q))  :: EqualAI
+            E(Q) + P ⇌ E(P, Q)                              :: EqualAI
+            E + Q ⇌ E(Q)                                    :: EqualAI
+            E + B ⇌ E(B)                                    :: EqualAI
+            E(B) + Q ⇌ E(B, Q)                              :: EqualAI
+        end
+    end
+    ad1_joins_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                    :: EqualAI
+            (E(A) + B <--> E(P, Q), E(Q) + B <--> E(B, Q))  :: OnlyA
+            E(Q) + P ⇌ E(P, Q)                              :: EqualAI
+            E + Q ⇌ E(Q)                                    :: OnlyA
+            E + B ⇌ E(B)                                    :: OnlyA
+            E(B) + Q ⇌ E(B, Q)                              :: OnlyA
+        end
+    end
+    ad3c_untagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: S
+        steps: begin
+            E + S ⇌ E(S)                    :: EqualAI
+            E(S) <--> E(P)                  :: OnlyA
+            E + P ⇌ E(P)                    :: EqualAI
+            E + S::Mod ⇌ E(S::Mod)          :: EqualAI
+            E(S) + S::Mod ⇌ E(S, S::Mod)    :: EqualAI
+            E(S::Mod) + S ⇌ E(S, S::Mod)    :: EqualAI
+        end
+    end
+    ad3c_joins_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: S
+        steps: begin
+            E + S ⇌ E(S)                    :: OnlyA
+            E(S) <--> E(P)                  :: OnlyA
+            E + P ⇌ E(P)                    :: EqualAI
+            E + S::Mod ⇌ E(S::Mod)          :: OnlyA
+            E(S) + S::Mod ⇌ E(S, S::Mod)    :: OnlyA
+            E(S::Mod) + S ⇌ E(S, S::Mod)    :: OnlyA
+        end
+    end
+    # AD11's message names the steps AD1's does (E + Q ⇌ E(Q); E + B ⇌ E(B);
+    # E(B) + Q ⇌ E(B, Q)); both its fixes pass every face, the oracles agreeing.
+    ad11_untagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                            :: EqualAI
+            (E(A) + B <--> E(P, Q), E(Q) + B <--> E(B, Q),
+             E(P) + B <--> E(B, P))                                 :: EqualAI
+            E(Q) + P ⇌ E(P, Q)                                      :: EqualAI
+            E + Q ⇌ E(Q)                                            :: EqualAI
+            E + P ⇌ E(P)                                            :: EqualAI
+            E + B ⇌ E(B)                                            :: EqualAI
+            E(B) + Q ⇌ E(B, Q)                                      :: EqualAI
+        end
+    end
+    ad11_joins_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                            :: EqualAI
+            (E(A) + B <--> E(P, Q), E(Q) + B <--> E(B, Q),
+             E(P) + B <--> E(B, P))                                 :: OnlyA
+            E(Q) + P ⇌ E(P, Q)                                      :: EqualAI
+            E + Q ⇌ E(Q)                                            :: OnlyA
+            E + P ⇌ E(P)                                            :: EqualAI
+            E + B ⇌ E(B)                                            :: OnlyA
+            E(B) + Q ⇌ E(B, Q)                                      :: OnlyA
+        end
+    end
+    joins = join((EnzymeRates._step_text(ad11.catalytic, _testhelper_edge(ad11, t))
+                  for t in ("E + Q ⇌ EQ", "E + B ⇌ EB", "EB + Q ⇌ EBQ")), "; ")
+    @test endswith(EnzymeRates._guard_message(ad11, EnzymeRates._guard(ad11)),
+                   "tag :OnlyA the steps that join its sides: $joins.")
+    for y in (ad1_untagged, ad1_joins_tagged, ad3c_untagged, ad3c_joins_tagged,
+              ad11_untagged, ad11_joins_tagged)
+        @test EnzymeRates._guard(y) == EnzymeRates._WELL_POSED
+    end
+end
+
+@testset "tagged bindings that close a directed cycle have no limit" begin
+    rng = Random.MersenneTwister(37)
+    U = EnzymeRates._LIMIT_UNTESTED
+    # The ter cube of seven :OnlyA edges: the untagged E(A) + C, E(C) + B and E(B) + A
+    # bindings join E(A) to E(A, B), so its :OnlyA binding of B stays inside one component.
+    cube = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B, C
+        products: P
+        steps: begin
+            E + A ⇌ E(A)             :: OnlyA
+            E + B ⇌ E(B)             :: OnlyA
+            E + C ⇌ E(C)             :: OnlyA
+            E(A) + B ⇌ E(A, B)       :: OnlyA
+            E(A) + C ⇌ E(A, C)       :: EqualAI
+            E(B) + A ⇌ E(A, B)       :: EqualAI
+            E(B) + C ⇌ E(B, C)       :: EqualAI
+            E(C) + A ⇌ E(A, C)       :: EqualAI
+            E(C) + B ⇌ E(B, C)       :: EqualAI
+            E(A, B) + C ⇌ E(A, B, C) :: OnlyA
+            E(A, C) + B ⇌ E(A, B, C) :: OnlyA
+            E(B, C) + A ⇌ E(A, B, C) :: OnlyA
+            E(A, B, C) <--> E(P)     :: OnlyA
+            E + P ⇌ E(P)             :: EqualAI
+        end
+    end
+    @test _testhelper_exclusion(cube, 2).failure === :inside
+    @test EnzymeRates._guard(cube) ==
+          EnzymeRates._Verdict(EnzymeRates._NO_LIMIT, U, 0, 2,
+                               _testhelper_edge(cube, "EA + B ⇌ EAB"))
+    @test _testhelper_epath_verdict(cube; rng) === :no_path
+    # Both fixes the message offers pass every face, the oracles agreeing:
+    # the B binding at E(A) untagged, and the five untagged bindings
+    # that join its sides (E(A) + C, E(C) + A, E(C) + B, E(B) + C, E(B) + A) tagged.
+    cube_untagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B, C
+        products: P
+        steps: begin
+            E + A ⇌ E(A)             :: OnlyA
+            E + B ⇌ E(B)             :: OnlyA
+            E + C ⇌ E(C)             :: OnlyA
+            E(A) + B ⇌ E(A, B)       :: EqualAI
+            E(A) + C ⇌ E(A, C)       :: EqualAI
+            E(B) + A ⇌ E(A, B)       :: EqualAI
+            E(B) + C ⇌ E(B, C)       :: EqualAI
+            E(C) + A ⇌ E(A, C)       :: EqualAI
+            E(C) + B ⇌ E(B, C)       :: EqualAI
+            E(A, B) + C ⇌ E(A, B, C) :: OnlyA
+            E(A, C) + B ⇌ E(A, B, C) :: OnlyA
+            E(B, C) + A ⇌ E(A, B, C) :: OnlyA
+            E(A, B, C) <--> E(P)     :: OnlyA
+            E + P ⇌ E(P)             :: EqualAI
+        end
+    end
+    cube_joins_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B, C
+        products: P
+        steps: begin
+            E + A ⇌ E(A)             :: OnlyA
+            E + B ⇌ E(B)             :: OnlyA
+            E + C ⇌ E(C)             :: OnlyA
+            E(A) + B ⇌ E(A, B)       :: OnlyA
+            E(A) + C ⇌ E(A, C)       :: OnlyA
+            E(B) + A ⇌ E(A, B)       :: OnlyA
+            E(B) + C ⇌ E(B, C)       :: OnlyA
+            E(C) + A ⇌ E(A, C)       :: OnlyA
+            E(C) + B ⇌ E(B, C)       :: OnlyA
+            E(A, B) + C ⇌ E(A, B, C) :: OnlyA
+            E(A, C) + B ⇌ E(A, B, C) :: OnlyA
+            E(B, C) + A ⇌ E(A, B, C) :: OnlyA
+            E(A, B, C) <--> E(P)     :: OnlyA
+            E + P ⇌ E(P)             :: EqualAI
+        end
+    end
+    @test EnzymeRates._guard(cube_untagged) == EnzymeRates._WELL_POSED
+    @test EnzymeRates._guard(cube_joins_tagged) == EnzymeRates._WELL_POSED
+    # Both bindings of the ordered bi-uni :OnlyA: the chemistry and the P binding join
+    # E(A, B) back to E, so the arcs E → E(A) → {E, E(A, B), E(P)} close a cycle and the
+    # two affinities cannot vanish together.
+    am = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        steps: begin
+            E + A ⇌ E(A)            :: OnlyA
+            E(A) + B ⇌ E(A, B)      :: OnlyA
+            E(A, B) <--> E(P)       :: EqualAI
+            E + P ⇌ E(P)            :: EqualAI
+        end
+    end
+    m = am.catalytic
+    a, b, chem, release = (_testhelper_edge(am, t) for t in
+                           ("E + A ⇌ EA", "EA + B ⇌ EAB", "EAB <--> EP", "E + P ⇌ EP"))
+    @test _testhelper_exclusion(am, 2).failure === :cycle
+    @test EnzymeRates._exclusion_components(am, 2) == [1, 2, 1, 1]  # E, E(A), E(A, B), E(P)
+    @test EnzymeRates._exclusion_components(am, 1) == [1, 1, 1, 1]
+    v = EnzymeRates._guard(am)
+    @test v == EnzymeRates._Verdict(EnzymeRates._ARC_CYCLE, U, 0, 2, b)
+    @test _testhelper_epath_verdict(am; rng) === :no_path
+    line(k) = EnzymeRates._step_text(m, k)
+    @test EnzymeRates._guard_message(am, v) ==
+          "AllostericMechanism: the :OnlyA bindings $(line(b)); $(line(a)) close a cycle " *
+          "in the inactive conformation: steps outside :OnlyA groups join each one's " *
+          "bound side to the next one's unbound side, so thermodynamics forbids their " *
+          "affinities to vanish together. Tag them :EqualAI or :NonequalAI, or tag " *
+          ":OnlyA the steps that join them: $(line(chem)); $(line(release))."
+    # Both fixes pass the guard; untagging one binding alone leaves the other inside a
+    # component, so the message does not offer it.
+    untagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        steps: begin
+            E + A ⇌ E(A)            :: EqualAI
+            E(A) + B ⇌ E(A, B)      :: EqualAI
+            E(A, B) <--> E(P)       :: EqualAI
+            E + P ⇌ E(P)            :: EqualAI
+        end
+    end
+    joins_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        steps: begin
+            E + A ⇌ E(A)            :: OnlyA
+            E(A) + B ⇌ E(A, B)      :: OnlyA
+            E(A, B) <--> E(P)       :: OnlyA
+            E + P ⇌ E(P)            :: OnlyA
+        end
+    end
+    one_untagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        steps: begin
+            E + A ⇌ E(A)            :: OnlyA
+            E(A) + B ⇌ E(A, B)      :: EqualAI
+            E(A, B) <--> E(P)       :: EqualAI
+            E + P ⇌ E(P)            :: EqualAI
+        end
+    end
+    @test EnzymeRates._guard(untagged) == EnzymeRates._WELL_POSED
+    @test EnzymeRates._guard(joins_tagged) == EnzymeRates._WELL_POSED
+    @test EnzymeRates._guard(one_untagged).fault === EnzymeRates._NO_LIMIT
+end
+
+@testset "forms reached only through tagged chemistry are an island" begin
+    rng = Random.MersenneTwister(41)
+    IS, U = EnzymeRates._ISLAND, EnzymeRates._LIMIT_UNTESTED
+    _testhelper_edge_between(x, a, b) = only(k for (k, e) in enumerate(x.catalytic.edges)
+        if Set(EnzymeRates._form_name.(Ref(x.catalytic), (e.from, e.to))) == Set((a, b)))
+    _testhelper_island_verdict(x) =
+        _testhelper_epath_verdict(x; rng) in (:direction_dependent, :wrong_limit)
+    # Both half-reactions of the ping-pong :OnlyA: the covalent forms join free E only
+    # through chemistry. The message names half 1, which runs toward products into the
+    # island (it is stored as the uptake of P), and its untagging leaves half 2 :OnlyA, a
+    # well-posed variant.
+    both = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)                                       :: EqualAI
+            E(A) <--> E(; residual = A - P) + P                   :: OnlyA
+            E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
+            E(B; residual = A - P) <--> E + Q                     :: OnlyA
+        end
+    end
+    half1 = _testhelper_edge(both, "E_res_plusA_minusP + P <--> EA")
+    @test !EnzymeRates._runs_toward_products(both.catalytic, both.catalytic.edges[half1])
+    v = EnzymeRates._guard(both)
+    @test v == EnzymeRates._Verdict(IS, U, 0, 2, half1)
+    @test !isempty(_testhelper_exclusion(both, 2).lost)
+    @test _testhelper_island_verdict(both)
+    line = EnzymeRates._step_text(both.catalytic, half1)
+    @test EnzymeRates._guard_message(both, v) ==
+          "AllostericMechanism: in the inactive conformation the forms " *
+          "E(; residual = A - P), E(B; residual = A - P) join free E only through " *
+          ":OnlyA steps that are not bindings toward them, such as $line, so their " *
+          "weight depends on how fast those steps vanish. Tag the group of $line " *
+          ":EqualAI or :NonequalAI."
+    @test EnzymeRates._guard(_testhelper_tag_sets["pp_V_half2"]) == EnzymeRates._WELL_POSED
+    # R3 and R4: a second free form behind a tagged isomerization; untagging it passes.
+    r3 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)        :: EqualAI
+            E(S) <--> E(P)      :: EqualAI
+            E + P ⇌ E(P)        :: EqualAI
+            E <--> F            :: OnlyA
+            F + I ⇌ F(I)        :: EqualAI
+        end
+    end
+    r3_untagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)        :: EqualAI
+            E(S) <--> E(P)      :: EqualAI
+            E + P ⇌ E(P)        :: EqualAI
+            E <--> F            :: EqualAI
+            F + I ⇌ F(I)        :: EqualAI
+        end
+    end
+    r4 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)        :: EqualAI
+            E(S) <--> E(P)      :: NonequalAI
+            E + P ⇌ E(P)        :: EqualAI
+            F ⇌ E               :: OnlyA
+        end
+    end
+    r4_untagged = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)        :: EqualAI
+            E(S) <--> E(P)      :: NonequalAI
+            E + P ⇌ E(P)        :: EqualAI
+            F ⇌ E               :: EqualAI
+        end
+    end
+    for (x, fixed, forms) in ((r3, r3_untagged, "F, F(I)"), (r4, r4_untagged, "F"))
+        iso = _testhelper_edge_between(x, "E", "F")
+        v = EnzymeRates._guard(x)
+        @test v == EnzymeRates._Verdict(IS, U, 0, 2, iso)
+        @test _testhelper_island_verdict(x)
+        msg = EnzymeRates._guard_message(x, v)
+        line = EnzymeRates._step_text(x.catalytic, iso)
+        @test occursin("the forms $forms join free E", msg)
+        @test endswith(msg, "Tag the group of $line :EqualAI or :NonequalAI.")
+        @test EnzymeRates._guard(fixed) == EnzymeRates._WELL_POSED
+    end
+    # AD2b and the ping-pong with B's binding and half 1 :OnlyA: a tagged binding borders
+    # the island too, so untagging the named step leaves that binding inside a component,
+    # and the message offers no fix.
+    ad2b = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)        :: EqualAI
+            E(S) <--> E(P)      :: EqualAI
+            F + P ⇌ E(P)        :: OnlyA
+            F <--> E            :: OnlyA
+        end
+    end
+    bbind = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)                                       :: EqualAI
+            E(A) <--> E(; residual = A - P) + P                   :: OnlyA
+            E(; residual = A - P) + B <--> E(B; residual = A - P) :: OnlyA
+            E(B; residual = A - P) <--> E + Q                     :: EqualAI
+        end
+    end
+    for (x, named) in ((ad2b, _testhelper_edge_between(ad2b, "E", "F")),
+                       (bbind, _testhelper_edge(bbind, "E_res_plusA_minusP + P <--> EA")))
+        v = EnzymeRates._guard(x)
+        @test v == EnzymeRates._Verdict(IS, U, 0, 2, named)
+        @test _testhelper_island_verdict(x)
+        @test !occursin("Tag the group", EnzymeRates._guard_message(x, v))
+    end
+end
+
+@testset "the admitted tag sets pass admission's interior" begin
+    @testset "$name" for name in sort!(collect(keys(_testhelper_tag_sets)))
+        @test EnzymeRates._admission_interior(_testhelper_tag_sets[name]) ==
+              EnzymeRates._WELL_POSED
+    end
+end
+
+@testset "a mixed :OnlyA group whose limit exists is admitted" begin
+    # B's fused binding into E(P, Q) and its plain binding at E(Q) share one :OnlyA group;
+    # in the inactive conformation no untagged step joins E(Q) to E(B, Q), so the plain
+    # binding's affinity can vanish, and the limit is deletion plus pruning.
+    am = _testhelper_tag_sets["mixed_group_limit"]
+    @test _testhelper_exclusion(am, 2).failure === :none
+    @test _testhelper_lp_existence(am, 2)
+    @test EnzymeRates._admission_interior(am) == EnzymeRates._WELL_POSED
+    @test EnzymeRates._guard(am) == EnzymeRates._WELL_POSED
+    @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(43)) === :converges
+end

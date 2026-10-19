@@ -132,7 +132,11 @@ turns it over (`_RE_TURNOVER`, class 2); on a face (class 3), a second closed cl
 (`_NONUNIQUE`), a rapid-equilibrium segment with no lowest form (`_BOTTOMLESS`), or a law
 the limit test rejects where procedure A stopped at a trap fed on the face (`_TRAP`), a
 segment whose lowest forms split (`_SPLIT`), a law segment chain with several closed
-classes (`_LAW_MULTI`) or an aggregated chain with several (`_MULTILEVEL`).
+classes (`_LAW_MULTI`) or an aggregated chain with several (`_MULTILEVEL`); in admission's
+interior (class 4, spec section 7), a tagged binding whose two sides the conformation's
+other steps join (`_NO_LIMIT`), tagged bindings that close a directed cycle
+(`_ARC_CYCLE`), or forms free E's component does not reach along the tagged bindings
+(`_ISLAND`).
 """
 @enum _Fault::UInt8 begin
     _NO_FAULT
@@ -144,7 +148,13 @@ classes (`_LAW_MULTI`) or an aggregated chain with several (`_MULTILEVEL`).
     _SPLIT
     _LAW_MULTI
     _MULTILEVEL
+    _NO_LIMIT
+    _ARC_CYCLE
+    _ISLAND
 end
+
+"""The faults admission reports (spec section 7); `_admission_message` writes their text."""
+const _ADMISSION_FAULTS = (_NO_LIMIT, _ARC_CYCLE, _ISLAND)
 
 """
 The limit test's verdict on a face (class 3): not run (`_LIMIT_UNTESTED`); the fast-RE
@@ -428,9 +438,10 @@ end
 The well-posedness guard (spec section 8) on `m`, plain or allosteric: class 1 (a cycle
 turns the reaction over, `_has_turnover_cycle`); class 2 (no cycle of fast transitions
 does, `_re_turnover_transitions`, on the ε-network, where an excluded rapid-equilibrium
-binding stays fast while its affinity vanishes); then class 3 on every face
-(`_check_face`, on the law network), the first fault winning. `_WELL_POSED` when every
-check passes. It reads the reaction graph through masks and builds nothing.
+binding stays fast while its affinity vanishes); for an allosteric mechanism, admission's
+interior (`_admission_interior`); then class 3 on every face (`_check_face`, on the law
+network), the first fault winning. `_WELL_POSED` when every check passes. It reads the
+reaction graph through masks and builds nothing.
 """
 function _guard(m::Mechanism)
     _has_turnover_cycle(m, trues(length(m.edges))) ||
@@ -445,6 +456,8 @@ function _guard(am::AllostericMechanism)
     _has_turnover_cycle(m, trues(length(m.edges))) ||
         return _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0)
     v = _re_turnover_verdict(_eps_network(am))
+    v === _WELL_POSED || return v
+    v = _admission_interior(am)
     v === _WELL_POSED || return v
     _faces_verdict(am, _law_network(am))
 end
@@ -1372,6 +1385,263 @@ function _face_limit_check(mech::_AnyMech, net::_Network, s, face::UInt64, seed:
     _LIMIT_EQUAL
 end
 
+# ─── Admission: the interior (spec section 7) ──────────────────────────
+
+"""
+Each form's component under the edges of `am`'s catalytic graph that conformation `c`
+(1 active, 2 inactive) keeps (`_excludes`), every form included, labelled by its smallest
+form index. Admission reads each plain binding `c` excludes as an arc from its unbound
+side's component to its bound side's (`_arcs`).
+"""
+function _exclusion_components(am::AllostericMechanism, c::Int)
+    m = am.catalytic
+    parent = collect(eachindex(m.forms))
+    top(i) = (while parent[i] != i; i = parent[i]; end; i)
+    for (k, e) in enumerate(m.edges)
+        _excludes(am, k, c) && continue
+        a, b = top(e.from), top(e.to)
+        a == b || (parent[max(a, b)] = min(a, b))
+    end
+    [top(f) for f in eachindex(m.forms)]
+end
+
+"""The plain bindings of `am`'s catalytic graph that conformation `c` excludes, in edge
+order: admission's arcs, each stored as its uptake, unbound side first."""
+_arcs(am::AllostericMechanism, c::Int) =
+    [k for (k, e) in enumerate(am.catalytic.edges)
+     if _excludes(am, k, c) && _is_plain_binding(am.catalytic, e)]
+
+"""The first edge of `am`'s catalytic graph that conformation `c` excludes; 0 when it
+excludes none."""
+function _first_excluded(am::AllostericMechanism, c::Int)
+    for k in eachindex(am.catalytic.edges)
+        _excludes(am, k, c) && return k
+    end
+    0
+end
+
+"""
+The arcs of one directed cycle that `arcs` close over the components `comp` (each arc an
+edge of `m` read from its unbound side's component to its bound side's), in cycle order;
+empty when they close none. Kahn's algorithm removes every component no cycle feeds; a
+walk back along the remaining arcs then lands on a cycle.
+"""
+function _arc_cycle(m::Mechanism, comp::Vector{Int}, arcs::Vector{Int})
+    tail(k) = comp[m.edges[k].from]
+    head(k) = comp[m.edges[k].to]
+    indeg = zeros(Int, length(comp))
+    for k in arcs
+        indeg[head(k)] += 1
+    end
+    todo = [r for r in unique(comp) if indeg[r] == 0]
+    while !isempty(todo)
+        u = pop!(todo)
+        for k in arcs
+            tail(k) == u && (indeg[head(k)] -= 1) == 0 && push!(todo, head(k))
+        end
+    end
+    start = 0
+    for k in arcs
+        indeg[tail(k)] > 0 && indeg[head(k)] > 0 && (start = k; break)
+    end
+    start == 0 && return Int[]
+    function back(x)
+        for k in arcs
+            head(k) == x && indeg[tail(k)] > 0 && return k
+        end
+        0
+    end
+    x = head(start)
+    for _ in eachindex(comp)
+        x = tail(back(x))
+    end
+    cycle = [back(x)]
+    while tail(cycle[end]) != x
+        push!(cycle, back(tail(cycle[end])))
+    end
+    reverse!(cycle)
+end
+
+"""The components (`comp` labels) that free E's reaches along `arcs`, edges of `m` read
+from their unbound side's component to their bound side's."""
+function _reached_components(m::Mechanism, comp::Vector{Int}, arcs::Vector{Int})
+    reached = falses(length(comp))
+    reached[comp[1]] = true
+    grew = true
+    while grew
+        grew = false
+        for k in arcs
+            a, b = comp[m.edges[k].from], comp[m.edges[k].to]
+            reached[a] && !reached[b] && (reached[b] = true; grew = true)
+        end
+    end
+    reached
+end
+
+"""
+Whether edge `e` of `m` runs, as stored, toward products: from the side that holds more
+substrates, bound or free, then fewer products, the order canonical form gives a step that
+exchanges several metabolites (`_orientation`). A step that takes up or gives off one
+metabolite is stored as its uptake, so a half-reaction that releases a product,
+`E(A) <--> E(; residual = A - P) + P`, runs toward products against its stored direction.
+A step whose two sides tie, such as an isomerization of free forms, runs as stored.
+"""
+function _runs_toward_products(m::Mechanism, e::Edge)
+    substrate_mask, product_mask = _role_masks(m)
+    score(f::Int, free::Counts) =
+        (total(m.forms[f].bound & substrate_mask) + total(free & substrate_mask),
+         -total(m.forms[f].bound & product_mask) - total(free & product_mask))
+    score(e.from, e.consumed) >= score(e.to, e.released)
+end
+
+"""
+The edge an island's message names, 0 when free E's component reaches every component
+(`reached`): of the edges conformation `c` excludes that join a reached component to an
+unreached one, the first chemistry edge (`_is_chemistry`) that, run toward products
+(`_runs_toward_products`), enters the unreached one; else the first chemistry edge; else
+the first edge.
+"""
+function _island_edge(am::AllostericMechanism, c::Int, comp::Vector{Int},
+                      reached::BitVector)
+    m = am.catalytic
+    best, rank = 0, 4
+    for (k, e) in enumerate(m.edges)
+        _excludes(am, k, c) || continue
+        a, b = reached[comp[e.from]], reached[comp[e.to]]
+        a == b && continue
+        r = !_is_chemistry(m, e) ? 3 : a == _runs_toward_products(m, e) ? 1 : 2
+        if r < rank
+            best, rank = k, r
+        end
+    end
+    best
+end
+
+"""
+    _admission_interior(am) -> _Verdict
+
+Admission's interior checks (spec section 7), for each conformation `c` whose tags exclude
+an edge (`_excludes`), on the components of the forms its other edges join
+(`_exclusion_components`) with its tagged plain bindings as arcs (`_arcs`):
+- existence: no arc stays inside one component (`_NO_LIMIT`) and the arcs close no
+  directed cycle (`_ARC_CYCLE`); equivalent to the exact cone test, since with every other
+  constant fixed a direction's equilibrium-ratio exponents are differences of component
+  potentials and only the arcs need a sign;
+- uniqueness: free E's component reaches every component along the arcs, so every island
+  lies behind a tagged plain binding on its bound side and the limit is deletion plus
+  pruning (`_ISLAND`).
+The verdict carries the conformation and the edge its message leads with (face 0).
+"""
+function _admission_interior(am::AllostericMechanism)
+    m = am.catalytic
+    for c in 1:2
+        _first_excluded(am, c) == 0 && continue
+        comp = _exclusion_components(am, c)
+        arcs = _arcs(am, c)
+        for k in arcs
+            comp[m.edges[k].from] == comp[m.edges[k].to] &&
+                return _Verdict(_NO_LIMIT, _LIMIT_UNTESTED, 0, c, k)
+        end
+        cycle = _arc_cycle(m, comp, arcs)
+        isempty(cycle) || return _Verdict(_ARC_CYCLE, _LIMIT_UNTESTED, 0, c, cycle[1])
+        k = _island_edge(am, c, comp, _reached_components(m, comp, arcs))
+        k == 0 || return _Verdict(_ISLAND, _LIMIT_UNTESTED, 0, c, k)
+    end
+    _WELL_POSED
+end
+
+"""The edges of a shortest path from form `a` to form `b` over the edges of `am`'s
+catalytic graph that conformation `c` keeps, in path order; empty when `a == b`. Callers
+pass two forms those edges join."""
+function _kept_path(am::AllostericMechanism, c::Int, a::Int, b::Int)
+    m = am.catalytic
+    via = zeros(Int, length(m.forms))
+    seen = falses(length(m.forms))
+    seen[a] = true
+    queue = [a]
+    head = 0
+    while !seen[b]
+        head += 1
+        u = queue[head]
+        for (k, e) in enumerate(m.edges)
+            _excludes(am, k, c) && continue
+            v = e.from == u ? e.to : e.to == u ? e.from : 0
+            (v == 0 || seen[v]) && continue
+            seen[v] = true
+            via[v] = k
+            push!(queue, v)
+        end
+    end
+    path = Int[]
+    f = b
+    while f != a
+        k = via[f]
+        pushfirst!(path, k)
+        f = m.edges[k].from == f ? m.edges[k].to : m.edges[k].from
+    end
+    path
+end
+
+"""
+The message of admission's verdict `v` on `am`: the cause, naming each step by its DSL
+line (`_step_text`), and a fix where a test shows its variant passes the guard.
+A fix that tags steps is offered for the inactive conformation only, since a step tagged
+`:OnlyI` must bind modifiers alone.
+"""
+function _admission_message(am::AllostericMechanism, v::_Verdict)
+    m = am.catalytic
+    c, k = v.conformation, v.edge
+    conf = c == 1 ? "active" : "inactive"
+    tag = c == 1 ? ":OnlyI" : ":OnlyA"
+    line(j) = _step_text(m, j)
+    lines(js) = join((_step_text(m, j) for j in js), "; ")
+    if v.fault === _NO_LIMIT
+        msg = "AllostericMechanism: in the $conf conformation, steps outside $tag " *
+              "groups still join the two sides of the $tag binding $(line(k)), so " *
+              "thermodynamics keeps its affinity finite and the binding has no limit " *
+              "there."
+        c == 2 || return msg
+        e = m.edges[k]
+        return msg * " Tag its group :EqualAI or :NonequalAI, or tag :OnlyA the steps " *
+               "that join its sides: $(lines(_kept_path(am, c, e.from, e.to)))."
+    elseif v.fault === _ARC_CYCLE
+        cycle = _arc_cycle(m, _exclusion_components(am, c), _arcs(am, c))
+        msg = "AllostericMechanism: the $tag bindings $(lines(cycle)) close a cycle in " *
+              "the $conf conformation: steps outside $tag groups join each one's bound " *
+              "side to the next one's unbound side, so thermodynamics forbids their " *
+              "affinities to vanish together."
+        c == 2 || return msg
+        joins = Int[]
+        for (i, j) in enumerate(cycle)
+            next = cycle[mod1(i + 1, length(cycle))]
+            append!(joins, _kept_path(am, c, m.edges[j].to, m.edges[next].from))
+        end
+        return msg * " Tag them :EqualAI or :NonequalAI, or tag :OnlyA the steps that " *
+               "join them: $(lines(unique!(joins)))."
+    elseif v.fault === _ISLAND
+        comp = _exclusion_components(am, c)
+        reached = _reached_components(m, comp, _arcs(am, c))
+        e = m.edges[k]
+        lost = reached[comp[e.from]] ? comp[e.to] : comp[e.from]
+        # Untagging the named step joins every lost form to free E's component only when
+        # one component is lost and the tagged steps it borders are all chemistry.
+        fixable = all(f -> reached[comp[f]] || comp[f] == lost, eachindex(m.forms))
+        for (j, d) in enumerate(m.edges)
+            _excludes(am, j, c) && reached[comp[d.from]] != reached[comp[d.to]] &&
+                !_is_chemistry(m, d) && (fixable = false)
+        end
+        msg = "AllostericMechanism: in the $conf conformation the forms " *
+              join([_form_text(m, f) for f in eachindex(m.forms) if comp[f] == lost],
+                   ", ") *
+              " join free E only through $tag steps that are not bindings toward them, " *
+              "such as $(line(k)), so their weight depends on how fast those steps vanish."
+        return c == 2 && fixable ?
+               msg * " Tag the group of $(line(k)) :EqualAI or :NonequalAI." : msg
+    else
+        error("_admission_message: $(v.fault) is no admission fault")
+    end
+end
+
 # ─── Guard messages ────────────────────────────────────────────────────
 
 """
@@ -1387,6 +1657,8 @@ function _guard_message(mech::_AnyMech, v::_Verdict)
         return "$who: no cycle of steps turns substrates into products, so the rate is " *
                "zero everywhere."
     v.fault === _RE_TURNOVER && return _re_turnover_message(who, mech)
+    mech isa AllostericMechanism && v.fault in _ADMISSION_FAULTS &&
+        return _admission_message(mech, v)
     v.fault === _NO_FAULT && error("_guard_message: verdict $v holds no fault")
     _face_message(who, mech, v)
 end
