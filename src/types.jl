@@ -1666,10 +1666,13 @@ _active_mask(am::AllostericMechanism) = _law_mask(am, 1)
 """Whether conformation `c` (1 active, 2 inactive) of `am` excludes edge `k`: an `:OnlyA`
 group's edge in the inactive conformation, an `:OnlyI` group's in the active one. There a
 plain binding loses its affinity and any other edge is blocked (spec section 7)."""
-function _excludes(am::AllostericMechanism, k::Int, c::Int)
-    tag = am.cat_allo_states[am.catalytic.group[k]]
-    (c == 2 && tag === :OnlyA) || (c == 1 && tag === :OnlyI)
-end
+_excludes(am::AllostericMechanism, k::Int, c::Int) =
+    _excluded_by(am.cat_allo_states[am.catalytic.group[k]], c == 2)
+
+"""Whether a step whose kinetic group is tagged `tag` is excluded from the inactive
+conformation (`inactive`) or the active one: an `:OnlyA` step from the inactive, an
+`:OnlyI` step from the active."""
+_excluded_by(tag::Symbol, inactive::Bool) = tag === (inactive ? :OnlyA : :OnlyI)
 
 """
 Each form's component under the edges of `am`'s catalytic graph that conformation `c`

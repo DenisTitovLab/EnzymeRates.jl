@@ -993,8 +993,7 @@ function _model_point(m::Mechanism, tags::Vector{Symbol}, ncopies::Int, face::UI
     nf, name_of = length(m.forms), _name_index(m)
     nnames = maximum(name_of; init = 0)
     nv = ncopies * nf + nnames
-    excluded(k, c) = !isempty(tags) &&
-        ((c == 2 && tags[m.group[k]] === :OnlyA) || (c == 1 && tags[m.group[k]] === :OnlyI))
+    excluded(k, c) = !isempty(tags) && _excluded_by(tags[m.group[k]], c == 2)
     function drop!(row, k, c, dir)
         e = m.edges[k]
         row[(c - 1) * nf + e.from] += dir

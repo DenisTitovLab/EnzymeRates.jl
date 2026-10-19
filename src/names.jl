@@ -109,8 +109,7 @@ function _constant_sides(m::_AnyMech, k::Int, slot::Int, state::Symbol,
     cm = catalytic(m)
     g = cm.group[k]
     tag = m isa AllostericMechanism ? cat_allo_state(m, g) : :None
-    (state === :I && tag === :OnlyA || state === :A && tag === :OnlyI) &&
-        return _sides(cm, k)
+    _excluded_by(tag, state === :I) && return _sides(cm, k)
     inactive = state === :I && tag in (:NonequalAI, :OnlyI)
     _sides(cm, get(() -> kept[(g, 1, inactive)], kept, (g, slot, inactive)))
 end

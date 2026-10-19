@@ -69,8 +69,8 @@ conformation that excludes it (an `:OnlyA` edge's inactive copy, an `:OnlyI` edg
 active one) is a class of its own.
 """
 _class(c::_Column, g::Int, tag::Symbol) =
-    c.inactive && tag === :OnlyA || !c.inactive && tag === :OnlyI ?
-        (c.edge, c.slot, c.inactive, true) : (g, c.slot, c.inactive, false)
+    _excluded_by(tag, c.inactive) ? (c.edge, c.slot, c.inactive, true) :
+                                    (g, c.slot, c.inactive, false)
 
 """
     _fundamental_cycles(m, flat) -> (Z, multiples)
