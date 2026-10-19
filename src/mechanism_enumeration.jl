@@ -444,11 +444,11 @@ mechanism, the tags, multiplicity and regulatory sites are kept; each child goes
 through the checked constructor.
 
 A parent that `_requires_hyperbolic_catalysis` (a conformational mechanism over
-more than one catalytic subunit) keeps only the children whose catalytic scheme
-passes `_hyperbolic_catalysis`. The check runs on the emitted minimal sets, not
-inside the gain predicate: a failing set would otherwise be extended with more
-flips, and more steady-state steps never restore a hyperbolic equation, so its
-supersets need no visit.
+more than one catalytic subunit) keeps only the children whose laws pass
+`_hyperbolic_catalysis` (each conformation's, for an allosteric child). The check
+runs on the emitted minimal sets, not inside the gain predicate: a failing set
+would otherwise be extended with more flips, and more steady-state steps never
+restore a hyperbolic equation, so its supersets need no visit.
 """
 function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
     cm = catalytic(m)
@@ -461,7 +461,7 @@ function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
     base = _re_segment_count(cm, _flags(cm))
     flips = _minimal_flips(re -> _re_segment_count(cm, re) > base, m, eligible)
     children = typeof(m)[_build(_raw(m, re)) for re in flips]
-    _requires_hyperbolic_catalysis(m) ? filter(_hyperbolic_catalysis, children) : children
+    filter(_hyperbolic_where_required, children)
 end
 
 """
@@ -924,6 +924,11 @@ only reweights each enzyme form and adds no power of its own.
 """
 _requires_hyperbolic_catalysis(::Mechanism) = false
 _requires_hyperbolic_catalysis(am::AllostericMechanism) = catalytic_multiplicity(am) > 1
+
+"""Whether `m` passes `_hyperbolic_catalysis` where it `_requires_hyperbolic_catalysis`;
+true where it does not."""
+_hyperbolic_where_required(m::Union{Mechanism, AllostericMechanism}) =
+    !_requires_hyperbolic_catalysis(m) || _hyperbolic_catalysis(m)
 
 """
     _hyperbolic_catalysis(m::Mechanism, on = trues(length(m.edges))) -> Bool
@@ -1768,7 +1773,7 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
                   AllostericMechanism(m, base, cn, [RegulatorySite([reg], cn, [tag])]))
         end
     end
-    filter(c -> !_requires_hyperbolic_catalysis(c) || _hyperbolic_catalysis(c), results)
+    filter(_hyperbolic_where_required, results)
 end
 
 """
@@ -1903,7 +1908,7 @@ function _expand_change_allo_state(am::AllostericMechanism)
         push!(results, _with(am; sites = new_sites))
     end
     filter!(c -> isempty(_redundant_copy_groups(c)), results)
-    _requires_hyperbolic_catalysis(am) ? filter!(_hyperbolic_catalysis, results) : results
+    filter!(_hyperbolic_where_required, results)
 end
 
 """
