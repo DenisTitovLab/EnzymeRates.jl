@@ -178,6 +178,41 @@ end
 """The node of form `f` in copy `c` of `net`."""
 _node(net::_Network, f::Int, c::Int) = (c - 1) * net.nforms + f
 
+"""Each node's transitions of `net` that `keep` flags and that leave it, in transition
+order."""
+function _out_transitions(net::_Network, keep::BitVector)
+    out = [Int[] for _ in 1:(net.nforms * net.ncopies)]
+    for t in eachindex(net.from)
+        keep[t] && push!(out[net.from[t]], t)
+    end
+    out
+end
+
+"""Each node's successors in `net` along the transitions `keep` flags, in transition
+order; its predecessors when `backward`."""
+function _successors(net::_Network, keep::BitVector; backward::Bool = false)
+    a, b = backward ? (net.to, net.from) : (net.from, net.to)
+    next = [Int[] for _ in 1:(net.nforms * net.ncopies)]
+    for t in eachindex(a)
+        keep[t] && push!(next[a[t]], b[t])
+    end
+    next
+end
+
+"""The nodes that the nodes `start` reach along the successor lists `next`, `start`
+included."""
+function _reached(next::Vector{Vector{Int}}, start::Vector{Int})
+    seen = falses(length(next))
+    seen[start] .= true
+    todo = copy(start)
+    while !isempty(todo)
+        for v in next[pop!(todo)]
+            seen[v] || (seen[v] = true; push!(todo, v))
+        end
+    end
+    seen
+end
+
 """
 The network over the `present` nodes holding both directions of edge `k` of `m` in copy
 `c` wherever `use[k, c]` holds, fast where `fast[k, c]` does, the stored direction
@@ -512,13 +547,8 @@ end
 
 """The closed classes of the transitions of `net` that `keep` marks, over its present
 nodes."""
-function _closed_classes(net::_Network, keep::BitVector)
-    next = [Int[] for _ in 1:(net.nforms * net.ncopies)]
-    for t in eachindex(net.from)
-        keep[t] && push!(next[net.from[t]], net.to[t])
-    end
-    _bottom_sccs(next, net.present)
-end
+_closed_classes(net::_Network, keep::BitVector) =
+    _bottom_sccs(_successors(net, keep), net.present)
 
 """The fast classes (`class_of`) that the alive fast transitions (`fast_next`) reach from
 node `w`, its own included."""
@@ -600,10 +630,7 @@ function _face_structure(net::_Network, face::UInt64)
     all(C -> all(u -> lowest[u] == lowest[C[1]], C), fast_classes) ||
         error("_face_structure: a fast class holds lowest and other forms")
     trap = BitVector([!lowest[C[1]] for C in fast_classes])
-    fast_next = [Int[] for _ in 1:nn]
-    for t in 1:nt
-        fast_alive[t] && push!(fast_next[net.from[t]], net.to[t])
-    end
+    fast_next = _successors(net, fast_alive)
     aggregated_next = [Int[] for _ in fast_classes]
     law_next = [Int[] for _ in segments]
     for t in 1:nt
@@ -690,10 +717,7 @@ function _trap_feeder(net::_Network, s)
         end
         (q, 0, true)
     end
-    fast_out = [Int[] for _ in 1:nn]
-    for t in eachindex(net.from)
-        s.alive[t] && net.fast[t] && push!(fast_out[net.from[t]], t)
-    end
+    fast_out = _out_transitions(net, s.alive .& net.fast)
     for t in eachindex(net.from)
         k = s.class_of[net.from[t]]
         s.alive[t] && !net.fast[t] && k > 0 && in_R[k] || continue
@@ -1446,17 +1470,11 @@ end
 """The components (`comp` labels) that free E's reaches along `arcs`, edges of `m` read
 from their unbound side's component to their bound side's."""
 function _reached_components(m::Mechanism, comp::Vector{Int}, arcs::Vector{Int})
-    reached = falses(length(comp))
-    reached[comp[1]] = true
-    grew = true
-    while grew
-        grew = false
-        for k in arcs
-            a, b = comp[m.edges[k].from], comp[m.edges[k].to]
-            reached[a] && !reached[b] && (reached[b] = true; grew = true)
-        end
+    next = [Int[] for _ in comp]
+    for k in arcs
+        push!(next[comp[m.edges[k].from]], comp[m.edges[k].to])
     end
-    reached
+    _reached(next, [comp[1]])
 end
 
 """
@@ -1702,22 +1720,6 @@ end
 
 # ─── Admission: the face condition ─────────────────────────────────────
 
-"""The nodes of `net` that the nodes `start` reach along the transitions `keep` flags,
-`start` included; against the transitions' direction when `backward`."""
-function _reach(net::_Network, keep::BitVector, start::BitVector, backward::Bool)
-    seen = copy(start)
-    todo = findall(seen)
-    while !isempty(todo)
-        u = pop!(todo)
-        for t in eachindex(net.from)
-            keep[t] || continue
-            a, b = backward ? (net.to[t], net.from[t]) : (net.from[t], net.to[t])
-            a == u && !seen[b] && (seen[b] = true; push!(todo, b))
-        end
-    end
-    seen
-end
-
 """
     _face_sets(net, law_nodes, face) -> (; alive, fed, n0, stranded)
 
@@ -1730,10 +1732,9 @@ no chain of alive transitions that do not vanish.
 function _face_sets(net::_Network, law_nodes::BitVector, face::UInt64)
     alive = BitVector([(net.takes[t] & face) == 0 for t in eachindex(net.takes)])
     n0 = alive .& .!net.vanishing
-    start = falses(length(net.present))
-    start[_node(net, 1, 1)] = true
-    fed = _reach(net, alive, start, false)
-    drains = _reach(net, n0, law_nodes .& net.present, true)
+    fed = _reached(_successors(net, alive), [_node(net, 1, 1)])
+    drains = _reached(_successors(net, n0; backward = true),
+                      findall(law_nodes .& net.present))
     (; alive, fed, n0, stranded = fed .& .!law_nodes .& .!drains)
 end
 
