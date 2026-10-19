@@ -1724,7 +1724,7 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
     end
 end
 
-# ─── Admission: the face condition B v3 ────────────────────────────────
+# ─── Admission: the face condition ─────────────────────────────────────
 
 """The nodes of `net` that the nodes `start` reach along the transitions `keep` flags,
 `start` included; against the transitions' direction when `backward`."""
@@ -1940,7 +1940,7 @@ _face_phrase(m::Mechanism, face::UInt64) =
 """
     _face_condition(net, law_nodes, face, x) -> _Verdict
 
-Admission's face condition, B v3, on face `face` of the ε-network `net` of an allosteric
+Admission's face condition, on face `face` of the ε-network `net` of an allosteric
 mechanism, whose law network holds the nodes `law_nodes`; `x` is the `change` row of its
 first substrate (`_turnover_name`). In order:
 - `_EPS_NONUNIQUE`: the alive transitions leave two closed classes, so at every ε the
