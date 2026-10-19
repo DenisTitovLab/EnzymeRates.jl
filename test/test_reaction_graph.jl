@@ -1118,11 +1118,7 @@ other step whose two forms the steps outside `:OnlyA` groups reach from free E.
 function _testhelper_inactive_reach(g)
     outside = [g.tags[s.group] !== :OnlyA for s in g.steps]
     reach = falses(length(g.forms))
-    for (j, s) in enumerate(g.steps)
-        outside[j] || continue
-        s.from == 1 && (reach[s.from] = true)
-        s.to == 1 && (reach[s.to] = true)
-    end
+    reach[1] = true
     grew = true
     while grew
         grew = false
