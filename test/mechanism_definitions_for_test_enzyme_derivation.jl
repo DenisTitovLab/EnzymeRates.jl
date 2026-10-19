@@ -536,6 +536,24 @@ function _testhelper_law_value(m, params::AbstractDict, concs::AbstractDict)
 end
 
 """
+    _testhelper_law_inputs(m, fitted, rng) -> (point, concs, params)
+
+What a check of a rate law against an oracle reads, drawn from `rng` in this order: a
+consistent point of the concrete mechanism `m` at 256 bits (`_testhelper_consistent_point`),
+then each metabolite's concentration, log-uniform between e^-1.5 and e^1.5, in
+`metabolites(m)` order. `params` holds the point's values of the fitted constants `fitted`
+and its `Keq`, the law's inputs.
+"""
+function _testhelper_law_inputs(m, fitted, rng)
+    point = setprecision(() -> _testhelper_consistent_point(m, rng), BigFloat, 256)
+    concs = Dict{Symbol, BigFloat}(x => exp(3 * big(rand(rng)) - big(1.5))
+                                   for x in EnzymeRates.metabolites(m))
+    params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
+    params[:Keq] = point.Keq
+    point, concs, params
+end
+
+"""
 Check that the rate law of `m` equals the exact steady state of its mass-action network
 (`_testhelper_steady_state_rate`) to `rtol` at `n_points` consistent points
 (`_testhelper_consistent_point`). The law reads the point's fitted constants and computes
@@ -553,11 +571,7 @@ function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1, compile
     fitted = EnzymeRates._dependent_param_exprs(typeof(em))[2]
     mets = EnzymeRates.metabolites(em)
     for _ in 1:n_points
-        point = setprecision(() -> _testhelper_consistent_point(mech, rng), BigFloat, 256)
-        concs = Dict{Symbol, BigFloat}(x => exp(3 * big(rand(rng)) - big(1.5))
-                                       for x in mets)
-        params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
-        params[:Keq] = point.Keq
+        point, concs, params = _testhelper_law_inputs(mech, fitted, rng)
         oracle = _testhelper_steady_state_rate(mech, point, concs)
         @test abs(_testhelper_law_value(em, params, concs) - oracle) <=
               rtol * abs(oracle)
@@ -1737,11 +1751,7 @@ function _testhelper_check_law_against_limit(m; n_points::Int = 3, seed::Int = 1
     rng = Random.MersenneTwister(seed)
     setprecision(BigFloat, 256) do
         for _ in 1:n_points
-            point = _testhelper_consistent_point(am, rng)
-            concs = Dict{Symbol, BigFloat}(x => exp(3 * big(rand(rng)) - big(1.5))
-                                           for x in EnzymeRates.metabolites(am))
-            params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
-            params[:Keq] = point.Keq
+            point, concs, params = _testhelper_law_inputs(am, fitted, rng)
             speeds = _testhelper_draw_speeds(am, rng)
             exact = _testhelper_re_limit(_testhelper_network(am, point, concs; speeds))
             @test abs(_testhelper_law_value(sub, params, concs) - exact) <=

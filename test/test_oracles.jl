@@ -932,11 +932,7 @@ end
         am = EnzymeRates.AllostericMechanism(m)
         fitted = EnzymeRates._dependent_param_exprs(typeof(m))[2]
         rng = Random.MersenneTwister(100 + i)
-        point = setprecision(() -> _testhelper_consistent_point(am, rng), BigFloat, 256)
-        concs = Dict{Symbol, BigFloat}(x => exp(3 * big(rand(rng)) - big(1.5))
-                                       for x in EnzymeRates.metabolites(am))
-        params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
-        params[:Keq] = point.Keq
+        point, concs, params = _testhelper_law_inputs(am, fitted, rng)
         exact = setprecision(() -> _testhelper_protomer_rate(am, point, concs; n),
                              BigFloat, 256)
         @test abs(_testhelper_law_value(m, params, concs) - exact) <=
@@ -950,11 +946,7 @@ end
     fitted = EnzymeRates._dependent_param_exprs(typeof(m))[2]
     rng = Random.MersenneTwister(201)
     for _ in 1:3
-        point = setprecision(() -> _testhelper_consistent_point(am, rng), BigFloat, 256)
-        concs = Dict{Symbol, BigFloat}(x => exp(3 * big(rand(rng)) - big(1.5))
-                                       for x in EnzymeRates.metabolites(am))
-        params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
-        params[:Keq] = point.Keq
+        point, concs, params = _testhelper_law_inputs(am, fitted, rng)
         law = _testhelper_law_value(m, params, concs)
         at_e = _testhelper_steady_state_rate(am, point, concs)
         at_eprime = _testhelper_steady_state_rate(am, point, concs; flip = eprime)
@@ -975,11 +967,7 @@ end
     fitted = EnzymeRates._dependent_param_exprs(typeof(m))[2]
     rng = Random.MersenneTwister(202)
     for _ in 1:3
-        point = setprecision(() -> _testhelper_consistent_point(am, rng), BigFloat, 256)
-        concs = Dict{Symbol, BigFloat}(x => exp(3 * big(rand(rng)) - big(1.5))
-                                       for x in EnzymeRates.metabolites(am))
-        params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
-        params[:Keq] = point.Keq
+        point, concs, params = _testhelper_law_inputs(am, fitted, rng)
         ratio(c) = cm.edges[kd].from == d ? 1 / point.K[kd, c] : point.K[kd, c]
         at_d = _testhelper_steady_state_rate(am, merge(point, (L = point.L * ratio(2) /
                                                                ratio(1),)),
