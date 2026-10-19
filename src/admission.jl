@@ -1595,8 +1595,8 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
         s = _face_sets(eps, law.present, face)
         if v.fault === _EPS_NONUNIQUE
             outside = _class_outside_law(_closed_classes(eps, s.alive), law.present)
-            forms = [_form_text(m, _form_of(eps, u)) *
-                     (_copy_of(eps, u) == 1 ? " (active)" : " (inactive)") for u in outside]
+            forms = [_form_text(m, _form_of(eps, u)) * _conformation_label(eps, u)
+                     for u in outside]
             return "AllostericMechanism: $(phrase)the forms $(join(forms, ", ")) " *
                    "hold the enzyme they receive and are reached only through tagged " *
                    "steps, so the steady state depends on where the enzyme starts."
@@ -1810,10 +1810,11 @@ function _class_outside_law(closed::Vector{Vector{Int}}, law_nodes::BitVector)
     closed[2]
 end
 
-"""How a message names face `face` of `m`, as the class-3 messages do: nothing for the
-interior, else `at zero ` and its zeroed names (`_face_names`), then a comma."""
-_face_phrase(m::Mechanism, face::UInt64) =
-    face == 0 ? "" : "at zero " * join(String.(_face_names(m, face)), ", ", " and ") * ", "
+"""How a message names face `face` of `m`: nothing for the interior, else `at zero `, its
+zeroed names (`_face_names`) and `place`, then a comma."""
+_face_phrase(m::Mechanism, face::UInt64, place::String = "") =
+    face == 0 ? "" :
+    "at zero " * join(String.(_face_names(m, face)), ", ", " and ") * place * ", "
 
 """
     _face_condition(net, law_nodes, face, x) -> _Verdict
@@ -2035,6 +2036,11 @@ function _re_turnover_message(who::String, mech::_AnyMech)
                                         msg
 end
 
+"""How a message labels node `u` of the two-copy network `net`: ` (active)` or
+` (inactive)`."""
+_conformation_label(net::_Network, u::Int) =
+    _copy_of(net, u) == 1 ? " (active)" : " (inactive)"
+
 """Where a class-3 fault of `mech` lies: nothing for a plain mechanism; the conformation
 `c` of an allosteric one."""
 _place(::Mechanism, ::Int) = ""
@@ -2051,29 +2057,28 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
     net = _law_network(mech)
     face = _faces(m)[v.face]
     s = _face_structure(net, face)
-    zeroed = "at zero " * join(String.(_face_names(m, face)), ", ", " and ")
-    at = zeroed * _place(mech, v.conformation)
+    at = _face_phrase(m, face, _place(mech, v.conformation))
     forms(nodes, label = _ -> "") =
         "{" * join([_form_text(m, _form_of(net, u)) * label(u) for u in nodes], ", ") * "}"
     lines(edges) = join([_step_text(m, k) for k in edges], ", ", " and ")
     if v.fault === _NONUNIQUE
         C = _away_class(s)
-        return "$who: $at, the forms $(forms(C)) keep enzyme away from free E: every " *
+        return "$who: $(at)the forms $(forms(C)) keep enzyme away from free E: every " *
                "step that leaves them takes up a zeroed metabolite " *
                "($(lines(_exits(net, s, C)))), so the steady state is not unique."
     elseif v.fault === _BOTTOMLESS
-        return "$who: $at, the rapid-equilibrium segment " *
+        return "$who: $(at)the rapid-equilibrium segment " *
                "$(forms(s.segments[s.bottomless])) has no form free of the zeroed " *
                "metabolites, so the rate is 0/0 there. Make one of the segment's binding " *
                "steps steady-state."
     elseif v.fault === _TRAP
         trap, edge, joined = _trap_feeder(net, s)
         joined &&
-            return "$who: $at, the forms $(forms(s.fast_classes[trap])) hold enzyme, but " *
+            return "$who: $(at)the forms $(forms(s.fast_classes[trap])) hold enzyme, but " *
                    "the rapid-equilibrium step $(_step_text(m, edge)) that joins them to " *
                    "the rest of their segment takes up a zeroed metabolite, so the rate " *
                    "law misweights them. Make that step's kinetic group steady-state."
-        return "$who: $at, the rapid-equilibrium step $(_step_text(m, edge)) fills the " *
+        return "$who: $(at)the rapid-equilibrium step $(_step_text(m, edge)) fills the " *
                "forms $(forms(s.fast_classes[trap])), which no rapid-equilibrium step " *
                "running there empties, so the rate law misweights them. Make that " *
                "step's kinetic group steady-state."
@@ -2083,11 +2088,10 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
         if allequal(_copy_of(net, u) for part in split.parts for u in part)
             parts = forms.(split.parts)
         else
-            at = zeroed
-            state(u) = _copy_of(net, u) == 1 ? " (active)" : " (inactive)"
-            parts = [forms(part, state) for part in split.parts]
+            at = _face_phrase(m, face)
+            parts = [forms(part, u -> _conformation_label(net, u)) for part in split.parts]
         end
-        return "$who: $at, the forms $(join(parts, " and ")) of one " *
+        return "$who: $(at)the forms $(join(parts, " and ")) of one " *
                "rapid-equilibrium segment are joined only by steps that take up a " *
                "zeroed metabolite ($(lines(split.joins))), so the rate law cannot weight " *
                "one against the other."
@@ -2098,7 +2102,7 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
                   "the steady state depends on how fast the rapid-equilibrium steps " *
                   "run, which the rate law does not carry" :
                   "the steady state's fast-equilibrium limit differs from the rate law"
-        return "$who: $at, $why."
+        return "$who: $(at)$why."
     end
     error("_face_message: no message for $(v.fault)")
 end
