@@ -104,6 +104,16 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   the exit keeps and in every allosteric child of those on the same graph: 33 with a
   regulator declared, at one subunit and again at two, and 13 at two subunits without one.
   Forward initial-rate data cannot fit any of them.
+- **A one-half tagging base is fitted only beside a regulator.**
+  When admission rejects the tag set that stops all chemistry, each tagging base stops one
+  half-reaction and the inactive conformation runs the other (`_tagging_bases`,
+  `src/mechanism_enumeration.jl`). The tagging move emits a base only beside a declared
+  regulator, and no move reaches the bare base: change-tag relaxes tags only to
+  `:NonequalAI`, and no move removes a site. Yet the bare base is well-posed and its `L`
+  identifiable: on the three-step bi-bi ping-pong each bare base fits 6 parameters at rank 6
+  over the parent's 5, at one and at two subunits, and the one that stops the first half
+  turns over at zero products. Without a regulator, the one allosteric child that ping-pong
+  keeps at two subunits has rate 0 there.
 
 ## Planned
 

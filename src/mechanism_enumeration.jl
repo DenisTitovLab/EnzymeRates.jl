@@ -1691,8 +1691,8 @@ holding a chemistry step (`_is_chemistry`): an isomerization, a fused binding or
 Theorell–Chance step; every other group is a binding group. On a ping-pong mechanism,
 tagging both half-reactions strands the covalent forms between them, so each half alone
 is a base and the other half runs in both conformations (spec section 7, "Allosteric
-ping-pong"). Two kinds whose conformational constant `L` never shows are not enumerated:
-the all-`:EqualAI` baseline and a V-type variant without a regulator.
+ping-pong"). Two kinds are not enumerated: the all-`:EqualAI` baseline and a V-type variant
+without a regulator.
 
   * The all-`:EqualAI` baseline is never emitted — the two conformations
     are identical, `L` cancels, and the mechanism is indistinguishable
@@ -1710,13 +1710,14 @@ the all-`:EqualAI` baseline and a V-type variant without a regulator.
     binds nothing: no rescaling absorbs an A or Q binding kept there. Binding nothing is
     not enough: in a random-order merged bi-bi, whose A group takes A up at E and at
     E(B) under one rate constant, `L` shows in every K-type variant.
-  * V-type: a base, with no `:OnlyA` binding, paired with a declared allosteric
-    regulator at a new site, one variant per `(regulator, tag)` with
-    `tag ∈ {:OnlyA, :OnlyI}`. On the every-chemistry base the inactive state binds
-    substrate and product as the active state does and runs no chemistry, so without a
-    regulator `L` folds entirely into `kcat` (`v = kcat/(1+L)·shape`) and is not
-    observable; every base is emitted only with a regulator. A reaction with no
-    declared allosteric regulators emits no V-type.
+  * V-type: a base, with no `:OnlyA` binding, paired with a declared allosteric regulator at
+    a new site, one variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. On the
+    every-chemistry base the inactive state binds substrate and product as the active state
+    does and runs no chemistry, so without a regulator `L` folds entirely into `kcat`
+    (`v = kcat/(1+L)·shape`) and is not observable. On a one-half base the inactive
+    conformation runs the other half-reaction, and `L` shows without a regulator too, yet
+    every base is emitted only with one. A reaction with no declared allosteric regulators
+    emits no V-type.
 
 Admission does not run class 3 of the guard: a child that fails a face is dropped where
 `expand_mechanisms` returns it. A ping-pong parent with no declared regulator can end
