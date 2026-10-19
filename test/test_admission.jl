@@ -2610,6 +2610,15 @@ end
     @test _testhelper_admission_faults(bs1) == [NO, NO, NO, NO, PU, PU]
     @test all(i -> _testhelper_corner_verdict(bs1, i) === :converges, 5:6)
     @test all(_testhelper_admission_agreement(bs1; rng)[1:4])
+    # The step that rejects BS1 has both its forms in the basin: it runs one way among
+    # them rather than feeding them.
+    v = EnzymeRates._guard(bs1)
+    @test (v.fault, v.face, v.conformation) == (PU, 5, 2)
+    @test EnzymeRates._guard_message(bs1, v) ==
+          "AllostericMechanism: at zero I and P, F + P ⇌ F(P) runs one way among the " *
+          "forms F, F(P), F(S) of the inactive conformation, which leave only through " *
+          "the vanishing steps E <--> F while nothing runs back the way it came, so " *
+          "their weight depends on how fast those steps vanish."
     fz = _testhelper_tag_sets["fz101_10232"]
     @test _testhelper_admission_faults(fz) == [NO, PU, PU, NO, PU, PU]
     @test _testhelper_corner_verdict(fz, 3) === :converges

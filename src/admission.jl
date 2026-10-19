@@ -1695,7 +1695,10 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
                 "which leave only through the vanishing steps $(lines(exits)) while " *
                 "nothing runs back the way it came, so their weight depends on how fast " *
                 "those steps vanish"
-            return "AllostericMechanism: $(phrase)$(line(k)) feeds the forms " *
+            e = m.edges[k]
+            inside = s.stranded[_node(eps, e.from, c)] && s.stranded[_node(eps, e.to, c)]
+            return "AllostericMechanism: $(phrase)$(line(k)) " *
+                   (inside ? "runs one way among" : "feeds") * " the forms " *
                    "$(join([_form_text(m, _form_of(eps, u)) for u in basin], ", ")) of " *
                    "the $conf conformation, $out."
         elseif c == 0
