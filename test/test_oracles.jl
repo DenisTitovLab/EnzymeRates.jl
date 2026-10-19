@@ -962,7 +962,7 @@ end
         @test abs(law - at_eprime) > big(10)^-4 * abs(at_e)
     end
     # A free form D in rapid equilibrium with E (D's label sorts before E's) changes no
-    # law: flipping at D with ratio L_D is flipping at E with ratio L_D·r_I/r_A, where
+    # law: flipping at E with ratio L is flipping at D with ratio L·r_I/r_A, where
     # r_c = [D_c]/[E_c]. So L means [E_I]/[E_A].
     m = eval(Meta.parse(_testhelper_iso_text(:uu_ss, (E_, E_, E_, E_);
                                              extra = "D ⇌ E :: NonequalAI")))
