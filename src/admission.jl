@@ -1891,13 +1891,13 @@ function _potential_on_sccs(net::_Network, keep::BitVector, x::Int)
     true
 end
 
-"""Whether the transitions `vanishing` shorten the cheapest spanning in-tree of `fed` over
+"""Whether the transitions `extra` shorten the cheapest spanning in-tree of `nodes` over
 `base` (`_fewest_slow`): R1's failure for one conformation's vanishing transitions, joint
-R1's for both."""
-function _bridges_jointly(net::_Network, fed::BitVector, base::BitVector,
-                          vanishing::BitVector)
-    without = _fewest_slow(net, fed, base)
-    with = _fewest_slow(net, fed, base .| vanishing)
+R1's for both conformations'."""
+function _shortens_in_tree(net::_Network, nodes::BitVector, base::BitVector,
+                           extra::BitVector)
+    without = _fewest_slow(net, nodes, base)
+    with = _fewest_slow(net, nodes, base .| extra)
     with >= 0 && (without < 0 || with < without)
 end
 
@@ -1951,7 +1951,7 @@ first substrate (`_turnover_name`). In order:
   depends on how fast its exits vanish; a basin entered only reversibly from the law
   network is sealed: its weight vanishes, and it leaves the fed nodes;
 - `_BRIDGE`: in some conformation the vanishing transitions shorten the cheapest spanning
-  in-tree of the fed nodes (R1 fails, `_bridges_jointly`) and the first substrate's uptake
+  in-tree of the fed nodes (R1 fails, `_shortens_in_tree`) and the first substrate's uptake
   is no potential on the strongly connected parts of its alive transitions that are not
   vanishing or are fast (T0+ fails, `_potential_on_sccs`), led by the first of its
   vanishing steps on a cheapest tree (`_bridging_edges`); or both conformations pass R1 and
@@ -1977,14 +1977,14 @@ function _face_condition(net::_Network, law_nodes::BitVector, face::UInt64, x::I
     for c in 1:net.ncopies
         (; van, held) = _copy_transitions(net, s.alive, nodes, c)
         any(van) || continue
-        if !_bridges_jointly(net, nodes, s.n0, van)
+        if !_shortens_in_tree(net, nodes, s.n0, van)
             passed += 1
         elseif !_potential_on_sccs(net, held, x)
             return _Verdict(_BRIDGE, _LIMIT_UNTESTED, 0, c,
                             first(_bridging_edges(net, nodes, s.n0, van)))
         end
     end
-    passed == 2 && _bridges_jointly(net, nodes, s.n0, s.alive .& net.vanishing) &&
+    passed == 2 && _shortens_in_tree(net, nodes, s.n0, s.alive .& net.vanishing) &&
         return _Verdict(_BRIDGE, _LIMIT_UNTESTED, 0, 0, 0)
     _WELL_POSED
 end

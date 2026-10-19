@@ -2528,7 +2528,7 @@ end
             s = EnzymeRates._face_sets(eps, law.present, face)
             nodes = s.fed .& .!s.stranded
             (; van, held) = EnzymeRates._copy_transitions(eps, s.alive, nodes, 2)
-            @test EnzymeRates._bridges_jointly(eps, nodes, s.n0, van)
+            @test EnzymeRates._shortens_in_tree(eps, nodes, s.n0, van)
             @test EnzymeRates._potential_on_sccs(eps, held, row) == potential
         end
     end
@@ -2565,7 +2565,7 @@ end
         s = EnzymeRates._face_sets(eps, law.present, face)
         nodes = s.fed .& .!s.stranded
         (; van, held) = EnzymeRates._copy_transitions(eps, s.alive, nodes, 2)
-        EnzymeRates._bridges_jointly(eps, nodes, s.n0, van) &&
+        EnzymeRates._shortens_in_tree(eps, nodes, s.n0, van) &&
             EnzymeRates._potential_on_sccs(eps, held, row)
     end
     @test [Set(EnzymeRates._face_names(m, f)) for f in faces[by_potential]] ==
@@ -2685,7 +2685,7 @@ end
     for c in 1:2
         (; van) = EnzymeRates._copy_transitions(net, s.alive, nodes, c)
         @test count(van) == 1
-        @test !EnzymeRates._bridges_jointly(net, nodes, s.n0, van)
+        @test !EnzymeRates._shortens_in_tree(net, nodes, s.n0, van)
     end
     @test EnzymeRates._fewest_slow(net, nodes, s.alive) == 0
     @test EnzymeRates._face_condition(net, net.present, UInt64(0), 1) ==
