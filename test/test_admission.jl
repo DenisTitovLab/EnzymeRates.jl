@@ -2704,3 +2704,61 @@ end
     broken = BitVector([1, 1, 1, 0, 1, 1, 1, 1, 1, 1])
     @test EnzymeRates._potential_on_sccs(turning, broken, 1)
 end
+
+@testset "class 5 finds the face where a denominator loses every monomial" begin
+    mono(pairs...) = EnzymeRates._mono(pairs...)
+    unit = EnzymeRates.poly_one()
+    faces = [Symbol[], [:P, :Q], [:S]]
+    # K·S + P·Q: zeroing P and Q leaves K·S, zeroing S leaves P·Q.
+    den = EnzymeRates.POLY(mono(:K => 1, :S => 1) => 1, mono(:P => 1, :Q => 1) => 1)
+    @test EnzymeRates._vanishing_face([(den, unit)], faces) == 0
+    # P·S + Q·S: zeroing P and Q leaves no term.
+    den = EnzymeRates.POLY(mono(:P => 1, :S => 1) => 1, mono(:Q => 1, :S => 1) => 1)
+    @test EnzymeRates._vanishing_face([(den, unit)], faces) == 2
+    # Two conformations, each denominator times the other's free-enzyme weight: S·1 and
+    # (1 + S)·P. Zeroing S keeps 1·P, zeroing P keeps S·1, zeroing both keeps nothing.
+    den_A = EnzymeRates.POLY(mono(:S => 1) => 1)
+    den_I = EnzymeRates.POLY(mono() => 1, mono(:S => 1) => 1)
+    d_A = EnzymeRates.POLY(mono(:P => 1) => 1)
+    branches = [(den_A, unit), (den_I, d_A)]
+    @test EnzymeRates._vanishing_face(branches, [Symbol[], [:S], [:P]]) == 0
+    @test EnzymeRates._vanishing_face(branches, [Symbol[], [:S, :P]]) == 2
+end
+
+@testset "the law of a steady-state dead end vanishes at zero products" begin
+    # E(Q) + P ⇌ E(P, Q) puts every form downstream of the chemistry behind a product: each
+    # term of the denominator holds P or Q, so the law is 0/0 with both zero (face 2).
+    m = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P, Q
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q <--> E(Q)
+            E(P) + Q <--> E(P, Q)
+        end
+    end
+    v = EnzymeRates._support_verdict(m, EnzymeRates._law_branches(m))
+    @test v == EnzymeRates._Verdict(EnzymeRates._DENOMINATOR_VANISHES,
+                                    EnzymeRates._LIMIT_UNTESTED, 2, 0, 0)
+    @test EnzymeRates._guard_message(m, v) ==
+          "Mechanism: at zero P and Q, every term of the rate law's denominator " *
+          "vanishes, so the rate is 0/0 there."
+    am = _testhelper_tag_sets["AD3a"]
+    @test length(EnzymeRates._law_branches(am)) == 2
+    w = EnzymeRates._Verdict(EnzymeRates._DENOMINATOR_VANISHES,
+                             EnzymeRates._LIMIT_UNTESTED, 2, 0, 0)
+    @test EnzymeRates._guard_message(am, w) ==
+          "AllostericMechanism: at zero P, every term of the rate law's denominator " *
+          "vanishes, so the rate is 0/0 there."
+end
+
+@testset "every spec's denominator keeps a monomial on every face" begin
+    traps = ("Numerator: redundant SS-bind", "LDH i-state NonequalAI 6-group")
+    @testset "$(spec.name)" for spec in filter(s -> s.name ∉ traps, MECHANISM_TEST_SPECS)
+        x = _testhelper_lift(spec.mechanism)
+        @test EnzymeRates._support_verdict(x, EnzymeRates._law_branches(x)) ==
+              EnzymeRates._WELL_POSED
+    end
+end

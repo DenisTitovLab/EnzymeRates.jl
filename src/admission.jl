@@ -139,7 +139,8 @@ other steps join (`_NO_LIMIT`), tagged bindings that close a directed cycle
 (`_ISLAND`); on a face, in admission's face condition, a second closed class of the
 ε-network (`_EPS_NONUNIQUE`), a stranded basin a step feeds that does not run back from the
 law's forms (`_PUMPED`), or tagged steps that shorten the fed forms' cheapest spanning
-in-tree where no potential absorbs their turnover (`_BRIDGE`).
+in-tree where no potential absorbs their turnover (`_BRIDGE`); on a face of the derived
+law (class 5), a denominator that loses every term (`_DENOMINATOR_VANISHES`).
 """
 @enum _Fault::UInt8 begin
     _NO_FAULT
@@ -157,6 +158,7 @@ in-tree where no potential absorbs their turnover (`_BRIDGE`).
     _EPS_NONUNIQUE
     _PUMPED
     _BRIDGE
+    _DENOMINATOR_VANISHES
 end
 
 """The faults admission reports (spec section 7); `_admission_message` writes their text."""
@@ -2020,6 +2022,64 @@ function _admission(am::AllostericMechanism)
     _WELL_POSED
 end
 
+# ─── Class 5: the support test on the derived law (spec section 8) ─────
+
+"""
+    _law_branches(m) -> Vector{Tuple{POLY, POLY}}
+
+The derived denominator of `m`'s rate law as branches of positive terms, so that it keeps
+a monomial free of a face's names exactly when some branch's two factors both do: a plain
+mechanism's denominator in lowest terms (`_raw_symbolic_rate_polys`) times 1; an allosteric
+one's two conformations, each denominator times the other conformation's free-enzyme
+weight (`_mwc_state_polys`). Powers of a branch and the regulatory sites' factors, whose 1
+never vanishes, keep the same faces.
+"""
+_law_branches(m::Mechanism) = [(_raw_symbolic_rate_polys(m)[2], poly_one())]
+function _law_branches(am::AllostericMechanism)
+    _, den_A, _, den_I, d_A, d_I =
+        _mwc_state_polys(am, Set{Symbol}(metabolites(am.catalytic)), _kept_members(am))
+    [(den_A, d_I), (den_I, d_A)]
+end
+
+"""Whether some monomial of `p` holds none of the names `z` to a positive power."""
+function _keeps_monomial(p::POLY, z::Vector{Symbol})
+    for mono in keys(p)
+        any(((s, e),) -> e > 0 && s in z, mono) || return true
+    end
+    false
+end
+
+"""The first face, each given by its zeroed names, on which no branch of `branches`
+(`_law_branches`) keeps a monomial in both factors; 0 when every face keeps one."""
+function _vanishing_face(branches::Vector{Tuple{POLY, POLY}},
+                         faces::Vector{Vector{Symbol}})
+    for (i, z) in enumerate(faces)
+        any(b -> _keeps_monomial(b[1], z) && _keeps_monomial(b[2], z), branches) ||
+            return i
+    end
+    0
+end
+
+"""
+    _support_verdict(m, branches) -> _Verdict
+
+Class 5 (spec section 8): `_DENOMINATOR_VANISHES` on the first face of `m` (`_faces`)
+where the denominator `branches` (`_law_branches`) loses every monomial, so the law is 0/0
+there; it catches the steady-state dead ends class 3's structure misses.
+"""
+function _support_verdict(m::Mechanism, branches::Vector{Tuple{POLY, POLY}})
+    i = _vanishing_face(branches, [_face_names(m, f) for f in _faces(m)])
+    i == 0 ? _WELL_POSED : _Verdict(_DENOMINATOR_VANISHES, _LIMIT_UNTESTED, i, 0, 0)
+end
+_support_verdict(am::AllostericMechanism, branches::Vector{Tuple{POLY, POLY}}) =
+    _support_verdict(am.catalytic, branches)
+
+"""The message of class 5's verdict `v` on a mechanism that `who` names and whose catalytic
+graph is `m`: the face where every term of the law's denominator vanishes."""
+_support_message(who::String, m::Mechanism, v::_Verdict) =
+    "$who: $(_face_phrase(m, _faces(m)[v.face]))every term of the rate law's " *
+    "denominator vanishes, so the rate is 0/0 there."
+
 # ─── Guard messages ────────────────────────────────────────────────────
 
 """
@@ -2037,6 +2097,7 @@ function _guard_message(mech::_AnyMech, v::_Verdict)
     v.fault === _RE_TURNOVER && return _re_turnover_message(who, mech)
     mech isa AllostericMechanism && v.fault in _ADMISSION_FAULTS &&
         return _admission_message(mech, v)
+    v.fault === _DENOMINATOR_VANISHES && return _support_message(who, catalytic(mech), v)
     v.fault === _NO_FAULT && error("_guard_message: verdict $v holds no fault")
     _face_message(who, mech, v)
 end
