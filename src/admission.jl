@@ -383,52 +383,52 @@ function _tree_cycle(net::_Network, parent::Vector{Int}, u::Int, v::Int, t::Int)
 end
 
 """
-The transitions of a cycle of fast transitions of `net` that takes up some metabolite name
-net (class 2: the rate is infinite), in cycle order; empty when none does. Every name's
-offsets along a breadth-first forest of the fast transitions find the first transition
-they disagree on, which closes the cycle with its tree path. Class 2 runs once, at the
-interior, since a fast cycle that runs on a face runs at the interior too.
+    _fast_segments(net) -> (; segment, segments, offset, cycle)
+
+The rapid-equilibrium segments of `net`, walked breadth-first along its fast transitions
+from each present node no earlier walk reached: `segment[u]`, node `u`'s (0 for a node
+`net` does not hold); `segments`, each one's nodes in walk order; `offset[n, u]`, the
+copies of name `n` (`_name_index`) the walk takes up from the segment's first node to `u`;
+and `cycle`, the transitions of the first fast cycle that takes up some name net, which
+the first transition whose offsets disagree closes with its tree path, in cycle order.
+When `cycle` is empty, each offset is a potential: it does not depend on the walk.
 """
-function _re_turnover_transitions(net::_Network)
+function _fast_segments(net::_Network)
     nn = net.nforms * net.ncopies
-    adjacent = [Int[] for _ in 1:nn]
-    for t in eachindex(net.from)
-        net.fast[t] && net.forward[t] || continue
-        push!(adjacent[net.from[t]], t)
-        push!(adjacent[net.to[t]], t)
-    end
-    offset = zeros(Int, size(net.change, 1), nn)
-    parent = zeros(Int, nn)
-    seen = falses(nn)
+    out = _out_transitions(net, net.fast)
+    segment, segments, parent = zeros(Int, nn), Vector{Int}[], zeros(Int, nn)
+    offset, cycle = zeros(Int, size(net.change, 1), nn), Int[]
+    agrees(u, v, t) = all(n -> offset[n, v] == offset[n, u] + net.change[n, t],
+                          axes(offset, 1))
     for root in 1:nn
-        net.present[root] && !seen[root] || continue
-        seen[root] = true
-        queue = [root]
+        net.present[root] && segment[root] == 0 || continue
+        members = [root]
+        push!(segments, members)
+        segment[root] = length(segments)
         head = 0
-        while head < length(queue)
+        while head < length(members)
             head += 1
-            u = queue[head]
-            for t in adjacent[u]
-                t == parent[u] && continue
-                v, dir = net.from[t] == u ? (net.to[t], 1) : (net.from[t], -1)
-                if !seen[v]
-                    seen[v] = true
-                    parent[v] = t
-                    push!(queue, v)
-                    for n in axes(offset, 1)
-                        offset[n, v] = offset[n, u] + dir * net.change[n, t]
-                    end
-                else
-                    for n in axes(offset, 1)
-                        offset[n, v] == offset[n, u] + dir * net.change[n, t] ||
-                            return _tree_cycle(net, parent, u, v, t)
-                    end
+            u = members[head]
+            for t in out[u]
+                v = net.to[t]
+                if segment[v] == 0
+                    segment[v], parent[v] = length(segments), t
+                    push!(members, v)
+                    offset[:, v] .= view(offset, :, u) .+ view(net.change, :, t)
+                elseif isempty(cycle) && !agrees(u, v, t)
+                    cycle = _tree_cycle(net, parent, u, v, t)
                 end
             end
         end
     end
-    Int[]
+    (; segment, segments, offset, cycle)
 end
+
+"""The transitions of the first cycle of fast transitions of `net` that takes up some
+metabolite name net (class 2: the rate is infinite), in cycle order; empty when none does
+(`_fast_segments`). Class 2 runs once, at the interior, since a fast cycle that runs on a
+face runs at the interior too."""
+_re_turnover_transitions(net::_Network) = _fast_segments(net).cycle
 
 """
     _guard(m) -> _Verdict
@@ -572,8 +572,9 @@ end
 The structure procedure A reads on face `face` of the law network
 `net`: `alive`, the transitions that take up no zeroed name; `closed`, the closed classes
 of the alive ones; the rapid-equilibrium segments (`segment` per node, `segments`
-breadth-first), each node's uptake of every zeroed name from its segment's first node,
-and `lowest`, the nodes at the segment's componentwise least uptake, whose weight stays
+breadth-first) and each node's uptake of every name from its segment's first node
+(`offset`, `_fast_segments`), and `lowest`, the nodes at the segment's componentwise least
+uptake of the zeroed names, whose weight stays
 positive on the face; `bottomless`, the first segment with no lowest node (0 when none);
 the fast classes (closed classes of the alive fast transitions, a node with no alive fast
 exit its own), `class_of` each node's (0 for a node that drains elsewhere) and `trap`,
@@ -587,37 +588,12 @@ function _face_structure(net::_Network, face::UInt64)
     alive = BitVector([net.takes[t] & face == 0 for t in 1:nt])
     closed = _closed_classes(net, alive)
     zeroed = [n for n in axes(net.change, 1) if _zeroes(face, n)]
-    adjacent = [Int[] for _ in 1:nn]
-    for t in 1:nt
-        net.fast[t] && push!(adjacent[net.from[t]], t)
-    end
-    segment, segments = zeros(Int, nn), Vector{Int}[]
-    uptake = zeros(Int, length(zeroed), nn)
-    for root in 1:nn
-        net.present[root] && segment[root] == 0 || continue
-        members = [root]
-        push!(segments, members)
-        segment[root] = length(segments)
-        head = 0
-        while head < length(members)
-            head += 1
-            u = members[head]
-            for t in adjacent[u]
-                v = net.to[t]
-                segment[v] == 0 || continue
-                segment[v] = length(segments)
-                push!(members, v)
-                for (j, n) in enumerate(zeroed)
-                    uptake[j, v] = uptake[j, u] + net.change[n, t]
-                end
-            end
-        end
-    end
+    (; segment, segments, offset) = _fast_segments(net)
     lowest, bottomless = falses(nn), 0
     for (g, members) in enumerate(segments)
-        least = [minimum(uptake[j, u] for u in members) for j in eachindex(zeroed)]
+        least = [minimum(offset[n, u] for u in members) for n in zeroed]
         for u in members
-            lowest[u] = all(j -> uptake[j, u] == least[j], eachindex(zeroed))
+            lowest[u] = all(j -> offset[zeroed[j], u] == least[j], eachindex(zeroed))
         end
         bottomless == 0 && !any(u -> lowest[u], members) && (bottomless = g)
     end
@@ -645,8 +621,8 @@ function _face_structure(net::_Network, face::UInt64)
     end
     aggregated = _bottom_sccs(aggregated_next, trues(length(fast_classes)))
     law_classes = _bottom_sccs(law_next, trues(length(segments)))
-    (; alive, closed, segment, segments, lowest, bottomless, fast_classes, class_of, trap,
-     aggregated, law_classes)
+    (; alive, closed, segment, segments, offset, lowest, bottomless, fast_classes, class_of,
+     trap, aggregated, law_classes)
 end
 
 """
@@ -1101,33 +1077,6 @@ function _rates_p(m::Mechanism, net::_Network, pt, conc::Vector{Int64}, Λ::Int6
     r
 end
 
-"""Each node's potential of the turnover name `x1` along the fast transitions of `net`,
-from its segment's first node; class 2 has ruled out a fast cycle that takes it up."""
-function _fast_potential(net::_Network, x1::Int)
-    nn = net.nforms * net.ncopies
-    h, seen = zeros(Int, nn), falses(nn)
-    next = [Int[] for _ in 1:nn]
-    for t in eachindex(net.from)
-        net.fast[t] && push!(next[net.from[t]], t)
-    end
-    for root in 1:nn
-        net.present[root] && !seen[root] || continue
-        seen[root] = true
-        todo = [root]
-        while !isempty(todo)
-            u = pop!(todo)
-            for t in next[u]
-                v = net.to[t]
-                seen[v] && continue
-                seen[v] = true
-                h[v] = h[u] + net.change[x1, t]
-                push!(todo, v)
-            end
-        end
-    end
-    h
-end
-
 """ρ(u) mod p: over the slow transitions out of node `u`, their rate `r` times their
 uptake of `x1` plus the fall of its potential `h` along them."""
 function _slow_rho(net::_Network, r::Vector{Int64}, h::Vector{Int}, x1::Int)
@@ -1372,7 +1321,8 @@ function _face_limit_check(mech::_AnyMech, net::_Network, s, face::UInt64, seed:
     m, tags = catalytic(mech), _tags(mech)
     rng = _ResidueStream(seed)
     x1 = _turnover_name(m)
-    h = _fast_potential(net, x1)
+    # Class 2, which runs first, leaves no fast cycle that takes `x1` up: a potential.
+    h = s.offset[x1, :]
     limit(pt) = length(s.aggregated) == 1 ? _limit_by_aggregation(m, net, s, pt, h, x1) :
                 _limit_by_interpolation(m, net, s, pt, h, x1, rng)
     for _ in 1:2
