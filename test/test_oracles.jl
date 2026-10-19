@@ -1068,3 +1068,237 @@ end
     @test nbases == Dict(1 => 4, 2 => 14)
     @test n_kids == 66
 end
+
+# ── Population tests of the well-posedness guard ────────────────────────────
+
+# The census bi-bi declaration with A and I as competitive inhibitors (census/README.md,
+# "Reactions"), whose seeds' children are the population of the two inhibitor testsets
+# below (built in a let block around them).
+const _testhelper_inhibitor_rxn = @enzyme_reaction begin
+    substrates: A[C], B[N]
+    products: P[C], Q[N]
+    competitive_inhibitors: A, I
+end
+
+"""`m` with every metabolite renamed by `rename`, built by the constructors from its raw
+form (`_raw`), without the guard."""
+function _testhelper_renamed(m, rename::Dict{Symbol, Symbol})
+    r(x::Symbol) = get(rename, x, x)
+    met(x::EnzymeRates.Met) = EnzymeRates.Met(r(x.name), x.modifier)
+    _testhelper_raw_form(f::EnzymeRates.RawForm) = EnzymeRates.RawForm(f.conformation,
+        EnzymeRates.Met[met(x) for x in f.bound], Symbol[r(x) for x in f.added],
+        Symbol[r(x) for x in f.subtracted])
+    _testhelper_raw_step(s::EnzymeRates.RawStep) = EnzymeRates.RawStep(
+        _testhelper_raw_form(s.from), _testhelper_raw_form(s.to),
+        EnzymeRates.Met[met(x) for x in s.consumed],
+        EnzymeRates.Met[met(x) for x in s.released], s.rapid_equilibrium)
+    _testhelper_raw_graph(c::EnzymeRates.RawMechanism) = EnzymeRates.RawMechanism(
+        Symbol[r(x) for x in c.substrates], Symbol[r(x) for x in c.products],
+        Symbol[r(x) for x in c.modifiers],
+        EnzymeRates.RawStep[_testhelper_raw_step(s) for s in c.steps], copy(c.group))
+    raw = EnzymeRates._raw(m)
+    m isa EnzymeRates.Mechanism && return EnzymeRates.Mechanism(_testhelper_raw_graph(raw))
+    EnzymeRates.AllostericMechanism(EnzymeRates.RawAllostericMechanism(
+        _testhelper_raw_graph(raw.catalytic), copy(raw.cat_allo_states),
+        raw.catalytic_multiplicity,
+        [EnzymeRates.RawSite(Symbol[r(x) for x in s.ligands], s.multiplicity,
+                             copy(s.allo_states)) for s in raw.sites]))
+end
+
+"""The renaming of `m`'s metabolites that reverses their name order, so the table order and
+the first substrate change: the first name in order becomes `Z`, the next `Y`, and so on,
+skipping the reserved `N` and `L`."""
+function _testhelper_reversing_rename(m)
+    names = sort(EnzymeRates.metabolites(m))
+    Dict(zip(names, [:Z, :Y, :X, :W, :U, :T, :R, :M, :H, :G][1:length(names)]))
+end
+
+"""`m` built by the constructors from its raw form with its steps in reverse order, each
+written the other way round, without the guard: canonical form gives `m` back."""
+function _testhelper_written_backwards(m)
+    _testhelper_turn(s::EnzymeRates.RawStep) =
+        EnzymeRates.RawStep(s.to, s.from, s.released, s.consumed, s.rapid_equilibrium)
+    _testhelper_raw_graph(c::EnzymeRates.RawMechanism) = EnzymeRates.RawMechanism(
+        c.substrates, c.products, c.modifiers, reverse(_testhelper_turn.(c.steps)),
+        reverse(c.group))
+    raw = EnzymeRates._raw(m)
+    m isa EnzymeRates.Mechanism && return EnzymeRates.Mechanism(_testhelper_raw_graph(raw))
+    EnzymeRates.AllostericMechanism(EnzymeRates.RawAllostericMechanism(
+        _testhelper_raw_graph(raw.catalytic), raw.cat_allo_states,
+        raw.catalytic_multiplicity, raw.sites))
+end
+
+@testset "the guard equals the RE-speed oracle on every face of the population sample" begin
+    # The guard admits each of the 120 sampled mechanisms, as the exits they passed
+    # require, and on every face its class-3 verdict agrees with the RE-speed oracle at
+    # one point; an allosteric member is judged at one catalytic subunit.
+    rng = Random.MersenneTwister(401)
+    for m in _testhelper_population_sample
+        @test EnzymeRates._is_well_posed(m)
+        faults = _testhelper_face_faults(m)
+        @test all(_testhelper_agrees.(faults, _testhelper_respeed_verdicts(m; rng)))
+    end
+end
+
+@testset "the population's allosteric members converge along the ε-path on every face" begin
+    # Along the standard directions and every order of the two limits, each allosteric
+    # member of the sample tends to its deletion law on every face, and at the interior
+    # its error falls as a power of ε (`_testhelper_in_epath_window`).
+    rng = Random.MersenneTwister(402)
+    allo = [m for m in _testhelper_population_sample
+            if m isa EnzymeRates.AllostericMechanism]
+    @test length(allo) >= 30
+    for am in allo
+        @test all(face -> _testhelper_epath_verdict(am; rng, face) === :converges,
+                  _testhelper_faces(am))
+        @test _testhelper_in_epath_window(am; rng)
+    end
+end
+
+@testset "the graph test equals the exact LP over the grid and the population" begin
+    # Admission's existence test agrees with the exact LP, and its fault with the test's
+    # own exclusion structure, on the 108 uni-uni grid mechanisms and on every allosteric
+    # member of the one-round population.
+    allo = [m for m in _testhelper_population_one_round
+            if m isa EnzymeRates.AllostericMechanism]
+    @test length(allo) >= 30
+    for am in [_testhelper_uniuni_grid(); allo]
+        @test _testhelper_existence_agrees(am)
+    end
+end
+
+# The next two testsets read one population, built in a let block around them so that the
+# collector frees it after them: the children the moves give the inhibitor declaration's
+# seeds before expand_mechanisms drops the ones the guard rejects.
+let children = [c for m in EnzymeRates.init_mechanisms(_testhelper_inhibitor_rxn)
+                for c in _testhelper_plain_moves(m, _testhelper_inhibitor_rxn)]
+@testset "bi-bi inhibitor children pass the guard and no move tags catalysis :OnlyI" begin
+    # Every child the moves give the census bi-bi seeds with inhibitors A and I passes the
+    # guard, so expand_mechanisms drops none of them, and no allosteric child tags a
+    # catalytic group :OnlyI (spec section 13). An aggregate regression pin over the
+    # declaration's whole seed set (CLAUDE.md enumeration rule 1's exception).
+    kids = children
+    @test length(kids) == 5505
+    @test count(!EnzymeRates._is_well_posed, kids) == 0
+    allo = [c for c in kids if c isa EnzymeRates.AllostericMechanism]
+    @test !isempty(allo)
+    @test all(c -> :OnlyI ∉ EnzymeRates.cat_allo_states(c), allo)
+end
+
+@testset "the guard equals the RE-speed oracle on inhibitor children's modifier faces" begin
+    # 60 of the children above that bind I, spaced evenly through their content order; on
+    # every face that zeroes I the guard's class-3 verdict agrees with the RE-speed oracle
+    # at one point.
+    rng = Random.MersenneTwister(405)
+    binds_i = unique!([c for c in children
+                       if any(x -> x.name === :I, EnzymeRates.catalytic(c).table)])
+    @test length(binds_i) >= 60
+    sorted = binds_i[sortperm(_testhelper_content_text.(binds_i))]
+    for c in sorted[round.(Int, range(1, length(sorted); length = 60))]
+        modifier_faces = findall(face -> :I in face, _testhelper_faces(c))
+        @test !isempty(modifier_faces)
+        faults = _testhelper_face_faults(c)
+        verdicts = _testhelper_respeed_verdicts(c; rng)
+        @test all(f -> _testhelper_agrees(faults[f], verdicts[f]), modifier_faces)
+    end
+end
+end
+
+@testset "the guard's verdict survives reordering, reversal, regrouping and renames" begin
+    # The sample, plus four mechanisms the guard rejects: a lumpable split rejected at Q
+    # zero only (limit test `differ`), an unfed trap rejected at Q zero only (`speed`),
+    # R2's pumped inactive basin at zero product, and S1's second closed class at zero
+    # substrates. Reversing the step order and every step's direction gives the same
+    # mechanism. A same-model regrouping (a split the cycles tie back, the count
+    # unchanged) keeps the fault. A renaming that reverses the name order moves the faces'
+    # indices and the first substrate, and keeps the fault, the limit verdict, the
+    # conformation and the zeroed names.
+    lumpable_732 = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(A, B), E(P) + A <--> E(A, P))
+            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))
+            (E + Q ⇌ E(Q), E(B) + Q ⇌ E(B, Q), E(P) + Q ⇌ E(P, Q))
+            E(A, B) <--> E(P, Q)
+        end
+    end
+    unfed_trap = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(A, B)
+            E(A, B) <--> E(Q) + P
+            E + Q ⇌ E(Q)
+            E(Q) + P ⇌ E(P, Q)
+            E(P) + Q ⇌ E(P, Q)
+            E + P <--> E(P)
+        end
+    end
+    r2 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            F + P ⇌ E(P)      :: EqualAI
+            F <--> E          :: OnlyA
+        end
+    end
+    s1 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        modifiers: A
+        steps: begin
+            E + A <--> E(A)                 :: OnlyA
+            E(A) + B <--> E(A, B)           :: EqualAI
+            E(A, B) <--> E(P)               :: OnlyA
+            E(P) <--> E + P                 :: EqualAI
+            E + A::Mod ⇌ E(A::Mod)          :: OnlyA
+            E(A::Mod) + B ⇌ E(A::Mod, B)    :: EqualAI
+            E(B) + A::Mod ⇌ E(A::Mod, B)    :: EqualAI
+            F + B <--> E(B)                 :: EqualAI
+        end
+    end
+    rejected = [lumpable_732, unfed_trap, r2, s1]
+    verdicts = EnzymeRates._guard.(rejected)
+    @test all(v -> v.fault !== EnzymeRates._NO_FAULT, verdicts)
+    @test [(v.fault, v.limit, v.face) for v in verdicts[1:2]] ==
+          [(EnzymeRates._SPLIT, EnzymeRates._LIMIT_DIFFER, 7),
+           (EnzymeRates._SPLIT, EnzymeRates._LIMIT_SPEED, 7)]
+    @test (verdicts[3].fault, verdicts[3].face, verdicts[3].conformation) ==
+          (EnzymeRates._PUMPED, 2, 2)
+    @test (verdicts[4].fault, verdicts[4].face) == (EnzymeRates._NONUNIQUE, 3)
+    _testhelper_zeroed(m, v) = v.face == 0 ? Set{Symbol}() :
+        Set(EnzymeRates._face_names(EnzymeRates.catalytic(m),
+                                    EnzymeRates._faces(EnzymeRates.catalytic(m))[v.face]))
+    for m in [_testhelper_population_sample; rejected]
+        v = EnzymeRates._guard(m)
+        rewritten = _testhelper_written_backwards(m)
+        @test rewritten == m && EnzymeRates._guard(rewritten) == v
+        rename = _testhelper_reversing_rename(m)
+        renamed = _testhelper_renamed(m, rename)
+        w = EnzymeRates._guard(renamed)
+        @test (w.fault, w.limit, w.conformation) == (v.fault, v.limit, v.conformation)
+        @test _testhelper_zeroed(renamed, w) ==
+              Set(rename[x] for x in _testhelper_zeroed(m, v))
+    end
+    # The renaming moves Q's face: it is the last face of the lumpable split, and its
+    # renamed image W sorts before X, P's image, so the fault moves to face 6.
+    rename_732 = _testhelper_reversing_rename(lumpable_732)
+    @test EnzymeRates._guard(_testhelper_renamed(lumpable_732, rename_732)).face == 6
+    n_regrouped = 0
+    for m in _testhelper_population_sample
+        fault, n = EnzymeRates._guard(m).fault, EnzymeRates._independent_param_count(m)
+        cm = EnzymeRates.catalytic(m)
+        for g in 1:EnzymeRates.ngroups(cm), bp in EnzymeRates._context_bipartitions(cm, g)
+            child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
+            EnzymeRates._independent_param_count(child) == n || continue
+            n_regrouped += 1
+            @test EnzymeRates._guard(child).fault === fault
+        end
+    end
+    @test n_regrouped >= 20
+end

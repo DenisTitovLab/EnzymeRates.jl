@@ -1732,13 +1732,7 @@ end
     grid = _testhelper_uniuni_grid()
     @test length(grid) == 108
     for am in grid
-        v = EnzymeRates._admission_interior(am)
-        exists = v.fault ∉ (EnzymeRates._NO_LIMIT, EnzymeRates._ARC_CYCLE)
-        @test exists == _testhelper_lp_existence(am, 2)
-        ex = _testhelper_exclusion(am, 2)
-        @test v.fault === (ex.failure === :inside ? EnzymeRates._NO_LIMIT :
-                           ex.failure === :cycle ? EnzymeRates._ARC_CYCLE :
-                           isempty(ex.lost) ? EnzymeRates._NO_FAULT : EnzymeRates._ISLAND)
+        @test _testhelper_existence_agrees(am)
     end
 end
 

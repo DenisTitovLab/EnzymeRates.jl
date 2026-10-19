@@ -1518,11 +1518,13 @@ function _testhelper_epath_verdict(m; rng, face::Set{Symbol} = Set{Symbol}(),
 end
 
 """
-Whether every standard direction (`_testhelper_standard_directions`) of `m`'s ε-path at an
-interior point approaches the deletion law at a power of ε: over ε = 1e-9 … 1e-18 the
-error relative to the rate is `C·ε^p` within 10% at every decade, `p` a positive multiple
-of ½, with exact rapid-equilibrium limits (`_testhelper_re_limit`) in 512-bit BigFloat; an
-error below 1e-60 throughout passes.
+Whether every standard direction (`_testhelper_standard_directions`) with speed exponent
+σ = 1 of `m`'s ε-path at an interior point approaches the deletion law at a power of ε:
+over ε = 1e-9 … 1e-18 the error relative to the rate is `C·ε^p` within 10% at every
+decade, `p` a positive multiple of ½, with exact rapid-equilibrium limits
+(`_testhelper_re_limit`) in 512-bit BigFloat; an error below 1e-60 throughout passes. Only
+σ = 1: at σ = ½ the error runs in powers of ε^½, and a correction whose size depends on the
+point can delay the onset past ε = 1e-9.
 """
 function _testhelper_in_epath_window(m; rng)
     setprecision(BigFloat, 512) do
@@ -1534,7 +1536,7 @@ function _testhelper_in_epath_window(m; rng)
         vdel = _testhelper_re_limit(_testhelper_network(am, point, concs; speeds))
         scale = max(abs(vdel), big(10)^-30)
         eps = [big(10.0)^-j for j in 9:18]
-        all(_testhelper_standard_directions(am)) do d
+        all(filter(d -> all(isone, d.sigma), _testhelper_standard_directions(am))) do d
             errors = [abs(_testhelper_re_limit(_testhelper_network(
                           am, point, concs; speeds, mode = :vanish, ε,
                           potentials = d.potentials, sigma = d.sigma,
@@ -1927,6 +1929,33 @@ function _testhelper_onlyi_fixtures()
      mod_copy_substrate, mod_copy_product_twin, mod_copy_product_twin_nonequal,
      copy_group_mixed, copy_group_bridge, essential_activator, nonessential_activator,
      with_OnlyA, bibi_regulator)
+end
+
+# The children of the four moves `expand_mechanisms` runs on a plain `Mechanism` `m`, in
+# its order, before its regulator-type filter and before it drops the children the
+# guard rejects.
+_testhelper_plain_moves(m, rxn) = append!(
+    Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[],
+    EnzymeRates._expand_re_to_ss(m), EnzymeRates._expand_split_kinetic_group(m),
+    EnzymeRates._expand_add_dead_end_regulator(m, rxn),
+    EnzymeRates._expand_to_allosteric(m, rxn))
+
+"""
+Whether admission's existence test in the inactive conformation (`_admission_interior`:
+no tagged plain binding inside one component of that conformation's other steps, no cycle
+of such bindings) agrees with the exact LP (`_testhelper_lp_existence`) on `am`, a
+mechanism with no `:OnlyI` group, on which admission's active-conformation and turnover
+checks do not run, and its fault with the test's own exclusion structure
+(`_testhelper_exclusion`): inside, cycle, an island, or none.
+"""
+function _testhelper_existence_agrees(am)
+    v = EnzymeRates._admission_interior(am)
+    ex = _testhelper_exclusion(am, 2)
+    fault = ex.failure === :inside ? EnzymeRates._NO_LIMIT :
+            ex.failure === :cycle ? EnzymeRates._ARC_CYCLE :
+            isempty(ex.lost) ? EnzymeRates._NO_FAULT : EnzymeRates._ISLAND
+    exists = v.fault ∉ (EnzymeRates._NO_LIMIT, EnzymeRates._ARC_CYCLE)
+    exists == _testhelper_lp_existence(am, 2) && v.fault === fault
 end
 
 # ── Mechanism test specifications ───────────────────────────────────────────

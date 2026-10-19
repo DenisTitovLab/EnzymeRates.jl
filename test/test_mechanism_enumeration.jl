@@ -217,14 +217,6 @@ _testhelper_base(raw) = EnzymeRates._canonicalize(raw).mechanism
 # The productive twins of graph `m` over its whole graph (`_productive_twin`).
 _testhelper_twin(m) = EnzymeRates._productive_twin(m, trues(length(m.edges)))
 
-# The children of the four moves `expand_mechanisms` runs on a plain `Mechanism` `m`, in
-# its order, before its regulator-type filter.
-_testhelper_plain_moves(m, rxn) = append!(
-    Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[],
-    EnzymeRates._expand_re_to_ss(m), EnzymeRates._expand_split_kinetic_group(m),
-    EnzymeRates._expand_add_dead_end_regulator(m, rxn),
-    EnzymeRates._expand_to_allosteric(m, rxn))
-
 # A kinetic group is catalytic iff it holds a chemistry step (`_is_chemistry`:
 # an isomerization, a fused binding or a Theorell–Chance step); otherwise it is
 # a binding group. Mirrors the rule `_expand_to_allosteric` uses to decide
