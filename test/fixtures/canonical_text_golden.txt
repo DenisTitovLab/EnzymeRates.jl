@@ -111,13 +111,13 @@ forms: E, EP1, EP1P2, EP2, ES1, ES1S2, ES2
 8: ES1S2 ⇌ EP1P2 | group 8
 9: ES2 + S1 <--> ES1S2 | group 9
 
-# Numerator: redundant SS-bind
+# Numerator: redundant SS-bind, steady-state feeder
 substrates: S1, S2 | products: P
 forms: E, EP, ES1, ES1S2, ES2
 1: E + P ⇌ EP | group 1
 2: E + S1 <--> ES1 | group 2
 3: E + S2 ⇌ ES2 | group 3
-4: ES1 + S2 ⇌ ES1S2 | group 4
+4: ES1 + S2 <--> ES1S2 | group 4
 5: ES1S2 <--> EP | group 5
 6: ES2 + S1 ⇌ ES1S2 | group 6
 
@@ -424,21 +424,21 @@ forms: E, EP, ES
 3: ES <--> EP | group 3 :: OnlyA
 catalytic_multiplicity: 2
 
-# LDH i-state NonequalAI 6-group
+# LDH i-state NonequalAI 6-group, steady-state NAD group
 substrates: NADH, Pyruvate | products: Lactate, NAD
 forms: E, ELactate, ELactateNAD, ELactateNADH, ENAD, ENADPyruvate, ENADH, ENADHPyruvate, EPyruvate
 1: E + Lactate <--> ELactate | group 1 :: NonequalAI
-2: E + NAD ⇌ ENAD | group 2 :: EqualAI
+2: E + NAD <--> ENAD | group 2 :: EqualAI
 3: E + NADH <--> ENADH | group 3 :: OnlyA
 4: E + Pyruvate ⇌ EPyruvate | group 4 :: EqualAI
-5: ELactate + NAD ⇌ ELactateNAD | group 2 :: EqualAI
+5: ELactate + NAD <--> ELactateNAD | group 2 :: EqualAI
 6: ELactate + NADH <--> ELactateNADH | group 3 :: OnlyA
 7: ENAD + Lactate ⇌ ELactateNAD | group 5 :: EqualAI
 8: ENAD + Pyruvate ⇌ ENADPyruvate | group 4 :: EqualAI
 9: ENADH + Lactate <--> ELactateNADH | group 1 :: NonequalAI
 10: ENADH + Pyruvate ⇌ ENADHPyruvate | group 4 :: EqualAI
 11: ENADHPyruvate <--> ELactateNAD | group 6 :: OnlyA
-12: EPyruvate + NAD ⇌ ENADPyruvate | group 2 :: EqualAI
+12: EPyruvate + NAD <--> ENADPyruvate | group 2 :: EqualAI
 13: EPyruvate + NADH <--> ENADHPyruvate | group 3 :: OnlyA
 catalytic_multiplicity: 4
 

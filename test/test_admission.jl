@@ -2770,10 +2770,100 @@ end
 end
 
 @testset "every spec's denominator keeps a monomial on every face" begin
-    traps = ("Numerator: redundant SS-bind", "LDH i-state NonequalAI 6-group")
-    @testset "$(spec.name)" for spec in filter(s -> s.name ∉ traps, MECHANISM_TEST_SPECS)
+    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         x = _testhelper_lift(spec.mechanism)
         @test EnzymeRates._support_verdict(x, EnzymeRates._law_branches(x)) ==
               EnzymeRates._WELL_POSED
     end
+end
+
+@testset "the redundant steady-state binding spec traps substrate-free enzyme" begin
+    rng = Random.MersenneTwister(73)
+    NO, TR, SP = EnzymeRates._NO_FAULT, EnzymeRates._TRAP, EnzymeRates._SPLIT
+    # With S1 and S2 zero, E(S1, S2) feeds E(S1) by the fast release of S2, and E(S1)
+    # leaves only by its slow release of S1: a trap, whose limit depends on the RE speeds.
+    # With S2 zero, the lowest forms are joined only through E(S1, S2): a split.
+    m = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S1, S2
+        products: P
+        steps: begin
+            E + S1 <--> E(S1)
+            E + S2 ⇌ E(S2)
+            E(S1) + S2 ⇌ E(S1, S2)
+            E(S2) + S1 ⇌ E(S1, S2)
+            E(S1, S2) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    @test _testhelper_face_faults(m) == [NO, NO, TR, NO, SP]
+    @test _testhelper_respeed_verdicts(m; rng, law = :limit) ==
+          [:agree, :agree, :pattern, :agree, :pattern]
+    feed = _testhelper_edge(m, "ES1 + S2 ⇌ ES1S2")
+    v = EnzymeRates._guard(m)
+    @test (v.fault, v.limit, v.face, v.edge) ===
+          (TR, EnzymeRates._LIMIT_SPEED, 3, feed)
+    @test occursin(EnzymeRates._step_text(m, feed), EnzymeRates._guard_message(m, v))
+    # The variant makes the feeding step steady-state: every face passes, and its law is
+    # the exact steady state, before any pin.
+    spec = only(s for s in MECHANISM_TEST_SPECS
+                if s.name == "Numerator: redundant SS-bind, steady-state feeder")
+    x = _testhelper_lift(spec.mechanism)
+    _testhelper_check_law_against_oracle(spec.mechanism)
+    @test _testhelper_face_faults(x) == fill(NO, 5)
+    @test _testhelper_respeed_verdicts(spec.mechanism; rng, law = :package) ==
+          fill(:agree, 5)
+    @test EnzymeRates._guard(x) == EnzymeRates._WELL_POSED
+    @test EnzymeRates._support_verdict(x, EnzymeRates._law_branches(x)) ==
+          EnzymeRates._WELL_POSED
+    @test length(EnzymeRates.fitted_params(spec.mechanism)) == 7
+end
+
+@testset "the LDH inactive-state spec traps lactate-bound enzyme" begin
+    rng = Random.MersenneTwister(79)
+    NO, TR, SP = EnzymeRates._NO_FAULT, EnzymeRates._TRAP, EnzymeRates._SPLIT
+    # With Lactate and NAD zero, E(Lactate, NAD) feeds E(Lactate) by the fast release of
+    # NAD, and E(Lactate) leaves only slowly: a trap. With NAD zero, a split.
+    am = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: NADH, Pyruvate
+        products: Lactate, NAD
+        catalytic_multiplicity: 4
+        steps: begin
+            (E + Lactate <--> E(Lactate),
+             E(NADH) + Lactate <--> E(Lactate, NADH)) :: NonequalAI
+            (E + NAD ⇌ E(NAD),
+             E(Lactate) + NAD ⇌ E(Lactate, NAD),
+             E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate)) :: EqualAI
+            (E + NADH <--> E(NADH),
+             E(Lactate) + NADH <--> E(Lactate, NADH),
+             E(Pyruvate) + NADH <--> E(NADH, Pyruvate)) :: OnlyA
+            (E + Pyruvate ⇌ E(Pyruvate),
+             E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate),
+             E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate)) :: EqualAI
+            E(NAD) + Lactate ⇌ E(Lactate, NAD) :: EqualAI
+            E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA
+        end
+    end
+    @test _testhelper_admission_faults(am) == [NO, TR, NO, NO, NO, NO, SP]
+    @test _testhelper_respeed_verdicts(am; rng, law = :limit) ==
+          [:agree, :pattern, :agree, :agree, :agree, :agree, :pattern]
+    feed = _testhelper_edge(am, "ELactate + NAD ⇌ ELactateNAD")
+    v = EnzymeRates._guard(am)
+    @test (v.fault, v.limit, v.face, v.edge) ===
+          (TR, EnzymeRates._LIMIT_SPEED, 2, feed)
+    @test occursin(EnzymeRates._step_text(am.catalytic, feed),
+                   EnzymeRates._guard_message(am, v))
+    # The variant makes the :EqualAI NAD group steady-state, keeping its six groups: every
+    # face passes the guard and agrees with both oracles, and its law is exact.
+    spec = only(s for s in MECHANISM_TEST_SPECS
+                if s.name == "LDH i-state NonequalAI 6-group, steady-state NAD group")
+    x = _testhelper_lift(spec.mechanism)
+    _testhelper_check_law_against_oracle(spec.mechanism)
+    @test _testhelper_admission_faults(x) == fill(NO, 7)
+    @test all(_testhelper_admission_agreement(x; rng))
+    @test _testhelper_respeed_verdicts(spec.mechanism; rng, law = :package) ==
+          fill(:agree, 7)
+    @test EnzymeRates._guard(x) == EnzymeRates._WELL_POSED
+    @test EnzymeRates._support_verdict(x, EnzymeRates._law_branches(x)) ==
+          EnzymeRates._WELL_POSED
+    @test length(EnzymeRates.fitted_params(spec.mechanism)) == 10
 end

@@ -2299,8 +2299,8 @@ let
     ))
 end
 
-# 11d. Single-RE-segment with a redundant SS binding branch (one branch
-#      RE, one SS). ODE is ground truth.
+# 11d. Two binding orders into one complex: S1 then S2 at steady state, S2 then S1 at
+#      rapid equilibrium. ODE is ground truth.
 let
     m, raw = @_testhelper_with_raw @enzyme_mechanism begin
         substrates: S1, S2
@@ -2308,14 +2308,14 @@ let
         steps: begin
             E + S1 <--> E(S1)
             E + S2 ⇌ E(S2)
-            E(S1) + S2 ⇌ E(S1, S2)
+            E(S1) + S2 <--> E(S1, S2)
             E(S2) + S1 ⇌ E(S1, S2)
             E(S1, S2) <--> E(P)
             E(P) ⇌ E + P
         end
     end
     push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
-        name="Numerator: redundant SS-bind",
+        name="Numerator: redundant SS-bind, steady-state feeder",
         mechanism=m,
         raw=raw,
         metabolite_names=[:S1, :S2, :P],
@@ -2323,7 +2323,7 @@ let
         expected_n_steps=6,
         expected_n_haldane_constraints=1,
         expected_n_wegscheider_constraints=1,
-        expected_n_independent_params=6,
+        expected_n_independent_params=7,
     ))
 end
 
@@ -3942,9 +3942,9 @@ let
         steps: begin
             (E + Lactate <--> E(Lactate),
              E(NADH) + Lactate <--> E(Lactate, NADH)) :: NonequalAI
-            (E + NAD ⇌ E(NAD),
-             E(Lactate) + NAD ⇌ E(Lactate, NAD),
-             E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate)) :: EqualAI
+            (E + NAD <--> E(NAD),
+             E(Lactate) + NAD <--> E(Lactate, NAD),
+             E(Pyruvate) + NAD <--> E(NAD, Pyruvate)) :: EqualAI
             (E + NADH <--> E(NADH),
              E(Lactate) + NADH <--> E(Lactate, NADH),
              E(Pyruvate) + NADH <--> E(NADH, Pyruvate)) :: OnlyA
@@ -3956,13 +3956,13 @@ let
         end
     end
     push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
-        name="LDH i-state NonequalAI 6-group",
+        name="LDH i-state NonequalAI 6-group, steady-state NAD group",
         mechanism=m,
         raw=raw,
         metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
         expected_n_states=9, expected_n_steps=13,
         expected_n_haldane_constraints=1,
-        expected_n_wegscheider_constraints=2, expected_n_independent_params=9,
+        expected_n_wegscheider_constraints=2, expected_n_independent_params=10,
         run_ode_test=false))
 end
 
