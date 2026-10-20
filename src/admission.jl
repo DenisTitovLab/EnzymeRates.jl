@@ -715,10 +715,10 @@ function _trap_feeder(net::_Network, s)
 end
 
 """
-The split class 3 found on a face (stage `_SPLIT`): the first rapid-equilibrium segment
+The split class 3 found on a face (stage `_SPLIT`): of the first rapid-equilibrium segment
 that the aggregated chain's closed class meets and that holds more than one lowest fast
-class, those classes (`parts`), and the segment's rapid-equilibrium edges whose
-transitions take up a zeroed name (`joins`), the only edges that could join them.
+class, those classes (`parts`), and the rapid-equilibrium edges whose transitions leave
+one of them and take up a zeroed name (`joins`), the only edges that could join them.
 """
 function _split_parts(net::_Network, s)
     lowest_classes = [Int[] for _ in s.segments]
@@ -729,10 +729,11 @@ function _split_parts(net::_Network, s)
     R = s.aggregated[1]
     first_split = findfirst(k -> length(lowest_classes[segment_of(k)]) != 1, R)
     segment = segment_of(R[something(first_split, 1)])
+    parts = [s.fast_classes[k] for k in lowest_classes[segment]]
     joins = unique!([net.edge[t] for t in eachindex(net.from)
                      if net.fast[t] && !s.alive[t] && net.edge[t] != 0 &&
-                        s.segment[net.from[t]] == segment])
-    (; segment, parts = [s.fast_classes[k] for k in lowest_classes[segment]], joins)
+                        any(C -> insorted(net.from[t], C), parts)])
+    (; parts, joins)
 end
 
 """The kinetic-group tags the limit test ties: none for a plain mechanism."""

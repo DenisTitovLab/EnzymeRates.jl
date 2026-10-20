@@ -779,8 +779,8 @@ end
           "E(F16BP; residual = ATP - F16BP) (active)} and " *
           "{E(; residual = ATP - F16BP) (inactive), " *
           "E(F16BP; residual = ATP - F16BP) (inactive)} of one rapid-equilibrium segment " *
-          "are joined only by steps that take up a zeroed metabolite (E + ATP ⇌ E(ATP) " *
-          "and E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)), so " *
+          "are joined only by steps that take up a zeroed metabolite " *
+          "(E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)), so " *
           "the rate law cannot weight one against the other."
     # The LDH-like split at zero Q, every group :EqualAI: one part holds free E and E(A)
     # of both conformations, joined through the flip, so the labels go on the forms.
@@ -844,7 +844,7 @@ end
           "{E(B, X; residual = A - P), E(X; residual = A - P)} and " *
           "{E(B, Y; residual = A - P), E(Y; residual = A - P)} of one rapid-equilibrium " *
           "segment are joined only by steps that take up a zeroed metabolite " *
-          "(E + Q ⇌ E(Q), E(X; residual = A - P) + P ⇌ E(P, X; residual = A - P) and " *
+          "(E(X; residual = A - P) + P ⇌ E(P, X; residual = A - P) and " *
           "E(Y; residual = A - P) + P ⇌ E(P, Y; residual = A - P)), so the rate law " *
           "cannot weight one against the other."
 end
