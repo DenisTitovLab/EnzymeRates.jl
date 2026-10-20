@@ -705,6 +705,11 @@ end
         end
     end
     _testhelper_check_law_against_oracle(half2)
+    @test ER.fitted_params(half2) ==
+          (:K_A_EB_res_plusA_minusP_to_EQ, :K_EA_to_E_A,
+           :K_EB_res_plusA_minusP_to_E_res_plusA_minusP_B,
+           :K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P, :K_EQ_to_E_Q,
+           :k_EA_to_EP_res_plusA_minusP, :L)
 end
 
 # ── Fully-inert inactive network (both substrate and product bind :OnlyA) ─────
