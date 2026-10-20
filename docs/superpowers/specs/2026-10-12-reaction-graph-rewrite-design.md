@@ -497,7 +497,8 @@ independent oracle already confirmed both traps on the full face, with gaps up t
   weight times the equilibrium ratios along a content-ordered tree.
 - The denominator sums, over segments, the segment's weight times its spanning trees of the
   segment graph (King–Altman/Cha).
-- Exact polynomial arithmetic: checked `Int64`, retried in `BigInt` on overflow.
+- Exact polynomial arithmetic: checked `Int64`. Under the cap no coefficient leaves
+  `Int64` (proof in the PR), so an overflow is an internal error.
 - The size cap keeps today's measure (at most 5,000 spanning-tree products); for allosteric
   laws it applies to both conformations together.
 
