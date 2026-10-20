@@ -1648,8 +1648,8 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
     elseif v.fault === _NO_ACTIVE_TURNOVER
         ks = [j for j in eachindex(m.edges) if _excludes(am, j, 1)]
         msg = "AllostericMechanism: without its :OnlyI steps $(lines(ks)) the active " *
-              "conformation turns no substrate into product, so the enzyme never turns " *
-              "the reaction over."
+              "conformation turns no substrate into product, and only the active " *
+              "conformation may catalyze."
         return untag_passes(ks) ? msg * " Tag their groups :EqualAI or :NonequalAI." : msg
     else
         error("_admission_message: $(v.fault) is no admission fault")

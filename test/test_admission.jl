@@ -3602,8 +3602,8 @@ end
     @test (v.fault, v.face, v.conformation) == (EnzymeRates._NO_ACTIVE_TURNOVER, 0, 1)
     @test EnzymeRates._guard_message(ea, v) ==
           "AllostericMechanism: without its :OnlyI steps E + X ⇌ E(X) the active " *
-          "conformation turns no substrate into product, so the enzyme never turns " *
-          "the reaction over. Tag their groups :EqualAI or :NonequalAI."
+          "conformation turns no substrate into product, and only the active " *
+          "conformation may catalyze. Tag their groups :EqualAI or :NonequalAI."
     for (i, tag) in enumerate((:EqualAI, :NonequalAI))
         fixed = EnzymeRates.AllostericMechanism(eval(:(@allosteric_mechanism begin
             substrates: S
@@ -3644,8 +3644,8 @@ end
     @test !EnzymeRates._retag_passes(am, ks, :NonequalAI)
     @test EnzymeRates._guard_message(am, v) ==
           "AllostericMechanism: without its :OnlyI steps E + X ⇌ E(X); E(S) + X ⇌ " *
-          "E(S, X) the active conformation turns no substrate into product, so the " *
-          "enzyme never turns the reaction over."
+          "E(S, X) the active conformation turns no substrate into product, and only " *
+          "the active conformation may catalyze."
 end
 
 @testset "the active conformation's interior faults name the :OnlyI step" begin
