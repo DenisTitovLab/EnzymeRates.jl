@@ -2074,8 +2074,10 @@ enumeration respects `shared_catalytic_site`. The variants of each seed
 (`_seed_variants`) follow in the seeds' order, each once. The parameter counts
 are mixed: a three-group merged variant or a decorated Theorell–Chance variant
 fits more parameters than its seed, a merged ping-pong variant fewer. Errors when
-the reaction has no catalytic topology; a mechanism whose rate law the guard rejects
-(`_is_well_posed`) is dropped.
+the reaction has no catalytic topology. A seed whose rate law the guard rejects
+(`_is_well_posed`) is dropped, and so is a variant with no turnover cycle
+(`_has_turnover_cycle`): the flip search has run the guard's classes 2 and 3 on every
+variant (`_faces_pass`).
 """
 function init_mechanisms(r::EnzymeReaction)
     subs = Symbol[name(s) for s in substrates(r)]
@@ -2085,11 +2087,12 @@ function init_mechanisms(r::EnzymeReaction)
              for steps in seeds]
     foreach(m -> _assert_atom_conserving(m, r), mechs)
     seen = Set(mechs)
-    out = copy(mechs)
+    out = filter(_is_well_posed, mechs)
     for m in unique(mechs), v in _seed_variants(m, r)
-        v in seen || (push!(seen, v); push!(out, v))
+        v in seen && continue
+        push!(seen, v)
+        _has_turnover_cycle(v, trues(length(v.edges))) && push!(out, v)
     end
-    filter!(_is_well_posed, out)
     out
 end
 
