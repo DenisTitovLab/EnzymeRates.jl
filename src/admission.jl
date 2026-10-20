@@ -1536,8 +1536,9 @@ end
 
 """
 The message of admission's verdict `v` on `am`: the cause, naming each step by its DSL
-line (`_step_text`), and each fix only when its variant passes the guard
-(`_retag_passes`). A fix that tags steps is offered for the inactive conformation only,
+line (`_step_text`), and each fix only when its variant passes the guard: a retag through
+`_retag_passes`, a steady-state fix through `_steady_state_passes`. In the active
+conformation the only retag offered untags the `:OnlyI` groups that leave it no turnover,
 since a step tagged `:OnlyI` must bind modifiers alone.
 """
 function _admission_message(am::AllostericMechanism, v::_Verdict)
