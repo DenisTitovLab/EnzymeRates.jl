@@ -63,10 +63,11 @@ independent `k_A_ES_to_EP` and `k_I_ES_to_EP`; the activator `A` is `:OnlyA`
 (`K_A_Areg`, active state only) and the inhibitor `I` is `:OnlyI` (`K_I_Ireg`,
 inactive state only). An `:EqualAI` regulator `R` would take one bare constant, `K_Rreg`,
 in both states. `L` is the free-enzyme coupling constant.
-A catalytic group takes `:OnlyI` only when its steps bind a modifier and nothing else (a
+A catalytic group takes `:OnlyI` only when its steps bind modifiers and nothing else (a
 name under `modifiers:` or a reactant's `::Mod` copy), such as an inhibitor that binds only
 the inactive conformation. The active conformation must still catalyze, so the
-constructor rejects `:OnlyI` on a step that takes up or gives off a substrate or product.
+constructor rejects `:OnlyI` on a step that takes up or gives off a substrate or product,
+or changes what else its form holds.
 
 The mechanism also declares **multiplicities**, which capture the enzyme's
 oligomeric state. `catalytic_multiplicity` is the number of identical catalytic

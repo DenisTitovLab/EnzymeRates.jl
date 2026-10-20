@@ -184,6 +184,36 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(P) ⇌ E + P      :: NonequalAI
             end
         end
+        # Nor when they change what else their forms hold: that is catalysis.
+        why = " Only the active conformation catalyzes, so :OnlyI fits only a group " *
+              "whose steps take up or give off modifiers alone. Tag its group :NonequalAI."
+        @test_throws ("AllostericMechanism: E(S) + X ⇌ E(P, X) is tagged :OnlyI but does " *
+                      "more than bind a modifier." * why) @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            modifiers: X
+            steps: begin
+                E + S <--> E(S)          :: EqualAI
+                E(S) <--> E(P)           :: EqualAI
+                E + P <--> E(P)          :: EqualAI
+                E(S) + X ⇌ E(P, X)       :: OnlyI
+                E(P) + X <--> E(P, X)    :: EqualAI
+            end
+        end
+        copy_msg = "AllostericMechanism: E(S) + S::Mod ⇌ E(P, S::Mod) is tagged :OnlyI " *
+                   "but does more than bind a modifier." * why
+        @test_throws copy_msg @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            modifiers: S
+            steps: begin
+                E + S <--> E(S)                  :: EqualAI
+                E(S) <--> E(P)                   :: EqualAI
+                E + P <--> E(P)                  :: EqualAI
+                E(S) + S::Mod ⇌ E(P, S::Mod)     :: OnlyI
+                E(P) + S::Mod <--> E(P, S::Mod)  :: EqualAI
+            end
+        end
         onlyi = @allosteric_mechanism begin
             substrates: S
             products:   P

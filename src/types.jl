@@ -999,15 +999,18 @@ function _check_tags(cat_allo_states::Vector{Symbol}, G::Int, catalytic_multipli
 end
 
 """Error when a kinetic group of `catalytic` tagged `:OnlyI` (`cat_allo_states`) holds a
-step that does more than take up or give off modifiers (`_modifier_mask`): only the
-active conformation catalyzes, so a group it lacks binds modifiers alone (spec
-section 7)."""
+step that does more than take up or give off modifiers (`_modifier_mask`), or whose two
+forms differ in anything but their modifiers and label: only the active conformation
+catalyzes, so a group it lacks binds modifiers alone (spec section 7)."""
 function _check_onlyi_groups(catalytic::Mechanism, cat_allo_states::Vector{Symbol})
     modifiers = _modifier_mask(catalytic)
     for (k, e) in enumerate(catalytic.edges)
         cat_allo_states[catalytic.group[k]] === :OnlyI || continue
         exchanged = e.consumed | e.released
-        exchanged != 0 && exchanged & ~modifiers == 0 && continue
+        f, t = catalytic.forms[e.from], catalytic.forms[e.to]
+        exchanged != 0 && exchanged & ~modifiers == 0 &&
+            (f.bound & ~modifiers, f.added, f.subtracted) ==
+            (t.bound & ~modifiers, t.added, t.subtracted) && continue
         error("AllostericMechanism: $(_step_text(catalytic, k)) is tagged :OnlyI but " *
               "does more than bind a modifier. Only the active conformation " *
               "catalyzes, so :OnlyI fits only a group whose steps take up or give off " *
