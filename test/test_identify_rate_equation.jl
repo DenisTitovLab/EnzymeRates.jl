@@ -1956,8 +1956,8 @@ end
     @test !any(ER._degenerate, dropped)
     @test ER._guard_message(dropped[1], ER._guard(dropped[1])) ==
           "AllostericMechanism: at zero P, the :OnlyA step E <--> F bridges forms of " *
-          "the inactive conformation that its other steps keep apart, so the limit " *
-          "depends on how fast the tagged constants vanish."
+          "the inactive conformation that its other steps keep apart, so admission " *
+          "cannot show that the limit does not depend on how fast that step vanishes."
     base, failures = ER._base_tier([seed], rxn)
     @test isempty(failures)
     @test length(base) == 1

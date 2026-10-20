@@ -2661,8 +2661,8 @@ const _testhelper_face_rejected = Set(["R2", "BS1", "BS2", "BS3", "BS4", "ADbrid
     @test EnzymeRates._guard_message(am, v) ==
           "AllostericMechanism: at zero P, $(line(k)) feeds the forms F of the inactive " *
           "conformation, which leave only through the vanishing steps $(line(iso)) while " *
-          "nothing runs back the way it came, so their weight depends on how fast those " *
-          "steps vanish."
+          "nothing runs back the way it came, so admission cannot show that their weight " *
+          "does not depend on how fast those steps vanish."
 end
 
 @testset "admitted tag sets converge on every face" begin
@@ -2722,8 +2722,9 @@ end
     line = EnzymeRates._step_text(m, k)
     @test EnzymeRates._guard_message(am, v) ==
           "AllostericMechanism: the :OnlyA step $line bridges forms of the inactive " *
-          "conformation that its other steps keep apart, so the limit depends on how " *
-          "fast the tagged constants vanish. Make the group of $line steady-state."
+          "conformation that its other steps keep apart, so admission cannot show that " *
+          "the limit does not depend on how fast that step vanishes. Make the group of " *
+          "$line steady-state."
     fixed = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
@@ -2839,7 +2840,8 @@ end
           "AllostericMechanism: at zero I and P, F + P ⇌ F(P) runs one way among the " *
           "forms F, F(P), F(S) of the inactive conformation, which leave only through " *
           "the vanishing steps E <--> F while nothing runs back the way it came, so " *
-          "their weight depends on how fast those steps vanish."
+          "admission cannot show that their weight does not depend on how fast those " *
+          "steps vanish."
     fz = _testhelper_tag_sets["fz101_10232"]
     @test _testhelper_admission_faults(fz) == [NO, PU, PU, NO, PU, PU]
     @test _testhelper_corner_verdict(fz, 3) === :converges
@@ -3552,8 +3554,9 @@ end
     msg = EnzymeRates._guard_message(bridge, EnzymeRates._guard(bridge))
     @test startswith(msg, "AllostericMechanism: the :OnlyI step ") &&
           occursin(" bridges forms of the active conformation that its other steps " *
-                   "keep apart, so the limit depends on how fast the tagged constants " *
-                   "vanish. Make the group of ", msg) && endswith(msg, " steady-state.")
+                   "keep apart, so admission cannot show that the limit does not depend " *
+                   "on how fast that step vanishes. Make the group of ", msg) &&
+          endswith(msg, " steady-state.")
     # Along the oracle's five orders the ε-path settles on another value or depends on
     # the order.
     @test _testhelper_epath_verdict(bridge; rng = Random.MersenneTwister(71)) in
@@ -3776,7 +3779,8 @@ end
     @test EnzymeRates._guard_message(am, v) ==
           "AllostericMechanism: at zero P and Q, the tagged steps of both conformations " *
           "together bridge forms that each conformation's other steps keep apart, so " *
-          "the limit depends on how fast those steps vanish."
+          "admission cannot show that the limit does not depend on how fast those steps " *
+          "vanish."
     @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(95)))
 end
 

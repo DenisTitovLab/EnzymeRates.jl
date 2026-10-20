@@ -1621,8 +1621,8 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
             out = isempty(exits) ?
                 "which no step running there leaves, so the enzyme collects in them" :
                 "which leave only through the vanishing steps $(lines(exits)) while " *
-                "nothing runs back the way it came, so their weight depends on how fast " *
-                "those steps vanish"
+                "nothing runs back the way it came, so admission cannot show that their " *
+                "weight does not depend on how fast those steps vanish"
             e = m.edges[k]
             inside = s.stranded[_node(eps, e.from, c)] && s.stranded[_node(eps, e.to, c)]
             return "AllostericMechanism: $(phrase)$(line(k)) " *
@@ -1632,15 +1632,18 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
         elseif c == 0
             return "AllostericMechanism: $(phrase)the tagged steps of both " *
                    "conformations together bridge forms that each conformation's other " *
-                   "steps keep apart, so the limit depends on how fast those steps vanish."
+                   "steps keep apart, so admission cannot show that the limit does not " *
+                   "depend on how fast those steps vanish."
         end
         nodes = s.fed .& .!s.stranded
         (; van) = _copy_transitions(eps, s.alive, nodes, c)
         ks = _bridging_edges(eps, nodes, s.n0, van)
-        bridge = length(ks) == 1 ? "step $(line(k)) bridges" : "steps $(lines(ks)) bridge"
+        one = length(ks) == 1
+        bridge = one ? "step $(line(k)) bridges" : "steps $(lines(ks)) bridge"
+        vanish = one ? "that step vanishes" : "those steps vanish"
         msg = "AllostericMechanism: $(phrase)the $tag $bridge forms of the $conf " *
-              "conformation that its other steps keep apart, so the limit depends on how " *
-              "fast the tagged constants vanish."
+              "conformation that its other steps keep apart, so admission cannot show " *
+              "that the limit does not depend on how fast $vanish."
         # Offer the steady-state fix only where its variant passes the guard: R2funnel
         # keeps its bridge with its tagged S binding steady-state (R2funnel_SS).
         return _steady_state_passes(am, k) ?
