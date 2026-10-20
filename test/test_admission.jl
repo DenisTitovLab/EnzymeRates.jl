@@ -2776,9 +2776,39 @@ const _testhelper_face_rejected = Set(["R2", "BS1", "BS2", "BS3", "BS4", "ADbrid
     line(j) = EnzymeRates._step_text(m, j)
     @test EnzymeRates._guard_message(am, v) ==
           "AllostericMechanism: at zero P, $(line(k)) feeds the forms F of the inactive " *
-          "conformation, which leave only through the vanishing steps $(line(iso)) while " *
+          "conformation, which leave only through the vanishing step $(line(iso)) while " *
           "nothing runs back the way it came, so admission cannot show that their weight " *
-          "does not depend on how fast those steps vanish."
+          "does not depend on how fast that step vanishes."
+end
+
+@testset "a stranded basin with two vanishing exits names both steps in its message" begin
+    # At P zero, E(S) feeds F by a release whose reverse takes up P; F and F(I) leave the
+    # inactive conformation's basin only through the :OnlyA steps E(I) ⇌ F(I) and
+    # F <--> E, which vanish there. The ε-path oracle finds that limit direction-dependent.
+    am = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + I ⇌ E(I)        :: NonequalAI
+            E + S ⇌ E(S)        :: OnlyA
+            E(I) ⇌ F(I)         :: OnlyA
+            F <--> E            :: OnlyA
+            F + P <--> E(S)     :: NonequalAI
+            F + I ⇌ F(I)        :: OnlyA
+        end
+    end
+    rng = Random.MersenneTwister(43)
+    @test EnzymeRates._admission_interior(am) == EnzymeRates._WELL_POSED
+    @test _testhelper_epath_verdict(am; rng, face = _testhelper_faces(am)[2]) ===
+          :direction_dependent
+    v = EnzymeRates._guard(am)
+    @test (v.fault, v.face, v.conformation) == (EnzymeRates._PUMPED, 2, 2)
+    @test EnzymeRates._guard_message(am, v) ==
+          "AllostericMechanism: at zero P, F + P <--> E(S) feeds the forms F, F(I) of " *
+          "the inactive conformation, which leave only through the vanishing steps " *
+          "E(I) ⇌ F(I); F <--> E while nothing runs back the way it came, so admission " *
+          "cannot show that their weight does not depend on how fast those steps vanish."
 end
 
 @testset "admitted tag sets converge on every face" begin
@@ -2978,9 +3008,9 @@ end
     @test EnzymeRates._guard_message(bs1, v) ==
           "AllostericMechanism: at zero I and P, F + P ⇌ F(P) runs one way among the " *
           "forms F, F(P), F(S) of the inactive conformation, which leave only through " *
-          "the vanishing steps E <--> F while nothing runs back the way it came, so " *
-          "admission cannot show that their weight does not depend on how fast those " *
-          "steps vanish."
+          "the vanishing step E <--> F while nothing runs back the way it came, so " *
+          "admission cannot show that their weight does not depend on how fast that " *
+          "step vanishes."
     fz = _testhelper_tag_sets["fz101_10232"]
     @test _testhelper_admission_faults(fz) == [NO, PU, PU, NO, PU, PU]
     @test _testhelper_corner_verdict(fz, 3) === :converges

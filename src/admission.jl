@@ -1557,6 +1557,9 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
     tag = c == 1 ? ":OnlyI" : ":OnlyA"
     line(j) = _step_text(m, j)
     lines(js) = join((_step_text(m, j) for j in js), "; ")
+    # The steps `js` as "step …" or "steps …", and the clause that says they vanish.
+    steps(js) = (length(js) == 1 ? "step " : "steps ") * lines(js)
+    vanish(js) = length(js) == 1 ? "that step vanishes" : "those steps vanish"
     untag_passes(ks) = all(t -> _retag_passes(am, ks, t), (:EqualAI, :NonequalAI))
     # The fixes whose variants pass: the groups of `untag` (`what`) tagged :EqualAI or
     # :NonequalAI, and the steps `joins` that join `sides` tagged :OnlyA.
@@ -1628,9 +1631,9 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
             exits = unique!([eps.edge[t] for t in eachindex(eps.from)
                              if s.alive[t] && eps.vanishing[t] && eps.from[t] in basin &&
                                 !s.stranded[eps.to[t]]])
-            out = "which leave only through the vanishing steps $(lines(exits)) while " *
+            out = "which leave only through the vanishing $(steps(exits)) while " *
                   "nothing runs back the way it came, so admission cannot show that " *
-                  "their weight does not depend on how fast those steps vanish"
+                  "their weight does not depend on how fast $(vanish(exits))"
             e = m.edges[k]
             inside = s.stranded[_node(eps, e.from, c)] && s.stranded[_node(eps, e.to, c)]
             return "AllostericMechanism: $(phrase)$(line(k)) " *
@@ -1647,12 +1650,10 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
         nodes = s.fed .& .!s.stranded
         (; van) = _copy_transitions(eps, s.alive, nodes, c)
         ks = _bridging_edges(eps, nodes, s.n0, van)
-        one = length(ks) == 1
-        bridge = one ? "step $(line(k)) bridges" : "steps $(lines(ks)) bridge"
-        vanish = one ? "that step vanishes" : "those steps vanish"
+        bridge = steps(ks) * (length(ks) == 1 ? " bridges" : " bridge")
         msg = "AllostericMechanism: $(phrase)the $tag $bridge forms of the $conf " *
               "conformation that its other steps keep apart, so admission cannot show " *
-              "that the limit does not depend on how fast $vanish."
+              "that the limit does not depend on how fast $(vanish(ks))."
         # Offer the steady-state fix only where its variant passes the guard: R2funnel
         # keeps its bridge with its tagged S binding steady-state (R2funnel_SS).
         return _steady_state_passes(am, k) ?
