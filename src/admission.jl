@@ -1590,7 +1590,7 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
         s = _face_sets(eps, law.present, face)
         if v.fault === _EPS_NONUNIQUE
             outside = _class_outside_law(_closed_classes(eps, s.alive), law.present)
-            forms = [_form_text(m, _form_of(eps, u)) * _conformation_label(eps, u)
+            forms = [_form_text(m, _form_of(eps, u)) * _conformation_suffix(eps, u)
                      for u in outside]
             return "AllostericMechanism: $(phrase)the forms $(join(forms, ", ")) " *
                    "hold the enzyme they receive and are reached only through tagged " *
@@ -2026,9 +2026,9 @@ function _re_turnover_message(who::String, mech::_AnyMech)
                                         msg
 end
 
-"""How a message labels node `u` of the two-copy network `net`: ` (active)` or
-` (inactive)`."""
-_conformation_label(net::_Network, u::Int) =
+"""The suffix a message writes after the form of node `u` of the two-copy network `net`:
+` (active)` or ` (inactive)`."""
+_conformation_suffix(net::_Network, u::Int) =
     _copy_of(net, u) == 1 ? " (active)" : " (inactive)"
 
 """Where a class-3 fault of `mech` lies: nothing for a plain mechanism; the conformation
@@ -2079,7 +2079,7 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
             parts = forms.(split.parts)
         else
             at = _face_phrase(m, face)
-            parts = [forms(part, u -> _conformation_label(net, u)) for part in split.parts]
+            parts = [forms(part, u -> _conformation_suffix(net, u)) for part in split.parts]
         end
         return "$who: $(at)the forms $(join(parts, " and ")) of one " *
                "rapid-equilibrium segment are joined only by steps that take up a " *
