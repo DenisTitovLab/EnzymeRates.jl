@@ -299,8 +299,8 @@ evaluates on every call — so it bounds fit cost. It guards the derivation itse
 (`_assert_derivable` aborts when V×τ exceeds `MAX_RATE_EQUATION_TERMS`, before the O(G!)
 symbolic cofactor expansion) and backs the `eq_complexity_filter` keyword of
 [`identify_rate_equation`](@ref), which skips over-complex mechanisms before fitting. The
-method for a mechanism counts every edge of its catalytic graph, an allosteric
-mechanism's active conformation.
+method for a mechanism counts every edge of its catalytic graph, which for an allosteric
+mechanism with `:OnlyI` groups holds more than its active conformation's law.
 """
 function _eq_complexity(m::Mechanism, mask::BitVector)
     s = _segments(m, mask, _flags(m))
