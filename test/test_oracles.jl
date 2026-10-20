@@ -1,5 +1,5 @@
-# ABOUTME: Tests of the test helpers' mechanism reader and of the exact, RE-speed, ε-path,
-# ABOUTME: LP and n-protomer oracles, and of the laws over regenerated populations.
+# ABOUTME: Tests of the mechanism reader, the exact, RE-speed, ε-path, LP and n-protomer
+# ABOUTME: oracles, and the laws and the guard's verdicts over regenerated populations.
 using Random
 
 # The ping-pong-capable bi-bi reaction with two catalytic subunits: its seeds hold every

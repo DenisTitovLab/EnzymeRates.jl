@@ -1,5 +1,5 @@
-# ABOUTME: Tests of the well-posedness guard on inline fixtures: its networks, faces and
-# ABOUTME: classes, their verdicts and messages, each checked against the test oracles.
+# ABOUTME: Tests of the well-posedness guard and admission: networks, faces, classes,
+# ABOUTME: verdicts, messages, the oracles' agreement, and the macros, parser and copy rule.
 using Random
 
 @testset "the guard's faces follow the spec's list and the oracle's" begin
