@@ -73,7 +73,7 @@ function all_parameters(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericM
                              "parameters(m) except E_total; it lacks " *
                              join(absent, ", "))
     # A negative integer exponent inverts the positive power; a fractional one is taken
-    # in the value's own precision, so a BigFloat value stays exact.
+    # in the value's own precision, so a BigFloat value keeps its full precision.
     pow(x, e) = !isone(denominator(e)) ?
                     x^(oftype(float(x), numerator(e)) / denominator(e)) :
                 numerator(e) >= 0 ? x^numerator(e) : inv(x^-numerator(e))

@@ -91,7 +91,9 @@ end
 @testset "all_parameters reproduces the dependent constants of a consistent point" begin
     # The point's constants come from free energies, independently of the solve; the
     # fitted ones and Keq determine the rest. `half` has a dependent with
-    # half-integer exponents.
+    # half-integer exponents. `cube` has one with third-integer exponents (k_F_to_E
+    # through Keq^-1/3), which a Float64 exponent would miss by about 1e-16, far outside
+    # the 1e-40 tolerance.
     half = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -101,8 +103,18 @@ end
             F + S <--> E(S)
         end
     end
+    cube = @enzyme_mechanism begin
+        substrates: S, B
+        products: P
+        steps: begin
+            (E <--> F, E(S) <--> F(S), E(P) <--> F(P))
+            F + S <--> E(S)
+            F(S) + B <--> E(P)
+            F(P) <--> E + P
+        end
+    end
     rng = Random.MersenneTwister(12)
-    for m in [[s.mechanism for s in MECHANISM_TEST_SPECS]; half]
+    for m in [[s.mechanism for s in MECHANISM_TEST_SPECS]; half; cube]
         point = setprecision(() -> _testhelper_consistent_point(m, rng), BigFloat, 256)
         fitted = EnzymeRates.fitted_params(m)
         p = NamedTuple{(fitted..., :Keq)}((getindex.(Ref(point.vals), fitted)...,
