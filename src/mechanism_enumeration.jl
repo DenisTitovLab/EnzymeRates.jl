@@ -437,11 +437,13 @@ minimal-set search extends it instead of emitting it; so does
 a set one of whose flipped groups carries no flux in the child
 (`_flux_carrying_groups` on the flipped groups): the child is its parent plus
 one phantom per such group, and its flux-carrying supersets are the smallest
-identifiable relaxations. The non-degenerate mechanisms beyond these stay reachable —
-through the other cut orders of the same ring, or through the extended set when
-no other order gains. Every other flag, the declared names and, for an allosteric
-mechanism, the tags, multiplicity and regulatory sites are kept; each child goes
-through the checked constructor.
+identifiable relaxations. The non-degenerate mechanisms beyond a set that counts as failed
+stay reachable — through the other cut orders of the same ring, or through the extended
+set when no other order gains. Admission's face condition does not count: a set whose
+allosteric child admission rejects (`_BRIDGE`) is emitted, the exit or identify's base
+tier drops that child, and its supersets are not tried. Every other flag, the declared
+names and, for an allosteric mechanism, the tags, multiplicity and regulatory sites are
+kept; each child goes through the checked constructor.
 
 A parent that `_requires_hyperbolic_catalysis` (a conformational mechanism over
 more than one catalytic subunit) keeps only the children whose laws pass
@@ -511,7 +513,9 @@ steady state and keeps every other flag. It passes when `admissible` holds on it
 every flipped group carries flux in it, and the guard's classes 2 and 3 pass on every face
 (`_faces_pass`, which reads `m`'s law network under the candidate's flags). The sets come
 from `_minimal_gaining_sets`, so a failing set is extended and a passing one is not.
-Nothing is built: a candidate is its flags.
+Admission's face condition is not part of the test: a candidate whose allosteric child
+admission rejects (`_BRIDGE`) passes, and its supersets are not tried. Nothing is built: a
+candidate is its flags.
 """
 function _minimal_flips(admissible, m::_AnyMech, eligible = _ -> true)
     cm = catalytic(m)
@@ -1665,9 +1669,10 @@ chemistry group (`_chemistry_groups`) `:OnlyA` and every binding group `:EqualAI
 admission accepts it (`_admits`) it is the only base. Otherwise the bases are the
 smallest sets of chemistry groups, by inclusion, that stop every catalytic cycle of the
 inactive conformation (`_stops_inactive_turnover`) and pass admission, each tagged
-`:OnlyA` with every other group `:EqualAI`. A ping-pong mechanism thus gets one base per
-half-reaction, the other half running in both conformations. The bases come by size,
-each size in `_subsets` order.
+`:OnlyA` with every other group `:EqualAI`. A ping-pong mechanism thus usually gets one
+base per half-reaction, the other half running in both conformations: a half whose
+chemistry groups fail admission gives none, and a half spread over several chemistry
+groups can give several. The bases come by size, each size in `_subsets` order.
 """
 function _tagging_bases(m::Mechanism)
     chem = _chemistry_groups(m)
@@ -1694,10 +1699,11 @@ Convert a non-allosteric `Mechanism` into allosteric variants, each built on a b
 the inactive conformation's catalysis and passes admission. A chemistry group is one
 holding a chemistry step (`_is_chemistry`): an isomerization, a fused binding or a
 Theorell–Chance step; every other group is a binding group. On a ping-pong mechanism,
-tagging both half-reactions strands the covalent forms between them, so each half alone
-is a base and the other half runs in both conformations (spec section 7, "Allosteric
-ping-pong"). Two kinds are not enumerated: the all-`:EqualAI` baseline and a V-type variant
-without a regulator.
+tagging both half-reactions strands the covalent forms between them, so a base usually
+tags one half alone and the other half runs in both conformations (spec section 7,
+"Allosteric ping-pong"); a half whose chemistry groups fail admission gives no base, and a
+half spread over several chemistry groups can give several. Two kinds are not enumerated:
+the all-`:EqualAI` baseline and a V-type variant without a regulator.
 
   * The all-`:EqualAI` baseline is never emitted — the two conformations
     are identical, `L` cancels, and the mechanism is indistinguishable

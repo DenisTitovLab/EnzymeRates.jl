@@ -289,10 +289,11 @@ bases are the smallest sets of chemistry groups, tagged `:OnlyA` with every othe
 `:EqualAI`, that stop every catalytic cycle of the inactive conformation and pass
 admission. A ping-pong mechanism is the common case: tagging both half-reactions strands
 the covalent forms between them, whose weight then depends on how fast each half stops,
-so it gets one base per half-reaction, the other half running in both conformations, as
-phosphorylation stops PDH's E1 and leaves E2 and E3 running. Stopping both halves needs the
-conformations to flip at the covalent form too, with a constant of its own, which waits for
-iso mechanisms.
+so it usually gets one base per half-reaction, the other half running in both
+conformations, as phosphorylation stops PDH's E1 and leaves E2 and E3 running. A half whose
+chemistry groups fail admission gives no base, and a half spread over several chemistry
+groups can give several. Stopping both halves needs the conformations to flip at the
+covalent form too, with a constant of its own, which waits for iso mechanisms.
 
 On its bases the engine emits, per multiplicity:
 
