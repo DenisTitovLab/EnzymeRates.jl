@@ -683,6 +683,10 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test (v.fault, v.face) == (ER._BOTTOMLESS, 3)
         @test ER._guard(copy_first) == v
         @test copy_first == copy_last
+        for m in (copy_last, copy_first)
+            segment = ER._bottomless_segment(m, trues(length(m.edges)), ER._flags(m))
+            @test [ER._form_name(m, f) for f in segment] == ["EA", "EAB", "EB", "EAmodB"]
+        end
         @test_throws ErrorException(ER._guard_message(copy_last, v)) @enzyme_mechanism begin
             substrates: A, B
             products: P
