@@ -574,8 +574,9 @@ function _testhelper_test_performance(spec::_testhelper_MechanismTestSpec; seed=
         # Locally 120 ns leaves about 2× headroom over the slowest fixture law, "LDH i-state
         # NonequalAI 6-group, steady-state NAD group" at about 55 ns, and about 4× over the
         # next two, PFK-1 and "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites" at about
-        # 30 ns. Shared CI runners run these 2-7× slower and sometimes miss it (windows most
-        # often on the LDH law); rerun such a job rather than loosening the bound. The
+        # 30 ns. Shared CI runners run these 2-7× slower: the ubuntu and windows runners
+        # read about 130 ns on the LDH law and miss the bound (a ROADMAP known issue); a job
+        # that misses it on another law is rerun rather than the bound loosened. The
         # 0-alloc bound above is the strict part.
         @test t < 120e-9
     end
