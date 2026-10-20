@@ -14081,6 +14081,59 @@ end
     @test EnzymeRates.seed_mechanisms(uni_uni_allo_reg, req, empty) == got  # deterministic
 end
 
+@testset "seed_mechanisms drops a seed the guard rejects" begin
+    ER = EnzymeRates
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        allosteric_regulators: R
+        oligomeric_state: 2
+        shared_catalytic_site: (A, P)
+    end
+    seeds = ER.seed_mechanisms(rxn, Set([:R]), Set{Symbol}())
+    # Aggregate regression pin over the whole seed set: the search reaches 1,664 seeds and
+    # the guard drops 32 of them, each a `_SPLIT`.
+    @test length(seeds) == 1632
+    @test all(ER._is_well_posed, seeds)
+    # The six-step ping-pong with its first half-reaction tagged :OnlyA fails class 3 at
+    # zero A and B, so it is dropped; with its second half tagged instead it stays.
+    half1 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + A ⇌ E(A)                                        :: EqualAI
+            E(A) <--> E(P; residual = A - P)                    :: OnlyA
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P  :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)  :: EqualAI
+            E(B; residual = A - P) ⇌ E(Q)                       :: EqualAI
+            E(Q) ⇌ E + Q                                        :: EqualAI
+        end
+        regulatory_site(2): R::OnlyA
+    end
+    v = ER._guard(half1)
+    @test v.fault === ER._SPLIT
+    @test ER._face_names(half1.catalytic, ER._faces(half1.catalytic)[v.face]) == [:A, :B]
+    @test half1 ∉ seeds
+    half2 = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + A ⇌ E(A)                                        :: EqualAI
+            E(A) <--> E(P; residual = A - P)                    :: EqualAI
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P  :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)  :: EqualAI
+            E(B; residual = A - P) ⇌ E(Q)                       :: OnlyA
+            E(Q) ⇌ E + Q                                        :: EqualAI
+        end
+        regulatory_site(2): R::OnlyA
+    end)
+    @test half2 ∈ seeds
+end
+
 # Tag of each catalytic kinetic group, keyed by the metabolite it binds
 # (`:chem` for the chemical step). Group index is never a stable key: the
 # AllostericMechanism constructor canonicalizes group order.
