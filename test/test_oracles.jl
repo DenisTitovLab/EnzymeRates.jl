@@ -997,6 +997,26 @@ end
     end
 end
 
+@testset "an admitted :OnlyI mechanism compiles to its law" begin
+    # The eleven fixtures the guard admits (all but the inhibitor bridge and the essential
+    # activator): the compiled mechanism fits the constants its concrete law reads, and
+    # its Float64 `rate_equation` equals that law at a consistent point.
+    for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
+        label in (:copy_group_bridge, :essential_activator) && continue
+        @testset "$label" begin
+            em = EnzymeRates.compile_mechanism(am)
+            fitted = EnzymeRates._dependent_param_exprs(am)[2]
+            @test EnzymeRates.fitted_params(em) == fitted
+            point, concs, params = _testhelper_law_inputs(am, fitted,
+                                                          Random.MersenneTwister(600 + i))
+            c64, p64 = _testhelper_float64_inputs(fitted, params, concs,
+                                                  EnzymeRates.metabolites(em))
+            @test isapprox(rate_equation(em, c64, p64),
+                           Float64(_testhelper_law_value(am, params, concs)); rtol = 1e-12)
+        end
+    end
+end
+
 @testset "a 512-bit ε-path of bridge_REcycle2 converges at zero modifiers" begin
     # bridge_REcycle2: at zero modifiers the I bindings vanish with I, and every path of
     # the ε-network tends to the law. At 256 bits the paths lose the limit to rounding, so

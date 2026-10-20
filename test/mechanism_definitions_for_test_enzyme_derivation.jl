@@ -563,6 +563,20 @@ function _testhelper_law_inputs(m, fitted, rng)
 end
 
 """
+    _testhelper_float64_inputs(fitted, params, concs, mets) -> (c64, p64)
+
+The Float64 arguments of a compiled `rate_equation` at a draw of `_testhelper_law_inputs`,
+in its order: the concentrations of the metabolites `mets`, then the fitted constants
+`fitted`, `Keq` and `E_total = 1`.
+"""
+function _testhelper_float64_inputs(fitted, params, concs, mets)
+    c64 = NamedTuple{mets}(Tuple(Float64(concs[x]) for x in mets))
+    p64 = NamedTuple{(fitted..., :Keq, :E_total)}(
+        (Float64.(getindex.(Ref(params), fitted))..., Float64(params[:Keq]), 1.0))
+    c64, p64
+end
+
+"""
 Check that the rate law of `m` equals the exact steady state of its mass-action network
 (`_testhelper_steady_state_rate`) to `rtol` at `n_points` consistent points
 (`_testhelper_consistent_point`). The law reads the point's fitted constants and computes
@@ -585,9 +599,7 @@ function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1, compile
         @test abs(_testhelper_law_value(em, params, concs) - oracle) <=
               rtol * abs(oracle)
         compiled || continue
-        p64 = NamedTuple{(fitted..., :Keq, :E_total)}(
-            (Float64.(getindex.(Ref(params), fitted))..., Float64(point.Keq), 1.0))
-        c64 = NamedTuple{mets}(Tuple(Float64(concs[x]) for x in mets))
+        c64, p64 = _testhelper_float64_inputs(fitted, params, concs, mets)
         @test isapprox(rate_equation(em, c64, p64), Float64(oracle); rtol = 1e-8)
     end
 end
