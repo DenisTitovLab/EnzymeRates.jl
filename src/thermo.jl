@@ -1,5 +1,5 @@
 # ABOUTME: The joint thermodynamic solve over the constants of both conformations, and the
-# ABOUTME: cycle-space helpers of the :OnlyA guard and of the split move's counter.
+# ABOUTME: cycle-space helpers of the split move's counter and of class 3's limit test.
 
 """
 A bare constant of the joint solve: slot `slot` of edge `edge` of the catalytic graph, in
