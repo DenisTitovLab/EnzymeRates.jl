@@ -1218,7 +1218,7 @@ end
     end
     # At zero P the aggregated chain has two closed classes, and so does the law's segment
     # chain, so the face stops at `_LAW_MULTI`.
-    multilevel = @_testhelper_unguarded @enzyme_mechanism begin
+    law_multi = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -1251,7 +1251,7 @@ end
             (lumpable_732, [7], [split], EnzymeRates._LIMIT_DIFFER, :mismatch),
             (unfed_trap, [7], [split], EnzymeRates._LIMIT_SPEED, :pattern),
             (dead_end, [2], [multi], EnzymeRates._LIMIT_LAW_NAN, :law_nan),
-            (multilevel, [2], [multi], EnzymeRates._LIMIT_SPEED, :pattern),
+            (law_multi, [2], [multi], EnzymeRates._LIMIT_SPEED, :pattern),
             (two_transients, [2, 7], [trap, split], EnzymeRates._LIMIT_SPEED, :pattern))
     for (i, (m, faces, faults, limit, oracle)) in enumerate(rows)
         verdicts = _testhelper_face_verdicts(m)
@@ -1273,7 +1273,7 @@ end
     @test message(dead_end, 2) ==
           "Mechanism: at zero P and Q, the rate law has no value (0/0), while the steady " *
           "state does."
-    @test message(multilevel, 2) ==
+    @test message(law_multi, 2) ==
           "Mechanism: at zero P, the steady state depends on how fast the " *
           "rapid-equilibrium steps run, which the rate law does not carry."
     # unfed_trap at zero products: A2 accepts, since no transition feeds the trap there,

@@ -3159,7 +3159,7 @@ end
     end
 end
 
-@testset ":OnlyA guard rejects a multi-cycle ter-substrate inconsistency" begin
+@testset "admission rejects a ter-substrate cube joining a tagged binding's two sides" begin
     # A full random-order ter binding cube with seven :OnlyA edges and the cross bindings
     # :EqualAI. In the inactive conformation the untagged bindings join forms across the
     # cube, so a tagged binding's two sides share a component: no path takes its affinity to
@@ -3215,7 +3215,7 @@ end
 # binding cube; this one pins its accept direction there. An over-rejection does not
 # fail loudly: it silently shrinks the enumeration's search space by dropping valid
 # mechanisms before they are fitted.
-@testset ":OnlyA guard admits feasible ter-substrate mechanisms" begin
+@testset "admission admits feasible ter-substrate mechanisms" begin
     # A full random-order A/B/C binding lattice, every substrate binding and the
     # chemical step :OnlyA: in the inactive conformation every form stands alone but E
     # and E(P), the bindings point away from free E and close no cycle, so admission
@@ -3316,7 +3316,7 @@ end
     end
 end
 
-@testset ":OnlyA guard reads cycles past an abortive segment it strands" begin
+@testset "admission admits an abortive segment an :OnlyA chemistry group strands" begin
     # The A group mixes the fused binding into E(P, Q) with A's abortive bindings at
     # E(P) and E(Q), so it is chemistry. Tagged :OnlyA, it strands
     # {E(A, P), E(A, Q), E(A, P, Q)} in the inactive conformation: a rapid-equilibrium

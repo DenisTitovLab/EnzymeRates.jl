@@ -3075,7 +3075,7 @@ end
     @test Set(kids) == Set()
 end
 
-@testset "AllostericMechanism — a split keeps its parent's admission verdict" begin
+@testset "AllostericMechanism — a split keeps its parent's interior admission verdict" begin
     # An aggregate check over the bi-bi seed set (the exception to writing every fixture
     # inline): each split child of a seed tagged as below, one parent in
     # ten. Both parts of a split group inherit its tag, and admission's interior reads
