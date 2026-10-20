@@ -1628,11 +1628,9 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
             exits = unique!([eps.edge[t] for t in eachindex(eps.from)
                              if s.alive[t] && eps.vanishing[t] && eps.from[t] in basin &&
                                 !s.stranded[eps.to[t]]])
-            out = isempty(exits) ?
-                "which no step running there leaves, so the enzyme collects in them" :
-                "which leave only through the vanishing steps $(lines(exits)) while " *
-                "nothing runs back the way it came, so admission cannot show that their " *
-                "weight does not depend on how fast those steps vanish"
+            out = "which leave only through the vanishing steps $(lines(exits)) while " *
+                  "nothing runs back the way it came, so admission cannot show that " *
+                  "their weight does not depend on how fast those steps vanish"
             e = m.edges[k]
             inside = s.stranded[_node(eps, e.from, c)] && s.stranded[_node(eps, e.to, c)]
             return "AllostericMechanism: $(phrase)$(line(k)) " *
