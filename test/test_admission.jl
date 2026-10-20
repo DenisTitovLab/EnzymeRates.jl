@@ -893,6 +893,51 @@ end
           (EnzymeRates._LAW_MULTI, EnzymeRates._LIMIT_LAW_NAN, 5)
 end
 
+@testset "a trap across both conformations labels each form" begin
+    # Every step but the binding of B at E(P) runs in the active conformation alone. At
+    # zero P and Q the fast class of free E holds E of both conformations, joined by the
+    # flip, and the step E + P ⇌ E(P) that joins it to the rest of its segment takes up P.
+    am = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + B <--> E(B)                                         :: OnlyA
+            (E + P ⇌ E(P), E(B) + P ⇌ E(B, P), E(Q) + P ⇌ E(P, Q))  :: OnlyA
+            (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))                :: OnlyA
+            E(B) + A ⇌ E(P, Q)                                      :: OnlyA
+            E(P) + B ⇌ E(B, P)                                      :: EqualAI
+        end
+    end
+    v = EnzymeRates._guard(am)
+    @test (v.fault, v.limit, v.face, v.conformation, v.edge) ==
+          (EnzymeRates._TRAP, EnzymeRates._LIMIT_DIFFER, 2, 0,
+           _testhelper_edge(am, "E + P ⇌ EP"))
+    @test EnzymeRates._guard_message(am, v) ==
+          "AllostericMechanism: at zero P and Q, the forms {E (active), E (inactive)} " *
+          "hold enzyme, but the rapid-equilibrium step E + P ⇌ E(P) that joins them to " *
+          "the rest of their segment takes up a zeroed metabolite, so the rate law " *
+          "misweights them. Make that step's kinetic group steady-state."
+    faults = _testhelper_face_faults(am)
+    verdicts = _testhelper_respeed_verdicts(am; rng = Random.MersenneTwister(33))
+    @test verdicts[[2, 6]] == [:mismatch, :mismatch]
+    @test all(_testhelper_agrees.(faults, verdicts))
+    # The fix: the binding of P steady-state.
+    fixed = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + B <--> E(B)                                                 :: OnlyA
+            (E + P <--> E(P), E(B) + P <--> E(B, P), E(Q) + P <--> E(P, Q)) :: OnlyA
+            (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))                        :: OnlyA
+            E(B) + A ⇌ E(P, Q)                                              :: OnlyA
+            E(P) + B ⇌ E(B, P)                                              :: EqualAI
+        end
+    end
+    @test EnzymeRates._guard(fixed) === EnzymeRates._WELL_POSED
+    @test all(==(:agree),
+              _testhelper_respeed_verdicts(fixed; rng = Random.MersenneTwister(34)))
+end
+
 @testset "a bottomless segment no binding's steady-state variant cures prints no fix" begin
     # Random release of three products at rapid equilibrium, the last releases steady
     # state: at zero products every form of the segment holds a product, and making any

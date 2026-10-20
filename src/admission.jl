@@ -748,9 +748,9 @@ network is `net`: procedure A rejects a second closed class or a bottomless segm
 accepts a face whose structure fixes the limit (`_face_stage`); otherwise the limit test
 (`_face_limit_check`, seeded by the content hash and the face) decides, and a rejection
 carries the stage it stopped at, the edge that feeds the trap or joins it to its segment
-(`_trap_feeder`) and the split's first joining edge. A bottomless segment or a split
-carries the copy its forms share (`_common_copy`). A face the limit test accepts reports
-`_LIMIT_EQUAL`.
+(`_trap_feeder`) and the split's first joining edge. A bottomless segment, a split or a
+trap carries the copy its forms share (`_common_copy`). A face the limit test accepts
+reports `_LIMIT_EQUAL`.
 """
 function _check_face(mech::_AnyMech, net::_Network, faces::Vector{UInt64}, i::Int)
     s = _face_structure(net, faces[i])
@@ -769,7 +769,7 @@ function _check_face(mech::_AnyMech, net::_Network, faces::Vector{UInt64}, i::In
     limit === _LIMIT_EQUAL && return _Verdict(_NO_FAULT, _LIMIT_EQUAL, i, 0, 0)
     if stage === _TRAP
         trap, edge = _trap_feeder(net, s)
-        return _Verdict(_TRAP, limit, i, _copy_of(net, s.fast_classes[trap][1]), edge)
+        return _Verdict(_TRAP, limit, i, _common_copy(net, s.fast_classes[trap]), edge)
     elseif stage === _SPLIT
         split = _split_parts(net, s)
         return _Verdict(_SPLIT, limit, i, _common_copy(net, reduce(vcat, split.parts)),
