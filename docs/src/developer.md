@@ -209,9 +209,10 @@ spell one string two ways, such as `NAD`, `P` and `NADP`, never reach the constr
 `@enzyme_reaction` and the mechanism macros reject them (`_check_uniquely_decodable`).
 Whether a mechanism's rate law is defined is the well-posedness guard's question
 (`src/admission.jl`; see [Well-posedness guard](@ref)). The macros, the parser and every
-derivation entry throw on a mechanism it rejects (`_check_well_posed`), and the
-enumerator's exits and identify's base tier drop one (`_is_well_posed`); the
-constructors and the Sig decoder do not run it.
+derivation entry throw on a mechanism it rejects (`_check_well_posed`), and identify's base
+tier and the enumerator's exits drop one (`_is_well_posed`), except that init's exit runs
+the guard on its seeds and checks class 1 on their variants, whose classes 2 and 3 the flip
+search ran (`_faces_pass`). The constructors and the Sig decoder do not run it.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see

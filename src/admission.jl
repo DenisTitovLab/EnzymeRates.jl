@@ -9,11 +9,12 @@ rapid-equilibrium steps speed up and its tagged constants vanish, on every face 
 sit (spec section 8): the guard (`_guard`) finds no fault, and the error is its message
 (`_guard_message`), which names each step at fault by its DSL line. It reads the reaction
 graph through masks and builds nothing. The mechanism macros, the parser and every
-derivation entry (`_derivation_input`) call it; the enumerator's exits and identify's base
-tier keep what `_is_well_posed` accepts; the constructors and the Sig decoder call
-neither, so code that builds a mechanism internally never trips a check meant for the
-mechanisms it returns. Class 5 reads the derived law and runs where the law is derived
-(`_assert_support`).
+derivation entry (`_derivation_input`) call it. Identify's base tier and the enumerator's
+exits keep what `_is_well_posed` accepts, except that init's exit runs it on its seeds and
+checks class 1 on their variants, whose classes 2 and 3 the flip search ran
+(`_faces_pass`). The constructors and the Sig decoder call neither, so code that builds a
+mechanism internally never trips a check meant for the mechanisms it returns. Class 5
+reads the derived law and runs where the law is derived (`_assert_support`).
 """
 function _check_well_posed(m::_AnyMech)
     v = _guard(m)
@@ -21,8 +22,9 @@ function _check_well_posed(m::_AnyMech)
     nothing
 end
 
-"""Whether `_check_well_posed(m)` passes: the enumerator's exits and identify's base tier
-keep a child exactly when it does."""
+"""Whether `_check_well_posed(m)` passes: identify's base tier and the enumerator's exits
+keep a mechanism exactly when it does, except init's exit on its seeds' variants, which
+checks class 1 and rests on the flip search's classes 2 and 3 (`_faces_pass`)."""
 _is_well_posed(m::_AnyMech) = _guard(m).fault === _NO_FAULT
 
 """
