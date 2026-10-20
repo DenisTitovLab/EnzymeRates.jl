@@ -772,7 +772,7 @@ end
         end
     end
     v = EnzymeRates._guard(am)
-    @test (v.fault, v.face) == (EnzymeRates._SPLIT, 3)
+    @test (v.fault, v.face, v.conformation) == (EnzymeRates._SPLIT, 3, 0)
     @test EnzymeRates._guard_message(am, v) ==
           "AllostericMechanism: at zero ATP and F6P, the forms " *
           "{E(; residual = ATP - F16BP) (active), " *
@@ -799,13 +799,79 @@ end
         end
     end
     at_Q = _testhelper_face_verdicts(ldh)[7]
-    @test at_Q.fault === EnzymeRates._SPLIT
+    @test (at_Q.fault, at_Q.conformation) == (EnzymeRates._SPLIT, 0)
     @test EnzymeRates._guard_message(ldh, at_Q) ==
           "AllostericMechanism: at zero Q, the forms {E (active), E(A) (active), " *
           "E (inactive), E(A) (inactive)} and {E(P) (active)} and {E(P) (inactive)} of " *
           "one rapid-equilibrium segment are joined only by steps that take up a zeroed " *
           "metabolite (E + Q ⇌ E(Q) and E(P) + Q ⇌ E(P, Q)), so the rate law cannot " *
           "weight one against the other."
+end
+
+@testset "a split whose parts lie in the inactive conformation is placed there" begin
+    # A ping-pong whose X- and Y-bound routes run only in the inactive conformation. Free
+    # E's segment starts at active E, but at zero P and Q its lowest parts, the X- and
+    # Y-bound covalent forms, lie in the inactive conformation alone.
+    am = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        modifiers: X, Y
+        steps: begin
+            E + A ⇌ E(A) :: EqualAI
+            E(A) <--> E(P; residual = A - P) :: EqualAI
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
+            E(B; residual = A - P) <--> E(Q) :: EqualAI
+            E(Q) ⇌ E + Q :: EqualAI
+            E(A) + X ⇌ E(A, X) :: OnlyI
+            E(A, X) ⇌ E(P, X; residual = A - P) :: EqualAI
+            E(P, X; residual = A - P) ⇌ E(X; residual = A - P) + P :: EqualAI
+            E(X; residual = A - P) + B ⇌ E(B, X; residual = A - P) :: EqualAI
+            E(B, X; residual = A - P) <--> E(Q, X) :: EqualAI
+            E(Q) + X ⇌ E(Q, X) :: OnlyI
+            E(A) + Y ⇌ E(A, Y) :: OnlyI
+            E(A, Y) ⇌ E(P, Y; residual = A - P) :: EqualAI
+            E(P, Y; residual = A - P) ⇌ E(Y; residual = A - P) + P :: EqualAI
+            E(Y; residual = A - P) + B ⇌ E(B, Y; residual = A - P) :: EqualAI
+            E(B, Y; residual = A - P) <--> E(Q, Y) :: EqualAI
+            E(Q) + Y ⇌ E(Q, Y) :: OnlyI
+        end
+    end
+    v = EnzymeRates._guard(am)
+    @test (v.fault, v.face, v.conformation) == (EnzymeRates._SPLIT, 2, 2)
+    @test EnzymeRates._guard_message(am, v) ==
+          "AllostericMechanism: at zero P and Q in the inactive conformation, the forms " *
+          "{E(B, X; residual = A - P), E(X; residual = A - P)} and " *
+          "{E(B, Y; residual = A - P), E(Y; residual = A - P)} of one rapid-equilibrium " *
+          "segment are joined only by steps that take up a zeroed metabolite " *
+          "(E + Q ⇌ E(Q), E(X; residual = A - P) + P ⇌ E(P, X; residual = A - P) and " *
+          "E(Y; residual = A - P) + P ⇌ E(P, Y; residual = A - P)), so the rate law " *
+          "cannot weight one against the other."
+end
+
+@testset "a bottomless segment across both conformations labels each form" begin
+    # At zero P and X the rapid-equilibrium segment of free E holds active E and, through
+    # the flip, inactive E and the X-bound forms only the inactive conformation reaches.
+    tc_re = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + S <--> E(S)          :: EqualAI
+            E(S) <--> E(P)           :: EqualAI
+            E(P) <--> E + P          :: EqualAI
+            E + X ⇌ E(X)             :: OnlyI
+            E(X) + S ⇌ F(X) + P      :: EqualAI
+            F(X) <--> E(X)           :: EqualAI
+        end
+    end
+    v = EnzymeRates._guard(tc_re)
+    @test (v.fault, v.face, v.conformation) == (EnzymeRates._BOTTOMLESS, 5, 0)
+    @test EnzymeRates._guard_message(tc_re, v) ==
+          "AllostericMechanism: at zero P and X, the rapid-equilibrium segment " *
+          "{E (active), E (inactive), E(X) (inactive), F(X) (inactive)} has no form free " *
+          "of the zeroed metabolites, so the rate is 0/0 there. Make one of the " *
+          "segment's binding steps steady-state."
 end
 
 @testset "class 3 rejects a bottomless segment" begin

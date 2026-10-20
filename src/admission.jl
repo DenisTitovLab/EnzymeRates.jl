@@ -137,7 +137,8 @@ end
 The guard's verdict on a mechanism, an isbits value, so a loop over verdicts keeps its
 types concrete: its `fault`, the limit test's verdict where it decided (`limit`), the face
 (an index into `_faces`; 0 when the fault belongs to no face), the conformation it lies in
-(1 active, 2 inactive, 0 none) and the edge its message leads with (0 none).
+(1 active, 2 inactive; 0 for none, or when the forms it names lie in both) and the edge its
+message leads with (0 none).
 """
 struct _Verdict
     fault::_Fault
@@ -653,6 +654,9 @@ end
 _copy_of(net::_Network, u::Int) = (u - 1) ÷ net.nforms + 1
 """The form of node `u` of `net`."""
 _form_of(net::_Network, u::Int) = (u - 1) % net.nforms + 1
+"""The copy of `net` that every node of `nodes` lies in; 0 when they lie in both."""
+_common_copy(net::_Network, nodes::Vector{Int}) =
+    (c = _copy_of(net, nodes[1]); all(u -> _copy_of(net, u) == c, nodes) ? c : 0)
 
 """The closed class of face structure `s` that holds no active free E (node 1), or its
 first when each holds none."""
@@ -743,7 +747,8 @@ network is `net`: procedure A rejects a second closed class or a bottomless segm
 accepts a face whose structure fixes the limit (`_face_stage`); otherwise the limit test
 (`_face_limit_check`, seeded by the content hash and the face) decides, and a rejection
 carries the stage it stopped at, the edge that feeds the trap or joins it to its segment
-(`_trap_feeder`) and the split's first joining edge. A face the limit test accepts reports
+(`_trap_feeder`) and the split's first joining edge. A bottomless segment or a split
+carries the copy its forms share (`_common_copy`). A face the limit test accepts reports
 `_LIMIT_EQUAL`.
 """
 function _check_face(mech::_AnyMech, net::_Network, faces::Vector{UInt64}, i::Int)
@@ -758,7 +763,7 @@ function _check_face(mech::_AnyMech, net::_Network, faces::Vector{UInt64}, i::In
     end
     stage === _BOTTOMLESS &&
         return _Verdict(_BOTTOMLESS, _LIMIT_UNTESTED, i,
-                        _copy_of(net, s.segments[s.bottomless][1]), 0)
+                        _common_copy(net, s.segments[s.bottomless]), 0)
     limit = _face_limit_check(mech, net, s, faces[i], hash(i, hash(mech)))
     limit === _LIMIT_EQUAL && return _Verdict(_NO_FAULT, _LIMIT_EQUAL, i, 0, 0)
     if stage === _TRAP
@@ -766,7 +771,7 @@ function _check_face(mech::_AnyMech, net::_Network, faces::Vector{UInt64}, i::In
         return _Verdict(_TRAP, limit, i, _copy_of(net, s.fast_classes[trap][1]), edge)
     elseif stage === _SPLIT
         split = _split_parts(net, s)
-        return _Verdict(_SPLIT, limit, i, _copy_of(net, s.segments[split.segment][1]),
+        return _Verdict(_SPLIT, limit, i, _common_copy(net, reduce(vcat, split.parts)),
                         isempty(split.joins) ? 0 : split.joins[1])
     end
     _Verdict(stage, limit, i, 0, 0)
@@ -2032,7 +2037,7 @@ _conformation_suffix(net::_Network, u::Int) =
     _copy_of(net, u) == 1 ? " (active)" : " (inactive)"
 
 """Where a class-3 fault of `mech` lies: nothing for a plain mechanism; the conformation
-`c` of an allosteric one."""
+`c` of an allosteric one, nothing when `c` is 0."""
 _place(::Mechanism, ::Int) = ""
 _place(::AllostericMechanism, c::Int) =
     c == 2 ? " in the inactive conformation" : c == 1 ? " in the active conformation" : ""
@@ -2040,7 +2045,8 @@ _place(::AllostericMechanism, c::Int) =
 """
 The message of a class-3 verdict `v` on `mech`: the face, the
 forms and steps at fault, and a fix only for a trap and a bottomless segment, whose
-variants the tests show passing.
+variants the tests show passing. A verdict in no one conformation labels each form with
+its own (`_conformation_suffix`).
 """
 function _face_message(who::String, mech::_AnyMech, v::_Verdict)
     m = catalytic(mech)
@@ -2048,7 +2054,9 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
     face = _faces(m)[v.face]
     s = _face_structure(net, face)
     at = _face_phrase(m, face, _place(mech, v.conformation))
-    forms(nodes, label = _ -> "") =
+    # Forms that lie in different conformations name each form's conformation.
+    label(u) = v.conformation == 0 ? _conformation_suffix(net, u) : ""
+    forms(nodes) =
         "{" * join([_form_text(m, _form_of(net, u)) * label(u) for u in nodes], ", ") * "}"
     lines(edges) = join([_step_text(m, k) for k in edges], ", ", " and ")
     if v.fault === _NONUNIQUE
@@ -2074,14 +2082,7 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
                "step's kinetic group steady-state."
     elseif v.fault === _SPLIT
         split = _split_parts(net, s)
-        # Parts that lie in different conformations name each form's conformation.
-        if allequal(_copy_of(net, u) for part in split.parts for u in part)
-            parts = forms.(split.parts)
-        else
-            at = _face_phrase(m, face)
-            parts = [forms(part, u -> _conformation_suffix(net, u)) for part in split.parts]
-        end
-        return "$who: $(at)the forms $(join(parts, " and ")) of one " *
+        return "$who: $(at)the forms $(join(forms.(split.parts), " and ")) of one " *
                "rapid-equilibrium segment are joined only by steps that take up a " *
                "zeroed metabolite ($(lines(split.joins))), so the rate law cannot weight " *
                "one against the other."
