@@ -14865,7 +14865,8 @@ end
     seeds = EnzymeRates.init_mechanisms(rxn)
     children = EnzymeRates.expand_mechanisms(seeds, rxn)
     allo = [m for m in [seeds; children] if m isa EnzymeRates.AllostericMechanism]
-    @test !isempty(allo)
+    @test length(seeds) == 1
+    @test length(allo) == 5
     @test all(m -> :OnlyI ∉ EnzymeRates.cat_allo_states(m), allo)
     @test any(m -> any(s -> :OnlyI in EnzymeRates.allo_states(s),
                        EnzymeRates.regulatory_sites(m)), allo)
