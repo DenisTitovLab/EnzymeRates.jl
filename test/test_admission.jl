@@ -3462,6 +3462,21 @@ end
           "E + S ⇌ E(S), E(I, J, S) ⇌ E(S) + I + J and E(I, J, S) ⇌ E(I, J, P) close a " *
           "cycle in the inactive conformation that turns the reaction over, so the " *
           "mechanism has no finite rate. Make one step of the cycle steady-state."
+    # The mechanism also fails admission: its I, J complexes form an island in the active
+    # conformation, so the printed fix only breaks the cycle.
+    iso_ss = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I, J
+        steps: begin
+            E + S ⇌ E(S)                    :: EqualAI
+            E(S) + I + J ⇌ E(I, J, S)       :: OnlyI
+            E(I, J, S) <--> E(I, J, P)      :: EqualAI
+            E(P) + I + J ⇌ E(I, J, P)       :: OnlyI
+            E + P ⇌ E(P)                    :: OnlyA
+        end
+    end
+    @test EnzymeRates._guard(iso_ss).fault === EnzymeRates._ISLAND
 end
 
 @testset "the ε-network's second closed class rejects the face" begin

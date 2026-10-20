@@ -1987,8 +1987,9 @@ _support_message(who::String, m::Mechanism, v::_Verdict) =
     _guard_message(mech, v) -> String
 
 The error for the guard's verdict `v` on `mech`:
-`<Mechanism|AllostericMechanism>: <cause, naming each step by its line>. <fix>.` A fix is
-printed only where a test shows that its variant passes the guard.
+`<Mechanism|AllostericMechanism>: <cause, naming each step by its line>. <fix>.` Class 2's
+fix is printed when each step's variant leaves no fast turnover cycle
+(`_every_step_cures`); every other fix only when its variant passes `_guard`.
 """
 function _guard_message(mech::_AnyMech, v::_Verdict)
     who = mech isa AllostericMechanism ? "AllostericMechanism" : "Mechanism"
@@ -2003,10 +2004,10 @@ function _guard_message(mech::_AnyMech, v::_Verdict)
     _face_message(who, mech, v)
 end
 
-"""Whether making any one step of `cycle`, transitions of `mech`'s ε-network `net`,
+"""Whether making each step of `cycle`, transitions of `mech`'s ε-network `net`,
 steady-state with its kinetic group leaves no fast cycle that turns the reaction over: then
 class 2's fix holds whichever step of the cycle is picked."""
-function _any_step_cures(mech::_AnyMech, net::_Network, cycle::Vector{Int})
+function _every_step_cures(mech::_AnyMech, net::_Network, cycle::Vector{Int})
     m = catalytic(mech)
     members = _group_members(m)
     for t in cycle
@@ -2019,8 +2020,8 @@ end
 
 """Class 2's message: the steps of the first fast cycle that turns the reaction over,
 each tagged binding among them marked with the conformation where its affinity
-vanishes, and the fix where any one of those steps steady-state cures it
-(`_any_step_cures`)."""
+vanishes, and the fix where each of those steps made steady-state leaves no fast cycle
+that turns the reaction over (`_every_step_cures`)."""
 function _re_turnover_message(who::String, mech::_AnyMech)
     m = catalytic(mech)
     net = _eps_network(mech)
@@ -2038,8 +2039,8 @@ function _re_turnover_message(who::String, mech::_AnyMech)
     place = mech isa AllostericMechanism && c == 2 ? " in the inactive conformation" : ""
     msg = "$who: the rapid-equilibrium steps $(join(lines, ", ", " and ")) close a " *
           "cycle$place that turns the reaction over, so the mechanism has no finite rate."
-    _any_step_cures(mech, net, cycle) ? msg * " Make one step of the cycle steady-state." :
-                                        msg
+    fix = " Make one step of the cycle steady-state."
+    _every_step_cures(mech, net, cycle) ? msg * fix : msg
 end
 
 """The suffix a message writes after the form of node `u` of the two-copy network `net`:
