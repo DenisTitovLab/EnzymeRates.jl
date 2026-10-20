@@ -302,8 +302,9 @@ On its bases the engine emits, per multiplicity:
   binding can restore the limit (as in a bi-bi whose group mixes a plain binding with a
   fused one); each is emitted bare and kept when admission accepts it;
 - **V-types:** each base paired with a declared allosteric regulator at a new site, one
-  variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`, where the regulator makes
-  `L` identifiable.
+  variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. On the every-chemistry
+  base the regulator reveals `L`; on a one-half base `L` already shows without one, yet
+  every base is emitted only with a regulator (the repository's `ROADMAP.md` lists this).
 
 The all-`:EqualAI` baseline is never emitted (the conformations would be identical and `L`
 would cancel). Admission does not run the guard's face check, so a child that fails it is
