@@ -294,9 +294,10 @@ When the macro's code runs, it rejects a mechanism whose rate law is not defined
 sit, with an error that names the steps at fault: no cycle of steps turns substrates into
 products; a cycle of rapid-equilibrium steps does, so the rate has no finite value; or, with
 every product, every substrate, one reactant or every modifier absent, the steady state is
-not unique or is not the limit the rate law gives as the rapid-equilibrium steps speed up. A
-law whose denominator vanishes there (0/0) is rejected where it is first derived, by
-[`rate_equation`](@ref) or [`rate_equation_string`](@ref).
+not unique or is not the limit the rate law gives as the rapid-equilibrium steps speed up.
+It also rejects a law with no value there (0/0), and the derivation, by
+[`rate_equation`](@ref) or [`rate_equation_string`](@ref), checks the derived denominator
+once more.
 
 Below, the inhibitor I binds E and E(S) with one constant, and a second S binds E(S) as
 a modifier, which inhibits at high substrate:
@@ -425,11 +426,13 @@ its steps bind only modifiers (`modifiers:` names or `::Mod` copies); a ligand t
 the four. The conformations interconvert only at free E.
 
 A tagged step's constants vanish in the conformation that lacks it, and the macro rejects a
-tag set whose limit does not exist or is not unique: an `:OnlyA` or `:OnlyI` binding whose
-two sides untagged steps still join in the conformation that lacks it, forms that join free
-E only through tagged chemistry, `:OnlyI` groups without which the active conformation
-turns nothing over, or a face where the limit depends on how fast the tagged constants
-vanish. The checks of [`@enzyme_mechanism`](@ref) apply as well.
+tag set whose limit it cannot show to exist and be unique: an `:OnlyA` or `:OnlyI` binding
+whose two sides the steps that conformation keeps still join; tagged bindings that close a
+cycle; forms that free E reaches only through tagged steps other than a binding toward
+them; `:OnlyI` groups without which the active conformation turns nothing over; a face
+where the steady state depends on where the enzyme starts; or a face where it cannot show
+that the limit does not depend on how fast the tagged constants vanish. The checks of
+[`@enzyme_mechanism`](@ref) apply as well.
 
 ```jldoctest
 julia> using EnzymeRates

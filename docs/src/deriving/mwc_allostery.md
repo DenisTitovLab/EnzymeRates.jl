@@ -173,10 +173,10 @@ groups in the inactive conformation, the `:OnlyI` groups in the active one) and 
 that the deletion cuts off from free E. **Admission** decides when that is the limit,
 whatever the rates at which the tagged constants vanish:
 
-1. **Existence.** Join the forms by the conformation's untagged steps, and draw each tagged
-   plain binding as an arrow from its unbound side's component to its bound side's. A path
-   to the limit exists exactly when no arrow stays inside one component and the arrows
-   close no cycle.
+1. **Existence.** Join the forms by the steps the conformation keeps (outside the groups it
+   lacks), and draw each tagged plain binding as an arrow from its unbound side's component
+   to its bound side's. A path to the limit exists exactly when no arrow stays inside one
+   component and the arrows close no cycle.
 2. **Uniqueness.** Every form that free E reaches only through tagged steps lies behind a
    tagged plain binding, on its bound side, and the limit is the same on every face where
    data sit (below).
@@ -208,7 +208,8 @@ package rejects:
    segment whose lowest forms are joined only through other forms, a trap that the face
    feeds and its fast exits cannot drain, or a second closed set of forms;
 4. tags with no limit (admission, above);
-5. a denominator that vanishes on a face, found when the law is first derived.
+5. a law with no value (0/0) on a face, which the macros reject; the derivation checks the
+   derived denominator once more.
 
 The faces leave out the corners that zero one substrate with every product. A law the
 package accepts can be 0/0 there, where a well-defined law is 0, so `rate_equation`
