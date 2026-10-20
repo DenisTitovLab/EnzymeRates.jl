@@ -1,0 +1,17 @@
+n_params,parent_n_params,loss,mechanism,mechanism_id,parent_id,rate_equation,retcode,error,eq_hash,fit_inherited,peak_at_range_edge,K_A_Areg,K_A_EP_to_E_P,K_A_ES_to_E_S,K_EP_to_E_P,K_ES_to_E_S,K_I_Areg,L,k_A_ES_to_EP,cv_score,cv_score_se,cv_fold_G1,cv_fold_G2
+5,,3.182443368109755e-13,"@allosteric_mechanism begin
+    substrates: S
+    products: P
+    allosteric_regulators: A
+    catalytic_multiplicity: 2
+    steps: begin
+        E + P ⇌ E(P) :: EqualAI
+        E + S ⇌ E(S) :: EqualAI
+        E(S) <--> E(P) :: OnlyA
+    end
+    regulatory_site(2): A::OnlyA
+end",a29357efffadf9b1,,"(; K_EP_to_E_P, K_ES_to_E_S, k_A_ES_to_EP, K_A_Areg, L, Keq, E_total) = params
+(; S, P, A) = concs
+# Haldane constraints:
+k_A_EP_to_ES = (1 / Keq) * K_EP_to_E_P * (1 / K_ES_to_E_S) * k_A_ES_to_EP
+v = E_total * ((k_A_ES_to_EP * S / K_ES_to_E_S - k_A_EP_to_ES * P / K_EP_to_E_P) * (1 + P / K_EP_to_E_P + S / K_ES_to_E_S) * (1 + A / K_A_Areg) ^ 2) / ((1 + P / K_EP_to_E_P + S / K_ES_to_E_S) ^ 2 * (1 + A / K_A_Areg) ^ 2 + L * (1 + P / K_EP_to_E_P + S / K_ES_to_E_S) ^ 2 * 1 ^ 2)",Success,,c19f06d608f3d3fc,false,false,0.9999995939892494,,,1.000006631627756,1.000003262643983,,100.00009972207063,1.0010999033814532,1.0288413200157802e-13,5.5741925223828634e-14,1.5862605722540666e-13,4.714220677774939e-14
