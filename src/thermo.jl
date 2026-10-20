@@ -1,5 +1,5 @@
 # ABOUTME: The joint thermodynamic solve over the constants of both conformations, and the
-# ABOUTME: cycle-space helpers of the :OnlyA guard and of the split move's counter.
+# ABOUTME: cycle-space helpers of the split move's counter and of class 3's limit test.
 
 """
 A bare constant of the joint solve: slot `slot` of edge `edge` of the catalytic graph, in
@@ -15,14 +15,14 @@ end
 
 """
 The priority key of constant `slot` of edge `k` of `m` in conformation block `block` (2:
-an inactive copy outside the law, 1: another inactive copy, 0: active). The solve
-eliminates the larger key first, so a column with a larger key becomes dependent sooner.
-In turn: the block; the edge's kind (3 an isomerization, 2 other chemistry, 1 a plain
-binding); whether both of its forms hold a metabolite; steady state before rapid
-equilibrium; a steady-state constant that runs against the reaction (for a product
-binding its uptake, for every other edge its reverse rate: the constructor stores each
-edge in its physical-forward direction); then the edge's content as stored, its rank
-`edge_rank[k]` (`_edge_base_rank`), the smaller rank kept.
+a copy outside its conformation's law, 1: an inactive copy in the law, 0: an active copy
+in the law). The solve eliminates the larger key first, so a column with a larger key
+becomes dependent sooner. In turn: the block; the edge's kind (3 an isomerization, 2
+other chemistry, 1 a plain binding); whether both of its forms hold a metabolite; steady
+state before rapid equilibrium; a steady-state constant that runs against the reaction
+(for a product binding its uptake, for every other edge its reverse rate: the constructor
+stores each edge in its physical-forward direction); then the edge's content as stored,
+its rank `edge_rank[k]` (`_edge_base_rank`), the smaller rank kept.
 """
 function _priority_key(m::Mechanism, k::Int, slot::Int, block::Int,
                        edge_rank::Vector{Int})
@@ -45,19 +45,32 @@ for every edge of a plain mechanism."""
 _inactive_law(m::Mechanism) = falses(length(m.edges))
 _inactive_law(am::AllostericMechanism) = _inactive_mask(am)
 
+"""Whether each edge lies in the active conformation's law (`_active_mask`); true for
+every edge of a plain mechanism."""
+_active_law(m::Mechanism) = trues(length(m.edges))
+_active_law(am::AllostericMechanism) = _active_mask(am)
+
+"""Whether the active column of edge `k`, in a group `group[k]` tagged `tags`, enters the
+law: its edge lies in the active conformation's law (`alaw`), or it is an `:EqualAI`
+edge of the inactive conformation's law (`law`), whose one constant the inactive law
+reads."""
+_in_active_law(k::Int, group::Vector{Int}, tags::Vector{Symbol}, law::BitVector,
+               alaw::BitVector) = alaw[k] || (tags[group[k]] === :EqualAI && law[k])
+
 """Whether the steps of a group with allosteric tag `tag` take their own constants in the
-inactive conformation: those of a `:NonequalAI` or `:OnlyA` group do; an `:EqualAI` group's
-read the active ones."""
-_has_inactive_columns(tag::Symbol) = tag in (:NonequalAI, :OnlyA)
+inactive conformation: those of a `:NonequalAI`, `:OnlyA` or `:OnlyI` group do; an
+`:EqualAI` group's read the active ones."""
+_has_inactive_columns(tag::Symbol) = tag in (:NonequalAI, :OnlyA, :OnlyI)
 
 """
 The kinetic class of column `c`, whose edge lies in group `g` with tag `tag`: the group's
-constant in the column's slot and conformation, except that the inactive copy of each
-`:OnlyA` edge is a class of its own.
+constant in the column's slot and conformation, except that the copy of an edge in the
+conformation that excludes it (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's
+active one) is a class of its own.
 """
 _class(c::_Column, g::Int, tag::Symbol) =
-    c.inactive && tag === :OnlyA ? (c.edge, c.slot, true, true) :
-                                   (g, c.slot, c.inactive, false)
+    _excluded_by(tag, c.inactive) ? (c.edge, c.slot, c.inactive, true) :
+                                    (g, c.slot, c.inactive, false)
 
 """
     _fundamental_cycles(m, flat) -> (Z, multiples)
@@ -120,20 +133,23 @@ function _fundamental_cycles(m::Mechanism, flat::Vector{Int})
 end
 
 """
-    _ordered_columns(m) -> (; columns, flat, tags, law)
+    _ordered_columns(m) -> (; columns, flat, tags, law, alaw)
 
 The joint solve's columns of `m` in elimination order, which `_joint_system` and
 `_kept_members` share: one column (`_Column`) per slot of every edge, and for an
-allosteric mechanism one more per slot of every edge of a `:NonequalAI` or `:OnlyA`
-group, for its inactive copy, ordered by `_priority_key`, larger first. `flat` holds the
-edges group by group (`_flat_edges`), `tags` each group's tag (`_solve_tags`) and
-`law[k]` whether edge `k` lies in the inactive conformation's law (`_inactive_law`).
+allosteric mechanism one more per slot of every edge of a `:NonequalAI`, `:OnlyA` or
+`:OnlyI` group, for its inactive copy, ordered by `_priority_key`, larger first. `flat`
+holds the edges group by group (`_flat_edges`), `tags` each group's tag (`_solve_tags`),
+`law[k]` whether edge `k` lies in the inactive conformation's law (`_inactive_law`) and
+`alaw[k]` whether it lies in the active conformation's law (`_active_law`; `_in_active_law`
+adds the `:EqualAI` constants the inactive law reads).
 """
 function _ordered_columns(m::_AnyMech)
     cm = catalytic(m)
     flat = _flat_edges(cm)
     tags = _solve_tags(m)
     law = _inactive_law(m)
+    alaw = _active_law(m)
     allosteric = m isa AllostericMechanism
     columns = _Column[]
     for k in flat, inactive in (false, true)
@@ -143,9 +159,10 @@ function _ordered_columns(m::_AnyMech)
         end
     end
     rank = _edge_base_rank(cm)
-    block(c) = !c.inactive ? 0 : law[c.edge] ? 1 : 2
+    block(c) = c.inactive ? (law[c.edge] ? 1 : 2) :
+               _in_active_law(c.edge, cm.group, tags, law, alaw) ? 0 : 2
     priorities = [_priority_key(cm, c.edge, c.slot, block(c), rank) for c in columns]
-    (; columns = columns[sortperm(priorities; rev = true)], flat, tags, law)
+    (; columns = columns[sortperm(priorities; rev = true)], flat, tags, law, alaw)
 end
 
 """
@@ -263,16 +280,18 @@ end
 The kept member of each kinetic class of `m`, keyed by `(group, slot, inactive)`: the
 edge whose column comes last in elimination order (`cols`, `_ordered_columns(m)`), its
 smallest `_priority_key`, so the solve keeps it whenever it keeps one of the class (E3).
-A `:NonequalAI` group has an inactive class, kept by a member in the inactive law when it
-has one; an `:EqualAI` group's edges share their active class, and each `:OnlyA` edge's
-inactive copy is a class of its own, so neither appears.
+A `:NonequalAI` or `:OnlyI` group has an inactive class, kept by a member in the inactive
+law when it has one; an `:EqualAI` group's edges share their active class; the copy of an
+edge in the conformation that excludes it (an `:OnlyA` edge's inactive copy, an `:OnlyI`
+edge's active one) is a class of its own, so neither of these appears.
 """
 function _kept_members(m::_AnyMech, cols = _ordered_columns(m))
     group = catalytic(m).group
     kept = Dict{Tuple{Int, Int, Bool}, Int}()
     for c in cols.columns
         g = group[c.edge]
-        c.inactive && cols.tags[g] !== :NonequalAI && continue
+        tag = cols.tags[g]
+        (c.inactive ? !(tag in (:NonequalAI, :OnlyI)) : tag === :OnlyI) && continue
         kept[(g, c.slot, c.inactive)] = c.edge
     end
     kept
@@ -303,10 +322,11 @@ independent or dependent, under the name of its kept member (`_kept_members`):
 - `dep` maps each class whose kept column is a pivot to `Keq^q · Π independent^e` with
   rational exponents (`build_power_expr`); the empty product is `1.0`.
 
-Columns outside the law (an `:OnlyA` edge's inactive copy, an inactive copy on a pruned
-form) are eliminated first, so no dependent of the law reads them; a pivot that is not
-its class's kept member equals the kept one and adds no entry. The `Type` method decodes
-a compiled mechanism and checks that its rate law is defined (`_derivation_input`).
+Columns outside the law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's active
+copy, a copy on a form its conformation prunes) are eliminated first, so no dependent of
+the law reads them; a pivot that is not its class's kept member equals the kept one and
+adds no entry. The `Type` method decodes a compiled mechanism and checks that its rate
+law is defined (`_derivation_input`).
 
 Errors when two constants of the law, regulator constants included, render one name,
 which the law would read as one constant: with a conformation labelled `A`, the uptake
@@ -329,7 +349,9 @@ function _dependent_param_exprs(m::_AnyMech)
     class(c) = _class(c, group[c.edge], sys.tags[group[c.edge]])
     last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
     kept_in_law(i) = (c = sys.columns[i];
-                      (!c.inactive || sys.law[c.edge]) && last_of[class(c)] == i)
+                      (c.inactive ? sys.law[c.edge] :
+                       _in_active_law(c.edge, group, sys.tags, sys.law, cols.alaw)) &&
+                      last_of[class(c)] == i)
     reg = m isa Mechanism ? Symbol[] :
           Symbol[name(p, m) for p in [_kreg_params(m, :A); _kreg_params(m, :I)]]
     rendered = [names[filter(kept_in_law, 1:n)]; reg]
@@ -357,7 +379,7 @@ _dependent_param_exprs(@nospecialize(M::Type{<:AbstractEnzymeMechanism})) =
 without compiling the mechanism."""
 _independent_param_count(m::_AnyMech) = length(_dependent_param_exprs(m)[2])
 
-# ─── Cycle-space helpers of the :OnlyA guard and the split move's counter ─────
+# ─── Cycle-space helpers of the split move's counter and the limit test ────
 
 """
 Reduced row echelon form over `Rational{BigInt}`. Returns the pivot and
@@ -544,144 +566,4 @@ function _partition_independent_count(parent::Mechanism)
         length(column) - length(_rref_partition(A)[1])
     end
     counter
-end
-
-"""
-True when some `y` makes every row of `N·y` strictly positive — i.e. the open
-cone `{y : N·y > 0}` is nonempty. Exact Fourier-Motzkin elimination: to drop
-variable `v`, every (positive, negative) row pair is combined with positive
-coefficients, which preserves strictness; a row that reduces to all-zero
-encodes `0 > 0` and refutes the system. Returns `nothing` if elimination blows
-up, so the caller can fall back to the sound per-row test rather than error on
-the enumeration hot path.
-"""
-function _has_strict_positive_combination(N::AbstractMatrix{Rational{BigInt}})
-    d = size(N, 2)
-    d == 0 && return false
-    rows = [collect(N[i, :]) for i in axes(N, 1)]
-    for v in d:-1:1
-        pos = [r for r in rows if r[v] > 0]
-        neg = [r for r in rows if r[v] < 0]
-        nxt = [r for r in rows if r[v] == 0]
-        length(nxt) + length(pos) * length(neg) > 4000 && return nothing
-        for p in pos, q in neg
-            push!(nxt, p .* (-q[v]) .+ q .* p[v])
-        end
-        any(r -> all(iszero, r), nxt) && return false
-        rows = nxt
-    end
-    true
-end
-
-"""
-The error text for the offending `:OnlyA` binding groups `groups` of `am`
-(`_onlya_haldane_violation`), each named by its constant in `am`'s catalytic graph: its
-first edge's slot-1 constant without a state tag, which takes the name of the group's
-active-class kept member. It reads the catalytic graph and constructs no mechanism.
-"""
-function _onlya_violation_message(am::AllostericMechanism, groups::Vector{Int})
-    m = am.catalytic
-    kept, members = _kept_members(m), _group_members(m)
-    labels = sort!([string(name(first(_edge_constants(m, first(members[g]), :None)), m,
-                                kept))
-                    for g in groups])
-    "an :OnlyA binding ($(join(labels, ", "))) leaves a " *
-    "thermodynamic (Haldane/Wegscheider) cycle unsatisfiable: the " *
-    "inactive conformation cannot close that cycle at finite nonzero " *
-    "affinity. Tag the cycle's chemical step :OnlyA, or tag an " *
-    "opposing binding :OnlyA so the affinities diverge together."
-end
-
-"""
-    _onlya_offenders(m, group, tags) → Vector{Int}
-
-The `:OnlyA` binding groups of graph `m`, its edges labelled `group` (edge `k` in group
-`group[k]`) and the groups tagged `tags`, that leave a catalytic thermodynamic cycle's
-Haldane relation unsatisfiable under the `K_I = K_A/ε`, `ε → 0⁺` limit an `:OnlyA`
-binding asserts; empty when every cycle stays satisfiable. The boundary check
-(`_check_well_posed`) names them in its error (`_onlya_violation_message`); the moves read
-only whether any group offends.
-
-A cycle's Haldane carries `∏ε_p/∏ε_s` on the inactive side. The `ε` are
-independent, so that monomial can be held finite only when its exponents
-carry both signs. All-same-sign drives it to `0` or `∞`; the only thing that
-absorbs the imbalance is a free inactive catalytic ratio `k_I_f/k_I_r`. An
-`:OnlyA` catalytic tag supplies exactly that — its rate constants vanish from
-the rate equation, so their ratio is free to satisfy the cycle's Haldane at any
-affinity — which is why the inactive Haldane is present but never binding here.
-
-The check graph drops `:OnlyA` chemistry groups (those holding a chemistry step,
-`_is_chemistry`: an isomerization, a fused binding or a Theorell–Chance step), so
-a cycle running through one never appears and never reports a violation: that
-free `k_I` ratio is the escape. The `:OnlyA` bindings are the `:OnlyA` groups of
-plain bindings alone; a fused binding tagged `:OnlyA` is chemistry and leaves the
-graph. The check graph is read for its cycles only, over the kept groups' edges group by
-group, each group in edge order; it is no mechanism: dropping a group that mixes a fused
-binding with abortive bindings can leave abortive complexes in a rapid-equilibrium
-segment with no bottom form, which the boundary check rejects (`_bottomless_segment`).
-Bindings completing no cycle (competitive inhibitors, dead ends, regulator
-sites) never enter a row and take no part. Both catalytic (Haldane) and
-binding-only (Wegscheider, `rhs = 0`) cycle rows are inspected, so a one-sided
-`:OnlyA` binding on a pure random-order binding square is caught.
-
-The verdict comes from two stages (`_onlya_cone_offenders`). The per-row sign test runs
-first: it flags a cycle whose single row's `:OnlyA` exponents are all one sign, which
-forces a sum of same-signed positive terms to vanish and so is a sound rejection. It is
-cheap and keeps the common rejections on the fast path, but it reads one row at a time
-and a multi-cycle coupled inconsistency passes it. The complete condition
-follows: writing `ε_p = δ^{w_p}`, every cycle's monomial is finite nonzero for
-some `δ → 0⁺` exactly when the coupled `ε`-exponent system admits a
-strictly-positive nullspace vector, `M·w = 0` with `w > 0` (Stiemke
-feasibility). The two stages agree for every random-order mechanism up to bi-bi;
-they part from ter-substrate up.
-
-An `:OnlyA` group's `ε` exponent in a cycle is the sum of its steps' entries in
-that row of the cycle basis (`_thermodynamic_constraints`), for RE and SS
-bindings alike: an RE binding's `1/Kd` and an SS binding's `kon/koff` both enter
-the cycle's product raised to the step's entry, so a cycle that mixes the two step
-kinds reads its signs on one scale and a balanced pair is accepted.
-"""
-function _onlya_offenders(m::Mechanism, group::Vector{Int}, tags::Vector{Symbol})
-    onlya(g) = tags[g] === :OnlyA
-    chemistry = _chemistry_groups(m, group, length(tags))
-    keep = [g for g in eachindex(tags) if !(onlya(g) && chemistry[g])]
-    any(onlya, keep) || return Int[]
-    flat = [k for g in keep for k in eachindex(group) if group[k] == g]
-    C, _ = _thermodynamic_constraints(m, flat)
-    _onlya_cone_offenders(C, group[flat], filter(onlya, keep))
-end
-
-"""The `:OnlyA` binding groups of `am` that leave a catalytic thermodynamic cycle's
-Haldane relation unsatisfiable (`_onlya_offenders` over its own groups and tags)."""
-_onlya_haldane_violation(am::AllostericMechanism) =
-    _onlya_offenders(am.catalytic, am.catalytic.group, am.cat_allo_states)
-
-"""
-The offenders among the `:OnlyA` groups `onlya` (`_onlya_offenders`) by the cycle basis
-`C`, whose column `j` is a step of group `step_group[j]`: the groups of the first cycle
-whose `:OnlyA` exponents carry one sign, or else all of `onlya` when no strictly positive
-combination of the exponents balances every cycle; empty when one does.
-"""
-function _onlya_cone_offenders(C::AbstractMatrix{Int}, step_group::Vector{Int},
-                               onlya::Vector{Int})
-    # Column k holds `:OnlyA` group k's `ε` exponents: its steps' cycle entries summed.
-    M = Rational{BigInt}[sum((C[i, j] for j in eachindex(step_group)
-                              if step_group[j] == g); init = 0)
-                         for i in axes(C, 1), g in onlya]
-    # Per-row sign test first: sound (an all-one-sign row forces a sum of
-    # same-signed positive terms to vanish) and cheap, so it keeps the common
-    # rejections on the fast path.
-    for row in eachrow(M)
-        nz = findall(!iszero, row)
-        !isempty(nz) && allequal(sign.(row[nz])) && return onlya[nz]
-    end
-
-    # The complete condition: the `ε` exponents must admit a strictly-positive
-    # solution of `M·w = 0` (Stiemke feasibility). The per-row test above only
-    # inspects one row at a time, so from ter-substrate up a multi-cycle coupled
-    # inconsistency passes it. `nothing` from the cone test means elimination
-    # blew up; fall back to the per-row verdict (sound, just incomplete) rather
-    # than reject a mechanism we could not decide.
-    _has_strict_positive_combination(_rational_nullspace(M)) === false || return Int[]
-    return onlya
 end

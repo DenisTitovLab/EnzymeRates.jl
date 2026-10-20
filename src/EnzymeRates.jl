@@ -38,4 +38,11 @@ include("fitting.jl")
 include("mechanism_enumeration.jl")
 include("identify_rate_equation.jl")
 
+# Every mechanism macro call runs the guard and the flip search runs `_faces_pass`, so both
+# compile into the package image rather than in each session.
+precompile(_guard, (Mechanism,))
+precompile(_guard, (AllostericMechanism,))
+precompile(_faces_pass, (Mechanism, BitVector))
+precompile(_faces_pass, (AllostericMechanism, BitVector))
+
 end

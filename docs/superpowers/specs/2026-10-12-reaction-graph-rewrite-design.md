@@ -389,9 +389,10 @@ about 1 µs); a tagged step here is one whose tag excludes that conformation:
    Structurally this holds when free E's component reaches every component along the arcs,
    so every island lies behind a tagged plain binding, on its bound side; the limit is then
    deletion plus pruning. It must also hold on every face where data sit (section 8), which
-   rejects cases such as R2 below. That face condition is not designed yet (the slice
-   admits R2); phase 4 designs it and ships it only when it matches the RE-speed and ε-path
-   oracles.
+   rejects cases such as R2 below. Phase 4's face condition (B v3) rejects R2 and is sound
+   against the ε-path oracle; conservative on R-B1 and R-B2, listed: it also rejects
+   equilibrium bridges (R-B1) and stranded basins fed only through vanishing steps (R-B2)
+   whose limit exists, and ROADMAP lists both.
 3. **Turnover.** The active conformation still turns the reaction over.
 
 A tag set that fails is rejected: an error naming the step by its DSL text for a
@@ -475,7 +476,10 @@ chemistry in rapid equilibrium with both sides) but expands it through its flip 
 
 ### Phase 4's first task
 
-Make the face check exact against the RE-speed oracle. The probes found false alarms (6 on
+Make the face check exact against the RE-speed oracle. Admission's face condition is
+sound; conservative on R-B1 and R-B2, listed: it rejects equilibrium bridges (R-B1) and
+stranded basins fed only through vanishing steps (R-B2) that the ε-path oracle admits, and
+ROADMAP lists both. The probes found false alarms (6 on
 mutants; 16 of 16 trap verdicts in the large census, each a trap fed only from a form that
 itself holds a zeroed product) and 2 misses (non-unique face steady states). The guard
 ships only after the check matches the oracle on populations, mutants and hand-built
@@ -745,7 +749,7 @@ before 1.0). Before phase 1 (D1):
 | 1 | Fitting scale; speed-gate calibration on CI (sections 11, 12) | the pre-phase PRs |
 | 2 | Joint solve, names, parameter API, single-graph allosteric derivation, on today's types; exact and detailed-balance oracles; textbook bridge (sections 6, 7, 14) | none |
 | 3 | Graph `Mechanism`, compiled types and Sig, DSL, `show`, parser, CSV, constructor checks, free E; every move, seed construction, today's derivation, fitting and identify ported with unchanged children; source-order feature removed; constructor benchmark (sections 4, 5, 13, 14) | GC-crash probe (E6) |
-| 4 | Admission, flip at E, `:OnlyI` rule, well-posedness guard, enumeration checks; RE-speed, ε-path and LP oracles, face tests (sections 7, 8, 13, 14) | face check and admission's face condition exact first |
+| 4 | Admission, flip at E, `:OnlyI` rule, well-posedness guard, enumeration checks; RE-speed, ε-path and LP oracles, face tests (sections 7, 8, 13, 14) | face check exact first; admission's face condition sound, conservative on R-B1 and R-B2, listed |
 | 5 | Engine, numerator, normalization, printing, key, identify's key cache and beam, L-phantom flag, code-generation locals, speed-gate re-calibration (sections 9, 10, 11, 13) | none |
 
 Phase 3 moves today's constructor-side checks (the bottomless segment,
@@ -810,7 +814,7 @@ entries it affects (section 16).
 | Risk | Handling |
 |---|---|
 | The slice's unexplained "GC error (probable corruption)" in a workload that deserializes mechanisms | A probe of at most half a day before phase 3 (E6): rebuild instead of deserializing, run on Julia 1.10 and on x86, report upstream if Julia is at fault |
-| The face check or admission's face condition rejects valid mechanisms or misses invalid ones | Phase 4 starts by making both exact against the RE-speed and ε-path oracles |
+| The face check or admission's face condition rejects valid mechanisms or misses invalid ones | Phase 4 makes the face check exact against the RE-speed oracle and admission's face condition sound against the ε-path oracle; conservative on R-B1 and R-B2, listed in ROADMAP |
 | The L-phantom detector costs or errs | Phase 5 measures it; oracle tests compare flagged variants with the parent's law |
 | The peak search misses the peak | Deterministic starts, range corners, tests against laws with known peaks (substrate inhibition, product-assisted release) |
 | Test-suite time grows | Population tests are sampled to about one minute of the full suite (section 14) |

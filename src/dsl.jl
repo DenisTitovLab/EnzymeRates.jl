@@ -290,6 +290,15 @@ its bound names without a separator: `K_ES_to_E_S` for `E + S ⇌ E(S)`, `k_ES_t
 `k_EP_to_ES` for `E(S) <--> E(P)`. A modifier copy writes `Smod`, and a residual
 `_res_plusA_minusP`.
 
+When the macro's code runs, it rejects a mechanism whose rate law is not defined where data
+sit, with an error that names the steps at fault: no cycle of steps turns substrates into
+products; a cycle of rapid-equilibrium steps does, so the rate has no finite value; or, with
+every product, every substrate, one reactant or every modifier absent, the steady state is
+not unique or is not the limit the rate law gives as the rapid-equilibrium steps speed up.
+It also rejects a law with no value there (0/0), and the derivation, by
+[`rate_equation`](@ref) or [`rate_equation_string`](@ref), checks the derived denominator
+once more.
+
 Below, the inhibitor I binds E and E(S) with one constant, and a second S binds E(S) as
 a modifier, which inhibits at high substrate:
 
@@ -412,8 +421,18 @@ It takes the labels and step syntax of [`@enzyme_mechanism`](@ref), and:
 A tag says how a statement's constants, or a ligand's binding, differ between the
 conformations: `EqualAI` shares one constant, `NonequalAI` takes one for each (`K_A_…`
 and `K_I_…`), `OnlyA` acts in the active conformation only and `OnlyI` in the inactive
-one only. A catalytic statement takes `EqualAI`, `NonequalAI` or `OnlyA`; a ligand takes
-any of the four.
+one only. A catalytic statement takes `EqualAI`, `NonequalAI` or `OnlyA`, or `OnlyI` when
+its steps bind only modifiers (`modifiers:` names or `::Mod` copies); a ligand takes any of
+the four. The conformations interconvert only at free E.
+
+A tagged step's constants vanish in the conformation that lacks it, and the macro rejects a
+tag set whose limit it cannot show to exist and be unique: an `:OnlyA` or `:OnlyI` binding
+whose two sides the steps that conformation keeps still join; tagged bindings that close a
+cycle; forms that free E reaches only through tagged steps other than a binding toward
+them; `:OnlyI` groups without which the active conformation turns nothing over; a face
+where the steady state depends on where the enzyme starts; or a face where it cannot show
+that the limit does not depend on how fast the tagged constants vanish. The checks of
+[`@enzyme_mechanism`](@ref) apply as well.
 
 ```jldoctest
 julia> using EnzymeRates

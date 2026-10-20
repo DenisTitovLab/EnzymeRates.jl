@@ -23,6 +23,14 @@ through an example). The derivation already handles these, but the enumeration
 does not yet generate iso mechanisms, so `identify_rate_equation` cannot reach
 them.
 
+**Allosteric ping-pong that stops both half-reactions.** An allosteric ping-pong may stop
+one half-reaction in the inactive conformation, as phosphorylation stops pyruvate
+dehydrogenase's E1 and leaves E2 and E3 running. Stopping both strands the covalent
+intermediate between the halves: its weight, and with it the rate, then depends on how fast
+each half stops, so `@allosteric_mechanism` rejects such a mechanism. Supporting it needs
+the conformations to interconvert at the covalent intermediate as well, which will come
+with iso mechanisms.
+
 ## Support more measurement types
 
 Fitting and identification currently work from reaction-rate (turnover) data. A

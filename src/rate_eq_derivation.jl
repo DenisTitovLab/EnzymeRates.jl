@@ -124,12 +124,12 @@ end
 Compute alpha factors (relative concentrations within RE segments) as POLY values, one
 per form of `m`. Reads the edges `flat` of a sub-graph of `m` in that order; each RE
 edge's weight ratio comes from `_re_weight_ratio`, entering its target from its source
-or the reverse. `segments` are the sub-graph's RE segments (`_segments`), `names[k]` the
-parameter Symbols of edge `k` (the K first), and `conc_set` the concentration symbols.
-Raises when the RE edges close a catalytic cycle, which gives the mechanism no finite
-rate.
+or the reverse. `segments` are the sub-graph's RE segments (`_segments`) and `names[k]` the
+parameter Symbols of edge `k` (the K first). The guard's class 2 rejects every mechanism
+whose RE edges close a cycle that turns the reaction over (`_re_turnover_transitions`), so
+the weights reproduce each RE edge's own ratio.
 """
-function _compute_alpha(m::Mechanism, flat::Vector{Int}, conc_set::Set{Symbol},
+function _compute_alpha(m::Mechanism, flat::Vector{Int},
                         segments::Vector{Vector{Int}}, names::Vector{Vector{Symbol}})
     alpha = Vector{POLY}(fill(poly_one(), length(m.forms)))
 
@@ -155,19 +155,6 @@ function _compute_alpha(m::Mechanism, flat::Vector{Int}, conc_set::Set{Symbol},
             end
         end
     end
-
-    # Every RE edge must reproduce its own concentration ratio from the weights; a
-    # mismatch means a cycle of RE edges performs turnover.
-    conc(p) = Dict(k => v for (k, v) in only(keys(p)) if k in conc_set)
-    for k in flat
-        e = m.edges[k]
-        e.rapid_equilibrium || continue
-        ratio = poly_mul(alpha[e.to], _invert_monomial(alpha[e.from]))
-        conc(ratio) == conc(_re_weight_ratio(m, e, names[k][1])) || error(
-            "rate_equation: the rapid-equilibrium steps close a catalytic cycle " *
-            "(through $(_form_name(m, e.from)) ⇌ $(_form_name(m, e.to))), so the " *
-            "mechanism has no finite rate. Make one step of the cycle steady-state.")
-    end
     alpha
 end
 
@@ -191,11 +178,10 @@ or `[kf, kr]`), which are the leaves of `num`/`den`. The law covers only the for
 kept edges touch (`_present_forms`). Aborts, before the King–Altman expansion, a graph
 whose denominator would be too large to derive (`_assert_derivable`).
 
-Also returns `d_free`, the weight in the returned denominator of the free
-resting enzyme (the first form with empty `bound` and empty `residual`): the
-spanning-tree weight `D[g_free]` of its segment times the concentration monomial
-that brings `num`/`den` to lowest terms. Free E roots its segment, so its own
-`alpha` is 1.
+Also returns `d_free`, the weight in the returned denominator of free E, form 1, where the
+conformations interconvert: the spanning-tree weight `D[g_free]` of its segment times the
+concentration monomial that brings `num`/`den` to lowest terms. Free E roots its segment,
+so its own `alpha` is 1.
 """
 function _raw_symbolic_rate_polys(m::_AnyMech, mask::BitVector,
                                   names::Vector{Vector{Symbol}})
@@ -210,7 +196,7 @@ function _raw_symbolic_rate_polys(m::_AnyMech, mask::BitVector,
     # and the only symbols `_reduce_conc_lowest_terms` may shift. No parameter symbol is
     # in it, so the concentration-GCD never drops a fitted parameter.
     conc_set = Set{Symbol}(metabolites(m))
-    alpha = _compute_alpha(cm, flat, conc_set, segments.segments, names)
+    alpha = _compute_alpha(cm, flat, segments.segments, names)
     seg = segments.segment_of
     G = length(segments.segments)
 
@@ -235,10 +221,10 @@ function _raw_symbolic_rate_polys(m::_AnyMech, mask::BitVector,
     # D[g], the spanning-tree weight of segment g: L without g's row and column.
     D = [(o = setdiff(1:G, g); sym_det(L[o, o])) for g in 1:G]
 
-    # A graph with no unbound, residual-free form (e.g. a hand-written mechanism whose
-    # every form carries a residual) has no free enzyme to weight, so `d_free` is 1.
-    i_free = findfirst(f -> seg[f] != 0 && _is_free(cm.forms[f]), eachindex(cm.forms))
-    d_free = i_free === nothing ? poly_one() : D[seg[i_free]]
+    # The conformations interconvert at free E, form 1, which every state's edges reach
+    # (`_state_mask`). It roots its segment (`_segment_root` ranks it first), so its own
+    # alpha is 1 and its weight is its segment's tree weight.
+    d_free = D[seg[1]]
 
     den = poly_zero()
     for g in 1:G
@@ -274,11 +260,12 @@ _raw_symbolic_rate_polys(m::Mechanism) =
 _raw_symbolic_rate_polys(@nospecialize(M::Type{<:EnzymeMechanism})) =
     _raw_symbolic_rate_polys(Mechanism(M()))
 
-"""The edges of `m`'s law in conformation `state`: every edge for `:None` and `:A`; for
-`:I`, the inactive conformation's (`_inactive_mask`)."""
+"""The edges of `m`'s law in conformation `state`: every edge for `:None`; for `:A` the
+active conformation's (`_active_mask`), for `:I` the inactive one's
+(`_inactive_mask`)."""
 _state_mask(m::Mechanism, ::Symbol) = trues(length(m.edges))
 _state_mask(am::AllostericMechanism, state::Symbol) =
-    state === :I ? _inactive_mask(am) : trues(length(am.catalytic.edges))
+    state === :I ? _inactive_mask(am) : _active_mask(am)
 
 """
 The parameter Symbols of each edge's constants in conformation `state` of `m` — `[K]` at
@@ -312,8 +299,8 @@ evaluates on every call — so it bounds fit cost. It guards the derivation itse
 (`_assert_derivable` aborts when V×τ exceeds `MAX_RATE_EQUATION_TERMS`, before the O(G!)
 symbolic cofactor expansion) and backs the `eq_complexity_filter` keyword of
 [`identify_rate_equation`](@ref), which skips over-complex mechanisms before fitting. The
-method for a mechanism counts every edge of its catalytic graph, an allosteric
-mechanism's active conformation.
+method for a mechanism counts every edge of its catalytic graph, which for an allosteric
+mechanism with `:OnlyI` groups holds more than its active conformation's law.
 """
 function _eq_complexity(m::Mechanism, mask::BitVector)
     s = _segments(m, mask, _flags(m))
@@ -360,10 +347,12 @@ end
 
 """The numerator and denominator Exprs of the rate equation of `m`, from its raw
 symbolic rate polys: flat sums for the printed equation, or in Horner form
-(`_poly_to_horner`) for the generated code when `horner` is true."""
+(`_poly_to_horner`) for the generated code when `horner` is true. Errors when the
+denominator vanishes on a face of the guard (`_assert_support`)."""
 function _num_den_exprs(m::Mechanism; horner = false)
     names = _edge_names(m, :None)
     num, den, _ = _raw_symbolic_rate_polys(m, trues(length(m.edges)), names)
+    _assert_support(m, _law_branches(den))
     horner && return _poly_to_horner(num), _poly_to_horner(den)
     param_syms = Set{Symbol}(n for ns in names for n in ns)
     _poly_to_expr(num, param_syms), _poly_to_expr(den, param_syms)
@@ -574,13 +563,14 @@ end
     _state_rate_polys(am, state) -> (num, den, d_free)
 
 The rate polynomials of `am`'s catalytic graph in conformation `state` (`:A` or `:I`),
-in that state's names (`_edge_names`, `kept` as `_kept_members(am)`): the active
-conformation on the full graph, the inactive one on its pruned graph (`_inactive_mask`),
-each edge in `am`'s stored direction. King–Altman on the pruned graph derives the
+in that state's names (`_edge_names`, `kept` as `_kept_members(am)`): each conformation on
+its own pruned graph (`_state_mask`: the active one without its `:OnlyI` groups, the
+inactive one without its `:OnlyA` groups, each without the forms that strands), each edge
+in `am`'s stored direction. King–Altman on the pruned graph derives the
 inactive conformation's binding partition, and for a dead cycle its steady-state fluxes
 cancel, so `num` is 0. Every derivation entry first runs the boundary check
-(`_check_well_posed`), which rejects a rapid-equilibrium segment with no bottom form in
-either graph.
+(`_check_well_posed`), whose class 3 rejects, among other faults, a face where a segment
+of either conformation's law network has no bottom form.
 """
 _state_rate_polys(am::AllostericMechanism, state::Symbol, kept = _kept_members(am)) =
     _raw_symbolic_rate_polys(am, _state_mask(am, state), _edge_names(am, state, kept))
@@ -664,11 +654,11 @@ end
 The catalytic rate polys of both conformations of `am` (`_state_rate_polys`, with `kept`
 as `_kept_members(am)`) under the
 formulation-1 per-state free-enzyme normalization that `rate_equation`
-(`_num_den_exprs`) uses. The I-state polys come from the inactive conformation's pruned
-graph (`_inactive_mask` drops `:OnlyA` groups and every form they disconnect from free
-E). King–Altman on that subgraph derives the inactive conformation's binding partition,
-and for a dead cycle the pruned graph's steady-state fluxes cancel exactly, so `num_I`
-is 0.
+(`_num_den_exprs`) uses. Each state's polys come from its conformation's pruned graph
+(`_state_mask`: `_active_mask` drops the `:OnlyI` groups and `_inactive_mask` the
+`:OnlyA` ones, each with every form they disconnect from free E). King–Altman on that
+subgraph derives the inactive conformation's binding partition, and for a dead cycle the
+pruned graph's steady-state fluxes cancel exactly, so `num_I` is 0.
 
 The free-enzyme weights `d_A` and `d_I` combine three ways, all rendering the same
 value (`mets` are the catalytic metabolites):
@@ -702,7 +692,8 @@ Returns `(full_num, full_den)`, written with flat sums for the printed equation,
 Horner form (`_poly_to_horner`) for the generated code when `horner` is true.
 Per-active-site normalization: the
 numerator carries no leading `catalytic_multiplicity` factor; only the
-`Q_cat^(CatN-1)` / `Q_cat^CatN` binding-statistics powers remain.
+`Q_cat^(CatN-1)` / `Q_cat^CatN` binding-statistics powers remain. Errors when the
+denominator vanishes on a face of the guard (`_assert_support`).
 """
 function _num_den_exprs(am::AllostericMechanism; horner = false)
     CatN = catalytic_multiplicity(am)
@@ -715,6 +706,9 @@ function _num_den_exprs(am::AllostericMechanism; horner = false)
     to_expr(p) = horner ? _poly_to_horner(p) : _poly_to_expr(p, cat_params)
     num_A_poly, den_A_poly, num_i_poly, den_i_poly, d_A, d_I =
         _mwc_state_polys(am, Set{Symbol}(metabolites(am.catalytic)), kept)
+    # Each conformation's denominator times the other's free-enzyme weight
+    # (`_law_branches`): every term is positive, so no face can cancel them.
+    _assert_support(am, _law_branches(den_A_poly, den_i_poly, d_A, d_I))
     # A free-enzyme weight left for cross-weighting multiplies the other state's terms;
     # a normalized one renders as 1, which `_mwc_cross_weight` skips.
     D_A_expr = to_expr(d_A)

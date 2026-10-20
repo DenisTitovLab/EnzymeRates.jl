@@ -42,10 +42,10 @@ struct RegulatorySite
                   "must equal length(allo_states)=$(length(allo_states))")
         multiplicity ≥ 1 ||
             error("RegulatorySite: multiplicity must be ≥ 1, got $multiplicity")
-        bad = findfirst(∉(_VALID_REG_ALLO_STATES), allo_states)
+        bad = findfirst(∉(_TAG_CODES), allo_states)
         bad === nothing ||
             error("RegulatorySite: allo state $(allo_states[bad]) must be one of " *
-                  "$_VALID_REG_ALLO_STATES")
+                  "$_TAG_CODES")
         dup = findfirst(i -> ligands[i] in view(ligands, 1:(i - 1)), eachindex(ligands))
         dup === nothing || error("RegulatorySite: ligand $(ligands[dup]) appears twice " *
                                  "in one regulatory site")
@@ -651,6 +651,7 @@ struct AllostericMechanism
                                  catalytic_multiplicity::Int,
                                  regulatory_sites::Vector{RegulatorySite})
         _check_tags(cat_allo_states, ngroups(catalytic), catalytic_multiplicity)
+        _check_onlyi_groups(catalytic, cat_allo_states)
         sites = sort(regulatory_sites; by = _site_key)
         _check_ligands(sites, catalytic)
         new(catalytic, copy(cat_allo_states), catalytic_multiplicity, sites)
@@ -660,12 +661,6 @@ end
 """A site's place in the order of a mechanism's sites: its ligands, its multiplicity,
 then its ligands' tags."""
 _site_key(s::RegulatorySite) = (s.ligands, s.multiplicity, s.allo_states)
-
-# Each catalytic kinetic group carries an allosteric-state tag (`:OnlyA`, `:EqualAI` or
-# `:NonequalAI`; `:OnlyI` is rejected by the active-state convention); a site ligand
-# may also be `:OnlyI`.
-const _VALID_CAT_ALLO_STATES = (:OnlyA, :EqualAI, :NonequalAI)
-const _VALID_REG_ALLO_STATES = (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
 
 abstract type AbstractEnzymeMechanism end
 
@@ -838,6 +833,12 @@ function _role_masks(table::Vector{Met}, substrates::Vector{Symbol})
     substrate_mask, product_mask
 end
 
+"""Canonical form's tier-1 side order: substrates, bound plus free, then fewer products."""
+_side_score(forms::Vector{Form}, f::Int, free::Counts, substrate_mask::Counts,
+            product_mask::Counts) =
+    (total(forms[f].bound & substrate_mask) + total(free & substrate_mask),
+     -total(forms[f].bound & product_mask) - total(free & product_mask))
+
 """
     _orientation(forms, written, labels, substrate_mask, product_mask)
         -> (fwd::BitVector, misaligned::Vector{Edge})
@@ -859,15 +860,14 @@ function _orientation(forms::Vector{Form}, written::Vector{Edge}, labels::Vector
         enters[e.from] |= side(e.consumed)
         enters[e.to] |= side(e.released)
     end
-    score(f::Int, free::Counts) =
-        (total(forms[f].bound & substrate_mask) + total(free & substrate_mask),
-         -total(forms[f].bound & product_mask) - total(free & product_mask))
     n = length(written)
     fwd, tier = trues(n), zeros(Int, n)
     for (k, e) in enumerate(written)
+        a = _side_score(forms, e.from, e.consumed, substrate_mask, product_mask)
+        b = _side_score(forms, e.to, e.released, substrate_mask, product_mask)
         if total(e.consumed) + total(e.released) == 1
             fwd[k] = e.consumed != 0
-        elseif (a = score(e.from, e.consumed)) != (b = score(e.to, e.released))
+        elseif a != b
             fwd[k], tier[k] = a > b, 1
         elseif (enters[e.from], enters[e.to]) in ((0x02, 0x01), (0x01, 0x02))
             fwd[k], tier[k] = enters[e.from] == 0x02, 2
@@ -982,9 +982,8 @@ _with(am::AllostericMechanism; states::Vector{Symbol} = cat_allo_states(am),
 
 # ─── Checks ─────────────────────────────────────────────────────────────
 
-"""Error unless `cat_allo_states` holds one valid tag for each of `G` kinetic groups and
-the catalytic multiplicity is at least 1. No catalytic group is `:OnlyI`: the active
-conformation is the one that catalyzes."""
+"""Error unless `cat_allo_states` holds one valid tag (`_TAG_CODES`) for each of `G`
+kinetic groups and the catalytic multiplicity is at least 1."""
 function _check_tags(cat_allo_states::Vector{Symbol}, G::Int, catalytic_multiplicity::Int)
     length(cat_allo_states) == G ||
         error("AllostericMechanism: cat_allo_states length $(length(cat_allo_states)) " *
@@ -992,12 +991,31 @@ function _check_tags(cat_allo_states::Vector{Symbol}, G::Int, catalytic_multipli
     catalytic_multiplicity ≥ 1 ||
         error("AllostericMechanism: catalytic_multiplicity must be ≥ 1, " *
               "got $catalytic_multiplicity")
-    bad = findfirst(∉(_VALID_CAT_ALLO_STATES), cat_allo_states)
+    bad = findfirst(∉(_TAG_CODES), cat_allo_states)
     bad === nothing ||
         error("AllostericMechanism: catalytic group $bad has invalid " *
-              "allo state $(cat_allo_states[bad]) (must be one of " *
-              "$_VALID_CAT_ALLO_STATES); :OnlyI is rejected for " *
-              "catalytic groups (active-state-active convention)")
+              "allo state $(cat_allo_states[bad]) (must be one of $_TAG_CODES)")
+    nothing
+end
+
+"""Error when a kinetic group of `catalytic` tagged `:OnlyI` (`cat_allo_states`) holds a
+step that does more than take up or give off modifiers (`_modifier_mask`), or whose two
+forms differ in anything but their modifiers and label: only the active conformation
+catalyzes, so a group it lacks binds modifiers alone (spec section 7)."""
+function _check_onlyi_groups(catalytic::Mechanism, cat_allo_states::Vector{Symbol})
+    modifiers = _modifier_mask(catalytic)
+    for (k, e) in enumerate(catalytic.edges)
+        cat_allo_states[catalytic.group[k]] === :OnlyI || continue
+        exchanged = e.consumed | e.released
+        f, t = catalytic.forms[e.from], catalytic.forms[e.to]
+        exchanged != 0 && exchanged & ~modifiers == 0 &&
+            (f.bound & ~modifiers, f.added, f.subtracted) ==
+            (t.bound & ~modifiers, t.added, t.subtracted) && continue
+        error("AllostericMechanism: $(_step_text(catalytic, k)) is tagged :OnlyI but " *
+              "does more than bind a modifier. Only the active conformation " *
+              "catalyzes, so :OnlyI fits only a group whose steps take up or give off " *
+              "modifiers alone. Tag its group :NonequalAI.")
+    end
     nothing
 end
 
@@ -1264,7 +1282,8 @@ end
 #               catalytic multiplicity; the number of sites, then per site its
 #               multiplicity, its number of ligands and per ligand its name and tag code.
 
-"""The allosteric tags, coded by position: catalytic groups and site ligands share it."""
+"""The allosteric tags, coded by position: catalytic groups and site ligands share them,
+and the constructors accept no other (`_check_tags`, `RegulatorySite`)."""
 const _TAG_CODES = (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
 _tag_code(t::Symbol) = findfirst(==(t), _TAG_CODES)::Int
 
@@ -1481,7 +1500,7 @@ end
 """Whether `e` of `m` is anything but a plain binding (`_is_plain_binding`): an
 isomerization, a fused binding (`E(A) + B → E(P, Q)`), a Theorell–Chance step or a step
 with several metabolites on a side. The joint solve's priority (`_priority_key`) and the
-`:OnlyA` test (`_onlya_offenders`) read it to tell catalysis from binding."""
+allosteric moves (`_chemistry_groups`) read it to tell catalysis from binding."""
 _is_chemistry(m::Mechanism, e::Edge) = !_is_plain_binding(m, e)
 """Whether each of `n` kinetic groups, edge `k` in group `group[k]`, holds some edge `k`
 with `pred(k)`."""
@@ -1492,12 +1511,10 @@ function _groups_with(pred, group::Vector{Int}, n::Int)
     end
     out
 end
-"""Whether each of the `n` kinetic groups of graph `m`, edge `k` in group `group[k]`
-(by default its own), holds a chemistry edge (`_is_chemistry`). The allosteric moves tag
-a chemistry group apart from a binding group."""
-_chemistry_groups(m::Mechanism, group::Vector{Int} = m.group,
-                  n::Int = maximum(group; init = 0)) =
-    _groups_with(k -> _is_chemistry(m, m.edges[k]), group, n)
+"""Whether each kinetic group of `m` holds a chemistry edge (`_is_chemistry`). The
+allosteric moves tag a chemistry group apart from a binding group."""
+_chemistry_groups(m::Mechanism) =
+    _groups_with(k -> _is_chemistry(m, m.edges[k]), m.group, ngroups(m))
 """The edges group by group, each group in edge order: the order the joint solve and the
 derivation read them in."""
 _flat_edges(m::Mechanism) = reduce(vcat, _group_members(m); init = Int[])
@@ -1628,38 +1645,66 @@ function _segments(m::Mechanism, mask::BitVector, re::BitVector)
     (; segment_of, segments, offsets)
 end
 
-"""Which edges of `am`'s catalytic graph lie outside `:OnlyA` groups."""
-_outside_onlya(am::AllostericMechanism) =
-    BitVector([am.cat_allo_states[g] !== :OnlyA for g in am.catalytic.group])
-
 """
 The edges of `am`'s inactive conformation: those outside `:OnlyA` groups between forms
-that such edges reach from a free form (`_is_free`). Under formulation 1 the
-conformations interconvert at a free form, so a form those edges do not reach holds no
-inactive enzyme; a ping-pong covalent intermediate carries a residual, so it seeds
-nothing. The inactive law (`_state_rate_polys`), the joint solve (`_inactive_law`) and
-the boundary check (`_check_well_posed`) read the inactive conformation from it, each
-edge in `am`'s stored direction.
+they join to free E (`_law_mask`). The conformations interconvert at free E alone, so a
+form those edges do not join to it holds no inactive enzyme, a second free form included.
+The inactive law (`_state_rate_polys`), the joint solve (`_inactive_law`), the copy rule
+(`_redundant_copy_groups`), the tagging move's stopping test (`_stops_inactive_turnover`)
+and the hyperbolic test (`_hyperbolic_catalysis`) read the inactive conformation from it,
+each edge in `am`'s stored direction.
 """
-function _inactive_mask(am::AllostericMechanism)
-    m, outside = am.catalytic, _outside_onlya(am)
-    reached = falses(length(m.forms))
+_inactive_mask(am::AllostericMechanism) = _law_mask(am, 2)
+
+"""
+The edges of `am`'s active conformation: those outside `:OnlyI` groups between forms they
+join to free E (`_law_mask`), the mirror of `_inactive_mask`. The active law
+(`_state_rate_polys`), the joint solve (`_active_law`), the copy rule
+(`_redundant_copy_groups`), the degeneracy test (`_degenerate`) and the hyperbolic test
+(`_hyperbolic_catalysis`) read the active conformation from it, each edge in `am`'s
+stored direction.
+"""
+_active_mask(am::AllostericMechanism) = _law_mask(am, 1)
+
+"""Whether conformation `c` (1 active, 2 inactive) of `am` excludes edge `k`: an `:OnlyA`
+group's edge in the inactive conformation, an `:OnlyI` group's in the active one. There a
+plain binding loses its affinity and any other edge is blocked (spec section 7)."""
+_excludes(am::AllostericMechanism, k::Int, c::Int) =
+    _excluded_by(am.cat_allo_states[am.catalytic.group[k]], c == 2)
+
+"""Whether a step whose kinetic group is tagged `tag` is excluded from the inactive
+conformation (`inactive`) or the active one: an `:OnlyA` step from the inactive, an
+`:OnlyI` step from the active."""
+_excluded_by(tag::Symbol, inactive::Bool) = tag === (inactive ? :OnlyA : :OnlyI)
+
+"""
+Each form's component under the edges of `am`'s catalytic graph that conformation `c`
+(1 active, 2 inactive) keeps (`_excludes`), every form included, labelled by its smallest
+form index, so free E's label is 1. Admission reads each plain binding `c` excludes as an
+arc from its unbound side's component to its bound side's (`_arcs`).
+"""
+function _exclusion_components(am::AllostericMechanism, c::Int)
+    m = am.catalytic
+    parent = collect(eachindex(m.forms))
+    top(i) = (while parent[i] != i; i = parent[i]; end; i)
     for (k, e) in enumerate(m.edges)
-        outside[k] || continue
-        _is_free(m.forms[e.from]) && (reached[e.from] = true)
-        _is_free(m.forms[e.to]) && (reached[e.to] = true)
+        _excludes(am, k, c) && continue
+        a, b = top(e.from), top(e.to)
+        a == b || (parent[max(a, b)] = min(a, b))
     end
-    grew = true
-    while grew
-        grew = false
-        for (k, e) in enumerate(m.edges)
-            outside[k] && reached[e.from] != reached[e.to] || continue
-            reached[e.from] = reached[e.to] = true
-            grew = true
-        end
-    end
-    BitVector([outside[k] && reached[e.from] && reached[e.to]
-               for (k, e) in enumerate(m.edges)])
+    [top(f) for f in eachindex(m.forms)]
+end
+
+"""
+The edges of conformation `c`'s law (1 active, 2 inactive) in `am`'s catalytic graph:
+those `c` does not exclude (`_excludes`) between forms they join to free E, form 1. The
+law deletes the excluded edges and prunes the forms this strands; admission decides when
+that is the limit of the vanishing constants (spec section 7).
+"""
+function _law_mask(am::AllostericMechanism, c::Int)
+    comp = _exclusion_components(am, c)
+    BitVector([!_excludes(am, k, c) && comp[e.from] == 1
+               for (k, e) in enumerate(am.catalytic.edges)])
 end
 
 """Form `f` of `m` as raw input, holding also the metabolites `extra`."""

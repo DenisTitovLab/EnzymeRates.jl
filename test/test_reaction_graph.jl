@@ -133,9 +133,9 @@ end
                                 "1, got 0"),
                  ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 0, sites))
     @test_throws(ErrorException(
-        "AllostericMechanism: catalytic group 2 has invalid allo state OnlyI (must be " *
-        "one of (:OnlyA, :EqualAI, :NonequalAI)); :OnlyI is rejected for catalytic " *
-        "groups (active-state-active convention)"),
+        "AllostericMechanism: E + S ⇌ E(S) is tagged :OnlyI but does more than bind a " *
+        "modifier. Only the active conformation catalyzes, so :OnlyI fits only a group " *
+        "whose steps take up or give off modifiers alone. Tag its group :NonequalAI."),
         ER.AllostericMechanism(m, [:EqualAI, :OnlyI, :OnlyA], 2, sites))
     @test_throws(ErrorException(
         "AllostericMechanism: ligand X appears in two distinct regulatory sites; " *
@@ -430,9 +430,9 @@ end
     @test_throws MethodError ER.AllostericMechanism(
         ER.Mechanism(_testhelper_uniuni_raw()), tags, true, EnzymeRates.RegulatorySite[])
     @test_throws(ErrorException(
-        "AllostericMechanism: catalytic group 2 has invalid allo state OnlyI (must be " *
-        "one of (:OnlyA, :EqualAI, :NonequalAI)); :OnlyI is rejected for catalytic " *
-        "groups (active-state-active convention)"),
+        "AllostericMechanism: E(S) <--> E(P) is tagged :OnlyI but does more than bind a " *
+        "modifier. Only the active conformation catalyzes, so :OnlyI fits only a group " *
+        "whose steps take up or give off modifiers alone. Tag its group :NonequalAI."),
         _testhelper_allosteric([:EqualAI, :OnlyI, :EqualAI], 2, EnzymeRates.RawSite[]))
     # Declarations and group labels.
     @test_throws(ErrorException("Mechanism: substrates must not be empty"),
@@ -884,7 +884,7 @@ end
     @test length(ER._segments(m, every, falses(6)).segments) == 5
 
     # The inactive conformation keeps the edges outside :OnlyA groups between forms that
-    # such edges reach from a free form: here E(A) and E(A, I) lie behind the :OnlyA
+    # such edges reach from free E: here E(A) and E(A, I) lie behind the :OnlyA
     # binding of A.
     am = ER.AllostericMechanism(_testhelper_walk(:(begin
         substrates: A
@@ -1113,17 +1113,12 @@ end
 """
 The inactive edges of the allosteric mechanism whose test reader (`_testhelper_graph`) is
 `g`, read off `g`'s steps alone, one flag per step: no step of an `:OnlyA` group, and every
-other step whose two forms the steps outside `:OnlyA` groups reach from a free form (no
-metabolite, no residual).
+other step whose two forms the steps outside `:OnlyA` groups reach from free E.
 """
 function _testhelper_inactive_reach(g)
     outside = [g.tags[s.group] !== :OnlyA for s in g.steps]
     reach = falses(length(g.forms))
-    for (j, s) in enumerate(g.steps)
-        outside[j] || continue
-        g.free[s.from] && (reach[s.from] = true)
-        g.free[s.to] && (reach[s.to] = true)
-    end
+    reach[1] = true
     grew = true
     while grew
         grew = false
@@ -1222,7 +1217,7 @@ end
         @test ER.compile_mechanism(ER._parse_mechanism(sprint(show, spec.mechanism))) ===
               spec.mechanism
     end
-    @test length(allosteric) == 5 + 934 + 5
+    @test length(allosteric) == 5 + 890 + 5
     @test isempty([i for (i, x) in enumerate(population) if !_testhelper_reads_back(x)])
     @test isempty([i for (i, x) in enumerate(allosteric) if !_testhelper_reads_back(x)])
 end

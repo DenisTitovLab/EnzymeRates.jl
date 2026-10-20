@@ -24,7 +24,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         # Call-form notation on every step: the parser reads each form as its
         # conformation label and the metabolites it holds, each in its declared role.
         # The form E(S) of `E + S ⇌ E(S)` has conformation E and holds S as a substrate.
-        m = @enzyme_mechanism begin
+        mech = @_testhelper_unguarded @enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
@@ -33,7 +33,10 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                 E(P) ⇌ E + P
             end
         end
-        mech = EnzymeRates.Mechanism(m)
+        # Every step at rapid equilibrium closes a fast cycle that turns the reaction
+        # over (class 2); the parse is the subject, so the constructor builds it
+        # unchecked.
+        @test EnzymeRates._guard(mech).fault === EnzymeRates._RE_TURNOVER
         @test EnzymeRates.ngroups(mech) == 3
         # Steps are canonicalized; pick each by content, not position.
         es_step = _testhelper_binding_of(mech, EnzymeRates.Met(:S, false))  # E + S ⇌ E(S)
@@ -147,8 +150,9 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             end
         end))
 
-        # Reject :OnlyI on a catalytic step (V-type allostery not supported)
-        @test_throws ":OnlyI is rejected for catalytic groups" eval(
+        # Reject :OnlyI on a catalytic step: only the active conformation catalyzes.
+        @test_throws ("AllostericMechanism: E(F6P) <--> E(F16BP) is tagged :OnlyI but " *
+                      "does more than bind a modifier.") eval(
             :(@allosteric_mechanism begin
                 substrates: F6P
                 products:   F16BP
@@ -233,8 +237,8 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             regulatory_site(1): X::Bogus
         end))
 
-        # Unknown and :OnlyI catalytic states are reported by AllostericMechanism.
-        for state in (:Bogus, :OnlyI)
+        # An unknown catalytic state is reported by AllostericMechanism.
+        for state in (:Bogus,)
             @test_throws "catalytic group" eval(:(@allosteric_mechanism begin
                 substrates: S
                 products:   P
@@ -245,6 +249,17 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                 end
             end))
         end
+        # So is :OnlyI on a step that does more than bind a modifier.
+        @test_throws ("AllostericMechanism: E + P ⇌ E(P) is tagged :OnlyI but does " *
+                      "more than bind a modifier.") eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: OnlyI
+            end
+        end))
 
         # A ligand on two regulatory sites is reported by the macro, which reads the
         # site lines.
@@ -1582,6 +1597,28 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             end
         end)))
     end
+
+    @testset "the :OnlyI rule rejects every step that does more than bind a modifier" begin
+        # Three shapes: a reactant binding, an isomerization of an inhibitor complex, and
+        # a Theorell–Chance step that takes up a modifier and gives off a product. Each
+        # fix, the group tagged :NonequalAI, passes the guard.
+        lead = "is tagged :OnlyI but does more than bind a modifier."
+        for (text, line) in (
+                ("E + S ⇌ E(S) :: OnlyI\nE(S) <--> E + P :: EqualAI\n" *
+                 "E + I ⇌ E(I) :: EqualAI", "E + S ⇌ E(S)"),
+                ("E + S ⇌ E(S) :: EqualAI\nE(S) <--> E + P :: EqualAI\n" *
+                 "E + I ⇌ E(I) :: EqualAI\nE(I) <--> F(I) :: OnlyI", "E(I) <--> F(I)"),
+                ("E + S ⇌ E(S) :: EqualAI\nE(S) <--> E + P :: EqualAI\n" *
+                 "E + I ⇌ E(I) :: EqualAI\nE(S) + I <--> E(I) + P :: OnlyI",
+                 "E(S) + I <--> E(I) + P"))
+            _testhelper_block(steps) = Meta.parse(
+                "@allosteric_mechanism begin\nsubstrates: S\nproducts: P\n" *
+                "modifiers: I\nsteps: begin\n$steps\nend\nend")
+            @test_throws "AllostericMechanism: $line $lead" eval(_testhelper_block(text))
+            @test eval(_testhelper_block(replace(text, ":: OnlyI" => ":: NonequalAI"))) isa
+                  EnzymeRates.AllostericEnzymeMechanism
+        end
+    end
 end
 
 @testset "DSL: modifiers, ::Mod and regulatory_site(n)" begin
@@ -2121,7 +2158,8 @@ end
     @testset "constructor errors throw when the expanded code runs" begin
         # The walker reads the block at expansion; the constructors check the mechanism
         # when the macro's code runs, so these throw outside `eval`.
-        @test_throws ":OnlyI is rejected for catalytic groups" @allosteric_mechanism begin
+        @test_throws ("AllostericMechanism: E(S) <--> E(P) is tagged :OnlyI but does " *
+                      "more than bind a modifier.") @allosteric_mechanism begin
             substrates: S
             products:   P
             steps: begin

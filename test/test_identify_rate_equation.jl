@@ -1860,12 +1860,15 @@ end
     @test occursin("= Dict(:N => 1)", failures[1].error)
 end
 
-@testset "_base_tier records a flip child whose rate law is not defined" begin
-    # Every step is rapid equilibrium, so the catalytic cycle E, E(S), E(P), F turns over
-    # at rapid equilibrium: the seed is degenerate and expanded. Its free forms E and F
-    # share one rapid-equilibrium segment through F ⇌ E; the flips that cut the cycle at
-    # F ⇌ E and one more step leave them in two segments, which the boundary check
-    # (`_check_well_posed`) rejects: the conformations interconvert at one free form.
+@testset "_base_tier drops a flip child whose rate law the guard rejects" begin
+    # The guard admits the seed. Its chemistry E(S) ⇌ E(P) sits in rapid equilibrium with
+    # both sides, so the seed is degenerate and expanded, into six flips. Three of them
+    # (the S binding, the chemistry, or the pair E(P) ⇌ F(P) and F + P ⇌ E(P) made
+    # steady state) leave the :OnlyA step E <--> F bridging forms of the inactive
+    # conformation at zero P. That is admission's face condition, which the flip move's
+    # own check (`_faces_pass`, classes 2 and 3) does not run, so `_base_tier`'s guard
+    # filter drops them. Two of the other flips keep the chemistry in rapid equilibrium
+    # with both sides, which makes them degenerate. The base tier keeps the last flip.
     ER = EnzymeRates
     rxn = @enzyme_reaction begin
         substrates: S[C]
@@ -1875,18 +1878,294 @@ end
         substrates: S
         products: P
         steps: begin
+            E + S ⇌ E(S)        :: OnlyA
+            E(S) ⇌ E(P)         :: EqualAI
+            F + P ⇌ E(P)        :: EqualAI
+            F <--> E            :: OnlyA
+            F + S ⇌ F(S)        :: EqualAI
+            F(S) <--> F(P)      :: EqualAI
+            F + P ⇌ F(P)        :: EqualAI
+            F(P) ⇌ E(P)         :: EqualAI
+        end
+    end)
+    # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
+    dropped = [
+        @_testhelper_unguarded(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)     :: OnlyA
+                E(S) ⇌ E(P)         :: EqualAI
+                F + P ⇌ E(P)        :: EqualAI
+                F <--> E            :: OnlyA
+                F + S ⇌ F(S)        :: EqualAI
+                F(S) <--> F(P)      :: EqualAI
+                F + P ⇌ F(P)        :: EqualAI
+                F(P) ⇌ E(P)         :: EqualAI
+            end
+        end),
+        @_testhelper_unguarded(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)        :: OnlyA
+                E(S) <--> E(P)      :: EqualAI
+                F + P ⇌ E(P)        :: EqualAI
+                F <--> E            :: OnlyA
+                F + S ⇌ F(S)        :: EqualAI
+                F(S) <--> F(P)      :: EqualAI
+                F + P ⇌ F(P)        :: EqualAI
+                F(P) ⇌ E(P)         :: EqualAI
+            end
+        end),
+        @_testhelper_unguarded(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)        :: OnlyA
+                E(S) ⇌ E(P)         :: EqualAI
+                F + P <--> E(P)     :: EqualAI
+                F <--> E            :: OnlyA
+                F + S ⇌ F(S)        :: EqualAI
+                F(S) <--> F(P)      :: EqualAI
+                F + P ⇌ F(P)        :: EqualAI
+                F(P) <--> E(P)      :: EqualAI
+            end
+        end)]
+    kept = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)        :: OnlyA
+            E(S) ⇌ E(P)         :: EqualAI
+            F + P <--> E(P)     :: EqualAI
+            F <--> E            :: OnlyA
+            F + S ⇌ F(S)        :: EqualAI
+            F(S) <--> F(P)      :: EqualAI
+            F + P <--> F(P)     :: EqualAI
+            F(P) ⇌ E(P)         :: EqualAI
+        end
+    end)
+    @test ER._is_well_posed(seed)
+    @test ER._degenerate(seed)
+    kids = ER._expand_re_to_ss(seed)
+    @test length(kids) == 6
+    @test Set(k for k in kids if !ER._is_well_posed(k)) == Set(dropped)
+    @test all(k -> ER._guard(k).fault === ER._BRIDGE, dropped)
+    # The guard filter drops them, not the degeneracy test.
+    @test !any(ER._degenerate, dropped)
+    @test ER._guard_message(dropped[1], ER._guard(dropped[1])) ==
+          "AllostericMechanism: at zero P, the :OnlyA step E <--> F bridges forms of " *
+          "the inactive conformation that its other steps keep apart, so admission " *
+          "cannot show that the limit does not depend on how fast that step vanishes."
+    base, failures = ER._base_tier([seed], rxn)
+    @test isempty(failures)
+    @test length(base) == 1
+    @test Set(base) == Set([kept])
+end
+
+@testset "_base_tier keeps every flip child the guard admits" begin
+    # Every step is rapid equilibrium, so the catalytic cycle E, E(S), E(P), F turns over
+    # at rapid equilibrium: the seed is degenerate and expanded. The six flips of two steps
+    # of the ring cut it, and each passes every face of the guard: the conformations flip
+    # at E, so F needs no rapid-equilibrium link to it. No failure is recorded.
+    ER = EnzymeRates
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    seed = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
             E + S ⇌ E(S)      :: EqualAI
             E(S) ⇌ E(P)       :: EqualAI
             E(P) ⇌ F + P      :: EqualAI
             F ⇌ E             :: EqualAI
         end
-    end)
+    end
+    # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
+    kept = [
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)   :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ F + P      :: EqualAI
+                F ⇌ E             :: EqualAI
+            end
+        end),
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)   :: EqualAI
+                E(S) ⇌ E(P)       :: EqualAI
+                E(P) <--> F + P   :: EqualAI
+                F ⇌ E             :: EqualAI
+            end
+        end),
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) <--> F + P   :: EqualAI
+                F ⇌ E             :: EqualAI
+            end
+        end),
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)   :: EqualAI
+                E(S) ⇌ E(P)       :: EqualAI
+                E(P) ⇌ F + P      :: EqualAI
+                F <--> E          :: EqualAI
+            end
+        end),
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ F + P      :: EqualAI
+                F <--> E          :: EqualAI
+            end
+        end),
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) ⇌ E(P)       :: EqualAI
+                E(P) <--> F + P   :: EqualAI
+                F <--> E          :: EqualAI
+            end
+        end)]
     @test ER._degenerate(seed)
+    @test length(ER._expand_re_to_ss(seed)) == 6
+    @test all(ER._is_well_posed, ER._expand_re_to_ss(seed))
     base, failures = ER._base_tier([seed], rxn)
-    @test isempty(base)
-    @test length(failures) == 1 && failures[1].mech == seed
-    @test occursin("the free forms E, F are not joined by rapid-equilibrium steps " *
-                   "outside :OnlyA groups", failures[1].error)
+    @test isempty(failures)
+    @test length(base) == 6
+    @test Set(base) == Set(kept)
+end
+
+@testset "_degenerate reads the active conformation's law" begin
+    # An activator X that binds only the inactive conformation opens a route whose
+    # chemistry only the inactive law holds. The active law, three steady-state steps,
+    # has a maximal rate both ways; read over every step, the route's product release
+    # turns rapid equilibrium and closes a turnover cycle with the X complex's substrate
+    # binding, so the whole graph has no reverse maximal rate. The guard admits the
+    # mechanism.
+    route = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + S <--> E(S)         :: EqualAI
+            E(S) <--> E(P)          :: EqualAI
+            E(P) <--> E + P         :: EqualAI
+            E + X ⇌ E(X)            :: OnlyI
+            E(X) + S ⇌ E(S, X)      :: EqualAI
+            E(S, X) <--> E(X) + P   :: EqualAI
+        end
+    end)
+    @test !EnzymeRates._degenerate(route)
+    @test EnzymeRates._degenerate(EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) <--> E + P
+            E + X ⇌ E(X)
+            E(X) + S ⇌ E(S, X)
+            E(S, X) <--> E(X) + P
+        end
+    end))
+    # The maximal-rate test turns rapid equilibrium every step that takes up or gives
+    # off a substrate, so masking only the flags would bring the excluded steps back:
+    # here the X route's two Theorell–Chance steps, each taking up S and giving off P,
+    # would close a turnover cycle. Read through the edge mask, the active law keeps
+    # only its three steady-state steps, which have a maximal rate both ways.
+    tc_route = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + S <--> E(S)           :: EqualAI
+            E(S) <--> E(P)            :: EqualAI
+            E(P) <--> E + P           :: EqualAI
+            E + X ⇌ E(X)              :: OnlyI
+            E(X) + S <--> F(X) + P    :: EqualAI
+            F(X) + S <--> E(X) + P    :: EqualAI
+        end
+    end
+    cm, on = tc_route.catalytic, EnzymeRates._active_mask(tc_route)
+    re = EnzymeRates._flags(cm)
+    @test !EnzymeRates._has_vmax(cm, re .& on, cm.substrates)
+    @test EnzymeRates._has_vmax(cm, re, cm.substrates, on)
+    @test !EnzymeRates._degenerate(tc_route)
+    # Read over every step, the X route's merged complex E(P, X) sits in rapid
+    # equilibrium with both sides (condition C), while the maximal rate exists both
+    # ways: the steady-state F(X) <--> E(X) keeps the route from closing a
+    # rapid-equilibrium turnover cycle. Read through the edge mask, the route lies
+    # outside the active law.
+    merged_route = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + S <--> E(S)           :: EqualAI
+            E(S) <--> E(P)            :: EqualAI
+            E(P) <--> E + P           :: EqualAI
+            E + X ⇌ E(X)              :: OnlyI
+            E(X) + S ⇌ E(P, X)        :: EqualAI
+            E(P, X) ⇌ F(X) + P        :: EqualAI
+            F(X) <--> E(X)            :: EqualAI
+        end
+    end
+    cm, on = merged_route.catalytic, EnzymeRates._active_mask(merged_route)
+    re = EnzymeRates._flags(cm)
+    subs = EnzymeRates._names_mask(cm, cm.substrates)
+    @test EnzymeRates._form_text.(Ref(cm), EnzymeRates._merged_complexes(cm, subs)) ==
+          ["E(P, X)"]
+    @test isempty(EnzymeRates._merged_complexes(cm, subs, on))
+    @test EnzymeRates._chemistry_equilibrates_both_sides(cm, re)
+    @test !EnzymeRates._chemistry_equilibrates_both_sides(cm, re, on)
+    @test EnzymeRates._has_vmax(cm, re, cm.substrates) &&
+          EnzymeRates._has_vmax(cm, re, cm.products)
+    @test !EnzymeRates._degenerate(merged_route)
+    # The same route through a rapid-equilibrium Theorell–Chance step. Read over every
+    # step, that step takes up S and gives off P in rapid equilibrium (condition C), and
+    # the maximal rate again exists both ways; read through the edge mask, the step lies
+    # outside the active law.
+    re_tc_route = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + S <--> E(S)           :: EqualAI
+            E(S) <--> E(P)            :: EqualAI
+            E(P) <--> E + P           :: EqualAI
+            E + X ⇌ E(X)              :: OnlyI
+            E(X) + S ⇌ F(X) + P       :: EqualAI
+            F(X) <--> E(X)            :: EqualAI
+        end
+    end
+    cm, on = re_tc_route.catalytic, EnzymeRates._active_mask(re_tc_route)
+    re = EnzymeRates._flags(cm)
+    @test EnzymeRates._chemistry_equilibrates_both_sides(cm, re)
+    @test !EnzymeRates._chemistry_equilibrates_both_sides(cm, re, on)
+    @test EnzymeRates._has_vmax(cm, re, cm.substrates) &&
+          EnzymeRates._has_vmax(cm, re, cm.products)
+    @test !EnzymeRates._degenerate(re_tc_route)
 end
 
 @testset "_cv_model_selection: flatten reproduces serial LOOCV per candidate" begin

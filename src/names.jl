@@ -98,8 +98,9 @@ _render_reaction(prefix::String, (a, b)::Tuple{String, String}, state::Symbol) =
 """
 The sides that name constant `slot` of edge `k` of `m`'s catalytic graph in `state`: those
 of the kept member of its kinetic class (`kept`, `_kept_members(m)`). An `:EqualAI`
-edge's constant is one class in both conformations; the inactive copy of an `:OnlyA`
-edge is a class of its own, named after its own edge. A slot the edge's group has no
+edge's constant is one class in both conformations; the copy of an edge in the
+conformation that excludes it (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's
+active one) is a class of its own, named after its own edge. A slot the edge's group has no
 class for (the reverse rate of a rapid-equilibrium edge) takes the sides of its slot-1
 class, so every parameter of every edge renders.
 """
@@ -108,8 +109,8 @@ function _constant_sides(m::_AnyMech, k::Int, slot::Int, state::Symbol,
     cm = catalytic(m)
     g = cm.group[k]
     tag = m isa AllostericMechanism ? cat_allo_state(m, g) : :None
-    state === :I && tag === :OnlyA && return _sides(cm, k)
-    inactive = state === :I && tag === :NonequalAI
+    _excluded_by(tag, state === :I) && return _sides(cm, k)
+    inactive = state === :I && tag in (:NonequalAI, :OnlyI)
     _sides(cm, get(() -> kept[(g, 1, inactive)], kept, (g, slot, inactive)))
 end
 
@@ -142,8 +143,7 @@ name(p::Kreg, ::AllostericMechanism) =
 """
 The Parameter(s) governing edge `k` of `m` in the given allosteric state, by its flag.
 `_edge_names` applies it to every edge of one conformation, with that conformation's
-tag, `_column_parameter` picks a joint-solve column's, and `_onlya_violation_message`
-applies it to a group's first edge to label the group.
+tag, and `_column_parameter` picks a joint-solve column's.
 
 Returns 1 element for an RE edge (`Krapid`) and 2 elements for an SS edge
 (`Kfor`+`Krev`). `name` renders a binding's `Krapid`, plain or fused, as a
