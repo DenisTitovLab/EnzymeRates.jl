@@ -11,7 +11,19 @@ const ER = EnzymeRates
     # K_ELactateNADH_to_ENADH_Lactate. The solve must make one of the two dependent,
     # or fitted_params over-counts by 1 (7 instead of 6). A split that recovers the
     # tie would then be a -1 parameter-count edge.
-    m = Core.eval(EnzymeRates, Meta.parse(raw"EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((), ())), ((:Product, :Lactate),), (), true),), ((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), ((:Product, :NAD),), (), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), ((:Product, :NAD),), (), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), ((:Substrate, :NADH),), (), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), ((:Substrate, :NADH),), (), false)), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), ((:Product, :Lactate),), (), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), ((:Product, :Lactate),), (), true)), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), ((:Substrate, :Pyruvate),), (), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), ((:Substrate, :Pyruvate),), (), true)), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (), (), false),)))}"))()
+    m = @enzyme_mechanism begin
+        substrates: NADH, Pyruvate
+        products: Lactate, NAD
+        steps: begin
+            E(Lactate) ⇌ E + Lactate
+            (E(NAD) ⇌ E + NAD, E(Lactate, NAD) ⇌ E(Lactate) + NAD)
+            (E + NADH <--> E(NADH), E(Lactate) + NADH <--> E(Lactate, NADH))
+            (E(Lactate, NAD) ⇌ E(NAD) + Lactate, E(Lactate, NADH) ⇌ E(NADH) + Lactate)
+            (E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate),
+             E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate))
+            E(NADH, Pyruvate) <--> E(Lactate, NAD)
+        end
+    end
     fp = ER.fitted_params(m)
     @test length(fp) == 6
     # the tie collapses one

@@ -41,12 +41,13 @@ generator = @allosteric_mechanism begin
     substrates: S
     products:   P
     catalytic_multiplicity: 2
-    allosteric_regulators: A::OnlyA
-    catalytic_steps: begin
+    allosteric_regulators: A
+    steps: begin
         E + S ⇌ E(S)         :: EqualAI
         E(S) <--> E(P)       :: OnlyA
         E(P) ⇌ E + P         :: EqualAI
     end
+    regulatory_site(2): A::OnlyA
 end
 
 println("fitted params: ", EnzymeRates.fitted_params(generator))
@@ -104,12 +105,15 @@ value becomes one cross-validation fold, so at least two groups are required.
 - One column per substrate, product, and regulator (names match
   `metabolites(mechanism)` exactly).
 - No substrate, product, or regulator may be named `group` or `Rate`.
-- No substrate, product, or regulator may be named `L`: the search fits allosteric
-  mechanisms, whose rate equations take the conformational constant `L`.
 - Every `Rate` must be a finite, nonzero number — the loss function works in log
   space.
 - Every concentration must be a finite number ≥ 0; zero is valid.
 - At least two distinct `group` values are required for cross-validation.
+
+The reaction checks the names before a problem exists: [`@enzyme_reaction`](@ref)
+rejects a metabolite named `L`, the conformational constant of the allosteric
+mechanisms the search fits, the other names a rate equation keeps (`E_total`, `Keq`,
+`N`, `params`, `concs`, `v`) and any name holding `_`.
 
 `Keq` is a required keyword argument, always user-supplied, positive and finite; the
 package never estimates it from data. Most enzyme reactions have a known `Keq` —
@@ -193,8 +197,8 @@ refine it.
 results.best
 ```
 
-`results.best` is an `AbstractEnzymeMechanism`. Pass it to
-[`rate_equation_string`](@ref) to see the symbolic rate equation:
+`results.best` is an `AbstractEnzymeMechanism`, displayed as the macro block that builds
+it. Pass it to [`rate_equation_string`](@ref) to see the symbolic rate equation:
 
 ```@example identify_fast
 print(rate_equation_string(results.best))
@@ -209,17 +213,19 @@ and the Haldane constraint fixes the dependent reverse rate `k_A_EP_to_ES` from
 
 `results.cv_results` is a `DataFrame` with one row per candidate equation that
 entered cross-validation, scored as detailed on the [Best mechanism selection](@ref)
-page:
+page, which lists its columns. Its first five rows, in five of its columns:
 
 ```@example identify_fast
-first(results.cv_results, 5)
+first(results.cv_results[:, [:n_params, :loss, :cv_score, :cv_score_se, :mechanism_id]], 5)
 ```
 
 `results.cv_results` and the selected `results.best` are also written to
 `save_dir`, as `loocv_results.csv` (this whole table) and `best_equation.csv`
 (the winning row: equation string plus fitted parameters). They sit alongside
 the per-iteration `equation_search_iteration_N.csv` files, so a cluster run's
-model-selection outcome is saved without re-running cross-validation.
+model-selection outcome is saved without re-running cross-validation. Every row
+names its mechanism by its text (`mechanism`) and a short id (`mechanism_id`), and a
+child names its parent's id (`parent_id`).
 
 ## Loud failures
 

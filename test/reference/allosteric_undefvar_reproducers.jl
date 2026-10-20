@@ -9,7 +9,7 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
             substrates: NADH, Pyruvate
             products: Lactate, NAD
             catalytic_multiplicity: 4
-            catalytic_steps: begin
+            steps: begin
                 (E + NAD ⇌ E(NAD),
                  E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate)) :: EqualAI
                 (E + NADH ⇌ E(NADH),
@@ -27,7 +27,7 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
             substrates: NADH, Pyruvate
             products: Lactate, NAD
             catalytic_multiplicity: 4
-            catalytic_steps: begin
+            steps: begin
                 (E + Lactate ⇌ E(Lactate),
                  E(NADH) + Lactate ⇌ E(Lactate, NADH)) :: NonequalAI
                 E + NAD ⇌ E(NAD) :: NonequalAI
@@ -48,7 +48,7 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
             substrates: NADH, Pyruvate
             products: Lactate, NAD
             catalytic_multiplicity: 4
-            catalytic_steps: begin
+            steps: begin
                 E + Lactate ⇌ E(Lactate) :: EqualAI
                 E + NAD <--> E(NAD) :: NonequalAI
                 E + NADH ⇌ E(NADH) :: OnlyA

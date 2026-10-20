@@ -5,9 +5,9 @@ using Test
 using EnzymeRates
 
 # Budgets calibrated against the current branch tip with 2× headroom.
-# init_mechanisms trace-compile is dominated by Step / Species / Mechanism
-# struct + @generated accessor specializations (EnzymeReaction is
-# non-parametric, so there is no per-arity reaction-type specialization).
+# init_mechanisms trace-compile counts the method specializations that building the
+# init set compiles (EnzymeReaction is non-parametric, so there is no per-arity
+# reaction-type specialization).
 # The init_mechanisms baseline is 57 on Julia 1.13 (CI runners), 82 on Julia 1.12 and 87
 # on Julia 1.10.
 const INIT_TRACE_BUDGET                  = 200   # baseline 2026-10-09: 57-87; budget ≈ 2×
@@ -18,15 +18,18 @@ const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 6.0   # CI 2.0-3.4 s (1.13), local 1.
 # room for the other Julia versions and architectures CI runs.
 const FIT_INSTANCE_BUDGET                = 250   # baseline 2026-10-09: 64
 const FIT_NATIVE_BUDGET_KB               = 300   # baseline 2026-10-09: 54
-# Encoding the Sigs of the 239 bi-bi seeds, once per process: Base's collect widening
-# compiles once per new mix of step shapes, so a search pays this early and once.
-const SIG_INSTANCE_BUDGET                = 4000  # baseline 2026-10-09: 1888
-const SIG_NATIVE_BUDGET_KB               = 1000  # baseline 2026-10-09: 508
+# Encoding the Sigs of the 239 bi-bi seeds, once per process: each Sig is one vector of
+# Ints made a tuple, so encoding compiles once, whatever the mechanism. Both budgets sit
+# a few times above the baseline: the instance budget fails a compile of one method
+# instance per seed, the native-code budget a compile that emits more than about 0.3 KB
+# of code per seed.
+const SIG_INSTANCE_BUDGET                = 250   # baseline 2026-10-14: 52
+const SIG_NATIVE_BUDGET_KB               = 100   # baseline 2026-10-14: 34
 
 # Anchored to the EnzymeRates module prefix only. Counts every method
 # specialization Julia compiles that touches our module — our functions,
 # our types, Base methods specialized on our types (e.g.
-# Base.hash(::EnzymeRates.Step, ...)), Core.kwcall plumbing, show/print.
+# Base.hash(::EnzymeRates.Edge, ...)), Core.kwcall plumbing, show/print.
 # Filters out unrelated package precompiles (Optimization.jl, Tables.jl,
 # etc.) which would create dependency-noise false positives.
 #
@@ -106,15 +109,17 @@ end
     #     a process that never ran init_mechanisms.
     #   - fit: the identify path on bi-bi mechanisms, step for step as _process_batch
     #     and _cv_fold_loss take it: PASS1 (complexity, compile, fitted names, rate
-    #     equation string, dedup key, mechanism_type string), PASS2 (FittingProblem and
-    #     a CMA-ES fit) and one LOOCV fold. Encoding every seed's Sig and a full pass
-    #     on ms[1] compile everything that does not depend on the mechanism, so each
-    #     fresh mechanism after them compiles only what its own type needs. ms[1] and
-    #     the fresh mechanisms differ in Sig shape and in fitted names. The census
+    #     equation string, dedup key, the mechanism's text and id), PASS2 (FittingProblem
+    #     and a CMA-ES fit) and one LOOCV fold. Encoding every seed's Sig and a full pass
+    #     on the first of five written-out seeds compile everything that does not
+    #     depend on the mechanism, so each fresh mechanism after them compiles only
+    #     what its own type needs. The five differ in Sig length and in fitted names,
+    #     and are picked by content, not by their place in the seeds. The census
     #     counts the method instances of every module, since a fit compiled per
     #     mechanism compiles Optimization, SciMLBase, CMAEvolutionStrategy and Base
-    #     code; it also counts the show instances PASS1 adds, since Base's show prints
-    #     a type by compiling show again for each new Sig shape.
+    #     code. It also counts the show instances that PASS1's text adds and, after the
+    #     census, those that printing the compiled mechanism adds: a mechanism's show
+    #     that specialized on the Sig would compile again for each fresh mechanism.
     trace_script = """
         using EnzymeRates
         r = EnzymeRates.EnzymeReaction(
@@ -182,7 +187,8 @@ end
             _testhelper_instances(meths)
         end
         # The method instances and native code bytes that PASS1, PASS2 and one LOOCV
-        # fold of m add, their compile time, and the show instances PASS1 adds.
+        # fold of m add, their compile time, and the show instances that PASS1 and then
+        # printing the compiled mechanism add.
         function _testhelper_measure(m)
             n0, b0 = _testhelper_all_instances(), Base.jit_total_bytes()
             t0 = Base.cumulative_compile_time_ns()[1]
@@ -192,7 +198,7 @@ end
             ER.fitted_params(em)
             eq_text = rate_equation_string(em)
             ER._rate_eq_dedup_key(eq_text)
-            ER._mechanism_type_string(em)
+            ER._mechanism_id(sprint(show, m))
             s1 = _testhelper_instances(methods(show))
             fp = FittingProblem(ER.compile_mechanism(m), PROB.data;
                                 Keq = PROB.Keq, absolute = PROB.absolute,
@@ -200,26 +206,86 @@ end
             fit_rate_equation(fp, OPT; FIT_KW...)
             ER._cv_fold_loss(ER.compile_mechanism(m), PROB, "G1";
                              optimizer = OPT, FIT_KW...)
-            (_testhelper_all_instances() - n0, Base.jit_total_bytes() - b0,
-             (Base.cumulative_compile_time_ns()[1] - t0) / 1e9, s1 - s0)
+            fit = (_testhelper_all_instances() - n0, Base.jit_total_bytes() - b0,
+                   (Base.cumulative_compile_time_ns()[1] - t0) / 1e9)
+            s2 = _testhelper_instances(methods(show))
+            sprint(show, em)
+            (fit..., s1 - s0 + _testhelper_instances(methods(show)) - s2)
         end
         ms = ER.init_mechanisms(rxn)
-        # Encoding a Sig compiles Base's collect widening once per new mix of step
-        # shapes, a cost a search pays early and once; encoding every seed first keeps
-        # it out of the per-mechanism counts and measures its total for this process.
+        # Encoding a Sig compiles once, whatever the mechanism, a cost a search pays early
+        # and once; encoding every seed first keeps it out of the per-mechanism counts
+        # and measures its total for this process.
         n_sig, b_sig = _testhelper_all_instances(), Base.jit_total_bytes()
         foreach(ER._sig_of, ms)
         println("SIG_INSTANCES:", _testhelper_all_instances() - n_sig,
                 " SIG_NATIVE:", Base.jit_total_bytes() - b_sig)
-        fresh = [2, 6, 11, 18]
+        # Five bi-bi seeds with five Sig lengths and five fitted-name tuples, written
+        # out: the first warms the fit path, and the other four are measured fresh.
+        picks = ER.Mechanism.([
+            @enzyme_mechanism(begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E + Q ⇌ E(Q)
+                    (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+                    (E(A) + P ⇌ E(A, P), E(Q) + P ⇌ E(P, Q))
+                    E(A, B) <--> E(P, Q)
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E + Q ⇌ E(Q)
+                    (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+                    E(A, B) <--> E(P, Q)
+                    E(Q) + P ⇌ E(P, Q)
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))
+                    (E + P ⇌ E(P), E(A) + P ⇌ E(A, P))
+                    E(A) + B ⇌ E(A, B)
+                    E(A, B) <--> E(P, Q)
+                    E(P) + Q ⇌ E(P, Q)
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))
+                    (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(Q) + P ⇌ E(P, Q))
+                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                    (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+                    E(A, B) <--> E(P, Q)
+                end
+            end),
+            @enzyme_mechanism(begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + B ⇌ E(B)
+                    E + Q ⇌ E(Q)
+                    E(A, B) <--> E(P, Q)
+                    E(B) + A ⇌ E(A, B)
+                    E(Q) + P ⇌ E(P, Q)
+                end
+            end)])
         Random.seed!(1)
         Base.cumulative_compile_timing(true)
-        _testhelper_measure(ms[1])
-        for (k, (n, b, t, s)) in enumerate(map(i -> _testhelper_measure(ms[i]), fresh))
+        _testhelper_measure(picks[1])
+        for (k, (n, b, t, s)) in enumerate(map(_testhelper_measure, picks[2:end]))
             println("FIT_INSTANCES_", k, ":", n, " FIT_NATIVE_", k, ":", b,
                     " FIT_COMPILE_", k, ":", t, " PASS1_SHOW_", k, ":", s)
         end
-        ems = ER.compile_mechanism.(ms[[1; fresh]])
+        ems = ER.compile_mechanism.(picks)
         println("FIT_SHAPES:", length(unique(em -> typeof(typeof(em).parameters[1]), ems)))
         println("FIT_NAMES:", length(unique(ER.fitted_params, ems)))
         """
@@ -299,8 +365,8 @@ end
         n_shapes, n_name_tuples, sig_instances, sig_native = fit_vals[17:20]
 
         # Sig encoding: what encoding the 239 bi-bi seeds compiles, once per process. It
-        # grows only with new mixes of step shapes, so a total far above the baseline
-        # means encoding started compiling for each mechanism.
+        # does not grow with the mechanisms, so a total far above the baseline means
+        # encoding started compiling for each mechanism.
         @testset "Sig encoding: total compile for the bi-bi seeds" begin
             @info "Sig encoding of the bi-bi seeds: $sig_instances method instances " *
                   "(budget: $SIG_INSTANCE_BUDGET), $(round(sig_native / 1024; digits=1)) " *
@@ -317,8 +383,8 @@ end
                   "$(round.(native ./ 1024; digits=1)) KB " *
                   "(budget: $FIT_NATIVE_BUDGET_KB KB), " *
                   "compile $(round.(compile_s; digits=3)) s"
-            # ms[1] and the four fresh mechanisms have five Sig shapes and five
-            # fitted-name tuples, so no fresh mechanism reuses another's per-type code.
+            # The five picks have five Sig lengths and five fitted-name tuples, so no fresh
+            # mechanism reuses another's per-type code.
             @test n_shapes == 5
             @test n_name_tuples == 5
             # Every fresh type compiles its own rate equation, so a census that counts
@@ -328,10 +394,11 @@ end
             @test maximum(native) <= FIT_NATIVE_BUDGET_KB * 1024
         end
 
-        # mechanism_type: PASS1 prints the type of a mechanism with a fresh Sig shape
-        # without compiling show for it.
-        @testset "fit compile: PASS1 compiles no show for a fresh Sig shape" begin
-            @info "PASS1 show instances per fresh mechanism: $pass1_show (budget: 0)"
+        # PASS1 prints the text of a mechanism with a fresh Sig from the concrete
+        # mechanism, and the compiled mechanism prints its text through the concrete one,
+        # so neither compiles show for the fresh Sig.
+        @testset "fit compile: PASS1 and a compiled mechanism's text compile no show" begin
+            @info "show instances per fresh mechanism: $pass1_show (budget: 0)"
             @test maximum(pass1_show) == 0
         end
     else

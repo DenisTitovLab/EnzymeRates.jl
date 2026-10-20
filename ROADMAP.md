@@ -23,34 +23,41 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   in parallel only across `pmap` workers, each of which builds its own problem.
 - **`eq_complexity_filter` counts only the active conformation of an allosteric
   mechanism.** `_eq_complexity` (`src/rate_eq_derivation.jl`) measures an allosteric
-  mechanism's V×τ on its active-state graph (`steps(am)`) alone, while the generated MWC
-  rate equation evaluates the polynomials of both conformations, so the filter
+  mechanism's V×τ on its catalytic graph, the active conformation, alone, while the
+  generated MWC rate equation evaluates the polynomials of both conformations, so the filter
   undercounts what an allosteric equation costs and can admit one that evaluates more
   terms than its limit.
 - **`BigInt` arithmetic inflates the GC's live-byte count.**
   Three functions that compute in `BigInt` raise `Base.gc_live_bytes` by bytes that no
-  live object holds: `_onlya_haldane_violation` (`src/thermo.jl`; a `Rational{BigInt}`
-  null space) by about 16 KiB per call, the counter that `_split_gain_test` uses for a
-  plain mechanism (`_partition_independent_count`; a `Rational{BigInt}` row reduction) by
-  14 KiB and `_eq_complexity` (a `BigInt` determinant, skipped for a single
-  rapid-equilibrium segment) by 8 KiB. A 6×6 determinant outside the package does the same
-  in `BigInt` and `Rational{BigInt}`, not in `Rational{Int}`. An `AllostericMechanism`
-  with an `:OnlyA` group of plain bindings runs the guard when built, so every lift of
-  such a compiled mechanism pays it, as does each such candidate of the allosteric
-  `_split_gain_test`. 100,000 such lifts add 1.5 GiB and 16 full sweeps. The joint solve
-  adds nothing, on a plain mechanism or on a concrete allosteric one; it runs in
+  live object holds: the `:OnlyA` guard's test `_onlya_offenders` (`src/thermo.jl`; a
+  `Rational{BigInt}` null space) by about 15 KiB per call, the counter that
+  `_split_gain_test` uses for a plain mechanism (`_partition_independent_count`; a
+  `Rational{BigInt}` row reduction) by 18 KiB and `_eq_complexity` (a `BigInt`
+  determinant, skipped for a single rapid-equilibrium segment) by 15 KiB. A 6×6
+  determinant outside the package does the same in `BigInt` and `Rational{BigInt}`, not in
+  `Rational{Int}`. The boundary check (`_check_well_posed`, `src/admission.jl`) runs the
+  guard on every allosteric mechanism the macros or the parser build, at the enumerator's
+  exits and at every derivation entry, and the allosteric `_split_gain_test` runs its test
+  on each candidate. 100,000 runs of the guard add 1.46 GiB and 12 full sweeps. The joint
+  solve adds nothing, on a plain mechanism or on a concrete allosteric one; it runs in
   `Rational{Int}` on 10,226 enumerated bi-bi and ter-bi mechanisms without overflow. The
-  count stays up after a full collection: a lift loop that starts 1.4 GiB high makes 115
-  full sweeps in 29 s, against 16 in 20 s from a clean start. Admission under Planned
-  replaces the guard, not the other two. A loop that calls one of these and prints
-  `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it. The figures come from a
-  random-order bi-bi of nine steady-state steps, plain and as a two-subunit allosteric
-  mechanism with `:OnlyA` on both bindings of A and on the chemical step and `:EqualAI`
-  elsewhere (Julia 1.12.5, aarch64, `--heap-size-hint=2500M`).
+  count stays up after a full collection: 100,000 guard runs that start 1.47 GiB high make
+  52 full sweeps in 10.0 s, against 12 in 6.5 s from a clean start. The count holds no
+  memory and raises no peak: a process whose count reaches 2.8 GiB peaks at 1.2 GB RSS,
+  and the enumeration tests' count after a full collection stays near 1.8 GiB whether
+  their peak RSS is 2.2 or 3.5 GB. The higher peak came from mechanisms that kept vectors
+  at the capacity their builds grew to; `_canonicalize` stores each at its length, and
+  `test/test_reaction_graph.jl` pins it. Admission under Planned replaces the guard, not
+  the other two. A loop that calls one of these and prints `Base.gc_live_bytes()` and
+  `Base.gc_num().full_sweep` shows it. The figures come from a random-order bi-bi of nine
+  steady-state steps, plain and as a two-subunit allosteric mechanism with `:OnlyA` on
+  both bindings of A and on the chemical step and `:EqualAI` elsewhere (Julia 1.12.5,
+  aarch64, `--heap-size-hint=2500M`).
 
 - **The `:OnlyA` guard misjudges groups that mix a binding and a chemistry step.**
-  `_onlya_haldane_violation` (`src/thermo.jl`)
-  skips every `:OnlyA` group that holds a chemistry step, including one that also holds a
+  The guard's test, `_onlya_offenders` (`src/thermo.jl`), which the boundary check runs
+  through `_onlya_haldane_violation`, skips every `:OnlyA` group that holds a chemistry
+  step (`_chemistry_groups`), including one that also holds a
   plain binding of the same metabolite (enumeration builds these by merging and tags
   every allosteric one `:OnlyA`), and gives the bindings of one group a single rate of
   divergence. Hand-built mechanisms show both errors: it admits a mixed `:OnlyA` group
@@ -70,16 +77,27 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   carry the same concentrations, so the data determine only a combination of its
   constant and its neighbour's, and `fitted_params` lists one constant more than the
   identifiable rank. The exact rank under Ideas would count it.
+- **On Julia 1.10 the full suite can peak above 4 GB.**
+  With the full-suite command in `.claude/CLAUDE.md`, Julia 1.10.12 peaked at 3.30-4.36 GB
+  in seven runs, and an eighth was killed at 4.49 GB, most likely by the OOM killer of a
+  7.7 GB machine; Julia 1.12 peaks at 2.6-3.0 GB and Julia 1.13 at 2.6-2.7 GB. The ter-ter
+  `init_mechanisms` testset (`test/test_mechanism_enumeration.jl`) leaves about 1 GB of
+  garbage. On 1.10 the full suite still counts it after the enumeration file, 1.83-1.84 GiB
+  live there against 0.55-0.65 GiB with one `GC.gc()` after the testset; with the file run
+  alone, the count drops at the ter-ter seed testset. No test value retains the garbage: a
+  full collection after the testset frees it (live bytes fall from 0.94 to 0.055 GiB), and
+  that `GC.gc()` brings the suite to 2.93-3.05 GB. CI runs Julia 1 alone, so nothing checks
+  the compat floor against the 4 GB that `.claude/CLAUDE.md` sets aside for the suite.
 
 ## Planned
 
 - **Rewrite the derivation around the reaction graph.**
   `docs/superpowers/specs/2026-10-12-reaction-graph-rewrite-design.md` records the design,
-  decided between 2026-10-09 and 2026-10-12. Three PRs remain: the graph mechanism type
-  with two macros, `show` and a new CSV format; admission, the well-posedness guard and
-  the flip at free E; then the engine, printing, a rename-proof dedup key and
-  code-generation locals. The table in its section 16 lists the entries that each PR
-  retires. Priority: high.
+  decided between 2026-10-09 and 2026-10-12. Two PRs remain: admission, the
+  well-posedness guard and the flip at free E; then the engine, printing, a rename-proof
+  dedup key, code-generation locals and the CSV columns that go with them (`key`,
+  `fit_source_id`, `L_phantom`). The table in its section 16 lists the entries that each
+  PR retires. Priority: high.
 - **Take `:OnlyA` steps to their limit in the inactive conformation.**
   Both conformations come from one joint solve on one graph, but the inactive law still
   deletes every `:OnlyA` group and prunes the forms that deletion strands. An `:OnlyA`
@@ -89,15 +107,28 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `:OnlyA` group already keeps its own class. A tag set is admitted when an exact
   feasibility test passes and every form the free enzyme cannot reach in the inactive
   conformation lies behind a binding, on its bound side; the limit then equals deletion
-  and pruning, and enumeration stops producing the `:OnlyA` ping-pong mechanisms this
-  rejects. The conformations will flip at free E, which every mechanism must then
-  contain; until then the constructor admits a second free form only in rapid
-  equilibrium with the first (`_assert_one_flip_segment`), where the choice only rescales
-  `L`. The rewrite's admission PR brings the limits, admission and the flip at free E.
+  and pruning. A ping-pong with both half-reactions `:OnlyA` fails this, so the tagging
+  move will stop one half per V-type child instead (spec section 7, and the entry
+  below). The conformations will flip at free E, which every mechanism holds; until
+  then the boundary check admits a second free form of an allosteric mechanism only in
+  rapid equilibrium with the first (`_assert_one_flip_segment`, `src/admission.jl`),
+  where the choice only rescales `L`. The rewrite's admission PR brings the limits,
+  admission and the flip at free E.
   Branch `mwc-solve-then-limit` holds a July design of this approach (spec b067aa0 and
   651a821, plan 9c95f12, prototype 6f0011e), whose prototype matched the mass-action
   ground truth on all six uni-uni tag combinations and would delete the `d_free`
   cross-weighting; `test/allosteric_ground_truth.jl` is the oracle. Priority: high.
+- **Let an allosteric ping-pong stop both half-reactions in the inactive conformation.**
+  PDH and OGDH are ping-pong and allosteric, so allosteric ping-pong must stay in the
+  search. With the conformations flipping only at free E, a ping-pong whose inactive
+  conformation runs neither half-reaction strands the covalent forms between the halves:
+  their weight, and with it the rate, depends on how fast each half stops (by up to 100%
+  at one catalytic subunit), so admission rejects it. The admission PR keeps allosteric
+  ping-pong reachable by stopping one half per V-type child, which covers PDH, whose
+  phosphorylation stops E1 and leaves E2 and E3 running. Stopping both halves needs the
+  conformations to flip at the covalent form as well, with an equilibrium constant of
+  its own, and the multi-subunit rate formula rederived for two flip forms. Take it up
+  with iso mechanisms, which add free forms of their own. Priority: medium.
 - **Flag one-subunit K-type variants whose L is a phantom instead of fitting them.**
   At multiplicity 1, `_expand_to_allosteric` (`src/mechanism_enumeration.jl`) emits
   K-type variants whose L the data cannot determine, so the fitter optimizes a flat
@@ -126,13 +157,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `_expand_merge_regulatory_sites`, which must merge only sites of equal multiplicity.
   Keep a bare `A` at the catalytic multiplicity, widen only on an explicit list, and
   reject `I(m)` for a competitive inhibitor. Priority: medium-low.
-- **Give ping-pong residual forms names that are Julia identifiers.**
-  `_species_name` (`src/types.jl`) writes residuals as `_res_+A_-P`, so a name such as
-  `k_EA_to_EP_res_+A_-P` needs `var"…"` to pass as a parameter, and the destructuring
-  line of `rate_equation_string` is not valid Julia. An encoding such as `_res_pA_mP`
-  fixes this but renames every ping-pong parameter and moves its `eq_hash`, and it stays
-  unambiguous only if `EnzymeReaction` also rejects `_` in metabolite names.
-  Priority: medium-low.
 - **Drop `change_allo_state` relaxations that free no parameter, if measurement finds any.**
   `_expand_change_allo_state` (`src/mechanism_enumeration.jl`) has no gain test, unlike
   the split and RE→SS moves, and in a past LDH run it produced 20 of 33 zero-gain edges,
@@ -143,22 +167,15 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Enumerate Cleland iso mechanisms.**
   The derivation handles iso mechanisms, but no enumeration move generates them, and each
   carries a dwell-time-gauge phantom unless the exact rank (see Ideas) or a
-  "switch-product = 1" constraint row comes first. `Species` carries a conformation
-  field, and `_requires_hyperbolic_catalysis` (`src/mechanism_enumeration.jl`) is the
+  "switch-product = 1" constraint row comes first. A `Form` carries its conformation
+  label, and `_requires_hyperbolic_catalysis` (`src/mechanism_enumeration.jl`) is the
   extension hook. Two-conformation kinetic cooperativity stays parked: on PGK data no
   conformational model beat MWC with steady-state steps at equal parameter count, so
-  reopen it only for a dataset whose curvature MWC cannot fit. Priority: low.
+  reopen it only for a dataset whose curvature MWC cannot fit. Revisit allosteric
+  ping-pong with this work: a flip at a second free form is the same question (see
+  "Let an allosteric ping-pong stop both half-reactions"). Priority: low.
 
 ## Ideas
-
-- **Encode a mechanism's Sig without compiling per mix of step shapes.**
-  `_sig_of` (`src/types.jl`) builds the Sig tuples from generators, so Base's collect
-  widening compiles once per new mix of step shapes. Over a 6,475-mechanism bi-bi run in one
-  process (the seeds, then two expansion rounds; 5,045 allosteric) that totals about 1,500
-  method instances, 0.5 MB of native code and 1 s, 85% of it within the first 250
-  mechanisms, so a search pays it early and once per worker. Building each tuple from a
-  `Vector{Any}` should remove it. `test/test_compile_budget.jl` gates the total for the
-  239 bi-bi seeds.
 
 - **Count identifiable parameters with an exact modular rank.**
   Several phantom classes make the beam count a model above its true dimension: the
@@ -171,6 +188,16 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   phantom classes; performance may keep it out of `src/`, where it would otherwise replace
   the beam's parameter count. It must never filter children, since a phantom child can
   carry families its parent lacks.
+- **Seed each identify fit from its mechanism's content.**
+  `fit_rate_equation` (`src/fitting.jl`) draws each restart's starting point with `randn`
+  from the running task's random stream, and `_process_batch`
+  (`src/identify_rate_equation.jl`) fits a batch's representatives in the iteration order
+  of a `Dict` keyed by `eq_hash`, filled in the order the moves emit the mechanisms. So a
+  change of emission order or of a law's printed text moves the starting points of every
+  later fit, and a fit-dependent test can flip with no change to any model. A seed per fit
+  from a process-stable content key, mixed with one master seed drawn per
+  `identify_rate_equation` call, would make each fit independent of the processing order
+  while `Random.seed!` still reproduces a run; every saved fit would move once.
 - **Test the compat bounds in a scheduled CI job.**
   `.github/workflows/CI.yml` tests only the latest Julia release with the newest
   dependencies, while `Project.toml` declares `julia = "1.10"` and a lower bound for every
@@ -191,13 +218,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 - **Move dead-end decorations out of `init_mechanisms` into an expansion move.** It is not
   clear this saves time, since the move would have to run again on every child.
-- **Separate the metabolite names inside enzyme-form names (`Ac + CoA ⇌ AcCoA`).** Renaming
-  one metabolite removes any collision, and the error names both forms; the same answer
-  covers a separator only for colliding reactions and a collision check at reaction build.
+- **Separate the metabolite names inside enzyme-form names (`Ac + CoA ⇌ AcCoA`).**
+  `@enzyme_reaction` rejects a reaction whose names spell one name two ways and names both
+  spellings, and renaming one metabolite removes the collision, so no separator is needed.
 - **Map BlackBoxOptim's convergence stop to `Success` upstream in OptimizationBase.** Only
   BlackBoxOptim users meet the warning, `test/test_fitting.jl` captures it, and the docs
   and HPC scripts use CMA-ES.
-- **Load identify CSVs written by EnzymeRates 0.7 or earlier.** The loader would be a
+- **Load identify CSVs written by EnzymeRates 0.7 or earlier, or that name a mechanism by
+  its type string (`mechanism_type`) instead of its text and id.** The loader would be a
   backward-compatibility shim; rerunning is cleaner, and the CSVs read as plain tables.
 - **Replay the 0.8 LOOCV random stream so seeded runs reproduce its fold scores.** Nothing
   needs this backward-compatibility code, and unseeded workers never made HPC fold scores
@@ -205,6 +233,3 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Re-rescale the rate constants of saved allosteric fits.** Only CSVs written before
   0.9.0 carry the mis-scaled constants, current output is correct, and losses and model
   selection never depended on the scale.
-- **Have the `Mechanism` constructors check step metabolites against the reaction.** The
-  DSL rejects undeclared names and the enumerator builds only declared ones, so the check
-  would catch nothing and cost every enumerated mechanism.

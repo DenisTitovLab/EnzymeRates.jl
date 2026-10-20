@@ -29,18 +29,14 @@ allo = @allosteric_mechanism begin
     substrates: S
     products:   P
     catalytic_multiplicity: 2
-    allosteric_regulators: A::OnlyA, I::OnlyI
-    catalytic_steps: begin
+    allosteric_regulators: A, I
+    steps: begin
         E + S ⇌ E(S)        :: EqualAI
         E(S) <--> E(P)       :: NonequalAI
         E(P) ⇌ E + P        :: EqualAI
     end
-    regulatory_site(multiplicity = 2): begin
-        ligands: A
-    end
-    regulatory_site(multiplicity = 2): begin
-        ligands: I
-    end
+    regulatory_site(2): A::OnlyA
+    regulatory_site(2): I::OnlyI
 end
 print(rate_equation_string(allo))
 ```
@@ -73,7 +69,7 @@ a hard constructor error.
 The mechanism also declares **multiplicities**, which capture the enzyme's
 oligomeric state. `catalytic_multiplicity` is the number of identical catalytic
 subunits; it becomes the exponent on each conformation's catalytic partition
-function. Each `regulatory_site(multiplicity = m)` says how many copies of that
+function. Each `regulatory_site(m)` says how many copies of that
 site the oligomer carries, raising the site's binding factor to the power `m`. In
 the example both are `2` — a homodimer with two copies of each regulatory site.
 
@@ -94,8 +90,8 @@ keeps that conformation for a full catalytic cycle. The overall rate is then eac
 conformation's catalytic cycle weighted by its free-enzyme population. A hand-written
 mechanism may name a second free form, such as a conformation `F` with `F ⇌ E`, only
 when steps outside `:OnlyA` groups hold it at rapid equilibrium with `E`: flipping at
-either then gives the same model with `L` rescaled. The constructor rejects any other
-second free form, which would flip at different forms in the two conformations.
+either then gives the same model with `L` rescaled. `@allosteric_mechanism` rejects any
+other second free form, which would flip at different forms in the two conformations.
 
 An equivalent statement lets every form interconvert between the A and I states,
 but with a thermodynamically fixed ratio: `L` for the free enzyme, and `L` scaled
@@ -169,15 +165,13 @@ collapse = @allosteric_mechanism begin
     substrates: S
     products:   P
     catalytic_multiplicity: 2
-    allosteric_regulators: R::OnlyI
-    catalytic_steps: begin
+    allosteric_regulators: R
+    steps: begin
         E + S ⇌ E(S)      :: NonequalAI
         E(S) <--> E(P)    :: EqualAI
         E(P) ⇌ E + P      :: EqualAI
     end
-    regulatory_site(multiplicity = 2): begin
-        ligands: R
-    end
+    regulatory_site(2): R::OnlyI
 end
 print(rate_equation_string(collapse))
 ```
@@ -196,15 +190,13 @@ coupled = @allosteric_mechanism begin
     substrates: S
     products:   P
     catalytic_multiplicity: 2
-    allosteric_regulators: R::OnlyI
-    catalytic_steps: begin
+    allosteric_regulators: R
+    steps: begin
         E + S ⇌ E(S)      :: NonequalAI
         E(S) <--> E(P)    :: EqualAI
         E(P) ⇌ E + P      :: NonequalAI
     end
-    regulatory_site(multiplicity = 2): begin
-        ligands: R
-    end
+    regulatory_site(2): R::OnlyI
 end
 print(rate_equation_string(coupled))
 ```
@@ -220,8 +212,8 @@ state alone, and the inactive cycle is pruned (`N_I = 0`). Its catalytic step
 **must** be `:OnlyA` too. This is a thermodynamic requirement, not a convention:
 the two conformations share `Keq`, so a ligand that binds only the active state
 (`K_I → ∞`) forces the inactive catalytic rate to zero, and an `:EqualAI` or
-`:NonequalAI` catalytic tag would assert a rate the Haldane relation forbids. The
-constructor rejects the inconsistent combination.
+`:NonequalAI` catalytic tag would assert a rate the Haldane relation forbids.
+`@allosteric_mechanism` rejects the inconsistent combination.
 
 The exception is a balanced K-system. When `:OnlyA` binds both a substrate and a
 product, the two `K_I → ∞` limits cancel in the Haldane relation: the affinities
@@ -240,15 +232,13 @@ ss = @allosteric_mechanism begin
     substrates: S
     products:   P
     catalytic_multiplicity: 2
-    allosteric_regulators: R::OnlyI
-    catalytic_steps: begin
+    allosteric_regulators: R
+    steps: begin
         E + S <--> E(S)    :: NonequalAI
         E(S) <--> E(P)     :: EqualAI
         E(P) ⇌ E + P       :: EqualAI
     end
-    regulatory_site(multiplicity = 2): begin
-        ligands: R
-    end
+    regulatory_site(2): R::OnlyI
 end
 parameters(ss)
 ```

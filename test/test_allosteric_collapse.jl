@@ -3,31 +3,35 @@
 module AllostericCollapseTests
 using Test, EnzymeRates, Random
 const ER = EnzymeRates
-const Sub=ER.Substrate; const Prd=ER.Product; const Sp=ER.Species
-const St=ER.Step; const RA=ER.ReactantAtoms; const Met=ER.Metabolite
-const S=Sub(:S); const P=Prd(:P)
+const M=ER.Met; const RS=ER.RawStep
+# A form in conformation E that holds the substrates and products `xs`.
+_testhelper_form(xs...) = ER.RawForm(:E, M[M(x, false) for x in xs])
+# The allosteric mechanism over substrates `subs` and products `prods`, catalytic
+# multiplicity 2, whose steps are `steps`, step `j` alone in group `j`, tagged `states[j]`.
+_testhelper_one_step_groups(subs, prods, steps, states) = ER.AllostericMechanism(
+    ER.RawAllostericMechanism(ER.RawMechanism(subs, prods, Symbol[], steps,
+                                              collect(eachindex(steps))),
+                              collect(Symbol, states), 2, ER.RawSite[]))
 # `re` flags which of the S-binding, chemistry and P-release steps are rapid
 # equilibrium; a steady-state binding carries kon/koff.
 function _testhelper_uni(states; re=(true,false,true))
-    E=Sp(Met[],:E); ES=Sp(Met[S],:E); EP=Sp(Met[P],:E)
-    rxn=ER.EnzymeReaction(RA[RA(S,[:C=>1]),RA(P,[:C=>1])], ER.RegulatorMults[], Int[2])
-    steps=Vector{St}[[St(E,ES,Met[S],Met[],re[1])],[St(ES,EP,Met[],Met[],re[2])],
-                     [St(EP,E,Met[],Met[P],re[3])]]
-    ER.AllostericMechanism(rxn, steps, collect(Symbol,states), 2, ER.RegulatorySite[])
+    E=_testhelper_form(); ES=_testhelper_form(:S); EP=_testhelper_form(:P)
+    steps=[RS(E,ES,[M(:S,false)],M[],re[1]),RS(ES,EP,M[],M[],re[2]),
+           RS(EP,E,M[],[M(:P,false)],re[3])]
+    _testhelper_one_step_groups([:S], [:P], steps, states)
 end
 # Random-order bi-bi with two Wegscheider boxes; `states` tags its nine one-step groups.
 function _testhelper_ro_bibi(states)
-    A2=Sub(:A); B2=Sub(:B); Q2=Prd(:Q)
-    E=Sp(Met[],:E); EA=Sp(Met[A2],:E); EB=Sp(Met[B2],:E); EAB=Sp(Met[A2,B2],:E)
-    EPQ=Sp(Met[P,Q2],:E); EP=Sp(Met[P],:E); EQ=Sp(Met[Q2],:E)
-    rxn=ER.EnzymeReaction(RA[RA(A2,[:C=>1]),RA(B2,[:N=>1]),RA(P,[:C=>1]),RA(Q2,[:N=>1])],
-                          ER.RegulatorMults[], Int[2])
-    sd=[St(E,EA,Met[A2],Met[],true),St(E,EB,Met[B2],Met[],true),
-        St(EB,EAB,Met[A2],Met[],true),St(EA,EAB,Met[B2],Met[],true),
-        St(EAB,EPQ,Met[],Met[],false),St(EP,EPQ,Met[Q2],Met[],true),
-        St(EQ,EPQ,Met[P],Met[],true),St(E,EP,Met[P],Met[],true),
-        St(E,EQ,Met[Q2],Met[],true)]
-    ER.AllostericMechanism(rxn, Vector{St}[[s] for s in sd], states, 2, ER.RegulatorySite[])
+    E=_testhelper_form(); EA=_testhelper_form(:A); EB=_testhelper_form(:B)
+    EAB=_testhelper_form(:A,:B); EPQ=_testhelper_form(:P,:Q); EP=_testhelper_form(:P)
+    EQ=_testhelper_form(:Q)
+    A=M(:A,false); B=M(:B,false); P=M(:P,false); Q=M(:Q,false)
+    sd=[RS(E,EA,[A],M[],true),RS(E,EB,[B],M[],true),
+        RS(EB,EAB,[A],M[],true),RS(EA,EAB,[B],M[],true),
+        RS(EAB,EPQ,M[],M[],false),RS(EP,EPQ,[Q],M[],true),
+        RS(EQ,EPQ,[P],M[],true),RS(E,EP,[P],M[],true),
+        RS(E,EQ,[Q],M[],true)]
+    _testhelper_one_step_groups([:A, :B], [:P, :Q], sd, states)
 end
 function _testhelper_evalrate(am; seed=1, split=nothing)
     cem=ER.compile_mechanism(am); fp=ER.fitted_params(am); rng=MersenneTwister(seed)

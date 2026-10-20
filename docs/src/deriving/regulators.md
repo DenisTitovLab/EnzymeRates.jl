@@ -14,7 +14,7 @@ This makes the derivation more general than the automatic search. When
 [`@enzyme_mechanism`](@ref), though, can express the full range — competitive,
 non-competitive, and uncompetitive inhibition, essential and non-essential
 activation — simply by choosing which enzyme forms the regulator binds. Declare
-the regulator with `regulators: <name>` and write its binding steps.
+the regulator with `modifiers: <name>` and write its binding steps.
 
 ## A competitive inhibitor
 
@@ -27,7 +27,7 @@ using EnzymeRates
 competitive = @enzyme_mechanism begin
     substrates: S
     products:   P
-    regulators: I
+    modifiers: I
     steps: begin
         E + S ⇌ E(S)
         E(S) <--> E(P)
@@ -38,10 +38,8 @@ end
 print(rate_equation_string(competitive))
 ```
 
-The inhibitor adds a single `I / K_EIinh_to_E_Iinh` term to the denominator and
-leaves the numerator untouched — the textbook competitive form. (`I` renders
-with an `inh` marker, `K_EIinh_to_E_Iinh`, because it occupies a regulator
-binding site.)
+The inhibitor adds a single `I / K_EI_to_E_I` term to the denominator and
+leaves the numerator untouched — the textbook competitive form.
 
 ## An essential activator
 
@@ -53,7 +51,7 @@ enzyme, and every catalytic form carries it:
 essential = @enzyme_mechanism begin
     substrates: S
     products:   P
-    regulators: R
+    modifiers: R
     steps: begin
         E + R ⇌ E(R)
         E(R) + S ⇌ E(S, R)

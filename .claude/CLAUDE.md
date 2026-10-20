@@ -173,7 +173,7 @@ Known issues, planned work and ideas live in `ROADMAP.md` at the repo root. Read
 ## API Design
 
 - `compile_mechanism` is NOT exported (internal). The concrete enumeration types `Mechanism` / `AllostericMechanism` are also not exported; they are the mechanism-construction surface reached as `EnzymeRates.Mechanism` / `EnzymeRates.AllostericMechanism` / `EnzymeRates.init_mechanisms(rxn) → Vector{Mechanism}` (internal-but-usable). Their `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` singleton-type forms are lifted via `compile_mechanism(m)` when the @generated rate-equation derivation is needed.
-- The enumeration pipeline operates end-to-end on the decomposed concrete types `Mechanism` / `AllostericMechanism` (built from `Step` / `Species`) — there is no separate working representation.
+- The enumeration pipeline operates end-to-end on the concrete types `Mechanism` / `AllostericMechanism`, a reaction graph of enzyme forms and edges that `Mechanism(raw)` / `AllostericMechanism(raw)` build from raw input (`RawMechanism`, `RawStep`, `RawForm`) — there is no separate working representation.
 - Data tables use a `group` column (not `Article`+`Fig`) to identify measurement groups sharing the same E_total
 - Keq is always user-provided, never estimated from data
 
@@ -186,7 +186,7 @@ julia --project -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hint=2500M"])'
 ```
 
 ```bash
-# Focused run of one test file (warm: skips the full suite's precompile and JIT; ~2.5 min for
+# Focused run of one test file (warm: skips the full suite's precompile and JIT; ~1.5 min for
 # the enumeration file). TestEnv activates the test environment in place.
 julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<file>.jl")'
 ```
@@ -217,7 +217,7 @@ in the default environment once: `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
 All `Parameter → Symbol` rendering flows through the `name(p, m)` chokepoint; the AST-walker testset `chokepoint: no Symbol("[KkVL]...") outside parameter-name renderers` in `test/test_types.jl` fails the build on any stray `Symbol("K…")`/`Symbol("k…")`/`Symbol("V…")`/`Symbol("L…")` literal outside a parameter-name renderer.
 
 ### Canonical Step Form (load-bearing guard)
-Step direction, step order, and group order are canonicalized in the `Step` and `Mechanism`/`AllostericMechanism` constructors. This is **load-bearing, not cosmetic**: structural deduplication (`unique!`) works by pure `==`/`hash` only because construction is canonical, and every constant is named after the stored sides of its class's kept member. The joint solve (`src/thermo.jl`) picks dependent parameters by a fixed content priority (`_priority_key`), so `fitted_params` and the rate equation do not depend on step order, step direction or group labels; renaming a metabolite can still change which tied constant is dependent. Do not relax or reorder this without reading the Developer page in the docs.
+Edge direction, edge order and group order are canonicalized in the `Mechanism`/`AllostericMechanism` constructors (`_canonicalize`). This is **load-bearing, not cosmetic**: structural deduplication (`unique!`) works by pure `==`/`hash` only because construction is canonical, and every constant is named after the stored sides of its class's kept member. The joint solve (`src/thermo.jl`) picks dependent parameters by a fixed content priority (`_priority_key`), so `fitted_params` and the rate equation do not depend on step order, step direction or group labels; renaming a metabolite can still change which tied constant is dependent. Do not relax or reorder this without reading the Developer page in the docs.
 
 
 

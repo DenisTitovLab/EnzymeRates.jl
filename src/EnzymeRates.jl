@@ -25,12 +25,15 @@ using Tables
 using Optimization
 using Distributed
 using FunctionWrappers: FunctionWrapper
+import Unicode
 
 include("types.jl")
+include("names.jl")
 include("dsl.jl")
 include("sym_poly_for_rate_eq_derivation.jl")
 include("rate_eq_derivation.jl")
 include("thermo.jl")
+include("admission.jl")
 include("fitting.jl")
 include("mechanism_enumeration.jl")
 include("identify_rate_equation.jl")

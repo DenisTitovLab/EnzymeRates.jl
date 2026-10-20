@@ -37,15 +37,15 @@ end
     si = @enzyme_mechanism begin
         substrates: S
         products:   P
-        regulators: S
+        modifiers: S
         steps: begin
             E + S ⇌ E(S)
             E(S) <--> E(P)
             E(P) ⇌ E + P
-            E(S) + S::Inh ⇌ E(S, S::Inh)
+            E(S) + S::Mod ⇌ E(S, S::Mod)
         end
     end
-    si_params = (K_EP_to_E_P = 1.0, K_ESSinh_to_ES_Sinh = 4.0, K_ES_to_E_S = 1.0,
+    si_params = (K_EP_to_E_P = 1.0, K_ESSmod_to_ES_Smod = 4.0, K_ES_to_E_S = 1.0,
                  k_ES_to_EP = 3.0, Keq = 2.0)
 
     # Random-order steady-state bi-bi.
@@ -69,19 +69,15 @@ end
     two_site = @allosteric_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: X::OnlyI, Y::NonequalAI
+        allosteric_regulators: X, Y
         catalytic_multiplicity: 2
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)      :: EqualAI
             E(S) <--> E(P)    :: OnlyA
             E(P) ⇌ E + P      :: EqualAI
         end
-        regulatory_site(multiplicity = 2): begin
-            ligands: X
-        end
-        regulatory_site(multiplicity = 1): begin
-            ligands: Y
-        end
+        regulatory_site(2): X::OnlyI
+        regulatory_site(1): Y::NonequalAI
     end
 
     @testset "a saturating law peaks at the range's upper substrate corner" begin
@@ -144,11 +140,9 @@ end
         # product.
         pn = EnzymeRates.fitted_params(rob)
         rob_mech = EnzymeRates.Mechanism(rob)
-        release_p = only(s for (s, _) in EnzymeRates._flat_steps(rob_mech)
-                         if EnzymeRates.consumed(s) == [EnzymeRates.Product(:P)] &&
-                            isempty(EnzymeRates.bound(EnzymeRates.from_species(s))))
+        release_p = _testhelper_edge(rob_mech, "E + P <--> EP")
         slow = Set(EnzymeRates.name(c, rob_mech)
-                   for c in EnzymeRates._step_constants(release_p, :None))
+                   for c in EnzymeRates._edge_constants(rob_mech, release_p, :None))
         p = merge(NamedTuple{pn}(Tuple(k in slow ? 1e-3 : 1.0 for k in pn)),
                   (Keq = 1.0,))
         peak = EnzymeRates._peak_turnover(rob, p, (1e-12, 1e8))
@@ -170,7 +164,7 @@ end
             substrates: S
             products: P
             catalytic_multiplicity: 2
-            catalytic_steps: begin
+            steps: begin
                 E + S ⇌ E(S)      :: NonequalAI
                 E(S) <--> E(P)    :: NonequalAI
                 E(P) ⇌ E + P      :: EqualAI
@@ -319,7 +313,7 @@ end
         # scales, by 1/1.5.
         q_si, _ = rescale_parameter_values(si, si_params)
         @test q_si.k_ES_to_EP ≈ 2.0 rtol = 1e-9
-        @test (q_si.K_EP_to_E_P, q_si.K_ESSinh_to_ES_Sinh, q_si.K_ES_to_E_S) ==
+        @test (q_si.K_EP_to_E_P, q_si.K_ESSmod_to_ES_Smod, q_si.K_ES_to_E_S) ==
               (1.0, 4.0, 1.0)
     end
 

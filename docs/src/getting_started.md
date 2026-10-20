@@ -37,17 +37,16 @@ m isa EnzymeMechanism
 constant K. `<-->` marks a steady-state interconversion, described by
 independent forward and reverse rate constants. The result is an
 `EnzymeMechanism` value. The expression `m isa EnzymeMechanism` (rather than
-`typeof(m)`) is shown deliberately: the `Sig` type parameter that encodes the
-mechanism structure is an unreadable string, so `isa` is the useful check.
+`typeof(m)`) is shown deliberately: the `Sig` type parameter encodes the mechanism
+as a long tuple of integers, so `isa` is the useful check. Displayed, `m` prints as the
+block that builds it, with its lists sorted and its steps in canonical order.
 
 An enzyme form's name joins its bound metabolites' names without a separator
-(`E(S)` is `ES`), so two forms can render one name: with `Ac`, `CoA` and `AcCoA`,
-E with Ac and CoA bound and E with AcCoA bound are both `EAcCoA`.
-`@enzyme_reaction` accepts such names; the mechanism constructors reject a
-mechanism that holds two forms whose names coincide. For Ac + CoA ⇌ AcCoA every
-seed holds both E(Ac, CoA) and E(AcCoA), so `init_mechanisms` and
-`identify_rate_equation` stop with an error naming both forms. Rename one, for
-example `Acetyl`.
+(`E(S)` is `ES`), so two forms could render one name: with `Ac`, `CoA` and
+`AcCoA`, E with Ac and CoA bound and E with AcCoA bound would both be `EAcCoA`.
+`@enzyme_reaction` therefore rejects names that spell one string two ways, and
+its error names both spellings (`Ac + CoA and AcCoA both spell AcCoA`). Rename
+one, for example `Acetyl`.
 
 ---
 

@@ -1,12 +1,19 @@
 # ABOUTME: Tests for the mechanism/parameter accessor API and its symmetry
 # ABOUTME: across the concrete and singleton mechanism representations.
 @testset "parameters API symmetry" begin
-    rxn = @enzyme_reaction begin
-        substrates: A[C], B[N]
-        products:   P[C], Q[N]
+    # A bi-bi seed whose catalytic cycle's Haldane relation makes a constant dependent;
+    # B and P also bind as dead ends, at E(Q) and E(A).
+    m_mono = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E + Q ⇌ E(Q)
+            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+            (E(A) + P ⇌ E(A, P), E(Q) + P ⇌ E(P, Q))
+            E(A, B) <--> E(P, Q)
+        end
     end
-    m_mono = EnzymeRates.EnzymeMechanism(
-        first(EnzymeRates.init_mechanisms(rxn)))
     params_mono = parameters(m_mono)
     @test :E_total in params_mono
     @test :Keq in params_mono
@@ -17,19 +24,18 @@
     @test Set(keys(all_parameters(m_mono, values_mono))) ==
           union(Set(params_mono), keys(dep_mono))
 
-    rxn_allo = @enzyme_reaction begin
-        substrates: S[C]
-        products:   P[C]
-        allosteric_regulators: R
-        oligomeric_state: 2
-    end
-    base = first(EnzymeRates.init_mechanisms(rxn_allo))
-    cat_allo_states = fill(:NonequalAI, length(EnzymeRates.steps(base)))
-    site = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:R)], 2, [:NonequalAI])
-    am = EnzymeRates.AllostericMechanism(
-        EnzymeRates.reaction(base), copy(EnzymeRates.steps(base)),
-        cat_allo_states, 2, [site])
+    base = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
+    cat_allo_states = fill(:NonequalAI, EnzymeRates.ngroups(base))
+    site = EnzymeRates.RegulatorySite([:R], 2, [:NonequalAI])
+    am = EnzymeRates.AllostericMechanism(base, cat_allo_states, 2, [site])
     @test EnzymeRates.cat_allo_states(am) == cat_allo_states
     m_allo = EnzymeRates.AllostericEnzymeMechanism(am)
     params_allo = parameters(m_allo)
@@ -109,7 +115,7 @@ end
         # regulator constants and L are fitted, so p holds them.
         mech = _testhelper_lift(m)
         states = mech isa EnzymeRates.Mechanism ? (:None,) : (:A, :I)
-        @test issubset((n for st in states for ns in EnzymeRates._step_names(mech, st)
+        @test issubset((n for st in states for ns in EnzymeRates._edge_names(mech, st)
                         for n in ns), keys(all_p))
     end
 end

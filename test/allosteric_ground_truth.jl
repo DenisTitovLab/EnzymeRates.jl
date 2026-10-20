@@ -82,7 +82,7 @@ end
 @testset "OnlyA MWC derivation matches mass-action ground truth" begin
     onlyA = @allosteric_mechanism begin
         substrates: S ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)     :: OnlyA
             E(S) <--> E(P)   :: OnlyA
             E + P ⇌ E(P)     :: EqualAI
@@ -138,7 +138,7 @@ end
 @testset "multi-OnlyA MWC derivation matches mass-action ground truth" begin
     multiA = @allosteric_mechanism begin
         substrates: A, B ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + A ⇌ E(A)          :: OnlyA
             E(A) + B ⇌ E(A, B)    :: OnlyA
             E(A, B) <--> E(P)     :: OnlyA
@@ -224,7 +224,7 @@ end
 @testset "metabolite-bearing-D MWC derivation matches mass-action ground truth" begin
     metabD = @allosteric_mechanism begin
         substrates: S, B ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + S <--> E(S)      :: OnlyA
             E(S) + B ⇌ E(S, B)   :: EqualAI
             E(S, B) <--> E(P)    :: OnlyA
@@ -379,7 +379,7 @@ end
     end
     alloEq = @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + A <--> E(A)                                       :: EqualAI
             E(A) <--> E(; residual = A - P) + P                   :: EqualAI
             E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
@@ -543,7 +543,7 @@ end
 @testset ":NonequalAI ping-pong MWC derivation matches mass-action ground truth" begin
     allo = @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + A <--> E(A)                                       :: EqualAI
             E(A) <--> E(; residual = A - P) + P                   :: NonequalAI
             E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
@@ -551,12 +551,12 @@ end
         end
     end
     fp = ER.fitted_params(allo)
-    @test fp == (Symbol("k_A_EA_to_E_res_+A_-P_P"), Symbol("k_A_EB_res_+A_-P_to_E_Q"),
-                 Symbol("k_A_E_Q_to_EB_res_+A_-P"), :k_EA_to_E_A,
-                 Symbol("k_EB_res_+A_-P_to_E_res_+A_-P_B"), :k_E_A_to_EA,
-                 Symbol("k_E_res_+A_-P_B_to_EB_res_+A_-P"),
-                 Symbol("k_I_EA_to_E_res_+A_-P_P"), Symbol("k_I_EB_res_+A_-P_to_E_Q"),
-                 Symbol("k_I_E_Q_to_EB_res_+A_-P"), :L)
+    @test fp == (:k_A_EA_to_E_res_plusA_minusP_P, :k_A_EB_res_plusA_minusP_to_E_Q,
+                 :k_A_E_Q_to_EB_res_plusA_minusP, :k_EA_to_E_A,
+                 :k_EB_res_plusA_minusP_to_E_res_plusA_minusP_B, :k_E_A_to_EA,
+                 :k_E_res_plusA_minusP_B_to_EB_res_plusA_minusP,
+                 :k_I_EA_to_E_res_plusA_minusP_P, :k_I_EB_res_plusA_minusP_to_E_Q,
+                 :k_I_E_Q_to_EB_res_plusA_minusP, :L)
 
     rng = MersenneTwister(20260716)
     for _ in 1:6
@@ -572,36 +572,36 @@ end
         # are named by its two sides, so `k_…_EA_to_E_res_…_P` is the
         # product-releasing rate and `k_…_E_res_…_P_to_EA` the product-rebinding
         # one — the binding steps read the usual way round.
-        #   k_E_A_to_EA=k1f                          (E + A ⇌ EA, shared)
-        #   k_E_res_+A_-P_B_to_EB_res_+A_-P=k3f,
-        #   k_EB_res_+A_-P_to_E_res_+A_-P_B=k3r      (F + B ⇌ FB, shared)
-        #   k_A_EA_to_E_res_+A_-P_P=k2f_A,
-        #   k_A_E_res_+A_-P_P_to_EA=k2r_A            (EA ⇌ F + P, active)
-        #   k_I_EA_to_E_res_+A_-P_P=k2f_I,
-        #   k_I_E_res_+A_-P_P_to_EA=k2r_I            (EA ⇌ F + P, inactive)
-        #   k_A_EB_res_+A_-P_to_E_Q=k4f_A,
-        #   k_A_E_Q_to_EB_res_+A_-P=k4r_A            (FB ⇌ E + Q, active)
-        #   k_I_EB_res_+A_-P_to_E_Q=k4f_I,
-        #   k_I_E_Q_to_EB_res_+A_-P=k4r_I            (FB ⇌ E + Q, inactive)
-        # `k_A_E_res_+A_-P_P_to_EA` and `k_I_E_res_+A_-P_P_to_EA`, the P rebinding
-        # rates, are absent from fitted_params: each conformation's Haldane makes the
-        # constant that runs against the reaction dependent. The oracle takes k2r_A and
-        # k4r_I and derives k1r and k2r_I by the Haldane relations, so both are
+        #   k_E_A_to_EA=k1f                                  (E + A ⇌ EA, shared)
+        #   k_E_res_plusA_minusP_B_to_EB_res_plusA_minusP=k3f,
+        #   k_EB_res_plusA_minusP_to_E_res_plusA_minusP_B=k3r  (F + B ⇌ FB, shared)
+        #   k_A_EA_to_E_res_plusA_minusP_P=k2f_A,
+        #   k_A_E_res_plusA_minusP_P_to_EA=k2r_A             (EA ⇌ F + P, active)
+        #   k_I_EA_to_E_res_plusA_minusP_P=k2f_I,
+        #   k_I_E_res_plusA_minusP_P_to_EA=k2r_I             (EA ⇌ F + P, inactive)
+        #   k_A_EB_res_plusA_minusP_to_E_Q=k4f_A,
+        #   k_A_E_Q_to_EB_res_plusA_minusP=k4r_A             (FB ⇌ E + Q, active)
+        #   k_I_EB_res_plusA_minusP_to_E_Q=k4f_I,
+        #   k_I_E_Q_to_EB_res_plusA_minusP=k4r_I             (FB ⇌ E + Q, inactive)
+        # `k_A_E_res_plusA_minusP_P_to_EA` and `k_I_E_res_plusA_minusP_P_to_EA`, the P
+        # rebinding rates, are absent from fitted_params: each conformation's Haldane
+        # makes the constant that runs against the reaction dependent. The oracle takes
+        # k2r_A and k4r_I and derives k1r and k2r_I by the Haldane relations, so both are
         # computed here the same way, and the derivation rederives k2r_A and k2r_I.
         k1r = k1f * k2f_A * k3f * k4f_A / (Keq * k2r_A * k3r * k4r_A)
         k2r_I = k1f * k2f_I * k3f * k4f_I / (Keq * k1r * k3r * k4r_I)
         d = Dict(:k_E_A_to_EA => k1f,
                  :k_EA_to_E_A => k1r,
-                 Symbol("k_E_res_+A_-P_B_to_EB_res_+A_-P") => k3f,
-                 Symbol("k_EB_res_+A_-P_to_E_res_+A_-P_B") => k3r,
-                 Symbol("k_A_EA_to_E_res_+A_-P_P") => k2f_A,
-                 Symbol("k_A_E_res_+A_-P_P_to_EA") => k2r_A,
-                 Symbol("k_A_EB_res_+A_-P_to_E_Q") => k4f_A,
-                 Symbol("k_A_E_Q_to_EB_res_+A_-P") => k4r_A,
-                 Symbol("k_I_EA_to_E_res_+A_-P_P") => k2f_I,
-                 Symbol("k_I_E_res_+A_-P_P_to_EA") => k2r_I,
-                 Symbol("k_I_EB_res_+A_-P_to_E_Q") => k4f_I,
-                 Symbol("k_I_E_Q_to_EB_res_+A_-P") => k4r_I,
+                 :k_E_res_plusA_minusP_B_to_EB_res_plusA_minusP => k3f,
+                 :k_EB_res_plusA_minusP_to_E_res_plusA_minusP_B => k3r,
+                 :k_A_EA_to_E_res_plusA_minusP_P => k2f_A,
+                 :k_A_E_res_plusA_minusP_P_to_EA => k2r_A,
+                 :k_A_EB_res_plusA_minusP_to_E_Q => k4f_A,
+                 :k_A_E_Q_to_EB_res_plusA_minusP => k4r_A,
+                 :k_I_EA_to_E_res_plusA_minusP_P => k2f_I,
+                 :k_I_E_res_plusA_minusP_P_to_EA => k2r_I,
+                 :k_I_EB_res_plusA_minusP_to_E_Q => k4f_I,
+                 :k_I_E_Q_to_EB_res_plusA_minusP => k4r_I,
                  :L => L)
         prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
         v_code = real(ER.rate_equation(allo, (A=A, B=B, P=P, Q=Q), prm))
@@ -663,7 +663,7 @@ end
 @testset "ping-pong MWC derivation with free E and F in one RE segment" begin
     allo = @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + A ⇌ E(A)                                          :: EqualAI
             E(A) <--> E(P; residual = A - P)                      :: OnlyA
             E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
@@ -673,10 +673,10 @@ end
         end
     end
     fp = ER.fitted_params(allo)
-    @test fp == (Symbol("K_A_EB_res_+A_-P_to_EQ"), :K_EA_to_E_A,
-                 Symbol("K_EB_res_+A_-P_to_E_res_+A_-P_B"),
-                 Symbol("K_EP_res_+A_-P_to_E_res_+A_-P_P"), :K_EQ_to_E_Q,
-                 Symbol("k_A_EA_to_EP_res_+A_-P"), :L)
+    @test fp == (:K_A_EB_res_plusA_minusP_to_EQ, :K_EA_to_E_A,
+                 :K_EB_res_plusA_minusP_to_E_res_plusA_minusP_B,
+                 :K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P, :K_EQ_to_E_Q,
+                 :k_A_EA_to_EP_res_plusA_minusP, :L)
     p = (KA=0.7, KB=1.3, KP=0.9, KQ=1.1, K2=2.0, k=1.7, L=3.0, A=1.5)
     # Map fitted_params -> ground-truth params. Each K is the ratio of its to-side to
     # its from-side, so the binding Ks are dissociation constants:
@@ -684,10 +684,10 @@ end
     #   K_EP_res_…_to_E_res_…_P=KP, K_A_EB_res_…_to_EQ=K2 ([EQ]/[FB]),
     #   k_A_EA_to_EP_res_…=k. At P = Q = 0 only KA, k and L enter the rate.
     d = Dict(:K_EA_to_E_A => p.KA, :K_EQ_to_E_Q => p.KQ,
-             Symbol("k_A_EA_to_EP_res_+A_-P") => p.k,
-             Symbol("K_A_EB_res_+A_-P_to_EQ") => p.K2,
-             Symbol("K_EB_res_+A_-P_to_E_res_+A_-P_B") => p.KB,
-             Symbol("K_EP_res_+A_-P_to_E_res_+A_-P_P") => p.KP, :L => p.L)
+             :k_A_EA_to_EP_res_plusA_minusP => p.k,
+             :K_A_EB_res_plusA_minusP_to_EQ => p.K2,
+             :K_EB_res_plusA_minusP_to_E_res_plusA_minusP_B => p.KB,
+             :K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P => p.KP, :L => p.L)
     prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., 2.0, 1.0))
     v_code(B) = real(ER.rate_equation(allo, (A=p.A, B=B, P=0.0, Q=0.0), prm))
     v_gt(B) = _testhelper_pingpong_re_chemistry_flux(; p..., B=B)
@@ -720,7 +720,7 @@ end
 @testset "fully-inert inactive contributes L to the denominator" begin
     inert = @allosteric_mechanism begin
         substrates: S ; products: P ; catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + S ⇌ E(S)   :: OnlyA
             E(S) <--> E(P) :: EqualAI
             E + P ⇌ E(P)   :: OnlyA
@@ -763,7 +763,7 @@ end
         substrates: ATP, F6P
         products: ADP, F16BP
         catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + ATP ⇌ E(ATP)                                                      :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
             E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
@@ -772,8 +772,8 @@ end
             E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
-    # The constructor errors on any `_onlya_haldane_violation`, so building `am`
-    # proves the guard accepts it.
+    # The macro's boundary check (`_check_well_posed`) errors on any
+    # `_onlya_haldane_violation`, so building `err1` proves the guard accepts it.
     am = ER.AllostericMechanism(err1)
 
     _, _, d_free_I = ER._state_rate_polys(am, :I)
@@ -917,7 +917,7 @@ end
         allo = nprot == 1 ?
             @allosteric_mechanism(begin
                 substrates: A, B ; products: P ; catalytic_multiplicity: 1
-                catalytic_steps: begin
+                steps: begin
                     E + A <--> E(A)        :: EqualAI
                     E(A) + B ⇌ E(A, B)     :: EqualAI
                     E(A, B) <--> E(P)      :: NonequalAI
@@ -926,7 +926,7 @@ end
             end) : nprot == 2 ?
             @allosteric_mechanism(begin
                 substrates: A, B ; products: P ; catalytic_multiplicity: 2
-                catalytic_steps: begin
+                steps: begin
                     E + A <--> E(A)        :: EqualAI
                     E(A) + B ⇌ E(A, B)     :: EqualAI
                     E(A, B) <--> E(P)      :: NonequalAI
@@ -935,7 +935,7 @@ end
             end) :
             @allosteric_mechanism(begin
                 substrates: A, B ; products: P ; catalytic_multiplicity: 3
-                catalytic_steps: begin
+                steps: begin
                     E + A <--> E(A)        :: EqualAI
                     E(A) + B ⇌ E(A, B)     :: EqualAI
                     E(A, B) <--> E(P)      :: NonequalAI
@@ -999,7 +999,7 @@ end
         substrates: ATP, F6P
         products: ADP, F16BP
         catalytic_multiplicity: 1
-        catalytic_steps: begin
+        steps: begin
             E + ATP ⇌ E(ATP)                                                      :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
             E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
@@ -1009,14 +1009,14 @@ end
         end
     end
     afp = ER.fitted_params(dead)
-    @test afp == (Symbol("K_A_EF6P_res_+ATP_-F16BP_to_EADP"),
-                  Symbol("K_A_EF6P_res_+ATP_-F16BP_to_E_res_+ATP_-F16BP_F6P"),
+    @test afp == (:K_A_EF6P_res_plusATP_minusF16BP_to_EADP,
+                  :K_A_EF6P_res_plusATP_minusF16BP_to_E_res_plusATP_minusF16BP_F6P,
                   :K_EADP_to_E_ADP, :K_EATP_to_E_ATP,
-                  Symbol("K_EF16BP_res_+ATP_-F16BP_to_E_res_+ATP_-F16BP_F16BP"),
-                  Symbol("k_A_EATP_to_EF16BP_res_+ATP_-F16BP"), :L)
+                  :K_EF16BP_res_plusATP_minusF16BP_to_E_res_plusATP_minusF16BP_F16BP,
+                  :k_A_EATP_to_EF16BP_res_plusATP_minusF16BP, :L)
 
-    # The constructor errors on any `_onlya_haldane_violation`, so building `am`
-    # proves the guard accepts it.
+    # The macro's boundary check (`_check_well_posed`) errors on any
+    # `_onlya_haldane_violation`, so building `dead` proves the guard accepts it.
     am = ER.AllostericMechanism(dead)
     _, _, d_free_I = ER._state_rate_polys(am, :I)
     @test ER._poly_to_expr(d_free_I) == 1
@@ -1042,12 +1042,12 @@ end
     end
     nfp = ER.fitted_params(nonallo)
     allo_to_twin = Dict(
-        Symbol("k_A_EATP_to_EF16BP_res_+ATP_-F16BP") =>
-            Symbol("k_EATP_to_EF16BP_res_+ATP_-F16BP"),
-        Symbol("K_A_EF6P_res_+ATP_-F16BP_to_EADP") =>
-            Symbol("K_EF6P_res_+ATP_-F16BP_to_EADP"),
-        Symbol("K_A_EF6P_res_+ATP_-F16BP_to_E_res_+ATP_-F16BP_F6P") =>
-            Symbol("K_EF6P_res_+ATP_-F16BP_to_E_res_+ATP_-F16BP_F6P"))
+        :k_A_EATP_to_EF16BP_res_plusATP_minusF16BP =>
+            :k_EATP_to_EF16BP_res_plusATP_minusF16BP,
+        :K_A_EF6P_res_plusATP_minusF16BP_to_EADP =>
+            :K_EF6P_res_plusATP_minusF16BP_to_EADP,
+        :K_A_EF6P_res_plusATP_minusF16BP_to_E_res_plusATP_minusF16BP_F6P =>
+            :K_EF6P_res_plusATP_minusF16BP_to_E_res_plusATP_minusF16BP_F6P)
     twin_of(s) = get(allo_to_twin, s, s)
 
     rng = MersenneTwister(20260717)

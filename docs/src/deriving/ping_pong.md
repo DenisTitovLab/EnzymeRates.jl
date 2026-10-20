@@ -36,5 +36,5 @@ sequential mechanism always carries a `1` in its denominator for the free enzyme
 a ping-pong enzyme never sits idle as free `E` during turnover — it is always
 either loaded with substrate or carrying the covalent residual — so that constant
 term is absent. The residual-bearing forms take descriptive names such as
-`E_res_+A_-P` (the modified free enzyme) and `EB_res_+A_-P` (with `B`
+`E_res_plusA_minusP` (the modified free enzyme) and `EB_res_plusA_minusP` (with `B`
 additionally bound).
