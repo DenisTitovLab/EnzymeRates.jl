@@ -187,6 +187,8 @@ end
     @test EnzymeRates._guard_message(no_turnover, v) ==
           "Mechanism: no cycle of steps turns substrates into products, so the rate is " *
           "zero everywhere."
+    @test_throws "holds no fault" EnzymeRates._guard_message(no_turnover,
+                                                             EnzymeRates._WELL_POSED)
     # The oracle's steady state carries no flux.
     setprecision(BigFloat, 256) do
         rng = Random.MersenneTwister(1)
