@@ -2758,6 +2758,29 @@ end
     @test _testhelper_admission_faults(_testhelper_tag_sets["bridge_drain"]) ==
           [BR, BR, BR, SP, NO, SP]
     @test all(_testhelper_admission_agreement(_testhelper_tag_sets["bridge_drain"]; rng))
+    drain = _testhelper_tag_sets["bridge_drain"]
+    k = _testhelper_edge(drain, "F + I ⇌ FI")
+    v = EnzymeRates._guard(drain)
+    @test v == EnzymeRates._Verdict(BR, EnzymeRates._LIMIT_UNTESTED, 1, 2, k)
+    @test EnzymeRates._guard_message(drain, v) ==
+          "AllostericMechanism: the :OnlyA step F + I ⇌ F(I) bridges forms of the " *
+          "inactive conformation that its other steps keep apart, so admission cannot " *
+          "show that the limit does not depend on how fast that step vanishes. Make the " *
+          "group of F + I ⇌ F(I) steady-state."
+    drain_fixed = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)        :: EqualAI
+            E(S) <--> F + P     :: EqualAI
+            F <--> E            :: OnlyA
+            E + I ⇌ E(I)        :: OnlyA
+            F + I <--> F(I)     :: OnlyA
+            F(I) ⇌ E(I)         :: EqualAI
+        end
+    end
+    @test EnzymeRates._guard(drain_fixed) == EnzymeRates._WELL_POSED
     # R2funnel: at P zero the trap {F, F(S)} drains only through a slow step out of a fast
     # transient; its bridge stays with the S binding steady-state (R2funnel_SS), so the
     # message offers no fix.
