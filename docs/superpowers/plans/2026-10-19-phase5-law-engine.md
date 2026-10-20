@@ -41,12 +41,12 @@ Inputs every task reads:
   exceptions: P5-10a (N stays the spec's graded basis; no Cleland-first rule), P5-31a (the
   spec's pre-filter stays and the certificate runs inside it), P5-43a (research logs stay
   in the scratchpad), P5-45 (this plan; branch graph-law; PR base graph-guard) and P5-46
-  (this refresh; graph-law cut at f9361cf; Task 0 merges graph-guard's head 3543abe,
+  (this refresh; graph-law cut at f9361cf; Task 0 merges graph-guard's head 991355f,
   which changes no `src` file, into it for Task 0's baseline, as P4-37(b) orders).
 - SLC = `$S/slice/src`, the slice code the ports follow; R# = `$S/phase3/RULINGS.md` (R16,
   R18, R22, R37, R52).
 - Code cites name functions and testsets as they stand at f9361cf, where graph-law is cut;
-  graph-guard's head 3543abe (draft PR #94), which Task 0 merges into graph-law, changes
+  graph-guard's head 991355f (draft PR #94), which Task 0 merges into graph-law, changes
   no `src` file after it. The refresh pass (P5-45, P5-46) re-anchored them there from the
   snapshot `$S/phase45/plan5/snap_a9e0699`; a figure measured on that snapshot keeps its
   commit.
@@ -159,8 +159,8 @@ printer so that a PASS1 compile surprise cannot hold back the printer's commit.
   figures (full-suite maxrss, ter-ter init, `test_mechanism_enumeration.jl` focused)
   beside Task 0's.
 - Runner. Every command runs from the worktree `$S/phase45/law_wt` (branch graph-law, cut
-  at f9361cf; Task 0 merges graph-guard's head 3543abe) through the session runner, one Julia process at a
-  time. Each shell call starts fresh, so every block sets `S` first:
+  at f9361cf; Task 0 merges graph-guard's head 991355f) through the session runner, one
+  Julia process at a time. Each shell call starts fresh, so every block sets `S` first:
   `S=/tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad; cd $S/phase45/law_wt && $S/phase3/jl.sh <log> <timeout_s> --project=. -e '<cmd>'`.
   - Focused `<cmd>` (timeout 1800): `using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<file>.jl")`.
   - Full `<cmd>` (timeout 3600): `using Pkg; Pkg.test(julia_args=["--heap-size-hint=2500M"])`.
@@ -395,7 +395,7 @@ compare against them outside the suite. It changes no repository file.
 
 **Files:**
 - None in the repository. The worktree `$S/phase45/law_wt` holds branch graph-law, cut
-  at f9361cf (P5-46); Step 1 merges graph-guard's head 3543abe, which changes no `src`
+  at f9361cf (P5-46); Step 1 merges graph-guard's head 991355f, which changes no `src`
   file after f9361cf, into it (P4-37(b)).
 - Create (scratch): `$S/phase45/scripts/P5_sets.jl`, `P5_baseline.jl`, `P5_compare.jl`,
   `P5_identify_run.jl`; the directory `$S/phase45/p5_base/` and its `figures.md`; the
@@ -478,23 +478,25 @@ compare against them outside the suite. It changes no repository file.
 
   The worktree is cut (P5-46): branch graph-law at f9361cf, with graph-guard's
   `Manifest.toml`, and at most the refreshed plan committed on top. graph-guard has since
-  moved to 3543abe (draft PR #94): a98c071 raises the constructor benchmark's gate in
-  `test/test_reaction_graph.jl` to 20 µs, which CI failed at 10 µs on PRs #93 and #94, and
-  3543abe names "LDH i-state NonequalAI 6-group, steady-state NAD group" (about 55 ns) as
-  the slowest spec under the 120 ns gate, in a test comment, `.claude/CLAUDE.md` and a
-  `ROADMAP.md` known issue. Neither changes a `src` file, so the refresh's f9361cf figures
+  moved to 991355f (draft PR #94, whose base is main since #93 merged): a98c071 raises the
+  constructor benchmark's gate in `test/test_reaction_graph.jl` to 20 µs, which CI failed
+  at 10 µs on PRs #93 and #94; 3543abe and 7de259f name "LDH i-state NonequalAI 6-group,
+  steady-state NAD group" (about 55 ns) as the slowest spec under the 120 ns gate, which
+  the ubuntu and windows runners miss, in a test comment, `.claude/CLAUDE.md` and a
+  `ROADMAP.md` known issue; 991355f merges main (#93's squash, a98c071's tree) and changes
+  no file. None changes a `src` file, so the refresh's f9361cf figures
   hold on it. Merge it into graph-law with a merge commit, as P4-37(b) orders, so that
   Task 14's CI runs carry the 20 µs gate and its CLAUDE.md edit applies to graph-guard's
   text:
   ```bash
-  S=/tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad; cd $S/phase45/law_wt && git status --short && [ "$(git rev-parse --short graph-guard)" = 3543abe ] && git rev-parse --short graph-guard && git diff --stat f9361cf graph-guard -- src && git merge --no-ff graph-guard -m "Merge graph-guard: gate the constructor benchmark at 20 µs and name the slowest spec" -m $'Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE' && git log --oneline graph-guard..HEAD && git diff --stat graph-guard HEAD -- src test && cmp Manifest.toml $S/phase45/guard_wt/Manifest.toml && echo manifest-equal
+  S=/tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad; cd $S/phase45/law_wt && git status --short && [ "$(git rev-parse --short graph-guard)" = 991355f ] && git rev-parse --short graph-guard && git diff --stat f9361cf graph-guard -- src && git merge --no-ff graph-guard -m "Merge graph-guard: gate the constructor benchmark at 20 µs and name the slowest spec" -m $'Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE' && git log --oneline graph-guard..HEAD && git diff --stat graph-guard HEAD -- src test && cmp Manifest.toml $S/phase45/guard_wt/Manifest.toml && echo manifest-equal
   ```
-  Expected: no status lines; `3543abe`; no change under `src` from f9361cf to graph-guard;
+  Expected: no status lines; `991355f`; no change under `src` from f9361cf to graph-guard;
   `Merge made by the 'ort' strategy.` and the four files graph-guard changed after f9361cf
   (`.claude/CLAUDE.md`, `ROADMAP.md`, `test/test_rate_eq_derivation.jl`,
   `test/test_reaction_graph.jl`); the merge commit and at most the plan's commit; no
   change under `src` or `test` from graph-guard to HEAD; `manifest-equal`. If graph-guard
-  has moved past 3543abe, the chain stops before the merge: stop and report.
+  has moved past 991355f, the chain stops before the merge: stop and report.
   ```bash
   S=/tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad; mkdir -p $S/phase45/logs $S/phase45/probes $S/phase45/scripts $S/phase45/p5_base
   S=/tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad; cd $S/phase45/law_wt && $S/phase3/jl.sh $S/phase45/logs/P5_T0_inst.log 1800 --project=. -e 'using Pkg; Pkg.instantiate()' && git status --short && git log --oneline -1
@@ -5631,7 +5633,7 @@ Run: `S=/tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4
 Expected: 42 lines and the summary `under 0.5 ns: inline <h> of 42, barrier 0`. RES predicts
 `<h>` = 4 on slice bodies. Record the two slowest specs and their readings (the barrier
 column; the inline one when `<h>` = 0) for the commit and for Task 14's CLAUDE.md edit,
-whose headroom sentence names 3543abe's figures (about 55 ns on "LDH i-state NonequalAI
+whose headroom sentence names 7de259f's figures (about 55 ns on "LDH i-state NonequalAI
 6-group, steady-state NAD group", about 30 ns on PFK-1 and the MWC tetramer).
 
 If `<h>` > 0, the helper times calls the compiler hoisted out of its loop: make it time
@@ -13985,8 +13987,9 @@ up to one significant figure. Until now it stays 0.8 ns; the research predicts 1
   slowest-spec reading, from Task 6's measurement; P5-24 ◆, first among the CLAUDE.md
   edits listed for Denis)
 - Modify: `docs/src/developer.md` (`0.8 ns × denominator terms`)
-- Modify: `ROADMAP.md` (the known issue "**Windows CI often misses `rate_equation`'s 120 ns
-  gate on one spec.**", which 3543abe added for phase 5's code generation to settle)
+- Modify: `ROADMAP.md` (the known issue "**Ubuntu and windows CI miss `rate_equation`'s
+  120 ns gate on one spec.**", which 3543abe added and 7de259f reworded for phase 5's code
+  generation to settle)
 - Create (scratch): `$S/phase45/pr_body5.md` (provisional), `$S/phase45/scripts/P5_T14_c.jl`
 - Logs: `$S/phase45/logs/P5_T14_{ci1_raw,ci1,ci2_raw,ci2,c,tr,ci3_raw,ci3}.log`
 
@@ -14005,7 +14008,10 @@ up to one significant figure. Until now it stays 0.8 ns; the research predicts 1
   A c above 0.8 is said in the commit, and the CLAUDE.md edit and the looser bound go to
   Denis in the PR body; a c at or below 0.8 tightens the gate and goes to him the same way.
 - A third CI run, on the new c, is green.
-- A spec that misses 120 ns on a runner is rerun, not loosened (CLAUDE.md).
+- A spec that misses 120 ns on a runner is rerun once, not loosened (CLAUDE.md). The same
+  spec missing again on that runner, as the LDH variant P4-37 kept does on ubuntu and
+  windows unless Task 6 cut it, stops the task for Denis with the readings; Task 6 Step 8's
+  local reading of that law predicts it (at about 50 ns or more, CI misses again).
 
 **Testsets added:** none.
 
@@ -14070,8 +14076,9 @@ grep -P '^Julia [^\t]*\t.*rate_equation: [0-9.]+ ns per call' $S/phase45/logs/P5
 
 Expected: `exit 0` (every job green, the documentation job included); 18 lines in
 `P5_T14_ci1.log`, six per runner. `gh run watch` blocks; run the block in the background
-and poll for `exit ` in its output. A job that fails on a 120-ns spec bound is rerun with
-`gh run rerun $RUN --failed`, not loosened; any other failure stops the task.
+and poll for `exit ` in its output. A job that fails on a 120-ns spec bound is rerun once
+with `gh run rerun $RUN --failed`, not loosened; the same spec missing again stops the task
+for Denis (Gate); any other failure stops the task.
 
 - [ ] **Step 4 (controller): Rerun and read the second CI run**
 
@@ -14150,7 +14157,7 @@ non-negotiable", replace `max(120 ns, 0.8 ns × denominator terms)` with
 `max(120e-9, <c>e-9 * n)`. In the same paragraph replace the stale headroom figures,
 
 ```markdown
-Locally the 120-ns bound leaves about 2× headroom over the slowest `MECHANISM_TEST_SPECS` law ("LDH i-state NonequalAI 6-group, steady-state NAD group", about 55 ns) and about 4× over the next two (about 30 ns: the tetramer MWC laws PFK-1 and "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites"); shared CI runners run these 2-7× slower and sometimes miss it, windows most often on the LDH law, so rerun such a job rather than loosening the bound.
+Locally the 120-ns bound leaves about 2× headroom over the slowest `MECHANISM_TEST_SPECS` law ("LDH i-state NonequalAI 6-group, steady-state NAD group", about 55 ns) and about 4× over the next two (about 30 ns: the tetramer MWC laws PFK-1 and "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites"); shared CI runners run these 2-7× slower: the ubuntu and windows runners read about 130 ns on the LDH law and miss the bound (a ROADMAP known issue), and a job that misses it on another law is rerun rather than the bound loosened.
 ```
 
 with the two slowest specs Task 6 Step 8 recorded (`P5_T6_hoist.log`; `<k>` is 120
@@ -14170,7 +14177,7 @@ the strict part."
 In `docs/src/developer.md`, "Derivation architecture", replace
 `0.8 ns × denominator terms` with `<c> ns × denominator terms`.
 
-In `ROADMAP.md`, under "Known issues", the bullet "**Windows CI often misses
+In `ROADMAP.md`, under "Known issues", the bullet "**Ubuntu and windows CI miss
 `rate_equation`'s 120 ns gate on one spec.**" (through its last text line, keeping the
 blank line before "## Planned"): when
 Task 6 Step 8's slowest spec reads about 30 ns or less (the 4× headroom the entry wants
@@ -15005,7 +15012,7 @@ Two questions the rulings leave open, then the four calls the research proposed:
 - P5-44 the evidence limits below.
 - P5-45 this plan's method; branch graph-law on graph-guard.
 - P5-46 the refresh on f9361cf, where graph-law is cut, and Task 0's baseline; Task 0
-  brings graph-law to graph-guard's head 3543abe (draft PR #94), which changes no `src`
+  brings graph-law to graph-guard's head 991355f (draft PR #94), which changes no `src`
   file.
 
 ## Deleted test subjects, for approval
@@ -15124,7 +15131,7 @@ The other ★ calls:
   `Int64`; overflow is an internal error", with the proof note of P5-2 (Task 2).
 - **P5-24** CLAUDE.md's size-gate constant c, set from two CI runs, and the same
   paragraph's headroom sentence, which named the slowest specs at about 55 and 30 ns
-  (Task 14, from Task 6's readings); the ROADMAP known issue "Windows CI often misses
+  (Task 14, from Task 6's readings); the ROADMAP known issue "Ubuntu and windows CI miss
   `rate_equation`'s 120 ns gate on one spec" is <deleted | rewritten> (Task 14 says
   which).
 - **P5-25** the gate's helper times through a `@noinline` barrier; CLAUDE.md names the
@@ -15146,7 +15153,7 @@ The other ★ calls:
 - **P5-45** this plan's method: written against the read-only snapshot a9e0699 while
   phase 4's fix wave ran (skeleton, four writers with checkers, assembly, reviews, one fix
   pass); the refresh pass of P5-46 re-anchored every cite on f9361cf, where graph-law was
-  cut, and Task 0 brought graph-law to graph-guard's head 3543abe (draft PR #94), which
+  cut, and Task 0 brought graph-law to graph-guard's head 991355f (draft PR #94), which
   changes no `src` file; branch graph-law, draft PR on graph-guard, version 0.10.0.
 
 ### Deviations from the research
@@ -15389,7 +15396,7 @@ Tasks 12–15:
 46. Task 14: a c below 0.8 still edits CLAUDE.md and goes to Denis. Apply a tighter c
     without the CLAUDE.md change?
 47. R52's figures and the Tasks 12–13 census run on graph-guard's final head, whose `src`
-    is f9361cf's (3543abe changes no `src` file). Settled (P5-46): f9361cf gives Task 13's
+    is f9361cf's (991355f changes no `src` file). Settled (P5-46): f9361cf gives Task 13's
     check the snapshot's populations, 439 and 399 level-1 mechanisms (340 and 300
     allosteric) under the summed filter; only the zero-difference result is a gate.
 
