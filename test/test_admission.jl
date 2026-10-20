@@ -283,8 +283,9 @@ end
         @test v.fault === EnzymeRates._RE_TURNOVER
         msg = EnzymeRates._guard_message(m, v)
         @test all(t -> occursin(EnzymeRates._step_text(m, net.edge[t]), msg), cycle)
-        # The fix is printed only where any one step of the cycle made steady-state cures
-        # every fast turnover cycle; on sib some of its steps leave a second fast cycle.
+        # The fix is printed only where each step of the cycle, made steady-state, cures
+        # every fast turnover cycle (`_every_step_cures`); on sib some of its steps leave a
+        # second fast cycle.
         @test endswith(msg, "so the mechanism has no finite rate." *
                             (m === sib ? "" : fix))
         # The RE-speed oracle at the interior. On sib's faces with R zero no fast cycle
