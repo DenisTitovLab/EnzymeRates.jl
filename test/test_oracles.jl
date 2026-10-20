@@ -800,6 +800,22 @@ end
     end
     @test _testhelper_in_epath_window(chem; rng = Random.MersenneTwister(41))
     @test _testhelper_epath_verdict(chem; rng = Random.MersenneTwister(42)) === :converges
+    # R3's island, F stranded behind tagged chemistry in the inactive conformation, takes
+    # the weight the path's potential gives it: along some direction its error does not
+    # fall as a power of ε.
+    r3 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ E(P)      :: EqualAI
+            E <--> F          :: OnlyA
+            F + I ⇌ F(I)      :: EqualAI
+        end
+    end
+    @test !_testhelper_in_epath_window(r3; rng = Random.MersenneTwister(41))
 end
 
 @testset "the test's certified direction satisfies every cycle row" begin
