@@ -869,8 +869,10 @@ end
     @test (v.fault, v.face, v.conformation) == (EnzymeRates._BOTTOMLESS, 5, 0)
     @test EnzymeRates._guard_message(tc_re, v) ==
           "AllostericMechanism: at zero P and X, the rapid-equilibrium segment " *
-          "{E (active), E (inactive), E(X) (inactive), F(X) (inactive)} has no form free " *
-          "of the zeroed metabolites, so the rate is 0/0 there."
+          "{E (active), E (inactive), E(X) (inactive), F(X) (inactive)} has no form " *
+          "whose weight keeps the segment's lowest power of each zeroed metabolite, so " *
+          "the forms' shares depend on how those concentrations vanish and the rate is " *
+          "0/0 there."
     # No fix is printed: the segment's one binding made steady-state leaves a law with no
     # value on that face.
     tc_ss = @_testhelper_unguarded @allosteric_mechanism begin
@@ -919,8 +921,10 @@ end
     @test (v.fault, v.face) == (EnzymeRates._BOTTOMLESS, 2)
     @test EnzymeRates._guard_message(terbot, v) ==
           "Mechanism: at zero P, Q and R, the rapid-equilibrium segment " *
-          "{E(P), E(P, Q), E(P, R), E(P, Q, R), E(Q), E(R), E(Q, R)} has no form free of " *
-          "the zeroed metabolites, so the rate is 0/0 there."
+          "{E(P), E(P, Q), E(P, R), E(P, Q, R), E(Q), E(R), E(Q, R)} has no form whose " *
+          "weight keeps the segment's lowest power of each zeroed metabolite, so the " *
+          "forms' shares depend on how those concentrations vanish and the rate is 0/0 " *
+          "there."
     terbot_ss = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A
         products: P, Q, R
@@ -966,8 +970,10 @@ end
     @test (v.fault, v.face) == (bottomless, 2)
     @test EnzymeRates._guard_message(entered, v) ==
           "Mechanism: at zero P and Q, the rapid-equilibrium segment " *
-          "{E(P), E(P, Q), E(Q)} has no form free of the zeroed metabolites, so the rate " *
-          "is 0/0 there. Make the group of E(P) + Q ⇌ E(P, Q) steady-state."
+          "{E(P), E(P, Q), E(Q)} has no form whose weight keeps the segment's lowest " *
+          "power of each zeroed metabolite, so the forms' shares depend on how those " *
+          "concentrations vanish and the rate is 0/0 there. Make the group of " *
+          "E(P) + Q ⇌ E(P, Q) steady-state."
     verdicts = _testhelper_respeed_verdicts(entered; rng = Random.MersenneTwister(6),
                                             law = :limit)
     @test verdicts[2] === :pattern

@@ -580,11 +580,14 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         v = ER._guard(random_release)
         @test (v.fault, v.face) == (ER._BOTTOMLESS, 2)
         msg = ER._guard_message(random_release, v)
-        @test occursin("has no form free of the zeroed metabolites", msg)
+        @test occursin("has no form whose weight keeps the segment's lowest power of " *
+                       "each zeroed metabolite", msg)
         @test msg ==
               "Mechanism: at zero P and Q, the rapid-equilibrium segment " *
-              "{E(P), E(P, Q), E(Q)} has no form free of the zeroed metabolites, so the " *
-              "rate is 0/0 there. Make the group of E(P) + Q ⇌ E(P, Q) steady-state."
+              "{E(P), E(P, Q), E(Q)} has no form whose weight keeps the segment's lowest " *
+              "power of each zeroed metabolite, so the forms' shares depend on how those " *
+              "concentrations vanish and the rate is 0/0 there. Make the group of " *
+              "E(P) + Q ⇌ E(P, Q) steady-state."
         # The printed fix passes the guard.
         @test ER._guard(@_testhelper_unguarded @enzyme_mechanism begin
             substrates: S

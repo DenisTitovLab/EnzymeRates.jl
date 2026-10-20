@@ -2087,8 +2087,9 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
         fix = k === nothing ? "" :
               " Make the group of $(_step_text(m, bindings[k])) steady-state."
         return "$who: $(at)the rapid-equilibrium segment " *
-               "$(forms(s.segments[s.bottomless])) has no form free of the zeroed " *
-               "metabolites, so the rate is 0/0 there." * fix
+               "$(forms(s.segments[s.bottomless])) has no form whose weight keeps the " *
+               "segment's lowest power of each zeroed metabolite, so the forms' shares " *
+               "depend on how those concentrations vanish and the rate is 0/0 there." * fix
     elseif v.fault === _TRAP
         trap, edge, joined = _trap_feeder(net, s)
         fix = _steady_state_passes(mech, edge) ?

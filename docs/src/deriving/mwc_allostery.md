@@ -204,9 +204,9 @@ package rejects:
 2. a cycle of rapid-equilibrium steps that turns the reaction over, so the rate is
    infinite;
 3. a face where the law is not the unique limit: a rapid-equilibrium segment with no form
-   free of the face's metabolites, a segment whose lowest forms are joined only through
-   other forms, a trap that the face feeds and its fast exits cannot drain, or a second
-   closed set of forms;
+   whose weight keeps the segment's lowest power of each of the face's metabolites, a
+   segment whose lowest forms are joined only through other forms, a trap that the face
+   feeds and its fast exits cannot drain, or a second closed set of forms;
 4. tags with no limit (admission, above);
 5. a denominator that vanishes on a face, found when the law is first derived.
 
