@@ -1630,7 +1630,8 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
                    "$(join([_form_text(m, _form_of(eps, u)) for u in basin], ", ")) of " *
                    "the $conf conformation, $out."
         elseif c == 0
-            return "AllostericMechanism: $(phrase)the tagged steps of both " *
+            ks = _bridging_edges(eps, s.fed .& .!s.stranded, s.n0, s.alive .& eps.vanishing)
+            return "AllostericMechanism: $(phrase)the tagged steps $(lines(ks)) of both " *
                    "conformations together bridge forms that each conformation's other " *
                    "steps keep apart, so admission cannot show that the limit does not " *
                    "depend on how fast those steps vanish."

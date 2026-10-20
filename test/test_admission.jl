@@ -3776,11 +3776,13 @@ end
                                           EnzymeRates._turnover_name(am.catalytic)) ==
               EnzymeRates._Verdict(BR, U, 0, 0, 0)
     end
+    # The message names the vanishing steps a cheapest in-tree needs: the M binding at
+    # E(A) of the active conformation and half 2 of the inactive one.
     @test EnzymeRates._guard_message(am, v) ==
-          "AllostericMechanism: at zero P and Q, the tagged steps of both conformations " *
-          "together bridge forms that each conformation's other steps keep apart, so " *
-          "admission cannot show that the limit does not depend on how fast those steps " *
-          "vanish."
+          "AllostericMechanism: at zero P and Q, the tagged steps E(A) + M ⇌ E(A, M); " *
+          "E + Q <--> E(B; residual = A - P) of both conformations together bridge forms " *
+          "that each conformation's other steps keep apart, so admission cannot show " *
+          "that the limit does not depend on how fast those steps vanish."
     @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(95)))
 end
 
