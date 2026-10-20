@@ -474,3 +474,92 @@ end
         @test isbitstype(EnzymeRates.Form) && isbitstype(EnzymeRates.Edge)
     end
 end
+
+@testset "_solve renders a half-integer dependent with keq -1//2" begin
+    # The conformational square ties two isomerizations of one group, so the Haldane
+    # relation fixes k_F_to_E through square roots: Keq = (k_E_to_F / k_F_to_E)² ·
+    # (k_F_S_to_ES / k_ES_to_F_S) · (k_FS_to_E_P / k_E_P_to_FS).
+    half = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            (E(S) <--> F(S), E <--> F)
+            F(S) <--> E + P
+            F + S <--> E(S)
+        end
+    end)
+    s = EnzymeRates._solve(half)
+    @test issorted([d.col for d in s.dependents])
+    @test sort([d.label for d in s.dependents]) ==
+          [:haldane, :kinetic_group, :kinetic_group]
+    d = only(d for d in s.dependents if d.label === :haldane)
+    @test s.names[d.col] === :k_F_to_E && d.keq == -1//2
+    @test Dict(s.names[f] => e for (f, e) in d.factors) ==
+          Dict(:k_E_to_F => 1//1, :k_E_P_to_FS => -1//2, :k_FS_to_E_P => 1//2,
+               :k_ES_to_F_S => -1//2, :k_F_S_to_ES => 1//2)
+    @test EnzymeRates._dependent_param_exprs(s)[1] ==
+          Dict(:k_F_to_E => :((Keq ^ -0.5) * (k_ES_to_F_S ^ -0.5) * (k_E_P_to_FS ^ -0.5) *
+                              k_E_to_F * (k_FS_to_E_P ^ 0.5) * (k_F_S_to_ES ^ 0.5)))
+end
+
+@testset "_solve labels kinetic-group, Haldane and Wegscheider dependents" begin
+    # A binds E and E(B) under one group (a kinetic group: its occupied member's
+    # constant equals the kept one); B's two bindings close a binding square with A's,
+    # which ties them (Wegscheider); the cycle through the catalytic step fixes its
+    # reverse rate (Haldane).
+    folded = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+            E + B ⇌ E(B)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
+    s = EnzymeRates._solve(folded)
+    described = [(s.names[d.col], d.label, d.keq, [s.names[f] => e for (f, e) in d.factors])
+                 for d in s.dependents]
+    @test described == [
+        (:k_EP_to_EAB, :haldane, -1//1, [:k_EAB_to_EP => 1//1, :K_EP_to_E_P => 1//1,
+                                         :K_EB_to_E_B => -1//1, :K_EA_to_E_A => -1//1]),
+        (:K_EA_to_E_A, :kinetic_group, 0//1, [:K_EA_to_E_A => 1//1]),
+        (:K_EAB_to_EA_B, :wegscheider, 0//1, [:K_EB_to_E_B => 1//1])]
+    @test s.fitted == [:K_EA_to_E_A, :K_EB_to_E_B, :K_EP_to_E_P, :k_EAB_to_EP]
+    @test s.names[s.independents] == s.fitted
+    @test EnzymeRates._dependent_param_exprs(s) ==
+          (Dict(:K_EAB_to_EA_B => :K_EB_to_E_B,
+                :k_EP_to_EAB => :((1 / Keq) * (1 / K_EA_to_E_A) * (1 / K_EB_to_E_B) *
+                                  K_EP_to_E_P * k_EAB_to_EP)),
+           (:K_EA_to_E_A, :K_EB_to_E_B, :K_EP_to_E_P, :k_EAB_to_EP))
+end
+
+@testset "_solve maps an :EqualAI edge's inactive constant to its active column" begin
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)        :: EqualAI
+            E(S) <--> E + P     :: NonequalAI
+        end
+    end)
+    s = EnzymeRates._solve(am)
+    C = EnzymeRates._Column
+    binding = _testhelper_edge(am, "E + S ⇌ ES")
+    release = _testhelper_edge(am, "E + P <--> ES")
+    @test length(s.columns) == 5
+    @test s.column[C(binding, 1, true)] == s.column[C(binding, 1, false)]
+    @test s.columns[s.column[C(binding, 1, false)]] == C(binding, 1, false)
+    for slot in 1:2, inactive in (false, true)
+        @test s.columns[s.column[C(release, slot, inactive)]] == C(release, slot, inactive)
+    end
+    @test s.fitted == [:K_ES_to_E_S, :k_A_ES_to_E_P, :k_I_ES_to_E_P, :L]
+end
+
+@testset "_solve lists the fitted names in parameter order" begin
+    for spec in MECHANISM_TEST_SPECS
+        @test Tuple(EnzymeRates._solve(_testhelper_lift(spec.mechanism)).fitted) ==
+              EnzymeRates.fitted_params(spec.mechanism)
+    end
+end

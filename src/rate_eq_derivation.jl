@@ -67,27 +67,22 @@ julia> all_parameters(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0
 """
 function all_parameters(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism},
                         params::NamedTuple)
-    dep, indep = _dependent_param_exprs(m isa AbstractEnzymeMechanism ? typeof(m) :
-                                        _well_posed(m))
-    absent = [k for k in (indep..., :Keq) if !haskey(params, k)]
+    s = _solve(m isa AbstractEnzymeMechanism ? typeof(m) : _well_posed(m))
+    absent = [k for k in (s.fitted..., :Keq) if !haskey(params, k)]
     isempty(absent) || error("all_parameters: params must hold every name of " *
                              "parameters(m) except E_total; it lacks " *
                              join(absent, ", "))
-    names = sort!(collect(keys(dep)))
-    merge(params, NamedTuple{Tuple(names)}(
-        Tuple(_evaluate_dependent(dep[k], params) for k in names)))
-end
-
-"""The value at `params` of a dependent constant's expression (`build_power_expr`): a
-power product of `Keq` and independent constants, or the number it is pinned to."""
-_evaluate_dependent(x::Symbol, params) = params[x]
-_evaluate_dependent(x::Real, params) = x
-function _evaluate_dependent(e::Expr, params)
-    op, args = e.args[1], [_evaluate_dependent(a, params) for a in e.args[2:end]]
-    op === :* && return prod(args)
-    op === :/ && return args[1] / args[2]
-    op === :^ && return args[1]^args[2]
-    error("_evaluate_dependent: no rule for the operator $op")
+    # A negative integer exponent inverts the positive power; a fractional one is taken
+    # in the value's own precision, so a BigFloat value stays exact.
+    pow(x, e) = !isone(denominator(e)) ?
+                    x^(oftype(float(x), numerator(e)) / denominator(e)) :
+                numerator(e) >= 0 ? x^numerator(e) : inv(x^-numerator(e))
+    value(d) = prod((pow(params[s.names[f]], e) for (f, e) in d.factors);
+                    init = pow(params.Keq, d.keq))
+    deps = sort!(filter(d -> d.label !== :kinetic_group, s.dependents);
+                 by = d -> s.names[d.col])
+    merge(params, NamedTuple{Tuple(s.names[d.col] for d in deps)}(
+        Tuple(value(d) for d in deps)))
 end
 
 # ─── RE Group Helpers ───────────────────────────────────────
