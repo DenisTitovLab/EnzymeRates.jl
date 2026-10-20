@@ -1,5 +1,5 @@
-# ABOUTME: The well-posedness check the macros, the parser, the enumerator's exits and the
-# ABOUTME: derivation entries run; constructors check representation and the `:OnlyI` rule.
+# ABOUTME: The well-posedness check the mechanism macros, parser, exits and derivation
+# ABOUTME: entries run; constructors check representation and the `:OnlyI` rule only.
 
 """
     _check_well_posed(m)
