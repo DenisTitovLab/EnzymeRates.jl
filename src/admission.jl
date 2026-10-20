@@ -1851,9 +1851,10 @@ first substrate (`_turnover_name`). In order:
   steady state depends on where the enzyme starts; the verdict names the closed class
   outside the law network (`_class_outside_law`);
 - `_PUMPED`: a stranded basin (`_face_sets`) is entered by, or holds, an alive transition
-  whose reverse is dead, or is entered from outside it and the law network, so its weight
-  depends on how fast its exits vanish; a basin entered only reversibly from the law
-  network is sealed: its weight vanishes, and it leaves the fed nodes;
+  whose reverse is dead, or is entered from outside it and the law network, so admission
+  cannot show that its weight does not depend on how fast its exits vanish; a basin
+  entered only reversibly from the law network is sealed: its weight vanishes, and it
+  leaves the fed nodes;
 - `_BRIDGE`: in some conformation the vanishing transitions shorten the cheapest spanning
   in-tree of the fed nodes (R1 fails, `_shortens_in_tree`) and the first substrate's uptake
   is no potential on the strongly connected parts of its alive transitions that are not
