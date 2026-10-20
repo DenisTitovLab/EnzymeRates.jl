@@ -1184,8 +1184,9 @@ end
 
 @testset "the population's allosteric members converge along the ε-path on every face" begin
     # Along the standard directions and every order of the two limits, each allosteric
-    # member of the sample tends to its deletion law on every face, and at the interior
-    # its error falls as a power of ε (`_testhelper_in_epath_window`).
+    # member of the sample tends to its deletion law on every face, and at the interior,
+    # along the σ = 1 standard directions, its error falls as a power of ε
+    # (`_testhelper_in_epath_window`).
     rng = Random.MersenneTwister(402)
     allo = [m for m in _testhelper_population_sample
             if m isa EnzymeRates.AllostericMechanism]

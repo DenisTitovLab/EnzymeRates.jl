@@ -4945,8 +4945,9 @@ end
     # 5 kinetic groups: 4 bindings (A, B substrate-side; P, Q
     # product-side) + 1 chemical step (E(A,B) <--> E(P,Q)). The
     # catalytic group is never a bare primary :OnlyA (that V-type needs
-    # a regulator, none declared). Each binding's one-sided :OnlyA is
-    # instead closed over its minimal Haldane completions.
+    # a regulator, none declared). Instead each nonempty set of binding
+    # groups is tagged :OnlyA on top of the base whose chemistry is :OnlyA,
+    # and the move keeps those admission accepts (`_admits`).
     em_seed = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -4970,7 +4971,7 @@ end
 
     # 1. count: every non-empty subset of the 4 binding groups is set
     # :OnlyA, each with the chemical step also :OnlyA (a catalytically-dead
-    # inactive conformation). 2^4 - 1 = 15 subsets, all Wegscheider-valid.
+    # inactive conformation). 2^4 - 1 = 15 subsets, all admitted.
     n_groups = EnzymeRates.ngroups(m)
     n_cat = count(g -> _testhelper_is_catalytic_group(m, g), 1:n_groups)
     @test n_cat == 1
@@ -5186,10 +5187,9 @@ end
 @testset "Mechanism — uni-uni: binding-group :OnlyA variants only" begin
     # SEED: uni-uni, no declared regulator. 3 kinetic groups: 2 bindings (S, P) + 1
     # catalytic. The catalytic group is never a bare primary :OnlyA (that V-type needs a
-    # regulator, none declared), so every child starts from a binding promotion, which
-    # alone leaves the Haldane unsatisfiable. Each binding's one-sided :OnlyA is closed
-    # over its minimal Haldane completion: every non-empty subset of the 2 bindings
-    # (S, P) is set :OnlyA, each with the chemical step also :OnlyA (dead inactive).
+    # regulator, none declared), so every child is a K-type: every non-empty subset of
+    # the 2 bindings (S, P) is set :OnlyA on top of the base whose chemical step is
+    # :OnlyA (dead inactive), and admission keeps all 3 (`_admits`).
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
@@ -5356,9 +5356,9 @@ end
     # uni_uni_allo_2reg declares two allosteric regulators (R1, R2). From a
     # uni-uni seed (RE binding, SS catalytic), _expand_to_allosteric emits:
     #   * 3 K-type variants (binding-group :OnlyA, no regulatory site) at
-    #     +1 param each — the conformational constant L; each is a binding
-    #     promotion closed with its Haldane completion (a second :OnlyA
-    #     binding, or the dropped chemical step), which adds no free param;
+    #     +1 param each — the conformational constant L; each tags a nonempty
+    #     set of the bindings :OnlyA on top of the base whose chemical step is
+    #     :OnlyA, and admission keeps all 3 (`_admits`);
     #   * 4 V-type variants (the catalytic group :OnlyA paired with one
     #     regulator at a site) at +2 params each — L plus the regulator's K
     #     — one per (regulator, tag), regulator ∈ {R1, R2}, tag ∈
@@ -7932,9 +7932,9 @@ end
     result = EnzymeRates.expand_mechanisms([m], uni_uni_allo)
     allo_count = count(s -> s isa EnzymeRates.AllostericMechanism, result)
     # _expand_to_allosteric on this uni-uni seed (3 kinetic groups: 2
-    # binding + 1 catalytic, no regulator declared) closes each binding
-    # group's one-sided :OnlyA over its Haldane completion (the dropped
-    # chemical step, or the opposing binding), yielding 3 distinct
+    # binding + 1 catalytic, no regulator declared) tags each nonempty set
+    # of the bindings :OnlyA on top of the base whose chemical step is
+    # :OnlyA and keeps those admission accepts (`_admits`), all 3 distinct
     # AllostericMechanism variants (the catalytic group is never a bare
     # primary :OnlyA — that needs a regulator). Other moves do not
     # produce AllostericMechanism output from a plain Mechanism, so
@@ -12490,10 +12490,10 @@ end
     # at least one flank are steady state, and each with its twin whose flanks are
     # both at rapid equilibrium in the population: 62, 349 and 1,134 remain from the
     # seeds that hold an isomerization. The variants hold none: 669 mechanisms at
-    # level 1 and 1,269 at level 2. Were the flip move to test only for a bottomless
-    # segment, level 2 would hold 16 variant flips that the guard rejects (`_SPLIT`)
-    # and not 48 that it admits, all binding no inhibitor. Grown from all 264 init
-    # mechanisms the levels hold the sums, 264, 1,018 and 2,403.
+    # level 1 and 1,269 at level 2. Class 3 inside the flip move (`_faces_pass`) drops
+    # 16 level-2 variant flips (`_SPLIT`) and adds 48 superset flips, all binding no
+    # inhibitor. Grown from all 264 init mechanisms the levels hold the sums, 264, 1,018
+    # and 2,403.
     @test [count(m -> free(m) && _testhelper_holds_iso(m), l) for l in copies] ==
           [62, 349, 1134]
     @test [count(m -> free(m) && !_testhelper_holds_iso(m), l) for l in copies] ==
@@ -13812,8 +13812,9 @@ end
     # kept member of the full mechanism, so the inactive conformation cannot give it a
     # second name and the joint solve counts it once.
     #
-    # Among its K-types `_expand_to_allosteric` always emits dead-inactive `:OnlyA`-binding
-    # combos (all chemical steps `:OnlyA`), so the case this guards is the child that sets
+    # On these seeds, whose every-chemistry set admission accepts, the K-types of
+    # `_expand_to_allosteric` are dead-inactive `:OnlyA`-binding combos (all chemical steps
+    # `:OnlyA`), so the case this guards is the child that sets
     # the free-enzyme bindings (a substrate/product pair on free E) `:OnlyA`, leaving the
     # lumped downstream group's binding `:EqualAI`, outside the inactive law, which holds
     # only the forms its untagged steps join to free E; the constant stays merged, so the
@@ -14747,8 +14748,8 @@ end
     # class-3 rejection (`_LIMIT_SPEED`) the RE-speed oracle reads as a pattern. Inside
     # the flip move's predicate (`_faces_pass`) that set fails, so the move extends it:
     # the A group with each of the other three rapid-equilibrium groups. The other two
-    # minimal sets pass and stay: five children where the check at the exit alone kept
-    # two.
+    # minimal sets pass and stay: five children; the minimal sets alone, without class 3
+    # in the predicate, would give two.
     parent = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q

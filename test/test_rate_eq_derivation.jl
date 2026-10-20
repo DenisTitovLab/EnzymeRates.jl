@@ -1142,8 +1142,8 @@ end
 # The undefined constants were an I-state lactate dissociation constant and an
 # I-state reverse chemistry rate in dead inactive states, and an I-state NAD
 # binding rate in a live one. Those mechanisms are not kept here. The regression
-# runs the three `LDH i-state …` specs of MECHANISM_TEST_SPECS, which exposed the
-# Bug-2 fitted_params leak (defined in
+# runs the three `LDH i-state …` specs of MECHANISM_TEST_SPECS, whose Haldane-dependent
+# reverse rate must stay out of the fitted set (defined in
 # mechanism_definitions_for_test_enzyme_derivation.jl), and checks that each rate
 # equation defines every name it references.
 const _LDH_ISTATE_MECHS = [spec.mechanism for spec in MECHANISM_TEST_SPECS

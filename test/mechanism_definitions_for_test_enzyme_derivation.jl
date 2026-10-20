@@ -358,7 +358,7 @@ rapid-equilibrium step.
 
 `K[k, c]` is edge `k`'s equilibrium constant in its stored direction in conformation `c`
 and `kf[k, c]`, for a steady-state edge, its forward rate, for every edge of the
-catalytic graph, the ones the inactive law deletes or prunes included; a plain
+catalytic graph, the ones either conformation's law deletes or prunes included; a plain
 mechanism repeats column 1 in column 2. The law's constants are among them.
 """
 function _testhelper_consistent_point(m, rng)
@@ -437,7 +437,8 @@ function _testhelper_consistent_point(m, rng)
     # edge's active one, and otherwise one draw per kinetic group and conformation (each
     # member of a group in the conformation that excludes it its own: an `:OnlyA`
     # group's in the inactive conformation, an `:OnlyI` group's in the active one). The
-    # well-posedness oracles read these for the edges the inactive law deletes or prunes.
+    # well-posedness oracles read these for the edges either conformation's law deletes or
+    # prunes.
     # (`forward` holds the forward rates: a local named `kf` would be the one the closure
     # `_testhelper_conformation_steps` assigns.)
     cm = EnzymeRates.catalytic(mech)
@@ -1512,7 +1513,8 @@ over ε = 1e-9 … 1e-18 the error relative to the rate is `C·ε^p` within 10% 
 decade, `p` a positive multiple of ½, with exact rapid-equilibrium limits
 (`_testhelper_re_limit`) in 512-bit BigFloat; an error below 1e-60 throughout passes. Only
 σ = 1: at σ = ½ the error runs in powers of ε^½, and a correction whose size depends on the
-point can delay the onset past ε = 1e-9.
+point can delay the onset past ε = 1e-9; σ = 2 is left out because the window was measured
+only at σ = 1.
 """
 function _testhelper_in_epath_window(m; rng)
     setprecision(BigFloat, 512) do
@@ -4161,9 +4163,8 @@ let
     ))
 end
 
-# The three LDH i-state mechanisms that exposed the Bug-2 fitted_params
-# leak (a Haldane-dependent reverse rate that landed in the independent
-# set). Written as @allosteric_mechanism for readability; RE-containing
+# Three LDH i-state mechanisms whose Haldane-dependent reverse rate must stay
+# out of the fitted set. Written as @allosteric_mechanism for readability; RE-containing
 # with a products=0 boundary, so the ODE cross-check is skipped. The parameter
 # headers of their golden RATE_EQUATION_STRING lines confirm the dependent reverse
 # rate is excluded.
