@@ -1,5 +1,5 @@
-# ABOUTME: The well-posedness check the mechanism macros, the parser, the enumerator's
-# ABOUTME: exits and the derivation entries run; constructors check representation only.
+# ABOUTME: The well-posedness check the macros, the parser, the enumerator's exits and the
+# ABOUTME: derivation entries run; constructors check representation and the `:OnlyI` rule.
 
 """
     _check_well_posed(m)
@@ -33,8 +33,7 @@ edges `mask` keeps, joined by those `re` flags, whose weights all vanish at zero
 products, or all vanish at zero substrates; empty when no segment does. Each metabolite
 name takes its side from `m`'s substrates and products, so a modifier copy, which shares
 its reactant's name and concentration, counts on that reactant's side even in a
-sub-graph that holds no edge taking up or giving off the reactant itself (the inactive
-conformation's, `_inactive_mask`).
+sub-graph that holds no edge taking up or giving off the reactant itself.
 
 Within a segment, rapid equilibrium fixes each form's weight relative to any
 other as a monomial in concentrations (one factor per RE binding step on the
@@ -90,10 +89,11 @@ other steps join (`_NO_LIMIT`), tagged bindings that close a directed cycle
 (`_ARC_CYCLE`), forms free E's component does not reach along the tagged bindings
 (`_ISLAND`), or an active conformation that no longer turns the reaction over
 (`_NO_ACTIVE_TURNOVER`); on a face, in admission's face condition, a second closed class
-of the ε-network (`_EPS_NONUNIQUE`), a stranded basin a step feeds that does not run back
-from the law's forms (`_PUMPED`), or tagged steps that shorten the fed forms' cheapest
-spanning in-tree where no potential absorbs their turnover (`_BRIDGE`); on a face of the
-derived law (class 5), a denominator that loses every term (`_DENOMINATOR_VANISHES`).
+of the ε-network (`_EPS_NONUNIQUE`), a stranded basin entered by, or holding, an alive step
+whose reverse is dead, or entered from outside it and the law's forms (`_PUMPED`), or
+tagged steps that shorten the fed forms' cheapest spanning in-tree where no potential
+absorbs their turnover (`_BRIDGE`); on a face of the derived law (class 5), a denominator
+that loses every term (`_DENOMINATOR_VANISHES`).
 """
 @enum _Fault::UInt8 begin
     _NO_FAULT
@@ -312,8 +312,9 @@ The faces the guard checks (spec section 8) of `m`, each a mask of the metabolit
 zeroes (bit `n - 1` for name `n` of `_name_index`), in order: the interior (0), every
 product, every substrate, each substrate and then each product alone on a side of two or
 more; then each of these with every modifier-only name too. A reactant's `::Mod` copy
-shares its reactant's name and so is zeroed with it; a regulatory-site ligand never is.
-No face zeroes a substrate together with a product.
+shares its reactant's name and so is zeroed with it; a regulatory-site ligand is zeroed
+only when it also binds the catalytic site. No face zeroes a substrate together with a
+product.
 """
 function _faces(m::Mechanism)
     name_of = _name_index(m)
@@ -792,8 +793,14 @@ end
 """
 Whether `mech`, its rapid-equilibrium flags overridden by `re`, passes class 2 and then
 class 3 on every face: the flip move asks it of a candidate (`_minimal_flips`), which it
-reads through the override, building nothing. Class 2 runs first because a candidate's
-flags may close a fast cycle its parent's did not.
+reads through the override, building nothing. Every variant `init_mechanisms` returns has
+passed it in the flip search and class 1 at the exit. Class 2 runs first to keep class
+3's face structure (`_face_structure`) and limit test (`_face_limit_check`, which errors
+on an infinite limit) off a network that holds a fast turnover cycle. A flip only turns
+rapid-equilibrium groups steady-state, so a candidate's fast transitions are a subset of
+its parent's, and only a parent that holds such a cycle yields one: an unguarded input,
+such as `_seed_variants`' all-RE merged base or a mechanism passed to `expand_mechanisms`
+unchecked.
 """
 function _faces_pass(mech::_AnyMech, re::BitVector)
     eps = _eps_network(mech, re)

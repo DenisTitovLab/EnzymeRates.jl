@@ -802,7 +802,8 @@ The faces of `m` (concrete or compiled) that the guard checks (spec section 8), 
 the set of names it zeroes, in the guard's order: the interior, every product zero, every
 substrate zero, each substrate and then each product alone on a side of two or more; then
 each of these with every modifier-only name zero too. A reactant's `::Mod` copy carries
-its reactant's name, so it is zeroed with it; a regulatory-site ligand never is.
+its reactant's name, so it is zeroed with it; a regulatory-site ligand is zeroed only when
+it also binds the catalytic site.
 """
 function _testhelper_faces(m)
     cm = EnzymeRates.catalytic(_testhelper_lift(m))
