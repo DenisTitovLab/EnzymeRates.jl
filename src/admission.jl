@@ -571,8 +571,8 @@ The structure procedure A reads on face `face` of the law network
 `net`: `alive`, the transitions that take up no zeroed name; `closed`, the closed classes
 of the alive ones; the rapid-equilibrium segments (`segment` per node, `segments`
 breadth-first) and each node's uptake of every name from its segment's first node
-(`offset`, `_fast_segments`), and `lowest`, the nodes at the segment's componentwise least
-uptake of the zeroed names, whose weight stays
+(`offset`, `_fast_segments`), and `lowest`, the nodes at the segment's
+componentwise least uptake of the zeroed names, whose weight stays
 positive on the face; `bottomless`, the first segment with no lowest node (0 when none);
 the fast classes (closed classes of the alive fast transitions, a node with no alive fast
 exit its own), `class_of` each node's (0 for a node that drains elsewhere) and `trap`,
