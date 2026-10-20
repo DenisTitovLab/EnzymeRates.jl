@@ -13813,12 +13813,12 @@ end
     # second name and the joint solve counts it once.
     #
     # On these seeds, whose every-chemistry set admission accepts, the K-types of
-    # `_expand_to_allosteric` are dead-inactive `:OnlyA`-binding combos (all chemical steps
-    # `:OnlyA`), so the case this guards is the child that sets
-    # the free-enzyme bindings (a substrate/product pair on free E) `:OnlyA`, leaving the
-    # lumped downstream group's binding `:EqualAI`, outside the inactive law, which holds
-    # only the forms its untagged steps join to free E; the constant stays merged, so the
-    # child adds only `L` — parent + 1 fitted params. A child that instead sets a downstream
+    # `_expand_to_allosteric` are dead-inactive `:OnlyA`-binding combos (all chemical
+    # steps `:OnlyA`), so the case this guards is the child that sets the free-enzyme
+    # bindings (a substrate/product pair on free E) `:OnlyA`, leaving the lumped
+    # downstream group's binding `:EqualAI`, outside the inactive law, which holds only
+    # the forms its untagged steps join to free E; the constant stays merged, so the child
+    # adds only `L` — parent + 1 fitted params. A child that instead sets a downstream
     # binding `:OnlyA` orphans a bound form of the lumped group; its multi-`:OnlyA`
     # derivation is a separate, documented concern and is not asserted here.
     rxn = @enzyme_reaction begin
