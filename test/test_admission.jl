@@ -870,8 +870,79 @@ end
     @test EnzymeRates._guard_message(tc_re, v) ==
           "AllostericMechanism: at zero P and X, the rapid-equilibrium segment " *
           "{E (active), E (inactive), E(X) (inactive), F(X) (inactive)} has no form free " *
-          "of the zeroed metabolites, so the rate is 0/0 there. Make one of the " *
-          "segment's binding steps steady-state."
+          "of the zeroed metabolites, so the rate is 0/0 there."
+    # No fix is printed: the segment's one binding made steady-state leaves a law with no
+    # value on that face.
+    tc_ss = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: X
+        steps: begin
+            E + S <--> E(S)          :: EqualAI
+            E(S) <--> E(P)           :: EqualAI
+            E(P) <--> E + P          :: EqualAI
+            E + X <--> E(X)          :: OnlyI
+            E(X) + S ⇌ F(X) + P      :: EqualAI
+            F(X) <--> E(X)           :: EqualAI
+        end
+    end
+    w = EnzymeRates._guard(tc_ss)
+    @test (w.fault, w.limit, w.face) ==
+          (EnzymeRates._LAW_MULTI, EnzymeRates._LIMIT_LAW_NAN, 5)
+end
+
+@testset "a bottomless segment no binding's steady-state variant cures prints no fix" begin
+    # Random release of three products at rapid equilibrium, the last releases steady
+    # state: at zero products every form of the segment holds a product, and making any
+    # one of its bindings steady-state leaves the segment bottomless.
+    terbot = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A
+        products: P, Q, R
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P, Q, R)
+            E(Q, R) + P ⇌ E(P, Q, R)
+            E(P, R) + Q ⇌ E(P, Q, R)
+            E(P, Q) + R ⇌ E(P, Q, R)
+            E(R) + Q ⇌ E(Q, R)
+            E(Q) + R ⇌ E(Q, R)
+            E(R) + P ⇌ E(P, R)
+            E(P) + R ⇌ E(P, R)
+            E(Q) + P ⇌ E(P, Q)
+            E(P) + Q ⇌ E(P, Q)
+            E + P <--> E(P)
+            E + Q <--> E(Q)
+            E + R <--> E(R)
+        end
+    end
+    v = EnzymeRates._guard(terbot)
+    @test (v.fault, v.face) == (EnzymeRates._BOTTOMLESS, 2)
+    @test EnzymeRates._guard_message(terbot, v) ==
+          "Mechanism: at zero P, Q and R, the rapid-equilibrium segment " *
+          "{E(P), E(P, Q), E(P, R), E(P, Q, R), E(Q), E(R), E(Q, R)} has no form free of " *
+          "the zeroed metabolites, so the rate is 0/0 there."
+    terbot_ss = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A
+        products: P, Q, R
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P, Q, R)
+            E(Q, R) + P ⇌ E(P, Q, R)
+            E(P, R) + Q ⇌ E(P, Q, R)
+            E(P, Q) + R ⇌ E(P, Q, R)
+            E(R) + Q ⇌ E(Q, R)
+            E(Q) + R ⇌ E(Q, R)
+            E(R) + P ⇌ E(P, R)
+            E(P) + R ⇌ E(P, R)
+            E(Q) + P ⇌ E(P, Q)
+            E(P) + Q <--> E(P, Q)
+            E + P <--> E(P)
+            E + Q <--> E(Q)
+            E + R <--> E(R)
+        end
+    end
+    w = EnzymeRates._guard(terbot_ss)
+    @test (w.fault, w.face) == (EnzymeRates._BOTTOMLESS, 2)
 end
 
 @testset "class 3 rejects a bottomless segment" begin
@@ -896,12 +967,27 @@ end
     @test EnzymeRates._guard_message(entered, v) ==
           "Mechanism: at zero P and Q, the rapid-equilibrium segment " *
           "{E(P), E(P, Q), E(Q)} has no form free of the zeroed metabolites, so the rate " *
-          "is 0/0 there. Make one of the segment's binding steps steady-state."
+          "is 0/0 there. Make the group of E(P) + Q ⇌ E(P, Q) steady-state."
     verdicts = _testhelper_respeed_verdicts(entered; rng = Random.MersenneTwister(6),
                                             law = :limit)
     @test verdicts[2] === :pattern
     @test all(_testhelper_agrees.(faults, verdicts))
-    # The fix: one of the segment's binding steps steady-state.
+    # The printed fix passes the guard.
+    entered_named = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P) + Q <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + P <--> E(P)
+            E + Q <--> E(Q)
+        end
+    end
+    @test EnzymeRates._guard(entered_named) === EnzymeRates._WELL_POSED
+    # So does the segment's other binding made steady-state.
     entered_fixed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q

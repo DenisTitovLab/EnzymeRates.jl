@@ -1523,6 +1523,18 @@ function _retag_passes(am::AllostericMechanism, ks, tag::Symbol)
 end
 
 """
+Whether `mech` with the kinetic group of edge `k` made steady-state passes the guard
+(`_guard`). Every fix that makes a group steady-state in the guard's messages, but class
+2's, is checked this way.
+"""
+function _steady_state_passes(mech::_AnyMech, k::Int)
+    m = catalytic(mech)
+    re = _flags(m)
+    re[_group_members(m)[m.group[k]]] .= false
+    _guard(_build(_raw(mech, re))) === _WELL_POSED
+end
+
+"""
 The message of admission's verdict `v` on `am`: the cause, naming each step by its DSL
 line (`_step_text`), and each fix only when its variant passes the guard
 (`_retag_passes`). A fix that tags steps is offered for the inactive conformation only,
@@ -1631,9 +1643,7 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
               "fast the tagged constants vanish."
         # Offer the steady-state fix only where its variant passes the guard: R2funnel
         # keeps its bridge with its tagged S binding steady-state (R2funnel_SS).
-        re = _flags(m)
-        re[_group_members(m)[m.group[k]]] .= false
-        return _guard(_build(_raw(am, re))) === _WELL_POSED ?
+        return _steady_state_passes(am, k) ?
                msg * " Make the group of $(line(k)) steady-state." : msg
     elseif v.fault === _NO_ACTIVE_TURNOVER
         ks = [j for j in eachindex(m.edges) if _excludes(am, j, 1)]
@@ -2044,10 +2054,12 @@ _place(::AllostericMechanism, c::Int) =
     c == 2 ? " in the inactive conformation" : c == 1 ? " in the active conformation" : ""
 
 """
-The message of a class-3 verdict `v` on `mech`: the face, the
-forms and steps at fault, and a fix only for a trap and a bottomless segment, whose
-variants the tests show passing. A verdict in no one conformation labels each form with
-its own (`_conformation_suffix`).
+The message of a class-3 verdict `v` on `mech`: the face, the forms and steps at fault,
+and a fix only where its variant passes the guard (`_steady_state_passes`): for a trap,
+the kinetic group of the step that feeds it or joins it to its segment made steady-state;
+for a bottomless segment, the group of the first of its rapid-equilibrium bindings whose
+variant passes. A verdict in no one conformation labels each form with its own
+(`_conformation_suffix`).
 """
 function _face_message(who::String, mech::_AnyMech, v::_Verdict)
     m = catalytic(mech)
@@ -2066,21 +2078,28 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
                "step that leaves them takes up a zeroed metabolite " *
                "($(lines(_exits(net, s, C)))), so the steady state is not unique."
     elseif v.fault === _BOTTOMLESS
+        bindings = unique!([net.edge[t] for t in eachindex(net.from)
+                            if net.fast[t] && net.edge[t] != 0 &&
+                               s.segment[net.from[t]] == s.bottomless &&
+                               _is_binding(m.edges[net.edge[t]])])
+        k = findfirst(k -> _steady_state_passes(mech, k), bindings)
+        fix = k === nothing ? "" :
+              " Make the group of $(_step_text(m, bindings[k])) steady-state."
         return "$who: $(at)the rapid-equilibrium segment " *
                "$(forms(s.segments[s.bottomless])) has no form free of the zeroed " *
-               "metabolites, so the rate is 0/0 there. Make one of the segment's binding " *
-               "steps steady-state."
+               "metabolites, so the rate is 0/0 there." * fix
     elseif v.fault === _TRAP
         trap, edge, joined = _trap_feeder(net, s)
+        fix = _steady_state_passes(mech, edge) ?
+              " Make that step's kinetic group steady-state." : ""
         joined &&
             return "$who: $(at)the forms $(forms(s.fast_classes[trap])) hold enzyme, but " *
                    "the rapid-equilibrium step $(_step_text(m, edge)) that joins them to " *
                    "the rest of their segment takes up a zeroed metabolite, so the rate " *
-                   "law misweights them. Make that step's kinetic group steady-state."
+                   "law misweights them." * fix
         return "$who: $(at)the rapid-equilibrium step $(_step_text(m, edge)) fills the " *
                "forms $(forms(s.fast_classes[trap])), which no rapid-equilibrium step " *
-               "running there empties, so the rate law misweights them. Make that " *
-               "step's kinetic group steady-state."
+               "running there empties, so the rate law misweights them." * fix
     elseif v.fault === _SPLIT
         split = _split_parts(net, s)
         return "$who: $(at)the forms $(join(forms.(split.parts), " and ")) of one " *

@@ -581,6 +581,23 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test (v.fault, v.face) == (ER._BOTTOMLESS, 2)
         msg = ER._guard_message(random_release, v)
         @test occursin("has no form free of the zeroed metabolites", msg)
+        @test msg ==
+              "Mechanism: at zero P and Q, the rapid-equilibrium segment " *
+              "{E(P), E(P, Q), E(Q)} has no form free of the zeroed metabolites, so the " *
+              "rate is 0/0 there. Make the group of E(P) + Q ⇌ E(P, Q) steady-state."
+        # The printed fix passes the guard.
+        @test ER._guard(@_testhelper_unguarded @enzyme_mechanism begin
+            substrates: S
+            products: P, Q
+            steps: begin
+                E + S ⇌ E(S)
+                E + P <--> E(P)
+                E + Q <--> E(Q)
+                E(P) + Q <--> E(P, Q)
+                E(Q) + P ⇌ E(P, Q)
+                E(S) <--> E(P, Q)
+            end
+        end) === ER._WELL_POSED
         @test _testhelper_respeed_verdicts(random_release; rng = Random.MersenneTwister(1),
                                            law = :limit)[2] === :pattern
         @test_throws ErrorException(msg) @enzyme_mechanism begin
