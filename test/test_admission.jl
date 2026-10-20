@@ -1236,6 +1236,76 @@ end
           EnzymeRates._Verdict(EnzymeRates._NO_FAULT, EnzymeRates._LIMIT_UNTESTED, 2, 0, 0)
 end
 
+@testset "a law chain whose fast limit differs from the law is rejected" begin
+    # At zero P and Q the law's segment chain has two closed classes, and the steady
+    # state's fast-equilibrium limit, the same at new speeds, differs from the law's value
+    # as P and Q vanish. The package law is 0/0 there, so the RE-speed oracle compares the
+    # limit with its own law's limit.
+    differ = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(P; residual = A - P)                          :: EqualAI
+            E + Q <--> E(Q)                                         :: NonequalAI
+            E(; residual = A - P) + P <--> E(P; residual = A - P)   :: NonequalAI
+            E(; residual = A - P) + B ⇌ E(Q)                        :: OnlyA
+            E(P; residual = A - P) + B ⇌ E(B, P; residual = A - P)  :: NonequalAI
+            E(Q) + P ⇌ E(B, P; residual = A - P)                    :: NonequalAI
+        end
+    end
+    v = EnzymeRates._guard(differ)
+    @test v == EnzymeRates._Verdict(EnzymeRates._LAW_MULTI, EnzymeRates._LIMIT_DIFFER,
+                                    2, 0, 0)
+    @test EnzymeRates._guard_message(differ, v) ==
+          "AllostericMechanism: at zero P and Q, the steady state's fast-equilibrium " *
+          "limit differs from the rate law."
+    @test _testhelper_respeed_verdicts(differ; rng = Random.MersenneTwister(1),
+                                       law = :limit)[2] === :mismatch
+end
+
+@testset "a bridge of several tagged steps names each one" begin
+    # At zero P and Q the cheapest spanning in-tree of the inactive conformation's fed
+    # forms uses two of its vanishing :OnlyA steps, so the message names both. The ε-path
+    # converges on that face: the rejection is conservative, as the message allows.
+    bridge2 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(P; residual = A - P)                          :: OnlyA
+            E + Q <--> E(Q)                                         :: EqualAI
+            E(; residual = A - P) + P <--> E(P; residual = A - P)   :: OnlyA
+            E(; residual = A - P) + B <--> E(Q)                     :: NonequalAI
+            E(P; residual = A - P) + Q ⇌ E(A, Q)                    :: EqualAI
+            E(Q) + A ⇌ E(A, Q)                                      :: OnlyA
+        end
+    end
+    v = EnzymeRates._guard(bridge2)
+    @test (v.fault, v.face, v.conformation) == (EnzymeRates._BRIDGE, 2, 2)
+    @test EnzymeRates._guard_message(bridge2, v) ==
+          "AllostericMechanism: at zero P and Q, the :OnlyA steps " *
+          "E + A ⇌ E(P; residual = A - P); E(Q) + A ⇌ E(A, Q) bridge forms of the " *
+          "inactive conformation that its other steps keep apart, so admission cannot " *
+          "show that the limit does not depend on how fast those steps vanish."
+    @test _testhelper_epath_verdict(bridge2; rng = Random.MersenneTwister(2),
+                                    face = Set([:P, :Q])) === :converges
+    # No fix is printed: with the leading step's group steady-state the guard still
+    # rejects the mechanism.
+    leading_ss = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(P; residual = A - P)                       :: OnlyA
+            E + Q <--> E(Q)                                         :: EqualAI
+            E(; residual = A - P) + P <--> E(P; residual = A - P)   :: OnlyA
+            E(; residual = A - P) + B <--> E(Q)                     :: NonequalAI
+            E(P; residual = A - P) + Q ⇌ E(A, Q)                    :: EqualAI
+            E(Q) + A ⇌ E(A, Q)                                      :: OnlyA
+        end
+    end
+    w = EnzymeRates._guard(leading_ss)
+    @test (w.fault, w.face, w.conformation) == (EnzymeRates._BRIDGE, 2, 2)
+end
+
 @testset "the modifier faces catch a steady-state inhibitor binding" begin
     # At I = 0 the rapid-equilibrium square through E(I) and E(I, S) no longer joins E
     # and E(S), whose ratio the steady-state binding of S then sets.
