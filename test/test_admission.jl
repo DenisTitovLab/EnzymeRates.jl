@@ -67,7 +67,7 @@ using Random
     @test EnzymeRates._face_names(copy_P, UInt64(1)) == [:P]
 end
 
-@testset "a law the guard admits can be 0/0 at a mixed corner, which no fit meets" begin
+@testset "a law the guard admits can be 0/0 at a mixed corner, scored as a 0 in a fit" begin
     # Census mechanism d7a09031d5dd2fc6 (ter-bi). At B = P = Q = 0 the rapid-equilibrium
     # segment {E(B, D), E(B, D, P), E(D, P)} has no form free of B and P, so the law is 0/0
     # there; the guard's faces never zero one substrate with every product (spec section
@@ -91,8 +91,9 @@ end
     params = _testhelper_random_independent_params(am; rng = Random.MersenneTwister(1))
     @test isnan(rate_equation(am, (A = 1.0, B = 0.0, D = 1.0, P = 0.0, Q = 0.0), params))
     @test rate_equation(am, (A = 0.0, B = 1.0, D = 1.0, P = 0.0, Q = 0.0), params) == 0.0
-    # A fit never meets the corner: a zero rate is refused, and the loss scores a NaN
-    # prediction as it scores the 0 a well-posed law predicts there.
+    # A fit scores the NaN as it scores the 0 a well-defined law predicts there: a zero rate
+    # is refused, and a nonzero rate costs the same at the corner as at A = P = Q = 0, where
+    # the law is 0.
     _testhelper_table(rate, A, B) =
         (group = [1, 1], Rate = [1.0, rate], A = [1.0, A], B = [1.0, B], D = [1.0, 1.0],
          P = [0.1, 0.0], Q = [0.1, 0.0])

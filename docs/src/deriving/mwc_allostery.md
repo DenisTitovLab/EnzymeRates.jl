@@ -213,7 +213,8 @@ package rejects:
 
 The faces leave out the corners that zero one substrate with every product. A law the
 package accepts can be 0/0 there, where a well-defined law is 0, so `rate_equation`
-returns `NaN` at such a point; a fit never meets one, since a measured rate there is zero.
+returns `NaN` at such a point; a fit scores the NaN as it scores the 0 a well-defined law
+predicts there.
 
 ## Thermodynamic constraints of MWC equations
 
