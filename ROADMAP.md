@@ -21,10 +21,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   optimizer that scores points on several threads at once, such as CMA-ES with
   `multi_threading` passed through `solver_kwargs`, would race on both buffers. Fits run
   in parallel only across `pmap` workers, each of which builds its own problem.
-- **`eq_complexity_filter` counts only the active conformation of an allosteric
-  mechanism.** `_eq_complexity` (`src/rate_eq_derivation.jl`) measures an allosteric
-  mechanism's V×τ on its catalytic graph, the active conformation, alone, while the
-  generated MWC rate equation evaluates the polynomials of both conformations, so the filter
+- **`eq_complexity_filter` counts an allosteric mechanism's catalytic graph once.**
+  `_eq_complexity` (`src/rate_eq_derivation.jl`) measures V×τ on the whole catalytic
+  graph, which with `:OnlyI` groups holds more than the active conformation's law (15
+  against 9 on a uni-uni whose inhibitor binds two forms `:OnlyI`), while the generated
+  MWC rate equation evaluates the polynomials of both conformations, so the filter
   undercounts what an allosteric equation costs and can admit one that evaluates more
   terms than its limit.
 - **`BigInt` arithmetic inflates the GC's live-byte count.**
@@ -110,7 +111,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   half-reaction and the inactive conformation runs the other (`_tagging_bases`,
   `src/mechanism_enumeration.jl`). The tagging move emits a base only beside a declared
   regulator, and no move reaches the bare base: change-tag relaxes tags only to
-  `:NonequalAI`, and no move removes a site. Yet the bare base is well-posed and its `L`
+  `:NonequalAI`, and no move removes a site. Yet a bare base can be well-posed with its `L`
   identifiable: on the three-step bi-bi ping-pong each bare base fits 6 parameters at rank 6
   over the parent's 5, at one and at two subunits, and the one that stops the first half
   turns over at zero products. Without a regulator, the one allosteric child that ping-pong
@@ -225,8 +226,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `Rational{BigInt}`), and two cycle-basis builders, `_fundamental_cycles` and
   `_thermodynamic_constraints`, which raise the same error. `_rref_partition` and
   `_thermodynamic_constraints` serve the split move's counter
-  (`_partition_independent_count`); computing its rank with `_rref!` over the joint
-  solve's cycles would leave one of each.
+  (`_partition_independent_count`), and `_rref_partition` also serves class 3's model point
+  (`_model_point`, `src/admission.jl`), whose integer null space (`_integer_nullspace`)
+  goes through `_rational_nullspace`. Computing the counter's rank with `_rref!` over the
+  joint solve's cycles, and the model point's null space with `_rref!` too, would leave one
+  of each.
 - **Admit the equilibrium bridges and the vanishing-fed basins that admission rejects.**
   Admission's face condition (`_face_condition`, `src/admission.jl`) is sound but not
   exact: it rejects two rare classes whose limit exists. In an equilibrium bridge (R-B1) a
