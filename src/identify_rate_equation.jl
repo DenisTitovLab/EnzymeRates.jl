@@ -182,6 +182,11 @@ lowest-`cv_score` candidate at the smallest `n_params` that has a
 candidate at or below the cutoff, so a simpler equation wins whenever
 it predicts held-out groups as well as the best one to within the
 best one's fold-to-fold standard error.
+
+A candidate's fold losses come from fitting, on each fold, the mechanism whose fit it
+reads. An L phantom (`L_phantom` in the CSVs: a one-subunit variant whose `L` the data
+cannot determine) takes its source's fold losses, so beside its source it loses the
+tie by its extra parameter, and selected without it, it reports `L = 0`.
 """
 function identify_rate_equation(
     prob::IdentifyRateEquationProblem;
@@ -279,6 +284,7 @@ function _rows_to_dataframe(rows)
         key = Union{Missing,String}[r.key for r in rows],
         fit_inherited = Union{Missing,Bool}[r.fit_inherited for r in rows],
         fit_source_id = Union{Missing,String}[r.fit_source_id for r in rows],
+        L_phantom = Union{Missing,Bool}[r.L_phantom for r in rows],
         peak_at_range_edge =
             Union{Missing,Bool}[get(r, :peak_at_range_edge, missing) for r in rows],
     )
@@ -369,8 +375,10 @@ end
 
 """
 A mechanism PASS1 of `_process_batch` derived: its fitted constants in `fitted_params`
-order, its text and the text's id (`_mechanism_id`), its printed law, and its law's
-canonical form (`canon`), under whose key it is fitted.
+order, its text and the text's id (`_mechanism_id`), its printed law, its law's canonical
+form (`canon`), whether it is an L phantom that reads another law's fit (`_is_phantom`),
+and `canon0`, the canonical form of the law whose fit it reads: for a phantom its active
+law, its law at `L = 0`; `canon` otherwise.
 """
 struct _Candidate
     mech::Union{Mechanism, AllostericMechanism}
@@ -379,6 +387,8 @@ struct _Candidate
     mechanism_id::String
     eq_text::String
     canon::_Canonical
+    phantom::Bool
+    canon0::_Canonical
 end
 
 """The order in which candidate `c` reads its fit's values (`_Fit`): its canonical order,
@@ -397,7 +407,8 @@ function _row_params(c::_Candidate, order::Vector{Symbol}, values::Vector{Float6
 end
 
 """One fitted mechanism: its parameter count, its fit's loss and retcode, its rate-law key
-(`_canonical`), the key of the fit it reads (`fit_key`), and its CSV row."""
+(`_canonical`), the key of the fit it reads (`fit_key`: its own, or for an L phantom the
+key of its law at `L = 0`), and its CSV row."""
 struct BatchEntry
     mech::Union{Mechanism, AllostericMechanism}
     n_params::Int
@@ -439,6 +450,7 @@ function _failure_row(f::FitFailure)
      key = missing,
      fit_inherited = missing,
      fit_source_id = missing,
+     L_phantom = missing,
      peak_at_range_edge = missing)
 end
 
@@ -523,13 +535,18 @@ mechanism with that key reads it through its own canonical order, so its row car
 own parameter names: same law ⟹ same fitted values and same rescaling, so no refit is
 needed. `memo` persists across iterations (threaded from `_beam_search`), so a law fit in
 an earlier iteration is never refit. A representative whose fit throws fails ALL the
-mechanisms with its key (all-or-nothing per law). A row's `fit_inherited` is `false`
-when its mechanism is its fit's source and `true` otherwise, and `fit_source_id` names
-the source. `parent_of` maps a child to its parent's `BatchEntry`, which fills the row's
-parent columns. `entries::Vector{BatchEntry}` are the mechanisms with a usable fit (each
-keeping its own row, `retcode` and key); `failures::Vector{FitFailure}` are mechanisms
-that threw at compile, derivation or fit — captured WITH the exception text, never
-silently swallowed.
+mechanisms with its key (all-or-nothing per law). An L phantom (`_is_phantom`: one catalytic
+subunit, an inactive conformation that binds nothing, and a rescaling certificate) is never
+a representative. It reads the fit of its law at `L = 0`, its active law's key (`fit_key`),
+from `memo` or from this batch's representatives, through its own order and with `L = 0`,
+and its row sets `L_phantom`. A phantom whose law at `L = 0` has no fit there is fitted as
+an ordinary candidate; one whose source's fit throws fails with the source's error. A row's
+`fit_inherited` is `false` when its mechanism is its fit's source and `true` otherwise, and
+`fit_source_id` names the source. `parent_of` maps a child to its parent's `BatchEntry`,
+which fills the row's parent columns. `entries::Vector{BatchEntry}` are the mechanisms with
+a usable fit (each keeping its own row, `retcode` and key); `failures::Vector{FitFailure}`
+are mechanisms that threw at compile, derivation or fit — captured WITH the exception text,
+never silently swallowed.
 """
 function _process_batch(
     mechs, prob::IdentifyRateEquationProblem;
@@ -561,16 +578,35 @@ function _process_batch(
             s = _solve(m)
             L = _law(m, s)
             _assert_support(m, L)
-            _Candidate(m, s.fitted, text, id, eq_text, _canonical(L, id))
+            canon = _canonical(L, id)
+            # An L phantom reads the fit of its law at L = 0, its active law, when that law
+            # holds every fitted constant but L. The certificate rules out a phantom with
+            # regulator constants; the check keeps a row from reading names its fit lacks.
+            phantom = m isa AllostericMechanism && _is_phantom(m, L::_AlloLaw)
+            canon0 = phantom ? _canonical((L::_AlloLaw).active, id) : canon
+            if phantom && Set(canon0.order) != Set(s.fitted[1:(end - 1)])
+                phantom, canon0 = false, canon
+            end
+            _Candidate(m, s.fitted, text, id, eq_text, canon, phantom, canon0)
         catch e
             FitFailure(m, _exc_string(e))
         end
     end
 
-    # Pick one representative per key not already fit.
+    # Pick one representative per key not already fit; an L phantom is none.
     rep_idx = Dict{String,Int}()
     for (i, c) in enumerate(compiled)
-        c isa _Candidate && !haskey(memo, c.canon.key) && get!(rep_idx, c.canon.key, i)
+        c isa _Candidate && !c.phantom && !haskey(memo, c.canon.key) &&
+            get!(rep_idx, c.canon.key, i)
+    end
+    # A phantom inherits the fit of whoever holds its L → 0 key, in `memo` or among this
+    # batch's representatives; any other phantom becomes an ordinary candidate.
+    for (i, c) in enumerate(compiled)
+        c isa _Candidate && c.phantom || continue
+        (haskey(memo, c.canon0.key) || haskey(rep_idx, c.canon0.key)) && continue
+        compiled[i] = _Candidate(c.mech, c.fitted, c.mechanism, c.mechanism_id,
+                                 c.eq_text, c.canon, false, c.canon)
+        haskey(memo, c.canon.key) || get!(rep_idx, c.canon.key, i)
     end
     reps = _Candidate[compiled[i] for i in values(rep_idx)]
     n_param_skip = count(==(:param_skip), compiled)
@@ -608,12 +644,14 @@ function _process_batch(
     for c in compiled
         c isa FitFailure && (push!(failures, c); continue)
         c isa _Candidate || continue                       # a skip
-        key = c.canon.key
-        if haskey(fit_error, key)                          # representative fit threw
-            push!(failures, FitFailure(c.mech, fit_error[key]))
+        fit_key = c.canon0.key                    # its own key, or a phantom's L → 0 key
+        if haskey(fit_error, fit_key)             # the fit's source threw
+            push!(failures, FitFailure(c.mech, fit_error[fit_key]))
             continue
         end
-        fit = memo[key]
+        fit = memo[fit_key]
+        params = c.phantom ? _row_params(c, [c.canon0.order; :L], [fit.values; 0.0]) :
+                             _row_params(c, _fit_order(c), fit.values)
         parent = get(parent_of, c.mech, nothing)
         row = (
             n_params = length(c.fitted),
@@ -625,14 +663,15 @@ function _process_batch(
             rate_equation = c.eq_text,
             retcode = string(fit.retcode),
             error = missing,
-            params = _row_params(c, _fit_order(c), fit.values),
-            key,
+            params,
+            key = c.canon.key,
             fit_inherited = fit.source_id != c.mechanism_id,
             fit_source_id = fit.source_id,
+            L_phantom = c.phantom,
             peak_at_range_edge = fit.peak_at_range_edge,
         )
-        push!(entries, BatchEntry(c.mech, length(c.fitted), fit.loss, fit.retcode, key,
-                                  key, row))
+        push!(entries, BatchEntry(c.mech, length(c.fitted), fit.loss, fit.retcode,
+                                  c.canon.key, fit_key, row))
     end
     (entries, failures, n_param_skip, n_cx_skip, n_seen_skip)
 end

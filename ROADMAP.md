@@ -134,24 +134,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   equilibrium constant of its own, and the multi-subunit rate formula rederived for two flip
   forms. Take it up with iso mechanisms, which add free forms of their own. Priority:
   medium.
-- **Flag one-subunit K-type variants whose L is a phantom instead of fitting them.**
-  At multiplicity 1, `_expand_to_allosteric` (`src/mechanism_enumeration.jl`) emits
-  K-type variants whose L the data cannot determine, so the fitter optimizes a flat
-  direction and the beam counts the model one parameter too high. This hits every
-  reaction that allows one catalytic subunit, which is the default. The rewrite keeps the
-  variants in the frontier, since their children can carry laws that the parent's
-  children lack, but stops fitting them: a variant whose inactive conformation binds
-  nothing and does not catalyze, and whose L an exact rank test shows adds no
-  identifiable rank, takes its parent's fit with L = 0 and is flagged.
-  `docs/src/identify/enumeration_engine.md` documents the phantom. Priority: medium.
 - **Profile the first v0.9.0 HPC runs.**
   Every search-cost number on hand comes from runs made before 0.8.0: 66% of equations
   duplicated under renaming, `to_allosteric` producing 47% of LDH children, 94% of fits
   non-parsimonious. On the next LDH, PGK and PFKP runs, measure fits whose parent fails
   the final parsimony cutoff, children and survivors per move, same-function laws that
   the key misses, equal only after a reparametrization (`_canonical`, `src/key.jl`),
-  zero-gain `change_allo_state` children, and how often PGK meets the one-subunit L
-  phantom. These numbers rank the open search-speed and deduplication ideas.
+  zero-gain `change_allo_state` children, and how many PGK rows identify flags
+  `L_phantom`. These numbers rank the open search-speed and deduplication ideas.
   Priority: medium.
 - **Make per-regulator multiplicities such as `A(1, 2)` work.**
   The DSL parses and stores a regulator's multiplicity list (`RegulatorMults`,
@@ -183,16 +173,29 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 ## Ideas
 
 - **Count identifiable parameters with an exact modular rank.**
-  Several phantom classes make the beam count a model above its true dimension: the
-  one-subunit L, chain flanks kept after a later split, copy-copy twin pairs,
-  `:NonequalAI` copies and the iso dwell-time gauge. The rank of ∂v/∂log θ modulo a prime
-  at random points of the rate polynomials (`src/sym_poly_for_rate_eq_derivation.jl`) is
-  exact up to a negligible failure probability, took 3.5 ms per mechanism in a prototype,
-  and has a finite-difference oracle in `_testhelper_identifiable_rank`
-  (`test/test_mechanism_enumeration.jl`). Run it over several saved runs to find the major
-  phantom classes; performance may keep it out of `src/`, where it would otherwise replace
-  the beam's parameter count. It must never filter children, since a phantom child can
-  carry families its parent lacks.
+  Several phantom classes make the beam count a model above its true dimension: chain
+  flanks kept after a later split, copy-copy twin pairs, `:NonequalAI` copies and the
+  iso dwell-time gauge. The one-subunit L has an exact test of its own: identify flags
+  an L phantom whose inactive conformation binds nothing by a rescaling certificate
+  (`_phantom_weights`, `src/key.jl`) and lets it read the fit of its law at L = 0. The
+  rank of ∂v/∂log θ modulo a prime at random points of the derived law (`_law`,
+  `src/engine.jl`) is exact up to a negligible failure probability, took 3.5 ms per
+  mechanism in a prototype, and has a finite-difference oracle in
+  `_testhelper_identifiable_rank`
+  (`test/mechanism_definitions_for_test_enzyme_derivation.jl`). Run it over several
+  saved runs to find the other phantom classes; performance may keep it out of `src/`,
+  where it would otherwise replace the beam's parameter count. It must never filter
+  children, since a phantom child can carry families its parent lacks.
+- **Apply the chain-flank exclusion at one catalytic subunit.**
+  The flip move keeps a chain's flanks at rapid equilibrium only in plain mechanisms
+  (`_chain_flank_groups`, `src/mechanism_enumeration.jl`): an allosteric mechanism has
+  none, since above one subunit a flank's flip can show through the two
+  conformations. At one subunit an L phantom's flank flip stays invisible, so the move
+  emits a phantom whose law at L = 0 no plain mechanism of the search holds, and
+  identify fits it as an ordinary candidate (census #3268; the phase-5 research found
+  18 such bi-bi variants on 8 keys in a sampled round 2). Applying the exclusion to
+  one-subunit variants would drop these fits; first check that no other law becomes
+  unreachable.
 - **Seed each identify fit from its mechanism's content.**
   `fit_rate_equation` (`src/fitting.jl`) draws each restart's starting point with `randn`
   from the running task's random stream, and `_process_batch`

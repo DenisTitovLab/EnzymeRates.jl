@@ -576,8 +576,9 @@ keys; the census found such pairs, and they are fitted separately.
   fit through its own labelling, so its CSV row carries its own parameter names; a test
   fits two same-key mechanisms whose fitted names differ. The cross-validation candidate
   list (`_offer_cv!`) deduplicates by key.
-- One-subunit L phantoms (section 13) inherit the parent's fit and are flagged; the parent
-  has another key, so section 13 defines how the fit maps onto the variant.
+- One-subunit L phantoms (section 13) inherit the fit of the mechanism that holds the key
+  of their law at L = 0 (often the parent) and are flagged; that mechanism has another
+  key, so section 13 defines how the fit maps onto the variant.
 - The beam counts each key once, so duplicates cannot crowd out distinct candidates, and
   expands every member of a selected key, so no law becomes unreachable.
 
@@ -673,17 +674,19 @@ so the fitter fixes it after the fit (E9).
 - **Duplicate tag sets** (siblings that differ only in the tags of groups the inactive
   conformation never reaches) stay in the frontier and share one fit through the key
   (phase 5).
-- **One-subunit L phantoms** stay in the frontier, inherit the parent's fit and are
-  flagged (phase 5). A variant is an L phantom when its inactive conformation binds nothing
-  and does not catalyze, and an exact rank test in `src/` (exact arithmetic, such as
-  modular) shows that adding L does not raise the identifiable rank over the parent's. As
-  L → 0 the variant's law becomes the parent's exactly, so its reported fit is the
-  parent's constants under the variant's names with L = 0, and the parent's loss. In the
-  beam and in cross-validation it counts its own `length(fitted_params)` (B9).
-  Cross-validation does not refit it either: on every fold its best fit equals the
-  parent's, so it takes the parent's fold losses. Its CSV row records the fit source's
-  `mechanism_id` and the L-phantom flag (section 5). A variant whose inactive conformation
-  binds something is fitted.
+- **One-subunit L phantoms** stay in the frontier, inherit the fit of the mechanism that
+  holds the key of their law at L = 0, their source (often the parent), and are flagged
+  (phase 5). A variant is an L phantom when its inactive conformation binds nothing and
+  does not catalyze and, inside that pre-filter, an exact rescaling certificate in `src/`
+  (`key.jl`) shows that its family is the family of its law at L = 0; identifiable ranks
+  are test oracles. As L → 0 the variant's law becomes the source's, up to the names of
+  its constants, so its reported fit is the source's constants under the variant's names
+  with L = 0, and the source's loss. In the beam and in cross-validation it counts its
+  own `length(fitted_params)` (B9). Cross-validation does not refit it either: on every
+  fold its best fit equals the source's, so it takes the source's fold losses. Its CSV row
+  records the fit source's `mechanism_id` and the L-phantom flag (section 5). A phantom
+  whose law at L = 0 no mechanism of the search holds is fitted as an ordinary candidate,
+  unflagged, and a variant whose inactive conformation binds something is fitted.
 
 ## 14. Testing
 

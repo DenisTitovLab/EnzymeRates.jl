@@ -73,49 +73,6 @@ function _testhelper_connectivity_violations(steps::Vector{EnzymeRates.RawStep})
     viol
 end
 
-"""Finite-difference rank of ∂v/∂log θ over the fitted parameters (test oracle only). The
-law of a mechanism the guard rejects is derived once, unchecked (`EnzymeRates._law`), and
-evaluated in BigFloat (`_testhelper_evaluate_law`), as `_testhelper_law_value` reads it."""
-function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
-    mech = _testhelper_lift(m)
-    fitted = EnzymeRates._dependent_param_exprs(mech)[2]
-    rate = if EnzymeRates._is_well_posed(mech)
-        em = EnzymeRates.compile_mechanism(mech)
-        (c, p) -> rate_equation(em, c, p)
-    else
-        L = EnzymeRates._law(mech)
-        function _testhelper_unchecked_rate(c, p)
-            env = Dict{Symbol, BigFloat}(k => BigFloat(v)
-                                         for (k, v) in pairs(merge(p, c)))
-            Float64(_testhelper_evaluate_law(L, env))
-        end
-    end
-    fp = collect(fitted)
-    mets = sort(collect(EnzymeRates.metabolites(mech)))
-    # A fixed seed reproduces a failure in a later session; a struct hash mixes in
-    # objectid and would not.
-    rng = MersenneTwister(1)
-    best = 0
-    for _ in 1:ndraws
-        θ = exp.(randn(rng, length(fp)))
-        keq = exp(randn(rng))
-        concs = [NamedTuple{Tuple(mets)}(Tuple(exp.(2 .* randn(rng, length(mets)))))
-                 for _ in 1:npts]
-        J = zeros(npts, length(fp))
-        for j in eachindex(fp), sgn in (1, -1)
-            θp = copy(θ); θp[j] *= exp(sgn * h)
-            p = NamedTuple{(fp..., :Keq, :E_total)}((θp..., keq, 1.0))
-            for (i, c) in enumerate(concs)
-                J[i, j] += sgn * rate(c, p) / (2h)
-            end
-        end
-        all(isfinite, J) || continue
-        sv = svdvals(J)
-        best = max(best, count(>(1e-7 * sv[1]), sv))
-    end
-    best
-end
-
 """Numeric degeneracy probe (test oracle only): true when the rate at zero products does not
 need some substrate (ratio of the rate at 10⁻⁸ of it to the rate at 1 stays above 10⁻³), or
 grows without bound as the substrates scale (10⁹ against 10⁶), or the mirror for
@@ -12574,6 +12531,11 @@ end
     @test _testhelper_fitted(m) == _testhelper_identifiable_rank(m) == 2
     @test _testhelper_fitted(flipped) == _testhelper_identifiable_rank(flipped) == 3
     @test _testhelper_fitted(k_type) == 3 && _testhelper_identifiable_rank(k_type) == 2
+    # The K-type child is an L phantom (spec section 13): one catalytic subunit, an
+    # inactive conformation that is free E alone, and a rescaling certificate that maps
+    # it onto the law of its catalytic mechanism.
+    @test EnzymeRates._is_phantom(k_type, EnzymeRates._law(k_type))
+    @test _testhelper_phantom_map_holds(k_type; rng = Random.MersenneTwister(1))
 end
 
 @testset "_expand_change_allo_state on a merged uni-uni K-type" begin
@@ -12669,6 +12631,14 @@ end
     end
     for k in (only_a, a_and_q)
         @test _testhelper_identifiable_rank(k) == 3
+    end
+    # Only a_and_q is an L phantom. only_a and only_q keep a binding at free E in the
+    # inactive conformation, so the pre-filter fits them, though each has a certificate.
+    @test EnzymeRates._is_phantom(a_and_q, EnzymeRates._law(a_and_q))
+    @test _testhelper_phantom_map_holds(a_and_q; rng = Random.MersenneTwister(2))
+    for k in (only_a, only_q)
+        @test !EnzymeRates._is_phantom(k, EnzymeRates._law(k))
+        @test !isempty(EnzymeRates._phantom_weights(EnzymeRates._law(k)))
     end
 end
 
@@ -12775,6 +12745,8 @@ end
     for k in kids
         @test _testhelper_fitted(k) == _testhelper_identifiable_rank(k) == 6
     end
+    # At two subunits no variant is an L phantom.
+    @test !any(k -> EnzymeRates._is_phantom(k, EnzymeRates._law(k)), kids)
 end
 
 @testset "_expand_to_allosteric on a merged bi-bi whose B group mixes fused and plain" begin
@@ -12882,6 +12854,15 @@ end
     for k in (a_and_q, all_three)
         @test _testhelper_fitted(k) == 6 && _testhelper_identifiable_rank(k) == 5
     end
+    # The two whose inactive conformation binds nothing are L phantoms, each mapped onto
+    # the parent's law by its certificate; the five that keep a binding there are fitted.
+    for k in (a_and_q, all_three)
+        @test EnzymeRates._is_phantom(k, EnzymeRates._law(k))
+        @test _testhelper_phantom_map_holds(k; rng = Random.MersenneTwister(3))
+    end
+    for k in (only_a, only_p, only_q, a_and_p, p_and_q)
+        @test !EnzymeRates._is_phantom(k, EnzymeRates._law(k))
+    end
 end
 
 @testset "_expand_to_allosteric on a random-order merged bi-bi led by plain bindings" begin
@@ -12957,6 +12938,15 @@ end
     for k in (only_q, only_p, p_and_q)
         @test _testhelper_fitted(k) == _testhelper_identifiable_rank(k) == 6
     end
+    # None is an L phantom. only_q and p_and_q bind nothing in the inactive conformation
+    # and pass the pre-filter, but L raises their rank and no certificate exists; only_p
+    # keeps Q's binding there.
+    for k in (only_q, p_and_q)
+        @test !any(EnzymeRates._inactive_mask(k))
+        @test isempty(EnzymeRates._phantom_weights(EnzymeRates._law(k)))
+    end
+    @test !any(k -> EnzymeRates._is_phantom(k, EnzymeRates._law(k)),
+               (only_q, only_p, p_and_q))
 end
 
 @testset "K-types build on the every-chemistry set when admission rejects it" begin

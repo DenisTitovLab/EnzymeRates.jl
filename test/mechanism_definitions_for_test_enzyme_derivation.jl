@@ -758,6 +758,97 @@ function _testhelper_declared_dimension(m)
     n_law + n_reg + 1
 end
 
+"""Finite-difference rank of ∂v/∂log θ over the fitted parameters (test oracle only). The
+law of a mechanism the guard rejects is derived once, unchecked (`EnzymeRates._law`), and
+evaluated in BigFloat (`_testhelper_evaluate_law`), as `_testhelper_law_value` reads it."""
+function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
+    mech = _testhelper_lift(m)
+    fitted = EnzymeRates._dependent_param_exprs(mech)[2]
+    rate = if EnzymeRates._is_well_posed(mech)
+        em = EnzymeRates.compile_mechanism(mech)
+        (c, p) -> rate_equation(em, c, p)
+    else
+        L = EnzymeRates._law(mech)
+        function _testhelper_unchecked_rate(c, p)
+            env = Dict{Symbol, BigFloat}(k => BigFloat(v)
+                                         for (k, v) in pairs(merge(p, c)))
+            Float64(_testhelper_evaluate_law(L, env))
+        end
+    end
+    fp = collect(fitted)
+    mets = sort(collect(EnzymeRates.metabolites(mech)))
+    # A fixed seed reproduces a failure in a later session; a struct hash mixes in
+    # objectid and would not.
+    rng = MersenneTwister(1)
+    best = 0
+    for _ in 1:ndraws
+        θ = exp.(randn(rng, length(fp)))
+        keq = exp(randn(rng))
+        concs = [NamedTuple{Tuple(mets)}(Tuple(exp.(2 .* randn(rng, length(mets)))))
+                 for _ in 1:npts]
+        J = zeros(npts, length(fp))
+        for j in eachindex(fp), sgn in (1, -1)
+            θp = copy(θ); θp[j] *= exp(sgn * h)
+            p = NamedTuple{(fp..., :Keq, :E_total)}((θp..., keq, 1.0))
+            for (i, c) in enumerate(concs)
+                J[i, j] += sgn * rate(c, p) / (2h)
+            end
+        end
+        all(isfinite, J) || continue
+        sv = svdvals(J)
+        best = max(best, count(>(1e-7 * sv[1]), sv))
+    end
+    best
+end
+
+"""
+    _testhelper_phantom_map_holds(am; rng) -> Bool
+
+Whether the one-subunit variant `am` reproduces the family of its law at `L = 0` through the
+rescaling its certificate names (`EnzymeRates._phantom_weights`): at 3 consistent points
+(`_testhelper_law_inputs`) for each `L` in {1/10, 10}, the exact steady-state rate of `am`
+equals that of `catalytic(am)` with every fitted constant θ scaled by (1 + L)^w, to 1e-20
+relative in 256-bit BigFloat (`_testhelper_steady_state_rate` on both sides). A dependent
+constant scales by the power product the solve gives it, and each step's equilibrium
+constant and forward rate are rebuilt from its scaled constants. False when `am` has no
+certificate. Errors unless the active conformation keeps every edge, since only then is
+the law at `L = 0` the law of `catalytic(am)`.
+"""
+function _testhelper_phantom_map_holds(am; rng)
+    setprecision(BigFloat, 256) do
+        s = EnzymeRates._solve(am)
+        A = EnzymeRates._law(am, s)
+        w = EnzymeRates._phantom_weights(A)
+        isempty(w) && return false
+        all(EnzymeRates._active_mask(am)) || error("_testhelper_phantom_map_holds: " *
+            "the active conformation drops an edge, so the law at L = 0 is not the law " *
+            "of catalytic(am)")
+        θ = [A.vars.names[v] for v in eachindex(A.vars.names)
+             if !A.vars.conc[v] && !(A.vars.names[v] in (:Keq, :L))]
+        μ = Dict{Symbol, Rational{Int}}(zip(θ, w))
+        for d in s.dependents
+            μ[s.names[d.col]] = sum((e * μ[s.names[f]] for (f, e) in d.factors);
+                                    init = 0 // 1)
+        end
+        holds = true
+        for L in (big(1) / 10, big(10)), _ in 1:3
+            point, concs, _ = _testhelper_law_inputs(am, s.fitted, rng)
+            v = _testhelper_steady_state_rate(am, merge(point, (; L)), concs)
+            scaled(x) = point.vals[x] * (1 + L)^BigFloat(μ[x])
+            active = map(point.active) do (st, _, kf)
+                kf === nothing || return (st, scaled(st.names[1]) / scaled(st.names[2]),
+                                          scaled(st.names[1]))
+                K = scaled(only(st.names))
+                (st, _testhelper_is_binding(st) ? 1 / K : K, nothing)
+            end
+            v0 = _testhelper_steady_state_rate(EnzymeRates.catalytic(am),
+                                               (; active, inactive = []), concs)
+            holds &= abs(v - v0) <= big(10)^-20 * abs(v0)
+        end
+        holds
+    end
+end
+
 """The mechanisms `init_mechanisms(rxn)` seeds and `rounds` rounds of `expand_mechanisms`
 reach, without duplicates."""
 function _testhelper_population(rxn, rounds)

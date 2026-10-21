@@ -222,3 +222,120 @@ end
         @test EnzymeRates._canonical(EnzymeRates._law(m), "pin").key == key
     end
 end
+
+# ── One-subunit L phantoms ─────────────────────────────────────────────────
+
+@testset "a certificate maps the phantom onto its L→0 law" begin
+    # The merged uni-uni K-type at one catalytic subunit: E + S <--> E(P) and
+    # E + P ⇌ E(P), both :OnlyA. Its inactive conformation is free E alone, so the law is
+    # v = N/(Y + L·X) with X a term of Y. The certificate scales P's dissociation constant
+    # by (1 + L) and the uptake rate constant by 1/(1 + L): at every L the variant is its
+    # law at L = 0, the law of its catalytic mechanism, at those constants (spec
+    # section 13).
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)       :: OnlyA
+        end
+    end)
+    A = EnzymeRates._law(am)
+    θ = [A.vars.names[v] for v in eachindex(A.vars.names)
+         if !A.vars.conc[v] && !(A.vars.names[v] in (:Keq, :L))]
+    @test θ == [:K_A_EP_to_E_P, :k_A_E_S_to_EP]
+    @test EnzymeRates._phantom_weights(A) == [1 // 1, -1 // 1]
+    @test EnzymeRates._is_phantom(am, A)
+    @test _testhelper_phantom_map_holds(am; rng = Random.MersenneTwister(21))
+end
+
+@testset "no phantom without the pre-filter's conditions" begin
+    # The spec's pre-filter stays, and the certificate runs inside it. The merged
+    # uni-uni K-type at two subunits, with P's binding :NonequalAI (the inactive
+    # conformation binds P), and with an :OnlyI site ligand fails the pre-filter and has
+    # no certificate. With an :OnlyA site ligand it passes the pre-filter, but the
+    # regulator reveals L and no certificate exists. The Theorell–Chance K-type only_a
+    # has a certificate, yet its inactive conformation binds Q at free E, so it is fitted.
+    two_subunits = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)       :: OnlyA
+        end
+    end)
+    p_relaxed = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 1
+        steps: begin
+            E + S <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)       :: NonequalAI
+        end
+    end)
+    onlyi_site = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R
+        steps: begin
+            E + S <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)       :: OnlyA
+        end
+        regulatory_site(1): R::OnlyI
+    end)
+    onlya_site = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R
+        steps: begin
+            E + S <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)       :: OnlyA
+        end
+        regulatory_site(1): R::OnlyA
+    end)
+    only_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        steps: begin
+            E + A ⇌ E(A)                :: OnlyA
+            E(A) + B <--> E(Q) + P      :: OnlyA
+            E + Q ⇌ E(Q)                :: EqualAI
+        end
+    end)
+    for am in (two_subunits, p_relaxed, onlyi_site, onlya_site, only_a)
+        @test !EnzymeRates._is_phantom(am, EnzymeRates._law(am))
+    end
+    for am in (two_subunits, p_relaxed, onlyi_site, onlya_site)
+        @test isempty(EnzymeRates._phantom_weights(EnzymeRates._law(am)))
+    end
+    @test !any(EnzymeRates._inactive_mask(onlya_site))
+    @test !isempty(EnzymeRates._phantom_weights(EnzymeRates._law(only_a)))
+    @test any(EnzymeRates._inactive_mask(only_a))
+end
+
+@testset "a certificate's rows overflow to no certificate" begin
+    # A one-subunit toy law v = A·k1^p / (1 + k1^p·A + k1·k2^q·A + L), its inactive
+    # conformation free E alone. Its certificate weighs k1 by −1/p and k2 by
+    # (1 − p)/(p·q): −1/2 and −1/6 for p = 2, q = 3. For p = 2^40 + 15 and q = 2^40 + 3 the
+    # second weight's denominator leaves Int64, so the row reduction overflows and the
+    # variant gets no certificate: identify fits it.
+    function _testhelper_exponent_toy_law(p, q)
+        vars = EnzymeRates._Vars()
+        a = EnzymeRates._var!(vars, :A; conc = true)
+        k1, k2 = EnzymeRates._var!(vars, :k_one), EnzymeRates._var!(vars, :k_two)
+        EnzymeRates._var!(vars, :Keq)
+        EnzymeRates._var!(vars, :L)
+        t(ps...) = EnzymeRates._term(EnzymeRates._monomial(ps...))
+        D = one(EnzymeRates._Poly) + t(k1 => p, a => 1) + t(k1 => 1, k2 => q, a => 1)
+        LA = EnzymeRates._Law(vars, t(a => 1), t(k1 => p), D, [D],
+                              [one(EnzymeRates._Poly)], EnzymeRates._Mono())
+        EnzymeRates._AlloLaw(vars, t(a => 1), LA, EnzymeRates._flip_only_law(LA),
+                             one(EnzymeRates._Poly), one(EnzymeRates._Poly),
+                             Tuple{EnzymeRates._Poly, EnzymeRates._Poly, Int}[], 1)
+    end
+    @test EnzymeRates._phantom_weights(_testhelper_exponent_toy_law(2, 3)) ==
+          [-1 // 2, -1 // 6]
+    p, q = 2^40 + 15, 2^40 + 3
+    @test denominator(big(1 - p) // (big(p) * q)) > typemax(Int)
+    @test isempty(EnzymeRates._phantom_weights(_testhelper_exponent_toy_law(p, q)))
+end

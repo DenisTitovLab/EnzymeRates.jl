@@ -1445,3 +1445,78 @@ end
     end
     @test n_regrouped >= 70
 end
+
+# ── L phantoms over regenerated populations ─────────────────────────────────
+
+# The census bi-bi reaction at one catalytic subunit, whose seeds' tagging children are
+# Q5's population.
+const _testhelper_phantom_bibi_rxn = @enzyme_reaction begin
+    substrates: A[C], B[N]
+    products: P[C], Q[N]
+end
+
+# The census ping-pong declaration at one catalytic subunit, whose ping-pong parents'
+# tagging children are Q6's population.
+const _testhelper_phantom_pingpong_rxn = @enzyme_reaction begin
+    substrates: A[CX], B[N]
+    products: P[C], Q[NX]
+    allosteric_regulators: R
+    shared_catalytic_site: (A, P)
+end
+
+"""`n` of the mechanisms `ms`, spaced evenly through their content order
+(`_testhelper_content_text`), or all of them when there are at most `n`."""
+function _testhelper_spaced(ms, n)
+    sorted = ms[sortperm(_testhelper_content_text.(ms))]
+    length(sorted) <= n ? sorted :
+        sorted[round.(Int, range(1, length(sorted); length = n))]
+end
+
+"""The well-posed tagging children (`_expand_to_allosteric`) of `parents` over `rxn`,
+without duplicates, in content order (`_testhelper_content_text`)."""
+function _testhelper_tagging_children(parents, rxn)
+    kids = unique!([c for p in parents for c in EnzymeRates._expand_to_allosteric(p, rxn)
+                    if EnzymeRates._is_well_posed(c)])
+    kids[sortperm(_testhelper_content_text.(kids))]
+end
+
+@testset "every flagged one-subunit bi-bi variant is its L→0 law's family" begin
+    # Q5 (spec section 13): the tagging children of 40 bi-bi seeds spaced
+    # through their content order, 200 of them spaced the same way. Each variant
+    # `_is_phantom` flags reproduces its law at L = 0 under the certificate's rescaling, so
+    # its family is that law's and no flagged variant gains rank; the rank oracle confirms
+    # it on the first four. The counts are aggregate regression pins over the
+    # declaration's seed set (CLAUDE.md enumeration rule 1's exception).
+    rxn = _testhelper_phantom_bibi_rxn
+    parents = _testhelper_spaced(collect(EnzymeRates.init_mechanisms(rxn)), 40)
+    kids = _testhelper_spaced(_testhelper_tagging_children(parents, rxn), 200)
+    @test length(kids) == 200
+    flagged = [am for am in kids if EnzymeRates._is_phantom(am, EnzymeRates._law(am))]
+    @test length(flagged) == 21
+    rng = Random.MersenneTwister(505)
+    @test all(am -> _testhelper_phantom_map_holds(am; rng), flagged)
+    for am in first(flagged, 4)
+        @test _testhelper_identifiable_rank(am) ==
+              _testhelper_identifiable_rank(EnzymeRates.catalytic(am))
+    end
+end
+
+@testset "no one-subunit ping-pong tagging child is an L phantom" begin
+    # Q6: the tagging children at one catalytic subunit of 30 ping-pong parents,
+    # the seeds with a covalent form and their well-posed flips with one, spaced through
+    # their content order. Every child keeps a step in the inactive conformation, so the
+    # pre-filter fits it, and none has a certificate, so dropping the pre-filter
+    # would flag none either. The counts are aggregate regression pins over the
+    # declaration's seed set (CLAUDE.md enumeration rule 1's exception).
+    rxn = _testhelper_phantom_pingpong_rxn
+    covalent(m) = any(EnzymeRates._has_residual, m.forms)
+    seeds = filter(covalent, collect(EnzymeRates.init_mechanisms(rxn)))
+    flips = [c for m in seeds for c in EnzymeRates._expand_re_to_ss(m)
+             if EnzymeRates._is_well_posed(c) && covalent(c)]
+    parents = _testhelper_spaced(unique!([seeds; flips]), 30)
+    @test length(parents) == 30
+    kids = _testhelper_tagging_children(parents, rxn)
+    @test length(kids) == 172
+    @test all(am -> any(EnzymeRates._inactive_mask(am)), kids)
+    @test all(am -> isempty(EnzymeRates._phantom_weights(EnzymeRates._law(am))), kids)
+end

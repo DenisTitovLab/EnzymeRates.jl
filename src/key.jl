@@ -1,5 +1,5 @@
-# ABOUTME: The dedup key: a rate law brought to lowest terms, its fitted constants labelled
-# ABOUTME: canonically by colour refinement and individualization, and that text's SHA-256.
+# ABOUTME: The canonical key of a rate law, by colour refinement and individualization,
+# ABOUTME: and the rescaling certificate that flags a one-subunit L phantom.
 
 """
 A rate law's canonical form (spec section 10): `order`, its fitted constants in canonical
@@ -157,3 +157,81 @@ function _canonical(L::Union{_Law, _AlloLaw}, mechanism_id::AbstractString)
     _Canonical([vars.names[present[st.order]]; absent], text, bytes2hex(sha256(text)),
                st.leaves, false)
 end
+
+# ─── One-subunit L phantoms ─────────────────────────────────────────────────
+
+"""
+    _phantom_weights(A) -> w
+
+The rescaling certificate of the MWC law `A` (spec section 13, "One-subunit L phantoms").
+At one catalytic subunit, with an inactive conformation that turns nothing over
+(`QI = 0`), the law is `v = N/(Y + L·X)` with `N = H·fI·QA·WA`, `Y = fI·DA·WA` and
+`X = fA·DI·WI`. When every term of `X` is a term of `Y` with the same coefficient,
+`Y + L·X = (Y − X) + (1 + L)·X`; weights `w` over the fitted constants other than `L`, and
+a shift `s`, with `e·w = s` on the constant exponents `e` of every term of `N` and of
+`Y − X` and `e·w = s + 1` on those of every term of `X`, then give
+`v(θ, L) = v₀(θ ⊙ (1 + L)^w)` for all positive `θ` and `L`, `v₀ = N/Y` being the law at
+`L = 0`: the two laws have one family. Returns `w` in `A.vars` order (the independents,
+then the regulator constants), or an empty vector when no weights exist, when `A` has
+another shape, or when the arithmetic leaves `Int64`, so that such a variant is fitted.
+"""
+function _phantom_weights(A::_AlloLaw)
+    none = Rational{Int}[]
+    A.n == 1 && iszero(A.inactive.Q) || return none
+    try
+        WA = foldl(*, (w for (w, _, k) in A.sites for _ in 1:k); init = one(_Poly))
+        WI = foldl(*, (w for (_, w, k) in A.sites for _ in 1:k); init = one(_Poly))
+        N = A.H * A.fI * A.active.Q * WA
+        Y = A.fI * A.active.D * WA
+        X = A.fA * A.inactive.D * WI
+        all(((m, c),) -> get(Y.terms, m, 0) == c, X.terms) || return none
+        vars = A.vars
+        θ = [v for v in eachindex(vars.names)
+             if !vars.conc[v] && vars.names[v] !== :Keq && vars.names[v] !== :L]
+        at = Dict(v => j for (j, v) in enumerate(θ))
+        n = length(θ)
+        # One row per distinct exponent vector: [e; -1] · [w; s] = rhs.
+        rows = Dict{Vector{Rational{Int}}, Rational{Int}}()
+        function row!(p::_Poly, rhs::Rational{Int})
+            for m in keys(p.terms)
+                e = zeros(Rational{Int}, n + 1)
+                for (v, x) in m
+                    j = get(at, v, 0)
+                    j == 0 || (e[j] += x)
+                end
+                e[end] = -1
+                get!(rows, e, rhs) == rhs || return false
+            end
+            true
+        end
+        row!(N, 0 // 1) && row!(Y - X, 0 // 1) && row!(X, 1 // 1) || return none
+        M = zeros(Rational{Int}, length(rows), n + 2)
+        for (i, (e, rhs)) in enumerate(rows)
+            M[i, 1:(n + 1)] = e
+            M[i, n + 2] = rhs
+        end
+        pivots = _rref!(M, n + 1)
+        all(iszero, view(M, (length(pivots) + 1):size(M, 1), n + 2)) || return none
+        w = zeros(Rational{Int}, n + 1)
+        for (r, c) in enumerate(pivots)
+            w[c] = M[r, n + 2]
+        end
+        w[1:n]
+    catch err
+        err isa OverflowError || rethrow()
+        none
+    end
+end
+
+"""
+    _is_phantom(am, A) -> Bool
+
+Whether the allosteric mechanism `am`, whose MWC law is `A`, is a one-subunit L phantom
+(spec section 13): one catalytic subunit, an inactive conformation that binds nothing and
+runs no step (`_inactive_mask` empty), only `:OnlyA` site ligands, and a rescaling
+certificate (`_phantom_weights`), so its family is the family of its law at `L = 0`.
+"""
+_is_phantom(am::AllostericMechanism, A::_AlloLaw) =
+    catalytic_multiplicity(am) == 1 && !any(_inactive_mask(am)) &&
+    all(site -> all(==(:OnlyA), allo_states(site)), regulatory_sites(am)) &&
+    !isempty(_phantom_weights(A))
