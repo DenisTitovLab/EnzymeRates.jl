@@ -134,48 +134,9 @@ function _poly_to_expr(p::POLY, param_syms::Set{Symbol} = Set{Symbol}())
 end
 
 """
-Write `p` as a Julia `Expr` in greedy Horner form, for the body of the generated
-`rate_equation`. The factor that divides the most terms, a symbol or the reciprocal of
-one, is taken out as `x * (q) + (r)`, and the quotient `q` and the remainder `r` are
-written the same way. The body then multiplies by each factor once per branch instead of
-once per term, which keeps the tested 396-term laws at 54-62 ns per call locally; LLVM
-computes a repeated reciprocal `1 / K` once. Ties go to the factor first by name, so the
-body is deterministic, and every call has two operands (see `_nest_binary`).
-"""
-function _poly_to_horner(p::POLY)
-    isempty(p) && return 0
-    counts = Dict{Pair{Symbol, Int}, Int}()
-    for mono in keys(p), (s, e) in mono
-        counts[s => sign(e)] = get(counts, s => sign(e), 0) + 1
-    end
-    if isempty(counts)
-        c = only(values(p))
-        return isinteger(c) ? Int(c) : :($(numerator(c)) / $(denominator(c)))
-    end
-    (s, sg), _ = first(sort!(collect(counts);
-                             by = c -> (-c.second, string(c.first.first), c.first.second)))
-    quotient, remainder = POLY(), POLY()
-    for (mono, c) in p
-        i = findfirst(f -> f.first == s && sign(f.second) == sg, mono)
-        i === nothing && (remainder[mono] = c; continue)
-        reduced = copy(mono)
-        e = mono[i].second - sg
-        e == 0 ? deleteat!(reduced, i) : (reduced[i] = s => e)
-        quotient[reduced] = c
-    end
-    x = sg > 0 ? s : :(1 / $s)
-    q = _poly_to_horner(quotient)
-    term = q == 1 ? x : :($x * $q)
-    isempty(remainder) ? term : :($term + $(_poly_to_horner(remainder)))
-end
-
-"""
 Build a balanced binary `+`/`*` tree so every emitted call has exactly two
-operands. Required for zero-allocation `rate_equation` runtime: Julia inlines
-binary `+(::Float64, ::Float64)` into fused scalar arithmetic, but falls back
-to a varargs path that boxes the operand tuple once the chain exceeds ~30
-terms. See `_testhelper_test_rate_equation_performance` for the contract this
-enforces.
+operands, for the Exprs of the printed rate equation (`_poly_to_expr`,
+`_num_den_exprs`).
 """
 function _nest_binary(op::Symbol, terms::Vector{Any})
     n = length(terms)

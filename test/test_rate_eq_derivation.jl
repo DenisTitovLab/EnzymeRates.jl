@@ -192,13 +192,18 @@ end
 """Check if mechanism has any rapid-equilibrium steps."""
 _testhelper_has_re_steps(m) = any(s -> s.rapid_equilibrium, _testhelper_graph(m).steps)
 
+"""The call the gate times: `rate_equation` behind a function boundary the compiler may not
+inline, so it cannot hoist the call out of the timing loop."""
+@noinline _testhelper_rate_barrier(m, concs, params) = rate_equation(m, concs, params)
+
 """
 Test that `rate_equation` is non-allocating and fast for the given mechanism.
-Must be a standalone function to avoid @testset closure boxing.
+Must be a standalone function to avoid @testset closure boxing. Each call goes through
+`_testhelper_rate_barrier`, so every one of the 10,000 calls per batch runs.
 """
 function _testhelper_test_rate_equation_performance(m, params, concs)
-    rate_equation(m, concs, params) # warmup/compile
-    allocs = @allocated rate_equation(m, concs, params)
+    _testhelper_rate_barrier(m, concs, params) # warmup/compile
+    allocs = @allocated _testhelper_rate_barrier(m, concs, params)
     # Minimum over several batches defeats the GC/scheduling inflation a
     # single mean suffers; accumulating into `acc` (and observing it via the
     # finite-result check) prevents the optimizer from eliding the calls.
@@ -207,7 +212,7 @@ function _testhelper_test_rate_equation_performance(m, params, concs)
     for _ in 1:5
         acc = 0.0
         t = @elapsed for _ in 1:10_000
-            acc += rate_equation(m, concs, params)
+            acc += _testhelper_rate_barrier(m, concs, params)
         end
         best = min(best, t / 10_000)
     end
@@ -776,12 +781,22 @@ function _testhelper_test_zero_metabolite_finite(spec::_testhelper_MechanismTest
     end
 end
 
+# The plain specs whose compiled body also reads BigFloat inputs in the mass-action check,
+# beside every allosteric spec: an isomerization, a ping-pong, a ter-bi and a law with
+# both a Haldane and a Wegscheider dependent.
+const _testhelper_bigfloat_body_specs = ("Segel Iso Uni Uni", "Segel Ping Pong Bi Bi",
+                                         "Segel Ordered Ter Bi", "Random-order Bi-Bi")
+
 """The spec's rate law against the exact steady state of its mass-action network
 (`_testhelper_check_law_against_oracle`); an allosteric spec runs with one catalytic
-subunit, where the MWC law is the exact steady state."""
+subunit, where the MWC law is the exact steady state. The allosteric specs and
+`_testhelper_bigfloat_body_specs` also run 256-bit BigFloat inputs through the compiled
+body, to 1e-20."""
 function _testhelper_test_mass_action_oracle(spec::_testhelper_MechanismTestSpec)
     @testset "Mass-action oracle" begin
-        _testhelper_check_law_against_oracle(spec.mechanism)
+        bigfloat = spec.mechanism isa EnzymeRates.AllostericEnzymeMechanism ||
+                   spec.name in _testhelper_bigfloat_body_specs
+        _testhelper_check_law_against_oracle(spec.mechanism; bigfloat)
     end
 end
 
@@ -1309,13 +1324,19 @@ end
 
 # ── Standalone tests ───────────────────────────────────────────────────────────
 
-"""The `return E_total * (num) / (den)` expression of the generated `rate_equation` body of
-`m`."""
-function _testhelper_generated_rate_return(m)
-    mech = ER._derivation_input(typeof(m))
-    dep, indep = ER._dependent_param_exprs(mech)
-    last(ER._rate_body(mech, (indep..., :Keq, :E_total), dep).args)
-end
+"""The body of the generated `rate_equation` of `m`, as the generator builds it."""
+_testhelper_rate_body(m) = ER._rate_body(ER._derivation_input(typeof(m)))
+
+"""Each local the generated `rate_equation` body of `m` binds, in order, with its
+right-hand side."""
+_testhelper_body_locals(m) =
+    Pair{Symbol, Any}[ex.args[1] => ex.args[2] for ex in _testhelper_rate_body(m).args
+                      if ex isa Expr && ex.head === :(=) && ex.args[1] isa Symbol]
+
+"""The expression the generated `rate_equation` body of `m` returns."""
+_testhelper_generated_rate_return(m) =
+    only(ex.args[1] for ex in _testhelper_rate_body(m).args
+         if ex isa Expr && ex.head === :return)
 
 @testset "rate_equation polynomial body uses 2-arg +/* calls" begin
     # The fitter calls rate_equation millions of times per CV fold. The
@@ -1339,76 +1360,31 @@ end
             end
         end
     end
-    _testhelper_walk!(_testhelper_generated_rate_return(spec.mechanism))
+    # Every local the body binds, and what it returns, for a plain law and an MWC law.
+    mwc = only(s for s in MECHANISM_TEST_SPECS
+               if s.name == "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites")
+    for m in (spec.mechanism, mwc.mechanism)
+        foreach(_testhelper_walk!, last.(_testhelper_body_locals(m)))
+        _testhelper_walk!(_testhelper_generated_rate_return(m))
+    end
     @test isempty(bad)
 end
 
-# The three largest rate laws among the children of one `expand_mechanisms` round over
-# 60 bi-bi seeds: random-order merged complexes with dead-end bindings, every step steady
-# state, 396 denominator terms each.
-const _testhelper_largest_enumerated_mechanisms = [
-    @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
-        (E + A <--> E(A), E(B) + A <--> E(P, Q))
-        (E + B <--> E(B), E(A) + B <--> E(P, Q), E(Q) + B <--> E(B, Q))
-        (E + P <--> E(P), E(Q) + P <--> E(P, Q))
-        (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) end end),
-    @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
-        (E + A <--> E(A), E(B) + A <--> E(P, Q), E(Q) + A <--> E(A, Q))
-        (E + B <--> E(B), E(A) + B <--> E(P, Q))
-        (E + P <--> E(P), E(Q) + P <--> E(P, Q))
-        (E + Q <--> E(Q), E(A) + Q <--> E(A, Q), E(P) + Q <--> E(P, Q)) end end),
-    @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
-        (E + A <--> E(A), E(B) + A <--> E(P, Q), E(P) + A <--> E(A, P))
-        (E + B <--> E(B), E(A) + B <--> E(P, Q))
-        (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))
-        (E + Q <--> E(Q), E(P) + Q <--> E(P, Q)) end end),
-]
-
-# Three random-order seeds of A + B + C ⇌ P + Q, larger than the bi-bi laws above: 589,
-# 799 and 858 denominator terms.
-const _testhelper_large_ter_bi_mechanisms = [
-    @enzyme_mechanism(begin substrates: A, B, C; products: P, Q; steps: begin
-        (E + A <--> E(A), E(B) + A <--> E(A, B), E(B, C) + A <--> E(P, Q),
-         E(C) + A <--> E(A, C), E(P) + A <--> E(A, P))
-        (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(A, C) + B ⇌ E(P, Q), E(C) + B ⇌ E(B, C),
-         E(C, Q) + B ⇌ E(B, C, Q), E(Q) + B ⇌ E(B, Q))
-        (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(A, B) + C ⇌ E(P, Q), E(B) + C ⇌ E(B, C),
-         E(B, Q) + C ⇌ E(B, C, Q), E(Q) + C ⇌ E(C, Q))
-        (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))
-        (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(B, C) + Q <--> E(B, C, Q),
-         E(C) + Q <--> E(C, Q), E(P) + Q <--> E(P, Q)) end end),
-    @enzyme_mechanism(begin substrates: A, B, C; products: P, Q; steps: begin
-        (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(B, C) + A ⇌ E(P, Q), E(C) + A ⇌ E(A, C),
-         E(P) + A ⇌ E(A, P))
-        (E + B <--> E(B), E(A) + B <--> E(A, B), E(A, C) + B <--> E(P, Q),
-         E(C) + B <--> E(B, C), E(C, Q) + B <--> E(B, C, Q), E(Q) + B <--> E(B, Q))
-        (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(A, B) + C ⇌ E(P, Q), E(B) + C ⇌ E(B, C),
-         E(B, Q) + C ⇌ E(B, C, Q), E(Q) + C ⇌ E(C, Q))
-        (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))
-        (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(B, C) + Q <--> E(B, C, Q),
-         E(C) + Q <--> E(C, Q), E(P) + Q <--> E(P, Q)) end end),
-    @enzyme_mechanism(begin substrates: A, B, C; products: P, Q; steps: begin
-        (E + A <--> E(A), E(C) + A <--> E(Q; residual = A + C - Q),
-         E(C, P) + A <--> E(A, C, P), E(P) + A <--> E(A, P))
-        (E + C <--> E(C), E(A) + C <--> E(Q; residual = A + C - Q),
-         E(A, P) + C <--> E(A, C, P), E(P) + C <--> E(C, P))
-        (E + P <--> E(P), E(A) + P <--> E(A, P), E(C) + P <--> E(C, P),
-         E(Q; residual = A + C - Q) + P <--> E(A, C, P))
-        (E(P) + Q ⇌ E(B, Q; residual = A + C - Q),
-         E(; residual = A + C - Q) + Q ⇌ E(Q; residual = A + C - Q))
-        (E(Q; residual = A + C - Q) + B ⇌ E(B, Q; residual = A + C - Q),
-         E(; residual = A + C - Q) + B ⇌ E(P)) end end),
-]
-
-# Seconds per call allowed per denominator term: each of the six laws above must run in
-# under the larger of 120 ns and this constant times its denominator terms. It covers
+# Seconds per call allowed per denominator term: each of the six gate laws (the fixtures
+# file) must run in under the larger of 120 ns and this constant times its denominator
+# terms. It covers
 # the worst CI readings on each runner, in ns per term, ter-bi / bi-bi: ubuntu x64
 # 0.305 / 0.313, windows x64 0.346 / 0.459, macOS aarch64 0.248 / 0.732.
 const _testhelper_seconds_per_denominator_term = 0.8e-9
 
-"""The number of terms in the denominator of `m`'s derived rate law."""
-_testhelper_denominator_terms(m) =
-    length(EnzymeRates._raw_symbolic_rate_polys(typeof(m))[2])
+"""The number of terms in the denominator of `m`'s derived rate law after the solve is
+substituted: an MWC law counts both conformations, an inactive conformation that is free E
+alone counting 1."""
+function _testhelper_denominator_terms(m)
+    L = EnzymeRates._law(_testhelper_lift(m))
+    L isa EnzymeRates._Law && return EnzymeRates._nterms(L.D)
+    EnzymeRates._nterms(L.active.D) + EnzymeRates._nterms(L.inactive.D)
+end
 
 @testset "rate_equation time per call grows at most in proportion to the law's size" begin
     @test _testhelper_denominator_terms.(_testhelper_largest_enumerated_mechanisms) ==
@@ -1458,15 +1434,156 @@ end
 
 @testset "the generated rate_equation body is in Horner form" begin
     # Horner form multiplies by each factor once per branch instead of once per term,
-    # which keeps the 396-term laws above at 54-62 ns per call locally. Greedy Horner
-    # takes a factor out of every summand it divides, so no concentration divides two
-    # summands of one sum.
+    # which keeps the 396-term gate laws at tens of ns per call. Greedy Horner takes a
+    # factor out of every summand it divides, so no local divides two summands of one sum,
+    # in any local's definition or in what the body returns.
     for m in (_testhelper_largest_enumerated_mechanisms[2],
               only(s for s in MECHANISM_TEST_SPECS
                    if s.name == "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites"
                   ).mechanism)
-        @test isempty(_testhelper_unfactored_sums(
-            _testhelper_generated_rate_return(m), metabolites(m)))
+        locals = _testhelper_body_locals(m)
+        names = first.(locals)
+        for ex in [last.(locals); _testhelper_generated_rate_return(m)]
+            @test isempty(_testhelper_unfactored_sums(ex, names))
+        end
+    end
+end
+
+@testset "rate_equation reads concs and params by name in any order" begin
+    # The body reads each input by name (`getfield`), so reordered NamedTuples, a data row
+    # with Rate and group fields, and all_parameters' output with the dependents give the
+    # same value without allocating. A metabolite named x1 reads as a concentration beside
+    # the body's positional local x1.
+    m = only(s for s in MECHANISM_TEST_SPECS if s.name == "Random-order Bi-Bi").mechanism
+    params, concs, all_params = _testhelper_random_independent_params_concs(
+        m, collect(metabolites(m)); rng = Random.MersenneTwister(91))
+    v = rate_equation(m, concs, params)
+    flipped(nt) = NamedTuple{reverse(keys(nt))}(reverse(values(nt)))
+    row = merge((Rate = 1.0, group = 2), flipped(concs))
+    for (c, p) in ((flipped(concs), params), (concs, flipped(params)),
+                   (row, all_params), (row, flipped(all_params)))
+        @test rate_equation(m, c, p) == v
+        allocs, _ = _testhelper_test_rate_equation_performance(m, p, c)
+        @test allocs == 0
+    end
+    x1 = @enzyme_mechanism begin
+        substrates: x1
+        products: P
+        steps: begin
+            E + x1 ⇌ E(x1)
+            E(x1) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    _testhelper_check_law_against_oracle(x1)
+    params, concs, _ = _testhelper_random_independent_params_concs(
+        x1, collect(metabolites(x1)); rng = Random.MersenneTwister(92))
+    allocs, _ = _testhelper_test_rate_equation_performance(x1, params, concs)
+    @test allocs == 0
+end
+
+@testset "a cube-root dependent emits x^(one(x)/3) and is exact in BigFloat" begin
+    # One isomerization group, crossed three times by the only cycle: its reverse rate is
+    # the cube root of a power product (Keq^(-1/3)·…). The body computes each root once as
+    # x^(one(x)/3), exact in BigFloat, where a Float64 exponent 1/3 would err by 1e-17.
+    m = @enzyme_mechanism begin
+        substrates: S, B
+        products: P
+        steps: begin
+            (E <--> F, E(S) <--> F(S), E(P) <--> F(P))
+            F + S <--> E(S)
+            F(S) + B <--> E(P)
+            F(P) <--> E + P
+        end
+    end
+    mech = _testhelper_lift(m)
+    @test any(d -> denominator(d.keq) == 3, EnzymeRates._solve(mech).dependents)
+    roots = [(name, rhs) for (name, rhs) in _testhelper_body_locals(m)
+             if occursin(r"^x\d+[mp]3$", String(name))]
+    @test !isempty(roots)
+    for (name, rhs) in roots
+        x = Symbol(match(r"^(x\d+)", String(name)).captures[1])
+        root = :($x^(one($x) / 3))
+        @test rhs == (endswith(String(name), "p3") ? root : :(inv($root)))
+    end
+    fitted = EnzymeRates.fitted_params(m)
+    rng = Random.MersenneTwister(93)
+    setprecision(BigFloat, 256) do
+        for _ in 1:3
+            point, concs, params = _testhelper_law_inputs(mech, fitted, rng)
+            oracle = _testhelper_steady_state_rate(mech, point, concs)
+            p = NamedTuple{(fitted..., :Keq, :E_total)}(
+                (getindex.(Ref(params), fitted)..., params[:Keq], big(1)))
+            c = NamedTuple{metabolites(m)}(Tuple(concs[x] for x in metabolites(m)))
+            @test abs(rate_equation(m, c, p) - oracle) <= big(10)^-20 * abs(oracle)
+        end
+    end
+end
+
+@testset "dependent locals are numbered by solve column" begin
+    # The program defines a local for each dependent that is a power product of two or
+    # more symbols before any other local, in the solve's column order, so a body's
+    # numbering never follows a hash (spec section 2, criterion 3); a dependent equal to
+    # one symbol takes no local. The random-order bi-bi has a Haldane dependent and a
+    # Wegscheider one, each a product of several constants.
+    m = _testhelper_lift(only(s for s in MECHANISM_TEST_SPECS
+                              if s.name == "Random-order Bi-Bi").mechanism)
+    s = EnzymeRates._solve(m)
+    L = EnzymeRates._law(m, s)
+    p = EnzymeRates._program(m, s, L)
+    @test issorted([d.col for d in s.dependents])
+    function _testhelper_power(d, s, L)
+        EnzymeRates._monomial(L.vars.index[:Keq] => d.keq,
+                              (L.vars.index[s.names[f]] => e for (f, e) in d.factors)...)
+    end
+    products = unique!([_testhelper_power(d, s, L) for d in s.dependents
+                        if length(_testhelper_power(d, s, L)) >= 2])
+    @test length(s.dependents) == length(products) == 2
+    @test [q for (_, q) in p.defs[1:length(products)]] == EnzymeRates._term.(products)
+    # Task 1's labels fixture: a kinetic-group dependent and a Wegscheider one that each
+    # equal one constant, read directly, and a Haldane product, the program's first local.
+    # Every later local holds a sum of two or more terms.
+    folded = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+            E + B ⇌ E(B)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
+    sf = EnzymeRates._solve(folded)
+    Lf = EnzymeRates._law(folded, sf)
+    pf = EnzymeRates._program(folded, sf, Lf)
+    @test [d.label for d in sf.dependents] == [:haldane, :kinetic_group, :wegscheider]
+    haldane = only(d for d in sf.dependents if d.label === :haldane)
+    @test first(pf.defs).second == EnzymeRates._term(_testhelper_power(haldane, sf, Lf))
+    @test count(d -> EnzymeRates._nterms(d.second) == 1, pf.defs) == 1
+end
+
+@testset "the generated body is finite at zero concentrations" begin
+    # Every term of the program holds each concentration to a nonnegative power, so with
+    # one concentration at zero the body returns the law's value there, which the law in
+    # lowest terms gives exactly; "Zero-metabolite finiteness" checks finiteness alone.
+    for spec in MECHANISM_TEST_SPECS
+        @testset "$(spec.name)" begin
+            m = spec.mechanism
+            L = EnzymeRates._law(_testhelper_lift(m))
+            rng = Random.MersenneTwister(778 + hash(spec.name) % 1000)
+            params = _testhelper_random_independent_params(m; rng)
+            mets = collect(metabolites(m))
+            for zeroed in mets
+                concs = NamedTuple{Tuple(mets)}(
+                    Tuple(n == zeroed ? 0.0 : 0.5 + rand(rng) for n in mets))
+                v = rate_equation(m, concs, params)
+                env = Dict{Symbol, BigFloat}(k => BigFloat(x)
+                                             for (k, x) in pairs(merge(params, concs)))
+                limit = params.E_total * _testhelper_evaluate_law(L, env)
+                @test isfinite(v) && isapprox(v, Float64(limit); rtol = 1e-8)
+            end
+        end
     end
 end
 
@@ -2122,22 +2239,44 @@ end
 
 # The names no metabolite takes: E_total, Keq, L, N, params, concs, v and every name
 # holding `_` (test_types.jl checks that the reaction rejects each). Besides the
-# metabolites, the generated rate_equation body and the printed law bind or read only
-# such names, so no concentration can overwrite a constant or a local.
+# metabolites, the printed law binds or reads only such names; the generated body binds
+# only positional locals (the next testset), so no concentration can overwrite a constant
+# or a local.
 @testset "the reserved names cover every non-metabolite name of a law" begin
     reserved = (:E_total, :Keq, :L, :N, :params, :concs, :v)
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
-        mech = EnzymeRates._derivation_input(typeof(m))
-        dep, indep = EnzymeRates._dependent_param_exprs(mech)
-        body = EnzymeRates._rate_body(mech, (indep..., :Keq, :E_total), dep)
         printed = Meta.parseall(rate_equation_string(m))
-        others = setdiff(_testhelper_names_read(body) ∪ _testhelper_names_read(printed),
-                         metabolites(m))
+        others = setdiff(_testhelper_names_read(printed), metabolites(m))
         @test all(n -> occursin('_', String(n)) || n in reserved, others)
-        # The law destructures params and concs and reads Keq; the printed one assigns v.
+        # The printed law destructures params and concs, reads Keq and assigns v.
         @test (:params, :concs, :Keq) ⊆ others
         @test :v in _testhelper_names_read(printed)
+    end
+end
+
+@testset "the generated body binds positional locals and reads inputs by getfield" begin
+    # Each local is x<i>, its reciprocal x<i>m<q> or its root x<i>p<q>, and each input is
+    # read as getfield(concs, :X) of a metabolite or getfield(params, :k) of a parameter,
+    # so no metabolite name can shadow a constant or a local.
+    for spec in MECHANISM_TEST_SPECS
+        m = spec.mechanism
+        body = _testhelper_rate_body(m)
+        locals = _testhelper_body_locals(m)
+        @test all(p -> occursin(r"^x\d+([mp]\d+)?$", String(p.first)), locals)
+        @test _testhelper_names_read(body) ⊆ union(Set(first.(locals)), [:concs, :params])
+        reads = Expr[]
+        function _testhelper_getfields!(e)
+            e isa Expr || return
+            e.head === :call && e.args[1] === :getfield && push!(reads, e)
+            foreach(_testhelper_getfields!, e.args)
+        end
+        _testhelper_getfields!(body)
+        @test all(r -> r.args[2] in (:concs, :params) && r.args[3] isa QuoteNode, reads)
+        @test Set(r.args[3].value for r in reads if r.args[2] === :concs) ⊆
+              Set(metabolites(m))
+        @test Set(r.args[3].value for r in reads if r.args[2] === :params) ⊆
+              Set(parameters(m))
     end
 end
 

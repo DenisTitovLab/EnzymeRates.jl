@@ -74,21 +74,25 @@ function _testhelper_parse_labeled(out::String, labels::Vector{String})
 end
 
 # Runs `script` in a fresh Julia subprocess on the test environment, so the script can
-# load test dependencies; the script is expected to print `<label>:<float>` for each
-# label in `labels`. Returns a Vector{Float64} parallel to `labels` (NaN for any label
-# not found or on subprocess failure).
-function _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String})
+# load test dependencies, and returns what it printed, or "" when it fails.
+function _testhelper_subprocess_output(script::String)
     julia_exe = Base.julia_cmd().exec[1]
     out_buf = IOBuffer()
     try
         run(pipeline(Cmd([julia_exe, "--project=$(Base.active_project())", "-e", script]);
                      stdout=out_buf, stderr=devnull); wait=true)
     catch e
-        @warn "labeled subprocess failed: $e"
-        return fill(NaN, length(labels))
+        @warn "subprocess failed: $e"
+        return ""
     end
-    _testhelper_parse_labeled(String(take!(out_buf)), labels)
+    String(take!(out_buf))
 end
+
+# Runs `script` as `_testhelper_subprocess_output` does; the script is expected to print
+# `<label>:<float>` for each label in `labels`. Returns a Vector{Float64} parallel to
+# `labels` (NaN for any label not found or on subprocess failure).
+_testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
+    _testhelper_parse_labeled(_testhelper_subprocess_output(script), labels)
 
 @testset "compile-budget" begin
     # Three fresh subprocesses supply every measurement below. Each must be a fresh
@@ -403,5 +407,32 @@ end
         end
     else
         @test_skip "fit compile: the census needs the global method table of Julia 1.12"
+    end
+end
+
+@testset "a second process derives the same rate_equation bodies" begin
+    # Q7 (spec section 2, criterion 3): a fresh process reads each mechanism back from its
+    # text and derives the same generated body, compared by SHA-256, for the 42 specs and
+    # the six gate laws.
+    mechs = [_testhelper_lift(s.mechanism) for s in MECHANISM_TEST_SPECS]
+    append!(mechs, _testhelper_lift.(_testhelper_largest_enumerated_mechanisms))
+    append!(mechs, _testhelper_lift.(_testhelper_large_ter_bi_mechanisms))
+    @test length(mechs) == 48
+    file = tempname()
+    write(file, join([sprint(show, m) for m in mechs], "\n----\n"))
+    script = """
+        using EnzymeRates
+        const ER = EnzymeRates
+        for (i, text) in enumerate(split(read($(repr(file)), String), "\\n----\\n"))
+            m = ER._parse_mechanism(String(text))
+            println("BODY ", i, " ", bytes2hex(ER.sha256(string(ER._rate_body(m)))))
+        end
+        """
+    lines = filter(startswith("BODY "), split(_testhelper_subprocess_output(script), '\n'))
+    rm(file; force = true)
+    @test length(lines) == 48
+    for (i, m) in enumerate(mechs)
+        mine = bytes2hex(EnzymeRates.sha256(string(EnzymeRates._rate_body(m))))
+        @test "BODY $i $mine" in lines
     end
 end

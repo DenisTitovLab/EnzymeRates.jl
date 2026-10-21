@@ -576,11 +576,11 @@ Check that the rate law of `m` equals the exact steady state of its mass-action 
 (`_testhelper_steady_state_rate`) to `rtol` at `n_points` consistent points
 (`_testhelper_consistent_point`). The law reads the point's fitted constants and computes
 its dependents from them, so a wrong dependent shows as a mismatch. The compiled
-`rate_equation` is checked too, in Float64 to 1e-8. An allosteric mechanism is checked
-with one catalytic subunit.
+`rate_equation` is checked too, in Float64 to 1e-8, and with `bigfloat` also with 256-bit
+BigFloat inputs, to `rtol`. An allosteric mechanism is checked with one catalytic subunit.
 """
 function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1,
-                                              rtol = big(10)^-20)
+                                              bigfloat = false, rtol = big(10)^-20)
     rng = Random.MersenneTwister(seed)
     em = _testhelper_single_subunit(m)
     # The point and the solver take the concrete mechanism: each compiled mechanism is
@@ -595,6 +595,11 @@ function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1,
               rtol * abs(oracle)
         c64, p64 = _testhelper_float64_inputs(fitted, params, concs, mets)
         @test isapprox(rate_equation(em, c64, p64), Float64(oracle); rtol = 1e-8)
+        bigfloat || continue
+        pbig = NamedTuple{(fitted..., :Keq, :E_total)}(
+            (getindex.(Ref(params), fitted)..., point.Keq, big(1)))
+        cbig = NamedTuple{mets}(Tuple(concs[x] for x in mets))
+        @test abs(rate_equation(em, cbig, pbig) - oracle) <= rtol * abs(oracle)
     end
 end
 
@@ -4318,3 +4323,60 @@ end
 # (testset "multi-OnlyA MWC derivation matches mass-action ground truth").
 # `_expand_to_allosteric` reaches it by tagging the two substrate binding groups
 # :OnlyA with the chemistry.
+
+# The three largest rate laws among the children of one `expand_mechanisms` round over
+# 60 bi-bi seeds: random-order merged complexes with dead-end bindings, every step steady
+# state, 396 denominator terms each.
+const _testhelper_largest_enumerated_mechanisms = [
+    @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
+        (E + A <--> E(A), E(B) + A <--> E(P, Q))
+        (E + B <--> E(B), E(A) + B <--> E(P, Q), E(Q) + B <--> E(B, Q))
+        (E + P <--> E(P), E(Q) + P <--> E(P, Q))
+        (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) end end),
+    @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
+        (E + A <--> E(A), E(B) + A <--> E(P, Q), E(Q) + A <--> E(A, Q))
+        (E + B <--> E(B), E(A) + B <--> E(P, Q))
+        (E + P <--> E(P), E(Q) + P <--> E(P, Q))
+        (E + Q <--> E(Q), E(A) + Q <--> E(A, Q), E(P) + Q <--> E(P, Q)) end end),
+    @enzyme_mechanism(begin substrates: A, B; products: P, Q; steps: begin
+        (E + A <--> E(A), E(B) + A <--> E(P, Q), E(P) + A <--> E(A, P))
+        (E + B <--> E(B), E(A) + B <--> E(P, Q))
+        (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))
+        (E + Q <--> E(Q), E(P) + Q <--> E(P, Q)) end end),
+]
+
+# Three random-order seeds of A + B + C ⇌ P + Q, larger than the bi-bi laws above: 589,
+# 799 and 858 denominator terms.
+const _testhelper_large_ter_bi_mechanisms = [
+    @enzyme_mechanism(begin substrates: A, B, C; products: P, Q; steps: begin
+        (E + A <--> E(A), E(B) + A <--> E(A, B), E(B, C) + A <--> E(P, Q),
+         E(C) + A <--> E(A, C), E(P) + A <--> E(A, P))
+        (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(A, C) + B ⇌ E(P, Q), E(C) + B ⇌ E(B, C),
+         E(C, Q) + B ⇌ E(B, C, Q), E(Q) + B ⇌ E(B, Q))
+        (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(A, B) + C ⇌ E(P, Q), E(B) + C ⇌ E(B, C),
+         E(B, Q) + C ⇌ E(B, C, Q), E(Q) + C ⇌ E(C, Q))
+        (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))
+        (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(B, C) + Q <--> E(B, C, Q),
+         E(C) + Q <--> E(C, Q), E(P) + Q <--> E(P, Q)) end end),
+    @enzyme_mechanism(begin substrates: A, B, C; products: P, Q; steps: begin
+        (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(B, C) + A ⇌ E(P, Q), E(C) + A ⇌ E(A, C),
+         E(P) + A ⇌ E(A, P))
+        (E + B <--> E(B), E(A) + B <--> E(A, B), E(A, C) + B <--> E(P, Q),
+         E(C) + B <--> E(B, C), E(C, Q) + B <--> E(B, C, Q), E(Q) + B <--> E(B, Q))
+        (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(A, B) + C ⇌ E(P, Q), E(B) + C ⇌ E(B, C),
+         E(B, Q) + C ⇌ E(B, C, Q), E(Q) + C ⇌ E(C, Q))
+        (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))
+        (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(B, C) + Q <--> E(B, C, Q),
+         E(C) + Q <--> E(C, Q), E(P) + Q <--> E(P, Q)) end end),
+    @enzyme_mechanism(begin substrates: A, B, C; products: P, Q; steps: begin
+        (E + A <--> E(A), E(C) + A <--> E(Q; residual = A + C - Q),
+         E(C, P) + A <--> E(A, C, P), E(P) + A <--> E(A, P))
+        (E + C <--> E(C), E(A) + C <--> E(Q; residual = A + C - Q),
+         E(A, P) + C <--> E(A, C, P), E(P) + C <--> E(C, P))
+        (E + P <--> E(P), E(A) + P <--> E(A, P), E(C) + P <--> E(C, P),
+         E(Q; residual = A + C - Q) + P <--> E(A, C, P))
+        (E(P) + Q ⇌ E(B, Q; residual = A + C - Q),
+         E(; residual = A + C - Q) + Q ⇌ E(Q; residual = A + C - Q))
+        (E(Q; residual = A + C - Q) + B ⇌ E(B, Q; residual = A + C - Q),
+         E(; residual = A + C - Q) + B ⇌ E(P)) end end),
+]

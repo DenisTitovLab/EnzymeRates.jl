@@ -1,5 +1,5 @@
-# ABOUTME: King-Altman/Cha rate equation derivation via @generated functions.
-# ABOUTME: Parameters API and MWC allosteric rate assembly.
+# ABOUTME: King-Altman/Cha rate polynomials of the printed rate equation, the parameter API
+# ABOUTME: and the per-conformation constant names; MWC assembly of the printed law.
 
 # ─── Parameters API ─────────────────────────────────────────
 
@@ -282,40 +282,24 @@ end
 
 # ─── Expr generation from POLY ──────────────────────────────
 
-"""The numerator and denominator Exprs of the rate equation of `m`, from its raw
-symbolic rate polys: flat sums for the printed equation, or in Horner form
-(`_poly_to_horner`) for the generated code when `horner` is true. Errors when the
-denominator vanishes on a face of the guard (`_assert_support`)."""
-function _num_den_exprs(m::Mechanism; horner = false)
+"""The numerator and denominator Exprs of the rate equation of `m`, from its raw symbolic
+rate polys, as flat sums for the printed equation. Errors when the denominator vanishes
+on a face of the guard (`_assert_support`)."""
+function _num_den_exprs(m::Mechanism)
     names = _edge_names(m, :None)
     num, den, _ = _raw_symbolic_rate_polys(m, trues(length(m.edges)), names)
     _assert_support(m, _law_branches(den))
-    horner && return _poly_to_horner(num), _poly_to_horner(den)
     param_syms = Set{Symbol}(n for ns in names for n in ns)
     _poly_to_expr(num, param_syms), _poly_to_expr(den, param_syms)
 end
 
-"""Build destructuring Expr: (; a, b, c) = source"""
-function _destructuring_expr(syms, source::Symbol)
-    Expr(:(=), Expr(:tuple, Expr(:parameters, syms...)), source)
-end
-
-"""
-The assignments `sym = rhs` of the dependent parameters `dep`, in name order.
-The joint solve is a full Gauss–Jordan elimination (`_reduce_joint_system`), so every
-right-hand side reads only `Keq` and independent parameters, and the assignments may run
-in any order.
-"""
-_dep_assignments(dep) =
-    [Expr(:(=), sym, rhs) for (sym, rhs) in sort!(collect(dep); by = first)]
-
 """
 Error if a metabolite of `m` has the name of a parameter in `param_syms` or `dep`. The
-rate equation binds the parameters, the concentrations and the dependent parameters as
-local names of one scope, so a shared name would let one overwrite another. Every
-parameter name holds `_` or is `Keq` or `L`, and the reaction and mechanism constructors
-reject those metabolite names (`_check_metabolite_names`), so this check cannot fire for
-a mechanism the constructors build.
+printed rate equation binds the parameters, the concentrations and the dependent
+parameters as local names of one scope, so a shared name would let one overwrite another.
+Every parameter name holds `_` or is `Keq` or `L`, and the reaction and mechanism
+constructors reject those metabolite names (`_check_metabolite_names`), so this check
+cannot fire for a mechanism the constructors build.
 """
 function _assert_no_name_clash(m::_AnyMech, param_syms, dep)
     for x in metabolites(m)
@@ -324,60 +308,6 @@ function _assert_no_name_clash(m::_AnyMech, param_syms, dep)
             "equation; rename the metabolite")
     end
 end
-
-"""
-The body of the generated `rate_equation` of `m`, the mechanism its compiled type
-decodes to: destructure `param_syms` from
-`params` and the metabolites from `concs`, assign the dependent parameters `dep`, and
-return `E_total * (num) / (den)` with `num` and `den` from `_num_den_exprs` in Horner
-form. It first runs `_assert_no_name_clash`, which cannot fire for a mechanism the
-constructors build.
-"""
-function _rate_body(m::_AnyMech, param_syms, dep)
-    _assert_no_name_clash(m, param_syms, dep)
-    num, den = _num_den_exprs(m; horner = true)
-    Expr(:block,
-        _destructuring_expr(param_syms, :params),
-        _destructuring_expr(metabolites(m), :concs),
-        _dep_assignments(dep)...,
-        :(return E_total * ($num) / ($den)))
-end
-
-# ─── rate_equation ─────────────────────────────────────────────
-
-"""
-    rate_equation(m, concs, params)
-
-Return the net reaction rate of mechanism `m` at the metabolite concentrations
-`concs` and parameters `params` (both `NamedTuple`s). The rate equation itself
-is derived from the mechanism's elementary steps by the King–Altman/Cha method:
-rapid-equilibrium steps collapse to binding constants, steady-state steps are
-assembled into the King–Altman determinant, and the two combine into the
-quasi-steady-state flux through the whole mechanism — so one call returns the
-overall turnover, not the rate of a single step.
-
-`params` holds the independent constants (`parameters(m)`: the fitted constants, `Keq`
-and `E_total`); the rate law computes each dependent constant from them by its
-Haldane or Wegscheider relation.
-
-The derivation runs once, at compile time: the body is generated as a single
-arithmetic expression with no allocations, loops, or matrix operations. Use
-[`rate_equation_string`](@ref) to inspect the derived equation symbolically.
-"""
-@generated function rate_equation(m::M_type, concs::NamedTuple,
-        params::NamedTuple) where {M_type <: AbstractEnzymeMechanism}
-    # The body binds each metabolite's name as a local, so the type parameter's name
-    # holds `_`, which no metabolite name does. The generator decodes the mechanism and
-    # checks its rate law once (`_derivation_input`).
-    m_decoded = _derivation_input(M_type)
-    dep, indep = _dependent_param_exprs(m_decoded)
-    _rate_body(m_decoded, (indep..., :Keq, :E_total), dep)
-end
-
-# Concrete-mechanism convenience: lift to the singleton (see the note on
-# the parameters/fitted_params methods above — allocates, not the hot path).
-rate_equation(m::Union{Mechanism, AllostericMechanism}, concs, params) =
-    rate_equation(compile_mechanism(m), concs, params)
 
 # ─── String Representation ────────────────────────────────────
 
@@ -625,8 +555,7 @@ end
 """
 Assemble the MWC numerator and denominator Exprs of `am`, the mechanism its compiled type
 decodes to.
-Returns `(full_num, full_den)`, written with flat sums for the printed equation, or in
-Horner form (`_poly_to_horner`) for the generated code when `horner` is true.
+Returns `(full_num, full_den)`, written with flat sums for the printed equation.
 Per-active-site normalization: the
 numerator carries no leading `catalytic_multiplicity` factor; only the
 `Q_cat^(CatN-1)` / `Q_cat^CatN` binding-statistics powers remain. Errors when the
@@ -634,7 +563,7 @@ denominator vanishes on a face of the guard (`_assert_support`). It first refuse
 whose two conformations together exceed `MAX_RATE_EQUATION_TERMS` spanning-tree products
 (`_assert_derivable`).
 """
-function _num_den_exprs(am::AllostericMechanism; horner = false)
+function _num_den_exprs(am::AllostericMechanism)
     _assert_derivable(am)
     CatN = catalytic_multiplicity(am)
     RS = regulatory_sites(am)
@@ -643,7 +572,7 @@ function _num_den_exprs(am::AllostericMechanism; horner = false)
     # The active conformation's catalytic names drive `_poly_to_expr`'s
     # param/metabolite ordering split; the I-poly's `I_` names sort as non-params.
     cat_params = Set{Symbol}(n for ns in _edge_names(am, :A, kept) for n in ns)
-    to_expr(p) = horner ? _poly_to_horner(p) : _poly_to_expr(p, cat_params)
+    to_expr(p) = _poly_to_expr(p, cat_params)
     num_A_poly, den_A_poly, num_i_poly, den_i_poly, d_A, d_I =
         _mwc_state_polys(am, Set{Symbol}(metabolites(am.catalytic)), kept)
     # Each conformation's denominator times the other's free-enzyme weight

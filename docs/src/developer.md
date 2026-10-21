@@ -12,7 +12,7 @@ The two halves and the optimizer layer are described below.
 ## Derivation architecture
 
 A mechanism's rate equation is derived once, at compile time, by the
-King–Altman/Cha method in `@generated` functions (`src/rate_eq_derivation.jl`).
+King–Altman/Cha method in `@generated` functions (`src/codegen.jl`).
 To make that possible, a mechanism is encoded as a **singleton type** — the
 exported `EnzymeMechanism{Sig}` or `AllostericEnzymeMechanism{Sig}`
 (`src/types.jl`) — whose one type parameter, `Sig`, encodes the mechanism's canonical
@@ -23,8 +23,8 @@ during precompilation rather than at every call.
 
 This is the most important architectural decision in the package, and it is
 deliberate. Moving the derivation to compile time leaves
-`rate_equation(m, conc, params)` as one arithmetic expression, written in Horner
-form (`_poly_to_horner`), that must be
+`rate_equation(m, conc, params)` as straight-line arithmetic, written in Horner
+form (`_horner`), that must be
 **allocation-free and fast**: under 120 ns per call for every fixture mechanism, and
 under `max(120 ns, 0.8 ns × denominator terms)` for the three largest enumerated bi-bi
 laws (396 denominator terms each) and three ter-bi laws (589, 799 and 858 terms).
