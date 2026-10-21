@@ -2128,6 +2128,10 @@ _testhelper_term_units(units::AbstractDict, vars::EnzymeRates._Vars,
                                t + e * units[vars.names[v]][2]), mo;
           init = (0 // 1, 0 // 1))
 
+"""The variables of `vars` that hold the substrates of the concrete mechanism `m`."""
+_testhelper_substrate_vars(m, vars::EnzymeRates._Vars) =
+    Int[vars.index[x] for x in unique(EnzymeRates.substrates(m))]
+
 """
     _testhelper_check_units(m, L)
 
@@ -2135,15 +2139,20 @@ Test the units of `L`, the derived law of the concrete mechanism `m` (a `_Law`, 
 `_AlloLaw` for an allosteric `m`), against the graph's units (`_testhelper_name_units`).
 In each conformation every term of `D` has one unit, the unit rule's normalizer
 (`EnzymeRates._normalizer`) has that unit too, so each denominator term over `N` is
-dimensionless, and a numerator that is not zero makes `H·Q/D` a rate per time. In an MWC
-law `fI·D_A` and `fA·D_I` share a unit, so the two conformations' terms add.
+dimensionless, and a numerator that is not zero makes `H·Q/D` a rate per time. The
+normalizer's weights solve the units equation per concentration: graded weights sum to 1
+and weigh each concentration's exponents to 0, and the other two rules put one weight of
+1 on `shift`. In an MWC law each regulatory site's binding polynomials are dimensionless
+and `fI·D_A` and `fA·D_I` share a unit, so the two conformations' terms add.
 """
 function _testhelper_check_units(m, L)
     units = _testhelper_name_units(m)
     vars = L isa EnzymeRates._Law ? L.vars : L.active.vars
-    subs = Int[vars.index[x] for x in unique(EnzymeRates.substrates(m))]
-    unit(p) = only(unique(_testhelper_term_units(units, vars, mo) for mo in keys(p.terms)))
+    subs = _testhelper_substrate_vars(m, vars)
+    unit(p, vs = vars) =
+        only(unique(_testhelper_term_units(units, vs, mo) for mo in keys(p.terms)))
     plus(a, b) = (a[1] + b[1], a[2] + b[2])
+    expo(mo) = EnzymeRates._Exp[EnzymeRates._mexp(mo, v) for v in findall(vars.conc)]
     for C in (L isa EnzymeRates._Law ? (L,) : (L.active, L.inactive))
         uD = unit(C.D)
         nz = EnzymeRates._normalizer(C.D, vars, subs)
@@ -2151,10 +2160,20 @@ function _testhelper_check_units(m, L)
         uN = foldl((acc, (mo, λ)) -> plus(acc, λ .* unit(Dc[mo])), nz.lambda;
                    init = _testhelper_term_units(units, vars, nz.shift))
         @test uN == uD
+        if nz.rule === :graded
+            @test sum(last, nz.lambda) == 1 && isempty(nz.shift)
+            @test iszero(sum(λ * expo(mo) for (mo, λ) in nz.lambda))
+        else
+            @test nz.lambda == [nz.shift => 1 // 1]
+        end
         iszero(C.Q) || @test plus(unit(L.H), unit(C.Q)) == plus(uD, (0 // 1, -1 // 1))
     end
-    L isa EnzymeRates._AlloLaw &&
+    if L isa EnzymeRates._AlloLaw
         @test plus(unit(L.fI), unit(L.active.D)) == plus(unit(L.fA), unit(L.inactive.D))
+        for (WA, WI, _) in L.sites
+            @test unit(WA, L.vars) == unit(WI, L.vars) == (0 // 1, 0 // 1)
+        end
+    end
     nothing
 end
 

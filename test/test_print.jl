@@ -1,12 +1,12 @@
 # ABOUTME: Tests of what a printed rate law rests on: the unit rule's normalizer of each
 # ABOUTME: conformation's denominator, and the units of every derived law from the graph.
 
-# The unit rule's normalizer of the plain mechanism `m`'s law, and the law.
+# The unit rule's normalizer of the plain mechanism `m`'s law, the law and the concrete
+# mechanism.
 function _testhelper_normalizer(m)
     mech = _testhelper_lift(m)
     L = EnzymeRates._law(mech)
-    subs = Int[L.vars.index[x] for x in unique(EnzymeRates.substrates(mech))]
-    EnzymeRates._normalizer(L.D, L.vars, subs), L
+    EnzymeRates._normalizer(L.D, L.vars, _testhelper_substrate_vars(mech, L.vars)), L, mech
 end
 
 # The concentration monomial of law `L` with the exponents `x => e`.
@@ -26,11 +26,11 @@ _testhelper_conc_mono(L, ps::Pair{Symbol}...) =
             E(S) <--> E + P
         end
     end
-    nz, L = _testhelper_normalizer(mm)
+    nz, L, mech = _testhelper_normalizer(mm)
     @test nz.rule === :constant
     @test nz.lambda == [EnzymeRates._Mono() => 1 // 1]
     @test isempty(nz.shift)
-    _testhelper_check_units(_testhelper_lift(mm), L)
+    _testhelper_check_units(mech, L)
 end
 
 @testset "Segel Ping Pong Bi Bi takes the graded basis A, B, A·B" begin
@@ -47,19 +47,19 @@ end
             F(B) <--> E + Q
         end
     end
-    nz, L = _testhelper_normalizer(pp)
+    nz, L, mech = _testhelper_normalizer(pp)
     m(ps...) = _testhelper_conc_mono(L, ps...)
     @test nz.rule === :graded
     @test nz.lambda == [m(:A => 1) => 1 // 1, m(:B => 1) => 1 // 1,
                         m(:A => 1, :B => 1) => -1 // 1]
     @test isempty(nz.shift)
-    _testhelper_check_units(_testhelper_lift(pp), L)
+    _testhelper_check_units(mech, L)
 end
 
 @testset "Segel Bi Uni Uni Uni PP Ter Bi takes the graded basis with C" begin
     # The degree-1 term C enters the basis before Cleland's monomials A·B, A·C, B·C, so
-    # the weights are C:2, A·B:1, A·C:−1, B·C:−1. P5-10a keeps this graded basis: N is
-    # not Cleland's N = c(B·C)·c(A·C)·c(A·B)/c(A·B·C)².
+    # the weights are C:2, A·B:1, A·C:−1, B·C:−1. The unit rule keeps this graded basis:
+    # N is not Cleland's N = c(B·C)·c(A·C)·c(A·B)/c(A·B·C)².
     terbi = @enzyme_mechanism begin
         substrates: A, B, C
         products: P, Q
@@ -71,7 +71,7 @@ end
             F(C) <--> E + Q
         end
     end
-    nz, L = _testhelper_normalizer(terbi)
+    nz, L, mech = _testhelper_normalizer(terbi)
     m(ps...) = _testhelper_conc_mono(L, ps...)
     @test nz.rule === :graded
     @test nz.lambda == [m(:C => 1) => 2 // 1, m(:A => 1, :B => 1) => 1 // 1,
@@ -83,13 +83,13 @@ end
     cleland = c(:B => 1, :C => 1) * c(:A => 1, :C => 1) * c(:A => 1, :B => 1) /
               c(:A => 1, :B => 1, :C => 1)^2
     @test !isapprox(_testhelper_norm_value(nz, L.D, L.vars, env), cleland; rtol = 1e-6)
-    _testhelper_check_units(_testhelper_lift(terbi), L)
+    _testhelper_check_units(mech, L)
 end
 
 @testset "the ping-pong power case puts A² before A·B" begin
-    # Census ping-pong mechanism 6e46f55b0b68e5d9 (UNIT §2). A² and A·B are both degree
-    # 2 with no non-substrate; the earlier name's larger exponent comes first (P5-11), so
-    # A² joins A, B, P and Q in the basis, and the weights are A:2, A²:−1.
+    # Census ping-pong mechanism 6e46f55b0b68e5d9. A² and A·B are both degree 2 with no
+    # non-substrate; the earlier name's larger exponent comes first, so A² joins A, B, P
+    # and Q in the basis, and the weights are A:2, A²:−1.
     power = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -102,11 +102,11 @@ end
              E(Q) + P ⇌ E(B, P; residual = A - P))
         end
     end
-    nz, L = _testhelper_normalizer(power)
+    nz, L, mech = _testhelper_normalizer(power)
     m(ps...) = _testhelper_conc_mono(L, ps...)
     @test nz.rule === :graded
     @test nz.lambda == [m(:A => 1) => 2 // 1, m(:A => 2) => -1 // 1]
-    _testhelper_check_units(_testhelper_lift(power), L)
+    _testhelper_check_units(mech, L)
 end
 
 @testset "F1 divides by its first term, A" begin
@@ -121,16 +121,16 @@ end
             F + A <--> E + P
         end
     end
-    nz, L = _testhelper_normalizer(f1)
+    nz, L, mech = _testhelper_normalizer(f1)
     a = _testhelper_conc_mono(L, :A => 1)
     @test nz.rule === :ratio
     @test nz.lambda == [a => 1 // 1] && nz.shift == a
-    _testhelper_check_units(_testhelper_lift(f1), L)
+    _testhelper_check_units(mech, L)
 end
 
 @testset "F2 takes fractional weights" begin
     # F1 with F binding two A at rapid equilibrium: the terms A, P, A³ and A²·P. The basis
-    # A, P, A³ solves the units equation with A:3/2, A³:−1/2 (P5-12).
+    # A, P, A³ solves the units equation with A:3/2, A³:−1/2.
     f2 = @enzyme_mechanism begin
         substrates: A
         products: P
@@ -140,17 +140,17 @@ end
             F + A + A ⇌ F(A, A)
         end
     end
-    nz, L = _testhelper_normalizer(f2)
+    nz, L, mech = _testhelper_normalizer(f2)
     m(ps...) = _testhelper_conc_mono(L, ps...)
     @test nz.rule === :graded
     @test nz.lambda == [m(:A => 1) => 3 // 2, m(:A => 3) => -1 // 2]
-    _testhelper_check_units(_testhelper_lift(f2), L)
+    _testhelper_check_units(mech, L)
 end
 
 @testset "F3, a rapid-equilibrium Theorell–Chance step, divides by B" begin
     # Every term holds B or P (the rapid-equilibrium step E(A) + B ⇌ E(Q) + P ties them),
     # and the units equation has no solution on the basis B, P, A·B, B·Q, so N is the
-    # first term, B with its coefficient (P5-13).
+    # first term, B with its coefficient.
     f3 = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -160,11 +160,11 @@ end
             E(Q) <--> E + Q
         end
     end
-    nz, L = _testhelper_normalizer(f3)
+    nz, L, mech = _testhelper_normalizer(f3)
     b = _testhelper_conc_mono(L, :B => 1)
     @test nz.rule === :ratio
     @test nz.lambda == [b => 1 // 1] && nz.shift == b
-    _testhelper_check_units(_testhelper_lift(f3), L)
+    _testhelper_check_units(mech, L)
 end
 
 @testset "F4 takes integer weights A:2, A²:−1" begin
@@ -180,11 +180,11 @@ end
             F(A) + A ⇌ F(A, A)
         end
     end
-    nz, L = _testhelper_normalizer(f4)
+    nz, L, mech = _testhelper_normalizer(f4)
     m(ps...) = _testhelper_conc_mono(L, ps...)
     @test nz.rule === :graded
     @test nz.lambda == [m(:A => 1) => 2 // 1, m(:A => 2) => -1 // 1]
-    _testhelper_check_units(_testhelper_lift(f4), L)
+    _testhelper_check_units(mech, L)
 end
 
 @testset "each MWC conformation takes its own rule" begin
@@ -217,7 +217,7 @@ end
     for (i, am) in enumerate((pp2, tc))
         s = EnzymeRates._solve(am)
         A = EnzymeRates._law(am, s)
-        subs = Int[A.vars.index[x] for x in unique(EnzymeRates.substrates(am))]
+        subs = _testhelper_substrate_vars(am, A.vars)
         nA = EnzymeRates._normalizer(A.active.D, A.active.vars, subs)
         nI = EnzymeRates._normalizer(A.inactive.D, A.inactive.vars, subs)
         m(ps...) = _testhelper_conc_mono(A.active, ps...)
@@ -232,6 +232,9 @@ end
             @test nI.lambda == [EnzymeRates._Mono() => 1 // 1]
         end
         _testhelper_check_units(am, A)
+        # The normalized polynomials in the MWC combination give the law. That holds for
+        # any nonzero N_A and N_I, so it pins the invariance; the rule and weight pins
+        # above test the normalizer itself.
         rng = Random.MersenneTwister(32 + i)
         for _ in 1:3
             _, concs, params = _testhelper_law_inputs(am, s.fitted, rng)
