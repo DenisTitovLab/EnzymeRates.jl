@@ -581,11 +581,11 @@ end
 Check that the rate law of `m` equals the exact steady state of its mass-action network
 (`_testhelper_steady_state_rate`) to `rtol` at `n_points` consistent points
 (`_testhelper_consistent_point`). The law reads the point's fitted constants and computes
-its dependents from them, so a wrong dependent shows as a mismatch. With `compiled`, the
-compiled `rate_equation` is checked too, in Float64 to 1e-8. An allosteric mechanism is
-checked with one catalytic subunit.
+its dependents from them, so a wrong dependent shows as a mismatch. The compiled
+`rate_equation` is checked too, in Float64 to 1e-8. An allosteric mechanism is checked
+with one catalytic subunit.
 """
-function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1, compiled = true,
+function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1,
                                               rtol = big(10)^-20)
     rng = Random.MersenneTwister(seed)
     em = _testhelper_single_subunit(m)
@@ -599,7 +599,6 @@ function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1, compile
         oracle = _testhelper_steady_state_rate(mech, point, concs)
         @test abs(_testhelper_law_value(em, params, concs) - oracle) <=
               rtol * abs(oracle)
-        compiled || continue
         c64, p64 = _testhelper_float64_inputs(fitted, params, concs, mets)
         @test isapprox(rate_equation(em, c64, p64), Float64(oracle); rtol = 1e-8)
     end

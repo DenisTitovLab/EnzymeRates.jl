@@ -369,7 +369,7 @@ Scratch, outside the repository:
   - `_testhelper_law_value(m, params::AbstractDict, concs::AbstractDict)::BigFloat`, rebased on `_law` (T5)
   - `_testhelper_support_verdict(mech)::EnzymeRates._Verdict` replaces FW-07's `_testhelper_law_branches(mech)` (T5)
   - `_testhelper_largest_enumerated_mechanisms`, `_testhelper_large_ter_bi_mechanisms`, moved unchanged from TR (T6)
-  - `_testhelper_check_law_against_oracle(m; n_points = 3, seed = 1, compiled = true, bigfloat = false, rtol = big(10)^-20)`: with `bigfloat`, BigFloat inputs through the compiled body at `rtol` (T6, RES §3.1)
+  - `_testhelper_check_law_against_oracle(m; n_points = 3, seed = 1, bigfloat = false, rtol = big(10)^-20)`: with `bigfloat`, BigFloat inputs through the compiled body at `rtol` (T6, RES §3.1)
   - TR (T6): `_testhelper_rate_body(m)::Expr`, `_testhelper_body_locals(m)::Vector{Pair{Symbol, Any}}`, `_testhelper_generated_rate_return(m)`, `_testhelper_denominator_terms(m)::Int`, `_testhelper_rate_barrier` (when the hoisting probe finds hoists); test_compile_budget.jl: `_testhelper_subprocess_output(script::String)::String`
   - `_testhelper_same_law_under_map(L1, L2, order1::Vector{Symbol}, order2::Vector{Symbol}; rng, swap::Bool = false)::Bool`, `_testhelper_renamed_law(L, rename::Dict{Symbol, Symbol})`, `_testhelper_renamed_vars(vars, rename)::EnzymeRates._Vars` (T7)
   - `_testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)::Int`, deriving the law once per call (T5), moved from TME (T10)
@@ -4776,7 +4776,7 @@ a second process and the GC gate check the result.
   _testhelper_generated_rate_return(m)                      # TR: the returned Expr
   _testhelper_denominator_terms(m)::Int                     # TR: D after substitution
   _testhelper_bigfloat_body_specs::NTuple{4, String}        # TR: BigFloat-body plain specs
-  _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1, compiled = true,
+  _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1,
                                        bigfloat = false, rtol = big(10)^-20)  # fixtures
   _testhelper_subprocess_output(script::String)::String     # test_compile_budget.jl
   ```
@@ -5056,23 +5056,22 @@ In the fixtures file, in `_testhelper_check_law_against_oracle` (RES §3.1: BigF
 inputs through the compiled body), replace the end of its docstring and its signature,
 
 ```julia
-its dependents from them, so a wrong dependent shows as a mismatch. With `compiled`, the
-compiled `rate_equation` is checked too, in Float64 to 1e-8. An allosteric mechanism is
-checked with one catalytic subunit.
+its dependents from them, so a wrong dependent shows as a mismatch. The compiled
+`rate_equation` is checked too, in Float64 to 1e-8. An allosteric mechanism is checked
+with one catalytic subunit.
 """
-function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1, compiled = true,
+function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1,
                                               rtol = big(10)^-20)
 ```
 
 with
 
 ```julia
-its dependents from them, so a wrong dependent shows as a mismatch. With `compiled`, the
-compiled `rate_equation` is checked too, in Float64 to 1e-8, and with `bigfloat` also with
-256-bit BigFloat inputs, to `rtol`. An allosteric mechanism is checked with one catalytic
-subunit.
+its dependents from them, so a wrong dependent shows as a mismatch. The compiled
+`rate_equation` is checked too, in Float64 to 1e-8, and with `bigfloat` also with 256-bit
+BigFloat inputs, to `rtol`. An allosteric mechanism is checked with one catalytic subunit.
 """
-function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1, compiled = true,
+function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1,
                                               bigfloat = false, rtol = big(10)^-20)
 ```
 
