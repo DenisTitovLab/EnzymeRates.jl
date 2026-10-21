@@ -40,9 +40,10 @@ Inputs every task reads:
 - RUL = `$S/phase45/RULINGS.md` "Phase 5". P5-0 adopts P5-1 to P5-44 with these
   exceptions: P5-10a (N stays the spec's graded basis; no Cleland-first rule), P5-31a (the
   spec's pre-filter stays and the certificate runs inside it), P5-43a (research logs stay
-  in the scratchpad), P5-45 (this plan; branch graph-law; PR base graph-guard) and P5-46
-  (this refresh; graph-law cut at f9361cf; Task 0 merges graph-guard's head 991355f,
-  which changes no `src` file, into it for Task 0's baseline, as P4-37(b) orders).
+  in the scratchpad), P5-45 (this plan; branch graph-law; PR base main once #94 merged,
+  P5-48) and P5-46 (this refresh; graph-law cut at f9361cf; Task 0 merges graph-guard's
+  head 991355f, which changes no `src` file, into it for Task 0's baseline, as P4-37(b)
+  orders).
 - SLC = `$S/slice/src`, the slice code the ports follow; R# = `$S/phase3/RULINGS.md` (R16,
   R18, R22, R37, R52).
 - Code cites name functions and testsets as they stand at f9361cf, where graph-law is cut;
@@ -182,7 +183,7 @@ printer so that a PASS1 compile surprise cannot hold back the printer's commit.
   `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` and
   `Claude-Session: https://claude.ai/code/session_01PJZFTkVDnVn4EyCYVUNmWE`. Never skip a
   hook.
-- Draft PR only, graph-law into graph-guard; never merge. The controller pushes, opens
+- Draft PR only, graph-law into main (P5-48); never merge. The controller pushes, opens
   the PR and runs CI (Task 14). The PR body ends with the "🤖 Generated with
   [Claude Code](https://claude.com/claude-code)" line and no session link. Edit it with
   `gh api repos/{owner}/{repo}/pulls/<n> -X PATCH -F body=@$S/phase45/pr_body5.md`, since
@@ -14002,7 +14003,7 @@ up to one significant figure. Until now it stays 0.8 ns; the research predicts 1
 - Produces: c (`<c>` below: the figure Step 5 computes) and the draft PR.
 
 **Gate:**
-- The controller pushes graph-law and opens the draft PR (base graph-guard) with the
+- The controller pushes graph-law and opens the draft PR (base main, P5-48) with the
   provisional body; CI runs twice, green on all three runners both times.
 - c is twice the worst ns per term over the two runs, rounded up to one significant figure.
   A c above 0.8 is said in the commit, and the CLAUDE.md edit and the looser bound go to
@@ -14056,7 +14057,7 @@ The full body (rulings, questions for Denis, measurements) follows in Task 15.
 - [ ] **Step 2 (controller): Push graph-law and open the draft PR**
 
 ```bash
-S=/tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad; cd $S/phase45/law_wt && git status --short && git push -u origin graph-law && gh pr create --draft --base graph-guard --head graph-law --title "Phase 5 of the reaction-graph rewrite: one law engine, its printer, its key" --body-file $S/phase45/pr_body5.md
+S=/tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad; cd $S/phase45/law_wt && git status --short && git push -u origin graph-law && gh pr create --draft --base main --head graph-law --title "Phase 5 of the reaction-graph rewrite: one law engine, its printer, its key" --body-file $S/phase45/pr_body5.md
 ```
 
 Expected: a clean tree; the push succeeds; `gh pr create` prints the PR's URL. Record its
@@ -15010,7 +15011,7 @@ Two questions the rulings leave open, then the four calls the research proposed:
 - P5-42 version 0.10.0.
 - P5-43 ◆ the research archive; P5-43a: deferred.
 - P5-44 the evidence limits below.
-- P5-45 this plan's method; branch graph-law on graph-guard.
+- P5-45 this plan's method; branch graph-law on graph-guard; P5-48 its PR targets main.
 - P5-46 the refresh on f9361cf, where graph-law is cut, and Task 0's baseline; Task 0
   brings graph-law to graph-guard's head 991355f (draft PR #94), which changes no `src`
   file.
@@ -15154,7 +15155,7 @@ The other ★ calls:
   phase 4's fix wave ran (skeleton, four writers with checkers, assembly, reviews, one fix
   pass); the refresh pass of P5-46 re-anchored every cite on f9361cf, where graph-law was
   cut, and Task 0 brought graph-law to graph-guard's head 991355f (draft PR #94), which
-  changes no `src` file; branch graph-law, draft PR on graph-guard, version 0.10.0.
+  changes no `src` file; branch graph-law, draft PR on main (P5-48), version 0.10.0.
 
 ### Deviations from the research
 
