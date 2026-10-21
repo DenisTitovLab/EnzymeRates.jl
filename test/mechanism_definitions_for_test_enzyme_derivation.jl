@@ -2088,6 +2088,87 @@ function _testhelper_evaluate_law(A::EnzymeRates._AlloLaw, env::AbstractDict{Sym
 end
 
 """
+    _testhelper_name_units(m) -> Dict{Symbol, Tuple{Rational{Int}, Rational{Int}}}
+
+The units, as (concentration, time) exponents, of every name a rate law of `m` (concrete or
+compiled) reads, from the graph alone (`_testhelper_graph`), never from the law: each
+concentration and `E_total` (1, 0); `Keq` (product copies − substrate copies, 0); a
+steady-state rate constant (−copies its step takes up in its direction, −1); a
+rapid-equilibrium binding's dissociation constant (1, 0); any other rapid-equilibrium
+constant (copies released − copies consumed, 0); a regulator's dissociation constant
+(1, 0); `L` (0, 0).
+"""
+function _testhelper_name_units(m)
+    mech = _testhelper_lift(m)
+    g = _testhelper_graph(mech)
+    u = Dict{Symbol, Tuple{Rational{Int}, Rational{Int}}}(
+        x => (1 // 1, 0 // 1) for x in EnzymeRates.metabolites(mech))
+    u[:E_total] = (1 // 1, 0 // 1)
+    u[:Keq] = (length(g.products) - length(g.substrates), 0 // 1)
+    for st in g.steps, names in (st.names, st.inactive_names), (slot, x) in enumerate(names)
+        u[x] = !st.rapid_equilibrium ?
+                   (-(slot == 1 ? length(st.consumed) : length(st.released)), -1 // 1) :
+               _testhelper_is_binding(st) ? (1 // 1, 0 // 1) :
+                   (length(st.released) - length(st.consumed), 0 // 1)
+    end
+    if mech isa EnzymeRates.AllostericMechanism
+        for state in (:A, :I), p in EnzymeRates._kreg_params(mech, state)
+            u[EnzymeRates.name(p, mech)] = (1 // 1, 0 // 1)
+        end
+        u[:L] = (0 // 1, 0 // 1)
+    end
+    u
+end
+
+"""The units of the monomial `mo` over `vars`, from the name units `units`
+(`_testhelper_name_units`): the sum of each variable's units times its exponent."""
+_testhelper_term_units(units::AbstractDict, vars::EnzymeRates._Vars,
+                       mo::EnzymeRates._Mono) =
+    foldl(((c, t), (v, e)) -> (c + e * units[vars.names[v]][1],
+                               t + e * units[vars.names[v]][2]), mo;
+          init = (0 // 1, 0 // 1))
+
+"""
+    _testhelper_check_units(m, L)
+
+Test the units of `L`, the derived law of the concrete mechanism `m` (a `_Law`, or an
+`_AlloLaw` for an allosteric `m`), against the graph's units (`_testhelper_name_units`).
+In each conformation every term of `D` has one unit, the unit rule's normalizer
+(`EnzymeRates._normalizer`) has that unit too, so each denominator term over `N` is
+dimensionless, and a numerator that is not zero makes `H·Q/D` a rate per time. In an MWC
+law `fI·D_A` and `fA·D_I` share a unit, so the two conformations' terms add.
+"""
+function _testhelper_check_units(m, L)
+    units = _testhelper_name_units(m)
+    vars = L isa EnzymeRates._Law ? L.vars : L.active.vars
+    subs = Int[vars.index[x] for x in unique(EnzymeRates.substrates(m))]
+    unit(p) = only(unique(_testhelper_term_units(units, vars, mo) for mo in keys(p.terms)))
+    plus(a, b) = (a[1] + b[1], a[2] + b[2])
+    for C in (L isa EnzymeRates._Law ? (L,) : (L.active, L.inactive))
+        uD = unit(C.D)
+        nz = EnzymeRates._normalizer(C.D, vars, subs)
+        Dc = EnzymeRates._split_conc(C.D, vars)
+        uN = foldl((acc, (mo, λ)) -> plus(acc, λ .* unit(Dc[mo])), nz.lambda;
+                   init = _testhelper_term_units(units, vars, nz.shift))
+        @test uN == uD
+        iszero(C.Q) || @test plus(unit(L.H), unit(C.Q)) == plus(uD, (0 // 1, -1 // 1))
+    end
+    L isa EnzymeRates._AlloLaw &&
+        @test plus(unit(L.fI), unit(L.active.D)) == plus(unit(L.fA), unit(L.inactive.D))
+    nothing
+end
+
+"""The value at `env` (by name), in BigFloat, of the normalizer `nz` of the denominator
+`D` over `vars`: Π c(m)^λ_m over `nz.lambda`, `c(m)` the coefficient of the concentration
+monomial `m` in `D`, times the monomial `nz.shift`."""
+function _testhelper_norm_value(nz, D, vars, env)
+    Dc = EnzymeRates._split_conc(D, vars)
+    x(v) = BigFloat(env[vars.names[v]])
+    prod((_testhelper_poly_value(Dc[mo], vars, env)^BigFloat(λ) for (mo, λ) in nz.lambda);
+         init = big(1)) * prod((x(v)^BigFloat(e) for (v, e) in nz.shift); init = big(1))
+end
+
+"""
 V×τ of the edges of the plain mechanism `m` that `mask` keeps, counted by the test from its
 own reading of the graph (`_testhelper_re_segments`): the segments times the spanning
 trees of the multigraph whose edges are the kept steady-state steps between segments,

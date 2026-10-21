@@ -379,8 +379,9 @@ end
 @testset "the derived laws of the population sample are exact, positive and balanced" begin
     # Q1 (spec section 14). Each sampled law, derived from the concrete mechanism at one
     # catalytic subunit, equals the exact steady state at two points, holds positive
-    # coefficients in each conformation's Q, and vanishes at equilibrium, per conformation
-    # and combined.
+    # coefficients in each conformation's Q, vanishes at equilibrium, per conformation
+    # and combined, and has one unit per denominator, which its normalizer shares
+    # (`_testhelper_check_units`).
     @test count(m -> m isa EnzymeRates.AllostericMechanism,
                 _testhelper_population_sample) >= 30
     for (i, m) in enumerate(_testhelper_population_sample)
@@ -399,6 +400,7 @@ end
             @test all(Q -> all(>(0), values(Q.terms)), Qs)
             @test all(<(big(10)^-30),
                       _testhelper_detailed_balance(m, Random.MersenneTwister(i)))
+            _testhelper_check_units(mech, L)
         end
     end
 end
