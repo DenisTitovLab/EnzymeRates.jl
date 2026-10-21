@@ -1590,7 +1590,7 @@ function Optimization.SciMLBase.__solve(
     build_solution(cache, opt, u, prob.f(u, prob.p); retcode = ReturnCode.Success)
 end
 
-# Two allosteric uni-bi mechanisms with one law and different fitted names (KM §4): A and
+# Two allosteric uni-bi mechanisms with one law and different fitted names: A and
 # Q bind only the active conformation (:OnlyA), so the inactive one keeps free E alone, and
 # P's binding at E(Q), which that conformation never reaches, is :EqualAI in the first and
 # :OnlyA in the second. The first names its constant without a conformation
@@ -1698,7 +1698,7 @@ end
 end
 
 @testset "LOOCV fits each fit key's source once per fold" begin
-    # Spec section 10, P5-28: rows that read one fit share their fold losses, so LOOCV fits
+    # Spec section 10: rows that read one fit share their fold losses, so LOOCV fits
     # that fit's source once per fold. Handed to model selection beside a second law, the
     # dedup twins (one key) cost two fits per fold, not three, and share their fold columns.
     m1, m2 = _testhelper_dedup_twins()
@@ -1729,7 +1729,7 @@ end
 end
 
 @testset "best_equation.csv reads back with its key and ids" begin
-    # Review Focus 2. In a one-row CSV, CSV.jl guesses a column's type from one value: a
+    # In a one-row CSV, CSV.jl guesses a column's type from one value: a
     # 16-hex id of digits and one `e` would read as a number, so the documented read names
     # the three id columns `String`; the 64-hex key reads back as text without help.
     prob = _testhelper_uni_prob(NamedTuple)
@@ -1763,7 +1763,7 @@ end
     # Five two-step cycles E → X → E, each taking up A and giving off P twice, alike up to
     # the label of X: every permutation of the cycles maps the law onto itself, so a
     # canonical labelling would compare 5! = 120 labellings and the search stops at the
-    # leaf cap (P5-19). The mechanism is fitted under a key of its own, the SHA-256 of
+    # leaf cap. The mechanism is fitted under a key of its own, the SHA-256 of
     # "mechanism|" and its mechanism_id, and the pre-fit summary names it. (The key search
     # takes about 0.4 s here once compiled, so it runs once, inside the batch.)
     rxn = @enzyme_reaction begin
