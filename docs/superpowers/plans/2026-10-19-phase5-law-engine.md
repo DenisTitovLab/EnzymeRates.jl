@@ -15064,8 +15064,9 @@ key(L→0 law), np = np₀ + 1, the map oracle holding and equal ranks.
   per fresh mechanism 0 instances, 0 show instances.
 - GC gate (P5_T15_hoistscan.log): 0 hoisted with a bits store on 1.12.5 and 1.13.1 for
   `_Poly`, the derivation and identify; the controls fire.
-- Key cost (P5_T7_keycost.log): median <ms> ms, max <ms> ms over the 239 bi-bi and 200
-  ter-ter laws; 0 leaf-cap hits.
+- Key cost (P5_T7_keycost.log): bi-bi median <ms> ms; ter-ter medians by V×τ bin <ms>,
+  <ms>, <ms>, <ms> and <ms> ms; max <ms> ms over the 239 bi-bi and 200 ter-ter laws; 0
+  leaf-cap hits.
 - L-phantom detector (P5_T10_rerun.log; spec section 17): `_is_phantom` median <us> µs,
   max <us> µs per one-subunit variant, `_phantom_weights` median <us> µs, max <us> µs,
   over the ping-pong rerun's rounds 1 and 2 (the research: about 25 µs on slice code).

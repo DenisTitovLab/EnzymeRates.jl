@@ -905,8 +905,7 @@ end
 @testset "the key partitions the bi-bi init laws into 239 classes" begin
     # Q4. The 239 bi-bi init mechanisms (55 seeds and their 184 merged and Theorell–Chance
     # variants) have 239 laws no renaming of fitted constants makes equal, so the key
-    # gives 239 classes, as the text key did on these laws. On a fixed sample the same law
-    # gives the same key twice.
+    # gives 239 classes. On a fixed sample the same law gives the same key twice.
     reaction = @enzyme_reaction(begin
         substrates: A[C], B[N]
         products:   P[C], Q[N]
