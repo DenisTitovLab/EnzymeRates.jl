@@ -74,24 +74,20 @@ function _testhelper_connectivity_violations(steps::Vector{EnzymeRates.RawStep})
 end
 
 """Finite-difference rank of ∂v/∂log θ over the fitted parameters (test oracle only). The
-law of a mechanism the guard rejects is read unchecked from its polynomials
-(`_num_den_exprs`) and evaluated in BigFloat; class 5 still refuses a law that is 0/0 on a
-face (`_num_den_exprs` throws its message)."""
+law of a mechanism the guard rejects is derived once, unchecked (`EnzymeRates._law`), and
+evaluated in BigFloat (`_testhelper_evaluate_law`), as `_testhelper_law_value` reads it."""
 function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     mech = _testhelper_lift(m)
-    dep, fitted = EnzymeRates._dependent_param_exprs(mech)
+    fitted = EnzymeRates._dependent_param_exprs(mech)[2]
     rate = if EnzymeRates._is_well_posed(mech)
         em = EnzymeRates.compile_mechanism(mech)
         (c, p) -> rate_equation(em, c, p)
     else
-        num, den = EnzymeRates._num_den_exprs(mech)
+        L = EnzymeRates._law(mech)
         function _testhelper_unchecked_rate(c, p)
             env = Dict{Symbol, BigFloat}(k => BigFloat(v)
                                          for (k, v) in pairs(merge(p, c)))
-            for (k, ex) in dep
-                env[k] = _testhelper_eval_expr(ex, env)
-            end
-            Float64(_testhelper_eval_expr(num, env) / _testhelper_eval_expr(den, env))
+            Float64(_testhelper_evaluate_law(L, env))
         end
     end
     fp = collect(fitted)

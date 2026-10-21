@@ -1989,6 +1989,65 @@ function _assert_support(m::_AnyMech, branches::Vector{Tuple{POLY, POLY}})
     nothing
 end
 
+"""
+    _law_branches(L) -> Vector{Tuple{_Poly, _Poly}}
+
+The derived law `L`'s denominator as branches of positive terms, so that it keeps a
+monomial free of a face's concentrations exactly when some branch's two factors both do:
+a plain law's `D` times 1; an MWC law's two conformations, each `D` times the other
+conformation's free-E weight (`fI·DA` and `fA·DI`). Powers of a branch and the regulatory
+sites' factors, whose 1 never vanishes, keep the same faces.
+"""
+_law_branches(L::_Law) = [(L.D, one(_Poly))]
+_law_branches(A::_AlloLaw) = [(A.active.D, A.fI), (A.inactive.D, A.fA)]
+
+"""Whether some monomial of `p` holds none of the variables `z` to a positive power."""
+function _keeps_monomial(p::_Poly, z::Vector{Int})
+    for mono in keys(p.terms)
+        any(((v, e),) -> e > 0 && v in z, mono) || return true
+    end
+    false
+end
+
+"""The first face, each given by its zeroed concentration variables, on which no branch
+of `branches` (`_law_branches`) keeps a monomial in both factors; 0 when every face keeps
+one."""
+function _vanishing_face(branches::Vector{Tuple{_Poly, _Poly}},
+                         faces::Vector{Vector{Int}})
+    for (i, z) in enumerate(faces)
+        any(b -> _keeps_monomial(b[1], z) && _keeps_monomial(b[2], z), branches) ||
+            return i
+    end
+    0
+end
+
+"""
+    _support_verdict(m, vars, branches) -> _Verdict
+
+Class 5 (spec section 8) on a law over `vars`: `_DENOMINATOR_VANISHES` on the first face
+of the catalytic graph `m` (`_faces`) where the denominator `branches` (`_law_branches`)
+loses every monomial, so the law is 0/0 there.
+"""
+function _support_verdict(m::Mechanism, vars::_Vars,
+                          branches::Vector{Tuple{_Poly, _Poly}})
+    faces = [Int[vars.index[x] for x in _face_names(m, f)] for f in _faces(m)]
+    i = _vanishing_face(branches, faces)
+    i == 0 ? _WELL_POSED : _Verdict(_DENOMINATOR_VANISHES, _LIMIT_UNTESTED, i, 0, 0)
+end
+
+"""
+    _assert_support(m, L)
+
+Error with class 5's message (`_guard_message`) when the derived law `L` of `m` is 0/0 on
+some face (`_support_verdict`). `_law` does not call it, so a test can read the law of a
+mechanism the guard rejects.
+"""
+function _assert_support(m::_AnyMech, L::Union{_Law, _AlloLaw})
+    v = _support_verdict(catalytic(m), L.vars, _law_branches(L))
+    v.fault === _NO_FAULT || error(_guard_message(m, v))
+    nothing
+end
+
 """The message of class 5's verdict `v` on a mechanism that `who` names and whose catalytic
 graph is `m`: the face where every term of the law's denominator vanishes."""
 _support_message(who::String, m::Mechanism, v::_Verdict) =

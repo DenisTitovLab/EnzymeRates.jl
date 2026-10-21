@@ -519,29 +519,23 @@ function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(1
 end
 
 """
-The rate law of `m` per enzyme, evaluated in 256-bit BigFloat from the polynomials
-`rate_equation` compiles (`_num_den_exprs`) at the parameter values `params` (by name: the
-fitted constants, `Keq` and, for an allosteric mechanism, `L` and the regulator
-constants) and the concentrations `concs`. A compiled `m` goes through its derivation
-entry, which runs the boundary check; a concrete `m` is read as it is, so the oracles can
-evaluate the law of a mechanism the guard rejects, though class 5 still refuses a law that
-is 0/0 on a face (`_num_den_exprs` throws its message). The dependent constants are
-computed from `_dependent_param_exprs`, as the compiled body computes them.
+The rate law of `m` per enzyme, evaluated in 256-bit BigFloat from its derived law
+(`EnzymeRates._law`) at the parameter values `params` (by name: the fitted constants, `Keq`
+and, for an allosteric mechanism, `L` and the regulator constants) and the concentrations
+`concs`. A compiled `m` goes through its derivation entry, which runs the boundary check; a
+concrete `m` is read as it is, so the oracles can evaluate the law of a mechanism the guard
+rejects. Class 5 does not run here (`_assert_support`): a law that is 0/0 on a face gives
+NaN there.
 """
 function _testhelper_law_value(m, params::AbstractDict, concs::AbstractDict)
     setprecision(BigFloat, 256) do
         mech = m isa EnzymeRates.AbstractEnzymeMechanism ?
                EnzymeRates._derivation_input(typeof(m)) : m
-        num, den = EnzymeRates._num_den_exprs(mech)
-        dep, _ = EnzymeRates._dependent_param_exprs(mech)
         env = Dict{Symbol, BigFloat}(k => BigFloat(v) for (k, v) in params)
-        for (k, ex) in dep
-            env[k] = _testhelper_eval_expr(ex, env)
-        end
         for (k, v) in concs
             env[k] = BigFloat(v)
         end
-        _testhelper_eval_expr(num, env) / _testhelper_eval_expr(den, env)
+        _testhelper_evaluate_law(EnzymeRates._law(mech), env)
     end
 end
 
@@ -1688,19 +1682,13 @@ function _testhelper_names_its_step(m, v::EnzymeRates._Verdict)
     occursin(": at zero ", msg) && occursin(line, msg)
 end
 
-"""
-Class 5's branches (`EnzymeRates._law_branches`) of the derived denominator of `mech`, a
-`Mechanism` or an `AllostericMechanism`: a plain mechanism's denominator in lowest terms
-(`_raw_symbolic_rate_polys`); an allosteric one's two conformations' denominators and
-free-enzyme weights (`_mwc_state_polys`).
-"""
-function _testhelper_law_branches(mech)
-    mech isa EnzymeRates.Mechanism &&
-        return EnzymeRates._law_branches(EnzymeRates._raw_symbolic_rate_polys(mech)[2])
-    mets = Set{Symbol}(EnzymeRates.metabolites(mech.catalytic))
-    _, den_A, _, den_I, d_A, d_I =
-        EnzymeRates._mwc_state_polys(mech, mets, EnzymeRates._kept_members(mech))
-    EnzymeRates._law_branches(den_A, den_I, d_A, d_I)
+"""Class 5's verdict (`EnzymeRates._support_verdict`) on the derived law of `mech`
+(`EnzymeRates._law`), compiled or concrete, read without the guard."""
+function _testhelper_support_verdict(mech)
+    x = _testhelper_lift(mech)
+    L = EnzymeRates._law(x)
+    EnzymeRates._support_verdict(EnzymeRates.catalytic(x), L.vars,
+                                 EnzymeRates._law_branches(L))
 end
 
 """The faults class 3 reports on a face (`_check_face`): the faces the RE-speed oracle
