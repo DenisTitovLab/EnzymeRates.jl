@@ -14952,8 +14952,10 @@ Two questions the rulings leave open, then the four calls the research proposed:
   selected the truth; otherwise Task 0's selection, or a near-exact law with at most its
   constants, also passes, since on these noise-free data the choice among near-exact laws
   follows the optimizer's random stream. Task 0 selected the truth: <yes or no>; Task 9:
-  <yes or no>; constants <n0> and <n9>. The data put each product at 10–100% of its
-  substrate, so the releases' product terms show.
+  <yes or no>; constants <n0> and <n9>. Task 9's pick falls outside these clauses:
+  Task 8's head selects the same law with the same `cv_score`, so the beam per key does
+  not move it, and the controller accepted it (open item 34). The data put each product at
+  10–100% of its substrate, so the releases' product terms show.
 - **RES §4 row 12** runs as Tasks 12 (the printer) and 12b (PASS1 on the concrete law), so
   PASS1's compile gate cannot hold back the printer.
 
@@ -15176,7 +15178,9 @@ The other ★ calls:
   below 1e-6) with at most its constants, also passes, and both runs' truth checks are
   reported. The synthetic data put products at 10–100% of their substrates, yet carry no
   noise: on f9361cf the run misses the truth, and the choice among near-exact laws
-  follows the optimizer's random stream (item 34).
+  follows the optimizer's random stream (item 34). Task 9's run selected a 9-constant
+  near-exact law, above Task 0's 7 and outside these clauses; it was accepted by ruling
+  (item 34).
 - **RES §4 row 12** runs as Tasks 12 and 12b.
 
 ### Deleted test subjects
@@ -15363,7 +15367,13 @@ Tasks 8–11:
     of them is selected follows the optimizer's random stream. Task 9's gate therefore
     also accepts a near-exact law (`cv_score` below 1e-6) with at most Task 0's selected
     `n_params`, and investigates any other selection. Noisy data, or a truth the search
-    reaches, would restore a key-level gate.
+    reaches, would restore a key-level gate. Task 9 (`P5_T9_check.log`): the run selects
+    a 9-constant near-exact law (`EqualAI`/`NonequalAI`/`OnlyA`/`OnlyA`, `cv_score`
+    9.8e-14), which none of the gate's clauses admits. Task 8's head selects the same key
+    with the same `cv_score` and se, so the beam per key does not move it. The best score
+    at each smaller count sits above the 1-SE cutoff (1.26e-13): 2.6e-13 at 6 constants
+    (the plain merged ordered bi-bi), 2.5e-13 at 7 and 3.8e-13 at 8. The controller
+    accepted the selection. Should the run use noisy data?
 
 Tasks 12–15:
 35. `PASS1_INSTANCES = 0` was never measured. A fresh pick can compile a branch the warm-up
