@@ -26,6 +26,7 @@ using Optimization
 using Distributed
 using FunctionWrappers: FunctionWrapper
 import Unicode
+using SHA: sha256
 
 include("types.jl")
 include("names.jl")
@@ -35,6 +36,7 @@ include("rate_eq_derivation.jl")
 include("thermo.jl")
 include("poly.jl")
 include("engine.jl")
+include("key.jl")
 include("codegen.jl")
 include("admission.jl")
 include("fitting.jl")

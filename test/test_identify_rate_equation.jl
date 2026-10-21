@@ -902,50 +902,24 @@ end
     end
 end
 
-@testset "rate-eq dedup-key partition stability" begin
-    # bi_bi exercises the dedup key on constraint lines that tie several kinetic groups:
-    # every init mechanism prints one Haldane line over the constants of its groups. The
-    # key strips only the `#` section headers, so it reads those lines. uni_uni has one
-    # init mechanism, hence one class, so it adds nothing to a partition test.
-    # ter-ter intentionally omitted — `rate_equation_string` derivation is
-    # extremely slow for mechanisms with >~30 enzyme forms (CLAUDE.md
-    # "Known Issues"), and the dedup key renders that string per
-    # candidate. The bi-bi enumeration already covers every structural
-    # symmetry the dedup key collapses.
+@testset "the key partitions the bi-bi init laws into 239 classes" begin
+    # Q4. The 239 bi-bi init mechanisms (55 seeds and their 184 merged and Theorell–Chance
+    # variants) have 239 laws no renaming of fitted constants makes equal, so the key
+    # gives 239 classes, as the text key did on these laws. On a fixed sample the same law
+    # gives the same key twice.
     reaction = @enzyme_reaction(begin
         substrates: A[C], B[N]
         products:   P[C], Q[N]
     end)
-
-    # Expected partition size = the number of DISTINCT rate equations the
-    # init-level enumeration produces. The 239 bi_bi init mechanisms (55 seeds
-    # and their 184 merged and Theorell–Chance variants) are all structurally
-    # distinct AND each yields a distinct `rate_equation_string`, so the
-    # comment-stripped string key produces exactly 239 classes (zero over- and
-    # zero under-collapse): clean topologies have distinct enzyme-form sets,
-    # hence distinct rate equations. The 8 ordered/random pairs and the 2
-    # Theorell–Chance pairs among the variants share a family, but each pair's
-    # members are structurally distinct, so they render distinct equations.
-    # If this count changes in a future commit, the dedup key's
-    # equivalence classes (or the enumeration) have shifted — investigate.
-    expected_n_classes = 239
-
-    # init_mechanisms only — skip expand_mechanisms. The init level
-    # already produces multiple structurally-equivalent variants
-    # (mirror-step orderings, kinetic-group renumberings) that
-    # exercise the dedup key's collapse rules. expand_mechanisms
-    # adds variants at higher param counts whose dedup-key
-    # behavior is the same modulo size, at exponential compile cost.
-    buckets = Dict{UInt64, Vector{Int}}()
+    buckets = Dict{String, Vector{Int}}()
     for (i, m) in enumerate(EnzymeRates.init_mechanisms(reaction))
-        em = EnzymeRates.compile_mechanism(m)
-        h = EnzymeRates._rate_eq_dedup_key(rate_equation_string(em))
-        push!(get!(buckets, h, Int[]), i)
-        # Determinism on a fixed sample: same input, same key across invocations.
-        i % 25 == 1 && @test EnzymeRates._rate_eq_dedup_key(rate_equation_string(em)) === h
+        id = EnzymeRates._mechanism_id(sprint(show, m))
+        c = EnzymeRates._canonical(EnzymeRates._law(m), id)
+        @test !c.capped
+        push!(get!(buckets, c.key, Int[]), i)
+        i % 25 == 1 && @test EnzymeRates._canonical(EnzymeRates._law(m), id).key == c.key
     end
-
-    @test length(buckets) == expected_n_classes
+    @test length(buckets) == 239
 end
 
 @testset "_select_count! cumulative per-count floor" begin

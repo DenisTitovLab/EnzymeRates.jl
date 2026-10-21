@@ -416,6 +416,26 @@ end
     @test n_inactive_checked == 5
 end
 
+"""The regroupings of `m` that keep its model: each split of one group by a context
+bipartition (`_context_bipartitions`) that the guard accepts and that keeps the
+independent count."""
+function _testhelper_same_model_regroupings(m)
+    n = EnzymeRates._independent_param_count(m)
+    cm = EnzymeRates.catalytic(m)
+    kept = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
+    for g in 1:EnzymeRates.ngroups(cm), bp in EnzymeRates._context_bipartitions(cm, g)
+        child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
+        EnzymeRates._is_well_posed(child) &&
+            EnzymeRates._independent_param_count(child) == n && push!(kept, child)
+    end
+    kept
+end
+
+# The same-model regroupings of each mechanism of `_testhelper_population_sample`, in its
+# order, computed once for the two testsets that read them (the guard runs on every child).
+const _testhelper_sample_regroupings =
+    map(_testhelper_same_model_regroupings, _testhelper_population_sample)
+
 @testset "Laws over a regenerated population" begin
     @testset "fitted counts equal the declared dimension" begin
         # Success criterion 4: a phantom or folded fitted name would raise the count
@@ -449,15 +469,10 @@ end
         # unchanged, and it leaves every fitted name unchanged too (E3). Only a split the
         # exit keeps counts: one the guard accepts (`_is_well_posed`).
         n_plain, n_allo = 0, 0
-        for m in _testhelper_population_sample
+        for (m, regrouped) in zip(_testhelper_population_sample,
+                                  _testhelper_sample_regroupings)
             names = Set(EnzymeRates._dependent_param_exprs(m)[2])
-            n = EnzymeRates._independent_param_count(m)
-            cm = EnzymeRates.catalytic(m)
-            for g in 1:EnzymeRates.ngroups(cm),
-                bp in EnzymeRates._context_bipartitions(cm, g)
-                child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
-                EnzymeRates._is_well_posed(child) || continue
-                EnzymeRates._independent_param_count(child) == n || continue
+            for child in regrouped
                 m isa EnzymeRates.Mechanism ? (n_plain += 1) : (n_allo += 1)
                 @test Set(EnzymeRates._dependent_param_exprs(child)[2]) == names
             end
@@ -1219,7 +1234,16 @@ end
     end
 end
 
-# The next two testsets read one population, built in a let block around them so that the
+"""60 children of `children` that bind I, spaced evenly through their content order
+(`_testhelper_content_text`); when fewer than 60 bind I, some repeat."""
+function _testhelper_i_binding_sample(children)
+    binds_i = unique!([c for c in children
+                       if any(x -> x.name === :I, EnzymeRates.catalytic(c).table)])
+    sorted = binds_i[sortperm(_testhelper_content_text.(binds_i))]
+    sorted[round.(Int, range(1, length(sorted); length = 60))]
+end
+
+# The next three testsets read one population, built in a let block around them so that the
 # collector frees it after them: the children the moves give the inhibitor declaration's
 # seeds before expand_mechanisms drops the ones the guard rejects.
 let children = [c for m in EnzymeRates.init_mechanisms(_testhelper_inhibitor_rxn)
@@ -1241,16 +1265,53 @@ end
     # every face that zeroes I the guard's class-3 verdict agrees with the RE-speed oracle
     # at one point.
     rng = Random.MersenneTwister(405)
-    binds_i = unique!([c for c in children
-                       if any(x -> x.name === :I, EnzymeRates.catalytic(c).table)])
-    @test length(binds_i) >= 60
-    sorted = binds_i[sortperm(_testhelper_content_text.(binds_i))]
-    for c in sorted[round.(Int, range(1, length(sorted); length = 60))]
+    sample = _testhelper_i_binding_sample(children)
+    # At least 60 children bind I, so the 60 spaced picks are distinct.
+    @test allunique(sample)
+    for c in sample
         modifier_faces = findall(face -> :I in face, _testhelper_faces(c))
         @test !isempty(modifier_faces)
         faults = _testhelper_face_faults(c)
         verdicts = _testhelper_respeed_verdicts(c; rng)
         @test all(f -> _testhelper_agrees(faults[f], verdicts[f]), modifier_faces)
+    end
+end
+
+@testset "laws that share a key are one law under the canonical map" begin
+    # Q3 (spec section 14): the sample, the 60 I-binding inhibitor children, and every
+    # tagging child of ten catalytic graphs of the one-round population, whose siblings
+    # often share a law (tag sets that differ only on groups the inactive conformation
+    # never reaches, or only in names). Members of one key evaluate alike with constants
+    # mapped by canonical position, and swapping two of them breaks the map.
+    by_graph = Dict{EnzymeRates.Mechanism, Vector{EnzymeRates.AllostericMechanism}}()
+    for m in _testhelper_population_one_round
+        m isa EnzymeRates.AllostericMechanism || continue
+        push!(get!(by_graph, m.catalytic, EnzymeRates.AllostericMechanism[]), m)
+    end
+    graphs = sort!(collect(keys(by_graph)); by = _testhelper_content_text)
+    siblings = reduce(vcat, [by_graph[g] for g in
+                             graphs[round.(Int, range(1, length(graphs); length = 10))]])
+    # A mechanism listed twice would form a merged group with itself.
+    pool = unique!([_testhelper_population_sample; _testhelper_i_binding_sample(children);
+                    siblings])
+    keyed = Dict{String, Vector{Any}}()
+    for m in pool
+        L = EnzymeRates._law(m)
+        c = EnzymeRates._canonical(L, EnzymeRates._mechanism_id(sprint(show, m)))
+        @test !c.capped
+        push!(get!(keyed, c.key, Any[]), (L, c))
+    end
+    merged = [v for v in values(keyed) if length(v) > 1]
+    @test !isempty(merged)
+    rng = Random.MersenneTwister(613)
+    for group in merged
+        (L1, c1) = group[1]
+        for (L2, c2) in group[2:end]
+            @test _testhelper_same_law_under_map(L1, L2, c1.order, c2.order; rng)
+        end
+        length(c1.order) >= 2 || continue
+        (L2, c2) = group[2]
+        @test !_testhelper_same_law_under_map(L1, L2, c1.order, c2.order; rng, swap = true)
     end
 end
 end
@@ -1352,4 +1413,35 @@ end
         end
     end
     @test n_regrouped >= 20
+end
+
+@testset "rewrites, regroupings and constant renames keep every sampled key" begin
+    # Q2 (spec section 14): writing a mechanism backwards, regrouping it without changing
+    # its model, and renaming its fitted constants change no law and no key, and the
+    # canonical order maps one labelling onto the other. A same-model regrouping keeps
+    # every fitted name too ("a same-model regrouping keeps every fitted name").
+    rng = Random.MersenneTwister(612)
+    n_regrouped = 0
+    for (m, regrouped) in zip(_testhelper_population_sample, _testhelper_sample_regroupings)
+        L = EnzymeRates._law(m)
+        c = EnzymeRates._canonical(L, "q2")
+        @test !c.capped
+        back = EnzymeRates._law(_testhelper_written_backwards(m))
+        @test EnzymeRates._canonical(back, "q2").key == c.key
+        for child in regrouped
+            n_regrouped += 1
+            Lc = EnzymeRates._law(child)
+            cc = EnzymeRates._canonical(Lc, "q2")
+            @test cc.key == c.key
+            @test _testhelper_same_law_under_map(L, Lc, c.order, cc.order; rng)
+        end
+        constants = filter(x -> x ∉ (:Keq, :L), L.vars.names[.!L.vars.conc])
+        rename = Dict(zip(constants, shuffle(rng, constants)))
+        R = _testhelper_renamed_law(L, rename)
+        r = EnzymeRates._canonical(R, "q2")
+        @test r.key == c.key
+        @test Set(r.order) == Set(rename[x] for x in c.order)
+        @test _testhelper_same_law_under_map(L, R, c.order, r.order; rng)
+    end
+    @test n_regrouped >= 70
 end

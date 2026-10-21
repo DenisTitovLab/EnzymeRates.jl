@@ -13647,8 +13647,8 @@ end
                 E + P ⇌ E(P)
             end
         end
-        @test EnzymeRates._rate_eq_dedup_key(rate_equation_string(m_ordered)) !=
-              EnzymeRates._rate_eq_dedup_key(rate_equation_string(m_random))
+        key(m) = EnzymeRates._canonical(EnzymeRates._law(_testhelper_lift(m)), "tme").key
+        @test key(m_ordered) != key(m_random)
     end
 
     @testset "LDH Pattern-A: graph-distinct mechanisms with equivalent v share a dedup key" begin
@@ -13684,8 +13684,14 @@ end
             end
         end
 
-        key_a = EnzymeRates._rate_eq_dedup_key(rate_equation_string(ldh_m_a))
-        @test key_a == EnzymeRates._rate_eq_dedup_key(rate_equation_string(ldh_m_b))
+        law_a = EnzymeRates._law(_testhelper_lift(ldh_m_a))
+        law_b = EnzymeRates._law(_testhelper_lift(ldh_m_b))
+        canon_a = EnzymeRates._canonical(law_a, "a")
+        canon_b = EnzymeRates._canonical(law_b, "b")
+        key_a = canon_a.key
+        @test key_a == canon_b.key
+        @test _testhelper_same_law_under_map(law_a, law_b, canon_a.order, canon_b.order;
+                                             rng = Random.MersenneTwister(13))
 
         # Negative control: ldh_m_b with the E_NAD+Lactate step's
         # kinetic_group changed from 1 to 12 breaks the Lactate-
@@ -13703,7 +13709,8 @@ end
                 E(NADH, Pyruvate) <--> E(Lactate, NAD)
             end
         end
-        @test key_a != EnzymeRates._rate_eq_dedup_key(rate_equation_string(ldh_m_c))
+        @test key_a != EnzymeRates._canonical(EnzymeRates._law(_testhelper_lift(ldh_m_c)),
+                                              "c").key
     end
 
     @testset "rate_equation_string emits section labels" begin

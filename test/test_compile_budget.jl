@@ -410,10 +410,10 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     end
 end
 
-@testset "a second process derives the same rate_equation bodies" begin
+@testset "a second process derives the same rate_equation bodies and keys" begin
     # Q7 (spec section 2, criterion 3): a fresh process reads each mechanism back from its
-    # text and derives the same generated body, compared by SHA-256, for the 42 specs and
-    # the six gate laws.
+    # text and derives the same generated body, compared by SHA-256, and the same key, for
+    # the 42 specs and the six gate laws.
     mechs = [_testhelper_lift(s.mechanism) for s in MECHANISM_TEST_SPECS]
     append!(mechs, _testhelper_lift.(_testhelper_largest_enumerated_mechanisms))
     append!(mechs, _testhelper_lift.(_testhelper_large_ter_bi_mechanisms))
@@ -426,13 +426,18 @@ end
         for (i, text) in enumerate(split(read($(repr(file)), String), "\\n----\\n"))
             m = ER._parse_mechanism(String(text))
             println("BODY ", i, " ", bytes2hex(ER.sha256(string(ER._rate_body(m)))))
+            println("KEY ", i, " ",
+                    ER._canonical(ER._law(m), ER._mechanism_id(String(text))).key)
         end
         """
-    lines = filter(startswith("BODY "), split(_testhelper_subprocess_output(script), '\n'))
+    lines = split(_testhelper_subprocess_output(script), '\n')
     rm(file; force = true)
-    @test length(lines) == 48
+    @test count(startswith("BODY "), lines) == 48 && count(startswith("KEY "), lines) == 48
     for (i, m) in enumerate(mechs)
         mine = bytes2hex(EnzymeRates.sha256(string(EnzymeRates._rate_body(m))))
         @test "BODY $i $mine" in lines
+        key = EnzymeRates._canonical(EnzymeRates._law(m),
+                                     EnzymeRates._mechanism_id(sprint(show, m))).key
+        @test "KEY $i $key" in lines
     end
 end

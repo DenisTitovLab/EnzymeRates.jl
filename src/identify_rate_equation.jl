@@ -5,7 +5,6 @@
 using DataFrames
 using CSV
 using Statistics
-using SHA: sha256
 
 """
     IdentifyRateEquationProblem{D}

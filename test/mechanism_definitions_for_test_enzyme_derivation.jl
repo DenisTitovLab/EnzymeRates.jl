@@ -4380,3 +4380,49 @@ const _testhelper_large_ter_bi_mechanisms = [
         (E(Q; residual = A + C - Q) + B ⇌ E(B, Q; residual = A + C - Q),
          E(; residual = A + C - Q) + B ⇌ E(P)) end end),
 ]
+
+"""
+    _testhelper_same_law_under_map(L1, L2, order1, order2; rng, swap = false) -> Bool
+
+Whether the laws `L1` and `L2` (`_Law` or `_AlloLaw`) agree to 1e-20 relative at 3
+random points when constant `order2[i]` of `L2` takes the value of `order1[i]` of `L1`, the
+canonical positions of `_canonical`, and each concentration, `Keq` and `L` take one value
+in both. With `swap`, `order2`'s first two constants trade places, a map that must fail
+when the law tells them apart.
+"""
+function _testhelper_same_law_under_map(L1, L2, order1::Vector{Symbol},
+                                        order2::Vector{Symbol}; rng, swap::Bool = false)
+    length(order1) == length(order2) || return false
+    o2 = copy(order2)
+    swap && length(o2) >= 2 && ((o2[1], o2[2]) = (o2[2], o2[1]))
+    concs = union(L1.vars.names[L1.vars.conc], L2.vars.names[L2.vars.conc])
+    setprecision(BigFloat, 256) do
+        all(1:3) do _
+            env1 = Dict{Symbol, BigFloat}(x => exp(4 * big(rand(rng)) - 2) for x in order1)
+            env2 = Dict{Symbol, BigFloat}(o2[i] => env1[order1[i]] for i in eachindex(o2))
+            for x in [concs; :Keq; :L]
+                env1[x] = env2[x] = exp(3 * big(rand(rng)) - big(1.5))
+            end
+            v1 = _testhelper_evaluate_law(L1, env1)
+            v2 = _testhelper_evaluate_law(L2, env2)
+            abs(v1 - v2) <= big(10)^-20 * abs(v1)
+        end
+    end
+end
+
+"""The variable table `vars` with each name `x` renamed `get(rename, x, x)`."""
+function _testhelper_renamed_vars(vars::EnzymeRates._Vars, rename::Dict{Symbol, Symbol})
+    names = Symbol[get(rename, x, x) for x in vars.names]
+    EnzymeRates._Vars(names, copy(vars.conc), Dict(x => i for (i, x) in enumerate(names)))
+end
+
+"""The law `L` with its variables renamed by `rename` (`_testhelper_renamed_vars`) and its
+polynomials unchanged: a renaming of its constants when `rename` permutes them."""
+_testhelper_renamed_law(L::EnzymeRates._Law, rename::Dict{Symbol, Symbol}) =
+    EnzymeRates._Law(_testhelper_renamed_vars(L.vars, rename), L.H, L.Q, L.D, L.sigma,
+                     L.trees, L.shift)
+_testhelper_renamed_law(A::EnzymeRates._AlloLaw, rename::Dict{Symbol, Symbol}) =
+    EnzymeRates._AlloLaw(_testhelper_renamed_vars(A.vars, rename), A.H,
+                         _testhelper_renamed_law(A.active, rename),
+                         _testhelper_renamed_law(A.inactive, rename), A.fA, A.fI, A.sites,
+                         A.n)
