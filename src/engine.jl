@@ -1,0 +1,300 @@
+# ABOUTME: The rate law of one conformation on an edge mask: rapid-equilibrium segments,
+# ABOUTME: spanning trees, the numerator, the solve and H divided out; V×τ and the term cap.
+
+"""
+The rate law of one conformation, `v = E_total·H·Q/D`, over `vars`: the concentrations,
+then the solve's independent constants (`_Solve.independents` order), then `:Keq`.
+`H = ΠS − ΠP/Keq`, and `Q` has positive coefficients. `D = shift·Σ_g sigma[g]·trees[g]`:
+`sigma[g]` sums the weights of rapid-equilibrium segment `g`'s forms, `trees[g]` is its
+spanning-tree sum, and `shift`, the concentration monomial that brings `Q` and `D` to
+lowest terms, is already in `Q` and `D`. Two laws are equal when their fields are.
+"""
+mutable struct _Law
+    const vars::_Vars
+    const H::_Poly
+    const Q::_Poly
+    const D::_Poly
+    const sigma::Vector{_Poly}
+    const trees::Vector{_Poly}
+    const shift::_Mono
+end
+Base.:(==)(a::_Law, b::_Law) =
+    a.vars == b.vars && a.H == b.H && a.Q == b.Q && a.D == b.D && a.sigma == b.sigma &&
+    a.trees == b.trees && a.shift == b.shift
+Base.hash(L::_Law, h::UInt) = hash((L.vars, L.H, L.Q, L.D), hash(:_Law, h))
+
+"""
+    _spanning_trees(n, pairs) -> trees
+
+The spanning trees of the graph on the nodes `1:n` with the edges `pairs`, each as a list
+of positions in `pairs`: each edge is included or left out in turn, and a union-find
+rejects a cycle. A disconnected graph has none; a graph of at most one node has one, with
+no edge.
+"""
+function _spanning_trees(n::Int, pairs::Vector{Tuple{Int, Int}})
+    n <= 1 && return [Int[]]
+    trees = Vector{Int}[]
+    function grow(i, chosen, root)
+        if length(chosen) == n - 1
+            push!(trees, copy(chosen))
+            return
+        end
+        length(pairs) - i + 1 < n - 1 - length(chosen) && return
+        top(j) = (while root[j] != j; j = root[j]; end; j)
+        a, b = top(pairs[i][1]), top(pairs[i][2])
+        if a != b
+            r = copy(root)
+            r[a] = b
+            push!(chosen, i)
+            grow(i + 1, chosen, r)
+            pop!(chosen)
+        end
+        grow(i + 1, chosen, root)
+    end
+    grow(1, Int[], collect(1:n))
+    trees
+end
+
+"""The product of the weights `W[(child, parent)]` of the tree `t` (positions in `pairs`)
+oriented toward node `g`."""
+function _toward(t::Vector{Int}, g::Int, pairs::Vector{Tuple{Int, Int}},
+                 W::Dict{Tuple{Int, Int}, _Poly})
+    p, seen, todo = one(_Poly), Set([g]), [g]
+    while !isempty(todo)
+        q = pop!(todo)
+        for j in t
+            u, v = pairs[j]
+            c = u == q && !(v in seen) ? v : v == q && !(u in seen) ? u : 0
+            c == 0 && continue
+            p *= W[(c, q)]
+            push!(seen, c)
+            push!(todo, c)
+        end
+    end
+    p
+end
+
+"""
+    _bare_law(m, mask, concentrations) -> (; vars, cols, num, den, sigma, trees)
+
+The steady-state law of the edges of `m` that `mask` keeps (at least one), with one
+variable per bare constant: the concentrations `concentrations`, then variable
+`length(concentrations) + j` for slot `cols[j][2]` of edge `cols[j][1]`, in edge order.
+`num/den` is the net consumption of `substrates(m)[1]` per enzyme. Each rapid-equilibrium
+segment (`_segments`) is a node, rooted at its lowest form, so free E (form 1) roots its
+own; a form weighs its root's weight, 1, times the equilibrium ratio of each edge on its
+path from the root. The forms join the tree in `_segments`' order, each by the first kept
+rapid-equilibrium edge in edge (content) order from a form placed before it.
+`den = Σ_g sigma[g]·trees[g]`: `sigma[g]` sums segment `g`'s weights and `trees[g]` its
+spanning trees of the segment graph oriented toward it, each tree edge weighing the
+steady-state flux out of its source. The numerator sums each steady-state edge's net flux
+times the copies of the first substrate it moves, its forms' weights included.
+
+A rapid-equilibrium edge off the tree must close a cycle with no net uptake of any
+metabolite. Class 2 of the guard rejects every mechanism where one does not, so this is
+an internal error.
+"""
+function _bare_law(m::Mechanism, mask::BitVector, concentrations::Vector{Symbol})
+    vars = _Vars()
+    foreach(x -> _var!(vars, x; conc = true), concentrations)
+    cols = Tuple{Int, Int}[]
+    at = Dict{Tuple{Int, Int}, Int}()
+    for (k, e) in enumerate(m.edges), slot in 1:(e.rapid_equilibrium ? 1 : 2)
+        mask[k] || continue
+        push!(cols, (k, slot))
+        at[(k, slot)] = _var!(vars, Symbol("c", k, "_", slot))
+    end
+    conc(c::Counts) = _monomial((vars.index[m.table[i].name] => copies(c, i)
+                                 for i in eachindex(m.table))...)
+    bare(k, slot) = _monomial(at[(k, slot)] => 1)
+    # The equilibrium ratio w(to)/w(from) of rapid-equilibrium edge k: [M]/K for a binding
+    # (K a dissociation constant), K·Π[consumed]/Π[released] for any other edge.
+    ratio(k) = _mmul(_mpow(bare(k, 1), _is_binding(m.edges[k]) ? -1 : 1),
+                     _mmul(conc(m.edges[k].consumed), _mpow(conc(m.edges[k].released), -1)))
+    s = _segments(m, mask, _flags(m))
+    re = [k for k in eachindex(m.edges) if mask[k] && m.edges[k].rapid_equilibrium]
+    alpha = fill(_Mono(), length(m.forms))
+    placed = falses(length(m.forms))
+    for segment in s.segments
+        placed[segment[1]] = true
+        for v in segment[2:end]
+            k = first(k for k in re if (m.edges[k].to == v && placed[m.edges[k].from]) ||
+                                       (m.edges[k].from == v && placed[m.edges[k].to]))
+            e = m.edges[k]
+            alpha[v] = e.to == v ? _mmul(alpha[e.from], ratio(k)) :
+                                   _mmul(alpha[e.to], _mpow(ratio(k), -1))
+            placed[v] = true
+        end
+    end
+    for k in re
+        e = m.edges[k]
+        any(q -> vars.conc[q.first],
+            _mmul(_mmul(alpha[e.from], ratio(k)), _mpow(alpha[e.to], -1))) && error(
+            "internal error: a rapid-equilibrium cycle of this mechanism turns the " *
+            "reaction over (class 2)")
+    end
+    pairs, W = Tuple{Int, Int}[], Dict{Tuple{Int, Int}, _Poly}()
+    flux = Tuple{Int, Int, Int, _Mono, _Mono}[]
+    x = vars.index[first(substrates(m))]
+    for (k, e) in enumerate(m.edges)
+        mask[k] && !e.rapid_equilibrium || continue
+        f = _mmul(_mmul(bare(k, 1), conc(e.consumed)), alpha[e.from])
+        r = _mmul(_mmul(bare(k, 2), conc(e.released)), alpha[e.to])
+        a, b = s.segment_of[e.from], s.segment_of[e.to]
+        push!(flux, (Int(_mexp(_mmul(f, _mpow(r, -1)), x)), a, b, f, r))
+        a == b && continue
+        minmax(a, b) in pairs || push!(pairs, minmax(a, b))
+        _addto!(get!(_Poly, W, (a, b)), f, 1)
+        _addto!(get!(_Poly, W, (b, a)), r, 1)
+    end
+    G = length(s.segments)
+    spanning = _spanning_trees(G, pairs)
+    isempty(spanning) && error("internal error: the steady-state steps of this mechanism " *
+                               "do not join its rapid-equilibrium segments")
+    trees = [sum((_toward(t, g, pairs, W) for t in spanning); init = zero(_Poly))
+             for g in 1:G]
+    sigma = [zero(_Poly) for _ in 1:G]
+    for (g, segment) in enumerate(s.segments), f in segment
+        _addto!(sigma[g], alpha[f], 1)
+    end
+    num = zero(_Poly)
+    for (w, a, b, f, r) in flux
+        w == 0 || (num += _scale(trees[a] * f - trees[b] * r, w))
+    end
+    (; vars, cols, num, den = sum(sigma .* trees; init = zero(_Poly)), sigma, trees)
+end
+
+"""
+    _law(m, s, mask; inactive = false, concentrations = metabolites(m)) -> _Law
+
+The rate law of the edges of `m` that `mask` keeps, in the inactive conformation's
+constants when `inactive`, over the independents of the solve `s`: the bare law
+(`_bare_law`) with each bare constant replaced by its column's value (an independent, or a
+dependent's power product of independents and `Keq`), the numerator divided exactly by `H`,
+then both brought to lowest terms in the concentrations. Every law derived from one solve
+numbers its variables alike: `concentrations`, then `s.independents`, then `Keq`.
+
+Runs `_assert_derivable` first. Checked `Int64` arithmetic throughout: under the term cap
+no coefficient leaves it, so an `OverflowError` becomes an internal error that names the
+mechanism. Class 5 (`_assert_support`) is left to the callers that use the law.
+"""
+function _law(m::Mechanism, s::_Solve, mask::BitVector; inactive::Bool = false,
+              concentrations::Vector{Symbol} = metabolites(m))
+    _assert_derivable(m, mask)
+    try
+        b = _bare_law(m, mask, concentrations)
+        vars = _Vars()
+        foreach(x -> _var!(vars, x; conc = true), concentrations)
+        value = Dict{Int, _Mono}(i => _monomial(_var!(vars, s.names[i]) => 1)
+                                 for i in s.independents)
+        keq = _var!(vars, :Keq)
+        for d in s.dependents
+            value[d.col] = foldl(_mmul, (_mpow(value[f], e) for (f, e) in d.factors);
+                                 init = _monomial(keq => d.keq))
+        end
+        nc = length(concentrations)
+        sub(p) = _subst(v -> v <= nc ? nothing :
+                             value[s.column[_Column(b.cols[v - nc]..., inactive)]], p)
+        side(xs) = _monomial((vars.index[x] => 1 for x in xs)...)
+        H = _term(side(substrates(m))) -
+            _term(_mmul(side(products(m)), _monomial(keq => -1)))
+        Q, D = _divexact(sub(b.num), H), sub(b.den)
+        shift = _conc_shift((Q, D), vars)
+        _Law(vars, H, Q * shift, D * shift, map(sub, b.sigma), map(sub, b.trees), shift)
+    catch err
+        err isa OverflowError || rethrow()
+        error("internal error: the rate law of this mechanism leaves Int64 arithmetic, " *
+              "which the term cap rules out:\n" * sprint(show, m))
+    end
+end
+
+_law(m::Mechanism) = _law(m, _solve(m), trues(length(m.edges)))
+
+"""
+The spanning trees of the multigraph whose Laplacian is `lap`: the determinant of `lap`
+without its first row and column (Kirchhoff's matrix-tree theorem), by fraction-free
+(Bareiss) elimination in checked `Int`. After an `OverflowError` it takes the `BigInt`
+determinant, saturated at `typemax(Int)`, which is above every cap. A graph of at most one
+node has one tree; a disconnected graph has none.
+"""
+function _tree_count(lap::Matrix{Int})
+    n = size(lap, 1) - 1
+    n <= 0 && return 1
+    M = lap[2:end, 2:end]
+    sgn, prev = 1, 1
+    try
+        for k in 1:(n - 1)
+            if M[k, k] == 0
+                p = findfirst(i -> M[i, k] != 0, (k + 1):n)
+                p === nothing && return 0
+                p += k
+                for j in 1:n
+                    M[k, j], M[p, j] = M[p, j], M[k, j]
+                end
+                sgn = -sgn
+            end
+            for i in (k + 1):n, j in (k + 1):n
+                M[i, j] = div(Base.checked_sub(Base.checked_mul(M[i, j], M[k, k]),
+                                               Base.checked_mul(M[i, k], M[k, j])), prev)
+            end
+            prev = M[k, k]
+        end
+        sgn * M[n, n]
+    catch err
+        err isa OverflowError || rethrow()
+        Int(min(det(BigInt.(lap[2:end, 2:end])), big(typemax(Int))))
+    end
+end
+
+"""
+Estimate the term count of the law of the edges of `m` that `mask` keeps, V×τ, from its
+segment graph, without deriving the law: `V` is the number of rapid-equilibrium segments
+(`_segments`), `τ` the spanning trees of the segment graph whose edges are the kept
+steady-state edges between segments, parallel ones counted apart (`_tree_count`). V×τ is
+the number of spanning-tree products in the law's denominator before kinetic grouping, so
+it bounds fit cost. It guards the derivation (`_assert_derivable` aborts when V×τ exceeds
+`MAX_RATE_EQUATION_TERMS`, before any polynomial is built) and backs the
+`eq_complexity_filter` keyword of [`identify_rate_equation`](@ref). Saturates at
+`typemax(Int)`. The method for a mechanism counts every edge of its catalytic graph,
+which for an allosteric mechanism with `:OnlyI` groups holds more than its active
+conformation's law.
+"""
+function _eq_complexity(m::Mechanism, mask::BitVector)
+    s = _segments(m, mask, _flags(m))
+    G = length(s.segments)
+    G <= 1 && return G
+    lap = zeros(Int, G, G)
+    for (k, e) in enumerate(m.edges)
+        mask[k] && !e.rapid_equilibrium || continue
+        g1, g2 = s.segment_of[e.from], s.segment_of[e.to]
+        g1 == g2 && continue
+        lap[g1, g1] += 1; lap[g2, g2] += 1; lap[g1, g2] -= 1; lap[g2, g1] -= 1
+    end
+    τ = _tree_count(lap)
+    τ > typemax(Int) ÷ G ? typemax(Int) : G * τ
+end
+_eq_complexity(m::_AnyMech) =
+    _eq_complexity(catalytic(m), trues(length(catalytic(m).edges)))
+
+"""
+The error `_assert_derivable` raises for a mechanism whose rate equation would have more
+than `MAX_RATE_EQUATION_TERMS` terms.
+"""
+struct RateEquationTooLargeError <: Exception end
+
+Base.showerror(io::IO, ::RateEquationTooLargeError) = print(io,
+    "Rate equation for this mechanism has more than $MAX_RATE_EQUATION_TERMS " *
+    "polynomial terms (limit: $MAX_RATE_EQUATION_TERMS). Equations this large " *
+    "take a very long time to compile and are unlikely to be practically " *
+    "useful for parameter fitting.")
+
+"""
+Abort the derivation of the law of the edges of `m` that `mask` keeps when its term count
+(V×τ, `_eq_complexity`) exceeds `MAX_RATE_EQUATION_TERMS`: a quick count on the segment
+graph that throws a `RateEquationTooLargeError` before any polynomial is built. Every
+derivation entry calls it (`_law`, `_raw_symbolic_rate_polys`).
+"""
+function _assert_derivable(m::Mechanism, mask::BitVector)
+    _eq_complexity(m, mask) > MAX_RATE_EQUATION_TERMS && throw(RateEquationTooLargeError())
+    return nothing
+end

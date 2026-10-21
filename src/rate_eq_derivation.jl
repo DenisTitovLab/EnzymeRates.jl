@@ -280,64 +280,6 @@ function _edge_names(m::_AnyMech, state::Symbol, kept = _kept_members(m))
      for k in eachindex(cm.edges)]
 end
 
-"""
-Estimate a mechanism's King–Altman denominator term count, V×τ, from its
-catalytic segment graph WITHOUT deriving the rate equation.
-
-`V` is the number of RE-connected segments (`_segments`) of the edges `mask` keeps; `τ` is
-the spanning-tree count of the segment graph, whose edges are the SS edges: by the
-Matrix–Tree theorem, the
-determinant of its Laplacian with the first row and column dropped, computed exactly (`det`
-of a `BigInt` matrix is fraction-free Bareiss; a disconnected graph gives 0). `V×τ` equals
-the number of spanning-tree products in the denominator — the products the compiled equation
-evaluates on every call — so it bounds fit cost. It guards the derivation itself
-(`_assert_derivable` aborts when V×τ exceeds `MAX_RATE_EQUATION_TERMS`, before the O(G!)
-symbolic cofactor expansion) and backs the `eq_complexity_filter` keyword of
-[`identify_rate_equation`](@ref), which skips over-complex mechanisms before fitting. The
-method for a mechanism counts every edge of its catalytic graph, which for an allosteric
-mechanism with `:OnlyI` groups holds more than its active conformation's law.
-"""
-function _eq_complexity(m::Mechanism, mask::BitVector)
-    s = _segments(m, mask, _flags(m))
-    G = length(s.segments)
-    G <= 1 && return big(G)                          # single RE segment ⇒ τ = 1
-    lap = zeros(BigInt, G, G)
-    for (k, e) in enumerate(m.edges)
-        # SS edges are the segment-graph edges
-        mask[k] && !e.rapid_equilibrium || continue
-        g1, g2 = s.segment_of[e.from], s.segment_of[e.to]
-        g1 == g2 && continue
-        lap[g1, g1] += 1; lap[g2, g2] += 1; lap[g1, g2] -= 1; lap[g2, g1] -= 1
-    end
-    G * det(lap[2:end, 2:end])
-end
-_eq_complexity(m::_AnyMech) =
-    _eq_complexity(catalytic(m), trues(length(catalytic(m).edges)))
-
-"""
-The error `_assert_derivable` raises for a mechanism whose rate equation would have more
-than `MAX_RATE_EQUATION_TERMS` terms.
-"""
-struct RateEquationTooLargeError <: Exception end
-
-Base.showerror(io::IO, ::RateEquationTooLargeError) = print(io,
-    "Rate equation for this mechanism has more than $MAX_RATE_EQUATION_TERMS " *
-    "polynomial terms (limit: $MAX_RATE_EQUATION_TERMS). Equations this large " *
-    "take a very long time to compile and are unlikely to be practically " *
-    "useful for parameter fitting.")
-
-"""
-Abort the rate-equation derivation for a mechanism whose denominator term count
-(V×τ) exceeds `MAX_RATE_EQUATION_TERMS`. Called at each num/den derivation entry
-point, before the O(G!) symbolic cofactor expansion in `sym_det` — a numeric
-O(G³) check that throws a `RateEquationTooLargeError` quickly instead of hanging on
-the factorial expansion.
-"""
-function _assert_derivable(m::Mechanism, mask::BitVector)
-    _eq_complexity(m, mask) > MAX_RATE_EQUATION_TERMS && throw(RateEquationTooLargeError())
-    return nothing
-end
-
 # ─── Expr generation from POLY ──────────────────────────────
 
 """The numerator and denominator Exprs of the rate equation of `m`, from its raw

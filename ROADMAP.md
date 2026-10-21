@@ -22,20 +22,19 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `multi_threading` passed through `solver_kwargs`, would race on both buffers. Fits run
   in parallel only across `pmap` workers, each of which builds its own problem.
 - **`eq_complexity_filter` counts an allosteric mechanism's catalytic graph once.**
-  `_eq_complexity` (`src/rate_eq_derivation.jl`) measures V×τ on the whole catalytic
+  `_eq_complexity` (`src/engine.jl`) measures V×τ on the whole catalytic
   graph, which with `:OnlyI` groups holds more than the active conformation's law (15
   against 9 on a uni-uni whose inhibitor binds two forms `:OnlyI`), while the generated
   MWC rate equation evaluates the polynomials of both conformations, so the filter
   undercounts what an allosteric equation costs and can admit one that evaluates more
   terms than its limit.
 - **`BigInt` arithmetic inflates the GC's live-byte count.**
-  Three functions that compute in `BigInt` raise `Base.gc_live_bytes` by bytes that no live
+  Two functions that compute in `BigInt` raise `Base.gc_live_bytes` by bytes that no live
   object holds: the counter that `_split_gain_test` uses for a plain mechanism
-  (`_partition_independent_count`; a `Rational{BigInt}` row reduction), by 18 KiB per call;
-  `_eq_complexity` (a `BigInt` determinant, skipped for a single rapid-equilibrium segment),
-  by 15 KiB; and class 3's model point (`_model_point`, `src/admission.jl`; an integer null
-  space in `Rational{BigInt}`), by 101 KiB on the six-step bi-bi ping-pong at two
-  conformations. A 6×6 determinant outside the package does the same in `BigInt` and
+  (`_partition_independent_count`; a `Rational{BigInt}` row reduction), by 18 KiB per call,
+  and class 3's model point (`_model_point`, `src/admission.jl`; an integer null space in
+  `Rational{BigInt}`), by 101 KiB on the six-step bi-bi ping-pong at two conformations. A
+  6×6 determinant outside the package does the same in `BigInt` and
   `Rational{BigInt}`, not in `Rational{Int}`. The joint solve adds nothing, on a plain
   mechanism or on a concrete allosteric one; it runs in `Rational{Int}` on 10,226 enumerated
   bi-bi and ter-bi mechanisms without overflow. The count holds no memory and raises no
@@ -44,10 +43,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   3.5 GB. The higher peak came from mechanisms that kept vectors at the capacity their
   builds grew to; `_canonicalize` stores each at its length, and
   `test/test_reaction_graph.jl` pins it. A loop that calls one of these and prints
-  `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it. The first two figures come
-  from a random-order bi-bi of nine steady-state steps, plain and as a two-subunit
-  allosteric mechanism with `:OnlyA` on both bindings of A and on the chemical step and
-  `:EqualAI` elsewhere (Julia 1.12.5, aarch64, `--heap-size-hint=2500M`).
+  `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it. The first figure comes
+  from a plain random-order bi-bi of nine steady-state steps (Julia 1.12.5, aarch64,
+  `--heap-size-hint=2500M`).
 
 - **Splitting a tied kinetic group changes `eq_hash` without changing the model.**
   When a square of rapid-equilibrium bindings already ties two binding constants,

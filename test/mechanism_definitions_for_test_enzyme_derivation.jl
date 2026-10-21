@@ -1963,6 +1963,57 @@ function _testhelper_existence_agrees(am)
     exists == _testhelper_lp_existence(am, 2) && v.fault === fault
 end
 
+# ── Phase-5 law oracles ─────────────────────────────────────────────────────
+
+"""The value of `p`, a polynomial over the variables `vars`, at the values `env` (by name),
+in 256-bit BigFloat; every power, a fractional one included, is correctly rounded to that
+precision."""
+function _testhelper_poly_value(p::EnzymeRates._Poly, vars::EnzymeRates._Vars,
+                                env::AbstractDict{Symbol})
+    setprecision(BigFloat, 256) do
+        pow(x, e) = x^(BigFloat(numerator(e)) / denominator(e))
+        sum((c * prod((pow(BigFloat(env[vars.names[v]]), e) for (v, e) in mo);
+                      init = one(BigFloat))
+             for (mo, c) in p.terms); init = zero(BigFloat))
+    end
+end
+
+"""The rate per enzyme of the law `L` (`EnzymeRates._law`), `H·Q/D`, at the values `env`
+(by name: the concentrations, the independent constants and `Keq`), in 256-bit BigFloat."""
+_testhelper_evaluate_law(L::EnzymeRates._Law, env::AbstractDict{Symbol}) =
+    setprecision(BigFloat, 256) do
+        _testhelper_poly_value(L.H, L.vars, env) *
+            _testhelper_poly_value(L.Q, L.vars, env) /
+            _testhelper_poly_value(L.D, L.vars, env)
+    end
+
+"""
+V×τ of the edges of the plain mechanism `m` that `mask` keeps, counted by the test from its
+own reading of the graph (`_testhelper_re_segments`): the segments times the spanning
+trees of the multigraph whose edges are the kept steady-state steps between segments,
+parallel steps counted apart, by the matrix-tree theorem in `BigInt`. One segment counts
+1, an empty mask 0.
+"""
+function _testhelper_laplacian_tree_count(m::EnzymeRates.Mechanism, mask::BitVector)
+    g = _testhelper_graph(m)
+    kept = BitVector([mask[k] for k in EnzymeRates._flat_edges(m)])
+    segments, _ = _testhelper_re_segments(g, kept)
+    V = length(segments)
+    V <= 1 && return big(V)
+    seg = zeros(Int, length(g.forms))
+    for (i, s) in enumerate(segments), f in s
+        seg[f] = i
+    end
+    lap = zeros(BigInt, V, V)
+    for (j, s) in enumerate(g.steps)
+        kept[j] && !s.rapid_equilibrium || continue
+        a, b = seg[s.from], seg[s.to]
+        a == b && continue
+        lap[a, a] += 1; lap[b, b] += 1; lap[a, b] -= 1; lap[b, a] -= 1
+    end
+    V * det(lap[2:end, 2:end])
+end
+
 # ── Mechanism test specifications ───────────────────────────────────────────
 
 const MECHANISM_TEST_SPECS = _testhelper_MechanismTestSpec[]
