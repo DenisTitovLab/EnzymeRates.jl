@@ -15300,6 +15300,9 @@ Tasks 4–7:
     segments in form order, so segment 1 holds form 1.
 20. The P5-25 barrier depends on Task 6's probe finding sub-0.5 ns specs, and the
     `_rate_body` precompile lines on the first-call budget. Should either be unconditional?
+    Settled (Task 6, T6-M5): the `_rate_body` precompile lines are unconditional; the
+    first call reads 0.11 s (Task 6: 2.43 s) for package precompile 10.5 s (5.9 s); the
+    barrier stayed conditional, and the probe found 4 of 42 on 1.12.5 and 1.13.1.
 21. FW-07's call text at the seven test_admission sites. Settled (P5-46): each reads
     `EnzymeRates._support_verdict(<x>, _testhelper_law_branches(<x>))` (test_admission.jl
     :1080, :1269-1270, :3137, :3158, :3171, :3213, :3278 at f9361cf), as Task 5 quotes it.

@@ -107,7 +107,7 @@ _loc(v::Int, d::_Exp) =
     d == 1 ? Symbol(:x, v) : Symbol(:x, v, d < 0 ? :m : :p, denominator(d))
 
 """`x` to the unit power `d`: a reciprocal (`inv`), a square root, or for `q > 2` the root
-`x^(one(x)/q)`, exact in any float type."""
+`x^(one(x)/q)`, computed in `x`'s own precision."""
 function _power(x::Symbol, d::_Exp)
     q = denominator(d)
     base = q == 1 ? x : q == 2 ? :(sqrt($x)) : :($x^(one($x) / $q))

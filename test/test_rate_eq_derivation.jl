@@ -1482,10 +1482,10 @@ end
     @test allocs == 0
 end
 
-@testset "a cube-root dependent emits x^(one(x)/3) and is exact in BigFloat" begin
+@testset "a cube-root dependent emits x^(one(x)/3) and matches the oracle in BigFloat" begin
     # One isomerization group, crossed three times by the only cycle: its reverse rate is
     # the cube root of a power product (Keq^(-1/3)·…). The body computes each root once as
-    # x^(one(x)/3), exact in BigFloat, where a Float64 exponent 1/3 would err by 1e-17.
+    # x^(one(x)/3), at BigFloat precision, where a Float64 exponent 1/3 would err by 1e-17.
     m = @enzyme_mechanism begin
         substrates: S, B
         products: P
@@ -1506,18 +1506,7 @@ end
         root = :($x^(one($x) / 3))
         @test rhs == (endswith(String(name), "p3") ? root : :(inv($root)))
     end
-    fitted = EnzymeRates.fitted_params(m)
-    rng = Random.MersenneTwister(93)
-    setprecision(BigFloat, 256) do
-        for _ in 1:3
-            point, concs, params = _testhelper_law_inputs(mech, fitted, rng)
-            oracle = _testhelper_steady_state_rate(mech, point, concs)
-            p = NamedTuple{(fitted..., :Keq, :E_total)}(
-                (getindex.(Ref(params), fitted)..., params[:Keq], big(1)))
-            c = NamedTuple{metabolites(m)}(Tuple(concs[x] for x in metabolites(m)))
-            @test abs(rate_equation(m, c, p) - oracle) <= big(10)^-20 * abs(oracle)
-        end
-    end
+    _testhelper_check_law_against_oracle(m; bigfloat = true, seed = 93)
 end
 
 @testset "dependent locals are numbered by solve column" begin
