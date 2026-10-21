@@ -200,9 +200,12 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             ER._eq_complexity(m)
             em = ER.compile_mechanism(m)
             ER.fitted_params(em)
-            eq_text = rate_equation_string(em)
-            ER._rate_eq_dedup_key(eq_text)
-            ER._mechanism_id(sprint(show, m))
+            rate_equation_string(em)
+            id = ER._mechanism_id(sprint(show, m))
+            s = ER._solve(m)
+            law = ER._law(m, s)
+            ER._assert_support(m, law)
+            ER._canonical(law, id)
             s1 = _testhelper_instances(methods(show))
             fp = FittingProblem(ER.compile_mechanism(m), PROB.data;
                                 Keq = PROB.Keq, absolute = PROB.absolute,

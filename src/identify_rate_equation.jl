@@ -1,6 +1,6 @@
 # ABOUTME: Beam-search pipeline to identify the best rate equation.
-# ABOUTME: Enumerates mechanisms, fits each, selects via CV; a comment-
-# ABOUTME: stripped rate-equation string key dedups equivalent equations.
+# ABOUTME: Enumerates mechanisms, fits one representative per rate-law key
+# ABOUTME: (`_canonical`), and selects among the fits by cross-validation.
 
 using DataFrames
 using CSV
@@ -137,8 +137,8 @@ and data using beam search.
 - `solver_kwargs::NamedTuple = (;)`: solver-specific options forwarded
   verbatim to `Optimization.solve` (e.g. `(; popsize=200)` for a CMA-ES
   solver that supports it); the caller matches its contents to `optimizer`
-- `n_cv_candidates::Int = 5`: LOOCV top N
-  **unique-rate-equation** candidates per param count (at least 1)
+- `n_cv_candidates::Int = 5`: LOOCV top N candidates with **distinct rate-law
+  keys** per param count (at least 1)
 - `se_threshold::Float64 = 1.0`: 1-SE multiplier for model selection.
   A simpler equation is accepted iff its `cv_score` is `≤` the best
   equation's `cv_score + se_threshold * cv_score_se`. Default 1.0 is
@@ -216,7 +216,7 @@ function identify_rate_equation(
         error("save_dir already contains results (CSV files or progress.log). " *
               "Use an empty directory to avoid mixing results.")
 
-    mechanisms, df = _beam_search(prob;
+    pool, memo = _beam_search(prob;
         min_beam_width, loss_rel_threshold,
         loss_abs_threshold, loss_parsimony_threshold,
         max_param_count, eq_complexity_filter, save_dir, show_progress,
@@ -225,7 +225,7 @@ function identify_rate_equation(
         fitting_kwargs...)
 
     result = _cv_model_selection(
-        mechanisms, df, prob;
+        pool, memo, prob;
         se_threshold, optimizer, save_dir, show_progress,
         fitting_kwargs...)
     _progress(save_dir, show_progress, "Done. Results saved to $save_dir")
@@ -272,8 +272,9 @@ function _rows_to_dataframe(rows)
         rate_equation = [r.rate_equation for r in rows],
         retcode = Union{Missing,String}[r.retcode for r in rows],
         error = Union{Missing,String}[r.error for r in rows],
-        eq_hash = [r.eq_hash for r in rows],
+        key = Union{Missing,String}[r.key for r in rows],
         fit_inherited = Union{Missing,Bool}[r.fit_inherited for r in rows],
+        fit_source_id = Union{Missing,String}[r.fit_source_id for r in rows],
         peak_at_range_edge =
             Union{Missing,Bool}[get(r, :peak_at_range_edge, missing) for r in rows],
     )
@@ -281,22 +282,6 @@ function _rows_to_dataframe(rows)
         df[!, pn] = [get(r.params, pn, missing) for r in rows]
     end
     df
-end
-
-"""
-Equation-identity key: the rendered rate-equation string without its `# …` header
-lines. Two mechanisms with the same key compute the identical rate function. Used as a
-CSV tag and the LOOCV distinct-equation key.
-
-Exact-render identity only: it hashes the (provenance-stripped) equation string
-verbatim, so it detects textually identical equations, not algebraic equivalence.
-"""
-function _rate_eq_dedup_key(eq_text::AbstractString)
-    kept = Iterators.filter(split(eq_text, '\n')) do ln
-        l = strip(ln)
-        !startswith(l, "#")
-    end
-    hash(join(kept, '\n'))
 end
 
 """
@@ -345,13 +330,60 @@ function _select_count!(
     sel
 end
 
-"""One fitted mechanism: its own params + retcode + eq_hash + the CSV row."""
+"""
+A fit as identify stores it, once per rate-law key (`_canonical`): `values` holds the
+fitted constants at their canonical positions (`_Canonical.order`), then `L` for an MWC
+law, so every mechanism with that key reads them through its own canonical order;
+`loss`, `retcode` and `peak_at_range_edge` are `fit_rate_equation`'s; `source` is the
+mechanism that was fitted and `source_id` its `mechanism_id`.
+"""
+struct _Fit
+    values::Vector{Float64}
+    loss::Float64
+    retcode::Symbol
+    peak_at_range_edge::Bool
+    source::Union{Mechanism, AllostericMechanism}
+    source_id::String
+end
+
+"""
+A mechanism PASS1 of `_process_batch` derived: its fitted constants in `fitted_params`
+order, its text and the text's id (`_mechanism_id`), its printed law, and its law's
+canonical form (`canon`), under whose key it is fitted.
+"""
+struct _Candidate
+    mech::Union{Mechanism, AllostericMechanism}
+    fitted::Vector{Symbol}
+    mechanism::String
+    mechanism_id::String
+    eq_text::String
+    canon::_Canonical
+end
+
+"""The order in which candidate `c` reads its fit's values (`_Fit`): its canonical order,
+then `L` for an MWC law."""
+_fit_order(c::_Candidate) =
+    c.mech isa AllostericMechanism ? [c.canon.order; :L] : c.canon.order
+
+"""
+The parameters of candidate `c` as its row holds them, in its `fitted_params` order: a
+fit's `values`, stored at canonical positions, read through `order`, the candidate's own
+order for those positions.
+"""
+function _row_params(c::_Candidate, order::Vector{Symbol}, values::Vector{Float64})
+    at = Dict(zip(order, values))
+    NamedTuple{Tuple(c.fitted)}(Tuple(at[x] for x in c.fitted))
+end
+
+"""One fitted mechanism: its parameter count, its fit's loss and retcode, its rate-law key
+(`_canonical`), the key of the fit it reads (`fit_key`), and its CSV row."""
 struct BatchEntry
     mech::Union{Mechanism, AllostericMechanism}
     n_params::Int
     loss::Float64
     retcode::Symbol
-    eq_hash::UInt64
+    key::String
+    fit_key::String
     row::NamedTuple
 end
 
@@ -383,8 +415,9 @@ function _failure_row(f::FitFailure)
      retcode = missing,
      error = f.error,
      params = (;),
-     eq_hash = missing,
+     key = missing,
      fit_inherited = missing,
+     fit_source_id = missing,
      peak_at_range_edge = missing)
 end
 
@@ -407,7 +440,7 @@ end
 
 """
 Pre-fit half of a batch summary: the five buckets known before fitting —
-`new fits` (distinct new equations being fit this batch), `inherited` (rows
+`new fits` (distinct new laws, one per key, being fit this batch), `inherited` (rows
 reusing a memoized or in-batch fit), and the three `skipped` buckets
 (already-fit, over `max_param_count`, over `eq_complexity_filter`).
 """
@@ -453,30 +486,34 @@ n_seen_skip)`.
 
 PASS-1: skip mechanisms already produced, in an earlier batch or earlier in this one (a
 mechanism whose structural `hash` is already in `seen` is dropped before compiling;
-`seen` gets every structure on first sight regardless of outcome). Compile, cap-check
-(`max_param_count`), and render every fresh mechanism in parallel (`pmap`) to get its
-`eq_hash`, and its text and the text's id (`_mechanism_id`) from the concrete mechanism;
-a mechanism over `eq_complexity_filter` or `max_param_count` is recorded as a skip, not
-fit. Then pick one fit representative per `eq_hash` not already in `memo`, and pass the
-pre-fit summary (`_prefit_summary`) to `log`. `mechs` is already structurally deduped by
-the caller (`unique!`).
+`seen` gets every structure on first sight regardless of outcome). For each fresh
+mechanism, in parallel (`pmap`): skip it over `eq_complexity_filter` or
+`max_param_count`; else compile it and print its law, take its text and the text's id
+(`_mechanism_id`), derive its law from the concrete mechanism (`_solve`, `_law`), check
+the law on the guard's faces (`_assert_support`) and label it canonically
+(`_canonical`). A law whose labelling reaches the leaf cap gets a key of its own, and the
+pre-fit summary names its mechanism. Then pick one fit representative per key not
+already in `memo`, and pass the pre-fit summary (`_prefit_summary`) to `log`. `mechs` is
+already structurally deduped by the caller (`unique!`).
 
-PASS-2: fit ONE representative per `eq_hash` not already in `memo`, in parallel across
-all workers (`pmap`); the fit is stored in `memo` and copied to every mechanism sharing
-that `eq_hash` — same equation ⟹ same fitted params and same rescaling, so no refit is
-needed. `memo` persists across iterations (threaded from `_beam_search`), so an equation
-fit in an earlier iteration is never refit. A representative whose fit throws fails ALL
-of its duplicates (all-or-nothing per equation). `fit_inherited` is `false` for the
-representative actually fit this batch, `true` for every reused row. `parent_of` maps a
-child to its parent's `BatchEntry`, which fills the row's parent columns.
-`entries::Vector{BatchEntry}` are the mechanisms with a usable fit (each keeping its own
-row, `retcode`, and `eq_hash`); `failures::Vector{FitFailure}` are mechanisms that threw
-at compile/render/fit — captured WITH the exception text, never silently swallowed.
+PASS-2: fit ONE representative per key not already in `memo`, in parallel across all
+workers (`pmap`), and store the fit in `memo` at canonical positions (`_Fit`). Every
+mechanism with that key reads it through its own canonical order, so its row carries its
+own parameter names: same law ⟹ same fitted values and same rescaling, so no refit is
+needed. `memo` persists across iterations (threaded from `_beam_search`), so a law fit in
+an earlier iteration is never refit. A representative whose fit throws fails ALL the
+mechanisms with its key (all-or-nothing per law). A row's `fit_inherited` is `false`
+when its mechanism is its fit's source and `true` otherwise, and `fit_source_id` names
+the source. `parent_of` maps a child to its parent's `BatchEntry`, which fills the row's
+parent columns. `entries::Vector{BatchEntry}` are the mechanisms with a usable fit (each
+keeping its own row, `retcode` and key); `failures::Vector{FitFailure}` are mechanisms
+that threw at compile, derivation or fit — captured WITH the exception text, never
+silently swallowed.
 """
 function _process_batch(
     mechs, prob::IdentifyRateEquationProblem;
     optimizer, max_param_count, eq_complexity_filter::Int = typemax(Int),
-    memo::Dict{UInt64,NamedTuple}=Dict{UInt64,NamedTuple}(),
+    memo::Dict{String,_Fit}=Dict{String,_Fit}(),
     seen::Set{UInt64}=Set{UInt64}(),
     parent_of::AbstractDict = Dict(), log = msg -> nothing, kwargs...
 )
@@ -488,74 +525,77 @@ function _process_batch(
         h in seen || (push!(seen, h); push!(fresh, m))
     end
 
-    # PASS 1 (workers): complexity-cap + compile + param-cap + render.
-    # `:complexity_skip` = over eq_complexity_filter (checked first, before any
-    # derivation); `:param_skip` = over max_param_count; `FitFailure` = threw; else a
-    # record with everything the row needs + `eq_hash`.
+    # PASS 1 (workers): complexity filter (checked first, before any derivation),
+    # compile, parameter cap, printed law, then the concrete mechanism's law, its check on
+    # the guard's faces and its canonical form. `:complexity_skip` and `:param_skip` are
+    # skips; `FitFailure` = threw; else a `_Candidate`.
     compiled = pmap(fresh) do m
         try
             _eq_complexity(m) > eq_complexity_filter && return :complexity_skip
             em = compile_mechanism(m)
-            fkeys = fitted_params(em)
-            length(fkeys) > max_param_count && return :param_skip
+            length(fitted_params(em)) > max_param_count && return :param_skip
             eq_text = rate_equation_string(em)
             text = sprint(show, m)
-            (mech = m, n_params = length(fkeys),
-             mechanism = text, mechanism_id = _mechanism_id(text),
-             eq_text = eq_text, eq_hash = _rate_eq_dedup_key(eq_text))
+            id = _mechanism_id(text)
+            s = _solve(m)
+            L = _law(m, s)
+            _assert_support(m, L)
+            _Candidate(m, s.fitted, text, id, eq_text, _canonical(L, id))
         catch e
             FitFailure(m, _exc_string(e))
         end
     end
 
-    # Pick one representative per `eq_hash` not already fit.
-    rep_idx = Dict{UInt64,Int}()
+    # Pick one representative per key not already fit.
+    rep_idx = Dict{String,Int}()
     for (i, c) in enumerate(compiled)
-        c isa NamedTuple && !haskey(memo, c.eq_hash) && get!(rep_idx, c.eq_hash, i)
+        c isa _Candidate && !haskey(memo, c.canon.key) && get!(rep_idx, c.canon.key, i)
     end
-    reps = [(mech = compiled[i].mech, eq_hash = compiled[i].eq_hash)
-            for i in values(rep_idx)]
+    reps = _Candidate[compiled[i] for i in values(rep_idx)]
     n_param_skip = count(==(:param_skip), compiled)
     n_cx_skip = count(==(:complexity_skip), compiled)
     n_seen_skip = length(mechs) - length(fresh)
-    log(_prefit_summary(length(reps),
-        count(c -> c isa NamedTuple, compiled) - length(reps),
-        n_param_skip, n_cx_skip, n_seen_skip; max_param_count, eq_complexity_filter))
+    capped = ["leaf cap reached for $(c.mechanism_id); fitted under its own key"
+              for c in compiled if c isa _Candidate && c.canon.capped]
+    log(join([_prefit_summary(length(reps),
+                  count(c -> c isa _Candidate, compiled) - length(reps),
+                  n_param_skip, n_cx_skip, n_seen_skip;
+                  max_param_count, eq_complexity_filter); capped], "\n  "))
 
     # PASS 2: fit them in PARALLEL (`pmap`) — fitting dominates cost, so it must run
-    # across all workers.
+    # across all workers. Each representative gives its fit at canonical positions, or
+    # the text of the error its fit threw.
     rep_fits = pmap(reps) do r
         try
             fp = FittingProblem(compile_mechanism(r.mech), prob.data;
                 Keq=prob.Keq, absolute=prob.absolute, peak_range=prob.peak_range)
-            (eq_hash = r.eq_hash, fit = fit_rate_equation(fp, optimizer; kwargs...),
-             error = nothing)
+            fit = fit_rate_equation(fp, optimizer; kwargs...)
+            _Fit(Float64[fit.params[x] for x in _fit_order(r)], fit.loss, fit.retcode,
+                 fit.peak_at_range_edge, r.mech, r.mechanism_id)
         catch e
-            (eq_hash = r.eq_hash, fit = nothing, error = _exc_string(e))
+            _exc_string(e)
         end
     end
-    fit_error = Dict{UInt64,String}()   # eq_hash → representative fit threw
-    for r in rep_fits
-        r.error === nothing ? (memo[r.eq_hash] = r.fit) : (fit_error[r.eq_hash] = r.error)
+    fit_error = Dict{String,String}()   # key → its representative's fit threw
+    for (r, f) in zip(reps, rep_fits)
+        f isa _Fit ? (memo[r.canon.key] = f) : (fit_error[r.canon.key] = f::String)
     end
 
-    # Build a row per compiled mechanism by copying its equation's fit.
+    # Build a row per derived mechanism from its key's fit, read through its own order.
     entries  = BatchEntry[]
     failures = FitFailure[]
-    emitted_eq_hashes = Set{UInt64}()
     for c in compiled
-        c isa Symbol && continue                     # cap skip
         c isa FitFailure && (push!(failures, c); continue)
-        if haskey(fit_error, c.eq_hash)              # representative fit threw
-            push!(failures, FitFailure(c.mech, fit_error[c.eq_hash]))
+        c isa _Candidate || continue                       # a skip
+        key = c.canon.key
+        if haskey(fit_error, key)                          # representative fit threw
+            push!(failures, FitFailure(c.mech, fit_error[key]))
             continue
         end
-        fit = memo[c.eq_hash]
-        inherited = !haskey(rep_idx, c.eq_hash) || (c.eq_hash in emitted_eq_hashes)
-        push!(emitted_eq_hashes, c.eq_hash)
+        fit = memo[key]
         parent = get(parent_of, c.mech, nothing)
         row = (
-            n_params = c.n_params,
+            n_params = length(c.fitted),
             parent_n_params = parent === nothing ? missing : parent.n_params,
             loss = fit.loss,
             mechanism = c.mechanism,
@@ -564,13 +604,14 @@ function _process_batch(
             rate_equation = c.eq_text,
             retcode = string(fit.retcode),
             error = missing,
-            params = fit.params,
-            eq_hash = string(c.eq_hash, base=16, pad=16),
-            fit_inherited = inherited,
+            params = _row_params(c, _fit_order(c), fit.values),
+            key,
+            fit_inherited = fit.source_id != c.mechanism_id,
+            fit_source_id = fit.source_id,
             peak_at_range_edge = fit.peak_at_range_edge,
         )
-        push!(entries, BatchEntry(c.mech, c.n_params, fit.loss, fit.retcode,
-                                  c.eq_hash, row))
+        push!(entries, BatchEntry(c.mech, length(c.fitted), fit.loss, fit.retcode, key,
+                                  key, row))
     end
     (entries, failures, n_param_skip, n_cx_skip, n_seen_skip)
 end
@@ -578,9 +619,9 @@ end
 """
 Fold a batch of `BatchEntry`s into the search state: every entry with a finite loss
 joins the `frontier` (the unexpanded work queue — ALL structurally-distinct
-mechanisms, no eq-dedup); `best_loss_by_count` tracks the per-count running
+mechanisms, no key dedup); `best_loss_by_count` tracks the per-count running
 min (the beam-cutoff reference); `cv_pool` keeps the top `n_cv_candidates`
-DISTINCT equations (by `eq_hash`, lowest loss each) per param count. An entry whose
+entries with DISTINCT rate-law keys (lowest loss each) per param count. An entry whose
 loss is not finite (`fit_rate_equation` returns `Inf` when no restart is finite) is
 skipped: it is never expanded, never sets a best loss and never enters LOOCV; its row
 is already in the batch's CSV. Returns the set of counts whose best loss strictly
@@ -604,12 +645,11 @@ function _ingest!(frontier, cv_pool, best_loss_by_count, entries;
 end
 
 """
-Keep `pool` at the top `n` distinct-`eq_hash` entries by loss. A repeat
-`eq_hash` only ever updates its own slot (to the lower loss); it never
-consumes a second slot.
+Keep `pool` at the top `n` entries with distinct rate-law keys, by loss. A repeat key
+only ever updates its own slot (to the lower loss); it never consumes a second slot.
 """
 function _offer_cv!(pool::Vector{BatchEntry}, e::BatchEntry, n::Int)
-    idx = findfirst(p -> p.eq_hash == e.eq_hash, pool)
+    idx = findfirst(p -> p.key == e.key, pool)
     if idx !== nothing
         e.loss < pool[idx].loss && (pool[idx] = e)
         return pool
@@ -725,10 +765,10 @@ function _beam_search(
     # Mechanisms expanded so far per parameter count — the cumulative floor
     # budget. Spent once over the whole search, never re-granted per sweep.
     expanded_by_count = Dict{Int, Int}()
-    # Fits as `fit_rate_equation` returns them (scaled to peak turnover 1 in relative
-    # mode), keyed by `eq_hash`, shared across iterations so each distinct equation is
-    # fit exactly once over the whole search.
-    memo = Dict{UInt64,NamedTuple}()
+    # Fits by rate-law key, at canonical positions (`_Fit`; scaled to peak turnover 1 in
+    # relative mode), shared across iterations so each distinct law is fit exactly once
+    # over the whole search. LOOCV refits each key's source on its folds.
+    memo = Dict{String,_Fit}()
     # Structures already produced — each is expanded at most once (termination).
     # This preserves the selected model: expansion is deterministic, so a
     # re-produced structure yields identical children (no new reachable
@@ -781,8 +821,7 @@ function _beam_search(
     # initial_mechanisms.csv and the errored bucket).
     base_batch = run_batch!(base, base_expand_failures,
         "Fitting $(length(base)) initial mechanisms…", "initial_mechanisms.csv")
-    base_batch === nothing && return (
-        Union{Mechanism, AllostericMechanism}[], _rows_to_dataframe(NamedTuple[]))
+    base_batch === nothing && return (BatchEntry[], memo)
     base_entries, base_failures = base_batch
     isempty(base_entries) && error(
         "Every base-tier fit failed ($(length(base_failures)) " *
@@ -832,11 +871,7 @@ function _beam_search(
             (iteration += 1)
     end
 
-    pool_entries = BatchEntry[e for v in values(cv_pool) for e in v]
-    mechs = Union{Mechanism, AllostericMechanism}[
-        e.mech for e in pool_entries]
-    df = _rows_to_dataframe([e.row for e in pool_entries])
-    return mechs, df
+    return BatchEntry[e for v in values(cv_pool) for e in v], memo
 end
 
 """
@@ -858,44 +893,54 @@ function _select_best_row(cv_df::DataFrame; se_threshold::Float64 = 1.0)
     return first(i for i in passing if cv_df.n_params[i] == best_n)
 end
 
+"""
+    _cv_model_selection(pool, memo, prob; optimizer, se_threshold, save_dir,
+                        show_progress, kwargs...) -> IdentifyRateEquationResults
+
+Cross-validate the candidates of `pool` (the cv pool `_beam_search` returns) by leaving
+one group of `prob.data` out at a time, select one by the 1-SE rule (`_select_best_row`)
+and write `loocv_results.csv` and `best_equation.csv` to `save_dir`. A candidate's fold
+losses come from fitting, on each fold, the source of the fit it reads
+(`memo[e.fit_key].source`), so candidates that read one fit share their fold losses and
+each fit's folds run once.
+"""
 function _cv_model_selection(
-    mechs::Vector, df::DataFrame,
+    pool::Vector{BatchEntry}, memo::Dict{String,_Fit},
     prob::IdentifyRateEquationProblem;
     optimizer, se_threshold::Float64,
     save_dir, show_progress,
     kwargs...
 )
-    isempty(mechs) && error(
+    isempty(pool) && error(
         "No mechanisms were successfully " *
         "fitted during beam search")
 
-    # LOOCV candidates: every row of `df`, ordered by `n_params`, then `loss`. The
-    # rows are the cv pool, where `_offer_cv!` keeps the top `n_cv_candidates`
-    # DISTINCT equations (by `eq_hash`, lowest `loss` each) per `n_params` bucket.
-    # That keeps textually identical equations out of LOOCV — at most one row per
-    # `eq_hash` per param count — so folds are never wasted on, or biased by, them.
-    candidate_indices = sortperm(collect(zip(df.n_params, df.loss)))
-    candidate_mechs = mechs[candidate_indices]
-    candidate_rows = df[candidate_indices, :]
+    # LOOCV candidates: the cv pool, ordered by `n_params`, then `loss`. `_offer_cv!`
+    # keeps the top `n_cv_candidates` entries with DISTINCT rate-law keys (lowest `loss`
+    # each) per `n_params` bucket, so one law never takes two LOOCV slots at a count and
+    # folds are never wasted on, or biased by, its duplicates.
+    candidates = pool[sortperm([(e.n_params, e.loss) for e in pool])]
+    cv_df = _rows_to_dataframe([e.row for e in candidates])
 
     _progress(save_dir, show_progress,
-        "Cross-validating $(length(candidate_mechs)) candidate equations (LOOCV)…")
-    # Flatten LOOCV to a (candidate, fold) grid so all folds of all candidates
-    # run across every worker, not one candidate per worker with serial folds.
-    # `pmap` keeps the grid order (the fold varies fastest), so column ci of
-    # `scores` holds candidate ci's fold losses in `groups` order.
+        "Cross-validating $(length(candidates)) candidate equations (LOOCV)…")
+    # The fold losses of each fit key, from fitting its source once per fold, flattened to
+    # a (fit key, fold) grid so all folds run across every worker. `pmap` keeps the grid
+    # order (the fold varies fastest), so column j of `by_fit` holds fit key j's fold
+    # losses in `groups` order, and column ci of `scores` candidate ci's.
     groups = unique(prob.data.group)
-    fold_losses = pmap([(m, g) for m in candidate_mechs for g in groups]) do (m, g)
+    fit_keys = unique(e.fit_key for e in candidates)
+    fold_losses = pmap([(memo[k].source, g) for k in fit_keys for g in groups]) do (m, g)
         _cv_fold_loss(compile_mechanism(m), prob, g; optimizer, kwargs...)
     end
-    scores = reshape(Float64.(fold_losses), length(groups), :)
+    by_fit = reshape(Float64.(fold_losses), length(groups), :)
+    scores = by_fit[:, [findfirst(==(e.fit_key), fit_keys) for e in candidates]]
 
-    cv_df = copy(candidate_rows)
     cv_df.cv_score = [mean(c) for c in eachcol(scores)]
     cv_df.cv_score_se = [std(c) / sqrt(length(groups)) for c in eachcol(scores)]
 
     best_row_idx = _select_best_row(cv_df; se_threshold)
-    best_mechanism = compile_mechanism(candidate_mechs[best_row_idx])
+    best_mechanism = compile_mechanism(candidates[best_row_idx].mech)
 
     # Flatten per-fold scores into one column per held-out group.
     # Group order matches the `groups = unique(prob.data.group)` iteration above.
@@ -905,7 +950,7 @@ function _cv_model_selection(
 
     _progress(save_dir, show_progress,
         "Selected: $(nameof(typeof(best_mechanism))) " *
-        "(eq_hash=$(cv_df.eq_hash[best_row_idx])), " *
+        "(key=$(cv_df.key[best_row_idx])), " *
         "n_params=$(cv_df.n_params[best_row_idx])")
 
     # Save the LOOCV table and the selected best equation alongside the

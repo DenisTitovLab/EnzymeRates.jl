@@ -364,9 +364,8 @@ The `rate_equation_string` text of `m`: the `params` destructure of `param_syms`
 `concs` destructure, one line `sym = rhs` per dependent parameter of `dep`, and the
 `v = E_total * (num) / (den)` line from `_num_den_exprs`. A dependent whose right-hand
 side mentions `Keq` goes under `# Haldane constraints:`, every other one under
-`# Wegscheider constraints:`. Each section is sorted by name, which is load-bearing: the
-eq_hash dedup of rate-equivalent mechanisms compares these strings, so their line order
-must not depend on the order the solve emits its dependents in. It first runs
+`# Wegscheider constraints:`. Each section is sorted by name, so a law's text does not
+depend on the order the solve emits its dependents in. It first runs
 `_assert_no_name_clash`, which cannot fire for a mechanism the constructors build.
 """
 function _equation_text(m::_AnyMech, param_syms, dep)

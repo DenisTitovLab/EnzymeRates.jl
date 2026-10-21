@@ -40,13 +40,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   from a plain random-order bi-bi of nine steady-state steps (Julia 1.12.5, aarch64,
   `--heap-size-hint=2500M`).
 
-- **Splitting a tied kinetic group changes `eq_hash` without changing the model.**
-  When a square of rapid-equilibrium bindings already ties two binding constants,
-  splitting their kinetic group leaves the rate function and the fitted names unchanged,
-  but the split part's constant becomes a dependent with its own line under
-  `# Wegscheider constraints:`, and the law names it, so the printed equation and the
-  dedup key (`_rate_eq_dedup_key`, `src/identify_rate_equation.jl`) differ, and identify
-  fits both. The rename-proof key under Planned removes this.
 - **A rapid-equilibrium isomerization of a covalent intermediate can be unidentifiable.**
   In 5 of 751 enumerated plain mechanisms in the derivation probes, an isomerization such
   as `E(B; residual = A - P) ⇌ E(Q)` joins two forms whose rapid-equilibrium weights
@@ -155,8 +148,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   Every search-cost number on hand comes from runs made before 0.8.0: 66% of equations
   duplicated under renaming, `to_allosteric` producing 47% of LDH children, 94% of fits
   non-parsimonious. On the next LDH, PGK and PFKP runs, measure fits whose parent fails
-  the final parsimony cutoff, children and survivors per move, same-function equations
-  that `eq_hash` misses (`_rate_eq_dedup_key`, `src/identify_rate_equation.jl`),
+  the final parsimony cutoff, children and survivors per move, same-function laws that
+  the key misses, equal only after a reparametrization (`_canonical`, `src/key.jl`),
   zero-gain `change_allo_state` children, and how often PGK meets the one-subunit L
   phantom. These numbers rank the open search-speed and deduplication ideas.
   Priority: medium.
@@ -203,11 +196,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Seed each identify fit from its mechanism's content.**
   `fit_rate_equation` (`src/fitting.jl`) draws each restart's starting point with `randn`
   from the running task's random stream, and `_process_batch`
-  (`src/identify_rate_equation.jl`) fits a batch's representatives in the iteration order
-  of a `Dict` keyed by `eq_hash`, filled in the order the moves emit the mechanisms. So a
-  change of emission order or of a law's printed text moves the starting points of every
-  later fit, and a fit-dependent test can flip with no change to any model. A seed per fit
-  from a process-stable content key, mixed with one master seed drawn per
+  (`src/identify_rate_equation.jl`) fits a batch's representatives in the iteration order of
+  a `Dict` keyed by the rate-law key (`_canonical`), filled in the order the moves emit the
+  mechanisms. So a change of emission order or of a law's key moves the starting points of
+  every later fit, and a fit-dependent test can flip with no change to any model. A seed per
+  fit from a process-stable content key, mixed with one master seed drawn per
   `identify_rate_equation` call, would make each fit independent of the processing order
   while `Random.seed!` still reproduces a run; every saved fit would move once.
 - **Test the compat bounds in a scheduled CI job.**
