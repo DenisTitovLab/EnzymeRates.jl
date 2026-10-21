@@ -1080,6 +1080,8 @@ end
     @test _testhelper_support_verdict(unfed).face == 2
     @test_throws "every term of the rate law's denominator vanishes" (
         EnzymeRates._assert_support(unfed, EnzymeRates._law(unfed)))
+    @test_throws "every term of the rate law's denominator vanishes" (
+        EnzymeRates._num_den_exprs(unfed))
 end
 
 @testset "class 3 rejects a second closed class on a face" begin
@@ -1285,8 +1287,7 @@ end
 @testset "a law chain whose fast limit differs from the law is rejected" begin
     # At zero P and Q the law's segment chain has two closed classes, and the steady
     # state's fast-equilibrium limit, the same at new speeds, differs from the law's value
-    # as P and Q vanish. The package law is 0/0 there, so the RE-speed oracle compares the
-    # limit with its own law's limit.
+    # as P and Q vanish. The RE-speed oracle compares the limit with its own law's limit.
     differ = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -3174,6 +3175,8 @@ end
           "denominator vanishes, so the rate is 0/0 there."
     @test_throws(ErrorException(EnzymeRates._guard_message(am, w)),
                  EnzymeRates._assert_support(am, EnzymeRates._law(am)))
+    @test_throws(ErrorException(EnzymeRates._guard_message(am, w)),
+                 EnzymeRates._num_den_exprs(am))
 end
 
 @testset "every spec's denominator keeps a monomial on every face" begin

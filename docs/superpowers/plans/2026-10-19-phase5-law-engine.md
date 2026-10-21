@@ -13386,7 +13386,8 @@ exists, then deletes it.
   `src/thermo.jl` (`build_power_expr`); `src/EnzymeRates.jl` (the include line)
 - Modify: `ROADMAP.md` (any pointer to the deleted file or functions)
 - Test: `test/test_rate_eq_derivation.jl`, `test/allosteric_ground_truth.jl`,
-  `test/test_mechanism_enumeration.jl`, the fixtures file
+  `test/test_mechanism_enumeration.jl`, `test/test_admission.jl` (its two
+  `_num_den_exprs` throw assertions go with their subject), the fixtures file
   (`_testhelper_steady_state_rate`'s `occupancy`; the two-argument `_testhelper_poly_value`
   on `POLY` goes; comments naming the old engine)
 - Create (scratch): `$S/phase45/probes/P5_T13_den_check.jl`; census `census/P5_T13`
@@ -13779,7 +13780,10 @@ still holds one derivation per conformation graph.
 (k) Run `grep -n "_num_den_exprs\|_raw_symbolic\|_state_rate_polys\|_mwc_state_polys\|POLY" test/mechanism_definitions_for_test_enzyme_derivation.jl test/test_admission.jl test/test_oracles.jl`
 and rewrite each comment or docstring it prints to name the new law (`EnzymeRates._law`)
 in place of the old function; earlier tasks rewrote the code that called them, so only
-prose is left.
+prose is left. The exception is test_admission.jl's two `@test_throws` on
+`EnzymeRates._num_den_exprs(unfed)` and `EnzymeRates._num_den_exprs(am)`, kept by Task 5's
+ruling on item 16: delete both; their testsets keep the `_assert_support(…, _law(…))`
+assertions.
 
 - [ ] **Step 3: Run the converted tests against the old engine's presence**
 
@@ -13929,10 +13933,10 @@ cd $S/phase3 && ./jl.sh $S/phase45/logs/P5_T13_census.log 3600 --project=census/
 then the ter-ter and TME figures as in Task 12 Step 14 (logs `P5_T13_terter.log`,
 `P5_T13_tme_focused.log`).
 Expected: the full suite `exit 0`, every test passing, pristine, Aqua and JET green, its
-test count Task 12's minus the removed "rendering helpers" tests (8 at f9361cf) plus the
-converted testsets' new assertions; `RESULT: PASS` with strings exact (`strings exact
-<n>/<n>`): deleting the old engine changes no child, value, name or text; the three R52
-figures beside Task 0's.
+test count Task 12's minus the removed "rendering helpers" tests (8 at f9361cf) and the
+two `_num_den_exprs` throw assertions plus the converted testsets' new assertions;
+`RESULT: PASS` with strings exact (`strings exact <n>/<n>`): deleting the old engine
+changes no child, value, name or text; the three R52 figures beside Task 0's.
 
 - [ ] **Step 8: Commit**
 
@@ -15026,7 +15030,8 @@ Two questions the rulings leave open, then the four calls the research proposed:
   rule (fewest bound metabolites, then no residual) goes; the testset now pins the engine's
   rooting at a segment's first form.
 - The old engine and printer, listed in the summary, and with them the `POLY` class-5
-  failure path, whose last direct test went in Task 5 (class 5's tests read `_Poly`).
+  failure path, whose last direct tests, test_admission.jl's two `_num_den_exprs` throw
+  assertions, go with it in Task 13.
 
 ## L phantoms (P5-36)
 
@@ -15277,7 +15282,9 @@ Tasks 4–7:
 16. Task 5 moves the class-5 throw assertions to `_assert_support(m, _law(m))`. The `POLY`
     failure path stays in src until Task 13 with no test (no public path reaches it; the
     guard rejects every hand case class 5 refuses). Acceptable as a backstop until Task 13,
-    or keep both assertions and change Task 13's deletion list?
+    or keep both assertions and change Task 13's deletion list? Settled (Task 5 ruling):
+    both assertions stay beside the new ones until Task 13 deletes them with
+    `_num_den_exprs`.
 17. Task 6's identify.jl GC workload runs real CMA fits (three rounds, `--pkgimages=no`),
     untimed; it may approach its 1,200 s timeout. Settled (P5-46): phase 4's Task 14 ran
     the same workload with `--pkgimages=no` and the remarks in 41 s on 1.12 and on 1.13
