@@ -1807,8 +1807,8 @@ end
     end
     @test EnzymeRates._eq_complexity(raw(ordered_terter)) == 49
 
-    # Allosteric: computed on the catalytic core, so it equals the catalytic V×τ
-    # (an all-SS uni-uni: G = 3 segments, τ = 3 spanning trees ⇒ 9).
+    # Allosteric: both conformations count. An all-SS uni-uni has G = 3 segments and
+    # τ = 3 spanning trees, 9, and its inactive conformation keeps every step: 9 more.
     allo = @allosteric_mechanism begin
         substrates: F6P
         products: F16BP
@@ -1821,7 +1821,11 @@ end
         end
         regulatory_site(2): I::OnlyI
     end
-    @test EnzymeRates._eq_complexity(EnzymeRates.AllostericMechanism(allo)) == 9
+    am = EnzymeRates.AllostericMechanism(allo)
+    @test _testhelper_laplacian_tree_count(am.catalytic, EnzymeRates._active_mask(am)) == 9
+    @test _testhelper_laplacian_tree_count(am.catalytic,
+                                           EnzymeRates._inactive_mask(am)) == 9
+    @test EnzymeRates._eq_complexity(am) == 18
 end
 
 @testset "Rate equation too large error" begin

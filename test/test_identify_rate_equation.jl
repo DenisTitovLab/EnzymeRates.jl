@@ -1213,6 +1213,54 @@ end
     @test occursin("polynomial terms", failures[1].error)
 end
 
+@testset "eq_complexity_filter counts both conformations" begin
+    # The 336-term random-order bi-bi at one catalytic subunit with its chemistry and its
+    # product bindings at free E :OnlyA, a K-type the tagging move emits: the inactive
+    # conformation keeps the substrate square E, E(S1), E(S1, S2), E(S2), four segments and
+    # four spanning trees, so the law counts 336 + 16 = 352. The default filter skips it,
+    # where the active count alone would let it through. A filter of 700 lets it through
+    # to the parameter cap, which skips its 16 fitted constants without a fit.
+    rxn = @enzyme_reaction begin
+        substrates: S1[C2H4], S2[C2H2]
+        products:   P1[C2H2], P2[C2H4]
+    end
+    data = DataFrame(
+        S1 = [1.0, 2.0, 1.0, 2.0], S2 = [1.0, 1.0, 2.0, 2.0],
+        P1 = [0.1, 0.2, 0.1, 0.2], P2 = [0.1, 0.1, 0.2, 0.2],
+        Rate = [0.5, 0.8, 0.9, 1.1], group = [1, 1, 2, 2])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
+    ktype = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S1, S2
+        products: P1, P2
+        catalytic_multiplicity: 1
+        steps: begin
+            E + P1 <--> E(P1) :: OnlyA
+            E + P2 <--> E(P2) :: OnlyA
+            E + S1 <--> E(S1) :: EqualAI
+            E + S2 <--> E(S2) :: EqualAI
+            E(P1) + P2 <--> E(P1, P2) :: EqualAI
+            E(P2) + P1 <--> E(P1, P2) :: EqualAI
+            E(S1) + S2 <--> E(S1, S2) :: EqualAI
+            E(S1, S2) <--> E(P1, P2) :: OnlyA
+            E(S2) + S1 <--> E(S1, S2) :: EqualAI
+        end
+    end)
+    cm = ktype.catalytic
+    @test _testhelper_laplacian_tree_count(cm, EnzymeRates._active_mask(ktype)) == 336
+    @test _testhelper_laplacian_tree_count(cm, EnzymeRates._inactive_mask(ktype)) == 16
+    @test EnzymeRates._eq_complexity(ktype) == 352
+    @test EnzymeRates._independent_param_count(ktype) == 16
+    batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[ktype]
+    _, _, n_param_skip, n_cx_skip = EnzymeRates._process_batch(
+        batch, prob; optimizer=CMAEvolutionStrategyOpt(),
+        max_param_count=15, eq_complexity_filter=337, n_restarts=1, maxtime=1.0)
+    @test (n_cx_skip, n_param_skip) == (1, 0)
+    _, _, n_param_wide, n_cx_wide = EnzymeRates._process_batch(
+        batch, prob; optimizer=CMAEvolutionStrategyOpt(),
+        max_param_count=15, eq_complexity_filter=700, n_restarts=1, maxtime=1.0)
+    @test (n_cx_wide, n_param_wide) == (0, 1)
+end
+
 @testset "_ingest! and cv pool" begin
     _testhelper_mk(n, loss, h) = EnzymeRates.BatchEntry(
         _testhelper_uni_seed, n, loss, :Success, hash(h),

@@ -376,11 +376,27 @@ end
     end
 end
 
-@testset "Detailed balance over a regenerated population" begin
+@testset "the derived laws of the population sample are exact, positive and balanced" begin
+    # Q1 (spec section 14). Each sampled law, derived from the concrete mechanism at one
+    # catalytic subunit, equals the exact steady state at two points, holds positive
+    # coefficients in each conformation's Q, and vanishes at equilibrium, per conformation
+    # and combined.
     @test count(m -> m isa EnzymeRates.AllostericMechanism,
                 _testhelper_population_sample) >= 30
     for (i, m) in enumerate(_testhelper_population_sample)
         @testset "population mechanism $i" begin
+            mech = _testhelper_single_subunit(m)
+            s = EnzymeRates._solve(mech)
+            L = EnzymeRates._law(mech, s)
+            rng = Random.MersenneTwister(i)
+            for _ in 1:2
+                point, concs, params = _testhelper_law_inputs(mech, s.fitted, rng)
+                oracle = _testhelper_steady_state_rate(mech, point, concs)
+                law = _testhelper_evaluate_law(L, merge(params, concs))
+                @test abs(law - oracle) <= big(10)^-20 * abs(oracle)
+            end
+            Qs = L isa EnzymeRates._Law ? [L.Q] : [L.active.Q, L.inactive.Q]
+            @test all(Q -> all(>(0), values(Q.terms)), Qs)
             @test all(<(big(10)^-30),
                       _testhelper_detailed_balance(m, Random.MersenneTwister(i)))
         end
@@ -401,13 +417,6 @@ end
 end
 
 @testset "Laws over a regenerated population" begin
-    @testset "every sampled law matches the exact oracle" begin
-        for (i, m) in enumerate(_testhelper_population_sample)
-            _testhelper_check_law_against_oracle(EnzymeRates.compile_mechanism(m);
-                                                 n_points = 2, seed = i, compiled = false)
-        end
-    end
-
     @testset "fitted counts equal the declared dimension" begin
         # Success criterion 4: a phantom or folded fitted name would raise the count
         # above the dimension the test counts on its own.

@@ -21,13 +21,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   optimizer that scores points on several threads at once, such as CMA-ES with
   `multi_threading` passed through `solver_kwargs`, would race on both buffers. Fits run
   in parallel only across `pmap` workers, each of which builds its own problem.
-- **`eq_complexity_filter` counts an allosteric mechanism's catalytic graph once.**
-  `_eq_complexity` (`src/engine.jl`) measures V×τ on the whole catalytic
-  graph, which with `:OnlyI` groups holds more than the active conformation's law (15
-  against 9 on a uni-uni whose inhibitor binds two forms `:OnlyI`), while the generated
-  MWC rate equation evaluates the polynomials of both conformations, so the filter
-  undercounts what an allosteric equation costs and can admit one that evaluates more
-  terms than its limit.
 - **`BigInt` arithmetic inflates the GC's live-byte count.**
   Two functions that compute in `BigInt` raise `Base.gc_live_bytes` by bytes that no live
   object holds: the counter that `_split_gain_test` uses for a plain mechanism

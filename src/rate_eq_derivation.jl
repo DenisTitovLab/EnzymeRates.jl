@@ -630,9 +630,12 @@ Horner form (`_poly_to_horner`) for the generated code when `horner` is true.
 Per-active-site normalization: the
 numerator carries no leading `catalytic_multiplicity` factor; only the
 `Q_cat^(CatN-1)` / `Q_cat^CatN` binding-statistics powers remain. Errors when the
-denominator vanishes on a face of the guard (`_assert_support`).
+denominator vanishes on a face of the guard (`_assert_support`). It first refuses a law
+whose two conformations together exceed `MAX_RATE_EQUATION_TERMS` spanning-tree products
+(`_assert_derivable`).
 """
 function _num_den_exprs(am::AllostericMechanism; horner = false)
+    _assert_derivable(am)
     CatN = catalytic_multiplicity(am)
     RS = regulatory_sites(am)
     kept = _kept_members(am)

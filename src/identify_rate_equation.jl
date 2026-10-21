@@ -108,12 +108,15 @@ and data using beam search.
 - `eq_complexity_filter::Int = 337`: skip (before fitting, before any
   derivation) any mechanism whose rate equation is more complex than this —
   roughly the number of terms in the rate equation's denominator: V×τ, the
-  number of RE-segments times the spanning-tree count of the catalytic segment
-  graph, i.e. the products the compiled equation evaluates on every call. The
-  default 337 is one above a fully steady-state random-order bi-bi (V×τ = 336),
-  so such a mechanism passes and anything more complex is skipped — equations
-  denser than that are impractical to fit and can blow up derivation/codegen.
-  Computed from the mechanism graph alone.
+  number of RE-segments times the spanning-tree count of the segment graph,
+  i.e. the products the compiled equation evaluates on every call. An
+  allosteric mechanism counts both conformations, V×τ of the active one plus
+  V×τ of the inactive one. The default 337 is one above a fully steady-state
+  random-order bi-bi (V×τ = 336), so such a mechanism passes and anything more
+  complex is skipped — equations denser than that are impractical to fit and
+  can blow up derivation/codegen. A one-subunit variant of that bi-bi whose
+  inactive conformation keeps its substrate bindings counts 336 + 16 = 352 and
+  is skipped. Computed from the mechanism graph alone.
 - `optional_allosteric_regulators::Vector{Symbol} = Symbol[]`: declared
   allosteric regulators the seed may omit. A reaction that declares regulators
   seeds the beam fully regulated by default; naming a regulator here lets the

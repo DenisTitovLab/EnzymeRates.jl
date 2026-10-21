@@ -343,3 +343,209 @@ end
                                     "leaves Int64 arithmetic")
     @test endswith(err.value.msg, sprint(show, mm))
 end
+
+# ── The MWC law ─────────────────────────────────────────────────────────────
+
+@testset "the MWC law equals the one-subunit oracle on every allosteric spec" begin
+    # At one catalytic subunit the MWC law is the exact steady state of one protomer that
+    # flips at free E: 3 points per spec, 1e-20 relative in 256-bit BigFloat. Each
+    # conformation's Q has positive coefficients, the law vanishes at equilibrium in each
+    # conformation and combined, and the fitted names count the declared dimension. A
+    # second derivation gives an equal law with an equal hash.
+    specs = [s for s in MECHANISM_TEST_SPECS
+             if s.mechanism isa EnzymeRates.AllostericEnzymeMechanism]
+    @test length(specs) == 11
+    for (i, spec) in enumerate(specs)
+        @testset "$(spec.name)" begin
+            am = _testhelper_lift(_testhelper_single_subunit(spec.mechanism))
+            s = EnzymeRates._solve(am)
+            A = EnzymeRates._law(am, s)
+            rng = Random.MersenneTwister(i)
+            for _ in 1:3
+                point, concs, params = _testhelper_law_inputs(am, s.fitted, rng)
+                oracle = _testhelper_steady_state_rate(am, point, concs)
+                law = _testhelper_evaluate_law(A, merge(params, concs))
+                @test abs(law - oracle) <= big(10)^-20 * abs(oracle)
+            end
+            @test all(>(0), values(A.active.Q.terms))
+            @test all(>(0), values(A.inactive.Q.terms))
+            @test all(<(big(10)^-30),
+                      _testhelper_detailed_balance(am, Random.MersenneTwister(100 + i)))
+            @test length(s.fitted) == _testhelper_declared_dimension(am)
+            again = EnzymeRates._law(am, s)
+            @test again == A && hash(again) == hash(A)
+        end
+    end
+end
+
+@testset "the MWC law equals the n-protomer oracle at 1–3 protomers" begin
+    # The bi-uni of the :NonequalAI ground-truth gate: A binds at steady state, B and P at
+    # rapid equilibrium, and the chemistry differs between the conformations, so the
+    # inactive numerator is live. The oracle solves the concerted network of n protomers,
+    # each moving through its conformation's forms, all flipping together at free E.
+    mechs = (
+        @allosteric_mechanism(begin
+            substrates: A, B
+            products: P
+            catalytic_multiplicity: 1
+            steps: begin
+                E + A <--> E(A)        :: EqualAI
+                E(A) + B ⇌ E(A, B)     :: EqualAI
+                E(A, B) <--> E(P)      :: NonequalAI
+                E + P ⇌ E(P)           :: EqualAI
+            end
+        end),
+        @allosteric_mechanism(begin
+            substrates: A, B
+            products: P
+            catalytic_multiplicity: 2
+            steps: begin
+                E + A <--> E(A)        :: EqualAI
+                E(A) + B ⇌ E(A, B)     :: EqualAI
+                E(A, B) <--> E(P)      :: NonequalAI
+                E + P ⇌ E(P)           :: EqualAI
+            end
+        end),
+        @allosteric_mechanism(begin
+            substrates: A, B
+            products: P
+            catalytic_multiplicity: 3
+            steps: begin
+                E + A <--> E(A)        :: EqualAI
+                E(A) + B ⇌ E(A, B)     :: EqualAI
+                E(A, B) <--> E(P)      :: NonequalAI
+                E + P ⇌ E(P)           :: EqualAI
+            end
+        end))
+    for (n, em) in enumerate(mechs)
+        am = _testhelper_lift(em)
+        s = EnzymeRates._solve(am)
+        A = EnzymeRates._law(am, s)
+        @test A.n == n
+        rng = Random.MersenneTwister(30 + n)
+        for _ in 1:2
+            point, concs, params = _testhelper_law_inputs(am, s.fitted, rng)
+            oracle = setprecision(() -> _testhelper_protomer_rate(am, point, concs; n),
+                                  BigFloat, 256)
+            law = _testhelper_evaluate_law(A, merge(params, concs))
+            @test abs(law - oracle) <= big(10)^-20 * abs(oracle)
+        end
+    end
+end
+
+@testset "an :OnlyI law is the exact limit of its vanishing constants" begin
+    # The thirteen mechanisms whose :OnlyI groups bind modifiers alone, read without the
+    # guard: each law equals the rapid-equilibrium limit of the oracle's own deletion
+    # network (`_testhelper_limit_law`) at 3 points, and the active conformation's
+    # denominator holds no constant of an :OnlyI group, since `_active_mask` drops them.
+    for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
+        @testset "$label" begin
+            sub = _testhelper_single_subunit(am)
+            s = EnzymeRates._solve(sub)
+            A = EnzymeRates._law(sub, s)
+            rng = Random.MersenneTwister(400 + i)
+            for _ in 1:3
+                point, concs, params = _testhelper_law_inputs(sub, s.fitted, rng)
+                exact = setprecision(BigFloat, 256) do
+                    _testhelper_limit_law(sub, point, concs, Set{Symbol}(); rng)
+                end
+                law = _testhelper_evaluate_law(A, merge(params, concs))
+                @test abs(law - exact) <= big(10)^-20 * abs(exact)
+            end
+            cm = EnzymeRates.catalytic(sub)
+            onlyi = Set(x for (k, ns) in enumerate(EnzymeRates._edge_names(sub, :I))
+                        if EnzymeRates.cat_allo_state(sub, cm.group[k]) === :OnlyI
+                        for x in ns)
+            held = Set(A.vars.names[v] for mo in keys(A.active.D.terms) for (v, _) in mo)
+            @test !isempty(onlyi)
+            @test isempty(intersect(onlyi, held))
+        end
+    end
+end
+
+@testset "a flip-only inactive conformation is Q = 0, D = 1" begin
+    # Both bindings :OnlyA: the inactive conformation's free E binds nothing, so that
+    # conformation is free E alone. It turns nothing over and weighs 1, so the law is
+    # H·QA/(DA + L), and it adds nothing to the term count.
+    inert = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ E(P)      :: OnlyA
+        end
+    end
+    am = _testhelper_lift(inert)
+    @test !any(EnzymeRates._inactive_mask(am))
+    s = EnzymeRates._solve(am)
+    A = EnzymeRates._law(am, s)
+    @test EnzymeRates._flip_only(A.inactive) && !EnzymeRates._flip_only(A.active)
+    @test iszero(A.inactive.Q) && A.inactive.D == one(EnzymeRates._Poly)
+    @test A.inactive.trees == [one(EnzymeRates._Poly)] && isempty(A.inactive.shift)
+    @test A.fA == one(EnzymeRates._Poly) && A.fI == one(EnzymeRates._Poly)
+    @test EnzymeRates._eq_complexity(am) == 1
+    rng = Random.MersenneTwister(77)
+    for _ in 1:3
+        point, concs, params = _testhelper_law_inputs(am, s.fitted, rng)
+        oracle = _testhelper_steady_state_rate(am, point, concs)
+        law = _testhelper_evaluate_law(A, merge(params, concs))
+        @test abs(law - oracle) <= big(10)^-20 * abs(oracle)
+    end
+end
+
+@testset "_cross_weights divides out the common integer and monomial content" begin
+    vars = EnzymeRates._Vars()
+    B = EnzymeRates._var!(vars, :B; conc = true)
+    k = EnzymeRates._var!(vars, :k_ES_to_EP)
+    q = EnzymeRates._var!(vars, :K_EQ_to_E_Q)
+    t(c, ps...) = EnzymeRates._term(EnzymeRates._monomial(ps...), c)
+    # Two monomials, 2·k·B and 4·B², share the content 2·B.
+    @test EnzymeRates._cross_weights(t(2, k => 1, B => 1), t(4, B => 2)) ==
+          (t(1, k => 1), t(2, B => 1))
+    # Equal weights both become 1, whatever their polynomial part.
+    w = t(1, k => 1) + t(1, B => 1)
+    @test EnzymeRates._cross_weights(w, w) ==
+          (one(EnzymeRates._Poly), one(EnzymeRates._Poly))
+    # A two-term weight keeps its primitive part; only the shared B comes out.
+    @test EnzymeRates._cross_weights(t(1, q => 1, B => 1) * w, t(1, B => 1)) ==
+          (t(1, q => 1) * w, one(EnzymeRates._Poly))
+end
+
+@testset "the cap counts both conformations" begin
+    # A random-order bi-bi with the abortive complexes E(A, Q) and E(B, P), every step
+    # steady state: 9 forms and 480 spanning trees, 4,320 products. With its chemistry
+    # :NonequalAI at one catalytic subunit both conformations keep every step, so the law
+    # counts 4,320 + 4,320 = 8,640: over the cap of 5,000, though each conformation is
+    # under it. The engine refuses it before any polynomial product, with
+    # RateEquationTooLargeError's message.
+    em = @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)          :: EqualAI
+            E + B <--> E(B)          :: EqualAI
+            E(A) + B <--> E(A, B)    :: EqualAI
+            E(B) + A <--> E(A, B)    :: EqualAI
+            E(A, B) <--> E(P, Q)     :: NonequalAI
+            E(P, Q) <--> E(P) + Q    :: EqualAI
+            E(P, Q) <--> E(Q) + P    :: EqualAI
+            E(P) <--> E + P          :: EqualAI
+            E(Q) <--> E + Q          :: EqualAI
+            E(A) + Q <--> E(A, Q)    :: EqualAI
+            E(Q) + A <--> E(A, Q)    :: EqualAI
+            E(B) + P <--> E(B, P)    :: EqualAI
+            E(P) + B <--> E(B, P)    :: EqualAI
+        end
+    end
+    am = _testhelper_lift(em)
+    cm = am.catalytic
+    amask, imask = EnzymeRates._active_mask(am), EnzymeRates._inactive_mask(am)
+    @test _testhelper_laplacian_tree_count(cm, amask) == 4320
+    @test _testhelper_laplacian_tree_count(cm, imask) == 4320
+    @test EnzymeRates._eq_complexity(cm, amask) <= EnzymeRates.MAX_RATE_EQUATION_TERMS
+    @test EnzymeRates._eq_complexity(am) == 8640
+    @test_throws EnzymeRates.RateEquationTooLargeError EnzymeRates._law(am)
+    @test_throws "has more than 5000 polynomial terms" EnzymeRates._law(am)
+    @test_throws EnzymeRates.RateEquationTooLargeError rate_equation_string(em)
+end

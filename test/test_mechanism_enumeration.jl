@@ -2871,6 +2871,15 @@ end
     end)
     @test EnzymeRates._eq_complexity(am) >
           EnzymeRates.MAX_RATE_EQUATION_TERMS
+    # Both conformations count: each inactive conformation keeps only E + Q <--> E(Q), two
+    # segments joined by one tree, so the sum is the active law's count plus 2.
+    for x in (am, p_by_a, p_by_b, a_by_p)
+        @test _testhelper_laplacian_tree_count(x.catalytic,
+                                               EnzymeRates._inactive_mask(x)) == 2
+        @test EnzymeRates._eq_complexity(x) ==
+              _testhelper_laplacian_tree_count(x.catalytic,
+                                               EnzymeRates._active_mask(x)) + 2
+    end
     @test EnzymeRates._independent_param_count(p_by_a) ==
           EnzymeRates._independent_param_count(am)
     # The count derives no law; deriving the law itself still refuses one this large.
@@ -2958,6 +2967,14 @@ end
         end
     end)
     @test EnzymeRates._eq_complexity(am) > EnzymeRates.MAX_RATE_EQUATION_TERMS
+    # Both conformations count: the inactive conformation keeps only E + Q <--> E(Q).
+    for x in (am, a_by_p, p_by_b)
+        @test _testhelper_laplacian_tree_count(x.catalytic,
+                                               EnzymeRates._inactive_mask(x)) == 2
+        @test EnzymeRates._eq_complexity(x) ==
+              _testhelper_laplacian_tree_count(x.catalytic,
+                                               EnzymeRates._active_mask(x)) + 2
+    end
     @test EnzymeRates._independent_param_count(am) == 22
     @test EnzymeRates._independent_param_count(a_by_p) == 24
     @test EnzymeRates._independent_param_count(p_by_b) == 23

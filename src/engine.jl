@@ -208,7 +208,118 @@ function _law(m::Mechanism, s::_Solve, mask::BitVector; inactive::Bool = false,
     end
 end
 
-_law(m::Mechanism) = _law(m, _solve(m), trues(length(m.edges)))
+"""The law of the edges of `m` over the independents of `s`, every edge kept."""
+_law(m::Mechanism, s::_Solve) = _law(m, s, trues(length(m.edges)))
+_law(m::Mechanism) = _law(m, _solve(m))
+
+# ─── The MWC law ─────────────────────────────────────────────────────────
+
+"""
+An MWC rate law over `vars`: `active.vars` (the concentrations of `metabolites(am)`, the
+independents of both conformations and `:Keq`), then the regulator constants (in
+`_Solve.fitted` order) and `:L`. With `QA, DA` from `active` and `QI, DI` from `inactive`
+(0 and 1 for a conformation that is free E alone, `_flip_only_law`), and
+`WA = Π_s sites[s][1]^sites[s][3]`, `WI = Π_s sites[s][2]^sites[s][3]`:
+
+    v = E_total·H·(fI^n·QA·DA^(n−1)·WA + L·fA^n·QI·DI^(n−1)·WI) /
+                  (fI^n·DA^n·WA + L·fA^n·DI^n·WI)
+
+`fA` and `fI` are free E's weights in the two laws over their common factor
+(`_cross_weights`); `n` is the catalytic multiplicity.
+"""
+mutable struct _AlloLaw
+    const vars::_Vars
+    const H::_Poly
+    const active::_Law
+    const inactive::_Law
+    const fA::_Poly
+    const fI::_Poly
+    const sites::Vector{Tuple{_Poly, _Poly, Int}}
+    const n::Int
+end
+Base.:(==)(a::_AlloLaw, b::_AlloLaw) =
+    a.vars == b.vars && a.H == b.H && a.active == b.active && a.inactive == b.inactive &&
+    a.fA == b.fA && a.fI == b.fI && a.sites == b.sites && a.n == b.n
+Base.hash(A::_AlloLaw, h::UInt) =
+    hash((A.vars, A.active, A.inactive, A.n), hash(:_AlloLaw, h))
+
+"""The law of a conformation that is free E alone, over the variables of `L`, the other
+conformation's law: it turns nothing over (`Q = 0`), weighs 1 (`D = 1`) and has no
+segment."""
+_flip_only_law(L::_Law) =
+    _Law(L.vars, L.H, zero(_Poly), one(_Poly), _Poly[], [one(_Poly)], _Mono())
+
+"""Whether `L` is the law of a conformation that is free E alone (`_flip_only_law`)."""
+_flip_only(L::_Law) = isempty(L.sigma)
+
+"""
+    _cross_weights(fA, fI) -> (fA′, fI′)
+
+The free-E weights `fA` and `fI` of the two conformations over their common factor: each
+divided by the greatest common divisor of their integer contents and by the monomial of
+the lower exponent of each variable in their monomial contents (`_content`). When their
+primitive parts are equal those cancel too, leaving monomials, 1 for equal weights.
+"""
+function _cross_weights(fA::_Poly, fI::_Poly)
+    (cA, uA, rA), (cI, uI, rI) = _content(fA), _content(fI)
+    same = rA == rI
+    g = gcd(cA, cI)
+    u = _monomial((v => min(_mexp(uA, v), _mexp(uI, v))
+                   for v in unique!([first.(uA); first.(uI)]))...)
+    weight(c, mu, r) = (p = _term(_mmul(mu, _mpow(u, -1)), div(c, g)); same ? p : p * r)
+    weight(cA, uA, rA), weight(cI, uI, rI)
+end
+
+"""
+The binding polynomial of regulatory site `site` of `am` in the active (`inactive =
+false`) or inactive conformation, over `vars`: 1 plus each ligand's concentration over its
+dissociation constant (`_reg_K`), an `:OnlyI` ligand left out of the active conformation
+and an `:OnlyA` one out of the inactive.
+"""
+function _site_weight(am::AllostericMechanism, vars::_Vars, site::RegulatorySite,
+                      inactive::Bool)
+    W = one(_Poly)
+    for (lig, tag) in zip(ligands(site), allo_states(site))
+        K = _reg_K(am, lig, tag, inactive)
+        K === nothing && continue
+        W = W + _term(_monomial(vars.index[lig] => 1, vars.index[K] => -1))
+    end
+    W
+end
+
+"""
+    _law(am, s = _solve(am)) -> _AlloLaw
+
+The MWC law of `am` over the independents of `s`: the active conformation's law on
+`_active_mask(am)` and the inactive one's on `_inactive_mask(am)`, `_flip_only_law` for a
+conformation whose mask is empty, both over the concentrations of `metabolites(am)`, so
+their polynomials multiply directly; free E's weight in each over their common factor; and
+each regulatory site's binding polynomials. Free E roots segment 1, so its weight is that
+segment's tree sum times the law's shift. A law over the summed cap is refused before any
+polynomial product (`_assert_derivable`). The guard rejects an empty active mask
+(`_NO_ACTIVE_TURNOVER`), but the oracles read its law.
+"""
+function _law(am::AllostericMechanism, s::_Solve)
+    _assert_derivable(am)
+    m, amask, imask = catalytic(am), _active_mask(am), _inactive_mask(am)
+    concentrations = metabolites(am)
+    LA = any(amask) ? _law(m, s, amask; concentrations) :
+         _flip_only_law(_law(m, s, imask; inactive = true, concentrations))
+    LI = any(imask) ? _law(m, s, imask; inactive = true, concentrations) :
+         _flip_only_law(LA)
+    vars = deepcopy(LA.vars)
+    for x in view(s.fitted, (length(s.independents) + 1):(length(s.fitted) - 1))
+        _var!(vars, x)
+    end
+    _var!(vars, :L)
+    fA, fI = _cross_weights(LA.trees[1] * LA.shift, LI.trees[1] * LI.shift)
+    sites = Tuple{_Poly, _Poly, Int}[(_site_weight(am, vars, site, false),
+                                      _site_weight(am, vars, site, true),
+                                      multiplicity(site))
+                                     for site in regulatory_sites(am)]
+    _AlloLaw(vars, LA.H, LA, LI, fA, fI, sites, catalytic_multiplicity(am))
+end
+_law(am::AllostericMechanism) = _law(am, _solve(am))
 
 """
 The spanning trees of the multigraph whose Laplacian is `lap`: the determinant of `lap`
@@ -249,9 +360,7 @@ the number of spanning-tree products in the law's denominator before kinetic gro
 it bounds fit cost. It guards the derivation (`_assert_derivable` aborts when V×τ exceeds
 `MAX_RATE_EQUATION_TERMS`, before any polynomial is built) and backs the
 `eq_complexity_filter` keyword of [`identify_rate_equation`](@ref). Saturates at
-`typemax(Int)`. The method for a mechanism counts every edge of its catalytic graph,
-which for an allosteric mechanism with `:OnlyI` groups holds more than its active
-conformation's law.
+`typemax(Int)`.
 """
 function _eq_complexity(m::Mechanism, mask::BitVector)
     s = _segments(m, mask, _flags(m))
@@ -267,8 +376,23 @@ function _eq_complexity(m::Mechanism, mask::BitVector)
     τ = _tree_count(lap)
     τ > typemax(Int) ÷ G ? typemax(Int) : G * τ
 end
-_eq_complexity(m::_AnyMech) =
-    _eq_complexity(catalytic(m), trues(length(catalytic(m).edges)))
+
+"""
+    _eq_complexity(m) -> Int
+
+The size of `m`'s rate law in spanning-tree products, V×τ (`_eq_complexity(m, mask)`):
+over every edge of a plain mechanism; for an allosteric one, the active law's count plus
+the inactive law's, a conformation that is free E alone counting 0, saturated at
+`typemax(Int)`. The cap (`_assert_derivable`) and identify's `eq_complexity_filter` read
+it.
+"""
+_eq_complexity(m::Mechanism) = _eq_complexity(m, trues(length(m.edges)))
+function _eq_complexity(am::AllostericMechanism)
+    m, imask = catalytic(am), _inactive_mask(am)
+    a = _eq_complexity(m, _active_mask(am))
+    i = any(imask) ? _eq_complexity(m, imask) : 0
+    a > typemax(Int) - i ? typemax(Int) : a + i
+end
 
 """
 The error `_assert_derivable` raises for a mechanism whose rate equation would have more
@@ -290,5 +414,13 @@ derivation entry calls it (`_law`, `_raw_symbolic_rate_polys`).
 """
 function _assert_derivable(m::Mechanism, mask::BitVector)
     _eq_complexity(m, mask) > MAX_RATE_EQUATION_TERMS && throw(RateEquationTooLargeError())
+    return nothing
+end
+
+"""Abort the derivation of `am`'s MWC law when its two conformations together exceed
+`MAX_RATE_EQUATION_TERMS` spanning-tree products (`_eq_complexity(am)`): a numeric check
+that throws a `RateEquationTooLargeError` before any polynomial product."""
+function _assert_derivable(am::AllostericMechanism)
+    _eq_complexity(am) > MAX_RATE_EQUATION_TERMS && throw(RateEquationTooLargeError())
     return nothing
 end

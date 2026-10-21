@@ -615,20 +615,20 @@ _testhelper_poly_value(p, env) =
 """
     _testhelper_detailed_balance(m, rng) -> Vector{BigFloat}
 
-Detailed-balance residuals of `m`'s rate law at a random parameter point, in 256-bit
-BigFloat: the law's value at equilibrium concentrations (the first product scaled so
-that Π[P]/Π[S] = Keq) over its value with that product ten times lower, then, for an
-allosteric mechanism, the same ratio for each conformation's numerator that is not
-identically zero (`_state_rate_polys`). Each is zero in exact arithmetic when the law
-satisfies every Haldane and Wegscheider relation. `m`, compiled or concrete, is read as the
-concrete mechanism, without the guard (`_testhelper_law_value`), so a law the guard
-rejects is checked too.
+Detailed-balance residuals of `m`'s derived law (`EnzymeRates._law`) at a random parameter
+point, in 256-bit BigFloat: the law's value at equilibrium concentrations (the first product
+scaled so that Π[P]/Π[S] = Keq) over its value with that product ten times lower, then, for
+an allosteric mechanism, the same ratio of `H·Q` for each conformation whose `Q` is not
+zero. Each is zero in exact arithmetic when the law satisfies every Haldane and Wegscheider
+relation. `m`, compiled or concrete, is read as the concrete mechanism, without the guard,
+so a law the guard rejects is checked too.
 """
 function _testhelper_detailed_balance(m, rng)
     setprecision(BigFloat, 256) do
         mech = _testhelper_lift(m)
-        dep, fitted = EnzymeRates._dependent_param_exprs(mech)
-        params = Dict{Symbol, BigFloat}(k => exp(4 * big(rand(rng)) - 2) for k in fitted)
+        s = EnzymeRates._solve(mech)
+        L = EnzymeRates._law(mech, s)
+        params = Dict{Symbol, BigFloat}(k => exp(4 * big(rand(rng)) - 2) for k in s.fitted)
         params[:Keq] = exp(4 * big(rand(rng)) - 2)
         g = _testhelper_graph(mech)
         subs, prods = g.substrates, g.products
@@ -639,18 +639,15 @@ function _testhelper_detailed_balance(m, rng)
                     prod((concs[x] for x in prods if x != p1); init = big(1))
         off = copy(concs)
         off[p1] /= 10
-        ratios = BigFloat[abs(_testhelper_law_value(mech, params, concs)) /
-                          abs(_testhelper_law_value(mech, params, off))]
-        g.catalytic_multiplicity === nothing && return ratios
-        env = copy(params)
-        for (k, ex) in dep
-            env[k] = _testhelper_eval_expr(ex, env)
-        end
-        for state in (:A, :I)
-            num = first(EnzymeRates._state_rate_polys(mech, state))
-            isempty(num) && continue
-            push!(ratios, abs(_testhelper_poly_value(num, merge(env, concs))) /
-                          abs(_testhelper_poly_value(num, merge(env, off))))
+        at, below = merge(params, concs), merge(params, off)
+        ratios = BigFloat[abs(_testhelper_evaluate_law(L, at)) /
+                          abs(_testhelper_evaluate_law(L, below))]
+        L isa EnzymeRates._AlloLaw || return ratios
+        for C in (L.active, L.inactive)
+            iszero(C.Q) && continue
+            h(env) = _testhelper_poly_value(C.H, C.vars, env)
+            q(env) = _testhelper_poly_value(C.Q, C.vars, env)
+            push!(ratios, abs(h(at) * q(at)) / abs(h(below) * q(below)))
         end
         ratios
     end
@@ -1986,6 +1983,26 @@ _testhelper_evaluate_law(L::EnzymeRates._Law, env::AbstractDict{Symbol}) =
             _testhelper_poly_value(L.Q, L.vars, env) /
             _testhelper_poly_value(L.D, L.vars, env)
     end
+
+"""
+The MWC law `A` per enzyme at the values `env` (by name: the concentrations, the
+independents, `Keq`, the regulator constants and `L`), in 256-bit BigFloat:
+`H·(fI^n·QA·DA^(n−1)·WA + L·fA^n·QI·DI^(n−1)·WI) / (fI^n·DA^n·WA + L·fA^n·DI^n·WI)`, each
+site's binding polynomial raised to its multiplicity in `WA` and `WI`.
+"""
+function _testhelper_evaluate_law(A::EnzymeRates._AlloLaw, env::AbstractDict{Symbol})
+    setprecision(BigFloat, 256) do
+        value(p) = _testhelper_poly_value(p, A.vars, env)
+        n, L = A.n, BigFloat(env[:L])
+        WA = prod((value(w)^k for (w, _, k) in A.sites); init = big(1))
+        WI = prod((value(w)^k for (_, w, k) in A.sites); init = big(1))
+        fA, fI = value(A.fA), value(A.fI)
+        QA, DA = value(A.active.Q), value(A.active.D)
+        QI, DI = value(A.inactive.Q), value(A.inactive.D)
+        value(A.H) * (fI^n * QA * DA^(n - 1) * WA + L * fA^n * QI * DI^(n - 1) * WI) /
+            (fI^n * DA^n * WA + L * fA^n * DI^n * WI)
+    end
+end
 
 """
 V×τ of the edges of the plain mechanism `m` that `mask` keeps, counted by the test from its
