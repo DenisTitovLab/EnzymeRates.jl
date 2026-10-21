@@ -53,6 +53,9 @@ end
     H2 = mono(1 => 2) - mono(2 => 1, 3 => -1)
     q2 = mono(1 => 1) + mono(2 => 1) + mono(1 => 1, 2 => 1, 3 => 1//2)
     @test P._divexact(H2 * q2, H2) == q2
+    # A chain with a missing power: H·(A³ + P³/Keq³) has no A²·P²/Keq² term.
+    qg = mono(1 => 3) + mono(2 => 3, 3 => -3)
+    @test P._divexact(H * qg, H) == qg
     @test iszero(P._divexact(zero(P._Poly), H))
     @test_throws ArgumentError P._divexact(H * q + one(P._Poly), H)
     @test_throws ArgumentError P._divexact(q, q)

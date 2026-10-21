@@ -29,7 +29,8 @@ end
 """An exponent: an integer for a concentration, a rational for a constant."""
 const _Exp = Rational{Int}
 
-"""A monomial: `variable => exponent` pairs sorted by variable, no zero exponent."""
+"""A monomial: `variable => exponent` pairs sorted by variable, no zero exponent. It is
+never mutated once built, since polynomials share their monomials as `Dict` keys."""
 const _Mono = Vector{Pair{Int, _Exp}}
 
 """The product of two monomials (a merge of the sorted pairs)."""
