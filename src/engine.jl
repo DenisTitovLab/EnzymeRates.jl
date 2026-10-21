@@ -215,31 +215,25 @@ The spanning trees of the multigraph whose Laplacian is `lap`: the determinant o
 without its first row and column (Kirchhoff's matrix-tree theorem), by fraction-free
 (Bareiss) elimination in checked `Int`. After an `OverflowError` it takes the `BigInt`
 determinant, saturated at `typemax(Int)`, which is above every cap. A graph of at most one
-node has one tree; a disconnected graph has none.
+node has one tree; a disconnected graph has none. A zero pivot means no tree: the reduced
+Laplacian is positive semidefinite, so a zero pivot is a zero leading principal minor and
+the determinant is 0; no row swap is needed.
 """
 function _tree_count(lap::Matrix{Int})
     n = size(lap, 1) - 1
     n <= 0 && return 1
     M = lap[2:end, 2:end]
-    sgn, prev = 1, 1
+    prev = 1
     try
         for k in 1:(n - 1)
-            if M[k, k] == 0
-                p = findfirst(i -> M[i, k] != 0, (k + 1):n)
-                p === nothing && return 0
-                p += k
-                for j in 1:n
-                    M[k, j], M[p, j] = M[p, j], M[k, j]
-                end
-                sgn = -sgn
-            end
+            M[k, k] == 0 && return 0
             for i in (k + 1):n, j in (k + 1):n
                 M[i, j] = div(Base.checked_sub(Base.checked_mul(M[i, j], M[k, k]),
                                                Base.checked_mul(M[i, k], M[k, j])), prev)
             end
             prev = M[k, k]
         end
-        sgn * M[n, n]
+        M[n, n]
     catch err
         err isa OverflowError || rethrow()
         Int(min(det(BigInt.(lap[2:end, 2:end])), big(typemax(Int))))

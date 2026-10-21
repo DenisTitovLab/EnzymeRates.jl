@@ -16,6 +16,7 @@ end
     @test EnzymeRates._tree_count(complete(20)) == typemax(Int)
     @test EnzymeRates._tree_count(zeros(Int, 1, 1)) == 1
     @test EnzymeRates._tree_count([1 -1 0; -1 1 0; 0 0 0]) == 0
+    @test EnzymeRates._tree_count([1 0 -1; 0 0 0; -1 0 1]) == 0
     rng = Random.MersenneTwister(31)
     for _ in 1:50
         n = rand(rng, 2:14)
@@ -258,6 +259,29 @@ end
     @test startswith(err.value.msg,
                      "Mechanism: the rapid-equilibrium steps E + P ⇌ E(P), " *
                      "E + S ⇌ E(S) and E(S) ⇌ E(P) close a cycle")
+end
+
+@testset "_law refuses a mask whose steady-state steps leave its segments apart" begin
+    # The mask keeps two steady-state steps that share no form, so the segment graph has
+    # no spanning tree: V×τ is 0, which the cap lets through, and the engine refuses.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B <--> E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P, Q) <--> E(Q) + P
+            E(Q) <--> E + Q
+        end
+    end)
+    mask = BitVector([EnzymeRates._step_text(m, k) in ("E + A <--> E(A)",
+                                                       "E(Q) + P <--> E(P, Q)")
+                      for k in eachindex(m.edges)])
+    @test EnzymeRates._eq_complexity(m, mask) == 0
+    msg = "internal error: the steady-state steps of this mechanism " *
+          "do not join its rapid-equilibrium segments"
+    @test_throws ErrorException(msg) EnzymeRates._law(m, EnzymeRates._solve(m), mask)
 end
 
 @testset "_law refuses a law over the term cap" begin

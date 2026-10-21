@@ -1966,8 +1966,8 @@ end
 # ── Phase-5 law oracles ─────────────────────────────────────────────────────
 
 """The value of `p`, a polynomial over the variables `vars`, at the values `env` (by name),
-in 256-bit BigFloat; every power, a fractional one included, is correctly rounded to that
-precision."""
+in 256-bit BigFloat; each power is computed at that precision, a fractional exponent rounded
+to it first."""
 function _testhelper_poly_value(p::EnzymeRates._Poly, vars::EnzymeRates._Vars,
                                 env::AbstractDict{Symbol})
     setprecision(BigFloat, 256) do
