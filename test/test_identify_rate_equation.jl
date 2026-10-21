@@ -767,7 +767,7 @@ end
 @testset "_select_count!: thresholds, floor, best loss, parsimony" begin
     # One call at count 5 with a fresh floor budget: `best` is the count's best loss
     # over the whole search, and `others` holds the best losses of other counts.
-    # Each mechanism its own key, so keys rank as the mechanisms did.
+    # Each mechanism its own key, so the key ranks are the mechanism ranks.
     _testhelper_selected(losses, best; rel, add = 0.0, width = 1,
                          others = Dict{Int,Float64}(), parsimony = 1.0) =
         EnzymeRates._select_count!(Dict{Int,Int}(), merge(Dict(5 => best), others), 5,
