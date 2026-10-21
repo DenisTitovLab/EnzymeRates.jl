@@ -183,10 +183,11 @@ candidate at or below the cutoff, so a simpler equation wins whenever
 it predicts held-out groups as well as the best one to within the
 best one's fold-to-fold standard error.
 
-A candidate's fold losses come from fitting, on each fold, the mechanism whose fit it
-reads. An L phantom (`L_phantom` in the CSVs: a one-subunit variant whose `L` the data
-cannot determine) takes its source's fold losses, so beside its source it loses the
-tie by its extra parameter, and selected without it, it reports `L = 0`.
+A candidate's fold losses come from fitting, on each fold, the
+mechanism whose fit it reads. An L phantom (`L_phantom` in the CSVs:
+a one-subunit variant whose `L` the data cannot determine) takes its
+source's fold losses, so beside its source it loses the tie by its
+extra parameter, and selected without it, it reports `L = 0`.
 """
 function identify_rate_equation(
     prob::IdentifyRateEquationProblem;

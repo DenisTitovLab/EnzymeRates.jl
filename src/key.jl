@@ -228,7 +228,7 @@ end
 
 Whether the allosteric mechanism `am`, whose MWC law is `A`, is a one-subunit L phantom
 (spec section 13): one catalytic subunit, an inactive conformation that binds nothing and
-runs no step (`_inactive_mask` empty), only `:OnlyA` site ligands, and a rescaling
+runs no step (no edge in `_inactive_mask`), only `:OnlyA` site ligands, and a rescaling
 certificate (`_phantom_weights`), so its family is the family of its law at `L = 0`.
 """
 _is_phantom(am::AllostericMechanism, A::_AlloLaw) =

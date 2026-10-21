@@ -486,6 +486,8 @@ end
         _testhelper_read_csv(f) = CSV.read(joinpath(save_dir, f), DataFrame;
             types = Dict(:mechanism_id => String, :parent_id => String,
                          :fit_source_id => String))
+        # Iteration 1 holds an L phantom, so the L_phantom branch below runs.
+        @test any(f -> any(isequal(true), _testhelper_read_csv(f).L_phantom), files)
         init_df = _testhelper_read_csv("initial_mechanisms.csv")
         @test nrow(init_df) == length(unique!(
             collect(EnzymeRates.init_mechanisms(prob.reaction))))
@@ -1505,14 +1507,17 @@ end
 # ── §2 fit-dedup by key ──────────────────────────────────────────────────────
 # A stub optimizer that counts `solve` invocations and returns a canned
 # log-space optimum (`uval` for every coordinate), so a batch's fits can be
-# counted exactly and the raw→rescale path exercised deterministically.
+# counted exactly and the raw→rescale path exercised deterministically. With
+# `infinite = true` every restart reports an infinite objective, as a fit with no
+# finite loss does.
 mutable struct _testhelper_CountingStubOpt
     count::Int
     uval::Float64
     throwit::Bool
+    infinite::Bool
 end
-_testhelper_CountingStubOpt(; uval=0.0, throwit=false) =
-    _testhelper_CountingStubOpt(0, uval, throwit)
+_testhelper_CountingStubOpt(; uval=0.0, throwit=false, infinite=false) =
+    _testhelper_CountingStubOpt(0, uval, throwit, infinite)
 Optimization.allowsbounds(::_testhelper_CountingStubOpt) = true
 function Optimization.SciMLBase.__solve(
         prob::Optimization.OptimizationProblem, opt::_testhelper_CountingStubOpt; kwargs...)
@@ -1520,6 +1525,7 @@ function Optimization.SciMLBase.__solve(
     opt.throwit && error("stub solver forced failure")
     u = fill(opt.uval, length(prob.u0))
     cache = DefaultOptimizationCache(prob.f, prob.p)
+    opt.infinite && return build_solution(cache, opt, u, Inf; retcode = ReturnCode.Failure)
     build_solution(cache, opt, u, prob.f(u, prob.p); retcode = ReturnCode.Success)
 end
 
@@ -1877,20 +1883,6 @@ end
                         "  leaf cap reached for $id; fitted under its own key"]
 end
 
-# A stub optimizer whose every restart reports an infinite objective, as a fit with no
-# finite loss does; it counts `solve` calls.
-mutable struct _testhelper_InfiniteStubOpt
-    count::Int
-end
-Optimization.allowsbounds(::_testhelper_InfiniteStubOpt) = true
-function Optimization.SciMLBase.__solve(
-        prob::Optimization.OptimizationProblem, opt::_testhelper_InfiniteStubOpt; kwargs...)
-    opt.count += 1
-    u = zeros(length(prob.u0))
-    build_solution(DefaultOptimizationCache(prob.f, prob.p), opt, u, Inf;
-                   retcode = ReturnCode.Failure)
-end
-
 # The merged uni-uni and its K-type child at one catalytic subunit
 # (test_mechanism_enumeration.jl, "expand_mechanisms on a merged uni-uni"): the child's
 # inactive conformation is free E alone and its certificate maps it onto the parent's
@@ -2068,7 +2060,7 @@ end
     @test failures[2].error == failures[1].error
     @test occursin("stub solver forced failure", failures[2].error)
     @test ismissing(EnzymeRates._failure_row(failures[2]).L_phantom)
-    opt = _testhelper_InfiniteStubOpt(0)
+    opt = _testhelper_CountingStubOpt(; infinite = true)
     entries, failures = EnzymeRates._process_batch(batch, prob; optimizer = opt,
         max_param_count = 20, n_restarts = 1, maxtime = 1.0)
     @test opt.count == 1 && isempty(failures)

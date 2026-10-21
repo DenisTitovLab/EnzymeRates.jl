@@ -1448,8 +1448,8 @@ end
 
 # ── L phantoms over regenerated populations ─────────────────────────────────
 
-# The census bi-bi reaction at one catalytic subunit, whose seeds' tagging children are
-# Q5's population.
+# The census bi-bi reaction at one catalytic subunit, whose init mechanisms' tagging
+# children are Q5's population.
 const _testhelper_phantom_bibi_rxn = @enzyme_reaction begin
     substrates: A[C], B[N]
     products: P[C], Q[N]
@@ -1481,7 +1481,7 @@ function _testhelper_tagging_children(parents, rxn)
 end
 
 @testset "every flagged one-subunit bi-bi variant is its L→0 law's family" begin
-    # Q5 (spec section 13): the tagging children of 40 bi-bi seeds spaced
+    # Q5 (spec section 13): the tagging children of 40 bi-bi init mechanisms spaced
     # through their content order, 200 of them spaced the same way. Each variant
     # `_is_phantom` flags reproduces its law at L = 0 under the certificate's rescaling, so
     # its family is that law's and no flagged variant gains rank; the rank oracle confirms
@@ -1503,17 +1503,17 @@ end
 
 @testset "no one-subunit ping-pong tagging child is an L phantom" begin
     # Q6: the tagging children at one catalytic subunit of 30 ping-pong parents,
-    # the seeds with a covalent form and their well-posed flips with one, spaced through
+    # the covalent init mechanisms and their well-posed covalent flips, spaced through
     # their content order. Every child keeps a step in the inactive conformation, so the
     # pre-filter fits it, and none has a certificate, so dropping the pre-filter
     # would flag none either. The counts are aggregate regression pins over the
     # declaration's seed set (CLAUDE.md enumeration rule 1's exception).
     rxn = _testhelper_phantom_pingpong_rxn
     covalent(m) = any(EnzymeRates._has_residual, m.forms)
-    seeds = filter(covalent, collect(EnzymeRates.init_mechanisms(rxn)))
-    flips = [c for m in seeds for c in EnzymeRates._expand_re_to_ss(m)
+    inits = filter(covalent, collect(EnzymeRates.init_mechanisms(rxn)))
+    flips = [c for m in inits for c in EnzymeRates._expand_re_to_ss(m)
              if EnzymeRates._is_well_posed(c) && covalent(c)]
-    parents = _testhelper_spaced(unique!([seeds; flips]), 30)
+    parents = _testhelper_spaced(unique!([inits; flips]), 30)
     @test length(parents) == 30
     kids = _testhelper_tagging_children(parents, rxn)
     @test length(kids) == 172

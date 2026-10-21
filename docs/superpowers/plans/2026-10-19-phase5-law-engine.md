@@ -14900,8 +14900,9 @@ Two questions the rulings leave open, then the four calls the research proposed:
 - **P5-31a: drop the L-phantom pre-filter?** The certificate runs inside the spec's
   pre-filter (one subunit, inactive conformation free E alone, every site ligand
   `:OnlyA`). Without the pre-filter, 17–21% of bi-bi fits go instead of 2.5–3.2%, each
-  with an exact proof; this branch flags <flagged> variants in Task 10's rerun, and the
-  certificate alone would flag <certificate-only> more (P5_T10_rerun.log).
+  with an exact proof; on ping-pong this branch flags no variant in Task 10's rerun (0 of
+  202 in round 1, 0 of 1,548 in round 2), and the certificate alone would flag none either
+  (P5_T10_rerun.log).
 - **P5-14** the coefficient form sits behind `rate_equation_string(m; coefficients =
   true)`; the default and identify's CSV keep the full law (the two are about as long).
 - **P5-20** the `key` column holds all 64 hex digits; `mechanism_id`, `parent_id` and
@@ -15040,9 +15041,11 @@ Two questions the rulings leave open, then the four calls the research proposed:
 The research's distinct counts: the spec's rule flags 738 bi-bi variants (188 in round 1,
 550 in round 2), the certificate 3,102. Ping-pong coverage was zero there, since ping-pong
 round 1 duplicated bi-bi round 1. Task 10 reran R5.2 on P4-1's ping-pong tagging children
-(n = 1, round 1 and a seeded round-2 sample, P5_T10_rerun.log): <flagged> flagged,
-<certificate-only> certificate-only, every flagged variant with key(active law) =
-key(L→0 law), np = np₀ + 1, the map oracle holding and equal ranks.
+(n = 1, round 1 and a seeded round-2 sample, P5_T10_rerun.log): 0 of 202 variants in round 1
+and 0 of 1,548 in round 2 are flagged, and none is certificate-only. Every variant keeps an
+edge in its inactive conformation, so the pre-filter fits it, and the rerun's checks on a
+flagged variant (key(active law) = key(L→0 law), np = np₀ + 1, the map oracle, equal ranks)
+ran on none: ping-pong phantom coverage is still zero, as Q6 predicted.
 
 ## Evidence limits (P5-44)
 
@@ -15069,9 +15072,11 @@ key(L→0 law), np = np₀ + 1, the map oracle holding and equal ranks.
 - Key cost (P5_T7_keycost.log): bi-bi median <ms> ms; ter-ter medians by V×τ bin <ms>,
   <ms>, <ms>, <ms> and <ms> ms; max <ms> ms over the 239 bi-bi and 200 ter-ter laws; 0
   leaf-cap hits.
-- L-phantom detector (P5_T10_rerun.log; spec section 17): `_is_phantom` median <us> µs,
-  max <us> µs per one-subunit variant, `_phantom_weights` median <us> µs, max <us> µs,
-  over the ping-pong rerun's rounds 1 and 2 (the research: about 25 µs on slice code).
+- L-phantom detector (P5_T10_rerun.log; spec section 17), per one-subunit ping-pong variant
+  of the rerun: the certificate `_phantom_weights` median 9.5 µs (round 1) and 11.2 µs
+  (round 2), max 364.0 µs (the research: about 25 µs on slice code); `_is_phantom` median
+  0.2 µs, max 2.6 µs, which times only the pre-filter, since every variant keeps an inactive
+  edge and none reaches the certificate.
 - R5.5 recount (P5_T4_recount.log): <figures>.
 - identify run (Task 9 against Task 0): fits run <n9> against <n0>; selected the truth:
   Task 0 <yes or no>, Task 9 <yes or no>.
