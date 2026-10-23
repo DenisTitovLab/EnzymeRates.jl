@@ -2128,10 +2128,6 @@ _testhelper_term_units(units::AbstractDict, vars::EnzymeRates._Vars,
                                t + e * units[vars.names[v]][2]), mo;
           init = (0 // 1, 0 // 1))
 
-"""The variables of `vars` that hold the substrates of the concrete mechanism `m`."""
-_testhelper_substrate_vars(m, vars::EnzymeRates._Vars) =
-    Int[vars.index[x] for x in unique(EnzymeRates.substrates(m))]
-
 """
     _testhelper_check_units(m, L)
 
@@ -2148,7 +2144,7 @@ and `fI·D_A` and `fA·D_I` share a unit, so the two conformations' terms add.
 function _testhelper_check_units(m, L)
     units = _testhelper_name_units(m)
     vars = L isa EnzymeRates._Law ? L.vars : L.active.vars
-    subs = _testhelper_substrate_vars(m, vars)
+    subs = EnzymeRates._substrate_vars(m, vars)
     unit(p, vs = vars) =
         only(unique(_testhelper_term_units(units, vs, mo) for mo in keys(p.terms)))
     plus(a, b) = (a[1] + b[1], a[2] + b[2])
@@ -2239,21 +2235,26 @@ function _testhelper_printed_value(ex, env::AbstractDict{Symbol, BigFloat})
     error("unexpected operator $op in a printed law")
 end
 
-"""The names an expression of a printed law reads, a called function's name aside."""
-_testhelper_printed_names(ex::Symbol) = Set([ex])
-_testhelper_printed_names(ex::Expr) =
-    union(Set{Symbol}(), (_testhelper_printed_names(a)
-                          for a in (ex.head === :call ? ex.args[2:end] : ex.args))...)
-_testhelper_printed_names(ex) = Set{Symbol}()
+"""Every name the expression `ex` binds or reads: each symbol except a called
+function's."""
+function _testhelper_names_read(ex)
+    ex isa Symbol && return Set([ex])
+    ex isa Expr || return Set{Symbol}()
+    union(Set{Symbol}(),
+          (_testhelper_names_read(a) for a in (ex.head === :call ? ex.args[2:end] :
+                                                ex.args))...)
+end
 
 """
     _testhelper_eval_rate_lines(s, params, concs) -> Dict{Symbol, BigFloat}
 
 Every name a printed law `s` (`rate_equation_string`, in full or in coefficients) binds,
 evaluated in 256-bit BigFloat without `eval`, at `params` and `concs` (NamedTuples or
-dictionaries by name), whose names are bound first. A destructuring line binds its names
-from them; every other line runs once each name it reads is bound, so the coefficient form,
-which prints `v` before its legend, runs too. Comment lines are skipped.
+dictionaries by name). The full law runs as Julia runs it, top to bottom: its destructuring
+lines bind their names from `params` and `concs`, and a line that reads a name no earlier
+line binds is an error. The coefficient form destructures nothing and prints `v` before its
+legend, so every name of `params` and `concs` is bound first and each line runs once each
+name it reads is bound. Comment lines are skipped.
 """
 function _testhelper_eval_rate_lines(s::AbstractString, params, concs)
     setprecision(BigFloat, 256) do
@@ -2261,9 +2262,10 @@ function _testhelper_eval_rate_lines(s::AbstractString, params, concs)
         for (k, x) in pairs(concs)
             given[k] = BigFloat(x)
         end
-        env = copy(given)
         todo = Expr[Meta.parse(l) for l in split(s, '\n')
                     if !isempty(strip(l)) && !startswith(lstrip(l), "#")]
+        full = any(ex -> ex.args[1] isa Expr, todo)
+        env = full ? Dict{Symbol, BigFloat}() : copy(given)
         while !isempty(todo)
             n = length(todo)
             filter!(todo) do ex
@@ -2272,7 +2274,10 @@ function _testhelper_eval_rate_lines(s::AbstractString, params, concs)
                     foreach(x -> env[x] = given[x], lhs.args[1].args)
                     return false
                 end
-                all(x -> haskey(env, x), _testhelper_printed_names(rhs)) || return true
+                if !all(x -> haskey(env, x), _testhelper_names_read(rhs))
+                    full && error("a printed law reads a name before it binds it: $ex")
+                    return true
+                end
                 env[lhs] = _testhelper_printed_value(rhs, env)
                 false
             end

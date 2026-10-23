@@ -1574,9 +1574,7 @@ end
 to 1e-12 relative, at a random point; false when the law prints no reference line."""
 function _testhelper_reference_lines_match(m)
     rng = Random.MersenneTwister(4)
-    fitted = EnzymeRates.fitted_params(m)
-    p = NamedTuple{(fitted..., :Keq, :E_total)}(
-        (Tuple(0.5 + rand(rng) for _ in fitted)..., 2.0, 1.0))
+    p = _testhelper_random_independent_params(m; rng)
     c = NamedTuple{metabolites(m)}(Tuple(0.5 + rand(rng) for _ in metabolites(m)))
     env = _testhelper_eval_rate_lines(rate_equation_string(m), p, c)
     ap = all_parameters(m, p)
@@ -2265,16 +2263,6 @@ end
         "k_E_res_plusA_minusP_minusQ_to_EminusQ_res_plusA_minusP); rename a metabolite " *
         "or a conformation label so that each constant has a name of its own"),
         EnzymeRates.fitted_params(residual_clash))
-end
-
-"""Every name the expression `ex` binds or reads: each symbol except a called
-function's."""
-function _testhelper_names_read(ex)
-    ex isa Symbol && return Set([ex])
-    ex isa Expr || return Set{Symbol}()
-    union(Set{Symbol}(),
-          (_testhelper_names_read(a) for a in (ex.head === :call ? ex.args[2:end] :
-                                                ex.args))...)
 end
 
 # The names no metabolite takes: E_total, Keq, L, N, params, concs, v and every name

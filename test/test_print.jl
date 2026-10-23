@@ -6,7 +6,7 @@
 function _testhelper_normalizer(m)
     mech = _testhelper_lift(m)
     L = EnzymeRates._law(mech)
-    EnzymeRates._normalizer(L.D, L.vars, _testhelper_substrate_vars(mech, L.vars)), L, mech
+    EnzymeRates._normalizer(L.D, L.vars, EnzymeRates._substrate_vars(mech, L.vars)), L, mech
 end
 
 # The concentration monomial of law `L` with the exponents `x => e`.
@@ -217,7 +217,7 @@ end
     for (i, am) in enumerate((pp2, tc))
         s = EnzymeRates._solve(am)
         A = EnzymeRates._law(am, s)
-        subs = _testhelper_substrate_vars(am, A.vars)
+        subs = EnzymeRates._substrate_vars(am, A.vars)
         nA = EnzymeRates._normalizer(A.active.D, A.active.vars, subs)
         nI = EnzymeRates._normalizer(A.inactive.D, A.inactive.vars, subs)
         m(ps...) = _testhelper_conc_mono(A.active, ps...)
@@ -501,5 +501,29 @@ end
         @test isempty(_testhelper_print_artifacts(rate_equation_string(m))) &&
               isempty(_testhelper_print_artifacts(
                   rate_equation_string(m; coefficients = true)))
+    end
+end
+
+@testset "the printed-law reader runs the full law only as written" begin
+    m = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    s = rate_equation_string(m)
+    p = _testhelper_random_independent_params(m; rng = Random.MersenneTwister(1))
+    c = (S = 0.4, P = 0.9)
+    @test isapprox(_testhelper_eval_rate_string(s, p, c), rate_equation(m, c, p);
+                   rtol = 1e-12)
+    # A name the params or concs line leaves out, and a line read before the lines that
+    # bind its names, fail as they do in Julia.
+    for t in (replace(s, "K_ES_to_E_S, " => ""; count = 1),
+              replace(s, "(; S, P) = concs" => "(; S) = concs"),
+              join(reverse(split(s, '\n')), '\n'))
+        @test_throws "before it binds it" _testhelper_eval_rate_string(t, p, c)
     end
 end

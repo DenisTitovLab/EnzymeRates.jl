@@ -204,7 +204,7 @@ The printed law `L` of `m` over the solve `s` (`rate_equation_string`). In full:
 line in named coefficients, then `N` and one legend line per coefficient.
 """
 function _law_text(m::Mechanism, s::_Solve, L::_Law; coefficients::Bool = false)
-    subs = [L.vars.index[x] for x in substrates(m)]
+    subs = _substrate_vars(m, L.vars)
     P = _printed(L, _normalizer(L.D, L.vars, subs), [L.Q, L.D], subs)
     names, (q, d) = L.vars.names, P.terms
     h = _sum_text(L.H, names)
@@ -262,7 +262,7 @@ legend follow.
 """
 function _law_text(am::AllostericMechanism, s::_Solve, A::_AlloLaw;
                    coefficients::Bool = false)
-    subs = [A.vars.index[x] for x in substrates(am)]
+    subs = _substrate_vars(am, A.vars)
     confs = [_conformation(A.active, "A", subs)]
     _flip_only(A.inactive) || push!(confs, _conformation(A.inactive, "I", subs))
     defs, legend = String[], String[]
