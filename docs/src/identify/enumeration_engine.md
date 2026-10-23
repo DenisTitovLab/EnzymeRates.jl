@@ -189,9 +189,9 @@ metabolite once. See
 [Modeling choices](@ref).
 
 **Parameter delta:** +1 per flipped group in most cases. A flip can give an
-equation that is the parent's up to renaming the constants even though it divides
-a segment, as a flank of a steady-state chain would. The move skips those flanks;
-any other such child is fit once and loses to its parent on parsimony.
+equation that is the parent's up to a reparametrization (one more constant) even
+though it divides a segment, as a flank of a steady-state chain would. The move skips
+those flanks; any other such child is fit once and loses to its parent on parsimony.
 
 ### 2. Split a kinetic group by binding context
 
