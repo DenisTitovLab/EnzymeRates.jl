@@ -1519,6 +1519,28 @@ end
     _testhelper_check_law_against_oracle(m; bigfloat = true, seed = 93)
 end
 
+@testset "a half-integer dependent emits sqrt and inv(sqrt)" begin
+    # The conformational square of "rate_equation_string runs a half-integer dependent as
+    # written": the Haldane relation fixes a rate constant through square roots, so the
+    # body computes each root once as sqrt(x) and each reciprocal root as inv(sqrt(x)).
+    half = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            (E(S) <--> F(S), E <--> F)
+            F(S) <--> E + P
+            F + S <--> E(S)
+        end
+    end
+    roots = [(name, rhs) for (name, rhs) in _testhelper_body_locals(half)
+             if occursin(r"^x\d+[mp]2$", String(name))]
+    @test Set(String(name)[(end - 1):end] for (name, _) in roots) == Set(["m2", "p2"])
+    for (name, rhs) in roots
+        x = Symbol(match(r"^(x\d+)", String(name)).captures[1])
+        @test rhs == (endswith(String(name), "p2") ? :(sqrt($x)) : :(inv(sqrt($x))))
+    end
+end
+
 @testset "dependent locals are numbered by solve column" begin
     # The program defines a local for each dependent that is a power product of two or
     # more symbols before any other local, in the solve's column order, so a body's
