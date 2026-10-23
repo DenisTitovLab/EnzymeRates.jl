@@ -97,9 +97,9 @@ end
 
 @testset "the key brings each MWC unit to lowest terms" begin
     # Each unit times its own integer and monomial: H by 2, (Q_A, D_A, fA) by 3·k⁻²·c,
-    # (Q_I, D_I, fI) by 5·k and each site's (W_A, W_I) by 7·c², with c a concentration
-    # and k a constant. The rate doubles and the key stays the same. Scaling fA alone, or
-    # one site's W_A alone, changes the rate law and the key.
+    # (Q_I, D_I, fI) by 5·k and the two sites' (W_A, W_I) by 7·c² and 11·c³, with c a
+    # concentration and k a constant. The rate doubles and the key stays the same. Scaling
+    # fA alone, fI alone or one site's W_A alone changes the rate law and the key.
     rng = Random.MersenneTwister(219)
     for (name, nsites) in ("MWC Dimer [AllostericEnzymeMechanism]" => 0,
                            "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites" => 2)
@@ -111,7 +111,8 @@ end
             k = findfirst(i -> !v.conc[i] && v.names[i] ∉ (:Keq, :L), eachindex(v.names))
             ma = EnzymeRates._monomial(k => -2, c => 1)
             mi = EnzymeRates._monomial(k => 1)
-            ms = EnzymeRates._monomial(c => 2)
+            ms = [EnzymeRates._monomial(c => i + 1) for i in 1:2]
+            ns = (7, 11)
             sc(p, mo, n) = EnzymeRates._scale(p * mo, n)
             key(L) = EnzymeRates._canonical(L, "x").key
             function _testhelper_scaled_conformation(C::EnzymeRates._Law, mo, n)
@@ -127,16 +128,19 @@ end
                 active = _testhelper_scaled_conformation(A.active, ma, 3),
                 inactive = _testhelper_scaled_conformation(A.inactive, mi, 5),
                 fA = sc(A.fA, ma, 3), fI = sc(A.fI, mi, 5),
-                sites = [(sc(WA, ms, 7), sc(WI, ms, 7), n) for (WA, WI, n) in A.sites])
+                sites = [(sc(WA, ms[i], ns[i]), sc(WI, ms[i], ns[i]), n)
+                         for (i, (WA, WI, n)) in enumerate(A.sites)])
             env = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1) for x in v.names)
             rate(L) = _testhelper_evaluate_law(L, env)
             @test abs(rate(scaled) / rate(A) - 2) <= big(10)^-20
             @test key(scaled) == key(A)
             @test key(_testhelper_mwc(; fA = sc(A.fA, ma, 3))) != key(A)
+            @test key(_testhelper_mwc(; fI = sc(A.fI, mi, 5))) != key(A)
             @test length(A.sites) == nsites
             for i in eachindex(A.sites)
                 WA, WI, n = A.sites[i]
-                sites = [A.sites[1:(i - 1)]; (sc(WA, ms, 7), WI, n); A.sites[(i + 1):end]]
+                sites = [A.sites[1:(i - 1)]; (sc(WA, ms[i], ns[i]), WI, n);
+                         A.sites[(i + 1):end]]
                 @test key(_testhelper_mwc(; sites)) != key(A)
             end
         end
