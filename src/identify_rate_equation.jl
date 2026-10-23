@@ -103,7 +103,9 @@ and data using beam search.
   parameter must earn its keep. Combined with the other loss
   thresholds via `min`; `min_beam_width` is a cumulative
   per-count budget (see "Beam selection" below). `Inf` disables it.
-- `max_param_count::Int = 20`: stop expanding beyond
+- `max_param_count::Int = 20`: skip, before fitting, any mechanism with
+  more fitted constants than this (`fitted_params`), so the search stops
+  at this parameter count
 - `eq_complexity_filter::Int = 337`: skip (before fitting, before any
   derivation) any mechanism whose rate equation is more complex than this —
   roughly the number of terms in the rate equation's denominator: V×τ, the
