@@ -2143,15 +2143,15 @@ function _testhelper_check_units(m, L)
     units = _testhelper_name_units(m)
     vars = L isa EnzymeRates._Law ? L.vars : L.active.vars
     subs = EnzymeRates._substrate_vars(m, vars)
-    unit(p, vs = vars) =
+    _testhelper_unit(p, vs = vars) =
         only(unique(_testhelper_term_units(units, vs, mo) for mo in keys(p.terms)))
     plus(a, b) = (a[1] + b[1], a[2] + b[2])
     expo(mo) = EnzymeRates._Exp[EnzymeRates._mexp(mo, v) for v in findall(vars.conc)]
     for C in (L isa EnzymeRates._Law ? (L,) : (L.active, L.inactive))
-        uD = unit(C.D)
+        uD = _testhelper_unit(C.D)
         nz = EnzymeRates._normalizer(C.D, vars, subs)
         Dc = EnzymeRates._split_conc(C.D, vars)
-        uN = foldl((acc, (mo, λ)) -> plus(acc, λ .* unit(Dc[mo])), nz.lambda;
+        uN = foldl((acc, (mo, λ)) -> plus(acc, λ .* _testhelper_unit(Dc[mo])), nz.lambda;
                    init = _testhelper_term_units(units, vars, nz.shift))
         @test uN == uD
         if nz.rule === :graded
@@ -2160,12 +2160,16 @@ function _testhelper_check_units(m, L)
         else
             @test nz.lambda == [nz.shift => 1 // 1]
         end
-        iszero(C.Q) || @test plus(unit(L.H), unit(C.Q)) == plus(uD, (0 // 1, -1 // 1))
+        iszero(C.Q) ||
+            @test plus(_testhelper_unit(L.H), _testhelper_unit(C.Q)) ==
+                  plus(uD, (0 // 1, -1 // 1))
     end
     if L isa EnzymeRates._AlloLaw
-        @test plus(unit(L.fI), unit(L.active.D)) == plus(unit(L.fA), unit(L.inactive.D))
+        @test plus(_testhelper_unit(L.fI), _testhelper_unit(L.active.D)) ==
+              plus(_testhelper_unit(L.fA), _testhelper_unit(L.inactive.D))
         for (WA, WI, _) in L.sites
-            @test unit(WA, L.vars) == unit(WI, L.vars) == (0 // 1, 0 // 1)
+            @test _testhelper_unit(WA, L.vars) == _testhelper_unit(WI, L.vars) ==
+                  (0 // 1, 0 // 1)
         end
     end
     nothing
