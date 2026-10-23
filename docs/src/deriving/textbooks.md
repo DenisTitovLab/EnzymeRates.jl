@@ -43,8 +43,8 @@ julia> print(rate_equation_string(m))
 (; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP, Keq, E_total) = params
 (; S, P) = concs
 # Haldane constraints:
-k_EP_to_ES = (1 / Keq) * K_EP_to_E_P * (1 / K_ES_to_E_S) * k_ES_to_EP
-v = E_total * (k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P) / (1 + P / K_EP_to_E_P + S / K_ES_to_E_S)
+k_EP_to_ES = K_EP_to_E_P * k_ES_to_EP / (K_ES_to_E_S * Keq)
+v = E_total * (k_ES_to_EP / K_ES_to_E_S) * (S - P / Keq) / (1 + S / K_ES_to_E_S + P / K_EP_to_E_P)
 ```
 
 The string has four sections:

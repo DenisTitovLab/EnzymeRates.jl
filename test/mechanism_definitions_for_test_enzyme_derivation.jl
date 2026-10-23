@@ -43,8 +43,8 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
     # `K2`, ... beside every name `all_parameters` gives) and `Et`
     analytical_peak_turnover_fn::Union{Function,Nothing} = nothing
 
-    # Factored form validation (optional — for mechanisms with known factored forms)
-    # Expected numerator/denominator from rate_equation_string output
+    # Factored form validation (optional — for mechanisms with known factored forms):
+    # the printed v line's Q (expected_factored_num) and D (expected_factored_denom)
     expected_factored_num::Union{String,Nothing} = nothing
     expected_factored_denom::Union{String,Nothing} = nothing
 
@@ -2214,6 +2214,116 @@ function _testhelper_laplacian_tree_count(m::EnzymeRates.Mechanism, mask::BitVec
     V * det(lap[2:end, 2:end])
 end
 
+# ── Phase-5 printed-law oracles ─────────────────────────────────────────────
+
+"""The exact value of an exponent a printed law writes: an integer or a ratio `(3/2)`."""
+_testhelper_exponent(x::Integer) = x // 1
+function _testhelper_exponent(ex::Expr)
+    ex.head === :call && ex.args[1] === :/ && length(ex.args) == 3 ||
+        error("unexpected exponent $ex in a printed law")
+    _testhelper_exponent(ex.args[2]) // _testhelper_exponent(ex.args[3])
+end
+
+"""The value of the expression `ex` of a printed law at the names `env`, in the current
+BigFloat precision: `+`, `-`, `*`, `/`, `sqrt` and `^` with an exact exponent."""
+function _testhelper_printed_value(ex, env::AbstractDict{Symbol, BigFloat})
+    ex isa Symbol && return env[ex]
+    ex isa Number && return BigFloat(ex)
+    ex isa Expr && ex.head === :call || error("unexpected $ex in a printed law")
+    op, args = ex.args[1], ex.args[2:end]
+    op === :^ && return _testhelper_printed_value(args[1], env)^
+                        BigFloat(_testhelper_exponent(args[2]))
+    a = [_testhelper_printed_value(x, env) for x in args]
+    op === :+ ? sum(a) : op === :* ? prod(a) : op === :/ ? a[1] / a[2] :
+    op === :- ? (length(a) == 1 ? -a[1] : a[1] - a[2]) : op === :sqrt ? sqrt(a[1]) :
+    error("unexpected operator $op in a printed law")
+end
+
+"""The names an expression of a printed law reads, a called function's name aside."""
+_testhelper_printed_names(ex::Symbol) = Set([ex])
+_testhelper_printed_names(ex::Expr) =
+    union(Set{Symbol}(), (_testhelper_printed_names(a)
+                          for a in (ex.head === :call ? ex.args[2:end] : ex.args))...)
+_testhelper_printed_names(ex) = Set{Symbol}()
+
+"""
+    _testhelper_eval_rate_lines(s, params, concs) -> Dict{Symbol, BigFloat}
+
+Every name a printed law `s` (`rate_equation_string`, in full or in coefficients) binds,
+evaluated in 256-bit BigFloat without `eval`, at `params` and `concs` (NamedTuples or
+dictionaries by name), whose names are bound first. A destructuring line binds its names
+from them; every other line runs once each name it reads is bound, so the coefficient form,
+which prints `v` before its legend, runs too. Comment lines are skipped.
+"""
+function _testhelper_eval_rate_lines(s::AbstractString, params, concs)
+    setprecision(BigFloat, 256) do
+        given = Dict{Symbol, BigFloat}(k => BigFloat(x) for (k, x) in pairs(params))
+        for (k, x) in pairs(concs)
+            given[k] = BigFloat(x)
+        end
+        env = copy(given)
+        todo = Expr[Meta.parse(l) for l in split(s, '\n')
+                    if !isempty(strip(l)) && !startswith(lstrip(l), "#")]
+        while !isempty(todo)
+            n = length(todo)
+            filter!(todo) do ex
+                lhs, rhs = ex.args
+                if lhs isa Expr
+                    foreach(x -> env[x] = given[x], lhs.args[1].args)
+                    return false
+                end
+                all(x -> haskey(env, x), _testhelper_printed_names(rhs)) || return true
+                env[lhs] = _testhelper_printed_value(rhs, env)
+                false
+            end
+            length(todo) == n && error("a printed law reads names it never binds: $todo")
+        end
+        env
+    end
+end
+
+"""The rate `v` a printed law `s` gives at `params` and `concs`, in 256-bit BigFloat
+(`_testhelper_eval_rate_lines`)."""
+_testhelper_eval_rate_string(s::AbstractString, params, concs) =
+    _testhelper_eval_rate_lines(s, params, concs)[:v]
+
+const _testhelper_artifact_patterns = (r"\^1(?![\d/.)])", r"(?<![\w.)])1 \^",
+                                       r"\* 1(?![\d./])", r"L \* 1(?!\d)", r"\(1\)",
+                                       r"\^\(1/1\)")
+
+"""The printing artifacts in the printed law `s`: an exponent 1 (`^1`, `^(1/1)`), 1 raised
+to a power (`1 ^`), a factor 1 (`* 1`, `L * 1`) or a parenthesized 1."""
+_testhelper_print_artifacts(s::AbstractString) =
+    String[m.match for r in _testhelper_artifact_patterns for m in eachmatch(r, s)]
+
+"""
+The worst relative error, over `points` consistent points (`_testhelper_law_inputs`, seed
+`seed`), of `m`'s printed law and its coefficient form (`rate_equation_string`), read back
+in 256-bit BigFloat (`_testhelper_eval_rate_string`), against its derived law
+(`EnzymeRates._law`). `m` is compiled or concrete and passes the guard; an allosteric
+mechanism's point is drawn at one catalytic subunit, and the law is read at its own
+multiplicity.
+"""
+function _testhelper_printed_law_error(m; points::Int = 2, seed::Int = 31)
+    mech = _testhelper_lift(m)
+    L = EnzymeRates._law(mech)
+    fitted = collect(EnzymeRates._solve(mech).fitted)
+    texts = (rate_equation_string(m), rate_equation_string(m; coefficients = true))
+    rng = Random.MersenneTwister(seed)
+    worst = big(0.0)
+    for _ in 1:points
+        _, concs, params = _testhelper_law_inputs(_testhelper_single_subunit(mech), fitted,
+                                                  rng)
+        law = _testhelper_evaluate_law(L, merge(params, concs))
+        p = merge(params, Dict(:E_total => big(1)))
+        for text in texts
+            worst = max(worst, abs(_testhelper_eval_rate_string(text, p, concs) - law) /
+                               abs(law))
+        end
+    end
+    worst
+end
+
 # ── Mechanism test specifications ───────────────────────────────────────────
 
 const MECHANISM_TEST_SPECS = _testhelper_MechanismTestSpec[]
@@ -3160,9 +3270,9 @@ let
         analytical_peak_turnover_fn=p -> p.k2f,
         # Textbook: flat sum denominator (no Cartesian product structure)
         expected_factored_num=
-        "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
+        "k_ES_to_EP / K_ES_to_E_S",
         expected_factored_denom=
-        "1 + P / K_EP_to_E_P + R / K_ER_to_E_R + S / K_ES_to_E_S",
+        "1 + S / K_ES_to_E_S + P / K_EP_to_E_P + R / K_ER_to_E_R",
     ))
 end
 
@@ -3205,10 +3315,10 @@ let
         analytical_rate_fn=(p, c) -> _testhelper_rate_noncompetitive_inh(
             merge(p, (Et=p.Et,)), c),
         expected_factored_num=
-        "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
+        "k_ES_to_EP / K_ES_to_E_S",
         expected_factored_denom=
-        "1 + P / K_EP_to_E_P + R / K_ER_to_E_R + S / K_ES_to_E_S" *
-        " + R * S / (K_ERS_to_ER_S * K_ER_to_E_R)",
+        "1 + S / K_ES_to_E_S + P / K_EP_to_E_P + R / K_ER_to_E_R" *
+        " + S * R / (K_ER_to_E_R * K_ES_to_E_S)",
     ))
 end
 
@@ -3249,10 +3359,9 @@ let
         analytical_rate_fn=(p, c) -> _testhelper_rate_uncompetitive_inh(
             merge(p, (Et=p.Et,)), c),
         expected_factored_num=
-        "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
+        "k_ES_to_EP / K_ES_to_E_S",
         expected_factored_denom=
-        "1 + P / K_EP_to_E_P + S / K_ES_to_E_S" *
-        " + R * S / (K_ERS_to_ES_R * K_ES_to_E_S)",
+        "1 + S / K_ES_to_E_S + P / K_EP_to_E_P + S * R / (K_ERS_to_ES_R * K_ES_to_E_S)",
     ))
 end
 
@@ -3295,11 +3404,10 @@ let
             merge(p, (Et=p.Et,)), c),
         analytical_peak_turnover_fn=p -> p.k2f,
         expected_factored_num=
-        "k_ERS_to_EPR * R * S / (K_ERS_to_ER_S * K_ER_to_E_R)" *
-        " - k_EPR_to_ERS * P * R / (K_EPR_to_ER_P * K_ER_to_E_R)",
+        "R * k_ERS_to_EPR / (K_ERS_to_ER_S * K_ER_to_E_R)",
         expected_factored_denom=
-        "1 + R / K_ER_to_E_R + P * R / (K_EPR_to_ER_P * K_ER_to_E_R)" *
-        " + R * S / (K_ERS_to_ER_S * K_ER_to_E_R)",
+        "1 + R / K_ER_to_E_R + S * R / (K_ERS_to_ER_S * K_ER_to_E_R)" *
+        " + P * R / (K_EPR_to_ER_P * K_ER_to_E_R)",
     ))
 end
 
@@ -3351,13 +3459,10 @@ let
             merge(p, (Et=p.Et,)), c),
         analytical_peak_turnover_fn=p -> max(p.k2f, p.k5f),
         expected_factored_num=
-        "k_ES_to_EP * S / K_ES_to_E_S" *
-        " + k_ERS_to_EPR * R * S / (K_ERS_to_ER_S * K_ER_to_E_R)" *
-        " - (k_EP_to_ES * P / K_EP_to_E_P" *
-        " + k_EPR_to_ERS * P * R / (K_EP_to_E_P * K_ER_to_E_R))",
+        "k_ES_to_EP / K_ES_to_E_S + R * k_ERS_to_EPR / (K_ER_to_E_R * K_ES_to_E_S)",
         expected_factored_denom=
-        "1 + P / K_EP_to_E_P + R / K_ER_to_E_R + S / K_ES_to_E_S" *
-        " + P * R / (K_EP_to_E_P * K_ER_to_E_R) + R * S / (K_ERS_to_ER_S * K_ER_to_E_R)",
+        "1 + S / K_ES_to_E_S + P / K_EP_to_E_P + R / K_ER_to_E_R" *
+        " + S * R / (K_ER_to_E_R * K_ES_to_E_S) + P * R / (K_EP_to_E_P * K_ER_to_E_R)",
     ))
 end
 
@@ -3417,13 +3522,10 @@ let
         # Denom has both multiplicative (activator) and additive
         # (inhibitor) structure
         expected_factored_num=
-        "k_ES_to_EP * S / K_ES_to_E_S" *
-        " + k_EAS_to_EAP * A * S / (K_EAS_to_EA_S * K_EA_to_E_A)" *
-        " - (k_EP_to_ES * P / K_EP_to_E_P" *
-        " + k_EAP_to_EAS * A * P / (K_EAP_to_EA_P * K_EA_to_E_A))",
+        "k_ES_to_EP / K_ES_to_E_S + A * k_EAS_to_EAP / (K_EA_to_E_A * K_ES_to_E_S)",
         expected_factored_denom=
-        "1 + A / K_EA_to_E_A + I / K_EI_to_E_I + P / K_EP_to_E_P + S / K_ES_to_E_S" *
-        " + A * P / (K_EAP_to_EA_P * K_EA_to_E_A) + A * S / (K_EAS_to_EA_S * K_EA_to_E_A)",
+        "1 + S / K_ES_to_E_S + P / K_EP_to_E_P + A / K_EA_to_E_A + I / K_EI_to_E_I" *
+        " + S * A / (K_EA_to_E_A * K_ES_to_E_S) + P * A / (K_EA_to_E_A * K_EP_to_E_P)",
     ))
 end
 
@@ -3577,10 +3679,9 @@ let
         analytical_rate_fn=(p, c) ->
             _testhelper_rate_two_comp_inh(merge(p, (Et=p.Et,)), c),
         expected_factored_num=
-        "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
+        "k_ES_to_EP / K_ES_to_E_S",
         expected_factored_denom=
-        "1 + I1 / K_EI1_to_E_I1 + I2 / K_EI2_to_E_I2 + P / K_EP_to_E_P" *
-        " + S / K_ES_to_E_S",
+        "1 + S / K_ES_to_E_S + P / K_EP_to_E_P + I1 / K_EI1_to_E_I1 + I2 / K_EI2_to_E_I2",
     ))
 end
 
@@ -3645,16 +3746,16 @@ let
         analytical_rate_fn=(p, c) ->
             _testhelper_rate_two_noncomp_inh(merge(p, (Et=p.Et,)), c),
         expected_factored_num=
-        "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
+        "k_ES_to_EP / K_ES_to_E_S",
         expected_factored_denom=
-        "1 + I1 / K_EI1_to_E_I1 + I2 / K_EI2_to_E_I2 + P / K_EP_to_E_P + S / K_ES_to_E_S" *
+        "1 + S / K_ES_to_E_S + P / K_EP_to_E_P + I1 / K_EI1_to_E_I1 + I2 / K_EI2_to_E_I2" *
+        " + S * I1 / (K_EI1_to_E_I1 * K_ES_to_E_S)" *
+        " + S * I2 / (K_EI2_to_E_I2 * K_ES_to_E_S)" *
+        " + P * I1 / (K_EI1_to_E_I1 * K_EP_to_E_P)" *
+        " + P * I2 / (K_EI2_to_E_I2 * K_EP_to_E_P)" *
         " + I1 * I2 / (K_EI1_to_E_I1 * K_EI2_to_E_I2)" *
-        " + I1 * P / (K_EI1_to_E_I1 * K_EP_to_E_P)" *
-        " + I1 * S / (K_EI1_to_E_I1 * K_ES_to_E_S)" *
-        " + I2 * P / (K_EI2_to_E_I2 * K_EP_to_E_P)" *
-        " + I2 * S / (K_EI2_to_E_I2 * K_ES_to_E_S)" *
-        " + I1 * I2 * P / (K_EI1_to_E_I1 * K_EI2_to_E_I2 * K_EP_to_E_P)" *
-        " + I1 * I2 * S / (K_EI1_to_E_I1 * K_EI2_to_E_I2 * K_ES_to_E_S)",
+        " + S * I1 * I2 / (K_EI1_to_E_I1 * K_EI2_to_E_I2 * K_ES_to_E_S)" *
+        " + P * I1 * I2 / (K_EI1_to_E_I1 * K_EI2_to_E_I2 * K_EP_to_E_P)",
     ))
 end
 
@@ -3705,11 +3806,11 @@ let
         analytical_rate_fn=(p, c) ->
             _testhelper_rate_noncomp_comp_inh(merge(p, (Et=p.Et,)), c),
         expected_factored_num=
-        "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
+        "k_ES_to_EP / K_ES_to_E_S",
         expected_factored_denom=
-        "1 + I1 / K_EI1_to_E_I1 + I2 / K_EI2_to_E_I2 + P / K_EP_to_E_P + S / K_ES_to_E_S" *
-        " + I1 * P / (K_EI1_to_E_I1 * K_EP_to_E_P)" *
-        " + I1 * S / (K_EI1_to_E_I1 * K_ES_to_E_S)",
+        "1 + S / K_ES_to_E_S + P / K_EP_to_E_P + I1 / K_EI1_to_E_I1 + I2 / K_EI2_to_E_I2" *
+        " + S * I1 / (K_EI1_to_E_I1 * K_ES_to_E_S)" *
+        " + P * I1 / (K_EI1_to_E_I1 * K_EP_to_E_P)",
     ))
 end
 
@@ -3752,10 +3853,10 @@ let
         analytical_rate_fn=(p, c) ->
             _testhelper_rate_uncomp_comp_inh(merge(p, (Et=p.Et,)), c),
         expected_factored_num=
-        "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
+        "k_ES_to_EP / K_ES_to_E_S",
         expected_factored_denom=
-        "1 + I2 / K_EI2_to_E_I2 + P / K_EP_to_E_P + S / K_ES_to_E_S" *
-        " + I1 * S / (K_EI1S_to_ES_I1 * K_ES_to_E_S)",
+        "1 + S / K_ES_to_E_S + P / K_EP_to_E_P + I2 / K_EI2_to_E_I2" *
+        " + S * I1 / (K_EI1S_to_ES_I1 * K_ES_to_E_S)",
     ))
 end
 
@@ -3813,13 +3914,13 @@ let
         analytical_rate_fn=(p, c) ->
             _testhelper_rate_two_samesite_inh(merge(p, (Et=p.Et,)), c),
         expected_factored_num=
-        "k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P",
+        "k_ES_to_EP / K_ES_to_E_S",
         expected_factored_denom=
-        "1 + I1 / K_EI1_to_E_I1 + I2 / K_EI2_to_E_I2 + P / K_EP_to_E_P + S / K_ES_to_E_S" *
-        " + I1 * P / (K_EI1_to_E_I1 * K_EP_to_E_P)" *
-        " + I1 * S / (K_EI1_to_E_I1 * K_ES_to_E_S)" *
-        " + I2 * P / (K_EI2_to_E_I2 * K_EP_to_E_P)" *
-        " + I2 * S / (K_EI2_to_E_I2 * K_ES_to_E_S)",
+        "1 + S / K_ES_to_E_S + P / K_EP_to_E_P + I1 / K_EI1_to_E_I1 + I2 / K_EI2_to_E_I2" *
+        " + S * I1 / (K_EI1_to_E_I1 * K_ES_to_E_S)" *
+        " + S * I2 / (K_EI2_to_E_I2 * K_ES_to_E_S)" *
+        " + P * I1 / (K_EI1_to_E_I1 * K_EP_to_E_P)" *
+        " + P * I2 / (K_EI2_to_E_I2 * K_EP_to_E_P)",
     ))
 end
 

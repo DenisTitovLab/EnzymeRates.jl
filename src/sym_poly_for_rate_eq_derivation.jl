@@ -201,12 +201,13 @@ Build a power-product expression for thermodynamic-constraint
 substitution of the form `Keq^keq_exp * prod(k_i^exp_i)` from
 `factors`, an iterable of `(k_i, exp_i)` pairs. Used by the
 constraint solver to materialize the Keq×rate-constant power product
-that replaces a dependent rate constant. The empty product is the
-Float64 `1.0`: a constant that thermodynamics pins to 1.
+that replaces a dependent rate constant. A fractional exponent is an
+exact `Rational{Int}` literal. The empty product is the Float64 `1.0`: a constant that
+thermodynamics pins to 1.
 """
 function build_power_expr(keq_exp::Rational, factors)
     _pa(sym, exp) = exp == 1 ? sym : exp == -1 ? :(1 / $sym) :
-        !isinteger(exp) ? :($sym ^ $(Float64(exp))) :
+        !isinteger(exp) ? :($sym ^ $(Rational{Int}(exp))) :
         exp > 0 ? :($sym ^ $(Int(exp))) : :(1 / $sym ^ $(Int(-exp)))
     terms = Any[]
     keq_exp != 0 && push!(terms, _pa(:Keq, keq_exp))

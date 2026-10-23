@@ -312,54 +312,6 @@ end
 # ─── String Representation ────────────────────────────────────
 
 """
-    rate_equation_string(m) -> String
-
-Return the symbolic rate equation for mechanism `m` as a multi-line
-`String` (it returns the text — it does not print). Pass a concrete `Mechanism` /
-`AllostericMechanism` or its compiled [`EnzymeMechanism`](@ref) singleton.
-
-The string spells out how [`rate_equation`](@ref)
-evaluates: a `(; …) = params` destructure line, a `(; …) = concs`
-destructure line, then the `v = E_total * (num) / (den)` line. Dependent rate
-constants are listed first under `# Wegscheider constraints:` and
-`# Haldane constraints:` headers — the thermodynamic identities that eliminate
-parameters — and only the independent set appears in the `params` destructure.
-
-Every name prints as a Julia identifier, the residual forms of ping-pong
-mechanisms included (`k_EA_to_EP_res_plusA_minusP`), so with `params` and
-`concs` bound the string runs as Julia code.
-
-Use `print` on the result to see the multi-line layout without escaped
-newlines.
-
-```jldoctest
-julia> using EnzymeRates
-
-julia> m = @enzyme_mechanism begin
-           substrates: S
-           products: P
-           steps: begin
-               E + S ⇌ E(S)
-               E(S) <--> E(P)
-               E(P) ⇌ E + P
-           end
-       end;
-
-julia> print(rate_equation_string(m))
-(; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP, Keq, E_total) = params
-(; S, P) = concs
-# Haldane constraints:
-k_EP_to_ES = (1 / Keq) * K_EP_to_E_P * (1 / K_ES_to_E_S) * k_ES_to_EP
-v = E_total * (k_ES_to_EP * S / K_ES_to_E_S - k_EP_to_ES * P / K_EP_to_E_P) / (1 + P / K_EP_to_E_P + S / K_ES_to_E_S)
-```
-"""
-function rate_equation_string end
-
-# Concrete-mechanism convenience: lift to the singleton.
-rate_equation_string(m::Union{Mechanism, AllostericMechanism}) =
-    rate_equation_string(compile_mechanism(m))
-
-"""
 The `rate_equation_string` text of `m`: the `params` destructure of `param_syms`, the
 `concs` destructure, one line `sym = rhs` per dependent parameter of `dep`, and the
 `v = E_total * (num) / (den)` line from `_num_den_exprs`. A dependent whose right-hand
@@ -381,12 +333,6 @@ function _equation_text(m::_AnyMech, param_syms, dep)
     isempty(hal) || push!(lines, "# Haldane constraints:", hal...)
     push!(lines, "v = E_total * ($(_expr_to_string(num))) / ($(_expr_to_string(den)))")
     join(lines, "\n")
-end
-
-function rate_equation_string(@nospecialize(m::AbstractEnzymeMechanism))
-    mech = _derivation_input(typeof(m))
-    dep, indep = _dependent_param_exprs(mech)
-    _equation_text(mech, (indep..., :Keq, :E_total), dep)
 end
 
 # ─── Steady-state rate-constant names ──────────────────────────

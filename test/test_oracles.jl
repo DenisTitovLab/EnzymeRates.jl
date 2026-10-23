@@ -350,7 +350,7 @@ end
 
     @testset "a dependent with a half-integer exponent matches the oracle" begin
         # The conformational square ties two isomerizations of one group, so the
-        # Haldane relation fixes k_F_to_E through square roots (Keq ^ -0.5 · …).
+        # Haldane relation fixes k_F_to_E through square roots (Keq ^ -1//2 · …).
         half = @enzyme_mechanism begin
             substrates: S
             products: P
@@ -361,7 +361,7 @@ end
             end
         end
         dep, _ = EnzymeRates._dependent_param_exprs(typeof(half))
-        @test any(ex -> occursin("^ -0.5", string(ex)), values(dep))
+        @test any(ex -> occursin("Keq ^ -1//2", string(ex)), values(dep))
         _testhelper_check_law_against_oracle(half)
         # A 1% error in Keq moves the dependent constant, and the oracle sees it.
         rng = Random.MersenneTwister(3)
@@ -381,7 +381,8 @@ end
     # catalytic subunit, equals the exact steady state at two points, holds positive
     # coefficients in each conformation's Q, vanishes at equilibrium, per conformation
     # and combined, and has one unit per denominator, which its normalizer shares
-    # (`_testhelper_check_units`).
+    # (`_testhelper_check_units`). Both printed forms of each law equal it at a further
+    # point, with no printing artifact.
     @test count(m -> m isa EnzymeRates.AllostericMechanism,
                 _testhelper_population_sample) >= 30
     for (i, m) in enumerate(_testhelper_population_sample)
@@ -401,6 +402,18 @@ end
             @test all(<(big(10)^-30),
                       _testhelper_detailed_balance(m, Random.MersenneTwister(i)))
             _testhelper_check_units(mech, L)
+            # The printed law and its coefficient form of the law above, read back in
+            # 256-bit BigFloat, equal it at a consistent point, with no printing artifact.
+            full = EnzymeRates._law_text(mech, s, L)
+            coef = EnzymeRates._law_text(mech, s, L; coefficients = true)
+            @test isempty(_testhelper_print_artifacts(full)) &&
+                  isempty(_testhelper_print_artifacts(coef))
+            _, pconcs, pparams = _testhelper_law_inputs(mech, s.fitted,
+                                                        Random.MersenneTwister(1000 + i))
+            law = _testhelper_evaluate_law(L, merge(pparams, pconcs))
+            p = merge(pparams, Dict(:E_total => big(1)))
+            @test all(t -> abs(_testhelper_eval_rate_string(t, p, pconcs) - law) <=
+                           big(10)^-20 * abs(law), (full, coef))
         end
     end
 end

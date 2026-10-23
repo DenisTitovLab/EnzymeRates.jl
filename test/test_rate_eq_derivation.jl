@@ -369,17 +369,6 @@ function _testhelper_ode_steady_state_flux(
     return v / abs(nu_ref)
 end
 
-# ── Rate equation string evaluation helper ──────────────────────────────────
-
-# Runs the rendered code as written: its destructuring lines read `params` and
-# `concs`, its constraint lines define the dependent parameters, and its `v` line
-# is the value.
-function _testhelper_eval_rate_string(s, params, concs)
-    code = "let params = $params, concs = $concs\n" *
-           s * "\nend"
-    eval(Meta.parse(code))
-end
-
 # ── Modular test functions for _testhelper_MechanismTestSpec ────────────────
 
 function _testhelper_test_structure(spec::_testhelper_MechanismTestSpec)
@@ -622,10 +611,11 @@ function _testhelper_test_rate_equation_string(spec::_testhelper_MechanismTestSp
         @test !occursin("concs.", s)    # No field-access prefixes
         @test !occursin("+ -", s)       # No malformed signs
         @test !occursin("- -", s)       # No malformed signs
-        @test occursin("v = E_total * (", s)  # Proper format
+        @test startswith(last(split(s, "\n")), "v = E_total * ")  # Proper format
         @test occursin(") / (", s)      # Has denominator
         @test occursin("= params", s)   # Has params destructuring
         @test occursin("= concs", s)    # Has concs destructuring
+        @test isempty(_testhelper_print_artifacts(s))
 
         # Numerical equivalence test
         rng = Random.MersenneTwister(9000 + hash(spec.name) % 1000)
@@ -639,40 +629,42 @@ function _testhelper_test_rate_equation_string(spec::_testhelper_MechanismTestSp
                 rtol=1e-10)
         end
 
-        has_num = spec.expected_factored_num !== nothing
-        has_denom = spec.expected_factored_denom !== nothing
-        if has_num || has_denom
-            num_str, denom_str = _testhelper_extract_num_denom(last(split(s, "\n")))
-            @test num_str !== nothing
-            @test denom_str !== nothing
-            has_num && @test num_str == spec.expected_factored_num
-            has_denom && @test denom_str == spec.expected_factored_denom
+        # The eleven pinned specs turn S into P, so H reads S - P / Keq.
+        if spec.expected_factored_num !== nothing ||
+           spec.expected_factored_denom !== nothing
+            q, h, d = _testhelper_extract_factors(last(split(s, "\n")))
+            @test h == "S - P / Keq"
+            spec.expected_factored_num === nothing || @test q == spec.expected_factored_num
+            spec.expected_factored_denom === nothing ||
+                @test d == spec.expected_factored_denom
         end
     end
 end
 
 """
-Extract numerator and denominator strings from rate equation v-line.
-Handles nested parentheses via depth counting.
+The three factors of a printed `v` line, `v = E_total * (Q) * (H) / (D)`, as written
+inside their parentheses: `Q` (a bare name as it is, `"1"` when the line leaves it out),
+`H` and `D`. Each factor is a parenthesized group or a bare name, so the split runs at the
+` * (` and ` / (` outside every parenthesis.
 """
-function _testhelper_extract_num_denom(v_line::AbstractString)
-    marker = "E_total * ("
-    start = findfirst(marker, v_line)
-    start === nothing && return nothing, nothing
-    pos = last(start) + 1
-    depth = 1
-    while depth > 0 && pos <= length(v_line)
-        c = v_line[pos]
-        depth += (c == '(') - (c == ')')
-        pos += 1
+function _testhelper_extract_factors(v_line::AbstractString)
+    s = String(chopprefix(v_line, "v = E_total * "))
+    parts, depth, from, i = String[], 0, firstindex(s), firstindex(s)
+    while i <= lastindex(s)
+        depth += (s[i] == '(') - (s[i] == ')')
+        if depth == 0 && (startswith(SubString(s, i), " * (") ||
+                          startswith(SubString(s, i), " / ("))
+            push!(parts, s[from:prevind(s, i)])
+            i += 3
+            from = i
+            continue
+        end
+        i = nextind(s, i)
     end
-    num_str = v_line[last(start)+1:pos-2]
-    rest = v_line[pos:end]
-    div_start = findfirst(" / (", rest)
-    div_start === nothing && return String(num_str), nothing
-    denom_begin = pos + last(div_start)
-    denom_str = v_line[denom_begin:end-1]
-    return String(num_str), String(denom_str)
+    push!(parts, s[from:end])
+    inner(t) = startswith(t, "(") && endswith(t, ")") ? t[2:prevind(t, lastindex(t))] : t
+    length(parts) == 2 ? ("1", inner(parts[1]), inner(parts[2])) :
+                         (inner(parts[1]), inner(parts[2]), inner(parts[3]))
 end
 
 """
@@ -1171,7 +1163,8 @@ const _LDH_ISTATE_MECHS = [spec.mechanism for spec in MECHANISM_TEST_SPECS
 # (destructured from `params`/`concs` or assigned as an LHS). Empty ⟺ the
 # rendered rate equation is closed: every referenced name has a definition.
 function _testhelper_undefined_rhs_symbols(s::AbstractString)
-    ident = r"[A-Za-z_][A-Za-z0-9_]*"
+    # A name may hold superscripts (a coefficient's); a called function (`sqrt`) is no name.
+    ident = r"[A-Za-z_][A-Za-z0-9_⁰¹²³⁴⁵⁶⁷⁸⁹⁻]*(?![A-Za-z0-9_⁰¹²³⁴⁵⁶⁷⁸⁹⁻(])"
     defined = Set{Symbol}()
     referenced = Set{Symbol}()
     for line in split(s, '\n')
@@ -1576,6 +1569,22 @@ end
     end
 end
 
+"""Whether each reference line of `m`'s printed law, read back in 256-bit BigFloat
+(`_testhelper_eval_rate_lines`), equals the dependent constant `all_parameters` computes,
+to 1e-12 relative, at a random point; false when the law prints no reference line."""
+function _testhelper_reference_lines_match(m)
+    rng = Random.MersenneTwister(4)
+    fitted = EnzymeRates.fitted_params(m)
+    p = NamedTuple{(fitted..., :Keq, :E_total)}(
+        (Tuple(0.5 + rand(rng) for _ in fitted)..., 2.0, 1.0))
+    c = NamedTuple{metabolites(m)}(Tuple(0.5 + rand(rng) for _ in metabolites(m)))
+    env = _testhelper_eval_rate_lines(rate_equation_string(m), p, c)
+    ap = all_parameters(m, p)
+    dependents = [k for k in keys(ap) if !haskey(p, k)]
+    !isempty(dependents) &&
+        all(k -> abs(env[k] - ap[k]) <= 1e-12 * abs(ap[k]), dependents)
+end
+
 @testset "rate_equation_string prints every tie as a constraint line" begin
     # A binds E and E(B) under one constant while B's two bindings keep their own, so
     # the RE binding square ties B's two dissociation constants. The occupied binding's
@@ -1594,6 +1603,7 @@ end
     @test occursin("# Wegscheider constraints:\nK_EAB_to_EA_B = K_EB_to_E_B\n",
                    rate_equation_string(folded))
     _testhelper_check_law_against_oracle(folded)
+    @test _testhelper_reference_lines_match(folded)
     # S binds E and Estar under one constant, so the square of the two isomerizations
     # ties their equilibrium constants; the isomerization between occupied forms is the
     # dependent one.
@@ -1610,6 +1620,7 @@ end
     end
     @test occursin("\nK_ES_to_EstarS = K_E_to_Estar\n", rate_equation_string(iso_tie))
     _testhelper_check_law_against_oracle(iso_tie)
+    @test _testhelper_reference_lines_match(iso_tie)
     # I binding E and I binding Estar share one group and run opposite ways around the
     # cycle, so the Haldane relation fixes the Theorell–Chance constant at Keq; v reads it.
     keq_tie = @enzyme_mechanism begin
@@ -1623,6 +1634,7 @@ end
     end
     @test occursin("\nK_E_S_to_Estar_P = Keq\n", rate_equation_string(keq_tie))
     _testhelper_check_law_against_oracle(keq_tie)
+    @test _testhelper_reference_lines_match(keq_tie)
 end
 
 @testset "rate_equation_string prints residual names that run as written" begin
@@ -1643,7 +1655,8 @@ end
     end
     s = rate_equation_string(m)
     @test occursin(
-        r"\nk_EQ_to_EB_res_plusA_minusP = .* \* k_EA_to_EP_res_plusA_minusP \* ", s)
+        r"\nk_EQ_to_EB_res_plusA_minusP = k_EA_to_EP_res_plusA_minusP \* ", s)
+    @test _testhelper_reference_lines_match(m)
     @test !occursin("var\"", s)
     params = _testhelper_random_independent_params(m; rng = Random.MersenneTwister(6))
     concs = (A = 0.7, B = 1.3, P = 0.4, Q = 0.9)
@@ -1666,7 +1679,9 @@ end
         end
     end
     s = rate_equation_string(half)
-    @test occursin("0.5", s)
+    @test occursin("\nk_F_to_E = k_E_to_F * sqrt(k_FS_to_E_P) * sqrt(k_F_S_to_ES) / " *
+                   "(sqrt(k_ES_to_F_S) * sqrt(k_E_P_to_FS) * sqrt(Keq))\n", s)
+    @test _testhelper_reference_lines_match(half)
     rng = Random.MersenneTwister(4)
     point = setprecision(() -> _testhelper_consistent_point(half, rng), BigFloat, 256)
     fitted = EnzymeRates._dependent_param_exprs(typeof(half))[2]
@@ -1677,20 +1692,31 @@ end
                    rate_equation(half, concs, params); rtol = 1e-12)
 end
 
-@testset "rate_equation_string prints flat +/* sums (no nested parens)" begin
-    # Orthogonal guard (NOT a perf-fix backstop): _expr_to_string is
-    # precedence-aware and flattens nested +/* nodes
-    # transparently: balanced +(+(a,b), +(c,d)) prints as "a + b + c + d"
-    # with no added parens. If that flattening regresses, the printed
-    # output would gain nested parens but still evaluate correctly —
-    # easy to miss without an explicit guard. The `v =` line of Random-order
-    # Bi-Bi holds three: the numerator, the denominator and the negative terms
-    # inside the numerator.
+"""The deepest parenthesis level of the printed text `t` that holds a `+` or a `-`; -1
+when it holds neither."""
+function _testhelper_sum_depth(t::AbstractString)
+    depth, worst = 0, -1
+    for c in t
+        depth += (c == '(') - (c == ')')
+        c in ('+', '-') && (worst = max(worst, depth))
+    end
+    worst
+end
+
+@testset "rate_equation_string prints Q, H and D as flat sums" begin
+    # Each of Q, H and D prints as one sum of terms, one per concentration monomial. A
+    # coefficient that is a polynomial prints in parentheses inside its term, and none
+    # holds another sum, so no sum sits deeper than one parenthesis. Random-order Bi-Bi is
+    # steady state throughout, so its coefficients are polynomials; H holds none.
     spec = only(s for s in MECHANISM_TEST_SPECS
                 if s.name == "Random-order Bi-Bi")
     s = last(split(rate_equation_string(spec.mechanism), '\n'))
-    @test startswith(s, "v = ")
-    @test count(==('('), s) <= 3
+    @test startswith(s, "v = E_total * (")
+    q, h, d = _testhelper_extract_factors(s)
+    @test (_testhelper_sum_depth(q), _testhelper_sum_depth(h), _testhelper_sum_depth(d)) ==
+          (1, 0, 1)
+    @test h == "A * B - P * Q / Keq"
+    @test _testhelper_printed_law_error(spec.mechanism) <= big(10)^-20
 end
 
 @testset "_ss_rate_constant_names" begin
@@ -1751,9 +1777,33 @@ end
 
         # Keq times a factor is a valid AST node
         @test bpe(R(1), [(:k1f, R(1))]) isa Union{Float64, Symbol, Expr}
+
+        # A fractional exponent is an exact Rational{Int} literal, so the expression
+        # evaluates exactly in BigFloat.
+        @test bpe(R(-1//2), [(:k1f, R(1//2))]) ==
+              Expr(:call, :*, Expr(:call, :^, :Keq, -1//2), Expr(:call, :^, :k1f, 1//2))
+        @test bpe(R(-1//2), [(:k1f, R(1//2))]).args[2].args[3] isa Rational{Int}
+        half = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                (E(S) <--> F(S), E <--> F)
+                F(S) <--> E + P
+                F + S <--> E(S)
+            end
+        end
+        dep, fitted = EnzymeRates._dependent_param_exprs(typeof(half))
+        setprecision(BigFloat, 256) do
+            p = NamedTuple{(fitted..., :Keq)}(
+                Tuple(big(1) + big(i) / 7 for i in 1:(length(fitted) + 1)))
+            env = Dict{Symbol, BigFloat}(k => v for (k, v) in pairs(p))
+            @test abs(_testhelper_eval_expr(dep[:k_F_to_E], env) -
+                      all_parameters(half, p).k_F_to_E) <=
+                  big(10)^-60 * all_parameters(half, p).k_F_to_E
+        end
     end
 
-    @testset "a constant thermodynamics pins to 1 is the dependent constant 1.0" begin
+    @testset "a constant thermodynamics pins to 1 prints as 1" begin
         # I binds E and F under one dissociation constant, so the cycle E → E(I) → F → E
         # forces K_E_to_F = 1 and leaves no other constant in its row.
         em = @enzyme_mechanism begin
@@ -1768,13 +1818,14 @@ end
                 (E + I ⇌ E(I), F + I ⇌ E(I))
             end
         end
-        @test occursin("# Wegscheider constraints:\nK_E_to_F = 1.0\n",
+        @test occursin("# Wegscheider constraints:\nK_E_to_F = 1\n",
                        rate_equation_string(em))
         @test :K_E_to_F ∉ EnzymeRates.fitted_params(em)
         _testhelper_check_law_against_oracle(em)
         # The generated rate equation assigns the literal 1.0 and stays allocation-free.
         syms = parameters(em)
         params = NamedTuple{syms}(ntuple(i -> 0.5 + i / 10, length(syms)))
+        @test all_parameters(em, params).K_E_to_F == 1
         allocs, _ = _testhelper_test_rate_equation_performance(
             em, params, (A = 1.0, P = 0.5, I = 0.2))
         @test allocs == 0
@@ -2236,11 +2287,16 @@ end
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
         printed = Meta.parseall(rate_equation_string(m))
-        others = setdiff(_testhelper_names_read(printed), metabolites(m))
-        @test all(n -> occursin('_', String(n)) || n in reserved, others)
-        # The printed law destructures params and concs, reads Keq and assigns v.
-        @test (:params, :concs, :Keq) ⊆ others
-        @test :v in _testhelper_names_read(printed)
+        coefficients = Meta.parseall(rate_equation_string(m; coefficients = true))
+        for p in (printed, coefficients)
+            others = setdiff(_testhelper_names_read(p), metabolites(m))
+            # N, N_A, Q_A, D_A, F_A, W_A, n_0, d_A²_B, nA_0 and the rest hold `_` or are N.
+            @test all(n -> occursin('_', String(n)) || n in reserved, others)
+            @test :v in _testhelper_names_read(p)
+        end
+        # The full law destructures params and concs and reads Keq.
+        @test (:params, :concs, :Keq) ⊆ setdiff(_testhelper_names_read(printed),
+                                               metabolites(m))
     end
 end
 
@@ -2409,10 +2465,33 @@ end
     expected = raw"""(; K_A_EP_to_E_P, K_A_ES_to_E_S, K_I_EP_to_E_P, K_I_ES_to_E_S, k_A_ES_to_EP, k_I_ES_to_EP, K_A_Rreg, K_I_Rreg, L, Keq, E_total) = params
 (; S, P, R) = concs
 # Haldane constraints:
-k_A_EP_to_ES = (1 / Keq) * K_A_EP_to_E_P * (1 / K_A_ES_to_E_S) * k_A_ES_to_EP
-k_I_EP_to_ES = (1 / Keq) * K_I_EP_to_E_P * (1 / K_I_ES_to_E_S) * k_I_ES_to_EP
-v = E_total * ((k_A_ES_to_EP * S / K_A_ES_to_E_S - k_A_EP_to_ES * P / K_A_EP_to_E_P) * (1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) * (1 + R / K_A_Rreg) ^ 2 + L * (S * k_I_ES_to_EP / K_I_ES_to_E_S - P * k_I_EP_to_ES / K_I_EP_to_E_P) * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) * (1 + R / K_I_Rreg) ^ 2) / ((1 + P / K_A_EP_to_E_P + S / K_A_ES_to_E_S) ^ 2 * (1 + R / K_A_Rreg) ^ 2 + L * (1 + P / K_I_EP_to_E_P + S / K_I_ES_to_E_S) ^ 2 * (1 + R / K_I_Rreg) ^ 2)"""
+k_A_EP_to_ES = K_A_EP_to_E_P * k_A_ES_to_EP / (K_A_ES_to_E_S * Keq)
+k_I_EP_to_ES = K_I_EP_to_E_P * k_I_ES_to_EP / (K_I_ES_to_E_S * Keq)
+Q_A = k_A_ES_to_EP / K_A_ES_to_E_S
+D_A = 1 + S / K_A_ES_to_E_S + P / K_A_EP_to_E_P
+Q_I = k_I_ES_to_EP / K_I_ES_to_E_S
+D_I = 1 + S / K_I_ES_to_E_S + P / K_I_EP_to_E_P
+W_A = (1 + R / K_A_Rreg)^2
+W_I = (1 + R / K_I_Rreg)^2
+v = E_total * (Q_A * D_A * W_A + L * Q_I * D_I * W_I) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2 * W_I)"""
     @test actual == expected
+    expected_coefficients = raw"""v = E_total * (Q_A * D_A * W_A + L * Q_I * D_I * W_I) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2 * W_I)
+Q_A = nA_0
+D_A = 1 + dA_S * S + dA_P * P
+Q_I = nI_0
+D_I = 1 + dI_S * S + dI_P * P
+W_A = (1 + R / K_A_Rreg)^2
+W_I = (1 + R / K_I_Rreg)^2
+# The coefficients are functions of the fitted constants, not parameters:
+nA_0 = k_A_ES_to_EP / K_A_ES_to_E_S
+dA_S = 1 / K_A_ES_to_E_S
+dA_P = 1 / K_A_EP_to_E_P
+nI_0 = k_I_ES_to_EP / K_I_ES_to_E_S
+dI_S = 1 / K_I_ES_to_E_S
+dI_P = 1 / K_I_EP_to_E_P"""
+    @test rate_equation_string(m_allo; coefficients = true) == expected_coefficients
+    # Both texts equal the derived law (value check of this pin).
+    @test _testhelper_printed_law_error(m_allo) <= big(10)^-20
 end
 
 @testset "Parameter-struct allosteric helpers" begin

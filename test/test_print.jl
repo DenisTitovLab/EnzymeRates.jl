@@ -1,5 +1,5 @@
-# ABOUTME: Tests of what a printed rate law rests on: the unit rule's normalizer of each
-# ABOUTME: conformation's denominator, and the units of every derived law from the graph.
+# ABOUTME: Tests of the unit rule (src/normalize.jl) and the printed laws (src/print.jl):
+# ABOUTME: each rule's normalizer, both printed forms against the law, names, MWC lines.
 
 # The unit rule's normalizer of the plain mechanism `m`'s law, the law and the concrete
 # mechanism.
@@ -261,5 +261,245 @@ end
             am = _testhelper_lift(_testhelper_single_subunit(spec.mechanism))
             _testhelper_check_units(am, EnzymeRates._law(am, EnzymeRates._solve(am)))
         end
+    end
+end
+
+@testset "the printed law and its coefficient form equal the law on every spec" begin
+    # Both forms, read back in 256-bit BigFloat, equal the derived law to 1e-20 at a
+    # consistent point of every spec, the concrete and the compiled mechanism print one
+    # text, and neither form holds a printing artifact.
+    for spec in MECHANISM_TEST_SPECS
+        @testset "$(spec.name)" begin
+            m = spec.mechanism
+            full = rate_equation_string(m)
+            @test rate_equation_string(_testhelper_lift(m)) == full
+            @test isempty(_testhelper_print_artifacts(full))
+            @test isempty(_testhelper_print_artifacts(
+                rate_equation_string(m; coefficients = true)))
+            @test _testhelper_printed_law_error(m; points = 1) <= big(10)^-20
+        end
+    end
+end
+
+@testset "coefficient names read powers and ratios, and N prints the normalizer once" begin
+    # F1 reads A and P only through P/A, so the ratio form divides by A: the coefficients
+    # of P/A take ⁻¹, and the polynomial factor of the divisor prints as N.
+    f1 = @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> F + P
+            F + A <--> E + P
+        end
+    end
+    c1 = split(rate_equation_string(f1; coefficients = true), '\n')
+    @test c1[1] == "v = E_total * (n_0 + n_P_A⁻¹ * P / A) * (A - P / Keq) / " *
+                   "(1 + d_P_A⁻¹ * P / A)"
+    @test c1[2] == "# The coefficients are functions of the fitted constants, not " *
+                   "parameters:"
+    @test c1[3:end] == [
+        "N = k_E_A_to_F_P + k_F_A_to_E_P",
+        "n_0 = 2 * k_E_A_to_F_P * k_F_A_to_E_P / N",
+        "n_P_A⁻¹ = 2 * k_E_A_to_F_P * k_F_A_to_E_P / (Keq * N)",
+        "d_P_A⁻¹ = (k_E_A_to_F_P * k_F_A_to_E_P + k_F_P_to_E_A^2 * Keq^2) / " *
+        "(k_F_P_to_E_A * Keq^2 * N)"]
+    # F3's rapid-equilibrium Theorell–Chance step makes every denominator term carry B or
+    # P: the ratio form divides by B, whose coefficient is one constant, so no N prints.
+    f3 = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B ⇌ E(Q) + P
+            E(Q) <--> E + Q
+        end
+    end
+    c3 = split(rate_equation_string(f3; coefficients = true), '\n')
+    @test c3[1] == "v = E_total * (n_B⁻¹ / B) * (A * B - P * Q / Keq) / (1 + " *
+                   "d_P_B⁻¹ * P / B + d_A * A + d_A_P_B⁻¹ * A * P / B + d_Q * Q + " *
+                   "d_P_Q_B⁻¹ * P * Q / B)"
+    @test "n_B⁻¹ = k_E_A_to_EA" in c3
+    @test !any(startswith("N = "), c3)
+    # F2's weights are fractional: N is a power 3/2, and its coefficients hold roots.
+    f2 = @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> F + P
+            F + A <--> E + P
+            F + A + A ⇌ F(A, A)
+        end
+    end
+    @test occursin("\nN = (k_E_A_to_F_P + k_F_A_to_E_P)^(3/2)\n", rate_equation_string(f2))
+    @test "n_A = 2 * sqrt(K_F_A_A_to_FAA) * k_E_A_to_F_P^(3/2) * k_F_A_to_E_P / N" in
+          split(rate_equation_string(f2; coefficients = true), '\n')
+    # The random-order bi-bi's denominator holds A^2 * B, named by its superscript.
+    ro = only(s for s in MECHANISM_TEST_SPECS if s.name == "Random-order Bi-Bi").mechanism
+    @test occursin(" + d_A²_B * A^2 * B + ", rate_equation_string(ro; coefficients = true))
+    # The unit-rule testsets above pin the weights of F4, Segel's ter bi and the ping-pong
+    # power case; N prints the normalizer's polynomial factor alone, its integer
+    # and monomial content moved into the coefficients. F4's is a sum squared. Segel's
+    # graded N is the product of two sums, where Cleland's would divide it by a third sum
+    # squared. The power case's is one sum squared, Cleland's N squared.
+    f4 = @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> F + P
+            F + A <--> E + P
+            F + A ⇌ F(A)
+            F(A) + A ⇌ F(A, A)
+        end
+    end
+    @test occursin("\nN = (k_E_A_to_F_P + k_F_A_to_E_P)^2\n", rate_equation_string(f4))
+    terbi = only(s for s in MECHANISM_TEST_SPECS
+                 if s.name == "Segel Bi Uni Uni Uni PP Ter Bi").mechanism
+    power = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A <--> E(P; residual = A - P), E(Q) + A <--> E(A, Q))
+            (E + Q <--> E(Q), E(P; residual = A - P) + Q <--> E(A, Q))
+            (E(; residual = A - P) + B <--> E(Q),
+             E(P; residual = A - P) + B <--> E(B, P; residual = A - P))
+            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
+             E(Q) + P ⇌ E(B, P; residual = A - P))
+        end
+    end
+    n_line(m) = only(filter(startswith("N = "), split(rate_equation_string(m), '\n')))
+    @test occursin(r"^N = \([^()]+\) \* \([^()]+\)$", n_line(terbi))
+    @test occursin(r"^N = \([^()]+\)\^2$", n_line(power))
+    for m in (f1, f2, f3, f4, terbi, power)
+        @test _testhelper_printed_law_error(m) <= big(10)^-20
+        @test isempty(_testhelper_print_artifacts(rate_equation_string(m))) &&
+              isempty(_testhelper_print_artifacts(
+                  rate_equation_string(m; coefficients = true)))
+    end
+end
+
+@testset "an :OnlyI inhibitor prints a law equal to its limit" begin
+    # I binds only the inactive conformation, at rapid equilibrium and at
+    # steady state. Both printed forms equal the rapid-equilibrium limit of the oracle's
+    # own network (`_testhelper_limit_law`) to 1e-20 at two points; the active
+    # conformation's denominator holds no constant of I's binding, the inactive one's does.
+    competitive_RE = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E + P         :: EqualAI
+            E + I ⇌ E(I)            :: OnlyI
+        end
+    end
+    competitive_SS = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E + P         :: NonequalAI
+            E + I <--> E(I)         :: OnlyI
+        end
+    end
+    cases = ((competitive_RE, "D_I = 1 + S / K_ES_to_E_S + I / K_I_EI_to_E_I",
+              "dI_I = 1 / K_I_EI_to_E_I"),
+             (competitive_SS,
+              "D_I = 1 + S / K_ES_to_E_S + I * k_I_E_I_to_EI / k_I_EI_to_E_I",
+              "dI_I = k_I_E_I_to_EI / k_I_EI_to_E_I"))
+    for (i, (m, d_i, d_i_coefficient)) in enumerate(cases)
+        full = rate_equation_string(m)
+        coef = rate_equation_string(m; coefficients = true)
+        @test "D_A = 1 + S / K_ES_to_E_S" in split(full, '\n')
+        @test d_i in split(full, '\n')
+        @test last(split(full, '\n')) ==
+              "v = E_total * (Q_A + L * Q_I) * (S - P / Keq) / (D_A + L * D_I)"
+        @test "D_A = 1 + dA_S * S" in split(coef, '\n')
+        @test d_i_coefficient in split(coef, '\n')
+        am = _testhelper_lift(m)
+        cm = EnzymeRates.catalytic(am)
+        onlyi = [String(x) for (k, ns) in enumerate(EnzymeRates._edge_names(am, :I))
+                 if EnzymeRates.cat_allo_state(am, cm.group[k]) === :OnlyI for x in ns]
+        d_a = only(l for l in split(full, '\n') if startswith(l, "D_A = "))
+        @test !isempty(onlyi)
+        @test !any(x -> occursin(x, d_a), onlyi)
+        @test any(x -> occursin(x, d_i), onlyi)
+        s = EnzymeRates._solve(am)
+        rng = Random.MersenneTwister(500 + i)
+        for _ in 1:2
+            point, concs, params = _testhelper_law_inputs(am, s.fitted, rng)
+            exact = setprecision(BigFloat, 256) do
+                _testhelper_limit_law(am, point, concs, Set{Symbol}(); rng)
+            end
+            p = merge(params, Dict(:E_total => big(1)))
+            for text in (full, coef)
+                @test abs(_testhelper_eval_rate_string(text, p, concs) - exact) <=
+                      big(10)^-20 * abs(exact)
+            end
+        end
+        @test _testhelper_printed_law_error(m) <= big(10)^-20
+    end
+end
+
+@testset "the MWC lines name each conformation's polynomials" begin
+    # A two-site homodimer prints Q, D and W for each conformation and no F: both
+    # free-enzyme weights are 1. test_rate_eq_derivation.jl pins its text.
+    two_site = @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + P ⇌ E(P)     :: NonequalAI
+            E + S ⇌ E(S)     :: NonequalAI
+            E(S) <--> E(P)   :: NonequalAI
+        end
+        regulatory_site(2): R::NonequalAI
+    end
+    # A ping-pong whose second half runs in the active conformation only: neither
+    # conformation's denominator has a constant term, so each prints its own normalizer,
+    # and free E weighs F6P in one and F16BP in the other, so F_A and F_I print.
+    half2 = @allosteric_mechanism begin
+        substrates: ATP, F6P
+        products: ADP, F16BP
+        catalytic_multiplicity: 1
+        steps: begin
+            E + ATP ⇌ E(ATP)                                                      :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: OnlyA
+            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+        end
+    end
+    # Both bindings :OnlyA: the inactive conformation is free E alone, so the
+    # denominator's inactive term is L with no factor.
+    inert = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ E(P)      :: OnlyA
+        end
+    end
+    heads(t) = [l[1:3] for l in split(t, '\n') if occursin(r"^[QDFWN]_[AI] = ", l)]
+    @test heads(rate_equation_string(two_site)) ==
+          ["Q_A", "D_A", "Q_I", "D_I", "W_A", "W_I"]
+    t2 = rate_equation_string(half2)
+    @test heads(t2) == ["N_A", "Q_A", "D_A", "N_I", "D_I", "F_A", "F_I"]
+    @test "F_A = F6P / (K_A_EF6P_res_plusATP_minusF16BP_to_E_res_plusATP_minusF16BP_F6P " *
+          "* N_A)" in split(t2, '\n')
+    @test last(split(t2, '\n')) == "v = E_total * (F_I * Q_A) * (ATP * F6P - ADP * " *
+                                    "F16BP / Keq) / (F_I * D_A + L * F_A * D_I)"
+    ti = rate_equation_string(inert)
+    @test heads(ti) == ["Q_A", "D_A"]
+    @test last(split(ti, '\n')) == "v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L)"
+    for m in (two_site, half2, inert)
+        @test _testhelper_printed_law_error(m) <= big(10)^-20
+        @test isempty(_testhelper_print_artifacts(rate_equation_string(m))) &&
+              isempty(_testhelper_print_artifacts(
+                  rate_equation_string(m; coefficients = true)))
     end
 end
