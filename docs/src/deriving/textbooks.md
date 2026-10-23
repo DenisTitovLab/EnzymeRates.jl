@@ -77,7 +77,9 @@ normalizer with `D`'s unit, chosen by the first rule that applies.
 3. **Ratio form.** When no such weights exist, the law reads some concentrations only
    through their ratio, as a rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P`
    makes every term carry `B` or `P`. Divide by the first term in the same order; terms
-   such as `P / B` are then dimensionless.
+   such as `P / B` are then dimensionless. That form divides by concentrations, so the
+   printed law can read `NaN` where one of them is zero; [`rate_equation`](@ref) gives the
+   law's value there.
 
 A factor of the normalizer that is not a single term, or an integer to a fractional power,
 prints once, as the line `N = …`, and the terms it divides read `/ N`.
