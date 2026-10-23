@@ -282,9 +282,8 @@ function _cross_weights(fA::_Poly, fI::_Poly)
     (cA, uA, rA), (cI, uI, rI) = _content(fA), _content(fI)
     same = rA == rI
     g = gcd(cA, cI)
-    u = _monomial((v => min(_mexp(uA, v), _mexp(uI, v))
-                   for v in unique!([first.(uA); first.(uI)]))...)
-    weight(c, mu, r) = (p = _term(_mmul(mu, _mpow(u, -1)), div(c, g)); same ? p : p * r)
+    s = _lowest_shift((_term(uA), _term(uI)))
+    weight(c, mu, r) = (p = _term(_mmul(mu, s), div(c, g)); same ? p : p * r)
     weight(cA, uA, rA), weight(cI, uI, rI)
 end
 

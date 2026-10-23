@@ -221,9 +221,7 @@ gcd, positive, or a one-term polynomial's own coefficient), its monomial content
 exponent 0) and the rest, `one(_Poly)` for a one-term polynomial.
 """
 function _content(p::_Poly)
-    c = foldl(gcd, values(p.terms))
-    mu = _monomial((v => minimum(mo -> _mexp(mo, v), keys(p.terms))
-                    for v in unique(first(t) for mo in keys(p.terms) for t in mo))...)
-    inv_mu = _mpow(mu, -1)
-    c, mu, _Poly(Dict{_Mono, Int}(_mmul(mo, inv_mu) => div(x, c) for (mo, x) in p.terms))
+    c, s = foldl(gcd, values(p.terms)), _lowest_shift((p,))
+    c, _mpow(s, -1), _Poly(Dict{_Mono, Int}(_mmul(mo, s) => div(x, c)
+                                            for (mo, x) in p.terms))
 end
