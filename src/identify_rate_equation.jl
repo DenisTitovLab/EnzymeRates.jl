@@ -264,8 +264,8 @@ end
 """
 Convert result row NamedTuples to a DataFrame, one column per fitted parameter
 name across `rows` (`missing` where a row lacks it).
-Row order is preserved (no sorting) to maintain
-alignment with the mechanism vector.
+Row order is preserved (no sorting), so row i stays aligned with the i-th entry the rows
+came from (the LOOCV candidates in `_cv_model_selection`).
 """
 function _rows_to_dataframe(rows)
     isempty(rows) && return DataFrame()
