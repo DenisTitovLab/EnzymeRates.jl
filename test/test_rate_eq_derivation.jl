@@ -1884,7 +1884,8 @@ end
                        rate_equation_string(em))
         @test :K_E_to_F ∉ EnzymeRates.fitted_params(em)
         _testhelper_check_law_against_oracle(em)
-        # The generated rate equation assigns the literal 1.0 and stays allocation-free.
+        # The generated rate equation folds the pinned constant into its coefficients
+        # and stays allocation-free.
         syms = parameters(em)
         params = NamedTuple{syms}(ntuple(i -> 0.5 + i / 10, length(syms)))
         @test all_parameters(em, params).K_E_to_F == 1
