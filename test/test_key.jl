@@ -95,6 +95,54 @@ end
           EnzymeRates._canonical(base, "toy").key
 end
 
+@testset "the key brings each MWC unit to lowest terms" begin
+    # Each unit times its own integer and monomial: H by 2, (Q_A, D_A, fA) by 3·k⁻²·c,
+    # (Q_I, D_I, fI) by 5·k and each site's (W_A, W_I) by 7·c², with c a concentration
+    # and k a constant. The rate doubles and the key stays the same. Scaling fA alone, or
+    # one site's W_A alone, changes the rate law and the key.
+    rng = Random.MersenneTwister(219)
+    for (name, nsites) in ("MWC Dimer [AllostericEnzymeMechanism]" => 0,
+                           "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites" => 2)
+        @testset "$name" begin
+            A = EnzymeRates._law(_testhelper_lift(
+                only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism))
+            v = A.vars
+            c = findfirst(v.conc)
+            k = findfirst(i -> !v.conc[i] && v.names[i] ∉ (:Keq, :L), eachindex(v.names))
+            ma = EnzymeRates._monomial(k => -2, c => 1)
+            mi = EnzymeRates._monomial(k => 1)
+            ms = EnzymeRates._monomial(c => 2)
+            sc(p, mo, n) = EnzymeRates._scale(p * mo, n)
+            key(L) = EnzymeRates._canonical(L, "x").key
+            function _testhelper_scaled_conformation(C::EnzymeRates._Law, mo, n)
+                EnzymeRates._Law(C.vars, C.H, sc(C.Q, mo, n), sc(C.D, mo, n), C.sigma,
+                                 C.trees, C.shift)
+            end
+            function _testhelper_mwc(; H = A.H, active = A.active, inactive = A.inactive,
+                                     fA = A.fA, fI = A.fI, sites = A.sites)
+                EnzymeRates._AlloLaw(v, H, active, inactive, fA, fI, sites, A.n)
+            end
+            scaled = _testhelper_mwc(;
+                H = EnzymeRates._scale(A.H, 2),
+                active = _testhelper_scaled_conformation(A.active, ma, 3),
+                inactive = _testhelper_scaled_conformation(A.inactive, mi, 5),
+                fA = sc(A.fA, ma, 3), fI = sc(A.fI, mi, 5),
+                sites = [(sc(WA, ms, 7), sc(WI, ms, 7), n) for (WA, WI, n) in A.sites])
+            env = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1) for x in v.names)
+            rate(L) = _testhelper_evaluate_law(L, env)
+            @test abs(rate(scaled) / rate(A) - 2) <= big(10)^-20
+            @test key(scaled) == key(A)
+            @test key(_testhelper_mwc(; fA = sc(A.fA, ma, 3))) != key(A)
+            @test length(A.sites) == nsites
+            for i in eachindex(A.sites)
+                WA, WI, n = A.sites[i]
+                sites = [A.sites[1:(i - 1)]; (sc(WA, ms, 7), WI, n); A.sites[(i + 1):end]]
+                @test key(_testhelper_mwc(; sites)) != key(A)
+            end
+        end
+    end
+end
+
 @testset "symmetric constants take 4 leaves and one key" begin
     # a and b tie, and c and d: two branches for each pair, four labellings in all.
     s = _testhelper_pairs_law(:a, :b, :c, :d)
