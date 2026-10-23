@@ -183,7 +183,7 @@ function _column_values(vars::_Vars, s::_Solve, wrap = identity)
 end
 
 """
-    _law(m, s, mask; inactive = false, concentrations = metabolites(m)) -> _Law
+    _law(m, s, mask; inactive = false, concentrations = metabolites(m), shown = m) -> _Law
 
 The rate law of the edges of `m` that `mask` keeps, in the inactive conformation's
 constants when `inactive`, over the independents of the solve `s`: the bare law
@@ -194,10 +194,11 @@ numbers its variables alike: `concentrations`, then `s.independents`, then `Keq`
 
 Runs `_assert_derivable` first. Checked `Int64` arithmetic throughout: under the term cap
 no coefficient leaves it, so an `OverflowError` becomes an internal error that names the
-mechanism. Class 5 (`_assert_support`) is left to the callers that use the law.
+mechanism `shown`, the allosteric mechanism for an MWC conformation. Class 5
+(`_assert_support`) is left to the callers that use the law.
 """
 function _law(m::Mechanism, s::_Solve, mask::BitVector; inactive::Bool = false,
-              concentrations::Vector{Symbol} = metabolites(m))
+              concentrations::Vector{Symbol} = metabolites(m), shown::_AnyMech = m)
     _assert_derivable(m, mask)
     try
         b = _bare_law(m, mask, concentrations)
@@ -218,7 +219,7 @@ function _law(m::Mechanism, s::_Solve, mask::BitVector; inactive::Bool = false,
     catch err
         err isa OverflowError || rethrow()
         error("internal error: the rate law of this mechanism leaves Int64 arithmetic, " *
-              "which the term cap rules out:\n" * sprint(show, m))
+              "which the term cap rules out:\n" * sprint(show, shown))
     end
 end
 
@@ -320,9 +321,9 @@ function _law(am::AllostericMechanism, s::_Solve)
     _assert_derivable(am)
     m, amask, imask = catalytic(am), _active_mask(am), _inactive_mask(am)
     concentrations = metabolites(am)
-    LA = any(amask) ? _law(m, s, amask; concentrations) :
-         _flip_only_law(_law(m, s, imask; inactive = true, concentrations))
-    LI = any(imask) ? _law(m, s, imask; inactive = true, concentrations) :
+    LA = any(amask) ? _law(m, s, amask; concentrations, shown = am) :
+         _flip_only_law(_law(m, s, imask; inactive = true, concentrations, shown = am))
+    LI = any(imask) ? _law(m, s, imask; inactive = true, concentrations, shown = am) :
          _flip_only_law(LA)
     vars = deepcopy(LA.vars)
     for x in view(s.fitted, (length(s.independents) + 1):(length(s.fitted) - 1))

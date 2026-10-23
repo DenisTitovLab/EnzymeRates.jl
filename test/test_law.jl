@@ -320,8 +320,17 @@ end
 
 @testset "an Int64 overflow in a law is an internal error naming the mechanism" begin
     # Under the term cap no coefficient or exponent leaves Int64. A doctored solve whose
-    # dependent reads one constant twice, each time to the power typemax(Int), forces an
-    # exponent past it.
+    # first dependent reads one constant twice, each time to the power typemax(Int),
+    # forces an exponent past it.
+    function _testhelper_overflowing(s)
+        d = first(s.dependents)
+        f = first(d.factors).first
+        big_power = EnzymeRates._Dependent(d.col, d.keq,
+                                           [f => typemax(Int) // 1, f => typemax(Int) // 1],
+                                           d.label)
+        EnzymeRates._Solve(s.columns, s.names, s.column, s.independents,
+                           [big_power; s.dependents[2:end]], s.fitted)
+    end
     mm = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
@@ -330,18 +339,27 @@ end
             E(S) <--> E + P
         end
     end)
-    s = EnzymeRates._solve(mm)
-    d = only(s.dependents)
-    f = first(d.factors).first
-    big_power = EnzymeRates._Dependent(d.col, d.keq,
-                                       [f => typemax(Int) // 1, f => typemax(Int) // 1],
-                                       d.label)
-    bad = EnzymeRates._Solve(s.columns, s.names, s.column, s.independents, [big_power],
-                             s.fitted)
+    bad = _testhelper_overflowing(EnzymeRates._solve(mm))
     err = @test_throws ErrorException EnzymeRates._law(mm, bad, trues(length(mm.edges)))
     @test startswith(err.value.msg, "internal error: the rate law of this mechanism " *
                                     "leaves Int64 arithmetic")
     @test endswith(err.value.msg, sprint(show, mm))
+    # An MWC law's message names the allosteric mechanism, not its catalytic graph.
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)       :: EqualAI
+            E(S) <--> E(P)     :: NonequalAI
+            E + P ⇌ E(P)       :: EqualAI
+        end
+    end)
+    bad = _testhelper_overflowing(EnzymeRates._solve(am))
+    err = @test_throws ErrorException EnzymeRates._law(am, bad)
+    @test startswith(err.value.msg, "internal error: the rate law of this mechanism " *
+                                    "leaves Int64 arithmetic")
+    @test endswith(err.value.msg, sprint(show, am))
 end
 
 # ── The MWC law ─────────────────────────────────────────────────────────────
