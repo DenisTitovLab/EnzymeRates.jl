@@ -47,15 +47,58 @@ k_EP_to_ES = K_EP_to_E_P * k_ES_to_EP / (K_ES_to_E_S * Keq)
 v = E_total * (k_ES_to_EP / K_ES_to_E_S) * (S - P / Keq) / (1 + S / K_ES_to_E_S + P / K_EP_to_E_P)
 ```
 
-The string has four sections:
+The string reads, in order:
 
-1. A `params` destructuring line listing the independent fitted parameters
-   plus `Keq` and `E_total`.
-2. A `concs` destructuring line listing the concentration symbols.
-3. An optional `# Haldane constraints:` (or `# Wegscheider constraints:`)
-   section where each dependent rate constant is expressed in terms of `Keq`
-   and the independent parameters.
-4. The final `v = E_total * (num) / (den)` line.
+1. a `params` destructuring line: the independent fitted constants, then `Keq` and
+   `E_total`;
+2. a `concs` destructuring line: the concentrations;
+3. the reference lines under `# Haldane constraints:` (after `# Wegscheider constraints:`
+   when a cycle of bindings ties constants together): each dependent constant in `Keq` and
+   the independent constants, for reference, since the law reads only the independent
+   ones;
+4. when the normalizer has a factor that is not a single term, the line `N = …`
+   ([Normalization](@ref));
+5. the law, `v = E_total * (Q) * (H) / (D)`. `H = S - P / Keq` vanishes at equilibrium,
+   and `Q` and `D` have positive terms.
+
+## Normalization
+
+Every term of `D` is dimensionless: the package divides numerator and denominator by a
+normalizer with `D`'s unit, chosen by the first rule that applies.
+
+1. **Constant term.** When `D` has a term free of concentrations, divide by its
+   coefficient. Each term is then an enzyme form's abundance relative to free E, as in
+   `1 + S / K_ES_to_E_S + P / K_EP_to_E_P` above.
+2. **Virtual constant term.** Otherwise take `D`'s terms in a fixed order (lowest total
+   degree first, then fewest metabolites other than substrates, then metabolite order) and
+   weigh the first affinely independent ones so that the product of their coefficients,
+   each to its weight, has `D`'s unit. A ping-pong bi-bi gets Cleland's normalizer this way
+   ([Ping-pong mechanisms](@ref)); fractional weights print as roots.
+3. **Ratio form.** When no such weights exist, the law reads some concentrations only
+   through their ratio, as a rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P`
+   makes every term carry `B` or `P`. Divide by the first term in the same order; terms
+   such as `P / B` are then dimensionless.
+
+A factor of the normalizer that is not a single term prints once, as the line `N = …`, and
+the terms it divides read `/ N`.
+
+## The coefficient form
+
+`coefficients = true` prints the same law with one name per coefficient, then a legend
+that gives each coefficient in the fitted constants:
+
+```jldoctest textbook
+julia> print(rate_equation_string(m; coefficients = true))
+v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
+# The coefficients are functions of the fitted constants, not parameters:
+n_0 = k_ES_to_EP / K_ES_to_E_S
+d_S = 1 / K_ES_to_E_S
+d_P = 1 / K_EP_to_E_P
+```
+
+A coefficient is named by the concentrations it multiplies: `d_A_B` for `A * B`, `d_A²_B`
+for `A^2 * B`, and, in the ratio form, `d_P_B⁻¹` for `P / B`; `n_0` is the numerator's
+constant term. The fit still runs over the fitted constants.
 
 ## Meaning of parameter names
 

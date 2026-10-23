@@ -67,6 +67,13 @@ metabolites(m)
 print(rate_equation_string(m))
 ```
 
+```@example getting-started
+print(rate_equation_string(m; coefficients = true))
+```
+
+`rate_equation_string` prints the law in its independent constants, each denominator term
+relative to free enzyme; `coefficients = true` prints it in named coefficients, each given
+by a legend line in the fitted constants.
 `parameters(m)` returns the independent parameter symbols. `metabolites(m)`
 returns the concentration symbols the rate equation expects. `Keq` is the
 **equilibrium constant** of the overall reaction — the ratio of product to

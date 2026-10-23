@@ -103,13 +103,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Planned
 
-- **Rewrite the derivation around the reaction graph.**
-  `docs/superpowers/specs/2026-10-12-reaction-graph-rewrite-design.md` records the design,
-  decided between 2026-10-09 and 2026-10-12. One PR remains: the engine, the numerator,
-  normalization and printing, a rename-proof dedup key, identify's key cache and beam,
-  the L-phantom flag, the code-generation locals and the speed gates' re-calibration
-  (its section 15, phase 5). The table in its section 16 lists the entries it retires.
-  Priority: high.
 - **Let an allosteric ping-pong stop both half-reactions in the inactive conformation.**
   PDH and OGDH are ping-pong and allosteric, so allosteric ping-pong must stay in the
   search. With the conformations flipping only at free E, a ping-pong whose inactive
@@ -148,11 +141,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   reject `I(m)` for a competitive inhibitor. Priority: medium-low.
 - **Drop `change_allo_state` relaxations that free no parameter, if measurement finds any.**
   `_expand_change_allo_state` (`src/mechanism_enumeration.jl`) has no gain test, unlike
-  the split and RE→SS moves, and in a past LDH run it produced 20 of 33 zero-gain edges,
-  each costing a fit. First count, over the bi-bi allosteric depth-2 population, the
-  children whose `_independent_param_count` does not exceed their parent's, and confirm
-  them with `_testhelper_identifiable_rank`. A naive filter can drop a different model
-  with the same count, so check reachability before filtering. Priority: medium-low.
+  the split and RE→SS moves, and in a past LDH run it produced 20 of 33 zero-gain edges.
+  A child whose law equals one already fitted, up to renaming its constants, shares that
+  fit through the key (`_canonical`, `src/key.jl`) and costs no fit; a zero-gain child
+  with a law of its own still costs one. First count, over the bi-bi allosteric depth-2
+  population, the children whose `_independent_param_count` does not exceed their
+  parent's and whose key is new, and confirm them with `_testhelper_identifiable_rank`. A
+  naive filter can drop a different model with the same count, so check reachability
+  before filtering. Priority: medium-low.
 - **Enumerate Cleland iso mechanisms.**
   The derivation handles iso mechanisms, but no enumeration move generates them, and each
   carries a dwell-time-gauge phantom unless the exact rank (see Ideas) or a

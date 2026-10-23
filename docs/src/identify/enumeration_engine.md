@@ -306,6 +306,8 @@ On its bases the engine emits, per multiplicity:
   base the regulator reveals `L`; on a one-half base `L` already shows without one, yet
   every base is emitted only with a regulator (the repository's `ROADMAP.md` lists this).
 
+Tag sets whose laws agree up to renaming the constants share one key, so identify fits the
+law once.
 The all-`:EqualAI` baseline is never emitted (the conformations would be identical and `L`
 would cancel). Admission does not run the guard's face check, so a child that fails it is
 dropped where `expand_mechanisms` returns it, as for every move. A ping-pong parent with no
@@ -323,9 +325,13 @@ the merged ordered bi-bi whose B group mixes a fused and a plain binding it is a
 phantom only in the variants whose inactive conformation binds nothing: no
 rescaling absorbs an A or Q binding kept there. Binding nothing is not enough:
 in a random-order merged bi-bi, whose A group takes A up at E and at E(B) under
-one rate constant, `L` shows in every K-type variant. The engine emits the
-variants where `L` is a phantom all the same, so a fit can carry an `L` the data
-cannot determine.
+one rate constant, `L` shows in every K-type variant. The engine emits the variants where
+`L` is a phantom all the same, since their children can carry laws the parent's children
+lack. A variant whose inactive conformation binds nothing and whose `L` an exact
+rescaling of its active constants absorbs is an L phantom: when a mechanism with its
+active conformation's law is fitted, identify does not fit the phantom but reads that
+fit with `L = 0` and flags the row (`L_phantom` in the CSVs). Any other variant, a
+phantom whose active law nobody fits included, is fitted like any other candidate.
 
 A parent whose catalytic scheme already carries concentration powers, such as a
 random-order scheme with steady-state binding or a substrate that traps a
@@ -476,5 +482,6 @@ unreachable.
 whose rate function can be shown to equal the parent's: a split the constraint
 solver ties back, a flip that leaves the segment count unchanged, a flip that
 leaves a steady-state group without flux, a flip of a steady-state chain's flank,
-a redundant dead-end copy. A few children whose equation is the parent's up to
-renaming the constants survive; they cost one fit each and never win selection.
+a redundant dead-end copy. A few children whose law
+is the parent's up to renaming the constants survive; they share the parent's key, so
+identify fits their law once, and they never win selection.

@@ -30,8 +30,9 @@ under `max(120 ns, 0.8 ns × denominator terms)` for the three largest enumerate
 laws (396 denominator terms each) and three ter-bi laws (589, 799 and 858 terms).
 `_testhelper_test_rate_equation_performance` (`test/test_rate_eq_derivation.jl`)
 measures each law's allocations and time per call, and the tests assert
-`allocs == 0` and the law's bound. The printed equation of
-`rate_equation_string` keeps flat sums. That speed is the binding
+`allocs == 0` and the law's bound. `rate_equation_string` (`src/print.jl`)
+prints the law rather than the code: each denominator term over the unit rule's normalizer,
+dimensionless. That speed is the binding
 constraint on the whole package: the fitter is a multi-start, global,
 gradient-free optimizer that
 evaluates `rate_equation` millions of times per fit, and a single rate equation
@@ -77,20 +78,23 @@ the same way, so its search loop compiles once.
 
 ### The joint thermodynamic solve
 
-`_dependent_param_exprs` (`src/thermo.jl`) builds one integer system per mechanism
+`_solve` (`src/thermo.jl`) builds one integer system per mechanism
 (`_joint_system`): a column per constant of every edge (`_Column`), with an inactive
 copy for each edge of a `:NonequalAI`, `:OnlyA` or `:OnlyI` group; a row per fundamental
 cycle and conformation, and a row tying each further member of a kinetic class to its first.
 It orders the columns by `_priority_key` (`_ordered_columns`) and reduces the system
 exactly (`_reduce_joint_system`: `Rational{Int}`, redone in `Rational{BigInt}` on
-overflow). Pivot columns are dependents.
+overflow). Pivot columns are dependents. `_solve`
+returns them with the independents and the fitted names as a `_Solve`, which the engine,
+`all_parameters`, code generation and the printer read; `_dependent_param_exprs` renders it
+as expressions.
 Columns outside a conformation's law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's
 active copy, an edge on a form that conformation cannot reach) come first, so no kept
 dependent reads them. Each class is named after its member
 that comes last in that order (`_kept_members`), through the `name(p, m)` chokepoint. The
-engine derives each conformation's polynomials from the mechanism, a mask of the edges
-its law keeps (`_state_mask`; the inactive conformation's is `_inactive_mask(am)`) and
-the names of their constants (`_edge_names`). Every edge keeps its stored direction, so
+engine (`_law`, `src/engine.jl`) derives each conformation's
+law on a mask of the edges it keeps (`_active_mask(am)`, `_inactive_mask(am)`; every edge
+of a plain mechanism). Every edge keeps its stored direction, so
 both conformations share the mechanism's orientation and names. The canonical form
 decides the order and the direction it reads: free E is form 1 and the other forms follow
 in content order (conformation label, bound metabolites, residual); an edge that neither
@@ -99,6 +103,45 @@ turns the group's other tied edges to match it (`_align_tied_groups!`). The orde
 tie-break reads each edge's content as stored: its forms' places in content order, then
 the metabolites it takes up and gives off (`_edge_base_rank`). The canonical form thus
 decides the dependents and so the fitted names: a change to it changes fitted names.
+
+### The law, its code, its text and its key
+
+`src/poly.jl` holds sparse polynomials over integer-indexed variables (`_Poly`), with
+rational exponents for constants and checked `Int64` coefficients: under the term cap no
+coefficient leaves `Int64`, so an overflow is an internal error. `_law(m, s, mask)`
+(`src/engine.jl`) derives one conformation's law, `_Law`, as `v = E_total·H·Q/D`. It
+contracts each rapid-equilibrium segment to a node rooted at its first form (free E roots
+its own), sums the spanning trees of the segment graph, builds the numerator from each
+steady-state edge's net flux, substitutes the solve, divides out `H = Π[S] − Π[P]/Keq`
+exactly and brings `Q` and `D` to lowest terms in the concentrations. An MWC law
+(`_AlloLaw`) holds both conformations' laws, their free-E weights over a common factor and
+the regulatory sites' polynomials. `_eq_complexity` counts V×τ, both conformations of an
+MWC law together, by a checked Bareiss determinant; the cap (`_assert_derivable`) and
+identify's `eq_complexity_filter` read it before any polynomial is built. `_Poly`, `_Law`
+and `_AlloLaw` are mutable structs with `const` fields, never an immutable wrapper of one
+reference: Julia 1.12 and 1.13 can hoist such a wrapper's box out of a loop that merges it
+with another type, without a write barrier.
+
+`_rate_body` (`src/codegen.jl`) emits the law as straight-line locals: the dependents in
+solve-column order, each segment's weight and tree sums, `Q`, `H` and the MWC terms, all in
+greedy Horner form with binary `+` and `*`. Each input is read by name into a positional
+local, so a `NamedTuple` in any field order works, and reciprocals and roots (`sqrt`, or
+`x^(one(x)/q)`) are computed once.
+
+`rate_equation_string` divides the law by the unit rule's normalizer (`_normalizer`,
+`src/normalize.jl`: the constant term, else a virtual one on the first affinely
+independent terms, else the ratio form), so every denominator term is dimensionless, and
+with `coefficients = true` prints it in named coefficients.
+
+`_canonical` (`src/key.jl`) labels a law canonically: each part to lowest terms, the fitted
+constants coloured by refinement on the term–constant incidence and individualized while
+colours tie, the concentrations by name. The SHA-256 of its text is the law's key, by which
+identify fits one mechanism per law and reads that fit through each mechanism's own names
+(the canonical order). At 100 labellings the search stops, and the law takes its
+mechanism's own key. The L-phantom certificate (`_phantom_weights`) solves exactly for a
+rescaling of the active constants that absorbs `L` in a one-subunit variant whose inactive
+conformation binds nothing (free E alone, every regulator `:OnlyA`); such a variant reads
+the fit of its active law when a mechanism with that law is fitted.
 
 ## Well-posedness guard
 
@@ -125,7 +168,9 @@ classes, bottomless segments, the aggregated chains, and a limit test modulo 2^6
 structure decides nothing) and admission's face condition (`_admission_face`: the
 ε-network's closed classes, stranded basins, and the fewest-slow-transitions in-tree test
 per excluding conformation and for both together). Class 5, a denominator that keeps no
-monomial on a face, runs on the derived law in `_num_den_exprs`. The macros, the parser
+monomial on a face, runs on the derived law (`_assert_support`) wherever a law is
+derived for use: the generated `rate_equation`, identify's PASS1 and
+`rate_equation_string`. The macros, the parser
 and the derivation entry throw; `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`
 and identify's `_base_tier` drop; the flip move runs classes 2 and 3 on each candidate's
 flags; the tagging and change-tag moves filter by admission alone (`_admits`) and leave
@@ -269,9 +314,10 @@ that duplicates only a copy's complex never rejects, since the sites that pin
 either copy may keep both constants separable.
 `expand_mechanisms` asserts both rules on every parent (`_assert_emission_rules`).
 Both refinement moves share one minimal-set search (`_minimal_gaining_sets`).
-Duplicate equations that survive these proofs are collapsed at compile time by
-`eq_hash`. A numerical identifiability rank exists only in the test suite, as an
-oracle for the proofs; nothing in `src/` estimates identifiability numerically.
+Duplicate laws that survive these proofs share one fit:
+identify fits one mechanism per key (`_canonical`, `src/key.jl`). A numerical
+identifiability rank exists only in the test suite, as an oracle for the proofs and the
+L-phantom certificate; nothing in `src/` estimates identifiability numerically.
 
 `init_mechanisms` appends to the seeds their merged and Theorell–Chance variants
 (`_seed_variants`, plain `Mechanism`s only). `_merge_isomerization` removes a

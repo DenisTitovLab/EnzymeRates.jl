@@ -30,11 +30,25 @@ end
 print(rate_equation_string(m))
 ```
 
-The derived equation has the signature of a ping-pong mechanism: the numerator is
-the difference `A·B − P·Q`, and the denominator has **no constant term**. A
-sequential mechanism always carries a `1` in its denominator for the free enzyme;
-a ping-pong enzyme never sits idle as free `E` during turnover — it is always
-either loaded with substrate or carrying the covalent residual — so that constant
-term is absent. The residual-bearing forms take descriptive names such as
-`E_res_plusA_minusP` (the modified free enzyme) and `EB_res_plusA_minusP` (with `B`
-additionally bound).
+The derived equation has the signature of a ping-pong mechanism: its denominator has **no
+constant term**. A sequential mechanism always carries a `1` in its denominator for the
+free enzyme; a ping-pong enzyme never sits idle as free `E` during turnover (it is always
+either loaded with substrate or carrying the covalent residual), so that term is absent.
+
+Without a constant term the printed law divides by a virtual one ([Normalization](@ref)).
+The first affinely independent terms of the fixed order are those in `A`, `B`, `P`, `Q`
+and `A * B`, and the weights that give the normalizer the denominator's unit fall on `A`,
+`B` and `A * B` alone: the coefficients of `A` and `B` over that of `A * B`, Cleland's
+normalizer for a ping-pong bi-bi. Its part that is not a single term
+prints once as `N = …`, and every denominator term is dimensionless. In other mechanisms,
+ter-reactant ones above all, the fixed order can pick terms other than Cleland's, which
+changes how `N` reads but never the law's value.
+
+The coefficient form names each coefficient by the concentrations it multiplies:
+
+```@example pingpong
+print(rate_equation_string(m; coefficients = true))
+```
+
+The residual-bearing forms take descriptive names such as `E_res_plusA_minusP` (the
+modified free enzyme) and `EB_res_plusA_minusP` (with `B` additionally bound).
