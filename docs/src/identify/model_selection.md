@@ -148,7 +148,7 @@ The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
 | `parent_id` | `mechanism_id` of the parent the mechanism was expanded from; `missing` for a starting mechanism. |
 | `rate_equation` | The printed law (`rate_equation_string`), in full. |
 | `retcode` | Optimizer return code (`"Success"` = converged). |
-| `error` | Exception text if the fit errored; otherwise `missing`. |
+| `error` | Exception text if the mechanism's derivation, compilation, fit or expansion threw; otherwise `missing`. |
 | `key` | The SHA-256 (64 hex digits) of the law's canonical form: its terms with the fitted constants labelled canonically and the concentrations by name. Mechanisms share a key exactly when their laws agree up to renaming the fitted constants. A law whose canonical search reaches 100 labellings takes its mechanism's own key, the SHA-256 of `mechanism|` and its `mechanism_id`. `missing` in a failure row. |
 | `fit_inherited` | `true` when the row reads another mechanism's fit: one with the same key, under the row's own names, or, for an L phantom, the fit of the law it reduces to; `false` for the mechanism actually fit. |
 | `fit_source_id` | `mechanism_id` of the mechanism whose fit the row reads, the row's own when it was fit. |

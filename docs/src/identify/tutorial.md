@@ -236,8 +236,9 @@ search fits one mechanism per key, and the others read that fit under their own 
 
 ## Loud failures
 
-A mechanism that throws during compilation or fitting becomes a `FitFailure`
-carrying the exception text. Failures are never silently discarded: each one is a
+A mechanism that throws while its rate law is derived, compiled or fitted, or while
+it is expanded, becomes a `FitFailure` carrying the exception text. Failures are
+never silently discarded: each one is a
 row of the search CSVs (`initial_mechanisms.csv` and
 `equation_search_iteration_N.csv`) with `error` set and `retcode` missing. A
 failure never enters cross-validation, so `cv_results` holds none. If every

@@ -422,8 +422,8 @@ struct BatchEntry
     row::NamedTuple
 end
 
-"""A mechanism that failed to compile or fit, with the exception message
-captured as a string. Kept for the CSV + summary."""
+"""A mechanism that failed at derivation, compilation, fit or expansion, with the
+exception message captured as a string. Kept for the CSV + summary."""
 struct FitFailure
     mech::Union{Mechanism, AllostericMechanism}
     error::String
@@ -434,7 +434,8 @@ _exc_string(e) = first(sprint(showerror, e), 200)
 
 """
 CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row,
-with `missing` wherever the value is unavailable (compile/fit never produced it).
+with `missing` wherever the value is unavailable (derivation, compilation or the fit
+never produced it).
 `mechanism` is the mechanism's text, rendered from the concrete mechanism, so a row
 names its mechanism even when it does not compile; `parent_id` is missing.
 """
@@ -490,8 +491,8 @@ function _prefit_summary(n_new::Int, n_inherited::Int,
 end
 
 """
-Post-fit half of a batch summary: `errored` (`length(failures)` — compile, fit,
-and any expansion failures) and the `Success` / `non-Success retcode`
+Post-fit half of a batch summary: `errored` (`length(failures)` — derivation,
+compile, fit, and any expansion failures) and the `Success` / `non-Success retcode`
 percentages over the fitted set (`entries`).
 """
 function _postfit_summary(entries::Vector{BatchEntry}, failures::Vector{FitFailure})
