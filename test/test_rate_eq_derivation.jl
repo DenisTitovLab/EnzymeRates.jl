@@ -1586,6 +1586,31 @@ end
     end
 end
 
+@testset "256-bit inputs flow through a four-subunit MWC body" begin
+    # The mass-action check reads the allosteric specs' bodies in BigFloat at one
+    # catalytic subunit only. Here the body with its D^(n−1), D^n and site powers at
+    # n = 4 reads inputs that use all 256 bits and equals the law there to 1e-20, which a
+    # Float64 step anywhere in it would miss.
+    for name in ("PFK-1", "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites")
+        @testset "$name" begin
+            m = only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism
+            L = EnzymeRates._law(_testhelper_lift(m))
+            @test L.n == 4
+            rng = Random.MersenneTwister(779 + hash(name) % 1000)
+            setprecision(BigFloat, 256) do
+                params = _testhelper_random_independent_params(m; rng)
+                pbig = map(x -> x * (1 + rand(rng, BigFloat)), params)
+                mets = metabolites(m)
+                cbig = NamedTuple{Tuple(mets)}(Tuple(big(0.5) + rand(rng, BigFloat)
+                                                     for _ in mets))
+                env = Dict{Symbol, BigFloat}(pairs(merge(pbig, cbig)))
+                law = pbig.E_total * _testhelper_evaluate_law(L, env)
+                @test abs(rate_equation(m, cbig, pbig) - law) <= big(10)^-20 * abs(law)
+            end
+        end
+    end
+end
+
 """Whether each reference line of `m`'s printed law, read back in 256-bit BigFloat
 (`_testhelper_eval_rate_lines`), equals the dependent constant `all_parameters` computes,
 to 1e-12 relative, at a random point; false when the law prints no reference line."""
