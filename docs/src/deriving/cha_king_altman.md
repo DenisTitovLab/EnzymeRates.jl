@@ -23,7 +23,7 @@ steps.
 the segment gets an alpha factor, its abundance relative to the root. The law in lowest
 terms does not depend on which form roots a segment. The readable
 `1 + S / K_ES_to_E_S + P / K_EP_to_E_P` denominator comes from the printer, which divides
-the law by the denominator's constant term, free E's weight ([Normalization](@ref)).
+the law by the denominator's constant term ([Normalization](@ref)), here free E's weight.
 
 
 **Across segments**, the SS steps form an inter-segment rate matrix. The denominator

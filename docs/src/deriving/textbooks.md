@@ -66,9 +66,11 @@ The string reads, in order:
 Every term of `D` is dimensionless: the package divides numerator and denominator by a
 normalizer with `D`'s unit, chosen by the first rule that applies.
 
-1. **Constant term.** When `D` has a term free of concentrations, divide by its
-   coefficient. Each term is then an enzyme form's abundance relative to free E, as in
-   `1 + S / K_ES_to_E_S + P / K_EP_to_E_P` above.
+1. **Constant term.** When `D` has a term free of concentrations, divide by that term's
+   coefficient, the part of `D` free of concentrations; every term is then dimensionless.
+   In a rapid-equilibrium law whose only form that binds nothing is free E, as in
+   `1 + S / K_ES_to_E_S + P / K_EP_to_E_P` above, that part is free E's weight, and `D`
+   sums the enzyme forms' abundances relative to free E.
 2. **Virtual constant term.** Otherwise take `D`'s terms in a fixed order (lowest total
    degree first, then fewest metabolites other than substrates, then metabolite order) and
    weigh the first affinely independent ones so that the product of their coefficients,
