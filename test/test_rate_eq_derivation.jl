@@ -569,11 +569,11 @@ function _testhelper_test_performance(spec::_testhelper_MechanismTestSpec; seed=
             m, met_names; rng=rng)
         allocs, t = _testhelper_test_rate_equation_performance(m, params, concs)
         @test allocs == 0
-        # Locally 120 ns leaves about 4× headroom over the two slowest fixture laws, "LDH
-        # i-state NonequalAI 6-group, steady-state NAD group" at about 26 ns and
-        # "Random-order Bi-Bi" at about 13 ns. Shared CI runners can run a law 4-7× slower,
-        # so a job that misses the bound is rerun rather than the bound loosened. The
-        # 0-alloc bound above is the strict part.
+        # Locally 120 ns leaves about 4× headroom over the slowest fixture law, "LDH
+        # i-state NonequalAI 6-group, steady-state NAD group" at about 26 ns, and about 9×
+        # over the next, "Random-order Bi-Bi" at about 13 ns. Shared CI runners can run a
+        # law 4-7× slower, so a job that misses the bound is rerun rather than the bound
+        # loosened. The 0-alloc bound above is the strict part.
         @test t < 120e-9
     end
 end
