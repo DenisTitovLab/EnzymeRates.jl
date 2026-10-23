@@ -136,10 +136,11 @@ The printed law lists these polynomials by name. Each conformation's `Q`, `D` an
 divided by that conformation's own normalizer, `N_A` or `N_I` ([Normalization](@ref)),
 which the combination does not see, so every term of `D_A` and `D_I` is dimensionless.
 `F_A` and `F_I` print only when they differ. They are 1 whenever the catalytic graph is
-one rapid-equilibrium segment without a covalent form, the common case, and the law is then
-the textbook MWC form. When the `:OnlyA` groups stop every catalytic cycle of the inactive
-conformation, as the enumerated tag sets do, the law has no `Q_I`: the inactive branch adds
-enzyme to the denominator and no flux. When the inactive conformation is free E alone, the
+one rapid-equilibrium segment whose only free form is E, without a covalent form, the
+common case, and the law is then the textbook MWC form. When the `:OnlyA` groups stop every
+catalytic cycle of the inactive conformation, as the tagging move's tag sets do, the law
+has no `Q_I`: the inactive branch adds enzyme to the denominator and no flux. When the
+inactive conformation is free E alone, the
 law has no `D_I` either, and its branch of the denominator is `L` times `F_A^n` and `W_I`,
 each left out when it is 1. With `coefficients = true` each polynomial reads in named
 coefficients (`dA_S` for the coefficient of `S` in `D_A`, `nI_0` for the constant term of
