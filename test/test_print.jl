@@ -333,6 +333,18 @@ end
     @test occursin("\nN = (k_E_A_to_F_P + k_F_A_to_E_P)^(3/2)\n", rate_equation_string(f2))
     @test "n_A = 2 * sqrt(K_F_A_A_to_FAA) * k_E_A_to_F_P^(3/2) * k_F_A_to_E_P / N" in
           split(rate_equation_string(f2; coefficients = true), '\n')
+    # F2 with its two steps in one group: the weight 3/2 falls on the coefficient of A,
+    # whose integer content is 2. An integer to an integer power divides the coefficients;
+    # to the power 3/2 it prints apart, as N.
+    f2g = @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            (E + A <--> F + P, F + A <--> E + P)
+            F + A + A ⇌ F(A, A)
+        end
+    end
+    @test occursin("\nN = (2)^(3/2)\n", rate_equation_string(f2g))
     # The random-order bi-bi's denominator holds A^2 * B, named by its superscript.
     ro = only(s for s in MECHANISM_TEST_SPECS if s.name == "Random-order Bi-Bi").mechanism
     @test occursin(" + d_A²_B * A^2 * B + ", rate_equation_string(ro; coefficients = true))
@@ -369,7 +381,7 @@ end
     n_line(m) = only(filter(startswith("N = "), split(rate_equation_string(m), '\n')))
     @test occursin(r"^N = \([^()]+\) \* \([^()]+\)$", n_line(terbi))
     @test occursin(r"^N = \([^()]+\)\^2$", n_line(power))
-    for m in (f1, f2, f3, f4, terbi, power)
+    for m in (f1, f2, f2g, f3, f4, terbi, power)
         @test _testhelper_printed_law_error(m) <= big(10)^-20
         @test isempty(_testhelper_print_artifacts(rate_equation_string(m))) &&
               isempty(_testhelper_print_artifacts(

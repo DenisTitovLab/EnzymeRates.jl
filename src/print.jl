@@ -81,9 +81,10 @@ end
     _printed(L, nz, polys, subs) -> (; N, terms)
 
 The polynomials `polys` of the conformation law `L` divided by its normalizer `nz`
-(`_normalizer`, `subs` the substrates' variables). The normalizer's integer and monomial
-contents divide every coefficient, and its other factors print apart: `N` is their text,
-empty when there is none. `terms[j]` holds a `_Term` for each concentration monomial of
+(`_normalizer`, `subs` the substrates' variables). The normalizer's integer contents to
+integer powers and monomial contents divide every coefficient; the other factors, an
+integer content to a fractional power included, print apart: `N` is their text, empty
+when there is none. `terms[j]` holds a `_Term` for each concentration monomial of
 `polys[j]`, in the unit rule's order (`_term_key`), divided by `nz.shift`. A coefficient
 whose polynomial factor is `N`'s one factor drops it and is not over `N`.
 """
@@ -196,9 +197,10 @@ _header_lines(m::Union{Mechanism, AllostericMechanism}, s::_Solve, vars::_Vars) 
     _law_text(m, s, L; coefficients = false) -> String
 
 The printed law `L` of `m` over the solve `s` (`rate_equation_string`). In full: the header
-(`_header_lines`), `N = …` when the normalizer has a factor that is not a monomial, and the
-`v` line (`_v_line`) with `Q` and `D` over the normalizer. With `coefficients`, the `v`
-line in named coefficients, then `N` and one legend line per coefficient.
+(`_header_lines`), `N = …` when the normalizer has a factor that is not a single term, or
+an integer to a fractional power, and the `v` line (`_v_line`) with `Q` and `D` over the
+normalizer. With `coefficients`, the `v` line in named coefficients, then `N` and one
+legend line per coefficient.
 """
 function _law_text(m::Mechanism, s::_Solve, L::_Law; coefficients::Bool = false)
     subs = _substrate_vars(m, L.vars)
@@ -248,10 +250,11 @@ end
 """
 The printed MWC law `A` of `am` over the solve `s`. Each conformation `c` (`A`, then `I`
 unless it is free E alone) defines `Q_c` (unless it turns nothing over) and `D_c`, over its
-own normalizer `N_c`, which prints as a line when it has a factor that is not a monomial;
-`F_A` and `F_I`, the free-E weights over the normalizers, print only when they differ and
-each only when it is not 1; `W_A` and `W_I` multiply the regulatory sites' factors. The `v`
-line is `E_total·H·(F_I^n·Q_A·D_A^(n−1)·W_A + L·F_A^n·Q_I·D_I^(n−1)·W_I) /
+own normalizer `N_c`, which prints as a line when it has a factor that is not a single
+term, or an integer to a fractional power; `F_A` and `F_I`, the free-E weights over the
+normalizers, print only when they differ and each only when it is not 1; `W_A` and `W_I`
+multiply the regulatory sites' factors. The `v` line is
+`E_total·H·(F_I^n·Q_A·D_A^(n−1)·W_A + L·F_A^n·Q_I·D_I^(n−1)·W_I) /
 (F_I^n·D_A^n·W_A + L·F_A^n·D_I^n·W_I)` without its factors of 1. In full, the header comes
 first and the definitions before `v`; with `coefficients`, `v` comes first, the sums read
 in coefficients named by conformation (`nA_0`, `dA_S`, `fI_B`), and the normalizers and the
@@ -320,7 +323,8 @@ vanishes at equilibrium; `Q` and `D` have positive terms. Numerator and denomina
 divided by a normalizer that makes every term of `D` dimensionless: `D`'s constant term
 when it has one, so `D` reads `1 + S/K…`; otherwise a product of powers of `D`'s
 coefficients; and when no such product has `D`'s unit, `D`'s first term, so terms such as
-`P / B` appear. A factor of the normalizer that is not a monomial prints once as `N = …`.
+`P / B` appear. A factor of the normalizer that is not a single term, or an integer to a
+fractional power, prints once as `N = …`.
 An allosteric mechanism prints each conformation's numerator `Q_A`, `Q_I`, denominator
 `D_A`, `D_I`, normalizer `N_A`, `N_I`, free-enzyme weight `F_A`, `F_I` (when they differ)
 and regulatory-site factor `W_A`, `W_I`, then the MWC combination.

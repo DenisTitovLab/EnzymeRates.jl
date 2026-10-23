@@ -56,8 +56,8 @@ The string reads, in order:
    when a cycle of bindings ties constants together): each dependent constant in `Keq` and
    the independent constants, for reference, since the law reads only the independent
    ones;
-4. when the normalizer has a factor that is not a single term, the line `N = …`
-   ([Normalization](@ref));
+4. when the normalizer has a factor that is not a single term, or an integer to a
+   fractional power, the line `N = …` ([Normalization](@ref));
 5. the law, `v = E_total * (Q) * (H) / (D)`. `H = S - P / Keq` vanishes at equilibrium,
    and `Q` and `D` have positive terms.
 
@@ -79,8 +79,8 @@ normalizer with `D`'s unit, chosen by the first rule that applies.
    makes every term carry `B` or `P`. Divide by the first term in the same order; terms
    such as `P / B` are then dimensionless.
 
-A factor of the normalizer that is not a single term prints once, as the line `N = …`, and
-the terms it divides read `/ N`.
+A factor of the normalizer that is not a single term, or an integer to a fractional power,
+prints once, as the line `N = …`, and the terms it divides read `/ N`.
 
 ## The coefficient form
 
