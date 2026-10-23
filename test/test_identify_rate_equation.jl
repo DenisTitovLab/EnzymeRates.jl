@@ -561,6 +561,9 @@ end
 
         bestf = CSV.read(joinpath(save_dir, "best_equation.csv"), DataFrame)
         @test nrow(bestf) == 1
+        # The CSV's law is the selected mechanism's printed law: PASS1 prints it from the
+        # concrete mechanism, rate_equation_string from the compiled one.
+        @test bestf.rate_equation[1] == rate_equation_string(results.best)
         # The key reads back as text, and it is the selected mechanism's key.
         @test bestf.key[1] isa AbstractString
         @test bestf.key[1] == _testhelper_key_of(best_row.mechanism)
@@ -2205,7 +2208,7 @@ end
 @testset "_process_batch failures report the ORIGINAL mechanism" begin
     # A mechanism whose derivation throws: T binds free E only in a dead end, so the
     # catalytic cycle turns S alone into P, and the derivation's thermodynamic-cycle
-    # check (`fitted_params`, which `_process_batch` calls after compiling) raises
+    # check (`_solve`, which `_process_batch` calls after the guard) raises
     # "Cycle 1 produces metabolite change not proportional to net reaction". The
     # FitFailure must carry the ORIGINAL `m0`.
     rxn_bad = @enzyme_reaction begin
@@ -2233,6 +2236,39 @@ end
     @test isempty(e1)
     @test length(f1) == 1 && f1[1] isa EnzymeRates.FitFailure
     @test f1[1].mech == m_bad                     # the mechanism as handed in
+end
+
+@testset "PASS1 runs the guard before it derives a law" begin
+    # PASS1 derives the law from the concrete mechanism, so it runs the guard first, as
+    # every derivation entry does. Rapid-equilibrium steps that turn S into P beside
+    # a steady-state route fail class 2: PASS1 records the guard's message, not the
+    # engine's internal error, and fits nothing.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    beside = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) ⇌ E(P)
+            E + P ⇌ E(P)
+            E(S) <--> F(P)
+            F(P) <--> E + P
+        end
+    end
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            S = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0)
+    opt = _testhelper_CountingStubOpt()
+    entries, failures = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[beside], prob;
+        optimizer = opt, max_param_count = 20, n_restarts = 1, maxtime = 1.0)
+    @test isempty(entries) && opt.count == 0
+    @test only(failures).mech == beside
+    @test occursin("E + S ⇌ E(S) and E(S) ⇌ E(P) close a cycle", only(failures).error)
+    @test !occursin("internal error", only(failures).error)
 end
 
 @testset "_expand_parents records an expansion error instead of aborting" begin

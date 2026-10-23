@@ -56,10 +56,16 @@ function _refine(pcol::Vector{Int}, tcol::Vector{Int},
                  occ::Vector{Vector{Tuple{Int, _Exp}}})
     pcol, tcol = _ranks(pcol), _ranks(tcol)
     while true
-        t2 = _ranks([(tcol[t], sort!([(pcol[p], e) for (p, e) in inc[t]]))
-                     for t in eachindex(inc)])
-        p2 = _ranks([(pcol[p], sort!([(t2[t], e) for (t, e) in occ[p]]))
-                     for p in eachindex(occ)])
+        # Each comprehension captures `let` copies of the colours the loop reassigns, so
+        # none is boxed and every vector `_ranks` sorts has a concrete element type.
+        t2 = let pcol = pcol, tcol = tcol
+            _ranks([(tcol[t], sort!([(pcol[p], e) for (p, e) in inc[t]]))
+                    for t in eachindex(inc)])
+        end
+        p2 = let pcol = pcol
+            _ranks([(pcol[p], sort!([(t2[t], e) for (t, e) in occ[p]]))
+                    for p in eachindex(occ)])
+        end
         maximum(p2; init = 0) == maximum(pcol; init = 0) &&
             maximum(t2; init = 0) == maximum(tcol; init = 0) && return p2, t2
         pcol, tcol = p2, t2

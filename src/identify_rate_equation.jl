@@ -519,16 +519,17 @@ Fit one batch of mechanisms. Returns `(entries, failures, n_param_skip, n_cx_ski
 n_seen_skip)`.
 
 PASS-1: skip mechanisms already produced, in an earlier batch or earlier in this one (a
-mechanism whose structural `hash` is already in `seen` is dropped before compiling;
+mechanism whose structural `hash` is already in `seen` is dropped before it is derived;
 `seen` gets every structure on first sight regardless of outcome). For each fresh
-mechanism, in parallel (`pmap`): skip it over `eq_complexity_filter` or
-`max_param_count`; else compile it and print its law, take its text and the text's id
-(`_mechanism_id`), derive its law from the concrete mechanism (`_solve`, `_law`), check
-the law on the guard's faces (`_assert_support`) and label it canonically
-(`_canonical`). A law whose labelling reaches the leaf cap gets a key of its own, and the
-pre-fit summary names its mechanism. Then pick one fit representative per key not
-already in `memo`, and pass the pre-fit summary (`_prefit_summary`) to `log`. `mechs` is
-already structurally deduped by the caller (`unique!`).
+mechanism, in parallel (`pmap`) and from the concrete mechanism alone, without compiling
+it: skip it over `eq_complexity_filter`; check it with the guard (`_check_well_posed`);
+skip it over `max_param_count` by its solve's fitted constants (`_solve`); else derive its
+law (`_law`), check the law on the guard's faces (`_assert_support`), print it
+(`_law_text`), take its text and the text's id (`_mechanism_id`) and label the law
+canonically (`_canonical`). A law whose labelling reaches the leaf cap gets a key of its
+own, and the pre-fit summary names its mechanism. Then pick one fit representative per key
+not already in `memo`, and pass the pre-fit summary (`_prefit_summary`) to `log`. `mechs`
+is already structurally deduped by the caller (`unique!`).
 
 PASS-2: fit ONE representative per key not already in `memo`, in parallel across all
 workers (`pmap`), and store the fit in `memo` at canonical positions (`_Fit`). Every
@@ -546,7 +547,7 @@ an ordinary candidate; one whose source's fit throws fails with the source's err
 `fit_source_id` names the source. `parent_of` maps a child to its parent's `BatchEntry`,
 which fills the row's parent columns. `entries::Vector{BatchEntry}` are the mechanisms with
 a usable fit (each keeping its own row, `retcode` and key); `failures::Vector{FitFailure}`
-are mechanisms that threw at compile, derivation or fit — captured WITH the exception text,
+are mechanisms that threw at derivation or fit — captured WITH the exception text,
 never silently swallowed.
 """
 function _process_batch(
@@ -564,21 +565,24 @@ function _process_batch(
         h in seen || (push!(seen, h); push!(fresh, m))
     end
 
-    # PASS 1 (workers): complexity filter (checked first, before any derivation),
-    # compile, parameter cap, printed law, then the concrete mechanism's law, its check on
-    # the guard's faces and its canonical form. `:complexity_skip` and `:param_skip` are
-    # skips; `FitFailure` = threw; else a `_Candidate`.
-    compiled = pmap(fresh) do m
+    # PASS 1 (workers), from the concrete mechanism and compiling nothing: the complexity
+    # filter (checked first, before any derivation), the guard, the solve and the
+    # parameter cap, the law, its check on the guard's faces, the printed law and the
+    # canonical form. `:complexity_skip` and `:param_skip` are skips; `FitFailure` = threw;
+    # else a `_Candidate`.
+    records = pmap(fresh) do m
         try
             _eq_complexity(m) > eq_complexity_filter && return :complexity_skip
-            em = compile_mechanism(m)
-            length(fitted_params(em)) > max_param_count && return :param_skip
-            eq_text = rate_equation_string(em)
-            text = sprint(show, m)
-            id = _mechanism_id(text)
+            _check_well_posed(m)
             s = _solve(m)
+            length(s.fitted) > max_param_count && return :param_skip
             L = _law(m, s)
             _assert_support(m, L)
+            # `m` and `L` narrow together, so the call matches a `_law_text` method.
+            eq_text = m isa AllostericMechanism ? _law_text(m, s, L::_AlloLaw) :
+                      _law_text(m, s, L::_Law)
+            text = sprint(show, m)
+            id = _mechanism_id(text)
             canon = _canonical(L, id)
             # An L phantom reads the fit of its law at L = 0, its active law, when that law
             # holds every fitted constant but L. The certificate rules out a phantom with
@@ -596,27 +600,27 @@ function _process_batch(
 
     # Pick one representative per key not already fit; an L phantom is none.
     rep_idx = Dict{String,Int}()
-    for (i, c) in enumerate(compiled)
+    for (i, c) in enumerate(records)
         c isa _Candidate && !c.phantom && !haskey(memo, c.canon.key) &&
             get!(rep_idx, c.canon.key, i)
     end
     # A phantom inherits the fit of whoever holds its L → 0 key, in `memo` or among this
     # batch's representatives; any other phantom becomes an ordinary candidate.
-    for (i, c) in enumerate(compiled)
+    for (i, c) in enumerate(records)
         c isa _Candidate && c.phantom || continue
         (haskey(memo, c.canon0.key) || haskey(rep_idx, c.canon0.key)) && continue
-        compiled[i] = _Candidate(c.mech, c.fitted, c.mechanism, c.mechanism_id,
-                                 c.eq_text, c.canon, false, c.canon)
+        records[i] = _Candidate(c.mech, c.fitted, c.mechanism, c.mechanism_id,
+                                c.eq_text, c.canon, false, c.canon)
         haskey(memo, c.canon.key) || get!(rep_idx, c.canon.key, i)
     end
-    reps = _Candidate[compiled[i] for i in values(rep_idx)]
-    n_param_skip = count(==(:param_skip), compiled)
-    n_cx_skip = count(==(:complexity_skip), compiled)
+    reps = _Candidate[records[i] for i in values(rep_idx)]
+    n_param_skip = count(==(:param_skip), records)
+    n_cx_skip = count(==(:complexity_skip), records)
     n_seen_skip = length(mechs) - length(fresh)
     capped = ["leaf cap reached for $(c.mechanism_id); fitted under its own key"
-              for c in compiled if c isa _Candidate && c.canon.capped]
+              for c in records if c isa _Candidate && c.canon.capped]
     log(join([_prefit_summary(length(reps),
-                  count(c -> c isa _Candidate, compiled) - length(reps),
+                  count(c -> c isa _Candidate, records) - length(reps),
                   n_param_skip, n_cx_skip, n_seen_skip;
                   max_param_count, eq_complexity_filter); capped], "\n  "))
 
@@ -642,7 +646,7 @@ function _process_batch(
     # Build a row per derived mechanism from its key's fit, read through its own order.
     entries  = BatchEntry[]
     failures = FitFailure[]
-    for c in compiled
+    for c in records
         c isa FitFailure && (push!(failures, c); continue)
         c isa _Candidate || continue                       # a skip
         fit_key = c.canon0.key                    # its own key, or a phantom's L → 0 key

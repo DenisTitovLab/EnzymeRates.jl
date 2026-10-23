@@ -15381,9 +15381,13 @@ Tasks 8–11:
     accepted the selection. Should the run use noisy data?
 
 Tasks 12–15:
-35. `PASS1_INSTANCES = 0` was never measured. A fresh pick can compile a branch the warm-up
-    pick skips; Task 12b Step 2 then stops for Denis rather than raising the budget. Should
-    the gate allow a small constant?
+35. `PASS1_INSTANCES = 0` first read [0, 0, 2, 0] in Task 12b. Task 7's `_refine` boxed
+    the colours its comprehensions capture, so a constant-free term's empty incidence list
+    had the element type `Tuple{Any, Rational{Int}}`, and `_ranks` compiled a comparison
+    for a pair of element types the warm-up pick never met. Task 12b rebinds the colours
+    with `let`, by ruling: the gate reads 0 and no key changed. A fresh pick can still
+    compile a branch the warm-up pick skips; the gate then stops for Denis rather than
+    raising the budget. Should the gate allow a small constant?
 36. Segel ter bi's and the power case's printed `N` are checked by shape, taken from UNIT
     §2's slice-name output; nobody printed them in package names. F4's exact `N` is the
     writer's probe text.
