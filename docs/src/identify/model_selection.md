@@ -76,7 +76,7 @@ The four knobs, all tunable kwargs of `identify_rate_equation`:
 |---------|---------|---------|
 | `loss_rel_threshold` | `1.3` | Relative tolerance: keep losses within this factor of `best(n)`, the best at the same parameter count. |
 | `loss_abs_threshold` | `0.001` | Additive tolerance: guards against `best(n)` approaching zero (simulated / very-low-loss data), where a purely multiplicative cutoff would collapse the beam to the single best key. The default `0.001` corresponds to about a 1.03× error — well below experimental error in enzyme kinetics. |
-| `loss_parsimony_threshold` | `0.99` | An added parameter must earn its keep: keep expanding only if the loss is at most this factor times `best(<n)`, the best model of any smaller parameter count (default `0.99`: an added parameter must improve on every simpler model by at least 1%). Set to `Inf` to disable it. |
+| `loss_parsimony_threshold` | `0.99` | An added parameter must earn its keep: the loss cutoff admits a key only if its loss is at most this factor times `best(<n)`, the best model of any smaller parameter count (default `0.99`: an added parameter must improve on every simpler model by at least 1%). Set to `Inf` to disable it. |
 | `min_beam_width` | `50` | Cumulative floor: expand at least this many distinct laws (keys) per parameter count over the whole search. Spent once, then only the loss cutoff admits at that count. |
 
 The search ends when the frontier empties — when no surviving mechanism yields a

@@ -153,7 +153,7 @@ generating MWC mechanism so quickly here.
 The progress lines above trace the search, which is a *beam search*: it walks
 parameter counts in ascending order, and at each count it fits the candidates,
 keeps the most promising (the beam — here `min_beam_width = 10`), and expands
-the survivors into the next count. Which mechanisms stay in the beam is set by
+the survivors into the next count. Which keys enter the beam is set by
 `min_beam_width` and the `loss_rel_threshold` / `loss_abs_threshold` /
 `loss_parsimony_threshold` cutoff — see [Best mechanism selection](@ref).
 Two filters bound the search: `max_param_count` (here `5`, the generating
@@ -236,12 +236,13 @@ search fits one mechanism per key, and the others read that fit under their own 
 
 ## Loud failures
 
-A mechanism that throws while its rate law is derived, compiled or fitted, or while
-it is expanded, becomes a `FitFailure` carrying the exception text. Failures are
-never silently discarded: each one is a
-row of the search CSVs (`initial_mechanisms.csv` and
-`equation_search_iteration_N.csv`) with `error` set and `retcode` missing. A
-failure never enters cross-validation, so `cv_results` holds none. If every
+A mechanism that throws while its rate law is derived, compiled or fitted becomes a
+`FitFailure` carrying the exception text. A fitted parent whose expansion throws gets a
+failure row too and keeps its fitted row. Failures are never silently discarded: each
+one is a row of the search CSVs (`initial_mechanisms.csv` and
+`equation_search_iteration_N.csv`) with `error` set and `retcode` missing.
+Cross-validation reads only fitted rows, so a mechanism that failed before its fit never
+enters `cv_results`. If every
 mechanism in the base tier fails, the search raises an error quoting the first
 failure's message, so an unsupported optimizer keyword or a memory overflow
 surfaces immediately rather than being swallowed.

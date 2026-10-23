@@ -433,9 +433,8 @@ end
 _exc_string(e) = first(sprint(showerror, e), 200)
 
 """
-CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row,
-with `missing` wherever the value is unavailable (derivation, compilation or the fit
-never produced it).
+CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row; it records
+only the mechanism's text and id and the error (`missing` elsewhere, empty `params`).
 `mechanism` is the mechanism's text, rendered from the concrete mechanism, so a row
 names its mechanism even when it does not compile; `parent_id` is missing.
 """
