@@ -75,7 +75,7 @@ function _toward(t::Vector{Int}, g::Int, pairs::Vector{Tuple{Int, Int}},
 end
 
 """
-    _bare_law(m, mask, concentrations) -> (; vars, cols, num, den, sigma, trees)
+    _bare_law(m, mask, concentrations) -> (; cols, num, den, sigma, trees)
 
 The steady-state law of the edges of `m` that `mask` keeps (at least one), with one
 variable per bare constant: the concentrations `concentrations`, then variable
@@ -161,7 +161,7 @@ function _bare_law(m::Mechanism, mask::BitVector, concentrations::Vector{Symbol}
     for (w, a, b, f, r) in flux
         w == 0 || (num += _scale(trees[a] * f - trees[b] * r, w))
     end
-    (; vars, cols, num, den = sum(sigma .* trees; init = zero(_Poly)), sigma, trees)
+    (; cols, num, den = sum(sigma .* trees; init = zero(_Poly)), sigma, trees)
 end
 
 """
