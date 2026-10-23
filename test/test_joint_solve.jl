@@ -497,9 +497,11 @@ end
     @test Dict(s.names[f] => e for (f, e) in d.factors) ==
           Dict(:k_E_to_F => 1//1, :k_E_P_to_FS => -1//2, :k_FS_to_E_P => 1//2,
                :k_ES_to_F_S => -1//2, :k_F_S_to_ES => 1//2)
+    # The exponents are exact `Rational{Int}` literals, as `build_power_expr` writes them.
     @test EnzymeRates._dependent_param_exprs(s)[1] ==
-          Dict(:k_F_to_E => :((Keq ^ -0.5) * (k_ES_to_F_S ^ -0.5) * (k_E_P_to_FS ^ -0.5) *
-                              k_E_to_F * (k_FS_to_E_P ^ 0.5) * (k_F_S_to_ES ^ 0.5)))
+          Dict(:k_F_to_E => :((Keq ^ $(-1//2)) * (k_ES_to_F_S ^ $(-1//2)) *
+                              (k_E_P_to_FS ^ $(-1//2)) * k_E_to_F *
+                              (k_FS_to_E_P ^ $(1//2)) * (k_F_S_to_ES ^ $(1//2))))
 end
 
 @testset "_solve labels kinetic-group, Haldane and Wegscheider dependents" begin
