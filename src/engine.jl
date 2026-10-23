@@ -224,7 +224,6 @@ end
 
 """The law of the edges of `m` over the independents of `s`, every edge kept."""
 _law(m::Mechanism, s::_Solve) = _law(m, s, trues(length(m.edges)))
-_law(m::Mechanism) = _law(m, _solve(m))
 
 # ─── The MWC law ─────────────────────────────────────────────────────────
 
@@ -338,7 +337,7 @@ function _law(am::AllostericMechanism, s::_Solve)
                                      for site in regulatory_sites(am)]
     _AlloLaw(vars, LA.H, LA, LI, fA, fI, sites, catalytic_multiplicity(am))
 end
-_law(am::AllostericMechanism) = _law(am, _solve(am))
+_law(m::_AnyMech) = _law(m, _solve(m))
 
 """
 The spanning trees of the multigraph whose Laplacian is `lap`: the determinant of `lap`
@@ -433,20 +432,16 @@ Base.showerror(io::IO, ::RateEquationTooLargeError) = print(io,
     "useful for parameter fitting.")
 
 """
-Abort the derivation of the law of the edges of `m` that `mask` keeps when its term count
-(V×τ, `_eq_complexity`) exceeds `MAX_RATE_EQUATION_TERMS`: a quick count on the segment
-graph that throws a `RateEquationTooLargeError` before any polynomial is built. Every
-derivation entry calls it (`_law`).
-"""
-function _assert_derivable(m::Mechanism, mask::BitVector)
-    _eq_complexity(m, mask) > MAX_RATE_EQUATION_TERMS && throw(RateEquationTooLargeError())
-    return nothing
-end
+    _assert_derivable(m, mask)
+    _assert_derivable(am)
 
-"""Abort the derivation of `am`'s MWC law when its two conformations together exceed
-`MAX_RATE_EQUATION_TERMS` spanning-tree products (`_eq_complexity(am)`): a numeric check
-that throws a `RateEquationTooLargeError` before any polynomial product."""
-function _assert_derivable(am::AllostericMechanism)
-    _eq_complexity(am) > MAX_RATE_EQUATION_TERMS && throw(RateEquationTooLargeError())
+Abort a derivation whose term count (V×τ, `_eq_complexity` of the same arguments) exceeds
+`MAX_RATE_EQUATION_TERMS`: the law of the edges of `m` that `mask` keeps, or both
+conformations of `am`'s MWC law together. A quick count on the segment graph that throws
+a `RateEquationTooLargeError` before any polynomial is built. Every derivation entry calls
+it (`_law`).
+"""
+function _assert_derivable(args...)
+    _eq_complexity(args...) > MAX_RATE_EQUATION_TERMS && throw(RateEquationTooLargeError())
     return nothing
 end
