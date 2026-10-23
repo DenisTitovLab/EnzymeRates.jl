@@ -569,12 +569,10 @@ function _testhelper_test_performance(spec::_testhelper_MechanismTestSpec; seed=
             m, met_names; rng=rng)
         allocs, t = _testhelper_test_rate_equation_performance(m, params, concs)
         @test allocs == 0
-        # Locally 120 ns leaves about 2× headroom over the slowest fixture law, "LDH i-state
-        # NonequalAI 6-group, steady-state NAD group" at about 55 ns, and about 4× over the
-        # next two, PFK-1 and "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites" at about
-        # 30 ns. Shared CI runners run these 2-7× slower: the ubuntu and windows runners
-        # read about 130 ns on the LDH law and miss the bound (a ROADMAP known issue); a job
-        # that misses it on another law is rerun rather than the bound loosened. The
+        # Locally 120 ns leaves about 4× headroom over the two slowest fixture laws, "LDH
+        # i-state NonequalAI 6-group, steady-state NAD group" at about 26 ns and
+        # "Random-order Bi-Bi" at about 13 ns. Shared CI runners can run a law 4-7× slower,
+        # so a job that misses the bound is rerun rather than the bound loosened. The
         # 0-alloc bound above is the strict part.
         @test t < 120e-9
     end
@@ -1384,9 +1382,9 @@ end
 
 # Seconds per call allowed per denominator term: each of the six gate laws (the fixtures
 # file) must run in under the larger of 120 ns and this constant times its denominator
-# terms. It covers
-# the worst CI readings on each runner, in ns per term, ter-bi / bi-bi: ubuntu x64
-# 0.305 / 0.313, windows x64 0.346 / 0.459, macOS aarch64 0.248 / 0.732.
+# terms. It is twice the worst CI reading over two runs, rounded up to one significant
+# figure; the worst readings on each runner, in ns per term, ter-bi / bi-bi: ubuntu x64
+# 0.223 / 0.299, windows x64 0.352 / 0.297, macOS aarch64 0.143 / 0.198.
 const _testhelper_seconds_per_denominator_term = 0.8e-9
 
 """The number of terms in the denominator of `m`'s derived rate law after the solve is

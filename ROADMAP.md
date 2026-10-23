@@ -100,12 +100,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   over the parent's 5, at one and at two subunits, and the one that stops the first half
   turns over at zero products. Without a regulator, the one allosteric child that ping-pong
   keeps at two subunits has rate 0 there.
-- **Ubuntu and windows CI miss `rate_equation`'s 120 ns gate on one spec.**
-  "LDH i-state NonequalAI 6-group, steady-state NAD group" runs in about 55 ns locally, the
-  slowest `MECHANISM_TEST_SPECS` law, so the bound leaves about 2× headroom; the ubuntu and
-  windows runners, about 2.4× slower, read 130.8-132.4 ns on it, so CI fails there on every
-  run. The bound stays. Phase 5's code generation (locals for dependents and segment sums,
-  spec section 11) is expected to cut the specs' times about 3× and restore the margin.
 
 ## Planned
 
