@@ -113,8 +113,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     #     a process that never ran init_mechanisms.
     #   - fit: the identify path on bi-bi mechanisms, step for step as _process_batch
     #     and _cv_fold_loss take it: PASS1 (complexity, the guard, the solve and its
-    #     fitted count, the law and class 5, the mechanism's text, id and key, and the
-    #     printed law, all on the concrete mechanism), PASS2 (FittingProblem and a CMA-ES
+    #     fitted count, the law and class 5, the printed law, and the mechanism's text, id
+    #     and key, all on the concrete mechanism), PASS2 (FittingProblem and a CMA-ES
     #     fit) and one LOOCV fold. Encoding every seed's Sig and a full pass on the first
     #     of five written-out seeds compile everything that does not depend on the
     #     mechanism, so each fresh mechanism after them compiles only what its own type
@@ -204,9 +204,9 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             s = ER._solve(m)
             length(s.fitted)
             ER._with_law(m, s) do m, s, L
+                ER._law_text(m, s, L)
                 text = sprint(show, m)
                 ER._canonical(L, ER._mechanism_id(text))
-                ER._law_text(m, s, L)
             end
             pass1 = _testhelper_all_instances() - n0
             s1 = _testhelper_instances(methods(show))
