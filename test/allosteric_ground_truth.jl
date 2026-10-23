@@ -54,7 +54,7 @@ end
 # :OnlyA (inactive rate k_I = 0), P :EqualAI. Active forms E_A, EA_A, EAB_A, EP_A.
 # Inactive forms E_I, EP_I, RE-connected via P binding — a single segment with no
 # catalytic edge (that is what :OnlyA catalysis means; with A,B :OnlyA the inactive
-# state never reaches EA or EAB), so the inactive free-enzyme weight is D_I = 1.
+# state never reaches EA or EAB), so free E weighs 1 in the inactive conformation.
 # Flip ratio [X_I]/[X_A] = L·∏(K_A_i/K_I_i): free enzyme and EP (:EqualAI or bare)
 # flip with ratio L; an :OnlyA-ligand-bearing state has ratio 0 (no flip), so EA
 # and EAB never flip.
@@ -215,7 +215,7 @@ function _testhelper_metab_dfree_base_flux(kon, koff, KB, KP, k, Keq, S, B, P; F
 end
 
 # ── The gate: metabolite-bearing-D :OnlyA derivation matches mass-action GT ────
-# The LDH i-state re-baseline. S binds :OnlyA on the steady-state catalytic path
+# The LDH i-state case. S binds :OnlyA on the steady-state catalytic path
 # and B binds rapidly there too, so free E's weight carries the metabolite B and differs
 # between the conformations (fA ≠ fI). The cross weights fA, fI supply the common
 # free-enzyme basis this regime needs; dropping them gets it wrong. Regression guard.
@@ -257,9 +257,9 @@ end
                 kon, koff, KB, KP, k, Keq, S, B, P); rtol=1e-4)
     end
 
-    # B = 0 puts the metabolite B in D[g_free] at zero concentration. The active
-    # steady-state S binding leaves a bare koff term in D[g_free], so a reverse path
-    # from product back to free enzyme stays open and the reverse flux survives.
+    # B = 0 zeroes the metabolite B in free E's weight. The active steady-state S
+    # binding leaves a bare koff term in free E's weight, so a reverse path from
+    # product back to free enzyme stays open and the reverse flux survives.
     kon, koff, KP, KB, k, L, Keq, S, P = 1.7, 1.1, 0.9, 0.8, 2.1, 0.7, 3.0, 1.1, 0.6
     prm = NamedTuple{(fp..., :Keq, :E_total)}((KB, KP, k, koff, kon, L, Keq, 1.0))
     v0 = real(ER.rate_equation(metabD, (S=S, B=0.0, P=P), prm))
@@ -359,8 +359,8 @@ end
 
 # ── The gate: allosteric ping-pong (single free form, formulation-1 normalization) ─
 # A ping-pong mechanism has ONE free enzyme form — the covalent intermediate
-# `E(; residual = A - P)` carries a residual, so it is not free — hence D[g_free]
-# is well-defined and the derivation normalizes it like any other mechanism (no
+# `E(; residual = A - P)` carries a residual, so it is not free — hence free E's
+# weight is well-defined and the derivation normalizes it like any other mechanism (no
 # special case, no guard). This gate confirms the derivation handles the
 # four-segment residual-bearing King–Altman and that the normalization collapses
 # correctly for identical conformations: an all-:EqualAI ping-pong must equal the
@@ -767,7 +767,7 @@ end
 # A covalent intermediate carries no bound metabolite but does carry a residual.
 # Seeding I-state reachability from it makes the pruned inactive graph retain a
 # covalent island that free E cannot reach, so no spanning tree rooted at free E
-# exists and D[g_free] = 0 — the normalization then divides by zero and
+# exists and free E's weight is 0 — the normalization then divides by zero and
 # `rate_equation` is NaN at every concentration. Under formulation 1 only free
 # enzyme flips, so a component free E cannot reach holds no inactive mass and
 # must be stranded. With the F6P binding and the first half-reaction :OnlyA, the covalent
@@ -956,7 +956,7 @@ end
 #
 # The ^n combine also needs a LIVE inactive numerator: `:OnlyA` always yields a dead
 # inactive cycle (the guard forces an `:OnlyA` catalytic tag alongside an `:OnlyA`
-# binding), so the numerator cross term `L*N_I*D_I^(n-1)` is live only for
+# binding), so the numerator's inactive term `L*F_A^n*Q_I*D_I^(n-1)*W_I` is live only for
 # `:NonequalAI`. This is the only gate that exercises it, and the only mass-action
 # gate at n >= 2 for any family.
 @testset ":NonequalAI MWC derivation matches mass-action ground truth, 1-3 protomers" begin
@@ -1016,8 +1016,8 @@ end
         end
 
         if nprot == 1
-            # B = 0 puts the metabolite B in D[g_free] at zero concentration. The
-            # active steady-state A binding leaves a bare koff term in D[g_free], so a
+            # B = 0 zeroes the metabolite B in free E's weight. The active
+            # steady-state A binding leaves a bare koff term in free E's weight, so a
             # reverse path from product back to free enzyme stays open and the reverse
             # flux survives.
             kon, koff, KP, KB = 1.7, 1.1, 0.9, 0.8

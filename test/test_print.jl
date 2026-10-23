@@ -17,7 +17,7 @@ _testhelper_conc_mono(L, ps::Pair{Symbol}...) =
 
 @testset "Michaelis–Menten takes its constant term" begin
     # Rule 1: the denominator has a term free of concentrations, the free enzyme's, and
-    # N is its coefficient, so every term reads as a form's abundance relative to free E.
+    # N is its coefficient, so D sums the forms' abundances relative to free E.
     mm = @enzyme_mechanism begin
         substrates: S
         products: P
