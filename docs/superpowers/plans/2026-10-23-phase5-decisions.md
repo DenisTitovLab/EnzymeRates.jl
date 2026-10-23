@@ -71,31 +71,34 @@ are `/home/denis.linux/claude-scratchpad/EnzymeRates-12f42995/phase45/denis_answ
 ### Task 1: Cleland's normalizer before the graded basis (P5-10a, item 36)
 
 **Files:**
-- Modify: `src/normalize.jl` (`_Norm`'s docstring, `_normalizer`)
-- Modify: `src/print.jl` (`rate_equation_string`'s rule list), `docs/src/deriving/textbooks.md` (the unit rule's list)
-- Test: `test/test_print.jl`
+- Modify: `src/normalize.jl` (ABOUTME line 2, `_Norm`'s docstring, `_normalizer`)
+- Modify: `src/print.jl` (`rate_equation_string`'s rule list), `docs/src/deriving/textbooks.md` (the unit rule's list), `docs/src/deriving/ping_pong.md:37-45`, `docs/src/developer.md:131-133`
+- Modify: `test/mechanism_definitions_for_test_enzyme_derivation.jl` (`_testhelper_check_units`: its weights branch also takes `:cleland`, docstring too)
+- Test: `test/test_print.jl` (the four graded-rule testsets named below, their comments, and :351-355)
 
 **Interfaces:**
 - Produces: `_normalizer(D, vars, substrates) -> _Norm` with a fourth rule symbol,
   `:cleland`, tried after `:constant` and before `:graded`.
 
-- [ ] **Step 1: Write the failing tests** in `test/test_print.jl`, after "F4 takes integer
-  weights A:2, A²:−1":
-  - `@testset "a ter-bi ping-pong takes Cleland's normalizer"`: for spec
-    "Segel Bi Uni Uni Uni PP Ter Bi", `nz.rule === :cleland` and
-    `nz.lambda == [BC => 1//1, AC => 1//1, AB => 1//1, ABC => -2//1]` (monomials through
-    `_testhelper_conc_mono`), `nz.shift == EnzymeRates._Mono()`; `_testhelper_check_units`;
-    and, at 256 bits on random positive constants, the new `N` equals the graded `N`
-    divided by `(k_FC_to_E_Q + k_EAB_to_F_P)^2` (the graded `N` is
-    `(k_EAB_to_EA_B + k_EAB_to_F_P) * (k_FC_to_E_Q + k_FC_to_F_C)`).
-  - `@testset "a bi-bi ping-pong's Cleland normalizer is its graded one"`: "Segel Ping Pong
-    Bi Bi" gives `:cleland`, and its `N` equals, at 256 bits, today's
-    `(k_FB_to_E_Q + k_FB_to_F_B) * (k_EA_to_E_A + k_EA_to_F_P) / (k_EA_to_F_P + k_FB_to_E_Q)`.
-  - `@testset "each MWC conformation takes Cleland's rule on its own terms"` (Review Focus
-    1): an inline one-subunit allosteric bi-bi ping-pong (`:EqualAI` throughout); both
-    conformations' `_normalizer` give `:cleland`; `_testhelper_printed_law_error(am) <=
-    big(10)^-20`.
-- [ ] **Step 2: Run them; they fail** (`:graded` where `:cleland` is expected).
+- [ ] **Step 1: Rewrite the four graded-rule pins to Cleland's** (they then fail on
+  HEAD's code). Retitle each testset to the rule it now pins and fix its comment:
+  - "Segel Ping Pong Bi Bi takes the graded basis A, B, A·B" (:38): `nz.rule === :cleland`,
+    `nz.lambda == [B => 1//1, A => 1//1, AB => -1//1]`; its `N` equals, at 256 bits,
+    today's `(k_FB_to_E_Q + k_FB_to_F_B) * (k_EA_to_E_A + k_EA_to_F_P) / (k_EA_to_F_P + k_FB_to_E_Q)`.
+  - "Segel Bi Uni Uni Uni PP Ter Bi takes the graded basis with C" (:59): `:cleland`,
+    `nz.lambda == [BC => 1//1, AC => 1//1, AB => 1//1, ABC => -2//1]`; the
+    `!isapprox(N, cleland)` assertion becomes `isapprox`, and the new `N` equals the graded
+    `(k_EAB_to_EA_B + k_EAB_to_F_P) * (k_FC_to_E_Q + k_FC_to_F_C)` divided by
+    `(k_FC_to_E_Q + k_EAB_to_F_P)^2` at 256 bits.
+  - "the ping-pong power case puts A² before A·B" (:88): `:cleland` with its Cleland
+    weights (ΠS/A, ΠS/B: 1 each; ΠS: −1).
+  - `pp2` in "each MWC conformation takes its own rule" (:191-228, Review Focus 1): both
+    conformations `:cleland`, `[B, A, A·B]` weights `[1, 1, -1]`.
+  - The power case's tie-break (P5-11: `A²` before `A·B`) loses its normalizer test, so
+    add `@testset "_term_key puts A² before A·B"`: sorting `[A·B, A²]` by
+    `EnzymeRates._term_key` gives `[A², A·B]`.
+- [ ] **Step 2: Run them; the four rewritten testsets fail** (`:graded` where `:cleland`
+  is expected; the `_term_key` testset passes).
   Log `$S/phase45/logs/P5D_T1_red.log`.
 - [ ] **Step 3: Implement.** In `_normalizer`, after the constant-term return: with
   `S = _monomial((v => 1 for v in unique(substrates))...)` and the pairs
@@ -105,7 +108,8 @@ are `/home/denis.linux/claude-scratchpad/EnzymeRates-12f42995/phase45/denis_answ
   docstrings (the rule list, `:cleland`), `rate_equation_string`'s rule list, and
   textbooks.md's list ("Cleland's normalizer, when the denominator holds ΠS/X for every
   substrate X and ΠS: the substrate terms then read as products of Michaelis constants,
-  `A·B·C/(K_a·K_b·K_c)`").
+  `A·B·C/(K_a·K_b·K_c)`"), ping_pong.md:37-45, developer.md:131-133, normalize.jl's
+  ABOUTME line 2, test_print.jl:351-355 and `_testhelper_check_units` (C3).
 - [ ] **Step 4: Re-pin exactly (item 36).** Run test_print.jl, test_allosteric_golden.jl,
   test_oracles.jl and the doctests (docs build). For each printed `N` or golden law that
   changes, check its value against the law at 256 bits (`_testhelper_printed_law_error`)
@@ -123,10 +127,11 @@ are `/home/denis.linux/claude-scratchpad/EnzymeRates-12f42995/phase45/denis_answ
 
 **Interfaces:**
 - Consumes: Task 1's `_normalizer`.
-- Produces: `_law_text(m, s, L; coefficients = true)` lines, in order: the header
-  (`_header_lines`: params, concs, reference lines), `_COEFFICIENTS_COMMENT`, `N`/`N_c`
-  lines, the coefficient definitions, for MWC the `Q_c`/`D_c`/`F_c`/`W_c` definitions in
-  coefficients, and last the `v` line.
+- Produces: `_law_text(m, s, L; coefficients = true)` lines, in order: the params and
+  concs lines only (the first two lines of `_header_lines`; the Haldane and Wegscheider
+  reference lines stay in the full law, Denis's item-42 answer),
+  `_COEFFICIENTS_COMMENT`, `N`/`N_c` lines, the coefficient definitions, for MWC the
+  `Q_c`/`D_c`/`F_c`/`W_c` definitions in coefficients, and last the `v` line.
 
 - [ ] **Step 1: Write the failing test** `@testset "both printed forms paste and evaluate
   as Julia"` (Review Focus 3): for every spec in `MECHANISM_TEST_SPECS` and the F1-F4
@@ -134,7 +139,9 @@ are `/home/denis.linux/claude-scratchpad/EnzymeRates-12f42995/phase45/denis_answ
   `Base.include_string` in a fresh `Module()` in which `params` and `concs` are bound to
   NamedTuples of random positive Float64 values; the result equals
   `rate_equation(m, concs, params)` to `rtol = 1e-10`. Also: the first line ends with
-  `) = params` and the last starts with `v = `. (`_testhelper_printed_law_error` already
+  `) = params`, the second with `) = concs`, the last starts with `v = `, and the
+  coefficient form holds no `# Haldane constraints:` or `# Wegscheider constraints:`
+  line. (`_testhelper_printed_law_error` already
   checks both forms' values in an order-free reader; this test checks the order.)
 - [ ] **Step 2: Run; it fails** (the first line is `v = …`). Log `P5D_T2_red.log`.
 - [ ] **Step 3: Implement** the order above in both `_law_text` methods; update their
@@ -172,7 +179,10 @@ are `/home/denis.linux/claude-scratchpad/EnzymeRates-12f42995/phase45/denis_answ
 **Files:**
 - Modify: `src/key.jl` (`_is_phantom`), `src/identify_rate_equation.jl` (PASS1's call, its comments and docstrings)
 - Modify: `docs/src/identify/model_selection.md` (`L_phantom` row), `docs/src/identify/enumeration_engine.md`, `docs/src/developer.md`, `ROADMAP.md` (the phantom entry)
-- Test: `test/test_key.jl`, `test/test_identify_rate_equation.jl`, pins in `test/test_oracles.jl`
+- Test: `test/test_key.jl` (with "no phantom without the pre-filter's conditions"),
+  `test/test_identify_rate_equation.jl`, `test/test_mechanism_enumeration.jl`
+  ("_expand_change_allo_state on a merged uni-uni K-type", :12637-12644), pins and the
+  :1520-1524 comment in `test/test_oracles.jl`
 
 **Interfaces:**
 - Produces: `_is_phantom(A::_AlloLaw) -> Bool = !isempty(_phantom_weights(A))`. The
@@ -192,12 +202,16 @@ are `/home/denis.linux/claude-scratchpad/EnzymeRates-12f42995/phase45/denis_answ
   `bibi_R`; regenerate with `_testhelper_population` on the reaction with a regulator),
   run PASS1's name check (`Set(canon0.order) != Set(s.fitted[1:(end - 1)])`) on every
   certificate-only phantom; log `P5D_T4_namecheck.log`. If one trips it, add it inline as
-  `@testset "a phantom whose source lacks its constants is fitted itself"` asserting PASS1
-  demotes it (`phantom == false` in its `_Candidate`). If none does, delete the check and
+  `@testset "a phantom whose source lacks its constants is fitted itself"` asserting,
+  through `_process_batch`'s rows, that its row has `L_phantom == false` and
+  `fit_inherited == false`. If none does, delete the check and
   its comment, and say so in the commit body (Denis's item 32 answer allows it).
-- [ ] **Step 5: Re-pin the phantom counts** (test_oracles' population figures, TID's phantom
-  testsets) against the certificate-alone figures; each new count is checked by the rank
-  oracle on that population before it is pinned.
+- [ ] **Step 5: Flip the pre-filter's verdicts and re-pin the counts.** test_key's "no
+  phantom without the pre-filter's conditions" and TME's "_expand_change_allo_state on a
+  merged uni-uni K-type" (`only_a`, `only_q`) assert the certificate's verdict now; retitle
+  the first and rewrite both comments. Re-pin the phantom counts (test_oracles' population
+  figures, TID's phantom testsets) against the certificate-alone figures, each checked by
+  the rank oracle on that population before it is pinned; reword test_oracles.jl:1520-1524.
 - [ ] **Step 6: Text**: `_is_phantom`'s docstring, identify's docstring (the `L_phantom`
   column and PASS-2), model_selection.md's `L_phantom` row ("a one-subunit allosteric variant
   whose inactive conformation turns nothing over and whose `L` an exact rescaling of its
@@ -230,14 +244,17 @@ are `/home/denis.linux/claude-scratchpad/EnzymeRates-12f42995/phase45/denis_answ
     spent; `c` under the cutoff; `d` within count 2's budget; `b2` judged again and
     refused.
 - [ ] **Step 2: Implement `_sweep_parents!`** by moving the sweep's loop out of
-  `_beam_search`; run the test green. Then watch it fail under each mutation, restoring
+  `_beam_search`, and drop `rejected` from `_select_count!` and `_beam_search` in the same
+  step (`_sweep_parents!` has no `rejected`); run the test green. Then watch it fail under each mutation, restoring
   after each (logs `P5D_T5_mut_rebuild.log`, `P5D_T5_mut_reverse.log`): (a) `selected`
   replaced by a fresh `Set{String}()` inside the call; (b) the keys passed to
   `_select_count!` taken from `reverse(entries_at_count)`.
-- [ ] **Step 3: Drop `rejected`** from `_select_count!` and `_beam_search`: a key not in
-  `selected` is judged again by the same rule. Update the five TID call sites, delete the
-  four assertions on `rejected`'s contents, keep "a late member of a rejected key stays
-  out" with its selection assertions. Update `_select_count!`'s docstring (a key keeps a
+- [ ] **Step 3: Finish the `rejected` drop**: a key not in `selected` is judged again by
+  the same rule. Update the six TID call sites (:796, :975, :1003, :1025, :1039, :1055);
+  at :1028, :1046 and :1062 keep the `selected` half and delete the `rejected` half; delete
+  :1058's assertion; keep "a late member of a rejected key stays out" with its selection
+  assertions and rewrite its comment ("is not ranked again" becomes: is judged again and
+  refused). Update `_select_count!`'s docstring (a key keeps a
   selected verdict; a rejected key's late member is judged again and rejected, since the
   cutoff only tightens and a rejection by rank spends the budget), the `seen` comment and
   identify's docstring.
@@ -259,8 +276,10 @@ are `/home/denis.linux/claude-scratchpad/EnzymeRates-12f42995/phase45/denis_answ
   `_testhelper_exponent(x::Rational) = x`.
 
 - [ ] **Step 1: Move** the two functions into the fixtures under the new names, rename every
-  test call (`git grep -w _dependent_param_exprs build_power_expr` must print nothing in
-  `src/` and only the helpers' definitions under their new names in `test/`).
+  test call; `git grep -nw -e _dependent_param_exprs -e build_power_expr -- src test docs/src`
+  must print nothing. Keep "build_power_expr return types" (test_rate_eq_derivation.jl:1823)
+  and test_joint_solve.jl:500-533's renderer pins: they check the solve's dependents
+  through the moved renderer; retitle them by what they check, without the src name.
 - [ ] **Step 2: Rewrite `parameters` and `fitted_params`**; delete the src definitions.
 - [ ] **Step 3: DN-10**: TR's half-integer testset evaluates `dep[:k_F_to_E]` with
   `_testhelper_printed_value`; add `_testhelper_exponent(x::Rational) = x`; delete
@@ -276,8 +295,8 @@ are `/home/denis.linux/claude-scratchpad/EnzymeRates-12f42995/phase45/denis_answ
 - Modify: `test/test_compile_budget.jl`, `test/test_oracles.jl`
 
 - [ ] **Step 1: DN-01.** `RATE_EQUATION_WALLCLOCK_BUDGET_S = 1.5` with the comment
-  "baseline 2026-10-23: 0.12 s locally, 0.20-0.37 s on CI"; add
-  `@testset "the generator is in the package image"` with
+  "baseline 2026-10-23: 0.12 s locally, 0.19-0.37 s on CI"; add
+  `@testset "the generator's precompile signatures compile"` with
   `@test precompile(EnzymeRates._rate_body, (EnzymeRates.Mechanism,))` and the
   `AllostericMechanism` twin. Watch the budget fail with both `precompile(_rate_body, …)`
   lines removed from `src/EnzymeRates.jl` (log `P5D_T7_mut.log`), then restore.
@@ -321,6 +340,7 @@ are `/home/denis.linux/claude-scratchpad/EnzymeRates-12f42995/phase45/denis_answ
   seeded run of `P5_identify_run.jl` with each rate times `1 + 0.05·randn()` (seeded);
   check with `P5_T9_check.jl` that the selected key is the truth's. If it is not, report to
   Denis with the selected law, its `cv_score` and the truth's; never loosen the gate.
-- [ ] **P5-43a.** Push `phase45/research5/` and `phase3/gcprobe/` to `graph-rewrite-reference`
-  in a worktree of that branch, under the directory its earlier archives use; check sizes
-  first and leave out files over 50 MB, listing them in the PR body.
+- [ ] **P5-43a.** Push the text of `phase45/research5/` and `phase3/gcprobe/` (reports,
+  scripts, logs: about 6.7 MB; Denis: text only) to `graph-rewrite-reference` under its
+  `reference/` directory, from a worktree of that branch; the data TSVs stay in the
+  scratchpad, and the archive's README says how the scripts rebuild them.
