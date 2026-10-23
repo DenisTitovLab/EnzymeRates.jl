@@ -576,23 +576,22 @@ function _process_batch(
             _check_well_posed(m)
             s = _solve(m)
             length(s.fitted) > max_param_count && return :param_skip
-            L = _law(m, s)
-            _assert_support(m, L)
-            # `m` and `L` narrow together, so the call matches a `_law_text` method.
-            eq_text = m isa AllostericMechanism ? _law_text(m, s, L::_AlloLaw) :
-                      _law_text(m, s, L::_Law)
-            text = sprint(show, m)
-            id = _mechanism_id(text)
-            canon = _canonical(L, id)
-            # An L phantom reads the fit of its law at L = 0, its active law, when that law
-            # holds every fitted constant but L. The certificate rules out a phantom with
-            # regulator constants; the check keeps a row from reading names its fit lacks.
-            phantom = m isa AllostericMechanism && _is_phantom(m, L::_AlloLaw)
-            canon0 = phantom ? _canonical((L::_AlloLaw).active, id) : canon
-            if phantom && Set(canon0.order) != Set(s.fitted[1:(end - 1)])
-                phantom, canon0 = false, canon
+            _with_law(m, s) do m, s, L
+                eq_text = _law_text(m, s, L)
+                text = sprint(show, m)
+                id = _mechanism_id(text)
+                canon = _canonical(L, id)
+                # An L phantom reads the fit of its law at L = 0, its active law, when that
+                # law holds every fitted constant but L. The certificate rules out a phantom
+                # with regulator constants; the check keeps a row from reading names its fit
+                # lacks.
+                phantom = m isa AllostericMechanism && _is_phantom(m, L)
+                canon0 = phantom ? _canonical(L.active, id) : canon
+                if phantom && Set(canon0.order) != Set(s.fitted[1:(end - 1)])
+                    phantom, canon0 = false, canon
+                end
+                _Candidate(m, s.fitted, text, id, eq_text, canon, phantom, canon0)
             end
-            _Candidate(m, s.fitted, text, id, eq_text, canon, phantom, canon0)
         catch e
             FitFailure(m, _exc_string(e))
         end

@@ -173,23 +173,10 @@ function _body(p::_Program)
     Expr(:block, lines..., :(return getfield(params, :E_total) * $num / $den))
 end
 
-"""The body of the generated `rate_equation` of `m`: its solve, its law, class 5's check
-of that law (`_assert_support`), then the program's code (`_body`). One method per
-mechanism type, so the law's type follows the mechanism's and `_program` dispatches on a
-matching pair."""
-function _rate_body(m::Mechanism)
-    s = _solve(m)
-    L = _law(m, s)
-    _assert_support(m, L)
-    _body(_program(m, s, L))
-end
-
-function _rate_body(am::AllostericMechanism)
-    s = _solve(am)
-    A = _law(am, s)
-    _assert_support(am, A)
-    _body(_program(am, s, A))
-end
+"""The body of the generated `rate_equation` of `m`: the program's code (`_body`) of its
+law once class 5 passes on it (`_with_law`)."""
+_rate_body(m::Union{Mechanism, AllostericMechanism}) =
+    _with_law((m, s, L) -> _body(_program(m, s, L)), m)
 
 # ─── rate_equation ─────────────────────────────────────────────────────────────
 

@@ -203,11 +203,11 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             ER._check_well_posed(m)
             s = ER._solve(m)
             length(s.fitted)
-            L = ER._law(m, s)
-            ER._assert_support(m, L)
-            text = sprint(show, m)
-            ER._canonical(L, ER._mechanism_id(text))
-            ER._law_text(m, s, L)
+            ER._with_law(m, s) do m, s, L
+                text = sprint(show, m)
+                ER._canonical(L, ER._mechanism_id(text))
+                ER._law_text(m, s, L)
+            end
             pass1 = _testhelper_all_instances() - n0
             s1 = _testhelper_instances(methods(show))
             fp = FittingProblem(ER.compile_mechanism(m), PROB.data;

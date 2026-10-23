@@ -339,6 +339,24 @@ end
 _law(m::_AnyMech) = _law(m, _solve(m))
 
 """
+    _with_law(f, m, s = _solve(m)) -> f(m, s, L)
+
+`f` called on `m`, its solve `s` and its law `L = _law(m, s)` once class 5 passes on that
+law (`_assert_support`). One method per mechanism type, so `L` is concrete in each and `f`
+receives a matching pair.
+"""
+function _with_law(f, m::Mechanism, s::_Solve = _solve(m))
+    L = _law(m, s)
+    _assert_support(m, L)
+    f(m, s, L)
+end
+function _with_law(f, am::AllostericMechanism, s::_Solve = _solve(am))
+    A = _law(am, s)
+    _assert_support(am, A)
+    f(am, s, A)
+end
+
+"""
 The spanning trees of the multigraph whose Laplacian is `lap`: the determinant of `lap`
 without its first row and column (Kirchhoff's matrix-tree theorem), by fraction-free
 (Bareiss) elimination in checked `Int`. After an `OverflowError` it takes the `BigInt`

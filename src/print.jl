@@ -371,18 +371,6 @@ rate_equation_string(@nospecialize(m::AbstractEnzymeMechanism);
     _rate_text(_derivation_input(typeof(m)), coefficients)
 
 """The printed law of the well-posed mechanism `m` (`_law_text`), once class 5 passes on
-its derived law (`_assert_support`). One method per mechanism type, so the law's type
-follows the mechanism's and `_law_text` dispatches on a matching pair."""
-function _rate_text(m::Mechanism, coefficients::Bool)
-    s = _solve(m)
-    L = _law(m, s)
-    _assert_support(m, L)
-    _law_text(m, s, L; coefficients)
-end
-
-function _rate_text(am::AllostericMechanism, coefficients::Bool)
-    s = _solve(am)
-    A = _law(am, s)
-    _assert_support(am, A)
-    _law_text(am, s, A; coefficients)
-end
+its derived law (`_with_law`)."""
+_rate_text(m::Union{Mechanism, AllostericMechanism}, coefficients::Bool) =
+    _with_law((m, s, L) -> _law_text(m, s, L; coefficients), m)
