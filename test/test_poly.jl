@@ -80,6 +80,8 @@ end
     @test (a, b, k) == (1, 2, 3) && P._var!(t, :A; conc = true) == 1
     @test t.names == [:A, :B, :k] && t.conc == [true, true, false]
     @test_throws ErrorException P._var!(t, :k; conc = true)
+    @test_throws ErrorException("internal error: A is a concentration in one use and a " *
+                                "constant in another") P._var!(t, :A)
     @test t == P._Vars([:A, :B, :k], BitVector([1, 1, 0]), Dict(:A => 1, :B => 2, :k => 3))
     mono(ps...) = P._term(P._monomial(ps...))
     Q = mono(a => 1, b => 1, k => 1) + mono(a => 2, k => -1)
