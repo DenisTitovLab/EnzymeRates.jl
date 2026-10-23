@@ -1565,9 +1565,7 @@ end
     m1, m2 = _testhelper_dedup_twins()
     em1 = EnzymeRates.compile_mechanism(m1)
     em2 = EnzymeRates.compile_mechanism(m2)
-    c1, c2 = (EnzymeRates._canonical(EnzymeRates._law(m),
-                                     EnzymeRates._mechanism_id(sprint(show, m)))
-              for m in (m1, m2))
+    c1, c2 = _testhelper_pass1_canonical.((m1, m2))
     # Preconditions: distinct structure and compiled types, one key and one law under
     # the canonical map, and the same fitted names.
     @test m1 != m2
@@ -1716,9 +1714,7 @@ end
     # canonical positions; the other mechanism reads it through its own labelling, so its
     # row carries its own names and both rows compute one rate.
     a, b, prob = _testhelper_unibi_pair()
-    ca, cb = (EnzymeRates._canonical(EnzymeRates._law(m),
-                                     EnzymeRates._mechanism_id(sprint(show, m)))
-              for m in (a, b))
+    ca, cb = _testhelper_pass1_canonical.((a, b))
     fa, fb = EnzymeRates.fitted_params(a), EnzymeRates.fitted_params(b)
     @test ca.key == cb.key
     @test Set(fa) != Set(fb)
@@ -2118,9 +2114,7 @@ end
     @test m1 != m2
     @test EnzymeRates._independent_param_count(m1) ==
           EnzymeRates._independent_param_count(m2)
-    c1, c2 = (EnzymeRates._canonical(EnzymeRates._law(m),
-                                     EnzymeRates._mechanism_id(sprint(show, m)))
-              for m in (m1, m2))
+    c1, c2 = _testhelper_pass1_canonical.((m1, m2))
     @test c1.key == c2.key
     @test _testhelper_same_law_under_map(EnzymeRates._law(m1), EnzymeRates._law(m2),
                                          c1.order, c2.order;
@@ -2183,11 +2177,9 @@ end
             E(NADH, Pyruvate) <--> E(Lactate, NAD)                           :: OnlyA
         end
     end)
-    _testhelper_canon(m) = EnzymeRates._canonical(
-        EnzymeRates._law(m), EnzymeRates._mechanism_id(sprint(show, m)))
     @test am1 != am2
     # one law under the canonical map, so one key
-    c1, c2 = _testhelper_canon(am1), _testhelper_canon(am2)
+    c1, c2 = _testhelper_pass1_canonical.((am1, am2))
     @test c1.key == c2.key
     @test _testhelper_same_law_under_map(EnzymeRates._law(am1), EnzymeRates._law(am2),
                                          c1.order, c2.order;

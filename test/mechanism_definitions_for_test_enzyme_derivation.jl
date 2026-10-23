@@ -2208,6 +2208,11 @@ function _testhelper_laplacian_tree_count(m::EnzymeRates.Mechanism, mask::BitVec
     V * det(lap[2:end, 2:end])
 end
 
+"""The canonical form PASS1 gives the concrete mechanism `m`: its law labelled under the id
+of its text."""
+_testhelper_pass1_canonical(m) =
+    EnzymeRates._canonical(EnzymeRates._law(m), EnzymeRates._mechanism_id(sprint(show, m)))
+
 # ── Phase-5 printed-law oracles ─────────────────────────────────────────────
 
 """The exact value of an exponent a printed law writes: an integer or a ratio `(3/2)`."""

@@ -456,8 +456,7 @@ end
     for (i, m) in enumerate(mechs)
         mine = bytes2hex(EnzymeRates.sha256(string(EnzymeRates._rate_body(m))))
         @test "BODY $i $mine" in lines
-        key = EnzymeRates._canonical(EnzymeRates._law(m),
-                                     EnzymeRates._mechanism_id(sprint(show, m))).key
+        key = _testhelper_pass1_canonical(m).key
         @test "KEY $i $key" in lines
         full = bytes2hex(EnzymeRates.sha256(rate_equation_string(m)))
         coef = bytes2hex(EnzymeRates.sha256(rate_equation_string(m; coefficients = true)))
