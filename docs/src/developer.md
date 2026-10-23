@@ -32,7 +32,7 @@ laws (396 denominator terms each) and three ter-bi laws (589, 799 and 858 terms)
 measures each law's allocations and time per call, and the tests assert
 `allocs == 0` and the law's bound. `rate_equation_string` (`src/print.jl`)
 prints the law rather than the code: each denominator term over the unit rule's normalizer,
-dimensionless. That speed is the binding
+dimensionless. `rate_equation`'s speed is the binding
 constraint on the whole package: the fitter is a multi-start, global,
 gradient-free optimizer that
 evaluates `rate_equation` millions of times per fit, and a single rate equation

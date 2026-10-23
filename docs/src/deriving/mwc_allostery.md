@@ -114,8 +114,8 @@ from rate data.
 
 For a mechanism with catalytic multiplicity `n`, the package derives each conformation's
 law on the graph it keeps (the active conformation without its `:OnlyI` groups, the
-inactive one without its `:OnlyA` groups, each without the forms that cuts off from free
-E) and combines the two:
+inactive one without its `:OnlyA` groups, each without the forms that dropping those groups
+cuts off from free E) and combines the two:
 
 ```
 v = E_total * (H) * (F_I^n * Q_A * D_A^(n-1) * W_A + L * F_A^n * Q_I * D_I^(n-1) * W_I) /
