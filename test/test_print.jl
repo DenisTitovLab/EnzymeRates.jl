@@ -63,6 +63,9 @@ end
     @test nz.lambda == [m(:B => 1) => 1 // 1, m(:A => 1) => 1 // 1,
                         m(:A => 1, :B => 1) => -1 // 1]
     @test isempty(nz.shift)
+    @test _testhelper_n_text(pp) ==
+          "(k_EA_to_E_A + k_EA_to_F_P) * (k_FB_to_E_Q + k_FB_to_F_B) / " *
+          "(k_EA_to_F_P + k_FB_to_E_Q)"
     rng = Random.MersenneTwister(30)
     env = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1) for x in L.vars.names)
     graded = "(k_FB_to_E_Q + k_FB_to_F_B) * (k_EA_to_E_A + k_EA_to_F_P) / " *
@@ -379,13 +382,16 @@ end
     end
     @test occursin("\nN = (2)^(3/2)\n", rate_equation_string(f2g))
     # The random-order bi-bi's denominator holds A^2 * B, named by its superscript.
-    ro = only(s for s in MECHANISM_TEST_SPECS if s.name == "Random-order Bi-Bi").mechanism
+    spec_mechanism(name) = only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism
+    ro = spec_mechanism("Random-order Bi-Bi")
     @test occursin(" + d_A²_B * A^2 * B + ", rate_equation_string(ro; coefficients = true))
     # The unit-rule testsets above pin the weights of F4, Segel's ter bi and the ping-pong
     # power case; N prints the normalizer's polynomial factor alone, its integer
     # and monomial content moved into the coefficients. F4's is a sum squared. Segel's,
     # Cleland's normalizer, is the product of two sums over a third sum squared. The power
-    # case's, Cleland's too, is one sum.
+    # case's, Cleland's too, is one sum. Segel's two ter-ter ping-pongs and the hexa uni
+    # ping-pong take Cleland's normalizer too: the product of two sums, or of three for the
+    # hexa uni, over a sum of three products squared.
     f4 = @enzyme_mechanism begin
         substrates: A
         products: P
@@ -397,8 +403,10 @@ end
         end
     end
     @test occursin("\nN = (k_E_A_to_F_P + k_F_A_to_E_P)^2\n", rate_equation_string(f4))
-    terbi = only(s for s in MECHANISM_TEST_SPECS
-                 if s.name == "Segel Bi Uni Uni Uni PP Ter Bi").mechanism
+    terbi = spec_mechanism("Segel Bi Uni Uni Uni PP Ter Bi")
+    bi_uni_uni_bi = spec_mechanism("Segel Bi Uni Uni Bi PP Ter Ter")
+    bi_bi_uni_uni = spec_mechanism("Segel Bi Bi Uni Uni PP Ter Ter")
+    hexa_uni = spec_mechanism("Segel Hexa Uni Ping Pong")
     power = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -423,7 +431,19 @@ end
           "k_EQ_to_E_Q + k_EBP_res_plusA_minusP_to_EP_res_plusA_minusP_B * k_EQ_to_E_Q * " *
           "k_E_Q_to_EQ * Keq + k_EBP_res_plusA_minusP_to_EP_res_plusA_minusP_B^2 * " *
           "k_E_Q_to_EQ * Keq"
-    for m in (f1, f2, f2g, f3, f4, terbi, power)
+    @test _testhelper_n_text(bi_uni_uni_bi) ==
+          "(k_EAB_to_EA_B + k_EAB_to_F_P) * (k_FC_to_ER_Q + k_FC_to_F_C) / " *
+          "(k_EAB_to_F_P * k_ER_to_E_R + k_EAB_to_F_P * k_FC_to_ER_Q + " *
+          "k_ER_to_E_R * k_FC_to_ER_Q)^2"
+    @test _testhelper_n_text(bi_bi_uni_uni) ==
+          "(k_EAB_to_EA_B + k_EAB_to_FQ_P) * (k_FC_to_E_R + k_FC_to_F_C) / " *
+          "(k_EAB_to_FQ_P * k_FC_to_E_R + k_EAB_to_FQ_P * k_FQ_to_F_Q + " *
+          "k_FC_to_E_R * k_FQ_to_F_Q)^2"
+    @test _testhelper_n_text(hexa_uni) ==
+          "(k_EA_to_E_A + k_EA_to_F_P) * (k_FB_to_F_B + k_FB_to_G_Q) * " *
+          "(k_GC_to_E_R + k_GC_to_G_C) / (k_EA_to_F_P * k_FB_to_G_Q + " *
+          "k_EA_to_F_P * k_GC_to_E_R + k_FB_to_G_Q * k_GC_to_E_R)^2"
+    for m in (f1, f2, f2g, f3, f4, terbi, power, bi_uni_uni_bi, bi_bi_uni_uni, hexa_uni)
         @test _testhelper_printed_law_error(m) <= big(10)^-20
         @test isempty(_testhelper_print_artifacts(rate_equation_string(m))) &&
               isempty(_testhelper_print_artifacts(
