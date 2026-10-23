@@ -1138,7 +1138,7 @@ end
     for (i, (m, zero_products)) in enumerate(cases)
         faults = _testhelper_face_faults(m)
         @test all(==(EnzymeRates._NONUNIQUE), faults[zero_products])
-        # detour's package law is 0/0 at face 5, which class 5 refuses to derive.
+        # detour's package law is 0/0 at face 5, where the package oracle reads NaN.
         verdicts = _testhelper_respeed_verdicts(m; rng = Random.MersenneTwister(10 + i),
                                                 law = m === detour ? :limit : :package)
         @test all(==(:nonunique), verdicts[zero_products])
@@ -1258,8 +1258,8 @@ end
         verdicts = _testhelper_face_verdicts(m)
         @test [verdicts[f].fault for f in faces] == faults
         @test all(f -> verdicts[f].limit === limit, faces)
-        # dead_end's package law is 0/0 at zero products, which class 5 refuses to
-        # derive; the oracle's own deletion limit has no value there either.
+        # dead_end's package law is 0/0 at zero products, where the package oracle reads
+        # NaN; the oracle's own deletion limit has no value there either.
         oracles = _testhelper_respeed_verdicts(m; rng = Random.MersenneTwister(20 + i),
                                                law = m === dead_end ? :limit : :package)
         @test all(==(oracle), oracles[faces])
