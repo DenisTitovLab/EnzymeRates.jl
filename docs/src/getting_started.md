@@ -165,9 +165,11 @@ print(rate_equation_string(results.best))
 The search recovers the mechanism that generated the data: the larger candidates
 predict held-out groups no better, so the one-standard-error rule keeps the smallest.
 
-`min_beam_width=1` and `loss_rel_threshold=1.0` collapse the beam to exactly
-one survivor per parameter-count level, making the search fast and
-deterministic. The full production search uses the wider defaults
+`min_beam_width=1`, `loss_rel_threshold=1.0` and `loss_abs_threshold=0.0` keep the beam
+narrow, which makes the search fast and deterministic: at each parameter count the beam
+admits the lowest-loss rate-law key of the first sweep there, then only a key whose loss is
+the lowest that count has seen, and every mechanism of an admitted key expands. The full
+production search uses the wider defaults
 (`min_beam_width=50`, `loss_rel_threshold=1.3`, `loss_abs_threshold=0.001`,
 `loss_parsimony_threshold=0.99`, `max_param_count=20`, `eq_complexity_filter=337`)
 and would often run for many hours and require a High

@@ -50,8 +50,8 @@ key the beam passes over stays out, members met later included.
 
 The search walks parameter counts in ascending order. At each count it fits
 every candidate, keeps a *beam* of the most promising, and expands only those
-survivors into the next count. A mechanism at parameter count `n` stays in the
-beam if **either** condition holds:
+survivors into the next count. A key at parameter count `n` enters the beam if
+**either** condition holds:
 
 - **Loss cutoff** — its loss is within
 
@@ -75,7 +75,7 @@ The four knobs, all tunable kwargs of `identify_rate_equation`:
 | Keyword | Default | Meaning |
 |---------|---------|---------|
 | `loss_rel_threshold` | `1.3` | Relative tolerance: keep losses within this factor of `best(n)`, the best at the same parameter count. |
-| `loss_abs_threshold` | `0.001` | Additive tolerance: guards against `best(n)` approaching zero (simulated / very-low-loss data), where a purely multiplicative cutoff would collapse the beam to the single best mechanism. The default `0.001` corresponds to about a 1.03× error — well below experimental error in enzyme kinetics. |
+| `loss_abs_threshold` | `0.001` | Additive tolerance: guards against `best(n)` approaching zero (simulated / very-low-loss data), where a purely multiplicative cutoff would collapse the beam to the single best key. The default `0.001` corresponds to about a 1.03× error — well below experimental error in enzyme kinetics. |
 | `loss_parsimony_threshold` | `0.99` | An added parameter must earn its keep: keep expanding only if the loss is at most this factor times `best(<n)`, the best model of any smaller parameter count (default `0.99`: an added parameter must improve on every simpler model by at least 1%). Set to `Inf` to disable it. |
 | `min_beam_width` | `50` | Cumulative floor: expand at least this many distinct laws (keys) per parameter count over the whole search. Spent once, then only the loss cutoff admits at that count. |
 

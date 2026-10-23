@@ -97,8 +97,8 @@ and data using beam search.
   for beam selection (see "Beam selection" below)
 - `loss_abs_threshold::Float64 = 0.001`: absolute tolerance
   for beam selection
-- `loss_parsimony_threshold::Float64 = 0.99`: a mechanism
-  keeps expanding only if its loss is within this factor of
+- `loss_parsimony_threshold::Float64 = 0.99`: the loss cutoff
+  admits a key only if its loss is within this factor of
   the best model of any smaller parameter count — an added
   parameter must earn its keep. Combined with the other loss
   thresholds via `min`; `min_beam_width` is a cumulative
@@ -170,7 +170,7 @@ next-level beam if either:
 
 The additive term protects against `best_loss` approaching zero
 (simulated / very-low-loss data) where a purely multiplicative
-threshold would collapse the beam to the single best mechanism.
+threshold would collapse the beam to the single best key.
 
 # Model selection (LOOCV)
 
