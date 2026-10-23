@@ -76,8 +76,8 @@ end
 
 # ── The gate: :OnlyA MWC derivation matches mass-action ground truth ─────────
 # S binds :OnlyA and catalysis is :OnlyA (k_I = 0), so the inactive conformation
-# runs no catalysis: its free-enzyme graph is a single RE segment (d_free_I = 1)
-# and the derivation takes the raw Q_A + L·Q_I normalization. The gate checks the
+# runs no catalysis: each conformation's law is one rapid-equilibrium segment and free E
+# weighs 1 in both (fA = fI = 1), so the law is H·Q_A/(D_A + L·D_I). The gate checks the
 # derived rate against the independent mass-action ground truth.
 @testset "OnlyA MWC derivation matches mass-action ground truth" begin
     onlyA = @allosteric_mechanism begin
@@ -113,10 +113,9 @@ end
     end
 
     # The inactive state neither binds S nor catalyzes, so its free-enzyme graph is a
-    # single segment and both conformations weigh free E 1. The genuinely fragmenting
-    # cross-weight regime (D_A ≠ D_I, a metabolite-bearing inactive weight) needs a
-    # steady-state :OnlyA binding and is covered by the metabolite-bearing-D :OnlyA
-    # gate below.
+    # single segment and both conformations weigh free E 1. The cross-weight regime, where
+    # free E's weight differs between the conformations (fA ≠ fI), needs a steady-state
+    # :OnlyA binding and is covered by the metabolite-bearing-D :OnlyA gate below.
     am = ER.AllostericMechanism(onlyA)
     A = ER._law(am)
     @test A.active.trees[1] * A.active.shift == one(ER._Poly)       # single active segment
@@ -132,9 +131,9 @@ end
 
 # ── The gate: multi-:OnlyA bi-uni derivation matches mass-action ground truth ─
 # Both A and B bind :OnlyA and catalysis is :OnlyA (k_I = 0), so the inactive
-# conformation runs no catalysis: its free-enzyme graph is a single RE segment
-# (D_I = 1) and the derivation takes the raw Q_A + L·Q_I normalization. The gate
-# checks the derived rate against the independent mass-action ground truth.
+# conformation runs no catalysis: each conformation's law is one rapid-equilibrium
+# segment and free E weighs 1 in both (fA = fI = 1), so the law is H·Q_A/(D_A + L·D_I).
+# The gate checks the derived rate against the independent mass-action ground truth.
 @testset "multi-OnlyA MWC derivation matches mass-action ground truth" begin
     multiA = @allosteric_mechanism begin
         substrates: A, B ; products: P ; catalytic_multiplicity: 1
@@ -175,13 +174,13 @@ end
 # S + B ⇌ P. S binds :OnlyA via a STEADY-STATE step (E + S <--> E(S)); B binds
 # :EqualAI at rapid equilibrium on E(S); catalysis E(S,B) <--> E(P) is
 # steady-state :OnlyA (inactive rate k_I = 0); P binds :EqualAI at rapid
-# equilibrium. Because B binds rapidly on the steady-state catalytic path, the
-# active free-enzyme spanning-tree weight D[g_free] CARRIES the metabolite B:
-# D_A = koff + k·B/K_B. The inactive conformation runs no catalysis and never
-# binds S or B (both :OnlyA), so its graph is a single rapid-equilibrium segment
-# {E_I, E(P)_I} and D_I = 1. D_A ≠ D_I — a metabolite-bearing active weight against
-# a bare inactive one — the cross-weight regime the fix re-baselines and which has
-# no other ground truth. Flip ratio [X_I]/[X_A] = L·∏(K_A/K_I): free enzyme and
+# equilibrium. Because B binds rapidly on the steady-state catalytic path, free E's
+# weight in the active conformation CARRIES the metabolite B: koff + k·B/K_B. The
+# inactive conformation runs no catalysis and never binds S or B (both :OnlyA), so its
+# graph is a single rapid-equilibrium segment {E_I, E(P)_I} and free E weighs 1 there.
+# Free E's weight differs between the conformations (fA ≠ fI), a metabolite-bearing
+# active weight against a bare inactive one: the cross-weight regime, which has no
+# other ground truth. Flip ratio [X_I]/[X_A] = L·∏(K_A/K_I): free enzyme and
 # E(P) flip (ratio L); an S-bearing state has ratio 0 (S :OnlyA), so E(S) and
 # E(S,B) never flip. Reverse catalysis kr from the Haldane relation.
 function _testhelper_metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L, Keq, S, B, P, FAST=1e7)
@@ -217,10 +216,9 @@ end
 
 # ── The gate: metabolite-bearing-D :OnlyA derivation matches mass-action GT ────
 # The LDH i-state re-baseline. S binds :OnlyA on the steady-state catalytic path
-# and B binds rapidly there too, so the free-enzyme spanning-tree weight D[g_free]
-# carries the metabolite B and D_A ≠ D_I. The cross-weighting `den = D_I·Q_A +
-# L·D_A·Q_I` supplies the common free-enzyme basis this regime needs; the naive
-# Q_A + L·Q_I combination gets it wrong. Regression guard.
+# and B binds rapidly there too, so free E's weight carries the metabolite B and differs
+# between the conformations (fA ≠ fI). The cross weights fA, fI supply the common
+# free-enzyme basis this regime needs; dropping them gets it wrong. Regression guard.
 @testset "metabolite-bearing-D MWC derivation matches mass-action ground truth" begin
     metabD = @allosteric_mechanism begin
         substrates: S, B ; products: P ; catalytic_multiplicity: 1
@@ -527,10 +525,10 @@ end
 # conformations on the free-enzyme segment alone and leave F out of the flip. Both
 # catalytic steps are :NonequalAI, so both conformations turn a productive cycle
 # with different rate constants (D_A ≠ D_I) and the cross term is live. The gate
-# goes red if the derivation flips F, reverts to the raw Q_A + L·Q_I combine, or
-# mis-renders the normalization. Only the raw-combine mode has a measured margin:
-# against a per-form-flip (formulation-2) oracle it deviates 0.95%-93% from the
-# derivation, orders of magnitude above the 1e-10 tolerance below.
+# goes red if the derivation flips F, drops the cross weights, or mis-renders the
+# normalization. Only the law without cross weights has a measured margin: against a
+# per-form-flip (formulation-2) oracle it deviates 0.95%-93% from the derivation,
+# orders of magnitude above the 1e-10 tolerance below.
 #
 # Because the free-enzyme flip is the only cut, the combine is algebraically exact
 # here rather than a large-FAST limit, so this gate runs far tighter than the 1e-4
@@ -731,8 +729,8 @@ function _testhelper_inert_inactive_flux(; KS, KP, k, L, Keq, S, P, FAST=1e7)
 end
 
 # ── The gate: a fully-inert inactive contributes L to the denominator ─────────
-# `den = Q_A^cat_n + L·1^cat_n`, not `Q_A^cat_n + L·0`. The inactive-state graph
-# is step-less (every binding pruned), and the derivation returns `Q_I = 1` for it.
+# `den = D_A^n + L`: the inactive conformation is free E alone (`_flip_only_law`:
+# Q = 0, D = 1).
 @testset "fully-inert inactive contributes L to the denominator" begin
     inert = @allosteric_mechanism begin
         substrates: S ; products: P ; catalytic_multiplicity: 1
@@ -951,7 +949,7 @@ end
 # graph topology, so D_A and D_I differ only by the catalytic rate constant. Under
 # formulation 1 (the enzyme commits to one conformation per catalytic cycle) the
 # two conformations normalize per-state, so the derivation cross-weights them. The
-# gate goes red if the derivation reverts to the raw Q_A + L·Q_I combine (which
+# gate goes red if the derivation drops the cross weights (which
 # matches a per-form-flip model, not formulation 1) or mis-renders the
 # normalization. At nprot = 1 the oligomer oracle is the free-flip-only reference
 # `_testhelper_biuni_nonequalAI_freeflip_flux` (pinned in the oligomer self-validation).
