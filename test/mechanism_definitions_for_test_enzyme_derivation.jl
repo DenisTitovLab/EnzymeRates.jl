@@ -2041,7 +2041,7 @@ function _testhelper_existence_agrees(am)
     exists == _testhelper_lp_existence(am, 2) && v.fault === fault
 end
 
-# ── Phase-5 law oracles ─────────────────────────────────────────────────────
+# ── Rate-law oracles ────────────────────────────────────────────────────────
 
 """The value of `p`, a polynomial over the variables `vars`, at the values `env` (by name),
 in 256-bit BigFloat; each power is computed at that precision, a fractional exponent rounded
@@ -2213,7 +2213,7 @@ of its text."""
 _testhelper_pass1_canonical(m) =
     EnzymeRates._canonical(EnzymeRates._law(m), EnzymeRates._mechanism_id(sprint(show, m)))
 
-# ── Phase-5 printed-law oracles ─────────────────────────────────────────────
+# ── Printed-law oracles ─────────────────────────────────────────────────────
 
 """The exact value of an exponent a printed law writes: an integer or a ratio `(3/2)`."""
 _testhelper_exponent(x::Integer) = x // 1

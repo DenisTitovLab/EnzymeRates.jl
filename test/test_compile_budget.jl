@@ -427,7 +427,7 @@ end
 
 @testset "a second process derives the same rate_equation bodies, keys and \
           printed laws" begin
-    # Q7 (spec section 2, criterion 3): a fresh process reads each mechanism back from its
+    # Spec section 2, criterion 3: a fresh process reads each mechanism back from its
     # text and derives the same generated body, compared by SHA-256, the same key and the
     # same printed law in both forms, for the 42 specs and the six gate laws (PASS1
     # derives and prints on the workers).

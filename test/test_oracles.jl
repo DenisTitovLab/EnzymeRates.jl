@@ -377,7 +377,7 @@ end
 end
 
 @testset "the derived laws of the population sample are exact, positive and balanced" begin
-    # Q1 (spec section 14). Each sampled law, derived from the concrete mechanism at one
+    # Spec section 14: each sampled law, derived from the concrete mechanism at one
     # catalytic subunit, equals the exact steady state at two points, holds positive
     # coefficients in each conformation's Q, vanishes at equilibrium, per conformation
     # and combined, and has one unit per denominator, which its normalizer shares
@@ -1293,7 +1293,7 @@ end
 end
 
 @testset "laws that share a key are one law under the canonical map" begin
-    # Q3 (spec section 14): the sample, the 60 I-binding inhibitor children, and every
+    # Spec section 14: the sample, the 60 I-binding inhibitor children, and every
     # tagging child of ten catalytic graphs of the one-round population, whose siblings
     # often share a law (tag sets that differ only on groups the inactive conformation
     # never reaches, or only in names). Members of one key evaluate alike with constants
@@ -1431,7 +1431,7 @@ end
 end
 
 @testset "rewrites, regroupings and constant renames keep every sampled key" begin
-    # Q2 (spec section 14): writing a mechanism backwards, regrouping it without changing
+    # Spec section 14: writing a mechanism backwards, regrouping it without changing
     # its model, and renaming its fitted constants change no law and no key, and the
     # canonical order maps one labelling onto the other. A same-model regrouping keeps
     # every fitted name too ("a same-model regrouping keeps every fitted name").
@@ -1464,14 +1464,14 @@ end
 # ── L phantoms over regenerated populations ─────────────────────────────────
 
 # The census bi-bi reaction at one catalytic subunit, whose init mechanisms' tagging
-# children are Q5's population.
+# children make up the bi-bi L-phantom population tested below.
 const _testhelper_phantom_bibi_rxn = @enzyme_reaction begin
     substrates: A[C], B[N]
     products: P[C], Q[N]
 end
 
 # The census ping-pong declaration at one catalytic subunit, whose ping-pong parents'
-# tagging children are Q6's population.
+# tagging children make up the ping-pong L-phantom population tested below.
 const _testhelper_phantom_pingpong_rxn = @enzyme_reaction begin
     substrates: A[CX], B[N]
     products: P[C], Q[NX]
@@ -1496,7 +1496,7 @@ function _testhelper_tagging_children(parents, rxn)
 end
 
 @testset "every flagged one-subunit bi-bi variant is its L→0 law's family" begin
-    # Q5 (spec section 13): the tagging children of 40 bi-bi init mechanisms spaced
+    # Spec section 13: the tagging children of 40 bi-bi init mechanisms spaced
     # through their content order, 200 of them spaced the same way. Each variant
     # `_is_phantom` flags reproduces its law at L = 0 under the certificate's rescaling, so
     # its family is that law's and no flagged variant gains rank; the rank oracle confirms
@@ -1517,7 +1517,7 @@ end
 end
 
 @testset "no one-subunit ping-pong tagging child is an L phantom" begin
-    # Q6: the tagging children at one catalytic subunit of 30 ping-pong parents,
+    # The tagging children at one catalytic subunit of 30 ping-pong parents,
     # the covalent init mechanisms and their well-posed covalent flips, spaced through
     # their content order. Every child keeps a step in the inactive conformation, so the
     # pre-filter fits it, and none has a certificate, so dropping the pre-filter

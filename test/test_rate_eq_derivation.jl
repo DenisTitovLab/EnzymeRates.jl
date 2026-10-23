@@ -1561,9 +1561,10 @@ end
                         if length(_testhelper_power(d, s, L)) >= 2])
     @test length(s.dependents) == length(products) == 2
     @test [q for (_, q) in p.defs[1:length(products)]] == EnzymeRates._term.(products)
-    # Task 1's labels fixture: a kinetic-group dependent and a Wegscheider one that each
-    # equal one constant, read directly, and a Haldane product, the program's first local.
-    # Every later local holds a sum of two or more terms.
+    # The labels fixture of "_solve labels kinetic-group, Haldane and Wegscheider
+    # dependents" (test_joint_solve.jl): a kinetic-group dependent and a Wegscheider one
+    # that each equal one constant, read directly, and a Haldane product, the program's
+    # first local. Every later local holds a sum of two or more terms.
     folded = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P

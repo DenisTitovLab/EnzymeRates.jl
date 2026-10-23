@@ -255,7 +255,7 @@ end
 end
 
 @testset "every spec's law has one unit per denominator and a rate per time" begin
-    # Q1's units on the 42 specs, each at one catalytic subunit (spec section 14).
+    # Units on the 42 specs, each at one catalytic subunit (spec section 14).
     for spec in MECHANISM_TEST_SPECS
         @testset "$(spec.name)" begin
             am = _testhelper_lift(_testhelper_single_subunit(spec.mechanism))
