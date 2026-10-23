@@ -1,5 +1,5 @@
-# ABOUTME: Tests of the rate-law engine (src/engine.jl): spanning trees, the tree count,
-# ABOUTME: V×τ, and the plain law against the exact steady state, its form and refusals.
+# ABOUTME: Tests of the rate-law engine (src/engine.jl): spanning trees, V×τ, the plain and
+# ABOUTME: MWC laws against exact steady states, their form and refusals, the summed cap.
 
 @testset "_spanning_trees enumerates each spanning tree once" begin
     trees(n, pairs) = Set(Set.(EnzymeRates._spanning_trees(n, pairs)))

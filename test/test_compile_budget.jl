@@ -1,5 +1,5 @@
-# ABOUTME: Compile-time regression gates: init_mechanisms trace-compile, rate_equation
-# ABOUTME: body-build wall-clock, bi-bi→uni-uni reuse, dispatch identity, fit per mechanism.
+# ABOUTME: Compile gates: init trace-compile, rate_equation first call, bi-bi→uni-uni reuse,
+# ABOUTME: dispatch identity, the fit census and a second process's bodies, keys and laws.
 
 using Test
 using EnzymeRates

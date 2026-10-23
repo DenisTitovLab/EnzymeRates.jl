@@ -1,5 +1,5 @@
-# ABOUTME: The rate law of one conformation on an edge mask: rapid-equilibrium segments,
-# ABOUTME: spanning trees, the numerator, the solve and H divided out; V×τ and the term cap.
+# ABOUTME: Rate laws on edge masks: one conformation's law (segments, spanning trees, H
+# ABOUTME: divided out), the MWC law on both conformations, V×τ and the summed term cap.
 
 """
 The rate law of one conformation, `v = E_total·H·Q/D`, over `vars`: the concentrations,

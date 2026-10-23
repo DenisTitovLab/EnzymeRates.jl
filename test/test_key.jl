@@ -1,5 +1,5 @@
-# ABOUTME: Tests of the dedup key: canonical labelling of a law's fitted constants, lowest
-# ABOUTME: terms, the leaf cap, which metabolite binds, and the pinned keys of five specs.
+# ABOUTME: Tests of the dedup key (canonical labelling, lowest terms, the leaf cap, which
+# ABOUTME: metabolite binds, five pinned spec keys) and the L-phantom rescaling certificate.
 
 # ── Toy laws over named constants ───────────────────────────────────────────
 
