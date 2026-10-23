@@ -392,10 +392,10 @@ struct _Candidate
     canon0::_Canonical
 end
 
-"""The order in which candidate `c` reads its fit's values (`_Fit`): its canonical order,
-then `L` for an MWC law."""
+"""The order in which candidate `c` reads its fit's values (`_Fit`): the canonical order of
+the law whose fit it reads (`canon0`), then `L` for an MWC law."""
 _fit_order(c::_Candidate) =
-    c.mech isa AllostericMechanism ? [c.canon.order; :L] : c.canon.order
+    c.mech isa AllostericMechanism ? [c.canon0.order; :L] : c.canon0.order
 
 """
 The parameters of candidate `c` as its row holds them, in its `fitted_params` order: a
@@ -654,8 +654,7 @@ function _process_batch(
             continue
         end
         fit = memo[fit_key]
-        params = c.phantom ? _row_params(c, [c.canon0.order; :L], [fit.values; 0.0]) :
-                             _row_params(c, _fit_order(c), fit.values)
+        params = _row_params(c, _fit_order(c), c.phantom ? [fit.values; 0.0] : fit.values)
         parent = get(parent_of, c.mech, nothing)
         row = (
             n_params = length(c.fitted),
