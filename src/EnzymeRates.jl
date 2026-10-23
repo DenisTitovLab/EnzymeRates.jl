@@ -31,7 +31,6 @@ using SHA: sha256
 include("types.jl")
 include("names.jl")
 include("dsl.jl")
-include("sym_poly_for_rate_eq_derivation.jl")
 include("rate_eq_derivation.jl")
 include("thermo.jl")
 include("poly.jl")

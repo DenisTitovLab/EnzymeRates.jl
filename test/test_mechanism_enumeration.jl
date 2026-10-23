@@ -8380,8 +8380,7 @@ end
             E(S) <--> E(P)    :: OnlyA
         end
     end
-    @test isempty(first(
-        EnzymeRates._state_rate_polys(EnzymeRates.AllostericMechanism(m), :I)))
+    @test iszero(EnzymeRates._law(EnzymeRates.AllostericMechanism(m)).inactive.Q)
     params = parameters(m)
     # K_I_ES_to_E_S and K_I_EP_to_E_P are referenced in the I-state
     # denominator of the body (the binding partition function for :NonequalAI
@@ -10513,8 +10512,9 @@ end
                                     for e in k.edges if EnzymeRates._is_binding(e) &&
                                        k.table[EnzymeRates._bound_entry(e)].modifier)
     with_a = EnzymeRates._expand_add_dead_end_regulator(ordered_ss, rxn_a_inhibits)
-    _testhelper_den_a_degree(k) = maximum(get(Dict(mono), :A, 0) for mono in keys(
-        EnzymeRates._raw_symbolic_rate_polys(k)[2]))
+    _testhelper_den_a_degree(k) = (L = EnzymeRates._law(k);
+        maximum(numerator(EnzymeRates._mexp(mono, L.vars.index[:A]))
+                for mono in keys(L.D.terms)))
     @test length(with_a) == 4
     @test Set(_testhelper_copy_sites.(with_a)) ==
         Set([Set([:E]), Set([:E, :EQ]), Set([:EA, :EQ]), Set([:E, :EA])])
@@ -10564,8 +10564,9 @@ end
             E(B; residual = A - P) ⇌ E(Q)                              :: OnlyA
         end
     end)
-    _testhelper_inactive_degree(am, x) = maximum(get(Dict(mono), x, 0) for mono in keys(
-        EnzymeRates._state_rate_polys(am, :I)[2]))
+    _testhelper_inactive_degree(am, x) = (C = EnzymeRates._law(am).inactive;
+        maximum(numerator(EnzymeRates._mexp(mono, C.vars.index[x]))
+                for mono in keys(C.D.terms)))
     @test EnzymeRates._hyperbolic_catalysis(EnzymeRates.catalytic(merged_abortive))
     @test !EnzymeRates._hyperbolic_catalysis(merged_abortive)
     @test _testhelper_inactive_degree(merged_abortive, :A) == 2
@@ -10639,7 +10640,8 @@ end
     # to be hyperbolic whenever the A-state is. Allosteric mechanisms with the same
     # state graph share one derivation per state: their tags only rename parameters,
     # which changes no metabolite exponent.
-    hyperbolic(p, mets) = all(e <= 1 for mono in keys(p) for (s, e) in mono if s in mets)
+    _testhelper_hyperbolic(C, mets) = all(e <= 1 for mono in keys(C.D.terms)
+                                          for (v, e) in mono if C.vars.names[v] in mets)
     unibi = @enzyme_reaction begin
         substrates: S[AB]
         products: P[A], Q[B]
@@ -10675,14 +10677,14 @@ end
         derived = Dict{Tuple{Symbol, EnzymeRates.Mechanism, BitVector}, Bool}()
         _testhelper_state_hyperbolic(m, state) = get!(derived,
             (state, EnzymeRates.catalytic(m), EnzymeRates._state_mask(m, state))) do
-            hyperbolic(EnzymeRates._state_rate_polys(m, state)[2], mets)
+            L = EnzymeRates._law(m)
+            _testhelper_hyperbolic(state === :A ? L.active : L.inactive, mets)
         end
         for m in mechs
             EnzymeRates._eq_complexity(m) <= 337 || continue
             structural = EnzymeRates._hyperbolic_catalysis(m)
             if m isa EnzymeRates.Mechanism
-                _, den, _ = EnzymeRates._raw_symbolic_rate_polys(m)
-                @test structural == hyperbolic(den, mets)
+                @test structural == _testhelper_hyperbolic(EnzymeRates._law(m), mets)
             else
                 hyp_a = _testhelper_state_hyperbolic(m, :A)
                 @test structural == (hyp_a && _testhelper_state_hyperbolic(m, :I))

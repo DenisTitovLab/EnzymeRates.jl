@@ -386,12 +386,16 @@ function _testhelper_test_structure(spec::_testhelper_MechanismTestSpec)
     end
 end
 
+"""Whether the expression `ex` mentions the symbol `s`."""
+_testhelper_mentions(ex, s::Symbol) =
+    ex === s || (ex isa Expr && any(a -> _testhelper_mentions(a, s), ex.args))
+
 """Classify a dep expression as Haldane (RHS references Keq), Mirror
 (RHS is a single Symbol), or Wegscheider (RHS Expr without Keq)."""
 function _testhelper_classify_dep_expr(expr)
     if expr isa Symbol
         return :mirror
-    elseif EnzymeRates._mentions(expr, :Keq)
+    elseif _testhelper_mentions(expr, :Keq)
         return :haldane
     else
         return :wegscheider
@@ -927,12 +931,12 @@ const _testhelper_fused_cases = [
         _testhelper_fused_and_plain_binding,
 ]
 
-@testset "a segment's root ties go to the canonical form order" begin
-    # The root of a rapid-equilibrium segment is its form with the fewest bound
-    # metabolites, then the one without a residual, then the first in the canonical form
-    # order (its index). There A's modifier copy comes before Ab: the table sorts A's
-    # copy just after A, before Ab.
-    m = ER.Mechanism(@enzyme_mechanism begin
+@testset "each rapid-equilibrium segment is rooted at its first form" begin
+    # The engine weighs each form of a rapid-equilibrium segment against the segment's
+    # first form in the canonical form order (`_segments`), so free E, form 1, roots its
+    # own segment. A's modifier copy comes before Ab there: the table sorts A's copy just
+    # after A, before Ab. The law in lowest terms does not depend on the root.
+    em = @enzyme_mechanism begin
         substrates: A, Ab
         products: P
         modifiers: A
@@ -946,15 +950,18 @@ const _testhelper_fused_cases = [
             E(Ab) + A ⇌ E(A, Ab)
             E(A) <--> E(; residual = A - P) + P
         end
-    end)
+    end
+    m = ER.Mechanism(em)
     form(text) = only(f for f in eachindex(m.forms) if ER._form_name(m, f) == text)
     a_copy, ab, e = form("EAmod"), form("EAb"), form("E")
-    @test a_copy < ab
-    @test ER._segment_root(m, [ab, a_copy]) == a_copy
-    @test ER._segment_root(m, [a_copy, ab]) == a_copy
-    # Fewer bound metabolites first, then no residual.
-    @test ER._segment_root(m, [ab, e]) == e
-    @test ER._segment_root(m, [form("E_res_plusA_minusP"), e]) == e
+    @test e == 1 && a_copy < ab
+    s = ER._segments(m, trues(length(m.edges)), ER._flags(m))
+    @test all(seg -> seg[1] == minimum(seg), s.segments)
+    @test s.segments[s.segment_of[e]][1] == e
+    @test s.segment_of[a_copy] == s.segment_of[ab] == s.segment_of[e]
+    covalent = form("E_res_plusA_minusP")
+    @test s.segments[s.segment_of[covalent]] == [covalent]
+    _testhelper_check_law_against_oracle(em)
 end
 
 @testset "the free-enzyme weight is free E's weight in the reduced denominator" begin
@@ -962,7 +969,7 @@ end
     # rapid-equilibrium segment rooted at free E, where E(; residual = A - P) sits at
     # Q·K/B relative to E. Reducing the polynomials to lowest terms in the
     # concentrations multiplies them by B, so free E weighs B in the reduced
-    # denominator; the MWC combination divides each conformation by this weight.
+    # denominator; the MWC law reads this weight as free E's (`_cross_weights`).
     em = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
@@ -974,8 +981,20 @@ end
             E + Q ⇌ E(Q)
         end
     end
-    _, _, d_free = EnzymeRates._raw_symbolic_rate_polys(typeof(em))
-    @test d_free == EnzymeRates.poly_sym(:B)
+    m = EnzymeRates.Mechanism(em)
+    s = EnzymeRates._solve(m)
+    L = EnzymeRates._law(m, s)
+    @test L.trees[1] * L.shift ==
+          EnzymeRates._term(EnzymeRates._monomial(L.vars.index[:B] => 1))
+    # Free E's weight over the denominator is its steady-state share of the enzyme.
+    point, concs, params = _testhelper_law_inputs(m, s.fitted, Random.MersenneTwister(8))
+    env = merge(params, concs)
+    share = setprecision(BigFloat, 256) do
+        _testhelper_poly_value(L.trees[1] * L.shift, L.vars, env) /
+            _testhelper_poly_value(L.D, L.vars, env)
+    end
+    @test abs(share - _testhelper_steady_state_rate(m, point, concs; occupancy = 1)) <=
+          big(10)^-20 * share
 end
 
 @testset "a fused release keeps its catalytic rate constant fitted" begin
@@ -2361,12 +2380,9 @@ end
     # enzyme mass dominates the denominator → rate ∝ 1/(1+L).
     @test rate_T * 1e10 < 100.0    # bounded as L grows
 
-    # Regression: T-state binding K's must be in Kd convention even when
-    # `:OnlyA` and `:NonequalAI` catalytic groups coexist. Without the fix,
-    # the flat-poly path in _num_den_exprs renders T-state K's
-    # as `K_T * met` (Ka) instead of `met / K_T` (Kd), silently producing
-    # wrong rates whenever a mechanism mixes these two tags. Regression
-    # for src/rate_eq_derivation.jl:1395-1396.
+    # The inactive conformation's binding constants are dissociation constants (`S / K`)
+    # also when `:OnlyA` and `:NonequalAI` catalytic groups coexist; read as association
+    # constants (`K * S`) they would halve the rate below.
     # S binding :NonequalAI, catalysis :OnlyA, P binding :NonequalAI.
     m_mix = @allosteric_mechanism begin
         substrates: S
@@ -2831,18 +2847,4 @@ end
     peak = EnzymeRates._peak_turnover(m, params, (1e-12, 1e3))
     @test peak.value > 0
     @test 1e-3 < peak.concs.P < 1e3
-end
-
-@testset "rendering helpers" begin
-    k = ER.POLY(ER._mono(:k_ES_to_EP => 1) => 1)
-    @test ER._invert_monomial(k) == ER.POLY(ER._mono(:k_ES_to_EP => -1) => 1)
-    @test ER._invert_monomial(ER.poly_one()) == ER.poly_one()
-    @test ER._is_metabolite_free_monomial(k, Set([:S, :P]))
-    kb = ER.poly_mul(k, ER.POLY(ER._mono(:B => 1) => 1))          # k * B (has metabolite)
-    @test !ER._is_metabolite_free_monomial(kb, Set([:B]))
-    twoterm = ER.poly_add(k, ER.poly_one())                       # k + 1 (not a monomial)
-    @test !ER._is_metabolite_free_monomial(twoterm, Set([:S]))
-    @test_throws ErrorException ER._invert_monomial(twoterm)      # non-monomial errors
-    @test ER._mwc_cross_weight(:foo, 1, 2) == :foo               # no-op when D==1
-    @test ER._mwc_cross_weight(:foo, :D, 1) == :(D * foo)
 end

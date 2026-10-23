@@ -431,6 +431,32 @@ _dependent_param_exprs(m::_AnyMech) = _dependent_param_exprs(_solve(m))
 _dependent_param_exprs(@nospecialize(M::Type{<:AbstractEnzymeMechanism})) =
     _dependent_param_exprs(_solve(M))
 
+"""
+    build_power_expr(keq_exp::Rational, factors)
+
+Build a power-product expression for thermodynamic-constraint
+substitution of the form `Keq^keq_exp * prod(k_i^exp_i)` from
+`factors`, an iterable of `(k_i, exp_i)` pairs. Used by the
+constraint solver to materialize the Keq×rate-constant power product
+that replaces a dependent rate constant. A fractional exponent is an
+exact `Rational{Int}` literal. The empty product is the Float64 `1.0`: a constant that
+thermodynamics pins to 1.
+"""
+function build_power_expr(keq_exp::Rational, factors)
+    _pa(sym, exp) = exp == 1 ? sym : exp == -1 ? :(1 / $sym) :
+        !isinteger(exp) ? :($sym ^ $(Rational{Int}(exp))) :
+        exp > 0 ? :($sym ^ $(Int(exp))) : :(1 / $sym ^ $(Int(-exp)))
+    terms = Any[]
+    keq_exp != 0 && push!(terms, _pa(:Keq, keq_exp))
+    # Sort factors by name so the rendered power product is content-canonical
+    # (independent of the order factors were collected during elimination):
+    # two mechanisms with the same constraint produce the identical RHS string.
+    for (sym, exp) in sort(collect(factors); by = x -> string(first(x)))
+        exp != 0 && push!(terms, _pa(sym, exp))
+    end
+    isempty(terms) ? 1.0 : length(terms) == 1 ? only(terms) : Expr(:call, :*, terms...)
+end
+
 """Number of independent (fitted) constants of a concrete mechanism, from the joint solve,
 without compiling the mechanism."""
 _independent_param_count(m::_AnyMech) = length(_solve(m).fitted)

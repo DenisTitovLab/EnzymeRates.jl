@@ -226,6 +226,11 @@ independents of both conformations and `:Keq`), then the regulator constants (in
 
 `fA` and `fI` are free E's weights in the two laws over their common factor
 (`_cross_weights`); `n` is the catalytic multiplicity.
+
+The law is per active site: `E_total` is the active-site concentration, so `n` enters
+only as an exponent (of `DA`, `DI` and the free-E weights), never as a leading factor, and
+each regulatory site's factor enters numerator and denominator at the site's own
+multiplicity, whatever `n` is.
 """
 mutable struct _AlloLaw
     const vars::_Vars
@@ -395,6 +400,13 @@ function _eq_complexity(am::AllostericMechanism)
 end
 
 """
+The term cap: the most spanning-tree products (V×τ, `_eq_complexity`) a derived rate law
+may have, both conformations of an MWC law together. A larger law takes too long to
+compile and is unlikely to be useful for fitting.
+"""
+const MAX_RATE_EQUATION_TERMS = 5000
+
+"""
 The error `_assert_derivable` raises for a mechanism whose rate equation would have more
 than `MAX_RATE_EQUATION_TERMS` terms.
 """
@@ -410,7 +422,7 @@ Base.showerror(io::IO, ::RateEquationTooLargeError) = print(io,
 Abort the derivation of the law of the edges of `m` that `mask` keeps when its term count
 (V×τ, `_eq_complexity`) exceeds `MAX_RATE_EQUATION_TERMS`: a quick count on the segment
 graph that throws a `RateEquationTooLargeError` before any polynomial is built. Every
-derivation entry calls it (`_law`, `_raw_symbolic_rate_polys`).
+derivation entry calls it (`_law`).
 """
 function _assert_derivable(m::Mechanism, mask::BitVector)
     _eq_complexity(m, mask) > MAX_RATE_EQUATION_TERMS && throw(RateEquationTooLargeError())

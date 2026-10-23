@@ -1080,8 +1080,6 @@ end
     @test _testhelper_support_verdict(unfed).face == 2
     @test_throws "every term of the rate law's denominator vanishes" (
         EnzymeRates._assert_support(unfed, EnzymeRates._law(unfed)))
-    @test_throws "every term of the rate law's denominator vanishes" (
-        EnzymeRates._num_den_exprs(unfed))
 end
 
 @testset "class 3 rejects a second closed class on a face" begin
@@ -3175,8 +3173,6 @@ end
           "denominator vanishes, so the rate is 0/0 there."
     @test_throws(ErrorException(EnzymeRates._guard_message(am, w)),
                  EnzymeRates._assert_support(am, EnzymeRates._law(am)))
-    @test_throws(ErrorException(EnzymeRates._guard_message(am, w)),
-                 EnzymeRates._num_den_exprs(am))
 end
 
 @testset "every spec's denominator keeps a monomial on every face" begin

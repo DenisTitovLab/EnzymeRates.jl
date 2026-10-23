@@ -113,15 +113,15 @@ end
     end
 
     # The inactive state neither binds S nor catalyzes, so its free-enzyme graph is a
-    # single segment and both states surface D = 1. The genuinely fragmenting
+    # single segment and both conformations weigh free E 1. The genuinely fragmenting
     # cross-weight regime (D_A ≠ D_I, a metabolite-bearing inactive weight) needs a
     # steady-state :OnlyA binding and is covered by the metabolite-bearing-D :OnlyA
     # gate below.
     am = ER.AllostericMechanism(onlyA)
-    _, _, dA = ER._state_rate_polys(am, :A)
-    _, _, dI = ER._state_rate_polys(am, :I)
-    @test dA == ER.poly_one()                       # single active segment
-    @test dI == ER.poly_one()                       # single inactive segment
+    A = ER._law(am)
+    @test A.active.trees[1] * A.active.shift == one(ER._Poly)       # single active segment
+    @test A.inactive.trees[1] * A.inactive.shift == one(ER._Poly)   # one inactive segment
+    @test A.fA == A.fI == one(ER._Poly)
 
     # The peak scale stays consistent with rate_equation.
     prm = NamedTuple{(fp..., :Keq, :E_total)}((1.3, 0.9, 2.1, 0.7, 3.0, 1.0))
@@ -824,8 +824,8 @@ end
     _testhelper_check_law_against_oracle(half2)
     am = ER.AllostericMechanism(half2)
 
-    _, _, d_free_I = ER._state_rate_polys(am, :I)
-    @test !isempty(d_free_I)
+    inactive = ER._law(am).inactive
+    @test !iszero(inactive.trees[1] * inactive.shift)
 
     fp = ER.fitted_params(half2)
     prm = NamedTuple{(fp..., :Keq, :E_total)}(((1.3 for _ in fp)..., 3.0, 1.0))

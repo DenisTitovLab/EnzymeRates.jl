@@ -464,7 +464,7 @@ function _testhelper_consistent_point(m, rng)
 end
 
 """
-    _testhelper_steady_state_rate(m, point, concs; Λ = big(10)^30, flip = 1) -> BigFloat
+    _testhelper_steady_state_rate(m, point, concs; Λ = big(10)^30, flip = 1, occupancy = 0)
 
 The exact steady-state rate per enzyme of the mass-action network of `m` at the constants
 of `point` (`_testhelper_consistent_point`) and the concentrations `concs`, in 256-bit
@@ -474,10 +474,12 @@ limit with a relative error of about 1/Λ times the spread of the constants. An 
 mechanism (one catalytic subunit) adds the inactive conformation's forms and steps and one
 flip between the two copies of form `flip`, free E unless a test asks for another, at
 equilibrium ratio `L` times the ratio of the conformations' regulatory-site factors. Errors
-when the network is disconnected, since its steady state is then not unique.
+when the network is disconnected, since its steady state is then not unique. With
+`occupancy`, it returns instead the steady-state fraction of the enzyme in active form
+`occupancy`.
 """
 function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(10)^30,
-                                       flip::Int = 1)
+                                       flip::Int = 1, occupancy::Int = 0)
     setprecision(BigFloat, 256) do
         mech = _testhelper_lift(m)
         g = _testhelper_graph(mech)
@@ -514,6 +516,7 @@ function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(1
         M[n, :] .= 1
         rhs = zeros(BigFloat, n); rhs[n] = 1
         x = M \ rhs
+        occupancy == 0 || return x[node[(:A, occupancy)]]
         sum((ω * (rf * x[a] - rr * x[b]) for (a, b, rf, rr, ω) in edges); init = big(0))
     end
 end
@@ -604,11 +607,6 @@ function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1,
 end
 
 # ── Detailed balance, declared dimension and populations ────────────────────
-
-"""The value of the polynomial `p` at the values `env` (by symbol), in BigFloat."""
-_testhelper_poly_value(p, env) =
-    sum((c * prod((env[s]^e for (s, e) in mono); init = big(1)) for (mono, c) in p);
-        init = big(0))
 
 """
     _testhelper_detailed_balance(m, rng) -> Vector{BigFloat}
