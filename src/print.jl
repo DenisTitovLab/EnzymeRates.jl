@@ -153,10 +153,9 @@ function _coefficient_sum(prefix::String, ts::Vector{_Term}, names::Vector{Symbo
     sum, legend
 end
 
-"""The `v` line, `v = E_total * (Q) * (H) / (D)`: `Q` bare when it is one name and left out
-when it is 1."""
+"""The `v` line, `v = E_total * (Q) * (H) / (D)`: `Q` bare when it is one name."""
 function _v_line(q::AbstractString, h::AbstractString, d::AbstractString)
-    lead = q == "1" ? "" : occursin(r"^[^ ()*/+^-]+$", q) ? q * " * " : "(" * q * ") * "
+    lead = occursin(r"^[^ ()*/+^-]+$", q) ? q * " * " : "(" * q * ") * "
     "v = E_total * $(lead)($h) / ($d)"
 end
 
@@ -298,7 +297,7 @@ function _law_text(am::AllostericMechanism, s::_Solve, A::_AlloLaw;
     has("Q_I") && push!(num, "L * " * branch("I", "A", 1))
     rest = branch("I", "A", 0)
     den = branch("A", "I", 0) * " + L" * (rest == "1" ? "" : " * " * rest)
-    v = _v_line(isempty(num) ? "0" : join(num, " + "), _sum_text(A.H, A.vars.names), den)
+    v = _v_line(join(num, " + "), _sum_text(A.H, A.vars.names), den)
     coefficients ? join([v; defs; _COEFFICIENTS_COMMENT; legend], "\n") :
                    join([_header_lines(am, s, A.vars); defs; v], "\n")
 end
