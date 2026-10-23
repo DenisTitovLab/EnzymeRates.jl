@@ -31,33 +31,20 @@ function _factor!(vars::_Vars, defs::Vector{Pair{Int, _Poly}}, p::_Poly)
     _term(_mmul(_monomial(_local!(vars, defs, p * s) => 1), _mpow(s, -1)))
 end
 
-"""Each solve column's value as a monomial over `vars`: an independent's own variable; a
-dependent's power product of `Keq` and independents, read directly when it is one symbol,
-else from a local (`_local!`). The locals are defined in `s.dependents` order, by column,
-so a body's numbering never follows a hash."""
-function _column_values!(vars::_Vars, defs::Vector{Pair{Int, _Poly}}, s::_Solve)
-    value = Dict{Int, _Mono}(c => _monomial(vars.index[s.names[c]] => 1)
-                             for c in s.independents)
-    for d in s.dependents
-        r = _monomial(vars.index[:Keq] => d.keq,
-                      (vars.index[s.names[f]] => e for (f, e) in d.factors)...)
-        value[d.col] = length(r) <= 1 ? r : _monomial(_local!(vars, defs, _term(r)) => 1)
-    end
-    value
-end
-
 """
     _state!(vars, defs, m, s, L, mask, inactive) -> (Q, D)
 
 The terms over `vars` of the law `L` of the edges `mask` of `m`, in the inactive
 conformation's constants when `inactive`, with locals added to `defs`: each bare constant
-reads its column's value (`_column_values!`), each segment's weight sum `σ_g` and tree sum
-`T_g` and `Q` get a local (`_factor!`). Returns `Q` as one term and
-`D = shift·Σ_g σ_g·T_g`.
+reads its column's value (`_column_values`), a dependent's from a local unless it is one
+symbol, the locals defined by column so a body's numbering never follows a hash; each
+segment's weight sum `σ_g` and tree sum `T_g` and `Q` get a local (`_factor!`). Returns `Q`
+as one term and `D = shift·Σ_g σ_g·T_g`.
 """
 function _state!(vars::_Vars, defs::Vector{Pair{Int, _Poly}}, m::Mechanism, s::_Solve,
                  L::_Law, mask::BitVector, inactive::Bool)
-    value = _column_values!(vars, defs, s)
+    value = _column_values(vars, s, r -> length(r) <= 1 ? r :
+                                         _monomial(_local!(vars, defs, _term(r)) => 1))
     b = _bare_law(m, mask, L.vars.names[L.vars.conc])
     nc = count(L.vars.conc)
     bare(v) = v <= nc ? nothing : value[s.column[_Column(b.cols[v - nc]..., inactive)]]

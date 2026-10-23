@@ -173,14 +173,12 @@ name as a ratio of products of `Keq` and the independents with exact exponents (
 left out; a kinetic group's other members equal its kept constant and print no line.
 """
 function _reference_lines(s::_Solve, vars::_Vars)
-    lines = String[]
+    lines, value = String[], _column_values(vars, s)
     for (label, title) in ((:wegscheider, "Wegscheider"), (:haldane, "Haldane"))
         ds = sort!(filter(d -> d.label === label, s.dependents); by = d -> s.names[d.col])
         isempty(ds) || push!(lines, "# $title constraints:")
         for d in ds
-            mo = _monomial((vars.index[s.names[f]] => e for (f, e) in d.factors)...,
-                           vars.index[:Keq] => d.keq)
-            push!(lines, "$(s.names[d.col]) = $(_term_text(1, mo, vars.names))")
+            push!(lines, "$(s.names[d.col]) = $(_term_text(1, value[d.col], vars.names))")
         end
     end
     lines

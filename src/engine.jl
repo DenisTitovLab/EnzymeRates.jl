@@ -165,6 +165,24 @@ function _bare_law(m::Mechanism, mask::BitVector, concentrations::Vector{Symbol}
 end
 
 """
+    _column_values(vars, s, wrap = identity) -> Dict{Int, _Mono}
+
+Each column of the solve `s` as a monomial over `vars`: an independent's variable, or a
+dependent's power product of `Keq` and independents passed through `wrap`, in
+`s.dependents` order (so a `wrap` that defines locals numbers them by column).
+"""
+function _column_values(vars::_Vars, s::_Solve, wrap = identity)
+    value = Dict{Int, _Mono}(c => _monomial(vars.index[s.names[c]] => 1)
+                             for c in s.independents)
+    for d in s.dependents
+        r = _monomial(vars.index[:Keq] => d.keq,
+                      (vars.index[s.names[f]] => e for (f, e) in d.factors)...)
+        value[d.col] = wrap(r)
+    end
+    value
+end
+
+"""
     _law(m, s, mask; inactive = false, concentrations = metabolites(m)) -> _Law
 
 The rate law of the edges of `m` that `mask` keeps, in the inactive conformation's
@@ -185,13 +203,9 @@ function _law(m::Mechanism, s::_Solve, mask::BitVector; inactive::Bool = false,
         b = _bare_law(m, mask, concentrations)
         vars = _Vars()
         foreach(x -> _var!(vars, x; conc = true), concentrations)
-        value = Dict{Int, _Mono}(i => _monomial(_var!(vars, s.names[i]) => 1)
-                                 for i in s.independents)
+        foreach(i -> _var!(vars, s.names[i]), s.independents)
         keq = _var!(vars, :Keq)
-        for d in s.dependents
-            value[d.col] = foldl(_mmul, (_mpow(value[f], e) for (f, e) in d.factors);
-                                 init = _monomial(keq => d.keq))
-        end
+        value = _column_values(vars, s)
         nc = length(concentrations)
         sub(p) = _subst(v -> v <= nc ? nothing :
                              value[s.column[_Column(b.cols[v - nc]..., inactive)]], p)
