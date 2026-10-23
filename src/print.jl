@@ -321,11 +321,13 @@ reference line in `Keq` and the independent constants, and ends with
 `v = E_total * (Q) * (H) / (D)` in the independent constants. `H = Π[S] − Π[P]/Keq`
 vanishes at equilibrium; `Q` and `D` have positive terms. Numerator and denominator are
 divided by a normalizer that makes every term of `D` dimensionless: `D`'s constant term
-when it has one, so `D` reads `1 + S/K…`; otherwise a product of powers of `D`'s
-coefficients; and when no such product has `D`'s unit, `D`'s first term, so terms such as
-`P / B` appear. Dividing by that term divides by concentrations, so the text can read
-`NaN` where one of them is zero; [`rate_equation`](@ref) gives the law's value there. A
-factor of the normalizer that is not a single term, or an integer to a fractional power,
+when it has one, so `D` reads `1 + S/K…`; otherwise Cleland's normalizer when `D` holds
+the terms `ΠS/X` for every substrate `X` and `ΠS`, `ΠS` the product of the substrates, so
+the substrate terms read as products of Michaelis constants; otherwise a product of powers
+of `D`'s coefficients; and when no such product has `D`'s unit, `D`'s first term, so terms
+such as `P / B` appear. Dividing by that term divides by concentrations, so the text can
+read `NaN` where one of them is zero; [`rate_equation`](@ref) gives the law's value there.
+A factor of the normalizer that is not a single term, or an integer to a fractional power,
 prints once as `N = …`.
 An allosteric mechanism prints each conformation's numerator `Q_A`, `Q_I`, denominator
 `D_A`, `D_I`, normalizer `N_A`, `N_I`, free-enzyme weight `F_A`, `F_I` (when they differ)

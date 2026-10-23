@@ -2134,10 +2134,11 @@ Test the units of `L`, the derived law of the concrete mechanism `m` (a `_Law`, 
 In each conformation every term of `D` has one unit, the unit rule's normalizer
 (`EnzymeRates._normalizer`) has that unit too, so each denominator term over `N` is
 dimensionless, and a numerator that is not zero makes `H·Q/D` a rate per time. The
-normalizer's weights solve the units equation per concentration: graded weights sum to 1
-and weigh each concentration's exponents to 0, and the other two rules put one weight of
-1 on `shift`. In an MWC law each regulatory site's binding polynomials are dimensionless
-and `fI·D_A` and `fA·D_I` share a unit, so the two conformations' terms add.
+normalizer's weights solve the units equation per concentration: Cleland's and graded
+weights sum to 1 and weigh each concentration's exponents to 0, and the other two rules
+put one weight of 1 on `shift`. In an MWC law each regulatory site's binding polynomials
+are dimensionless and `fI·D_A` and `fA·D_I` share a unit, so the two conformations' terms
+add.
 """
 function _testhelper_check_units(m, L)
     units = _testhelper_name_units(m)
@@ -2154,7 +2155,7 @@ function _testhelper_check_units(m, L)
         uN = foldl((acc, (mo, λ)) -> plus(acc, λ .* _testhelper_unit(Dc[mo])), nz.lambda;
                    init = _testhelper_term_units(units, vars, nz.shift))
         @test uN == uD
-        if nz.rule === :graded
+        if nz.rule in (:cleland, :graded)
             @test sum(last, nz.lambda) == 1 && isempty(nz.shift)
             @test iszero(sum(λ * expo(mo) for (mo, λ) in nz.lambda))
         else

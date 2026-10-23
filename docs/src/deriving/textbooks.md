@@ -71,12 +71,17 @@ normalizer with `D`'s unit, chosen by the first rule that applies.
    In a rapid-equilibrium law whose only form that binds nothing is free E, as in
    `1 + S / K_ES_to_E_S + P / K_EP_to_E_P` above, that part is free E's weight, and `D`
    sums the enzyme forms' abundances relative to free E.
-2. **Virtual constant term.** Otherwise take `D`'s terms in a fixed order (lowest total
+2. **Cleland's normalizer.** When `D` holds the term `ΠS/X` for every substrate `X` and
+   the term `ΠS`, `ΠS` the product of the substrates, divide by the product of the
+   coefficients of the `ΠS/X` terms over that of `ΠS` to the power one less than the
+   number of substrates. The substrate terms then read as products of Michaelis constants,
+   `A·B·C/(K_a·K_b·K_c)`. A ping-pong bi-bi takes this rule
+   ([Ping-pong mechanisms](@ref)).
+3. **Virtual constant term.** Otherwise take `D`'s terms in a fixed order (lowest total
    degree first, then fewest metabolites other than substrates, then metabolite order) and
    weigh the first affinely independent ones so that the product of their coefficients,
-   each to its weight, has `D`'s unit. A ping-pong bi-bi gets Cleland's normalizer this way
-   ([Ping-pong mechanisms](@ref)); fractional weights print as roots.
-3. **Ratio form.** When no such weights exist, the law reads some concentrations only
+   each to its weight, has `D`'s unit. Fractional weights print as roots.
+4. **Ratio form.** When no such weights exist, the law reads some concentrations only
    through their ratio, as a rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P`
    makes every term carry `B` or `P`. Divide by the first term in the same order; terms
    such as `P / B` are then dimensionless. That form divides by concentrations, so the

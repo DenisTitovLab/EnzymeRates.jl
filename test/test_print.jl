@@ -13,6 +13,16 @@ end
 _testhelper_conc_mono(L, ps::Pair{Symbol}...) =
     EnzymeRates._monomial((L.vars.index[x] => e for (x, e) in ps)...)
 
+# The right-hand side of the `N = …` line of mechanism `m`'s printed law.
+_testhelper_n_text(m) =
+    chopprefix(only(filter(startswith("N = "), split(rate_equation_string(m), '\n'))),
+               "N = ")
+
+# The value of `text`, an expression of a printed law, at the names `env`, in 256-bit
+# BigFloat.
+_testhelper_text_value(text, env) =
+    setprecision(() -> _testhelper_printed_value(Meta.parse(text), env), BigFloat, 256)
+
 # ── The unit rule (spec section 9) ───────────────────────────────────────────
 
 @testset "Michaelis–Menten takes its constant term" begin
@@ -33,10 +43,10 @@ _testhelper_conc_mono(L, ps::Pair{Symbol}...) =
     _testhelper_check_units(mech, L)
 end
 
-@testset "Segel Ping Pong Bi Bi takes the graded basis A, B, A·B" begin
-    # Rule 2: no constant term. A, B, P and Q (degree 1), then A·B, are affinely
-    # independent; the weights A:1, B:1, A·B:−1 solve Σλ = 1 and Σλ·a = 0, and P and Q
-    # weigh 0. Here the graded basis is Cleland's N: ΠS/X over each substrate X, over ΠS.
+@testset "Segel Ping Pong Bi Bi takes Cleland's normalizer" begin
+    # Rule 2: no constant term, and the denominator holds ΠS/A = B, ΠS/B = A and ΠS = A·B,
+    # so N is Cleland's, c(B)·c(A)/c(A·B): the weights B:1, A:1, A·B:−1. The graded basis
+    # A, B, P, Q, A·B puts the same weights on the same terms, so N has its value.
     pp = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -49,17 +59,24 @@ end
     end
     nz, L, mech = _testhelper_normalizer(pp)
     m(ps...) = _testhelper_conc_mono(L, ps...)
-    @test nz.rule === :graded
-    @test nz.lambda == [m(:A => 1) => 1 // 1, m(:B => 1) => 1 // 1,
+    @test nz.rule === :cleland
+    @test nz.lambda == [m(:B => 1) => 1 // 1, m(:A => 1) => 1 // 1,
                         m(:A => 1, :B => 1) => -1 // 1]
     @test isempty(nz.shift)
+    rng = Random.MersenneTwister(30)
+    env = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1) for x in L.vars.names)
+    graded = "(k_FB_to_E_Q + k_FB_to_F_B) * (k_EA_to_E_A + k_EA_to_F_P) / " *
+             "(k_EA_to_F_P + k_FB_to_E_Q)"
+    @test isapprox(_testhelper_text_value(_testhelper_n_text(pp), env),
+                   _testhelper_text_value(graded, env); rtol = 1e-20)
     _testhelper_check_units(mech, L)
 end
 
-@testset "Segel Bi Uni Uni Uni PP Ter Bi takes the graded basis with C" begin
-    # The degree-1 term C enters the basis before Cleland's monomials A·B, A·C, B·C, so
-    # the weights are C:2, A·B:1, A·C:−1, B·C:−1. The unit rule keeps this graded basis:
-    # N is not Cleland's N = c(B·C)·c(A·C)·c(A·B)/c(A·B·C)².
+@testset "Segel Bi Uni Uni Uni PP Ter Bi takes Cleland's normalizer" begin
+    # The denominator holds ΠS/X for each substrate, B·C, A·C and A·B, and ΠS = A·B·C, so
+    # N is Cleland's, c(B·C)·c(A·C)·c(A·B)/c(A·B·C)², before the graded basis, which takes
+    # the degree-1 term C first (C:2, A·B:1, A·C:−1, B·C:−1) and prints the product of two
+    # sums. Cleland's N is that product over a third sum squared.
     terbi = @enzyme_mechanism begin
         substrates: A, B, C
         products: P, Q
@@ -73,23 +90,28 @@ end
     end
     nz, L, mech = _testhelper_normalizer(terbi)
     m(ps...) = _testhelper_conc_mono(L, ps...)
-    @test nz.rule === :graded
-    @test nz.lambda == [m(:C => 1) => 2 // 1, m(:A => 1, :B => 1) => 1 // 1,
-                        m(:A => 1, :C => 1) => -1 // 1, m(:B => 1, :C => 1) => -1 // 1]
+    @test nz.rule === :cleland
+    @test nz.lambda == [m(:B => 1, :C => 1) => 1 // 1, m(:A => 1, :C => 1) => 1 // 1,
+                        m(:A => 1, :B => 1) => 1 // 1,
+                        m(:A => 1, :B => 1, :C => 1) => -2 // 1]
     rng = Random.MersenneTwister(31)
     env = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1) for x in L.vars.names)
     Dc = EnzymeRates._split_conc(L.D, L.vars)
     c(ps...) = _testhelper_poly_value(Dc[m(ps...)], L.vars, env)
     cleland = c(:B => 1, :C => 1) * c(:A => 1, :C => 1) * c(:A => 1, :B => 1) /
               c(:A => 1, :B => 1, :C => 1)^2
-    @test !isapprox(_testhelper_norm_value(nz, L.D, L.vars, env), cleland; rtol = 1e-6)
+    @test isapprox(_testhelper_norm_value(nz, L.D, L.vars, env), cleland; rtol = 1e-20)
+    graded_over_square = "(k_EAB_to_EA_B + k_EAB_to_F_P) * (k_FC_to_E_Q + k_FC_to_F_C) / " *
+                         "(k_FC_to_E_Q + k_EAB_to_F_P)^2"
+    @test isapprox(_testhelper_text_value(_testhelper_n_text(terbi), env),
+                   _testhelper_text_value(graded_over_square, env); rtol = 1e-20)
     _testhelper_check_units(mech, L)
 end
 
-@testset "the ping-pong power case puts A² before A·B" begin
-    # Census ping-pong mechanism 6e46f55b0b68e5d9. A² and A·B are both degree 2 with no
-    # non-substrate; the earlier name's larger exponent comes first, so A² joins A, B, P
-    # and Q in the basis, and the weights are A:2, A²:−1.
+@testset "the ping-pong power case takes Cleland's normalizer" begin
+    # Census ping-pong mechanism 6e46f55b0b68e5d9. Its denominator holds B, A and A·B, so
+    # N is Cleland's, with the weights B:1, A:1, A·B:−1, before the graded basis, which
+    # meets A² before A·B and puts its weights on A and A².
     power = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -104,9 +126,20 @@ end
     end
     nz, L, mech = _testhelper_normalizer(power)
     m(ps...) = _testhelper_conc_mono(L, ps...)
-    @test nz.rule === :graded
-    @test nz.lambda == [m(:A => 1) => 2 // 1, m(:A => 2) => -1 // 1]
+    @test nz.rule === :cleland
+    @test nz.lambda == [m(:B => 1) => 1 // 1, m(:A => 1) => 1 // 1,
+                        m(:A => 1, :B => 1) => -1 // 1]
     _testhelper_check_units(mech, L)
+end
+
+@testset "_term_key puts A² before A·B" begin
+    # A² and A·B are both degree 2 with no non-substrate; the exponent vector puts the
+    # earlier name's larger exponent first, so the graded basis meets A² first.
+    vars = EnzymeRates._Vars()
+    a = EnzymeRates._var!(vars, :A; conc = true)
+    b = EnzymeRates._var!(vars, :B; conc = true)
+    ab, a2 = EnzymeRates._monomial(a => 1, b => 1), EnzymeRates._monomial(a => 2)
+    @test sort([ab, a2]; by = mo -> EnzymeRates._term_key(mo, vars, [a, b])) == [a2, ab]
 end
 
 @testset "F1 divides by its first term, A" begin
@@ -191,9 +224,9 @@ end
     # Spec section 9: an MWC law normalizes each conformation's polynomials by that
     # conformation's rule, dividing its Q, D and free-E weight alike, so the MWC
     # combination does not change. A two-subunit ping-pong whose chemistry differs between
-    # the conformations takes Segel's graded basis in both. F3 with A's binding and the
-    # Theorell–Chance step :OnlyA takes the ratio form in the active conformation and the
-    # constant term in the inactive one, which keeps free E and E(Q).
+    # the conformations takes Cleland's normalizer in both, each on its own terms. F3 with
+    # A's binding and the Theorell–Chance step :OnlyA takes the ratio form in the active
+    # conformation and the constant term in the inactive one, which keeps free E and E(Q).
     pp2 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -222,10 +255,10 @@ end
         nI = EnzymeRates._normalizer(A.inactive.D, A.inactive.vars, subs)
         m(ps...) = _testhelper_conc_mono(A.active, ps...)
         if i == 1
-            segel = [m(:A => 1) => 1 // 1, m(:B => 1) => 1 // 1,
-                     m(:A => 1, :B => 1) => -1 // 1]
-            @test (nA.rule, nI.rule) == (:graded, :graded)
-            @test nA.lambda == nI.lambda == segel
+            cleland = [m(:B => 1) => 1 // 1, m(:A => 1) => 1 // 1,
+                       m(:A => 1, :B => 1) => -1 // 1]
+            @test (nA.rule, nI.rule) == (:cleland, :cleland)
+            @test nA.lambda == nI.lambda == cleland
         else
             @test (nA.rule, nI.rule) == (:ratio, :constant)
             @test nA.lambda == [m(:B => 1) => 1 // 1] && nA.shift == m(:B => 1)
@@ -350,9 +383,9 @@ end
     @test occursin(" + d_A²_B * A^2 * B + ", rate_equation_string(ro; coefficients = true))
     # The unit-rule testsets above pin the weights of F4, Segel's ter bi and the ping-pong
     # power case; N prints the normalizer's polynomial factor alone, its integer
-    # and monomial content moved into the coefficients. F4's is a sum squared. Segel's
-    # graded N is the product of two sums, where Cleland's would divide it by a third sum
-    # squared. The power case's is one sum squared, Cleland's N squared.
+    # and monomial content moved into the coefficients. F4's is a sum squared. Segel's,
+    # Cleland's normalizer, is the product of two sums over a third sum squared. The power
+    # case's, Cleland's too, is one sum.
     f4 = @enzyme_mechanism begin
         substrates: A
         products: P
@@ -378,9 +411,18 @@ end
              E(Q) + P ⇌ E(B, P; residual = A - P))
         end
     end
-    n_line(m) = only(filter(startswith("N = "), split(rate_equation_string(m), '\n')))
-    @test occursin(r"^N = \([^()]+\) \* \([^()]+\)$", n_line(terbi))
-    @test occursin(r"^N = \([^()]+\)\^2$", n_line(power))
+    @test _testhelper_n_text(terbi) ==
+          "(k_EAB_to_EA_B + k_EAB_to_F_P) * (k_FC_to_E_Q + k_FC_to_F_C) / " *
+          "(k_EAB_to_F_P + k_FC_to_E_Q)^2"
+    @test _testhelper_n_text(power) ==
+          "K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P * " *
+          "k_EBP_res_plusA_minusP_to_EP_res_plusA_minusP_B * " *
+          "k_EP_res_plusA_minusP_B_to_EBP_res_plusA_minusP * k_EQ_A_to_EAQ + " *
+          "K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P * " *
+          "k_EP_res_plusA_minusP_B_to_EBP_res_plusA_minusP * k_EQ_A_to_EAQ * " *
+          "k_EQ_to_E_Q + k_EBP_res_plusA_minusP_to_EP_res_plusA_minusP_B * k_EQ_to_E_Q * " *
+          "k_E_Q_to_EQ * Keq + k_EBP_res_plusA_minusP_to_EP_res_plusA_minusP_B^2 * " *
+          "k_E_Q_to_EQ * Keq"
     for m in (f1, f2, f2g, f3, f4, terbi, power)
         @test _testhelper_printed_law_error(m) <= big(10)^-20
         @test isempty(_testhelper_print_artifacts(rate_equation_string(m))) &&

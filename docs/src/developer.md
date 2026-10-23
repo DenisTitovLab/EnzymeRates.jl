@@ -129,9 +129,10 @@ local, so a `NamedTuple` in any field order works, and reciprocals and roots (`s
 `x^(one(x)/q)`) are computed once.
 
 `rate_equation_string` divides the law by the unit rule's normalizer (`_normalizer`,
-`src/normalize.jl`: the constant term, else a virtual one on the first affinely
-independent terms, else the ratio form), so every denominator term is dimensionless, and
-with `coefficients = true` prints it in named coefficients.
+`src/normalize.jl`: the constant term, else Cleland's normalizer when the denominator holds
+`ΠS/X` for every substrate `X` and `ΠS`, else a virtual constant term on the first
+affinely independent terms, else the ratio form), so every denominator term is
+dimensionless, and with `coefficients = true` prints it in named coefficients.
 
 `_canonical` (`src/key.jl`) labels a law canonically: each part to lowest terms, the fitted
 constants coloured by refinement on the term–constant incidence and individualized while

@@ -1,13 +1,14 @@
 # ABOUTME: The unit rule of a rate law: the normalizer that makes every denominator term
-# ABOUTME: dimensionless, by the constant term, a graded basis of terms or the ratio form.
+# ABOUTME: dimensionless, by the constant term, Cleland's terms, a graded basis or a ratio.
 
 """
 The normalizer of one conformation's denominator (`_normalizer`): `N = Π_m c(m)^λ_m ·
 x^shift` over the pairs `m => λ_m` of `lambda`, `c(m)` being the coefficient of the
 concentration monomial `m` in the denominator. `rule` names the case that chose it:
-`:constant`, the constant term; `:graded`, weights on the first affinely independent
-terms; `:ratio`, the first term, whose concentration monomial `shift` stays in `N`.
-`shift` is empty under the other two rules.
+`:constant`, the constant term; `:cleland`, Cleland's terms ΠS/X for each substrate X and
+ΠS; `:graded`, weights on the first affinely independent terms; `:ratio`, the first term,
+whose concentration monomial `shift` stays in `N`. `shift` is empty under the other three
+rules.
 """
 struct _Norm
     rule::Symbol
@@ -42,11 +43,15 @@ unit rule"). Every term of `D` has one unit, and every term divided by `N` is
 dimensionless. The first rule that applies gives `N`:
 
 1. `:constant`: `D` has a term free of concentrations, and `N` is its coefficient.
-2. `:graded`: taking the concentration monomials `m` of `D` in `_term_key` order, the
+2. `:cleland`: with `ΠS` the product of the `k` distinct substrates, `D` has the terms
+   `ΠS/X` for every substrate `X` and `ΠS`, and `N = Π_X c(ΠS/X) / c(ΠS)^(k - 1)`,
+   Cleland's normalizer: the substrate terms then read as products of Michaelis
+   constants. One substrate never takes it, since `ΠS/A` is the absent constant term.
+3. `:graded`: taking the concentration monomials `m` of `D` in `_term_key` order, the
    first ones whose vectors `[1; a_m]` (`a_m` the exponent vector) are affinely
    independent form a basis; when weights on the basis satisfy `Σ λ_m = 1` and
    `Σ λ_m·a_m = 0`, `N = Π c(m)^λ_m`. The weights are exact and may be fractional.
-3. `:ratio`: otherwise the law reads some concentrations only through their ratio, and
+4. `:ratio`: otherwise the law reads some concentrations only through their ratio, and
    `N` is the first term in that order, its concentration monomial included.
 
 Exact `Rational{Int}` arithmetic; an `OverflowError` escapes.
@@ -54,6 +59,11 @@ Exact `Rational{Int}` arithmetic; an `OverflowError` escapes.
 function _normalizer(D::_Poly, vars::_Vars, substrates::Vector{Int})
     Dc = _split_conc(D, vars)
     haskey(Dc, _Mono()) && return _Norm(:constant, Pair{_Mono, _Exp}[_Mono() => 1], _Mono())
+    subs = unique(substrates)
+    S = _monomial((v => 1 for v in subs)...)
+    cleland = Pair{_Mono, _Exp}[_mmul(S, _monomial(v => -1)) => 1 for v in subs]
+    push!(cleland, S => 1 - length(subs))
+    all(p -> haskey(Dc, p.first), cleland) && return _Norm(:cleland, cleland, _Mono())
     conc = findall(vars.conc)
     monos = sort!(collect(keys(Dc)); by = mo -> _term_key(mo, vars, substrates))
     column(mo) = _Exp[1; [_mexp(mo, v) for v in conc]]
