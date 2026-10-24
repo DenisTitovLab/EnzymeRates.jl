@@ -510,7 +510,7 @@ end
                 end
                 if r.L_phantom
                     m = EnzymeRates._parse_mechanism(r.mechanism)
-                    @test EnzymeRates._is_phantom(m, EnzymeRates._law(m))
+                    @test EnzymeRates._is_phantom(EnzymeRates._law(m))
                     @test r.L == 0.0 && r.fit_inherited
                 end
                 @test r.key == _testhelper_key_of(r.mechanism)
@@ -1915,7 +1915,7 @@ end
     # the fit's source, and the two rates agree.
     parent, phantom = _testhelper_phantom_pair()
     prob = _testhelper_uni_prob(NamedTuple)
-    @test EnzymeRates._is_phantom(phantom, EnzymeRates._law(phantom))
+    @test EnzymeRates._is_phantom(EnzymeRates._law(phantom))
     opt = _testhelper_SpreadStubOpt()
     batch_log = String[]
     entries, failures = EnzymeRates._process_batch(
@@ -1962,7 +1962,7 @@ end
             E(Q) + P ⇌ E(P, Q)        :: EqualAI
         end
     end)
-    @test EnzymeRates._is_phantom(m3268, EnzymeRates._law(m3268))
+    @test EnzymeRates._is_phantom(EnzymeRates._law(m3268))
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]
@@ -1980,6 +1980,58 @@ end
     @test !e.row.L_phantom && !e.row.fit_inherited
     @test e.fit_key == e.key
     @test e.n_params == 7 && e.row.params.L != 0.0
+end
+
+@testset "a phantom whose source lacks its constants is fitted itself" begin
+    # The uni-uni at one catalytic subunit with S's and P's bindings :EqualAI, the
+    # chemistry :OnlyA and a regulatory site whose one ligand R is :EqualAI. The site's
+    # factor is the same in both conformations, so the certificate holds, and the law at
+    # L = 0 is the law of the plain uni-uni beside it in the batch, which lacks R's
+    # constant. Reading that fit would leave R's constant without a value, so the variant
+    # is fitted itself under its own key, unflagged, its L fitted. The enumerator never
+    # writes an all-:EqualAI site, so the variant is written by hand.
+    plain =EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    regulated = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R
+        catalytic_multiplicity: 1
+        steps: begin
+            E + S ⇌ E(S)       :: EqualAI
+            E(S) <--> E(P)     :: OnlyA
+            E + P ⇌ E(P)       :: EqualAI
+        end
+        regulatory_site(1): R::EqualAI
+    end)
+    A = EnzymeRates._law(regulated)
+    @test EnzymeRates._is_phantom(A)
+    @test EnzymeRates._canonical(A.active, "regulated").key ==
+          EnzymeRates._canonical(EnzymeRates._law(plain), "plain").key
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R
+    end
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4], R = [0.5, 1.0, 0.5, 1.0])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq = 10.0)
+    opt = _testhelper_SpreadStubOpt()
+    entries, failures = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[regulated, plain],
+        prob; optimizer = opt, max_param_count = 20, n_restarts = 1, maxtime = 1.0)
+    @test opt.count == 2 && isempty(failures)
+    e = only(filter(e -> e.mech == regulated, entries))
+    @test !e.row.L_phantom && !e.row.fit_inherited
+    @test e.fit_key == e.key
+    @test e.n_params == 5 && e.row.params.L != 0.0
 end
 
 @testset "a phantom reads its source's fold losses" begin

@@ -12536,7 +12536,7 @@ end
     # The K-type child is an L phantom (spec section 13): one catalytic subunit, an
     # inactive conformation that is free E alone, and a rescaling certificate that maps
     # it onto the law of its catalytic mechanism.
-    @test EnzymeRates._is_phantom(k_type, EnzymeRates._law(k_type))
+    @test EnzymeRates._is_phantom(EnzymeRates._law(k_type))
     @test _testhelper_phantom_map_holds(k_type; rng = Random.MersenneTwister(1))
 end
 
@@ -12634,13 +12634,11 @@ end
     for k in (only_a, a_and_q)
         @test _testhelper_identifiable_rank(k) == 3
     end
-    # Only a_and_q is an L phantom. only_a and only_q keep a binding at free E in the
-    # inactive conformation, so the pre-filter fits them, though each has a certificate.
-    @test EnzymeRates._is_phantom(a_and_q, EnzymeRates._law(a_and_q))
-    @test _testhelper_phantom_map_holds(a_and_q; rng = Random.MersenneTwister(2))
-    for k in (only_a, only_q)
-        @test !EnzymeRates._is_phantom(k, EnzymeRates._law(k))
-        @test !isempty(EnzymeRates._phantom_weights(EnzymeRates._law(k)))
+    # All three are L phantoms, each mapped onto the parent's law by its certificate,
+    # only_a and only_q though their inactive conformation keeps a binding at free E.
+    for k in (only_a, only_q, a_and_q)
+        @test EnzymeRates._is_phantom(EnzymeRates._law(k))
+        @test _testhelper_phantom_map_holds(k; rng = Random.MersenneTwister(2))
     end
 end
 
@@ -12748,7 +12746,7 @@ end
         @test _testhelper_fitted(k) == _testhelper_identifiable_rank(k) == 6
     end
     # At two subunits no variant is an L phantom.
-    @test !any(k -> EnzymeRates._is_phantom(k, EnzymeRates._law(k)), kids)
+    @test !any(k -> EnzymeRates._is_phantom(EnzymeRates._law(k)), kids)
 end
 
 @testset "_expand_to_allosteric on a merged bi-bi whose B group mixes fused and plain" begin
@@ -12857,13 +12855,14 @@ end
         @test _testhelper_fitted(k) == 6 && _testhelper_identifiable_rank(k) == 5
     end
     # The two whose inactive conformation binds nothing are L phantoms, each mapped onto
-    # the parent's law by its certificate; the five that keep a binding there are fitted.
+    # the parent's law by its certificate; the five that keep a binding there have no
+    # certificate and are fitted.
     for k in (a_and_q, all_three)
-        @test EnzymeRates._is_phantom(k, EnzymeRates._law(k))
+        @test EnzymeRates._is_phantom(EnzymeRates._law(k))
         @test _testhelper_phantom_map_holds(k; rng = Random.MersenneTwister(3))
     end
     for k in (only_a, only_p, only_q, a_and_p, p_and_q)
-        @test !EnzymeRates._is_phantom(k, EnzymeRates._law(k))
+        @test !EnzymeRates._is_phantom(EnzymeRates._law(k))
     end
 end
 
@@ -12940,14 +12939,13 @@ end
     for k in (only_q, only_p, p_and_q)
         @test _testhelper_fitted(k) == _testhelper_identifiable_rank(k) == 6
     end
-    # None is an L phantom. only_q and p_and_q bind nothing in the inactive conformation
-    # and pass the pre-filter, but L raises their rank and no certificate exists; only_p
-    # keeps Q's binding there.
+    # None is an L phantom: L raises every child's rank, so no certificate exists, though
+    # only_q and p_and_q bind nothing in the inactive conformation.
     for k in (only_q, p_and_q)
         @test !any(EnzymeRates._inactive_mask(k))
         @test isempty(EnzymeRates._phantom_weights(EnzymeRates._law(k)))
     end
-    @test !any(k -> EnzymeRates._is_phantom(k, EnzymeRates._law(k)),
+    @test !any(k -> EnzymeRates._is_phantom(EnzymeRates._law(k)),
                (only_q, only_p, p_and_q))
 end
 

@@ -327,8 +327,9 @@ rescaling absorbs an A or Q binding kept there. Binding nothing is not enough:
 in a random-order merged bi-bi, whose A group takes A up at E and at E(B) under
 one rate constant, `L` shows in every K-type variant. The engine emits the variants where
 `L` is a phantom all the same, since their children can carry laws the parent's children
-lack. A variant whose inactive conformation binds nothing and whose `L` an exact
-rescaling of its active constants absorbs is an L phantom: when a mechanism with its
+lack. A one-subunit variant whose inactive conformation turns nothing over and whose `L`
+an exact rescaling of its other constants absorbs is an L phantom, whatever that
+conformation binds: when a mechanism with its
 active conformation's law was fitted earlier in the search or is fitted in the phantom's
 own iteration, identify does not fit the phantom but reads that fit with `L = 0` and flags
 the row (`L_phantom` in the CSVs). Any other variant, a phantom met before any such fit

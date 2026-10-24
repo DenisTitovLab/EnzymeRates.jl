@@ -297,17 +297,56 @@ end
          if !A.vars.conc[v] && !(A.vars.names[v] in (:Keq, :L))]
     @test θ == [:K_A_EP_to_E_P, :k_A_E_S_to_EP]
     @test EnzymeRates._phantom_weights(A) == [1 // 1, -1 // 1]
-    @test EnzymeRates._is_phantom(am, A)
+    @test EnzymeRates._is_phantom(A)
     @test _testhelper_phantom_map_holds(am; rng = Random.MersenneTwister(21))
 end
 
-@testset "no phantom without the pre-filter's conditions" begin
-    # The spec's pre-filter stays, and the certificate runs inside it. The merged
-    # uni-uni K-type at two subunits, with P's binding :NonequalAI (the inactive
-    # conformation binds P), and with an :OnlyI site ligand fails the pre-filter and has
-    # no certificate. With an :OnlyA site ligand it passes the pre-filter, but the
-    # regulator reveals L and no certificate exists. The Theorell–Chance K-type only_a
-    # has a certificate, yet its inactive conformation binds Q at free E, so it is fitted.
+@testset "an inactive conformation that binds substrate can be an L phantom" begin
+    # The uni-uni at one catalytic subunit with S's and P's bindings :EqualAI and the
+    # chemistry :OnlyA. The inactive conformation binds S and P under the active
+    # conformation's constants and turns nothing over, so its denominator is the active
+    # one's, Y = X, and the law is v = N/((1 + L)·X): the certificate scales the turnover
+    # constant by 1/(1 + L) and leaves both dissociation constants, so the variant is an
+    # L phantom though its inactive conformation binds. With S's binding :NonequalAI the
+    # inactive conformation binds S under a constant of its own, a term the active
+    # conformation lacks, and no certificate exists.
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 1
+        steps: begin
+            E + S ⇌ E(S)       :: EqualAI
+            E(S) <--> E(P)     :: OnlyA
+            E + P ⇌ E(P)       :: EqualAI
+        end
+    end)
+    A = EnzymeRates._law(am)
+    @test EnzymeRates._is_phantom(A)
+    θ = [A.vars.names[v] for v in eachindex(A.vars.names)
+         if !A.vars.conc[v] && !(A.vars.names[v] in (:Keq, :L))]
+    @test θ == [:K_EP_to_E_P, :K_ES_to_E_S, :k_A_ES_to_EP]
+    @test EnzymeRates._phantom_weights(A) == [0 // 1, 0 // 1, -1 // 1]
+    @test _testhelper_phantom_map_holds(am; rng = Random.MersenneTwister(22))
+    s_relaxed = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 1
+        steps: begin
+            E + S ⇌ E(S)       :: NonequalAI
+            E(S) <--> E(P)     :: OnlyA
+            E + P ⇌ E(P)       :: EqualAI
+        end
+    end)
+    @test !EnzymeRates._is_phantom(EnzymeRates._law(s_relaxed))
+end
+
+@testset "the certificate alone decides an L phantom" begin
+    # The merged uni-uni K-type at two subunits, with P's binding :NonequalAI (the
+    # inactive conformation binds P under a constant of its own), and with an :OnlyI site
+    # ligand has no certificate. With an :OnlyA site ligand its inactive conformation
+    # binds nothing, but the regulator reveals L and no certificate exists. The
+    # Theorell–Chance K-type only_a binds Q at free E in its inactive conformation, yet its
+    # certificate maps it onto its law at L = 0, so it is an L phantom.
     two_subunits = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
@@ -354,15 +393,13 @@ end
             E + Q ⇌ E(Q)                :: EqualAI
         end
     end)
-    for am in (two_subunits, p_relaxed, onlyi_site, onlya_site, only_a)
-        @test !EnzymeRates._is_phantom(am, EnzymeRates._law(am))
-    end
     for am in (two_subunits, p_relaxed, onlyi_site, onlya_site)
-        @test isempty(EnzymeRates._phantom_weights(EnzymeRates._law(am)))
+        @test !EnzymeRates._is_phantom(EnzymeRates._law(am))
     end
     @test !any(EnzymeRates._inactive_mask(onlya_site))
-    @test !isempty(EnzymeRates._phantom_weights(EnzymeRates._law(only_a)))
+    @test EnzymeRates._is_phantom(EnzymeRates._law(only_a))
     @test any(EnzymeRates._inactive_mask(only_a))
+    @test _testhelper_phantom_map_holds(only_a; rng = Random.MersenneTwister(23))
 end
 
 @testset "a certificate's rows overflow to no certificate" begin

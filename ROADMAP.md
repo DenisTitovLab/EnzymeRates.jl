@@ -166,7 +166,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   Several phantom classes make the beam count a model above its true dimension: chain
   flanks kept after a later split, copy-copy twin pairs, `:NonequalAI` copies and the
   iso dwell-time gauge. The one-subunit L has an exact test of its own: identify finds
-  an L phantom whose inactive conformation binds nothing by a rescaling certificate
+  an L phantom whose inactive conformation turns nothing over by a rescaling certificate
   (`_phantom_weights`, `src/key.jl`) and, when a mechanism with its law at L = 0 was
   fitted in an earlier batch or is fitted in the phantom's own, lets it read that fit. The
   rank of ∂v/∂log θ modulo a prime at random points of the derived law (`_law`,
@@ -184,7 +184,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   conformations. At one subunit an L phantom's flank flip stays invisible, so the move
   emits a phantom whose law at L = 0 no plain mechanism of the search holds, and
   identify fits it as an ordinary candidate (census #3268; the phase-5 research found
-  18 such bi-bi variants on 8 keys in a sampled round 2). Applying the exclusion to
+  62 such bi-bi variants on 16 keys in a sampled round 2). Applying the exclusion to
   one-subunit variants would drop these fits; first check that no other law becomes
   unreachable.
 - **Seed each identify fit from its mechanism's content.**

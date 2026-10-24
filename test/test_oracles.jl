@@ -1506,8 +1506,8 @@ end
     parents = _testhelper_spaced(collect(EnzymeRates.init_mechanisms(rxn)), 40)
     kids = _testhelper_spaced(_testhelper_tagging_children(parents, rxn), 200)
     @test length(kids) == 200
-    flagged = [am for am in kids if EnzymeRates._is_phantom(am, EnzymeRates._law(am))]
-    @test length(flagged) == 21
+    flagged = [am for am in kids if EnzymeRates._is_phantom(EnzymeRates._law(am))]
+    @test length(flagged) == 69
     rng = Random.MersenneTwister(505)
     @test all(am -> _testhelper_phantom_map_holds(am; rng), flagged)
     for am in first(flagged, 4)
@@ -1519,10 +1519,10 @@ end
 @testset "no one-subunit ping-pong tagging child is an L phantom" begin
     # The tagging children at one catalytic subunit of 30 ping-pong parents,
     # the covalent init mechanisms and their well-posed covalent flips, spaced through
-    # their content order. Every child keeps a step in the inactive conformation, so the
-    # pre-filter fits it, and none has a certificate, so dropping the pre-filter
-    # would flag none either. The counts are aggregate regression pins over the
-    # declaration's seed set (CLAUDE.md enumeration rule 1's exception).
+    # their content order. Every child keeps a step in the inactive conformation, and
+    # none has a certificate, so none is an L phantom. The counts are aggregate
+    # regression pins over the declaration's seed set (CLAUDE.md enumeration rule 1's
+    # exception).
     rxn = _testhelper_phantom_pingpong_rxn
     covalent(m) = any(EnzymeRates._has_residual, m.forms)
     inits = filter(covalent, collect(EnzymeRates.init_mechanisms(rxn)))

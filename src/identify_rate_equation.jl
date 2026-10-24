@@ -539,12 +539,13 @@ mechanism with that key reads it through its own canonical order, so its row car
 own parameter names: same law ⟹ same fitted values and same rescaling, so no refit is
 needed. `memo` persists across iterations (threaded from `_beam_search`), so a law fit in
 an earlier iteration is never refit. A representative whose fit throws fails ALL the
-mechanisms with its key (all-or-nothing per law). An L phantom (`_is_phantom`: one catalytic
-subunit, an inactive conformation that binds nothing, and a rescaling certificate) is never
-a representative. It reads the fit of its law at `L = 0`, its active law's key (`fit_key`),
-from `memo` or from this batch's representatives, through its own order and with `L = 0`,
-and its row sets `L_phantom`. A phantom whose law at `L = 0` has no fit there is fitted as
-an ordinary candidate; one whose source's fit throws fails with the source's error. A row's
+mechanisms with its key (all-or-nothing per law). An L phantom (`_is_phantom`: a rescaling
+certificate, which needs one catalytic subunit and an inactive conformation that turns
+nothing over) is never a representative. It reads the fit of its law at `L = 0`, its active
+law's key (`fit_key`), from `memo` or from this batch's representatives, through its own
+order and with `L = 0`, and its row sets `L_phantom`. A phantom whose law at `L = 0` has no
+fit there, or lacks one of its other fitted constants, is fitted as an ordinary candidate;
+one whose source's fit throws fails with the source's error. A row's
 `fit_inherited` is `false` when its mechanism is its fit's source and `true` otherwise, and
 `fit_source_id` names the source. `parent_of` maps a child to its parent's `BatchEntry`,
 which fills the row's parent columns. `entries::Vector{BatchEntry}` are the mechanisms with
@@ -584,10 +585,11 @@ function _process_batch(
                 id = _mechanism_id(text)
                 canon = _canonical(L, id)
                 # An L phantom reads the fit of its law at L = 0, its active law, when that
-                # law holds every fitted constant but L. The certificate rules out a phantom
-                # with regulator constants; the check keeps a row from reading names its fit
-                # lacks.
-                phantom = m isa AllostericMechanism && _is_phantom(m, L)
+                # law holds every fitted constant but L. A regulatory site whose ligands are
+                # all :EqualAI has one factor in both conformations, so the certificate
+                # admits it, yet the active law lacks its constants: the check fits such a
+                # phantom itself, so a row never reads names its fit lacks.
+                phantom = m isa AllostericMechanism && _is_phantom(L)
                 canon0 = phantom ? _canonical(L.active, id) : canon
                 if phantom && Set(canon0.order) != Set(s.fitted[1:(end - 1)])
                     phantom, canon0 = false, canon

@@ -230,14 +230,11 @@ function _phantom_weights(A::_AlloLaw)
 end
 
 """
-    _is_phantom(am, A) -> Bool
+    _is_phantom(A) -> Bool
 
-Whether the allosteric mechanism `am`, whose MWC law is `A`, is a one-subunit L phantom
-(spec section 13): one catalytic subunit, an inactive conformation that binds nothing and
-runs no step (no edge in `_inactive_mask`), only `:OnlyA` site ligands, and a rescaling
-certificate (`_phantom_weights`), so its family is the family of its law at `L = 0`.
+Whether a mechanism whose MWC law is `A` is a one-subunit L phantom (spec section 13): `A`
+has a rescaling certificate (`_phantom_weights`), which requires one catalytic subunit and
+an inactive conformation that turns nothing over, so the mechanism's family is the family
+of its law at `L = 0`.
 """
-_is_phantom(am::AllostericMechanism, A::_AlloLaw) =
-    catalytic_multiplicity(am) == 1 && !any(_inactive_mask(am)) &&
-    all(site -> all(==(:OnlyA), allo_states(site)), regulatory_sites(am)) &&
-    !isempty(_phantom_weights(A))
+_is_phantom(A::_AlloLaw) = !isempty(_phantom_weights(A))

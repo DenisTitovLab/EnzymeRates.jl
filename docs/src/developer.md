@@ -140,10 +140,11 @@ colours tie, the concentrations by name. The SHA-256 of its text is the law's ke
 identify fits one mechanism per law and reads that fit through each mechanism's own names
 (the canonical order). At 100 labellings the search stops, and the law takes its
 mechanism's own key. The L-phantom certificate (`_phantom_weights`) solves exactly for a
-rescaling of the active constants that absorbs `L` in a one-subunit variant whose inactive
-conformation binds nothing (free E alone, every regulator `:OnlyA`); such a variant reads
-the fit of its active law when a mechanism with that law was fitted in an earlier batch or
-is fitted in the variant's own (`_process_batch`).
+rescaling of the other constants that absorbs `L` in a one-subunit variant whose inactive
+conformation turns nothing over, and it alone decides an L phantom (`_is_phantom`). Such a
+variant reads the fit of its active law when that law holds every fitted constant but `L`
+and a mechanism with that law was fitted in an earlier batch or is fitted in the variant's
+own (`_process_batch`).
 
 ## Well-posedness guard
 
