@@ -871,9 +871,11 @@ function _beam_search(
     # mechanism), and its FIRST production is its best beam-selection chance —
     # the width-floor budget (`expanded_by_count`) only shrinks, the loss cutoff
     # (`best_loss_by_count` running min) only tightens, and a selected key stays
-    # selected (`selected_keys`), so anything a later
-    # re-production would select was selected on the first. If `_select_count!`
-    # ever gains a non-monotone budget, this invariant breaks.
+    # selected (`selected_keys`), so, at the loss its first production read, anything
+    # a later re-production would select was selected on the first. An L phantom first
+    # fitted under its own key is the exception: re-produced once its source's law is
+    # fitted, it would read that fit's loss, which a later cutoff may admit. If
+    # `_select_count!` ever gains a non-monotone budget, this invariant breaks.
     seen = Set{UInt64}()
     # Every mechanism_id the run's CSVs hold, with its mechanism's text
     # (`_write_rows_csv!`).
