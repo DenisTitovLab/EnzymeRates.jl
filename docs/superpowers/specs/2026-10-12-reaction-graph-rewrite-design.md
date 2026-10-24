@@ -256,6 +256,9 @@ at the reaction, not inside enumeration.
   (section 13) and a peak-at-range-edge flag (section 12). Proposed column names:
   `mechanism`, `mechanism_id`, `parent_id`, `key`, `fit_inherited`, `fit_source_id`,
   `L_phantom` and `peak_at_range_edge` (section 18).
+- The CSV's `rate_equation` column holds each law's coefficient form
+  (`rate_equation_string(m; coefficients = true)`, section 9), since users browse the laws
+  there and skim their terms; `rate_equation_string` prints the full law by default.
 
 ## 6. Thermodynamics, names and the parameter API (phase 2)
 
@@ -516,34 +519,45 @@ After the solve is substituted, the numerator is divided exactly by the Haldane 
 All denominator terms share one unit. Dividing numerator and denominator by a normalizer
 with that unit makes every denominator term dimensionless:
 
-1. **Constant term.** If the denominator has one, divide by it. Each term is then an enzyme
-   form's abundance relative to free E (Michaelis–Menten: `1 + S/K_m`).
-2. **Virtual constant term.** Otherwise solve the units equation: weights `λ_m` over the
+1. **Constant term.** If the denominator has one, divide by it. Every term is then
+   dimensionless; in a rapid-equilibrium law whose only form that binds nothing is free E,
+   the constant term is free E's weight, and the denominator sums the enzyme forms'
+   abundances relative to free E (Michaelis–Menten: `1 + S/K_m`).
+2. **Cleland's normalizer.** Otherwise, when the denominator holds the term `ΠS/X` for
+   every substrate `X` and the term `ΠS`, `ΠS` being the product of the `n` distinct
+   substrates, divide by `N = Π_X c(ΠS/X) / c(ΠS)^(n−1)`, `c(m)` being the coefficient of
+   the term `m` (ping-pong bi-bi: `K_a·K_b`). The substrate terms then read as products
+   of Michaelis constants, `A·B·C/(K_a·K_b·K_c)`. A one-substrate law never takes this
+   rule: its `ΠS/A` is the constant term.
+3. **Virtual constant term.** Otherwise solve the units equation: weights `λ_m` over the
    denominator terms with `Σ λ_m = 1` and `Σ λ_m · a_m = 0`, `a_m` being a term's
-   concentration-exponent vector; the normalizer is `Π c_m^λ_m`. Cleland's
-   `N = Π_X c(ΠS/X) / c(ΠS)^(n−1)` is one solution (ping-pong bi-bi: `K_a·K_b`).
+   concentration-exponent vector; the normalizer is `Π c_m^λ_m`.
    Fractional weights are allowed and print as roots. To make the choice unique, terms are
    taken in a fixed order (lowest total degree first, then fewest non-substrate
    metabolites, then metabolite order: substrates, products, then the other names, each by
    name); the first affinely independent ones form the basis, and λ is the unique solution
    on that basis.
-3. **Ratio form.** If no solution exists, the law depends on some concentrations only
+4. **Ratio form.** If no solution exists, the law depends on some concentrations only
    through their ratio (a rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P`
    makes every term carry B or P). Divide by the first term in the same order; terms such
    as `(P/B)·c` are dimensionless.
 
-When the normalizer has a factor that is not a monomial, that factor prints once as
-`N = …`. An allosteric law normalizes each conformation's polynomials by that
-conformation's own rule. The rule divides a conformation's numerator, partition function
-and free-E weight alike, so the MWC combination, which reads their ratios, is unchanged.
+When the normalizer has a factor that is not a monomial, or an integer to a fractional
+power, that factor prints once as `N = …`. An allosteric law normalizes each conformation's
+polynomials by that conformation's own rule. The rule divides a conformation's numerator,
+partition function and free-E weight alike, so the MWC combination, which reads their
+ratios, is unchanged.
 
 ### Printing (E8, C10)
 
 - `rate_equation_string` prints v in the independent parameters. Each Haldane and
   Wegscheider relation prints as a reference line.
-- Next to it, the coefficient form:
-  `v = E_total·n_0·(A·B − P·Q/Keq) / (1 + d_A·A + d_B·B + d_A_B·A·B + …)`, then one legend
-  line per coefficient in the fitted constants. A coefficient is named by the monomial it
+- Next to it, the coefficient form (`coefficients = true`), in the order it evaluates: the
+  `params` and `concs` lines, a comment line, `N` when it prints (`N_A` and `N_I` in an
+  allosteric law), one line per coefficient in the fitted constants, in an allosteric law
+  the polynomials `Q_c`, `D_c` and `F_c` in those coefficients and the site factors `W_c`,
+  and last `v = E_total·n_0·(A·B − P·Q/Keq) / (1 + d_A·A + d_B·B + d_A_B·A·B + …)`. The
+  reference lines print only in the full law. A coefficient is named by the monomial it
   multiplies, a power as a superscript (`d_A²_B`) and, in the ratio form, a reciprocal as
   a superscript minus one (`d_P_B⁻¹` for P/B; proposal, section 18).
 - Allosteric laws print each conformation's polynomials, then the MWC combination.
@@ -577,8 +591,10 @@ keys; the census found such pairs, and they are fitted separately.
   fits two same-key mechanisms whose fitted names differ. The cross-validation candidate
   list (`_offer_cv!`) deduplicates by key.
 - One-subunit L phantoms (section 13) inherit the fit of the mechanism that holds the key
-  of their law at L = 0 (often the parent) and are flagged; that mechanism has another
-  key, so section 13 defines how the fit maps onto the variant.
+  of their law at L = 0 (often the parent) when that fit was made in an earlier iteration
+  or is made in their own, and are flagged; that mechanism has another key, so section 13
+  defines how the fit maps onto the variant. Otherwise a phantom is fitted itself,
+  unflagged.
 - The beam counts each key once, so duplicates cannot crowd out distinct candidates, and
   expands every member of a selected key, so no law becomes unreachable.
 
@@ -675,18 +691,21 @@ so the fitter fixes it after the fit (E9).
   conformation never reaches) stay in the frontier and share one fit through the key
   (phase 5).
 - **One-subunit L phantoms** stay in the frontier, inherit the fit of the mechanism that
-  holds the key of their law at L = 0, their source (often the parent), and are flagged
-  (phase 5). A variant is an L phantom when its inactive conformation binds nothing and
-  does not catalyze and, inside that pre-filter, an exact rescaling certificate in `src/`
-  (`key.jl`) shows that its family is the family of its law at L = 0; identifiable ranks
+  holds the key of their law at L = 0, their source (often the parent), when that fit was
+  made in an earlier iteration or is made in their own, and are flagged (phase 5). A
+  variant is an L phantom when an exact rescaling certificate in `src/` (`key.jl`) shows
+  that its family is the family of its law at L = 0. The certificate alone decides: it
+  needs one catalytic subunit and an inactive conformation that turns nothing over,
+  whatever that conformation binds, and nothing screens a variant first; identifiable ranks
   are test oracles. As L → 0 the variant's law becomes the source's, up to the names of
   its constants, so its reported fit is the source's constants under the variant's names
   with L = 0, and the source's loss. In the beam and in cross-validation it counts its
   own `length(fitted_params)` (B9). Cross-validation does not refit it either: on every
   fold its best fit equals the source's, so it takes the source's fold losses. Its CSV row
   records the fit source's `mechanism_id` and the L-phantom flag (section 5). A phantom
-  whose law at L = 0 no mechanism of the search holds is fitted as an ordinary candidate,
-  unflagged, and a variant whose inactive conformation binds something is fitted.
+  is fitted as an ordinary candidate, unflagged, when no mechanism of the search has fitted
+  its law at L = 0 by the end of the phantom's own iteration, or when that law lacks one
+  of the phantom's fitted constants other than L.
 
 ## 14. Testing
 
