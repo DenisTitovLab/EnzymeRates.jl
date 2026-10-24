@@ -113,7 +113,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     #     gate), then the first rate_equation call. init_mechanisms compiles none of
     #     the @generated rate_equation body, so the first call costs what it costs in
     #     a process that never ran init_mechanisms.
-    #     The script first counts the `_rate_body` specializations in the package image.
+    #     Before both, the script counts the package image's `_rate_body` specializations.
     #   - fit: the identify path on bi-bi mechanisms, step for step as _process_batch
     #     and _cv_fold_loss take it: PASS1 (complexity, the guard, the solve and its
     #     fitted count, the law and class 5, the printed law, and the mechanism's text, id
