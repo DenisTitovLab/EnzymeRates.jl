@@ -167,8 +167,11 @@ next-level beam if either:
   per-count allowance that expands at least `min_beam_width`
   keys at each count over the whole search, then stops —
   spent once, not re-granted each time the count is revisited.
-  A key keeps its verdict: a mechanism found later with a key
-  already selected expands, one with a key already rejected does not.
+  A selected key keeps its verdict: a mechanism found later with a
+  key already selected expands. One found later with a key already
+  rejected is judged again and, at the same loss, rejected again,
+  since the cutoff only tightens and a rejection by rank spends the
+  budget.
 
 The additive term protects against `best_loss` approaching zero
 (simulated / very-low-loss data) where a purely multiplicative
@@ -309,23 +312,23 @@ Select this sweep's parents among the count-`c` mechanisms with `losses` and rat
 keys `law_keys`, and advance the cumulative floor budget. The beam ranks keys, not
 mechanisms: the mechanisms of one key share one fit (`_process_batch`), so a key enters
 at its lowest loss, takes one rank and spends one unit of budget, and duplicates cannot
-crowd out a distinct key. A key this sweep meets for the first time is selected if
-either:
+crowd out a distinct key. A key not yet in `selected` is selected if either:
   • its loss ≤ cutoff, where
     cutoff = min(loss_rel_threshold * best_loss_by_count[c] + loss_abs_threshold,
                  loss_parsimony_threshold * best(<c))
     and best(<c) is the best loss over ALL counts strictly below c (not just c-1): an
     added parameter must beat the best simpler model of any size. The parsimony term
     only tightens the cutoff, and is dropped while no smaller count has been fit,
-  • OR its rank (1-indexed by ascending loss among this sweep's new keys) is within the
-    *cumulative* floor budget. `expanded[c]` counts the keys at count `c` the whole
-    search has selected so far; the width floor may add at most
+  • OR its rank (1-indexed by ascending loss among this sweep's keys not yet selected) is
+    within the *cumulative* floor budget. `expanded[c]` counts the keys at count `c` the
+    whole search has selected so far; the width floor may add at most
     `min_beam_width - expanded[c]` more. Once the budget is spent, only the loss cutoff
     admits at that count.
-A new key joins `selected` or `rejected` and keeps that verdict for the rest of the
-search: a later member of a selected key is returned without spending budget, and a
-later member of a rejected key is not. Returns the indices, in input order, of every
-mechanism whose key is selected.
+A selected key joins `selected` and keeps that verdict for the rest of the search: a
+later member of it is returned without spending budget. A rejected key is judged again by
+the same rule when a later sweep meets it, and at the same loss it is rejected again,
+since the cutoff only tightens and a rejection by rank spends the budget. Returns the
+indices, in input order, of every mechanism whose key is selected.
 
 Every loss is finite: a failed or non-converging fit (`Inf`, `NaN`) should not
 propagate to the next level, so `_ingest!` keeps it out of the frontier.
@@ -335,24 +338,23 @@ function _select_count!(
     losses::AbstractVector{<:Real}, law_keys::AbstractVector{String};
     loss_rel_threshold::Float64, loss_abs_threshold::Float64,
     loss_parsimony_threshold::Float64, min_beam_width::Int,
-    selected::Set{String}, rejected::Set{String},
+    selected::Set{String},
 )
     cutoff = loss_rel_threshold * best_loss_by_count[c] + loss_abs_threshold
     smaller = [l for (k, l) in best_loss_by_count if k < c]
     isempty(smaller) ||
         (cutoff = min(cutoff, loss_parsimony_threshold * minimum(smaller)))
     budget = max(0, min_beam_width - get(expanded, c, 0))
-    # The keys this sweep meets for the first time, in input order, each at its lowest
-    # loss.
+    # The keys not yet selected, in input order, each at its lowest loss.
     fresh, lowest = String[], Dict{String,Float64}()
     for (l, k) in zip(losses, law_keys)
-        (k in selected || k in rejected) && continue
+        k in selected && continue
         haskey(lowest, k) || push!(fresh, k)
         lowest[k] = min(get(lowest, k, Inf), l)
     end
     for (rank, j) in enumerate(sortperm([lowest[k] for k in fresh]))
         k = fresh[j]
-        push!(lowest[k] <= cutoff || rank <= budget ? selected : rejected, k)
+        (lowest[k] <= cutoff || rank <= budget) && push!(selected, k)
     end
     expanded[c] = get(expanded, c, 0) + count(in(selected), fresh)
     # Indices in original (input) order, so callers do not rely on the by-loss sort
@@ -731,6 +733,29 @@ function _offer_cv!(pool::Vector{BatchEntry}, e::BatchEntry, n::Int)
 end
 
 """
+One sweep of the beam: pop every `frontier` bucket at a count up to `target` and return
+the entries whose key `_select_count!` selects, bucket by bucket in the frontier's key
+order (each bucket holds one count). `expanded`, `best_loss_by_count` and `selected` are
+the search's state, which `_select_count!` reads and advances.
+"""
+function _sweep_parents!(
+    frontier::Dict{Int, Vector{BatchEntry}}, target::Int, expanded::Dict{Int, Int},
+    best_loss_by_count::Dict{Int, Float64}, selected::Set{String};
+    loss_rel_threshold, loss_abs_threshold, loss_parsimony_threshold, min_beam_width,
+)
+    parents = BatchEntry[]
+    for c in filter(<=(target), collect(keys(frontier)))
+        entries_at_count = pop!(frontier, c)
+        sel = _select_count!(expanded, best_loss_by_count, c,
+            [e.loss for e in entries_at_count], [e.key for e in entries_at_count];
+            loss_rel_threshold, loss_abs_threshold, loss_parsimony_threshold,
+            min_beam_width, selected)
+        append!(parents, entries_at_count[sel])
+    end
+    parents
+end
+
+"""
 Expand every selected parent into its children across the workers, then merge
 serially. `pmap` preserves input order, so iterating `zip(to_expand, results)`
 reproduces the serial loop's first-parent-wins dedup, child order, and failure
@@ -832,9 +857,10 @@ function _beam_search(
     # Keys selected so far per parameter count — the cumulative floor budget. Spent once
     # over the whole search, never re-granted per sweep.
     expanded_by_count = Dict{Int, Int}()
-    # Each key's verdict (`_select_count!`), kept for the whole search: a late member of
-    # a selected key expands without budget, a late member of a rejected key stays out.
-    selected_keys, rejected_keys = Set{String}(), Set{String}()
+    # The keys selected so far (`_select_count!`), kept for the whole search: a late
+    # member of a selected key expands without budget, and a late member of any other
+    # key is judged again.
+    selected_keys = Set{String}()
     # Fits by rate-law key, at canonical positions (`_Fit`; scaled to peak turnover 1 in
     # relative mode), shared across iterations so each distinct law is fit exactly once
     # over the whole search. LOOCV refits each key's source on its folds.
@@ -844,8 +870,8 @@ function _beam_search(
     # re-produced structure yields identical children (no new reachable
     # mechanism), and its FIRST production is its best beam-selection chance —
     # the width-floor budget (`expanded_by_count`) only shrinks, the loss cutoff
-    # (`best_loss_by_count` running min) only tightens, and a key keeps its first
-    # verdict (`selected_keys`, `rejected_keys`), so anything a later
+    # (`best_loss_by_count` running min) only tightens, and a selected key stays
+    # selected (`selected_keys`), so anything a later
     # re-production would select was selected on the first. If `_select_count!`
     # ever gains a non-monotone budget, this invariant breaks.
     seen = Set{UInt64}()
@@ -907,15 +933,9 @@ function _beam_search(
         # Sweep this tier plus any same-or-lower-count stragglers, bucket by bucket
         # in the frontier's key order (each bucket holds one count).
         target = max(target + 1, minimum(keys(frontier)))
-        to_expand = BatchEntry[]
-        for c in filter(<=(target), collect(keys(frontier)))
-            entries_at_count = pop!(frontier, c)
-            sel = _select_count!(expanded_by_count, best_loss_by_count, c,
-                [e.loss for e in entries_at_count], [e.key for e in entries_at_count];
-                loss_rel_threshold, loss_abs_threshold, loss_parsimony_threshold,
-                min_beam_width, selected = selected_keys, rejected = rejected_keys)
-            append!(to_expand, entries_at_count[sel])
-        end
+        to_expand = _sweep_parents!(frontier, target, expanded_by_count,
+            best_loss_by_count, selected_keys; loss_rel_threshold, loss_abs_threshold,
+            loss_parsimony_threshold, min_beam_width)
         isempty(to_expand) && continue
 
         # Expand each parent and record which parent produced each child

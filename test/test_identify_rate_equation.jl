@@ -795,7 +795,7 @@ end
         EnzymeRates._select_count!(Dict{Int,Int}(), merge(Dict(5 => best), others), 5,
             losses, string.(eachindex(losses)); loss_rel_threshold = rel,
             loss_abs_threshold = add, loss_parsimony_threshold = parsimony,
-            min_beam_width = width, selected = Set{String}(), rejected = Set{String}())
+            min_beam_width = width, selected = Set{String}())
 
     losses = [1.0, 1.5, 2.5, 5.0, 10.0]
     @test _testhelper_selected(losses, 1.0; rel = 2.0) == [1, 2]
@@ -971,10 +971,10 @@ end
 @testset "_select_count! cumulative per-count floor" begin
     expanded = Dict{Int,Int}()
     best = Dict(5 => 1.0)
-    # Each mechanism its own key; the key sets persist across the sweeps, as in the beam.
+    # Each mechanism its own key; the selected keys persist across sweeps, as in the beam.
     kw = (loss_rel_threshold=1.0, loss_abs_threshold=0.0,
           loss_parsimony_threshold=1.0, min_beam_width=3,
-          selected=Set{String}(), rejected=Set{String}())
+          selected=Set{String}())
     # Sweep 1 at count 5: rel cutoff admits only the best (loss 1.0); the
     # floor budget (3) tops it up to the top 3 by loss. expanded[5] -> 3.
     sel1 = EnzymeRates._select_count!(expanded, best, 5, [1.0, 2.0, 3.0, 4.0, 5.0],
@@ -1002,7 +1002,7 @@ end
     _testhelper_selected(best_loss_by_count, c, losses) = EnzymeRates._select_count!(
         Dict{Int,Int}(), best_loss_by_count, c, losses, string.(eachindex(losses));
         loss_rel_threshold=10.0, loss_abs_threshold=0.0, loss_parsimony_threshold=1.01,
-        min_beam_width=0, selected=Set{String}(), rejected=Set{String}())
+        min_beam_width=0, selected=Set{String}())
     # No count < c: no parsimony term (else 0.15 > 1.01*0.02 would be dropped).
     @test _testhelper_selected(Dict(5=>0.02), 5, [0.02, 0.15]) == [1, 2]
     # min over <c, not c-1: the cutoff is 1.01*0.02, not 1.01*0.03.
@@ -1020,14 +1020,14 @@ end
     # would spend it on two of a's three and leave b out; ranking keys spends one unit on
     # each key and expands all five mechanisms.
     expanded = Dict{Int,Int}()
-    selected, rejected = Set{String}(), Set{String}()
+    selected = Set{String}()
     sel = EnzymeRates._select_count!(expanded, Dict(5 => 1.0), 5,
         [1.0, 1.0, 1.0, 2.0, 2.0], ["a", "a", "a", "b", "b"];
         loss_rel_threshold = 1.0, loss_abs_threshold = 0.0, loss_parsimony_threshold = 1.0,
-        min_beam_width = 2, selected, rejected)
+        min_beam_width = 2, selected)
     @test sel == [1, 2, 3, 4, 5]
     @test expanded[5] == 2
-    @test selected == Set(["a", "b"]) && isempty(rejected)
+    @test selected == Set(["a", "b"])
 end
 
 @testset "a late member of a selected key expands without budget" begin
@@ -1036,32 +1036,58 @@ end
     # 1.0: the cutoff (1.0) and the spent budget would refuse a mechanism at 2.0, but a's
     # verdict stands, so the member expands and the budget stays spent on a alone.
     expanded = Dict{Int,Int}()
-    selected, rejected = Set{String}(), Set{String}()
+    selected = Set{String}()
     kw = (loss_rel_threshold = 1.0, loss_abs_threshold = 0.0,
-          loss_parsimony_threshold = 1.0, min_beam_width = 1, selected, rejected)
+          loss_parsimony_threshold = 1.0, min_beam_width = 1, selected)
     @test EnzymeRates._select_count!(expanded, Dict(5 => 2.0), 5, [2.0], ["a"];
                                      kw...) == [1]
     @test expanded[5] == 1
     @test EnzymeRates._select_count!(expanded, Dict(5 => 1.0), 5, [2.0, 3.0],
                                      ["a", "c"]; kw...) == [1]
     @test expanded[5] == 1
-    @test selected == Set(["a"]) && rejected == Set(["c"])
+    @test selected == Set(["a"])
 end
 
 @testset "a late member of a rejected key stays out" begin
-    # Key b loses on rank in the first sweep and is rejected. A later member of b is not
-    # ranked again and stays out, while a later member of the selected key a expands.
+    # Key b loses on rank in the first sweep and is rejected. A later member of b is
+    # judged again and refused, while a later member of the selected key a expands.
     expanded = Dict{Int,Int}()
-    selected, rejected = Set{String}(), Set{String}()
+    selected = Set{String}()
     kw = (loss_rel_threshold = 1.0, loss_abs_threshold = 0.0,
-          loss_parsimony_threshold = 1.0, min_beam_width = 1, selected, rejected)
+          loss_parsimony_threshold = 1.0, min_beam_width = 1, selected)
     @test EnzymeRates._select_count!(expanded, Dict(5 => 1.0), 5, [1.0, 1.5],
                                      ["a", "b"]; kw...) == [1]
-    @test rejected == Set(["b"])
     @test EnzymeRates._select_count!(expanded, Dict(5 => 1.0), 5, [1.5, 1.0],
                                      ["b", "a"]; kw...) == [2]
     @test expanded[5] == 1
-    @test selected == Set(["a"]) && rejected == Set(["b"])
+    @test selected == Set(["a"])
+end
+
+@testset "a sweep keeps each key's verdict" begin
+    # Two sweeps of the beam at target 3 that share one key set. Sweep 1 selects key a
+    # (loss 1.0, under the cutoff 1.3) and refuses b (5.0), since a spends count 3's
+    # budget of one. Sweep 2 pops two counts. At count 3 (cutoff 0.65, budget spent), a2
+    # expands by a's verdict though its loss is over the cutoff, the new key c passes the
+    # cutoff, and b2 is judged again and refused; at count 2, d is within the budget. The
+    # parents are compared as a set, so the frontier's bucket order cannot matter.
+    _testhelper_entry(key, loss, n) = EnzymeRates.BatchEntry(_testhelper_uni_seed, n, loss,
+                                                             :Success, key, key, (;))
+    expanded, best, selected = Dict{Int,Int}(), Dict(3 => 1.0), Set{String}()
+    kw = (loss_rel_threshold = 1.3, loss_abs_threshold = 0.0,
+          loss_parsimony_threshold = Inf, min_beam_width = 1)
+    a, b = _testhelper_entry("a", 1.0, 3), _testhelper_entry("b", 5.0, 3)
+    frontier = Dict(3 => [a, b])
+    @test EnzymeRates._sweep_parents!(frontier, 3, expanded, best, selected; kw...) == [a]
+    @test isempty(frontier)
+
+    a2, b2 = _testhelper_entry("a", 1.0, 3), _testhelper_entry("b", 5.0, 3)
+    c, d = _testhelper_entry("c", 0.5, 3), _testhelper_entry("d", 0.2, 2)
+    frontier = Dict(3 => [a2, b2, c], 2 => [d])
+    best[3], best[2] = 0.5, 0.2
+    parents = EnzymeRates._sweep_parents!(frontier, 3, expanded, best, selected; kw...)
+    @test length(parents) == 3
+    @test Set(objectid.(parents)) == Set(objectid.([a2, c, d]))
+    @test isempty(frontier)
 end
 
 @testset "_progress" begin
