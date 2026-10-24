@@ -595,8 +595,9 @@ keys; the census found such pairs, and they are fitted separately.
   or is made in their own, and are flagged; that mechanism has another key, so section 13
   defines how the fit maps onto the variant. Otherwise a phantom is fitted itself,
   unflagged.
-- The beam counts each key once, so duplicates cannot crowd out distinct candidates, and
-  expands every member of a selected key, so no law becomes unreachable.
+- The beam counts each key once, so duplicates cannot crowd out distinct candidates, and a
+  sweep expands every member it meets of a selected key, so no law reachable through one of
+  them is lost; only an L phantom's key can be refused and later selected (section 13).
 
 ## 11. Code generation and speed gates (phases 0, 1 and 5)
 

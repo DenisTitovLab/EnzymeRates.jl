@@ -43,11 +43,13 @@ parent, and the degenerate mechanism gets a row of its own only when its
 expansion fails. A degenerate mechanism that a move builds is fitted like any
 other.
 
-The beam ranks laws, not mechanisms. Mechanisms whose laws agree up to renaming the
-fitted constants share a key, count once at the key's lowest loss, and share one fit,
-which each reads under its own names. Every member of a key the beam selects expands. A
-key the beam passes over is judged again when a later sweep meets another member, and
-at the same loss it stays out.
+The beam ranks laws, not mechanisms. Mechanisms whose laws agree up to renaming the fitted
+constants share a key, count once at the key's lowest loss, and share one fit, which each
+reads under its own names. An L phantom's key is the exception: a member met before the fit
+of its law at `L = 0` is fitted itself, and one met after reads that fit, so the key can
+carry two losses. A sweep expands every member it meets of a selected key; a member refused
+in an earlier sweep has left the frontier. A key the beam passes over is judged again when a
+later sweep meets another member, and at the same loss it stays out.
 
 The search walks parameter counts in ascending order. At each count it fits
 every candidate, keeps a *beam* of the most promising, and expands only those

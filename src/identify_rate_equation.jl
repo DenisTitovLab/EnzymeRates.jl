@@ -92,7 +92,8 @@ and data using beam search.
 
 # Keyword Arguments
 - `min_beam_width::Int = 50`: minimum rate-law keys to expand per
-  param-count tier; every mechanism of a selected key expands
+  param-count tier; a sweep expands every mechanism it meets whose key is
+  selected
 - `loss_rel_threshold::Float64 = 1.3`: relative tolerance
   for beam selection (see "Beam selection" below)
 - `loss_abs_threshold::Float64 = 0.001`: absolute tolerance
@@ -154,10 +155,11 @@ and data using beam search.
 
 # Beam selection
 
-The beam selects rate-law keys: the mechanisms of one key share one fit,
-so a key counts once in the ranks and the budget, and every mechanism of a
-selected key expands. A key at parameter count `n` qualifies for the
-next-level beam if either:
+The beam selects rate-law keys: the mechanisms of one key share one fit
+(an L phantom's key aside, see below), so a key counts once in the ranks
+and the budget, and a sweep expands every mechanism it meets of a selected
+key. A key at parameter count `n` qualifies for the next-level beam if
+either:
 - its loss ≤ `min(loss_rel_threshold * best(n) + loss_abs_threshold,
   loss_parsimony_threshold * best(<n))`, where `best(n)` is the
   lowest loss at parameter count `n` and `best(<n)` is the lowest
@@ -171,7 +173,11 @@ next-level beam if either:
   key already selected expands. One found later with a key already
   rejected is judged again and, at the same loss, rejected again,
   since the cutoff only tightens and a rejection by rank spends the
-  budget.
+  budget. Only an L phantom's key can be refused and later selected: a
+  member met before the fit of its law at `L = 0` is fitted itself and
+  one met after reads that fit, so the key can carry two losses, and a
+  member refused at one has left the frontier when the other selects
+  the key.
 
 The additive term protects against `best_loss` approaching zero
 (simulated / very-low-loss data) where a purely multiplicative
@@ -310,9 +316,10 @@ _mechanism_id(text::AbstractString) = bytes2hex(sha256(text))[1:16]
 """
 Select this sweep's parents among the count-`c` mechanisms with `losses` and rate-law
 keys `law_keys`, and advance the cumulative floor budget. The beam ranks keys, not
-mechanisms: the mechanisms of one key share one fit (`_process_batch`), so a key enters
-at its lowest loss, takes one rank and spends one unit of budget, and duplicates cannot
-crowd out a distinct key. A key not yet in `selected` is selected if either:
+mechanisms: the mechanisms of one key share one fit (`_process_batch`; an L phantom's key
+aside, whose members met before and after its source's fit read two), so a key enters at its
+lowest loss, takes one rank and spends one unit of budget, and duplicates cannot crowd out a
+distinct key. A key not yet in `selected` is selected if either:
   • its loss ≤ cutoff, where
     cutoff = min(loss_rel_threshold * best_loss_by_count[c] + loss_abs_threshold,
                  loss_parsimony_threshold * best(<c))
