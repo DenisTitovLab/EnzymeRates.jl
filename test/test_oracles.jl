@@ -1043,7 +1043,7 @@ end
     # guard rejects two of them; the identities hold for their laws as well.
     for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
         @testset "$label" begin
-            _testhelper_check_law_against_limit(am; seed = 400 + i)
+            _testhelper_check_law_against_limit(am; seed = 300 + i)
             rng = Random.MersenneTwister(450 + i)
             @test all(<(big(10)^-30), _testhelper_detailed_balance(am, rng))
             @test length(_testhelper_dependent_param_exprs(am)[2]) ==

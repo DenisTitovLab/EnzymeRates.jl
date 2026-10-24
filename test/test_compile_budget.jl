@@ -11,7 +11,8 @@ using EnzymeRates
 # The init_mechanisms baseline is 57 on Julia 1.13 (CI runners), 82 on Julia 1.12 and 87
 # on Julia 1.10.
 const INIT_TRACE_BUDGET                  = 200   # baseline 2026-10-09: 57-87; budget ≈ 2×
-const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 6.0   # baseline 2026-10-20: 0.11 s (1.12)
+const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 1.5   # baseline 2026-10-23: 0.12 s locally,
+                                                 # 0.19-0.37 s on CI
 # Per fresh mechanism, over PASS1, the fit and one LOOCV fold, with baselines measured on
 # Julia 1.12 (aarch64). A fit path that compiles the solver stack for each mechanism costs
 # about 750 method instances and 650 KB. The budgets sit about 3× below that and leave
@@ -321,6 +322,16 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
               "(budget: $RATE_EQUATION_WALLCLOCK_BUDGET_S s)"
         @test isfinite(t_first)
         @test t_first < RATE_EQUATION_WALLCLOCK_BUDGET_S
+    end
+
+    # The package precompiles `_rate_body` for both mechanism types, so its image holds the
+    # generator and the first call above stays under its budget (2.2-2.4 s on Julia 1.12
+    # without them). `precompile` returns false when no method takes the signature, so a
+    # generator whose signature changes fails here rather than leaving the package's two
+    # calls compiling nothing.
+    @testset "the generator's precompile signatures compile" begin
+        @test precompile(EnzymeRates._rate_body, (EnzymeRates.Mechanism,))
+        @test precompile(EnzymeRates._rate_body, (EnzymeRates.AllostericMechanism,))
     end
 
     # Compile-reuse: bi-bi init_mechanisms compiles a superset of uni-uni's
