@@ -170,7 +170,7 @@ end
 end
 
 @testset "F1 divides by its first term, A" begin
-    # Rule 3: two half-reactions between the free forms E and F, each A → P. Every term
+    # Rule 4: two half-reactions between the free forms E and F, each A → P. Every term
     # holds A or P, and no weights on A and P solve the units equation, so the law reads A
     # and P only through their ratio: N is the first term, its monomial A included.
     f1 = @enzyme_mechanism begin
@@ -660,7 +660,7 @@ end
     end
 end
 
-@testset "the printed-law reader runs the full law only as written" begin
+@testset "the printed-law reader runs a law only as written" begin
     m = @enzyme_mechanism begin
         substrates: S
         products: P
