@@ -136,11 +136,11 @@ function _label_times(label::String, conc::_Mono, names::Vector{Symbol})
 end
 
 """
-    _coefficient_sum(prefix, ts, names) -> (sum, legend)
+    _coefficient_sum(prefix, ts, names) -> (sum, lines)
 
 The terms `ts` (`_printed`) as a sum of named coefficients, `prefix_A_B * A * B`, with
 `prefix_0` alone for the constant monomial and `1` when its coefficient is 1, and one
-legend line per named coefficient giving its value in the fitted constants.
+line per named coefficient giving its value in the fitted constants.
 """
 function _coefficient_sum(prefix::String, ts::Vector{_Term}, names::Vector{Symbol})
     unit(t) = isempty(t.conc) && t.c == 1 && isempty(t.mo) && t.rest == one(_Poly) &&
@@ -148,10 +148,10 @@ function _coefficient_sum(prefix::String, ts::Vector{_Term}, names::Vector{Symbo
     label(t) = string(prefix, "_", _conc_label(t.conc, names))
     sum = join((unit(t) ? "1" : isempty(t.conc) ? label(t) :
                 _label_times(label(t), t.conc, names) for t in ts), " + ")
-    legend = String[string(label(t), " = ",
-                           _term_text(t.c, t.mo, names; rest = t.rest, over = t.over))
-                    for t in ts if !unit(t)]
-    sum, legend
+    lines = String[string(label(t), " = ",
+                          _term_text(t.c, t.mo, names; rest = t.rest, over = t.over))
+                   for t in ts if !unit(t)]
+    sum, lines
 end
 
 """The `v` line, `v = E_total * (Q) * (H) / (D)`: `Q` bare when it is one name."""
@@ -263,13 +263,13 @@ function _law_text(am::AllostericMechanism, s::_Solve, A::_AlloLaw;
     subs = _substrate_vars(am, A.vars)
     confs = [_conformation(A.active, "A", subs)]
     _flip_only(A.inactive) || push!(confs, _conformation(A.inactive, "I", subs))
-    defs, norms, legend = String[], String[], String[]
+    defs, norms, coefs = String[], String[], String[]
     function define!(name, ts, c)
         if coefficients
             prefix = string(name[1] == 'Q' ? 'n' : lowercase(name[1]), c.tag)
             text, lines = _coefficient_sum(prefix, ts, c.names)
             push!(defs, "$name = $text")
-            append!(legend, lines)
+            append!(coefs, lines)
         else
             push!(defs, "$name = $(_group_sum(ts, c.names))")
         end
@@ -300,7 +300,7 @@ function _law_text(am::AllostericMechanism, s::_Solve, A::_AlloLaw;
     den = branch("A", "I", 0) * " + L" * (rest == "1" ? "" : " * " * rest)
     v = _v_line(join(num, " + "), _sum_text(A.H, A.vars.names), den)
     head = _header_lines(am, s)
-    coefficients ? join([head; _COEFFICIENTS_COMMENT; norms; legend; defs; v], "\n") :
+    coefficients ? join([head; _COEFFICIENTS_COMMENT; norms; coefs; defs; v], "\n") :
                    join([head; _reference_lines(s, A.vars); defs; v], "\n")
 end
 
