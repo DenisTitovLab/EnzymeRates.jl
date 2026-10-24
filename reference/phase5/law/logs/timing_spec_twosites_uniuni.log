@@ -1,0 +1,151 @@
+julia 1.12.5; mechanisms: 135 (spec 42, twosites 47, uniuni 46); census rows the slice cannot build: none
+derivation errors (same in every variant unless listed under differences): none
+differences against U: none
+laws that needed BigInt in U: 0; allosteric laws: 101
+sl    spec            U  n   42 median     64.4 p90    183.2 max     365.2 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    spec            A  n   42 median     65.4 p90    185.1 max     381.9 µs | ratio to U: median 1.023 p90 1.047 max 1.080
+sl    spec            B  n   42 median     64.1 p90    184.0 max     378.7 µs | ratio to U: median 1.004 p90 1.037 max 1.234
+sl    spec            C  n   42 median     64.1 p90    183.5 max     362.5 µs | ratio to U: median 0.992 p90 1.036 max 1.145
+sl    spec/allo       U  n   11 median    160.1 p90    256.4 max     338.8 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    spec/allo       A  n   11 median    165.6 p90    262.0 max     347.0 µs | ratio to U: median 1.022 p90 1.039 max 1.045
+sl    spec/allo       B  n   11 median    167.5 p90    254.1 max     338.0 µs | ratio to U: median 0.998 p90 1.010 max 1.049
+sl    spec/allo       C  n   11 median    158.2 p90    253.2 max     332.7 µs | ratio to U: median 0.990 p90 1.002 max 1.002
+sl    spec/plain      U  n   31 median     60.8 p90    152.4 max     365.2 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    spec/plain      A  n   31 median     61.5 p90    157.8 max     381.9 µs | ratio to U: median 1.024 p90 1.051 max 1.080
+sl    spec/plain      B  n   31 median     62.3 p90    154.7 max     378.7 µs | ratio to U: median 1.008 p90 1.037 max 1.234
+sl    spec/plain      C  n   31 median     59.1 p90    156.5 max     362.5 µs | ratio to U: median 0.994 p90 1.050 max 1.145
+sl    twosites        U  n   47 median     54.5 p90     61.8 max      67.7 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    twosites        A  n   47 median     55.8 p90     64.2 max      70.3 µs | ratio to U: median 1.029 p90 1.053 max 1.065
+sl    twosites        B  n   47 median     54.4 p90     61.9 max      68.3 µs | ratio to U: median 0.998 p90 1.018 max 1.040
+sl    twosites        C  n   47 median     54.0 p90     61.0 max      67.2 µs | ratio to U: median 0.988 p90 0.999 max 1.080
+sl    twosites/allo   U  n   46 median     54.5 p90     61.8 max      67.7 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    twosites/allo   A  n   46 median     55.8 p90     64.2 max      70.3 µs | ratio to U: median 1.027 p90 1.051 max 1.065
+sl    twosites/allo   B  n   46 median     54.4 p90     61.9 max      68.3 µs | ratio to U: median 0.997 p90 1.018 max 1.040
+sl    twosites/allo   C  n   46 median     54.0 p90     61.0 max      67.2 µs | ratio to U: median 0.988 p90 0.999 max 1.080
+sl    twosites/plain  U  n    1 median     24.1 p90     24.1 max      24.1 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    twosites/plain  A  n    1 median     25.4 p90     25.4 max      25.4 µs | ratio to U: median 1.054 p90 1.054 max 1.054
+sl    twosites/plain  B  n    1 median     24.1 p90     24.1 max      24.1 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    twosites/plain  C  n    1 median     23.4 p90     23.4 max      23.4 µs | ratio to U: median 0.971 p90 0.971 max 0.971
+sl    uniuni          U  n   46 median     55.0 p90     64.7 max      68.8 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    uniuni          A  n   46 median     56.6 p90     67.3 max      70.2 µs | ratio to U: median 1.022 p90 1.048 max 1.070
+sl    uniuni          B  n   46 median     55.0 p90     65.1 max      67.9 µs | ratio to U: median 0.997 p90 1.011 max 1.045
+sl    uniuni          C  n   46 median     54.1 p90     64.2 max      69.8 µs | ratio to U: median 0.982 p90 1.004 max 1.036
+sl    uniuni/allo     U  n   44 median     55.0 p90     65.1 max      68.8 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    uniuni/allo     A  n   44 median     56.6 p90     68.0 max      70.2 µs | ratio to U: median 1.022 p90 1.049 max 1.070
+sl    uniuni/allo     B  n   44 median     55.3 p90     65.2 max      67.9 µs | ratio to U: median 0.998 p90 1.012 max 1.045
+sl    uniuni/allo     C  n   44 median     54.3 p90     65.3 max      69.8 µs | ratio to U: median 0.982 p90 1.004 max 1.036
+sl    uniuni/plain    U  n    2 median     23.5 p90     28.5 max      28.5 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    uniuni/plain    A  n    2 median     24.5 p90     29.0 max      29.0 µs | ratio to U: median 1.018 p90 1.043 max 1.043
+sl    uniuni/plain    B  n    2 median     23.3 p90     28.1 max      28.1 µs | ratio to U: median 0.987 p90 0.993 max 0.993
+sl    uniuni/plain    C  n    2 median     23.4 p90     27.8 max      27.8 µs | ratio to U: median 0.975 p90 0.998 max 0.998
+sl    all             U  n  135 median     55.2 p90    143.0 max     365.2 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    all             A  n  135 median     56.8 p90    148.6 max     381.9 µs | ratio to U: median 1.024 p90 1.051 max 1.080
+sl    all             B  n  135 median     55.3 p90    144.5 max     378.7 µs | ratio to U: median 0.999 p90 1.025 max 1.234
+sl    all             C  n  135 median     54.4 p90    143.4 max     362.5 µs | ratio to U: median 0.988 p90 1.015 max 1.145
+solve spec            U  n   42 median      7.6 p90     30.0 max      77.9 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve spec            A  n   42 median      7.6 p90     29.7 max      75.6 µs | ratio to U: median 0.974 p90 1.021 max 1.071
+solve spec            B  n   42 median      7.4 p90     31.3 max      75.5 µs | ratio to U: median 0.964 p90 1.033 max 1.096
+solve spec            C  n   42 median      7.5 p90     29.5 max      75.2 µs | ratio to U: median 0.969 p90 1.027 max 1.075
+solve spec/allo       U  n   11 median     22.7 p90     64.5 max      75.8 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve spec/allo       A  n   11 median     22.1 p90     61.8 max      73.2 µs | ratio to U: median 0.976 p90 1.013 max 1.040
+solve spec/allo       B  n   11 median     23.3 p90     61.3 max      72.3 µs | ratio to U: median 0.955 p90 1.028 max 1.043
+solve spec/allo       C  n   11 median     22.2 p90     61.1 max      73.4 µs | ratio to U: median 0.980 p90 1.023 max 1.027
+solve spec/plain      U  n   31 median      6.5 p90     16.0 max      77.9 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve spec/plain      A  n   31 median      6.0 p90     15.5 max      75.6 µs | ratio to U: median 0.974 p90 1.021 max 1.071
+solve spec/plain      B  n   31 median      6.2 p90     15.8 max      75.5 µs | ratio to U: median 0.968 p90 1.033 max 1.096
+solve spec/plain      C  n   31 median      6.2 p90     15.3 max      75.2 µs | ratio to U: median 0.967 p90 1.037 max 1.075
+solve twosites        U  n   47 median      4.8 p90      5.6 max       6.6 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve twosites        A  n   47 median      4.7 p90      5.4 max       6.3 µs | ratio to U: median 0.965 p90 1.025 max 1.068
+solve twosites        B  n   47 median      4.7 p90      5.3 max       6.6 µs | ratio to U: median 0.954 p90 1.017 max 1.141
+solve twosites        C  n   47 median      4.7 p90      5.3 max       6.9 µs | ratio to U: median 0.965 p90 1.000 max 1.079
+solve twosites/allo   U  n   46 median      4.8 p90      5.6 max       6.6 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve twosites/allo   A  n   46 median      4.7 p90      5.4 max       6.3 µs | ratio to U: median 0.964 p90 1.025 max 1.068
+solve twosites/allo   B  n   46 median      4.7 p90      5.3 max       6.6 µs | ratio to U: median 0.954 p90 1.017 max 1.141
+solve twosites/allo   C  n   46 median      4.7 p90      5.3 max       6.9 µs | ratio to U: median 0.965 p90 1.000 max 1.079
+solve twosites/plain  U  n    1 median      3.7 p90      3.7 max       3.7 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve twosites/plain  A  n    1 median      3.7 p90      3.7 max       3.7 µs | ratio to U: median 0.989 p90 0.989 max 0.989
+solve twosites/plain  B  n    1 median      3.5 p90      3.5 max       3.5 µs | ratio to U: median 0.933 p90 0.933 max 0.933
+solve twosites/plain  C  n    1 median      3.5 p90      3.5 max       3.5 µs | ratio to U: median 0.933 p90 0.933 max 0.933
+solve uniuni          U  n   46 median      4.9 p90      5.5 max       6.6 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve uniuni          A  n   46 median      4.8 p90      5.4 max       6.2 µs | ratio to U: median 0.974 p90 1.025 max 1.064
+solve uniuni          B  n   46 median      4.8 p90      5.2 max       6.4 µs | ratio to U: median 0.959 p90 1.000 max 1.036
+solve uniuni          C  n   46 median      4.6 p90      5.3 max       6.3 µs | ratio to U: median 0.957 p90 1.012 max 1.059
+solve uniuni/allo     U  n   44 median      5.0 p90      5.5 max       6.6 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve uniuni/allo     A  n   44 median      4.8 p90      5.4 max       6.2 µs | ratio to U: median 0.973 p90 1.025 max 1.064
+solve uniuni/allo     B  n   44 median      4.8 p90      5.5 max       6.4 µs | ratio to U: median 0.959 p90 1.000 max 1.036
+solve uniuni/allo     C  n   44 median      4.6 p90      5.4 max       6.3 µs | ratio to U: median 0.949 p90 1.017 max 1.059
+solve uniuni/plain    U  n    2 median      3.5 p90      3.9 max       3.9 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve uniuni/plain    A  n    2 median      3.7 p90      3.8 max       3.8 µs | ratio to U: median 0.978 p90 1.060 max 1.060
+solve uniuni/plain    B  n    2 median      3.5 p90      3.7 max       3.7 µs | ratio to U: median 0.957 p90 1.012 max 1.012
+solve uniuni/plain    C  n    2 median      3.5 p90      3.7 max       3.7 µs | ratio to U: median 0.957 p90 1.012 max 1.012
+solve all             U  n  135 median      5.0 p90     12.6 max      77.9 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve all             A  n  135 median      4.8 p90     12.8 max      75.6 µs | ratio to U: median 0.973 p90 1.026 max 1.071
+solve all             B  n  135 median      4.8 p90     12.1 max      75.5 µs | ratio to U: median 0.960 p90 1.017 max 1.141
+solve all             C  n  135 median      4.7 p90     12.6 max      75.2 µs | ratio to U: median 0.965 p90 1.023 max 1.079
+law   spec            U  n   42 median     57.2 p90    160.5 max     354.0 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   spec            A  n   42 median     57.3 p90    161.3 max     369.9 µs | ratio to U: median 1.031 p90 1.059 max 1.090
+law   spec            B  n   42 median     57.4 p90    160.8 max     368.0 µs | ratio to U: median 1.009 p90 1.043 max 1.274
+law   spec            C  n   42 median     56.8 p90    161.3 max     351.6 µs | ratio to U: median 0.999 p90 1.050 max 1.168
+law   spec/allo       U  n   11 median    140.8 p90    188.8 max     274.3 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   spec/allo       A  n   11 median    147.0 p90    188.8 max     285.1 µs | ratio to U: median 1.031 p90 1.045 max 1.059
+law   spec/allo       B  n   11 median    149.4 p90    184.6 max     276.7 µs | ratio to U: median 1.001 p90 1.018 max 1.061
+law   spec/allo       C  n   11 median    135.8 p90    186.7 max     271.5 µs | ratio to U: median 0.995 p90 1.003 max 1.005
+law   spec/plain      U  n   31 median     51.0 p90    144.3 max     354.0 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   spec/plain      A  n   31 median     53.3 p90    149.4 max     369.9 µs | ratio to U: median 1.031 p90 1.059 max 1.090
+law   spec/plain      B  n   31 median     50.9 p90    143.8 max     368.0 µs | ratio to U: median 1.014 p90 1.043 max 1.274
+law   spec/plain      C  n   31 median     50.6 p90    148.7 max     351.6 µs | ratio to U: median 1.000 p90 1.057 max 1.168
+law   twosites        U  n   47 median     50.1 p90     56.5 max      62.5 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   twosites        A  n   47 median     51.2 p90     59.0 max      65.3 µs | ratio to U: median 1.034 p90 1.063 max 1.072
+law   twosites        B  n   47 median     50.0 p90     56.8 max      63.6 µs | ratio to U: median 1.002 p90 1.023 max 1.044
+law   twosites        C  n   47 median     49.5 p90     55.8 max      62.0 µs | ratio to U: median 0.990 p90 1.005 max 1.087
+law   twosites/allo   U  n   46 median     50.1 p90     56.5 max      62.5 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   twosites/allo   A  n   46 median     51.2 p90     59.0 max      65.3 µs | ratio to U: median 1.034 p90 1.056 max 1.072
+law   twosites/allo   B  n   46 median     50.0 p90     56.8 max      63.6 µs | ratio to U: median 1.002 p90 1.023 max 1.044
+law   twosites/allo   C  n   46 median     49.5 p90     55.8 max      62.0 µs | ratio to U: median 0.990 p90 1.005 max 1.087
+law   twosites/plain  U  n    1 median     20.4 p90     20.4 max      20.4 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   twosites/plain  A  n    1 median     21.7 p90     21.7 max      21.7 µs | ratio to U: median 1.065 p90 1.065 max 1.065
+law   twosites/plain  B  n    1 median     20.6 p90     20.6 max      20.6 µs | ratio to U: median 1.012 p90 1.012 max 1.012
+law   twosites/plain  C  n    1 median     19.9 p90     19.9 max      19.9 µs | ratio to U: median 0.978 p90 0.978 max 0.978
+law   uniuni          U  n   46 median     50.1 p90     59.6 max      63.2 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   uniuni          A  n   46 median     51.9 p90     62.6 max      65.5 µs | ratio to U: median 1.030 p90 1.051 max 1.080
+law   uniuni          B  n   46 median     50.3 p90     60.1 max      63.0 µs | ratio to U: median 0.998 p90 1.021 max 1.055
+law   uniuni          C  n   46 median     49.7 p90     59.3 max      65.0 µs | ratio to U: median 0.988 p90 1.007 max 1.042
+law   uniuni/allo     U  n   44 median     50.3 p90     60.0 max      63.2 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   uniuni/allo     A  n   44 median     52.0 p90     63.1 max      65.5 µs | ratio to U: median 1.030 p90 1.054 max 1.080
+law   uniuni/allo     B  n   44 median     50.5 p90     60.3 max      63.0 µs | ratio to U: median 0.999 p90 1.022 max 1.055
+law   uniuni/allo     C  n   44 median     49.8 p90     60.1 max      65.0 µs | ratio to U: median 0.988 p90 1.009 max 1.042
+law   uniuni/plain    U  n    2 median     20.0 p90     24.6 max      24.6 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   uniuni/plain    A  n    2 median     20.8 p90     25.2 max      25.2 µs | ratio to U: median 1.024 p90 1.040 max 1.040
+law   uniuni/plain    B  n    2 median     19.8 p90     24.4 max      24.4 µs | ratio to U: median 0.990 p90 0.992 max 0.992
+law   uniuni/plain    C  n    2 median     19.9 p90     24.0 max      24.0 µs | ratio to U: median 0.978 p90 0.996 max 0.996
+law   all             U  n  135 median     50.3 p90    124.5 max     354.0 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   all             A  n  135 median     52.1 p90    115.4 max     369.9 µs | ratio to U: median 1.031 p90 1.059 max 1.090
+law   all             B  n  135 median     50.5 p90    108.0 max     368.0 µs | ratio to U: median 1.002 p90 1.026 max 1.274
+law   all             C  n  135 median     49.9 p90    110.2 max     351.6 µs | ratio to U: median 0.991 p90 1.021 max 1.168
+down  spec            U  n   42 median    305.0 p90    897.9 max    2213.3 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+down  spec            A  n   42 median    319.0 p90    950.2 max    2229.1 µs | ratio to U: median 1.058 p90 1.130 max 1.242
+down  spec            B  n   42 median    316.5 p90    887.6 max    2110.9 µs | ratio to U: median 1.008 p90 1.132 max 1.598
+down  spec            C  n   42 median    300.0 p90    895.6 max    2101.4 µs | ratio to U: median 0.997 p90 1.048 max 2.600
+down  twosites        U  n   47 median    222.0 p90    287.7 max     321.8 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+down  twosites        A  n   47 median    242.4 p90    306.5 max     358.0 µs | ratio to U: median 1.101 p90 1.135 max 1.406
+down  twosites        B  n   47 median    223.1 p90    287.7 max     333.8 µs | ratio to U: median 1.001 p90 1.046 max 1.212
+down  twosites        C  n   47 median    217.5 p90    293.4 max     360.4 µs | ratio to U: median 0.997 p90 1.041 max 1.360
+down  uniuni          U  n   46 median    217.4 p90    285.5 max     338.1 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+down  uniuni          A  n   46 median    240.5 p90    309.7 max     402.1 µs | ratio to U: median 1.104 p90 1.143 max 1.264
+down  uniuni          B  n   46 median    218.5 p90    280.1 max     325.4 µs | ratio to U: median 1.003 p90 1.030 max 1.075
+down  uniuni          C  n   46 median    219.2 p90    290.2 max     317.1 µs | ratio to U: median 1.005 p90 1.047 max 1.250
+down  all             U  n  135 median    223.1 p90    556.6 max    2213.3 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+down  all             A  n  135 median    244.1 p90    602.6 max    2229.1 µs | ratio to U: median 1.087 p90 1.143 max 1.406
+down  all             B  n  135 median    224.8 p90    575.6 max    2110.9 µs | ratio to U: median 1.006 p90 1.059 max 1.598
+down  all             C  n  135 median    221.5 p90    568.1 max    2101.4 µs | ratio to U: median 1.000 p90 1.050 max 2.600
+live bytes law            U: 135 mechanisms in 0.0 s; after a full collection +0.37 KiB per mechanism (+0.0 MiB in all); 0 collections, 0 full; allocated 21.6 MiB
+live bytes law            C: 135 mechanisms in 0.0 s; after a full collection +0.37 KiB per mechanism (+0.0 MiB in all); 0 collections, 0 full; allocated 21.5 MiB
+live bytes law            B: 135 mechanisms in 0.0 s; after a full collection +0.37 KiB per mechanism (+0.0 MiB in all); 0 collections, 0 full; allocated 21.6 MiB
+live bytes law            A: 135 mechanisms in 0.0 s; after a full collection +0.98 KiB per mechanism (+0.1 MiB in all); 0 collections, 0 full; allocated 22.4 MiB
+live bytes law+print+key  U: 135 mechanisms in 0.0 s; after a full collection +1.50 KiB per mechanism (+0.2 MiB in all); 0 collections, 0 full; allocated 70.1 MiB
+live bytes law+print+key  C: 135 mechanisms in 0.0 s; after a full collection +1.50 KiB per mechanism (+0.2 MiB in all); 0 collections, 0 full; allocated 70.0 MiB
+live bytes law+print+key  B: 135 mechanisms in 0.0 s; after a full collection +1.49 KiB per mechanism (+0.2 MiB in all); 0 collections, 0 full; allocated 71.3 MiB
+live bytes law+print+key  A: 135 mechanisms in 0.0 s; after a full collection +6.01 KiB per mechanism (+0.8 MiB in all); 0 collections, 0 full; allocated 73.0 MiB
+finished in 41 s
+maxrss_kb 698364
+exit 0 elapsed 48s

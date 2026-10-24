@@ -1,0 +1,11 @@
+spec: 3 differ from Cleland; lower-degree substrate term 3
+   4 terms in λ: 3
+pingpong: 4 differ from Cleland; a power 4
+   2 terms in λ: 4
+terter: 257 differ from Cleland; lower-degree substrate term 234, lower-degree substrate term + a power 23
+   2 terms in λ: 23, 4 terms in λ: 234
+spec: 0 no-constant conformations without Cleland's monomials; text changes N in 0, nsdeg changes N in 0, nons changes N in 0, sqfree changes N in 0, subfirst changes N in 0
+pingpong: 85 no-constant conformations without Cleland's monomials; text changes N in 0, nsdeg changes N in 0, nons changes N in 0, sqfree changes N in 0, subfirst changes N in 0
+terter: 432 no-constant conformations without Cleland's monomials; text changes N in 8, nsdeg changes N in 10, nons changes N in 17, sqfree changes N in 8, subfirst changes N in 154
+maxrss_kb 350504
+exit 0 elapsed 25s

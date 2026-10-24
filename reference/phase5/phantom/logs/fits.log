@@ -1,0 +1,5 @@
+bibi round 0: 239 candidates, 239 new keys (239 admitted); fits removed: spec rule 0, certificate rule 0 (keys shared with a non-phantom: 0, 0)
+bibi round 1: 2752 candidates, 2398 new keys (2398 admitted); fits removed: spec rule 76, certificate rule 512 (keys shared with a non-phantom: 0, 0)
+bibi round 2: 9225 candidates, 7273 new keys (7248 admitted); fits removed: spec rule 179, certificate rule 1386 (keys shared with a non-phantom: 0, 0)
+pingpong round 0: 278 candidates, 278 new keys (278 admitted); fits removed: spec rule 0, certificate rule 0 (keys shared with a non-phantom: 0, 0)
+pingpong round 1: 3220 candidates, 2657 new keys (2535 admitted); fits removed: spec rule 76, certificate rule 512 (keys shared with a non-phantom: 0, 0)

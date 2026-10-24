@@ -1,0 +1,85 @@
+
+================ spec: 42 rows from 1 files
+errors: 0
+allosteric laws: 11; n > 1: 11
+conformations: 53 (A 11, I 11, plain 31)
+spec rule kinds: constant 48, virtual_int 5
+slice rule kinds: cleland 5, constant 48
+no constant term: 5 conformations (9.4%)
+  Cleland's monomials all present: 5
+  spec N == Cleland N: 2; differs: 3
+    spec:Segel Bi Uni Uni Uni PP Ter Bi [plain] spec virtual_int λ: C:2//1 A*B:1//1 A*C:-1//1 B*C:-1//1 | Cleland λ: B*C:1//1 A*C:1//1 A*B:1//1 A*B*C:-2//1
+    spec:Segel Bi Uni Uni Bi PP Ter Ter [plain] spec virtual_int λ: C:2//1 A*B:1//1 A*C:-1//1 B*C:-1//1 | Cleland λ: B*C:1//1 A*C:1//1 A*B:1//1 A*B*C:-2//1
+    spec:Segel Bi Bi Uni Uni PP Ter Ter [plain] spec virtual_int λ: C:2//1 A*B:1//1 A*C:-1//1 B*C:-1//1 | Cleland λ: B*C:1//1 A*C:1//1 A*B:1//1 A*B*C:-2//1
+  slice N == spec N: 2; differs: 3 ((:cleland, :virtual_int) 3)
+  order text     : N differs from spec rule in 0 (); equals Cleland in 2 of 5
+  order nsdeg    : N differs from spec rule in 0 (); equals Cleland in 2 of 5
+  order nons     : N differs from spec rule in 0 (); equals Cleland in 2 of 5
+  order sqfree   : N differs from spec rule in 0 (); equals Cleland in 2 of 5
+  order subfirst : N differs from spec rule in 0 (); equals Cleland in 2 of 5
+fractional λ: 0
+ratio form: 0
+units (spec rule): full fail 0, coefficient fail 0
+units (slice printer): full fail 0, coefficient fail 0
+value e_full   max 4.4e-154, over 1e-100: 0
+value e_coef   max 4.2e-154, over 1e-100: 0
+value e_full2  max 4.4e-154, over 1e-100: 0
+value e_coef2  max 3.5e-154, over 1e-100: 0
+value e_sfull  max 4.5e-154, over 1e-100: 0
+value e_scoef  max 5.6e-154, over 1e-100: 0
+value e_ref    max 3.7e-154, over 1e-100: 0
+value e_ref2   max 2.8e-154, over 1e-100: 0
+reference-line exponent denominators: 1: 42
+plain numerators: one concentration monomial 28, more 3
+artifacts: spec layout 0, slice layout 0
+sqrt in full law: 0; ⁻ in coefficient names: 0; N printed apart: 17
+length len_full  median    898  max   12016
+length len_coef  median    881  max   11924
+length len_full2 median    912  max   12060
+length len_sfull median    897  max   12016
+length len_scoef median    880  max   11924
+seconds per law: median 0.153, max 13.37, total 22
+
+================ pingpong: 1828 rows from 1 files
+errors: 0
+allosteric laws: 934; n > 1: 934
+conformations: 2593 (A 934, I 765, plain 894)
+spec rule kinds: constant 2423, virtual_int 170
+slice rule kinds: affine 85, cleland 85, constant 2423
+no constant term: 170 conformations (6.6%)
+  Cleland's monomials all present: 85
+  spec N == Cleland N: 81; differs: 4
+    6e46f55b0b68e5d9 [plain] spec virtual_int λ: A:2//1 A^2//1:-1//1 | Cleland λ: B:1//1 A:1//1 A*B:-1//1
+    4d7afba51263887d [plain] spec virtual_int λ: A:2//1 A^2//1:-1//1 | Cleland λ: B:1//1 A:1//1 A*B:-1//1
+    b40a671702a7c888 [plain] spec virtual_int λ: A:2//1 A^2//1:-1//1 | Cleland λ: B:1//1 A:1//1 A*B:-1//1
+    ea8f78802b067838 [plain] spec virtual_int λ: A:2//1 A^2//1:-1//1 | Cleland λ: B:1//1 A:1//1 A*B:-1//1
+  slice N == spec N: 166; differs: 4 ((:cleland, :virtual_int) 4)
+  order text     : N differs from spec rule in 4 (virtual_int 4); equals Cleland in 85 of 85
+  order nsdeg    : N differs from spec rule in 0 (); equals Cleland in 81 of 85
+  order nons     : N differs from spec rule in 0 (); equals Cleland in 81 of 85
+  order sqfree   : N differs from spec rule in 4 (virtual_int 4); equals Cleland in 85 of 85
+  order subfirst : N differs from spec rule in 0 (); equals Cleland in 81 of 85
+fractional λ: 0
+ratio form: 0
+units (spec rule): full fail 0, coefficient fail 0
+units (slice printer): full fail 0, coefficient fail 0
+value e_full   max 2.4e-153, over 1e-100: 0
+value e_coef   max 2.4e-153, over 1e-100: 0
+value e_full2  max 2.2e-153, over 1e-100: 0
+value e_coef2  max 2.2e-153, over 1e-100: 0
+value e_sfull  max 2.4e-153, over 1e-100: 0
+value e_scoef  max 2.4e-153, over 1e-100: 0
+value e_ref    max 4.2e-154, over 1e-100: 0
+value e_ref2   max 3.9e-154, over 1e-100: 0
+reference-line exponent denominators: 1: 1828
+plain numerators: one concentration monomial 346, more 548
+artifacts: spec layout 0, slice layout 8
+sqrt in full law: 0; ⁻ in coefficient names: 0; N printed apart: 483
+length len_full  median    841  max   50324
+length len_coef  median    814  max   51941
+length len_full2 median    855  max   50346
+length len_sfull median    839  max   50324
+length len_scoef median    814  max   51941
+seconds per law: median 0.041, max 12.61, total 128
+maxrss_kb 359768
+exit 0 elapsed 934s

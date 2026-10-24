@@ -1,0 +1,17 @@
+laws timed: 578; allocations > 0: 0
+D >= 300: 491 laws; worst ns per D term 0.1511 (r55 allo_new bibiR1:r3: 67.4 ns, D 446); max ns 169.7
+D >= 396: 460 laws; worst ns per D term 0.1511 (r55 allo_new bibiR1:r3: 67.4 ns, D 446); max ns 169.7
+D >= 1000: 146 laws; worst ns per D term 0.0907 (tt_code terter_r1 : 92.6 ns, D 1021); max ns 169.7
+gate bibi396_1: D 396, 41.37 ns barrier, 42.98 ns inline, 0.1045 ns/term
+gate bibi396_2: D 396, 40.37 ns barrier, 42.09 ns inline, 0.1019 ns/term
+gate bibi396_3: D 396, 42.72 ns barrier, 41.33 ns inline, 0.1079 ns/term
+gate terbi_1: D 589, 36.65 ns barrier, 37.08 ns inline, 0.0622 ns/term
+gate terbi_2: D 799, 56.99 ns barrier, 58.62 ns inline, 0.0713 ns/term
+gate terbi_3: D 858, 68.85 ns barrier, 74.88 ns inline, 0.0802 ns/term
+specs: 42; max 13.12 ns barrier; inline hoisted to < 0.5 ns in 4
+over 120 ns: 9; their D from 2017 to 3009; max 169.7 ns
+c = 0.2: local laws over max(120 ns, c*D): 0
+c = 0.3: local laws over max(120 ns, c*D): 0
+c = 0.5: local laws over max(120 ns, c*D): 0
+c = 0.8: local laws over max(120 ns, c*D): 0
+c = 1.0: local laws over max(120 ns, c*D): 0

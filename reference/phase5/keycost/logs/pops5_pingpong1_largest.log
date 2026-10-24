@@ -1,0 +1,9 @@
+EnzymeRates 0.10.0 at 7205ba4; Julia 1.12.5
+pingpong1 round 0: 3198 seeds, 3518 base, 0 base-tier failures, 3518 within 337; 14 s, maxrss 1201 MB
+pingpong1 round 1: 1500 parents (of 3518), 7748 new children, 0 parent errors; 19 s, maxrss 1201 MB
+pingpong1 round 2: 1500 parents (of 7716), 6450 new children, 0 parent errors; 23 s, maxrss 1291 MB
+pingpong1 round 3: 1500 parents (of 6186), 5891 new children, 0 parent errors; 29 s, maxrss 1332 MB
+pingpong1 round 4: 1500 parents (of 5336), 5207 new children, 0 parent errors; 32 s, maxrss 1332 MB
+wrote /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/keycost/data/r55_pingpong1_largest.tsv
+maxrss_kb 1363968
+exit 0 elapsed 51s

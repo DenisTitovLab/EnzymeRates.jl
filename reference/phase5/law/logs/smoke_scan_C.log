@@ -1,0 +1,16 @@
+julia 1.12.5 variant C: population 40 (9 allosteric; 0 rows the slice cannot build), identify seeds 6
+derivation round 1 ([40, 653, 80, 223, 150, 135641, 283, 46364, 0], String[]) 3.9 s
+derivation full gc 1 ok
+derivation round 2 ([40, 653, 80, 223, 150, 135641, 283, 46364, 0], String[]) 0.0 s
+derivation full gc 2 ok
+derivation round 3 ([40, 653, 80, 223, 150, 135641, 283, 46364, 0], String[]) 0.0 s
+derivation full gc 3 ok
+identify round 1 (0, 6, 2, 248.801, 2) 0.5 s
+identify full gc 1 ok
+identify round 2 (0, 6, 2, 248.801, 2) 0.0 s
+identify full gc 2 ok
+identify round 3 (0, 6, 2, 248.801, 2) 0.0 s
+identify full gc 3 ok
+finished in 18 s
+maxrss_kb 964180
+exit 0 elapsed 23s

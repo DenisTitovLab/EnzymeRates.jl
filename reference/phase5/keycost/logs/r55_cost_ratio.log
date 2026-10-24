@@ -1,0 +1,4 @@
+allo_new: median ns per V×τ 0.092, ops per V×τ 3.04, ns per D term 0.064
+allo_under: median ns per V×τ 0.109, ops per V×τ 3.19, ns per D term 0.104
+plain_near: median ns per V×τ 0.091, ops per V×τ 2.71, ns per D term 0.058
+plain_over: median ns per V×τ 0.073, ops per V×τ 2.53, ns per D term 0.050

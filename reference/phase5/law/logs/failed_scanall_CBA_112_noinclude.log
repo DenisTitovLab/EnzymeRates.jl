@@ -1,0 +1,1670 @@
+remark: /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/law/scripts/scan_all.jl:4:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: strings/substring.jl:238:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/law/scripts/scan_all.jl:8:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/law/scripts/scan_all.jl:4:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: strings/substring.jl:238:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/law/scripts/scan_all.jl:8:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+=== VARIANT C
+=== VARIANT C
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: errorshow.jl:1016:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: errorshow.jl:1016:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: errorshow.jl:1016:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: errorshow.jl:1016:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: util.jl:73:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: util.jl:73:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: util.jl:73:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: util.jl:73:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: dict.jl:775:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: dict.jl:775:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2618:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2618:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2618:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2618:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2632:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2632:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2632:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2632:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: dict.jl:775:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: dict.jl:775:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2618:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2618:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2618:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2618:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: dict.jl:775:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: dict.jl:775:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2618:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2618:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2618:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: show.jl:2618:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: methodshow.jl:115:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: dict.jl:775:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: methodshow.jl:115:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: dict.jl:775:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+ERROR: LoadError: UndefVarError: `include` not defined in `Main.RunC`
+Suggestion: check for spelling errors or missing imports.
+Stacktrace:
+ [1] top-level scope
+   @ /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/law/scripts/scan.jl:3
+ [2] include(mod::Module, _path::String)
+   @ Base ./Base.jl:306
+ [3] top-level scope
+   @ /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/law/scripts/scan_all.jl:7
+ [4] include(mod::Module, _path::String)
+   @ Base ./Base.jl:306
+ [5] exec_options(opts::Base.JLOptions)
+   @ Base ./client.jl:317
+ [6] _start()
+   @ Base ./client.jl:550
+in expression starting at /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/law/scripts/scan.jl:3
+in expression starting at /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/law/scripts/scan_all.jl:3
+Command exited with non-zero status 1
+maxrss_kb 378752
+exit 1 elapsed 744s

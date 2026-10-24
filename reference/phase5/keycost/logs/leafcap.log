@@ -1,0 +1,9 @@
+k=6 symmetric         9 terms: 720 leaves, 1237 nodes, 1.197 s, key d60610ae6959ca48
+k=7 symmetric        10 terms: 5040 leaves, 8660 nodes, 0.263 s, key 8511eb29f991a95b
+k=8 symmetric        11 terms: 40320 leaves, 69281 nodes, 1.717 s, key 6584ee02f8ae2617
+k=9 symmetric        12 terms: canonical labelling: over 100000 leaves after 4.65 s
+m=12 tied pairs      27 terms: 4096 leaves, 8191 nodes, 0.583 s, key 052f7eb32a3d136b
+m=16 tied pairs      35 terms: 65536 leaves, 131071 nodes, 10.586 s, key b9c57e7635534934
+m=17 tied pairs      37 terms: canonical labelling: over 100000 leaves after 17.21 s
+maxrss_kb 411764
+exit 0 elapsed 38s

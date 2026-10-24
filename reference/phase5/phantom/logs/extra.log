@@ -1,0 +1,30 @@
+== A. Certificate rule (admitted + certificate) vs spec rule (admitted + pre-filter + rank)
+bibi 1 {'n': 1833, 'spec': 188, 'cert': 716, 'both': 188, 'spec only': 0, 'cert only': 528, 'cert: rank==L0': 716, 'cert: ident_slot': 716, 'cert: key0==key_act': 716, 'cert: np==np0+1': 716, 'cert: n_inact_indep=0': 716}
+bibi 2 {'n': 8075, 'spec': 550, 'cert': 2386, 'both': 547, 'spec only': 3, 'cert only': 1839, 'cert: rank==L0': 2386, 'cert: ident_slot': 2386, 'cert: key0==key_act': 2386, 'cert: np==np0+1': 2386, 'cert: n_inact_indep=0': 2386}
+pingpong 1 {'n': 2164, 'spec': 188, 'cert': 716, 'both': 188, 'spec only': 0, 'cert only': 528, 'cert: rank==L0': 716, 'cert: ident_slot': 716, 'cert: key0==key_act': 716, 'cert: np==np0+1': 716, 'cert: n_inact_indep=0': 716}
+uniuni_R 0 {'n': 8, 'spec': 0, 'cert': 0, 'both': 0, 'spec only': 0, 'cert only': 0}
+uniuni_R 1 {'n': 30, 'spec': 0, 'cert': 0, 'both': 0, 'spec only': 0, 'cert only': 0}
+uniuni_R 2 {'n': 47, 'spec': 0, 'cert': 0, 'both': 0, 'spec only': 0, 'cert only': 0}
+bibi_R 0 {'n': 4144, 'spec': 0, 'cert': 0, 'both': 0, 'spec only': 0, 'cert only': 0}
+bibi_R 1 {'n': 2614, 'spec': 0, 'cert': 0, 'both': 0, 'spec only': 0, 'cert only': 0}
+
+== B. Where the certificate rule's phantoms find their L->0 key fitted (beam-safe relatives first)
+('bibi', 1, 'to_allosteric', '1 parent') 716
+('bibi', 2, 'change_allo_state', '2 relative') 146
+('bibi', 2, 're_to_ss', '2 relative') 291
+('bibi', 2, 're_to_ss', '5 never') 62
+('bibi', 2, 'split', '2 relative') 308
+('bibi', 2, 'to_allosteric', '1 parent') 1579
+('pingpong', 1, 'to_allosteric', '1 parent') 716
+never fitted ('bibi', 2) 62 phantoms, 16 distinct L->0 keys
+
+== C. Round-2 bi-bi candidates whose sampled parents are all spec-rule phantoms
+('allo1', 'no phantom parent') 7379
+('allo1', 'only phantom parents') 93
+('allo1', 'some phantom parent') 53
+('phantom', 'no phantom parent') 228
+('phantom', 'only phantom parents') 259
+('phantom', 'some phantom parent') 63
+('plain', 'no phantom parent') 1150
+non-phantom allosteric children reachable only through phantom parents: 93 | their moves {'change_allo_state': 93}
+sampled round-1 parents that are phantoms: 73

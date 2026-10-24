@@ -1,0 +1,6 @@
+julia 1.12.5; EnzymeRates from /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/graph_mechanism_wt
+mechanisms: 1974 (811 allosteric)
+Q11: structured output rebuilds _dependent_param_exprs byte-identically (==) in 1974 of 1974 mechanisms; 2028 dependents (0 with a non-integer exponent); row reduction in Rational{BigInt} in 0; worst relative value difference 6.2e-16; errors 0
+Q10 stress (checks.jl's 390 random multigraph Laplacians, same seed): exact 351, wrong 0, overflow 39 (smallest tree count that overflowed: 11724322598)
+maxrss_kb 1098928
+exit 0 elapsed 504s

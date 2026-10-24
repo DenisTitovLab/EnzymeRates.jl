@@ -1,0 +1,127 @@
+remark: range.jl:924:0: escape analysis for call
+AllocUseInfo:
+escaped: 0
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 1
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 1
+refstore: 0
+allockind: uninitialized
+Uses: 4
+  %42 = addrspacecast ptr addrspace(10) %39 to ptr addrspace(11), !dbg !62
+  %43 = load atomic ptr addrspace(10), ptr addrspace(11) %42 unordered, align 8, !dbg !62, !tbaa !60, !alias.scope !41, !noalias !44, !nonnull !8, !dereferenceable !63, !align !64
+  %40 = addrspacecast ptr addrspace(10) %39 to ptr addrspace(11), !dbg !25
+  store i64 %41, ptr addrspace(11) %40, align 8, !dbg !25, !tbaa !60, !alias.scope !41, !noalias !44
+MemOps: 1
+  offset: 0
+  size: 8
+  hasobjref: 1
+  hasload: 1
+  hasaggr: 0
+  accesses: 2
+      %43 = load atomic ptr addrspace(10), ptr addrspace(11) %42 unordered, align 8, !dbg !62, !tbaa !60, !alias.scope !41, !noalias !44, !nonnull !8, !dereferenceable !63, !align !64
+    scalar
+    objref
+    0
+    8
+      store i64 %41, ptr addrspace(11) %40, align 8, !dbg !25, !tbaa !60, !alias.scope !41, !noalias !44
+    scalar
+    bits
+    0
+    8
+
+remark: range.jl:924:0: hoisting gc allocation call
+remark: range.jl:924:0: escape analysis for call
+AllocUseInfo:
+escaped: 0
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 1
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 1
+refstore: 0
+allockind: uninitialized
+Uses: 4
+  %35 = addrspacecast ptr addrspace(10) %32 to ptr addrspace(11), !dbg !62
+  %36 = load atomic ptr addrspace(10), ptr addrspace(11) %35 unordered, align 8, !dbg !62, !tbaa !60, !alias.scope !41, !noalias !44, !nonnull !8, !dereferenceable !63, !align !64
+  %33 = addrspacecast ptr addrspace(10) %32 to ptr addrspace(11), !dbg !25
+  store i64 %34, ptr addrspace(11) %33, align 8, !dbg !25, !tbaa !60, !alias.scope !41, !noalias !44
+MemOps: 1
+  offset: 0
+  size: 8
+  hasobjref: 1
+  hasload: 1
+  hasaggr: 0
+  accesses: 2
+      %36 = load atomic ptr addrspace(10), ptr addrspace(11) %35 unordered, align 8, !dbg !62, !tbaa !60, !alias.scope !41, !noalias !44, !nonnull !8, !dereferenceable !63, !align !64
+    scalar
+    objref
+    0
+    8
+      store i64 %34, ptr addrspace(11) %33, align 8, !dbg !25, !tbaa !60, !alias.scope !41, !noalias !44
+    scalar
+    bits
+    0
+    8
+
+remark: range.jl:924:0: hoisting gc allocation call
+GC error (probable corruption)
+Allocations: 284335 (Pool: 284335; Big: 0); GC: 2
+<?#0xe53474404050::(nil)>
+
+thread 0 ptr queue:
+~~~~~~~~~~ ptr queue top ~~~~~~~~~~
+~~~~~~~~~~ ptr queue bottom ~~~~~~~~~~
+
+[31278] signal 6 (-6): Aborted
+in expression starting at /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase3/gcprobe/repro_upstream.jl:20
+unknown function (ip: 0xe53488bd74d8) at /lib/aarch64-linux-gnu/libc.so.6
+gsignal at /lib/aarch64-linux-gnu/libc.so.6 (unknown line)
+abort at /lib/aarch64-linux-gnu/libc.so.6 (unknown line)
+gc_dump_queue_and_abort at /cache/build/builder-armageddon-3/julialang/julia-ci/src/gc-stock.c:1677
+gc_mark_outrefs at /cache/build/builder-armageddon-3/julialang/julia-ci/src/gc-stock.c:2386 [inlined]
+gc_mark_loop_serial_ at /cache/build/builder-armageddon-3/julialang/julia-ci/src/gc-stock.c:2542
+gc_mark_loop_serial at /cache/build/builder-armageddon-3/julialang/julia-ci/src/gc-stock.c:2565
+gc_mark_loop at /cache/build/builder-armageddon-3/julialang/julia-ci/src/gc-stock.c:2753 [inlined]
+_jl_gc_collect at /cache/build/builder-armageddon-3/julialang/julia-ci/src/gc-stock.c:3123
+ijl_gc_collect at /cache/build/builder-armageddon-3/julialang/julia-ci/src/gc-stock.c:3565
+gc at ./gcutils.jl:133 [inlined]
+main at /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase3/gcprobe/repro_upstream.jl:16
+unknown function (ip: 0xe5346281f193) at (unknown file)
+jl_apply at /cache/build/builder-armageddon-3/julialang/julia-ci/src/julia.h:2318 [inlined]
+do_call at /cache/build/builder-armageddon-3/julialang/julia-ci/src/interpreter.c:123
+eval_value at /cache/build/builder-armageddon-3/julialang/julia-ci/src/interpreter.c:243
+eval_stmt_value at /cache/build/builder-armageddon-3/julialang/julia-ci/src/interpreter.c:194 [inlined]
+eval_body at /cache/build/builder-armageddon-3/julialang/julia-ci/src/interpreter.c:693
+jl_interpret_toplevel_thunk at /cache/build/builder-armageddon-3/julialang/julia-ci/src/interpreter.c:884
+jl_toplevel_eval_flex at /cache/build/builder-armageddon-3/julialang/julia-ci/src/toplevel.c:742
+jl_eval_toplevel_stmts at /cache/build/builder-armageddon-3/julialang/julia-ci/src/toplevel.c:585
+jl_toplevel_eval_flex at /cache/build/builder-armageddon-3/julialang/julia-ci/src/toplevel.c:683
+ijl_toplevel_eval at /cache/build/builder-armageddon-3/julialang/julia-ci/src/toplevel.c:754
+ijl_toplevel_eval_in at /cache/build/builder-armageddon-3/julialang/julia-ci/src/toplevel.c:799
+eval at ./boot.jl:489
+include_string at ./loading.jl:3033
+_include at ./loading.jl:3093
+include at ./Base.jl:309
+exec_options at ./client.jl:344
+_start at ./client.jl:577
+jfptr__start_54972 at /home/denis.linux/.julia/juliaup/julia-1.13.1+0.aarch64.linux.gnu/lib/julia/sys.so (unknown line)
+jl_apply at /cache/build/builder-armageddon-3/julialang/julia-ci/src/julia.h:2318 [inlined]
+true_main at /cache/build/builder-armageddon-3/julialang/julia-ci/src/jlapi.c:985
+jl_repl_entrypoint at /cache/build/builder-armageddon-3/julialang/julia-ci/src/jlapi.c:1152
+main at /cache/build/builder-armageddon-3/julialang/julia-ci/cli/loader_exe.c:58
+unknown function (ip: 0xe53488b784c3) at /lib/aarch64-linux-gnu/libc.so.6
+__libc_start_main at /lib/aarch64-linux-gnu/libc.so.6 (unknown line)
+$x at /home/denis.linux/.julia/juliaup/julia-1.13.1+0.aarch64.linux.gnu/bin/julia (unknown line)
+$x at /home/denis.linux/.julia/juliaup/julia-1.13.1+0.aarch64.linux.gnu/bin/julia (unknown line)
+Allocations: 284335 (Pool: 284335; Big: 0); GC: 2
+Command terminated by signal 6
+maxrss_kb 305184
+exit 134 elapsed 2s

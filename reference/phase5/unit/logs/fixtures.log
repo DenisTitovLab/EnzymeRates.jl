@@ -1,0 +1,79 @@
+=== F1 two-cycle uni-uni (ratio form)
+D monomials: A^1//1, P^1//1
+rules: spec=ratio λ=[A:1//1] slice=coefficient cleland=false sameC=missing orders=Dict{Symbol, Bool}(:sqfree => 1, :nsdeg => 1, :text => 1, :subfirst => 1, :nons => 1)
+errors: full 4.8e-154 coef 1.9e-154 full2 4.8e-154 slice 1.9e-154/1.9e-154 ref 1.1e-154; units full true coef true ( ) slice false/false (v term A has units (1//1, 0//1) v term d_A * A has units (1//1, 0//1)); artifacts 0
+(; k_E_A_to_F_P, k_F_P_to_E_A, k_F_A_to_E_P, Keq, E_total) = params
+(; A, P) = concs
+# Haldane constraints:
+k_E_P_to_F_A = k_E_A_to_F_P * k_F_A_to_E_P / (k_F_P_to_E_A * Keq^2)
+N = k_E_A_to_F_P + k_F_A_to_E_P
+v = E_total * (2 * k_E_A_to_F_P * k_F_A_to_E_P / N + 2 * P * k_E_A_to_F_P * k_F_A_to_E_P / (A * Keq * N)) * (A - P / Keq) / (1 + P * (k_E_A_to_F_P * k_F_A_to_E_P + k_F_P_to_E_A^2 * Keq^2) / (A * k_F_P_to_E_A * Keq^2 * N))
+--- coefficient form
+v = E_total * (n_0 + n_P_A⁻¹ * P / A) * (A - P / Keq) / (1 + d_P_A⁻¹ * P / A)
+# The coefficients are functions of the fitted constants, not parameters:
+N = k_E_A_to_F_P + k_F_A_to_E_P
+n_0 = 2 * k_E_A_to_F_P * k_F_A_to_E_P / N
+n_P_A⁻¹ = 2 * k_E_A_to_F_P * k_F_A_to_E_P / (Keq * N)
+d_P_A⁻¹ = (k_E_A_to_F_P * k_F_A_to_E_P + k_F_P_to_E_A^2 * Keq^2) / (k_F_P_to_E_A * Keq^2 * N)
+=== F2 two-cycle uni-uni + F(A,A) dead end (fractional λ)
+D monomials: A^1//1, A^2//1*P^1//1, A^3//1, P^1//1
+rules: spec=virtual_frac λ=[A:3//2 A^3//1:-1//2] slice=coefficient cleland=false sameC=missing orders=Dict{Symbol, Bool}(:sqfree => 1, :nsdeg => 1, :text => 1, :subfirst => 1, :nons => 1)
+errors: full 3.4e-154 coef 2.2e-154 full2 3.4e-154 slice 0.0e+00/1.1e-154 ref 7.5e-155; units full true coef true ( ) slice false/false (v term A has units (1//1, 0//1) v term d_A * A has units (1//1, 0//1)); artifacts 0
+(; k_E_A_to_F_P, k_F_P_to_E_A, k_F_A_to_E_P, K_F_A_A_to_FAA, Keq, E_total) = params
+(; A, P) = concs
+# Haldane constraints:
+k_E_P_to_F_A = k_E_A_to_F_P * k_F_A_to_E_P / (k_F_P_to_E_A * Keq^2)
+N = (k_E_A_to_F_P + k_F_A_to_E_P)^(3/2)
+v = E_total * (2 * A * k_E_A_to_F_P^(3/2) * k_F_A_to_E_P * sqrt(K_F_A_A_to_FAA) / N + 2 * P * k_E_A_to_F_P^(3/2) * k_F_A_to_E_P * sqrt(K_F_A_A_to_FAA) / (Keq * N)) * (A - P / Keq) / (A * sqrt(k_E_A_to_F_P) * sqrt(K_F_A_A_to_FAA) * (k_E_A_to_F_P + k_F_A_to_E_P) / N + P * sqrt(k_E_A_to_F_P) * sqrt(K_F_A_A_to_FAA) * (k_E_A_to_F_P * k_F_A_to_E_P + k_F_P_to_E_A^2 * Keq^2) / (k_F_P_to_E_A * Keq^2 * N) + A^3 * k_E_A_to_F_P^(3/2) * K_F_A_A_to_FAA^(3/2) / N + A^2 * P * k_E_A_to_F_P^(3/2) * k_F_A_to_E_P * K_F_A_A_to_FAA^(3/2) / (k_F_P_to_E_A * Keq^2 * N))
+--- coefficient form
+v = E_total * (n_A * A + n_P * P) * (A - P / Keq) / (d_A * A + d_P * P + d_A³ * A^3 + d_A²_P * A^2 * P)
+# The coefficients are functions of the fitted constants, not parameters:
+N = (k_E_A_to_F_P + k_F_A_to_E_P)^(3/2)
+n_A = 2 * k_E_A_to_F_P^(3/2) * k_F_A_to_E_P * sqrt(K_F_A_A_to_FAA) / N
+n_P = 2 * k_E_A_to_F_P^(3/2) * k_F_A_to_E_P * sqrt(K_F_A_A_to_FAA) / (Keq * N)
+d_A = sqrt(k_E_A_to_F_P) * sqrt(K_F_A_A_to_FAA) * (k_E_A_to_F_P + k_F_A_to_E_P) / N
+d_P = sqrt(k_E_A_to_F_P) * sqrt(K_F_A_A_to_FAA) * (k_E_A_to_F_P * k_F_A_to_E_P + k_F_P_to_E_A^2 * Keq^2) / (k_F_P_to_E_A * Keq^2 * N)
+d_A³ = k_E_A_to_F_P^(3/2) * K_F_A_A_to_FAA^(3/2) / N
+d_A²_P = k_E_A_to_F_P^(3/2) * k_F_A_to_E_P * K_F_A_A_to_FAA^(3/2) / (k_F_P_to_E_A * Keq^2 * N)
+=== F3 RE Theorell–Chance (ratio form)
+D monomials: A^1//1*B^1//1, A^1//1*P^1//1, B^1//1, B^1//1*Q^1//1, P^1//1, P^1//1*Q^1//1
+rules: spec=ratio λ=[B:1//1] slice=coefficient cleland=false sameC=missing orders=Dict{Symbol, Bool}(:sqfree => 1, :nsdeg => 1, :text => 1, :subfirst => 1, :nons => 1)
+errors: full 1.7e-154 coef 2.5e-154 full2 8.3e-155 slice 8.3e-155/8.3e-155 ref 0.0e+00; units full true coef true ( ) slice false/false (v term B has units (1//1, 0//1) v term d_B * B has units (1//1, 0//1)); artifacts 0
+(; k_E_A_to_EA, k_EA_to_E_A, k_E_Q_to_EQ, k_EQ_to_E_Q, Keq, E_total) = params
+(; A, B, P, Q) = concs
+# Haldane constraints:
+K_EA_B_to_EQ_P = k_EA_to_E_A * k_E_Q_to_EQ * Keq / (k_E_A_to_EA * k_EQ_to_E_Q)
+v = E_total * (k_E_A_to_EA / B) * (A * B - P * Q / Keq) / (1 + P * k_E_A_to_EA / (B * k_E_Q_to_EQ * Keq) + A * k_E_A_to_EA / k_EQ_to_E_Q + A * P * k_E_A_to_EA^2 / (B * k_EA_to_E_A * k_E_Q_to_EQ * Keq) + Q * k_E_Q_to_EQ / k_EQ_to_E_Q + P * Q * k_E_A_to_EA / (B * k_EA_to_E_A * Keq))
+--- coefficient form
+v = E_total * (n_B⁻¹ / B) * (A * B - P * Q / Keq) / (1 + d_P_B⁻¹ * P / B + d_A * A + d_A_P_B⁻¹ * A * P / B + d_Q * Q + d_P_Q_B⁻¹ * P * Q / B)
+# The coefficients are functions of the fitted constants, not parameters:
+n_B⁻¹ = k_E_A_to_EA
+d_P_B⁻¹ = k_E_A_to_EA / (k_E_Q_to_EQ * Keq)
+d_A = k_E_A_to_EA / k_EQ_to_E_Q
+d_A_P_B⁻¹ = k_E_A_to_EA^2 / (k_EA_to_E_A * k_E_Q_to_EQ * Keq)
+d_Q = k_E_Q_to_EQ / k_EQ_to_E_Q
+d_P_Q_B⁻¹ = k_E_A_to_EA / (k_EA_to_E_A * Keq)
+=== F4 two-cycle uni-uni + F(A) + F(A,A) dead ends
+D monomials: A^1//1, A^1//1*P^1//1, A^2//1, A^2//1*P^1//1, A^3//1, P^1//1
+rules: spec=virtual_int λ=[A:2//1 A^2//1:-1//1] slice=affine cleland=false sameC=missing orders=Dict{Symbol, Bool}(:sqfree => 1, :nsdeg => 1, :text => 1, :subfirst => 1, :nons => 1)
+errors: full 1.8e-154 coef 1.8e-154 full2 2.6e-154 slice 2.6e-154/2.6e-154 ref 1.5e-154; units full true coef true ( ) slice true/true ( ); artifacts 0
+(; k_E_A_to_F_P, k_F_P_to_E_A, k_F_A_to_E_P, K_FA_to_F_A, K_FAA_to_FA_A, Keq, E_total) = params
+(; A, P) = concs
+# Haldane constraints:
+k_E_P_to_F_A = k_E_A_to_F_P * k_F_A_to_E_P / (k_F_P_to_E_A * Keq^2)
+N = (k_E_A_to_F_P + k_F_A_to_E_P)^2
+v = E_total * (2 * A * k_E_A_to_F_P^2 * k_F_A_to_E_P / (K_FA_to_F_A * N) + 2 * P * k_E_A_to_F_P^2 * k_F_A_to_E_P / (K_FA_to_F_A * Keq * N)) * (A - P / Keq) / (A * k_E_A_to_F_P * (k_E_A_to_F_P + k_F_A_to_E_P) / (K_FA_to_F_A * N) + P * k_E_A_to_F_P * (k_E_A_to_F_P * k_F_A_to_E_P + k_F_P_to_E_A^2 * Keq^2) / (k_F_P_to_E_A * K_FA_to_F_A * Keq^2 * N) + A^2 * k_E_A_to_F_P^2 / (K_FA_to_F_A^2 * N) + A * P * k_E_A_to_F_P^2 * k_F_A_to_E_P / (k_F_P_to_E_A * K_FA_to_F_A^2 * Keq^2 * N) + A^3 * k_E_A_to_F_P^2 / (K_FA_to_F_A^2 * K_FAA_to_FA_A * N) + A^2 * P * k_E_A_to_F_P^2 * k_F_A_to_E_P / (k_F_P_to_E_A * K_FA_to_F_A^2 * K_FAA_to_FA_A * Keq^2 * N))
+--- coefficient form
+v = E_total * (n_A * A + n_P * P) * (A - P / Keq) / (d_A * A + d_P * P + d_A² * A^2 + d_A_P * A * P + d_A³ * A^3 + d_A²_P * A^2 * P)
+# The coefficients are functions of the fitted constants, not parameters:
+N = (k_E_A_to_F_P + k_F_A_to_E_P)^2
+n_A = 2 * k_E_A_to_F_P^2 * k_F_A_to_E_P / (K_FA_to_F_A * N)
+n_P = 2 * k_E_A_to_F_P^2 * k_F_A_to_E_P / (K_FA_to_F_A * Keq * N)
+d_A = k_E_A_to_F_P * (k_E_A_to_F_P + k_F_A_to_E_P) / (K_FA_to_F_A * N)
+d_P = k_E_A_to_F_P * (k_E_A_to_F_P * k_F_A_to_E_P + k_F_P_to_E_A^2 * Keq^2) / (k_F_P_to_E_A * K_FA_to_F_A * Keq^2 * N)
+d_A² = k_E_A_to_F_P^2 / (K_FA_to_F_A^2 * N)
+d_A_P = k_E_A_to_F_P^2 * k_F_A_to_E_P / (k_F_P_to_E_A * K_FA_to_F_A^2 * Keq^2 * N)
+d_A³ = k_E_A_to_F_P^2 / (K_FA_to_F_A^2 * K_FAA_to_FA_A * N)
+d_A²_P = k_E_A_to_F_P^2 * k_F_A_to_E_P / (k_F_P_to_E_A * K_FA_to_F_A^2 * K_FAA_to_FA_A * Keq^2 * N)
+maxrss_kb 741348
+exit 0 elapsed 523s

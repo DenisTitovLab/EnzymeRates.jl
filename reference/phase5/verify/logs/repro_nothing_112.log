@@ -1,0 +1,330 @@
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 0
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 1
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 1
+refstore: 1
+allockind: uninitialized
+Uses: 15
+  %132 = addrspacecast ptr addrspace(10) %131 to ptr addrspace(11), !dbg !265
+  %162 = load ptr, ptr addrspace(11) %132, align 8, !dbg !306, !tbaa !162, !alias.scope !134, !noalias !135
+  %135 = load ptr, ptr addrspace(11) %132, align 8, !dbg !266, !tbaa !162, !alias.scope !134, !noalias !135
+  %134 = getelementptr inbounds i8, ptr addrspace(11) %132, i64 16, !dbg !265
+  %154 = load i64, ptr addrspace(11) %134, align 8, !dbg !297, !tbaa !164, !alias.scope !177, !noalias !178
+  %223 = load i64, ptr addrspace(11) %134, align 8, !dbg !333, !tbaa !164, !alias.scope !177, !noalias !178
+  %221 = load i64, ptr addrspace(11) %134, align 8, !dbg !332, !tbaa !164, !alias.scope !177, !noalias !178
+  %139 = load i64, ptr addrspace(11) %134, align 8, !dbg !269, !tbaa !164, !alias.scope !177, !noalias !178
+  store i64 1, ptr addrspace(11) %134, align 8, !dbg !265, !tbaa !164, !alias.scope !165, !noalias !166
+  store ptr %130, ptr addrspace(11) %132, align 8, !dbg !265, !tbaa !162, !alias.scope !134, !noalias !135
+  %133 = getelementptr inbounds i8, ptr addrspace(11) %132, i64 8, !dbg !265
+  %163 = load ptr addrspace(10), ptr addrspace(11) %133, align 8, !dbg !306, !tbaa !162, !alias.scope !134, !noalias !135, !dereferenceable_or_null !45, !align !46
+  %136 = load ptr addrspace(10), ptr addrspace(11) %133, align 8, !dbg !266, !tbaa !162, !alias.scope !134, !noalias !135, !dereferenceable_or_null !45, !align !46
+  store ptr addrspace(10) %125, ptr addrspace(11) %133, align 8, !dbg !265, !tbaa !162, !alias.scope !134, !noalias !135
+  store ptr addrspace(10) null, ptr addrspace(11) %133, align 8, !dbg !265, !tbaa !161, !alias.scope !134, !noalias !135
+MemOps: 1
+  offset: 0
+  size: 24
+  hasobjref: 1
+  hasload: 1
+  hasaggr: 0
+  accesses: 12
+      %162 = load ptr, ptr addrspace(11) %132, align 8, !dbg !306, !tbaa !162, !alias.scope !134, !noalias !135
+    scalar
+    bits
+    0
+    8
+      %135 = load ptr, ptr addrspace(11) %132, align 8, !dbg !266, !tbaa !162, !alias.scope !134, !noalias !135
+    scalar
+    bits
+    0
+    8
+      %154 = load i64, ptr addrspace(11) %134, align 8, !dbg !297, !tbaa !164, !alias.scope !177, !noalias !178
+    scalar
+    bits
+    16
+    8
+      %223 = load i64, ptr addrspace(11) %134, align 8, !dbg !333, !tbaa !164, !alias.scope !177, !noalias !178
+    scalar
+    bits
+    16
+    8
+      %221 = load i64, ptr addrspace(11) %134, align 8, !dbg !332, !tbaa !164, !alias.scope !177, !noalias !178
+    scalar
+    bits
+    16
+    8
+      %139 = load i64, ptr addrspace(11) %134, align 8, !dbg !269, !tbaa !164, !alias.scope !177, !noalias !178
+    scalar
+    bits
+    16
+    8
+      store i64 1, ptr addrspace(11) %134, align 8, !dbg !265, !tbaa !164, !alias.scope !165, !noalias !166
+    scalar
+    bits
+    16
+    8
+      store ptr %130, ptr addrspace(11) %132, align 8, !dbg !265, !tbaa !162, !alias.scope !134, !noalias !135
+    scalar
+    bits
+    0
+    8
+      %163 = load ptr addrspace(10), ptr addrspace(11) %133, align 8, !dbg !306, !tbaa !162, !alias.scope !134, !noalias !135, !dereferenceable_or_null !45, !align !46
+    scalar
+    objref
+    8
+    8
+      %136 = load ptr addrspace(10), ptr addrspace(11) %133, align 8, !dbg !266, !tbaa !162, !alias.scope !134, !noalias !135, !dereferenceable_or_null !45, !align !46
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) %125, ptr addrspace(11) %133, align 8, !dbg !265, !tbaa !162, !alias.scope !134, !noalias !135
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) null, ptr addrspace(11) %133, align 8, !dbg !265, !tbaa !161, !alias.scope !134, !noalias !135
+    scalar
+    objref
+    8
+    8
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 0
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 1
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 1
+refstore: 1
+allockind: uninitialized
+Uses: 15
+  %132 = addrspacecast ptr addrspace(10) %131 to ptr addrspace(11), !dbg !265
+  %162 = load ptr, ptr addrspace(11) %132, align 8, !dbg !306, !tbaa !162, !alias.scope !134, !noalias !135
+  %135 = load ptr, ptr addrspace(11) %132, align 8, !dbg !266, !tbaa !162, !alias.scope !134, !noalias !135
+  %134 = getelementptr inbounds i8, ptr addrspace(11) %132, i64 16, !dbg !265
+  %154 = load i64, ptr addrspace(11) %134, align 8, !dbg !297, !tbaa !164, !alias.scope !177, !noalias !178
+  %223 = load i64, ptr addrspace(11) %134, align 8, !dbg !333, !tbaa !164, !alias.scope !177, !noalias !178
+  %221 = load i64, ptr addrspace(11) %134, align 8, !dbg !332, !tbaa !164, !alias.scope !177, !noalias !178
+  %139 = load i64, ptr addrspace(11) %134, align 8, !dbg !269, !tbaa !164, !alias.scope !177, !noalias !178
+  store i64 1, ptr addrspace(11) %134, align 8, !dbg !265, !tbaa !164, !alias.scope !165, !noalias !166
+  store ptr %130, ptr addrspace(11) %132, align 8, !dbg !265, !tbaa !162, !alias.scope !134, !noalias !135
+  %133 = getelementptr inbounds i8, ptr addrspace(11) %132, i64 8, !dbg !265
+  %163 = load ptr addrspace(10), ptr addrspace(11) %133, align 8, !dbg !306, !tbaa !162, !alias.scope !134, !noalias !135, !dereferenceable_or_null !45, !align !46
+  %136 = load ptr addrspace(10), ptr addrspace(11) %133, align 8, !dbg !266, !tbaa !162, !alias.scope !134, !noalias !135, !dereferenceable_or_null !45, !align !46
+  store ptr addrspace(10) %125, ptr addrspace(11) %133, align 8, !dbg !265, !tbaa !162, !alias.scope !134, !noalias !135
+  store ptr addrspace(10) null, ptr addrspace(11) %133, align 8, !dbg !265, !tbaa !161, !alias.scope !134, !noalias !135
+MemOps: 1
+  offset: 0
+  size: 24
+  hasobjref: 1
+  hasload: 1
+  hasaggr: 0
+  accesses: 12
+      %162 = load ptr, ptr addrspace(11) %132, align 8, !dbg !306, !tbaa !162, !alias.scope !134, !noalias !135
+    scalar
+    bits
+    0
+    8
+      %135 = load ptr, ptr addrspace(11) %132, align 8, !dbg !266, !tbaa !162, !alias.scope !134, !noalias !135
+    scalar
+    bits
+    0
+    8
+      %154 = load i64, ptr addrspace(11) %134, align 8, !dbg !297, !tbaa !164, !alias.scope !177, !noalias !178
+    scalar
+    bits
+    16
+    8
+      %223 = load i64, ptr addrspace(11) %134, align 8, !dbg !333, !tbaa !164, !alias.scope !177, !noalias !178
+    scalar
+    bits
+    16
+    8
+      %221 = load i64, ptr addrspace(11) %134, align 8, !dbg !332, !tbaa !164, !alias.scope !177, !noalias !178
+    scalar
+    bits
+    16
+    8
+      %139 = load i64, ptr addrspace(11) %134, align 8, !dbg !269, !tbaa !164, !alias.scope !177, !noalias !178
+    scalar
+    bits
+    16
+    8
+      store i64 1, ptr addrspace(11) %134, align 8, !dbg !265, !tbaa !164, !alias.scope !165, !noalias !166
+    scalar
+    bits
+    16
+    8
+      store ptr %130, ptr addrspace(11) %132, align 8, !dbg !265, !tbaa !162, !alias.scope !134, !noalias !135
+    scalar
+    bits
+    0
+    8
+      %163 = load ptr addrspace(10), ptr addrspace(11) %133, align 8, !dbg !306, !tbaa !162, !alias.scope !134, !noalias !135, !dereferenceable_or_null !45, !align !46
+    scalar
+    objref
+    8
+    8
+      %136 = load ptr addrspace(10), ptr addrspace(11) %133, align 8, !dbg !266, !tbaa !162, !alias.scope !134, !noalias !135, !dereferenceable_or_null !45, !align !46
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) %125, ptr addrspace(11) %133, align 8, !dbg !265, !tbaa !162, !alias.scope !134, !noalias !135
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) null, ptr addrspace(11) %133, align 8, !dbg !265, !tbaa !161, !alias.scope !134, !noalias !135
+    scalar
+    objref
+    8
+    8
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+1 1000
+full gc 1 ok
+2 0
+full gc 2 ok
+3 1000
+full gc 3 ok
+maxrss_kb 276424
+exit 0 elapsed 0s

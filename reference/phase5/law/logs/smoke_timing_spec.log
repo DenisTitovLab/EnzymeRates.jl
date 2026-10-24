@@ -1,0 +1,79 @@
+WARNING: Detected access to binding `Main.SliceU` in a world prior to its definition world.
+  Julia 1.12 has introduced more strict world age semantics for global bindings.
+  !!! This code may malfunction under Revise.
+  !!! This code will error in future versions of Julia.
+Hint: Add an appropriate `invokelatest` around the access to this binding.
+To make this warning an error, and hence obtain a stack trace, use `julia --depwarn=error`.
+WARNING: Detected access to binding `Main.SliceA` in a world prior to its definition world.
+  Julia 1.12 has introduced more strict world age semantics for global bindings.
+  !!! This code may malfunction under Revise.
+  !!! This code will error in future versions of Julia.
+Hint: Add an appropriate `invokelatest` around the access to this binding.
+To make this warning an error, and hence obtain a stack trace, use `julia --depwarn=error`.
+WARNING: Detected access to binding `Main.SliceB` in a world prior to its definition world.
+  Julia 1.12 has introduced more strict world age semantics for global bindings.
+  !!! This code may malfunction under Revise.
+  !!! This code will error in future versions of Julia.
+Hint: Add an appropriate `invokelatest` around the access to this binding.
+To make this warning an error, and hence obtain a stack trace, use `julia --depwarn=error`.
+WARNING: Detected access to binding `Main.SliceC` in a world prior to its definition world.
+  Julia 1.12 has introduced more strict world age semantics for global bindings.
+  !!! This code may malfunction under Revise.
+  !!! This code will error in future versions of Julia.
+Hint: Add an appropriate `invokelatest` around the access to this binding.
+To make this warning an error, and hence obtain a stack trace, use `julia --depwarn=error`.
+julia 1.12.5; mechanisms: 37 (spec 37); census rows the slice cannot build: Dict("spec: TypeError: in keyword argument sites, expected Vector{Main.SliceU.Site" => 5)
+derivation errors (same in every variant unless listed under differences): none
+differences against U: none
+laws that needed BigInt in U: 0; allosteric laws: 6
+sl    spec            U  n   37 median     63.6 p90    159.3 max     343.9 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    spec            A  n   37 median     65.9 p90    171.0 max     367.2 µs | ratio to U: median 1.036 p90 1.057 max 1.111
+sl    spec            B  n   37 median     62.8 p90    158.8 max     351.1 µs | ratio to U: median 0.995 p90 1.026 max 1.043
+sl    spec            C  n   37 median     61.7 p90    162.5 max     352.5 µs | ratio to U: median 1.003 p90 1.025 max 1.047
+sl    spec/allo       U  n    6 median    143.0 p90    223.3 max     256.6 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    spec/allo       A  n    6 median    148.4 p90    225.3 max     262.3 µs | ratio to U: median 1.022 p90 1.030 max 1.038
+sl    spec/allo       B  n    6 median    142.6 p90    221.7 max     258.0 µs | ratio to U: median 0.997 p90 1.006 max 1.012
+sl    spec/allo       C  n    6 median    143.0 p90    219.1 max     256.0 µs | ratio to U: median 0.998 p90 1.018 max 1.020
+sl    spec/plain      U  n   31 median     59.2 p90    154.2 max     343.9 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    spec/plain      A  n   31 median     62.0 p90    161.5 max     367.2 µs | ratio to U: median 1.039 p90 1.063 max 1.111
+sl    spec/plain      B  n   31 median     58.6 p90    151.3 max     351.1 µs | ratio to U: median 0.995 p90 1.027 max 1.043
+sl    spec/plain      C  n   31 median     58.3 p90    151.4 max     352.5 µs | ratio to U: median 1.005 p90 1.030 max 1.047
+sl    all             U  n   37 median     63.6 p90    159.3 max     343.9 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    all             A  n   37 median     65.9 p90    171.0 max     367.2 µs | ratio to U: median 1.036 p90 1.057 max 1.111
+sl    all             B  n   37 median     62.8 p90    158.8 max     351.1 µs | ratio to U: median 0.995 p90 1.026 max 1.043
+sl    all             C  n   37 median     61.7 p90    162.5 max     352.5 µs | ratio to U: median 1.003 p90 1.025 max 1.047
+solve spec            U  n   37 median      7.3 p90     25.5 max      75.0 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve spec            A  n   37 median      7.1 p90     24.9 max      78.8 µs | ratio to U: median 1.008 p90 1.051 max 1.116
+solve spec            B  n   37 median      7.2 p90     24.9 max      78.1 µs | ratio to U: median 0.989 p90 1.029 max 1.078
+solve spec            C  n   37 median      7.0 p90     25.3 max      77.2 µs | ratio to U: median 0.993 p90 1.028 max 1.054
+solve spec/allo       U  n    6 median     18.4 p90     37.7 max      72.4 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve spec/allo       A  n    6 median     18.3 p90     37.8 max      72.1 µs | ratio to U: median 0.993 p90 1.000 max 1.002
+solve spec/allo       B  n    6 median     17.7 p90     37.5 max      73.5 µs | ratio to U: median 0.974 p90 1.012 max 1.015
+solve spec/allo       C  n    6 median     18.3 p90     37.0 max      71.7 µs | ratio to U: median 0.992 p90 0.995 max 1.019
+solve spec/plain      U  n   31 median      6.5 p90     15.6 max      75.0 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve spec/plain      A  n   31 median      6.1 p90     15.8 max      78.8 µs | ratio to U: median 1.013 p90 1.053 max 1.116
+solve spec/plain      B  n   31 median      6.1 p90     15.7 max      78.1 µs | ratio to U: median 0.989 p90 1.034 max 1.078
+solve spec/plain      C  n   31 median      6.2 p90     15.5 max      77.2 µs | ratio to U: median 1.000 p90 1.030 max 1.054
+solve all             U  n   37 median      7.3 p90     25.5 max      75.0 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve all             A  n   37 median      7.1 p90     24.9 max      78.8 µs | ratio to U: median 1.008 p90 1.051 max 1.116
+solve all             B  n   37 median      7.2 p90     24.9 max      78.1 µs | ratio to U: median 0.989 p90 1.029 max 1.078
+solve all             C  n   37 median      7.0 p90     25.3 max      77.2 µs | ratio to U: median 0.993 p90 1.028 max 1.054
+law   spec            U  n   37 median     52.9 p90    146.5 max     333.2 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   spec            A  n   37 median     55.9 p90    153.8 max     356.3 µs | ratio to U: median 1.039 p90 1.064 max 1.119
+law   spec            B  n   37 median     53.8 p90    143.7 max     340.2 µs | ratio to U: median 0.999 p90 1.029 max 1.054
+law   spec            C  n   37 median     54.2 p90    144.0 max     341.2 µs | ratio to U: median 1.001 p90 1.035 max 1.061
+law   spec/allo       U  n    6 median    124.6 p90    184.2 max     185.6 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   spec/allo       A  n    6 median    130.1 p90    187.5 max     190.2 µs | ratio to U: median 1.032 p90 1.035 max 1.044
+law   spec/allo       B  n    6 median    125.0 p90    184.1 max     184.5 µs | ratio to U: median 1.001 p90 1.003 max 1.019
+law   spec/allo       C  n    6 median    124.7 p90    182.1 max     184.3 µs | ratio to U: median 1.001 p90 1.022 max 1.026
+law   spec/plain      U  n   31 median     51.3 p90    142.1 max     333.2 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   spec/plain      A  n   31 median     53.5 p90    146.6 max     356.3 µs | ratio to U: median 1.041 p90 1.070 max 1.119
+law   spec/plain      B  n   31 median     50.8 p90    140.1 max     340.2 µs | ratio to U: median 0.999 p90 1.033 max 1.054
+law   spec/plain      C  n   31 median     50.5 p90    141.1 max     341.2 µs | ratio to U: median 1.006 p90 1.038 max 1.061
+law   all             U  n   37 median     52.9 p90    146.5 max     333.2 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   all             A  n   37 median     55.9 p90    153.8 max     356.3 µs | ratio to U: median 1.039 p90 1.064 max 1.119
+law   all             B  n   37 median     53.8 p90    143.7 max     340.2 µs | ratio to U: median 0.999 p90 1.029 max 1.054
+law   all             C  n   37 median     54.2 p90    144.0 max     341.2 µs | ratio to U: median 1.001 p90 1.035 max 1.061
+finished in 37 s
+maxrss_kb 702912
+exit 0 elapsed 248s

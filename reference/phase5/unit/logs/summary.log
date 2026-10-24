@@ -1,0 +1,175 @@
+
+================ spec: 42 rows from 1 files
+errors: 0
+allosteric laws: 11; n > 1: 11
+conformations: 53 (A 11, I 11, plain 31)
+spec rule kinds: constant 48, virtual_int 5
+slice rule kinds: cleland 5, constant 48
+no constant term: 5 conformations (9.4%)
+  Cleland's monomials all present: 5
+  spec N == Cleland N: 2; differs: 3
+    spec:Segel Bi Uni Uni Uni PP Ter Bi [plain] spec virtual_int λ: C:2//1 A*B:1//1 A*C:-1//1 B*C:-1//1 | Cleland λ: B*C:1//1 A*C:1//1 A*B:1//1 A*B*C:-2//1
+    spec:Segel Bi Uni Uni Bi PP Ter Ter [plain] spec virtual_int λ: C:2//1 A*B:1//1 A*C:-1//1 B*C:-1//1 | Cleland λ: B*C:1//1 A*C:1//1 A*B:1//1 A*B*C:-2//1
+    spec:Segel Bi Bi Uni Uni PP Ter Ter [plain] spec virtual_int λ: C:2//1 A*B:1//1 A*C:-1//1 B*C:-1//1 | Cleland λ: B*C:1//1 A*C:1//1 A*B:1//1 A*B*C:-2//1
+  slice N == spec N: 2; differs: 3 ((:cleland, :virtual_int) 3)
+  order text     : N differs from spec rule in 0 (); equals Cleland in 2 of 5
+  order nsdeg    : N differs from spec rule in 0 (); equals Cleland in 2 of 5
+  order nons     : N differs from spec rule in 0 (); equals Cleland in 2 of 5
+  order sqfree   : N differs from spec rule in 0 (); equals Cleland in 2 of 5
+  order subfirst : N differs from spec rule in 0 (); equals Cleland in 2 of 5
+fractional λ: 0
+ratio form: 0
+units (spec rule): full fail 0, coefficient fail 0
+units (slice printer): full fail 0, coefficient fail 0
+value e_full   max 4.4e-154, over 1e-100: 0
+value e_coef   max 4.2e-154, over 1e-100: 0
+value e_full2  max 4.4e-154, over 1e-100: 0
+value e_coef2  max 3.5e-154, over 1e-100: 0
+value e_sfull  max 4.5e-154, over 1e-100: 0
+value e_scoef  max 5.6e-154, over 1e-100: 0
+value e_ref    max 3.7e-154, over 1e-100: 0
+value e_ref2   max 2.8e-154, over 1e-100: 0
+reference-line exponent denominators: 1: 42
+plain numerators: one concentration monomial 28, more 3
+artifacts: spec layout 0, slice layout 0
+sqrt in full law: 0; ⁻ in coefficient names: 0; N printed apart: 17
+length len_full  median    898  max   12016
+length len_coef  median    881  max   11924
+length len_full2 median    912  max   12060
+length len_sfull median    897  max   12016
+length len_scoef median    880  max   11924
+seconds per law: median 0.153, max 13.37, total 22
+
+================ bibi: 5671 rows from 2 files
+errors: 0
+allosteric laws: 1833; n > 1: 0
+conformations: 7063 (A 1833, I 1392, plain 3838)
+spec rule kinds: constant 7063
+slice rule kinds: constant 7063
+no constant term: 0 conformations (0.0%)
+  Cleland's monomials all present: 0
+  spec N == Cleland N: 0; differs: 0
+  slice N == spec N: 0; differs: 0 ()
+  order text     : N differs from spec rule in 0 (); equals Cleland in 0 of 0
+  order nsdeg    : N differs from spec rule in 0 (); equals Cleland in 0 of 0
+  order nons     : N differs from spec rule in 0 (); equals Cleland in 0 of 0
+  order sqfree   : N differs from spec rule in 0 (); equals Cleland in 0 of 0
+  order subfirst : N differs from spec rule in 0 (); equals Cleland in 0 of 0
+fractional λ: 0
+ratio form: 0
+units (spec rule): full fail 0, coefficient fail 0
+units (slice printer): full fail 0, coefficient fail 0
+value e_full   max 2.9e-152, over 1e-100: 0
+value e_coef   max 2.9e-152, over 1e-100: 0
+value e_full2  max 2.9e-152, over 1e-100: 0
+value e_coef2  max 2.9e-152, over 1e-100: 0
+value e_sfull  max 2.9e-152, over 1e-100: 0
+value e_scoef  max 2.9e-152, over 1e-100: 0
+value e_ref    max 4.7e-154, over 1e-100: 0
+value e_ref2   max 3.8e-154, over 1e-100: 0
+reference-line exponent denominators: 1: 5671
+plain numerators: one concentration monomial 1335, more 2503
+artifacts: spec layout 0, slice layout 0
+sqrt in full law: 0; ⁻ in coefficient names: 0; N printed apart: 1249
+length len_full  median   1341  max   50324
+length len_coef  median   1353  max   51941
+length len_full2 median   1357  max   50346
+length len_sfull median   1341  max   50324
+length len_scoef median   1353  max   51941
+seconds per law: median 0.011, max 13.55, total 286
+
+================ pingpong: 1828 rows from 1 files
+errors: 0
+allosteric laws: 934; n > 1: 934
+conformations: 2593 (A 934, I 765, plain 894)
+spec rule kinds: constant 2423, virtual_int 170
+slice rule kinds: affine 85, cleland 85, constant 2423
+no constant term: 170 conformations (6.6%)
+  Cleland's monomials all present: 85
+  spec N == Cleland N: 81; differs: 4
+    6e46f55b0b68e5d9 [plain] spec virtual_int λ: A:2//1 A^2//1:-1//1 | Cleland λ: B:1//1 A:1//1 A*B:-1//1
+    4d7afba51263887d [plain] spec virtual_int λ: A:2//1 A^2//1:-1//1 | Cleland λ: B:1//1 A:1//1 A*B:-1//1
+    b40a671702a7c888 [plain] spec virtual_int λ: A:2//1 A^2//1:-1//1 | Cleland λ: B:1//1 A:1//1 A*B:-1//1
+    ea8f78802b067838 [plain] spec virtual_int λ: A:2//1 A^2//1:-1//1 | Cleland λ: B:1//1 A:1//1 A*B:-1//1
+  slice N == spec N: 166; differs: 4 ((:cleland, :virtual_int) 4)
+  order text     : N differs from spec rule in 4 (virtual_int 4); equals Cleland in 85 of 85
+  order nsdeg    : N differs from spec rule in 0 (); equals Cleland in 81 of 85
+  order nons     : N differs from spec rule in 0 (); equals Cleland in 81 of 85
+  order sqfree   : N differs from spec rule in 4 (virtual_int 4); equals Cleland in 85 of 85
+  order subfirst : N differs from spec rule in 0 (); equals Cleland in 81 of 85
+fractional λ: 0
+ratio form: 0
+units (spec rule): full fail 0, coefficient fail 0
+units (slice printer): full fail 0, coefficient fail 0
+value e_full   max 2.4e-153, over 1e-100: 0
+value e_coef   max 2.4e-153, over 1e-100: 0
+value e_full2  max 2.2e-153, over 1e-100: 0
+value e_coef2  max 2.2e-153, over 1e-100: 0
+value e_sfull  max 2.4e-153, over 1e-100: 0
+value e_scoef  max 2.4e-153, over 1e-100: 0
+value e_ref    max 4.2e-154, over 1e-100: 0
+value e_ref2   max 3.9e-154, over 1e-100: 0
+reference-line exponent denominators: 1: 1828
+plain numerators: one concentration monomial 346, more 548
+artifacts: spec layout 0, slice layout 8
+  slice-layout artifacts in: ba29713f4e16b153, 9929ede89a25b09d, be071712565ee315, 570eb267920649f6, 5060a7022fc72bea, 7f9e115185586a5e, 0bc5fbbfc006ff6f, fb8868c9d7f33067
+sqrt in full law: 0; ⁻ in coefficient names: 0; N printed apart: 483
+length len_full  median    841  max   50324
+length len_coef  median    814  max   51941
+length len_full2 median    855  max   50346
+length len_sfull median    839  max   50324
+length len_scoef median    814  max   51941
+seconds per law: median 0.041, max 12.61, total 128
+
+================ terter: 2000 rows from 1 files
+errors: 135
+  135 × the rate law of this mechanism expands more than 5000 spanning-tree products; laws this large take very long to compile and are unlikely to 
+allosteric laws: 0; n > 1: 0
+conformations: 1865 (plain 1865)
+spec rule kinds: constant 1141, virtual_int 724
+slice rule kinds: affine 432, cleland 292, constant 1141
+no constant term: 724 conformations (38.8%)
+  Cleland's monomials all present: 292
+  spec N == Cleland N: 35; differs: 257
+    7be2c402b3f7abdf [plain] spec virtual_int λ: B:2//1 B^2//1:-1//1 | Cleland λ: B*D:1//1 A*D:1//1 A*B:1//1 A*B*D:-2//1
+    3c50492530fc410f [plain] spec virtual_int λ: A:2//1 A^2//1:-1//1 | Cleland λ: B*D:1//1 A*D:1//1 A*B:1//1 A*B*D:-2//1
+    a1b843c195ddb62a [plain] spec virtual_int λ: D:2//1 A*B:1//1 A*D:-1//1 B*D:-1//1 | Cleland λ: B*D:1//1 A*D:1//1 A*B:1//1 A*B*D:-2//1
+    dc1e68d59b7604e7 [plain] spec virtual_int λ: D:2//1 A*B:1//1 A*D:-1//1 B*D:-1//1 | Cleland λ: B*D:1//1 A*D:1//1 A*B:1//1 A*B*D:-2//1
+    86a42e7af31c868a [plain] spec virtual_int λ: D:2//1 A*B:1//1 A*D:-1//1 B*D:-1//1 | Cleland λ: B*D:1//1 A*D:1//1 A*B:1//1 A*B*D:-2//1
+    37b2c1baf3501d9d [plain] spec virtual_int λ: D:2//1 A*B:1//1 A*D:-1//1 B*D:-1//1 | Cleland λ: B*D:1//1 A*D:1//1 A*B:1//1 A*B*D:-2//1
+    0efa0951012b215b [plain] spec virtual_int λ: D:2//1 A*B:1//1 A*D:-1//1 B*D:-1//1 | Cleland λ: B*D:1//1 A*D:1//1 A*B:1//1 A*B*D:-2//1
+    c11712404ce77fd9 [plain] spec virtual_int λ: D:2//1 A*B:1//1 A*D:-1//1 B*D:-1//1 | Cleland λ: B*D:1//1 A*D:1//1 A*B:1//1 A*B*D:-2//1
+    06eeeebafe2fd8f4 [plain] spec virtual_int λ: D:2//1 A*B:1//1 A*D:-1//1 B*D:-1//1 | Cleland λ: B*D:1//1 A*D:1//1 A*B:1//1 A*B*D:-2//1
+    3eda254b4a496d52 [plain] spec virtual_int λ: D:2//1 A*B:1//1 A*D:-1//1 B*D:-1//1 | Cleland λ: B*D:1//1 A*D:1//1 A*B:1//1 A*B*D:-2//1
+    fde137b2fde7ccfb [plain] spec virtual_int λ: D:2//1 A*B:1//1 A*D:-1//1 B*D:-1//1 | Cleland λ: B*D:1//1 A*D:1//1 A*B:1//1 A*B*D:-2//1
+    6be5032f25c8cdc9 [plain] spec virtual_int λ: D:2//1 A*B:1//1 A*D:-1//1 B*D:-1//1 | Cleland λ: B*D:1//1 A*D:1//1 A*B:1//1 A*B*D:-2//1
+  slice N == spec N: 467; differs: 257 ((:cleland, :virtual_int) 257)
+  order text     : N differs from spec rule in 22 (virtual_int 22); equals Cleland in 37 of 292
+  order nsdeg    : N differs from spec rule in 10 (virtual_int 10); equals Cleland in 35 of 292
+  order nons     : N differs from spec rule in 43 (virtual_int 43); equals Cleland in 35 of 292
+  order sqfree   : N differs from spec rule in 31 (virtual_int 31); equals Cleland in 37 of 292
+  order subfirst : N differs from spec rule in 154 (virtual_int 154); equals Cleland in 35 of 292
+fractional λ: 0
+ratio form: 0
+units (spec rule): full fail 0, coefficient fail 0
+units (slice printer): full fail 0, coefficient fail 0
+value e_full   max 3.1e-152, over 1e-100: 0
+value e_coef   max 3.1e-152, over 1e-100: 0
+value e_full2  max 3.1e-152, over 1e-100: 0
+value e_coef2  max 3.1e-152, over 1e-100: 0
+value e_sfull  max 3.1e-152, over 1e-100: 0
+value e_scoef  max 3.1e-152, over 1e-100: 0
+value e_ref    max 4.6e-154, over 1e-100: 0
+value e_ref2   max 3.9e-154, over 1e-100: 0
+reference-line exponent denominators: 1: 1865
+plain numerators: one concentration monomial 531, more 1334
+artifacts: spec layout 0, slice layout 0
+sqrt in full law: 0; ⁻ in coefficient names: 0; N printed apart: 495
+length len_full  median   4534  max  394061
+length len_coef  median   4993  max  406617
+length len_full2 median   4556  max  394089
+length len_sfull median   4736  max  388423
+length len_scoef median   5287  max  400979
+seconds per law: median 0.126, max 12.76, total 332
+maxrss_kb 385720
+exit 0 elapsed 4s

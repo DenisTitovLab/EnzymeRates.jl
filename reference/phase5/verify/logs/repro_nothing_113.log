@@ -1,0 +1,56 @@
+remark: boot.jl:649:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:649:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:649:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+1 1000
+full gc 1 ok
+2 0
+full gc 2 ok
+3 1000
+full gc 3 ok
+maxrss_kb 236876
+exit 0 elapsed 0s

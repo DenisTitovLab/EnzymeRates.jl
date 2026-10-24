@@ -1,0 +1,3 @@
+ter-ter code set: compile+first call median 0.174 s max 0.435 s; program+body build median 0.024 s max 0.119 s; D max 3236
+ter-ter over 120 ns: 9: D [2017, 2017, 2172, 2392, 2515, 2561, 2676, 2926, 3009]
+timed key rows 1968, distinct laws 1800, every one with 1 leaf

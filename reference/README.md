@@ -24,6 +24,8 @@ mechanisms and laws) are left out because the tests regenerate them from
 | `round4/kcat/`, `round4/guard/`, `round4/flipE/` | Their scripts; `round4/guard/lib.jl` holds the RE-speed oracle and the face check, `round4/flipE/scripts/lib.jl` the two-conformation mass-action oracle, `round4/flipE/prototype_flip_at_E.diff` the flip-at-E change to PR #86's branch | 7, 8, 14 |
 | `census/` | The enumeration census (small and large reactions, fit-cost calibration), its verifiers and critic | 13 |
 | `peaksearch/` | The adversarial peak search on random-order bi-bi and variants | 12 |
+| `phase5/` | The research behind phase 5 (PR #95). `phase5_research.md` is the input to its plan; it merges the studies `law.md` (law type and engine output), `unit.md` (unit rule and printing), `phantom.md` (L phantoms) and `keycost.md` (key, complexity filter and code generation), and their two checks, `verify_claim.md` and `verify_independent.md`. Each study's scripts and logs sit in the directory of the same name; `synth/` holds `phase5_research.md`'s own run | 9, 10, 11, 13 |
+| `gcprobe/` | The probe of the GC crash the slice's skeptic hit (2026-10-13): a Julia 1.12 and 1.13 compiler bug, not the package's. `report.txt` gives the verdict, `repro_upstream.jl` a 20-line reproducer and `upstream_issue_draft.txt` an issue draft, not filed | — |
 
 ## Provenance
 
@@ -31,3 +33,9 @@ Produced between 2026-10-09 and 2026-10-12 in one Claude Code session with Denis
 workflows of probe, verifier and critic agents. Each report states what it checked, its
 counts and what it did not check; later reports correct earlier ones where they disagree
 (for example `round4/reports/verify_*.md` and `census/reports/critic.md`).
+
+The phase-5 research (`phase5/`) was produced on 2026-10-14 by the same kind of workflows.
+Its data are left out: each study's `data/` directory and `law/corpus/` (about 274 MB of
+TSVs and 23 MB of serialized `.jls` files) and the environments' `Manifest.toml` files.
+Each study's scripts wrote its data, so rerunning them rebuilds it. The reports name the
+scripts and logs behind their figures, and the logs keep the results.

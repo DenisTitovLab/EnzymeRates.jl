@@ -1,0 +1,4 @@
+logs/analyze_uniuni_R_1.log: exit 0, maxrss_kb 835684, 27s
+all chunks done
+logs/analyze_bibi_R_1.log: exit 0, maxrss_kb 939564, 128s
+all chunks done

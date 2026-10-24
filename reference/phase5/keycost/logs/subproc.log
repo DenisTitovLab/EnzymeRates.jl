@@ -1,0 +1,5 @@
+load EnzymeRates                     0.9 s, 0 output lines
+load EnzymeRates                     0.9 s, 0 output lines
+keys and bodies of 48 laws (slice)   9.8 s, 48 output lines
+maxrss_kb 554396
+exit 0 elapsed 27s

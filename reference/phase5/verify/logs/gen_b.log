@@ -1,0 +1,6 @@
+r55 slice recount, round 2 (study seed): 22069 allosteric within 337 compared, 0 V×τ mismatches, 0 failures; newly over: package 19, slice 19 (28 s)
+init_mechanisms(ter_ter): 250855 in 81 s, maxrss 1747 MB
+study pick reproduced: 2000 of 2000 census ids match unit/data/terter.tsv
+wrote 200 ter-ter mechanisms (V×τ ≤ 5000) in 83 s, maxrss 1758 MB
+maxrss_kb 1800428
+exit 0 elapsed 559s

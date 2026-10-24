@@ -1,0 +1,18 @@
+data/kt_r55.tsv: 340 rows, 340 laws, 0 errors
+  by key-part terms (KT): n | key ms median p90 max | law ms median max | key/law median max | leaves max | nodes max
+  KT [51, 337]: 33 | 3.03 3.81 4.33 | 1.3 8.8 | 2.38 3.63 | 1 | 1
+  KT [338, 1000]: 300 | 10.77 17.08 26.43 | 2.4 69.1 | 4.31 8.04 | 1 | 1
+  KT [1001, 2000]: 7 | 31.65 35.80 35.80 | 4.5 4.8 | 7.20 7.42 | 1 | 1
+  log-log slope of key time on KT (KT > 50): 1.63; of law time: 1.02
+  leaves > 1 in 0 laws; max leaves 1; exponent denominators > 2 in 0, = 2 in 0
+  allosteric: 220 laws, key ms median 10.12 max 21.77; max KT 1030
+  slowest key: plain_over bibi:r3 a793187d2157fea8 KT 1192 D 1066 cx 645+0 key 35.8 ms law 4.8 ms leaves 1
+  slowest key: plain_over bibi:r3 f54b733da5a56d4a KT 1155 D 1029 cx 645+0 key 33.1 ms law 4.6 ms leaves 1
+  slowest key: plain_over bibi:r3 16744493c742c298 KT 1155 D 1029 cx 645+0 key 33.1 ms law 4.5 ms leaves 1
+  slowest key: plain_over bibi:r3 80197888e0630f45 KT 1117 D 991 cx 645+0 key 31.6 ms law 4.4 ms leaves 1
+  slowest key: plain_over bibi:r3 5eb060f89dae71ca KT 1117 D 991 cx 645+0 key 29.7 ms law 4.6 ms leaves 1
+  codegen: 340 laws; allocations > 0 in 0; ns barrier max 74.48; over 120 ns: 0
+    ns per D    over 295 laws with D >= 300: min 0.0361 median 0.0595 max 0.1511 (max/min 4.19)
+    ns per V×τ  over 290 laws with V×τ >= 300: min 0.0465 median 0.0891 max 0.1520 (max/min 3.27)
+    ns per ops  over 340 laws with ops >= 300: min 0.0179 median 0.0307 max 0.0433 (max/min 2.41)
+    log-log slope of ns on D (D >= 50): 0.33; on ops: 0.78; on V×τ: 0.58

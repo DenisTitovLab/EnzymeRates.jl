@@ -1,0 +1,13 @@
+julia 1.12.5; mechanisms: 2035; rows neither builds: 0
+  500 done, 21 s
+  1000 done, 24 s
+  1500 done, 27 s
+  2000 done, 33 s
+errors in both: 5; differences F vs U: none
+allosteric laws: 749, of them with a flip-only inactive conformation: 137
+law time F/U over 2030 laws: median 1.002 p10 0.975 p90 1.026
+live bytes U: 36.90 KiB per law held (2030 laws)
+live bytes F: 37.26 KiB per law held (2030 laws)
+finished in 36 s
+maxrss_kb 1159264
+exit 0 elapsed 107s

@@ -1,0 +1,16 @@
+scan_C_112.log
+  escape analyses: 162  hoisted allocations: 3  hoisted with a bits store into a reference field: 3
+    DANGER 3x at essentials.jl:919:0
+    hoist 3x at essentials.jl:919:0
+scan_C_113.log
+  escape analyses: 189  hoisted allocations: 3  hoisted with a bits store into a reference field: 3
+    DANGER 3x at abstractarray.jl:1254:0
+    hoist 3x at abstractarray.jl:1254:0
+scan_E_112.log
+  escape analyses: 189  hoisted allocations: 0  hoisted with a bits store into a reference field: 0
+scan_E_113.log
+  escape analyses: 222  hoisted allocations: 0  hoisted with a bits store into a reference field: 0
+scan_F_112.log
+  escape analyses: 184  hoisted allocations: 0  hoisted with a bits store into a reference field: 0
+scan_F_113.log
+  escape analyses: 214  hoisted allocations: 0  hoisted with a bits store into a reference field: 0

@@ -1,0 +1,107 @@
+E6 GC-CRASH PROBE - SKEPTIC VERIFICATION
+Date: 2026-10-13. Same machine (aarch64, 1 thread). Paths are relative to
+scratchpad/phase3/gcprobe. New scripts sit in verify/, new logs in verify_logs/.
+Every Julia run used: timeout -s KILL <s> flock -w 14400 .../proto/julia.lock julia ...
+
+VERDICT: CONFIRMED, with three small corrections. None changes the recommendation.
+
+1. CLAIMS CHECKED
+
+C1. bbR4.jl aborts on 1.12.5 and 1.13.1. CONFIRMED.
+  julia [+1.13] --startup-file=no --heap-size-hint=1500M slice/skeptic/scripts/inv/bbR4.jl
+  1.12.5: 2/2 abort with "GC error" (verify_logs/bbR4_112_r{1,2}.log)
+  1.13.1: 2/2 abort                  (verify_logs/bbR4_113_r{1,2}.log)
+
+C2. Deserialization is not needed. CONFIRMED.
+  gc3.jl builds the mechanisms from source and reads nothing from disk.
+  1.12.5: 2/2 abort after 2 laws     (verify_logs/gc3_112_r{1,2}.log)
+  1.10.12: 2/2 clean, 24/24 laws     (verify_logs/gc3_110_r{1,2}.log)
+  FN=wlaw_nobig (Law{Int} only, no Union): 2/2 clean, 24 laws  (gc3nobig_112_r*.log)
+  -O1: 2/2 clean, 24 laws            (gc3_O1_112_r*.log; the report had 1 run)
+
+C3. The trigger is the caller's loop boxing a Union field read. CONFIRMED with a test
+  the report did not run. verify/bbR4_barrier.jl is bbR4.jl with one change: the line
+  `nD = L isa S.Law ? S.nterms(L.D) : S.nterms(L.active.D)` moves into a @noinline
+  function. The rest of the workload is unchanged: pipeline rows, deserialization,
+  freeing, GC.
+  1.12.5: 3/3 clean, all 43 output lines, "finished"   (bbR4bar_112_r{1,2,3}.log)
+  1.13.1: 2/2 clean                                     (bbR4bar_113_r{1,2}.log)
+  So the slice code, the BigInt path and deserialization cannot cause the crash on their
+  own. The mitigation works on the original workload.
+
+C4. Standalone repro_upstream.jl. CONFIRMED.
+  1.12.5: 3/3 exit 134. 1.13.1: 3/3 exit 134. 1.10.12: 3/3 clean. 1.12.5 -O1: 2/2 clean.
+  (verify_logs/up*_r*.log, up_O1_r*.log)
+
+C5. JuliaLICM hoists the box. CONFIRMED by a control and by the IR.
+  - verify/v_loop.jl (repro with flushed output): 3/3 abort on 1.12.5.
+  - verify/v_noloop.jl unrolls the same three iterations into straight-line code. That
+    leaves no loop for LICM and changes nothing else: 3/3 clean on 1.12.5, 2/2 on 1.13.1.
+  - verify/v_barrier.jl, the field read behind @noinline: 3/3 clean on 1.12.5.
+  - 1.13.1 -O1 v_loop: 2/2 clean.
+  - Optimized IR of v_loop's main (verify_logs/v_loop_ir.log): both
+    `box::P` ijl_gc_small_alloc calls sit in L17.preheader. Inside the loop the field
+    is written by `store i64 %4, ptr %"box::P"` with no write barrier, and the loop
+    calls ijl_gc_collect. That matches steps a-d of the report.
+
+C6. Package not affected in the code exercised. CONFIRMED, with a stronger stress.
+  New fresh-process stress, closer to identify's path:
+  - verify/pkg_build.jl builds the bi-bi allosteric population (264 seeds + 2333
+    children = 2597) and serializes it.
+  - verify/pkg_fresh.jl runs in a NEW process. It reads the population back and pmaps it
+    to 2 Distributed workers, so each mechanism is serialized again. Each worker runs
+    rate_equation_string, _dependent_param_exprs, compile_mechanism, fitted_params and
+    50 rate_equation evaluations; it runs GC.gc(true) every 200 mechanisms. Then the
+    script frees the results and runs a full GC on master and workers. 3 rounds; the
+    totals must match across rounds.
+  NEVAL=300,  1.12.5: ok, 3 rounds identical               (pkg_fresh_112.log)
+  NEVAL=2597, 1.12.5: ok, 3 rounds identical, peak 1.0 GB  (pkg_fresh_112_all.log)
+  NEVAL=2597, 1.13.1 (env113): ok, identical totals        (pkg_fresh_113_all.log)
+  Character and dependent-constant totals (8663071, 5194) match the report's pkg_stress.
+
+C7. The remark scan means something for package code. CONFIRMED by a positive control.
+  verify/pkgs/HoistProbe is a tiny package holding the repro pattern; its main is
+  precompiled.
+  --pkgimages=yes: crashes, but the scan sees 0 hoists (native code comes from the
+    pkgimage, so no remarks).
+  --pkgimages=no:  crashes, and the scan flags 2 dangerous hoists.
+  (verify_logs/hp_remarks_pkgimages_{yes,no}.log)
+  The report's package scans used --pkgimages=no and found 0 "hoisting gc allocation"
+  remarks in all four logs; I re-ran hoistscan.py on them. That zero is meaningful.
+  A CI guard MUST pass --pkgimages=no, or it passes vacuously.
+
+2. CORRECTIONS AND GAPS
+  G1. Not every step 3 claim matches. The report says JuliaLICM "adds a memset" to the
+      hoisted box. In v_loop's IR there is no memset: the box is rooted in a GC frame
+      slot at the loop head before its field is first written. A GC inside make() on
+      iteration 1 would therefore scan an uninitialized field. That is a second hazard
+      from the same hoist. Mention both in the upstream draft.
+  G2. Which round aborts. With flushed output the repro passes full GCs 1 and 2 and
+      aborts in round 3 (verify_logs/v_loop_r*.log, "GC: 2" at abort). This fits "the box
+      becomes old, then gets a young Dict with no barrier". The report's guess of a
+      double collection inside one GC.gc(true) is not needed. The GC-level story stays
+      inferred; nobody traced it in the GC source.
+  G3. Newer 1.12 patch releases are untested. A v1.12.6 tag exists upstream (seen in
+      search results); only 1.12.5 is installed. Before filing, check 1.12.6 and nightly,
+      since a fix may already exist. I did not install anything.
+  G4. Some no-crash rows in the report rest on 1 run (-O0, -O3, --compile=min, which
+      was killed after 8 laws). The crash has been deterministic in every crashing
+      configuration (0 misses in about 30 runs). The decisive no-crash rows are now
+      repeated: -O1, 1.10, no loop, barrier, no Union.
+  G5. Scan coverage. As the report says, the scan covers only code these workloads
+      compile. It does not cover other optimizers, the CV grid at scale, or the DSL
+      macros.
+
+3. ON THE PHASE 3 RECOMMENDATION
+  Agreed: proceed. The EnzymeMechanism{Sig} type-parameter encoding is not involved,
+  and deserialization on workers carries no extra risk. Watch the phase 3 Mechanism
+  design for the hazard: a loop that reads, from a Union of types (for example
+  Union{Mechanism, AllostericMechanism}), a field whose type differs across the members
+  and is an immutable struct holding references. Reading such a field forces a fresh
+  box in the loop. A field of the same concrete type in both members, or a heap
+  object (Vector, Dict, mutable struct), is safe. If phase 3 adds a CI remark guard,
+  it must run with --pkgimages=no (C7).
+
+FILES
+  verify/v_common.jl v_loop.jl v_noloop.jl v_barrier.jl v_loop_ir.jl bbR4_barrier.jl
+  verify/pkg_build.jl pkg_fresh.jl pkgs/HoistProbe/  verify_logs/*

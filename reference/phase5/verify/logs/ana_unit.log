@@ -1,0 +1,7 @@
+[   7 s] ter-ter laws: 150
+terter: 150 conformations, 0 errors; homogeneous 150, v unit E/time 150, dimensionless 150; rules [:constant => 129, :virtual_int => 21]; Cleland-eligible 0, N = Cleland 0, N differs 0
+alloA: 50 conformations, 0 errors; homogeneous 50, v unit E/time 50, dimensionless 50; rules [:constant => 50]; Cleland-eligible 0, N = Cleland 0, N differs 0
+alloI: 42 conformations, 0 errors; homogeneous 42, v unit E/time 42, dimensionless 42; rules [:constant => 42]; Cleland-eligible 0, N = Cleland 0, N differs 0
+done in 9 s, maxrss 531 MB
+maxrss_kb 544224
+exit 0 elapsed 485s

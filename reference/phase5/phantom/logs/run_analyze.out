@@ -1,0 +1,5 @@
+logs/analyze_bibi_1.log: exit 0, maxrss_kb 911112, 168s
+all chunks done
+logs/analyze_pingpong_1.log: exit 0, maxrss_kb 884744, 37s
+all chunks done
+exit 0

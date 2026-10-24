@@ -1,0 +1,18 @@
+data/kt_small.tsv: 78 rows, 78 laws, 0 errors
+  by key-part terms (KT): n | key ms median p90 max | law ms median max | key/law median max | leaves max | nodes max
+  KT [0, 50]: 40 | 0.15 0.40 0.46 | 0.2 37.5 | 1.01 2.30 | 1 | 1
+  KT [51, 337]: 2 | 1.11 1.11 1.11 | 6.4 6.4 | 2.33 2.33 | 1 | 1
+  KT [338, 1000]: 36 | 13.63 20.20 20.44 | 11.3 67.3 | 1.48 2.34 | 1 | 1
+  log-log slope of key time on KT (KT > 50): 1.35; of law time: 0.99
+  leaves > 1 in 0 laws; max leaves 1; exponent denominators > 2 in 0, = 2 in 0
+  allosteric: 11 laws, key ms median 0.21 max 0.59; max KT 72
+  slowest key: gate terbi_2 4502ae5849b82b34 KT 933 D 799 cx 1360+0 key 20.4 ms law 15.7 ms leaves 1
+  slowest key: terbi_top 4202 c1a3c5c519068a3e KT 933 D 799 cx 1360+0 key 20.4 ms law 10.8 ms leaves 1
+  slowest key: terbi_top 4201 1039fbeb7206cb83 KT 933 D 799 cx 1360+0 key 20.2 ms law 26.0 ms leaves 1
+  slowest key: terbi_top 4163 fdcef899126c0de4 KT 933 D 799 cx 1360+0 key 20.2 ms law 10.6 ms leaves 1
+  slowest key: terbi_top 4206 07168e12be8fbd57 KT 933 D 799 cx 1360+0 key 19.8 ms law 11.3 ms leaves 1
+  codegen: 78 laws; allocations > 0 in 0; ns barrier max 75.24; over 120 ns: 0
+    ns per D    over 36 laws with D >= 300: min 0.0616 median 0.0708 max 0.1079 (max/min 1.75)
+    ns per V×τ  over 36 laws with V×τ >= 300: min 0.0295 median 0.0446 max 0.0636 (max/min 2.15)
+    ns per ops  over 37 laws with ops >= 300: min 0.0200 median 0.0271 max 0.0370 (max/min 1.85)
+    log-log slope of ns on D (D >= 50): 0.75; on ops: 0.74; on V×τ: 0.51

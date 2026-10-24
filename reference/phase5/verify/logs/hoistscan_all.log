@@ -1,0 +1,42 @@
+logs/scan_C_112_untyped.log
+  escape analyses: 493  hoisted allocations: 0  hoisted with a bits store into a reference field: 0
+logs/scan_C_112.log
+  escape analyses: 496  hoisted allocations: 1  hoisted with a bits store into a reference field: 1
+    DANGER 1x at essentials.jl:919:0
+    hoist 1x at essentials.jl:919:0
+logs/scan_U_112.log
+  escape analyses: 634  hoisted allocations: 6  hoisted with a bits store into a reference field: 6
+    DANGER 4x at range.jl:921:0
+    DANGER 2x at essentials.jl:919:0
+    hoist 4x at range.jl:921:0
+    hoist 2x at essentials.jl:919:0
+logs/scan_C_113.log
+  escape analyses: 569  hoisted allocations: 1  hoisted with a bits store into a reference field: 1
+    DANGER 1x at abstractarray.jl:1254:0
+    hoist 1x at abstractarray.jl:1254:0
+logs/scan_U_113.log
+  escape analyses: 750  hoisted allocations: 6  hoisted with a bits store into a reference field: 6
+    DANGER 4x at range.jl:928:0
+    DANGER 2x at abstractarray.jl:1254:0
+    hoist 4x at range.jl:928:0
+    hoist 2x at abstractarray.jl:1254:0
+logs/scan_loc_C_112.log
+  escape analyses: 494  hoisted allocations: 1  hoisted with a bits store into a reference field: 1
+    DANGER 1x at essentials.jl:919:0
+    hoist 1x at essentials.jl:919:0
+logs/crash_C_112.log
+  escape analyses: 151  hoisted allocations: 1  hoisted with a bits store into a reference field: 1
+    DANGER 1x at essentials.jl:919:0
+    hoist 1x at essentials.jl:919:0
+logs/crash_C_113.log
+  escape analyses: 170  hoisted allocations: 1  hoisted with a bits store into a reference field: 1
+    DANGER 1x at abstractarray.jl:1254:0
+    hoist 1x at abstractarray.jl:1254:0
+logs/crash_D_112.log
+  escape analyses: 150  hoisted allocations: 0  hoisted with a bits store into a reference field: 0
+logs/crash_D_113.log
+  escape analyses: 169  hoisted allocations: 0  hoisted with a bits store into a reference field: 0
+logs/crash_E_112.log
+  escape analyses: 164  hoisted allocations: 0  hoisted with a bits store into a reference field: 0
+logs/crash_E_113.log
+  escape analyses: 187  hoisted allocations: 0  hoisted with a bits store into a reference field: 0

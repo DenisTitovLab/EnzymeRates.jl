@@ -1,0 +1,91 @@
+# Numerator: RE-chemistry (Julia 1.12.5)
+def #1 = ["Pair{Int64, Rational{Int64}}[1 => 1, 7 => -1]=>1", "Pair{Int64, Rational{Int64}}[2 => 1, 8 => -1]=>1", "Pair{Int64, Rational{Int64}}[3 => 1, 5 => -1]=>1", "Pair{Int64, Rational{Int64}}[4 => 1, 6 => -1]=>1", "Pair{Int64, Rational{Int64}}[]=>1"]
+def #2 = ["Pair{Int64, Rational{Int64}}[7 => 1, 8 => -1, 12 => -1, 13 => 1, 14 => 1]=>1"]
+def #3 = ["Pair{Int64, Rational{Int64}}[5 => -1, 7 => 1, 9 => 1, 10 => -1, 12 => -1, 13 => 1, 15 => 1]=>1"]
+def #4 = ["Pair{Int64, Rational{Int64}}[10 => 1]=>1", "Pair{Int64, Rational{Int64}}[11 => 1]=>1", "Pair{Int64, Rational{Int64}}[13 => 1, 18 => -1]=>1", "Pair{Int64, Rational{Int64}}[17 => 1, 18 => -1]=>1"]
+def #5 = ["Pair{Int64, Rational{Int64}}[18 => -1]=>1", "Pair{Int64, Rational{Int64}}[]=>1"]
+def #6 = ["Pair{Int64, Rational{Int64}}[5 => -1, 6 => 1, 9 => 1, 10 => -1, 11 => 1]=>1"]
+def #7 = ["Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1, 7 => -1, 12 => 1]=>1", "Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1, 8 => -1, 14 => 1]=>1", "Pair{Int64, Rational{Int64}}[3 => 1, 4 => 1, 5 => -1, 9 => 1]=>1", "Pair{Int64, Rational{Int64}}[3 => 1, 4 => 1, 6 => -1, 21 => 1]=>1"]
+def #8 = ["Pair{Int64, Rational{Int64}}[7 => -1, 10 => 1, 12 => 1]=>1", "Pair{Int64, Rational{Int64}}[7 => -1, 11 => 1, 12 => 1]=>1", "Pair{Int64, Rational{Int64}}[8 => -1, 10 => 1, 14 => 1]=>1", "Pair{Int64, Rational{Int64}}[8 => -1, 11 => 1, 14 => 1]=>1"]
+def #9 = ["Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1]=>1", "Pair{Int64, Rational{Int64}}[3 => 1, 4 => 1, 15 => -1]=>-1"]
+begin
+    x1 = getfield(concs, :S1)
+    x2 = getfield(concs, :S2)
+    x3 = getfield(concs, :P1)
+    x4 = getfield(concs, :P2)
+    x5 = getfield(params, :K_EP1_to_E_P1)
+    x5m1 = inv(x5)
+    x6 = getfield(params, :K_EP2_to_E_P2)
+    x6m1 = inv(x6)
+    x7 = getfield(params, :K_ES1_to_E_S1)
+    x7m1 = inv(x7)
+    x8 = getfield(params, :K_ES2_to_E_S2)
+    x8m1 = inv(x8)
+    x9 = getfield(params, :k_EP1_P2_to_EP1P2)
+    x10 = getfield(params, :k_EP1P2_to_EP1_P2)
+    x10m1 = inv(x10)
+    x11 = getfield(params, :k_EP1P2_to_EP2_P1)
+    x12 = getfield(params, :k_ES1_S2_to_ES1S2)
+    x12m1 = inv(x12)
+    x13 = getfield(params, :k_ES1S2_to_ES1_S2)
+    x14 = getfield(params, :k_ES2_S1_to_ES1S2)
+    x15 = getfield(params, :Keq)
+    x15m1 = inv(x15)
+    x16 = x1 * x7m1 + (x2 * x8m1 + (x3 * x5m1 + (x4 * x6m1 + 1)))
+    x17 = x12m1 * (x13 * (x14 * (x7 * x8m1)))
+    x18 = x10m1 * (x12m1 * (x13 * (x15 * (x5m1 * (x7 * x9)))))
+    x18m1 = inv(x18)
+    x19 = x18m1 * (x13 + x17) + (x10 + x11)
+    x20 = x18m1 + 1
+    x21 = x10m1 * (x11 * (x5m1 * (x6 * x9)))
+    x22 = x1 * (x2 * (x12 * x7m1 + x14 * x8m1)) + x3 * (x4 * (x21 * x6m1 + x5m1 * x9))
+    x23 = x10 * (x12 * x7m1 + x14 * x8m1) + x11 * (x12 * x7m1 + x14 * x8m1)
+    x24 = x1 * x2 - x15m1 * (x3 * x4)
+    return (getfield(params, :E_total) * (x23 * x24)) / (x16 * x19 + x20 * x22)
+end
+# RE Random Bi-Bi (Julia 1.12.5)
+def #1 = ["Pair{Int64, Rational{Int64}}[1 => 1, 5 => -1]=>1", "Pair{Int64, Rational{Int64}}[2 => 1, 6 => -1]=>1", "Pair{Int64, Rational{Int64}}[]=>1"]
+def #2 = ["Pair{Int64, Rational{Int64}}[5 => 1, 6 => -1, 9 => -1, 10 => 1, 11 => 1]=>1"]
+def #3 = ["Pair{Int64, Rational{Int64}}[5 => -1, 7 => -1, 8 => 1, 9 => 1, 10 => -1, 12 => -1, 13 => 1, 14 => 1, 15 => -1]=>1"]
+def #4 = ["Pair{Int64, Rational{Int64}}[3 => 1, 10 => 1, 12 => 1, 18 => 1]=>1", "Pair{Int64, Rational{Int64}}[3 => 1, 12 => 1, 17 => 1, 18 => 1]=>1", "Pair{Int64, Rational{Int64}}[8 => 1, 10 => 1, 13 => 1]=>1", "Pair{Int64, Rational{Int64}}[8 => 1, 10 => 1, 18 => 1]=>1", "Pair{Int64, Rational{Int64}}[8 => 1, 13 => 1, 14 => 1]=>1", "Pair{Int64, Rational{Int64}}[8 => 1, 13 => 1, 17 => 1]=>1", "Pair{Int64, Rational{Int64}}[8 => 1, 17 => 1, 18 => 1]=>1"]
+def #5 = ["Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1, 5 => -1, 9 => 1, 13 => 1, 14 => 1]=>1", "Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1, 6 => -1, 11 => 1, 13 => 1, 14 => 1]=>1", "Pair{Int64, Rational{Int64}}[4 => 1, 7 => 1, 10 => 1, 13 => 1]=>1", "Pair{Int64, Rational{Int64}}[4 => 1, 7 => 1, 10 => 1, 18 => 1]=>1", "Pair{Int64, Rational{Int64}}[4 => 1, 7 => 1, 13 => 1, 14 => 1]=>1", "Pair{Int64, Rational{Int64}}[4 => 1, 7 => 1, 13 => 1, 17 => 1]=>1", "Pair{Int64, Rational{Int64}}[4 => 1, 7 => 1, 17 => 1, 18 => 1]=>1"]
+def #6 = ["Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1, 3 => 1, 5 => -1, 9 => 1, 12 => 1, 18 => 1]=>1", "Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1, 3 => 1, 6 => -1, 11 => 1, 12 => 1, 18 => 1]=>1", "Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1, 5 => -1, 8 => 1, 9 => 1, 13 => 1]=>1", "Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1, 5 => -1, 8 => 1, 9 => 1, 18 => 1]=>1", "Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1, 6 => -1, 8 => 1, 11 => 1, 13 => 1]=>1", "Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1, 6 => -1, 8 => 1, 11 => 1, 18 => 1]=>1", "Pair{Int64, Rational{Int64}}[3 => 1, 4 => 1, 7 => 1, 12 => 1, 18 => 1]=>1"]
+def #7 = ["Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1, 3 => 1, 5 => -1, 9 => 1, 12 => 1, 14 => 1]=>1", "Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1, 3 => 1, 6 => -1, 11 => 1, 12 => 1, 14 => 1]=>1", "Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1, 5 => -1, 8 => 1, 9 => 1, 14 => 1]=>1", "Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1, 6 => -1, 8 => 1, 11 => 1, 14 => 1]=>1", "Pair{Int64, Rational{Int64}}[3 => 1, 4 => 1, 7 => 1, 10 => 1, 12 => 1]=>1", "Pair{Int64, Rational{Int64}}[3 => 1, 4 => 1, 7 => 1, 12 => 1, 14 => 1]=>1", "Pair{Int64, Rational{Int64}}[3 => 1, 4 => 1, 7 => 1, 12 => 1, 17 => 1]=>1"]
+def #8 = ["Pair{Int64, Rational{Int64}}[5 => -1, 8 => 1, 9 => 1, 13 => 1, 14 => 1]=>1", "Pair{Int64, Rational{Int64}}[6 => -1, 8 => 1, 11 => 1, 13 => 1, 14 => 1]=>1"]
+def #9 = ["Pair{Int64, Rational{Int64}}[1 => 1, 2 => 1]=>1", "Pair{Int64, Rational{Int64}}[3 => 1, 4 => 1, 15 => -1]=>-1"]
+begin
+    x1 = getfield(concs, :A)
+    x2 = getfield(concs, :B)
+    x3 = getfield(concs, :P)
+    x4 = getfield(concs, :Q)
+    x5 = getfield(params, :K_EA_to_E_A)
+    x5m1 = inv(x5)
+    x6 = getfield(params, :K_EB_to_E_B)
+    x6m1 = inv(x6)
+    x7 = getfield(params, :k_E_Q_to_EQ)
+    x7m1 = inv(x7)
+    x8 = getfield(params, :k_EQ_to_E_Q)
+    x9 = getfield(params, :k_EA_B_to_EAB)
+    x9m1 = inv(x9)
+    x10 = getfield(params, :k_EAB_to_EA_B)
+    x10m1 = inv(x10)
+    x11 = getfield(params, :k_EB_A_to_EAB)
+    x12 = getfield(params, :k_EQ_P_to_EPQ)
+    x12m1 = inv(x12)
+    x13 = getfield(params, :k_EPQ_to_EQ_P)
+    x14 = getfield(params, :k_EAB_to_EPQ)
+    x15 = getfield(params, :Keq)
+    x15m1 = inv(x15)
+    x16 = x1 * x5m1 + (x2 * x6m1 + 1)
+    x17 = x10 * (x11 * (x5 * (x6m1 * x9m1)))
+    x18 = x10m1 * (x12m1 * (x13 * (x14 * (x15m1 * (x5m1 * (x7m1 * (x8 * x9)))))))
+    x19 = x8 * (x13 * (x10 + (x14 + x17)) + x18 * (x10 + x17)) + x12 * (x18 * (x3 * (x10 + x17)))
+    x20 = x13 * (x14 * (x1 * (x2 * (x11 * x6m1 + x5m1 * x9)) + x4 * x7) + x4 * (x7 * (x10 + x17))) + x18 * (x4 * (x7 * (x10 + x17)))
+    x21 = x1 * (x2 * (x18 * (x11 * (x6m1 * (x12 * x3 + x8)) + x5m1 * (x9 * (x12 * x3 + x8))) + x13 * (x8 * (x11 * x6m1 + x5m1 * x9)))) + x12 * (x18 * (x3 * (x4 * x7)))
+    x22 = x12 * (x3 * (x14 * (x1 * (x2 * (x11 * x6m1 + x5m1 * x9)) + x4 * x7) + x4 * (x7 * (x10 + x17)))) + x1 * (x14 * (x2 * (x8 * (x11 * x6m1 + x5m1 * x9))))
+    x23 = x13 * (x14 * (x8 * (x11 * x6m1 + x5m1 * x9)))
+    x24 = x1 * x2 - x15m1 * (x3 * x4)
+    return (getfield(params, :E_total) * (x23 * x24)) / (x16 * x19 + (x20 + (x21 + x22)))
+end
+maxrss_kb 497436
+exit 0 elapsed 7s

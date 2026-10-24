@@ -1,0 +1,20 @@
+pingpong rows to 201: 200 done (10 s, maxrss 836 MB)
+pingpong rows to 401: 400 done (12 s, maxrss 836 MB)
+pingpong rows to 601: 600 done (13 s, maxrss 836 MB)
+pingpong rows to 801: 800 done (14 s, maxrss 836 MB)
+pingpong rows to 1001: 1000 done (16 s, maxrss 836 MB)
+pingpong rows to 1201: 1200 done (17 s, maxrss 836 MB)
+pingpong rows to 1401: 1400 done (18 s, maxrss 836 MB)
+pingpong rows to 1601: 1600 done (19 s, maxrss 836 MB)
+pingpong rows to 1801: 1800 done (21 s, maxrss 836 MB)
+pingpong rows to 2001: 2000 done (23 s, maxrss 836 MB)
+pingpong rows to 2201: 2200 done (24 s, maxrss 836 MB)
+pingpong rows to 2401: 2400 done (26 s, maxrss 836 MB)
+pingpong rows to 2601: 2600 done (27 s, maxrss 836 MB)
+pingpong rows to 2801: 2800 done (29 s, maxrss 836 MB)
+pingpong rows to 3007: 3000 done (31 s, maxrss 838 MB)
+pingpong rows to 3207: 3200 done (33 s, maxrss 864 MB)
+pingpong rows to 3407: 3400 done (35 s, maxrss 864 MB)
+pingpong finished 3498 rows in 36 s, maxrss 864 MB
+maxrss_kb 884744
+exit 0 elapsed 37s

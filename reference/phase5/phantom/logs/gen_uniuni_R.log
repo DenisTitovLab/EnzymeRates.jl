@@ -1,0 +1,6 @@
+uniuni_R round 0: 8 seeds, 8 base entries, 8 ok, 0 base failures (2.6 s)
+uniuni_R round 1: 8 parents of 8, 30 fresh, 30 ok, 30 allosteric n=1 ok, 0 expand errors (1.2 s, maxrss 1207 MB)
+uniuni_R round 2: 30 parents of 30, 47 fresh, 47 ok, 47 allosteric n=1 ok, 0 expand errors (0.0 s, maxrss 1207 MB)
+done uniuni_R: 85 records, 173 edges, maxrss 1207 MB
+maxrss_kb 1235688
+exit 0 elapsed 31s

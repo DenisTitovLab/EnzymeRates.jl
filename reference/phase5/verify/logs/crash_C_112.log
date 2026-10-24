@@ -1,0 +1,3089 @@
+remark: /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/law/variants/C/SliceC.jl:7:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/law/variants/C/SliceC.jl:7:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: strings/string.jl:140:0: hoisting preserve begin call
+remark: strings/string.jl:140:0: sinking preserve end call
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: strings/string.jl:140:0: cloning and sinking preserve endcall
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: strings/io.jl:246:0: hoisting preserve begin call
+remark: strings/io.jl:246:0: sinking preserve end call
+remark: strings/io.jl:246:0: cloning and sinking preserve endcall
+remark: strings/io.jl:246:0: cloning and sinking preserve endcall
+remark: strings/io.jl:246:0: cloning and sinking preserve endcall
+remark: strings/io.jl:246:0: cloning and sinking preserve endcall
+remark: strings/io.jl:246:0: cloning and sinking preserve endcall
+remark: strings/io.jl:246:0: cloning and sinking preserve endcall
+remark: strings/io.jl:246:0: cloning and sinking preserve endcall
+remark: dict.jl:775:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: dict.jl:775:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: essentials.jl:919:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: essentials.jl:919:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: dict.jl:775:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: dict.jl:775:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+julia 1.12.5 variant C: 989 mechanisms
+remark: genericmemory.jl:205:0: hoisting preserve begin call
+remark: genericmemory.jl:209:0: sinking preserve end call
+remark: dict.jl:80:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: dict.jl:80:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: tuple.jl:33:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: essentials.jl:919:0: escape analysis for call
+AllocUseInfo:
+escaped: 0
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 1
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 1
+refstore: 0
+allockind: uninitialized
+Uses: 3
+  %140 = addrspacecast ptr addrspace(10) %139 to ptr addrspace(11), !dbg !54
+  %142 = load atomic ptr addrspace(10), ptr addrspace(11) %140 unordered, align 8, !dbg !86, !tbaa !83, !alias.scope !50, !noalias !51, !nonnull !8, !dereferenceable !90, !align !46
+  store i64 %141, ptr addrspace(11) %140, align 8, !dbg !54, !tbaa !83, !alias.scope !50, !noalias !51
+MemOps: 1
+  offset: 0
+  size: 8
+  hasobjref: 1
+  hasload: 1
+  hasaggr: 0
+  accesses: 2
+      %142 = load atomic ptr addrspace(10), ptr addrspace(11) %140 unordered, align 8, !dbg !86, !tbaa !83, !alias.scope !50, !noalias !51, !nonnull !8, !dereferenceable !90, !align !46
+    scalar
+    objref
+    0
+    8
+      store i64 %141, ptr addrspace(11) %140, align 8, !dbg !54, !tbaa !83, !alias.scope !50, !noalias !51
+    scalar
+    bits
+    0
+    8
+
+remark: essentials.jl:919:0: hoisting gc allocation call
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 0
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 1
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 1
+refstore: 1
+allockind: uninitialized
+Uses: 15
+  %163 = addrspacecast ptr addrspace(10) %162 to ptr addrspace(11), !dbg !146
+  %210 = load ptr, ptr addrspace(11) %163, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88
+  %166 = load ptr, ptr addrspace(11) %163, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88
+  %165 = getelementptr inbounds i8, ptr addrspace(11) %163, i64 16, !dbg !146
+  %194 = load i64, ptr addrspace(11) %165, align 8, !dbg !208, !tbaa !126, !alias.scope !135, !noalias !136
+  %478 = load i64, ptr addrspace(11) %165, align 8, !dbg !362, !tbaa !126, !alias.scope !135, !noalias !136
+  %476 = load i64, ptr addrspace(11) %165, align 8, !dbg !361, !tbaa !126, !alias.scope !135, !noalias !136
+  %171 = load i64, ptr addrspace(11) %165, align 8, !dbg !153, !tbaa !126, !alias.scope !135, !noalias !136
+  store i64 1, ptr addrspace(11) %165, align 8, !dbg !146, !tbaa !126, !alias.scope !127, !noalias !128
+  store ptr %161, ptr addrspace(11) %163, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+  %164 = getelementptr inbounds i8, ptr addrspace(11) %163, i64 8, !dbg !146
+  %211 = load ptr addrspace(10), ptr addrspace(11) %164, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+  %167 = load ptr addrspace(10), ptr addrspace(11) %164, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+  store ptr addrspace(10) %156, ptr addrspace(11) %164, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+  store ptr addrspace(10) null, ptr addrspace(11) %164, align 8, !dbg !146, !tbaa !123, !alias.scope !87, !noalias !88
+MemOps: 1
+  offset: 0
+  size: 24
+  hasobjref: 1
+  hasload: 1
+  hasaggr: 0
+  accesses: 12
+      %210 = load ptr, ptr addrspace(11) %163, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    bits
+    0
+    8
+      %166 = load ptr, ptr addrspace(11) %163, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    bits
+    0
+    8
+      %194 = load i64, ptr addrspace(11) %165, align 8, !dbg !208, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      %478 = load i64, ptr addrspace(11) %165, align 8, !dbg !362, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      %476 = load i64, ptr addrspace(11) %165, align 8, !dbg !361, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      %171 = load i64, ptr addrspace(11) %165, align 8, !dbg !153, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      store i64 1, ptr addrspace(11) %165, align 8, !dbg !146, !tbaa !126, !alias.scope !127, !noalias !128
+    scalar
+    bits
+    16
+    8
+      store ptr %161, ptr addrspace(11) %163, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    bits
+    0
+    8
+      %211 = load ptr addrspace(10), ptr addrspace(11) %164, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+    scalar
+    objref
+    8
+    8
+      %167 = load ptr addrspace(10), ptr addrspace(11) %164, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) %156, ptr addrspace(11) %164, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) null, ptr addrspace(11) %164, align 8, !dbg !146, !tbaa !123, !alias.scope !87, !noalias !88
+    scalar
+    objref
+    8
+    8
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 0
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 1
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 1
+refstore: 1
+allockind: uninitialized
+Uses: 15
+  %163 = addrspacecast ptr addrspace(10) %162 to ptr addrspace(11), !dbg !146
+  %210 = load ptr, ptr addrspace(11) %163, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88
+  %166 = load ptr, ptr addrspace(11) %163, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88
+  %165 = getelementptr inbounds i8, ptr addrspace(11) %163, i64 16, !dbg !146
+  %194 = load i64, ptr addrspace(11) %165, align 8, !dbg !208, !tbaa !126, !alias.scope !135, !noalias !136
+  %478 = load i64, ptr addrspace(11) %165, align 8, !dbg !362, !tbaa !126, !alias.scope !135, !noalias !136
+  %476 = load i64, ptr addrspace(11) %165, align 8, !dbg !361, !tbaa !126, !alias.scope !135, !noalias !136
+  %171 = load i64, ptr addrspace(11) %165, align 8, !dbg !153, !tbaa !126, !alias.scope !135, !noalias !136
+  store i64 1, ptr addrspace(11) %165, align 8, !dbg !146, !tbaa !126, !alias.scope !127, !noalias !128
+  store ptr %161, ptr addrspace(11) %163, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+  %164 = getelementptr inbounds i8, ptr addrspace(11) %163, i64 8, !dbg !146
+  %211 = load ptr addrspace(10), ptr addrspace(11) %164, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+  %167 = load ptr addrspace(10), ptr addrspace(11) %164, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+  store ptr addrspace(10) %156, ptr addrspace(11) %164, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+  store ptr addrspace(10) null, ptr addrspace(11) %164, align 8, !dbg !146, !tbaa !123, !alias.scope !87, !noalias !88
+MemOps: 1
+  offset: 0
+  size: 24
+  hasobjref: 1
+  hasload: 1
+  hasaggr: 0
+  accesses: 12
+      %210 = load ptr, ptr addrspace(11) %163, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    bits
+    0
+    8
+      %166 = load ptr, ptr addrspace(11) %163, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    bits
+    0
+    8
+      %194 = load i64, ptr addrspace(11) %165, align 8, !dbg !208, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      %478 = load i64, ptr addrspace(11) %165, align 8, !dbg !362, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      %476 = load i64, ptr addrspace(11) %165, align 8, !dbg !361, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      %171 = load i64, ptr addrspace(11) %165, align 8, !dbg !153, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      store i64 1, ptr addrspace(11) %165, align 8, !dbg !146, !tbaa !126, !alias.scope !127, !noalias !128
+    scalar
+    bits
+    16
+    8
+      store ptr %161, ptr addrspace(11) %163, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    bits
+    0
+    8
+      %211 = load ptr addrspace(10), ptr addrspace(11) %164, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+    scalar
+    objref
+    8
+    8
+      %167 = load ptr addrspace(10), ptr addrspace(11) %164, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) %156, ptr addrspace(11) %164, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) null, ptr addrspace(11) %164, align 8, !dbg !146, !tbaa !123, !alias.scope !87, !noalias !88
+    scalar
+    objref
+    8
+    8
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 0
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 1
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 1
+refstore: 1
+allockind: uninitialized
+Uses: 15
+  %192 = addrspacecast ptr addrspace(10) %191 to ptr addrspace(11), !dbg !146
+  %239 = load ptr, ptr addrspace(11) %192, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88
+  %195 = load ptr, ptr addrspace(11) %192, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88
+  %194 = getelementptr inbounds i8, ptr addrspace(11) %192, i64 16, !dbg !146
+  %223 = load i64, ptr addrspace(11) %194, align 8, !dbg !208, !tbaa !126, !alias.scope !135, !noalias !136
+  %506 = load i64, ptr addrspace(11) %194, align 8, !dbg !361, !tbaa !126, !alias.scope !135, !noalias !136
+  %504 = load i64, ptr addrspace(11) %194, align 8, !dbg !360, !tbaa !126, !alias.scope !135, !noalias !136
+  %200 = load i64, ptr addrspace(11) %194, align 8, !dbg !153, !tbaa !126, !alias.scope !135, !noalias !136
+  store i64 1, ptr addrspace(11) %194, align 8, !dbg !146, !tbaa !126, !alias.scope !127, !noalias !128
+  store ptr %190, ptr addrspace(11) %192, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+  %193 = getelementptr inbounds i8, ptr addrspace(11) %192, i64 8, !dbg !146
+  %240 = load ptr addrspace(10), ptr addrspace(11) %193, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+  %196 = load ptr addrspace(10), ptr addrspace(11) %193, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+  store ptr addrspace(10) %185, ptr addrspace(11) %193, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+  store ptr addrspace(10) null, ptr addrspace(11) %193, align 8, !dbg !146, !tbaa !123, !alias.scope !87, !noalias !88
+MemOps: 1
+  offset: 0
+  size: 24
+  hasobjref: 1
+  hasload: 1
+  hasaggr: 0
+  accesses: 12
+      %239 = load ptr, ptr addrspace(11) %192, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    bits
+    0
+    8
+      %195 = load ptr, ptr addrspace(11) %192, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    bits
+    0
+    8
+      %223 = load i64, ptr addrspace(11) %194, align 8, !dbg !208, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      %506 = load i64, ptr addrspace(11) %194, align 8, !dbg !361, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      %504 = load i64, ptr addrspace(11) %194, align 8, !dbg !360, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      %200 = load i64, ptr addrspace(11) %194, align 8, !dbg !153, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      store i64 1, ptr addrspace(11) %194, align 8, !dbg !146, !tbaa !126, !alias.scope !127, !noalias !128
+    scalar
+    bits
+    16
+    8
+      store ptr %190, ptr addrspace(11) %192, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    bits
+    0
+    8
+      %240 = load ptr addrspace(10), ptr addrspace(11) %193, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+    scalar
+    objref
+    8
+    8
+      %196 = load ptr addrspace(10), ptr addrspace(11) %193, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) %185, ptr addrspace(11) %193, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) null, ptr addrspace(11) %193, align 8, !dbg !146, !tbaa !123, !alias.scope !87, !noalias !88
+    scalar
+    objref
+    8
+    8
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 0
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 1
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 1
+refstore: 1
+allockind: uninitialized
+Uses: 15
+  %192 = addrspacecast ptr addrspace(10) %191 to ptr addrspace(11), !dbg !146
+  %239 = load ptr, ptr addrspace(11) %192, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88
+  %195 = load ptr, ptr addrspace(11) %192, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88
+  %194 = getelementptr inbounds i8, ptr addrspace(11) %192, i64 16, !dbg !146
+  %223 = load i64, ptr addrspace(11) %194, align 8, !dbg !208, !tbaa !126, !alias.scope !135, !noalias !136
+  %506 = load i64, ptr addrspace(11) %194, align 8, !dbg !361, !tbaa !126, !alias.scope !135, !noalias !136
+  %504 = load i64, ptr addrspace(11) %194, align 8, !dbg !360, !tbaa !126, !alias.scope !135, !noalias !136
+  %200 = load i64, ptr addrspace(11) %194, align 8, !dbg !153, !tbaa !126, !alias.scope !135, !noalias !136
+  store i64 1, ptr addrspace(11) %194, align 8, !dbg !146, !tbaa !126, !alias.scope !127, !noalias !128
+  store ptr %190, ptr addrspace(11) %192, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+  %193 = getelementptr inbounds i8, ptr addrspace(11) %192, i64 8, !dbg !146
+  %240 = load ptr addrspace(10), ptr addrspace(11) %193, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+  %196 = load ptr addrspace(10), ptr addrspace(11) %193, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+  store ptr addrspace(10) %185, ptr addrspace(11) %193, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+  store ptr addrspace(10) null, ptr addrspace(11) %193, align 8, !dbg !146, !tbaa !123, !alias.scope !87, !noalias !88
+MemOps: 1
+  offset: 0
+  size: 24
+  hasobjref: 1
+  hasload: 1
+  hasaggr: 0
+  accesses: 12
+      %239 = load ptr, ptr addrspace(11) %192, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    bits
+    0
+    8
+      %195 = load ptr, ptr addrspace(11) %192, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    bits
+    0
+    8
+      %223 = load i64, ptr addrspace(11) %194, align 8, !dbg !208, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      %506 = load i64, ptr addrspace(11) %194, align 8, !dbg !361, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      %504 = load i64, ptr addrspace(11) %194, align 8, !dbg !360, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      %200 = load i64, ptr addrspace(11) %194, align 8, !dbg !153, !tbaa !126, !alias.scope !135, !noalias !136
+    scalar
+    bits
+    16
+    8
+      store i64 1, ptr addrspace(11) %194, align 8, !dbg !146, !tbaa !126, !alias.scope !127, !noalias !128
+    scalar
+    bits
+    16
+    8
+      store ptr %190, ptr addrspace(11) %192, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    bits
+    0
+    8
+      %240 = load ptr addrspace(10), ptr addrspace(11) %193, align 8, !dbg !217, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+    scalar
+    objref
+    8
+    8
+      %196 = load ptr addrspace(10), ptr addrspace(11) %193, align 8, !dbg !147, !tbaa !124, !alias.scope !87, !noalias !88, !dereferenceable_or_null !56, !align !49
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) %185, ptr addrspace(11) %193, align 8, !dbg !146, !tbaa !124, !alias.scope !87, !noalias !88
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) null, ptr addrspace(11) %193, align 8, !dbg !146, !tbaa !123, !alias.scope !87, !noalias !88
+    scalar
+    objref
+    8
+    8
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: genericmemory.jl:121:0: hoisting preserve begin call
+remark: genericmemory.jl:126:0: sinking preserve end call
+remark: genericmemory.jl:126:0: cloning and sinking preserve endcall
+remark: genericmemory.jl:126:0: cloning and sinking preserve endcall
+remark: genericmemory.jl:126:0: cloning and sinking preserve endcall
+remark: genericmemory.jl:126:0: cloning and sinking preserve endcall
+remark: genericmemory.jl:126:0: cloning and sinking preserve endcall
+remark: genericmemory.jl:126:0: cloning and sinking preserve endcall
+remark: genericmemory.jl:126:0: cloning and sinking preserve endcall
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/law/variants/C/engine.jl:122:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/law/variants/C/engine.jl:122:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/law/variants/C/engine.jl:122:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/law/variants/C/engine.jl:122:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: genericmemory.jl:205:0: hoisting preserve begin call
+remark: genericmemory.jl:209:0: sinking preserve end call
+remark: dict.jl:80:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: dict.jl:80:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 1
+  call void (ptr addrspace(10), ...) @julia.write_barrier(ptr addrspace(10) nonnull %98, ptr addrspace(10) %84), !dbg !103
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 1
+  call void (ptr addrspace(10), ...) @julia.write_barrier(ptr addrspace(10) nonnull %98, ptr addrspace(10) %84), !dbg !103
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 1
+  call void (ptr addrspace(10), ...) @julia.write_barrier(ptr addrspace(10) nonnull %51, ptr addrspace(10) %37), !dbg !103
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 1
+  call void (ptr addrspace(10), ...) @julia.write_barrier(ptr addrspace(10) nonnull %51, ptr addrspace(10) %37), !dbg !103
+MemOps: 0
+
+remark: array.jl:356:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: array.jl:356:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: array.jl:356:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: array.jl:356:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 0
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 1
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 1
+refstore: 1
+allockind: uninitialized
+Uses: 18
+  %1716 = getelementptr inbounds i8, ptr addrspace(11) %1714, i64 16, !dbg !723
+  %1280 = load i64, ptr addrspace(11) %1716, align 8, !dbg !759, !tbaa !28, !alias.scope !29, !noalias !30
+  store ptr addrspace(10) %1709, ptr addrspace(11) %1715, align 8, !dbg !723, !tbaa !93, !alias.scope !96, !noalias !97
+  %1399 = load ptr, ptr addrspace(11) %1714, align 8, !dbg !868, !tbaa !93, !alias.scope !96, !noalias !97
+  store ptr %1712, ptr addrspace(11) %1714, align 8, !dbg !723, !tbaa !93, !alias.scope !96, !noalias !97
+  store i64 %1172, ptr addrspace(11) %1716, align 8, !dbg !723, !tbaa !28, !alias.scope !437, !noalias !30
+  %1400 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !dbg !868, !tbaa !93, !alias.scope !96, !noalias !97, !dereferenceable_or_null !98, !align !99
+  %1194 = load ptr, ptr addrspace(11) %1714, align 8
+  %1193 = load i64, ptr addrspace(11) %1716, align 8
+  %1286 = load ptr, ptr addrspace(11) %1714, align 8, !dbg !761, !tbaa !93, !alias.scope !96, !noalias !97
+  %1719 = load ptr, ptr addrspace(11) %1714, align 8, !tbaa !93, !alias.scope !96, !noalias !97
+  %1714 = addrspacecast ptr addrspace(10) %1713 to ptr addrspace(11), !dbg !723
+  %1715 = getelementptr inbounds i8, ptr addrspace(11) %1714, i64 8, !dbg !723
+  %1287 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !dbg !761, !tbaa !93, !alias.scope !96, !noalias !97, !dereferenceable_or_null !98, !align !99
+  %1720 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !tbaa !93, !alias.scope !96, !noalias !97, !dereferenceable_or_null !98, !align !99
+  store ptr addrspace(10) null, ptr addrspace(11) %1715, align 8, !dbg !723, !tbaa !436, !alias.scope !96, !noalias !97
+  %1195 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !align !99
+  %1395 = load i64, ptr addrspace(11) %1716, align 8, !dbg !862, !tbaa !28, !alias.scope !29, !noalias !30
+MemOps: 1
+  offset: 0
+  size: 24
+  hasobjref: 1
+  hasload: 1
+  hasaggr: 0
+  accesses: 15
+      %1719 = load ptr, ptr addrspace(11) %1714, align 8, !tbaa !93, !alias.scope !96, !noalias !97
+    scalar
+    bits
+    0
+    8
+      %1194 = load ptr, ptr addrspace(11) %1714, align 8
+    scalar
+    bits
+    0
+    8
+      %1399 = load ptr, ptr addrspace(11) %1714, align 8, !dbg !868, !tbaa !93, !alias.scope !96, !noalias !97
+    scalar
+    bits
+    0
+    8
+      %1286 = load ptr, ptr addrspace(11) %1714, align 8, !dbg !761, !tbaa !93, !alias.scope !96, !noalias !97
+    scalar
+    bits
+    0
+    8
+      %1193 = load i64, ptr addrspace(11) %1716, align 8
+    scalar
+    bits
+    16
+    8
+      %1395 = load i64, ptr addrspace(11) %1716, align 8, !dbg !862, !tbaa !28, !alias.scope !29, !noalias !30
+    scalar
+    bits
+    16
+    8
+      %1280 = load i64, ptr addrspace(11) %1716, align 8, !dbg !759, !tbaa !28, !alias.scope !29, !noalias !30
+    scalar
+    bits
+    16
+    8
+      store i64 %1172, ptr addrspace(11) %1716, align 8, !dbg !723, !tbaa !28, !alias.scope !437, !noalias !30
+    scalar
+    bits
+    16
+    8
+      store ptr %1712, ptr addrspace(11) %1714, align 8, !dbg !723, !tbaa !93, !alias.scope !96, !noalias !97
+    scalar
+    bits
+    0
+    8
+      %1720 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !tbaa !93, !alias.scope !96, !noalias !97, !dereferenceable_or_null !98, !align !99
+    scalar
+    objref
+    8
+    8
+      %1195 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !align !99
+    scalar
+    objref
+    8
+    8
+      %1400 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !dbg !868, !tbaa !93, !alias.scope !96, !noalias !97, !dereferenceable_or_null !98, !align !99
+    scalar
+    objref
+    8
+    8
+      %1287 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !dbg !761, !tbaa !93, !alias.scope !96, !noalias !97, !dereferenceable_or_null !98, !align !99
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) %1709, ptr addrspace(11) %1715, align 8, !dbg !723, !tbaa !93, !alias.scope !96, !noalias !97
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) null, ptr addrspace(11) %1715, align 8, !dbg !723, !tbaa !436, !alias.scope !96, !noalias !97
+    scalar
+    objref
+    8
+    8
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 1
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 3
+  %1737 = addrspacecast ptr addrspace(10) %1736 to ptr addrspace(11), !dbg !983
+  %1358 = load ptr, ptr addrspace(11) %1737, align 8, !tbaa !93, !alias.scope !96, !noalias !97
+  %1401 = load ptr, ptr addrspace(11) %1737, align 8, !dbg !870, !tbaa !93, !alias.scope !96, !noalias !97
+MemOps: 1
+  offset: 0
+  size: 8
+  hasobjref: 0
+  hasload: 1
+  hasaggr: 0
+  accesses: 2
+      %1358 = load ptr, ptr addrspace(11) %1737, align 8, !tbaa !93, !alias.scope !96, !noalias !97
+    scalar
+    bits
+    0
+    8
+      %1401 = load ptr, ptr addrspace(11) %1737, align 8, !dbg !870, !tbaa !93, !alias.scope !96, !noalias !97
+    scalar
+    bits
+    0
+    8
+
+remark: array.jl:356:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 0
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 1
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 1
+refstore: 1
+allockind: uninitialized
+Uses: 18
+  %1716 = getelementptr inbounds i8, ptr addrspace(11) %1714, i64 16, !dbg !723
+  %1280 = load i64, ptr addrspace(11) %1716, align 8, !dbg !759, !tbaa !28, !alias.scope !29, !noalias !30
+  store ptr addrspace(10) %1709, ptr addrspace(11) %1715, align 8, !dbg !723, !tbaa !93, !alias.scope !96, !noalias !97
+  %1399 = load ptr, ptr addrspace(11) %1714, align 8, !dbg !868, !tbaa !93, !alias.scope !96, !noalias !97
+  store ptr %1712, ptr addrspace(11) %1714, align 8, !dbg !723, !tbaa !93, !alias.scope !96, !noalias !97
+  store i64 %1172, ptr addrspace(11) %1716, align 8, !dbg !723, !tbaa !28, !alias.scope !437, !noalias !30
+  %1400 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !dbg !868, !tbaa !93, !alias.scope !96, !noalias !97, !dereferenceable_or_null !98, !align !99
+  %1194 = load ptr, ptr addrspace(11) %1714, align 8
+  %1193 = load i64, ptr addrspace(11) %1716, align 8
+  %1286 = load ptr, ptr addrspace(11) %1714, align 8, !dbg !761, !tbaa !93, !alias.scope !96, !noalias !97
+  %1719 = load ptr, ptr addrspace(11) %1714, align 8, !tbaa !93, !alias.scope !96, !noalias !97
+  %1714 = addrspacecast ptr addrspace(10) %1713 to ptr addrspace(11), !dbg !723
+  %1715 = getelementptr inbounds i8, ptr addrspace(11) %1714, i64 8, !dbg !723
+  %1287 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !dbg !761, !tbaa !93, !alias.scope !96, !noalias !97, !dereferenceable_or_null !98, !align !99
+  %1720 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !tbaa !93, !alias.scope !96, !noalias !97, !dereferenceable_or_null !98, !align !99
+  store ptr addrspace(10) null, ptr addrspace(11) %1715, align 8, !dbg !723, !tbaa !436, !alias.scope !96, !noalias !97
+  %1195 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !align !99
+  %1395 = load i64, ptr addrspace(11) %1716, align 8, !dbg !862, !tbaa !28, !alias.scope !29, !noalias !30
+MemOps: 1
+  offset: 0
+  size: 24
+  hasobjref: 1
+  hasload: 1
+  hasaggr: 0
+  accesses: 15
+      %1719 = load ptr, ptr addrspace(11) %1714, align 8, !tbaa !93, !alias.scope !96, !noalias !97
+    scalar
+    bits
+    0
+    8
+      %1194 = load ptr, ptr addrspace(11) %1714, align 8
+    scalar
+    bits
+    0
+    8
+      %1399 = load ptr, ptr addrspace(11) %1714, align 8, !dbg !868, !tbaa !93, !alias.scope !96, !noalias !97
+    scalar
+    bits
+    0
+    8
+      %1286 = load ptr, ptr addrspace(11) %1714, align 8, !dbg !761, !tbaa !93, !alias.scope !96, !noalias !97
+    scalar
+    bits
+    0
+    8
+      %1193 = load i64, ptr addrspace(11) %1716, align 8
+    scalar
+    bits
+    16
+    8
+      %1395 = load i64, ptr addrspace(11) %1716, align 8, !dbg !862, !tbaa !28, !alias.scope !29, !noalias !30
+    scalar
+    bits
+    16
+    8
+      %1280 = load i64, ptr addrspace(11) %1716, align 8, !dbg !759, !tbaa !28, !alias.scope !29, !noalias !30
+    scalar
+    bits
+    16
+    8
+      store i64 %1172, ptr addrspace(11) %1716, align 8, !dbg !723, !tbaa !28, !alias.scope !437, !noalias !30
+    scalar
+    bits
+    16
+    8
+      store ptr %1712, ptr addrspace(11) %1714, align 8, !dbg !723, !tbaa !93, !alias.scope !96, !noalias !97
+    scalar
+    bits
+    0
+    8
+      %1720 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !tbaa !93, !alias.scope !96, !noalias !97, !dereferenceable_or_null !98, !align !99
+    scalar
+    objref
+    8
+    8
+      %1195 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !align !99
+    scalar
+    objref
+    8
+    8
+      %1400 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !dbg !868, !tbaa !93, !alias.scope !96, !noalias !97, !dereferenceable_or_null !98, !align !99
+    scalar
+    objref
+    8
+    8
+      %1287 = load ptr addrspace(10), ptr addrspace(11) %1715, align 8, !dbg !761, !tbaa !93, !alias.scope !96, !noalias !97, !dereferenceable_or_null !98, !align !99
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) %1709, ptr addrspace(11) %1715, align 8, !dbg !723, !tbaa !93, !alias.scope !96, !noalias !97
+    scalar
+    objref
+    8
+    8
+      store ptr addrspace(10) null, ptr addrspace(11) %1715, align 8, !dbg !723, !tbaa !436, !alias.scope !96, !noalias !97
+    scalar
+    objref
+    8
+    8
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 1
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 3
+  %1737 = addrspacecast ptr addrspace(10) %1736 to ptr addrspace(11), !dbg !983
+  %1358 = load ptr, ptr addrspace(11) %1737, align 8, !tbaa !93, !alias.scope !96, !noalias !97
+  %1401 = load ptr, ptr addrspace(11) %1737, align 8, !dbg !870, !tbaa !93, !alias.scope !96, !noalias !97
+MemOps: 1
+  offset: 0
+  size: 8
+  hasobjref: 0
+  hasload: 1
+  hasaggr: 0
+  accesses: 2
+      %1358 = load ptr, ptr addrspace(11) %1737, align 8, !tbaa !93, !alias.scope !96, !noalias !97
+    scalar
+    bits
+    0
+    8
+      %1401 = load ptr, ptr addrspace(11) %1737, align 8, !dbg !870, !tbaa !93, !alias.scope !96, !noalias !97
+    scalar
+    bits
+    0
+    8
+
+remark: array.jl:356:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:588:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind:
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 0
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 1
+  call void (ptr addrspace(10), ...) @julia.write_barrier(ptr addrspace(10) nonnull %520, ptr addrspace(10) nonnull %876), !dbg !341
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 1
+  call void (ptr addrspace(10), ...) @julia.write_barrier(ptr addrspace(10) nonnull %520, ptr addrspace(10) nonnull %876), !dbg !341
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 1
+  call void (ptr addrspace(10), ...) @julia.write_barrier(ptr addrspace(10) nonnull %521, ptr addrspace(10) nonnull %877), !dbg !341
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 1
+  call void (ptr addrspace(10), ...) @julia.write_barrier(ptr addrspace(10) nonnull %551, ptr addrspace(10) nonnull %908), !dbg !358
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 1
+  call void (ptr addrspace(10), ...) @julia.write_barrier(ptr addrspace(10) nonnull %757, ptr addrspace(10) nonnull %971), !dbg !467
+MemOps: 0
+
+remark: boot.jl:648:0: escape analysis for call
+AllocUseInfo:
+escaped: 1
+addrescaped: 0
+returned: 0
+haserror: 0
+hasload: 0
+haspreserve: 0
+hasunknownmem: 0
+hastypeof: 0
+refload: 0
+refstore: 0
+allockind: uninitialized
+Uses: 1
+  call void (ptr addrspace(10), ...) @julia.write_barrier(ptr addrspace(10) nonnull %757, ptr addrspace(10) nonnull %971), !dbg !467
+MemOps: 0
+
+GC error (probable corruption)
+Allocations: 40378058 (Pool: 40377666; Big: 392); GC: 32
+<?#0xf5adc790a9e0::(nil)>
+
+thread 0 ptr queue:
+~~~~~~~~~~ ptr queue top ~~~~~~~~~~
+Array{SliceC.Col, 1}(dims=(7,), mem=Memory{SliceC.Col}(7, 0xf5adc7950020)[SliceC.Col(edge=6, slot=2, inactive=false), SliceC.Col(edge=6, slot=1, inactive=false), SliceC.Col(edge=5, slot=1, inactive=false), SliceC.Col(edge=4, slot=1, inactive=false), SliceC.Col(edge=3, slot=1, inactive=false), SliceC.Col(edge=2, slot=1, inactive=false), SliceC.Col(edge=1, slot=1, inactive=false)])
+==========
+Base.Dict{SliceC.Col, Int64}(slots=Memory{UInt8}(16, 0xf5adc7934230)[0xfa, 0x00, 0x00, 0x85, 0xaa, 0xea, 0xcd, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc6, 0x96, 0x00, 0x00], keys=Memory{SliceC.Col}(16, 0xf5adc81803a0)[SliceC.Col(edge=5, slot=1, inactive=false), SliceC.Col(edge=3, slot=2, inactive=false), SliceC.Col(edge=1, slot=2, inactive=false), SliceC.Col(edge=6, slot=2, inactive=false), SliceC.Col(edge=2, slot=1, inactive=false), SliceC.Col(edge=1, slot=1, inactive=false), SliceC.Col(edge=3, slot=1, inactive=false), SliceC.Col(edge=4, slot=1, inactive=false), SliceC.Col(edge=4, slot=2, inactive=false), SliceC.Col(edge=6, slot=1, inactive=false), SliceC.Col(edge=2, slot=1, inactive=false), SliceC.Col(edge=2, slot=1, inactive=false), SliceC.Col(edge=4, slot=1, inactive=false), SliceC.Col(edge=6, slot=1, inactive=false), SliceC.Col(edge=2, slot=2, inactive=false), SliceC.Col(edge=1, slot=1, inactive=false)], vals=Memory{Int64}(16, 0xf5adc816c200)[3, 0, 0, 1, 6, 7, 5, 0, 0, 1, 0, 0, 4, 2, 0, 0], ndel=0, count=7, age=0x0000000000000008, idxfloor=1, maxprobe=1)
+==========
+Array{Int64, 1}(dims=(5,), mem=Memory{Int64}(5, 0xf5adc78fc360)[7, 6, 5, 3, 2])
+==========
+Array{SliceC.Dep, 1}(dims=(2,), mem=Memory{SliceC.Dep}(3, 0xf5adc7b54140)[SliceC.Dep(col=1, terms=Array{Pair{Int64, Base.Rational{Int64}}, 1}(dims=(5,), mem=Memory{Pair{Int64, Base.Rational{Int64}}}(9, 0xf5adc73a8110)[Pair{Int64, Base.Rational{Int64}}(first=2, second=Base.Rational{Int64}(num=1, den=1)), Pair{Int64, Base.Rational{Int64}}(first=3, second=Base.Rational{Int64}(num=1, den=1)), Pair{Int64, Base.Rational{Int64}}(first=5, second=Base.Rational{Int64}(num=-1, den=1)), Pair{Int64, Base.Rational{Int64}}(first=6, second=Base.Rational{Int64}(num=1, den=1)), Pair{Int64, Base.Rational{Int64}}(first=7, second=Base.Rational{Int64}(num=-1, den=1)), Pair{Int64, Base.Rational{Int64}}(first=9, second=Base.Rational{Int64}(num=2, den=1)), Pair{Int64, Base.Rational{Int64}}(first=10, second=Base.Rational{Int64}(num=-1, den=1)), Pair{Int64, Base.Rational{Int64}}(first=11, second=Base.Rational{Int64}(num=1, den=1)), Pair{Int64, Base.Rational{Int64}}(first=0, second=Base.Rational{Int64}(num=0, den=0))]), keq=Base.Rational{Int64}(num=-1, den=1), label=:haldane), SliceC.Dep(col=4, terms=Array{Pair{Int64, Base.Rational{Int64}}, 1}(dims=(1,), mem=Memory{Pair{Int64, Base.Rational{Int64}}}(3, 0xf5adc8684140)[Pair{Int64, Base.Rational{Int64}}(first=5, second=Base.Rational{Int64}(num=1, den=1)), Pair{Int64, Base.Rational{Int64}}(first=3, second=Base.Rational{Int64}(num=1, den=1)), Pair{Int64, Base.Rational{Int64}}(first=4, second=Base.Rational{Int64}(num=2, den=1))]), keq=Base.Rational{Int64}(num=0, den=1), label=:kinetic_group), SliceC.Dep(col=0, terms=#<null>, keq=Base.Rational{Int64}(num=0, den=0), label=#<null>)])
+==========
+Base.Dict{Int64, Int64}(slots=Memory{UInt8}(16, 0xf5adc7934470)[0x00, 0xb7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], keys=Memory{Int64}(16, 0xf5adc816c3e0)[5, 4, 0, 0, 2, 1, 1, 0, 0, 0, 270126729522992, 0, 0, 3, 1, 0], vals=Memory{Int64}(16, 0xf5adc816c480)[0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 270126732604912, 0, 0, 0, 0], ndel=0, count=1, age=0x0000000000000002, idxfloor=1, maxprobe=0)
+==========
+~~~~~~~~~~ ptr queue bottom ~~~~~~~~~~
+
+[47854] signal 6 (-6): Aborted
+in expression starting at /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/verify/crash_c.jl:29
+unknown function (ip: 0xf5adf53874d8) at /lib/aarch64-linux-gnu/libc.so.6
+gsignal at /lib/aarch64-linux-gnu/libc.so.6 (unknown line)
+abort at /lib/aarch64-linux-gnu/libc.so.6 (unknown line)
+gc_dump_queue_and_abort at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/src/gc-stock.c:1663
+gc_mark_outrefs at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/src/gc-stock.c:2364 [inlined]
+gc_mark_loop_serial_ at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/src/gc-stock.c:2518
+gc_mark_loop_serial at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/src/gc-stock.c:2541
+gc_mark_loop at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/src/gc-stock.c:2729 [inlined]
+_jl_gc_collect at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/src/gc-stock.c:3073
+ijl_gc_collect at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/src/gc-stock.c:3473
+gc at ./gcutils.jl:133 [inlined]
+churn at /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/verify/crash_c.jl:25
+top-level scope at /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/verify/crash_c.jl:31
+jl_toplevel_eval_flex at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/src/toplevel.c:1024
+jl_toplevel_eval_flex at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/src/toplevel.c:975
+ijl_toplevel_eval at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/src/toplevel.c:1047
+ijl_toplevel_eval_in at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/src/toplevel.c:1092
+eval at ./boot.jl:489
+include_string at ./loading.jl:2870
+_include at ./loading.jl:2930
+include at ./Base.jl:306
+exec_options at ./client.jl:317
+_start at ./client.jl:550
+jfptr__start_38065 at /home/denis.linux/.julia/juliaup/julia-1.12.5+0.aarch64.linux.gnu/lib/julia/sys.so (unknown line)
+jl_apply at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/src/julia.h:2391 [inlined]
+true_main at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/src/jlapi.c:971
+jl_repl_entrypoint at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/src/jlapi.c:1139
+main at /cache/build/default-armageddon-2/julialang/julia-release-1-dot-12/cli/loader_exe.c:58
+unknown function (ip: 0xf5adf53284c3) at /lib/aarch64-linux-gnu/libc.so.6
+__libc_start_main at /lib/aarch64-linux-gnu/libc.so.6 (unknown line)
+$x at /home/denis.linux/.julia/juliaup/julia-1.12.5+0.aarch64.linux.gnu/bin/julia (unknown line)
+$x at /home/denis.linux/.julia/juliaup/julia-1.12.5+0.aarch64.linux.gnu/bin/julia (unknown line)
+Allocations: 40378058 (Pool: 40377666; Big: 392); GC: 32
+Command terminated by signal 6
+maxrss_kb 526992
+exit 134 elapsed 28s

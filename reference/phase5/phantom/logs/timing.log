@@ -1,0 +1,7 @@
+law    per variant (400 bi-bi variants: 200 pre-filter passes, 200 random): median 0.115 ms, p95 0.512 ms, max 1.313 ms
+cert   per variant (400 bi-bi variants: 200 pre-filter passes, 200 random): median 0.025 ms, p95 0.123 ms, max 0.306 ms
+rank1  per variant (400 bi-bi variants: 200 pre-filter passes, 200 random): median 1.303 ms, p95 2.691 ms, max 4.254 ms
+rank2  per variant (400 bi-bi variants: 200 pre-filter passes, 200 random): median 2.607 ms, p95 5.375 ms, max 8.527 ms
+law = slice allo_law; cert = certificate(A) on a built law; rank1 = one draw mod 2^61-1 of the variant and of the L→0 law; rank2 = both primes
+maxrss_kb 632176
+exit 0 elapsed 31s

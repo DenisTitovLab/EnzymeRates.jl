@@ -1,0 +1,29 @@
+Precompiling packages...
+   2388.9 ms  ✓ EnzymeRates
+  1 dependency successfully precompiled in 3 seconds. 116 already precompiled.
+=== F1 two-cycle uni-uni
+(; k_E_A_to_F_P, k_F_A_to_E_P, k_F_P_to_E_A, Keq, E_total) = params
+(; A, P) = concs
+# Haldane constraints:
+k_E_P_to_F_A = (1 / Keq ^ 2) * k_E_A_to_F_P * k_F_A_to_E_P * (1 / k_F_P_to_E_A)
+v = E_total * (2 * k_E_A_to_F_P * k_F_A_to_E_P * A ^ 2 - 2 * k_E_P_to_F_A * k_F_P_to_E_A * P ^ 2) / (k_E_A_to_F_P * A + k_F_A_to_E_P * A + k_E_P_to_F_A * P + k_F_P_to_E_A * P)
+=== F2 F1 + F + A + A ⇌ F(A, A)
+(; K_F_A_A_to_FAA, k_E_A_to_F_P, k_F_A_to_E_P, k_F_P_to_E_A, Keq, E_total) = params
+(; A, P) = concs
+# Haldane constraints:
+k_E_P_to_F_A = (1 / Keq ^ 2) * k_E_A_to_F_P * k_F_A_to_E_P * (1 / k_F_P_to_E_A)
+v = E_total * (2 * k_E_A_to_F_P * k_F_A_to_E_P * A ^ 2 - 2 * k_E_P_to_F_A * k_F_P_to_E_A * P ^ 2) / (k_E_A_to_F_P * A + k_F_A_to_E_P * A + k_E_P_to_F_A * P + k_F_P_to_E_A * P + K_F_A_A_to_FAA * k_E_P_to_F_A * A ^ 2 * P + K_F_A_A_to_FAA * k_E_A_to_F_P * A ^ 3)
+=== F3 RE Theorell–Chance
+(; k_EA_to_E_A, k_EQ_to_E_Q, k_E_A_to_EA, k_E_Q_to_EQ, Keq, E_total) = params
+(; A, B, P, Q) = concs
+# Haldane constraints:
+K_EA_B_to_EQ_P = Keq * k_EA_to_E_A * (1 / k_EQ_to_E_Q) * (1 / k_E_A_to_EA) * k_E_Q_to_EQ
+v = E_total * (K_EA_B_to_EQ_P * k_EQ_to_E_Q * k_E_A_to_EA * A * B - k_EA_to_E_A * k_E_Q_to_EQ * P * Q) / (K_EA_B_to_EQ_P * k_EQ_to_E_Q * B + k_EA_to_E_A * P + K_EA_B_to_EQ_P * k_E_A_to_EA * A * B + k_E_A_to_EA * A * P + K_EA_B_to_EQ_P * k_E_Q_to_EQ * B * Q + k_E_Q_to_EQ * P * Q)
+=== F4 F1 + F(A) + F(A, A)
+(; K_FAA_to_FA_A, K_FA_to_F_A, k_E_A_to_F_P, k_F_A_to_E_P, k_F_P_to_E_A, Keq, E_total) = params
+(; A, P) = concs
+# Haldane constraints:
+k_E_P_to_F_A = (1 / Keq ^ 2) * k_E_A_to_F_P * k_F_A_to_E_P * (1 / k_F_P_to_E_A)
+v = E_total * (2 * k_E_A_to_F_P * k_F_A_to_E_P * A ^ 2 - 2 * k_E_P_to_F_A * k_F_P_to_E_A * P ^ 2) / (k_E_A_to_F_P * A + k_F_A_to_E_P * A + k_E_P_to_F_A * P + k_F_P_to_E_A * P + k_E_P_to_F_A * A * P / K_FA_to_F_A + k_E_A_to_F_P * A ^ 2 / K_FA_to_F_A + k_E_P_to_F_A * A ^ 2 * P / (K_FAA_to_FA_A * K_FA_to_F_A) + k_E_A_to_F_P * A ^ 3 / (K_FAA_to_FA_A * K_FA_to_F_A))
+maxrss_kb 823764
+exit 0 elapsed 714s

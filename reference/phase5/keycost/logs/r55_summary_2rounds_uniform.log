@@ -1,0 +1,44 @@
+data/r55_bibiR.tsv
+  round 0: 2112 candidates, 2112 allosteric (n=1 0, n=2 2112); within 337 today 2112 (allosteric 2112)
+    sum      > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    distinct > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    max      > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    sum > 674: newly over 0; newly admitted plain (a in (337, 674]) 0, allosteric with a > 337 and sum <= 674: 0
+    inactive/active V×τ over allosteric: median 1.00, p10 0.00, p90 1.00, max 1.00; inactive > active in 0; inactive 0 in 374; same-law 0
+    today's admitted V×τ: max 9; in (168, 337]: 0
+  round 1: 11582 candidates, 11582 allosteric (n=1 0, n=2 11582); within 337 today 11582 (allosteric 11582)
+    sum      > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    distinct > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    max      > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    sum > 674: newly over 0; newly admitted plain (a in (337, 674]) 0, allosteric with a > 337 and sum <= 674: 0
+    inactive/active V×τ over allosteric: median 1.00, p10 0.00, p90 1.00, max 1.00; inactive > active in 0; inactive 0 in 1527; same-law 0
+    today's admitted V×τ: max 9; in (168, 337]: 0
+  round 2: 10124 candidates, 10124 allosteric (n=1 0, n=2 10124); within 337 today 10124 (allosteric 10124)
+    sum      > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    distinct > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    max      > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    sum > 674: newly over 0; newly admitted plain (a in (337, 674]) 0, allosteric with a > 337 and sum <= 674: 0
+    inactive/active V×τ over allosteric: median 1.00, p10 0.17, p90 1.00, max 1.00; inactive > active in 0; inactive 0 in 881; same-law 0
+    today's admitted V×τ: max 16; in (168, 337]: 0
+data/r55_pingpong.tsv
+  round 0: 1856 candidates, 1856 allosteric (n=1 0, n=2 1856); within 337 today 1856 (allosteric 1856)
+    sum      > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    distinct > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    max      > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    sum > 674: newly over 0; newly admitted plain (a in (337, 674]) 0, allosteric with a > 337 and sum <= 674: 0
+    inactive/active V×τ over allosteric: median 1.00, p10 0.00, p90 1.00, max 1.00; inactive > active in 0; inactive 0 in 366; same-law 0
+    today's admitted V×τ: max 9; in (168, 337]: 0
+  round 1: 9876 candidates, 9876 allosteric (n=1 0, n=2 9876); within 337 today 9876 (allosteric 9876)
+    sum      > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    distinct > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    max      > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    sum > 674: newly over 0; newly admitted plain (a in (337, 674]) 0, allosteric with a > 337 and sum <= 674: 0
+    inactive/active V×τ over allosteric: median 1.00, p10 0.00, p90 1.00, max 1.00; inactive > active in 0; inactive 0 in 1435; same-law 0
+    today's admitted V×τ: max 9; in (168, 337]: 0
+  round 2: 9696 candidates, 9696 allosteric (n=1 0, n=2 9696); within 337 today 9696 (allosteric 9696)
+    sum      > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    distinct > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    max      > 337: newly over 0 = 0.0% of today's admitted; n=1 0, n=2 0; same-law 0
+    sum > 674: newly over 0; newly admitted plain (a in (337, 674]) 0, allosteric with a > 337 and sum <= 674: 0
+    inactive/active V×τ over allosteric: median 0.50, p10 0.00, p90 1.00, max 1.00; inactive > active in 0; inactive 0 in 974; same-law 0
+    today's admitted V×τ: max 16; in (168, 337]: 0

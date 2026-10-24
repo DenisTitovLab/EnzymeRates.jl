@@ -1,0 +1,15 @@
+terter: 2000 mechanisms, running 1:2000 within 480 s
+  200 done, 33 s, maxrss 829 MB
+  400 done, 53 s, maxrss 874 MB
+  600 done, 77 s, maxrss 977 MB
+  800 done, 106 s, maxrss 1117 MB
+  1000 done, 132 s, maxrss 1117 MB
+  1200 done, 163 s, maxrss 1191 MB
+  1400 done, 190 s, maxrss 1265 MB
+  1600 done, 233 s, maxrss 1429 MB
+  1800 done, 278 s, maxrss 1720 MB
+  2000 done, 332 s, maxrss 2040 MB
+NEXT 2001
+wrote /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/unit/data/terter_1_2000.jls: 2000 rows (135 errors) in 332 s; maxrss 2040 MB
+maxrss_kb 2088512
+exit 0 elapsed 500s

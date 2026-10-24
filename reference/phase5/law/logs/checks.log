@@ -1,0 +1,85 @@
+julia 1.12.5; mechanisms: 2035 (spec 42, bibi 600, pingpong 800, twosites 47, uniuni 46, terbi 300, prefix 200)
+Q10 det: checked-Int Bareiss equals the BigInt det in 2647 of 2647 (mechanism, conformation) pairs
+Q10 time per call µs: BigInt det n 2647 median      0.5 p90      1.9 max      16.8 | Int Bareiss n 2647 median      0.4 p90      0.5 max       1.0
+Q10 cap 337: allosteric mechanisms with active <= cap < active + inactive: none of 749
+Q10 cap 5000: allosteric mechanisms with active <= cap < active + inactive: none of 749
+Q10 synthetic random multigraph Laplacians (2-14 nodes, multiplicity 1-3): Bareiss exact in 351 of 390
+Q10 complete multigraph K_10 x1: trees 100000000 (within Int64); checked Bareiss -> 100000000
+Q10 complete multigraph K_16 x2: trees 2361183241434822606848 (over Int64); checked Bareiss -> OverflowError
+Q10 complete multigraph K_20 x3: trees 304679870005248000000000000000000 (over Int64); checked Bareiss -> OverflowError
+Q10 complete multigraph K_30 x3: trees 15700428990820816116405345630000000000000000000000000000 (over Int64); checked Bareiss -> OverflowError
+Q10 live bytes, Int Bareiss: 20000 calls in 0.03 s; after a full collection +0.00 KiB per call (+0.0 MiB); 0 collections, 0 full
+Q10 live bytes, BigInt det: 20000 calls in 0.03 s; after a full collection +0.39 KiB per call (+7.6 MiB); 0 collections, 0 full
+bounds: 2642 laws (both conformations); BigInt needed in 0; |bare den|_1 = F x trees in 2642 of 2642; every coefficient <= max(F*trees, |bare num|_1) and |bare num|_1 <= 2*trees*30*SS-edges in 2642 of 2642
+bounds: largest coefficient anywhere (bare num, bare den, Q, D) 36 (07168e12be8fbd57); largest ratio to the bound 0.5; most touched forms 15; Int64 max 9223372036854775807
+codegen powers: single-term state factors (fI*DA or fA*DI) 76; largest coefficient^n 1
+hand AD6_parallel: not built (steps 3 and 2 are one reaction; a mechanism holds each reaction once)
+michaelis_menten                             RE-turnover edge 0; class 5 pass; Q terms 1
+ldh_like_trap                                RE-turnover edge 0; class 5 pass; Q terms 1
+fuzz5                                        RE-turnover edge 0; class 5 pass; Q terms 1
+re_turnover_beside_ss                        RE-turnover edge 4; class 5 pass; Q terms 1
+re_turnover_flip2_453                        RE-turnover edge 5; class 5 pass; Q terms 1
+bottomless_entered                           RE-turnover edge 0; class 5 FAIL at products=0; Q terms 2
+split_flip_child1                            RE-turnover edge 0; class 5 pass; Q terms 3
+trap_flip_child9                             RE-turnover edge 0; class 5 pass; Q terms 3
+ss_dead_end_at_face                          RE-turnover edge 0; class 5 FAIL at products=0; Q terms 1
+no_turnover_path                             RE-turnover edge 0; class 5 pass; Q terms 0
+abortive_complex                             RE-turnover edge 0; class 5 pass; Q terms 1
+product_activated                            RE-turnover edge 0; class 5 pass; Q terms 1
+ss_flux_free_dead_end                        RE-turnover edge 0; class 5 pass; Q terms 1
+spec_numerator_redundant_ss_bind             RE-turnover edge 0; class 5 pass; Q terms 1
+spec_ldh_istate_nonequalai_6group            RE-turnover edge 0/0; class 5 pass; Q terms 5
+R1                                           RE-turnover edge 0/0; class 5 pass; Q terms 1
+R2                                           RE-turnover edge 0; class 5 pass; Q terms 1
+R3                                           RE-turnover edge 0/0; class 5 pass; Q terms 1
+R4                                           RE-turnover edge 0/0; class 5 pass; Q terms 1
+A5                                           RE-turnover edge 0/0; class 5 pass; Q terms 1
+S1                                           RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD1_mixed_square_SS                          RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD1_mixed_square_RE                          RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD2a_iso_chemOnlyA                           RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD2a_iso_chemNonequal                        RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD2b_iso_bindOnlyA                           RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD2c_two_free_disconnected                   RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD2d_iso_isoOnlyA                            RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD2e_firstfree_isolated                      RE-turnover edge 0; class 5 pass; Q terms 1
+AD3a_inhibitor_OnlyA                         RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD3b_copy_square_tied                        RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD3c_copy_square_onesided                    RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD3d_copy_square_SS_split                    RE-turnover edge 0/0; class 5 pass; Q terms 2
+AD4_multi_release                            RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD4b_multi_release_chem                      RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD5_conf_selection                           RE-turnover edge 0/0; class 5 pass; Q terms 2
+AD7a_pin_bindOnlyA                           RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD7b_pin_isoOnlyA                            RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD7c_pin_chemOnlyA                           RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD8_tc_deadend                               RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD9_re_chem_ss_deadend                       RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD10_square_two_ss                           RE-turnover edge 0/0; class 5 pass; Q terms 2
+AD11_mixed_two_plain                         RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD13_noOnlyA_D                               RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD13_noOnlyA_Ca                              RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD13_noOnlyA_Ea                              RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD13_noOnlyA_F                               RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD13_noOnlyA_Z                               RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD13_chemOnlyA_D                             RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD13_chemOnlyA_Ca                            RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD13_chemOnlyA_Ea                            RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD13_chemOnlyA_F                             RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD13_chemOnlyA_Z                             RE-turnover edge 0/0; class 5 pass; Q terms 1
+AD14_chem_group_split                        RE-turnover edge 0/0; class 5 pass; Q terms 2
+AD14b_chem_group_split_SS                    RE-turnover edge 0/0; class 5 pass; Q terms 3
+AD14c_chem_group_ok                          RE-turnover edge 0/0; class 5 pass; Q terms 2
+AD15_bind_group_split                        RE-turnover edge 0/0; class 5 pass; Q terms 1
+pp_V_half1_OnlyA                             RE-turnover edge 0/0; class 5 pass; Q terms 1
+pp_V_half2_OnlyA                             RE-turnover edge 0/0; class 5 pass; Q terms 1
+pp_V_both_halves_OnlyA                       RE-turnover edge 0/0; class 5 pass; Q terms 1
+pp_K_Abind_half1_OnlyA                       RE-turnover edge 0/0; class 5 pass; Q terms 1
+pp_K_Bbind_half1_OnlyA                       RE-turnover edge 0/0; class 5 pass; Q terms 1
+Q9: mechanisms with an RE-turnover edge, by set: Dict("hand" => 2)
+Q9: check time µs n 2097 median      4.6 p90      8.6 max      22.2 | law time µs n 2092 median     81.9 p90    391.3 max   22388.4
+Q14: 2092 laws; class-5 failures by set: Dict("hand" => 2)
+Q14: class-5 time µs n 2092 median      0.4 p90      0.5 max       1.4
+finished in 13 s
+maxrss_kb 677856
+exit 0 elapsed 631s

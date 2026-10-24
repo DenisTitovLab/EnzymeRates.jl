@@ -1,0 +1,48 @@
+== 1. Populations (one-subunit allosteric candidates that pass the caps)
+pop round | n admit pf rankeq flag flag&cert flag&!cert | rankeq&!pf (cert/no) | num num&flag | flag_rel!=flag
+bibi r1 | 1833 1833 441 724 188 188 0 | 536 (528/8) | 724 188 | 0 | flag ignoring admission 188
+bibi r2 | 8075 8050 1464 3030 550 547 3 | 2480 (1841/639) | 3649 550 | 0 | flag ignoring admission 550
+pingpong r1 | 2164 1833 539 897 188 188 0 | 669 (647/22) | 898 188 | 0 | flag ignoring admission 228
+uniuni_R r0 | 8 8 1 0 0 0 0 | 0 (0/0) | 4 0 | 0 | flag ignoring admission 0
+uniuni_R r1 | 30 30 2 0 0 0 0 | 0 (0/0) | 18 0 | 0 | flag ignoring admission 0
+uniuni_R r2 | 47 47 1 0 0 0 0 | 0 (0/0) | 34 0 | 0 | flag ignoring admission 0
+bibi_R r0 | 4144 4144 441 0 0 0 0 | 0 (0/0) | 791 0 | 0 | flag ignoring admission 0
+bibi_R r1 | 2614 2614 176 3 0 0 0 | 3 (0/3) | 449 0 | 0 | flag ignoring admission 0
+total {'n': 18915, 'adm': 18559, 'pf': 3065, 'rankeq': 4654, 'flag': 926, 'fc': 923, 'fnc': 3, 'mis': 3688, 'misc': 3016, 'misnc': 672, 'num': 6567, 'numf': 926, 'rel': 0, 'flag_noadm': 966}
+
+== 2. Rank methods: modular (two 61/62-bit primes) vs BigFloat (192-bit, cut 1e-30)
+variants 18915 | r_var mod!=big 0 | r_0 mod!=big 0
+BigFloat gap: smallest kept pivot ratio 5.0e-08, largest dropped 4.3e-57
+np_slice != package _independent_param_count: 0
+ms per variant, modular (4 ranks: variant, variant-L, both modes of L->0; 2 primes each): median 7.8 p95 16.2 max 782.4
+ms per variant, BigFloat (variant + L->0): median 1.9 p95 14.0 max 189.8
+relative-mode flag differs from absolute: 0
+pf_bind != pf_empty (iso free forms): 0
+
+== 3. Flagged variants: L->0 law vs the plain catalytic law and the enumeration parent
+{'n': 926, 'edges_same': 926, 'slot_same': 926, 'ident_slot': 926, 'n_inact_indep=0': 926, 'key0==key_act': 926, 'np=np0+1': 926, 'cert': 923, 'cert_err<=1e-60': 923, 'plain parent': 660, 'key0==parent key': 660, 'allosteric parent': 266}
+certificate check, 256-bit, 5 points: 3971 certificates, worst relative error 8.6e-77
+flagged by move: {('bibi', 1, 'to_allosteric'): 188, ('bibi', 2, 'to_allosteric'): 284, ('bibi', 2, 're_to_ss'): 128, ('bibi', 2, 'split'): 57, ('bibi', 2, 'change_allo_state'): 81, ('pingpong', 1, 'to_allosteric'): 188}
+
+== 4. Numeric L-phantom candidates (L in the span of the variant's other columns), census's label
+bibi 1 {('A1 eq+cert', 'no-pf', '-'): 528, ('A1 eq+cert', 'pf', 'flag'): 188, ('A2 eq,nocert', 'no-pf', '-'): 8}
+bibi 2 {('A1 eq+cert', 'no-pf', '-'): 1841, ('A1 eq+cert', 'pf', 'flag'): 547, ('A2 eq,nocert', 'no-pf', '-'): 639, ('A2 eq,nocert', 'pf', 'flag'): 3, ('B rank>L0', 'no-pf', '-'): 619}
+pingpong 1 {('A1 eq+cert', 'no-pf', '-'): 647, ('A1 eq+cert', 'pf', '-'): 32, ('A1 eq+cert', 'pf', 'flag'): 188, ('A2 eq,nocert', 'no-pf', '-'): 22, ('A2 eq,nocert', 'pf', '-'): 8, ('B rank>L0', 'no-pf', '-'): 1}
+uniuni_R 0 {('B rank>L0', 'no-pf', '-'): 4}
+uniuni_R 1 {('B rank>L0', 'no-pf', '-'): 18}
+uniuni_R 2 {('B rank>L0', 'no-pf', '-'): 34}
+bibi_R 0 {('B rank>L0', 'no-pf', '-'): 791}
+bibi_R 1 {('A2 eq,nocert', 'no-pf', '-'): 3, ('B rank>L0', 'no-pf', '-'): 446}
+
+== 5. R5.3: where each flagged phantom's L->0 key is already fitted
+('bibi', 1, 'to_allosteric', '1 enumeration parent') 188
+('bibi', 2, 'change_allo_state', "2 ancestor or ancestor's child") 81
+('bibi', 2, 're_to_ss', "2 ancestor or ancestor's child") 110
+('bibi', 2, 're_to_ss', '5 never fitted') 18
+('bibi', 2, 'split', "2 ancestor or ancestor's child") 57
+('bibi', 2, 'to_allosteric', '1 enumeration parent') 284
+('pingpong', 1, 'to_allosteric', '1 enumeration parent') 188
+never fitted: bibi 18 phantoms, 8 distinct L->0 keys; np of phantoms {7: 18}
+   e.g. 3268 re_to_ss parent 303 allosteric n=1 {E() + A <-> E(A) RE}:OnlyA / {E() + Q <-> E(Q) RE}:OnlyA / {E(A) + B <-> E(A,B) SS}:EqualAI / {E(A,B) <-> E(P,Q) SS}:OnlyA / {E(P,Q) <-> E(Q) + P RE}:EqualAI sites none
+   e.g. 3269 re_to_ss parent 303 allosteric n=1 {E() + A <-> E(A) RE}:OnlyA / {E() + Q <-> E(Q) RE}:OnlyA / {E(A) + B <-> E(A,B) RE}:EqualAI / {E(A,B) <-> E(P,Q) SS}:OnlyA / {E(P,Q) <-> E(Q) + P SS}:EqualAI sites none
+   e.g. 3295 re_to_ss parent 311 allosteric n=1 {E() + A <-> E(A) RE}:OnlyA / {E() + Q <-> E(Q) RE}:OnlyA / {E(A) + B <-> E(A,B) SS}:EqualAI / {E(A,B) <-> E(P,Q) SS}:OnlyA / {E(P,Q) <-> E(Q) + P RE}:OnlyA sites none

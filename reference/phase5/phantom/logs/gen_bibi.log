@@ -1,0 +1,9 @@
+bibi round 0: 239 seeds, 239 base entries, 239 ok, 0 base failures (1.1 s)
+bibi round 1: 239 parents of 239, 2758 fresh, 2752 ok, 1833 allosteric n=1 ok, 0 expand errors (4.0 s, maxrss 1131 MB)
+bibi round 2: 1000 parents of 2752, 9270 fresh, 9225 ok, 8075 allosteric n=1 ok, 0 expand errors (4.8 s, maxrss 1234 MB)
+Precompiling packages...
+   2216.6 ms  ✓ EnzymeRates
+  1 dependency successfully precompiled in 2 seconds. 116 already precompiled.
+done bibi: 12267 records, 13864 edges, maxrss 1234 MB
+maxrss_kb 1263152
+exit 0 elapsed 24s

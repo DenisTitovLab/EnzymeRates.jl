@@ -1,0 +1,19 @@
+bibi: 5671 mechanisms, running 2901:5671 within 480 s
+  3000 done, 23 s, maxrss 873 MB
+  3200 done, 37 s, maxrss 873 MB
+  3400 done, 50 s, maxrss 873 MB
+  3600 done, 63 s, maxrss 873 MB
+  3800 done, 78 s, maxrss 937 MB
+  4000 done, 85 s, maxrss 937 MB
+  4200 done, 90 s, maxrss 1006 MB
+  4400 done, 97 s, maxrss 1006 MB
+  4600 done, 103 s, maxrss 1049 MB
+  4800 done, 110 s, maxrss 1049 MB
+  5000 done, 118 s, maxrss 1113 MB
+  5200 done, 130 s, maxrss 1150 MB
+  5400 done, 138 s, maxrss 1150 MB
+  5600 done, 144 s, maxrss 1150 MB
+NEXT 5672
+wrote /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/unit/data/bibi_2901_5671.jls: 2771 rows (0 errors) in 145 s; maxrss 1150 MB
+maxrss_kb 1177512
+exit 0 elapsed 778s

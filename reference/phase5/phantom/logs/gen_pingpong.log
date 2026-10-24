@@ -1,0 +1,5 @@
+pingpong round 0: 264 seeds, 278 base entries, 278 ok, 0 base failures (1.2 s)
+pingpong round 1: 278 parents of 278, 3226 fresh, 3220 ok, 2164 allosteric n=1 ok, 0 expand errors (4.3 s, maxrss 1174 MB)
+done pingpong: 3504 records, 3316 edges, maxrss 1174 MB
+maxrss_kb 1202592
+exit 0 elapsed 17s

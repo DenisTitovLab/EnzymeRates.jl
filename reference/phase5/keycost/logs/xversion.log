@@ -1,0 +1,7 @@
+1.12 second process: 78 laws; keys equal to the first 1.12 run 78; generated bodies equal 78; allocations>0 0; max ns 74.9
+1.13: 78 laws; keys equal to the first 1.12 run 78; generated bodies equal 76; allocations>0 0; max ns 74.8
+1.10 missing list index out of range
+subprocess (subproc.jl) keys and bodies equal to the keytime run: 48 of 48
+1.10: 73 of 78 laws derived (others error on 1.10); keys equal 73; bodies equal 73; allocations>0 0
+1.13 body differs: 62569106e04b1827
+1.13 body differs: 446a2c9db9b9c356

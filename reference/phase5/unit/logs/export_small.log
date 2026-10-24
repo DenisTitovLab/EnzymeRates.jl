@@ -1,0 +1,12 @@
+EnzymeRates 0.10.0 from /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/graph_mechanism_wt at 7205ba4
+spec file: 0 statements skipped
+wrote /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/unit/data/spec.tsv: 42 rows; maxrss 849 MB
+spec done in 16 s
+bibi: init 239, child rows 5505, parent errors 0
+wrote /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/unit/data/bibi.tsv: 5671 rows; maxrss 963 MB
+bibi done in 8 s
+pingpong: init 191, child rows 1688, parent errors 0
+wrote /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/unit/data/pingpong.tsv: 1828 rows; maxrss 963 MB
+pingpong done in 0 s
+maxrss_kb 985864
+exit 0 elapsed 61s

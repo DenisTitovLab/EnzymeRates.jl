@@ -1,0 +1,14 @@
+[   15 s, 1095 MB] r55 round 0: 239 seeds, 239 base; round 1: 5432 new, 5362 within 337
+  slice failed: TypeError: in keyword argument sites, expected Vector{Main.Slice.Site}, got a value of type Vector{Any}
+  slice failed: TypeError: in keyword argument sites, expected Vector{Main.Slice.Site}, got a value of type Vector{Any}
+  slice failed: TypeError: in keyword argument sites, expected Vector{Main.Slice.Site}, got a value of type Vector{Any}
+[   30 s, 1244 MB] r55 round 2 [study seed Xoshiro(20261014)]: 1500 parents of 5362, 35402 new, 34574 within 337 (active), 22069 allosteric within; newly over (sum) 19, newly over (max) 0; sums [339, 339, 339, 339, 339, 339, 339, 339, 339, 339, 339, 339, 339, 339, 339, 351, 351, 351, 351]; slice recount 0 compared, 0 mismatches, 22069 slice failures
+  slice failed: TypeError: in keyword argument sites, expected Vector{Main.Slice.Site}, got a value of type Vector{Any}
+  slice failed: TypeError: in keyword argument sites, expected Vector{Main.Slice.Site}, got a value of type Vector{Any}
+  slice failed: TypeError: in keyword argument sites, expected Vector{Main.Slice.Site}, got a value of type Vector{Any}
+[   44 s, 1244 MB] r55 round 2 [fresh seed Xoshiro(7)]: 1500 parents of 5362, 34718 new, 33804 within 337 (active), 21508 allosteric within; newly over (sum) 16, newly over (max) 0; sums [339, 339, 339, 339, 339, 339, 339, 339, 339, 339, 339, 339, 339, 351, 351, 351]; slice recount 0 compared, 0 mismatches, 21508 slice failures
+[   48 s, 1244 MB] phantom pop: round 0 239 base; round 1 2758 candidates, 1833 one-subunit ok (study: 2,752 and 1,833); round 2 from 300 parents outside the study's 1000: 3011 candidates, 2612 one-subunit ok; overlap with study parents 0
+[   52 s, 1244 MB] wrote phantom_pop.tsv
+[   55 s, 1244 MB] wrote scan_pop.tsv: 989 mechanisms, 463 allosteric
+maxrss_kb 1273364
+exit 0 elapsed 400s

@@ -1,0 +1,117 @@
+DRAFT - NOT FILED. Target: https://github.com/JuliaLang/julia/issues (labels: GC, compiler:codegen, regression 1.12)
+
+Title: GC corruption: JuliaLICM hoists the box for a union phi out of a loop; the field store has no write barrier (1.12, 1.13)
+
+## Summary
+
+On Julia 1.12.5 and 1.13.1 the program below aborts with "GC error (probable corruption)"
+every time. Julia 1.10.12 runs it cleanly. So does 1.12.5 with -O1.
+
+```julia
+struct P{T}
+    terms::Dict{Int, T}
+end
+struct L{T}
+    names::Vector{Symbol}
+    D::P{T}
+end
+@noinline make(flag::Bool, n) =
+    flag ? L{Float64}([:a], P(Dict{Int, Float64}(i => i for i in 1:n))) :
+           L{Int}([:a], P(Dict{Int, Int}(i => i for i in 1:n)))
+nterms(p::P) = length(p.terms)
+
+function main(rounds, flag::Bool)
+    for r in 1:rounds
+        println(r, " ", nterms(make(flag, 1000).D))   # D :: Union{P{Int}, P{Float64}}
+        GC.gc(true)
+        println("full gc ", r, " ok")
+    end
+end
+main(3, false)
+```
+
+Output (1.12.5, aarch64 Linux):
+
+```
+GC error (probable corruption)
+Allocations: 353252 (Pool: 353252; Big: 0); GC: 2
+<?#0xeb480b4cc050::(nil)>
+...
+gc_dump_queue_and_abort at .../src/gc-stock.c:1663
+gc_mark_outrefs at .../src/gc-stock.c:2364 [inlined]
+gc_mark_loop_serial_ at .../src/gc-stock.c:2518
+...
+ijl_gc_collect at .../src/gc-stock.c:3473
+```
+
+## Results
+
+| Julia | flags | runs | aborts |
+|---|---|---|---|
+| 1.12.5 | default (-O2) | 3 | 3 |
+| 1.12.5 | --check-bounds=yes | 1 | 1 |
+| 1.12.5 | -O1 | 1 | 0 |
+| 1.13.1 | default | 3 | 3 |
+| 1.10.12 | default | 3 | 0 |
+
+The same pattern aborted a larger program 10 times out of 10. That program uses no unsafe code,
+no ccall, no threads, and no @inbounds.
+
+## Cause (from the IR)
+
+1. `getfield(x, :D)` on `x :: Union{L{Int}, L{Float64}}` is union-split. The phi of the two
+   results has type `Union{P{Int}, P{Float64}}`, so codegen boxes each `P` with
+   `julia.gc_alloc_obj` and fills the box with an 8-byte `llvm.memcpy` from the field. Both
+   steps sit inside the loop body. The unoptimized IR is correct.
+2. InstCombine rewrites the 8-byte memcpy as `load i64` + `store i64`. The tracked pointer now
+   travels as an integer.
+3. JuliaLICM (src/llvm-julia-licm.cpp) runs escape analysis on the allocation. The analysis
+   classifies `store i64` as a "bits" store, so `use_info.refstore` stays 0. The pass hoists
+   the allocation into the loop preheader and adds a memset. The escape-analysis remark shows
+   the contradiction: the field has `hasobjref: 1` (from the load), yet `refstore: 0`:
+
+   ```
+   remark: range.jl:917:0: escape analysis for call
+   AllocUseInfo:
+   escaped: 0
+   addrescaped: 0
+   refload: 1
+   refstore: 0
+   MemOps: 1
+     offset: 0
+     size: 8
+     hasobjref: 1
+     accesses: 2
+         %54 = load atomic ptr addrspace(10), ptr addrspace(11) %52 unordered ...
+       scalar
+       objref
+         store i64 %53, ptr addrspace(11) %52, align 8 ...
+       scalar
+       bits
+   remark: range.jl:917:0: hoisting gc allocation call
+   ```
+
+4. The hoisted box now lives across iterations and across safepoints, and it can become old.
+   Each iteration writes a young `Dict` pointer into it with `store i64` and no write barrier.
+   The GC then frees the `Dict` while the old box still points to it. The next full mark
+   follows the box to the freed cell and aborts.
+
+Reproduce the remark with
+`JULIA_LLVM_ARGS="-pass-remarks=julia-licm -pass-remarks-analysis=julia-licm" julia repro_upstream.jl`.
+`-print-changed` shows the allocation inside the loop after LCSSAPass and in the preheader
+after JuliaLICMPass.
+
+## Suggested fix (untested)
+
+JuliaLICM should refuse to hoist an allocation whose `MemOps` contain a field with
+`hasobjref` and any store, or more simply any store at all of a pointer-sized integer. The
+alternative is to insert write barriers for every store into a hoisted object. Perhaps
+`AllocUseInfo::addMemOp` should also set `refstore` when an integer store hits a field that
+already has `hasobjref`.
+
+## Environment
+
+- Julia 1.12.5 and 1.13.1 (juliaup official binaries), aarch64-linux-gnu, Apple-silicon VM
+  (lscpu: Vendor Apple; Sys.CPU_NAME "generic"), 4 cores, 1 thread, 1 GC thread.
+- Not yet tried on x86_64. All the steps above are target-independent IR passes, so I expect
+  x86_64 to reproduce, but I have not checked.

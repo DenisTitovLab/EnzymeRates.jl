@@ -1,0 +1,5 @@
+C: 989 laws, best 188.5 µs per law (1.0 of C)
+E: 989 laws, best 187.0 µs per law (0.992 of C)
+D: 989 laws, best 188.2 µs per law (0.999 of C)
+maxrss_kb 639204
+exit 0 elapsed 19s

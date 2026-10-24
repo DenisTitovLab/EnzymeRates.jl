@@ -1,0 +1,12 @@
+EnzymeRates 0.10.0 at 7205ba4; Julia 1.12.5
+ter-ter init 250855 in 26 s; V×τ computed by 43 s; maxrss 1975 MB
+bin [1, 50]: 162067 mechanisms, 150 picked
+bin [51, 337]: 50562 mechanisms, 150 picked
+bin [338, 1000]: 12588 mechanisms, 150 picked
+bin [1001, 2000]: 3696 mechanisms, 200 picked
+bin [2001, 5000]: 2754 mechanisms, 300 picked
+over 5000: 19188; top40 within 5000 from 4896 to 4896
+round 1 from 25 parents: 810 children, 544 allosteric, 790 with V×τ sum <= 5000, 400 picked
+wrote /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/keycost/data/x5_terter.tsv in 51 s; maxrss 1975 MB
+maxrss_kb 2022560
+exit 0 elapsed 52s

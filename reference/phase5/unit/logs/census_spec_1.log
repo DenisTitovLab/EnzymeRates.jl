@@ -1,0 +1,4 @@
+spec: 42 mechanisms, running 1:42
+wrote /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/unit/data/spec_1_42.jls: 42 rows (0 errors) in 23 s; maxrss 846 MB
+maxrss_kb 865976
+exit 0 elapsed 53s

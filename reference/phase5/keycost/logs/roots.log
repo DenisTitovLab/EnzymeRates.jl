@@ -1,0 +1,16 @@
+q=3 x^(1/q) [Float64 exponent, slice]    Float64   9.05 ns, max err 0.83 eps; BigFloat-256 max rel err 8.5e-17, 7.32 µs
+q=3 x^(one(x)/q)                         Float64   9.06 ns, max err 0.83 eps; BigFloat-256 max rel err 1.5e-77, 5.28 µs
+q=3 cbrt(x) [q = 3]                      Float64   3.14 ns, max err 0.63 eps; BigFloat-256 max rel err 8.5e-78, 1.38 µs
+q=3 exp(log(x)/q)                        Float64   8.54 ns, max err 1.28 eps; BigFloat-256 max rel err 2.3e-77, 5.00 µs
+q=4 x^(1/q) [Float64 exponent, slice]    Float64   8.94 ns, max err 0.48 eps; BigFloat-256 max rel err 8.5e-78, 4.32 µs
+q=4 x^(one(x)/q)                         Float64   9.10 ns, max err 0.48 eps; BigFloat-256 max rel err 8.5e-78, 4.32 µs
+q=4 sqrt(sqrt(x)) [q = 4]                Float64   0.98 ns, max err 0.66 eps; BigFloat-256 max rel err 1.2e-77, 1.19 µs
+q=4 exp(log(x)/q)                        Float64   8.55 ns, max err 0.85 eps; BigFloat-256 max rel err 1.4e-77, 4.02 µs
+q=5 x^(1/q) [Float64 exponent, slice]    Float64   9.00 ns, max err 0.67 eps; BigFloat-256 max rel err 5.1e-17, 4.29 µs
+q=5 x^(one(x)/q)                         Float64   9.09 ns, max err 0.67 eps; BigFloat-256 max rel err 9.7e-78, 4.32 µs
+q=5 exp(log(x)/q)                        Float64   8.56 ns, max err 0.90 eps; BigFloat-256 max rel err 1.7e-77, 4.02 µs
+q=6 x^(1/q) [Float64 exponent, slice]    Float64   9.04 ns, max err 0.65 eps; BigFloat-256 max rel err 4.3e-17, 4.29 µs
+q=6 x^(one(x)/q)                         Float64   9.06 ns, max err 0.65 eps; BigFloat-256 max rel err 1.1e-77, 4.56 µs
+q=6 exp(log(x)/q)                        Float64   8.57 ns, max err 0.81 eps; BigFloat-256 max rel err 1.5e-77, 4.01 µs
+maxrss_kb 306624
+exit 0 elapsed 29s

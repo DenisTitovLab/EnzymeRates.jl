@@ -1,0 +1,18 @@
+data/kt_tt_code.tsv: 160 rows, 160 laws, 0 errors
+  by key-part terms (KT): n | key ms median p90 max | law ms median max | key/law median max | leaves max | nodes max
+  KT [338, 1000]: 14 | 20.71 24.23 24.52 | 13.9 23.9 | 1.41 2.62 | 1 | 1
+  KT [1001, 2000]: 88 | 39.78 92.63 117.83 | 39.4 111.7 | 1.25 5.63 | 1 | 1
+  KT [2001, 5000]: 58 | 127.18 231.72 361.97 | 39.2 117.2 | 3.47 9.33 | 1 | 1
+  log-log slope of key time on KT (KT > 50): 1.96; of law time: 0.64
+  leaves > 1 in 0 laws; max leaves 1; exponent denominators > 2 in 0, = 2 in 0
+  allosteric: 16 laws, key ms median 109.98 max 128.95; max KT 2275
+  slowest key: terter_r1  f5967d878abfbe71 KT 3363 D 3236 cx 4836+0 key 362.0 ms law 69.9 ms leaves 1
+  slowest key: terter_r1  0ac767f3af82a1cf KT 3314 D 3187 cx 4836+0 key 349.2 ms law 117.2 ms leaves 1
+  slowest key: terter_init 63832 2a8a8bb250add1a8 KT 3438 D 3009 cx 4650+0 key 290.7 ms law 97.9 ms leaves 1
+  slowest key: terter_init 226211 bb9258a2b2a8499c KT 3110 D 3008 cx 4080+0 key 281.8 ms law 68.0 ms leaves 1
+  slowest key: terter_init 92213 e2d28366c2105f0c KT 3201 D 2926 cx 4640+0 key 261.1 ms law 68.0 ms leaves 1
+  codegen: 160 laws; allocations > 0 in 0; ns barrier max 169.65; over 120 ns: 9
+    ns per D    over 160 laws with D >= 300: min 0.0223 median 0.0460 max 0.0907 (max/min 4.08)
+    ns per V×τ  over 160 laws with V×τ >= 300: min 0.0097 median 0.0328 max 0.0761 (max/min 7.88)
+    ns per ops  over 160 laws with ops >= 300: min 0.0090 median 0.0177 max 0.0304 (max/min 3.37)
+    log-log slope of ns on D (D >= 50): 0.86; on ops: 0.92; on V×τ: 0.04

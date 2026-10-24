@@ -1,0 +1,6 @@
+EnzymeRates 0.10.0 from /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/graph_mechanism_wt at 7205ba4
+init_mechanisms(ter_ter_rxn): 250855 in 34.4 s; maxrss 2207 MB
+wrote /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/unit/data/terter.tsv: 2000 rows; maxrss 2207 MB
+terter done in 41 s
+maxrss_kb 2259480
+exit 0 elapsed 171s

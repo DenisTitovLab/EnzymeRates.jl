@@ -1,0 +1,113 @@
+julia 1.12.5; mechanisms: 500 (terbi 300, prefix 200); census rows the slice cannot build: none
+  250 done, 49 s
+  500 done, 57 s
+derivation errors (same in every variant unless listed under differences): Dict("terbi: the rate law of this mechanism expands more than 5000 spanni" => 5)
+differences against U: none
+laws that needed BigInt in U: 0; allosteric laws: 107
+sl    prefix          U  n  200 median     82.7 p90    434.5 max    3744.1 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    prefix          A  n  200 median     84.3 p90    456.6 max    2809.3 µs | ratio to U: median 1.026 p90 1.058 max 1.312
+sl    prefix          B  n  200 median     82.5 p90    441.2 max    3522.8 µs | ratio to U: median 0.999 p90 1.020 max 1.304
+sl    prefix          C  n  200 median     82.0 p90    432.7 max    3578.4 µs | ratio to U: median 0.996 p90 1.016 max 1.327
+sl    prefix/allo     U  n   38 median    126.0 p90    232.1 max     705.7 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    prefix/allo     A  n   38 median    129.7 p90    240.7 max     734.8 µs | ratio to U: median 1.029 p90 1.057 max 1.114
+sl    prefix/allo     B  n   38 median    124.8 p90    234.0 max     735.1 µs | ratio to U: median 1.001 p90 1.022 max 1.042
+sl    prefix/allo     C  n   38 median    124.9 p90    229.6 max     702.6 µs | ratio to U: median 0.995 p90 1.008 max 1.223
+sl    prefix/plain    U  n  162 median     73.4 p90    434.5 max    3744.1 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    prefix/plain    A  n  162 median     75.8 p90    456.6 max    2809.3 µs | ratio to U: median 1.024 p90 1.058 max 1.312
+sl    prefix/plain    B  n  162 median     73.7 p90    441.2 max    3522.8 µs | ratio to U: median 0.998 p90 1.018 max 1.304
+sl    prefix/plain    C  n  162 median     73.4 p90    435.4 max    3578.4 µs | ratio to U: median 0.996 p90 1.016 max 1.327
+sl    terbi           U  n  295 median    150.1 p90    940.8 max   18742.8 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    terbi           A  n  295 median    155.7 p90    973.2 max   19590.8 µs | ratio to U: median 1.027 p90 1.050 max 1.474
+sl    terbi           B  n  295 median    151.6 p90    950.5 max   17729.7 µs | ratio to U: median 0.998 p90 1.023 max 1.291
+sl    terbi           C  n  295 median    151.3 p90    951.9 max   15566.0 µs | ratio to U: median 0.997 p90 1.019 max 1.296
+sl    terbi/allo      U  n   69 median    193.6 p90    427.7 max    1578.3 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    terbi/allo      A  n   69 median    199.9 p90    453.4 max    2020.3 µs | ratio to U: median 1.039 p90 1.065 max 1.280
+sl    terbi/allo      B  n   69 median    193.2 p90    431.9 max    1578.7 µs | ratio to U: median 1.000 p90 1.020 max 1.233
+sl    terbi/allo      C  n   69 median    191.7 p90    428.3 max    1566.8 µs | ratio to U: median 0.998 p90 1.022 max 1.189
+sl    terbi/plain     U  n  226 median    124.8 p90    946.2 max   18742.8 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    terbi/plain     A  n  226 median    126.8 p90    976.5 max   19590.8 µs | ratio to U: median 1.024 p90 1.046 max 1.474
+sl    terbi/plain     B  n  226 median    125.4 p90    961.0 max   17729.7 µs | ratio to U: median 0.997 p90 1.021 max 1.291
+sl    terbi/plain     C  n  226 median    124.0 p90    960.5 max   15566.0 µs | ratio to U: median 0.996 p90 1.018 max 1.296
+sl    all             U  n  495 median    119.7 p90    691.0 max   18742.8 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    all             A  n  495 median    124.1 p90    734.8 max   19590.8 µs | ratio to U: median 1.027 p90 1.053 max 1.474
+sl    all             B  n  495 median    118.7 p90    710.9 max   17729.7 µs | ratio to U: median 0.999 p90 1.021 max 1.304
+sl    all             C  n  495 median    119.5 p90    685.6 max   15566.0 µs | ratio to U: median 0.997 p90 1.018 max 1.327
+solve prefix          U  n  200 median     14.2 p90     39.4 max     104.7 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve prefix          A  n  200 median     14.0 p90     39.4 max     103.7 µs | ratio to U: median 0.999 p90 1.031 max 1.077
+solve prefix          B  n  200 median     14.3 p90     39.1 max     103.9 µs | ratio to U: median 1.008 p90 1.044 max 1.142
+solve prefix          C  n  200 median     14.2 p90     39.3 max     102.9 µs | ratio to U: median 1.003 p90 1.039 max 1.137
+solve prefix/allo     U  n   38 median     17.1 p90     39.5 max      64.3 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve prefix/allo     A  n   38 median     17.5 p90     39.4 max      65.2 µs | ratio to U: median 0.998 p90 1.049 max 1.064
+solve prefix/allo     B  n   38 median     17.8 p90     39.1 max      69.5 µs | ratio to U: median 1.011 p90 1.080 max 1.142
+solve prefix/allo     C  n   38 median     17.1 p90     39.5 max      65.9 µs | ratio to U: median 0.995 p90 1.029 max 1.090
+solve prefix/plain    U  n  162 median     13.7 p90     37.3 max     104.7 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve prefix/plain    A  n  162 median     13.5 p90     37.5 max     103.7 µs | ratio to U: median 1.000 p90 1.028 max 1.077
+solve prefix/plain    B  n  162 median     13.6 p90     37.9 max     103.9 µs | ratio to U: median 1.007 p90 1.042 max 1.098
+solve prefix/plain    C  n  162 median     13.8 p90     37.8 max     102.9 µs | ratio to U: median 1.004 p90 1.039 max 1.137
+solve terbi           U  n  295 median     22.6 p90     73.2 max     256.7 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve terbi           A  n  295 median     22.6 p90     73.3 max     247.5 µs | ratio to U: median 1.001 p90 1.034 max 1.128
+solve terbi           B  n  295 median     22.5 p90     74.9 max     254.1 µs | ratio to U: median 1.002 p90 1.036 max 1.164
+solve terbi           C  n  295 median     22.7 p90     74.6 max     254.0 µs | ratio to U: median 1.005 p90 1.034 max 1.169
+solve terbi/allo      U  n   69 median     22.7 p90     78.2 max     204.8 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve terbi/allo      A  n   69 median     22.8 p90     73.5 max     204.7 µs | ratio to U: median 1.000 p90 1.040 max 1.095
+solve terbi/allo      B  n   69 median     23.1 p90     75.5 max     210.1 µs | ratio to U: median 1.003 p90 1.052 max 1.099
+solve terbi/allo      C  n   69 median     22.9 p90     75.8 max     211.9 µs | ratio to U: median 1.002 p90 1.031 max 1.104
+solve terbi/plain     U  n  226 median     22.4 p90     72.1 max     256.7 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve terbi/plain     A  n  226 median     22.1 p90     71.1 max     247.5 µs | ratio to U: median 1.002 p90 1.033 max 1.128
+solve terbi/plain     B  n  226 median     22.2 p90     72.2 max     254.1 µs | ratio to U: median 1.002 p90 1.032 max 1.164
+solve terbi/plain     C  n  226 median     22.1 p90     73.5 max     254.0 µs | ratio to U: median 1.006 p90 1.034 max 1.169
+solve all             U  n  495 median     17.6 p90     59.6 max     256.7 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve all             A  n  495 median     17.8 p90     59.4 max     247.5 µs | ratio to U: median 1.000 p90 1.034 max 1.128
+solve all             B  n  495 median     17.9 p90     60.2 max     254.1 µs | ratio to U: median 1.005 p90 1.042 max 1.164
+solve all             C  n  495 median     17.8 p90     60.2 max     254.0 µs | ratio to U: median 1.005 p90 1.035 max 1.169
+law   prefix          U  n  200 median     67.0 p90    400.3 max    3639.4 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   prefix          A  n  200 median     68.5 p90    423.2 max    2705.6 µs | ratio to U: median 1.030 p90 1.068 max 1.323
+law   prefix          B  n  200 median     66.2 p90    406.3 max    3418.9 µs | ratio to U: median 0.997 p90 1.018 max 1.314
+law   prefix          C  n  200 median     65.8 p90    400.9 max    3475.6 µs | ratio to U: median 0.995 p90 1.013 max 1.339
+law   prefix/allo     U  n   38 median    112.0 p90    207.4 max     641.5 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   prefix/allo     A  n   38 median    115.0 p90    216.0 max     669.5 µs | ratio to U: median 1.033 p90 1.068 max 1.127
+law   prefix/allo     B  n   38 median    109.8 p90    208.4 max     665.6 µs | ratio to U: median 0.997 p90 1.018 max 1.047
+law   prefix/allo     C  n   38 median    110.2 p90    205.0 max     636.7 µs | ratio to U: median 0.993 p90 1.006 max 1.255
+law   prefix/plain    U  n  162 median     59.6 p90    403.1 max    3639.4 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   prefix/plain    A  n  162 median     62.4 p90    426.8 max    2705.6 µs | ratio to U: median 1.029 p90 1.066 max 1.323
+law   prefix/plain    B  n  162 median     59.0 p90    411.3 max    3418.9 µs | ratio to U: median 0.996 p90 1.018 max 1.314
+law   prefix/plain    C  n  162 median     59.5 p90    403.1 max    3475.6 µs | ratio to U: median 0.995 p90 1.014 max 1.339
+law   terbi           U  n  295 median    122.5 p90    858.7 max   18621.3 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   terbi           A  n  295 median    126.5 p90    894.0 max   19469.8 µs | ratio to U: median 1.031 p90 1.058 max 1.503
+law   terbi           B  n  295 median    124.0 p90    862.2 max   17605.9 µs | ratio to U: median 0.997 p90 1.022 max 1.331
+law   terbi           C  n  295 median    121.2 p90    876.1 max   15442.7 µs | ratio to U: median 0.994 p90 1.023 max 1.346
+law   terbi/allo      U  n   69 median    170.8 p90    371.1 max    1498.0 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   terbi/allo      A  n   69 median    175.5 p90    359.3 max    1938.3 µs | ratio to U: median 1.042 p90 1.071 max 1.294
+law   terbi/allo      B  n   69 median    169.6 p90    346.2 max    1497.6 µs | ratio to U: median 1.000 p90 1.020 max 1.247
+law   terbi/allo      C  n   69 median    168.0 p90    336.1 max    1484.8 µs | ratio to U: median 0.996 p90 1.023 max 1.200
+law   terbi/plain     U  n  226 median     98.0 p90    865.7 max   18621.3 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   terbi/plain     A  n  226 median    100.8 p90    896.0 max   19469.8 µs | ratio to U: median 1.028 p90 1.050 max 1.503
+law   terbi/plain     B  n  226 median     98.9 p90    884.9 max   17605.9 µs | ratio to U: median 0.996 p90 1.022 max 1.331
+law   terbi/plain     C  n  226 median     98.5 p90    881.3 max   15442.7 µs | ratio to U: median 0.993 p90 1.019 max 1.346
+law   all             U  n  495 median     97.1 p90    641.5 max   18621.3 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   all             A  n  495 median    100.4 p90    670.9 max   19469.8 µs | ratio to U: median 1.031 p90 1.061 max 1.503
+law   all             B  n  495 median     97.1 p90    646.9 max   17605.9 µs | ratio to U: median 0.997 p90 1.022 max 1.331
+law   all             C  n  495 median     96.4 p90    636.7 max   15442.7 µs | ratio to U: median 0.995 p90 1.019 max 1.346
+down  prefix          U  n  200 median    366.1 p90   2080.1 max   12594.2 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+down  prefix          A  n  200 median    378.8 p90   2452.7 max   13144.0 µs | ratio to U: median 1.062 p90 1.098 max 1.258
+down  prefix          B  n  200 median    353.0 p90   2044.7 max   13634.7 µs | ratio to U: median 0.998 p90 1.045 max 1.144
+down  prefix          C  n  200 median    360.5 p90   2038.2 max   14336.1 µs | ratio to U: median 1.001 p90 1.034 max 1.138
+down  terbi           U  n  295 median    585.9 p90   4093.2 max   64260.0 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+down  terbi           A  n  295 median    624.3 p90   4262.7 max   77918.0 µs | ratio to U: median 1.061 p90 1.118 max 1.359
+down  terbi           B  n  295 median    588.2 p90   4037.8 max   63637.3 µs | ratio to U: median 1.001 p90 1.054 max 1.408
+down  terbi           C  n  295 median    594.4 p90   4083.8 max   70924.5 µs | ratio to U: median 1.005 p90 1.035 max 1.190
+down  all             U  n  495 median    479.2 p90   3036.6 max   64260.0 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+down  all             A  n  495 median    506.6 p90   3342.3 max   77918.0 µs | ratio to U: median 1.062 p90 1.106 max 1.359
+down  all             B  n  495 median    470.5 p90   3077.5 max   63637.3 µs | ratio to U: median 1.000 p90 1.048 max 1.408
+down  all             C  n  495 median    466.9 p90   3057.9 max   70924.5 µs | ratio to U: median 1.003 p90 1.035 max 1.190
+live bytes law            U: 500 mechanisms in 0.3 s; after a full collection +1.14 KiB per mechanism (+0.6 MiB in all); 2 collections, 0 full; allocated 747.8 MiB
+live bytes law            C: 500 mechanisms in 0.3 s; after a full collection +1.12 KiB per mechanism (+0.5 MiB in all); 1 collections, 0 full; allocated 747.7 MiB
+live bytes law            B: 500 mechanisms in 0.3 s; after a full collection +1.12 KiB per mechanism (+0.5 MiB in all); 1 collections, 0 full; allocated 747.9 MiB
+live bytes law            A: 500 mechanisms in 0.3 s; after a full collection +3.15 KiB per mechanism (+1.5 MiB in all); 1 collections, 0 full; allocated 754.7 MiB
+live bytes law+print+key  U: 500 mechanisms in 1.0 s; after a full collection +5.85 KiB per mechanism (+2.9 MiB in all); 3 collections, 0 full; allocated 1662.1 MiB
+live bytes law+print+key  C: 500 mechanisms in 1.0 s; after a full collection +5.84 KiB per mechanism (+2.9 MiB in all); 3 collections, 0 full; allocated 1662.0 MiB
+live bytes law+print+key  B: 500 mechanisms in 0.9 s; after a full collection +5.84 KiB per mechanism (+2.9 MiB in all); 3 collections, 0 full; allocated 1671.5 MiB
+live bytes law+print+key  A: 500 mechanisms in 1.0 s; after a full collection +17.28 KiB per mechanism (+8.4 MiB in all); 3 collections, 0 full; allocated 1688.0 MiB
+finished in 68 s
+maxrss_kb 1083248
+exit 0 elapsed 605s

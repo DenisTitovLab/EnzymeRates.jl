@@ -1,0 +1,146 @@
+d_P_B⁻¹      isidentifier=true  parse -> :(d_P_B⁻¹ = 2)
+d_A²_B       isidentifier=true  parse -> :(d_A²_B = 2)
+n_B⁻¹        isidentifier=true  parse -> :(n_B⁻¹ = 2)
+dA_S         isidentifier=true  parse -> :(dA_S = 2)
+nI_0         isidentifier=true  parse -> :(nI_0 = 2)
+d_A⁻²_B      isidentifier=true  parse -> :(d_A⁻²_B = 2)
+N_A          isidentifier=true  parse -> :(N_A = 2)
+x⁻           isidentifier=true  parse -> :(x⁻ = 2)
+d_P_B⁻¹⁰     isidentifier=true  parse -> :(d_P_B⁻¹⁰ = 2)
+parse("a * d_P_B⁻¹ * P / B") -> :((a * d_P_B⁻¹ * P) / B)
+42 specs
+spec:Uni-Uni                                               ef=1e-154 ec=1e-154 ef2=0e+00 ec2=0e+00 es=0e+00 esc=0e+00 ref=0e+00/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:Segel Uni Uni                                         ef=0e+00 ec=0e+00 ef2=1e-154 ec2=0e+00 es=1e-154 esc=0e+00 ref=0e+00/1e-154 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:Segel Iso Uni Uni                                     ef=1e-154 ec=1e-154 ef2=0e+00 ec2=1e-154 es=0e+00 esc=1e-154 ref=2e-154/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:Segel Ordered Uni Bi                                  ef=1e-154 ec=2e-154 ef2=1e-154 ec2=3e-154 es=1e-154 esc=3e-154 ref=7e-155/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:Segel Ordered Bi Bi                                   ef=6e-154 ec=6e-154 ef2=6e-154 ec2=6e-154 es=6e-154 esc=6e-154 ref=1e-154/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=false/sameS=true
+spec:Segel Theorell-Chance Bi Bi                           ef=4e-154 ec=2e-154 ef2=4e-154 ec2=2e-154 es=4e-154 esc=2e-154 ref=0e+00/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=false/sameS=true
+spec:Segel Ping Pong Bi Bi                                 ef=8e-155 ec=8e-155 ef2=0e+00 ec2=8e-155 es=0e+00 esc=8e-155 ref=1e-154/1e-154 U=true/true sU=true/true art=0/0 plain:virtual_int/cleland/cle=true/sameC=true/sameS=true
+spec:Segel Ordered Ter Bi                                  ef=0e+00 ec=0e+00 ef2=0e+00 ec2=0e+00 es=0e+00 esc=0e+00 ref=2e-154/9e-155 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=false/sameS=true
+spec:Segel Ordered Ter Ter                                 ef=3e-154 ec=4e-154 ef2=1e-154 ec2=4e-154 es=1e-154 esc=4e-154 ref=9e-155/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=false/sameS=true
+spec:Segel Bi Uni Uni Uni PP Ter Bi                        ef=3e-154 ec=1e-154 ef2=0e+00 ec2=1e-154 es=3e-154 esc=3e-154 ref=0e+00/0e+00 U=true/true sU=true/true art=0/0 plain:virtual_int/cleland/cle=true/sameC=false/sameS=false
+spec:Random-order Bi-Bi                                    ef=0e+00 ec=0e+00 ef2=0e+00 ec2=0e+00 es=0e+00 esc=0e+00 ref=1e-154/2e-154 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=false/sameS=true
+spec:Numerator: random chem-SS (RE/SS)                     ef=9e-155 ec=9e-155 ef2=9e-155 ec2=9e-155 es=9e-155 esc=9e-155 ref=1e-154/1e-154 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=false/sameS=true
+spec:Numerator: RE-chemistry                               ef=0e+00 ec=0e+00 ef2=0e+00 ec2=0e+00 es=0e+00 esc=0e+00 ref=2e-154/1e-154 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=false/sameS=true
+spec:Numerator: redundant SS-bind                          ef=1e-154 ec=1e-154 ef2=0e+00 ec2=0e+00 es=0e+00 esc=0e+00 ref=0e+00/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=false/sameS=true
+spec:Segel Bi Uni Uni Bi PP Ter Ter                        ef=0e+00 ec=0e+00 ef2=2e-154 ec2=1e-154 es=2e-154 esc=1e-154 ref=2e-154/1e-154 U=true/true sU=true/true art=0/0 plain:virtual_int/cleland/cle=true/sameC=false/sameS=false
+spec:Segel Bi Bi Uni Uni PP Ter Ter                        ef=5e-154 ec=4e-154 ef2=4e-154 ec2=4e-154 es=3e-154 esc=4e-154 ref=1e-154/0e+00 U=true/true sU=true/true art=0/0 plain:virtual_int/cleland/cle=true/sameC=false/sameS=false
+spec:Segel Hexa Uni Ping Pong                              ef=1e-154 ec=1e-154 ef2=0e+00 ec2=0e+00 es=1e-154 esc=1e-154 ref=3e-154/1e-154 U=true/true sU=true/true art=0/0 plain:virtual_int/cleland/cle=true/sameC=true/sameS=true
+spec:RE Uni-Uni                                            ef=8e-155 ec=8e-155 ef2=2e-154 ec2=8e-155 es=2e-154 esc=8e-155 ref=8e-155/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:RE Ordered Bi-Bi                                      ef=4e-154 ec=4e-154 ef2=2e-154 ec2=4e-154 es=2e-154 esc=4e-154 ref=1e-154/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=false/sameC=missing/sameS=true
+spec:RE Random Bi-Bi                                       ef=2e-154 ec=2e-154 ef2=2e-154 ec2=2e-154 es=2e-154 esc=2e-154 ref=1e-154/4e-154 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=false/sameS=true
+spec:Competitive Inhibitor                                 ef=0e+00 ec=0e+00 ef2=0e+00 ec2=0e+00 es=0e+00 esc=0e+00 ref=1e-154/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:Non-competitive Inhibitor                             ef=0e+00 ec=0e+00 ef2=2e-154 ec2=2e-154 es=2e-154 esc=2e-154 ref=0e+00/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:Uncompetitive Inhibitor                               ef=0e+00 ec=0e+00 ef2=0e+00 ec2=0e+00 es=0e+00 esc=0e+00 ref=0e+00/8e-155 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:Essential Activator                                   ef=8e-155 ec=8e-155 ef2=0e+00 ec2=0e+00 es=0e+00 esc=0e+00 ref=0e+00/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=false/sameC=missing/sameS=true
+spec:Non-essential Activator                               ef=1e-152 ec=1e-152 ef2=1e-152 ec2=1e-152 es=1e-152 esc=1e-152 ref=1e-154/1e-154 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:Activator + Competitive Inhibitor                     ef=2e-154 ec=2e-154 ef2=2e-154 ec2=2e-154 es=2e-154 esc=2e-154 ref=2e-154/2e-154 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:MWC Dimer [AllostericEnzymeMechanism]                 ef=1e-154 ec=1e-154 ef2=1e-154 ec2=1e-154 es=1e-154 esc=1e-154 ref=2e-154/0e+00 U=true/true sU=true/true art=0/0 A:constant/constant/cle=true/sameC=true/sameS=true I:constant/constant/cle=true/sameC=true/sameS=true
+spec:Homodimer + Non-competitive Inhibitor [AllostericEnzy ef=0e+00 ec=0e+00 ef2=0e+00 ec2=0e+00 es=0e+00 esc=0e+00 ref=1e-154/1e-154 U=true/true sU=true/true art=0/0 A:constant/constant/cle=true/sameC=true/sameS=true I:constant/constant/cle=true/sameC=true/sameS=true
+spec:Two Competitive Inhibitors                            ef=0e+00 ec=0e+00 ef2=1e-154 ec2=0e+00 es=1e-154 esc=0e+00 ref=0e+00/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:Two Non-competitive Inhibitors                        ef=1e-154 ec=1e-154 ef2=0e+00 ec2=1e-154 es=0e+00 esc=1e-154 ref=1e-154/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:Non-competitive + Competitive Inhibitor               ef=8e-155 ec=8e-155 ef2=0e+00 ec2=0e+00 es=0e+00 esc=0e+00 ref=1e-154/1e-154 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:Uncompetitive + Competitive Inhibitor                 ef=0e+00 ec=0e+00 ef2=0e+00 ec2=1e-154 es=0e+00 esc=1e-154 ref=0e+00/1e-154 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:Two Same-site Inhibitors                              ef=0e+00 ec=0e+00 ef2=0e+00 ec2=0e+00 es=0e+00 esc=0e+00 ref=1e-154/0e+00 U=true/true sU=true/true art=0/0 plain:constant/constant/cle=true/sameC=true/sameS=true
+spec:MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites   ef=0e+00 ec=0e+00 ef2=1e-154 ec2=1e-154 es=1e-154 esc=1e-154 ref=0e+00/9e-155 U=true/true sU=true/true art=0/0 A:constant/constant/cle=true/sameC=true/sameS=true I:constant/constant/cle=true/sameC=true/sameS=true
+spec:PFK-1                                                 ef=9e-155 ec=9e-155 ef2=9e-155 ec2=9e-155 es=9e-155 esc=9e-155 ref=3e-154/0e+00 U=true/true sU=true/true art=0/0 A:constant/constant/cle=true/sameC=true/sameS=true I:constant/constant/cle=false/sameC=missing/sameS=true
+spec:HK                                                    ef=0e+00 ec=0e+00 ef2=0e+00 ec2=0e+00 es=0e+00 esc=0e+00 ref=0e+00/1e-154 U=true/true sU=true/true art=0/0 A:constant/constant/cle=true/sameC=true/sameS=true I:constant/constant/cle=false/sameC=missing/sameS=true
+spec:PK                                                    ef=1e-154 ec=1e-154 ef2=0e+00 ec2=0e+00 es=0e+00 esc=0e+00 ref=1e-154/0e+00 U=true/true sU=true/true art=0/0 A:constant/constant/cle=true/sameC=true/sameS=true I:constant/constant/cle=false/sameC=missing/sameS=true
+spec:m_all                                                 ef=3e-154 ec=3e-154 ef2=3e-154 ec2=3e-154 es=3e-154 esc=3e-154 ref=2e-154/1e-154 U=true/true sU=true/true art=0/0 A:constant/constant/cle=true/sameC=true/sameS=true I:constant/constant/cle=true/sameC=true/sameS=true
+spec:m_OnlyA_prod                                          ef=3e-154 ec=3e-154 ef2=3e-154 ec2=3e-154 es=3e-154 esc=3e-154 ref=1e-154/1e-154 U=true/true sU=true/true art=0/0 A:constant/constant/cle=true/sameC=true/sameS=true I:constant/constant/cle=true/sameC=true/sameS=true
+spec:LDH i-state NonequalAI 6-group                        ef=1e-153 ec=1e-153 ef2=1e-153 ec2=1e-153 es=1e-153 esc=1e-153 ref=1e-154/1e-154 U=true/true sU=true/true art=0/0 A:constant/constant/cle=true/sameC=false/sameS=true I:constant/constant/cle=false/sameC=missing/sameS=true
+spec:LDH i-state NonequalAI 5-group                        ef=0e+00 ec=8e-155 ef2=2e-154 ec2=3e-154 es=0e+00 esc=2e-154 ref=1e-154/0e+00 U=true/true sU=true/true art=0/0 A:constant/constant/cle=true/sameC=false/sameS=true I:constant/constant/cle=false/sameC=missing/sameS=true
+spec:LDH i-state EqualAI-NonequalAI 6-group                ef=8e-155 ec=8e-155 ef2=8e-155 ec2=8e-155 es=8e-155 esc=8e-155 ref=0e+00/9e-155 U=true/true sU=true/true art=0/0 A:constant/constant/cle=true/sameC=true/sameS=true I:constant/constant/cle=true/sameC=true/sameS=true
+
+=== spec:Uni-Uni
+(; k_ES_to_E_P, k_E_S_to_ES, k_ES_to_E_S, Keq, E_total) = params
+(; S, P) = concs
+# Haldane constraints:
+k_E_P_to_ES = k_ES_to_E_P * k_E_S_to_ES / (k_ES_to_E_S * Keq)
+N = k_ES_to_E_P + k_ES_to_E_S
+v = E_total * (k_ES_to_E_P * k_E_S_to_ES / N) * (S - P / Keq) / (1 + S * k_E_S_to_ES / N + P * k_ES_to_E_P * k_E_S_to_ES / (k_ES_to_E_S * Keq * N))
+--- coefficient form
+v = E_total * (n_0) * (S - P / Keq) / (1 + d_S * S + d_P * P)
+# The coefficients are functions of the fitted constants, not parameters:
+N = k_ES_to_E_P + k_ES_to_E_S
+n_0 = k_ES_to_E_P * k_E_S_to_ES / N
+d_S = k_E_S_to_ES / N
+d_P = k_ES_to_E_P * k_E_S_to_ES / (k_ES_to_E_S * Keq * N)
+
+=== spec:Segel Ping Pong Bi Bi
+(; k_E_A_to_EA, k_EA_to_E_A, k_E_Q_to_FB, k_FB_to_E_Q, k_EA_to_F_P, k_F_B_to_FB, k_FB_to_F_B, Keq, E_total) = params
+(; A, B, P, Q) = concs
+# Haldane constraints:
+k_F_P_to_EA = k_E_A_to_EA * k_FB_to_E_Q * k_EA_to_F_P * k_F_B_to_FB / (k_EA_to_E_A * k_E_Q_to_FB * k_FB_to_F_B * Keq)
+N = (k_FB_to_E_Q + k_FB_to_F_B) * (k_EA_to_E_A + k_EA_to_F_P) / (k_FB_to_E_Q + k_EA_to_F_P)
+v = E_total * (k_E_A_to_EA * k_F_B_to_FB / N) * (A * B - P * Q / Keq) / (A * k_E_A_to_EA * (k_FB_to_E_Q + k_FB_to_F_B) / (k_FB_to_E_Q * N) + B * k_F_B_to_FB * (k_EA_to_E_A + k_EA_to_F_P) / (k_EA_to_F_P * N) + P * k_E_A_to_EA * k_F_B_to_FB * (k_FB_to_E_Q + k_FB_to_F_B) / (k_E_Q_to_FB * k_FB_to_F_B * Keq * N) + Q * k_E_Q_to_FB * k_FB_to_F_B * (k_EA_to_E_A + k_EA_to_F_P) / (k_FB_to_E_Q * k_EA_to_F_P * N) + A * B * k_E_A_to_EA * k_F_B_to_FB * (k_FB_to_E_Q + k_EA_to_F_P) / (k_FB_to_E_Q * k_EA_to_F_P * N) + A * P * k_E_A_to_EA^2 * k_F_B_to_FB * (k_FB_to_E_Q + k_FB_to_F_B) / (k_EA_to_E_A * k_E_Q_to_FB * k_FB_to_F_B * Keq * N) + B * Q * k_E_Q_to_FB * k_F_B_to_FB * (k_EA_to_E_A + k_EA_to_F_P) / (k_FB_to_E_Q * k_EA_to_F_P * N) + P * Q * k_E_A_to_EA * k_F_B_to_FB * (k_EA_to_E_A + k_FB_to_F_B) / (k_EA_to_E_A * k_FB_to_F_B * Keq * N))
+--- coefficient form
+v = E_total * (n_0) * (A * B - P * Q / Keq) / (d_A * A + d_B * B + d_P * P + d_Q * Q + d_A_B * A * B + d_A_P * A * P + d_B_Q * B * Q + d_P_Q * P * Q)
+# The coefficients are functions of the fitted constants, not parameters:
+N = (k_FB_to_E_Q + k_FB_to_F_B) * (k_EA_to_E_A + k_EA_to_F_P) / (k_FB_to_E_Q + k_EA_to_F_P)
+n_0 = k_E_A_to_EA * k_F_B_to_FB / N
+d_A = k_E_A_to_EA * (k_FB_to_E_Q + k_FB_to_F_B) / (k_FB_to_E_Q * N)
+d_B = k_F_B_to_FB * (k_EA_to_E_A + k_EA_to_F_P) / (k_EA_to_F_P * N)
+d_P = k_E_A_to_EA * k_F_B_to_FB * (k_FB_to_E_Q + k_FB_to_F_B) / (k_E_Q_to_FB * k_FB_to_F_B * Keq * N)
+d_Q = k_E_Q_to_FB * k_FB_to_F_B * (k_EA_to_E_A + k_EA_to_F_P) / (k_FB_to_E_Q * k_EA_to_F_P * N)
+d_A_B = k_E_A_to_EA * k_F_B_to_FB * (k_FB_to_E_Q + k_EA_to_F_P) / (k_FB_to_E_Q * k_EA_to_F_P * N)
+d_A_P = k_E_A_to_EA^2 * k_F_B_to_FB * (k_FB_to_E_Q + k_FB_to_F_B) / (k_EA_to_E_A * k_E_Q_to_FB * k_FB_to_F_B * Keq * N)
+d_B_Q = k_E_Q_to_FB * k_F_B_to_FB * (k_EA_to_E_A + k_EA_to_F_P) / (k_FB_to_E_Q * k_EA_to_F_P * N)
+d_P_Q = k_E_A_to_EA * k_F_B_to_FB * (k_EA_to_E_A + k_FB_to_F_B) / (k_EA_to_E_A * k_FB_to_F_B * Keq * N)
+
+=== spec:Segel Hexa Uni Ping Pong
+(; k_E_A_to_EA, k_EA_to_E_A, k_E_R_to_GC, k_GC_to_E_R, k_F_P_to_EA, k_EA_to_F_P, k_F_B_to_FB, k_FB_to_F_B, k_FB_to_G_Q, k_G_C_to_GC, k_GC_to_G_C, Keq, E_total) = params
+(; A, B, C, P, Q, R) = concs
+# Haldane constraints:
+k_G_Q_to_FB = k_E_A_to_EA * k_GC_to_E_R * k_EA_to_F_P * k_F_B_to_FB * k_FB_to_G_Q * k_G_C_to_GC / (k_EA_to_E_A * k_E_R_to_GC * k_F_P_to_EA * k_FB_to_F_B * k_GC_to_G_C * Keq)
+N = (k_GC_to_E_R + k_GC_to_G_C) * (k_FB_to_F_B + k_FB_to_G_Q) * (k_EA_to_E_A + k_EA_to_F_P) / (k_GC_to_E_R * k_EA_to_F_P + k_GC_to_E_R * k_FB_to_G_Q + k_EA_to_F_P * k_FB_to_G_Q)^2
+v = E_total * (k_E_A_to_EA * k_F_B_to_FB * k_G_C_to_GC / (k_GC_to_E_R * k_EA_to_F_P * k_FB_to_G_Q * N)) * (A * B * C - P * Q * R / Keq) / (A * B * k_E_A_to_EA * k_F_B_to_FB * (k_GC_to_E_R + k_GC_to_G_C) / (k_GC_to_E_R^2 * k_EA_to_F_P * k_FB_to_G_Q * N) + A * C * k_E_A_to_EA * k_G_C_to_GC * (k_FB_to_F_B + k_FB_to_G_Q) / (k_GC_to_E_R * k_EA_to_F_P * k_FB_to_G_Q^2 * N) + B * C * k_F_B_to_FB * k_G_C_to_GC * (k_EA_to_E_A + k_EA_to_F_P) / (k_GC_to_E_R * k_EA_to_F_P^2 * k_FB_to_G_Q * N) + A * Q * k_E_A_to_EA^2 * k_F_B_to_FB * k_G_C_to_GC * (k_GC_to_E_R + k_GC_to_G_C) / (k_EA_to_E_A * k_E_R_to_GC * k_GC_to_E_R * k_F_P_to_EA * k_FB_to_G_Q * k_GC_to_G_C * Keq * N) + B * R * k_E_R_to_GC * k_F_B_to_FB * k_GC_to_G_C * (k_EA_to_E_A + k_EA_to_F_P) / (k_GC_to_E_R^2 * k_EA_to_F_P^2 * k_FB_to_G_Q * N) + C * P * k_EA_to_E_A * k_F_P_to_EA * k_G_C_to_GC * (k_FB_to_F_B + k_FB_to_G_Q) / (k_GC_to_E_R * k_EA_to_F_P^2 * k_FB_to_G_Q^2 * N) + P * Q * k_E_A_to_EA * k_F_B_to_FB * k_G_C_to_GC * (k_GC_to_E_R + k_GC_to_G_C) / (k_E_R_to_GC * k_GC_to_E_R * k_EA_to_F_P * k_FB_to_G_Q * k_GC_to_G_C * Keq * N) + P * R * k_EA_to_E_A * k_E_R_to_GC * k_F_P_to_EA * k_GC_to_G_C * (k_FB_to_F_B + k_FB_to_G_Q) / (k_GC_to_E_R^2 * k_EA_to_F_P^2 * k_FB_to_G_Q^2 * N) + Q * R * k_E_A_to_EA * k_F_B_to_FB * k_G_C_to_GC * (k_EA_to_E_A + k_EA_to_F_P) / (k_EA_to_E_A * k_GC_to_E_R * k_F_P_to_EA * k_EA_to_F_P * k_FB_to_G_Q * Keq * N) + A * B * C * k_E_A_to_EA * k_F_B_to_FB * k_G_C_to_GC * (k_GC_to_E_R * k_EA_to_F_P + k_GC_to_E_R * k_FB_to_G_Q + k_EA_to_F_P * k_FB_to_G_Q) / (k_GC_to_E_R^2 * k_EA_to_F_P^2 * k_FB_to_G_Q^2 * N) + A * B * Q * k_E_A_to_EA^2 * k_F_B_to_FB^2 * k_G_C_to_GC * (k_GC_to_E_R + k_GC_to_G_C) / (k_EA_to_E_A * k_E_R_to_GC * k_GC_to_E_R * k_F_P_to_EA * k_FB_to_F_B * k_FB_to_G_Q * k_GC_to_G_C * Keq * N) + A * C * P * k_E_A_to_EA * k_F_P_to_EA * k_G_C_to_GC * (k_FB_to_F_B + k_FB_to_G_Q) / (k_GC_to_E_R * k_EA_to_F_P^2 * k_FB_to_G_Q^2 * N) + B * C * R * k_E_R_to_GC * k_F_B_to_FB * k_G_C_to_GC * (k_EA_to_E_A + k_EA_to_F_P) / (k_GC_to_E_R^2 * k_EA_to_F_P^2 * k_FB_to_G_Q * N) + A * P * Q * k_E_A_to_EA^2 * k_F_B_to_FB * k_G_C_to_GC * (k_GC_to_E_R + k_GC_to_G_C) / (k_EA_to_E_A * k_E_R_to_GC * k_GC_to_E_R * k_EA_to_F_P * k_FB_to_G_Q * k_GC_to_G_C * Keq * N) + B * Q * R * k_E_A_to_EA * k_F_B_to_FB^2 * k_G_C_to_GC * (k_EA_to_E_A + k_EA_to_F_P) / (k_EA_to_E_A * k_GC_to_E_R * k_F_P_to_EA * k_EA_to_F_P * k_FB_to_F_B * k_FB_to_G_Q * Keq * N) + C * P * R * k_EA_to_E_A * k_E_R_to_GC * k_F_P_to_EA * k_G_C_to_GC * (k_FB_to_F_B + k_FB_to_G_Q) / (k_GC_to_E_R^2 * k_EA_to_F_P^2 * k_FB_to_G_Q^2 * N) + P * Q * R * k_E_A_to_EA * k_F_B_to_FB * k_G_C_to_GC * (k_EA_to_E_A * k_FB_to_F_B + k_EA_to_E_A * k_GC_to_G_C + k_FB_to_F_B * k_GC_to_G_C) / (k_EA_to_E_A * k_GC_to_E_R * k_EA_to_F_P * k_FB_to_F_B * k_FB_to_G_Q * k_GC_to_G_C * Keq * N))
+--- coefficient form
+v = E_total * (n_0) * (A * B * C - P * Q * R / Keq) / (d_A_B * A * B + d_A_C * A * C + d_B_C * B * C + d_A_Q * A * Q + d_B_R * B * R + d_C_P * C * P + d_P_Q * P * Q + d_P_R * P * R + d_Q_R * Q * R + d_A_B_C * A * B * C + d_A_B_Q * A * B * Q + d_A_C_P * A * C * P + d_B_C_R * B * C * R + d_A_P_Q * A * P * Q + d_B_Q_R * B * Q * R + d_C_P_R * C * P * R + d_P_Q_R * P * Q * R)
+# The coefficients are functions of the fitted constants, not parameters:
+N = (k_GC_to_E_R + k_GC_to_G_C) * (k_FB_to_F_B + k_FB_to_G_Q) * (k_EA_to_E_A + k_EA_to_F_P) / (k_GC_to_E_R * k_EA_to_F_P + k_GC_to_E_R * k_FB_to_G_Q + k_EA_to_F_P * k_FB_to_G_Q)^2
+n_0 = k_E_A_to_EA * k_F_B_to_FB * k_G_C_to_GC / (k_GC_to_E_R * k_EA_to_F_P * k_FB_to_G_Q * N)
+d_A_B = k_E_A_to_EA * k_F_B_to_FB * (k_GC_to_E_R + k_GC_to_G_C) / (k_GC_to_E_R^2 * k_EA_to_F_P * k_FB_to_G_Q * N)
+d_A_C = k_E_A_to_EA * k_G_C_to_GC * (k_FB_to_F_B + k_FB_to_G_Q) / (k_GC_to_E_R * k_EA_to_F_P * k_FB_to_G_Q^2 * N)
+d_B_C = k_F_B_to_FB * k_G_C_to_GC * (k_EA_to_E_A + k_EA_to_F_P) / (k_GC_to_E_R * k_EA_to_F_P^2 * k_FB_to_G_Q * N)
+d_A_Q = k_E_A_to_EA^2 * k_F_B_to_FB * k_G_C_to_GC * (k_GC_to_E_R + k_GC_to_G_C) / (k_EA_to_E_A * k_E_R_to_GC * k_GC_to_E_R * k_F_P_to_EA * k_FB_to_G_Q * k_GC_to_G_C * Keq * N)
+d_B_R = k_E_R_to_GC * k_F_B_to_FB * k_GC_to_G_C * (k_EA_to_E_A + k_EA_to_F_P) / (k_GC_to_E_R^2 * k_EA_to_F_P^2 * k_FB_to_G_Q * N)
+d_C_P = k_EA_to_E_A * k_F_P_to_EA * k_G_C_to_GC * (k_FB_to_F_B + k_FB_to_G_Q) / (k_GC_to_E_R * k_EA_to_F_P^2 * k_FB_to_G_Q^2 * N)
+d_P_Q = k_E_A_to_EA * k_F_B_to_FB * k_G_C_to_GC * (k_GC_to_E_R + k_GC_to_G_C) / (k_E_R_to_GC * k_GC_to_E_R * k_EA_to_F_P * k_FB_to_G_Q * k_GC_to_G_C * Keq * N)
+d_P_R = k_EA_to_E_A * k_E_R_to_GC * k_F_P_to_EA * k_GC_to_G_C * (k_FB_to_F_B + k_FB_to_G_Q) / (k_GC_to_E_R^2 * k_EA_to_F_P^2 * k_FB_to_G_Q^2 * N)
+d_Q_R = k_E_A_to_EA * k_F_B_to_FB * k_G_C_to_GC * (k_EA_to_E_A + k_EA_to_F_P) / (k_EA_to_E_A * k_GC_to_E_R * k_F_P_to_EA * k_EA_to_F_P * k_FB_to_G_Q * Keq * N)
+d_A_B_C = k_E_A_to_EA * k_F_B_to_FB * k_G_C_to_GC * (k_GC_to_E_R * k_EA_to_F_P + k_GC_to_E_R * k_FB_to_G_Q + k_EA_to_F_P * k_FB_to_G_Q) / (k_GC_to_E_R^2 * k_EA_to_F_P^2 * k_FB_to_G_Q^2 * N)
+d_A_B_Q = k_E_A_to_EA^2 * k_F_B_to_FB^2 * k_G_C_to_GC * (k_GC_to_E_R + k_GC_to_G_C) / (k_EA_to_E_A * k_E_R_to_GC * k_GC_to_E_R * k_F_P_to_EA * k_FB_to_F_B * k_FB_to_G_Q * k_GC_to_G_C * Keq * N)
+d_A_C_P = k_E_A_to_EA * k_F_P_to_EA * k_G_C_to_GC * (k_FB_to_F_B + k_FB_to_G_Q) / (k_GC_to_E_R * k_EA_to_F_P^2 * k_FB_to_G_Q^2 * N)
+d_B_C_R = k_E_R_to_GC * k_F_B_to_FB * k_G_C_to_GC * (k_EA_to_E_A + k_EA_to_F_P) / (k_GC_to_E_R^2 * k_EA_to_F_P^2 * k_FB_to_G_Q * N)
+d_A_P_Q = k_E_A_to_EA^2 * k_F_B_to_FB * k_G_C_to_GC * (k_GC_to_E_R + k_GC_to_G_C) / (k_EA_to_E_A * k_E_R_to_GC * k_GC_to_E_R * k_EA_to_F_P * k_FB_to_G_Q * k_GC_to_G_C * Keq * N)
+d_B_Q_R = k_E_A_to_EA * k_F_B_to_FB^2 * k_G_C_to_GC * (k_EA_to_E_A + k_EA_to_F_P) / (k_EA_to_E_A * k_GC_to_E_R * k_F_P_to_EA * k_EA_to_F_P * k_FB_to_F_B * k_FB_to_G_Q * Keq * N)
+d_C_P_R = k_EA_to_E_A * k_E_R_to_GC * k_F_P_to_EA * k_G_C_to_GC * (k_FB_to_F_B + k_FB_to_G_Q) / (k_GC_to_E_R^2 * k_EA_to_F_P^2 * k_FB_to_G_Q^2 * N)
+d_P_Q_R = k_E_A_to_EA * k_F_B_to_FB * k_G_C_to_GC * (k_EA_to_E_A * k_FB_to_F_B + k_EA_to_E_A * k_GC_to_G_C + k_FB_to_F_B * k_GC_to_G_C) / (k_EA_to_E_A * k_GC_to_E_R * k_EA_to_F_P * k_FB_to_F_B * k_FB_to_G_Q * k_GC_to_G_C * Keq * N)
+
+=== spec:MWC Dimer [AllostericEnzymeMechanism]
+(; K_A_EP_to_E_P, K_A_ES_to_E_S, k_A_ES_to_EP, K_I_EP_to_E_P, K_I_ES_to_E_S, k_I_ES_to_EP, L, Keq, E_total) = params
+(; S, P) = concs
+# Haldane constraints:
+k_A_EP_to_ES = K_A_EP_to_E_P * k_A_ES_to_EP / (K_A_ES_to_E_S * Keq)
+k_I_EP_to_ES = K_I_EP_to_E_P * k_I_ES_to_EP / (K_I_ES_to_E_S * Keq)
+Q_A = k_A_ES_to_EP / K_A_ES_to_E_S
+D_A = 1 + S / K_A_ES_to_E_S + P / K_A_EP_to_E_P
+Q_I = k_I_ES_to_EP / K_I_ES_to_E_S
+D_I = 1 + S / K_I_ES_to_E_S + P / K_I_EP_to_E_P
+v = E_total * (Q_A * D_A + L * Q_I * D_I) * (S - P / Keq) / (D_A^2 + L * D_I^2)
+--- coefficient form
+v = E_total * (Q_A * D_A + L * Q_I * D_I) * (S - P / Keq) / (D_A^2 + L * D_I^2)
+Q_A = nA_0
+D_A = 1 + dA_S * S + dA_P * P
+Q_I = nI_0
+D_I = 1 + dI_S * S + dI_P * P
+# The coefficients are functions of the fitted constants, not parameters:
+nA_0 = k_A_ES_to_EP / K_A_ES_to_E_S
+dA_S = 1 / K_A_ES_to_E_S
+dA_P = 1 / K_A_EP_to_E_P
+nI_0 = k_I_ES_to_EP / K_I_ES_to_E_S
+dI_S = 1 / K_I_ES_to_E_S
+dI_P = 1 / K_I_EP_to_E_P
+maxrss_kb 885244
+exit 0 elapsed 23s

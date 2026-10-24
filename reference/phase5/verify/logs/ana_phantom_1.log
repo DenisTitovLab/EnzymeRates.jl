@@ -1,0 +1,14 @@
+[   8 s,  529 MB] 500 rows (line 500)
+[   9 s,  529 MB] 1000 rows (line 1000)
+[  10 s,  529 MB] 1500 rows (line 1500)
+[  11 s,  529 MB] 2000 rows (line 2000)
+[  12 s,  541 MB] 2500 rows (line 2500)
+[  15 s,  541 MB] 3000 rows (line 3000)
+[  18 s,  577 MB] 3500 rows (line 3500)
+[  21 s,  577 MB] 4000 rows (line 4000)
+[  25 s,  664 MB] 4500 rows (line 4500)
+[  30 s,  664 MB] 5000 rows (line 5000)
+[  37 s,  684 MB] 5500 rows (line 5500)
+done 5981 rows in 49 s, maxrss 703 MB
+maxrss_kb 720248
+exit 0 elapsed 497s

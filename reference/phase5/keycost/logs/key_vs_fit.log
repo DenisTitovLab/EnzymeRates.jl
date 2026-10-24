@@ -1,0 +1,7 @@
+V×τ [1,50] N=162067: key mean 0.29 ms median 0.23 ms max 2.4 ms (n=150); fit per candidate 0.21 s (fixed 0.17 + 20 restarts x 0.002); key/fit 0.1% (max key/fit 1.1%)
+V×τ [51,337] N=50562: key mean 2.67 ms median 2.18 ms max 10.3 ms (n=150); fit per candidate 0.39 s (fixed 0.22 + 20 restarts x 0.008); key/fit 0.7% (max key/fit 2.7%)
+V×τ [338,1000] N=12588: key mean 15.91 ms median 13.38 ms max 39.7 ms (n=150); fit per candidate 0.57 s (fixed 0.30 + 20 restarts x 0.014); key/fit 2.8% (max key/fit 7.0%)
+V×τ [1001,2000] N=3696: key mean 38.26 ms median 33.55 ms max 96.7 ms (n=200); fit per candidate 0.76 s (fixed 0.25 + 20 restarts x 0.026); key/fit 5.0% (max key/fit 12.7%)
+V×τ [2001,5000] N=2754: key mean 105.01 ms median 102.98 ms max 291.6 ms (n=340); fit per candidate 1.33 s (fixed 0.41 + 20 restarts x 0.046); key/fit 7.9% (max key/fit 21.9%)
+round over all 231667 init mechanisms <= 5000: key 0.23 h, fit 18.6 h serial, key/fit 1.21%
+round with the default filter (<= 337, 212629 mechanisms): key 3.0 min, fit 14.8 h, key/fit 0.34%

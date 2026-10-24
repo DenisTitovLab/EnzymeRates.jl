@@ -1,0 +1,74 @@
+julia 1.12.5; mechanisms: 800 (pingpong 800); census rows the slice cannot build: none
+  250 done, 40 s
+  500 done, 47 s
+  750 done, 53 s
+derivation errors (same in every variant unless listed under differences): none
+differences against U: none
+laws that needed BigInt in U: 0; allosteric laws: 407
+sl    pingpong        U  n  800 median    110.5 p90    215.7 max   13507.9 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    pingpong        A  n  800 median    113.8 p90    224.0 max   18930.0 µs | ratio to U: median 1.026 p90 1.059 max 1.584
+sl    pingpong        B  n  800 median    111.0 p90    217.5 max   14972.4 µs | ratio to U: median 1.003 p90 1.031 max 1.388
+sl    pingpong        C  n  800 median    110.5 p90    215.2 max   13754.9 µs | ratio to U: median 0.999 p90 1.024 max 1.709
+sl    pingpong/allo   U  n  407 median    125.8 p90    171.2 max     208.0 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    pingpong/allo   A  n  407 median    128.7 p90    173.3 max     219.3 µs | ratio to U: median 1.020 p90 1.053 max 1.106
+sl    pingpong/allo   B  n  407 median    125.2 p90    170.9 max     233.1 µs | ratio to U: median 1.002 p90 1.026 max 1.121
+sl    pingpong/allo   C  n  407 median    125.3 p90    171.3 max     224.8 µs | ratio to U: median 0.999 p90 1.017 max 1.228
+sl    pingpong/plain  U  n  393 median     80.0 p90    444.1 max   13507.9 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    pingpong/plain  A  n  393 median     82.1 p90    463.1 max   18930.0 µs | ratio to U: median 1.032 p90 1.062 max 1.584
+sl    pingpong/plain  B  n  393 median     79.7 p90    441.9 max   14972.4 µs | ratio to U: median 1.003 p90 1.032 max 1.388
+sl    pingpong/plain  C  n  393 median     80.0 p90    439.2 max   13754.9 µs | ratio to U: median 0.999 p90 1.029 max 1.709
+sl    all             U  n  800 median    110.5 p90    215.7 max   13507.9 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+sl    all             A  n  800 median    113.8 p90    224.0 max   18930.0 µs | ratio to U: median 1.026 p90 1.059 max 1.584
+sl    all             B  n  800 median    111.0 p90    217.5 max   14972.4 µs | ratio to U: median 1.003 p90 1.031 max 1.388
+sl    all             C  n  800 median    110.5 p90    215.2 max   13754.9 µs | ratio to U: median 0.999 p90 1.024 max 1.709
+solve pingpong        U  n  800 median     13.7 p90     28.8 max      81.4 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve pingpong        A  n  800 median     13.5 p90     28.8 max      76.0 µs | ratio to U: median 0.989 p90 1.033 max 1.353
+solve pingpong        B  n  800 median     13.5 p90     28.4 max      78.2 µs | ratio to U: median 0.991 p90 1.029 max 2.981
+solve pingpong        C  n  800 median     13.5 p90     28.8 max      75.9 µs | ratio to U: median 0.990 p90 1.029 max 1.674
+solve pingpong/allo   U  n  407 median     13.2 p90     24.6 max      41.7 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve pingpong/allo   A  n  407 median     12.9 p90     24.8 max      45.7 µs | ratio to U: median 0.987 p90 1.040 max 1.353
+solve pingpong/allo   B  n  407 median     12.9 p90     24.6 max      42.4 µs | ratio to U: median 0.991 p90 1.035 max 1.160
+solve pingpong/allo   C  n  407 median     12.8 p90     24.2 max      41.6 µs | ratio to U: median 0.987 p90 1.031 max 1.120
+solve pingpong/plain  U  n  393 median     14.7 p90     33.5 max      81.4 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve pingpong/plain  A  n  393 median     14.6 p90     33.2 max      76.0 µs | ratio to U: median 0.991 p90 1.030 max 1.109
+solve pingpong/plain  B  n  393 median     14.4 p90     33.2 max      78.2 µs | ratio to U: median 0.990 p90 1.025 max 2.981
+solve pingpong/plain  C  n  393 median     14.4 p90     33.0 max      75.9 µs | ratio to U: median 0.992 p90 1.028 max 1.674
+solve all             U  n  800 median     13.7 p90     28.8 max      81.4 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+solve all             A  n  800 median     13.5 p90     28.8 max      76.0 µs | ratio to U: median 0.989 p90 1.033 max 1.353
+solve all             B  n  800 median     13.5 p90     28.4 max      78.2 µs | ratio to U: median 0.991 p90 1.029 max 2.981
+solve all             C  n  800 median     13.5 p90     28.8 max      75.9 µs | ratio to U: median 0.990 p90 1.029 max 1.674
+law   pingpong        U  n  800 median     97.8 p90    190.4 max   13436.9 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   pingpong        A  n  800 median    101.1 p90    198.8 max   18860.1 µs | ratio to U: median 1.030 p90 1.067 max 1.692
+law   pingpong        B  n  800 median     98.3 p90    192.5 max   14903.5 µs | ratio to U: median 1.005 p90 1.033 max 1.429
+law   pingpong        C  n  800 median     97.7 p90    189.5 max   13679.0 µs | ratio to U: median 1.000 p90 1.027 max 1.715
+law   pingpong/allo   U  n  407 median    113.6 p90    146.5 max     186.9 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   pingpong/allo   A  n  407 median    116.7 p90    148.8 max     184.3 µs | ratio to U: median 1.024 p90 1.059 max 1.119
+law   pingpong/allo   B  n  407 median    113.5 p90    145.9 max     208.7 µs | ratio to U: median 1.004 p90 1.029 max 1.116
+law   pingpong/allo   C  n  407 median    114.0 p90    145.4 max     204.7 µs | ratio to U: median 1.000 p90 1.021 max 1.253
+law   pingpong/plain  U  n  393 median     64.3 p90    410.6 max   13436.9 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   pingpong/plain  A  n  393 median     66.5 p90    433.1 max   18860.1 µs | ratio to U: median 1.038 p90 1.070 max 1.692
+law   pingpong/plain  B  n  393 median     64.3 p90    409.4 max   14903.5 µs | ratio to U: median 1.005 p90 1.035 max 1.429
+law   pingpong/plain  C  n  393 median     64.6 p90    406.4 max   13679.0 µs | ratio to U: median 1.001 p90 1.034 max 1.715
+law   all             U  n  800 median     97.8 p90    190.4 max   13436.9 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+law   all             A  n  800 median    101.1 p90    198.8 max   18860.1 µs | ratio to U: median 1.030 p90 1.067 max 1.692
+law   all             B  n  800 median     98.3 p90    192.5 max   14903.5 µs | ratio to U: median 1.005 p90 1.033 max 1.429
+law   all             C  n  800 median     97.7 p90    189.5 max   13679.0 µs | ratio to U: median 1.000 p90 1.027 max 1.715
+down  pingpong        U  n  800 median    422.0 p90   1178.2 max   67186.1 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+down  pingpong        A  n  800 median    452.0 p90   1222.9 max   75639.2 µs | ratio to U: median 1.075 p90 1.131 max 1.404
+down  pingpong        B  n  800 median    432.8 p90   1128.5 max   58716.8 µs | ratio to U: median 1.021 p90 1.078 max 1.774
+down  pingpong        C  n  800 median    418.9 p90   1117.3 max   82029.4 µs | ratio to U: median 1.005 p90 1.060 max 1.498
+down  all             U  n  800 median    422.0 p90   1178.2 max   67186.1 µs | ratio to U: median 1.000 p90 1.000 max 1.000
+down  all             A  n  800 median    452.0 p90   1222.9 max   75639.2 µs | ratio to U: median 1.075 p90 1.131 max 1.404
+down  all             B  n  800 median    432.8 p90   1128.5 max   58716.8 µs | ratio to U: median 1.021 p90 1.078 max 1.774
+down  all             C  n  800 median    418.9 p90   1117.3 max   82029.4 µs | ratio to U: median 1.005 p90 1.060 max 1.498
+live bytes law            U: 800 mechanisms in 0.2 s; after a full collection +0.53 KiB per mechanism (+0.4 MiB in all); 1 collections, 0 full; allocated 461.4 MiB
+live bytes law            C: 800 mechanisms in 0.2 s; after a full collection +0.53 KiB per mechanism (+0.4 MiB in all); 1 collections, 0 full; allocated 461.3 MiB
+live bytes law            B: 800 mechanisms in 0.2 s; after a full collection +0.53 KiB per mechanism (+0.4 MiB in all); 1 collections, 0 full; allocated 461.7 MiB
+live bytes law            A: 800 mechanisms in 0.2 s; after a full collection +1.66 KiB per mechanism (+1.3 MiB in all); 1 collections, 0 full; allocated 468.6 MiB
+live bytes law+print+key  U: 800 mechanisms in 0.7 s; after a full collection +2.89 KiB per mechanism (+2.3 MiB in all); 2 collections, 0 full; allocated 1101.0 MiB
+live bytes law+print+key  C: 800 mechanisms in 0.7 s; after a full collection +2.89 KiB per mechanism (+2.3 MiB in all); 2 collections, 0 full; allocated 1100.9 MiB
+live bytes law+print+key  B: 800 mechanisms in 0.7 s; after a full collection +2.89 KiB per mechanism (+2.3 MiB in all); 2 collections, 0 full; allocated 1111.2 MiB
+live bytes law+print+key  A: 800 mechanisms in 0.7 s; after a full collection +9.60 KiB per mechanism (+7.5 MiB in all); 2 collections, 0 full; allocated 1126.3 MiB
+finished in 64 s
+maxrss_kb 1028720
+exit 0 elapsed 151s

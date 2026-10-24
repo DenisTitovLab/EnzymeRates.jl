@@ -1,0 +1,5 @@
+bibi_R round 0: 4144 seeds, 4144 base entries, 4144 ok, 0 base failures (4.8 s)
+bibi_R round 1: 300 parents of 4144, 2631 fresh, 2614 ok, 2614 allosteric n=1 ok, 0 expand errors (2.4 s, maxrss 1232 MB)
+done bibi_R: 6775 records, 2683 edges, maxrss 1232 MB
+maxrss_kb 1261164
+exit 0 elapsed 21s

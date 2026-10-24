@@ -1,0 +1,17 @@
+rows 5981 errors 0
+round-2 one-subunit variants: {'n': 2612, 'admit': 2602, 'pf': 472, 'rankeq': 867, 'flag': 168, 'flag&cert': 167, 'flag&!cert': 1, 'rankeq&!pf': 699, 'rankeq&!pf&cert': 490, 'admit&cert': 657, 'admit&cert&!pf': 490, 'cert&rank>0': 0, 'pf_bind!=pf_empty': 0, 'draws disagree': 0, 'rank>L0': 1745, 'rank<L0': 0}
+BigFloat pivots: smallest kept 1.6e-07, largest dropped 1.1e-76
+flagged: 168 | key_act==key0 168 | np==np0+1 168 | cert 167 | worst cert map error 5.181701133056667e-77
+flagged without certificate, why: Counter({'no_solution': 1}) [('4168', 're_to_ss')]
+certificates checked numerically: 657 worst 5.181701133056667e-77
+flagged by move: Counter({'to_allosteric': 80, 're_to_ss': 37, 'split': 26, 'change_allo_state': 25})
+round 0: 239 candidates, 239 new keys; fits removed: spec rule 0, certificate rule 0 (shared with non-phantoms 0, 0)
+round 1: 2752 candidates, 2398 new keys; fits removed: spec rule 0, certificate rule 0 (shared with non-phantoms 0, 0)
+round 2: 2990 candidates, 2525 new keys; fits removed: spec rule 71, certificate rule 435 (shared with non-phantoms 0, 0)
+  source ('change_allo_state', '2 earlier-round relative') 25
+  source ('re_to_ss', '2 earlier-round relative') 33
+  source ('re_to_ss', '3 earlier round, not a relative') 2
+  source ('re_to_ss', '5 never') 2
+  source ('split', '2 earlier-round relative') 26
+  source ('to_allosteric', '1 enumeration parent') 80
+never fitted: 2 distinct L->0 keys 2 [(3222, 're_to_ss', '7', '9088e267776f'), (3223, 're_to_ss', '7', 'c94551646f1f')]

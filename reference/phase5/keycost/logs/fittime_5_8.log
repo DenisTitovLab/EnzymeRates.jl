@@ -1,0 +1,7 @@
+EnzymeRates 0.10.0; Julia 1.12.5
+fit 5 terter_init 1244df48a860c2e2: np 8, fixed 9.11 s (compile, data, problem), loss 4.43 µs, 20 restarts in 2.4 s: median 0.02 s, 3800 evaluations, 380 generations; overhead per evaluation 0.94 µs; best loss 0.001353
+fit 6 terter_init 308bc434f9a5df29: np 7, fixed 0.30 s (compile, data, problem), loss 2.93 µs, 20 restarts in 0.3 s: median 0.01 s, 1732 evaluations, 192 generations; overhead per evaluation 0.88 µs; best loss 0.001877
+fit 7 terter_init 466f9a24349b0d22: np 8, fixed 0.27 s (compile, data, problem), loss 5.88 µs, 20 restarts in 0.5 s: median 0.03 s, 3710 evaluations, 371 generations; overhead per evaluation 0.93 µs; best loss 0.002614
+fit 8 terter_init e4f1d960d08ec4c1: np 8, fixed 0.23 s (compile, data, problem), loss 6.79 µs, 20 restarts in 1.0 s: median 0.03 s, 3795 evaluations, 380 generations; overhead per evaluation 0.08 µs; best loss 0.001997
+maxrss_kb 929892
+exit 0 elapsed 48s

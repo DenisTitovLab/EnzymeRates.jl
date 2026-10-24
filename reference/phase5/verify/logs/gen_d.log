@@ -1,0 +1,9 @@
+records 6008, edges 6004
+gid 3222: parents [(370, :re_to_ss)]; their first-parent chains [(370, 7)]
+gid 3223: parents [(370, :re_to_ss)]; their first-parent chains [(370, 7)]
+gid 4772: parents [(1525, :re_to_ss)]; their first-parent chains [(1525, 72)]
+gid 4773: parents [(1525, :re_to_ss)]; their first-parent chains [(1525, 72)]
+gid 1499: parents [(70, :re_to_ss), (72, :re_to_ss)]; their first-parent chains [(70, 0), (72, 0)]
+gid 1509: parents [(71, :re_to_ss), (72, :re_to_ss)]; their first-parent chains [(71, 0), (72, 0)]
+maxrss_kb 1008816
+exit 0 elapsed 46s

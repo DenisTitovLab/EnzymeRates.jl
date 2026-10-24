@@ -1,0 +1,13 @@
+CSV 0.10.17; Julia 1.12.5
+len 16: 200000 one-row files; Float64 305 (1.53e-03), Int64 112 (5.60e-04), string 199583 (9.98e-01)
+  example Int64: 5220023467973769 reads back as 5220023467973769
+  example Float64: 7170f82284841813 reads back as Inf
+len 64: 200000 one-row files; string 200000 (1.00e+00)
+16 hex: all digits 5.42e-04, digits with one interior e or f 1.52e-03, sum 2.06e-03
+64 hex: all digits 8.64e-14, digits with one interior e or f 1.07e-12
+two rows (numeric + hex): String31["0123456789012345", "abcdef0123456789"]
+n = 1e+04 keys: P(two share a 64-bit prefix) ≈ 2.7e-12; 256-bit ≈ 4.3e-70
+n = 1e+06 keys: P(two share a 64-bit prefix) ≈ 2.7e-08; 256-bit ≈ 4.3e-66
+n = 1e+08 keys: P(two share a 64-bit prefix) ≈ 2.7e-04; 256-bit ≈ 4.3e-62
+maxrss_kb 490504
+exit 0 elapsed 603s

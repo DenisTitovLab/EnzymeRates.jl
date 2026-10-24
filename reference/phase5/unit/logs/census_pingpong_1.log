@@ -1,0 +1,13 @@
+pingpong: 1828 mechanisms, running 1:1828
+  200 done, 28 s, maxrss 876 MB
+  400 done, 38 s, maxrss 876 MB
+  600 done, 49 s, maxrss 876 MB
+  800 done, 57 s, maxrss 876 MB
+  1000 done, 69 s, maxrss 878 MB
+  1200 done, 75 s, maxrss 891 MB
+  1400 done, 93 s, maxrss 952 MB
+  1600 done, 110 s, maxrss 977 MB
+  1800 done, 124 s, maxrss 1152 MB
+wrote /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/unit/data/pingpong_1_1828.jls: 1828 rows (0 errors) in 128 s; maxrss 1152 MB
+maxrss_kb 1179804
+exit 0 elapsed 136s

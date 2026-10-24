@@ -1,0 +1,9 @@
+julia 1.12.5; EnzymeRates from /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/graph_mechanism_wt
+mechanisms: 1974 (800 allosteric)
+  error on spec:Uni-Uni: MethodError: no method matching _dependent_param_exprs(::EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (1,)), (((((), :E
+  error on spec:Segel Uni Uni: MethodError: no method matching _dependent_param_exprs(::EnzymeMechanism{(((((:Substrate, :A), ((:C, 1),)), ((:Product, :P), ((:C, 1),))), (), (1,)), (((((), :E
+  error on spec:Segel Iso Uni Uni: MethodError: no method matching _dependent_param_exprs(::EnzymeMechanism{(((((:Substrate, :A), ((:C, 1),)), ((:Product, :P), ((:C, 1),))), (), (1,)), (((((), :E
+Q11: structured output rebuilds _dependent_param_exprs byte-identically (==) in 1932 of 1974 mechanisms; 1965 dependents (0 with a non-integer exponent); row reduction in Rational{BigInt} in 0; worst relative value difference 4.9e-16; errors 42
+Q10 stress (checks.jl's 390 random multigraph Laplacians, same seed): exact 351, wrong 0, overflow 39 (smallest tree count that overflowed: 11724322598)
+maxrss_kb 1095164
+exit 0 elapsed 518s

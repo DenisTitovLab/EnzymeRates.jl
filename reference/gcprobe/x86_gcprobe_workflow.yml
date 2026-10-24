@@ -1,0 +1,29 @@
+# ABOUTME: GitHub Actions workflow (not committed anywhere) that runs the GC-corruption reproducer
+# ABOUTME: repro_upstream.jl on an ubuntu x64 runner under Julia 1.10, 1.12 and 1.13, plus the remark scan.
+name: gcprobe-x86
+on: workflow_dispatch
+jobs:
+  repro:
+    runs-on: ubuntu-latest          # x86_64
+    strategy:
+      fail-fast: false
+      matrix:
+        julia: ['1.10.12', '1.12.5', '1.13.1']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia }}
+      - name: Run the reproducer three times (exit 134 = the GC abort)
+        shell: bash
+        run: |
+          for r in 1 2 3; do
+            julia --startup-file=no gcprobe/repro_upstream.jl > run$r.log 2>&1; echo "run $r exit $?"
+            grep -m1 "GC error" run$r.log || echo "run $r: no GC error"
+          done
+      - name: JuliaLICM remark scan
+        shell: bash
+        run: |
+          JULIA_LLVM_ARGS="-pass-remarks=julia-licm -pass-remarks-analysis=julia-licm" \
+            julia --startup-file=no gcprobe/repro_upstream.jl > remarks.log 2>&1 || true
+          python3 gcprobe/hoistscan.py remarks.log

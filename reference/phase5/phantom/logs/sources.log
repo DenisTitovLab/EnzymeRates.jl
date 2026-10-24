@@ -1,0 +1,6 @@
+('bibi', 'change_allo_state', 'ancestor', 'earlier round') 81
+('bibi', 're_to_ss', "ancestor's child", 'earlier round') 110
+('bibi', 're_to_ss', 'none') 18
+('bibi', 'split', "ancestor's child", 'earlier round') 57
+('bibi', 'to_allosteric', 'ancestor', 'earlier round') 472
+('pingpong', 'to_allosteric', 'ancestor', 'earlier round') 188

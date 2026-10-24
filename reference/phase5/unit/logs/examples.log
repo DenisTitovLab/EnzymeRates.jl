@@ -1,0 +1,91 @@
+
+=== spec:Segel Ping Pong Bi Bi
+plain {E() + A <-> E(A) SS} / {E() + Q <-> F(B) SS} / {E(A) <-> F() + P SS} / {F() + B <-> F(B) SS}
+--- spec rule: virtual_int λ = A:1//1 B:1//1 A*B:-1//1
+v = E_total * (n_0) * (A * B - P * Q / Keq) / (d_A * A + d_B * B + d_P * P + d_Q * Q + d_A_B * A * B + d_A_P * A * P + d_B_Q * B * Q + d_P_Q * P * Q)
+N = (k_FB_to_E_Q + k_FB_to_F_B) * (k_EA_to_E_A + k_EA_to_F_P) / (k_FB_to_E_Q + k_EA_to_F_P)
+n_0 = k_E_A_to_EA * k_F_B_to_FB / N
+--- Cleland: cleland λ = B:1//1 A:1//1 A*B:-1//1
+v = E_total * (n_0) * (A * B - P * Q / Keq) / (d_A * A + d_B * B + d_P * P + d_Q * Q + d_A_B * A * B + d_A_P * A * P + d_B_Q * B * Q + d_P_Q * P * Q)
+N = (k_EA_to_E_A + k_EA_to_F_P) * (k_FB_to_E_Q + k_FB_to_F_B) / (k_FB_to_E_Q + k_EA_to_F_P)
+n_0 = k_E_A_to_EA * k_F_B_to_FB / N
+--- order sqfree: virtual_int λ = A:1//1 B:1//1 A*B:-1//1
+v = E_total * (n_0) * (A * B - P * Q / Keq) / (d_A * A + d_B * B + d_P * P + d_Q * Q + d_A_B * A * B + d_A_P * A * P + d_B_Q * B * Q + d_P_Q * P * Q)
+N = (k_FB_to_E_Q + k_FB_to_F_B) * (k_EA_to_E_A + k_EA_to_F_P) / (k_FB_to_E_Q + k_EA_to_F_P)
+n_0 = k_E_A_to_EA * k_F_B_to_FB / N
+
+=== spec:Segel Bi Uni Uni Uni PP Ter Bi
+plain {E() + A <-> E(A) SS} / {E() + Q <-> F(C) SS} / {E(A) + B <-> E(A,B) SS} / {E(A,B) <-> F() + P SS} / {F() + C <-> F(C) SS}
+--- spec rule: virtual_int λ = C:2//1 A*B:1//1 A*C:-1//1 B*C:-1//1
+v = E_total * (n_0) * (A * B * C - P * Q / Keq) / (d_C * C + d_P * P + d_Q * Q + d_A_B * A * B + d_A_C * A * C + d_B_C * B * C + d_A_P * A * P + d_B_Q * B * Q + d_C_Q * C * Q + d_P_Q * P * Q + d_A_B_C * A * B * C + d_A_B_P * A * B * P + d_B_C_Q * B * C * Q + d_B_P_Q * B * P * Q)
+N = (k_EAB_to_F_P + k_EAB_to_EA_B) * (k_FC_to_E_Q + k_FC_to_F_C)
+n_0 = k_E_A_to_EA * k_FC_to_E_Q * k_F_C_to_FC * k_EAB_to_F_P * k_EA_B_to_EAB / (k_EA_to_E_A^2 * N)
+--- Cleland: cleland λ = B*C:1//1 A*C:1//1 A*B:1//1 A*B*C:-2//1
+v = E_total * (n_0) * (A * B * C - P * Q / Keq) / (d_C * C + d_P * P + d_Q * Q + d_A_B * A * B + d_A_C * A * C + d_B_C * B * C + d_A_P * A * P + d_B_Q * B * Q + d_C_Q * C * Q + d_P_Q * P * Q + d_A_B_C * A * B * C + d_A_B_P * A * B * P + d_B_C_Q * B * C * Q + d_B_P_Q * B * P * Q)
+N = (k_EAB_to_F_P + k_EAB_to_EA_B) * (k_FC_to_E_Q + k_FC_to_F_C) / (k_FC_to_E_Q + k_EAB_to_F_P)^2
+n_0 = k_E_A_to_EA * k_F_C_to_FC * k_EA_B_to_EAB / (k_FC_to_E_Q * k_EAB_to_F_P * N)
+--- order sqfree: virtual_int λ = C:2//1 A*B:1//1 A*C:-1//1 B*C:-1//1
+v = E_total * (n_0) * (A * B * C - P * Q / Keq) / (d_C * C + d_P * P + d_Q * Q + d_A_B * A * B + d_A_C * A * C + d_B_C * B * C + d_A_P * A * P + d_B_Q * B * Q + d_C_Q * C * Q + d_P_Q * P * Q + d_A_B_C * A * B * C + d_A_B_P * A * B * P + d_B_C_Q * B * C * Q + d_B_P_Q * B * P * Q)
+N = (k_EAB_to_F_P + k_EAB_to_EA_B) * (k_FC_to_E_Q + k_FC_to_F_C)
+n_0 = k_E_A_to_EA * k_FC_to_E_Q * k_F_C_to_FC * k_EAB_to_F_P * k_EA_B_to_EAB / (k_EA_to_E_A^2 * N)
+
+=== 6e46f55b0b68e5d9
+plain {E() + A <-> E(P; residual=plusA_minusP) SS | E(A,Q) <-> E(Q) + A SS} / {E() + Q <-> E(Q) SS | E(A,Q) <-> E(P; residual=plusA_minusP) + Q SS} / {E(; residual=plusA_minusP) + B <-> E(Q) SS | E(B,P; residual=plusA_minusP) <-> E(P; residual=plusA_minusP) + B SS} / {E(; residual=plusA_minusP) + P <-> E(P; residual=plusA_minusP) RE | E(B,P; residual=plusA_minusP) <-> E(Q) + P RE}
+--- spec rule: virtual_int λ = A:2//1 A^2//1:-1//1
+v = E_total * (n_0 + n_A * A + n_P * P + n_Q * Q + n_A_P * A * P + n_P_Q * P * Q) * (A * B - P * Q / Keq) / (d_A * A + d_B * B + d_P * P + d_Q * Q + d_A² * A^2 + d_A_B * A * B + d_A_P * A * P + d_A_Q * A * Q + d_B_P * B * P + d_B_Q * B * Q + d_P² * P^2 + d_P_Q * P * Q + d_A²_B * A^2 * B + d_A²_P * A^2 * P + d_A_B_P * A * B * P + d_A_B_Q * A * B * Q + d_A_P² * A * P^2 + d_A_P_Q * A * P * Q + d_B_P_Q * B * P * Q + d_P²_Q * P^2 * Q + d_P_Q² * P * Q^2 + d_A²_B_P * A^2 * B * P + d_A_B_P² * A * B * P^2 + d_A²_P_Q * A^2 * P * Q + d_A_B_P_Q * A * B * P * Q + d_A_P²_Q * A * P^2 * Q + d_A_P_Q² * A * P * Q^2 + d_B_P²_Q * B * P^2 * Q + d_P²_Q² * P^2 * Q^2)
+N = (k_E_Q_to_EQ * k_EQ_to_E_Q * k_EP_res_plusA_minusP_to_E_A * Keq + k_E_Q_to_EQ * k_EP_res_plusA_minusP_to_E_A^2 * Keq + k_EQ_to_E_Q * K_EBP_res_plusA_minusP_to_EQ_P * k_E_A_to_EP_res_plusA_minusP * k_E_res_plusA_minusP_B_to_EQ + K_EBP_res_plusA_minusP_to_EQ_P * k_E_A_to_EP_res_plusA_minusP * k_EP_res_plusA_minusP_to_E_A * k_E_res_plusA_minusP_B_to_EQ)^2
+n_0 = k_E_Q_to_EQ^2 * k_E_A_to_EP_res_plusA_minusP * k_EP_res_plusA_minusP_to_E_A^2 * k_E_res_plusA_minusP_B_to_EQ * Keq^2 * (k_EQ_to_E_Q + k_EP_res_plusA_minusP_to_E_A) / N
+--- Cleland: cleland λ = B:1//1 A:1//1 A*B:-1//1
+v = E_total * (n_0 + n_A * A + n_P * P + n_Q * Q + n_A_P * A * P + n_P_Q * P * Q) * (A * B - P * Q / Keq) / (d_A * A + d_B * B + d_P * P + d_Q * Q + d_A² * A^2 + d_A_B * A * B + d_A_P * A * P + d_A_Q * A * Q + d_B_P * B * P + d_B_Q * B * Q + d_P² * P^2 + d_P_Q * P * Q + d_A²_B * A^2 * B + d_A²_P * A^2 * P + d_A_B_P * A * B * P + d_A_B_Q * A * B * Q + d_A_P² * A * P^2 + d_A_P_Q * A * P * Q + d_B_P_Q * B * P * Q + d_P²_Q * P^2 * Q + d_P_Q² * P * Q^2 + d_A²_B_P * A^2 * B * P + d_A_B_P² * A * B * P^2 + d_A²_P_Q * A^2 * P * Q + d_A_B_P_Q * A * B * P * Q + d_A_P²_Q * A * P^2 * Q + d_A_P_Q² * A * P * Q^2 + d_B_P²_Q * B * P^2 * Q + d_P²_Q² * P^2 * Q^2)
+N = k_E_Q_to_EQ * k_EQ_to_E_Q * k_EP_res_plusA_minusP_to_E_A * Keq + k_E_Q_to_EQ * k_EP_res_plusA_minusP_to_E_A^2 * Keq + k_EQ_to_E_Q * K_EBP_res_plusA_minusP_to_EQ_P * k_E_A_to_EP_res_plusA_minusP * k_E_res_plusA_minusP_B_to_EQ + K_EBP_res_plusA_minusP_to_EQ_P * k_E_A_to_EP_res_plusA_minusP * k_EP_res_plusA_minusP_to_E_A * k_E_res_plusA_minusP_B_to_EQ
+n_0 = k_E_Q_to_EQ * k_E_A_to_EP_res_plusA_minusP * k_EP_res_plusA_minusP_to_E_A * k_E_res_plusA_minusP_B_to_EQ * Keq * (k_EQ_to_E_Q + k_EP_res_plusA_minusP_to_E_A) / (k_EQ_to_E_Q * N)
+--- order sqfree: virtual_int λ = A:1//1 B:1//1 A*B:-1//1
+v = E_total * (n_0 + n_A * A + n_P * P + n_Q * Q + n_A_P * A * P + n_P_Q * P * Q) * (A * B - P * Q / Keq) / (d_A * A + d_B * B + d_P * P + d_Q * Q + d_A² * A^2 + d_A_B * A * B + d_A_P * A * P + d_A_Q * A * Q + d_B_P * B * P + d_B_Q * B * Q + d_P² * P^2 + d_P_Q * P * Q + d_A²_B * A^2 * B + d_A²_P * A^2 * P + d_A_B_P * A * B * P + d_A_B_Q * A * B * Q + d_A_P² * A * P^2 + d_A_P_Q * A * P * Q + d_B_P_Q * B * P * Q + d_P²_Q * P^2 * Q + d_P_Q² * P * Q^2 + d_A²_B_P * A^2 * B * P + d_A_B_P² * A * B * P^2 + d_A²_P_Q * A^2 * P * Q + d_A_B_P_Q * A * B * P * Q + d_A_P²_Q * A * P^2 * Q + d_A_P_Q² * A * P * Q^2 + d_B_P²_Q * B * P^2 * Q + d_P²_Q² * P^2 * Q^2)
+N = k_E_Q_to_EQ * k_EQ_to_E_Q * k_EP_res_plusA_minusP_to_E_A * Keq + k_E_Q_to_EQ * k_EP_res_plusA_minusP_to_E_A^2 * Keq + k_EQ_to_E_Q * K_EBP_res_plusA_minusP_to_EQ_P * k_E_A_to_EP_res_plusA_minusP * k_E_res_plusA_minusP_B_to_EQ + K_EBP_res_plusA_minusP_to_EQ_P * k_E_A_to_EP_res_plusA_minusP * k_EP_res_plusA_minusP_to_E_A * k_E_res_plusA_minusP_B_to_EQ
+n_0 = k_E_Q_to_EQ * k_E_A_to_EP_res_plusA_minusP * k_EP_res_plusA_minusP_to_E_A * k_E_res_plusA_minusP_B_to_EQ * Keq * (k_EQ_to_E_Q + k_EP_res_plusA_minusP_to_E_A) / (k_EQ_to_E_Q * N)
+
+=== Lengths of today's printed spec laws and the new full law (spec rule)
+spec:Uni-Uni                                                 today    320  new    344  coefficient form    281
+spec:Segel Uni Uni                                           today    609  new    768  coefficient form    654
+spec:Segel Iso Uni Uni                                       today   1081  new   1443  coefficient form   1301
+spec:Segel Ordered Uni Bi                                    today    650  new    632  coefficient form    547
+spec:Segel Ordered Bi Bi                                     today   1284  new   1292  coefficient form   1213
+spec:Segel Theorell-Chance Bi Bi                             today    691  new    774  coefficient form    718
+spec:Segel Ping Pong Bi Bi                                   today   1214  new   1206  coefficient form   1105
+spec:Segel Ordered Ter Bi                                    today   2372  new   2516  coefficient form   2487
+spec:Segel Ordered Ter Ter                                   today   3944  new   4064  coefficient form   4153
+spec:Segel Bi Uni Uni Uni PP Ter Bi                          today   2218  new   2284  coefficient form   2219
+spec:Random-order Bi-Bi                                      today   9387  new  12016  coefficient form  11924
+spec:Numerator: random chem-SS (RE/SS)                       today   1238  new   1316  coefficient form   1027
+spec:Numerator: RE-chemistry                                 today   2697  new   2137  coefficient form   1683
+spec:Numerator: redundant SS-bind                            today    675  new    633  coefficient form    395
+spec:Segel Bi Uni Uni Bi PP Ter Ter                          today   3659  new   3661  coefficient form   3699
+spec:Segel Bi Bi Uni Uni PP Ter Ter                          today   3658  new   3604  coefficient form   3635
+spec:Segel Hexa Uni Ping Pong                                today   3516  new   3390  coefficient form   3349
+spec:RE Uni-Uni                                              today    237  new    221  coefficient form    179
+spec:RE Ordered Bi-Bi                                        today    674  new    698  coefficient form    625
+spec:RE Random Bi-Bi                                         today   3367  new   3415  coefficient form   3147
+spec:Competitive Inhibitor                                   today    337  new    296  coefficient form    242
+spec:Non-competitive Inhibitor                               today    450  new    389  coefficient form    298
+spec:Uncompetitive Inhibitor                                 today    361  new    320  coefficient form    268
+spec:Essential Activator                                     today    545  new    378  coefficient form    318
+spec:Non-essential Activator                                 today    774  new    582  coefficient form    413
+spec:Activator + Competitive Inhibitor                       today    836  new    616  coefficient form    445
+spec:MWC Dimer [AllostericEnzymeMechanism]                   today    672  new    538  coefficient form    407
+spec:Homodimer + Non-competitive Inhibitor [AllostericEnzyme today    779  new    635  coefficient form    481
+spec:Two Competitive Inhibitors                              today    395  new    342  coefficient form    284
+spec:Two Non-competitive Inhibitors                          today    787  new    674  coefficient form    770
+spec:Non-competitive + Competitive Inhibitor                 today    489  new    424  coefficient form    406
+spec:Uncompetitive + Competitive Inhibitor                   today    419  new    366  coefficient form    310
+spec:Two Same-site Inhibitors                                today    583  new    506  coefficient form    528
+spec:MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites     today   2368  new   1544  coefficient form   1405
+spec:PFK-1                                                   today   1519  new   1151  coefficient form   1057
+spec:HK                                                      today   1754  new   1396  coefficient form   1451
+spec:PK                                                      today   1355  new   1022  coefficient form    992
+spec:m_all                                                   today   1735  new   1189  coefficient form   1039
+spec:m_OnlyA_prod                                            today    396  new    345  coefficient form    302
+spec:LDH i-state NonequalAI 6-group                          today  15300  new   6164  coefficient form   6321
+spec:LDH i-state NonequalAI 5-group                          today   4468  new   3035  coefficient form   3274
+spec:LDH i-state EqualAI-NonequalAI 6-group                  today   2609  new   1685  coefficient form   1569
+maxrss_kb 725496
+exit 0 elapsed 589s

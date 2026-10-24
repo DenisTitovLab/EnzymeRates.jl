@@ -1,0 +1,4 @@
+law          per-batch ns: 0.625, 0.625, 0.625, 0.625, 0.625
+law_barrier  per-batch ns: 1.2, 1.254, 1.258, 1.258, 1.254
+maxrss_kb 254132
+exit 0 elapsed 32s

@@ -1,0 +1,9 @@
+EnzymeRates 0.10.0 at 7205ba4; Julia 1.12.5
+bibi round 0: 239 seeds, 239 base, 0 base-tier failures, 239 within 337; 11 s, maxrss 1125 MB
+bibi round 1: 239 parents (of 239), 5432 new children, 0 parent errors; 15 s, maxrss 1164 MB
+bibi round 2: 1500 parents (of 5362), 24847 new children, 0 parent errors; 23 s, maxrss 1302 MB
+bibi round 3: 1500 parents (of 22593), 34694 new children, 0 parent errors; 49 s, maxrss 1302 MB
+bibi round 4: 1500 parents (of 23598), 17601 new children, 0 parent errors; 99 s, maxrss 1522 MB
+wrote /tmp/claude-501/-home-denis-linux--julia-dev-EnzymeRates/12f42995-f5ba-4fda-9510-dd9b87f7d069/scratchpad/phase45/research5/keycost/data/r55_bibi_largest.tsv
+maxrss_kb 1559036
+exit 0 elapsed 101s

@@ -1,0 +1,192 @@
+E6 GC-CRASH PROBE (F6) - REPORT
+Date: 2026-10-13. Machine: aarch64 Linux VM on Apple silicon, 4 cores, 7.7 GB, 1 Julia thread,
+1 GC thread. All paths are relative to scratchpad/phase3/gcprobe unless absolute.
+
+VERDICT
+- Reproduced: yes. bbR4.jl aborts 3/3 on 1.12.5 and 3/3 on 1.13.1. The data files cannot be
+  read on 1.10.12 (serialization format 30 > 24), but the rebuilt workload runs cleanly on 1.10 (3/3).
+- Root cause: a Julia compiler bug (1.12 and 1.13), not the slice and not deserialization.
+  JuliaLICM hoists the box of a union phi out of a loop, and the box's field store carries no
+  write barrier. A 20-line program without packages reproduces it (repro_upstream.jl).
+- Package: no sign that EnzymeRates hits it. Its derivation and identify workloads hoist zero
+  allocations on 1.12.5 and 1.13.1, and the stress runs finish without error.
+- Recommendation: proceed with phase 3, with a mitigation (see the end).
+
+1. REPRODUCTION (goal 1)
+Command (the skeptic's flags, through the lock):
+  timeout -s KILL 900 flock -w 14400 .../proto/julia.lock julia --startup-file=no \
+      --heap-size-hint=1500M .../slice/skeptic/scripts/inv/bbR4.jl
+(run.sh wraps exactly this and adds /usr/bin/time for peak RSS.)
+
+  Julia     runs  aborts  log
+  1.12.5    3     3       logs/v0_112_r{1,2,3}.log
+  1.13.1    3     3       logs/v0_113_r{1,2,3}.log
+  1.10.12   1     -       logs/v0_110_r1.log: "Cannot read stream serialized with a newer
+                          version of Julia. Got data version 30 > current version 24"
+
+Error text, every abort:
+  GC error (probable corruption)
+  Allocations: ...; GC: ...
+  <?#0x...::(nil)>          (one run: <?#0x...:::R>)
+  ... gc_dump_queue_and_abort at src/gc-stock.c:1663
+      gc_mark_outrefs at src/gc-stock.c:2364
+      gc_mark_loop_serial_ ... _jl_gc_collect ... ijl_gc_collect
+The marker is reached from a full GC.gc() or from an allocation-triggered GC inside
+S.rate_law. The abort point varies between runs; the abort itself never does. The object
+being marked carries a free-list link in place of a type tag, so it is a freed pool cell.
+One queue entry reads "Slice.Poly{BigInt}(terms=#<null>)" (explained in section 3).
+
+2. ISOLATION (goal 2), one variable at a time, Julia 1.12.5 unless noted
+Scripts: gc1.jl (copy of bbR4 with switches), gc2.jl, gc3.jl (no deserialization at all;
+mechanisms built from source in mechs_src.jl, dumped by dumpmechs.jl), gc5.jl, gc6.jl.
+
+  variant                                                        runs  aborts
+  bbR4 as launched (1.12.5)                                         3     3
+  bbR4 as launched (1.13.1)                                         3     3
+  gc1 copy of bbR4                                                  1     1
+  (e) pipeline rows not loaded (todo list from todo.tsv)             1     1
+  (a) expand_bibi records rebuilt from Pop records, not read back    1     1
+      expand_bibi set skipped entirely, no rows                      1     1
+  gc2: only pop_init_terter.part3 read back, then freed; 4 laws      1     1
+  (a) gc3: NO deserialization, mechanisms rebuilt from source        3     3
+  gc3 on 1.13.1                                                     3     3
+  gc3 on 1.10.12                                                    3     0
+  (b) gc3 --check-bounds=yes                                         1     1
+  (d) gc3 without --heap-size-hint                                   1     1
+  (c) gc3 --gcthreads=1, JULIA_NUM_THREADS=1 (already the defaults)  1     1
+  gc3 -O0                                                           1     0
+  gc3 -O1                                                           1     0
+  gc3 -O3                                                           1     1
+  gc3 --compile=min (killed at 900 s after 8 laws)                   1     0
+  gc3 GC disabled during each law, full GC after                     2     0
+  gc3 S.solve only / S.bare_law only                              1+1     0
+  gc3 S.law(m) (try Int, catch OverflowError, retry BigInt)          2     2
+  gc3 S.law(Int, m, sol, mask, false) called directly                2     0
+  wrapper: try law(Int) catch -> law(BigInt)                         2     2
+  wrapper: try law(Int) catch -> rethrow (no BigInt branch)          2     0
+  wrapper: no try, law(Int) only                                     2     0
+  wrapper: catch -> nothing                                          2     0
+  wrapper: try/catch -> nothing, then x===nothing ? law(BigInt) : x  2     2
+  precompile law(BigInt) first, then the non-crashing variants     2x1    0
+  run law(BigInt) once first, then the non-crashing variants       2x1    0
+  @noinline f(flag) = flag ? law(BigInt,...) : law(Int,...)          2     2
+  same, but inlinable                                                2     0
+  @noinline, both branches law(Int)                                  2     0
+  @noinline, Union{Nothing, Law{Int}} through inferencebarrier       2     0
+  (g) gc6: one mechanism, one law, then GC.gc(true)                  1     1  (deterministic)
+  (f) BigInt values on the crashing path                             -     -  none: every law
+      returned Law{Int64}; the BigInt branch never ran. The final reproducer has no BigInt.
+  standalone repro_upstream.jl, 1.12.5                                3     3
+  standalone, 1.12.5 --check-bounds=yes                              1     1
+  standalone, 1.12.5 -O1                                             1     0
+  standalone, 1.13.1                                                 3     3
+  standalone, 1.10.12                                                3     0
+
+Ruled out: deserialization, the earlier load of the pipeline rows, freeing records, BigInt
+and GMP finalizers, bounds errors, GC threads, the heap hint, and Slice-specific code.
+Ruled in: optimization level >= 2, Julia >= 1.12, and a caller loop that receives a
+Union{Law{Int}, Law{BigInt}} and reads a field from it.
+
+3. ROOT CAUSE (goal 3)
+Observed in the LLVM IR of the smallest crashing caller (gc6.jl main_b; dumps in
+logs/ir_mainb.log, logs/ir_mainb_unopt.log, logs/ir_mainb_licm_window.txt):
+ a. In the loop, `law(m)` returns Union{Law{Int}, Law{BigInt}}. `L.D` is union-split, and
+    the phi of the two results has type Union{Poly{Int}, Poly{BigInt}}. Codegen boxes each
+    Poly with julia.gc_alloc_obj plus an 8-byte llvm.memcpy of the `terms` pointer, inside
+    the loop body. The unoptimized IR is correct.
+ b. InstCombine (the first instance in the -O2 pipeline) turns that memcpy into
+    `load i64` + `store i64`. The GC pointer now travels as an integer.
+ c. JuliaLICMPass (src/llvm-julia-licm.cpp, v1.12.5) moves both box allocations into the
+    loop preheader and adds a memset. Its escape analysis (src/llvm-alloc-helpers.cpp)
+    counts `store i64` as a "bits" store, so refstore = 0, and the pass's only guard against
+    reference stores never fires. The remark dump shows the contradiction on one field:
+    hasobjref: 1 and refload: 1, yet refstore: 0 (logs/remarks_mini5.log, remarks_repro.log).
+ d. The hoisted box now lives across iterations and safepoints and becomes old. Each
+    iteration writes a fresh, young `terms` Dict into it with no write barrier. The GC frees
+    the Dict while the old box still points to it. The next full mark follows the box to
+    the freed cell and aborts. The never-written Poly{BigInt} box holds terms = 0, which is
+    the "Poly{BigInt}(terms=#<null>)" in the dump.
+Inferred, not traced in the GC source: in the no-churn reproducer, GC.gc(true) collects
+twice ("GC: 2"). The first pass skips the old, unremembered box and sweeps the Dict; the
+second pass marks the box and finds the freed cell.
+
+Why the earlier clues pointed elsewhere: the trigger is the caller's loop in the probe
+scripts (bbR4's `L = S.rate_law(m); nD = ... L.D`), fed by the slice API's Union return of
+Law{Int} and Law{BigInt}. solve and bare_law return concrete types, so they never trigger
+it. Deserialization and the rows only shifted GC timing; the crash outlived both.
+
+Remark scan of the original workloads (hoistscan.py on JuliaLICM remarks):
+  bbR4.jl: 4 hoisted allocations, all 4 with a bits store into a reference field.
+  gc6 main_b: 2 of 2. repro_upstream.jl: 2 of 2.
+
+Upstream: no matching issue found in a quick web search. #59547 (1.12 regression, write
+barrier dropped for a memoryref store; fixed by #59559) is related but uses a different
+mechanism. I did not check which 1.12.x first ships that fix. Draft issue text:
+upstream_issue_draft.txt; reproducer: repro_upstream.jl. Not filed.
+
+4. PACKAGE RELEVANCE (goal 4)
+Worktree joint_solve_wt (branch joint-solve, 4f9a34a), loaded read-only. For 1.13 a separate
+environment in env113 develops it by path, so the worktree's own files never change.
+
+Stress script pkg_stress.jl: bi-bi ping-pong reaction with an allosteric regulator,
+oligomeric_state 2. Population: init_mechanisms (264) plus one expand_mechanisms round
+(2333), 2597 in all, 1242 of them allosteric. Each round serializes the population, reads it
+back, runs parameters, rate_equation_string and _dependent_param_exprs on every mechanism,
+drops the references, runs GC.gc(true), and checks that the totals match round 1.
+  1.12.5, 400 mechanisms x 4 rounds       ok (peak 1.25 GB)  logs/pkg_stress_112_r1.log
+  1.12.5, all 2597 x 3 rounds             ok (peak 1.33 GB)  logs/pkg_stress_112_full.log
+  1.13.1, all 2597 x 3 rounds             ok (peak 1.17 GB)  logs/pkg_stress_113.log
+identify workload pkg_identify.jl (the test suite's smoke settings on the uni-uni +
+inhibitor problem; 2 Distributed workers read the mechanisms back; full GC on master and
+workers after each round):
+  1.12.5, 2 workers x 3 rounds            ok                 logs/pkg_identify_workers_112.log
+  1.13.1, 2 workers x 3 rounds            ok                 logs/pkg_identify_workers_113.log
+
+A stronger check than "it did not crash": run each workload with --pkgimages=no (so the
+package and its dependencies are compiled while the remarks are on) and
+JULIA_LLVM_ARGS="-pass-remarks=julia-licm -pass-remarks-analysis=julia-licm", then count
+the hoisted allocations with hoistscan.py:
+  derivation, 1.12.5: 1189 escape analyses, 0 hoisted   logs/remarks_pkg_stress.log
+  derivation, 1.13.1: 1475 escape analyses, 0 hoisted   logs/remarks_pkg_stress_113.log
+  identify,   1.12.5: 2724 escape analyses, 0 hoisted   logs/remarks_pkg_identify.log
+  identify,   1.13.1: 2153 escape analyses, 0 hoisted   logs/remarks_pkg_identify_113.log
+The scanner flags the slice workloads (above), so a zero here means something.
+Limits: the identify scan ran on the master only (pmap fell back to the master). The scan
+covers only the code these workloads compile. Code on other paths, such as other optimizers,
+the CV grid at scale, or the DSL, was not scanned.
+Conclusion: today's package does not share the trigger in the code exercised. The pattern
+can still appear in any Julia code: a loop in which a union-split getfield yields an
+immutable struct with reference fields, drawn from two or more types, that must be boxed.
+
+5. x86 (goal 5)
+An x86 run is not needed for the root cause: every step is a target-independent IR pass
+(codegen boxing, InstCombine, JuliaLICM), and the aarch64 IR shows each step. It would help
+the upstream report, since maintainers will try x86 first, and it would confirm that CI
+(ubuntu x64, Julia 1.13) can hit the bug.
+Script: repro_upstream.jl (no packages). Workflow: x86_gcprobe_workflow.yml (not committed
+anywhere). It runs on ubuntu-latest for Julia 1.10.12, 1.12.5 and 1.13.1:
+  for r in 1 2 3; do julia --startup-file=no gcprobe/repro_upstream.jl > run$r.log 2>&1; echo "run $r exit $?"; done
+  JULIA_LLVM_ARGS="-pass-remarks=julia-licm -pass-remarks-analysis=julia-licm" \
+    julia --startup-file=no gcprobe/repro_upstream.jl > remarks.log 2>&1; python3 gcprobe/hoistscan.py remarks.log
+Expected if the bug is target-independent: exit 134 with "GC error" on 1.12 and 1.13,
+exit 0 on 1.10, and "hoisted with a bits store into a reference field: 2".
+
+6. RECOMMENDATION FOR PHASE 3: proceed, with a mitigation
+- Deserialization is not at fault. Workers that read mechanisms back carry no extra risk.
+- Do not let a public or hot-loop API return a Union of parametric immutable structs that
+  hold references (the slice's Union{Law{Int}, Law{BigInt}} from checked-Int-then-BigInt).
+  Return one concrete type, for example by widening the Int result to the BigInt type at
+  the boundary, or keep the retry behind a function barrier whose callers never read fields
+  of the union in a loop.
+- The EnzymeMechanism{Sig} integer-tuple encoding is not implicated: the bug concerns
+  runtime values boxed in loops, not type parameters.
+- Add a cheap guard to CI on 1.12/1.13: run a representative workload under the remark
+  flags with --pkgimages=no and fail when hoistscan.py reports any "bits store into a
+  reference field". About 1-2 minutes per workload here.
+- File the upstream issue (draft ready) once Denis approves.
+
+FILES
+repro_upstream.jl, upstream_issue_draft.txt, x86_gcprobe_workflow.yml, hoistscan.py,
+run.sh, gc1-gc6.jl, mechs_src.jl (+ dumpmechs.jl), mini1-5.jl (the path to the reproducer),
+pkg_stress.jl, pkg_identify.jl, env113/, logs/ (the GC queue dumps in the large crash logs
+are truncated to save disk), upstream_src/ (the v1.12.5 sources quoted above).
