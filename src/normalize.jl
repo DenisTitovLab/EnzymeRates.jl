@@ -1,19 +1,17 @@
 # ABOUTME: The unit rule of a rate law: the normalizer that makes every denominator term
-# ABOUTME: dimensionless, by the constant term, Cleland's terms, a graded basis or a ratio.
+# ABOUTME: dimensionless (constant term, Cleland's terms, graded basis), when one exists.
 
 """
-The normalizer of one conformation's denominator (`_normalizer`): `N = Π_m c(m)^λ_m ·
-x^shift` over the pairs `m => λ_m` of `lambda`, `c(m)` being the coefficient of the
-concentration monomial `m` in the denominator. `rule` names the case that chose it:
-`:constant`, the constant term; `:cleland`, Cleland's terms ΠS/X for each substrate X and
-ΠS; `:graded`, weights on the first affinely independent terms; `:ratio`, the first term,
-whose concentration monomial `shift` stays in `N`. `shift` is empty under the other three
-rules.
+The normalizer of one conformation's denominator (`_normalizer`): `N = Π_m c(m)^λ_m` over
+the pairs `m => λ_m` of `lambda`, `c(m)` being the coefficient of the concentration
+monomial `m` in the denominator. `rule` names the case that chose it: `:constant`, the
+constant term; `:cleland`, Cleland's terms ΠS/X for each substrate X and ΠS; `:graded`,
+weights on the first affinely independent terms; `:none`, no normalizer: `lambda` is
+empty and `N = 1`.
 """
 struct _Norm
     rule::Symbol
     lambda::Vector{Pair{_Mono, _Exp}}
-    shift::_Mono
 end
 
 """The variables of `vars` that hold `m`'s substrates (the unit rule's `substrates`)."""
@@ -40,7 +38,7 @@ end
 
 The normalizer of the denominator `D` over `vars` (spec section 9, "Normalization: the
 unit rule"). Every term of `D` has one unit, and every term divided by `N` is
-dimensionless. The first rule that applies gives `N`:
+dimensionless unless the last rule applies. The first rule that applies gives `N`:
 
 1. `:constant`: `D` has a term free of concentrations, and `N` is its coefficient.
 2. `:cleland`: with `ΠS` the product of the `k` substrates, `D` has the terms
@@ -52,18 +50,20 @@ dimensionless. The first rule that applies gives `N`:
    first ones whose vectors `[1; a_m]` (`a_m` the exponent vector) are affinely
    independent form a basis; when weights on the basis satisfy `Σ λ_m = 1` and
    `Σ λ_m·a_m = 0`, `N = Π c(m)^λ_m`. The weights are exact and may be fractional.
-4. `:ratio`: otherwise the law reads some concentrations only through their ratio, and
-   `N` is the first term in that order, its concentration monomial included.
+4. `:none`: no normalizer. When no such weights exist, no product of the coefficients has
+   `D`'s unit: the law reads some concentrations only through their ratio, as a
+   rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P` makes every term carry
+   `B` or `P`. `N = 1`: the law then prints as derived, and its terms keep their units.
 
 Exact `Rational{Int}` arithmetic; an `OverflowError` escapes.
 """
 function _normalizer(D::_Poly, vars::_Vars, substrates::Vector{Int})
     Dc = _split_conc(D, vars)
-    haskey(Dc, _Mono()) && return _Norm(:constant, Pair{_Mono, _Exp}[_Mono() => 1], _Mono())
+    haskey(Dc, _Mono()) && return _Norm(:constant, Pair{_Mono, _Exp}[_Mono() => 1])
     S = _monomial((v => 1 for v in substrates)...)
     cleland = Pair{_Mono, _Exp}[_mmul(S, _monomial(v => -1)) => 1 for v in substrates]
     push!(cleland, S => 1 - length(substrates))
-    all(p -> haskey(Dc, p.first), cleland) && return _Norm(:cleland, cleland, _Mono())
+    all(p -> haskey(Dc, p.first), cleland) && return _Norm(:cleland, cleland)
     conc = findall(vars.conc)
     monos = sort!(collect(keys(Dc)); by = mo -> _term_key(mo, vars, substrates))
     column(mo) = _Exp[1; [_mexp(mo, v) for v in conc]]
@@ -76,7 +76,7 @@ function _normalizer(D::_Poly, vars::_Vars, substrates::Vector{Int})
     M = [reduce(hcat, [column(b) for b in basis]) _Exp[1; zeros(Int, length(conc))]]
     _rref!(M, k)
     all(iszero, view(M, (k + 1):size(M, 1), k + 1)) ||
-        return _Norm(:ratio, Pair{_Mono, _Exp}[first(monos) => 1], first(monos))
+        return _Norm(:none, Pair{_Mono, _Exp}[])
     _Norm(:graded, Pair{_Mono, _Exp}[b => M[i, k + 1] for (i, b) in enumerate(basis)
-                                     if !iszero(M[i, k + 1])], _Mono())
+                                     if !iszero(M[i, k + 1])])
 end

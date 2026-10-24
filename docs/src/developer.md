@@ -32,7 +32,7 @@ laws (396 denominator terms each) and three ter-bi laws (589, 799 and 858 terms)
 measures each law's allocations and time per call, and the tests assert
 `allocs == 0` and the law's bound. `rate_equation_string` (`src/print.jl`)
 prints the law rather than the code: each denominator term over the unit rule's normalizer,
-dimensionless. `rate_equation`'s speed is the binding
+dimensionless whenever the law has one. `rate_equation`'s speed is the binding
 constraint on the whole package: the fitter is a multi-start, global,
 gradient-free optimizer that
 evaluates `rate_equation` millions of times per fit, and a single rate equation
@@ -130,8 +130,9 @@ local, so a `NamedTuple` in any field order works, and reciprocals and roots (`s
 `rate_equation_string` divides the law by the unit rule's normalizer (`_normalizer`,
 `src/normalize.jl`: the constant term, else Cleland's normalizer when the denominator holds
 `ΠS/X` for every substrate `X` and `ΠS`, else a virtual constant term on the first
-affinely independent terms, else the ratio form), so every denominator term is
-dimensionless, and with `coefficients = true` prints it in named coefficients.
+affinely independent terms), so every denominator term is dimensionless; a law with no such
+normalizer prints as derived. With `coefficients = true` it prints the law in named
+coefficients.
 
 `_canonical` (`src/key.jl`) labels a law canonically: each part to lowest terms, the fitted
 constants coloured by refinement on the term–constant incidence and individualized while

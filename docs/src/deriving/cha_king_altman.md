@@ -39,9 +39,8 @@ copies of the first substrate the step moves.
 The derived rate equation is **division-free in the concentrations**: no
 metabolite concentration ever appears in a denominator, so the equation contains
 no `1/[S]`-style terms anywhere.
-The printed law of a mechanism in the ratio form ([Normalization](@ref)) writes terms such
-as `P / B`, so the printed text can read `NaN` where `B` is zero. The code `rate_equation`
-runs is the law in lowest terms, free of such divisions, and gives the law's value there.
+The printed law keeps that property: no printed term divides by a concentration
+([Normalization](@ref)).
 
 This matters for fitting real data. Datasets often include measurements where a
 substrate or product concentration is exactly zero — a saturation curve that

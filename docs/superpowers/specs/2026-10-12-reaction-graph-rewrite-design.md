@@ -36,7 +36,8 @@ not prototype.
   depend only on the mechanism, never on step order, step direction, group labels or
   process.
 - **Readable output.** Printed laws use independent parameters, dimensionless denominator
-  terms and a Cleland-style coefficient form. `show` prints the DSL.
+  terms whenever a normalizer can make them so (section 9) and a Cleland-style coefficient
+  form. `show` prints the DSL.
 - **One rule per question.** One well-posedness guard decides which mechanisms the package
   accepts; admission, one of its checks, decides which allosteric tag sets it accepts; one
   scale rule reports fitted rate constants.
@@ -517,7 +518,8 @@ After the solve is substituted, the numerator is divided exactly by the Haldane 
 ### Normalization: the unit rule (C4)
 
 All denominator terms share one unit. Dividing numerator and denominator by a normalizer
-with that unit makes every denominator term dimensionless:
+with that unit makes every denominator term dimensionless; rule 4 covers a law that has no
+such normalizer:
 
 1. **Constant term.** If the denominator has one, divide by it. Every term is then
    dimensionless; in a rapid-equilibrium law whose only form that binds nothing is free E,
@@ -537,10 +539,10 @@ with that unit makes every denominator term dimensionless:
    metabolites, then metabolite order: substrates, products, then the other names, each by
    name); the first affinely independent ones form the basis, and λ is the unique solution
    on that basis.
-4. **Ratio form.** If no solution exists, the law depends on some concentrations only
-   through their ratio (a rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P`
-   makes every term carry B or P). Divide by the first term in the same order; terms such
-   as `(P/B)·c` are dimensionless.
+4. **No normalizer.** When no such weights exist, no product of the coefficients has the
+   denominator's unit: the law reads some concentrations only through their ratio, as a
+   rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P` makes every term carry `B`
+   or `P`. The law then prints as derived, and its terms keep their units.
 
 When the normalizer has a factor that is not a monomial, or an integer to a fractional
 power, that factor prints once as `N = …`. An allosteric law normalizes each conformation's
@@ -558,8 +560,7 @@ ratios, is unchanged.
   the polynomials `Q_c`, `D_c` and `F_c` in those coefficients and the site factors `W_c`;
   and last `v = E_total·n_0·(A·B − P·Q/Keq) / (1 + d_A·A + d_B·B + d_A_B·A·B + …)`. The
   reference lines print only in the full law. A coefficient is named by the monomial it
-  multiplies, a power as a superscript (`d_A²_B`) and, in the ratio form, a reciprocal as
-  a superscript minus one (`d_P_B⁻¹` for P/B; proposal, section 18).
+  multiplies, a power as a superscript (`d_A²_B`; proposal, section 18).
 - Allosteric laws print each conformation's polynomials, then the MWC combination.
 - No `1 ^ n` or `L * 1` artifacts.
 
@@ -882,8 +883,7 @@ unless Denis objects; the sections cited mark them "proposal".
 9. **Names and fields (sections 5, 9, 12).** The CSV columns `mechanism`, `mechanism_id`
    (16 hex digits of the SHA-256 of the DSL text), `parent_id`, `key`, `fit_inherited`,
    `fit_source_id`, `L_phantom` and `peak_at_range_edge`; the fit result's
-   `peak_at_range_edge` field; coefficient names for a power and, in the ratio form, a
-   reciprocal, such as `d_A²_B` and `d_P_B⁻¹`.
+   `peak_at_range_edge` field; coefficient names for a power, such as `d_A²_B`.
 10. **Test budget and tolerances (section 14).** Population tests take about one minute of
     the full suite. The exact solver agrees to 1e-20 relative; the RE-speed oracle draws
     speed factors log-uniform over 10^±3, runs at Λ = 1e10 and 1e20 with two patterns and

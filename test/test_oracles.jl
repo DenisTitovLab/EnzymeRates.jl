@@ -380,9 +380,9 @@ end
     # Spec section 14: each sampled law, derived from the concrete mechanism at one
     # catalytic subunit, equals the exact steady state at two points, holds positive
     # coefficients in each conformation's Q, vanishes at equilibrium, per conformation
-    # and combined, and has one unit per denominator, which its normalizer shares
-    # (`_testhelper_check_units`). Both printed forms of each law equal it at a further
-    # point, with no printing artifact.
+    # and combined, and has one unit per denominator, which its normalizer shares when it
+    # has one (`_testhelper_check_units`). Both printed forms of each law equal it at a
+    # further point, with no printing artifact.
     @test count(m -> m isa EnzymeRates.AllostericMechanism,
                 _testhelper_population_sample) >= 30
     for (i, m) in enumerate(_testhelper_population_sample)

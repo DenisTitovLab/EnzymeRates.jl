@@ -25,11 +25,11 @@ _testhelper_text_value(text, env) =
 
 # Both printed forms of `m`, pasted into a fresh module where `params` and `concs` are
 # bound at random values drawn from `rng`, run top to bottom and give the compiled law's
-# value.
-function _testhelper_check_pasted_forms(m, rng)
+# value. `zero`, when a metabolite name, sets that concentration to 0.
+function _testhelper_check_pasted_forms(m, rng; zero = nothing)
     params = _testhelper_random_independent_params(m; rng)
     concs = NamedTuple{metabolites(m)}(
-        Tuple(0.1 + 9.9 * rand(rng) for _ in metabolites(m)))
+        Tuple(x === zero ? 0.0 : 0.1 + 9.9 * rand(rng) for x in metabolites(m)))
     for coefficients in (false, true)
         text = rate_equation_string(m; coefficients)
         lines = split(text, '\n')
@@ -63,7 +63,6 @@ end
     nz, L, mech = _testhelper_normalizer(mm)
     @test nz.rule === :constant
     @test nz.lambda == [EnzymeRates._Mono() => 1 // 1]
-    @test isempty(nz.shift)
     _testhelper_check_units(mech, L)
 end
 
@@ -86,7 +85,6 @@ end
     @test nz.rule === :cleland
     @test nz.lambda == [m(:B => 1) => 1 // 1, m(:A => 1) => 1 // 1,
                         m(:A => 1, :B => 1) => -1 // 1]
-    @test isempty(nz.shift)
     @test _testhelper_n_text(pp) ==
           "(k_EA_to_E_A + k_EA_to_F_P) * (k_FB_to_E_Q + k_FB_to_F_B) / " *
           "(k_EA_to_F_P + k_FB_to_E_Q)"
@@ -169,10 +167,10 @@ end
     @test sort([ab, a2]; by = mo -> EnzymeRates._term_key(mo, vars, [a, b])) == [a2, ab]
 end
 
-@testset "F1 divides by its first term, A" begin
+@testset "F1 takes no normalizer" begin
     # Rule 4: two half-reactions between the free forms E and F, each A → P. Every term
-    # holds A or P, and no weights on A and P solve the units equation, so the law reads A
-    # and P only through their ratio: N is the first term, its monomial A included.
+    # holds A or P, and no weights on A and P solve the units equation, so no product of
+    # the coefficients has the denominator's unit, and the law prints as derived.
     f1 = @enzyme_mechanism begin
         substrates: A
         products: P
@@ -182,9 +180,8 @@ end
         end
     end
     nz, L, mech = _testhelper_normalizer(f1)
-    a = _testhelper_conc_mono(L, :A => 1)
-    @test nz.rule === :ratio
-    @test nz.lambda == [a => 1 // 1] && nz.shift == a
+    @test nz.rule === :none
+    @test isempty(nz.lambda)
     _testhelper_check_units(mech, L)
 end
 
@@ -207,10 +204,10 @@ end
     _testhelper_check_units(mech, L)
 end
 
-@testset "F3, a rapid-equilibrium Theorell–Chance step, divides by B" begin
+@testset "F3, a rapid-equilibrium Theorell–Chance step, takes no normalizer" begin
     # Every term holds B or P (the rapid-equilibrium step E(A) + B ⇌ E(Q) + P ties them),
-    # and the units equation has no solution on the basis B, P, A·B, B·Q, so N is the
-    # first term, B with its coefficient.
+    # and the units equation has no solution on the basis B, P, A·B, B·Q, so no product of
+    # the coefficients has the denominator's unit, and the law prints as derived.
     f3 = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -221,16 +218,16 @@ end
         end
     end
     nz, L, mech = _testhelper_normalizer(f3)
-    b = _testhelper_conc_mono(L, :B => 1)
-    @test nz.rule === :ratio
-    @test nz.lambda == [b => 1 // 1] && nz.shift == b
+    @test nz.rule === :none
+    @test isempty(nz.lambda)
     _testhelper_check_units(mech, L)
 end
 
-@testset "a covalent ping-pong without an A·B term divides by its first term, A" begin
+@testset "a covalent ping-pong without an A·B term takes no normalizer" begin
     # Rule 4: the denominator holds A, B, P and Q, so ΠS/B = A and ΠS/A = B are there but
     # ΠS = A·B is not, and Cleland's rule does not apply. No weights on four degree-1
-    # terms solve the units equation, so N is the first term, A with its coefficient.
+    # terms solve the units equation, so no product of the coefficients has the
+    # denominator's unit, and the law prints as derived.
     covalent = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -240,9 +237,8 @@ end
         end
     end
     nz, L, mech = _testhelper_normalizer(covalent)
-    a = _testhelper_conc_mono(L, :A => 1)
-    @test nz.rule === :ratio
-    @test nz.lambda == [a => 1 // 1] && nz.shift == a
+    @test nz.rule === :none
+    @test isempty(nz.lambda)
     _testhelper_check_units(mech, L)
     @test _testhelper_printed_law_error(covalent) <= big(10)^-20
 end
@@ -272,7 +268,7 @@ end
     # conformation's rule, dividing its Q, D and free-E weight alike, so the MWC
     # combination does not change. A two-subunit ping-pong whose chemistry differs between
     # the conformations takes Cleland's normalizer in both, each on its own terms. F3 with
-    # A's binding and the Theorell–Chance step :OnlyA takes the ratio form in the active
+    # A's binding and the Theorell–Chance step :OnlyA takes no normalizer in the active
     # conformation and the constant term in the inactive one, which keeps free E and E(Q).
     pp2 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B
@@ -307,8 +303,8 @@ end
             @test (nA.rule, nI.rule) == (:cleland, :cleland)
             @test nA.lambda == nI.lambda == cleland
         else
-            @test (nA.rule, nI.rule) == (:ratio, :constant)
-            @test nA.lambda == [m(:B => 1) => 1 // 1] && nA.shift == m(:B => 1)
+            @test (nA.rule, nI.rule) == (:none, :constant)
+            @test isempty(nA.lambda)
             @test nI.lambda == [EnzymeRates._Mono() => 1 // 1]
         end
         _testhelper_check_units(am, A)
@@ -395,9 +391,9 @@ end
     end
 end
 
-@testset "coefficient names read powers and ratios, and N prints the normalizer once" begin
-    # F1 reads A and P only through P/A, so the ratio form divides by A: the coefficients
-    # of P/A take ⁻¹, and the polynomial factor of the divisor prints as N.
+@testset "coefficient names read powers, and N prints the normalizer once" begin
+    # F1 reads A and P only through P/A, so it takes no normalizer: its coefficients print
+    # as derived, and no N line prints.
     f1 = @enzyme_mechanism begin
         substrates: A
         products: P
@@ -409,18 +405,19 @@ end
     c1 = split(rate_equation_string(f1; coefficients = true), '\n')
     @test c1[1:2] == ["(; k_E_A_to_F_P, k_F_A_to_E_P, k_F_P_to_E_A, Keq, E_total) = params",
                       "(; A, P) = concs"]
-    @test last(c1) == "v = E_total * (n_0 + n_P_A⁻¹ * P / A) * (A - P / Keq) / " *
-                      "(1 + d_P_A⁻¹ * P / A)"
+    @test last(c1) == "v = E_total * (n_A * A + n_P * P) * (A - P / Keq) / " *
+                      "(d_A * A + d_P * P)"
     @test c1[3] == "# The coefficients are functions of the fitted constants, not " *
                    "parameters:"
     @test c1[4:end - 1] == [
-        "N = k_E_A_to_F_P + k_F_A_to_E_P",
-        "n_0 = 2 * k_E_A_to_F_P * k_F_A_to_E_P / N",
-        "n_P_A⁻¹ = 2 * k_E_A_to_F_P * k_F_A_to_E_P / (Keq * N)",
-        "d_P_A⁻¹ = (k_E_A_to_F_P * k_F_A_to_E_P + k_F_P_to_E_A^2 * Keq^2) / " *
-        "(k_F_P_to_E_A * Keq^2 * N)"]
+        "n_A = 2 * k_E_A_to_F_P * k_F_A_to_E_P",
+        "n_P = 2 * k_E_A_to_F_P * k_F_A_to_E_P / Keq",
+        "d_A = (k_E_A_to_F_P + k_F_A_to_E_P)",
+        "d_P = (k_E_A_to_F_P * k_F_A_to_E_P + k_F_P_to_E_A^2 * Keq^2) / " *
+        "(k_F_P_to_E_A * Keq^2)"]
     # F3's rapid-equilibrium Theorell–Chance step makes every denominator term carry B or
-    # P: the ratio form divides by B, whose coefficient is one constant, so no N prints.
+    # P, so it takes no normalizer: its coefficients print as derived, and no N line
+    # prints.
     f3 = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -431,10 +428,10 @@ end
         end
     end
     c3 = split(rate_equation_string(f3; coefficients = true), '\n')
-    @test last(c3) == "v = E_total * (n_B⁻¹ / B) * (A * B - P * Q / Keq) / (1 + " *
-                      "d_P_B⁻¹ * P / B + d_A * A + d_A_P_B⁻¹ * A * P / B + d_Q * Q + " *
-                      "d_P_Q_B⁻¹ * P * Q / B)"
-    @test "n_B⁻¹ = k_E_A_to_EA" in c3
+    @test last(c3) == "v = E_total * n_0 * (A * B - P * Q / Keq) / (d_B * B + d_P * P + " *
+                      "d_A_B * A * B + d_A_P * A * P + d_B_Q * B * Q + d_P_Q * P * Q)"
+    @test "n_0 = k_EA_to_E_A * k_E_Q_to_EQ * Keq" in c3
+    @test "d_B = k_EA_to_E_A * k_E_Q_to_EQ * Keq / k_E_A_to_EA" in c3
     @test !any(startswith("N = "), c3)
     # F2's weights are fractional: N is a power 3/2, and its coefficients hold roots.
     f2 = @enzyme_mechanism begin
@@ -530,6 +527,69 @@ end
               isempty(_testhelper_print_artifacts(
                   rate_equation_string(m; coefficients = true)))
         _testhelper_check_pasted_forms(m, rng)
+    end
+end
+
+@testset "a law with no normalizer prints finite where a concentration is zero" begin
+    # The printed law divides by no concentration, so both forms equal `rate_equation` at
+    # a zero of each one. F1, F3 and the covalent ping-pong take no normalizer, and
+    # neither do the active conformation of `tc` and the inactive one of `pp`; the rule
+    # pin keeps `pp` an MWC law whose other conformation has a normalizer.
+    f1 = @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> F + P
+            F + A <--> E + P
+        end
+    end
+    f3 = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B ⇌ E(Q) + P
+            E(Q) <--> E + Q
+        end
+    end
+    covalent = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B <--> E + Q
+        end
+    end
+    tc = @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)            :: OnlyA
+            E(A) + B ⇌ E(Q) + P        :: OnlyA
+            E(Q) <--> E + Q            :: EqualAI
+        end
+    end
+    pp = @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + A <--> E(; residual = A - P) + P :: EqualAI
+            E + Q <--> E(Q) :: EqualAI
+            E(; residual = A - P) + B <--> E(Q) :: OnlyA
+        end
+        regulatory_site(2): R::NonequalAI
+    end
+    am = _testhelper_lift(pp)
+    law = EnzymeRates._law(am, EnzymeRates._solve(am))
+    subs = EnzymeRates._substrate_vars(am, law.vars)
+    @test (EnzymeRates._normalizer(law.active.D, law.active.vars, subs).rule,
+           EnzymeRates._normalizer(law.inactive.D, law.inactive.vars, subs).rule) ==
+          (:cleland, :none)
+    rng = Random.MersenneTwister(41)
+    for m in (f1, f3, covalent, tc, pp), x in metabolites(m), _ in 1:2
+        _testhelper_check_pasted_forms(m, rng; zero = x)
     end
 end
 

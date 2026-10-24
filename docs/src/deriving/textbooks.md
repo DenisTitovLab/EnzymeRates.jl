@@ -63,8 +63,9 @@ The string reads, in order:
 
 ## Normalization
 
-Every term of `D` is dimensionless: the package divides numerator and denominator by a
-normalizer with `D`'s unit, chosen by the first rule that applies.
+Every term of `D` is dimensionless unless the law has no normalizer (rule 4): the package
+divides numerator and denominator by a normalizer with `D`'s unit, chosen by the first rule
+that applies.
 
 1. **Constant term.** When `D` has a term free of concentrations, divide by that term's
    coefficient, the part of `D` free of concentrations; every term is then dimensionless.
@@ -81,12 +82,10 @@ normalizer with `D`'s unit, chosen by the first rule that applies.
    degree first, then fewest metabolites other than substrates, then metabolite order) and
    weigh the first affinely independent ones so that the product of their coefficients,
    each to its weight, has `D`'s unit. Fractional weights print as roots.
-4. **Ratio form.** When no such weights exist, the law reads some concentrations only
-   through their ratio, as a rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P`
-   makes every term carry `B` or `P`. Divide by the first term in the same order; terms
-   such as `P / B` are then dimensionless. That form divides by concentrations, so the
-   printed law can read `NaN` where one of them is zero; [`rate_equation`](@ref) gives the
-   law's value there.
+4. **No normalizer.** When no such weights exist, no product of the coefficients has
+   `D`'s unit: the law reads some concentrations only through their ratio, as a
+   rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P` makes every term carry `B`
+   or `P`. The law then prints as derived, and its terms keep their units.
 
 A factor of the normalizer that is not a single term, or an integer to a fractional power,
 prints once, as the line `N = …`, and the terms it divides read `/ N`.
@@ -110,9 +109,9 @@ d_P = 1 / K_EP_to_E_P
 v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
 ```
 
-A coefficient is named by the concentrations it multiplies: `d_A_B` for `A * B`, `d_A²_B`
-for `A^2 * B`, and, in the ratio form, `d_P_B⁻¹` for `P / B`; `n_0` is the numerator's
-constant term. The fit still runs over the fitted constants.
+A coefficient is named by the concentrations it multiplies: `d_A_B` for `A * B` and
+`d_A²_B` for `A^2 * B`; `n_0` is the numerator's constant term. The fit still runs over the
+fitted constants.
 
 ## Meaning of parameter names
 

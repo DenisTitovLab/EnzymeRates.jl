@@ -72,9 +72,9 @@ print(rate_equation_string(m; coefficients = true))
 ```
 
 `rate_equation_string` prints the law in its independent constants, each denominator term
-dimensionless (see [Normalization](@ref)); `coefficients = true` prints it in named
-coefficients, each defined in the fitted constants before the `v` line. Both texts run as
-Julia code once `params` and `concs` are bound.
+dimensionless whenever a normalizer can make it so (see [Normalization](@ref));
+`coefficients = true` prints it in named coefficients, each defined in the fitted constants
+before the `v` line. Both texts run as Julia code once `params` and `concs` are bound.
 `parameters(m)` returns the independent parameter symbols. `metabolites(m)`
 returns the concentration symbols the rate equation expects. `Keq` is the
 **equilibrium constant** of the overall reaction — the ratio of product to

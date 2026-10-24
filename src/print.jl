@@ -39,18 +39,17 @@ function _sum_text(p::_Poly, names::Vector{Symbol})
     (startswith(s, " + ") ? "" : "-") * chop(s; head = 3, tail = 0)
 end
 
-const _SUPERSCRIPTS = Dict(zip("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻"))
+const _SUPERSCRIPTS = Dict(zip("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹"))
 
 """
 A coefficient's name for the concentration monomial `mo` over the names `names`: `0` for
-none, else each concentration with its exponent as a superscript, positive exponents first
-and each part in variable order, joined by `_`: `A²_B`, `P_B⁻¹`.
+none, else each concentration in variable order with its exponent as a superscript, joined
+by `_`: `A²_B`.
 """
 function _conc_label(mo::_Mono, names::Vector{Symbol})
     isempty(mo) && return "0"
     sup(e) = e == 1 ? "" : String([_SUPERSCRIPTS[d] for d in string(numerator(e))])
-    join((string(names[v], sup(e))
-          for (v, e) in sort(mo; by = p -> (p.second < 0, p.first))), "_")
+    join((string(names[v], sup(e)) for (v, e) in mo), "_")
 end
 
 # ─── A law's polynomials over its normalizer ─────────────────────────────────
@@ -85,8 +84,8 @@ The polynomials `polys` of the conformation law `L` divided by its normalizer `n
 integer powers and monomial contents divide every coefficient; the other factors, an
 integer content to a fractional power included, print apart: `N` is their text, empty
 when there is none. `terms[j]` holds a `_Term` for each concentration monomial of
-`polys[j]`, in the unit rule's order (`_term_key`), divided by `nz.shift`. A coefficient
-whose polynomial factor is `N`'s one factor drops it and is not over `N`.
+`polys[j]`, in the unit rule's order (`_term_key`). A coefficient whose polynomial factor
+is `N`'s one factor drops it and is not over `N`.
 """
 function _printed(L::_Law, nz::_Norm, polys::Vector{_Poly}, subs::Vector{Int})
     D, names = _split_conc(L.D, L.vars), L.vars.names
@@ -108,12 +107,12 @@ function _printed(L::_Law, nz::_Norm, polys::Vector{_Poly}, subs::Vector{Int})
                     String[_power_text(paren(p), -e) for (p, e) in apart if e < 0])
     whole = length(apart) == 1 && apart[1][2] == 1 ? apart[1][1] : zero(_Poly)
     # `term` captures only names assigned once, so none is boxed (the loop reassigns `k`).
-    scale, inv_mu, inv_shift = k, _mpow(mu, -1), _mpow(nz.shift, -1)
+    scale, inv_mu = k, _mpow(mu, -1)
     function term(conc, q)
         c, u, rest = _content(q)
         w = rest == whole
-        _Term(_mmul(conc, inv_shift), (c // 1) / scale, _mmul(u, inv_mu),
-              w ? one(_Poly) : rest, !isempty(apart) && !w)
+        _Term(conc, (c // 1) / scale, _mmul(u, inv_mu), w ? one(_Poly) : rest,
+              !isempty(apart) && !w)
     end
     terms = Vector{_Term}[
         _Term[term(conc, q) for (conc, q) in sort!(collect(_split_conc(p, L.vars));
@@ -128,13 +127,6 @@ _group_sum(ts::Vector{_Term}, names::Vector{Symbol}) =
     join((_term_text(t.c, _mmul(t.conc, t.mo), names; rest = t.rest, over = t.over)
           for t in ts), " + ")
 
-"""`label` times the concentration monomial `conc`: `d_A * A`, `d_P_B⁻¹ * P / B`,
-`n_B⁻¹ / B`."""
-function _label_times(label::String, conc::_Mono, names::Vector{Symbol})
-    t = _term_text(1, conc, names)
-    startswith(t, "1 / ") ? label * " / " * t[5:end] : label * " * " * t
-end
-
 """
     _coefficient_sum(prefix, ts, names) -> (sum, lines)
 
@@ -147,7 +139,8 @@ function _coefficient_sum(prefix::String, ts::Vector{_Term}, names::Vector{Symbo
               !t.over
     label(t) = string(prefix, "_", _conc_label(t.conc, names))
     sum = join((unit(t) ? "1" : isempty(t.conc) ? label(t) :
-                _label_times(label(t), t.conc, names) for t in ts), " + ")
+                string(label(t), " * ", _term_text(1, t.conc, names)) for t in ts),
+               " + ")
     lines = String[string(label(t), " = ",
                           _term_text(t.c, t.mo, names; rest = t.rest, over = t.over))
                    for t in ts if !unit(t)]
@@ -324,10 +317,10 @@ divided by a normalizer that makes every term of `D` dimensionless: `D`'s consta
 when it has one, so `D` reads `1 + S/K…`; otherwise Cleland's normalizer when `D` holds
 the terms `ΠS/X` for every substrate `X` and `ΠS`, `ΠS` the product of the substrates, so
 each substrate term reads as its concentrations over their Michaelis constants; otherwise a
-product of powers of `D`'s coefficients; and when no such product has `D`'s unit, `D`'s
-first term, so terms such as `P / B` appear. Dividing by that term divides by
-concentrations, so the text can read `NaN` where one of them is zero;
-[`rate_equation`](@ref) gives the law's value there.
+product of powers of `D`'s coefficients. When no such product has `D`'s unit, the law reads
+some concentrations only through their ratio, as a rapid-equilibrium Theorell–Chance step
+`E(A) + B ⇌ E(Q) + P` makes every term carry `B` or `P`; the law then prints as derived,
+and its terms keep their units.
 A factor of the normalizer that is not a single term, or an integer to a fractional power,
 prints once as `N = …`.
 An allosteric mechanism prints each conformation's numerator `Q_A`, `Q_I`, denominator
@@ -336,12 +329,11 @@ and regulatory-site factor `W_A`, `W_I`, then the MWC combination.
 
 With `coefficients = true` the law reads in named coefficients,
 `v = E_total * n_0 * (H) / (1 + d_S * S + …)`, each named by the concentrations it
-multiplies (`d_A²_B` for `A^2 * B`, and `d_P_B⁻¹` for `P / B` in a law that reads them only
-through their ratio). That text runs as Julia code too: it destructures `params` and
-`concs`, prints the coefficient comment, `N` (`N_A`, `N_I`) when the normalizer prints, each
-coefficient's value in the fitted constants, one line each, for an allosteric law `Q_c`,
-`D_c` and `F_c` in those coefficients and the site factors `W_c`, and ends with the `v`
-line; the reference lines print only in the full law.
+multiplies (`d_A²_B` for `A^2 * B`). That text runs as Julia code too: it destructures
+`params` and `concs`, prints the coefficient comment, `N` (`N_A`, `N_I`) when the
+normalizer prints, each coefficient's value in the fitted constants, one line each, for an
+allosteric law `Q_c`, `D_c` and `F_c` in those coefficients and the site factors `W_c`,
+and ends with the `v` line; the reference lines print only in the full law.
 
 ```jldoctest
 julia> using EnzymeRates

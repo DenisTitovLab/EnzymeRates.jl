@@ -44,7 +44,7 @@ normalizer's part that is not a single term prints once as `N = …`, and every 
 term is dimensionless. A denominator that lacks one of these terms takes the next rule that
 applies ([Normalization](@ref)): a virtual constant term on the first affinely independent
 terms of a fixed order, which changes how `N` reads but never the law's value, or, when no
-weights give the denominator's unit, the ratio form.
+weights give the denominator's unit, no normalizer: the law then prints as derived.
 
 The coefficient form names each coefficient by the concentrations it multiplies:
 

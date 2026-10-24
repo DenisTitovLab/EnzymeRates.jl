@@ -2164,14 +2164,14 @@ _testhelper_term_units(units::AbstractDict, vars::EnzymeRates._Vars,
 
 Test the units of `L`, the derived law of the concrete mechanism `m` (a `_Law`, or an
 `_AlloLaw` for an allosteric `m`), against the graph's units (`_testhelper_name_units`).
-In each conformation every term of `D` has one unit, the unit rule's normalizer
-(`EnzymeRates._normalizer`) has that unit too, so each denominator term over `N` is
-dimensionless, and a numerator that is not zero makes `H·Q/D` a rate per time. The
-normalizer's weights solve the units equation per concentration: Cleland's and graded
-weights sum to 1 and weigh each concentration's exponents to 0, and the other two rules
-put one weight of 1 on `shift`. In an MWC law each regulatory site's binding polynomials
-are dimensionless and `fI·D_A` and `fA·D_I` share a unit, so the two conformations' terms
-add.
+In each conformation every term of `D` has one unit, and a numerator that is not zero
+makes `H·Q/D` a rate per time. The unit rule's normalizer (`EnzymeRates._normalizer`) has
+`D`'s unit, so each denominator term over `N` is dimensionless, unless its rule is
+`:none`, which takes no weights (`N = 1`). The constant rule puts one weight of 1 on the
+constant term; Cleland's and graded weights solve the units equation per concentration:
+they sum to 1 and weigh each concentration's exponents to 0. In an MWC law each
+regulatory site's binding polynomials are dimensionless and `fI·D_A` and `fA·D_I` share a
+unit, so the two conformations' terms add.
 """
 function _testhelper_check_units(m, L)
     units = _testhelper_name_units(m)
@@ -2186,13 +2186,16 @@ function _testhelper_check_units(m, L)
         nz = EnzymeRates._normalizer(C.D, vars, subs)
         Dc = EnzymeRates._split_conc(C.D, vars)
         uN = foldl((acc, (mo, λ)) -> plus(acc, λ .* _testhelper_unit(Dc[mo])), nz.lambda;
-                   init = _testhelper_term_units(units, vars, nz.shift))
-        @test uN == uD
-        if nz.rule in (:cleland, :graded)
-            @test sum(last, nz.lambda) == 1 && isempty(nz.shift)
-            @test iszero(sum(λ * expo(mo) for (mo, λ) in nz.lambda))
+                   init = (0 // 1, 0 // 1))
+        if nz.rule === :none
+            @test isempty(nz.lambda)
+        elseif nz.rule === :constant
+            @test nz.lambda == [EnzymeRates._Mono() => 1 // 1]
+            @test uN == uD
         else
-            @test nz.lambda == [nz.shift => 1 // 1]
+            @test nz.rule in (:cleland, :graded) && uN == uD
+            @test sum(last, nz.lambda) == 1
+            @test iszero(sum(λ * expo(mo) for (mo, λ) in nz.lambda))
         end
         iszero(C.Q) ||
             @test plus(_testhelper_unit(L.H), _testhelper_unit(C.Q)) ==
@@ -2211,12 +2214,11 @@ end
 
 """The value at `env` (by name), in BigFloat, of the normalizer `nz` of the denominator
 `D` over `vars`: Π c(m)^λ_m over `nz.lambda`, `c(m)` the coefficient of the concentration
-monomial `m` in `D`, times the monomial `nz.shift`."""
+monomial `m` in `D`, and 1 when `nz.lambda` is empty."""
 function _testhelper_norm_value(nz, D, vars, env)
     Dc = EnzymeRates._split_conc(D, vars)
-    x(v) = BigFloat(env[vars.names[v]])
     prod((_testhelper_poly_value(Dc[mo], vars, env)^BigFloat(λ) for (mo, λ) in nz.lambda);
-         init = big(1)) * prod((x(v)^BigFloat(e) for (v, e) in nz.shift); init = big(1))
+         init = big(1))
 end
 
 """
