@@ -741,9 +741,9 @@ function _offer_cv!(pool::Vector{BatchEntry}, e::BatchEntry, n::Int)
 end
 
 """
-One sweep of the beam: pop every `frontier` bucket at a count up to `target` and return
-the entries whose key `_select_count!` selects, bucket by bucket in the frontier's key
-order (each bucket holds one count). `expanded`, `best_loss_by_count` and `selected` are
+One sweep of the beam: pop every `frontier` bucket whose count is at most `target`, in the
+order the Dict yields them (each bucket holds one count), and return the entries whose
+rate-law key `_select_count!` selects. `expanded`, `best_loss_by_count` and `selected` are
 the search's state, which `_select_count!` reads and advances.
 """
 function _sweep_parents!(
@@ -879,10 +879,10 @@ function _beam_search(
     # mechanism), and its FIRST production is its best beam-selection chance —
     # the width-floor budget (`expanded_by_count`) only shrinks, the loss cutoff
     # (`best_loss_by_count` running min) only tightens, and a selected key stays
-    # selected (`selected_keys`), so, at the loss its first production read, anything
-    # a later re-production would select was selected on the first. An L phantom first
-    # fitted under its own key is the exception: re-produced once its source's law is
-    # fitted, it would read that fit's loss, which a later cutoff may admit. If
+    # selected (`selected_keys`), so a later re-production, which reads the loss its
+    # first production read, cannot be selected where the first was not. An L phantom
+    # first fitted under its own key is the exception: re-produced once its source's law
+    # is fitted, it would read that fit's loss, which a later cutoff may admit. If
     # `_select_count!` ever gains a non-monotone budget, this invariant breaks.
     seen = Set{UInt64}()
     # Every mechanism_id the run's CSVs hold, with its mechanism's text
