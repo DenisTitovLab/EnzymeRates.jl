@@ -45,8 +45,9 @@ other.
 
 The beam ranks laws, not mechanisms. Mechanisms whose laws agree up to renaming the
 fitted constants share a key, count once at the key's lowest loss, and share one fit,
-which each reads under its own names. Every member of a key the beam selects expands; a
-key the beam passes over stays out, members met later included.
+which each reads under its own names. Every member of a key the beam selects expands. A
+key the beam passes over is judged again when a later sweep meets another member, and
+at the same loss it stays out.
 
 The search walks parameter counts in ascending order. At each count it fits
 every candidate, keeps a *beam* of the most promising, and expands only those
