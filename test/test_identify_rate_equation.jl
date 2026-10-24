@@ -1939,7 +1939,8 @@ end
     # Spec section 13: the phantom is not fitted. It reads the fit of its law at
     # L = 0 from the parent, which holds that key and is fitted in the same batch, with
     # L = 0, the parent's loss and its own parameter count; its row names the parent as
-    # the fit's source, and the two rates agree.
+    # the fit's source, and the two rates agree. It then joins the frontier and the cv pool,
+    # and a sweep whose width floor admits one key expands it.
     parent, phantom = _testhelper_phantom_pair()
     prob = _testhelper_uni_prob(NamedTuple)
     @test EnzymeRates._is_phantom(EnzymeRates._law(phantom))
@@ -1970,6 +1971,15 @@ end
                           merge(e.row.params, (Keq = 10.0, E_total = 1.0)))
         @test isapprox(_testhelper_rate(p), _testhelper_rate(f); rtol = 1e-12)
     end
+    frontier = Dict{Int, Vector{EnzymeRates.BatchEntry}}()
+    cv_pool = Dict{Int, Vector{EnzymeRates.BatchEntry}}()
+    best = Dict{Int, Float64}()
+    EnzymeRates._ingest!(frontier, cv_pool, best, entries; n_cv_candidates = 5)
+    @test p in frontier[3] && p in cv_pool[3]
+    parents = EnzymeRates._sweep_parents!(frontier, 3, Dict{Int, Int}(), best,
+        Set{String}(); loss_rel_threshold = 1.3, loss_abs_threshold = 0.001,
+        loss_parsimony_threshold = 0.99, min_beam_width = 1)
+    @test p in parents
 end
 
 @testset "a phantom whose L→0 key has no fit is fitted unflagged" begin
