@@ -1082,6 +1082,8 @@ end
     frontier = Dict(3 => [a, b])
     @test EnzymeRates._sweep_parents!(frontier, 3, expanded, best, selected; kw...) == [a]
     @test isempty(frontier)
+    @test expanded == Dict(3 => 1)
+    @test selected == Set(["a"])
 
     a2, b2 = _testhelper_entry("a", 1.0, 3), _testhelper_entry("b", 5.0, 3)
     c, d = _testhelper_entry("c", 0.5, 3), _testhelper_entry("d", 0.2, 2)
@@ -1091,6 +1093,8 @@ end
     @test length(parents) == 3
     @test Set(objectid.(parents)) == Set(objectid.([a2, c, d]))
     @test isempty(frontier)
+    @test expanded == Dict(3 => 2, 2 => 1)
+    @test selected == Set(["a", "c", "d"])
 end
 
 @testset "_progress" begin
