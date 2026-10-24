@@ -2253,8 +2253,8 @@ _testhelper_pass1_canonical(m) =
 
 # ── Printed-law oracles ─────────────────────────────────────────────────────
 
-"""The exact value of an exponent a printed law writes, an integer or a ratio `(3/2)`, or
-a rendered dependent writes, a `Rational` literal (`_testhelper_power_expr`)."""
+"""The exact value of an exponent: an integer or a ratio `(3/2)` in a printed law, or a
+`Rational` literal in a rendered dependent (`_testhelper_power_expr`)."""
 _testhelper_exponent(x::Integer) = x // 1
 _testhelper_exponent(x::Rational) = x
 function _testhelper_exponent(ex::Expr)
