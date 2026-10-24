@@ -47,9 +47,9 @@ The beam ranks laws, not mechanisms. Mechanisms whose laws agree up to renaming 
 constants share a key, count once at the key's lowest loss, and share one fit, which each
 reads under its own names. An L phantom's key is the exception: a member met before the fit
 of its law at `L = 0` is fitted itself, and one met after reads that fit, so the key can
-carry two losses. A sweep expands every member it meets of a selected key; a member refused
-in an earlier sweep has left the frontier. A key the beam passes over is judged again when a
-later sweep meets another member, and at the same loss it stays out.
+carry two losses. A sweep expands every member it meets of a selected key; a member the beam
+passed over in an earlier sweep has left the frontier. A key the beam passes over is judged
+again when a later sweep meets another member, and at the same loss it stays out.
 
 The search walks parameter counts in ascending order. At each count it fits
 every candidate, keeps a *beam* of the most promising, and expands only those
