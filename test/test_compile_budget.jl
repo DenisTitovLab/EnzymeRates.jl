@@ -112,6 +112,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     #     gate), then the first rate_equation call. init_mechanisms compiles none of
     #     the @generated rate_equation body, so the first call costs what it costs in
     #     a process that never ran init_mechanisms.
+    #     The script first counts the `_rate_body` specializations in the package image.
     #   - fit: the identify path on bi-bi mechanisms, step for step as _process_batch
     #     and _cv_fold_loss take it: PASS1 (complexity, the guard, the solve and its
     #     fitted count, the law and class 5, the printed law, and the mechanism's text, id
@@ -150,6 +151,10 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         """
     cold_script = """
         using EnzymeRates
+        println("IMAGE_RATE_BODIES:", count(
+            mi -> mi.specTypes.parameters[2] in
+                  (EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism),
+            Base.specializations(only(methods(EnzymeRates._rate_body)))))
         r_uni = @enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
@@ -303,8 +308,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         """
     n, trace_out = _testhelper_count_relevant_precompiles(trace_script)
     t_uni_warm = _testhelper_parse_labeled(trace_out, ["UNI_WARM"])[1]
-    t_uni_cold, t_first = _testhelper_measure_labeled_subprocess(
-        cold_script, ["UNI_COLD", "ELAPSED"])
+    t_uni_cold, t_first, n_image = _testhelper_measure_labeled_subprocess(
+        cold_script, ["UNI_COLD", "ELAPSED", "IMAGE_RATE_BODIES"])
 
     # Trace-compile: the bi-bi init_mechanisms (the uni-uni that follows compiles
     # nothing new while reuse holds, so it adds no trace lines).
@@ -330,6 +335,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     # generator whose signature changes fails here rather than leaving the package's two
     # calls compiling nothing.
     @testset "the generator's precompile signatures compile" begin
+        @test n_image == 2
         @test precompile(EnzymeRates._rate_body, (EnzymeRates.Mechanism,))
         @test precompile(EnzymeRates._rate_body, (EnzymeRates.AllostericMechanism,))
     end
