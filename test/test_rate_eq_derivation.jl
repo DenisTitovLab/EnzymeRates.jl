@@ -1821,31 +1821,31 @@ end
     # ── Unit tests: a rendered dependent's types ─────────────────
 
     @testset "a dependent renders as a Symbol, an Expr or 1.0 with exact exponents" begin
-        bpe = _testhelper_power_expr
+        render = _testhelper_power_expr
         R = Rational{BigInt}
         # Single symbol factor (exp=1): returns bare Symbol
-        @test bpe(R(0), [(:k1f, R(1))]) === :k1f
+        @test render(R(0), [(:k1f, R(1))]) === :k1f
 
         # Single inverse factor: returns Expr
-        @test bpe(R(0), [(:k1f, R(-1))]) isa Expr
+        @test render(R(0), [(:k1f, R(-1))]) isa Expr
 
         # Keq-only: returns Symbol
-        @test bpe(R(1), Tuple{Symbol, R}[]) === :Keq
+        @test render(R(1), Tuple{Symbol, R}[]) === :Keq
 
         # Multiple factors: returns Expr
-        @test bpe(R(0), [(:k1f, R(1)), (:k2f, R(1))]) isa Expr
+        @test render(R(0), [(:k1f, R(1)), (:k2f, R(1))]) isa Expr
 
         # No factors and zero Keq: returns the Float64 literal 1.0
-        @test bpe(R(0), Tuple{Symbol, R}[]) === 1.0
+        @test render(R(0), Tuple{Symbol, R}[]) === 1.0
 
         # Keq times a factor is a valid AST node
-        @test bpe(R(1), [(:k1f, R(1))]) isa Union{Float64, Symbol, Expr}
+        @test render(R(1), [(:k1f, R(1))]) isa Union{Float64, Symbol, Expr}
 
         # A fractional exponent is an exact Rational{Int} literal, so the expression
         # evaluates exactly in BigFloat.
-        @test bpe(R(-1//2), [(:k1f, R(1//2))]) ==
+        @test render(R(-1//2), [(:k1f, R(1//2))]) ==
               Expr(:call, :*, Expr(:call, :^, :Keq, -1//2), Expr(:call, :^, :k1f, 1//2))
-        @test bpe(R(-1//2), [(:k1f, R(1//2))]).args[2].args[3] isa Rational{Int}
+        @test render(R(-1//2), [(:k1f, R(1//2))]).args[2].args[3] isa Rational{Int}
         half = @enzyme_mechanism begin
             substrates: S
             products: P
