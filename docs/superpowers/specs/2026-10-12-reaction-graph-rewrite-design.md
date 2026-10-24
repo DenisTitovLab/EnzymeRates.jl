@@ -590,11 +590,11 @@ keys; the census found such pairs, and they are fitted separately.
   fit through its own labelling, so its CSV row carries its own parameter names; a test
   fits two same-key mechanisms whose fitted names differ. The cross-validation candidate
   list (`_offer_cv!`) deduplicates by key.
-- One-subunit L phantoms (section 13) inherit the fit of the mechanism that holds the key
-  of their law at L = 0 (often the parent) when that fit was made in an earlier iteration
-  or is made in their own, and are flagged; that mechanism has another key, so section 13
-  defines how the fit maps onto the variant. Otherwise a phantom is fitted itself,
-  unflagged.
+- One-subunit L phantoms (section 13) inherit the fit of the mechanism that holds the key of
+  their law at L = 0 (often the parent) when that law holds every fitted constant but L and
+  that fit was made in an earlier iteration or is made in their own, and are flagged; that
+  mechanism has another key, so section 13 defines how the fit maps onto the variant.
+  Otherwise a phantom is fitted itself, unflagged (section 13).
 - The beam counts each key once, so duplicates cannot crowd out distinct candidates, and a
   sweep expands every member it meets of a selected key, so no law reachable through one of
   them is lost; only an L phantom's key can be refused and later selected (section 13).
