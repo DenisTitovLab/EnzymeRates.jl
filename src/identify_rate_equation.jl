@@ -169,15 +169,16 @@ either:
   per-count allowance that expands at least `min_beam_width`
   keys at each count over the whole search, then stops —
   spent once, not re-granted each time the count is revisited.
-  A selected key keeps its verdict: a mechanism found later with a
-  key already selected expands. One found later with a key already
-  rejected is judged again and, at the same loss, rejected again,
-  since the cutoff only tightens and a rejection by rank spends the
-  budget. Only an L phantom's key can be refused and later selected: a
-  member met before the fit of its law at `L = 0` is fitted itself and
-  one met after reads that fit, so the key can carry two losses, and a
-  member refused at one has left the frontier when the other selects
-  the key.
+
+A selected key keeps its verdict: a mechanism found later with a
+key already selected expands. One found later with a key already
+rejected is judged again and, at the same loss, rejected again,
+since the cutoff only tightens and a rejection by rank spends the
+budget. Only an L phantom's key can be refused and later selected: a
+member met before the fit of its law at `L = 0` is fitted itself and
+one met after reads that fit, so the key can carry two losses, and a
+member refused at one has left the frontier when the other selects
+the key.
 
 The additive term protects against `best_loss` approaching zero
 (simulated / very-low-loss data) where a purely multiplicative
