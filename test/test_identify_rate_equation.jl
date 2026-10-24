@@ -1068,7 +1068,8 @@ end
     @test selected == Set(["a"])
 end
 
-@testset "a sweep keeps each key's verdict" begin
+@testset "a later sweep expands a selected key's member, judges a refused key again and \
+          keeps the spent budget" begin
     # Two sweeps of the beam at target 3 that share one key set. Sweep 1 selects key a
     # (loss 1.0, under the cutoff 1.3) and refuses b (5.0), since a spends count 3's
     # budget of one. Sweep 2 pops two counts. At count 3 (cutoff 0.65, budget spent), a2
