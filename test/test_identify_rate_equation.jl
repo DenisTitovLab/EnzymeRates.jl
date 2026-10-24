@@ -29,6 +29,11 @@ const _testhelper_uni_seed = EnzymeRates.Mechanism(@enzyme_mechanism begin
     end
 end)
 
+# A BatchEntry of the uni seed with rate-law key `key`; selection reads only the key, the
+# loss and the count.
+_testhelper_entry(key, loss, n = 3) =
+    EnzymeRates.BatchEntry(_testhelper_uni_seed, n, loss, :Success, key, key, (;))
+
 function _testhelper_uni_prob(data_form)
     columns = (S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4],
                Rate = [0.5, 0.8, 1.0, 1.1])
@@ -1070,8 +1075,6 @@ end
     # expands by a's verdict though its loss is over the cutoff, the new key c passes the
     # cutoff, and b2 is judged again and refused; at count 2, d is within the budget. The
     # parents are compared as a set, so the frontier's bucket order cannot matter.
-    _testhelper_entry(key, loss, n) = EnzymeRates.BatchEntry(_testhelper_uni_seed, n, loss,
-                                                             :Success, key, key, (;))
     expanded, best, selected = Dict{Int,Int}(), Dict(3 => 1.0), Set{String}()
     kw = (loss_rel_threshold = 1.3, loss_abs_threshold = 0.0,
           loss_parsimony_threshold = Inf, min_beam_width = 1)
@@ -1788,8 +1791,6 @@ end
 end
 
 @testset "_offer_cv! keeps one slot per key" begin
-    _testhelper_entry(key, loss) = EnzymeRates.BatchEntry(_testhelper_uni_seed, 3, loss,
-                                                          :Success, key, key, (key = key,))
     pool = EnzymeRates.BatchEntry[]
     EnzymeRates._offer_cv!(pool, _testhelper_entry("a", 1.0), 2)
     EnzymeRates._offer_cv!(pool, _testhelper_entry("b", 2.0), 2)
