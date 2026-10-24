@@ -72,11 +72,11 @@ normalizer with `D`'s unit, chosen by the first rule that applies.
    `1 + S / K_ES_to_E_S + P / K_EP_to_E_P` above, that part is free E's weight, and `D`
    sums the enzyme forms' abundances relative to free E.
 2. **Cleland's normalizer.** When `D` holds the term `ΠS/X` for every substrate `X` and
-   the term `ΠS`, `ΠS` the product of the substrates, divide by the product of the
-   coefficients of the `ΠS/X` terms over that of `ΠS` to the power one less than the
-   number of substrates. The substrate terms then read as products of Michaelis constants,
-   `A·B·C/(K_a·K_b·K_c)`. A ping-pong bi-bi takes this rule
-   ([Ping-pong mechanisms](@ref)).
+   the term `ΠS`, `ΠS` the product of the substrates, divide by
+   `N = Π_X c(ΠS/X) / c(ΠS)^(n−1)`, `c(m)` the coefficient of the term `m` and `n` the
+   number of substrates. Each substrate term then reads as its concentrations over their
+   Michaelis constants, `A·B·C/(K_a·K_b·K_c)`. The ping-pong bi-bi of
+   [Ping-pong mechanisms](@ref) takes this rule.
 3. **Virtual constant term.** Otherwise take `D`'s terms in a fixed order (lowest total
    degree first, then fewest metabolites other than substrates, then metabolite order) and
    weigh the first affinely independent ones so that the product of their coefficients,
@@ -94,8 +94,10 @@ prints once, as the line `N = …`, and the terms it divides read `/ N`.
 ## The coefficient form
 
 `coefficients = true` prints the same law with one name per coefficient. It too runs from
-top to bottom: the `params` and `concs` lines, `N` when it prints, one line per coefficient
-in the fitted constants, then `v`. The reference lines print only in the full law.
+top to bottom: the `params` and `concs` lines, a comment line, `N` when it prints, one line
+per coefficient in the fitted constants, for an allosteric law its polynomials in those
+coefficients and its site factors, then `v`. The reference lines print only in the full
+law.
 
 ```jldoctest textbook
 julia> print(rate_equation_string(m; coefficients = true))
