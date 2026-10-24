@@ -346,17 +346,17 @@ function _select_count!(
         (cutoff = min(cutoff, loss_parsimony_threshold * minimum(smaller)))
     budget = max(0, min_beam_width - get(expanded, c, 0))
     # The keys not yet selected, in input order, each at its lowest loss.
-    fresh, lowest = String[], Dict{String,Float64}()
+    unselected, lowest = String[], Dict{String,Float64}()
     for (l, k) in zip(losses, law_keys)
         k in selected && continue
-        haskey(lowest, k) || push!(fresh, k)
+        haskey(lowest, k) || push!(unselected, k)
         lowest[k] = min(get(lowest, k, Inf), l)
     end
-    for (rank, j) in enumerate(sortperm([lowest[k] for k in fresh]))
-        k = fresh[j]
+    for (rank, j) in enumerate(sortperm([lowest[k] for k in unselected]))
+        k = unselected[j]
         (lowest[k] <= cutoff || rank <= budget) && push!(selected, k)
     end
-    expanded[c] = get(expanded, c, 0) + count(in(selected), fresh)
+    expanded[c] = get(expanded, c, 0) + count(in(selected), unselected)
     # Indices in original (input) order, so callers do not rely on the by-loss sort
     # order, a side-effect of the rank computation rather than part of the contract.
     findall(in(selected), law_keys)
