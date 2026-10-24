@@ -21,21 +21,13 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   optimizer that scores points on several threads at once, such as CMA-ES with
   `multi_threading` passed through `solver_kwargs`, would race on both buffers. Fits run
   in parallel only across `pmap` workers, each of which builds its own problem.
-- **`eq_complexity_filter` counts an allosteric mechanism's catalytic graph once.**
-  `_eq_complexity` (`src/rate_eq_derivation.jl`) measures V×τ on the whole catalytic
-  graph, which with `:OnlyI` groups holds more than the active conformation's law (15
-  against 9 on a uni-uni whose inhibitor binds two forms `:OnlyI`), while the generated
-  MWC rate equation evaluates the polynomials of both conformations, so the filter
-  undercounts what an allosteric equation costs and can admit one that evaluates more
-  terms than its limit.
 - **`BigInt` arithmetic inflates the GC's live-byte count.**
-  Three functions that compute in `BigInt` raise `Base.gc_live_bytes` by bytes that no live
+  Two functions that compute in `BigInt` raise `Base.gc_live_bytes` by bytes that no live
   object holds: the counter that `_split_gain_test` uses for a plain mechanism
-  (`_partition_independent_count`; a `Rational{BigInt}` row reduction), by 18 KiB per call;
-  `_eq_complexity` (a `BigInt` determinant, skipped for a single rapid-equilibrium segment),
-  by 15 KiB; and class 3's model point (`_model_point`, `src/admission.jl`; an integer null
-  space in `Rational{BigInt}`), by 101 KiB on the six-step bi-bi ping-pong at two
-  conformations. A 6×6 determinant outside the package does the same in `BigInt` and
+  (`_partition_independent_count`; a `Rational{BigInt}` row reduction), by 18 KiB per call,
+  and class 3's model point (`_model_point`, `src/admission.jl`; an integer null space in
+  `Rational{BigInt}`), by 101 KiB on the six-step bi-bi ping-pong at two conformations. A
+  6×6 determinant outside the package does the same in `BigInt` and
   `Rational{BigInt}`, not in `Rational{Int}`. The joint solve adds nothing, on a plain
   mechanism or on a concrete allosteric one; it runs in `Rational{Int}` on 10,226 enumerated
   bi-bi and ter-bi mechanisms without overflow. The count holds no memory and raises no
@@ -44,18 +36,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   3.5 GB. The higher peak came from mechanisms that kept vectors at the capacity their
   builds grew to; `_canonicalize` stores each at its length, and
   `test/test_reaction_graph.jl` pins it. A loop that calls one of these and prints
-  `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it. The first two figures come
-  from a random-order bi-bi of nine steady-state steps, plain and as a two-subunit
-  allosteric mechanism with `:OnlyA` on both bindings of A and on the chemical step and
-  `:EqualAI` elsewhere (Julia 1.12.5, aarch64, `--heap-size-hint=2500M`).
+  `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it. The first figure comes
+  from a plain random-order bi-bi of nine steady-state steps (Julia 1.12.5, aarch64,
+  `--heap-size-hint=2500M`).
 
-- **Splitting a tied kinetic group changes `eq_hash` without changing the model.**
-  When a square of rapid-equilibrium bindings already ties two binding constants,
-  splitting their kinetic group leaves the rate function and the fitted names unchanged,
-  but the split part's constant becomes a dependent with its own line under
-  `# Wegscheider constraints:`, and the law names it, so the printed equation and the
-  dedup key (`_rate_eq_dedup_key`, `src/identify_rate_equation.jl`) differ, and identify
-  fits both. The rename-proof key under Planned removes this.
 - **A rapid-equilibrium isomerization of a covalent intermediate can be unidentifiable.**
   In 5 of 751 enumerated plain mechanisms in the derivation probes, an isomerization such
   as `E(B; residual = A - P) ⇌ E(Q)` joins two forms whose rapid-equilibrium weights
@@ -116,22 +100,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   over the parent's 5, at one and at two subunits, and the one that stops the first half
   turns over at zero products. Without a regulator, the one allosteric child that ping-pong
   keeps at two subunits has rate 0 there.
-- **Ubuntu and windows CI miss `rate_equation`'s 120 ns gate on one spec.**
-  "LDH i-state NonequalAI 6-group, steady-state NAD group" runs in about 55 ns locally, the
-  slowest `MECHANISM_TEST_SPECS` law, so the bound leaves about 2× headroom; the ubuntu and
-  windows runners, about 2.4× slower, read 130.8-132.4 ns on it, so CI fails there on every
-  run. The bound stays. Phase 5's code generation (locals for dependents and segment sums,
-  spec section 11) is expected to cut the specs' times about 3× and restore the margin.
 
 ## Planned
 
-- **Rewrite the derivation around the reaction graph.**
-  `docs/superpowers/specs/2026-10-12-reaction-graph-rewrite-design.md` records the design,
-  decided between 2026-10-09 and 2026-10-12. One PR remains: the engine, the numerator,
-  normalization and printing, a rename-proof dedup key, identify's key cache and beam,
-  the L-phantom flag, the code-generation locals and the speed gates' re-calibration
-  (its section 15, phase 5). The table in its section 16 lists the entries it retires.
-  Priority: high.
 - **Let an allosteric ping-pong stop both half-reactions in the inactive conformation.**
   PDH and OGDH are ping-pong and allosteric, so allosteric ping-pong must stay in the
   search. With the conformations flipping only at free E, a ping-pong whose inactive
@@ -150,24 +121,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   equilibrium constant of its own, and the multi-subunit rate formula rederived for two flip
   forms. Take it up with iso mechanisms, which add free forms of their own. Priority:
   medium.
-- **Flag one-subunit K-type variants whose L is a phantom instead of fitting them.**
-  At multiplicity 1, `_expand_to_allosteric` (`src/mechanism_enumeration.jl`) emits
-  K-type variants whose L the data cannot determine, so the fitter optimizes a flat
-  direction and the beam counts the model one parameter too high. This hits every
-  reaction that allows one catalytic subunit, which is the default. The rewrite keeps the
-  variants in the frontier, since their children can carry laws that the parent's
-  children lack, but stops fitting them: a variant whose inactive conformation binds
-  nothing and does not catalyze, and whose L an exact rank test shows adds no
-  identifiable rank, takes its parent's fit with L = 0 and is flagged.
-  `docs/src/identify/enumeration_engine.md` documents the phantom. Priority: medium.
 - **Profile the first v0.9.0 HPC runs.**
   Every search-cost number on hand comes from runs made before 0.8.0: 66% of equations
   duplicated under renaming, `to_allosteric` producing 47% of LDH children, 94% of fits
   non-parsimonious. On the next LDH, PGK and PFKP runs, measure fits whose parent fails
-  the final parsimony cutoff, children and survivors per move, same-function equations
-  that `eq_hash` misses (`_rate_eq_dedup_key`, `src/identify_rate_equation.jl`),
-  zero-gain `change_allo_state` children, and how often PGK meets the one-subunit L
-  phantom. These numbers rank the open search-speed and deduplication ideas.
+  the final parsimony cutoff, children and survivors per move, same-function laws that
+  the key misses, equal only after a reparametrization (`_canonical`, `src/key.jl`),
+  zero-gain `change_allo_state` children, and how many PGK rows identify flags
+  `L_phantom`. These numbers rank the open search-speed and deduplication ideas.
   Priority: medium.
 - **Make per-regulator multiplicities such as `A(1, 2)` work.**
   The DSL parses and stores a regulator's multiplicity list (`RegulatorMults`,
@@ -180,11 +141,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   reject `I(m)` for a competitive inhibitor. Priority: medium-low.
 - **Drop `change_allo_state` relaxations that free no parameter, if measurement finds any.**
   `_expand_change_allo_state` (`src/mechanism_enumeration.jl`) has no gain test, unlike
-  the split and RE→SS moves, and in a past LDH run it produced 20 of 33 zero-gain edges,
-  each costing a fit. First count, over the bi-bi allosteric depth-2 population, the
-  children whose `_independent_param_count` does not exceed their parent's, and confirm
-  them with `_testhelper_identifiable_rank`. A naive filter can drop a different model
-  with the same count, so check reachability before filtering. Priority: medium-low.
+  the split and RE→SS moves, and in a past LDH run it produced 20 of 33 zero-gain edges.
+  A child whose law equals one already fitted, up to renaming its constants, shares that
+  fit through the key (`_canonical`, `src/key.jl`) and costs no fit; a zero-gain child
+  with a law of its own still costs one. First count, over the bi-bi allosteric depth-2
+  population, the children whose `_independent_param_count` does not exceed their
+  parent's and whose key is new, and confirm them with `_testhelper_identifiable_rank`. A
+  naive filter can drop a different model with the same count, so check reachability
+  before filtering. Priority: medium-low.
 - **Enumerate Cleland iso mechanisms.**
   The derivation handles iso mechanisms, but no enumeration move generates them, and each
   carries a dwell-time-gauge phantom unless the exact rank (see Ideas) or a
@@ -199,24 +163,39 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 ## Ideas
 
 - **Count identifiable parameters with an exact modular rank.**
-  Several phantom classes make the beam count a model above its true dimension: the
-  one-subunit L, chain flanks kept after a later split, copy-copy twin pairs,
-  `:NonequalAI` copies and the iso dwell-time gauge. The rank of ∂v/∂log θ modulo a prime
-  at random points of the rate polynomials (`src/sym_poly_for_rate_eq_derivation.jl`) is
-  exact up to a negligible failure probability, took 3.5 ms per mechanism in a prototype,
-  and has a finite-difference oracle in `_testhelper_identifiable_rank`
-  (`test/test_mechanism_enumeration.jl`). Run it over several saved runs to find the major
-  phantom classes; performance may keep it out of `src/`, where it would otherwise replace
-  the beam's parameter count. It must never filter children, since a phantom child can
-  carry families its parent lacks.
+  Several phantom classes make the beam count a model above its true dimension: chain
+  flanks kept after a later split, copy-copy twin pairs, `:NonequalAI` copies and the
+  iso dwell-time gauge. The one-subunit L has an exact test of its own: a rescaling
+  certificate (`_phantom_weights`, `src/key.jl`) finds an L phantom whose inactive
+  conformation turns nothing over, and identify lets it read the fit of its law at L = 0
+  when that law holds its other fitted constants and a mechanism with it was fitted in an
+  earlier batch or is fitted in the phantom's own.
+  The rank of ∂v/∂log θ modulo a prime at random points of the derived law (`_law`,
+  `src/engine.jl`) is exact up to a negligible failure probability, took 3.5 ms per
+  mechanism in a prototype, and has a finite-difference oracle in
+  `_testhelper_identifiable_rank`
+  (`test/mechanism_definitions_for_test_enzyme_derivation.jl`). Run it over several
+  saved runs to find the other phantom classes; performance may keep it out of `src/`,
+  where it would otherwise replace the beam's parameter count. It must never filter
+  children, since a phantom child can carry families its parent lacks.
+- **Apply the chain-flank exclusion at one catalytic subunit.**
+  The flip move keeps a chain's flanks at rapid equilibrium only in plain mechanisms
+  (`_chain_flank_groups`, `src/mechanism_enumeration.jl`): an allosteric mechanism has
+  none, since above one subunit a flank's flip can show through the two
+  conformations. At one subunit an L phantom's flank flip stays invisible, so the move
+  emits a phantom whose law at L = 0 no plain mechanism of the search holds, and
+  identify fits it as an ordinary candidate (census #3268; the phase-5 research found
+  62 such bi-bi variants on 16 keys in a sampled round 2). Applying the exclusion to
+  one-subunit variants would drop these fits; first check that no other law becomes
+  unreachable.
 - **Seed each identify fit from its mechanism's content.**
   `fit_rate_equation` (`src/fitting.jl`) draws each restart's starting point with `randn`
   from the running task's random stream, and `_process_batch`
-  (`src/identify_rate_equation.jl`) fits a batch's representatives in the iteration order
-  of a `Dict` keyed by `eq_hash`, filled in the order the moves emit the mechanisms. So a
-  change of emission order or of a law's printed text moves the starting points of every
-  later fit, and a fit-dependent test can flip with no change to any model. A seed per fit
-  from a process-stable content key, mixed with one master seed drawn per
+  (`src/identify_rate_equation.jl`) fits a batch's representatives in the iteration order of
+  a `Dict` keyed by the rate-law key (`_canonical`), filled in the order the moves emit the
+  mechanisms. So a change of emission order or of a law's key moves the starting points of
+  every later fit, and a fit-dependent test can flip with no change to any model. A seed per
+  fit from a process-stable content key, mixed with one master seed drawn per
   `identify_rate_equation` call, would make each fit independent of the processing order
   while `Random.seed!` still reproduces a run; every saved fit would move once.
 - **Test the compat bounds in a scheduled CI job.**

@@ -2274,7 +2274,7 @@ end
         end
     end
     # Every constant the rate equation names, fitted or dependent.
-    dep, indep = ER._dependent_param_exprs(typeof(allo))
+    dep, indep = _testhelper_dependent_param_exprs(typeof(allo))
     allo_names = union(keys(dep), indep)
     @test issubset([:K_A_ES_to_E_S, :K_I_ES_to_E_S], allo_names)
     @test !(:K_ES_to_E_S in allo_names)

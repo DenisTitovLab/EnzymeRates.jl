@@ -54,7 +54,7 @@ end
 # :OnlyA (inactive rate k_I = 0), P :EqualAI. Active forms E_A, EA_A, EAB_A, EP_A.
 # Inactive forms E_I, EP_I, RE-connected via P binding — a single segment with no
 # catalytic edge (that is what :OnlyA catalysis means; with A,B :OnlyA the inactive
-# state never reaches EA or EAB), so the inactive free-enzyme weight is D_I = 1.
+# state never reaches EA or EAB), so free E weighs 1 in the inactive conformation.
 # Flip ratio [X_I]/[X_A] = L·∏(K_A_i/K_I_i): free enzyme and EP (:EqualAI or bare)
 # flip with ratio L; an :OnlyA-ligand-bearing state has ratio 0 (no flip), so EA
 # and EAB never flip.
@@ -76,8 +76,8 @@ end
 
 # ── The gate: :OnlyA MWC derivation matches mass-action ground truth ─────────
 # S binds :OnlyA and catalysis is :OnlyA (k_I = 0), so the inactive conformation
-# runs no catalysis: its free-enzyme graph is a single RE segment (d_free_I = 1)
-# and the derivation takes the raw Q_A + L·Q_I normalization. The gate checks the
+# runs no catalysis: each conformation's law is one rapid-equilibrium segment and free E
+# weighs 1 in both (fA = fI = 1), so the law is H·Q_A/(D_A + L·D_I). The gate checks the
 # derived rate against the independent mass-action ground truth.
 @testset "OnlyA MWC derivation matches mass-action ground truth" begin
     onlyA = @allosteric_mechanism begin
@@ -113,15 +113,14 @@ end
     end
 
     # The inactive state neither binds S nor catalyzes, so its free-enzyme graph is a
-    # single segment and both states surface D = 1. The genuinely fragmenting
-    # cross-weight regime (D_A ≠ D_I, a metabolite-bearing inactive weight) needs a
-    # steady-state :OnlyA binding and is covered by the metabolite-bearing-D :OnlyA
-    # gate below.
+    # single segment and both conformations weigh free E 1. The cross-weight regime, where
+    # free E's weight differs between the conformations (fA ≠ fI), needs a steady-state
+    # :OnlyA binding and is covered by the metabolite-bearing-D :OnlyA gate below.
     am = ER.AllostericMechanism(onlyA)
-    _, _, dA = ER._state_rate_polys(am, :A)
-    _, _, dI = ER._state_rate_polys(am, :I)
-    @test dA == ER.poly_one()                       # single active segment
-    @test dI == ER.poly_one()                       # single inactive segment
+    A = ER._law(am)
+    @test A.active.trees[1] * A.active.shift == one(ER._Poly)       # single active segment
+    @test A.inactive.trees[1] * A.inactive.shift == one(ER._Poly)   # one inactive segment
+    @test A.fA == A.fI == one(ER._Poly)
 
     # The peak scale stays consistent with rate_equation.
     prm = NamedTuple{(fp..., :Keq, :E_total)}((1.3, 0.9, 2.1, 0.7, 3.0, 1.0))
@@ -132,9 +131,9 @@ end
 
 # ── The gate: multi-:OnlyA bi-uni derivation matches mass-action ground truth ─
 # Both A and B bind :OnlyA and catalysis is :OnlyA (k_I = 0), so the inactive
-# conformation runs no catalysis: its free-enzyme graph is a single RE segment
-# (D_I = 1) and the derivation takes the raw Q_A + L·Q_I normalization. The gate
-# checks the derived rate against the independent mass-action ground truth.
+# conformation runs no catalysis: each conformation's law is one rapid-equilibrium
+# segment and free E weighs 1 in both (fA = fI = 1), so the law is H·Q_A/(D_A + L·D_I).
+# The gate checks the derived rate against the independent mass-action ground truth.
 @testset "multi-OnlyA MWC derivation matches mass-action ground truth" begin
     multiA = @allosteric_mechanism begin
         substrates: A, B ; products: P ; catalytic_multiplicity: 1
@@ -175,13 +174,13 @@ end
 # S + B ⇌ P. S binds :OnlyA via a STEADY-STATE step (E + S <--> E(S)); B binds
 # :EqualAI at rapid equilibrium on E(S); catalysis E(S,B) <--> E(P) is
 # steady-state :OnlyA (inactive rate k_I = 0); P binds :EqualAI at rapid
-# equilibrium. Because B binds rapidly on the steady-state catalytic path, the
-# active free-enzyme spanning-tree weight D[g_free] CARRIES the metabolite B:
-# D_A = koff + k·B/K_B. The inactive conformation runs no catalysis and never
-# binds S or B (both :OnlyA), so its graph is a single rapid-equilibrium segment
-# {E_I, E(P)_I} and D_I = 1. D_A ≠ D_I — a metabolite-bearing active weight against
-# a bare inactive one — the cross-weight regime the fix re-baselines and which has
-# no other ground truth. Flip ratio [X_I]/[X_A] = L·∏(K_A/K_I): free enzyme and
+# equilibrium. Because B binds rapidly on the steady-state catalytic path, free E's
+# weight in the active conformation CARRIES the metabolite B: koff + k·B/K_B. The
+# inactive conformation runs no catalysis and never binds S or B (both :OnlyA), so its
+# graph is a single rapid-equilibrium segment {E_I, E(P)_I} and free E weighs 1 there.
+# Free E's weight differs between the conformations (fA ≠ fI), a metabolite-bearing
+# active weight against a bare inactive one: the cross-weight regime, which has no
+# other ground truth. Flip ratio [X_I]/[X_A] = L·∏(K_A/K_I): free enzyme and
 # E(P) flip (ratio L); an S-bearing state has ratio 0 (S :OnlyA), so E(S) and
 # E(S,B) never flip. Reverse catalysis kr from the Haldane relation.
 function _testhelper_metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L, Keq, S, B, P, FAST=1e7)
@@ -216,11 +215,10 @@ function _testhelper_metab_dfree_base_flux(kon, koff, KB, KP, k, Keq, S, B, P; F
 end
 
 # ── The gate: metabolite-bearing-D :OnlyA derivation matches mass-action GT ────
-# The LDH i-state re-baseline. S binds :OnlyA on the steady-state catalytic path
-# and B binds rapidly there too, so the free-enzyme spanning-tree weight D[g_free]
-# carries the metabolite B and D_A ≠ D_I. The cross-weighting `den = D_I·Q_A +
-# L·D_A·Q_I` supplies the common free-enzyme basis this regime needs; the naive
-# Q_A + L·Q_I combination gets it wrong. Regression guard.
+# The LDH i-state case. S binds :OnlyA on the steady-state catalytic path
+# and B binds rapidly there too, so free E's weight carries the metabolite B and differs
+# between the conformations (fA ≠ fI). The cross weights fA, fI supply the common
+# free-enzyme basis this regime needs; dropping them gets it wrong. Regression guard.
 @testset "metabolite-bearing-D MWC derivation matches mass-action ground truth" begin
     metabD = @allosteric_mechanism begin
         substrates: S, B ; products: P ; catalytic_multiplicity: 1
@@ -259,9 +257,9 @@ end
                 kon, koff, KB, KP, k, Keq, S, B, P); rtol=1e-4)
     end
 
-    # B = 0 puts the metabolite B in D[g_free] at zero concentration. The active
-    # steady-state S binding leaves a bare koff term in D[g_free], so a reverse path
-    # from product back to free enzyme stays open and the reverse flux survives.
+    # B = 0 zeroes the metabolite B in free E's weight. The active steady-state S
+    # binding leaves a bare koff term in free E's weight, so a reverse path from
+    # product back to free enzyme stays open and the reverse flux survives.
     kon, koff, KP, KB, k, L, Keq, S, P = 1.7, 1.1, 0.9, 0.8, 2.1, 0.7, 3.0, 1.1, 0.6
     prm = NamedTuple{(fp..., :Keq, :E_total)}((KB, KP, k, koff, kon, L, Keq, 1.0))
     v0 = real(ER.rate_equation(metabD, (S=S, B=0.0, P=P), prm))
@@ -361,8 +359,8 @@ end
 
 # ── The gate: allosteric ping-pong (single free form, formulation-1 normalization) ─
 # A ping-pong mechanism has ONE free enzyme form — the covalent intermediate
-# `E(; residual = A - P)` carries a residual, so it is not free — hence D[g_free]
-# is well-defined and the derivation normalizes it like any other mechanism (no
+# `E(; residual = A - P)` carries a residual, so it is not free — hence free E's
+# weight is well-defined and the derivation normalizes it like any other mechanism (no
 # special case, no guard). This gate confirms the derivation handles the
 # four-segment residual-bearing King–Altman and that the normalization collapses
 # correctly for identical conformations: an all-:EqualAI ping-pong must equal the
@@ -527,10 +525,10 @@ end
 # conformations on the free-enzyme segment alone and leave F out of the flip. Both
 # catalytic steps are :NonequalAI, so both conformations turn a productive cycle
 # with different rate constants (D_A ≠ D_I) and the cross term is live. The gate
-# goes red if the derivation flips F, reverts to the raw Q_A + L·Q_I combine, or
-# mis-renders the normalization. Only the raw-combine mode has a measured margin:
-# against a per-form-flip (formulation-2) oracle it deviates 0.95%-93% from the
-# derivation, orders of magnitude above the 1e-10 tolerance below.
+# goes red if the derivation flips F, drops the cross weights, or mis-renders the
+# normalization. Only the law without cross weights has a measured margin: against a
+# per-form-flip (formulation-2) oracle it deviates 0.95%-93% from the derivation,
+# orders of magnitude above the 1e-10 tolerance below.
 #
 # Because the free-enzyme flip is the only cut, the combine is algebraically exact
 # here rather than a large-FAST limit, so this gate runs far tighter than the 1e-4
@@ -731,8 +729,8 @@ function _testhelper_inert_inactive_flux(; KS, KP, k, L, Keq, S, P, FAST=1e7)
 end
 
 # ── The gate: a fully-inert inactive contributes L to the denominator ─────────
-# `den = Q_A^cat_n + L·1^cat_n`, not `Q_A^cat_n + L·0`. The inactive-state graph
-# is step-less (every binding pruned), and the derivation returns `Q_I = 1` for it.
+# `den = D_A^n + L`: the inactive conformation is free E alone (`_flip_only_law`:
+# Q = 0, D = 1).
 @testset "fully-inert inactive contributes L to the denominator" begin
     inert = @allosteric_mechanism begin
         substrates: S ; products: P ; catalytic_multiplicity: 1
@@ -769,7 +767,7 @@ end
 # A covalent intermediate carries no bound metabolite but does carry a residual.
 # Seeding I-state reachability from it makes the pruned inactive graph retain a
 # covalent island that free E cannot reach, so no spanning tree rooted at free E
-# exists and D[g_free] = 0 — the normalization then divides by zero and
+# exists and free E's weight is 0 — the normalization then divides by zero and
 # `rate_equation` is NaN at every concentration. Under formulation 1 only free
 # enzyme flips, so a component free E cannot reach holds no inactive mass and
 # must be stranded. With the F6P binding and the first half-reaction :OnlyA, the covalent
@@ -824,8 +822,8 @@ end
     _testhelper_check_law_against_oracle(half2)
     am = ER.AllostericMechanism(half2)
 
-    _, _, d_free_I = ER._state_rate_polys(am, :I)
-    @test !isempty(d_free_I)
+    inactive = ER._law(am).inactive
+    @test !iszero(inactive.trees[1] * inactive.shift)
 
     fp = ER.fitted_params(half2)
     prm = NamedTuple{(fp..., :Keq, :E_total)}(((1.3 for _ in fp)..., 3.0, 1.0))
@@ -951,14 +949,14 @@ end
 # graph topology, so D_A and D_I differ only by the catalytic rate constant. Under
 # formulation 1 (the enzyme commits to one conformation per catalytic cycle) the
 # two conformations normalize per-state, so the derivation cross-weights them. The
-# gate goes red if the derivation reverts to the raw Q_A + L·Q_I combine (which
+# gate goes red if the derivation drops the cross weights (which
 # matches a per-form-flip model, not formulation 1) or mis-renders the
 # normalization. At nprot = 1 the oligomer oracle is the free-flip-only reference
 # `_testhelper_biuni_nonequalAI_freeflip_flux` (pinned in the oligomer self-validation).
 #
 # The ^n combine also needs a LIVE inactive numerator: `:OnlyA` always yields a dead
 # inactive cycle (the guard forces an `:OnlyA` catalytic tag alongside an `:OnlyA`
-# binding), so the numerator cross term `L*N_I*D_I^(n-1)` is live only for
+# binding), so the numerator's inactive term `L*F_A^n*Q_I*D_I^(n-1)*W_I` is live only for
 # `:NonequalAI`. This is the only gate that exercises it, and the only mass-action
 # gate at n >= 2 for any family.
 @testset ":NonequalAI MWC derivation matches mass-action ground truth, 1-3 protomers" begin
@@ -1018,8 +1016,8 @@ end
         end
 
         if nprot == 1
-            # B = 0 puts the metabolite B in D[g_free] at zero concentration. The
-            # active steady-state A binding leaves a bare koff term in D[g_free], so a
+            # B = 0 zeroes the metabolite B in free E's weight. The active
+            # steady-state A binding leaves a bare koff term in free E's weight, so a
             # reverse path from product back to free enzyme stays open and the reverse
             # flux survives.
             kon, koff, KP, KB = 1.7, 1.1, 0.9, 0.8

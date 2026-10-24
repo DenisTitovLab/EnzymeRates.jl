@@ -18,20 +18,20 @@ The mechanism graph is partitioned into **rapid-equilibrium (RE) segments**
 — sets of enzyme forms linked by RE steps — connected to each other by SS
 steps.
 
-**Within each RE segment**, the package picks the form with the fewest bound
-metabolites as the **segment root** (the free-enzyme reference form), with
-ties broken toward no covalent residual and then toward the form that comes first in
-the mechanism's form order.
-Every other form in the segment gets an alpha factor — its relative abundance
-expressed as a ratio to the root.
-Referencing to the free-enzyme form is what produces the readable
-`1 + S / K_ES_to_E_S + P / K_EP_to_E_P` denominator in the final equation.
+**Within each RE segment**, the first form in the mechanism's form order is the
+**segment root**, so free E, the first form, roots its own segment. Every other form in
+the segment gets an alpha factor, its abundance relative to the root. The law in lowest
+terms does not depend on which form roots a segment. The readable
+`1 + S / K_ES_to_E_S + P / K_EP_to_E_P` denominator comes from the printer, which divides
+the law by the denominator's constant term ([Normalization](@ref)), here free E's weight.
 
 
-**Across segments**, the SS steps form an inter-segment rate matrix.
-The Cha numerator and denominator come from cofactor determinants of that
-matrix, with each diagonal entry weighted by the sigma sum of alpha factors
-for its segment.
+**Across segments**, the SS steps form an inter-segment rate matrix. The denominator
+sums, over segments, each segment's sigma (the sum of its forms' alpha factors) times its
+cofactor of that matrix, the sum of the spanning trees of the segment graph directed
+toward it. The numerator sums each SS step's forward flux times the trees toward its
+source segment, less its reverse flux times the trees toward its target, weighted by the
+copies of the first substrate the step moves.
 
 
 ## Keeping the equation finite at zero concentration
@@ -39,6 +39,9 @@ for its segment.
 The derived rate equation is **division-free in the concentrations**: no
 metabolite concentration ever appears in a denominator, so the equation contains
 no `1/[S]`-style terms anywhere.
+The printed law of a mechanism in the ratio form ([Normalization](@ref)) writes terms such
+as `P / B`, so the printed text can read `NaN` where `B` is zero. The code `rate_equation`
+runs is the law in lowest terms, free of such divisions, and gives the law's value there.
 
 This matters for fitting real data. Datasets often include measurements where a
 substrate or product concentration is exactly zero — a saturation curve that

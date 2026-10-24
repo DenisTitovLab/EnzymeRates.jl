@@ -19,7 +19,7 @@
     @test :Keq in params_mono
     # all_parameters adds exactly the dependent constants to the parameters.
     values_mono = NamedTuple{params_mono}(ntuple(_ -> 1.0, length(params_mono)))
-    dep_mono, _ = EnzymeRates._dependent_param_exprs(EnzymeRates.Mechanism(m_mono))
+    dep_mono, _ = _testhelper_dependent_param_exprs(EnzymeRates.Mechanism(m_mono))
     @test !isempty(dep_mono)
     @test Set(keys(all_parameters(m_mono, values_mono))) ==
           union(Set(params_mono), keys(dep_mono))
@@ -45,7 +45,7 @@
     @test :Keq in params_allo
     @test :E_total in params_allo
     values_allo = NamedTuple{params_allo}(ntuple(_ -> 1.0, length(params_allo)))
-    dep_allo, _ = EnzymeRates._dependent_param_exprs(am)
+    dep_allo, _ = _testhelper_dependent_param_exprs(am)
     @test !isempty(dep_allo)
     @test Set(keys(all_parameters(m_allo, values_allo))) ==
           union(Set(params_allo), keys(dep_allo))
@@ -91,7 +91,9 @@ end
 @testset "all_parameters reproduces the dependent constants of a consistent point" begin
     # The point's constants come from free energies, independently of the solve; the
     # fitted ones and Keq determine the rest. `half` has a dependent with
-    # half-integer exponents.
+    # half-integer exponents. `cube` has one with third-integer exponents (k_F_to_E
+    # through Keq^-1/3), which a Float64 exponent would miss by about 1e-16, far outside
+    # the 1e-40 tolerance.
     half = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -101,8 +103,18 @@ end
             F + S <--> E(S)
         end
     end
+    cube = @enzyme_mechanism begin
+        substrates: S, B
+        products: P
+        steps: begin
+            (E <--> F, E(S) <--> F(S), E(P) <--> F(P))
+            F + S <--> E(S)
+            F(S) + B <--> E(P)
+            F(P) <--> E + P
+        end
+    end
     rng = Random.MersenneTwister(12)
-    for m in [[s.mechanism for s in MECHANISM_TEST_SPECS]; half]
+    for m in [[s.mechanism for s in MECHANISM_TEST_SPECS]; half; cube]
         point = setprecision(() -> _testhelper_consistent_point(m, rng), BigFloat, 256)
         fitted = EnzymeRates.fitted_params(m)
         p = NamedTuple{(fitted..., :Keq)}((getindex.(Ref(point.vals), fitted)...,
@@ -120,8 +132,23 @@ end
     end
 end
 
-@testset "_evaluate_dependent reads the solve's power products only" begin
-    p = (a = 2.0, Keq = 4.0)
-    @test EnzymeRates._evaluate_dependent(:(Keq ^ -0.5 * a / a ^ 2), p) == 0.25
-    @test_throws ErrorException EnzymeRates._evaluate_dependent(:(sqrt(Keq)), p)
+@testset "all_parameters computes rational powers of Keq from the solve" begin
+    # The dependent of this conformational square is k_F_to_E = Keq^-1/2 ·
+    # k_ES_to_F_S^-1/2 · k_E_P_to_FS^-1/2 · k_E_to_F · k_FS_to_E_P^1/2 · k_F_S_to_ES^1/2
+    # (test_joint_solve.jl): 1/4 at Keq = k_ES_to_F_S = 4 and every other constant 1,
+    # and 1 once k_F_S_to_ES is 16. BigFloat inputs give the exact value.
+    half = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            (E(S) <--> F(S), E <--> F)
+            F(S) <--> E + P
+            F + S <--> E(S)
+        end
+    end
+    p = (k_E_to_F = 1.0, k_E_P_to_FS = 1.0, k_FS_to_E_P = 1.0, k_ES_to_F_S = 4.0,
+         k_F_S_to_ES = 1.0, Keq = 4.0)
+    @test all_parameters(half, p).k_F_to_E == 0.25
+    @test all_parameters(half, merge(p, (k_F_S_to_ES = 16.0,))).k_F_to_E == 1.0
+    @test all_parameters(half, map(big, p)).k_F_to_E == big(0.25)
 end

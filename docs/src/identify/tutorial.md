@@ -153,13 +153,14 @@ generating MWC mechanism so quickly here.
 The progress lines above trace the search, which is a *beam search*: it walks
 parameter counts in ascending order, and at each count it fits the candidates,
 keeps the most promising (the beam — here `min_beam_width = 10`), and expands
-the survivors into the next count. Which mechanisms stay in the beam is set by
+the survivors into the next count. Which keys enter the beam is set by
 `min_beam_width` and the `loss_rel_threshold` / `loss_abs_threshold` /
 `loss_parsimony_threshold` cutoff — see [Best mechanism selection](@ref).
 Two filters bound the search: `max_param_count` (here `5`, the generating
 mechanism's size, to keep the example quick) caps it by fitted-parameter count,
 and `eq_complexity_filter` caps it by rate-equation complexity — roughly the
-number of terms in the equation's denominator, its default passing a fully
+number of terms in the equation's denominator, both conformations together for an
+allosteric mechanism, its default passing a fully
 steady-state random-order bi-bi. Each drops a candidate before fitting it. [Best mechanism selection](@ref) also covers the cross-validation
 rule that picks the winner. The
 production search widens the beam to 50 and the cap to 20, and distributes the
@@ -204,12 +205,13 @@ it. Pass it to [`rate_equation_string`](@ref) to see the symbolic rate equation:
 print(rate_equation_string(results.best))
 ```
 
-On noiseless data the search recovers the generating MWC mechanism. The active
-and inactive conformations enter as a partition function,
-`(active polynomial)² + L·(inactive polynomial)²` — squared because the enzyme
-is a dimer — the activator contributes `(1 + A/K_A_Areg)²` to the active state,
-and the Haldane constraint fixes the dependent reverse rate `k_A_EP_to_ES` from
-`Keq` and the independent constants.
+On noiseless data the search recovers the generating MWC mechanism. Its law ends
+`v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)`: each
+conformation's denominator is squared because the enzyme is a dimer, the activator's site
+`W_A = (1 + A / K_A_Areg)^2` weighs the active conformation alone, and there is no `Q_I`,
+since the inactive conformation does not catalyze. The Haldane relation, printed as a
+reference line, fixes the dependent reverse rate `k_A_EP_to_ES` from `Keq` and the
+independent constants.
 
 `results.cv_results` is a `DataFrame` with one row per candidate equation that
 entered cross-validation, scored as detailed on the [Best mechanism selection](@ref)
@@ -224,16 +226,23 @@ first(results.cv_results[:, [:n_params, :loss, :cv_score, :cv_score_se, :mechani
 (the winning row: equation string plus fitted parameters). They sit alongside
 the per-iteration `equation_search_iteration_N.csv` files, so a cluster run's
 model-selection outcome is saved without re-running cross-validation. Every row
-names its mechanism by its text (`mechanism`) and a short id (`mechanism_id`), and a
-child names its parent's id (`parent_id`).
+names its mechanism by its text (`mechanism`) and a short id (`mechanism_id`),
+and a child names its parent's id (`parent_id`). Each row also carries its law's key
+(`key`), which mechanisms whose laws agree up to renaming the fitted constants share: the
+search fits one mechanism per key, and the others read that fit under their own names
+(`fit_inherited`, `fit_source_id`). Read the CSVs with the ids as text,
+`CSV.read(file, DataFrame; types = Dict(:mechanism_id => String, :parent_id => String,
+:fit_source_id => String))`; [Best mechanism selection](@ref) lists every column.
 
 ## Loud failures
 
-A mechanism that throws during compilation or fitting becomes a `FitFailure`
-carrying the exception text. Failures are never silently discarded: each one is a
-row of the search CSVs (`initial_mechanisms.csv` and
-`equation_search_iteration_N.csv`) with `error` set and `retcode` missing. A
-failure never enters cross-validation, so `cv_results` holds none. If every
+A mechanism that throws while its rate law is derived, compiled or fitted becomes a
+`FitFailure` carrying the exception text. A fitted parent whose expansion throws gets a
+failure row too and keeps its fitted row. Failures are never silently discarded: each
+one is a row of the search CSVs (`initial_mechanisms.csv` and
+`equation_search_iteration_N.csv`) with `error` set and `retcode` missing.
+Cross-validation reads only fitted rows, so a mechanism that failed before its fit never
+enters `cv_results`. If every
 mechanism in the base tier fails, the search raises an error quoting the first
 failure's message, so an unsupported optimizer keyword or a memory overflow
 surfaces immediately rather than being swallowed.

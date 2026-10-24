@@ -1,5 +1,5 @@
-# ABOUTME: Byte-identical golden reference for allosteric rate-equation strings
-# ABOUTME: and parameter lists; guards the D1 state-parameterized re-derivation.
+# ABOUTME: Byte-identical golden reference for the allosteric specs' printed laws, in full
+# ABOUTME: and in coefficients, and for their parameter lists.
 using Test
 
 const _ALLO_GOLDEN_PATH =
@@ -14,6 +14,9 @@ function _testhelper_allosteric_golden_lines()
         push!(lines, "### " * spec.name)
         eq_string = EnzymeRates.rate_equation_string(m)
         push!(lines, "RATE_EQUATION_STRING " * replace(eq_string, "\n" => "\\n"))
+        push!(lines, "RATE_EQUATION_COEFFICIENTS " *
+                     replace(EnzymeRates.rate_equation_string(m; coefficients = true),
+                             "\n" => "\\n"))
     end
     lines
 end
@@ -21,9 +24,10 @@ end
 @testset "allosteric golden reference (D1)" begin
     # The per-spec mass-action oracle of test_rate_eq_derivation.jl
     # (`_testhelper_test_mass_action_oracle`) checks each spec's law, with one catalytic
-    # subunit, against the exact steady state of the spec's mass-action network, and the
+    # subunit, against the exact steady state of the spec's mass-action network; the
     # per-spec string check (`_testhelper_test_rate_equation_string`) ties the printed
-    # string to the compiled law.
+    # string to the compiled law, and test_print.jl ties both printed forms to the
+    # derived law.
     @test isfile(_ALLO_GOLDEN_PATH)
     current = _testhelper_allosteric_golden_lines()
     reference = readlines(_ALLO_GOLDEN_PATH)

@@ -41,6 +41,7 @@ end
 
 parameters(m)                              # parameter names to supply
 print(rate_equation_string(m))             # the symbolic rate equation
+print(rate_equation_string(m; coefficients = true))  # the law in named coefficients
 rate_equation(m, (S=1e-4, P=1e-5),        # evaluate numerically
     (K_EP_to_E_P=1e-5, K_ES_to_E_S=1e-4, k_ES_to_EP=100.0, Keq=2.0, E_total=1.0))
 ```

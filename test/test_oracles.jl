@@ -350,7 +350,7 @@ end
 
     @testset "a dependent with a half-integer exponent matches the oracle" begin
         # The conformational square ties two isomerizations of one group, so the
-        # Haldane relation fixes k_F_to_E through square roots (Keq ^ -0.5 · …).
+        # Haldane relation fixes k_F_to_E through square roots (Keq ^ -1//2 · …).
         half = @enzyme_mechanism begin
             substrates: S
             products: P
@@ -360,13 +360,13 @@ end
                 F + S <--> E(S)
             end
         end
-        dep, _ = EnzymeRates._dependent_param_exprs(typeof(half))
-        @test any(ex -> occursin("^ -0.5", string(ex)), values(dep))
+        dep, _ = _testhelper_dependent_param_exprs(typeof(half))
+        @test any(ex -> occursin("Keq ^ -1//2", string(ex)), values(dep))
         _testhelper_check_law_against_oracle(half)
         # A 1% error in Keq moves the dependent constant, and the oracle sees it.
         rng = Random.MersenneTwister(3)
         point = setprecision(() -> _testhelper_consistent_point(half, rng), BigFloat, 256)
-        fitted = EnzymeRates._dependent_param_exprs(typeof(half))[2]
+        fitted = _testhelper_dependent_param_exprs(typeof(half))[2]
         params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
         params[:Keq] = point.Keq * big"1.01"
         concs = Dict{Symbol, BigFloat}(:S => big"0.7", :P => big"1.3")
@@ -376,13 +376,44 @@ end
     end
 end
 
-@testset "Detailed balance over a regenerated population" begin
+@testset "the derived laws of the population sample are exact, positive and balanced" begin
+    # Spec section 14: each sampled law, derived from the concrete mechanism at one
+    # catalytic subunit, equals the exact steady state at two points, holds positive
+    # coefficients in each conformation's Q, vanishes at equilibrium, per conformation
+    # and combined, and has one unit per denominator, which its normalizer shares
+    # (`_testhelper_check_units`). Both printed forms of each law equal it at a further
+    # point, with no printing artifact.
     @test count(m -> m isa EnzymeRates.AllostericMechanism,
                 _testhelper_population_sample) >= 30
     for (i, m) in enumerate(_testhelper_population_sample)
         @testset "population mechanism $i" begin
+            mech = _testhelper_single_subunit(m)
+            s = EnzymeRates._solve(mech)
+            L = EnzymeRates._law(mech, s)
+            rng = Random.MersenneTwister(i)
+            for _ in 1:2
+                point, concs, params = _testhelper_law_inputs(mech, s.fitted, rng)
+                oracle = _testhelper_steady_state_rate(mech, point, concs)
+                law = _testhelper_evaluate_law(L, merge(params, concs))
+                @test abs(law - oracle) <= big(10)^-20 * abs(oracle)
+            end
+            Qs = L isa EnzymeRates._Law ? [L.Q] : [L.active.Q, L.inactive.Q]
+            @test all(Q -> all(>(0), values(Q.terms)), Qs)
             @test all(<(big(10)^-30),
                       _testhelper_detailed_balance(m, Random.MersenneTwister(i)))
+            _testhelper_check_units(mech, L)
+            # The printed law and its coefficient form of the law above, read back in
+            # 256-bit BigFloat, equal it at a consistent point, with no printing artifact.
+            full = EnzymeRates._law_text(mech, s, L)
+            coef = EnzymeRates._law_text(mech, s, L; coefficients = true)
+            @test isempty(_testhelper_print_artifacts(full)) &&
+                  isempty(_testhelper_print_artifacts(coef))
+            _, pconcs, pparams = _testhelper_law_inputs(mech, s.fitted,
+                                                        Random.MersenneTwister(1000 + i))
+            law = _testhelper_evaluate_law(L, merge(pparams, pconcs))
+            p = merge(pparams, Dict(:E_total => big(1)))
+            @test all(t -> abs(_testhelper_eval_rate_string(t, p, pconcs) - law) <=
+                           big(10)^-20 * abs(law), (full, coef))
         end
     end
 end
@@ -400,14 +431,27 @@ end
     @test n_inactive_checked == 5
 end
 
-@testset "Laws over a regenerated population" begin
-    @testset "every sampled law matches the exact oracle" begin
-        for (i, m) in enumerate(_testhelper_population_sample)
-            _testhelper_check_law_against_oracle(EnzymeRates.compile_mechanism(m);
-                                                 n_points = 2, seed = i, compiled = false)
-        end
+"""The regroupings of `m` that keep its model: each split of one group by a context
+bipartition (`_context_bipartitions`) that the guard accepts and that keeps the
+independent count."""
+function _testhelper_same_model_regroupings(m)
+    n = EnzymeRates._independent_param_count(m)
+    cm = EnzymeRates.catalytic(m)
+    kept = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
+    for g in 1:EnzymeRates.ngroups(cm), bp in EnzymeRates._context_bipartitions(cm, g)
+        child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
+        EnzymeRates._is_well_posed(child) &&
+            EnzymeRates._independent_param_count(child) == n && push!(kept, child)
     end
+    kept
+end
 
+# The same-model regroupings of each mechanism of `_testhelper_population_sample`, in its
+# order, computed once for the two testsets that read them (the guard runs on every child).
+const _testhelper_sample_regroupings =
+    map(_testhelper_same_model_regroupings, _testhelper_population_sample)
+
+@testset "Laws over a regenerated population" begin
     @testset "fitted counts equal the declared dimension" begin
         # Success criterion 4: a phantom or folded fitted name would raise the count
         # above the dimension the test counts on its own.
@@ -429,7 +473,7 @@ end
                             for ns in EnzymeRates._edge_names(m, state) for n in ns)
             reg = Set(EnzymeRates.name(p, m) for state in (:A, :I)
                       for p in EnzymeRates._kreg_params(m, state))
-            fitted = EnzymeRates._dependent_param_exprs(m)[2]
+            fitted = _testhelper_dependent_param_exprs(m)[2]
             append!(stray, setdiff(fitted, law_names, reg, (:L,)))
         end
         @test isempty(stray)
@@ -440,17 +484,12 @@ end
         # unchanged, and it leaves every fitted name unchanged too (E3). Only a split the
         # exit keeps counts: one the guard accepts (`_is_well_posed`).
         n_plain, n_allo = 0, 0
-        for m in _testhelper_population_sample
-            names = Set(EnzymeRates._dependent_param_exprs(m)[2])
-            n = EnzymeRates._independent_param_count(m)
-            cm = EnzymeRates.catalytic(m)
-            for g in 1:EnzymeRates.ngroups(cm),
-                bp in EnzymeRates._context_bipartitions(cm, g)
-                child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
-                EnzymeRates._is_well_posed(child) || continue
-                EnzymeRates._independent_param_count(child) == n || continue
+        for (m, regrouped) in zip(_testhelper_population_sample,
+                                  _testhelper_sample_regroupings)
+            names = Set(_testhelper_dependent_param_exprs(m)[2])
+            for child in regrouped
                 m isa EnzymeRates.Mechanism ? (n_plain += 1) : (n_allo += 1)
-                @test Set(EnzymeRates._dependent_param_exprs(child)[2]) == names
+                @test Set(_testhelper_dependent_param_exprs(child)[2]) == names
             end
         end
         @test n_plain >= 20
@@ -497,7 +536,7 @@ end
             regulatory_site(2): R::EqualAI
         end
         dep, indep =
-            EnzymeRates._dependent_param_exprs(EnzymeRates.AllostericMechanism(b10))
+            _testhelper_dependent_param_exprs(EnzymeRates.AllostericMechanism(b10))
         @test :K_Rreg in indep
         @test !any(k -> occursin("Rreg", string(k)), keys(dep))
         _testhelper_check_law_against_oracle(b10)
@@ -948,7 +987,7 @@ end
                                              (:uu_ss, (E_, E_, E_, N_), 3)))
         m = eval(Meta.parse(_testhelper_iso_text(family, tags; n)))
         am = EnzymeRates.AllostericMechanism(m)
-        fitted = EnzymeRates._dependent_param_exprs(typeof(m))[2]
+        fitted = _testhelper_dependent_param_exprs(typeof(m))[2]
         rng = Random.MersenneTwister(100 + i)
         point, concs, params = _testhelper_law_inputs(am, fitted, rng)
         exact = setprecision(() -> _testhelper_protomer_rate(am, point, concs; n),
@@ -961,7 +1000,7 @@ end
     am = EnzymeRates.AllostericMechanism(m)
     eprime = only(f for f in 2:length(am.catalytic.forms)
                   if EnzymeRates._is_free(am.catalytic.forms[f]))
-    fitted = EnzymeRates._dependent_param_exprs(typeof(m))[2]
+    fitted = _testhelper_dependent_param_exprs(typeof(m))[2]
     rng = Random.MersenneTwister(201)
     for _ in 1:3
         point, concs, params = _testhelper_law_inputs(am, fitted, rng)
@@ -982,7 +1021,7 @@ end
              if EnzymeRates._is_free(cm.forms[f]) &&
                 cm.conformations[cm.forms[f].conformation] === :D)
     kd = only(j for (j, e) in enumerate(cm.edges) if Set((e.from, e.to)) == Set((1, d)))
-    fitted = EnzymeRates._dependent_param_exprs(typeof(m))[2]
+    fitted = _testhelper_dependent_param_exprs(typeof(m))[2]
     rng = Random.MersenneTwister(202)
     for _ in 1:3
         point, concs, params = _testhelper_law_inputs(am, fitted, rng)
@@ -1004,10 +1043,10 @@ end
     # guard rejects two of them; the identities hold for their laws as well.
     for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
         @testset "$label" begin
-            _testhelper_check_law_against_limit(am; seed = 400 + i)
+            _testhelper_check_law_against_limit(am; seed = 300 + i)
             rng = Random.MersenneTwister(450 + i)
             @test all(<(big(10)^-30), _testhelper_detailed_balance(am, rng))
-            @test length(EnzymeRates._dependent_param_exprs(am)[2]) ==
+            @test length(_testhelper_dependent_param_exprs(am)[2]) ==
                   _testhelper_declared_dimension(am)
         end
     end
@@ -1021,7 +1060,7 @@ end
         label in (:copy_group_bridge, :essential_activator) && continue
         @testset "$label" begin
             em = EnzymeRates.compile_mechanism(am)
-            fitted = EnzymeRates._dependent_param_exprs(am)[2]
+            fitted = _testhelper_dependent_param_exprs(am)[2]
             @test EnzymeRates.fitted_params(em) == fitted
             point, concs, params = _testhelper_law_inputs(am, fitted,
                                                           Random.MersenneTwister(600 + i))
@@ -1210,7 +1249,16 @@ end
     end
 end
 
-# The next two testsets read one population, built in a let block around them so that the
+"""60 children of `children` that bind I, spaced evenly through their content order
+(`_testhelper_content_text`); when fewer than 60 bind I, some repeat."""
+function _testhelper_i_binding_sample(children)
+    binds_i = unique!([c for c in children
+                       if any(x -> x.name === :I, EnzymeRates.catalytic(c).table)])
+    sorted = binds_i[sortperm(_testhelper_content_text.(binds_i))]
+    sorted[round.(Int, range(1, length(sorted); length = 60))]
+end
+
+# The next three testsets read one population, built in a let block around them so that the
 # collector frees it after them: the children the moves give the inhibitor declaration's
 # seeds before expand_mechanisms drops the ones the guard rejects.
 let children = [c for m in EnzymeRates.init_mechanisms(_testhelper_inhibitor_rxn)
@@ -1232,16 +1280,53 @@ end
     # every face that zeroes I the guard's class-3 verdict agrees with the RE-speed oracle
     # at one point.
     rng = Random.MersenneTwister(405)
-    binds_i = unique!([c for c in children
-                       if any(x -> x.name === :I, EnzymeRates.catalytic(c).table)])
-    @test length(binds_i) >= 60
-    sorted = binds_i[sortperm(_testhelper_content_text.(binds_i))]
-    for c in sorted[round.(Int, range(1, length(sorted); length = 60))]
+    sample = _testhelper_i_binding_sample(children)
+    # At least 60 children bind I, so the 60 spaced picks are distinct.
+    @test allunique(sample)
+    for c in sample
         modifier_faces = findall(face -> :I in face, _testhelper_faces(c))
         @test !isempty(modifier_faces)
         faults = _testhelper_face_faults(c)
         verdicts = _testhelper_respeed_verdicts(c; rng)
         @test all(f -> _testhelper_agrees(faults[f], verdicts[f]), modifier_faces)
+    end
+end
+
+@testset "laws that share a key are one law under the canonical map" begin
+    # Spec section 14: the sample, the 60 I-binding inhibitor children, and every
+    # tagging child of ten catalytic graphs of the one-round population, whose siblings
+    # often share a law (tag sets that differ only on groups the inactive conformation
+    # never reaches, or only in names). Members of one key evaluate alike with constants
+    # mapped by canonical position, and swapping two of them breaks the map.
+    by_graph = Dict{EnzymeRates.Mechanism, Vector{EnzymeRates.AllostericMechanism}}()
+    for m in _testhelper_population_one_round
+        m isa EnzymeRates.AllostericMechanism || continue
+        push!(get!(by_graph, m.catalytic, EnzymeRates.AllostericMechanism[]), m)
+    end
+    graphs = sort!(collect(keys(by_graph)); by = _testhelper_content_text)
+    siblings = reduce(vcat, [by_graph[g] for g in
+                             graphs[round.(Int, range(1, length(graphs); length = 10))]])
+    # A mechanism listed twice would form a merged group with itself.
+    pool = unique!([_testhelper_population_sample; _testhelper_i_binding_sample(children);
+                    siblings])
+    keyed = Dict{String, Vector{Any}}()
+    for m in pool
+        L = EnzymeRates._law(m)
+        c = EnzymeRates._canonical(L, EnzymeRates._mechanism_id(sprint(show, m)))
+        @test !c.capped
+        push!(get!(keyed, c.key, Any[]), (L, c))
+    end
+    merged = [v for v in values(keyed) if length(v) > 1]
+    @test !isempty(merged)
+    rng = Random.MersenneTwister(613)
+    for group in merged
+        (L1, c1) = group[1]
+        for (L2, c2) in group[2:end]
+            @test _testhelper_same_law_under_map(L1, L2, c1.order, c2.order; rng)
+        end
+        length(c1.order) >= 2 || continue
+        (L2, c2) = group[2]
+        @test !_testhelper_same_law_under_map(L1, L2, c1.order, c2.order; rng, swap = true)
     end
 end
 end
@@ -1343,4 +1428,110 @@ end
         end
     end
     @test n_regrouped >= 20
+end
+
+@testset "rewrites, regroupings and constant renames keep every sampled key" begin
+    # Spec section 14: writing a mechanism backwards, regrouping it without changing
+    # its model, and renaming its fitted constants change no law and no key, and the
+    # canonical order maps one labelling onto the other. A same-model regrouping keeps
+    # every fitted name too ("a same-model regrouping keeps every fitted name").
+    rng = Random.MersenneTwister(612)
+    n_regrouped = 0
+    for (m, regrouped) in zip(_testhelper_population_sample, _testhelper_sample_regroupings)
+        L = EnzymeRates._law(m)
+        c = EnzymeRates._canonical(L, "q2")
+        @test !c.capped
+        back = EnzymeRates._law(_testhelper_written_backwards(m))
+        @test EnzymeRates._canonical(back, "q2").key == c.key
+        for child in regrouped
+            n_regrouped += 1
+            Lc = EnzymeRates._law(child)
+            cc = EnzymeRates._canonical(Lc, "q2")
+            @test cc.key == c.key
+            @test _testhelper_same_law_under_map(L, Lc, c.order, cc.order; rng)
+        end
+        constants = filter(x -> x ∉ (:Keq, :L), L.vars.names[.!L.vars.conc])
+        rename = Dict(zip(constants, shuffle(rng, constants)))
+        R = _testhelper_renamed_law(L, rename)
+        r = EnzymeRates._canonical(R, "q2")
+        @test r.key == c.key
+        @test Set(r.order) == Set(rename[x] for x in c.order)
+        @test _testhelper_same_law_under_map(L, R, c.order, r.order; rng)
+    end
+    @test n_regrouped >= 70
+end
+
+# ── L phantoms over regenerated populations ─────────────────────────────────
+
+# The census bi-bi reaction at one catalytic subunit, whose init mechanisms' tagging
+# children make up the bi-bi L-phantom population tested below.
+const _testhelper_phantom_bibi_rxn = @enzyme_reaction begin
+    substrates: A[C], B[N]
+    products: P[C], Q[N]
+end
+
+# The census ping-pong declaration at one catalytic subunit, whose ping-pong parents'
+# tagging children make up the ping-pong L-phantom population tested below.
+const _testhelper_phantom_pingpong_rxn = @enzyme_reaction begin
+    substrates: A[CX], B[N]
+    products: P[C], Q[NX]
+    allosteric_regulators: R
+    shared_catalytic_site: (A, P)
+end
+
+"""`n` of the mechanisms `ms`, spaced evenly through their content order
+(`_testhelper_content_text`), or all of them when there are at most `n`."""
+function _testhelper_spaced(ms, n)
+    sorted = ms[sortperm(_testhelper_content_text.(ms))]
+    length(sorted) <= n ? sorted :
+        sorted[round.(Int, range(1, length(sorted); length = n))]
+end
+
+"""The well-posed tagging children (`_expand_to_allosteric`) of `parents` over `rxn`,
+without duplicates, in content order (`_testhelper_content_text`)."""
+function _testhelper_tagging_children(parents, rxn)
+    kids = unique!([c for p in parents for c in EnzymeRates._expand_to_allosteric(p, rxn)
+                    if EnzymeRates._is_well_posed(c)])
+    kids[sortperm(_testhelper_content_text.(kids))]
+end
+
+@testset "every flagged one-subunit bi-bi variant is its L→0 law's family" begin
+    # Spec section 13: the tagging children of 40 bi-bi init mechanisms spaced
+    # through their content order, 200 of them spaced the same way. Each variant
+    # `_is_phantom` flags reproduces its law at L = 0 under the certificate's rescaling, so
+    # its family is that law's and no flagged variant gains rank; the rank oracle confirms
+    # it on the first four. The counts are aggregate regression pins over the
+    # declaration's seed set (CLAUDE.md enumeration rule 1's exception).
+    rxn = _testhelper_phantom_bibi_rxn
+    parents = _testhelper_spaced(collect(EnzymeRates.init_mechanisms(rxn)), 40)
+    kids = _testhelper_spaced(_testhelper_tagging_children(parents, rxn), 200)
+    @test length(kids) == 200
+    flagged = [am for am in kids if EnzymeRates._is_phantom(EnzymeRates._law(am))]
+    @test length(flagged) == 69
+    rng = Random.MersenneTwister(505)
+    @test all(am -> _testhelper_phantom_map_holds(am; rng), flagged)
+    for am in first(flagged, 4)
+        @test _testhelper_identifiable_rank(am) ==
+              _testhelper_identifiable_rank(EnzymeRates.catalytic(am))
+    end
+end
+
+@testset "no one-subunit ping-pong tagging child is an L phantom" begin
+    # The tagging children at one catalytic subunit of 30 ping-pong parents,
+    # the covalent init mechanisms and their well-posed covalent flips, spaced through
+    # their content order. Every child keeps a step in the inactive conformation, and
+    # none has a certificate, so none is an L phantom. The counts are aggregate
+    # regression pins over the declaration's seed set (CLAUDE.md enumeration rule 1's
+    # exception).
+    rxn = _testhelper_phantom_pingpong_rxn
+    covalent(m) = any(EnzymeRates._has_residual, m.forms)
+    inits = filter(covalent, collect(EnzymeRates.init_mechanisms(rxn)))
+    flips = [c for m in inits for c in EnzymeRates._expand_re_to_ss(m)
+             if EnzymeRates._is_well_posed(c) && covalent(c)]
+    parents = _testhelper_spaced(unique!([inits; flips]), 30)
+    @test length(parents) == 30
+    kids = _testhelper_tagging_children(parents, rxn)
+    @test length(kids) == 172
+    @test all(am -> any(EnzymeRates._inactive_mask(am)), kids)
+    @test all(am -> isempty(EnzymeRates._phantom_weights(EnzymeRates._law(am))), kids)
 end

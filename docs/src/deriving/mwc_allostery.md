@@ -112,47 +112,48 @@ and off-rate constants, which is exactly the equilibrium constant the RE
 treatment already uses, and the two rates would not be separately identifiable
 from rate data.
 
-For a mechanism with catalytic multiplicity `cat_n`, the package normalizes each
-conformation to its own free-enzyme population and combines the two:
+For a mechanism with catalytic multiplicity `n`, the package derives each conformation's
+law on the graph it keeps (the active conformation without its `:OnlyI` groups, the
+inactive one without its `:OnlyA` groups, each without the forms that dropping those groups
+cuts off from free E) and combines the two:
 
 ```
-v = E_total * num / den
-num = (N_A/D_A) * (Q_A/D_A)^(cat_n-1) * W_A + L * (N_I/D_I) * (Q_I/D_I)^(cat_n-1) * W_I
-den = (Q_A/D_A)^cat_n * W_A                 + L * (Q_I/D_I)^cat_n                 * W_I
+v = E_total * (H) * (F_I^n * Q_A * D_A^(n-1) * W_A + L * F_A^n * Q_I * D_I^(n-1) * W_I) /
+                    (F_I^n * D_A^n * W_A + L * F_A^n * D_I^n * W_I)
 ```
 
-`N_A`, `Q_A` are the active state's catalytic numerator and partition function
-(the King–Altman/Cha polynomials for the catalytic cycle, on the active-state
-graph with its `:OnlyI` groups pruned), and `D_A` is free E's
-weight in `Q_A`: the spanning-tree weight of its free-enzyme segment, times the
-concentration monomial with which the derivation clears reciprocal concentrations.
-`N_I`, `Q_I`, `D_I` are the
-inactive-state counterparts, derived the same way from the inactive-state graph —
-`:OnlyA` groups pruned, `:EqualAI` groups keeping the shared active-state
-constants, and `:NonequalAI` groups carrying their own I-state names. `W_A`,
-`W_I` are products of the regulatory-site factors `(1 + lig/K)^m`, and `L`
-weights the inactive branch throughout.
+`H = Π[S] − Π[P]/Keq` is the Haldane factor both conformations share. `Q_A` is the active
+conformation's numerator over `H` and `D_A` its denominator, the King–Altman/Cha
+polynomials of its catalytic graph; `F_A` is free E's weight in `D_A`, the spanning-tree
+sum of free E's segment times the concentration monomial that brings the law to lowest
+terms. `Q_I`, `D_I` and `F_I` are the inactive conformation's, with `:EqualAI` groups
+keeping the shared constants and `:NonequalAI` groups their own `I` names. `W_A` and `W_I`
+multiply the regulatory-site factors `(1 + X/K)^m`, and `L` weighs the inactive branch.
+Each branch carries the other conformation's free-E weight, so both stand on free E, where
+the conformations interconvert; that keeps a bare rate constant out of the `L` term.
 
-The free-enzyme weight `D` is `1` whenever the catalytic graph is a single
-rapid-equilibrium segment without a ping-pong covalent form — the common case,
-where `Q/D = Q` and the equation is the textbook MWC form. `D` differs from `1`
-when an `:OnlyA`/`:OnlyI` binding fragments the graph, a steady-state binding
-splits it into segments, or a covalent form shares free E's segment: such a form
-sits at a reciprocal concentration relative to free E (`Q/B`, say), and clearing
-it gives free E the weight `B`. The normalization then keeps the two
-conformations on a common free-enzyme basis,
-which is what stops a bare rate constant from leaking into the `L`-term. The
-package divides `Q/D` directly when `D` is a single rate constant — giving the
-readable `1 + [S]/K + …` form — and clears the fraction to a polynomial when `D`
-carries a metabolite.
-When the `:OnlyA` groups stop every catalytic cycle of the inactive conformation, as the
-tagging move's bases do, its numerator `N_I` is 0: the inactive branch still contributes
-to the denominator as enzyme mass but carries no forward flux.
+The printed law lists these polynomials by name. Each conformation's `Q`, `D` and `F` are
+divided by that conformation's own normalizer, `N_A` or `N_I` ([Normalization](@ref)),
+which the combination does not see, so every term of `D_A` and `D_I` is dimensionless.
+`F_A` and `F_I` print only when they differ. They are 1 whenever each conformation's
+denominator has a constant term and the graph it keeps is one rapid-equilibrium segment,
+with E its only free form and no covalent form. That is the common case, and the law is
+then the textbook MWC form. When the `:OnlyA` groups stop every
+catalytic cycle of the inactive conformation, as the tagging move's tag sets do, the law
+has no `Q_I`: the inactive branch adds enzyme to the denominator and no flux. When the
+inactive conformation is free E alone, the
+law has no `D_I` either, and its branch of the denominator is `L` times `F_A^n` and `W_I`,
+each left out when it is 1. With `coefficients = true` each polynomial reads in named
+coefficients (`dA_S` for the coefficient of `S` in `D_A`, `nI_0` for the constant term of
+`Q_I`).
 
-In the printed equation above `cat_n = 2`, so each partition function is squared:
-the active branch carries `(1 + A / K_A_Areg) ^ 2` and a trivial `1 ^ 2` from the
-inhibitor site (absent in the active state), and the inactive branch mirrors it
-with `(1 + I / K_I_Ireg) ^ 2`.
+In the printed equation above `n = 2`, so each `D` is squared in the denominator, the
+activator's site gives `W_A = (1 + A / K_A_Areg)^2`, and the inhibitor's
+`W_I = (1 + I / K_I_Ireg)^2`.
+
+The term cap counts both conformations: a law whose two conformations hold more than 5,000
+spanning-tree products together is refused, and identify's `eq_complexity_filter` compares
+the same sum.
 
 ## Tags as limits, and admission
 
@@ -277,7 +278,7 @@ ratio fixed. This is the thermodynamically consistent form of a **K-system**, an
 it needs two coupled `:NonequalAI` bindings, not one.
 
 Often a K-system uses exclusive `:OnlyA` binding: the substrate binds the active
-state alone, and the inactive cycle is pruned (`N_I = 0`). Its catalytic step
+state alone, and the inactive cycle is pruned (no `Q_I`). Its catalytic step
 **must** be `:OnlyA` too. This is a thermodynamic requirement, not a convention: with
 `:EqualAI` or `:NonequalAI` catalysis and an `:EqualAI` product binding, the inactive
 conformation still joins E to E(S) through catalysis and product release, so no path takes
