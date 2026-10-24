@@ -165,11 +165,12 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Count identifiable parameters with an exact modular rank.**
   Several phantom classes make the beam count a model above its true dimension: chain
   flanks kept after a later split, copy-copy twin pairs, `:NonequalAI` copies and the
-  iso dwell-time gauge. The one-subunit L has an exact test of its own: identify finds
-  an L phantom whose inactive conformation turns nothing over by a rescaling certificate
-  (`_phantom_weights`, `src/key.jl`) and, when a mechanism with its law at L = 0 was
-  fitted in an earlier batch or is fitted in the phantom's own, lets it read that fit. The
-  rank of ∂v/∂log θ modulo a prime at random points of the derived law (`_law`,
+  iso dwell-time gauge. The one-subunit L has an exact test of its own: a rescaling
+  certificate (`_phantom_weights`, `src/key.jl`) finds an L phantom whose inactive
+  conformation turns nothing over, and identify lets it read the fit of its law at L = 0
+  when that law holds its other fitted constants and a mechanism with it was fitted in an
+  earlier batch or is fitted in the phantom's own.
+  The rank of ∂v/∂log θ modulo a prime at random points of the derived law (`_law`,
   `src/engine.jl`) is exact up to a negligible failure probability, took 3.5 ms per
   mechanism in a prototype, and has a finite-difference oracle in
   `_testhelper_identifiable_rank`
