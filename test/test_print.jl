@@ -227,6 +227,26 @@ end
     _testhelper_check_units(mech, L)
 end
 
+@testset "a covalent ping-pong without an A·B term divides by its first term, A" begin
+    # Rule 4: the denominator holds A, B, P and Q, so ΠS/B = A and ΠS/A = B are there but
+    # ΠS = A·B is not, and Cleland's rule does not apply. No weights on four degree-1
+    # terms solve the units equation, so N is the first term, A with its coefficient.
+    covalent = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B <--> E + Q
+        end
+    end
+    nz, L, mech = _testhelper_normalizer(covalent)
+    a = _testhelper_conc_mono(L, :A => 1)
+    @test nz.rule === :ratio
+    @test nz.lambda == [a => 1 // 1] && nz.shift == a
+    _testhelper_check_units(mech, L)
+    @test _testhelper_printed_law_error(covalent) <= big(10)^-20
+end
+
 @testset "F4 takes integer weights A:2, A²:−1" begin
     # F1 with F binding A twice in two rapid-equilibrium steps: the terms A, P, A², A·P,
     # A³ and A²·P. The basis A, P, A² solves the units equation with A:2, A²:−1.
