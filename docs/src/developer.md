@@ -316,7 +316,7 @@ that duplicates only a copy's complex never rejects, since the sites that pin
 either copy may keep both constants separable.
 `expand_mechanisms` asserts both rules on every parent (`_assert_emission_rules`).
 Both refinement moves share one minimal-set search (`_minimal_gaining_sets`).
-Duplicate laws that survive these proofs share one fit:
+Duplicate laws that survive these proofs share one fit, an L phantom's key aside:
 identify fits one mechanism per key (`_canonical`, `src/key.jl`). A numerical
 identifiability rank exists only in the test suite, as an oracle for the proofs and the
 L-phantom certificate; nothing in `src/` estimates identifiability numerically.
