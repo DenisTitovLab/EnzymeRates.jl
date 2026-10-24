@@ -35,14 +35,16 @@ constant term**. A sequential mechanism always carries a `1` in its denominator 
 free enzyme; a ping-pong enzyme never sits idle as free `E` during turnover (it is always
 either loaded with substrate or carrying the covalent residual), so that term is absent.
 
-Without a constant term the printed law divides by Cleland's normalizer
-([Normalization](@ref)). The denominator holds the terms in `B` and `A`, the product of
-the substrates over each substrate, and the term in `A * B`, their product, so the
-normalizer is the coefficients of `B` and `A` over that of `A * B`, and the substrate terms
-read as products of Michaelis constants. Its part that is not a single term prints once as
-`N = …`, and every denominator term is dimensionless. A denominator that lacks one of
-these terms takes a virtual constant term instead, on the first affinely independent terms
-of a fixed order, which changes how `N` reads but never the law's value.
+Without a constant term, this law divides by Cleland's normalizer ([Normalization](@ref)).
+Its denominator holds a term in `B` and a term in `A` (the product of the substrates over
+each substrate) and a term in `A * B` (their product), so the normalizer is the product of
+the coefficients of `B` and `A` divided by the coefficient of `A * B`. The substrate terms
+then read `A/K_a`, `B/K_b` and `A·B/(K_a·K_b)`, `K_a` and `K_b` the Michaelis constants. The
+normalizer's part that is not a single term prints once as `N = …`, and every denominator
+term is dimensionless. A denominator that lacks one of these terms takes the next rule that
+applies ([Normalization](@ref)): a virtual constant term on the first affinely independent
+terms of a fixed order, which changes how `N` reads but never the law's value, or, when no
+weights give the denominator's unit, the ratio form.
 
 The coefficient form names each coefficient by the concentrations it multiplies:
 
