@@ -256,7 +256,8 @@ multiply the regulatory sites' factors. The `v` line is
 header and end with `v`, in the order they evaluate. In full, the reference lines and the
 definitions come between; with `coefficients`, the coefficient comment, the normalizers,
 one line per coefficient, named by conformation (`nA_0`, `dA_S`, `fI_B`), and the
-definitions, whose sums read in those coefficients.
+definitions: `Q_c`, `D_c` and `F_c` read in those coefficients, `W_A` and `W_I` in the
+fitted constants.
 """
 function _law_text(am::AllostericMechanism, s::_Solve, A::_AlloLaw;
                    coefficients::Bool = false)
