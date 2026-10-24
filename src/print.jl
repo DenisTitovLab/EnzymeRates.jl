@@ -198,8 +198,8 @@ The printed law `L` of `m` over the solve `s` (`rate_equation_string`), in the o
 evaluates. In full: the header (`_header_lines`), the reference lines (`_reference_lines`),
 `N = …` when the normalizer has a factor that is not a single term, or an integer to a
 fractional power, and the `v` line (`_v_line`) with `Q` and `D` over the normalizer. With
-`coefficients`: the header, the coefficient comment, `N`, one line per coefficient giving
-its value, and the `v` line in the named coefficients.
+`coefficients`: the header, the coefficient comment, `N` when it prints, one line per
+coefficient giving its value, and the `v` line in the named coefficients.
 """
 function _law_text(m::Mechanism, s::_Solve, L::_Law; coefficients::Bool = false)
     subs = _substrate_vars(m, L.vars)
@@ -322,10 +322,11 @@ vanishes at equilibrium; `Q` and `D` have positive terms. Numerator and denomina
 divided by a normalizer that makes every term of `D` dimensionless: `D`'s constant term
 when it has one, so `D` reads `1 + S/K…`; otherwise Cleland's normalizer when `D` holds
 the terms `ΠS/X` for every substrate `X` and `ΠS`, `ΠS` the product of the substrates, so
-the substrate terms read as products of Michaelis constants; otherwise a product of powers
-of `D`'s coefficients; and when no such product has `D`'s unit, `D`'s first term, so terms
-such as `P / B` appear. Dividing by that term divides by concentrations, so the text can
-read `NaN` where one of them is zero; [`rate_equation`](@ref) gives the law's value there.
+each substrate term reads as its concentrations over their Michaelis constants; otherwise a
+product of powers of `D`'s coefficients; and when no such product has `D`'s unit, `D`'s
+first term, so terms such as `P / B` appear. Dividing by that term divides by
+concentrations, so the text can read `NaN` where one of them is zero;
+[`rate_equation`](@ref) gives the law's value there.
 A factor of the normalizer that is not a single term, or an integer to a fractional power,
 prints once as `N = …`.
 An allosteric mechanism prints each conformation's numerator `Q_A`, `Q_I`, denominator
@@ -336,8 +337,10 @@ With `coefficients = true` the law reads in named coefficients,
 `v = E_total * n_0 * (H) / (1 + d_S * S + …)`, each named by the concentrations it
 multiplies (`d_A²_B` for `A^2 * B`, and `d_P_B⁻¹` for `P / B` in a law that reads them only
 through their ratio). That text runs as Julia code too: it destructures `params` and
-`concs`, gives each coefficient's value in the fitted constants, one line each, and ends
-with the `v` line; the reference lines print only in the full law.
+`concs`, prints the coefficient comment, `N` (`N_A`, `N_I`) when the normalizer prints, each
+coefficient's value in the fitted constants, one line each, for an allosteric law `Q_c`,
+`D_c` and `F_c` in those coefficients and the site factors `W_c`, and ends with the `v`
+line; the reference lines print only in the full law.
 
 ```jldoctest
 julia> using EnzymeRates
