@@ -526,9 +526,9 @@ with that unit makes every denominator term dimensionless:
 2. **Cleland's normalizer.** Otherwise, when the denominator holds the term `ΠS/X` for
    every substrate `X` and the term `ΠS`, `ΠS` being the product of the `n` distinct
    substrates, divide by `N = Π_X c(ΠS/X) / c(ΠS)^(n−1)`, `c(m)` being the coefficient of
-   the term `m` (ping-pong bi-bi: `K_a·K_b`). The substrate terms then read as products
-   of Michaelis constants, `A·B·C/(K_a·K_b·K_c)`. A one-substrate law never takes this
-   rule: its `ΠS/A` is the constant term.
+   the term `m` (ping-pong bi-bi: `K_a·K_b`). Each substrate term then reads as its
+   concentrations over their Michaelis constants, `A·B·C/(K_a·K_b·K_c)`. A one-substrate law
+   never takes this rule: its `ΠS/A` is the constant term.
 3. **Virtual constant term.** Otherwise solve the units equation: weights `λ_m` over the
    denominator terms with `Σ λ_m = 1` and `Σ λ_m · a_m = 0`, `a_m` being a term's
    concentration-exponent vector; the normalizer is `Π c_m^λ_m`.
@@ -553,9 +553,9 @@ ratios, is unchanged.
 - `rate_equation_string` prints v in the independent parameters. Each Haldane and
   Wegscheider relation prints as a reference line.
 - Next to it, the coefficient form (`coefficients = true`), in the order it evaluates: the
-  `params` and `concs` lines, a comment line, `N` when it prints (`N_A` and `N_I` in an
-  allosteric law), one line per coefficient in the fitted constants, in an allosteric law
-  the polynomials `Q_c`, `D_c` and `F_c` in those coefficients and the site factors `W_c`,
+  `params` and `concs` lines; a comment line; `N` when it prints (`N_A` and `N_I` in an
+  allosteric law); one line per coefficient in the fitted constants; in an allosteric law,
+  the polynomials `Q_c`, `D_c` and `F_c` in those coefficients and the site factors `W_c`;
   and last `v = E_total·n_0·(A·B − P·Q/Keq) / (1 + d_A·A + d_B·B + d_A_B·A·B + …)`. The
   reference lines print only in the full law. A coefficient is named by the monomial it
   multiplies, a power as a superscript (`d_A²_B`) and, in the ratio form, a reciprocal as
