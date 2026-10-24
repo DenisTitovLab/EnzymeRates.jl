@@ -23,6 +23,30 @@ _testhelper_n_text(m) =
 _testhelper_text_value(text, env) =
     setprecision(() -> _testhelper_printed_value(Meta.parse(text), env), BigFloat, 256)
 
+# Both printed forms of `m`, pasted into a fresh module where `params` and `concs` are
+# bound at random values drawn from `rng`, run top to bottom and give the compiled law's
+# value.
+function _testhelper_check_pasted_forms(m, rng)
+    params = _testhelper_random_independent_params(m; rng)
+    concs = NamedTuple{metabolites(m)}(
+        Tuple(0.1 + 9.9 * rand(rng) for _ in metabolites(m)))
+    for coefficients in (false, true)
+        text = rate_equation_string(m; coefficients)
+        lines = split(text, '\n')
+        @test endswith(lines[1], ") = params") && endswith(lines[2], ") = concs")
+        @test startswith(last(lines), "v = ")
+        if coefficients
+            @test !any(in(("# Haldane constraints:", "# Wegscheider constraints:")),
+                       lines)
+        end
+        mod = Module()
+        Core.eval(mod, :(params = $params))
+        Core.eval(mod, :(concs = $concs))
+        @test isapprox(Base.include_string(mod, text),
+                       rate_equation(m, concs, params); rtol = 1e-10)
+    end
+end
+
 # ── The unit rule (spec section 9) ───────────────────────────────────────────
 
 @testset "Michaelis–Menten takes its constant term" begin
@@ -321,45 +345,10 @@ end
     # Each form, pasted into a fresh module where `params` and `concs` are bound, runs top
     # to bottom: it opens with their destructuring lines and ends with the `v` line, whose
     # value is the compiled law's. The coefficient form leaves the reference lines to the
-    # full law. The cases are every spec, F1-F4 of the unit-rule testsets above, and a
-    # two-subunit ping-pong with a regulatory site, whose coefficient form defines N_A and
-    # N_I before the coefficients they divide and W_A and W_I before `v`.
-    f1 = @enzyme_mechanism begin
-        substrates: A
-        products: P
-        steps: begin
-            E + A <--> F + P
-            F + A <--> E + P
-        end
-    end
-    f2 = @enzyme_mechanism begin
-        substrates: A
-        products: P
-        steps: begin
-            E + A <--> F + P
-            F + A <--> E + P
-            F + A + A ⇌ F(A, A)
-        end
-    end
-    f3 = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A <--> E(A)
-            E(A) + B ⇌ E(Q) + P
-            E(Q) <--> E + Q
-        end
-    end
-    f4 = @enzyme_mechanism begin
-        substrates: A
-        products: P
-        steps: begin
-            E + A <--> F + P
-            F + A <--> E + P
-            F + A ⇌ F(A)
-            F(A) + A ⇌ F(A, A)
-        end
-    end
+    # full law. The cases are every spec and a two-subunit ping-pong with a regulatory
+    # site, whose coefficient form defines N_A and N_I before the coefficients they divide
+    # and W_A and W_I before `v`; the coefficient-name testset below checks F1-F4 and its
+    # other hand-written laws the same way.
     regulated_pp = @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -377,29 +366,11 @@ end
     @test [l[1:3] for l in coef if occursin(r"^[QDFWN]_[AI] = ", l)] ==
           ["N_A", "N_I", "Q_A", "D_A", "Q_I", "D_I", "F_A", "F_I", "W_A", "W_I"]
     cases = [[(spec.name, spec.mechanism) for spec in MECHANISM_TEST_SPECS];
-             [("F1", f1), ("F2", f2), ("F3", f3), ("F4", f4),
-              ("regulated ping-pong", regulated_pp)]]
+             [("regulated ping-pong", regulated_pp)]]
     rng = Random.MersenneTwister(42)
     for (name, m) in cases
         @testset "$name" begin
-            params = _testhelper_random_independent_params(m; rng)
-            concs = NamedTuple{metabolites(m)}(
-                Tuple(0.1 + 9.9 * rand(rng) for _ in metabolites(m)))
-            for coefficients in (false, true)
-                text = rate_equation_string(m; coefficients)
-                lines = split(text, '\n')
-                @test endswith(lines[1], ") = params") && endswith(lines[2], ") = concs")
-                @test startswith(last(lines), "v = ")
-                if coefficients
-                    @test !any(in(("# Haldane constraints:", "# Wegscheider constraints:")),
-                               lines)
-                end
-                mod = Module()
-                Core.eval(mod, :(params = $params))
-                Core.eval(mod, :(concs = $concs))
-                @test isapprox(Base.include_string(mod, text),
-                               rate_equation(m, concs, params); rtol = 1e-10)
-            end
+            _testhelper_check_pasted_forms(m, rng)
         end
     end
 end
@@ -532,11 +503,13 @@ end
           "(k_EA_to_E_A + k_EA_to_F_P) * (k_FB_to_F_B + k_FB_to_G_Q) * " *
           "(k_GC_to_E_R + k_GC_to_G_C) / (k_EA_to_F_P * k_FB_to_G_Q + " *
           "k_EA_to_F_P * k_GC_to_E_R + k_FB_to_G_Q * k_GC_to_E_R)^2"
+    rng = Random.MersenneTwister(51)
     for m in (f1, f2, f2g, f3, f4, terbi, power, bi_uni_uni_bi, bi_bi_uni_uni, hexa_uni)
         @test _testhelper_printed_law_error(m) <= big(10)^-20
         @test isempty(_testhelper_print_artifacts(rate_equation_string(m))) &&
               isempty(_testhelper_print_artifacts(
                   rate_equation_string(m; coefficients = true)))
+        _testhelper_check_pasted_forms(m, rng)
     end
 end
 
