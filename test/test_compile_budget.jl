@@ -204,7 +204,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             s = ER._solve(m)
             length(s.fitted)
             ER._with_law(m, s) do m, s, L
-                ER._law_text(m, s, L)
+                ER._law_text(m, s, L; coefficients = true)
                 text = sprint(show, m)
                 ER._canonical(L, ER._mechanism_id(text))
             end

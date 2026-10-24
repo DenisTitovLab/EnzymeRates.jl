@@ -146,7 +146,7 @@ The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
 | `mechanism` | The mechanism as the `@enzyme_mechanism` or `@allosteric_mechanism` block that builds it, the text `show` prints. `EnzymeRates._parse_mechanism(text)` reads it back without evaluating it. |
 | `mechanism_id` | The first 16 hex digits of the SHA-256 of `mechanism`, the same in every process and Julia version. Read the ids as text, `CSV.read(file, DataFrame; types = Dict(:mechanism_id => String, :parent_id => String, :fit_source_id => String))`: CSV.jl reads an id that looks like a number (decimal digits, or digits around one `e` or `f`) as a number. |
 | `parent_id` | `mechanism_id` of the parent the mechanism was expanded from; `missing` for a starting mechanism. |
-| `rate_equation` | The printed law (`rate_equation_string`), in full. |
+| `rate_equation` | The printed law in named coefficients (`rate_equation_string(m; coefficients = true)`). |
 | `retcode` | Optimizer return code (`"Success"` = converged). |
 | `error` | Exception text if the mechanism's derivation, compilation, fit or expansion threw; otherwise `missing`. |
 | `key` | The SHA-256 (64 hex digits) of the law's canonical form: its terms with the fitted constants labelled canonically and the concentrations by name. Mechanisms share a key exactly when their laws agree up to renaming the fitted constants. A law whose canonical search reaches 100 labellings takes its mechanism's own key, the SHA-256 of `mechanism|` and its `mechanism_id`. `missing` in a failure row. |

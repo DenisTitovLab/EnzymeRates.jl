@@ -579,7 +579,7 @@ function _process_batch(
             s = _solve(m)
             length(s.fitted) > max_param_count && return :param_skip
             _with_law(m, s) do m, s, L
-                eq_text = _law_text(m, s, L)
+                eq_text = _law_text(m, s, L; coefficients = true)
                 text = sprint(show, m)
                 id = _mechanism_id(text)
                 canon = _canonical(L, id)

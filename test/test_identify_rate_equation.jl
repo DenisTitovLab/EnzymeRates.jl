@@ -561,9 +561,11 @@ end
 
         bestf = CSV.read(joinpath(save_dir, "best_equation.csv"), DataFrame)
         @test nrow(bestf) == 1
-        # The CSV's law is the selected mechanism's printed law: PASS1 prints it from the
-        # concrete mechanism, rate_equation_string from the compiled one.
-        @test bestf.rate_equation[1] == rate_equation_string(results.best)
+        # The CSV's law is the selected mechanism's printed law in named coefficients:
+        # PASS1 prints it from the concrete mechanism, rate_equation_string from the
+        # compiled one.
+        @test bestf.rate_equation[1] ==
+              rate_equation_string(results.best; coefficients = true)
         # The key reads back as text, and it is the selected mechanism's key.
         @test bestf.key[1] isa AbstractString
         @test bestf.key[1] == _testhelper_key_of(best_row.mechanism)
