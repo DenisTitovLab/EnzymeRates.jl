@@ -45,8 +45,9 @@ dimensionless. The first rule that applies gives `N`:
 1. `:constant`: `D` has a term free of concentrations, and `N` is its coefficient.
 2. `:cleland`: with `ΠS` the product of the `k` substrates, `D` has the terms
    `ΠS/X` for every substrate `X` and `ΠS`, and `N = Π_X c(ΠS/X) / c(ΠS)^(k - 1)`,
-   Cleland's normalizer: the substrate terms then read as products of Michaelis
-   constants. One substrate never takes it, since `ΠS/A` is the absent constant term.
+   Cleland's normalizer: each substrate term then reads as its concentrations over their
+   Michaelis constants. One substrate never takes it, since `ΠS/A` is the absent
+   constant term.
 3. `:graded`: taking the concentration monomials `m` of `D` in `_term_key` order, the
    first ones whose vectors `[1; a_m]` (`a_m` the exponent vector) are affinely
    independent form a basis; when weights on the basis satisfy `Σ λ_m = 1` and
