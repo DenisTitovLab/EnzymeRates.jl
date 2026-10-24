@@ -341,12 +341,13 @@ end
 end
 
 @testset "the certificate alone decides an L phantom" begin
-    # The merged uni-uni K-type at two subunits, with P's binding :NonequalAI (the
-    # inactive conformation binds P under a constant of its own), and with an :OnlyI site
-    # ligand has no certificate. With an :OnlyA site ligand its inactive conformation
-    # binds nothing, but the regulator reveals L and no certificate exists. The
-    # Theorell–Chance K-type only_a binds Q at free E in its inactive conformation, yet its
-    # certificate maps it onto its law at L = 0, so it is an L phantom.
+    # Three variants of the merged uni-uni K-type have no certificate: one at two subunits,
+    # one with P's binding :NonequalAI (the inactive conformation binds P under a constant
+    # of its own) and one with an :OnlyI site ligand. With an :OnlyA site ligand its
+    # inactive conformation binds nothing, but the regulator reveals L and no certificate
+    # exists. The Theorell–Chance K-type only_a binds Q at free E in its inactive
+    # conformation, yet its certificate maps it onto its law at L = 0, so it is an L
+    # phantom.
     two_subunits = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
