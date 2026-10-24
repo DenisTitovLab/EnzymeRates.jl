@@ -86,8 +86,7 @@ It orders the columns by `_priority_key` (`_ordered_columns`) and reduces the sy
 exactly (`_reduce_joint_system`: `Rational{Int}`, redone in `Rational{BigInt}` on
 overflow). Pivot columns are dependents. `_solve`
 returns them with the independents and the fitted names as a `_Solve`, which the engine,
-`all_parameters`, code generation and the printer read; `_dependent_param_exprs` renders it
-as expressions.
+`parameters`, `fitted_params`, `all_parameters`, code generation and the printer read.
 Columns outside a conformation's law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's
 active copy, an edge on a form that conformation cannot reach) come first, so no kept
 dependent reads them. Each class is named after its member

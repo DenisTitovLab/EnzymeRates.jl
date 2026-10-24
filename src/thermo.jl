@@ -410,49 +410,6 @@ end
 
 _solve(@nospecialize(M::Type{<:AbstractEnzymeMechanism})) = _solve(_derivation_input(M))
 
-"""
-    _dependent_param_exprs(s::_Solve) -> (dep, indep)
-
-The solve `s` as expressions: `dep` maps each dependent constant that is its class's kept
-member to `Keq^q · Π independent^e` with rational exponents (`build_power_expr`; the empty
-product is `1.0`); `indep` is `Tuple(s.fitted)`. A kinetic group's other members equal the
-kept one and add no entry. The methods on a mechanism render `_solve(m)`.
-"""
-function _dependent_param_exprs(s::_Solve)
-    dep = Dict{Symbol, Union{Symbol, Expr, Float64}}()
-    for d in s.dependents
-        d.label === :kinetic_group && continue
-        dep[s.names[d.col]] =
-            build_power_expr(d.keq, [(s.names[f], e) for (f, e) in d.factors])
-    end
-    dep, Tuple(s.fitted)
-end
-_dependent_param_exprs(m::_AnyMech) = _dependent_param_exprs(_solve(m))
-_dependent_param_exprs(@nospecialize(M::Type{<:AbstractEnzymeMechanism})) =
-    _dependent_param_exprs(_solve(M))
-
-"""
-    build_power_expr(keq_exp::Rational, factors)
-
-Renders a dependent constant's power product `Keq^keq_exp · Π k_i^exp_i`, from
-`factors`, an iterable of `(k_i, exp_i)` pairs, as an expression for
-`_dependent_param_exprs`. A fractional exponent is an exact `Rational{Int}` literal. The
-empty product is the Float64 `1.0`: a constant that thermodynamics pins to 1.
-"""
-function build_power_expr(keq_exp::Rational, factors)
-    _pa(sym, exp) = exp == 1 ? sym : exp == -1 ? :(1 / $sym) :
-        !isinteger(exp) ? :($sym ^ $(Rational{Int}(exp))) :
-        exp > 0 ? :($sym ^ $(Int(exp))) : :(1 / $sym ^ $(Int(-exp)))
-    terms = Any[]
-    keq_exp != 0 && push!(terms, _pa(:Keq, keq_exp))
-    # Sort factors by name so the expression is content-canonical, independent of the
-    # order elimination collected them.
-    for (sym, exp) in sort(collect(factors); by = x -> string(first(x)))
-        exp != 0 && push!(terms, _pa(sym, exp))
-    end
-    isempty(terms) ? 1.0 : length(terms) == 1 ? only(terms) : Expr(:call, :*, terms...)
-end
-
 """Number of independent (fitted) constants of a concrete mechanism, from the joint solve,
 without compiling the mechanism."""
 _independent_param_count(m::_AnyMech) = length(_solve(m).fitted)

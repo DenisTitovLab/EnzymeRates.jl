@@ -456,7 +456,7 @@ end
 function _testhelper_test_constraint_counting(spec::_testhelper_MechanismTestSpec)
     m = spec.mechanism
     @testset "Constraints" begin
-        dep_exprs, indep = EnzymeRates._dependent_param_exprs(typeof(m))
+        dep_exprs, indep = _testhelper_dependent_param_exprs(typeof(m))
         # A dependent (Haldane/Wegscheider-derived) parameter must never appear in
         # the independent set returned as fitted_params. The LDH i-state specs have a
         # shared :EqualAI catalytic reverse rate that is Haldane-dependent in the
@@ -1224,7 +1224,7 @@ end
 
 @testset "allosteric dependent-param graph is sound" begin
     for T in ALLOSTERIC_UNDEFVAR_REPRODUCERS
-        @test _testhelper_dep_graph_is_sound(EnzymeRates._dependent_param_exprs(T)...)
+        @test _testhelper_dep_graph_is_sound(_testhelper_dependent_param_exprs(T)...)
     end
 end
 
@@ -1291,7 +1291,7 @@ end
     @test _testhelper_admission_faults(fixed) == fill(NO, 7)
     @test _testhelper_respeed_verdicts(fixed; rng = Random.MersenneTwister(2)) ==
           fill(:agree, 7)
-    @test :k_I_E_NAD_to_ENAD in keys(EnzymeRates._dependent_param_exprs(fixed)[1])
+    @test :k_I_E_NAD_to_ENAD in keys(_testhelper_dependent_param_exprs(fixed)[1])
     _testhelper_check_law_against_oracle(ALLOSTERIC_UNDEFVAR_REPRODUCERS[3]())
 end
 
@@ -1304,7 +1304,7 @@ end
     # structural check above flags it. Being callable is necessary but not
     # sufficient: the equation must also satisfy `v = 0` at `Q = Keq` for
     # arbitrary parameter values. The single combined constraint solve
-    # in `_dependent_param_exprs` ties every cross-state affinity split
+    # in `_solve` ties every cross-state affinity split
     # directly, so all three reproducers (D1's `:EqualAI`-shared `koff` merge, D2's
     # `:NonequalAI` split, D3's steady-state speed) are detailed-balance-correct.
     for T in ALLOSTERIC_UNDEFVAR_REPRODUCERS
@@ -1747,7 +1747,7 @@ end
     @test _testhelper_reference_lines_match(half)
     rng = Random.MersenneTwister(4)
     point = setprecision(() -> _testhelper_consistent_point(half, rng), BigFloat, 256)
-    fitted = EnzymeRates._dependent_param_exprs(typeof(half))[2]
+    fitted = _testhelper_dependent_param_exprs(typeof(half))[2]
     params = NamedTuple{(fitted..., :Keq, :E_total)}(
         (Float64.(getindex.(Ref(point.vals), fitted))..., Float64(point.Keq), 1.0))
     concs = (S = 0.7, P = 1.3)
@@ -1818,10 +1818,10 @@ end
 # ── Degenerate constraint handling ────────────────────────────────────────────
 
 @testset "Degenerate constraint handling" begin
-    # ── Unit tests: build_power_expr return types ─────────────────
+    # ── Unit tests: a rendered dependent's types ─────────────────
 
-    @testset "build_power_expr return types" begin
-        bpe = EnzymeRates.build_power_expr
+    @testset "a dependent renders as a Symbol, an Expr or 1.0 with exact exponents" begin
+        bpe = _testhelper_power_expr
         R = Rational{BigInt}
         # Single symbol factor (exp=1): returns bare Symbol
         @test bpe(R(0), [(:k1f, R(1))]) === :k1f
@@ -1855,12 +1855,12 @@ end
                 F + S <--> E(S)
             end
         end
-        dep, fitted = EnzymeRates._dependent_param_exprs(typeof(half))
+        dep, fitted = _testhelper_dependent_param_exprs(typeof(half))
         setprecision(BigFloat, 256) do
             p = NamedTuple{(fitted..., :Keq)}(
                 Tuple(big(1) + big(i) / 7 for i in 1:(length(fitted) + 1)))
             env = Dict{Symbol, BigFloat}(k => v for (k, v) in pairs(p))
-            @test abs(_testhelper_eval_expr(dep[:k_F_to_E], env) -
+            @test abs(_testhelper_printed_value(dep[:k_F_to_E], env) -
                       all_parameters(half, p).k_F_to_E) <=
                   big(10)^-60 * all_parameters(half, p).k_F_to_E
         end

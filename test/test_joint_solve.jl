@@ -475,7 +475,7 @@ end
     end
 end
 
-@testset "_solve renders a half-integer dependent with keq -1//2" begin
+@testset "_solve's half-integer dependent has keq -1//2 and exact exponents" begin
     # The conformational square ties two isomerizations of one group, so the Haldane
     # relation fixes k_F_to_E through square roots: Keq = (k_E_to_F / k_F_to_E)² ·
     # (k_F_S_to_ES / k_ES_to_F_S) · (k_FS_to_E_P / k_E_P_to_FS).
@@ -497,8 +497,8 @@ end
     @test Dict(s.names[f] => e for (f, e) in d.factors) ==
           Dict(:k_E_to_F => 1//1, :k_E_P_to_FS => -1//2, :k_FS_to_E_P => 1//2,
                :k_ES_to_F_S => -1//2, :k_F_S_to_ES => 1//2)
-    # The exponents are exact `Rational{Int}` literals, as `build_power_expr` writes them.
-    @test EnzymeRates._dependent_param_exprs(s)[1] ==
+    # The rendered exponents are exact `Rational{Int}` literals (`_testhelper_power_expr`).
+    @test _testhelper_dependent_param_exprs(s)[1] ==
           Dict(:k_F_to_E => :((Keq ^ $(-1//2)) * (k_ES_to_F_S ^ $(-1//2)) *
                               (k_E_P_to_FS ^ $(-1//2)) * k_E_to_F *
                               (k_FS_to_E_P ^ $(1//2)) * (k_F_S_to_ES ^ $(1//2))))
@@ -530,7 +530,7 @@ end
         (:K_EAB_to_EA_B, :wegscheider, 0//1, [:K_EB_to_E_B => 1//1])]
     @test s.fitted == [:K_EA_to_E_A, :K_EB_to_E_B, :K_EP_to_E_P, :k_EAB_to_EP]
     @test s.names[s.independents] == s.fitted
-    @test EnzymeRates._dependent_param_exprs(s) ==
+    @test _testhelper_dependent_param_exprs(s) ==
           (Dict(:K_EAB_to_EA_B => :K_EB_to_E_B,
                 :k_EP_to_EAB => :((1 / Keq) * (1 / K_EA_to_E_A) * (1 / K_EB_to_E_B) *
                                   K_EP_to_E_P * k_EAB_to_EP)),

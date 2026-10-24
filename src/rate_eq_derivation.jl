@@ -15,14 +15,12 @@ independent constants (`fitted_params`), then `Keq` and `E_total`. The rate law 
 every other constant from these (see [`all_parameters`](@ref)).
 """
 @generated function parameters(::M) where {M <: AbstractEnzymeMechanism}
-    _, indep = _dependent_param_exprs(M)
-    (indep..., :Keq, :E_total)
+    (_solve(M).fitted..., :Keq, :E_total)
 end
 
 """Independent rate constant names for fitting (excludes Keq, E_total)."""
 @generated function fitted_params(::M) where {M <: AbstractEnzymeMechanism}
-    _, indep = _dependent_param_exprs(M)
-    indep
+    Tuple(_solve(M).fitted)
 end
 
 # Convenience methods for the concrete Mechanism / AllostericMechanism

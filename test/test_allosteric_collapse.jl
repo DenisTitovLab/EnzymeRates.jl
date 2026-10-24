@@ -91,7 +91,7 @@ end
         fp,v,veq = _testhelper_evalrate(am)
         @test isfinite(v); @test abs(veq) < 1e-8             # thermo-consistent
         @test !(:K_I_EAB_to_EB_A in fp)                     # forbidden split collapsed
-        dep,_=ER._dependent_param_exprs(am)
+        dep,_=Main._testhelper_dependent_param_exprs(am)
         @test dep[:K_I_EAB_to_EB_A] == dep[:K_A_EAB_to_EB_A]  # one value in both states
     end
 

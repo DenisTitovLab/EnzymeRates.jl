@@ -360,13 +360,13 @@ end
                 F + S <--> E(S)
             end
         end
-        dep, _ = EnzymeRates._dependent_param_exprs(typeof(half))
+        dep, _ = _testhelper_dependent_param_exprs(typeof(half))
         @test any(ex -> occursin("Keq ^ -1//2", string(ex)), values(dep))
         _testhelper_check_law_against_oracle(half)
         # A 1% error in Keq moves the dependent constant, and the oracle sees it.
         rng = Random.MersenneTwister(3)
         point = setprecision(() -> _testhelper_consistent_point(half, rng), BigFloat, 256)
-        fitted = EnzymeRates._dependent_param_exprs(typeof(half))[2]
+        fitted = _testhelper_dependent_param_exprs(typeof(half))[2]
         params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
         params[:Keq] = point.Keq * big"1.01"
         concs = Dict{Symbol, BigFloat}(:S => big"0.7", :P => big"1.3")
@@ -473,7 +473,7 @@ const _testhelper_sample_regroupings =
                             for ns in EnzymeRates._edge_names(m, state) for n in ns)
             reg = Set(EnzymeRates.name(p, m) for state in (:A, :I)
                       for p in EnzymeRates._kreg_params(m, state))
-            fitted = EnzymeRates._dependent_param_exprs(m)[2]
+            fitted = _testhelper_dependent_param_exprs(m)[2]
             append!(stray, setdiff(fitted, law_names, reg, (:L,)))
         end
         @test isempty(stray)
@@ -486,10 +486,10 @@ const _testhelper_sample_regroupings =
         n_plain, n_allo = 0, 0
         for (m, regrouped) in zip(_testhelper_population_sample,
                                   _testhelper_sample_regroupings)
-            names = Set(EnzymeRates._dependent_param_exprs(m)[2])
+            names = Set(_testhelper_dependent_param_exprs(m)[2])
             for child in regrouped
                 m isa EnzymeRates.Mechanism ? (n_plain += 1) : (n_allo += 1)
-                @test Set(EnzymeRates._dependent_param_exprs(child)[2]) == names
+                @test Set(_testhelper_dependent_param_exprs(child)[2]) == names
             end
         end
         @test n_plain >= 20
@@ -536,7 +536,7 @@ const _testhelper_sample_regroupings =
             regulatory_site(2): R::EqualAI
         end
         dep, indep =
-            EnzymeRates._dependent_param_exprs(EnzymeRates.AllostericMechanism(b10))
+            _testhelper_dependent_param_exprs(EnzymeRates.AllostericMechanism(b10))
         @test :K_Rreg in indep
         @test !any(k -> occursin("Rreg", string(k)), keys(dep))
         _testhelper_check_law_against_oracle(b10)
@@ -987,7 +987,7 @@ end
                                              (:uu_ss, (E_, E_, E_, N_), 3)))
         m = eval(Meta.parse(_testhelper_iso_text(family, tags; n)))
         am = EnzymeRates.AllostericMechanism(m)
-        fitted = EnzymeRates._dependent_param_exprs(typeof(m))[2]
+        fitted = _testhelper_dependent_param_exprs(typeof(m))[2]
         rng = Random.MersenneTwister(100 + i)
         point, concs, params = _testhelper_law_inputs(am, fitted, rng)
         exact = setprecision(() -> _testhelper_protomer_rate(am, point, concs; n),
@@ -1000,7 +1000,7 @@ end
     am = EnzymeRates.AllostericMechanism(m)
     eprime = only(f for f in 2:length(am.catalytic.forms)
                   if EnzymeRates._is_free(am.catalytic.forms[f]))
-    fitted = EnzymeRates._dependent_param_exprs(typeof(m))[2]
+    fitted = _testhelper_dependent_param_exprs(typeof(m))[2]
     rng = Random.MersenneTwister(201)
     for _ in 1:3
         point, concs, params = _testhelper_law_inputs(am, fitted, rng)
@@ -1021,7 +1021,7 @@ end
              if EnzymeRates._is_free(cm.forms[f]) &&
                 cm.conformations[cm.forms[f].conformation] === :D)
     kd = only(j for (j, e) in enumerate(cm.edges) if Set((e.from, e.to)) == Set((1, d)))
-    fitted = EnzymeRates._dependent_param_exprs(typeof(m))[2]
+    fitted = _testhelper_dependent_param_exprs(typeof(m))[2]
     rng = Random.MersenneTwister(202)
     for _ in 1:3
         point, concs, params = _testhelper_law_inputs(am, fitted, rng)
@@ -1046,7 +1046,7 @@ end
             _testhelper_check_law_against_limit(am; seed = 400 + i)
             rng = Random.MersenneTwister(450 + i)
             @test all(<(big(10)^-30), _testhelper_detailed_balance(am, rng))
-            @test length(EnzymeRates._dependent_param_exprs(am)[2]) ==
+            @test length(_testhelper_dependent_param_exprs(am)[2]) ==
                   _testhelper_declared_dimension(am)
         end
     end
@@ -1060,7 +1060,7 @@ end
         label in (:copy_group_bridge, :essential_activator) && continue
         @testset "$label" begin
             em = EnzymeRates.compile_mechanism(am)
-            fitted = EnzymeRates._dependent_param_exprs(am)[2]
+            fitted = _testhelper_dependent_param_exprs(am)[2]
             @test EnzymeRates.fitted_params(em) == fitted
             point, concs, params = _testhelper_law_inputs(am, fitted,
                                                           Random.MersenneTwister(600 + i))

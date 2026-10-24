@@ -19,7 +19,7 @@
     @test :Keq in params_mono
     # all_parameters adds exactly the dependent constants to the parameters.
     values_mono = NamedTuple{params_mono}(ntuple(_ -> 1.0, length(params_mono)))
-    dep_mono, _ = EnzymeRates._dependent_param_exprs(EnzymeRates.Mechanism(m_mono))
+    dep_mono, _ = _testhelper_dependent_param_exprs(EnzymeRates.Mechanism(m_mono))
     @test !isempty(dep_mono)
     @test Set(keys(all_parameters(m_mono, values_mono))) ==
           union(Set(params_mono), keys(dep_mono))
@@ -45,7 +45,7 @@
     @test :Keq in params_allo
     @test :E_total in params_allo
     values_allo = NamedTuple{params_allo}(ntuple(_ -> 1.0, length(params_allo)))
-    dep_allo, _ = EnzymeRates._dependent_param_exprs(am)
+    dep_allo, _ = _testhelper_dependent_param_exprs(am)
     @test !isempty(dep_allo)
     @test Set(keys(all_parameters(m_allo, values_allo))) ==
           union(Set(params_allo), keys(dep_allo))

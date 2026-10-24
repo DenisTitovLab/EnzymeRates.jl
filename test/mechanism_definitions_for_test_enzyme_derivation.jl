@@ -222,14 +222,47 @@ end
 # ── Exact steady-state oracle ───────────────────────────────────────────────
 
 """
-Evaluate an expression of the rate law or of a dependent constant in BigFloat: a Symbol
-reads `env`, a number becomes a BigFloat, and a call applies the `Base` function it
-names to its evaluated arguments.
+    _testhelper_dependent_param_exprs(s) -> (dep, indep)
+
+The joint solve `s` as expressions: `dep` maps each dependent constant that is its class's
+kept member to `Keq^q · Π independent^e` with rational exponents (`_testhelper_power_expr`;
+the empty product is `1.0`); `indep` is `Tuple(s.fitted)`. A kinetic group's other members
+equal the kept one and add no entry. Given a concrete mechanism or a compiled mechanism's
+type, it renders that mechanism's solve (`EnzymeRates._solve`).
 """
-_testhelper_eval_expr(x::Symbol, env) = env[x]
-_testhelper_eval_expr(x::Real, env) = BigFloat(x)
-_testhelper_eval_expr(e::Expr, env) =
-    getfield(Base, e.args[1])((_testhelper_eval_expr(a, env) for a in e.args[2:end])...)
+function _testhelper_dependent_param_exprs(s::EnzymeRates._Solve)
+    dep = Dict{Symbol, Union{Symbol, Expr, Float64}}()
+    for d in s.dependents
+        d.label === :kinetic_group && continue
+        dep[s.names[d.col]] =
+            _testhelper_power_expr(d.keq, [(s.names[f], e) for (f, e) in d.factors])
+    end
+    dep, Tuple(s.fitted)
+end
+_testhelper_dependent_param_exprs(@nospecialize(m)) =
+    _testhelper_dependent_param_exprs(EnzymeRates._solve(m))
+
+"""
+    _testhelper_power_expr(keq_exp::Rational, factors)
+
+Renders a dependent constant's power product `Keq^keq_exp · Π k_i^exp_i`, from
+`factors`, an iterable of `(k_i, exp_i)` pairs, as an expression for
+`_testhelper_dependent_param_exprs`. A fractional exponent is an exact `Rational{Int}`
+literal. The empty product is the Float64 `1.0`: a constant that thermodynamics pins to 1.
+"""
+function _testhelper_power_expr(keq_exp::Rational, factors)
+    _testhelper_factor(sym, exp) = exp == 1 ? sym : exp == -1 ? :(1 / $sym) :
+        !isinteger(exp) ? :($sym ^ $(Rational{Int}(exp))) :
+        exp > 0 ? :($sym ^ $(Int(exp))) : :(1 / $sym ^ $(Int(-exp)))
+    terms = Any[]
+    keq_exp != 0 && push!(terms, _testhelper_factor(:Keq, keq_exp))
+    # Sort factors by name so the expression is content-canonical, independent of the
+    # order elimination collected them.
+    for (sym, exp) in sort(collect(factors); by = x -> string(first(x)))
+        exp != 0 && push!(terms, _testhelper_factor(sym, exp))
+    end
+    isempty(terms) ? 1.0 : length(terms) == 1 ? only(terms) : Expr(:call, :*, terms...)
+end
 
 """
 `m`, compiled or concrete, with one catalytic subunit: an allosteric mechanism rebuilt
@@ -589,7 +622,7 @@ function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1,
     # The point and the solver take the concrete mechanism: each compiled mechanism is
     # its own type, so given one they would compile again for every mechanism.
     mech = _testhelper_lift(em)
-    fitted = EnzymeRates._dependent_param_exprs(typeof(em))[2]
+    fitted = _testhelper_dependent_param_exprs(typeof(em))[2]
     mets = EnzymeRates.metabolites(em)
     for _ in 1:n_points
         point, concs, params = _testhelper_law_inputs(mech, fitted, rng)
@@ -761,7 +794,7 @@ law of a mechanism the guard rejects is derived once, unchecked (`EnzymeRates._l
 evaluated in BigFloat (`_testhelper_evaluate_law`), as `_testhelper_law_value` reads it."""
 function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     mech = _testhelper_lift(m)
-    fitted = EnzymeRates._dependent_param_exprs(mech)[2]
+    fitted = _testhelper_dependent_param_exprs(mech)[2]
     rate = if EnzymeRates._is_well_posed(mech)
         em = EnzymeRates.compile_mechanism(mech)
         (c, p) -> rate_equation(em, c, p)
@@ -1236,7 +1269,7 @@ _testhelper_relgap(x, y; least = big(10)^-14) = abs(x - y) / max(abs(x), abs(y),
 check (`_testhelper_law_value`); NaN where it has no value."""
 function _testhelper_package_law(mech, point, concs::AbstractDict)
     params = Dict{Symbol, BigFloat}(k => point.vals[k]
-                                    for k in EnzymeRates._dependent_param_exprs(mech)[2])
+                                    for k in _testhelper_dependent_param_exprs(mech)[2])
     params[:Keq] = point.Keq
     _testhelper_law_value(mech, params, concs)
 end
@@ -1843,7 +1876,7 @@ read without it (`_testhelper_law_value`).
 function _testhelper_check_law_against_limit(m; n_points::Int = 3, seed::Int = 1)
     sub = _testhelper_single_subunit(m)
     am = _testhelper_lift(sub)
-    fitted = EnzymeRates._dependent_param_exprs(
+    fitted = _testhelper_dependent_param_exprs(
         sub isa EnzymeRates.AbstractEnzymeMechanism ? typeof(sub) : sub)[2]
     rng = Random.MersenneTwister(seed)
     setprecision(BigFloat, 256) do
@@ -2220,16 +2253,19 @@ _testhelper_pass1_canonical(m) =
 
 # ── Printed-law oracles ─────────────────────────────────────────────────────
 
-"""The exact value of an exponent a printed law writes: an integer or a ratio `(3/2)`."""
+"""The exact value of an exponent a printed law writes, an integer or a ratio `(3/2)`, or
+a rendered dependent writes, a `Rational` literal (`_testhelper_power_expr`)."""
 _testhelper_exponent(x::Integer) = x // 1
+_testhelper_exponent(x::Rational) = x
 function _testhelper_exponent(ex::Expr)
     ex.head === :call && ex.args[1] === :/ && length(ex.args) == 3 ||
         error("unexpected exponent $ex in a printed law")
     _testhelper_exponent(ex.args[2]) // _testhelper_exponent(ex.args[3])
 end
 
-"""The value of the expression `ex` of a printed law at the names `env`, in the current
-BigFloat precision: `+`, `-`, `*`, `/`, `sqrt` and `^` with an exact exponent."""
+"""The value of the expression `ex` of a printed law or a rendered dependent at the names
+`env`, in the current BigFloat precision: `+`, `-`, `*`, `/`, `sqrt` and `^` with an exact
+exponent."""
 function _testhelper_printed_value(ex, env::AbstractDict{Symbol, BigFloat})
     ex isa Symbol && return env[ex]
     ex isa Number && return BigFloat(ex)
