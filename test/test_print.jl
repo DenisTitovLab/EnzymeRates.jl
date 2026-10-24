@@ -317,6 +317,93 @@ end
     end
 end
 
+@testset "both printed forms paste and evaluate as Julia" begin
+    # Each form, pasted into a fresh module where `params` and `concs` are bound, runs top
+    # to bottom: it opens with their destructuring lines and ends with the `v` line, whose
+    # value is the compiled law's. The coefficient form leaves the reference lines to the
+    # full law. The cases are every spec, F1-F4 of the unit-rule testsets above, and a
+    # two-subunit ping-pong with a regulatory site, whose coefficient form defines N_A and
+    # N_I before the coefficients they divide and W_A and W_I before `v`.
+    f1 = @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> F + P
+            F + A <--> E + P
+        end
+    end
+    f2 = @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> F + P
+            F + A <--> E + P
+            F + A + A ⇌ F(A, A)
+        end
+    end
+    f3 = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B ⇌ E(Q) + P
+            E(Q) <--> E + Q
+        end
+    end
+    f4 = @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> F + P
+            F + A <--> E + P
+            F + A ⇌ F(A)
+            F(A) + A ⇌ F(A, A)
+        end
+    end
+    regulated_pp = @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + A <--> E(A)       :: EqualAI
+            E(A) <--> F + P       :: NonequalAI
+            F + B <--> F(B)       :: EqualAI
+            F(B) <--> E + Q       :: EqualAI
+        end
+        regulatory_site(2): R::NonequalAI
+    end
+    coef = split(rate_equation_string(regulated_pp; coefficients = true), '\n')
+    @test [l[1:3] for l in coef if occursin(r"^[QDFWN]_[AI] = ", l)] ==
+          ["N_A", "N_I", "Q_A", "D_A", "Q_I", "D_I", "F_A", "F_I", "W_A", "W_I"]
+    cases = [[(spec.name, spec.mechanism) for spec in MECHANISM_TEST_SPECS];
+             [("F1", f1), ("F2", f2), ("F3", f3), ("F4", f4),
+              ("regulated ping-pong", regulated_pp)]]
+    rng = Random.MersenneTwister(42)
+    for (name, m) in cases
+        @testset "$name" begin
+            params = _testhelper_random_independent_params(m; rng)
+            concs = NamedTuple{metabolites(m)}(
+                Tuple(0.1 + 9.9 * rand(rng) for _ in metabolites(m)))
+            for coefficients in (false, true)
+                text = rate_equation_string(m; coefficients)
+                lines = split(text, '\n')
+                @test endswith(lines[1], ") = params") && endswith(lines[2], ") = concs")
+                @test startswith(last(lines), "v = ")
+                if coefficients
+                    @test !any(in(("# Haldane constraints:", "# Wegscheider constraints:")),
+                               lines)
+                end
+                mod = Module()
+                Core.eval(mod, :(params = $params))
+                Core.eval(mod, :(concs = $concs))
+                @test isapprox(Base.include_string(mod, text),
+                               rate_equation(m, concs, params); rtol = 1e-10)
+            end
+        end
+    end
+end
+
 @testset "coefficient names read powers and ratios, and N prints the normalizer once" begin
     # F1 reads A and P only through P/A, so the ratio form divides by A: the coefficients
     # of P/A take ⁻¹, and the polynomial factor of the divisor prints as N.
@@ -329,11 +416,13 @@ end
         end
     end
     c1 = split(rate_equation_string(f1; coefficients = true), '\n')
-    @test c1[1] == "v = E_total * (n_0 + n_P_A⁻¹ * P / A) * (A - P / Keq) / " *
-                   "(1 + d_P_A⁻¹ * P / A)"
-    @test c1[2] == "# The coefficients are functions of the fitted constants, not " *
+    @test c1[1:2] == ["(; k_E_A_to_F_P, k_F_A_to_E_P, k_F_P_to_E_A, Keq, E_total) = params",
+                      "(; A, P) = concs"]
+    @test last(c1) == "v = E_total * (n_0 + n_P_A⁻¹ * P / A) * (A - P / Keq) / " *
+                      "(1 + d_P_A⁻¹ * P / A)"
+    @test c1[3] == "# The coefficients are functions of the fitted constants, not " *
                    "parameters:"
-    @test c1[3:end] == [
+    @test c1[4:end - 1] == [
         "N = k_E_A_to_F_P + k_F_A_to_E_P",
         "n_0 = 2 * k_E_A_to_F_P * k_F_A_to_E_P / N",
         "n_P_A⁻¹ = 2 * k_E_A_to_F_P * k_F_A_to_E_P / (Keq * N)",
@@ -351,9 +440,9 @@ end
         end
     end
     c3 = split(rate_equation_string(f3; coefficients = true), '\n')
-    @test c3[1] == "v = E_total * (n_B⁻¹ / B) * (A * B - P * Q / Keq) / (1 + " *
-                   "d_P_B⁻¹ * P / B + d_A * A + d_A_P_B⁻¹ * A * P / B + d_Q * Q + " *
-                   "d_P_Q_B⁻¹ * P * Q / B)"
+    @test last(c3) == "v = E_total * (n_B⁻¹ / B) * (A * B - P * Q / Keq) / (1 + " *
+                      "d_P_B⁻¹ * P / B + d_A * A + d_A_P_B⁻¹ * A * P / B + d_Q * Q + " *
+                      "d_P_Q_B⁻¹ * P * Q / B)"
     @test "n_B⁻¹ = k_E_A_to_EA" in c3
     @test !any(startswith("N = "), c3)
     # F2's weights are fractional: N is a power 3/2, and its coefficients hold roots.

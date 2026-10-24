@@ -2526,20 +2526,22 @@ W_A = (1 + R / K_A_Rreg)^2
 W_I = (1 + R / K_I_Rreg)^2
 v = E_total * (Q_A * D_A * W_A + L * Q_I * D_I * W_I) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2 * W_I)"""
     @test actual == expected
-    expected_coefficients = raw"""v = E_total * (Q_A * D_A * W_A + L * Q_I * D_I * W_I) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2 * W_I)
-Q_A = nA_0
-D_A = 1 + dA_S * S + dA_P * P
-Q_I = nI_0
-D_I = 1 + dI_S * S + dI_P * P
-W_A = (1 + R / K_A_Rreg)^2
-W_I = (1 + R / K_I_Rreg)^2
+    expected_coefficients = raw"""(; K_A_EP_to_E_P, K_A_ES_to_E_S, K_I_EP_to_E_P, K_I_ES_to_E_S, k_A_ES_to_EP, k_I_ES_to_EP, K_A_Rreg, K_I_Rreg, L, Keq, E_total) = params
+(; S, P, R) = concs
 # The coefficients are functions of the fitted constants, not parameters:
 nA_0 = k_A_ES_to_EP / K_A_ES_to_E_S
 dA_S = 1 / K_A_ES_to_E_S
 dA_P = 1 / K_A_EP_to_E_P
 nI_0 = k_I_ES_to_EP / K_I_ES_to_E_S
 dI_S = 1 / K_I_ES_to_E_S
-dI_P = 1 / K_I_EP_to_E_P"""
+dI_P = 1 / K_I_EP_to_E_P
+Q_A = nA_0
+D_A = 1 + dA_S * S + dA_P * P
+Q_I = nI_0
+D_I = 1 + dI_S * S + dI_P * P
+W_A = (1 + R / K_A_Rreg)^2
+W_I = (1 + R / K_I_Rreg)^2
+v = E_total * (Q_A * D_A * W_A + L * Q_I * D_I * W_I) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2 * W_I)"""
     @test rate_equation_string(m_allo; coefficients = true) == expected_coefficients
     # Both texts equal the derived law (value check of this pin).
     @test _testhelper_printed_law_error(m_allo) <= big(10)^-20

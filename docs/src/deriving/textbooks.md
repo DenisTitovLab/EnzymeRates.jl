@@ -93,16 +93,19 @@ prints once, as the line `N = …`, and the terms it divides read `/ N`.
 
 ## The coefficient form
 
-`coefficients = true` prints the same law with one name per coefficient, then a legend
-that gives each coefficient in the fitted constants:
+`coefficients = true` prints the same law with one name per coefficient. It too runs from
+top to bottom: the `params` and `concs` lines, `N` when it prints, one line per coefficient
+in the fitted constants, then `v`. The reference lines print only in the full law.
 
 ```jldoctest textbook
 julia> print(rate_equation_string(m; coefficients = true))
-v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
+(; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP, Keq, E_total) = params
+(; S, P) = concs
 # The coefficients are functions of the fitted constants, not parameters:
 n_0 = k_ES_to_EP / K_ES_to_E_S
 d_S = 1 / K_ES_to_E_S
 d_P = 1 / K_EP_to_E_P
+v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
 ```
 
 A coefficient is named by the concentrations it multiplies: `d_A_B` for `A * B`, `d_A²_B`

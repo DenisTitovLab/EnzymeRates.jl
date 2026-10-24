@@ -184,40 +184,37 @@ function _reference_lines(s::_Solve, vars::_Vars)
     lines
 end
 
-"""The `params` and `concs` destructuring lines of `m`'s printed law, then the reference
-lines (`_reference_lines`)."""
-_header_lines(m::Union{Mechanism, AllostericMechanism}, s::_Solve, vars::_Vars) =
-    String["(; $(join((s.fitted..., :Keq, :E_total), ", "))) = params";
-           "(; $(join(metabolites(m), ", "))) = concs";
-           _reference_lines(s, vars)]
+"""The `params` and `concs` destructuring lines of `m`'s printed law over the solve `s`."""
+_header_lines(m::Union{Mechanism, AllostericMechanism}, s::_Solve) =
+    String["(; $(join((s.fitted..., :Keq, :E_total), ", "))) = params",
+           "(; $(join(metabolites(m), ", "))) = concs"]
 
 # ─── Plain and MWC laws ──────────────────────────────────────────────────────
 
 """
     _law_text(m, s, L; coefficients = false) -> String
 
-The printed law `L` of `m` over the solve `s` (`rate_equation_string`). In full: the header
-(`_header_lines`), `N = …` when the normalizer has a factor that is not a single term, or
-an integer to a fractional power, and the `v` line (`_v_line`) with `Q` and `D` over the
-normalizer. With `coefficients`, the `v` line in named coefficients, then `N` and one
-legend line per coefficient.
+The printed law `L` of `m` over the solve `s` (`rate_equation_string`), in the order it
+evaluates. In full: the header (`_header_lines`), the reference lines (`_reference_lines`),
+`N = …` when the normalizer has a factor that is not a single term, or an integer to a
+fractional power, and the `v` line (`_v_line`) with `Q` and `D` over the normalizer. With
+`coefficients`: the header, the coefficient comment, `N`, one line per coefficient giving
+its value, and the `v` line in the named coefficients.
 """
 function _law_text(m::Mechanism, s::_Solve, L::_Law; coefficients::Bool = false)
     subs = _substrate_vars(m, L.vars)
     P = _printed(L, _normalizer(L.D, L.vars, subs), [L.Q, L.D], subs)
     names, (q, d) = L.vars.names, P.terms
     h = _sum_text(L.H, names)
+    norms = isempty(P.N) ? String[] : ["N = $(P.N)"]
     if coefficients
         (qs, lq) = _coefficient_sum("n", q, names)
         (ds, ld) = _coefficient_sum("d", d, names)
-        lines = [_v_line(qs, h, ds), _COEFFICIENTS_COMMENT]
-        isempty(P.N) || push!(lines, "N = $(P.N)")
-        return join([lines; lq; ld], "\n")
+        return join([_header_lines(m, s); _COEFFICIENTS_COMMENT; norms; lq; ld;
+                     _v_line(qs, h, ds)], "\n")
     end
-    lines = _header_lines(m, s, L.vars)
-    isempty(P.N) || push!(lines, "N = $(P.N)")
-    push!(lines, _v_line(_group_sum(q, names), h, _group_sum(d, names)))
-    join(lines, "\n")
+    join([_header_lines(m, s); _reference_lines(s, L.vars); norms;
+          _v_line(_group_sum(q, names), h, _group_sum(d, names))], "\n")
 end
 
 """
@@ -255,17 +252,18 @@ term, or an integer to a fractional power; `F_A` and `F_I`, the free-E weights o
 normalizers, print only when they differ and each only when it is not 1; `W_A` and `W_I`
 multiply the regulatory sites' factors. The `v` line is
 `E_total·H·(F_I^n·Q_A·D_A^(n−1)·W_A + L·F_A^n·Q_I·D_I^(n−1)·W_I) /
-(F_I^n·D_A^n·W_A + L·F_A^n·D_I^n·W_I)` without its factors of 1. In full, the header comes
-first and the definitions before `v`; with `coefficients`, `v` comes first, the sums read
-in coefficients named by conformation (`nA_0`, `dA_S`, `fI_B`), and the normalizers and the
-legend follow.
+(F_I^n·D_A^n·W_A + L·F_A^n·D_I^n·W_I)` without its factors of 1. Both forms open with the
+header and end with `v`, in the order they evaluate. In full, the reference lines and the
+definitions come between; with `coefficients`, the coefficient comment, the normalizers,
+one line per coefficient, named by conformation (`nA_0`, `dA_S`, `fI_B`), and the
+definitions, whose sums read in those coefficients.
 """
 function _law_text(am::AllostericMechanism, s::_Solve, A::_AlloLaw;
                    coefficients::Bool = false)
     subs = _substrate_vars(am, A.vars)
     confs = [_conformation(A.active, "A", subs)]
     _flip_only(A.inactive) || push!(confs, _conformation(A.inactive, "I", subs))
-    defs, legend = String[], String[]
+    defs, norms, legend = String[], String[], String[]
     function define!(name, ts, c)
         if coefficients
             prefix = string(name[1] == 'Q' ? 'n' : lowercase(name[1]), c.tag)
@@ -277,7 +275,7 @@ function _law_text(am::AllostericMechanism, s::_Solve, A::_AlloLaw;
         end
     end
     for c in confs
-        isempty(c.N) || push!(coefficients ? legend : defs, "N_$(c.tag) = $(c.N)")
+        isempty(c.N) || push!(coefficients ? norms : defs, "N_$(c.tag) = $(c.N)")
         isempty(c.q) || define!("Q_$(c.tag)", c.q, c)
         define!("D_$(c.tag)", c.d, c)
     end
@@ -301,8 +299,9 @@ function _law_text(am::AllostericMechanism, s::_Solve, A::_AlloLaw;
     rest = branch("I", "A", 0)
     den = branch("A", "I", 0) * " + L" * (rest == "1" ? "" : " * " * rest)
     v = _v_line(join(num, " + "), _sum_text(A.H, A.vars.names), den)
-    coefficients ? join([v; defs; _COEFFICIENTS_COMMENT; legend], "\n") :
-                   join([_header_lines(am, s, A.vars); defs; v], "\n")
+    head = _header_lines(am, s)
+    coefficients ? join([head; _COEFFICIENTS_COMMENT; norms; legend; defs; v], "\n") :
+                   join([head; _reference_lines(s, A.vars); defs; v], "\n")
 end
 
 # ─── rate_equation_string ────────────────────────────────────────────────────
@@ -336,8 +335,9 @@ and regulatory-site factor `W_A`, `W_I`, then the MWC combination.
 With `coefficients = true` the law reads in named coefficients,
 `v = E_total * n_0 * (H) / (1 + d_S * S + …)`, each named by the concentrations it
 multiplies (`d_A²_B` for `A^2 * B`, and `d_P_B⁻¹` for `P / B` in a law that reads them only
-through their ratio), followed by one line per coefficient giving its value in the fitted
-constants.
+through their ratio). That text runs as Julia code too: it destructures `params` and
+`concs`, gives each coefficient's value in the fitted constants, one line each, and ends
+with the `v` line; the reference lines print only in the full law.
 
 ```jldoctest
 julia> using EnzymeRates
@@ -360,11 +360,13 @@ k_EP_to_ES = K_EP_to_E_P * k_ES_to_EP / (K_ES_to_E_S * Keq)
 v = E_total * (k_ES_to_EP / K_ES_to_E_S) * (S - P / Keq) / (1 + S / K_ES_to_E_S + P / K_EP_to_E_P)
 
 julia> print(rate_equation_string(m; coefficients = true))
-v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
+(; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP, Keq, E_total) = params
+(; S, P) = concs
 # The coefficients are functions of the fitted constants, not parameters:
 n_0 = k_ES_to_EP / K_ES_to_E_S
 d_S = 1 / K_ES_to_E_S
 d_P = 1 / K_EP_to_E_P
+v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
 ```
 """
 function rate_equation_string(m::Union{Mechanism, AllostericMechanism};

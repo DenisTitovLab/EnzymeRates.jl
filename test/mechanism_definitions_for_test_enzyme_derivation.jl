@@ -2258,11 +2258,9 @@ end
 
 Every name a printed law `s` (`rate_equation_string`, in full or in coefficients) binds,
 evaluated in 256-bit BigFloat without `eval`, at `params` and `concs` (NamedTuples or
-dictionaries by name). The full law runs as Julia runs it, top to bottom: its destructuring
+dictionaries by name). The law runs as Julia runs it, top to bottom: its destructuring
 lines bind their names from `params` and `concs`, and a line that reads a name no earlier
-line binds is an error. The coefficient form destructures nothing and prints `v` before its
-legend, so every name of `params` and `concs` is bound first and each line runs once each
-name it reads is bound. Comment lines are skipped.
+line binds is an error. Comment lines are skipped.
 """
 function _testhelper_eval_rate_lines(s::AbstractString, params, concs)
     setprecision(BigFloat, 256) do
@@ -2270,26 +2268,18 @@ function _testhelper_eval_rate_lines(s::AbstractString, params, concs)
         for (k, x) in pairs(concs)
             given[k] = BigFloat(x)
         end
-        todo = Expr[Meta.parse(l) for l in split(s, '\n')
-                    if !isempty(strip(l)) && !startswith(lstrip(l), "#")]
-        full = any(ex -> ex.args[1] isa Expr, todo)
-        env = full ? Dict{Symbol, BigFloat}() : copy(given)
-        while !isempty(todo)
-            n = length(todo)
-            filter!(todo) do ex
-                lhs, rhs = ex.args
-                if lhs isa Expr
-                    foreach(x -> env[x] = given[x], lhs.args[1].args)
-                    return false
-                end
-                if !all(x -> haskey(env, x), _testhelper_names_read(rhs))
-                    full && error("a printed law reads a name before it binds it: $ex")
-                    return true
-                end
+        env = Dict{Symbol, BigFloat}()
+        for l in split(s, '\n')
+            (isempty(strip(l)) || startswith(lstrip(l), "#")) && continue
+            ex = Meta.parse(l)
+            lhs, rhs = ex.args
+            if lhs isa Expr
+                foreach(x -> env[x] = given[x], lhs.args[1].args)
+            elseif all(x -> haskey(env, x), _testhelper_names_read(rhs))
                 env[lhs] = _testhelper_printed_value(rhs, env)
-                false
+            else
+                error("a printed law reads a name before it binds it: $ex")
             end
-            length(todo) == n && error("a printed law reads names it never binds: $todo")
         end
         env
     end
