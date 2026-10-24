@@ -12533,9 +12533,9 @@ end
     @test _testhelper_fitted(m) == _testhelper_identifiable_rank(m) == 2
     @test _testhelper_fitted(flipped) == _testhelper_identifiable_rank(flipped) == 3
     @test _testhelper_fitted(k_type) == 3 && _testhelper_identifiable_rank(k_type) == 2
-    # The K-type child is an L phantom (spec section 13): one catalytic subunit, an
-    # inactive conformation that is free E alone, and a rescaling certificate that maps
-    # it onto the law of its catalytic mechanism.
+    # The K-type child, whose inactive conformation is free E alone, is an L phantom
+    # (spec section 13): its rescaling certificate maps it onto the law of its catalytic
+    # mechanism.
     @test EnzymeRates._is_phantom(EnzymeRates._law(k_type))
     @test _testhelper_phantom_map_holds(k_type; rng = Random.MersenneTwister(1))
 end
