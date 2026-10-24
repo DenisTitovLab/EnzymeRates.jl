@@ -43,7 +43,7 @@ unit rule"). Every term of `D` has one unit, and every term divided by `N` is
 dimensionless. The first rule that applies gives `N`:
 
 1. `:constant`: `D` has a term free of concentrations, and `N` is its coefficient.
-2. `:cleland`: with `ΠS` the product of the `k` distinct substrates, `D` has the terms
+2. `:cleland`: with `ΠS` the product of the `k` substrates, `D` has the terms
    `ΠS/X` for every substrate `X` and `ΠS`, and `N = Π_X c(ΠS/X) / c(ΠS)^(k - 1)`,
    Cleland's normalizer: the substrate terms then read as products of Michaelis
    constants. One substrate never takes it, since `ΠS/A` is the absent constant term.
@@ -59,10 +59,9 @@ Exact `Rational{Int}` arithmetic; an `OverflowError` escapes.
 function _normalizer(D::_Poly, vars::_Vars, substrates::Vector{Int})
     Dc = _split_conc(D, vars)
     haskey(Dc, _Mono()) && return _Norm(:constant, Pair{_Mono, _Exp}[_Mono() => 1], _Mono())
-    subs = unique(substrates)
-    S = _monomial((v => 1 for v in subs)...)
-    cleland = Pair{_Mono, _Exp}[_mmul(S, _monomial(v => -1)) => 1 for v in subs]
-    push!(cleland, S => 1 - length(subs))
+    S = _monomial((v => 1 for v in substrates)...)
+    cleland = Pair{_Mono, _Exp}[_mmul(S, _monomial(v => -1)) => 1 for v in substrates]
+    push!(cleland, S => 1 - length(substrates))
     all(p -> haskey(Dc, p.first), cleland) && return _Norm(:cleland, cleland, _Mono())
     conc = findall(vars.conc)
     monos = sort!(collect(keys(Dc)); by = mo -> _term_key(mo, vars, substrates))
