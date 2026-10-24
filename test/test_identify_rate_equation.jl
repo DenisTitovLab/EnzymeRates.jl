@@ -1548,20 +1548,23 @@ end
 # log-space optimum (`uval` for every coordinate), so a batch's fits can be
 # counted exactly and the raw→rescale path exercised deterministically. With
 # `infinite = true` every restart reports an infinite objective, as a fit with no
-# finite loss does.
+# finite loss does. `throwit = true` throws on every call, `throw_first = true` on the
+# first call only.
 mutable struct _testhelper_CountingStubOpt
     count::Int
     uval::Float64
     throwit::Bool
     infinite::Bool
+    throw_first::Bool
 end
-_testhelper_CountingStubOpt(; uval=0.0, throwit=false, infinite=false) =
-    _testhelper_CountingStubOpt(0, uval, throwit, infinite)
+_testhelper_CountingStubOpt(; uval=0.0, throwit=false, infinite=false, throw_first=false) =
+    _testhelper_CountingStubOpt(0, uval, throwit, infinite, throw_first)
 Optimization.allowsbounds(::_testhelper_CountingStubOpt) = true
 function Optimization.SciMLBase.__solve(
         prob::Optimization.OptimizationProblem, opt::_testhelper_CountingStubOpt; kwargs...)
     opt.count += 1
-    opt.throwit && error("stub solver forced failure")
+    (opt.throwit || opt.throw_first && opt.count == 1) &&
+        error("stub solver forced failure")
     u = fill(opt.uval, length(prob.u0))
     cache = DefaultOptimizationCache(prob.f, prob.p)
     opt.infinite && return build_solution(cache, opt, u, Inf; retcode = ReturnCode.Failure)
@@ -2139,22 +2142,54 @@ end
     end
 end
 
-@testset "a phantom whose source fit fails is a failure row" begin
-    # When the source's fit throws, the phantom fails with the source's
-    # error and the batch returns. When the source's fit reaches no finite loss, the
-    # phantom's row carries the source's loss and retcode, and `_ingest!` keeps both out of
-    # the frontier and the cv pool.
+@testset "a phantom whose source's fit fails" begin
+    # When the source's fit throws, the phantom is fitted itself, unflagged, in the
+    # same batch or a later one; when that fit throws too, it fails with its own error. When
+    # the source's fit reaches no finite loss, the phantom's row carries the source's loss
+    # and retcode, and `_ingest!` keeps both out of the frontier and the cv pool.
     parent, phantom = _testhelper_phantom_pair()
     prob = _testhelper_uni_prob(NamedTuple)
     batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[parent, phantom]
-    entries, failures = EnzymeRates._process_batch(batch, prob;
-        optimizer = _testhelper_CountingStubOpt(; throwit = true), max_param_count = 20,
-        n_restarts = 1, maxtime = 1.0)
-    @test isempty(entries)
+    memo = Dict{String, EnzymeRates._Fit}()
+    lines = String[]
+    opt = _testhelper_CountingStubOpt(; throw_first = true)
+    entries, failures = EnzymeRates._process_batch(batch, prob; optimizer = opt,
+        max_param_count = 20, memo, n_restarts = 1, maxtime = 1.0,
+        log = msg -> push!(lines, msg))
+    @test [f.mech for f in failures] == [parent]
+    @test opt.count == 2
+    e = only(entries)
+    @test e.mech == phantom
+    @test e.row.L_phantom === false
+    @test e.row.fit_inherited === false
+    @test e.row.fit_source_id == e.row.mechanism_id
+    @test e.fit_key == e.key
+    @test isfinite(e.loss)
+    @test haskey(memo, e.key)
+    @test any(occursin("source fit threw for L phantom $(e.row.mechanism_id); " *
+                       "fitted under its own key"), lines)
+    opt = _testhelper_CountingStubOpt(; throwit = true)
+    entries, failures = EnzymeRates._process_batch(batch, prob; optimizer = opt,
+        max_param_count = 20, n_restarts = 1, maxtime = 1.0)
     @test [f.mech for f in failures] == [parent, phantom]
-    @test failures[2].error == failures[1].error
+    @test opt.count == 2
     @test occursin("stub solver forced failure", failures[2].error)
     @test ismissing(EnzymeRates._failure_row(failures[2]).L_phantom)
+    memo = Dict{String, EnzymeRates._Fit}()
+    EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[parent], prob;
+        optimizer = _testhelper_CountingStubOpt(; throwit = true), max_param_count = 20,
+        memo, n_restarts = 1, maxtime = 1.0)
+    @test isempty(memo)
+    entries, _ = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[phantom], prob;
+        optimizer = _testhelper_CountingStubOpt(), max_param_count = 20, memo,
+        n_restarts = 1, maxtime = 1.0)
+    e = only(entries)
+    @test e.row.L_phantom === false
+    @test e.row.fit_inherited === false
+    @test e.row.fit_source_id == e.row.mechanism_id
+    @test e.fit_key == e.key
     opt = _testhelper_CountingStubOpt(; infinite = true)
     entries, failures = EnzymeRates._process_batch(batch, prob; optimizer = opt,
         max_param_count = 20, n_restarts = 1, maxtime = 1.0)

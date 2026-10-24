@@ -595,7 +595,7 @@ keys; the census found such pairs, and they are fitted separately.
   their law at L = 0 (often the parent) when that law holds every fitted constant but L and
   that fit was made in an earlier iteration or is made in their own, and are flagged; that
   mechanism has another key, so section 13 defines how the fit maps onto the variant.
-  Otherwise a phantom is fitted itself, unflagged (section 13).
+  Otherwise, or when that fit throws, a phantom is fitted itself, unflagged (section 13).
 - The beam counts each key once, so duplicates cannot crowd out distinct candidates, and a
   sweep expands every member it meets of a selected key, so no law reachable through one of
   them is lost; only an L phantom's key can be refused and later selected (section 13).
@@ -706,8 +706,8 @@ so the fitter fixes it after the fit (E9).
   fold its best fit equals the source's, so it takes the source's fold losses. Its CSV row
   records the fit source's `mechanism_id` and the L-phantom flag (section 5). A phantom
   is fitted as an ordinary candidate, unflagged, when no mechanism of the search has fitted
-  its law at L = 0 by the end of the phantom's own iteration, or when that law lacks one
-  of the phantom's fitted constants other than L.
+  its law at L = 0 by the end of the phantom's own iteration, when that fit throws, or when
+  that law lacks one of the phantom's fitted constants other than L.
 
 ## 14. Testing
 

@@ -404,6 +404,11 @@ struct _Candidate
     canon0::_Canonical
 end
 
+"""Candidate `c` as an ordinary candidate: not an L phantom, it reads the fit of its own law
+(`canon0 = c.canon`)."""
+_unflagged(c::_Candidate) = _Candidate(c.mech, c.fitted, c.mechanism, c.mechanism_id,
+                                       c.eq_text, c.canon, false, c.canon)
+
 """The order in which candidate `c` reads its fit's values (`_Fit`): the canonical order of
 the law whose fit it reads (`canon0`), then `L` for an MWC law."""
 _fit_order(c::_Candidate) =
@@ -555,7 +560,7 @@ nothing over) is never a representative. It reads the fit of its law at `L = 0`,
 law's key (`fit_key`), from `memo` or from this batch's representatives, through its own
 order and with `L = 0`, and its row sets `L_phantom`. A phantom whose law at `L = 0` has no
 fit there, or lacks one of its other fitted constants, is fitted as an ordinary candidate;
-one whose source's fit throws fails with the source's error. A row's
+so is one whose source's fit throws, after the representatives. A row's
 `fit_inherited` is `false` when its mechanism is its fit's source and `true` otherwise, and
 `fit_source_id` names the source. `parent_of` maps a child to its parent's `BatchEntry`,
 which fills the row's parent columns. `entries::Vector{BatchEntry}` are the mechanisms with
@@ -622,8 +627,7 @@ function _process_batch(
     for (i, c) in enumerate(records)
         c isa _Candidate && c.phantom || continue
         (haskey(memo, c.canon0.key) || haskey(rep_idx, c.canon0.key)) && continue
-        records[i] = _Candidate(c.mech, c.fitted, c.mechanism, c.mechanism_id,
-                                c.eq_text, c.canon, false, c.canon)
+        records[i] = _unflagged(c)
         haskey(memo, c.canon.key) || get!(rep_idx, c.canon.key, i)
     end
     reps = _Candidate[records[i] for i in values(rep_idx)]
@@ -640,21 +644,37 @@ function _process_batch(
     # PASS 2: fit them in PARALLEL (`pmap`) — fitting dominates cost, so it must run
     # across all workers. Each representative gives its fit at canonical positions, or
     # the text of the error its fit threw.
-    rep_fits = pmap(reps) do r
-        try
-            fp = FittingProblem(compile_mechanism(r.mech), prob.data;
-                Keq=prob.Keq, absolute=prob.absolute, peak_range=prob.peak_range)
-            fit = fit_rate_equation(fp, optimizer; kwargs...)
-            _Fit(Float64[fit.params[x] for x in _fit_order(r)], fit.loss, fit.retcode,
-                 fit.peak_at_range_edge, r.mech, r.mechanism_id)
-        catch e
-            _exc_string(e)
+    fit_error = Dict{String,String}()   # key → its representative's fit threw
+    function fit!(reps::Vector{_Candidate})
+        rep_fits = pmap(reps) do r
+            try
+                fp = FittingProblem(compile_mechanism(r.mech), prob.data;
+                    Keq=prob.Keq, absolute=prob.absolute, peak_range=prob.peak_range)
+                fit = fit_rate_equation(fp, optimizer; kwargs...)
+                _Fit(Float64[fit.params[x] for x in _fit_order(r)], fit.loss, fit.retcode,
+                     fit.peak_at_range_edge, r.mech, r.mechanism_id)
+            catch e
+                _exc_string(e)
+            end
+        end
+        for (r, f) in zip(reps, rep_fits)
+            f isa _Fit ? (memo[r.canon.key] = f) : (fit_error[r.canon.key] = f::String)
         end
     end
-    fit_error = Dict{String,String}()   # key → its representative's fit threw
-    for (r, f) in zip(reps, rep_fits)
-        f isa _Fit ? (memo[r.canon.key] = f) : (fit_error[r.canon.key] = f::String)
+    fit!(reps)
+    # A phantom whose source's fit threw becomes an ordinary candidate, fitted under its
+    # own key: one representative per such key not already fit.
+    empty!(rep_idx)
+    threw = String[]
+    for (i, c) in enumerate(records)
+        c isa _Candidate && c.phantom && haskey(fit_error, c.canon0.key) || continue
+        records[i] = _unflagged(c)
+        haskey(memo, c.canon.key) || get!(rep_idx, c.canon.key, i)
+        push!(threw, "source fit threw for L phantom $(c.mechanism_id); " *
+                     "fitted under its own key")
     end
+    isempty(threw) || log(join(threw, "\n  "))
+    fit!(_Candidate[records[i] for i in values(rep_idx)])
 
     # Build a row per derived mechanism from its key's fit, read through its own order.
     entries  = BatchEntry[]

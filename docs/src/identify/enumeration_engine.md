@@ -332,8 +332,8 @@ whatever that conformation binds, when an exact rescaling of its other constants
 `L`. When its active conformation's law holds every fitted constant but `L` and a mechanism
 with that law was fitted earlier in the search or is fitted in the phantom's own iteration,
 identify does not fit the phantom but reads that fit with `L = 0` and flags the row
-(`L_phantom` in the CSVs). Any other variant, a phantom met before any such fit included, is
-fitted like any other candidate.
+(`L_phantom` in the CSVs). Any other variant, a phantom met before any such fit or whose
+source's fit throws included, is fitted like any other candidate.
 
 A parent whose catalytic scheme already carries concentration powers, such as a
 random-order scheme with steady-state binding or a substrate that traps a
