@@ -4,7 +4,8 @@
 using Test
 using EnzymeRates
 
-# Budgets calibrated against the current branch tip with 2× headroom.
+# Each budget's comment gives its baseline; the budgets leave room for the Julia versions
+# and runners CI uses.
 # init_mechanisms trace-compile counts the method specializations that building the
 # init set compiles (EnzymeReaction is non-parametric, so there is no per-arity
 # reaction-type specialization).
@@ -329,11 +330,12 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         @test t_first < RATE_EQUATION_WALLCLOCK_BUDGET_S
     end
 
-    # The package precompiles `_rate_body` for both mechanism types, so its image holds the
-    # generator and the first call above stays under its budget (2.2-2.4 s on Julia 1.12
-    # without them). `precompile` returns false when no method takes the signature, so a
-    # generator whose signature changes fails here rather than leaving the package's two
-    # calls compiling nothing.
+    # The package precompiles `_rate_body`, which `rate_equation`'s generator calls, for
+    # both mechanism types, so a fresh process's image holds both (the cold subprocess
+    # counts them) and the first call above stays under its budget (2.2-2.4 s on Julia 1.12
+    # without both precompile calls, 0.16-0.44 s without one). `precompile` returns false
+    # when no method takes the signature, so a signature change fails here rather than
+    # leaving the package's two calls compiling nothing.
     @testset "the generator's precompile signatures compile" begin
         @test n_image == 2
         @test precompile(EnzymeRates._rate_body, (EnzymeRates.Mechanism,))
