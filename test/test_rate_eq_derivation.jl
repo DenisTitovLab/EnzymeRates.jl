@@ -1181,7 +1181,7 @@ const _LDH_ISTATE_MECHS = [spec.mechanism for spec in MECHANISM_TEST_SPECS
 # rendered rate equation is closed: every referenced name has a definition.
 function _testhelper_undefined_rhs_symbols(s::AbstractString)
     # A name may hold superscripts (a coefficient's); a called function (`sqrt`) is no name.
-    ident = r"[A-Za-z_][A-Za-z0-9_⁰¹²³⁴⁵⁶⁷⁸⁹⁻]*(?![A-Za-z0-9_⁰¹²³⁴⁵⁶⁷⁸⁹⁻(])"
+    ident = r"[A-Za-z_][A-Za-z0-9_⁰¹²³⁴⁵⁶⁷⁸⁹]*(?![A-Za-z0-9_⁰¹²³⁴⁵⁶⁷⁸⁹(])"
     defined = Set{Symbol}()
     referenced = Set{Symbol}()
     for line in split(s, '\n')

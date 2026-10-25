@@ -1372,23 +1372,19 @@ end
 end
 
 @testset "_ingest! and cv pool" begin
-    _testhelper_mk(n, loss, h) = EnzymeRates.BatchEntry(
-        _testhelper_uni_seed, n, loss, :Success, string(h), string(h),
-        (n_params=n, loss=loss, mechanism="M",
-         rate_equation="v", retcode="Success", error=missing,
-         params=(K = 1.0,), key=string(h), fit_inherited=false))
     frontier = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     cv_pool  = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     best     = Dict{Int,Float64}()
     # two distinct equations + one duplicate-eq with worse loss, n_cv=2
     improved = EnzymeRates._ingest!(frontier, cv_pool, best,
-        [_testhelper_mk(5,2.0,:a), _testhelper_mk(5,1.0,:b), _testhelper_mk(5,3.0,:a)];
+        [_testhelper_entry("a", 2.0, 5), _testhelper_entry("b", 1.0, 5),
+         _testhelper_entry("a", 3.0, 5)];
         n_cv_candidates=2)
     @test improved == Set([5])                 # count 5 first appeared
     @test length(frontier[5]) == 3            # frontier keeps ALL
     @test best[5] == 1.0                       # running min
     @test length(cv_pool[5]) == 2              # bounded, distinct keys
-    # the kept :a entry is the lower-loss one (2.0, not 3.0)
+    # the kept "a" entry is the lower-loss one (2.0, not 3.0)
     a = only(filter(e -> e.key == "a", cv_pool[5]))
     @test a.loss == 2.0
     # A later batch reports only the counts whose best strictly dropped or first
@@ -1396,10 +1392,11 @@ end
     # entry is worse than its best (0.5).
     best[7] = 0.5
     @test EnzymeRates._ingest!(frontier, cv_pool, best,
-        [_testhelper_mk(5,1.0,:c), _testhelper_mk(6,4.0,:d), _testhelper_mk(7,0.6,:e)];
+        [_testhelper_entry("c", 1.0, 5), _testhelper_entry("d", 4.0, 6),
+         _testhelper_entry("e", 0.6, 7)];
         n_cv_candidates=2) == Set([6])
     @test EnzymeRates._ingest!(frontier, cv_pool, best,
-        [_testhelper_mk(5,0.9,:f)]; n_cv_candidates=2) == Set([5])
+        [_testhelper_entry("f", 0.9, 5)]; n_cv_candidates=2) == Set([5])
     @test isempty(EnzymeRates._ingest!(frontier, cv_pool, best,
         EnzymeRates.BatchEntry[]; n_cv_candidates=2))
 
@@ -1412,8 +1409,8 @@ end
     cv_pool_nf  = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     best_nf     = Dict{Int,Float64}()
     @test EnzymeRates._ingest!(frontier_nf, cv_pool_nf, best_nf,
-        [_testhelper_mk(5,Inf,:g), _testhelper_mk(5,1.0,:h), _testhelper_mk(6,NaN,:i),
-         _testhelper_mk(7,Inf,:j)];
+        [_testhelper_entry("g", Inf, 5), _testhelper_entry("h", 1.0, 5),
+         _testhelper_entry("i", NaN, 6), _testhelper_entry("j", Inf, 7)];
         n_cv_candidates=2) == Set([5])
     @test Set(keys(frontier_nf)) == Set(keys(cv_pool_nf)) == Set([5])
     @test [e.key for e in frontier_nf[5]] == ["h"]
@@ -1423,8 +1420,8 @@ end
     # `_offer_cv!` keeps at most one entry per key: a repeat key updates its own slot to
     # the lower loss, never consuming a second.
     pool = EnzymeRates.BatchEntry[]
-    for (loss, h) in [(1.0, :a), (0.5, :a), (2.0, :b)]
-        EnzymeRates._offer_cv!(pool, _testhelper_mk(5, loss, h), 5)
+    for (loss, h) in [(1.0, "a"), (0.5, "a"), (2.0, "b")]
+        EnzymeRates._offer_cv!(pool, _testhelper_entry(h, loss, 5), 5)
     end
     @test allunique([e.key for e in pool])
     @test length(pool) == 2
@@ -2035,7 +2032,7 @@ end
     # constant. Reading that fit would leave R's constant without a value, so the variant
     # is fitted itself under its own key, unflagged, its L fitted. The enumerator never
     # writes an all-:EqualAI site, so the variant is written by hand.
-    plain =EnzymeRates.Mechanism(@enzyme_mechanism begin
+    plain = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin

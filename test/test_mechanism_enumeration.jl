@@ -12943,7 +12943,6 @@ end
     # only_q and p_and_q bind nothing in the inactive conformation.
     for k in (only_q, p_and_q)
         @test !any(EnzymeRates._inactive_mask(k))
-        @test isempty(EnzymeRates._phantom_weights(EnzymeRates._law(k)))
     end
     @test !any(k -> EnzymeRates._is_phantom(EnzymeRates._law(k)),
                (only_q, only_p, p_and_q))

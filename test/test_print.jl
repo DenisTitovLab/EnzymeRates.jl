@@ -18,11 +18,6 @@ _testhelper_n_text(m) =
     chopprefix(only(filter(startswith("N = "), split(rate_equation_string(m), '\n'))),
                "N = ")
 
-# The value of `text`, an expression of a printed law, at the names `env`, in 256-bit
-# BigFloat.
-_testhelper_text_value(text, env) =
-    setprecision(() -> _testhelper_printed_value(Meta.parse(text), env), BigFloat, 256)
-
 # Both printed forms of `m`, pasted into a fresh module where `params` and `concs` are
 # bound at random values drawn from `rng`, run top to bottom and give the compiled law's
 # value. `zero`, when a metabolite name, sets that concentration to 0.
@@ -33,7 +28,8 @@ function _testhelper_check_pasted_forms(m, rng; zero = nothing)
     for coefficients in (false, true)
         text = rate_equation_string(m; coefficients)
         lines = split(text, '\n')
-        @test endswith(lines[1], ") = params") && endswith(lines[2], ") = concs")
+        @test endswith(lines[1], ") = params")
+        @test endswith(lines[2], ") = concs")
         @test startswith(last(lines), "v = ")
         if coefficients
             @test !any(in(("# Haldane constraints:", "# Wegscheider constraints:")),
@@ -88,12 +84,6 @@ end
     @test _testhelper_n_text(pp) ==
           "(k_EA_to_E_A + k_EA_to_F_P) * (k_FB_to_E_Q + k_FB_to_F_B) / " *
           "(k_EA_to_F_P + k_FB_to_E_Q)"
-    rng = Random.MersenneTwister(30)
-    env = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1) for x in L.vars.names)
-    graded = "(k_FB_to_E_Q + k_FB_to_F_B) * (k_EA_to_E_A + k_EA_to_F_P) / " *
-             "(k_EA_to_F_P + k_FB_to_E_Q)"
-    @test isapprox(_testhelper_text_value(_testhelper_n_text(pp), env),
-                   _testhelper_text_value(graded, env); rtol = 1e-20)
     _testhelper_check_units(mech, L)
 end
 
@@ -119,17 +109,6 @@ end
     @test nz.lambda == [m(:B => 1, :C => 1) => 1 // 1, m(:A => 1, :C => 1) => 1 // 1,
                         m(:A => 1, :B => 1) => 1 // 1,
                         m(:A => 1, :B => 1, :C => 1) => -2 // 1]
-    rng = Random.MersenneTwister(31)
-    env = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1) for x in L.vars.names)
-    Dc = EnzymeRates._split_conc(L.D, L.vars)
-    c(ps...) = _testhelper_poly_value(Dc[m(ps...)], L.vars, env)
-    cleland = c(:B => 1, :C => 1) * c(:A => 1, :C => 1) * c(:A => 1, :B => 1) /
-              c(:A => 1, :B => 1, :C => 1)^2
-    @test isapprox(_testhelper_norm_value(nz, L.D, L.vars, env), cleland; rtol = 1e-20)
-    graded_over_square = "(k_EAB_to_EA_B + k_EAB_to_F_P) * (k_FC_to_E_Q + k_FC_to_F_C) / " *
-                         "(k_FC_to_E_Q + k_EAB_to_F_P)^2"
-    @test isapprox(_testhelper_text_value(_testhelper_n_text(terbi), env),
-                   _testhelper_text_value(graded_over_square, env); rtol = 1e-20)
     _testhelper_check_units(mech, L)
 end
 

@@ -2193,7 +2193,8 @@ function _testhelper_check_units(m, L)
             @test nz.lambda == [EnzymeRates._Mono() => 1 // 1]
             @test uN == uD
         else
-            @test nz.rule in (:cleland, :graded) && uN == uD
+            @test nz.rule in (:cleland, :graded)
+            @test uN == uD
             @test sum(last, nz.lambda) == 1
             @test iszero(sum(λ * expo(mo) for (mo, λ) in nz.lambda))
         end

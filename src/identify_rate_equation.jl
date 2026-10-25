@@ -532,6 +532,41 @@ function _best_loss_line(best_loss_by_count::Dict{Int,Float64}, improved::Set{In
 end
 
 """
+PASS 1 of `_process_batch` (on the workers) for mechanism `m`, from the concrete mechanism
+and compiling nothing: the complexity filter `eq_complexity_filter` (checked first, before
+any derivation), the guard, the solve and the parameter cap `max_param_count`, the law,
+its check on the guard's faces, the printed law and the canonical form.
+`:complexity_skip` and `:param_skip` are skips; `FitFailure` = threw; else a `_Candidate`.
+"""
+function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
+    try
+        _eq_complexity(m) > eq_complexity_filter && return :complexity_skip
+        _check_well_posed(m)
+        s = _solve(m)
+        length(s.fitted) > max_param_count && return :param_skip
+        _with_law(m, s) do m, s, L
+            eq_text = _law_text(m, s, L; coefficients = true)
+            text = sprint(show, m)
+            id = _mechanism_id(text)
+            canon = _canonical(L, id)
+            # An L phantom reads the fit of its law at L = 0, its active law, when that
+            # law holds every fitted constant but L. A regulatory site whose ligands are
+            # all :EqualAI has one factor in both conformations, so the certificate
+            # admits it, yet the active law lacks its constants: the check fits such a
+            # phantom itself, so a row never reads names its fit lacks.
+            phantom = m isa AllostericMechanism && _is_phantom(L)
+            canon0 = phantom ? _canonical(L.active, id) : canon
+            if phantom && Set(canon0.order) != Set(s.fitted[1:(end - 1)])
+                phantom, canon0 = false, canon
+            end
+            _Candidate(m, s.fitted, text, id, eq_text, canon, phantom, canon0)
+        end
+    catch e
+        FitFailure(m, _exc_string(e))
+    end
+end
+
+"""
 Fit one batch of mechanisms. Returns `(entries, failures, n_param_skip, n_cx_skip,
 n_seen_skip)`.
 
@@ -561,14 +596,14 @@ law's key (`fit_key`), from `memo` or from this batch's representatives, through
 order and with `L = 0`, and its row sets `L_phantom`. A phantom whose law at `L = 0` has no
 fit there, or lacks one of its other fitted constants, is fitted as an ordinary candidate;
 so is one whose source's fit throws, after the representatives. `log` then gets one more
-message, its lines joined by `"\\n  "`: one per phantom demoted after its source's fit
-threw, `"source fit threw for L phantom <id>; fitted under its own key"`. A row's
-`fit_inherited` is `false` when its mechanism is its fit's source and `true` otherwise, and
-`fit_source_id` names the source. `parent_of` maps a child to its parent's `BatchEntry`,
-which fills the row's parent columns. `entries::Vector{BatchEntry}` are the mechanisms with
-a usable fit (each keeping its own row, `retcode` and key); `failures::Vector{FitFailure}`
-are mechanisms that threw at derivation or fit — captured WITH the exception text,
-never silently swallowed.
+message, its lines joined by a newline and two spaces: one per phantom demoted after its
+source's fit threw, `"source fit threw for L phantom <id>; fitted under its own key"`. A
+row's `fit_inherited` is `false` when its mechanism is its fit's source and `true`
+otherwise, and `fit_source_id` names the source. `parent_of` maps a child to its parent's
+`BatchEntry`, which fills the row's parent columns. `entries::Vector{BatchEntry}` are the
+mechanisms with a usable fit (each keeping its own row, `retcode` and key);
+`failures::Vector{FitFailure}` are mechanisms that threw at derivation or fit — captured
+WITH the exception text, never silently swallowed.
 """
 function _process_batch(
     mechs, prob::IdentifyRateEquationProblem;
@@ -585,38 +620,8 @@ function _process_batch(
         h in seen || (push!(seen, h); push!(fresh, m))
     end
 
-    # PASS 1 (workers), from the concrete mechanism and compiling nothing: the complexity
-    # filter (checked first, before any derivation), the guard, the solve and the
-    # parameter cap, the law, its check on the guard's faces, the printed law and the
-    # canonical form. `:complexity_skip` and `:param_skip` are skips; `FitFailure` = threw;
-    # else a `_Candidate`.
-    records = pmap(fresh) do m
-        try
-            _eq_complexity(m) > eq_complexity_filter && return :complexity_skip
-            _check_well_posed(m)
-            s = _solve(m)
-            length(s.fitted) > max_param_count && return :param_skip
-            _with_law(m, s) do m, s, L
-                eq_text = _law_text(m, s, L; coefficients = true)
-                text = sprint(show, m)
-                id = _mechanism_id(text)
-                canon = _canonical(L, id)
-                # An L phantom reads the fit of its law at L = 0, its active law, when that
-                # law holds every fitted constant but L. A regulatory site whose ligands are
-                # all :EqualAI has one factor in both conformations, so the certificate
-                # admits it, yet the active law lacks its constants: the check fits such a
-                # phantom itself, so a row never reads names its fit lacks.
-                phantom = m isa AllostericMechanism && _is_phantom(L)
-                canon0 = phantom ? _canonical(L.active, id) : canon
-                if phantom && Set(canon0.order) != Set(s.fitted[1:(end - 1)])
-                    phantom, canon0 = false, canon
-                end
-                _Candidate(m, s.fitted, text, id, eq_text, canon, phantom, canon0)
-            end
-        catch e
-            FitFailure(m, _exc_string(e))
-        end
-    end
+    # PASS 1 (workers): `_pass1_record` on each fresh mechanism.
+    records = pmap(m -> _pass1_record(m, eq_complexity_filter, max_param_count), fresh)
 
     # Pick one representative per key not already fit; an L phantom is none.
     rep_idx = Dict{String,Int}()

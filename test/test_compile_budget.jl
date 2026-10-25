@@ -114,8 +114,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     #     the @generated rate_equation body, so the first call costs what it costs in
     #     a process that never ran init_mechanisms.
     #     Before both, the script counts the package image's `_rate_body` specializations.
-    #   - fit: the identify path on bi-bi mechanisms, step for step as _process_batch
-    #     and _cv_fold_loss take it: PASS1 (complexity, the guard, the solve and its
+    #   - fit: the identify path on bi-bi mechanisms as _process_batch and _cv_fold_loss
+    #     take it: PASS1 (`_pass1_record`: complexity, the guard, the solve and its
     #     fitted count, the law and class 5, the printed law, and the mechanism's text, id
     #     and key, all on the concrete mechanism), PASS2 (FittingProblem and a CMA-ES
     #     fit) and one LOOCV fold. Encoding every seed's Sig and a full pass on the first
@@ -206,16 +206,9 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             n0, b0 = _testhelper_all_instances(), Base.jit_total_bytes()
             t0 = Base.cumulative_compile_time_ns()[1]
             s0 = _testhelper_instances(methods(show))
-            ER._eq_complexity(m)
-            ER._check_well_posed(m)
-            s = ER._solve(m)
-            length(s.fitted)
-            ER._with_law(m, s) do m, s, L
-                ER._law_text(m, s, L; coefficients = true)
-                text = sprint(show, m)
-                ER._canonical(L, ER._mechanism_id(text))
-            end
+            rec = ER._pass1_record(m, typemax(Int), typemax(Int))
             pass1 = _testhelper_all_instances() - n0
+            rec isa ER._Candidate || error("PASS1 gave \$(repr(rec))")
             s1 = _testhelper_instances(methods(show))
             fp = FittingProblem(ER.compile_mechanism(m), PROB.data;
                                 Keq = PROB.Keq, absolute = PROB.absolute,
