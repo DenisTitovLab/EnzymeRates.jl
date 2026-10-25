@@ -387,7 +387,7 @@ struct _Fit
 end
 
 """
-A mechanism PASS1 of `_process_batch` derived: its fitted constants in `fitted_params`
+A mechanism `_pass1_record` derived: its fitted constants in `fitted_params`
 order, its text and the text's id (`_mechanism_id`), its printed law, its law's canonical
 form (`canon`), whether it is an L phantom that reads another law's fit (`_is_phantom`),
 and `canon0`, the canonical form of the law whose fit it reads: for a phantom its active
@@ -533,10 +533,15 @@ end
 
 """
 PASS 1 of `_process_batch` (on the workers) for mechanism `m`, from the concrete mechanism
-and compiling nothing: the complexity filter `eq_complexity_filter` (checked first, before
-any derivation), the guard, the solve and the parameter cap `max_param_count`, the law,
-its check on the guard's faces, the printed law and the canonical form.
-`:complexity_skip` and `:param_skip` are skips; `FitFailure` = threw; else a `_Candidate`.
+alone and compiling nothing. Skip it over `eq_complexity_filter` (`:complexity_skip`,
+checked before any derivation); check it with the guard (`_check_well_posed`); skip it
+over `max_param_count` by its solve's fitted constants (`_solve`, `:param_skip`); else
+derive its law (`_law`), check the law on the guard's faces (`_assert_support`), print it
+(`_law_text`), take its text and the text's id (`_mechanism_id`), label the law
+canonically (`_canonical`; a law whose labelling reaches the leaf cap gets a key of its
+own) and decide whether it is an L phantom (`_is_phantom`) and, for one, the canonical
+form of its law at `L = 0`. Returns the skip's symbol, a `FitFailure` when a step throws,
+else a `_Candidate`.
 """
 function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
     try
@@ -572,16 +577,11 @@ n_seen_skip)`.
 
 PASS-1: skip mechanisms already produced, in an earlier batch or earlier in this one (a
 mechanism whose structural `hash` is already in `seen` is dropped before it is derived;
-`seen` gets every structure on first sight regardless of outcome). For each fresh
-mechanism, in parallel (`pmap`) and from the concrete mechanism alone, without compiling
-it: skip it over `eq_complexity_filter`; check it with the guard (`_check_well_posed`);
-skip it over `max_param_count` by its solve's fitted constants (`_solve`); else derive its
-law (`_law`), check the law on the guard's faces (`_assert_support`), print it
-(`_law_text`), take its text and the text's id (`_mechanism_id`) and label the law
-canonically (`_canonical`). A law whose labelling reaches the leaf cap gets a key of its
-own, and the pre-fit summary names its mechanism. Then pick one fit representative per key
-not already in `memo`, and pass the pre-fit summary (`_prefit_summary`) to `log`. `mechs`
-is already structurally deduped by the caller (`unique!`).
+`seen` gets every structure on first sight regardless of outcome), and run `_pass1_record`
+on each fresh mechanism, in parallel (`pmap`). Then pick one fit representative per key
+not already in `memo`, and pass the pre-fit summary (`_prefit_summary`) to `log`; it names
+each mechanism whose law reached the leaf cap. `mechs` is already structurally deduped by
+the caller (`unique!`).
 
 PASS-2: fit ONE representative per key not already in `memo`, in parallel across all
 workers (`pmap`), and store the fit in `memo` at canonical positions (`_Fit`). Every
