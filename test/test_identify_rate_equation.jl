@@ -2168,6 +2168,7 @@ end
     opt = _testhelper_CountingStubOpt(; throwit = true)
     entries, failures = EnzymeRates._process_batch(batch, prob; optimizer = opt,
         max_param_count = 20, n_restarts = 1, maxtime = 1.0)
+    @test isempty(entries)
     @test [f.mech for f in failures] == [parent, phantom]
     @test opt.count == 2
     @test occursin("stub solver forced failure 1", failures[1].error)
