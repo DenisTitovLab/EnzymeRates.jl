@@ -20,11 +20,11 @@ _testhelper_n_text(m) =
 
 # Both printed forms of `m`, pasted into a fresh module where `params` and `concs` are
 # bound at random values drawn from `rng`, run top to bottom and give the compiled law's
-# value. `zero`, when a metabolite name, sets that concentration to 0.
-function _testhelper_check_pasted_forms(m, rng; zero = nothing)
+# value. `at_zero`, when a metabolite name, sets that concentration to 0.
+function _testhelper_check_pasted_forms(m, rng; at_zero = nothing)
     params = _testhelper_random_independent_params(m; rng)
     concs = NamedTuple{metabolites(m)}(
-        Tuple(x === zero ? 0.0 : 0.1 + 9.9 * rand(rng) for x in metabolites(m)))
+        Tuple(x === at_zero ? 0.0 : 0.1 + 9.9 * rand(rng) for x in metabolites(m)))
     for coefficients in (false, true)
         text = rate_equation_string(m; coefficients)
         lines = split(text, '\n')
@@ -568,7 +568,7 @@ end
           (:cleland, :none)
     rng = Random.MersenneTwister(41)
     for m in (f1, f3, covalent, tc, pp), x in metabolites(m), _ in 1:2
-        _testhelper_check_pasted_forms(m, rng; zero = x)
+        _testhelper_check_pasted_forms(m, rng; at_zero = x)
     end
 end
 
