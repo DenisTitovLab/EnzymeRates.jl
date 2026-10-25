@@ -513,7 +513,8 @@ end
     # The printed law divides by no concentration, so both forms equal `rate_equation` at
     # a zero of each one. F1, F3 and the covalent ping-pong take no normalizer, and
     # neither do the active conformation of `tc` and the inactive one of `pp`; the rule
-    # pin keeps `pp` an MWC law whose other conformation has a normalizer.
+    # pin keeps `pp` an MWC law whose other conformation has a normalizer. `pp`'s inactive
+    # and `tc`'s active conformation print their polynomials as derived, with no `N` line.
     f1 = @enzyme_mechanism begin
         substrates: A
         products: P
@@ -566,6 +567,24 @@ end
     @test (EnzymeRates._normalizer(law.active.D, law.active.vars, subs).rule,
            EnzymeRates._normalizer(law.inactive.D, law.inactive.vars, subs).rule) ==
           (:cleland, :none)
+    full = split(rate_equation_string(pp), '\n')
+    coef = split(rate_equation_string(pp; coefficients = true), '\n')
+    heads(t) = [l[1:3] for l in t if occursin(r"^[QDFWN]_[AI] = ", l)]
+    @test heads(full) == ["N_A", "Q_A", "D_A", "D_I", "F_A", "F_I", "W_A", "W_I"]
+    @test heads(coef) == heads(full)
+    @test "D_I = A * k_EQ_to_E_Q * k_E_A_to_E_res_plusA_minusP_P + " *
+          "P * k_EQ_to_E_Q * k_E_res_plusA_minusP_P_to_E_A + " *
+          "P * Q * k_E_Q_to_EQ * k_E_res_plusA_minusP_P_to_E_A" in full
+    @test "F_I = P * k_EQ_to_E_Q * k_E_res_plusA_minusP_P_to_E_A" in full
+    @test ["dI_A = k_EQ_to_E_Q * k_E_A_to_E_res_plusA_minusP_P",
+           "dI_P = k_EQ_to_E_Q * k_E_res_plusA_minusP_P_to_E_A",
+           "dI_P_Q = k_E_Q_to_EQ * k_E_res_plusA_minusP_P_to_E_A",
+           "fI_P = k_EQ_to_E_Q * k_E_res_plusA_minusP_P_to_E_A"] ⊆ coef
+    tc_full = split(rate_equation_string(tc), '\n')
+    tc_coef = split(rate_equation_string(tc; coefficients = true), '\n')
+    @test heads(tc_full) == ["Q_A", "D_A", "D_I", "F_A"]
+    @test heads(tc_coef) == heads(tc_full)
+    @test ["dA_P = k_A_EA_to_E_A", "dA_P_Q = k_E_Q_to_EQ"] ⊆ tc_coef
     rng = Random.MersenneTwister(41)
     for m in (f1, f3, covalent, tc, pp), x in metabolites(m), _ in 1:2
         _testhelper_check_pasted_forms(m, rng; at_zero = x)
