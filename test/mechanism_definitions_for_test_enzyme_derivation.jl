@@ -2167,11 +2167,11 @@ Test the units of `L`, the derived law of the concrete mechanism `m` (a `_Law`, 
 In each conformation every term of `D` has one unit, and a numerator that is not zero
 makes `H·Q/D` a rate per time. The unit rule's normalizer (`EnzymeRates._normalizer`) has
 `D`'s unit, so each denominator term over `N` is dimensionless, unless its rule is
-`:none`, which takes no weights (`N = 1`). The constant rule puts one weight of 1 on the
-constant term; Cleland's and graded weights solve the units equation per concentration:
-they sum to 1 and weigh each concentration's exponents to 0. In an MWC law each
-regulatory site's binding polynomials are dimensionless and `fI·D_A` and `fA·D_I` share a
-unit, so the two conformations' terms add.
+`:none`, which takes no weights (`N = 1`) because the units equation has no solution.
+The constant rule puts one weight of 1 on the constant term; Cleland's and graded weights
+solve the units equation per concentration: they sum to 1 and weigh each concentration's
+exponents to 0. In an MWC law each regulatory site's binding polynomials are dimensionless
+and `fI·D_A` and `fA·D_I` share a unit, so the two conformations' terms add.
 """
 function _testhelper_check_units(m, L)
     units = _testhelper_name_units(m)
@@ -2189,6 +2189,9 @@ function _testhelper_check_units(m, L)
                    init = (0 // 1, 0 // 1))
         if nz.rule === :none
             @test isempty(nz.lambda)
+            # No weights solve the units equation: [1; 0] is outside the span of [1; a_m].
+            M = reduce(hcat, [EnzymeRates._Exp[1; expo(mo)] for mo in keys(Dc)])
+            @test rank(Float64.(M)) < rank(Float64.([M [1; zeros(Int, size(M, 1) - 1)]]))
         elseif nz.rule === :constant
             @test nz.lambda == [EnzymeRates._Mono() => 1 // 1]
             @test uN == uD
