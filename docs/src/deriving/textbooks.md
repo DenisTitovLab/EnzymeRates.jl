@@ -63,9 +63,9 @@ The string reads, in order:
 
 ## Normalization
 
-Every term of `D` is dimensionless unless the law has no normalizer (rule 4): the package
-divides numerator and denominator by a normalizer with `D`'s unit, chosen by the first rule
-that applies.
+Every term of `D` is dimensionless unless the law has no normalizer (rule 4). A unit here
+counts each concentration as a dimension of its own. The package divides numerator and
+denominator by a normalizer with `D`'s unit, chosen by the first rule that applies.
 
 1. **Constant term.** When `D` has a term free of concentrations, divide by that term's
    coefficient, the part of `D` free of concentrations; every term is then dimensionless.
@@ -83,9 +83,10 @@ that applies.
    weigh the first affinely independent ones so that the product of their coefficients,
    each to its weight, has `D`'s unit. Fractional weights print as roots.
 4. **No normalizer.** When no such weights exist, no product of the coefficients has
-   `D`'s unit: the law reads some concentrations only through their ratio, as a
-   rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P` makes every term carry `B`
-   or `P`. The law then prints as derived, and its terms keep their units.
+   `D`'s unit: some weighting of the concentrations gives every term of `D` the same
+   nonzero degree, as a rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P` does
+   by making every term carry exactly one of `B` and `P`. The law then prints as derived,
+   and its terms keep their units.
 
 A factor of the normalizer that is not a single term, or an integer to a fractional power,
 prints once, as the line `N = …`, and the terms it divides read `/ N`.

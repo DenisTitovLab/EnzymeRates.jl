@@ -37,8 +37,9 @@ end
     _normalizer(D, vars, substrates) -> _Norm
 
 The normalizer of the denominator `D` over `vars` (spec section 9, "Normalization: the
-unit rule"). Every term of `D` has one unit, and every term divided by `N` is
-dimensionless unless the last rule applies. The first rule that applies gives `N`:
+unit rule"). Every term of `D` has one unit, each concentration counting as a dimension of
+its own, and every term divided by `N` is dimensionless unless the last rule applies. The
+first rule that applies gives `N`:
 
 1. `:constant`: `D` has a term free of concentrations, and `N` is its coefficient.
 2. `:cleland`: with `ΠS` the product of the `k` substrates, `D` has the terms
@@ -51,9 +52,10 @@ dimensionless unless the last rule applies. The first rule that applies gives `N
    independent form a basis; when weights on the basis satisfy `Σ λ_m = 1` and
    `Σ λ_m·a_m = 0`, `N = Π c(m)^λ_m`. The weights are exact and may be fractional.
 4. `:none`: no normalizer. When no such weights exist, no product of the coefficients has
-   `D`'s unit: the law reads some concentrations only through their ratio, as a
-   rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P` makes every term carry
-   `B` or `P`. `N = 1`: the law then prints as derived, and its terms keep their units.
+   `D`'s unit: some weighting of the concentrations gives every term of `D` the same
+   nonzero degree, as a rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P` does
+   by making every term carry exactly one of `B` and `P`. `N = 1`: the law then prints as
+   derived, and its terms keep their units.
 
 Exact `Rational{Int}` arithmetic; an `OverflowError` escapes.
 """

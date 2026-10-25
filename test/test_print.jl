@@ -186,7 +186,8 @@ end
 @testset "F3, a rapid-equilibrium Theorell–Chance step, takes no normalizer" begin
     # Every term holds B or P (the rapid-equilibrium step E(A) + B ⇌ E(Q) + P ties them),
     # and the units equation has no solution on the basis B, P, A·B, B·Q, so no product of
-    # the coefficients has the denominator's unit, and the law prints as derived.
+    # the coefficients has the denominator's unit, each concentration counting as a
+    # dimension of its own, and the law prints as derived.
     f3 = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -371,8 +372,8 @@ end
 end
 
 @testset "coefficient names read powers, and N prints the normalizer once" begin
-    # F1 reads A and P only through P/A, so it takes no normalizer: its coefficients print
-    # as derived, and no N line prints.
+    # F1's denominator holds only A and P, each to the first power, so it takes no
+    # normalizer: its coefficients print as derived, and no N line prints.
     f1 = @enzyme_mechanism begin
         substrates: A
         products: P

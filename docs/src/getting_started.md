@@ -72,7 +72,7 @@ print(rate_equation_string(m; coefficients = true))
 ```
 
 `rate_equation_string` prints the law in its independent constants, each denominator term
-dimensionless whenever a normalizer can make it so (see [Normalization](@ref));
+dimensionless whenever the unit rule finds a normalizer (see [Normalization](@ref));
 `coefficients = true` prints it in named coefficients, each defined in the fitted constants
 before the `v` line. Both texts run as Julia code once `params` and `concs` are bound.
 `parameters(m)` returns the independent parameter symbols. `metabolites(m)`

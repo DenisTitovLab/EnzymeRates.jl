@@ -35,9 +35,9 @@ not prototype.
 - **Deterministic results.** A mechanism's law, fitted names, parameter order and dedup key
   depend only on the mechanism, never on step order, step direction, group labels or
   process.
-- **Readable output.** Printed laws use independent parameters, dimensionless denominator
-  terms whenever a normalizer can make them so (section 9) and a Cleland-style coefficient
-  form. `show` prints the DSL.
+- **Readable output.** Printed laws use independent parameters and a Cleland-style
+  coefficient form, and their denominator terms are dimensionless whenever the unit rule
+  finds a normalizer (section 9). `show` prints the DSL.
 - **One rule per question.** One well-posedness guard decides which mechanisms the package
   accepts; admission, one of its checks, decides which allosteric tag sets it accepts; one
   scale rule reports fitted rate constants.
@@ -517,9 +517,9 @@ After the solve is substituted, the numerator is divided exactly by the Haldane 
 
 ### Normalization: the unit rule (C4)
 
-All denominator terms share one unit. Dividing numerator and denominator by a normalizer
-with that unit makes every denominator term dimensionless; rule 4 covers a law that has no
-such normalizer:
+All denominator terms share one unit, each concentration counting as a dimension of its
+own. Dividing numerator and denominator by a normalizer with that unit makes every
+denominator term dimensionless; rule 4 covers a law that has no such normalizer:
 
 1. **Constant term.** If the denominator has one, divide by it. Every term is then
    dimensionless; in a rapid-equilibrium law whose only form that binds nothing is free E,
@@ -540,9 +540,10 @@ such normalizer:
    name); the first affinely independent ones form the basis, and λ is the unique solution
    on that basis.
 4. **No normalizer.** When no such weights exist, no product of the coefficients has the
-   denominator's unit: the law reads some concentrations only through their ratio, as a
-   rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P` makes every term carry `B`
-   or `P`. The law then prints as derived, and its terms keep their units.
+   denominator's unit: some weighting of the concentrations gives every term of the
+   denominator the same nonzero degree, as a rapid-equilibrium Theorell–Chance step
+   `E(A) + B ⇌ E(Q) + P` does by making every term carry exactly one of `B` and `P`. The
+   law then prints as derived, and its terms keep their units.
 
 When the normalizer has a factor that is not a monomial, or an integer to a fractional
 power, that factor prints once as `N = …`. An allosteric law normalizes each conformation's
