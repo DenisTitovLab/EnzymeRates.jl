@@ -76,15 +76,16 @@ function _testhelper_parse_labeled(out::String, labels::Vector{String})
 end
 
 # Runs `script` in a fresh Julia subprocess on the test environment, so the script can
-# load test dependencies, and returns what it printed, or "" when it fails.
+# load test dependencies, and returns what it printed, or "" when it fails, warning with
+# what it wrote to stderr.
 function _testhelper_subprocess_output(script::String)
     julia_exe = Base.julia_cmd().exec[1]
-    out_buf = IOBuffer()
+    out_buf, err_buf = IOBuffer(), IOBuffer()
     try
         run(pipeline(Cmd([julia_exe, "--project=$(Base.active_project())", "-e", script]);
-                     stdout=out_buf, stderr=devnull); wait=true)
+                     stdout=out_buf, stderr=err_buf); wait=true)
     catch e
-        @warn "subprocess failed: $e"
+        @warn "subprocess failed: $e\n$(String(take!(err_buf)))"
         return ""
     end
     String(take!(out_buf))
@@ -475,4 +476,11 @@ end
         @test "FULL $i $full" in lines
         @test "COEF $i $coef" in lines
     end
+end
+
+@testset "a failed subprocess warns with its error" begin
+    # The script builds its message at run time because the warning also prints the
+    # command, so only what the subprocess wrote to stderr matches the pattern.
+    @test_logs (:warn, r"PASS1 gave :param_skip") @test _testhelper_subprocess_output(
+        "error(string(\"PASS1 \", \"gave \", repr(:param_skip)))") == ""
 end
