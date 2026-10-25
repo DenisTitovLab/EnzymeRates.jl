@@ -1549,7 +1549,7 @@ end
 # counted exactly and the raw→rescale path exercised deterministically. With
 # `infinite = true` every restart reports an infinite objective, as a fit with no
 # finite loss does. `throwit = true` throws on every call, `throw_first = true` on the
-# first call only.
+# first call only; the error message names the call by its number.
 mutable struct _testhelper_CountingStubOpt
     count::Int
     uval::Float64
@@ -1564,7 +1564,7 @@ function Optimization.SciMLBase.__solve(
         prob::Optimization.OptimizationProblem, opt::_testhelper_CountingStubOpt; kwargs...)
     opt.count += 1
     (opt.throwit || opt.throw_first && opt.count == 1) &&
-        error("stub solver forced failure")
+        error("stub solver forced failure $(opt.count)")
     u = fill(opt.uval, length(prob.u0))
     cache = DefaultOptimizationCache(prob.f, prob.p)
     opt.infinite && return build_solution(cache, opt, u, Inf; retcode = ReturnCode.Failure)
@@ -2173,7 +2173,8 @@ end
         max_param_count = 20, n_restarts = 1, maxtime = 1.0)
     @test [f.mech for f in failures] == [parent, phantom]
     @test opt.count == 2
-    @test occursin("stub solver forced failure", failures[2].error)
+    @test occursin("stub solver forced failure 1", failures[1].error)
+    @test occursin("stub solver forced failure 2", failures[2].error)
     @test ismissing(EnzymeRates._failure_row(failures[2]).L_phantom)
     memo = Dict{String, EnzymeRates._Fit}()
     EnzymeRates._process_batch(

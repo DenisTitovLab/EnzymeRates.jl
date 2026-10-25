@@ -560,7 +560,9 @@ nothing over) is never a representative. It reads the fit of its law at `L = 0`,
 law's key (`fit_key`), from `memo` or from this batch's representatives, through its own
 order and with `L = 0`, and its row sets `L_phantom`. A phantom whose law at `L = 0` has no
 fit there, or lacks one of its other fitted constants, is fitted as an ordinary candidate;
-so is one whose source's fit throws, after the representatives. A row's
+so is one whose source's fit throws, after the representatives. `log` then gets one more
+message, its lines joined by `"\\n  "`: one per phantom demoted after its source's fit
+threw, `"source fit threw for L phantom <id>; fitted under its own key"`. A row's
 `fit_inherited` is `false` when its mechanism is its fit's source and `true` otherwise, and
 `fit_source_id` names the source. `parent_of` maps a child to its parent's `BatchEntry`,
 which fills the row's parent columns. `entries::Vector{BatchEntry}` are the mechanisms with
