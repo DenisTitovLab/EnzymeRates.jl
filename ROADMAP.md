@@ -100,6 +100,13 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   over the parent's 5, at one and at two subunits, and the one that stops the first half
   turns over at zero products. Without a regulator, the one allosteric child that ping-pong
   keeps at two subunits has rate 0 there.
+- **A batch's progress-log header can print twice.**
+  When an L phantom's source's fit throws in the phantom's own batch, `run_batch!`'s log
+  closure (`src/identify_rate_equation.jl`) prints the batch header again above the demotion
+  lines, and the pre-fit summary has already counted those phantoms as inherited. Rows and
+  CSVs are right. A phantom's source is usually fitted a batch earlier, so no identify run
+  in the suite reaches this path; the fix (print the header before `_process_batch` and let
+  `log` only indent) needs an identify fixture that does.
 
 ## Planned
 
