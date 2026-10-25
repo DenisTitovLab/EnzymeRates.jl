@@ -2249,10 +2249,10 @@ function _testhelper_laplacian_tree_count(m::EnzymeRates.Mechanism, mask::BitVec
     V * det(lap[2:end, 2:end])
 end
 
-"""The canonical form PASS1 gives the concrete mechanism `m`: its law labelled under the id
-of its text."""
+"""The canonical form PASS1 (`_pass1_record`, with no complexity filter and no parameter
+cap) gives the concrete mechanism `m`."""
 _testhelper_pass1_canonical(m) =
-    EnzymeRates._canonical(EnzymeRates._law(m), EnzymeRates._mechanism_id(sprint(show, m)))
+    EnzymeRates._pass1_record(m, typemax(Int), typemax(Int)).canon
 
 # ── Printed-law oracles ─────────────────────────────────────────────────────
 
