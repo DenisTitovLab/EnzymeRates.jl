@@ -541,9 +541,10 @@ denominator term dimensionless; rule 4 covers a law that has no such normalizer:
    on that basis.
 4. **No normalizer.** When no such weights exist, no product of the coefficients has the
    denominator's unit: some weighting of the concentrations gives every term of the
-   denominator the same nonzero degree, as a rapid-equilibrium Theorell–Chance step
-   `E(A) + B ⇌ E(Q) + P` does by making every term carry exactly one of `B` and `P`. The
-   law then prints as derived, and its terms keep their units.
+   denominator the same nonzero degree. In `E + A <--> E(A)`, `E(A) + B ⇌ E(Q) + P`,
+   `E(Q) <--> E + Q`, for example, the rapid-equilibrium Theorell–Chance step makes every
+   term carry exactly one of `B` and `P`. The law then prints as derived, and its terms
+   keep their units.
 
 When the normalizer has a factor that is not a monomial, or an integer to a fractional
 power, that factor prints once as `N = …`. An allosteric law normalizes each conformation's

@@ -84,9 +84,9 @@ denominator by a normalizer with `D`'s unit, chosen by the first rule that appli
    each to its weight, has `D`'s unit. Fractional weights print as roots.
 4. **No normalizer.** When no such weights exist, no product of the coefficients has
    `D`'s unit: some weighting of the concentrations gives every term of `D` the same
-   nonzero degree, as a rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P` does
-   by making every term carry exactly one of `B` and `P`. The law then prints as derived,
-   and its terms keep their units.
+   nonzero degree. In `E + A <--> E(A)`, `E(A) + B ⇌ E(Q) + P`, `E(Q) <--> E + Q`, for
+   example, the rapid-equilibrium Theorell–Chance step makes every term carry exactly one
+   of `B` and `P`. The law then prints as derived, and its terms keep their units.
 
 A factor of the normalizer that is not a single term, or an integer to a fractional power,
 prints once, as the line `N = …`, and the terms it divides read `/ N`.

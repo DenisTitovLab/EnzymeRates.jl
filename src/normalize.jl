@@ -53,9 +53,9 @@ first rule that applies gives `N`:
    `Σ λ_m·a_m = 0`, `N = Π c(m)^λ_m`. The weights are exact and may be fractional.
 4. `:none`: no normalizer. When no such weights exist, no product of the coefficients has
    `D`'s unit: some weighting of the concentrations gives every term of `D` the same
-   nonzero degree, as a rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P` does
-   by making every term carry exactly one of `B` and `P`. `N = 1`: the law then prints as
-   derived, and its terms keep their units.
+   nonzero degree. In `E + A <--> E(A)`, `E(A) + B ⇌ E(Q) + P`, `E(Q) <--> E + Q`, for
+   example, the rapid-equilibrium Theorell–Chance step makes every term carry exactly one
+   of `B` and `P`. `N = 1`: the law then prints as derived, and its terms keep their units.
 
 Exact `Rational{Int}` arithmetic; an `OverflowError` escapes.
 """
