@@ -21,7 +21,7 @@ catalytic rate is fixed by `Keq`, the two binding constants, and the forward
 rate:
 
 ```
-k_EP_to_ES = (1 / Keq) * K_EP_to_E_P * (1 / K_ES_to_E_S) * k_ES_to_EP
+k_EP_to_ES = K_EP_to_E_P * k_ES_to_EP / (K_ES_to_E_S * Keq)
 ```
 
 A **Wegscheider constraint** comes from a cycle that closes on itself with zero
@@ -37,7 +37,7 @@ K_EA_to_E_A * K_EAB_to_EA_B = K_EB_to_E_B * K_EAB_to_EB_A
 ```
 
 When the other constants of a loop cancel, the loop fixes the remaining one at 1
-and its line reads `K_E_to_F = 1.0`. An inhibitor that binds conformations `E` and
+and its line reads `K_E_to_F = 1`. An inhibitor that binds conformations `E` and
 `F` into one complex `E(I)` (`E + I ⇌ E(I)` and `F + I ⇌ E(I)`) under one shared
 dissociation constant does this: the loop `E → E(I) → F → E` forces `E` and `F`
 to equal weight.

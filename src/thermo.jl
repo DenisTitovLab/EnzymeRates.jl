@@ -307,25 +307,51 @@ function _column_parameter(m::_AnyMech, c::_Column)
     _edge_constants(cm, c.edge, state)[c.slot]
 end
 
-# ─── Dependents ────────────────────────────────────────────────────────────
+# ─── The solve ─────────────────────────────────────────────────────────────
 
 """
-    _dependent_param_exprs(m) -> (dep, indep)
+A dependent constant of the joint solve: pivot column `col` equals `Keq^keq · Π x_f^e`
+over the free columns `f => e` of `factors`, in column order. `label` says why it is
+dependent: `:kinetic_group` for a column that is not its class's kept member, which it
+equals; otherwise `:haldane` when the relation reads `Keq` and `:wegscheider` when it does
+not.
+"""
+struct _Dependent
+    col::Int
+    keq::Rational{Int}
+    factors::Vector{Pair{Int, Rational{Int}}}
+    label::Symbol
+end
 
-The dependent constants of `m`'s law and its independent ones, from one joint solve
-(`_joint_system`, `_reduce_joint_system`). Every class of constants of the law is
-independent or dependent, under the name of its kept member (`_kept_members`):
+"""
+The joint solve of a mechanism (`_solve`). `columns` holds a column (`_Column`) per bare
+constant, in elimination order, and `names` each column's name, that of its class's kept
+member (`_kept_members`). `column` maps each bare constant to its column; an `:EqualAI`
+edge's inactive constant reads its active column. `independents` lists the law's free
+columns, sorted by name (`isless` on the strings, so `K_…` precedes `k_…`), and
+`dependents` every pivot column of the law, in column order. `fitted` holds the fitted
+constants in `fitted_params` order: the independents' names, then an allosteric
+mechanism's regulator constants (`_kreg_params`: active, then inactive, site by site)
+and `L`.
+"""
+struct _Solve
+    columns::Vector{_Column}
+    names::Vector{Symbol}
+    column::Dict{_Column, Int}
+    independents::Vector{Int}
+    dependents::Vector{_Dependent}
+    fitted::Vector{Symbol}
+end
 
-- `indep` holds the classes whose kept column is not a pivot, sorted by name (`isless`
-  on the strings, so `K_…` precedes `k_…`); an allosteric mechanism's list continues with
-  its regulator constants (`_kreg_params`: active, then inactive, site by site) and `L`.
-- `dep` maps each class whose kept column is a pivot to `Keq^q · Π independent^e` with
-  rational exponents (`build_power_expr`); the empty product is `1.0`.
+"""
+    _solve(m) -> _Solve
 
-Columns outside the law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's active
-copy, a copy on a form its conformation prunes) are eliminated first, so no dependent of
-the law reads them; a pivot that is not its class's kept member equals the kept one and
-adds no entry. The `Type` method decodes a compiled mechanism and checks that its rate
+The joint solve of `m` (`_joint_system`, `_reduce_joint_system`), its exact rationals
+narrowed to `Rational{Int}`; a value outside `Int` throws. Every class of constants of the
+law is independent or dependent under the name of its kept member (`_kept_members`).
+Columns outside the law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's active copy,
+a copy on a form its conformation prunes) are eliminated first, so no dependent of the
+law reads them. The `Type` method decodes a compiled mechanism and checks that its rate
 law is defined (`_derivation_input`).
 
 Errors when two constants of the law, regulator constants included, render one name,
@@ -338,7 +364,7 @@ name can still imitate a residual's: with a modifier named `minusQ`, the side
 `E_res_plusA_minusP_minusQ`, and the macros accept a step between them, so this check can
 fire for a mechanism they build.
 """
-function _dependent_param_exprs(m::_AnyMech)
+function _solve(m::_AnyMech)
     cols = _ordered_columns(m)
     sys = _joint_system(m, cols)
     M, pivots = _reduce_joint_system(sys.A, sys.rhs)
@@ -348,10 +374,9 @@ function _dependent_param_exprs(m::_AnyMech)
     group = catalytic(m).group
     class(c) = _class(c, group[c.edge], sys.tags[group[c.edge]])
     last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
-    kept_in_law(i) = (c = sys.columns[i];
-                      (c.inactive ? sys.law[c.edge] :
-                       _in_active_law(c.edge, group, sys.tags, sys.law, cols.alaw)) &&
-                      last_of[class(c)] == i)
+    in_law(c) = c.inactive ? sys.law[c.edge] :
+                _in_active_law(c.edge, group, sys.tags, sys.law, cols.alaw)
+    kept_in_law(i) = in_law(sys.columns[i]) && last_of[class(sys.columns[i])] == i
     reg = m isa Mechanism ? Symbol[] :
           Symbol[name(p, m) for p in [_kreg_params(m, :A); _kreg_params(m, :I)]]
     rendered = [names[filter(kept_in_law, 1:n)]; reg]
@@ -361,23 +386,33 @@ function _dependent_param_exprs(m::_AnyMech)
         "); rename a metabolite or a conformation label so that each constant has a " *
         "name of its own")
     free = setdiff(1:n, pivots)
-    dep = Dict{Symbol, Union{Symbol, Expr, Float64}}()
+    dependents = _Dependent[]
     for (r, p) in enumerate(pivots)
-        kept_in_law(p) || continue
-        factors = [(names[f], -M[r, f]) for f in free if !iszero(M[r, f])]
-        dep[names[p]] = build_power_expr(M[r, n + 1], factors)
+        in_law(sys.columns[p]) || continue
+        keq = Rational{Int}(M[r, n + 1])
+        factors = Pair{Int, Rational{Int}}[f => Rational{Int}(-M[r, f])
+                                           for f in free if !iszero(M[r, f])]
+        label = !kept_in_law(p) ? :kinetic_group : iszero(keq) ? :wegscheider : :haldane
+        push!(dependents, _Dependent(p, keq, factors, label))
     end
-    indep = sort!([names[f] for f in free if kept_in_law(f)]; by = string)
-    m isa Mechanism && return dep, Tuple(indep)
-    dep, Tuple([indep; reg; :L])
+    independents = sort!(filter(kept_in_law, free); by = i -> string(names[i]))
+    column = Dict(c => i for (i, c) in enumerate(sys.columns))
+    if m isa AllostericMechanism
+        for (i, c) in enumerate(sys.columns)
+            c.inactive || _has_inactive_columns(sys.tags[group[c.edge]]) ||
+                (column[_Column(c.edge, c.slot, true)] = i)
+        end
+    end
+    fitted = names[independents]
+    m isa AllostericMechanism && append!(fitted, reg, (:L,))
+    _Solve(sys.columns, names, column, independents, dependents, fitted)
 end
 
-_dependent_param_exprs(@nospecialize(M::Type{<:AbstractEnzymeMechanism})) =
-    _dependent_param_exprs(_derivation_input(M))
+_solve(@nospecialize(M::Type{<:AbstractEnzymeMechanism})) = _solve(_derivation_input(M))
 
 """Number of independent (fitted) constants of a concrete mechanism, from the joint solve,
 without compiling the mechanism."""
-_independent_param_count(m::_AnyMech) = length(_dependent_param_exprs(m)[2])
+_independent_param_count(m::_AnyMech) = length(_solve(m).fitted)
 
 # ─── Cycle-space helpers of the split move's counter and the limit test ────
 

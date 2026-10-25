@@ -1649,7 +1649,7 @@ end
 The edges of `am`'s inactive conformation: those outside `:OnlyA` groups between forms
 they join to free E (`_law_mask`). The conformations interconvert at free E alone, so a
 form those edges do not join to it holds no inactive enzyme, a second free form included.
-The inactive law (`_state_rate_polys`), the joint solve (`_inactive_law`), the copy rule
+The inactive law (`_law`), the joint solve (`_inactive_law`), the copy rule
 (`_redundant_copy_groups`), the tagging move's stopping test (`_stops_inactive_turnover`)
 and the hyperbolic test (`_hyperbolic_catalysis`) read the inactive conformation from it,
 each edge in `am`'s stored direction.
@@ -1659,7 +1659,7 @@ _inactive_mask(am::AllostericMechanism) = _law_mask(am, 2)
 """
 The edges of `am`'s active conformation: those outside `:OnlyI` groups between forms they
 join to free E (`_law_mask`), the mirror of `_inactive_mask`. The active law
-(`_state_rate_polys`), the joint solve (`_active_law`), the copy rule
+(`_law`), the joint solve (`_active_law`), the copy rule
 (`_redundant_copy_groups`), the degeneracy test (`_degenerate`) and the hyperbolic test
 (`_hyperbolic_catalysis`) read the active conformation from it, each edge in `am`'s
 stored direction.

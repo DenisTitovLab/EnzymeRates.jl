@@ -43,10 +43,18 @@ parent, and the degenerate mechanism gets a row of its own only when its
 expansion fails. A degenerate mechanism that a move builds is fitted like any
 other.
 
+The beam ranks laws, not mechanisms. Mechanisms whose laws agree up to renaming the fitted
+constants share a key, count once at the key's lowest loss, and share one fit, which each
+reads under its own names. An L phantom's key is the exception: a member met before the fit
+of its law at `L = 0` is fitted itself, and one met after reads that fit, so the key can
+carry two losses. A sweep expands every member it meets of a selected key; a member the beam
+passed over in an earlier sweep has left the frontier. A key the beam passes over is judged
+again when a later sweep meets another member, and at the same loss it stays out.
+
 The search walks parameter counts in ascending order. At each count it fits
 every candidate, keeps a *beam* of the most promising, and expands only those
-survivors into the next count. A mechanism at parameter count `n` stays in the
-beam if **either** condition holds:
+survivors into the next count. A key at parameter count `n` enters the beam if
+**either** condition holds:
 
 - **Loss cutoff** — its loss is within
 
@@ -60,7 +68,7 @@ beam if **either** condition holds:
   best simpler model of any size. The `best(<n)` term is dropped at the base
   count (no smaller level exists yet).
 - **Width floor** — a cumulative per-count budget. The floor keeps expanding
-  mechanisms at a parameter count until `min_beam_width` of them have been
+  mechanisms at a parameter count until `min_beam_width` distinct keys have been
   expanded *over the whole search*, then stops; after that only the loss cutoff
   admits at that count. The budget is spent once, not re-granted each time the
   count is revisited.
@@ -70,9 +78,9 @@ The four knobs, all tunable kwargs of `identify_rate_equation`:
 | Keyword | Default | Meaning |
 |---------|---------|---------|
 | `loss_rel_threshold` | `1.3` | Relative tolerance: keep losses within this factor of `best(n)`, the best at the same parameter count. |
-| `loss_abs_threshold` | `0.001` | Additive tolerance: guards against `best(n)` approaching zero (simulated / very-low-loss data), where a purely multiplicative cutoff would collapse the beam to the single best mechanism. The default `0.001` corresponds to about a 1.03× error — well below experimental error in enzyme kinetics. |
-| `loss_parsimony_threshold` | `0.99` | An added parameter must earn its keep: keep expanding only if the loss is at most this factor times `best(<n)`, the best model of any smaller parameter count (default `0.99`: an added parameter must improve on every simpler model by at least 1%). Set to `Inf` to disable it. |
-| `min_beam_width` | `50` | Cumulative floor: expand at least this many mechanisms per parameter count over the whole search. Spent once, then only the loss cutoff admits at that count. |
+| `loss_abs_threshold` | `0.001` | Additive tolerance: guards against `best(n)` approaching zero (simulated / very-low-loss data), where a purely multiplicative cutoff would collapse the beam to the single best key. The default `0.001` corresponds to about a 1.03× error — well below experimental error in enzyme kinetics. |
+| `loss_parsimony_threshold` | `0.99` | An added parameter must earn its keep: the loss cutoff admits a key only if its loss is at most this factor times `best(<n)`, the best model of any smaller parameter count (default `0.99`: an added parameter must improve on every simpler model by at least 1%). Set to `Inf` to disable it. |
+| `min_beam_width` | `50` | Cumulative floor: expand at least this many distinct laws (keys) per parameter count over the whole search. Spent once, then only the loss cutoff admits at that count. |
 
 The search ends when the frontier empties — when no surviving mechanism yields a
 new candidate to fit. Three limits drain it: `max_param_count` drops any child
@@ -80,8 +88,10 @@ with more fitted parameters than the cap, `eq_complexity_filter` drops any child
 whose rate equation exceeds the complexity bound (both before fitting), and the
 enumeration itself runs dry — every move on every survivor reaches only
 mechanisms already fit or already dropped. The complexity bound roughly counts
-the terms in a rate equation's denominator; its default (`337`) passes a fully
-steady-state random-order bi-bi and skips anything denser. The beam then hands
+the terms in a rate equation's denominator, both conformations together for an
+allosteric mechanism; its default (`337`) passes a fully steady-state random-order bi-bi
+and skips anything denser, and a one-subunit allosteric variant of a law near it can
+exceed it. The beam then hands
 its pool of fitted candidates to the cross-validation rule below.
 
 ## Leave-one-group-out cross-validation
@@ -137,13 +147,15 @@ The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
 | `parent_n_params` | Fitted-parameter count of the parent the mechanism was expanded from; `missing` for a starting mechanism. |
 | `loss` | Training loss (ranks which equations enter LOOCV). |
 | `mechanism` | The mechanism as the `@enzyme_mechanism` or `@allosteric_mechanism` block that builds it, the text `show` prints. `EnzymeRates._parse_mechanism(text)` reads it back without evaluating it. |
-| `mechanism_id` | The first 16 hex digits of the SHA-256 of `mechanism`, the same in every process and Julia version. Read the ids as text, `CSV.read(file, DataFrame; types = Dict(:mechanism_id => String, :parent_id => String))`: CSV.jl reads an id that looks like a number (decimal digits, or digits around one `e` or `f`) as a number. |
+| `mechanism_id` | The first 16 hex digits of the SHA-256 of `mechanism`, the same in every process and Julia version. Read the ids as text, `CSV.read(file, DataFrame; types = Dict(:mechanism_id => String, :parent_id => String, :fit_source_id => String))`: CSV.jl reads an id that looks like a number (decimal digits, or digits around one `e` or `f`) as a number. |
 | `parent_id` | `mechanism_id` of the parent the mechanism was expanded from; `missing` for a starting mechanism. |
-| `rate_equation` | Full symbolic rate-equation string. |
+| `rate_equation` | The printed law in named coefficients (`rate_equation_string(m; coefficients = true)`). |
 | `retcode` | Optimizer return code (`"Success"` = converged). |
-| `error` | Exception text if the fit errored; otherwise `missing`. |
-| `eq_hash` | Hex hash of the comment-stripped rate equation. Two mechanisms with the same `eq_hash` compute the same rate function. |
-| `fit_inherited` | `true` when the row reuses the fit of another mechanism with the same `eq_hash`; `false` for the mechanism actually fit. |
+| `error` | Exception text if the mechanism's derivation, compilation, fit or expansion threw; otherwise `missing`. |
+| `key` | The SHA-256 (64 hex digits) of the law's canonical form: its terms with the fitted constants labelled canonically and the concentrations by name. Mechanisms share a key exactly when their laws agree up to renaming the fitted constants. A law whose canonical search reaches 100 labellings takes its mechanism's own key, the SHA-256 of `mechanism|` and its `mechanism_id`. `missing` in a failure row. |
+| `fit_inherited` | `true` when the row reads another mechanism's fit: one with the same key, under the row's own names, or, for an L phantom, the fit of the law it reduces to; `false` for the mechanism actually fit. |
+| `fit_source_id` | `mechanism_id` of the mechanism whose fit the row reads, the row's own when it was fit. |
+| `L_phantom` | `true` for a one-subunit allosteric variant whose inactive conformation turns nothing over, when an exact rescaling of its other constants absorbs its `L`, its active conformation's law holds every fitted constant but `L`, and a mechanism with that law was fitted earlier in the search or is fitted in the variant's own iteration: the data cannot determine `L`, so the row reads that fit, with `L = 0`, and keeps its own `n_params`. Such a variant is fitted like any other candidate, `L` included, and its flag is `false`, when no mechanism with that law was fitted earlier in the search or is fitted in its own iteration, or when that mechanism's fit throws. |
 | `peak_at_range_edge` | `true` when the fitted law still rises at the upper edge of `peak_range` (by more than 10% over its last decade), so a wider range would change the scale of the reported rate constants; always `false` in absolute mode. |
 | one per fitted parameter | Fitted parameter value, or `missing` if the mechanism lacks that parameter. |
 | `cv_score` | Mean of per-fold losses (lower is better). |
@@ -152,7 +164,9 @@ The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
 
 Only the top `n_cv_candidates` distinct equations per parameter count enter
 LOOCV (default `n_cv_candidates=5`, at least 1, a kwarg of
-`identify_rate_equation`). Distinctness is by `eq_hash`. A fit whose training loss
+`identify_rate_equation`). Distinctness is by `key`: LOOCV fits each
+key's source once per fold, and every candidate with that key, an L phantom of it
+included, reads those fold losses. A fit whose training loss
 is not finite never enters LOOCV, nor is it expanded.
 
 ---

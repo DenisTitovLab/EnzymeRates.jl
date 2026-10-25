@@ -30,11 +30,27 @@ end
 print(rate_equation_string(m))
 ```
 
-The derived equation has the signature of a ping-pong mechanism: the numerator is
-the difference `A·B − P·Q`, and the denominator has **no constant term**. A
-sequential mechanism always carries a `1` in its denominator for the free enzyme;
-a ping-pong enzyme never sits idle as free `E` during turnover — it is always
-either loaded with substrate or carrying the covalent residual — so that constant
-term is absent. The residual-bearing forms take descriptive names such as
-`E_res_plusA_minusP` (the modified free enzyme) and `EB_res_plusA_minusP` (with `B`
-additionally bound).
+The derived equation has the signature of a ping-pong mechanism: its denominator has **no
+constant term**. A sequential mechanism always carries a `1` in its denominator for the
+free enzyme; a ping-pong enzyme never sits idle as free `E` during turnover (it is always
+either loaded with substrate or carrying the covalent residual), so that term is absent.
+
+Without a constant term, this law divides by Cleland's normalizer ([Normalization](@ref)).
+Its denominator holds a term in `B` and a term in `A` (the product of the substrates over
+each substrate) and a term in `A * B` (their product), so the normalizer is the product of
+the coefficients of `B` and `A` divided by the coefficient of `A * B`. The substrate terms
+then read `A/K_a`, `B/K_b` and `A·B/(K_a·K_b)`, `K_a` and `K_b` the Michaelis constants. The
+normalizer's part that is not a single term prints once as `N = …`, and every denominator
+term is dimensionless. A denominator that lacks one of these terms takes the next rule that
+applies ([Normalization](@ref)): a virtual constant term on the first affinely independent
+terms of a fixed order, which changes how `N` reads but never the law's value, or, when no
+weights give the denominator's unit, no normalizer: the law then prints as derived.
+
+The coefficient form names each coefficient by the concentrations it multiplies:
+
+```@example pingpong
+print(rate_equation_string(m; coefficients = true))
+```
+
+The residual-bearing forms take descriptive names such as `E_res_plusA_minusP` (the
+modified free enzyme) and `EB_res_plusA_minusP` (with `B` additionally bound).

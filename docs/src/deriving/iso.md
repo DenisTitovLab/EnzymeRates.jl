@@ -33,8 +33,8 @@ print(rate_equation_string(m))
 ```
 
 The derived equation carries the signature of an iso mechanism: an `S·P` cross
-term in the denominator (the `… P * S / (K_ES_to_E_S * K_EprimeP_to_Eprime_P)`
-terms above). An ordinary single-conformation Michaelis–Menten enzyme does not
+term in the denominator, the term of `D` above that holds both `S` and `P`.
+An ordinary single-conformation Michaelis–Menten enzyme does not
 have an `S·P` term. Saturating an iso enzyme with substrate and product
 together can therefore slow turnover in a way a regular Michaelis–Menten
 enzyme cannot. Each conformation appears in the parameter names: `K_ES_to_E_S`

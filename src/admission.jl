@@ -1927,34 +1927,30 @@ end
 # ─── Class 5: the support test on the derived law (spec section 8) ─────
 
 """
-    _law_branches(den) -> Vector{Tuple{POLY, POLY}}
-    _law_branches(den_A, den_I, d_A, d_I) -> Vector{Tuple{POLY, POLY}}
+    _law_branches(L) -> Vector{Tuple{_Poly, _Poly}}
 
-The derived denominator of a rate law as branches of positive terms, so that it keeps
-a monomial free of a face's names exactly when some branch's two factors both do: a plain
-mechanism's denominator `den` in lowest terms (`_raw_symbolic_rate_polys`) times 1; an
-allosteric one's two conformations, each denominator times the other conformation's
-free-enzyme weight (`_mwc_state_polys`). Powers of a branch and the regulatory sites'
-factors, whose 1 never vanishes, keep the same faces. The second form pairs the two
-conformations' denominators `den_A`, `den_I` and free-enzyme weights `d_A`, `d_I`. Both
-forms take the polynomials the derivation already holds (`_num_den_exprs`).
+The derived law `L`'s denominator as branches of positive terms, so that it keeps a
+monomial free of a face's concentrations exactly when some branch's two factors both do:
+a plain law's `D` times 1; an MWC law's two conformations, each `D` times the other
+conformation's free-E weight (`fI·DA` and `fA·DI`). Powers of a branch and the regulatory
+sites' factors, whose 1 never vanishes, keep the same faces.
 """
-_law_branches(den::POLY) = [(den, poly_one())]
-_law_branches(den_A::POLY, den_I::POLY, d_A::POLY, d_I::POLY) =
-    [(den_A, d_I), (den_I, d_A)]
+_law_branches(L::_Law) = [(L.D, one(_Poly))]
+_law_branches(A::_AlloLaw) = [(A.active.D, A.fI), (A.inactive.D, A.fA)]
 
-"""Whether some monomial of `p` holds none of the names `z` to a positive power."""
-function _keeps_monomial(p::POLY, z::Vector{Symbol})
-    for mono in keys(p)
-        any(((s, e),) -> e > 0 && s in z, mono) || return true
+"""Whether some monomial of `p` holds none of the variables `z` to a positive power."""
+function _keeps_monomial(p::_Poly, z::Vector{Int})
+    for mono in keys(p.terms)
+        any(((v, e),) -> e > 0 && v in z, mono) || return true
     end
     false
 end
 
-"""The first face, each given by its zeroed names, on which no branch of `branches`
-(`_law_branches`) keeps a monomial in both factors; 0 when every face keeps one."""
-function _vanishing_face(branches::Vector{Tuple{POLY, POLY}},
-                         faces::Vector{Vector{Symbol}})
+"""The first face, each given by its zeroed concentration variables, on which no branch
+of `branches` (`_law_branches`) keeps a monomial in both factors; 0 when every face keeps
+one."""
+function _vanishing_face(branches::Vector{Tuple{_Poly, _Poly}},
+                         faces::Vector{Vector{Int}})
     for (i, z) in enumerate(faces)
         any(b -> _keeps_monomial(b[1], z) && _keeps_monomial(b[2], z), branches) ||
             return i
@@ -1963,28 +1959,28 @@ function _vanishing_face(branches::Vector{Tuple{POLY, POLY}},
 end
 
 """
-    _support_verdict(m, branches) -> _Verdict
+    _support_verdict(m, vars, branches) -> _Verdict
 
-Class 5 (spec section 8): `_DENOMINATOR_VANISHES` on the first face of `m` (`_faces`)
-where the denominator `branches` (`_law_branches`) loses every monomial, so the law is 0/0
-there; it catches the steady-state dead ends class 3's structure misses.
+Class 5 (spec section 8) on a law over `vars`: `_DENOMINATOR_VANISHES` on the first face
+of the catalytic graph `m` (`_faces`) where the denominator `branches` (`_law_branches`)
+loses every monomial, so the law is 0/0 there.
 """
-function _support_verdict(m::Mechanism, branches::Vector{Tuple{POLY, POLY}})
-    i = _vanishing_face(branches, [_face_names(m, f) for f in _faces(m)])
+function _support_verdict(m::Mechanism, vars::_Vars,
+                          branches::Vector{Tuple{_Poly, _Poly}})
+    faces = [Int[vars.index[x] for x in _face_names(m, f)] for f in _faces(m)]
+    i = _vanishing_face(branches, faces)
     i == 0 ? _WELL_POSED : _Verdict(_DENOMINATOR_VANISHES, _LIMIT_UNTESTED, i, 0, 0)
 end
-_support_verdict(am::AllostericMechanism, branches::Vector{Tuple{POLY, POLY}}) =
-    _support_verdict(am.catalytic, branches)
 
 """
-    _assert_support(m, branches)
+    _assert_support(m, L)
 
-Error with class 5's message (`_guard_message`) when the derived denominator of `m`, given
-as `branches` (`_law_branches`), loses every monomial on some face (`_support_verdict`):
-the law is 0/0 there. Both `_num_den_exprs` methods call it with the polynomials they hold.
+Error with class 5's message (`_guard_message`) when the derived law `L` of `m` is 0/0 on
+some face (`_support_verdict`). `_law` does not call it, so a test can read the law of a
+mechanism the guard rejects.
 """
-function _assert_support(m::_AnyMech, branches::Vector{Tuple{POLY, POLY}})
-    v = _support_verdict(m, branches)
+function _assert_support(m::_AnyMech, L::Union{_Law, _AlloLaw})
+    v = _support_verdict(catalytic(m), L.vars, _law_branches(L))
     v.fault === _NO_FAULT || error(_guard_message(m, v))
     nothing
 end

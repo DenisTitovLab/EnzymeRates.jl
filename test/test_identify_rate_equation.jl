@@ -29,6 +29,11 @@ const _testhelper_uni_seed = EnzymeRates.Mechanism(@enzyme_mechanism begin
     end
 end)
 
+# A BatchEntry of the uni seed with rate-law key `key`; selection reads only the key, the
+# loss and the count.
+_testhelper_entry(key, loss, n = 3) =
+    EnzymeRates.BatchEntry(_testhelper_uni_seed, n, loss, :Success, key, key, (;))
+
 function _testhelper_uni_prob(data_form)
     columns = (S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4],
                Rate = [0.5, 0.8, 1.0, 1.1])
@@ -243,7 +248,9 @@ end
             retcode = "Success",
             error = missing,
             params = (a = 1.0, b = 2.0),
-            eq_hash = "0123456789abcdef",
+            key = repeat("0123456789abcdef", 4),
+            fit_source_id = "0123456789abcdef",
+            L_phantom = false,
             fit_inherited = false,
             peak_at_range_edge = true,
         )]
@@ -253,13 +260,16 @@ end
         # The schema: the fit's columns, then one column per fitted parameter.
         @test names(df) == ["n_params", "parent_n_params", "loss", "mechanism",
                             "mechanism_id", "parent_id", "rate_equation", "retcode",
-                            "error", "eq_hash", "fit_inherited", "peak_at_range_edge",
-                            "a", "b"]
+                            "error", "key", "fit_inherited", "fit_source_id",
+                            "L_phantom", "peak_at_range_edge", "a", "b"]
+        @test df.key == [repeat("0123456789abcdef", 4)]
+        @test df.fit_source_id == ["0123456789abcdef"]
+        @test df.L_phantom == [false]
         @test (df.mechanism, df.mechanism_id, df.parent_id) ==
               (["test"], ["0123456789abcdef"], ["fedcba9876543210"])
         @test "a" in names(df)
         @test "b" in names(df)
-        @test "eq_hash" in names(df)
+        @test "key" in names(df)
         @test "retcode" in names(df)
         @test "error" in names(df)
         @test "fit_inherited" in names(df)
@@ -276,19 +286,23 @@ end
         rows_with_failure = [
             (n_params = 3, loss = 0.5, mechanism = "M", mechanism_id = "0000000000000001",
              rate_equation = "v = ...", retcode = "Success", error = missing,
-             params = (a = 1.0,), eq_hash = "0123456789abcdef", fit_inherited = false,
+             params = (a = 1.0,), key = "0123456789abcdef",
+             fit_source_id = "0000000000000001", fit_inherited = false, L_phantom = false,
              peak_at_range_edge = false),
             (n_params = missing, loss = missing, mechanism = "M",
              mechanism_id = "0000000000000001", rate_equation = missing, retcode = missing,
-             error = "StackOverflowError: ", params = (;), eq_hash = missing,
-             fit_inherited = missing, peak_at_range_edge = missing),
+             error = "StackOverflowError: ", params = (;), key = missing,
+             fit_source_id = missing, fit_inherited = missing, L_phantom = missing,
+             peak_at_range_edge = missing),
         ]
         df_with_failure = EnzymeRates._rows_to_dataframe(rows_with_failure)
         @test nrow(df_with_failure) == 2
         @test ismissing(df_with_failure.loss[2])
         @test df_with_failure.error[2] == "StackOverflowError: "
         @test ismissing(df_with_failure.retcode[2])
-        @test ismissing(df_with_failure.eq_hash[2])
+        @test ismissing(df_with_failure.key[2])
+        @test ismissing(df_with_failure.fit_source_id[2])
+        @test ismissing(df_with_failure.L_phantom[2])
         @test df_with_failure.fit_inherited[1] == false
         @test ismissing(df_with_failure.fit_inherited[2])
         @test df_with_failure.peak_at_range_edge[1] == false
@@ -297,7 +311,8 @@ end
         # A row without the field records missing.
         @test ismissing(EnzymeRates._rows_to_dataframe([(n_params = 1, loss = 0.1,
             mechanism = "M", mechanism_id = "0", rate_equation = "v", retcode = "Success",
-            error = missing, params = (;), eq_hash = "0", fit_inherited = false)
+            error = missing, params = (;), key = "0", fit_source_id = "0",
+            L_phantom = false, fit_inherited = false)
             ]).peak_at_range_edge[1])
         @test "a" in names(df_with_failure)    # param column still built from row 1
         @test ismissing(df_with_failure.a[2])  # failure row contributes no param value
@@ -315,28 +330,32 @@ end
         @test ismissing(row.parent_id)
         @test row.error == "boom"
         @test ismissing(row.peak_at_range_edge)
+        @test ismissing(row.key) && ismissing(row.fit_inherited) &&
+              ismissing(row.fit_source_id) && ismissing(row.L_phantom)
     end
 
-    @testset "_rate_eq_dedup_key" begin
-        base = "(; K_a, k_b) = params\n(; A) = concs\n" *
-               "# Haldane constraints:\nk_r = (1/Keq)*K_a\nv = k_b*A/K_a"
-        # differs only in a comment header line:
-        a = replace(base, "# Haldane constraints:" => "# Haldane constraint:")
-        @test EnzymeRates._rate_eq_dedup_key(a) ==
-              EnzymeRates._rate_eq_dedup_key(base)
-        # differs in a Wegscheider tie -> different key:
-        b = replace(base, "# Haldane constraints:" =>
-                          "# Wegscheider constraints:\nK_x = K_a\n# Haldane constraints:")
-        @test EnzymeRates._rate_eq_dedup_key(base) !=
-              EnzymeRates._rate_eq_dedup_key(b)
-        # differs in a Haldane definition -> different key:
-        c = replace(base, "k_r = (1/Keq)*K_a" => "k_r = (2/Keq)*K_a")
-        @test EnzymeRates._rate_eq_dedup_key(base) !=
-              EnzymeRates._rate_eq_dedup_key(c)
-        # differs in the v= line -> different key:
-        d = replace(base, "v = k_b*A/K_a" => "v = k_b*A/(K_a + A)")
-        @test EnzymeRates._rate_eq_dedup_key(base) !=
-              EnzymeRates._rate_eq_dedup_key(d)
+    @testset "the key of a law is the SHA-256 of its canonical text" begin
+        # identify fits one law per key (spec section 10). The key reads the law, not its
+        # printed text: it is the 64-hex SHA-256 of the canonical text, the same on every
+        # call, and another law gets another key.
+        m = _testhelper_uni_seed
+        id = EnzymeRates._mechanism_id(sprint(show, m))
+        c = EnzymeRates._canonical(EnzymeRates._law(m), id)
+        again = EnzymeRates._canonical(EnzymeRates._law(m), id)
+        @test (again.key, again.text, again.order) == (c.key, c.text, c.order)
+        @test c.key == bytes2hex(EnzymeRates.sha256(c.text))
+        @test occursin(r"^[0-9a-f]{64}$", c.key)
+        ss_release = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) <--> E + P
+            end
+        end)
+        other = EnzymeRates._mechanism_id(sprint(show, ss_release))
+        @test EnzymeRates._canonical(EnzymeRates._law(ss_release), other).key != c.key
     end
 
     # ── Run pipeline ONCE, test everything ───────────
@@ -363,6 +382,10 @@ end
     # The selected mechanism is the 1-SE-rule row of cv_results.
     best_row = results.cv_results[
         EnzymeRates._select_best_row(results.cv_results), :]
+    # The rate-law key of a mechanism's text: the key PASS1 gives it.
+    _testhelper_key_of(text) =
+        EnzymeRates._canonical(EnzymeRates._law(EnzymeRates._parse_mechanism(text)),
+                               EnzymeRates._mechanism_id(text)).key
 
     @testset "mechanism recovery" begin
         # The best mechanism should fit the noiseless data with near-zero loss.
@@ -388,17 +411,17 @@ end
             results.cv_results)
         @test "loss" in names(
             results.cv_results)
-        @test "eq_hash" in names(
-            results.cv_results)
-        # LOOCV candidate dedup invariant: within each n_params
-        # bucket, each eq_hash should appear at most once (the cv
-        # pool `_offer_cv!` keeps one slot per eq_hash). This
-        # catches a regression where duplicates would enter LOOCV
-        # and waste compute / bias the per-bucket "best".
-        for gdf in groupby(
-                results.cv_results, :n_params)
-            @test allunique(gdf.eq_hash)
+        @test "key" in names(results.cv_results)
+        @test "fit_source_id" in names(results.cv_results)
+        # LOOCV candidate dedup invariant: within each n_params bucket, each key appears
+        # at most once (the cv pool `_offer_cv!` keeps one slot per key). This catches a
+        # regression where duplicates would enter LOOCV and waste compute / bias the
+        # per-bucket "best". Each row's key is its mechanism's.
+        for gdf in groupby(results.cv_results, :n_params)
+            @test allunique(gdf.key)
         end
+        @test all(r -> r.key == _testhelper_key_of(r.mechanism),
+                  eachrow(results.cv_results))
 
         # cv_score_se = standard error of the row's per-fold scores.
         @test "cv_score_se" in names(results.cv_results)
@@ -466,17 +489,39 @@ end
         # like one (decimal digits, or digits around one `e` or `f`), so the ids are read
         # as text.
         _testhelper_read_csv(f) = CSV.read(joinpath(save_dir, f), DataFrame;
-            types = Dict(:mechanism_id => String, :parent_id => String))
+            types = Dict(:mechanism_id => String, :parent_id => String,
+                         :fit_source_id => String))
+        # Iteration 1 holds an L phantom, so the L_phantom branch below runs.
+        @test any(f -> any(isequal(true), _testhelper_read_csv(f).L_phantom), files)
         init_df = _testhelper_read_csv("initial_mechanisms.csv")
         @test nrow(init_df) == length(unique!(
             collect(EnzymeRates.init_mechanisms(prob.reaction))))
-        @test "eq_hash" in names(init_df)
+        @test "key" in names(init_df)
         @test !("fit_inherited_from_estimate" in names(init_df))
         texts = Dict{String, Set{String}}()
         for f in files
             df_file = _testhelper_read_csv(f)
-            @test "eq_hash" in names(df_file)
-            @test all(length.(string.(skipmissing(df_file.eq_hash))) .== 16)
+            @test "key" in names(df_file) && "fit_source_id" in names(df_file) &&
+                  "L_phantom" in names(df_file)
+            @test all(k -> occursin(r"^[0-9a-f]{64}$", k), skipmissing(df_file.key))
+            # Each fitted row's key is its mechanism's, its fit's source is a 16-hex id,
+            # and the row inherits its fit exactly when the source is another mechanism.
+            for r in eachrow(df_file)
+                # A failure row has no flag; a flagged row is an L phantom that reads
+                # another mechanism's fit with L = 0.
+                if ismissing(r.key)
+                    @test ismissing(r.L_phantom)
+                    continue
+                end
+                if r.L_phantom
+                    m = EnzymeRates._parse_mechanism(r.mechanism)
+                    @test EnzymeRates._is_phantom(EnzymeRates._law(m))
+                    @test r.L == 0.0 && r.fit_inherited
+                end
+                @test r.key == _testhelper_key_of(r.mechanism)
+                @test occursin(r"^[0-9a-f]{16}$", r.fit_source_id)
+                @test r.fit_inherited == (r.fit_source_id != r.mechanism_id)
+            end
             @test all(<=(8), skipmissing(df_file.n_params))     # max_param_count=8
             # Diagnostic columns: every saved CSV carries them.
             @test "parent_n_params" in names(df_file)
@@ -521,10 +566,14 @@ end
 
         bestf = CSV.read(joinpath(save_dir, "best_equation.csv"), DataFrame)
         @test nrow(bestf) == 1
-        best_hash = string(
-            EnzymeRates._rate_eq_dedup_key(rate_equation_string(results.best)),
-            base=16, pad=16)
-        @test string(bestf.eq_hash[1]) == best_hash
+        # The CSV's law is the selected mechanism's printed law in named coefficients:
+        # PASS1 prints it from the concrete mechanism, rate_equation_string from the
+        # compiled one.
+        @test bestf.rate_equation[1] ==
+              rate_equation_string(results.best; coefficients = true)
+        # The key reads back as text, and it is the selected mechanism's key.
+        @test bestf.key[1] isa AbstractString
+        @test bestf.key[1] == _testhelper_key_of(best_row.mechanism)
     end
 
     @testset "save_dir non-empty check" begin
@@ -709,7 +758,8 @@ end
     rows = [(
         n_params = 5, loss = 1.0, mechanism = "M", mechanism_id = "00000000000000aa",
         rate_equation = "v = 1", retcode = "Success", error = missing,
-        params = (K_a = 2.0,), eq_hash = "abc",
+        params = (K_a = 2.0,), key = "abc", fit_source_id = "00000000000000aa",
+        L_phantom = false,
         fit_inherited = false,
         peak_at_range_edge = true,
     )]
@@ -722,7 +772,7 @@ end
         @test df.n_params == [5]
         @test df.K_a == [2.0]
         @test df.peak_at_range_edge == [true]
-        @test "eq_hash" in names(df)
+        @test "key" in names(df) && df.key == ["abc"]
         @test texts == Dict("00000000000000aa" => "M")
         # dir-creation branch: save_dir does not exist yet. A row may repeat an id with
         # its text (an expansion failure's row repeats its parent's).
@@ -744,11 +794,13 @@ end
 @testset "_select_count!: thresholds, floor, best loss, parsimony" begin
     # One call at count 5 with a fresh floor budget: `best` is the count's best loss
     # over the whole search, and `others` holds the best losses of other counts.
+    # Each mechanism its own key, so the key ranks are the mechanism ranks.
     _testhelper_selected(losses, best; rel, add = 0.0, width = 1,
                          others = Dict{Int,Float64}(), parsimony = 1.0) =
         EnzymeRates._select_count!(Dict{Int,Int}(), merge(Dict(5 => best), others), 5,
-            losses; loss_rel_threshold = rel, loss_abs_threshold = add,
-            loss_parsimony_threshold = parsimony, min_beam_width = width)
+            losses, string.(eachindex(losses)); loss_rel_threshold = rel,
+            loss_abs_threshold = add, loss_parsimony_threshold = parsimony,
+            min_beam_width = width, selected = Set{String}())
 
     losses = [1.0, 1.5, 2.5, 5.0, 10.0]
     @test _testhelper_selected(losses, 1.0; rel = 2.0) == [1, 2]
@@ -811,12 +863,12 @@ end
             n_restarts=1, maxtime=1.0, save_dir=tmp)
     end
     # Failure rows were written before the re-raise: a CSV exists whose rows
-    # are all failures (non-missing `error`, missing `eq_hash`).
+    # are all failures (non-missing `error`, missing `key`).
     @test isfile(joinpath(tmp, "initial_mechanisms.csv"))
     fail_df = CSV.read(joinpath(tmp, "initial_mechanisms.csv"), DataFrame)
     @test nrow(fail_df) >= 1
     @test all(.!ismissing.(fail_df.error))
-    @test all(ismissing.(fail_df.eq_hash))
+    @test all(ismissing.(fail_df.key))
     # The post-fit summary is logged before the raise.
     @test occursin(
         "\n  $(nrow(fail_df)) errored | Success 0.0% | non-Success retcode 0.0%\n",
@@ -902,72 +954,49 @@ end
     end
 end
 
-@testset "rate-eq dedup-key partition stability" begin
-    # bi_bi exercises the dedup key on constraint lines that tie several kinetic groups:
-    # every init mechanism prints one Haldane line over the constants of its groups. The
-    # key strips only the `#` section headers, so it reads those lines. uni_uni has one
-    # init mechanism, hence one class, so it adds nothing to a partition test.
-    # ter-ter intentionally omitted — `rate_equation_string` derivation is
-    # extremely slow for mechanisms with >~30 enzyme forms (CLAUDE.md
-    # "Known Issues"), and the dedup key renders that string per
-    # candidate. The bi-bi enumeration already covers every structural
-    # symmetry the dedup key collapses.
+@testset "the key partitions the bi-bi init laws into 239 classes" begin
+    # The 239 bi-bi init mechanisms (55 seeds and their 184 merged and Theorell–Chance
+    # variants) have 239 laws no renaming of fitted constants makes equal, so the key
+    # gives 239 classes. On a fixed sample the same law gives the same key twice.
     reaction = @enzyme_reaction(begin
         substrates: A[C], B[N]
         products:   P[C], Q[N]
     end)
-
-    # Expected partition size = the number of DISTINCT rate equations the
-    # init-level enumeration produces. The 239 bi_bi init mechanisms (55 seeds
-    # and their 184 merged and Theorell–Chance variants) are all structurally
-    # distinct AND each yields a distinct `rate_equation_string`, so the
-    # comment-stripped string key produces exactly 239 classes (zero over- and
-    # zero under-collapse): clean topologies have distinct enzyme-form sets,
-    # hence distinct rate equations. The 8 ordered/random pairs and the 2
-    # Theorell–Chance pairs among the variants share a family, but each pair's
-    # members are structurally distinct, so they render distinct equations.
-    # If this count changes in a future commit, the dedup key's
-    # equivalence classes (or the enumeration) have shifted — investigate.
-    expected_n_classes = 239
-
-    # init_mechanisms only — skip expand_mechanisms. The init level
-    # already produces multiple structurally-equivalent variants
-    # (mirror-step orderings, kinetic-group renumberings) that
-    # exercise the dedup key's collapse rules. expand_mechanisms
-    # adds variants at higher param counts whose dedup-key
-    # behavior is the same modulo size, at exponential compile cost.
-    buckets = Dict{UInt64, Vector{Int}}()
+    buckets = Dict{String, Vector{Int}}()
     for (i, m) in enumerate(EnzymeRates.init_mechanisms(reaction))
-        em = EnzymeRates.compile_mechanism(m)
-        h = EnzymeRates._rate_eq_dedup_key(rate_equation_string(em))
-        push!(get!(buckets, h, Int[]), i)
-        # Determinism on a fixed sample: same input, same key across invocations.
-        i % 25 == 1 && @test EnzymeRates._rate_eq_dedup_key(rate_equation_string(em)) === h
+        id = EnzymeRates._mechanism_id(sprint(show, m))
+        c = EnzymeRates._canonical(EnzymeRates._law(m), id)
+        @test !c.capped
+        push!(get!(buckets, c.key, Int[]), i)
+        i % 25 == 1 && @test EnzymeRates._canonical(EnzymeRates._law(m), id).key == c.key
     end
-
-    @test length(buckets) == expected_n_classes
+    @test length(buckets) == 239
 end
 
 @testset "_select_count! cumulative per-count floor" begin
     expanded = Dict{Int,Int}()
     best = Dict(5 => 1.0)
+    # Each mechanism its own key; the selected keys persist across sweeps, as in the beam.
     kw = (loss_rel_threshold=1.0, loss_abs_threshold=0.0,
-          loss_parsimony_threshold=1.0, min_beam_width=3)
+          loss_parsimony_threshold=1.0, min_beam_width=3,
+          selected=Set{String}())
     # Sweep 1 at count 5: rel cutoff admits only the best (loss 1.0); the
     # floor budget (3) tops it up to the top 3 by loss. expanded[5] -> 3.
-    sel1 = EnzymeRates._select_count!(expanded, best, 5, [1.0, 2.0, 3.0, 4.0, 5.0]; kw...)
+    sel1 = EnzymeRates._select_count!(expanded, best, 5, [1.0, 2.0, 3.0, 4.0, 5.0],
+                                      ["a", "b", "c", "d", "e"]; kw...)
     @test sort(sel1) == [1, 2, 3]
     @test expanded[5] == 3
 
     # Sweep 2 at count 5: budget spent (3 of 3). New mechanisms all above the
     # cutoff -> the floor admits NONE (unlike the old per-sweep floor, which
     # would grant a fresh 3). expanded[5] stays 3.
-    sel2 = EnzymeRates._select_count!(expanded, best, 5, [10.0, 11.0, 12.0]; kw...)
+    sel2 = EnzymeRates._select_count!(expanded, best, 5, [10.0, 11.0, 12.0],
+                                      ["f", "g", "h"]; kw...)
     @test isempty(sel2)
     @test expanded[5] == 3
 
     # A cutoff-passer is still admitted after the floor is spent.
-    sel3 = EnzymeRates._select_count!(expanded, best, 5, [1.0, 20.0]; kw...)
+    sel3 = EnzymeRates._select_count!(expanded, best, 5, [1.0, 20.0], ["i", "j"]; kw...)
     @test sel3 == [1]
     @test expanded[5] == 4
 end
@@ -976,8 +1005,9 @@ end
     # No floor and a loose relative cutoff (10 × the count's best), so the parsimony
     # cutoff alone decides: 1.01 × the best loss over the counts below c.
     _testhelper_selected(best_loss_by_count, c, losses) = EnzymeRates._select_count!(
-        Dict{Int,Int}(), best_loss_by_count, c, losses; loss_rel_threshold=10.0,
-        loss_abs_threshold=0.0, loss_parsimony_threshold=1.01, min_beam_width=0)
+        Dict{Int,Int}(), best_loss_by_count, c, losses, string.(eachindex(losses));
+        loss_rel_threshold=10.0, loss_abs_threshold=0.0, loss_parsimony_threshold=1.01,
+        min_beam_width=0, selected=Set{String}())
     # No count < c: no parsimony term (else 0.15 > 1.01*0.02 would be dropped).
     @test _testhelper_selected(Dict(5=>0.02), 5, [0.02, 0.15]) == [1, 2]
     # min over <c, not c-1: the cutoff is 1.01*0.02, not 1.01*0.03.
@@ -987,6 +1017,85 @@ end
     @test _testhelper_selected(Dict(5=>0.02, 7=>0.02), 7, [0.0201, 0.0203]) == [1]
     # non-monotone → true min: the cutoff is 1.01*0.01, not 1.01*0.04.
     @test _testhelper_selected(Dict(5=>0.01, 6=>0.04, 7=>0.01), 7, [0.0100, 0.0102]) == [1]
+end
+
+@testset "_select_count! charges the budget once per key" begin
+    # Spec section 10: the beam counts each key once. Five mechanisms on two keys, the
+    # three of key a sharing their fit's loss. With a budget of two, ranking mechanisms
+    # would spend it on two of a's three and leave b out; ranking keys spends one unit on
+    # each key and expands all five mechanisms.
+    expanded = Dict{Int,Int}()
+    selected = Set{String}()
+    sel = EnzymeRates._select_count!(expanded, Dict(5 => 1.0), 5,
+        [1.0, 1.0, 1.0, 2.0, 2.0], ["a", "a", "a", "b", "b"];
+        loss_rel_threshold = 1.0, loss_abs_threshold = 0.0, loss_parsimony_threshold = 1.0,
+        min_beam_width = 2, selected)
+    @test sel == [1, 2, 3, 4, 5]
+    @test expanded[5] == 2
+    @test selected == Set(["a", "b"])
+end
+
+@testset "a late member of a selected key expands without budget" begin
+    # Key a is selected in the first sweep at loss 2.0, then the count's best. A later
+    # sweep brings a structurally new member of a after another key lowered the best to
+    # 1.0: the cutoff (1.0) and the spent budget would refuse a mechanism at 2.0, but a's
+    # verdict stands, so the member expands and the budget stays spent on a alone.
+    expanded = Dict{Int,Int}()
+    selected = Set{String}()
+    kw = (loss_rel_threshold = 1.0, loss_abs_threshold = 0.0,
+          loss_parsimony_threshold = 1.0, min_beam_width = 1, selected)
+    @test EnzymeRates._select_count!(expanded, Dict(5 => 2.0), 5, [2.0], ["a"];
+                                     kw...) == [1]
+    @test expanded[5] == 1
+    @test EnzymeRates._select_count!(expanded, Dict(5 => 1.0), 5, [2.0, 3.0],
+                                     ["a", "c"]; kw...) == [1]
+    @test expanded[5] == 1
+    @test selected == Set(["a"])
+end
+
+@testset "a late member of a rejected key stays out" begin
+    # Key b loses on rank in the first sweep and is rejected. A later member of b is
+    # judged again and refused, while a later member of the selected key a expands.
+    expanded = Dict{Int,Int}()
+    selected = Set{String}()
+    kw = (loss_rel_threshold = 1.0, loss_abs_threshold = 0.0,
+          loss_parsimony_threshold = 1.0, min_beam_width = 1, selected)
+    @test EnzymeRates._select_count!(expanded, Dict(5 => 1.0), 5, [1.0, 1.5],
+                                     ["a", "b"]; kw...) == [1]
+    @test EnzymeRates._select_count!(expanded, Dict(5 => 1.0), 5, [1.5, 1.0],
+                                     ["b", "a"]; kw...) == [2]
+    @test expanded[5] == 1
+    @test selected == Set(["a"])
+end
+
+@testset "a later sweep expands a selected key's member, judges a refused key again and \
+          keeps the spent budget" begin
+    # Two sweeps of the beam at target 3 that share one key set. Sweep 1 selects key a
+    # (loss 1.0, under the cutoff 1.3) and refuses b (5.0), since a spends count 3's
+    # budget of one. Sweep 2 pops two counts. At count 3 (cutoff 0.65, budget spent), a2
+    # expands by a's verdict though its loss is over the cutoff, the new key c passes the
+    # cutoff, and b2 is judged again and refused; at count 2, d is within the budget. The
+    # parents are compared as a set, so the frontier's bucket order cannot matter.
+    expanded, best, selected = Dict{Int,Int}(), Dict(3 => 1.0), Set{String}()
+    kw = (loss_rel_threshold = 1.3, loss_abs_threshold = 0.0,
+          loss_parsimony_threshold = Inf, min_beam_width = 1)
+    a, b = _testhelper_entry("a", 1.0, 3), _testhelper_entry("b", 5.0, 3)
+    frontier = Dict(3 => [a, b])
+    @test EnzymeRates._sweep_parents!(frontier, 3, expanded, best, selected; kw...) == [a]
+    @test isempty(frontier)
+    @test expanded == Dict(3 => 1)
+    @test selected == Set(["a"])
+
+    a2, b2 = _testhelper_entry("a", 1.0, 3), _testhelper_entry("b", 5.0, 3)
+    c, d = _testhelper_entry("c", 0.5, 3), _testhelper_entry("d", 0.2, 2)
+    frontier = Dict(3 => [a2, b2, c], 2 => [d])
+    best[3], best[2] = 0.5, 0.2
+    parents = EnzymeRates._sweep_parents!(frontier, 3, expanded, best, selected; kw...)
+    @test length(parents) == 3
+    @test Set(objectid.(parents)) == Set(objectid.([a2, c, d]))
+    @test isempty(frontier)
+    @test expanded == Dict(3 => 2, 2 => 1)
+    @test selected == Set(["a", "c", "d"])
 end
 
 @testset "_progress" begin
@@ -1032,10 +1141,10 @@ end
     # _postfit_summary: errored + success/non-Success over the fitted set.
     mech = _testhelper_uni_seed
     row = (n_params=3, loss=0.5, mechanism="M", rate_equation="v",
-           retcode="Success", error=missing, params=(K = 1.0,), eq_hash="abc",
+           retcode="Success", error=missing, params=(K = 1.0,), key="abc",
            fit_inherited=false)
-    e_succ = EnzymeRates.BatchEntry(mech, 3, 0.5, :Success, hash(:a), row)
-    e_mt   = EnzymeRates.BatchEntry(mech, 3, 0.9, :MaxTime, hash(:b), row)
+    e_succ = EnzymeRates.BatchEntry(mech, 3, 0.5, :Success, "a", "a", row)
+    e_mt   = EnzymeRates.BatchEntry(mech, 3, 0.9, :MaxTime, "b", "b", row)
     f      = EnzymeRates.FitFailure(mech, "StackOverflowError: ")
     post = EnzymeRates._postfit_summary([e_succ, e_mt], [f])
     @test occursin("1 errored", post)
@@ -1069,7 +1178,8 @@ end
     @test all(e -> e isa EnzymeRates.BatchEntry, entries)
     @test all(e -> e.retcode isa Symbol, entries)
     @test all(e -> e.n_params == length(e.row.params), entries)
-    @test all(e -> occursin(r"^[0-9a-f]{16}$", e.row.eq_hash), entries)
+    @test all(e -> occursin(r"^[0-9a-f]{64}$", e.key) && e.key == e.row.key == e.fit_key,
+              entries)
 
     # cap filter: nothing over the cap is fit (and it is not a failure), and the
     # pre-fit summary logs every mechanism as a param-count skip.
@@ -1099,14 +1209,14 @@ end
     seen = Set{UInt64}()
     e1, f1, ps1, cs1, ss1 = EnzymeRates._process_batch([m], prob;
         optimizer=CMAEvolutionStrategyOpt(), max_param_count=20,
-        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), seen)
+        n_restarts=1, maxtime=1.0, memo=Dict{String,EnzymeRates._Fit}(), seen)
     @test ss1 == 0 && length(e1) == 1
 
     # Same structure again in a later batch → seen-skipped, no new entry.
     seen_log = String[]
     e2, f2, ps2, cs2, ss2 = EnzymeRates._process_batch([m], prob;
         optimizer=CMAEvolutionStrategyOpt(), max_param_count=20, eq_complexity_filter=337,
-        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), seen,
+        n_restarts=1, maxtime=1.0, memo=Dict{String,EnzymeRates._Fit}(), seen,
         log = msg -> push!(seen_log, msg))
     @test ss2 == 1 && isempty(e2) && isempty(f2)
     @test seen_log == ["0 new fits + 0 inherited + 1 skipped (already fit) + " *
@@ -1115,7 +1225,7 @@ end
     # A structure repeated within one batch is fit once; the repeat is seen-skipped.
     e3, f3, ps3, cs3, ss3 = EnzymeRates._process_batch([m, m], prob;
         optimizer=CMAEvolutionStrategyOpt(), max_param_count=20,
-        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), seen=Set{UInt64}())
+        n_restarts=1, maxtime=1.0, memo=Dict{String,EnzymeRates._Fit}(), seen=Set{UInt64}())
     @test ss3 == 1 && length(e3) == 1 && isempty(f3)
 end
 
@@ -1213,37 +1323,80 @@ end
     @test occursin("polynomial terms", failures[1].error)
 end
 
+@testset "eq_complexity_filter counts both conformations" begin
+    # The 336-term random-order bi-bi at one catalytic subunit with its chemistry and its
+    # product bindings at free E :OnlyA, a K-type the tagging move emits: the inactive
+    # conformation keeps the substrate square E, E(S1), E(S1, S2), E(S2), four segments and
+    # four spanning trees, so the law counts 336 + 16 = 352. The default filter skips it,
+    # where the active count alone would let it through. A filter of 700 lets it through
+    # to the parameter cap, which skips its 16 fitted constants without a fit.
+    rxn = @enzyme_reaction begin
+        substrates: S1[C2H4], S2[C2H2]
+        products:   P1[C2H2], P2[C2H4]
+    end
+    data = DataFrame(
+        S1 = [1.0, 2.0, 1.0, 2.0], S2 = [1.0, 1.0, 2.0, 2.0],
+        P1 = [0.1, 0.2, 0.1, 0.2], P2 = [0.1, 0.1, 0.2, 0.2],
+        Rate = [0.5, 0.8, 0.9, 1.1], group = [1, 1, 2, 2])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
+    ktype = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S1, S2
+        products: P1, P2
+        catalytic_multiplicity: 1
+        steps: begin
+            E + P1 <--> E(P1) :: OnlyA
+            E + P2 <--> E(P2) :: OnlyA
+            E + S1 <--> E(S1) :: EqualAI
+            E + S2 <--> E(S2) :: EqualAI
+            E(P1) + P2 <--> E(P1, P2) :: EqualAI
+            E(P2) + P1 <--> E(P1, P2) :: EqualAI
+            E(S1) + S2 <--> E(S1, S2) :: EqualAI
+            E(S1, S2) <--> E(P1, P2) :: OnlyA
+            E(S2) + S1 <--> E(S1, S2) :: EqualAI
+        end
+    end)
+    cm = ktype.catalytic
+    @test _testhelper_laplacian_tree_count(cm, EnzymeRates._active_mask(ktype)) == 336
+    @test _testhelper_laplacian_tree_count(cm, EnzymeRates._inactive_mask(ktype)) == 16
+    @test EnzymeRates._eq_complexity(ktype) == 352
+    @test EnzymeRates._independent_param_count(ktype) == 16
+    batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[ktype]
+    _, _, n_param_skip, n_cx_skip = EnzymeRates._process_batch(
+        batch, prob; optimizer=CMAEvolutionStrategyOpt(),
+        max_param_count=15, eq_complexity_filter=337, n_restarts=1, maxtime=1.0)
+    @test (n_cx_skip, n_param_skip) == (1, 0)
+    _, _, n_param_wide, n_cx_wide = EnzymeRates._process_batch(
+        batch, prob; optimizer=CMAEvolutionStrategyOpt(),
+        max_param_count=15, eq_complexity_filter=700, n_restarts=1, maxtime=1.0)
+    @test (n_cx_wide, n_param_wide) == (0, 1)
+end
+
 @testset "_ingest! and cv pool" begin
-    _testhelper_mk(n, loss, h) = EnzymeRates.BatchEntry(
-        _testhelper_uni_seed, n, loss, :Success, hash(h),
-        (n_params=n, loss=loss, mechanism="M",
-         rate_equation="v", retcode="Success", error=missing,
-         params=(K = 1.0,), eq_hash=string(hash(h),base=16,pad=16),
-         fit_inherited=false))
     frontier = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     cv_pool  = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     best     = Dict{Int,Float64}()
     # two distinct equations + one duplicate-eq with worse loss, n_cv=2
     improved = EnzymeRates._ingest!(frontier, cv_pool, best,
-        [_testhelper_mk(5,2.0,:a), _testhelper_mk(5,1.0,:b), _testhelper_mk(5,3.0,:a)];
+        [_testhelper_entry("a", 2.0, 5), _testhelper_entry("b", 1.0, 5),
+         _testhelper_entry("a", 3.0, 5)];
         n_cv_candidates=2)
     @test improved == Set([5])                 # count 5 first appeared
     @test length(frontier[5]) == 3            # frontier keeps ALL
     @test best[5] == 1.0                       # running min
-    @test length(cv_pool[5]) == 2              # bounded, distinct eq_hash
-    # the kept :a entry is the lower-loss one (2.0, not 3.0);
-    # BatchEntry.eq_hash is a UInt64, so compare against hash(:a), not hex:
-    a = only(filter(e -> e.eq_hash == hash(:a), cv_pool[5]))
+    @test length(cv_pool[5]) == 2              # bounded, distinct keys
+    # the kept "a" entry is the lower-loss one (2.0, not 3.0)
+    a = only(filter(e -> e.key == "a", cv_pool[5]))
     @test a.loss == 2.0
     # A later batch reports only the counts whose best strictly dropped or first
     # appeared: count 5 ties its best (1.0), count 6 first appears, and count 7's
     # entry is worse than its best (0.5).
     best[7] = 0.5
     @test EnzymeRates._ingest!(frontier, cv_pool, best,
-        [_testhelper_mk(5,1.0,:c), _testhelper_mk(6,4.0,:d), _testhelper_mk(7,0.6,:e)];
+        [_testhelper_entry("c", 1.0, 5), _testhelper_entry("d", 4.0, 6),
+         _testhelper_entry("e", 0.6, 7)];
         n_cv_candidates=2) == Set([6])
     @test EnzymeRates._ingest!(frontier, cv_pool, best,
-        [_testhelper_mk(5,0.9,:f)]; n_cv_candidates=2) == Set([5])
+        [_testhelper_entry("f", 0.9, 5)]; n_cv_candidates=2) == Set([5])
     @test isempty(EnzymeRates._ingest!(frontier, cv_pool, best,
         EnzymeRates.BatchEntry[]; n_cv_candidates=2))
 
@@ -1256,23 +1409,23 @@ end
     cv_pool_nf  = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     best_nf     = Dict{Int,Float64}()
     @test EnzymeRates._ingest!(frontier_nf, cv_pool_nf, best_nf,
-        [_testhelper_mk(5,Inf,:g), _testhelper_mk(5,1.0,:h), _testhelper_mk(6,NaN,:i),
-         _testhelper_mk(7,Inf,:j)];
+        [_testhelper_entry("g", Inf, 5), _testhelper_entry("h", 1.0, 5),
+         _testhelper_entry("i", NaN, 6), _testhelper_entry("j", Inf, 7)];
         n_cv_candidates=2) == Set([5])
     @test Set(keys(frontier_nf)) == Set(keys(cv_pool_nf)) == Set([5])
-    @test [e.eq_hash for e in frontier_nf[5]] == [hash(:h)]
-    @test [e.eq_hash for e in cv_pool_nf[5]] == [hash(:h)]
+    @test [e.key for e in frontier_nf[5]] == ["h"]
+    @test [e.key for e in cv_pool_nf[5]] == ["h"]
     @test best_nf == Dict(5 => 1.0)
 
-    # `_offer_cv!` keeps at most one entry per eq_hash: a repeat hash updates its own
-    # slot to the lower loss, never consuming a second.
+    # `_offer_cv!` keeps at most one entry per key: a repeat key updates its own slot to
+    # the lower loss, never consuming a second.
     pool = EnzymeRates.BatchEntry[]
-    for (loss, h) in [(1.0, :a), (0.5, :a), (2.0, :b)]
-        EnzymeRates._offer_cv!(pool, _testhelper_mk(5, loss, h), 5)
+    for (loss, h) in [(1.0, "a"), (0.5, "a"), (2.0, "b")]
+        EnzymeRates._offer_cv!(pool, _testhelper_entry(h, loss, 5), 5)
     end
-    @test allunique([e.eq_hash for e in pool])
+    @test allunique([e.key for e in pool])
     @test length(pool) == 2
-    @test only(filter(e -> e.eq_hash == hash(:a), pool)).loss == 0.5
+    @test only(filter(e -> e.key == "a", pool)).loss == 0.5
 end
 
 @testset "all-cap-skipped expansion batch is reported (M2)" begin
@@ -1387,24 +1540,31 @@ end
     end
 end
 
-# ── §2 fit-dedup by eq_hash ──────────────────────────────────────────────────
+# ── §2 fit-dedup by key ──────────────────────────────────────────────────────
 # A stub optimizer that counts `solve` invocations and returns a canned
 # log-space optimum (`uval` for every coordinate), so a batch's fits can be
-# counted exactly and the raw→rescale path exercised deterministically.
+# counted exactly and the raw→rescale path exercised deterministically. With
+# `infinite = true` every restart reports an infinite objective, as a fit with no
+# finite loss does. `throwit = true` throws on every call, `throw_first = true` on the
+# first call only; the error message names the call by its number.
 mutable struct _testhelper_CountingStubOpt
     count::Int
     uval::Float64
     throwit::Bool
+    infinite::Bool
+    throw_first::Bool
 end
-_testhelper_CountingStubOpt(; uval=0.0, throwit=false) =
-    _testhelper_CountingStubOpt(0, uval, throwit)
+_testhelper_CountingStubOpt(; uval=0.0, throwit=false, infinite=false, throw_first=false) =
+    _testhelper_CountingStubOpt(0, uval, throwit, infinite, throw_first)
 Optimization.allowsbounds(::_testhelper_CountingStubOpt) = true
 function Optimization.SciMLBase.__solve(
         prob::Optimization.OptimizationProblem, opt::_testhelper_CountingStubOpt; kwargs...)
     opt.count += 1
-    opt.throwit && error("stub solver forced failure")
+    (opt.throwit || opt.throw_first && opt.count == 1) &&
+        error("stub solver forced failure $(opt.count)")
     u = fill(opt.uval, length(prob.u0))
     cache = DefaultOptimizationCache(prob.f, prob.p)
+    opt.infinite && return build_solution(cache, opt, u, Inf; retcode = ReturnCode.Failure)
     build_solution(cache, opt, u, prob.f(u, prob.p); retcode = ReturnCode.Success)
 end
 
@@ -1437,16 +1597,19 @@ function _testhelper_dedup_twins()
     return m1, m2
 end
 
-@testset "fit-dedup by eq_hash in _process_batch" begin
+@testset "fit-dedup by key in _process_batch" begin
     m1, m2 = _testhelper_dedup_twins()
     em1 = EnzymeRates.compile_mechanism(m1)
     em2 = EnzymeRates.compile_mechanism(m2)
-    key = EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1))
-    # Preconditions: distinct structure and compiled types, identical eq_hash +
-    # fitted-param set (same names AND order — the reuse maps params by name directly).
+    c1, c2 = _testhelper_pass1_canonical.((m1, m2))
+    # Preconditions: distinct structure and compiled types, one key and one law under
+    # the canonical map, and the same fitted names.
     @test m1 != m2
     @test typeof(em1) != typeof(em2)
-    @test key == EnzymeRates._rate_eq_dedup_key(rate_equation_string(em2))
+    @test c1.key == c2.key
+    @test _testhelper_same_law_under_map(EnzymeRates._law(m1), EnzymeRates._law(m2),
+                                         c1.order, c2.order;
+                                         rng = Random.MersenneTwister(1))
     @test EnzymeRates.fitted_params(em1) == EnzymeRates.fitted_params(em2)
 
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
@@ -1461,7 +1624,7 @@ end
     prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0, peak_range=(0.1, 1.0))
     pair = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2]
 
-    memo = Dict{UInt64, NamedTuple}()
+    memo = Dict{String, EnzymeRates._Fit}()
     opt = _testhelper_CountingStubOpt(; uval = log(5.0))
     # Each logged line is stored with the solve count at the moment it was logged.
     batch_log = Tuple{String,Int}[]
@@ -1469,7 +1632,7 @@ end
         optimizer=opt, max_param_count=20, eq_complexity_filter=337, n_restarts=1,
         maxtime=1.0, memo, log = msg -> push!(batch_log, (msg, opt.count)))
 
-    # The shared equation is fit exactly ONCE (n_restarts=1 → one solve).
+    # The shared law is fit exactly ONCE (n_restarts=1 → one solve).
     @test opt.count == 1
     # The pre-fit summary counts one new fit and one inherited row, and is logged
     # before the fit runs.
@@ -1477,20 +1640,23 @@ end
                          "0 skipped (>20 params) + 0 skipped (>337 complexity)", 0)]
     @test length(entries) == 2
     @test isempty(failures)
-    # loss + retcode are equation properties → eq_hash-invariant → identical.
+    # loss + retcode belong to the law's fit → one key → identical.
     @test entries[1].loss == entries[2].loss
     @test entries[1].retcode === entries[2].retcode === :Success
-    # Representative fit first (false); the duplicate is inherited (true).
+    # Representative fit first (false); the duplicate is inherited (true), and both
+    # name the representative as the fit's source.
     @test [e.row.fit_inherited for e in entries] == [false, true]
+    @test [e.row.fit_source_id for e in entries] == fill(entries[1].row.mechanism_id, 2)
 
-    # The memo stores the fit; every row sharing this eq_hash copies it verbatim,
-    # so both rows carry identical params — same equation ⟹ same fit + rescaling.
-    fit = memo[key]
+    # The memo stores the fit at canonical positions; every row reads it through its own
+    # canonical order, so both rows carry the fit's values under their own names.
+    fit = memo[c1.key]
+    @test fit.source == m1
     fkeys = EnzymeRates.fitted_params(em1)
-    for e in entries
+    for (e, c) in zip(entries, (c1, c2))
         @test keys(e.row.params) == fkeys
-        @test e.row.params == fit.params
-        # The edge flag belongs to the equation's fit, so each row copies it.
+        @test Float64[e.row.params[x] for x in [c.order; :L]] == fit.values
+        # The edge flag belongs to the law's fit, so each row copies it.
         @test e.row.peak_at_range_edge === fit.peak_at_range_edge
     end
     @test fit.peak_at_range_edge === true
@@ -1499,34 +1665,616 @@ end
     # 5.0 the stub optimizer returned.
     @test !all(v -> v ≈ 5.0, entries[1].row.params)
 
-    # Cross-batch memo hit: a later batch with the same eq_hash refits NOTHING.
+    # Cross-batch memo hit: a later batch with the same key refits NOTHING.
     single = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1]
     reuse_log = String[]
     reused, _ = EnzymeRates._process_batch(single, prob;
         optimizer=opt, max_param_count=20, eq_complexity_filter=337, n_restarts=1,
         maxtime=1.0, memo, log = msg -> push!(reuse_log, msg))
     @test opt.count == 1                                # no new solve
-    @test [e.row.fit_inherited for e in reused] == [true]
+    # The mechanism that was fitted reads its own fit in a later batch: not inherited.
+    @test [e.row.fit_inherited for e in reused] == [false]
     @test reuse_log == ["0 new fits + 1 inherited + 0 skipped (already fit) + " *
                         "0 skipped (>20 params) + 0 skipped (>337 complexity)"]
 
-    # A representative whose fit throws fails ALL its duplicates
-    # (all-or-nothing per equation).
+    # A representative whose fit throws fails ALL the mechanisms with its key
+    # (all-or-nothing per law).
     opt_bad = _testhelper_CountingStubOpt(; throwit=true)
     bad_entries, bad_failures = EnzymeRates._process_batch(pair, prob;
         optimizer=opt_bad, max_param_count=20, n_restarts=1, maxtime=1.0,
-        memo = Dict{UInt64, NamedTuple}())
+        memo = Dict{String, EnzymeRates._Fit}())
     @test isempty(bad_entries)
     @test length(bad_failures) == 2
     @test all(f -> f isa EnzymeRates.FitFailure, bad_failures)
     @test [f.mech for f in bad_failures] == [m1, m2]   # the mechanisms as handed in
 end
 
+# A stub optimizer that counts `solve` calls and returns the log-space point
+# u_i = log(i + 1), so each fitted constant gets a value of its own and a row read through
+# the wrong names gives another rate.
+mutable struct _testhelper_SpreadStubOpt
+    count::Int
+end
+_testhelper_SpreadStubOpt() = _testhelper_SpreadStubOpt(0)
+Optimization.allowsbounds(::_testhelper_SpreadStubOpt) = true
+function Optimization.SciMLBase.__solve(
+        prob::Optimization.OptimizationProblem, opt::_testhelper_SpreadStubOpt; kwargs...)
+    opt.count += 1
+    u = [log(i + 1.0) for i in eachindex(prob.u0)]
+    cache = DefaultOptimizationCache(prob.f, prob.p)
+    build_solution(cache, opt, u, prob.f(u, prob.p); retcode = ReturnCode.Success)
+end
 
-# LDH renaming-dup pair (same graph, tied kinetic-group split): merged form
-# (8 groups) vs split form (9 groups). Different eq_hash, one model: the split
-# form's extra binding K is tied straight back by a Wegscheider cycle.
-@testset "renaming-dup pair: same independent count, different eq_hash" begin
+# Two allosteric uni-bi mechanisms with one law and different fitted names: A and
+# Q bind only the active conformation (:OnlyA), so the inactive one keeps free E alone, and
+# P's binding at E(Q), which that conformation never reaches, is :EqualAI in the first and
+# :OnlyA in the second. The first names its constant without a conformation
+# (`K_EPQ_to_EQ_P`), the second as the active conformation's (`K_A_EPQ_to_EQ_P`), so the
+# two sort it to different fitted positions. Returns the two and a problem on their
+# reaction.
+function _testhelper_unibi_pair()
+    equal = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A
+        products: P, Q
+        catalytic_multiplicity: 2
+        steps: begin
+            E + A <--> E(A)          :: OnlyA
+            E(A) <--> E(P, Q)        :: OnlyA
+            E(Q) + P ⇌ E(P, Q)       :: EqualAI
+            E + Q ⇌ E(Q)             :: OnlyA
+        end
+    end)
+    only_active = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A
+        products: P, Q
+        catalytic_multiplicity: 2
+        steps: begin
+            E + A <--> E(A)          :: OnlyA
+            E(A) <--> E(P, Q)        :: OnlyA
+            E(Q) + P ⇌ E(P, Q)       :: OnlyA
+            E + Q ⇌ E(Q)             :: OnlyA
+        end
+    end)
+    rxn = @enzyme_reaction begin
+        substrates: A[CN]
+        products: P[C], Q[N]
+        oligomeric_state: 2
+    end
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            A = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2], Q = [0.3, 0.3, 0.4, 0.4])
+    equal, only_active, IdentifyRateEquationProblem(rxn, data; Keq = 2.0)
+end
+
+@testset "two same-key mechanisms read one fit under their own names" begin
+    # Spec section 10: identify fits one representative per key and stores the fit at
+    # canonical positions; the other mechanism reads it through its own labelling, so its
+    # row carries its own names and both rows compute one rate.
+    a, b, prob = _testhelper_unibi_pair()
+    ca, cb = _testhelper_pass1_canonical.((a, b))
+    fa, fb = EnzymeRates.fitted_params(a), EnzymeRates.fitted_params(b)
+    @test ca.key == cb.key
+    @test Set(fa) != Set(fb)
+    # The canonical map sends a constant to another fitted position, so a fit copied by
+    # position would hand the second row wrong values.
+    @test [findfirst(==(x), fa) for x in ca.order] !=
+          [findfirst(==(x), fb) for x in cb.order]
+    opt = _testhelper_SpreadStubOpt()
+    entries, failures = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[a, b], prob;
+        optimizer = opt, max_param_count = 20, n_restarts = 1, maxtime = 1.0)
+    @test opt.count == 1
+    @test isempty(failures) && length(entries) == 2
+    @test count(e -> e.row.fit_inherited, entries) == 1
+    @test [e.key for e in entries] == [ca.key, ca.key]
+    @test keys(entries[1].row.params) == fa && keys(entries[2].row.params) == fb
+    rng = Random.MersenneTwister(10)
+    for _ in 1:3
+        concs = (A = exp(randn(rng)), P = exp(randn(rng)), Q = exp(randn(rng)))
+        rates = [rate_equation(EnzymeRates.compile_mechanism(e.mech), concs,
+                               merge(e.row.params, (Keq = 2.0, E_total = 1.0)))
+                 for e in entries]
+        @test isapprox(rates[1], rates[2]; rtol = 1e-12)
+    end
+end
+
+@testset "a fit is stored by canonical position and read through each row's order" begin
+    # The memo's values sit at the canonical positions of the representative's law (its
+    # `_Canonical.order`, then L); each row's own canonical order reads them back.
+    a, b, prob = _testhelper_unibi_pair()
+    memo = Dict{String, EnzymeRates._Fit}()
+    entries, _ = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[a, b], prob;
+        optimizer = _testhelper_SpreadStubOpt(), max_param_count = 20, memo,
+        n_restarts = 1, maxtime = 1.0)
+    fit = only(values(memo))
+    @test fit.source == a && fit.source_id == entries[1].row.mechanism_id
+    @test fit.loss == entries[1].loss == entries[2].loss
+    for e in entries
+        c = EnzymeRates._canonical(EnzymeRates._law(e.mech), e.row.mechanism_id)
+        @test Float64[e.row.params[x] for x in [c.order; :L]] == fit.values
+    end
+end
+
+@testset "_offer_cv! keeps one slot per key" begin
+    pool = EnzymeRates.BatchEntry[]
+    EnzymeRates._offer_cv!(pool, _testhelper_entry("a", 1.0), 2)
+    EnzymeRates._offer_cv!(pool, _testhelper_entry("b", 2.0), 2)
+    # A full pool: a repeat key with a lower loss takes its own slot, not the worst one.
+    EnzymeRates._offer_cv!(pool, _testhelper_entry("a", 0.5), 2)
+    @test [(e.key, e.loss) for e in pool] == [("a", 0.5), ("b", 2.0)]
+    # A repeat key with a higher loss changes nothing; a new key evicts the worst.
+    EnzymeRates._offer_cv!(pool, _testhelper_entry("a", 3.0), 2)
+    EnzymeRates._offer_cv!(pool, _testhelper_entry("c", 1.5), 2)
+    @test [(e.key, e.loss) for e in pool] == [("a", 0.5), ("c", 1.5)]
+end
+
+@testset "LOOCV fits each fit key's source once per fold" begin
+    # Spec section 10: rows that read one fit share their fold losses, so LOOCV fits
+    # that fit's source once per fold. Handed to model selection beside a second law, the
+    # dedup twins (one key) cost two fits per fold, not three, and share their fold columns.
+    m1, m2 = _testhelper_dedup_twins()
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        oligomeric_state: 2
+    end
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            S = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0)
+    memo = Dict{String, EnzymeRates._Fit}()
+    entries, _ = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
+            m1, m2, _testhelper_uni_seed], prob;
+        optimizer = _testhelper_CountingStubOpt(; uval = log(5.0)), max_param_count = 20,
+        memo, n_restarts = 1, maxtime = 1.0)
+    @test length(unique(e.fit_key for e in entries)) == 2
+    opt = _testhelper_CountingStubOpt(; uval = log(5.0))
+    res = EnzymeRates._cv_model_selection(entries, memo, prob; optimizer = opt,
+        se_threshold = 1.0, save_dir = mktempdir(), show_progress = false,
+        n_restarts = 1, maxtime = 1.0)
+    groups = unique(prob.data.group)
+    @test opt.count == 2 * length(groups)
+    folds(r) = [r[Symbol("cv_fold_$g")] for g in groups]
+    twins = [r for r in eachrow(res.cv_results) if r.key == entries[1].key]
+    @test length(twins) == 2 && folds(twins[1]) == folds(twins[2])
+end
+
+@testset "best_equation.csv reads back with its key and ids" begin
+    # In a one-row CSV, CSV.jl guesses a column's type from one value: a
+    # 16-hex id of digits and one `e` would read as a number, so the documented read names
+    # the three id columns `String`; the 64-hex key reads back as text without help.
+    prob = _testhelper_uni_prob(NamedTuple)
+    memo = Dict{String, EnzymeRates._Fit}()
+    entries, _ = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[_testhelper_uni_seed],
+        prob; optimizer = _testhelper_CountingStubOpt(; uval = 0.0), max_param_count = 20,
+        memo, n_restarts = 1, maxtime = 1.0)
+    e = only(entries)
+    ids = (mechanism_id = "1234567e89012345", parent_id = "0123456789012345",
+           fit_source_id = "1234567e89012345")
+    pool = [EnzymeRates.BatchEntry(e.mech, e.n_params, e.loss, e.retcode, e.key, e.fit_key,
+                                   merge(e.row, ids))]
+    mktempdir() do dir
+        EnzymeRates._cv_model_selection(pool, memo, prob;
+            optimizer = _testhelper_CountingStubOpt(; uval = 0.0), se_threshold = 1.0,
+            save_dir = dir, show_progress = false, n_restarts = 1, maxtime = 1.0)
+        path = joinpath(dir, "best_equation.csv")
+        plain = CSV.read(path, DataFrame)
+        @test plain.key[1] isa AbstractString
+        @test plain.key[1] == e.key && occursin(r"^[0-9a-f]{64}$", plain.key[1])
+        @test plain.L_phantom[1] === false
+        typed = CSV.read(path, DataFrame; types = Dict(:mechanism_id => String,
+                                                       :parent_id => String,
+                                                       :fit_source_id => String))
+        @test (typed.mechanism_id[1], typed.parent_id[1], typed.fit_source_id[1]) ==
+              Tuple(ids)
+    end
+end
+
+@testset "a law at the leaf cap is fitted under its mechanism's key" begin
+    # Five two-step cycles E → X → E, each taking up A and giving off P twice, alike up to
+    # the label of X: every permutation of the cycles maps the law onto itself, so a
+    # canonical labelling would compare 5! = 120 labellings and the search stops at the
+    # leaf cap. The mechanism is fitted under a key of its own, the SHA-256 of
+    # "mechanism|" and its mechanism_id, and the pre-fit summary names it. (The key search
+    # takes about 0.4 s here once compiled, so it runs once, inside the batch.)
+    rxn = @enzyme_reaction begin
+        substrates: A[C]
+        products: P[C]
+    end
+    pinwheel = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> F + P
+            F + A <--> E + P
+            E + A <--> G + P
+            G + A <--> E + P
+            E + A <--> H + P
+            H + A <--> E + P
+            E + A <--> J + P
+            J + A <--> E + P
+            E + A <--> M + P
+            M + A <--> E + P
+        end
+    end)
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            A = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq = 10.0)
+    id = EnzymeRates._mechanism_id(sprint(show, pinwheel))
+    batch_log = String[]
+    entries, failures = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[pinwheel], prob;
+        optimizer = _testhelper_CountingStubOpt(), max_param_count = 20,
+        eq_complexity_filter = 337, n_restarts = 1, maxtime = 1.0,
+        log = msg -> push!(batch_log, msg))
+    @test isempty(failures)
+    @test only(entries).key == only(entries).row.key ==
+          bytes2hex(EnzymeRates.sha256("mechanism|" * id))
+    @test batch_log == ["1 new fits + 0 inherited + 0 skipped (already fit) + " *
+                        "0 skipped (>20 params) + 0 skipped (>337 complexity)\n" *
+                        "  leaf cap reached for $id; fitted under its own key"]
+end
+
+# The merged uni-uni and its K-type child at one catalytic subunit
+# (test_mechanism_enumeration.jl, "expand_mechanisms on a merged uni-uni"): the child's
+# inactive conformation is free E alone and its certificate maps it onto the parent's
+# law, so it is an L phantom whose law at L = 0 has the parent's key.
+function _testhelper_phantom_pair()
+    parent = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    phantom = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)       :: OnlyA
+        end
+    end)
+    parent, phantom
+end
+
+@testset "a phantom inherits the fit of whoever holds its L→0 key" begin
+    # Spec section 13: the phantom is not fitted. It reads the fit of its law at
+    # L = 0 from the parent, which holds that key and is fitted in the same batch, with
+    # L = 0, the parent's loss and its own parameter count; its row names the parent as
+    # the fit's source, and the two rates agree. It then joins the frontier and the cv pool,
+    # and a sweep whose width floor admits one key expands it.
+    parent, phantom = _testhelper_phantom_pair()
+    prob = _testhelper_uni_prob(NamedTuple)
+    @test EnzymeRates._is_phantom(EnzymeRates._law(phantom))
+    opt = _testhelper_SpreadStubOpt()
+    batch_log = String[]
+    entries, failures = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[phantom, parent],
+        prob; optimizer = opt, max_param_count = 20, eq_complexity_filter = 337,
+        n_restarts = 1, maxtime = 1.0, log = msg -> push!(batch_log, msg))
+    @test opt.count == 1 && isempty(failures)
+    @test batch_log == ["1 new fits + 1 inherited + 0 skipped (already fit) + " *
+                        "0 skipped (>20 params) + 0 skipped (>337 complexity)"]
+    p = only(filter(e -> e.mech == phantom, entries))
+    f = only(filter(e -> e.mech == parent, entries))
+    @test p.row.L_phantom && !f.row.L_phantom
+    @test p.row.params.L == 0.0
+    @test p.loss == f.loss && p.retcode === f.retcode
+    @test (p.n_params, f.n_params) == (3, 2)
+    @test p.fit_key == f.key != p.key
+    @test p.row.fit_inherited && !f.row.fit_inherited
+    @test p.row.fit_source_id == f.row.mechanism_id == f.row.fit_source_id
+    @test p.row.peak_at_range_edge == f.row.peak_at_range_edge
+    rng = Random.MersenneTwister(13)
+    for _ in 1:3
+        concs = (S = exp(randn(rng)), P = exp(randn(rng)))
+        _testhelper_rate(e) =
+            rate_equation(EnzymeRates.compile_mechanism(e.mech), concs,
+                          merge(e.row.params, (Keq = 10.0, E_total = 1.0)))
+        @test isapprox(_testhelper_rate(p), _testhelper_rate(f); rtol = 1e-12)
+    end
+    frontier = Dict{Int, Vector{EnzymeRates.BatchEntry}}()
+    cv_pool = Dict{Int, Vector{EnzymeRates.BatchEntry}}()
+    best = Dict{Int, Float64}()
+    EnzymeRates._ingest!(frontier, cv_pool, best, entries; n_cv_candidates = 5)
+    @test p in frontier[3] && p in cv_pool[3]
+    parents = EnzymeRates._sweep_parents!(frontier, 3, Dict{Int, Int}(), best,
+        Set{String}(); loss_rel_threshold = 1.3, loss_abs_threshold = 0.001,
+        loss_parsimony_threshold = 0.99, min_beam_width = 1)
+    @test p in parents
+end
+
+@testset "a phantom whose L→0 key has no fit is fitted unflagged" begin
+    # Census #3268, the RE→SS flip of B's binding in the K-type of an ordered
+    # bi-bi, is an L phantom whose law at L = 0 no mechanism of the batch or the memo
+    # holds (the plain flip move never emits it: `_chain_flank_groups` keeps B's group
+    # at rapid equilibrium). It is fitted as an ordinary candidate under its own key,
+    # unflagged, its L fitted.
+    m3268 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)              :: OnlyA
+            E + Q ⇌ E(Q)              :: OnlyA
+            E(A) + B <--> E(A, B)     :: EqualAI
+            E(A, B) <--> E(P, Q)      :: OnlyA
+            E(Q) + P ⇌ E(P, Q)        :: EqualAI
+        end
+    end)
+    @test EnzymeRates._is_phantom(EnzymeRates._law(m3268))
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+    end
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            A = [1.0, 2.0, 1.0, 2.0], B = [0.5, 0.5, 1.0, 1.0],
+            P = [0.1, 0.2, 0.1, 0.2], Q = [0.3, 0.3, 0.4, 0.4])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0)
+    opt = _testhelper_SpreadStubOpt()
+    entries, failures = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m3268], prob;
+        optimizer = opt, max_param_count = 20, n_restarts = 1, maxtime = 1.0)
+    e = only(entries)
+    @test opt.count == 1 && isempty(failures)
+    @test !e.row.L_phantom && !e.row.fit_inherited
+    @test e.fit_key == e.key
+    @test e.n_params == 7 && e.row.params.L != 0.0
+end
+
+@testset "a phantom whose source lacks its constants is fitted itself" begin
+    # The uni-uni at one catalytic subunit with S's and P's bindings :EqualAI, the
+    # chemistry :OnlyA and a regulatory site whose one ligand R is :EqualAI. The site's
+    # factor is the same in both conformations, so the certificate holds, and the law at
+    # L = 0 is the law of the plain uni-uni beside it in the batch, which lacks R's
+    # constant. Reading that fit would leave R's constant without a value, so the variant
+    # is fitted itself under its own key, unflagged, its L fitted. The enumerator never
+    # writes an all-:EqualAI site, so the variant is written by hand.
+    plain = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    regulated = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R
+        catalytic_multiplicity: 1
+        steps: begin
+            E + S ⇌ E(S)       :: EqualAI
+            E(S) <--> E(P)     :: OnlyA
+            E + P ⇌ E(P)       :: EqualAI
+        end
+        regulatory_site(1): R::EqualAI
+    end)
+    A = EnzymeRates._law(regulated)
+    @test EnzymeRates._is_phantom(A)
+    @test EnzymeRates._canonical(A.active, "regulated").key ==
+          EnzymeRates._canonical(EnzymeRates._law(plain), "plain").key
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R
+    end
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4], R = [0.5, 1.0, 0.5, 1.0])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq = 10.0)
+    opt = _testhelper_SpreadStubOpt()
+    entries, failures = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[regulated, plain],
+        prob; optimizer = opt, max_param_count = 20, n_restarts = 1, maxtime = 1.0)
+    @test opt.count == 2 && isempty(failures)
+    e = only(filter(e -> e.mech == regulated, entries))
+    @test !e.row.L_phantom && !e.row.fit_inherited
+    @test e.fit_key == e.key
+    @test e.n_params == 5 && e.row.params.L != 0.0
+end
+
+@testset "a phantom reads its source's fold losses" begin
+    # Equal families give equal fold optima, so LOOCV fits the source once per
+    # fold and the phantom takes those fold losses. Beside its source the phantom, one
+    # parameter larger, loses the 1-SE tie.
+    parent, phantom = _testhelper_phantom_pair()
+    prob = _testhelper_uni_prob(NamedTuple)
+    memo = Dict{String, EnzymeRates._Fit}()
+    entries, _ = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[parent, phantom],
+        prob; optimizer = _testhelper_SpreadStubOpt(), max_param_count = 20, memo,
+        n_restarts = 1, maxtime = 1.0)
+    opt = _testhelper_CountingStubOpt(; uval = 0.0)
+    res = EnzymeRates._cv_model_selection(entries, memo, prob; optimizer = opt,
+        se_threshold = 1.0, save_dir = mktempdir(), show_progress = false,
+        n_restarts = 1, maxtime = 1.0)
+    groups = unique(prob.data.group)
+    @test opt.count == length(groups)
+    folds(r) = [r[Symbol("cv_fold_$g")] for g in groups]
+    @test res.cv_results.n_params == [2, 3]
+    @test folds(res.cv_results[1, :]) == folds(res.cv_results[2, :])
+    @test res.best === EnzymeRates.compile_mechanism(parent)
+end
+
+@testset "a phantom chosen by the 1-SE rule reports L = 0 and evaluates" begin
+    # The pool holds the phantom without its source, so the 1-SE rule
+    # selects it. best_equation.csv reports L = 0, the flag and the source's id, and its
+    # parameters, read back from the CSV, give the source's rates through the phantom's
+    # own rate equation; rescale_parameter_values accepts them.
+    parent, phantom = _testhelper_phantom_pair()
+    prob = _testhelper_uni_prob(NamedTuple)
+    memo = Dict{String, EnzymeRates._Fit}()
+    entries, _ = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[parent, phantom],
+        prob; optimizer = _testhelper_SpreadStubOpt(), max_param_count = 20, memo,
+        n_restarts = 1, maxtime = 1.0)
+    p = only(filter(e -> e.mech == phantom, entries))
+    f = only(filter(e -> e.mech == parent, entries))
+    mktempdir() do dir
+        res = EnzymeRates._cv_model_selection([p], memo, prob;
+            optimizer = _testhelper_CountingStubOpt(; uval = 0.0), se_threshold = 1.0,
+            save_dir = dir, show_progress = false, n_restarts = 1, maxtime = 1.0)
+        @test res.best === EnzymeRates.compile_mechanism(phantom)
+        best = CSV.read(joinpath(dir, "best_equation.csv"), DataFrame;
+            types = Dict(:mechanism_id => String, :parent_id => String,
+                         :fit_source_id => String))
+        @test best.L[1] == 0.0 && best.L_phantom[1] === true
+        @test best.fit_source_id[1] == f.row.mechanism_id
+        fp = EnzymeRates.fitted_params(res.best)
+        params = merge(NamedTuple{fp}(Tuple(Float64(best[1, x]) for x in fp)),
+                       (Keq = prob.Keq, E_total = 1.0))
+        source = merge(f.row.params, (Keq = prob.Keq, E_total = 1.0))
+        rng = Random.MersenneTwister(14)
+        for _ in 1:3
+            concs = (S = exp(randn(rng)), P = exp(randn(rng)))
+            v = rate_equation(res.best, concs, params)
+            v0 = rate_equation(EnzymeRates.compile_mechanism(parent), concs, source)
+            @test isfinite(v) && isapprox(v, v0; rtol = 1e-12)
+        end
+        scaled, spread = rescale_parameter_values(res.best, params)
+        @test spread === nothing && scaled.L == 0.0
+    end
+end
+
+@testset "a phantom whose source's fit fails" begin
+    # When the source's fit throws, in the phantom's batch or an earlier one, the phantom is
+    # fitted itself, unflagged; when that fit throws too, it fails with its own error. When
+    # the source's fit reaches no finite loss, the phantom's row carries the source's loss
+    # and retcode, and `_ingest!` keeps both out of the frontier and the cv pool.
+    parent, phantom = _testhelper_phantom_pair()
+    prob = _testhelper_uni_prob(NamedTuple)
+    batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[parent, phantom]
+    memo = Dict{String, EnzymeRates._Fit}()
+    lines = String[]
+    opt = _testhelper_CountingStubOpt(; throw_first = true)
+    entries, failures = EnzymeRates._process_batch(batch, prob; optimizer = opt,
+        max_param_count = 20, memo, n_restarts = 1, maxtime = 1.0,
+        log = msg -> push!(lines, msg))
+    @test [f.mech for f in failures] == [parent]
+    @test opt.count == 2
+    e = only(entries)
+    @test e.mech == phantom
+    @test e.row.L_phantom === false
+    @test e.row.fit_inherited === false
+    @test e.row.fit_source_id == e.row.mechanism_id
+    @test e.fit_key == e.key
+    @test isfinite(e.loss)
+    @test haskey(memo, e.key)
+    @test lines[2:end] == ["source fit threw for L phantom $(e.row.mechanism_id); " *
+                           "it reads its own key's fit"]
+    opt = _testhelper_CountingStubOpt(; throwit = true)
+    entries, failures = EnzymeRates._process_batch(batch, prob; optimizer = opt,
+        max_param_count = 20, n_restarts = 1, maxtime = 1.0)
+    @test isempty(entries)
+    @test [f.mech for f in failures] == [parent, phantom]
+    @test opt.count == 2
+    @test occursin("stub solver forced failure 1", failures[1].error)
+    @test occursin("stub solver forced failure 2", failures[2].error)
+    @test ismissing(EnzymeRates._failure_row(failures[2]).L_phantom)
+    memo = Dict{String, EnzymeRates._Fit}()
+    EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[parent], prob;
+        optimizer = _testhelper_CountingStubOpt(; throwit = true), max_param_count = 20,
+        memo, n_restarts = 1, maxtime = 1.0)
+    @test isempty(memo)
+    entries, _ = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[phantom], prob;
+        optimizer = _testhelper_CountingStubOpt(), max_param_count = 20, memo,
+        n_restarts = 1, maxtime = 1.0)
+    e = only(entries)
+    @test e.row.L_phantom === false
+    @test e.row.fit_inherited === false
+    @test e.row.fit_source_id == e.row.mechanism_id
+    @test e.fit_key == e.key
+    opt = _testhelper_CountingStubOpt(; infinite = true)
+    entries, failures = EnzymeRates._process_batch(batch, prob; optimizer = opt,
+        max_param_count = 20, n_restarts = 1, maxtime = 1.0)
+    @test opt.count == 1 && isempty(failures)
+    @test all(e -> e.loss == Inf && e.retcode === :NoFiniteLoss, entries)
+    @test only(filter(e -> e.mech == phantom, entries)).row.L_phantom
+    frontier = Dict{Int, Vector{EnzymeRates.BatchEntry}}()
+    pool = Dict{Int, Vector{EnzymeRates.BatchEntry}}()
+    best = Dict{Int, Float64}()
+    @test isempty(EnzymeRates._ingest!(frontier, pool, best, entries; n_cv_candidates = 5))
+    @test isempty(frontier) && isempty(pool) && isempty(best)
+end
+
+@testset "phantoms demoted after their source's fit throws share one fit per key" begin
+    # Two L phantoms of the uni seed, tag-set siblings with one law and one key. When the
+    # seed's fit throws, both are demoted and one fit serves their key; a key that `memo`
+    # already holds is read, not fitted again, so a phantom with a usable fit never fails.
+    m1 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)       :: OnlyA
+            E(S) <--> E(P)     :: NonequalAI
+            E(P) ⇌ E + P       :: OnlyA
+        end
+    end)
+    m2 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)       :: OnlyA
+            E(S) <--> E(P)     :: OnlyA
+            E(P) ⇌ E + P       :: OnlyA
+        end
+    end)
+    seed = _testhelper_uni_seed
+    prob = _testhelper_uni_prob(NamedTuple)
+    batch(ms...) = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[ms...]
+    # One batch: the seed's fit throws, and m1 alone is fitted for both phantoms.
+    memo = Dict{String, EnzymeRates._Fit}()
+    lines = String[]
+    opt = _testhelper_CountingStubOpt(; throw_first = true)
+    entries, failures = EnzymeRates._process_batch(batch(seed, m1, m2), prob;
+        optimizer = opt, max_param_count = 20, memo, n_restarts = 1, maxtime = 1.0,
+        log = msg -> push!(lines, msg))
+    @test opt.count == 2
+    @test [f.mech for f in failures] == [seed]
+    @test [e.mech for e in entries] == [m1, m2]
+    e1, e2 = entries
+    @test e1.key == e2.key
+    @test collect(keys(memo)) == [e1.key]
+    @test e1.row.fit_inherited === false
+    @test e2.row.fit_inherited === true
+    @test e2.row.fit_source_id == e1.row.mechanism_id
+    @test lines[2:end] == [join(("source fit threw for L phantom $(e.row.mechanism_id); " *
+                                 "it reads its own key's fit" for e in (e1, e2)), "\n  ")]
+    # m1's key is fitted in an earlier batch; m2, demoted beside the seed, reads that fit,
+    # which stays as it was.
+    memo = Dict{String, EnzymeRates._Fit}()
+    EnzymeRates._process_batch(batch(m1), prob; optimizer = _testhelper_CountingStubOpt(),
+        max_param_count = 20, memo, n_restarts = 1, maxtime = 1.0)
+    before = memo[e1.key]
+    opt = _testhelper_CountingStubOpt(; throw_first = true)
+    entries, failures = EnzymeRates._process_batch(batch(seed, m2), prob;
+        optimizer = opt, max_param_count = 20, memo, n_restarts = 1, maxtime = 1.0)
+    @test opt.count == 1
+    @test [f.mech for f in failures] == [seed]
+    e = only(entries)
+    @test e.mech == m2
+    @test e.row.fit_inherited === true
+    @test e.row.fit_source_id == e1.row.mechanism_id
+    @test memo[e1.key] === before
+    # As above with every fit throwing: m2 still reads m1's fit and does not fail.
+    opt = _testhelper_CountingStubOpt(; throwit = true)
+    entries, failures = EnzymeRates._process_batch(batch(seed, m2), prob;
+        optimizer = opt, max_param_count = 20, memo, n_restarts = 1, maxtime = 1.0)
+    @test opt.count == 1
+    @test [f.mech for f in failures] == [seed]
+    @test only(entries).mech == m2
+end
+
+
+# LDH renaming-dup pair (same graph, tied kinetic-group split): merged form (8 groups) vs
+# split form (9 groups). The split form's extra binding K is tied straight back by a
+# Wegscheider cycle, so the two forms have one law: one key, one fit.
+@testset "renaming-dup pair: one key, one fit" begin
     # Merged, 8 kinetic groups.
     m1 = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: NADH, Pyruvate
@@ -1561,27 +2309,35 @@ end
             E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate)
         end
     end)
-    em1 = EnzymeRates.compile_mechanism(m1)
-    em2 = EnzymeRates.compile_mechanism(m2)
-    # Precondition: the two forms are distinct mechanisms and render different
-    # dedup keys, so `eq_hash` alone never collapses this pair.
     @test m1 != m2
-    @test EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1)) !=
-          EnzymeRates._rate_eq_dedup_key(rate_equation_string(em2))
-
-    # The pair is one model under the constraint solve: the split form's extra
-    # binding K is tied straight back, so both carry the same independent
-    # parameters. `eq_hash` does not see through which tied name survives, which
-    # is why the split move rejects a candidate by parameter count rather than by
-    # equation string.
     @test EnzymeRates._independent_param_count(m1) ==
           EnzymeRates._independent_param_count(m2)
+    c1, c2 = _testhelper_pass1_canonical.((m1, m2))
+    @test c1.key == c2.key
+    @test _testhelper_same_law_under_map(EnzymeRates._law(m1), EnzymeRates._law(m2),
+                                         c1.order, c2.order;
+                                         rng = Random.MersenneTwister(2))
+    # identify fits the pair once; the second form inherits the first's fit.
+    rxn = @enzyme_reaction begin
+        substrates: NADH[N1H1], Pyruvate[C1]
+        products:   Lactate[C1H1], NAD[N1]
+    end
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            NADH = [1.0, 2.0, 1.0, 2.0], Pyruvate = [0.5, 0.5, 1.0, 1.0],
+            Lactate = [0.1, 0.2, 0.1, 0.2], NAD = [0.3, 0.3, 0.4, 0.4])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0)
+    opt = _testhelper_CountingStubOpt(; uval = 0.0)
+    entries, failures = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2], prob;
+        optimizer = opt, max_param_count = 20, n_restarts = 1, maxtime = 1.0)
+    @test opt.count == 1 && isempty(failures)
+    @test [e.row.fit_inherited for e in entries] == [false, true]
+    @test [e.key for e in entries] == [c1.key, c1.key]
 end
 
 
-# LDH ALLOSTERIC split/merge pair: split form (8 cat groups) vs merged (7).
-# Different eq_hash, though the cycles tie the split form's extra constant back, so
-# both are one model.
+# LDH ALLOSTERIC split/merge pair: split form (8 cat groups) vs merged (7). The cycles tie
+# the split form's extra constant back, so both are one law, with one key.
 @testset "allosteric split/merge pair: the split form is the merged form's model" begin
     # Split form: 8 catalytic groups.
     am1 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
@@ -1619,11 +2375,13 @@ end
             E(NADH, Pyruvate) <--> E(Lactate, NAD)                           :: OnlyA
         end
     end)
-    _testhelper_key(m) = EnzymeRates._rate_eq_dedup_key(
-        rate_equation_string(EnzymeRates.compile_mechanism(m)))
     @test am1 != am2
-    # the two render different equations
-    @test _testhelper_key(am1) != _testhelper_key(am2)
+    # one law under the canonical map, so one key
+    c1, c2 = _testhelper_pass1_canonical.((am1, am2))
+    @test c1.key == c2.key
+    @test _testhelper_same_law_under_map(EnzymeRates._law(am1), EnzymeRates._law(am2),
+                                         c1.order, c2.order;
+                                         rng = Random.MersenneTwister(3))
     # The split constant is tied back: the square E, E(Lactate), E(Lactate, NADH),
     # E(NADH), closed by the shared NADH group, makes K_ELactateNADH_to_ENADH_Lactate equal
     # the free-enzyme Lactate constant in the active conformation, and the inactive one
@@ -1640,7 +2398,7 @@ end
 @testset "_process_batch failures report the ORIGINAL mechanism" begin
     # A mechanism whose derivation throws: T binds free E only in a dead end, so the
     # catalytic cycle turns S alone into P, and the derivation's thermodynamic-cycle
-    # check (`fitted_params`, which `_process_batch` calls after compiling) raises
+    # check (`_solve`, which `_process_batch` calls after the guard) raises
     # "Cycle 1 produces metabolite change not proportional to net reaction". The
     # FitFailure must carry the ORIGINAL `m0`.
     rxn_bad = @enzyme_reaction begin
@@ -1664,10 +2422,43 @@ end
     e1, f1 = EnzymeRates._process_batch(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m_bad],
         prob_bad; optimizer=_testhelper_CountingStubOpt(), max_param_count=20,
-        n_restarts=1, maxtime=1.0, memo=Dict{UInt64, NamedTuple}())
+        n_restarts=1, maxtime=1.0, memo=Dict{String,EnzymeRates._Fit}())
     @test isempty(e1)
     @test length(f1) == 1 && f1[1] isa EnzymeRates.FitFailure
     @test f1[1].mech == m_bad                     # the mechanism as handed in
+end
+
+@testset "PASS1 runs the guard before it derives a law" begin
+    # PASS1 derives the law from the concrete mechanism, so it runs the guard first, as
+    # every derivation entry does. Rapid-equilibrium steps that turn S into P beside
+    # a steady-state route fail class 2: PASS1 records the guard's message, not the
+    # engine's internal error, and fits nothing.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    beside = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) ⇌ E(P)
+            E + P ⇌ E(P)
+            E(S) <--> F(P)
+            F(P) <--> E + P
+        end
+    end
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            S = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0)
+    opt = _testhelper_CountingStubOpt()
+    entries, failures = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[beside], prob;
+        optimizer = opt, max_param_count = 20, n_restarts = 1, maxtime = 1.0)
+    @test isempty(entries) && opt.count == 0
+    @test only(failures).mech == beside
+    @test occursin("E + S ⇌ E(S) and E(S) ⇌ E(P) close a cycle", only(failures).error)
+    @test !occursin("internal error", only(failures).error)
 end
 
 @testset "_expand_parents records an expansion error instead of aborting" begin
@@ -1694,7 +2485,7 @@ end
     @test_throws ErrorException EnzymeRates.expand_mechanisms(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m_bad],
         rxn_bad)
-    entry(m) = EnzymeRates.BatchEntry(m, 0, 0.0, :Success, UInt64(0), (mechanism="M",))
+    entry(m) = EnzymeRates.BatchEntry(m, 0, 0.0, :Success, "", "", (mechanism="M",))
     kids, parent_of, failures = EnzymeRates._expand_parents([entry(m_bad)], rxn_bad)
     @test isempty(kids) && isempty(parent_of)
     failure = only(failures)
@@ -1728,7 +2519,7 @@ end
     # The seed's children as parents: their own children overlap, so the
     # first-parent dedup and attribution are exercised.
     parents = EnzymeRates.expand_mechanisms(M[EnzymeRates.init_mechanisms(rxn)...], rxn)
-    to_expand = [EnzymeRates.BatchEntry(m, 3, 0.0, :Success, hash(m), (mechanism="M",))
+    to_expand = [EnzymeRates.BatchEntry(m, 3, 0.0, :Success, "", "", (mechanism="M",))
                  for m in parents]
 
     children, parent_of, failures = EnzymeRates._expand_parents(to_expand, rxn)
@@ -2169,11 +2960,11 @@ end
 end
 
 @testset "_cv_model_selection: flatten reproduces serial LOOCV per candidate" begin
-    # Two candidates with distinct equations. A deterministic stub optimizer gives
-    # identical fits whether folds run serially or across the flattened (candidate,
-    # fold) grid, so each candidate's fold columns must hold its own serial fold
-    # losses; a transposed grid would swap them. Group labels containing `=`, `,`
-    # and spaces must come out as valid fold-column names that survive the CSV write.
+    # Three candidates with distinct keys, each the source of its own fit. A deterministic
+    # stub optimizer gives identical fits whether folds run serially or across the flattened
+    # (candidate, fold) grid, so each candidate's fold columns must hold its own serial fold
+    # losses; a transposed grid would swap them. Group labels containing `=`, `,` and spaces
+    # must come out as valid fold-column names that survive the CSV write.
     m1 = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products:   P, Q
@@ -2208,7 +2999,6 @@ end
             E + Q <--> E(Q)
         end
     end)
-    cands = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m6, m1, m3]
     data = (group = ["a=b", "a=b", "c,d", "c,d", "x y", "x y"],
             Rate = [0.5, 0.8, 1.0, 1.1, 0.9, 1.2],
             A = [1.0, 2.0, 1.0, 2.0, 1.5, 2.5], B = [0.5, 0.5, 1.0, 1.0, 0.7, 0.7],
@@ -2218,35 +3008,40 @@ end
         products: P[C], Q[N]
     end
     prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
-    function _testhelper_mkrow(m, loss)
+    # The pool as `_beam_search` hands it over: each candidate with its row and key, and
+    # the memo holding each key's fit with the candidate as its source.
+    memo = Dict{String, EnzymeRates._Fit}()
+    function _testhelper_pool_entry(m, loss)
         em = EnzymeRates.compile_mechanism(m)
         fkeys = EnzymeRates.fitted_params(em)
-        (n_params=length(fkeys), loss=loss, mechanism=sprint(show, m),
-         mechanism_id=EnzymeRates._mechanism_id(sprint(show, m)),
-         rate_equation="v", retcode="Success", error=missing,
-         params=NamedTuple{fkeys}(ntuple(_ -> 1.0, length(fkeys))),
-         eq_hash=string(EnzymeRates._rate_eq_dedup_key(rate_equation_string(em)),
-                        base=16, pad=16),
-         fit_inherited=false)
+        text = sprint(show, m)
+        id = EnzymeRates._mechanism_id(text)
+        key = EnzymeRates._canonical(EnzymeRates._law(m), id).key
+        memo[key] = EnzymeRates._Fit(ones(length(fkeys)), loss, :Success, false, m, id)
+        row = (n_params=length(fkeys), loss=loss, mechanism=text, mechanism_id=id,
+               rate_equation="v", retcode="Success", error=missing,
+               params=NamedTuple{fkeys}(ntuple(_ -> 1.0, length(fkeys))), key,
+               fit_inherited=false, fit_source_id=id, L_phantom=false)
+        EnzymeRates.BatchEntry(m, length(fkeys), loss, :Success, key, key, row)
     end
-    # `cands` and the rows are parallel and go in against (n_params, loss) order; they
-    # must come back sorted by it: the 6-parameter row has the lowest loss but sorts last.
-    df = EnzymeRates._rows_to_dataframe([_testhelper_mkrow(m6, 0.1),
-        _testhelper_mkrow(m1, 0.5), _testhelper_mkrow(m3, 0.2)])
+    # The pool goes in against (n_params, loss) order and must come back sorted by it:
+    # the 6-parameter candidate has the lowest loss but sorts last.
+    pool = [_testhelper_pool_entry(m6, 0.1), _testhelper_pool_entry(m1, 0.5),
+            _testhelper_pool_entry(m3, 0.2)]
     save_dir = mktempdir()
     stub() = _testhelper_CountingStubOpt(; uval=log(5.0))
-    res = EnzymeRates._cv_model_selection(cands, df, prob;
+    res = EnzymeRates._cv_model_selection(pool, memo, prob;
         optimizer=stub(), se_threshold=1.0, save_dir, show_progress=false,
         n_restarts=1, maxtime=1.0)
     @test nrow(res.cv_results) == 3
-    @test df.n_params == [6, 5, 5]
+    @test [e.n_params for e in pool] == [6, 5, 5]
     @test res.cv_results.n_params == [5, 5, 6]
     @test res.cv_results.loss == [0.2, 0.5, 0.1]
 
     groups = unique(prob.data.group)
     folds(r) = [r[Symbol("cv_fold_$g")] for g in groups]
     for r in eachrow(res.cv_results)
-        m = only(c for c in cands if sprint(show, c) == r.mechanism)
+        m = only(e.mech for e in pool if sprint(show, e.mech) == r.mechanism)
         serial = [EnzymeRates._cv_fold_loss(EnzymeRates.compile_mechanism(m), prob, g;
             optimizer=stub(), n_restarts=1, maxtime=1.0) for g in groups]
         @test folds(r) == serial
