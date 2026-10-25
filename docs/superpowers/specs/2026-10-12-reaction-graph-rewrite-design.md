@@ -707,8 +707,8 @@ so the fitter fixes it after the fit (E9).
   fold its best fit equals the source's, so it takes the source's fold losses. Its CSV row
   records the fit source's `mechanism_id` and the L-phantom flag (section 5). A phantom
   is fitted as an ordinary candidate, unflagged, when no mechanism of the search has fitted
-  its law at L = 0 by the end of the phantom's own iteration, when that fit throws, or when
-  that law lacks one of the phantom's fitted constants other than L.
+  its law at L = 0 by the end of the phantom's own iteration, when the fit of that law
+  throws, or when that law lacks one of the phantom's fitted constants other than L.
 
 ## 14. Testing
 

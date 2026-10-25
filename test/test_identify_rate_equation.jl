@@ -2140,8 +2140,8 @@ end
 end
 
 @testset "a phantom whose source's fit fails" begin
-    # When the source's fit throws, the phantom is fitted itself, unflagged, in the
-    # same batch or a later one; when that fit throws too, it fails with its own error. When
+    # When the source's fit throws, in the phantom's batch or an earlier one, the phantom is
+    # fitted itself, unflagged; when that fit throws too, it fails with its own error. When
     # the source's fit reaches no finite loss, the phantom's row carries the source's loss
     # and retcode, and `_ingest!` keeps both out of the frontier and the cv pool.
     parent, phantom = _testhelper_phantom_pair()
