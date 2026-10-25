@@ -579,9 +579,9 @@ PASS-1: skip mechanisms already produced, in an earlier batch or earlier in this
 mechanism whose structural `hash` is already in `seen` is dropped before it is derived;
 `seen` gets every structure on first sight regardless of outcome), and run `_pass1_record`
 on each fresh mechanism, in parallel (`pmap`). Then pick one fit representative per key
-not already in `memo`, and pass the pre-fit summary (`_prefit_summary`) to `log`; it names
-each mechanism whose law reached the leaf cap. `mechs` is already structurally deduped by
-the caller (`unique!`).
+not already in `memo`, and pass `log` the pre-fit summary (`_prefit_summary`), followed by
+one line per mechanism whose law reached the leaf cap. `mechs` is already structurally
+deduped by the caller (`unique!`).
 
 PASS-2: fit ONE representative per key not already in `memo`, in parallel across all
 workers (`pmap`), and store the fit in `memo` at canonical positions (`_Fit`). Every
@@ -596,8 +596,8 @@ law's key (`fit_key`), from `memo` or from this batch's representatives, through
 order and with `L = 0`, and its row sets `L_phantom`. A phantom whose law at `L = 0` has no
 fit there, or lacks one of its other fitted constants, is fitted as an ordinary candidate;
 so is one whose source's fit throws, after the representatives. When a phantom is demoted
-so, `log` gets one more message, its lines joined by a newline and two spaces: one per
-phantom demoted after its source's fit threw,
+after its source's fit threw, `log` gets one more message, its lines joined by a newline
+and two spaces: one per such phantom,
 `"source fit threw for L phantom <id>; it reads its own key's fit"`. A row's
 `fit_inherited` is `false` when its mechanism is its fit's source and `true`
 otherwise, and `fit_source_id` names the source. `parent_of` maps a child to its parent's
