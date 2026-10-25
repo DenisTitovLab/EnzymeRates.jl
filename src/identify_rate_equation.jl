@@ -595,10 +595,11 @@ nothing over) is never a representative. It reads the fit of its law at `L = 0`,
 law's key (`fit_key`), from `memo` or from this batch's representatives, through its own
 order and with `L = 0`, and its row sets `L_phantom`. A phantom whose law at `L = 0` has no
 fit there, or lacks one of its other fitted constants, is fitted as an ordinary candidate;
-so is one whose source's fit throws, after the representatives. `log` then gets one more
-message, its lines joined by a newline and two spaces: one per phantom demoted after its
-source's fit threw, `"source fit threw for L phantom <id>; fitted under its own key"`. A
-row's `fit_inherited` is `false` when its mechanism is its fit's source and `true`
+so is one whose source's fit throws, after the representatives. When a phantom is demoted
+so, `log` gets one more message, its lines joined by a newline and two spaces: one per
+phantom demoted after its source's fit threw,
+`"source fit threw for L phantom <id>; it reads its own key's fit"`. A row's
+`fit_inherited` is `false` when its mechanism is its fit's source and `true`
 otherwise, and `fit_source_id` names the source. `parent_of` maps a child to its parent's
 `BatchEntry`, which fills the row's parent columns. `entries::Vector{BatchEntry}` are the
 mechanisms with a usable fit (each keeping its own row, `retcode` and key);
@@ -678,7 +679,7 @@ function _process_batch(
         records[i] = _unflagged(c)
         haskey(memo, c.canon.key) || get!(rep_idx, c.canon.key, i)
         push!(threw, "source fit threw for L phantom $(c.mechanism_id); " *
-                     "fitted under its own key")
+                     "it reads its own key's fit")
     end
     isempty(threw) || log(join(threw, "\n  "))
     fit!(_Candidate[records[i] for i in values(rep_idx)])

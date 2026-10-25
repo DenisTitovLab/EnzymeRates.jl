@@ -2163,8 +2163,8 @@ end
     @test e.fit_key == e.key
     @test isfinite(e.loss)
     @test haskey(memo, e.key)
-    @test any(occursin("source fit threw for L phantom $(e.row.mechanism_id); " *
-                       "fitted under its own key"), lines)
+    @test lines[2:end] == ["source fit threw for L phantom $(e.row.mechanism_id); " *
+                           "it reads its own key's fit"]
     opt = _testhelper_CountingStubOpt(; throwit = true)
     entries, failures = EnzymeRates._process_batch(batch, prob; optimizer = opt,
         max_param_count = 20, n_restarts = 1, maxtime = 1.0)
