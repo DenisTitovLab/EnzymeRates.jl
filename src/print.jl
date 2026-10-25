@@ -313,15 +313,15 @@ dependent constant under `# Wegscheider constraints:` or `# Haldane constraints:
 reference line in `Keq` and the independent constants, and ends with
 `v = E_total * (Q) * (H) / (D)` in the independent constants. `H = Π[S] − Π[P]/Keq`
 vanishes at equilibrium; `Q` and `D` have positive terms. Numerator and denominator are
-divided by a normalizer that makes every term of `D` dimensionless: `D`'s constant term
-when it has one, so `D` reads `1 + S/K…`; otherwise Cleland's normalizer when `D` holds
-the terms `ΠS/X` for every substrate `X` and `ΠS`, `ΠS` the product of the substrates, so
-each substrate term reads as its concentrations over their Michaelis constants; otherwise a
-product of powers of `D`'s coefficients with `D`'s unit, each concentration counting as a
-dimension of its own. When no such product exists, some weighting of the concentrations
-gives every term of `D` the same nonzero degree, as a rapid-equilibrium Theorell–Chance
-step `E(A) + B ⇌ E(Q) + P` does by making every term carry exactly one of `B` and `P`; the
-law then prints as derived, and its terms keep their units.
+divided by a normalizer that makes every term of `D` dimensionless, when one exists: `D`'s
+constant term when it has one, so `D` reads `1 + S/K…`; otherwise Cleland's normalizer when
+`D` holds the terms `ΠS/X` for every substrate `X` and `ΠS`, `ΠS` the product of the
+substrates, so each substrate term reads as its concentrations over their Michaelis
+constants; otherwise a product of powers of `D`'s coefficients with `D`'s unit, each
+concentration counting as a dimension of its own. When no such product exists, some
+weighting of the concentrations gives every term of `D` the same nonzero degree, as a
+rapid-equilibrium Theorell–Chance step `E(A) + B ⇌ E(Q) + P` does by making every term carry
+exactly one of `B` and `P`; the law then prints as derived, and its terms keep their units.
 A factor of the normalizer that is not a single term, or an integer to a fractional power,
 prints once as `N = …`.
 An allosteric mechanism prints each conformation's numerator `Q_A`, `Q_I`, denominator
