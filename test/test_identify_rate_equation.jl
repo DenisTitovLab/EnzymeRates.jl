@@ -2201,6 +2201,74 @@ end
     @test isempty(frontier) && isempty(pool) && isempty(best)
 end
 
+@testset "phantoms demoted after their source's fit throws share one fit per key" begin
+    # Two L phantoms of the uni seed, tag-set siblings with one law and one key. When the
+    # seed's fit throws, both are demoted and one fit serves their key; a key that `memo`
+    # already holds is read, not fitted again, so a phantom with a usable fit never fails.
+    m1 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)       :: OnlyA
+            E(S) <--> E(P)     :: NonequalAI
+            E(P) ⇌ E + P       :: OnlyA
+        end
+    end)
+    m2 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)       :: OnlyA
+            E(S) <--> E(P)     :: OnlyA
+            E(P) ⇌ E + P       :: OnlyA
+        end
+    end)
+    seed = _testhelper_uni_seed
+    prob = _testhelper_uni_prob(NamedTuple)
+    batch(ms...) = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[ms...]
+    # One batch: the seed's fit throws, and m1 alone is fitted for both phantoms.
+    memo = Dict{String, EnzymeRates._Fit}()
+    lines = String[]
+    opt = _testhelper_CountingStubOpt(; throw_first = true)
+    entries, failures = EnzymeRates._process_batch(batch(seed, m1, m2), prob;
+        optimizer = opt, max_param_count = 20, memo, n_restarts = 1, maxtime = 1.0,
+        log = msg -> push!(lines, msg))
+    @test opt.count == 2
+    @test [f.mech for f in failures] == [seed]
+    @test [e.mech for e in entries] == [m1, m2]
+    e1, e2 = entries
+    @test e1.key == e2.key
+    @test collect(keys(memo)) == [e1.key]
+    @test e1.row.fit_inherited === false
+    @test e2.row.fit_inherited === true
+    @test e2.row.fit_source_id == e1.row.mechanism_id
+    @test lines[2:end] == [join(("source fit threw for L phantom $(e.row.mechanism_id); " *
+                                 "it reads its own key's fit" for e in (e1, e2)), "\n  ")]
+    # m1's key is fitted in an earlier batch; m2, demoted beside the seed, reads that fit,
+    # which stays as it was.
+    memo = Dict{String, EnzymeRates._Fit}()
+    EnzymeRates._process_batch(batch(m1), prob; optimizer = _testhelper_CountingStubOpt(),
+        max_param_count = 20, memo, n_restarts = 1, maxtime = 1.0)
+    before = memo[e1.key]
+    opt = _testhelper_CountingStubOpt(; throw_first = true)
+    entries, failures = EnzymeRates._process_batch(batch(seed, m2), prob;
+        optimizer = opt, max_param_count = 20, memo, n_restarts = 1, maxtime = 1.0)
+    @test opt.count == 1
+    @test [f.mech for f in failures] == [seed]
+    e = only(entries)
+    @test e.mech == m2
+    @test e.row.fit_inherited === true
+    @test e.row.fit_source_id == e1.row.mechanism_id
+    @test memo[e1.key] === before
+    # As above with every fit throwing: m2 still reads m1's fit and does not fail.
+    opt = _testhelper_CountingStubOpt(; throwit = true)
+    entries, failures = EnzymeRates._process_batch(batch(seed, m2), prob;
+        optimizer = opt, max_param_count = 20, memo, n_restarts = 1, maxtime = 1.0)
+    @test opt.count == 1
+    @test [f.mech for f in failures] == [seed]
+    @test only(entries).mech == m2
+end
+
 
 # LDH renaming-dup pair (same graph, tied kinetic-group split): merged form (8 groups) vs
 # split form (9 groups). The split form's extra binding K is tied straight back by a
