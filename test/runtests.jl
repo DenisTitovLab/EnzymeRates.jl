@@ -9,6 +9,7 @@ include("mechanism_definitions_for_test_enzyme_derivation.jl")
 @testset "EnzymeRates.jl" begin
     include("test_compile_budget.jl")
     include("Mechanisms/test_accessors.jl")
+    include("Mechanisms/test_graph_accessors.jl")
     include("Mechanisms/test_types.jl")
     include("Mechanisms/test_reaction_graph.jl")
     include("Mechanisms/test_dsl.jl")
