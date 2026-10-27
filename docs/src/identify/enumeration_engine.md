@@ -283,24 +283,25 @@ Converts a `Mechanism` to `AllostericMechanism` variants, each built on a **base
 (`_tagging_bases`). A chemistry group holds an isomerization, a fused binding or a
 Theorell–Chance step (`_is_chemistry`); every other group is a binding group. The first
 candidate base tags every chemistry group `:OnlyA` and every binding group `:EqualAI`: an
-inactive conformation that binds ligands but runs no chemistry. When admission accepts it
-(see [Mechanisms with allosteric regulators](@ref)), it is the only base. Otherwise the
-bases are the smallest sets of chemistry groups, tagged `:OnlyA` with every other group
-`:EqualAI`, that stop every catalytic cycle of the inactive conformation and pass
-admission. A ping-pong mechanism is the common case: tagging both half-reactions strands
-the covalent forms between them, whose weight then depends on how fast each half stops,
-so it usually gets one base per half-reaction, the other half running in both
-conformations, as phosphorylation stops PDH's E1 and leaves E2 and E3 running. A half whose
-chemistry groups fail admission gives no base, and a half spread over several chemistry
-groups can give several. Stopping both halves needs the conformations to flip at the
-covalent form too, with a constant of its own, which waits for iso mechanisms.
+inactive conformation that binds ligands but runs no chemistry. When the well-posedness
+guard accepts it (admission included; see [Mechanisms with allosteric regulators](@ref)),
+it is the only base. Otherwise the bases are the smallest sets of chemistry groups, tagged
+`:OnlyA` with every other group `:EqualAI`, that stop every catalytic cycle of the inactive
+conformation and pass the guard; a set the guard rejects leaves its supersets in the
+search. A ping-pong mechanism is the common case: tagging both half-reactions strands the
+covalent forms between them, whose weight then depends on how fast each half stops, so it
+usually gets one base per half-reaction, the other half running in both conformations, as
+phosphorylation stops PDH's E1 and leaves E2 and E3 running. A half whose chemistry groups
+fail the guard gives no base, and a half spread over several chemistry groups can give
+several. Stopping both halves needs the conformations to flip at the covalent form too,
+with a constant of its own, which waits for iso mechanisms.
 
 On its bases the engine emits, per multiplicity:
 
 - **K-types:** every nonempty set of binding groups tagged `:OnlyA` on top of a base, and,
-  when admission rejects the every-chemistry set, on top of that set too, since a tagged
+  when the guard rejects the every-chemistry set, on top of that set too, since a tagged
   binding can restore the limit (as in a bi-bi whose group mixes a plain binding with a
-  fused one); each is emitted bare and kept when admission accepts it;
+  fused one); each is emitted bare and kept when the guard accepts it;
 - **V-types:** each base paired with a declared allosteric regulator at a new site, one
   variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. On the every-chemistry
   base the regulator reveals `L`; on a one-half base `L` already shows without one, yet
@@ -368,8 +369,7 @@ Changes one `:EqualAI` or `:OnlyA`/`:OnlyI` allosteric-state tag to
 `:NonequalAI`, giving the active-state and inactive-state versions of the
 group independent parameters. No-op on a non-allosteric input.
 The chemistry groups relax together, and only while no binding group is `:OnlyA`. A
-catalytic relaxation is kept when admission accepts it (`_admits`); a child the guard's face
-check rejects is dropped where `expand_mechanisms` returns it.
+catalytic relaxation is kept when the well-posedness guard accepts it.
 
 **Parameter delta:**
 - RE binding group: **+1** (one shared K splits into `K_A` and `K_I`).

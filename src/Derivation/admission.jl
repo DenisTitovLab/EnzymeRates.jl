@@ -564,8 +564,7 @@ end
     _admission(am) -> _Verdict
 
 Admission alone (spec section 7): the interior checks (`_admission_interior`), then the
-face condition on every face (`_admission_face`), class 3 not run, as the tagging and
-change-tag moves filter their children.
+face condition on every face (`_admission_face`), class 3 not run.
 """
 function _admission(am::Mechanisms.AllostericMechanism)
     v = _admission_interior(am)

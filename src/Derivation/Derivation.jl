@@ -6,10 +6,10 @@ using ..Mechanisms: Mechanisms
 using LinearAlgebra: det
 using SHA: sha256
 
-const API = (:_NO_FAULT, :_admission, :_bottomless_segment, :_has_turnover_cycle,
-    :_independent_param_count, :all_parameters, :check_valid_rate_equation, :fitted_params,
-    :has_valid_rate_equation, :parameters, :rate_equation, :rate_equation_complexity,
-    :rate_equation_key, :rate_equation_string, :scale_rate_constants)
+const API = (:_bottomless_segment, :_has_turnover_cycle, :_independent_param_count,
+    :all_parameters, :check_valid_rate_equation, :fitted_params, :has_valid_rate_equation,
+    :parameters, :rate_equation, :rate_equation_complexity, :rate_equation_key,
+    :rate_equation_string, :scale_rate_constants)
 
 include("rate_eq_derivation.jl")
 include("thermo.jl")
@@ -25,7 +25,7 @@ include("admission.jl")
 include("messages.jl")
 include("memo.jl")
 
-# Every mechanism macro call and the flip search run the guard, and the first
+# Every mechanism macro call and the flip and tagging searches run the guard, and the first
 # `rate_equation` call of a mechanism runs `_rate_body`, so both compile into the package
 # image rather than in each session.
 precompile(_guard, (Mechanisms.Mechanism,))

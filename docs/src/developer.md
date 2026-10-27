@@ -172,9 +172,8 @@ structure decides nothing) and admission's face condition (`_admission_face`: th
 ε-network's closed classes, stranded basins, and the fewest-slow-transitions in-tree test
 per excluding conformation and for both together). The macros, the parser
 and the derivation entry throw; `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`
-and `Enumeration.base_mechanisms` drop; the flip move runs it on each candidate it
-builds; the tagging and change-tag moves filter by admission alone (`_admits`) and leave
-class 3 to the exit.
+and `Enumeration.base_mechanisms` drop; the flip, tagging and change-tag moves run it on
+each candidate they build.
 
 ## Enumeration engine architecture
 
@@ -255,7 +254,7 @@ spell one string two ways, such as `NAD`, `P` and `NADP`, never reach the constr
 Whether a mechanism's rate law is defined is the well-posedness guard's question
 (`src/Derivation/guard.jl`; see [Well-posedness guard](@ref)). The macros, the parser and
 every derivation entry throw on a mechanism it rejects (`check_valid_rate_equation`), and
-identify's base tier, the enumerator's exits and its flip search drop one
+identify's base tier, the enumerator's exits and its flip and tagging searches drop one
 (`has_valid_rate_equation`). The constructors and the Sig decoder do not run it.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,

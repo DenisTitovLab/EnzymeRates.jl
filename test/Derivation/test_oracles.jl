@@ -1113,12 +1113,13 @@ end
 @testset "ping-pong seeds' tagging children are admitted, distinct and oracle-checked" begin
     # An aggregate pin over the seed set: the 18 ping-pong seeds (seeds with a covalent
     # form) of the census ping-pong reaction. Each seed's bases stop the inactive
-    # conformation's catalysis, pass admission, and tag disjoint sets of chemistry
-    # groups, one half-reaction each: 14 seeds get two bases and 4 get one. Every child
-    # is admitted and distinct; on every face its guard verdict agrees with the RE-speed
+    # conformation's catalysis, pass the guard, and tag disjoint sets of chemistry
+    # groups, one half-reaction each: 9 seeds get two bases and 9 get one. Every child
+    # is valid and distinct; on every face its guard verdict agrees with the RE-speed
     # oracle, and a child the guard admits converges along the ε-path at the interior,
-    # the one face the suite's time budget allows it. The children number 66, as a
-    # separate implementation of the rules counts them.
+    # the one face the suite's time budget allows it. The children number 46: the 66
+    # that admission alone accepts, as a separate implementation of its rules counts
+    # them, less the 20 the guard rejects.
     rxn = _testhelper_pingpong_census_rxn
     rng = Random.MersenneTwister(406)
     seeds = [m for m in EnzymeRates.Enumeration.init_mechanisms(rxn)
@@ -1131,13 +1132,13 @@ end
         onlya = [Set(findall(==(:OnlyA), t)) for t in tags]
         @test all(isdisjoint(onlya[i], onlya[j]) for i in eachindex(onlya)
                   for j in (i + 1):length(onlya))
-        @test all(t -> EnzymeRates.Enumeration._admits(m, t) &&
+        @test all(t -> EnzymeRates.Enumeration._valid_tagging(m, t) &&
                        EnzymeRates.Enumeration._stops_inactive_turnover(m, t), tags)
         kids = EnzymeRates.Enumeration._expand_to_allosteric(m, rxn)
         n_kids += length(kids)
         @test allunique(kids)
         for c in kids
-            @test EnzymeRates.Enumeration._admits(c.catalytic, c.cat_allo_states)
+            @test EnzymeRates.Enumeration._valid_tagging(c.catalytic, c.cat_allo_states)
             faults = _testhelper_face_faults(c)
             admitted = all(==(EnzymeRates.Derivation._NO_FAULT), faults)
             verdicts = _testhelper_respeed_verdicts(c; rng,
@@ -1146,8 +1147,8 @@ end
             admitted && @test _testhelper_epath_verdict(c; rng) === :converges
         end
     end
-    @test nbases == Dict(1 => 4, 2 => 14)
-    @test n_kids == 66
+    @test nbases == Dict(1 => 9, 2 => 9)
+    @test n_kids == 46
 end
 
 # ── Population tests of the well-posedness guard ────────────────────────────

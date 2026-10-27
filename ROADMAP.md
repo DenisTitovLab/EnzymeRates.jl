@@ -75,20 +75,20 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `:NonequalAI` passes admission, but the guard rejects it: at zero substrates, and at
   zero B, the covalent forms of both conformations lie on one rapid-equilibrium
   segment, joined only through free E, so the rate's limit depends on how fast each
-  conformation's steps run (`_SPLIT`, `_LIMIT_SPEED`). `expand_mechanisms` drops that
-  child, so the search never gives this ping-pong an inactive conformation that runs
-  both half-reactions. On the three-step ping-pong, whose steps are all steady-state,
+  conformation's steps run (`_SPLIT`, `_LIMIT_SPEED`). Change-tag drops that child, so
+  the search never gives this ping-pong an inactive conformation that runs both
+  half-reactions. On the three-step ping-pong, whose steps are all steady-state,
   the same relaxation passes.
 - **The six-step bi-bi ping-pong keeps no allosteric child with a forward rate.**
-  The guard rejects every child built on the base that stops the first half-reaction
-  (`_SPLIT` at zero A and B), at one and at two subunits. On the base that stops the second
+  The guard rejects the tag set that stops the first half-reaction (`_SPLIT` at zero A and
+  B), so no tagging base stops it. On the base that stops the second
   half, the inactive conformation's first half-reaction fills the covalent forms, which only
   P's binding drains, so the rate is exactly 0 at zero products in every allosteric child
   the exit keeps and in every allosteric child of those on the same graph: 33 with a
   regulator declared, at one subunit and again at two, and 13 at two subunits without one.
   Forward initial-rate data cannot fit any of them.
 - **A one-half tagging base is fitted only beside a regulator.**
-  When admission rejects the tag set that stops all chemistry, each tagging base stops one
+  When the guard rejects the tag set that stops all chemistry, each tagging base stops one
   half-reaction and the inactive conformation runs the other (`_tagging_bases`,
   `src/Enumeration/moves.jl`). The tagging move emits a base only beside a declared
   regulator, and no move reaches the bare base: change-tag relaxes tags only to
