@@ -71,7 +71,7 @@ Every test but the guard reads a candidate's flags over the base's graph; the gu
 on the candidate built as a mechanism, once it passes the others:
 
 - **Valid.** No cycle of rapid-equilibrium steps runs the net reaction
-  (`_re_turnover_cycle`), and the guard accepts the candidate
+  (`has_turnover_cycle`), and the guard accepts the candidate
   (`has_valid_rate_equation`).
 - **Flux-carrying.** Every steady-state group carries net flux.
 - **Non-degenerate.** A degenerate mechanism's rate at zero products ignores some

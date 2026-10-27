@@ -360,7 +360,7 @@ _merged_complexes(m::Mechanisms.Mechanism, subs::Mechanisms.Counts,
 The tests of `_seed_variants` that build nothing, for the graph `m` of one base of a
 seed: a function of a candidate's rapid-equilibrium flags (one per edge of `m`, some
 turned steady state) that is true when the candidate has no rapid-equilibrium turnover
-cycle (`_re_turnover_cycle`), a maximal rate both ways (`_has_vmax`) and no chemistry in
+cycle (`has_turnover_cycle`), a maximal rate both ways (`_has_vmax`) and no chemistry in
 equilibrium with both sides (`_chemistry_equilibrates_both_sides`). Each edge's ends,
 uptake weight and reactants are read once per base, so a candidate costs a few passes
 over arrays. A base holds no isomerization, so each chemistry node is a merged complex
@@ -436,7 +436,7 @@ each base's edges must conserve. Each base (`_seed_bases`) is read as the graph
 the representation error (`_check_aligned`). MERGE and ELIM conserve atoms, which each
 base asserts. For each base, every inclusion-minimal set of its groups (`_minimal_flips`)
 whose flip to steady state gives a valid, flux-carrying, non-degenerate candidate is a
-variant: no rapid-equilibrium turnover cycle (`_re_turnover_cycle`), a maximal rate both
+variant: no rapid-equilibrium turnover cycle (`has_turnover_cycle`), a maximal rate both
 ways (`_has_vmax`), no chemistry in equilibrium with both sides
 (`_chemistry_equilibrates_both_sides`), every steady-state group carrying flux, and the
 guard (`has_valid_rate_equation`). The first three tests read index arrays

@@ -9437,11 +9437,11 @@ end
     # Q, weight 1 + 1 + 1 + 1 = 4, all at rapid equilibrium. The seed's cycle runs
     # through its steady-state isomerization, and its RE steps form a tree.
     # every step RE: infinite rate
-    @test ER.Enumeration._re_turnover_cycle(base, ER.Mechanisms._flags(base))
-    @test !ER.Enumeration._re_turnover_cycle(seed, ER.Mechanisms._flags(seed))
+    @test ER.Mechanisms.has_turnover_cycle(base, ER.Mechanisms._flags(base))
+    @test !ER.Mechanisms.has_turnover_cycle(seed, ER.Mechanisms._flags(seed))
     _testhelper_variant(ss) = .!BitVector([_testhelper_binds(base, ss...)(e)
                                            for e in base.edges])
-    _testhelper_clean(m, re) = !ER.Enumeration._re_turnover_cycle(m, re) &&
+    _testhelper_clean(m, re) = !ER.Mechanisms.has_turnover_cycle(m, re) &&
         ER.Enumeration._has_vmax(m, re, m.substrates) &&
         ER.Enumeration._has_vmax(m, re, m.products) &&
         !ER.Enumeration._chemistry_equilibrates_both_sides(m, re)
@@ -9484,7 +9484,7 @@ end
     gA, gQ = group_of(_testhelper_binds(tc, :A)), group_of(_testhelper_binds(tc, :Q))
     gTC = group_of(_testhelper_is_tc)
     # E → E(A) → E(Q) → E, all RE
-    @test ER.Enumeration._re_turnover_cycle(tc, ER.Mechanisms._flags(tc))
+    @test ER.Mechanisms.has_turnover_cycle(tc, ER.Mechanisms._flags(tc))
     _testhelper_ss(which) = BitVector([!(g in which) for g in tc.group])
     # The Theorell–Chance step takes up B and gives off P, so V turns it RE for either
     # side. {A, Q, TC}: V for substrates leaves Q steady state, V for products leaves A,
@@ -9570,7 +9570,7 @@ end
     @test ER.Enumeration._eliminate_form(merged, iso.to) === nothing
 end
 
-@testset "_re_turnover_cycle: a balanced rapid-equilibrium cycle runs no turnover" begin
+@testset "has_turnover_cycle: a balanced rapid-equilibrium cycle runs no turnover" begin
     ER = EnzymeRates
     # Random-order binding of A and B at rapid equilibrium closes the cycle
     # E → E(A) → E(A, B) ← E(B) ← E of weight 1 + 1 − 1 − 1 = 0: it runs no net reaction.
@@ -9588,8 +9588,8 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    @test !ER.Enumeration._re_turnover_cycle(m, ER.Mechanisms._flags(m))
-    @test ER.Enumeration._re_turnover_cycle(m, trues(length(m.edges)))
+    @test !ER.Mechanisms.has_turnover_cycle(m, ER.Mechanisms._flags(m))
+    @test ER.Mechanisms.has_turnover_cycle(m, trues(length(m.edges)))
 end
 
 @testset "C on the ping-pong seed and its single flips" begin
@@ -10151,7 +10151,7 @@ end
     ER = EnzymeRates
     # The screen reads the turnover, maximal-rate and chemistry tests of a candidate from
     # index arrays. On every subset of the groups of eight bases flipped to steady state it
-    # must give the verdict of `_re_turnover_cycle`, `_has_vmax` both ways and
+    # must give the verdict of `has_turnover_cycle`, `_has_vmax` both ways and
     # `_chemistry_equilibrates_both_sides` on the flipped flags.
     ordered = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
@@ -10207,7 +10207,7 @@ end
         map(0:(2^ER.Mechanisms.ngroups(m) - 1)) do bits
             ss = BitVector([isodd(bits >> (g - 1)) for g in 1:ER.Mechanisms.ngroups(m)])
             re = BitVector([!ss[g] for g in m.group])
-            expected = !ER.Enumeration._re_turnover_cycle(m, re) &&
+            expected = !ER.Mechanisms.has_turnover_cycle(m, re) &&
                 ER.Enumeration._has_vmax(m, re, m.substrates) &&
                 ER.Enumeration._has_vmax(m, re, m.products) &&
                 !ER.Enumeration._chemistry_equilibrates_both_sides(m, re)

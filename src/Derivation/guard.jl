@@ -433,7 +433,7 @@ end
     _guard(m) -> _Verdict
 
 The well-posedness guard (spec section 8) on `m`, plain or allosteric: class 1 (a cycle
-turns the reaction over, `_has_turnover_cycle`); class 2 (no cycle of fast transitions
+turns the reaction over, `has_turnover_cycle`); class 2 (no cycle of fast transitions
 does, `_re_turnover_transitions`, on the ε-network, where an excluded rapid-equilibrium
 binding stays fast while its affinity vanishes); for an allosteric mechanism, admission's
 interior (`_admission_interior`); then on every face class 3 (`_check_face`, on the law
@@ -443,7 +443,7 @@ reads the reaction graph through masks and builds nothing.
 """
 function _guard(mech::Mechanisms._AnyMech)
     m = Mechanisms.catalytic(mech)
-    Mechanisms._has_turnover_cycle(m, trues(length(m.edges))) ||
+    Mechanisms.has_turnover_cycle(m, trues(length(m.edges))) ||
         return _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0)
     eps = _eps_network(mech)
     v = _re_turnover_verdict(eps)

@@ -254,3 +254,169 @@ end
     @test_throws ArgumentError M.conformation_steps(am, :I)
     @test_throws ArgumentError M.conformation_steps(m, :A)
 end
+
+"""Whether a cycle of the steps of graph `m` that `on` keeps takes up some metabolite name
+net: for some name, the uptake of the kept steps is no difference of form potentials,
+which holds when appending the uptake column to their incidence matrix raises its rank."""
+function _testhelper_net_uptake_cycle(m, on::BitVector)
+    M = ER.Mechanisms
+    kept = filter(k -> on[k], collect(M.steps(m)))
+    incidence = zeros(length(kept), length(M.species(m)))
+    for (r, k) in enumerate(kept)
+        a, b = M.ends(m, k)
+        incidence[r, a] -= 1
+        incidence[r, b] += 1
+    end
+    names = unique(reduce(vcat, [[M.metabolite_names(M.taken_up(m, k));
+                                  M.metabolite_names(M.given_off(m, k))]
+                                 for k in M.steps(m)]))
+    any(names) do x
+        uptake = Int[M.copies(M.taken_up(m, k), x) - M.copies(M.given_off(m, k), x)
+                     for k in kept]
+        rank([incidence uptake]) > rank(incidence)
+    end
+end
+
+
+@testset "turnover cycle: every subset of steps of five mechanisms" begin
+    M = ER.Mechanisms
+    # Each mechanism with the cycles of its steps that turn the reaction over, written as
+    # step texts (`_testhelper_edge_text`). A set of steps holds a turnover cycle exactly
+    # when it holds all the steps of one of these.
+    cases = [
+        (@enzyme_mechanism(begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E + P
+            end
+        end), [["E + S ⇌ ES", "E + P <--> ES"]]),
+        # Uni-uni through a second free form F.
+        (@enzyme_mechanism(begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> F(P)
+                F(P) ⇌ F + P
+                E <--> F
+            end
+        end), [["E + S <--> FP", "F + P ⇌ FP", "F <--> E"]]),
+        # Random-order bi-bi: the square of the two binding orders takes up A and B once
+        # each way, so it turns nothing over; each binding order with the chemistry and
+        # the releases does.
+        (@enzyme_mechanism(begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
+            end
+        end), [["E + A ⇌ EA", "EA + B ⇌ EAB", "EAB <--> EPQ", "EQ + P <--> EPQ",
+                "E + Q <--> EQ"],
+               ["E + B ⇌ EB", "EB + A ⇌ EAB", "EAB <--> EPQ", "EQ + P <--> EPQ",
+                "E + Q <--> EQ"]]),
+        # Substrate inhibition: the dead-end binding of a second S lies on no cycle.
+        (@enzyme_mechanism(begin
+            substrates: S
+            products: P
+            modifiers: S
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) + S::Mod ⇌ E(S, S::Mod)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end), [["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"]]),
+        # A Theorell–Chance step beside the merged complex E(P, Q): the triangle of the
+        # two routes from E(A) to E(Q) takes up B and gives off P once each way.
+        (@enzyme_mechanism(begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) + B <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
+                E(A) + B <--> E(Q) + P
+            end
+        end), [["E + A ⇌ EA", "EA + B <--> EPQ", "EQ + P <--> EPQ", "E + Q <--> EQ"],
+               ["E + A ⇌ EA", "EA + B <--> EQ + P", "E + Q <--> EQ"]]),
+    ]
+    for (em, cycles) in cases
+        m = ER.Mechanism(em)
+        n = length(M.steps(m))
+        at = [[_testhelper_edge(m, text) for text in cycle] for cycle in cycles]
+        for bits in 0:(2^n - 1)
+            on = BitVector([isodd(bits >> (k - 1)) for k in 1:n])
+            expected = any(ks -> all(k -> on[k], ks), at)
+            @test (findall(on), M.has_turnover_cycle(m, on)) == (findall(on), expected)
+        end
+    end
+end
+
+@testset "turnover cycle: MECHANISM_TEST_SPECS" begin
+    M = ER.Mechanisms
+    for spec in MECHANISM_TEST_SPECS
+        mech = _testhelper_lift(spec.mechanism)
+        m = M.catalytic(mech)
+        n = length(M.steps(m))
+        # Every mechanism turns the reaction over, and none at rapid equilibrium alone.
+        @test (spec.name, M.has_turnover_cycle(m, trues(n))) == (spec.name, true)
+        @test (spec.name, M.has_turnover_cycle(m, M._flags(m))) == (spec.name, false)
+        subsets = [[Int[]]; [[i] for i in 1:n]; [[i, j] for i in 1:n for j in (i + 1):n]]
+        masks = [BitVector(k in s for k in 1:n) for s in subsets]
+        mech isa ER.AllostericMechanism &&
+            push!(masks, M.conformation_steps(mech, :active),
+                  M.conformation_steps(mech, :inactive))
+        for on in masks
+            @test (spec.name, findall(on), M.has_turnover_cycle(m, on)) ==
+                  (spec.name, findall(on), _testhelper_net_uptake_cycle(m, on))
+        end
+    end
+end
+
+@testset "turnover cycle: malformed input" begin
+    M = ER.Mechanisms
+    # Hand-written graphs whose cycles do not each run the reaction a whole number of
+    # times: a cycle takes up A and Q and gives off nothing, or takes up B alone. The
+    # turnover test weighs each step by its uptake of the first substrate, A, so it finds
+    # the first cycle and not the second.
+    aq = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B <--> E(A, B)
+            E(A, B) <--> E(Q) + P
+            E(Q) <--> E + Q
+            E(A) + Q <--> E(A, Q)
+            E(A, Q) <--> E
+        end
+    end)
+    on = BitVector(k in [_testhelper_edge(aq, t)
+                         for t in ("E + A <--> EA", "EA + Q <--> EAQ", "EAQ <--> E")]
+                   for k in M.steps(aq))
+    @test M.has_turnover_cycle(aq, on)
+    b_only = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B <--> E(A, B)
+            E(A, B) <--> E(Q) + P
+            E(Q) <--> E + Q
+            E + B <--> E(B)
+            E(B) <--> E
+        end
+    end)
+    on = BitVector(k in [_testhelper_edge(b_only, t)
+                         for t in ("E + B <--> EB", "EB <--> E")]
+                   for k in M.steps(b_only))
+    @test !M.has_turnover_cycle(b_only, on)
+    # A mask with fewer flags than steps is out of bounds.
+    @test_throws BoundsError M.has_turnover_cycle(aq, trues(2))
+end

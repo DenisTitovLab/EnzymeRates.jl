@@ -1671,19 +1671,25 @@ _turnover_name(m::Mechanism) =
     _name_index(m)[searchsortedfirst(m.table, Met(m.substrates[1], false))]
 
 """
-Whether a cycle of the edges that `mask` keeps turns the reaction over: no potential of the
-forms rises along each edge by its uptake of the first substrate (a modifier copy counting
-as it), which a weighted union-find finds (`_has_unbalanced_cycle`). Class 1 rejects a
-mechanism with none; its rate is zero everywhere.
+    has_turnover_cycle(m::Mechanism, on::BitVector) -> Bool
+
+Whether a cycle of the steps of `m` that `on` keeps turns the reaction over: no potential
+of the forms rises along each step by its uptake of the first substrate (a modifier copy
+counting as it), which a weighted union-find finds (`_has_unbalanced_cycle`). A cycle of a
+mechanism whose steps conserve atoms runs the reaction a whole number of times, so its
+uptake of the first substrate is zero only when it turns nothing over; a hand-written
+cycle that does not is read by that uptake alone. The guard's class 1 rejects a mechanism whose
+steps hold no turnover cycle, as its rate is zero everywhere; a turnover cycle of
+rapid-equilibrium steps makes the rate infinite (`_has_vmax`).
 """
-function _has_turnover_cycle(m::Mechanism, mask::BitVector)
+function has_turnover_cycle(m::Mechanism, on::BitVector)
     name_of, x1 = _name_index(m), _turnover_name(m)
     uptake(c::Counts) =
         sum((copies(c, i) for i in eachindex(m.table) if name_of[i] == x1); init = 0)
     n = length(m.forms)
     _has_unbalanced_cycle([e.from for e in m.edges], [e.to for e in m.edges],
                           [uptake(e.consumed) - uptake(e.released) for e in m.edges],
-                          mask, zeros(Int, n), zeros(Int, n))
+                          on, zeros(Int, n), zeros(Int, n))
 end
 
 """Whether conformation `c` (1 active, 2 inactive) of `am` excludes edge `k`: an `:OnlyA`

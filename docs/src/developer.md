@@ -164,7 +164,7 @@ reaches through them (`conformation_steps`), and the **ε-network**, every step 
 conformations, each excluded step marked vanishing and an excluded rapid-equilibrium plain
 binding kept fast (`_eps_network`). The faces (`_faces`) are bit masks over the metabolite
 names. In order it checks class 1, a cycle that turns the reaction over
-(`_has_turnover_cycle`); class 2, no fast cycle of the ε-network that takes up a name net;
+(`has_turnover_cycle`); class 2, no fast cycle of the ε-network that takes up a name net;
 admission's interior (`_admission_interior`: existence by components and arcs, islands,
 the active conformation's turnover); then on each face class 3 (`_check_face`: closed
 classes, bottomless segments, the aggregated chains, and a limit test modulo 2^61 − 1 where
@@ -321,8 +321,8 @@ replaces a form whose only two steps are bindings into it by one Theorell–Chan
 step in a group of its own. Every step of a base starts at rapid equilibrium. The
 variants are the inclusion-minimal sets of the base's flux-carrying groups
 (`_minimal_flips`) whose flip to steady state leaves no rapid-equilibrium
-turnover cycle (`_re_turnover_cycle`: each RE step weighted by its uptake of
-substrates minus products, a turnover cycle being a cycle of nonzero weight),
+turnover cycle (`has_turnover_cycle`: a cycle of RE steps whose net uptake of the
+first substrate is nonzero),
 keeps a maximal rate both ways (`_has_vmax`, condition V), keeps chemistry out of
 equilibrium with both sides (`_chemistry_equilibrates_both_sides`, condition C),
 passes the guard and keeps every steady-state group flux-carrying.

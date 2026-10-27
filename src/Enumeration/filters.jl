@@ -1,19 +1,6 @@
 # ABOUTME: Structural filters of the enumeration: degeneracy, hyperbolic catalysis, the
 # ABOUTME: dwell gauge of redundant copies, atom and emission assertions, regulator types.
 
-"""Whether a cycle of the edges of graph `m` that `fast` flags runs net turnover, which
-makes the rate infinite when those edges are at rapid equilibrium. Each edge joins its two
-forms with its uptake of the reaction's substrates minus its products as weight
-(`_uptake_weight`); a turnover cycle has weight n·Σρ², never zero, so the flagged edges
-hold one iff they close a cycle of nonzero weight (`_has_unbalanced_cycle`)."""
-function _re_turnover_cycle(m::Mechanisms.Mechanism, fast::BitVector)
-    sign = _entry_signs(m)
-    n = length(m.forms)
-    Mechanisms._has_unbalanced_cycle([e.from for e in m.edges], [e.to for e in m.edges],
-                                     [_uptake_weight(e, sign) for e in m.edges], fast,
-                                     zeros(Int, n), zeros(Int, n))
-end
-
 """Whether the rate of graph `m`, edge `k` at rapid equilibrium where `re[k]` holds, has a
 maximum as the metabolites `names` (its substrates or its products, sorted) grow: turning
 rapid equilibrium every steady-state edge that takes up or gives off one of them leaves no
@@ -23,7 +10,7 @@ function _has_vmax(m::Mechanisms.Mechanism, re::BitVector, names::Vector{Symbol}
                    on::BitVector = trues(length(m.edges)))
     side = Mechanisms._names_mask(m, names)
     touches = BitVector([(e.consumed | e.released) & side != 0 for e in m.edges])
-    !_re_turnover_cycle(m, (re .| touches) .& on)
+    !Mechanisms.has_turnover_cycle(m, (re .| touches) .& on)
 end
 
 """Whether edge `e` takes up an entry of one of the masks `subs` and `prods` (a reactant

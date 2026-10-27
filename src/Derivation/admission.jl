@@ -138,7 +138,7 @@ function _admission_interior(am::Mechanisms.AllostericMechanism)
     end
     k = _first_excluded(am, 1)
     k != 0 &&
-        !Mechanisms._has_turnover_cycle(m, Mechanisms.conformation_steps(am, :active)) &&
+        !Mechanisms.has_turnover_cycle(m, Mechanisms.conformation_steps(am, :active)) &&
         return _Verdict(_NO_ACTIVE_TURNOVER, _LIMIT_UNTESTED, 0, 1, k)
     _WELL_POSED
 end
