@@ -836,46 +836,14 @@ function _expand_parents(to_expand::Vector{BatchEntry},
 end
 
 """
-The mechanisms the beam fits first: every seed of `mechs` that is not degenerate
-(`_degenerate`), and in place of each one that is, its flip children (`_expand_re_to_ss`)
-that are not. A degenerate seed's law ignores a substrate or never saturates, so it is not
-worth a fit, but it is the only parent of mechanisms that are not degenerate (such as the
-ping-pong seeds' children). Only a flip can cure it: the other moves keep every catalytic
-step's rapid-equilibrium flag, and the steps they add bind regulators, which neither
-degeneracy condition reads. An expansion error is returned as a failure, one per seed,
-carrying the seed; a flip child whose rate law the guard rejects (`_is_well_posed`) is
-dropped, as `expand_mechanisms` drops one.
-"""
-function _base_tier(mechs::Vector, rxn::Mechanisms.EnzymeReaction)
-    base = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[
-        m for m in mechs if !Enumeration._degenerate(m)]
-    failures = FitFailure[]
-    for m in mechs
-        Enumeration._degenerate(m) || continue
-        try
-            children = filter!(Derivation._is_well_posed, Enumeration._expand_re_to_ss(m))
-            for child in children
-                Enumeration._assert_atom_conserving(child, rxn)
-                Enumeration._degenerate(child) || push!(base, child)
-            end
-        catch e
-            push!(failures, FitFailure(m, _exc_string(e)))
-        end
-    end
-    unique!(base), failures
-end
-
-"""
     _required_regulators(rxn, optional_allosteric_regulators,
                          optional_competitive_inhibitors)
         -> (required_allo::Set{Symbol}, required_comp::Set{Symbol})
 
 The regulators the beam seed must bind: every `AllostericRegulator` and every
 `CompetitiveInhibitor` declared in `rxn`, minus the names the caller marked
-optional. Both sets empty means the beam takes its seeds from `init_mechanisms`; a
-non-empty set means it takes them from `seed_mechanisms`. Either way the base tier
-fits the seeds that are not degenerate and, in place of those that are, their flip
-children that are not (`_base_tier`).
+optional. Both sets empty means the beam starts from the unregulated seeds; see
+`Enumeration.base_mechanisms`.
 """
 function _required_regulators(rxn::Mechanisms.EnzymeReaction,
                               optional_allosteric_regulators::Vector{Symbol},
@@ -951,16 +919,14 @@ function _beam_search(
     progress("EnzymeRates v$(pkgversion(EnzymeRates))")
 
     # ── Base tier: fit every seed, with each degenerate seed replaced by its
-    # non-degenerate flip children (`_base_tier`; no bucketing — siblings) ──
+    # non-degenerate flip children (`base_mechanisms`; no bucketing — siblings) ──
     progress("Enumerating initial mechanisms…")
     required_allo, required_comp = _required_regulators(
         prob.reaction, optional_allosteric_regulators,
         optional_competitive_inhibitors)
-    seeds = (isempty(required_allo) && isempty(required_comp)) ?
-        unique!(collect(Enumeration.init_mechanisms(prob.reaction))) :
-        unique!(collect(Enumeration.seed_mechanisms(
-            prob.reaction, required_allo, required_comp)))
-    base, base_expand_failures = _base_tier(seeds, prob.reaction)
+    base, base_failures = Enumeration.base_mechanisms(
+        prob.reaction, required_allo, required_comp)
+    base_expand_failures = [FitFailure(m, msg) for (m, msg) in base_failures]
     # A degenerate seed's expansion error is recorded like a fit failure (a row of
     # initial_mechanisms.csv and the errored bucket).
     base_batch = run_batch!(base, base_expand_failures,

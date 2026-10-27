@@ -15071,3 +15071,331 @@ end
     @test any(m -> any(s -> :OnlyI in EnzymeRates.Mechanisms.allo_states(s),
                        EnzymeRates.Mechanisms.regulatory_sites(m)), allo)
 end
+
+@testset "base_mechanisms expands degenerate seeds instead of fitting them" begin
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+    end
+    seeds = unique!(collect(EnzymeRates.Enumeration.init_mechanisms(rxn)))
+    degenerate = filter(EnzymeRates.Enumeration._degenerate, seeds)
+    @test length(degenerate) == 7                  # the seven ping-pong seeds
+    base, failures = EnzymeRates.Enumeration.base_mechanisms(rxn, Set{Symbol}(), Set{Symbol}())
+    @test isempty(failures)
+    @test !any(EnzymeRates.Enumeration._degenerate, base)
+    cures =
+        unique!([c for m in degenerate for c in EnzymeRates.Enumeration._expand_re_to_ss(m)
+                 if !EnzymeRates.Enumeration._degenerate(c)])
+    @test length(cures) == 21                      # three per ping-pong seed
+    # Only a flip changes which steps are at rapid equilibrium, so every other move leaves
+    # a degenerate seed's child degenerate.
+    kids = EnzymeRates.Enumeration.expand_mechanisms(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[degenerate...], rxn)
+    @test Set(filter(!EnzymeRates.Enumeration._degenerate, kids)) == Set(cures)
+    @test Set(base) == Set(vcat(filter(!EnzymeRates.Enumeration._degenerate, seeds), cures))
+    @test length(base) == 278
+end
+
+@testset "_base_tier replaces a degenerate seed by the flips that cure it" begin
+    # The undecorated ping-pong seed. Its steady-state chemistry E(A) → E(P; res) is a
+    # qualifying chain, so the flip rule keeps its flanks, the A and P bindings, at rapid
+    # equilibrium. The rapid-equilibrium chemistry E(B; res) ⇌ E(Q) is left by the B and
+    # the Q binding, both rapid equilibrium, so the seed is degenerate. Each of the other
+    # three groups alone raises the segment count, and each flip cures the seed: it turns
+    # that chemistry steady state, or one of its two exits.
+    ER = EnzymeRates
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+    end
+    seed = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    chemistry_flipped = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    b_flipped = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B <--> E(B; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            E + Q ⇌ E(Q)
+        end
+    end)
+    q_flipped = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) ⇌ E(Q)
+            E + Q <--> E(Q)
+        end
+    end)
+    @test ER.Enumeration._degenerate(seed)
+    base, failures = ER.Enumeration._base_tier([seed], rxn)
+    @test isempty(failures)
+    @test length(base) == 3
+    @test Set(base) == Set([chemistry_flipped, b_flipped, q_flipped])
+end
+
+@testset "_base_tier records a degenerate seed's expansion error" begin
+    # The chemistry step E(S) ⇌ E(P) makes P's N from nothing (T binds free E only in a
+    # dead end), so expand_mechanisms' atom-conservation assertion raises. With the P
+    # binding steady state the seed has no maximal rate in products (turning that
+    # binding rapid equilibrium closes an all-RE turnover cycle), so it is degenerate and
+    # expanded.
+    rxn_bad = @enzyme_reaction begin
+        substrates: S[C], T[N]
+        products:   P[CN]
+    end
+    m_bad = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S, T
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) ⇌ E(P)
+            E + P <--> E(P)
+            E + T ⇌ E(T)
+        end
+    end)
+    @test EnzymeRates.Enumeration._degenerate(m_bad)
+    base, failures = EnzymeRates.Enumeration._base_tier([m_bad], rxn_bad)
+    @test isempty(base)
+    @test length(failures) == 1 && failures[1] isa Tuple{Any, String}
+    @test failures[1][1] == m_bad
+    # The recorded error is the assertion's: the chemistry step ES → EP makes an N.
+    @test occursin("atom-non-conserving step ES → EP", failures[1][2])
+    @test occursin("= Dict(:N => 1)", failures[1][2])
+end
+
+@testset "_base_tier drops a flip child whose rate law the guard rejects" begin
+    # The guard admits the seed. Its chemistry E(S) ⇌ E(P) sits in rapid equilibrium with
+    # both sides, so the seed is degenerate and expanded, into six flips. Three of them
+    # (the S binding, the chemistry, or the pair E(P) ⇌ F(P) and F + P ⇌ E(P) made
+    # steady state) leave the :OnlyA step E <--> F bridging forms of the inactive
+    # conformation at zero P. That is admission's face condition, which the flip move's
+    # own check (`_faces_pass`, classes 2 and 3) does not run, so `_base_tier`'s guard
+    # filter drops them. Two of the other flips keep the chemistry in rapid equilibrium
+    # with both sides, which makes them degenerate. The base tier keeps the last flip.
+    ER = EnzymeRates
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    seed = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)        :: OnlyA
+            E(S) ⇌ E(P)         :: EqualAI
+            F + P ⇌ E(P)        :: EqualAI
+            F <--> E            :: OnlyA
+            F + S ⇌ F(S)        :: EqualAI
+            F(S) <--> F(P)      :: EqualAI
+            F + P ⇌ F(P)        :: EqualAI
+            F(P) ⇌ E(P)         :: EqualAI
+        end
+    end)
+    # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
+    dropped = [
+        @_testhelper_unguarded(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)     :: OnlyA
+                E(S) ⇌ E(P)         :: EqualAI
+                F + P ⇌ E(P)        :: EqualAI
+                F <--> E            :: OnlyA
+                F + S ⇌ F(S)        :: EqualAI
+                F(S) <--> F(P)      :: EqualAI
+                F + P ⇌ F(P)        :: EqualAI
+                F(P) ⇌ E(P)         :: EqualAI
+            end
+        end),
+        @_testhelper_unguarded(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)        :: OnlyA
+                E(S) <--> E(P)      :: EqualAI
+                F + P ⇌ E(P)        :: EqualAI
+                F <--> E            :: OnlyA
+                F + S ⇌ F(S)        :: EqualAI
+                F(S) <--> F(P)      :: EqualAI
+                F + P ⇌ F(P)        :: EqualAI
+                F(P) ⇌ E(P)         :: EqualAI
+            end
+        end),
+        @_testhelper_unguarded(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)        :: OnlyA
+                E(S) ⇌ E(P)         :: EqualAI
+                F + P <--> E(P)     :: EqualAI
+                F <--> E            :: OnlyA
+                F + S ⇌ F(S)        :: EqualAI
+                F(S) <--> F(P)      :: EqualAI
+                F + P ⇌ F(P)        :: EqualAI
+                F(P) <--> E(P)      :: EqualAI
+            end
+        end)]
+    kept = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)        :: OnlyA
+            E(S) ⇌ E(P)         :: EqualAI
+            F + P <--> E(P)     :: EqualAI
+            F <--> E            :: OnlyA
+            F + S ⇌ F(S)        :: EqualAI
+            F(S) <--> F(P)      :: EqualAI
+            F + P <--> F(P)     :: EqualAI
+            F(P) ⇌ E(P)         :: EqualAI
+        end
+    end)
+    @test ER.Derivation._is_well_posed(seed)
+    @test ER.Enumeration._degenerate(seed)
+    kids = ER.Enumeration._expand_re_to_ss(seed)
+    @test length(kids) == 6
+    @test Set(k for k in kids if !ER.Derivation._is_well_posed(k)) == Set(dropped)
+    @test all(k -> ER.Derivation._guard(k).fault === ER.Derivation._BRIDGE, dropped)
+    # The guard filter drops them, not the degeneracy test.
+    @test !any(ER.Enumeration._degenerate, dropped)
+    @test ER.Derivation._guard_message(dropped[1], ER.Derivation._guard(dropped[1])) ==
+          "AllostericMechanism: at zero P, the :OnlyA step E <--> F bridges forms of " *
+          "the inactive conformation that its other steps keep apart, so admission " *
+          "cannot show that the limit does not depend on how fast that step vanishes."
+    base, failures = ER.Enumeration._base_tier([seed], rxn)
+    @test isempty(failures)
+    @test length(base) == 1
+    @test Set(base) == Set([kept])
+end
+
+@testset "_base_tier keeps every flip child the guard admits" begin
+    # Every step is rapid equilibrium, so the catalytic cycle E, E(S), E(P), F turns over
+    # at rapid equilibrium: the seed is degenerate and expanded. The six flips of two steps
+    # of the ring cut it, and each passes every face of the guard: the conformations flip
+    # at E, so F needs no rapid-equilibrium link to it. No failure is recorded.
+    ER = EnzymeRates
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    seed = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) ⇌ E(P)       :: EqualAI
+            E(P) ⇌ F + P      :: EqualAI
+            F ⇌ E             :: EqualAI
+        end
+    end
+    # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
+    kept = [
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)   :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ F + P      :: EqualAI
+                F ⇌ E             :: EqualAI
+            end
+        end),
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)   :: EqualAI
+                E(S) ⇌ E(P)       :: EqualAI
+                E(P) <--> F + P   :: EqualAI
+                F ⇌ E             :: EqualAI
+            end
+        end),
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) <--> F + P   :: EqualAI
+                F ⇌ E             :: EqualAI
+            end
+        end),
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)   :: EqualAI
+                E(S) ⇌ E(P)       :: EqualAI
+                E(P) ⇌ F + P      :: EqualAI
+                F <--> E          :: EqualAI
+            end
+        end),
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ F + P      :: EqualAI
+                F <--> E          :: EqualAI
+            end
+        end),
+        ER.AllostericMechanism(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) ⇌ E(P)       :: EqualAI
+                E(P) <--> F + P   :: EqualAI
+                F <--> E          :: EqualAI
+            end
+        end)]
+    @test ER.Enumeration._degenerate(seed)
+    @test length(ER.Enumeration._expand_re_to_ss(seed)) == 6
+    @test all(ER.Derivation._is_well_posed, ER.Enumeration._expand_re_to_ss(seed))
+    base, failures = ER.Enumeration._base_tier([seed], rxn)
+    @test isempty(failures)
+    @test length(base) == 6
+    @test Set(base) == Set(kept)
+end
+
+@testset "base_mechanisms starts from the seeds that bind every required regulator" begin
+    # A required competitive inhibitor makes the beam start from `seed_mechanisms`; the
+    # unregulated `init_mechanisms` seed is not among them.
+    ER = EnzymeRates
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        competitive_inhibitors: I
+    end
+    base, failures = ER.Enumeration.base_mechanisms(rxn, Set{Symbol}(), Set([:I]))
+    @test isempty(failures)
+    @test length(base) == 1
+    @test all(m -> :I in ER.Enumeration._bound_comp_inhibitors(m), base)
+    @test Set(base) == Set(ER.Enumeration.seed_mechanisms(rxn, Set{Symbol}(), Set([:I])))
+end

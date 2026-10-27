@@ -620,3 +620,50 @@ function _is_seed_node(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMecha
     _respects_reg_type(m, rxn) || return false
     true
 end
+
+"""
+    base_mechanisms(rxn, required_allo::Set{Symbol}, required_comp::Set{Symbol})
+        -> (mechanisms, failures::Vector{Tuple{Any, String}})
+
+The mechanisms the beam fits first. Both sets empty means they start from
+`init_mechanisms`; a non-empty set means they start from `seed_mechanisms`. Either way the
+base tier fits the seeds that are not degenerate and, in place of those that are, their
+flip children that are not (`_base_tier`). Each failure is a `(seed, message)` pair.
+"""
+function base_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
+                         required_comp::Set{Symbol})
+    seeds = (isempty(required_allo) && isempty(required_comp)) ?
+        unique!(collect(init_mechanisms(rxn))) :
+        unique!(collect(seed_mechanisms(rxn, required_allo, required_comp)))
+    _base_tier(seeds, rxn)
+end
+
+"""
+The mechanisms the beam fits first: every seed of `mechs` that is not degenerate
+(`_degenerate`), and in place of each one that is, its flip children (`_expand_re_to_ss`)
+that are not. A degenerate seed's law ignores a substrate or never saturates, so it is not
+worth a fit, but it is the only parent of mechanisms that are not degenerate (such as the
+ping-pong seeds' children). Only a flip can cure it: the other moves keep every catalytic
+step's rapid-equilibrium flag, and the steps they add bind regulators, which neither
+degeneracy condition reads. An expansion error is returned as a failure, one per seed,
+carrying the seed and the first 200 characters of the error; a flip child whose rate law
+the guard rejects (`_is_well_posed`) is dropped, as `expand_mechanisms` drops one.
+"""
+function _base_tier(mechs::Vector, rxn::Mechanisms.EnzymeReaction)
+    base = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[
+        m for m in mechs if !_degenerate(m)]
+    failures = Tuple{Any, String}[]
+    for m in mechs
+        _degenerate(m) || continue
+        try
+            children = filter!(Derivation._is_well_posed, _expand_re_to_ss(m))
+            for child in children
+                _assert_atom_conserving(child, rxn)
+                _degenerate(child) || push!(base, child)
+            end
+        catch e
+            push!(failures, (m, first(sprint(showerror, e), 200)))
+        end
+    end
+    unique!(base), failures
+end

@@ -6,8 +6,7 @@ using ..Mechanisms: Mechanisms
 using ..Derivation: Derivation
 using Distributed: pmap
 
-const API = (:_assert_atom_conserving, :_degenerate, :_expand_re_to_ss, :expand_mechanisms,
-    :init_mechanisms, :seed_mechanisms)
+const API = (:base_mechanisms, :expand_mechanisms)
 
 include("seeds.jl")
 include("moves.jl")
