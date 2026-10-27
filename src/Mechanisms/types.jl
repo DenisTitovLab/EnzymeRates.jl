@@ -1678,9 +1678,9 @@ of the forms rises along each step by its uptake of the first substrate (a modif
 counting as it), which a weighted union-find finds (`_has_unbalanced_cycle`). A cycle of a
 mechanism whose steps conserve atoms runs the reaction a whole number of times, so its
 uptake of the first substrate is zero only when it turns nothing over; a hand-written
-cycle that does not is read by that uptake alone. The guard's class 1 rejects a mechanism whose
-steps hold no turnover cycle, as its rate is zero everywhere; a turnover cycle of
-rapid-equilibrium steps makes the rate infinite (`_has_vmax`).
+cycle that does not is read by that uptake alone. The guard's class 1 rejects a
+mechanism whose steps hold no turnover cycle, as its rate is zero everywhere; a turnover
+cycle of rapid-equilibrium steps makes the rate infinite (`_has_vmax`).
 """
 function has_turnover_cycle(m::Mechanism, on::BitVector)
     name_of, x1 = _name_index(m), _turnover_name(m)
