@@ -560,8 +560,7 @@ The rate law of `m` per enzyme, evaluated in 256-bit BigFloat from its derived l
 and, for an allosteric mechanism, `L` and the regulator constants) and the concentrations
 `concs`. A compiled `m` goes through its derivation entry, which runs the boundary check; a
 concrete `m` is read as it is, so the oracles can evaluate the law of a mechanism the guard
-rejects. Class 5 does not run here (`_assert_support`): a law that is 0/0 on a face gives
-NaN there.
+rejects. A law that is 0/0 on a face gives NaN there.
 """
 function _testhelper_law_value(m, params::AbstractDict, concs::AbstractDict)
     setprecision(BigFloat, 256) do
@@ -1809,13 +1808,22 @@ function _testhelper_names_its_step(m, v::EnzymeRates._Verdict)
     occursin(": at zero ", msg) && occursin(line, msg)
 end
 
-"""Class 5's verdict (`EnzymeRates._support_verdict`) on the derived law of `mech`
-(`EnzymeRates._law`), compiled or concrete, read without the guard."""
-function _testhelper_support_verdict(mech)
+"""Whether `rate_equation` of `mech`, compiled or concrete, is finite at random positive
+parameters (`_testhelper_random_independent_params`) on every face of its catalytic graph
+(`EnzymeRates._faces`), with that face's metabolites at 0 and the others drawn from
+(0.1, 10)."""
+function _testhelper_finite_on_every_face(mech; rng = Random.default_rng())
     x = _testhelper_lift(mech)
-    L = EnzymeRates._law(x)
-    EnzymeRates._support_verdict(EnzymeRates.catalytic(x), L.vars,
-                                 EnzymeRates._law_branches(L))
+    m = mech isa EnzymeRates.AbstractEnzymeMechanism ? mech :
+        EnzymeRates.compile_mechanism(x)
+    params = _testhelper_random_independent_params(m; rng)
+    g = EnzymeRates.catalytic(x)
+    all(EnzymeRates._faces(g)) do face
+        zeroed = EnzymeRates._face_names(g, face)
+        concs = NamedTuple{metabolites(m)}(Tuple(n in zeroed ? 0.0 : 0.1 + 9.9 * rand(rng)
+                                                 for n in metabolites(m)))
+        isfinite(rate_equation(m, concs, params))
+    end
 end
 
 """The faults class 3 reports on a face (`_check_face`): the faces the RE-speed oracle

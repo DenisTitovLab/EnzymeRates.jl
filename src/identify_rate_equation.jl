@@ -536,12 +536,11 @@ PASS 1 of `_process_batch` (on the workers) for mechanism `m`, from the concrete
 alone and compiling nothing. Skip it over `eq_complexity_filter` (`:complexity_skip`,
 checked before any derivation); check it with the guard (`_check_well_posed`); skip it
 over `max_param_count` by its solve's fitted constants (`_solve`, `:param_skip`); else
-derive its law (`_law`), check the law on the guard's faces (`_assert_support`), print it
-(`_law_text`), take its text and the text's id (`_mechanism_id`), label the law
-canonically (`_canonical`; a law whose labelling reaches the leaf cap gets a key of its
-own) and decide whether it is an L phantom (`_is_phantom`) and, for one, the canonical
-form of its law at `L = 0`. Returns the skip's symbol, a `FitFailure` when a step throws,
-else a `_Candidate`.
+derive its law (`_law`), print it (`_law_text`), take its text and the text's id
+(`_mechanism_id`), label the law canonically (`_canonical`; a law whose labelling reaches
+the leaf cap gets a key of its own) and decide whether it is an L phantom (`_is_phantom`)
+and, for one, the canonical form of its law at `L = 0`. Returns the skip's symbol, a
+`FitFailure` when a step throws, else a `_Candidate`.
 """
 function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
     try

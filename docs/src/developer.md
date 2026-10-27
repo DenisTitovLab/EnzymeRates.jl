@@ -170,10 +170,7 @@ the active conformation's turnover); then on each face class 3 (`_check_face`: c
 classes, bottomless segments, the aggregated chains, and a limit test modulo 2^61 − 1 where
 structure decides nothing) and admission's face condition (`_admission_face`: the
 ε-network's closed classes, stranded basins, and the fewest-slow-transitions in-tree test
-per excluding conformation and for both together). Class 5, a denominator that keeps no
-monomial on a face, runs on the derived law (`_assert_support`) wherever a law is
-derived for use: the generated `rate_equation`, identify's PASS1 and
-`rate_equation_string`. The macros, the parser
+per excluding conformation and for both together). The macros, the parser
 and the derivation entry throw; `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`
 and identify's `_base_tier` drop; the flip move runs classes 2 and 3 on each candidate's
 flags; the tagging and change-tag moves filter by admission alone (`_admits`) and leave

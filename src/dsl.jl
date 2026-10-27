@@ -295,9 +295,7 @@ sit, with an error that names the steps at fault: no cycle of steps turns substr
 products; a cycle of rapid-equilibrium steps does, so the rate has no finite value; or, with
 every product, every substrate, one reactant or every modifier absent, the steady state is
 not unique or is not the limit the rate law gives as the rapid-equilibrium steps speed up.
-It also rejects a law with no value there (0/0), and the derivation, by
-[`rate_equation`](@ref) or [`rate_equation_string`](@ref), checks the derived denominator
-once more.
+It also rejects a law with no value there (0/0).
 
 Below, the inhibitor I binds E and E(S) with one constant, and a second S binds E(S) as
 a modifier, which inhibits at high substrate:

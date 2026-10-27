@@ -13,8 +13,7 @@ derivation entry (`_derivation_input`) call it. Identify's base tier and the enu
 exits keep what `_is_well_posed` accepts, except that init's exit runs it on its seeds and
 checks class 1 on their variants, whose classes 2 and 3 the flip search ran
 (`_faces_pass`). The constructors and the Sig decoder call neither, so code that builds a
-mechanism internally never trips a check meant for the mechanisms it returns. Class 5
-reads the derived law and runs where the law is derived (`_assert_support`).
+mechanism internally never trips a check meant for the mechanisms it returns.
 """
 function _check_well_posed(m::_AnyMech)
     v = _guard(m)
@@ -94,8 +93,7 @@ other steps join (`_NO_LIMIT`), tagged bindings that close a directed cycle
 of the ε-network (`_EPS_NONUNIQUE`), a stranded basin entered by, or holding, an alive step
 whose reverse is dead, or entered from outside it and the law's forms (`_PUMPED`), or
 tagged steps that shorten the fed forms' cheapest spanning in-tree where no potential
-absorbs their turnover (`_BRIDGE`); on a face of the derived law (class 5), a denominator
-that loses every term (`_DENOMINATOR_VANISHES`).
+absorbs their turnover (`_BRIDGE`).
 """
 @enum _Fault::UInt8 begin
     _NO_FAULT
@@ -114,7 +112,6 @@ that loses every term (`_DENOMINATOR_VANISHES`).
     _PUMPED
     _BRIDGE
     _NO_ACTIVE_TURNOVER
-    _DENOMINATOR_VANISHES
 end
 
 """The faults admission reports (spec section 7); `_admission_message` writes their text."""
@@ -1812,73 +1809,6 @@ function _admission(am::AllostericMechanism)
     _WELL_POSED
 end
 
-# ─── Class 5: the support test on the derived law (spec section 8) ─────
-
-"""
-    _law_branches(L) -> Vector{Tuple{_Poly, _Poly}}
-
-The derived law `L`'s denominator as branches of positive terms, so that it keeps a
-monomial free of a face's concentrations exactly when some branch's two factors both do:
-a plain law's `D` times 1; an MWC law's two conformations, each `D` times the other
-conformation's free-E weight (`fI·DA` and `fA·DI`). Powers of a branch and the regulatory
-sites' factors, whose 1 never vanishes, keep the same faces.
-"""
-_law_branches(L::_Law) = [(L.D, one(_Poly))]
-_law_branches(A::_AlloLaw) = [(A.active.D, A.fI), (A.inactive.D, A.fA)]
-
-"""Whether some monomial of `p` holds none of the variables `z` to a positive power."""
-function _keeps_monomial(p::_Poly, z::Vector{Int})
-    for mono in keys(p.terms)
-        any(((v, e),) -> e > 0 && v in z, mono) || return true
-    end
-    false
-end
-
-"""The first face, each given by its zeroed concentration variables, on which no branch
-of `branches` (`_law_branches`) keeps a monomial in both factors; 0 when every face keeps
-one."""
-function _vanishing_face(branches::Vector{Tuple{_Poly, _Poly}},
-                         faces::Vector{Vector{Int}})
-    for (i, z) in enumerate(faces)
-        any(b -> _keeps_monomial(b[1], z) && _keeps_monomial(b[2], z), branches) ||
-            return i
-    end
-    0
-end
-
-"""
-    _support_verdict(m, vars, branches) -> _Verdict
-
-Class 5 (spec section 8) on a law over `vars`: `_DENOMINATOR_VANISHES` on the first face
-of the catalytic graph `m` (`_faces`) where the denominator `branches` (`_law_branches`)
-loses every monomial, so the law is 0/0 there.
-"""
-function _support_verdict(m::Mechanism, vars::_Vars,
-                          branches::Vector{Tuple{_Poly, _Poly}})
-    faces = [Int[vars.index[x] for x in _face_names(m, f)] for f in _faces(m)]
-    i = _vanishing_face(branches, faces)
-    i == 0 ? _WELL_POSED : _Verdict(_DENOMINATOR_VANISHES, _LIMIT_UNTESTED, i, 0, 0)
-end
-
-"""
-    _assert_support(m, L)
-
-Error with class 5's message (`_guard_message`) when the derived law `L` of `m` is 0/0 on
-some face (`_support_verdict`). `_law` does not call it, so a test can read the law of a
-mechanism the guard rejects.
-"""
-function _assert_support(m::_AnyMech, L::Union{_Law, _AlloLaw})
-    v = _support_verdict(catalytic(m), L.vars, _law_branches(L))
-    v.fault === _NO_FAULT || error(_guard_message(m, v))
-    nothing
-end
-
-"""The message of class 5's verdict `v` on a mechanism that `who` names and whose catalytic
-graph is `m`: the face where every term of the law's denominator vanishes."""
-_support_message(who::String, m::Mechanism, v::_Verdict) =
-    "$who: $(_face_phrase(m, _faces(m)[v.face]))every term of the rate law's " *
-    "denominator vanishes, so the rate is 0/0 there."
-
 # ─── Guard messages ────────────────────────────────────────────────────
 
 """
@@ -1897,7 +1827,6 @@ function _guard_message(mech::_AnyMech, v::_Verdict)
     v.fault === _RE_TURNOVER && return _re_turnover_message(who, mech)
     mech isa AllostericMechanism && v.fault in _ADMISSION_FAULTS &&
         return _admission_message(mech, v)
-    v.fault === _DENOMINATOR_VANISHES && return _support_message(who, catalytic(mech), v)
     v.fault === _NO_FAULT && error("_guard_message: verdict $v holds no fault")
     _face_message(who, mech, v)
 end

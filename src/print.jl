@@ -377,7 +377,7 @@ rate_equation_string(@nospecialize(m::AbstractEnzymeMechanism);
                      coefficients::Bool = false) =
     _rate_text(_derivation_input(typeof(m)), coefficients)
 
-"""The printed law of the well-posed mechanism `m` (`_law_text`), once class 5 passes on
-its derived law (`_with_law`)."""
+"""The printed law of the well-posed mechanism `m` (`_law_text`) from its derived law
+(`_with_law`)."""
 _rate_text(m::Union{Mechanism, AllostericMechanism}, coefficients::Bool) =
     _with_law((m, s, L) -> _law_text(m, s, L; coefficients), m)

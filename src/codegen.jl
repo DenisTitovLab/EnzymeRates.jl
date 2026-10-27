@@ -174,7 +174,7 @@ function _body(p::_Program)
 end
 
 """The body of the generated `rate_equation` of `m`: the program's code (`_body`) of its
-law once class 5 passes on it (`_with_law`)."""
+law (`_with_law`)."""
 _rate_body(m::Union{Mechanism, AllostericMechanism}) =
     _with_law((m, s, L) -> _body(_program(m, s, L)), m)
 

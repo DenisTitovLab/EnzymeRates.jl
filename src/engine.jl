@@ -194,8 +194,7 @@ numbers its variables alike: `concentrations`, then `s.independents`, then `Keq`
 
 Runs `_assert_derivable` first. Checked `Int64` arithmetic throughout: under the term cap
 no coefficient leaves it, so an `OverflowError` becomes an internal error that names the
-mechanism `shown`, the allosteric mechanism for an MWC conformation. Class 5
-(`_assert_support`) is left to the callers that use the law.
+mechanism `shown`, the allosteric mechanism for an MWC conformation.
 """
 function _law(m::Mechanism, s::_Solve, mask::BitVector; inactive::Bool = false,
               concentrations::Vector{Symbol} = metabolites(m), shown::_AnyMech = m)
@@ -342,20 +341,9 @@ _law(m::_AnyMech) = _law(m, _solve(m))
 """
     _with_law(f, m, s = _solve(m)) -> f(m, s, L)
 
-`f` called on `m`, its solve `s` and its law `L = _law(m, s)` once class 5 passes on that
-law (`_assert_support`). One method per mechanism type, so `L` is concrete in each and `f`
-receives a matching pair.
+`f` called on `m`, its solve `s` and its law `L = _law(m, s)`.
 """
-function _with_law(f, m::Mechanism, s::_Solve = _solve(m))
-    L = _law(m, s)
-    _assert_support(m, L)
-    f(m, s, L)
-end
-function _with_law(f, am::AllostericMechanism, s::_Solve = _solve(am))
-    A = _law(am, s)
-    _assert_support(am, A)
-    f(am, s, A)
-end
+_with_law(f, m::_AnyMech, s::_Solve = _solve(m)) = f(m, s, _law(m, s))
 
 """
 The spanning trees of the multigraph whose Laplacian is `lap`: the determinant of `lap`

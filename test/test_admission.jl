@@ -1076,10 +1076,10 @@ end
     @test _testhelper_face_faults(unfed)[2] === bottomless
     @test _testhelper_respeed_verdicts(unfed; rng = Random.MersenneTwister(8),
                                        law = :limit)[2] === :agree
-    # The package law is 0/0 at zero products: class 5 refuses it.
-    @test _testhelper_support_verdict(unfed).face == 2
-    @test_throws "every term of the rate law's denominator vanishes" (
-        EnzymeRates._assert_support(unfed, EnzymeRates._law(unfed)))
+    # The package law is 0/0 at zero products: the guard rejects the face as bottomless.
+    @test !EnzymeRates._is_well_posed(unfed)
+    v = EnzymeRates._guard(unfed)
+    @test (v.fault, v.face) == (bottomless, 2)
 end
 
 @testset "class 3 rejects a second closed class on a face" begin
@@ -1266,7 +1266,9 @@ end
         @test all(_testhelper_agrees.([v.fault for v in verdicts], oracles))
         @test all(f -> _testhelper_names_its_step(m, verdicts[f]), faces)
     end
-    @test _testhelper_support_verdict(dead_end).face == 2
+    @test !EnzymeRates._is_well_posed(dead_end)
+    v = EnzymeRates._guard(dead_end)
+    @test (v.fault, v.face) == (multi, 2)
     # Where the law's segment chain has two closed classes, the message names the face and
     # what the limit test found, with no fix.
     message(m, f) = EnzymeRates._guard_message(m, _testhelper_face_verdicts(m)[f])
@@ -3097,42 +3099,11 @@ end
     @test EnzymeRates._potential_on_sccs(turning, broken, 1)
 end
 
-@testset "class 5 finds the face where a denominator loses every monomial" begin
-    # Concentrations S, P and Q and a constant K; a face is the list of the concentration
-    # variables it zeroes.
-    vars = EnzymeRates._Vars()
-    S, P, Q = (EnzymeRates._var!(vars, x; conc = true) for x in (:S, :P, :Q))
-    K = EnzymeRates._var!(vars, :K)
-    t(ps...) = EnzymeRates._term(EnzymeRates._monomial(ps...))
-    unit = one(EnzymeRates._Poly)
-    faces = [Int[], [P, Q], [S]]
-    # K·S + P·Q: zeroing P and Q leaves K·S, zeroing S leaves P·Q.
-    den = t(K => 1, S => 1) + t(P => 1, Q => 1)
-    @test EnzymeRates._vanishing_face([(den, unit)], faces) == 0
-    # P·S + Q·S: zeroing P and Q leaves no term.
-    den = t(P => 1, S => 1) + t(Q => 1, S => 1)
-    @test EnzymeRates._vanishing_face([(den, unit)], faces) == 2
-    # Two conformations, each denominator times the other's free-enzyme weight: S·1 and
-    # (1 + S)·P. Zeroing S keeps 1·P, zeroing P keeps S·1, zeroing both keeps nothing.
-    den_A = t(S => 1)
-    den_I = unit + t(S => 1)
-    d_A = t(P => 1)
-    branches = [(den_A, unit), (den_I, d_A)]
-    @test EnzymeRates._vanishing_face(branches, [Int[], [S], [P]]) == 0
-    @test EnzymeRates._vanishing_face(branches, [Int[], [S, P]]) == 2
-    # Each polynomial by its variable names, term by term.
-    _testhelper_named(p) =
-        Dict(sort!([vars.names[v] => Int(e) for (v, e) in mo]; by = first) => c
-             for (mo, c) in p.terms)
-    @test _testhelper_named(t(K => 1, S => 1) + t(P => 1, Q => 1)) ==
-          Dict([:K => 1, :S => 1] => 1, [:P => 1, :Q => 1] => 1)
-    @test _testhelper_named(den_I) == Dict(Pair{Symbol, Int}[] => 1, [:S => 1] => 1)
-end
-
-@testset "the law of a steady-state dead end vanishes at zero products" begin
+@testset "the guard rejects a steady-state dead end whose law vanishes at zero products" begin
     # E(P) leaves only by binding Q, so every other form's weight holds Q, and E(P) is fed
     # only from E(P, Q), which E(Q) + P ⇌ E(P, Q) ties to P: each term of the denominator
-    # holds P or Q, so the law is 0/0 with both zero (face 2).
+    # holds P or Q, so the law is 0/0 with both zero (face 2), where the law's segment
+    # chain has two closed classes.
     m = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P, Q
@@ -3144,16 +3115,15 @@ end
             E(P) + Q <--> E(P, Q)
         end
     end
-    v = _testhelper_support_verdict(m)
-    @test v == EnzymeRates._Verdict(EnzymeRates._DENOMINATOR_VANISHES,
-                                    EnzymeRates._LIMIT_UNTESTED, 2, 0, 0)
-    @test EnzymeRates._guard_message(m, v) ==
-          "Mechanism: at zero P and Q, every term of the rate law's denominator " *
-          "vanishes, so the rate is 0/0 there."
+    @test !EnzymeRates._is_well_posed(m)
+    v = EnzymeRates._guard(m)
+    @test (v.fault, v.face) == (EnzymeRates._LAW_MULTI, 2)
     # The same dead end with E(P) + Q <--> E(P, Q) in the active conformation only. The
     # active denominator holds P or Q in every term, as above, and the inactive one is
-    # weighted by the active free-enzyme weight, which holds Q in every term: both branches
-    # vanish with P and Q zero, though the inactive denominator alone keeps a constant term.
+    # weighted by the active free-enzyme weight, which holds Q in every term: the law is
+    # 0/0 with P and Q zero, though the inactive denominator alone keeps a constant term.
+    # In the inactive conformation E(P) joins free E only through that :OnlyA step, an
+    # island the guard rejects before it checks any face.
     am = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P, Q
@@ -3165,86 +3135,37 @@ end
             E(P) + Q <--> E(P, Q) :: OnlyA
         end
     end
-    w = _testhelper_support_verdict(am)
-    @test w == EnzymeRates._Verdict(EnzymeRates._DENOMINATOR_VANISHES,
-                                    EnzymeRates._LIMIT_UNTESTED, 2, 0, 0)
-    @test EnzymeRates._guard_message(am, w) ==
-          "AllostericMechanism: at zero P and Q, every term of the rate law's " *
-          "denominator vanishes, so the rate is 0/0 there."
-    @test_throws(ErrorException(EnzymeRates._guard_message(am, w)),
-                 EnzymeRates._assert_support(am, EnzymeRates._law(am)))
+    @test !EnzymeRates._is_well_posed(am)
+    w = EnzymeRates._guard(am)
+    @test (w.fault, w.face) == (EnzymeRates._ISLAND, 0)
 end
 
-@testset "every spec's denominator keeps a monomial on every face" begin
+@testset "every spec's rate equation is finite on every face" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
-        x = _testhelper_lift(spec.mechanism)
-        @test _testhelper_support_verdict(x) ==
-              EnzymeRates._WELL_POSED
+        @test _testhelper_finite_on_every_face(spec.mechanism;
+                                               rng = Random.MersenneTwister(5))
     end
 end
 
-@testset "class 5 reads the derived law's branches" begin
-    # A plain law pairs its denominator with 1; an MWC law pairs each conformation's
-    # denominator with the other conformation's free-E weight. The steady-state dead end
-    # is 0/0 at zero products (face 2), plain and with E(P) + Q <--> E(P, Q) :OnlyA, and so
-    # is bottomless_entered's law; Michaelis–Menten keeps a term on every face.
-    dead_end = @_testhelper_unguarded @enzyme_mechanism begin
-        substrates: S
-        products: P, Q
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q <--> E(Q)
-            E(P) + Q <--> E(P, Q)
-        end
+@testset "every sampled census mechanism is finite on every face" begin
+    # An aggregate pin over a seed set: 300 mechanisms sampled from init_mechanisms and one
+    # expand_mechanisms round of the bi-bi and ping-pong reactions.
+    bibi = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
     end
-    L = EnzymeRates._law(dead_end)
-    @test EnzymeRates._law_branches(L) == [(L.D, one(EnzymeRates._Poly))]
-    v = EnzymeRates._support_verdict(dead_end, L.vars, EnzymeRates._law_branches(L))
-    @test v == EnzymeRates._Verdict(EnzymeRates._DENOMINATOR_VANISHES,
-                                    EnzymeRates._LIMIT_UNTESTED, 2, 0, 0)
-    @test EnzymeRates._face_names(dead_end, EnzymeRates._faces(dead_end)[v.face]) ==
-          [:P, :Q]
-    am = @_testhelper_unguarded @allosteric_mechanism begin
-        substrates: S
-        products: P, Q
-        steps: begin
-            E + S ⇌ E(S)          :: EqualAI
-            E(S) <--> E(P, Q)     :: EqualAI
-            E(Q) + P ⇌ E(P, Q)    :: EqualAI
-            E + Q <--> E(Q)       :: EqualAI
-            E(P) + Q <--> E(P, Q) :: OnlyA
-        end
+    pingpong = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
     end
-    A = EnzymeRates._law(am)
-    @test EnzymeRates._law_branches(A) == [(A.active.D, A.fI), (A.inactive.D, A.fA)]
-    w = EnzymeRates._support_verdict(am.catalytic, A.vars, EnzymeRates._law_branches(A))
-    @test (w.fault, w.face) == (EnzymeRates._DENOMINATOR_VANISHES, 2)
-    entered = @_testhelper_unguarded @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(P) + Q ⇌ E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + P <--> E(P)
-            E + Q <--> E(Q)
-        end
+    mechs = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
+    for rxn in (bibi, pingpong)
+        seeds = EnzymeRates.init_mechanisms(rxn)
+        append!(mechs, seeds, EnzymeRates.expand_mechanisms(seeds, rxn))
     end
-    @test _testhelper_support_verdict(entered).face == 2
-    mm = @_testhelper_unguarded @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S <--> E(S)
-            E(S) <--> E + P
-        end
-    end
-    @test _testhelper_support_verdict(mm) === EnzymeRates._WELL_POSED
-    @test EnzymeRates._assert_support(mm, EnzymeRates._law(mm)) === nothing
+    sample = mechs[randperm(Random.MersenneTwister(6), length(mechs))[1:300]]
+    @test isempty(filter(m -> !_testhelper_finite_on_every_face(
+                             m; rng = Random.MersenneTwister(5)), sample))
 end
 
 @testset "a redundant steady-state binding traps S1-bound enzyme at zero substrates" begin
@@ -3284,8 +3205,7 @@ end
     @test _testhelper_respeed_verdicts(spec.mechanism; rng, law = :package) ==
           fill(:agree, 5)
     @test EnzymeRates._guard(x) == EnzymeRates._WELL_POSED
-    @test _testhelper_support_verdict(x) ==
-          EnzymeRates._WELL_POSED
+    @test _testhelper_finite_on_every_face(spec.mechanism; rng = Random.MersenneTwister(5))
     @test length(EnzymeRates.fitted_params(spec.mechanism)) == 6
     # The fix the message prints, the feeding step steady-state, passes as well.
     fed = @_testhelper_unguarded @enzyme_mechanism begin
@@ -3349,8 +3269,7 @@ end
     @test _testhelper_respeed_verdicts(spec.mechanism; rng, law = :package) ==
           fill(:agree, 7)
     @test EnzymeRates._guard(x) == EnzymeRates._WELL_POSED
-    @test _testhelper_support_verdict(x) ==
-          EnzymeRates._WELL_POSED
+    @test _testhelper_finite_on_every_face(spec.mechanism; rng = Random.MersenneTwister(5))
     @test length(EnzymeRates.fitted_params(spec.mechanism)) == 10
 end
 
