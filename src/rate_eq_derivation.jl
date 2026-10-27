@@ -139,10 +139,11 @@ _kreg_params(am::AllostericMechanism, state::Symbol) =
     state === :A ?
     Kreg[Kreg(lig, tag === :EqualAI ? :EqualAI : :A)
          for site in regulatory_sites(am)
-         for (lig, tag) in zip(ligands(site), allo_states(site)) if tag !== :OnlyI] :
+         for (lig, tag) in zip(ligands(site), allo_states(site))
+         if !_excluded_by(tag, false)] :
     Kreg[Kreg(lig, :I) for site in regulatory_sites(am)
          for (lig, tag) in zip(ligands(site), allo_states(site))
-         if tag in (:OnlyI, :NonequalAI)]
+         if !_excluded_by(tag, true) && tag !== :EqualAI]
 
 """
 The dissociation-constant name of the ligand named `lig` (allosteric tag `tag`) of `am`
@@ -153,6 +154,6 @@ inactive one). An `:EqualAI` ligand has one bare name in both conformations
 `K_A_` or `K_I_` name. Renders the name via the `name(::Kreg, am)` chokepoint.
 """
 function _reg_K(am::AllostericMechanism, lig::Symbol, tag::Symbol, inactive::Bool)
-    tag === (inactive ? :OnlyA : :OnlyI) && return nothing
+    _excluded_by(tag, inactive) && return nothing
     name(Kreg(lig, tag === :EqualAI ? :EqualAI : inactive ? :I : :A), am)
 end

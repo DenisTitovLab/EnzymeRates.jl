@@ -1909,8 +1909,8 @@ The conformations a single ligand's allosteric `state` acts on: `:active` for
 """
 function _state_conformations(state::Symbol)
     conf = Set{Symbol}()
-    state in (:OnlyA, :EqualAI, :NonequalAI) && push!(conf, :active)
-    state in (:OnlyI, :EqualAI, :NonequalAI) && push!(conf, :inactive)
+    _excluded_by(state, false) || push!(conf, :active)
+    _excluded_by(state, true) || push!(conf, :inactive)
     conf
 end
 
