@@ -6218,7 +6218,7 @@ end
         substrates: S[C]
         products: P[C]
         competitive_inhibitors: ATP
-        allosteric_regulators: ATP(1)
+        allosteric_regulators: ATP
     end
     am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S

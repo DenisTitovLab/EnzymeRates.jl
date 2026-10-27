@@ -1483,7 +1483,7 @@ end
     dual_rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
-        allosteric_regulators: ATP(1)
+        allosteric_regulators: ATP
         competitive_inhibitors: ATP
         oligomeric_state: 2
     end

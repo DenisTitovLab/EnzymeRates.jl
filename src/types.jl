@@ -79,7 +79,7 @@ struct Kreg <: Parameter
 end
 
 # Per-reactant and per-regulator bundling structs. Canonical
-# ordering of atoms / multiplicities so two equivalent constructions
+# ordering of atoms so two equivalent constructions
 # compare equal under `==` / `hash`; an element listed twice (`S[CHC]`) counts once with
 # the summed count, as `S[C2H]` writes it.
 struct ReactantAtoms
@@ -115,35 +115,24 @@ end
 metabolite(r::ReactantAtoms) = r.metabolite
 atoms(r::ReactantAtoms)      = r.atoms
 
-"""Error unless `ms`, the multiplicities `what` names, is a nonempty list of distinct Ints
-≥ 1, as a DSL text writes one."""
-_check_multiplicities(ms::Vector{Int}, what::String) =
-    !isempty(ms) && all(≥(1), ms) && allunique(ms) ||
-        error("$what must be a nonempty list of distinct Ints ≥ 1, got $ms")
-
-struct RegulatorMults
+struct DeclaredRegulator
     regulator::Regulator
-    allowed_multiplicities::Vector{Int}
     reg_type::Symbol
-    function RegulatorMults(regulator::Regulator,
-                            allowed_multiplicities::Vector{Int},
-                            reg_type::Symbol = :unspecified)
-        _check_multiplicities(allowed_multiplicities,
-                              "RegulatorMults: $(name(regulator))'s allowed_multiplicities")
+    function DeclaredRegulator(regulator::Regulator, reg_type::Symbol = :unspecified)
         reg_type in (:activator, :inhibitor, :unspecified) ||
-            error("RegulatorMults: reg_type must be :activator, :inhibitor, or " *
+            error("DeclaredRegulator: reg_type must be :activator, :inhibitor, or " *
                   ":unspecified, got $reg_type")
         regulator isa CompetitiveInhibitor && reg_type !== :unspecified &&
-            error("RegulatorMults: $(name(regulator)) is a competitive inhibitor, which " *
-                  "takes no regulator type, got $(repr(reg_type)); only an allosteric " *
-                  "regulator is an activator (::Activator) or an inhibitor (::Inhibitor)")
-        new(regulator, sort(allowed_multiplicities), reg_type)
+            error("DeclaredRegulator: $(name(regulator)) is a competitive inhibitor, " *
+                  "which takes no regulator type, got $(repr(reg_type)); only an " *
+                  "allosteric regulator is an activator (::Activator) or an inhibitor " *
+                  "(::Inhibitor)")
+        new(regulator, reg_type)
     end
 end
 
-regulator(r::RegulatorMults)              = r.regulator
-allowed_multiplicities(r::RegulatorMults) = r.allowed_multiplicities
-reg_type(r::RegulatorMults)               = r.reg_type
+regulator(r::DeclaredRegulator) = r.regulator
+reg_type(r::DeclaredRegulator)  = r.reg_type
 
 """
 The names no metabolite takes: `E_total`, `Keq`, `L` and `N`, which name or are kept for
@@ -286,8 +275,8 @@ it to `EnzymeRates.init_mechanisms` to enumerate candidate mechanisms.
 - `reactants::Vector{ReactantAtoms}` — substrates and products, each
   carrying its per-atom inventory (used for ping-pong residual bookkeeping
   and atom conservation across steps).
-- `regulators::Vector{RegulatorMults}` — competitive inhibitors and
-  allosteric regulators, each with its allowed oligomeric multiplicities.
+- `regulators::Vector{DeclaredRegulator}` — competitive inhibitors and
+  allosteric regulators, each with its regulator type.
 - `allowed_catalytic_multiplicities::Vector{Int}` — the oligomeric states, one
   or more, that the allosteric enumerator may assign to the catalytic core.
 - `shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}` — `(substrate,
@@ -333,19 +322,22 @@ end
 """
 struct EnzymeReaction
     reactants::Vector{ReactantAtoms}
-    regulators::Vector{RegulatorMults}
+    regulators::Vector{DeclaredRegulator}
     allowed_catalytic_multiplicities::Vector{Int}
     shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}
 
     function EnzymeReaction(reactants::Vector{ReactantAtoms},
-                            regulators::Vector{RegulatorMults},
+                            regulators::Vector{DeclaredRegulator},
                             allowed_catalytic_multiplicities::Vector{Int};
                             shared_catalytic_site = Tuple{Symbol,Symbol}[])
         sorted_reactants = sort(reactants; by = ra -> name(metabolite(ra)))
         sorted_regulators = sort(regulators;
             by = rm -> (name(regulator(rm)), regulator(rm) isa AllostericRegulator))
-        _check_multiplicities(allowed_catalytic_multiplicities,
-                              "EnzymeReaction: allowed_catalytic_multiplicities")
+        # A nonempty list of distinct Ints ≥ 1, as a DSL text writes one.
+        ms = allowed_catalytic_multiplicities
+        !isempty(ms) && all(≥(1), ms) && allunique(ms) ||
+            error("EnzymeReaction: allowed_catalytic_multiplicities must be a nonempty " *
+                  "list of distinct Ints ≥ 1, got $ms")
         sorted_mults = sort(allowed_catalytic_multiplicities)
 
         sub_names  = Symbol[name(metabolite(ra)) for ra in sorted_reactants
@@ -439,17 +431,14 @@ _metabolite_names(rxn::EnzymeReaction) =
 """
 Print `r` as the `@enzyme_reaction` text that builds it: each reactant with its atoms as
 one formula, the competitive inhibitors and allosteric regulators, the catalytic
-multiplicities unless they are the default 1, and the shared catalytic sites. A
-regulator whose multiplicities are the catalytic ones prints bare, as a bare name takes
-them; any other prints with its own, as in `I(1, 2)`.
+multiplicities unless they are the default 1, and the shared catalytic sites.
 """
 function Base.show(io::IO, r::EnzymeReaction)
     mults = allowed_catalytic_multiplicities(r)
     formula(ra) = join("$e" * (c == 1 ? "" : "$c") for (e, c) in atoms(ra))
     tag(rm) = reg_type(rm) === :activator ? "::Activator" :
               reg_type(rm) === :inhibitor ? "::Inhibitor" : ""
-    entry(rm) = "$(name(regulator(rm)))" * (allowed_multiplicities(rm) == mults ? "" :
-                 "(" * join(allowed_multiplicities(rm), ", ") * ")") * tag(rm)
+    entry(rm) = "$(name(regulator(rm)))" * tag(rm)
     line(label, entries) = isempty(entries) ||
                            print(io, "\n    ", label, ": ", join(entries, ", "))
     print(io, "@enzyme_reaction begin")
@@ -1257,7 +1246,7 @@ end
 # symbols, integers and flags, so every process agrees on them. An isbits type (`Form`,
 # `Edge`) keeps Julia's `==`, which compares its fields. `Met` keeps Julia's `==`, which
 # compares its two fields, and has its own `hash`.
-for T in (RegulatorySite, Krapid, Kfor, Krev, Kreg, ReactantAtoms, RegulatorMults,
+for T in (RegulatorySite, Krapid, Kfor, Krev, Kreg, ReactantAtoms, DeclaredRegulator,
           EnzymeReaction, RawForm, RawStep, RawMechanism, RawSite, RawAllostericMechanism,
           Form, Edge, Mechanism, AllostericMechanism)
     fs = fieldnames(T)

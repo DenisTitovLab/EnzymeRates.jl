@@ -640,7 +640,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             EnzymeRates.Product(:P), [:C => 1])
         @test EnzymeRates.reactants(spec)[2] == EnzymeRates.ReactantAtoms(
             EnzymeRates.Substrate(:S), [:C => 1])
-        @test EnzymeRates.regulators(spec) == EnzymeRates.RegulatorMults[]
+        @test EnzymeRates.regulators(spec) == EnzymeRates.DeclaredRegulator[]
     end
 
     @testset "the macros work in a module that names the package otherwise" begin
@@ -761,12 +761,6 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         end
 
         # Every multiplicity is a positive Int.
-        @test_throws "regulator A multiplicity must be a positive Int, got 0." eval(
-            :(@enzyme_reaction begin
-                substrates: S[C]
-                products:   P[C]
-                allosteric_regulators: A(0)
-            end))
         @test_throws "`oligomeric_state:` entry must be a positive Int, got 0." eval(
             :(@enzyme_reaction begin
                 substrates: S[C]
@@ -797,12 +791,6 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                 regulatory_site(0): A::OnlyA
             end))
         # `true` is no multiplicity, though Julia counts a Bool an integer.
-        @test_throws "regulator A multiplicity must be a positive Int, got true." eval(
-            :(@enzyme_reaction begin
-                substrates: S[C]
-                products:   P[C]
-                allosteric_regulators: A(true)
-            end))
         @test_throws "`oligomeric_state:` entry must be a positive Int, got true." eval(
             :(@enzyme_reaction begin
                 substrates: S[C]
@@ -834,15 +822,34 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             end)))
     end
 
+    @testset "a regulator multiplicity list is a parse error" begin
+        # A regulator takes the `oligomeric_state:` multiplicities; a list after its
+        # name, tagged or not, is rejected and names the regulator.
+        @test_throws("@enzyme_reaction: regulator I lists multiplicities, got `I(1, 2)`; " *
+                     "a regulator takes the `oligomeric_state:` multiplicities, so list " *
+                     "I bare.", eval(:(@enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+            competitive_inhibitors: I(1, 2)
+        end)))
+        @test_throws("@enzyme_reaction: regulator A lists multiplicities, got " *
+                     "`A(4)::Inhibitor`; a regulator takes the `oligomeric_state:` " *
+                     "multiplicities, so list A bare.", eval(:(@enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+            allosteric_regulators: A(4)::Inhibitor
+            oligomeric_state: 4
+        end)))
+    end
+
     @testset "@enzyme_reaction regulator kinds" begin
         # competitive_inhibitors: emits CompetitiveInhibitor entries, and its lines
-        # accumulate. allosteric_regulators: emits AllostericRegulator; a bare entry
-        # takes the catalytic multiplicities.
+        # accumulate. allosteric_regulators: emits AllostericRegulator.
         spec_kinds = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
             competitive_inhibitors: I
-            allosteric_regulators: A(1)
+            allosteric_regulators: A
             competitive_inhibitors: R
         end
         @test spec_kinds isa EnzymeReaction
@@ -861,12 +868,12 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
     @testset "@enzyme_reaction dual-role regulator (allosteric + competitive)" begin
         # One metabolite MAY be declared as BOTH an allosteric regulator and a
         # competitive inhibitor; the two roles render to distinct parameter
-        # names, so both RegulatorMults are carried.
+        # names, so both DeclaredRegulators are carried.
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
             competitive_inhibitors: ATP
-            allosteric_regulators: ATP(1)
+            allosteric_regulators: ATP
         end
         @test rxn isa EnzymeReaction
         atp_regs = [rm for rm in EnzymeRates.regulators(rxn)
@@ -879,7 +886,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         allosteric_first = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
-            allosteric_regulators: ATP(1)
+            allosteric_regulators: ATP
             competitive_inhibitors: ATP
         end
         @test allosteric_first == rxn
@@ -888,7 +895,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         @test_throws Exception eval(:(@enzyme_reaction begin
             substrates: S[C]
             products: P[C]
-            allosteric_regulators: ATP(1), ATP(2)
+            allosteric_regulators: ATP, ATP
         end))
     end
 
@@ -906,19 +913,6 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         @test reg_types[:Y] == :inhibitor
         @test reg_types[:Z] == :unspecified
 
-        # Call-form entry with explicit multiplicities plus a type tag:
-        # `X(1,2)::Inhibitor` — the type peels, then the inner `X(1,2)`
-        # parses through the call-form branch for its multiplicities.
-        rxn_call = @enzyme_reaction begin
-            substrates: A[C6H12O6]
-            products: B[C6H12O6]
-            allosteric_regulators: X(1, 2)::Inhibitor
-            oligomeric_state: 2
-        end
-        rm_call = only(EnzymeRates.regulators(rxn_call))
-        @test EnzymeRates.allowed_multiplicities(rm_call) == [1, 2]
-        @test EnzymeRates.reg_type(rm_call) == :inhibitor
-
         @test_throws Exception eval(:(@enzyme_reaction begin
             substrates: A[C6H12O6]
             products: B[C6H12O6]
@@ -927,10 +921,11 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         end))
         # A competitive inhibitor takes no type tag; the reaction's regulator rejects it.
         for (tag, t) in ((:Activator, :activator), (:Inhibitor, :inhibitor))
-            @test_throws(ErrorException("RegulatorMults: X is a competitive inhibitor, " *
-                                        "which takes no regulator type, got :$t; only an " *
-                                        "allosteric regulator is an activator " *
-                                        "(::Activator) or an inhibitor (::Inhibitor)"),
+            @test_throws(ErrorException("DeclaredRegulator: X is a competitive " *
+                                        "inhibitor, which takes no regulator type, got " *
+                                        ":$t; only an allosteric regulator is an " *
+                                        "activator (::Activator) or an inhibitor " *
+                                        "(::Inhibitor)"),
                          eval(:(@enzyme_reaction begin
                 substrates: A[C6H12O6]
                 products: B[C6H12O6]
@@ -1105,8 +1100,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                 products:   P[C]
                 oligomeric_state: 1, 2
             end""")))
-        # Each multiplicity once: a bare regulator takes the list as its own, so a
-        # repeat would give the regulator a list the reaction does not hold.
+        # Each multiplicity once.
         @test_throws("@enzyme_reaction: `oligomeric_state:` lists a multiplicity more " *
                      "than once; got (2, 2).", eval(:(@enzyme_reaction begin
             substrates: S[C]
@@ -1114,14 +1108,6 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             allosteric_regulators: A
             oligomeric_state: (2, 2)
         end)))
-        @test_throws(ErrorException("RegulatorMults: A's allowed_multiplicities must be " *
-                                    "a nonempty list of distinct Ints ≥ 1, got [2, 2]"),
-                     @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            allosteric_regulators: A(2, 2)
-            oligomeric_state: 2
-        end)
     end
 
     @testset "@enzyme_reaction shared_catalytic_site" begin
@@ -1164,8 +1150,8 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
 
     @testset "a reaction prints as the @enzyme_reaction text that builds it" begin
         # The reaction shapes the tests use: one formula per reactant, competitive
-        # inhibitors with a reactant among them, allosteric regulators with types and
-        # multiplicities, a name in both regulator roles, declared in either order, one
+        # inhibitors with a reactant among them, allosteric regulators with and without
+        # types, a name in both regulator roles, declared in either order, one
         # or several catalytic multiplicities and shared catalytic sites. The printed
         # text builds an equal reaction.
         reactions = [
@@ -1177,43 +1163,41 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                 substrates: S[C6H12O6], ATP[C10H16N5O13P3]
                 products:   P[C6H13O9P], ADP[C10H15N5O10P2]
                 competitive_inhibitors: I, P
-                allosteric_regulators: X::Activator, Y(1, 2)::Inhibitor, Z, W(4)
+                allosteric_regulators: X::Activator, Y::Inhibitor, Z, W
                 oligomeric_state: 4
             end),
             @enzyme_reaction(begin
                 substrates: A[C2H3], B[NP]
                 products:   P[C2N], Q[H3P]
-                competitive_inhibitors: ATP, I(1, 2)
-                allosteric_regulators: ATP(1)
+                competitive_inhibitors: ATP, I
+                allosteric_regulators: ATP
                 oligomeric_state: (4, 1, 2)
                 shared_catalytic_site: (A, P), (Q, B)
             end),
             @enzyme_reaction(begin
                 substrates: S[C]
                 products:   P[C]
-                allosteric_regulators: ATP(1)
+                allosteric_regulators: ATP
                 competitive_inhibitors: ATP
                 oligomeric_state: 2
             end)]
         for rxn in reactions
             @test eval(Meta.parse(sprint(show, rxn))) == rxn
         end
-        # A regulator whose multiplicities are the catalytic ones prints bare (W), any
-        # other with its multiplicities (Y).
         @test sprint(show, reactions[2]) == """
             @enzyme_reaction begin
                 substrates: ATP[C10H16N5O13P3], S[C6H12O6]
                 products: ADP[C10H15N5O10P2], P[C6H13O9P]
                 competitive_inhibitors: I, P
-                allosteric_regulators: W, X::Activator, Y(1, 2)::Inhibitor, Z
+                allosteric_regulators: W, X::Activator, Y::Inhibitor, Z
                 oligomeric_state: 4
             end"""
         @test sprint(show, reactions[3]) == """
             @enzyme_reaction begin
                 substrates: A[C2H3], B[NP]
                 products: P[C2N], Q[H3P]
-                competitive_inhibitors: ATP, I(1, 2)
-                allosteric_regulators: ATP(1)
+                competitive_inhibitors: ATP, I
+                allosteric_regulators: ATP
                 oligomeric_state: (1, 2, 4)
                 shared_catalytic_site: (A, P), (B, Q)
             end"""

@@ -137,14 +137,14 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
              EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:B), [:N => 1]),
              EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1]),
              EnzymeRates.ReactantAtoms(EnzymeRates.Product(:Q),   [:N => 1])],
-            EnzymeRates.RegulatorMults[],
+            EnzymeRates.DeclaredRegulator[],
             Int[1],
         )
         EnzymeRates.init_mechanisms(r)
         r_uni = EnzymeRates.EnzymeReaction(
             [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
              EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1])],
-            EnzymeRates.RegulatorMults[],
+            EnzymeRates.DeclaredRegulator[],
             Int[1],
         )
         GC.gc()

@@ -134,11 +134,12 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `L_phantom`. These numbers rank the open search-speed and deduplication ideas.
   Priority: medium.
 - **Make per-regulator multiplicities such as `A(1, 2)` work.**
-  The DSL parses and stores a regulator's multiplicity list (`RegulatorMults`,
-  `src/types.jl`), but no enumeration move reads it: `_expand_to_allosteric` and
+  `@enzyme_reaction` rejects a regulator's multiplicity list such as `A(1, 2)`; the
+  syntax returns with this feature. `_expand_to_allosteric` and
   `_expand_add_allosteric_regulator` give every regulatory site the catalytic
-  multiplicity, so `A(1, 2)` does nothing. The derivation already powers each site by its
-  own multiplicity, so only enumeration changes: those two moves, and
+  multiplicity. The derivation already powers each site by its own multiplicity, so only
+  the DSL (`_parse_regulator_entries`, `src/dsl.jl`; `DeclaredRegulator`,
+  `src/types.jl`) and enumeration change: those two moves, and
   `_expand_merge_regulatory_sites`, which must merge only sites of equal multiplicity.
   Keep a bare `A` at the catalytic multiplicity, widen only on an explicit list, and
   reject `I(m)` for a competitive inhibitor. Priority: medium-low.

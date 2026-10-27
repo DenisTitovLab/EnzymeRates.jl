@@ -25,10 +25,6 @@ with their atoms, and the regulators and oligomeric states the search may use.
   allosteric state that activates or inhibits; an untagged one (`:unspecified`) may take
   either. Only these entries take a type tag. A name may be both a competitive
   inhibitor and an allosteric regulator.
-- A regulator may list its multiplicities, each once, `I(1, 2)` or `A(4)`; a bare name
-  takes the `oligomeric_state:` ones. The search reads only the mechanism's catalytic
-  multiplicity, which it also gives every regulatory site; the per-regulator lists are
-  stored but not read.
 - `oligomeric_state:` gives the catalytic multiplicities the search may assign: one
   positive Int, or a tuple of distinct ones such as `(1, 2, 4)`. It defaults to 1 and is
   given at most once.
@@ -54,14 +50,14 @@ julia> @enzyme_reaction begin
            substrates: S[C6H12O6], ATP[C10H16N5O13P3]
            products: P[C6H13O9P], ADP[C10H15N5O10P2]
            competitive_inhibitors: P
-           allosteric_regulators: A::Activator, I(2)::Inhibitor
+           allosteric_regulators: A::Activator, I::Inhibitor
            oligomeric_state: (1, 2)
        end
 @enzyme_reaction begin
     substrates: ATP[C10H16N5O13P3], S[C6H12O6]
     products: ADP[C10H15N5O10P2], P[C6H13O9P]
     competitive_inhibitors: P
-    allosteric_regulators: A::Activator, I(2)::Inhibitor
+    allosteric_regulators: A::Activator, I::Inhibitor
     oligomeric_state: (1, 2)
 end
 ```
@@ -76,10 +72,9 @@ Parse the `@enzyme_reaction` body. Returns a `NamedTuple`:
 - `reactants ::Vector{Tuple{Symbol, Symbol, Vector{Pair{Symbol,Int}}}}` —
   `(type, name, atoms)` with `type ∈ (:Substrate, :Product)` and `atoms` the
   `element => count` pairs.
-- `regs  ::Vector{Tuple{Symbol, Symbol, Vector{Int}, Symbol}}` —
-  `(type, name, mults, reg_type)` where `type ∈ (:CompetitiveInhibitor,
-  :AllostericRegulator)`, a bare entry takes the catalytic multiplicities, and
-  `reg_type ∈ (:activator, :inhibitor, :unspecified)`.
+- `regs  ::Vector{Tuple{Symbol, Symbol, Symbol}}` —
+  `(type, name, reg_type)` where `type ∈ (:CompetitiveInhibitor,
+  :AllostericRegulator)` and `reg_type ∈ (:activator, :inhibitor, :unspecified)`.
 - `mults ::Vector{Int}` — allowed catalytic multiplicities (default `[1]`).
 - `shared ::Vector{Tuple{Symbol,Symbol}}` — `shared_catalytic_site:` pairs.
 """
@@ -87,7 +82,7 @@ function _parse_reaction_block(block)
     block isa Expr && block.head === :block ||
         error("@enzyme_reaction: expected a `begin ... end` block, got $block")
     reactants = Tuple{Symbol, Symbol, Vector{Pair{Symbol,Int}}}[]
-    regs  = Tuple{Symbol, Symbol, Union{Nothing, Vector{Int}}, Symbol}[]
+    regs  = Tuple{Symbol, Symbol, Symbol}[]
     mults::Union{Nothing, Vector{Int}} = nothing
     shared = Tuple{Symbol,Symbol}[]
 
@@ -120,9 +115,7 @@ function _parse_reaction_block(block)
         error("@enzyme_reaction: `substrates:` not specified.")
     any(r -> r[1] === :Product, reactants) ||
         error("@enzyme_reaction: `products:` not specified.")
-    catalytic_mults = something(mults, [1])
-    regs = [(t, n, something(ms, catalytic_mults), rt) for (t, n, ms, rt) in regs]
-    (; reactants, regs, mults = catalytic_mults, shared)
+    (; reactants, regs, mults = something(mults, [1]), shared)
 end
 
 """
@@ -172,11 +165,11 @@ _positive_int(v, what) = v isa Integer && !(v isa Bool) && v >= 1 ? Int(v) :
     error("$what must be a positive Int, got $v.")
 
 """
-Parse `R`, `R(1, 2)`, or `R(4)` entries, optionally tagged with a regulator
-type: `R::Activator`, `R::Inhibitor`, or `R(1, 2)::Inhibitor`, into
-`(type, name, mults, reg_type)`. Bare `R` produces `nothing` mults (filled from the
-`oligomeric_state:` multiplicities, default `[1]`) and reg_type `:unspecified`.
-`RegulatorMults` rejects a type tag on a competitive inhibitor.
+Parse `R` entries, optionally tagged with a regulator type, `R::Activator` or
+`R::Inhibitor`, into `(type, name, reg_type)`; an untagged `R` has reg_type
+`:unspecified`. A multiplicity list such as `R(1, 2)` is an error: a regulator takes the
+`oligomeric_state:` multiplicities. `DeclaredRegulator` rejects a type tag on a
+competitive inhibitor.
 """
 function _parse_regulator_entries(values, type::Symbol)
     map(values) do v
@@ -188,19 +181,17 @@ function _parse_regulator_entries(values, type::Symbol)
                    error("@enzyme_reaction: unknown regulator type tag ::$tag " *
                          "on $v; use ::Activator or ::Inhibitor.")
         end
-        inner isa Symbol && return (type, inner, nothing, reg_type)
+        inner isa Symbol && return (type, inner, reg_type)
         inner isa Expr && inner.head === :call && length(inner.args) >= 2 &&
-            inner.args[1] isa Symbol ||
-            error("@enzyme_reaction: cannot parse regulator entry $v. " *
-                  "Use `R` or `R(1, 2)`.")
-        name = inner.args[1]::Symbol
-        what = "@enzyme_reaction: regulator $name multiplicity"
-        (type, name, Int[_positive_int(a, what) for a in inner.args[2:end]], reg_type)
+            inner.args[1] isa Symbol && all(a -> a isa Integer, inner.args[2:end]) &&
+            error("@enzyme_reaction: regulator $(inner.args[1]) lists multiplicities, " *
+                  "got `$v`; a regulator takes the `oligomeric_state:` multiplicities, " *
+                  "so list $(inner.args[1]) bare.")
+        error("@enzyme_reaction: cannot parse regulator entry $v. Use `R`.")
     end
 end
 
-"""Parse `(1, 2, 4)` or `4` into `Vector{Int}`, each multiplicity listed once: a bare
-regulator takes the list as its own."""
+"""Parse `(1, 2, 4)` or `4` into `Vector{Int}`, each multiplicity listed once."""
 function _parse_multiplicity_tuple(values, label)
     v = values[1]
     length(values) == 1 && v != Expr(:tuple) ||
@@ -215,7 +206,7 @@ end
 
 """
 Build the `EnzymeReaction` `Expr` from parsed declarations: `reactants` as
-`(type, name, atoms)` and `regulators` as `(type, name, mults, reg_type)`, each
+`(type, name, atoms)` and `regulators` as `(type, name, reg_type)`, each
 `type` naming the `Metabolite` subtype to construct. The macro returns it unescaped, so
 hygiene resolves its names in EnzymeRates itself and the macro works in a module that
 imports the package under another name or imports only the macro.
@@ -226,13 +217,13 @@ function _reaction_expr(reactants, regulators, mults, shared)
             Pair{Symbol,Int}[$((:($(QuoteNode(e)) => $c) for (e, c) in atoms)...)]))
         for (type, name, atoms) in reactants]
     regulator_exprs = [
-        :(EnzymeRates.RegulatorMults(EnzymeRates.$type($(QuoteNode(name))),
-                                     Int[$(ms...)], $(QuoteNode(reg_type))))
-        for (type, name, ms, reg_type) in regulators]
+        :(EnzymeRates.DeclaredRegulator(EnzymeRates.$type($(QuoteNode(name))),
+                                        $(QuoteNode(reg_type))))
+        for (type, name, reg_type) in regulators]
     shared_exprs = [:(($(QuoteNode(a)), $(QuoteNode(b)))) for (a, b) in shared]
     :(EnzymeRates.EnzymeReaction(
         EnzymeRates.ReactantAtoms[$(reactant_exprs...)],
-        EnzymeRates.RegulatorMults[$(regulator_exprs...)], Int[$(mults...)];
+        EnzymeRates.DeclaredRegulator[$(regulator_exprs...)], Int[$(mults...)];
         shared_catalytic_site = Tuple{Symbol,Symbol}[$(shared_exprs...)]))
 end
 
