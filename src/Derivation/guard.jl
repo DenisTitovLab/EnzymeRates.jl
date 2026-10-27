@@ -11,14 +11,14 @@ sit (spec section 8): the guard (`_guard`) finds no fault, and the error is its 
 graph through masks and builds nothing. The mechanism macros and the parser call it, and
 every derivation entry runs its check (`_derivation_input`, `_well_posed`). It reads the
 verdict through the memo (`_Memo`). Identify's base tier, the enumerator's exits and its
-flip and tagging searches keep what `has_valid_rate_equation` accepts. The constructors
-and the Sig decoder call neither, so code that builds a mechanism internally never trips a
-check meant for the mechanisms it returns.
+flip, split and tagging searches keep what `has_valid_rate_equation` accepts. The
+constructors and the Sig decoder call neither, so code that builds a mechanism internally
+never trips a check meant for the mechanisms it returns.
 """
 check_valid_rate_equation(m::Mechanisms._AnyMech) = _check_verdict(m, _memo_verdict(m))
 
 """Whether `check_valid_rate_equation(m)` passes: identify's base tier, the enumerator's
-exits and its flip and tagging searches keep a mechanism exactly when it does."""
+exits and its flip, split and tagging searches keep a mechanism exactly when it does."""
 has_valid_rate_equation(m::Mechanisms._AnyMech) = _memo_verdict(m).fault === _NO_FAULT
 
 """Error with the guard's message (`_guard_message`) unless `m`'s verdict `v` holds no

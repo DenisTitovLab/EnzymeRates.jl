@@ -2302,7 +2302,7 @@ end
     @test_throws clash_a rate_equation(conformation_a, (b = 1.0, Eb = 0.1), params)
     @test_throws clash_a rate_equation_string(conformation_a)
     @test_throws clash_a all_parameters(conformation_a, params)
-    @test_throws clash_a EnzymeRates.Derivation._independent_param_count(am_a)
+    @test_throws clash_a EnzymeRates.Derivation.parameter_count(am_a)
 
     # Labelled I, the :EqualAI uptake constant k_I_Eb_to_IEb is the name of the
     # :NonequalAI step's inactive constant.

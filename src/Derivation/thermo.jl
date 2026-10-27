@@ -309,7 +309,7 @@ _solve(@nospecialize(M::Type{<:Mechanisms.AbstractEnzymeMechanism})) =
 
 """Number of independent (fitted) constants of a concrete mechanism, from the joint solve,
 without compiling the mechanism."""
-_independent_param_count(m::Mechanisms._AnyMech) = length(_solve(m).fitted)
+parameter_count(m::Mechanisms._AnyMech) = length(_solve(m).fitted)
 
 # ─── Cycle-space helpers of the limit test ─────────────────────────────────
 

@@ -1396,7 +1396,7 @@ end
     @test _testhelper_laplacian_tree_count(
         cm, EnzymeRates.Mechanisms._inactive_mask(ktype)) == 16
     @test EnzymeRates.Derivation.rate_equation_complexity(ktype) == 352
-    @test EnzymeRates.Derivation._independent_param_count(ktype) == 16
+    @test EnzymeRates.Derivation.parameter_count(ktype) == 16
     batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[ktype]
     _, _, n_param_skip, n_cx_skip = EnzymeRates._process_batch(
         batch, prob; optimizer=CMAEvolutionStrategyOpt(),
@@ -2355,8 +2355,8 @@ end
         end
     end)
     @test m1 != m2
-    @test EnzymeRates.Derivation._independent_param_count(m1) ==
-          EnzymeRates.Derivation._independent_param_count(m2)
+    @test EnzymeRates.Derivation.parameter_count(m1) ==
+          EnzymeRates.Derivation.parameter_count(m2)
     c1, c2 = _testhelper_pass1_canonical.((m1, m2))
     @test c1.key == c2.key
     @test _testhelper_same_law_under_map(EnzymeRates.Derivation._law(m1),
@@ -2435,8 +2435,8 @@ end
     # the free-enzyme Lactate constant in the active conformation, and the inactive one
     # binds no NADH. Both forms fit the same constants, as many as the test's own count
     # of the dimension.
-    @test EnzymeRates.Derivation._independent_param_count(am1) ==
-          EnzymeRates.Derivation._independent_param_count(am2) == 7
+    @test EnzymeRates.Derivation.parameter_count(am1) ==
+          EnzymeRates.Derivation.parameter_count(am2) == 7
     @test _testhelper_declared_dimension(am1) == _testhelper_declared_dimension(am2) == 7
     @test EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am1)) ==
           EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am2))

@@ -150,7 +150,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   A child whose law equals one already fitted, up to renaming its constants, shares that
   fit through the key (`_canonical`, `src/Derivation/key.jl`) and costs no fit; a zero-gain
   child with a law of its own still costs one. First count, over the bi-bi allosteric
-  depth-2 population, the children whose `_independent_param_count` does not exceed their
+  depth-2 population, the children whose `parameter_count` does not exceed their
   parent's and whose key is new, and confirm them with `_testhelper_identifiable_rank`. A
   naive filter can drop a different model with the same count, so check reachability
   before filtering. Priority: medium-low.

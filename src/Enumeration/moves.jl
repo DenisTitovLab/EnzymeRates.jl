@@ -320,23 +320,25 @@ Kinetic-group split move. A unit is one context bipartition of one group
 (`_context_bipartitions`: the affinity for a metabolite may depend on which
 other ligand is already bound). One child is produced per minimal set of units,
 at most one per group, whose joint application raises the independent-parameter
-count (`_minimal_gaining_sets`). A single bipartition whose new constant a
-Wegscheider cycle ties straight back is not a model: the cycle ties the new constant to the
-others, so the child's rate function is the parent's. Such a bipartition
+count and gives a child the guard accepts (`_minimal_gaining_sets`). A single
+bipartition whose new constant a Wegscheider cycle ties straight back is not a model:
+the cycle ties the new constant to the others, so the child's rate function is the
+parent's. Such a bipartition
 is kept as a seed for pairs and larger sets, because the cycle that absorbs it
 is broken by also splitting another group on that cycle — random-order binding
 needs one split per substrate before any constant frees up. Partners for a
 rejected set are the all-RE groups sharing a rapid-equilibrium segment with any
 step of the split groups: a tie needs an RE cycle through the carve, and every
 group on that cycle lies in that segment. The count is the joint solve's on the built
-child (`_split_gain_test`).
+child (`parameter_count`), which derives no rate polynomial, and a set whose child the
+guard rejects (`has_valid_rate_equation`) also counts as failed, so the search extends it
+instead of emitting it.
 A part of a steady-state group none of whose edges carries flux
 (`_flux_carrying_edges`, computed once on the parent, since a split moves no edge)
 is emitted at rapid equilibrium (`_revert_zero_flux_parts`), the same family with
-one constant fewer; the gain test counts the reverted part under
+one constant fewer; the count takes the reverted part under
 its new kind, so a reverted constant the Wegscheider ties pull back is absorbed
-like any tied split, and a candidate whose reverted groups leave a rapid-equilibrium
-segment without a bottom form counts as failed. A split of any group can complete a
+like any tied split. A split of any group can complete a
 copy's gauge, by separating a binding that forms or leaves a twin from the bindings
 elsewhere in its group that blocked the gauge (the split then holds the family of the
 copy its shared group pinned), and a split of a group that forms a copy's
@@ -369,11 +371,17 @@ function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
         end
         re
     end
-    gain = _split_gain_test(m, units, flags_of)
+    base = Derivation.parameter_count(m)
+    # The child of each set the search accepts, built once and emitted as judged.
+    accepted = Dict{Vector{Int}, typeof(m)}()
+    function gains(sel)
+        c = _apply_bipartitions(m, units[sel], flags_of(sel))
+        Derivation.parameter_count(c) > base && Derivation.has_valid_rate_equation(c) ||
+            return false
+        accepted[sel] = c
+        true
+    end
     every = trues(length(cm.edges))
-    gains(sel) = (all(u -> isempty(reverted[u]), sel) ||
-                  isempty(Derivation._bottomless_segment(cm, every, flags_of(sel)))) &&
-                 gain(sel)
     # RE segment ids touched by each kinetic group's edges; empty for a steady-state
     # group, which lies on no RE cycle and so never partners a set that does not gain.
     segment_of = Mechanisms._segments(cm, every, flags).segment_of
@@ -386,28 +394,8 @@ function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
         [u for u in 1:length(units)
          if !(units[u][1] in used) && !isempty(intersect(segments[units[u][1]], touched))]
     end
-    sets = _minimal_gaining_sets(gains, partners)
     filter!(c -> isempty(_redundant_copy_groups(c)),
-            typeof(m)[_apply_bipartitions(m, units[sel], flags_of(sel)) for sel in sets])
-end
-
-"""
-The split move's gain test: `gains(sel)` is true when the child built from the selected
-units, with the flags `flags_of(sel)` (`_apply_bipartitions`), has more independent
-parameters than the parent by the joint solve (`_independent_param_count`), which derives
-no rate polynomial. For an allosteric mechanism, both parts of a split group inherit its
-tag and admission's interior reads each edge's tag, so a split never changes the interior
-verdict (`_admission_interior`); the faces can change through the new group ties and the
-parts it reverts to rapid equilibrium, and the exit (`expand_mechanisms`) drops such a
-child.
-"""
-function _split_gain_test(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
-                          units, flags_of)
-    base = Derivation._independent_param_count(m)
-    gains(sel) =
-        Derivation._independent_param_count(
-            _apply_bipartitions(m, units[sel], flags_of(sel))) > base
-    gains
+            typeof(m)[accepted[sel] for sel in _minimal_gaining_sets(gains, partners)])
 end
 
 """

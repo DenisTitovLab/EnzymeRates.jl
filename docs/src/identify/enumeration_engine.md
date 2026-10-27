@@ -215,11 +215,12 @@ separated from the catalytic binding whose constants it shared, is emitted at
 rapid equilibrium: its two rates would enter the equation only as their ratio, and
 the equilibrium form is the same family with one constant fewer. The count test
 runs on that form, so a constant the thermodynamic ties pull back is still
-rejected. No split child holds a redundant copy (see move 3). The move judges
-each child whole: splitting one group can complete a copy's dwell gauge, and
-splitting a group that forms the productive complexes the copy duplicates can
-break it, so whether a part of a copy group is redundant depends on every group
-the child splits.
+rejected. A set whose child the well-posedness guard rejects counts as failed too,
+so the move extends it rather than emitting it. No split child holds a redundant
+copy (see move 3). The move judges each child whole: splitting one group can
+complete a copy's dwell gauge, and splitting a group that forms the productive
+complexes the copy duplicates can break it, so whether a part of a copy group is
+redundant depends on every group the child splits.
 
 **Parameter delta:** at least +1 by construction. A child that would add nothing
 is never emitted.

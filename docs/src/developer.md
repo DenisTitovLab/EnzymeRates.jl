@@ -254,8 +254,8 @@ spell one string two ways, such as `NAD`, `P` and `NADP`, never reach the constr
 Whether a mechanism's rate law is defined is the well-posedness guard's question
 (`src/Derivation/guard.jl`; see [Well-posedness guard](@ref)). The macros, the parser and
 every derivation entry throw on a mechanism it rejects (`check_valid_rate_equation`), and
-identify's base tier, the enumerator's exits and its flip and tagging searches drop one
-(`has_valid_rate_equation`). The constructors and the Sig decoder do not run it.
+identify's base tier, the enumerator's exits and its flip, split and tagging searches drop
+one (`has_valid_rate_equation`). The constructors and the Sig decoder do not run it.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see
@@ -269,13 +269,11 @@ at a time, through `compile_mechanism`.
 
 The moves never emit a child that is provably a reparameterization
 of its parent. The split move divides a group by binding context and accepts a
-set of splits only if the independent-parameter count rises; the count comes from
-the joint solve on the built child, which derives no rate polynomial
-(`_split_gain_test`).
-A split never changes admission's interior verdict, since both parts keep the group's tag,
-and a child the guard rejects, inside or on a face, is dropped where `expand_mechanisms`
-returns it. The search extends a failed set by the splits of the groups that share its
-rapid-equilibrium segments. The RE→SS move flips whole groups and
+set of splits only if the independent-parameter count rises and the guard accepts the
+built child; the count comes from the joint solve (`parameter_count`), which derives no
+rate polynomial. A set whose child the guard rejects counts as failed, like one whose
+count does not rise, and the search extends a failed set by the splits of the groups that
+share its rapid-equilibrium segments. The RE→SS move flips whole groups and
 accepts a set only if the rapid-equilibrium segment count rises and every flipped group
 carries net flux in the child. In a `Mechanism` it never offers as a unit a flank
 of a qualifying chain whose isomerization is steady state (`_chain_flank_groups`):
@@ -351,8 +349,8 @@ the rapid-equilibrium segment graph of the catalytic scheme, leaving out every
 edge that touches a form holding a modifier, a reactant's modifier copy included: for
 each substrate and product, a directed steady-state edge scores one if it binds the
 metabolite in that direction plus the count the edge's source form carries beyond its
-segment's bottom form (the offsets of `_segments`, which the split move's
-`_bottomless_segment` also reads), and a segment scores the most any of its forms
+segment's bottom form (the offsets of `_segments`, which `_bottomless_segment` also
+reads), and a segment scores the most any of its forms
 carries. The equation's degree in the
 metabolite is the best score over root segments and spanning arborescences toward
 the root; the predicate decides "at most 1" with reachability checks

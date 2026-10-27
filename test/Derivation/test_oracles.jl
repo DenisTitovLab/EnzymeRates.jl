@@ -436,14 +436,14 @@ end
 bipartition (`_context_bipartitions`) that the guard accepts and that keeps the
 independent count."""
 function _testhelper_same_model_regroupings(m)
-    n = EnzymeRates.Derivation._independent_param_count(m)
+    n = EnzymeRates.Derivation.parameter_count(m)
     cm = EnzymeRates.Mechanisms.catalytic(m)
     kept = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
     for g in 1:EnzymeRates.Mechanisms.ngroups(cm),
         bp in EnzymeRates.Enumeration._context_bipartitions(cm, g)
         child = EnzymeRates.Enumeration._apply_bipartitions(m, [(g, bp)])
         EnzymeRates.Derivation.has_valid_rate_equation(child) &&
-            EnzymeRates.Derivation._independent_param_count(child) == n &&
+            EnzymeRates.Derivation.parameter_count(child) == n &&
             push!(kept, child)
     end
     kept
@@ -459,7 +459,7 @@ const _testhelper_sample_regroupings =
         # Success criterion 4: a phantom or folded fitted name would raise the count
         # above the dimension the test counts on its own.
         miscounted = [i for (i, m) in enumerate(_testhelper_population_one_round)
-                      if EnzymeRates.Derivation._independent_param_count(m) !=
+                      if EnzymeRates.Derivation.parameter_count(m) !=
                          _testhelper_declared_dimension(m)]
         @test isempty(miscounted)
         for m in _testhelper_population_sample[1:10]
@@ -1439,12 +1439,12 @@ end
     n_regrouped = 0
     for m in _testhelper_population_sample
         fault, n = EnzymeRates.Derivation._guard(m).fault,
-            EnzymeRates.Derivation._independent_param_count(m)
+            EnzymeRates.Derivation.parameter_count(m)
         cm = EnzymeRates.Mechanisms.catalytic(m)
         for g in 1:EnzymeRates.Mechanisms.ngroups(cm),
             bp in EnzymeRates.Enumeration._context_bipartitions(cm, g)
             child = EnzymeRates.Enumeration._apply_bipartitions(m, [(g, bp)])
-            EnzymeRates.Derivation._independent_param_count(child) == n || continue
+            EnzymeRates.Derivation.parameter_count(child) == n || continue
             n_regrouped += 1
             @test EnzymeRates.Derivation._guard(child).fault === fault
         end
