@@ -20,10 +20,7 @@ export identify_rate_equation
 
 
 using Dates
-using Tables
-using Optimization
 using Distributed
-using FunctionWrappers: FunctionWrapper
 using SHA: sha256
 
 include("Mechanisms/Mechanisms.jl")
@@ -33,7 +30,8 @@ include("Derivation/Derivation.jl")
 using .Derivation: Derivation, rate_equation, rate_equation_string, parameters,
     all_parameters, fitted_params
 include("macros.jl")
-include("fitting.jl")
+include("Fitting/Fitting.jl")
+using .Fitting: Fitting, FittingProblem, fit_rate_equation, rescale_parameter_values
 include("mechanism_enumeration.jl")
 include("identify_rate_equation.jl")
 

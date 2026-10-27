@@ -105,7 +105,7 @@ end
     x = [log(params[p]) for p in EnzymeRates.fitted_params(am)]
     at_nan = FittingProblem(am, _testhelper_table(0.5, 1.0, 0.0); Keq = 1.0, reference)
     at_zero = FittingProblem(am, _testhelper_table(0.5, 0.0, 1.0); Keq = 1.0, reference)
-    @test EnzymeRates.loss!(x, at_nan) == EnzymeRates.loss!(x, at_zero)
+    @test EnzymeRates.Fitting.loss!(x, at_nan) == EnzymeRates.Fitting.loss!(x, at_zero)
 end
 
 @testset "the law and ε networks: a node per form and copy, two transitions per edge" begin

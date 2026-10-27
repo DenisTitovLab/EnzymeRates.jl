@@ -135,7 +135,8 @@ end
         np = length(EnzymeRates.fitted_params(uni_uni))
         @test all(1:10) do _
             x = randn(np) .* 2.0
-            isapprox(EnzymeRates.loss!(x, fp1), EnzymeRates.loss!(x, fp2); rtol=1e-12)
+            isapprox(EnzymeRates.Fitting.loss!(x, fp1), EnzymeRates.Fitting.loss!(x, fp2);
+                     rtol=1e-12)
         end
     end
 
@@ -150,8 +151,8 @@ end
         fp_abs = FittingProblem(uni_uni, data; Keq=Keq_val, absolute=true)
 
         # At true params both modes are ~0 (predictions match data exactly).
-        @test EnzymeRates.loss!(x_true, fp_rel) ≈ 0.0 atol=1e-20
-        @test EnzymeRates.loss!(x_true, fp_abs) ≈ 0.0 atol=1e-20
+        @test EnzymeRates.Fitting.loss!(x_true, fp_rel) ≈ 0.0 atol=1e-20
+        @test EnzymeRates.Fitting.loss!(x_true, fp_abs) ≈ 0.0 atol=1e-20
 
         # Scale every rate by 3 (a pure per-group offset). Relative loss is
         # invariant (centering removes it); absolute loss sees it: every
@@ -160,8 +161,8 @@ end
         fp_rel3 = FittingProblem(uni_uni, data3; Keq=Keq_val,
                                  reference=_testhelper_row_reference(data3))
         fp_abs3 = FittingProblem(uni_uni, data3; Keq=Keq_val, absolute=true)
-        @test EnzymeRates.loss!(x_true, fp_rel3) ≈ 0.0 atol=1e-20
-        @test EnzymeRates.loss!(x_true, fp_abs3) ≈ log(3.0)^2 rtol=1e-8
+        @test EnzymeRates.Fitting.loss!(x_true, fp_rel3) ≈ 0.0 atol=1e-20
+        @test EnzymeRates.Fitting.loss!(x_true, fp_abs3) ≈ log(3.0)^2 rtol=1e-8
     end
 
     # ── absolute and reference keywords ───────────────────────────────────────
@@ -209,7 +210,7 @@ end
             )
             fp = FittingProblem(uni_uni, data; Keq=Keq_val,
                                 reference=_testhelper_row_reference(data))
-            l = EnzymeRates.loss!(x, fp)
+            l = EnzymeRates.Fitting.loss!(x, fp)
             @test l > 0.0
             @test l ≈ 100.0
         end
@@ -225,7 +226,7 @@ end
             )
             fp = FittingProblem(uni_uni, data; Keq=Keq_val,
                                 reference=_testhelper_row_reference(data))
-            l = EnzymeRates.loss!(x, fp)
+            l = EnzymeRates.Fitting.loss!(x, fp)
             @test l > 0.0
             @test l ≈ 100.0
         end
@@ -241,7 +242,7 @@ end
             )
             fp = FittingProblem(uni_uni, data; Keq=Keq_val,
                                 reference=_testhelper_row_reference(data))
-            l = EnzymeRates.loss!(x, fp)
+            l = EnzymeRates.Fitting.loss!(x, fp)
             @test l > 0.0
             @test l ≈ 100.0
         end
@@ -250,7 +251,7 @@ end
     # ── Zero allocations ──────────────────────────────────────────────────────
     # Measured inside a function so the count excludes boxing the Float64 return
     # of a dynamically dispatched call (Julia < 1.12 `@allocated` counts it).
-    loss_allocs(x, fp) = @allocated EnzymeRates.loss!(x, fp)
+    loss_allocs(x, fp) = @allocated EnzymeRates.Fitting.loss!(x, fp)
 
     @testset "Zero allocations" begin
         concs_list = [(S = Float64(i), P = 0.1) for i in 1:20]
@@ -290,7 +291,8 @@ end
     # and for the column view of its population that CMA-ES passes.
     function _testhelper_optimization_problem(fp)
         n = length(EnzymeRates.fitted_params(fp.mechanism))
-        EnzymeRates._optimization_problem(fp, zeros(n), fill(-15.0, n), fill(15.0, n))
+        EnzymeRates.Fitting._optimization_problem(fp, zeros(n), fill(-15.0, n),
+                                                  fill(15.0, n))
     end
     objective_allocs(prob, x) = @allocated prob.f(x, prob.p)
 
@@ -313,7 +315,7 @@ end
                 population = randn(length(prob.u0), 3)
                 x = population[:, 2]
                 for x_in in (x, view(population, :, 2))
-                    @test prob.f(x_in, prob.p) == EnzymeRates.loss!(x, fp)
+                    @test prob.f(x_in, prob.p) == EnzymeRates.Fitting.loss!(x, fp)
                     objective_allocs(prob, x_in)  # warmup
                     @test objective_allocs(prob, x_in) == 0
                 end
@@ -363,7 +365,7 @@ end
                             reference=_testhelper_row_reference(data))
 
         x = randn(length(EnzymeRates.fitted_params(ordered_bi_bi)))
-        EnzymeRates.loss!(x, fp)  # warmup/compile
+        EnzymeRates.Fitting.loss!(x, fp)  # warmup/compile
 
         # Minimum over several batches defeats the GC/scheduling inflation a
         # single mean suffers (matches _testhelper_test_rate_equation_performance); the
@@ -372,7 +374,7 @@ end
         acc = 0.0
         for _ in 1:5
             acc = 0.0
-            t = @elapsed for _ in 1:2000; acc += EnzymeRates.loss!(x, fp); end
+            t = @elapsed for _ in 1:2000; acc += EnzymeRates.Fitting.loss!(x, fp); end
             best_us = min(best_us, t / 2000 * 1e6)
         end
         isfinite(acc) || error("loss! produced a non-finite result")

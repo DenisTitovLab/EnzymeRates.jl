@@ -16,7 +16,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   hand-written mechanisms meet this: enumerated dead-end bindings stay at rapid
   equilibrium.
 - **A fit is not thread-safe.**
-  `loss!` (`src/fitting.jl`) writes its problem's shared `log_ratios_buffer`, and
+  `loss!` (`src/Fitting/fitting.jl`) writes its problem's shared `log_ratios_buffer`, and
   `_fit_loss` copies each point into the one `x_buf` of its `FitObjective`, so an
   optimizer that scores points on several threads at once, such as CMA-ES with
   `multi_threading` passed through `solver_kwargs`, would race on both buffers. Fits run
@@ -193,8 +193,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   one-subunit variants would drop these fits; first check that no other law becomes
   unreachable.
 - **Seed each identify fit from its mechanism's content.**
-  `fit_rate_equation` (`src/fitting.jl`) draws each restart's starting point with `randn`
-  from the running task's random stream, and `_process_batch`
+  `fit_rate_equation` (`src/Fitting/fitting.jl`) draws each restart's starting point with
+  `randn` from the running task's random stream, and `_process_batch`
   (`src/identify_rate_equation.jl`) fits a batch's representatives in the iteration order of
   a `Dict` keyed by the rate-law key (`_canonical`), filled in the order the moves emit the
   mechanisms. So a change of emission order or of a law's key moves the starting points of
@@ -244,8 +244,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `@enzyme_reaction` rejects a reaction whose names spell one name two ways and names both
   spellings, and renaming one metabolite removes the collision, so no separator is needed.
 - **Map BlackBoxOptim's convergence stop to `Success` upstream in OptimizationBase.** Only
-  BlackBoxOptim users meet the warning, `test/test_fitting.jl` captures it, and the docs
-  and HPC scripts use CMA-ES.
+  BlackBoxOptim users meet the warning, `test/Fitting/test_fitting.jl` captures it, and the
+  docs and HPC scripts use CMA-ES.
 - **Load identify CSVs written by EnzymeRates 0.7 or earlier, or that name a mechanism by
   its type string (`mechanism_type`) instead of its text and id.** The loader would be a
   backward-compatibility shim; rerunning is cleaner, and the CSVs read as plain tables.

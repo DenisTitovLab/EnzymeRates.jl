@@ -369,7 +369,7 @@ move.
 ## Optimization algorithm architecture
 
 Fitting reaches solvers only through Optimization.jl; the package ships no solver of
-its own. `fit_rate_equation` (`src/fitting.jl`) builds an `OptimizationProblem`
+its own. `fit_rate_equation` (`src/Fitting/fitting.jl`) builds an `OptimizationProblem`
 whose objective, `_fit_loss`, scores each point with `loss!` through a
 `FitObjective` (see [Derivation architecture](@ref)), and calls
 `Optimization.solve` with whatever optimizer the caller passes. This gives the

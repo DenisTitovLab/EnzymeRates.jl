@@ -43,7 +43,7 @@ function IdentifyRateEquationProblem(
 )
     mnames = Mechanisms._metabolite_names(reaction)
     # Every metabolite the reaction declares needs a concentration column.
-    data = _rate_table(table, mnames, Keq)
+    data = Fitting._rate_table(table, mnames, Keq)
 
     # Validate at least 2 groups for CV
     n_groups = length(unique(data.group))
@@ -52,7 +52,7 @@ function IdentifyRateEquationProblem(
         "cross-validation, got $n_groups")
 
     IdentifyRateEquationProblem{typeof(data)}(reaction, data, Keq, absolute,
-        _reference(reference, absolute, mnames, "reaction"))
+        Fitting._reference(reference, absolute, mnames, "reaction"))
 end
 
 """
@@ -1118,7 +1118,8 @@ function _cv_fold_loss(
     held = prob.data.group .== held_out
     fit = fit_rate_equation(_fold_problem(mechanism, prob, .!held), optimizer; kwargs...)
     # `fit.params` is keyed by `fitted_params(mechanism)`, the order `loss!` reads.
-    test_loss = loss!([log(v) for v in fit.params], _fold_problem(mechanism, prob, held))
+    test_loss = Fitting.loss!([log(v) for v in fit.params],
+                              _fold_problem(mechanism, prob, held))
     # A non-finite fold loss means the fit is unusable; aborting model
     # selection is correct (re-run CV from the saved CSVs after fixing
     # the fit).
