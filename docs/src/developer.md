@@ -275,10 +275,8 @@ at a time, through `compile_mechanism`.
 The moves never emit a child that is provably a reparameterization
 of its parent. The split move divides a group by binding context and accepts a
 set of splits only if the independent-parameter count rises; the count comes from
-the thermodynamic constraint solve, and for a `Mechanism` it is evaluated without
-building the child, from a cycle basis computed once per parent
-(`_partition_independent_count`). For an `AllostericMechanism` it is the joint solve's
-count on the built child, which derives no rate polynomial (`_split_gain_test`).
+the joint solve on the built child, which derives no rate polynomial
+(`_split_gain_test`).
 A split never changes admission's interior verdict, since both parts keep the group's tag,
 and a child the guard rejects, inside or on a face, is dropped where `expand_mechanisms`
 returns it. The search extends a failed set by the splits of the groups that share its

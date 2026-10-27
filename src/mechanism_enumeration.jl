@@ -1088,9 +1088,8 @@ is broken by also splitting another group on that cycle — random-order binding
 needs one split per substrate before any constant frees up. Partners for a
 rejected set are the all-RE groups sharing a rapid-equilibrium segment with any
 step of the split groups: a tie needs an RE cycle through the carve, and every
-group on that cycle lies in that segment. The count is evaluated without building the child
-for a `Mechanism` (`_partition_independent_count`, cycle basis once per parent)
-and by the joint solve on the built child for an `AllostericMechanism` (`_split_gain_test`).
+group on that cycle lies in that segment. The count is the joint solve's on the built
+child (`_split_gain_test`).
 A part of a steady-state group none of whose edges carries flux
 (`_flux_carrying_edges`, computed once on the parent, since a split moves no edge)
 is emitted at rapid equilibrium (`_revert_zero_flux_parts`), the same family with
@@ -1150,38 +1149,20 @@ function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
             typeof(m)[_apply_bipartitions(m, units[sel], flags_of(sel)) for sel in sets])
 end
 
-"""The split move's gain test for a plain mechanism: `gains(sel)` is true when applying
-the selected units, with the flags `flags_of(sel)`, raises the independent-parameter count
-above the parent's. Each edge is counted under its group in the child
-(`_bipartitioned_groups`) and the kind its flag in the child gives it."""
-function _split_gain_test(m::Mechanism, units, flags_of)
-    counter = _partition_independent_count(m)
-    flat = _flat_edges(m)
-    kinds(re) = Symbol[_count_kind(m.edges[k], re[k]) for k in flat]
-    base = counter(m.group[flat], kinds(_flags(m)))
-    function gains(sel)
-        group, _ = _bipartitioned_groups(m, units[sel])
-        counter(group[flat], kinds(flags_of(sel))) > base
-    end
-    gains
-end
-
 """
-The split move's gain test for an allosteric mechanism, which counts each candidate on the
-built child by the joint solve (`_independent_param_count`); it derives no rate
-polynomial. Both parts of a split group inherit its tag and admission's interior reads
-each edge's tag, so a split never changes the interior verdict (`_admission_interior`);
-the faces can change through the new group ties and the parts it reverts to rapid
-equilibrium, and the exit (`expand_mechanisms`) drops such a child.
+The split move's gain test: `gains(sel)` is true when the child built from the selected
+units, with the flags `flags_of(sel)` (`_apply_bipartitions`), has more independent
+parameters than the parent by the joint solve (`_independent_param_count`), which derives
+no rate polynomial. For an allosteric mechanism, both parts of a split group inherit its
+tag and admission's interior reads each edge's tag, so a split never changes the interior
+verdict (`_admission_interior`); the faces can change through the new group ties and the
+parts it reverts to rapid equilibrium, and the exit (`expand_mechanisms`) drops such a
+child.
 """
-function _split_gain_test(am::AllostericMechanism, units, flags_of)
-    base = _independent_param_count(am)
-    function gains(sel)
-        group, origin = _bipartitioned_groups(am.catalytic, units[sel])
-        child = AllostericMechanism(_raw(am, flags_of(sel), group,
-                                         cat_allo_states(am)[origin]))
-        _independent_param_count(child) > base
-    end
+function _split_gain_test(m::Union{Mechanism, AllostericMechanism}, units, flags_of)
+    base = _independent_param_count(m)
+    gains(sel) =
+        _independent_param_count(_apply_bipartitions(m, units[sel], flags_of(sel))) > base
     gains
 end
 

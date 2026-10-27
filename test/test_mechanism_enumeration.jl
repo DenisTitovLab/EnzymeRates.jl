@@ -11041,65 +11041,6 @@ end
     @test all(k -> child.edges[k].rapid_equilibrium, abortive)
 end
 
-@testset "_partition_independent_count agrees with _independent_param_count" begin
-    seeds = EnzymeRates.init_mechanisms(bi_bi_rxn)
-    checked = 0
-    for m in seeds
-        counter = EnzymeRates._partition_independent_count(m)
-        flat = EnzymeRates._flat_edges(m)
-        parent_ids = m.group[flat]
-        @test counter(parent_ids) == EnzymeRates._independent_param_count(m)
-        for g in 1:EnzymeRates.ngroups(m), bp in EnzymeRates._context_bipartitions(m, g)
-            ids = copy(parent_ids)
-            ids[[k in bp[2] for k in flat]] .= EnzymeRates.ngroups(m) + 1
-            child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
-            @test counter(ids) == EnzymeRates._independent_param_count(child)
-            checked += 1
-        end
-    end
-    @test checked > 100
-end
-
-@testset "_partition_independent_count counts a reverted part as its RE constant" begin
-    # The E(Q) + B step of the steady-state B group, relabelled into a new group
-    # and counted as a binding K, gives the count of the built child with that
-    # step at rapid equilibrium: the cycle basis does not depend on the flags.
-    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A ⇌ E(A)
-            (E(A) + B <--> E(A, B), E(Q) + B <--> E(B, Q))
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-        end
-    end)
-    child = EnzymeRates.Mechanism(@enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A ⇌ E(A)
-            E(A) + B <--> E(A, B)
-            E(Q) + B ⇌ E(B, Q)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-        end
-    end)
-    counter = EnzymeRates._partition_independent_count(m)
-    flat = EnzymeRates._flat_edges(m)
-    ids = m.group[flat]
-    kinds = [EnzymeRates._count_kind(m.edges[k]) for k in flat]
-    j = findfirst(==(_testhelper_edge(m, "EQ + B <--> EBQ")), flat)
-    @test kinds[j] == :ss
-    base = counter(ids)
-    ids[j] = EnzymeRates.ngroups(m) + 1
-    kinds[j] = :binding_K
-    @test counter(ids, kinds) == EnzymeRates._independent_param_count(child)
-    @test counter(ids, kinds) == base + 1
-end
-
 "Closure of `seed` under `gen`, by structural identity."
 function _testhelper_closure(seed, gen; maxn = 5_000)
     seen = Dict{UInt64, Any}(hash(seed) => seed); queue = Any[seed]
@@ -12180,20 +12121,15 @@ end
                 E(A, B) <--> E(P, Q)
             end
         end)
-        counter = EnzymeRates._partition_independent_count(m)
-        flat = EnzymeRates._flat_edges(m)
-        ids0 = m.group[flat]
-        base = counter(ids0)
+        base = EnzymeRates._independent_param_count(m)
         r0 = _testhelper_identifiable_rank(m)
         @test r0 == base
         rejected = 0
         g = m.group[_testhelper_edge(m, "E + A ⇌ EA")]
         for bp in EnzymeRates._context_bipartitions(m, g)
-            ids = copy(ids0)
-            ids[[k in bp[2] for k in flat]] .= EnzymeRates.ngroups(m) + 1
-            counter(ids) > base && continue
-            rejected += 1
             child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
+            EnzymeRates._independent_param_count(child) > base && continue
+            rejected += 1
             @test _testhelper_identifiable_rank(child) == r0
         end
         @test rejected > 0

@@ -1,5 +1,5 @@
 # ABOUTME: The joint thermodynamic solve over the constants of both conformations, and the
-# ABOUTME: cycle-space helpers of the split move's counter and of class 3's limit test.
+# ABOUTME: cycle-space helpers of class 3's limit test.
 
 """
 A bare constant of the joint solve: slot `slot` of edge `edge` of the catalytic graph, in
@@ -82,6 +82,12 @@ is the multiple of the net reaction the cycle runs (0 for a Wegscheider cycle). 
 metabolite counts by name, so a reactant's modifier copy counts as the reactant. Errors
 on a cycle whose net change is no multiple of the net reaction. Integer arithmetic
 throughout.
+
+The net change reads each edge's consumed (-1) and released (+1) metabolites only. An
+isomerization carries no free-pool metabolite — its bound content is encoded in the
+enzyme forms it joins — so it contributes zero. Do NOT add a from-bound/to-bound
+difference for it: that double-counts metabolites already accounted for by the binding
+and release steps and inflates the cycle's net change (e.g. 1/Keq -> 1/Keq^2).
 """
 function _fundamental_cycles(m::Mechanism, flat::Vector{Int})
     path = [zeros(Int, length(flat)) for _ in m.forms]   # signed tree edges from the root
@@ -414,13 +420,13 @@ _solve(@nospecialize(M::Type{<:AbstractEnzymeMechanism})) = _solve(_derivation_i
 without compiling the mechanism."""
 _independent_param_count(m::_AnyMech) = length(_solve(m).fitted)
 
-# ─── Cycle-space helpers of the split move's counter and the limit test ────
+# ─── Cycle-space helpers of the limit test ─────────────────────────────────
 
 """
 Reduced row echelon form over `Rational{BigInt}`. Returns the pivot and
 free column indices (pivot_cols in row-pivot order, so pivot_cols[i] is the
 pivot at reduced-matrix row i) plus the reduced matrix R. Used by
-`_rational_nullspace` (nullspace basis) and `_partition_independent_count` (rank).
+`_rational_nullspace` (nullspace basis).
 """
 function _rref_partition(A::AbstractMatrix)
     m, n = size(A)
@@ -470,135 +476,4 @@ function _integer_nullspace(A::Matrix{Int})
         result[:, k] .= col[findfirst(!iszero, col)] < 0 ? -col : col
     end
     result
-end
-
-"""
-    _thermodynamic_constraints(m, flat) -> (C, multiples)
-
-The cycle basis of the sub-graph of graph `m` whose edges are `flat`, in that order: row
-`i` of `C` counts each edge of cycle `i` (column `j` is edge `flat[j]`) with its sign in
-the edge's stored direction, and `multiples[i]` is the multiple of the net reaction
-cycle `i` runs (0 for a Wegscheider cycle). The incidence matrix's rows are the forms
-the edges touch (`_present_forms`), in form order. A metabolite counts by name, so a
-reactant's modifier copy counts as the reactant (`_cycle_basis`).
-"""
-function _thermodynamic_constraints(m::Mechanism, flat::Vector{Int})
-    kept = falses(length(m.edges))
-    kept[flat] .= true
-    present = _present_forms(m, kept)
-    row = cumsum(present)
-    B = zeros(Int, count(present), length(flat))
-    for (j, k) in enumerate(flat)
-        B[row[m.edges[k].from], j] -= 1
-        B[row[m.edges[k].to], j] += 1
-    end
-    reactants = [m.substrates; m.products]
-    stoich_row = [something(findfirst(==(x.name), reactants), 0) for x in m.table]
-    stoich = zeros(Int, length(reactants), length(flat))
-    for (j, k) in enumerate(flat), (c, sgn) in ((m.edges[k].consumed, -1),
-                                                (m.edges[k].released, 1))
-        for i in entries(c)
-            stoich_row[i] == 0 || (stoich[stoich_row[i], j] += sgn)
-        end
-    end
-    _cycle_basis(B, stoich, length(m.substrates))
-end
-
-"""
-    _cycle_basis(B, stoich, ns) -> (C, multiples)
-
-The cycles of the graph whose incidence matrix is `B` (rows: forms, columns: steps), each
-classified by the net change `stoich` (rows: the substrates, the first `ns`, then the
-products; columns: steps) gives it: the rows of `C` are a basis of `B`'s nullspace from
-its reduced row echelon form, in coprime integers, and `multiples[i]` is the multiple of
-the net reaction cycle `i` runs (a Haldane cycle, which contributes `log(Keq)`), or 0 for
-a Wegscheider cycle with no net change. Errors on a cycle that touches metabolites
-without running a multiple of the net reaction.
-
-The stoichiometry reads each step's consumed (-1) and released (+1) metabolites only. An
-isomerization carries no free-pool metabolite — its bound content is encoded in the
-enzyme forms it joins — so it contributes zero. Do NOT add a from-bound/to-bound
-difference for it: that double-counts metabolites already accounted for by the binding
-and release steps and inflates the cycle's net change (e.g. 1/Keq -> 1/Keq^2).
-"""
-function _cycle_basis(B::Matrix{Int}, stoich::Matrix{Int}, ns::Int)
-    nu_net = [i <= ns ? -1 : 1 for i in axes(stoich, 1)]
-    C = _integer_nullspace(B)'
-    j0 = findfirst(!iszero, nu_net)
-    function classify(i)
-        nu = stoich * C[i, :]
-        c = nu[j0] // nu_net[j0]
-        nu == c .* nu_net && isinteger(c) ||
-            error("Cycle $i produces metabolite change not proportional to net reaction")
-        Int(c)
-    end
-    return C, Int[classify(i) for i in axes(C, 1)]
-end
-
-"""How an edge's constants enter the constraint columns at rapid-equilibrium flag `re`
-(by default its own): `:ss` (a forward and a reverse rate), `:binding_K` (a dissociation
-constant, whose column carries a sign flip) or `:iso_K` (an equilibrium constant)."""
-_count_kind(e::Edge, re::Bool = e.rapid_equilibrium) =
-    re ? (_is_binding(e) ? :binding_K : :iso_K) : :ss
-
-"""
-Add flat step `j`'s cycle incidence `C[:, j]` into the constraint matrix `A` at the
-columns `cols` of its constants, by the step's constant kind (`_count_kind`). A
-binding K enters negated, because it is a Kd in the polynomial while the cycle
-product uses 1/Kd; an iso K enters as is; an SS step contributes `+kf` at `cols[1]`
-and `-kr` at `cols[2]`.
-"""
-function _add_step_column!(A, C, j, kind::Symbol, cols)
-    for i in axes(C, 1)
-        c = C[i, j]
-        c == 0 && continue
-        if kind === :ss
-            A[i, cols[1]] += c
-            A[i, cols[2]] -= c
-        else
-            A[i, cols[1]] += kind === :binding_K ? -c : c
-        end
-    end
-end
-
-"""
-    _partition_independent_count(parent::Mechanism) -> counter
-
-Return `counter(group_of_step, kind_of_step = kinds of the parent's steps)`, the
-independent-parameter count of the mechanism obtained by regrouping `parent`'s
-edges, group by group (`_flat_edges`), into the groups
-labelled by `group_of_step`,
-each step counted under the constant kind `kind_of_step` gives it (`_count_kind`).
-Regrouping moves no edges and a flag changes none, so the cycle basis of the step
-graph (`_thermodynamic_constraints`) is the same for every call and is computed
-once here; each call only merges step columns by group and takes the rank. The
-split move passes a step's own kind, or `:binding_K`/`:iso_K` for a steady-state
-step it reverts to rapid equilibrium. Equals `_independent_param_count` of the
-constructed child: the joint solve's independent set is its columns of the law less
-its pivots, and a kinetic group's constants form one column here and one class there.
-"""
-function _partition_independent_count(parent::Mechanism)
-    flat = _flat_edges(parent)
-    C, _ = _thermodynamic_constraints(parent, flat)
-    kinds = [_count_kind(parent.edges[k]) for k in flat]
-    function counter(group_of_step::AbstractVector{Int},
-                     kind_of_step::AbstractVector{Symbol} = kinds)
-        length(group_of_step) == length(kinds) ||
-            error("group_of_step must label every flat step of the parent")
-        length(kind_of_step) == length(kinds) ||
-            error("kind_of_step must label every flat step of the parent")
-        column = Dict{Tuple{Int, Int}, Int}()
-        for (j, g) in enumerate(group_of_step)
-            get!(column, (g, 1), length(column) + 1)
-            kind_of_step[j] === :ss && get!(column, (g, 2), length(column) + 1)
-        end
-        A = zeros(Int, size(C, 1), length(column))
-        for (j, g) in enumerate(group_of_step)
-            kind = kind_of_step[j]
-            cols = [column[(g, k)] for k in 1:(kind === :ss ? 2 : 1)]
-            _add_step_column!(A, C, j, kind, cols)
-        end
-        length(column) - length(_rref_partition(A)[1])
-    end
-    counter
 end

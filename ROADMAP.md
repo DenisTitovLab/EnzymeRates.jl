@@ -22,23 +22,19 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `multi_threading` passed through `solver_kwargs`, would race on both buffers. Fits run
   in parallel only across `pmap` workers, each of which builds its own problem.
 - **`BigInt` arithmetic inflates the GC's live-byte count.**
-  Two functions that compute in `BigInt` raise `Base.gc_live_bytes` by bytes that no live
-  object holds: the counter that `_split_gain_test` uses for a plain mechanism
-  (`_partition_independent_count`; a `Rational{BigInt}` row reduction), by 18 KiB per call,
-  and class 3's model point (`_model_point`, `src/admission.jl`; an integer null space in
-  `Rational{BigInt}`), by 101 KiB on the six-step bi-bi ping-pong at two conformations. A
-  6×6 determinant outside the package does the same in `BigInt` and
-  `Rational{BigInt}`, not in `Rational{Int}`. The joint solve adds nothing, on a plain
+  Class 3's model point (`_model_point`, `src/admission.jl`; an integer null space in
+  `Rational{BigInt}`) raises `Base.gc_live_bytes` by bytes that no live object holds, by
+  101 KiB on the six-step bi-bi ping-pong at two conformations. A 6×6 determinant outside
+  the package does the same in `BigInt` and `Rational{BigInt}`, not in `Rational{Int}`.
+  The joint solve adds nothing, on a plain
   mechanism or on a concrete allosteric one; it runs in `Rational{Int}` on 10,226 enumerated
   bi-bi and ter-bi mechanisms without overflow. The count holds no memory and raises no
   peak: a process whose count reaches 2.8 GiB peaks at 1.2 GB RSS, and the enumeration
   tests' count after a full collection stays near 1.8 GiB whether their peak RSS is 2.2 or
   3.5 GB. The higher peak came from mechanisms that kept vectors at the capacity their
   builds grew to; `_canonicalize` stores each at its length, and
-  `test/test_reaction_graph.jl` pins it. A loop that calls one of these and prints
-  `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it. The first figure comes
-  from a plain random-order bi-bi of nine steady-state steps (Julia 1.12.5, aarch64,
-  `--heap-size-hint=2500M`).
+  `test/test_reaction_graph.jl` pins it. A loop that calls it and prints
+  `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it.
 
 - **A rapid-equilibrium isomerization of a covalent intermediate can be unidentifiable.**
   In 5 of 751 enumerated plain mechanisms in the derivation probes, an isomerization such
@@ -212,17 +208,12 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   and a dependency release that breaks the package only at the next CI run. A scheduled
   workflow that runs the suite at the lower and upper bounds of Julia and the dependencies
   would catch both without adding its run time to every push or pull request.
-- **Give the thermodynamics one row reduction and one cycle basis.**
+- **Give the thermodynamics one row reduction.**
   `src/thermo.jl` holds two exact row reductions, `_rref!` (the joint solve, in
   `Rational{Int}` retried in `Rational{BigInt}`) and `_rref_partition` (in
-  `Rational{BigInt}`), and two cycle-basis builders, `_fundamental_cycles` and
-  `_thermodynamic_constraints`, which raise the same error. `_rref_partition` and
-  `_thermodynamic_constraints` serve the split move's counter
-  (`_partition_independent_count`), and `_rref_partition` also serves class 3's model point
-  (`_model_point`, `src/admission.jl`), whose integer null space (`_integer_nullspace`)
-  goes through `_rational_nullspace`. Computing the counter's rank with `_rref!` over the
-  joint solve's cycles, and the model point's null space with `_rref!` too, would leave one
-  of each.
+  `Rational{BigInt}`). `_rref_partition` serves only class 3's model point (`_model_point`,
+  `src/admission.jl`), whose integer null space (`_integer_nullspace`) goes through
+  `_rational_nullspace`. Computing that null space with `_rref!` would leave one.
 - **Admit the equilibrium bridges and the vanishing-fed basins that admission rejects.**
   Admission's face condition (`_face_condition`, `src/admission.jl`) is sound but not
   exact: it rejects two rare classes whose limit exists. In an equilibrium bridge (R-B1) a
