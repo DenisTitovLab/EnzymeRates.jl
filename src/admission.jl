@@ -431,6 +431,16 @@ metabolite name net (class 2: the rate is infinite), in cycle order; empty when 
 face runs at the interior too."""
 _re_turnover_transitions(net::_Network) = _fast_segments(net).cycle
 
+"""The first fault `check(i)` returns over the indices `i` of `faces`, in order;
+`_WELL_POSED` when every face passes."""
+function _first_face_fault(check, faces::Vector{UInt64})
+    for i in eachindex(faces)
+        v = check(i)
+        v.fault === _NO_FAULT || return v
+    end
+    _WELL_POSED
+end
+
 """
     _guard(m) -> _Verdict
 
@@ -455,13 +465,10 @@ function _guard(mech::_AnyMech)
     v = _admission_interior(mech)
     v === _WELL_POSED || return v
     law, faces = _law_network(mech), _faces(m)
-    for i in eachindex(faces)
+    _first_face_fault(faces) do i
         v = _check_face(mech, law, faces, i)
-        v.fault === _NO_FAULT || return v
-        v = _admission_face(mech, eps, law, faces, i)
-        v.fault === _NO_FAULT || return v
+        v.fault === _NO_FAULT ? _admission_face(mech, eps, law, faces, i) : v
     end
-    _WELL_POSED
 end
 
 """Class 2's verdict on the ε-network `net`: `_RE_TURNOVER` in the conformation of the
@@ -728,10 +735,6 @@ function _split_parts(net::_Network, s)
     (; parts, joins)
 end
 
-"""The kinetic-group tags the limit test ties: none for a plain mechanism."""
-_tags(::Mechanism) = Symbol[]
-_tags(am::AllostericMechanism) = am.cat_allo_states
-
 """
     _check_face(mech, net, faces, i) -> _Verdict
 
@@ -774,11 +777,7 @@ end
 of `_faces`; `_WELL_POSED` when every face passes."""
 function _faces_verdict(mech::_AnyMech, net::_Network)
     faces = _faces(catalytic(mech))
-    for i in eachindex(faces)
-        v = _check_face(mech, net, faces, i)
-        v.fault === _NO_FAULT || return v
-    end
-    _WELL_POSED
+    _first_face_fault(i -> _check_face(mech, net, faces, i), faces)
 end
 
 """
@@ -996,7 +995,7 @@ function _model_point(m::Mechanism, tags::Vector{Symbol}, ncopies::Int, face::UI
     nf, name_of = length(m.forms), _name_index(m)
     nnames = maximum(name_of; init = 0)
     nv = ncopies * nf + nnames
-    excluded(k, c) = !isempty(tags) && _excluded_by(tags[m.group[k]], c == 2)
+    excluded(k, c) = _excluded_by(tags[m.group[k]], c == 2)
     function drop!(row, k, c, dir)
         e = m.edges[k]
         row[(c - 1) * nf + e.from] += dir
@@ -1214,7 +1213,7 @@ third limit at new speeds tells `_LIMIT_DIFFER` from `_LIMIT_SPEED`. A false
 `_LIMIT_EQUAL` has probability at most twice the degree over p.
 """
 function _face_limit_check(mech::_AnyMech, net::_Network, s, face::UInt64, seed::UInt64)
-    m, tags = catalytic(mech), _tags(mech)
+    m, tags = catalytic(mech), _solve_tags(mech)
     rng = _ResidueStream(seed)
     x1 = _turnover_name(m)
     # Class 2, which runs first, leaves no fast cycle that takes `x1` up: a potential.
@@ -1802,11 +1801,7 @@ function _admission(am::AllostericMechanism)
     v.fault === _NO_FAULT || return v
     eps, law = _eps_network(am), _law_network(am)
     faces = _faces(am.catalytic)
-    for i in eachindex(faces)
-        v = _admission_face(am, eps, law, faces, i)
-        v.fault === _NO_FAULT || return v
-    end
-    _WELL_POSED
+    _first_face_fault(i -> _admission_face(am, eps, law, faces, i), faces)
 end
 
 # ─── Guard messages ────────────────────────────────────────────────────
