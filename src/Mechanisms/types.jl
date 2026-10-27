@@ -1554,11 +1554,16 @@ end
 # allosteric mechanism's inactive conformation. Nothing here constructs a mechanism, so no
 # check meant for the mechanisms a user writes fires on a sub-graph.
 
-"""The forms the edges `mask` keeps touch: a sub-graph's law and segments cover these."""
-function _present_forms(m::Mechanism, mask::BitVector)
+"""
+    present_species(m, on) -> BitVector
+
+The forms of `m` that the steps `on` keeps touch, one flag per form: a sub-graph's law,
+segments and network cover these.
+"""
+function present_species(m::Mechanism, on::BitVector)
     present = falses(length(m.forms))
     for (k, e) in enumerate(m.edges)
-        mask[k] && (present[e.from] = present[e.to] = true)
+        on[k] && (present[e.from] = present[e.to] = true)
     end
     present
 end
@@ -1631,7 +1636,7 @@ The rapid-equilibrium segments of the steps of `m` that `on` keeps, joined by th
 steps that `re` flags (`_segment_walk`). `segments[s]` lists segment `s`'s forms
 breadth-first from its first form, each form's steps in the order `_flat_edges` reads
 them, and the segments are numbered by their first forms; `segment_of[f]` is form `f`'s
-segment, 0 for a form no kept step touches (`_present_forms`). `offsets[n, f]` is how many
+segment, 0 for a form no kept step touches (`present_species`). `offsets[n, f]` is how many
 more of metabolite name `n` (`_name_index`) form `f` carries than the form of its segment
 that carries fewest of it. Within a segment, rapid equilibrium fixes each form's weight
 relative to any other as a monomial in concentrations, one factor per metabolite taken up
@@ -1677,7 +1682,7 @@ function re_segments(m::Mechanism, on::BitVector, re::BitVector)
             change[n, t + 1] = -change[n, t]
         end
     end
-    present = _present_forms(m, on)
+    present = present_species(m, on)
     (; segment_of, segments, offsets) = _segment_walk(present, out, to, change)
     for segment in segments, n in axes(offsets, 1)
         low = minimum(f -> offsets[n, f], segment)

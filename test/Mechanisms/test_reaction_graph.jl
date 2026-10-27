@@ -895,7 +895,7 @@ end
     @test ER.Mechanisms._flags(m) == BitVector([0, 0, 1, 1, 1, 0])
     @test [ER.Mechanisms._is_free(f) for f in m.forms] == [true, false, false, false, false]
     every = trues(length(m.edges))
-    @test ER.Mechanisms._present_forms(m, every) == trues(5)
+    @test ER.Mechanisms.present_species(m, every) == trues(5)
     # Each segment breadth-first from its first form; offsets per metabolite name (rows
     # P, Q, S) above the segment's lowest.
     s = ER.Mechanisms.re_segments(m, every, ER.Mechanisms._flags(m))
@@ -912,14 +912,14 @@ end
     # Without the release of P from E(P, Q), E(Q) stands alone and E(P) is the bottom of
     # {E(P), E(P, Q)}.
     no_p = BitVector([1, 1, 1, 1, 0, 1])
-    @test ER.Mechanisms._present_forms(m, no_p) == trues(5)
+    @test ER.Mechanisms.present_species(m, no_p) == trues(5)
     s = ER.Mechanisms.re_segments(m, no_p, ER.Mechanisms._flags(m))
     @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ"], ["EQ"]]
     @test isempty(s.bottom)
     @test ER.Mechanisms.segment_graph(m, no_p).steps == [1, 2, 6]
     # A mask keeps only the forms its edges touch; a form it leaves is in no segment.
     bindings = BitVector([1, 1, 0, 0, 0, 0])
-    @test ER.Mechanisms._present_forms(m, bindings) == BitVector([1, 1, 0, 1, 0])
+    @test ER.Mechanisms.present_species(m, bindings) == BitVector([1, 1, 0, 1, 0])
     s = ER.Mechanisms.re_segments(m, bindings, ER.Mechanisms._flags(m))
     @test [names(seg) for seg in s.segments] == [["E"], ["EP"], ["EQ"]]
     @test s.segment_of == [1, 2, 0, 3, 0]
@@ -946,7 +946,7 @@ end
     @test [_testhelper_edge_text(am, k) for k in findall(inactive)] ==
           ["E + P ⇌ EP", "EP + I ⇌ EIP"]
     @test [ER.Mechanisms._form_name(am.catalytic, f)
-           for f in findall(ER.Mechanisms._present_forms(am.catalytic, inactive))] ==
+           for f in findall(ER.Mechanisms.present_species(am.catalytic, inactive))] ==
           ["E", "EIP", "EP"]
 end
 

@@ -23,10 +23,10 @@ const API = (:AbstractEnzymeMechanism, :AllostericEnzymeMechanism, :AllostericMe
     :catalytic_multiplicity, :compile_mechanism, :conformation, :conformation_steps,
     :copies, :ends, :entries, :given_off, :group, :has_turnover_cycle,
     :is_rapid_equilibrium, :ligands, :mechanism_id, :members, :metabolite,
-    :metabolite_names, :metabolites, :multiplicity, :name, :ngroups, :products,
-    :re_segments, :reactants, :reg_type, :regulator, :regulators, :regulatory_sites,
-    :segment_graph, :shared_catalytic_site, :species, :step_kind, :steps, :substrates, :tag,
-    :taken_up)
+    :metabolite_names, :metabolites, :multiplicity, :name, :ngroups, :present_species,
+    :products, :re_segments, :reactants, :reg_type, :regulator, :regulators,
+    :regulatory_sites, :segment_graph, :shared_catalytic_site, :species, :step_kind, :steps,
+    :substrates, :tag, :taken_up)
 
 include("types.jl")
 include("accessors.jl")

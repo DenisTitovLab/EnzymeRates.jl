@@ -222,8 +222,8 @@ end
 """
 The law network L of `m`: a plain mechanism's forms and edges as they are, its
 rapid-equilibrium flags overridden by `re`; an allosteric mechanism's two copies, copy `c`
-holding the steps of its conformation (`conformation_steps`) and the forms they touch,
-free E always, joined by the flip at free E.
+holding the steps of its conformation (`conformation_steps`) and the forms they touch
+(`present_species`), free E always, joined by the flip at free E.
 """
 function _law_network(m::Mechanisms.Mechanism, re::BitVector = Mechanisms._flags(m))
     n = length(m.edges)
@@ -238,12 +238,11 @@ function _law_network(am::Mechanisms.AllostericMechanism)
     use, fast, present = falses(n, 2), falses(n, 2), falses(2 * nf)
     for (c, conformation) in enumerate((:active, :inactive))
         mask = Mechanisms.conformation_steps(am, conformation)
-        present[(c - 1) * nf + 1] = true
-        for (k, e) in enumerate(m.edges)
-            mask[k] || continue
-            use[k, c], fast[k, c] = true, re[k]
-            present[(c - 1) * nf + e.from] = present[(c - 1) * nf + e.to] = true
-        end
+        use[:, c] .= mask
+        fast[:, c] .= mask .& re
+        nodes = (c - 1) * nf .+ (1:nf)
+        present[nodes] .= Mechanisms.present_species(m, mask)
+        present[nodes[1]] = true
     end
     _network(m, present, use, fast, falses(n, 2), falses(n, 2))
 end
