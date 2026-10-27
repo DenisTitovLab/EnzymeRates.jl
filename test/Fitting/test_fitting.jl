@@ -629,4 +629,42 @@ end
         end
     end
 
+    # ── Cross-validation loss ─────────────────────────────────────────────────
+    @testset "cross_validation_loss is the held-out group's loss of the fit on the others" begin
+        using OptimizationCMAEvolutionStrategy
+        optimizer = CMAEvolutionStrategyOpt()
+        data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+                S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
+        reference = _testhelper_row_reference(data)
+        fit_options = (; n_restarts = 1, maxiters = 50)
+        Random.seed!(7)
+        cv = EnzymeRates.Fitting.cross_validation_loss(uni_uni, data, "G2";
+            Keq = Keq_val, absolute = false, reference, optimizer, fit_options...)
+        Random.seed!(7)
+        g1 = map(col -> col[data.group .== "G1"], data)
+        g2 = map(col -> col[data.group .== "G2"], data)
+        fit = fit_rate_equation(
+            FittingProblem(uni_uni, g1; Keq = Keq_val, reference), optimizer; fit_options...)
+        expected = EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
+            FittingProblem(uni_uni, g2; Keq = Keq_val, reference))
+        @test cv isa Float64
+        @test cv == expected
+    end
+
+    @testset "rate_data returns the validated table and the reference anchors" begin
+        data = (group = ["G1", "G1"], Rate = [1.0, 2.0], S = [1.0, 2.0], P = [0.1, 0.1])
+        rd = EnzymeRates.Fitting.rate_data(data, (:S, :P); Keq = 2.0, absolute = false,
+            reference = [(S = 1.0,) => 3], owner = "mechanism")
+        @test rd == (data = data, reference = [(S = 1.0,) => 3.0])
+        @test rd.reference isa Vector{Pair{NamedTuple, Float64}}
+        abs_rd = EnzymeRates.Fitting.rate_data(data, (:S, :P); Keq = 2.0, absolute = true,
+            reference = nothing, owner = "reaction")
+        @test isempty(abs_rd.reference)
+        @test_throws(
+            ErrorException("reference: Q is not a metabolite of the reaction " *
+                           "(metabolites: S, P)"),
+            EnzymeRates.Fitting.rate_data(data, (:S, :P); Keq = 2.0, absolute = false,
+                reference = [(Q = 1.0,) => 3.0], owner = "reaction"))
+    end
+
 end

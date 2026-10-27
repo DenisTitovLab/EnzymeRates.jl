@@ -43,7 +43,8 @@ function IdentifyRateEquationProblem(
 )
     mnames = Mechanisms._metabolite_names(reaction)
     # Every metabolite the reaction declares needs a concentration column.
-    data = Fitting._rate_table(table, mnames, Keq)
+    (; data, reference) = Fitting.rate_data(table, mnames;
+        Keq, absolute, reference, owner = "reaction")
 
     # Validate at least 2 groups for CV
     n_groups = length(unique(data.group))
@@ -51,8 +52,7 @@ function IdentifyRateEquationProblem(
         "Need at least 2 unique groups for " *
         "cross-validation, got $n_groups")
 
-    IdentifyRateEquationProblem{typeof(data)}(reaction, data, Keq, absolute,
-        Fitting._reference(reference, absolute, mnames, "reaction"))
+    IdentifyRateEquationProblem{typeof(data)}(reaction, data, Keq, absolute, reference)
 end
 
 """
@@ -1069,7 +1069,9 @@ function _cv_model_selection(
     groups = unique(prob.data.group)
     fit_keys = unique(e.fit_key for e in candidates)
     fold_losses = pmap([(memo[k].source, g) for k in fit_keys for g in groups]) do (m, g)
-        _cv_fold_loss(Mechanisms.compile_mechanism(m), prob, g; optimizer, kwargs...)
+        mechanism = Mechanisms.compile_mechanism(m)
+        Fitting.cross_validation_loss(mechanism, prob.data, g;
+            _fit_keywords(mechanism, prob)..., optimizer, kwargs...)
     end
     by_fit = reshape(Float64.(fold_losses), length(groups), :)
     scores = by_fit[:, [findfirst(==(e.fit_key), fit_keys) for e in candidates]]
@@ -1099,45 +1101,6 @@ function _cv_model_selection(
     CSV.write(joinpath(save_dir, "best_equation.csv"), cv_df[[best_row_idx], :])
 
     return IdentifyRateEquationResults(best_mechanism, cv_df)
-end
-
-"""
-One LOOCV fold: fit `mechanism` on every group except `held_out`, score it on
-`held_out`, and return the finite test loss. A non-finite
-test loss raises (naming the held-out group) — a corrupted fold must abort model
-selection rather than propagate a bad score.
-
-This function and `_fold_problem` take `mechanism` `@nospecialize`. LOOCV runs a
-candidate's folds after its full fit, which compiled `loss!` for the folds' problem type,
-so a fold infers and compiles nothing for the mechanism.
-"""
-function _cv_fold_loss(
-    @nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
-    prob::IdentifyRateEquationProblem, held_out;
-    optimizer, kwargs...)
-    held = prob.data.group .== held_out
-    fit = fit_rate_equation(_fold_problem(mechanism, prob, .!held), optimizer; kwargs...)
-    # `fit.params` is keyed by `fitted_params(mechanism)`, the order `loss!` reads.
-    test_loss = Fitting.loss!([log(v) for v in fit.params],
-                              _fold_problem(mechanism, prob, held))
-    # A non-finite fold loss means the fit is unusable; aborting model
-    # selection is correct (re-run CV from the saved CSVs after fixing
-    # the fit).
-    isfinite(test_loss) || error(
-        "LOOCV produced a non-finite test loss for held-out group " *
-        "$held_out — the fit is unusable; aborting model selection.")
-    test_loss
-end
-
-"""
-The `FittingProblem` of `mechanism` on the rows of `prob.data` that `mask` selects. The
-fold copies its rows rather than viewing them, so its problem has the full fit's type and
-`loss!` does not compile a second time for it; the copy is small next to a fit.
-"""
-function _fold_problem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
-                       prob::IdentifyRateEquationProblem, mask)
-    FittingProblem(mechanism, map(col -> col[mask], prob.data);
-        _fit_keywords(mechanism, prob)...)
 end
 
 """

@@ -64,27 +64,36 @@ fp = FittingProblem(m, data; Keq = 2.0, reference = [(A = 10.0, B = 5.0) => 42.0
 function FittingProblem(mechanism::Mechanisms.AbstractEnzymeMechanism, table;
         Keq::Real, absolute::Bool=false, reference=nothing)
     mets = Mechanisms.metabolites(mechanism)
-    data = _rate_table(table, mets, Keq)
+    (; data, reference) = rate_data(table, mets; Keq, absolute, reference,
+                                    owner = "mechanism")
     group_map = Dict{eltype(data.group), Vector{Int}}()
     for (i, g) in enumerate(data.group)
         push!(get!(() -> Int[], group_map, g), i)
     end
     # The typed constructor converts Keq to the field type.
     FittingProblem{typeof(mechanism), typeof(data)}(
-        mechanism, data, collect(values(group_map)), Keq, absolute,
-        _reference(reference, absolute, mets, "mechanism"), log.(abs.(data.Rate)),
-        Vector{Float64}(undef, length(data.Rate)))
+        mechanism, data, collect(values(group_map)), Keq, absolute, reference,
+        log.(abs.(data.Rate)), Vector{Float64}(undef, length(data.Rate)))
 end
 
 """
-    _rate_table(table, mnames, Keq) → NamedTuple
+    rate_data(table, metabolite_names; Keq, absolute, reference, owner) → (; data, reference)
 
-Validate a rate table and return it as `Tables.columntable(table)`: `Keq` must be
-positive and finite, the table needs a `group` column, a `Rate` column and one column per
-name in `mnames`, no name in `mnames` may be `group` or `Rate`, every concentration must
-be a finite number ≥ 0 (zero is valid), and every rate must be a finite, nonzero number
-(the loss takes its log).
+Validate a rate table and its reference anchors. `data` is `Tables.columntable(table)`:
+`Keq` must be positive and finite, the table needs a `group` column, a `Rate` column and
+one column per name in `metabolite_names`, no metabolite may be named `group` or `Rate`,
+every concentration must be a finite number ≥ 0 (zero is valid), and every rate must be a
+finite, nonzero number (the loss takes its log). `reference` is what a problem stores: in
+relative mode (`absolute = false`) the anchors, which it requires, checked against
+`metabolite_names` of the `owner` (`"mechanism"` or `"reaction"`), with Float64 turnovers;
+in absolute mode, where `reference` must be `nothing`, an empty vector.
 """
+function rate_data(table, metabolite_names; Keq, absolute::Bool, reference, owner::String)
+    (; data = _rate_table(table, metabolite_names, Keq),
+       reference = _reference(reference, absolute, metabolite_names, owner))
+end
+
+# The validated `Tables.columntable(table)`; see `rate_data`.
 function _rate_table(table, mnames, Keq)
     0 < Keq < Inf || error("Keq must be positive and finite; got $Keq")
     data = Tables.columntable(table)
@@ -107,14 +116,7 @@ function _rate_table(table, mnames, Keq)
     data
 end
 
-"""
-    _reference(reference, absolute, mets, owner) → Vector{Pair{NamedTuple, Float64}}
-
-The reference anchors a problem stores: in relative mode `reference`, which it requires,
-after `_check_anchors` against the metabolite names `mets` of the `owner` ("mechanism" or
-"reaction"), with Float64 turnovers; in absolute mode, where `reference` must be
-`nothing`, an empty vector.
-"""
+# The reference anchors a problem stores; see `rate_data`.
 function _reference(reference, absolute::Bool, mets, owner::String)
     if absolute
         reference === nothing || error(
@@ -164,6 +166,52 @@ singleton once at construction so `loss!`'s hot path operates on the
 FittingProblem(mechanism::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
                table; kwargs...) =
     FittingProblem(Mechanisms.compile_mechanism(mechanism), table; kwargs...)
+
+"""
+    _fold_problem(mechanism, data, mask; keywords...) → FittingProblem
+
+The `FittingProblem` of `mechanism` on the rows of `data` that `mask` selects, with the
+`FittingProblem` `keywords`. The fold copies its rows rather than viewing them, so its
+problem has the full fit's type and `loss!` does not compile a second time for it; the
+copy is small next to a fit.
+"""
+function _fold_problem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
+                       data::NamedTuple, mask; keywords...)
+    FittingProblem(mechanism, map(col -> col[mask], data); keywords...)
+end
+
+"""
+    cross_validation_loss(mechanism, data, held_out; Keq, absolute, reference, optimizer,
+        kwargs...) → Float64
+
+The loss on the rows of `data` whose `group` is `held_out` of `mechanism` fitted to the
+other rows: `fit_rate_equation(problem, optimizer; kwargs...)` on a `FittingProblem` with
+`Keq`, `absolute` and `reference`. A non-finite loss raises (naming the held-out group): a
+corrupted fold must abort model selection rather than propagate a bad score.
+
+This function and `_fold_problem` take `mechanism` `@nospecialize`. Cross-validation runs
+a candidate's folds after its full fit, which compiled `loss!` for the folds' problem type,
+so a fold infers and compiles nothing for the mechanism.
+"""
+function cross_validation_loss(
+    @nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
+    data::NamedTuple, held_out;
+    Keq, absolute, reference, optimizer, kwargs...)
+    held = data.group .== held_out
+    problem_keywords = (; Keq, absolute, reference)
+    fit = fit_rate_equation(_fold_problem(mechanism, data, .!held; problem_keywords...),
+                            optimizer; kwargs...)
+    # `fit.params` is keyed by `fitted_params(mechanism)`, the order `loss!` reads.
+    test_loss = loss!([log(v) for v in fit.params],
+                      _fold_problem(mechanism, data, held; problem_keywords...))
+    # A non-finite fold loss means the fit is unusable; aborting model
+    # selection is correct (re-run CV from the saved CSVs after fixing
+    # the fit).
+    isfinite(test_loss) || error(
+        "LOOCV produced a non-finite test loss for held-out group " *
+        "$held_out — the fit is unusable; aborting model selection.")
+    test_loss
+end
 
 """
     loss!(x::AbstractVector, fp::FittingProblem)

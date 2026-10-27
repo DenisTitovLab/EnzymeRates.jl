@@ -8,7 +8,7 @@ using FunctionWrappers: FunctionWrapper
 using Optimization: Optimization
 using Tables: Tables
 
-const API = (:FittingProblem, :_rate_table, :_reference, :fit_rate_equation, :loss!,
+const API = (:FittingProblem, :cross_validation_loss, :fit_rate_equation, :rate_data,
     :rescale_parameter_values)
 
 include("fitting.jl")
