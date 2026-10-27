@@ -39,27 +39,55 @@ function _testhelper_walk(visit, ex, line = Ref(0))
     end
 end
 
+"""The module `M` of a `M.name` or `EnzymeRates.M.name` node (one of the four modules), else
+`nothing`. A node of one argument (`using X: name` lists) is no `M.name`."""
+function _testhelper_module_head(ex)
+    (ex.head === :. && length(ex.args) == 2 && ex.args[2] isa QuoteNode) || return nothing
+    head = ex.args[1]
+    head isa Expr && head.head === :. && length(head.args) == 2 &&
+        head.args[1] === :EnzymeRates && head.args[2] isa QuoteNode &&
+        (head = head.args[2].value)
+    head in _testhelper_MODULES ? head : nothing
+end
+
+"""`(module, name)` for each name that a `using Path.Mod: a, b` or `import Path.Mod: a`
+statement takes from one of the four modules; `Mod` itself is no use."""
+function _testhelper_imported_names(ex)
+    (length(ex.args) == 1 && ex.args[1] isa Expr && ex.args[1].head === :(:)) || return []
+    path, items... = ex.args[1].args
+    mod = path.args[end]
+    mod in _testhelper_MODULES || return []
+    names = [(item.head === :as ? item.args[1] : item).args[end] for item in items]
+    [(mod, name) for name in names if name !== mod]
+end
+
 """`(module, name, line)` for each `Mod.name` in the source text, `Mod` one of the four
-modules. A type annotation `x::Mod.T` and a method extension `function Mod.f(...)` are
-uses of `T` and `f`."""
+modules (also written `EnzymeRates.Mod.name`), and for each name imported from one. A type
+annotation `x::Mod.T` and a method extension `function Mod.f(...)` are uses of `T` and
+`f`."""
 function _testhelper_cross_refs(src::AbstractString)
     refs = Tuple{Symbol, Symbol, Int}[]
     _testhelper_walk(Meta.parseall(src)) do ex, line
-        if ex.head === :. && ex.args[1] in _testhelper_MODULES &&
-           ex.args[2] isa QuoteNode
-            push!(refs, (ex.args[1], ex.args[2].value, line))
+        mod = _testhelper_module_head(ex)
+        if mod !== nothing
+            push!(refs, (mod, ex.args[2].value, line))
+        elseif ex.head in (:using, :import)
+            for (mod, name) in _testhelper_imported_names(ex)
+                push!(refs, (mod, name, line))
+            end
         end
     end
     refs
 end
 
 """`(name, line, expression text)` for each `x.name` in the source text with
-`name ∈ fields`, apart from `Mod.name` of a module."""
+`name ∈ fields`, apart from `Mod.name` of a module. Destructuring (`(; edges) = m`) and
+`getfield` are not seen."""
 function _testhelper_field_accesses(src::AbstractString, fields)
     accesses = Tuple{Symbol, Int, String}[]
     _testhelper_walk(Meta.parseall(src)) do ex, line
-        if ex.head === :. && ex.args[2] isa QuoteNode && ex.args[2].value in fields &&
-           !(ex.args[1] in _testhelper_MODULES)
+        if ex.head === :. && length(ex.args) == 2 && ex.args[2] isa QuoteNode &&
+           ex.args[2].value in fields && _testhelper_module_head(ex) === nothing
             push!(accesses, (ex.args[2].value, line, string(ex)))
         end
     end
@@ -112,10 +140,13 @@ function _testhelper_api(root, mod::Symbol)
     api
 end
 
+"""The path of `file` relative to `root`, with `/` as separator on every platform."""
+_testhelper_relpath(root, file) = replace(relpath(file, root), '\\' => '/')
+
 """The module owning a file under `root`: the folder it is in, or `:EnzymeRates` for the
 top level."""
 function _testhelper_owner(root, file)
-    first_part = Symbol(first(splitpath(relpath(file, root))))
+    first_part = Symbol(first(splitpath(_testhelper_relpath(root, file))))
     first_part in _testhelper_MODULES ? first_part : :EnzymeRates
 end
 
@@ -127,7 +158,8 @@ function _testhelper_uses(root)
     for file in _testhelper_source_files(root), (mod, name, line) in
         _testhelper_cross_refs(read(file, String))
         user = _testhelper_owner(root, file)
-        user === mod || push!(uses, (; user, file = relpath(file, root), mod, name, line))
+        user === mod || push!(uses,
+            (; user, file = _testhelper_relpath(root, file), mod, name, line))
     end
     uses
 end
@@ -162,7 +194,7 @@ function _testhelper_field_violations(root, ban, allowed)
         user = _testhelper_owner(root, file)
         banned = get(ban, user, Set{Symbol}())
         (user === :Mechanisms || isempty(banned)) && continue
-        rel = relpath(file, root)
+        rel = _testhelper_relpath(root, file)
         for (name, line, text) in _testhelper_field_accesses(read(file, String), banned)
             text in get(allowed, rel, Set{String}()) ||
                 push!(found, (; user, file = rel, name, line, text))
@@ -230,6 +262,16 @@ end
               [(:Mechanisms, :Mechanism, 3)]
         @test _testhelper_cross_refs("function Mechanisms.show(io, m)\nend") ==
               [(:Mechanisms, :show, 1)]
+        @test isempty(_testhelper_cross_refs("using ..Mechanisms: Mechanisms"))
+        @test isempty(_testhelper_cross_refs("using LinearAlgebra: dot"))
+        @test isempty(_testhelper_cross_refs("using ..Mechanisms"))
+        @test _testhelper_cross_refs("\nimport ..Derivation: _x") ==
+              [(:Derivation, :_x, 2)]
+        @test _testhelper_cross_refs("using ..Derivation: foo, Derivation, bar as b") ==
+              [(:Derivation, :foo, 1), (:Derivation, :bar, 1)]
+        @test _testhelper_cross_refs("EnzymeRates.Mechanisms._hidden(m)") ==
+              [(:Mechanisms, :_hidden, 1)]
+        @test isempty(_testhelper_cross_refs("EnzymeRates.fit(m)"))
         @test Set(_testhelper_cross_refs("a = 1\nFitting.fit(\"\$(Derivation.f(x))\")")) ==
               Set([(:Derivation, :f, 2), (:Fitting, :fit, 2)])
     end
@@ -238,6 +280,8 @@ end
               [(:edges, 1), (:from, 1)]
         @test _testhelper_field_refs("a = 1\nx.edges", Set([:from])) == []
         @test _testhelper_field_refs("Mechanisms.edges", Set([:edges])) == []
+        @test isempty(_testhelper_field_refs("using LinearAlgebra: dot", Set([:dot])))
+        @test _testhelper_field_refs("EnzymeRates.Mechanisms.edges", Set([:edges])) == []
         @test _testhelper_field_accesses("data.group", Set([:group])) ==
               [(:group, 1, "data.group")]
     end
@@ -302,7 +346,7 @@ end
             "identify.jl" => "h(m) = Mechanisms.hidden(m)\nMechanisms.Mechanism") do root
             found = _testhelper_api_violations(root)
             @test Set((u.user, u.file, u.mod, u.name, u.line) for u in found) == Set([
-                (:Fitting, joinpath("Fitting", "bad.jl"), :Derivation, :secret, 1),
+                (:Fitting, "Fitting/bad.jl", :Derivation, :secret, 1),
                 (:EnzymeRates, "identify.jl", :Mechanisms, :hidden, 1)])
         end
     end
@@ -322,10 +366,10 @@ end
             "Fitting/data.jl" => "f(m, data) = (m.edges, data.group)",
             "identify.jl" => "f(m) = m.edges") do root
             ban = Dict(:Fitting => Set([:edges, :group]), :EnzymeRates => Set([:edges]))
-            allowed = Dict(joinpath("Fitting", "data.jl") => Set(["data.group"]))
+            allowed = Dict("Fitting/data.jl" => Set(["data.group"]))
             found = _testhelper_field_violations(root, ban, allowed)
             @test Set((u.file, u.text) for u in found) == Set([
-                (joinpath("Fitting", "data.jl"), "m.edges"), ("identify.jl", "m.edges")])
+                ("Fitting/data.jl", "m.edges"), ("identify.jl", "m.edges")])
         end
     end
     @testset "rule 4 finds underscore names in an API list or used across modules" begin
