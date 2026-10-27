@@ -1276,10 +1276,10 @@ end
     @test message(law_multi, 2) ==
           "Mechanism: at zero P, the steady state depends on how fast the " *
           "rapid-equilibrium steps run, which the rate law does not carry."
-    # unfed_trap at zero products: A2 accepts, since no transition feeds the trap there,
-    # and the limit test does not run.
+    # unfed_trap at zero products: no transition feeds the trap there, and the limit test
+    # finds the law exact.
     @test _testhelper_face_verdicts(unfed_trap)[2] ===
-          EnzymeRates._Verdict(EnzymeRates._NO_FAULT, EnzymeRates._LIMIT_UNTESTED, 2, 0, 0)
+          EnzymeRates._Verdict(EnzymeRates._NO_FAULT, EnzymeRates._LIMIT_EQUAL, 2, 0, 0)
 end
 
 @testset "a law chain whose fast limit differs from the law is rejected" begin

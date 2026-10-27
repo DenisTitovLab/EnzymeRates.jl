@@ -571,7 +571,7 @@ The structure procedure A reads on face `face` of the law network
 `net`: `alive`, the transitions that take up no zeroed name; `closed`, the closed classes
 of the alive ones; the rapid-equilibrium segments (`segment` per node, `segments`
 breadth-first) and each node's uptake of every name from its segment's first node
-(`offset`, `_fast_segments`), and `lowest`, the nodes at the segment's
+(`offset`, `_fast_segments`); the lowest nodes, at the segment's
 componentwise least uptake of the zeroed names, whose weight stays
 positive on the face; `bottomless`, the first segment with no lowest node (0 when none);
 the fast classes (closed classes of the alive fast transitions, a node with no alive fast
@@ -619,36 +619,28 @@ function _face_structure(net::_Network, face::UInt64)
     end
     aggregated = _bottom_sccs(aggregated_next, trues(length(fast_classes)))
     law_classes = _bottom_sccs(law_next, trues(length(segments)))
-    (; alive, closed, segment, segments, offset, lowest, bottomless, fast_classes, class_of,
-     trap, aggregated, law_classes)
+    (; alive, closed, segment, segments, offset, bottomless, fast_classes, class_of, trap,
+     aggregated, law_classes)
 end
 
 """
 Where procedure A settles a face from its structure `s`
 (`_face_structure`): a second closed class (`_NONUNIQUE`); a segment with no lowest form
 (`_BOTTOMLESS`); `_NO_FAULT` by Case I (every segment holds one fast class, the law's
-segment chain one closed class) or A2 (the aggregated chain has one closed class, holding
-no trap, and each segment it meets holds one lowest class, the law's chain one closed
-class); else the stage at which the limit test decides: the law's chain has several
-closed classes (`_LAW_MULTI`), the aggregated chain has (`_MULTILEVEL`), its closed class
-holds a trap (`_TRAP`), or a segment it meets splits (`_SPLIT`).
+segment chain one closed class); else the stage at which the limit test decides: the
+law's chain has several closed classes (`_LAW_MULTI`), the aggregated chain has
+(`_MULTILEVEL`), its closed class holds a trap (`_TRAP`), or none of these (`_SPLIT`,
+where a segment it meets may split).
 """
 function _face_stage(s)
     length(s.closed) > 1 && return _NONUNIQUE
     s.bottomless > 0 && return _BOTTOMLESS
-    classes, lowest = zeros(Int, length(s.segments)), zeros(Int, length(s.segments))
-    for (k, C) in enumerate(s.fast_classes)
-        g = s.segment[C[1]]
-        classes[g] += 1
-        s.trap[k] || (lowest[g] += 1)
+    classes = zeros(Int, length(s.segments))
+    for C in s.fast_classes
+        classes[s.segment[C[1]]] += 1
     end
     one_law = length(s.law_classes) == 1
     one_law && all(==(1), classes) && return _NO_FAULT
-    if one_law && length(s.aggregated) == 1
-        R = s.aggregated[1]
-        !any(k -> s.trap[k], R) &&
-            all(k -> lowest[s.segment[s.fast_classes[k][1]]] == 1, R) && return _NO_FAULT
-    end
     !one_law ? _LAW_MULTI : length(s.aggregated) > 1 ? _MULTILEVEL :
         any(k -> s.trap[k], s.aggregated[1]) ? _TRAP : _SPLIT
 end
@@ -1000,8 +992,7 @@ each conformation that keeps them, an `:EqualAI` member equal across) raised to 
 residues; from them each edge's equilibrium constant `K[k, c]` and `L`; a steady-state
 speed per kinetic group and conformation (one for both of an `:EqualAI` group), a
 rapid-equilibrium speed per edge and conformation, the flip's speed; concentrations
-`conc` per name, zero on the face, and `concw`, one on the face, which the weights'
-leading coefficients read.
+`conc` per name, zero on the face.
 """
 function _model_point(m::Mechanism, tags::Vector{Symbol}, ncopies::Int, face::UInt64,
                       rng::_ResidueStream)
@@ -1054,8 +1045,7 @@ function _model_point(m::Mechanism, tags::Vector{Symbol}, ncopies::Int, face::UI
     flip = _residue!(rng)
     L = ncopies == 2 ? _mulp(x[1], _invp(x[nf + 1])) : Int64(1)
     conc = [_zeroes(face, n) ? Int64(0) : _residue!(rng) for n in 1:nnames]
-    concw = [_zeroes(face, n) ? Int64(1) : conc[n] for n in 1:nnames]
-    (; K, ss, re, flip, L, conc, concw)
+    (; K, ss, re, flip, L, conc)
 end
 
 """`pt` with new rapid-equilibrium and flip speeds: another speed pattern."""
@@ -1136,69 +1126,6 @@ function _eq_weights_p(net::_Network, parts::Vector{Vector{Int}}, r::Vector{Int6
     w
 end
 
-"""The face chain's limit mod p as every rapid-equilibrium speed grows, by first-order
-aggregation over the fast classes of the aggregated chain's one closed class."""
-function _limit_by_aggregation(m::Mechanism, net::_Network, s, pt, h::Vector{Int},
-                               x1::Int)
-    nn = net.nforms * net.ncopies
-    r = _rates_p(m, net, pt, pt.conc, Int64(0))
-    R = s.aggregated[1]
-    place = zeros(Int, length(s.fast_classes))
-    place[R] .= eachindex(R)
-    nu = _eq_weights_p(net, [s.fast_classes[k] for k in R],
-                       _rates_p(m, net, pt, pt.concw, Int64(0)))
-    for k in R
-        C = s.fast_classes[k]
-        inverse = _invp(reduce(_addp, nu[C]; init = Int64(0)))
-        nu[C] .= _mulp.(nu[C], inverse)
-    end
-    transient = [u for u in 1:nn if net.present[u] && s.class_of[u] == 0]
-    slot = zeros(Int, nn)
-    slot[transient] .= eachindex(transient)
-    X = zeros(Int64, length(transient), length(R))
-    if !isempty(transient)
-        M = zeros(Int64, length(transient), length(transient))
-        rhs = zeros(Int64, length(transient), length(R))
-        for t in eachindex(net.from)
-            u, v = net.from[t], net.to[t]
-            net.fast[t] && s.alive[t] && r[t] != 0 && slot[u] > 0 || continue
-            M[slot[u], slot[u]] = _addp(M[slot[u], slot[u]], r[t])
-            if slot[v] > 0
-                M[slot[u], slot[v]] = _subp(M[slot[u], slot[v]], r[t])
-            elseif s.class_of[v] > 0 && place[s.class_of[v]] > 0
-                q = place[s.class_of[v]]
-                rhs[slot[u], q] = _addp(rhs[slot[u], q], r[t])
-            end
-        end
-        X = first(_solvep(M, rhs))
-        isempty(X) && error("_face_limit_check: singular absorption system")
-    end
-    Q = zeros(Int64, length(R), length(R))
-    for t in eachindex(net.from)
-        u, v = net.from[t], net.to[t]
-        !net.fast[t] && s.alive[t] && r[t] != 0 && s.class_of[u] > 0 &&
-            place[s.class_of[u]] > 0 || continue
-        a, f = place[s.class_of[u]], _mulp(nu[u], r[t])
-        if s.class_of[v] > 0
-            b = place[s.class_of[v]]
-            b == 0 && error("_face_limit_check: the aggregated class is not closed")
-            b != a && (Q[a, b] = _addp(Q[a, b], f))
-        else
-            for b in eachindex(R)
-                b == a || (Q[a, b] = _addp(Q[a, b], _mulp(f, X[slot[v], b])))
-            end
-        end
-    end
-    mu = first(_stationaryp(Q))
-    isempty(mu) && error("_face_limit_check: singular aggregated chain")
-    rho = _slow_rho(net, r, h, x1)
-    v = Int64(0)
-    for (q, k) in enumerate(R), u in s.fast_classes[k]
-        v = _addp(v, _mulp(_mulp(mu[q], nu[u]), rho[u]))
-    end
-    v
-end
-
 """The face chain's limit mod p as every rapid-equilibrium speed grows, by interpolating
 the rate's numerator and its tree-sum denominator in Λ (degree below the closed class's
 size) on the face chain's closed class; `_INFINITE` when the rate grows with Λ."""
@@ -1235,40 +1162,6 @@ function _limit_by_interpolation(m::Mechanism, net::_Network, s, pt, h::Vector{I
     _mulp(cN[dD + 1], _invp(cD[dD + 1]))
 end
 
-"""The law's value mod p on the face, from the law's segment chain with its one closed
-class: each segment's weight on its lowest forms, its alive slow transitions out of
-them."""
-function _law_on_face(m::Mechanism, net::_Network, s, pt, h::Vector{Int}, x1::Int)
-    r = _rates_p(m, net, pt, pt.conc, Int64(0))
-    parts = [sort(S; by = u -> !s.lowest[u]) for S in s.segments]
-    w = _eq_weights_p(net, parts, _rates_p(m, net, pt, pt.concw, Int64(0)))
-    share = zeros(Int64, length(w))
-    for S in s.segments
-        low = [u for u in S if s.lowest[u]]
-        inverse = _invp(reduce(_addp, w[low]; init = Int64(0)))
-        share[low] .= _mulp.(w[low], inverse)
-    end
-    Lc = s.law_classes[1]
-    at = zeros(Int, length(s.segments))
-    at[Lc] .= eachindex(Lc)
-    Q = zeros(Int64, length(Lc), length(Lc))
-    for t in eachindex(net.from)
-        u = net.from[t]
-        sa, sb = s.segment[u], s.segment[net.to[t]]
-        !net.fast[t] && s.alive[t] && s.lowest[u] && at[sa] > 0 && sa != sb || continue
-        at[sb] == 0 && error("_face_limit_check: the law's closed class is not closed")
-        Q[at[sa], at[sb]] = _addp(Q[at[sa], at[sb]], _mulp(share[u], r[t]))
-    end
-    mu = first(_stationaryp(Q))
-    isempty(mu) && error("_face_limit_check: singular law segment chain")
-    rho = _slow_rho(net, r, h, x1)
-    v = Int64(0)
-    for (q, g) in enumerate(Lc), u in s.segments[g]
-        s.lowest[u] && (v = _addp(v, _mulp(_mulp(mu[q], share[u]), rho[u])))
-    end
-    v
-end
-
 """The law mod p at concentrations `conc` with every name present: segment weights and
 the slow segment chain over every segment."""
 function _law_inside(m::Mechanism, net::_Network, s, pt, conc::Vector{Int64},
@@ -1293,10 +1186,9 @@ function _law_inside(m::Mechanism, net::_Network, s, pt, conc::Vector{Int64},
     v
 end
 
-"""The law's value mod p on the face when its segment chain has several closed classes:
-its limit as the zeroed concentrations go to zero along two random directions, by
-rational reconstruction in their scale; `_UNDEFINED` when a direction meets a pole or the
-two differ."""
+"""The law's value mod p on the face: its limit as the zeroed concentrations go to zero
+along two random directions, by rational reconstruction in their scale; `_UNDEFINED` when
+a direction meets a pole or the two differ."""
 function _law_by_reconstruction(m::Mechanism, net::_Network, s, pt, h::Vector{Int},
                                 x1::Int, face::UInt64, rng::_ResidueStream)
     found = Int64[]
@@ -1319,12 +1211,10 @@ end
 
 The limit test of class 3 on face `face` of `mech`, whose law
 network is `net` and face structure `s`: at two random points of the model mod 2^61 − 1,
-drawn from `seed`, the fast-RE limit of the face chain (by aggregation when the aggregated
-chain has one closed class, else by interpolation in Λ) against the law's face value
-(from the law's segment chain when it has one closed class, else by reconstruction as the
-zeroed concentrations vanish). On a difference a third limit at new speeds tells
-`_LIMIT_DIFFER` from `_LIMIT_SPEED`. A false `_LIMIT_EQUAL` has probability at most twice
-the degree over p.
+drawn from `seed`, the fast-RE limit of the face chain by interpolation in Λ against the
+law's face value by reconstruction as the zeroed concentrations vanish. On a difference a
+third limit at new speeds tells `_LIMIT_DIFFER` from `_LIMIT_SPEED`. A false
+`_LIMIT_EQUAL` has probability at most twice the degree over p.
 """
 function _face_limit_check(mech::_AnyMech, net::_Network, s, face::UInt64, seed::UInt64)
     m, tags = catalytic(mech), _tags(mech)
@@ -1332,12 +1222,10 @@ function _face_limit_check(mech::_AnyMech, net::_Network, s, face::UInt64, seed:
     x1 = _turnover_name(m)
     # Class 2, which runs first, leaves no fast cycle that takes `x1` up: a potential.
     h = s.offset[x1, :]
-    limit(pt) = length(s.aggregated) == 1 ? _limit_by_aggregation(m, net, s, pt, h, x1) :
-                _limit_by_interpolation(m, net, s, pt, h, x1, rng)
+    limit(pt) = _limit_by_interpolation(m, net, s, pt, h, x1, rng)
     for _ in 1:2
         pt = _model_point(m, tags, net.ncopies, face, rng)
-        law = length(s.law_classes) == 1 ? _law_on_face(m, net, s, pt, h, x1) :
-              _law_by_reconstruction(m, net, s, pt, h, x1, face, rng)
+        law = _law_by_reconstruction(m, net, s, pt, h, x1, face, rng)
         law == _UNDEFINED && return _LIMIT_LAW_NAN
         v = limit(pt)
         # The face chain's fast transitions are the law network's, a subset of the
