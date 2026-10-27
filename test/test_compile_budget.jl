@@ -451,6 +451,7 @@ end
     # text and derives the same generated body, compared by SHA-256, the same key and the
     # same printed law in both forms, for the 42 specs and the six gate laws (PASS1
     # derives and prints on the workers).
+    sha256 = EnzymeRates.Derivation.sha256
     mechs = [_testhelper_lift(s.mechanism) for s in MECHANISM_TEST_SPECS]
     append!(mechs, _testhelper_lift.(_testhelper_largest_enumerated_mechanisms))
     append!(mechs, _testhelper_lift.(_testhelper_large_ter_bi_mechanisms))
@@ -460,28 +461,27 @@ end
     script = """
         using EnzymeRates
         const ER = EnzymeRates
+        const sha256 = ER.Derivation.sha256
         for (i, text) in enumerate(split(read($(repr(file)), String), "\\n----\\n"))
             m = ER._parse_mechanism(String(text))
             println("BODY ", i, " ",
-                    bytes2hex(ER.sha256(string(ER.Derivation._rate_body(m)))))
-            println("KEY ", i, " ",
-                    ER.Derivation._canonical(ER.Derivation._law(m),
-                                             ER._mechanism_id(String(text))).key)
-            println("FULL ", i, " ", bytes2hex(ER.sha256(ER.rate_equation_string(m))))
+                    bytes2hex(sha256(string(ER.Derivation._rate_body(m)))))
+            println("KEY ", i, " ", ER.Derivation.rate_equation_key(m).key)
+            println("FULL ", i, " ", bytes2hex(sha256(ER.rate_equation_string(m))))
             println("COEF ", i, " ",
-                    bytes2hex(ER.sha256(ER.rate_equation_string(m; coefficients = true))))
+                    bytes2hex(sha256(ER.rate_equation_string(m; coefficients = true))))
         end
         """
     lines = split(_testhelper_subprocess_output(script), '\n')
     rm(file; force = true)
     @test all(t -> count(startswith(t * " "), lines) == 48, ("BODY", "KEY", "FULL", "COEF"))
     for (i, m) in enumerate(mechs)
-        mine = bytes2hex(EnzymeRates.sha256(string(EnzymeRates.Derivation._rate_body(m))))
+        mine = bytes2hex(sha256(string(EnzymeRates.Derivation._rate_body(m))))
         @test "BODY $i $mine" in lines
         key = _testhelper_pass1_canonical(m).key
         @test "KEY $i $key" in lines
-        full = bytes2hex(EnzymeRates.sha256(rate_equation_string(m)))
-        coef = bytes2hex(EnzymeRates.sha256(rate_equation_string(m; coefficients = true)))
+        full = bytes2hex(sha256(rate_equation_string(m)))
+        coef = bytes2hex(sha256(rate_equation_string(m; coefficients = true)))
         @test "FULL $i $full" in lines
         @test "COEF $i $coef" in lines
     end

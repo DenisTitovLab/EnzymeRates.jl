@@ -1,6 +1,6 @@
 # ABOUTME: Beam-search pipeline to identify the best rate equation.
 # ABOUTME: Enumerates mechanisms, fits one representative per rate-law key
-# ABOUTME: (`_canonical`), and selects among the fits by cross-validation.
+# ABOUTME: (`rate_equation_key`), and selects among the fits by cross-validation.
 
 using DataFrames
 using CSV
@@ -318,13 +318,6 @@ function _rows_to_dataframe(rows)
 end
 
 """
-A mechanism's id in identify's CSVs: the first 16 hex digits of the SHA-256 of `text`,
-the mechanism's DSL text (`show`), so every process and Julia version gives one mechanism
-one id.
-"""
-_mechanism_id(text::AbstractString) = bytes2hex(sha256(text))[1:16]
-
-"""
 Select this sweep's parents among the count-`c` mechanisms with `losses` and rate-law
 keys `law_keys`, and advance the cumulative floor budget. The beam ranks keys, not
 mechanisms: the mechanisms of one key share one fit (`_process_batch`; an L phantom's key
@@ -381,8 +374,8 @@ function _select_count!(
 end
 
 """
-A fit as identify stores it, once per rate-law key (`_canonical`): `values` holds the
-fitted constants at their canonical positions (`_Canonical.order`), then `L` for an MWC
+A fit as identify stores it, once per rate-law key (`rate_equation_key`): `values` holds
+the fitted constants at their canonical positions (its `parameters`), then `L` for an MWC
 law, so every mechanism with that key reads them through its own canonical order;
 `loss` and `retcode` are `fit_rate_equation`'s; `source` is the
 mechanism that was fitted and `source_id` its `mechanism_id`.
@@ -395,12 +388,16 @@ struct _Fit
     source_id::String
 end
 
+"""A rate law's key and its fitted constants in canonical order (`rate_equation_key`)."""
+const _LawKey = @NamedTuple{key::String, order::Vector{Symbol}}
+
 """
 A mechanism `_pass1_record` derived: its fitted constants in `fitted_params`
-order, its text and the text's id (`_mechanism_id`), its printed law, its law's canonical
-form (`canon`), whether it is an L phantom that reads another law's fit (`_is_phantom`),
-and `canon0`, the canonical form of the law whose fit it reads: for a phantom its active
-law, its law at `L = 0`; `canon` otherwise.
+order, its text and the text's id (`mechanism_id`), its printed law, its law's key
+(`canon`), whether it is an L phantom that reads another law's fit (`rate_equation_key`
+gives it a fit key other than its key), `canon0`, the key of the law whose fit it reads
+(for a phantom its active law, its law at `L = 0`; `canon` otherwise), and whether its
+law's labelling reached the leaf cap (`capped`).
 """
 struct _Candidate
     mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
@@ -408,15 +405,16 @@ struct _Candidate
     mechanism::String
     mechanism_id::String
     eq_text::String
-    canon::Derivation._Canonical
+    canon::_LawKey
     phantom::Bool
-    canon0::Derivation._Canonical
+    canon0::_LawKey
+    capped::Bool
 end
 
 """Candidate `c` as an ordinary candidate: not an L phantom, it reads the fit of its own law
 (`canon0 = c.canon`)."""
 _unflagged(c::_Candidate) = _Candidate(c.mech, c.fitted, c.mechanism, c.mechanism_id,
-                                       c.eq_text, c.canon, false, c.canon)
+                                       c.eq_text, c.canon, false, c.canon, c.capped)
 
 """The order in which candidate `c` reads its fit's values (`_Fit`): the canonical order of
 the law whose fit it reads (`canon0`), then `L` for an MWC law."""
@@ -434,8 +432,8 @@ function _row_params(c::_Candidate, order::Vector{Symbol}, values::Vector{Float6
 end
 
 """One fitted mechanism: its parameter count, its fit's loss and retcode, its rate-law key
-(`_canonical`), the key of the fit it reads (`fit_key`: its own, or for an L phantom the
-key of its law at `L = 0`), and its CSV row."""
+(`rate_equation_key`), the key of the fit it reads (`fit_key`: its own, or for an L phantom
+the key of its law at `L = 0`), and its CSV row."""
 struct BatchEntry
     mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
     n_params::Int
@@ -468,7 +466,7 @@ function _failure_row(f::FitFailure)
      parent_n_params = missing,
      loss = missing,
      mechanism = text,
-     mechanism_id = _mechanism_id(text),
+     mechanism_id = Mechanisms.mechanism_id(f.mech),
      parent_id = missing,
      rate_equation = missing,
      retcode = missing,
@@ -542,37 +540,28 @@ end
 """
 PASS 1 of `_process_batch` (on the workers) for mechanism `m`, from the concrete mechanism
 alone and compiling nothing. Skip it over `eq_complexity_filter` (`:complexity_skip`,
-checked before any derivation); check it with the guard (`_check_well_posed`); skip it
-over `max_param_count` by its solve's fitted constants (`_solve`, `:param_skip`); else
-derive its law (`_law`), print it (`_law_text`), take its text and the text's id
-(`_mechanism_id`), label the law canonically (`_canonical`; a law whose labelling reaches
-the leaf cap gets a key of its own) and decide whether it is an L phantom (`_is_phantom`)
-and, for one, the canonical form of its law at `L = 0`. Returns the skip's symbol, a
-`FitFailure` when a step throws, else a `_Candidate`.
+`rate_equation_complexity`, checked before any derivation); check it with the guard
+(`check_valid_rate_equation`); skip it over `max_param_count` by its fitted constants
+(`fitted_params`, `:param_skip`); else print its law (`rate_equation_string` with its
+coefficients), take its text and the text's id (`mechanism_id`), and read its law's key
+and the key of the fit it reads (`rate_equation_key`; a law whose labelling reaches the
+leaf cap gets a key of its own, and an L phantom reads the fit of its law at `L = 0`).
+Returns the skip's symbol, a `FitFailure` when a step throws, else a `_Candidate`.
 """
 function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
     try
-        Derivation._eq_complexity(m) > eq_complexity_filter && return :complexity_skip
-        Derivation._check_well_posed(m)
-        s = Derivation._solve(m)
-        length(s.fitted) > max_param_count && return :param_skip
-        Derivation._with_law(m, s) do m, s, L
-            eq_text = Derivation._law_text(m, s, L; coefficients = true)
-            text = sprint(show, m)
-            id = _mechanism_id(text)
-            canon = Derivation._canonical(L, id)
-            # An L phantom reads the fit of its law at L = 0, its active law, when that
-            # law holds every fitted constant but L. A regulatory site whose ligands are
-            # all :EqualAI has one factor in both conformations, so the certificate
-            # admits it, yet the active law lacks its constants: the check fits such a
-            # phantom itself, so a row never reads names its fit lacks.
-            phantom = m isa Mechanisms.AllostericMechanism && Derivation._is_phantom(L)
-            canon0 = phantom ? Derivation._canonical(L.active, id) : canon
-            if phantom && Set(canon0.order) != Set(s.fitted[1:(end - 1)])
-                phantom, canon0 = false, canon
-            end
-            _Candidate(m, s.fitted, text, id, eq_text, canon, phantom, canon0)
-        end
+        Derivation.rate_equation_complexity(m) > eq_complexity_filter &&
+            return :complexity_skip
+        Derivation.check_valid_rate_equation(m)
+        fitted = collect(Derivation.fitted_params(m))
+        length(fitted) > max_param_count && return :param_skip
+        eq_text = Derivation.rate_equation_string(m; coefficients = true)
+        k = Derivation.rate_equation_key(m)
+        canon = (key = k.key, order = k.parameters)
+        phantom = k.fit_key != k.key
+        canon0 = phantom ? (key = k.fit_key, order = k.fit_parameters) : canon
+        _Candidate(m, fitted, sprint(show, m), Mechanisms.mechanism_id(m), eq_text, canon,
+                   phantom, canon0, k.capped)
     catch e
         FitFailure(m, _exc_string(e))
     end
@@ -596,15 +585,16 @@ mechanism with that key reads it through its own canonical order, so its row car
 own parameter names: same law ⟹ same fitted values and same rescaling, so no refit is
 needed. `memo` persists across iterations (threaded from `_beam_search`), so a law fit in
 an earlier iteration is never refit. A representative whose fit throws fails ALL the
-mechanisms with its key (all-or-nothing per law). An L phantom (`_is_phantom`: a rescaling
-certificate, which needs one catalytic subunit and an inactive conformation that turns
-nothing over) is never a representative. It reads the fit of its law at `L = 0`, its active
-law's key (`fit_key`), from `memo` or from this batch's representatives, through its own
-order and with `L = 0`, and its row sets `L_phantom`. A phantom whose law at `L = 0` has no
-fit there, or lacks one of its other fitted constants, is fitted as an ordinary candidate;
-so is one whose source's fit throws, after the representatives. When a phantom is demoted
-after its source's fit threw, `log` gets one more message, its lines joined by a newline
-and two spaces: one per such phantom,
+mechanisms with its key (all-or-nothing per law). An L phantom (`rate_equation_key` gives
+it a fit key other than its key: a rescaling certificate, which needs one catalytic subunit
+and an inactive conformation that turns nothing over) is never a representative. It reads
+the fit of its law at `L = 0`, its active law's key (`fit_key`), from `memo` or from this
+batch's representatives, through its own order and with `L = 0`, and its row sets
+`L_phantom`. A phantom whose law at `L = 0` has
+no fit there, or lacks one of its other fitted constants, is fitted as an ordinary
+candidate; so is one whose source's fit throws, after the representatives. When a phantom
+is demoted after its source's fit threw, `log` gets one more message, its lines joined by a
+newline and two spaces: one per such phantom,
 `"source fit threw for L phantom <id>; it reads its own key's fit"`. A row's
 `fit_inherited` is `false` when its mechanism is its fit's source and `true`
 otherwise, and `fit_source_id` names the source. `parent_of` maps a child to its parent's
@@ -650,7 +640,7 @@ function _process_batch(
     n_cx_skip = count(==(:complexity_skip), records)
     n_seen_skip = length(mechs) - length(fresh)
     capped = ["leaf cap reached for $(c.mechanism_id); fitted under its own key"
-              for c in records if c isa _Candidate && c.canon.capped]
+              for c in records if c isa _Candidate && c.capped]
     log(join([_prefit_summary(length(reps),
                   count(c -> c isa _Candidate, records) - length(reps),
                   n_param_skip, n_cx_skip, n_seen_skip;

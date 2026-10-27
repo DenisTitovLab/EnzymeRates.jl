@@ -21,7 +21,6 @@ export identify_rate_equation
 
 using Dates
 using Distributed
-using SHA: sha256
 
 include("Mechanisms/Mechanisms.jl")
 using .Mechanisms: Mechanisms, EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism,
@@ -34,15 +33,5 @@ include("Fitting/Fitting.jl")
 using .Fitting: Fitting, FittingProblem, fit_rate_equation, rescale_parameter_values
 include("Enumeration/Enumeration.jl")
 include("identify_rate_equation.jl")
-
-# Every mechanism macro call runs the guard, the flip search runs `_faces_pass` and the
-# first `rate_equation` call of a mechanism runs `_rate_body`, so all three compile into
-# the package image rather than in each session.
-precompile(Derivation._guard, (Mechanisms.Mechanism,))
-precompile(Derivation._guard, (Mechanisms.AllostericMechanism,))
-precompile(Derivation._faces_pass, (Mechanisms.Mechanism, BitVector))
-precompile(Derivation._faces_pass, (Mechanisms.AllostericMechanism, BitVector))
-precompile(Derivation._rate_body, (Mechanisms.Mechanism,))
-precompile(Derivation._rate_body, (Mechanisms.AllostericMechanism,))
 
 end

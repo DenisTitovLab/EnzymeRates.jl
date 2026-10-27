@@ -258,8 +258,8 @@ The mechanism that `raw`, the walker's value for a mechanism block (`_raw_mechan
 writes, checked: its names must spell every string one way only
 (`_check_uniquely_decodable`, as a reaction's are checked), then the constructors
 (`Mechanism(raw)`, `AllostericMechanism(raw)`) and the boundary check
-(`_check_well_posed`) check the mechanism. The macros (`_compiled_mechanism`) and the
-parser (`_parse_mechanism`) build every mechanism through it, so they accept the same
+(`check_valid_rate_equation`) check the mechanism. The macros (`_compiled_mechanism`) and
+the parser (`_parse_mechanism`) build every mechanism through it, so they accept the same
 mechanisms.
 """
 function _checked_mechanism(raw::Union{Mechanisms.RawMechanism,
@@ -267,7 +267,9 @@ function _checked_mechanism(raw::Union{Mechanisms.RawMechanism,
     c = raw isa Mechanisms.RawMechanism ? raw : raw.catalytic
     Mechanisms._check_uniquely_decodable([c.substrates; c.products], c.modifiers,
                                          "Mechanism")
-    Derivation._well_posed(Mechanisms._build(raw))
+    m = Mechanisms._build(raw)
+    Derivation.check_valid_rate_equation(m)
+    m
 end
 
 """

@@ -442,7 +442,7 @@ function _testhelper_same_model_regroupings(m)
     for g in 1:EnzymeRates.Mechanisms.ngroups(cm),
         bp in EnzymeRates.Enumeration._context_bipartitions(cm, g)
         child = EnzymeRates.Enumeration._apply_bipartitions(m, [(g, bp)])
-        EnzymeRates.Derivation._is_well_posed(child) &&
+        EnzymeRates.Derivation.has_valid_rate_equation(child) &&
             EnzymeRates.Derivation._independent_param_count(child) == n &&
             push!(kept, child)
     end
@@ -486,7 +486,7 @@ const _testhelper_sample_regroupings =
     @testset "a same-model regrouping keeps every fitted name" begin
         # A split that the cycles tie straight back leaves the count, and so the model,
         # unchanged, and it leaves every fitted name unchanged too (E3). Only a split the
-        # exit keeps counts: one the guard accepts (`_is_well_posed`).
+        # exit keeps counts: one the guard accepts (`has_valid_rate_equation`).
         n_plain, n_allo = 0, 0
         for (m, regrouped) in zip(_testhelper_population_sample,
                                   _testhelper_sample_regroupings)
@@ -1227,7 +1227,7 @@ end
     # one point; an allosteric member is judged at one catalytic subunit.
     rng = Random.MersenneTwister(401)
     for m in _testhelper_population_sample
-        @test EnzymeRates.Derivation._is_well_posed(m)
+        @test EnzymeRates.Derivation.has_valid_rate_equation(m)
         faults = _testhelper_face_faults(m)
         @test all(_testhelper_agrees.(faults, _testhelper_respeed_verdicts(m; rng)))
     end
@@ -1282,7 +1282,7 @@ let children = [c
     # catalytic group :OnlyI (spec section 13). An aggregate regression pin over the
     # declaration's whole seed set (CLAUDE.md enumeration rule 1's exception).
     @test length(children) == 5505
-    @test count(!EnzymeRates.Derivation._is_well_posed, children) == 0
+    @test count(!EnzymeRates.Derivation.has_valid_rate_equation, children) == 0
     allo = [c for c in children if c isa EnzymeRates.AllostericMechanism]
     @test !isempty(allo)
     @test all(c -> :OnlyI ∉ EnzymeRates.Mechanisms.cat_allo_states(c), allo)
@@ -1325,7 +1325,7 @@ end
     keyed = Dict{String, Vector{Any}}()
     for m in pool
         L = EnzymeRates.Derivation._law(m)
-        c = EnzymeRates.Derivation._canonical(L, EnzymeRates._mechanism_id(sprint(show, m)))
+        c = EnzymeRates.Derivation._canonical(L, EnzymeRates.Mechanisms.mechanism_id(m))
         @test !c.capped
         push!(get!(keyed, c.key, Any[]), (L, c))
     end
@@ -1509,7 +1509,7 @@ without duplicates, in content order (`_testhelper_content_text`)."""
 function _testhelper_tagging_children(parents, rxn)
     kids = unique!(
         [c for p in parents for c in EnzymeRates.Enumeration._expand_to_allosteric(p, rxn)
-         if EnzymeRates.Derivation._is_well_posed(c)])
+         if EnzymeRates.Derivation.has_valid_rate_equation(c)])
     kids[sortperm(_testhelper_content_text.(kids))]
 end
 
@@ -1546,7 +1546,7 @@ end
     covalent(m) = any(EnzymeRates.Mechanisms._has_residual, m.forms)
     inits = filter(covalent, collect(EnzymeRates.Enumeration.init_mechanisms(rxn)))
     flips = [c for m in inits for c in EnzymeRates.Enumeration._expand_re_to_ss(m)
-             if EnzymeRates.Derivation._is_well_posed(c) && covalent(c)]
+             if EnzymeRates.Derivation.has_valid_rate_equation(c) && covalent(c)]
     parents = _testhelper_spaced(unique!([inits; flips]), 30)
     @test length(parents) == 30
     kids = _testhelper_tagging_children(parents, rxn)

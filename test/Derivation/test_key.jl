@@ -254,7 +254,7 @@ end
     c = EnzymeRates.Derivation._canonical(_testhelper_nine_law(), id)
     @test c.capped && c.leaves == EnzymeRates.Derivation._KEY_LEAF_CAP == 100
     @test c.text == "mechanism|" * id
-    @test c.key == bytes2hex(EnzymeRates.sha256("mechanism|" * id))
+    @test c.key == bytes2hex(EnzymeRates.Derivation.sha256("mechanism|" * id))
     @test c.order == [Symbol(:a, i) for i in 1:9]
 end
 
@@ -437,4 +437,58 @@ end
     @test denominator(big(1 - p) // (big(p) * q)) > typemax(Int)
     @test isempty(
         EnzymeRates.Derivation._phantom_weights(_testhelper_exponent_toy_law(p, q)))
+end
+
+@testset "rate_equation_key gives a phantom its own key and the active law's fit key" begin
+    # The merged uni-uni K-type at one catalytic subunit is an L phantom: its active law,
+    # its law at L = 0, holds every fitted constant but L and is the law of the plain
+    # merged uni-uni, so it reads that law's fit. Its own key, under which identify
+    # lists it, is the key of its MWC law. The plain mechanism reads its own fit.
+    plain = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    phantom = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)       :: OnlyA
+        end
+    end)
+    id = EnzymeRates.Mechanisms.mechanism_id(phantom)
+    A = EnzymeRates.Derivation._law(phantom)
+    own = EnzymeRates.Derivation._canonical(A, id)
+    k = EnzymeRates.Derivation.rate_equation_key(phantom)
+    p = EnzymeRates.Derivation.rate_equation_key(plain)
+    @test (k.key, k.parameters, k.capped) == (own.key, own.order, false)
+    @test k.fit_key == p.key == p.fit_key != k.key
+    @test k.fit_parameters ==
+          EnzymeRates.Derivation._canonical(A.active, id).order
+    @test Set(k.fit_parameters) == Set([:K_A_EP_to_E_P, :k_A_E_S_to_EP])
+    @test EnzymeRates.fitted_params(phantom) == (:K_A_EP_to_E_P, :k_A_E_S_to_EP, :L)
+    @test p.fit_parameters == p.parameters
+
+    # With S's and P's bindings and its regulatory site's one ligand R :EqualAI, the
+    # certificate holds, yet the active law lacks R's constant: the variant reads its own
+    # fit.
+    regulated = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R
+        catalytic_multiplicity: 1
+        steps: begin
+            E + S ⇌ E(S)       :: EqualAI
+            E(S) <--> E(P)     :: OnlyA
+            E + P ⇌ E(P)       :: EqualAI
+        end
+        regulatory_site(1): R::EqualAI
+    end)
+    @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(regulated))
+    r = EnzymeRates.Derivation.rate_equation_key(regulated)
+    @test (r.fit_key, r.fit_parameters) == (r.key, r.parameters)
 end

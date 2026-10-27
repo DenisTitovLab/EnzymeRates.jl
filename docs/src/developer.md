@@ -57,7 +57,7 @@ prints as the macro block that builds it (`show`,
 `src/Mechanisms/dsl.jl`), from the concrete mechanism, so the compiled types' `show` takes
 its argument `@nospecialize` and `@nospecializeinfer` and compiles once. `_parse_mechanism`
 reads that text back through the macros' walker and checks, never evaluating it, and
-identify's CSVs store it with a short id (`_mechanism_id`).
+identify's CSVs store it with a short id (`mechanism_id`).
 
 Only the `@generated` methods (`rate_equation`, `parameters`, `fitted_params`,
 `metabolites`) do work per singleton type: `rate_equation` runs the derivation,
@@ -112,9 +112,10 @@ its own), sums the spanning trees of the segment graph, builds the numerator fro
 steady-state edge's net flux, substitutes the solve, divides out `H = Π[S] − Π[P]/Keq`
 exactly and brings `Q` and `D` to lowest terms in the concentrations. An MWC law
 (`_AlloLaw`) holds both conformations' laws, their free-E weights over a common factor and
-the regulatory sites' polynomials. `_eq_complexity` counts V×τ, both conformations of an
-MWC law together, by a checked Bareiss determinant; the cap (`_assert_derivable`) and
-identify's `eq_complexity_filter` read it before any polynomial is built. `_Poly`, `_Law`
+the regulatory sites' polynomials. `rate_equation_complexity` counts V×τ, both
+conformations of an MWC law together, by a checked Bareiss determinant; the cap
+(`_assert_derivable`) and identify's `eq_complexity_filter` read it before any polynomial is
+built. `_Poly`, `_Law`
 and `_AlloLaw` are mutable structs with `const` fields, never an immutable wrapper of one
 reference: Julia 1.12 and 1.13 can hoist such a wrapper's box out of a loop that merges it
 with another type, without a write barrier.
@@ -140,9 +141,10 @@ mechanism's own names (the canonical order). At 100 labellings the search stops,
 takes its mechanism's own key. The L-phantom certificate (`_phantom_weights`) solves exactly
 for a rescaling of the other constants that absorbs `L` in a one-subunit variant whose
 inactive conformation turns nothing over, and it alone decides an L phantom (`_is_phantom`).
-Such a variant reads the fit of its active law when that law holds every fitted constant but
-`L` and a mechanism with that law was fitted in an earlier batch or is fitted in the
-variant's own (`_process_batch`).
+`rate_equation_key(m)` gives identify a mechanism's key and the key of the fit it reads:
+its own, or for such a variant its active law's when that law holds every fitted constant
+but `L`. The variant reads that fit when a mechanism with that law was fitted in an earlier
+batch or is fitted in the variant's own (`_process_batch`).
 
 ## Well-posedness guard
 
@@ -153,9 +155,9 @@ reaction graph through masks and flag overrides and never constructs a mechanism
 can judge a candidate on its flags (`_faces_pass(m, re)`). It returns an isbits `_Verdict`
 (fault, limit-test verdict, face, conformation, edge), never a `Union` that a loop reads:
 Julia 1.12 and 1.13 can hoist the box of a `Union` value out of a loop without a write
-barrier, which corrupts the heap. `_check_well_posed(m)` throws `_guard_message(m, v)`,
-which names each step by its DSL line (`_step_text`) and the face; `_is_well_posed(m)` is
-the enumerator's drop test.
+barrier, which corrupts the heap. `check_valid_rate_equation(m)` throws
+`_guard_message(m, v)`, which names each step by its DSL line (`_step_text`) and the face;
+`has_valid_rate_equation(m)` is the enumerator's drop test.
 
 The guard builds two networks of one catalytic subunit whose conformations flip at free E
 (`_Network`): the **law network**, each conformation's kept steps on the forms free E
@@ -253,10 +255,11 @@ spell one string two ways, such as `NAD`, `P` and `NADP`, never reach the constr
 `@enzyme_reaction` and the mechanism macros reject them (`_check_uniquely_decodable`).
 Whether a mechanism's rate law is defined is the well-posedness guard's question
 (`src/Derivation/guard.jl`; see [Well-posedness guard](@ref)). The macros, the parser and
-every derivation entry throw on a mechanism it rejects (`_check_well_posed`), and identify's
-base tier and the enumerator's exits drop one (`_is_well_posed`), except that init's exit
-runs the guard on its seeds and checks class 1 on their variants, whose classes 2 and 3 the
-flip search ran (`_faces_pass`). The constructors and the Sig decoder do not run it.
+every derivation entry throw on a mechanism it rejects (`check_valid_rate_equation`), and
+identify's base tier and the enumerator's exits drop one (`has_valid_rate_equation`), except
+that init's exit runs the guard on its seeds and checks class 1 on their variants, whose
+classes 2 and 3 the flip search ran (`_faces_pass`). The constructors and the Sig decoder
+do not run it.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see

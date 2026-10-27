@@ -13,7 +13,7 @@ enumeration's. Each parent must satisfy the two emission rules
 competitive-inhibitor group is redundant (`_redundant_copy_groups`). Every child that
 passes the regulator-type filter must conserve atoms (`_assert_atom_conserving`), which
 errors on the first child that does not; a child whose rate law the guard rejects
-(`_is_well_posed`) is dropped.
+(`has_valid_rate_equation`) is dropped.
 """
 function expand_mechanisms(
     mechs::Vector{<:Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}},
@@ -32,6 +32,6 @@ function expand_mechanisms(
     end
     filter!(c -> _respects_reg_type(c, rxn), result)
     foreach(child -> _assert_atom_conserving(child, rxn), result)
-    filter!(Derivation._is_well_posed, result)
+    filter!(Derivation.has_valid_rate_equation, result)
     result
 end

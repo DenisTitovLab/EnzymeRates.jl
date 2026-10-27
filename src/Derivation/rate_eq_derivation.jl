@@ -24,17 +24,18 @@ end
 end
 
 # Convenience methods for the concrete Mechanism / AllostericMechanism
-# working representation: lift to the compiled singleton via
-# `compile_mechanism`, then dispatch to the singleton method. Callers that
-# hold a `Mechanism` (e.g. the `identify_rate_equation` pipeline) use these
-# without an explicit lift. `compile_mechanism` does Sig conversion (it
+# working representation. `parameters` lifts to the compiled singleton via
+# `compile_mechanism`, then dispatches to the singleton method; `fitted_params`
+# reads the joint solve of the checked mechanism (`_solve`), compiling nothing.
+# Callers that hold a `Mechanism` (e.g. the `identify_rate_equation` pipeline)
+# use these without an explicit lift. `compile_mechanism` does Sig conversion (it
 # allocates) — it is NOT the rate_equation hot path. Pass an
 # `EnzymeMechanism` / `AllostericEnzymeMechanism` for the allocation-free
 # `rate_equation` hot path.
 parameters(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
     parameters(Mechanisms.compile_mechanism(m))
 fitted_params(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
-    fitted_params(Mechanisms.compile_mechanism(m))
+    Tuple(_solve(_well_posed(m)).fitted)
 
 """
     all_parameters(m, params) -> NamedTuple
@@ -119,7 +120,7 @@ end
 """
 The names of the steady-state rate constants of `em`'s law (`_edge_names`): for an
 `AllostericEnzymeMechanism`, those of both conformations, the inactive one's `I_` names
-included. `_scale_rate_constants` scales exactly these, leaving the rapid-equilibrium
+included. `scale_rate_constants` scales exactly these, leaving the rapid-equilibrium
 constants, `Keq`, `E_total`, `L` and the regulator constants alone.
 """
 function _ss_rate_constant_names(@nospecialize(em::Mechanisms.AbstractEnzymeMechanism))
@@ -129,4 +130,19 @@ function _ss_rate_constant_names(@nospecialize(em::Mechanisms.AbstractEnzymeMech
     kept = Mechanisms._kept_members(m)
     Set{Symbol}(n for st in states for (k, ns) in enumerate(_edge_names(m, st, kept))
                 if !edges[k].rapid_equilibrium for n in ns)
+end
+
+"""
+    scale_rate_constants(m, params, factor) -> NamedTuple
+
+`params` with every steady-state rate constant of `m` (`_ss_rate_constant_names`)
+multiplied by `factor`, every other entry unchanged. A common factor on those constants
+multiplies every rate by the same factor and leaves the binding constants, `Keq`,
+`E_total`, `L` and the regulatory constants alone.
+"""
+function scale_rate_constants(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism),
+                              params::NamedTuple, factor::Real)
+    rate_constants = _ss_rate_constant_names(m)
+    NamedTuple{keys(params)}(map((k, v) -> k in rate_constants ? v * factor : v,
+                                 keys(params), values(params)))
 end

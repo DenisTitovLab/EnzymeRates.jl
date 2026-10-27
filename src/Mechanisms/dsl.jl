@@ -224,7 +224,7 @@ The mechanism a mechanism macro's `begin ... end` block writes, as raw input:
 `@allosteric_mechanism`'s grammar when `allosteric`, else `@enzyme_mechanism`'s. It reads
 the block's expression without evaluating it or building code, and throws the DSL's
 syntax errors; the constructors (`Mechanism(raw)`, `AllostericMechanism(raw)`) and the
-boundary check (`_check_well_posed`) check the mechanism.
+boundary check (`check_valid_rate_equation`) check the mechanism.
 
 `substrates:`, `products:` and `modifiers:` list bare names and may repeat; `steps:`
 holds one `begin ... end` block (`_raw_steps`). `@allosteric_mechanism` adds
@@ -581,8 +581,8 @@ Print `m` as the `@enzyme_mechanism` text that builds it: its substrates, produc
 modifiers (the names its steps bind as modifiers), each list sorted and an empty one left
 out, then its steps (`_print_steps`). The text is a function of `m` alone, so equal
 mechanisms print one text. `_parse_mechanism` reads the text of a mechanism the macros
-accept back as that mechanism: one that is well posed (`_check_well_posed`) and whose
-names spell every string one way (`_check_uniquely_decodable`).
+accept back as that mechanism: one that is well posed (`check_valid_rate_equation`) and
+whose names spell every string one way (`_check_uniquely_decodable`).
 """
 function Base.show(io::IO, m::Mechanism)
     print(io, "@enzyme_mechanism begin")
@@ -619,6 +619,12 @@ Base.@nospecializeinfer Base.show(io::IO, @nospecialize(em::EnzymeMechanism)) =
     show(io, Mechanism(em))
 Base.@nospecializeinfer Base.show(io::IO, @nospecialize(aem::AllostericEnzymeMechanism)) =
     show(io, AllostericMechanism(aem))
+
+"""
+A mechanism's id in identify's CSVs: the first 16 hex digits of the SHA-256 of `m`'s DSL
+text (`show`), so every process and Julia version gives one mechanism one id.
+"""
+mechanism_id(m::_AnyMech) = bytes2hex(sha256(sprint(show, m)))[1:16]
 
 """Print the line `label: item, item, ...` of a mechanism's block, or nothing when
 `items` is empty."""

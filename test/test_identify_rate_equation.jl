@@ -348,7 +348,7 @@ end
         # row records no parent.
         @test row.mechanism == sprint(show, m)
         @test EnzymeRates._parse_mechanism(row.mechanism) == m
-        @test row.mechanism_id == EnzymeRates._mechanism_id(row.mechanism)
+        @test row.mechanism_id == EnzymeRates.Mechanisms.mechanism_id(m)
         @test ismissing(row.parent_id)
         @test row.error == "boom"
         @test ismissing(row.key) && ismissing(row.fit_inherited) &&
@@ -360,11 +360,11 @@ end
         # printed text: it is the 64-hex SHA-256 of the canonical text, the same on every
         # call, and another law gets another key.
         m = _testhelper_uni_seed
-        id = EnzymeRates._mechanism_id(sprint(show, m))
+        id = EnzymeRates.Mechanisms.mechanism_id(m)
         c = EnzymeRates.Derivation._canonical(EnzymeRates.Derivation._law(m), id)
         again = EnzymeRates.Derivation._canonical(EnzymeRates.Derivation._law(m), id)
         @test (again.key, again.text, again.order) == (c.key, c.text, c.order)
-        @test c.key == bytes2hex(EnzymeRates.sha256(c.text))
+        @test c.key == bytes2hex(EnzymeRates.Derivation.sha256(c.text))
         @test occursin(r"^[0-9a-f]{64}$", c.key)
         ss_release = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
@@ -375,7 +375,7 @@ end
                 E(P) <--> E + P
             end
         end)
-        other = EnzymeRates._mechanism_id(sprint(show, ss_release))
+        other = EnzymeRates.Mechanisms.mechanism_id(ss_release)
         @test EnzymeRates.Derivation._canonical(
             EnzymeRates.Derivation._law(ss_release), other).key != c.key
     end
@@ -405,9 +405,8 @@ end
     best_row = results.cv_results[
         EnzymeRates._select_best_row(results.cv_results), :]
     # The rate-law key of a mechanism's text: the key PASS1 gives it.
-    _testhelper_key_of(text) = EnzymeRates.Derivation._canonical(
-        EnzymeRates.Derivation._law(EnzymeRates._parse_mechanism(text)),
-        EnzymeRates._mechanism_id(text)).key
+    _testhelper_key_of(text) =
+        EnzymeRates.Derivation.rate_equation_key(EnzymeRates._parse_mechanism(text)).key
 
     @testset "mechanism recovery" begin
         # The best mechanism should fit the noiseless data with near-zero loss.
@@ -550,7 +549,8 @@ end
             @test "parent_id" in names(df_file)
             # Each row holds its mechanism's text, which reads back as the mechanism that
             # prints it, and the text's id.
-            @test all(EnzymeRates._mechanism_id.(df_file.mechanism) .==
+            @test all(EnzymeRates.Mechanisms.mechanism_id.(
+                          EnzymeRates._parse_mechanism.(df_file.mechanism)) .==
                       df_file.mechanism_id)
             @test all(t -> sprint(show, EnzymeRates._parse_mechanism(t)) == t,
                       df_file.mechanism)
@@ -788,48 +788,6 @@ end
     @test added[2] == 0
 end
 
-# The CSV mechanism_id column: the first 16 hex digits of the SHA-256 of a mechanism's
-# text, so every process and Julia version gives one id. The ids pinned here come from
-# another SHA-256 implementation (Python's hashlib), applied to the texts that
-# test_types.jl pins for these three mechanisms.
-@testset "_mechanism_id cuts the SHA-256 of a mechanism's text to 16 hex digits" begin
-    plain = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-        end
-    end
-    ping_pong = @enzyme_mechanism begin
-        substrates: A, B; products: P, Q
-        steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
-            E + Q ⇌ E(Q)
-        end
-    end
-    allosteric = @allosteric_mechanism begin
-        substrates: S
-        products: P
-        allosteric_regulators: I, J
-        catalytic_multiplicity: 2
-        steps: begin
-            E + S ⇌ E(S)     :: EqualAI
-            E(S) <--> E(P)   :: OnlyA
-            E(P) ⇌ E + P     :: EqualAI
-        end
-        regulatory_site(3): I::OnlyI, J::EqualAI
-    end
-    @test [EnzymeRates._mechanism_id(sprint(show, em))
-           for em in (plain, ping_pong, allosteric)] ==
-          ["f4ce3f6878d7229f", "dbcebb00ac48b73f", "3d6c468d7b38224b"]
-end
-
 @testset "csv writer" begin
     rows = [(
         n_params = 5, loss = 1.0, mechanism = "M", mechanism_id = "00000000000000aa",
@@ -1038,12 +996,10 @@ end
     end)
     buckets = Dict{String, Vector{Int}}()
     for (i, m) in enumerate(EnzymeRates.Enumeration.init_mechanisms(reaction))
-        id = EnzymeRates._mechanism_id(sprint(show, m))
-        c = EnzymeRates.Derivation._canonical(EnzymeRates.Derivation._law(m), id)
-        @test !c.capped
-        push!(get!(buckets, c.key, Int[]), i)
-        i % 25 == 1 && @test EnzymeRates.Derivation._canonical(
-            EnzymeRates.Derivation._law(m), id).key == c.key
+        k = EnzymeRates.Derivation.rate_equation_key(m)
+        @test !k.capped
+        push!(get!(buckets, k.key, Int[]), i)
+        i % 25 == 1 && @test EnzymeRates.Derivation.rate_equation_key(m).key == k.key
     end
     @test length(buckets) == 239
 end
@@ -1362,7 +1318,7 @@ end
     @test n_cx_skip == 1                             # ter-ter skipped
     @test n_param_skip == 0
     @test length(entries) + length(failures) == 1   # random bi-bi (336) reached fitting
-    @test all(e -> EnzymeRates.Derivation._eq_complexity(e.mech) <= 337, entries)
+    @test all(e -> EnzymeRates.Derivation.rate_equation_complexity(e.mech) <= 337, entries)
 
     # A tighter cap catches the bi-bi too — the filter is tunable and both skips
     # are counted.
@@ -1388,7 +1344,7 @@ end
     prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0,
                                        reference=_testhelper_row_reference(data))
     m = EnzymeRates.Mechanism(_testhelper_random_terter())
-    @test EnzymeRates.Derivation._eq_complexity(m) >
+    @test EnzymeRates.Derivation.rate_equation_complexity(m) >
           EnzymeRates.Derivation.MAX_RATE_EQUATION_TERMS
     batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m]
     entries, failures, n_param_skip, n_cx_skip = EnzymeRates._process_batch(
@@ -1439,7 +1395,7 @@ end
         cm, EnzymeRates.Mechanisms._active_mask(ktype)) == 336
     @test _testhelper_laplacian_tree_count(
         cm, EnzymeRates.Mechanisms._inactive_mask(ktype)) == 16
-    @test EnzymeRates.Derivation._eq_complexity(ktype) == 352
+    @test EnzymeRates.Derivation.rate_equation_complexity(ktype) == 352
     @test EnzymeRates.Derivation._independent_param_count(ktype) == 16
     batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[ktype]
     _, _, n_param_skip, n_cx_skip = EnzymeRates._process_batch(
@@ -1989,7 +1945,7 @@ end
             A = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
     prob = IdentifyRateEquationProblem(rxn, data; Keq = 10.0,
                                        reference = _testhelper_row_reference(data))
-    id = EnzymeRates._mechanism_id(sprint(show, pinwheel))
+    id = EnzymeRates.Mechanisms.mechanism_id(pinwheel)
     batch_log = String[]
     entries, failures = EnzymeRates._process_batch(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[pinwheel], prob;
@@ -1998,7 +1954,7 @@ end
         log = msg -> push!(batch_log, msg))
     @test isempty(failures)
     @test only(entries).key == only(entries).row.key ==
-          bytes2hex(EnzymeRates.sha256("mechanism|" * id))
+          bytes2hex(EnzymeRates.Derivation.sha256("mechanism|" * id))
     @test batch_log == ["1 new fits + 0 inherited + 0 skipped (already fit) + " *
                         "0 skipped (>20 params) + 0 skipped (>337 complexity)\n" *
                         "  leaf cap reached for $id; fitted under its own key"]
@@ -2828,8 +2784,8 @@ end
         em = EnzymeRates.compile_mechanism(m)
         fkeys = EnzymeRates.fitted_params(em)
         text = sprint(show, m)
-        id = EnzymeRates._mechanism_id(text)
-        key = EnzymeRates.Derivation._canonical(EnzymeRates.Derivation._law(m), id).key
+        id = EnzymeRates.Mechanisms.mechanism_id(m)
+        key = EnzymeRates.Derivation.rate_equation_key(m).key
         memo[key] = EnzymeRates._Fit(ones(length(fkeys)), loss, :Success, m, id)
         row = (n_params=length(fkeys), loss=loss, mechanism=text, mechanism_id=id,
                rate_equation="v", retcode="Success", error=missing,

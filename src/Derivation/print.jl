@@ -370,7 +370,7 @@ v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
 function rate_equation_string(m::Union{Mechanisms.Mechanism,
                                         Mechanisms.AllostericMechanism};
                               coefficients::Bool = false)
-    _check_well_posed(m)
+    check_valid_rate_equation(m)
     _rate_text(m, coefficients)
 end
 

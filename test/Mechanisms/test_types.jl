@@ -3494,7 +3494,8 @@ end
 @testset "every derivation entry rejects a bottomless rapid-equilibrium segment" begin
     # Random product release at rapid equilibrium between steady-state releases leaves
     # the segment {E(P), E(P, Q), E(Q)} without a bottom form, so the rate is 0/0 at zero
-    # products. The macro's boundary check (`_check_well_posed`) rejects the mechanism.
+    # products. The macro's boundary check (`check_valid_rate_equation`) rejects the
+    # mechanism.
     # The constructor checks the representation only, so it builds the mechanism from
     # the walker's raw value, and the mechanism compiles; every derivation entry then
     # rejects it with the same message.

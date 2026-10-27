@@ -1771,6 +1771,22 @@ end
     end
 end
 
+@testset "scale_rate_constants multiplies the steady-state rate constants only" begin
+    # The steady-state rate constants (`_ss_rate_constant_names`) take the factor; the
+    # binding constants, L, Keq and E_total keep their values, and the names keep their
+    # order.
+    for name in ("RE Uni-Uni", "MWC Dimer [AllostericEnzymeMechanism]")
+        m = only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism
+        ks = (parameters(m)...,)
+        params = NamedTuple{ks}(Tuple(Float64.(eachindex(ks))))
+        scaled = EnzymeRates.Derivation.scale_rate_constants(m, params, 10.0)
+        ss = EnzymeRates.Derivation._ss_rate_constant_names(m)
+        @test keys(scaled) == ks
+        @test !isempty(ss) && any(k -> !(k in ss), ks)
+        @test all(scaled[k] == (k in ss ? 10 * params[k] : params[k]) for k in ks)
+    end
+end
+
 # ── Degenerate constraint handling ────────────────────────────────────────────
 
 @testset "Degenerate constraint handling" begin
@@ -1935,7 +1951,7 @@ end
     end
 end
 
-@testset "_eq_complexity (V×τ term-count estimate)" begin
+@testset "rate_equation_complexity (V×τ term-count estimate)" begin
     raw(m) = m isa EnzymeRates.Mechanism ? m : EnzymeRates.Mechanism(m)
     # V×τ = the King–Altman denominator term count, computed pre-derivation from
     # the catalytic segment graph. Values are the exact denominator product counts.
@@ -1950,7 +1966,7 @@ end
             E(P1) <--> E + P1
         end
     end
-    @test EnzymeRates.Derivation._eq_complexity(raw(ordered_bibi)) == 25
+    @test EnzymeRates.Derivation.rate_equation_complexity(raw(ordered_bibi)) == 25
 
     random_bibi = @enzyme_mechanism begin
         substrates: S1, S2
@@ -1967,7 +1983,7 @@ end
             E(P2) <--> E + P2
         end
     end
-    @test EnzymeRates.Derivation._eq_complexity(raw(random_bibi)) == 336
+    @test EnzymeRates.Derivation.rate_equation_complexity(raw(random_bibi)) == 336
 
     ordered_terter = @enzyme_mechanism begin
         substrates: S1, S2, S3
@@ -1982,7 +1998,7 @@ end
             E(P1) <--> E + P1
         end
     end
-    @test EnzymeRates.Derivation._eq_complexity(raw(ordered_terter)) == 49
+    @test EnzymeRates.Derivation.rate_equation_complexity(raw(ordered_terter)) == 49
 
     # Allosteric: both conformations count. An all-SS uni-uni has G = 3 segments and
     # τ = 3 spanning trees, 9, and its inactive conformation keeps every step: 9 more.
@@ -2003,7 +2019,7 @@ end
                                            EnzymeRates.Mechanisms._active_mask(am)) == 9
     @test _testhelper_laplacian_tree_count(am.catalytic,
                                            EnzymeRates.Mechanisms._inactive_mask(am)) == 9
-    @test EnzymeRates.Derivation._eq_complexity(am) == 18
+    @test EnzymeRates.Derivation.rate_equation_complexity(am) == 18
 end
 
 @testset "Rate equation too large error" begin

@@ -390,7 +390,7 @@ it bounds fit cost. It guards the derivation (`_assert_derivable` aborts when V�
 `eq_complexity_filter` keyword of [`identify_rate_equation`](@ref). Saturates at
 `typemax(Int)`.
 """
-function _eq_complexity(m::Mechanisms.Mechanism, mask::BitVector)
+function rate_equation_complexity(m::Mechanisms.Mechanism, mask::BitVector)
     s = Mechanisms._segments(m, mask, Mechanisms._flags(m))
     G = length(s.segments)
     G <= 1 && return G
@@ -406,25 +406,26 @@ function _eq_complexity(m::Mechanisms.Mechanism, mask::BitVector)
 end
 
 """
-    _eq_complexity(m) -> Int
+    rate_equation_complexity(m) -> Int
 
-The size of `m`'s rate law in spanning-tree products, V×τ (`_eq_complexity(m, mask)`):
-over every edge of a plain mechanism; for an allosteric one, the active law's count plus
-the inactive law's, a conformation that is free E alone counting 0, saturated at
-`typemax(Int)`. The cap (`_assert_derivable`) and identify's `eq_complexity_filter` read
-it.
+The size of `m`'s rate law in spanning-tree products, V×τ
+(`rate_equation_complexity(m, mask)`): over every edge of a plain mechanism; for an
+allosteric one, the active law's count plus the inactive law's, a conformation that is
+free E alone counting 0, saturated at `typemax(Int)`. The cap (`_assert_derivable`) and
+identify's `eq_complexity_filter` read it.
 """
-_eq_complexity(m::Mechanisms.Mechanism) = _eq_complexity(m, trues(length(m.edges)))
-function _eq_complexity(am::Mechanisms.AllostericMechanism)
+rate_equation_complexity(m::Mechanisms.Mechanism) =
+    rate_equation_complexity(m, trues(length(m.edges)))
+function rate_equation_complexity(am::Mechanisms.AllostericMechanism)
     m, imask = Mechanisms.catalytic(am), Mechanisms._inactive_mask(am)
-    a = _eq_complexity(m, Mechanisms._active_mask(am))
-    i = any(imask) ? _eq_complexity(m, imask) : 0
+    a = rate_equation_complexity(m, Mechanisms._active_mask(am))
+    i = any(imask) ? rate_equation_complexity(m, imask) : 0
     a > typemax(Int) - i ? typemax(Int) : a + i
 end
 
 """
-The term cap: the most spanning-tree products (V×τ, `_eq_complexity`) a derived rate law
-may have, both conformations of an MWC law together. A larger law takes too long to
+The term cap: the most spanning-tree products (V×τ, `rate_equation_complexity`) a derived
+rate law may have, both conformations of an MWC law together. A larger law takes too long to
 compile and is unlikely to be useful for fitting.
 """
 const MAX_RATE_EQUATION_TERMS = 5000
@@ -445,13 +446,14 @@ Base.showerror(io::IO, ::RateEquationTooLargeError) = print(io,
     _assert_derivable(m, mask)
     _assert_derivable(am)
 
-Abort a derivation whose term count (V×τ, `_eq_complexity` of the same arguments) exceeds
-`MAX_RATE_EQUATION_TERMS`: the law of the edges of `m` that `mask` keeps, or both
-conformations of `am`'s MWC law together. A quick count on the segment graph that throws
-a `RateEquationTooLargeError` before any polynomial is built. Every derivation entry calls
-it (`_law`).
+Abort a derivation whose term count (V×τ, `rate_equation_complexity` of the same
+arguments) exceeds `MAX_RATE_EQUATION_TERMS`: the law of the edges of `m` that `mask`
+keeps, or both conformations of `am`'s MWC law together. A quick count on the segment
+graph that throws a `RateEquationTooLargeError` before any polynomial is built. Every
+derivation entry calls it (`_law`).
 """
 function _assert_derivable(args...)
-    _eq_complexity(args...) > MAX_RATE_EQUATION_TERMS && throw(RateEquationTooLargeError())
+    rate_equation_complexity(args...) > MAX_RATE_EQUATION_TERMS &&
+        throw(RateEquationTooLargeError())
     return nothing
 end

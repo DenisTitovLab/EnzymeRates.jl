@@ -806,7 +806,7 @@ law of a mechanism the guard rejects is derived once, unchecked
 function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     mech = _testhelper_lift(m)
     fitted = _testhelper_dependent_param_exprs(mech)[2]
-    rate = if EnzymeRates.Derivation._is_well_posed(mech)
+    rate = if EnzymeRates.Derivation.has_valid_rate_equation(mech)
         em = EnzymeRates.compile_mechanism(mech)
         (c, p) -> rate_equation(em, c, p)
     else
@@ -2286,8 +2286,8 @@ function _testhelper_laplacian_tree_count(m::EnzymeRates.Mechanism, mask::BitVec
     V * det(lap[2:end, 2:end])
 end
 
-"""The canonical form PASS1 (`_pass1_record`, with no complexity filter and no parameter
-cap) gives the concrete mechanism `m`."""
+"""The rate-law key and canonical order PASS1 (`_pass1_record`, with no complexity filter
+and no parameter cap) gives the concrete mechanism `m`."""
 _testhelper_pass1_canonical(m) =
     EnzymeRates._pass1_record(m, typemax(Int), typemax(Int)).canon
 

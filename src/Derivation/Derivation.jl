@@ -6,11 +6,11 @@ using ..Mechanisms: Mechanisms
 using LinearAlgebra: det
 using SHA: sha256
 
-const API = (:_Canonical, :_NO_FAULT, :_admission, :_bottomless_segment, :_canonical,
-    :_check_well_posed, :_eq_complexity, :_faces_pass, :_guard, :_has_turnover_cycle,
-    :_independent_param_count, :_is_phantom, :_is_well_posed, :_law_text, :_rate_body,
-    :_solve, :_ss_rate_constant_names, :_well_posed, :_with_law, :all_parameters,
-    :fitted_params, :parameters, :rate_equation, :rate_equation_string)
+const API = (:_NO_FAULT, :_admission, :_bottomless_segment, :_faces_pass,
+    :_has_turnover_cycle, :_independent_param_count, :all_parameters,
+    :check_valid_rate_equation, :fitted_params, :has_valid_rate_equation, :parameters,
+    :rate_equation, :rate_equation_complexity, :rate_equation_key, :rate_equation_string,
+    :scale_rate_constants)
 
 include("rate_eq_derivation.jl")
 include("thermo.jl")
@@ -24,5 +24,15 @@ include("guard.jl")
 include("limit_test.jl")
 include("admission.jl")
 include("messages.jl")
+
+# Every mechanism macro call runs the guard, the flip search runs `_faces_pass` and the
+# first `rate_equation` call of a mechanism runs `_rate_body`, so all three compile into
+# the package image rather than in each session.
+precompile(_guard, (Mechanisms.Mechanism,))
+precompile(_guard, (Mechanisms.AllostericMechanism,))
+precompile(_faces_pass, (Mechanisms.Mechanism, BitVector))
+precompile(_faces_pass, (Mechanisms.AllostericMechanism, BitVector))
+precompile(_rate_body, (Mechanisms.Mechanism,))
+precompile(_rate_body, (Mechanisms.AllostericMechanism,))
 
 end

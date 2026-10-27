@@ -238,3 +238,36 @@ an inactive conformation that turns nothing over, so the mechanism's family is t
 of its law at `L = 0`.
 """
 _is_phantom(A::_AlloLaw) = !isempty(_phantom_weights(A))
+
+# ─── The key a mechanism is fitted under ───────────────────────────────────
+
+"""
+    rate_equation_key(m) -> (; key, parameters, fit_key, fit_parameters, capped)
+
+The rate-law key of the well-posed mechanism `m` and the key of the fit it reads, from its
+law derived once. `key` and `parameters` are its law's canonical key and its fitted
+constants in canonical order (`_canonical`, with `m`'s text id `mechanism_id`); `capped`
+says that the labelling reached the leaf cap, so the law took its mechanism's own key.
+`fit_key` and `fit_parameters` name the law whose fit `m` reads: its own, except for an L
+phantom (`_is_phantom`), which reads its active law, its law at `L = 0`, when that law
+holds every fitted constant of `m` but `L`. Two mechanisms with one key share one fit.
+"""
+function rate_equation_key(m::Mechanisms._AnyMech)
+    check_valid_rate_equation(m)
+    _with_law(m) do m, s, L
+        id = Mechanisms.mechanism_id(m)
+        own = _canonical(L, id)
+        fit = own
+        # An L phantom reads the fit of its law at L = 0, its active law, when that law
+        # holds every fitted constant but L. A regulatory site whose ligands are all
+        # :EqualAI has one factor in both conformations, so the certificate admits it,
+        # yet the active law lacks its constants: such a phantom reads its own fit, so a
+        # row never reads names its fit lacks.
+        if m isa Mechanisms.AllostericMechanism && _is_phantom(L)
+            active = _canonical(L.active, id)
+            Set(active.order) == Set(s.fitted[1:(end - 1)]) && (fit = active)
+        end
+        (; key = own.key, parameters = own.order, fit_key = fit.key,
+         fit_parameters = fit.order, capped = own.capped)
+    end
+end

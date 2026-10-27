@@ -410,21 +410,8 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     ratios === nothing &&
         return (params = result_params, loss = Inf, retcode = :ReferenceFailed)
     scale = exp(sum(ratios) / length(ratios))
-    return (params = _scale_rate_constants(fp.mechanism, result_params, scale),
+    return (params = Derivation.scale_rate_constants(fp.mechanism, result_params, scale),
             loss = best_loss, retcode = best_retcode)
-end
-
-"""
-`params` with every steady-state rate constant of `m` multiplied by `s`, every other
-entry unchanged. A common factor on those constants multiplies every rate by the same
-factor and leaves the binding constants, `Keq`, `E_total`, `L` and the regulatory
-constants alone.
-"""
-function _scale_rate_constants(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism),
-                               params::NamedTuple, s::Real)
-    rate_constants = Derivation._ss_rate_constant_names(m)
-    NamedTuple{keys(params)}(map((k, v) -> k in rate_constants ? v * s : v,
-                                 keys(params), values(params)))
 end
 
 """
@@ -469,7 +456,7 @@ function rescale_parameter_values(@nospecialize(m::Mechanisms.AbstractEnzymeMech
     center = sum(log_ratios) / length(log_ratios)
     spread = length(log_ratios) == 1 ? 0.0 :
         sqrt(sum(r -> (r - center)^2, log_ratios) / (length(log_ratios) - 1))
-    (_scale_rate_constants(m, params, exp(center)), spread)
+    (Derivation.scale_rate_constants(m, params, exp(center)), spread)
 end
 
 """

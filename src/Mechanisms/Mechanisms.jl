@@ -3,6 +3,7 @@
 module Mechanisms
 
 import Unicode
+using SHA: sha256
 
 const API = (:AbstractEnzymeMechanism, :AllostericEnzymeMechanism, :AllostericMechanism,
     :AllostericRegulator, :CompetitiveInhibitor, :Counts, :Edge, :EnzymeMechanism,
@@ -20,9 +21,9 @@ const API = (:AbstractEnzymeMechanism, :AllostericEnzymeMechanism, :AllostericMe
     :_segments, :_side_score, :_sides, :_solve_tags, :_step_text, :_with, :allo_states,
     :allowed_catalytic_multiplicities, :atoms, :cat_allo_state, :cat_allo_states,
     :catalytic, :catalytic_multiplicity, :compile_mechanism, :copies, :entries, :ligands,
-    :metabolite, :metabolites, :multiplicity, :name, :ngroups, :products, :reactants,
-    :reg_type, :regulator, :regulators, :regulatory_sites, :shared_catalytic_site,
-    :substrates)
+    :mechanism_id, :metabolite, :metabolites, :multiplicity, :name, :ngroups, :products,
+    :reactants, :reg_type, :regulator, :regulators, :regulatory_sites,
+    :shared_catalytic_site, :substrates)
 
 include("types.jl")
 include("names.jl")

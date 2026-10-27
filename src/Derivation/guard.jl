@@ -2,7 +2,7 @@
 # ABOUTME: its verdicts, reaction networks and faces, classes 1 and 2, and class 3 per face.
 
 """
-    _check_well_posed(m)
+    check_valid_rate_equation(m)
 
 Error unless `m`'s rate law is the unique limit of mass-action kinetics, as its
 rapid-equilibrium steps speed up and its tagged constants vanish, on every face where data
@@ -10,21 +10,22 @@ sit (spec section 8): the guard (`_guard`) finds no fault, and the error is its 
 (`_guard_message`), which names each step at fault by its DSL line. It reads the reaction
 graph through masks and builds nothing. The mechanism macros, the parser and every
 derivation entry (`_derivation_input`) call it. Identify's base tier and the enumerator's
-exits keep what `_is_well_posed` accepts, except that init's exit runs it on its seeds and
-checks class 1 on their variants, whose classes 2 and 3 the flip search ran
+exits keep what `has_valid_rate_equation` accepts, except that init's exit runs it on its
+seeds and checks class 1 on their variants, whose classes 2 and 3 the flip search ran
 (`_faces_pass`). The constructors and the Sig decoder call neither, so code that builds a
 mechanism internally never trips a check meant for the mechanisms it returns.
 """
-function _check_well_posed(m::Mechanisms._AnyMech)
+function check_valid_rate_equation(m::Mechanisms._AnyMech)
     v = _guard(m)
     v.fault === _NO_FAULT || error(_guard_message(m, v))
     nothing
 end
 
-"""Whether `_check_well_posed(m)` passes: identify's base tier and the enumerator's exits
-keep a mechanism exactly when it does, except init's exit on its seeds' variants, which
-checks class 1 and rests on the flip search's classes 2 and 3 (`_faces_pass`)."""
-_is_well_posed(m::Mechanisms._AnyMech) = _guard(m).fault === _NO_FAULT
+"""Whether `check_valid_rate_equation(m)` passes: identify's base tier and the
+enumerator's exits keep a mechanism exactly when it does, except init's exit on its seeds'
+variants, which checks class 1 and rests on the flip search's classes 2 and 3
+(`_faces_pass`)."""
+has_valid_rate_equation(m::Mechanisms._AnyMech) = _guard(m).fault === _NO_FAULT
 
 """
     _bottomless_segment(m, mask, re) -> Vector{Int}
@@ -67,11 +68,11 @@ function _bottomless_segment(m::Mechanisms.Mechanism, mask::BitVector, re::BitVe
     Int[]
 end
 
-"""`m`, once `_check_well_posed(m)` passes."""
-_well_posed(m) = (_check_well_posed(m); m)
+"""`m`, once `check_valid_rate_equation(m)` passes."""
+_well_posed(m) = (check_valid_rate_equation(m); m)
 
 """The concrete mechanism the compiled type `M` encodes (`_concrete`), checked by
-`_check_well_posed`: the input of every derivation entry."""
+`check_valid_rate_equation`: the input of every derivation entry."""
 _derivation_input(@nospecialize(M::Type{<:Mechanisms.AbstractEnzymeMechanism})) =
     _well_posed(Mechanisms._concrete(M()))
 

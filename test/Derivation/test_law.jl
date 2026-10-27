@@ -33,14 +33,14 @@ end
     end
 end
 
-@testset "_eq_complexity is segments times spanning trees" begin
+@testset "rate_equation_complexity is segments times spanning trees" begin
     n_plain = 0
     for spec in MECHANISM_TEST_SPECS
         m = _testhelper_lift(spec.mechanism)
         m isa EnzymeRates.Mechanism || continue
         n_plain += 1
         mask = trues(length(m.edges))
-        @test EnzymeRates.Derivation._eq_complexity(m, mask) ===
+        @test EnzymeRates.Derivation.rate_equation_complexity(m, mask) ===
               Int(_testhelper_laplacian_tree_count(m, mask))
     end
     @test n_plain == 31
@@ -59,7 +59,7 @@ end
             E(P2) <--> E + P2
         end
     end)
-    @test EnzymeRates.Derivation._eq_complexity(random_bibi) === 336
+    @test EnzymeRates.Derivation.rate_equation_complexity(random_bibi) === 336
     one_segment = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
@@ -68,7 +68,7 @@ end
             E(S) <--> E + P
         end
     end)
-    @test EnzymeRates.Derivation._eq_complexity(one_segment) === 1
+    @test EnzymeRates.Derivation.rate_equation_complexity(one_segment) === 1
 end
 
 @testset "the plain law equals the exact steady state on every plain spec" begin
@@ -284,7 +284,7 @@ end
     mask = BitVector([EnzymeRates.Mechanisms._step_text(m, k) in ("E + A <--> E(A)",
                                                                   "E(Q) + P <--> E(P, Q)")
                       for k in eachindex(m.edges)])
-    @test EnzymeRates.Derivation._eq_complexity(m, mask) == 0
+    @test EnzymeRates.Derivation.rate_equation_complexity(m, mask) == 0
     msg = "internal error: the steady-state steps of this mechanism " *
           "do not join its rapid-equilibrium segments"
     @test_throws ErrorException(msg) EnzymeRates.Derivation._law(
@@ -317,7 +317,7 @@ end
             F(B, R1) <--> E(R1) + Q
         end
     end)
-    @test EnzymeRates.Derivation._eq_complexity(m_manual) >
+    @test EnzymeRates.Derivation.rate_equation_complexity(m_manual) >
           EnzymeRates.Derivation.MAX_RATE_EQUATION_TERMS
     err = @test_throws(EnzymeRates.Derivation.RateEquationTooLargeError,
                        EnzymeRates.Derivation._law(m_manual))
@@ -515,7 +515,7 @@ end
           isempty(A.inactive.shift)
     @test A.fA == one(EnzymeRates.Derivation._Poly) &&
           A.fI == one(EnzymeRates.Derivation._Poly)
-    @test EnzymeRates.Derivation._eq_complexity(am) == 1
+    @test EnzymeRates.Derivation.rate_equation_complexity(am) == 1
     rng = Random.MersenneTwister(77)
     for _ in 1:3
         point, concs, params = _testhelper_law_inputs(am, s.fitted, rng)
@@ -575,9 +575,9 @@ end
         EnzymeRates.Mechanisms._inactive_mask(am)
     @test _testhelper_laplacian_tree_count(cm, amask) == 4320
     @test _testhelper_laplacian_tree_count(cm, imask) == 4320
-    @test EnzymeRates.Derivation._eq_complexity(cm, amask) <=
+    @test EnzymeRates.Derivation.rate_equation_complexity(cm, amask) <=
           EnzymeRates.Derivation.MAX_RATE_EQUATION_TERMS
-    @test EnzymeRates.Derivation._eq_complexity(am) == 8640
+    @test EnzymeRates.Derivation.rate_equation_complexity(am) == 8640
     @test_throws(EnzymeRates.Derivation.RateEquationTooLargeError,
                  EnzymeRates.Derivation._law(am))
     @test_throws "has more than 5000 polynomial terms" EnzymeRates.Derivation._law(am)

@@ -51,6 +51,13 @@
           union(Set(params_allo), keys(dep_allo))
 end
 
+@testset "fitted_params of a concrete mechanism equals its compiled form's" begin
+    for spec in MECHANISM_TEST_SPECS
+        @test EnzymeRates.fitted_params(_testhelper_lift(spec.mechanism)) ===
+              EnzymeRates.fitted_params(spec.mechanism)
+    end
+end
+
 @testset "all_parameters adds every dependent constant" begin
     m = @enzyme_mechanism begin
         substrates: S

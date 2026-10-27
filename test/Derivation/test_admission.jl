@@ -1090,7 +1090,7 @@ end
     @test _testhelper_respeed_verdicts(unfed; rng = Random.MersenneTwister(8),
                                        law = :limit)[2] === :agree
     # The package law is 0/0 at zero products: the guard rejects the face as bottomless.
-    @test !EnzymeRates.Derivation._is_well_posed(unfed)
+    @test !EnzymeRates.Derivation.has_valid_rate_equation(unfed)
     v = EnzymeRates.Derivation._guard(unfed)
     @test (v.fault, v.face) == (bottomless, 2)
 end
@@ -1282,7 +1282,7 @@ end
         @test all(_testhelper_agrees.([v.fault for v in verdicts], oracles))
         @test all(f -> _testhelper_names_its_step(m, verdicts[f]), faces)
     end
-    @test !EnzymeRates.Derivation._is_well_posed(dead_end)
+    @test !EnzymeRates.Derivation.has_valid_rate_equation(dead_end)
     v = EnzymeRates.Derivation._guard(dead_end)
     @test (v.fault, v.face) == (multi, 2)
     # Where the law's segment chain has two closed classes, the message names the face and
@@ -3168,7 +3168,7 @@ end
             E(P) + Q <--> E(P, Q)
         end
     end
-    @test !EnzymeRates.Derivation._is_well_posed(m)
+    @test !EnzymeRates.Derivation.has_valid_rate_equation(m)
     v = EnzymeRates.Derivation._guard(m)
     @test (v.fault, v.face) == (EnzymeRates.Derivation._LAW_MULTI, 2)
     # The same dead end with E(P) + Q <--> E(P, Q) in the active conformation only. The
@@ -3188,7 +3188,7 @@ end
             E(P) + Q <--> E(P, Q) :: OnlyA
         end
     end
-    @test !EnzymeRates.Derivation._is_well_posed(am)
+    @test !EnzymeRates.Derivation.has_valid_rate_equation(am)
     w = EnzymeRates.Derivation._guard(am)
     @test (w.fault, w.face) == (EnzymeRates.Derivation._ISLAND, 0)
 end
