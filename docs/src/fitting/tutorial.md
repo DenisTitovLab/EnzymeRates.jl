@@ -45,9 +45,10 @@ metabolites(uni_uni)
 
 A missing required column, a missing metabolite column, a metabolite named `group` or
 `Rate`, a zero, non-finite or missing `Rate`, a concentration that is not a finite
-number ≥ 0, a `Keq` that is not positive and finite, or a `peak_range` that is not a
-tuple `(lo, hi)` with `0 < lo < hi < Inf` each raises an `ErrorException` at
-construction — the check runs before any fitting.
+number ≥ 0, a `Keq` that is not positive and finite, or a `reference` that is missing in
+relative mode or names an unknown metabolite, a concentration that is not a finite number
+≥ 0 or a zero or non-finite turnover each raises an `ErrorException` at construction —
+the check runs before any fitting.
 
 ## Building the `FittingProblem`
 
@@ -68,7 +69,8 @@ data = (
     P     = [c.P for c in concs_list],
 )
 
-fp = FittingProblem(uni_uni, data; Keq = 2.0)
+fp = FittingProblem(uni_uni, data; Keq = 2.0,
+                    reference = [(S = data.S[1], P = data.P[1]) => data.Rate[1]])
 ```
 
 `Keq`, the **equilibrium constant** of the overall reaction (the
@@ -79,6 +81,12 @@ known — measured directly, or computed from a resource such as
 [eQuilibrator](https://equilibrator.weizmann.ac.il). The constructor also accepts a concrete
 `Mechanism` or `AllostericMechanism` and compiles it once at construction, so
 the fitting hot path pays no compilation overhead.
+
+`reference` sets the scale of the fitted rate constants in relative mode, the default: the
+fit returns constants that reproduce each anchor's turnover. These synthetic rates are
+per-enzyme turnover, so the first data row serves as the anchor and the fit recovers the
+constants on their true scale. With rates in arbitrary units, anchor a measured kcat
+instead, or a row of your data to keep its units.
 
 ## Running the fit
 
@@ -117,14 +125,13 @@ enough for many complex rate equations.
 
 Check `result.retcode === :Success` to confirm the optimizer converged on its
 own criteria. Any other value — `:Default`, `:MaxTime`, `:Failure`,
-`:NoFiniteLoss` — means the fit is un-converged. When time or restart budgets
+`:NoFiniteLoss` — means the fit is un-converged. `:ReferenceFailed` means the fitted law
+predicts zero, non-finite or opposite-sign turnover at a reference anchor; the fit then
+returns its constants unscaled, with `loss = Inf`. When time or restart budgets
 are tight, `:MaxTime` is common; increase `n_restarts` and `maxtime` for
 production fits.
 
-In relative mode (the default), the returned `params` are scaled so the mechanism's peak
-turnover — its largest net forward rate per enzyme over the concentrations in
-`peak_range` — is 1. `result.peak_at_range_edge` is `true` when the law still rises at
-the range's upper edge (by more than 10% over the range's last decade), so a wider range
-would change the scale. [Normalized vs absolute rate](@ref) explains the scale, absolute
-mode, and how to rescale a fit to a measured kcat; [Loss & optimizers](@ref) covers the
-loss function and how to supply your own optimizer.
+In relative mode (the default), the returned `params` are scaled so the mechanism
+reproduces the `reference` turnovers. [Normalized vs absolute rate](@ref) explains the
+scale, absolute mode, and how to rescale a fit to other measured turnovers;
+[Loss & optimizers](@ref) covers the loss function and how to supply your own optimizer.

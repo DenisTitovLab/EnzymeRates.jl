@@ -66,15 +66,13 @@ the lifted mechanism. The lifts read the Sig at run time, and the derivation hel
 take a singleton or its type take it `@nospecialize`, so they compile once for all
 mechanisms. Each mechanism type then pays for its generated bodies and the derivation
 they run, and for the methods that specialize on it: `all_parameters`, Base's
-`text/plain` display, `LogConcentrationTurnover`, and `FittingProblem` and `loss!` below.
+`text/plain` display, and `FittingProblem` and `loss!` below.
 `FittingProblem` and `loss!` specialize on the type on purpose: `loss!` then reads
 `fitted_params` and `metabolites` as constants and calls the generated `rate_equation`
 without dispatch. The optimizer never sees that type. `fit_rate_equation` takes its
 `FittingProblem` `@nospecialize` and hands `Optimization.solve` a `FitObjective`, which
 holds `x -> loss!(x, fp)` behind a `FunctionWrapper`, so every mechanism gives the solver
 one problem type: `solve` and the solver compile once per optimizer, not once per mechanism.
-The peak search that scales a relative fit (`_peak_turnover`) wraps the mechanism's turnover
-the same way, so its search loop compiles once.
 
 ### The joint thermodynamic solve
 

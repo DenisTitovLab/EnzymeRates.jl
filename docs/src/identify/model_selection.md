@@ -150,14 +150,13 @@ The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
 | `mechanism_id` | The first 16 hex digits of the SHA-256 of `mechanism`, the same in every process and Julia version. Read the ids as text, `CSV.read(file, DataFrame; types = Dict(:mechanism_id => String, :parent_id => String, :fit_source_id => String))`: CSV.jl reads an id that looks like a number (decimal digits, or digits around one `e` or `f`) as a number. |
 | `parent_id` | `mechanism_id` of the parent the mechanism was expanded from; `missing` for a starting mechanism. |
 | `rate_equation` | The printed law in named coefficients (`rate_equation_string(m; coefficients = true)`). |
-| `retcode` | Optimizer return code (`"Success"` = converged). |
+| `retcode` | Optimizer return code (`"Success"` = converged; `"ReferenceFailed"` = the law predicts zero, non-finite or opposite-sign turnover at a `reference` anchor, so the fit has infinite loss and leaves the search). |
 | `error` | Exception text if the mechanism's derivation, compilation, fit or expansion threw; otherwise `missing`. |
 | `key` | The SHA-256 (64 hex digits) of the law's canonical form: its terms with the fitted constants labelled canonically and the concentrations by name. Mechanisms share a key exactly when their laws agree up to renaming the fitted constants. A law whose canonical search reaches 100 labellings takes its mechanism's own key, the SHA-256 of `mechanism|` and its `mechanism_id`. `missing` in a failure row. |
 | `fit_inherited` | `true` when the row reads another mechanism's fit: one with the same key, under the row's own names, or, for an L phantom, the fit of the law it reduces to; `false` for the mechanism actually fit. |
 | `fit_source_id` | `mechanism_id` of the mechanism whose fit the row reads, the row's own when it was fit. |
 | `L_phantom` | `true` for a one-subunit allosteric variant whose inactive conformation turns nothing over, when an exact rescaling of its other constants absorbs its `L`, its active conformation's law holds every fitted constant but `L`, and a mechanism with that law was fitted earlier in the search or is fitted in the variant's own iteration: the data cannot determine `L`, so the row reads that fit, with `L = 0`, and keeps its own `n_params`. Such a variant is fitted like any other candidate, `L` included, and its flag is `false`, when no mechanism with that law was fitted earlier in the search or is fitted in its own iteration, or when that mechanism's fit throws. |
-| `peak_at_range_edge` | `true` when the fitted law still rises at the upper edge of `peak_range` (by more than 10% over its last decade), so a wider range would change the scale of the reported rate constants; always `false` in absolute mode. |
-| one per fitted parameter | Fitted parameter value, or `missing` if the mechanism lacks that parameter. |
+| one per fitted parameter | Fitted parameter value, scaled to the `reference` turnovers in relative mode, or `missing` if the mechanism lacks that parameter. |
 | `cv_score` | Mean of per-fold losses (lower is better). |
 | `cv_score_se` | Standard error of the per-fold losses: `std(fold_scores) / √n_folds`. |
 | `cv_fold_<group>` | Per-fold test loss for held-out group `<group>`, one column per group. |

@@ -109,6 +109,10 @@ value becomes one cross-validation fold, so at least two groups are required.
   space.
 - Every concentration must be a finite number ≥ 0; zero is valid.
 - At least two distinct `group` values are required for cross-validation.
+- In relative mode, the default, `reference` is required: anchors
+  `concentrations => turnover` in the reaction's metabolites, which set the scale of
+  every fit's rate constants (see [Normalized vs absolute rate](@ref)). Each anchor's
+  concentrations must be finite and ≥ 0 and its turnover finite and nonzero.
 
 The reaction checks the names before a problem exists: [`@enzyme_reaction`](@ref)
 rejects a metabolite named `L`, the conformational constant of the allosteric
@@ -126,7 +130,9 @@ measure it directly, or compute it from a resource such as
 using OptimizationCMAEvolutionStrategy, Random
 Random.seed!(123)   # reproducible multi-start fits
 
-prob = IdentifyRateEquationProblem(rxn, data; Keq = Keq)
+# The rates are per-enzyme turnover, so the first row anchors the scale.
+reference = [(S = data.S[1], P = data.P[1], A = data.A[1]) => data.Rate[1]]
+prob = IdentifyRateEquationProblem(rxn, data; Keq = Keq, reference)
 
 results = identify_rate_equation(prob;
     optimizer       = CMAEvolutionStrategyOpt(),
