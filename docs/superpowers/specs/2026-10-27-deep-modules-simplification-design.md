@@ -81,7 +81,7 @@ Each deletion below is its own commit. A commit that changes behaviour says so i
 - With `absolute = false`, `reference` is required.
 - The fit scales the steady-state rate constants through the existing anchor code (`rescale_parameter_values` with anchors).
 - A zero, non-finite or wrong-sign predicted turnover at a reference point makes the fit fail. Failing means no throw: `fit_rate_equation` returns loss `Inf` with retcode `:ReferenceFailed`, so identify drops the mechanism from the beam (`_ingest!` skips non-finite losses) and never aborts.
-- The cross-validation folds do not apply `reference`: the relative loss does not depend on scale.
+- The cross-validation folds pass `reference` like any fit. A failed reference returns the parameters unscaled, and a fold scores only the parameters with the scale-free relative loss, so a fold never aborts on it.
 - Nothing replaces `peak_at_range_edge` in the fit result, `_Fit` or the CSV.
 - Delete:
   - `DEFAULT_PEAK_RANGE`, `_peak_range` and the `peak_range` keyword;
@@ -323,6 +323,6 @@ Scripts and logs are in the session scratchpad under `probe_lim/`.
 5. **No leading underscore on API-list names**, and the boundary test rejects any cross-module underscore name.
 6. **The 5% threshold** for the benchmark gates.
 7. **Scan items 2, 5, 8 and 10 land as `Mechanisms` derived views** (§5) rather than as standalone merges.
-8. **A bad reference turnover gives loss `Inf` and retcode `:ReferenceFailed`**, not a throw. The cross-validation folds skip `reference`, and nothing replaces `peak_at_range_edge` (§1).
+8. **A bad reference turnover gives loss `Inf`, retcode `:ReferenceFailed` and unscaled parameters**, not a throw. The cross-validation folds pass `reference` like any fit, and nothing replaces `peak_at_range_edge` (§1).
 9. **The budget of about 30 covers only the graph accessors** (§5).
 10. **`fitted_params` on a concrete mechanism reads the joint solve** rather than compiling (§4).
