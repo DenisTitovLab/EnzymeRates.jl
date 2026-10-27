@@ -2,12 +2,6 @@ using Documenter
 using DocumenterCitations
 using EnzymeRates
 
-# EnzymeRates binds the public types its Mechanisms module defines under their public
-# paths (`const EnzymeMechanism = Mechanisms.EnzymeMechanism`), so the API page shows
-# `EnzymeRates.EnzymeMechanism`. The docs system follows such an alias to the original's
-# docstrings for a plain type but not for a parametric one; this method lets it follow both.
-Base.Docs.aliasof(u::UnionAll, b) = Base.Docs.aliasof(Base.unwrap_unionall(u), b)
-
 bib = CitationBibliography(joinpath(@__DIR__, "src", "refs.bib"); style = :authoryear)
 
 makedocs(;

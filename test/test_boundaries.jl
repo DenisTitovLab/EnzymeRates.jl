@@ -1,5 +1,5 @@
-# ABOUTME: Parse-only check of the module boundaries of src/: API lists, layering,
-# ABOUTME: mechanism field access and underscore names across modules.
+# ABOUTME: Checks the module boundaries of src/ by parsing it (API lists, layering, field
+# ABOUTME: access, underscore names), and that public names resolve and show their docs.
 
 # The four submodules, each a folder src/<Module>/ with src/<Module>/<Module>.jl.
 const _testhelper_MODULES = (:Mechanisms, :Derivation, :Enumeration, :Fitting)
@@ -396,4 +396,13 @@ end
     @test isdefined(EnzymeRates, :Mechanism)
     @test isdefined(EnzymeRates, :AllostericMechanism)
     @test isdefined(EnzymeRates, :compile_mechanism)
+end
+
+# REPL help (`?name`) finds each exported name's docstring through its top-level binding.
+@testset "every exported name shows its docstring" begin
+    for n in names(EnzymeRates)
+        n === :EnzymeRates && continue
+        text = string(Base.Docs.doc(Base.Docs.Binding(EnzymeRates, n)))
+        @test !occursin("No documentation found", text)
+    end
 end

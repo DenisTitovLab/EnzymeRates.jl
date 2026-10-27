@@ -28,13 +28,8 @@ using FunctionWrappers: FunctionWrapper
 using SHA: sha256
 
 include("Mechanisms/Mechanisms.jl")
-using .Mechanisms: Mechanisms, Mechanism, AllostericMechanism, compile_mechanism
-# The public names Mechanisms defines, bound here so that EnzymeRates.<name> is their
-# path, in the docs too.
-const EnzymeReaction = Mechanisms.EnzymeReaction
-const EnzymeMechanism = Mechanisms.EnzymeMechanism
-const AllostericEnzymeMechanism = Mechanisms.AllostericEnzymeMechanism
-const metabolites = Mechanisms.metabolites
+using .Mechanisms: Mechanisms, EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism,
+    metabolites, Mechanism, AllostericMechanism, compile_mechanism
 include("macros.jl")
 include("rate_eq_derivation.jl")
 include("thermo.jl")
