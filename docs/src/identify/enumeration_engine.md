@@ -113,8 +113,8 @@ every partially-regulated mechanism before it reaches one that binds them all. W
 the effectors are already known — phosphofructokinase and its five regulators, say —
 that lower shelf is pure waste.
 
-`EnzymeRates.Enumeration.seed_mechanisms(reaction, required_allosteric,
-required_competitive)` starts the search where it belongs. It grows every mechanism of
+`EnzymeRates.Enumeration.seed_mechanisms(reaction, required_allosteric, required_competitive)`
+starts the search where it belongs. It grows every mechanism of
 `init_mechanisms`, variants included, through the regulator-binding moves alone —
 go allosteric, add an allosteric regulator, add a competitive inhibitor — under
 three constraints that keep the set small: each

@@ -8,5 +8,8 @@ using JET
 end
 
 @testset "JET" begin
-    JET.test_package(EnzymeRates; target_modules=(EnzymeRates,))
+    # JET 0.9 matches a module in `target_modules` exactly, not its submodules, so each
+    # submodule is listed beside the package.
+    JET.test_package(EnzymeRates; target_modules=(EnzymeRates, EnzymeRates.Mechanisms,
+        EnzymeRates.Derivation, EnzymeRates.Enumeration, EnzymeRates.Fitting))
 end

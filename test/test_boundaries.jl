@@ -396,6 +396,7 @@ end
     @test isdefined(EnzymeRates, :Mechanism)
     @test isdefined(EnzymeRates, :AllostericMechanism)
     @test isdefined(EnzymeRates, :compile_mechanism)
+    @test isdefined(EnzymeRates.Enumeration, :init_mechanisms)
 end
 
 # REPL help (`?name`) finds each exported name's docstring through its top-level binding.
