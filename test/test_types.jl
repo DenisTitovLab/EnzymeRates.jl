@@ -240,7 +240,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             end
             regulatory_site(2): I::OnlyI
         end
-        @test ER.catalytic_multiplicity(m) == 2
+        @test ER.AllostericMechanism(m).catalytic_multiplicity == 2
         # Catalysis (iso step) is :OnlyA, both bindings :EqualAI. Group order is
         # canonical, so identify the tagged group by its step, not its position.
         am_c = ER.AllostericMechanism(m)
@@ -1743,9 +1743,6 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             end
             regulatory_site(1): A::OnlyA, B::NonequalAI
         end
-
-        @test ER.catalytic_mechanism(aem) === cm
-        @test ER.catalytic_multiplicity(aem) == 2
 
         am = ER.AllostericMechanism(aem)
         @test am isa ER.AllostericMechanism

@@ -952,8 +952,6 @@ _testhelper_decode(::ER.AllostericMechanism, @nospecialize(sig)) =
                                 [EnzymeRates.RegulatorySite([:X, :R], 2, [:OnlyA, :OnlyI])])
     aem = ER.AllostericEnzymeMechanism(am)
     @test ER.AllostericMechanism(aem) == am
-    @test ER.catalytic_mechanism(aem) === ER.EnzymeMechanism(m)
-    @test ER.catalytic_multiplicity(aem) == 4
     # A name outside ASCII, and table entries past the sixteenth, whose counts fill the
     # high half of a packed count: αKG sorts last, entry 32, the top four bits.
     names = [[Symbol("S", i) for i in 1:30]; :αKG]

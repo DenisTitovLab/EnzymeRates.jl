@@ -39,13 +39,6 @@ function IdentifyRateEquationProblem(
     absolute::Bool=false, peak_range=DEFAULT_PEAK_RANGE
 )
     mnames = _metabolite_names(reaction)
-    # The search fits allosteric mechanisms, and their rate equations take the
-    # conformational constant L, so a metabolite named L would fail every one of them.
-    # The reaction's constructor rejects the name L (`_RESERVED_NAMES`), so this check
-    # cannot fire for a reaction the constructor builds.
-    :L in mnames && error(
-        "Metabolite L has the name of the conformational constant L of the allosteric " *
-        "mechanisms the search fits; rename the metabolite")
     # Every metabolite the reaction declares needs a concentration column.
     data = _rate_table(table, mnames, Keq)
 

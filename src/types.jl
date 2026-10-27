@@ -1402,10 +1402,6 @@ AllostericMechanism(@nospecialize(aem::AllostericEnzymeMechanism)) =
 """Lift a singleton mechanism to its concrete `Mechanism` or `AllostericMechanism`."""
 _concrete(@nospecialize(em::EnzymeMechanism)) = Mechanism(em)
 _concrete(@nospecialize(aem::AllostericEnzymeMechanism)) = AllostericMechanism(aem)
-catalytic_mechanism(@nospecialize(aem::AllostericEnzymeMechanism)) =
-    EnzymeMechanism(AllostericMechanism(aem).catalytic)
-catalytic_multiplicity(@nospecialize(aem::AllostericEnzymeMechanism)) =
-    AllostericMechanism(aem).catalytic_multiplicity
 
 # ─── Reads ──────────────────────────────────────────────────────────────
 
@@ -1742,8 +1738,7 @@ _raw_sites(am::AllostericMechanism) =
 #
 # A compiled mechanism is read by lifting it to its concrete `Mechanism` or
 # `AllostericMechanism` (`Mechanism(em)`, `AllostericMechanism(aem)`). Only
-# `metabolites`, `catalytic_mechanism` and `catalytic_multiplicity` are read on the
-# compiled type itself.
+# `metabolites` is read on the compiled type itself.
 
 """
     metabolites(m::EnzymeMechanism) → Tuple{Symbol,...}

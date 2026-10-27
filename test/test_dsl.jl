@@ -1646,7 +1646,7 @@ end
             regulatory_site(2): X::OnlyA, Y::OnlyI
         end
         @test am isa AllostericEnzymeMechanism
-        @test EnzymeRates.catalytic_multiplicity(am) == 2
+        @test EnzymeRates.AllostericMechanism(am).catalytic_multiplicity == 2
         @test EnzymeRates.fitted_params(am) == (:K_A_EAB_to_EA_B, :K_EA_to_E_A,
             :K_EI_to_E_I, :K_EPQ_to_EQ_P, :K_EPmodQ_to_EQ_Pmod, :K_EQ_to_E_Q,
             :K_I_EAB_to_EA_B, :k_A_EAB_to_EPQ, :K_A_Xreg, :K_I_Yreg, :L)
@@ -1666,7 +1666,7 @@ end
             end
             regulatory_site(1): X::OnlyI
         end
-        @test EnzymeRates.catalytic_multiplicity(am) == 1
+        @test EnzymeRates.AllostericMechanism(am).catalytic_multiplicity == 1
         @test EnzymeRates.fitted_params(am) ==
               (:K_EP_to_E_P, :K_ES_to_E_S, :k_A_ES_to_EP, :K_I_Xreg, :L)
         _testhelper_check_law_against_oracle(am)
