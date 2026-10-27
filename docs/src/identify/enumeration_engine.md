@@ -310,9 +310,9 @@ On its bases the engine emits, per multiplicity:
 Tag sets whose laws agree up to renaming the constants share one key, so identify fits the
 law once.
 The all-`:EqualAI` baseline is never emitted (the conformations would be identical and `L`
-would cancel). Admission does not run the guard's face check, so a child that fails it is
-dropped where `expand_mechanisms` returns it, as for every move. A ping-pong parent with no
-declared regulator can end with no child, when every K-type strands a form or a basin.
+would cancel). The guard at the exits drops a child it rejects, as for every move. A
+ping-pong parent with no declared regulator can end with no child, when every K-type
+strands a form or a basin.
 Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an already allosteric
 input.
 

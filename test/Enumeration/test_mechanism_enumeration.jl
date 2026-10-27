@@ -3166,8 +3166,8 @@ end
     # equilibrium) has its parent's interior verdict: the move needs no pre-check,
     # and the exit drops the splits of a rejected parent.
     # Each split child's every-chemistry tag set with each nonempty set of its
-    # binding groups :OnlyA, unfiltered: the tagging move keeps only the tag sets
-    # admission accepts, and the reject direction needs parents it refuses.
+    # binding groups :OnlyA: the tagging move's K-types on that set, among them the
+    # parents admission refuses, which the reject direction needs.
     function _testhelper_unfiltered_tags(c)
         chem = EnzymeRates.Mechanisms._chemistry_groups(c)
         vt = [x ? :OnlyA : :EqualAI for x in chem]
@@ -5034,7 +5034,8 @@ end
     # catalytic group is never a bare primary :OnlyA (that V-type needs
     # a regulator, none declared). Instead each nonempty set of binding
     # groups is tagged :OnlyA on top of the base whose chemistry is :OnlyA,
-    # and the move keeps those the guard accepts (`_valid_tagging`).
+    # and the move emits each; the exits keep those the guard accepts
+    # (`has_valid_rate_equation`).
     em_seed = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -5888,7 +5889,7 @@ end
     # catalytic. The catalytic group is never a bare primary :OnlyA (that V-type needs a
     # regulator, none declared), so every child is a K-type: every non-empty subset of
     # the 2 bindings (S, P) is set :OnlyA on top of the base whose chemical step is
-    # :OnlyA (dead inactive), and the guard keeps all 3 (`_valid_tagging`).
+    # :OnlyA (dead inactive), and the guard keeps all 3 (`has_valid_rate_equation`).
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
@@ -6057,7 +6058,7 @@ end
     #   * 3 K-type variants (binding-group :OnlyA, no regulatory site) at
     #     +1 param each — the conformational constant L; each tags a nonempty
     #     set of the bindings :OnlyA on top of the base whose chemical step is
-    #     :OnlyA, and the guard keeps all 3 (`_valid_tagging`);
+    #     :OnlyA, and the guard keeps all 3 (`has_valid_rate_equation`);
     #   * 4 V-type variants (the catalytic group :OnlyA paired with one
     #     regulator at a site) at +2 params each — L plus the regulator's K
     #     — one per (regulator, tag), regulator ∈ {R1, R2}, tag ∈
@@ -6410,7 +6411,8 @@ end
     # the multiplicity-1 variants are emitted exactly as for a reaction allowing
     # only multiplicity 1; multiplicity 2 would stack a second source of powers
     # and emits nothing. Three binding groups (S, P, Q), each subset :OnlyA with
-    # the chemistry :OnlyA: 2^3 - 1 = 7 K-type children, all valid (`_valid_tagging`).
+    # the chemistry :OnlyA: 2^3 - 1 = 7 K-type children, all valid
+    # (`has_valid_rate_equation`).
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P, Q
@@ -6493,9 +6495,9 @@ end
 
     # Five binding groups (A, B, Q with its inhibitor-bound mirror, P, and the
     # inhibitor's own group), each subset :OnlyA with the chemistry :OnlyA:
-    # 2^5 - 1 = 31 candidate K-type children; admission drops
-    # none of them. The reaction declares no allosteric regulator, so no
-    # V-type variant is emitted. N = 31. The derived denominator carries A²,
+    # 2^5 - 1 = 31 K-type children, all emitted. The reaction declares no
+    # allosteric regulator, so no V-type variant is emitted. N = 31. The
+    # derived denominator carries A²,
     # but from the inhibitor site, so the catalytic scheme is hyperbolic and
     # the promotion proceeds.
     N = 31
@@ -8641,8 +8643,8 @@ end
     # _expand_to_allosteric on this uni-uni seed (3 kinetic groups: 2
     # binding + 1 catalytic, no regulator declared) tags each nonempty set
     # of the bindings :OnlyA on top of the base whose chemical step is
-    # :OnlyA and keeps those the guard accepts (`_valid_tagging`), all 3 distinct
-    # AllostericMechanism variants (the catalytic group is never a bare
+    # :OnlyA, 3 distinct AllostericMechanism variants that the exit guard
+    # (`has_valid_rate_equation`) all keeps (the catalytic group is never a bare
     # primary :OnlyA — that needs a regulator). Other moves do not
     # produce AllostericMechanism output from a plain Mechanism, so
     # exactly 3 exist.

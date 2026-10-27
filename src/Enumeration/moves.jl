@@ -674,7 +674,8 @@ end
 Whether the guard (`has_valid_rate_equation`) accepts `m` with the tags `tags`, one per
 kinetic group, over one catalytic subunit with no regulatory site. The guard's checks read
 neither the multiplicity nor the sites, so every child the tagging move builds on these
-tags gets this verdict at the exits.
+tags gets the same verdict at the exits, up to the limit test's random draw, whose seed
+hashes the mechanism.
 """
 _valid_tagging(m::Mechanisms.Mechanism, tags::Vector{Symbol}) =
     Derivation.has_valid_rate_equation(Mechanisms.AllostericMechanism(
@@ -742,8 +743,8 @@ the all-`:EqualAI` baseline and a V-type variant without a regulator.
     from `m`.
   * K-type: a nonempty set of binding groups set `:OnlyA` on top of a base, and on top
     of the every-chemistry set when the guard rejects that set, since a tagged binding
-    can restore its limit; each is emitted bare, and the guard at the exits drops it
-    when it rejects it. Over more than one catalytic subunit the conformational equilibrium
+    can restore its limit; each is emitted bare, and the exits drop those the guard
+    rejects. Over more than one catalytic subunit the conformational equilibrium
     enters the rate with the multiplicity's power. Over one subunit the inactive
     conformation is a dead-end branch of the free enzyme, and `L` is a phantom in some
     K-type variants and not in others. In every K-type variant of the rapid-equilibrium
