@@ -1350,8 +1350,8 @@ end
     # ring E–E(P)–E(P, Q)–E(Q)–E needs two cuts to raise the segment count, so
     # every pair of ring edges gains. Cutting the two edges at E ({P@E, Q@E})
     # would leave {E(P), E(Q), E(P, Q)} with no bottom form, which class 3 rejects at
-    # zero products inside the flip move's predicate (`_faces_pass`), so that pair counts
-    # as failed and is not emitted.
+    # zero products: the flip move's guard (`has_valid_rate_equation`) fails that pair,
+    # so it counts as failed and is not emitted.
     # Its supersets are reached by one more flip from the other pairs' children.
     # The two pairs at E(P) and at E(Q) isolate one form joined to the rest by two
     # edges of stored weights −1 and +1, whose 2-cycle sums to 0 (a balanced block):
@@ -1426,11 +1426,13 @@ end
         @test all(==(:agree),
                   _testhelper_respeed_verdicts(c; rng = Random.MersenneTwister(1302 + i)))
     end
-    # The pair {P@E, Q@E} fails class 3 at zero products inside the move's predicate.
+    # The pair {P@E, Q@E} fails class 3 at zero products.
     pq = [_testhelper_edge(parent, "E + P ⇌ EP"), _testhelper_edge(parent, "E + Q ⇌ EQ")]
     pair = EnzymeRates.Mechanisms._flags(parent)
     pair[pq] .= false
-    @test !EnzymeRates.Derivation._faces_pass(parent, pair)
+    v = EnzymeRates.Derivation._guard(
+        EnzymeRates.Mechanisms._build(EnzymeRates.Mechanisms._raw(parent, pair)))
+    @test v.fault === EnzymeRates.Derivation._BOTTOMLESS
     # The two zero-flux pairs are absent, and each has exactly its parent's rank.
     r0 = _testhelper_identifiable_rank(parent)
     for absent in EnzymeRates.Mechanism.([
@@ -12508,7 +12510,7 @@ end
     # at least one flank are steady state, and each with its twin whose flanks are
     # both at rapid equilibrium in the population: 62, 349 and 1,134 remain from the
     # seeds that hold an isomerization. The variants hold none: 669 mechanisms at
-    # level 1 and 1,269 at level 2. Class 3 inside the flip move (`_faces_pass`) drops
+    # level 1 and 1,269 at level 2. Class 3 inside the flip move's guard drops
     # 16 level-2 variant flips (`_SPLIT`) and adds 48 superset flips, all binding no
     # inhibitor. Grown from all 264 init mechanisms the levels hold the sums, 264, 1,018
     # and 2,403.
@@ -14828,8 +14830,8 @@ end
     # Random-order merged bi-bi with the abortive complex E(A, P) (census
     # 0988ab459f638946). Flipping the A group alone gains a segment but leaves a face
     # whose steady state moves with the relative speeds of the rapid-equilibrium steps, a
-    # class-3 rejection (`_LIMIT_SPEED`) the RE-speed oracle reads as a pattern. Inside
-    # the flip move's predicate (`_faces_pass`) that set fails, so the move extends it:
+    # class-3 rejection (`_LIMIT_SPEED`) the RE-speed oracle reads as a pattern. The flip
+    # move's guard (`has_valid_rate_equation`) fails that set, so the move extends it:
     # the A group with each of the other three rapid-equilibrium groups. The other two
     # minimal sets pass and stay: five children; the minimal sets alone, without class 3
     # in the predicate, would give two.
@@ -14866,7 +14868,8 @@ end
     flags = EnzymeRates.Mechanisms._flags(parent)
     flags[[_testhelper_edge(parent, "E + A ⇌ EA"),
            _testhelper_edge(parent, "EB + A ⇌ EPQ")]] .= false
-    @test !EnzymeRates.Derivation._faces_pass(parent, flags)
+    @test EnzymeRates.Mechanisms._build(EnzymeRates.Mechanisms._raw(parent, flags)) ==
+          a_alone
     expected = EnzymeRates.Mechanism.([
         (@enzyme_mechanism begin      # A and P@E
             substrates: A, B
@@ -14934,13 +14937,13 @@ end
     @test a_alone ∉ children
 end
 
-@testset "the flip move's class 3 reads both conformations of an allosteric parent" begin
+@testset "the flip move's guard reads both conformations of an allosteric child" begin
     # A ping-pong whose abortive complex E(A, P) forms in the active conformation only.
     # Flipping the A group leaves, at zero A and B, the rapid-equilibrium segment of
     # F = E(; residual = A - P) and F(P) split between the two conformations, which only
     # B's uptake joins. The split moves with the relative speeds of the rapid-equilibrium
     # steps (`_LIMIT_SPEED`), a pattern to the RE-speed oracle. The catalytic graph alone,
-    # one conformation, passes. The move's predicate reads the parent's law network, so
+    # one conformation, passes. The move's guard reads the child's two conformations, so
     # the A flip fails, and none of its supersets is minimal: the children are the four
     # other single flips.
     parent = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
@@ -14981,8 +14984,10 @@ end
     cm = EnzymeRates.Mechanisms.catalytic(parent)
     flags = EnzymeRates.Mechanisms._flags(cm)
     flags[cm.group .== cm.group[_testhelper_edge(parent, "E + A ⇌ EA")]] .= false
-    @test !EnzymeRates.Derivation._faces_pass(parent, flags)
-    @test EnzymeRates.Derivation._faces_pass(cm, flags)
+    @test EnzymeRates.Mechanisms._build(EnzymeRates.Mechanisms._raw(parent, flags)) ==
+          a_flip
+    @test EnzymeRates.Derivation.has_valid_rate_equation(
+        EnzymeRates.Mechanisms._build(EnzymeRates.Mechanisms._raw(cm, flags)))
     expected = EnzymeRates.AllostericMechanism.([
         (@allosteric_mechanism begin      # Q@E
             substrates: A, B
@@ -15190,15 +15195,16 @@ end
     @test occursin("= Dict(:N => 1)", failures[1][2])
 end
 
-@testset "_base_tier drops a flip child whose rate law the guard rejects" begin
+@testset "the flip search extends a flip set whose child the guard rejects" begin
     # The guard admits the seed. Its chemistry E(S) ⇌ E(P) sits in rapid equilibrium with
-    # both sides, so the seed is degenerate and expanded, into six flips. Three of them
-    # (the S binding, the chemistry, or the pair E(P) ⇌ F(P) and F + P ⇌ E(P) made
-    # steady state) leave the :OnlyA step E <--> F bridging forms of the inactive
-    # conformation at zero P. That is admission's face condition, which the flip move's
-    # own check (`_faces_pass`, classes 2 and 3) does not run, so `_base_tier`'s guard
-    # filter drops them. Two of the other flips keep the chemistry in rapid equilibrium
-    # with both sides, which makes them degenerate. The base tier keeps the last flip.
+    # both sides, so the seed is degenerate and expanded. Three flip sets (the S binding,
+    # the chemistry, or the pair E(P) ⇌ F(P) and F + P ⇌ E(P) made steady state) leave the
+    # :OnlyA step E <--> F bridging forms of the inactive conformation at zero P. That is
+    # admission's face condition, part of the guard the flip search asks of each candidate
+    # (`has_valid_rate_equation`), so the three sets count as failed and are extended; no
+    # extension gains. The search emits the other three flips. Two of them keep the
+    # chemistry in rapid equilibrium with both sides, which makes them degenerate. The base
+    # tier keeps the last flip.
     ER = EnzymeRates
     rxn = @enzyme_reaction begin
         substrates: S[C]
@@ -15219,7 +15225,7 @@ end
         end
     end)
     # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
-    dropped = [
+    rejected = [
         @_testhelper_unguarded(@allosteric_mechanism begin
             substrates: S
             products: P
@@ -15276,18 +15282,49 @@ end
             F(P) ⇌ E(P)         :: EqualAI
         end
     end)
+    expected = [
+        ER.AllostericMechanism(@allosteric_mechanism begin    # F + S
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)        :: OnlyA
+                E(S) ⇌ E(P)         :: EqualAI
+                F + P ⇌ E(P)        :: EqualAI
+                F <--> E            :: OnlyA
+                F + S <--> F(S)     :: EqualAI
+                F(S) <--> F(P)      :: EqualAI
+                F + P ⇌ F(P)        :: EqualAI
+                F(P) ⇌ E(P)         :: EqualAI
+            end
+        end),
+        ER.AllostericMechanism(@allosteric_mechanism begin    # F + P ⇌ F(P), F(P) ⇌ E(P)
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)        :: OnlyA
+                E(S) ⇌ E(P)         :: EqualAI
+                F + P ⇌ E(P)        :: EqualAI
+                F <--> E            :: OnlyA
+                F + S ⇌ F(S)        :: EqualAI
+                F(S) <--> F(P)      :: EqualAI
+                F + P <--> F(P)     :: EqualAI
+                F(P) <--> E(P)      :: EqualAI
+            end
+        end),
+        kept]
     @test ER.Derivation.has_valid_rate_equation(seed)
     @test ER.Enumeration._degenerate(seed)
     kids = ER.Enumeration._expand_re_to_ss(seed)
-    @test length(kids) == 6
-    @test Set(k for k in kids if !ER.Derivation.has_valid_rate_equation(k)) == Set(dropped)
-    @test all(k -> ER.Derivation._guard(k).fault === ER.Derivation._BRIDGE, dropped)
-    # The guard filter drops them, not the degeneracy test.
-    @test !any(ER.Enumeration._degenerate, dropped)
-    @test ER.Derivation._guard_message(dropped[1], ER.Derivation._guard(dropped[1])) ==
+    @test length(kids) == 3
+    @test Set(kids) == Set(expected)
+    @test all(k -> ER.Derivation._guard(k).fault === ER.Derivation._BRIDGE, rejected)
+    # The guard keeps them out of the base tier, not the degeneracy test.
+    @test !any(ER.Enumeration._degenerate, rejected)
+    @test ER.Derivation._guard_message(rejected[1], ER.Derivation._guard(rejected[1])) ==
           "AllostericMechanism: at zero P, the :OnlyA step E <--> F bridges forms of " *
           "the inactive conformation that its other steps keep apart, so admission " *
           "cannot show that the limit does not depend on how fast that step vanishes."
+    @test count(ER.Enumeration._degenerate, kids) == 2
     base, failures = ER.Enumeration._base_tier([seed], rxn)
     @test isempty(failures)
     @test length(base) == 1

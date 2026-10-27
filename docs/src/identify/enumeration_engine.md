@@ -67,12 +67,12 @@ steps around it:
    around a steady-state isomerization.
 5. **Duplicates.** A variant equal to a seed or to an earlier variant is dropped.
 
-The tests run on a candidate's flags over the base's graph; a mechanism is built only
-for a variant:
+Every test but the guard reads a candidate's flags over the base's graph; the guard runs
+on the candidate built as a mechanism, once it passes the others:
 
 - **Valid.** No cycle of rapid-equilibrium steps runs the net reaction
-  (`_re_turnover_cycle`), and the guard's face check accepts every face (`_faces_pass`,
-  read on the candidate's flags).
+  (`_re_turnover_cycle`), and the guard accepts the candidate
+  (`has_valid_rate_equation`).
 - **Flux-carrying.** Every steady-state group carries net flux.
 - **Non-degenerate.** A degenerate mechanism's rate at zero products ignores some
   substrate or grows without bound as the substrates grow, or the same holds for

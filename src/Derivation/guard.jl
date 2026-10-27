@@ -10,18 +10,15 @@ sit (spec section 8): the guard (`_guard`) finds no fault, and the error is its 
 (`_guard_message`), which names each step at fault by its DSL line. It reads the reaction
 graph through masks and builds nothing. The mechanism macros and the parser call it, and
 every derivation entry runs its check (`_derivation_input`, `_well_posed`). It reads the
-verdict through the memo (`_Memo`). Identify's base tier and the enumerator's exits keep
-what `has_valid_rate_equation` accepts, except that init's exit runs it on its seeds and
-checks class 1 on their variants, whose classes 2 and 3 the flip search ran
-(`_faces_pass`). The constructors and the Sig decoder call neither, so code that builds a
-mechanism internally never trips a check meant for the mechanisms it returns.
+verdict through the memo (`_Memo`). Identify's base tier, the enumerator's exits and its
+flip search keep what `has_valid_rate_equation` accepts. The constructors and the Sig
+decoder call neither, so code that builds a mechanism internally never trips a check meant
+for the mechanisms it returns.
 """
 check_valid_rate_equation(m::Mechanisms._AnyMech) = _check_verdict(m, _memo_verdict(m))
 
-"""Whether `check_valid_rate_equation(m)` passes: identify's base tier and the
-enumerator's exits keep a mechanism exactly when it does, except init's exit on its seeds'
-variants, which checks class 1 and rests on the flip search's classes 2 and 3
-(`_faces_pass`)."""
+"""Whether `check_valid_rate_equation(m)` passes: identify's base tier, the enumerator's
+exits and its flip search keep a mechanism exactly when it does."""
 has_valid_rate_equation(m::Mechanisms._AnyMech) = _memo_verdict(m).fault === _NO_FAULT
 
 """Error with the guard's message (`_guard_message`) unless `m`'s verdict `v` holds no
@@ -264,8 +261,8 @@ function _network(m::Mechanisms.Mechanism, present::BitVector, use::BitMatrix,
 end
 
 """
-The law network L of `m`, its rapid-equilibrium flags overridden by `re`: a plain
-mechanism's forms and edges as they are; an allosteric mechanism's two copies, copy `c`
+The law network L of `m`: a plain mechanism's forms and edges as they are, its
+rapid-equilibrium flags overridden by `re`; an allosteric mechanism's two copies, copy `c`
 holding the edges of its law (`_law_mask`) and the forms they touch, free E always, joined
 by the flip at free E.
 """
@@ -275,9 +272,9 @@ function _law_network(m::Mechanisms.Mechanism, re::BitVector = Mechanisms._flags
     fast[:, 1] .= re
     _network(m, trues(length(m.forms)), trues(n, 1), fast, falses(n, 1), falses(n, 1))
 end
-function _law_network(am::Mechanisms.AllostericMechanism,
-                      re::BitVector = Mechanisms._flags(am.catalytic))
+function _law_network(am::Mechanisms.AllostericMechanism)
     m = am.catalytic
+    re = Mechanisms._flags(m)
     n, nf = length(m.edges), length(m.forms)
     use, fast, present = falses(n, 2), falses(n, 2), falses(2 * nf)
     for c in 1:2
@@ -796,21 +793,3 @@ function _faces_verdict(mech::Mechanisms._AnyMech, net::_Network)
     _first_face_fault(i -> _check_face(mech, net, faces, i), faces)
 end
 
-"""
-Whether `mech`, its rapid-equilibrium flags overridden by `re`, passes class 2 and then
-class 3 on every face: the flip move asks it of a candidate (`_minimal_flips`), which it
-reads through the override, building nothing. Every variant `init_mechanisms` returns has
-passed it in the flip search and class 1 at the exit. Class 2 runs first to keep class
-3's face structure (`_face_structure`) and limit test (`_face_limit_check`, which errors
-on an infinite limit) off a network that holds a fast turnover cycle. A flip only turns
-rapid-equilibrium groups steady-state, so a candidate's fast transitions are a subset of
-its parent's, and only a parent that holds such a cycle yields one: an unguarded input,
-such as `_seed_variants`' all-RE merged base or a mechanism passed to `expand_mechanisms`
-unchecked.
-"""
-function _faces_pass(mech::Mechanisms._AnyMech, re::BitVector)
-    eps = _eps_network(mech, re)
-    isempty(_re_turnover_transitions(eps)) || return false
-    _faces_verdict(mech, mech isa Mechanisms.Mechanism ? eps : _law_network(mech, re)) ===
-        _WELL_POSED
-end

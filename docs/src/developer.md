@@ -151,8 +151,7 @@ batch or is fitted in the variant's own (`_process_batch`).
 The guard (`src/Derivation/guard.jl`, with `limit_test.jl`, `admission.jl` and
 `messages.jl` beside it) decides whether a mechanism's rate law is the unique
 fast-equilibrium limit of mass-action kinetics wherever data sit. `_guard(m)` reads the
-reaction graph through masks and flag overrides and never constructs a mechanism, so a move
-can judge a candidate on its flags (`_faces_pass(m, re)`). It returns an isbits `_Verdict`
+reaction graph through masks and never constructs a mechanism. It returns an isbits `_Verdict`
 (fault, limit-test verdict, face, conformation, edge), never a `Union` that a loop reads:
 Julia 1.12 and 1.13 can hoist the box of a `Union` value out of a loop without a write
 barrier, which corrupts the heap. `check_valid_rate_equation(m)` throws
@@ -173,8 +172,8 @@ structure decides nothing) and admission's face condition (`_admission_face`: th
 ε-network's closed classes, stranded basins, and the fewest-slow-transitions in-tree test
 per excluding conformation and for both together). The macros, the parser
 and the derivation entry throw; `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`
-and `Enumeration.base_mechanisms` drop; the flip move runs classes 2 and 3 on each
-candidate's flags; the tagging and change-tag moves filter by admission alone (`_admits`) and leave
+and `Enumeration.base_mechanisms` drop; the flip move runs it on each candidate it
+builds; the tagging and change-tag moves filter by admission alone (`_admits`) and leave
 class 3 to the exit.
 
 ## Enumeration engine architecture
@@ -256,10 +255,8 @@ spell one string two ways, such as `NAD`, `P` and `NADP`, never reach the constr
 Whether a mechanism's rate law is defined is the well-posedness guard's question
 (`src/Derivation/guard.jl`; see [Well-posedness guard](@ref)). The macros, the parser and
 every derivation entry throw on a mechanism it rejects (`check_valid_rate_equation`), and
-identify's base tier and the enumerator's exits drop one (`has_valid_rate_equation`), except
-that init's exit runs the guard on its seeds and checks class 1 on their variants, whose
-classes 2 and 3 the flip search ran (`_faces_pass`). The constructors and the Sig decoder
-do not run it.
+identify's base tier, the enumerator's exits and its flip search drop one
+(`has_valid_rate_equation`). The constructors and the Sig decoder do not run it.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see
@@ -331,7 +328,7 @@ turnover cycle (`_re_turnover_cycle`: each RE step weighted by its uptake of
 substrates minus products, a turnover cycle being a cycle of nonzero weight),
 keeps a maximal rate both ways (`_has_vmax`, condition V), keeps chemistry out of
 equilibrium with both sides (`_chemistry_equilibrates_both_sides`, condition C),
-passes the guard's face check and keeps every steady-state group flux-carrying.
+passes the guard and keeps every steady-state group flux-carrying.
 `_seed_candidate_screen` runs the first three tests on index arrays with a
 weighted union-find, so the other two run only on a candidate that passes them. A
 merged variant whose every merged complex has two steady-state steps, each alone

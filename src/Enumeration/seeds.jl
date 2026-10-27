@@ -439,8 +439,8 @@ whose flip to steady state gives a valid, flux-carrying, non-degenerate candidat
 variant: no rapid-equilibrium turnover cycle (`_re_turnover_cycle`), a maximal rate both
 ways (`_has_vmax`), no chemistry in equilibrium with both sides
 (`_chemistry_equilibrates_both_sides`), every steady-state group carrying flux, and the
-guard's classes 2 and 3 on every face (`_faces_pass`). The first three tests read index
-arrays (`_seed_candidate_screen`); the other two run only on a candidate that passes them.
+guard (`has_valid_rate_equation`). The first three tests read index arrays
+(`_seed_candidate_screen`); the other two run only on a candidate that passes them.
 A merged variant that is its seed's lumping twin (`_lumping_twin`) is skipped: the unmerged
 form with rapid-equilibrium flanks has its family at the same count. A base's groups come in
 canonical order, so the variants come in the order of their flip sets over those groups;
@@ -480,9 +480,8 @@ enumeration respects `shared_catalytic_site`. The variants of each seed
 are mixed: a three-group merged variant or a decorated Theorell–Chance variant
 fits more parameters than its seed, a merged ping-pong variant fewer. Errors when
 the reaction has no catalytic topology. A seed whose rate law the guard rejects
-(`has_valid_rate_equation`) is dropped, and so is a variant with no turnover cycle
-(`_has_turnover_cycle`): the flip search has run the guard's classes 2 and 3 on every
-variant (`_faces_pass`).
+(`has_valid_rate_equation`) is dropped; the flip search has run the guard on every
+variant.
 """
 function init_mechanisms(r::Mechanisms.EnzymeReaction)
     subs = Symbol[Mechanisms.name(s) for s in Mechanisms.substrates(r)]
@@ -497,7 +496,7 @@ function init_mechanisms(r::Mechanisms.EnzymeReaction)
     for m in unique(mechs), v in _seed_variants(m, r)
         v in seen && continue
         push!(seen, v)
-        Derivation._has_turnover_cycle(v, trues(length(v.edges))) && push!(out, v)
+        push!(out, v)
     end
     out
 end
@@ -646,8 +645,8 @@ worth a fit, but it is the only parent of mechanisms that are not degenerate (su
 ping-pong seeds' children). Only a flip can cure it: the other moves keep every catalytic
 step's rapid-equilibrium flag, and the steps they add bind regulators, which neither
 degeneracy condition reads. An expansion error is returned as a failure, one per seed,
-carrying the seed and the first 200 characters of the error; a flip child whose rate law
-the guard rejects (`has_valid_rate_equation`) is dropped, as `expand_mechanisms` drops one.
+carrying the seed and the first 200 characters of the error. The flip search emits only
+children the guard accepts (`has_valid_rate_equation`).
 """
 function _base_tier(mechs::Vector, rxn::Mechanisms.EnzymeReaction)
     base = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[
@@ -656,8 +655,7 @@ function _base_tier(mechs::Vector, rxn::Mechanisms.EnzymeReaction)
     for m in mechs
         _degenerate(m) || continue
         try
-            children = filter!(Derivation.has_valid_rate_equation, _expand_re_to_ss(m))
-            for child in children
+            for child in _expand_re_to_ss(m)
                 _assert_atom_conserving(child, rxn)
                 _degenerate(child) || push!(base, child)
             end

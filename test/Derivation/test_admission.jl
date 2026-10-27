@@ -1457,7 +1457,7 @@ end
           [153307352162749901, 1042757494553273858, 487617019471545681]
 end
 
-@testset "the flip move's predicate reads class 3 through the rapid-equilibrium flags" begin
+@testset "the guard on LDH's flip candidates: the trap, its fix and a fast cycle" begin
     ldh = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -1471,14 +1471,17 @@ end
             E + Q ⇌ E(Q)
         end
     end
+    candidate(re) = EnzymeRates.Mechanisms._build(EnzymeRates.Mechanisms._raw(ldh, re))
     flags = EnzymeRates.Mechanisms._flags(ldh)
-    @test !EnzymeRates.Derivation._faces_pass(ldh, flags)
+    @test EnzymeRates.Derivation._guard(candidate(flags)).fault ===
+          EnzymeRates.Derivation._TRAP
     # The feeding step steady-state through the flags: the graph of the trap test's fix.
     fed = copy(flags)
     fed[_testhelper_edge(ldh, "EP + Q ⇌ EPQ")] = false
-    @test EnzymeRates.Derivation._faces_pass(ldh, fed)
+    @test EnzymeRates.Derivation.has_valid_rate_equation(candidate(fed))
     # Every step at rapid equilibrium: a fast cycle turns the reaction over.
-    @test !EnzymeRates.Derivation._faces_pass(ldh, trues(length(ldh.edges)))
+    @test EnzymeRates.Derivation._guard(candidate(trues(length(ldh.edges)))).fault ===
+          EnzymeRates.Derivation._RE_TURNOVER
 end
 
 # ── Tag sets admission's interior accepts ───────────────────────────────────

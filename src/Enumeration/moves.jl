@@ -40,16 +40,14 @@ route through the others — as happens once a split has separated a
 metabolite's binding steps, or a catalytic step from its inhibitor-bound
 mirror. A flip that leaves the segment count unchanged adds an SS step whose
 endpoints share a segment, which the rate equation never sees. A flip set whose child the
-guard's class 3 rejects on some face (`_faces_pass`) also counts as failed, so the
-minimal-set search extends it instead of emitting it; so does
+guard rejects (`has_valid_rate_equation`) also counts as failed, so the minimal-set search
+extends it instead of emitting it; so does
 a set one of whose flipped groups carries no flux in the child
 (`_flux_carrying_groups` on the flipped groups): the child is its parent plus
 one phantom per such group, and its flux-carrying supersets are the smallest
 identifiable relaxations. The non-degenerate mechanisms beyond a set that counts as failed
 stay reachable — through the other cut orders of the same ring, or through the extended
-set when no other order gains. Admission's face condition does not count: a set whose
-allosteric child admission rejects (`_BRIDGE`) is emitted, the exit or identify's base
-tier drops that child, and its supersets are not tried. Every other flag, the declared
+set when no other order gains. Every other flag, the declared
 names and, for an allosteric mechanism, the tags, multiplicity and regulatory sites are
 kept; each child goes through the checked constructor.
 
@@ -118,12 +116,10 @@ every inclusion-minimal flip to steady state that passes, one flag per edge for 
 set. A unit is a rapid-equilibrium kinetic group that carries flux with every edge steady
 state (`_flux_carrying_groups`) and passes `eligible`. A candidate turns its units' edges
 steady state and keeps every other flag. It passes when `admissible` holds on its flags,
-every flipped group carries flux in it, and the guard's classes 2 and 3 pass on every face
-(`_faces_pass`, which reads `m`'s law network under the candidate's flags). The sets come
-from `_minimal_gaining_sets`, so a failing set is extended and a passing one is not.
-Admission's face condition is not part of the test: a candidate whose allosteric child
-admission rejects (`_BRIDGE`) passes, and its supersets are not tried. Nothing is built: a
-candidate is its flags.
+every flipped group carries flux in it, and the guard accepts the mechanism it builds
+(`has_valid_rate_equation`). The first two tests read the flags, so only a candidate that
+passes them is built. The sets come from `_minimal_gaining_sets`, so a failing set is
+extended and a passing one is not.
 """
 function _minimal_flips(admissible, m::Mechanisms._AnyMech, eligible = _ -> true)
     cm = Mechanisms.catalytic(m)
@@ -141,7 +137,8 @@ function _minimal_flips(admissible, m::Mechanisms._AnyMech, eligible = _ -> true
     end
     passes(sel) = (re = flipped(sel);
                    admissible(re) && all(_flux_carrying_groups(cm, re)[units[sel]]) &&
-                   Derivation._faces_pass(m, re))
+                   Derivation.has_valid_rate_equation(
+                       Mechanisms._build(Mechanisms._raw(m, re))))
     [flipped(sel) for sel in _minimal_gaining_sets(passes, _ -> 1:length(units))]
 end
 
@@ -279,7 +276,7 @@ end
 
 """Number of rapid-equilibrium segments of graph `m`, edge `k` at rapid equilibrium where
 `re[k]` holds (`_segments`). The flip move measures each candidate on its flags, so it
-builds only the candidates that pass."""
+builds only the candidates that raise the count."""
 _re_segment_count(m::Mechanisms.Mechanism, re::BitVector) =
     length(Mechanisms._segments(m, trues(length(m.edges)), re).segments)
 
