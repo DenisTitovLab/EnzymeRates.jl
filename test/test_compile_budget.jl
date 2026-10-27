@@ -132,7 +132,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     #     for a fresh mechanism, since it reads only the concrete one.
     trace_script = """
         using EnzymeRates
-        r = EnzymeRates.Mechanisms.EnzymeReaction(
+        r = EnzymeRates.EnzymeReaction(
             [EnzymeRates.Mechanisms.ReactantAtoms(EnzymeRates.Mechanisms.Substrate(:A),
                                                   [:C => 1]),
              EnzymeRates.Mechanisms.ReactantAtoms(EnzymeRates.Mechanisms.Substrate(:B),
@@ -145,7 +145,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             Int[1],
         )
         EnzymeRates.init_mechanisms(r)
-        r_uni = EnzymeRates.Mechanisms.EnzymeReaction(
+        r_uni = EnzymeRates.EnzymeReaction(
             [EnzymeRates.Mechanisms.ReactantAtoms(EnzymeRates.Mechanisms.Substrate(:S),
                                                   [:C => 1]),
              EnzymeRates.Mechanisms.ReactantAtoms(EnzymeRates.Mechanisms.Product(:P),
@@ -161,8 +161,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         using EnzymeRates
         println("IMAGE_RATE_BODIES:", count(
             mi -> mi.specTypes.parameters[2] in
-                  (EnzymeRates.Mechanisms.Mechanism,
-                   EnzymeRates.Mechanisms.AllostericMechanism),
+                  (EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism),
             Base.specializations(only(methods(EnzymeRates._rate_body)))))
         r_uni = @enzyme_reaction begin
             substrates: S[C]
@@ -219,15 +218,15 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             pass1 = _testhelper_all_instances() - n0
             rec isa ER._Candidate || error("PASS1 gave \$(repr(rec))")
             s1 = _testhelper_instances(methods(show))
-            em = ER.Mechanisms.compile_mechanism(m)
+            em = ER.compile_mechanism(m)
             fp = FittingProblem(em, PROB.data; ER._fit_keywords(em, PROB)...)
             fit_rate_equation(fp, OPT; FIT_KW...)
-            ER._cv_fold_loss(ER.Mechanisms.compile_mechanism(m), PROB, "G1";
+            ER._cv_fold_loss(ER.compile_mechanism(m), PROB, "G1";
                              optimizer = OPT, FIT_KW...)
             fit = (_testhelper_all_instances() - n0, Base.jit_total_bytes() - b0,
                    (Base.cumulative_compile_time_ns()[1] - t0) / 1e9)
             s2 = _testhelper_instances(methods(show))
-            sprint(show, ER.Mechanisms.compile_mechanism(m))
+            sprint(show, ER.compile_mechanism(m))
             (fit..., s1 - s0 + _testhelper_instances(methods(show)) - s2, pass1)
         end
         ms = ER.init_mechanisms(rxn)
@@ -240,7 +239,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
                 " SIG_NATIVE:", Base.jit_total_bytes() - b_sig)
         # Five bi-bi seeds with five Sig lengths and five fitted-name tuples, written
         # out: the first warms the fit path, and the other four are measured fresh.
-        picks = ER.Mechanisms.Mechanism.([
+        picks = ER.Mechanism.([
             @enzyme_mechanism(begin
                 substrates: A, B
                 products: P, Q
@@ -304,7 +303,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
                     " FIT_COMPILE_", k, ":", t, " PASS1_SHOW_", k, ":", s,
                     " PASS1_INSTANCES_", k, ":", p)
         end
-        ems = ER.Mechanisms.compile_mechanism.(picks)
+        ems = ER.compile_mechanism.(picks)
         println("FIT_SHAPES:", length(unique(em -> typeof(typeof(em).parameters[1]), ems)))
         println("FIT_NAMES:", length(unique(ER.fitted_params, ems)))
         """
@@ -339,9 +338,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     # leaving the package's two calls compiling nothing.
     @testset "the generator's precompile signatures compile" begin
         @test n_image == 2
-        @test precompile(EnzymeRates._rate_body, (EnzymeRates.Mechanisms.Mechanism,))
-        @test precompile(EnzymeRates._rate_body,
-                         (EnzymeRates.Mechanisms.AllostericMechanism,))
+        @test precompile(EnzymeRates._rate_body, (EnzymeRates.Mechanism,))
+        @test precompile(EnzymeRates._rate_body, (EnzymeRates.AllostericMechanism,))
     end
 
     # Compile-reuse: bi-bi init_mechanisms compiles a superset of uni-uni's

@@ -93,7 +93,7 @@ end
     @test _testhelper_step_text.(Ref(g), g.steps) ==
           ["E + I ⇌ EI", "ES + I ⇌ EIS", "E + P ⇌ EP", "E + S ⇌ ES", "ES <--> EP",
            "ES + P ⇌ EPmodS"]
-    @test _testhelper_graph(EnzymeRates.Mechanisms.Mechanism(plain)) == g
+    @test _testhelper_graph(EnzymeRates.Mechanism(plain)) == g
 
     # A ping-pong: the residual forms sort by their bound metabolites, the residual-only
     # form before E(A), and each half-reaction's isomerization runs to the product side.
@@ -139,7 +139,7 @@ end
     @test (g.tags, g.inactive, g.catalytic_multiplicity, g.sites) ==
           (Symbol[], Int[], nothing, [])
     @test (g.substrates, g.products, g.modifiers) == ([:A, :B], [:P, :Q], Symbol[])
-    @test _testhelper_graph(EnzymeRates.Mechanisms.Mechanism(pingpong)) == g
+    @test _testhelper_graph(EnzymeRates.Mechanism(pingpong)) == g
 
     # A Theorell–Chance step takes up B and gives off P in one step, so its `released`
     # holds a name; it runs physical-forward, B in and P out.
@@ -227,7 +227,7 @@ end
           [(multiplicity = 2, ligands = [:R1, :R2], allo_states = [:OnlyI, :EqualAI]),
            (multiplicity = 1, ligands = [:R3], allo_states = [:NonequalAI])]
     @test (g.substrates, g.products, g.modifiers) == ([:S], [:P], [:I])
-    @test _testhelper_graph(EnzymeRates.Mechanisms.AllostericMechanism(allo)) == g
+    @test _testhelper_graph(EnzymeRates.AllostericMechanism(allo)) == g
 end
 
 @testset "Exact steady-state oracle" begin
@@ -306,7 +306,7 @@ end
                 F(S) <--> F + P
             end
         end), false)).mechanism
-        for m in (two_enzymes, EnzymeRates.Mechanisms.compile_mechanism(two_enzymes))
+        for m in (two_enzymes, EnzymeRates.compile_mechanism(two_enzymes))
             point = _testhelper_consistent_point(m, Random.MersenneTwister(1))
             @test_throws(ErrorException("_testhelper_steady_state_rate: the network of " *
                                         "4 enzyme forms is disconnected, so its steady " *
@@ -384,7 +384,7 @@ end
     # and combined, and has one unit per denominator, which its normalizer shares when it
     # has one (`_testhelper_check_units`). Both printed forms of each law equal it at a
     # further point, with no printing artifact.
-    @test count(m -> m isa EnzymeRates.Mechanisms.AllostericMechanism,
+    @test count(m -> m isa EnzymeRates.AllostericMechanism,
                 _testhelper_population_sample) >= 30
     for (i, m) in enumerate(_testhelper_population_sample)
         @testset "population mechanism $i" begin
@@ -438,8 +438,7 @@ independent count."""
 function _testhelper_same_model_regroupings(m)
     n = EnzymeRates._independent_param_count(m)
     cm = EnzymeRates.Mechanisms.catalytic(m)
-    kept = Union{EnzymeRates.Mechanisms.Mechanism,
-                 EnzymeRates.Mechanisms.AllostericMechanism}[]
+    kept = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
     for g in 1:EnzymeRates.Mechanisms.ngroups(cm),
         bp in EnzymeRates._context_bipartitions(cm, g)
         child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
@@ -471,7 +470,7 @@ const _testhelper_sample_regroupings =
         # Every fitted catalytic constant names a constant of one conformation's law.
         stray = Symbol[]
         for m in _testhelper_population_one_round
-            m isa EnzymeRates.Mechanisms.AllostericMechanism || continue
+            m isa EnzymeRates.AllostericMechanism || continue
             law_names = Set(n for state in (:A, :I)
                             for ns in EnzymeRates._edge_names(m, state) for n in ns)
             reg = Set(EnzymeRates.Mechanisms.name(p, m) for state in (:A, :I)
@@ -491,7 +490,7 @@ const _testhelper_sample_regroupings =
                                   _testhelper_sample_regroupings)
             names = Set(_testhelper_dependent_param_exprs(m)[2])
             for child in regrouped
-                m isa EnzymeRates.Mechanisms.Mechanism ? (n_plain += 1) : (n_allo += 1)
+                m isa EnzymeRates.Mechanism ? (n_plain += 1) : (n_allo += 1)
                 @test Set(_testhelper_dependent_param_exprs(child)[2]) == names
             end
         end
@@ -538,8 +537,8 @@ const _testhelper_sample_regroupings =
             end
             regulatory_site(2): R::EqualAI
         end
-        dep, indep = _testhelper_dependent_param_exprs(
-            EnzymeRates.Mechanisms.AllostericMechanism(b10))
+        dep, indep =
+            _testhelper_dependent_param_exprs(EnzymeRates.AllostericMechanism(b10))
         @test :K_Rreg in indep
         @test !any(k -> occursin("Rreg", string(k)), keys(dep))
         _testhelper_check_law_against_oracle(b10)
@@ -560,8 +559,8 @@ end
             F <--> E          :: OnlyA
         end
     end
-    @test r2 isa EnzymeRates.Mechanisms.AllostericMechanism
-    @test r2 == EnzymeRates.Mechanisms.AllostericMechanism(
+    @test r2 isa EnzymeRates.AllostericMechanism
+    @test r2 == EnzymeRates.AllostericMechanism(
         EnzymeRates.Mechanisms._raw_mechanism(:(begin
         substrates: S
         products: P
@@ -590,7 +589,7 @@ end
             E(S) <--> E + P
         end
     end
-    @test mm == EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
+    @test mm == EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -767,7 +766,7 @@ end
         rng = Random.MersenneTwister(71)
         point = _testhelper_consistent_point(am, rng)
         concs = Dict{Symbol, BigFloat}(x => big(10)^(2 * big(rand(rng)) - 1)
-                                       for x in EnzymeRates.Mechanisms.metabolites(am))
+                                       for x in EnzymeRates.metabolites(am))
         @test _testhelper_respeed(am, point, concs, Set{Symbol}(); rng) === :agree
     end
 end
@@ -908,7 +907,7 @@ end
         rng = Random.MersenneTwister(61)
         point = _testhelper_consistent_point(am, rng)
         concs = Dict{Symbol, BigFloat}(x => big(10)^(2 * big(rand(rng)) - 1)
-                                       for x in EnzymeRates.Mechanisms.metabolites(am))
+                                       for x in EnzymeRates.metabolites(am))
         exact = _testhelper_steady_state_rate(am, point, concs)
         @test abs(_testhelper_protomer_rate(am, point, concs; n = 1) - exact) <=
               big(10)^-20 * abs(exact)
@@ -924,10 +923,8 @@ end
     # A plain mechanism's ε-network is its law network, so class 2 must flag exactly the
     # cycles the moves' test flags: on each plain spec and population member as written,
     # with one more kinetic group at rapid equilibrium, and with every step at it.
-    plain =
-        [m
-         for m in [[_testhelper_lift(s.mechanism) for s in MECHANISM_TEST_SPECS];
-                   _testhelper_population_sample] if m isa EnzymeRates.Mechanisms.Mechanism]
+    plain = [m for m in [[_testhelper_lift(s.mechanism) for s in MECHANISM_TEST_SPECS];
+                         _testhelper_population_sample] if m isa EnzymeRates.Mechanism]
     found = Bool[]
     for m in plain
         flags = EnzymeRates.Mechanisms._flags(m)
@@ -993,7 +990,7 @@ end
                                              (:bibi, (E_, E_, E_, N_, E_, N_), 2),
                                              (:uu_ss, (E_, E_, E_, N_), 3)))
         m = eval(Meta.parse(_testhelper_iso_text(family, tags; n)))
-        am = EnzymeRates.Mechanisms.AllostericMechanism(m)
+        am = EnzymeRates.AllostericMechanism(m)
         fitted = _testhelper_dependent_param_exprs(typeof(m))[2]
         rng = Random.MersenneTwister(100 + i)
         point, concs, params = _testhelper_law_inputs(am, fitted, rng)
@@ -1004,7 +1001,7 @@ end
     end
     # A flip at the other free form gives another law: the law tells the flip form.
     m = eval(Meta.parse(_testhelper_iso_text(:uu_ss, (E_, E_, E_, N_))))
-    am = EnzymeRates.Mechanisms.AllostericMechanism(m)
+    am = EnzymeRates.AllostericMechanism(m)
     eprime = only(f for f in 2:length(am.catalytic.forms)
                   if EnzymeRates.Mechanisms._is_free(am.catalytic.forms[f]))
     fitted = _testhelper_dependent_param_exprs(typeof(m))[2]
@@ -1022,7 +1019,7 @@ end
     # r_c = [D_c]/[E_c]. So L means [E_I]/[E_A].
     m = eval(Meta.parse(_testhelper_iso_text(:uu_ss, (E_, E_, E_, E_);
                                              extra = "D ⇌ E :: NonequalAI")))
-    am = EnzymeRates.Mechanisms.AllostericMechanism(m)
+    am = EnzymeRates.AllostericMechanism(m)
     cm = am.catalytic
     d = only(f for f in 2:length(cm.forms)
              if EnzymeRates.Mechanisms._is_free(cm.forms[f]) &&
@@ -1066,13 +1063,13 @@ end
     for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
         label in (:copy_group_bridge, :essential_activator) && continue
         @testset "$label" begin
-            em = EnzymeRates.Mechanisms.compile_mechanism(am)
+            em = EnzymeRates.compile_mechanism(am)
             fitted = _testhelper_dependent_param_exprs(am)[2]
             @test EnzymeRates.fitted_params(em) == fitted
             point, concs, params = _testhelper_law_inputs(am, fitted,
                                                           Random.MersenneTwister(600 + i))
             c64, p64 = _testhelper_float64_inputs(fitted, params, concs,
-                                                  EnzymeRates.Mechanisms.metabolites(em))
+                                                  EnzymeRates.metabolites(em))
             @test isapprox(rate_equation(em, c64, p64),
                            Float64(_testhelper_law_value(am, params, concs)); rtol = 1e-12)
         end
@@ -1166,12 +1163,10 @@ end
 `graph` applied to its catalytic `RawMechanism` and `site` to each `RawSite`."""
 function _testhelper_rebuilt(m, graph, site = identity)
     raw = EnzymeRates.Mechanisms._raw(m)
-    m isa EnzymeRates.Mechanisms.Mechanism &&
-        return EnzymeRates.Mechanisms.Mechanism(graph(raw))
-    EnzymeRates.Mechanisms.AllostericMechanism(
-        EnzymeRates.Mechanisms.RawAllostericMechanism(
-            graph(raw.catalytic), raw.cat_allo_states, raw.catalytic_multiplicity,
-            EnzymeRates.Mechanisms.RawSite[site(s) for s in raw.sites]))
+    m isa EnzymeRates.Mechanism && return EnzymeRates.Mechanism(graph(raw))
+    EnzymeRates.AllostericMechanism(EnzymeRates.Mechanisms.RawAllostericMechanism(
+        graph(raw.catalytic), raw.cat_allo_states, raw.catalytic_multiplicity,
+        EnzymeRates.Mechanisms.RawSite[site(s) for s in raw.sites]))
 end
 
 """`m` with every metabolite renamed by `rename`, built by the constructors from its raw
@@ -1208,7 +1203,7 @@ metabolite may take (`E`, `L`, `N`) or the conformation label `F`, and none is a
 name of the population sample or of the four rejected fixtures below (`A`, `B`, `P`, `Q`
 and `S`), so every name changes."""
 function _testhelper_reversing_rename(m)
-    names = sort(EnzymeRates.Mechanisms.metabolites(m))
+    names = sort(EnzymeRates.metabolites(m))
     Dict(zip(names, [:Z, :Y, :X, :W, :U, :T, :R, :M, :H, :G][1:length(names)]))
 end
 
@@ -1243,7 +1238,7 @@ end
     # (`_testhelper_in_epath_window`).
     rng = Random.MersenneTwister(402)
     allo = [m for m in _testhelper_population_sample
-            if m isa EnzymeRates.Mechanisms.AllostericMechanism]
+            if m isa EnzymeRates.AllostericMechanism]
     @test length(allo) >= 30
     for am in allo
         @test all(face -> _testhelper_epath_verdict(am; rng, face) === :converges,
@@ -1257,7 +1252,7 @@ end
     # own exclusion structure, on the 108 uni-uni grid mechanisms and on every allosteric
     # member of the one-round population.
     allo = [m for m in _testhelper_population_one_round
-            if m isa EnzymeRates.Mechanisms.AllostericMechanism]
+            if m isa EnzymeRates.AllostericMechanism]
     @test length(allo) >= 30
     for am in [_testhelper_uniuni_grid(); allo]
         @test _testhelper_existence_agrees(am)
@@ -1285,7 +1280,7 @@ let children = [c for m in EnzymeRates.init_mechanisms(_testhelper_inhibitor_rxn
     # declaration's whole seed set (CLAUDE.md enumeration rule 1's exception).
     @test length(children) == 5505
     @test count(!EnzymeRates._is_well_posed, children) == 0
-    allo = [c for c in children if c isa EnzymeRates.Mechanisms.AllostericMechanism]
+    allo = [c for c in children if c isa EnzymeRates.AllostericMechanism]
     @test !isempty(allo)
     @test all(c -> :OnlyI ∉ EnzymeRates.Mechanisms.cat_allo_states(c), allo)
 end
@@ -1313,11 +1308,10 @@ end
     # often share a law (tag sets that differ only on groups the inactive conformation
     # never reaches, or only in names). Members of one key evaluate alike with constants
     # mapped by canonical position, and swapping two of them breaks the map.
-    by_graph = Dict{EnzymeRates.Mechanisms.Mechanism,
-                    Vector{EnzymeRates.Mechanisms.AllostericMechanism}}()
+    by_graph = Dict{EnzymeRates.Mechanism, Vector{EnzymeRates.AllostericMechanism}}()
     for m in _testhelper_population_one_round
-        m isa EnzymeRates.Mechanisms.AllostericMechanism || continue
-        push!(get!(by_graph, m.catalytic, EnzymeRates.Mechanisms.AllostericMechanism[]), m)
+        m isa EnzymeRates.AllostericMechanism || continue
+        push!(get!(by_graph, m.catalytic, EnzymeRates.AllostericMechanism[]), m)
     end
     graphs = sort!(collect(keys(by_graph)); by = _testhelper_content_text)
     siblings = reduce(vcat, [by_graph[g] for g in

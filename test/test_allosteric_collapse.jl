@@ -9,7 +9,7 @@ _testhelper_form(xs...) = ER.Mechanisms.RawForm(:E, M[M(x, false) for x in xs])
 # The allosteric mechanism over substrates `subs` and products `prods`, catalytic
 # multiplicity 2, whose steps are `steps`, step `j` alone in group `j`, tagged `states[j]`.
 _testhelper_one_step_groups(subs, prods, steps, states) =
-    ER.Mechanisms.AllostericMechanism(ER.Mechanisms.RawAllostericMechanism(
+    ER.AllostericMechanism(ER.Mechanisms.RawAllostericMechanism(
         ER.Mechanisms.RawMechanism(subs, prods, Symbol[], steps, collect(eachindex(steps))),
         collect(Symbol, states), 2, ER.Mechanisms.RawSite[]))
 # `re` flags which of the S-binding, chemistry and P-release steps are rapid
@@ -34,9 +34,8 @@ function _testhelper_ro_bibi(states)
     _testhelper_one_step_groups([:A, :B], [:P, :Q], sd, states)
 end
 function _testhelper_evalrate(am; seed=1, split=nothing)
-    cem=ER.Mechanisms.compile_mechanism(am); fp=ER.fitted_params(am)
-    rng=MersenneTwister(seed)
-    mets=collect(ER.Mechanisms.metabolites(cem))
+    cem=ER.compile_mechanism(am); fp=ER.fitted_params(am); rng=MersenneTwister(seed)
+    mets=collect(ER.metabolites(cem))
     base=[(k===:L ? 0.6 : 0.4+2rand(rng)) for k in fp]
     split!==nothing && (base=[(fp[i]===split[1] ? split[2] : base[i]) for i in 1:length(fp)])
     prm=NamedTuple{(fp...,:Keq,:E_total)}((base...,3.0,1.0))

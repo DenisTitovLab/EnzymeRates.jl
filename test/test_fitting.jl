@@ -176,10 +176,10 @@ end
         # An integer Keq converts to the Float64 field.
         @test FittingProblem(uni_uni, ok_data; Keq=2, reference=ref).Keq === 2.0
         # The concrete-mechanism constructor passes the keywords on.
-        fp_conc = FittingProblem(EnzymeRates.Mechanisms.Mechanism(uni_uni), ok_data;
-                                 Keq=1.0, reference=ref)
+        fp_conc = FittingProblem(EnzymeRates.Mechanism(uni_uni), ok_data; Keq=1.0,
+                                 reference=ref)
         @test fp_conc.absolute === false && fp_conc.reference == ref
-        @test FittingProblem(EnzymeRates.Mechanisms.Mechanism(uni_uni), ok_data; Keq=1.0,
+        @test FittingProblem(EnzymeRates.Mechanism(uni_uni), ok_data; Keq=1.0,
                              absolute=true).absolute === true
         # There is no kcat keyword: measured kcats rescale a fit afterwards.
         @test_throws MethodError FittingProblem(uni_uni, ok_data; Keq=1.0, reference=ref,

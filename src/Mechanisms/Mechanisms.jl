@@ -2,9 +2,6 @@
 # ABOUTME: graph, Sig), their naming rules, and the DSL's unchecked reader and printer.
 module Mechanisms
 
-# The public names it defines; EnzymeRates re-exports them.
-export EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism, metabolites
-
 import Unicode
 
 const API = (:AbstractEnzymeMechanism, :AllostericEnzymeMechanism, :AllostericMechanism,

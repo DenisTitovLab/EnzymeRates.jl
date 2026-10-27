@@ -284,7 +284,7 @@ end
     # by (1 + L) and the uptake rate constant by 1/(1 + L): at every L the variant is its
     # law at L = 0, the law of its catalytic mechanism, at those constants (spec
     # section 13).
-    am = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -310,7 +310,7 @@ end
     # L phantom though its inactive conformation binds. With S's binding :NonequalAI the
     # inactive conformation binds S under a constant of its own, a term the active
     # conformation lacks, and no certificate exists.
-    am = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 1
@@ -327,7 +327,7 @@ end
     @test θ == [:K_EP_to_E_P, :K_ES_to_E_S, :k_A_ES_to_EP]
     @test EnzymeRates._phantom_weights(A) == [0 // 1, 0 // 1, -1 // 1]
     @test _testhelper_phantom_map_holds(am; rng = Random.MersenneTwister(22))
-    s_relaxed = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
+    s_relaxed = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 1
@@ -348,7 +348,7 @@ end
     # exists. The Theorell–Chance K-type only_a binds Q at free E in its inactive
     # conformation, yet its certificate maps it onto its law at L = 0, so it is an L
     # phantom.
-    two_subunits = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
+    two_subunits = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -357,7 +357,7 @@ end
             E + P ⇌ E(P)       :: OnlyA
         end
     end)
-    p_relaxed = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
+    p_relaxed = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 1
@@ -366,7 +366,7 @@ end
             E + P ⇌ E(P)       :: NonequalAI
         end
     end)
-    onlyi_site = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
+    onlyi_site = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         allosteric_regulators: R
@@ -376,7 +376,7 @@ end
         end
         regulatory_site(1): R::OnlyI
     end)
-    onlya_site = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
+    onlya_site = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         allosteric_regulators: R
@@ -386,7 +386,7 @@ end
         end
         regulatory_site(1): R::OnlyA
     end)
-    only_a = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
+    only_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
         steps: begin
             E + A ⇌ E(A)                :: OnlyA

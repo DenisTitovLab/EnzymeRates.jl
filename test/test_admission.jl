@@ -86,7 +86,7 @@ end
             E(Q) + A ⇌ E(A, Q) :: EqualAI
         end
     end
-    @test EnzymeRates._guard(EnzymeRates.Mechanisms.AllostericMechanism(am)) ===
+    @test EnzymeRates._guard(EnzymeRates.AllostericMechanism(am)) ===
           EnzymeRates._WELL_POSED
     params = _testhelper_random_independent_params(am; rng = Random.MersenneTwister(1))
     @test isnan(rate_equation(am, (A = 1.0, B = 0.0, D = 1.0, P = 0.0, Q = 0.0), params))
@@ -299,7 +299,7 @@ end
             rng = Random.MersenneTwister(i)
             point = _testhelper_consistent_point(m, rng)
             concs = Dict{Symbol, BigFloat}(x => big(10)^(2 * big(rand(rng)) - 1)
-                                           for x in EnzymeRates.Mechanisms.metabolites(m))
+                                           for x in EnzymeRates.metabolites(m))
             _testhelper_respeed(m, point, concs, Set{Symbol}(); rng)
         end
         @test verdict === :diverges
@@ -463,7 +463,7 @@ end
         cm = EnzymeRates.Mechanisms.catalytic(mech)
         names = (substrates = cm.substrates, products = cm.products,
                  modifiers = EnzymeRates.Mechanisms.modifiers(cm),
-                 regulators = mech isa EnzymeRates.Mechanisms.AllostericMechanism ?
+                 regulators = mech isa EnzymeRates.AllostericMechanism ?
                               EnzymeRates.Mechanisms.allosteric_regulators(mech) : Symbol[])
         raw = EnzymeRates.Mechanisms._raw(cm)
         for k in eachindex(cm.edges)
@@ -1476,7 +1476,7 @@ ping-pong tag sets write their covalent form `E(; residual = A - P)`, which give
 a free form `F` would; AD2a_iso_chemNonequal is R1, AD2e is R2 and AD2c is R3 written
 again, and AD6 holds one reaction in two groups, which the constructor rejects.
 """
-const _testhelper_tag_sets = Dict{String, EnzymeRates.Mechanisms.AllostericMechanism}()
+const _testhelper_tag_sets = Dict{String, EnzymeRates.AllostericMechanism}()
 
 _testhelper_tag_sets["R1"] = @_testhelper_unguarded @allosteric_mechanism begin
     substrates: S
@@ -1668,8 +1668,7 @@ for label in (:D, :Ca, :Ea, :F, :Z), chem in (:NonequalAI, :OnlyA)
         end
     end
     _testhelper_tag_sets["AD13_$(chem)_$label"] =
-        EnzymeRates.Mechanisms.AllostericMechanism(
-            EnzymeRates.Mechanisms._raw_mechanism(block, true))
+        EnzymeRates.AllostericMechanism(EnzymeRates.Mechanisms._raw_mechanism(block, true))
 end
 _testhelper_tag_sets["AD14"] = @_testhelper_unguarded @allosteric_mechanism begin
     substrates: S
@@ -3167,8 +3166,7 @@ end
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
     end
-    mechs = Union{EnzymeRates.Mechanisms.Mechanism,
-                  EnzymeRates.Mechanisms.AllostericMechanism}[]
+    mechs = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
     for rxn in (bibi, pingpong)
         seeds = EnzymeRates.init_mechanisms(rxn)
         append!(mechs, seeds, EnzymeRates.expand_mechanisms(seeds, rxn))
@@ -3422,8 +3420,7 @@ end
     for (i, name) in enumerate(tag_sets)
         @testset "$name" begin
             _testhelper_check_law_against_limit(
-                EnzymeRates.Mechanisms.compile_mechanism(_testhelper_tag_sets[name]);
-                seed = i)
+                EnzymeRates.compile_mechanism(_testhelper_tag_sets[name]); seed = i)
         end
     end
 end
@@ -3585,7 +3582,7 @@ end
     @test _testhelper_epath_verdict(b1a; rng = Random.MersenneTwister(62)) in
           (:diverges, :direction_dependent, :wrong_limit)
     # B1c: the inhibitor complex's chemistry at steady state breaks the fast cycle.
-    b1c = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
+    b1c = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         modifiers: I
@@ -3738,7 +3735,7 @@ end
     # the order.
     @test _testhelper_epath_verdict(bridge; rng = Random.MersenneTwister(71)) in
           (:wrong_limit, :direction_dependent)
-    fixed = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
+    fixed = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         modifiers: I
@@ -3785,8 +3782,7 @@ end
           "conformation turns no substrate into product, and only the active " *
           "conformation may catalyze. Tag their groups :EqualAI or :NonequalAI."
     for (i, tag) in enumerate((:EqualAI, :NonequalAI))
-        fixed =
-            EnzymeRates.Mechanisms.AllostericMechanism(eval(:(@allosteric_mechanism begin
+        fixed = EnzymeRates.AllostericMechanism(eval(:(@allosteric_mechanism begin
             substrates: S
             products: P
             modifiers: X

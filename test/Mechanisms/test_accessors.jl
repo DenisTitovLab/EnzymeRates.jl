@@ -19,13 +19,12 @@
     @test :Keq in params_mono
     # all_parameters adds exactly the dependent constants to the parameters.
     values_mono = NamedTuple{params_mono}(ntuple(_ -> 1.0, length(params_mono)))
-    dep_mono, _ =
-        _testhelper_dependent_param_exprs(EnzymeRates.Mechanisms.Mechanism(m_mono))
+    dep_mono, _ = _testhelper_dependent_param_exprs(EnzymeRates.Mechanism(m_mono))
     @test !isempty(dep_mono)
     @test Set(keys(all_parameters(m_mono, values_mono))) ==
           union(Set(params_mono), keys(dep_mono))
 
-    base = EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
+    base = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -36,9 +35,9 @@
     end)
     cat_allo_states = fill(:NonequalAI, EnzymeRates.Mechanisms.ngroups(base))
     site = EnzymeRates.Mechanisms.RegulatorySite([:R], 2, [:NonequalAI])
-    am = EnzymeRates.Mechanisms.AllostericMechanism(base, cat_allo_states, 2, [site])
+    am = EnzymeRates.AllostericMechanism(base, cat_allo_states, 2, [site])
     @test EnzymeRates.Mechanisms.cat_allo_states(am) == cat_allo_states
-    m_allo = EnzymeRates.Mechanisms.AllostericEnzymeMechanism(am)
+    m_allo = EnzymeRates.AllostericEnzymeMechanism(am)
     params_allo = parameters(m_allo)
     @test any(occursin("_I_", string(p)) for p in params_allo)
     @test any(occursin("reg", string(p)) for p in params_allo)
@@ -78,7 +77,7 @@ end
     @test all_parameters(m, q).k_EP_to_ES == all_p.k_EP_to_ES
     # The concrete mechanism gives the same values, E_total may be left out, and BigFloat
     # values stay BigFloat.
-    @test all_parameters(EnzymeRates.Mechanisms.Mechanism(m), p) == all_p
+    @test all_parameters(EnzymeRates.Mechanism(m), p) == all_p
     @test all_parameters(m, Base.structdiff(p, (E_total = 0,))).k_EP_to_ES ==
           all_p.k_EP_to_ES
     @test all_parameters(m, map(big, p)).k_EP_to_ES == big(3) / 8
@@ -127,7 +126,7 @@ end
         # Every step constant the law reads, in each conformation, is among the keys; the
         # regulator constants and L are fitted, so p holds them.
         mech = _testhelper_lift(m)
-        states = mech isa EnzymeRates.Mechanisms.Mechanism ? (:None,) : (:A, :I)
+        states = mech isa EnzymeRates.Mechanism ? (:None,) : (:A, :I)
         @test issubset((n for st in states for ns in EnzymeRates._edge_names(mech, st)
                         for n in ns), keys(all_p))
     end

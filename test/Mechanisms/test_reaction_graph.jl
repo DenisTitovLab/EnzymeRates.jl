@@ -13,7 +13,7 @@ _testhelper_pack(list) = foldl((c, i) -> c + (ER.Mechanisms.Counts(1) << (4 * (i
 forms E, E(P), E(S); the bindings of P and S, then E(S) → E(P)."""
 function _testhelper_graph_uniuni()
     P, S = _testhelper_pack([1]), _testhelper_pack([2])
-    ER.Mechanisms.Mechanism(
+    ER.Mechanism(
         [:S], [:P],
         [EnzymeRates.Mechanisms.Met(:P, false), EnzymeRates.Mechanisms.Met(:S, false)],
         [:E],
@@ -73,8 +73,8 @@ function _testhelper_hash_is_content(T)
     T in (Symbol, Bool, Int, UInt128) && return true
     T <: Vector && return _testhelper_hash_is_content(eltype(T))
     T in (EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.RegulatorySite,
-          ER.Mechanisms.Form, ER.Mechanisms.Edge, ER.Mechanisms.Mechanism,
-          ER.Mechanisms.AllostericMechanism) || return false
+          ER.Mechanisms.Form, ER.Mechanisms.Edge, ER.Mechanism,
+          ER.AllostericMechanism) || return false
     all(_testhelper_hash_is_content, fieldtypes(T))
 end
 
@@ -90,43 +90,41 @@ _testhelper_hash_folds(x, h) =
     # fields hold only such values.
     m = _testhelper_graph_uniuni()
     site = EnzymeRates.Mechanisms.RegulatorySite([:R], 2, [:OnlyI])
-    am = ER.Mechanisms.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 2, [site])
+    am = ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 2, [site])
     h = UInt(17)
     for x in (m.forms[2], m.edges[3], m, am, m.table[1], site)
         @test _testhelper_hash_folds(x, h)
     end
-    @test all(_testhelper_hash_is_content,
-              (ER.Mechanisms.Form, ER.Mechanisms.Edge, ER.Mechanisms.Mechanism,
-               ER.Mechanisms.AllostericMechanism))
+    @test all(
+        _testhelper_hash_is_content,
+        (ER.Mechanisms.Form, ER.Mechanisms.Edge, ER.Mechanism, ER.AllostericMechanism))
     # Each field takes part in `==` and `hash`.
     @test m == _testhelper_graph_uniuni() && hash(m) == hash(_testhelper_graph_uniuni())
-    for f in fieldnames(ER.Mechanisms.Mechanism)
-        fields = Any[getfield(m, g) for g in fieldnames(ER.Mechanisms.Mechanism)]
-        i = findfirst(==(f), fieldnames(ER.Mechanisms.Mechanism))
+    for f in fieldnames(ER.Mechanism)
+        fields = Any[getfield(m, g) for g in fieldnames(ER.Mechanism)]
+        i = findfirst(==(f), fieldnames(ER.Mechanism))
         fields[i] = f === :group ? [1, 3, 2] : f === :substrates ? [:A] :
                     f === :products ? [:Q] : f === :conformations ? [:F] :
                     f === :table ? reverse(m.table) : reverse(getfield(m, f))
-        other = ER.Mechanisms.Mechanism(fields...)
+        other = ER.Mechanism(fields...)
         @test other != m && hash(other) != hash(m)
     end
-    @test am ==
-          ER.Mechanisms.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 2, [site])
-    @test am != ER.Mechanisms.AllostericMechanism(m, [:EqualAI, :OnlyA, :OnlyA], 2, [site])
-    @test am !=
-          ER.Mechanisms.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 4, [site])
-    @test am != ER.Mechanisms.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 2,
-                                                  EnzymeRates.Mechanisms.RegulatorySite[])
+    @test am == ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 2, [site])
+    @test am != ER.AllostericMechanism(m, [:EqualAI, :OnlyA, :OnlyA], 2, [site])
+    @test am != ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 4, [site])
+    @test am != ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 2,
+                                       EnzymeRates.Mechanisms.RegulatorySite[])
 end
 
 @testset "a mechanism's fields are its graph and nothing else" begin
     # No reaction and no cache: the names, the table, the forms, the edges and their
     # groups, and for an allosteric mechanism its tags, multiplicity and sites.
-    @test fieldnames(ER.Mechanisms.Mechanism) ==
+    @test fieldnames(ER.Mechanism) ==
           (:substrates, :products, :table, :conformations, :forms, :edges, :group)
     @test fieldnames(ER.Mechanisms.Form) == (:conformation, :bound, :added, :subtracted)
     @test fieldnames(ER.Mechanisms.Edge) ==
           (:from, :to, :consumed, :released, :rapid_equilibrium)
-    @test fieldnames(ER.Mechanisms.AllostericMechanism) ==
+    @test fieldnames(ER.AllostericMechanism) ==
           (:catalytic, :cat_allo_states, :catalytic_multiplicity, :regulatory_sites)
 end
 
@@ -135,7 +133,7 @@ end
     tags = [:EqualAI, :EqualAI, :OnlyA]
     sites = [EnzymeRates.Mechanisms.RegulatorySite([:X], 2, [:OnlyI]),
              EnzymeRates.Mechanisms.RegulatorySite([:B, :A], 2, [:OnlyA, :EqualAI])]
-    am = ER.Mechanisms.AllostericMechanism(m, tags, 2, sites)
+    am = ER.AllostericMechanism(m, tags, 2, sites)
     @test [s.ligands for s in am.regulatory_sites] == [[:A, :B], [:X]]
     @test am.regulatory_sites[1].allo_states == [:EqualAI, :OnlyA]
     tags[1] = :OnlyA
@@ -143,28 +141,26 @@ end
     @test [ER.Mechanisms.cat_allo_state(am, g) for g in 1:3] == [:EqualAI, :EqualAI, :OnlyA]
     @test_throws(ErrorException("AllostericMechanism: cat_allo_states length 2 must " *
                                 "match the number of kinetic groups 3"),
-                 ER.Mechanisms.AllostericMechanism(m, [:EqualAI, :EqualAI], 2, sites))
-    @test_throws(
-        ErrorException("AllostericMechanism: catalytic_multiplicity must be ≥ " *
-                       "1, got 0"),
-        ER.Mechanisms.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 0, sites))
+                 ER.AllostericMechanism(m, [:EqualAI, :EqualAI], 2, sites))
+    @test_throws(ErrorException("AllostericMechanism: catalytic_multiplicity must be ≥ " *
+                                "1, got 0"),
+                 ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 0, sites))
     @test_throws(ErrorException(
         "AllostericMechanism: E + S ⇌ E(S) is tagged :OnlyI but does more than bind a " *
         "modifier. Only the active conformation catalyzes, so :OnlyI fits only a group " *
         "whose steps take up or give off modifiers alone. Tag its group :NonequalAI."),
-        ER.Mechanisms.AllostericMechanism(m, [:EqualAI, :OnlyI, :OnlyA], 2, sites))
+        ER.AllostericMechanism(m, [:EqualAI, :OnlyI, :OnlyA], 2, sites))
     @test_throws(ErrorException(
         "AllostericMechanism: ligand X appears in two distinct regulatory sites; " *
         "rendered Kreg names would collide. Same-ligand-two-sites is not enumerated."),
-                 ER.Mechanisms.AllostericMechanism(
+                 ER.AllostericMechanism(
                      m, [:EqualAI, :EqualAI, :OnlyA], 2,
                      [sites; EnzymeRates.Mechanisms.RegulatorySite([:X], 4, [:OnlyA])]))
     @test_throws(ErrorException(
         "AllostericMechanism: L is a reserved name; E_total, Keq, L, N, params, concs " *
         "and v are kept for a rate equation's constants and local names"),
-                 ER.Mechanisms.AllostericMechanism(
-                     m, [:EqualAI, :EqualAI, :OnlyA], 2,
-                     [EnzymeRates.Mechanisms.RegulatorySite([:L], 2, [:OnlyI])]))
+        ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 2,
+                               [EnzymeRates.Mechanisms.RegulatorySite([:L], 2, [:OnlyI])]))
 end
 
 """`raw` written another way, the same mechanism: with `order`, its steps in reverse
@@ -340,9 +336,9 @@ _testhelper_rewrite(raw::EnzymeRates.Mechanisms.RawAllostericMechanism) =
          for s in reverse(raw.sites)])
 
 """The graph a spec's raw value `raw` writes, built and checked."""
-_testhelper_build(raw::EnzymeRates.Mechanisms.RawMechanism) = ER.Mechanisms.Mechanism(raw)
+_testhelper_build(raw::EnzymeRates.Mechanisms.RawMechanism) = ER.Mechanism(raw)
 _testhelper_build(raw::EnzymeRates.Mechanisms.RawAllostericMechanism) =
-    ER.Mechanisms.AllostericMechanism(raw)
+    ER.AllostericMechanism(raw)
 
 """The raw value of `block`, a mechanism macro's block, read by the DSL walker."""
 _testhelper_walk(block; allosteric = false) =
@@ -357,7 +353,7 @@ _testhelper_walk(block; allosteric = false) =
         @test other == x && hash(other) == hash(x)
     end
     # Each tag goes to the canonical group its label became.
-    am = ER.Mechanisms.AllostericMechanism(_testhelper_walk(:(begin
+    am = ER.AllostericMechanism(_testhelper_walk(:(begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -372,13 +368,12 @@ end
 
 """Whether `m` stores each of its vectors at its length: `m` takes the memory of the
 value rebuilt from a copy of each vector, which `copy` stores at its length."""
-_testhelper_stored_at_length(m::ER.Mechanisms.Mechanism) = Base.summarysize(m) ==
-    Base.summarysize(ER.Mechanisms.Mechanism(
-        (copy(getfield(m, f)) for f in fieldnames(ER.Mechanisms.Mechanism))...))
-_testhelper_stored_at_length(am::ER.Mechanisms.AllostericMechanism) =
+_testhelper_stored_at_length(m::ER.Mechanism) = Base.summarysize(m) == Base.summarysize(
+    ER.Mechanism((copy(getfield(m, f)) for f in fieldnames(ER.Mechanism))...))
+_testhelper_stored_at_length(am::ER.AllostericMechanism) =
     _testhelper_stored_at_length(am.catalytic) && Base.summarysize(am) ==
-    Base.summarysize(ER.Mechanisms.AllostericMechanism(
-        am.catalytic, copy(am.cat_allo_states), am.catalytic_multiplicity,
+    Base.summarysize(ER.AllostericMechanism(am.catalytic, copy(am.cat_allo_states),
+        am.catalytic_multiplicity,
         [ER.Mechanisms.RegulatorySite(copy(s.ligands), s.multiplicity, copy(s.allo_states))
          for s in am.regulatory_sites]))
 
@@ -395,7 +390,7 @@ _testhelper_stored_at_length(am::ER.Mechanisms.AllostericMechanism) =
     end
     init = EnzymeRates.init_mechanisms(rxn)
     children = EnzymeRates.expand_mechanisms(init[1:10], rxn)
-    @test any(c -> c isa ER.Mechanisms.AllostericMechanism, children)
+    @test any(c -> c isa ER.AllostericMechanism, children)
     @test all(_testhelper_stored_at_length, init)
     @test all(_testhelper_stored_at_length, children)
 end
@@ -414,7 +409,7 @@ end
                                      end
                                             end)).steps, group)
     _testhelper_allosteric(tags, n, sites) =
-        ER.Mechanisms.AllostericMechanism(EnzymeRates.Mechanisms.RawAllostericMechanism(
+        ER.AllostericMechanism(EnzymeRates.Mechanisms.RawAllostericMechanism(
             _testhelper_uniuni_raw(), tags, n, sites))
     tags = [:EqualAI, :OnlyA, :EqualAI]
     site(ligands, n, states) = EnzymeRates.Mechanisms.RawSite(ligands, n, states)
@@ -456,8 +451,8 @@ end
     @test_throws MethodError EnzymeRates.Mechanisms.RawAllostericMechanism(
         _testhelper_uniuni_raw(), tags, true, EnzymeRates.Mechanisms.RawSite[])
     @test_throws MethodError EnzymeRates.Mechanisms.RegulatorySite([:R], true, [:OnlyA])
-    @test_throws MethodError ER.Mechanisms.AllostericMechanism(
-        ER.Mechanisms.Mechanism(_testhelper_uniuni_raw()), tags, true,
+    @test_throws MethodError ER.AllostericMechanism(
+        ER.Mechanism(_testhelper_uniuni_raw()), tags, true,
         EnzymeRates.Mechanisms.RegulatorySite[])
     @test_throws(ErrorException(
         "AllostericMechanism: E(S) <--> E(P) is tagged :OnlyI but does more than bind a " *
@@ -467,47 +462,46 @@ end
                                         EnzymeRates.Mechanisms.RawSite[]))
     # Declarations and group labels.
     @test_throws(ErrorException("Mechanism: substrates must not be empty"),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(substrates = Symbol[])))
+                 ER.Mechanism(_testhelper_uniuni_raw(substrates = Symbol[])))
     @test_throws(ErrorException("Mechanism: products must not be empty"),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(products = Symbol[])))
+                 ER.Mechanism(_testhelper_uniuni_raw(products = Symbol[])))
     @test_throws(ErrorException("Mechanism: duplicate substrate names"),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :S])))
+                 ER.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :S])))
     @test_throws(ErrorException("Mechanism: duplicate product names"),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(products = [:P, :P])))
+                 ER.Mechanism(_testhelper_uniuni_raw(products = [:P, :P])))
     @test_throws(ErrorException("Mechanism: duplicate modifier names"),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(modifiers = [:I, :I])))
+                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [:I, :I])))
     @test_throws(ErrorException("Mechanism: S named as both a substrate and a product; " *
                                 "concentrations and constants are keyed by name"),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(products = [:P, :S])))
+                 ER.Mechanism(_testhelper_uniuni_raw(products = [:P, :S])))
     for group in ([1, 2], [1, 2, 3, 3], [0, 1, 2])
         @test_throws(ErrorException("Mechanism: each step takes one kinetic group label " *
                                     "from 1 to the number of groups"),
-                     ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(; group)))
+                     ER.Mechanism(_testhelper_uniuni_raw(; group)))
     end
     @test_throws(ErrorException("Mechanism: kinetic group 2 is empty; a kinetic group " *
                                 "holds at least one step"),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(group = [1, 3, 3])))
+                 ER.Mechanism(_testhelper_uniuni_raw(group = [1, 3, 3])))
     # Declared names a metabolite cannot take: no identifier, a keyword, E, a reserved
     # name, a name holding `_`.
     _testhelper_unwritable(x) = ErrorException(
         "Mechanism: \"$x\" cannot name a metabolite; a metabolite name is an identifier " *
         "that is no keyword")
-    @test_throws(
-        _testhelper_unwritable("1I"),
-        ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(modifiers = [Symbol("1I")])))
+    @test_throws(_testhelper_unwritable("1I"),
+                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [Symbol("1I")])))
     @test_throws(_testhelper_unwritable("end"),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(products = [:P, :end])))
+                 ER.Mechanism(_testhelper_uniuni_raw(products = [:P, :end])))
     @test_throws(ErrorException("Mechanism: E cannot name a metabolite; it labels the " *
                                 "free enzyme form"),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :E])))
+                 ER.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :E])))
     @test_throws(ErrorException("Mechanism: Keq is a reserved name; E_total, Keq, L, N, " *
                                 "params, concs and v are kept for a rate equation's " *
                                 "constants and local names"),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :Keq])))
+                 ER.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :Keq])))
     @test_throws(ErrorException("Mechanism: the metabolite name S_1 holds `_`; constant " *
                                 "names join metabolite names with `_`, so a metabolite " *
                                 "name holds none"),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(modifiers = [:S_1])))
+                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [:S_1])))
     # A name Julia reads as another (a micro sign as μ, a decomposed é as one character)
     # prints as text that builds another mechanism, so no DSL text can write it. The
     # strings are written with escapes: Julia would read the characters themselves as
@@ -515,19 +509,17 @@ end
     _testhelper_read_as(who, x, read) = ErrorException(
         "$who: Julia reads the name \"$x\" as \"$read\", so no DSL text can write it; " *
         "use \"$read\"")
-    @test_throws(
-        _testhelper_read_as("Mechanism", "\u00b5M", "\u03bcM"),
-        ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(modifiers = [Symbol("\u00b5M")])))
+    @test_throws(_testhelper_read_as("Mechanism", "\u00b5M", "\u03bcM"),
+                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [Symbol("\u00b5M")])))
     @test_throws(_testhelper_read_as("Mechanism", "e\u0301", "\u00e9"),
-                 ER.Mechanisms.Mechanism(
-                     _testhelper_uniuni_raw(substrates = [:S, Symbol("e\u0301")])))
+                 ER.Mechanism(_testhelper_uniuni_raw(substrates = [:S, Symbol("e\u0301")])))
     @test_throws(_testhelper_read_as("AllostericMechanism", "\u025b", "\u03b5"),
                  _testhelper_allosteric(tags, 2, [site([Symbol("\u025b")], 2, [:OnlyA])]))
     # Names: undeclared; a modifier entry of a name modifiers: does not list; a plain
     # entry of a modifier-only name; residuals by role.
     @test_throws(ErrorException("Mechanism: P is not declared; declare it under " *
                                 "substrates:, products: or modifiers:"),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(products = [:Q])))
+                 ER.Mechanism(_testhelper_uniuni_raw(products = [:Q])))
     mod_P = EnzymeRates.Mechanisms.Met(:P, true)
     free = EnzymeRates.Mechanisms.RawForm(:E, EnzymeRates.Mechanisms.Met[])
     copy_binding =
@@ -536,17 +528,16 @@ end
     _testhelper_adding(raw, steps...) = EnzymeRates.Mechanisms.RawMechanism(
         raw.substrates, raw.products, raw.modifiers, [raw.steps; steps...],
         [raw.group; length(raw.steps) .+ (1:length(steps))])
-    @test_throws(
-        ErrorException("Mechanism: P binds as a modifier, but modifiers: does " *
-                       "not declare it"),
-        ER.Mechanisms.Mechanism(_testhelper_adding(_testhelper_uniuni_raw(), copy_binding)))
-    @test ER.Mechanisms.Mechanism(_testhelper_adding(
-        _testhelper_uniuni_raw(modifiers = [:P]), copy_binding)) isa ER.Mechanisms.Mechanism
+    @test_throws(ErrorException("Mechanism: P binds as a modifier, but modifiers: does " *
+                                "not declare it"),
+                 ER.Mechanism(_testhelper_adding(_testhelper_uniuni_raw(), copy_binding)))
+    @test ER.Mechanism(_testhelper_adding(_testhelper_uniuni_raw(modifiers = [:P]),
+                                          copy_binding)) isa ER.Mechanism
     I = EnzymeRates.Mechanisms.Met(:I, false)
     @test_throws(
         ErrorException("Mechanism: I is a modifier, so it binds only as a " *
                        "modifier"),
-        ER.Mechanisms.Mechanism(_testhelper_adding(
+        ER.Mechanism(_testhelper_adding(
             _testhelper_uniuni_raw(modifiers = [:I]),
             EnzymeRates.Mechanisms.RawStep(free, EnzymeRates.Mechanisms.RawForm(:E, [I]),
                                            [I], EnzymeRates.Mechanisms.Met[], true))))
@@ -558,7 +549,7 @@ end
         @test_throws(
             ErrorException("Mechanism: a residual adds substrates and subtracts " *
                            "products; one $verb $x"),
-            ER.Mechanisms.Mechanism(_testhelper_adding(
+            ER.Mechanism(_testhelper_adding(
                 _testhelper_uniuni_raw(),
                 EnzymeRates.Mechanisms.RawStep(EnzymeRates.Mechanisms.RawForm(:E, [S]),
                                                residual, EnzymeRates.Mechanisms.Met[],
@@ -567,13 +558,13 @@ end
     # Steps: a self-loop, a metabolite taken up and given off, a role change.
     EA = EnzymeRates.Mechanisms.RawForm(:E, [EnzymeRates.Mechanisms.Met(:A, false)])
     @test_throws(ErrorException("Step: both ends are the form EA; a step joins two forms"),
-                 ER.Mechanisms.Mechanism(EnzymeRates.Mechanisms.RawMechanism(
+                 ER.Mechanism(EnzymeRates.Mechanisms.RawMechanism(
                      [:A], [:P], Symbol[],
                      [EnzymeRates.Mechanisms.RawStep(EA, EA, EnzymeRates.Mechanisms.Met[],
                                                      EnzymeRates.Mechanisms.Met[], false)],
                      [1])))
     @test_throws(ErrorException("Step EA → EQ: B both consumed and released"),
-                 ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+                 ER.Mechanism(_testhelper_walk(:(begin
                      substrates: A, B
                      products: Q
                      steps: begin
@@ -585,7 +576,7 @@ end
     # One copy of B taken up and two given off: the sides share B though their counts
     # differ.
     @test_throws(ErrorException("Step EA → EQ: B both consumed and released"),
-                 ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+                 ER.Mechanism(_testhelper_walk(:(begin
                      substrates: A, B
                      products: Q
                      steps: begin
@@ -601,8 +592,7 @@ end
                              (:(E(P) ⇌ E + P::Mod), :E, :EP),
                              (:(E + P ⇌ E(P::Mod)), :E, :EPmod),
                              (:(E(P) + P::Mod ⇌ E(P, P)), :EP, :EPP))
-        @test_throws _testhelper_role_change(from, to) ER.Mechanisms.Mechanism(
-            _testhelper_walk(:(begin
+        @test_throws _testhelper_role_change(from, to) ER.Mechanism(_testhelper_walk(:(begin
             substrates: S
             products: P
             modifiers: P
@@ -619,7 +609,7 @@ end
         "Mechanism: a kinetic group holds E → F and F → G, which make different " *
         "conformational changes; the steps of a kinetic group share their constants, so " *
         "they must make the same conformational change"),
-        ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+        ER.Mechanism(_testhelper_walk(:(begin
             substrates: A
             products: P
             steps: begin
@@ -635,8 +625,8 @@ end
         "Mechanism: the enzyme forms $a and $b both render the name $name; every " *
         "constant is named after the forms its step joins, so rename a metabolite to " *
         "tell the two forms apart")
-    @test_throws(_testhelper_one_name("E(NAD, P)", "E(NADP)", "ENADP"),
-                 ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+    @test_throws _testhelper_one_name("E(NAD, P)", "E(NADP)", "ENADP") ER.Mechanism(
+        _testhelper_walk(:(begin
             substrates: NAD, P
             products: NADP
             steps: begin
@@ -645,8 +635,8 @@ end
                 E(NAD, P) <--> E(NADP)
                 E(NADP) ⇌ E + NADP
             end
-        end))))
-    @test_throws _testhelper_one_name("E(star)", "Estar", "Estar") ER.Mechanisms.Mechanism(
+        end)))
+    @test_throws _testhelper_one_name("E(star)", "Estar", "Estar") ER.Mechanism(
         _testhelper_walk(:(begin
             substrates: star
             products: P
@@ -657,8 +647,8 @@ end
                 E <--> Estar
             end
         end)))
-    @test_throws(_testhelper_one_name("E(P::Mod)", "E(Pmod)", "EPmod"),
-                 ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+    @test_throws _testhelper_one_name("E(P::Mod)", "E(Pmod)", "EPmod") ER.Mechanism(
+        _testhelper_walk(:(begin
             substrates: S
             products: P
             modifiers: P, Pmod
@@ -669,7 +659,7 @@ end
                 E + P::Mod ⇌ E(P::Mod)
                 E + Pmod ⇌ E(Pmod)
             end
-        end))))
+        end)))
     # A kinetic group of steps of different kinds or flags.
     for (steps, text) in (
             (:(begin
@@ -686,7 +676,7 @@ end
             "Mechanism: a kinetic group holds $text, which differ in kind or in RE/SS; " *
             "the steps of a kinetic group share their constants, so they must be the " *
             "same kind of step with the same flag"),
-            ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+            ER.Mechanism(_testhelper_walk(:(begin
                 substrates: A, B
                 products: P, Q
                 steps: $steps
@@ -694,7 +684,7 @@ end
     end
     # One reaction twice: in two groups, with different flags, stored once each way, and in
     # one group.
-    _testhelper_twice(steps) = ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+    _testhelper_twice(steps) = ER.Mechanism(_testhelper_walk(:(begin
         substrates: S
         products: P
         steps: $steps
@@ -722,7 +712,7 @@ end
     @test_throws(ErrorException(
         "Mechanism: kinetic groups 3 and 6 both hold the reaction E ⇌ F; a reaction " *
         "belongs to one kinetic group, whose constants are named after it"),
-        ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+        ER.Mechanism(_testhelper_walk(:(begin
             substrates: A
             products: P
             modifiers: I
@@ -750,9 +740,9 @@ end
     # with nothing bound only where it holds a residual.
     no_free_E = ErrorException("Mechanism: no free enzyme form E; every mechanism holds " *
                                "the free form E, with nothing bound and no residual")
-    @test_throws no_free_E ER.Mechanisms.Mechanism(EnzymeRates.Mechanisms.RawMechanism(
+    @test_throws no_free_E ER.Mechanism(EnzymeRates.Mechanisms.RawMechanism(
         [:S], [:P], Symbol[], EnzymeRates.Mechanisms.RawStep[], Int[]))
-    @test_throws no_free_E ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+    @test_throws no_free_E ER.Mechanism(_testhelper_walk(:(begin
         substrates: S
         products: P
         steps: begin
@@ -761,7 +751,7 @@ end
             F(P) ⇌ F + P
         end
     end)))
-    @test_throws no_free_E ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+    @test_throws no_free_E ER.Mechanism(_testhelper_walk(:(begin
         substrates: S
         products: P
         steps: begin
@@ -772,7 +762,7 @@ end
     end)))
     # A ping-pong enzyme whose free form is F: every declared name takes part, and E
     # with nothing bound appears only after A's chemistry has left its residual.
-    @test_throws no_free_E ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+    @test_throws no_free_E ER.Mechanism(_testhelper_walk(:(begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -786,7 +776,7 @@ end
     # Forms that no steps join to free E: an isomerization between unreached forms.
     @test_throws(ErrorException("Mechanism: the steps do not form one connected graph; " *
                                 "no steps lead from free E to EstarP"),
-                 ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+                 ER.Mechanism(_testhelper_walk(:(begin
         substrates: S
         products: P
         steps: begin
@@ -803,20 +793,20 @@ end
         "Mechanism: $kind $x is declared, but no step " *
         (kind == "modifier" ? "binds" : "uses") * " it")
     @test_throws(_testhelper_unused("substrate", :T),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :T])))
+                 ER.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :T])))
     @test_throws(_testhelper_unused("product", :Q),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(products = [:P, :Q])))
+                 ER.Mechanism(_testhelper_uniuni_raw(products = [:P, :Q])))
     @test_throws(_testhelper_unused("modifier", :I),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(modifiers = [:I])))
+                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [:I])))
     mod_T = EnzymeRates.Mechanisms.Met(:T, true)
     @test_throws(_testhelper_unused("substrate", :T),
-                 ER.Mechanisms.Mechanism(_testhelper_adding(
+                 ER.Mechanism(_testhelper_adding(
                      _testhelper_uniuni_raw(substrates = [:S, :T], modifiers = [:T]),
                      EnzymeRates.Mechanisms.RawStep(
                          free, EnzymeRates.Mechanisms.RawForm(:E, [mod_T]), [mod_T],
                          EnzymeRates.Mechanisms.Met[], true))))
     @test_throws(_testhelper_unused("modifier", :P),
-                 ER.Mechanisms.Mechanism(_testhelper_uniuni_raw(modifiers = [:P])))
+                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [:P])))
     # Conformation labels: a label shaped otherwise than E, Estar or F2; an opaque
     # bound-form name; A or I, which constant names use as conformation tags; a
     # metabolite's name, of the catalytic graph or of a ligand.
@@ -829,32 +819,32 @@ end
                                 "conformation label is a capital letter followed by " *
                                 "lowercase letters and digits, such as `E`, `Estar` or " *
                                 "`F2`."),
-                 ER.Mechanisms.Mechanism(_testhelper_turning_to(:Ex_1)))
+                 ER.Mechanism(_testhelper_turning_to(:Ex_1)))
     @test_throws(ErrorException("Mechanism: `ES` looks like an opaque bound-form name; " *
                                 "write it as decomposed call notation, e.g. `E(S)` or " *
                                 "`E(A, B)`."),
-                 ER.Mechanisms.Mechanism(_testhelper_turning_to(:ES)))
+                 ER.Mechanism(_testhelper_turning_to(:ES)))
     for label in (:A, :I)
         @test_throws(ErrorException("Mechanism: `$label` cannot be a conformation label: " *
                                     "constant names tag a conformation with A_ or I_ " *
                                     "(`k_A_ES_to_EP`), so the labels A and I could give " *
                                     "two constants one name; choose another label."),
-                     ER.Mechanisms.Mechanism(_testhelper_turning_to(label)))
+                     ER.Mechanism(_testhelper_turning_to(label)))
     end
     @test_throws(ErrorException("Mechanism: conformation label `S` collides with " *
                                 "declared metabolite `S`; choose a different " *
                                 "conformation label."),
-                 ER.Mechanisms.Mechanism(_testhelper_turning_to(:S)))
-    @test_throws(
-        ErrorException("AllostericMechanism: conformation label `F` collides " *
-                       "with ligand `F`; choose a different conformation " *
-                       "label."),
-        ER.Mechanisms.AllostericMechanism(EnzymeRates.Mechanisms.RawAllostericMechanism(
-            _testhelper_turning_to(:F), [tags; :EqualAI], 2, [site([:F], 2, [:OnlyA])])))
+                 ER.Mechanism(_testhelper_turning_to(:S)))
+    @test_throws(ErrorException("AllostericMechanism: conformation label `F` collides " *
+                                "with ligand `F`; choose a different conformation " *
+                                "label."),
+                 ER.AllostericMechanism(EnzymeRates.Mechanisms.RawAllostericMechanism(
+                     _testhelper_turning_to(:F), [tags; :EqualAI], 2,
+                     [site([:F], 2, [:OnlyA])])))
 end
 
 @testset "a form's name and text read as constants and the macros write them" begin
-    m = ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+    m = ER.Mechanism(_testhelper_walk(:(begin
         substrates: A, B
         products: P, Q
         modifiers: I, Q
@@ -884,7 +874,7 @@ end
 @testset "a sub-graph reads the forms, segments and bottom of the edges a mask keeps" begin
     # Random release of P and Q at rapid equilibrium between steady-state releases: the
     # segment {E(P), E(P, Q), E(Q)} has every form holding a product.
-    m = ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+    m = ER.Mechanism(_testhelper_walk(:(begin
         substrates: S
         products: P, Q
         steps: begin
@@ -933,7 +923,7 @@ end
     # The inactive conformation keeps the edges outside :OnlyA groups between forms that
     # such edges reach from free E: here E(A) and E(A, I) lie behind the :OnlyA
     # binding of A.
-    am = ER.Mechanisms.AllostericMechanism(_testhelper_walk(:(begin
+    am = ER.AllostericMechanism(_testhelper_walk(:(begin
         substrates: A
         products: P
         modifiers: I
@@ -955,7 +945,7 @@ end
 
 @testset "base ranks order forms and edges by content, free E among the forms" begin
     # Free E is form 1, but by content it sorts after the free form D.
-    m = ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+    m = ER.Mechanism(_testhelper_walk(:(begin
         substrates: A
         products: P
         steps: begin
@@ -980,9 +970,9 @@ end
 
 """The graph whose Sig is `sig`, `x`'s kind of graph. `sig` is splatted with its length
 left open, as the lifts splat it, so the decoders compile once, whatever the Sig length."""
-_testhelper_decode(::ER.Mechanisms.Mechanism, @nospecialize(sig)) =
+_testhelper_decode(::ER.Mechanism, @nospecialize(sig)) =
     ER.Mechanisms._mechanism_from_sig(sig...)
-_testhelper_decode(::ER.Mechanisms.AllostericMechanism, @nospecialize(sig)) =
+_testhelper_decode(::ER.AllostericMechanism, @nospecialize(sig)) =
     ER.Mechanisms._allosteric_mechanism_from_sig(sig...)
 
 @testset "a graph's Sig decodes to the graph, and equal graphs share one type" begin
@@ -991,23 +981,22 @@ _testhelper_decode(::ER.Mechanisms.AllostericMechanism, @nospecialize(sig)) =
         sig = ER.Mechanisms._sig_of(x)
         @test sig isa Tuple{Vararg{Int}}
         @test _testhelper_decode(x, sig) == x
-        cx = ER.Mechanisms.compile_mechanism(x)
+        cx = ER.compile_mechanism(x)
         @test typeof(cx).parameters[1] === sig
         @test ER.Mechanisms._concrete(cx) == x
-        @test ER.Mechanisms.compile_mechanism(
-            _testhelper_build(_testhelper_rewrite(spec.raw))) === cx
+        @test ER.compile_mechanism(_testhelper_build(_testhelper_rewrite(spec.raw))) === cx
     end
     m = _testhelper_graph_uniuni()
-    @test ER.Mechanisms.Mechanism(ER.Mechanisms.EnzymeMechanism(m)) == m
-    am = ER.Mechanisms.AllostericMechanism(
+    @test ER.Mechanism(ER.EnzymeMechanism(m)) == m
+    am = ER.AllostericMechanism(
         m, [:EqualAI, :NonequalAI, :OnlyA], 4,
         [EnzymeRates.Mechanisms.RegulatorySite([:X, :R], 2, [:OnlyA, :OnlyI])])
-    aem = ER.Mechanisms.AllostericEnzymeMechanism(am)
-    @test ER.Mechanisms.AllostericMechanism(aem) == am
+    aem = ER.AllostericEnzymeMechanism(am)
+    @test ER.AllostericMechanism(aem) == am
     # A name outside ASCII, and table entries past the sixteenth, whose counts fill the
     # high half of a packed count: αKG sorts last, entry 32, the top four bits.
     names = [[Symbol("S", i) for i in 1:30]; :αKG]
-    wide = ER.Mechanisms.Mechanism(EnzymeRates.Mechanisms.RawMechanism(
+    wide = ER.Mechanism(EnzymeRates.Mechanisms.RawMechanism(
         names, [:P], Symbol[], _testhelper_bindings([names; :P]), collect(1:32)))
     @test wide.table[32] == EnzymeRates.Mechanisms.Met(:αKG, false)
     @test _testhelper_decode(wide, ER.Mechanisms._sig_of(wide)) == wide
@@ -1016,7 +1005,7 @@ end
 """Uni-uni whose substrate's name holds `n` characters, so its Sig is longer than any
 other test's: a Sig length no other test decodes."""
 _testhelper_long_named(n) = let S = Symbol("S", "x"^(n - 1))
-    ER.Mechanisms.Mechanism(_testhelper_walk(:(begin
+    ER.Mechanism(_testhelper_walk(:(begin
         substrates: $S
         products: P
         steps: begin
@@ -1033,14 +1022,14 @@ end
     # Sig lengths no other test decodes adds no method instance. A decoder that took its
     # Sig as an `NTuple{N, Int}` would compile once per length.
     instances(f) = count(_ -> true, Base.specializations(only(methods(f))))
-    _testhelper_allosteric_long_named(n) = ER.Mechanisms.AllostericMechanism(
-        _testhelper_long_named(n), [:EqualAI, :EqualAI, :OnlyA], 2,
-        EnzymeRates.Mechanisms.RegulatorySite[])
+    _testhelper_allosteric_long_named(n) =
+        ER.AllostericMechanism(_testhelper_long_named(n), [:EqualAI, :EqualAI, :OnlyA], 2,
+                               EnzymeRates.Mechanisms.RegulatorySite[])
     for (decoder, build) in ((ER.Mechanisms._mechanism_from_sig, _testhelper_long_named),
                              (ER.Mechanisms._allosteric_mechanism_from_sig,
                               _testhelper_allosteric_long_named))
         lengths = (301, 401, 501, 601)
-        compiled = [ER.Mechanisms.compile_mechanism(build(n)) for n in lengths]
+        compiled = [ER.compile_mechanism(build(n)) for n in lengths]
         @test ER.Mechanisms._concrete(compiled[1]) == build(lengths[1])
         before = instances(decoder)
         foreach(ER.Mechanisms._concrete, compiled[2:4])
@@ -1061,9 +1050,8 @@ end
               ER.Mechanisms.modifiers(ER.Mechanisms.catalytic(x))
     end
     # Every vector is fresh: editing the raw value leaves the graph as it was.
-    am = ER.Mechanisms.AllostericMechanism(
-        _testhelper_graph_uniuni(), [:EqualAI, :OnlyA, :OnlyA], 2,
-        [EnzymeRates.Mechanisms.RegulatorySite([:R], 2, [:OnlyI])])
+    am = ER.AllostericMechanism(_testhelper_graph_uniuni(), [:EqualAI, :OnlyA, :OnlyA], 2,
+                                [EnzymeRates.Mechanisms.RegulatorySite([:R], 2, [:OnlyI])])
     before = deepcopy(am)
     raw = ER.Mechanisms._raw(am)
     for v in (raw.catalytic.substrates, raw.catalytic.products, raw.catalytic.modifiers,
@@ -1124,8 +1112,7 @@ end
 reactions, then the children of every init mechanism of its bi-bi reaction."""
 function _testhelper_census_population()
     reactions = _testhelper_census_reactions()
-    population = Union{EnzymeRates.Mechanisms.Mechanism,
-                       EnzymeRates.Mechanisms.AllostericMechanism}[]
+    population = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
     foreach(r -> append!(population, EnzymeRates.init_mechanisms(r)), reactions)
     bibi = reactions[2]
     append!(population,
@@ -1137,14 +1124,14 @@ mechanisms of its three reactions that declare an allosteric regulator."""
 function _testhelper_census_allosteric()
     children = [EnzymeRates.expand_mechanisms(EnzymeRates.init_mechanisms(r), r)
                 for r in _testhelper_census_reactions()[[1, 3, 4]]]
-    filter(x -> x isa EnzymeRates.Mechanisms.AllostericMechanism, reduce(vcat, children))
+    filter(x -> x isa EnzymeRates.AllostericMechanism, reduce(vcat, children))
 end
 
 """Graph `x`'s canonical form as text lines: its names, its forms in order, each edge in
 its stored direction (`_testhelper_edge_text`) with its group (and the group's tag), then
 any catalytic multiplicity and sites."""
 function _testhelper_canonical_text(x)
-    m, allo = ER.Mechanisms.catalytic(x), x isa ER.Mechanisms.AllostericMechanism
+    m, allo = ER.Mechanisms.catalytic(x), x isa ER.AllostericMechanism
     mods = ER.Mechanisms.modifiers(m)
     lines = ["substrates: $(join(m.substrates, ", ")) | products: " *
              "$(join(m.products, ", "))" *
@@ -1206,7 +1193,7 @@ function _testhelper_subgraphs_agree(x)
         s.segments == segments && [_testhelper_offsets(f) for f in present] == extras
     end
     _testhelper_segments_agree(trues(length(m.edges)), trues(length(flat))) || return false
-    x isa ER.Mechanisms.AllostericMechanism || return true
+    x isa ER.AllostericMechanism || return true
     inactive = ER.Mechanisms._inactive_mask(x)
     kept = _testhelper_inactive_reach(g)
     inactive[flat] == kept && _testhelper_segments_agree(inactive, kept)
@@ -1243,7 +1230,7 @@ let population = _testhelper_census_population(),
             D <--> E
         end
     end))
-    x = ER.Mechanisms.Mechanism(raw)
+    x = ER.Mechanism(raw)
     @test x.conformations == [:D, :E] && x.forms[1:2] == [ER.Mechanisms.Form(2, 0, 0, 0),
                                                           ER.Mechanisms.Form(1, 0, 0, 0)]
     @test _testhelper_graph(x).forms[1:2] == ["E", "D"]
@@ -1268,8 +1255,8 @@ end
     # and allosteric.
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         @test _testhelper_reads_back(_testhelper_lift(spec.mechanism))
-        @test ER.Mechanisms.compile_mechanism(
-            ER._parse_mechanism(sprint(show, spec.mechanism))) === spec.mechanism
+        @test ER.compile_mechanism(ER._parse_mechanism(sprint(show, spec.mechanism))) ===
+              spec.mechanism
     end
     @test length(allosteric) == 5 + 890 + 5
     @test isempty([i for (i, x) in enumerate(population) if !_testhelper_reads_back(x)])
@@ -1357,7 +1344,7 @@ end
     end
     texts = [ss_text, ss_text, tied_text, tied_text]
     for (raw, text) in zip(_testhelper_walk.(blocks), texts)
-        @test _testhelper_canonical_text(ER.Mechanisms.Mechanism(raw)) == text
+        @test _testhelper_canonical_text(ER.Mechanism(raw)) == text
     end
     for exchange in (:((E(I) + J <--> E(J) + I, F(I) + J <--> F(J) + I)),
                      :((F(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)))
@@ -1374,8 +1361,7 @@ end
                 $exchange                        :: NonequalAI
             end
         end); allosteric = true)
-        @test _testhelper_canonical_text(ER.Mechanisms.AllostericMechanism(raw)) ==
-              allosteric_text
+        @test _testhelper_canonical_text(ER.AllostericMechanism(raw)) == allosteric_text
     end
 end
 

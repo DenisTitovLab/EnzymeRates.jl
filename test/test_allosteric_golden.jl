@@ -9,7 +9,7 @@ const _ALLO_GOLDEN_PATH =
 function _testhelper_allosteric_golden_lines()
     lines = String[]
     for spec in MECHANISM_TEST_SPECS
-        spec.mechanism isa EnzymeRates.Mechanisms.AllostericEnzymeMechanism || continue
+        spec.mechanism isa EnzymeRates.AllostericEnzymeMechanism || continue
         m = spec.mechanism
         push!(lines, "### " * spec.name)
         eq_string = EnzymeRates.rate_equation_string(m)
@@ -39,7 +39,7 @@ end
     # exported `parameters(m)` wrapper to the fitted parameters plus Keq and E_total.
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
-        m isa EnzymeRates.Mechanisms.AllostericEnzymeMechanism || continue
+        m isa EnzymeRates.AllostericEnzymeMechanism || continue
         @test parameters(m) ==
               (EnzymeRates.fitted_params(m)..., :Keq, :E_total)
     end
@@ -47,9 +47,9 @@ end
     # mechanisms render one params line, then the regulator constants, then L.
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
-        m isa EnzymeRates.Mechanisms.AllostericEnzymeMechanism || continue
+        m isa EnzymeRates.AllostericEnzymeMechanism || continue
         fp = EnzymeRates.fitted_params(m)
-        am = EnzymeRates.Mechanisms.AllostericMechanism(m)
+        am = EnzymeRates.AllostericMechanism(m)
         reg = Tuple(EnzymeRates.Mechanisms.name(p, am) for st in (:A, :I)
                     for p in EnzymeRates.Mechanisms._kreg_params(am, st))
         cat = fp[1:end - 1 - count(in(fp), reg)]

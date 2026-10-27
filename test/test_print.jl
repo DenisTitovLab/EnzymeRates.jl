@@ -250,7 +250,7 @@ end
     # the conformations takes Cleland's normalizer in both, each on its own terms. F3 with
     # A's binding and the Theorell–Chance step :OnlyA takes no normalizer in the active
     # conformation and the constant term in the inactive one, which keeps free E and E(Q).
-    pp2 = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
+    pp2 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B
         products: P, Q
         catalytic_multiplicity: 2
@@ -261,7 +261,7 @@ end
             F(B) <--> E + Q       :: EqualAI
         end
     end)
-    tc = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
+    tc = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
