@@ -172,8 +172,8 @@ structure decides nothing) and admission's face condition (`_admission_face`: th
 ε-network's closed classes, stranded basins, and the fewest-slow-transitions in-tree test
 per excluding conformation and for both together). The macros, the parser
 and the derivation entry throw; `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`
-and `Enumeration.base_mechanisms` drop; the flip, tagging and change-tag moves run it on
-each candidate they build.
+and `Enumeration.base_mechanisms` drop; the flip move runs it on each candidate it
+builds, and the tagging move on each tag set its base search tries.
 
 ## Enumeration engine architecture
 

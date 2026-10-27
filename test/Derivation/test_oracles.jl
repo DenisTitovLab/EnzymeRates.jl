@@ -1114,18 +1114,19 @@ end
     # An aggregate pin over the seed set: the 18 ping-pong seeds (seeds with a covalent
     # form) of the census ping-pong reaction. Each seed's bases stop the inactive
     # conformation's catalysis, pass the guard, and tag disjoint sets of chemistry
-    # groups, one half-reaction each: 9 seeds get two bases and 9 get one. Every child
-    # is valid and distinct; on every face its guard verdict agrees with the RE-speed
-    # oracle, and a child the guard admits converges along the ε-path at the interior,
-    # the one face the suite's time budget allows it. The children number 46: the 66
-    # that admission alone accepts, as a separate implementation of its rules counts
-    # them, less the 20 the guard rejects.
+    # groups, one half-reaction each: 9 seeds get two bases and 9 get one. The move
+    # emits 176 children and the guard keeps 46: the 66 that admission alone accepts, as
+    # a separate implementation of its rules counts them, less the 20 class 3 rejects.
+    # Every kept child is distinct, its verdict matches the one its tags get at one
+    # subunit, on every face its guard verdict agrees with the RE-speed oracle, and it
+    # converges along the ε-path at the interior, the one face the suite's time budget
+    # allows it.
     rxn = _testhelper_pingpong_census_rxn
     rng = Random.MersenneTwister(406)
     seeds = [m for m in EnzymeRates.Enumeration.init_mechanisms(rxn)
              if any(EnzymeRates.Mechanisms._has_residual, m.forms)]
     @test length(seeds) == 18
-    nbases, n_kids = Dict{Int, Int}(), 0
+    nbases, n_moved, n_kids = Dict{Int, Int}(), 0, 0
     for m in seeds
         tags = EnzymeRates.Enumeration._tagging_bases(m)
         nbases[length(tags)] = get(nbases, length(tags), 0) + 1
@@ -1134,7 +1135,9 @@ end
                   for j in (i + 1):length(onlya))
         @test all(t -> EnzymeRates.Enumeration._valid_tagging(m, t) &&
                        EnzymeRates.Enumeration._stops_inactive_turnover(m, t), tags)
-        kids = EnzymeRates.Enumeration._expand_to_allosteric(m, rxn)
+        moved = EnzymeRates.Enumeration._expand_to_allosteric(m, rxn)
+        kids = filter(EnzymeRates.Derivation.has_valid_rate_equation, moved)
+        n_moved += length(moved)
         n_kids += length(kids)
         @test allunique(kids)
         for c in kids
@@ -1148,6 +1151,7 @@ end
         end
     end
     @test nbases == Dict(1 => 9, 2 => 9)
+    @test n_moved == 176
     @test n_kids == 46
 end
 

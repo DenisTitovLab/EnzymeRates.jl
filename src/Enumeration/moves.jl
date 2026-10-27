@@ -674,7 +674,7 @@ end
 Whether the guard (`has_valid_rate_equation`) accepts `m` with the tags `tags`, one per
 kinetic group, over one catalytic subunit with no regulatory site. The guard's checks read
 neither the multiplicity nor the sites, so every child the tagging move builds on these
-tags gets this verdict; at one subunit the K-type child is the mechanism judged here.
+tags gets this verdict at the exits.
 """
 _valid_tagging(m::Mechanisms.Mechanism, tags::Vector{Symbol}) =
     Derivation.has_valid_rate_equation(Mechanisms.AllostericMechanism(
@@ -742,8 +742,8 @@ the all-`:EqualAI` baseline and a V-type variant without a regulator.
     from `m`.
   * K-type: a nonempty set of binding groups set `:OnlyA` on top of a base, and on top
     of the every-chemistry set when the guard rejects that set, since a tagged binding
-    can restore its limit; each is emitted bare and kept when the guard accepts it
-    (`_valid_tagging`). Over more than one catalytic subunit the conformational equilibrium
+    can restore its limit; each is emitted bare, and the guard at the exits drops it
+    when it rejects it. Over more than one catalytic subunit the conformational equilibrium
     enters the rate with the multiplicity's power. Over one subunit the inactive
     conformation is a dead-end branch of the free enzyme, and `L` is a phantom in some
     K-type variants and not in others. In every K-type variant of the rapid-equilibrium
@@ -765,8 +765,8 @@ the all-`:EqualAI` baseline and a V-type variant without a regulator.
     every base is emitted only with one. A reaction with no declared allosteric regulators
     emits no V-type.
 
-A ping-pong parent with no declared regulator can end with no child, when every K-type
-strands a form or a basin.
+A ping-pong parent with no declared regulator can end with no child at the exits, when
+every K-type strands a form or a basin.
 
 For each value in `rxn`'s `allowed_catalytic_multiplicities`, the move emits
 the K-types, then the V-types, at that `catalytic_multiplicity`. Every variant
@@ -794,13 +794,13 @@ function _expand_to_allosteric(m::Mechanisms.Mechanism, rxn::Mechanisms.EnzymeRe
             if Mechanisms.regulator(rm) isa Mechanisms.AllostericRegulator]
     bases = _tagging_bases(m)
     # K-type: a nonempty set of binding groups :OnlyA on top of a base, and on top of the
-    # every-chemistry set when the guard rejects it; the guard drops the rest.
+    # every-chemistry set when the guard rejects it; the exits drop those it rejects.
     kbases = vtags in bases ? bases : [bases; [vtags]]
     ktags = Vector{Symbol}[]
     for base in kbases, sel in _subsets(findall(!, chem))[2:end]
         tags = copy(base)
         tags[sel] .= :OnlyA
-        _valid_tagging(m, tags) && push!(ktags, tags)
+        push!(ktags, tags)
     end
     results = Mechanisms.AllostericMechanism[]
     for cn in cns
@@ -917,11 +917,11 @@ conformation and leave its affinity no path to zero; where the inactive conforma
 binds nothing (every binding `:OnlyA`), the skipped variant is rate-equivalent to the
 form emitted directly, so no observable hypothesis is lost.
 
-A catalytic relaxation is kept when the guard accepts it (`has_valid_rate_equation`):
+The guard at the enumerator's exits (`has_valid_rate_equation`) judges each child:
 relaxing an `:OnlyA` binding joins its two sides, which can leave another tagged binding
-inside one component or close a cycle of tagged bindings. A regulatory ligand's tag does
-not enter the guard — a regulator site completes no catalytic cycle — so that branch needs
-no filter. Above one subunit a child is kept only when each conformation's law passes
+inside one component or close a cycle of tagged bindings, and a face can fail. A
+regulatory ligand's tag does not enter the guard — a regulator site completes no catalytic
+cycle. Above one subunit a child is kept only when each conformation's law passes
 `_hyperbolic_catalysis` (`_requires_hyperbolic_catalysis`): relaxing an `:OnlyA` abortive
 binding brings its complex into the inactive law, which can then carry a power.
 
@@ -943,8 +943,7 @@ function _expand_change_allo_state(am::Mechanisms.AllostericMechanism)
     for gs in relaxations
         new_states = copy(states)
         new_states[gs] .= :NonequalAI
-        child = Mechanisms._with(am; states = new_states)
-        Derivation.has_valid_rate_equation(child) && push!(results, child)
+        push!(results, Mechanisms._with(am; states = new_states))
     end
     for (si, site) in enumerate(Mechanisms.regulatory_sites(am)),
         li in eachindex(Mechanisms.ligands(site))

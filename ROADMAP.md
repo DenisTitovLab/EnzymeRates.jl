@@ -75,9 +75,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `:NonequalAI` passes admission, but the guard rejects it: at zero substrates, and at
   zero B, the covalent forms of both conformations lie on one rapid-equilibrium
   segment, joined only through free E, so the rate's limit depends on how fast each
-  conformation's steps run (`_SPLIT`, `_LIMIT_SPEED`). Change-tag drops that child, so
-  the search never gives this ping-pong an inactive conformation that runs both
-  half-reactions. On the three-step ping-pong, whose steps are all steady-state,
+  conformation's steps run (`_SPLIT`, `_LIMIT_SPEED`). `expand_mechanisms` drops that
+  child, so the search never gives this ping-pong an inactive conformation that runs
+  both half-reactions. On the three-step ping-pong, whose steps are all steady-state,
   the same relaxation passes.
 - **The six-step bi-bi ping-pong keeps no allosteric child with a forward rate.**
   The guard rejects the tag set that stops the first half-reaction (`_SPLIT` at zero A and

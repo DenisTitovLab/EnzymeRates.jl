@@ -301,7 +301,7 @@ On its bases the engine emits, per multiplicity:
 - **K-types:** every nonempty set of binding groups tagged `:OnlyA` on top of a base, and,
   when the guard rejects the every-chemistry set, on top of that set too, since a tagged
   binding can restore the limit (as in a bi-bi whose group mixes a plain binding with a
-  fused one); each is emitted bare and kept when the guard accepts it;
+  fused one); each is emitted bare, and the exits drop those the guard rejects;
 - **V-types:** each base paired with a declared allosteric regulator at a new site, one
   variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. On the every-chemistry
   base the regulator reveals `L`; on a one-half base `L` already shows without one, yet
@@ -369,7 +369,7 @@ Changes one `:EqualAI` or `:OnlyA`/`:OnlyI` allosteric-state tag to
 `:NonequalAI`, giving the active-state and inactive-state versions of the
 group independent parameters. No-op on a non-allosteric input.
 The chemistry groups relax together, and only while no binding group is `:OnlyA`. A
-catalytic relaxation is kept when the well-posedness guard accepts it.
+child the well-posedness guard rejects is dropped where `expand_mechanisms` returns it.
 
 **Parameter delta:**
 - RE binding group: **+1** (one shared K splits into `K_A` and `K_I`).
