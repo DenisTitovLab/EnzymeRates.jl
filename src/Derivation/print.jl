@@ -371,15 +371,10 @@ function rate_equation_string(m::Union{Mechanisms.Mechanism,
                                         Mechanisms.AllostericMechanism};
                               coefficients::Bool = false)
     check_valid_rate_equation(m)
-    _rate_text(m, coefficients)
+    _with_memo_law((m, s, L) -> _law_text(m, s, L; coefficients), m)
 end
 
 rate_equation_string(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism);
                      coefficients::Bool = false) =
-    _rate_text(_derivation_input(typeof(m)), coefficients)
-
-"""The printed law of the well-posed mechanism `m` (`_law_text`) from its derived law
-(`_with_law`)."""
-_rate_text(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
-           coefficients::Bool) =
-    _with_law((m, s, L) -> _law_text(m, s, L; coefficients), m)
+    _with_law((m, s, L) -> _law_text(m, s, L; coefficients),
+              _derivation_input(typeof(m)))

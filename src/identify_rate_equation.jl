@@ -466,7 +466,7 @@ function _failure_row(f::FitFailure)
      parent_n_params = missing,
      loss = missing,
      mechanism = text,
-     mechanism_id = Mechanisms.mechanism_id(f.mech),
+     mechanism_id = Mechanisms.mechanism_id(text),
      parent_id = missing,
      rate_equation = missing,
      retcode = missing,
@@ -560,8 +560,9 @@ function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
         canon = (key = k.key, order = k.parameters)
         phantom = k.fit_key != k.key
         canon0 = phantom ? (key = k.fit_key, order = k.fit_parameters) : canon
-        _Candidate(m, fitted, sprint(show, m), Mechanisms.mechanism_id(m), eq_text, canon,
-                   phantom, canon0, k.capped)
+        text = sprint(show, m)
+        _Candidate(m, fitted, text, Mechanisms.mechanism_id(text), eq_text, canon, phantom,
+                   canon0, k.capped)
     catch e
         FitFailure(m, _exc_string(e))
     end

@@ -1787,6 +1787,44 @@ end
     end
 end
 
+@testset "per-mechanism questions answer as on a fresh mechanism, in any order" begin
+    # Identify asks one concrete mechanism several questions in a row. Each answer (a
+    # value, or the error the call throws) equals the answer on a fresh copy of the
+    # mechanism asked alone: in order, in reverse, and with two mechanisms alternated.
+    # A mechanism the guard rejects (a bottomless rapid-equilibrium segment) is among
+    # them.
+    D = EnzymeRates.Derivation
+    rejected = EnzymeRates.Mechanism(EnzymeRates.Mechanisms._raw_mechanism(:(begin
+        substrates: S
+        products: P, Q
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P, Q)
+            E(P, Q) ⇌ E(Q) + P
+            E(P, Q) ⇌ E(P) + Q
+            E(P) <--> E + P
+            E(Q) <--> E + Q
+        end
+    end), false))
+    mechs = [[_testhelper_lift(s.mechanism) for s in MECHANISM_TEST_SPECS]; rejected]
+    questions = (D.has_valid_rate_equation, D.check_valid_rate_equation,
+                 EnzymeRates.fitted_params, rate_equation_string,
+                 m -> rate_equation_string(m; coefficients = true), D.rate_equation_key)
+    answer(q, m) = try q(m) catch e; e end
+    expected = [[answer(q, deepcopy(m)) for q in questions] for m in mechs]
+    @test expected[end][1] === false && expected[end][2] isa ErrorException
+    for (m, want) in zip(mechs, expected)
+        @test [answer(q, m) for q in questions] == want
+        again = deepcopy(m)
+        @test reverse([answer(q, again) for q in reverse(questions)]) == want
+    end
+    for i in 1:(length(mechs) - 1)
+        a, b = deepcopy(mechs[i]), deepcopy(mechs[i + 1])
+        got = [(answer(q, a), answer(q, b)) for q in questions]
+        @test first.(got) == expected[i] && last.(got) == expected[i + 1]
+    end
+end
+
 # ── Degenerate constraint handling ────────────────────────────────────────────
 
 @testset "Degenerate constraint handling" begin

@@ -24,6 +24,7 @@ include("guard.jl")
 include("limit_test.jl")
 include("admission.jl")
 include("messages.jl")
+include("memo.jl")
 
 # Every mechanism macro call runs the guard, the flip search runs `_faces_pass` and the
 # first `rate_equation` call of a mechanism runs `_rate_body`, so all three compile into

@@ -26,7 +26,8 @@ end
 # Convenience methods for the concrete Mechanism / AllostericMechanism
 # working representation. `parameters` lifts to the compiled singleton via
 # `compile_mechanism`, then dispatches to the singleton method; `fitted_params`
-# reads the joint solve of the checked mechanism (`_solve`), compiling nothing.
+# reads the joint solve of the checked mechanism through the memo (`_memo_solve`),
+# compiling nothing.
 # Callers that hold a `Mechanism` (e.g. the `identify_rate_equation` pipeline)
 # use these without an explicit lift. `compile_mechanism` does Sig conversion (it
 # allocates) — it is NOT the rate_equation hot path. Pass an
@@ -35,7 +36,7 @@ end
 parameters(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
     parameters(Mechanisms.compile_mechanism(m))
 fitted_params(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
-    Tuple(_solve(_well_posed(m)).fitted)
+    (check_valid_rate_equation(m); Tuple(_memo_solve(m).fitted))
 
 """
     all_parameters(m, params) -> NamedTuple

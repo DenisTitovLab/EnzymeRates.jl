@@ -8,24 +8,28 @@ Error unless `m`'s rate law is the unique limit of mass-action kinetics, as its
 rapid-equilibrium steps speed up and its tagged constants vanish, on every face where data
 sit (spec section 8): the guard (`_guard`) finds no fault, and the error is its message
 (`_guard_message`), which names each step at fault by its DSL line. It reads the reaction
-graph through masks and builds nothing. The mechanism macros, the parser and every
-derivation entry (`_derivation_input`) call it. Identify's base tier and the enumerator's
-exits keep what `has_valid_rate_equation` accepts, except that init's exit runs it on its
-seeds and checks class 1 on their variants, whose classes 2 and 3 the flip search ran
+graph through masks and builds nothing. The mechanism macros and the parser call it, and
+every derivation entry runs its check (`_derivation_input`, `_well_posed`). It reads the
+verdict through the memo (`_Memo`). Identify's base tier and the enumerator's exits keep
+what `has_valid_rate_equation` accepts, except that init's exit runs it on its seeds and
+checks class 1 on their variants, whose classes 2 and 3 the flip search ran
 (`_faces_pass`). The constructors and the Sig decoder call neither, so code that builds a
 mechanism internally never trips a check meant for the mechanisms it returns.
 """
-function check_valid_rate_equation(m::Mechanisms._AnyMech)
-    v = _guard(m)
-    v.fault === _NO_FAULT || error(_guard_message(m, v))
-    nothing
-end
+check_valid_rate_equation(m::Mechanisms._AnyMech) = _check_verdict(m, _memo_verdict(m))
 
 """Whether `check_valid_rate_equation(m)` passes: identify's base tier and the
 enumerator's exits keep a mechanism exactly when it does, except init's exit on its seeds'
 variants, which checks class 1 and rests on the flip search's classes 2 and 3
 (`_faces_pass`)."""
-has_valid_rate_equation(m::Mechanisms._AnyMech) = _guard(m).fault === _NO_FAULT
+has_valid_rate_equation(m::Mechanisms._AnyMech) = _memo_verdict(m).fault === _NO_FAULT
+
+"""Error with the guard's message (`_guard_message`) unless `m`'s verdict `v` holds no
+fault."""
+function _check_verdict(m::Mechanisms._AnyMech, v)
+    v.fault === _NO_FAULT || error(_guard_message(m, v))
+    nothing
+end
 
 """
     _bottomless_segment(m, mask, re) -> Vector{Int}
@@ -68,11 +72,13 @@ function _bottomless_segment(m::Mechanisms.Mechanism, mask::BitVector, re::BitVe
     Int[]
 end
 
-"""`m`, once `check_valid_rate_equation(m)` passes."""
-_well_posed(m) = (check_valid_rate_equation(m); m)
+"""`m`, once its guard verdict, taken afresh rather than through the memo (`_Memo`),
+holds no fault (`_check_verdict`)."""
+_well_posed(m) = (_check_verdict(m, _guard(m)); m)
 
-"""The concrete mechanism the compiled type `M` encodes (`_concrete`), checked by
-`check_valid_rate_equation`: the input of every derivation entry."""
+"""The concrete mechanism the compiled type `M` encodes (`_concrete`), checked as
+`check_valid_rate_equation` checks it, without the memo (`_well_posed`): the input of every
+derivation entry."""
 _derivation_input(@nospecialize(M::Type{<:Mechanisms.AbstractEnzymeMechanism})) =
     _well_posed(Mechanisms._concrete(M()))
 
