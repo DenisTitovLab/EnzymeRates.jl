@@ -22,11 +22,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `multi_threading` passed through `solver_kwargs`, would race on both buffers. Fits run
   in parallel only across `pmap` workers, each of which builds its own problem.
 - **`BigInt` arithmetic inflates the GC's live-byte count.**
-  Class 3's model point (`_model_point`, `src/admission.jl`; an integer null space in
-  `Rational{BigInt}`) raises `Base.gc_live_bytes` by bytes that no live object holds, by
-  101 KiB on the six-step bi-bi ping-pong at two conformations. A 6×6 determinant outside
-  the package does the same in `BigInt` and `Rational{BigInt}`, not in `Rational{Int}`.
-  The joint solve adds nothing, on a plain
+  Class 3's model point (`_model_point`, `src/Derivation/limit_test.jl`; an integer null
+  space in `Rational{BigInt}`) raises `Base.gc_live_bytes` by bytes that no live object
+  holds, by 101 KiB on the six-step bi-bi ping-pong at two conformations. A 6×6 determinant
+  outside the package does the same in `BigInt` and `Rational{BigInt}`, not in
+  `Rational{Int}`. The joint solve adds nothing, on a plain
   mechanism or on a concrete allosteric one; it runs in `Rational{Int}` on 10,226 enumerated
   bi-bi and ter-bi mechanisms without overflow. The count holds no memory and raises no
   peak: a process whose count reaches 2.8 GiB peaks at 1.2 GB RSS, and the enumeration
@@ -53,8 +53,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   such a corner. `rate_equation` returns NaN there, where a well-posed law returns 0. A fit
   scores the NaN as it scores the 0 a well-defined law predicts there: `FittingProblem`
   refuses a zero rate, and the loss scores a NaN prediction as a sign mismatch, the penalty
-  a 0 prediction gets (`test/test_admission.jl`). Adding these corners to the faces would
-  drop at least these 369 mechanisms, 93 of whose laws have a limit there.
+  a 0 prediction gets (`test/Derivation/test_admission.jl`). Adding these corners to the
+  faces would drop at least these 369 mechanisms, 93 of whose laws have a limit there.
 - **On Julia 1.10 the full suite can peak above 4 GB.**
   With the full-suite command in `.claude/CLAUDE.md`, Julia 1.10.12 peaked at 3.30-4.36 GB
   in seven runs, and an eighth was killed at 4.49 GB, most likely by the OOM killer of a
@@ -129,10 +129,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   duplicated under renaming, `to_allosteric` producing 47% of LDH children, 94% of fits
   non-parsimonious. On the next LDH, PGK and PFKP runs, measure fits whose parent fails
   the final parsimony cutoff, children and survivors per move, same-function laws that
-  the key misses, equal only after a reparametrization (`_canonical`, `src/key.jl`),
-  zero-gain `change_allo_state` children, and how many PGK rows identify flags
-  `L_phantom`. These numbers rank the open search-speed and deduplication ideas.
-  Priority: medium.
+  the key misses, equal only after a reparametrization (`_canonical`,
+  `src/Derivation/key.jl`), zero-gain `change_allo_state` children, and how many PGK rows
+  identify flags `L_phantom`. These numbers rank the open search-speed and deduplication
+  ideas. Priority: medium.
 - **Make per-regulator multiplicities such as `A(1, 2)` work.**
   `@enzyme_reaction` rejects a regulator's multiplicity list such as `A(1, 2)`; the
   syntax returns with this feature. `_expand_to_allosteric` and
@@ -147,9 +147,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `_expand_change_allo_state` (`src/mechanism_enumeration.jl`) has no gain test, unlike
   the split and RE→SS moves, and in a past LDH run it produced 20 of 33 zero-gain edges.
   A child whose law equals one already fitted, up to renaming its constants, shares that
-  fit through the key (`_canonical`, `src/key.jl`) and costs no fit; a zero-gain child
-  with a law of its own still costs one. First count, over the bi-bi allosteric depth-2
-  population, the children whose `_independent_param_count` does not exceed their
+  fit through the key (`_canonical`, `src/Derivation/key.jl`) and costs no fit; a zero-gain
+  child with a law of its own still costs one. First count, over the bi-bi allosteric
+  depth-2 population, the children whose `_independent_param_count` does not exceed their
   parent's and whose key is new, and confirm them with `_testhelper_identifiable_rank`. A
   naive filter can drop a different model with the same count, so check reachability
   before filtering. Priority: medium-low.
@@ -170,13 +170,13 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   Several phantom classes make the beam count a model above its true dimension: chain
   flanks kept after a later split, copy-copy twin pairs, `:NonequalAI` copies and the
   iso dwell-time gauge. The one-subunit L has an exact test of its own: a rescaling
-  certificate (`_phantom_weights`, `src/key.jl`) finds an L phantom whose inactive
-  conformation turns nothing over, and identify lets it read the fit of its law at L = 0
-  when that law holds its other fitted constants and a mechanism with it was fitted in an
-  earlier batch or is fitted in the phantom's own.
+  certificate (`_phantom_weights`, `src/Derivation/key.jl`) finds an L phantom whose
+  inactive conformation turns nothing over, and identify lets it read the fit of its law at
+  L = 0 when that law holds its other fitted constants and a mechanism with it was fitted in
+  an earlier batch or is fitted in the phantom's own.
   The rank of ∂v/∂log θ modulo a prime at random points of the derived law (`_law`,
-  `src/engine.jl`) is exact up to a negligible failure probability, took 3.5 ms per
-  mechanism in a prototype, and has a finite-difference oracle in
+  `src/Derivation/engine.jl`) is exact up to a negligible failure probability, took 3.5 ms
+  per mechanism in a prototype, and has a finite-difference oracle in
   `_testhelper_identifiable_rank`
   (`test/mechanism_definitions_for_test_enzyme_derivation.jl`). Run it over several
   saved runs to find the other phantom classes; performance may keep it out of `src/`,
@@ -210,21 +210,21 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   workflow that runs the suite at the lower and upper bounds of Julia and the dependencies
   would catch both without adding its run time to every push or pull request.
 - **Give the thermodynamics one row reduction.**
-  `src/thermo.jl` holds two exact row reductions, `_rref!` (the joint solve, in
+  `src/Derivation/thermo.jl` holds two exact row reductions, `_rref!` (the joint solve, in
   `Rational{Int}` retried in `Rational{BigInt}`) and `_rref_partition` (in
   `Rational{BigInt}`). `_rref_partition` serves only class 3's model point (`_model_point`,
-  `src/admission.jl`), whose integer null space (`_integer_nullspace`) goes through
-  `_rational_nullspace`. Computing that null space with `_rref!` would leave one.
+  `src/Derivation/limit_test.jl`), whose integer null space (`_integer_nullspace`) goes
+  through `_rational_nullspace`. Computing that null space with `_rref!` would leave one.
 - **Admit the equilibrium bridges and the vanishing-fed basins that admission rejects.**
-  Admission's face condition (`_face_condition`, `src/admission.jl`) is sound but not
-  exact: it rejects two rare classes whose limit exists. In an equilibrium bridge (R-B1) a
-  tagged binding joins forms its conformation's other steps keep apart, yet those forms
+  Admission's face condition (`_face_condition`, `src/Derivation/admission.jl`) is sound but
+  not exact: it rejects two rare classes whose limit exists. In an equilibrium bridge (R-B1)
+  a tagged binding joins forms its conformation's other steps keep apart, yet those forms
   already sit at equilibrium, so the limit is deletion's (`bridge_deadend` in
-  `test/test_admission.jl`). In a stranded basin fed only through vanishing sources (R-B2)
-  the basin's weight vanishes along every path, but no structural test proves it (`BS1`).
-  The phase-4 research found R-B1 on 332 faces and R-B2 on 21, all in fuzzed or hand-built
-  mechanisms, none among the census mechanisms or their `:OnlyI` variants. The tagging
-  move (`_tagging_bases`) stops the inactive conformation's catalysis one
+  `test/Derivation/test_admission.jl`). In a stranded basin fed only through vanishing
+  sources (R-B2) the basin's weight vanishes along every path, but no structural test proves
+  it (`BS1`). The phase-4 research found R-B1 on 332 faces and R-B2 on 21, all in fuzzed or
+  hand-built mechanisms, none among the census mechanisms or their `:OnlyI` variants. The
+  tagging move (`_tagging_bases`) stops the inactive conformation's catalysis one
   half-reaction at a time and filters by admission; on the census ping-pong and ter-bi
   parents it loses 4,854 candidates
   to stranded basins admission cannot seal. On each the ε-path oracle finds a limit that

@@ -237,9 +237,9 @@ The joint solve `s` as expressions: `dep` maps each dependent constant that is i
 kept member to `Keq^q · Π independent^e` with rational exponents (`_testhelper_power_expr`;
 the empty product is `1.0`); `indep` is `Tuple(s.fitted)`. A kinetic group's other members
 equal the kept one and add no entry. Given a concrete mechanism or a compiled mechanism's
-type, it renders that mechanism's solve (`EnzymeRates._solve`).
+type, it renders that mechanism's solve (`EnzymeRates.Derivation._solve`).
 """
-function _testhelper_dependent_param_exprs(s::EnzymeRates._Solve)
+function _testhelper_dependent_param_exprs(s::EnzymeRates.Derivation._Solve)
     dep = Dict{Symbol, Union{Symbol, Expr, Float64}}()
     for d in s.dependents
         d.label === :kinetic_group && continue
@@ -249,7 +249,7 @@ function _testhelper_dependent_param_exprs(s::EnzymeRates._Solve)
     dep, Tuple(s.fitted)
 end
 _testhelper_dependent_param_exprs(@nospecialize(m)) =
-    _testhelper_dependent_param_exprs(EnzymeRates._solve(m))
+    _testhelper_dependent_param_exprs(EnzymeRates.Derivation._solve(m))
 
 """
     _testhelper_power_expr(keq_exp::Rational, factors)
@@ -567,21 +567,21 @@ end
 
 """
 The rate law of `m` per enzyme, evaluated in 256-bit BigFloat from its derived law
-(`EnzymeRates._law`) at the parameter values `params` (by name: the fitted constants, `Keq`
-and, for an allosteric mechanism, `L` and the regulator constants) and the concentrations
-`concs`. A compiled `m` goes through its derivation entry, which runs the boundary check; a
-concrete `m` is read as it is, so the oracles can evaluate the law of a mechanism the guard
-rejects. A law that is 0/0 on a face gives NaN there.
+(`EnzymeRates.Derivation._law`) at the parameter values `params` (by name: the fitted
+constants, `Keq` and, for an allosteric mechanism, `L` and the regulator constants) and the
+concentrations `concs`. A compiled `m` goes through its derivation entry, which runs the
+boundary check; a concrete `m` is read as it is, so the oracles can evaluate the law of a
+mechanism the guard rejects. A law that is 0/0 on a face gives NaN there.
 """
 function _testhelper_law_value(m, params::AbstractDict, concs::AbstractDict)
     setprecision(BigFloat, 256) do
         mech = m isa EnzymeRates.Mechanisms.AbstractEnzymeMechanism ?
-               EnzymeRates._derivation_input(typeof(m)) : m
+               EnzymeRates.Derivation._derivation_input(typeof(m)) : m
         env = Dict{Symbol, BigFloat}(k => BigFloat(v) for (k, v) in params)
         for (k, v) in concs
             env[k] = BigFloat(v)
         end
-        _testhelper_evaluate_law(EnzymeRates._law(mech), env)
+        _testhelper_evaluate_law(EnzymeRates.Derivation._law(mech), env)
     end
 end
 
@@ -654,19 +654,19 @@ end
 """
     _testhelper_detailed_balance(m, rng) -> Vector{BigFloat}
 
-Detailed-balance residuals of `m`'s derived law (`EnzymeRates._law`) at a random parameter
-point, in 256-bit BigFloat: the law's value at equilibrium concentrations (the first product
-scaled so that Π[P]/Π[S] = Keq) over its value with that product ten times lower, then, for
-an allosteric mechanism, the same ratio of `H·Q` for each conformation whose `Q` is not
-zero. Each is zero in exact arithmetic when the law satisfies every Haldane and Wegscheider
-relation. `m`, compiled or concrete, is read as the concrete mechanism, without the guard,
-so a law the guard rejects is checked too.
+Detailed-balance residuals of `m`'s derived law (`EnzymeRates.Derivation._law`) at a random
+parameter point, in 256-bit BigFloat: the law's value at equilibrium concentrations (the
+first product scaled so that Π[P]/Π[S] = Keq) over its value with that product ten times
+lower, then, for an allosteric mechanism, the same ratio of `H·Q` for each conformation
+whose `Q` is not zero. Each is zero in exact arithmetic when the law satisfies every Haldane
+and Wegscheider relation. `m`, compiled or concrete, is read as the concrete mechanism,
+without the guard, so a law the guard rejects is checked too.
 """
 function _testhelper_detailed_balance(m, rng)
     setprecision(BigFloat, 256) do
         mech = _testhelper_lift(m)
-        s = EnzymeRates._solve(mech)
-        L = EnzymeRates._law(mech, s)
+        s = EnzymeRates.Derivation._solve(mech)
+        L = EnzymeRates.Derivation._law(mech, s)
         params = Dict{Symbol, BigFloat}(k => exp(4 * big(rand(rng)) - 2) for k in s.fitted)
         params[:Keq] = exp(4 * big(rand(rng)) - 2)
         g = _testhelper_graph(mech)
@@ -681,7 +681,7 @@ function _testhelper_detailed_balance(m, rng)
         at, below = merge(params, concs), merge(params, off)
         ratios = BigFloat[abs(_testhelper_evaluate_law(L, at)) /
                           abs(_testhelper_evaluate_law(L, below))]
-        L isa EnzymeRates._AlloLaw || return ratios
+        L isa EnzymeRates.Derivation._AlloLaw || return ratios
         for C in (L.active, L.inactive)
             iszero(C.Q) && continue
             h(env) = _testhelper_poly_value(C.H, C.vars, env)
@@ -800,16 +800,17 @@ function _testhelper_declared_dimension(m)
 end
 
 """Finite-difference rank of ∂v/∂log θ over the fitted parameters (test oracle only). The
-law of a mechanism the guard rejects is derived once, unchecked (`EnzymeRates._law`), and
-evaluated in BigFloat (`_testhelper_evaluate_law`), as `_testhelper_law_value` reads it."""
+law of a mechanism the guard rejects is derived once, unchecked
+(`EnzymeRates.Derivation._law`), and evaluated in BigFloat (`_testhelper_evaluate_law`), as
+`_testhelper_law_value` reads it."""
 function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     mech = _testhelper_lift(m)
     fitted = _testhelper_dependent_param_exprs(mech)[2]
-    rate = if EnzymeRates._is_well_posed(mech)
+    rate = if EnzymeRates.Derivation._is_well_posed(mech)
         em = EnzymeRates.compile_mechanism(mech)
         (c, p) -> rate_equation(em, c, p)
     else
-        L = EnzymeRates._law(mech)
+        L = EnzymeRates.Derivation._law(mech)
         function _testhelper_unchecked_rate(c, p)
             env = Dict{Symbol, BigFloat}(k => BigFloat(v)
                                          for (k, v) in pairs(merge(p, c)))
@@ -846,20 +847,20 @@ end
     _testhelper_phantom_map_holds(am; rng) -> Bool
 
 Whether the one-subunit variant `am` reproduces the family of its law at `L = 0` through the
-rescaling its certificate names (`EnzymeRates._phantom_weights`): at 3 consistent points
-(`_testhelper_law_inputs`) for each `L` in {1/10, 10}, the exact steady-state rate of `am`
-equals that of `catalytic(am)` with every fitted constant θ scaled by (1 + L)^w, to 1e-20
-relative in 256-bit BigFloat (`_testhelper_steady_state_rate` on both sides). A dependent
-constant scales by the power product the solve gives it, and each step's equilibrium
-constant and forward rate are rebuilt from its scaled constants. False when `am` has no
-certificate. Errors unless the active conformation keeps every edge, since only then is
-the law at `L = 0` the law of `catalytic(am)`.
+rescaling its certificate names (`EnzymeRates.Derivation._phantom_weights`): at 3 consistent
+points (`_testhelper_law_inputs`) for each `L` in {1/10, 10}, the exact steady-state rate of
+`am` equals that of `catalytic(am)` with every fitted constant θ scaled by (1 + L)^w, to
+1e-20 relative in 256-bit BigFloat (`_testhelper_steady_state_rate` on both sides). A
+dependent constant scales by the power product the solve gives it, and each step's
+equilibrium constant and forward rate are rebuilt from its scaled constants. False when `am`
+has no certificate. Errors unless the active conformation keeps every edge, since only then
+is the law at `L = 0` the law of `catalytic(am)`.
 """
 function _testhelper_phantom_map_holds(am; rng)
     setprecision(BigFloat, 256) do
-        s = EnzymeRates._solve(am)
-        A = EnzymeRates._law(am, s)
-        w = EnzymeRates._phantom_weights(A)
+        s = EnzymeRates.Derivation._solve(am)
+        A = EnzymeRates.Derivation._law(am, s)
+        w = EnzymeRates.Derivation._phantom_weights(A)
         isempty(w) && return false
         all(EnzymeRates.Mechanisms._active_mask(am)) || error(
             "_testhelper_phantom_map_holds: " *
@@ -1798,9 +1799,9 @@ end
 """The guard's class-3 verdict (`_check_face`) on each face of `m`, in `_faces` order."""
 function _testhelper_face_verdicts(m)
     mech = _testhelper_lift(m)
-    net = EnzymeRates._law_network(mech)
-    faces = EnzymeRates._faces(EnzymeRates.Mechanisms.catalytic(mech))
-    [EnzymeRates._check_face(mech, net, faces, i) for i in eachindex(faces)]
+    net = EnzymeRates.Derivation._law_network(mech)
+    faces = EnzymeRates.Derivation._faces(EnzymeRates.Mechanisms.catalytic(mech))
+    [EnzymeRates.Derivation._check_face(mech, net, faces, i) for i in eachindex(faces)]
 end
 
 """The guard's class-3 fault on each face of `m` (`_testhelper_face_verdicts`)."""
@@ -1809,15 +1810,15 @@ _testhelper_face_faults(m) = [v.fault for v in _testhelper_face_verdicts(m)]
 """Whether the guard's fault on a face agrees with the RE-speed oracle's verdict there: an
 accepted face exactly when the oracle agrees, a rejected one exactly when it reads a speed
 pattern, a second closed class, divergence, no law value or a mismatch."""
-_testhelper_agrees(fault::EnzymeRates._Fault, verdict::Symbol) =
-    fault === EnzymeRates._NO_FAULT ? verdict === :agree :
+_testhelper_agrees(fault::EnzymeRates.Derivation._Fault, verdict::Symbol) =
+    fault === EnzymeRates.Derivation._NO_FAULT ? verdict === :agree :
         verdict in (:pattern, :nonunique, :diverges, :law_nan, :mismatch)
 
 """Whether the guard's message for the class-3 verdict `v` on `m` names the face and, when
 `v` leads with an edge, that edge's step line."""
-function _testhelper_names_its_step(m, v::EnzymeRates._Verdict)
+function _testhelper_names_its_step(m, v::EnzymeRates.Derivation._Verdict)
     mech = _testhelper_lift(m)
-    msg = EnzymeRates._guard_message(mech, v)
+    msg = EnzymeRates.Derivation._guard_message(mech, v)
     line = v.edge == 0 ? "" : EnzymeRates.Mechanisms._step_text(
         EnzymeRates.Mechanisms.catalytic(mech), v.edge)
     occursin(": at zero ", msg) && occursin(line, msg)
@@ -1825,16 +1826,16 @@ end
 
 """Whether `rate_equation` of `mech`, compiled or concrete, is finite at random positive
 parameters (`_testhelper_random_independent_params`) on every face of its catalytic graph
-(`EnzymeRates._faces`), with that face's metabolites at 0 and the others drawn from
-(0.1, 10)."""
+(`EnzymeRates.Derivation._faces`), with that face's metabolites at 0 and the others drawn
+from (0.1, 10)."""
 function _testhelper_finite_on_every_face(mech; rng = Random.default_rng())
     x = _testhelper_lift(mech)
     m = mech isa EnzymeRates.Mechanisms.AbstractEnzymeMechanism ? mech :
         EnzymeRates.compile_mechanism(x)
     params = _testhelper_random_independent_params(m; rng)
     g = EnzymeRates.Mechanisms.catalytic(x)
-    all(EnzymeRates._faces(g)) do face
-        zeroed = EnzymeRates._face_names(g, face)
+    all(EnzymeRates.Derivation._faces(g)) do face
+        zeroed = EnzymeRates.Derivation._face_names(g, face)
         concs = NamedTuple{metabolites(m)}(Tuple(n in zeroed ? 0.0 : 0.1 + 9.9 * rand(rng)
                                                  for n in metabolites(m)))
         isfinite(rate_equation(m, concs, params))
@@ -1843,8 +1844,10 @@ end
 
 """The faults class 3 reports on a face (`_check_face`): the faces the RE-speed oracle
 judges."""
-const _testhelper_class3_faults = (EnzymeRates._NONUNIQUE, EnzymeRates._BOTTOMLESS,
-    EnzymeRates._TRAP, EnzymeRates._SPLIT, EnzymeRates._LAW_MULTI, EnzymeRates._MULTILEVEL)
+const _testhelper_class3_faults =
+    (EnzymeRates.Derivation._NONUNIQUE, EnzymeRates.Derivation._BOTTOMLESS,
+     EnzymeRates.Derivation._TRAP, EnzymeRates.Derivation._SPLIT,
+     EnzymeRates.Derivation._LAW_MULTI, EnzymeRates.Derivation._MULTILEVEL)
 
 """
 The guard's fault on each face of the allosteric mechanism `am`, in the order of `_faces`
@@ -1852,19 +1855,20 @@ The guard's fault on each face of the allosteric mechanism `am`, in the order of
 rejects the face, else that of admission's face condition (`_admission_face`).
 """
 function _testhelper_admission_faults(am)
-    eps, law = EnzymeRates._eps_network(am), EnzymeRates._law_network(am)
-    faces = EnzymeRates._faces(am.catalytic)
+    eps, law = EnzymeRates.Derivation._eps_network(am),
+        EnzymeRates.Derivation._law_network(am)
+    faces = EnzymeRates.Derivation._faces(am.catalytic)
     map(eachindex(faces)) do i
-        v = EnzymeRates._check_face(am, law, faces, i)
-        v.fault === EnzymeRates._NO_FAULT ?
-            EnzymeRates._admission_face(am, eps, law, faces, i).fault : v.fault
+        v = EnzymeRates.Derivation._check_face(am, law, faces, i)
+        v.fault === EnzymeRates.Derivation._NO_FAULT ?
+            EnzymeRates.Derivation._admission_face(am, eps, law, faces, i).fault : v.fault
     end
 end
 
 """Whether admission's `fault` on a face agrees with the ε-path oracle's `verdict` there:
 an accepted face converges, a rejected one does not."""
-_testhelper_admission_agrees(fault::EnzymeRates._Fault, verdict::Symbol) =
-    fault === EnzymeRates._NO_FAULT ? verdict === :converges :
+_testhelper_admission_agrees(fault::EnzymeRates.Derivation._Fault, verdict::Symbol) =
+    fault === EnzymeRates.Derivation._NO_FAULT ? verdict === :converges :
     verdict in (:no_path, :del_nonunique, :nonunique, :direction_dependent, :wrong_limit)
 
 """
@@ -1884,7 +1888,7 @@ function _testhelper_admission_agreement(am; rng)
         f in _testhelper_class3_faults && return _testhelper_agrees(f, respeed[i])
         epath = _testhelper_admission_agrees(f, _testhelper_epath_verdict(am; rng,
                                                                           face = faces[i]))
-        f === EnzymeRates._NO_FAULT ? epath && respeed[i] === :agree : epath
+        f === EnzymeRates.Derivation._NO_FAULT ? epath && respeed[i] === :agree : epath
     end
 end
 
@@ -2088,12 +2092,13 @@ checks do not run, and its fault with the test's own exclusion structure
 (`_testhelper_exclusion`): inside, cycle, an island, or none.
 """
 function _testhelper_existence_agrees(am)
-    v = EnzymeRates._admission_interior(am)
+    v = EnzymeRates.Derivation._admission_interior(am)
     ex = _testhelper_exclusion(am, 2)
-    fault = ex.failure === :inside ? EnzymeRates._NO_LIMIT :
-            ex.failure === :cycle ? EnzymeRates._ARC_CYCLE :
-            isempty(ex.lost) ? EnzymeRates._NO_FAULT : EnzymeRates._ISLAND
-    exists = v.fault ∉ (EnzymeRates._NO_LIMIT, EnzymeRates._ARC_CYCLE)
+    fault = ex.failure === :inside ? EnzymeRates.Derivation._NO_LIMIT :
+            ex.failure === :cycle ? EnzymeRates.Derivation._ARC_CYCLE :
+            isempty(ex.lost) ? EnzymeRates.Derivation._NO_FAULT :
+            EnzymeRates.Derivation._ISLAND
+    exists = v.fault ∉ (EnzymeRates.Derivation._NO_LIMIT, EnzymeRates.Derivation._ARC_CYCLE)
     exists == _testhelper_lp_existence(am, 2) && v.fault === fault
 end
 
@@ -2102,7 +2107,8 @@ end
 """The value of `p`, a polynomial over the variables `vars`, at the values `env` (by name),
 in 256-bit BigFloat; each power is computed at that precision, a fractional exponent rounded
 to it first."""
-function _testhelper_poly_value(p::EnzymeRates._Poly, vars::EnzymeRates._Vars,
+function _testhelper_poly_value(p::EnzymeRates.Derivation._Poly,
+                                vars::EnzymeRates.Derivation._Vars,
                                 env::AbstractDict{Symbol})
     setprecision(BigFloat, 256) do
         pow(x, e) = x^(BigFloat(numerator(e)) / denominator(e))
@@ -2112,9 +2118,10 @@ function _testhelper_poly_value(p::EnzymeRates._Poly, vars::EnzymeRates._Vars,
     end
 end
 
-"""The rate per enzyme of the law `L` (`EnzymeRates._law`), `H·Q/D`, at the values `env`
-(by name: the concentrations, the independent constants and `Keq`), in 256-bit BigFloat."""
-_testhelper_evaluate_law(L::EnzymeRates._Law, env::AbstractDict{Symbol}) =
+"""The rate per enzyme of the law `L` (`EnzymeRates.Derivation._law`), `H·Q/D`, at the
+values `env` (by name: the concentrations, the independent constants and `Keq`), in 256-bit
+BigFloat."""
+_testhelper_evaluate_law(L::EnzymeRates.Derivation._Law, env::AbstractDict{Symbol}) =
     setprecision(BigFloat, 256) do
         _testhelper_poly_value(L.H, L.vars, env) *
             _testhelper_poly_value(L.Q, L.vars, env) /
@@ -2127,7 +2134,8 @@ independents, `Keq`, the regulator constants and `L`), in 256-bit BigFloat:
 `H·(fI^n·QA·DA^(n−1)·WA + L·fA^n·QI·DI^(n−1)·WI) / (fI^n·DA^n·WA + L·fA^n·DI^n·WI)`, each
 site's binding polynomial raised to its multiplicity in `WA` and `WI`.
 """
-function _testhelper_evaluate_law(A::EnzymeRates._AlloLaw, env::AbstractDict{Symbol})
+function _testhelper_evaluate_law(A::EnzymeRates.Derivation._AlloLaw,
+                                  env::AbstractDict{Symbol})
     setprecision(BigFloat, 256) do
         value(p) = _testhelper_poly_value(p, A.vars, env)
         n, L = A.n, BigFloat(env[:L])
@@ -2176,8 +2184,8 @@ end
 
 """The units of the monomial `mo` over `vars`, from the name units `units`
 (`_testhelper_name_units`): the sum of each variable's units times its exponent."""
-_testhelper_term_units(units::AbstractDict, vars::EnzymeRates._Vars,
-                       mo::EnzymeRates._Mono) =
+_testhelper_term_units(units::AbstractDict, vars::EnzymeRates.Derivation._Vars,
+                       mo::EnzymeRates.Derivation._Mono) =
     foldl(((c, t), (v, e)) -> (c + e * units[vars.names[v]][1],
                                t + e * units[vars.names[v]][2]), mo;
           init = (0 // 1, 0 // 1))
@@ -2188,35 +2196,37 @@ _testhelper_term_units(units::AbstractDict, vars::EnzymeRates._Vars,
 Test the units of `L`, the derived law of the concrete mechanism `m` (a `_Law`, or an
 `_AlloLaw` for an allosteric `m`), against the graph's units (`_testhelper_name_units`).
 In each conformation every term of `D` has one unit, and a numerator that is not zero
-makes `H·Q/D` a rate per time. The unit rule's normalizer (`EnzymeRates._normalizer`) has
-`D`'s unit, so each denominator term over `N` is dimensionless, unless its rule is
-`:none`, which takes no weights (`N = 1`) because the units equation has no solution.
-The constant rule puts one weight of 1 on the constant term; Cleland's and graded weights
-solve the units equation per concentration: they sum to 1 and weigh each concentration's
-exponents to 0. In an MWC law each regulatory site's binding polynomials are dimensionless
-and `fI·D_A` and `fA·D_I` share a unit, so the two conformations' terms add.
+makes `H·Q/D` a rate per time. The unit rule's normalizer
+(`EnzymeRates.Derivation._normalizer`) has `D`'s unit, so each denominator term over `N` is
+dimensionless, unless its rule is `:none`, which takes no weights (`N = 1`) because the
+units equation has no solution. The constant rule puts one weight of 1 on the constant term;
+Cleland's and graded weights solve the units equation per concentration: they sum to 1 and
+weigh each concentration's exponents to 0. In an MWC law each regulatory site's binding
+polynomials are dimensionless and `fI·D_A` and `fA·D_I` share a unit, so the two
+conformations' terms add.
 """
 function _testhelper_check_units(m, L)
     units = _testhelper_name_units(m)
-    vars = L isa EnzymeRates._Law ? L.vars : L.active.vars
-    subs = EnzymeRates._substrate_vars(m, vars)
+    vars = L isa EnzymeRates.Derivation._Law ? L.vars : L.active.vars
+    subs = EnzymeRates.Derivation._substrate_vars(m, vars)
     _testhelper_unit(p, vs = vars) =
         only(unique(_testhelper_term_units(units, vs, mo) for mo in keys(p.terms)))
     plus(a, b) = (a[1] + b[1], a[2] + b[2])
-    expo(mo) = EnzymeRates._Exp[EnzymeRates._mexp(mo, v) for v in findall(vars.conc)]
-    for C in (L isa EnzymeRates._Law ? (L,) : (L.active, L.inactive))
+    expo(mo) = EnzymeRates.Derivation._Exp[EnzymeRates.Derivation._mexp(mo, v)
+                                           for v in findall(vars.conc)]
+    for C in (L isa EnzymeRates.Derivation._Law ? (L,) : (L.active, L.inactive))
         uD = _testhelper_unit(C.D)
-        nz = EnzymeRates._normalizer(C.D, vars, subs)
-        Dc = EnzymeRates._split_conc(C.D, vars)
+        nz = EnzymeRates.Derivation._normalizer(C.D, vars, subs)
+        Dc = EnzymeRates.Derivation._split_conc(C.D, vars)
         uN = foldl((acc, (mo, λ)) -> plus(acc, λ .* _testhelper_unit(Dc[mo])), nz.lambda;
                    init = (0 // 1, 0 // 1))
         if nz.rule === :none
             @test isempty(nz.lambda)
             # No weights solve the units equation: [1; 0] is outside the span of [1; a_m].
-            M = reduce(hcat, [EnzymeRates._Exp[1; expo(mo)] for mo in keys(Dc)])
+            M = reduce(hcat, [EnzymeRates.Derivation._Exp[1; expo(mo)] for mo in keys(Dc)])
             @test rank(Float64.(M)) < rank(Float64.([M [1; zeros(Int, size(M, 1) - 1)]]))
         elseif nz.rule === :constant
-            @test nz.lambda == [EnzymeRates._Mono() => 1 // 1]
+            @test nz.lambda == [EnzymeRates.Derivation._Mono() => 1 // 1]
             @test uN == uD
         else
             @test nz.rule in (:cleland, :graded)
@@ -2228,7 +2238,7 @@ function _testhelper_check_units(m, L)
             @test plus(_testhelper_unit(L.H), _testhelper_unit(C.Q)) ==
                   plus(uD, (0 // 1, -1 // 1))
     end
-    if L isa EnzymeRates._AlloLaw
+    if L isa EnzymeRates.Derivation._AlloLaw
         @test plus(_testhelper_unit(L.fI), _testhelper_unit(L.active.D)) ==
               plus(_testhelper_unit(L.fA), _testhelper_unit(L.inactive.D))
         for (WA, WI, _) in L.sites
@@ -2243,7 +2253,7 @@ end
 `D` over `vars`: Π c(m)^λ_m over `nz.lambda`, `c(m)` the coefficient of the concentration
 monomial `m` in `D`, and 1 when `nz.lambda` is empty."""
 function _testhelper_norm_value(nz, D, vars, env)
-    Dc = EnzymeRates._split_conc(D, vars)
+    Dc = EnzymeRates.Derivation._split_conc(D, vars)
     prod((_testhelper_poly_value(Dc[mo], vars, env)^BigFloat(λ) for (mo, λ) in nz.lambda);
          init = big(1))
 end
@@ -2368,14 +2378,14 @@ _testhelper_print_artifacts(s::AbstractString) =
 The worst relative error, over `points` consistent points (`_testhelper_law_inputs`, seed
 `seed`), of `m`'s printed law and its coefficient form (`rate_equation_string`), read back
 in 256-bit BigFloat (`_testhelper_eval_rate_string`), against its derived law
-(`EnzymeRates._law`). `m` is compiled or concrete and passes the guard; an allosteric
-mechanism's point is drawn at one catalytic subunit, and the law is read at its own
-multiplicity.
+(`EnzymeRates.Derivation._law`). `m` is compiled or concrete and passes the guard; an
+allosteric mechanism's point is drawn at one catalytic subunit, and the law is read at its
+own multiplicity.
 """
 function _testhelper_printed_law_error(m; points::Int = 2, seed::Int = 31)
     mech = _testhelper_lift(m)
-    L = EnzymeRates._law(mech)
-    fitted = collect(EnzymeRates._solve(mech).fitted)
+    L = EnzymeRates.Derivation._law(mech)
+    fitted = collect(EnzymeRates.Derivation._solve(mech).fitted)
     texts = (rate_equation_string(m), rate_equation_string(m; coefficients = true))
     rng = Random.MersenneTwister(seed)
     worst = big(0.0)
@@ -4733,18 +4743,20 @@ function _testhelper_same_law_under_map(L1, L2, order1::Vector{Symbol},
 end
 
 """The variable table `vars` with each name `x` renamed `get(rename, x, x)`."""
-function _testhelper_renamed_vars(vars::EnzymeRates._Vars, rename::Dict{Symbol, Symbol})
+function _testhelper_renamed_vars(vars::EnzymeRates.Derivation._Vars,
+                                  rename::Dict{Symbol, Symbol})
     names = Symbol[get(rename, x, x) for x in vars.names]
-    EnzymeRates._Vars(names, copy(vars.conc), Dict(x => i for (i, x) in enumerate(names)))
+    EnzymeRates.Derivation._Vars(names, copy(vars.conc),
+                                 Dict(x => i for (i, x) in enumerate(names)))
 end
 
 """The law `L` with its variables renamed by `rename` (`_testhelper_renamed_vars`) and its
 polynomials unchanged: a renaming of its constants when `rename` permutes them."""
-_testhelper_renamed_law(L::EnzymeRates._Law, rename::Dict{Symbol, Symbol}) =
-    EnzymeRates._Law(_testhelper_renamed_vars(L.vars, rename), L.H, L.Q, L.D, L.sigma,
-                     L.trees, L.shift)
-_testhelper_renamed_law(A::EnzymeRates._AlloLaw, rename::Dict{Symbol, Symbol}) =
-    EnzymeRates._AlloLaw(_testhelper_renamed_vars(A.vars, rename), A.H,
-                         _testhelper_renamed_law(A.active, rename),
-                         _testhelper_renamed_law(A.inactive, rename), A.fA, A.fI, A.sites,
-                         A.n)
+_testhelper_renamed_law(L::EnzymeRates.Derivation._Law, rename::Dict{Symbol, Symbol}) =
+    EnzymeRates.Derivation._Law(_testhelper_renamed_vars(L.vars, rename), L.H, L.Q, L.D,
+                                L.sigma, L.trees, L.shift)
+_testhelper_renamed_law(A::EnzymeRates.Derivation._AlloLaw, rename::Dict{Symbol, Symbol}) =
+    EnzymeRates.Derivation._AlloLaw(_testhelper_renamed_vars(A.vars, rename), A.H,
+                                    _testhelper_renamed_law(A.active, rename),
+                                    _testhelper_renamed_law(A.inactive, rename), A.fA, A.fI,
+                                    A.sites, A.n)

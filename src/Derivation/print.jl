@@ -305,7 +305,7 @@ end
 
 Return the rate law of mechanism `m` as a multi-line `String` (it returns the text; it does
 not print). Pass a concrete `Mechanism` / `AllostericMechanism` or its compiled
-[`EnzymeMechanism`](@ref) singleton.
+[`EnzymeMechanism`](@ref EnzymeRates.Mechanisms.EnzymeMechanism) singleton.
 
 The text runs as Julia code once `params` and `concs` are bound. It destructures
 [`parameters`](@ref)`(m)` from `params` and the metabolites from `concs`, lists each

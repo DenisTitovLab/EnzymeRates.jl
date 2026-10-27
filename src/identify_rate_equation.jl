@@ -408,9 +408,9 @@ struct _Candidate
     mechanism::String
     mechanism_id::String
     eq_text::String
-    canon::_Canonical
+    canon::Derivation._Canonical
     phantom::Bool
-    canon0::_Canonical
+    canon0::Derivation._Canonical
 end
 
 """Candidate `c` as an ordinary candidate: not an L phantom, it reads the fit of its own law
@@ -552,22 +552,22 @@ and, for one, the canonical form of its law at `L = 0`. Returns the skip's symbo
 """
 function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
     try
-        _eq_complexity(m) > eq_complexity_filter && return :complexity_skip
-        _check_well_posed(m)
-        s = _solve(m)
+        Derivation._eq_complexity(m) > eq_complexity_filter && return :complexity_skip
+        Derivation._check_well_posed(m)
+        s = Derivation._solve(m)
         length(s.fitted) > max_param_count && return :param_skip
-        _with_law(m, s) do m, s, L
-            eq_text = _law_text(m, s, L; coefficients = true)
+        Derivation._with_law(m, s) do m, s, L
+            eq_text = Derivation._law_text(m, s, L; coefficients = true)
             text = sprint(show, m)
             id = _mechanism_id(text)
-            canon = _canonical(L, id)
+            canon = Derivation._canonical(L, id)
             # An L phantom reads the fit of its law at L = 0, its active law, when that
             # law holds every fitted constant but L. A regulatory site whose ligands are
             # all :EqualAI has one factor in both conformations, so the certificate
             # admits it, yet the active law lacks its constants: the check fits such a
             # phantom itself, so a row never reads names its fit lacks.
-            phantom = m isa Mechanisms.AllostericMechanism && _is_phantom(L)
-            canon0 = phantom ? _canonical(L.active, id) : canon
+            phantom = m isa Mechanisms.AllostericMechanism && Derivation._is_phantom(L)
+            canon0 = phantom ? Derivation._canonical(L.active, id) : canon
             if phantom && Set(canon0.order) != Set(s.fitted[1:(end - 1)])
                 phantom, canon0 = false, canon
             end
@@ -853,7 +853,7 @@ function _base_tier(mechs::Vector, rxn::Mechanisms.EnzymeReaction)
     for m in mechs
         _degenerate(m) || continue
         try
-            children = filter!(_is_well_posed, _expand_re_to_ss(m))
+            children = filter!(Derivation._is_well_posed, _expand_re_to_ss(m))
             for child in children
                 _assert_atom_conserving(child, rxn)
                 _degenerate(child) || push!(base, child)

@@ -127,8 +127,9 @@ end
         # regulator constants and L are fitted, so p holds them.
         mech = _testhelper_lift(m)
         states = mech isa EnzymeRates.Mechanism ? (:None,) : (:A, :I)
-        @test issubset((n for st in states for ns in EnzymeRates._edge_names(mech, st)
-                        for n in ns), keys(all_p))
+        @test issubset((n for st in states
+                        for ns in EnzymeRates.Derivation._edge_names(mech, st) for n in ns),
+                       keys(all_p))
     end
 end
 

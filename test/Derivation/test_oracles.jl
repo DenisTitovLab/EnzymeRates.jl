@@ -389,8 +389,8 @@ end
     for (i, m) in enumerate(_testhelper_population_sample)
         @testset "population mechanism $i" begin
             mech = _testhelper_single_subunit(m)
-            s = EnzymeRates._solve(mech)
-            L = EnzymeRates._law(mech, s)
+            s = EnzymeRates.Derivation._solve(mech)
+            L = EnzymeRates.Derivation._law(mech, s)
             rng = Random.MersenneTwister(i)
             for _ in 1:2
                 point, concs, params = _testhelper_law_inputs(mech, s.fitted, rng)
@@ -398,15 +398,15 @@ end
                 law = _testhelper_evaluate_law(L, merge(params, concs))
                 @test abs(law - oracle) <= big(10)^-20 * abs(oracle)
             end
-            Qs = L isa EnzymeRates._Law ? [L.Q] : [L.active.Q, L.inactive.Q]
+            Qs = L isa EnzymeRates.Derivation._Law ? [L.Q] : [L.active.Q, L.inactive.Q]
             @test all(Q -> all(>(0), values(Q.terms)), Qs)
             @test all(<(big(10)^-30),
                       _testhelper_detailed_balance(m, Random.MersenneTwister(i)))
             _testhelper_check_units(mech, L)
             # The printed law and its coefficient form of the law above, read back in
             # 256-bit BigFloat, equal it at a consistent point, with no printing artifact.
-            full = EnzymeRates._law_text(mech, s, L)
-            coef = EnzymeRates._law_text(mech, s, L; coefficients = true)
+            full = EnzymeRates.Derivation._law_text(mech, s, L)
+            coef = EnzymeRates.Derivation._law_text(mech, s, L; coefficients = true)
             @test isempty(_testhelper_print_artifacts(full)) &&
                   isempty(_testhelper_print_artifacts(coef))
             _, pconcs, pparams = _testhelper_law_inputs(mech, s.fitted,
@@ -436,14 +436,15 @@ end
 bipartition (`_context_bipartitions`) that the guard accepts and that keeps the
 independent count."""
 function _testhelper_same_model_regroupings(m)
-    n = EnzymeRates._independent_param_count(m)
+    n = EnzymeRates.Derivation._independent_param_count(m)
     cm = EnzymeRates.Mechanisms.catalytic(m)
     kept = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
     for g in 1:EnzymeRates.Mechanisms.ngroups(cm),
         bp in EnzymeRates._context_bipartitions(cm, g)
         child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
-        EnzymeRates._is_well_posed(child) &&
-            EnzymeRates._independent_param_count(child) == n && push!(kept, child)
+        EnzymeRates.Derivation._is_well_posed(child) &&
+            EnzymeRates.Derivation._independent_param_count(child) == n &&
+            push!(kept, child)
     end
     kept
 end
@@ -458,7 +459,7 @@ const _testhelper_sample_regroupings =
         # Success criterion 4: a phantom or folded fitted name would raise the count
         # above the dimension the test counts on its own.
         miscounted = [i for (i, m) in enumerate(_testhelper_population_one_round)
-                      if EnzymeRates._independent_param_count(m) !=
+                      if EnzymeRates.Derivation._independent_param_count(m) !=
                          _testhelper_declared_dimension(m)]
         @test isempty(miscounted)
         for m in _testhelper_population_sample[1:10]
@@ -471,8 +472,9 @@ const _testhelper_sample_regroupings =
         stray = Symbol[]
         for m in _testhelper_population_one_round
             m isa EnzymeRates.AllostericMechanism || continue
-            law_names = Set(n for state in (:A, :I)
-                            for ns in EnzymeRates._edge_names(m, state) for n in ns)
+            law_names =
+                Set(n for state in (:A, :I)
+                    for ns in EnzymeRates.Derivation._edge_names(m, state) for n in ns)
             reg = Set(EnzymeRates.Mechanisms.name(p, m) for state in (:A, :I)
                       for p in EnzymeRates.Mechanisms._kreg_params(m, state))
             fitted = _testhelper_dependent_param_exprs(m)[2]
@@ -931,8 +933,8 @@ end
         for re in [[flags];
                    [flags .| (m.group .== g) for g in 1:EnzymeRates.Mechanisms.ngroups(m)];
                    [trues(length(m.edges))]]
-            net = EnzymeRates._eps_network(m, re)
-            turnover = !isempty(EnzymeRates._re_turnover_transitions(net))
+            net = EnzymeRates.Derivation._eps_network(m, re)
+            turnover = !isempty(EnzymeRates.Derivation._re_turnover_transitions(net))
             @test turnover == EnzymeRates._re_turnover_cycle(m, re)
             push!(found, turnover)
         end
@@ -1137,7 +1139,7 @@ end
         for c in kids
             @test EnzymeRates._admits(c.catalytic, c.cat_allo_states)
             faults = _testhelper_face_faults(c)
-            admitted = all(==(EnzymeRates._NO_FAULT), faults)
+            admitted = all(==(EnzymeRates.Derivation._NO_FAULT), faults)
             verdicts = _testhelper_respeed_verdicts(c; rng,
                                                     law = admitted ? :package : :limit)
             @test all(_testhelper_agrees.(faults, verdicts))
@@ -1225,7 +1227,7 @@ end
     # one point; an allosteric member is judged at one catalytic subunit.
     rng = Random.MersenneTwister(401)
     for m in _testhelper_population_sample
-        @test EnzymeRates._is_well_posed(m)
+        @test EnzymeRates.Derivation._is_well_posed(m)
         faults = _testhelper_face_faults(m)
         @test all(_testhelper_agrees.(faults, _testhelper_respeed_verdicts(m; rng)))
     end
@@ -1279,7 +1281,7 @@ let children = [c for m in EnzymeRates.init_mechanisms(_testhelper_inhibitor_rxn
     # catalytic group :OnlyI (spec section 13). An aggregate regression pin over the
     # declaration's whole seed set (CLAUDE.md enumeration rule 1's exception).
     @test length(children) == 5505
-    @test count(!EnzymeRates._is_well_posed, children) == 0
+    @test count(!EnzymeRates.Derivation._is_well_posed, children) == 0
     allo = [c for c in children if c isa EnzymeRates.AllostericMechanism]
     @test !isempty(allo)
     @test all(c -> :OnlyI ∉ EnzymeRates.Mechanisms.cat_allo_states(c), allo)
@@ -1321,8 +1323,8 @@ end
                     siblings])
     keyed = Dict{String, Vector{Any}}()
     for m in pool
-        L = EnzymeRates._law(m)
-        c = EnzymeRates._canonical(L, EnzymeRates._mechanism_id(sprint(show, m)))
+        L = EnzymeRates.Derivation._law(m)
+        c = EnzymeRates.Derivation._canonical(L, EnzymeRates._mechanism_id(sprint(show, m)))
         @test !c.capped
         push!(get!(keyed, c.key, Any[]), (L, c))
     end
@@ -1400,25 +1402,25 @@ end
         end
     end
     rejected = [lumpable_732, unfed_trap, r2, s1]
-    verdicts = EnzymeRates._guard.(rejected)
-    @test all(v -> v.fault !== EnzymeRates._NO_FAULT, verdicts)
+    verdicts = EnzymeRates.Derivation._guard.(rejected)
+    @test all(v -> v.fault !== EnzymeRates.Derivation._NO_FAULT, verdicts)
     @test [(v.fault, v.limit, v.face) for v in verdicts[1:2]] ==
-          [(EnzymeRates._SPLIT, EnzymeRates._LIMIT_DIFFER, 7),
-           (EnzymeRates._SPLIT, EnzymeRates._LIMIT_SPEED, 7)]
+          [(EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_DIFFER, 7),
+           (EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_SPEED, 7)]
     @test (verdicts[3].fault, verdicts[3].face, verdicts[3].conformation) ==
-          (EnzymeRates._PUMPED, 2, 2)
-    @test (verdicts[4].fault, verdicts[4].face) == (EnzymeRates._NONUNIQUE, 3)
+          (EnzymeRates.Derivation._PUMPED, 2, 2)
+    @test (verdicts[4].fault, verdicts[4].face) == (EnzymeRates.Derivation._NONUNIQUE, 3)
     _testhelper_zeroed(m, v) = v.face == 0 ? Set{Symbol}() :
-        Set(EnzymeRates._face_names(
+        Set(EnzymeRates.Derivation._face_names(
             EnzymeRates.Mechanisms.catalytic(m),
-            EnzymeRates._faces(EnzymeRates.Mechanisms.catalytic(m))[v.face]))
+            EnzymeRates.Derivation._faces(EnzymeRates.Mechanisms.catalytic(m))[v.face]))
     for m in [_testhelper_population_sample; rejected]
-        v = EnzymeRates._guard(m)
+        v = EnzymeRates.Derivation._guard(m)
         rewritten = _testhelper_written_backwards(m)
-        @test rewritten == m && EnzymeRates._guard(rewritten) == v
+        @test rewritten == m && EnzymeRates.Derivation._guard(rewritten) == v
         rename = _testhelper_reversing_rename(m)
         renamed = _testhelper_renamed(m, rename)
-        w = EnzymeRates._guard(renamed)
+        w = EnzymeRates.Derivation._guard(renamed)
         @test (w.fault, w.limit, w.conformation) == (v.fault, v.limit, v.conformation)
         @test _testhelper_zeroed(renamed, w) ==
               Set(rename[x] for x in _testhelper_zeroed(m, v))
@@ -1426,17 +1428,19 @@ end
     # The renaming moves Q's face: it is the last face of the lumpable split, and its
     # renamed image W sorts before X, P's image, so the fault moves to face 6.
     rename_732 = _testhelper_reversing_rename(lumpable_732)
-    @test EnzymeRates._guard(_testhelper_renamed(lumpable_732, rename_732)).face == 6
+    @test EnzymeRates.Derivation._guard(
+        _testhelper_renamed(lumpable_732, rename_732)).face == 6
     n_regrouped = 0
     for m in _testhelper_population_sample
-        fault, n = EnzymeRates._guard(m).fault, EnzymeRates._independent_param_count(m)
+        fault, n = EnzymeRates.Derivation._guard(m).fault,
+            EnzymeRates.Derivation._independent_param_count(m)
         cm = EnzymeRates.Mechanisms.catalytic(m)
         for g in 1:EnzymeRates.Mechanisms.ngroups(cm),
             bp in EnzymeRates._context_bipartitions(cm, g)
             child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
-            EnzymeRates._independent_param_count(child) == n || continue
+            EnzymeRates.Derivation._independent_param_count(child) == n || continue
             n_regrouped += 1
-            @test EnzymeRates._guard(child).fault === fault
+            @test EnzymeRates.Derivation._guard(child).fault === fault
         end
     end
     @test n_regrouped >= 20
@@ -1450,22 +1454,22 @@ end
     rng = Random.MersenneTwister(612)
     n_regrouped = 0
     for (m, regrouped) in zip(_testhelper_population_sample, _testhelper_sample_regroupings)
-        L = EnzymeRates._law(m)
-        c = EnzymeRates._canonical(L, "q2")
+        L = EnzymeRates.Derivation._law(m)
+        c = EnzymeRates.Derivation._canonical(L, "q2")
         @test !c.capped
-        back = EnzymeRates._law(_testhelper_written_backwards(m))
-        @test EnzymeRates._canonical(back, "q2").key == c.key
+        back = EnzymeRates.Derivation._law(_testhelper_written_backwards(m))
+        @test EnzymeRates.Derivation._canonical(back, "q2").key == c.key
         for child in regrouped
             n_regrouped += 1
-            Lc = EnzymeRates._law(child)
-            cc = EnzymeRates._canonical(Lc, "q2")
+            Lc = EnzymeRates.Derivation._law(child)
+            cc = EnzymeRates.Derivation._canonical(Lc, "q2")
             @test cc.key == c.key
             @test _testhelper_same_law_under_map(L, Lc, c.order, cc.order; rng)
         end
         constants = filter(x -> x ∉ (:Keq, :L), L.vars.names[.!L.vars.conc])
         rename = Dict(zip(constants, shuffle(rng, constants)))
         R = _testhelper_renamed_law(L, rename)
-        r = EnzymeRates._canonical(R, "q2")
+        r = EnzymeRates.Derivation._canonical(R, "q2")
         @test r.key == c.key
         @test Set(r.order) == Set(rename[x] for x in c.order)
         @test _testhelper_same_law_under_map(L, R, c.order, r.order; rng)
@@ -1503,7 +1507,7 @@ end
 without duplicates, in content order (`_testhelper_content_text`)."""
 function _testhelper_tagging_children(parents, rxn)
     kids = unique!([c for p in parents for c in EnzymeRates._expand_to_allosteric(p, rxn)
-                    if EnzymeRates._is_well_posed(c)])
+                    if EnzymeRates.Derivation._is_well_posed(c)])
     kids[sortperm(_testhelper_content_text.(kids))]
 end
 
@@ -1518,7 +1522,8 @@ end
     parents = _testhelper_spaced(collect(EnzymeRates.init_mechanisms(rxn)), 40)
     kids = _testhelper_spaced(_testhelper_tagging_children(parents, rxn), 200)
     @test length(kids) == 200
-    flagged = [am for am in kids if EnzymeRates._is_phantom(EnzymeRates._law(am))]
+    flagged = [am for am in kids
+               if EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(am))]
     @test length(flagged) == 69
     rng = Random.MersenneTwister(505)
     @test all(am -> _testhelper_phantom_map_holds(am; rng), flagged)
@@ -1539,11 +1544,12 @@ end
     covalent(m) = any(EnzymeRates.Mechanisms._has_residual, m.forms)
     inits = filter(covalent, collect(EnzymeRates.init_mechanisms(rxn)))
     flips = [c for m in inits for c in EnzymeRates._expand_re_to_ss(m)
-             if EnzymeRates._is_well_posed(c) && covalent(c)]
+             if EnzymeRates.Derivation._is_well_posed(c) && covalent(c)]
     parents = _testhelper_spaced(unique!([inits; flips]), 30)
     @test length(parents) == 30
     kids = _testhelper_tagging_children(parents, rxn)
     @test length(kids) == 172
     @test all(am -> any(EnzymeRates.Mechanisms._inactive_mask(am)), kids)
-    @test all(am -> isempty(EnzymeRates._phantom_weights(EnzymeRates._law(am))), kids)
+    @test all(am -> isempty(EnzymeRates.Derivation._phantom_weights(
+                  EnzymeRates.Derivation._law(am))), kids)
 end

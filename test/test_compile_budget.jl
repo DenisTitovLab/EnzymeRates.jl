@@ -162,7 +162,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         println("IMAGE_RATE_BODIES:", count(
             mi -> mi.specTypes.parameters[2] in
                   (EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism),
-            Base.specializations(only(methods(EnzymeRates._rate_body)))))
+            Base.specializations(only(methods(EnzymeRates.Derivation._rate_body)))))
         r_uni = @enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
@@ -338,8 +338,9 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     # leaving the package's two calls compiling nothing.
     @testset "the generator's precompile signatures compile" begin
         @test n_image == 2
-        @test precompile(EnzymeRates._rate_body, (EnzymeRates.Mechanism,))
-        @test precompile(EnzymeRates._rate_body, (EnzymeRates.AllostericMechanism,))
+        @test precompile(EnzymeRates.Derivation._rate_body, (EnzymeRates.Mechanism,))
+        @test precompile(EnzymeRates.Derivation._rate_body,
+                         (EnzymeRates.AllostericMechanism,))
     end
 
     # Compile-reuse: bi-bi init_mechanisms compiles a superset of uni-uni's
@@ -461,9 +462,11 @@ end
         const ER = EnzymeRates
         for (i, text) in enumerate(split(read($(repr(file)), String), "\\n----\\n"))
             m = ER._parse_mechanism(String(text))
-            println("BODY ", i, " ", bytes2hex(ER.sha256(string(ER._rate_body(m)))))
+            println("BODY ", i, " ",
+                    bytes2hex(ER.sha256(string(ER.Derivation._rate_body(m)))))
             println("KEY ", i, " ",
-                    ER._canonical(ER._law(m), ER._mechanism_id(String(text))).key)
+                    ER.Derivation._canonical(ER.Derivation._law(m),
+                                             ER._mechanism_id(String(text))).key)
             println("FULL ", i, " ", bytes2hex(ER.sha256(ER.rate_equation_string(m))))
             println("COEF ", i, " ",
                     bytes2hex(ER.sha256(ER.rate_equation_string(m; coefficients = true))))
@@ -473,7 +476,7 @@ end
     rm(file; force = true)
     @test all(t -> count(startswith(t * " "), lines) == 48, ("BODY", "KEY", "FULL", "COEF"))
     for (i, m) in enumerate(mechs)
-        mine = bytes2hex(EnzymeRates.sha256(string(EnzymeRates._rate_body(m))))
+        mine = bytes2hex(EnzymeRates.sha256(string(EnzymeRates.Derivation._rate_body(m))))
         @test "BODY $i $mine" in lines
         key = _testhelper_pass1_canonical(m).key
         @test "KEY $i $key" in lines

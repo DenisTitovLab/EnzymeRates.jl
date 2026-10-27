@@ -1425,7 +1425,7 @@ end
     pq = [_testhelper_edge(parent, "E + P ⇌ EP"), _testhelper_edge(parent, "E + Q ⇌ EQ")]
     pair = EnzymeRates.Mechanisms._flags(parent)
     pair[pq] .= false
-    @test !EnzymeRates._faces_pass(parent, pair)
+    @test !EnzymeRates.Derivation._faces_pass(parent, pair)
     # The two zero-flux pairs are absent, and each has exactly its parent's rank.
     r0 = _testhelper_identifiable_rank(parent)
     for absent in EnzymeRates.Mechanism.([
@@ -2390,9 +2390,9 @@ end
 
     result = EnzymeRates._expand_split_kinetic_group(m)
     @test !isempty(result)
-    base = EnzymeRates._independent_param_count(m)
+    base = EnzymeRates.Derivation._independent_param_count(m)
     for r in result
-        @test EnzymeRates._independent_param_count(r) > base
+        @test EnzymeRates.Derivation._independent_param_count(r) > base
         @test r isa EnzymeRates.Mechanism
         _testhelper_assert_mechanism_invariants(r)
         @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
@@ -2469,8 +2469,8 @@ end
 
     # 1. every emitted child raises the independent-parameter count.
     @test !isempty(result)
-    @test all(r -> EnzymeRates._independent_param_count(r) >
-                   EnzymeRates._independent_param_count(am), result)
+    @test all(r -> EnzymeRates.Derivation._independent_param_count(r) >
+                   EnzymeRates.Derivation._independent_param_count(am), result)
 
     # 2. the :NonequalAI A-binding group is SS, so it has no equilibrium
     # constant to tie and its context split gains on its own: a child
@@ -2549,8 +2549,8 @@ end
     am = EnzymeRates.AllostericMechanism(m_seed)
     result = EnzymeRates._expand_split_kinetic_group(am)
     @test !isempty(result)
-    @test all(r -> EnzymeRates._independent_param_count(r) >
-                   EnzymeRates._independent_param_count(am), result)
+    @test all(r -> EnzymeRates.Derivation._independent_param_count(r) >
+                   EnzymeRates.Derivation._independent_param_count(am), result)
 end
 
 @testset "Mechanism — a split part without flux is emitted at rapid equilibrium" begin
@@ -2601,8 +2601,8 @@ end
     @test length(kids) == 1
     @test Set(kids) == Set([reverted])
     @test !(raw in kids)
-    @test EnzymeRates._independent_param_count(reverted) ==
-        EnzymeRates._independent_param_count(m) + 1
+    @test EnzymeRates.Derivation._independent_param_count(reverted) ==
+        EnzymeRates.Derivation._independent_param_count(m) + 1
     r_rev = _testhelper_identifiable_rank(reverted)
     r_raw = _testhelper_identifiable_rank(raw)
     @test r_rev == r_raw                                          # the same family
@@ -2650,8 +2650,8 @@ end
             E(Q) + B::Mod ⇌ E(B::Mod, Q)
         end
     end)
-    @test EnzymeRates._independent_param_count(absent) ==
-        EnzymeRates._independent_param_count(m) + 1
+    @test EnzymeRates.Derivation._independent_param_count(absent) ==
+        EnzymeRates.Derivation._independent_param_count(m) + 1
     @test _testhelper_identifiable_rank(absent) == _testhelper_identifiable_rank(m)
 end
 
@@ -2695,8 +2695,8 @@ end
     @test EnzymeRates._assert_emission_rules(m) === nothing
     @test isempty(EnzymeRates._expand_split_kinetic_group(m))
     @test !isempty(EnzymeRates._redundant_copy_groups(absent))
-    @test EnzymeRates._independent_param_count(absent) ==
-        EnzymeRates._independent_param_count(m) + 1
+    @test EnzymeRates.Derivation._independent_param_count(absent) ==
+        EnzymeRates.Derivation._independent_param_count(m) + 1
     @test _testhelper_fitted(absent) == 7 && _testhelper_identifiable_rank(absent) == 6
 end
 
@@ -2843,22 +2843,23 @@ end
             E + Q <--> E(Q)                                         :: EqualAI
         end
     end)
-    @test EnzymeRates._eq_complexity(am) >
-          EnzymeRates.MAX_RATE_EQUATION_TERMS
+    @test EnzymeRates.Derivation._eq_complexity(am) >
+          EnzymeRates.Derivation.MAX_RATE_EQUATION_TERMS
     # Both conformations count: each inactive conformation keeps only E + Q <--> E(Q), two
     # segments joined by one tree, so the sum is the active law's count plus 2.
     for x in (am, p_by_a, p_by_b, a_by_p)
         @test _testhelper_laplacian_tree_count(
             x.catalytic, EnzymeRates.Mechanisms._inactive_mask(x)) == 2
-        @test EnzymeRates._eq_complexity(x) ==
+        @test EnzymeRates.Derivation._eq_complexity(x) ==
               _testhelper_laplacian_tree_count(x.catalytic,
                                                EnzymeRates.Mechanisms._active_mask(x)) + 2
     end
-    @test EnzymeRates._independent_param_count(p_by_a) ==
-          EnzymeRates._independent_param_count(am)
+    @test EnzymeRates.Derivation._independent_param_count(p_by_a) ==
+          EnzymeRates.Derivation._independent_param_count(am)
     # The count derives no law; deriving the law itself still refuses one this large.
     em_p_by_a = EnzymeRates.compile_mechanism(p_by_a)
-    @test_throws EnzymeRates.RateEquationTooLargeError rate_equation_string(em_p_by_a)
+    @test_throws(EnzymeRates.Derivation.RateEquationTooLargeError,
+                 rate_equation_string(em_p_by_a))
     @test_throws "polynomial terms" rate_equation_string(em_p_by_a)
     kids = EnzymeRates._expand_split_kinetic_group(am)
     @test length(kids) == 2
@@ -2940,21 +2941,23 @@ end
             E + Q <--> E(Q)                                         :: EqualAI
         end
     end)
-    @test EnzymeRates._eq_complexity(am) > EnzymeRates.MAX_RATE_EQUATION_TERMS
+    @test EnzymeRates.Derivation._eq_complexity(am) >
+          EnzymeRates.Derivation.MAX_RATE_EQUATION_TERMS
     # Both conformations count: the inactive conformation keeps only E + Q <--> E(Q).
     for x in (am, a_by_p, p_by_b)
         @test _testhelper_laplacian_tree_count(
             x.catalytic, EnzymeRates.Mechanisms._inactive_mask(x)) == 2
-        @test EnzymeRates._eq_complexity(x) ==
+        @test EnzymeRates.Derivation._eq_complexity(x) ==
               _testhelper_laplacian_tree_count(x.catalytic,
                                                EnzymeRates.Mechanisms._active_mask(x)) + 2
     end
-    @test EnzymeRates._independent_param_count(am) == 22
-    @test EnzymeRates._independent_param_count(a_by_p) == 24
-    @test EnzymeRates._independent_param_count(p_by_b) == 23
+    @test EnzymeRates.Derivation._independent_param_count(am) == 22
+    @test EnzymeRates.Derivation._independent_param_count(a_by_p) == 24
+    @test EnzymeRates.Derivation._independent_param_count(p_by_b) == 23
     # The test's own count of each model's dimension, which derives no law either.
     for x in (am, a_by_p, p_by_b)
-        @test EnzymeRates._independent_param_count(x) == _testhelper_declared_dimension(x)
+        @test EnzymeRates.Derivation._independent_param_count(x) ==
+              _testhelper_declared_dimension(x)
     end
     kids = EnzymeRates._expand_split_kinetic_group(am)
     @test length(kids) == 2
@@ -2986,11 +2989,11 @@ end
             E(Q) + A <--> E(A, Q)                                            :: EqualAI
         end
     end
-    v = EnzymeRates._guard(am)
-    @test v.fault === EnzymeRates._NO_LIMIT
+    v = EnzymeRates.Derivation._guard(am)
+    @test v.fault === EnzymeRates.Derivation._NO_LIMIT
     @test EnzymeRates.Mechanisms._step_text(am.catalytic, v.edge) == "E + A <--> E(A)"
     @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(2922)) === :no_path
-    msg = EnzymeRates._guard_message(am, v)
+    msg = EnzymeRates.Derivation._guard_message(am, v)
     @test_throws ErrorException(msg) @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -3006,7 +3009,8 @@ end
              EnzymeRates._expand_change_allo_state(am)]
     @test !isempty(moved)
     @test isempty(EnzymeRates._expand_change_allo_state(am))
-    @test all(c -> EnzymeRates._guard(c).fault === EnzymeRates._NO_LIMIT, moved)
+    @test all(c -> EnzymeRates.Derivation._guard(c).fault ===
+                   EnzymeRates.Derivation._NO_LIMIT, moved)
     kids = EnzymeRates.expand_mechanisms([am], bi_bi_rxn)
     @test length(kids) == 0
     @test Set(kids) == Set()
@@ -3033,11 +3037,11 @@ end
             E(P) + A <--> E(A, P)                                             :: EqualAI
         end
     end
-    v = EnzymeRates._guard(am)
-    @test v.fault === EnzymeRates._NO_LIMIT
+    v = EnzymeRates.Derivation._guard(am)
+    @test v.fault === EnzymeRates.Derivation._NO_LIMIT
     @test EnzymeRates.Mechanisms._step_text(am.catalytic, v.edge) == "E + A <--> E(A)"
     @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(95)) === :no_path
-    msg = EnzymeRates._guard_message(am, v)
+    msg = EnzymeRates.Derivation._guard_message(am, v)
     @test_throws ErrorException(msg) @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -3060,7 +3064,8 @@ end
              EnzymeRates._expand_change_allo_state(am)]
     @test !isempty(moved)
     @test isempty(EnzymeRates._expand_change_allo_state(am))
-    @test all(c -> EnzymeRates._guard(c).fault === EnzymeRates._NO_LIMIT, moved)
+    @test all(c -> EnzymeRates.Derivation._guard(c).fault ===
+                   EnzymeRates.Derivation._NO_LIMIT, moved)
     kids = EnzymeRates.expand_mechanisms([am], rxn)
     @test length(kids) == 0
     @test Set(kids) == Set()
@@ -3090,7 +3095,7 @@ end
     accepted = rejected = 0
     for am in parents
         cm = am.catalytic
-        verdict = EnzymeRates._admission_interior(am).fault
+        verdict = EnzymeRates.Derivation._admission_interior(am).fault
         flux = EnzymeRates._flux_carrying_edges(cm, EnzymeRates.Mechanisms._flags(cm))
         units = [(g, bp) for g in 1:EnzymeRates.Mechanisms.ngroups(cm)
                  for bp in EnzymeRates._context_bipartitions(cm, g)]
@@ -3101,9 +3106,9 @@ end
             re = EnzymeRates.Mechanisms._flags(cm)
             foreach(u -> re[reverted[u]] .= true, sel)
             child = EnzymeRates._apply_bipartitions(am, units[sel], re)
-            @test EnzymeRates._admission_interior(child).fault === verdict
+            @test EnzymeRates.Derivation._admission_interior(child).fault === verdict
         end
-        verdict === EnzymeRates._NO_FAULT ? (accepted += 1) : (rejected += 1)
+        verdict === EnzymeRates.Derivation._NO_FAULT ? (accepted += 1) : (rejected += 1)
     end
     # Aggregate pin over the sampled parents: both verdicts occur, so the agreement
     # means something.
@@ -3209,7 +3214,7 @@ end
     # The test's own count of each model's dimension, which derives no law.
     for (x, n) in ((am, 6), (b_by_q, 7), (a_by_p_and_p_by_a, 7), (q_by_p_and_p_by_q, 7),
                    (p_by_a, 6), (p_by_q, 6))
-        @test EnzymeRates._independent_param_count(x) ==
+        @test EnzymeRates.Derivation._independent_param_count(x) ==
               _testhelper_declared_dimension(x) == n
     end
 end
@@ -5088,13 +5093,14 @@ end
     # with B zero: a split whose limit the speeds do not move but which differs from the
     # law (limit test `differ`), so expand_mechanisms drops those three children.
     for c in (a_half1, p_half1, ap_half1)
-        v = EnzymeRates._guard(c)
-        names = EnzymeRates._face_names(m, EnzymeRates._faces(m)[v.face])
-        @test (v.fault, v.limit, names) ==
-              (EnzymeRates._SPLIT, EnzymeRates._LIMIT_DIFFER, [:A, :B])
+        v = EnzymeRates.Derivation._guard(c)
+        names =
+            EnzymeRates.Derivation._face_names(m, EnzymeRates.Derivation._faces(m)[v.face])
+        @test (v.fault, v.limit, names) == (EnzymeRates.Derivation._SPLIT,
+                                            EnzymeRates.Derivation._LIMIT_DIFFER, [:A, :B])
     end
     kept = [b_half2, q_half2, bq_half2]
-    @test all(EnzymeRates._is_well_posed, kept)
+    @test all(EnzymeRates.Derivation._is_well_posed, kept)
     @test Set(c for c in EnzymeRates.expand_mechanisms([m], bi_bi_pp_allo_rxn)
               if c isa EnzymeRates.AllostericMechanism) == Set(kept)
     # Δ params: each kept child adds L only; every tag is :EqualAI or :OnlyA.
@@ -5171,7 +5177,7 @@ end
     kids = EnzymeRates._expand_to_allosteric(m, rxn)
     @test length(kids) == 3
     @test Set(kids) == Set([a_half1, p_half1, ap_half1])
-    @test !any(EnzymeRates._is_well_posed, kids)
+    @test !any(EnzymeRates.Derivation._is_well_posed, kids)
     @test !any(c -> c isa EnzymeRates.AllostericMechanism,
                EnzymeRates.expand_mechanisms([m], rxn))
 end
@@ -7166,7 +7172,8 @@ end
     @test Set(kids) == Set([a_relaxed, q_relaxed, b_relaxed, p_relaxed])
     @test all(EnzymeRates._hyperbolic_catalysis, kids)
     for d in (abortive_a_relaxed, abortive_p_relaxed)
-        @test EnzymeRates._is_well_posed(d) && !EnzymeRates._hyperbolic_catalysis(d)
+        @test EnzymeRates.Derivation._is_well_posed(d) &&
+              !EnzymeRates._hyperbolic_catalysis(d)
     end
 end
 
@@ -8404,7 +8411,7 @@ end
             E(S) <--> E(P)    :: OnlyA
         end
     end
-    @test iszero(EnzymeRates._law(EnzymeRates.AllostericMechanism(m)).inactive.Q)
+    @test iszero(EnzymeRates.Derivation._law(EnzymeRates.AllostericMechanism(m)).inactive.Q)
     params = parameters(m)
     # K_I_ES_to_E_S and K_I_EP_to_E_P are referenced in the I-state
     # denominator of the body (the binding partition function for :NonequalAI
@@ -8427,7 +8434,7 @@ end
         m = spec.mechanism isa EnzymeRates.AllostericEnzymeMechanism ?
             EnzymeRates.AllostericMechanism(spec.mechanism) :
             EnzymeRates.Mechanism(spec.mechanism)
-        @test EnzymeRates._independent_param_count(m) ==
+        @test EnzymeRates.Derivation._independent_param_count(m) ==
               _testhelper_fitted(m)
     end
 end
@@ -8652,9 +8659,9 @@ end
     end
     # At zero products its segment's steady state depends on how fast the
     # rapid-equilibrium steps run (class 3); the flux test reads the graph alone.
-    v = EnzymeRates._guard(loop)
+    v = EnzymeRates.Derivation._guard(loop)
     @test (v.fault, v.limit, v.face) ===
-          (EnzymeRates._SPLIT, EnzymeRates._LIMIT_SPEED, 2)
+          (EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_SPEED, 2)
     @test EnzymeRates.Mechanisms._step_text(loop, v.edge) == "E + Q ⇌ E(Q)"
     @test _testhelper_respeed_verdicts(loop; rng = Random.MersenneTwister(92),
                                        law = :limit)[2] === :pattern
@@ -8913,8 +8920,9 @@ end
     # The probe reads the derived allosteric law, which vanishes at zero products: the
     # inactive conformation holds its enzyme in the covalent forms there, since half 2
     # cannot run and half 1 runs back only with P, so the probe reads no rate to compare
-    # and calls the law degenerate too (the gate in test/allosteric_ground_truth.jl
-    # checks the half-2 V-type's law against mass action).
+    # and calls the law degenerate too (the gate in
+    # test/Derivation/allosteric_ground_truth.jl checks the half-2 V-type's law against mass
+    # action).
     @test _testhelper_degenerate(am) == ER._degenerate(am)
 end
 
@@ -10089,12 +10097,13 @@ end
     # The guard rejects ss_mirror at zero substrates, where its segment's steady state
     # depends on how fast its rapid-equilibrium steps run; its law is still counted
     # and ranked, unchecked.
-    v = ER._guard(ss_mirror)
-    @test (v.fault, v.limit, v.face) === (ER._SPLIT, ER._LIMIT_SPEED, 3)
+    v = ER.Derivation._guard(ss_mirror)
+    @test (v.fault, v.limit, v.face) ===
+          (ER.Derivation._SPLIT, ER.Derivation._LIMIT_SPEED, 3)
     @test ER.Mechanisms._step_text(ss_mirror, v.edge) == "E + A ⇌ E(A)"
     @test _testhelper_respeed_verdicts(ss_mirror; rng = Random.MersenneTwister(94),
                                        law = :limit)[3] === :pattern
-    @test ER._independent_param_count(ss_mirror) == 8 &&
+    @test ER.Derivation._independent_param_count(ss_mirror) == 8 &&
           _testhelper_identifiable_rank(ss_mirror) == 6
     # One factor for all of a copy's complexes, whatever their twins' classes: the
     # previous mechanism plus P* at the two complexes E(A*) and E(A*, Q), the Q binding
@@ -10548,8 +10557,8 @@ end
             if EnzymeRates.Mechanisms._is_binding(e) &&
                 k.table[EnzymeRates.Mechanisms._bound_entry(e)].modifier)
     with_a = EnzymeRates._expand_add_dead_end_regulator(ordered_ss, rxn_a_inhibits)
-    _testhelper_den_a_degree(k) = (L = EnzymeRates._law(k);
-        maximum(numerator(EnzymeRates._mexp(mono, L.vars.index[:A]))
+    _testhelper_den_a_degree(k) = (L = EnzymeRates.Derivation._law(k);
+        maximum(numerator(EnzymeRates.Derivation._mexp(mono, L.vars.index[:A]))
                 for mono in keys(L.D.terms)))
     @test length(with_a) == 4
     @test Set(_testhelper_copy_sites.(with_a)) ==
@@ -10600,8 +10609,8 @@ end
             E(B; residual = A - P) ⇌ E(Q)                              :: OnlyA
         end
     end)
-    _testhelper_inactive_degree(am, x) = (C = EnzymeRates._law(am).inactive;
-        maximum(numerator(EnzymeRates._mexp(mono, C.vars.index[x]))
+    _testhelper_inactive_degree(am, x) = (C = EnzymeRates.Derivation._law(am).inactive;
+        maximum(numerator(EnzymeRates.Derivation._mexp(mono, C.vars.index[x]))
                 for mono in keys(C.D.terms)))
     @test EnzymeRates._hyperbolic_catalysis(
         EnzymeRates.Mechanisms.catalytic(merged_abortive))
@@ -10714,15 +10723,16 @@ end
         derived = Dict{Tuple{Symbol, EnzymeRates.Mechanism, BitVector}, Bool}()
         _testhelper_state_hyperbolic(m, state) = get!(derived,
             (state, EnzymeRates.Mechanisms.catalytic(m),
-             EnzymeRates._state_mask(m, state))) do
-            L = EnzymeRates._law(m)
+             EnzymeRates.Derivation._state_mask(m, state))) do
+            L = EnzymeRates.Derivation._law(m)
             _testhelper_hyperbolic(state === :A ? L.active : L.inactive, mets)
         end
         for m in mechs
-            EnzymeRates._eq_complexity(m) <= 337 || continue
+            EnzymeRates.Derivation._eq_complexity(m) <= 337 || continue
             structural = EnzymeRates._hyperbolic_catalysis(m)
             if m isa EnzymeRates.Mechanism
-                @test structural == _testhelper_hyperbolic(EnzymeRates._law(m), mets)
+                @test structural ==
+                      _testhelper_hyperbolic(EnzymeRates.Derivation._law(m), mets)
             else
                 hyp_a = _testhelper_state_hyperbolic(m, :A)
                 @test structural == (hyp_a && _testhelper_state_hyperbolic(m, :I))
@@ -11339,9 +11349,9 @@ end
                 E(A, B) <--> E(P, Q)
             end
         end
-        v = EnzymeRates._guard(single_A)
+        v = EnzymeRates.Derivation._guard(single_A)
         @test (v.fault, v.limit, v.face) ===
-              (EnzymeRates._TRAP, EnzymeRates._LIMIT_SPEED, 3)
+              (EnzymeRates.Derivation._TRAP, EnzymeRates.Derivation._LIMIT_SPEED, 3)
         @test EnzymeRates.Mechanisms._step_text(single_A, v.edge) == "E(A) + B ⇌ E(A, B)"
         @test _testhelper_respeed_verdicts(single_A; rng = Random.MersenneTwister(93),
                                            law = :limit)[3] === :pattern
@@ -11929,10 +11939,10 @@ end
                 E(A, B) <--> E(P, Q)
             end
         end)
-        @test EnzymeRates._independent_param_count(m) == 5
+        @test EnzymeRates.Derivation._independent_param_count(m) == 5
         cl = _testhelper_closure(m, EnzymeRates._expand_split_kinetic_group)
         @test maximum(EnzymeRates.Mechanisms.ngroups(m) for m in cl) == 13
-        @test maximum(EnzymeRates._independent_param_count(m) for m in cl) == 9
+        @test maximum(EnzymeRates.Derivation._independent_param_count(m) for m in cl) == 9
         @test length(cl) == 16
     end
 
@@ -11977,12 +11987,12 @@ end
                 E(A, B) <--> E(P, Q)
             end
         end)
-        @test EnzymeRates._independent_param_count(m) == 5
+        @test EnzymeRates.Derivation._independent_param_count(m) == 5
         kids = EnzymeRates._expand_split_kinetic_group(m)
         @test length(kids) == 2
         @test Set(kids) == Set([splitAB, splitPQ])
         for c in kids
-            @test EnzymeRates._independent_param_count(c) == 6
+            @test EnzymeRates.Derivation._independent_param_count(c) == 6
         end
     end
 
@@ -12053,12 +12063,12 @@ end
                 E(A, B) <--> E(P, Q)
             end
         end)
-        @test EnzymeRates._independent_param_count(m) == 5
+        @test EnzymeRates.Derivation._independent_param_count(m) == 5
         kids = EnzymeRates._expand_split_kinetic_group(m)
         @test length(kids) == 4
         @test Set(kids) == Set([splitAP, splitAB, splitBQ, splitPQ])
         for c in kids
-            @test EnzymeRates._independent_param_count(c) == 6
+            @test EnzymeRates.Derivation._independent_param_count(c) == 6
         end
     end
 
@@ -12130,12 +12140,12 @@ end
                 E + R ⇌ E(R)
             end
         end)
-        @test EnzymeRates._independent_param_count(m) == 7
+        @test EnzymeRates.Derivation._independent_param_count(m) == 7
         kids = EnzymeRates._expand_split_kinetic_group(m)
         @test length(kids) == 3
         @test Set(kids) == Set([splitAB, splitAC, splitBC])
         for c in kids
-            @test EnzymeRates._independent_param_count(c) == 8
+            @test EnzymeRates.Derivation._independent_param_count(c) == 8
         end
     end
 
@@ -12167,14 +12177,14 @@ end
                 E(A, B) <--> E(P, Q)
             end
         end)
-        base = EnzymeRates._independent_param_count(m)
+        base = EnzymeRates.Derivation._independent_param_count(m)
         r0 = _testhelper_identifiable_rank(m)
         @test r0 == base
         rejected = 0
         g = m.group[_testhelper_edge(m, "E + A ⇌ EA")]
         for bp in EnzymeRates._context_bipartitions(m, g)
             child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
-            EnzymeRates._independent_param_count(child) > base && continue
+            EnzymeRates.Derivation._independent_param_count(child) > base && continue
             rejected += 1
             @test _testhelper_identifiable_rank(child) == r0
         end
@@ -12520,7 +12530,7 @@ end
     # The K-type child, whose inactive conformation is free E alone, is an L phantom
     # (spec section 13): its rescaling certificate maps it onto the law of its catalytic
     # mechanism.
-    @test EnzymeRates._is_phantom(EnzymeRates._law(k_type))
+    @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(k_type))
     @test _testhelper_phantom_map_holds(k_type; rng = Random.MersenneTwister(1))
 end
 
@@ -12621,7 +12631,7 @@ end
     # All three are L phantoms, each mapped onto the parent's law by its certificate,
     # only_a and only_q though their inactive conformation keeps a binding at free E.
     for k in (only_a, only_q, a_and_q)
-        @test EnzymeRates._is_phantom(EnzymeRates._law(k))
+        @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(k))
         @test _testhelper_phantom_map_holds(k; rng = Random.MersenneTwister(2))
     end
 end
@@ -12730,7 +12740,8 @@ end
         @test _testhelper_fitted(k) == _testhelper_identifiable_rank(k) == 6
     end
     # At two subunits no variant is an L phantom.
-    @test !any(k -> EnzymeRates._is_phantom(EnzymeRates._law(k)), kids)
+    @test !any(
+        k -> EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(k)), kids)
 end
 
 @testset "_expand_to_allosteric on a merged bi-bi whose B group mixes fused and plain" begin
@@ -12842,11 +12853,11 @@ end
     # the parent's law by its certificate; the five that keep a binding there have no
     # certificate and are fitted.
     for k in (a_and_q, all_three)
-        @test EnzymeRates._is_phantom(EnzymeRates._law(k))
+        @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(k))
         @test _testhelper_phantom_map_holds(k; rng = Random.MersenneTwister(3))
     end
     for k in (only_a, only_p, only_q, a_and_p, p_and_q)
-        @test !EnzymeRates._is_phantom(EnzymeRates._law(k))
+        @test !EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(k))
     end
 end
 
@@ -12928,7 +12939,7 @@ end
     for k in (only_q, p_and_q)
         @test !any(EnzymeRates.Mechanisms._inactive_mask(k))
     end
-    @test !any(k -> EnzymeRates._is_phantom(EnzymeRates._law(k)),
+    @test !any(k -> EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(k)),
                (only_q, only_p, p_and_q))
 end
 
@@ -13028,17 +13039,19 @@ end
             E(Q) + B <--> E(B, Q)                                           :: EqualAI
         end
     end
-    _testhelper_admission_fault(t) = EnzymeRates._admission(EnzymeRates.AllostericMechanism(
-        m, t, 1, EnzymeRates.Mechanisms.RegulatorySite[])).fault
+    _testhelper_admission_fault(t) =
+        EnzymeRates.Derivation._admission(EnzymeRates.AllostericMechanism(
+            m, t, 1, EnzymeRates.Mechanisms.RegulatorySite[])).fault
     vt = [c ? :OnlyA : :EqualAI for c in EnzymeRates.Mechanisms._chemistry_groups(m)]
-    @test _testhelper_admission_fault(vt) === EnzymeRates._NO_LIMIT
+    @test _testhelper_admission_fault(vt) === EnzymeRates.Derivation._NO_LIMIT
     @test isempty(EnzymeRates._tagging_bases(m))
     kids = EnzymeRates._expand_to_allosteric(m, rxn)
     @test length(kids) == 6
     @test Set(kids) == Set([q_tagged, b_at_eq_tagged, p_q_tagged, p_b_at_eq_tagged,
                             q_b_at_eq_tagged, all_tagged])
-    @test all(EnzymeRates._is_well_posed, kids)
-    @test EnzymeRates._admission(p_tagged).fault === EnzymeRates._NO_LIMIT
+    @test all(EnzymeRates.Derivation._is_well_posed, kids)
+    @test EnzymeRates.Derivation._admission(p_tagged).fault ===
+          EnzymeRates.Derivation._NO_LIMIT
 end
 
 @testset "a ter-bi ping-pong without a regulator can end with no child" begin
@@ -13111,16 +13124,18 @@ end
         m, t, 1, EnzymeRates.Mechanisms.RegulatorySite[]) for t in tags]
     @test length(bases) == 3
     @test Set(bases) == Set([base_bd, base_bq, base_dq])
-    @test all(EnzymeRates._is_well_posed, bases)
+    @test all(EnzymeRates.Derivation._is_well_posed, bases)
     chem = EnzymeRates.Mechanisms._chemistry_groups(m)
     p = only(findall(!, chem))
     vt = [c ? :OnlyA : :EqualAI for c in chem]
     with_p(t) = (u = copy(t); u[p] = :OnlyA; u)
-    _testhelper_admission_fault(t) = EnzymeRates._admission(EnzymeRates.AllostericMechanism(
-        m, t, 1, EnzymeRates.Mechanisms.RegulatorySite[])).fault
-    @test _testhelper_admission_fault(vt) === EnzymeRates._ISLAND
-    @test all(t -> _testhelper_admission_fault(with_p(t)) === EnzymeRates._PUMPED, tags)
-    @test _testhelper_admission_fault(with_p(vt)) === EnzymeRates._ISLAND
+    _testhelper_admission_fault(t) =
+        EnzymeRates.Derivation._admission(EnzymeRates.AllostericMechanism(
+            m, t, 1, EnzymeRates.Mechanisms.RegulatorySite[])).fault
+    @test _testhelper_admission_fault(vt) === EnzymeRates.Derivation._ISLAND
+    @test all(t -> _testhelper_admission_fault(with_p(t)) ===
+                   EnzymeRates.Derivation._PUMPED, tags)
+    @test _testhelper_admission_fault(with_p(vt)) === EnzymeRates.Derivation._ISLAND
     @test isempty(EnzymeRates._expand_to_allosteric(m, rxn))
 end
 
@@ -13175,8 +13190,9 @@ end
     kids = EnzymeRates._expand_change_allo_state(q_tagged)
     @test length(kids) == 2
     @test Set(kids) == Set([p_relaxed, b_at_eq_relaxed])
-    @test EnzymeRates._admission(q_relaxed).fault === EnzymeRates._NO_LIMIT
-    @test all(EnzymeRates._is_well_posed, kids)
+    @test EnzymeRates.Derivation._admission(q_relaxed).fault ===
+          EnzymeRates.Derivation._NO_LIMIT
+    @test all(EnzymeRates.Derivation._is_well_posed, kids)
 end
 
 @testset "expand_mechanisms expands a parent whose binding changes conformation" begin
@@ -13622,7 +13638,8 @@ end
                 E + P ⇌ E(P)
             end
         end
-        key(m) = EnzymeRates._canonical(EnzymeRates._law(_testhelper_lift(m)), "tme").key
+        key(m) = EnzymeRates.Derivation._canonical(
+            EnzymeRates.Derivation._law(_testhelper_lift(m)), "tme").key
         @test key(m_ordered) != key(m_random)
     end
 
@@ -13659,10 +13676,10 @@ end
             end
         end
 
-        law_a = EnzymeRates._law(_testhelper_lift(ldh_m_a))
-        law_b = EnzymeRates._law(_testhelper_lift(ldh_m_b))
-        canon_a = EnzymeRates._canonical(law_a, "a")
-        canon_b = EnzymeRates._canonical(law_b, "b")
+        law_a = EnzymeRates.Derivation._law(_testhelper_lift(ldh_m_a))
+        law_b = EnzymeRates.Derivation._law(_testhelper_lift(ldh_m_b))
+        canon_a = EnzymeRates.Derivation._canonical(law_a, "a")
+        canon_b = EnzymeRates.Derivation._canonical(law_b, "b")
         key_a = canon_a.key
         @test key_a == canon_b.key
         @test _testhelper_same_law_under_map(law_a, law_b, canon_a.order, canon_b.order;
@@ -13684,8 +13701,8 @@ end
                 E(NADH, Pyruvate) <--> E(Lactate, NAD)
             end
         end
-        @test key_a != EnzymeRates._canonical(EnzymeRates._law(_testhelper_lift(ldh_m_c)),
-                                              "c").key
+        @test key_a != EnzymeRates.Derivation._canonical(
+            EnzymeRates.Derivation._law(_testhelper_lift(ldh_m_c)), "c").key
     end
 
     @testset "rate_equation_string emits section labels" begin
@@ -14097,7 +14114,7 @@ end
     # Aggregate regression pin over the whole seed set: the search reaches 1,664 seeds and
     # the guard drops 32 of them, each a `_SPLIT`.
     @test length(seeds) == 1632
-    @test all(ER._is_well_posed, seeds)
+    @test all(ER.Derivation._is_well_posed, seeds)
     # The six-step ping-pong with its first half-reaction tagged :OnlyA fails class 3 at
     # zero A and B, so it is dropped; with its second half tagged instead it stays.
     half1 = @_testhelper_unguarded @allosteric_mechanism begin
@@ -14115,9 +14132,11 @@ end
         end
         regulatory_site(2): R::OnlyA
     end
-    v = ER._guard(half1)
-    @test v.fault === ER._SPLIT
-    @test ER._face_names(half1.catalytic, ER._faces(half1.catalytic)[v.face]) == [:A, :B]
+    v = ER.Derivation._guard(half1)
+    @test v.fault === ER.Derivation._SPLIT
+    @test ER.Derivation._face_names(half1.catalytic,
+                                    ER.Derivation._faces(half1.catalytic)[v.face]) ==
+          [:A, :B]
     @test half1 ∉ seeds
     half2 = ER.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B
@@ -14320,11 +14339,12 @@ end
     kids = EnzymeRates._expand_to_allosteric(m, rxn)
     @test length(kids) == 5
     @test Set(kids) == Set([k_q_half2, v_half1_a, v_half1_i, v_half2_a, v_half2_i])
-    @test all(EnzymeRates._is_well_posed, kids)
-    @test EnzymeRates._admission(k_q_half1).fault === EnzymeRates._PUMPED
+    @test all(EnzymeRates.Derivation._is_well_posed, kids)
+    @test EnzymeRates.Derivation._admission(k_q_half1).fault ===
+          EnzymeRates.Derivation._PUMPED
     both = [:OnlyA, :OnlyA, :OnlyA]   # every group :OnlyA (the K-type on vt)
-    @test EnzymeRates._admission(EnzymeRates.AllostericMechanism(m, both, 1,
-        EnzymeRates.Mechanisms.RegulatorySite[])).fault === EnzymeRates._ISLAND
+    @test EnzymeRates.Derivation._admission(EnzymeRates.AllostericMechanism(m, both, 1,
+        EnzymeRates.Mechanisms.RegulatorySite[])).fault === EnzymeRates.Derivation._ISLAND
     @test Set(c for c in EnzymeRates.expand_mechanisms([m], rxn)
               if c isa EnzymeRates.AllostericMechanism) == Set(kids)
 end
@@ -14353,7 +14373,8 @@ end
     kids = EnzymeRates._expand_change_allo_state(k_type)
     @test length(kids) == 1
     @test Set(kids) == Set([q_relaxed])
-    @test EnzymeRates._is_well_posed(k_type) && EnzymeRates._is_well_posed(q_relaxed)
+    @test EnzymeRates.Derivation._is_well_posed(k_type) &&
+          EnzymeRates.Derivation._is_well_posed(q_relaxed)
 end
 
 @testset "change_allo_state relaxes a one-half V-type, leaving class 3 to the exit" begin
@@ -14466,13 +14487,14 @@ end
     @test length(kids) == 6
     @test Set(kids) == Set([a_relaxed, b_relaxed, q_relaxed, p_relaxed,
                             chemistry_relaxed, site_relaxed])
-    v = EnzymeRates._guard(chemistry_relaxed)
+    v = EnzymeRates.Derivation._guard(chemistry_relaxed)
     chem_graph = chemistry_relaxed.catalytic
-    names = EnzymeRates._face_names(chem_graph, EnzymeRates._faces(chem_graph)[v.face])
+    names = EnzymeRates.Derivation._face_names(
+        chem_graph, EnzymeRates.Derivation._faces(chem_graph)[v.face])
     @test (v.fault, v.limit, names) ==
-          (EnzymeRates._SPLIT, EnzymeRates._LIMIT_SPEED, [:A, :B])
+          (EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_SPEED, [:A, :B])
     kept = [a_relaxed, b_relaxed, q_relaxed, p_relaxed, site_relaxed]
-    @test all(EnzymeRates._is_well_posed, kept)
+    @test all(EnzymeRates.Derivation._is_well_posed, kept)
     exits = EnzymeRates.expand_mechanisms([v_type], rxn)
     @test chemistry_relaxed ∉ exits && all(in(exits), kept)
     # Every kept child turns the reaction over once products are present. At zero
@@ -14731,8 +14753,9 @@ end
     moved = EnzymeRates._expand_to_allosteric(parent, rxn)
     @test length(moved) == 6
     @test Set(moved) == Set(admitted)
-    @test all(EnzymeRates._is_well_posed, admitted)
-    @test all(t -> EnzymeRates._guard(t).fault === EnzymeRates._ISLAND, tagged)
+    @test all(EnzymeRates.Derivation._is_well_posed, admitted)
+    @test all(t -> EnzymeRates.Derivation._guard(t).fault ===
+                   EnzymeRates.Derivation._ISLAND, tagged)
     # The ε-path oracle, on one subunit, finds no single limit of the island:
     # direction-dependent or a wrong limit, as test_admission.jl's island tests read it.
     @test _testhelper_epath_verdict(_testhelper_single_subunit(tagged[4]);
@@ -14777,16 +14800,16 @@ end
             E(P) + Q <--> E(P, Q)
         end
     end
-    v = EnzymeRates._guard(a_alone)
+    v = EnzymeRates.Derivation._guard(a_alone)
     @test (v.fault, v.limit, v.face) ===
-          (EnzymeRates._SPLIT, EnzymeRates._LIMIT_SPEED, 2)
+          (EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_SPEED, 2)
     @test EnzymeRates.Mechanisms._step_text(a_alone, v.edge) == "E + P ⇌ E(P)"
     @test _testhelper_respeed_verdicts(a_alone; rng = Random.MersenneTwister(91),
                                        law = :limit)[v.face] === :pattern
     flags = EnzymeRates.Mechanisms._flags(parent)
     flags[[_testhelper_edge(parent, "E + A ⇌ EA"),
            _testhelper_edge(parent, "EB + A ⇌ EPQ")]] .= false
-    @test !EnzymeRates._faces_pass(parent, flags)
+    @test !EnzymeRates.Derivation._faces_pass(parent, flags)
     expected = EnzymeRates.Mechanism.([
         (@enzyme_mechanism begin      # A and P@E
             substrates: A, B
@@ -14893,16 +14916,16 @@ end
             E(B; residual = A - P) ⇌ E(Q)                              :: EqualAI
         end
     end
-    v = EnzymeRates._guard(a_flip)
+    v = EnzymeRates.Derivation._guard(a_flip)
     @test (v.fault, v.limit, v.face) ===
-          (EnzymeRates._SPLIT, EnzymeRates._LIMIT_SPEED, 3)
+          (EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_SPEED, 3)
     @test _testhelper_respeed_verdicts(a_flip; rng = Random.MersenneTwister(29),
                                        law = :limit)[v.face] === :pattern
     cm = EnzymeRates.Mechanisms.catalytic(parent)
     flags = EnzymeRates.Mechanisms._flags(cm)
     flags[cm.group .== cm.group[_testhelper_edge(parent, "E + A ⇌ EA")]] .= false
-    @test !EnzymeRates._faces_pass(parent, flags)
-    @test EnzymeRates._faces_pass(cm, flags)
+    @test !EnzymeRates.Derivation._faces_pass(parent, flags)
+    @test EnzymeRates.Derivation._faces_pass(cm, flags)
     expected = EnzymeRates.AllostericMechanism.([
         (@allosteric_mechanism begin      # Q@E
             substrates: A, B

@@ -1,17 +1,18 @@
-# ABOUTME: Tests of the unit rule (src/normalize.jl) and the printed laws (src/print.jl):
+# ABOUTME: Tests of the unit rule and printed laws (src/Derivation/normalize.jl, print.jl):
 # ABOUTME: each rule's normalizer, both printed forms against the law, names, MWC lines.
 
 # The unit rule's normalizer of the plain mechanism `m`'s law, the law and the concrete
 # mechanism.
 function _testhelper_normalizer(m)
     mech = _testhelper_lift(m)
-    L = EnzymeRates._law(mech)
-    EnzymeRates._normalizer(L.D, L.vars, EnzymeRates._substrate_vars(mech, L.vars)), L, mech
+    L = EnzymeRates.Derivation._law(mech)
+    EnzymeRates.Derivation._normalizer(
+        L.D, L.vars, EnzymeRates.Derivation._substrate_vars(mech, L.vars)), L, mech
 end
 
 # The concentration monomial of law `L` with the exponents `x => e`.
 _testhelper_conc_mono(L, ps::Pair{Symbol}...) =
-    EnzymeRates._monomial((L.vars.index[x] => e for (x, e) in ps)...)
+    EnzymeRates.Derivation._monomial((L.vars.index[x] => e for (x, e) in ps)...)
 
 # The right-hand side of the `N = …` line of mechanism `m`'s printed law.
 _testhelper_n_text(m) =
@@ -58,7 +59,7 @@ end
     end
     nz, L, mech = _testhelper_normalizer(mm)
     @test nz.rule === :constant
-    @test nz.lambda == [EnzymeRates._Mono() => 1 // 1]
+    @test nz.lambda == [EnzymeRates.Derivation._Mono() => 1 // 1]
     _testhelper_check_units(mech, L)
 end
 
@@ -139,11 +140,13 @@ end
 @testset "_term_key puts A² before A·B" begin
     # A² and A·B are both degree 2 with no non-substrate; the exponent vector puts the
     # earlier name's larger exponent first, so the graded basis meets A² first.
-    vars = EnzymeRates._Vars()
-    a = EnzymeRates._var!(vars, :A; conc = true)
-    b = EnzymeRates._var!(vars, :B; conc = true)
-    ab, a2 = EnzymeRates._monomial(a => 1, b => 1), EnzymeRates._monomial(a => 2)
-    @test sort([ab, a2]; by = mo -> EnzymeRates._term_key(mo, vars, [a, b])) == [a2, ab]
+    vars = EnzymeRates.Derivation._Vars()
+    a = EnzymeRates.Derivation._var!(vars, :A; conc = true)
+    b = EnzymeRates.Derivation._var!(vars, :B; conc = true)
+    ab, a2 = EnzymeRates.Derivation._monomial(a => 1, b => 1),
+        EnzymeRates.Derivation._monomial(a => 2)
+    @test sort([ab, a2]; by = mo -> EnzymeRates.Derivation._term_key(mo, vars, [a, b])) ==
+          [a2, ab]
 end
 
 @testset "F1 takes no normalizer" begin
@@ -271,11 +274,11 @@ end
         end
     end)
     for (i, am) in enumerate((pp2, tc))
-        s = EnzymeRates._solve(am)
-        A = EnzymeRates._law(am, s)
-        subs = EnzymeRates._substrate_vars(am, A.vars)
-        nA = EnzymeRates._normalizer(A.active.D, A.active.vars, subs)
-        nI = EnzymeRates._normalizer(A.inactive.D, A.inactive.vars, subs)
+        s = EnzymeRates.Derivation._solve(am)
+        A = EnzymeRates.Derivation._law(am, s)
+        subs = EnzymeRates.Derivation._substrate_vars(am, A.vars)
+        nA = EnzymeRates.Derivation._normalizer(A.active.D, A.active.vars, subs)
+        nI = EnzymeRates.Derivation._normalizer(A.inactive.D, A.inactive.vars, subs)
         m(ps...) = _testhelper_conc_mono(A.active, ps...)
         if i == 1
             cleland = [m(:B => 1) => 1 // 1, m(:A => 1) => 1 // 1,
@@ -285,7 +288,7 @@ end
         else
             @test (nA.rule, nI.rule) == (:none, :constant)
             @test isempty(nA.lambda)
-            @test nI.lambda == [EnzymeRates._Mono() => 1 // 1]
+            @test nI.lambda == [EnzymeRates.Derivation._Mono() => 1 // 1]
         end
         _testhelper_check_units(am, A)
         # The normalized polynomials in the MWC combination give the law. That holds for
@@ -315,7 +318,8 @@ end
     for spec in MECHANISM_TEST_SPECS
         @testset "$(spec.name)" begin
             am = _testhelper_lift(_testhelper_single_subunit(spec.mechanism))
-            _testhelper_check_units(am, EnzymeRates._law(am, EnzymeRates._solve(am)))
+            _testhelper_check_units(
+                am, EnzymeRates.Derivation._law(am, EnzymeRates.Derivation._solve(am)))
         end
     end
 end
@@ -563,10 +567,11 @@ end
         regulatory_site(2): R::NonequalAI
     end
     am = _testhelper_lift(pp)
-    law = EnzymeRates._law(am, EnzymeRates._solve(am))
-    subs = EnzymeRates._substrate_vars(am, law.vars)
-    @test (EnzymeRates._normalizer(law.active.D, law.active.vars, subs).rule,
-           EnzymeRates._normalizer(law.inactive.D, law.inactive.vars, subs).rule) ==
+    law = EnzymeRates.Derivation._law(am, EnzymeRates.Derivation._solve(am))
+    subs = EnzymeRates.Derivation._substrate_vars(am, law.vars)
+    @test (
+        EnzymeRates.Derivation._normalizer(law.active.D, law.active.vars, subs).rule,
+        EnzymeRates.Derivation._normalizer(law.inactive.D, law.inactive.vars, subs).rule) ==
           (:cleland, :none)
     full = split(rate_equation_string(pp), '\n')
     coef = split(rate_equation_string(pp; coefficients = true), '\n')
@@ -633,14 +638,15 @@ end
         @test d_i_coefficient in split(coef, '\n')
         am = _testhelper_lift(m)
         cm = EnzymeRates.Mechanisms.catalytic(am)
-        onlyi = [String(x) for (k, ns) in enumerate(EnzymeRates._edge_names(am, :I))
-                 if EnzymeRates.Mechanisms.cat_allo_state(am, cm.group[k]) === :OnlyI
-                 for x in ns]
+        onlyi =
+            [String(x) for (k, ns) in enumerate(EnzymeRates.Derivation._edge_names(am, :I))
+             if EnzymeRates.Mechanisms.cat_allo_state(am, cm.group[k]) === :OnlyI
+             for x in ns]
         d_a = only(l for l in split(full, '\n') if startswith(l, "D_A = "))
         @test !isempty(onlyi)
         @test !any(x -> occursin(x, d_a), onlyi)
         @test any(x -> occursin(x, d_i), onlyi)
-        s = EnzymeRates._solve(am)
+        s = EnzymeRates.Derivation._solve(am)
         rng = Random.MersenneTwister(500 + i)
         for _ in 1:2
             point, concs, params = _testhelper_law_inputs(am, s.fitted, rng)

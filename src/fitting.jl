@@ -184,7 +184,7 @@ loss (a uniform sentinel would cancel under mean-subtraction).
 """
 function loss!(x::AbstractVector, fp::FittingProblem)
     buf = fp.log_ratios_buffer
-    ParamNames = fitted_params(fp.mechanism)
+    ParamNames = Derivation.fitted_params(fp.mechanism)
     MetNames = Mechanisms.metabolites(fp.mechanism)
     N = length(ParamNames)
     K = length(MetNames)
@@ -201,7 +201,7 @@ function loss!(x::AbstractVector, fp::FittingProblem)
         concs = NamedTuple{MetNames}(ntuple(
             j -> getproperty(fp.data, MetNames[j])[i], Val(K),
         ))
-        pred = rate_equation(fp.mechanism, concs, params)
+        pred = Derivation.rate_equation(fp.mechanism, concs, params)
         meas_sign = sign(fp.data.Rate[i])
         if sign(pred) != meas_sign
             buf[i] = 10.0
@@ -316,14 +316,14 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     abstol::Union{Real,Nothing}=nothing,
     reltol::Union{Real,Nothing}=nothing,
     callback=nothing,
-    lb=fill(-15.0, length(fitted_params(fp.mechanism))),
-    ub=fill(15.0, length(fitted_params(fp.mechanism))),
+    lb=fill(-15.0, length(Derivation.fitted_params(fp.mechanism))),
+    ub=fill(15.0, length(Derivation.fitted_params(fp.mechanism))),
     solver_kwargs=(;),
 )
     # `fp` is @nospecialize, so `fitted_params(fp.mechanism)` infers as `Any`; asserting a
     # tuple of Symbols lets `np` infer as an `Int` and the NamedTuple built from the names
     # as a `NamedTuple`.
-    pnames = fitted_params(fp.mechanism)::Tuple{Vararg{Symbol}}
+    pnames = Derivation.fitted_params(fp.mechanism)::Tuple{Vararg{Symbol}}
     np = length(pnames)
 
     # Common solver options: maxtime/maxiters always forwarded; the optional
@@ -374,7 +374,7 @@ constants alone.
 """
 function _scale_rate_constants(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism),
                                params::NamedTuple, s::Real)
-    rate_constants = _ss_rate_constant_names(m)
+    rate_constants = Derivation._ss_rate_constant_names(m)
     NamedTuple{keys(params)}(map((k, v) -> k in rate_constants ? v * s : v,
                                  keys(params), values(params)))
 end
@@ -439,7 +439,7 @@ function _anchor_log_ratios(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism)
     turnover_params = merge(params, (E_total = 1.0,))
     log_ratios = Float64[]
     for (concs, measured) in anchors
-        predicted = rate_equation(m,
+        predicted = Derivation.rate_equation(m,
             NamedTuple{mets}(Tuple(Float64(get(concs, k, 0.0)) for k in mets)),
             turnover_params)
         isfinite(predicted) && predicted != 0 && sign(predicted) == sign(measured) ||

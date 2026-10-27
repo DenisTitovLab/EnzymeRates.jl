@@ -36,7 +36,8 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         # Every step at rapid equilibrium closes a fast cycle that turns the reaction
         # over (class 2); the parse is the subject, so the constructor builds it
         # unchecked.
-        @test EnzymeRates._guard(mech).fault === EnzymeRates._RE_TURNOVER
+        @test EnzymeRates.Derivation._guard(mech).fault ===
+              EnzymeRates.Derivation._RE_TURNOVER
         @test EnzymeRates.Mechanisms.ngroups(mech) == 3
         # Steps are canonicalized; pick each by content, not position.
         # E + S ⇌ E(S)

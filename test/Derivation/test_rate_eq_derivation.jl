@@ -3,7 +3,7 @@
 
 using OrdinaryDiffEqFIRK
 
-include("reference/allosteric_undefvar_reproducers.jl")
+include("../reference/allosteric_undefvar_reproducers.jl")
 
 const ER = EnzymeRates
 
@@ -682,7 +682,7 @@ function _testhelper_test_rescaling(spec::_testhelper_MechanismTestSpec; seed=10
         @test isfinite(v_orig) && v_orig != 0
 
         # Scaling every steady-state rate constant by α scales every rate by α.
-        ss_names = EnzymeRates._ss_rate_constant_names(m)
+        ss_names = EnzymeRates.Derivation._ss_rate_constant_names(m)
         α = 0.1 + 9.9 * rand(rng)
         scaled_params = NamedTuple{keys(params)}(Tuple(
             k in ss_names ? v * α : v
@@ -930,10 +930,10 @@ end
         end
     end
     m = EnzymeRates.Mechanism(em)
-    s = EnzymeRates._solve(m)
-    L = EnzymeRates._law(m, s)
-    @test L.trees[1] * L.shift ==
-          EnzymeRates._term(EnzymeRates._monomial(L.vars.index[:B] => 1))
+    s = EnzymeRates.Derivation._solve(m)
+    L = EnzymeRates.Derivation._law(m, s)
+    @test L.trees[1] * L.shift == EnzymeRates.Derivation._term(
+        EnzymeRates.Derivation._monomial(L.vars.index[:B] => 1))
     # Free E's weight over the denominator is its steady-state share of the enzyme.
     point, concs, params = _testhelper_law_inputs(m, s.fitted, Random.MersenneTwister(8))
     env = merge(params, concs)
@@ -1186,7 +1186,7 @@ end
     # RE-speed oracle sees as a pattern, as it does the split at zero Lactate. The
     # reproducer takes the fix the message prints, that step steady-state, which passes
     # every face and keeps the steady-state speed k_I_E_NAD_to_ENAD dependent.
-    NO = EnzymeRates._NO_FAULT
+    NO = EnzymeRates.Derivation._NO_FAULT
     trap = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: NADH, Pyruvate
         products: Lactate, NAD
@@ -1207,17 +1207,17 @@ end
             E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate) :: EqualAI
         end
     end
-    v = EnzymeRates._guard(trap)
+    v = EnzymeRates.Derivation._guard(trap)
     @test (v.fault, v.limit, v.face) ==
-          (EnzymeRates._TRAP, EnzymeRates._LIMIT_SPEED, 2)
+          (EnzymeRates.Derivation._TRAP, EnzymeRates.Derivation._LIMIT_SPEED, 2)
     @test EnzymeRates.Mechanisms._step_text(trap.catalytic, v.edge) ==
           "E(NAD) + Lactate ⇌ E(Lactate, NAD)"
     @test _testhelper_admission_faults(trap) ==
-          [NO, EnzymeRates._TRAP, NO, NO, NO, EnzymeRates._SPLIT, NO]
+          [NO, EnzymeRates.Derivation._TRAP, NO, NO, NO, EnzymeRates.Derivation._SPLIT, NO]
     @test _testhelper_respeed_verdicts(trap; rng = Random.MersenneTwister(1),
                                        law = :limit) ==
           [:agree, :pattern, :agree, :agree, :agree, :pattern, :agree]
-    msg = EnzymeRates._guard_message(trap, v)
+    msg = EnzymeRates.Derivation._guard_message(trap, v)
     @test_throws ErrorException(msg) @allosteric_mechanism begin
         substrates: NADH, Pyruvate
         products: Lactate, NAD
@@ -1286,7 +1286,8 @@ end
 # ── Standalone tests ───────────────────────────────────────────────────────────
 
 """The body of the generated `rate_equation` of `m`, as the generator builds it."""
-_testhelper_rate_body(m) = ER._rate_body(ER._derivation_input(typeof(m)))
+_testhelper_rate_body(m) =
+    ER.Derivation._rate_body(ER.Derivation._derivation_input(typeof(m)))
 
 """Each local the generated `rate_equation` body of `m` binds, in order, with its
 right-hand side."""
@@ -1342,9 +1343,10 @@ const _testhelper_seconds_per_denominator_term = 0.8e-9
 substituted: an MWC law counts both conformations, an inactive conformation that is free E
 alone counting 1."""
 function _testhelper_denominator_terms(m)
-    L = EnzymeRates._law(_testhelper_lift(m))
-    L isa EnzymeRates._Law && return EnzymeRates._nterms(L.D)
-    EnzymeRates._nterms(L.active.D) + EnzymeRates._nterms(L.inactive.D)
+    L = EnzymeRates.Derivation._law(_testhelper_lift(m))
+    L isa EnzymeRates.Derivation._Law && return EnzymeRates.Derivation._nterms(L.D)
+    EnzymeRates.Derivation._nterms(L.active.D) +
+        EnzymeRates.Derivation._nterms(L.inactive.D)
 end
 
 @testset "rate_equation time per call grows at most in proportion to the law's size" begin
@@ -1458,7 +1460,7 @@ end
         end
     end
     mech = _testhelper_lift(m)
-    @test any(d -> denominator(d.keq) == 3, EnzymeRates._solve(mech).dependents)
+    @test any(d -> denominator(d.keq) == 3, EnzymeRates.Derivation._solve(mech).dependents)
     roots = [(name, rhs) for (name, rhs) in _testhelper_body_locals(m)
              if occursin(r"^x\d+[mp]3$", String(name))]
     @test !isempty(roots)
@@ -1500,18 +1502,20 @@ end
     # Wegscheider one, each a product of several constants.
     m = _testhelper_lift(only(s for s in MECHANISM_TEST_SPECS
                               if s.name == "Random-order Bi-Bi").mechanism)
-    s = EnzymeRates._solve(m)
-    L = EnzymeRates._law(m, s)
-    p = EnzymeRates._program(m, s, L)
+    s = EnzymeRates.Derivation._solve(m)
+    L = EnzymeRates.Derivation._law(m, s)
+    p = EnzymeRates.Derivation._program(m, s, L)
     @test issorted([d.col for d in s.dependents])
     function _testhelper_power(d, s, L)
-        EnzymeRates._monomial(L.vars.index[:Keq] => d.keq,
-                              (L.vars.index[s.names[f]] => e for (f, e) in d.factors)...)
+        EnzymeRates.Derivation._monomial(
+            L.vars.index[:Keq] => d.keq,
+            (L.vars.index[s.names[f]] => e for (f, e) in d.factors)...)
     end
     products = unique!([_testhelper_power(d, s, L) for d in s.dependents
                         if length(_testhelper_power(d, s, L)) >= 2])
     @test length(s.dependents) == length(products) == 2
-    @test [q for (_, q) in p.defs[1:length(products)]] == EnzymeRates._term.(products)
+    @test [q for (_, q) in p.defs[1:length(products)]] ==
+          EnzymeRates.Derivation._term.(products)
     # The labels fixture of "_solve labels kinetic-group, Haldane and Wegscheider
     # dependents" (test_joint_solve.jl): a kinetic-group dependent and a Wegscheider one
     # that each equal one constant, read directly, and a Haldane product, the program's
@@ -1527,13 +1531,14 @@ end
             E(P) ⇌ E + P
         end
     end)
-    sf = EnzymeRates._solve(folded)
-    Lf = EnzymeRates._law(folded, sf)
-    pf = EnzymeRates._program(folded, sf, Lf)
+    sf = EnzymeRates.Derivation._solve(folded)
+    Lf = EnzymeRates.Derivation._law(folded, sf)
+    pf = EnzymeRates.Derivation._program(folded, sf, Lf)
     @test [d.label for d in sf.dependents] == [:haldane, :kinetic_group, :wegscheider]
     haldane = only(d for d in sf.dependents if d.label === :haldane)
-    @test first(pf.defs).second == EnzymeRates._term(_testhelper_power(haldane, sf, Lf))
-    @test count(d -> EnzymeRates._nterms(d.second) == 1, pf.defs) == 1
+    @test first(pf.defs).second ==
+          EnzymeRates.Derivation._term(_testhelper_power(haldane, sf, Lf))
+    @test count(d -> EnzymeRates.Derivation._nterms(d.second) == 1, pf.defs) == 1
 end
 
 @testset "the generated body is finite at zero concentrations" begin
@@ -1543,7 +1548,7 @@ end
     for spec in MECHANISM_TEST_SPECS
         @testset "$(spec.name)" begin
             m = spec.mechanism
-            L = EnzymeRates._law(_testhelper_lift(m))
+            L = EnzymeRates.Derivation._law(_testhelper_lift(m))
             rng = Random.MersenneTwister(778 + hash(spec.name) % 1000)
             params = _testhelper_random_independent_params(m; rng)
             mets = collect(metabolites(m))
@@ -1568,7 +1573,7 @@ end
     for name in ("PFK-1", "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites")
         @testset "$name" begin
             m = only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism
-            L = EnzymeRates._law(_testhelper_lift(m))
+            L = EnzymeRates.Derivation._law(_testhelper_lift(m))
             @test L.n == 4
             rng = Random.MersenneTwister(779 + hash(name) % 1000)
             setprecision(BigFloat, 256) do
@@ -1737,7 +1742,7 @@ end
     # SS-only Uni-Uni: 2 SS binding steps → kon/koff names are SS.
     uni_uni = only(s for s in MECHANISM_TEST_SPECS
                    if s.name == "Uni-Uni").mechanism
-    names = EnzymeRates._ss_rate_constant_names(uni_uni)
+    names = EnzymeRates.Derivation._ss_rate_constant_names(uni_uni)
     for sym in (:k_E_S_to_ES, :k_ES_to_E_S, :k_ES_to_E_P, :k_E_P_to_ES)
         @test sym in names
     end
@@ -1746,7 +1751,7 @@ end
     # SS k's are returned; RE binding K is excluded.
     re_uu = only(s for s in MECHANISM_TEST_SPECS
                  if s.name == "RE Uni-Uni").mechanism
-    re_uu_names = EnzymeRates._ss_rate_constant_names(re_uu)
+    re_uu_names = EnzymeRates.Derivation._ss_rate_constant_names(re_uu)
     @test :k_EA_to_E_P in re_uu_names && :k_E_P_to_EA in re_uu_names
     for sym in (:K_EA_to_E_A, :Keq, :L, :E_total)
         @test !(sym in re_uu_names)
@@ -1756,7 +1761,7 @@ end
     # included so `rescale_parameter_values` scales them in tandem.
     mwc = only(s for s in MECHANISM_TEST_SPECS
                if s.name == "MWC Dimer [AllostericEnzymeMechanism]").mechanism
-    mwc_names = EnzymeRates._ss_rate_constant_names(mwc)
+    mwc_names = EnzymeRates.Derivation._ss_rate_constant_names(mwc)
     for sym in (:k_A_ES_to_EP, :k_A_EP_to_ES, :k_I_ES_to_EP, :k_I_EP_to_ES)
         @test sym in mwc_names
     end
@@ -1945,7 +1950,7 @@ end
             E(P1) <--> E + P1
         end
     end
-    @test EnzymeRates._eq_complexity(raw(ordered_bibi)) == 25
+    @test EnzymeRates.Derivation._eq_complexity(raw(ordered_bibi)) == 25
 
     random_bibi = @enzyme_mechanism begin
         substrates: S1, S2
@@ -1962,7 +1967,7 @@ end
             E(P2) <--> E + P2
         end
     end
-    @test EnzymeRates._eq_complexity(raw(random_bibi)) == 336
+    @test EnzymeRates.Derivation._eq_complexity(raw(random_bibi)) == 336
 
     ordered_terter = @enzyme_mechanism begin
         substrates: S1, S2, S3
@@ -1977,7 +1982,7 @@ end
             E(P1) <--> E + P1
         end
     end
-    @test EnzymeRates._eq_complexity(raw(ordered_terter)) == 49
+    @test EnzymeRates.Derivation._eq_complexity(raw(ordered_terter)) == 49
 
     # Allosteric: both conformations count. An all-SS uni-uni has G = 3 segments and
     # τ = 3 spanning trees, 9, and its inactive conformation keeps every step: 9 more.
@@ -1998,7 +2003,7 @@ end
                                            EnzymeRates.Mechanisms._active_mask(am)) == 9
     @test _testhelper_laplacian_tree_count(am.catalytic,
                                            EnzymeRates.Mechanisms._inactive_mask(am)) == 9
-    @test EnzymeRates._eq_complexity(am) == 18
+    @test EnzymeRates.Derivation._eq_complexity(am) == 18
 end
 
 @testset "Rate equation too large error" begin
@@ -2243,7 +2248,7 @@ end
     @test_throws clash_a rate_equation(conformation_a, (b = 1.0, Eb = 0.1), params)
     @test_throws clash_a rate_equation_string(conformation_a)
     @test_throws clash_a all_parameters(conformation_a, params)
-    @test_throws clash_a EnzymeRates._independent_param_count(am_a)
+    @test_throws clash_a EnzymeRates.Derivation._independent_param_count(am_a)
 
     # Labelled I, the :EqualAI uptake constant k_I_Eb_to_IEb is the name of the
     # :NonequalAI step's inactive constant.
@@ -2508,7 +2513,7 @@ end
 @testset "Parameter-struct allosteric helpers" begin
     @testset "_edge_names and _kreg_params" begin
         names_of(am, params) = [EnzymeRates.Mechanisms.name(p, am) for p in params]
-        flat_names(am, state) = reduce(vcat, EnzymeRates._edge_names(am, state))
+        flat_names(am, state) = reduce(vcat, EnzymeRates.Derivation._edge_names(am, state))
         # :NonequalAI cat groups + :NonequalAI reg ligand → both conformations named.
         aem = @allosteric_mechanism begin
             substrates: S
@@ -2548,7 +2553,7 @@ end
             regulatory_site(1): R::OnlyA
         end
         am_skip = EnzymeRates.AllostericMechanism(aem_skip)
-        @test all(isempty, EnzymeRates._edge_names(am_skip, :I))
+        @test all(isempty, EnzymeRates.Derivation._edge_names(am_skip, :I))
         @test isempty(EnzymeRates.Mechanisms._kreg_params(am_skip, :I))
         @test names_of(am_skip, EnzymeRates.Mechanisms._kreg_params(am_skip, :A)) ==
               [:K_A_Rreg]

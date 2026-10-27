@@ -5,21 +5,22 @@
 
 """The polynomial Σ c·Π x^e of `terms`, each `c => [x => e, …]`, its variables looked up
 by name in `vars`."""
-_testhelper_poly(vars::EnzymeRates._Vars, terms) =
-    foldl(+, (EnzymeRates._term(EnzymeRates._monomial(
+_testhelper_poly(vars::EnzymeRates.Derivation._Vars, terms) =
+    foldl(+, (EnzymeRates.Derivation._term(EnzymeRates.Derivation._monomial(
                   (vars.index[x] => e for (x, e) in xs)...), c) for (c, xs) in terms);
-          init = zero(EnzymeRates._Poly))
+          init = zero(EnzymeRates.Derivation._Poly))
 
 """A plain law over the concentrations `concs`, the constants `constants` and `:Keq`,
 with `H`, `Q` and `D` written as `_testhelper_poly` terms; the key reads no other field."""
 function _testhelper_toy_law(concs, constants, H, Q, D)
-    vars = EnzymeRates._Vars()
-    foreach(x -> EnzymeRates._var!(vars, x; conc = true), concs)
-    foreach(x -> EnzymeRates._var!(vars, x), constants)
-    EnzymeRates._var!(vars, :Keq)
+    vars = EnzymeRates.Derivation._Vars()
+    foreach(x -> EnzymeRates.Derivation._var!(vars, x; conc = true), concs)
+    foreach(x -> EnzymeRates.Derivation._var!(vars, x), constants)
+    EnzymeRates.Derivation._var!(vars, :Keq)
     p(ts) = _testhelper_poly(vars, ts)
-    EnzymeRates._Law(vars, p(H), p(Q), p(D), [p(D)], [one(EnzymeRates._Poly)],
-                     EnzymeRates._Mono())
+    EnzymeRates.Derivation._Law(vars, p(H), p(Q), p(D), [p(D)],
+                                [one(EnzymeRates.Derivation._Poly)],
+                                EnzymeRates.Derivation._Mono())
 end
 
 """Reversible Michaelis–Menten over the constants `k1`, `k2`, `k3`, `k4` (and `extra`,
@@ -54,9 +55,9 @@ const _testhelper_cycle6 = [(:p1, :p2), (:p2, :p3), (:p3, :p4), (:p4, :p5), (:p5
                             (:p6, :p1)]
 
 @testset "renaming fitted constants keeps the key and gives the induced order" begin
-    a = EnzymeRates._canonical(_testhelper_mm_law(:a, :b, :c, :d), "toy")
-    b = EnzymeRates._canonical(_testhelper_mm_law(:w, :x, :y, :z), "toy")
-    c = EnzymeRates._canonical(_testhelper_mm_law(:z, :y, :x, :w), "toy")
+    a = EnzymeRates.Derivation._canonical(_testhelper_mm_law(:a, :b, :c, :d), "toy")
+    b = EnzymeRates.Derivation._canonical(_testhelper_mm_law(:w, :x, :y, :z), "toy")
+    c = EnzymeRates.Derivation._canonical(_testhelper_mm_law(:z, :y, :x, :w), "toy")
     @test a.key == b.key == c.key
     @test length(a.key) == 64 && all(in("0123456789abcdef"), a.key)
     @test Dict(zip(a.order, c.order)) == Dict(:a => :z, :b => :y, :c => :x, :d => :w)
@@ -66,10 +67,10 @@ const _testhelper_cycle6 = [(:p1, :p2), (:p2, :p3), (:p3, :p4), (:p4, :p5), (:p5
     for L in (_testhelper_mm_law(:a, :b, :c, :d), _testhelper_pairs_law(:a, :b, :c, :d),
               _testhelper_graph_law(_testhelper_cycle6))
         names = filter(!=(:Keq), L.vars.names[.!L.vars.conc])
-        cL = EnzymeRates._canonical(L, "toy")
+        cL = EnzymeRates.Derivation._canonical(L, "toy")
         for _ in 1:3
             R = _testhelper_renamed_law(L, Dict(zip(names, shuffle(rng, names))))
-            cR = EnzymeRates._canonical(R, "toy")
+            cR = EnzymeRates.Derivation._canonical(R, "toy")
             @test cR.key == cL.key
             @test _testhelper_same_law_under_map(L, R, cL.order, cR.order; rng)
         end
@@ -78,7 +79,7 @@ const _testhelper_cycle6 = [(:p1, :p2), (:p2, :p3), (:p3, :p4), (:p4, :p5), (:p5
     swapped = _testhelper_toy_law([:A, :P], [:a, :b, :c, :d],
         [1 => [:A => 1], -1 => [:P => 1, :Keq => -1]], [1 => [:a => 1, :b => 1]],
         [1 => [:c => 1], 1 => [:b => 1], 1 => [:b => 1, :A => 1], 1 => [:d => 1, :P => 1]])
-    @test EnzymeRates._canonical(swapped, "toy").key != a.key
+    @test EnzymeRates.Derivation._canonical(swapped, "toy").key != a.key
 end
 
 @testset "the key brings each unit to lowest terms" begin
@@ -86,13 +87,13 @@ end
     # stay the same.
     base = _testhelper_mm_law(:a, :b, :c, :d)
     v = base.vars
-    m = EnzymeRates._monomial(v.index[:a] => -2, v.index[:A] => 1)
-    scaled = EnzymeRates._Law(v, EnzymeRates._scale(base.H, 2),
-                              EnzymeRates._scale(base.Q * m, 3),
-                              EnzymeRates._scale(base.D * m, 3), base.sigma, base.trees,
-                              base.shift)
-    @test EnzymeRates._canonical(scaled, "toy").key ==
-          EnzymeRates._canonical(base, "toy").key
+    m = EnzymeRates.Derivation._monomial(v.index[:a] => -2, v.index[:A] => 1)
+    scaled = EnzymeRates.Derivation._Law(v, EnzymeRates.Derivation._scale(base.H, 2),
+                                         EnzymeRates.Derivation._scale(base.Q * m, 3),
+                                         EnzymeRates.Derivation._scale(base.D * m, 3),
+                                         base.sigma, base.trees, base.shift)
+    @test EnzymeRates.Derivation._canonical(scaled, "toy").key ==
+          EnzymeRates.Derivation._canonical(base, "toy").key
 end
 
 @testset "the key brings each MWC unit to lowest terms" begin
@@ -104,27 +105,27 @@ end
     for (name, nsites) in ("MWC Dimer [AllostericEnzymeMechanism]" => 0,
                            "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites" => 2)
         @testset "$name" begin
-            A = EnzymeRates._law(_testhelper_lift(
+            A = EnzymeRates.Derivation._law(_testhelper_lift(
                 only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism))
             v = A.vars
             c = findfirst(v.conc)
             k = findfirst(i -> !v.conc[i] && v.names[i] ∉ (:Keq, :L), eachindex(v.names))
-            ma = EnzymeRates._monomial(k => -2, c => 1)
-            mi = EnzymeRates._monomial(k => 1)
-            ms = [EnzymeRates._monomial(c => i + 1) for i in 1:2]
+            ma = EnzymeRates.Derivation._monomial(k => -2, c => 1)
+            mi = EnzymeRates.Derivation._monomial(k => 1)
+            ms = [EnzymeRates.Derivation._monomial(c => i + 1) for i in 1:2]
             ns = (7, 11)
-            sc(p, mo, n) = EnzymeRates._scale(p * mo, n)
-            key(L) = EnzymeRates._canonical(L, "x").key
-            function _testhelper_scaled_conformation(C::EnzymeRates._Law, mo, n)
-                EnzymeRates._Law(C.vars, C.H, sc(C.Q, mo, n), sc(C.D, mo, n), C.sigma,
-                                 C.trees, C.shift)
+            sc(p, mo, n) = EnzymeRates.Derivation._scale(p * mo, n)
+            key(L) = EnzymeRates.Derivation._canonical(L, "x").key
+            function _testhelper_scaled_conformation(C::EnzymeRates.Derivation._Law, mo, n)
+                EnzymeRates.Derivation._Law(C.vars, C.H, sc(C.Q, mo, n), sc(C.D, mo, n),
+                                            C.sigma, C.trees, C.shift)
             end
             function _testhelper_mwc(; H = A.H, active = A.active, inactive = A.inactive,
                                      fA = A.fA, fI = A.fI, sites = A.sites)
-                EnzymeRates._AlloLaw(v, H, active, inactive, fA, fI, sites, A.n)
+                EnzymeRates.Derivation._AlloLaw(v, H, active, inactive, fA, fI, sites, A.n)
             end
             scaled = _testhelper_mwc(;
-                H = EnzymeRates._scale(A.H, 2),
+                H = EnzymeRates.Derivation._scale(A.H, 2),
                 active = _testhelper_scaled_conformation(A.active, ma, 3),
                 inactive = _testhelper_scaled_conformation(A.inactive, mi, 5),
                 fA = sc(A.fA, ma, 3), fI = sc(A.fI, mi, 5),
@@ -150,10 +151,10 @@ end
 @testset "symmetric constants take 4 leaves and one key" begin
     # a and b tie, and c and d: two branches for each pair, four labellings in all.
     s = _testhelper_pairs_law(:a, :b, :c, :d)
-    cs = EnzymeRates._canonical(s, "toy")
+    cs = EnzymeRates.Derivation._canonical(s, "toy")
     @test cs.leaves == 4 && !cs.capped
     s2 = _testhelper_renamed_law(s, Dict(:a => :d, :b => :a, :c => :c, :d => :b))
-    c2 = EnzymeRates._canonical(s2, "toy")
+    c2 = EnzymeRates.Derivation._canonical(s2, "toy")
     @test c2.key == cs.key
     @test _testhelper_same_law_under_map(s, s2, cs.order, c2.order;
                                          rng = Random.MersenneTwister(95))
@@ -165,19 +166,20 @@ end
     cycle = _testhelper_graph_law(_testhelper_cycle6)
     triangles = _testhelper_graph_law([(:p1, :p2), (:p2, :p3), (:p3, :p1), (:p4, :p5),
                                        (:p5, :p6), (:p6, :p4)])
-    k6 = EnzymeRates._canonical(cycle, "toy")
-    k33 = EnzymeRates._canonical(triangles, "toy")
+    k6 = EnzymeRates.Derivation._canonical(cycle, "toy")
+    k33 = EnzymeRates.Derivation._canonical(triangles, "toy")
     @test k6.key != k33.key
     @test k6.leaves > 1 && k33.leaves > 1 && !k6.capped && !k33.capped
     names = [:p1, :p2, :p3, :p4, :p5, :p6]
     rename = Dict(zip(names, shuffle(Random.MersenneTwister(96), names)))
-    @test EnzymeRates._canonical(_testhelper_renamed_law(cycle, rename), "toy").key ==
-          k6.key
+    @test EnzymeRates.Derivation._canonical(
+        _testhelper_renamed_law(cycle, rename), "toy").key == k6.key
 end
 
 @testset "an extra declared constant changes the key" begin
-    plain = EnzymeRates._canonical(_testhelper_mm_law(:a, :b, :c, :d), "toy")
-    extra = EnzymeRates._canonical(_testhelper_mm_law(:a, :b, :c, :d; extra = [:e]), "toy")
+    plain = EnzymeRates.Derivation._canonical(_testhelper_mm_law(:a, :b, :c, :d), "toy")
+    extra = EnzymeRates.Derivation._canonical(
+        _testhelper_mm_law(:a, :b, :c, :d; extra = [:e]), "toy")
     @test extra.key != plain.key
     @test extra.order[end] === :e
     @test occursin("|P=5|absent=1", extra.text) && occursin("|P=4|absent=0", plain.text)
@@ -186,7 +188,8 @@ end
 @testset "which metabolite binds changes the key" begin
     # Concentrations are labelled by name, so models that differ only in which inhibitor
     # or regulator binds, or where an inhibitor binds, get different keys.
-    key(m) = EnzymeRates._canonical(EnzymeRates._law(_testhelper_lift(m)), "attack").key
+    key(m) = EnzymeRates.Derivation._canonical(
+        EnzymeRates.Derivation._law(_testhelper_lift(m)), "attack").key
     uni_I = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -248,8 +251,8 @@ end
     # Nine constants that tie: the search stops at the cap, and the law takes the key of
     # its mechanism's id, so twins of it are fitted apart.
     id = "1234567e89012345"
-    c = EnzymeRates._canonical(_testhelper_nine_law(), id)
-    @test c.capped && c.leaves == EnzymeRates._KEY_LEAF_CAP == 100
+    c = EnzymeRates.Derivation._canonical(_testhelper_nine_law(), id)
+    @test c.capped && c.leaves == EnzymeRates.Derivation._KEY_LEAF_CAP == 100
     @test c.text == "mechanism|" * id
     @test c.key == bytes2hex(EnzymeRates.sha256("mechanism|" * id))
     @test c.order == [Symbol(:a, i) for i in 1:9]
@@ -271,7 +274,8 @@ end
     for (name, key) in pinned
         spec = only(s for s in MECHANISM_TEST_SPECS if s.name == name)
         m = _testhelper_lift(spec.mechanism)
-        @test EnzymeRates._canonical(EnzymeRates._law(m), "pin").key == key
+        @test EnzymeRates.Derivation._canonical(
+            EnzymeRates.Derivation._law(m), "pin").key == key
     end
 end
 
@@ -292,12 +296,12 @@ end
             E + P ⇌ E(P)       :: OnlyA
         end
     end)
-    A = EnzymeRates._law(am)
+    A = EnzymeRates.Derivation._law(am)
     θ = [A.vars.names[v] for v in eachindex(A.vars.names)
          if !A.vars.conc[v] && !(A.vars.names[v] in (:Keq, :L))]
     @test θ == [:K_A_EP_to_E_P, :k_A_E_S_to_EP]
-    @test EnzymeRates._phantom_weights(A) == [1 // 1, -1 // 1]
-    @test EnzymeRates._is_phantom(A)
+    @test EnzymeRates.Derivation._phantom_weights(A) == [1 // 1, -1 // 1]
+    @test EnzymeRates.Derivation._is_phantom(A)
     @test _testhelper_phantom_map_holds(am; rng = Random.MersenneTwister(21))
 end
 
@@ -320,12 +324,12 @@ end
             E + P ⇌ E(P)       :: EqualAI
         end
     end)
-    A = EnzymeRates._law(am)
-    @test EnzymeRates._is_phantom(A)
+    A = EnzymeRates.Derivation._law(am)
+    @test EnzymeRates.Derivation._is_phantom(A)
     θ = [A.vars.names[v] for v in eachindex(A.vars.names)
          if !A.vars.conc[v] && !(A.vars.names[v] in (:Keq, :L))]
     @test θ == [:K_EP_to_E_P, :K_ES_to_E_S, :k_A_ES_to_EP]
-    @test EnzymeRates._phantom_weights(A) == [0 // 1, 0 // 1, -1 // 1]
+    @test EnzymeRates.Derivation._phantom_weights(A) == [0 // 1, 0 // 1, -1 // 1]
     @test _testhelper_phantom_map_holds(am; rng = Random.MersenneTwister(22))
     s_relaxed = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
@@ -337,7 +341,7 @@ end
             E + P ⇌ E(P)       :: EqualAI
         end
     end)
-    @test !EnzymeRates._is_phantom(EnzymeRates._law(s_relaxed))
+    @test !EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(s_relaxed))
 end
 
 @testset "the certificate alone decides an L phantom" begin
@@ -395,10 +399,10 @@ end
         end
     end)
     for am in (two_subunits, p_relaxed, onlyi_site, onlya_site)
-        @test !EnzymeRates._is_phantom(EnzymeRates._law(am))
+        @test !EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(am))
     end
     @test !any(EnzymeRates.Mechanisms._inactive_mask(onlya_site))
-    @test EnzymeRates._is_phantom(EnzymeRates._law(only_a))
+    @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(only_a))
     @test any(EnzymeRates.Mechanisms._inactive_mask(only_a))
     @test _testhelper_phantom_map_holds(only_a; rng = Random.MersenneTwister(23))
 end
@@ -410,22 +414,27 @@ end
     # second weight's denominator leaves Int64, so the row reduction overflows and the
     # variant gets no certificate: identify fits it.
     function _testhelper_exponent_toy_law(p, q)
-        vars = EnzymeRates._Vars()
-        a = EnzymeRates._var!(vars, :A; conc = true)
-        k1, k2 = EnzymeRates._var!(vars, :k_one), EnzymeRates._var!(vars, :k_two)
-        EnzymeRates._var!(vars, :Keq)
-        EnzymeRates._var!(vars, :L)
-        t(ps...) = EnzymeRates._term(EnzymeRates._monomial(ps...))
-        D = one(EnzymeRates._Poly) + t(k1 => p, a => 1) + t(k1 => 1, k2 => q, a => 1)
-        LA = EnzymeRates._Law(vars, t(a => 1), t(k1 => p), D, [D],
-                              [one(EnzymeRates._Poly)], EnzymeRates._Mono())
-        EnzymeRates._AlloLaw(vars, t(a => 1), LA, EnzymeRates._flip_only_law(LA),
-                             one(EnzymeRates._Poly), one(EnzymeRates._Poly),
-                             Tuple{EnzymeRates._Poly, EnzymeRates._Poly, Int}[], 1)
+        vars = EnzymeRates.Derivation._Vars()
+        a = EnzymeRates.Derivation._var!(vars, :A; conc = true)
+        k1, k2 = EnzymeRates.Derivation._var!(vars, :k_one),
+            EnzymeRates.Derivation._var!(vars, :k_two)
+        EnzymeRates.Derivation._var!(vars, :Keq)
+        EnzymeRates.Derivation._var!(vars, :L)
+        t(ps...) = EnzymeRates.Derivation._term(EnzymeRates.Derivation._monomial(ps...))
+        D = one(EnzymeRates.Derivation._Poly) + t(k1 => p, a => 1) +
+            t(k1 => 1, k2 => q, a => 1)
+        LA = EnzymeRates.Derivation._Law(vars, t(a => 1), t(k1 => p), D, [D],
+                                         [one(EnzymeRates.Derivation._Poly)],
+                                         EnzymeRates.Derivation._Mono())
+        EnzymeRates.Derivation._AlloLaw(
+            vars, t(a => 1), LA, EnzymeRates.Derivation._flip_only_law(LA),
+            one(EnzymeRates.Derivation._Poly), one(EnzymeRates.Derivation._Poly),
+            Tuple{EnzymeRates.Derivation._Poly, EnzymeRates.Derivation._Poly, Int}[], 1)
     end
-    @test EnzymeRates._phantom_weights(_testhelper_exponent_toy_law(2, 3)) ==
+    @test EnzymeRates.Derivation._phantom_weights(_testhelper_exponent_toy_law(2, 3)) ==
           [-1 // 2, -1 // 6]
     p, q = 2^40 + 15, 2^40 + 3
     @test denominator(big(1 - p) // (big(p) * q)) > typemax(Int)
-    @test isempty(EnzymeRates._phantom_weights(_testhelper_exponent_toy_law(p, q)))
+    @test isempty(
+        EnzymeRates.Derivation._phantom_weights(_testhelper_exponent_toy_law(p, q)))
 end

@@ -15,9 +15,9 @@ random.
 function _testhelper_solve_point(m, rng)
     mech = _testhelper_lift(m)
     g = _testhelper_graph(mech)
-    sys = _testhelper_JS._joint_system(mech)
+    sys = _testhelper_JS.Derivation._joint_system(mech)
     edges = _testhelper_JS.Mechanisms._flat_edges(_testhelper_JS.Mechanisms.catalytic(mech))
-    M, pivots = _testhelper_JS._reduce_joint_system(sys.A, sys.rhs)
+    M, pivots = _testhelper_JS.Derivation._reduce_joint_system(sys.A, sys.rhs)
     n = length(sys.columns)
     x = zeros(BigFloat, n)
     free = setdiff(1:n, pivots)
@@ -73,7 +73,7 @@ end
 @testset "Joint thermodynamic solve" begin
     @testset "the priority key orders the columns" begin
         mech = EnzymeRates.Mechanism(_testhelper_mm_ss)
-        sys = EnzymeRates._joint_system(mech)
+        sys = EnzymeRates.Derivation._joint_system(mech)
         describe(c) = (_testhelper_edge_text(mech, c.edge), c.slot)
         # The isomerization goes first, its reverse rate (against the reaction) before
         # its forward one; then the two bindings' constants that run against the
@@ -84,7 +84,7 @@ end
                                          ("E + S <--> ES", 1), ("E + P <--> EP", 2)]
         # One Haldane row: the first column, the isomerization's reverse rate, is the
         # dependent one.
-        M, pivots = EnzymeRates._reduce_joint_system(sys.A, sys.rhs)
+        M, pivots = EnzymeRates.Derivation._reduce_joint_system(sys.A, sys.rhs)
         @test pivots == [1]
         @test M[1, end] == -1
     end
@@ -269,8 +269,8 @@ end
                 E(P) ⇌ E + P
             end
         end)
-        Z, multiples =
-            EnzymeRates._fundamental_cycles(m, EnzymeRates.Mechanisms._flat_edges(m))
+        Z, multiples = EnzymeRates.Derivation._fundamental_cycles(
+            m, EnzymeRates.Mechanisms._flat_edges(m))
         @test size(Z) == (2, 6)
         @test sort(abs.(multiples)) == [0, 1]
         # A cycle that turns A into P without B and Q is no multiple of the net reaction.
@@ -287,20 +287,20 @@ end
                 E(P) <--> E + P
             end
         end)
-        err = @test_throws ErrorException EnzymeRates._fundamental_cycles(
+        err = @test_throws ErrorException EnzymeRates.Derivation._fundamental_cycles(
             slip, EnzymeRates.Mechanisms._flat_edges(slip))
         @test occursin("produces metabolite change not proportional to net reaction",
                        err.value.msg)
     end
 
     @testset "the reduction runs in Int64 and retries in BigInt on overflow" begin
-        M, pivots = EnzymeRates._reduce_joint_system([1 -1; 1 1], [1, 0])
+        M, pivots = EnzymeRates.Derivation._reduce_joint_system([1 -1; 1 1], [1, 0])
         @test eltype(M) == Rational{Int} && pivots == [1, 2]
         A = [2^40 1; 3 2^40]
-        M, pivots = EnzymeRates._reduce_joint_system(A, [1, 0])
+        M, pivots = EnzymeRates.Derivation._reduce_joint_system(A, [1, 0])
         @test eltype(M) == Rational{BigInt} && pivots == [1, 2]
         @test Rational{BigInt}.(A) * M[:, 3] == [1, 0]
-        err = @test_throws ErrorException EnzymeRates._reduce_joint_system(
+        err = @test_throws ErrorException EnzymeRates.Derivation._reduce_joint_system(
             reshape([1, 1], 2, 1), [0, 1])
         @test occursin("Thermodynamically contradictory mechanism", err.value.msg)
     end
@@ -329,7 +329,7 @@ end
         # the member in the law is kept.
         @test _testhelper_edge_text(am, kept[(g, 1, false)]) == "EA + I ⇌ EAI"
         @test _testhelper_edge_text(am, kept[(g, 1, true)]) == "EP + I ⇌ EIP"
-        sys = EnzymeRates._joint_system(am)
+        sys = EnzymeRates.Derivation._joint_system(am)
         for (key, edge) in kept
             last_col = findlast(c -> c.slot == key[2] && c.inactive == key[3] &&
                                      group[c.edge] == key[1], sys.columns)
@@ -354,7 +354,7 @@ end
                 (E(A) + I ⇌ E(A, I), E(P) + I ⇌ E(I, P))          :: NonequalAI
             end
         end)
-        sys = EnzymeRates._joint_system(am)
+        sys = EnzymeRates.Derivation._joint_system(am)
         # The cycle once per conformation, then the second member of the :NonequalAI
         # group's active class and of its inactive class.
         @test size(sys.A) == (4, 13)
@@ -371,10 +371,11 @@ end
         for spec in MECHANISM_TEST_SPECS
             @testset "$(spec.name)" begin
                 mech = _testhelper_lift(spec.mechanism)
-                sys = EnzymeRates._joint_system(mech)
-                _, pivots = EnzymeRates._reduce_joint_system(sys.A, sys.rhs)
+                sys = EnzymeRates.Derivation._joint_system(mech)
+                _, pivots = EnzymeRates.Derivation._reduce_joint_system(sys.A, sys.rhs)
                 group = EnzymeRates.Mechanisms.catalytic(mech).group
-                class(c) = EnzymeRates._class(c, group[c.edge], sys.tags[group[c.edge]])
+                class(c) =
+                    EnzymeRates.Derivation._class(c, group[c.edge], sys.tags[group[c.edge]])
                 last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
                 n_law = count(i -> (c = sys.columns[i]; (!c.inactive || sys.law[c.edge]) &&
                                                         last_of[class(c)] == i &&
@@ -393,7 +394,7 @@ end
         for spec in MECHANISM_TEST_SPECS
             @testset "$(spec.name)" begin
                 mech = _testhelper_lift(spec.mechanism)
-                sys = EnzymeRates._joint_system(mech)
+                sys = EnzymeRates.Derivation._joint_system(mech)
                 # In elimination order the last column of a class overwrites the earlier
                 # ones. The inactive copy of an :OnlyA step is a class of its own, which
                 # `_kept_members` leaves out.
@@ -497,7 +498,7 @@ end
             F + S <--> E(S)
         end
     end)
-    s = EnzymeRates._solve(half)
+    s = EnzymeRates.Derivation._solve(half)
     @test issorted([d.col for d in s.dependents])
     @test sort([d.label for d in s.dependents]) ==
           [:haldane, :kinetic_group, :kinetic_group]
@@ -529,7 +530,7 @@ end
             E(P) ⇌ E + P
         end
     end)
-    s = EnzymeRates._solve(folded)
+    s = EnzymeRates.Derivation._solve(folded)
     described = [(s.names[d.col], d.label, d.keq, [s.names[f] => e for (f, e) in d.factors])
                  for d in s.dependents]
     @test described == [
@@ -555,7 +556,7 @@ end
             E(S) <--> E + P     :: NonequalAI
         end
     end)
-    s = EnzymeRates._solve(am)
+    s = EnzymeRates.Derivation._solve(am)
     C = EnzymeRates.Mechanisms._Column
     binding = _testhelper_edge(am, "E + S ⇌ ES")
     release = _testhelper_edge(am, "E + P <--> ES")
@@ -570,7 +571,8 @@ end
 
 @testset "_solve lists the fitted names in parameter order" begin
     for spec in MECHANISM_TEST_SPECS
-        @test Tuple(EnzymeRates._solve(_testhelper_lift(spec.mechanism)).fitted) ==
+        @test Tuple(
+            EnzymeRates.Derivation._solve(_testhelper_lift(spec.mechanism)).fitted) ==
               EnzymeRates.fitted_params(spec.mechanism)
     end
 end

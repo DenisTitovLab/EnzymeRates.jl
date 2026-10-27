@@ -118,10 +118,12 @@ end
     # free E's weight differs between the conformations (fA ≠ fI), needs a steady-state
     # :OnlyA binding and is covered by the metabolite-bearing-D :OnlyA gate below.
     am = ER.AllostericMechanism(onlyA)
-    A = ER._law(am)
-    @test A.active.trees[1] * A.active.shift == one(ER._Poly)       # single active segment
-    @test A.inactive.trees[1] * A.inactive.shift == one(ER._Poly)   # one inactive segment
-    @test A.fA == A.fI == one(ER._Poly)
+    A = ER.Derivation._law(am)
+    # single active segment
+    @test A.active.trees[1] * A.active.shift == one(ER.Derivation._Poly)
+    # one inactive segment
+    @test A.inactive.trees[1] * A.inactive.shift == one(ER.Derivation._Poly)
+    @test A.fA == A.fI == one(ER.Derivation._Poly)
 
     # Rescaling to a measured turnover stays consistent with rate_equation.
     prm = NamedTuple{(fp..., :Keq, :E_total)}((1.3, 0.9, 2.1, 0.7, 3.0, 1.0))
@@ -677,11 +679,12 @@ end
             E + Q ⇌ E(Q)                                          :: EqualAI
         end
     end
-    v = ER._guard(both)
-    @test v.fault === ER._ISLAND
+    v = ER.Derivation._guard(both)
+    @test v.fault === ER.Derivation._ISLAND
     @test _testhelper_epath_verdict(both; rng = MersenneTwister(663)) in
           (:direction_dependent, :wrong_limit)
-    @test_throws ErrorException(ER._guard_message(both, v)) @allosteric_mechanism begin
+    @test_throws ErrorException(
+        ER.Derivation._guard_message(both, v)) @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
         steps: begin
             E + A ⇌ E(A)                                          :: EqualAI
@@ -790,11 +793,12 @@ end
             E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
-    v = ER._guard(err1)
-    @test v.fault === ER._ISLAND
+    v = ER.Derivation._guard(err1)
+    @test v.fault === ER.Derivation._ISLAND
     @test _testhelper_epath_verdict(err1; rng = MersenneTwister(761)) in
           (:direction_dependent, :wrong_limit)
-    @test_throws ErrorException(ER._guard_message(err1, v)) @allosteric_mechanism begin
+    @test_throws ErrorException(
+        ER.Derivation._guard_message(err1, v)) @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         catalytic_multiplicity: 1
@@ -823,7 +827,7 @@ end
     _testhelper_check_law_against_oracle(half2)
     am = ER.AllostericMechanism(half2)
 
-    inactive = ER._law(am).inactive
+    inactive = ER.Derivation._law(am).inactive
     @test !iszero(inactive.trees[1] * inactive.shift)
 
     fp = ER.fitted_params(half2)
@@ -1061,9 +1065,9 @@ end
             E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
-    v = ER._guard(dead)
-    @test v.fault === ER._ISLAND
-    msg = ER._guard_message(dead, v)
+    v = ER.Derivation._guard(dead)
+    @test v.fault === ER.Derivation._ISLAND
+    msg = ER.Derivation._guard_message(dead, v)
     @test occursin("runs neither half-reaction of a ping-pong is not supported yet " *
                    "(see the Roadmap page)", msg)
     @test _testhelper_epath_verdict(dead; rng = MersenneTwister(997)) in

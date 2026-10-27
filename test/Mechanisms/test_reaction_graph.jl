@@ -902,7 +902,7 @@ end
     @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ", "EQ"]]
     @test s.segment_of == [1, 2, 2, 2, 1]
     @test s.offsets == [0 1 1 0 0; 0 0 1 1 0; 0 0 0 0 1]
-    @test names(ER._bottomless_segment(m, every, ER.Mechanisms._flags(m))) ==
+    @test names(ER.Derivation._bottomless_segment(m, every, ER.Mechanisms._flags(m))) ==
           ["EP", "EPQ", "EQ"]
     # Without the release of P from E(P, Q), E(Q) stands alone and E(P) is the bottom of
     # {E(P), E(P, Q)}.
@@ -910,7 +910,7 @@ end
     @test ER.Mechanisms._present_forms(m, no_p) == trues(5)
     s = ER.Mechanisms._segments(m, no_p, ER.Mechanisms._flags(m))
     @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ"], ["EQ"]]
-    @test isempty(ER._bottomless_segment(m, no_p, ER.Mechanisms._flags(m)))
+    @test isempty(ER.Derivation._bottomless_segment(m, no_p, ER.Mechanisms._flags(m)))
     # A mask keeps only the forms its edges touch; a form it leaves is in no segment.
     bindings = BitVector([1, 1, 0, 0, 0, 0])
     @test ER.Mechanisms._present_forms(m, bindings) == BitVector([1, 1, 0, 1, 0])

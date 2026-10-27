@@ -1783,7 +1783,7 @@ Return distinct metabolite names as a tuple of `Symbol`s: substrates, then produ
 then the names the steps bind as modifiers, each sorted by name, then the ligands of an
 allosteric mechanism's regulatory sites, site by site, without duplicates. The fitter
 uses this as the key set for the per-datapoint concentration `NamedTuple` passed to
-[`rate_equation`](@ref EnzymeRates.rate_equation).
+[`rate_equation`](@ref EnzymeRates.Derivation.rate_equation).
 
 ```jldoctest
 julia> using EnzymeRates

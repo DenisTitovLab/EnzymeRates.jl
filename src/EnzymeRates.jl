@@ -20,7 +20,6 @@ export identify_rate_equation
 
 
 using Dates
-using LinearAlgebra: det
 using Tables
 using Optimization
 using Distributed
@@ -30,16 +29,10 @@ using SHA: sha256
 include("Mechanisms/Mechanisms.jl")
 using .Mechanisms: Mechanisms, EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism,
     metabolites, Mechanism, AllostericMechanism, compile_mechanism
+include("Derivation/Derivation.jl")
+using .Derivation: Derivation, rate_equation, rate_equation_string, parameters,
+    all_parameters, fitted_params
 include("macros.jl")
-include("rate_eq_derivation.jl")
-include("thermo.jl")
-include("poly.jl")
-include("engine.jl")
-include("normalize.jl")
-include("print.jl")
-include("key.jl")
-include("codegen.jl")
-include("admission.jl")
 include("fitting.jl")
 include("mechanism_enumeration.jl")
 include("identify_rate_equation.jl")
@@ -47,11 +40,11 @@ include("identify_rate_equation.jl")
 # Every mechanism macro call runs the guard, the flip search runs `_faces_pass` and the
 # first `rate_equation` call of a mechanism runs `_rate_body`, so all three compile into
 # the package image rather than in each session.
-precompile(_guard, (Mechanisms.Mechanism,))
-precompile(_guard, (Mechanisms.AllostericMechanism,))
-precompile(_faces_pass, (Mechanisms.Mechanism, BitVector))
-precompile(_faces_pass, (Mechanisms.AllostericMechanism, BitVector))
-precompile(_rate_body, (Mechanisms.Mechanism,))
-precompile(_rate_body, (Mechanisms.AllostericMechanism,))
+precompile(Derivation._guard, (Mechanisms.Mechanism,))
+precompile(Derivation._guard, (Mechanisms.AllostericMechanism,))
+precompile(Derivation._faces_pass, (Mechanisms.Mechanism, BitVector))
+precompile(Derivation._faces_pass, (Mechanisms.AllostericMechanism, BitVector))
+precompile(Derivation._rate_body, (Mechanisms.Mechanism,))
+precompile(Derivation._rate_body, (Mechanisms.AllostericMechanism,))
 
 end

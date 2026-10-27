@@ -535,7 +535,7 @@ function _minimal_flips(admissible, m::Mechanisms._AnyMech, eligible = _ -> true
     end
     passes(sel) = (re = flipped(sel);
                    admissible(re) && all(_flux_carrying_groups(cm, re)[units[sel]]) &&
-                   _faces_pass(m, re))
+                   Derivation._faces_pass(m, re))
     [flipped(sel) for sel in _minimal_gaining_sets(passes, _ -> 1:length(units))]
 end
 
@@ -1122,7 +1122,8 @@ function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
     gain = _split_gain_test(m, units, flags_of)
     every = trues(length(cm.edges))
     gains(sel) = (all(u -> isempty(reverted[u]), sel) ||
-                  isempty(_bottomless_segment(cm, every, flags_of(sel)))) && gain(sel)
+                  isempty(Derivation._bottomless_segment(cm, every, flags_of(sel)))) &&
+                 gain(sel)
     # RE segment ids touched by each kinetic group's edges; empty for a steady-state
     # group, which lies on no RE cycle and so never partners a set that does not gain.
     segment_of = Mechanisms._segments(cm, every, flags).segment_of
@@ -1152,9 +1153,10 @@ child.
 """
 function _split_gain_test(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
                           units, flags_of)
-    base = _independent_param_count(m)
+    base = Derivation._independent_param_count(m)
     gains(sel) =
-        _independent_param_count(_apply_bipartitions(m, units[sel], flags_of(sel))) > base
+        Derivation._independent_param_count(
+            _apply_bipartitions(m, units[sel], flags_of(sel))) > base
     gains
 end
 
@@ -1635,9 +1637,8 @@ site, which admission never reads. Class 3 is not run: the guard at the enumerat
 drops a child that fails it.
 """
 _admits(m::Mechanisms.Mechanism, tags::Vector{Symbol}) =
-    _admission(Mechanisms.AllostericMechanism(m, tags, 1,
-                                              Mechanisms.RegulatorySite[])).fault ===
-        _NO_FAULT
+    Derivation._admission(Mechanisms.AllostericMechanism(
+        m, tags, 1, Mechanisms.RegulatorySite[])).fault === Derivation._NO_FAULT
 
 """
     _stops_inactive_turnover(m::Mechanism, tags::Vector{Symbol}) -> Bool
@@ -1647,9 +1648,8 @@ cycle of the edges its law keeps (`_inactive_mask`) turns the reaction over
 (`_has_turnover_cycle`).
 """
 _stops_inactive_turnover(m::Mechanisms.Mechanism, tags::Vector{Symbol}) =
-    !_has_turnover_cycle(m,
-                         Mechanisms._inactive_mask(Mechanisms.AllostericMechanism(
-                             m, tags, 1, Mechanisms.RegulatorySite[])))
+    !Derivation._has_turnover_cycle(m, Mechanisms._inactive_mask(
+        Mechanisms.AllostericMechanism(m, tags, 1, Mechanisms.RegulatorySite[])))
 
 """
     _tagging_bases(m::Mechanism) -> Vector{Vector{Symbol}}
@@ -1713,8 +1713,8 @@ the all-`:EqualAI` baseline and a V-type variant without a regulator.
     not enough: in a random-order merged bi-bi, whose A group takes A up at E and at
     E(B) under one rate constant, `L` shows in every K-type variant. identify keeps every
     K-type variant in the frontier, since its children can carry laws its parent's children
-    lack. A variant that `_is_phantom` (`src/key.jl`) flags is not fitted when another
-    mechanism holds the fit of its law at `L = 0`: it reads that fit, with `L = 0`.
+    lack. A variant that `_is_phantom` (`src/Derivation/key.jl`) flags is not fitted when
+    another mechanism holds the fit of its law at `L = 0`: it reads that fit, with `L = 0`.
   * V-type: a base, with no `:OnlyA` binding, paired with a declared allosteric regulator at
     a new site, one variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. On the
     every-chemistry base the inactive state binds substrate and product as the active state
@@ -2068,7 +2068,7 @@ function expand_mechanisms(
     end
     filter!(c -> _respects_reg_type(c, rxn), result)
     foreach(child -> _assert_atom_conserving(child, rxn), result)
-    filter!(_is_well_posed, result)
+    filter!(Derivation._is_well_posed, result)
     result
 end
 
@@ -2102,11 +2102,11 @@ function init_mechanisms(r::Mechanisms.EnzymeReaction)
              for steps in seeds]
     foreach(m -> _assert_atom_conserving(m, r), mechs)
     seen = Set(mechs)
-    out = filter(_is_well_posed, mechs)
+    out = filter(Derivation._is_well_posed, mechs)
     for m in unique(mechs), v in _seed_variants(m, r)
         v in seen && continue
         push!(seen, v)
-        _has_turnover_cycle(v, trues(length(v.edges))) && push!(out, v)
+        Derivation._has_turnover_cycle(v, trues(length(v.edges))) && push!(out, v)
     end
     out
 end
@@ -2189,7 +2189,7 @@ function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symb
               "optional with `optional_competitive_inhibitors` or " *
               "`optional_allosteric_regulators`, or remove its declaration")
     end
-    filter!(_is_well_posed, seeds)
+    filter!(Derivation._is_well_posed, seeds)
     seeds
 end
 

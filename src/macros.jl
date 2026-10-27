@@ -267,7 +267,7 @@ function _checked_mechanism(raw::Union{Mechanisms.RawMechanism,
     c = raw isa Mechanisms.RawMechanism ? raw : raw.catalytic
     Mechanisms._check_uniquely_decodable([c.substrates; c.products], c.modifiers,
                                          "Mechanism")
-    _well_posed(Mechanisms._build(raw))
+    Derivation._well_posed(Mechanisms._build(raw))
 end
 
 """
