@@ -950,7 +950,7 @@ catalytic graph: an `:OnlyA` group's edge in the inactive conformation, an `:Onl
 group's in the active one. A plain mechanism excludes nothing."""
 function _testhelper_excludes(m, k::Int, c::Int)
     m isa EnzymeRates.AllostericMechanism || return false
-    tag = EnzymeRates.Mechanisms.cat_allo_state(m, m.catalytic.group[k])
+    tag = EnzymeRates.Mechanisms.tag(m, m.catalytic.group[k])
     (c == 2 && tag === :OnlyA) || (c == 1 && tag === :OnlyI)
 end
 

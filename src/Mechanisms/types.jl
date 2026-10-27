@@ -1452,7 +1452,6 @@ const _AnyMech = Union{Mechanism, AllostericMechanism}
 catalytic(m::Mechanism) = m
 catalytic(am::AllostericMechanism) = am.catalytic
 cat_allo_states(am::AllostericMechanism) = am.cat_allo_states
-cat_allo_state(am::AllostericMechanism, g::Int) = am.cat_allo_states[g]
 catalytic_multiplicity(am::AllostericMechanism) = am.catalytic_multiplicity
 regulatory_sites(am::AllostericMechanism) = am.regulatory_sites
 """The number of kinetic groups of `m`."""

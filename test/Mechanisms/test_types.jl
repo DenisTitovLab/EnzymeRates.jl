@@ -248,9 +248,9 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         am_c = ER.AllostericMechanism(m)
         members = ER.Mechanisms._group_members(am_c.catalytic)
         onlyA_g = only(g for g in eachindex(members)
-                       if ER.Mechanisms.cat_allo_state(am_c, g) === :OnlyA)
+                       if ER.Mechanisms.tag(am_c, g) === :OnlyA)
         @test !ER.Mechanisms._is_binding(am_c.catalytic.edges[first(members[onlyA_g])])
-        @test all(ER.Mechanisms.cat_allo_state(am_c, g) === :EqualAI
+        @test all(ER.Mechanisms.tag(am_c, g) === :EqualAI
                   for g in eachindex(members) if g != onlyA_g)
         @test ER.Mechanisms.allosteric_regulators(am_c) == [:I]
         @test ER.Mechanisms.allo_states(only(ER.Mechanisms.regulatory_sites(am_c))) ==
@@ -1138,7 +1138,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         am = ER.AllostericMechanism(m)
         # Every catalytic state appears in cat_allo_states line
         for g in eachindex(ER.Mechanisms.cat_allo_states(am))
-            @test occursin(string(ER.Mechanisms.cat_allo_state(am, g)), s)
+            @test occursin(string(ER.Mechanisms.tag(am, g)), s)
         end
         # No :NonequalAI ligand silently hidden from reg-site display
         for site in ER.Mechanisms.regulatory_sites(am),
@@ -1696,7 +1696,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test Set(_testhelper_edge_text(m, k) for k in eachindex(m.catalytic.edges)) ==
               Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
         _testhelper_state_of(text) =
-            ER.Mechanisms.cat_allo_state(m, m.catalytic.group[_testhelper_edge(m, text)])
+            ER.Mechanisms.tag(m, m.catalytic.group[_testhelper_edge(m, text)])
         @test _testhelper_state_of("E + S ⇌ ES") == :EqualAI
         @test _testhelper_state_of("ES <--> EP")  == :OnlyA
         @test _testhelper_state_of("E + P ⇌ EP")  == :NonequalAI
@@ -1784,9 +1784,9 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                ER.Mechanisms.modifiers(lifted))
 
         # cat_allo_states and multiplicity extracted from CS
-        @test ER.Mechanisms.cat_allo_state(am, 1) === :EqualAI
-        @test ER.Mechanisms.cat_allo_state(am, 2) === :NonequalAI
-        @test ER.Mechanisms.cat_allo_state(am, 3) === :OnlyA
+        @test ER.Mechanisms.tag(am, 1) === :EqualAI
+        @test ER.Mechanisms.tag(am, 2) === :NonequalAI
+        @test ER.Mechanisms.tag(am, 3) === :OnlyA
         @test ER.Mechanisms.catalytic_multiplicity(am) == 2
 
         # Regulatory sites: ligand names

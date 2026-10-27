@@ -482,7 +482,7 @@ end
             cm = EnzymeRates.Mechanisms.catalytic(sub)
             onlyi =
                 Set(x for (k, ns) in enumerate(EnzymeRates.Derivation._edge_names(sub, :I))
-                    if EnzymeRates.Mechanisms.cat_allo_state(sub, cm.group[k]) === :OnlyI
+                    if EnzymeRates.Mechanisms.tag(sub, cm.group[k]) === :OnlyI
                     for x in ns)
             held = Set(A.vars.names[v] for mo in keys(A.active.D.terms) for (v, _) in mo)
             @test !isempty(onlyi)

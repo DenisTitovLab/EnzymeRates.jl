@@ -198,7 +198,7 @@ the state its name takes: `:None` in a plain mechanism; `:I` for an inactive cop
 function _column_parameter(m::Mechanisms._AnyMech, c::Mechanisms._Column)
     cm = Mechanisms.catalytic(m)
     state = m isa Mechanisms.Mechanism ? :None : c.inactive ? :I :
-            Mechanisms.cat_allo_state(m, cm.group[c.edge]) === :EqualAI ? :EqualAI : :A
+            Mechanisms.tag(m, cm.group[c.edge]) === :EqualAI ? :EqualAI : :A
     Mechanisms._edge_constants(cm, c.edge, state)[c.slot]
 end
 

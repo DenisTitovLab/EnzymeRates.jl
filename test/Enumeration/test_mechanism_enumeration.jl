@@ -11791,7 +11791,7 @@ end
     bpa = only(EnzymeRates.Enumeration._context_bipartitions(cm, ga))
     achild = EnzymeRates.Enumeration._apply_bipartitions(am, [(ga, bpa)])
     @test achild.catalytic.edges == cm.edges
-    @test [EnzymeRates.Mechanisms.cat_allo_state(
+    @test [EnzymeRates.Mechanisms.tag(
         achild, achild.catalytic.group[first(part)]) for part in bpa] ==
           [:NonequalAI, :NonequalAI]
     @test EnzymeRates.Mechanisms.catalytic_multiplicity(achild) == 2

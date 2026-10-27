@@ -20,7 +20,7 @@ const API = (:AbstractEnzymeMechanism, :AllostericEnzymeMechanism, :AllostericMe
     :_parse_reaction_block, :_raw, :_raw_form, :_raw_mechanism, :_raw_sites,
     :_reaction_expr, :_reg_K, :_role_masks, :_segments, :_side_score, :_sides, :_solve_tags,
     :_step_text, :_turnover_name, :_with, :allo_states, :allowed_catalytic_multiplicities,
-    :atoms, :bound, :cat_allo_state, :cat_allo_states, :catalytic, :catalytic_multiplicity,
+    :atoms, :bound, :cat_allo_states, :catalytic, :catalytic_multiplicity,
     :compile_mechanism, :conformation, :copies, :ends, :entries, :given_off, :group,
     :is_rapid_equilibrium, :ligands, :mechanism_id, :members, :metabolite,
     :metabolite_names, :metabolites, :multiplicity, :name, :ngroups, :products, :reactants,

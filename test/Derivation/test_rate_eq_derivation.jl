@@ -1098,13 +1098,13 @@ end
 # physical steps (not on some other group canonical reordering moved into their
 # source slots): exactly one :OnlyA group is the ATP-binding step, and the other
 # is the metabolite-free catalytic conversion.
-@testset "Allosteric cat_allo_state stays bound to its step" begin
+@testset "Allosteric group tag stays bound to its step" begin
     hk = only(s for s in MECHANISM_TEST_SPECS if s.name == "HK")
     am = EnzymeRates.AllostericMechanism(hk.mechanism)
     cm = am.catalytic
     members = EnzymeRates.Mechanisms._group_members(cm)
     onlyA_groups = [g for g in eachindex(members)
-                    if EnzymeRates.Mechanisms.cat_allo_state(am, g) === :OnlyA]
+                    if EnzymeRates.Mechanisms.tag(am, g) === :OnlyA]
     @test length(onlyA_groups) == 2
     onlyA_firsts = [cm.edges[first(members[g])] for g in onlyA_groups]
     @test count(e -> EnzymeRates.Mechanisms._is_binding(e) &&

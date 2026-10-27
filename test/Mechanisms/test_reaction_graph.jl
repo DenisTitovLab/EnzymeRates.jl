@@ -138,7 +138,7 @@ end
     @test am.regulatory_sites[1].allo_states == [:EqualAI, :OnlyA]
     tags[1] = :OnlyA
     @test am.cat_allo_states == [:EqualAI, :EqualAI, :OnlyA]
-    @test [ER.Mechanisms.cat_allo_state(am, g) for g in 1:3] == [:EqualAI, :EqualAI, :OnlyA]
+    @test [ER.Mechanisms.tag(am, g) for g in 1:3] == [:EqualAI, :EqualAI, :OnlyA]
     @test_throws(ErrorException("AllostericMechanism: cat_allo_states length 2 must " *
                                 "match the number of kinetic groups 3"),
                  ER.AllostericMechanism(m, [:EqualAI, :EqualAI], 2, sites))

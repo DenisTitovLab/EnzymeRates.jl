@@ -109,7 +109,7 @@ function _edge_names(m::Mechanisms._AnyMech, state::Symbol,
     cm = Mechanisms.catalytic(m)
     mask = _state_mask(m, state)
     tag(g) = m isa Mechanisms.AllostericMechanism &&
-             Mechanisms.cat_allo_state(m, g) === :EqualAI ? :EqualAI : state
+             Mechanisms.tag(m, g) === :EqualAI ? :EqualAI : state
     [mask[k] ? Symbol[Mechanisms.name(p, m, kept)
                       for p in Mechanisms._edge_constants(cm, k, tag(cm.group[k]))] :
                Symbol[]

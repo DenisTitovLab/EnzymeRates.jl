@@ -108,9 +108,9 @@ function _constant_sides(m::_AnyMech, k::Int, slot::Int, state::Symbol,
                          kept::Dict{Tuple{Int, Int, Bool}, Int})
     cm = catalytic(m)
     g = cm.group[k]
-    tag = m isa AllostericMechanism ? cat_allo_state(m, g) : :None
-    _excluded_by(tag, state === :I) && return _sides(cm, k)
-    inactive = state === :I && tag in (:NonequalAI, :OnlyI)
+    group_tag = m isa AllostericMechanism ? tag(m, g) : :None
+    _excluded_by(group_tag, state === :I) && return _sides(cm, k)
+    inactive = state === :I && group_tag in (:NonequalAI, :OnlyI)
     _sides(cm, get(() -> kept[(g, 1, inactive)], kept, (g, slot, inactive)))
 end
 
