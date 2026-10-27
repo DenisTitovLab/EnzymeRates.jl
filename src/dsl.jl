@@ -834,14 +834,10 @@ writes, checked: its names must spell every string one way only
 parser (`_parse_mechanism`) build every mechanism through it, so they accept the same
 mechanisms.
 """
-function _checked_mechanism(raw::RawMechanism)
-    _check_uniquely_decodable([raw.substrates; raw.products], raw.modifiers, "Mechanism")
-    _well_posed(Mechanism(raw))
-end
-function _checked_mechanism(raw::RawAllostericMechanism)
-    c = raw.catalytic
+function _checked_mechanism(raw::Union{RawMechanism, RawAllostericMechanism})
+    c = raw isa RawMechanism ? raw : raw.catalytic
     _check_uniquely_decodable([c.substrates; c.products], c.modifiers, "Mechanism")
-    _well_posed(AllostericMechanism(raw))
+    _well_posed(_build(raw))
 end
 
 """
