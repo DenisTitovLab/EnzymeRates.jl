@@ -880,7 +880,7 @@ const _testhelper_fused_cases = [
 
 @testset "each rapid-equilibrium segment is rooted at its first form" begin
     # The engine weighs each form of a rapid-equilibrium segment against the segment's
-    # first form in the canonical form order (`_segments`), so free E, form 1, roots its
+    # first form in the canonical form order (`re_segments`), so free E, form 1, roots its
     # own segment. A's modifier copy comes before Ab there: the table sorts A's copy just
     # after A, before Ab. The law in lowest terms does not depend on the root.
     em = @enzyme_mechanism begin
