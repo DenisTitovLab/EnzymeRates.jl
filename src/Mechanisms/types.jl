@@ -1686,27 +1686,6 @@ function _has_turnover_cycle(m::Mechanism, mask::BitVector)
                           mask, zeros(Int, n), zeros(Int, n))
 end
 
-"""
-The edges of `am`'s inactive conformation: those outside `:OnlyA` groups between forms
-they join to free E (`_law_mask`). The conformations interconvert at free E alone, so a
-form those edges do not join to it holds no inactive enzyme, a second free form included.
-The inactive law (`_law`), the joint solve (`_inactive_law`), the copy rule
-(`_redundant_copy_groups`), the tagging move's stopping test (`_stops_inactive_turnover`)
-and the hyperbolic test (`_hyperbolic_catalysis`) read the inactive conformation from it,
-each edge in `am`'s stored direction.
-"""
-_inactive_mask(am::AllostericMechanism) = _law_mask(am, 2)
-
-"""
-The edges of `am`'s active conformation: those outside `:OnlyI` groups between forms they
-join to free E (`_law_mask`), the mirror of `_inactive_mask`. The active law
-(`_law`), the joint solve (`_active_law`), the copy rule
-(`_redundant_copy_groups`), the degeneracy test (`_degenerate`) and the hyperbolic test
-(`_hyperbolic_catalysis`) read the active conformation from it, each edge in `am`'s
-stored direction.
-"""
-_active_mask(am::AllostericMechanism) = _law_mask(am, 1)
-
 """Whether conformation `c` (1 active, 2 inactive) of `am` excludes edge `k`: an `:OnlyA`
 group's edge in the inactive conformation, an `:OnlyI` group's in the active one. There a
 plain binding loses its affinity and any other edge is blocked (spec section 7)."""
@@ -1737,16 +1716,36 @@ function _exclusion_components(am::AllostericMechanism, c::Int)
 end
 
 """
-The edges of conformation `c`'s law (1 active, 2 inactive) in `am`'s catalytic graph:
-those `c` does not exclude (`_excludes`) between forms they join to free E, form 1. The
-law deletes the excluded edges and prunes the forms this strands; admission decides when
-that is the limit of the vanishing constants (spec section 7).
+    conformation_steps(m, c::Symbol) -> BitVector
+
+The steps of conformation `c` (`:active` or `:inactive`) of `m`, one flag per step in
+`m`'s stored direction. For an allosteric mechanism these are the steps of its catalytic
+graph that `c` does not exclude (`_excludes`: an `:OnlyI` group's from the active
+conformation, an `:OnlyA` group's from the inactive one) between forms they join to free
+E, form 1. The conformations interconvert at free E alone, so a form those steps do not
+join to it holds no enzyme of that conformation, a second free form included. The law
+deletes the excluded steps and prunes the forms this strands; admission decides when that
+is the limit of the vanishing constants (spec section 7). A plain mechanism has only the
+active conformation: every step is active and none inactive. The laws (`_law`), the joint
+solve (`_ordered_columns`), the guard's law network (`_law_network`), the copy rule
+(`_redundant_copy_groups`), the degeneracy test (`_degenerate`), the tagging move's
+stopping test (`_stops_inactive_turnover`) and the hyperbolic test
+(`_hyperbolic_catalysis`) read each conformation from it.
 """
-function _law_mask(am::AllostericMechanism, c::Int)
-    comp = _exclusion_components(am, c)
-    BitVector([!_excludes(am, k, c) && comp[e.from] == 1
+function conformation_steps(am::AllostericMechanism, c::Symbol)
+    i = _conformation_index(c)
+    comp = _exclusion_components(am, i)
+    BitVector([!_excludes(am, k, i) && comp[e.from] == 1
                for (k, e) in enumerate(am.catalytic.edges)])
 end
+conformation_steps(m::Mechanism, c::Symbol) =
+    (_conformation_index(c) == 1 ? trues : falses)(length(m.edges))
+
+"""The index of conformation `c` that `_excludes` reads: 1 for `:active`, 2 for
+`:inactive`."""
+_conformation_index(c::Symbol) =
+    c === :active ? 1 : c === :inactive ? 2 :
+    throw(ArgumentError("a conformation is :active or :inactive, not :$c"))
 
 """Form `f` of `m` as raw input, holding also the metabolites `extra`."""
 function _raw_form(m::Mechanism, f::Int, extra::Met...)

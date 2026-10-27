@@ -89,25 +89,18 @@ end
 
 # ─── Edge masks and constant names ──────────────────────────
 
-"""The edges of `m`'s law in conformation `state`: every edge for `:None`; for `:A` the
-active conformation's (`_active_mask`), for `:I` the inactive one's
-(`_inactive_mask`)."""
-_state_mask(m::Mechanisms.Mechanism, ::Symbol) = trues(length(m.edges))
-_state_mask(am::Mechanisms.AllostericMechanism, state::Symbol) =
-    state === :I ? Mechanisms._inactive_mask(am) : Mechanisms._active_mask(am)
-
 """
 The parameter Symbols of each edge's constants in conformation `state` of `m` — `[K]` at
 rapid equilibrium, `[kf, kr]` at steady state — through the naming chokepoint
 (`name(p, m, kept)`, `kept = _kept_members(m)`): `names[k]` for edge `k` of the state's
-law (`_state_mask`), empty for every other edge. `state` is `:None` for a plain
-mechanism and `:A` or `:I` for an allosteric one, an `:EqualAI` group's constants taking
-its one shared name in both.
+law (`conformation_steps`; every edge for `:None`), empty for every other edge. `state`
+is `:None` for a plain mechanism and `:A` or `:I` for an allosteric one, an `:EqualAI`
+group's constants taking its one shared name in both.
 """
 function _edge_names(m::Mechanisms._AnyMech, state::Symbol,
                      kept = Mechanisms._kept_members(m))
     cm = Mechanisms.catalytic(m)
-    mask = _state_mask(m, state)
+    mask = Mechanisms.conformation_steps(m, state === :I ? :inactive : :active)
     tag(g) = m isa Mechanisms.AllostericMechanism &&
              Mechanisms.tag(m, g) === :EqualAI ? :EqualAI : state
     [mask[k] ? Symbol[Mechanisms.name(p, m, kept)

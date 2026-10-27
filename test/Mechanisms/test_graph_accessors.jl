@@ -224,3 +224,33 @@ end
     @test_throws "combine the metabolites of one mechanism" ESS ∪ M.bound(uniuni, 3)
     @test_throws "combine the metabolites of one mechanism" ESS ∩ M.bound(uniuni, 3)
 end
+
+@testset "conformation_steps" begin
+    M = ER.Mechanisms
+    am = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)          :: EqualAI
+            E(S) <--> E(P)        :: OnlyA
+            E(P) ⇌ E + P          :: EqualAI
+            E + I ⇌ E(I)          :: OnlyI
+            E(I) + P ⇌ E(I, P)    :: EqualAI
+        end
+    end)
+    m = M.catalytic(am)
+    # Canonical form numbers the forms E, E(I), E(I, P), E(P), E(S) and stores the steps
+    # E + I → E(I), E + P → E(P), E + S → E(S), E(I) + P → E(I, P), E(S) → E(P).
+    @test [M.ends(m, k) for k in M.steps(m)] == [(1, 2), (1, 4), (1, 5), (2, 3), (5, 4)]
+    # The active conformation drops the :OnlyI binding of I, which strands E(I) and so
+    # also the binding of P to it.
+    @test M.conformation_steps(am, :active) == BitVector([0, 1, 1, 0, 1])
+    # The inactive conformation drops the :OnlyA chemistry and keeps every form.
+    @test M.conformation_steps(am, :inactive) == BitVector([1, 1, 1, 1, 0])
+    # A plain mechanism has only the active conformation.
+    @test M.conformation_steps(m, :active) == trues(5)
+    @test M.conformation_steps(m, :inactive) == falses(5)
+    @test_throws ArgumentError M.conformation_steps(am, :I)
+    @test_throws ArgumentError M.conformation_steps(m, :A)
+end

@@ -310,19 +310,19 @@ end
 """
     _law(am, s = _solve(am)) -> _AlloLaw
 
-The MWC law of `am` over the independents of `s`: the active conformation's law on
-`_active_mask(am)` and the inactive one's on `_inactive_mask(am)`, `_flip_only_law` for a
-conformation whose mask is empty, both over the concentrations of `metabolites(am)`, so
-their polynomials multiply directly; free E's weight in each over their common factor; and
-each regulatory site's binding polynomials. Free E roots segment 1, so its weight is that
+The MWC law of `am` over the independents of `s`: each conformation's law on its steps
+(`conformation_steps`), `_flip_only_law` for a conformation whose mask is empty, both
+over the concentrations of `metabolites(am)`, so their polynomials multiply directly; free
+E's weight in each over their common factor; and each regulatory site's binding
+polynomials. Free E roots segment 1, so its weight is that
 segment's tree sum times the law's shift. A law over the summed cap is refused before any
 polynomial product (`_assert_derivable`). The guard rejects an empty active mask
 (`_NO_ACTIVE_TURNOVER`), but the oracles read its law.
 """
 function _law(am::Mechanisms.AllostericMechanism, s::_Solve)
     _assert_derivable(am)
-    m, amask, imask = Mechanisms.catalytic(am), Mechanisms._active_mask(am),
-                      Mechanisms._inactive_mask(am)
+    m, amask, imask = Mechanisms.catalytic(am), Mechanisms.conformation_steps(am, :active),
+                      Mechanisms.conformation_steps(am, :inactive)
     concentrations = Mechanisms.metabolites(am)
     LA = any(amask) ? _law(m, s, amask; concentrations, shown = am) :
          _flip_only_law(_law(m, s, imask; inactive = true, concentrations, shown = am))
@@ -417,8 +417,8 @@ identify's `eq_complexity_filter` read it.
 rate_equation_complexity(m::Mechanisms.Mechanism) =
     rate_equation_complexity(m, trues(length(m.edges)))
 function rate_equation_complexity(am::Mechanisms.AllostericMechanism)
-    m, imask = Mechanisms.catalytic(am), Mechanisms._inactive_mask(am)
-    a = rate_equation_complexity(m, Mechanisms._active_mask(am))
+    m, imask = Mechanisms.catalytic(am), Mechanisms.conformation_steps(am, :inactive)
+    a = rate_equation_complexity(m, Mechanisms.conformation_steps(am, :active))
     i = any(imask) ? rate_equation_complexity(m, imask) : 0
     a > typemax(Int) - i ? typemax(Int) : a + i
 end

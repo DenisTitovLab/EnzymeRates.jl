@@ -134,8 +134,8 @@ function _testhelper_graph(m)
         Symbol[EnzymeRates.Mechanisms.name(p, mech, kept)
                for p in EnzymeRates.Mechanisms._edge_constants(cm, k, state)]
     # The active law keeps the steps outside :OnlyI groups on forms they join to free E.
-    in_law, in_active = EnzymeRates.Mechanisms._inactive_law(mech),
-        EnzymeRates.Mechanisms._active_law(mech)
+    in_law, in_active = EnzymeRates.Mechanisms.conformation_steps(mech, :inactive),
+        EnzymeRates.Mechanisms.conformation_steps(mech, :active)
     steps = map(edges) do k
         e, g = cm.edges[k], cm.group[k]
         consumed = cm.table[EnzymeRates.Mechanisms.entries(e.consumed)]
@@ -862,7 +862,7 @@ function _testhelper_phantom_map_holds(am; rng)
         A = EnzymeRates.Derivation._law(am, s)
         w = EnzymeRates.Derivation._phantom_weights(A)
         isempty(w) && return false
-        all(EnzymeRates.Mechanisms._active_mask(am)) || error(
+        all(EnzymeRates.Mechanisms.conformation_steps(am, :active)) || error(
             "_testhelper_phantom_map_holds: " *
             "the active conformation drops an edge, so the law at L = 0 is not the law " *
             "of catalytic(am)")

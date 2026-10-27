@@ -1556,7 +1556,7 @@ end
     @test length(parents) == 30
     kids = _testhelper_tagging_children(parents, rxn)
     @test length(kids) == 172
-    @test all(am -> any(EnzymeRates.Mechanisms._inactive_mask(am)), kids)
+    @test all(am -> any(EnzymeRates.Mechanisms.conformation_steps(am, :inactive)), kids)
     @test all(am -> isempty(EnzymeRates.Derivation._phantom_weights(
                   EnzymeRates.Derivation._law(am))), kids)
 end

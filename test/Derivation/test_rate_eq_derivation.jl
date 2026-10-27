@@ -2053,10 +2053,10 @@ end
         regulatory_site(2): I::OnlyI
     end
     am = EnzymeRates.AllostericMechanism(allo)
-    @test _testhelper_laplacian_tree_count(am.catalytic,
-                                           EnzymeRates.Mechanisms._active_mask(am)) == 9
-    @test _testhelper_laplacian_tree_count(am.catalytic,
-                                           EnzymeRates.Mechanisms._inactive_mask(am)) == 9
+    @test _testhelper_laplacian_tree_count(
+        am.catalytic, EnzymeRates.Mechanisms.conformation_steps(am, :active)) == 9
+    @test _testhelper_laplacian_tree_count(
+        am.catalytic, EnzymeRates.Mechanisms.conformation_steps(am, :inactive)) == 9
     @test EnzymeRates.Derivation.rate_equation_complexity(am) == 18
 end
 

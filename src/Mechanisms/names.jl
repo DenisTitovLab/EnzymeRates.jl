@@ -194,16 +194,6 @@ end
 _solve_tags(m::Mechanism) = fill(:None, ngroups(m))
 _solve_tags(am::AllostericMechanism) = cat_allo_states(am)
 
-"""Whether each edge lies in the inactive conformation's law (`_inactive_mask`); false
-for every edge of a plain mechanism."""
-_inactive_law(m::Mechanism) = falses(length(m.edges))
-_inactive_law(am::AllostericMechanism) = _inactive_mask(am)
-
-"""Whether each edge lies in the active conformation's law (`_active_mask`); true for
-every edge of a plain mechanism."""
-_active_law(m::Mechanism) = trues(length(m.edges))
-_active_law(am::AllostericMechanism) = _active_mask(am)
-
 """Whether the active column of edge `k`, in a group `group[k]` tagged `tags`, enters the
 law: its edge lies in the active conformation's law (`alaw`), or it is an `:EqualAI`
 edge of the inactive conformation's law (`law`), whose one constant the inactive law
@@ -224,16 +214,16 @@ The joint solve's columns of `m` in elimination order, which `_joint_system` and
 allosteric mechanism one more per slot of every edge of a `:NonequalAI`, `:OnlyA` or
 `:OnlyI` group, for its inactive copy, ordered by `_priority_key`, larger first. `flat`
 holds the edges group by group (`_flat_edges`), `tags` each group's tag (`_solve_tags`),
-`law[k]` whether edge `k` lies in the inactive conformation's law (`_inactive_law`) and
-`alaw[k]` whether it lies in the active conformation's law (`_active_law`; `_in_active_law`
-adds the `:EqualAI` constants the inactive law reads).
+`law[k]` whether edge `k` lies in the inactive conformation's law and `alaw[k]` whether it
+lies in the active conformation's law (`conformation_steps`; `_in_active_law` adds the
+`:EqualAI` constants the inactive law reads).
 """
 function _ordered_columns(m::_AnyMech)
     cm = catalytic(m)
     flat = _flat_edges(cm)
     tags = _solve_tags(m)
-    law = _inactive_law(m)
-    alaw = _active_law(m)
+    law = conformation_steps(m, :inactive)
+    alaw = conformation_steps(m, :active)
     allosteric = m isa AllostericMechanism
     columns = _Column[]
     for k in flat, inactive in (false, true)

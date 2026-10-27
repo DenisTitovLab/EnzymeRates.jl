@@ -90,8 +90,8 @@ active copy, an edge on a form that conformation cannot reach) come first, so no
 dependent reads them. Each class is named after its member
 that comes last in that order (`_kept_members`), through the `name(p, m)` chokepoint. The
 engine (`_law`, `src/Derivation/engine.jl`) derives each conformation's
-law on a mask of the edges it keeps (`_active_mask(am)`, `_inactive_mask(am)`; every edge
-of a plain mechanism). Every edge keeps its stored direction, so
+law on a mask of the edges it keeps (`conformation_steps(am, :active)`,
+`conformation_steps(am, :inactive)`; every edge of a plain mechanism). Every edge keeps its stored direction, so
 both conformations share the mechanism's orientation and names. The canonical form
 decides the order and the direction it reads: free E is form 1 and the other forms follow
 in content order (conformation label, bound metabolites, residual); an edge that neither
@@ -160,7 +160,7 @@ barrier, which corrupts the heap. `check_valid_rate_equation(m)` throws
 
 The guard builds two networks of one catalytic subunit whose conformations flip at free E
 (`_Network`): the **law network**, each conformation's kept steps on the forms free E
-reaches through them (`_law_mask`), and the **ε-network**, every step of both
+reaches through them (`conformation_steps`), and the **ε-network**, every step of both
 conformations, each excluded step marked vanishing and an excluded rapid-equilibrium plain
 binding kept fast (`_eps_network`). The faces (`_faces`) are bit masks over the metabolite
 names. In order it checks class 1, a cycle that turns the reaction over
@@ -342,8 +342,8 @@ that can give such a mechanism a non-hyperbolic catalytic scheme consult
 parent at multiplicity 1 only, and above one subunit the tagging and change-tag
 moves (`_expand_to_allosteric`, `_expand_change_allo_state`), like the flip move
 (`_expand_re_to_ss`), drop a child that fails the predicate. On an
-`AllostericMechanism` the predicate reads each conformation's law (`_active_mask`,
-`_inactive_mask`), since a conformation that runs part of the catalytic graph can
+`AllostericMechanism` the predicate reads each conformation's law
+(`conformation_steps`), since a conformation that runs part of the catalytic graph can
 carry a power the whole graph lacks. The predicate scores
 the rapid-equilibrium segment graph of the catalytic scheme, leaving out every
 edge that touches a form holding a modifier, a reactant's modifier copy included: for

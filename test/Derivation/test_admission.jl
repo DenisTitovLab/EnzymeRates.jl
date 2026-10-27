@@ -122,9 +122,9 @@ end
     bind, iso = _testhelper_edge(r2, "E + S ⇌ ES"), _testhelper_edge(r2, "F <--> E")
     @test EnzymeRates.Mechanisms._excludes(r2, bind, 2) &&
           !EnzymeRates.Mechanisms._excludes(r2, bind, 1)
-    @test EnzymeRates.Mechanisms._law_mask(r2, 1) == trues(4)
+    @test EnzymeRates.Mechanisms.conformation_steps(r2, :active) == trues(4)
     # The inactive law deletes both tagged steps, which strands every form but E.
-    @test EnzymeRates.Mechanisms._law_mask(r2, 2) == falses(4)
+    @test EnzymeRates.Mechanisms.conformation_steps(r2, :inactive) == falses(4)
     law = EnzymeRates.Derivation._law_network(r2)
     @test (law.nforms, law.ncopies, length(law.from)) == (4, 2, 10)
     @test law.present == [true, true, true, true, true, false, false, false]
@@ -3509,11 +3509,11 @@ end
         end
     end
     onlyi = fx.competitive_RE
-    @test EnzymeRates.Mechanisms._active_mask(onlyi) ==
-          EnzymeRates.Mechanisms._inactive_mask(onlya)
-    @test EnzymeRates.Mechanisms._inactive_mask(onlyi) ==
-          EnzymeRates.Mechanisms._active_mask(onlya)
-    @test !all(EnzymeRates.Mechanisms._active_mask(onlyi))
+    @test EnzymeRates.Mechanisms.conformation_steps(onlyi, :active) ==
+          EnzymeRates.Mechanisms.conformation_steps(onlya, :inactive)
+    @test EnzymeRates.Mechanisms.conformation_steps(onlyi, :inactive) ==
+          EnzymeRates.Mechanisms.conformation_steps(onlya, :active)
+    @test !all(EnzymeRates.Mechanisms.conformation_steps(onlyi, :active))
 end
 
 @testset "an RE binding whose affinity vanishes still closes a fast cycle" begin

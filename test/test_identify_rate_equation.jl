@@ -1392,9 +1392,9 @@ end
     end)
     cm = ktype.catalytic
     @test _testhelper_laplacian_tree_count(
-        cm, EnzymeRates.Mechanisms._active_mask(ktype)) == 336
+        cm, EnzymeRates.Mechanisms.conformation_steps(ktype, :active)) == 336
     @test _testhelper_laplacian_tree_count(
-        cm, EnzymeRates.Mechanisms._inactive_mask(ktype)) == 16
+        cm, EnzymeRates.Mechanisms.conformation_steps(ktype, :inactive)) == 16
     @test EnzymeRates.Derivation.rate_equation_complexity(ktype) == 352
     @test EnzymeRates.Derivation.parameter_count(ktype) == 16
     batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[ktype]
@@ -2666,7 +2666,8 @@ end
             F(X) + S <--> E(X) + P    :: EqualAI
         end
     end
-    cm, on = tc_route.catalytic, EnzymeRates.Mechanisms._active_mask(tc_route)
+    cm, on = tc_route.catalytic,
+             EnzymeRates.Mechanisms.conformation_steps(tc_route, :active)
     re = EnzymeRates.Mechanisms._flags(cm)
     @test !EnzymeRates.Enumeration._has_vmax(cm, re .& on, cm.substrates)
     @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates, on)
@@ -2690,7 +2691,8 @@ end
             F(X) <--> E(X)            :: EqualAI
         end
     end
-    cm, on = merged_route.catalytic, EnzymeRates.Mechanisms._active_mask(merged_route)
+    cm, on = merged_route.catalytic,
+             EnzymeRates.Mechanisms.conformation_steps(merged_route, :active)
     re = EnzymeRates.Mechanisms._flags(cm)
     subs = EnzymeRates.Mechanisms._names_mask(cm, cm.substrates)
     @test EnzymeRates.Mechanisms._form_text.(
@@ -2718,7 +2720,8 @@ end
             F(X) <--> E(X)            :: EqualAI
         end
     end
-    cm, on = re_tc_route.catalytic, EnzymeRates.Mechanisms._active_mask(re_tc_route)
+    cm, on = re_tc_route.catalytic,
+             EnzymeRates.Mechanisms.conformation_steps(re_tc_route, :active)
     re = EnzymeRates.Mechanisms._flags(cm)
     @test EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re)
     @test !EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re, on)

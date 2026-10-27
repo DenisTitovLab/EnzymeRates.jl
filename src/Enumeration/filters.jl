@@ -69,13 +69,13 @@ end
 """Whether `m` is degenerate by the structural conditions V and C: no maximal rate in one
 direction (`_has_vmax`), or chemistry in rapid equilibrium with both sides
 (`_chemistry_equilibrates_both_sides`). Read on the catalytic graph with its own flags,
-over the active conformation's law: every edge of a plain mechanism, and the edges
-`_active_mask` keeps of an allosteric one. The beam expands a degenerate seed without
-fitting it (`_base_tier`)."""
+over the active conformation's law (`conformation_steps`): every edge of a plain
+mechanism, and the edges its tags keep of an allosteric one. The beam expands a degenerate
+seed without fitting it (`_base_tier`)."""
 function _degenerate(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
     re = Mechanisms._flags(cm)
-    on = Mechanisms._active_law(m)
+    on = Mechanisms.conformation_steps(m, :active)
     !(_has_vmax(cm, re, cm.substrates, on) && _has_vmax(cm, re, cm.products, on)) ||
         _chemistry_equilibrates_both_sides(cm, re, on)
 end
@@ -163,15 +163,15 @@ end
 """
     _hyperbolic_catalysis(am::AllostericMechanism) -> Bool
 
-Whether each conformation's law of `am` passes `_hyperbolic_catalysis`: the active one
-(`_active_mask`) and the inactive one (`_inactive_mask`). A conformation that runs part
+Whether each conformation's law of `am` (`conformation_steps`) passes
+`_hyperbolic_catalysis`. A conformation that runs part
 of the catalytic graph can carry a power the whole graph lacks: a ping-pong's abortive
 complexes can put A² into the inactive law once that conformation stops one
 half-reaction.
 """
 _hyperbolic_catalysis(am::Mechanisms.AllostericMechanism) =
-    _hyperbolic_catalysis(am.catalytic, Mechanisms._active_mask(am)) &&
-    _hyperbolic_catalysis(am.catalytic, Mechanisms._inactive_mask(am))
+    _hyperbolic_catalysis(am.catalytic, Mechanisms.conformation_steps(am, :active)) &&
+    _hyperbolic_catalysis(am.catalytic, Mechanisms.conformation_steps(am, :inactive))
 
 """
 Whether every segment of the segment graph reaches `root` when each edge in
@@ -361,10 +361,10 @@ identifiable. Two copies that are twins only of each other, neither pinned, pass
 and carry a phantom: the rule admits them.
 
 An allosteric copy binds the active state unless its tag is `:OnlyI` and the inactive
-state unless it is `:OnlyA`. Each state's graph is its law's (`_active_mask`,
-`_inactive_mask`): the edges its tags keep between forms they join to free E. The copy
-binds in a state only at the sites that graph keeps; in a state where it binds nothing,
-every factor of that state is 1. A copy that binds in neither state is not redundant: its
+state unless it is `:OnlyA`. Each state's graph is its law's (`conformation_steps`): the
+edges its tags keep between forms they join to free E. The copy binds in a state only at
+the sites that graph keeps; in a state where it binds nothing, every factor of that state
+is 1. A copy that binds in neither state is not redundant: its
 constant enters neither law and is not fitted. The two states form one system.
 A group tagged `:EqualAI` has one set of constants in both, so it must take the same
 rescaling in each. A shared class is one number in both states only when its binding
@@ -385,7 +385,8 @@ function _redundant_copy_groups(m::Union{Mechanisms.Mechanism,
                 if _gauge_rescaling(cm, members, g, twin, _one_state_class) !== nothing]
     end
     tags = Mechanisms.cat_allo_states(m)
-    masks = (Mechanisms._active_mask(m), Mechanisms._inactive_mask(m))
+    masks = (Mechanisms.conformation_steps(m, :active),
+             Mechanisms.conformation_steps(m, :inactive))
     kept = [[filter(k -> mask[k], ks) for ks in members] for mask in masks]
     twins = [_productive_twin(cm, mask) for mask in masks]
     unscaled(c) = Dict(h => (_NO_RESCALING, _NO_RESCALING)

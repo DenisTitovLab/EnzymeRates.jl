@@ -935,7 +935,7 @@ end
             (E(A) + I ⇌ E(A, I), E(P) + I ⇌ E(I, P))          :: NonequalAI
         end
     end); allosteric = true))
-    inactive = ER.Mechanisms._inactive_mask(am)
+    inactive = ER.Mechanisms.conformation_steps(am, :inactive)
     @test [_testhelper_edge_text(am, k) for k in findall(inactive)] ==
           ["E + P ⇌ EP", "EP + I ⇌ EIP"]
     @test [ER.Mechanisms._form_name(am.catalytic, f)
@@ -1175,8 +1175,8 @@ function _testhelper_inactive_reach(g)
 end
 
 """
-Whether the sub-graph reads of `x` (`_segments`, `_inactive_mask`) give what the oracles
-read off its test reader's steps give (`_testhelper_re_segments`,
+Whether the sub-graph reads of `x` (`_segments`, `conformation_steps`) give what the
+oracles read off its test reader's steps give (`_testhelper_re_segments`,
 `_testhelper_inactive_reach`): the catalytic graph's segments, form by form and
 breadth-first, with each form's positive offsets, and, for an allosteric mechanism, the
 inactive conformation's edges and their segments.
@@ -1196,7 +1196,7 @@ function _testhelper_subgraphs_agree(x)
     end
     _testhelper_segments_agree(trues(length(m.edges)), trues(length(flat))) || return false
     x isa ER.AllostericMechanism || return true
-    inactive = ER.Mechanisms._inactive_mask(x)
+    inactive = ER.Mechanisms.conformation_steps(x, :inactive)
     kept = _testhelper_inactive_reach(g)
     inactive[flat] == kept && _testhelper_segments_agree(inactive, kept)
 end

@@ -149,10 +149,12 @@ end
     end)
     s = EnzymeRates.Derivation._solve(am)
     cm, mets = EnzymeRates.Mechanisms.catalytic(am), EnzymeRates.metabolites(am)
-    active = EnzymeRates.Derivation._law(cm, s, EnzymeRates.Mechanisms._active_mask(am);
-                                         concentrations = mets)
-    inactive = EnzymeRates.Derivation._law(cm, s, EnzymeRates.Mechanisms._inactive_mask(am);
-                                           inactive = true, concentrations = mets)
+    active = EnzymeRates.Derivation._law(
+        cm, s, EnzymeRates.Mechanisms.conformation_steps(am, :active);
+        concentrations = mets)
+    inactive = EnzymeRates.Derivation._law(
+        cm, s, EnzymeRates.Mechanisms.conformation_steps(am, :inactive);
+        inactive = true, concentrations = mets)
     @test active.vars == inactive.vars
     @test active.vars.names == [mets; s.names[s.independents]; :Keq]
     rng = Random.MersenneTwister(71)
@@ -464,7 +466,8 @@ end
     # The thirteen mechanisms whose :OnlyI groups bind modifiers alone, read without the
     # guard: each law equals the rapid-equilibrium limit of the oracle's own deletion
     # network (`_testhelper_limit_law`) at 3 points, and the active conformation's
-    # denominator holds no constant of an :OnlyI group, since `_active_mask` drops them.
+    # denominator holds no constant of an :OnlyI group, since `conformation_steps` drops
+    # them.
     for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
         @testset "$label" begin
             sub = _testhelper_single_subunit(am)
@@ -505,7 +508,7 @@ end
         end
     end
     am = _testhelper_lift(inert)
-    @test !any(EnzymeRates.Mechanisms._inactive_mask(am))
+    @test !any(EnzymeRates.Mechanisms.conformation_steps(am, :inactive))
     s = EnzymeRates.Derivation._solve(am)
     A = EnzymeRates.Derivation._law(am, s)
     @test EnzymeRates.Derivation._flip_only(A.inactive) &&
@@ -571,8 +574,8 @@ end
     end
     am = _testhelper_lift(em)
     cm = am.catalytic
-    amask, imask = EnzymeRates.Mechanisms._active_mask(am),
-        EnzymeRates.Mechanisms._inactive_mask(am)
+    amask, imask = EnzymeRates.Mechanisms.conformation_steps(am, :active),
+        EnzymeRates.Mechanisms.conformation_steps(am, :inactive)
     @test _testhelper_laplacian_tree_count(cm, amask) == 4320
     @test _testhelper_laplacian_tree_count(cm, imask) == 4320
     @test EnzymeRates.Derivation.rate_equation_complexity(cm, amask) <=

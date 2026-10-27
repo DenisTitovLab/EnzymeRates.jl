@@ -2856,10 +2856,10 @@ end
     # segments joined by one tree, so the sum is the active law's count plus 2.
     for x in (am, p_by_a, p_by_b, a_by_p)
         @test _testhelper_laplacian_tree_count(
-            x.catalytic, EnzymeRates.Mechanisms._inactive_mask(x)) == 2
+            x.catalytic, EnzymeRates.Mechanisms.conformation_steps(x, :inactive)) == 2
         @test EnzymeRates.Derivation.rate_equation_complexity(x) ==
-              _testhelper_laplacian_tree_count(x.catalytic,
-                                               EnzymeRates.Mechanisms._active_mask(x)) + 2
+              _testhelper_laplacian_tree_count(
+                  x.catalytic, EnzymeRates.Mechanisms.conformation_steps(x, :active)) + 2
     end
     @test EnzymeRates.Derivation.parameter_count(p_by_a) ==
           EnzymeRates.Derivation.parameter_count(am)
@@ -2954,10 +2954,10 @@ end
     # Both conformations count: the inactive conformation keeps only E + Q <--> E(Q).
     for x in (am, a_by_p, p_by_b)
         @test _testhelper_laplacian_tree_count(
-            x.catalytic, EnzymeRates.Mechanisms._inactive_mask(x)) == 2
+            x.catalytic, EnzymeRates.Mechanisms.conformation_steps(x, :inactive)) == 2
         @test EnzymeRates.Derivation.rate_equation_complexity(x) ==
-              _testhelper_laplacian_tree_count(x.catalytic,
-                                               EnzymeRates.Mechanisms._active_mask(x)) + 2
+              _testhelper_laplacian_tree_count(
+                  x.catalytic, EnzymeRates.Mechanisms.conformation_steps(x, :active)) + 2
     end
     @test EnzymeRates.Derivation.parameter_count(am) == 22
     @test EnzymeRates.Derivation.parameter_count(a_by_p) == 24
@@ -11465,7 +11465,8 @@ end
         derived = Dict{Tuple{Symbol, EnzymeRates.Mechanism, BitVector}, Bool}()
         _testhelper_state_hyperbolic(m, state) = get!(derived,
             (state, EnzymeRates.Mechanisms.catalytic(m),
-             EnzymeRates.Derivation._state_mask(m, state))) do
+             EnzymeRates.Mechanisms.conformation_steps(
+                 m, state === :A ? :active : :inactive))) do
             L = EnzymeRates.Derivation._law(m)
             _testhelper_hyperbolic(state === :A ? L.active : L.inactive, mets)
         end
@@ -13689,7 +13690,7 @@ end
     # None is an L phantom: L raises every child's rank, so no certificate exists, though
     # only_q and p_and_q bind nothing in the inactive conformation.
     for k in (only_q, p_and_q)
-        @test !any(EnzymeRates.Mechanisms._inactive_mask(k))
+        @test !any(EnzymeRates.Mechanisms.conformation_steps(k, :inactive))
     end
     @test !any(k -> EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(k)),
                (only_q, only_p, p_and_q))
