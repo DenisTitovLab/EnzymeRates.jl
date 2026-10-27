@@ -25,12 +25,12 @@ using Tables
 using Optimization
 using Distributed
 using FunctionWrappers: FunctionWrapper
-import Unicode
 using SHA: sha256
 
-include("types.jl")
-include("names.jl")
-include("dsl.jl")
+include("Mechanisms/Mechanisms.jl")
+using .Mechanisms: Mechanisms, EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism,
+    metabolites, Mechanism, AllostericMechanism, compile_mechanism
+include("macros.jl")
 include("rate_eq_derivation.jl")
 include("thermo.jl")
 include("poly.jl")
@@ -47,11 +47,11 @@ include("identify_rate_equation.jl")
 # Every mechanism macro call runs the guard, the flip search runs `_faces_pass` and the
 # first `rate_equation` call of a mechanism runs `_rate_body`, so all three compile into
 # the package image rather than in each session.
-precompile(_guard, (Mechanism,))
-precompile(_guard, (AllostericMechanism,))
-precompile(_faces_pass, (Mechanism, BitVector))
-precompile(_faces_pass, (AllostericMechanism, BitVector))
-precompile(_rate_body, (Mechanism,))
-precompile(_rate_body, (AllostericMechanism,))
+precompile(_guard, (Mechanisms.Mechanism,))
+precompile(_guard, (Mechanisms.AllostericMechanism,))
+precompile(_faces_pass, (Mechanisms.Mechanism, BitVector))
+precompile(_faces_pass, (Mechanisms.AllostericMechanism, BitVector))
+precompile(_rate_body, (Mechanisms.Mechanism,))
+precompile(_rate_body, (Mechanisms.AllostericMechanism,))
 
 end

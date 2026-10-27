@@ -42,7 +42,7 @@ using OptimizationCMAEvolutionStrategy
         @test fp.reference == [(S = 10,) => 3.0]
         @test fp.reference isa Vector{Pair{NamedTuple, Float64}}
         # The concrete-mechanism constructor passes the reference on.
-        fp_conc = FittingProblem(EnzymeRates.Mechanism(mm), mm_data; Keq = 2.0,
+        fp_conc = FittingProblem(EnzymeRates.Mechanisms.Mechanism(mm), mm_data; Keq = 2.0,
                                  reference = [(S = 10.0,) => 3.0])
         @test fp_conc.reference == [(S = 10.0,) => 3.0]
     end

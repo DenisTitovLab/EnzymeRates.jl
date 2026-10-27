@@ -41,13 +41,14 @@ symbol, the locals defined by column so a body's numbering never follows a hash;
 segment's weight sum `σ_g` and tree sum `T_g` and `Q` get a local (`_factor!`). Returns `Q`
 as one term and `D = shift·Σ_g σ_g·T_g`.
 """
-function _state!(vars::_Vars, defs::Vector{Pair{Int, _Poly}}, m::Mechanism, s::_Solve,
-                 L::_Law, mask::BitVector, inactive::Bool)
+function _state!(vars::_Vars, defs::Vector{Pair{Int, _Poly}}, m::Mechanisms.Mechanism,
+                 s::_Solve, L::_Law, mask::BitVector, inactive::Bool)
     value = _column_values(vars, s, r -> length(r) <= 1 ? r :
                                          _monomial(_local!(vars, defs, _term(r)) => 1))
     b = _bare_law(m, mask, L.vars.names[L.vars.conc])
     nc = count(L.vars.conc)
-    bare(v) = v <= nc ? nothing : value[s.column[_Column(b.cols[v - nc]..., inactive)]]
+    bare(v) = v <= nc ? nothing :
+              value[s.column[Mechanisms._Column(b.cols[v - nc]..., inactive)]]
     shift = _term(L.shift)
     D = zero(_Poly)
     for (σ, T) in zip(b.sigma, b.trees)
@@ -58,7 +59,7 @@ function _state!(vars::_Vars, defs::Vector{Pair{Int, _Poly}}, m::Mechanism, s::_
 end
 
 """The program of a plain law: `num = H·Q`, `den = D` (`_state!`)."""
-function _program(m::Mechanism, s::_Solve, L::_Law)
+function _program(m::Mechanisms.Mechanism, s::_Solve, L::_Law)
     vars, defs = deepcopy(L.vars), Pair{Int, _Poly}[]
     Q, D = _state!(vars, defs, m, s, L, trues(length(m.edges)), false)
     _Program(vars, defs, _factor!(vars, defs, L.H) * Q, D)
@@ -70,12 +71,12 @@ conformation that is free E alone), locals for the free-E weights `fA`, `fI`, th
 conformation terms `xA = fI·DA` and `xI = fA·DI` and each site's two binding polynomials;
 `num = H·(fI·QA·xA^(n−1)·WA + L·fA·QI·xI^(n−1)·WI)`, `den = xA^n·WA + L·xI^n·WI`.
 """
-function _program(am::AllostericMechanism, s::_Solve, A::_AlloLaw)
-    m, n = catalytic(am), A.n
+function _program(am::Mechanisms.AllostericMechanism, s::_Solve, A::_AlloLaw)
+    m, n = Mechanisms.catalytic(am), A.n
     vars, defs = deepcopy(A.vars), Pair{Int, _Poly}[]
-    QA, DA = _state!(vars, defs, m, s, A.active, _active_mask(am), false)
+    QA, DA = _state!(vars, defs, m, s, A.active, Mechanisms._active_mask(am), false)
     QI, DI = _flip_only(A.inactive) ? (zero(_Poly), one(_Poly)) :
-             _state!(vars, defs, m, s, A.inactive, _inactive_mask(am), true)
+             _state!(vars, defs, m, s, A.inactive, Mechanisms._inactive_mask(am), true)
     f(p) = _factor!(vars, defs, p)
     pw(p, k) = foldl(*, (p for _ in 1:k); init = one(_Poly))
     fA, fI = f(A.fA), f(A.fI)
@@ -175,7 +176,7 @@ end
 
 """The body of the generated `rate_equation` of `m`: the program's code (`_body`) of its
 law (`_with_law`)."""
-_rate_body(m::Union{Mechanism, AllostericMechanism}) =
+_rate_body(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
     _with_law((m, s, L) -> _body(_program(m, s, L)), m)
 
 # ─── rate_equation ─────────────────────────────────────────────────────────────
@@ -201,12 +202,13 @@ arithmetic with no allocations, loops, or matrix operations. Use
 [`rate_equation_string`](@ref) to inspect the derived equation symbolically.
 """
 @generated function rate_equation(m::M_type, concs::NamedTuple,
-        params::NamedTuple) where {M_type <: AbstractEnzymeMechanism}
+        params::NamedTuple) where {M_type <: Mechanisms.AbstractEnzymeMechanism}
     # The generator decodes the mechanism and checks its rate law once
     # (`_derivation_input`).
     _rate_body(_derivation_input(M_type))
 end
 
 # Concrete-mechanism convenience: lift to the singleton (allocates, not the hot path).
-rate_equation(m::Union{Mechanism, AllostericMechanism}, concs, params) =
-    rate_equation(compile_mechanism(m), concs, params)
+rate_equation(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}, concs,
+              params) =
+    rate_equation(Mechanisms.compile_mechanism(m), concs, params)

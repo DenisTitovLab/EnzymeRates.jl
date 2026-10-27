@@ -1,5 +1,5 @@
-# ABOUTME: The parameter-naming chokepoint name(p, m) and the renderers it builds on
-# ABOUTME: (metabolite labels, form names, step sides), and forms and steps as DSL text.
+# ABOUTME: The parameter-naming chokepoint name(p, m), the rules it names by (kept class
+# ABOUTME: members, regulator constants), its renderers, and forms and steps as DSL text.
 
 # ─── Form names, step sides, and forms and steps as DSL text ───────────
 
@@ -154,3 +154,149 @@ stored direction.
 _edge_constants(m::Mechanism, k::Int, state::Symbol) =
     m.edges[k].rapid_equilibrium ? Parameter[Krapid(k, state)] :
                                    Parameter[Kfor(k, state), Krev(k, state)]
+
+# ─── Kept members of kinetic classes ─────────────────────────────────
+
+"""
+A bare constant of the joint solve: slot `slot` of edge `edge` of the catalytic graph, in
+the inactive conformation when `inactive`. Slot 1 is a rapid-equilibrium edge's
+equilibrium constant or a steady-state edge's rate constant in its stored direction;
+slot 2 is a steady-state edge's rate constant in the reverse direction.
+"""
+struct _Column
+    edge::Int
+    slot::Int
+    inactive::Bool
+end
+
+"""
+The priority key of constant `slot` of edge `k` of `m` in conformation block `block` (2:
+a copy outside its conformation's law, 1: an inactive copy in the law, 0: an active copy
+in the law). The solve eliminates the larger key first, so a column with a larger key
+becomes dependent sooner. In turn: the block; the edge's kind (3 an isomerization, 2
+other chemistry, 1 a plain binding); whether both of its forms hold a metabolite; steady
+state before rapid equilibrium; a steady-state constant that runs against the reaction
+(for a product binding its uptake, for every other edge its reverse rate: the constructor
+stores each edge in its physical-forward direction); then the edge's content as stored,
+its rank `edge_rank[k]` (`_edge_base_rank`), the smaller rank kept.
+"""
+function _priority_key(m::Mechanism, k::Int, slot::Int, block::Int,
+                       edge_rank::Vector{Int})
+    e = m.edges[k]
+    kind = _is_iso(e) ? 3 : _is_chemistry(m, e) ? 2 : 1
+    occupied = m.forms[e.from].bound != 0 && m.forms[e.to].bound != 0
+    ss = !e.rapid_equilibrium
+    against = ss && (slot == 2) != _binds_product(m, e)
+    (block, kind, occupied, ss, against, edge_rank[k])
+end
+
+"""Each kinetic group's allosteric tag, `:None` for a plain mechanism."""
+_solve_tags(m::Mechanism) = fill(:None, ngroups(m))
+_solve_tags(am::AllostericMechanism) = cat_allo_states(am)
+
+"""Whether each edge lies in the inactive conformation's law (`_inactive_mask`); false
+for every edge of a plain mechanism."""
+_inactive_law(m::Mechanism) = falses(length(m.edges))
+_inactive_law(am::AllostericMechanism) = _inactive_mask(am)
+
+"""Whether each edge lies in the active conformation's law (`_active_mask`); true for
+every edge of a plain mechanism."""
+_active_law(m::Mechanism) = trues(length(m.edges))
+_active_law(am::AllostericMechanism) = _active_mask(am)
+
+"""Whether the active column of edge `k`, in a group `group[k]` tagged `tags`, enters the
+law: its edge lies in the active conformation's law (`alaw`), or it is an `:EqualAI`
+edge of the inactive conformation's law (`law`), whose one constant the inactive law
+reads."""
+_in_active_law(k::Int, group::Vector{Int}, tags::Vector{Symbol}, law::BitVector,
+               alaw::BitVector) = alaw[k] || (tags[group[k]] === :EqualAI && law[k])
+
+"""Whether the steps of a group with allosteric tag `tag` take their own constants in the
+inactive conformation: those of a `:NonequalAI`, `:OnlyA` or `:OnlyI` group do; an
+`:EqualAI` group's read the active ones."""
+_has_inactive_columns(tag::Symbol) = tag in (:NonequalAI, :OnlyA, :OnlyI)
+
+"""
+    _ordered_columns(m) -> (; columns, flat, tags, law, alaw)
+
+The joint solve's columns of `m` in elimination order, which `_joint_system` and
+`_kept_members` share: one column (`_Column`) per slot of every edge, and for an
+allosteric mechanism one more per slot of every edge of a `:NonequalAI`, `:OnlyA` or
+`:OnlyI` group, for its inactive copy, ordered by `_priority_key`, larger first. `flat`
+holds the edges group by group (`_flat_edges`), `tags` each group's tag (`_solve_tags`),
+`law[k]` whether edge `k` lies in the inactive conformation's law (`_inactive_law`) and
+`alaw[k]` whether it lies in the active conformation's law (`_active_law`; `_in_active_law`
+adds the `:EqualAI` constants the inactive law reads).
+"""
+function _ordered_columns(m::_AnyMech)
+    cm = catalytic(m)
+    flat = _flat_edges(cm)
+    tags = _solve_tags(m)
+    law = _inactive_law(m)
+    alaw = _active_law(m)
+    allosteric = m isa AllostericMechanism
+    columns = _Column[]
+    for k in flat, inactive in (false, true)
+        inactive && !(allosteric && _has_inactive_columns(tags[cm.group[k]])) && continue
+        for slot in 1:(cm.edges[k].rapid_equilibrium ? 1 : 2)
+            push!(columns, _Column(k, slot, inactive))
+        end
+    end
+    rank = _edge_base_rank(cm)
+    block(c) = c.inactive ? (law[c.edge] ? 1 : 2) :
+               _in_active_law(c.edge, cm.group, tags, law, alaw) ? 0 : 2
+    priorities = [_priority_key(cm, c.edge, c.slot, block(c), rank) for c in columns]
+    (; columns = columns[sortperm(priorities; rev = true)], flat, tags, law, alaw)
+end
+
+"""
+The kept member of each kinetic class of `m`, keyed by `(group, slot, inactive)`: the
+edge whose column comes last in elimination order (`cols`, `_ordered_columns(m)`), its
+smallest `_priority_key`, so the solve keeps it whenever it keeps one of the class (E3).
+A `:NonequalAI` or `:OnlyI` group has an inactive class, kept by a member in the inactive
+law when it has one; an `:EqualAI` group's edges share their active class; the copy of an
+edge in the conformation that excludes it (an `:OnlyA` edge's inactive copy, an `:OnlyI`
+edge's active one) is a class of its own, so neither of these appears.
+"""
+function _kept_members(m::_AnyMech, cols = _ordered_columns(m))
+    group = catalytic(m).group
+    kept = Dict{Tuple{Int, Int, Bool}, Int}()
+    for c in cols.columns
+        g = group[c.edge]
+        tag = cols.tags[g]
+        (c.inactive ? !(tag in (:NonequalAI, :OnlyI)) : tag === :OnlyI) && continue
+        kept[(g, c.slot, c.inactive)] = c.edge
+    end
+    kept
+end
+
+# ─── Regulator constants ────────────────────────────────────
+
+"""
+The regulator constants of `am` listed with conformation `state`, site by site: for `:A`
+every ligand the active conformation binds, an `:EqualAI` ligand under its one bare name
+(`K_<ligand>reg`, state `:EqualAI`) and an `:OnlyA` or `:NonequalAI` one under its
+`K_A_` name; for `:I` the `K_I_` constant of every `:OnlyI` or `:NonequalAI` ligand.
+"""
+_kreg_params(am::AllostericMechanism, state::Symbol) =
+    state === :A ?
+    Kreg[Kreg(lig, tag === :EqualAI ? :EqualAI : :A)
+         for site in regulatory_sites(am)
+         for (lig, tag) in zip(ligands(site), allo_states(site))
+         if !_excluded_by(tag, false)] :
+    Kreg[Kreg(lig, :I) for site in regulatory_sites(am)
+         for (lig, tag) in zip(ligands(site), allo_states(site))
+         if !_excluded_by(tag, true) && tag !== :EqualAI]
+
+"""
+The dissociation-constant name of the ligand named `lig` (allosteric tag `tag`) of `am`
+in the active (`inactive = false`) or inactive conformation, or `nothing` when the
+ligand is absent from that conformation (`:OnlyI` in the active state, `:OnlyA` in the
+inactive one). An `:EqualAI` ligand has one bare name in both conformations
+(`K_<ligand>reg`); an `:OnlyA`, `:OnlyI` or `:NonequalAI` ligand has its conformation's
+`K_A_` or `K_I_` name. Renders the name via the `name(::Kreg, am)` chokepoint.
+"""
+function _reg_K(am::AllostericMechanism, lig::Symbol, tag::Symbol, inactive::Bool)
+    _excluded_by(tag, inactive) && return nothing
+    name(Kreg(lig, tag === :EqualAI ? :EqualAI : inactive ? :I : :A), am)
+end

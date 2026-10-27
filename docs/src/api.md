@@ -16,7 +16,7 @@ Order = [:function, :macro, :type]
 ## Functions
 
 ```@autodocs
-Modules = [EnzymeRates]
+Modules = [EnzymeRates.Mechanisms, EnzymeRates]
 Private = false
 Order = [:function]
 ```
@@ -24,7 +24,7 @@ Order = [:function]
 ## Macros
 
 ```@autodocs
-Modules = [EnzymeRates]
+Modules = [EnzymeRates.Mechanisms, EnzymeRates]
 Private = false
 Order = [:macro]
 ```
@@ -32,7 +32,7 @@ Order = [:macro]
 ## Types
 
 ```@autodocs
-Modules = [EnzymeRates]
+Modules = [EnzymeRates.Mechanisms, EnzymeRates]
 Private = false
 Order = [:type]
 ```

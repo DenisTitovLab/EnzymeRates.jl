@@ -16,7 +16,7 @@ function _testhelper_solve_point(m, rng)
     mech = _testhelper_lift(m)
     g = _testhelper_graph(mech)
     sys = _testhelper_JS._joint_system(mech)
-    edges = _testhelper_JS._flat_edges(_testhelper_JS.catalytic(mech))
+    edges = _testhelper_JS.Mechanisms._flat_edges(_testhelper_JS.Mechanisms.catalytic(mech))
     M, pivots = _testhelper_JS._reduce_joint_system(sys.A, sys.rhs)
     n = length(sys.columns)
     x = zeros(BigFloat, n)
@@ -34,8 +34,9 @@ function _testhelper_solve_point(m, rng)
         for (j, s) in enumerate(g.steps)
             k = edges[j]
             inactive && !sys.law[k] && continue
-            own = inactive && _testhelper_JS._has_inactive_columns(sys.tags[s.group])
-            col(slot) = value[_testhelper_JS._Column(k, slot, own)]
+            own = inactive &&
+                _testhelper_JS.Mechanisms._has_inactive_columns(sys.tags[s.group])
+            col(slot) = value[_testhelper_JS.Mechanisms._Column(k, slot, own)]
             if s.rapid_equilibrium
                 K = col(1)
                 push!(out, (s, _testhelper_is_binding(s) ? 1 / K : K, nothing))
@@ -49,9 +50,9 @@ function _testhelper_solve_point(m, rng)
     L = big(0)
     if allo
         L = exp(4 * big(rand(rng)) - 2)
-        for p in [_testhelper_JS._kreg_params(mech, :A);
-                  _testhelper_JS._kreg_params(mech, :I)]
-            vals[_testhelper_JS.name(p, mech)] = exp(4 * big(rand(rng)) - 2)
+        for p in [_testhelper_JS.Mechanisms._kreg_params(mech, :A);
+                  _testhelper_JS.Mechanisms._kreg_params(mech, :I)]
+            vals[_testhelper_JS.Mechanisms.name(p, mech)] = exp(4 * big(rand(rng)) - 2)
         end
     end
     (; vals, Keq = exp(log_keq), active = _testhelper_conformation(false),
@@ -71,7 +72,7 @@ end
 
 @testset "Joint thermodynamic solve" begin
     @testset "the priority key orders the columns" begin
-        mech = EnzymeRates.Mechanism(_testhelper_mm_ss)
+        mech = EnzymeRates.Mechanisms.Mechanism(_testhelper_mm_ss)
         sys = EnzymeRates._joint_system(mech)
         describe(c) = (_testhelper_edge_text(mech, c.edge), c.slot)
         # The isomerization goes first, its reverse rate (against the reaction) before
@@ -92,7 +93,7 @@ end
         # Every step at steady state: a plain binding at free E, a binding between two
         # occupied forms, an isomerization, a binding fused with chemistry, a binding of A
         # at E(B) and an isomerization of free E.
-        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        m = EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
@@ -108,7 +109,7 @@ end
             end
         end)
         # The binding between occupied forms at rapid equilibrium.
-        m_re = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        m_re = EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P
             steps: begin
@@ -118,8 +119,9 @@ end
                 E(P) <--> E + P
             end
         end)
-        _testhelper_key(x, text, slot, block) = EnzymeRates._priority_key(
-            x, _testhelper_edge(x, text), slot, block, EnzymeRates._edge_base_rank(x))
+        _testhelper_key(x, text, slot, block) =
+            EnzymeRates.Mechanisms._priority_key(x, _testhelper_edge(x, text), slot, block,
+                                                 EnzymeRates.Mechanisms._edge_base_rank(x))
         key(text, slot, block) = _testhelper_key(m, text, slot, block)
         plain, occupied = "E + A <--> EA", "EA + B <--> EAB"
         # block first: an inactive copy outside the law before any other column
@@ -140,8 +142,9 @@ end
     end
 
     @testset "a modifier copy keys after the reactant of its name" begin
-        @test isless(EnzymeRates.Met(:A, false), EnzymeRates.Met(:A, true))
-        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        @test isless(EnzymeRates.Mechanisms.Met(:A, false),
+                     EnzymeRates.Mechanisms.Met(:A, true))
+        m = EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
             substrates: A
             products: P
             modifiers: A
@@ -152,8 +155,9 @@ end
                 E + A::Mod ⇌ E(A::Mod)
             end
         end)
-        @test m.table == [EnzymeRates.Met(:A, false), EnzymeRates.Met(:A, true),
-                          EnzymeRates.Met(:P, false)]
+        @test m.table ==
+              [EnzymeRates.Mechanisms.Met(:A, false), EnzymeRates.Mechanisms.Met(:A, true),
+               EnzymeRates.Mechanisms.Met(:P, false)]
     end
 
     @testset "a step neither chemistry nor graph context orients runs from the \
@@ -161,7 +165,7 @@ end
         # D <--> E is decided by neither atom progression nor graph context, so it runs
         # from free E, the first form of the canonical form order, however it is
         # written: its forward rate constant is k_E_to_D.
-        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        m = EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -174,11 +178,11 @@ end
         iso = only(k for k in eachindex(m.edges)
                    if occursin("D", _testhelper_edge_text(m, k)))
         @test _testhelper_edge_text(m, iso) == "E <--> D"
-        kf, kr = EnzymeRates._edge_constants(m, iso, :None)
-        @test EnzymeRates.name(kf, m) === :k_E_to_D
-        @test EnzymeRates.name(kr, m) === :k_D_to_E
+        kf, kr = EnzymeRates.Mechanisms._edge_constants(m, iso, :None)
+        @test EnzymeRates.Mechanisms.name(kf, m) === :k_E_to_D
+        @test EnzymeRates.Mechanisms.name(kr, m) === :k_D_to_E
         # Written E <--> D, the step is stored the same way.
-        @test EnzymeRates.Mechanism(@enzyme_mechanism begin
+        @test EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -226,16 +230,18 @@ end
                 (D <--> E, D(S) <--> E(S))
             end
         end
-        m = EnzymeRates.Mechanism(tied_mm)
+        m = EnzymeRates.Mechanisms.Mechanism(tied_mm)
         # Groups and steps in canonical order: the steps at free E first, then by form.
-        @test [_testhelper_edge_text(m, k) for k in EnzymeRates._flat_edges(m)] ==
+        @test [_testhelper_edge_text(m, k)
+               for k in EnzymeRates.Mechanisms._flat_edges(m)] ==
               ["E <--> D", "ES <--> DS", "E + P <--> EP", "E + S <--> ES", "D + S <--> DS",
                "ES <--> EP"]
         label(f) = m.conformations[m.forms[f].conformation]
-        tied = only(ks for ks in EnzymeRates._group_members(m) if length(ks) == 2)
+        tied =
+            only(ks for ks in EnzymeRates.Mechanisms._group_members(m) if length(ks) == 2)
         @test all(k -> label(m.edges[k].from) === :E && label(m.edges[k].to) === :D, tied)
         # Written E <--> D and E(S) <--> D(S), the group is stored the same way.
-        @test EnzymeRates.Mechanism(@enzyme_mechanism begin
+        @test EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -251,7 +257,7 @@ end
     end
 
     @testset "fundamental cycles carry their multiple of the net reaction" begin
-        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        m = EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P
             steps: begin
@@ -263,11 +269,12 @@ end
                 E(P) ⇌ E + P
             end
         end)
-        Z, multiples = EnzymeRates._fundamental_cycles(m, EnzymeRates._flat_edges(m))
+        Z, multiples =
+            EnzymeRates._fundamental_cycles(m, EnzymeRates.Mechanisms._flat_edges(m))
         @test size(Z) == (2, 6)
         @test sort(abs.(multiples)) == [0, 1]
         # A cycle that turns A into P without B and Q is no multiple of the net reaction.
-        slip = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        slip = EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
@@ -281,7 +288,7 @@ end
             end
         end)
         err = @test_throws ErrorException EnzymeRates._fundamental_cycles(
-            slip, EnzymeRates._flat_edges(slip))
+            slip, EnzymeRates.Mechanisms._flat_edges(slip))
         @test occursin("produces metabolite change not proportional to net reaction",
                        err.value.msg)
     end
@@ -302,7 +309,7 @@ end
         # I binds E(A) and E(P) under one :NonequalAI group. In the inactive
         # conformation E(A) and E(A, I) lie behind the :OnlyA binding of A, so only the
         # E(P) + I member is in that conformation's law.
-        am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        am = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
             substrates: A
             products: P
             modifiers: I
@@ -314,10 +321,10 @@ end
                 (E(A) + I ⇌ E(A, I), E(P) + I ⇌ E(I, P))          :: NonequalAI
             end
         end)
-        kept = EnzymeRates._kept_members(am)
+        kept = EnzymeRates.Mechanisms._kept_members(am)
         group = am.catalytic.group
-        g = only(g for (g, members) in enumerate(EnzymeRates._group_members(am.catalytic))
-                 if length(members) == 2)
+        g = only(g for (g, members) in enumerate(
+            EnzymeRates.Mechanisms._group_members(am.catalytic)) if length(members) == 2)
         # Active: E(A) + I sorts before E(P) + I (A before P), so it is kept; inactive:
         # the member in the law is kept.
         @test _testhelper_edge_text(am, kept[(g, 1, false)]) == "EA + I ⇌ EAI"
@@ -328,14 +335,14 @@ end
                                      group[c.edge] == key[1], sys.columns)
             @test sys.columns[last_col].edge == edge
         end
-        _testhelper_check_law_against_oracle(EnzymeRates.compile_mechanism(am))
+        _testhelper_check_law_against_oracle(EnzymeRates.Mechanisms.compile_mechanism(am))
     end
 
     @testset "the inactive cycle row runs over the whole graph, islands included" begin
         # E(A) and E(A, I) lie behind the :OnlyA binding of A, so the inactive law holds
         # only E, E(P) and E(I, P). The cycle through E(A) still gets an inactive row,
         # which reads the inactive copies of the two :OnlyA steps, outside the law.
-        am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        am = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
             substrates: A
             products: P
             modifiers: I
@@ -366,16 +373,17 @@ end
                 mech = _testhelper_lift(spec.mechanism)
                 sys = EnzymeRates._joint_system(mech)
                 _, pivots = EnzymeRates._reduce_joint_system(sys.A, sys.rhs)
-                group = EnzymeRates.catalytic(mech).group
+                group = EnzymeRates.Mechanisms.catalytic(mech).group
                 class(c) = EnzymeRates._class(c, group[c.edge], sys.tags[group[c.edge]])
                 last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
                 n_law = count(i -> (c = sys.columns[i]; (!c.inactive || sys.law[c.edge]) &&
                                                         last_of[class(c)] == i &&
                                                         i ∉ pivots), eachindex(sys.columns))
-                n_reg = mech isa EnzymeRates.AllostericMechanism ?
-                        sum((t === :NonequalAI ? 2 : 1
-                             for site in EnzymeRates.regulatory_sites(mech)
-                             for t in EnzymeRates.allo_states(site)); init = 0) + 1 : 0
+                n_reg = mech isa EnzymeRates.Mechanisms.AllostericMechanism ?
+                    sum((t === :NonequalAI ? 2 : 1
+                         for site in EnzymeRates.Mechanisms.regulatory_sites(mech)
+                         for t in EnzymeRates.Mechanisms.allo_states(site));
+                        init = 0) + 1 : 0
                 @test n_law + n_reg == _testhelper_declared_dimension(spec.mechanism)
             end
         end
@@ -389,14 +397,14 @@ end
                 # In elimination order the last column of a class overwrites the earlier
                 # ones. The inactive copy of an :OnlyA step is a class of its own, which
                 # `_kept_members` leaves out.
-                group = EnzymeRates.catalytic(mech).group
+                group = EnzymeRates.Mechanisms.catalytic(mech).group
                 last_of_class = Dict{Tuple{Int, Int, Bool}, Int}()
                 for c in sys.columns
                     g = group[c.edge]
                     c.inactive && sys.tags[g] === :OnlyA && continue
                     last_of_class[(g, c.slot, c.inactive)] = c.edge
                 end
-                @test EnzymeRates._kept_members(mech) == last_of_class
+                @test EnzymeRates.Mechanisms._kept_members(mech) == last_of_class
             end
         end
     end
@@ -428,7 +436,7 @@ end
                 subs, prods = _testhelper_substrates(mech), _testhelper_products(mech)
                 concs = Dict{Symbol, BigFloat}(
                     x => exp(2 * big(rand(rng)) - 1)
-                    for x in EnzymeRates.metabolites(spec.mechanism))
+                    for x in EnzymeRates.Mechanisms.metabolites(spec.mechanism))
                 p1 = first(prods)
                 concs[p1] = point.Keq * prod(concs[x] for x in subs) /
                             prod((concs[x] for x in prods if x != p1); init = big(1))
@@ -444,7 +452,7 @@ end
     @testset "the content order reads base names, never rendered names" begin
         # The form holding A and C comes first in the content order, since its first
         # bound name, A, sorts before AB, though its rendered name, EAC, sorts after EAB.
-        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        m = EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
             substrates: A, C
             products: AB
             steps: begin
@@ -454,12 +462,12 @@ end
                 E(AB) ⇌ E + AB
             end
         end)
-        names = [EnzymeRates._form_name(m, f) for f in eachindex(m.forms)]
+        names = [EnzymeRates.Mechanisms._form_name(m, f) for f in eachindex(m.forms)]
         eac, eab = findfirst(==("EAC"), names), findfirst(==("EAB"), names)
         @test isless(m.forms[eac], m.forms[eab]) && eac < eab
         @test names[eac] > names[eab]
         # The solve's content tie ranks the graph's forms the same way (`_base_rank`).
-        rank = EnzymeRates._base_rank(m)
+        rank = EnzymeRates.Mechanisms._base_rank(m)
         @test rank[eac] < rank[eab]
     end
 
@@ -467,11 +475,12 @@ end
         # A rank type that follows a graph's content makes the sorts and comparisons that
         # read it compile again for every new shape a search meets: the solve breaks its
         # ties by integer ranks of forms and edges, which compare by content.
-        @test isconcretetype(only(Base.return_types(EnzymeRates._base_rank,
-                                                    (EnzymeRates.Mechanism,))))
-        @test isconcretetype(only(Base.return_types(EnzymeRates._edge_base_rank,
-                                                    (EnzymeRates.Mechanism,))))
-        @test isbitstype(EnzymeRates.Form) && isbitstype(EnzymeRates.Edge)
+        @test isconcretetype(only(Base.return_types(EnzymeRates.Mechanisms._base_rank,
+                                                    (EnzymeRates.Mechanisms.Mechanism,))))
+        @test isconcretetype(only(Base.return_types(EnzymeRates.Mechanisms._edge_base_rank,
+                                                    (EnzymeRates.Mechanisms.Mechanism,))))
+        @test isbitstype(EnzymeRates.Mechanisms.Form) &&
+              isbitstype(EnzymeRates.Mechanisms.Edge)
     end
 end
 
@@ -479,7 +488,7 @@ end
     # The conformational square ties two isomerizations of one group, so the Haldane
     # relation fixes k_F_to_E through square roots: Keq = (k_E_to_F / k_F_to_E)² ·
     # (k_F_S_to_ES / k_ES_to_F_S) · (k_FS_to_E_P / k_E_P_to_FS).
-    half = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    half = EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -509,7 +518,7 @@ end
     # constant equals the kept one); B's two bindings close a binding square with A's,
     # which ties them (Wegscheider); the cycle through the catalytic step fixes its
     # reverse rate (Haldane).
-    folded = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    folded = EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P
         steps: begin
@@ -538,7 +547,7 @@ end
 end
 
 @testset "_solve maps an :EqualAI edge's inactive constant to its active column" begin
-    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    am = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -547,7 +556,7 @@ end
         end
     end)
     s = EnzymeRates._solve(am)
-    C = EnzymeRates._Column
+    C = EnzymeRates.Mechanisms._Column
     binding = _testhelper_edge(am, "E + S ⇌ ES")
     release = _testhelper_edge(am, "E + P <--> ES")
     @test length(s.columns) == 5

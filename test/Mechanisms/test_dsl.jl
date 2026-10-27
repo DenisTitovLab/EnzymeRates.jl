@@ -10,11 +10,11 @@ _testhelper_role(x, t) = t.modifier ? :modifier : t.name in x.substrates ? :subs
 metabolite's name with its role (`_testhelper_role`)."""
 _testhelper_form_roles(x, f) = (x.conformations[x.forms[f].conformation],
     [(t.name, _testhelper_role(x, t))
-     for t in x.table[EnzymeRates.entries(x.forms[f].bound)]])
+     for t in x.table[EnzymeRates.Mechanisms.entries(x.forms[f].bound)]])
 
 """Whether an edge of graph `x` binds metabolite entry `t`."""
-_testhelper_binds_entry(x, t) =
-    e -> EnzymeRates._is_binding(e) && x.table[EnzymeRates._bound_entry(e)] == t
+_testhelper_binds_entry(x, t) = e -> EnzymeRates.Mechanisms._is_binding(e) &&
+    x.table[EnzymeRates.Mechanisms._bound_entry(e)] == t
 
 """The edge of graph `x` that binds metabolite entry `t`."""
 _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edges))
@@ -37,9 +37,10 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         # over (class 2); the parse is the subject, so the constructor builds it
         # unchecked.
         @test EnzymeRates._guard(mech).fault === EnzymeRates._RE_TURNOVER
-        @test EnzymeRates.ngroups(mech) == 3
+        @test EnzymeRates.Mechanisms.ngroups(mech) == 3
         # Steps are canonicalized; pick each by content, not position.
-        es_step = _testhelper_binding_of(mech, EnzymeRates.Met(:S, false))  # E + S ⇌ E(S)
+        # E + S ⇌ E(S)
+        es_step = _testhelper_binding_of(mech, EnzymeRates.Mechanisms.Met(:S, false))
         @test _testhelper_form_roles(mech, es_step.to) == (:E, [(:S, :substrate)])
         # The E + S side has conformation :E with no bound metabolite.
         @test _testhelper_form_roles(mech, es_step.from) == (:E, [])
@@ -48,7 +49,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         # canonicalizes iso direction physical-forward (substrate-bound
         # `from`, product-bound `to`) via `_orientation`, so E(S) is its
         # `from` form and E(P) its `to` form.
-        iso_step = only(filter(EnzymeRates._is_iso, mech.edges))
+        iso_step = only(filter(EnzymeRates.Mechanisms._is_iso, mech.edges))
         @test _testhelper_form_roles(mech, iso_step.from) == (:E, [(:S, :substrate)])
         @test _testhelper_form_roles(mech, iso_step.to) == (:E, [(:P, :product)])
 
@@ -67,13 +68,15 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                 E + I <--> E(I)
             end
         end
-        mech_multi = EnzymeRates.Mechanism(m_multi)
+        mech_multi = EnzymeRates.Mechanisms.Mechanism(m_multi)
         eab = only(f for (f, x) in enumerate(mech_multi.forms)             # E(A, B)
-                   if Set(EnzymeRates._entry_names(mech_multi, x.bound)) == Set([:A, :B]))
+                   if Set(EnzymeRates.Mechanisms._entry_names(mech_multi, x.bound)) ==
+                      Set([:A, :B]))
         @test _testhelper_form_roles(mech_multi, eab) ==
               (:E, [(:A, :substrate), (:B, :substrate)])
         # The modifier-only name I binds as a modifier.
-        ei = _testhelper_binding_of(mech_multi, EnzymeRates.Met(:I, true)).to   # E(I)
+        ei = _testhelper_binding_of(mech_multi,                               # E(I)
+                                    EnzymeRates.Mechanisms.Met(:I, true)).to
         @test _testhelper_form_roles(mech_multi, ei) == (:E, [(:I, :modifier)])
     end
 
@@ -95,7 +98,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         @test _testhelper_regulators(m) == [:I]
         # One shared 2-step kinetic group (the S-binding pair) + 3 singletons →
         # 5 steps, 4 groups (order-independent: canonicalization reorders steps).
-        @test EnzymeRates.ngroups(EnzymeRates.Mechanism(m)) == 4
+        @test EnzymeRates.Mechanisms.ngroups(EnzymeRates.Mechanisms.Mechanism(m)) == 4
 
         # Residual notation: Estar(; residual = A - P).
         m_res = @enzyme_mechanism begin
@@ -111,7 +114,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             end
         end
         @test m_res isa EnzymeMechanism
-        @test length(EnzymeRates.Mechanism(m_res).edges) == 6
+        @test length(EnzymeRates.Mechanisms.Mechanism(m_res).edges) == 6
 
         # Reject atom bracket syntax in substrates:
         @test_throws "expects bare names" eval(:(@enzyme_mechanism begin
@@ -428,47 +431,51 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         # A multiplicity call (`P(2)`, `X(1, 2)`) under the tag leaves the metabolite's
         # name in the hint; a value that is no name gets no hint (the whole message is
         # pinned).
-        @test_throws(ErrorException("`modifiers:` expects bare names; got P(2)::Mod. " *
-                                    "List `P` bare; a role tag goes on the metabolite " *
-                                    "in a step."),
-                     EnzymeRates._bare_symbols_from_values(Any[:(P(2)::Mod)], :modifiers))
+        @test_throws(
+            ErrorException("`modifiers:` expects bare names; got P(2)::Mod. " *
+                           "List `P` bare; a role tag goes on the metabolite " *
+                           "in a step."),
+            EnzymeRates.Mechanisms._bare_symbols_from_values(Any[:(P(2)::Mod)], :modifiers))
         @test_throws(ErrorException("`modifiers:` expects bare names; got X(1, 2)::Mod. " *
                                     "List `X` bare; a role tag goes on the metabolite " *
                                     "in a step."),
-                     EnzymeRates._bare_symbols_from_values(Any[:(X(1, 2)::Mod)],
-                                                           :modifiers))
-        @test_throws(ErrorException("`modifiers:` expects bare names; got 1::Mod."),
-                     EnzymeRates._bare_symbols_from_values(Any[:(1::Mod)], :modifiers))
+                     EnzymeRates.Mechanisms._bare_symbols_from_values(Any[:(X(1, 2)::Mod)],
+                                                                      :modifiers))
+        @test_throws(
+            ErrorException("`modifiers:` expects bare names; got 1::Mod."),
+            EnzymeRates.Mechanisms._bare_symbols_from_values(Any[:(1::Mod)], :modifiers))
         # A tag with nothing before it names no metabolite, so it gets no hint.
-        @test EnzymeRates._bare_name(Expr(:(::), :OnlyA)) === nothing
+        @test EnzymeRates.Mechanisms._bare_name(Expr(:(::), :OnlyA)) === nothing
         @test_throws(ErrorException("`modifiers:` expects bare names; got ::Mod."),
-                     EnzymeRates._bare_symbols_from_values(Any[Expr(:(::), :Mod)],
-                                                           :modifiers))
+                     EnzymeRates.Mechanisms._bare_symbols_from_values(
+                         Any[Expr(:(::), :Mod)], :modifiers))
         # An operator call is no multiplicity call: its head names no metabolite, so it
         # gets no hint. An atom bracket under the tag gets the atom-bracket hint.
         @test_throws(ErrorException("`modifiers:` expects bare names; got (A + B)::Mod."),
-                     EnzymeRates._bare_symbols_from_values(Any[:((A + B)::Mod)],
-                                                           :modifiers))
-        @test_throws(ErrorException("`modifiers:` expects bare names; got S[C]::Mod. " *
-                                    "Atom brackets belong in @enzyme_reaction."),
-                     EnzymeRates._bare_symbols_from_values(Any[:(S[C]::Mod)], :modifiers))
+                     EnzymeRates.Mechanisms._bare_symbols_from_values(Any[:((A + B)::Mod)],
+                                                                      :modifiers))
+        @test_throws(
+            ErrorException("`modifiers:` expects bare names; got S[C]::Mod. " *
+                           "Atom brackets belong in @enzyme_reaction."),
+            EnzymeRates.Mechanisms._bare_symbols_from_values(Any[:(S[C]::Mod)], :modifiers))
         # `Base.isoperator` does not flag the word operators `in` and `isa`, so `in(2)`
         # counts as a multiplicity call; the infix `A in B` and `A isa B` do not (their
         # arguments are no Integers), nor does an operator called with one Integer
         # (`(-(2))`, which prints as `(-2)`): none gets a hint.
         @test_throws(ErrorException("`modifiers:` expects bare names; got (A in B)::Mod."),
-                     EnzymeRates._bare_symbols_from_values(Any[:((A in B)::Mod)],
-                                                           :modifiers))
+                     EnzymeRates.Mechanisms._bare_symbols_from_values(Any[:((A in B)::Mod)],
+                                                                      :modifiers))
         @test_throws(ErrorException("`modifiers:` expects bare names; got (A isa B)::Mod."),
-                     EnzymeRates._bare_symbols_from_values(Any[:((A isa B)::Mod)],
-                                                           :modifiers))
+                     EnzymeRates.Mechanisms._bare_symbols_from_values(
+                         Any[:((A isa B)::Mod)], :modifiers))
         @test_throws(ErrorException("`modifiers:` expects bare names; got (in)(2)::Mod. " *
                                     "List `in` bare; a role tag goes on the metabolite " *
                                     "in a step."),
-                     EnzymeRates._bare_symbols_from_values(Any[:(in(2)::Mod)], :modifiers))
+                     EnzymeRates.Mechanisms._bare_symbols_from_values(
+                         Any[:(in(2)::Mod)], :modifiers))
         @test_throws(ErrorException("`modifiers:` expects bare names; got (-2)::Mod."),
-                     EnzymeRates._bare_symbols_from_values(Any[:((-(2))::Mod)],
-                                                           :modifiers))
+                     EnzymeRates.Mechanisms._bare_symbols_from_values(Any[:((-(2))::Mod)],
+                                                                      :modifiers))
         @test_throws("`allosteric_regulators:` expects bare names; got X(2).",
                      eval(:(@allosteric_mechanism begin
             substrates: S
@@ -582,7 +589,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
     @testset "a tagged tuple of one step is a one-step group" begin
         # A parenthesized group is a tuple of steps, `(step,)` for one: tagged, it is the
         # same mechanism as the bare tagged step.
-        one_tuple = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        one_tuple = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
             catalytic_multiplicity: 2
@@ -597,7 +604,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             regulatory_site(4): A::OnlyA
             regulatory_site(4): I::OnlyI
         end)
-        bare = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        bare = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
             catalytic_multiplicity: 2
@@ -613,7 +620,8 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             regulatory_site(4): I::OnlyI
         end)
         @test one_tuple == bare
-        @test EnzymeRates.ngroups(EnzymeRates.catalytic(one_tuple)) == 3
+        @test EnzymeRates.Mechanisms.ngroups(
+            EnzymeRates.Mechanisms.catalytic(one_tuple)) == 3
 
         # A plain mechanism has no group tags, parenthesized or not.
         @test_throws("@enzyme_mechanism: tag annotation `(E(P) ⇌ E + P)::EqualAI` is not " *
@@ -634,13 +642,17 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             products:   P[C]
         end
         @test spec isa EnzymeReaction
-        @test EnzymeRates.substrates(spec) == [EnzymeRates.Substrate(:S)]
-        @test EnzymeRates.products(spec) == [EnzymeRates.Product(:P)]
-        @test EnzymeRates.reactants(spec)[1] == EnzymeRates.ReactantAtoms(
-            EnzymeRates.Product(:P), [:C => 1])
-        @test EnzymeRates.reactants(spec)[2] == EnzymeRates.ReactantAtoms(
-            EnzymeRates.Substrate(:S), [:C => 1])
-        @test EnzymeRates.regulators(spec) == EnzymeRates.DeclaredRegulator[]
+        @test EnzymeRates.Mechanisms.substrates(spec) ==
+              [EnzymeRates.Mechanisms.Substrate(:S)]
+        @test EnzymeRates.Mechanisms.products(spec) == [EnzymeRates.Mechanisms.Product(:P)]
+        @test EnzymeRates.Mechanisms.reactants(spec)[1] ==
+              EnzymeRates.Mechanisms.ReactantAtoms(
+                  EnzymeRates.Mechanisms.Product(:P), [:C => 1])
+        @test EnzymeRates.Mechanisms.reactants(spec)[2] ==
+              EnzymeRates.Mechanisms.ReactantAtoms(
+                  EnzymeRates.Mechanisms.Substrate(:S), [:C => 1])
+        @test EnzymeRates.Mechanisms.regulators(spec) ==
+              EnzymeRates.Mechanisms.DeclaredRegulator[]
     end
 
     @testset "the macros work in a module that names the package otherwise" begin
@@ -707,17 +719,17 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             substrates: A[C2H3], B[NP]
             products: P[C2N], Q[H3P]
         end
-        subs = EnzymeRates.substrates(rxn)
-        @test subs[1] == EnzymeRates.Substrate(:A)
-        @test subs[2] == EnzymeRates.Substrate(:B)
-        ra = EnzymeRates.reactants(rxn)
-        ra_map = Dict(EnzymeRates.name(EnzymeRates.metabolite(r)) =>
-                          EnzymeRates.atoms(r) for r in ra)
+        subs = EnzymeRates.Mechanisms.substrates(rxn)
+        @test subs[1] == EnzymeRates.Mechanisms.Substrate(:A)
+        @test subs[2] == EnzymeRates.Mechanisms.Substrate(:B)
+        ra = EnzymeRates.Mechanisms.reactants(rxn)
+        ra_map = Dict(EnzymeRates.Mechanisms.name(EnzymeRates.Mechanisms.metabolite(r)) =>
+                          EnzymeRates.Mechanisms.atoms(r) for r in ra)
         @test ra_map[:A] == [:C => 2, :H => 3]
         @test ra_map[:B] == [:N => 1, :P => 1]
-        prods = EnzymeRates.products(rxn)
-        @test prods[1] == EnzymeRates.Product(:P)
-        @test prods[2] == EnzymeRates.Product(:Q)
+        prods = EnzymeRates.Mechanisms.products(rxn)
+        @test prods[1] == EnzymeRates.Mechanisms.Product(:P)
+        @test prods[2] == EnzymeRates.Mechanisms.Product(:Q)
         @test ra_map[:P] == [:C => 2, :N => 1]
         @test ra_map[:Q] == [:H => 3, :P => 1]
 
@@ -853,16 +865,16 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             competitive_inhibitors: R
         end
         @test spec_kinds isa EnzymeReaction
-        regs = EnzymeRates.regulators(spec_kinds)
-        reg_by_name = Dict(EnzymeRates.name(EnzymeRates.regulator(rm)) => rm
-                           for rm in regs)
+        regs = EnzymeRates.Mechanisms.regulators(spec_kinds)
+        reg_by_name = Dict(EnzymeRates.Mechanisms.name(
+            EnzymeRates.Mechanisms.regulator(rm)) => rm for rm in regs)
         @test Set(keys(reg_by_name)) == Set([:I, :A, :R])
-        @test EnzymeRates.regulator(reg_by_name[:I]) ==
-            EnzymeRates.CompetitiveInhibitor(:I)
-        @test EnzymeRates.regulator(reg_by_name[:A]) ==
-            EnzymeRates.AllostericRegulator(:A)
-        @test EnzymeRates.regulator(reg_by_name[:R]) ==
-            EnzymeRates.CompetitiveInhibitor(:R)
+        @test EnzymeRates.Mechanisms.regulator(reg_by_name[:I]) ==
+            EnzymeRates.Mechanisms.CompetitiveInhibitor(:I)
+        @test EnzymeRates.Mechanisms.regulator(reg_by_name[:A]) ==
+            EnzymeRates.Mechanisms.AllostericRegulator(:A)
+        @test EnzymeRates.Mechanisms.regulator(reg_by_name[:R]) ==
+            EnzymeRates.Mechanisms.CompetitiveInhibitor(:R)
     end
 
     @testset "@enzyme_reaction dual-role regulator (allosteric + competitive)" begin
@@ -876,12 +888,13 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             allosteric_regulators: ATP
         end
         @test rxn isa EnzymeReaction
-        atp_regs = [rm for rm in EnzymeRates.regulators(rxn)
-                    if EnzymeRates.name(EnzymeRates.regulator(rm)) == :ATP]
+        atp_regs =
+            [rm for rm in EnzymeRates.Mechanisms.regulators(rxn)
+             if EnzymeRates.Mechanisms.name(EnzymeRates.Mechanisms.regulator(rm)) == :ATP]
         @test length(atp_regs) == 2
-        @test Set(typeof(EnzymeRates.regulator(rm)) for rm in atp_regs) ==
-              Set([EnzymeRates.AllostericRegulator,
-                   EnzymeRates.CompetitiveInhibitor])
+        @test Set(typeof(EnzymeRates.Mechanisms.regulator(rm)) for rm in atp_regs) ==
+              Set([EnzymeRates.Mechanisms.AllostericRegulator,
+                   EnzymeRates.Mechanisms.CompetitiveInhibitor])
         # The order of the two labels does not matter: both orders build one reaction.
         allosteric_first = @enzyme_reaction begin
             substrates: S[C]
@@ -906,9 +919,9 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             allosteric_regulators: X::Activator, Y::Inhibitor, Z
             oligomeric_state: 2
         end
-        reg_types = Dict(EnzymeRates.name(EnzymeRates.regulator(rm)) =>
-                             EnzymeRates.reg_type(rm)
-                         for rm in EnzymeRates.regulators(rxn))
+        reg_types = Dict(EnzymeRates.Mechanisms.name(
+            EnzymeRates.Mechanisms.regulator(rm)) => EnzymeRates.Mechanisms.reg_type(rm)
+                         for rm in EnzymeRates.Mechanisms.regulators(rxn))
         @test reg_types[:X] == :activator
         @test reg_types[:Y] == :inhibitor
         @test reg_types[:Z] == :unspecified
@@ -1042,14 +1055,14 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             products: P[C]
             oligomeric_state: 4
         end
-        @test EnzymeRates.allowed_catalytic_multiplicities(rxn) == [4]
+        @test EnzymeRates.Mechanisms.allowed_catalytic_multiplicities(rxn) == [4]
 
         # Without oligomeric_state defaults to 1
         rxn2 = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
         end
-        @test EnzymeRates.allowed_catalytic_multiplicities(rxn2) == [1]
+        @test EnzymeRates.Mechanisms.allowed_catalytic_multiplicities(rxn2) == [1]
 
         # A tuple of multiplicities
         rxn3 = @enzyme_reaction begin
@@ -1057,7 +1070,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             products: P[C]
             oligomeric_state: (1, 2, 4)
         end
-        @test EnzymeRates.allowed_catalytic_multiplicities(rxn3) == [1, 2, 4]
+        @test EnzymeRates.Mechanisms.allowed_catalytic_multiplicities(rxn3) == [1, 2, 4]
     end
 
     @testset "@enzyme_reaction sets the catalytic multiplicities once" begin
@@ -1077,13 +1090,13 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             products:   P[C]
             oligomeric_state: (2,)
         end))
-        @test EnzymeRates.allowed_catalytic_multiplicities(one_tuple) == [2]
+        @test EnzymeRates.Mechanisms.allowed_catalytic_multiplicities(one_tuple) == [2]
         several = @enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
             oligomeric_state: (4, 1, 2)
         end
-        @test EnzymeRates.allowed_catalytic_multiplicities(several) == [1, 2, 4]
+        @test EnzymeRates.Mechanisms.allowed_catalytic_multiplicities(several) == [1, 2, 4]
         # An empty tuple leaves the search no multiplicity.
         @test_throws("@enzyme_reaction: `oligomeric_state:` takes one Int or a tuple of " *
                      "one or more Ints, such as `(1, 2, 4)`; got ().",
@@ -1116,7 +1129,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             products:   P[C], Q[C]
             shared_catalytic_site: (A, P), (B, Q)
         end
-        @test EnzymeRates.shared_catalytic_site(rxn) == [(:A, :P), (:B, :Q)]
+        @test EnzymeRates.Mechanisms.shared_catalytic_site(rxn) == [(:A, :P), (:B, :Q)]
 
         # Single pair.
         rxn1 = @enzyme_reaction begin
@@ -1124,7 +1137,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             products:   P[C], Q[C]
             shared_catalytic_site: (P, A)
         end
-        @test EnzymeRates.shared_catalytic_site(rxn1) == [(:A, :P)]
+        @test EnzymeRates.Mechanisms.shared_catalytic_site(rxn1) == [(:A, :P)]
 
         # Malformed: bare (unparenthesized) names error.
         @test_throws Exception eval(:(@enzyme_reaction begin
@@ -1213,7 +1226,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             end
         end
         @test m isa EnzymeMechanism
-        @test length(EnzymeRates.Mechanism(m).edges) == 2
+        @test length(EnzymeRates.Mechanisms.Mechanism(m).edges) == 2
         @test Set(_testhelper_graph(m).forms) == Set(["E", "ES"])
         @test Set(metabolites(m)) == Set([:S, :P])
     end
@@ -1276,13 +1289,13 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
     @testset "dual-role names bind by their catalytic role unless tagged ::Mod" begin
         # The role each binding of `m` binds its metabolite in, by the name of the form
         # it binds into.
-        _testhelper_bound_roles(m) = (cm = EnzymeRates.catalytic(m);
-            Dict(EnzymeRates._form_name(cm, e.to) =>
-                     _testhelper_role(cm, cm.table[EnzymeRates._bound_entry(e)])
-                 for e in cm.edges if EnzymeRates._is_binding(e)))
+        _testhelper_bound_roles(m) = (cm = EnzymeRates.Mechanisms.catalytic(m);
+            Dict(EnzymeRates.Mechanisms._form_name(cm, e.to) =>
+                     _testhelper_role(cm, cm.table[EnzymeRates.Mechanisms._bound_entry(e)])
+                 for e in cm.edges if EnzymeRates.Mechanisms._is_binding(e)))
         # A substrate also declared a modifier binds as the substrate in a bare
         # catalytic step; `E(A::Mod)` writes its modifier form.
-        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        m = EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
             substrates: A
             products:   P
             modifiers: A
@@ -1301,7 +1314,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         # A substrate and a product also declared as allosteric regulators bind
         # as the substrate and the product in catalytic steps; as regulators
         # they bind only at their regulatory site.
-        am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        am = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
             substrates: A
             products:   P
             allosteric_regulators: A, P
@@ -1316,8 +1329,8 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         roles = _testhelper_bound_roles(am)
         @test roles["EA"] === :substrate
         @test roles["EP"] === :product
-        site = only(EnzymeRates.regulatory_sites(am))
-        @test Set(EnzymeRates.ligands(site)) == Set([:A, :P])
+        site = only(EnzymeRates.Mechanisms.regulatory_sites(am))
+        @test Set(EnzymeRates.Mechanisms.ligands(site)) == Set([:A, :P])
     end
 
     @testset "an allosteric regulator binds only at its regulatory site" begin
@@ -1377,7 +1390,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         end)))
         # Listed in both, R binds its regulatory site and, as a modifier, the catalytic
         # site.
-        dual = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        dual = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
             substrates: S
             products:   P
             modifiers: R
@@ -1390,9 +1403,11 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             end
             regulatory_site(1): R::OnlyA
         end)
-        @test count(_testhelper_binds_entry(dual.catalytic, EnzymeRates.Met(:R, true)),
-                    dual.catalytic.edges) == 1
-        @test :R in EnzymeRates.ligands(only(EnzymeRates.regulatory_sites(dual)))
+        @test count(
+            _testhelper_binds_entry(dual.catalytic, EnzymeRates.Mechanisms.Met(:R, true)),
+            dual.catalytic.edges) == 1
+        @test :R in EnzymeRates.Mechanisms.ligands(
+            only(EnzymeRates.Mechanisms.regulatory_sites(dual)))
     end
 
     @testset "X::Mod names a declared modifier" begin
@@ -1413,7 +1428,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                 end
             end)))
         end
-        declared = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        declared = EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
             substrates: S
             products:   P
             modifiers: P
@@ -1424,7 +1439,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                 E + P::Mod ⇌ E(P::Mod)
             end
         end)
-        @test EnzymeRates.modifiers(declared) == [:P]
+        @test EnzymeRates.Mechanisms.modifiers(declared) == [:P]
     end
 
     @testset "a step side holds one enzyme form" begin
@@ -1460,7 +1475,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
     @testset "::Mod is never a step tag" begin
         # `E(S::Mod) ⇌ E + S::Mod :: EqualAI` parses as `(S::Mod)::EqualAI`: the state
         # after `::Mod` is the step's tag, and the step reads like its binding direction.
-        bind_mod = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        bind_mod = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
             substrates: S
             products:   P
             modifiers: S
@@ -1471,7 +1486,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                 E + S::Mod ⇌ E(S::Mod)   :: EqualAI
             end
         end)
-        release_mod = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        release_mod = EnzymeRates.Mechanisms.AllostericMechanism(@allosteric_mechanism begin
             substrates: S
             products:   P
             modifiers: S
@@ -1502,7 +1517,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
 
         # A plain mechanism may release a modifier copy as well as bind it: the role tag
         # that ends the release is no step tag.
-        bind_plain = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        bind_plain = EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
             substrates: S
             products:   P
             modifiers: S
@@ -1513,7 +1528,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                 E + S::Mod ⇌ E(S::Mod)
             end
         end)
-        release_plain = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        release_plain = EnzymeRates.Mechanisms.Mechanism(@enzyme_mechanism begin
             substrates: S
             products:   P
             modifiers: S
@@ -1600,7 +1615,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
                 "modifiers: I\nsteps: begin\n$steps\nend\nend")
             @test_throws "AllostericMechanism: $line $lead" eval(_testhelper_block(text))
             @test eval(_testhelper_block(replace(text, ":: OnlyI" => ":: NonequalAI"))) isa
-                  EnzymeRates.AllostericEnzymeMechanism
+                  EnzymeRates.Mechanisms.AllostericEnzymeMechanism
         end
     end
 end
@@ -1646,7 +1661,7 @@ end
             regulatory_site(2): X::OnlyA, Y::OnlyI
         end
         @test am isa AllostericEnzymeMechanism
-        @test EnzymeRates.AllostericMechanism(am).catalytic_multiplicity == 2
+        @test EnzymeRates.Mechanisms.AllostericMechanism(am).catalytic_multiplicity == 2
         @test EnzymeRates.fitted_params(am) == (:K_A_EAB_to_EA_B, :K_EA_to_E_A,
             :K_EI_to_E_I, :K_EPQ_to_EQ_P, :K_EPmodQ_to_EQ_Pmod, :K_EQ_to_E_Q,
             :K_I_EAB_to_EA_B, :k_A_EAB_to_EPQ, :K_A_Xreg, :K_I_Yreg, :L)
@@ -1666,7 +1681,7 @@ end
             end
             regulatory_site(1): X::OnlyI
         end
-        @test EnzymeRates.AllostericMechanism(am).catalytic_multiplicity == 1
+        @test EnzymeRates.Mechanisms.AllostericMechanism(am).catalytic_multiplicity == 1
         @test EnzymeRates.fitted_params(am) ==
               (:K_EP_to_E_P, :K_ES_to_E_S, :k_A_ES_to_EP, :K_I_Xreg, :L)
         _testhelper_check_law_against_oracle(am)
@@ -1697,9 +1712,9 @@ end
         # Steps keep their written order and direction, each statement is one kinetic
         # group label, and a metabolite is a modifier when written bare under
         # `modifiers:` or as a reactant's X::Mod.
-        M, F = EnzymeRates.Met, EnzymeRates.RawForm
+        M, F = EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.RawForm
         s, p, i, smod = M(:S, false), M(:P, false), M(:I, true), M(:S, true)
-        raw = EnzymeRates._raw_mechanism(quote
+        raw = EnzymeRates.Mechanisms._raw_mechanism(quote
             substrates: S
             products:   P
             modifiers:  I, S
@@ -1710,16 +1725,18 @@ end
                 E + S::Mod ⇌ E(S::Mod)
             end
         end, false)
-        @test raw == EnzymeRates.RawMechanism([:S], [:P], [:I, :S], [
-            EnzymeRates.RawStep(F(:E, [s]), F(:E, M[]), M[], [s], true),
-            EnzymeRates.RawStep(F(:E, M[]), F(:E, [i]), [i], M[], true),
-            EnzymeRates.RawStep(F(:E, [s]), F(:E, [i, s]), [i], M[], true),
-            EnzymeRates.RawStep(F(:E, [s]), F(:Estar, M[], [:S], [:P]), M[], [p], false),
-            EnzymeRates.RawStep(F(:E, M[]), F(:E, [smod]), [smod], M[], true)],
+        @test raw == EnzymeRates.Mechanisms.RawMechanism(
+            [:S], [:P], [:I, :S],
+            [EnzymeRates.Mechanisms.RawStep(F(:E, [s]), F(:E, M[]), M[], [s], true),
+             EnzymeRates.Mechanisms.RawStep(F(:E, M[]), F(:E, [i]), [i], M[], true),
+             EnzymeRates.Mechanisms.RawStep(F(:E, [s]), F(:E, [i, s]), [i], M[], true),
+             EnzymeRates.Mechanisms.RawStep(
+                 F(:E, [s]), F(:Estar, M[], [:S], [:P]), M[], [p], false),
+             EnzymeRates.Mechanisms.RawStep(F(:E, M[]), F(:E, [smod]), [smod], M[], true)],
             [1, 2, 2, 3, 4])
         # An allosteric block adds a tag per group label, the catalytic multiplicity
         # (1 when omitted) and its sites, each ligand list as written.
-        allo = EnzymeRates._raw_mechanism(quote
+        allo = EnzymeRates.Mechanisms._raw_mechanism(quote
             substrates: S
             products:   P
             allosteric_regulators: X, Y
@@ -1730,14 +1747,14 @@ end
             end
             regulatory_site(2): Y::OnlyI, X::OnlyA
         end, true)
-        @test allo == EnzymeRates.RawAllostericMechanism(
-            EnzymeRates.RawMechanism([:S], [:P], Symbol[], [
-                EnzymeRates.RawStep(F(:E, M[]), F(:E, [s]), [s], M[], true),
-                EnzymeRates.RawStep(F(:E, [s]), F(:E, [p]), M[], M[], false),
-                EnzymeRates.RawStep(F(:E, [p]), F(:E, M[]), M[], [p], true)],
+        @test allo == EnzymeRates.Mechanisms.RawAllostericMechanism(
+            EnzymeRates.Mechanisms.RawMechanism([:S], [:P], Symbol[], [
+                EnzymeRates.Mechanisms.RawStep(F(:E, M[]), F(:E, [s]), [s], M[], true),
+                EnzymeRates.Mechanisms.RawStep(F(:E, [s]), F(:E, [p]), M[], M[], false),
+                EnzymeRates.Mechanisms.RawStep(F(:E, [p]), F(:E, M[]), M[], [p], true)],
                 [1, 2, 3]),
             [:EqualAI, :OnlyA, :NonequalAI], 1,
-            [EnzymeRates.RawSite([:Y, :X], 2, [:OnlyI, :OnlyA])])
+            [EnzymeRates.Mechanisms.RawSite([:Y, :X], 2, [:OnlyI, :OnlyA])])
     end
 
     @testset "::Mod marks a substrate or product under modifiers: only" begin
@@ -2007,9 +2024,9 @@ end
             end
         end)))
         # A tag after a parenthesized right-hand side tags the step, as after a bare one.
-        M, F = EnzymeRates.Met, EnzymeRates.RawForm
+        M, F = EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.RawForm
         s, p = M(:S, false), M(:P, false)
-        @test EnzymeRates._raw_mechanism(quote
+        @test EnzymeRates.Mechanisms._raw_mechanism(quote
             substrates: S
             products:   P
             steps: begin
@@ -2017,13 +2034,13 @@ end
                 E(S) <--> E(P)      :: OnlyA
                 E(P) ⇌ (E + P)      :: EqualAI
             end
-        end, true) == EnzymeRates.RawAllostericMechanism(
-            EnzymeRates.RawMechanism([:S], [:P], Symbol[], [
-                EnzymeRates.RawStep(F(:E, M[]), F(:E, [s]), [s], M[], true),
-                EnzymeRates.RawStep(F(:E, [s]), F(:E, [p]), M[], M[], false),
-                EnzymeRates.RawStep(F(:E, [p]), F(:E, M[]), M[], [p], true)],
+        end, true) == EnzymeRates.Mechanisms.RawAllostericMechanism(
+            EnzymeRates.Mechanisms.RawMechanism([:S], [:P], Symbol[], [
+                EnzymeRates.Mechanisms.RawStep(F(:E, M[]), F(:E, [s]), [s], M[], true),
+                EnzymeRates.Mechanisms.RawStep(F(:E, [s]), F(:E, [p]), M[], M[], false),
+                EnzymeRates.Mechanisms.RawStep(F(:E, [p]), F(:E, M[]), M[], [p], true)],
                 [1, 2, 3]),
-            [:EqualAI, :OnlyA, :EqualAI], 1, EnzymeRates.RawSite[])
+            [:EqualAI, :OnlyA, :EqualAI], 1, EnzymeRates.Mechanisms.RawSite[])
         @test_throws "@enzyme_mechanism: a parenthesized group holds no step" eval(
             :(@enzyme_mechanism begin
                 substrates: S
@@ -2270,8 +2287,8 @@ end
                 end
             end)]
         for m in mechanisms
-            @test _testhelper_reads_back(EnzymeRates._concrete(m))
-            @test EnzymeRates.compile_mechanism(
+            @test _testhelper_reads_back(EnzymeRates.Mechanisms._concrete(m))
+            @test EnzymeRates.Mechanisms.compile_mechanism(
                 EnzymeRates._parse_mechanism(sprint(show, m))) === m
         end
         # A residual that only subtracts prints its first term as `- Q`.
@@ -2289,7 +2306,7 @@ end
                     E(S) <--> E(P)
                 end
             end"""
-        @test EnzymeRates._parse_mechanism(text) == EnzymeRates.Mechanism(
+        @test EnzymeRates._parse_mechanism(text) == EnzymeRates.Mechanisms.Mechanism(
             @enzyme_mechanism begin
                 substrates: S
                 products: P

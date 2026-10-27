@@ -30,7 +30,7 @@ Each fit reads the anchors' concentrations of the metabolites its mechanism bind
 mechanism that leaves out an optional regulator ignores that regulator's concentration.
 """
 struct IdentifyRateEquationProblem{D<:NamedTuple}
-    reaction::EnzymeReaction
+    reaction::Mechanisms.EnzymeReaction
     data::D
     Keq::Float64
     absolute::Bool
@@ -38,10 +38,10 @@ struct IdentifyRateEquationProblem{D<:NamedTuple}
 end
 
 function IdentifyRateEquationProblem(
-    reaction::EnzymeReaction, table; Keq::Real,
+    reaction::Mechanisms.EnzymeReaction, table; Keq::Real,
     absolute::Bool=false, reference=nothing
 )
-    mnames = _metabolite_names(reaction)
+    mnames = Mechanisms._metabolite_names(reaction)
     # Every metabolite the reaction declares needs a concentration column.
     data = _rate_table(table, mnames, Keq)
 
@@ -61,10 +61,10 @@ relative mode, `prob.reference` with each anchor's concentrations limited to the
 metabolites `mechanism` binds (it does not respond to the others). The reference keeps
 the problem's element type, so every fit and fold passes keywords of one type.
 """
-function _fit_keywords(@nospecialize(mechanism::AbstractEnzymeMechanism),
+function _fit_keywords(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
                        prob::IdentifyRateEquationProblem)
     prob.absolute && return (; Keq = prob.Keq, absolute = true)
-    mets = metabolites(mechanism)
+    mets = Mechanisms.metabolites(mechanism)
     (; Keq = prob.Keq, absolute = false,
        reference = Pair{NamedTuple, Float64}[
            NamedTuple{Tuple(filter(in(mets), keys(concs)))}(concs) => turnover
@@ -83,7 +83,7 @@ Results from `identify_rate_equation`.
   top candidates per param count
 """
 struct IdentifyRateEquationResults
-    best::AbstractEnzymeMechanism
+    best::Mechanisms.AbstractEnzymeMechanism
     cv_results::DataFrame
 end
 
@@ -391,7 +391,7 @@ struct _Fit
     values::Vector{Float64}
     loss::Float64
     retcode::Symbol
-    source::Union{Mechanism, AllostericMechanism}
+    source::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
     source_id::String
 end
 
@@ -403,7 +403,7 @@ and `canon0`, the canonical form of the law whose fit it reads: for a phantom it
 law, its law at `L = 0`; `canon` otherwise.
 """
 struct _Candidate
-    mech::Union{Mechanism, AllostericMechanism}
+    mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
     fitted::Vector{Symbol}
     mechanism::String
     mechanism_id::String
@@ -421,7 +421,7 @@ _unflagged(c::_Candidate) = _Candidate(c.mech, c.fitted, c.mechanism, c.mechanis
 """The order in which candidate `c` reads its fit's values (`_Fit`): the canonical order of
 the law whose fit it reads (`canon0`), then `L` for an MWC law."""
 _fit_order(c::_Candidate) =
-    c.mech isa AllostericMechanism ? [c.canon0.order; :L] : c.canon0.order
+    c.mech isa Mechanisms.AllostericMechanism ? [c.canon0.order; :L] : c.canon0.order
 
 """
 The parameters of candidate `c` as its row holds them, in its `fitted_params` order: a
@@ -437,7 +437,7 @@ end
 (`_canonical`), the key of the fit it reads (`fit_key`: its own, or for an L phantom the
 key of its law at `L = 0`), and its CSV row."""
 struct BatchEntry
-    mech::Union{Mechanism, AllostericMechanism}
+    mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
     n_params::Int
     loss::Float64
     retcode::Symbol
@@ -449,7 +449,7 @@ end
 """A mechanism that failed at derivation, compilation, fit or expansion, with the
 exception message captured as a string. Kept for the CSV + summary."""
 struct FitFailure
-    mech::Union{Mechanism, AllostericMechanism}
+    mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
     error::String
 end
 
@@ -566,7 +566,7 @@ function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
             # all :EqualAI has one factor in both conformations, so the certificate
             # admits it, yet the active law lacks its constants: the check fits such a
             # phantom itself, so a row never reads names its fit lacks.
-            phantom = m isa AllostericMechanism && _is_phantom(L)
+            phantom = m isa Mechanisms.AllostericMechanism && _is_phantom(L)
             canon0 = phantom ? _canonical(L.active, id) : canon
             if phantom && Set(canon0.order) != Set(s.fitted[1:(end - 1)])
                 phantom, canon0 = false, canon
@@ -663,7 +663,7 @@ function _process_batch(
     function fit!(reps::Vector{_Candidate})
         rep_fits = pmap(reps) do r
             try
-                em = compile_mechanism(r.mech)
+                em = Mechanisms.compile_mechanism(r.mech)
                 fp = FittingProblem(em, prob.data; _fit_keywords(em, prob)...)
                 fit = fit_rate_equation(fp, optimizer; kwargs...)
                 _Fit(Float64[fit.params[x] for x in _fit_order(r)], fit.loss, fit.retcode,
@@ -807,19 +807,22 @@ each child to the `BatchEntry` of the first parent that produced it, and
 expansion threw.
 """
 function _expand_parents(to_expand::Vector{BatchEntry},
-                         reaction::EnzymeReaction)
+                         reaction::Mechanisms.EnzymeReaction)
     results = pmap([pe.mech for pe in to_expand]) do m
         # Record a per-parent expansion error (e.g. `expand_mechanisms`' atom-conservation
         # assertion, `_assert_atom_conserving`) as a failure; never abort the search.
         try
-            (expand_mechanisms(Union{Mechanism, AllostericMechanism}[m], reaction),
+            (expand_mechanisms(
+                 Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[m], reaction),
              nothing)
         catch e
-            (Union{Mechanism, AllostericMechanism}[], FitFailure(m, _exc_string(e)))
+            (Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[],
+             FitFailure(m, _exc_string(e)))
         end
     end
-    parent_of = Dict{Union{Mechanism, AllostericMechanism}, BatchEntry}()
-    children = Union{Mechanism, AllostericMechanism}[]
+    parent_of =
+        Dict{Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}, BatchEntry}()
+    children = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
     expand_failures = FitFailure[]
     for (pe, (kids, failure)) in zip(to_expand, results)
         failure === nothing || push!(expand_failures, failure)
@@ -843,8 +846,9 @@ degeneracy condition reads. An expansion error is returned as a failure, one per
 carrying the seed; a flip child whose rate law the guard rejects (`_is_well_posed`) is
 dropped, as `expand_mechanisms` drops one.
 """
-function _base_tier(mechs::Vector, rxn::EnzymeReaction)
-    base = Union{Mechanism, AllostericMechanism}[m for m in mechs if !_degenerate(m)]
+function _base_tier(mechs::Vector, rxn::Mechanisms.EnzymeReaction)
+    base = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[
+        m for m in mechs if !_degenerate(m)]
     failures = FitFailure[]
     for m in mechs
         _degenerate(m) || continue
@@ -873,15 +877,15 @@ non-empty set means it takes them from `seed_mechanisms`. Either way the base ti
 fits the seeds that are not degenerate and, in place of those that are, their flip
 children that are not (`_base_tier`).
 """
-function _required_regulators(rxn::EnzymeReaction,
+function _required_regulators(rxn::Mechanisms.EnzymeReaction,
                               optional_allosteric_regulators::Vector{Symbol},
                               optional_competitive_inhibitors::Vector{Symbol})
     required(T, optional) = setdiff(
-        Set{Symbol}(name(regulator(rm)) for rm in regulators(rxn)
-                    if regulator(rm) isa T),
+        Set{Symbol}(Mechanisms.name(Mechanisms.regulator(rm))
+                    for rm in Mechanisms.regulators(rxn) if Mechanisms.regulator(rm) isa T),
         optional)
-    (required(AllostericRegulator, optional_allosteric_regulators),
-     required(CompetitiveInhibitor, optional_competitive_inhibitors))
+    (required(Mechanisms.AllostericRegulator, optional_allosteric_regulators),
+     required(Mechanisms.CompetitiveInhibitor, optional_competitive_inhibitors))
 end
 
 function _beam_search(
@@ -1065,7 +1069,7 @@ function _cv_model_selection(
     groups = unique(prob.data.group)
     fit_keys = unique(e.fit_key for e in candidates)
     fold_losses = pmap([(memo[k].source, g) for k in fit_keys for g in groups]) do (m, g)
-        _cv_fold_loss(compile_mechanism(m), prob, g; optimizer, kwargs...)
+        _cv_fold_loss(Mechanisms.compile_mechanism(m), prob, g; optimizer, kwargs...)
     end
     by_fit = reshape(Float64.(fold_losses), length(groups), :)
     scores = by_fit[:, [findfirst(==(e.fit_key), fit_keys) for e in candidates]]
@@ -1074,7 +1078,7 @@ function _cv_model_selection(
     cv_df.cv_score_se = [std(c) / sqrt(length(groups)) for c in eachcol(scores)]
 
     best_row_idx = _select_best_row(cv_df; se_threshold)
-    best_mechanism = compile_mechanism(candidates[best_row_idx].mech)
+    best_mechanism = Mechanisms.compile_mechanism(candidates[best_row_idx].mech)
 
     # Flatten per-fold scores into one column per held-out group.
     # Group order matches the `groups = unique(prob.data.group)` iteration above.
@@ -1108,7 +1112,7 @@ candidate's folds after its full fit, which compiled `loss!` for the folds' prob
 so a fold infers and compiles nothing for the mechanism.
 """
 function _cv_fold_loss(
-    @nospecialize(mechanism::AbstractEnzymeMechanism),
+    @nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
     prob::IdentifyRateEquationProblem, held_out;
     optimizer, kwargs...)
     held = prob.data.group .== held_out
@@ -1129,7 +1133,7 @@ The `FittingProblem` of `mechanism` on the rows of `prob.data` that `mask` selec
 fold copies its rows rather than viewing them, so its problem has the full fit's type and
 `loss!` does not compile a second time for it; the copy is small next to a fit.
 """
-function _fold_problem(@nospecialize(mechanism::AbstractEnzymeMechanism),
+function _fold_problem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
                        prob::IdentifyRateEquationProblem, mask)
     FittingProblem(mechanism, map(col -> col[mask], prob.data);
         _fit_keywords(mechanism, prob)...)

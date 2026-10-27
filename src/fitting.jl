@@ -20,7 +20,7 @@ rate constants.
 - `log_abs_rates`: pre-computed `log.(abs.(Rate))`
 - `log_ratios_buffer`: pre-allocated working buffer for loss computation
 """
-struct FittingProblem{M<:AbstractEnzymeMechanism, D<:NamedTuple}
+struct FittingProblem{M<:Mechanisms.AbstractEnzymeMechanism, D<:NamedTuple}
     mechanism::M
     data::D
     group_point_indexes::Vector{Vector{Int}}
@@ -61,9 +61,9 @@ at finite concentrations ≥ 0, with a finite, nonzero turnover.
 fp = FittingProblem(m, data; Keq = 2.0, reference = [(A = 10.0, B = 5.0) => 42.0])
 ```
 """
-function FittingProblem(mechanism::AbstractEnzymeMechanism, table;
+function FittingProblem(mechanism::Mechanisms.AbstractEnzymeMechanism, table;
         Keq::Real, absolute::Bool=false, reference=nothing)
-    mets = metabolites(mechanism)
+    mets = Mechanisms.metabolites(mechanism)
     data = _rate_table(table, mets, Keq)
     group_map = Dict{eltype(data.group), Vector{Int}}()
     for (i, g) in enumerate(data.group)
@@ -161,8 +161,9 @@ Accept the concrete working-representation mechanism: compile to the
 singleton once at construction so `loss!`'s hot path operates on the
 @generated `EnzymeMechanism` / `AllostericEnzymeMechanism` (0-alloc).
 """
-FittingProblem(mechanism::Union{Mechanism, AllostericMechanism}, table; kwargs...) =
-    FittingProblem(compile_mechanism(mechanism), table; kwargs...)
+FittingProblem(mechanism::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
+               table; kwargs...) =
+    FittingProblem(Mechanisms.compile_mechanism(mechanism), table; kwargs...)
 
 """
     loss!(x::AbstractVector, fp::FittingProblem)
@@ -184,7 +185,7 @@ loss (a uniform sentinel would cancel under mean-subtraction).
 function loss!(x::AbstractVector, fp::FittingProblem)
     buf = fp.log_ratios_buffer
     ParamNames = fitted_params(fp.mechanism)
-    MetNames = metabolites(fp.mechanism)
+    MetNames = Mechanisms.metabolites(fp.mechanism)
     N = length(ParamNames)
     K = length(MetNames)
     n_data = length(fp.log_abs_rates)
@@ -371,7 +372,7 @@ entry unchanged. A common factor on those constants multiplies every rate by the
 factor and leaves the binding constants, `Keq`, `E_total`, `L` and the regulatory
 constants alone.
 """
-function _scale_rate_constants(@nospecialize(m::AbstractEnzymeMechanism),
+function _scale_rate_constants(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism),
                                params::NamedTuple, s::Real)
     rate_constants = _ss_rate_constant_names(m)
     NamedTuple{keys(params)}(map((k, v) -> k in rate_constants ? v * s : v,
@@ -408,10 +409,10 @@ kcats = [(A = 10.0, B = 5.0) => 42.0, (A = 20.0, B = 5.0) => 44.0]
 params, spread = rescale_parameter_values(m, merge(fit.params, (; Keq = 2.0)), kcats)
 ```
 """
-function rescale_parameter_values(@nospecialize(m::AbstractEnzymeMechanism),
+function rescale_parameter_values(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism),
                                   params::NamedTuple, kcats::AbstractVector{<:Pair})
     _check_has_keq(params)
-    _check_anchors(kcats, metabolites(m), "kcats", "mechanism")
+    _check_anchors(kcats, Mechanisms.metabolites(m), "kcats", "mechanism")
     log_ratios = _anchor_log_ratios(m, params, kcats)
     log_ratios === nothing && error(
         "kcats: the mechanism predicts zero, non-finite or opposite-sign turnover at an " *
@@ -432,9 +433,9 @@ where `predicted` is the turnover of `m` at `params` (which hold `Keq`) per unit
 predicted turnover is zero, non-finite or of the other sign than the measured one, which
 no factor on the rate constants reproduces.
 """
-function _anchor_log_ratios(@nospecialize(m::AbstractEnzymeMechanism),
+function _anchor_log_ratios(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism),
                             params::NamedTuple, anchors)
-    mets = metabolites(m)
+    mets = Mechanisms.metabolites(m)
     turnover_params = merge(params, (E_total = 1.0,))
     log_ratios = Float64[]
     for (concs, measured) in anchors

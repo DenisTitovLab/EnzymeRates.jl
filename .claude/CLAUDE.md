@@ -187,8 +187,9 @@ julia --project -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hint=2500M"])'
 
 ```bash
 # Focused run of one test file (warm: skips the full suite's precompile and JIT; ~1.5 min for
-# the enumeration file). TestEnv activates the test environment in place.
-julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<file>.jl")'
+# the enumeration file). TestEnv activates the test environment in place. A module's tests
+# live in test/<Module>/; a file directly in test/ is named test/<file>.jl instead.
+julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<Module>/<file>.jl")'
 ```
 
 Use the focused run while iterating and the full suite once before committing. Four things to
@@ -214,7 +215,7 @@ in the default environment once: `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
 
 ### Parameter naming chokepoint (guard)
 
-All `Parameter → Symbol` rendering flows through the `name(p, m)` chokepoint; the AST-walker testset `chokepoint: no Symbol("[KkVL]...") outside parameter-name renderers` in `test/test_types.jl` fails the build on any stray `Symbol("K…")`/`Symbol("k…")`/`Symbol("V…")`/`Symbol("L…")` literal outside a parameter-name renderer.
+All `Parameter → Symbol` rendering flows through the `name(p, m)` chokepoint; the AST-walker testset `chokepoint: no Symbol("[KkVL]...") outside parameter-name renderers` in `test/Mechanisms/test_types.jl` fails the build on any stray `Symbol("K…")`/`Symbol("k…")`/`Symbol("V…")`/`Symbol("L…")` literal outside a parameter-name renderer.
 
 ### Canonical Step Form (load-bearing guard)
 Edge direction, edge order and group order are canonicalized in the `Mechanism`/`AllostericMechanism` constructors (`_canonicalize`). This is **load-bearing, not cosmetic**: structural deduplication (`unique!`) works by pure `==`/`hash` only because construction is canonical, and every constant is named after the stored sides of its class's kept member. The joint solve (`src/thermo.jl`) picks dependent parameters by a fixed content priority (`_priority_key`), so `fitted_params` and the rate equation do not depend on step order, step direction or group labels; renaming a metabolite can still change which tied constant is dependent. Do not relax or reorder this without reading the Developer page in the docs.

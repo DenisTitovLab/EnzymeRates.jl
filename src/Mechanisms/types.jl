@@ -268,7 +268,8 @@ end
 The public concrete reaction descriptor: substrates, products, optional
 regulators, and the set of catalytic multiplicities the mechanism
 enumerator is allowed to consider. It is the entry point to the package —
-pair it with rate data in an [`IdentifyRateEquationProblem`](@ref), or pass
+pair it with rate data in an
+[`IdentifyRateEquationProblem`](@ref EnzymeRates.IdentifyRateEquationProblem), or pass
 it to `EnzymeRates.init_mechanisms` to enumerate candidate mechanisms.
 
 # Fields
@@ -283,8 +284,8 @@ it to `EnzymeRates.init_mechanisms` to enumerate candidate mechanisms.
   product)` pairs that bind the same catalytic site, and so are never both
   bound to it at once.
 
-Construct one with the [`@enzyme_reaction`](@ref) DSL. Each reactant takes
-an atom bracket (`S[C]`, `A[C1H1]`); the brackets are load-bearing for
+Construct one with the [`@enzyme_reaction`](@ref EnzymeRates.@enzyme_reaction) DSL. Each
+reactant takes an atom bracket (`S[C]`, `A[C1H1]`); the brackets are load-bearing for
 ping-pong and multi-substrate reactions. Reactants and regulators are sorted
 by name in the constructor, a name's competitive inhibitor before its
 allosteric regulator, so two equivalent declarations compare equal under
@@ -1403,6 +1404,16 @@ AllostericMechanism(@nospecialize(aem::AllostericEnzymeMechanism)) =
 _concrete(@nospecialize(em::EnzymeMechanism)) = Mechanism(em)
 _concrete(@nospecialize(aem::AllostericEnzymeMechanism)) = AllostericMechanism(aem)
 
+"""
+    compile_mechanism(m::Mechanism)
+    compile_mechanism(am::AllostericMechanism)
+
+Convert a `Mechanism` to an `EnzymeMechanism`, or an
+`AllostericMechanism` to an `AllostericEnzymeMechanism`.
+"""
+compile_mechanism(m::Mechanism) = EnzymeMechanism(m)
+compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)
+
 # ─── Reads ──────────────────────────────────────────────────────────────
 
 substrates(m::Mechanism) = m.substrates
@@ -1630,6 +1641,31 @@ function _segments(m::Mechanism, mask::BitVector, re::BitVector)
     (; segment_of, segments, offsets)
 end
 
+"""Whether the steps `k` with `on[k]` close a cycle of nonzero weight, step `k` joining
+forms `from[k]` and `to[k]` with weight `weight[k]`: giving every form a potential that
+rises by each step's weight along it then fails somewhere, which a weighted union-find in
+the buffers `parent` and `offset` (one entry per form) detects."""
+function _has_unbalanced_cycle(from, to, weight, on, parent, offset)
+    parent .= eachindex(parent); fill!(offset, 0)
+    function root(x)
+        p = 0
+        while parent[x] != x
+            p += offset[x]; x = parent[x]
+        end
+        x, p
+    end
+    for k in eachindex(from)
+        on[k] || continue
+        ra, pa = root(from[k]); rb, pb = root(to[k])
+        if ra == rb
+            pb == pa + weight[k] || return true
+        else
+            parent[rb] = ra; offset[rb] = pa + weight[k] - pb
+        end
+    end
+    false
+end
+
 """
 The edges of `am`'s inactive conformation: those outside `:OnlyA` groups between forms
 they join to free E (`_law_mask`). The conformations interconvert at free E alone, so a
@@ -1747,7 +1783,7 @@ Return distinct metabolite names as a tuple of `Symbol`s: substrates, then produ
 then the names the steps bind as modifiers, each sorted by name, then the ligands of an
 allosteric mechanism's regulatory sites, site by site, without duplicates. The fitter
 uses this as the key set for the per-datapoint concentration `NamedTuple` passed to
-[`rate_equation`](@ref).
+[`rate_equation`](@ref EnzymeRates.rate_equation).
 
 ```jldoctest
 julia> using EnzymeRates

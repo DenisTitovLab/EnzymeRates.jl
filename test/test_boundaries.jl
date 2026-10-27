@@ -40,9 +40,11 @@ function _testhelper_walk(visit, ex, line = Ref(0))
 end
 
 """The module `M` of a `M.name` or `EnzymeRates.M.name` node (one of the four modules), else
-`nothing`. A node of one argument (`using X: name` lists) is no `M.name`."""
+`nothing`. A node of one argument (`using X: name` lists) is no `M.name`, nor is a quoted
+path that interpolates its name (`:(M.\$T)`)."""
 function _testhelper_module_head(ex)
-    (ex.head === :. && length(ex.args) == 2 && ex.args[2] isa QuoteNode) || return nothing
+    (ex.head === :. && length(ex.args) == 2 && ex.args[2] isa QuoteNode &&
+     ex.args[2].value isa Symbol) || return nothing
     head = ex.args[1]
     head isa Expr && head.head === :. && length(head.args) == 2 &&
         head.args[1] === :EnzymeRates && head.args[2] isa QuoteNode &&
@@ -272,6 +274,7 @@ end
         @test _testhelper_cross_refs("EnzymeRates.Mechanisms._hidden(m)") ==
               [(:Mechanisms, :_hidden, 1)]
         @test isempty(_testhelper_cross_refs("EnzymeRates.fit(m)"))
+        @test isempty(_testhelper_cross_refs(":(EnzymeRates.Mechanisms.\$T(x))"))
         @test Set(_testhelper_cross_refs("a = 1\nFitting.fit(\"\$(Derivation.f(x))\")")) ==
               Set([(:Derivation, :f, 2), (:Fitting, :fit, 2)])
     end

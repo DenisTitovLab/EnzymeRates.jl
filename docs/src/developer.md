@@ -15,9 +15,9 @@ A mechanism's rate equation is derived once, at compile time, by the
 King–Altman/Cha method in `@generated` functions (`src/codegen.jl`).
 To make that possible, a mechanism is encoded as a **singleton type** — the
 exported `EnzymeMechanism{Sig}` or `AllostericEnzymeMechanism{Sig}`
-(`src/types.jl`) — whose one type parameter, `Sig`, encodes the mechanism's canonical
-reaction graph as a tuple of integers (`_sig_of`), so the order or direction in which
-the steps were written does not change the resulting type. The compiler
+(`src/Mechanisms/types.jl`) — whose one type parameter, `Sig`, encodes the mechanism's
+canonical reaction graph as a tuple of integers (`_sig_of`), so the order or direction in
+which the steps were written does not change the resulting type. The compiler
 specializes the derivation per type, so the symbolic King–Altman work runs
 during precompilation rather than at every call.
 
@@ -54,8 +54,8 @@ so a mechanism survives the round trip unchanged. Decoding trusts the Sig, which
 `_sig_of` writes: a plain Sig's decoding checks nothing, and an allosteric one's runs only
 the composition constructor's tag and site checks. A mechanism of either representation
 prints as the macro block that builds it (`show`,
-`src/dsl.jl`), from the concrete mechanism, so the compiled types' `show` takes its
-argument `@nospecialize` and `@nospecializeinfer` and compiles once. `_parse_mechanism`
+`src/Mechanisms/dsl.jl`), from the concrete mechanism, so the compiled types' `show` takes
+its argument `@nospecialize` and `@nospecializeinfer` and compiles once. `_parse_mechanism`
 reads that text back through the macros' walker and checks, never evaluating it, and
 identify's CSVs store it with a short id (`_mechanism_id`).
 
@@ -177,8 +177,8 @@ class 3 to the exit.
 ## Enumeration engine architecture
 
 Mechanism enumeration uses the **concrete types** `Mechanism` and
-`AllostericMechanism` (`src/types.jl`) — internal, not exported. A `Mechanism` is a
-reaction graph in canonical form: its sorted `substrates` and `products`; `table`, each
+`AllostericMechanism` (`src/Mechanisms/types.jl`) — internal, not exported. A `Mechanism`
+is a reaction graph in canonical form: its sorted `substrates` and `products`; `table`, each
 metabolite entry its forms and steps hold, once, sorted by name and then by whether it
 binds as a modifier (`Met`), a reactant and its modifier copy being two entries;
 `conformations`, the sorted conformation labels; `forms` (`Form`: a label's index, and the

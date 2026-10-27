@@ -1,5 +1,5 @@
 # ABOUTME: The parameter API (parameters, fitted_params, all_parameters) and the constant
-# ABOUTME: names of each conformation's law: edge masks, edge names and regulator constants.
+# ABOUTME: names of each conformation's law: edge masks and edge names.
 
 # ─── Parameters API ─────────────────────────────────────────
 
@@ -14,12 +14,12 @@ The names of the parameters the rate law of `m` takes, as a tuple of Symbols: it
 independent constants (`fitted_params`), then `Keq` and `E_total`. The rate law computes
 every other constant from these (see [`all_parameters`](@ref)).
 """
-@generated function parameters(::M) where {M <: AbstractEnzymeMechanism}
+@generated function parameters(::M) where {M <: Mechanisms.AbstractEnzymeMechanism}
     (_solve(M).fitted..., :Keq, :E_total)
 end
 
 """Independent rate constant names for fitting (excludes Keq, E_total)."""
-@generated function fitted_params(::M) where {M <: AbstractEnzymeMechanism}
+@generated function fitted_params(::M) where {M <: Mechanisms.AbstractEnzymeMechanism}
     Tuple(_solve(M).fitted)
 end
 
@@ -31,9 +31,10 @@ end
 # allocates) — it is NOT the rate_equation hot path. Pass an
 # `EnzymeMechanism` / `AllostericEnzymeMechanism` for the allocation-free
 # `rate_equation` hot path.
-parameters(m::Union{Mechanism, AllostericMechanism}) = parameters(compile_mechanism(m))
-fitted_params(m::Union{Mechanism, AllostericMechanism}) =
-    fitted_params(compile_mechanism(m))
+parameters(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
+    parameters(Mechanisms.compile_mechanism(m))
+fitted_params(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
+    fitted_params(Mechanisms.compile_mechanism(m))
 
 """
     all_parameters(m, params) -> NamedTuple
@@ -63,9 +64,10 @@ julia> all_parameters(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0
 (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0, k_EP_to_ES = 0.375)
 ```
 """
-function all_parameters(m::Union{AbstractEnzymeMechanism, Mechanism, AllostericMechanism},
+function all_parameters(m::Union{Mechanisms.AbstractEnzymeMechanism, Mechanisms.Mechanism,
+                                  Mechanisms.AllostericMechanism},
                         params::NamedTuple)
-    s = _solve(m isa AbstractEnzymeMechanism ? typeof(m) : _well_posed(m))
+    s = _solve(m isa Mechanisms.AbstractEnzymeMechanism ? typeof(m) : _well_posed(m))
     absent = [k for k in (s.fitted..., :Keq) if !haskey(params, k)]
     isempty(absent) || error("all_parameters: params must hold every name of " *
                              "parameters(m) except E_total; it lacks " *
@@ -88,9 +90,9 @@ end
 """The edges of `m`'s law in conformation `state`: every edge for `:None`; for `:A` the
 active conformation's (`_active_mask`), for `:I` the inactive one's
 (`_inactive_mask`)."""
-_state_mask(m::Mechanism, ::Symbol) = trues(length(m.edges))
-_state_mask(am::AllostericMechanism, state::Symbol) =
-    state === :I ? _inactive_mask(am) : _active_mask(am)
+_state_mask(m::Mechanisms.Mechanism, ::Symbol) = trues(length(m.edges))
+_state_mask(am::Mechanisms.AllostericMechanism, state::Symbol) =
+    state === :I ? Mechanisms._inactive_mask(am) : Mechanisms._active_mask(am)
 
 """
 The parameter Symbols of each edge's constants in conformation `state` of `m` — `[K]` at
@@ -100,12 +102,14 @@ law (`_state_mask`), empty for every other edge. `state` is `:None` for a plain
 mechanism and `:A` or `:I` for an allosteric one, an `:EqualAI` group's constants taking
 its one shared name in both.
 """
-function _edge_names(m::_AnyMech, state::Symbol, kept = _kept_members(m))
-    cm = catalytic(m)
+function _edge_names(m::Mechanisms._AnyMech, state::Symbol,
+                     kept = Mechanisms._kept_members(m))
+    cm = Mechanisms.catalytic(m)
     mask = _state_mask(m, state)
-    tag(g) = m isa AllostericMechanism && cat_allo_state(m, g) === :EqualAI ?
-             :EqualAI : state
-    [mask[k] ? Symbol[name(p, m, kept) for p in _edge_constants(cm, k, tag(cm.group[k]))] :
+    tag(g) = m isa Mechanisms.AllostericMechanism &&
+             Mechanisms.cat_allo_state(m, g) === :EqualAI ? :EqualAI : state
+    [mask[k] ? Symbol[Mechanisms.name(p, m, kept)
+                      for p in Mechanisms._edge_constants(cm, k, tag(cm.group[k]))] :
                Symbol[]
      for k in eachindex(cm.edges)]
 end
@@ -118,42 +122,11 @@ The names of the steady-state rate constants of `em`'s law (`_edge_names`): for 
 included. `_scale_rate_constants` scales exactly these, leaving the rapid-equilibrium
 constants, `Keq`, `E_total`, `L` and the regulator constants alone.
 """
-function _ss_rate_constant_names(@nospecialize(em::AbstractEnzymeMechanism))
+function _ss_rate_constant_names(@nospecialize(em::Mechanisms.AbstractEnzymeMechanism))
     m = _derivation_input(typeof(em))
-    edges = catalytic(m).edges
-    states = m isa Mechanism ? (:None,) : (:A, :I)
-    kept = _kept_members(m)
+    edges = Mechanisms.catalytic(m).edges
+    states = m isa Mechanisms.Mechanism ? (:None,) : (:A, :I)
+    kept = Mechanisms._kept_members(m)
     Set{Symbol}(n for st in states for (k, ns) in enumerate(_edge_names(m, st, kept))
                 if !edges[k].rapid_equilibrium for n in ns)
-end
-
-# ─── Regulator constants ────────────────────────────────────
-
-"""
-The regulator constants of `am` listed with conformation `state`, site by site: for `:A`
-every ligand the active conformation binds, an `:EqualAI` ligand under its one bare name
-(`K_<ligand>reg`, state `:EqualAI`) and an `:OnlyA` or `:NonequalAI` one under its
-`K_A_` name; for `:I` the `K_I_` constant of every `:OnlyI` or `:NonequalAI` ligand.
-"""
-_kreg_params(am::AllostericMechanism, state::Symbol) =
-    state === :A ?
-    Kreg[Kreg(lig, tag === :EqualAI ? :EqualAI : :A)
-         for site in regulatory_sites(am)
-         for (lig, tag) in zip(ligands(site), allo_states(site))
-         if !_excluded_by(tag, false)] :
-    Kreg[Kreg(lig, :I) for site in regulatory_sites(am)
-         for (lig, tag) in zip(ligands(site), allo_states(site))
-         if !_excluded_by(tag, true) && tag !== :EqualAI]
-
-"""
-The dissociation-constant name of the ligand named `lig` (allosteric tag `tag`) of `am`
-in the active (`inactive = false`) or inactive conformation, or `nothing` when the
-ligand is absent from that conformation (`:OnlyI` in the active state, `:OnlyA` in the
-inactive one). An `:EqualAI` ligand has one bare name in both conformations
-(`K_<ligand>reg`); an `:OnlyA`, `:OnlyI` or `:NonequalAI` ligand has its conformation's
-`K_A_` or `K_I_` name. Renders the name via the `name(::Kreg, am)` chokepoint.
-"""
-function _reg_K(am::AllostericMechanism, lig::Symbol, tag::Symbol, inactive::Bool)
-    _excluded_by(tag, inactive) && return nothing
-    name(Kreg(lig, tag === :EqualAI ? :EqualAI : inactive ? :I : :A), am)
 end

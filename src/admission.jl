@@ -15,7 +15,7 @@ checks class 1 on their variants, whose classes 2 and 3 the flip search ran
 (`_faces_pass`). The constructors and the Sig decoder call neither, so code that builds a
 mechanism internally never trips a check meant for the mechanisms it returns.
 """
-function _check_well_posed(m::_AnyMech)
+function _check_well_posed(m::Mechanisms._AnyMech)
     v = _guard(m)
     v.fault === _NO_FAULT || error(_guard_message(m, v))
     nothing
@@ -24,7 +24,7 @@ end
 """Whether `_check_well_posed(m)` passes: identify's base tier and the enumerator's exits
 keep a mechanism exactly when it does, except init's exit on its seeds' variants, which
 checks class 1 and rests on the flip search's classes 2 and 3 (`_faces_pass`)."""
-_is_well_posed(m::_AnyMech) = _guard(m).fault === _NO_FAULT
+_is_well_posed(m::Mechanisms._AnyMech) = _guard(m).fault === _NO_FAULT
 
 """
     _bottomless_segment(m, mask, re) -> Vector{Int}
@@ -50,9 +50,9 @@ segment whose weights vanish only at a corner mixing a substrate and a product
 (a mixed abortive complex, or the ping-pong `E` / `E(; residual)` pair) is
 harmless: no turnover is possible at that corner.
 """
-function _bottomless_segment(m::Mechanism, mask::BitVector, re::BitVector)
-    s = _segments(m, mask, re)
-    name_of = _name_index(m)
+function _bottomless_segment(m::Mechanisms.Mechanism, mask::BitVector, re::BitVector)
+    s = Mechanisms._segments(m, mask, re)
+    name_of = Mechanisms._name_index(m)
     # Whether each metabolite name (`_name_index`) is a product, and whether a substrate.
     products, substrates = falses(size(s.offsets, 1)), falses(size(s.offsets, 1))
     for (i, x) in enumerate(m.table)
@@ -72,8 +72,8 @@ _well_posed(m) = (_check_well_posed(m); m)
 
 """The concrete mechanism the compiled type `M` encodes (`_concrete`), checked by
 `_check_well_posed`: the input of every derivation entry."""
-_derivation_input(@nospecialize(M::Type{<:AbstractEnzymeMechanism})) =
-    _well_posed(_concrete(M()))
+_derivation_input(@nospecialize(M::Type{<:Mechanisms.AbstractEnzymeMechanism})) =
+    _well_posed(Mechanisms._concrete(M()))
 
 # ─── The guard: verdicts, networks, faces, classes 1 and 2 ─────────────
 
@@ -220,10 +220,10 @@ vanishing where `vanish_forward[k, c]` does and the reverse where `vanish_revers
 does; with two copies, the fast flip between the copies of free E, which takes up and
 gives off nothing.
 """
-function _network(m::Mechanism, present::BitVector, use::BitMatrix, fast::BitMatrix,
-                  vanish_forward::BitMatrix, vanish_reverse::BitMatrix)
+function _network(m::Mechanisms.Mechanism, present::BitVector, use::BitMatrix,
+                  fast::BitMatrix, vanish_forward::BitMatrix, vanish_reverse::BitMatrix)
     nf, ncopies = length(m.forms), size(use, 2)
-    name_of = _name_index(m)
+    name_of = Mechanisms._name_index(m)
     nt = 2 * count(use) + (ncopies == 2 ? 2 : 0)
     from, to, edge, conformation = zeros(Int, nt), zeros(Int, nt), zeros(Int, nt),
                                    zeros(Int, nt)
@@ -239,11 +239,11 @@ function _network(m::Mechanism, present::BitVector, use::BitMatrix, fast::BitMat
             t += 1
             from[t], to[t], edge[t], conformation[t] = u, v, k, c
             forward[t], isfast[t], vanishing[t] = u == a, fast[k, c], gone
-            for i in entries(gain)
+            for i in Mechanisms.entries(gain)
                 change[name_of[i], t] += 1
                 takes[t] |= UInt64(1) << (name_of[i] - 1)
             end
-            for i in entries(loss)
+            for i in Mechanisms.entries(loss)
                 change[name_of[i], t] -= 1
             end
         end
@@ -262,18 +262,19 @@ mechanism's forms and edges as they are; an allosteric mechanism's two copies, c
 holding the edges of its law (`_law_mask`) and the forms they touch, free E always, joined
 by the flip at free E.
 """
-function _law_network(m::Mechanism, re::BitVector = _flags(m))
+function _law_network(m::Mechanisms.Mechanism, re::BitVector = Mechanisms._flags(m))
     n = length(m.edges)
     fast = falses(n, 1)
     fast[:, 1] .= re
     _network(m, trues(length(m.forms)), trues(n, 1), fast, falses(n, 1), falses(n, 1))
 end
-function _law_network(am::AllostericMechanism, re::BitVector = _flags(am.catalytic))
+function _law_network(am::Mechanisms.AllostericMechanism,
+                      re::BitVector = Mechanisms._flags(am.catalytic))
     m = am.catalytic
     n, nf = length(m.edges), length(m.forms)
     use, fast, present = falses(n, 2), falses(n, 2), falses(2 * nf)
     for c in 1:2
-        mask = _law_mask(am, c)
+        mask = Mechanisms._law_mask(am, c)
         present[(c - 1) * nf + 1] = true
         for (k, e) in enumerate(m.edges)
             mask[k] || continue
@@ -291,13 +292,15 @@ plain binding stays fast while its uptake vanishes and its release keeps its rat
 other excluded edge is slow and vanishes both ways. A plain mechanism's ε-network is its
 law network.
 """
-_eps_network(m::Mechanism, re::BitVector = _flags(m)) = _law_network(m, re)
-function _eps_network(am::AllostericMechanism, re::BitVector = _flags(am.catalytic))
+_eps_network(m::Mechanisms.Mechanism, re::BitVector = Mechanisms._flags(m)) =
+    _law_network(m, re)
+function _eps_network(am::Mechanisms.AllostericMechanism,
+                      re::BitVector = Mechanisms._flags(am.catalytic))
     m = am.catalytic
     n = length(m.edges)
     fast, vanish_forward, vanish_reverse = falses(n, 2), falses(n, 2), falses(n, 2)
     for c in 1:2, (k, e) in enumerate(m.edges)
-        excluded, plain = _excludes(am, k, c), _is_plain_binding(m, e)
+        excluded, plain = Mechanisms._excludes(am, k, c), Mechanisms._is_plain_binding(m, e)
         fast[k, c] = re[k] && (!excluded || plain)
         vanish_forward[k, c] = excluded
         vanish_reverse[k, c] = excluded && !plain
@@ -315,16 +318,18 @@ shares its reactant's name and so is zeroed with it; a regulatory-site ligand is
 only when it also binds the catalytic site. No face zeroes a substrate together with a
 product.
 """
-function _faces(m::Mechanism)
-    name_of = _name_index(m)
-    bit(x::Symbol) = UInt64(1) << (name_of[searchsortedfirst(m.table, Met(x, false))] - 1)
+function _faces(m::Mechanisms.Mechanism)
+    name_of = Mechanisms._name_index(m)
+    bit(x::Symbol) =
+        UInt64(1) << (name_of[searchsortedfirst(m.table, Mechanisms.Met(x, false))] - 1)
     side(xs::Vector{Symbol}) = reduce(|, (bit(x) for x in xs); init = UInt64(0))
     base = UInt64[0, side(m.products), side(m.substrates)]
     length(m.substrates) >= 2 && append!(base, bit.(m.substrates))
     length(m.products) >= 2 && append!(base, bit.(m.products))
     mods = UInt64(0)
     for (i, x) in enumerate(m.table)
-        x.modifier && !_is_reactant(m, x.name) && (mods |= UInt64(1) << (name_of[i] - 1))
+        x.modifier && !Mechanisms._is_reactant(m, x.name) &&
+            (mods |= UInt64(1) << (name_of[i] - 1))
     end
     mods == 0 ? base : [base; base .| mods]
 end
@@ -333,16 +338,17 @@ end
 _zeroes(face::UInt64, n::Int) = (face >> (n - 1)) & 1 == 1
 
 """The metabolite names that face `face` of `m` zeroes (`_faces`), in table order."""
-function _face_names(m::Mechanism, face::UInt64)
-    name_of = _name_index(m)
+function _face_names(m::Mechanisms.Mechanism, face::UInt64)
+    name_of = Mechanisms._name_index(m)
     Symbol[x.name for (i, x) in enumerate(m.table)
            if (i == 1 || name_of[i] != name_of[i - 1]) && _zeroes(face, name_of[i])]
 end
 
 """The metabolite-name index (`_name_index`) of `m`'s first substrate, whose net uptake
 is the rate."""
-_turnover_name(m::Mechanism) =
-    _name_index(m)[searchsortedfirst(m.table, Met(m.substrates[1], false))]
+_turnover_name(m::Mechanisms.Mechanism) =
+    Mechanisms._name_index(m)[searchsortedfirst(m.table,
+                                                Mechanisms.Met(m.substrates[1], false))]
 
 """
 Whether a cycle of the edges that `mask` keeps turns the reaction over: no potential of the
@@ -350,14 +356,16 @@ forms rises along each edge by its uptake of the first substrate (a modifier cop
 as it), which a weighted union-find finds (`_has_unbalanced_cycle`). Class 1 rejects a
 mechanism with none; its rate is zero everywhere.
 """
-function _has_turnover_cycle(m::Mechanism, mask::BitVector)
-    name_of, x1 = _name_index(m), _turnover_name(m)
-    uptake(c::Counts) =
-        sum((copies(c, i) for i in eachindex(m.table) if name_of[i] == x1); init = 0)
+function _has_turnover_cycle(m::Mechanisms.Mechanism, mask::BitVector)
+    name_of, x1 = Mechanisms._name_index(m), _turnover_name(m)
+    uptake(c::Mechanisms.Counts) =
+        sum((Mechanisms.copies(c, i) for i in eachindex(m.table) if name_of[i] == x1);
+            init = 0)
     n = length(m.forms)
-    _has_unbalanced_cycle([e.from for e in m.edges], [e.to for e in m.edges],
-                          [uptake(e.consumed) - uptake(e.released) for e in m.edges],
-                          mask, zeros(Int, n), zeros(Int, n))
+    Mechanisms._has_unbalanced_cycle([e.from for e in m.edges], [e.to for e in m.edges],
+                                     [uptake(e.consumed) - uptake(e.released)
+                                      for e in m.edges],
+                                     mask, zeros(Int, n), zeros(Int, n))
 end
 
 """The tree transitions from node `x` up to its root in the forest `parent` (each node's
@@ -453,15 +461,15 @@ network) and, for an allosteric mechanism, admission's face condition (`_admissi
 on the ε-network), the first fault winning. `_WELL_POSED` when every check passes. It
 reads the reaction graph through masks and builds nothing.
 """
-function _guard(mech::_AnyMech)
-    m = catalytic(mech)
+function _guard(mech::Mechanisms._AnyMech)
+    m = Mechanisms.catalytic(mech)
     _has_turnover_cycle(m, trues(length(m.edges))) ||
         return _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0)
     eps = _eps_network(mech)
     v = _re_turnover_verdict(eps)
     v === _WELL_POSED || return v
     # A plain mechanism's ε-network is its law network, and admission reads no tag of it.
-    mech isa AllostericMechanism || return _faces_verdict(mech, eps)
+    mech isa Mechanisms.AllostericMechanism || return _faces_verdict(mech, eps)
     v = _admission_interior(mech)
     v === _WELL_POSED || return v
     law, faces = _law_network(mech), _faces(m)
@@ -747,7 +755,8 @@ carries the stage it stopped at, the edge that feeds the trap or joins it to its
 trap carries the copy its forms share (`_common_copy`). A face the limit test accepts
 reports `_LIMIT_EQUAL`.
 """
-function _check_face(mech::_AnyMech, net::_Network, faces::Vector{UInt64}, i::Int)
+function _check_face(mech::Mechanisms._AnyMech, net::_Network, faces::Vector{UInt64},
+                     i::Int)
     s = _face_structure(net, faces[i])
     stage = _face_stage(s)
     stage === _NO_FAULT && return _Verdict(_NO_FAULT, _LIMIT_UNTESTED, i, 0, 0)
@@ -775,8 +784,8 @@ end
 
 """The first class-3 fault of `mech` on its law network `net`, face by face in the order
 of `_faces`; `_WELL_POSED` when every face passes."""
-function _faces_verdict(mech::_AnyMech, net::_Network)
-    faces = _faces(catalytic(mech))
+function _faces_verdict(mech::Mechanisms._AnyMech, net::_Network)
+    faces = _faces(Mechanisms.catalytic(mech))
     _first_face_fault(i -> _check_face(mech, net, faces, i), faces)
 end
 
@@ -792,10 +801,11 @@ its parent's, and only a parent that holds such a cycle yields one: an unguarded
 such as `_seed_variants`' all-RE merged base or a mechanism passed to `expand_mechanisms`
 unchecked.
 """
-function _faces_pass(mech::_AnyMech, re::BitVector)
+function _faces_pass(mech::Mechanisms._AnyMech, re::BitVector)
     eps = _eps_network(mech, re)
     isempty(_re_turnover_transitions(eps)) || return false
-    _faces_verdict(mech, mech isa Mechanism ? eps : _law_network(mech, re)) === _WELL_POSED
+    _faces_verdict(mech, mech isa Mechanisms.Mechanism ? eps : _law_network(mech, re)) ===
+        _WELL_POSED
 end
 
 # ─── Class 3: the limit test mod 2^61 − 1 ───────────────────────────────
@@ -990,22 +1000,22 @@ speed per kinetic group and conformation (one for both of an `:EqualAI` group), 
 rapid-equilibrium speed per edge and conformation, the flip's speed; concentrations
 `conc` per name, zero on the face.
 """
-function _model_point(m::Mechanism, tags::Vector{Symbol}, ncopies::Int, face::UInt64,
-                      rng::_ResidueStream)
-    nf, name_of = length(m.forms), _name_index(m)
+function _model_point(m::Mechanisms.Mechanism, tags::Vector{Symbol}, ncopies::Int,
+                      face::UInt64, rng::_ResidueStream)
+    nf, name_of = length(m.forms), Mechanisms._name_index(m)
     nnames = maximum(name_of; init = 0)
     nv = ncopies * nf + nnames
-    excluded(k, c) = _excluded_by(tags[m.group[k]], c == 2)
+    excluded(k, c) = Mechanisms._excluded_by(tags[m.group[k]], c == 2)
     function drop!(row, k, c, dir)
         e = m.edges[k]
         row[(c - 1) * nf + e.from] += dir
         row[(c - 1) * nf + e.to] -= dir
-        foreach(i -> row[ncopies * nf + name_of[i]] += dir, entries(e.consumed))
-        foreach(i -> row[ncopies * nf + name_of[i]] -= dir, entries(e.released))
+        foreach(i -> row[ncopies * nf + name_of[i]] += dir, Mechanisms.entries(e.consumed))
+        foreach(i -> row[ncopies * nf + name_of[i]] -= dir, Mechanisms.entries(e.released))
         row
     end
     ties = Vector{Int}[]
-    for members in _group_members(m), c in 1:ncopies
+    for members in Mechanisms._group_members(m), c in 1:ncopies
         lead = first(members)
         excluded(lead, c) && continue
         for k in members[2:end]
@@ -1025,16 +1035,16 @@ function _model_point(m::Mechanism, tags::Vector{Symbol}, ncopies::Int, face::UI
     K = ones(Int64, length(m.edges), ncopies)
     for (k, e) in enumerate(m.edges), c in 1:ncopies
         num, den = x[(c - 1) * nf + e.from], x[(c - 1) * nf + e.to]
-        for i in entries(e.consumed)
+        for i in Mechanisms.entries(e.consumed)
             num = _mulp(num, x[ncopies * nf + name_of[i]])
         end
-        for i in entries(e.released)
+        for i in Mechanisms.entries(e.released)
             den = _mulp(den, x[ncopies * nf + name_of[i]])
         end
         K[k, c] = _mulp(num, _invp(den))
     end
-    ss = [_residue!(rng) for _ in 1:ngroups(m), _ in 1:ncopies]
-    for g in 1:ngroups(m)
+    ss = [_residue!(rng) for _ in 1:Mechanisms.ngroups(m), _ in 1:ncopies]
+    for g in 1:Mechanisms.ngroups(m)
         ncopies == 2 && tags[g] === :EqualAI && (ss[g, 2] = ss[g, 1])
     end
     re = [_residue!(rng) for _ in m.edges, _ in 1:ncopies]
@@ -1052,8 +1062,8 @@ _respeed_point(pt, rng::_ResidueStream) =
 """The rate mod p of every transition of `net` at the concentrations `conc` (per name):
 its speed times `K` in the stored direction, its speed alone in reverse, times each
 metabolite it takes up, a fast one times `Λ` unless `Λ` is 0."""
-function _rates_p(m::Mechanism, net::_Network, pt, conc::Vector{Int64}, Λ::Int64)
-    name_of = _name_index(m)
+function _rates_p(m::Mechanisms.Mechanism, net::_Network, pt, conc::Vector{Int64}, Λ::Int64)
+    name_of = Mechanisms._name_index(m)
     r = zeros(Int64, length(net.from))
     for t in eachindex(net.from)
         k, c = net.edge[t], net.conformation[t]
@@ -1063,7 +1073,7 @@ function _rates_p(m::Mechanism, net::_Network, pt, conc::Vector{Int64}, Λ::Int6
             speed = net.fast[t] ? pt.re[k, c] : pt.ss[m.group[k], c]
             r[t] = net.forward[t] ? _mulp(speed, pt.K[k, c]) : speed
             e = m.edges[k]
-            for i in entries(net.forward[t] ? e.consumed : e.released)
+            for i in Mechanisms.entries(net.forward[t] ? e.consumed : e.released)
                 r[t] = _mulp(r[t], conc[name_of[i]])
             end
         end
@@ -1125,8 +1135,8 @@ end
 """The face chain's limit mod p as every rapid-equilibrium speed grows, by interpolating
 the rate's numerator and its tree-sum denominator in Λ (degree below the closed class's
 size) on the face chain's closed class; `_INFINITE` when the rate grows with Λ."""
-function _limit_by_interpolation(m::Mechanism, net::_Network, s, pt, h::Vector{Int},
-                                 x1::Int, rng::_ResidueStream)
+function _limit_by_interpolation(m::Mechanisms.Mechanism, net::_Network, s, pt,
+                                 h::Vector{Int}, x1::Int, rng::_ResidueStream)
     C = s.closed[1]
     n = length(C)
     pos = zeros(Int, net.nforms * net.ncopies)
@@ -1160,7 +1170,7 @@ end
 
 """The law mod p at concentrations `conc` with every name present: segment weights and
 the slow segment chain over every segment."""
-function _law_inside(m::Mechanism, net::_Network, s, pt, conc::Vector{Int64},
+function _law_inside(m::Mechanisms.Mechanism, net::_Network, s, pt, conc::Vector{Int64},
                      h::Vector{Int}, x1::Int)
     r = _rates_p(m, net, pt, conc, Int64(0))
     w = _eq_weights_p(net, s.segments, r)
@@ -1185,8 +1195,9 @@ end
 """The law's value mod p on the face: its limit as the zeroed concentrations go to zero
 along two random directions, by rational reconstruction in their scale; `_UNDEFINED` when
 a direction meets a pole or the two differ."""
-function _law_by_reconstruction(m::Mechanism, net::_Network, s, pt, h::Vector{Int},
-                                x1::Int, face::UInt64, rng::_ResidueStream)
+function _law_by_reconstruction(m::Mechanisms.Mechanism, net::_Network, s, pt,
+                                h::Vector{Int}, x1::Int, face::UInt64,
+                                rng::_ResidueStream)
     found = Int64[]
     for _ in 1:2
         direction = [_residue!(rng) for _ in pt.conc]
@@ -1212,8 +1223,9 @@ law's face value by reconstruction as the zeroed concentrations vanish. On a dif
 third limit at new speeds tells `_LIMIT_DIFFER` from `_LIMIT_SPEED`. A false
 `_LIMIT_EQUAL` has probability at most twice the degree over p.
 """
-function _face_limit_check(mech::_AnyMech, net::_Network, s, face::UInt64, seed::UInt64)
-    m, tags = catalytic(mech), _solve_tags(mech)
+function _face_limit_check(mech::Mechanisms._AnyMech, net::_Network, s, face::UInt64,
+                           seed::UInt64)
+    m, tags = Mechanisms.catalytic(mech), Mechanisms._solve_tags(mech)
     rng = _ResidueStream(seed)
     x1 = _turnover_name(m)
     # Class 2, which runs first, leaves no fast cycle that takes `x1` up: a potential.
@@ -1237,14 +1249,15 @@ end
 
 """The plain bindings of `am`'s catalytic graph that conformation `c` excludes, in edge
 order: admission's arcs, each stored as its uptake, unbound side first."""
-_arcs(am::AllostericMechanism, c::Int) =
+_arcs(am::Mechanisms.AllostericMechanism, c::Int) =
     [k for (k, e) in enumerate(am.catalytic.edges)
-     if _excludes(am, k, c) && _is_plain_binding(am.catalytic, e)]
+     if Mechanisms._excludes(am, k, c) && Mechanisms._is_plain_binding(am.catalytic, e)]
 
 """The first edge of `am`'s catalytic graph that conformation `c` excludes; 0 when it
 excludes none."""
-_first_excluded(am::AllostericMechanism, c::Int) =
-    something(findfirst(k -> _excludes(am, k, c), eachindex(am.catalytic.edges)), 0)
+_first_excluded(am::Mechanisms.AllostericMechanism, c::Int) =
+    something(findfirst(k -> Mechanisms._excludes(am, k, c),
+                        eachindex(am.catalytic.edges)), 0)
 
 """
 The arcs of one directed cycle that `arcs` close over the components `comp` (each arc an
@@ -1252,7 +1265,7 @@ edge of `m` read from its unbound side's component to its bound side's), in cycl
 empty when they close none. Kahn's algorithm removes every component no cycle feeds; a
 walk back along the remaining arcs then lands on a cycle.
 """
-function _arc_cycle(m::Mechanism, comp::Vector{Int}, arcs::Vector{Int})
+function _arc_cycle(m::Mechanisms.Mechanism, comp::Vector{Int}, arcs::Vector{Int})
     tail(k) = comp[m.edges[k].from]
     head(k) = comp[m.edges[k].to]
     indeg = zeros(Int, length(comp))
@@ -1290,7 +1303,7 @@ end
 
 """The components (`comp` labels) that free E's reaches along `arcs`, edges of `m` read
 from their unbound side's component to their bound side's."""
-function _reached_components(m::Mechanism, comp::Vector{Int}, arcs::Vector{Int})
+function _reached_components(m::Mechanisms.Mechanism, comp::Vector{Int}, arcs::Vector{Int})
     next = [Int[] for _ in comp]
     for k in arcs
         push!(next[comp[m.edges[k].from]], comp[m.edges[k].to])
@@ -1306,10 +1319,10 @@ metabolite is stored as its uptake, so a half-reaction that releases a product,
 `E(A) <--> E(; residual = A - P) + P`, runs toward products against its stored direction.
 A step whose two sides tie, such as an isomerization of free forms, runs as stored.
 """
-function _runs_toward_products(m::Mechanism, e::Edge)
-    substrate_mask, product_mask = _role_masks(m)
-    _side_score(m.forms, e.from, e.consumed, substrate_mask, product_mask) >=
-        _side_score(m.forms, e.to, e.released, substrate_mask, product_mask)
+function _runs_toward_products(m::Mechanisms.Mechanism, e::Mechanisms.Edge)
+    substrate_mask, product_mask = Mechanisms._role_masks(m)
+    Mechanisms._side_score(m.forms, e.from, e.consumed, substrate_mask, product_mask) >=
+        Mechanisms._side_score(m.forms, e.to, e.released, substrate_mask, product_mask)
 end
 
 """
@@ -1319,15 +1332,15 @@ unreached one, the first chemistry edge (`_is_chemistry`) that, run toward produ
 (`_runs_toward_products`), enters the unreached one; else the first chemistry edge; else
 the first edge.
 """
-function _island_edge(am::AllostericMechanism, c::Int, comp::Vector{Int},
+function _island_edge(am::Mechanisms.AllostericMechanism, c::Int, comp::Vector{Int},
                       reached::BitVector)
     m = am.catalytic
     best, rank = 0, 4
     for (k, e) in enumerate(m.edges)
-        _excludes(am, k, c) || continue
+        Mechanisms._excludes(am, k, c) || continue
         a, b = reached[comp[e.from]], reached[comp[e.to]]
         a == b && continue
-        r = !_is_chemistry(m, e) ? 3 : a == _runs_toward_products(m, e) ? 1 : 2
+        r = !Mechanisms._is_chemistry(m, e) ? 3 : a == _runs_toward_products(m, e) ? 1 : 2
         if r < rank
             best, rank = k, r
         end
@@ -1352,11 +1365,11 @@ an edge (`_excludes`), on the components of the forms its other edges join
   holds a cycle that turns the reaction over (`_NO_ACTIVE_TURNOVER`).
 The verdict carries the conformation and the edge its message leads with (face 0).
 """
-function _admission_interior(am::AllostericMechanism)
+function _admission_interior(am::Mechanisms.AllostericMechanism)
     m = am.catalytic
     for c in 1:2
         _first_excluded(am, c) == 0 && continue
-        comp = _exclusion_components(am, c)
+        comp = Mechanisms._exclusion_components(am, c)
         arcs = _arcs(am, c)
         for k in arcs
             comp[m.edges[k].from] == comp[m.edges[k].to] &&
@@ -1368,7 +1381,7 @@ function _admission_interior(am::AllostericMechanism)
         k == 0 || return _Verdict(_ISLAND, _LIMIT_UNTESTED, 0, c, k)
     end
     k = _first_excluded(am, 1)
-    k != 0 && !_has_turnover_cycle(m, _active_mask(am)) &&
+    k != 0 && !_has_turnover_cycle(m, Mechanisms._active_mask(am)) &&
         return _Verdict(_NO_ACTIVE_TURNOVER, _LIMIT_UNTESTED, 0, 1, k)
     _WELL_POSED
 end
@@ -1376,7 +1389,7 @@ end
 """The edges of a shortest path from form `a` to form `b` over the edges of `am`'s
 catalytic graph that conformation `c` keeps, in path order; empty when `a == b`. Callers
 pass two forms those edges join."""
-function _kept_path(am::AllostericMechanism, c::Int, a::Int, b::Int)
+function _kept_path(am::Mechanisms.AllostericMechanism, c::Int, a::Int, b::Int)
     m = am.catalytic
     via = zeros(Int, length(m.forms))
     seen = falses(length(m.forms))
@@ -1387,7 +1400,7 @@ function _kept_path(am::AllostericMechanism, c::Int, a::Int, b::Int)
         head += 1
         u = queue[head]
         for (k, e) in enumerate(m.edges)
-            _excludes(am, k, c) && continue
+            Mechanisms._excludes(am, k, c) && continue
             v = e.from == u ? e.to : e.to == u ? e.from : 0
             (v == 0 || seen[v]) && continue
             seen[v] = true
@@ -1409,10 +1422,10 @@ end
 Whether `am` with the kinetic group of each edge in `ks` tagged `tag` passes the guard
 (`_guard`). Every fix that retags steps in admission's messages is checked this way.
 """
-function _retag_passes(am::AllostericMechanism, ks, tag::Symbol)
-    states = copy(cat_allo_states(am))
+function _retag_passes(am::Mechanisms.AllostericMechanism, ks, tag::Symbol)
+    states = copy(Mechanisms.cat_allo_states(am))
     states[am.catalytic.group[ks]] .= tag
-    _guard(_with(am; states)) === _WELL_POSED
+    _guard(Mechanisms._with(am; states)) === _WELL_POSED
 end
 
 """
@@ -1420,11 +1433,11 @@ Whether `mech` with the kinetic group of edge `k` made steady-state passes the g
 (`_guard`). Every fix that makes a group steady-state in the guard's messages, but class
 2's, is checked this way.
 """
-function _steady_state_passes(mech::_AnyMech, k::Int)
-    m = catalytic(mech)
-    re = _flags(m)
-    re[_group_members(m)[m.group[k]]] .= false
-    _guard(_build(_raw(mech, re))) === _WELL_POSED
+function _steady_state_passes(mech::Mechanisms._AnyMech, k::Int)
+    m = Mechanisms.catalytic(mech)
+    re = Mechanisms._flags(m)
+    re[Mechanisms._group_members(m)[m.group[k]]] .= false
+    _guard(Mechanisms._build(Mechanisms._raw(mech, re))) === _WELL_POSED
 end
 
 """
@@ -1434,13 +1447,13 @@ line (`_step_text`), and each fix only when its variant passes the guard: a reta
 conformation the only retag offered untags the `:OnlyI` groups that leave it no turnover,
 since a step tagged `:OnlyI` must bind modifiers alone.
 """
-function _admission_message(am::AllostericMechanism, v::_Verdict)
+function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
     m = am.catalytic
     c, k = v.conformation, v.edge
     conf = c == 1 ? "active" : "inactive"
     tag = c == 1 ? ":OnlyI" : ":OnlyA"
-    line(j) = _step_text(m, j)
-    lines(js) = join((_step_text(m, j) for j in js), "; ")
+    line(j) = Mechanisms._step_text(m, j)
+    lines(js) = join((Mechanisms._step_text(m, j) for j in js), "; ")
     # The steps `js` as "step …" or "steps …", and the clause that says they vanish.
     steps(js) = (length(js) == 1 ? "step " : "steps ") * lines(js)
     vanish(js) = length(js) == 1 ? "that step vanishes" : "those steps vanish"
@@ -1463,7 +1476,7 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
         e = m.edges[k]
         return msg * fixes([k], "its group", _kept_path(am, c, e.from, e.to), "its sides")
     elseif v.fault === _ARC_CYCLE
-        cycle = _arc_cycle(m, _exclusion_components(am, c), _arcs(am, c))
+        cycle = _arc_cycle(m, Mechanisms._exclusion_components(am, c), _arcs(am, c))
         msg = "AllostericMechanism: the $tag bindings $(lines(cycle)) close a cycle in " *
               "the $conf conformation: steps outside $tag groups join each one's bound " *
               "side to the next one's unbound side, so thermodynamics forbids their " *
@@ -1476,23 +1489,24 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
         end
         return msg * fixes(cycle, "them", unique!(joins), "them")
     elseif v.fault === _ISLAND
-        comp = _exclusion_components(am, c)
+        comp = Mechanisms._exclusion_components(am, c)
         reached = _reached_components(m, comp, _arcs(am, c))
         e = m.edges[k]
         lost = reached[comp[e.from]] ? comp[e.to] : comp[e.from]
         fixable = c == 2 && untag_passes([k])
         msg = "AllostericMechanism: in the $conf conformation the forms " *
-              join([_form_text(m, f) for f in eachindex(m.forms) if comp[f] == lost],
-                   ", ") *
+              join([Mechanisms._form_text(m, f)
+                    for f in eachindex(m.forms) if comp[f] == lost], ", ") *
               " join free E only through $tag steps that are not bindings toward them, " *
               "such as $(line(k)), so their weight depends on how fast those steps vanish."
         msg = c == 2 && fixable ?
               msg * " Tag the group of $(line(k)) :EqualAI or :NonequalAI." : msg
         # A ping-pong whose inactive conformation runs neither half-reaction strands the
         # covalent forms between the halves; the roadmap lists what would hold them.
-        neither = c == 2 && all(j -> !_is_chemistry(m, m.edges[j]) || _excludes(am, j, 2),
+        neither = c == 2 && all(j -> !Mechanisms._is_chemistry(m, m.edges[j]) ||
+                                     Mechanisms._excludes(am, j, 2),
                                 eachindex(m.edges))
-        covalent = any(f -> comp[f] == lost && _has_residual(m.forms[f]),
+        covalent = any(f -> comp[f] == lost && Mechanisms._has_residual(m.forms[f]),
                        eachindex(m.forms))
         return neither && covalent ?
                msg * " An inactive conformation that runs neither half-reaction of a " *
@@ -1505,8 +1519,8 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
         s = _face_sets(eps, law.present, face)
         if v.fault === _EPS_NONUNIQUE
             outside = _class_outside_law(_closed_classes(eps, s.alive), law.present)
-            forms = [_form_text(m, _form_of(eps, u)) * _conformation_suffix(eps, u)
-                     for u in outside]
+            forms = [Mechanisms._form_text(m, _form_of(eps, u)) *
+                     _conformation_suffix(eps, u) for u in outside]
             return "AllostericMechanism: $(phrase)the forms $(join(forms, ", ")) " *
                    "hold the enzyme they receive and are reached only through tagged " *
                    "steps, so the steady state depends on where the enzyme starts."
@@ -1522,7 +1536,8 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
             inside = s.stranded[_node(eps, e.from, c)] && s.stranded[_node(eps, e.to, c)]
             return "AllostericMechanism: $(phrase)$(line(k)) " *
                    (inside ? "runs one way among" : "feeds") * " the forms " *
-                   "$(join([_form_text(m, _form_of(eps, u)) for u in basin], ", ")) of " *
+                   "$(join([Mechanisms._form_text(m, _form_of(eps, u))
+                            for u in basin], ", ")) of " *
                    "the $conf conformation, $out."
         elseif c == 0
             ks = _bridging_edges(eps, s.fed .& .!s.stranded, s.n0, s.alive .& eps.vanishing)
@@ -1543,7 +1558,7 @@ function _admission_message(am::AllostericMechanism, v::_Verdict)
         return _steady_state_passes(am, k) ?
                msg * " Make the group of $(line(k)) steady-state." : msg
     elseif v.fault === _NO_ACTIVE_TURNOVER
-        ks = [j for j in eachindex(m.edges) if _excludes(am, j, 1)]
+        ks = [j for j in eachindex(m.edges) if Mechanisms._excludes(am, j, 1)]
         msg = "AllostericMechanism: without its :OnlyI steps $(lines(ks)) the active " *
               "conformation turns no substrate into product, and only the active " *
               "conformation may catalyze."
@@ -1673,8 +1688,8 @@ function _potential_on_sccs(net::_Network, keep::BitVector, x::Int)
     inside = BitVector([keep[t] && comp[net.from[t]] == comp[net.to[t]]
                         for t in eachindex(net.from)])
     n = length(net.present)
-    !_has_unbalanced_cycle(net.from, net.to, view(net.change, x, :), inside, zeros(Int, n),
-                           zeros(Int, n))
+    !Mechanisms._has_unbalanced_cycle(net.from, net.to, view(net.change, x, :), inside,
+                                      zeros(Int, n), zeros(Int, n))
 end
 
 """Whether the transitions `extra` shorten the cheapest spanning in-tree of `nodes` over
@@ -1720,7 +1735,7 @@ end
 
 """How a message names face `face` of `m`: nothing for the interior, else `at zero `, its
 zeroed names (`_face_names`) and `place`, then a comma."""
-_face_phrase(m::Mechanism, face::UInt64, place::String = "") =
+_face_phrase(m::Mechanisms.Mechanism, face::UInt64, place::String = "") =
     face == 0 ? "" :
     "at zero " * join(String.(_face_names(m, face)), ", ", " and ") * place * ", "
 
@@ -1783,7 +1798,7 @@ end
 Admission's face condition (`_face_condition`) on face `faces[i]` of `am`, from its
 ε-network `eps` and law network `law`; a rejection carries the face index `i`.
 """
-function _admission_face(am::AllostericMechanism, eps::_Network, law::_Network,
+function _admission_face(am::Mechanisms.AllostericMechanism, eps::_Network, law::_Network,
                          faces::Vector{UInt64}, i::Int)
     v = _face_condition(eps, law.present, faces[i], _turnover_name(am.catalytic))
     v.fault === _NO_FAULT ? v : _Verdict(v.fault, v.limit, i, v.conformation, v.edge)
@@ -1796,7 +1811,7 @@ Admission alone (spec section 7): the interior checks (`_admission_interior`), t
 face condition on every face (`_admission_face`), class 3 not run, as the tagging and
 change-tag moves filter their children.
 """
-function _admission(am::AllostericMechanism)
+function _admission(am::Mechanisms.AllostericMechanism)
     v = _admission_interior(am)
     v.fault === _NO_FAULT || return v
     eps, law = _eps_network(am), _law_network(am)
@@ -1814,13 +1829,13 @@ The error for the guard's verdict `v` on `mech`:
 fix is printed when each step's variant leaves no fast turnover cycle
 (`_every_step_cures`); every other fix only when its variant passes `_guard`.
 """
-function _guard_message(mech::_AnyMech, v::_Verdict)
-    who = mech isa AllostericMechanism ? "AllostericMechanism" : "Mechanism"
+function _guard_message(mech::Mechanisms._AnyMech, v::_Verdict)
+    who = mech isa Mechanisms.AllostericMechanism ? "AllostericMechanism" : "Mechanism"
     v.fault === _NO_CYCLE &&
         return "$who: no cycle of steps turns substrates into products, so the rate is " *
                "zero everywhere."
     v.fault === _RE_TURNOVER && return _re_turnover_message(who, mech)
-    mech isa AllostericMechanism && v.fault in _ADMISSION_FAULTS &&
+    mech isa Mechanisms.AllostericMechanism && v.fault in _ADMISSION_FAULTS &&
         return _admission_message(mech, v)
     v.fault === _NO_FAULT && error("_guard_message: verdict $v holds no fault")
     _face_message(who, mech, v)
@@ -1829,11 +1844,11 @@ end
 """Whether making each step of `cycle`, transitions of `mech`'s ε-network `net`,
 steady-state with its kinetic group leaves no fast cycle that turns the reaction over: then
 class 2's fix holds whichever step of the cycle is picked."""
-function _every_step_cures(mech::_AnyMech, net::_Network, cycle::Vector{Int})
-    m = catalytic(mech)
-    members = _group_members(m)
+function _every_step_cures(mech::Mechanisms._AnyMech, net::_Network, cycle::Vector{Int})
+    m = Mechanisms.catalytic(mech)
+    members = Mechanisms._group_members(m)
     for t in cycle
-        re = _flags(m)
+        re = Mechanisms._flags(m)
         re[members[m.group[net.edge[t]]]] .= false
         isempty(_re_turnover_transitions(_eps_network(mech, re))) || return false
     end
@@ -1844,8 +1859,8 @@ end
 each tagged binding among them marked with the conformation where its affinity
 vanishes, and the fix where each of those steps made steady-state leaves no fast cycle
 that turns the reaction over (`_every_step_cures`)."""
-function _re_turnover_message(who::String, mech::_AnyMech)
-    m = catalytic(mech)
+function _re_turnover_message(who::String, mech::Mechanisms._AnyMech)
+    m = Mechanisms.catalytic(mech)
     net = _eps_network(mech)
     cycle = _re_turnover_transitions(net)
     c = net.conformation[cycle[1]]
@@ -1853,12 +1868,13 @@ function _re_turnover_message(who::String, mech::_AnyMech)
     lines = String[]
     for t in cycle
         k = net.edge[t]
-        line = _step_text(m, k)
-        mech isa AllostericMechanism && _excludes(mech, k, c) &&
+        line = Mechanisms._step_text(m, k)
+        mech isa Mechanisms.AllostericMechanism && Mechanisms._excludes(mech, k, c) &&
             (line *= " (whose affinity vanishes in the $state conformation)")
         push!(lines, line)
     end
-    place = mech isa AllostericMechanism && c == 2 ? " in the inactive conformation" : ""
+    place = mech isa Mechanisms.AllostericMechanism && c == 2 ?
+            " in the inactive conformation" : ""
     msg = "$who: the rapid-equilibrium steps $(join(lines, ", ", " and ")) close a " *
           "cycle$place that turns the reaction over, so the mechanism has no finite rate."
     fix = " Make one step of the cycle steady-state."
@@ -1872,8 +1888,8 @@ _conformation_suffix(net::_Network, u::Int) =
 
 """Where a class-3 fault of `mech` lies: nothing for a plain mechanism; the conformation
 `c` of an allosteric one, nothing when `c` is 0."""
-_place(::Mechanism, ::Int) = ""
-_place(::AllostericMechanism, c::Int) =
+_place(::Mechanisms.Mechanism, ::Int) = ""
+_place(::Mechanisms.AllostericMechanism, c::Int) =
     c == 2 ? " in the inactive conformation" : c == 1 ? " in the active conformation" : ""
 
 """
@@ -1884,8 +1900,8 @@ for a bottomless segment, the group of the first of its rapid-equilibrium bindin
 variant passes. A verdict in no one conformation labels each form with its own
 (`_conformation_suffix`).
 """
-function _face_message(who::String, mech::_AnyMech, v::_Verdict)
-    m = catalytic(mech)
+function _face_message(who::String, mech::Mechanisms._AnyMech, v::_Verdict)
+    m = Mechanisms.catalytic(mech)
     net = _law_network(mech)
     face = _faces(m)[v.face]
     s = _face_structure(net, face)
@@ -1893,8 +1909,9 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
     # Forms that lie in different conformations name each form's conformation.
     label(u) = v.conformation == 0 ? _conformation_suffix(net, u) : ""
     forms(nodes) =
-        "{" * join([_form_text(m, _form_of(net, u)) * label(u) for u in nodes], ", ") * "}"
-    lines(edges) = join([_step_text(m, k) for k in edges], ", ", " and ")
+        "{" * join([Mechanisms._form_text(m, _form_of(net, u)) * label(u) for u in nodes],
+                   ", ") * "}"
+    lines(edges) = join([Mechanisms._step_text(m, k) for k in edges], ", ", " and ")
     if v.fault === _NONUNIQUE
         C = _away_class(s)
         return "$who: $(at)the forms $(forms(C)) keep enzyme away from free E: every " *
@@ -1904,10 +1921,10 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
         bindings = unique!([net.edge[t] for t in eachindex(net.from)
                             if net.fast[t] && net.edge[t] != 0 &&
                                s.segment[net.from[t]] == s.bottomless &&
-                               _is_binding(m.edges[net.edge[t]])])
+                               Mechanisms._is_binding(m.edges[net.edge[t]])])
         k = findfirst(k -> _steady_state_passes(mech, k), bindings)
         fix = k === nothing ? "" :
-              " Make the group of $(_step_text(m, bindings[k])) steady-state."
+              " Make the group of $(Mechanisms._step_text(m, bindings[k])) steady-state."
         return "$who: $(at)the rapid-equilibrium segment " *
                "$(forms(s.segments[s.bottomless])) has no form whose weight keeps the " *
                "segment's lowest power of each zeroed metabolite, so the forms' shares " *
@@ -1918,12 +1935,13 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
               " Make that step's kinetic group steady-state." : ""
         joined &&
             return "$who: $(at)the forms $(forms(s.fast_classes[trap])) hold enzyme, but " *
-                   "the rapid-equilibrium step $(_step_text(m, edge)) that joins them to " *
-                   "the rest of their segment takes up a zeroed metabolite, so the rate " *
-                   "law misweights them." * fix
-        return "$who: $(at)the rapid-equilibrium step $(_step_text(m, edge)) fills the " *
-               "forms $(forms(s.fast_classes[trap])), which no rapid-equilibrium step " *
-               "running there empties, so the rate law misweights them." * fix
+                   "the rapid-equilibrium step $(Mechanisms._step_text(m, edge)) that " *
+                   "joins them to the rest of their segment takes up a zeroed " *
+                   "metabolite, so the rate law misweights them." * fix
+        return "$who: $(at)the rapid-equilibrium step $(Mechanisms._step_text(m, edge)) " *
+               "fills the forms $(forms(s.fast_classes[trap])), which no " *
+               "rapid-equilibrium step running there empties, so the rate law " *
+               "misweights them." * fix
     elseif v.fault === _SPLIT
         split = _split_parts(net, s)
         return "$who: $(at)the forms $(join(forms.(split.parts), " and ")) of one " *

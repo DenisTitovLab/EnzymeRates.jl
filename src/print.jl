@@ -178,9 +178,9 @@ function _reference_lines(s::_Solve, vars::_Vars)
 end
 
 """The `params` and `concs` destructuring lines of `m`'s printed law over the solve `s`."""
-_header_lines(m::Union{Mechanism, AllostericMechanism}, s::_Solve) =
+_header_lines(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}, s::_Solve) =
     String["(; $(join((s.fitted..., :Keq, :E_total), ", "))) = params",
-           "(; $(join(metabolites(m), ", "))) = concs"]
+           "(; $(join(Mechanisms.metabolites(m), ", "))) = concs"]
 
 # ─── Plain and MWC laws ──────────────────────────────────────────────────────
 
@@ -194,7 +194,7 @@ fractional power, and the `v` line (`_v_line`) with `Q` and `D` over the normali
 `coefficients`: the header, the coefficient comment, `N` when it prints, one line per
 coefficient giving its value, and the `v` line in the named coefficients.
 """
-function _law_text(m::Mechanism, s::_Solve, L::_Law; coefficients::Bool = false)
+function _law_text(m::Mechanisms.Mechanism, s::_Solve, L::_Law; coefficients::Bool = false)
     subs = _substrate_vars(m, L.vars)
     P = _printed(L, _normalizer(L.D, L.vars, subs), [L.Q, L.D], subs)
     names, (q, d) = L.vars.names, P.terms
@@ -252,7 +252,7 @@ one line per coefficient, named by conformation (`nA_0`, `dA_S`, `fI_B`), and th
 definitions: `Q_c`, `D_c` and `F_c` read in those coefficients, `W_A` and `W_I` in the
 fitted constants.
 """
-function _law_text(am::AllostericMechanism, s::_Solve, A::_AlloLaw;
+function _law_text(am::Mechanisms.AllostericMechanism, s::_Solve, A::_AlloLaw;
                    coefficients::Bool = false)
     subs = _substrate_vars(am, A.vars)
     confs = [_conformation(A.active, "A", subs)]
@@ -367,17 +367,19 @@ d_P = 1 / K_EP_to_E_P
 v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
 ```
 """
-function rate_equation_string(m::Union{Mechanism, AllostericMechanism};
+function rate_equation_string(m::Union{Mechanisms.Mechanism,
+                                        Mechanisms.AllostericMechanism};
                               coefficients::Bool = false)
     _check_well_posed(m)
     _rate_text(m, coefficients)
 end
 
-rate_equation_string(@nospecialize(m::AbstractEnzymeMechanism);
+rate_equation_string(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism);
                      coefficients::Bool = false) =
     _rate_text(_derivation_input(typeof(m)), coefficients)
 
 """The printed law of the well-posed mechanism `m` (`_law_text`) from its derived law
 (`_with_law`)."""
-_rate_text(m::Union{Mechanism, AllostericMechanism}, coefficients::Bool) =
+_rate_text(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
+           coefficients::Bool) =
     _with_law((m, s, L) -> _law_text(m, s, L; coefficients), m)

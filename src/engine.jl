@@ -94,7 +94,7 @@ A rapid-equilibrium edge off the tree must close a cycle with no net uptake of a
 metabolite. Class 2 of the guard rejects every mechanism where one does not, so this is
 an internal error.
 """
-function _bare_law(m::Mechanism, mask::BitVector, concentrations::Vector{Symbol})
+function _bare_law(m::Mechanisms.Mechanism, mask::BitVector, concentrations::Vector{Symbol})
     vars = _Vars()
     foreach(x -> _var!(vars, x; conc = true), concentrations)
     cols = Tuple{Int, Int}[]
@@ -104,14 +104,15 @@ function _bare_law(m::Mechanism, mask::BitVector, concentrations::Vector{Symbol}
         push!(cols, (k, slot))
         at[(k, slot)] = _var!(vars, Symbol("c", k, "_", slot))
     end
-    conc(c::Counts) = _monomial((vars.index[m.table[i].name] => copies(c, i)
-                                 for i in eachindex(m.table))...)
+    conc(c::Mechanisms.Counts) =
+        _monomial((vars.index[m.table[i].name] => Mechanisms.copies(c, i)
+                   for i in eachindex(m.table))...)
     bare(k, slot) = _monomial(at[(k, slot)] => 1)
     # The equilibrium ratio w(to)/w(from) of rapid-equilibrium edge k: [M]/K for a binding
     # (K a dissociation constant), K·Π[consumed]/Π[released] for any other edge.
-    ratio(k) = _mmul(_mpow(bare(k, 1), _is_binding(m.edges[k]) ? -1 : 1),
+    ratio(k) = _mmul(_mpow(bare(k, 1), Mechanisms._is_binding(m.edges[k]) ? -1 : 1),
                      _mmul(conc(m.edges[k].consumed), _mpow(conc(m.edges[k].released), -1)))
-    s = _segments(m, mask, _flags(m))
+    s = Mechanisms._segments(m, mask, Mechanisms._flags(m))
     re = [k for k in eachindex(m.edges) if mask[k] && m.edges[k].rapid_equilibrium]
     alpha = fill(_Mono(), length(m.forms))
     placed = falses(length(m.forms))
@@ -135,7 +136,7 @@ function _bare_law(m::Mechanism, mask::BitVector, concentrations::Vector{Symbol}
     end
     pairs, W = Tuple{Int, Int}[], Dict{Tuple{Int, Int}, _Poly}()
     flux = Tuple{Int, Int, Int, _Mono, _Mono}[]
-    x = vars.index[first(substrates(m))]
+    x = vars.index[first(Mechanisms.substrates(m))]
     for (k, e) in enumerate(m.edges)
         mask[k] && !e.rapid_equilibrium || continue
         f = _mmul(_mmul(bare(k, 1), conc(e.consumed)), alpha[e.from])
@@ -196,8 +197,9 @@ Runs `_assert_derivable` first. Checked `Int64` arithmetic throughout: under the
 no coefficient leaves it, so an `OverflowError` becomes an internal error that names the
 mechanism `shown`, the allosteric mechanism for an MWC conformation.
 """
-function _law(m::Mechanism, s::_Solve, mask::BitVector; inactive::Bool = false,
-              concentrations::Vector{Symbol} = metabolites(m), shown::_AnyMech = m)
+function _law(m::Mechanisms.Mechanism, s::_Solve, mask::BitVector; inactive::Bool = false,
+              concentrations::Vector{Symbol} = Mechanisms.metabolites(m),
+              shown::Mechanisms._AnyMech = m)
     _assert_derivable(m, mask)
     try
         b = _bare_law(m, mask, concentrations)
@@ -208,10 +210,11 @@ function _law(m::Mechanism, s::_Solve, mask::BitVector; inactive::Bool = false,
         value = _column_values(vars, s)
         nc = length(concentrations)
         sub(p) = _subst(v -> v <= nc ? nothing :
-                             value[s.column[_Column(b.cols[v - nc]..., inactive)]], p)
+                             value[s.column[Mechanisms._Column(b.cols[v - nc]...,
+                                                               inactive)]], p)
         side(xs) = _monomial((vars.index[x] => 1 for x in xs)...)
-        H = _term(side(substrates(m))) -
-            _term(_mmul(side(products(m)), _monomial(keq => -1)))
+        H = _term(side(Mechanisms.substrates(m))) -
+            _term(_mmul(side(Mechanisms.products(m)), _monomial(keq => -1)))
         Q, D = _divexact(sub(b.num), H), sub(b.den)
         shift = _conc_shift((Q, D), vars)
         _Law(vars, H, Q * shift, D * shift, map(sub, b.sigma), map(sub, b.trees), shift)
@@ -223,7 +226,7 @@ function _law(m::Mechanism, s::_Solve, mask::BitVector; inactive::Bool = false,
 end
 
 """The law of the edges of `m` over the independents of `s`, every edge kept."""
-_law(m::Mechanism, s::_Solve) = _law(m, s, trues(length(m.edges)))
+_law(m::Mechanisms.Mechanism, s::_Solve) = _law(m, s, trues(length(m.edges)))
 
 # ─── The MWC law ─────────────────────────────────────────────────────────
 
@@ -293,11 +296,11 @@ false`) or inactive conformation, over `vars`: 1 plus each ligand's concentratio
 dissociation constant (`_reg_K`), an `:OnlyI` ligand left out of the active conformation
 and an `:OnlyA` one out of the inactive.
 """
-function _site_weight(am::AllostericMechanism, vars::_Vars, site::RegulatorySite,
-                      inactive::Bool)
+function _site_weight(am::Mechanisms.AllostericMechanism, vars::_Vars,
+                      site::Mechanisms.RegulatorySite, inactive::Bool)
     W = one(_Poly)
-    for (lig, tag) in zip(ligands(site), allo_states(site))
-        K = _reg_K(am, lig, tag, inactive)
+    for (lig, tag) in zip(Mechanisms.ligands(site), Mechanisms.allo_states(site))
+        K = Mechanisms._reg_K(am, lig, tag, inactive)
         K === nothing && continue
         W = W + _term(_monomial(vars.index[lig] => 1, vars.index[K] => -1))
     end
@@ -316,10 +319,11 @@ segment's tree sum times the law's shift. A law over the summed cap is refused b
 polynomial product (`_assert_derivable`). The guard rejects an empty active mask
 (`_NO_ACTIVE_TURNOVER`), but the oracles read its law.
 """
-function _law(am::AllostericMechanism, s::_Solve)
+function _law(am::Mechanisms.AllostericMechanism, s::_Solve)
     _assert_derivable(am)
-    m, amask, imask = catalytic(am), _active_mask(am), _inactive_mask(am)
-    concentrations = metabolites(am)
+    m, amask, imask = Mechanisms.catalytic(am), Mechanisms._active_mask(am),
+                      Mechanisms._inactive_mask(am)
+    concentrations = Mechanisms.metabolites(am)
     LA = any(amask) ? _law(m, s, amask; concentrations, shown = am) :
          _flip_only_law(_law(m, s, imask; inactive = true, concentrations, shown = am))
     LI = any(imask) ? _law(m, s, imask; inactive = true, concentrations, shown = am) :
@@ -332,18 +336,18 @@ function _law(am::AllostericMechanism, s::_Solve)
     fA, fI = _cross_weights(LA.trees[1] * LA.shift, LI.trees[1] * LI.shift)
     sites = Tuple{_Poly, _Poly, Int}[(_site_weight(am, vars, site, false),
                                       _site_weight(am, vars, site, true),
-                                      multiplicity(site))
-                                     for site in regulatory_sites(am)]
-    _AlloLaw(vars, LA.H, LA, LI, fA, fI, sites, catalytic_multiplicity(am))
+                                      Mechanisms.multiplicity(site))
+                                     for site in Mechanisms.regulatory_sites(am)]
+    _AlloLaw(vars, LA.H, LA, LI, fA, fI, sites, Mechanisms.catalytic_multiplicity(am))
 end
-_law(m::_AnyMech) = _law(m, _solve(m))
+_law(m::Mechanisms._AnyMech) = _law(m, _solve(m))
 
 """
     _with_law(f, m, s = _solve(m)) -> f(m, s, L)
 
 `f` called on `m`, its solve `s` and its law `L = _law(m, s)`.
 """
-_with_law(f, m::_AnyMech, s::_Solve = _solve(m)) = f(m, s, _law(m, s))
+_with_law(f, m::Mechanisms._AnyMech, s::_Solve = _solve(m)) = f(m, s, _law(m, s))
 
 """
 The spanning trees of the multigraph whose Laplacian is `lap`: the determinant of `lap`
@@ -386,8 +390,8 @@ it bounds fit cost. It guards the derivation (`_assert_derivable` aborts when V�
 `eq_complexity_filter` keyword of [`identify_rate_equation`](@ref). Saturates at
 `typemax(Int)`.
 """
-function _eq_complexity(m::Mechanism, mask::BitVector)
-    s = _segments(m, mask, _flags(m))
+function _eq_complexity(m::Mechanisms.Mechanism, mask::BitVector)
+    s = Mechanisms._segments(m, mask, Mechanisms._flags(m))
     G = length(s.segments)
     G <= 1 && return G
     lap = zeros(Int, G, G)
@@ -410,10 +414,10 @@ the inactive law's, a conformation that is free E alone counting 0, saturated at
 `typemax(Int)`. The cap (`_assert_derivable`) and identify's `eq_complexity_filter` read
 it.
 """
-_eq_complexity(m::Mechanism) = _eq_complexity(m, trues(length(m.edges)))
-function _eq_complexity(am::AllostericMechanism)
-    m, imask = catalytic(am), _inactive_mask(am)
-    a = _eq_complexity(m, _active_mask(am))
+_eq_complexity(m::Mechanisms.Mechanism) = _eq_complexity(m, trues(length(m.edges)))
+function _eq_complexity(am::Mechanisms.AllostericMechanism)
+    m, imask = Mechanisms.catalytic(am), Mechanisms._inactive_mask(am)
+    a = _eq_complexity(m, Mechanisms._active_mask(am))
     i = any(imask) ? _eq_complexity(m, imask) : 0
     a > typemax(Int) - i ? typemax(Int) : a + i
 end

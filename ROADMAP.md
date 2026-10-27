@@ -33,7 +33,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   tests' count after a full collection stays near 1.8 GiB whether their peak RSS is 2.2 or
   3.5 GB. The higher peak came from mechanisms that kept vectors at the capacity their
   builds grew to; `_canonicalize` stores each at its length, and
-  `test/test_reaction_graph.jl` pins it. A loop that calls it and prints
+  `test/Mechanisms/test_reaction_graph.jl` pins it. A loop that calls it and prints
   `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it.
 
 - **A rapid-equilibrium isomerization of a covalent intermediate can be unidentifiable.**
@@ -138,8 +138,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   syntax returns with this feature. `_expand_to_allosteric` and
   `_expand_add_allosteric_regulator` give every regulatory site the catalytic
   multiplicity. The derivation already powers each site by its own multiplicity, so only
-  the DSL (`_parse_regulator_entries`, `src/dsl.jl`; `DeclaredRegulator`,
-  `src/types.jl`) and enumeration change: those two moves, and
+  the DSL (`_parse_regulator_entries`, `src/Mechanisms/dsl.jl`; `DeclaredRegulator`,
+  `src/Mechanisms/types.jl`) and enumeration change: those two moves, and
   `_expand_merge_regulatory_sites`, which must merge only sites of equal multiplicity.
   Keep a bare `A` at the catalytic multiplicity, widen only on an explicit list, and
   reject `I(m)` for a competitive inhibitor. Priority: medium-low.
