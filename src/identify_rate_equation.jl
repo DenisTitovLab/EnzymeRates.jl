@@ -836,6 +836,11 @@ function _expand_parents(to_expand::Vector{BatchEntry},
 end
 
 """
+The `FitFailure`s of `Enumeration.base_mechanisms`' `(mechanism, message)` failure pairs.
+"""
+_fit_failures(failures) = [FitFailure(m, msg) for (m, msg) in failures]
+
+"""
     _required_regulators(rxn, optional_allosteric_regulators,
                          optional_competitive_inhibitors)
         -> (required_allo::Set{Symbol}, required_comp::Set{Symbol})
@@ -926,7 +931,7 @@ function _beam_search(
         optional_competitive_inhibitors)
     base, base_failures = Enumeration.base_mechanisms(
         prob.reaction, required_allo, required_comp)
-    base_expand_failures = [FitFailure(m, msg) for (m, msg) in base_failures]
+    base_expand_failures = _fit_failures(base_failures)
     # A degenerate seed's expansion error is recorded like a fit failure (a row of
     # initial_mechanisms.csv and the errored bucket).
     base_batch = run_batch!(base, base_expand_failures,

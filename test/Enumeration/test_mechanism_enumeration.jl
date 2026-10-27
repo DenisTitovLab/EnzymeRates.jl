@@ -15080,7 +15080,8 @@ end
     seeds = unique!(collect(EnzymeRates.Enumeration.init_mechanisms(rxn)))
     degenerate = filter(EnzymeRates.Enumeration._degenerate, seeds)
     @test length(degenerate) == 7                  # the seven ping-pong seeds
-    base, failures = EnzymeRates.Enumeration.base_mechanisms(rxn, Set{Symbol}(), Set{Symbol}())
+    base, failures = EnzymeRates.Enumeration.base_mechanisms(
+        rxn, Set{Symbol}(), Set{Symbol}())
     @test isempty(failures)
     @test !any(EnzymeRates.Enumeration._degenerate, base)
     cures =
@@ -15385,8 +15386,9 @@ end
 end
 
 @testset "base_mechanisms starts from the seeds that bind every required regulator" begin
-    # A required competitive inhibitor makes the beam start from `seed_mechanisms`; the
-    # unregulated `init_mechanisms` seed is not among them.
+    # Aggregate regression pin over a whole seed set. A required competitive inhibitor
+    # makes the beam start from `seed_mechanisms`; the unregulated `init_mechanisms` seed
+    # is not among them.
     ER = EnzymeRates
     rxn = @enzyme_reaction begin
         substrates: S[C]

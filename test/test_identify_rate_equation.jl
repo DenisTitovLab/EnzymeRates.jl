@@ -2631,6 +2631,33 @@ end
     end
 end
 
+@testset "_fit_failures wraps each base-tier failure as a FitFailure" begin
+    # The chemistry step E(S) ⇌ E(P) makes P's N from nothing, so the base tier records
+    # the seed's atom-conservation error as a (mechanism, message) pair.
+    rxn_bad = @enzyme_reaction begin
+        substrates: S[C], T[N]
+        products:   P[CN]
+    end
+    m_bad = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S, T
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) ⇌ E(P)
+            E + P <--> E(P)
+            E + T ⇌ E(T)
+        end
+    end)
+    _, base_failures = EnzymeRates.Enumeration._base_tier([m_bad], rxn_bad)
+    @test length(base_failures) == 1
+    failures = EnzymeRates._fit_failures(base_failures)
+    @test failures isa Vector{EnzymeRates.FitFailure}
+    @test length(failures) == 1
+    @test failures[1].mech == m_bad
+    @test failures[1].error == base_failures[1][2]
+    @test occursin("atom-non-conserving step ES → EP", failures[1].error)
+end
+
 @testset "_degenerate reads the active conformation's law" begin
     # An activator X that binds only the inactive conformation opens a route whose
     # chemistry only the inactive law holds. The active law, three steady-state steps,

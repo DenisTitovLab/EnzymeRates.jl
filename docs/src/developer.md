@@ -171,8 +171,8 @@ structure decides nothing) and admission's face condition (`_admission_face`: th
 ε-network's closed classes, stranded basins, and the fewest-slow-transitions in-tree test
 per excluding conformation and for both together). The macros, the parser
 and the derivation entry throw; `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`
-and identify's `_base_tier` drop; the flip move runs classes 2 and 3 on each candidate's
-flags; the tagging and change-tag moves filter by admission alone (`_admits`) and leave
+and `Enumeration.base_mechanisms` drop; the flip move runs classes 2 and 3 on each
+candidate's flags; the tagging and change-tag moves filter by admission alone (`_admits`) and leave
 class 3 to the exit.
 
 ## Enumeration engine architecture
@@ -334,8 +334,8 @@ weighted union-find, so the other two run only on a candidate that passes them. 
 merged variant whose every merged complex has two steady-state steps, each alone
 in its group, has the family of the unmerged chain with rapid-equilibrium flanks
 at the same count and is skipped. `_degenerate`, the failure of V or C on the
-active-state graph, marks the starting mechanisms that `_base_tier`
-(`src/identify_rate_equation.jl`) replaces by their flip children that are not
+active-state graph, marks the starting mechanisms that `base_mechanisms`
+(`src/Enumeration/seeds.jl`) replaces by their flip children that are not
 degenerate.
 
 Conformational mechanism types declare `_requires_hyperbolic_catalysis` (true for
