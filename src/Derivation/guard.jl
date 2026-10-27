@@ -28,47 +28,6 @@ function _check_verdict(m::Mechanisms._AnyMech, v)
     nothing
 end
 
-"""
-    _bottomless_segment(m, mask, re) -> Vector{Int}
-
-The forms, breadth-first (`_segments`), of the first rapid-equilibrium segment of the
-edges `mask` keeps, joined by those `re` flags, whose weights all vanish at zero
-products, or all vanish at zero substrates; empty when no segment does. Each metabolite
-name takes its side from `m`'s substrates and products, so a modifier copy, which shares
-its reactant's name and concentration, counts on that reactant's side even in a
-sub-graph that holds no edge taking up or giving off the reactant itself.
-
-Within a segment, rapid equilibrium fixes each form's weight relative to any
-other as a monomial in concentrations (one factor per RE binding step on the
-path between them). Once the weights are scaled to clear every negative
-exponent, a segment normally has a bottom form whose weight is free of one
-side's metabolites — the form the others drain to when that side is absent. A
-segment with no such form (e.g. `{E(P), E(Q), E(P, Q)}` with `E + P` and
-`E + Q` at steady state: weights `Kq·P : Kp·Q : P·Q`) is empty at zero
-products, and the rate there depends on how `E(P, Q)` splits between `E(P)`
-and `E(Q)` — a ratio of two fast release rates the RE approximation does not
-carry. The rate equation is `0/0` exactly where initial-rate data sit. A
-segment whose weights vanish only at a corner mixing a substrate and a product
-(a mixed abortive complex, or the ping-pong `E` / `E(; residual)` pair) is
-harmless: no turnover is possible at that corner.
-"""
-function _bottomless_segment(m::Mechanisms.Mechanism, mask::BitVector, re::BitVector)
-    s = Mechanisms._segments(m, mask, re)
-    name_of = Mechanisms._name_index(m)
-    # Whether each metabolite name (`_name_index`) is a product, and whether a substrate.
-    products, substrates = falses(size(s.offsets, 1)), falses(size(s.offsets, 1))
-    for (i, x) in enumerate(m.table)
-        products[name_of[i]] = insorted(x.name, m.products)
-        substrates[name_of[i]] = insorted(x.name, m.substrates)
-    end
-    for segment in s.segments, on_side in (products, substrates)
-        length(segment) >= 2 &&
-            all(f -> any(n -> on_side[n] && s.offsets[n, f] > 0, eachindex(on_side)),
-                segment) && return segment
-    end
-    Int[]
-end
-
 """`m`, once its guard verdict, taken afresh rather than through the memo (`_Memo`),
 holds no fault (`_check_verdict`)."""
 _well_posed(m) = (_check_verdict(m, _guard(m)); m)
@@ -375,42 +334,20 @@ end
     _fast_segments(net) -> (; segment, segments, offset, cycle)
 
 The rapid-equilibrium segments of `net`, walked breadth-first along its fast transitions
-from each present node no earlier walk reached: `segment[u]`, node `u`'s (0 for a node
-`net` does not hold); `segments`, each one's nodes in walk order; `offset[n, u]`, the
-copies of name `n` (`_name_index`) the walk takes up from the segment's first node to `u`;
-and `cycle`, the transitions of the first fast cycle that takes up some name net, which
-the first transition whose offsets disagree closes with its tree path, in cycle order.
+(`_segment_walk`) from each present node no earlier walk reached: `segment[u]`, node
+`u`'s (0 for a node `net` does not hold); `segments`, each one's nodes in walk order;
+`offset[n, u]`, the copies of name `n` (`_name_index`) the walk takes up from the
+segment's first node to `u`; and `cycle`, the transitions of the first fast cycle that
+takes up some name net, which the first transition whose offsets disagree closes with its
+tree path, in cycle order.
 When `cycle` is empty, each offset is a potential: it does not depend on the walk.
 """
 function _fast_segments(net::_Network)
-    nn = net.nforms * net.ncopies
-    out = _out_transitions(net, net.fast)
-    segment, segments, parent = zeros(Int, nn), Vector{Int}[], zeros(Int, nn)
-    offset, cycle = zeros(Int, size(net.change, 1), nn), Int[]
-    agrees(u, v, t) = all(n -> offset[n, v] == offset[n, u] + net.change[n, t],
-                          axes(offset, 1))
-    for root in 1:nn
-        net.present[root] && segment[root] == 0 || continue
-        members = [root]
-        push!(segments, members)
-        segment[root] = length(segments)
-        head = 0
-        while head < length(members)
-            head += 1
-            u = members[head]
-            for t in out[u]
-                v = net.to[t]
-                if segment[v] == 0
-                    segment[v], parent[v] = length(segments), t
-                    push!(members, v)
-                    offset[:, v] .= view(offset, :, u) .+ view(net.change, :, t)
-                elseif isempty(cycle) && !agrees(u, v, t)
-                    cycle = _tree_cycle(net, parent, u, v, t)
-                end
-            end
-        end
-    end
-    (; segment, segments, offset, cycle)
+    w = Mechanisms._segment_walk(net.present, _out_transitions(net, net.fast), net.to,
+                                 net.change)
+    t = w.disagreeing
+    cycle = t == 0 ? Int[] : _tree_cycle(net, w.parent, net.from[t], net.to[t], t)
+    (; segment = w.segment_of, w.segments, offset = w.offsets, cycle)
 end
 
 """The transitions of the first cycle of fast transitions of `net` that takes up some

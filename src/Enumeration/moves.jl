@@ -150,7 +150,7 @@ carries net steady-state flux for generic parameter values. Rapid-equilibrium ed
 equilibrium mass and are flagged `false`; the rule that uses these flags concerns
 steady-state groups only.
 
-Contract each rapid-equilibrium segment to one vertex (`_segments`) and make every
+Contract each rapid-equilibrium segment to one vertex (`re_segments`) and make every
 steady-state edge an edge between its two forms' segments, weighted by the substrates it
 takes up minus the products, plus its `from` form's offsets minus its `to` form's (a
 modifier copy counts as its reactant). Around any cycle the offsets telescope and the
@@ -166,7 +166,7 @@ emits is. The test reads each edge's metabolite lists, so it holds for fused and
 Theorell–Chance steps as well.
 """
 function _flux_carrying_edges(m::Mechanisms.Mechanism, re::BitVector)
-    s = Mechanisms._segments(m, trues(length(m.edges)), re)
+    s = Mechanisms.re_segments(m, trues(length(m.edges)), re)
     name_of = Mechanisms._name_index(m)
     # The net uptake sign of each table entry and of each metabolite name.
     sign = _entry_signs(m)
@@ -275,10 +275,10 @@ function _unbalanced_blocks(nv::Int, edges::Vector{Tuple{Int, Int}}, weights::Ve
 end
 
 """Number of rapid-equilibrium segments of graph `m`, edge `k` at rapid equilibrium where
-`re[k]` holds (`_segments`). The flip move measures each candidate on its flags, so it
+`re[k]` holds (`re_segments`). The flip move measures each candidate on its flags, so it
 builds only the candidates that raise the count."""
 _re_segment_count(m::Mechanisms.Mechanism, re::BitVector) =
-    length(Mechanisms._segments(m, trues(length(m.edges)), re).segments)
+    length(Mechanisms.re_segments(m, trues(length(m.edges)), re).segments)
 
 """
     _minimal_gaining_sets(gains, partners) -> Vector{Vector{Int}}
@@ -384,7 +384,7 @@ function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
     every = trues(length(cm.edges))
     # RE segment ids touched by each kinetic group's edges; empty for a steady-state
     # group, which lies on no RE cycle and so never partners a set that does not gain.
-    segment_of = Mechanisms._segments(cm, every, flags).segment_of
+    segment_of = Mechanisms.re_segments(cm, every, flags).segment_of
     segments = [flags[first(ks)] ? Set{Int}(segment_of[cm.edges[k].from] for k in ks) :
                 Set{Int}() for ks in members]
     partners(sel) = begin

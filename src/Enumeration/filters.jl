@@ -46,7 +46,7 @@ function _chemistry_equilibrates_both_sides(m::Mechanisms.Mechanism, re::BitVect
     # The forms joined by RE isomerizations, one node per segment; a merged complex
     # outside every RE isomerization is a node of its own.
     isos = BitVector([re[k] && Mechanisms._is_iso(e) for (k, e) in enumerate(m.edges)])
-    s = Mechanisms._segments(m, isos, isos)
+    s = Mechanisms.re_segments(m, isos, isos)
     nodes = [s.segments; [[x] for x in _merged_complexes(m, subs, on)
                           if s.segment_of[x] == 0]]
     any(node -> releases(node, subs) && releases(node, prods), nodes) ||
@@ -92,7 +92,7 @@ product at its catalytic site counts, abortive complexes included. Edges touchin
 a form that holds a modifier are left out (a mask of the catalytic-site edges): a
 modifier binds a site of its own by definition, so the powers its binding adds,
 including those of a reactant's modifier copy, are a separate source that
-conformational mechanisms keep. Only the edges `on` flags count, and `_segments` leaves
+conformational mechanisms keep. Only the edges `on` flags count, and `re_segments` leaves
 out the forms they do not keep, so an allosteric mechanism's test can read each
 conformation's law.
 
@@ -102,7 +102,7 @@ the root segment's weight times the weight of every tree edge, so the exponent
 of `X` in a term is the most `X` any form of the root segment carries beyond
 the segment's bottom form, plus, per tree edge, one if the step binds `X` in
 the tree direction and the count of `X` the edge's source form carries beyond
-its bottom (`_segments`). The degree exceeds 1 exactly when one
+its bottom (`re_segments`). The degree exceeds 1 exactly when one
 segment or one edge scores 2 or more, or the root scores 1 and some
 arborescence toward it holds a scoring edge, or some arborescence holds two
 scoring edges. An arborescence toward `S` containing given edges exists iff
@@ -114,15 +114,14 @@ function _hyperbolic_catalysis(m::Mechanisms.Mechanism,
     modifiers = Mechanisms._modifier_mask(m)
     on_site = on .& BitVector([(m.forms[e.from].bound | m.forms[e.to].bound) &
                                modifiers == 0 for e in m.edges])
-    s = Mechanisms._segments(m, on_site, Mechanisms._flags(m))
+    s = Mechanisms.segment_graph(m, on_site)
     name_of = Mechanisms._name_index(m)
     # Directed segment-graph edges: source segment, target segment, source form, the
     # names (`_name_index`) bound in that direction.
     edges = Tuple{Int, Int, Int, Vector{Int}}[]
-    for (k, e) in enumerate(m.edges)
-        on_site[k] && !e.rapid_equilibrium || continue
+    for k in s.steps
+        e = m.edges[k]
         a, b = s.segment_of[e.from], s.segment_of[e.to]
-        a == b && continue
         push!(edges, (a, b, e.from, [name_of[i] for i in Mechanisms.entries(e.consumed)]))
         push!(edges, (b, a, e.to, [name_of[i] for i in Mechanisms.entries(e.released)]))
     end
@@ -210,7 +209,7 @@ _one_state_class(h::Int, t::Int) = _GaugeClass(h, t, 1)
 The productive form of the sub-graph of `m` whose edges `mask` keeps, a form that holds
 no modifier, whose weight is proportional to that of the complex a modifier named
 `ligand` forms at form `site` by a rapid-equilibrium step, or 0 when none is: a form of
-the site's rapid-equilibrium segment with the complex's offsets (`_segments`; the
+the site's rapid-equilibrium segment with the complex's offsets (`re_segments`; the
 modifier counts as its name, so a reactant's copy as the reactant), the one of the
 complex's composition when several are, else the first in form order. Within a segment
 rapid equilibrium fixes each weight relative to another as a constant times the
@@ -229,7 +228,7 @@ makes a twin. The forms are `m`'s own, so the twins of a mechanism the dead-end 
 builds are found on that mechanism (`_dead_end_child`).
 """
 function _productive_twin(m::Mechanisms.Mechanism, mask::BitVector)
-    s = Mechanisms._segments(m, mask, Mechanisms._flags(m))
+    s = Mechanisms.re_segments(m, mask, Mechanisms._flags(m))
     name_of = Mechanisms._name_index(m)
     modifiers = Mechanisms._modifier_mask(m)
     # A form's bound names, sorted, its conformation and its residual.

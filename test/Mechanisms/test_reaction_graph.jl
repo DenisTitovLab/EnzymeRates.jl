@@ -898,27 +898,34 @@ end
     @test ER.Mechanisms._present_forms(m, every) == trues(5)
     # Each segment breadth-first from its first form; offsets per metabolite name (rows
     # P, Q, S) above the segment's lowest.
-    s = ER.Mechanisms._segments(m, every, ER.Mechanisms._flags(m))
+    s = ER.Mechanisms.re_segments(m, every, ER.Mechanisms._flags(m))
     @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ", "EQ"]]
     @test s.segment_of == [1, 2, 2, 2, 1]
     @test s.offsets == [0 1 1 0 0; 0 0 1 1 0; 0 0 0 0 1]
-    @test names(ER.Derivation._bottomless_segment(m, every, ER.Mechanisms._flags(m))) ==
-          ["EP", "EPQ", "EQ"]
+    # Every form of the second segment holds a product, so it has no bottom form.
+    @test names(s.bottom) == ["EP", "EPQ", "EQ"]
+    # The steady-state steps that join two segments, which are all of them here.
+    g = ER.Mechanisms.segment_graph(m, every)
+    @test g.steps == [1, 2, 6]
+    @test (g.segment_of, g.segments, g.offsets, g.bottom) ==
+          (s.segment_of, s.segments, s.offsets, s.bottom)
     # Without the release of P from E(P, Q), E(Q) stands alone and E(P) is the bottom of
     # {E(P), E(P, Q)}.
     no_p = BitVector([1, 1, 1, 1, 0, 1])
     @test ER.Mechanisms._present_forms(m, no_p) == trues(5)
-    s = ER.Mechanisms._segments(m, no_p, ER.Mechanisms._flags(m))
+    s = ER.Mechanisms.re_segments(m, no_p, ER.Mechanisms._flags(m))
     @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ"], ["EQ"]]
-    @test isempty(ER.Derivation._bottomless_segment(m, no_p, ER.Mechanisms._flags(m)))
+    @test isempty(s.bottom)
+    @test ER.Mechanisms.segment_graph(m, no_p).steps == [1, 2, 6]
     # A mask keeps only the forms its edges touch; a form it leaves is in no segment.
     bindings = BitVector([1, 1, 0, 0, 0, 0])
     @test ER.Mechanisms._present_forms(m, bindings) == BitVector([1, 1, 0, 1, 0])
-    s = ER.Mechanisms._segments(m, bindings, ER.Mechanisms._flags(m))
+    s = ER.Mechanisms.re_segments(m, bindings, ER.Mechanisms._flags(m))
     @test [names(seg) for seg in s.segments] == [["E"], ["EP"], ["EQ"]]
     @test s.segment_of == [1, 2, 0, 3, 0]
+    @test ER.Mechanisms.segment_graph(m, bindings).steps == [1, 2]
     # `re` picks the edges that join segments: with none, each present form stands alone.
-    @test length(ER.Mechanisms._segments(m, every, falses(6)).segments) == 5
+    @test length(ER.Mechanisms.re_segments(m, every, falses(6)).segments) == 5
 
     # The inactive conformation keeps the edges outside :OnlyA groups between forms that
     # such edges reach from free E: here E(A) and E(A, I) lie behind the :OnlyA
@@ -1186,7 +1193,7 @@ function _testhelper_subgraphs_agree(x)
     # Step `j` of the reader is edge `flat[j]`.
     flat = ER.Mechanisms._flat_edges(m)
     function _testhelper_segments_agree(mask, kept)
-        s = ER.Mechanisms._segments(m, mask, ER.Mechanisms._flags(m))
+        s = ER.Mechanisms.re_segments(m, mask, ER.Mechanisms._flags(m))
         segments, extras = _testhelper_re_segments(g, kept)
         present = findall(!=(0), s.segment_of)
         names = unique!([e.name for e in m.table])

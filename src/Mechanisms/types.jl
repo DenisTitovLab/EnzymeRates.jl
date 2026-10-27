@@ -1577,67 +1577,138 @@ function _name_index(m::Mechanism)
 end
 
 """
-    _segments(m, mask, re) -> (; segment_of, segments, offsets)
+    _segment_walk(present, out, to, change) -> (; segment_of, segments, offsets, parent,
+                                                 disagreeing)
 
-The rapid-equilibrium segments of the edges `mask` keeps, joined by the kept edges that
-`re` flags. `segments[s]` lists segment `s`'s forms breadth-first from its first form,
-each form's edges in the order `_flat_edges` reads them, and the segments are numbered by
-their first forms; `segment_of[f]` is form `f`'s segment, 0 for a form no kept edge
-touches (`_present_forms`). `offsets[n, f]` is how many more of metabolite name `n`
-(`_name_index`) form `f` carries than the form of its segment that carries fewest of it.
-Within a segment, rapid equilibrium fixes each form's weight relative to any other as a
-monomial in concentrations, one factor per metabolite taken up or given off along the
-path between them; chemistry passes the counts through unchanged.
+The segments of a graph of nodes and transitions, walked breadth-first along the
+transitions from each `present` node no earlier walk reached, in node order: `out[u]`
+lists the transitions that leave node `u`, in the order the walk takes them; transition
+`t` runs to node `to[t]` and takes up `change[n, t]` copies of metabolite name `n` net.
+`segment_of[u]` is node `u`'s segment (0 for a node not present), `segments` each one's
+nodes in walk order, `offsets[n, u]` the copies of name `n` the walk takes up from the
+segment's first node to `u`, `parent[u]` the transition that reached `u` (0 at a first
+node), and `disagreeing` the first transition whose offsets disagree, 0 when none does.
+Such a transition closes, with its tree path, a cycle that takes up some name net; when
+there is none, each offset is a potential and does not depend on the walk.
 """
-function _segments(m::Mechanism, mask::BitVector, re::BitVector)
-    nf = length(m.forms)
-    name_of = _name_index(m)
-    offsets = zeros(Int, maximum(name_of; init = 0), nf)
-    # Each kept rapid-equilibrium edge at both of its forms: the form at its other end,
-    # the edge, and +1 at its source, -1 at its target.
-    adjacent = [Tuple{Int, Int, Int}[] for _ in 1:nf]
-    for k in _flat_edges(m)
-        mask[k] && re[k] || continue
-        e = m.edges[k]
-        push!(adjacent[e.from], (e.to, k, 1))
-        push!(adjacent[e.to], (e.from, k, -1))
-    end
-    present = _present_forms(m, mask)
-    segment_of = zeros(Int, nf)
-    segments = Vector{Int}[]
-    for root in 1:nf
+function _segment_walk(present::BitVector, out::Vector{Vector{Int}}, to::Vector{Int},
+                       change::Matrix{Int})
+    nn = length(present)
+    segment_of, segments, parent = zeros(Int, nn), Vector{Int}[], zeros(Int, nn)
+    offsets, disagreeing = zeros(Int, size(change, 1), nn), 0
+    for root in 1:nn
         present[root] && segment_of[root] == 0 || continue
-        segment = [root]
-        push!(segments, segment)
+        members = [root]
+        push!(segments, members)
         segment_of[root] = length(segments)
         head = 0
-        while head < length(segment)
+        while head < length(members)
             head += 1
-            u = segment[head]
-            for (v, k, sign) in adjacent[u]
-                segment_of[v] == 0 || continue
-                segment_of[v] = length(segments)
-                push!(segment, v)
-                e = m.edges[k]
-                for n in axes(offsets, 1)
-                    offsets[n, v] = offsets[n, u]
+            u = members[head]
+            for t in out[u]
+                v = to[t]
+                if segment_of[v] == 0
+                    segment_of[v], parent[v] = length(segments), t
+                    push!(members, v)
+                    for n in axes(offsets, 1)
+                        offsets[n, v] = offsets[n, u] + change[n, t]
+                    end
+                elseif disagreeing == 0 &&
+                       any(n -> offsets[n, v] != offsets[n, u] + change[n, t],
+                           axes(offsets, 1))
+                    disagreeing = t
                 end
-                for i in entries(e.consumed)
-                    offsets[name_of[i], v] += sign
-                end
-                for i in entries(e.released)
-                    offsets[name_of[i], v] -= sign
-                end
-            end
-        end
-        for n in axes(offsets, 1)
-            low = minimum(f -> offsets[n, f], segment)
-            for f in segment
-                offsets[n, f] -= low
             end
         end
     end
-    (; segment_of, segments, offsets)
+    (; segment_of, segments, offsets, parent, disagreeing)
+end
+
+"""
+    re_segments(m, on, re) -> (; segment_of, segments, offsets, bottom)
+
+The rapid-equilibrium segments of the steps of `m` that `on` keeps, joined by the kept
+steps that `re` flags (`_segment_walk`). `segments[s]` lists segment `s`'s forms
+breadth-first from its first form, each form's steps in the order `_flat_edges` reads
+them, and the segments are numbered by their first forms; `segment_of[f]` is form `f`'s
+segment, 0 for a form no kept step touches (`_present_forms`). `offsets[n, f]` is how many
+more of metabolite name `n` (`_name_index`) form `f` carries than the form of its segment
+that carries fewest of it. Within a segment, rapid equilibrium fixes each form's weight
+relative to any other as a monomial in concentrations, one factor per metabolite taken up
+or given off along the path between them; chemistry passes the counts through unchanged.
+
+`bottom` lists the forms of the first segment whose weights all vanish at zero products,
+or all vanish at zero substrates; it is empty when no segment does. Each metabolite name
+takes its side from `m`'s substrates and products, so a modifier copy, which shares its
+reactant's name and concentration, counts on that reactant's side even in a sub-graph
+that holds no step taking up or giving off the reactant itself. Once the weights are
+scaled to clear every negative exponent, a segment normally has a bottom form whose
+weight is free of one side's metabolites — the form the others drain to when that side is
+absent. A segment with no such form (e.g. `{E(P), E(Q), E(P, Q)}` with `E + P` and
+`E + Q` at steady state: weights `Kq·P : Kp·Q : P·Q`) is empty at zero products, and the
+rate there depends on how `E(P, Q)` splits between `E(P)` and `E(Q)` — a ratio of two
+fast release rates the RE approximation does not carry. The rate equation is `0/0`
+exactly where initial-rate data sit. A segment whose weights vanish only at a corner
+mixing a substrate and a product (a mixed abortive complex, or the ping-pong `E` /
+`E(; residual)` pair) is harmless: no turnover is possible at that corner.
+"""
+function re_segments(m::Mechanism, on::BitVector, re::BitVector)
+    nf = length(m.forms)
+    name_of = _name_index(m)
+    nn = maximum(name_of; init = 0)
+    # Each kept rapid-equilibrium step as two transitions, 2j - 1 in its stored direction
+    # and 2j in reverse, each listed at the form it leaves.
+    kept = [k for k in _flat_edges(m) if on[k] && re[k]]
+    out, to = [Int[] for _ in 1:nf], zeros(Int, 2 * length(kept))
+    change = zeros(Int, nn, 2 * length(kept))
+    for (j, k) in enumerate(kept)
+        e = m.edges[k]
+        t = 2j - 1
+        to[t], to[t + 1] = e.to, e.from
+        push!(out[e.from], t)
+        push!(out[e.to], t + 1)
+        for i in entries(e.consumed)
+            change[name_of[i], t] += 1
+        end
+        for i in entries(e.released)
+            change[name_of[i], t] -= 1
+        end
+        for n in 1:nn
+            change[n, t + 1] = -change[n, t]
+        end
+    end
+    present = _present_forms(m, on)
+    (; segment_of, segments, offsets) = _segment_walk(present, out, to, change)
+    for segment in segments, n in axes(offsets, 1)
+        low = minimum(f -> offsets[n, f], segment)
+        for f in segment
+            offsets[n, f] -= low
+        end
+    end
+    # Whether each metabolite name is a product, and whether a substrate.
+    products, substrates = falses(nn), falses(nn)
+    for (i, x) in enumerate(m.table)
+        products[name_of[i]] = insorted(x.name, m.products)
+        substrates[name_of[i]] = insorted(x.name, m.substrates)
+    end
+    bottomless(segment, side) = length(segment) >= 2 &&
+        all(f -> any(n -> side[n] && offsets[n, f] > 0, 1:nn), segment)
+    i = findfirst(seg -> bottomless(seg, products) || bottomless(seg, substrates), segments)
+    (; segment_of, segments, offsets, bottom = i === nothing ? Int[] : segments[i])
+end
+
+"""
+    segment_graph(m, on) -> (; segment_of, segments, offsets, bottom, steps)
+
+The steady-state graph between the rapid-equilibrium segments of the steps of `m` that
+`on` keeps, each step at its own flag: the segments (`re_segments`) and `steps`, the kept
+steady-state steps that join two segments, in step order.
+"""
+function segment_graph(m::Mechanism, on::BitVector)
+    s = re_segments(m, on, _flags(m))
+    steps = [k for (k, e) in enumerate(m.edges)
+             if on[k] && !e.rapid_equilibrium && s.segment_of[e.from] != s.segment_of[e.to]]
+    merge(s, (; steps))
 end
 
 """Whether the steps `k` with `on[k]` close a cycle of nonzero weight, step `k` joining

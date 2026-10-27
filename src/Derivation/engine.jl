@@ -81,9 +81,9 @@ The steady-state law of the edges of `m` that `mask` keeps (at least one), with 
 variable per bare constant: the concentrations `concentrations`, then variable
 `length(concentrations) + j` for slot `cols[j][2]` of edge `cols[j][1]`, in edge order.
 `num/den` is the net consumption of `substrates(m)[1]` per enzyme. Each rapid-equilibrium
-segment (`_segments`) is a node, rooted at its first form, so free E (form 1) roots its
+segment (`re_segments`) is a node, rooted at its first form, so free E (form 1) roots its
 own; a form weighs its root's weight, 1, times the equilibrium ratio of each edge on its
-path from the root. The forms join the tree in `_segments`' order, each by the first kept
+path from the root. The forms join the tree in `re_segments`' order, each by the first kept
 rapid-equilibrium edge in edge (content) order from a form placed before it.
 `den = Σ_g sigma[g]·trees[g]`: `sigma[g]` sums segment `g`'s weights and `trees[g]` its
 spanning trees of the segment graph oriented toward it, each tree edge weighing the
@@ -112,7 +112,7 @@ function _bare_law(m::Mechanisms.Mechanism, mask::BitVector, concentrations::Vec
     # (K a dissociation constant), K·Π[consumed]/Π[released] for any other edge.
     ratio(k) = _mmul(_mpow(bare(k, 1), Mechanisms._is_binding(m.edges[k]) ? -1 : 1),
                      _mmul(conc(m.edges[k].consumed), _mpow(conc(m.edges[k].released), -1)))
-    s = Mechanisms._segments(m, mask, Mechanisms._flags(m))
+    s = Mechanisms.re_segments(m, mask, Mechanisms._flags(m))
     re = [k for k in eachindex(m.edges) if mask[k] && m.edges[k].rapid_equilibrium]
     alpha = fill(_Mono(), length(m.forms))
     placed = falses(length(m.forms))
@@ -381,24 +381,23 @@ end
 
 """
 Estimate the term count of the law of the edges of `m` that `mask` keeps, V×τ, from its
-segment graph, without deriving the law: `V` is the number of rapid-equilibrium segments
-(`_segments`), `τ` the spanning trees of the segment graph whose edges are the kept
-steady-state edges between segments, parallel ones counted apart (`_tree_count`). V×τ is
-the number of spanning-tree products in the law's denominator before kinetic grouping, so
-it bounds fit cost. It guards the derivation (`_assert_derivable` aborts when V×τ exceeds
-`MAX_RATE_EQUATION_TERMS`, before any polynomial is built) and backs the
+segment graph (`segment_graph`), without deriving the law: `V` is the number of
+rapid-equilibrium segments, `τ` the spanning trees of the segment graph whose edges are
+the kept steady-state edges between segments, parallel ones counted apart (`_tree_count`).
+V×τ is the number of spanning-tree products in the law's denominator before kinetic
+grouping, so it bounds fit cost. It guards the derivation (`_assert_derivable` aborts
+when V×τ exceeds `MAX_RATE_EQUATION_TERMS`, before any polynomial is built) and backs the
 `eq_complexity_filter` keyword of [`identify_rate_equation`](@ref). Saturates at
 `typemax(Int)`.
 """
 function rate_equation_complexity(m::Mechanisms.Mechanism, mask::BitVector)
-    s = Mechanisms._segments(m, mask, Mechanisms._flags(m))
+    s = Mechanisms.segment_graph(m, mask)
     G = length(s.segments)
     G <= 1 && return G
     lap = zeros(Int, G, G)
-    for (k, e) in enumerate(m.edges)
-        mask[k] && !e.rapid_equilibrium || continue
+    for k in s.steps
+        e = m.edges[k]
         g1, g2 = s.segment_of[e.from], s.segment_of[e.to]
-        g1 == g2 && continue
         lap[g1, g1] += 1; lap[g2, g2] += 1; lap[g1, g2] -= 1; lap[g2, g1] -= 1
     end
     τ = _tree_count(lap)

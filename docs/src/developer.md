@@ -349,8 +349,8 @@ the rapid-equilibrium segment graph of the catalytic scheme, leaving out every
 edge that touches a form holding a modifier, a reactant's modifier copy included: for
 each substrate and product, a directed steady-state edge scores one if it binds the
 metabolite in that direction plus the count the edge's source form carries beyond its
-segment's bottom form (the offsets of `_segments`, which `_bottomless_segment` also
-reads), and a segment scores the most any of its forms
+segment's bottom form (the offsets of `re_segments`, whose `bottom` also reads them),
+and a segment scores the most any of its forms
 carries. The equation's degree in the
 metabolite is the best score over root segments and spanning arborescences toward
 the root; the predicate decides "at most 1" with reachability checks

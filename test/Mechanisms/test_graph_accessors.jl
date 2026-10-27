@@ -420,3 +420,31 @@ end
     # A mask with fewer flags than steps is out of bounds.
     @test_throws BoundsError M.has_turnover_cycle(aq, trues(2))
 end
+
+@testset "segment_graph: a steady-state step inside a segment" begin
+    M = ER.Mechanisms
+    # Random-order bi-bi whose binding of B to free E alone is steady state: the other
+    # three bindings put E, E(A), E(B) and E(A, B) in one rapid-equilibrium segment. The
+    # guard rejects it (E(B) fills at zero A and B); the view reads any graph.
+    m = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(B) + A ⇌ E(A, B)
+            E + B <--> E(B)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P, Q) <--> E(Q) + P
+            E(Q) <--> E + Q
+        end
+    end
+    every = trues(length(M.steps(m)))
+    text(k) = _testhelper_edge_text(m, k)
+    g = M.segment_graph(m, every)
+    # Canonical form numbers the forms E, E(A), E(A, B), E(B), E(P, Q), E(Q).
+    @test g.segments == [[1, 2, 3, 4], [5], [6]]
+    # E + B <--> E(B) joins two forms of the first segment, so it is no step of the graph.
+    @test text.(g.steps) == ["E + Q <--> EQ", "EAB <--> EPQ", "EQ + P <--> EPQ"]
+    @test g.bottom == Int[]
+end

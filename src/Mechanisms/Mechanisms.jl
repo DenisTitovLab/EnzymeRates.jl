@@ -17,14 +17,16 @@ const API = (:AbstractEnzymeMechanism, :AllostericEnzymeMechanism, :AllostericMe
     :_is_plain_binding, :_is_reactant, :_kept_members, :_kreg_params, :_metabolite_names,
     :_modifier_mask, :_name_index, :_names_mask, :_number_groups, :_ordered_columns,
     :_parse_reaction_block, :_raw, :_raw_form, :_raw_mechanism, :_raw_sites,
-    :_reaction_expr, :_reg_K, :_role_masks, :_segments, :_side_score, :_sides, :_solve_tags,
-    :_step_text, :_turnover_name, :_with, :allo_states, :allowed_catalytic_multiplicities,
-    :atoms, :bound, :cat_allo_states, :catalytic, :catalytic_multiplicity,
-    :compile_mechanism, :conformation, :conformation_steps, :copies, :ends, :entries,
-    :given_off, :group, :has_turnover_cycle, :is_rapid_equilibrium, :ligands, :mechanism_id,
-    :members, :metabolite, :metabolite_names, :metabolites, :multiplicity, :name, :ngroups,
-    :products, :reactants, :reg_type, :regulator, :regulators, :regulatory_sites,
-    :shared_catalytic_site, :species, :step_kind, :steps, :substrates, :tag, :taken_up)
+    :_reaction_expr, :_reg_K, :_role_masks, :_segment_walk, :_side_score, :_sides,
+    :_solve_tags, :_step_text, :_turnover_name, :_with, :allo_states,
+    :allowed_catalytic_multiplicities, :atoms, :bound, :cat_allo_states, :catalytic,
+    :catalytic_multiplicity, :compile_mechanism, :conformation, :conformation_steps,
+    :copies, :ends, :entries, :given_off, :group, :has_turnover_cycle,
+    :is_rapid_equilibrium, :ligands, :mechanism_id, :members, :metabolite,
+    :metabolite_names, :metabolites, :multiplicity, :name, :ngroups, :products,
+    :re_segments, :reactants, :reg_type, :regulator, :regulators, :regulatory_sites,
+    :segment_graph, :shared_catalytic_site, :species, :step_kind, :steps, :substrates, :tag,
+    :taken_up)
 
 include("types.jl")
 include("accessors.jl")
