@@ -348,30 +348,6 @@ function _face_names(m::Mechanisms.Mechanism, face::UInt64)
            if (i == 1 || name_of[i] != name_of[i - 1]) && _zeroes(face, name_of[i])]
 end
 
-"""The metabolite-name index (`_name_index`) of `m`'s first substrate, whose net uptake
-is the rate."""
-_turnover_name(m::Mechanisms.Mechanism) =
-    Mechanisms._name_index(m)[searchsortedfirst(m.table,
-                                                Mechanisms.Met(m.substrates[1], false))]
-
-"""
-Whether a cycle of the edges that `mask` keeps turns the reaction over: no potential of the
-forms rises along each edge by its uptake of the first substrate (a modifier copy counting
-as it), which a weighted union-find finds (`_has_unbalanced_cycle`). Class 1 rejects a
-mechanism with none; its rate is zero everywhere.
-"""
-function _has_turnover_cycle(m::Mechanisms.Mechanism, mask::BitVector)
-    name_of, x1 = Mechanisms._name_index(m), _turnover_name(m)
-    uptake(c::Mechanisms.Counts) =
-        sum((Mechanisms.copies(c, i) for i in eachindex(m.table) if name_of[i] == x1);
-            init = 0)
-    n = length(m.forms)
-    Mechanisms._has_unbalanced_cycle([e.from for e in m.edges], [e.to for e in m.edges],
-                                     [uptake(e.consumed) - uptake(e.released)
-                                      for e in m.edges],
-                                     mask, zeros(Int, n), zeros(Int, n))
-end
-
 """The tree transitions from node `x` up to its root in the forest `parent` (each node's
 tree transition, 0 at a root)."""
 function _tree_path(net::_Network, parent::Vector{Int}, x::Int)
@@ -467,7 +443,7 @@ reads the reaction graph through masks and builds nothing.
 """
 function _guard(mech::Mechanisms._AnyMech)
     m = Mechanisms.catalytic(mech)
-    _has_turnover_cycle(m, trues(length(m.edges))) ||
+    Mechanisms._has_turnover_cycle(m, trues(length(m.edges))) ||
         return _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0)
     eps = _eps_network(mech)
     v = _re_turnover_verdict(eps)

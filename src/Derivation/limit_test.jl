@@ -420,7 +420,7 @@ function _face_limit_check(mech::Mechanisms._AnyMech, net::_Network, s, face::UI
                            seed::UInt64)
     m, tags = Mechanisms.catalytic(mech), Mechanisms._solve_tags(mech)
     rng = _ResidueStream(seed)
-    x1 = _turnover_name(m)
+    x1 = Mechanisms._turnover_name(m)
     # Class 2, which runs first, leaves no fast cycle that takes `x1` up: a potential.
     h = s.offset[x1, :]
     limit(pt) = _limit_by_interpolation(m, net, s, pt, h, x1, rng)

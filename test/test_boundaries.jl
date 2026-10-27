@@ -14,7 +14,7 @@ const _testhelper_LAYERS = Dict(
 )
 
 # The modules whose API lists and cross-module uses may still name underscore names.
-const _testhelper_UNDERSCORE_PENDING = Set{Symbol}([:Mechanisms, :Derivation])
+const _testhelper_UNDERSCORE_PENDING = Set{Symbol}([:Mechanisms])
 
 # Per owner (a module or :EnzymeRates for the top level), the field names banned there.
 const _testhelper_FIELD_BAN = Dict{Symbol, Set{Symbol}}()

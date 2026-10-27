@@ -677,7 +677,7 @@ cycle of the edges its law keeps (`_inactive_mask`) turns the reaction over
 (`_has_turnover_cycle`).
 """
 _stops_inactive_turnover(m::Mechanisms.Mechanism, tags::Vector{Symbol}) =
-    !Derivation._has_turnover_cycle(m, Mechanisms._inactive_mask(
+    !Mechanisms._has_turnover_cycle(m, Mechanisms._inactive_mask(
         Mechanisms.AllostericMechanism(m, tags, 1, Mechanisms.RegulatorySite[])))
 
 """

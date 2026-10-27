@@ -137,7 +137,7 @@ function _admission_interior(am::Mechanisms.AllostericMechanism)
         k == 0 || return _Verdict(_ISLAND, _LIMIT_UNTESTED, 0, c, k)
     end
     k = _first_excluded(am, 1)
-    k != 0 && !_has_turnover_cycle(m, Mechanisms._active_mask(am)) &&
+    k != 0 && !Mechanisms._has_turnover_cycle(m, Mechanisms._active_mask(am)) &&
         return _Verdict(_NO_ACTIVE_TURNOVER, _LIMIT_UNTESTED, 0, 1, k)
     _WELL_POSED
 end
@@ -556,7 +556,7 @@ Admission's face condition (`_face_condition`) on face `faces[i]` of `am`, from 
 """
 function _admission_face(am::Mechanisms.AllostericMechanism, eps::_Network, law::_Network,
                          faces::Vector{UInt64}, i::Int)
-    v = _face_condition(eps, law.present, faces[i], _turnover_name(am.catalytic))
+    v = _face_condition(eps, law.present, faces[i], Mechanisms._turnover_name(am.catalytic))
     v.fault === _NO_FAULT ? v : _Verdict(v.fault, v.limit, i, v.conformation, v.edge)
 end
 

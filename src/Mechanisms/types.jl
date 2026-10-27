@@ -1666,6 +1666,27 @@ function _has_unbalanced_cycle(from, to, weight, on, parent, offset)
     false
 end
 
+"""The metabolite-name index (`_name_index`) of `m`'s first substrate, whose net uptake
+is the rate."""
+_turnover_name(m::Mechanism) =
+    _name_index(m)[searchsortedfirst(m.table, Met(m.substrates[1], false))]
+
+"""
+Whether a cycle of the edges that `mask` keeps turns the reaction over: no potential of the
+forms rises along each edge by its uptake of the first substrate (a modifier copy counting
+as it), which a weighted union-find finds (`_has_unbalanced_cycle`). Class 1 rejects a
+mechanism with none; its rate is zero everywhere.
+"""
+function _has_turnover_cycle(m::Mechanism, mask::BitVector)
+    name_of, x1 = _name_index(m), _turnover_name(m)
+    uptake(c::Counts) =
+        sum((copies(c, i) for i in eachindex(m.table) if name_of[i] == x1); init = 0)
+    n = length(m.forms)
+    _has_unbalanced_cycle([e.from for e in m.edges], [e.to for e in m.edges],
+                          [uptake(e.consumed) - uptake(e.released) for e in m.edges],
+                          mask, zeros(Int, n), zeros(Int, n))
+end
+
 """
 The edges of `am`'s inactive conformation: those outside `:OnlyA` groups between forms
 they join to free E (`_law_mask`). The conformations interconvert at free E alone, so a

@@ -186,7 +186,7 @@ end
             E(P) <--> F + P
         end
     end
-    @test !EnzymeRates.Derivation._has_turnover_cycle(no_turnover, trues(3))
+    @test !EnzymeRates.Mechanisms._has_turnover_cycle(no_turnover, trues(3))
     v = EnzymeRates.Derivation._guard(no_turnover)
     @test v === EnzymeRates.Derivation._Verdict(
         EnzymeRates.Derivation._NO_CYCLE, EnzymeRates.Derivation._LIMIT_UNTESTED, 0, 0, 0)
@@ -2939,7 +2939,7 @@ end
     for (x, potential) in ((am, false), (noturn, true))
         eps, law = EnzymeRates.Derivation._eps_network(x),
             EnzymeRates.Derivation._law_network(x)
-        row = EnzymeRates.Derivation._turnover_name(x.catalytic)
+        row = EnzymeRates.Mechanisms._turnover_name(x.catalytic)
         for face in EnzymeRates.Derivation._faces(x.catalytic)[1:3]
             s = EnzymeRates.Derivation._face_sets(eps, law.present, face)
             nodes = s.fed .& .!s.stranded
@@ -3000,7 +3000,7 @@ end
     # part of its kept and fast transitions (T0+): the census's case for T0+.
     eps, law = EnzymeRates.Derivation._eps_network(am),
         EnzymeRates.Derivation._law_network(am)
-    row = EnzymeRates.Derivation._turnover_name(m)
+    row = EnzymeRates.Mechanisms._turnover_name(m)
     faces = EnzymeRates.Derivation._faces(m)
     by_potential = map(faces) do face
         s = EnzymeRates.Derivation._face_sets(eps, law.present, face)
@@ -4012,7 +4012,7 @@ end
         @test EnzymeRates.Derivation._fewest_slow(eps, nodes, s.alive) == 3
         @test EnzymeRates.Derivation._face_condition(
             eps, law.present, faces[i],
-            EnzymeRates.Derivation._turnover_name(am.catalytic)) ==
+            EnzymeRates.Mechanisms._turnover_name(am.catalytic)) ==
               EnzymeRates.Derivation._Verdict(BR, U, 0, 0, 0)
     end
     # The message names the vanishing steps a cheapest in-tree needs: the M binding at
