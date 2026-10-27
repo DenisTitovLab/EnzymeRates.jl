@@ -40,7 +40,8 @@ function _testhelper_uni_prob(data_form)
     data = data_form === DataFrame ?
            DataFrame(merge(columns, (group = [1, 1, 2, 2],))) :
            merge((group = ["G1", "G1", "G2", "G2"],), columns)
-    return IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0)
+    return IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0,
+                                       reference=_testhelper_row_reference(data))
 end
 
 @testset "identify_rate_equation" begin
@@ -114,24 +115,54 @@ end
 
     # ── Construction validation ──────────────────────
     @testset "construction" begin
+        ref = _testhelper_row_reference(test_data)
         prob = IdentifyRateEquationProblem(
-            test_rxn, test_data; Keq=Keq_val)
+            test_rxn, test_data; Keq=Keq_val, reference=ref)
         @test prob.reaction === test_rxn
         @test typeof(prob) === IdentifyRateEquationProblem{typeof(prob.data)}
         @test prob.Keq == Keq_val
         @test length(
             unique(prob.data.group)) == 5
 
-        # absolute and peak_range: relative mode and the default range unless set.
+        # absolute and reference: relative mode, which needs a reference, unless set;
+        # absolute mode takes none.
         @test prob.absolute === false
-        @test prob.peak_range === (1e-12, 1e3)
+        @test prob.reference == ref
+        @test prob.reference isa Vector{Pair{NamedTuple, Float64}}
         prob_abs = IdentifyRateEquationProblem(
-            test_rxn, test_data; Keq=Keq_val, absolute=true, peak_range=(1e-9, 1e2))
-        @test prob_abs.absolute === true && prob_abs.peak_range === (1e-9, 1e2)
+            test_rxn, test_data; Keq=Keq_val, absolute=true)
+        @test prob_abs.absolute === true && isempty(prob_abs.reference)
+        @test_throws(
+            ErrorException("relative mode needs reference = [(concentrations...) => " *
+                           "turnover, ...] to set the rate scale; pass absolute = true " *
+                           "for absolute per-enzyme turnover data"),
+            IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val))
+        @test_throws(
+            ErrorException("reference applies only to relative mode; absolute turnover " *
+                           "data set the rate scale themselves"),
+            IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val, absolute=true,
+                                        reference=ref))
+        # The anchors name the reaction's metabolites, each at a finite concentration
+        # ≥ 0, with a finite, nonzero turnover.
+        @test_throws(
+            ErrorException("reference: X is not a metabolite of the reaction " *
+                           "(metabolites: S, P, R)"),
+            IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val,
+                                        reference=[(X = 1.0,) => 1.0]))
+        @test_throws(
+            ErrorException("reference: concentration of R must be a finite number ≥ 0; " *
+                           "got -1.0"),
+            IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val,
+                                        reference=[(S = 1.0, R = -1.0) => 1.0]))
+        @test_throws(
+            ErrorException("reference: turnover must be a finite, nonzero number; got 0.0"),
+            IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val,
+                                        reference=[(S = 1.0,) => 0.0]))
         @test_throws MethodError IdentifyRateEquationProblem(
-            test_rxn, test_data; Keq=Keq_val, scale_k_to_kcat=1.0)
+            test_rxn, test_data; Keq=Keq_val, reference=ref, scale_k_to_kcat=1.0)
         # An integer Keq converts to the Float64 field.
-        @test IdentifyRateEquationProblem(test_rxn, test_data; Keq=10).Keq === 10.0
+        @test IdentifyRateEquationProblem(test_rxn, test_data; Keq=10,
+                                          reference=ref).Keq === 10.0
 
         # Missing metabolite column
         @test_throws(
@@ -139,7 +170,7 @@ end
             IdentifyRateEquationProblem(
                 test_rxn,
                 (group = ["G1"], Rate = [1.0]);
-                Keq=1.0))
+                Keq=1.0, reference=ref))
 
         # Missing regulator column
         @test_throws(
@@ -150,7 +181,7 @@ end
                  Rate = [1.0, 2.0],
                  S = [1.0, 2.0],
                  P = [0.1, 0.1]);
-                Keq=1.0))
+                Keq=1.0, reference=ref))
 
         # Zero rate
         @test_throws(
@@ -162,11 +193,11 @@ end
                  S = [1.0, 1.0],
                  P = [0.1, 0.1],
                  R = [1.0, 1.0]);
-                Keq=1.0))
+                Keq=1.0, reference=ref))
 
         # A non-finite or missing rate, a concentration that is not a finite number
-        # ≥ 0, a Keq that is not positive and finite, or a peak_range out of order: each
-        # error names the column (with the row), Keq or peak_range.
+        # ≥ 0 or a Keq that is not positive and finite: each error names the column (with
+        # the row) or Keq.
         two_groups = (group = ["G1", "G2"], Rate = [1.0, 2.0],
                       S = [1.0, 1.0], P = [0.1, 0.1], R = [1.0, 1.0])
         for (bad, shown) in ((NaN, "NaN"), (Inf, "Inf"), (-Inf, "-Inf"),
@@ -174,7 +205,8 @@ end
             @test_throws(
                 ErrorException("Rate at row 2 must be a finite number; got $shown"),
                 IdentifyRateEquationProblem(
-                    test_rxn, merge(two_groups, (Rate = [1.0, bad],)); Keq=1.0))
+                    test_rxn, merge(two_groups, (Rate = [1.0, bad],)); Keq=1.0,
+                    reference=ref))
         end
         for (bad, shown) in ((NaN, "NaN"), (Inf, "Inf"), (-1.0, "-1.0"),
                              (missing, "missing"), ("1.0", "\"1.0\""))
@@ -182,20 +214,16 @@ end
                 ErrorException(
                     "Concentration S at row 2 must be a finite number ≥ 0; got $shown"),
                 IdentifyRateEquationProblem(
-                    test_rxn, merge(two_groups, (S = [1.0, bad],)); Keq=1.0))
+                    test_rxn, merge(two_groups, (S = [1.0, bad],)); Keq=1.0,
+                    reference=ref))
         end
         @test IdentifyRateEquationProblem(
-            test_rxn, merge(two_groups, (S = [0.0, 1.0],)); Keq=1.0) isa
+            test_rxn, merge(two_groups, (S = [0.0, 1.0],)); Keq=1.0, reference=ref) isa
               IdentifyRateEquationProblem
         for (bad, shown) in ((0, "0"), (-1, "-1"), (Inf, "Inf"), (NaN, "NaN"))
             @test_throws(ErrorException("Keq must be positive and finite; got $shown"),
-                IdentifyRateEquationProblem(test_rxn, two_groups; Keq=bad))
+                IdentifyRateEquationProblem(test_rxn, two_groups; Keq=bad, reference=ref))
         end
-        @test_throws(
-            ErrorException("peak_range must be a tuple (lo, hi) with 0 < lo < hi < Inf; " *
-                           "got (1.0, 0.5)"),
-            IdentifyRateEquationProblem(test_rxn, two_groups; Keq=1.0,
-                                        peak_range=(1.0, 0.5)))
 
         # A metabolite named after a required column would read that column, here the
         # group numbers, as its concentrations.
@@ -209,7 +237,7 @@ end
                            "column; rename the metabolite"),
             IdentifyRateEquationProblem(group_named_rxn,
                 (group = [1, 2], Rate = [1.0, 2.0], S = [1.0, 1.0], P = [0.1, 0.1]);
-                Keq=1.0))
+                Keq=1.0, reference=[(S = 1.0,) => 1.0]))
 
         # Every search fits allosteric mechanisms, whose rate equations take the
         # conformational constant L, so a metabolite named L would fail every allosteric
@@ -233,7 +261,7 @@ end
                  S = [1.0, 2.0],
                  P = [0.1, 0.1],
                  R = [1.0, 1.0]);
-                Keq=1.0))
+                Keq=1.0, reference=ref))
     end
 
     # ── Helper unit tests (cheap, no fitting) ────────
@@ -252,7 +280,6 @@ end
             fit_source_id = "0123456789abcdef",
             L_phantom = false,
             fit_inherited = false,
-            peak_at_range_edge = true,
         )]
         df = EnzymeRates._rows_to_dataframe(
             rows)
@@ -261,7 +288,7 @@ end
         @test names(df) == ["n_params", "parent_n_params", "loss", "mechanism",
                             "mechanism_id", "parent_id", "rate_equation", "retcode",
                             "error", "key", "fit_inherited", "fit_source_id",
-                            "L_phantom", "peak_at_range_edge", "a", "b"]
+                            "L_phantom", "a", "b"]
         @test df.key == [repeat("0123456789abcdef", 4)]
         @test df.fit_source_id == ["0123456789abcdef"]
         @test df.L_phantom == [false]
@@ -274,7 +301,6 @@ end
         @test "error" in names(df)
         @test "fit_inherited" in names(df)
         @test df.fit_inherited == [false]
-        @test df.peak_at_range_edge == [true]
         @test !("fit_inherited_from_estimate" in names(df))
 
         # Empty rows
@@ -287,13 +313,11 @@ end
             (n_params = 3, loss = 0.5, mechanism = "M", mechanism_id = "0000000000000001",
              rate_equation = "v = ...", retcode = "Success", error = missing,
              params = (a = 1.0,), key = "0123456789abcdef",
-             fit_source_id = "0000000000000001", fit_inherited = false, L_phantom = false,
-             peak_at_range_edge = false),
+             fit_source_id = "0000000000000001", fit_inherited = false, L_phantom = false),
             (n_params = missing, loss = missing, mechanism = "M",
              mechanism_id = "0000000000000001", rate_equation = missing, retcode = missing,
              error = "StackOverflowError: ", params = (;), key = missing,
-             fit_source_id = missing, fit_inherited = missing, L_phantom = missing,
-             peak_at_range_edge = missing),
+             fit_source_id = missing, fit_inherited = missing, L_phantom = missing),
         ]
         df_with_failure = EnzymeRates._rows_to_dataframe(rows_with_failure)
         @test nrow(df_with_failure) == 2
@@ -305,15 +329,13 @@ end
         @test ismissing(df_with_failure.L_phantom[2])
         @test df_with_failure.fit_inherited[1] == false
         @test ismissing(df_with_failure.fit_inherited[2])
-        @test df_with_failure.peak_at_range_edge[1] == false
-        @test ismissing(df_with_failure.peak_at_range_edge[2])
         @test all(ismissing, df_with_failure.parent_id)
-        # A row without the field records missing.
+        # A row without a parent records missing.
         @test ismissing(EnzymeRates._rows_to_dataframe([(n_params = 1, loss = 0.1,
             mechanism = "M", mechanism_id = "0", rate_equation = "v", retcode = "Success",
             error = missing, params = (;), key = "0", fit_source_id = "0",
             L_phantom = false, fit_inherited = false)
-            ]).peak_at_range_edge[1])
+            ]).parent_n_params[1])
         @test "a" in names(df_with_failure)    # param column still built from row 1
         @test ismissing(df_with_failure.a[2])  # failure row contributes no param value
     end
@@ -329,7 +351,6 @@ end
         @test row.mechanism_id == EnzymeRates._mechanism_id(row.mechanism)
         @test ismissing(row.parent_id)
         @test row.error == "boom"
-        @test ismissing(row.peak_at_range_edge)
         @test ismissing(row.key) && ismissing(row.fit_inherited) &&
               ismissing(row.fit_source_id) && ismissing(row.L_phantom)
     end
@@ -360,7 +381,7 @@ end
 
     # ── Run pipeline ONCE, test everything ───────────
     prob = IdentifyRateEquationProblem(
-        test_rxn, test_data; Keq=Keq_val)
+        test_rxn, test_data; Keq=Keq_val, reference=_testhelper_row_reference(test_data))
     save_dir = mktempdir()
     # Smoke-test settings: greedy beam (min_beam_width=1 +
     # tightest thresholds) so only the strictly-best mechanism
@@ -526,7 +547,6 @@ end
             # Diagnostic columns: every saved CSV carries them.
             @test "parent_n_params" in names(df_file)
             @test "parent_id" in names(df_file)
-            @test "peak_at_range_edge" in names(df_file)
             # Each row holds its mechanism's text, which reads back as the mechanism that
             # prints it, and the text's id.
             @test all(EnzymeRates._mechanism_id.(df_file.mechanism) .==
@@ -604,7 +624,8 @@ end
             Rate = [0.5, 0.8, 1.0, 1.1, 1.2, 1.3],
             group = [1, 1, 2, 2, 3, 3],
         )
-        prob = IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0)
+        prob = IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0,
+                                           reference=_testhelper_row_reference(data))
 
         groups = unique(prob.data.group)
         scores = [EnzymeRates._cv_fold_loss(m, prob, g;
@@ -638,21 +659,65 @@ end
     for data_form in (NamedTuple, DataFrame)
         prob = _testhelper_uni_prob(data_form)
         full = FittingProblem(em, prob.data; Keq=prob.Keq, absolute=prob.absolute,
-                              peak_range=prob.peak_range)
+                              reference=prob.reference)
         fold = EnzymeRates._fold_problem(em, prob, prob.data.group .== prob.data.group[3])
         @test typeof(fold) === typeof(full)
         @test fold.data.S == [3.0, 4.0]
         @test fold.data.P == [0.3, 0.4]
         @test fold.data.Rate == [1.0, 1.1]
+        # A fold copies the problem's mode and reference.
         @test fold.Keq === 10.0 && fold.absolute === false &&
-              fold.peak_range === (1e-12, 1e3)
-        # A fold copies the problem's mode and range.
+              fold.reference == [(S = 1.0, P = 0.1) => 0.5]
         prob_abs = IdentifyRateEquationProblem(prob.reaction, prob.data; Keq=prob.Keq,
-                                               absolute=true, peak_range=(1e-9, 1e2))
+                                               absolute=true)
         fold_abs = EnzymeRates._fold_problem(em, prob_abs,
                                              prob.data.group .== prob.data.group[3])
-        @test fold_abs.absolute === true && fold_abs.peak_range === (1e-9, 1e2)
+        @test fold_abs.absolute === true && isempty(fold_abs.reference)
     end
+end
+
+# A mechanism that leaves out an optional regulator does not respond to it, so its fits
+# read each reference anchor without that regulator's concentration.
+@testset "_fit_keywords: each anchor keeps the metabolites the mechanism binds" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R
+    end
+    plain = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    regulated = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)     :: EqualAI
+            E(S) <--> E(P)   :: OnlyA
+            E(P) ⇌ E + P     :: EqualAI
+        end
+        regulatory_site(2): R::OnlyI
+    end
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4], R = [0.5, 0.5, 1.0, 1.0])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0,
+                                       reference=[(S = 2.0, R = 0.5) => 0.8])
+    @test EnzymeRates._fit_keywords(plain, prob) ==
+          (; Keq = 10.0, absolute = false, reference = [(S = 2.0,) => 0.8])
+    @test EnzymeRates._fit_keywords(regulated, prob) ==
+          (; Keq = 10.0, absolute = false, reference = [(S = 2.0, R = 0.5) => 0.8])
+    # So the fit of the mechanism without R takes the problem's reference.
+    @test EnzymeRates._fold_problem(plain, prob, trues(4)).reference ==
+          [(S = 2.0,) => 0.8]
+    prob_abs = IdentifyRateEquationProblem(rxn, data; Keq=10.0, absolute=true)
+    @test EnzymeRates._fit_keywords(plain, prob_abs) == (; Keq = 10.0, absolute = true)
 end
 
 # The number of method instances, inferred or compiled, of the methods EnzymeRates
@@ -695,14 +760,15 @@ end
     end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             Sfold = [1.0, 2.0, 3.0, 4.0], Pfold = [0.1, 0.2, 0.3, 0.4])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0,
+                                       reference=_testhelper_row_reference(data))
     optimizer = CMAEvolutionStrategyOpt()
     added = Int[]
     # Typed as the abstract mechanism, as in the pipeline, so each call dispatches on the
     # mechanism's run-time type.
     for em in EnzymeRates.AbstractEnzymeMechanism[re_binding, ss_binding]
         full = FittingProblem(em, prob.data; Keq=prob.Keq, absolute=prob.absolute,
-                              peak_range=prob.peak_range)
+                              reference=prob.reference)
         fit_rate_equation(full, optimizer; n_restarts=1, maxiters=10)
         n = _testhelper_enzymerates_method_instances()
         EnzymeRates._cv_fold_loss(em, prob, "G1"; optimizer, n_restarts=1, maxiters=10)
@@ -761,7 +827,6 @@ end
         params = (K_a = 2.0,), key = "abc", fit_source_id = "00000000000000aa",
         L_phantom = false,
         fit_inherited = false,
-        peak_at_range_edge = true,
     )]
     mktempdir() do tmp
         # `texts` holds the run's ids, each with its mechanism's text.
@@ -771,7 +836,6 @@ end
         df = CSV.read(joinpath(tmp, "equation_search_iteration_3.csv"), DataFrame)
         @test df.n_params == [5]
         @test df.K_a == [2.0]
-        @test df.peak_at_range_edge == [true]
         @test "key" in names(df) && df.key == ["abc"]
         @test texts == Dict("00000000000000aa" => "M")
         # dir-creation branch: save_dir does not exist yet. A row may repeat an id with
@@ -1258,7 +1322,8 @@ end
         S1 = [1.0, 2.0, 1.0, 2.0], S2 = [1.0, 1.0, 2.0, 2.0],
         P1 = [0.1, 0.2, 0.1, 0.2], P2 = [0.1, 0.1, 0.2, 0.2],
         Rate = [0.5, 0.8, 0.9, 1.1], group = [1, 1, 2, 2])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0,
+                                       reference=_testhelper_row_reference(data))
     random_bibi = @enzyme_mechanism begin        # V×τ = 336 — the ceiling; must pass
         substrates: S1, S2
         products:   P1, P2
@@ -1309,7 +1374,8 @@ end
         S1 = [1.0, 2.0], S2 = [1.0, 2.0], S3 = [1.0, 2.0],
         P1 = [0.1, 0.2], P2 = [0.1, 0.2], P3 = [0.1, 0.2],
         Rate = [0.5, 0.8], group = [1, 2])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0,
+                                       reference=_testhelper_row_reference(data))
     m = EnzymeRates.Mechanism(_testhelper_random_terter())
     @test EnzymeRates._eq_complexity(m) > EnzymeRates.MAX_RATE_EQUATION_TERMS
     batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m]
@@ -1338,7 +1404,8 @@ end
         S1 = [1.0, 2.0, 1.0, 2.0], S2 = [1.0, 1.0, 2.0, 2.0],
         P1 = [0.1, 0.2, 0.1, 0.2], P2 = [0.1, 0.1, 0.2, 0.2],
         Rate = [0.5, 0.8, 0.9, 1.1], group = [1, 1, 2, 2])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0,
+                                       reference=_testhelper_row_reference(data))
     ktype = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S1, S2
         products: P1, P2
@@ -1614,14 +1681,13 @@ end
 
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             S = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2])
-    # The range stops below the stub fit's binding constants (5), so the fit still rises at
-    # the range's upper edge and carries the edge flag.
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
         oligomeric_state: 2
     end
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0, peak_range=(0.1, 1.0))
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0,
+                                       reference=_testhelper_row_reference(data))
     pair = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2]
 
     memo = Dict{String, EnzymeRates._Fit}()
@@ -1656,14 +1722,16 @@ end
     for (e, c) in zip(entries, (c1, c2))
         @test keys(e.row.params) == fkeys
         @test Float64[e.row.params[x] for x in [c.order; :L]] == fit.values
-        # The edge flag belongs to the law's fit, so each row copies it.
-        @test e.row.peak_at_range_edge === fit.peak_at_range_edge
     end
-    @test fit.peak_at_range_edge === true
     @test entries[1].row.params == entries[2].row.params
-    # The peak scale: the copied params are the rescaled fit, not the raw
-    # 5.0 the stub optimizer returned.
+    # The reference scale: the copied params are the rescaled fit, not the raw
+    # 5.0 the stub optimizer returned, and both laws reproduce the reference turnover,
+    # the first data row's rate.
     @test !all(v -> v ≈ 5.0, entries[1].row.params)
+    for (em, e) in zip((em1, em2), entries)
+        @test rate_equation(em, (S = 1.0, P = 0.1),
+                            merge(e.row.params, (Keq = 2.0, E_total = 1.0))) ≈ 0.5 rtol=1e-9
+    end
 
     # Cross-batch memo hit: a later batch with the same key refits NOTHING.
     single = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1]
@@ -1742,7 +1810,9 @@ function _testhelper_unibi_pair()
     end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             A = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2], Q = [0.3, 0.3, 0.4, 0.4])
-    equal, only_active, IdentifyRateEquationProblem(rxn, data; Keq = 2.0)
+    equal, only_active,
+        IdentifyRateEquationProblem(rxn, data; Keq = 2.0,
+                                    reference = _testhelper_row_reference(data))
 end
 
 @testset "two same-key mechanisms read one fit under their own names" begin
@@ -1820,7 +1890,8 @@ end
     end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             S = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0)
+    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0,
+                                       reference = _testhelper_row_reference(data))
     memo = Dict{String, EnzymeRates._Fit}()
     entries, _ = EnzymeRates._process_batch(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
@@ -1900,7 +1971,8 @@ end
     end)
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             A = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq = 10.0)
+    prob = IdentifyRateEquationProblem(rxn, data; Keq = 10.0,
+                                       reference = _testhelper_row_reference(data))
     id = EnzymeRates._mechanism_id(sprint(show, pinwheel))
     batch_log = String[]
     entries, failures = EnzymeRates._process_batch(
@@ -1967,7 +2039,6 @@ end
     @test p.fit_key == f.key != p.key
     @test p.row.fit_inherited && !f.row.fit_inherited
     @test p.row.fit_source_id == f.row.mechanism_id == f.row.fit_source_id
-    @test p.row.peak_at_range_edge == f.row.peak_at_range_edge
     rng = Random.MersenneTwister(13)
     for _ in 1:3
         concs = (S = exp(randn(rng)), P = exp(randn(rng)))
@@ -2012,7 +2083,8 @@ end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             A = [1.0, 2.0, 1.0, 2.0], B = [0.5, 0.5, 1.0, 1.0],
             P = [0.1, 0.2, 0.1, 0.2], Q = [0.3, 0.3, 0.4, 0.4])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0)
+    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0,
+                                       reference = _testhelper_row_reference(data))
     opt = _testhelper_SpreadStubOpt()
     entries, failures = EnzymeRates._process_batch(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m3268], prob;
@@ -2064,7 +2136,8 @@ end
     end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4], R = [0.5, 1.0, 0.5, 1.0])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq = 10.0)
+    prob = IdentifyRateEquationProblem(rxn, data; Keq = 10.0,
+                                       reference = _testhelper_row_reference(data))
     opt = _testhelper_SpreadStubOpt()
     entries, failures = EnzymeRates._process_batch(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[regulated, plain],
@@ -2134,8 +2207,8 @@ end
             v0 = rate_equation(EnzymeRates.compile_mechanism(parent), concs, source)
             @test isfinite(v) && isapprox(v, v0; rtol = 1e-12)
         end
-        scaled, spread = rescale_parameter_values(res.best, params)
-        @test spread === nothing && scaled.L == 0.0
+        scaled, spread = rescale_parameter_values(res.best, params, [(S = 1.0,) => 2.0])
+        @test spread == 0.0 && scaled.L == 0.0
     end
 end
 
@@ -2325,7 +2398,8 @@ end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             NADH = [1.0, 2.0, 1.0, 2.0], Pyruvate = [0.5, 0.5, 1.0, 1.0],
             Lactate = [0.1, 0.2, 0.1, 0.2], NAD = [0.3, 0.3, 0.4, 0.4])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0)
+    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0,
+                                       reference = _testhelper_row_reference(data))
     opt = _testhelper_CountingStubOpt(; uval = 0.0)
     entries, failures = EnzymeRates._process_batch(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2], prob;
@@ -2418,7 +2492,8 @@ end
     data_bad = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
                 S = [1.0, 2.0, 1.0, 2.0], T = [0.5, 0.5, 1.0, 1.0],
                 P = [0.1, 0.2, 0.1, 0.2])
-    prob_bad = IdentifyRateEquationProblem(rxn_bad, data_bad; Keq=2.0)
+    prob_bad = IdentifyRateEquationProblem(rxn_bad, data_bad; Keq=2.0,
+                                           reference=_testhelper_row_reference(data_bad))
     e1, f1 = EnzymeRates._process_batch(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m_bad],
         prob_bad; optimizer=_testhelper_CountingStubOpt(), max_param_count=20,
@@ -2450,7 +2525,8 @@ end
     end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             S = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0)
+    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0,
+                                       reference = _testhelper_row_reference(data))
     opt = _testhelper_CountingStubOpt()
     entries, failures = EnzymeRates._process_batch(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[beside], prob;
@@ -3007,7 +3083,8 @@ end
         substrates: A[C], B[N]
         products: P[C], Q[N]
     end
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0,
+                                       reference=_testhelper_row_reference(data))
     # The pool as `_beam_search` hands it over: each candidate with its row and key, and
     # the memo holding each key's fit with the candidate as its source.
     memo = Dict{String, EnzymeRates._Fit}()
@@ -3017,7 +3094,7 @@ end
         text = sprint(show, m)
         id = EnzymeRates._mechanism_id(text)
         key = EnzymeRates._canonical(EnzymeRates._law(m), id).key
-        memo[key] = EnzymeRates._Fit(ones(length(fkeys)), loss, :Success, false, m, id)
+        memo[key] = EnzymeRates._Fit(ones(length(fkeys)), loss, :Success, m, id)
         row = (n_params=length(fkeys), loss=loss, mechanism=text, mechanism_id=id,
                rate_equation="v", retcode="Success", error=missing,
                params=NamedTuple{fkeys}(ntuple(_ -> 1.0, length(fkeys))), key,

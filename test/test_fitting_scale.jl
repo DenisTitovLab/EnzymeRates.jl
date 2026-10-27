@@ -1,22 +1,9 @@
-# ABOUTME: Tests for the peak-turnover scale of relative fits: the search for a law's
-# ABOUTME: peak turnover over concentrations, and rescale_parameter_values.
+# ABOUTME: Tests for the reference scale of relative fits: the reference anchors a problem
+# ABOUTME: takes, the fit they scale, and rescale_parameter_values.
 using Random
+using OptimizationCMAEvolutionStrategy
 
-const _testhelper_TurnoverFunction = EnzymeRates.FunctionWrapper{Float64,
-                                                                 Tuple{Vector{Float64}}}
-
-# The largest turnover of `m` at `p` on the grid of whole decades from 10^lo_exp to
-# 10^hi_exp for every metabolite; undefined points count as -Inf.
-function _testhelper_grid_peak(m, p, lo_exp, hi_exp)
-    mets = metabolites(m)
-    turnover_params = merge(p, (E_total = 1.0,))
-    maximum(Iterators.product(ntuple(_ -> lo_exp:hi_exp, length(mets))...)) do e
-        v = rate_equation(m, NamedTuple{mets}(Tuple(10.0 .^ e)), turnover_params)
-        isfinite(v) ? v : -Inf
-    end
-end
-
-@testset "Peak turnover scale" begin
+@testset "Reference turnover scale" begin
 
     # Uni-uni with a steady-state binding; at Keq = 2 these constants give kcat = 5 and
     # the Michaelis constant Km. Fitted: k_ES_to_E_P, k_ES_to_E_S, k_E_S_to_ES.
@@ -30,291 +17,144 @@ end
     end
     _testhelper_mm_params(Km) = (k_ES_to_E_P = 5.0, k_ES_to_E_S = 5.0,
                                  k_E_S_to_ES = 10.0 / Km, Keq = 2.0)
+    mm_concs = [(S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
+                (S = 5.0, P = 0.1), (S = 10.0, P = 0.1), (S = 1.0, P = 0.5)]
+    mm_data = (group = fill("G1", length(mm_concs)),
+               Rate = [rate_equation(mm, c, merge(_testhelper_mm_params(1.0),
+                                                  (E_total = 1.0,))) for c in mm_concs],
+               S = [c.S for c in mm_concs], P = [c.P for c in mm_concs])
 
-    # S also binds E(S) as a dead-end inhibitor. At zero product,
-    # v = k·x/(1 + x + x²·K_S/K_I) with x = S/K_S, maximal at S = √(K_S·K_I), where
-    # v = k/(1 + 2√(K_S/K_I)).
-    si = @enzyme_mechanism begin
-        substrates: S
-        products:   P
-        modifiers: S
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-            E(S) + S::Mod ⇌ E(S, S::Mod)
+    @testset "reference is required in relative mode" begin
+        required = "relative mode needs reference = [(concentrations...) => turnover, " *
+                   "...] to set the rate scale; pass absolute = true for absolute " *
+                   "per-enzyme turnover data"
+        @test_throws ErrorException(required) FittingProblem(mm, mm_data; Keq = 2.0)
+        # Absolute data set the scale themselves: no reference is needed, and one passed
+        # is an error.
+        fp_abs = FittingProblem(mm, mm_data; Keq = 2.0, absolute = true)
+        @test fp_abs.absolute && isempty(fp_abs.reference)
+        @test_throws(ErrorException("reference applies only to relative mode; absolute " *
+                                    "turnover data set the rate scale themselves"),
+                     FittingProblem(mm, mm_data; Keq = 2.0, absolute = true,
+                                    reference = [(S = 10.0,) => 3.0]))
+        # The problem stores the anchors with Float64 turnovers; integers convert.
+        fp = FittingProblem(mm, mm_data; Keq = 2.0, reference = [(S = 10,) => 3])
+        @test fp.reference == [(S = 10,) => 3.0]
+        @test fp.reference isa Vector{Pair{NamedTuple, Float64}}
+        # The concrete-mechanism constructor passes the reference on.
+        fp_conc = FittingProblem(EnzymeRates.Mechanism(mm), mm_data; Keq = 2.0,
+                                 reference = [(S = 10.0,) => 3.0])
+        @test fp_conc.reference == [(S = 10.0,) => 3.0]
+    end
+
+    @testset "reference anchors are validated at construction" begin
+        _testhelper_problem(reference) =
+            FittingProblem(mm, mm_data; Keq = 2.0, reference)
+        @test_throws(ErrorException("reference must be a vector of (concentrations => " *
+                                    "turnover) pairs; got (S = 10.0,) => 3.0"),
+                     _testhelper_problem((S = 10.0,) => 3.0))
+        @test_throws(ErrorException("reference is empty; pass at least one " *
+                                    "(concentrations => turnover) anchor"),
+                     _testhelper_problem(Pair{NamedTuple, Float64}[]))
+        @test_throws(ErrorException("reference: concentrations must be a NamedTuple; " *
+                                    "got (10.0,)"),
+                     _testhelper_problem([(10.0,) => 3.0]))
+        @test_throws(ErrorException("reference: X is not a metabolite of the mechanism " *
+                                    "(metabolites: S, P)"),
+                     _testhelper_problem([(X = 1.0,) => 3.0]))
+        @test_throws(ErrorException("reference: concentration of S must be a finite " *
+                                    "number ≥ 0; got -1.0"),
+                     _testhelper_problem([(S = -1.0,) => 3.0]))
+        for (bad, shown) in ((0.0, "0.0"), (NaN, "NaN"), (Inf, "Inf"))
+            @test_throws(ErrorException("reference: turnover must be a finite, nonzero " *
+                                        "number; got $shown"),
+                         _testhelper_problem([(S = 10.0,) => bad]))
         end
     end
-    si_params = (K_EP_to_E_P = 1.0, K_ESSmod_to_ES_Smod = 4.0, K_ES_to_E_S = 1.0,
-                 k_ES_to_EP = 3.0, Keq = 2.0)
 
-    # Random-order steady-state bi-bi.
-    rob = @enzyme_mechanism begin
-        substrates: A, B
-        products:   P, Q
-        steps: begin
-            E + A <--> E(A)
-            E + B <--> E(B)
-            E(A) + B <--> E(A, B)
-            E(B) + A <--> E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(P, Q) <--> E(P) + Q
-            E(P, Q) <--> E(Q) + P
-            E(P) <--> E + P
-            E(Q) <--> E + Q
-        end
+    @testset "relative fit matches the reference turnover" begin
+        # The scale holds at any fit quality, so a short fit is enough.
+        fp = FittingProblem(mm, mm_data; Keq = 2.0, reference = [(S = 10.0,) => 3.0])
+        fit = fit_rate_equation(fp, CMAEvolutionStrategyOpt(); n_restarts = 1,
+                                maxiters = 50)
+        @test keys(fit) == (:params, :loss, :retcode)
+        @test isfinite(fit.loss)
+        @test rate_equation(mm, (S = 10.0, P = 0.0),
+                            merge(fit.params, (Keq = 2.0, E_total = 1.0))) ≈ 3.0 rtol = 1e-8
+        # Several anchors combine by the geometric mean of measured over predicted
+        # turnover, as rescale_parameter_values combines them.
+        anchors = [(S = 10.0,) => 3.0, (S = 1.0,) => 2.0]
+        fit2 = fit_rate_equation(
+            FittingProblem(mm, mm_data; Keq = 2.0, reference = anchors),
+            CMAEvolutionStrategyOpt(); n_restarts = 1, maxiters = 50)
+        q, _ = rescale_parameter_values(mm, merge(fit2.params, (Keq = 2.0,)), anchors)
+        @test all(k -> isapprox(fit2.params[k], q[k]; rtol = 1e-12), keys(fit2.params))
     end
 
-    # Allosteric uni-uni whose two regulators bind sites of multiplicity 2 and 1.
-    two_site = @allosteric_mechanism begin
-        substrates: S
-        products: P
-        allosteric_regulators: X, Y
-        catalytic_multiplicity: 2
-        steps: begin
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: OnlyA
-            E(P) ⇌ E + P      :: EqualAI
-        end
-        regulatory_site(2): X::OnlyI
-        regulatory_site(1): Y::NonequalAI
-    end
-
-    @testset "a saturating law peaks at the range's upper substrate corner" begin
-        peak = EnzymeRates._peak_turnover(mm, _testhelper_mm_params(1.0), (1e-12, 1e3))
-        # v = kcat·S/(Km + S) at S = 1e3, with the product at the range's lower bound.
-        @test peak.value ≈ 5 * 1e3 / (1 + 1e3) rtol = 1e-12
-        @test peak.concs.S ≈ 1e3 rtol = 1e-12
-        @test peak.concs.P ≈ 1e-12 rtol = 1e-12
-        @test peak.at_edge === false
-        # The range bounds the search: capped at S = 10 the peak is the turnover there.
-        capped = EnzymeRates._peak_turnover(mm, _testhelper_mm_params(1.0), (1e-12, 10.0))
-        @test capped.value ≈ 5 * 10 / (1 + 10) rtol = 1e-12
-        @test capped.concs.S ≈ 10.0 rtol = 1e-12
-    end
-
-    @testset "a law still rising at the range's upper edge is flagged" begin
-        # Hyperbolic in S: v(1e3)/v(1e2) = 10·(Km + 1e2)/(Km + 1e3) exceeds 1.1 exactly
-        # when Km > 1e3/89 ≈ 11.24.
-        flagged, unflagged = _testhelper_mm_params(11.5), _testhelper_mm_params(10.5)
-        @test EnzymeRates._peak_turnover(mm, flagged, (1e-12, 1e3)).at_edge
-        @test !EnzymeRates._peak_turnover(mm, unflagged, (1e-12, 1e3)).at_edge
-        # Capped at S = 10 with Km = 1: v(10)/v(1) = (10/11)/(1/2) ≈ 1.82.
-        p = _testhelper_mm_params(1.0)
-        @test EnzymeRates._peak_turnover(mm, p, (1e-12, 10.0)).at_edge
-    end
-
-    @testset "a law that never saturates peaks at the upper edge and is flagged" begin
-        # E(S) releases P at once (rapid equilibrium), so no enzyme accumulates as E(S)
-        # and S never saturates the enzyme: at zero product v = k_E_S_to_ES·S. The
-        # release's dissociation constant K_ES_to_E_P = Keq·k_ES_to_E_S/k_E_S_to_ES is
-        # 1.5 here.
-        fused_release = @enzyme_mechanism begin
-            substrates: S
-            products:   P
+    @testset "an unlisted metabolite sits at zero in an anchor" begin
+        # Random-order bi-bi: with only A listed, B = P = Q = 0 and the turnover is 0,
+        # which no scale reproduces, so the fit fails without throwing.
+        bibi = @enzyme_mechanism begin
+            substrates: A, B
+            products:   P, Q
             steps: begin
-                E + S <--> E(S)
-                E(S) ⇌ E + P
+                E + A <--> E(A)
+                E + B <--> E(B)
+                E(A) + B <--> E(A, B)
+                E(B) + A <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(P) + Q
+                E(P, Q) <--> E(Q) + P
+                E(P) <--> E + P
+                E(Q) <--> E + Q
             end
         end
-        p = (k_ES_to_E_S = 1.5, k_E_S_to_ES = 2.0, Keq = 2.0)
-        for upper in (1e3, 1e5)
-            peak = EnzymeRates._peak_turnover(fused_release, p, (1e-12, upper))
-            @test peak.value ≈ upper * p.k_E_S_to_ES rtol = 1e-9
-            @test peak.concs.S ≈ upper rtol = 1e-12
-            @test peak.at_edge === true
-        end
+        data = (group = ["G1", "G1", "G1"], Rate = [0.5, 0.8, 1.0], A = [1.0, 2.0, 4.0],
+                B = [1.0, 1.0, 1.0], P = [0.1, 0.1, 0.1], Q = [0.1, 0.1, 0.1])
+        fp = FittingProblem(bibi, data; Keq = 2.0, reference = [(A = 1.0,) => 1.0])
+        fit = fit_rate_equation(fp, CMAEvolutionStrategyOpt(); n_restarts = 1,
+                                maxiters = 20)
+        @test fit.loss == Inf
+        @test fit.retcode === :ReferenceFailed
+        @test keys(fit.params) == EnzymeRates.fitted_params(bibi)
+        @test all(v -> isfinite(v) && v > 0, values(fit.params))
     end
 
-    @testset "substrate inhibition peaks inside the range" begin
-        peak = EnzymeRates._peak_turnover(si, si_params, (1e-12, 1e3))
-        @test peak.value ≈ 3 / (1 + 2 * sqrt(1 / 4)) rtol = 1e-9
-        @test peak.concs.S ≈ 2.0 rtol = 1e-6
-        @test peak.at_edge === false
-    end
-
-    @testset "a product can raise the peak above the product-free turnover" begin
-        # Every constant 1 except E(P) ⇌ E + P at 1e-3 both ways (Keq = 1): Q rebinding
-        # E(P) reroutes the slow release of P through E(Q) + P, so the turnover peaks at
-        # an intermediate Q, 125.62 times the turnover at saturating A and B without
-        # product.
-        pn = EnzymeRates.fitted_params(rob)
-        rob_mech = EnzymeRates.Mechanism(rob)
-        release_p = _testhelper_edge(rob_mech, "E + P <--> EP")
-        slow = Set(EnzymeRates.name(c, rob_mech)
-                   for c in EnzymeRates._edge_constants(rob_mech, release_p, :None))
-        p = merge(NamedTuple{pn}(Tuple(k in slow ? 1e-3 : 1.0 for k in pn)),
-                  (Keq = 1.0,))
-        peak = EnzymeRates._peak_turnover(rob, p, (1e-12, 1e8))
-        corner = rate_equation(rob, (A = 1e8, B = 1e8, P = 1e-12, Q = 1e-12),
-                               merge(p, (E_total = 1.0,)))
-        @test peak.value ≈ 0.249991171308 rtol = 1e-9
-        @test peak.value / corner ≈ 125.62056353 rtol = 1e-8
-        @test peak.concs.Q ≈ 14120.94 rtol = 1e-4
-        @test peak.concs.A ≈ 1e8 rtol = 1e-12
-        @test peak.concs.P ≈ 1e-12 rtol = 1e-12
-    end
-
-    @testset "an allosteric law can peak below saturating substrate" begin
-        # The active conformation turns over fast but binds S weakly; the inactive one
-        # binds S tightly and turns over slowly. At catalytic multiplicity 2, saturating
-        # S drives the enzyme into the inactive conformation, so the turnover peaks near
-        # S = 1 at about 5 and falls toward 0.2 at the range's upper edge.
-        mwc = @allosteric_mechanism begin
+    @testset "reference scaling leaves L and binding constants" begin
+        # MWC uni-uni, catalysis in the active conformation only; X binds the inactive
+        # conformation, Y both with different constants.
+        two_site = @allosteric_mechanism begin
             substrates: S
             products: P
+            allosteric_regulators: X, Y
             catalytic_multiplicity: 2
             steps: begin
-                E + S ⇌ E(S)      :: NonequalAI
-                E(S) <--> E(P)    :: NonequalAI
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: OnlyA
                 E(P) ⇌ E + P      :: EqualAI
             end
+            regulatory_site(2): X::OnlyI
+            regulatory_site(1): Y::NonequalAI
         end
-        p = (K_A_ES_to_E_S = 100.0, K_EP_to_E_P = 1.0, K_I_ES_to_E_S = 0.01,
-             k_A_ES_to_EP = 1000.0, k_I_ES_to_EP = 0.1, L = 1e-4, Keq = 2.0)
-        peak = EnzymeRates._peak_turnover(mwc, p, (1e-12, 1e3))
-        @test peak.value ≈ 5.00100010001 rtol = 1e-9
-        @test 0.5 < peak.concs.S < 2
-        @test peak.value > 20 * rate_equation(mwc, (S = 1e3, P = 1e-12),
-                                              merge(p, (E_total = 1.0,)))
-        @test peak.at_edge === false
-    end
-
-    @testset "a law that needs bound product peaks at a positive product level" begin
-        # Catalysis runs only on the product-bound form E(P), so the forward rate needs P
-        # and vanishes as P goes to zero.
-        ep = @enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + P ⇌ E(P)
-                E(P) + S ⇌ E(P, S)
-                E(P, S) <--> E(P, P)
-                E(P, P) ⇌ E(P) + P
-            end
-        end
-        pn = EnzymeRates.fitted_params(ep)
-        p = merge(NamedTuple{pn}(ntuple(_ -> 1.5, length(pn))), (Keq = 2.0,))
-        peak = EnzymeRates._peak_turnover(ep, p, (1e-12, 1e3))
-        @test peak.value ≈ 1.49227389554 rtol = 1e-9
-        @test peak.concs.S ≈ 1e3 rtol = 1e-12
-        @test 1e-3 < peak.concs.P < 1e3
-    end
-
-    @testset "the peak reaches every whole-decade grid point's turnover" begin
-        for (m, n_draws) in ((rob, 5), (two_site, 3))
-            pn = EnzymeRates.fitted_params(m)
-            for seed in 1:n_draws
-                rng = Random.MersenneTwister(seed)
-                p = merge(NamedTuple{pn}(Tuple(0.2 + 5 * rand(rng) for _ in pn)),
-                          (Keq = 2.0,))
-                peak = EnzymeRates._peak_turnover(m, p, (1e-12, 1e3))
-                @test peak.value >= _testhelper_grid_peak(m, p, -12, 3) * (1 - 1e-12)
-                # The reported point reaches the reported value.
-                @test rate_equation(m, peak.concs, merge(p, (E_total = 1.0,))) ==
-                      peak.value
-            end
-        end
-    end
-
-    @testset "the peak is per enzyme: E_total in params is ignored" begin
-        p = _testhelper_mm_params(1.0)
-        @test EnzymeRates._peak_turnover(mm, merge(p, (E_total = 7.0,)),
-                                         (1e-12, 1e3)).value ==
-              EnzymeRates._peak_turnover(mm, p, (1e-12, 1e3)).value
-    end
-
-    @testset "the search is deterministic" begin
-        rng = Random.MersenneTwister(7)
-        pn = EnzymeRates.fitted_params(rob)
-        p = merge(NamedTuple{pn}(Tuple(0.2 + 5 * rand(rng) for _ in pn)), (Keq = 2.0,))
-        @test EnzymeRates._peak_turnover(rob, p, (1e-12, 1e3)) ===
-              EnzymeRates._peak_turnover(rob, p, (1e-12, 1e3))
-    end
-
-    @testset "the search skips undefined points and flags a rising upper edge" begin
-        # A concave bowl with its top at (-1, 2), undefined wherever u[1] > 0.
-        bowl = _testhelper_TurnoverFunction(
-            u -> u[1] > 0 ? NaN : -((u[1] + 1)^2 + (u[2] - 2)^2))
-        u, v, at_edge = EnzymeRates._maximize_on_box(bowl, 2, -12.0, 3.0)
-        @test v ≈ 0 atol = 1e-12
-        @test u ≈ [-1.0, 2.0] atol = 1e-5
-        @test at_edge === false
-        # Rising up to the upper edge: f(3) = 3 exceeds 1.1·f(2).
-        ramp = _testhelper_TurnoverFunction(u -> u[1])
-        u, v, at_edge = EnzymeRates._maximize_on_box(ramp, 1, -12.0, 3.0)
-        @test u == [3.0] && v == 3.0 && at_edge === true
-        # A best value that is not positive never counts as rising at the edge: this ramp
-        # is -1 at the upper edge and rises only 0.1% over the last decade.
-        negative = _testhelper_TurnoverFunction(u -> -1.0 - 1e-3 * (3 - u[1]))
-        @test EnzymeRates._maximize_on_box(negative, 1, -12.0, 3.0)[3] === false
-        # A function undefined everywhere has no peak.
-        nowhere = _testhelper_TurnoverFunction(u -> NaN)
-        @test EnzymeRates._maximize_on_box(nowhere, 2, -12.0, 3.0)[2] == -Inf
-    end
-
-    @testset "the search handles more than 12 coordinates" begin
-        # Rising in the first six log concentrations and falling in the last seven: the
-        # best point is the upper edge of the first six and the lower edge of the rest, a
-        # corner that is not one of the two extreme corners the search starts from.
-        mixed = _testhelper_TurnoverFunction(u -> prod(
-            (j <= 6 ? 1 / (1 + exp10(-u[j])) : 1 / (1 + exp10(u[j]))) for j in 1:13))
-        u, v, at_edge = EnzymeRates._maximize_on_box(mixed, 13, -12.0, 3.0)
-        @test u ≈ [fill(3.0, 6); fill(-12.0, 7)] atol = 1e-6
-        @test v ≈ (1 / (1 + 1e-3))^6 * (1 / (1 + 1e-12))^7 rtol = 1e-12
-        @test at_edge === false
-        # A bowl with its top at 1 in every coordinate.
-        bowl = _testhelper_TurnoverFunction(u -> -sum(abs2, u .- 1.0))
-        u, v, at_edge = EnzymeRates._maximize_on_box(bowl, 13, -12.0, 3.0)
-        @test u ≈ fill(1.0, 13) atol = 1e-6
-        @test v ≈ 0 atol = 1e-12
-    end
-
-    @testset "a range under one decade compares its upper edge with its lower edge" begin
-        # f = x/(1 + x) with x = 10^u rises 6.6% over u in [1, 1.5], under the 10% bar,
-        # though a decade below the upper edge it is 22% lower: the comparison point is the
-        # range's lower edge, so this law is not flagged. Over [0, 0.5] it rises 52%.
-        saturating = _testhelper_TurnoverFunction(u -> 1 / (1 + exp10(-u[1])))
-        @test EnzymeRates._maximize_on_box(saturating, 1, 1.0, 1.5)[3] === false
-        @test EnzymeRates._maximize_on_box(saturating, 1, 0.0, 0.5)[3] === true
-    end
-
-    @testset "peak_range must be a tuple (lo, hi) with 0 < lo < hi < Inf" begin
-        @test EnzymeRates.DEFAULT_PEAK_RANGE === (1e-12, 1e3)
-        @test EnzymeRates._peak_range((1, 1000)) === (1.0, 1000.0)
-        @test EnzymeRates._peak_range((1e-12, 1e3)) === (1e-12, 1e3)
-        for bad in ((0.0, 1.0), (1.0, 1.0), (2.0, 1.0), (1e-12, Inf), (NaN, 1.0),
-                    (-1.0, 1.0), 1.0, (1e-12, 1e3, 1e6), [1e-12, 1e3])
-            @test_throws(ErrorException("peak_range must be a tuple (lo, hi) with " *
-                                        "0 < lo < hi < Inf; got $(repr(bad))"),
-                         EnzymeRates._peak_range(bad))
-        end
-    end
-
-    @testset "rescale_parameter_values: peak scale" begin
-        p = _testhelper_mm_params(1.0)
-        q, spread = rescale_parameter_values(mm, p)
-        @test spread === nothing
+        p = _testhelper_random_independent_params(two_site;
+                                                  rng = Random.MersenneTwister(3))
+        concs = (S = 2.0, P = 0.5, X = 0.3, Y = 1.5)
+        predicted = rate_equation(two_site, concs, merge(p, (E_total = 1.0,)))
+        q, spread = rescale_parameter_values(two_site, p, [concs => 7.0])
+        @test spread == 0.0
         @test keys(q) == keys(p)
-        # Every fitted constant here is a rate constant; each is divided by the peak
-        # turnover 5·1e3/(1 + 1e3).
-        @test q.k_ES_to_E_P ≈ 1.001 rtol = 1e-12
-        @test q.k_ES_to_E_S ≈ 1.001 rtol = 1e-12
-        @test q.k_E_S_to_ES ≈ 2.002 rtol = 1e-12
-        @test q.Keq == 2.0
-        @test EnzymeRates._peak_turnover(mm, q, (1e-12, 1e3)).value ≈ 1 rtol = 1e-12
-        # E_total passes through and does not enter the scale.
-        qE, _ = rescale_parameter_values(mm, merge(p, (E_total = 3.0,)))
-        @test qE.E_total == 3.0 && qE.k_ES_to_E_P == q.k_ES_to_E_P
-        # peak_range sets the range: capped at S = 10 the peak turnover is 5·10/11.
-        q10, _ = rescale_parameter_values(mm, p; peak_range = (1e-12, 10.0))
-        @test q10.k_ES_to_E_P ≈ 1.1 rtol = 1e-12
-        # Binding constants stay; only the rate constant of the substrate-inhibition law
-        # scales, by 1/1.5.
-        q_si, _ = rescale_parameter_values(si, si_params)
-        @test q_si.k_ES_to_EP ≈ 2.0 rtol = 1e-9
-        @test (q_si.K_EP_to_E_P, q_si.K_ESSmod_to_ES_Smod, q_si.K_ES_to_E_S) ==
-              (1.0, 4.0, 1.0)
+        rate_constants = [k for k in keys(p) if startswith(String(k), "k_")]
+        @test !isempty(rate_constants)
+        @test :L in keys(p)
+        # Every k_… constant changes by one factor, measured over predicted turnover.
+        for k in rate_constants
+            @test q[k] / p[k] ≈ 7.0 / predicted rtol = 1e-12
+        end
+        # Every other entry — binding constants, L, regulator constants, Keq, E_total —
+        # stays exactly as it was.
+        for k in keys(p)
+            k in rate_constants || @test q[k] === p[k]
+        end
     end
 
     @testset "rescale_parameter_values: measured turnovers" begin
@@ -347,9 +187,10 @@ end
         nokeq = (k_ES_to_E_P = 5.0, k_ES_to_E_S = 5.0, k_E_S_to_ES = 10.0)
         keq_message = "params must include Keq, which the dependent rate constants " *
                       "need; merge it into a fit's params"
-        @test_throws ErrorException(keq_message) rescale_parameter_values(mm, nokeq)
         @test_throws ErrorException(keq_message) rescale_parameter_values(
             mm, nokeq, [(S = 1.0,) => 1.0])
+        # Without anchors there is no scale to set.
+        @test_throws MethodError rescale_parameter_values(mm, p)
         @test_throws(ErrorException("kcats is empty; pass at least one " *
                                     "(concentrations => turnover) anchor"),
                      rescale_parameter_values(mm, p, Pair{NamedTuple, Float64}[]))
@@ -378,13 +219,12 @@ end
         overflow = (k_ES_to_E_P = 1e308, k_ES_to_E_S = 1.0, k_E_S_to_ES = 1.0, Keq = 2.0)
         @test_throws(anchor_message,
                      rescale_parameter_values(mm, overflow, [(S = 1e300,) => 1.0]))
-        # Every product of two constants underflows to zero: no peak scale exists.
+        # Every product of two constants underflows to zero, and so does the predicted
+        # turnover.
         tiny = (k_ES_to_E_P = 1e-200, k_ES_to_E_S = 1e-200, k_E_S_to_ES = 1e-200,
                 Keq = 2.0)
-        @test_throws(ErrorException("the mechanism has no positive forward turnover " *
-                                    "within peak_range (1.0e-12, 1000.0); the peak scale " *
-                                    "is undefined"),
-                     rescale_parameter_values(mm, tiny))
+        @test_throws(anchor_message,
+                     rescale_parameter_values(mm, tiny, [(S = 1.0,) => 1.0]))
     end
 
 end

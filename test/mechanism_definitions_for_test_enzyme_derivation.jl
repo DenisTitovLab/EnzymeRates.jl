@@ -35,14 +35,6 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
     # Signature: (all_params::NamedTuple, concs::NamedTuple) -> Float64
     analytical_rate_fn::Union{Function,Nothing} = nothing
 
-    # Optional analytical peak turnover, which the peak search approaches on a wide range:
-    # the kcat (saturating substrates, zero products), or, for a spec whose product raises
-    # the turnover (m_OnlyA_prod), the supremum over product levels
-    # Signature: (params::NamedTuple) -> Float64
-    # params holds `_testhelper_written_params`' constants (the textbook names `k1f`,
-    # `K2`, ... beside every name `all_parameters` gives) and `Et`
-    analytical_peak_turnover_fn::Union{Function,Nothing} = nothing
-
     # Factored form validation (optional — for mechanisms with known factored forms):
     # the printed v line's Q (expected_factored_num) and D (expected_factored_denom)
     expected_factored_num::Union{String,Nothing} = nothing
@@ -181,6 +173,17 @@ _testhelper_step_constant_names(m) =
 _testhelper_substrates(m) = _testhelper_graph(m).substrates
 _testhelper_products(m) = _testhelper_graph(m).products
 _testhelper_regulators(m::EnzymeRates.EnzymeMechanism) = _testhelper_graph(m).modifiers
+
+"""
+The `reference` of a relative-mode problem on the rate table `data` (a `NamedTuple` of
+columns or a `DataFrame`): one anchor, row `row`'s concentrations — every column but
+`group` and `Rate` — `=>` its `Rate`.
+"""
+function _testhelper_row_reference(data; row = 1)
+    names = Tuple(k for k in propertynames(data) if k ∉ (:group, :Rate))
+    [NamedTuple{names}(Tuple(Float64(getproperty(data, k)[row]) for k in names)) =>
+         Float64(data.Rate[row])]
+end
 
 """Generate random independent (fitted) params + Keq + E_total for a mechanism."""
 function _testhelper_random_independent_params(m; rng=Random.default_rng())
@@ -2571,7 +2574,6 @@ let
         expected_n_independent_params=7,
         analytical_rate_fn=(p, c) ->
             _testhelper_rate_ordered_bi_bi(merge(p, (Etotal=p.Et,)), c),
-        analytical_peak_turnover_fn=p -> p.k3f * p.k4f / (p.k3f + p.k4f),
     ))
 end
 
@@ -2617,7 +2619,6 @@ let
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) ->
             _testhelper_rate_theorell_chance_bi_bi(merge(p, (Etotal=p.Et,)), c),
-        analytical_peak_turnover_fn=p -> p.k3f,
     ))
 end
 
@@ -2664,7 +2665,6 @@ let
         analytical_rate_fn=(p, c) ->
             _testhelper_rate_ping_pong_bi_bi(
                 merge(p, (Etotal=p.Et,)), c),
-        analytical_peak_turnover_fn=p -> p.k2f * p.k4f / (p.k2f + p.k4f),
     ))
 end
 
@@ -3204,7 +3204,6 @@ let
         expected_n_haldane_constraints=1,
         expected_n_independent_params=2,
         analytical_rate_fn=(p, c) -> _testhelper_rate_re_uni_uni(merge(p, (Et=p.Et,)), c),
-        analytical_peak_turnover_fn=p -> p.k2f,
     ))
 end
 
@@ -3320,7 +3319,6 @@ let
         expected_n_independent_params=4,
         analytical_rate_fn=(p, c) -> _testhelper_rate_competitive_inh(
             merge(p, (Et=p.Et,)), c),
-        analytical_peak_turnover_fn=p -> p.k2f,
         # Textbook: flat sum denominator (no Cartesian product structure)
         expected_factored_num=
         "k_ES_to_EP / K_ES_to_E_S",
@@ -3455,7 +3453,6 @@ let
         expected_n_independent_params=4,
         analytical_rate_fn=(p, c) -> _testhelper_rate_essential_activator(
             merge(p, (Et=p.Et,)), c),
-        analytical_peak_turnover_fn=p -> p.k2f,
         expected_factored_num=
         "R * k_ERS_to_EPR / (K_ERS_to_ER_S * K_ER_to_E_R)",
         expected_factored_denom=
@@ -3510,7 +3507,6 @@ let
         expected_n_independent_params=5,
         analytical_rate_fn=(p, c) -> _testhelper_rate_nonessential_activator(
             merge(p, (Et=p.Et,)), c),
-        analytical_peak_turnover_fn=p -> max(p.k2f, p.k5f),
         expected_factored_num=
         "k_ES_to_EP / K_ES_to_E_S + R * k_ERS_to_EPR / (K_ER_to_E_R * K_ES_to_E_S)",
         expected_factored_denom=
@@ -4192,11 +4188,6 @@ let
         expected_n_independent_params=12,
         run_ode_test=false,
         analytical_rate_fn=_testhelper_pfk_rate_analytical,
-        # F6P binding (group 1) is :OnlyA → the F6P·ATP saturating
-        # pattern is unreachable in T-state, so kcat = k5f
-        # for every regulator corner. Guards the peak turnover for a saturating
-        # pattern absent from the I-state.
-        analytical_peak_turnover_fn = p -> p.k5f,
     ))
 end
 
@@ -4317,11 +4308,6 @@ let
         expected_n_independent_params=9,
         run_ode_test=false,
         analytical_rate_fn=_testhelper_hk_rate_analytical,
-        # ATP binding (group 2) is :OnlyA → the Glucose·ATP saturating
-        # pattern is unreachable in T-state, so kcat = k6f
-        # for every regulator corner. Guards the peak turnover for a saturating
-        # pattern absent from the I-state.
-        analytical_peak_turnover_fn = p -> p.k6f,
     ))
 end
 
@@ -4411,7 +4397,6 @@ let
         expected_n_independent_params=8,
         run_ode_test=false,
         analytical_rate_fn=_testhelper_pk_rate_analytical,
-        analytical_peak_turnover_fn = p -> p.k5f,
     ))
 end
 
@@ -4489,7 +4474,6 @@ let
         expected_n_independent_params=12,
         run_ode_test=false,
         analytical_rate_fn=_testhelper_m_all_rate_analytical,
-        analytical_peak_turnover_fn=nothing,      # cat is :NonequalAI → kcat L-dependent
     ))
 end
 
@@ -4535,24 +4519,6 @@ let
         return Et * num / den
     end
 
-    # The peak turnover over S and P, from the written constants `p`.
-    # kcat at saturating S, zero P:
-    #   A_R = k2f/K1², B_R = 1/K1², B_T = 1/K1² (T-state pattern same as R)
-    #   kcat = A_R / (B_R + L · B_T) = k2f / (1 + L)
-    # P binds the R state only, so it can draw the enzyme out of T and raise the
-    # turnover above kcat. At any fixed P/S the turnover rises with S, so the peak
-    # lies at saturating S, where, with P/K3 = c·S/K1, it is
-    #   g(c) = (k2f − k2r·c)(1 + c) / ((1 + c)² + L).
-    # g rises at c = 0 when k2f·(L − 1) > k2r·(1 + L). Its peak over c ≥ 0 sits at
-    # 1 + c = u, the positive root of (k2f + k2r)·u² + 2·k2r·L·u − (k2f + k2r)·L = 0,
-    # or at c = 0 when u ≤ 1.
-    function _testhelper_m_OnlyA_prod_peak_turnover(p)
-        g(c) = (p.k2f - p.k2r * c) * (1 + c) / ((1 + c)^2 + p.L)
-        s = p.k2f + p.k2r
-        u = (sqrt((p.k2r * p.L)^2 + s^2 * p.L) - p.k2r * p.L) / s
-        g(max(0.0, u - 1))
-    end
-
     push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
         name="m_OnlyA_prod",
         mechanism=m,
@@ -4564,7 +4530,6 @@ let
         expected_n_independent_params=4,
         run_ode_test=false,
         analytical_rate_fn=_testhelper_m_OnlyA_prod_rate_analytical,
-        analytical_peak_turnover_fn=_testhelper_m_OnlyA_prod_peak_turnover,
     ))
 end
 

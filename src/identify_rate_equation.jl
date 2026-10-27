@@ -18,25 +18,28 @@ constant for rate equation identification.
   `:Rate`, and metabolite columns
 - `Keq`: fixed equilibrium constant
 - `absolute`: `false` (the default) treats the data as relative and scales every fit to
-  peak turnover 1; `true` treats it as absolute per-enzyme turnover (see `FittingProblem`)
-- `peak_range`: the concentration range `(lo, hi)` of the peak-turnover scale (see
-  `FittingProblem`), in the data's concentration units; the default covers physiological
-  concentrations in M or mM, and data in µM need a higher upper bound
+  the reference turnovers; `true` treats it as absolute per-enzyme turnover (see
+  `FittingProblem`)
+- `reference`: the anchors `concentrations => turnover` that set every relative fit's
+  scale (see `FittingProblem`), keyed by the reaction's metabolites, with any metabolite
+  left out at zero; empty in absolute mode
 
 Construct it with `IdentifyRateEquationProblem(reaction, table; Keq, absolute = false,
-peak_range = (1e-12, 1e3))`.
+reference)`; `reference` is required in relative mode and refused in absolute mode.
+Each fit reads the anchors' concentrations of the metabolites its mechanism binds, so a
+mechanism that leaves out an optional regulator ignores that regulator's concentration.
 """
 struct IdentifyRateEquationProblem{D<:NamedTuple}
     reaction::EnzymeReaction
     data::D
     Keq::Float64
     absolute::Bool
-    peak_range::Tuple{Float64,Float64}
+    reference::Vector{Pair{NamedTuple, Float64}}
 end
 
 function IdentifyRateEquationProblem(
     reaction::EnzymeReaction, table; Keq::Real,
-    absolute::Bool=false, peak_range=DEFAULT_PEAK_RANGE
+    absolute::Bool=false, reference=nothing
 )
     mnames = _metabolite_names(reaction)
     # Every metabolite the reaction declares needs a concentration column.
@@ -49,7 +52,23 @@ function IdentifyRateEquationProblem(
         "cross-validation, got $n_groups")
 
     IdentifyRateEquationProblem{typeof(data)}(reaction, data, Keq, absolute,
-                                              _peak_range(peak_range))
+        _reference(reference, absolute, mnames, "reaction"))
+end
+
+"""
+The `FittingProblem` keywords of `prob` for `mechanism`: `Keq`, `absolute` and, in
+relative mode, `prob.reference` with each anchor's concentrations limited to the
+metabolites `mechanism` binds (it does not respond to the others). The reference keeps
+the problem's element type, so every fit and fold passes keywords of one type.
+"""
+function _fit_keywords(@nospecialize(mechanism::AbstractEnzymeMechanism),
+                       prob::IdentifyRateEquationProblem)
+    prob.absolute && return (; Keq = prob.Keq, absolute = true)
+    mets = metabolites(mechanism)
+    (; Keq = prob.Keq, absolute = false,
+       reference = Pair{NamedTuple, Float64}[
+           NamedTuple{Tuple(filter(in(mets), keys(concs)))}(concs) => turnover
+           for (concs, turnover) in prob.reference])
 end
 
 """
@@ -291,8 +310,6 @@ function _rows_to_dataframe(rows)
         fit_inherited = Union{Missing,Bool}[r.fit_inherited for r in rows],
         fit_source_id = Union{Missing,String}[r.fit_source_id for r in rows],
         L_phantom = Union{Missing,Bool}[r.L_phantom for r in rows],
-        peak_at_range_edge =
-            Union{Missing,Bool}[get(r, :peak_at_range_edge, missing) for r in rows],
     )
     for pn in sorted_pnames
         df[!, pn] = [get(r.params, pn, missing) for r in rows]
@@ -367,14 +384,13 @@ end
 A fit as identify stores it, once per rate-law key (`_canonical`): `values` holds the
 fitted constants at their canonical positions (`_Canonical.order`), then `L` for an MWC
 law, so every mechanism with that key reads them through its own canonical order;
-`loss`, `retcode` and `peak_at_range_edge` are `fit_rate_equation`'s; `source` is the
+`loss` and `retcode` are `fit_rate_equation`'s; `source` is the
 mechanism that was fitted and `source_id` its `mechanism_id`.
 """
 struct _Fit
     values::Vector{Float64}
     loss::Float64
     retcode::Symbol
-    peak_at_range_edge::Bool
     source::Union{Mechanism, AllostericMechanism}
     source_id::String
 end
@@ -461,8 +477,7 @@ function _failure_row(f::FitFailure)
      key = missing,
      fit_inherited = missing,
      fit_source_id = missing,
-     L_phantom = missing,
-     peak_at_range_edge = missing)
+     L_phantom = missing)
 end
 
 """
@@ -648,11 +663,11 @@ function _process_batch(
     function fit!(reps::Vector{_Candidate})
         rep_fits = pmap(reps) do r
             try
-                fp = FittingProblem(compile_mechanism(r.mech), prob.data;
-                    Keq=prob.Keq, absolute=prob.absolute, peak_range=prob.peak_range)
+                em = compile_mechanism(r.mech)
+                fp = FittingProblem(em, prob.data; _fit_keywords(em, prob)...)
                 fit = fit_rate_equation(fp, optimizer; kwargs...)
                 _Fit(Float64[fit.params[x] for x in _fit_order(r)], fit.loss, fit.retcode,
-                     fit.peak_at_range_edge, r.mech, r.mechanism_id)
+                     r.mech, r.mechanism_id)
             catch e
                 _exc_string(e)
             end
@@ -705,7 +720,6 @@ function _process_batch(
             fit_inherited = fit.source_id != c.mechanism_id,
             fit_source_id = fit.source_id,
             L_phantom = c.phantom,
-            peak_at_range_edge = fit.peak_at_range_edge,
         )
         push!(entries, BatchEntry(c.mech, length(c.fitted), fit.loss, fit.retcode,
                                   c.canon.key, fit_key, row))
@@ -719,10 +733,10 @@ joins the `frontier` (the unexpanded work queue — ALL structurally-distinct
 mechanisms, no key dedup); `best_loss_by_count` tracks the per-count running
 min (the beam-cutoff reference); `cv_pool` keeps the top `n_cv_candidates`
 entries with DISTINCT rate-law keys (lowest loss each) per param count. An entry whose
-loss is not finite (`fit_rate_equation` returns `Inf` when no restart is finite) is
-skipped: it is never expanded, never sets a best loss and never enters LOOCV; its row
-is already in the batch's CSV. Returns the set of counts whose best loss strictly
-dropped (or first appeared) in this batch.
+loss is not finite (`fit_rate_equation` returns `Inf` when no restart is finite or when
+the fit cannot match the reference turnovers) is skipped: it is never expanded, never
+sets a best loss and never enters LOOCV; its row is already in the batch's CSV. Returns
+the set of counts whose best loss strictly dropped (or first appeared) in this batch.
 """
 function _ingest!(frontier, cv_pool, best_loss_by_count, entries;
                   n_cv_candidates)
@@ -889,9 +903,9 @@ function _beam_search(
     # member of a selected key expands without budget, and a late member of any other
     # key is judged again.
     selected_keys = Set{String}()
-    # Fits by rate-law key, at canonical positions (`_Fit`; scaled to peak turnover 1 in
-    # relative mode), shared across iterations so each distinct law is fit exactly once
-    # over the whole search. LOOCV refits each key's source on its folds.
+    # Fits by rate-law key, at canonical positions (`_Fit`; scaled to the reference
+    # turnovers in relative mode), shared across iterations so each distinct law is fit
+    # exactly once over the whole search. LOOCV refits each key's source on its folds.
     memo = Dict{String,_Fit}()
     # Structures already produced — each is expanded at most once (termination).
     # This preserves the selected model: expansion is deterministic, so a
@@ -1118,7 +1132,7 @@ fold copies its rows rather than viewing them, so its problem has the full fit's
 function _fold_problem(@nospecialize(mechanism::AbstractEnzymeMechanism),
                        prob::IdentifyRateEquationProblem, mask)
     FittingProblem(mechanism, map(col -> col[mask], prob.data);
-        Keq=prob.Keq, absolute=prob.absolute, peak_range=prob.peak_range)
+        _fit_keywords(mechanism, prob)...)
 end
 
 """

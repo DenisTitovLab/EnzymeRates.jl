@@ -189,7 +189,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             (group = repeat(["G1", "G2"], inner = 4),
              Rate = [0.3, 0.5, 0.6, 0.8, 0.2, 0.4, 0.7, 0.9],
              A = repeat([0.5, 1.0, 2.0, 4.0], 2), B = repeat([1.0, 2.0], 4),
-             P = fill(0.1, 8), Q = fill(0.2, 8)); Keq = 2.0)
+             P = fill(0.1, 8), Q = fill(0.2, 8)); Keq = 2.0,
+            reference = [(A = 0.5, B = 1.0, P = 0.1, Q = 0.2) => 0.3])
         const OPT = CMAEvolutionStrategyOpt()
         const FIT_KW = (; n_restarts = 1, maxtime = 10.0, maxiters = 20, abstol = nothing,
                         reltol = nothing, callback = nothing, solver_kwargs = (;))
@@ -211,9 +212,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             pass1 = _testhelper_all_instances() - n0
             rec isa ER._Candidate || error("PASS1 gave \$(repr(rec))")
             s1 = _testhelper_instances(methods(show))
-            fp = FittingProblem(ER.compile_mechanism(m), PROB.data;
-                                Keq = PROB.Keq, absolute = PROB.absolute,
-                                peak_range = PROB.peak_range)
+            em = ER.compile_mechanism(m)
+            fp = FittingProblem(em, PROB.data; ER._fit_keywords(em, PROB)...)
             fit_rate_equation(fp, OPT; FIT_KW...)
             ER._cv_fold_loss(ER.compile_mechanism(m), PROB, "G1";
                              optimizer = OPT, FIT_KW...)

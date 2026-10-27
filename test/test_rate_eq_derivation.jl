@@ -1,5 +1,5 @@
 # ABOUTME: Tests for rate-equation derivation (King-Altman/Cha, mass-action oracle),
-# ABOUTME: the parameters API, peak rescaling, rate-equation strings, and the perf gate.
+# ABOUTME: the parameters API, rescaling to turnovers, rate-equation strings, perf gate.
 
 using OrdinaryDiffEqFIRK
 
@@ -669,80 +669,43 @@ function _testhelper_extract_factors(v_line::AbstractString)
                          (inner(parts[1]), inner(parts[2]), inner(parts[3]))
 end
 
-"""
-Test that the peak turnover of `spec`'s mechanism at `params` (fitted constants, `Keq`
-and `E_total`; seed 42's draw unless given) equals
-`spec.analytical_peak_turnover_fn`'s value.
-"""
-function _testhelper_test_analytical_peak_turnover(spec::_testhelper_MechanismTestSpec;
-                                                   params=nothing)
-    spec.analytical_peak_turnover_fn === nothing && return
+function _testhelper_test_rescaling(spec::_testhelper_MechanismTestSpec; seed=100)
     m = spec.mechanism
-    if params === nothing
-        params = _testhelper_random_independent_params(m; rng=Random.MersenneTwister(42))
-    end
-    @testset "Peak turnover approaches the analytical value" begin
-        # Every fitted constant and Keq lies in 0.1–10, so over a range reaching 1e12 the
-        # peak sits at saturating substrates and equals the spec's analytical value to
-        # within K/1e12: the kcat at zero products or, where a product raises the
-        # turnover, the supremum over product levels.
-        peak = EnzymeRates._peak_turnover(m, params, (1e-12, 1e12)).value
-        # The textbook formula may read a dependent rate constant, so the bridge
-        # reads every constant through all_parameters.
-        p = merge(_testhelper_written_params(m, all_parameters(m, params); raw=spec.raw),
-                  (Et=params.E_total,))
-        @test peak ≈ spec.analytical_peak_turnover_fn(p) rtol=1e-9
-    end
-end
-
-function _testhelper_test_peak_rescaling(spec::_testhelper_MechanismTestSpec; seed=100)
-    m = spec.mechanism
-    @testset "Peak rescaling" begin
+    @testset "Rescaling to a measured turnover" begin
         rng = Random.MersenneTwister(seed)
         params = _testhelper_random_independent_params(m; rng)
-        range = (1e-12, 1e3)
-        peak = EnzymeRates._peak_turnover(m, params, range).value
-        @test peak > 0
+        met_names = metabolites(m)
+        concs = NamedTuple{Tuple(met_names)}(Tuple(0.5 + rand(rng) for _ in met_names))
+        v_orig = rate_equation(m, concs, params)
+        @test isfinite(v_orig) && v_orig != 0
 
-        # Scaling every steady-state rate constant by α scales the peak by α.
+        # Scaling every steady-state rate constant by α scales every rate by α.
         ss_names = EnzymeRates._ss_rate_constant_names(m)
         α = 0.1 + 9.9 * rand(rng)
         scaled_params = NamedTuple{keys(params)}(Tuple(
             k in ss_names ? v * α : v
             for (k, v) in zip(keys(params), values(params))
         ))
-        @test EnzymeRates._peak_turnover(m, scaled_params, range).value ≈
-            α * peak rtol=1e-9
+        @test rate_equation(m, concs, scaled_params) ≈ α * v_orig rtol=1e-9
 
-        # The peak scale makes the peak 1 and leaves every other constant alone.
-        norm, spread = rescale_parameter_values(m, params)
-        @test spread === nothing
-        @test EnzymeRates._peak_turnover(m, norm, range).value ≈ 1.0 rtol=1e-9
-        for k in keys(params)
-            if !(k in ss_names)
-                @test norm[k] == params[k]
-            end
-        end
-
-        # Every rate changes by the same factor.
-        met_names = metabolites(m)
-        concs = NamedTuple{Tuple(met_names)}(Tuple(0.5 + rand(rng) for _ in met_names))
-        v_orig = rate_equation(m, concs, params)
-        @test rate_equation(m, concs, norm) / v_orig ≈ 1.0 / peak rtol=1e-8
-
-        # The peak bounds the rescaled turnover at every corner of the range.
-        norm_turnover = merge(norm, (E_total=1.0,))
-        corners = Iterators.product(ntuple(_ -> range, length(met_names))...)
-        @test all(c -> rate_equation(m, NamedTuple{met_names}(c), norm_turnover) <=
-                       1 + 1e-9, corners)
-
-        # An anchor at those concentrations sets the turnover there.
+        # An anchor at those concentrations sets the turnover there and leaves every
+        # constant but the steady-state rate constants alone.
         target = sign(v_orig) * (0.1 + 9.9 * rand(rng))
         anchored, spread_one = rescale_parameter_values(m, params, [concs => target])
         @test spread_one == 0.0
+        for k in keys(params)
+            if !(k in ss_names)
+                @test anchored[k] == params[k]
+            end
+        end
         # The anchors' turnover is per enzyme, so the scale leaves E_total as passed in.
         @test anchored.E_total == params.E_total
         @test rate_equation(m, concs, merge(anchored, (E_total=1.0,))) ≈ target rtol=1e-9
+
+        # Every rate changes by the same factor.
+        other = NamedTuple{Tuple(met_names)}(Tuple(0.5 + rand(rng) for _ in met_names))
+        @test rate_equation(m, other, anchored) / rate_equation(m, other, params) ≈
+              target / rate_equation(m, concs, merge(params, (E_total=1.0,))) rtol=1e-8
     end
 end
 
@@ -811,9 +774,7 @@ function _testhelper_run_all_tests(spec::_testhelper_MechanismTestSpec)
         _testhelper_test_rate_equation_string(spec)
         _testhelper_test_zero_metabolite_finite(spec)
         spec.run_ode_test && _testhelper_test_ode_steadystate(spec)
-        # Only runs if analytical_peak_turnover_fn provided
-        _testhelper_test_analytical_peak_turnover(spec)
-        _testhelper_test_peak_rescaling(spec)
+        _testhelper_test_rescaling(spec)
     end
 end
 
@@ -825,20 +786,6 @@ end
     for spec in MECHANISM_TEST_SPECS
         _testhelper_run_all_tests(spec)
     end
-end
-
-# Seed 42 puts m_OnlyA_prod's peak turnover at zero products on some Julia versions and
-# above it on others (MersenneTwister's stream differs), so fixed constants test the
-# peak at a nonzero product on every version.
-@testset "m_OnlyA_prod's peak turnover at a nonzero product" begin
-    spec = only(s for s in MECHANISM_TEST_SPECS if s.name == "m_OnlyA_prod")
-    # K1 = K3 = k2f = 1 and Keq = 10, so k2r = k2f·K3/(Keq·K1) = 0.1 and
-    # k2f·(L − 1) = 8 exceeds k2r·(1 + L) = 1: the product raises the turnover.
-    params = (K_A_EP_to_E_P=1.0, K_ES_to_E_S=1.0, k_A_ES_to_EP=1.0, L=9.0, Keq=10.0,
-              E_total=1.0)
-    # Above the zero-product kcat k2f/(1 + L) = 0.1 (the peak is 0.140).
-    @test EnzymeRates._peak_turnover(spec.mechanism, params, (1e-12, 1e12)).value > 0.13
-    _testhelper_test_analytical_peak_turnover(spec; params)
 end
 
 # A fused and a plain binding of B share one rapid-equilibrium kinetic group.
@@ -2736,164 +2683,4 @@ end
                    (Keq = 1.0, E_total = 1.0))
     concs = (A = 1.0, B = 1.0, P = 1.0, Q = 1.0)
     @test isfinite(rate_equation(m, concs, params))
-end
-
-@testset "the peak of an allosteric random-order bi-bi reaches the grid maximum" begin
-    # Random-order allosteric bi-bi, live I-state.
-    m = @allosteric_mechanism begin
-        substrates: A, B
-        products: P, Q
-        catalytic_multiplicity: 2
-        steps: begin
-            E + A <--> E(A)        :: NonequalAI
-            E + B <--> E(B)        :: NonequalAI
-            E(A) + B <--> E(A, B)  :: NonequalAI
-            E(B) + A <--> E(A, B)  :: NonequalAI
-            E(A, B) <--> E(P, Q)   :: NonequalAI
-            E(P, Q) <--> E(P) + Q  :: NonequalAI
-            E(P, Q) <--> E(Q) + P  :: NonequalAI
-            E(P) <--> E + P        :: NonequalAI
-            E(Q) <--> E + Q        :: NonequalAI
-        end
-    end
-    rng = Random.MersenneTwister(1)
-    pn = EnzymeRates.fitted_params(m)
-    pv = NamedTuple{pn}(Tuple(0.2 + 2 * rand(rng) for _ in pn))
-    peak = EnzymeRates._peak_turnover(m, merge(pv, (Keq = 1.0,)), (1e-12, 1e9))
-    @test isfinite(peak.value)
-    fp = merge(pv, (Keq = 1.0, E_total = 1.0))
-    vgrid = maximum(rate_equation(m, (A = x, B = y, P = p, Q = q), fp)
-                    for x in 10.0 .^ (-12:9), y in 10.0 .^ (-12:9),
-                        p in 10.0 .^ (-12:3:9), q in 10.0 .^ (-12:3:9))
-    @test peak.value >= vgrid * (1 - 1e-12)
-end
-
-@testset "the peak turnover covers every regulator corner at saturating substrate" begin
-    # A regulator that binds one conformation only (:OnlyA or :OnlyI) puts all the enzyme
-    # in that conformation when it saturates, so the rate tends to that conformation's own
-    # saturating turnover; with the regulator absent both conformations contribute. The
-    # peak turnover is at least every regulator corner's turnover at saturating S.
-    # :NonequalAI catalysis: both conformations turn over.
-    only_a = @allosteric_mechanism begin
-        substrates: S
-        products: P
-        allosteric_regulators: X
-        catalytic_multiplicity: 2
-        steps: begin
-            E + S ⇌ E(S)      :: NonequalAI
-            E(S) <--> E(P)    :: NonequalAI
-            E(P) ⇌ E + P      :: NonequalAI
-        end
-        regulatory_site(2): X::OnlyA
-    end
-    only_i = @allosteric_mechanism begin
-        substrates: S
-        products: P
-        allosteric_regulators: X
-        catalytic_multiplicity: 2
-        steps: begin
-            E + S ⇌ E(S)      :: NonequalAI
-            E(S) <--> E(P)    :: NonequalAI
-            E(P) ⇌ E + P      :: NonequalAI
-        end
-        regulatory_site(2): X::OnlyI
-    end
-    # :OnlyA catalysis with :EqualAI binding: the inactive conformation binds S but does
-    # not turn over, so saturating X drives the rate to 0.
-    only_i_dead = @allosteric_mechanism begin
-        substrates: S
-        products: P
-        allosteric_regulators: X
-        catalytic_multiplicity: 2
-        steps: begin
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: OnlyA
-            E(P) ⇌ E + P      :: EqualAI
-        end
-        regulatory_site(2): X::OnlyI
-    end
-    # Two sites: with X and Y saturating, the inactive conformation's regulator power is
-    # 2 + 1 against the active one's 1.
-    two_site = @allosteric_mechanism begin
-        substrates: S
-        products: P
-        allosteric_regulators: X, Y
-        catalytic_multiplicity: 2
-        steps: begin
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: OnlyA
-            E(P) ⇌ E + P      :: EqualAI
-        end
-        regulatory_site(2): X::OnlyI
-        regulatory_site(1): Y::NonequalAI
-    end
-    BIG = 1e9
-    for m in (only_a, only_i, only_i_dead, two_site)
-        pn = EnzymeRates.fitted_params(m)
-        regs = Tuple(x for x in metabolites(m) if x ∉ (:S, :P))
-        for seed in 1:5
-            rng = Random.MersenneTwister(seed)
-            p = merge(NamedTuple{pn}(Tuple(0.2 + 5 * rand(rng) for _ in pn)),
-                      (Keq = 2.0, E_total = 1.0))
-            # Corners of the searched range: each regulator at a bound, saturating S,
-            # the product at the lower bound.
-            vmax = maximum(0:(2^length(regs) - 1)) do mask
-                r = Tuple((mask >> (i - 1)) & 1 == 1 ? BIG : 1e-12
-                          for i in eachindex(regs))
-                rate_equation(m, NamedTuple{(:S, :P, regs...)}((BIG, 1e-12, r...)), p)
-            end
-            @test EnzymeRates._peak_turnover(m, p, (1e-12, BIG)).value >=
-                  vmax * (1 - 1e-12)
-        end
-    end
-end
-
-@testset "the peak turnover of a random-order bi-bi reaches the grid maximum" begin
-    # 40 parameter draws; the grid spans every metabolite, products included.
-    m = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A <--> E(A)
-            E + B <--> E(B)
-            E(A) + B <--> E(A, B)
-            E(B) + A <--> E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(P, Q) <--> E(P) + Q
-            E(P, Q) <--> E(Q) + P
-            E(P) <--> E + P
-            E(Q) <--> E + Q
-        end
-    end
-    pn = EnzymeRates.fitted_params(m)
-    for seed in 1:40
-        rng = Random.MersenneTwister(seed)
-        pv = NamedTuple{pn}(Tuple(0.2 + 5 * rand(rng) for _ in pn))
-        peak = EnzymeRates._peak_turnover(m, merge(pv, (Keq = 1.0,)), (1e-12, 1e3))
-        fp = merge(pv, (Keq = 1.0, E_total = 1.0))
-        vgrid = maximum(rate_equation(m, (A = x, B = y, P = p, Q = q), fp)
-                        for x in 10.0 .^ (-12:3), y in 10.0 .^ (-12:3),
-                            p in 10.0 .^ (-12:3:3), q in 10.0 .^ (-12:3:3))
-        @test peak.value >= vgrid * (1 - 1e-12)
-    end
-end
-
-@testset "the peak of a law that needs bound product lies at a positive product level" begin
-    # Catalysis runs only on the product-bound form E(P), so every forward numerator
-    # term carries P and the turnover vanishes at zero product.
-    m = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + P ⇌ E(P)
-            E(P) + S ⇌ E(P, S)
-            E(P, S) <--> E(P, P)
-            E(P, P) ⇌ E(P) + P
-        end
-    end
-    pn = EnzymeRates.fitted_params(m)
-    params = merge(NamedTuple{pn}(ntuple(_ -> 1.5, length(pn))), (Keq = 2.0,))
-    peak = EnzymeRates._peak_turnover(m, params, (1e-12, 1e3))
-    @test peak.value > 0
-    @test 1e-3 < peak.concs.P < 1e3
 end

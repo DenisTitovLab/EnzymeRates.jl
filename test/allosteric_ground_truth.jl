@@ -102,7 +102,8 @@ end
         v_code = real(ER.rate_equation(onlyA, (S=S, P=P), prm))
         v_gt = _testhelper_uni_onlyA_flux(KA, KP, k, L=L, Keq=Keq, S=S, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
-        @test ER._peak_turnover(onlyA, prm, (1e-12, 1e3)).value > 0
+        # Far from equilibrium the law runs forward.
+        @test real(ER.rate_equation(onlyA, (S=10.0, P=1e-3), prm)) > 0
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) uni-uni rate.
         kr = k * KP / (Keq * KA)
@@ -122,10 +123,10 @@ end
     @test A.inactive.trees[1] * A.inactive.shift == one(ER._Poly)   # one inactive segment
     @test A.fA == A.fI == one(ER._Poly)
 
-    # The peak scale stays consistent with rate_equation.
+    # Rescaling to a measured turnover stays consistent with rate_equation.
     prm = NamedTuple{(fp..., :Keq, :E_total)}((1.3, 0.9, 2.1, 0.7, 3.0, 1.0))
-    rescaled, _ = ER.rescale_parameter_values(onlyA, prm)
-    @test isapprox(ER._peak_turnover(onlyA, rescaled, (1e-12, 1e3)).value, 1.0;
+    rescaled, _ = ER.rescale_parameter_values(onlyA, prm, [(S = 2.0, P = 0.5) => 1.5])
+    @test isapprox(real(ER.rate_equation(onlyA, (S = 2.0, P = 0.5), rescaled)), 1.5;
                    rtol=1e-9)
 end
 
@@ -159,7 +160,7 @@ end
         v_code = real(ER.rate_equation(multiA, (A=A, B=B, P=P), prm))
         v_gt = _testhelper_multi_onlyA_flux(KA, KB, KP, k, L=L, Keq=Keq, A=A, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
-        @test ER._peak_turnover(multiA, prm, (1e-12, 1e3)).value > 0
+        @test real(ER.rate_equation(multiA, (A=10.0, B=10.0, P=1e-3), prm)) > 0
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) bi-uni rate.
         kr = k * KP / (Keq * KA * KB)
@@ -247,7 +248,7 @@ end
         v_gt = _testhelper_metab_dfree_onlyA_flux(
             kon, koff, KB, KP, k, L=L, Keq=Keq, S=S, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
-        @test ER._peak_turnover(metabD, prm, (1e-12, 1e3)).value > 0
+        @test real(ER.rate_equation(metabD, (S=10.0, B=10.0, P=1e-3), prm)) > 0
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) ordered bi-uni rate.
         @test isapprox(
@@ -268,7 +269,7 @@ end
             kon, koff, KB, KP, k; L=L, Keq=Keq, S=S, B=0.0, P=P);
         rtol=1e-4)
     @test v0 < 0    # reverse flux survives at B=0 (invalid :EqualAI-cat trap→0 was fake)
-    @test ER._peak_turnover(metabD, prm, (1e-12, 1e3)).value > 0
+    @test real(ER.rate_equation(metabD, (S=10.0, B=10.0, P=1e-3), prm)) > 0
 end
 
 # ── Free-flip-only ordered bi-uni :NonequalAI-catalysis reference ────────────
@@ -833,7 +834,9 @@ end
     # covalent forms: half 2 cannot run there, and half 1 runs back only with F16BP. The
     # rate is then 0, as the mass-action limit is.
     @test real(ER.rate_equation(half2, merge(concs, (ADP = 0.0, F16BP = 0.0)), prm)) == 0
-    @test ER._peak_turnover(half2, prm, (1e-12, 1e3)).value > 0
+    # Far from equilibrium, with a trace of each product, the law runs forward.
+    forward = (ATP = 10.0, F6P = 10.0, ADP = 1e-3, F16BP = 1e-3)
+    @test real(ER.rate_equation(half2, forward, prm)) > 0
 end
 
 # ── n-protomer concerted-MWC oracle (formulation 1) ─────────────────────────
@@ -1036,7 +1039,7 @@ end
 # neither half-reaction, which waits for iso mechanisms (ROADMAP). The half-2 variant
 # derives: a finite rate as a product goes to zero, a rate of 0 with both products at
 # zero (its inactive conformation holds the enzyme in the covalent forms there), a
-# positive peak turnover, and the non-allosteric twin's rate at L = 0.
+# forward rate far from equilibrium, and the non-allosteric twin's rate at L = 0.
 @testset "a dead-inactive ping-pong is rejected; its half-2 variant is its L = 0 twin" begin
     # With the F6P binding and both half-reactions :OnlyA, the inactive conformation runs
     # neither half: the covalent forms between the halves join free E only through tagged
@@ -1126,7 +1129,8 @@ end
         # With both products at zero the inactive conformation holds its enzyme in the
         # covalent forms (half 2 cannot run, half 1 runs back only with F16BP): rate 0.
         @test real(ER.rate_equation(half2, merge(concs, (ADP=0.0, F16BP=0.0)), prm)) == 0
-        @test ER._peak_turnover(half2, prm, (1e-12, 1e3)).value > 0
+        @test real(ER.rate_equation(half2,
+            (ATP=10.0, F6P=10.0, ADP=1e-3, F16BP=1e-3), prm)) > 0
         # v = 0 at the equilibrium metabolite ratio ADP·F16BP = Keq·ATP·F6P.
         @test isapprox(real(ER.rate_equation(half2,
             (ATP=ATP, F6P=F6P, ADP=Keq*ATP*F6P/F16BP, F16BP=F16BP), prm)),

@@ -97,11 +97,13 @@ end
     _testhelper_table(rate, A, B) =
         (group = [1, 1], Rate = [1.0, rate], A = [1.0, A], B = [1.0, B], D = [1.0, 1.0],
          P = [0.1, 0.0], Q = [0.1, 0.0])
+    reference = _testhelper_row_reference(_testhelper_table(0.5, 1.0, 0.0))
     @test_throws(ErrorException("Zero rate at row 2: log(0) is undefined"),
-                 FittingProblem(am, _testhelper_table(0.0, 1.0, 0.0); Keq = 1.0))
+                 FittingProblem(am, _testhelper_table(0.0, 1.0, 0.0); Keq = 1.0,
+                                reference))
     x = [log(params[p]) for p in EnzymeRates.fitted_params(am)]
-    at_nan = FittingProblem(am, _testhelper_table(0.5, 1.0, 0.0); Keq = 1.0)
-    at_zero = FittingProblem(am, _testhelper_table(0.5, 0.0, 1.0); Keq = 1.0)
+    at_nan = FittingProblem(am, _testhelper_table(0.5, 1.0, 0.0); Keq = 1.0, reference)
+    at_zero = FittingProblem(am, _testhelper_table(0.5, 0.0, 1.0); Keq = 1.0, reference)
     @test EnzymeRates.loss!(x, at_nan) == EnzymeRates.loss!(x, at_zero)
 end
 
