@@ -517,7 +517,7 @@ end
         @test any(f -> any(isequal(true), _testhelper_read_csv(f).L_phantom), files)
         init_df = _testhelper_read_csv("initial_mechanisms.csv")
         @test nrow(init_df) == length(unique!(
-            collect(EnzymeRates.init_mechanisms(prob.reaction))))
+            collect(EnzymeRates.Enumeration.init_mechanisms(prob.reaction))))
         @test "key" in names(init_df)
         @test !("fit_inherited_from_estimate" in names(init_df))
         texts = Dict{String, Set{String}}()
@@ -1033,7 +1033,7 @@ end
         products:   P[C], Q[N]
     end)
     buckets = Dict{String, Vector{Int}}()
-    for (i, m) in enumerate(EnzymeRates.init_mechanisms(reaction))
+    for (i, m) in enumerate(EnzymeRates.Enumeration.init_mechanisms(reaction))
         id = EnzymeRates._mechanism_id(sprint(show, m))
         c = EnzymeRates.Derivation._canonical(EnzymeRates.Derivation._law(m), id)
         @test !c.capped
@@ -1238,7 +1238,7 @@ end
 end
 
 @testset "_process_batch" begin
-    ms = unique!(collect(EnzymeRates.init_mechanisms(_testhelper_uni_rxn)))
+    ms = unique!(collect(EnzymeRates.Enumeration.init_mechanisms(_testhelper_uni_rxn)))
     prob = _testhelper_uni_prob(DataFrame)
 
     entries, failures = EnzymeRates._process_batch(ms, prob;
@@ -2572,7 +2572,7 @@ end
         end
     end)
     # Sanity: expansion of this mechanism genuinely raises.
-    @test_throws ErrorException EnzymeRates.expand_mechanisms(
+    @test_throws ErrorException EnzymeRates.Enumeration.expand_mechanisms(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m_bad],
         rxn_bad)
     entry(m) = EnzymeRates.BatchEntry(m, 0, 0.0, :Success, "", "", (mechanism="M",))
@@ -2608,12 +2608,14 @@ end
     M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
     # The seed's children as parents: their own children overlap, so the
     # first-parent dedup and attribution are exercised.
-    parents = EnzymeRates.expand_mechanisms(M[EnzymeRates.init_mechanisms(rxn)...], rxn)
+    parents = EnzymeRates.Enumeration.expand_mechanisms(
+        M[EnzymeRates.Enumeration.init_mechanisms(rxn)...], rxn)
     to_expand = [EnzymeRates.BatchEntry(m, 3, 0.0, :Success, "", "", (mechanism="M",))
                  for m in parents]
 
     children, parent_of, failures = EnzymeRates._expand_parents(to_expand, rxn)
-    per_parent = [EnzymeRates.expand_mechanisms(M[pe.mech], rxn) for pe in to_expand]
+    per_parent =
+        [EnzymeRates.Enumeration.expand_mechanisms(M[pe.mech], rxn) for pe in to_expand]
     @test isempty(failures)
     # Children in first-parent order, each once; several parents share a child.
     @test children == unique(reduce(vcat, per_parent))
@@ -2630,21 +2632,22 @@ end
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
     end
-    seeds = unique!(collect(EnzymeRates.init_mechanisms(rxn)))
-    degenerate = filter(EnzymeRates._degenerate, seeds)
+    seeds = unique!(collect(EnzymeRates.Enumeration.init_mechanisms(rxn)))
+    degenerate = filter(EnzymeRates.Enumeration._degenerate, seeds)
     @test length(degenerate) == 7                  # the seven ping-pong seeds
     base, failures = EnzymeRates._base_tier(seeds, rxn)
     @test isempty(failures)
-    @test !any(EnzymeRates._degenerate, base)
-    cures = unique!([c for m in degenerate for c in EnzymeRates._expand_re_to_ss(m)
-                     if !EnzymeRates._degenerate(c)])
+    @test !any(EnzymeRates.Enumeration._degenerate, base)
+    cures =
+        unique!([c for m in degenerate for c in EnzymeRates.Enumeration._expand_re_to_ss(m)
+                 if !EnzymeRates.Enumeration._degenerate(c)])
     @test length(cures) == 21                      # three per ping-pong seed
     # Only a flip changes which steps are at rapid equilibrium, so every other move leaves
     # a degenerate seed's child degenerate.
-    kids = EnzymeRates.expand_mechanisms(
+    kids = EnzymeRates.Enumeration.expand_mechanisms(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[degenerate...], rxn)
-    @test Set(filter(!EnzymeRates._degenerate, kids)) == Set(cures)
-    @test Set(base) == Set(vcat(filter(!EnzymeRates._degenerate, seeds), cures))
+    @test Set(filter(!EnzymeRates.Enumeration._degenerate, kids)) == Set(cures)
+    @test Set(base) == Set(vcat(filter(!EnzymeRates.Enumeration._degenerate, seeds), cures))
     @test length(base) == 278
 end
 
@@ -2704,7 +2707,7 @@ end
             E + Q <--> E(Q)
         end
     end)
-    @test ER._degenerate(seed)
+    @test ER.Enumeration._degenerate(seed)
     base, failures = ER._base_tier([seed], rxn)
     @test isempty(failures)
     @test length(base) == 3
@@ -2731,7 +2734,7 @@ end
             E + T ⇌ E(T)
         end
     end)
-    @test EnzymeRates._degenerate(m_bad)
+    @test EnzymeRates.Enumeration._degenerate(m_bad)
     base, failures = EnzymeRates._base_tier([m_bad], rxn_bad)
     @test isempty(base)
     @test length(failures) == 1 && failures[1] isa EnzymeRates.FitFailure
@@ -2828,13 +2831,13 @@ end
         end
     end)
     @test ER.Derivation._is_well_posed(seed)
-    @test ER._degenerate(seed)
-    kids = ER._expand_re_to_ss(seed)
+    @test ER.Enumeration._degenerate(seed)
+    kids = ER.Enumeration._expand_re_to_ss(seed)
     @test length(kids) == 6
     @test Set(k for k in kids if !ER.Derivation._is_well_posed(k)) == Set(dropped)
     @test all(k -> ER.Derivation._guard(k).fault === ER.Derivation._BRIDGE, dropped)
     # The guard filter drops them, not the degeneracy test.
-    @test !any(ER._degenerate, dropped)
+    @test !any(ER.Enumeration._degenerate, dropped)
     @test ER.Derivation._guard_message(dropped[1], ER.Derivation._guard(dropped[1])) ==
           "AllostericMechanism: at zero P, the :OnlyA step E <--> F bridges forms of " *
           "the inactive conformation that its other steps keep apart, so admission " *
@@ -2927,9 +2930,9 @@ end
                 F <--> E          :: EqualAI
             end
         end)]
-    @test ER._degenerate(seed)
-    @test length(ER._expand_re_to_ss(seed)) == 6
-    @test all(ER.Derivation._is_well_posed, ER._expand_re_to_ss(seed))
+    @test ER.Enumeration._degenerate(seed)
+    @test length(ER.Enumeration._expand_re_to_ss(seed)) == 6
+    @test all(ER.Derivation._is_well_posed, ER.Enumeration._expand_re_to_ss(seed))
     base, failures = ER._base_tier([seed], rxn)
     @test isempty(failures)
     @test length(base) == 6
@@ -2956,8 +2959,8 @@ end
             E(S, X) <--> E(X) + P   :: EqualAI
         end
     end)
-    @test !EnzymeRates._degenerate(route)
-    @test EnzymeRates._degenerate(EnzymeRates.Mechanism(@enzyme_mechanism begin
+    @test !EnzymeRates.Enumeration._degenerate(route)
+    @test EnzymeRates.Enumeration._degenerate(EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: X
@@ -2990,9 +2993,9 @@ end
     end
     cm, on = tc_route.catalytic, EnzymeRates.Mechanisms._active_mask(tc_route)
     re = EnzymeRates.Mechanisms._flags(cm)
-    @test !EnzymeRates._has_vmax(cm, re .& on, cm.substrates)
-    @test EnzymeRates._has_vmax(cm, re, cm.substrates, on)
-    @test !EnzymeRates._degenerate(tc_route)
+    @test !EnzymeRates.Enumeration._has_vmax(cm, re .& on, cm.substrates)
+    @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates, on)
+    @test !EnzymeRates.Enumeration._degenerate(tc_route)
     # Read over every step, the X route's merged complex E(P, X) sits in rapid
     # equilibrium with both sides (condition C), while the maximal rate exists both
     # ways: the steady-state F(X) <--> E(X) keeps the route from closing a
@@ -3015,15 +3018,14 @@ end
     cm, on = merged_route.catalytic, EnzymeRates.Mechanisms._active_mask(merged_route)
     re = EnzymeRates.Mechanisms._flags(cm)
     subs = EnzymeRates.Mechanisms._names_mask(cm, cm.substrates)
-    @test EnzymeRates.Mechanisms._form_text.(Ref(cm),
-                                             EnzymeRates._merged_complexes(cm, subs)) ==
-          ["E(P, X)"]
-    @test isempty(EnzymeRates._merged_complexes(cm, subs, on))
-    @test EnzymeRates._chemistry_equilibrates_both_sides(cm, re)
-    @test !EnzymeRates._chemistry_equilibrates_both_sides(cm, re, on)
-    @test EnzymeRates._has_vmax(cm, re, cm.substrates) &&
-          EnzymeRates._has_vmax(cm, re, cm.products)
-    @test !EnzymeRates._degenerate(merged_route)
+    @test EnzymeRates.Mechanisms._form_text.(
+        Ref(cm), EnzymeRates.Enumeration._merged_complexes(cm, subs)) == ["E(P, X)"]
+    @test isempty(EnzymeRates.Enumeration._merged_complexes(cm, subs, on))
+    @test EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re)
+    @test !EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re, on)
+    @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates) &&
+          EnzymeRates.Enumeration._has_vmax(cm, re, cm.products)
+    @test !EnzymeRates.Enumeration._degenerate(merged_route)
     # The same route through a rapid-equilibrium Theorell–Chance step. Read over every
     # step, that step takes up S and gives off P in rapid equilibrium (condition C), and
     # the maximal rate again exists both ways; read through the edge mask, the step lies
@@ -3043,11 +3045,11 @@ end
     end
     cm, on = re_tc_route.catalytic, EnzymeRates.Mechanisms._active_mask(re_tc_route)
     re = EnzymeRates.Mechanisms._flags(cm)
-    @test EnzymeRates._chemistry_equilibrates_both_sides(cm, re)
-    @test !EnzymeRates._chemistry_equilibrates_both_sides(cm, re, on)
-    @test EnzymeRates._has_vmax(cm, re, cm.substrates) &&
-          EnzymeRates._has_vmax(cm, re, cm.products)
-    @test !EnzymeRates._degenerate(re_tc_route)
+    @test EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re)
+    @test !EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re, on)
+    @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates) &&
+          EnzymeRates.Enumeration._has_vmax(cm, re, cm.products)
+    @test !EnzymeRates.Enumeration._degenerate(re_tc_route)
 end
 
 @testset "_cv_model_selection: flatten reproduces serial LOOCV per candidate" begin

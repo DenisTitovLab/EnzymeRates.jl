@@ -172,7 +172,7 @@ Known issues, planned work and ideas live in `ROADMAP.md` at the repo root. Read
 
 ## API Design
 
-- `compile_mechanism` is NOT exported (internal). The concrete enumeration types `Mechanism` / `AllostericMechanism` are also not exported; they are the mechanism-construction surface reached as `EnzymeRates.Mechanism` / `EnzymeRates.AllostericMechanism` / `EnzymeRates.init_mechanisms(rxn) → Vector{Mechanism}` (internal-but-usable). Their `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` singleton-type forms are lifted via `compile_mechanism(m)` when the @generated rate-equation derivation is needed.
+- `compile_mechanism` is NOT exported (internal). The concrete enumeration types `Mechanism` / `AllostericMechanism` are also not exported; they are the mechanism-construction surface reached as `EnzymeRates.Mechanism` / `EnzymeRates.AllostericMechanism` / `EnzymeRates.Enumeration.init_mechanisms(rxn) → Vector{Mechanism}` (internal-but-usable). Their `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` singleton-type forms are lifted via `compile_mechanism(m)` when the @generated rate-equation derivation is needed.
 - The enumeration pipeline operates end-to-end on the concrete types `Mechanism` / `AllostericMechanism`, a reaction graph of enzyme forms and edges that `Mechanism(raw)` / `AllostericMechanism(raw)` build from raw input (`RawMechanism`, `RawStep`, `RawForm`) — there is no separate working representation.
 - Data tables use a `group` column (not `Article`+`Fig`) to identify measurement groups sharing the same E_total
 - Keq is always user-provided, never estimated from data
@@ -230,7 +230,7 @@ Edge direction, edge order and group order are canonicalized in the `Mechanism`/
 
 ### Enumeration-engine tests
 
-Tests of `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`, and the expansion moves live in `test/test_mechanism_enumeration.jl` and follow three rules:
+Tests of `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`, and the expansion moves live in `test/Enumeration/test_mechanism_enumeration.jl` and follow three rules:
 
 1. **Write the mechanism in the testset.** Define every fixture inline with `@enzyme_mechanism` or `@allosteric_mechanism`, even when that repeats a mechanism used elsewhere. A fixture pulled from `init_mechanisms`, a shared constant, or a helper cannot be reviewed without leaving the testset. The only exception is an aggregate regression pin over a whole seed set (a count over all `init_mechanisms(rxn)`), which must say so in a comment.
 2. **Assert the exact children.** A move test asserts `length(children) == n` and `Set(children) == Set(expected)` with every expected child written out as a mechanism. Property assertions (every child gains, no superset) are welcome in addition, never instead: a property test passes on wrong output that happens to satisfy the property.

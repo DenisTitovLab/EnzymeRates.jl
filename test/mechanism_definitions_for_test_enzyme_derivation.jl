@@ -896,10 +896,10 @@ end
 reach, without duplicates."""
 function _testhelper_population(rxn, rounds)
     level = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
-        m for m in EnzymeRates.init_mechanisms(rxn)]
+        m for m in EnzymeRates.Enumeration.init_mechanisms(rxn)]
     mechs = copy(level)
     for _ in 1:rounds
-        level = unique!(EnzymeRates.expand_mechanisms(level, rxn))
+        level = unique!(EnzymeRates.Enumeration.expand_mechanisms(level, rxn))
         append!(mechs, level)
     end
     unique!(mechs)
@@ -2077,11 +2077,12 @@ end
 # The children of the four moves `expand_mechanisms` runs on a plain `Mechanism` `m`, in
 # its order, before its regulator-type filter and before it drops the children the
 # guard rejects.
-_testhelper_plain_moves(m, rxn) = append!(
-    Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[],
-    EnzymeRates._expand_re_to_ss(m), EnzymeRates._expand_split_kinetic_group(m),
-    EnzymeRates._expand_add_dead_end_regulator(m, rxn),
-    EnzymeRates._expand_to_allosteric(m, rxn))
+_testhelper_plain_moves(m, rxn) =
+    append!(Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[],
+            EnzymeRates.Enumeration._expand_re_to_ss(m),
+            EnzymeRates.Enumeration._expand_split_kinetic_group(m),
+            EnzymeRates.Enumeration._expand_add_dead_end_regulator(m, rxn),
+            EnzymeRates.Enumeration._expand_to_allosteric(m, rxn))
 
 """
 Whether admission's existence test in the inactive conformation (`_admission_interior`:

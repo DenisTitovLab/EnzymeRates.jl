@@ -3213,8 +3213,8 @@ end
     end
     mechs = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
     for rxn in (bibi, pingpong)
-        seeds = EnzymeRates.init_mechanisms(rxn)
-        append!(mechs, seeds, EnzymeRates.expand_mechanisms(seeds, rxn))
+        seeds = EnzymeRates.Enumeration.init_mechanisms(rxn)
+        append!(mechs, seeds, EnzymeRates.Enumeration.expand_mechanisms(seeds, rxn))
     end
     sample = mechs[randperm(Random.MersenneTwister(6), length(mechs))[1:300]]
     @test isempty(filter(m -> !_testhelper_finite_on_every_face(
@@ -4027,6 +4027,6 @@ end
     # the active conformation without its :OnlyI groups and the inactive one without its
     # :OnlyA groups, and it flags none of them.
     for (label, am) in pairs(_testhelper_onlyi_fixtures())
-        @test (label, EnzymeRates._redundant_copy_groups(am)) == (label, Int[])
+        @test (label, EnzymeRates.Enumeration._redundant_copy_groups(am)) == (label, Int[])
     end
 end

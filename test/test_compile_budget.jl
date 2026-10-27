@@ -144,7 +144,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             EnzymeRates.Mechanisms.DeclaredRegulator[],
             Int[1],
         )
-        EnzymeRates.init_mechanisms(r)
+        EnzymeRates.Enumeration.init_mechanisms(r)
         r_uni = EnzymeRates.EnzymeReaction(
             [EnzymeRates.Mechanisms.ReactantAtoms(EnzymeRates.Mechanisms.Substrate(:S),
                                                   [:C => 1]),
@@ -154,7 +154,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             Int[1],
         )
         GC.gc()
-        t_uni = @elapsed EnzymeRates.init_mechanisms(r_uni)
+        t_uni = @elapsed EnzymeRates.Enumeration.init_mechanisms(r_uni)
         println("UNI_WARM:", t_uni)
         """
     cold_script = """
@@ -167,7 +167,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             substrates: S[C]
             products:   P[C]
         end
-        t = @elapsed EnzymeRates.init_mechanisms(r_uni)
+        t = @elapsed EnzymeRates.Enumeration.init_mechanisms(r_uni)
         println("UNI_COLD:", t)
         m = @enzyme_mechanism begin
             substrates: S
@@ -229,7 +229,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             sprint(show, ER.compile_mechanism(m))
             (fit..., s1 - s0 + _testhelper_instances(methods(show)) - s2, pass1)
         end
-        ms = ER.init_mechanisms(rxn)
+        ms = ER.Enumeration.init_mechanisms(rxn)
         # Encoding a Sig compiles once, whatever the mechanism, a cost a search pays early
         # and once; encoding every seed first keeps it out of the per-mechanism counts
         # and measures its total for this process.
@@ -379,8 +379,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             products:   P[C], Q[N], R[O]
         end
         @test typeof(r_uni) === typeof(r_ter)
-        @test which(EnzymeRates.init_mechanisms, (typeof(r_uni),)) ===
-              which(EnzymeRates.init_mechanisms, (typeof(r_ter),))
+        @test which(EnzymeRates.Enumeration.init_mechanisms, (typeof(r_uni),)) ===
+              which(EnzymeRates.Enumeration.init_mechanisms, (typeof(r_ter),))
     end
 
     # The fit census walks Julia's global method table, which Julia has from 1.12 on.

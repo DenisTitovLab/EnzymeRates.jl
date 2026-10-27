@@ -59,13 +59,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   With the full-suite command in `.claude/CLAUDE.md`, Julia 1.10.12 peaked at 3.30-4.36 GB
   in seven runs, and an eighth was killed at 4.49 GB, most likely by the OOM killer of a
   7.7 GB machine; Julia 1.12 peaks at 2.6-3.0 GB and Julia 1.13 at 2.6-2.7 GB. The ter-ter
-  `init_mechanisms` testset (`test/test_mechanism_enumeration.jl`) leaves about 1 GB of
-  garbage. On 1.10 the full suite still counts it after the enumeration file, 1.83-1.84 GiB
-  live there against 0.55-0.65 GiB with one `GC.gc()` after the testset; with the file run
-  alone, the count drops at the ter-ter seed testset. No test value retains the garbage: a
-  full collection after the testset frees it (live bytes fall from 0.94 to 0.055 GiB), and
-  that `GC.gc()` brings the suite to 2.93-3.05 GB. CI runs Julia 1 alone, so nothing checks
-  the compat floor against the 4 GB that `.claude/CLAUDE.md` sets aside for the suite.
+  `init_mechanisms` testset (`test/Enumeration/test_mechanism_enumeration.jl`) leaves about
+  1 GB of garbage. On 1.10 the full suite still counts it after the enumeration file,
+  1.83-1.84 GiB live there against 0.55-0.65 GiB with one `GC.gc()` after the testset; with
+  the file run alone, the count drops at the ter-ter seed testset. No test value retains the
+  garbage: a full collection after the testset frees it (live bytes fall from 0.94 to 0.055
+  GiB), and that `GC.gc()` brings the suite to 2.93-3.05 GB. CI runs Julia 1 alone, so
+  nothing checks the compat floor against the 4 GB that `.claude/CLAUDE.md` sets aside for
+  the suite.
 - **Change-tag cannot give the six-step bi-bi ping-pong a live inactive conformation.**
   The tagging move gives the bi-bi ping-pong of six steps, whose second half-reaction
   is the rapid-equilibrium step `E(B; residual = A - P) ⇌ E(Q)`, one V-type per
@@ -89,7 +90,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **A one-half tagging base is fitted only beside a regulator.**
   When admission rejects the tag set that stops all chemistry, each tagging base stops one
   half-reaction and the inactive conformation runs the other (`_tagging_bases`,
-  `src/mechanism_enumeration.jl`). The tagging move emits a base only beside a declared
+  `src/Enumeration/moves.jl`). The tagging move emits a base only beside a declared
   regulator, and no move reaches the bare base: change-tag relaxes tags only to
   `:NonequalAI`, and no move removes a site. Yet a bare base can be well-posed with its `L`
   identifiable: on the three-step bi-bi ping-pong each bare base fits 6 parameters at rank 6
@@ -113,7 +114,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   their weight, and with it the rate, depends on how fast each half stops (by up to 100%
   at one catalytic subunit), so admission rejects it. The tagging move keeps allosteric
   ping-pong reachable by stopping one half per V-type base (`_tagging_bases`,
-  `src/mechanism_enumeration.jl`), as PDH's phosphorylation stops E1 and leaves E2 and E3
+  `src/Enumeration/moves.jl`), as PDH's phosphorylation stops E1 and leaves E2 and E3
   running; on the six-step bi-bi ping-pong no child left turns over at zero products (Known
   issues). Above one subunit it drops a child whose inactive law is not hyperbolic
   (`_hyperbolic_catalysis`), as when the running half joins two segments that each hold an
@@ -144,7 +145,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   Keep a bare `A` at the catalytic multiplicity, widen only on an explicit list, and
   reject `I(m)` for a competitive inhibitor. Priority: medium-low.
 - **Drop `change_allo_state` relaxations that free no parameter, if measurement finds any.**
-  `_expand_change_allo_state` (`src/mechanism_enumeration.jl`) has no gain test, unlike
+  `_expand_change_allo_state` (`src/Enumeration/moves.jl`) has no gain test, unlike
   the split and RE→SS moves, and in a past LDH run it produced 20 of 33 zero-gain edges.
   A child whose law equals one already fitted, up to renaming its constants, shares that
   fit through the key (`_canonical`, `src/Derivation/key.jl`) and costs no fit; a zero-gain
@@ -157,7 +158,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   The derivation handles iso mechanisms, but no enumeration move generates them, and each
   carries a dwell-time-gauge phantom unless the exact rank (see Ideas) or a
   "switch-product = 1" constraint row comes first. A `Form` carries its conformation
-  label, and `_requires_hyperbolic_catalysis` (`src/mechanism_enumeration.jl`) is the
+  label, and `_requires_hyperbolic_catalysis` (`src/Enumeration/filters.jl`) is the
   extension hook. Two-conformation kinetic cooperativity stays parked: on PGK data no
   conformational model beat MWC with steady-state steps at equal parameter count, so
   reopen it only for a dataset whose curvature MWC cannot fit. Revisit allosteric
@@ -184,7 +185,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   children, since a phantom child can carry families its parent lacks.
 - **Apply the chain-flank exclusion at one catalytic subunit.**
   The flip move keeps a chain's flanks at rapid equilibrium only in plain mechanisms
-  (`_chain_flank_groups`, `src/mechanism_enumeration.jl`): an allosteric mechanism has
+  (`_chain_flank_groups`, `src/Enumeration/moves.jl`): an allosteric mechanism has
   none, since above one subunit a flank's flip can show through the two
   conformations. At one subunit an L phantom's flank flip stays invisible, so the move
   emits a phantom whose law at L = 0 no plain mechanism of the search holds, and

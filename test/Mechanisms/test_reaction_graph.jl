@@ -388,8 +388,8 @@ _testhelper_stored_at_length(am::ER.AllostericMechanism) =
         products: P[C], Q[N]
         competitive_inhibitors: I
     end
-    init = EnzymeRates.init_mechanisms(rxn)
-    children = EnzymeRates.expand_mechanisms(init[1:10], rxn)
+    init = EnzymeRates.Enumeration.init_mechanisms(rxn)
+    children = EnzymeRates.Enumeration.expand_mechanisms(init[1:10], rxn)
     @test any(c -> c isa ER.AllostericMechanism, children)
     @test all(_testhelper_stored_at_length, init)
     @test all(_testhelper_stored_at_length, children)
@@ -1113,16 +1113,18 @@ reactions, then the children of every init mechanism of its bi-bi reaction."""
 function _testhelper_census_population()
     reactions = _testhelper_census_reactions()
     population = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
-    foreach(r -> append!(population, EnzymeRates.init_mechanisms(r)), reactions)
+    foreach(r -> append!(population, EnzymeRates.Enumeration.init_mechanisms(r)), reactions)
     bibi = reactions[2]
     append!(population,
-            EnzymeRates.expand_mechanisms(EnzymeRates.init_mechanisms(bibi), bibi))
+            EnzymeRates.Enumeration.expand_mechanisms(
+                EnzymeRates.Enumeration.init_mechanisms(bibi), bibi))
 end
 
 """The census's first allosteric mechanisms: the allosteric children of the init
 mechanisms of its three reactions that declare an allosteric regulator."""
 function _testhelper_census_allosteric()
-    children = [EnzymeRates.expand_mechanisms(EnzymeRates.init_mechanisms(r), r)
+    children = [EnzymeRates.Enumeration.expand_mechanisms(
+        EnzymeRates.Enumeration.init_mechanisms(r), r)
                 for r in _testhelper_census_reactions()[[1, 3, 4]]]
     filter(x -> x isa EnzymeRates.AllostericMechanism, reduce(vcat, children))
 end

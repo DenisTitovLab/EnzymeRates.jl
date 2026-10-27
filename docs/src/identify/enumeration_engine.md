@@ -7,11 +7,11 @@ each turn one mechanism into a slightly more complex one, so the search visits
 candidates in order of increasing complexity. A rate equation the engine cannot
 construct is never fit, and so can never be selected.
 
-At a high level the engine has two halves. `EnzymeRates.init_mechanisms` builds
-the starting set: the simplest catalytic mechanisms for a reaction — each binding
+At a high level the engine has two halves. `EnzymeRates.Enumeration.init_mechanisms`
+builds the starting set: the simplest catalytic mechanisms for a reaction — each binding
 order, with optional dead-end substrate and product inhibition — and their merged
-and Theorell–Chance variants. `EnzymeRates.expand_mechanisms` then grows the set
-through a fixed set of single moves, each taking a mechanism and returning
+and Theorell–Chance variants. `EnzymeRates.Enumeration.expand_mechanisms` then grows the
+set through a fixed set of single moves, each taking a mechanism and returning
 slightly more complex children: splitting a shared rate constant, flipping a
 rapid-equilibrium group to steady state, adding a regulator, making the enzyme
 allosteric, and so on. After every step the candidates are deduplicated, since
@@ -19,9 +19,9 @@ different move sequences can sometimes reach the same mechanism. Both functions
 are internal, but understanding them explains exactly which equations the search
 can reach.
 
-## `EnzymeRates.init_mechanisms`
+## `EnzymeRates.Enumeration.init_mechanisms`
 
-`EnzymeRates.init_mechanisms(reaction)` returns the starting mechanisms of the
+`EnzymeRates.Enumeration.init_mechanisms(reaction)` returns the starting mechanisms of the
 search: first the seeds, then their merged and Theorell–Chance variants. For each
 catalytic topology it enumerates all substrate/product dead-end subsets, assigns
 one steady-state catalytic step, and collapses binding steps that share the same
@@ -105,7 +105,7 @@ seeds at 5 parameters and 184 variants: 164 merged ones, 108 at 5 parameters and
 cycle it has 62 seeds and 202 variants; its 7 ping-pong seeds fit 6 parameters
 and their 18 variants 5. A uni-uni seed has no variant.
 
-## `EnzymeRates.seed_mechanisms`
+## `EnzymeRates.Enumeration.seed_mechanisms`
 
 For a reaction that declares regulators, `init_mechanisms` starts far below the
 useful region: every seed binds zero regulators, so the search must climb through
@@ -113,8 +113,8 @@ every partially-regulated mechanism before it reaches one that binds them all. W
 the effectors are already known — phosphofructokinase and its five regulators, say —
 that lower shelf is pure waste.
 
-`EnzymeRates.seed_mechanisms(reaction, required_allosteric, required_competitive)`
-starts the search where it belongs. It grows every mechanism of
+`EnzymeRates.Enumeration.seed_mechanisms(reaction, required_allosteric,
+required_competitive)` starts the search where it belongs. It grows every mechanism of
 `init_mechanisms`, variants included, through the regulator-binding moves alone —
 go allosteric, add an allosteric regulator, add a competitive inhibitor — under
 three constraints that keep the set small: each
@@ -138,8 +138,8 @@ further. The [Identify tutorial](@ref) works a concrete example.
 
 ## The seven expansion moves
 
-`EnzymeRates.expand_mechanisms(mechs, rxn)` applies all seven moves to every input
-mechanism and returns the resulting child mechanisms pooled into one list. Each
+`EnzymeRates.Enumeration.expand_mechanisms(mechs, rxn)` applies all seven moves to every
+input mechanism and returns the resulting child mechanisms pooled into one list. Each
 move is applied in every applicable way, so one input mechanism yields many
 children — every set of rapid-equilibrium groups that can flip to steady state,
 every way a group can be split by binding context, every way an inhibitor can

@@ -270,7 +270,7 @@ regulators, and the set of catalytic multiplicities the mechanism
 enumerator is allowed to consider. It is the entry point to the package —
 pair it with rate data in an
 [`IdentifyRateEquationProblem`](@ref EnzymeRates.IdentifyRateEquationProblem), or pass
-it to `EnzymeRates.init_mechanisms` to enumerate candidate mechanisms.
+it to `EnzymeRates.Enumeration.init_mechanisms` to enumerate candidate mechanisms.
 
 # Fields
 - `reactants::Vector{ReactantAtoms}` — substrates and products, each

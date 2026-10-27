@@ -32,7 +32,7 @@ using .Derivation: Derivation, rate_equation, rate_equation_string, parameters,
 include("macros.jl")
 include("Fitting/Fitting.jl")
 using .Fitting: Fitting, FittingProblem, fit_rate_equation, rescale_parameter_values
-include("mechanism_enumeration.jl")
+include("Enumeration/Enumeration.jl")
 include("identify_rate_equation.jl")
 
 # Every mechanism macro call runs the guard, the flip search runs `_faces_pass` and the

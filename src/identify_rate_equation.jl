@@ -812,7 +812,7 @@ function _expand_parents(to_expand::Vector{BatchEntry},
         # Record a per-parent expansion error (e.g. `expand_mechanisms`' atom-conservation
         # assertion, `_assert_atom_conserving`) as a failure; never abort the search.
         try
-            (expand_mechanisms(
+            (Enumeration.expand_mechanisms(
                  Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[m], reaction),
              nothing)
         catch e
@@ -848,15 +848,15 @@ dropped, as `expand_mechanisms` drops one.
 """
 function _base_tier(mechs::Vector, rxn::Mechanisms.EnzymeReaction)
     base = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[
-        m for m in mechs if !_degenerate(m)]
+        m for m in mechs if !Enumeration._degenerate(m)]
     failures = FitFailure[]
     for m in mechs
-        _degenerate(m) || continue
+        Enumeration._degenerate(m) || continue
         try
-            children = filter!(Derivation._is_well_posed, _expand_re_to_ss(m))
+            children = filter!(Derivation._is_well_posed, Enumeration._expand_re_to_ss(m))
             for child in children
-                _assert_atom_conserving(child, rxn)
-                _degenerate(child) || push!(base, child)
+                Enumeration._assert_atom_conserving(child, rxn)
+                Enumeration._degenerate(child) || push!(base, child)
             end
         catch e
             push!(failures, FitFailure(m, _exc_string(e)))
@@ -957,8 +957,8 @@ function _beam_search(
         prob.reaction, optional_allosteric_regulators,
         optional_competitive_inhibitors)
     seeds = (isempty(required_allo) && isempty(required_comp)) ?
-        unique!(collect(init_mechanisms(prob.reaction))) :
-        unique!(collect(seed_mechanisms(
+        unique!(collect(Enumeration.init_mechanisms(prob.reaction))) :
+        unique!(collect(Enumeration.seed_mechanisms(
             prob.reaction, required_allo, required_comp)))
     base, base_expand_failures = _base_tier(seeds, prob.reaction)
     # A degenerate seed's expansion error is recorded like a fit failure (a row of
