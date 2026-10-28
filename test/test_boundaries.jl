@@ -19,7 +19,8 @@ const _testhelper_UNDERSCORE_PENDING = Set{Symbol}([:Mechanisms])
 # Per file (path relative to src/), the expressions allowed despite a banned name,
 # such as "data.group". In Derivation they read its own values: the guard's networks
 # (`_Network`'s `from`, `to` and `conformation`), its verdicts (`_Verdict.conformation`),
-# the MWC law (`_AlloLaw.sites`) and the steps of `segment_graph`'s result.
+# the MWC law (`_AlloLaw.sites`) and the steps of `segment_graph`'s result, which
+# Enumeration's filters read too.
 const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}(
     "Derivation/admission.jl" => Set(["eps.from", "eps.to", "net.conformation", "net.from",
         "net.to", "v.conformation"]),
@@ -30,6 +31,18 @@ const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}(
     "Derivation/limit_test.jl" => Set(["net.conformation", "net.from", "net.to"]),
     "Derivation/messages.jl" => Set(["net.conformation", "net.from", "v.conformation"]),
     "Derivation/print.jl" => Set(["A.sites"]),
+    "Enumeration/filters.jl" => Set(["s.steps"]),
+    # The seed builder reads the written form (`RawStep`, `RawForm`, `RawMechanism`, `Met`)
+    # that it assembles and transforms.
+    "Enumeration/seeds.jl" => Set([
+        "(raw.steps[j]).consumed", "(raw.steps[j]).released", "(raw.steps[j]).to",
+        "(s.consumed[1]).name", "cur.bound", "entry.consumed", "entry.from", "f.added",
+        "f.bound", "f.conformation", "f.subtracted", "f1.added", "f1.conformation",
+        "f1.subtracted", "f2.added", "f2.conformation", "f2.subtracted", "joined.group",
+        "joined.modifiers", "joined.products", "joined.steps", "joined.substrates",
+        "raw.group", "raw.modifiers", "raw.products", "raw.steps", "raw.substrates",
+        "release.consumed", "release.from", "s.consumed", "s.from", "s.rapid_equilibrium",
+        "s.released", "s.to", "s0.from", "s0.to", "x.name", "y.modifier", "y.name"]),
 )
 
 const _testhelper_MECHANISM_TYPES = (:Mechanism, :AllostericMechanism, :Form, :Edge, :Met,
@@ -229,7 +242,8 @@ const _testhelper_SRC = normpath(joinpath(@__DIR__, "..", "src"))
 const _testhelper_MECHANISM_FIELDS = _testhelper_mechanism_fields(_testhelper_SRC)
 
 # Per owner (a module or :EnzymeRates for the top level), the field names banned there.
-const _testhelper_FIELD_BAN = Dict(:Derivation => _testhelper_MECHANISM_FIELDS)
+const _testhelper_FIELD_BAN = Dict(:Derivation => _testhelper_MECHANISM_FIELDS,
+    :Enumeration => _testhelper_MECHANISM_FIELDS)
 
 """Runs the four rules over the tree at `root`. A module in `pending` may still hold
 underscore names: its rule 4 check is `@test_broken`."""

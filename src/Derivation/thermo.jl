@@ -13,11 +13,6 @@ _class(c::Mechanisms._Column, g::Int, tag::Symbol) =
     Mechanisms._excluded_by(tag, c.inactive) ? (c.edge, c.slot, c.inactive, true) :
                                     (g, c.slot, c.inactive, false)
 
-"""Whether step `k` of `m` is a binding: it takes up one metabolite and gives off none,
-whether or not its two forms differ by that metabolite alone."""
-_is_binding(m::Mechanisms.Mechanism, k::Int) =
-    isempty(Mechanisms.given_off(m, k)) && length(Mechanisms.taken_up(m, k)) == 1
-
 """
     _fundamental_cycles(m, flat) -> (Z, multiples)
 
@@ -114,7 +109,7 @@ function _joint_system(m::Mechanisms._AnyMech, cols = Mechanisms._ordered_column
             z = Z[i, j]
             z == 0 && continue
             re = Mechanisms.is_rapid_equilibrium(cm, k)
-            row[column(k, 1, inactive)] += re && _is_binding(cm, k) ? -z : z
+            row[column(k, 1, inactive)] += re && Mechanisms.is_binding(cm, k) ? -z : z
             re || (row[column(k, 2, inactive)] -= z)
         end
         push!(rows, row)

@@ -23,11 +23,13 @@ function _testhelper_test_graph_accessors_allocate_nothing(m, x, k)
     @test _testhelper_allocated(M.given_off, m, k) == 0
     @test _testhelper_allocated(M.is_rapid_equilibrium, m, k) == 0
     @test _testhelper_allocated(M.step_kind, m, k) == 0
+    @test _testhelper_allocated(M.is_binding, m, k) == 0
     @test _testhelper_allocated(M.group, m, k) == 0
     @test _testhelper_allocated(M.ngroups, m) == 0
     @test _testhelper_allocated(M.copies, s, :S) == 0
     @test _testhelper_allocated(isempty, s) == 0
     @test _testhelper_allocated(length, s) == 0
+    @test _testhelper_allocated(M.modifier_copies, s) == 0
     @test _testhelper_allocated(∪, s, t) == 0
     @test _testhelper_allocated(∩, s, t) == 0
 end
@@ -71,6 +73,8 @@ end
         @test M.rapid_equilibrium_steps(m) == BitVector([1, 1, 0, 1, 0, 1, 0])
         @test [M.step_kind(m, k) for k in M.steps(m)] ==
               [:binding, :binding, :binding, :binding, :isomerization, :binding, :binding]
+        @test [M.is_binding(m, k) for k in M.steps(m)] ==
+              [true, true, true, true, false, true, true]
     end
 
     # Kinetic groups are numbered by their first step in step order.
@@ -178,9 +182,27 @@ end
     @test [M.ends(m, k) for k in M.steps(m)] == [(1, 3), (2, 1), (2, 3)]
     @test [M.step_kind(m, k) for k in M.steps(m)] ==
           [:chemistry, :isomerization, :binding]
+    # A fused binding takes up one metabolite and gives off none: a binding, of kind
+    # :chemistry.
+    @test [M.is_binding(m, k) for k in M.steps(m)] == [true, false, true]
     @test [M.metabolite_names(M.taken_up(m, k)) for k in M.steps(m)] ==
           [[:S], Symbol[], [:P]]
     @test _testhelper_allocated(M.step_kind, m, 1) == 0
+
+    # A Theorell–Chance step takes up B and gives off P: no binding.
+    tc = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(Q) + P
+            E(Q) <--> E + Q
+        end
+    end)
+    # Canonical form numbers the forms E, E(A), E(Q) and stores the steps E + A → E(A),
+    # E + Q → E(Q), E(A) + B → E(Q) + P.
+    @test [M.ends(tc, k) for k in M.steps(tc)] == [(1, 2), (1, 3), (2, 3)]
+    @test [M.is_binding(tc, k) for k in M.steps(tc)] == [true, true, false]
 end
 
 @testset "graph accessors: a ping-pong's residual" begin
@@ -234,6 +256,12 @@ end
     # The modifier copy is an entry of its own, so it adds to the bound S.
     @test M.copies(M.bound(m, 3) ∪ M.taken_up(m, 4), :S) == 2
     @test isempty(M.bound(m, 3) ∩ M.taken_up(m, 4))
+    # The copies held as modifiers: the modifier copy of S, not S itself.
+    @test M.metabolite_names(M.modifier_copies(ESS)) == [:S]
+    @test M.copies(M.modifier_copies(ESS), :S) == 1
+    @test isempty(M.modifier_copies(M.bound(m, 3)))
+    @test M.modifier_copies(M.taken_up(m, 4)) == M.taken_up(m, 4)
+    @test isempty(M.modifier_copies(M.taken_up(m, 2)))
 
     # Multisets compare by content, so two reads of one compiled mechanism agree.
     other = ER.Mechanism(em)

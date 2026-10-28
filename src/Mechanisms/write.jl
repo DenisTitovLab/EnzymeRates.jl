@@ -1,0 +1,111 @@
+# ABOUTME: The written form of a mechanism (its forms, steps and whole as raw input) and the
+# ABOUTME: writers that rebuild a mechanism with new flags, kinetic groups or tags.
+
+# ─── The written form ───────────────────────────────────────────────────
+
+"""
+    RawForm(m::Mechanism, x::Int, extra::Met...)
+
+Form `x` of `m` as written: its conformation label, its bound metabolites with `extra`
+added, and its residual.
+"""
+function RawForm(m::Mechanism, x::Int, extra::Met...)
+    f = m.forms[x]
+    RawForm(m.conformations[f.conformation],
+            Met[[m.table[i] for i in entries(f.bound)]; extra...],
+            _entry_names(m, f.added), _entry_names(m, f.subtracted))
+end
+
+"""
+    RawStep(m::Mechanism, k::Int, extra::Met...)
+
+Step `k` of `m` as written, in its stored direction and at its own flag, each of its two
+forms also holding `extra` (`RawForm`). With a modifier as `extra` it is the step's
+mirror between the complexes the modifier forms at its two ends.
+"""
+RawStep(m::Mechanism, k::Int, extra::Met...) =
+    _written_step(m, k, is_rapid_equilibrium(m, k), extra...)
+
+"""Step `k` of `m` as written (`RawStep`), at rapid equilibrium when `re` holds."""
+function _written_step(m::Mechanism, k::Int, re::Bool, extra::Met...)
+    e = m.edges[k]
+    RawStep(RawForm(m, e.from, extra...), RawForm(m, e.to, extra...),
+            Met[m.table[i] for i in entries(e.consumed)],
+            Met[m.table[i] for i in entries(e.released)], re)
+end
+
+"""
+    RawMechanism(m::Mechanism)
+
+`m` as written: its declared names, and each step as `RawStep(m, k)`, labelled by its
+kinetic group. Every vector is fresh, and `Mechanism(RawMechanism(m)) == m`.
+"""
+RawMechanism(m::Mechanism) = _written(m, rapid_equilibrium_steps(m), m.group)
+
+"""
+    RawAllostericMechanism(am::AllostericMechanism)
+
+`am` as written: its catalytic graph as `RawMechanism` writes it, each group label tagged
+as its group, and its multiplicity and regulatory sites. Every vector is fresh, and
+`AllostericMechanism(RawAllostericMechanism(am)) == am`.
+"""
+RawAllostericMechanism(am::AllostericMechanism) =
+    _written(am, rapid_equilibrium_steps(am.catalytic), am.catalytic.group)
+
+"""`m` as written (`RawMechanism`), step `k` at rapid equilibrium where `re[k]` holds and
+labelled `groups[k]`."""
+_written(m::Mechanism, re::BitVector, groups::Vector{Int}) =
+    RawMechanism(copy(m.substrates), copy(m.products), modifiers(m),
+                 RawStep[_written_step(m, k, re[k]) for k in steps(m)], copy(groups))
+
+"""`am` as written (`RawAllostericMechanism`), its catalytic graph as `_written` writes it
+and each label tagged as the group of its first step."""
+function _written(am::AllostericMechanism, re::BitVector, groups::Vector{Int})
+    cm = am.catalytic
+    tags = Symbol[am.cat_allo_states[cm.group[findfirst(==(l), groups)]]
+                  for l in 1:maximum(groups; init = 0)]
+    RawAllostericMechanism(_written(cm, re, groups), tags, am.catalytic_multiplicity,
+                           RawSite.(am.regulatory_sites))
+end
+
+"""
+    RawSite(s::RegulatorySite)
+
+Regulatory site `s` as written: its ligands, multiplicity and tags, each vector fresh.
+"""
+RawSite(s::RegulatorySite) = RawSite(copy(s.ligands), s.multiplicity, copy(s.allo_states))
+
+# ─── Writers ────────────────────────────────────────────────────────────
+
+"""
+    with_flags(m, re::BitVector)
+
+`m` with step `k` of its catalytic graph at rapid equilibrium where `re[k]` holds, every
+step in its kinetic group: `regroup` with `m`'s own groups.
+"""
+with_flags(m::_AnyMech, re::BitVector) = regroup(m, catalytic(m).group, re)
+
+"""
+    regroup(m, groups::Vector{Int}, re::BitVector = rapid_equilibrium_steps(catalytic(m)))
+
+`m` with step `k` of its catalytic graph in the kinetic group labelled `groups[k]` and at
+rapid equilibrium where `re[k]` holds; the labels run from 1 and each is used. Each new
+group of an allosteric mechanism takes the tag of its first step's group, so the parts of
+a split group keep its tag. The rest is `m`'s. The child is built and checked through
+`Mechanism(raw)` (`AllostericMechanism(raw)`), so it is in canonical form: a new grouping
+can turn a tied step and renumber the steps.
+"""
+regroup(m::Mechanism, groups::Vector{Int}, re::BitVector = rapid_equilibrium_steps(m)) =
+    Mechanism(_written(m, re, groups))
+regroup(am::AllostericMechanism, groups::Vector{Int},
+        re::BitVector = rapid_equilibrium_steps(am.catalytic)) =
+    AllostericMechanism(_written(am, re, groups))
+
+"""
+    with_tags(am::AllostericMechanism, tags::Vector{Symbol})
+
+`am` with kinetic group `g` of its catalytic graph tagged `tags[g]`, through the composition
+constructor, which checks the tags; the catalytic graph is `am`'s, shared.
+"""
+with_tags(am::AllostericMechanism, tags::Vector{Symbol}) =
+    AllostericMechanism(am.catalytic, tags, am.catalytic_multiplicity, am.regulatory_sites)

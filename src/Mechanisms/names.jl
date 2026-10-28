@@ -128,7 +128,7 @@ name(p::Krev, m::_AnyMech, kept = _kept_members(m)) =
                      p.state)
 function name(p::Krapid, m::_AnyMech, kept = _kept_members(m))
     s = _constant_sides(m, p.edge, 1, p.state, kept)
-    _render_reaction("K_", _is_binding(catalytic(m).edges[p.edge]) ? reverse(s) : s,
+    _render_reaction("K_", is_binding(catalytic(m), p.edge) ? reverse(s) : s,
                      p.state)
 end
 

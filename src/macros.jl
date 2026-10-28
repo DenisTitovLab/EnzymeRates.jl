@@ -267,7 +267,8 @@ function _checked_mechanism(raw::Union{Mechanisms.RawMechanism,
     c = raw isa Mechanisms.RawMechanism ? raw : raw.catalytic
     Mechanisms._check_uniquely_decodable([c.substrates; c.products], c.modifiers,
                                          "Mechanism")
-    m = Mechanisms._build(raw)
+    m = raw isa Mechanisms.RawMechanism ? Mechanisms.Mechanism(raw) :
+                                         Mechanisms.AllostericMechanism(raw)
     Derivation.check_valid_rate_equation(m)
     m
 end

@@ -178,7 +178,7 @@ end
     for spec in MECHANISM_TEST_SPECS
         m = _testhelper_lift(spec.mechanism)
         m isa EnzymeRates.Mechanism || continue
-        raw = EnzymeRates.Mechanisms._raw(m)
+        raw = EnzymeRates.Mechanisms.RawMechanism(m)
         back = EnzymeRates.Mechanism(EnzymeRates.Mechanisms.RawMechanism(
                                          raw.substrates, raw.products, raw.modifiers,
                                          reverse([EnzymeRates.Mechanisms.RawStep(

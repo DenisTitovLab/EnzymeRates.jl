@@ -2694,7 +2694,7 @@ end
     cm, on = merged_route.catalytic,
              EnzymeRates.Mechanisms.conformation_steps(merged_route, :active)
     re = EnzymeRates.Mechanisms.rapid_equilibrium_steps(cm)
-    subs = EnzymeRates.Mechanisms._names_mask(cm, cm.substrates)
+    subs = EnzymeRates.Mechanisms.substrates(cm)
     @test EnzymeRates.Mechanisms._form_text.(
         Ref(cm), EnzymeRates.Enumeration._merged_complexes(cm, subs)) == ["E(P, X)"]
     @test isempty(EnzymeRates.Enumeration._merged_complexes(cm, subs, on))

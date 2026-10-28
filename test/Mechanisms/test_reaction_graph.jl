@@ -1047,7 +1047,7 @@ end
 @testset "a graph written back as raw input builds the same graph" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         x = _testhelper_build(spec.raw)
-        raw = ER.Mechanisms._raw(x)
+        raw = _testhelper_written(x)
         @test _testhelper_build(raw) == x
         # Its steps are the edges in stored order and direction, labelled by group.
         c = ER.Mechanisms._canonicalize(_testhelper_plain(raw))
@@ -1060,7 +1060,7 @@ end
     am = ER.AllostericMechanism(_testhelper_graph_uniuni(), [:EqualAI, :OnlyA, :OnlyA], 2,
                                 [EnzymeRates.Mechanisms.RegulatorySite([:R], 2, [:OnlyI])])
     before = deepcopy(am)
-    raw = ER.Mechanisms._raw(am)
+    raw = ER.Mechanisms.RawAllostericMechanism(am)
     for v in (raw.catalytic.substrates, raw.catalytic.products, raw.catalytic.modifiers,
               raw.sites[1].ligands)
         push!(v, :X)
@@ -1247,7 +1247,7 @@ let population = _testhelper_census_population(),
     # from the raw input it writes back.
     @test length(population) == 5508 + 5505
     @test all(_testhelper_decode(x, ER.Mechanisms._sig_of(x)) == x for x in population)
-    @test all(_testhelper_build(ER.Mechanisms._raw(x)) == x for x in population)
+    @test all(_testhelper_build(_testhelper_written(x)) == x for x in population)
 end
 
 @testset "a sub-graph's segments and inactive edges are what its steps give" begin

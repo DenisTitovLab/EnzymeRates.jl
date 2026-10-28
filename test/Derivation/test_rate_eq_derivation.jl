@@ -1071,7 +1071,7 @@ end
     append!(ems, _testhelper_fused_cases, values(_testhelper_tc_cases), [tc_backwards])
     for em in ems
         m = ER.Mechanism(em)
-        for flipped in _testhelper_variants(ER.Mechanisms._raw(m))
+        for flipped in _testhelper_variants(ER.Mechanisms.RawMechanism(m))
             m2 = ER.Mechanism(flipped)
             @test m2 == m
             @test ER.rate_equation_string(ER.compile_mechanism(m2)) ==
@@ -1081,7 +1081,7 @@ end
     for spec in MECHANISM_TEST_SPECS
         spec.mechanism isa ER.AllostericEnzymeMechanism || continue
         am = ER.AllostericMechanism(spec.mechanism)
-        raw = ER.Mechanisms._raw(am)
+        raw = ER.Mechanisms.RawAllostericMechanism(am)
         for flipped in _testhelper_variants(raw.catalytic)
             am2 = ER.AllostericMechanism(ER.Mechanisms.RawAllostericMechanism(flipped,
                 raw.cat_allo_states, raw.catalytic_multiplicity, raw.sites))

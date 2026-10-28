@@ -99,6 +99,12 @@ _testhelper_lift(m::EnzymeRates.AllostericEnzymeMechanism) =
     EnzymeRates.AllostericMechanism(m)
 _testhelper_lift(m::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}) = m
 
+"""`m` as raw input: `RawMechanism(m)` for a plain mechanism, `RawAllostericMechanism(m)`
+for an allosteric one."""
+_testhelper_written(m::EnzymeRates.Mechanism) = EnzymeRates.Mechanisms.RawMechanism(m)
+_testhelper_written(m::EnzymeRates.AllostericMechanism) =
+    EnzymeRates.Mechanisms.RawAllostericMechanism(m)
+
 """Whether the concrete mechanism `x` reads back from the text `show` prints for it
 (`_parse_mechanism`) as itself."""
 _testhelper_reads_back(x) = EnzymeRates._parse_mechanism(sprint(show, x)) == x
@@ -202,16 +208,16 @@ end
 
 """
 Test that `m` stores its steps in the direction the orientation tiers give: `m` written
-back as raw input (`_raw`), each step as stored, has no step that canonical form turns
-(`_canonicalize`), group by group, and writing every step the other way round, in the
-reverse order, builds the same mechanism.
+back as raw input (`_testhelper_written`), each step as stored, has no step that
+canonical form turns (`_canonicalize`), group by group, and writing every step the other
+way round, in the reverse order, builds the same mechanism.
 """
 function _testhelper_check_stored_orientation(m)
     mech = _testhelper_lift(m)
-    raw = EnzymeRates.Mechanisms._raw(mech)
+    raw = _testhelper_written(mech)
     allo = raw isa EnzymeRates.Mechanisms.RawAllostericMechanism
     cat = allo ? raw.catalytic : raw
-    # `_raw` writes edge `k` as step `k`.
+    # The written form holds edge `k` as step `k`.
     flipped = EnzymeRates.Mechanisms._canonicalize(cat).flipped
     for members in
         EnzymeRates.Mechanisms._group_members(EnzymeRates.Mechanisms.catalytic(mech))

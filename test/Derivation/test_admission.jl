@@ -470,7 +470,7 @@ end
                  modifiers = EnzymeRates.Mechanisms.modifiers(cm),
                  regulators = mech isa EnzymeRates.AllostericMechanism ?
                               EnzymeRates.Mechanisms.allosteric_regulators(mech) : Symbol[])
-        raw = EnzymeRates.Mechanisms._raw(cm)
+        raw = EnzymeRates.Mechanisms.RawMechanism(cm)
         for k in eachindex(cm.edges)
             op, lhs, rhs = EnzymeRates.Mechanisms._step_parts(
                 Meta.parse(EnzymeRates.Mechanisms._step_text(cm, k)), "@enzyme_mechanism")
@@ -1471,7 +1471,7 @@ end
             E + Q ⇌ E(Q)
         end
     end
-    candidate(re) = EnzymeRates.Mechanisms._build(EnzymeRates.Mechanisms._raw(ldh, re))
+    candidate(re) = EnzymeRates.Mechanisms.with_flags(ldh, re)
     flags = EnzymeRates.Mechanisms.rapid_equilibrium_steps(ldh)
     @test EnzymeRates.Derivation._guard(candidate(flags)).fault ===
           EnzymeRates.Derivation._TRAP

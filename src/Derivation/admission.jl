@@ -176,7 +176,7 @@ Whether `am` with the kinetic group of each edge in `ks` tagged `tag` passes the
 function _retag_passes(am::Mechanisms.AllostericMechanism, ks, tag::Symbol)
     states = copy(Mechanisms.cat_allo_states(am))
     states[[Mechanisms.group(Mechanisms.catalytic(am), k) for k in ks]] .= tag
-    _guard(Mechanisms._with(am; states)) === _WELL_POSED
+    _guard(Mechanisms.with_tags(am, states)) === _WELL_POSED
 end
 
 """
@@ -188,7 +188,7 @@ function _steady_state_passes(mech::Mechanisms._AnyMech, k::Int)
     m = Mechanisms.catalytic(mech)
     re = Mechanisms.rapid_equilibrium_steps(m)
     re[Mechanisms.members(m, Mechanisms.group(m, k))] .= false
-    _guard(Mechanisms._build(Mechanisms._raw(mech, re))) === _WELL_POSED
+    _guard(Mechanisms.with_flags(mech, re)) === _WELL_POSED
 end
 
 """

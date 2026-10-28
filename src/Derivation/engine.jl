@@ -109,7 +109,7 @@ function _bare_law(m::Mechanisms.Mechanism, mask::BitVector, concentrations::Vec
     bare(k, slot) = _monomial(at[(k, slot)] => 1)
     # The equilibrium ratio w(to)/w(from) of rapid-equilibrium edge k: [M]/K for a binding
     # (K a dissociation constant), K·Π[taken up]/Π[given off] for any other edge.
-    ratio(k) = _mmul(_mpow(bare(k, 1), _is_binding(m, k) ? -1 : 1),
+    ratio(k) = _mmul(_mpow(bare(k, 1), Mechanisms.is_binding(m, k) ? -1 : 1),
                      _mmul(conc(Mechanisms.taken_up(m, k)),
                            _mpow(conc(Mechanisms.given_off(m, k)), -1)))
     s = Mechanisms.re_segments(m, mask, Mechanisms.rapid_equilibrium_steps(m))

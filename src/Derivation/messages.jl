@@ -102,7 +102,7 @@ function _face_message(who::String, mech::Mechanisms._AnyMech, v::_Verdict)
         bindings = unique!([net.edge[t] for t in eachindex(net.from)
                             if net.fast[t] && net.edge[t] != 0 &&
                                s.segment[net.from[t]] == s.bottomless &&
-                               _is_binding(m, net.edge[t])])
+                               Mechanisms.is_binding(m, net.edge[t])])
         k = findfirst(k -> _steady_state_passes(mech, k), bindings)
         fix = k === nothing ? "" :
               " Make the group of $(Mechanisms._step_text(m, bindings[k])) steady-state."

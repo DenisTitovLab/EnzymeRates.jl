@@ -1166,10 +1166,11 @@ const _testhelper_inhibitor_rxn = @enzyme_reaction begin
     competitive_inhibitors: A, I
 end
 
-"""`m` built by the constructors, without the guard, from its raw form (`_raw`) with
-`graph` applied to its catalytic `RawMechanism` and `site` to each `RawSite`."""
+"""`m` built by the constructors, without the guard, from its raw form
+(`_testhelper_written`) with `graph` applied to its catalytic `RawMechanism` and `site` to
+each `RawSite`."""
 function _testhelper_rebuilt(m, graph, site = identity)
-    raw = EnzymeRates.Mechanisms._raw(m)
+    raw = _testhelper_written(m)
     m isa EnzymeRates.Mechanism && return EnzymeRates.Mechanism(graph(raw))
     EnzymeRates.AllostericMechanism(EnzymeRates.Mechanisms.RawAllostericMechanism(
         graph(raw.catalytic), raw.cat_allo_states, raw.catalytic_multiplicity,

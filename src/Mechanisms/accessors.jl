@@ -33,6 +33,16 @@ Base.isempty(s::Metabolites) = s.counts == 0
 """The number of metabolites `s` holds, each copy counted."""
 Base.length(s::Metabolites) = total(s.counts)
 
+"""The copies `s` holds as modifiers: a modifier's, and a reactant's modifier copy, but not
+the reactant itself."""
+function modifier_copies(s::Metabolites)
+    mask = Counts(0)
+    for (i, x) in enumerate(s.table)
+        x.modifier && (mask |= Counts(0xf) << (4 * (i - 1)))
+    end
+    Metabolites(s.counts & mask, s.table)
+end
+
 """The multiset holding each metabolite as often as the fuller of `s` and `t` does."""
 Base.union(s::Metabolites, t::Metabolites) = _combine(max, s, t)
 
@@ -100,6 +110,11 @@ function step_kind(m::Mechanism, k::Int)
     e = m.edges[k]
     _is_iso(e) ? :isomerization : _is_chemistry(m, e) ? :chemistry : :binding
 end
+
+"""Whether step `k` of `m` is a binding: it takes up one metabolite and gives off none,
+whether or not its two forms differ by that metabolite alone (a fused binding is of kind
+`:chemistry`, `step_kind`)."""
+is_binding(m::Mechanism, k::Int) = _is_binding(m.edges[k])
 
 # ─── Kinetic groups ─────────────────────────────────────────────────────
 

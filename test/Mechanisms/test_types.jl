@@ -2168,7 +2168,7 @@ end
             E(P) ⇌ E + P     :: EqualAI
         end
     end)
-    cat = ER.Mechanisms._raw(am).catalytic
+    cat = ER.Mechanisms.RawMechanism(ER.Mechanisms.catalytic(am))
     step_of(pred) = only(s for s in cat.steps if pred(s))
     bind_s = step_of(s -> s.consumed == [ER.Mechanisms.Met(:S, false)])
     bind_p = step_of(s -> s.consumed == [ER.Mechanisms.Met(:P, false)])
@@ -3420,7 +3420,7 @@ end
             E(Q) ⇌ E + Q
         end
     end)
-    m2 = EnzymeRates.Mechanism(EnzymeRates.Mechanisms._raw(m1))
+    m2 = EnzymeRates.Mechanism(EnzymeRates.Mechanisms.RawMechanism(m1))
     am1 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
@@ -3433,7 +3433,8 @@ end
         end
         regulatory_site(2): I::OnlyI
     end)
-    am2 = EnzymeRates.AllostericMechanism(EnzymeRates.Mechanisms._raw(am1))
+    am2 = EnzymeRates.AllostericMechanism(
+        EnzymeRates.Mechanisms.RawAllostericMechanism(am1))
     # Every parameter's name, which reads the mechanism and stores nothing in it.
     _testhelper_param_names(m::EnzymeRates.Mechanism) =
         EnzymeRates.Derivation._edge_names(m, :None)

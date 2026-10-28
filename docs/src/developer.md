@@ -194,13 +194,15 @@ The macros, the parser and the moves that change flags, groups or steps write a 
 as raw input (`RawMechanism` of `RawStep`s between `RawForm`s, and
 `RawAllostericMechanism`): its steps in written order and direction. `Mechanism(raw)` and
 `AllostericMechanism(raw)` build its canonical graph (`_canonicalize`) and check it. The
-moves that tag a mechanism or change its regulatory sites compose the parent's catalytic
-graph with other tags or sites through the composition constructor,
-`AllostericMechanism(m, tags, multiplicity, sites)` (directly or by `_with`), which runs
-only its tag and site checks. Going `from → to`, an edge takes
+written form of a built mechanism is `RawMechanism(m)` (`RawForm(m, x)`, `RawStep(m, k)`),
+and the writers `with_flags(m, re)` and `regroup(m, groups)` rebuild a mechanism with new
+flags or kinetic groups through it. The moves that tag a mechanism or change its
+regulatory sites compose the parent's catalytic graph with other tags or sites through the
+composition constructor, `AllostericMechanism(m, tags, multiplicity, sites)` (directly or
+by `with_tags`), which runs only its tag and site checks. Going `from → to`, an edge takes
 up the entries in `consumed` and gives off those in `released`. Steps are classified by
 these counts. A binding takes up exactly one metabolite and gives off none
-(`_is_binding`). It is plain when its target form is its source form with that metabolite
+(`is_binding`). It is plain when its target form is its source form with that metabolite
 added, the residual unchanged and the conformation free to change (`_is_plain_binding`),
 and fused otherwise, as when the last substrate binds straight into the product-bound
 form (`E(A) + B → E(P, Q)`). The constructor rejects a binding whose forms match a plain

@@ -953,23 +953,6 @@ function AllostericMechanism(raw::RawAllostericMechanism)
     AllostericMechanism(c.mechanism, tags, raw.catalytic_multiplicity, sites)
 end
 
-"""The mechanism `raw` writes, built and checked: `Mechanism(raw)` for plain input,
-`AllostericMechanism(raw)` for allosteric input. The moves build every child through
-it."""
-_build(raw::RawMechanism) = Mechanism(raw)
-_build(raw::RawAllostericMechanism) = AllostericMechanism(raw)
-
-"""
-    _with(am; states, sites)
-
-`am` with its tags `states` (one per kinetic group) or its regulatory sites `sites`
-replaced, through the composition constructor, which checks both; the catalytic graph
-is `am`'s, shared. The allosteric moves change one part of a mechanism with it.
-"""
-_with(am::AllostericMechanism; states::Vector{Symbol} = cat_allo_states(am),
-      sites::Vector{RegulatorySite} = regulatory_sites(am)) =
-    AllostericMechanism(am.catalytic, states, catalytic_multiplicity(am), sites)
-
 # ─── Checks ─────────────────────────────────────────────────────────────
 
 """Error unless `cat_allo_states` holds one valid tag (`_TAG_CODES`) for each of `G`
@@ -1511,11 +1494,10 @@ function _runs_toward_products(m::Mechanism, k::Int)
     _side_score(m.forms, e.from, e.consumed, substrate_mask, product_mask) >=
         _side_score(m.forms, e.to, e.released, substrate_mask, product_mask)
 end
-"""Whether each of `n` kinetic groups, edge `k` in group `group[k]`, holds some edge `k`
-with `pred(k)`."""
-function _groups_with(pred, group::Vector{Int}, n::Int)
-    out = falses(n)
-    for (k, g) in enumerate(group)
+"""Whether each kinetic group of `m` holds some edge `k` with `pred(k)`."""
+function _groups_with(pred, m::Mechanism)
+    out = falses(ngroups(m))
+    for (k, g) in enumerate(m.group)
         pred(k) && (out[g] = true)
     end
     out
@@ -1523,7 +1505,7 @@ end
 """Whether each kinetic group of `m` holds a chemistry edge (`_is_chemistry`). The
 allosteric moves tag a chemistry group apart from a binding group."""
 _chemistry_groups(m::Mechanism) =
-    _groups_with(k -> _is_chemistry(m, m.edges[k]), m.group, ngroups(m))
+    _groups_with(k -> _is_chemistry(m, m.edges[k]), m)
 """The edges group by group, each group in edge order: the order the joint solve and the
 derivation read them in."""
 _flat_edges(m::Mechanism) = reduce(vcat, _group_members(m); init = Int[])
@@ -1541,10 +1523,6 @@ end
 """The nibbles of `m`'s modifier entries: a count of `m`'s entries meets this mask when it
 holds a modifier."""
 _modifier_mask(m::Mechanism) = _entry_mask(x -> x.modifier, m)
-"""The nibbles of the entries of `m` whose name is among the sorted `names`, a reactant's
-modifier copy included: a count meets this mask when it holds one of those names."""
-_names_mask(m::Mechanism, names::Vector{Symbol}) =
-    _entry_mask(x -> insorted(x.name, names), m)
 """Whether edge `e` of `m` binds a product: it takes up one product, not as a modifier."""
 _binds_product(m::Mechanism, e::Edge) =
     (i = _bound_entry(e); i != 0 && !m.table[i].modifier &&
@@ -1753,11 +1731,6 @@ function _has_unbalanced_cycle(from, to, weight, on, parent, offset)
     false
 end
 
-"""The metabolite-name index (`_name_index`) of `m`'s first substrate, whose net uptake
-is the rate."""
-_turnover_name(m::Mechanism) =
-    _name_index(m)[searchsortedfirst(m.table, Met(m.substrates[1], false))]
-
 """
     has_turnover_cycle(m::Mechanism, on::BitVector) -> Bool
 
@@ -1771,7 +1744,10 @@ mechanism whose steps hold no turnover cycle, as its rate is zero everywhere; a 
 cycle of rapid-equilibrium steps makes the rate infinite (`_has_vmax`).
 """
 function has_turnover_cycle(m::Mechanism, on::BitVector)
-    name_of, x1 = _name_index(m), _turnover_name(m)
+    # The metabolite-name index (`_name_index`) of the first substrate, whose net uptake
+    # is the rate.
+    name_of = _name_index(m)
+    x1 = name_of[searchsortedfirst(m.table, Met(m.substrates[1], false))]
     uptake(c::Counts) =
         sum((copies(c, i) for i in eachindex(m.table) if name_of[i] == x1); init = 0)
     n = length(m.forms)
@@ -1840,49 +1816,6 @@ conformation_steps(m::Mechanism, c::Symbol) =
 _conformation_index(c::Symbol) =
     c === :active ? 1 : c === :inactive ? 2 :
     throw(ArgumentError("a conformation is :active or :inactive, not :$c"))
-
-"""Form `f` of `m` as raw input, holding also the metabolites `extra`."""
-function _raw_form(m::Mechanism, f::Int, extra::Met...)
-    x = m.forms[f]
-    RawForm(m.conformations[x.conformation], Met[[m.table[i] for i in entries(x.bound)];
-                                                 extra...],
-            _entry_names(m, x.added), _entry_names(m, x.subtracted))
-end
-
-"""
-    _raw(m, re = rapid_equilibrium_steps(m), group = m.group)
-
-`m` as raw input: every edge a step in its stored direction, edge `k` at rapid
-equilibrium where `re[k]` holds and labelled `group[k]`, by default its own flag and
-group. Every vector is fresh, so a move that edits the raw value never edits `m`. The
-moves build children from it: the checked constructor canonicalizes the new flags and
-groups.
-"""
-function _raw(m::Mechanism, re::BitVector = rapid_equilibrium_steps(m),
-              group::Vector{Int} = m.group)
-    steps = [RawStep(_raw_form(m, e.from), _raw_form(m, e.to),
-                     Met[m.table[i] for i in entries(e.consumed)],
-                     Met[m.table[i] for i in entries(e.released)], re[k])
-             for (k, e) in enumerate(m.edges)]
-    RawMechanism(copy(m.substrates), copy(m.products), modifiers(m), steps, copy(group))
-end
-
-"""
-    _raw(am, re = rapid_equilibrium_steps(am.catalytic), group = am.catalytic.group,
-         tags = am.cat_allo_states)
-
-`am` as raw input: its catalytic graph as `_raw(am.catalytic, re, group)` writes it, its
-group label `l` tagged `tags[l]`, and its multiplicity and regulatory sites.
-"""
-_raw(am::AllostericMechanism, re::BitVector = rapid_equilibrium_steps(am.catalytic),
-     group::Vector{Int} = am.catalytic.group, tags::Vector{Symbol} = am.cat_allo_states) =
-    RawAllostericMechanism(_raw(am.catalytic, re, group), copy(tags),
-                           am.catalytic_multiplicity, _raw_sites(am))
-
-"""The regulatory sites of `am` as raw input, each vector fresh."""
-_raw_sites(am::AllostericMechanism) =
-    RawSite[RawSite(copy(s.ligands), s.multiplicity, copy(s.allo_states))
-            for s in am.regulatory_sites]
 
 # ─── Accessors ─────────────────────────────────────────────────
 #
