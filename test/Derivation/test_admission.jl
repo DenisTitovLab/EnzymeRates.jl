@@ -3172,6 +3172,16 @@ end
     @test !EnzymeRates.Derivation.has_valid_rate_equation(m)
     v = EnzymeRates.Derivation._guard(m)
     @test (v.fault, v.face) == (EnzymeRates.Derivation._LAW_MULTI, 2)
+    # The negative control of `_testhelper_finite_on_every_face`, which cannot derive
+    # `rate_equation` for a mechanism the guard rejects: at the concentrations the check
+    # reads, the law read without the guard is NaN exactly where P and Q are zero.
+    params = Dict{Symbol, Float64}(k => 1.0
+                                   for k in EnzymeRates.Derivation._solve(m).fitted)
+    params[:Keq] = 2.0
+    faces = _testhelper_face_concentrations(m; rng = Random.MersenneTwister(5))
+    nan = [isnan(_testhelper_law_value(m, params, Dict(pairs(c)))) for c in faces]
+    @test count(nan) == 1
+    @test nan == [c.P == 0 && c.Q == 0 for c in faces]
     # The same dead end with E(P) + Q <--> E(P, Q) in the active conformation only. The
     # active denominator holds P or Q in every term, as above, and the inactive one is
     # weighted by the active free-enzyme weight, which holds Q in every term: the law is

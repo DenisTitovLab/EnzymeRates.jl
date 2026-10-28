@@ -1844,22 +1844,29 @@ function _testhelper_names_its_step(m, v::EnzymeRates.Derivation._Verdict)
     occursin(": at zero ", msg) && occursin(line, msg)
 end
 
-"""Whether `rate_equation` of `mech`, compiled or concrete, is finite at random positive
-parameters (`_testhelper_random_independent_params`) on every face of its catalytic graph
+"""The concentrations at which `_testhelper_finite_on_every_face` reads the law of `mech`,
+compiled or concrete: one `NamedTuple` per face of its catalytic graph
 (`EnzymeRates.Derivation._faces`), with that face's metabolites at 0 and the others drawn
 from (0.1, 10)."""
-function _testhelper_finite_on_every_face(mech; rng = Random.default_rng())
+function _testhelper_face_concentrations(mech; rng = Random.default_rng())
     x = _testhelper_lift(mech)
-    m = mech isa EnzymeRates.Mechanisms.AbstractEnzymeMechanism ? mech :
-        EnzymeRates.compile_mechanism(x)
-    params = _testhelper_random_independent_params(m; rng)
     g = EnzymeRates.Mechanisms.catalytic(x)
-    all(EnzymeRates.Derivation._faces(g)) do face
+    mets = Tuple(EnzymeRates.metabolites(x))
+    map(EnzymeRates.Derivation._faces(g)) do face
         zeroed = EnzymeRates.Derivation._face_names(g, face)
-        concs = NamedTuple{metabolites(m)}(Tuple(n in zeroed ? 0.0 : 0.1 + 9.9 * rand(rng)
-                                                 for n in metabolites(m)))
-        isfinite(rate_equation(m, concs, params))
+        NamedTuple{mets}(Tuple(n in zeroed ? 0.0 : 0.1 + 9.9 * rand(rng) for n in mets))
     end
+end
+
+"""Whether `rate_equation` of `mech`, compiled or concrete, is finite at random positive
+parameters (`_testhelper_random_independent_params`) at the concentrations of every face
+(`_testhelper_face_concentrations`)."""
+function _testhelper_finite_on_every_face(mech; rng = Random.default_rng())
+    m = mech isa EnzymeRates.Mechanisms.AbstractEnzymeMechanism ? mech :
+        EnzymeRates.compile_mechanism(_testhelper_lift(mech))
+    params = _testhelper_random_independent_params(m; rng)
+    all(concs -> isfinite(rate_equation(m, concs, params)),
+        _testhelper_face_concentrations(mech; rng))
 end
 
 """The faults class 3 reports on a face (`_check_face`): the faces the RE-speed oracle
