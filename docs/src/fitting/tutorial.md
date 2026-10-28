@@ -46,8 +46,7 @@ metabolites(uni_uni)
 A missing required column, a missing metabolite column, a metabolite named `group` or
 `Rate`, a zero, non-finite or missing `Rate`, a concentration that is not a finite
 number ≥ 0, a `Keq` that is not positive and finite, a `reference` passed with
-`absolute = true`, or a `reference` that is missing in relative mode or names an unknown
-metabolite, a concentration that is not a finite number ≥ 0 or a zero or non-finite
+`absolute = true`, or a `reference` that names an unknown metabolite, a concentration that is not a finite number ≥ 0 or a zero or non-finite
 turnover each raises an `ErrorException` at construction — the check runs before any
 fitting.
 
@@ -84,7 +83,8 @@ known — measured directly, or computed from a resource such as
 the fitting hot path pays no compilation overhead.
 
 `reference` sets the scale of the fitted rate constants in relative mode, the default: the
-fit returns constants that reproduce each anchor's turnover. These synthetic rates are
+fit returns constants that reproduce each anchor's turnover. Without one, the constants are
+in units of the fastest measured condition, not kcats. These synthetic rates are
 per-enzyme turnover, so the first data row serves as the anchor and the fit recovers the
 constants on their true scale. With rates in arbitrary units, anchor a measured kcat
 instead, or a row of your data to keep its units.
@@ -134,5 +134,5 @@ production fits.
 
 In relative mode (the default), the returned `params` are scaled so the mechanism
 reproduces the `reference` turnovers. [Normalized vs absolute rate](@ref) explains the
-scale, absolute mode, and how to rescale a fit to other measured turnovers;
+scale without a `reference`, absolute mode, and how to score a fit on other data;
 [Loss & optimizers](@ref) covers the loss function and how to supply your own optimizer.

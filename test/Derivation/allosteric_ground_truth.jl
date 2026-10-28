@@ -126,9 +126,10 @@ end
     @test A.inactive.trees[1] * A.inactive.shift == one(ER.Derivation._Poly)
     @test A.fA == A.fI == one(ER.Derivation._Poly)
 
-    # Rescaling to a measured turnover stays consistent with rate_equation.
+    # Scaling the rate constants to a measured turnover stays consistent with rate_equation.
     prm = NamedTuple{(fp..., :Keq, :E_total)}((1.3, 0.9, 2.1, 0.7, 3.0, 1.0))
-    rescaled, _ = ER.rescale_parameter_values(onlyA, prm, [(S = 2.0, P = 0.5) => 1.5])
+    v0 = ER.rate_equation(onlyA, (S = 2.0, P = 0.5), prm)
+    rescaled = ER.Derivation.scale_rate_constants(onlyA, prm, 1.5 / v0)
     @test isapprox(real(ER.rate_equation(onlyA, (S = 2.0, P = 0.5), rescaled)), 1.5;
                    rtol=1e-9)
 end

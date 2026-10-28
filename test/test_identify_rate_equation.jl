@@ -124,19 +124,17 @@ end
         @test length(
             unique(prob.rate_data.data.group)) == 5
 
-        # absolute and reference: relative mode, which needs a reference, unless set;
-        # absolute mode takes none.
+        # absolute and reference: relative mode takes a reference or none; absolute mode
+        # takes none.
         @test prob.rate_data.absolute === false
         @test prob.rate_data.reference == ref
         @test prob.rate_data.reference isa Vector{Pair{NamedTuple, Float64}}
         prob_abs = IdentifyRateEquationProblem(
             test_rxn, test_data; Keq=Keq_val, absolute=true)
         @test prob_abs.rate_data.absolute === true && isempty(prob_abs.rate_data.reference)
-        @test_throws(
-            ErrorException("relative mode needs reference = [(concentrations...) => " *
-                           "turnover, ...] to set the rate scale; pass absolute = true " *
-                           "for absolute per-enzyme turnover data"),
-            IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val))
+        prob_none = IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val)
+        @test prob_none.rate_data.absolute === false
+        @test isempty(prob_none.rate_data.reference)
         @test_throws(
             ErrorException("reference applies only to relative mode; absolute turnover " *
                            "data set the rate scale themselves"),
@@ -614,7 +612,7 @@ end
                 n_restarts=1, maxtime=1.0))
     end
 
-    @testset "cross_validation_loss: finite per-fold scores, loud on fit failure" begin
+    @testset "_cross_validation_loss: finite per-fold scores, loud on fit failure" begin
         m = EnzymeRates.EnzymeMechanism(_testhelper_uni_seed)
 
         # 3 groups × 2 rows each so per-fold fits aren't degenerate
@@ -628,7 +626,7 @@ end
                                            reference=_testhelper_row_reference(data))
 
         groups = unique(prob.rate_data.data.group)
-        scores = [EnzymeRates.Fitting.cross_validation_loss(m, prob.rate_data.data, g;
+        scores = [EnzymeRates._cross_validation_loss(m, prob.rate_data.data, g;
             EnzymeRates._fit_keywords(m, prob)...,
             optimizer=CMAEvolutionStrategyOpt(),
             n_restarts=2, maxtime=2.0, maxiters=500) for g in groups]
@@ -643,9 +641,9 @@ end
         @test all(isfinite, scores)
 
         # An unrecognized kwarg (`beam_fraction`) makes the fold's
-        # `fit_rate_equation` call throw; `cross_validation_loss` must propagate that
+        # `fit_rate_equation` call throw; `_cross_validation_loss` must propagate that
         # error, not swallow it (a corrupted CV must abort model selection).
-        @test_throws Exception EnzymeRates.Fitting.cross_validation_loss(
+        @test_throws Exception EnzymeRates._cross_validation_loss(
             m, prob.rate_data.data, first(groups); EnzymeRates._fit_keywords(m, prob)...,
             optimizer=CMAEvolutionStrategyOpt(),
             n_restarts=1, maxtime=1.0, beam_fraction=0.5)
@@ -662,7 +660,7 @@ end
         full = FittingProblem(em, prob.rate_data.data; Keq=prob.rate_data.Keq,
                               absolute=prob.rate_data.absolute,
                               reference=prob.rate_data.reference)
-        fold = EnzymeRates.Fitting._fold_problem(em, prob.rate_data.data,
+        fold = EnzymeRates._fold_problem(em, prob.rate_data.data,
             prob.rate_data.data.group .== prob.rate_data.data.group[3];
             EnzymeRates._fit_keywords(em, prob)...)
         @test typeof(fold) === typeof(full)
@@ -674,7 +672,7 @@ end
               fold.rate_data.reference == [(S = 1.0, P = 0.1) => 0.5]
         prob_abs = IdentifyRateEquationProblem(prob.reaction, prob.rate_data.data;
                                                Keq=prob.rate_data.Keq, absolute=true)
-        fold_abs = EnzymeRates.Fitting._fold_problem(em, prob_abs.rate_data.data,
+        fold_abs = EnzymeRates._fold_problem(em, prob_abs.rate_data.data,
             prob.rate_data.data.group .== prob.rate_data.data.group[3];
             EnzymeRates._fit_keywords(em, prob_abs)...)
         @test fold_abs.rate_data.absolute === true &&
@@ -720,15 +718,59 @@ end
     @test EnzymeRates._fit_keywords(regulated, prob) ==
           (; Keq = 10.0, absolute = false, reference = [(S = 2.0, R = 0.5) => 0.8])
     # So the fit of the mechanism without R takes the problem's reference.
-    @test EnzymeRates.Fitting._fold_problem(plain, prob.rate_data.data, trues(4);
+    @test EnzymeRates._fold_problem(plain, prob.rate_data.data, trues(4);
               EnzymeRates._fit_keywords(plain, prob)...).rate_data.reference ==
           [(S = 2.0,) => 0.8]
     prob_abs = IdentifyRateEquationProblem(rxn, data; Keq=10.0, absolute=true)
     @test EnzymeRates._fit_keywords(plain, prob_abs) == (; Keq = 10.0, absolute = true)
 end
 
+@testset "_cross_validation_loss: the held-out loss of the fit on the other groups" begin
+    em = EnzymeRates.compile_mechanism(_testhelper_uni_seed)
+    optimizer = CMAEvolutionStrategyOpt()
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
+    reference = _testhelper_row_reference(data)
+    fit_options = (; n_restarts = 1, maxiters = 50)
+    Random.seed!(7)
+    cv = EnzymeRates._cross_validation_loss(em, data, "G2";
+        Keq = 2.0, absolute = false, reference, optimizer, fit_options...)
+    Random.seed!(7)
+    g1 = map(col -> col[data.group .== "G1"], data)
+    g2 = map(col -> col[data.group .== "G2"], data)
+    fit = fit_rate_equation(FittingProblem(em, g1; Keq = 2.0, reference),
+                            optimizer; fit_options...)
+    expected = EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
+        FittingProblem(em, g2; Keq = 2.0, reference))
+    @test cv isa Float64
+    @test cv == expected
+end
+
+@testset "a fold whose reference fails scores the unscaled fit" begin
+    em = EnzymeRates.compile_mechanism(_testhelper_uni_seed)
+    optimizer = CMAEvolutionStrategyOpt()
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
+    # With S alone the law runs forward, against this reverse turnover: no factor
+    # matches it, so every training fit fails its reference.
+    reference = [(S = 1.0,) => -0.5]
+    fit_options = (; n_restarts = 1, maxiters = 50)
+    Random.seed!(7)
+    cv = EnzymeRates._cross_validation_loss(em, data, "G2";
+        Keq = 2.0, absolute = false, reference, optimizer, fit_options...)
+    Random.seed!(7)
+    g1 = map(col -> col[data.group .== "G1"], data)
+    g2 = map(col -> col[data.group .== "G2"], data)
+    fit = fit_rate_equation(FittingProblem(em, g1; Keq = 2.0, reference),
+                            optimizer; fit_options...)
+    @test fit.retcode === :ReferenceFailed
+    @test isfinite(cv)
+    @test cv == EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
+        FittingProblem(em, g2; Keq = 2.0, reference))
+end
+
 # In absolute mode `_fit_keywords` passes no reference, so a fold takes none.
-@testset "cross_validation_loss in absolute mode is the uncentered held-out loss" begin
+@testset "_cross_validation_loss in absolute mode is the uncentered held-out loss" begin
     em = EnzymeRates.compile_mechanism(_testhelper_uni_seed)
     data = _testhelper_uni_prob(NamedTuple).rate_data.data
     prob_abs = IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0,
@@ -736,7 +778,7 @@ end
     optimizer = CMAEvolutionStrategyOpt()
     fit_options = (; n_restarts = 1, maxiters = 50)
     Random.seed!(11)
-    cv = EnzymeRates.Fitting.cross_validation_loss(em, data, "G1";
+    cv = EnzymeRates._cross_validation_loss(em, data, "G1";
         EnzymeRates._fit_keywords(em, prob_abs)..., optimizer, fit_options...)
     Random.seed!(11)
     on(g) = map(col -> col[data.group .== g], data)
@@ -778,9 +820,9 @@ function _testhelper_enzymerates_method_instances()
 end
 
 # LOOCV fits a candidate's folds after the candidate's full fit, and a fold's problem has
-# the full fit's type. `cross_validation_loss` and `_fold_problem` take the mechanism
+# the full fit's type. `_cross_validation_loss` and `_fold_problem` take the mechanism
 # `@nospecialize`, so the fold then infers and compiles no EnzymeRates method for it.
-@testset "cross_validation_loss: a fold compiles nothing for its mechanism" begin
+@testset "_cross_validation_loss: a fold compiles nothing for its mechanism" begin
     rxn = @enzyme_reaction begin
         substrates: Sfold[C]
         products: Pfold[C]
@@ -818,7 +860,7 @@ end
                               reference=prob.rate_data.reference)
         fit_rate_equation(full, optimizer; n_restarts=1, maxiters=10)
         n = _testhelper_enzymerates_method_instances()
-        EnzymeRates.Fitting.cross_validation_loss(em, prob.rate_data.data, "G1";
+        EnzymeRates._cross_validation_loss(em, prob.rate_data.data, "G1";
             EnzymeRates._fit_keywords(em, prob)..., optimizer, n_restarts=1, maxiters=10)
         push!(added, _testhelper_enzymerates_method_instances() - n)
     end
@@ -2186,7 +2228,7 @@ end
     # The pool holds the phantom without its source, so the 1-SE rule
     # selects it. best_equation.csv reports L = 0, the flag and the source's id, and its
     # parameters, read back from the CSV, give the source's rates through the phantom's
-    # own rate equation; rescale_parameter_values accepts them.
+    # own rate equation; scaling the rate constants keeps L = 0.
     parent, phantom = _testhelper_phantom_pair()
     prob = _testhelper_uni_prob(NamedTuple)
     memo = Dict{String, EnzymeRates._Fit}()
@@ -2217,8 +2259,8 @@ end
             v0 = rate_equation(EnzymeRates.compile_mechanism(parent), concs, source)
             @test isfinite(v) && isapprox(v, v0; rtol = 1e-12)
         end
-        scaled, spread = rescale_parameter_values(res.best, params, [(S = 1.0,) => 2.0])
-        @test spread == 0.0 && scaled.L == 0.0
+        scaled = EnzymeRates.Derivation.scale_rate_constants(res.best, params, 2.0)
+        @test scaled.L == 0.0
     end
 end
 
@@ -2853,7 +2895,7 @@ end
     for r in eachrow(res.cv_results)
         m = only(e.mech for e in pool if sprint(show, e.mech) == r.mechanism)
         em = EnzymeRates.compile_mechanism(m)
-        serial = [EnzymeRates.Fitting.cross_validation_loss(em, prob.rate_data.data, g;
+        serial = [EnzymeRates._cross_validation_loss(em, prob.rate_data.data, g;
             EnzymeRates._fit_keywords(em, prob)...,
             optimizer=stub(), n_restarts=1, maxtime=1.0) for g in groups]
         @test folds(r) == serial

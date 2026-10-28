@@ -589,49 +589,4 @@ end
                            reference=[(P = 0.1,) => 1.0]))
     end
 
-    # ── Cross-validation loss ─────────────────────────────────────────────────
-    @testset "cross_validation_loss: the held-out loss of the fit on the other groups" begin
-        using OptimizationCMAEvolutionStrategy
-        optimizer = CMAEvolutionStrategyOpt()
-        data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
-                S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
-        reference = _testhelper_row_reference(data)
-        fit_options = (; n_restarts = 1, maxiters = 50)
-        Random.seed!(7)
-        cv = EnzymeRates.Fitting.cross_validation_loss(uni_uni, data, "G2";
-            Keq = Keq_val, absolute = false, reference, optimizer, fit_options...)
-        Random.seed!(7)
-        g1 = map(col -> col[data.group .== "G1"], data)
-        g2 = map(col -> col[data.group .== "G2"], data)
-        fit = fit_rate_equation(FittingProblem(uni_uni, g1; Keq = Keq_val, reference),
-                                optimizer; fit_options...)
-        expected = EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
-            FittingProblem(uni_uni, g2; Keq = Keq_val, reference))
-        @test cv isa Float64
-        @test cv == expected
-    end
-
-    @testset "a fold whose reference fails scores the unscaled fit" begin
-        using OptimizationCMAEvolutionStrategy
-        optimizer = CMAEvolutionStrategyOpt()
-        data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
-                S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
-        # With S alone the law runs forward, against this reverse turnover: no factor
-        # matches it, so every training fit fails its reference.
-        reference = [(S = 1.0,) => -0.5]
-        fit_options = (; n_restarts = 1, maxiters = 50)
-        Random.seed!(7)
-        cv = EnzymeRates.Fitting.cross_validation_loss(uni_uni, data, "G2";
-            Keq = Keq_val, absolute = false, reference, optimizer, fit_options...)
-        Random.seed!(7)
-        g1 = map(col -> col[data.group .== "G1"], data)
-        g2 = map(col -> col[data.group .== "G2"], data)
-        fit = fit_rate_equation(FittingProblem(uni_uni, g1; Keq = Keq_val, reference),
-                                optimizer; fit_options...)
-        @test fit.retcode === :ReferenceFailed
-        @test isfinite(cv)
-        @test cv == EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
-            FittingProblem(uni_uni, g2; Keq = Keq_val, reference))
-    end
-
 end

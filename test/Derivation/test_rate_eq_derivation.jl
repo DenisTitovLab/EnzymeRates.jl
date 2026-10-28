@@ -693,8 +693,8 @@ function _testhelper_test_rescaling(spec::_testhelper_MechanismTestSpec; seed=10
         # An anchor at those concentrations sets the turnover there and leaves every
         # constant but the steady-state rate constants alone.
         target = sign(v_orig) * (0.1 + 9.9 * rand(rng))
-        anchored, spread_one = rescale_parameter_values(m, params, [concs => target])
-        @test spread_one == 0.0
+        v_unit = rate_equation(m, concs, merge(params, (E_total = 1.0,)))
+        anchored = EnzymeRates.Derivation.scale_rate_constants(m, params, target / v_unit)
         for k in keys(params)
             if !(k in ss_names)
                 @test anchored[k] == params[k]
@@ -1782,7 +1782,7 @@ end
     end
 
     # Allosteric: I-state versions of every SS rate constant are also
-    # included so `rescale_parameter_values` scales them in tandem.
+    # included so `scale_rate_constants` scales them in tandem.
     mwc = only(s for s in MECHANISM_TEST_SPECS
                if s.name == "MWC Dimer [AllostericEnzymeMechanism]").mechanism
     mwc_names = EnzymeRates.Derivation._ss_rate_constant_names(mwc)

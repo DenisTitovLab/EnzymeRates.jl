@@ -13,10 +13,9 @@ export @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
 
 # Core API
 export rate_equation, rate_equation_string, parameters, metabolites
-export rescale_parameter_values
 
 # Fitting & model selection
-export fit_rate_equation
+export fit_rate_equation, test_rate_equation
 export identify_rate_equation
 
 
@@ -33,7 +32,8 @@ using .Derivation: Derivation, rate_equation, rate_equation_string, parameters,
     IndependentParameters, FittedParameters, AllParameters
 include("macros.jl")
 include("Fitting/Fitting.jl")
-using .Fitting: Fitting, FittingProblem, fit_rate_equation, rescale_parameter_values
+using .Fitting: Fitting, FittingProblem, fit_rate_equation,
+    test_rate_equation
 include("Enumeration/Enumeration.jl")
 include("identify_rate_equation.jl")
 

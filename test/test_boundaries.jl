@@ -32,7 +32,8 @@ const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}(
     "Derivation/print.jl" => Set(["A.sites"]),
     "Enumeration/filters.jl" => Set(["s.steps"]),
     "Fitting/fitting.jl" => Set(["data.group"]),
-    "identify_rate_equation.jl" => Set(["rate_data.data.group", "prob.rate_data.data.group"]),
+    "identify_rate_equation.jl" => Set(["data.group", "rate_data.data.group",
+        "prob.rate_data.data.group"]),
     # The seed builder reads the written form (`RawStep`, `RawForm`, `RawMechanism`, `Met`)
     # that it assembles and transforms.
     "Enumeration/seeds.jl" => Set([

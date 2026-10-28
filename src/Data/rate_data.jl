@@ -13,14 +13,14 @@ A rate table that has passed its checks, with the constants that go with it.
 - `absolute`: `false` selects relative data, whose scale the `reference` sets; `true`
   selects absolute per-enzyme turnover
 - `reference`: the anchors `concentrations => turnover` that set a relative fit's scale,
-  with Float64 turnovers; empty in absolute mode
+  with Float64 turnovers; empty in absolute mode and when a relative table gives none
 
 `Keq` must be positive and finite, the table needs a `group` column, a `Rate` column and
 one column per name in `metabolite_names`, no metabolite may be named `group` or `Rate`,
 every concentration must be a finite number ≥ 0 (zero is valid), and every rate must be a
-finite, nonzero number (the loss takes its log). In relative mode `reference` is required
-and checked against `metabolite_names` of the `owner` (`"mechanism"` or `"reaction"`); in
-absolute mode it must be `nothing`.
+finite, nonzero number (the loss takes its log). In relative mode `reference` is optional
+and, when given, checked against `metabolite_names` of the `owner` (`"mechanism"` or
+`"reaction"`); in absolute mode it must be `nothing`.
 """
 struct RateData{D<:NamedTuple}
     data::D
@@ -67,37 +67,35 @@ function _reference(reference, absolute::Bool, mets, owner::String)
             "rate scale themselves")
         return Pair{NamedTuple, Float64}[]
     end
-    reference === nothing && error(
-        "relative mode needs reference = [(concentrations...) => turnover, ...] to set " *
-        "the rate scale; pass absolute = true for absolute per-enzyme turnover data")
-    check_anchors(reference, mets, "reference", owner)
+    reference === nothing && return Pair{NamedTuple, Float64}[]
+    _check_anchors(reference, mets, owner)
     Pair{NamedTuple, Float64}[concs => Float64(t) for (concs, t) in reference]
 end
 
 """
-    check_anchors(anchors, mets, name, owner)
+    _check_anchors(anchors, mets, owner)
 
-Error unless `anchors`, the argument `name` (`"reference"` or `"kcats"`), is a nonempty
+Error unless `anchors`, the `reference`, is a nonempty
 vector of `concentrations => turnover` pairs whose concentrations are a `NamedTuple` of
 finite numbers ≥ 0 keyed by names in `mets`, the metabolites of the `owner`, and whose
 turnover is a finite, nonzero number.
 """
-function check_anchors(anchors, mets, name::String, owner::String)
-    anchors isa AbstractVector{<:Pair} || error("$name must be a vector of " *
+function _check_anchors(anchors, mets, owner::String)
+    anchors isa AbstractVector{<:Pair} || error("reference must be a vector of " *
         "(concentrations => turnover) pairs; got $(repr(anchors))")
     isempty(anchors) &&
-        error("$name is empty; pass at least one (concentrations => turnover) anchor")
+        error("reference is empty; pass at least one (concentrations => turnover) anchor")
     for (concs, measured) in anchors
         concs isa NamedTuple ||
-            error("$name: concentrations must be a NamedTuple; got $(repr(concs))")
+            error("reference: concentrations must be a NamedTuple; got $(repr(concs))")
         for (k, c) in pairs(concs)
-            k in mets || error("$name: $k is not a metabolite of the $owner " *
+            k in mets || error("reference: $k is not a metabolite of the $owner " *
                                "(metabolites: $(join(mets, ", ")))")
-            c isa Real && isfinite(c) && c >= 0 || error(
-                "$name: concentration of $k must be a finite number ≥ 0; got $(repr(c))")
+            c isa Real && isfinite(c) && c >= 0 || error("reference: concentration of " *
+                "$k must be a finite number ≥ 0; got $(repr(c))")
         end
         measured isa Real && isfinite(measured) && measured != 0 || error(
-            "$name: turnover must be a finite, nonzero number; got $(repr(measured))")
+            "reference: turnover must be a finite, nonzero number; got $(repr(measured))")
     end
 end
 

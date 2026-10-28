@@ -23,7 +23,7 @@ parameters(::Any)
 parameters(::Union{Mechanisms.AbstractEnzymeMechanism, AllostericMechanism, Mechanism}, ::NamedTuple)
 rate_equation(::M_type, ::NamedTuple, ::NamedTuple) where M_type<:Mechanisms.AbstractEnzymeMechanism
 rate_equation_string(::Union{AllostericMechanism, Mechanism})
-rescale_parameter_values(::Mechanisms.AbstractEnzymeMechanism, ::NamedTuple, ::AbstractVector{<:Pair})
+test_rate_equation(::Any, ::NamedTuple, ::Any)
 ```
 
 ## Macros

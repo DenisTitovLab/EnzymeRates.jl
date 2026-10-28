@@ -1,5 +1,5 @@
-# ABOUTME: Fitting rate equations to experimental data and scaling them to reference
-# ABOUTME: turnovers: FittingProblem, the loss, multi-start fits and rescaled parameters.
+# ABOUTME: Fitting rate equations to experimental data and scaling them to a reference
+# ABOUTME: scale: FittingProblem, the loss, multi-start fits and test_rate_equation.
 
 """
     FittingProblem{M, D}
@@ -11,9 +11,10 @@ rate constants.
 - `mechanism`: an `AbstractEnzymeMechanism` instance
 - `rate_data`: the validated table, `Keq` (fixed equilibrium constant), `absolute` and
   `reference`, as a `RateData`. `absolute = false` selects relative mode (per-group-centered
-  loss, fit scaled to the reference turnovers); `true` selects absolute per-enzyme turnover
-  mode (uncentered loss, no scale). `reference` holds the anchors
-  `concentrations => turnover` that set a relative fit's scale; empty in absolute mode
+  loss, fit scaled to the reference turnovers or, without any, to the fastest data row);
+  `true` selects absolute per-enzyme turnover mode (uncentered loss, no scale).
+  `reference` holds the anchors `concentrations => turnover` that set a relative fit's
+  scale; empty in absolute mode and when a relative table gives none
 - `group_point_indexes`: row indices grouped by unique `group` values
 - `log_abs_rates`: pre-computed `log.(abs.(Rate))`
 - `log_ratios_buffer`: pre-allocated working buffer for loss computation
@@ -38,12 +39,14 @@ named `group` or `Rate`. Uses `Tables.columntable` for conversion.
 
 With `absolute = false` (the default) the data are relative: the loss centers each
 group's log-ratios, which removes each group's scale, so the data fix the rate constants
-only up to one common factor. `reference`, required in this mode, sets that factor: a
+only up to one common factor. `reference`, optional in this mode, sets that factor: a
 vector of anchors `concentrations => turnover`, each a `NamedTuple` of concentrations in
 the data's units, where a metabolite left out is zero, and a turnover per unit `E_total`
 measured there (a kcat, or a specific activity in turnover units).
 `fit_rate_equation` scales the fitted rate constants so the mechanism reproduces the
-reference turnovers, as `rescale_parameter_values` does. With `absolute = true` the data
+reference turnovers. Without a `reference` it scales them so the largest absolute rate
+predicted over the data rows, at `E_total = 1`, is 1: the rate constants are then in
+units of the fastest measured condition, not kcats. With `absolute = true` the data
 are absolute per-enzyme turnover: the loss is uncentered, the fit is returned unscaled,
 and passing `reference` is an error.
 
@@ -56,8 +59,8 @@ at finite concentrations ≥ 0, with a finite, nonzero turnover.
 fp = FittingProblem(m, data; Keq = 2.0, reference = [(A = 10.0, B = 5.0) => 42.0])
 ```
 """
-function FittingProblem(mechanism::Mechanisms.AbstractEnzymeMechanism, table;
-        Keq::Real, absolute::Bool=false, reference=nothing)
+function FittingProblem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
+        table; Keq::Real, absolute::Bool=false, reference=nothing)
     mets = Mechanisms.metabolites(mechanism)
     rate_data = Data.RateData(table, mets; Keq, absolute, reference, owner = "mechanism")
     data = rate_data.data
@@ -78,56 +81,6 @@ singleton once at construction so `loss!`'s hot path operates on the
 FittingProblem(mechanism::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
                table; kwargs...) =
     FittingProblem(Mechanisms.compile_mechanism(mechanism), table; kwargs...)
-
-"""
-    _fold_problem(mechanism, data, mask; keywords...) → FittingProblem
-
-The `FittingProblem` of `mechanism` on the rows of `data` that `mask` selects, with the
-`FittingProblem` `keywords`. The fold copies its rows rather than viewing them, so its
-problem has the full fit's type and `loss!` does not compile a second time for it; the
-copy is small next to a fit.
-"""
-function _fold_problem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
-                       data::NamedTuple, mask; keywords...)
-    FittingProblem(mechanism, map(col -> col[mask], data); keywords...)
-end
-
-"""
-    cross_validation_loss(mechanism, data, held_out; Keq, absolute, reference = nothing,
-        optimizer, kwargs...) → Float64
-
-The loss on the rows of `data` whose `group` is `held_out` of `mechanism` fitted to the
-other rows: `fit_rate_equation(problem, optimizer; kwargs...)` on a `FittingProblem` with
-`Keq`, `absolute` and `reference`, which absolute mode leaves `nothing`. A training fit
-that fails its reference (`:ReferenceFailed`) keeps its parameters unscaled, and the
-relative loss, blind to the scale, still scores them. A non-finite loss raises (naming the
-held-out group): a corrupted fold must abort model selection rather than propagate a bad
-score.
-
-This function and `_fold_problem` take `mechanism` `@nospecialize`. Cross-validation runs
-a candidate's folds after its full fit, which compiled `loss!` for the folds' problem type,
-so a fold infers and compiles nothing for the mechanism.
-"""
-function cross_validation_loss(
-    @nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
-    data::NamedTuple, held_out;
-    Keq, absolute, reference = nothing, optimizer, kwargs...)
-    held = data.group .== held_out
-    problem_keywords = (; Keq, absolute, reference)
-    fit = fit_rate_equation(_fold_problem(mechanism, data, .!held; problem_keywords...),
-                            optimizer; kwargs...)
-    # `fit.params` is keyed by `parameters(mechanism, FittedParameters())`, the order
-    # `loss!` reads.
-    test_loss = loss!([log(v) for v in fit.params],
-                      _fold_problem(mechanism, data, held; problem_keywords...))
-    # A non-finite fold loss means the fit is unusable; aborting model
-    # selection is correct (re-run CV from the saved CSVs after fixing
-    # the fit).
-    isfinite(test_loss) || error(
-        "LOOCV produced a non-finite test loss for held-out group " *
-        "$held_out — the fit is unusable; aborting model selection.")
-    test_loss
-end
 
 """
     loss!(x::AbstractVector, fp::FittingProblem)
@@ -259,10 +212,12 @@ present in both a named common option and `solver_kwargs` takes the
 In relative mode (`fp.rate_data.absolute == false`) the returned steady-state rate
 constants are multiplied by one factor so the mechanism reproduces the reference turnovers
 `fp.rate_data.reference` (see `FittingProblem`): the geometric mean of measured over
-predicted turnover, as `rescale_parameter_values` computes it. A fit whose predicted turnover at a
-reference anchor is zero, non-finite or of the other sign has no such factor: it returns
-its parameters unscaled, with `loss = Inf` and `retcode = :ReferenceFailed`, and does not
-throw. In absolute mode, or when no restart reaches a finite loss (`loss = Inf`,
+predicted turnover. Without a reference the factor is 1 over the largest absolute rate
+the fit predicts at the data's concentrations, at `E_total = 1`. A fit whose predicted
+turnover at a reference anchor is zero, non-finite or of the other sign, or whose largest
+predicted rate is zero or non-finite, has no such factor: it returns its parameters
+unscaled, with `loss = Inf` and `retcode = :ReferenceFailed`, and does not throw.
+In absolute mode, or when no restart reaches a finite loss (`loss = Inf`,
 `retcode = :NoFiniteLoss`), the rate constants are returned as fitted.
 
 Returns a NamedTuple `(params, loss, retcode)` where:
@@ -326,86 +281,71 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(np)))
     (fp.rate_data.absolute || !isfinite(best_loss)) &&
         return (params = result_params, loss = best_loss, retcode = best_retcode)
-    ratios = _anchor_log_ratios((_, _) -> nothing, fp.mechanism,
-                                merge(result_params, (Keq = fp.rate_data.Keq,)),
-                                fp.rate_data.reference)
-    ratios === nothing &&
+    scale = _reference_scale(fp, merge(result_params, (Keq = fp.rate_data.Keq,)))
+    scale === nothing &&
         return (params = result_params, loss = Inf, retcode = :ReferenceFailed)
-    scale = exp(sum(ratios) / length(ratios))
     return (params = Derivation.scale_rate_constants(fp.mechanism, result_params, scale),
             loss = best_loss, retcode = best_retcode)
 end
 
 """
-    rescale_parameter_values(m, params, kcats) -> (params, spread)
+    _reference_scale(fp, params)
 
-Re-express the parameters `params` of mechanism `m` on another rate scale by multiplying
-every steady-state rate constant (the `k_…` constants) by one factor. The binding
-constants `K_…`, `Keq`, `E_total`, `L` and the regulatory constants stay as they are, and
-every rate changes by that factor. `params` must include `Keq`, which the dependent rate
-constants need; merge it into a fit's `params`.
-
-The factor matches measured turnovers `kcats` — a kcat, or a specific activity in turnover
-units — at stated concentrations: a vector of `concentrations => turnover` pairs, the
-concentrations a `NamedTuple` per anchor; metabolites an anchor leaves out are zero.
-Anchor concentrations are in the data's concentration units. Turnover is per unit
-`E_total`, the active-site concentration, so divide a kcat quoted per oligomer by its
-number of active sites first. Several anchors combine by the geometric mean of measured
-over predicted turnover, the least-squares scale in log space. `spread` is the standard
-deviation of the anchors' `log(measured/predicted)`, 0 for one anchor; a large spread says
-the anchors disagree with the model or with each other. An anchor where the model predicts
-zero or non-finite turnover, or turnover of the other sign, is an error. A relative fit
-comes back already scaled to its problem's `reference` this way (see `FittingProblem`);
-rescaling it re-expresses it on other anchors.
-
-```julia
-fit = fit_rate_equation(
-    FittingProblem(m, data; Keq = 2.0, reference = [(A = 10.0, B = 5.0) => 1.0]),
-    optimizer)
-kcats = [(A = 10.0, B = 5.0) => 42.0, (A = 20.0, B = 5.0) => 44.0]
-params, spread = rescale_parameter_values(m, merge(fit.params, (; Keq = 2.0)), kcats)
-```
+The factor on the rate constants `params` (which hold `Keq`) of `fp.mechanism` that sets
+a relative fit's scale, or `nothing` if no factor does. With reference anchors it is the
+geometric mean of measured over predicted turnover per unit `E_total`, where a metabolite
+an anchor leaves out is zero, and no factor reproduces an anchor whose predicted turnover
+is zero, non-finite or of the other sign than the measured one. Without anchors it is
+1 over the largest absolute rate predicted at the data's concentrations, which must be
+positive and finite.
 """
-function rescale_parameter_values(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism),
-                                  params::NamedTuple, kcats::AbstractVector{<:Pair})
-    _check_has_keq(params)
-    Data.check_anchors(kcats, Mechanisms.metabolites(m), "kcats", "mechanism")
-    log_ratios = _anchor_log_ratios(m, params, kcats) do concs, predicted
-        error("kcats: at $concs the mechanism predicts turnover $predicted; an anchor " *
-              "needs a finite, nonzero predicted turnover of the measured turnover's sign")
-    end
-    center = sum(log_ratios) / length(log_ratios)
-    spread = length(log_ratios) == 1 ? 0.0 :
-        sqrt(sum(r -> (r - center)^2, log_ratios) / (length(log_ratios) - 1))
-    (Derivation.scale_rate_constants(m, params, exp(center)), spread)
-end
-
-"""
-    _anchor_log_ratios(fail, m, params, anchors)
-
-`log(measured / predicted)` for each anchor `concentrations => measured` of `anchors`,
-where `predicted` is the turnover of `m` at `params` (which hold `Keq`) per unit
-`E_total`, with every metabolite the anchor leaves out at zero. At the first anchor whose
-predicted turnover is zero, non-finite or of the other sign than the measured one, which
-no factor on the rate constants reproduces, it returns `fail(concentrations, predicted)`.
-"""
-function _anchor_log_ratios(fail, @nospecialize(m::Mechanisms.AbstractEnzymeMechanism),
-                            params::NamedTuple, anchors)
-    mets = Mechanisms.metabolites(m)
+function _reference_scale(@nospecialize(fp::FittingProblem),
+                          @nospecialize(params::NamedTuple))
+    mets = Mechanisms.metabolites(fp.mechanism)
     turnover_params = merge(params, (E_total = 1.0,))
+    reference = fp.rate_data.reference
+    if isempty(reference)
+        peak = maximum(
+            abs(Derivation.rate_equation(fp.mechanism,
+                NamedTuple{mets}(Tuple(Float64(fp.rate_data.data[k][i]) for k in mets)),
+                turnover_params))
+            for i in eachindex(fp.rate_data.data.Rate))
+        return isfinite(peak) && peak > 0 ? 1 / peak : nothing
+    end
     log_ratios = Float64[]
-    for (concs, measured) in anchors
-        predicted = Derivation.rate_equation(m,
+    for (concs, measured) in reference
+        predicted = Derivation.rate_equation(fp.mechanism,
             NamedTuple{mets}(Tuple(Float64(get(concs, k, 0.0)) for k in mets)),
             turnover_params)
         isfinite(predicted) && predicted != 0 && sign(predicted) == sign(measured) ||
-            return fail(concs, predicted)
+            return nothing
         push!(log_ratios, log(measured / predicted))
     end
-    log_ratios
+    exp(sum(log_ratios) / length(log_ratios))
 end
 
-"""Errors unless `params` holds `Keq`, which the dependent rate constants need."""
-_check_has_keq(params::NamedTuple) = haskey(params, :Keq) || error(
-    "params must include Keq, which the dependent rate constants need; merge it into a " *
-    "fit's params")
+"""
+    test_rate_equation(m, params::NamedTuple, table; Keq, absolute = false) -> Float64
+
+The fitting loss of mechanism `m` at the rate constants `params` on `table`: the loss
+`fit_rate_equation` minimizes, for scoring a fit on data it did not see. `params` must
+hold every name of `parameters(m, FittedParameters())`, as a fit's `params` does; other
+names are ignored. `table` has the columns `FittingProblem` needs. `Keq` is the fixed
+equilibrium constant. With `absolute = false` (the default) the loss centers each group's
+log-ratios, so it does not depend on the scale of `params`; with `absolute = true` it
+scores the absolute turnover.
+
+```julia
+fit = fit_rate_equation(FittingProblem(m, train; Keq = 2.0), optimizer)
+test_rate_equation(m, fit.params, test; Keq = 2.0)
+```
+"""
+function test_rate_equation(@nospecialize(m), @nospecialize(params::NamedTuple), table;
+                            Keq::Real, absolute::Bool = false)
+    fp = FittingProblem(m, table; Keq, absolute)
+    names = Derivation.parameters(fp.mechanism, Derivation.FittedParameters())
+    for name in names
+        haskey(params, name) || error("params is missing the fitted parameter $name")
+    end
+    loss!([log(params[name]) for name in names], fp)
+end

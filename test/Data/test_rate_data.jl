@@ -19,12 +19,10 @@
         @test abs_rd.absolute === true && isempty(abs_rd.reference)
     end
 
-    @testset "reference is required in relative mode and refused in absolute mode" begin
-        @test_throws(ErrorException("relative mode needs reference = " *
-                                    "[(concentrations...) => turnover, ...] to set the " *
-                                    "rate scale; pass absolute = true for absolute " *
-                                    "per-enzyme turnover data"),
-                     RateData(table, (:S, :P); Keq = 2.0))
+    @testset "reference is optional in relative mode and refused in absolute mode" begin
+        rd = RateData(table, (:S, :P); Keq = 2.0)
+        @test !rd.absolute && rd.reference isa Vector{Pair{NamedTuple, Float64}}
+        @test isempty(rd.reference)
         @test_throws(ErrorException("reference applies only to relative mode; absolute " *
                                     "turnover data set the rate scale themselves"),
                      RateData(table, (:S, :P); Keq = 2.0, absolute = true,

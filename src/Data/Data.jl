@@ -4,7 +4,7 @@ module Data
 
 using Tables: Tables
 
-const API = (:RateData, :check_anchors)
+const API = (:RateData,)
 
 include("rate_data.jl")
 

@@ -1,5 +1,5 @@
 # ABOUTME: Tests for the reference scale of relative fits: the reference anchors a problem
-# ABOUTME: takes, the fit they scale, and rescale_parameter_values.
+# ABOUTME: takes, the default scale without one, the fit they scale, and test_rate_equation.
 using Random
 using OptimizationCMAEvolutionStrategy
 
@@ -24,11 +24,9 @@ using OptimizationCMAEvolutionStrategy
                                                   (E_total = 1.0,))) for c in mm_concs],
                S = [c.S for c in mm_concs], P = [c.P for c in mm_concs])
 
-    @testset "reference is required in relative mode" begin
-        required = "relative mode needs reference = [(concentrations...) => turnover, " *
-                   "...] to set the rate scale; pass absolute = true for absolute " *
-                   "per-enzyme turnover data"
-        @test_throws ErrorException(required) FittingProblem(mm, mm_data; Keq = 2.0)
+    @testset "relative mode accepts no reference" begin
+        fp_none = FittingProblem(mm, mm_data; Keq = 2.0)
+        @test !fp_none.rate_data.absolute && isempty(fp_none.rate_data.reference)
         # Absolute data set the scale themselves: no reference is needed, and one passed
         # is an error.
         fp_abs = FittingProblem(mm, mm_data; Keq = 2.0, absolute = true)
@@ -82,13 +80,15 @@ using OptimizationCMAEvolutionStrategy
         @test rate_equation(mm, (S = 10.0, P = 0.0),
                             merge(fit.params, (Keq = 2.0, E_total = 1.0))) ≈ 3.0 rtol = 1e-8
         # Several anchors combine by the geometric mean of measured over predicted
-        # turnover, as rescale_parameter_values combines them.
+        # turnover: after the scale, the log ratios average to zero.
         anchors = [(S = 10.0,) => 3.0, (S = 1.0,) => 2.0]
         fit2 = fit_rate_equation(
             FittingProblem(mm, mm_data; Keq = 2.0, reference = anchors),
             CMAEvolutionStrategyOpt(); n_restarts = 1, maxiters = 50)
-        q, _ = rescale_parameter_values(mm, merge(fit2.params, (Keq = 2.0,)), anchors)
-        @test all(k -> isapprox(fit2.params[k], q[k]; rtol = 1e-12), keys(fit2.params))
+        p2 = merge(fit2.params, (Keq = 2.0, E_total = 1.0))
+        log_ratios = [log(t / rate_equation(mm, merge((S = 0.0, P = 0.0), c), p2))
+                      for (c, t) in anchors]
+        @test sum(log_ratios) / length(log_ratios) ≈ 0 atol = 1e-12
     end
 
     @testset "an unlisted metabolite sits at zero in an anchor" begin
@@ -140,8 +140,7 @@ using OptimizationCMAEvolutionStrategy
                                                   rng = Random.MersenneTwister(3))
         concs = (S = 2.0, P = 0.5, X = 0.3, Y = 1.5)
         predicted = rate_equation(two_site, concs, merge(p, (E_total = 1.0,)))
-        q, spread = rescale_parameter_values(two_site, p, [concs => 7.0])
-        @test spread == 0.0
+        q = EnzymeRates.Derivation.scale_rate_constants(two_site, p, 7.0 / predicted)
         @test keys(q) == keys(p)
         rate_constants = [k for k in keys(p) if startswith(String(k), "k_")]
         @test !isempty(rate_constants)
@@ -157,79 +156,48 @@ using OptimizationCMAEvolutionStrategy
         end
     end
 
-    @testset "rescale_parameter_values: measured turnovers" begin
-        p = _testhelper_mm_params(1.0)
-        _testhelper_mm_turnover(q, concs) = rate_equation(
-            mm, merge((S = 0.0, P = 0.0), concs), merge(q, (E_total = 1.0,)))
-        # One anchor: the rescaled law predicts the measured turnover there; P, unlisted,
-        # is zero.
-        q, spread = rescale_parameter_values(mm, p, [(S = 10.0,) => 42.0])
-        @test _testhelper_mm_turnover(q, (S = 10.0,)) ≈ 42.0 rtol = 1e-12
-        @test spread == 0.0
-        @test q.Keq == 2.0
-        # Two anchors combine by the geometric mean of measured over predicted turnover
-        # (predicted 50/11 at S = 10 and 5/2 at S = 1); the spread is the standard
-        # deviation of the two log ratios.
-        r1, r2 = 42.0 / (50 / 11), 10.0 / (5 / 2)
-        q2, spread2 = rescale_parameter_values(mm, p,
-                                               [(S = 10.0,) => 42.0, (S = 1.0,) => 10.0])
-        @test q2.k_ES_to_E_P ≈ 5.0 * sqrt(r1 * r2) rtol = 1e-12
-        @test spread2 ≈ abs(log(r1) - log(r2)) / sqrt(2) rtol = 1e-12
-        # Integer concentrations and turnovers work.
-        @test rescale_parameter_values(mm, p, [(S = 10,) => 42])[1] == q
-        # A reverse anchor: the product alone runs the reaction backwards.
-        qr, _ = rescale_parameter_values(mm, p, [(P = 1.0,) => -2.0])
-        @test _testhelper_mm_turnover(qr, (P = 1.0,)) ≈ -2.0 rtol = 1e-12
+    @testset "default scale sets the fastest data row to 1" begin
+        fp = FittingProblem(mm, mm_data; Keq = 2.0)
+        fit = fit_rate_equation(fp, CMAEvolutionStrategyOpt(); n_restarts = 1,
+                                maxiters = 50)
+        @test isfinite(fit.loss) && fit.retcode !== :ReferenceFailed
+        p = merge(fit.params, (Keq = 2.0, E_total = 1.0))
+        @test maximum(abs(rate_equation(mm, c, p)) for c in mm_concs) ≈ 1 rtol = 1e-10
     end
 
-    @testset "rescale_parameter_values: errors" begin
-        p = _testhelper_mm_params(1.0)
-        nokeq = (k_ES_to_E_P = 5.0, k_ES_to_E_S = 5.0, k_E_S_to_ES = 10.0)
-        keq_message = "params must include Keq, which the dependent rate constants " *
-                      "need; merge it into a fit's params"
-        @test_throws ErrorException(keq_message) rescale_parameter_values(
-            mm, nokeq, [(S = 1.0,) => 1.0])
-        # Without anchors there is no scale to set.
-        @test_throws MethodError rescale_parameter_values(mm, p)
-        @test_throws(ErrorException("kcats is empty; pass at least one " *
-                                    "(concentrations => turnover) anchor"),
-                     rescale_parameter_values(mm, p, Pair{NamedTuple, Float64}[]))
-        @test_throws(ErrorException("kcats: concentrations must be a NamedTuple; got " *
-                                    "(1.0,)"),
-                     rescale_parameter_values(mm, p, [(1.0,) => 1.0]))
-        @test_throws(ErrorException("kcats: X is not a metabolite of the mechanism " *
-                                    "(metabolites: S, P)"),
-                     rescale_parameter_values(mm, p, [(X = 1.0,) => 1.0]))
-        @test_throws(ErrorException("kcats: concentration of S must be a finite number " *
-                                    "≥ 0; got -1.0"),
-                     rescale_parameter_values(mm, p, [(S = -1.0,) => 1.0]))
-        for (bad, shown) in ((0.0, "0.0"), (NaN, "NaN"), (Inf, "Inf"))
-            @test_throws(ErrorException("kcats: turnover must be a finite, nonzero " *
-                                        "number; got $shown"),
-                         rescale_parameter_values(mm, p, [(S = 1.0,) => bad]))
-        end
-        anchor_message = "an anchor needs a finite, nonzero predicted turnover of the " *
-                         "measured turnover's sign"
-        # No substrate and no product: the predicted turnover is zero. The message names
-        # the failing anchor and its prediction.
-        @test_throws(ErrorException("kcats: at (S = 0.0,) the mechanism predicts " *
-                                    "turnover 0.0; " * anchor_message),
-                     rescale_parameter_values(mm, p,
-                                              [(S = 1.0,) => 1.0, (S = 0.0,) => 1.0]))
-        @test_throws(anchor_message, rescale_parameter_values(mm, p, [(S = 0.0,) => 1.0]))
-        # The product alone runs the reaction backwards, against a forward measurement.
-        @test_throws(anchor_message, rescale_parameter_values(mm, p, [(P = 1.0,) => 1.0]))
-        # These constants overflow the predicted turnover at S = 1e300 to Inf, which no
-        # finite scale reproduces.
-        overflow = (k_ES_to_E_P = 1e308, k_ES_to_E_S = 1.0, k_E_S_to_ES = 1.0, Keq = 2.0)
-        @test_throws(anchor_message,
-                     rescale_parameter_values(mm, overflow, [(S = 1e300,) => 1.0]))
-        # Every product of two constants underflows to zero, and so does the predicted
-        # turnover.
-        tiny = (k_ES_to_E_P = 1e-200, k_ES_to_E_S = 1e-200, k_E_S_to_ES = 1e-200,
-                Keq = 2.0)
-        @test_throws(anchor_message,
-                     rescale_parameter_values(mm, tiny, [(S = 1.0,) => 1.0]))
+    @testset "default scale fails softly" begin
+        zero_data = (group = ["G1", "G1", "G1"], Rate = [0.5, 0.8, 1.0],
+                     S = [0.0, 0.0, 0.0], P = [0.0, 0.0, 0.0])
+        fit = fit_rate_equation(FittingProblem(mm, zero_data; Keq = 2.0),
+                                CMAEvolutionStrategyOpt(); n_restarts = 1, maxiters = 20)
+        @test fit.retcode === :ReferenceFailed
+        @test fit.loss == Inf
+        @test keys(fit.params) == parameters(mm, FittedParameters())
+        @test all(v -> isfinite(v) && v > 0, values(fit.params))
+    end
+
+    @testset "test_rate_equation is the fitting loss" begin
+        fit = fit_rate_equation(FittingProblem(mm, mm_data; Keq = 2.0),
+                                CMAEvolutionStrategyOpt(); n_restarts = 1, maxiters = 50)
+        @test test_rate_equation(mm, fit.params, mm_data; Keq = 2.0) ≈ fit.loss
+        # Names beyond the mechanism's fitted parameters are ignored.
+        @test test_rate_equation(mm, merge(fit.params, (Keq = 2.0, E_total = 1.0)),
+                                 mm_data; Keq = 2.0) ≈ fit.loss
+        # The concrete mechanism gives the same loss.
+        @test test_rate_equation(EnzymeRates.Mechanism(mm), fit.params, mm_data;
+                                 Keq = 2.0) ≈ fit.loss
+        # Absolute mode scores the magnitude: the true constants fit the data exactly,
+        # constants ten times as fast do not.
+        truth = _testhelper_mm_params(1.0)
+        exact = test_rate_equation(mm, truth, mm_data; Keq = 2.0, absolute = true)
+        @test exact ≈ 0 atol = 1e-20
+        fast = NamedTuple{(:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES)}(
+            10 .* values(truth)[1:3])
+        @test test_rate_equation(mm, fast, mm_data; Keq = 2.0, absolute = true) > 1
+        missing_one = Base.structdiff(fit.params, NamedTuple{(:k_ES_to_E_S,)}((0.0,)))
+        err = @test_throws ErrorException test_rate_equation(mm, missing_one, mm_data;
+                                                             Keq = 2.0)
+        @test occursin("k_ES_to_E_S", err.value.msg)
     end
 
 end

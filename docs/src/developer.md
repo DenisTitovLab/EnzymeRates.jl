@@ -48,8 +48,8 @@ module calls its own names bare.
   mechanisms it fits first, and `expand_mechanisms` the children of each mechanism it
   keeps. `init_mechanisms`, `seed_mechanisms` and the moves are private; tests reach them
   as `EnzymeRates.Enumeration.init_mechanisms`.
-- **`Fitting`**: `FittingProblem`, `fit_rate_equation`, `rescale_parameter_values` and
-  `cross_validation_loss` (the loss on one held-out group).
+- **`Fitting`**: `FittingProblem`, `fit_rate_equation` and `test_rate_equation` (the loss
+  of a fit on other data, which identify's cross-validation uses on each held-out group).
 - **The top level** (`src/EnzymeRates.jl`, `macros.jl`, `identify_rate_equation.jl`):
   identify, the exports and the three mechanism macros, which run the guard and so cannot
   live in `Mechanisms`.
