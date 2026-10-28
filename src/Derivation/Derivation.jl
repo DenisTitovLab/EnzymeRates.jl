@@ -6,9 +6,9 @@ using ..Mechanisms: Mechanisms
 using LinearAlgebra: det
 using SHA: sha256
 
-const API = (:all_parameters, :check_valid_rate_equation, :fitted_params,
-    :has_valid_rate_equation, :parameter_count, :parameters, :rate_equation,
-    :rate_equation_complexity, :rate_equation_key, :rate_equation_string,
+const API = (:AllParameters, :FittedParameters, :IndependentParameters,
+    :check_valid_rate_equation, :has_valid_rate_equation, :parameter_count, :parameters,
+    :rate_equation, :rate_equation_complexity, :rate_equation_key, :rate_equation_string,
     :scale_rate_constants)
 
 """A plain or an allosteric mechanism."""

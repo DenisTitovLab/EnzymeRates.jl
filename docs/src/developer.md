@@ -31,9 +31,10 @@ module calls its own names bare.
   `compile_mechanism`, the naming rules and the DSL's reader and printer. Its interface is
   the accessors, views and writers below.
 - **`Derivation`**: the well-posedness guard, the joint solve and the rate law with its
-  code, text and key. Besides the exported `rate_equation`, `rate_equation_string`,
-  `parameters` and `all_parameters`, and `fitted_params` (not exported; reached as
-  `EnzymeRates.fitted_params`), it offers
+  code, text and key. Besides the exported `rate_equation`, `rate_equation_string` and
+  `parameters` (with the kinds `IndependentParameters`, `FittedParameters` and
+  `AllParameters`, and a method that adds the dependent constants to a set of values), it
+  offers
   `has_valid_rate_equation(m)` and `check_valid_rate_equation(m)` (the guard's verdict,
   and the same check throwing its message), `parameter_count(m)`,
   `rate_equation_key(m)`, `rate_equation_complexity(m)` and
@@ -152,20 +153,20 @@ its argument `@nospecialize` and `@nospecializeinfer` and compiles once. `_parse
 reads that text back through the macros' walker and checks, never evaluating it, and
 identify's CSVs store it with a short id (`mechanism_id`).
 
-Only the `@generated` methods (`rate_equation`, `parameters`, `fitted_params`,
-`metabolites`) do work per singleton type: `rate_equation` runs the derivation,
-`fitted_params` and `parameters` run its constraint solve, and `metabolites` reads names off
-the lifted mechanism. The lifts read the Sig at run time, and the derivation helpers that
-take a singleton or its type take it `@nospecialize`, so they compile once for all
-mechanisms. Each mechanism type then pays for its generated bodies and the derivation
-they run, and for the methods that specialize on it: `all_parameters`, Base's
-`text/plain` display, and `FittingProblem` and `loss!` below.
-`FittingProblem` and `loss!` specialize on the type on purpose: `loss!` then reads
-`fitted_params` and `metabolites` as constants and calls the generated `rate_equation`
-without dispatch. The optimizer never sees that type. `fit_rate_equation` takes its
-`FittingProblem` `@nospecialize` and hands `Optimization.solve` a `FitObjective`, which
-holds `x -> loss!(x, fp)` behind a `FunctionWrapper`, so every mechanism gives the solver
-one problem type: `solve` and the solver compile once per optimizer, not once per mechanism.
+Only the `@generated` methods (`rate_equation`, `parameters`, `metabolites`) do work per
+singleton type: `rate_equation` runs the derivation, `parameters` runs its constraint
+solve, and `metabolites` reads names off the lifted mechanism. The lifts read the Sig at
+run time, and the derivation helpers that take a singleton or its type take it
+`@nospecialize`, so they compile once for all mechanisms. Each mechanism type then pays
+for its generated bodies and the derivation they run, and for the methods that specialize
+on it: `parameters(m, params)`, Base's `text/plain` display, and `FittingProblem` and
+`loss!` below. `FittingProblem` and `loss!` specialize on the type on purpose: `loss!` then
+reads `parameters(m, FittedParameters())` and `metabolites` as constants and calls the
+generated `rate_equation` without dispatch. The optimizer never sees that type.
+`fit_rate_equation` takes its `FittingProblem` `@nospecialize` and hands `Optimization.solve`
+a `FitObjective`, which holds `x -> loss!(x, fp)` behind a `FunctionWrapper`, so every
+mechanism gives the solver one problem type: `solve` and the solver compile once per
+optimizer, not once per mechanism.
 
 ### The joint thermodynamic solve
 
@@ -178,7 +179,7 @@ member of a kinetic class to its first. The columns come ordered by `_priority_k
 exactly (`_reduce_joint_system`: `Rational{Int}`, redone in `Rational{BigInt}` on
 overflow). Pivot columns are dependents. `_solve`
 returns them with the independents and the fitted names as a `_Solve`, which the engine,
-`parameters`, `fitted_params`, `all_parameters`, code generation and the printer read.
+`parameters`, code generation and the printer read.
 Columns outside a conformation's law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's
 active copy, an edge on a form that conformation cannot reach) come first, so no kept
 dependent reads them. Each class is named after its member that comes last in that order
@@ -242,7 +243,7 @@ but `L`. The variant reads that fit when a mechanism with that law was fitted in
 batch or is fitted in the variant's own (`_process_batch`).
 
 Identify asks one mechanism four questions in a row: `check_valid_rate_equation`,
-`fitted_params`, `rate_equation_string` and `rate_equation_key`. A private memo (`_Memo`,
+`parameters`, `rate_equation_string` and `rate_equation_key`. A private memo (`_Memo`,
 `src/Derivation/memo.jl`) keeps the guard verdict, joint solve and law of the last
 concrete mechanism asked about, matched by `===`, so each is derived once for all four.
 The memo holds one mechanism in the task's local storage, so it never grows and tasks

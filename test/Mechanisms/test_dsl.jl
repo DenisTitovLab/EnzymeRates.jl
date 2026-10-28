@@ -1637,7 +1637,7 @@ end
             end
         end
         @test m isa EnzymeMechanism
-        @test EnzymeRates.fitted_params(m) == (:K_EIS_to_ES_I, :K_EP_to_E_P,
+        @test parameters(m, FittedParameters()) == (:K_EIS_to_ES_I, :K_EP_to_E_P,
             :K_EPmod_to_E_Pmod, :K_ES_to_E_S, :k_ES_to_EP)
         @test metabolites(m) == (:S, :P, :I)
         _testhelper_check_law_against_oracle(m)
@@ -1663,7 +1663,7 @@ end
         end
         @test am isa AllostericEnzymeMechanism
         @test EnzymeRates.AllostericMechanism(am).catalytic_multiplicity == 2
-        @test EnzymeRates.fitted_params(am) == (:K_A_EAB_to_EA_B, :K_EA_to_E_A,
+        @test parameters(am, FittedParameters()) == (:K_A_EAB_to_EA_B, :K_EA_to_E_A,
             :K_EI_to_E_I, :K_EPQ_to_EQ_P, :K_EPmodQ_to_EQ_Pmod, :K_EQ_to_E_Q,
             :K_I_EAB_to_EA_B, :k_A_EAB_to_EPQ, :K_A_Xreg, :K_I_Yreg, :L)
         @test metabolites(am) == (:A, :B, :P, :Q, :I, :X, :Y)
@@ -1683,7 +1683,7 @@ end
             regulatory_site(1): X::OnlyI
         end
         @test EnzymeRates.AllostericMechanism(am).catalytic_multiplicity == 1
-        @test EnzymeRates.fitted_params(am) ==
+        @test parameters(am, FittedParameters()) ==
               (:K_EP_to_E_P, :K_ES_to_E_S, :k_A_ES_to_EP, :K_I_Xreg, :L)
         _testhelper_check_law_against_oracle(am)
     end
@@ -1703,7 +1703,7 @@ end
             end
             regulatory_site(1): R::OnlyA
         end
-        @test EnzymeRates.fitted_params(dual) ==
+        @test parameters(dual, FittedParameters()) ==
               (:K_EP_to_E_P, :K_ER_to_E_R, :K_ES_to_E_S, :k_ES_to_EP, :K_A_Rreg, :L)
         @test metabolites(dual) == (:S, :P, :R)
         _testhelper_check_law_against_oracle(dual)
@@ -2152,7 +2152,7 @@ end
                 Estar2 <--> E
             end
         end
-        @test EnzymeRates.fitted_params(m) == (:K_ES_to_E_S, :K_Estar2P_to_Estar2_P,
+        @test parameters(m, FittedParameters()) == (:K_ES_to_E_S, :K_Estar2P_to_Estar2_P,
             :k_ES_to_Estar2P, :k_E_to_Estar2, :k_Estar2_to_E)
         _testhelper_check_law_against_oracle(m)
     end

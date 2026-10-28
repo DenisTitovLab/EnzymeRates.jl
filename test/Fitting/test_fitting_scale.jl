@@ -116,7 +116,7 @@ using OptimizationCMAEvolutionStrategy
                                 maxiters = 20)
         @test fit.loss == Inf
         @test fit.retcode === :ReferenceFailed
-        @test keys(fit.params) == EnzymeRates.fitted_params(bibi)
+        @test keys(fit.params) == parameters(bibi, FittedParameters())
         @test all(v -> isfinite(v) && v > 0, values(fit.params))
     end
 

@@ -1682,7 +1682,7 @@ end
                                          EnzymeRates.Derivation._law(m2),
                                          c1.order, c2.order;
                                          rng = Random.MersenneTwister(1))
-    @test EnzymeRates.fitted_params(em1) == EnzymeRates.fitted_params(em2)
+    @test parameters(em1, FittedParameters()) == parameters(em2, FittedParameters())
 
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             S = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2])
@@ -1723,7 +1723,7 @@ end
     # canonical order, so both rows carry the fit's values under their own names.
     fit = memo[c1.key]
     @test fit.source == m1
-    fkeys = EnzymeRates.fitted_params(em1)
+    fkeys = parameters(em1, FittedParameters())
     for (e, c) in zip(entries, (c1, c2))
         @test keys(e.row.params) == fkeys
         @test Float64[e.row.params[x] for x in [c.order; :L]] == fit.values
@@ -1826,7 +1826,7 @@ end
     # row carries its own names and both rows compute one rate.
     a, b, prob = _testhelper_unibi_pair()
     ca, cb = _testhelper_pass1_canonical.((a, b))
-    fa, fb = EnzymeRates.fitted_params(a), EnzymeRates.fitted_params(b)
+    fa, fb = parameters(a, FittedParameters()), parameters(b, FittedParameters())
     @test ca.key == cb.key
     @test Set(fa) != Set(fb)
     # The canonical map sends a constant to another fitted position, so a fit copied by
@@ -2202,7 +2202,7 @@ end
                          :fit_source_id => String))
         @test best.L[1] == 0.0 && best.L_phantom[1] === true
         @test best.fit_source_id[1] == f.row.mechanism_id
-        fp = EnzymeRates.fitted_params(res.best)
+        fp = parameters(res.best, FittedParameters())
         params = merge(NamedTuple{fp}(Tuple(Float64(best[1, x]) for x in fp)),
                        (Keq = prob.Keq, E_total = 1.0))
         source = merge(f.row.params, (Keq = prob.Keq, E_total = 1.0))
@@ -2472,8 +2472,8 @@ end
     @test EnzymeRates.Derivation.parameter_count(am1) ==
           EnzymeRates.Derivation.parameter_count(am2) == 7
     @test _testhelper_declared_dimension(am1) == _testhelper_declared_dimension(am2) == 7
-    @test EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am1)) ==
-          EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am2))
+    @test parameters(EnzymeRates.compile_mechanism(am1), FittedParameters()) ==
+          parameters(EnzymeRates.compile_mechanism(am2), FittedParameters())
 end
 
 
@@ -2819,7 +2819,7 @@ end
     memo = Dict{String, EnzymeRates._Fit}()
     function _testhelper_pool_entry(m, loss)
         em = EnzymeRates.compile_mechanism(m)
-        fkeys = EnzymeRates.fitted_params(em)
+        fkeys = parameters(em, FittedParameters())
         text = sprint(show, m)
         id = EnzymeRates.Mechanisms.mechanism_id(m)
         key = EnzymeRates.Derivation.rate_equation_key(m).key

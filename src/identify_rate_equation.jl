@@ -125,7 +125,7 @@ and data using beam search.
   thresholds via `min`; `min_beam_width` is a cumulative
   per-count budget (see "Beam selection" below). `Inf` disables it.
 - `max_param_count::Int = 20`: skip, before fitting, any mechanism with
-  more fitted constants than this (`fitted_params`), so the search stops
+  more fitted constants than this (`FittedParameters`), so the search stops
   at this parameter count
 - `eq_complexity_filter::Int = 337`: skip (before fitting, before any
   derivation) any mechanism whose rate equation is more complex than this —
@@ -400,7 +400,7 @@ end
 const _LawKey = @NamedTuple{key::String, order::Vector{Symbol}}
 
 """
-A mechanism `_pass1_record` derived: its fitted constants in `fitted_params`
+A mechanism `_pass1_record` derived: its fitted constants in `FittedParameters`
 order, its text and the text's id (`mechanism_id`), its printed law, its law's key
 (`canon`), whether it is an L phantom that reads another law's fit (`rate_equation_key`
 gives it a fit key other than its key), `canon0`, the key of the law whose fit it reads
@@ -430,7 +430,7 @@ _fit_order(c::_Candidate) =
     c.mech isa Mechanisms.AllostericMechanism ? [c.canon0.order; :L] : c.canon0.order
 
 """
-The parameters of candidate `c` as its row holds them, in its `fitted_params` order: a
+The parameters of candidate `c` as its row holds them, in its `FittedParameters` order: a
 fit's `values`, stored at canonical positions, read through `order`, the candidate's own
 order for those positions.
 """
@@ -550,7 +550,7 @@ PASS 1 of `_process_batch` (on the workers) for mechanism `m`, from the concrete
 alone and compiling nothing. Skip it over `eq_complexity_filter` (`:complexity_skip`,
 `rate_equation_complexity`, checked before any derivation); check it with the guard
 (`check_valid_rate_equation`); skip it over `max_param_count` by its fitted constants
-(`fitted_params`, `:param_skip`); else print its law (`rate_equation_string` with its
+(`FittedParameters`, `:param_skip`); else print its law (`rate_equation_string` with its
 coefficients), take its text and the text's id (`mechanism_id`), and read its law's key
 and the key of the fit it reads (`rate_equation_key`; a law whose labelling reaches the
 leaf cap gets a key of its own, and an L phantom reads the fit of its law at `L = 0`).
@@ -561,7 +561,7 @@ function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
         Derivation.rate_equation_complexity(m) > eq_complexity_filter &&
             return :complexity_skip
         Derivation.check_valid_rate_equation(m)
-        fitted = collect(Derivation.fitted_params(m))
+        fitted = collect(Derivation.parameters(m, Derivation.FittedParameters()))
         length(fitted) > max_param_count && return :param_skip
         eq_text = Derivation.rate_equation_string(m; coefficients = true)
         k = Derivation.rate_equation_key(m)

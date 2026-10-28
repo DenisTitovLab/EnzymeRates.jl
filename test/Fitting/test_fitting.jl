@@ -61,7 +61,7 @@ end
         end
         regulatory_site(2): R::OnlyI
     end
-    allo_fitted = EnzymeRates.fitted_params(allo)
+    allo_fitted = parameters(allo, FittedParameters())
     allo_params = merge(
         NamedTuple{allo_fitted}(ntuple(i -> 1.0 + 0.1 * i, length(allo_fitted))),
         (Keq = Keq_val, E_total = 1.0))
@@ -105,7 +105,7 @@ end
         all_param_syms = parameters(uni_uni)
         expected_fitted = Tuple(p for p in all_param_syms if p !== :E_total && p !== :Keq)
 
-        @test EnzymeRates.fitted_params(uni_uni) == expected_fitted
+        @test parameters(uni_uni, FittedParameters()) == expected_fitted
         @test metabolites(uni_uni) == (:S, :P)
     end
 
@@ -136,7 +136,7 @@ end
         fp2 = FittingProblem(uni_uni, data2; Keq=Keq_val,
                              reference=_testhelper_row_reference(data2))
 
-        np = length(EnzymeRates.fitted_params(uni_uni))
+        np = length(parameters(uni_uni, FittedParameters()))
         @test all(1:10) do _
             x = randn(np) .* 2.0
             isapprox(EnzymeRates.Fitting.loss!(x, fp1), EnzymeRates.Fitting.loss!(x, fp2);
@@ -147,7 +147,7 @@ end
     # ── Absolute mode: uncentered loss (absolute=true) ─────────────────────────
     @testset "Absolute mode uncentered loss" begin
         data = _testhelper_make_synthetic_data(uni_uni, true_params, concs5)
-        pn = EnzymeRates.fitted_params(uni_uni)
+        pn = parameters(uni_uni, FittedParameters())
         x_true = [log(true_params[p]) for p in pn]
 
         fp_rel = FittingProblem(uni_uni, data; Keq=Keq_val,  # relative (default)
@@ -202,7 +202,7 @@ end
     # In all cases every point in the group is a mismatch so the expected
     # loss is: (0 from centering + 100.0 × n_mismatch) / n_data = 100.0
     @testset "All-mismatch group not cancelled by centering" begin
-        pn = EnzymeRates.fitted_params(uni_uni)
+        pn = parameters(uni_uni, FittedParameters())
         x = randn(length(pn))
 
         @testset "zero prediction (S=0, P=0)" begin
@@ -263,7 +263,7 @@ end
         fp = FittingProblem(uni_uni, data; Keq=Keq_val,
                             reference=_testhelper_row_reference(data))
 
-        x = randn(length(EnzymeRates.fitted_params(uni_uni)))
+        x = randn(length(parameters(uni_uni, FittedParameters())))
         loss_allocs(x, fp)  # warmup
         allocs = loss_allocs(x, fp)
         @test allocs == 0
@@ -294,7 +294,7 @@ end
     # mechanism. The objective must still return loss! and allocate nothing, for a Vector
     # and for the column view of its population that CMA-ES passes.
     function _testhelper_optimization_problem(fp)
-        n = length(EnzymeRates.fitted_params(fp.mechanism))
+        n = length(parameters(fp.mechanism, FittedParameters()))
         EnzymeRates.Fitting._optimization_problem(fp, zeros(n), fill(-15.0, n),
                                                   fill(15.0, n))
     end
@@ -368,7 +368,7 @@ end
         fp = FittingProblem(ordered_bi_bi, data; Keq=bb_Keq,
                             reference=_testhelper_row_reference(data))
 
-        x = randn(length(EnzymeRates.fitted_params(ordered_bi_bi)))
+        x = randn(length(parameters(ordered_bi_bi, FittedParameters())))
         EnzymeRates.Fitting.loss!(x, fp)  # warmup/compile
 
         # Minimum over several batches defeats the GC/scheduling inflation a
@@ -406,7 +406,7 @@ end
                 fit_rate_equation(fp, opt; n_restarts, maxtime=0.5)
             end
             @test keys(res) == (:params, :loss, :retcode)
-            @test keys(res.params) == EnzymeRates.fitted_params(uni_uni)
+            @test keys(res.params) == parameters(uni_uni, FittedParameters())
             @test isfinite(res.loss)
             @test res.retcode isa Symbol
             concs, turnover = only(reference)
@@ -419,7 +419,7 @@ end
     # ── fit_rate_equation: the scale on known raw constants ───────────────────
     @testset "reference scale, failed reference and absolute mode on known constants" begin
         data = _testhelper_make_synthetic_data(uni_uni, true_params, concs5)
-        pn = EnzymeRates.fitted_params(uni_uni)
+        pn = parameters(uni_uni, FittedParameters())
         _testhelper_stub_fit(u; kwargs...) = fit_rate_equation(
             FittingProblem(uni_uni, data; Keq=Keq_val, kwargs...),
             _testhelper_ConstantStubOpt(u); n_restarts=1)
@@ -560,7 +560,7 @@ end
                        Sidx = [1.0, 2.0, 3.0, 4.0], Pidx = [0.1, 0.2, 0.3, 0.4])
         fp_unseen = FittingProblem(unseen, data_unseen; Keq=Keq_val,
                                    reference=_testhelper_row_reference(data_unseen))
-        unseen_names = EnzymeRates.fitted_params(unseen)
+        unseen_names = parameters(unseen, FittedParameters())
         n = _testhelper_namedtuple_getindex_instances(unseen_names)
         fit_rate_equation(fp_unseen, optimizer; n_restarts=1, maxiters=10)
         @test _testhelper_namedtuple_getindex_instances(unseen_names) == n

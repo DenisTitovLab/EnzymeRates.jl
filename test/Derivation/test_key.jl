@@ -470,7 +470,7 @@ end
     @test k.fit_parameters ==
           EnzymeRates.Derivation._canonical(A.active, id).order
     @test Set(k.fit_parameters) == Set([:K_A_EP_to_E_P, :k_A_E_S_to_EP])
-    @test EnzymeRates.fitted_params(phantom) == (:K_A_EP_to_E_P, :k_A_E_S_to_EP, :L)
+    @test parameters(phantom, FittedParameters()) == (:K_A_EP_to_E_P, :k_A_E_S_to_EP, :L)
     @test p.fit_parameters == p.parameters
 
     # With S's and P's bindings and its regulatory site's one ligand R :EqualAI, the

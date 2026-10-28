@@ -81,7 +81,7 @@ grows without bound as the substrates scale (10⁹ against 10⁶), or the mirror
 products."""
 function _testhelper_degenerate(m; ndraws = 2)
     em = EnzymeRates.compile_mechanism(m)
-    fp = collect(EnzymeRates.fitted_params(em))
+    fp = collect(parameters(em, FittedParameters()))
     g = _testhelper_graph(em)
     subs, prods = g.substrates, g.products
     mets = sort(collect(EnzymeRates.metabolites(em)))
@@ -113,7 +113,7 @@ _testhelper_segment_count(m) =
 
 # Ground truth for the parameter counts the enumeration moves report: the number of
 # fitted parameters of the compiled rate equation.
-_testhelper_fitted(x) = length(EnzymeRates.fitted_params(x))
+_testhelper_fitted(x) = length(parameters(x, FittedParameters()))
 
 # Sorted fitted-parameter count of each child minus its parent's.
 function _testhelper_param_deltas(parent, kids)
@@ -3572,8 +3572,8 @@ end
         @test Set(result) == Set(EnzymeRates.Mechanism(em) for em in expected)
 
         # 2. Δ params: +1 each (one new K_I parameter), measured against ground-truth
-        # `fitted_params(compile_mechanism(...))` — the canonical source for exact
-        # parameter counts.
+        # `parameters(compile_mechanism(...), FittedParameters())` — the canonical source for
+        # exact parameter counts.
         @test _testhelper_param_deltas(m, result) == fill(1, n_variants)
 
         # 3. compilability
@@ -4952,7 +4952,7 @@ end
     @test length(result) == 1
 
     # 2. Δ params: +1 (:EqualAI new group → one shared K), measured
-    # against ground-truth `fitted_params(compile_mechanism(...))` —
+    # against ground-truth `parameters(compile_mechanism(...), FittedParameters())` —
     # exact parameter counts come from the compiled mechanism.
     base_fitted = _testhelper_fitted(am)
     for r in result
@@ -7053,7 +7053,7 @@ end
         regulatory_site(1): ATP::NonequalAI
     end
     _testhelper_assert_mechanism_invariants(EnzymeRates.AllostericMechanism(am))
-    @test EnzymeRates.fitted_params(am) ==
+    @test parameters(am, FittedParameters()) ==
           (:K_A_EATP_to_E_ATP, :K_EP_to_E_P, :K_ES_to_E_S, :k_A_ES_to_EP, :K_A_ATPreg,
            :K_I_ATPreg, :L)
     _testhelper_check_law_against_oracle(am)
@@ -7538,7 +7538,7 @@ end
     end
     @test length(r_removal) == 1
 
-    # 3. ground-truth Δ params via compiled `fitted_params`: the
+    # 3. ground-truth Δ params via compiled `FittedParameters`: the
     # R-ligand :OnlyA → :NonequalAI flip adds exactly one new
     # independent parameter (Δ=+1).
     seed_truth = _testhelper_fitted(am)
@@ -7575,7 +7575,7 @@ end
     # 1. count: 3 cat-group relaxations + 1 reg-ligand relaxation.
     @test length(result) == 4
 
-    # 2. ground-truth Δ multiset via `fitted_params`. Under strict
+    # 2. ground-truth Δ multiset via `FittedParameters`. Under strict
     # `:EqualAI`, relaxing a single binding group to :NonequalAI while its
     # partners stay :EqualAI is degenerate: a thermodynamic cycle forbids
     # that affinity split, so it collapses (K_I = K_A) and adds NO fitted
@@ -7624,7 +7624,7 @@ end
     # 1. count: 3 cat-group relaxations + 2 reg-ligand relaxations = 5.
     @test length(result) == 5
 
-    # 2. ground-truth Δ multiset via `fitted_params`. Under strict
+    # 2. ground-truth Δ multiset via `FittedParameters`. Under strict
     # `:EqualAI`, relaxing a single binding group to :NonequalAI while its
     # partners stay :EqualAI collapses that affinity (K_I = K_A) and adds NO
     # fitted parameter (a thermodynamic cycle forbids the split). The two
@@ -8294,8 +8294,8 @@ merged = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
     end
     regulatory_site(4): A::OnlyA, I::OnlyI
 end)
-fps = EnzymeRates.fitted_params(separate)
-fpm = EnzymeRates.fitted_params(merged)
+fps = parameters(separate, FittedParameters())
+fpm = parameters(merged, FittedParameters())
 @test Set(fps) == Set(fpm)
 Random.seed!(42)
 for _ in 1:25
@@ -9150,7 +9150,7 @@ end
 # split move. Every fixture is written out with the mechanism macro so the
 # mechanism under test is visible in the testset.
 
-@testset "parameter_count matches fitted_params on the test specs" begin
+@testset "parameter_count matches the fitted parameters on the test specs" begin
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism isa EnzymeRates.AllostericEnzymeMechanism ?
             EnzymeRates.AllostericMechanism(spec.mechanism) :
@@ -14828,7 +14828,7 @@ end
         @test length(inits) == 1
         base_count = _testhelper_fitted(inits[1])
         for s in seeds[1:min(2, length(seeds))]
-            fp = EnzymeRates.fitted_params(s)
+            fp = parameters(s, FittedParameters())
             @test length(fp) == base_count + 1
             @test !(:L in fp)
         end
@@ -15778,7 +15778,7 @@ end
     # stopped.
     for k in kept
         cm = EnzymeRates.compile_mechanism(k)
-        fp = EnzymeRates.fitted_params(cm)
+        fp = parameters(cm, FittedParameters())
         prm = NamedTuple{(fp..., :Keq, :E_total)}(((1.3 for _ in fp)..., 3.0, 1.0))
         @test EnzymeRates.rate_equation(cm, (A = 1.3, B = 1.3, P = 0.0, Q = 0.0,
                                              R = 1.0), prm) == 0

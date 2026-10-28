@@ -205,7 +205,7 @@ end
                 D ⇌ E
             end
         end
-        @test EnzymeRates.fitted_params(re) == (:K_E_to_D, :k_EP_to_E_P, :k_ES_to_EP,
+        @test parameters(re, FittedParameters()) == (:K_E_to_D, :k_EP_to_E_P, :k_ES_to_EP,
                                                 :k_ES_to_E_S, :k_E_P_to_EP, :k_E_S_to_ES)
         _testhelper_check_law_against_oracle(re)
         _testhelper_check_stored_orientation(re)
@@ -571,6 +571,6 @@ end
     for spec in MECHANISM_TEST_SPECS
         @test Tuple(
             EnzymeRates.Derivation._solve(_testhelper_lift(spec.mechanism)).fitted) ==
-              EnzymeRates.fitted_params(spec.mechanism)
+              parameters(spec.mechanism, FittedParameters())
     end
 end

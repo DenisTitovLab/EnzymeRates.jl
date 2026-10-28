@@ -205,7 +205,8 @@ function cross_validation_loss(
     problem_keywords = (; Keq, absolute, reference)
     fit = fit_rate_equation(_fold_problem(mechanism, data, .!held; problem_keywords...),
                             optimizer; kwargs...)
-    # `fit.params` is keyed by `fitted_params(mechanism)`, the order `loss!` reads.
+    # `fit.params` is keyed by `parameters(mechanism, FittedParameters())`, the order
+    # `loss!` reads.
     test_loss = loss!([log(v) for v in fit.params],
                       _fold_problem(mechanism, data, held; problem_keywords...))
     # A non-finite fold loss means the fit is unusable; aborting model
@@ -236,7 +237,7 @@ loss (a uniform sentinel would cancel under mean-subtraction).
 """
 function loss!(x::AbstractVector, fp::FittingProblem)
     buf = fp.log_ratios_buffer
-    ParamNames = Derivation.fitted_params(fp.mechanism)
+    ParamNames = Derivation.parameters(fp.mechanism, Derivation.FittedParameters())
     MetNames = Mechanisms.metabolites(fp.mechanism)
     N = length(ParamNames)
     K = length(MetNames)
@@ -326,8 +327,8 @@ end
     fit_rate_equation(fp::FittingProblem, optimizer;
         n_restarts=20, maxtime=60.0, maxiters=10_000_000,
         abstol=nothing, reltol=nothing, callback=nothing,
-        lb=fill(-15.0, length(fitted_params(fp.mechanism))),
-        ub=fill(15.0, length(fitted_params(fp.mechanism))),
+        lb=fill(-15.0, length(parameters(fp.mechanism, FittedParameters()))),
+        ub=fill(15.0, length(parameters(fp.mechanism, FittedParameters()))),
         solver_kwargs=(;))
 
 Fit rate constants by minimizing `loss!` using Optimization.jl.
@@ -369,14 +370,17 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     abstol::Union{Real,Nothing}=nothing,
     reltol::Union{Real,Nothing}=nothing,
     callback=nothing,
-    lb=fill(-15.0, length(Derivation.fitted_params(fp.mechanism))),
-    ub=fill(15.0, length(Derivation.fitted_params(fp.mechanism))),
+    lb=fill(-15.0,
+            length(Derivation.parameters(fp.mechanism, Derivation.FittedParameters()))),
+    ub=fill(15.0,
+            length(Derivation.parameters(fp.mechanism, Derivation.FittedParameters()))),
     solver_kwargs=(;),
 )
-    # `fp` is @nospecialize, so `fitted_params(fp.mechanism)` infers as `Any`; asserting a
-    # tuple of Symbols lets `np` infer as an `Int` and the NamedTuple built from the names
-    # as a `NamedTuple`.
-    pnames = Derivation.fitted_params(fp.mechanism)::Tuple{Vararg{Symbol}}
+    # `fp` is @nospecialize, so `parameters(fp.mechanism, FittedParameters())` infers as
+    # `Any`; asserting a tuple of Symbols lets `np` infer as an `Int` and the NamedTuple
+    # built from the names as a `NamedTuple`.
+    pnames = Derivation.parameters(fp.mechanism,
+                                   Derivation.FittedParameters())::Tuple{Vararg{Symbol}}
     np = length(pnames)
 
     # Common solver options: maxtime/maxiters always forwarded; the optional

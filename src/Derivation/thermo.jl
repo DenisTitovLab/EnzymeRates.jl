@@ -211,7 +211,7 @@ elimination order, and `names` each column's name, that of its class's kept memb
 edge's inactive constant reads its active column. `independents` lists the law's free
 columns, sorted by name (`isless` on the strings, so `K_…` precedes `k_…`), and
 `dependents` every pivot column of the law, in column order. `fitted` holds the fitted
-constants in `fitted_params` order: the independents' names, then an allosteric
+constants in `FittedParameters` order: the independents' names, then an allosteric
 mechanism's regulator constants (`_regulator_names`: those of the active
 conformation, then the inactive conformation's own, site by site) and `L`.
 """
@@ -283,8 +283,8 @@ function _solve(m::_AnyMech)
     _Solve(sys.columns, names, column, independents, dependents, fitted)
 end
 
-"""The regulator constants of `m` in `fitted_params` order (`regulator_constant`): those of
-the active conformation, then the inactive conformation's own, site by site; an
+"""The regulator constants of `m` in `FittedParameters` order (`regulator_constant`):
+those of the active conformation, then the inactive conformation's own, site by site; an
 `:EqualAI` ligand's one name is listed with the active ones. A plain mechanism has
 none."""
 _regulator_names(::Mechanisms.Mechanism) = Symbol[]

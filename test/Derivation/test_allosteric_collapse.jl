@@ -34,7 +34,8 @@ function _testhelper_ro_bibi(states)
     _testhelper_one_step_groups([:A, :B], [:P, :Q], sd, states)
 end
 function _testhelper_evalrate(am; seed=1, split=nothing)
-    cem=ER.compile_mechanism(am); fp=ER.fitted_params(am); rng=MersenneTwister(seed)
+    cem=ER.compile_mechanism(am); rng=MersenneTwister(seed)
+    fp=parameters(am, FittedParameters())
     mets=collect(ER.metabolites(cem))
     base=[(k===:L ? 0.6 : 0.4+2rand(rng)) for k in fp]
     split!==nothing && (base=[(fp[i]===split[1] ? split[2] : base[i]) for i in 1:length(fp)])

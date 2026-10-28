@@ -50,7 +50,7 @@ generator = @allosteric_mechanism begin
     regulatory_site(2): A::OnlyA
 end
 
-println("fitted params: ", EnzymeRates.fitted_params(generator))
+println("fitted params: ", parameters(generator, FittedParameters()))
 println("metabolites:   ", metabolites(generator))
 ```
 

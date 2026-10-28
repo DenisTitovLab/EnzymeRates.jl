@@ -41,14 +41,14 @@ end
         m = spec.mechanism
         m isa EnzymeRates.AllostericEnzymeMechanism || continue
         @test parameters(m) ==
-              (EnzymeRates.fitted_params(m)..., :Keq, :E_total)
+              (parameters(m, FittedParameters())..., :Keq, :E_total)
     end
     # The fitted parameters list the catalytic constants by name, so rate-equivalent
     # mechanisms render one params line, then the regulator constants, then L.
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
         m isa EnzymeRates.AllostericEnzymeMechanism || continue
-        fp = EnzymeRates.fitted_params(m)
+        fp = parameters(m, FittedParameters())
         am = EnzymeRates.AllostericMechanism(m)
         reg = Tuple(K for st in (:A, :I) for K in _testhelper_regulator_constants(am, st))
         cat = fp[1:end - 1 - count(in(fp), reg)]

@@ -126,7 +126,7 @@ data = (group = groups, Rate = Rate, S = Svals, P = Pvals)
 reference = [(S = Svals[1], P = Pvals[1]) => Rate[1]]
 
 fp = FittingProblem(m, data; Keq = 2.0, reference)
-fitted_params, loss, retcode = fit_rate_equation(fp, CMAEvolutionStrategyOpt(); n_restarts = 1, maxtime = 2.0)
+fitted, loss, retcode = fit_rate_equation(fp, CMAEvolutionStrategyOpt(); n_restarts = 1, maxtime = 2.0)
 retcode
 ```
 

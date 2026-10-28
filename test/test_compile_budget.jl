@@ -305,7 +305,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         end
         ems = ER.compile_mechanism.(picks)
         println("FIT_SHAPES:", length(unique(em -> typeof(typeof(em).parameters[1]), ems)))
-        println("FIT_NAMES:", length(unique(ER.fitted_params, ems)))
+        fitted_names(em) = ER.parameters(em, ER.FittedParameters())
+        println("FIT_NAMES:", length(unique(fitted_names, ems)))
         """
     n, trace_out = _testhelper_count_relevant_precompiles(trace_script)
     t_uni_warm = _testhelper_parse_labeled(trace_out, ["UNI_WARM"])[1]

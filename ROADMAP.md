@@ -10,9 +10,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **A steady-state step that only reaches dead-end forms fits both rate constants.**
   When a steady-state step's only role is to reach forms that lead nowhere else, as
   `E(I) + J <--> E(J) + I` does when `E(J)` binds nothing more, no net flux crosses it, so
-  only the ratio of its two rate constants enters the rate law. `fitted_params` lists
-  both, and the law carries their common factor uncancelled in numerator and
-  denominator. One constant, the step's equilibrium constant, describes it. Only
+  only the ratio of its two rate constants enters the rate law.
+  `parameters(m, FittedParameters())` lists both, and the law carries their common factor
+  uncancelled in numerator and denominator. One constant, the step's equilibrium constant, describes it. Only
   hand-written mechanisms meet this: enumerated dead-end bindings stay at rapid
   equilibrium.
 - **A fit is not thread-safe.**
@@ -40,8 +40,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   In 5 of 751 enumerated plain mechanisms in the derivation probes, an isomerization such
   as `E(B; residual = A - P) ⇌ E(Q)` joins two forms whose rapid-equilibrium weights
   carry the same concentrations, so the data determine only a combination of its
-  constant and its neighbour's, and `fitted_params` lists one constant more than the
-  identifiable rank. The exact rank under Ideas would count it.
+  constant and its neighbour's, and `parameters(m, FittedParameters())` lists one constant
+  more than the identifiable rank. The exact rank under Ideas would count it.
 - **A law the guard admits can be 0/0 where one substrate and every product are zero.**
   The guard checks the faces of the rewrite spec's section 8 (every product zero, every
   substrate zero, each single reactant zero, each also with every modifier zero), never a

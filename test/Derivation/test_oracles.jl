@@ -268,7 +268,7 @@ end
         point = setprecision(() -> _testhelper_consistent_point(m, rng), BigFloat, 256)
         concs = Dict(:S => big"0.7", :P => big"1.3")
         params = Dict{Symbol, BigFloat}(k => point.vals[k]
-                                        for k in EnzymeRates.fitted_params(m))
+                                        for k in parameters(m, FittedParameters()))
         params[:Keq] = point.Keq
         law = _testhelper_law_value(m, params, concs)
         err(Λ) = abs(_testhelper_steady_state_rate(m, point, concs; Λ) - law) / abs(law)
@@ -463,7 +463,8 @@ const _testhelper_sample_regroupings =
                          _testhelper_declared_dimension(m)]
         @test isempty(miscounted)
         for m in _testhelper_population_sample[1:10]
-            @test length(EnzymeRates.fitted_params(m)) == _testhelper_declared_dimension(m)
+            @test length(parameters(m, FittedParameters())) ==
+                  _testhelper_declared_dimension(m)
         end
     end
 
@@ -516,10 +517,10 @@ const _testhelper_sample_regroupings =
                 E(S) + I ⇌ E(I, S)       :: NonequalAI
             end
         end
-        @test EnzymeRates.fitted_params(island) ==
+        @test parameters(island, FittedParameters()) ==
               (:K_A_EIS_to_ES_I, :K_EP_to_E_P, :k_A_ES_to_EP, :k_A_ES_to_E_S,
                :k_A_E_S_to_ES, :L)
-        @test length(EnzymeRates.fitted_params(island)) ==
+        @test length(parameters(island, FittedParameters())) ==
               _testhelper_declared_dimension(island)
         _testhelper_check_law_against_oracle(island)
     end
@@ -1067,7 +1068,7 @@ end
         @testset "$label" begin
             em = EnzymeRates.compile_mechanism(am)
             fitted = _testhelper_dependent_param_exprs(am)[2]
-            @test EnzymeRates.fitted_params(em) == fitted
+            @test parameters(em, FittedParameters()) == fitted
             point, concs, params = _testhelper_law_inputs(am, fitted,
                                                           Random.MersenneTwister(600 + i))
             c64, p64 = _testhelper_float64_inputs(fitted, params, concs,

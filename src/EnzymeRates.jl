@@ -1,9 +1,10 @@
 # ABOUTME: Top-level module; defines the public API and include order.
-# ABOUTME: Exports the 17 public names and wires together src/ source files.
+# ABOUTME: Exports the 19 public names and wires together src/ source files.
 module EnzymeRates
 
 # Types
 export EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism
+export IndependentParameters, FittedParameters, AllParameters
 export FittingProblem
 export IdentifyRateEquationProblem, IdentifyRateEquationResults
 
@@ -11,7 +12,7 @@ export IdentifyRateEquationProblem, IdentifyRateEquationResults
 export @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
 
 # Core API
-export rate_equation, rate_equation_string, parameters, all_parameters, metabolites
+export rate_equation, rate_equation_string, parameters, metabolites
 export rescale_parameter_values
 
 # Fitting & model selection
@@ -27,7 +28,7 @@ using .Mechanisms: Mechanisms, EnzymeReaction, EnzymeMechanism, AllostericEnzyme
     metabolites, Mechanism, AllostericMechanism, compile_mechanism
 include("Derivation/Derivation.jl")
 using .Derivation: Derivation, rate_equation, rate_equation_string, parameters,
-    all_parameters, fitted_params
+    IndependentParameters, FittedParameters, AllParameters
 include("macros.jl")
 include("Fitting/Fitting.jl")
 using .Fitting: Fitting, FittingProblem, fit_rate_equation, rescale_parameter_values

@@ -1,4 +1,4 @@
-# ABOUTME: The parameter API (parameters, fitted_params, all_parameters) and the constant
+# ABOUTME: The parameter API (parameters, its kinds and values method) and the constant
 # ABOUTME: names of each conformation's law: edge masks and edge names.
 
 # ─── Parameters API ─────────────────────────────────────────
@@ -7,39 +7,62 @@
 # compiles again for each mechanism. The derivation helpers that lift a singleton,
 # or its type, to its concrete form therefore take it `@nospecialize`.
 
-"""
-    parameters(m)
+"""The parameters `parameters(m)` lists: the independent constants and `Keq`, `E_total`."""
+struct IndependentParameters end
 
-The names of the parameters the rate law of `m` takes, as a tuple of Symbols: its
-independent constants (`fitted_params`), then `Keq` and `E_total`. The rate law computes
-every other constant from these (see [`all_parameters`](@ref)).
+"""The independent constants of a rate law, the ones a fit estimates."""
+struct FittedParameters end
+
+"""Every constant of a rate law: the independent ones, then the dependent ones."""
+struct AllParameters end
+
+const _ParameterKind = Union{IndependentParameters, FittedParameters, AllParameters}
+
 """
-@generated function parameters(::M) where {M <: Mechanisms.AbstractEnzymeMechanism}
-    (_solve(M).fitted..., :Keq, :E_total)
+    parameters(m) -> Tuple{Vararg{Symbol}}
+    parameters(m, kind) -> Tuple{Vararg{Symbol}}
+
+The names of the parameters of the rate law of `m`, as a tuple of Symbols. `kind` picks
+which:
+
+  - `IndependentParameters()` (the default): the independent constants, then `Keq` and
+    `E_total`. These are the parameters `rate_equation` takes.
+  - `FittedParameters()`: the independent constants alone (no `Keq`, no `E_total`).
+  - `AllParameters()`: the `IndependentParameters()` names, then the dependent constants
+    in name order. The rate law computes each dependent constant from the independent
+    ones by its Haldane or Wegscheider relation (see `parameters(m, params)`).
+"""
+parameters(m) = parameters(m, IndependentParameters())
+
+"""The dependent constants of the joint solve `s` in name order, less the kinetic-group
+tie pins, which are not constants of the rate law."""
+_dependents(s) =
+    sort!(filter(d -> d.label !== :kinetic_group, s.dependents); by = d -> s.names[d.col])
+
+"""The names of the `kind` parameters in the joint solve `s`."""
+_parameter_names(s, ::FittedParameters) = Tuple(s.fitted)
+_parameter_names(s, ::IndependentParameters) = (s.fitted..., :Keq, :E_total)
+_parameter_names(s, ::AllParameters) =
+    (_parameter_names(s, IndependentParameters())...,
+     (s.names[d.col] for d in _dependents(s))...)
+
+@generated function parameters(::M, ::K) where {M <: Mechanisms.AbstractEnzymeMechanism,
+                                                K <: _ParameterKind}
+    _parameter_names(_solve(M), K())
 end
 
-"""Independent rate constant names for fitting (excludes Keq, E_total)."""
-@generated function fitted_params(::M) where {M <: Mechanisms.AbstractEnzymeMechanism}
-    Tuple(_solve(M).fitted)
-end
-
-# Convenience methods for the concrete Mechanism / AllostericMechanism
-# working representation. `parameters` lifts to the compiled singleton via
-# `compile_mechanism`, then dispatches to the singleton method; `fitted_params`
-# reads the joint solve of the checked mechanism through the memo (`_memo_solve`),
-# compiling nothing.
-# Callers that hold a `Mechanism` (e.g. the `identify_rate_equation` pipeline)
-# use these without an explicit lift. `compile_mechanism` does Sig conversion (it
-# allocates) — it is NOT the rate_equation hot path. Pass an
-# `EnzymeMechanism` / `AllostericEnzymeMechanism` for the allocation-free
+# The concrete Mechanism / AllostericMechanism reads the joint solve of the checked
+# mechanism through the memo (`_memo_solve`), compiling nothing. Callers that hold a
+# `Mechanism` (e.g. the `identify_rate_equation` pipeline) use it without an explicit
+# lift. Pass an `EnzymeMechanism` / `AllostericEnzymeMechanism` for the allocation-free
 # `rate_equation` hot path.
-parameters(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
-    parameters(Mechanisms.compile_mechanism(m))
-fitted_params(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
-    (check_valid_rate_equation(m); Tuple(_memo_solve(m).fitted))
+function parameters(m::_AnyMech, kind::_ParameterKind)
+    check_valid_rate_equation(m)
+    _parameter_names(_memo_solve(m), kind)
+end
 
 """
-    all_parameters(m, params) -> NamedTuple
+    parameters(m, params::NamedTuple) -> NamedTuple
 
 Return `params` followed by the dependent constants of `m`'s rate law that it lacks, in
 name order, each computed from the independent constants and `Keq` in `params` by its
@@ -61,17 +84,16 @@ julia> m = @enzyme_mechanism begin
            end
        end;
 
-julia> all_parameters(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0,
-                          Keq = 4.0))
+julia> parameters(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0))
 (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0, k_EP_to_ES = 0.375)
 ```
 """
-function all_parameters(m::Union{Mechanisms.AbstractEnzymeMechanism, Mechanisms.Mechanism,
-                                  Mechanisms.AllostericMechanism},
-                        params::NamedTuple)
+function parameters(m::Union{Mechanisms.AbstractEnzymeMechanism, Mechanisms.Mechanism,
+                             Mechanisms.AllostericMechanism},
+                    params::NamedTuple)
     s = _solve(m isa Mechanisms.AbstractEnzymeMechanism ? typeof(m) : _well_posed(m))
     absent = [k for k in (s.fitted..., :Keq) if !haskey(params, k)]
-    isempty(absent) || error("all_parameters: params must hold every name of " *
+    isempty(absent) || error("parameters: params must hold every name of " *
                              "parameters(m) except E_total; it lacks " *
                              join(absent, ", "))
     # A negative integer exponent inverts the positive power; a fractional one is taken
@@ -81,8 +103,7 @@ function all_parameters(m::Union{Mechanisms.AbstractEnzymeMechanism, Mechanisms.
                 numerator(e) >= 0 ? x^numerator(e) : inv(x^-numerator(e))
     value(d) = prod((pow(params[s.names[f]], e) for (f, e) in d.factors);
                     init = pow(params.Keq, d.keq))
-    deps = sort!(filter(d -> d.label !== :kinetic_group, s.dependents);
-                 by = d -> s.names[d.col])
+    deps = _dependents(s)
     merge(params, NamedTuple{Tuple(s.names[d.col] for d in deps)}(
         Tuple(value(d) for d in deps)))
 end

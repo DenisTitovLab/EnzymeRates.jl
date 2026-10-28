@@ -1,5 +1,5 @@
 # ABOUTME: Regression: a Wegscheider tie between a free-enzyme binding K and an occupied
-# ABOUTME: one makes one of them dependent, so fitted_params counts the tie once.
+# ABOUTME: one makes one of them dependent, so FittedParameters counts the tie once.
 module PivotPriorityRegressionTests
 using Test, EnzymeRates
 const ER = EnzymeRates
@@ -9,7 +9,7 @@ const ER = EnzymeRates
     # — E→ELactate→ELactateNAD and E→ENAD→ELactateNAD with shared K_ENAD_to_E_NAD —
     # forces the Wegscheider tie K_ELactate_to_E_Lactate =
     # K_ELactateNADH_to_ENADH_Lactate. The solve must make one of the two dependent,
-    # or fitted_params over-counts by 1 (7 instead of 6). A split that recovers the
+    # or FittedParameters over-counts by 1 (7 instead of 6). A split that recovers the
     # tie would then be a -1 parameter-count edge.
     m = @enzyme_mechanism begin
         substrates: NADH, Pyruvate
@@ -24,7 +24,7 @@ const ER = EnzymeRates
             E(NADH, Pyruvate) <--> E(Lactate, NAD)
         end
     end
-    fp = ER.fitted_params(m)
+    fp = parameters(m, FittedParameters())
     @test length(fp) == 6
     # the tie collapses one
     @test !(:K_ELactate_to_E_Lactate in fp && :K_ELactateNADH_to_ENADH_Lactate in fp)

@@ -88,7 +88,8 @@ end
             E + P ⇌ E(P)     :: EqualAI
         end
     end
-    fp = ER.fitted_params(onlyA)  # (:K_A_ES_to_E_S, :K_EP_to_E_P, :k_A_ES_to_EP, :L)
+    # (:K_A_ES_to_E_S, :K_EP_to_E_P, :k_A_ES_to_EP, :L)
+    fp = parameters(onlyA, FittedParameters())
     @test fp == (:K_A_ES_to_E_S, :K_EP_to_E_P, :k_A_ES_to_EP, :L)
 
     rng = MersenneTwister(20260713)
@@ -96,7 +97,7 @@ end
         KA = 0.5 + 2rand(rng); KP = 0.5 + 2rand(rng); k = 0.5 + 2rand(rng)
         L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
         S = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
-        # Map fitted_params -> ground-truth params:
+        # Map FittedParameters -> ground-truth params:
         #   K_A_ES_to_E_S=KA, K_EP_to_E_P=KP, k_A_ES_to_EP=k.
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KA, KP, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(onlyA, (S=S, P=P), prm))
@@ -148,7 +149,7 @@ end
         end
     end
     # (:K_A_EAB_to_EA_B, :K_A_EA_to_E_A, :K_EP_to_E_P, :k_A_EAB_to_EP, :L)
-    fp = ER.fitted_params(multiA)
+    fp = parameters(multiA, FittedParameters())
     @test fp == (:K_A_EAB_to_EA_B, :K_A_EA_to_E_A, :K_EP_to_E_P, :k_A_EAB_to_EP, :L)
 
     rng = MersenneTwister(20260713)
@@ -156,7 +157,7 @@ end
         KA = 0.5 + 2rand(rng); KB = 0.5 + 2rand(rng); KP = 0.5 + 2rand(rng)
         k = 0.5 + 2rand(rng); L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
         A = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
-        # Map fitted_params -> ground-truth params:
+        # Map FittedParameters -> ground-truth params:
         #   K_A_EA_to_E_A=KA, K_EP_to_E_P=KP, K_A_EAB_to_EA_B=KB, k_A_EAB_to_EP=k.
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KB, KA, KP, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(multiA, (A=A, B=B, P=P), prm))
@@ -233,7 +234,7 @@ end
         end
     end
     # (:K_EBS_to_ES_B,:K_EP_to_E_P,:k_A_EBS_to_EP,:k_A_ES_to_E_S,:k_A_E_S_to_ES,:L)
-    fp = ER.fitted_params(metabD)
+    fp = parameters(metabD, FittedParameters())
     @test fp == (:K_EBS_to_ES_B, :K_EP_to_E_P, :k_A_EBS_to_EP, :k_A_ES_to_E_S,
                  :k_A_E_S_to_ES, :L)
 
@@ -242,7 +243,7 @@ end
         kon = 0.5 + 2rand(rng); koff = 0.5 + 2rand(rng); KP = 0.5 + 2rand(rng)
         KB = 0.5 + 2rand(rng); k = 0.5 + 2rand(rng); L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
         S = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
-        # Map fitted_params -> ground-truth params:
+        # Map FittedParameters -> ground-truth params:
         #   k_A_E_S_to_ES=kon, k_A_ES_to_E_S=koff, K_EBS_to_ES_B=KB, K_EP_to_E_P=KP,
         #   k_A_EBS_to_EP=k.
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KB, KP, k, koff, kon, L, Keq, 1.0))
@@ -325,7 +326,7 @@ end
             E + P ⇌ E(P)
         end
     end
-    bfp = ER.fitted_params(base)
+    bfp = parameters(base, FittedParameters())
 
     rng = MersenneTwister(20260713)
     for _ in 1:5
@@ -387,7 +388,8 @@ end
             E(B; residual = A - P) <--> E + Q                     :: EqualAI
         end
     end
-    fpn = ER.fitted_params(nonallo); fpa = ER.fitted_params(alloEq)
+    fpn = parameters(nonallo, FittedParameters())
+    fpa = parameters(alloEq, FittedParameters())
     rng = MersenneTwister(20260714)
     for _ in 1:5
         vals = Dict(s => 0.5 + 2rand(rng) for s in fpn)
@@ -551,7 +553,7 @@ end
             E(B; residual = A - P) <--> E + Q                     :: NonequalAI
         end
     end
-    fp = ER.fitted_params(allo)
+    fp = parameters(allo, FittedParameters())
     @test fp == (:k_A_EA_to_E_res_plusA_minusP_P, :k_A_EB_res_plusA_minusP_to_E_Q,
                  :k_A_E_Q_to_EB_res_plusA_minusP, :k_EA_to_E_A,
                  :k_EB_res_plusA_minusP_to_E_res_plusA_minusP_B, :k_E_A_to_EA,
@@ -567,7 +569,7 @@ end
         k2f_I = 0.5+2rand(rng); k4f_I = 0.5+2rand(rng); k4r_I = 0.5+2rand(rng)
         L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
         A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng); Q = 0.5+2rand(rng)
-        # Map fitted_params -> ground-truth params. A step that releases a
+        # Map FittedParameters -> ground-truth params. A step that releases a
         # product while changing the residual is stored as the binding it
         # reverses, F + P → E(A), however the step is written; its rate constants
         # are named by its two sides, so `k_…_EA_to_E_res_…_P` is the
@@ -585,7 +587,7 @@ end
         #   k_I_EB_res_plusA_minusP_to_E_Q=k4f_I,
         #   k_I_E_Q_to_EB_res_plusA_minusP=k4r_I             (FB ⇌ E + Q, inactive)
         # `k_A_E_res_plusA_minusP_P_to_EA` and `k_I_E_res_plusA_minusP_P_to_EA`, the P
-        # rebinding rates, are absent from fitted_params: each conformation's Haldane
+        # rebinding rates, are absent from FittedParameters: each conformation's Haldane
         # makes the constant that runs against the reaction dependent. The oracle takes
         # k2r_A and k4r_I and derives k1r and k2r_I by the Haldane relations, so both are
         # computed here the same way, and the derivation rederives k2r_A and k2r_I.
@@ -707,7 +709,7 @@ end
         end
     end
     _testhelper_check_law_against_oracle(half2)
-    @test ER.fitted_params(half2) ==
+    @test parameters(half2, FittedParameters()) ==
           (:K_A_EB_res_plusA_minusP_to_EQ, :K_EA_to_E_A,
            :K_EB_res_plusA_minusP_to_E_res_plusA_minusP_B,
            :K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P, :K_EQ_to_E_Q,
@@ -744,7 +746,8 @@ end
             E + P ⇌ E(P)   :: OnlyA
         end
     end
-    fp = ER.fitted_params(inert)      # (:K_A_EP_to_E_P, :K_A_ES_to_E_S, :k_ES_to_EP, :L)
+    # (:K_A_EP_to_E_P, :K_A_ES_to_E_S, :k_ES_to_EP, :L)
+    fp = parameters(inert, FittedParameters())
     @test fp == (:K_A_EP_to_E_P, :K_A_ES_to_E_S, :k_ES_to_EP, :L)
 
     rng = MersenneTwister(20260714)
@@ -752,7 +755,7 @@ end
         KS = 0.5 + 2rand(rng); KP = 0.5 + 2rand(rng); k = 0.5 + 2rand(rng)
         L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
         S = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
-        # Map fitted_params -> ground-truth params:
+        # Map FittedParameters -> ground-truth params:
         #   K_A_ES_to_E_S=KS, K_A_EP_to_E_P=KP, k_ES_to_EP=k.
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, KS, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(inert, (S=S, P=P), prm))
@@ -830,7 +833,7 @@ end
     inactive = ER.Derivation._law(am).inactive
     @test !iszero(inactive.trees[1] * inactive.shift)
 
-    fp = ER.fitted_params(half2)
+    fp = parameters(half2, FittedParameters())
     prm = NamedTuple{(fp..., :Keq, :E_total)}(((1.3 for _ in fp)..., 3.0, 1.0))
     concs = (ATP = 1.1, F6P = 0.7, ADP = 0.6, F16BP = 0.9)
     @test isfinite(real(ER.rate_equation(half2, concs, prm)))
@@ -997,10 +1000,10 @@ end
                     E + P ⇌ E(P)           :: EqualAI
                 end
             end)
-        fp = ER.fitted_params(allo)
+        fp = parameters(allo, FittedParameters())
         @test fp == (:K_EAB_to_EA_B, :K_EP_to_E_P, :k_A_EAB_to_EP, :k_EA_to_E_A,
                      :k_E_A_to_EA, :k_I_EAB_to_EP, :L)
-        # Map fitted_params -> ground-truth params:
+        # Map FittedParameters -> ground-truth params:
         #   k_E_A_to_EA=kon, k_EA_to_E_A=koff, K_EAB_to_EA_B=KB, K_EP_to_E_P=KP,
         #   k_A_EAB_to_EP=k_A, k_I_EAB_to_EP=k_I.
         function _testhelper_params_for(kon, koff, KP, KB, kA, kI, L, Keq)
@@ -1098,7 +1101,7 @@ end
             E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
-    afp = ER.fitted_params(half2)
+    afp = parameters(half2, FittedParameters())
     # Non-allosteric twin: the same six steps with no tags. At L = 0 the inactive
     # conformation is unpopulated, so the allosteric rate must reduce to the twin's, an
     # independent re-derivation through the plain King–Altman path. An :OnlyA constant
@@ -1115,7 +1118,7 @@ end
             E + ADP ⇌ E(ADP)
         end
     end
-    nfp = ER.fitted_params(nonallo)
+    nfp = parameters(nonallo, FittedParameters())
     twin_of(s) = Symbol(replace(String(s), r"^([Kk])_A_" => s"\1_"))
     @test Set(twin_of.(filter(!=(:L), collect(afp)))) == Set(nfp)
     rng = MersenneTwister(20260717)
