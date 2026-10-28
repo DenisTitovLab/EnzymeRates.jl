@@ -178,7 +178,7 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
         for (pos, site) in enumerate(EnzymeRates.Mechanisms.regulatory_sites(mech))
             j = _testhelper_positional_site_idx(site, pos, raw.sites)
             for (lig, tag) in zip(EnzymeRates.Mechanisms.ligands(site),
-                                  EnzymeRates.Mechanisms.allo_states(site))
+                                  EnzymeRates.Mechanisms.mwc_tags(site))
                 for (inactive, suffix) in ((false, ""), (true, "_T"))
                     tag === :EqualAI && inactive && continue
                     K = EnzymeRates.Mechanisms.regulator_constant(mech, lig, tag, inactive)
@@ -1107,7 +1107,7 @@ end
         raw = ER.Mechanisms.RawAllostericMechanism(am)
         for flipped in _testhelper_variants(raw.catalytic)
             am2 = ER.AllostericMechanism(ER.Mechanisms.RawAllostericMechanism(flipped,
-                raw.cat_allo_states, raw.catalytic_multiplicity, raw.sites))
+                raw.mwc_tags, raw.catalytic_multiplicity, raw.sites))
             @test am2 == am
             @test ER.rate_equation_string(ER.compile_mechanism(am2)) ==
                   ER.rate_equation_string(spec.mechanism)
@@ -2280,12 +2280,12 @@ multiplicity and sites, with no representation check: the constructors' label ch
 would reject it."""
 function _testhelper_unchecked(raw::EnzymeRates.Mechanisms.RawAllostericMechanism)
     c = EnzymeRates.Mechanisms._canonicalize(raw.catalytic)
-    tags = similar(raw.cat_allo_states)
-    for (l, t) in enumerate(raw.cat_allo_states)
+    tags = similar(raw.mwc_tags)
+    for (l, t) in enumerate(raw.mwc_tags)
         tags[c.group_of[l]] = t
     end
     EnzymeRates.AllostericMechanism(c.mechanism, tags, raw.catalytic_multiplicity,
-        [EnzymeRates.Mechanisms.RegulatorySite(s.ligands, s.multiplicity, s.allo_states)
+        [EnzymeRates.Mechanisms.RegulatorySite(s.ligands, s.multiplicity, s.mwc_tags)
          for s in raw.sites])
 end
 

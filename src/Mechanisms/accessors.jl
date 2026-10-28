@@ -127,4 +127,4 @@ members(m::Mechanism, g::Int) = findall(==(g), m.group)
 # ─── Allosteric ─────────────────────────────────────────────────────────
 
 """The allosteric tag of kinetic group `g` of `am`'s catalytic graph."""
-tag(am::AllostericMechanism, g::Int) = am.cat_allo_states[g]
+tag(am::AllostericMechanism, g::Int) = am.mwc_tags[g]

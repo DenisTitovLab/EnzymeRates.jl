@@ -28,10 +28,10 @@ function Base.show(io::IO, am::AllostericMechanism)
     _print_names(io, am.catalytic)
     _print_line(io, "allosteric_regulators", sort(allosteric_regulators(am)))
     _print_line(io, "catalytic_multiplicity", [am.catalytic_multiplicity])
-    _print_steps(io, am.catalytic, am.cat_allo_states)
+    _print_steps(io, am.catalytic, am.mwc_tags)
     for s in am.regulatory_sites
         _print_line(io, "regulatory_site($(s.multiplicity))",
-                    ["$l::$t" for (l, t) in zip(s.ligands, s.allo_states)])
+                    ["$l::$t" for (l, t) in zip(s.ligands, s.mwc_tags)])
     end
     print(io, "\nend")
     nothing

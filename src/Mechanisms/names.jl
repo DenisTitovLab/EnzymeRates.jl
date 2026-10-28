@@ -188,7 +188,7 @@ end
 
 """Each kinetic group's allosteric tag, `:None` for a plain mechanism."""
 _solve_tags(m::Mechanism) = fill(:None, ngroups(m))
-_solve_tags(am::AllostericMechanism) = cat_allo_states(am)
+_solve_tags(am::AllostericMechanism) = mwc_tags(am)
 
 """Whether the active column of edge `k`, in a group `group[k]` tagged `tags`, enters the
 law: its edge lies in the active conformation's law (`alaw`), or it is an `:EqualAI`

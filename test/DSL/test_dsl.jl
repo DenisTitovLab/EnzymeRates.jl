@@ -268,7 +268,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
 
         # An unknown regulator state is reported by RegulatorySite when the expansion
         # runs.
-        @test_throws "allo state Bogus must be one of" eval(:(@allosteric_mechanism begin
+        @test_throws "MWC tag Bogus must be one of" eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
             allosteric_regulators: X
@@ -2184,7 +2184,7 @@ end
                 E(P) ⇌ E + P      :: EqualAI
             end
         end
-        @test_throws "allo state Bogus must be one of" @allosteric_mechanism begin
+        @test_throws "MWC tag Bogus must be one of" @allosteric_mechanism begin
             substrates: S
             products:   P
             allosteric_regulators: X

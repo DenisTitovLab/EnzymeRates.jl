@@ -79,7 +79,7 @@ _written(m::Mechanism, re::BitVector, groups::Vector{Int}) =
 and each label tagged as the group of its first step."""
 function _written(am::AllostericMechanism, re::BitVector, groups::Vector{Int})
     cm = am.catalytic
-    tags = Symbol[am.cat_allo_states[cm.group[findfirst(==(l), groups)]]
+    tags = Symbol[am.mwc_tags[cm.group[findfirst(==(l), groups)]]
                   for l in 1:maximum(groups; init = 0)]
     RawAllostericMechanism(_written(cm, re, groups), tags, am.catalytic_multiplicity,
                            RawSite.(am.regulatory_sites))
@@ -90,7 +90,7 @@ end
 
 Regulatory site `s` as written: its ligands, multiplicity and tags, each vector fresh.
 """
-RawSite(s::RegulatorySite) = RawSite(copy(s.ligands), s.multiplicity, copy(s.allo_states))
+RawSite(s::RegulatorySite) = RawSite(copy(s.ligands), s.multiplicity, copy(s.mwc_tags))
 
 # ─── Writers ────────────────────────────────────────────────────────────
 

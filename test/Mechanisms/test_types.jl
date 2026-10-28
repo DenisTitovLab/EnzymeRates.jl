@@ -226,7 +226,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E + I ⇌ E(I)      :: OnlyI
             end
         end
-        @test :OnlyI in ER.Mechanisms.cat_allo_states(ER.AllostericMechanism(onlyi))
+        @test :OnlyI in ER.Mechanisms.mwc_tags(ER.AllostericMechanism(onlyi))
 
         # Build via DSL
         m = @allosteric_mechanism begin
@@ -253,7 +253,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test all(ER.Mechanisms.tag(am_c, g) === :EqualAI
                   for g in eachindex(members) if g != onlyA_g)
         @test ER.Mechanisms.allosteric_regulators(am_c) == [:I]
-        @test ER.Mechanisms.allo_states(only(ER.Mechanisms.regulatory_sites(am_c))) ==
+        @test ER.Mechanisms.mwc_tags(only(ER.Mechanisms.regulatory_sites(am_c))) ==
               [:OnlyI]
     end
 
@@ -1051,7 +1051,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
     end
 
     @testset "AllostericEnzymeMechanism lift validators" begin
-        # Wrong-length cat_allo_states (4 entries for 3 kinetic groups) → error
+        # Wrong-length mwc_tags (4 entries for 3 kinetic groups) → error
         cm = ER.Mechanism(_testhelper_re_mm)
         @test_throws ErrorException ER.AllostericMechanism(
             cm, [:NonequalAI, :NonequalAI, :NonequalAI, :OnlyA], 2,
@@ -1065,7 +1065,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 cm, [:EqualAI, :EqualAI, :EqualAI], 2,
                 [ER.Mechanisms.RegulatorySite([:A], n, [:OnlyA]) for n in (2, 4)]))
 
-        # Invalid allo state value → error
+        # Invalid MWC tag value → error
         @test_throws ErrorException @allosteric_mechanism begin
             substrates: S
             products:   P
@@ -1091,7 +1091,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             regulatory_site(2): I::EqualAI, J::EqualAI
         end) isa ER.AllostericEnzymeMechanism
 
-        # Invalid reg-site ligand allo state → error
+        # Invalid reg-site ligand MWC tag → error
         @test_throws ErrorException @allosteric_mechanism begin
             substrates: S
             products:   P
@@ -1136,14 +1136,14 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 regulatory_site(2): J::OnlyI
             end"""
         am = ER.AllostericMechanism(m)
-        # Every catalytic state appears in cat_allo_states line
-        for g in eachindex(ER.Mechanisms.cat_allo_states(am))
+        # Every catalytic state appears in mwc_tags line
+        for g in eachindex(ER.Mechanisms.mwc_tags(am))
             @test occursin(string(ER.Mechanisms.tag(am, g)), s)
         end
         # No :NonequalAI ligand silently hidden from reg-site display
         for site in ER.Mechanisms.regulatory_sites(am),
             (lig, state) in zip(ER.Mechanisms.ligands(site),
-                                ER.Mechanisms.allo_states(site))
+                                ER.Mechanisms.mwc_tags(site))
             @test occursin("$lig::$state", s)
         end
     end
@@ -1221,9 +1221,9 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         )
         @test ER.Mechanisms.ligands(site) == [:A, :B]
         @test ER.Mechanisms.multiplicity(site) == 4
-        @test ER.Mechanisms.allo_states(site) == [:OnlyA, :NonequalAI]
+        @test ER.Mechanisms.mwc_tags(site) == [:OnlyA, :NonequalAI]
 
-        # Mismatched ligand / allo_state length → error
+        # Mismatched ligand / mwc_tags length → error
         @test_throws ErrorException ER.Mechanisms.RegulatorySite(
             [lig_a, lig_b], 4, [:OnlyA])
 
@@ -1234,7 +1234,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # No ligands → error
         @test_throws ErrorException ER.Mechanisms.RegulatorySite(Symbol[], 2, Symbol[])
 
-        # Invalid allo state → error
+        # Invalid MWC tag → error
         @test_throws ErrorException ER.Mechanisms.RegulatorySite(
             [lig_a], 1, [:NotAState])
 
@@ -1257,14 +1257,14 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         site_reordered = ER.Mechanisms.RegulatorySite(
             [lig_b, lig_a], 4, [:NonequalAI, :OnlyA])
         @test ER.Mechanisms.ligands(site_reordered) == [lig_a, lig_b]
-        @test ER.Mechanisms.allo_states(site_reordered) == [:OnlyA, :NonequalAI]
+        @test ER.Mechanisms.mwc_tags(site_reordered) == [:OnlyA, :NonequalAI]
         @test site == site_reordered
         @test hash(site) == hash(site_reordered)
         # ...but the pairing of ligand and state does: B::OnlyA, A::NonequalAI is
         # a different site.
         site_swapped = ER.Mechanisms.RegulatorySite(
             [lig_b, lig_a], 4, [:OnlyA, :NonequalAI])
-        @test ER.Mechanisms.allo_states(site_swapped) == [:NonequalAI, :OnlyA]
+        @test ER.Mechanisms.mwc_tags(site_swapped) == [:NonequalAI, :OnlyA]
         @test site != site_swapped
     end
 
@@ -1659,7 +1659,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
     @testset "AllostericMechanism validation errors" begin
         steps = collect(_testhelper_uniuni_steps())
         _testhelper_invalid_tag(tag) = ErrorException(
-            "AllostericMechanism: catalytic group 1 has invalid allo state $tag (must be " *
+            "AllostericMechanism: catalytic group 1 has invalid MWC tag $tag (must be " *
             "one of (:OnlyA, :OnlyI, :EqualAI, :NonequalAI))")
 
         # :OnlyI fits only a group that binds modifiers alone: the active conformation
@@ -1683,7 +1683,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                                                           ER.Mechanisms.RegulatorySite[])
 
         # Length mismatch
-        @test_throws(ErrorException("AllostericMechanism: cat_allo_states length 2 must " *
+        @test_throws(ErrorException("AllostericMechanism: mwc_tags length 2 must " *
                                     "match the number of kinetic groups 3"),
                      _testhelper_tagged_uniuni(steps, [:EqualAI, :NonequalAI], 1,
                                                ER.Mechanisms.RawSite[]))
@@ -1694,7 +1694,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                      _testhelper_tagged_uniuni(steps, [:EqualAI, :EqualAI, :EqualAI], 0,
                                                ER.Mechanisms.RawSite[]))
 
-        # Unknown allo-state symbol
+        # Unknown MWC tag symbol
         @test_throws(_testhelper_invalid_tag(:Bogus),
                      _testhelper_tagged_uniuni(steps, [:Bogus, :EqualAI, :EqualAI], 1,
                                                ER.Mechanisms.RawSite[]))
@@ -1726,7 +1726,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
               (ER.Mechanisms.substrates(lifted), ER.Mechanisms.products(lifted),
                ER.Mechanisms.modifiers(lifted))
 
-        # cat_allo_states and multiplicity extracted from CS
+        # mwc_tags and multiplicity extracted from CS
         @test ER.Mechanisms.tag(am, 1) === :EqualAI
         @test ER.Mechanisms.tag(am, 2) === :NonequalAI
         @test ER.Mechanisms.tag(am, 3) === :OnlyA
@@ -1737,7 +1737,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test length(sites) == 1
         @test sites[1].ligands == [:A, :B]
         @test sites[1].multiplicity == 1
-        @test sites[1].allo_states == [:OnlyA, :NonequalAI]
+        @test sites[1].mwc_tags == [:OnlyA, :NonequalAI]
 
         # Idempotent: two calls give equal results
         @test ER.AllostericMechanism(aem) == am
@@ -3428,7 +3428,7 @@ end
         regulatory_site(2): I::OnlyI
     end)
     am_on_rxn = EnzymeRates.AllostericMechanism(
-        m_on_rxn, EnzymeRates.Mechanisms.cat_allo_states(am),
+        m_on_rxn, EnzymeRates.Mechanisms.mwc_tags(am),
         EnzymeRates.Mechanisms.catalytic_multiplicity(am),
         EnzymeRates.Mechanisms.regulatory_sites(am))
     @test am_on_rxn == am && hash(am_on_rxn) == hash(am)
@@ -3540,8 +3540,8 @@ end
     @test site != R.Mechanisms.RawSite([:X], 2, [:OnlyA])
     @test allo != R.Mechanisms.RawAllostericMechanism(
         mech, [:EqualAI, :NonequalAI, :EqualAI, :EqualAI], 2, [site])
-    @test allo != R.Mechanisms.RawAllostericMechanism(mech, allo.cat_allo_states, 1, [site])
-    @test allo != R.Mechanisms.RawAllostericMechanism(mech, allo.cat_allo_states, 2,
+    @test allo != R.Mechanisms.RawAllostericMechanism(mech, allo.mwc_tags, 1, [site])
+    @test allo != R.Mechanisms.RawAllostericMechanism(mech, allo.mwc_tags, 2,
                                                       R.Mechanisms.RawSite[])
 end
 

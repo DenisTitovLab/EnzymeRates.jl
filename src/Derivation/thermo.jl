@@ -291,7 +291,7 @@ _regulator_names(::Mechanisms.Mechanism) = Symbol[]
 function _regulator_names(am::Mechanisms.AllostericMechanism)
     names(inactive) = Symbol[K for site in Mechanisms.regulatory_sites(am)
                              for (lig, tag) in zip(Mechanisms.ligands(site),
-                                                   Mechanisms.allo_states(site))
+                                                   Mechanisms.mwc_tags(site))
                              if !(inactive && tag === :EqualAI)
                              for K in (Mechanisms.regulator_constant(am, lig, tag,
                                                                      inactive),)

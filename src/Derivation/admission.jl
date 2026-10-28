@@ -175,7 +175,7 @@ Whether `am` with the kinetic group of each edge in `ks` tagged `tag` passes the
 (`_guard`). Every fix that retags steps in admission's messages is checked this way.
 """
 function _retag_passes(am::Mechanisms.AllostericMechanism, ks, tag::Symbol)
-    states = copy(Mechanisms.cat_allo_states(am))
+    states = copy(Mechanisms.mwc_tags(am))
     states[[Mechanisms.group(Mechanisms.catalytic(am), k) for k in ks]] .= tag
     _guard(Mechanisms.with_tags(am, states)) === _WELL_POSED
 end

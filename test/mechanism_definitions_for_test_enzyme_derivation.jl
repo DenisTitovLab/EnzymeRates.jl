@@ -122,7 +122,7 @@ and `names` and `inactive_names`, the package names of its constants in the acti
 only) and the inactive conformation (empty for a step the inactive law does not keep);
 `tags`; `inactive` and `active`, which steps the inactive and the active law keep (every
 step of a plain mechanism is active);
-`catalytic_multiplicity`; `sites`, each `(; multiplicity, ligands, allo_states)`;
+`catalytic_multiplicity`; `sites`, each `(; multiplicity, ligands, mwc_tags)`;
 `substrates`, `products` and `modifiers`. A plain mechanism has no tags, no inactive
 conformation (`inactive` and every `inactive_names` empty), no sites and
 `catalytic_multiplicity` `nothing`. Forms come in the canonical form order: free E first,
@@ -133,7 +133,7 @@ function _testhelper_graph(m)
     allo = mech isa EnzymeRates.AllostericMechanism
     cm = EnzymeRates.Mechanisms.catalytic(mech)
     kept = EnzymeRates.Mechanisms._kept_members(mech)
-    tags = allo ? copy(EnzymeRates.Mechanisms.cat_allo_states(mech)) : Symbol[]
+    tags = allo ? copy(EnzymeRates.Mechanisms.mwc_tags(mech)) : Symbol[]
     # The edges group by group, each group's in edge order, as the derivation reads them.
     edges = EnzymeRates.Mechanisms._flat_edges(cm)
     _testhelper_names(k, state) =
@@ -159,7 +159,7 @@ function _testhelper_graph(m)
     end
     sites = [(multiplicity = EnzymeRates.Mechanisms.multiplicity(site),
               ligands = copy(EnzymeRates.Mechanisms.ligands(site)),
-              allo_states = copy(EnzymeRates.Mechanisms.allo_states(site)))
+              mwc_tags = copy(EnzymeRates.Mechanisms.mwc_tags(site)))
              for site in (allo ? EnzymeRates.Mechanisms.regulatory_sites(mech) :
                                  EnzymeRates.Mechanisms.RegulatorySite[])]
     (forms = String[EnzymeRates.Mechanisms._form_name(cm, f) for f in eachindex(cm.forms)],
@@ -230,7 +230,7 @@ function _testhelper_check_stored_orientation(m)
         reverse(cat.group))
     rebuilt = !allo ? EnzymeRates.Mechanism(written) :
         EnzymeRates.AllostericMechanism(EnzymeRates.Mechanisms.RawAllostericMechanism(
-            written, raw.cat_allo_states, raw.catalytic_multiplicity, raw.sites))
+            written, raw.mwc_tags, raw.catalytic_multiplicity, raw.sites))
     @test rebuilt == mech
 end
 
@@ -290,7 +290,7 @@ _testhelper_single_subunit(m::EnzymeRates.AllostericEnzymeMechanism) =
         _testhelper_single_subunit(EnzymeRates.AllostericMechanism(m)))
 _testhelper_single_subunit(m::EnzymeRates.Mechanism) = m
 _testhelper_single_subunit(am::EnzymeRates.AllostericMechanism) =
-    EnzymeRates.AllostericMechanism(am.catalytic, copy(am.cat_allo_states), 1,
+    EnzymeRates.AllostericMechanism(am.catalytic, copy(am.mwc_tags), 1,
                                     am.regulatory_sites)
 
 """Whether `s`, a step of `_testhelper_graph`, is a binding: it takes up one metabolite and
@@ -800,7 +800,7 @@ function _testhelper_declared_dimension(m)
     A = isempty(rows) ? zeros(Int, 0, length(in_law)) : permutedims(reduce(hcat, rows))
     n_law = count(in_law) - (_testhelper_rank(A) - _testhelper_rank(A[:, .!in_law]))
     allo || return n_law
-    n_reg = sum((t === :NonequalAI ? 2 : 1 for site in g.sites for t in site.allo_states);
+    n_reg = sum((t === :NonequalAI ? 2 : 1 for site in g.sites for t in site.mwc_tags);
                 init = 0)
     n_law + n_reg + 1
 end
@@ -962,7 +962,7 @@ function _testhelper_regulator_constants(am, state::Symbol)
     M = EnzymeRates.Mechanisms
     inactive = state === :I
     Symbol[K for site in M.regulatory_sites(am)
-           for (lig, tag) in zip(M.ligands(site), M.allo_states(site))
+           for (lig, tag) in zip(M.ligands(site), M.mwc_tags(site))
            if !(inactive && tag === :EqualAI)
            for K in (M.regulator_constant(am, lig, tag, inactive),) if K !== nothing]
 end
@@ -1002,7 +1002,7 @@ its catalytic form, so summed over regulator occupancy the flip takes this ratio
 function _testhelper_flip_ratio(mech, point, concs::AbstractDict)
     function _testhelper_site_factor(inactive)
         prod((1 + sum((concs[lig] / point.vals[K]
-                       for (lig, tag) in zip(site.ligands, site.allo_states)
+                       for (lig, tag) in zip(site.ligands, site.mwc_tags)
                        for K in (EnzymeRates.Mechanisms.regulator_constant(mech, lig, tag,
                                                                           inactive),)
                        if K !== nothing); init = big(0)))^site.multiplicity

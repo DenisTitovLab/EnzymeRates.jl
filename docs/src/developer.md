@@ -70,7 +70,7 @@ handles, and a set of steps is a `BitVector` over steps.
 | Steps | `steps(m)`, `ends(m, k)`, `taken_up(m, k)`, `given_off(m, k)`, `is_rapid_equilibrium(m, k)`, `rapid_equilibrium_steps(m)`, `step_kind(m, k)`, `is_binding(m, k)`, `runs_toward_products(m, k)` |
 | Groups | `group(m, k)`, `members(m, g)`, `ngroups(m)` |
 | Metabolites | `Metabolites`, a multiset with `copies`, `metabolite_names`, `modifier_copies`, `isempty`, `length`, `∪` and `∩`; `substrates(m)`, `products(m)`, `modifiers(m)` |
-| Allosteric | `catalytic(am)`, `tag(am, g)`, `cat_allo_states(am)`, `catalytic_multiplicity(am)`, `regulatory_sites(am)`, `excludes(am, k, c)`, `exclusion_components(am, c)`, `conformation_steps(am, c)` |
+| Allosteric | `catalytic(am)`, `tag(am, g)`, `mwc_tags(am)`, `catalytic_multiplicity(am)`, `regulatory_sites(am)`, `excludes(am, k, c)`, `exclusion_components(am, c)`, `conformation_steps(am, c)` |
 
 A derived view lives in `Mechanisms` only when two modules use it; otherwise it stays
 private to its module. The shared views are `re_segments(m, on, re)` (the
@@ -86,7 +86,7 @@ the checked constructors; `with_tags(am, tags)` retags through the composition c
 naming rules (`name(p, m)`, `constant_columns`, `regulator_constant`), the DSL text of
 forms and steps (`form_text`, `step_text`) complete the graph interface. The rest of
 `Mechanisms.API` is the types (`Reactant`, `Regulator`, …), the accessors of regulatory
-sites (`ligands`, `allo_states`, …) and the checks the DSL reader runs on names and labels
+sites (`ligands`, `mwc_tags`, …) and the checks the DSL reader runs on names and labels
 (`check_decodable_names`, `check_conformation_label`, `label_collision_error`).
 
 ### The boundary test

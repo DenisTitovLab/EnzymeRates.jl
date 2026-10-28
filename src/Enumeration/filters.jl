@@ -530,7 +530,7 @@ function _respects_reg_type(am::Mechanisms.AllostericMechanism,
                     for reg in rxn.regulators if reg.kind === :allosteric)
     all(Mechanisms.regulatory_sites(am)) do site
         types = [get(declared, l, :unspecified) for l in Mechanisms.ligands(site)]
-        all(zip(types, Mechanisms.allo_states(site))) do (t, state)
+        all(zip(types, Mechanisms.mwc_tags(site))) do (t, state)
             t === :unspecified ||
                 !(t === :activator && state === :OnlyI ||
                   t === :inhibitor && state === :OnlyA ||

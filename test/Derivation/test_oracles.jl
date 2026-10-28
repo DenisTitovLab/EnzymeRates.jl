@@ -24,7 +24,7 @@ function _testhelper_content_text(m)
                    for k in unique(s.group for s in g.steps)])
     allo || return join(groups, " / ")
     sites = sort([string(site.multiplicity, ": ",
-                         join(("$l::$t" for (l, t) in zip(site.ligands, site.allo_states)),
+                         join(("$l::$t" for (l, t) in zip(site.ligands, site.mwc_tags)),
                               ", "))
                   for site in g.sites])
     join(groups, " / ") * " | n = $(g.catalytic_multiplicity) | " * join(sites, " / ")
@@ -224,8 +224,8 @@ end
     @test g.active == 1:5
     @test g.catalytic_multiplicity == 2
     @test g.sites ==
-          [(multiplicity = 2, ligands = [:R1, :R2], allo_states = [:OnlyI, :EqualAI]),
-           (multiplicity = 1, ligands = [:R3], allo_states = [:NonequalAI])]
+          [(multiplicity = 2, ligands = [:R1, :R2], mwc_tags = [:OnlyI, :EqualAI]),
+           (multiplicity = 1, ligands = [:R3], mwc_tags = [:NonequalAI])]
     @test (g.substrates, g.products, g.modifiers) == ([:S], [:P], [:I])
     @test _testhelper_graph(EnzymeRates.AllostericMechanism(allo)) == g
 end
@@ -1142,7 +1142,7 @@ end
         n_kids += length(kids)
         @test allunique(kids)
         for c in kids
-            @test EnzymeRates.Enumeration._valid_tagging(c.catalytic, c.cat_allo_states)
+            @test EnzymeRates.Enumeration._valid_tagging(c.catalytic, c.mwc_tags)
             faults = _testhelper_face_faults(c)
             admitted = all(==(EnzymeRates.Derivation._NO_FAULT), faults)
             verdicts = _testhelper_respeed_verdicts(c; rng,
@@ -1174,7 +1174,7 @@ function _testhelper_rebuilt(m, graph, site = identity)
     raw = _testhelper_written(m)
     m isa EnzymeRates.Mechanism && return EnzymeRates.Mechanism(graph(raw))
     EnzymeRates.AllostericMechanism(EnzymeRates.Mechanisms.RawAllostericMechanism(
-        graph(raw.catalytic), raw.cat_allo_states, raw.catalytic_multiplicity,
+        graph(raw.catalytic), raw.mwc_tags, raw.catalytic_multiplicity,
         EnzymeRates.Mechanisms.RawSite[site(s) for s in raw.sites]))
 end
 
@@ -1200,7 +1200,7 @@ function _testhelper_renamed(m, rename::Dict{Symbol, Symbol})
             c.group)
     _testhelper_raw_site(s::EnzymeRates.Mechanisms.RawSite) =
         EnzymeRates.Mechanisms.RawSite(Symbol[r(x) for x in s.ligands], s.multiplicity,
-                                       s.allo_states)
+                                       s.mwc_tags)
     _testhelper_rebuilt(m, _testhelper_raw_graph, _testhelper_raw_site)
 end
 
@@ -1292,7 +1292,7 @@ let children = [c
     @test count(!_testhelper_is_valid, children) == 0
     allo = [c for c in children if c isa EnzymeRates.AllostericMechanism]
     @test !isempty(allo)
-    @test all(c -> :OnlyI ∉ EnzymeRates.Mechanisms.cat_allo_states(c), allo)
+    @test all(c -> :OnlyI ∉ EnzymeRates.Mechanisms.mwc_tags(c), allo)
 end
 
 @testset "the guard equals the RE-speed oracle on inhibitor children's modifier faces" begin

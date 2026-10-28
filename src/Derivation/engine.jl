@@ -304,7 +304,7 @@ conformation and an `:OnlyA` one out of the inactive.
 function _site_weight(am::Mechanisms.AllostericMechanism, vars::_Vars,
                       site::Mechanisms.RegulatorySite, inactive::Bool)
     W = one(_Poly)
-    for (lig, tag) in zip(Mechanisms.ligands(site), Mechanisms.allo_states(site))
+    for (lig, tag) in zip(Mechanisms.ligands(site), Mechanisms.mwc_tags(site))
         K = Mechanisms.regulator_constant(am, lig, tag, inactive)
         K === nothing && continue
         W = W + _term(_monomial(vars.index[lig] => 1, vars.index[K] => -1))

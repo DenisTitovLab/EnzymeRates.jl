@@ -367,7 +367,7 @@ end
     @testset "mechanism fields come from the struct definitions" begin
         @test issubset([:substrates, :edges, :group, :bound, :from, :to, :consumed,
             :released, :ligands, :multiplicity, :catalytic, :name, :modifier,
-            :steps, :sites, :regulatory_sites, :cat_allo_states, :counts],
+            :steps, :sites, :regulatory_sites, :mwc_tags, :counts],
             _testhelper_MECHANISM_FIELDS)
     end
 

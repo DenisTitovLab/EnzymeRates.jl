@@ -125,7 +125,7 @@ end
     @test fieldnames(ER.Mechanisms.Edge) ==
           (:from, :to, :consumed, :released, :rapid_equilibrium)
     @test fieldnames(ER.AllostericMechanism) ==
-          (:catalytic, :cat_allo_states, :catalytic_multiplicity, :regulatory_sites)
+          (:catalytic, :mwc_tags, :catalytic_multiplicity, :regulatory_sites)
 end
 
 @testset "an allosteric graph sorts its sites and checks its tags and ligands" begin
@@ -135,11 +135,11 @@ end
              EnzymeRates.Mechanisms.RegulatorySite([:B, :A], 2, [:OnlyA, :EqualAI])]
     am = ER.AllostericMechanism(m, tags, 2, sites)
     @test [s.ligands for s in am.regulatory_sites] == [[:A, :B], [:X]]
-    @test am.regulatory_sites[1].allo_states == [:EqualAI, :OnlyA]
+    @test am.regulatory_sites[1].mwc_tags == [:EqualAI, :OnlyA]
     tags[1] = :OnlyA
-    @test am.cat_allo_states == [:EqualAI, :EqualAI, :OnlyA]
+    @test am.mwc_tags == [:EqualAI, :EqualAI, :OnlyA]
     @test [ER.Mechanisms.tag(am, g) for g in 1:3] == [:EqualAI, :EqualAI, :OnlyA]
-    @test_throws(ErrorException("AllostericMechanism: cat_allo_states length 2 must " *
+    @test_throws(ErrorException("AllostericMechanism: mwc_tags length 2 must " *
                                 "match the number of kinetic groups 3"),
                  ER.AllostericMechanism(m, [:EqualAI, :EqualAI], 2, sites))
     @test_throws(ErrorException("AllostericMechanism: catalytic_multiplicity must be ≥ " *
@@ -329,10 +329,10 @@ rewritten (`_testhelper_rewrite`), its tags following their labels, and its site
 each site's ligands in reverse order."""
 _testhelper_rewrite(raw::EnzymeRates.Mechanisms.RawAllostericMechanism) =
     EnzymeRates.Mechanisms.RawAllostericMechanism(
-        _testhelper_rewrite(raw.catalytic), reverse(raw.cat_allo_states),
+        _testhelper_rewrite(raw.catalytic), reverse(raw.mwc_tags),
         raw.catalytic_multiplicity,
         [EnzymeRates.Mechanisms.RawSite(reverse(s.ligands), s.multiplicity,
-                                        reverse(s.allo_states))
+                                        reverse(s.mwc_tags))
          for s in reverse(raw.sites)])
 
 """The graph a spec's raw value `raw` writes, built and checked."""
@@ -363,7 +363,7 @@ _testhelper_walk(block; allosteric = false) =
             E(P) ⇌ E + P :: NonequalAI
         end
     end); allosteric = true))
-    @test am.cat_allo_states == [:NonequalAI, :EqualAI, :OnlyA]
+    @test am.mwc_tags == [:NonequalAI, :EqualAI, :OnlyA]
 end
 
 """Whether `m` stores each of its vectors at its length: `m` takes the memory of the
@@ -372,9 +372,9 @@ _testhelper_stored_at_length(m::ER.Mechanism) = Base.summarysize(m) == Base.summ
     ER.Mechanism((copy(getfield(m, f)) for f in fieldnames(ER.Mechanism))...))
 _testhelper_stored_at_length(am::ER.AllostericMechanism) =
     _testhelper_stored_at_length(am.catalytic) && Base.summarysize(am) ==
-    Base.summarysize(ER.AllostericMechanism(am.catalytic, copy(am.cat_allo_states),
+    Base.summarysize(ER.AllostericMechanism(am.catalytic, copy(am.mwc_tags),
         am.catalytic_multiplicity,
-        [ER.Mechanisms.RegulatorySite(copy(s.ligands), s.multiplicity, copy(s.allo_states))
+        [ER.Mechanisms.RegulatorySite(copy(s.ligands), s.multiplicity, copy(s.mwc_tags))
          for s in am.regulatory_sites]))
 
 @testset "a mechanism stores each vector at its length" begin
@@ -417,11 +417,11 @@ end
     @test_throws(ErrorException("RegulatorySite: needs at least one ligand"),
                  _testhelper_allosteric(tags, 2, [site(Symbol[], 2, Symbol[])]))
     @test_throws(ErrorException("RegulatorySite: length(ligands)=1 must equal " *
-                                "length(allo_states)=0"),
+                                "length(mwc_tags)=0"),
                  _testhelper_allosteric(tags, 2, [site([:R], 2, Symbol[])]))
     @test_throws(ErrorException("RegulatorySite: multiplicity must be ≥ 1, got 0"),
                  _testhelper_allosteric(tags, 2, [site([:R], 0, [:OnlyA])]))
-    @test_throws(ErrorException("RegulatorySite: allo state Bogus must be one of " *
+    @test_throws(ErrorException("RegulatorySite: MWC tag Bogus must be one of " *
                                 "(:OnlyA, :OnlyI, :EqualAI, :NonequalAI)"),
                  _testhelper_allosteric(tags, 2, [site([:R], 2, [:Bogus])]))
     @test_throws(ErrorException("RegulatorySite: ligand R appears twice in one " *
@@ -440,7 +440,7 @@ end
                                 "labels the free enzyme form"),
                  _testhelper_allosteric(tags, 2, [site([:E], 2, [:OnlyA])]))
     # Tags, by written group label: label 2 is canonical group 3.
-    @test_throws(ErrorException("AllostericMechanism: cat_allo_states length 2 must " *
+    @test_throws(ErrorException("AllostericMechanism: mwc_tags length 2 must " *
                                 "match the number of kinetic groups 3"),
                  _testhelper_allosteric(tags[1:2], 2, EnzymeRates.Mechanisms.RawSite[]))
     @test_throws(ErrorException("AllostericMechanism: catalytic_multiplicity must be ≥ " *
@@ -1066,8 +1066,8 @@ end
         push!(v, :X)
     end
     push!(raw.catalytic.group, 4)
-    push!(raw.cat_allo_states, :EqualAI)
-    raw.sites[1].allo_states[1] = :OnlyA
+    push!(raw.mwc_tags, :EqualAI)
+    raw.sites[1].mwc_tags[1] = :OnlyA
     empty!(raw.catalytic.steps)
     @test am == before
 end
@@ -1150,12 +1150,12 @@ function _testhelper_canonical_text(x)
     for k in eachindex(m.edges)
         g = m.group[k]
         push!(lines, "$k: $(_testhelper_edge_text(m, k)) | group $g" *
-                     (allo ? " :: $(x.cat_allo_states[g])" : ""))
+                     (allo ? " :: $(x.mwc_tags[g])" : ""))
     end
     allo && push!(lines, "catalytic_multiplicity: $(x.catalytic_multiplicity)")
     for s in (allo ? x.regulatory_sites : EnzymeRates.Mechanisms.RegulatorySite[])
         push!(lines, "regulatory_site($(s.multiplicity)): " *
-                     join(["$l::$t" for (l, t) in zip(s.ligands, s.allo_states)], ", "))
+                     join(["$l::$t" for (l, t) in zip(s.ligands, s.mwc_tags)], ", "))
     end
     lines
 end

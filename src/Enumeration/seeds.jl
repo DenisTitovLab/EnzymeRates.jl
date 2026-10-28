@@ -620,9 +620,9 @@ optional regulator bound, and reg-type-respecting.
 function _is_seed_node(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
                        rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
                        required_comp::Set{Symbol})
-    m isa Mechanisms.AllostericMechanism && (:NonequalAI in Mechanisms.cat_allo_states(m) ||
+    m isa Mechanisms.AllostericMechanism && (:NonequalAI in Mechanisms.mwc_tags(m) ||
         any(site -> length(Mechanisms.ligands(site)) != 1 ||
-                    only(Mechanisms.allo_states(site)) == :NonequalAI,
+                    only(Mechanisms.mwc_tags(site)) == :NonequalAI,
             Mechanisms.regulatory_sites(m))) && return false
     issubset(_bound_allo_regs(m), required_allo) || return false
     issubset(_bound_comp_inhibitors(m), required_comp) || return false

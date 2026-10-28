@@ -2068,7 +2068,7 @@ end
             n_newly_ss = count(((old, new),) -> all(old) && !any(new),
                                zip(_testhelper_group_flags(am), _testhelper_group_flags(r)))
             @test n_newly_ss == 1
-            @test r.cat_allo_states == am.cat_allo_states
+            @test r.mwc_tags == am.mwc_tags
             @test r.catalytic_multiplicity == am.catalytic_multiplicity
             @test r.regulatory_sites == am.regulatory_sites
             @test _testhelper_keeps_reaction(r, am)
@@ -2260,8 +2260,8 @@ end
         @test EnzymeRates.compile_mechanism(r) isa EnzymeRates.AllostericEnzymeMechanism
     end
     for r in kids
-        @test count(==(:OnlyA), r.cat_allo_states) == 1
-        onlya = findfirst(==(:OnlyA), r.cat_allo_states)
+        @test count(==(:OnlyA), r.mwc_tags) == 1
+        onlya = findfirst(==(:OnlyA), r.mwc_tags)
         cm = r.catalytic
         @test EnzymeRates.Mechanisms._is_iso(cm.edges[findfirst(==(onlya), cm.group)])
         @test r.catalytic_multiplicity == am.catalytic_multiplicity
@@ -2501,10 +2501,10 @@ end
     # keeps its own. Group ORDER is canonical (not source-preserved), so match each
     # result group to its parent by step content rather than by position.
     for r in result
-        @test length(r.cat_allo_states) == EnzymeRates.Mechanisms.ngroups(r.catalytic)
+        @test length(r.mwc_tags) == EnzymeRates.Mechanisms.ngroups(r.catalytic)
         @test r.catalytic.edges == cm.edges
         for (k, g) in enumerate(r.catalytic.group)
-            @test r.cat_allo_states[g] == am.cat_allo_states[cm.group[k]]
+            @test r.mwc_tags[g] == am.mwc_tags[cm.group[k]]
         end
     end
 
@@ -4923,7 +4923,7 @@ end
     # Uni-uni allosteric (catalytic_n=2) with mixed regs:
     # :I dead-end, :R allosteric. The move must (a) exclude :R from
     # eligible regs (allosteric ligand), (b) append the new dead-end
-    # group's cat_allo_states tag as :EqualAI.
+    # group's mwc_tags tag as :EqualAI.
     em_seed = @allosteric_mechanism begin
         substrates: S
         products: P
@@ -4972,13 +4972,13 @@ end
     for r in result
         @test EnzymeRates.Mechanisms.ngroups(r.catalytic) ==
               EnzymeRates.Mechanisms.ngroups(am.catalytic) + 1
-        @test length(r.cat_allo_states) == length(am.cat_allo_states) + 1
+        @test length(r.mwc_tags) == length(am.mwc_tags) + 1
         # The new group's tag is :EqualAI (appended at the end by the
         # AllostericMechanism wrap kernel).
-        @test r.cat_allo_states[end] == :EqualAI
+        @test r.mwc_tags[end] == :EqualAI
         # Pre-existing tags preserved positionally.
-        @test r.cat_allo_states[1:length(am.cat_allo_states)] ==
-            am.cat_allo_states
+        @test r.mwc_tags[1:length(am.mwc_tags)] ==
+            am.mwc_tags
     end
 
     # 5. preservation: catalytic_multiplicity and regulatory_sites
@@ -5083,7 +5083,7 @@ end
     # all-:EqualAI baseline.
     for r in result
         _testhelper_assert_mechanism_invariants(r)
-        @test !all(==(:EqualAI), EnzymeRates.Mechanisms.cat_allo_states(r))
+        @test !all(==(:EqualAI), EnzymeRates.Mechanisms.mwc_tags(r))
     end
 end
 
@@ -6041,20 +6041,20 @@ end
     @test n_cat == 1
     @test length(allo) == 2 * 3
 
-    # Each multiplicity carries the same dead-inactive allo-state set: no
+    # Each multiplicity carries the same dead-inactive MWC tag set: no
     # all-:EqualAI baseline, and 3 variants ({S}, {P}, {S, P} bindings
     # :OnlyA, each with the chemical step :OnlyA) — :OnlyA counts 2, 2, 3.
     for cn in (2, 4)
         cn_variants = filter(
             am -> EnzymeRates.Mechanisms.catalytic_multiplicity(am) == cn, allo)
         @test count(
-            am -> all(==(:EqualAI), EnzymeRates.Mechanisms.cat_allo_states(am)),
+            am -> all(==(:EqualAI), EnzymeRates.Mechanisms.mwc_tags(am)),
             cn_variants) == 0
         @test count(
-            am -> count(==(:OnlyA), EnzymeRates.Mechanisms.cat_allo_states(am)) == 2,
+            am -> count(==(:OnlyA), EnzymeRates.Mechanisms.mwc_tags(am)) == 2,
             cn_variants) == 2
         @test count(
-            am -> count(==(:OnlyA), EnzymeRates.Mechanisms.cat_allo_states(am)) == 3,
+            am -> count(==(:OnlyA), EnzymeRates.Mechanisms.mwc_tags(am)) == 3,
             cn_variants) == 1
     end
 end
@@ -6164,7 +6164,7 @@ end
     @test all(vtypes_expected) do am
         cat_group = only(g for g in 1:EnzymeRates.Mechanisms.ngroups(am.catalytic)
                          if _testhelper_is_catalytic_group(am, g))
-        EnzymeRates.Mechanisms.cat_allo_states(am)[cat_group] == :OnlyA
+        EnzymeRates.Mechanisms.mwc_tags(am)[cat_group] == :OnlyA
     end
 
     # A regulator already bound as a competitive inhibitor in the seed is
@@ -6379,7 +6379,7 @@ end
         @test length(children) == length(expected)
         @test Set(children) == Set(expected)
         for am in children
-            states = EnzymeRates.Mechanisms.cat_allo_states(am)
+            states = EnzymeRates.Mechanisms.mwc_tags(am)
             @test !all(==(:EqualAI), states)
             binding_gs = [g for g in 1:length(states)
                           if !_testhelper_is_catalytic_group(base, g)]
@@ -6678,7 +6678,7 @@ end
         # The added site's multiplicity is am.catalytic_multiplicity.
         @test all(r -> length(r.regulatory_sites) == 1, result)
         @test Set((EnzymeRates.Mechanisms.ligands(site),
-                   collect(EnzymeRates.Mechanisms.allo_states(site)),
+                   collect(EnzymeRates.Mechanisms.mwc_tags(site)),
                    EnzymeRates.Mechanisms.multiplicity(site))
                   for r in result for site in r.regulatory_sites) == Set([
             ([x], [:OnlyA],      am.catalytic_multiplicity),
@@ -6686,11 +6686,11 @@ end
             ([x], [:NonequalAI], am.catalytic_multiplicity),
         ])
 
-        # 4. invariants and preservation: catalytic side and cat_allo_states untouched.
+        # 4. invariants and preservation: catalytic side and mwc_tags untouched.
         for r in result
             _testhelper_assert_mechanism_invariants(r)
             @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test r.cat_allo_states == am.cat_allo_states
+            @test r.mwc_tags == am.mwc_tags
             @test _testhelper_keeps_reaction(r, am)
         end
     end
@@ -6849,7 +6849,7 @@ end
         length(r.regulatory_sites) == 1 || return false
         site = r.regulatory_sites[1]
         ligs = EnzymeRates.Mechanisms.ligands(site)
-        states = EnzymeRates.Mechanisms.allo_states(site)
+        states = EnzymeRates.Mechanisms.mwc_tags(site)
         idx = findfirst(l -> l === :R2, ligs)
         idx === nothing && return false
         states[idx] == :EqualAI
@@ -6865,11 +6865,11 @@ end
     # append is skipped as redundant (disjoint conformations).
     @test length(existing_site_variants) == 3
 
-    # 6. invariants and preservation: catalytic side and cat_allo_states untouched.
+    # 6. invariants and preservation: catalytic side and mwc_tags untouched.
     for r in result
         _testhelper_assert_mechanism_invariants(r)
         @test r.catalytic_multiplicity == am.catalytic_multiplicity
-        @test r.cat_allo_states == am.cat_allo_states
+        @test r.mwc_tags == am.mwc_tags
         @test _testhelper_keeps_reaction(r, am)
     end
 end
@@ -6915,7 +6915,7 @@ end
         length(r.regulatory_sites) == 1 || return false
         site = r.regulatory_sites[1]
         ligs = EnzymeRates.Mechanisms.ligands(site)
-        states = EnzymeRates.Mechanisms.allo_states(site)
+        states = EnzymeRates.Mechanisms.mwc_tags(site)
         idx = findfirst(l -> l === :R2, ligs)
         idx === nothing && return false
         states[idx] == :EqualAI
@@ -7200,7 +7200,7 @@ end
     _testhelper_st(child, sidx, lig) = begin
         s = EnzymeRates.Mechanisms.regulatory_sites(child)[sidx]
         i = findfirst(l -> l == lig, EnzymeRates.Mechanisms.ligands(s))
-        i === nothing ? nothing : EnzymeRates.Mechanisms.allo_states(s)[i]
+        i === nothing ? nothing : EnzymeRates.Mechanisms.mwc_tags(s)[i]
     end
     _testhelper_one_AI_site(c) = length(EnzymeRates.Mechanisms.regulatory_sites(c)) == 1 &&
         Set(EnzymeRates.Mechanisms.ligands(
@@ -7212,7 +7212,7 @@ end
     @test any(kids) do c
         length(EnzymeRates.Mechanisms.regulatory_sites(c)) == 2 &&
             any(s -> EnzymeRates.Mechanisms.ligands(s) == [:I] &&
-                     EnzymeRates.Mechanisms.allo_states(s) == [:OnlyI],
+                     EnzymeRates.Mechanisms.mwc_tags(s) == [:OnlyI],
                 EnzymeRates.Mechanisms.regulatory_sites(c))
     end
     # kept: both-OnlyA append (A:OnlyA + I:OnlyA on one site — not disjoint)
@@ -7528,11 +7528,11 @@ end
     @test length(result) == 4
 
     # 2. exactly one variant has the R ligand flipped to :NonequalAI
-    # (cat_allo_states preserved); locate it structurally.
+    # (mwc_tags preserved); locate it structurally.
     r_removal = filter(result) do r
-        r.cat_allo_states == am.cat_allo_states &&
+        r.mwc_tags == am.mwc_tags &&
             any(s -> any(t -> t == :NonequalAI,
-                         EnzymeRates.Mechanisms.allo_states(s)),
+                         EnzymeRates.Mechanisms.mwc_tags(s)),
                 r.regulatory_sites)
     end
     @test length(r_removal) == 1
@@ -7590,9 +7590,9 @@ end
     # 4. exactly one ligand-relaxation variant: the R ligand's tag
     # flipped from :OnlyI to :NonequalAI (located structurally).
     n_r_relaxed = count(result) do r
-        r.cat_allo_states == am.cat_allo_states &&
+        r.mwc_tags == am.mwc_tags &&
             any(s -> any(t -> t == :NonequalAI,
-                         EnzymeRates.Mechanisms.allo_states(s)),
+                         EnzymeRates.Mechanisms.mwc_tags(s)),
                 r.regulatory_sites)
     end
     @test n_r_relaxed == 1
@@ -7641,19 +7641,19 @@ end
     function _testhelper_site_lig_state(r, lig_name)
         for site in r.regulatory_sites
             for (l, st) in zip(EnzymeRates.Mechanisms.ligands(site),
-                               EnzymeRates.Mechanisms.allo_states(site))
+                               EnzymeRates.Mechanisms.mwc_tags(site))
                 l === lig_name && return st
             end
         end
         error("ligand $lig_name not found")
     end
     n_r1_relaxed_only = count(result) do r
-        r.cat_allo_states == am.cat_allo_states &&
+        r.mwc_tags == am.mwc_tags &&
             _testhelper_site_lig_state(r, :R1) == :NonequalAI &&
             _testhelper_site_lig_state(r, :R2) == :OnlyI
     end
     n_r2_relaxed_only = count(result) do r
-        r.cat_allo_states == am.cat_allo_states &&
+        r.mwc_tags == am.mwc_tags &&
             _testhelper_site_lig_state(r, :R1) == :OnlyA &&
             _testhelper_site_lig_state(r, :R2) == :NonequalAI
     end
@@ -7710,7 +7710,7 @@ end
             E(S) <--> E(P)  :: EqualAI
         end
     end)
-    @test all(t -> t == :EqualAI, am.cat_allo_states)
+    @test all(t -> t == :EqualAI, am.mwc_tags)
 
     result = EnzymeRates.Enumeration._expand_change_allo_state(am)
 
@@ -7748,12 +7748,12 @@ end
     @test Set(result) == Set(expected)
 
     # 2. each variant has exactly one :NonequalAI entry in
-    # cat_allo_states; the rest match the seed.
+    # mwc_tags; the rest match the seed.
     for r in result
-        @test count(t -> t == :NonequalAI, r.cat_allo_states) == 1
-        for i in 1:length(am.cat_allo_states)
-            @test r.cat_allo_states[i] == :NonequalAI ||
-                  r.cat_allo_states[i] == am.cat_allo_states[i]
+        @test count(t -> t == :NonequalAI, r.mwc_tags) == 1
+        for i in 1:length(am.mwc_tags)
+            @test r.mwc_tags[i] == :NonequalAI ||
+                  r.mwc_tags[i] == am.mwc_tags[i]
         end
     end
 
@@ -7934,12 +7934,12 @@ end)
 
 children = EnzymeRates.Enumeration._expand_merge_regulatory_sites(parent)
 
-# The allo state of ligand `lig` in a child's single merged site.
+# The MWC tag of ligand `lig` in a child's single merged site.
 _testhelper_merged_state(child, lig) = begin
     site = only(EnzymeRates.Mechanisms.regulatory_sites(child))
     idx = findfirst(l -> l == lig,
                     EnzymeRates.Mechanisms.ligands(site))
-    EnzymeRates.Mechanisms.allo_states(site)[idx]
+    EnzymeRates.Mechanisms.mwc_tags(site)[idx]
 end
 _testhelper_single_site_names(child) = Set(
     EnzymeRates.Mechanisms.ligands(only(EnzymeRates.Mechanisms.regulatory_sites(child))))
@@ -8068,7 +8068,7 @@ end
     kept = filter(c -> EnzymeRates.Enumeration._respects_reg_type(c, rxn_aa), kids)
     @test length(kept) == 1
     surviving = only(kept)
-    @test Set(EnzymeRates.Mechanisms.allo_states(
+    @test Set(EnzymeRates.Mechanisms.mwc_tags(
         only(EnzymeRates.Mechanisms.regulatory_sites(surviving)))) == Set([:OnlyA])
 end
 
@@ -8160,7 +8160,7 @@ end
         sites = EnzymeRates.Mechanisms.regulatory_sites(c)
         length(sites) == 1 &&
             length(EnzymeRates.Mechanisms.ligands(only(sites))) == 3 &&
-            all(==(:OnlyA), EnzymeRates.Mechanisms.allo_states(only(sites)))
+            all(==(:OnlyA), EnzymeRates.Mechanisms.mwc_tags(only(sites)))
     end)
     c1 = _testhelper_threeway(kids_ab_c)
     c2 = _testhelper_threeway(kids_ac_b)
@@ -8243,7 +8243,7 @@ end
     @test Set(kids) == Set(expected)
     # The co-binding child keeps every state (no :EqualAI).
     cobind = only(filter(kids) do c
-        !(:EqualAI in EnzymeRates.Mechanisms.allo_states(
+        !(:EqualAI in EnzymeRates.Mechanisms.mwc_tags(
             only(EnzymeRates.Mechanisms.regulatory_sites(c))))
     end)
     @test _testhelper_merged_state(cobind, :A) == :OnlyA
@@ -8334,7 +8334,7 @@ end
     _testhelper_respects(ligs, states, r = rxn) =
         EnzymeRates.Enumeration._respects_reg_type(EnzymeRates.AllostericMechanism(
             EnzymeRates.Mechanisms.catalytic(core),
-            EnzymeRates.Mechanisms.cat_allo_states(core),
+            EnzymeRates.Mechanisms.mwc_tags(core),
             EnzymeRates.Mechanisms.catalytic_multiplicity(core),
             [EnzymeRates.Mechanisms.RegulatorySite(
                 collect(Symbol, ligs), 2, collect(states))]), r)
@@ -8480,7 +8480,7 @@ end
 
 @testset "AllostericMechanism — canonical by construction" begin
 # Site permutation with DISTINCT multiplicities. The constructor must permute
-# cat_allo_states alongside the catalytic groups and produce the same
+# mwc_tags alongside the catalytic groups and produce the same
 # regulatory_sites ordering (regulatory side) regardless of input site order.
 am_ab = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
     substrates: S; products: P
@@ -8742,12 +8742,12 @@ end
 end
 
 @testset "Reg_type filter drops violating children; no-op when typeless" begin
-    # True iff `m` places ligand `reg` in allo state `st` at any site.
+    # True iff `m` places ligand `reg` in MWC tag `st` at any site.
     function _testhelper_has_reg_state(m, reg, st)
         m isa EnzymeRates.AllostericMechanism || return false
         for site in EnzymeRates.Mechanisms.regulatory_sites(m)
             for (lig, s) in zip(EnzymeRates.Mechanisms.ligands(site),
-                                EnzymeRates.Mechanisms.allo_states(site))
+                                EnzymeRates.Mechanisms.mwc_tags(site))
                 lig == reg && s == st && return true
             end
         end
@@ -8948,7 +8948,7 @@ end
     _testhelper_onlya_mets(am) = (cm = am.catalytic;
         Set(cm.table[EnzymeRates.Mechanisms._bound_entry(cm.edges[first(ks)])].name
             for (g, ks) in enumerate(EnzymeRates.Mechanisms._group_members(cm))
-            if am.cat_allo_states[g] === :OnlyA &&
+            if am.mwc_tags[g] === :OnlyA &&
                !EnzymeRates.Mechanisms._is_iso(cm.edges[first(ks)])))
 
     seen = Set{UInt64}()
@@ -9099,7 +9099,7 @@ function _testhelper_test_no_inactive_constants(am, g)
         cm, first(EnzymeRates.Mechanisms._group_members(cm)[g]), :I), Ref(am))
     @test isempty(intersect(i_names, parameters(EnzymeRates.compile_mechanism(am))))
     nonequal = EnzymeRates.Mechanisms.with_tags(am,
-        replace(EnzymeRates.Mechanisms.cat_allo_states(am), :OnlyA => :NonequalAI))
+        replace(EnzymeRates.Mechanisms.mwc_tags(am), :OnlyA => :NonequalAI))
     @test !isempty(
         intersect(i_names, parameters(EnzymeRates.compile_mechanism(nonequal))))
 end
@@ -14686,8 +14686,8 @@ end
         # lumped downstream group's binding :EqualAI, so its shared constant
         # stays merged → Δ = 1.
         clean = filter(children) do c
-            Set(g for g in 1:length(EnzymeRates.Mechanisms.cat_allo_states(c))
-                if EnzymeRates.Mechanisms.cat_allo_states(c)[g] == :OnlyA) ==
+            Set(g for g in 1:length(EnzymeRates.Mechanisms.mwc_tags(c))
+                if EnzymeRates.Mechanisms.mwc_tags(c)[g] == :OnlyA) ==
                 union(free_e, iso)
         end
         @test length(clean) == 1
@@ -14701,20 +14701,20 @@ end
 @testset "seed_mechanisms" begin
     # Tag-stripped skeleton: normalize every regulator state to :OnlyA so the
     # 2^n one-ligand-site state assignments of a lineage collapse to one key.
-    # The catalytic backbone and cat_allo_states are preserved.
+    # The catalytic backbone and mwc_tags are preserved.
     _testhelper_skeleton_key(m) = hash(EnzymeRates.AllostericMechanism(
-        EnzymeRates.Mechanisms.catalytic(m), EnzymeRates.Mechanisms.cat_allo_states(m),
+        EnzymeRates.Mechanisms.catalytic(m), EnzymeRates.Mechanisms.mwc_tags(m),
         EnzymeRates.Mechanisms.catalytic_multiplicity(m),
         [EnzymeRates.Mechanisms.RegulatorySite(
             EnzymeRates.Mechanisms.ligands(s), EnzymeRates.Mechanisms.multiplicity(s),
-            fill(:OnlyA, length(EnzymeRates.Mechanisms.allo_states(s))))
+            fill(:OnlyA, length(EnzymeRates.Mechanisms.mwc_tags(s))))
                  for s in EnzymeRates.Mechanisms.regulatory_sites(m)]))
 
     # The allosteric state of ligand `reg` wherever it sits, or :none.
     function _testhelper_state_of(m, reg)
         for site in EnzymeRates.Mechanisms.regulatory_sites(m)
             for (lig, st) in zip(EnzymeRates.Mechanisms.ligands(site),
-                                 EnzymeRates.Mechanisms.allo_states(site))
+                                 EnzymeRates.Mechanisms.mwc_tags(site))
                 lig == reg && return st
             end
         end
@@ -14742,8 +14742,8 @@ end
             @test length(sites) == 2
             @test all(length(EnzymeRates.Mechanisms.ligands(si)) == 1 for si in sites)
             @test :NonequalAI ∉ [
-                EnzymeRates.Mechanisms.cat_allo_states(s);
-                [st for si in sites for st in EnzymeRates.Mechanisms.allo_states(si)]]
+                EnzymeRates.Mechanisms.mwc_tags(s);
+                [st for si in sites for st in EnzymeRates.Mechanisms.mwc_tags(si)]]
         end
         # Each lineage contributes exactly 2² = 4 state assignments.
         skels = Dict{UInt64, Int}()
@@ -14986,7 +14986,7 @@ end
 # AllostericMechanism constructor canonicalizes group order.
 _testhelper_tags_by_bound_metabolite(x) = Dict(
     (s = first(steps); _testhelper_is_binding(s) ? only(s.consumed) : :chem) =>
-        EnzymeRates.Mechanisms.cat_allo_states(x)[g]
+        EnzymeRates.Mechanisms.mwc_tags(x)[g]
     for (g, steps) in enumerate(_testhelper_groups(_testhelper_graph(x))))
 
 # ─── _expand_change_allo_state admission filter ────────────────────────
@@ -15060,7 +15060,7 @@ _testhelper_tags_by_bound_metabolite(x) = Dict(
     reg_kids = ER.Enumeration._expand_change_allo_state(reg_parent)
     # 2 surviving cat relaxations + the R-ligand relaxation, which survives.
     @test length(reg_kids) == 3
-    @test count(k -> ER.Mechanisms.allo_states(only(ER.Mechanisms.regulatory_sites(k))) ==
+    @test count(k -> ER.Mechanisms.mwc_tags(only(ER.Mechanisms.regulatory_sites(k))) ==
                      [:NonequalAI], reg_kids) == 1
 end
 
@@ -16326,8 +16326,8 @@ end
     allo = [m for m in [seeds; children] if m isa EnzymeRates.AllostericMechanism]
     @test length(seeds) == 1
     @test length(allo) == 5
-    @test all(m -> :OnlyI ∉ EnzymeRates.Mechanisms.cat_allo_states(m), allo)
-    @test any(m -> any(s -> :OnlyI in EnzymeRates.Mechanisms.allo_states(s),
+    @test all(m -> :OnlyI ∉ EnzymeRates.Mechanisms.mwc_tags(m), allo)
+    @test any(m -> any(s -> :OnlyI in EnzymeRates.Mechanisms.mwc_tags(s),
                        EnzymeRates.Mechanisms.regulatory_sites(m)), allo)
 end
 

@@ -367,7 +367,7 @@ twins can break the gauge, so the copy rule is decided on each child: a child wi
 redundant copy group (`_redundant_copy_groups`) is not emitted; its family is that of
 the same split without the copy.
 The declared names and, for an allosteric mechanism, the multiplicity and regulatory
-sites are kept; both parts of a split group inherit its catalytic allo-state tag. Each
+sites are kept; both parts of a split group inherit its catalytic MWC tag. Each
 child is the parent's raw input regrouped (`_apply_bipartitions`), through the checked
 constructor, since a regrouping can turn a tied group's member.
 """
@@ -506,7 +506,7 @@ end
 The child of `m` with each selected group divided in two (`_bipartitioned_groups`) and
 edge `k` at rapid equilibrium where `re[k]` holds, built through the checked constructor
 (`regroup`). For an allosteric mechanism both parts inherit the group's catalytic
-allo-state tag (splitting is a parameter-relaxation move that must not change A/I
+MWC tag (splitting is a parameter-relaxation move that must not change A/I
 semantics).
 """
 function _apply_bipartitions(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
@@ -604,7 +604,7 @@ function _dead_end_child(am::Mechanisms.AllostericMechanism, raw::Mechanisms.Raw
                          reg::Symbol)
     child = Mechanisms.AllostericMechanism(
         Mechanisms.RawAllostericMechanism(
-            raw, [Mechanisms.cat_allo_states(am); :EqualAI],
+            raw, [Mechanisms.mwc_tags(am); :EqualAI],
             Mechanisms.catalytic_multiplicity(am),
             Mechanisms.RawSite.(Mechanisms.regulatory_sites(am))))
     cm = Mechanisms.catalytic(child)
@@ -890,7 +890,7 @@ function _expand_add_allosteric_regulator(
         end
         # :EqualAI only at an existing site that keeps a non-:EqualAI ligand: an
         # all-:EqualAI site binds both conformations alike and cancels from the rate.
-        for site_idx in findall(site -> any(!=(:EqualAI), Mechanisms.allo_states(site)),
+        for site_idx in findall(site -> any(!=(:EqualAI), Mechanisms.mwc_tags(site)),
                                 sites)
             push!(results,
                   _make_am_with_added_reg(am, reg.name, :EqualAI, site_idx))
@@ -918,9 +918,9 @@ function _make_am_with_added_reg(
         sites[site_idx] =
             Mechanisms.RegulatorySite([Mechanisms.ligands(s); reg],
                                       Mechanisms.multiplicity(s),
-                                      [Mechanisms.allo_states(s); tag])
+                                      [Mechanisms.mwc_tags(s); tag])
     end
-    Mechanisms.AllostericMechanism(Mechanisms.catalytic(am), Mechanisms.cat_allo_states(am),
+    Mechanisms.AllostericMechanism(Mechanisms.catalytic(am), Mechanisms.mwc_tags(am),
                                    Mechanisms.catalytic_multiplicity(am), sites)
 end
 
@@ -957,7 +957,7 @@ where a copy that was new there can become its twin with a consistent gauge, and
 the copy's constant then shows in neither state.
 """
 function _expand_change_allo_state(am::Mechanisms.AllostericMechanism)
-    states = Mechanisms.cat_allo_states(am)
+    states = Mechanisms.mwc_tags(am)
     chem = _chemistry_groups(Mechanisms.catalytic(am))
     # Binding catalytic groups relax individually; the chemistry groups relax together,
     # in one variant, and only while no binding group is :OnlyA.
@@ -972,9 +972,9 @@ function _expand_change_allo_state(am::Mechanisms.AllostericMechanism)
     end
     for (si, site) in enumerate(Mechanisms.regulatory_sites(am)),
         li in eachindex(Mechanisms.ligands(site))
-        Mechanisms.allo_states(site)[li] == :NonequalAI && continue
+        Mechanisms.mwc_tags(site)[li] == :NonequalAI && continue
         new_sites = copy(Mechanisms.regulatory_sites(am))
-        new_states = copy(Mechanisms.allo_states(site))
+        new_states = copy(Mechanisms.mwc_tags(site))
         new_states[li] = :NonequalAI
         new_sites[si] = Mechanisms.RegulatorySite(Mechanisms.ligands(site),
                                                   Mechanisms.multiplicity(site), new_states)
@@ -1010,7 +1010,7 @@ identical to keeping them separate, so that all-keep merge is redundant.
 """
 function _site_active_states(site::Mechanisms.RegulatorySite)
     active = Set{Symbol}()
-    for st in Mechanisms.allo_states(site)
+    for st in Mechanisms.mwc_tags(site)
         union!(active, _state_conformations(st))
     end
     active
@@ -1024,7 +1024,7 @@ Merge each unordered pair of regulatory sites into one shared site holding
 both sites' ligands, at no parameter cost (Δ0 — every ligand keeps its own
 dissociation constant). This lets two regulators compete at one site,
 including the activator↔antagonist ambiguity. For the merged ligands,
-enumerate the Δ0-valid allo-state assignments:
+enumerate the Δ0-valid MWC tag assignments:
 
   * the all-keep assignment — every ligand retains its current state
     (co-binding), skipped when the two sites act on disjoint conformations
@@ -1049,8 +1049,8 @@ function _expand_merge_regulatory_sites(am::Mechanisms.AllostericMechanism)
     results = Mechanisms.AllostericMechanism[]
     for i in 1:(n - 1), j in (i + 1):n
         ligs = vcat(Mechanisms.ligands(sites[i]), Mechanisms.ligands(sites[j]))
-        base_states = vcat(Mechanisms.allo_states(sites[i]),
-                           Mechanisms.allo_states(sites[j]))
+        base_states = vcat(Mechanisms.mwc_tags(sites[i]),
+                           Mechanisms.mwc_tags(sites[j]))
         mult = Mechanisms.multiplicity(sites[i])
         others = Mechanisms.RegulatorySite[sites[k] for k in 1:n if k != i && k != j]
         redundant = isempty(intersect(_site_active_states(sites[i]),
@@ -1066,7 +1066,7 @@ function _expand_merge_regulatory_sites(am::Mechanisms.AllostericMechanism)
             merged = Mechanisms.RegulatorySite(ligs, mult, states)
             push!(results,
                   Mechanisms.AllostericMechanism(Mechanisms.catalytic(am),
-                                                 Mechanisms.cat_allo_states(am),
+                                                 Mechanisms.mwc_tags(am),
                                                  Mechanisms.catalytic_multiplicity(am),
                                                  vcat(others, [merged])))
         end
