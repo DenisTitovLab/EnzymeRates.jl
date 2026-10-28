@@ -245,7 +245,7 @@ end
             E + S ⇌ E(S)
         end
     end)
-    raw = M.raw_mechanism(block, false)
+    raw = EnzymeRates.DSL.raw_mechanism(block, false)
     @test M.canonical_graph(raw) == EnzymeRates.Mechanism(raw)
     # A declared modifier that no step binds fails the checked constructor; the graph
     # still builds.
@@ -260,7 +260,7 @@ end
         "Mechanism: a kinetic group holds E → F and F → G, which make different " *
         "conformational changes; the steps of a kinetic group share their constants, so " *
         "they must make the same conformational change"),
-        M.canonical_graph(M.raw_mechanism(:(begin
+        M.canonical_graph(EnzymeRates.DSL.raw_mechanism(:(begin
             substrates: A
             products: P
             steps: begin

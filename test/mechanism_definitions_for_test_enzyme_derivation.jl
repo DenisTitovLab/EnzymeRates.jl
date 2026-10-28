@@ -63,7 +63,7 @@ function _testhelper_mechanism_call(call, who::String)
     head in (Symbol("@enzyme_mechanism"), Symbol("@allosteric_mechanism")) ||
         error("$who wraps an @enzyme_mechanism or @allosteric_mechanism call; got $call")
     allosteric = head === Symbol("@allosteric_mechanism")
-    allosteric, EnzymeRates.Mechanisms.raw_mechanism(call.args[end], allosteric)
+    allosteric, EnzymeRates.DSL.raw_mechanism(call.args[end], allosteric)
 end
 
 """
@@ -106,8 +106,8 @@ _testhelper_written(m::EnzymeRates.AllostericMechanism) =
     EnzymeRates.Mechanisms.RawAllostericMechanism(m)
 
 """Whether the concrete mechanism `x` reads back from the text `show` prints for it
-(`_parse_mechanism`) as itself."""
-_testhelper_reads_back(x) = EnzymeRates._parse_mechanism(sprint(show, x)) == x
+(`DSL.parse_mechanism`) as itself."""
+_testhelper_reads_back(x) = EnzymeRates.DSL.parse_mechanism(sprint(show, x)) == x
 
 """
     _testhelper_graph(m) -> NamedTuple
@@ -1764,7 +1764,7 @@ end
 `:EqualAI` and `:NonequalAI`, 4 × 27 = 108 allosteric mechanisms, built unguarded."""
 function _testhelper_uniuni_grid()
     tags = (:OnlyA, :EqualAI, :NonequalAI)
-    [EnzymeRates.AllostericMechanism(EnzymeRates.Mechanisms.raw_mechanism(Meta.parse("""
+    [EnzymeRates.AllostericMechanism(EnzymeRates.DSL.raw_mechanism(Meta.parse("""
          begin
              substrates: S
              products: P

@@ -178,7 +178,7 @@ conformation with `A_` or `I_`, so a step side that starts with a form labelled 
 (`A(Eb) <--> A + Eb` and the active constant of `E(b) <--> A(Eb)` both render
 `k_A_Eb_to_AEb`). `who` names the macro or the constructor that checks.
 """
-function _check_conformation_label(c::Symbol, who::String)
+function check_conformation_label(c::Symbol, who::String)
     c in (:A, :I) &&
         error("$who: `$c` cannot be a conformation label: constant names tag a " *
               "conformation with A_ or I_ (`k_A_ES_to_EP`), so the labels A and I " *
@@ -196,7 +196,7 @@ end
 `"declared metabolite"` or a `"ligand"`: a form's text starts with its label, so a DSL
 text would read the label as the metabolite. `who` names the macro or the constructor
 that checks."""
-_label_collision_error(c::Symbol, who::String, kind::String) =
+label_collision_error(c::Symbol, who::String, kind::String) =
     error("$who: conformation label `$c` collides with $kind `$c`; choose a different " *
           "conformation label.")
 
@@ -210,7 +210,7 @@ that also binds as a modifier does so as its copy `Xmod`, written `X::Mod`; an a
 regulator binds no form, so its name takes no part. The Sardinas–Patterson test decides
 it, and the error, which `who` begins, spells both splits.
 """
-function _check_uniquely_decodable(reactants::Vector{Symbol}, modifiers::Vector{Symbol},
+function check_decodable_names(reactants::Vector{Symbol}, modifiers::Vector{Symbol},
                                    who::String)
     spelled = Dict{String, String}()
     modifier_label(n) = n in reactants ? "$(n)mod" => "$n::Mod" : String(n) => String(n)
@@ -343,7 +343,7 @@ struct EnzymeReaction
             "a product; concentrations and constants are keyed by name")
         _check_metabolite_names("EnzymeReaction",
                                 Symbol[sub_names; prod_names; first.(reg_keys)])
-        _check_uniquely_decodable([sub_names; prod_names],
+        check_decodable_names([sub_names; prod_names],
             Symbol[n for (n, kind) in reg_keys if kind === :competitive],
             "EnzymeReaction")
 
@@ -964,7 +964,7 @@ function _check_ligands(sites::Vector{RegulatorySite}, catalytic::Mechanism)
     _check_metabolite_names("AllostericMechanism", ligs)
     for l in ligs
         insorted(l, catalytic.conformations) &&
-            _label_collision_error(l, "AllostericMechanism", "ligand")
+            label_collision_error(l, "AllostericMechanism", "ligand")
     end
     dup = findfirst(i -> ligs[i] in view(ligs, 1:(i - 1)), eachindex(ligs))
     dup === nothing ||
@@ -1003,7 +1003,7 @@ end
 
 """
 Error unless the canonical mechanism `m` represents one: conformation labels shaped as
-labels (`_check_conformation_label`), none a metabolite's name; every name declared (in
+labels (`check_conformation_label`), none a metabolite's name; every name declared (in
 `modifiers`, the declared modifiers, or among its substrates and products), a modifier
 entry only for a declared modifier and a plain entry only for a reactant, residuals that
 add substrates and subtract products; no step joining a form to itself, taking up and
@@ -1016,9 +1016,9 @@ exchanges each declared name, a modifier as a modifier.
 function _check_representation(m::Mechanism, misaligned::Vector{Edge},
                                modifiers::Vector{Symbol})
     for c in m.conformations
-        _check_conformation_label(c, "Mechanism")
+        check_conformation_label(c, "Mechanism")
         any(x -> x.name === c, m.table) &&
-            _label_collision_error(c, "Mechanism", "declared metabolite")
+            label_collision_error(c, "Mechanism", "declared metabolite")
     end
     for x in m.table
         _is_reactant(m, x.name) || x.name in modifiers ||

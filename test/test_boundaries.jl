@@ -1,17 +1,19 @@
 # ABOUTME: Checks the module boundaries of src/ by parsing it (API lists, layers, field
 # ABOUTME: access, underscore names, exports), and that public names resolve and show docs.
 
-# The five submodules, each a folder src/<Module>/ with src/<Module>/<Module>.jl.
-const _testhelper_MODULES = (:Data, :Mechanisms, :Derivation, :Enumeration, :Fitting)
+# The six submodules, each a folder src/<Module>/ with src/<Module>/<Module>.jl.
+const _testhelper_MODULES = (:Data, :Mechanisms, :Derivation, :Enumeration, :Fitting,
+    :DSL)
 
 # The modules each module may name through `Module.name`. The top level (files outside
-# src/<Module>/, owner :EnzymeRates) may name all five.
+# src/<Module>/, owner :EnzymeRates) may name all six.
 const _testhelper_LAYERS = Dict(
     :Data => Symbol[],
     :Mechanisms => Symbol[],
     :Derivation => [:Mechanisms],
     :Enumeration => [:Mechanisms, :Derivation],
     :Fitting => [:Mechanisms, :Derivation, :Data],
+    :DSL => [:Mechanisms, :Derivation],
 )
 
 # Per file (path relative to src/), the expressions allowed despite a banned name,
@@ -21,6 +23,11 @@ const _testhelper_LAYERS = Dict(
 # Enumeration's filters read too. Fitting and identify read the rate table's `group`
 # column.
 const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}(
+    # The reader reads the raw input it builds (`Raw*` values) and the declared names it
+    # collects (`names`).
+    "DSL/read.jl" => Set(["(side[only(i)]).conformation", "names.modifiers",
+        "names.products", "names.substrates", "raw.catalytic", "raw.modifiers",
+        "raw.products", "raw.substrates", "site.ligands"]),
     "Derivation/admission.jl" => Set(["eps.from", "eps.to", "net.conformation", "net.from",
         "net.to", "v.conformation"]),
     "Derivation/codegen.jl" => Set(["A.sites"]),
@@ -71,7 +78,7 @@ function _testhelper_walk(visit, ex, line = Ref(0))
     end
 end
 
-"""The module `M` of a `M.name` or `EnzymeRates.M.name` node (one of the five modules), else
+"""The module `M` of a `M.name` or `EnzymeRates.M.name` node (one of the six modules), else
 `nothing`. A node of one argument (`using X: name` lists) is no `M.name`, nor is a quoted
 path that interpolates its name (`:(M.\$T)`)."""
 function _testhelper_module_head(ex)
@@ -85,7 +92,7 @@ function _testhelper_module_head(ex)
 end
 
 """`(module, name)` for each name that a `using Path.Mod: a, b` or `import Path.Mod: a`
-statement takes from one of the five modules; `Mod` itself is no use."""
+statement takes from one of the six modules; `Mod` itself is no use."""
 function _testhelper_imported_names(ex)
     (length(ex.args) == 1 && ex.args[1] isa Expr && ex.args[1].head === :(:)) || return []
     path, items... = ex.args[1].args
@@ -95,7 +102,7 @@ function _testhelper_imported_names(ex)
     [(mod, name) for name in names if name !== mod]
 end
 
-"""`(module, name, line)` for each `Mod.name` in the source text, `Mod` one of the five
+"""`(module, name, line)` for each `Mod.name` in the source text, `Mod` one of the six
 modules (also written `EnzymeRates.Mod.name`), and for each name imported from one. A type
 annotation `x::Mod.T` and a method extension `function Mod.f(...)` are uses of `T` and
 `f`."""
@@ -160,6 +167,9 @@ _testhelper_module_sources(root) = Dict(
     m => _testhelper_source_files(joinpath(root, string(m)))
     for m in _testhelper_MODULES if isdir(joinpath(root, string(m))))
 
+"""The name an `API` entry lists: `:name`, or `Symbol("@macro")` for a macro."""
+_testhelper_api_name(q) = q isa QuoteNode ? q.value : Symbol(q.args[2])
+
 """The names in the `const API = (...)` tuple of `root/<mod>/<mod>.jl`."""
 function _testhelper_api(root, mod::Symbol)
     path = joinpath(root, string(mod), string(mod) * ".jl")
@@ -167,7 +177,7 @@ function _testhelper_api(root, mod::Symbol)
     _testhelper_walk(Meta.parseall(read(path, String))) do ex, _
         if ex.head === :const && ex.args[1] isa Expr && ex.args[1].head === :(=) &&
            ex.args[1].args[1] === :API
-            api = Set{Symbol}(q.value for q in ex.args[1].args[2].args)
+            api = Set{Symbol}(_testhelper_api_name(q) for q in ex.args[1].args[2].args)
         end
     end
     api === nothing && error("$path declares no `const API = (...)`")
@@ -266,6 +276,7 @@ const _testhelper_MECHANISM_FIELDS = _testhelper_mechanism_fields(_testhelper_SR
 # Per owner (a module or :EnzymeRates for the top level), the field names banned there.
 const _testhelper_FIELD_BAN = Dict(:Derivation => _testhelper_MECHANISM_FIELDS,
     :Enumeration => _testhelper_MECHANISM_FIELDS, :Fitting => _testhelper_MECHANISM_FIELDS,
+    :DSL => _testhelper_MECHANISM_FIELDS,
     :EnzymeRates => _testhelper_MECHANISM_FIELDS)
 
 """Runs the five rules over the tree at `root`."""
@@ -321,6 +332,10 @@ end
               [(:Mechanisms, :_hidden, 1)]
         @test isempty(_testhelper_cross_refs("EnzymeRates.fit(m)"))
         @test isempty(_testhelper_cross_refs(":(EnzymeRates.Mechanisms.\$T(x))"))
+        @test _testhelper_cross_refs("using .DSL: DSL, @enzyme_mechanism, parse") ==
+              [(:DSL, Symbol("@enzyme_mechanism"), 1), (:DSL, :parse, 1)]
+        @test _testhelper_cross_refs("DSL.@enzyme_mechanism begin end") ==
+              [(:DSL, Symbol("@enzyme_mechanism"), 1)]
         @test Set(_testhelper_cross_refs("a = 1\nFitting.fit(\"\$(Derivation.f(x))\")")) ==
               Set([(:Derivation, :f, 2), (:Fitting, :fit, 2)])
     end
@@ -378,6 +393,10 @@ end
             @test _testhelper_api(root, :Mechanisms) ==
                   Set([:Mechanism, :compile_mechanism])
             @test _testhelper_api(root, :Fitting) == Set([:fit])
+        end
+        _testhelper_with_tree(
+            "DSL/DSL.jl" => "const API = (:parse, Symbol(\"@enzyme_mechanism\"))") do root
+            @test _testhelper_api(root, :DSL) == Set([:parse, Symbol("@enzyme_mechanism")])
         end
     end
     @testset "a clean tree passes every rule" begin

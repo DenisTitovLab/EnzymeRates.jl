@@ -1,5 +1,5 @@
 # ABOUTME: The DSL macros @enzyme_reaction, @enzyme_mechanism and @allosteric_mechanism,
-# ABOUTME: which check a mechanism with the guard and compile it; its text read back.
+# ABOUTME: which check a mechanism with the guard and compile it.
 
 """
     @enzyme_reaction begin
@@ -63,7 +63,7 @@ end
 ```
 """
 macro enzyme_reaction(block)
-    return Mechanisms.reaction_expr(block)
+    return reaction_expr(block)
 end
 
 """
@@ -157,7 +157,7 @@ E_total
 ```
 """
 macro enzyme_mechanism(block)
-    return :($_compiled_mechanism($(Mechanisms.raw_mechanism(block, false))))
+    return :($_compiled_mechanism($(raw_mechanism(block, false))))
 end
 
 """
@@ -247,27 +247,7 @@ E_total
 ```
 """
 macro allosteric_mechanism(block)
-    return :($_compiled_mechanism($(Mechanisms.raw_mechanism(block, true))))
-end
-
-"""
-    _checked_mechanism(raw) -> Mechanism or AllostericMechanism
-
-The mechanism that `raw`, the walker's value for a mechanism block (`raw_mechanism`),
-writes, checked: its names must spell every string one way only
-(`check_uniquely_decodable`, as a reaction's are checked), then the constructors
-(`Mechanism(raw)`, `AllostericMechanism(raw)`) and the boundary check
-(`check_valid_rate_equation`) check the mechanism. The macros (`_compiled_mechanism`) and
-the parser (`_parse_mechanism`) build every mechanism through it, so they accept the same
-mechanisms.
-"""
-function _checked_mechanism(raw::Union{Mechanisms.RawMechanism,
-                                        Mechanisms.RawAllostericMechanism})
-    Mechanisms.check_uniquely_decodable(raw)
-    m = raw isa Mechanisms.RawMechanism ? Mechanisms.Mechanism(raw) :
-                                         Mechanisms.AllostericMechanism(raw)
-    Derivation.check_valid_rate_equation(m)
-    m
+    return :($_compiled_mechanism($(raw_mechanism(block, true))))
 end
 
 """
@@ -279,23 +259,3 @@ so its checks run when the expanded code runs.
 _compiled_mechanism(raw::Union{Mechanisms.RawMechanism,
                                Mechanisms.RawAllostericMechanism}) =
     Mechanisms.compile_mechanism(_checked_mechanism(raw))
-
-"""
-    _parse_mechanism(text) -> Mechanism or AllostericMechanism
-
-The mechanism `text` writes: one unqualified `@enzyme_mechanism` or `@allosteric_mechanism`
-block, such as `show` prints for a mechanism, with any whitespace around it. It reads the
-parsed expression with the macros' walker (`raw_mechanism`), never evaluating it, and
-checks the mechanism as the macros do (`_checked_mechanism`). A block the macros reject
-fails with the macros' message and text with a syntax error with `Meta.parse`'s
-`ParseError`; any other text, incomplete text included, fails with this function's own.
-The text `show` prints for a mechanism the macros accept reads back as that mechanism.
-"""
-function _parse_mechanism(text::AbstractString)
-    ex = Meta.parse(strip(text))
-    macros = (Symbol("@enzyme_mechanism"), Symbol("@allosteric_mechanism"))
-    ex isa Expr && ex.head === :macrocall && length(ex.args) == 3 && ex.args[1] in macros ||
-        error("_parse_mechanism: expected the text of one @enzyme_mechanism or " *
-              "@allosteric_mechanism block; got $ex")
-    _checked_mechanism(Mechanisms.raw_mechanism(ex.args[3], ex.args[1] === macros[2]))
-end

@@ -239,7 +239,7 @@ Errors when two constants of the law, regulator constants included, render one n
 which the law would read as one constant: with a conformation labelled `A`, the uptake
 constant of the `:EqualAI` step `A(Eb) <--> A + Eb` renders `k_A_Eb_to_AEb`, the name of
 the active constant of a `:NonequalAI` step `E(b) <--> A(Eb)`. The macros and the
-constructors reject the labels `A` and `I` (`_check_conformation_label`). A metabolite
+constructors reject the labels `A` and `I` (`check_conformation_label`). A metabolite
 name can still imitate a residual's: with a modifier named `minusQ`, the side
 `E(; residual = A - P) + minusQ` and the form `E(; residual = A - P - Q)` both render
 `E_res_plusA_minusP_minusQ`, and the macros accept a step between them, so this check can

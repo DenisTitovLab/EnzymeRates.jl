@@ -1818,7 +1818,7 @@ end
     # A mechanism the guard rejects (a bottomless rapid-equilibrium segment) is among
     # them.
     D = EnzymeRates.Derivation
-    rejected = EnzymeRates.Mechanism(EnzymeRates.Mechanisms.raw_mechanism(:(begin
+    rejected = EnzymeRates.Mechanism(EnzymeRates.DSL.raw_mechanism(:(begin
         substrates: S
         products: P, Q
         steps: begin
@@ -2291,7 +2291,7 @@ end
 
 @testset "constants that would share a name are rejected" begin
     # The walker reads the block the field-by-field raw value writes.
-    @test EnzymeRates.Mechanisms.raw_mechanism(_testhelper_relabelled_block(:F), true) ==
+    @test EnzymeRates.DSL.raw_mechanism(_testhelper_relabelled_block(:F), true) ==
           _testhelper_relabelled_raw(:F)
     for label in (:A, :I)
         reason = "`$label` cannot be a conformation label: constant names tag a " *

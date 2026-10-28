@@ -458,7 +458,7 @@ end
         const ER = EnzymeRates
         const sha256 = ER.Derivation.sha256
         for (i, text) in enumerate(split(read($(repr(file)), String), "\\n----\\n"))
-            m = ER._parse_mechanism(String(text))
+            m = ER.DSL.parse_mechanism(String(text))
             println("BODY ", i, " ",
                     bytes2hex(sha256(string(ER.Derivation._rate_body(m)))))
             println("KEY ", i, " ", ER.Derivation.rate_equation_dedup_key(m).key)

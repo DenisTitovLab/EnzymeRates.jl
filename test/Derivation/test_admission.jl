@@ -472,9 +472,9 @@ end
                               EnzymeRates.Mechanisms.allosteric_regulators(mech) : Symbol[])
         raw = EnzymeRates.Mechanisms.RawMechanism(cm)
         for k in eachindex(cm.edges)
-            op, lhs, rhs = EnzymeRates.Mechanisms._step_parts(
+            op, lhs, rhs = EnzymeRates.DSL._step_parts(
                 Meta.parse(EnzymeRates.Mechanisms.step_text(cm, k)), "@enzyme_mechanism")
-            @test EnzymeRates.Mechanisms._raw_step(op, lhs, rhs, names,
+            @test EnzymeRates.DSL._raw_step(op, lhs, rhs, names,
                                                    "@enzyme_mechanism") == raw.steps[k]
         end
     end
@@ -1685,7 +1685,7 @@ for label in (:D, :Ca, :Ea, :F, :Z), chem in (:NonequalAI, :OnlyA)
         end
     end
     _testhelper_tag_sets["AD13_$(chem)_$label"] =
-        EnzymeRates.AllostericMechanism(EnzymeRates.Mechanisms.raw_mechanism(block, true))
+        EnzymeRates.AllostericMechanism(EnzymeRates.DSL.raw_mechanism(block, true))
 end
 _testhelper_tag_sets["AD14"] = @_testhelper_unguarded @allosteric_mechanism begin
     substrates: S
@@ -3462,7 +3462,7 @@ end
     @test occursin("Tag the group of E(A) <--> E(P; residual = A - P) :EqualAI or " *
                    ":NonequalAI.", msg)
     @test occursin("is not supported yet (see the Roadmap page)", msg)
-    @test_throws ErrorException(msg) EnzymeRates._parse_mechanism(sprint(show, both))
+    @test_throws ErrorException(msg) EnzymeRates.DSL.parse_mechanism(sprint(show, both))
 end
 
 @testset "a second free form keeps its law exact once the conformations flip at E" begin

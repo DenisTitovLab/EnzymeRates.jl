@@ -1,5 +1,44 @@
-# ABOUTME: Tests for @enzyme_reaction, @enzyme_mechanism and @allosteric_mechanism: their
-# ABOUTME: grammar and errors, the walker's raw values, and the texts printed and read back.
+# ABOUTME: Tests for the DSL module: the three macros, the walker's raw values and
+# ABOUTME: parse_mechanism, which reads a mechanism back from its text.
+
+@testset "DSL module entry points" begin
+    @testset "the macros work when imported alone" begin
+        importer = Module(:_testhelper_MacroOnly)
+        Core.eval(importer, :(using EnzymeRates: @enzyme_mechanism, @enzyme_reaction))
+        em = Core.eval(importer, :(@enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end))
+        @test em isa EnzymeRates.EnzymeMechanism
+        rxn = Core.eval(importer, :(@enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            competitive_inhibitors: I
+        end))
+        @test rxn isa EnzymeRates.EnzymeReaction
+    end
+
+    @testset "parse_mechanism reads show back" begin
+        _testhelper_text_reads_back(m) =
+            sprint(show, EnzymeRates.DSL.parse_mechanism(sprint(show, m))) ==
+            sprint(show, m)
+        @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
+            @test _testhelper_text_reads_back(spec.mechanism)
+        end
+        bi_bi = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+        end
+        init = EnzymeRates.Enumeration.init_mechanisms(bi_bi)
+        @test length(init) > 0
+        @test all(_testhelper_text_reads_back, init)
+    end
+end
 
 """The role metabolite entry `t` of graph `x` binds in: `:modifier` for a modifier-only
 name or a reactant's copy, else `:substrate` or `:product` as `x` declares it."""
@@ -436,46 +475,46 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             ErrorException("`modifiers:` expects bare names; got P(2)::Mod. " *
                            "List `P` bare; a role tag goes on the metabolite " *
                            "in a step."),
-            EnzymeRates.Mechanisms._bare_symbols_from_values(Any[:(P(2)::Mod)], :modifiers))
+            EnzymeRates.DSL._bare_symbols_from_values(Any[:(P(2)::Mod)], :modifiers))
         @test_throws(ErrorException("`modifiers:` expects bare names; got X(1, 2)::Mod. " *
                                     "List `X` bare; a role tag goes on the metabolite " *
                                     "in a step."),
-                     EnzymeRates.Mechanisms._bare_symbols_from_values(Any[:(X(1, 2)::Mod)],
+                     EnzymeRates.DSL._bare_symbols_from_values(Any[:(X(1, 2)::Mod)],
                                                                       :modifiers))
         @test_throws(
             ErrorException("`modifiers:` expects bare names; got 1::Mod."),
-            EnzymeRates.Mechanisms._bare_symbols_from_values(Any[:(1::Mod)], :modifiers))
+            EnzymeRates.DSL._bare_symbols_from_values(Any[:(1::Mod)], :modifiers))
         # A tag with nothing before it names no metabolite, so it gets no hint.
-        @test EnzymeRates.Mechanisms._bare_name(Expr(:(::), :OnlyA)) === nothing
+        @test EnzymeRates.DSL._bare_name(Expr(:(::), :OnlyA)) === nothing
         @test_throws(ErrorException("`modifiers:` expects bare names; got ::Mod."),
-                     EnzymeRates.Mechanisms._bare_symbols_from_values(
+                     EnzymeRates.DSL._bare_symbols_from_values(
                          Any[Expr(:(::), :Mod)], :modifiers))
         # An operator call is no multiplicity call: its head names no metabolite, so it
         # gets no hint. An atom bracket under the tag gets the atom-bracket hint.
         @test_throws(ErrorException("`modifiers:` expects bare names; got (A + B)::Mod."),
-                     EnzymeRates.Mechanisms._bare_symbols_from_values(Any[:((A + B)::Mod)],
+                     EnzymeRates.DSL._bare_symbols_from_values(Any[:((A + B)::Mod)],
                                                                       :modifiers))
         @test_throws(
             ErrorException("`modifiers:` expects bare names; got S[C]::Mod. " *
                            "Atom brackets belong in @enzyme_reaction."),
-            EnzymeRates.Mechanisms._bare_symbols_from_values(Any[:(S[C]::Mod)], :modifiers))
+            EnzymeRates.DSL._bare_symbols_from_values(Any[:(S[C]::Mod)], :modifiers))
         # `Base.isoperator` does not flag the word operators `in` and `isa`, so `in(2)`
         # counts as a multiplicity call; the infix `A in B` and `A isa B` do not (their
         # arguments are no Integers), nor does an operator called with one Integer
         # (`(-(2))`, which prints as `(-2)`): none gets a hint.
         @test_throws(ErrorException("`modifiers:` expects bare names; got (A in B)::Mod."),
-                     EnzymeRates.Mechanisms._bare_symbols_from_values(Any[:((A in B)::Mod)],
+                     EnzymeRates.DSL._bare_symbols_from_values(Any[:((A in B)::Mod)],
                                                                       :modifiers))
         @test_throws(ErrorException("`modifiers:` expects bare names; got (A isa B)::Mod."),
-                     EnzymeRates.Mechanisms._bare_symbols_from_values(
+                     EnzymeRates.DSL._bare_symbols_from_values(
                          Any[:((A isa B)::Mod)], :modifiers))
         @test_throws(ErrorException("`modifiers:` expects bare names; got (in)(2)::Mod. " *
                                     "List `in` bare; a role tag goes on the metabolite " *
                                     "in a step."),
-                     EnzymeRates.Mechanisms._bare_symbols_from_values(
+                     EnzymeRates.DSL._bare_symbols_from_values(
                          Any[:(in(2)::Mod)], :modifiers))
         @test_throws(ErrorException("`modifiers:` expects bare names; got (-2)::Mod."),
-                     EnzymeRates.Mechanisms._bare_symbols_from_values(Any[:((-(2))::Mod)],
+                     EnzymeRates.DSL._bare_symbols_from_values(Any[:((-(2))::Mod)],
                                                                       :modifiers))
         @test_throws("`allosteric_regulators:` expects bare names; got X(2).",
                      eval(:(@allosteric_mechanism begin
@@ -1690,7 +1729,7 @@ end
         # `modifiers:` or as a reactant's X::Mod.
         M, F = EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.RawForm
         s, p, i, smod = M(:S, false), M(:P, false), M(:I, true), M(:S, true)
-        raw = EnzymeRates.Mechanisms.raw_mechanism(quote
+        raw = EnzymeRates.DSL.raw_mechanism(quote
             substrates: S
             products:   P
             modifiers:  I, S
@@ -1712,7 +1751,7 @@ end
             [1, 2, 2, 3, 4])
         # An allosteric block adds a tag per group label, the catalytic multiplicity
         # (1 when omitted) and its sites, each ligand list as written.
-        allo = EnzymeRates.Mechanisms.raw_mechanism(quote
+        allo = EnzymeRates.DSL.raw_mechanism(quote
             substrates: S
             products:   P
             allosteric_regulators: X, Y
@@ -2002,7 +2041,7 @@ end
         # A tag after a parenthesized right-hand side tags the step, as after a bare one.
         M, F = EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.RawForm
         s, p = M(:S, false), M(:P, false)
-        @test EnzymeRates.Mechanisms.raw_mechanism(quote
+        @test EnzymeRates.DSL.raw_mechanism(quote
             substrates: S
             products:   P
             steps: begin
@@ -2166,7 +2205,7 @@ end
     end
 end
 
-@testset "DSL text: _parse_mechanism reads a mechanism back from its text" begin
+@testset "DSL text: parse_mechanism reads a mechanism back from its text" begin
     @testset "every mechanism the macros accept reads back" begin
         # Names a block may use and labels at the edge of the shape rule, each through
         # the macro, then printed and read back: contextual keywords, Greek letters and a
@@ -2265,7 +2304,7 @@ end
         for m in mechanisms
             @test _testhelper_reads_back(EnzymeRates.Mechanisms._concrete(m))
             @test EnzymeRates.compile_mechanism(
-                EnzymeRates._parse_mechanism(sprint(show, m))) === m
+                EnzymeRates.DSL.parse_mechanism(sprint(show, m))) === m
         end
         # A residual that only subtracts prints its first term as `- Q`.
         @test contains(sprint(show, mechanisms[4]), "Estar(; residual = - Q)")
@@ -2282,7 +2321,7 @@ end
                     E(S) <--> E(P)
                 end
             end"""
-        @test EnzymeRates._parse_mechanism(text) == EnzymeRates.Mechanism(
+        @test EnzymeRates.DSL.parse_mechanism(text) == EnzymeRates.Mechanism(
             @enzyme_mechanism begin
                 substrates: S
                 products: P
@@ -2294,25 +2333,25 @@ end
             end)
         # Blank lines around the block, as a text copied from a CSV cell may hold, are
         # whitespace, not text.
-        @test EnzymeRates._parse_mechanism("\n  " * text * "\n\n") ==
-              EnzymeRates._parse_mechanism(text)
+        @test EnzymeRates.DSL.parse_mechanism("\n  " * text * "\n\n") ==
+              EnzymeRates.DSL.parse_mechanism(text)
         # Anything but one unqualified mechanism macro call is no mechanism text.
         for other in ("1 + 2", "EnzymeRates." * text,
                       "@enzyme_reaction begin\n    substrates: S[C]\n" *
                       "    products: P[C]\nend")
             ex = Meta.parse(other)
-            @test_throws(ErrorException("_parse_mechanism: expected the text of one " *
+            @test_throws(ErrorException("parse_mechanism: expected the text of one " *
                                         "@enzyme_mechanism or @allosteric_mechanism " *
                                         "block; got $ex"),
-                         EnzymeRates._parse_mechanism(other))
+                         EnzymeRates.DSL.parse_mechanism(other))
         end
-        @test_throws Meta.ParseError EnzymeRates._parse_mechanism(text * "\nE")
+        @test_throws Meta.ParseError EnzymeRates.DSL.parse_mechanism(text * "\nE")
         # An interpolation stays unevaluated: the walker meets an expression where a
         # name belongs.
         unevaluated = replace(text, "substrates: S" =>
                                     "substrates: \$(error(\"evaluated\"))")
         @test_throws("`substrates:` expects bare names; got \$(error(\"evaluated\")).",
-                     EnzymeRates._parse_mechanism(unevaluated))
+                     EnzymeRates.DSL.parse_mechanism(unevaluated))
     end
 
     @testset "a text the macros reject is rejected with their message" begin
@@ -2320,7 +2359,7 @@ end
         # check, each as the macro reports it, thrown at once rather than wrapped in a
         # LoadError.
         @test_throws(ErrorException("@enzyme_mechanism: `steps:` not specified."),
-                     EnzymeRates._parse_mechanism("""
+                     EnzymeRates.DSL.parse_mechanism("""
             @enzyme_mechanism begin
                 substrates: S
                 products: P
@@ -2328,7 +2367,7 @@ end
         @test_throws(ErrorException("Mechanism: no free enzyme form E; every mechanism " *
                                     "holds the free form E, with nothing bound and no " *
                                     "residual"),
-                     EnzymeRates._parse_mechanism("""
+                     EnzymeRates.DSL.parse_mechanism("""
             @enzyme_mechanism begin
                 substrates: S
                 products: P
@@ -2359,13 +2398,13 @@ end
         end
         @test macro_error isa ErrorException &&
               occursin("rapid-equilibrium segment", macro_error.msg)
-        @test_throws macro_error EnzymeRates._parse_mechanism(bottomless)
+        @test_throws macro_error EnzymeRates.DSL.parse_mechanism(bottomless)
         @test_throws(ErrorException("Mechanism: Ac + CoA and AcCoA both spell AcCoA: " *
                                     "enzyme forms and their constants join the names " *
                                     "of the metabolites they bind without a separator, " *
                                     "so two forms would share a name; rename a " *
                                     "metabolite"),
-                     EnzymeRates._parse_mechanism("""
+                     EnzymeRates.DSL.parse_mechanism("""
             @allosteric_mechanism begin
                 substrates: Ac, CoA
                 products: AcCoA
@@ -2381,9 +2420,10 @@ end
 end
 
 @testset "DSL entry points: reaction_expr, raw_mechanism, check_uniquely_decodable" begin
-    M = EnzymeRates.Mechanisms
-    # The `EnzymeReaction` expression a block writes builds the reaction the macro builds.
-    @test eval(M.reaction_expr(:(begin
+    M, DSL = EnzymeRates.Mechanisms, EnzymeRates.DSL
+    # The `EnzymeReaction` expression a block writes builds the reaction the macro builds;
+    # its names resolve in `DSL`.
+    @test Core.eval(DSL, DSL.reaction_expr(:(begin
         substrates: S[C]
         products: P[C]
         competitive_inhibitors: I
@@ -2401,7 +2441,7 @@ end
              M.RawStep(ES, EP, M.Met[], M.Met[], false),
              M.RawStep(EP, E, M.Met[], [P], true)]
     plain = M.RawMechanism([:S], [:P], Symbol[], steps, [1, 2, 3])
-    @test M.raw_mechanism(:(begin
+    @test DSL.raw_mechanism(:(begin
         substrates: S
         products: P
         steps: begin
@@ -2410,7 +2450,7 @@ end
             E(P) ⇌ E + P
         end
     end), false) == plain
-    allosteric = M.raw_mechanism(:(begin
+    allosteric = DSL.raw_mechanism(:(begin
         substrates: S
         products: P
         allosteric_regulators: R
@@ -2426,8 +2466,8 @@ end
                                                  [M.RawSite([:R], 2, [:OnlyI])])
 
     # Names that spell every string one way pass; Ac + CoA and AcCoA spell AcCoA twice.
-    @test M.check_uniquely_decodable(plain) === nothing
-    @test M.check_uniquely_decodable(allosteric) === nothing
+    @test DSL.check_uniquely_decodable(plain) === nothing
+    @test DSL.check_uniquely_decodable(allosteric) === nothing
     Ac, CoA, AcCoA = M.Met(:Ac, false), M.Met(:CoA, false), M.Met(:AcCoA, false)
     EAc, EAcCoA = M.RawForm(:E, [Ac]), M.RawForm(:E, [Ac, CoA])
     clash = M.RawMechanism([:Ac, :CoA], [:AcCoA], Symbol[],
@@ -2438,7 +2478,7 @@ end
         "Mechanism: Ac + CoA and AcCoA both spell AcCoA: enzyme forms and their " *
         "constants join the names of the metabolites they bind without a separator, so " *
         "two forms would share a name; rename a metabolite")
-    @test_throws two_ways M.check_uniquely_decodable(clash)
-    @test_throws two_ways M.check_uniquely_decodable(
+    @test_throws two_ways DSL.check_uniquely_decodable(clash)
+    @test_throws two_ways DSL.check_uniquely_decodable(
         M.RawAllostericMechanism(clash, [:EqualAI, :EqualAI, :EqualAI], 1, M.RawSite[]))
 end

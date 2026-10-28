@@ -345,7 +345,7 @@ end
         # The text of the mechanism, which reads back as it, and the text's id; a failure
         # row records no parent.
         @test row.mechanism == sprint(show, m)
-        @test EnzymeRates._parse_mechanism(row.mechanism) == m
+        @test EnzymeRates.DSL.parse_mechanism(row.mechanism) == m
         @test row.mechanism_id == EnzymeRates._mechanism_id(sprint(show, m))
         @test ismissing(row.parent_id)
         @test row.error == "boom"
@@ -404,7 +404,7 @@ end
         EnzymeRates._select_best_row(results.cv_results), :]
     # The rate-law key of a mechanism's text: the key PASS1 gives it.
     _testhelper_key_of(text) = EnzymeRates.Derivation.rate_equation_dedup_key(
-        EnzymeRates._parse_mechanism(text)).key
+        EnzymeRates.DSL.parse_mechanism(text)).key
 
     @testset "mechanism recovery" begin
         # The best mechanism should fit the noiseless data with near-zero loss.
@@ -452,7 +452,7 @@ end
         end
 
         # The best row's text reads back as the selected mechanism.
-        @test EnzymeRates.compile_mechanism(EnzymeRates._parse_mechanism(
+        @test EnzymeRates.compile_mechanism(EnzymeRates.DSL.parse_mechanism(
             best_row.mechanism)) === results.best
 
         # Per-fold columns named by held-out group label.
@@ -533,7 +533,7 @@ end
                     continue
                 end
                 if r.L_phantom
-                    m = EnzymeRates._parse_mechanism(r.mechanism)
+                    m = EnzymeRates.DSL.parse_mechanism(r.mechanism)
                     @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(m))
                     @test r.L == 0.0 && r.fit_inherited
                 end
@@ -549,7 +549,7 @@ end
             # prints it, and the text's id.
             @test all(EnzymeRates._mechanism_id.(df_file.mechanism) .==
                       df_file.mechanism_id)
-            @test all(t -> sprint(show, EnzymeRates._parse_mechanism(t)) == t,
+            @test all(t -> sprint(show, EnzymeRates.DSL.parse_mechanism(t)) == t,
                       df_file.mechanism)
             for (id, t) in zip(df_file.mechanism_id, df_file.mechanism)
                 push!(get!(texts, id, Set{String}()), t)

@@ -391,7 +391,7 @@ end
         end
     end)
     m_unused =
-        EnzymeRates.Mechanisms._canonicalize(EnzymeRates.Mechanisms.raw_mechanism(:(begin
+        EnzymeRates.Mechanisms._canonicalize(EnzymeRates.DSL.raw_mechanism(:(begin
         substrates: S, T
         products: P
         steps: begin
@@ -14145,7 +14145,7 @@ end
         products: P[C], Q[C]
         competitive_inhibitors: I
     end
-    parent = EnzymeRates.Mechanism(EnzymeRates.Mechanisms.raw_mechanism(:(begin
+    parent = EnzymeRates.Mechanism(EnzymeRates.DSL.raw_mechanism(:(begin
         substrates: S
         products: P, Q
         steps: begin

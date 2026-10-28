@@ -11,19 +11,19 @@ The two halves and the optimizer layer are described below.
 
 ## Modules
 
-The package is five submodules and a top level:
+The package is six submodules and a top level:
 
 ```
 Data
-Mechanisms ← Derivation ← {Fitting, Enumeration}
-top level (identify, macros, exports) uses all five
+Mechanisms ← Derivation ← {Fitting, Enumeration, DSL}
+top level (identify, exports) uses all six
 ```
 
 Each submodule lives in `src/<Module>/`, where `<Module>.jl` declares the module, includes
 its files and lists its interface as `const API = (...)`; its tests live in
 `test/<Module>/`. A module names only the modules to its left: `Mechanisms` names none,
-`Derivation` only `Mechanisms`, `Enumeration` only those two, and `Fitting` those two and
-`Data`. A call
+`Derivation` only `Mechanisms`, `Enumeration` and `DSL` only those two, and `Fitting`
+those two and `Data`. A call
 into another module is qualified (`Derivation.check_valid_rate_equation(m)`); code inside a
 module calls its own names bare.
 
@@ -33,7 +33,7 @@ module calls its own names bare.
 - **`Mechanisms`**: reactions and mechanisms as values. It holds `EnzymeReaction`, the
   raw input (`RawMechanism`, `RawStep`, `RawForm`, `RawAllostericMechanism`, `RawSite`),
   the canonical graphs `Mechanism` and `AllostericMechanism`, the singleton types and
-  `compile_mechanism`, the naming rules and the DSL's reader and printer. Its interface is
+  `compile_mechanism`, the naming rules and the printer of the DSL text. Its interface is
   the accessors, views and writers below.
 - **`Derivation`**: the well-posedness guard, the joint solve and the rate law with its
   code, text and key. Besides the exported `rate_equation`, `rate_equation_string` and
@@ -50,9 +50,12 @@ module calls its own names bare.
   as `EnzymeRates.Enumeration.init_mechanisms`.
 - **`Fitting`**: `FittingProblem`, `fit_rate_equation` and `test_rate_equation` (the loss
   of a fit on other data, which identify's cross-validation uses on each held-out group).
-- **The top level** (`src/EnzymeRates.jl`, `macros.jl`, `identify_rate_equation.jl`):
-  identify, the exports and the three mechanism macros, which run the guard and so cannot
-  live in `Mechanisms`.
+- **`DSL`**: the three macros (`@enzyme_reaction`, `@enzyme_mechanism`,
+  `@allosteric_mechanism`), their reader, and `parse_mechanism(text)`, which reads a
+  mechanism's printed text back. The macros run the guard and so cannot live in
+  `Mechanisms`; `DSL` names `Mechanisms` and `Derivation`.
+- **The top level** (`src/EnzymeRates.jl`, `identify_rate_equation.jl`): identify and the
+  exports, among them the three macros.
 
 ### Accessors, views and writers
 
@@ -83,8 +86,8 @@ the checked constructors; `with_tags(am, tags)` retags through the composition c
 naming rules (`name(p, m)`, `constant_columns`, `regulator_constant`), the DSL text of
 forms and steps (`form_text`, `step_text`) complete the graph interface. The rest of
 `Mechanisms.API` is the types (`Reactant`, `Regulator`, …), the accessors of regulatory
-sites (`ligands`, `allo_states`, …) and the DSL entry points the
-macros call (`raw_mechanism`, `reaction_expr`, `check_uniquely_decodable`).
+sites (`ligands`, `allo_states`, …) and the checks the DSL reader runs on names and labels
+(`check_decodable_names`, `check_conformation_label`, `label_collision_error`).
 
 ### The boundary test
 
@@ -103,8 +106,8 @@ To use another module's function, add it to that module's `API` list under a nam
 without an underscore. Rule 3 matches field names, not types, so the test lists by file
 the reads it lets through (`_testhelper_FIELD_ALLOWED`). The list takes only values the
 reading module owns: Derivation's networks, verdicts and laws, the steps of
-`segment_graph`'s result, the rate table's `group` column, and the written form the seed
-builder assembles and transforms.
+`segment_graph`'s result, the rate table's `group` column, the raw input the DSL reader
+builds and the written form the seed builder assembles and transforms.
 
 ## Derivation architecture
 
@@ -151,8 +154,8 @@ so a mechanism survives the round trip unchanged. Decoding trusts the Sig, which
 `_sig_of` writes: a plain Sig's decoding checks nothing, and an allosteric one's runs only
 the composition constructor's tag and site checks. A mechanism of either representation
 prints as the macro block that builds it (`show`,
-`src/Mechanisms/dsl.jl`), from the concrete mechanism, so the compiled types' `show` takes
-its argument `@nospecialize` and `@nospecializeinfer` and compiles once. `_parse_mechanism`
+`src/Mechanisms/text.jl`), from the concrete mechanism, so the compiled types' `show` takes
+its argument `@nospecialize` and `@nospecializeinfer` and compiles once. `DSL.parse_mechanism`
 reads that text back through the macros' walker and checks, never evaluating it, and
 identify's CSVs store it with a short id (`mechanism_id`).
 
@@ -360,7 +363,7 @@ one with a binding. A reaction — the pair of an edge's two sides — appears i
 without a separator, so E with a metabolite `star` bound and the free conformation `Estar`
 would both be `Estar` and share their constants' names. Names that spell one string two
 ways, such as `NAD`, `P` and `NADP`, never reach the constructor: `@enzyme_reaction` and the
-mechanism macros reject them (`check_uniquely_decodable`). Whether a mechanism's rate law is
+mechanism macros reject them (`check_decodable_names`). Whether a mechanism's rate law is
 defined is the well-posedness guard's question (`src/Derivation/guard.jl`; see
 [Well-posedness guard](@ref)). The macros, the parser and every derivation entry throw on a
 mechanism it rejects (`check_valid_rate_equation`), and identify's base tier, the

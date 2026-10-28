@@ -1784,7 +1784,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # modifier-only name bound by a step, a covalent residual, a Theorell–Chance step,
         # and steps at rapid equilibrium and at steady state. It holds no reactant's
         # modifier copy.
-        m = ER.Mechanism(ER.Mechanisms.raw_mechanism(:(begin
+        m = ER.Mechanism(ER.DSL.raw_mechanism(:(begin
             substrates: A, B
             products: P, Q
             modifiers: I
@@ -2707,7 +2707,7 @@ end
 @testset "each reaction appears once in a mechanism" begin
     # The mechanism over A and P whose steps, each its own group, are `lines`, built and
     # checked as the constructor checks raw input.
-    _testhelper_written(lines...) = ER.Mechanism(ER.Mechanisms.raw_mechanism(:(begin
+    _testhelper_written(lines...) = ER.Mechanism(ER.DSL.raw_mechanism(:(begin
         substrates: A
         products: P
         steps: $(Expr(:block, lines...))
@@ -2774,7 +2774,7 @@ end
     # :Estar, so every constant named after one form would also name the other. The
     # reaction's names spell each name one way; the clash comes from a conformation label.
     err = _testhelper_thrown() do
-        ER.Mechanism(ER.Mechanisms.raw_mechanism(:(begin
+        ER.Mechanism(ER.DSL.raw_mechanism(:(begin
             substrates: star
             products: P
             steps: begin
@@ -3442,7 +3442,7 @@ end
     # The constructor checks the representation only, so it builds the mechanism from
     # the walker's raw value, and the mechanism compiles; every derivation entry then
     # rejects it with the same message.
-    raw = EnzymeRates.Mechanisms.raw_mechanism(:(begin
+    raw = EnzymeRates.DSL.raw_mechanism(:(begin
         substrates: S
         products: P, Q
         steps: begin
@@ -3458,7 +3458,7 @@ end
     v = EnzymeRates.Derivation._guard(m)
     @test (v.fault, v.face) == (EnzymeRates.Derivation._BOTTOMLESS, 2)
     msg = ErrorException(EnzymeRates.Derivation._guard_message(m, v))
-    @test_throws msg EnzymeRates._compiled_mechanism(raw)
+    @test_throws msg EnzymeRates.DSL._compiled_mechanism(raw)
     em = EnzymeRates.compile_mechanism(m)
     @test_throws msg parameters(em)
     @test_throws msg parameters(em, FittedParameters())

@@ -195,7 +195,7 @@ _testhelper_plain(raw::EnzymeRates.Mechanisms.RawAllostericMechanism) = raw.cata
 end
 
 @testset "canonical form maps each written step to its edge, group and forms" begin
-    c = ER.Mechanisms._canonicalize(EnzymeRates.Mechanisms.raw_mechanism(:(begin
+    c = ER.Mechanisms._canonicalize(EnzymeRates.DSL.raw_mechanism(:(begin
         substrates: S
         products: P
         steps: begin
@@ -215,7 +215,7 @@ end
 
 @testset "canonical form runs each step physical-forward, tied steps as one" begin
     _testhelper_flipped(block) = ER.Mechanisms._canonicalize(
-        EnzymeRates.Mechanisms.raw_mechanism(block, false)).flipped
+        EnzymeRates.DSL.raw_mechanism(block, false)).flipped
     # A step with one metabolite takes it up; a fused release F(P) → F + P too. Then the
     # side with more substrates comes first (E(S) → E(P)); then the form where only
     # products enter or leave (F → E); then the earlier form, F(S) → E(S) running E(S)
@@ -245,7 +245,7 @@ end
     # The mirror of F → E at the I-bound forms would run E(I) → F(I) on its own (the
     # earlier form); in one kinetic group with F → E it runs F(I) → E(I). The release
     # of P is stored as the binding it reverses.
-    _testhelper_mirrored(iso) = EnzymeRates.Mechanisms.raw_mechanism(:(begin
+    _testhelper_mirrored(iso) = EnzymeRates.DSL.raw_mechanism(:(begin
         substrates: A
         products: P
         modifiers: I
@@ -264,7 +264,7 @@ end
     @test c.mechanism == d.mechanism
     # Tied steps that change different pairs of conformations: no orientation aligns
     # them, and canonical form returns the lead and the first that misses it.
-    c = ER.Mechanisms._canonicalize(EnzymeRates.Mechanisms.raw_mechanism(:(begin
+    c = ER.Mechanisms._canonicalize(EnzymeRates.DSL.raw_mechanism(:(begin
         substrates: A
         products: P
         steps: begin
@@ -342,7 +342,7 @@ _testhelper_build(raw::EnzymeRates.Mechanisms.RawAllostericMechanism) =
 
 """The raw value of `block`, a mechanism macro's block, read by the DSL walker."""
 _testhelper_walk(block; allosteric = false) =
-    EnzymeRates.Mechanisms.raw_mechanism(block, allosteric)
+    EnzymeRates.DSL.raw_mechanism(block, allosteric)
 
 @testset "the constructors build one value from every writing of a mechanism" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
@@ -1259,13 +1259,13 @@ end
 end
 
 @testset "a graph's DSL text reads back as the graph" begin
-    # `show` prints the macro text that builds a mechanism and `_parse_mechanism` reads it
-    # back, for the specs, plain and allosteric, and the census's first populations, plain
-    # and allosteric.
+    # `show` prints the macro text that builds a mechanism and `DSL.parse_mechanism`
+    # reads it back, for the specs, plain and allosteric, and the census's first
+    # populations, plain and allosteric.
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         @test _testhelper_reads_back(_testhelper_lift(spec.mechanism))
-        @test ER.compile_mechanism(ER._parse_mechanism(sprint(show, spec.mechanism))) ===
-              spec.mechanism
+        @test ER.compile_mechanism(
+            ER.DSL.parse_mechanism(sprint(show, spec.mechanism))) === spec.mechanism
     end
     @test length(allosteric) == 5 + 890 + 5
     @test isempty([i for (i, x) in enumerate(population) if !_testhelper_reads_back(x)])
