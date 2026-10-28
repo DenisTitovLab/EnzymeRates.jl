@@ -127,7 +127,7 @@ tied class is individualized in turn, keeping the smallest text (`_search!`). At
 at the cap.
 """
 function _canonical(L::Union{_Law, _AlloLaw},
-                    mechanism_id::Union{AbstractString, Mechanisms._AnyMech})
+                    mechanism_id::Union{AbstractString, _AnyMech})
     comps, units, header = _key_parts(L)
     vars = L.vars
     fixed(v) = vars.conc[v] || vars.names[v] === :Keq || vars.names[v] === :L
@@ -256,7 +256,7 @@ reached the leaf cap, so the law took the key of `m`'s text id (`mechanism_id`).
 phantom (`_is_phantom`), which reads its active law, its law at `L = 0`, when that law
 holds every fitted constant of `m` but `L`. Two mechanisms with one key share one fit.
 """
-function rate_equation_key(m::Mechanisms._AnyMech)
+function rate_equation_key(m::_AnyMech)
     check_valid_rate_equation(m)
     _with_memo_law(m) do m, s, L
         own = _canonical(L, m)

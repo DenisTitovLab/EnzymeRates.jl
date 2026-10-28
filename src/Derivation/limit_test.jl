@@ -184,21 +184,23 @@ function _reconstructp(f, rng::_ResidueStream)
 end
 
 """
-A random point mod p of `m`'s model for `ncopies` conformations on
-face `face`: log-free energies of every form in each conformation and of every
-metabolite name, an integer null-space basis of the kinetic-group ties (members equal in
-each conformation that keeps them, an `:EqualAI` member equal across) raised to random
-residues; from them each edge's equilibrium constant `K[k, c]` and `L`; a steady-state
-speed per kinetic group and conformation (one for both of an `:EqualAI` group), a
-rapid-equilibrium speed per edge and conformation, the flip's speed; concentrations
-`conc` per name, zero on the face.
+A random point mod p of the model of `mech`'s catalytic graph `m` for `ncopies`
+conformations on face `face`: log-free energies of every form in each conformation and of
+every metabolite name, an integer null-space basis of the kinetic-group ties (members
+equal in each conformation that keeps them, an `:EqualAI` member equal across) raised to
+random residues; from them each edge's equilibrium constant `K[k, c]` and `L`; a
+steady-state speed per kinetic group and conformation (one for both of an `:EqualAI`
+group), a rapid-equilibrium speed per edge and conformation, the flip's speed;
+concentrations `conc` per name, zero on the face.
 """
-function _model_point(m::Mechanisms.Mechanism, tags::Vector{Symbol}, ncopies::Int,
-                      face::UInt64, rng::_ResidueStream)
+function _model_point(mech::_AnyMech, ncopies::Int, face::UInt64, rng::_ResidueStream)
+    m = Mechanisms.catalytic(mech)
     nf, names = length(Mechanisms.species(m)), _guard_names(m)
     nnames = length(names)
     nv = ncopies * nf + nnames
-    excluded(k, c) = Mechanisms._excluded_by(tags[Mechanisms.group(m, k)], c == 2)
+    excluded(k, c) = Mechanisms.excludes(mech, k, _CONFORMATIONS[c])
+    equal_ai(g) = mech isa Mechanisms.AllostericMechanism &&
+                  Mechanisms.tag(mech, g) === :EqualAI
     function drop!(row, k, c, dir)
         a, b = Mechanisms.ends(m, k)
         row[(c - 1) * nf + a] += dir
@@ -218,7 +220,7 @@ function _model_point(m::Mechanisms.Mechanism, tags::Vector{Symbol}, ncopies::In
         for k in members[2:end]
             push!(ties, drop!(drop!(zeros(Int, nv), k, c, 1), lead, c, -1))
         end
-        if c == 2 && tags[g] === :EqualAI
+        if c == 2 && equal_ai(g)
             for k in members
                 push!(ties, drop!(drop!(zeros(Int, nv), k, 2, 1), k, 1, -1))
             end
@@ -239,7 +241,7 @@ function _model_point(m::Mechanisms.Mechanism, tags::Vector{Symbol}, ncopies::In
     end
     ss = [_residue!(rng) for _ in 1:Mechanisms.ngroups(m), _ in 1:ncopies]
     for g in 1:Mechanisms.ngroups(m)
-        ncopies == 2 && tags[g] === :EqualAI && (ss[g, 2] = ss[g, 1])
+        ncopies == 2 && equal_ai(g) && (ss[g, 2] = ss[g, 1])
     end
     re = [_residue!(rng) for _ in Mechanisms.steps(m), _ in 1:ncopies]
     flip = _residue!(rng)
@@ -425,16 +427,16 @@ law's face value by reconstruction as the zeroed concentrations vanish. On a dif
 third limit at new speeds tells `_LIMIT_DIFFER` from `_LIMIT_SPEED`. A false
 `_LIMIT_EQUAL` has probability at most twice the degree over p.
 """
-function _face_limit_check(mech::Mechanisms._AnyMech, net::_Network, s, face::UInt64,
+function _face_limit_check(mech::_AnyMech, net::_Network, s, face::UInt64,
                            seed::UInt64)
-    m, tags = Mechanisms.catalytic(mech), Mechanisms._solve_tags(mech)
+    m = Mechanisms.catalytic(mech)
     rng = _ResidueStream(seed)
     x1 = _turnover_name(m)
     # Class 2, which runs first, leaves no fast cycle that takes `x1` up: a potential.
     h = s.offset[x1, :]
     limit(pt) = _limit_by_interpolation(m, net, s, pt, h, x1, rng)
     for _ in 1:2
-        pt = _model_point(m, tags, net.ncopies, face, rng)
+        pt = _model_point(mech, net.ncopies, face, rng)
         law = _law_by_reconstruction(m, net, s, pt, h, x1, face, rng)
         law == _UNDEFINED && return _LIMIT_LAW_NAN
         v = limit(pt)

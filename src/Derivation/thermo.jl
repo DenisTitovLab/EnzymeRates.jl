@@ -4,14 +4,15 @@
 # ─── The joint system ──────────────────────────────────────────────────────
 
 """
-The kinetic class of column `c`, whose edge lies in group `g` with tag `tag`: the group's
-constant in the column's slot and conformation, except that the copy of an edge in the
-conformation that excludes it (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's
-active one) is a class of its own.
+The kinetic class of column `c` of `m`: its edge's group's constant in the column's slot
+and conformation, except that the copy of an edge in the conformation that excludes it
+(`excludes`: an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's active one) is a class
+of its own.
 """
-_class(c::Mechanisms._Column, g::Int, tag::Symbol) =
-    Mechanisms._excluded_by(tag, c.inactive) ? (c.edge, c.slot, c.inactive, true) :
-                                    (g, c.slot, c.inactive, false)
+_class(m::_AnyMech, c::_Column) =
+    Mechanisms.excludes(m, c.edge, c.inactive ? :inactive : :active) ?
+    (c.edge, c.slot, c.inactive, true) :
+    (Mechanisms.group(Mechanisms.catalytic(m), c.edge), c.slot, c.inactive, false)
 
 """
     _fundamental_cycles(m, flat) -> (Z, multiples)
@@ -79,10 +80,10 @@ function _fundamental_cycles(m::Mechanisms.Mechanism, flat::Vector{Int})
 end
 
 """
-    _joint_system(m, cols = _ordered_columns(m)) -> (; columns, A, rhs, law, tags, flat)
+    _joint_system(m, cols = constant_columns(m)) -> (; columns, A, rhs, law, tags, flat)
 
 The thermodynamic system of `m`, `A · log(constants) = rhs · log(Keq)`, over one column
-per bare constant (`_Column`) in elimination order (`_ordered_columns`).
+per bare constant in elimination order (`constant_columns`).
 
 Rows: every fundamental cycle (`_fundamental_cycles`) once per conformation, the inactive
 rows over the whole graph (islands included) with an `:EqualAI` edge reading its active
@@ -93,14 +94,14 @@ member of each kinetic class (`_class`), setting it equal to the class's first m
 slot by slot. `law[k]` tells whether edge `k` lies in the inactive conformation's law,
 `tags` holds each group's tag and `flat` the edges group by group.
 """
-function _joint_system(m::Mechanisms._AnyMech, cols = Mechanisms._ordered_columns(m))
+function _joint_system(m::_AnyMech, cols = Mechanisms.constant_columns(m))
     cm = Mechanisms.catalytic(m)
     (; columns, flat, tags, law) = cols
     allosteric = m isa Mechanisms.AllostericMechanism
     index = Dict(c => i for (i, c) in enumerate(columns))
+    # An inactive constant reads its own column when its group has one, else the active.
     column(k, slot, inactive) =
-        index[Mechanisms._Column(k, slot, inactive &&
-            Mechanisms._has_inactive_columns(tags[Mechanisms.group(cm, k)]))]
+        get(() -> index[_Column((k, slot, false))], index, _Column((k, slot, inactive)))
     Z, multiples = _fundamental_cycles(cm, flat)
     rows, rhs = Vector{Int}[], Int[]
     for inactive in (allosteric ? (false, true) : (false,)), i in eachindex(multiples)
@@ -117,8 +118,7 @@ function _joint_system(m::Mechanisms._AnyMech, cols = Mechanisms._ordered_column
     end
     first_of = Dict{Tuple{Int, Int, Bool, Bool}, Int}()
     for (i, c) in enumerate(columns)
-        g = Mechanisms.group(cm, c.edge)
-        f = get!(first_of, _class(c, g, tags[g]), i)
+        f = get!(first_of, _class(m, c), i)
         f == i && continue
         row = zeros(Int, length(columns))
         row[i], row[f] = 1, -1
@@ -188,18 +188,6 @@ function _reduce_joint_system(A::Matrix{Int}, rhs::Vector{Int})
     M, pivots
 end
 
-# ─── Class names ───────────────────────────────────────────────────────────
-
-"""The parameter of column `c` of `m`: slot `c.slot` of its edge's `_edge_constants`, in
-the state its name takes: `:None` in a plain mechanism; `:I` for an inactive copy;
-`:EqualAI` or `:A` for an active constant of an allosteric mechanism."""
-function _column_parameter(m::Mechanisms._AnyMech, c::Mechanisms._Column)
-    cm = Mechanisms.catalytic(m)
-    state = m isa Mechanisms.Mechanism ? :None : c.inactive ? :I :
-            Mechanisms.tag(m, Mechanisms.group(cm, c.edge)) === :EqualAI ? :EqualAI : :A
-    Mechanisms._edge_constants(cm, c.edge, state)[c.slot]
-end
-
 # ─── The solve ─────────────────────────────────────────────────────────────
 
 """
@@ -217,20 +205,20 @@ struct _Dependent
 end
 
 """
-The joint solve of a mechanism (`_solve`). `columns` holds a column (`_Column`) per bare
-constant, in elimination order, and `names` each column's name, that of its class's kept
-member (`_kept_members`). `column` maps each bare constant to its column; an `:EqualAI`
+The joint solve of a mechanism (`_solve`). `columns` holds a column per bare constant, in
+elimination order, and `names` each column's name, that of its class's kept member
+(`constant_columns`). `column` maps each bare constant to its column; an `:EqualAI`
 edge's inactive constant reads its active column. `independents` lists the law's free
 columns, sorted by name (`isless` on the strings, so `K_…` precedes `k_…`), and
 `dependents` every pivot column of the law, in column order. `fitted` holds the fitted
 constants in `fitted_params` order: the independents' names, then an allosteric
-mechanism's regulator constants (`_kreg_params`: active, then inactive, site by site)
-and `L`.
+mechanism's regulator constants (`_regulator_names`: those of the active
+conformation, then the inactive conformation's own, site by site) and `L`.
 """
 struct _Solve
-    columns::Vector{Mechanisms._Column}
+    columns::Vector{_Column}
     names::Vector{Symbol}
-    column::Dict{Mechanisms._Column, Int}
+    column::Dict{_Column, Int}
     independents::Vector{Int}
     dependents::Vector{_Dependent}
     fitted::Vector{Symbol}
@@ -241,7 +229,7 @@ end
 
 The joint solve of `m` (`_joint_system`, `_reduce_joint_system`), its exact rationals
 narrowed to `Rational{Int}`; a value outside `Int` throws. Every class of constants of the
-law is independent or dependent under the name of its kept member (`_kept_members`).
+law is independent or dependent under the name of its kept member (`constant_columns`).
 Columns outside the law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's active copy,
 a copy on a form its conformation prunes) are eliminated first, so no dependent of the
 law reads them. The `Type` method decodes a compiled mechanism and checks that its rate
@@ -257,23 +245,15 @@ name can still imitate a residual's: with a modifier named `minusQ`, the side
 `E_res_plusA_minusP_minusQ`, and the macros accept a step between them, so this check can
 fire for a mechanism they build.
 """
-function _solve(m::Mechanisms._AnyMech)
-    cols = Mechanisms._ordered_columns(m)
+function _solve(m::_AnyMech)
+    cols = Mechanisms.constant_columns(m)
     sys = _joint_system(m, cols)
     M, pivots = _reduce_joint_system(sys.A, sys.rhs)
     n = length(sys.columns)
-    kept = Mechanisms._kept_members(m, cols)
-    names = [Mechanisms.name(_column_parameter(m, c), m, kept) for c in sys.columns]
-    cm = Mechanisms.catalytic(m)
-    group = [Mechanisms.group(cm, k) for k in Mechanisms.steps(cm)]
-    class(c) = _class(c, group[c.edge], sys.tags[group[c.edge]])
-    last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
-    in_law(c) = c.inactive ? sys.law[c.edge] :
-                Mechanisms._in_active_law(c.edge, group, sys.tags, sys.law, cols.alaw)
-    kept_in_law(i) = in_law(sys.columns[i]) && last_of[class(sys.columns[i])] == i
-    reg = m isa Mechanisms.Mechanism ? Symbol[] :
-          Symbol[Mechanisms.name(p, m)
-                 for p in [Mechanisms._kreg_params(m, :A); Mechanisms._kreg_params(m, :I)]]
+    names = cols.names
+    last_of = Dict(_class(m, c) => i for (i, c) in enumerate(sys.columns))
+    kept_in_law(i) = cols.in_law[i] && last_of[_class(m, sys.columns[i])] == i
+    reg = _regulator_names(m)
     rendered = [names[filter(kept_in_law, 1:n)]; reg]
     allunique(rendered) || error(
         "Constants of this mechanism's rate equation share a name (" *
@@ -283,7 +263,7 @@ function _solve(m::Mechanisms._AnyMech)
     free = setdiff(1:n, pivots)
     dependents = _Dependent[]
     for (r, p) in enumerate(pivots)
-        in_law(sys.columns[p]) || continue
+        cols.in_law[p] || continue
         keq = Rational{Int}(M[r, n + 1])
         factors = Pair{Int, Rational{Int}}[f => Rational{Int}(-M[r, f])
                                            for f in free if !iszero(M[r, f])]
@@ -294,8 +274,8 @@ function _solve(m::Mechanisms._AnyMech)
     column = Dict(c => i for (i, c) in enumerate(sys.columns))
     if m isa Mechanisms.AllostericMechanism
         for (i, c) in enumerate(sys.columns)
-            c.inactive || Mechanisms._has_inactive_columns(sys.tags[group[c.edge]]) ||
-                (column[Mechanisms._Column(c.edge, c.slot, true)] = i)
+            key = _Column((c.edge, c.slot, true))
+            c.inactive || haskey(column, key) || (column[key] = i)
         end
     end
     fitted = names[independents]
@@ -303,12 +283,28 @@ function _solve(m::Mechanisms._AnyMech)
     _Solve(sys.columns, names, column, independents, dependents, fitted)
 end
 
+"""The regulator constants of `m` in `fitted_params` order (`regulator_constant`): those of
+the active conformation, then the inactive conformation's own, site by site; an
+`:EqualAI` ligand's one name is listed with the active ones. A plain mechanism has
+none."""
+_regulator_names(::Mechanisms.Mechanism) = Symbol[]
+function _regulator_names(am::Mechanisms.AllostericMechanism)
+    names(inactive) = Symbol[K for site in Mechanisms.regulatory_sites(am)
+                             for (lig, tag) in zip(Mechanisms.ligands(site),
+                                                   Mechanisms.allo_states(site))
+                             if !(inactive && tag === :EqualAI)
+                             for K in (Mechanisms.regulator_constant(am, lig, tag,
+                                                                     inactive),)
+                             if K !== nothing]
+    [names(false); names(true)]
+end
+
 _solve(@nospecialize(M::Type{<:Mechanisms.AbstractEnzymeMechanism})) =
     _solve(_derivation_input(M))
 
 """Number of independent (fitted) constants of a concrete mechanism, from the joint solve,
 without compiling the mechanism."""
-parameter_count(m::Mechanisms._AnyMech) = length(_solve(m).fitted)
+parameter_count(m::_AnyMech) = length(_solve(m).fitted)
 
 # ─── Cycle-space helpers of the limit test ─────────────────────────────────
 

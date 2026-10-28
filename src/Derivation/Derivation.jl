@@ -11,6 +11,16 @@ const API = (:all_parameters, :check_valid_rate_equation, :fitted_params,
     :rate_equation_complexity, :rate_equation_key, :rate_equation_string,
     :scale_rate_constants)
 
+"""A plain or an allosteric mechanism."""
+const _AnyMech = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+
+"""A column of the joint solve (`Mechanisms.constant_columns`): slot `slot` of step `edge`
+of the catalytic graph, in the inactive conformation when `inactive`."""
+const _Column = @NamedTuple{edge::Int, slot::Int, inactive::Bool}
+
+"""The two conformations by the index the guard gives them: 1 active, 2 inactive."""
+const _CONFORMATIONS = (:active, :inactive)
+
 include("rate_eq_derivation.jl")
 include("thermo.jl")
 include("poly.jl")

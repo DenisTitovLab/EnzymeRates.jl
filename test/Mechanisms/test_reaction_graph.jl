@@ -195,7 +195,7 @@ _testhelper_plain(raw::EnzymeRates.Mechanisms.RawAllostericMechanism) = raw.cata
 end
 
 @testset "canonical form maps each written step to its edge, group and forms" begin
-    c = ER.Mechanisms._canonicalize(EnzymeRates.Mechanisms._raw_mechanism(:(begin
+    c = ER.Mechanisms._canonicalize(EnzymeRates.Mechanisms.raw_mechanism(:(begin
         substrates: S
         products: P
         steps: begin
@@ -215,7 +215,7 @@ end
 
 @testset "canonical form runs each step physical-forward, tied steps as one" begin
     _testhelper_flipped(block) = ER.Mechanisms._canonicalize(
-        EnzymeRates.Mechanisms._raw_mechanism(block, false)).flipped
+        EnzymeRates.Mechanisms.raw_mechanism(block, false)).flipped
     # A step with one metabolite takes it up; a fused release F(P) → F + P too. Then the
     # side with more substrates comes first (E(S) → E(P)); then the form where only
     # products enter or leave (F → E); then the earlier form, F(S) → E(S) running E(S)
@@ -245,7 +245,7 @@ end
     # The mirror of F → E at the I-bound forms would run E(I) → F(I) on its own (the
     # earlier form); in one kinetic group with F → E it runs F(I) → E(I). The release
     # of P is stored as the binding it reverses.
-    _testhelper_mirrored(iso) = EnzymeRates.Mechanisms._raw_mechanism(:(begin
+    _testhelper_mirrored(iso) = EnzymeRates.Mechanisms.raw_mechanism(:(begin
         substrates: A
         products: P
         modifiers: I
@@ -264,7 +264,7 @@ end
     @test c.mechanism == d.mechanism
     # Tied steps that change different pairs of conformations: no orientation aligns
     # them, and canonical form returns the lead and the first that misses it.
-    c = ER.Mechanisms._canonicalize(EnzymeRates.Mechanisms._raw_mechanism(:(begin
+    c = ER.Mechanisms._canonicalize(EnzymeRates.Mechanisms.raw_mechanism(:(begin
         substrates: A
         products: P
         steps: begin
@@ -342,7 +342,7 @@ _testhelper_build(raw::EnzymeRates.Mechanisms.RawAllostericMechanism) =
 
 """The raw value of `block`, a mechanism macro's block, read by the DSL walker."""
 _testhelper_walk(block; allosteric = false) =
-    EnzymeRates.Mechanisms._raw_mechanism(block, allosteric)
+    EnzymeRates.Mechanisms.raw_mechanism(block, allosteric)
 
 @testset "the constructors build one value from every writing of a mechanism" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
@@ -861,7 +861,7 @@ end
     # Forms in content order: a residual form binds nothing, so it follows free E.
     @test [ER.Mechanisms._form_name(m, f) for f in eachindex(m.forms)] ==
           ["E", "E_res_plusA_minusP", "EA", "EB_res_plusA_minusP", "EI", "EQ", "EQQmod"]
-    @test [ER.Mechanisms._form_text(m, f) for f in eachindex(m.forms)] ==
+    @test [ER.Mechanisms.form_text(m, f) for f in eachindex(m.forms)] ==
           ["E", "E(; residual = A - P)", "E(A)", "E(B; residual = A - P)", "E(I)",
            "E(Q)", "E(Q, Q::Mod)"]
     # Each edge's sides in its stored direction: releases stored as bindings.

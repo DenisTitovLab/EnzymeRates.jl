@@ -19,7 +19,7 @@ mutable struct _Memo
 end
 
 """The task's memo (`_Memo`), emptied and given to `m` unless it holds `m`."""
-function _memo(m::Mechanisms._AnyMech)
+function _memo(m::_AnyMech)
     c = get!(() -> _Memo(nothing, nothing, nothing, nothing), task_local_storage(),
              _Memo)::_Memo
     c.m === m || (c.m = m; c.verdict = nothing; c.solve = nothing; c.law = nothing)
@@ -27,14 +27,14 @@ function _memo(m::Mechanisms._AnyMech)
 end
 
 """`m`'s guard verdict (`_guard`), through the memo."""
-function _memo_verdict(m::Mechanisms._AnyMech)
+function _memo_verdict(m::_AnyMech)
     v = _memo(m).verdict
     v === nothing || return v
     _memo(m).verdict = _guard(m)
 end
 
 """`m`'s joint solve (`_solve`), through the memo."""
-function _memo_solve(m::Mechanisms._AnyMech)
+function _memo_solve(m::_AnyMech)
     s = _memo(m).solve
     s === nothing || return s
     _memo(m).solve = _solve(m)
@@ -42,7 +42,7 @@ end
 
 """`m`'s law (`_law`) from its joint solve, through the memo: a `_Law` for a plain
 mechanism, an `_AlloLaw` for an allosteric one."""
-function _memo_law(m::Mechanisms._AnyMech)
+function _memo_law(m::_AnyMech)
     L = _memo(m).law
     L === nothing || return L::(m isa Mechanisms.Mechanism ? _Law : _AlloLaw)
     _memo(m).law = _law(m, _memo_solve(m))
@@ -50,4 +50,4 @@ end
 
 """`f` called on `m`, its joint solve `s` and its law `L`, both through the memo: the
 memo's counterpart of `_with_law`."""
-_with_memo_law(f, m::Mechanisms._AnyMech) = f(m, _memo_solve(m), _memo_law(m))
+_with_memo_law(f, m::_AnyMech) = f(m, _memo_solve(m), _memo_law(m))

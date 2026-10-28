@@ -2542,7 +2542,7 @@ end
     @test failure isa EnzymeRates.FitFailure
     @test failure.mech == m_bad                    # the ORIGINAL parent
     # The recorded error is the assertion's: the chemistry step ES → EP makes an N.
-    @test occursin("atom-non-conserving step ES → EP", failure.error)
+    @test occursin("atom-non-conserving step E(S) → E(P)", failure.error)
     @test occursin("= Dict(:N => 1)", failure.error)
     # A well-formed parent, a seed of the reaction, expands with no failure.
     good = EnzymeRates.Mechanism(@enzyme_mechanism begin
@@ -2611,7 +2611,7 @@ end
     @test length(failures) == 1
     @test failures[1].mech == m_bad
     @test failures[1].error == base_failures[1][2]
-    @test occursin("atom-non-conserving step ES → EP", failures[1].error)
+    @test occursin("atom-non-conserving step E(S) → E(P)", failures[1].error)
 end
 
 @testset "_degenerate reads the active conformation's law" begin
@@ -2695,7 +2695,7 @@ end
              EnzymeRates.Mechanisms.conformation_steps(merged_route, :active)
     re = EnzymeRates.Mechanisms.rapid_equilibrium_steps(cm)
     subs = EnzymeRates.Mechanisms.substrates(cm)
-    @test EnzymeRates.Mechanisms._form_text.(
+    @test EnzymeRates.Mechanisms.form_text.(
         Ref(cm), EnzymeRates.Enumeration._merged_complexes(cm, subs)) == ["E(P, X)"]
     @test isempty(EnzymeRates.Enumeration._merged_complexes(cm, subs, on))
     @test EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re)

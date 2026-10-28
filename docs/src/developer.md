@@ -77,10 +77,11 @@ one problem type: `solve` and the solver compile once per optimizer, not once pe
 ### The joint thermodynamic solve
 
 `_solve` (`src/Derivation/thermo.jl`) builds one integer system per mechanism
-(`_joint_system`): a column per constant of every edge (`_Column`), with an inactive
-copy for each edge of a `:NonequalAI`, `:OnlyA` or `:OnlyI` group; a row per fundamental
-cycle and conformation, and a row tying each further member of a kinetic class to its first.
-It orders the columns by `_priority_key` (`_ordered_columns`) and reduces the system
+(`_joint_system`) over the columns `Mechanisms.constant_columns(m)` lists: a column per
+constant of every edge, with an inactive copy for each edge of a `:NonequalAI`, `:OnlyA` or
+`:OnlyI` group; a row per fundamental cycle and conformation, and a row tying each further
+member of a kinetic class to its first. The columns come ordered by `_priority_key`
+(`_ordered_columns`), and the solve reduces the system
 exactly (`_reduce_joint_system`: `Rational{Int}`, redone in `Rational{BigInt}` on
 overflow). Pivot columns are dependents. `_solve`
 returns them with the independents and the fitted names as a `_Solve`, which the engine,
@@ -88,7 +89,9 @@ returns them with the independents and the fitted names as a `_Solve`, which the
 Columns outside a conformation's law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's
 active copy, an edge on a form that conformation cannot reach) come first, so no kept
 dependent reads them. Each class is named after its member
-that comes last in that order (`_kept_members`), through the `name(p, m)` chokepoint. The
+that comes last in that order (`_kept_members`), through the `name(p, m)` chokepoint;
+`constant_columns` returns each column's name with it, so the naming rule stays in
+`Mechanisms`. The
 engine (`_law`, `src/Derivation/engine.jl`) derives each conformation's
 law on a mask of the edges it keeps (`conformation_steps(am, :active)`,
 `conformation_steps(am, :inactive)`; every edge of a plain mechanism). Every edge keeps its stored direction, so
@@ -155,7 +158,7 @@ reaction graph through masks and never constructs a mechanism. It returns an isb
 (fault, limit-test verdict, face, conformation, edge), never a `Union` that a loop reads:
 Julia 1.12 and 1.13 can hoist the box of a `Union` value out of a loop without a write
 barrier, which corrupts the heap. `check_valid_rate_equation(m)` throws
-`_guard_message(m, v)`, which names each step by its DSL line (`_step_text`) and the face;
+`_guard_message(m, v)`, which names each step by its DSL line (`step_text`) and the face;
 `has_valid_rate_equation(m)` is the enumerator's drop test.
 
 The guard builds two networks of one catalytic subunit whose conformations flip at free E
@@ -193,7 +196,9 @@ group, the catalytic multiplicity and the regulatory sites.
 The macros, the parser and the moves that change flags, groups or steps write a mechanism
 as raw input (`RawMechanism` of `RawStep`s between `RawForm`s, and
 `RawAllostericMechanism`): its steps in written order and direction. `Mechanism(raw)` and
-`AllostericMechanism(raw)` build its canonical graph (`_canonicalize`) and check it. The
+`AllostericMechanism(raw)` build its canonical graph (`_canonicalize`) and check it;
+`canonical_graph(raw)` builds it with only the alignment check, for the seed bases and
+the dead-end move's candidates. The
 written form of a built mechanism is `RawMechanism(m)` (`RawForm(m, x)`, `RawStep(m, k)`),
 and the writers `with_flags(m, re)` and `regroup(m, groups)` rebuild a mechanism with new
 flags or kinetic groups through it. The moves that tag a mechanism or change its
@@ -209,7 +214,8 @@ form (`E(A) + B → E(P, Q)`). The constructor rejects a binding whose forms mat
 binding by name but not by role, such as `E + P::Mod ⇌ E(P)`. An isomerization takes up
 and gives off nothing (`_is_iso`); a Theorell–Chance step takes up one metabolite and
 gives off another. `_is_chemistry` is true for every edge but a plain binding; the
-allosteric moves (`_chemistry_groups`), admission, the joint
+allosteric moves (`_chemistry_groups`, in `Enumeration`, through `step_kind`), admission,
+the joint
 solve's priority (`_priority_key`) and `_merged_complexes` read it to tell catalysis from
 binding. The derivation reads every binding alike, so a fused binding's rapid-equilibrium
 constant is a dissociation constant and its steady-state pair a binding and a release
@@ -252,7 +258,7 @@ with a binding. A reaction — the pair of an edge's two sides — appears in on
 metabolites without a separator, so E with a metabolite `star` bound and the free
 conformation `Estar` would both be `Estar` and share their constants' names. Names that
 spell one string two ways, such as `NAD`, `P` and `NADP`, never reach the constructor:
-`@enzyme_reaction` and the mechanism macros reject them (`_check_uniquely_decodable`).
+`@enzyme_reaction` and the mechanism macros reject them (`check_uniquely_decodable`).
 Whether a mechanism's rate law is defined is the well-posedness guard's question
 (`src/Derivation/guard.jl`; see [Well-posedness guard](@ref)). The macros, the parser and
 every derivation entry throw on a mechanism it rejects (`check_valid_rate_equation`), and

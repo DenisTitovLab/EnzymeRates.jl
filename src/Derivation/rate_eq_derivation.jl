@@ -91,20 +91,21 @@ end
 
 """
 The parameter Symbols of each edge's constants in conformation `state` of `m` — `[K]` at
-rapid equilibrium, `[kf, kr]` at steady state — through the naming chokepoint
-(`name(p, m, kept)`, `kept = _kept_members(m)`): `names[k]` for edge `k` of the state's
-law (`conformation_steps`; every edge for `:None`), empty for every other edge. `state`
-is `:None` for a plain mechanism and `:A` or `:I` for an allosteric one, an `:EqualAI`
-group's constants taking its one shared name in both.
+rapid equilibrium, `[kf, kr]` at steady state — as the joint solve names its columns
+(`constant_columns`): `names[k]` for edge `k` of the state's law (`conformation_steps`;
+every edge for `:None`), empty for every other edge. `state` is `:None` for a plain
+mechanism and `:A` or `:I` for an allosteric one; an inactive constant reads its own
+column when its group has one, so an `:EqualAI` group's constants take their one shared
+name in both.
 """
-function _edge_names(m::Mechanisms._AnyMech, state::Symbol,
-                     kept = Mechanisms._kept_members(m))
+function _edge_names(m::_AnyMech, state::Symbol, cols = Mechanisms.constant_columns(m))
     cm = Mechanisms.catalytic(m)
     mask = Mechanisms.conformation_steps(m, state === :I ? :inactive : :active)
-    tag(k) = m isa Mechanisms.AllostericMechanism &&
-             Mechanisms.tag(m, Mechanisms.group(cm, k)) === :EqualAI ? :EqualAI : state
-    [mask[k] ? Symbol[Mechanisms.name(p, m, kept)
-                      for p in Mechanisms._edge_constants(cm, k, tag(k))] :
+    index = Dict(c => i for (i, c) in enumerate(cols.columns))
+    column(k, slot) = get(() -> index[_Column((k, slot, false))], index,
+                          _Column((k, slot, state === :I)))
+    [mask[k] ? Symbol[cols.names[column(k, slot)]
+                      for slot in 1:(Mechanisms.is_rapid_equilibrium(cm, k) ? 1 : 2)] :
                Symbol[]
      for k in Mechanisms.steps(cm)]
 end
@@ -121,8 +122,8 @@ function _ss_rate_constant_names(@nospecialize(em::Mechanisms.AbstractEnzymeMech
     m = _derivation_input(typeof(em))
     cm = Mechanisms.catalytic(m)
     states = m isa Mechanisms.Mechanism ? (:None,) : (:A, :I)
-    kept = Mechanisms._kept_members(m)
-    Set{Symbol}(n for st in states for (k, ns) in enumerate(_edge_names(m, st, kept))
+    cols = Mechanisms.constant_columns(m)
+    Set{Symbol}(n for st in states for (k, ns) in enumerate(_edge_names(m, st, cols))
                 if !Mechanisms.is_rapid_equilibrium(cm, k) for n in ns)
 end
 

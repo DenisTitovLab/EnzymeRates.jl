@@ -63,7 +63,7 @@ function _testhelper_mechanism_call(call, who::String)
     head in (Symbol("@enzyme_mechanism"), Symbol("@allosteric_mechanism")) ||
         error("$who wraps an @enzyme_mechanism or @allosteric_mechanism call; got $call")
     allosteric = head === Symbol("@allosteric_mechanism")
-    allosteric, EnzymeRates.Mechanisms._raw_mechanism(call.args[end], allosteric)
+    allosteric, EnzymeRates.Mechanisms.raw_mechanism(call.args[end], allosteric)
 end
 
 """
@@ -477,9 +477,9 @@ function _testhelper_consistent_point(m, rng)
     if allo
         L = exp(4 * big(rand(rng)) - 2)
         vals[:L] = L
-        for p in [EnzymeRates.Mechanisms._kreg_params(mech, :A);
-                  EnzymeRates.Mechanisms._kreg_params(mech, :I)]
-            vals[EnzymeRates.Mechanisms.name(p, mech)] = exp(4 * big(rand(rng)) - 2)
+        for K in [_testhelper_regulator_constants(mech, :A);
+                  _testhelper_regulator_constants(mech, :I)]
+            vals[K] = exp(4 * big(rand(rng)) - 2)
         end
     end
     # Every edge's equilibrium constant in both conformations and, for a steady-state
@@ -951,6 +951,19 @@ function _testhelper_faces(m)
     isempty(mods) ? base : [base; [union(z, mods) for z in base]]
 end
 
+"""The regulator constants of `am` listed with conformation `state` (`:A` or `:I`), site
+by site (`regulator_constant`): for `:A` those of every ligand the active conformation
+binds; for `:I` those of every `:OnlyI` or `:NonequalAI` ligand, an `:EqualAI` ligand's
+one name being listed with the active ones."""
+function _testhelper_regulator_constants(am, state::Symbol)
+    M = EnzymeRates.Mechanisms
+    inactive = state === :I
+    Symbol[K for site in M.regulatory_sites(am)
+           for (lig, tag) in zip(M.ligands(site), M.allo_states(site))
+           if !(inactive && tag === :EqualAI)
+           for K in (M.regulator_constant(am, lig, tag, inactive),) if K !== nothing]
+end
+
 """Whether conformation `c` (1 active, 2 inactive) of `m` excludes edge `k` of its
 catalytic graph: an `:OnlyA` group's edge in the inactive conformation, an `:OnlyI`
 group's in the active one. A plain mechanism excludes nothing."""
@@ -987,7 +1000,8 @@ function _testhelper_flip_ratio(mech, point, concs::AbstractDict)
     function _testhelper_site_factor(inactive)
         prod((1 + sum((concs[lig] / point.vals[K]
                        for (lig, tag) in zip(site.ligands, site.allo_states)
-                       for K in (EnzymeRates.Mechanisms._reg_K(mech, lig, tag, inactive),)
+                       for K in (EnzymeRates.Mechanisms.regulator_constant(mech, lig, tag,
+                                                                          inactive),)
                        if K !== nothing); init = big(0)))^site.multiplicity
              for site in EnzymeRates.Mechanisms.regulatory_sites(mech); init = big(1))
     end
@@ -1747,7 +1761,7 @@ end
 `:EqualAI` and `:NonequalAI`, 4 × 27 = 108 allosteric mechanisms, built unguarded."""
 function _testhelper_uniuni_grid()
     tags = (:OnlyA, :EqualAI, :NonequalAI)
-    [EnzymeRates.AllostericMechanism(EnzymeRates.Mechanisms._raw_mechanism(Meta.parse("""
+    [EnzymeRates.AllostericMechanism(EnzymeRates.Mechanisms.raw_mechanism(Meta.parse("""
          begin
              substrates: S
              products: P
@@ -1825,7 +1839,7 @@ _testhelper_agrees(fault::EnzymeRates.Derivation._Fault, verdict::Symbol) =
 function _testhelper_names_its_step(m, v::EnzymeRates.Derivation._Verdict)
     mech = _testhelper_lift(m)
     msg = EnzymeRates.Derivation._guard_message(mech, v)
-    line = v.edge == 0 ? "" : EnzymeRates.Mechanisms._step_text(
+    line = v.edge == 0 ? "" : EnzymeRates.Mechanisms.step_text(
         EnzymeRates.Mechanisms.catalytic(mech), v.edge)
     occursin(": at zero ", msg) && occursin(line, msg)
 end
@@ -2181,8 +2195,8 @@ function _testhelper_name_units(m)
                    (length(st.released) - length(st.consumed), 0 // 1)
     end
     if mech isa EnzymeRates.AllostericMechanism
-        for state in (:A, :I), p in EnzymeRates.Mechanisms._kreg_params(mech, state)
-            u[EnzymeRates.Mechanisms.name(p, mech)] = (1 // 1, 0 // 1)
+        for state in (:A, :I), K in _testhelper_regulator_constants(mech, state)
+            u[K] = (1 // 1, 0 // 1)
         end
         u[:L] = (0 // 1, 0 // 1)
     end

@@ -159,7 +159,7 @@ _testhelper_is_tc(e) = e.consumed != 0 && e.released != 0
 # `preds` turned steady state.
 function _testhelper_flip_flags(m, preds...)
     re = EnzymeRates.Mechanisms.rapid_equilibrium_steps(m)
-    hit = EnzymeRates.Mechanisms._groups_with(k -> any(p -> p(m.edges[k]), preds), m)
+    hit = EnzymeRates.Enumeration._groups_with(k -> any(p -> p(m.edges[k]), preds), m)
     re[hit[m.group]] .= false
     re
 end
@@ -392,7 +392,7 @@ end
         end
     end)
     m_unused =
-        EnzymeRates.Mechanisms._canonicalize(EnzymeRates.Mechanisms._raw_mechanism(:(begin
+        EnzymeRates.Mechanisms._canonicalize(EnzymeRates.Mechanisms.raw_mechanism(:(begin
         substrates: S, T
         products: P
         steps: begin
@@ -430,7 +430,7 @@ end
     end)
     @test_throws ErrorException EnzymeRates.Enumeration._assert_atom_conserving(
         bad_m, ldh_rxn)
-    @test_throws("atom-non-conserving step ENADH → ELac",
+    @test_throws("atom-non-conserving step E(NADH) → E(Lac)",
                  EnzymeRates.Enumeration._assert_atom_conserving(bad_m, ldh_rxn))
     # The label names the difference the message prints: Lac has 18 fewer C than NADH.
     label = "atoms(to) + atoms(released) − atoms(from) − atoms(consumed) = "
@@ -539,7 +539,7 @@ end
     @test all(f.conformation === :E for t in topos for s in t for f in (s.from, s.to))
     # Surviving ping-pong topologies each carry a genuine (non-empty)
     # covalent intermediate — no empty-residue ping-pong remains.
-    pingpong = filter(t -> count(EnzymeRates.Mechanisms._is_iso, t) >= 2, topos)
+    pingpong = filter(t -> count(EnzymeRates.Enumeration._is_iso, t) >= 2, topos)
     @test !isempty(pingpong)
     @test all(any(_testhelper_raw_residual(f) for s in t for f in (s.from, s.to))
               for t in pingpong)
@@ -557,12 +557,12 @@ end
     # ambiguous with the concat form naming convention).
     @test all(any(b -> b.name ∈ sub_names_set,
                   _testhelper_iso_orient(s, sub_names_set)[1].bound)
-              for t in topos for s in t if EnzymeRates.Mechanisms._is_iso(s))
+              for t in topos for s in t if EnzymeRates.Enumeration._is_iso(s))
 
     # C8: an iso's product-side (destination) form is built with only
     # products bound, never substrates.
     @test all(b.name ∉ sub_names_set
-              for t in topos for s in t if EnzymeRates.Mechanisms._is_iso(s)
+              for t in topos for s in t if EnzymeRates.Enumeration._is_iso(s)
               for b in _testhelper_iso_orient(s, sub_names_set)[2].bound)
 end
 
@@ -574,7 +574,7 @@ _testhelper_form(names, residual) = f ->
 # Whether the raw steps `spec` hold an isomerization with one end satisfying `p` and the
 # other `q`, whichever way the step is oriented.
 _testhelper_iso_between(spec, p, q) = any(spec) do s
-    EnzymeRates.Mechanisms._is_iso(s) || return false
+    EnzymeRates.Enumeration._is_iso(s) || return false
     (p(s.from) && q(s.to)) || (p(s.to) && q(s.from))
 end
 
@@ -600,7 +600,7 @@ end
     # pp) has exactly one SS step — for ping-pong only one of the iso
     # steps is steady-state, the rest are rapid-equilibrium.
     @test length(topos) == 312
-    seq_count = count(t -> count(EnzymeRates.Mechanisms._is_iso, t) == 1, topos)
+    seq_count = count(t -> count(EnzymeRates.Enumeration._is_iso, t) == 1, topos)
     pp_count = length(topos) - seq_count
     @test seq_count == 169
     @test pp_count == 143
@@ -629,7 +629,7 @@ end
     # pp) has exactly one SS step — for ping-pong only one of the iso
     # steps is steady-state, the rest are rapid-equilibrium.
     @test length(topos) == 334
-    seq_count = count(t -> count(EnzymeRates.Mechanisms._is_iso, t) == 1, topos)
+    seq_count = count(t -> count(EnzymeRates.Enumeration._is_iso, t) == 1, topos)
     pp_count = length(topos) - seq_count
     @test seq_count == 169
     @test pp_count == 165
@@ -647,7 +647,7 @@ end
     @test all(isempty(_testhelper_connectivity_violations(t)) for t in topos)
     @test length(topos) > 0
     # Every topology must have ≥ 2 iso steps (no 4→4)
-    @test all(count(EnzymeRates.Mechanisms._is_iso, t) >= 2 for t in topos)
+    @test all(count(EnzymeRates.Enumeration._is_iso, t) >= 2 for t in topos)
 end
 
 @testset "no admissible catalytic cycle throws" begin
@@ -3003,7 +3003,7 @@ end
     end
     v = EnzymeRates.Derivation._guard(am)
     @test v.fault === EnzymeRates.Derivation._NO_LIMIT
-    @test EnzymeRates.Mechanisms._step_text(am.catalytic, v.edge) == "E + A <--> E(A)"
+    @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "E + A <--> E(A)"
     @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(2922)) === :no_path
     msg = EnzymeRates.Derivation._guard_message(am, v)
     @test_throws ErrorException(msg) @allosteric_mechanism begin
@@ -3087,7 +3087,7 @@ end
     end
     v = EnzymeRates.Derivation._guard(am)
     @test v.fault === EnzymeRates.Derivation._NO_LIMIT
-    @test EnzymeRates.Mechanisms._step_text(am.catalytic, v.edge) == "E + A <--> E(A)"
+    @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "E + A <--> E(A)"
     @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(95)) === :no_path
     msg = EnzymeRates.Derivation._guard_message(am, v)
     @test_throws ErrorException(msg) @allosteric_mechanism begin
@@ -3177,7 +3177,7 @@ end
     # binding groups :OnlyA: the tagging move's K-types on that set, among them the
     # parents admission refuses, which the reject direction needs.
     function _testhelper_unfiltered_tags(c)
-        chem = EnzymeRates.Mechanisms._chemistry_groups(c)
+        chem = EnzymeRates.Enumeration._chemistry_groups(c)
         vt = [x ? :OnlyA : :EqualAI for x in chem]
         [(t = copy(vt); t[s] .= :OnlyA; t)
          for s in EnzymeRates.Enumeration._subsets(findall(!, chem))[2:end]]
@@ -9389,7 +9389,7 @@ end
     v = EnzymeRates.Derivation._guard(loop)
     @test (v.fault, v.limit, v.face) ===
           (EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_SPEED, 2)
-    @test EnzymeRates.Mechanisms._step_text(loop, v.edge) == "E + Q ⇌ E(Q)"
+    @test EnzymeRates.Mechanisms.step_text(loop, v.edge) == "E + Q ⇌ E(Q)"
     @test _testhelper_respeed_verdicts(loop; rng = Random.MersenneTwister(92),
                                        law = :limit)[2] === :pattern
     lflags = EnzymeRates.Enumeration._flux_carrying_groups(
@@ -9421,7 +9421,7 @@ end
     # Each name's uptake sign: the names are A, B, P, Q.
     @test ER.Enumeration._name_signs(seed) == [1, 1, -1, -1]
     raw = ER.Mechanisms.RawMechanism(seed)
-    iso = only(filter(EnzymeRates.Mechanisms._is_iso, raw.steps))
+    iso = only(filter(EnzymeRates.Enumeration._is_iso, raw.steps))
     merged = ER.Enumeration._merge_isomerization(raw, iso)
     # The isomerization's product side E(P, Q) takes over E(A, B)'s steps.
     base = _testhelper_base(merged)
@@ -9562,7 +9562,7 @@ end
             E + P ⇌ E(P)
         end
     end))
-    iso = only(filter(EnzymeRates.Mechanisms._is_iso, raw.steps))
+    iso = only(filter(EnzymeRates.Enumeration._is_iso, raw.steps))
     merged = ER.Enumeration._merge_isomerization(raw, iso)
     # S binds E into the merged complex E(P), and P binds E into it as well.
     # The expected groups turn the reaction over at rapid equilibrium, which the guard
@@ -10005,7 +10005,7 @@ end
     end
     # ELIM refuses the merged complex: it has three steps.
     raw = ER.Mechanisms.RawMechanism(seed)
-    iso = only(filter(EnzymeRates.Mechanisms._is_iso, raw.steps))
+    iso = only(filter(EnzymeRates.Enumeration._is_iso, raw.steps))
     merged = only(ER.Enumeration._seed_bases(seed))
     @test count(s -> s.to == iso.to, merged.steps) == 3
     @test ER.Enumeration._eliminate_form(merged, iso.to) === nothing
@@ -10846,7 +10846,7 @@ end
     v = ER.Derivation._guard(ss_mirror)
     @test (v.fault, v.limit, v.face) ===
           (ER.Derivation._SPLIT, ER.Derivation._LIMIT_SPEED, 3)
-    @test ER.Mechanisms._step_text(ss_mirror, v.edge) == "E + A ⇌ E(A)"
+    @test ER.Mechanisms.step_text(ss_mirror, v.edge) == "E + A ⇌ E(A)"
     @test _testhelper_respeed_verdicts(ss_mirror; rng = Random.MersenneTwister(94),
                                        law = :limit)[3] === :pattern
     @test ER.Derivation.parameter_count(ss_mirror) == 8 &&
@@ -12114,7 +12114,7 @@ end
         v = EnzymeRates.Derivation._guard(single_A)
         @test (v.fault, v.limit, v.face) ===
               (EnzymeRates.Derivation._TRAP, EnzymeRates.Derivation._LIMIT_SPEED, 3)
-        @test EnzymeRates.Mechanisms._step_text(single_A, v.edge) == "E(A) + B ⇌ E(A, B)"
+        @test EnzymeRates.Mechanisms.step_text(single_A, v.edge) == "E(A) + B ⇌ E(A, B)"
         @test _testhelper_respeed_verdicts(single_A; rng = Random.MersenneTwister(93),
                                            law = :limit)[3] === :pattern
         for single in (
@@ -13811,7 +13811,7 @@ end
     _testhelper_admission_fault(t) =
         EnzymeRates.Derivation._admission(EnzymeRates.AllostericMechanism(
             m, t, 1, EnzymeRates.Mechanisms.RegulatorySite[])).fault
-    vt = [c ? :OnlyA : :EqualAI for c in EnzymeRates.Mechanisms._chemistry_groups(m)]
+    vt = [c ? :OnlyA : :EqualAI for c in EnzymeRates.Enumeration._chemistry_groups(m)]
     @test _testhelper_admission_fault(vt) === EnzymeRates.Derivation._NO_LIMIT
     @test isempty(EnzymeRates.Enumeration._tagging_bases(m))
     kids = EnzymeRates.Enumeration._expand_to_allosteric(m, rxn)
@@ -13893,7 +13893,7 @@ end
     @test length(bases) == 3
     @test Set(bases) == Set([base_bd, base_bq, base_dq])
     @test all(EnzymeRates.Derivation.has_valid_rate_equation, bases)
-    chem = EnzymeRates.Mechanisms._chemistry_groups(m)
+    chem = EnzymeRates.Enumeration._chemistry_groups(m)
     p = only(findall(!, chem))
     vt = [c ? :OnlyA : :EqualAI for c in chem]
     with_p(t) = (u = copy(t); u[p] = :OnlyA; u)
@@ -14065,7 +14065,7 @@ end
     end
     @test err isa ErrorException
     @test occursin("carries net flux", err.msg)
-    @test occursin("{E_A → EA}", err.msg)
+    @test occursin("{E + A <--> E(A)}", err.msg)
 end
 
 @testset "expand_mechanisms rejects a parent whose copy group is redundant" begin
@@ -14146,7 +14146,7 @@ end
         products: P[C], Q[C]
         competitive_inhibitors: I
     end
-    parent = EnzymeRates.Mechanism(EnzymeRates.Mechanisms._raw_mechanism(:(begin
+    parent = EnzymeRates.Mechanism(EnzymeRates.Mechanisms.raw_mechanism(:(begin
         substrates: S
         products: P, Q
         steps: begin
@@ -16117,7 +16117,7 @@ end
     v = EnzymeRates.Derivation._guard(a_alone)
     @test (v.fault, v.limit, v.face) ===
           (EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_SPEED, 2)
-    @test EnzymeRates.Mechanisms._step_text(a_alone, v.edge) == "E + P ⇌ E(P)"
+    @test EnzymeRates.Mechanisms.step_text(a_alone, v.edge) == "E + P ⇌ E(P)"
     @test _testhelper_respeed_verdicts(a_alone; rng = Random.MersenneTwister(91),
                                        law = :limit)[v.face] === :pattern
     flags = EnzymeRates.Mechanisms.rapid_equilibrium_steps(parent)
@@ -16446,7 +16446,7 @@ end
     @test length(failures) == 1 && failures[1] isa Tuple{Any, String}
     @test failures[1][1] == m_bad
     # The recorded error is the assertion's: the chemistry step ES → EP makes an N.
-    @test occursin("atom-non-conserving step ES → EP", failures[1][2])
+    @test occursin("atom-non-conserving step E(S) → E(P)", failures[1][2])
     @test occursin("= Dict(:N => 1)", failures[1][2])
 end
 

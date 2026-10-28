@@ -13,14 +13,12 @@ const _testhelper_LAYERS = Dict(
     :Fitting => [:Mechanisms, :Derivation],
 )
 
-# The modules whose API lists and cross-module uses may still name underscore names.
-const _testhelper_UNDERSCORE_PENDING = Set{Symbol}([:Mechanisms])
-
 # Per file (path relative to src/), the expressions allowed despite a banned name,
 # such as "data.group". In Derivation they read its own values: the guard's networks
 # (`_Network`'s `from`, `to` and `conformation`), its verdicts (`_Verdict.conformation`),
 # the MWC law (`_AlloLaw.sites`) and the steps of `segment_graph`'s result, which
-# Enumeration's filters read too.
+# Enumeration's filters read too. Fitting and identify read the rate table's `group`
+# column.
 const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}(
     "Derivation/admission.jl" => Set(["eps.from", "eps.to", "net.conformation", "net.from",
         "net.to", "v.conformation"]),
@@ -32,6 +30,8 @@ const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}(
     "Derivation/messages.jl" => Set(["net.conformation", "net.from", "v.conformation"]),
     "Derivation/print.jl" => Set(["A.sites"]),
     "Enumeration/filters.jl" => Set(["s.steps"]),
+    "Fitting/fitting.jl" => Set(["data.group"]),
+    "identify_rate_equation.jl" => Set(["data.group", "prob.data.group"]),
     # The seed builder reads the written form (`RawStep`, `RawForm`, `RawMechanism`, `Met`)
     # that it assembles and transforms.
     "Enumeration/seeds.jl" => Set([
@@ -243,11 +243,11 @@ const _testhelper_MECHANISM_FIELDS = _testhelper_mechanism_fields(_testhelper_SR
 
 # Per owner (a module or :EnzymeRates for the top level), the field names banned there.
 const _testhelper_FIELD_BAN = Dict(:Derivation => _testhelper_MECHANISM_FIELDS,
-    :Enumeration => _testhelper_MECHANISM_FIELDS)
+    :Enumeration => _testhelper_MECHANISM_FIELDS, :Fitting => _testhelper_MECHANISM_FIELDS,
+    :EnzymeRates => _testhelper_MECHANISM_FIELDS)
 
-"""Runs the four rules over the tree at `root`. A module in `pending` may still hold
-underscore names: its rule 4 check is `@test_broken`."""
-function _testhelper_check_boundaries(root, pending, ban, allowed)
+"""Runs the four rules over the tree at `root`."""
+function _testhelper_check_boundaries(root, ban, allowed)
     modules = sort!(collect(keys(_testhelper_module_sources(root))))
     @testset "every cross-module name is in its API list" begin
         @test isempty(_testhelper_api_violations(root))
@@ -259,14 +259,9 @@ function _testhelper_check_boundaries(root, pending, ban, allowed)
         @test isempty(_testhelper_field_violations(root, ban, allowed))
     end
     @testset "no cross-module underscore names" begin
-        @test issubset(pending, _testhelper_MODULES)
         underscore = _testhelper_underscore_violations(root)
         for m in modules
-            if m in pending
-                @test_broken isempty(underscore[m])
-            else
-                @test isempty(underscore[m])
-            end
+            @test isempty(underscore[m])
         end
     end
 end
@@ -414,8 +409,8 @@ end
 end
 
 @testset "module boundaries" begin
-    _testhelper_check_boundaries(_testhelper_SRC, _testhelper_UNDERSCORE_PENDING,
-        _testhelper_FIELD_BAN, _testhelper_FIELD_ALLOWED)
+    _testhelper_check_boundaries(_testhelper_SRC, _testhelper_FIELD_BAN,
+        _testhelper_FIELD_ALLOWED)
 end
 
 @testset "documented internal paths resolve" begin

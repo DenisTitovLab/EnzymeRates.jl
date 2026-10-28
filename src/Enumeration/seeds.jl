@@ -3,6 +3,15 @@
 
 # ─── Catalytic topologies ─────────────────────────────────────────────
 
+"""Whether raw step `s` takes up and gives off nothing: an isomerization."""
+_is_iso(s::Mechanisms.RawStep) = isempty(s.consumed) && isempty(s.released)
+
+"""Group labels renumbered 1, 2, … in order of first occurrence."""
+function _numbered_groups(labels::Vector{Int})
+    first_seen = unique(labels)
+    [findfirst(==(l), first_seen) for l in labels]
+end
+
 """All subsets of `v` in binary-counting order (bit `i - 1` selects `v[i]`), empty first."""
 _subsets(v::AbstractVector) =
     [v[[isodd(mask >> (i - 1)) for i in eachindex(v)]] for mask in 0:(1 << length(v)) - 1]
@@ -104,7 +113,7 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     # --- Group paths by isomerization pattern ---
     iso_groups = Dict{Set{Mechanisms.RawStep}, Vector{Vector{Mechanisms.RawStep}}}()
     for path in paths
-        push!(get!(iso_groups, Set(filter(Mechanisms._is_iso, path)),
+        push!(get!(iso_groups, Set(filter(_is_iso, path)),
                    Vector{Mechanisms.RawStep}[]), path)
     end
 
@@ -154,10 +163,10 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
             push!(seen_topos, topo_keys)
 
             steps = sort!(collect(topo_keys);
-                          by = s -> (Mechanisms._is_iso(s), form_pair(s)...))
+                          by = s -> (_is_iso(s), form_pair(s)...))
 
             # The first iso step is the (single) SS step; every other step is RE.
-            iso_idx = findfirst(Mechanisms._is_iso, steps)
+            iso_idx = findfirst(_is_iso, steps)
             push!(result, Mechanisms.RawStep[
                 Mechanisms.RawStep(s.from, s.to, s.consumed, s.released, i != iso_idx)
                 for (i, s) in enumerate(steps)])
@@ -301,7 +310,7 @@ is a group of its own.
 function _seed_groups(steps::Vector{Mechanisms.RawStep})
     label = Dict{Tuple{Vector{Mechanisms.Met}, Vector{Mechanisms.Met}, Bool, Int}, Int}()
     [get!(label,
-          (s.consumed, s.released, s.rapid_equilibrium, Mechanisms._is_iso(s) ? j : 0),
+          (s.consumed, s.released, s.rapid_equilibrium, _is_iso(s) ? j : 0),
           length(label) + 1)
      for (j, s) in enumerate(steps)]
 end
@@ -319,8 +328,7 @@ function _merge_isomerization(raw::Mechanisms.RawMechanism, s0::Mechanisms.RawSt
                                                   s.released, s.rapid_equilibrium)
                                for s in raw.steps[keep]]
     Mechanisms.RawMechanism(raw.substrates, raw.products, raw.modifiers, steps,
-                            first(Mechanisms._number_groups(raw.group[keep],
-                                                            maximum(raw.group))))
+                            _numbered_groups(raw.group[keep]))
 end
 
 """
@@ -344,7 +352,7 @@ function _eliminate_form(raw::Mechanisms.RawMechanism, x::Mechanisms.RawForm)
                                                  release.consumed, true)]
     group = [raw.group[keep]; maximum(raw.group) + 1]
     Mechanisms.RawMechanism(raw.substrates, raw.products, raw.modifiers, steps,
-                            first(Mechanisms._number_groups(group, maximum(group))))
+                            _numbered_groups(group))
 end
 
 """The merged complexes of graph `m`, each once: the forms that a fused binding of a
@@ -366,7 +374,7 @@ equilibrium with both sides (`_chemistry_equilibrates_both_sides`). Each edge's 
 uptake weight and reactants are read once per base, so a candidate costs a few passes
 over arrays. A base holds no isomerization, so each chemistry node is a merged complex
 or a Theorell–Chance step. A set of edges holds a turnover cycle iff it closes a cycle of
-nonzero weight (`_has_unbalanced_cycle`), which reuses the screen's buffers. Each
+nonzero weight (`has_unbalanced_cycle`), which reuses the screen's buffers. Each
 maximal-rate test runs on the candidate's rapid-equilibrium edges and more, and adding
 edges never removes such a cycle, so a turnover cycle of the candidate fails both tests.
 """
@@ -389,7 +397,7 @@ function _seed_candidate_screen(m::Mechanisms.Mechanism)
     exits = [(leaves(x, subs), leaves(x, prods)) for x in complexes]
     n = length(Mechanisms.species(m))
     parent = zeros(Int, n); offset = zeros(Int, n)
-    turnover(on) = Mechanisms._has_unbalanced_cycle(from, to, weight, on, parent, offset)
+    turnover(on) = Mechanisms.has_unbalanced_cycle(from, to, weight, on, parent, offset)
     meets(a::BitVector, b::BitVector) = any(k -> a[k] && b[k], eachindex(a))
     kept = falses(length(ks))
     function screen(re::BitVector)
@@ -411,7 +419,7 @@ that can be eliminated, in the order of the isomerizations.
 """
 function _seed_bases(m::Mechanisms.Mechanism)
     raw = Mechanisms.RawMechanism(m)
-    isos = filter(Mechanisms._is_iso, raw.steps)
+    isos = filter(_is_iso, raw.steps)
     joined = foldl(_merge_isomerization, isos; init = raw)
     merged = Mechanisms.RawMechanism(joined.substrates, joined.products, joined.modifiers,
                                      Mechanisms.RawStep[
@@ -435,9 +443,9 @@ end
 
 """
 The merged and Theorell–Chance variants of the seed `m` of reaction `rxn`, whose atoms
-each base's edges must conserve. Each base (`_seed_bases`) is read as the graph
-`_canonicalize` gives it, unchecked; a base whose tied groups no orientation aligns raises
-the representation error (`_check_aligned`). MERGE and ELIM conserve atoms, which each
+each base's edges must conserve. Each base (`_seed_bases`) is read as its canonical graph
+(`canonical_graph`), unchecked; a base whose tied groups no orientation aligns raises
+the representation error. MERGE and ELIM conserve atoms, which each
 base asserts. For each base, every inclusion-minimal set of its groups (`_minimal_flips`)
 whose flip to steady state gives a valid, flux-carrying, non-degenerate candidate is a
 variant: no rapid-equilibrium turnover cycle (`has_turnover_cycle`), a maximal rate both
@@ -453,9 +461,7 @@ each is built and checked.
 function _seed_variants(m::Mechanisms.Mechanism, rxn::Mechanisms.EnzymeReaction)
     variants = Mechanisms.Mechanism[]
     for (i, b) in enumerate(_seed_bases(m))
-        c = Mechanisms._canonicalize(b)
-        Mechanisms._check_aligned(c.mechanism, c.misaligned)
-        base = c.mechanism
+        base = Mechanisms.canonical_graph(b)
         _assert_atom_conserving(base, rxn)
         flips = _minimal_flips(_seed_candidate_screen(base), base)
         if i == 1

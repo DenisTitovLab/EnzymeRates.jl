@@ -231,3 +231,43 @@ end
     @test_throws "must match the number of kinetic groups 3" M.with_tags(am,
                                                                     [:EqualAI, :NonequalAI])
 end
+
+@testset "canonical_graph: the canonical graph of raw input, aligned but unchecked" begin
+    M = EnzymeRates.Mechanisms
+    # Uni-uni written with its release first: the graph is the mechanism the checked
+    # constructor builds.
+    block = :(begin
+        substrates: S
+        products: P
+        steps: begin
+            E(P) ⇌ E + P
+            E(S) <--> E(P)
+            E + S ⇌ E(S)
+        end
+    end)
+    raw = M.raw_mechanism(block, false)
+    @test M.canonical_graph(raw) == EnzymeRates.Mechanism(raw)
+    # A declared modifier that no step binds fails the checked constructor; the graph
+    # still builds.
+    unused = M.RawMechanism(raw.substrates, raw.products, [:I], raw.steps, raw.group)
+    @test_throws("modifier I is declared, but no step binds it",
+                 EnzymeRates.Mechanism(unused))
+    g = M.canonical_graph(unused)
+    @test [M.step_text(g, k) for k in M.steps(g)] ==
+          ["E + P ⇌ E(P)", "E + S ⇌ E(S)", "E(S) <--> E(P)"]
+    # Tied steps that make different conformational changes have no canonical graph.
+    @test_throws(ErrorException(
+        "Mechanism: a kinetic group holds E → F and F → G, which make different " *
+        "conformational changes; the steps of a kinetic group share their constants, so " *
+        "they must make the same conformational change"),
+        M.canonical_graph(M.raw_mechanism(:(begin
+            substrates: A
+            products: P
+            steps: begin
+                E + A <--> E(A)
+                E(A) <--> E(P)
+                E(P) <--> E + P
+                (E ⇌ F, F ⇌ G, G ⇌ E)
+            end
+        end), false)))
+end

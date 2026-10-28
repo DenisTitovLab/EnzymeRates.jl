@@ -36,7 +36,7 @@ function _testhelper_solve_point(m, rng)
             inactive && !sys.law[k] && continue
             own = inactive &&
                 _testhelper_JS.Mechanisms._has_inactive_columns(sys.tags[s.group])
-            col(slot) = value[_testhelper_JS.Mechanisms._Column(k, slot, own)]
+            col(slot) = value[(edge = k, slot = slot, inactive = own)]
             if s.rapid_equilibrium
                 K = col(1)
                 push!(out, (s, _testhelper_is_binding(s) ? 1 / K : K, nothing))
@@ -50,9 +50,9 @@ function _testhelper_solve_point(m, rng)
     L = big(0)
     if allo
         L = exp(4 * big(rand(rng)) - 2)
-        for p in [_testhelper_JS.Mechanisms._kreg_params(mech, :A);
-                  _testhelper_JS.Mechanisms._kreg_params(mech, :I)]
-            vals[_testhelper_JS.Mechanisms.name(p, mech)] = exp(4 * big(rand(rng)) - 2)
+        for K in [_testhelper_regulator_constants(mech, :A);
+                  _testhelper_regulator_constants(mech, :I)]
+            vals[K] = exp(4 * big(rand(rng)) - 2)
         end
     end
     (; vals, Keq = exp(log_keq), active = _testhelper_conformation(false),
@@ -373,9 +373,7 @@ end
                 mech = _testhelper_lift(spec.mechanism)
                 sys = EnzymeRates.Derivation._joint_system(mech)
                 _, pivots = EnzymeRates.Derivation._reduce_joint_system(sys.A, sys.rhs)
-                group = EnzymeRates.Mechanisms.catalytic(mech).group
-                class(c) =
-                    EnzymeRates.Derivation._class(c, group[c.edge], sys.tags[group[c.edge]])
+                class(c) = EnzymeRates.Derivation._class(mech, c)
                 last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
                 n_law = count(i -> (c = sys.columns[i]; (!c.inactive || sys.law[c.edge]) &&
                                                         last_of[class(c)] == i &&
@@ -557,7 +555,7 @@ end
         end
     end)
     s = EnzymeRates.Derivation._solve(am)
-    C = EnzymeRates.Mechanisms._Column
+    C(edge, slot, inactive) = (; edge, slot, inactive)
     binding = _testhelper_edge(am, "E + S ⇌ ES")
     release = _testhelper_edge(am, "E + P <--> ES")
     @test length(s.columns) == 5

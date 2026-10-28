@@ -1,6 +1,27 @@
 # ABOUTME: The expansion moves of the enumeration (RE→SS flips, group splits, dead-end
 # ABOUTME: and allosteric regulators, allosteric states, site merges) and their searches.
 
+# ─── Kinetic groups ──────────────────────────────────────────
+
+"""Each kinetic group's steps of graph `m`, in step order (`members`)."""
+_group_members(m::Mechanisms.Mechanism) =
+    [Mechanisms.members(m, g) for g in 1:Mechanisms.ngroups(m)]
+
+"""Whether each kinetic group of graph `m` holds some step `k` with `pred(k)`."""
+function _groups_with(pred, m::Mechanisms.Mechanism)
+    out = falses(Mechanisms.ngroups(m))
+    for k in Mechanisms.steps(m)
+        pred(k) && (out[Mechanisms.group(m, k)] = true)
+    end
+    out
+end
+
+"""Whether each kinetic group of graph `m` holds a chemistry step: anything but a plain
+binding (`step_kind`). The allosteric moves tag a chemistry group apart from a binding
+group."""
+_chemistry_groups(m::Mechanisms.Mechanism) =
+    _groups_with(k -> Mechanisms.step_kind(m, k) !== :binding, m)
+
 # ─── Expansion Moves ─────────────────────────────────────────
 
 """
@@ -61,7 +82,7 @@ restore a hyperbolic equation, so its supersets need no visit.
 function _expand_re_to_ss(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
     flanks = _chain_flank_groups(m)
-    exchanges_modifier = Mechanisms._groups_with(cm) do k
+    exchanges_modifier = _groups_with(cm) do k
         !isempty(Mechanisms.modifier_copies(Mechanisms.taken_up(cm, k))) ||
             !isempty(Mechanisms.modifier_copies(Mechanisms.given_off(cm, k)))
     end
@@ -84,7 +105,7 @@ subunit a flank's flip can be visible through the two conformations.
 function _chain_flank_groups(m::Mechanisms.Mechanism)
     # The group of each edge alone in its group, 0 for any other edge.
     lone = zeros(Int, length(Mechanisms.steps(m)))
-    for (g, ks) in enumerate(Mechanisms._group_members(m))
+    for (g, ks) in enumerate(_group_members(m))
         length(ks) == 1 && (lone[only(ks)] = g)
     end
     at = [Int[] for _ in Mechanisms.species(m)]
@@ -123,10 +144,12 @@ every flipped group carries flux in it, and the guard accepts the mechanism it b
 passes them is built. The sets come from `_minimal_gaining_sets`, so a failing set is
 extended and a passing one is not.
 """
-function _minimal_flips(admissible, m::Mechanisms._AnyMech, eligible = _ -> true)
+function _minimal_flips(admissible,
+                        m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
+                        eligible = _ -> true)
     cm = Mechanisms.catalytic(m)
     flags = Mechanisms.rapid_equilibrium_steps(cm)
-    members = Mechanisms._group_members(cm)
+    members = _group_members(cm)
     flux = _flux_carrying_groups(cm, falses(length(Mechanisms.steps(cm))))
     units = [g for g in eachindex(members)
              if all(k -> flags[k], members[g]) && flux[g] && eligible(g)]
@@ -202,7 +225,7 @@ pinned by the edge that carries flux.
 """
 function _flux_carrying_groups(m::Mechanisms.Mechanism, re::BitVector)
     flux = _flux_carrying_edges(m, re)
-    Mechanisms._groups_with(k -> flux[k], m)
+    _groups_with(k -> flux[k], m)
 end
 
 """Each metabolite name's net uptake sign, the names sorted (the rows of `re_segments`'
@@ -351,7 +374,7 @@ constructor, since a regrouping can turn a tied group's member.
 function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
                                                Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
-    members = Mechanisms._group_members(cm)
+    members = _group_members(cm)
     flags = Mechanisms.rapid_equilibrium_steps(cm)
     flux = _flux_carrying_edges(cm, flags)
     units = Tuple{Int, Tuple{Vector{Int}, Vector{Int}}}[]
@@ -472,7 +495,7 @@ it.
 function _bipartitioned_groups(m::Mechanisms.Mechanism, selection)
     second = Dict(g => last(bp) for (g, bp) in selection)
     group, n = zeros(Int, length(Mechanisms.steps(m))), 0
-    for (g, ks) in enumerate(Mechanisms._group_members(m))
+    for (g, ks) in enumerate(_group_members(m))
         group[ks] .= (n += 1)
         haskey(second, g) && (group[second[g]] .= (n += 1))
     end
@@ -552,9 +575,10 @@ end
 """
 The dead-end move's child of `m` that `raw` (`_dead_end_raw`) writes, binding modifier
 `reg` in a new group; `nothing` when the copy is redundant in it (`_redundant_copy_groups`).
-A `Mechanism` candidate is canonicalized (`_canonicalize`) and its new group tested by
-`_gauge_rescaling` on the candidate's own twins (`_productive_twin`), before any check
-runs; it is built through the checked constructor only when kept. The twins are the
+A `Mechanism` candidate is read as its canonical graph (`canonical_graph`) and its new
+group, the group of the steps that take the copy up, tested by `_gauge_rescaling` on the
+candidate's own twins (`_productive_twin`), before any other check runs; it is built
+through the checked constructor only when kept. The twins are the
 candidate's, not the parent's, though they are the same forms: the complexes are not
 productive, and their edges attach each complex to its site's segment and join no two
 segments, so every form of `m` keeps its segment and offsets; but the complexes sort in
@@ -566,12 +590,13 @@ child is built through the checked constructor, its copy's group tagged `:EqualA
 `m`'s multiplicity and regulatory sites, and runs `_redundant_copy_groups` only when every
 complex of the copy has a twin in the active state (`_all_twin`), which redundancy needs.
 """
-function _dead_end_child(m::Mechanisms.Mechanism, raw::Mechanisms.RawMechanism, ::Symbol)
-    c = Mechanisms._canonicalize(raw)
-    cm = c.mechanism
+function _dead_end_child(m::Mechanisms.Mechanism, raw::Mechanisms.RawMechanism,
+                         reg::Symbol)
+    cm = Mechanisms.canonical_graph(raw)
     twin = _productive_twin(cm, trues(length(Mechanisms.steps(cm))))
-    _gauge_rescaling(cm, Mechanisms._group_members(cm),
-                     c.group_of[Mechanisms.ngroups(m) + 1], twin,
+    binding = findfirst(k -> _held_copies(Mechanisms.taken_up(cm, k), reg, true) > 0,
+                        Mechanisms.steps(cm))::Int
+    _gauge_rescaling(cm, _group_members(cm), Mechanisms.group(cm, binding), twin,
                      _one_state_class) === nothing || return nothing
     Mechanisms.Mechanism(raw)
 end
@@ -711,7 +736,7 @@ none, and a half spread over several chemistry groups can give several. The base
 size, each size in `_subsets` order.
 """
 function _tagging_bases(m::Mechanisms.Mechanism)
-    chem = Mechanisms._chemistry_groups(m)
+    chem = _chemistry_groups(m)
     tagged(onlya) = [g in onlya ? :OnlyA : :EqualAI for g in eachindex(chem)]
     groups = findall(chem)
     _valid_tagging(m, tagged(groups)) && return [tagged(groups)]
@@ -792,7 +817,7 @@ function _expand_to_allosteric(m::Mechanisms.Mechanism, rxn::Mechanisms.EnzymeRe
     cns = [cn for cn in Mechanisms.allowed_catalytic_multiplicities(rxn)
            if cn == 1 || hyperbolic]
     isempty(cns) && return Mechanisms.AllostericMechanism[]
-    chem = Mechanisms._chemistry_groups(m)
+    chem = _chemistry_groups(m)
     vtags = [c ? :OnlyA : :EqualAI for c in chem]
     regs = [Mechanisms.name(Mechanisms.regulator(rm)) for rm in Mechanisms.regulators(rxn)
             if Mechanisms.regulator(rm) isa Mechanisms.AllostericRegulator]
@@ -938,7 +963,7 @@ the copy's constant then shows in neither state.
 """
 function _expand_change_allo_state(am::Mechanisms.AllostericMechanism)
     states = Mechanisms.cat_allo_states(am)
-    chem = Mechanisms._chemistry_groups(Mechanisms.catalytic(am))
+    chem = _chemistry_groups(Mechanisms.catalytic(am))
     # Binding catalytic groups relax individually; the chemistry groups relax together,
     # in one variant, and only while no binding group is :OnlyA.
     relaxations = [[g] for g in eachindex(states) if !chem[g] && states[g] != :NonequalAI]
@@ -975,8 +1000,8 @@ The conformations a single ligand's allosteric `state` acts on: `:active` for
 """
 function _state_conformations(state::Symbol)
     conf = Set{Symbol}()
-    Mechanisms._excluded_by(state, false) || push!(conf, :active)
-    Mechanisms._excluded_by(state, true) || push!(conf, :inactive)
+    state === :OnlyI || push!(conf, :active)
+    state === :OnlyA || push!(conf, :inactive)
     conf
 end
 

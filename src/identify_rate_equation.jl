@@ -37,11 +37,19 @@ struct IdentifyRateEquationProblem{D<:NamedTuple}
     reference::Vector{Pair{NamedTuple, Float64}}
 end
 
+"""The distinct metabolite names of `rxn`: substrates, then products, then regulators,
+each in stored order, keeping a name's first occurrence."""
+_metabolite_names(rxn::Mechanisms.EnzymeReaction) =
+    unique!(Symbol[Mechanisms.name.(Mechanisms.substrates(rxn));
+                   Mechanisms.name.(Mechanisms.products(rxn));
+                   [Mechanisms.name(Mechanisms.regulator(rm))
+                    for rm in Mechanisms.regulators(rxn)]])
+
 function IdentifyRateEquationProblem(
     reaction::Mechanisms.EnzymeReaction, table; Keq::Real,
     absolute::Bool=false, reference=nothing
 )
-    mnames = Mechanisms._metabolite_names(reaction)
+    mnames = _metabolite_names(reaction)
     # Every metabolite the reaction declares needs a concentration column.
     (; data, reference) = Fitting.rate_data(table, mnames;
         Keq, absolute, reference, owner = "reaction")

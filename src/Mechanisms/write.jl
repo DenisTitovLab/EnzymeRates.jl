@@ -1,5 +1,22 @@
-# ABOUTME: The written form of a mechanism (its forms, steps and whole as raw input) and the
-# ABOUTME: writers that rebuild a mechanism with new flags, kinetic groups or tags.
+# ABOUTME: A mechanism as raw input (forms, steps, the whole), the canonical graph of raw
+# ABOUTME: input, and the writers that rebuild a mechanism with new flags, groups or tags.
+
+# ─── The canonical graph ────────────────────────────────────────────────
+
+"""
+    canonical_graph(raw::RawMechanism) -> Mechanism
+
+The canonical graph `raw` writes (`_canonicalize`), with the representation checks of
+`Mechanism(raw)` left out but one: a kinetic group whose tied steps no orientation aligns
+has no canonical graph, so it raises the representation error (`_check_aligned`). The
+seed variants read their merged and Theorell–Chance bases this way, and the dead-end move
+reads a candidate before it decides to build it.
+"""
+function canonical_graph(raw::RawMechanism)
+    c = _canonicalize(raw)
+    _check_aligned(c.mechanism, c.misaligned)
+    c.mechanism
+end
 
 # ─── The written form ───────────────────────────────────────────────────
 

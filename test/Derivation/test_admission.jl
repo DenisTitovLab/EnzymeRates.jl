@@ -120,8 +120,8 @@ end
         end
     end
     bind, iso = _testhelper_edge(r2, "E + S ⇌ ES"), _testhelper_edge(r2, "F <--> E")
-    @test EnzymeRates.Mechanisms._excludes(r2, bind, 2) &&
-          !EnzymeRates.Mechanisms._excludes(r2, bind, 1)
+    @test EnzymeRates.Mechanisms.excludes(r2, bind, :inactive) &&
+          !EnzymeRates.Mechanisms.excludes(r2, bind, :active)
     @test EnzymeRates.Mechanisms.conformation_steps(r2, :active) == trues(4)
     # The inactive law deletes both tagged steps, which strands every form but E.
     @test EnzymeRates.Mechanisms.conformation_steps(r2, :inactive) == falses(4)
@@ -289,7 +289,7 @@ end
         @test v.fault === EnzymeRates.Derivation._RE_TURNOVER
         msg = EnzymeRates.Derivation._guard_message(m, v)
         @test all(
-            t -> occursin(EnzymeRates.Mechanisms._step_text(m, net.edge[t]), msg), cycle)
+            t -> occursin(EnzymeRates.Mechanisms.step_text(m, net.edge[t]), msg), cycle)
         # The fix is printed only where each step of the cycle, made steady-state, cures
         # every fast turnover cycle (`_every_step_cures`); on sib some of its steps leave a
         # second fast cycle.
@@ -473,12 +473,12 @@ end
         raw = EnzymeRates.Mechanisms.RawMechanism(cm)
         for k in eachindex(cm.edges)
             op, lhs, rhs = EnzymeRates.Mechanisms._step_parts(
-                Meta.parse(EnzymeRates.Mechanisms._step_text(cm, k)), "@enzyme_mechanism")
+                Meta.parse(EnzymeRates.Mechanisms.step_text(cm, k)), "@enzyme_mechanism")
             @test EnzymeRates.Mechanisms._raw_step(op, lhs, rhs, names,
                                                    "@enzyme_mechanism") == raw.steps[k]
         end
     end
-    line(m, text) = EnzymeRates.Mechanisms._step_text(m, _testhelper_edge(m, text))
+    line(m, text) = EnzymeRates.Mechanisms.step_text(m, _testhelper_edge(m, text))
     @test line(pingpong, "E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP") ==
           "E(; residual = A - P) + B ⇌ E(B; residual = A - P)"
     @test line(theorell_chance, "EA + B <--> EQ + P") == "E(A) + B <--> E(Q) + P"
@@ -1168,7 +1168,7 @@ end
     @test EnzymeRates.Derivation._guard_message(weighted, v) ==
           "Mechanism: at zero P, the forms {F(S)} keep enzyme away from free E: every " *
           "step that leaves them takes up a zeroed metabolite " *
-          "($(EnzymeRates.Mechanisms._step_text(weighted, leaving))), so the steady " *
+          "($(EnzymeRates.Mechanisms.step_text(weighted, leaving))), so the steady " *
           "state is not unique."
     # An allosteric message names the conformation the closed set lies in.
     at_P, at_PX = _testhelper_face_verdicts(detour)[[2, 5]]
@@ -1685,7 +1685,7 @@ for label in (:D, :Ca, :Ea, :F, :Z), chem in (:NonequalAI, :OnlyA)
         end
     end
     _testhelper_tag_sets["AD13_$(chem)_$label"] =
-        EnzymeRates.AllostericMechanism(EnzymeRates.Mechanisms._raw_mechanism(block, true))
+        EnzymeRates.AllostericMechanism(EnzymeRates.Mechanisms.raw_mechanism(block, true))
 end
 _testhelper_tag_sets["AD14"] = @_testhelper_unguarded @allosteric_mechanism begin
     substrates: S
@@ -2052,12 +2052,12 @@ end
     bind, release, chem = (_testhelper_edge(am, t) for t in
                            ("E + S ⇌ ES", "E + P ⇌ EP", "ES <--> EP"))
     # The chemistry is stored substrate side first, so it runs toward products as stored.
-    @test EnzymeRates.Mechanisms._runs_toward_products(m, chem)
+    @test EnzymeRates.Mechanisms.runs_toward_products(m, chem)
     v = EnzymeRates.Derivation._guard(am)
     @test v == EnzymeRates.Derivation._Verdict(NL, U, 0, 2, bind)
     @test EnzymeRates.Derivation._admission_interior(am) == v
     @test _testhelper_epath_verdict(am; rng) === :no_path
-    line(k) = EnzymeRates.Mechanisms._step_text(m, k)
+    line(k) = EnzymeRates.Mechanisms.step_text(m, k)
     @test EnzymeRates.Derivation._guard_message(am, v) ==
           "AllostericMechanism: in the inactive conformation, steps outside :OnlyA " *
           "groups still join the two sides of the :OnlyA binding $(line(bind)), so " *
@@ -2151,7 +2151,7 @@ end
     for (x, path) in ((ad1_ss, ("E + Q ⇌ EQ", "E + B ⇌ EB", "EB + Q ⇌ EBQ")),
                       (ad1_re, ("E + Q ⇌ EQ", "E + B ⇌ EB", "EB + Q ⇌ EBQ")),
                       (ad3c, ("E + S ⇌ ES", "ES + Smod ⇌ ESSmod", "ESmod + S ⇌ ESSmod")))
-        joins = join((EnzymeRates.Mechanisms._step_text(x.catalytic, _testhelper_edge(x, t))
+        joins = join((EnzymeRates.Mechanisms.step_text(x.catalytic, _testhelper_edge(x, t))
                       for t in path), "; ")
         @test endswith(
             EnzymeRates.Derivation._guard_message(x, EnzymeRates.Derivation._guard(x)),
@@ -2261,8 +2261,8 @@ end
             E(B) + Q ⇌ E(B, Q)                                      :: OnlyA
         end
     end
-    joins = join((EnzymeRates.Mechanisms._step_text(ad11.catalytic,
-                                                     _testhelper_edge(ad11, t))
+    joins = join((EnzymeRates.Mechanisms.step_text(ad11.catalytic,
+                                                   _testhelper_edge(ad11, t))
                   for t in ("E + Q ⇌ EQ", "E + B ⇌ EB", "EB + Q ⇌ EBQ")), "; ")
     @test endswith(
         EnzymeRates.Derivation._guard_message(ad11, EnzymeRates.Derivation._guard(ad11)),
@@ -2278,7 +2278,7 @@ end
     _testhelper_no_limit_cause(x, k) =
         "AllostericMechanism: in the inactive conformation, steps outside :OnlyA " *
         "groups still join the two sides of the :OnlyA binding " *
-        "$(EnzymeRates.Mechanisms._step_text(x.catalytic, k)), so thermodynamics keeps " *
+        "$(EnzymeRates.Mechanisms.step_text(x.catalytic, k)), so thermodynamics keeps " *
         "its affinity finite and the binding has no limit there."
     deadend = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
@@ -2375,8 +2375,8 @@ end
     @test v == EnzymeRates.Derivation._Verdict(NL, U, 0, 2,
                                                _testhelper_edge(two_bindings, "E + I ⇌ EI"))
     @test _testhelper_epath_verdict(two_bindings; rng) === :no_path
-    joins = join((EnzymeRates.Mechanisms._step_text(two_bindings.catalytic,
-                                                    _testhelper_edge(two_bindings, t))
+    joins = join((EnzymeRates.Mechanisms.step_text(two_bindings.catalytic,
+                                                   _testhelper_edge(two_bindings, t))
                   for t in ("E + P ⇌ EP", "ES <--> EP", "ES + I ⇌ EIS", "EI + S ⇌ EIS")),
                  "; ")
     @test EnzymeRates.Derivation._guard_message(two_bindings, v) ==
@@ -2463,8 +2463,8 @@ end
     @test EnzymeRates.Derivation._guard(cube_untagged) == EnzymeRates.Derivation._WELL_POSED
     @test EnzymeRates.Derivation._guard(cube_joins_tagged) ==
           EnzymeRates.Derivation._WELL_POSED
-    joins = join((EnzymeRates.Mechanisms._step_text(cube.catalytic,
-                                                     _testhelper_edge(cube, t))
+    joins = join((EnzymeRates.Mechanisms.step_text(cube.catalytic,
+                                                   _testhelper_edge(cube, t))
                   for t in ("EA + C ⇌ EAC", "EC + A ⇌ EAC", "EC + B ⇌ EBC",
                             "EB + C ⇌ EBC", "EB + A ⇌ EAB")), "; ")
     @test endswith(
@@ -2487,14 +2487,14 @@ end
     a, b, chem, release = (_testhelper_edge(am, t) for t in
                            ("E + A ⇌ EA", "EA + B ⇌ EAB", "EAB <--> EP", "E + P ⇌ EP"))
     @test _testhelper_exclusion(am, 2).failure === :cycle
-    @test EnzymeRates.Mechanisms._exclusion_components(am, 2) ==
+    @test EnzymeRates.Mechanisms.exclusion_components(am, :inactive) ==
           [1, 2, 1, 1]  # E, E(A), E(A, B), E(P)
-    @test EnzymeRates.Mechanisms._exclusion_components(am, 1) == [1, 1, 1, 1]
+    @test EnzymeRates.Mechanisms.exclusion_components(am, :active) == [1, 1, 1, 1]
     v = EnzymeRates.Derivation._guard(am)
     @test v ==
           EnzymeRates.Derivation._Verdict(EnzymeRates.Derivation._ARC_CYCLE, U, 0, 2, b)
     @test _testhelper_epath_verdict(am; rng) === :no_path
-    line(k) = EnzymeRates.Mechanisms._step_text(m, k)
+    line(k) = EnzymeRates.Mechanisms.step_text(m, k)
     @test EnzymeRates.Derivation._guard_message(am, v) ==
           "AllostericMechanism: the :OnlyA bindings $(line(b)); $(line(a)) close a cycle " *
           "in the inactive conformation: steps outside :OnlyA groups join each one's " *
@@ -2585,7 +2585,7 @@ end
             E(A, I) + B ⇌ E(A, B, I)    :: EqualAI
         end
     end
-    line_i(k) = EnzymeRates.Mechanisms._step_text(with_i.catalytic, k)
+    line_i(k) = EnzymeRates.Mechanisms.step_text(with_i.catalytic, k)
     a_i, b_i = (_testhelper_edge(with_i, t) for t in ("E + A ⇌ EA", "EA + B ⇌ EAB"))
     v = EnzymeRates.Derivation._guard(with_i)
     @test v ==
@@ -2625,12 +2625,12 @@ end
         end
     end
     half1 = _testhelper_edge(both, "E_res_plusA_minusP + P <--> EA")
-    @test !EnzymeRates.Mechanisms._runs_toward_products(both.catalytic, half1)
+    @test !EnzymeRates.Mechanisms.runs_toward_products(both.catalytic, half1)
     v = EnzymeRates.Derivation._guard(both)
     @test v == EnzymeRates.Derivation._Verdict(IS, U, 0, 2, half1)
     @test !isempty(_testhelper_exclusion(both, 2).lost)
     @test _testhelper_island_verdict(both)
-    line = EnzymeRates.Mechanisms._step_text(both.catalytic, half1)
+    line = EnzymeRates.Mechanisms.step_text(both.catalytic, half1)
     @test EnzymeRates.Derivation._guard_message(both, v) ==
           "AllostericMechanism: in the inactive conformation the forms " *
           "E(; residual = A - P), E(B; residual = A - P) join free E only through " *
@@ -2688,12 +2688,12 @@ end
     for (x, fixed, forms) in ((r3, r3_untagged, "F, F(I)"), (r4, r4_untagged, "F"))
         iso = _testhelper_edge_between(x, "E", "F")
         # An isomerization of free forms ties on both sides, so it runs as stored.
-        @test EnzymeRates.Mechanisms._runs_toward_products(x.catalytic, iso)
+        @test EnzymeRates.Mechanisms.runs_toward_products(x.catalytic, iso)
         v = EnzymeRates.Derivation._guard(x)
         @test v == EnzymeRates.Derivation._Verdict(IS, U, 0, 2, iso)
         @test _testhelper_island_verdict(x)
         msg = EnzymeRates.Derivation._guard_message(x, v)
-        line = EnzymeRates.Mechanisms._step_text(x.catalytic, iso)
+        line = EnzymeRates.Mechanisms.step_text(x.catalytic, iso)
         @test occursin("the forms $forms join free E", msg)
         @test endswith(msg, "Tag the group of $line :EqualAI or :NonequalAI.")
         @test EnzymeRates.Derivation._guard(fixed) == EnzymeRates.Derivation._WELL_POSED
@@ -2815,7 +2815,7 @@ const _testhelper_face_rejected = Set(["R2", "BS1", "BS2", "BS3", "BS4", "ADbrid
     v = EnzymeRates.Derivation._guard(am)
     @test v == EnzymeRates.Derivation._Verdict(
         PU, EnzymeRates.Derivation._LIMIT_UNTESTED, 2, 2, k)
-    line(j) = EnzymeRates.Mechanisms._step_text(m, j)
+    line(j) = EnzymeRates.Mechanisms.step_text(m, j)
     @test EnzymeRates.Derivation._guard_message(am, v) ==
           "AllostericMechanism: at zero P, $(line(k)) feeds the forms F of the inactive " *
           "conformation, which leave only through the vanishing step $(line(iso)) while " *
@@ -2910,7 +2910,7 @@ end
     v = EnzymeRates.Derivation._guard(am)
     @test v == EnzymeRates.Derivation._Verdict(
         BR, EnzymeRates.Derivation._LIMIT_UNTESTED, 1, 2, k)
-    line = EnzymeRates.Mechanisms._step_text(m, k)
+    line = EnzymeRates.Mechanisms.step_text(m, k)
     @test EnzymeRates.Derivation._guard_message(am, v) ==
           "AllostericMechanism: the :OnlyA step $line bridges forms of the inactive " *
           "conformation that its other steps keep apart, so admission cannot show that " *
@@ -3030,7 +3030,7 @@ end
         BR, EnzymeRates.Derivation._LIMIT_UNTESTED, 1, 2, k)
     @test endswith(EnzymeRates.Derivation._guard_message(am, v),
                    "Make the group of " *
-                   "$(EnzymeRates.Mechanisms._step_text(am.catalytic, k)) steady-state.")
+                   "$(EnzymeRates.Mechanisms.step_text(am.catalytic, k)) steady-state.")
     fixed = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
@@ -3248,7 +3248,7 @@ end
     v = EnzymeRates.Derivation._guard(m)
     @test (v.fault, v.limit, v.face, v.edge) ===
           (TR, EnzymeRates.Derivation._LIMIT_SPEED, 3, feed)
-    @test occursin(EnzymeRates.Mechanisms._step_text(m, feed),
+    @test occursin(EnzymeRates.Mechanisms.step_text(m, feed),
                    EnzymeRates.Derivation._guard_message(m, v))
     # The variant moves the steady-state binding of S1 from free E to E(S2), where it
     # stays redundant inside the one RE segment: every face passes, and its law is the
@@ -3313,7 +3313,7 @@ end
     v = EnzymeRates.Derivation._guard(am)
     @test (v.fault, v.limit, v.face, v.edge) ===
           (TR, EnzymeRates.Derivation._LIMIT_SPEED, 2, feed)
-    @test occursin(EnzymeRates.Mechanisms._step_text(am.catalytic, feed),
+    @test occursin(EnzymeRates.Mechanisms.step_text(am.catalytic, feed),
                    EnzymeRates.Derivation._guard_message(am, v))
     # The variant makes the :EqualAI NAD group steady-state, keeping its six groups: every
     # face passes the guard and agrees with both oracles, and its law is exact.
@@ -3875,7 +3875,7 @@ end
     @test (v.fault, v.face, v.conformation) ==
           (EnzymeRates.Derivation._NO_ACTIVE_TURNOVER, 0, 1)
     ks = [k for k in eachindex(am.catalytic.edges)
-          if EnzymeRates.Mechanisms._excludes(am, k, 1)]
+          if EnzymeRates.Mechanisms.excludes(am, k, :active)]
     @test !EnzymeRates.Derivation._retag_passes(am, ks, :EqualAI)
     @test !EnzymeRates.Derivation._retag_passes(am, ks, :NonequalAI)
     @test EnzymeRates.Derivation._guard_message(am, v) ==
@@ -3910,7 +3910,7 @@ end
     @test EnzymeRates.Derivation._guard_message(no_limit, v) ==
           "AllostericMechanism: in the active conformation, steps outside :OnlyI " *
           "groups still join the two sides of the :OnlyI binding " *
-          "$(EnzymeRates.Mechanisms._step_text(no_limit.catalytic, k)), so " *
+          "$(EnzymeRates.Mechanisms.step_text(no_limit.catalytic, k)), so " *
           "thermodynamics keeps its affinity finite and the binding has no limit there."
     @test _testhelper_epath_verdict(no_limit; rng) === :no_path
     # I binds E and J binds E(I), both :OnlyI; the untagged J binding at E and I binding
@@ -3934,7 +3934,7 @@ end
     @test v.edge in arcs
     msg = EnzymeRates.Derivation._guard_message(arc_cycle, v)
     @test startswith(msg, "AllostericMechanism: the :OnlyI bindings ")
-    @test all(j -> occursin(EnzymeRates.Mechanisms._step_text(arc_cycle.catalytic, j), msg),
+    @test all(j -> occursin(EnzymeRates.Mechanisms.step_text(arc_cycle.catalytic, j), msg),
               arcs)
     @test endswith(msg, " close a cycle in the active conformation: steps outside " *
                         ":OnlyI groups join each one's bound side to the next one's " *
@@ -3962,7 +3962,7 @@ end
     @test EnzymeRates.Derivation._guard_message(island, v) ==
           "AllostericMechanism: in the active conformation the forms E(I) join free E " *
           "only through :OnlyI steps that are not bindings toward them, such as " *
-          "$(EnzymeRates.Mechanisms._step_text(island.catalytic, k)), so their weight " *
+          "$(EnzymeRates.Mechanisms.step_text(island.catalytic, k)), so their weight " *
           "depends on how fast those steps vanish."
     @test _testhelper_epath_verdict(island; rng) in (:direction_dependent, :wrong_limit)
 end

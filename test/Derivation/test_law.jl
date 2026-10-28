@@ -283,7 +283,7 @@ end
             E(Q) <--> E + Q
         end
     end)
-    mask = BitVector([EnzymeRates.Mechanisms._step_text(m, k) in ("E + A <--> E(A)",
+    mask = BitVector([EnzymeRates.Mechanisms.step_text(m, k) in ("E + A <--> E(A)",
                                                                   "E(Q) + P <--> E(P, Q)")
                       for k in eachindex(m.edges)])
     @test EnzymeRates.Derivation.rate_equation_complexity(m, mask) == 0

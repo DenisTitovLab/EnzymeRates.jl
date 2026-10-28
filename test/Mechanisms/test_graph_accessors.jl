@@ -505,3 +505,209 @@ end
     @test text.(g.steps) == ["E + Q <--> EQ", "EAB <--> EPQ", "EQ + P <--> EPQ"]
     @test g.bottom == Int[]
 end
+
+@testset "step_text and form_text: steps and forms as the macros write them" begin
+    M = ER.Mechanisms
+    m = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+            E(A, B) <--> E(P, Q)
+            E(P, Q) <--> E(Q) + P
+            E(Q) <--> E + Q
+        end
+    end)
+    # Canonical form numbers the forms E, E(A), E(A, B), E(B), E(P, Q), E(Q) and stores
+    # each step physical-forward, a release as the binding it reverses.
+    @test [M.form_text(m, x) for x in M.species(m)] ==
+          ["E", "E(A)", "E(A, B)", "E(B)", "E(P, Q)", "E(Q)"]
+    @test [M.step_text(m, k) for k in M.steps(m)] ==
+          ["E + A ⇌ E(A)", "E + B ⇌ E(B)", "E + Q <--> E(Q)", "E(A) + B ⇌ E(A, B)",
+           "E(A, B) <--> E(P, Q)", "E(B) + A ⇌ E(A, B)", "E(Q) + P <--> E(P, Q)"]
+    # A residual and a modifier copy.
+    pingpong = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B <--> E(B; residual = A - P)
+            E(B; residual = A - P) <--> E + Q
+        end
+    end)
+    @test [M.form_text(pingpong, x) for x in M.species(pingpong)] ==
+          ["E", "E(; residual = A - P)", "E(A)", "E(B; residual = A - P)"]
+    inhibited = ER.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: S
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) + S::Mod ⇌ E(S, S::Mod)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
+    @test M.form_text(inhibited, 4) == "E(S, S::Mod)"
+    @test M.step_text(inhibited, 4) == "E(S) + S::Mod ⇌ E(S, S::Mod)"
+end
+
+@testset "runs_toward_products: a ping-pong's half-reactions" begin
+    M = ER.Mechanisms
+    m = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B <--> E(B; residual = A - P)
+            E(B; residual = A - P) <--> E + Q
+        end
+    end)
+    # Each step is stored as its uptake: E + A → E(A), E + Q → E(B; residual = A - P),
+    # E(; residual = A - P) + P → E(A), E(; residual = A - P) + B → E(B; residual = A - P).
+    # The releases of P and Q run toward products against their stored direction; the
+    # uptakes of A and B tie (one substrate on each side) and run as stored.
+    @test [M.step_text(m, k) for k in M.steps(m)] ==
+          ["E + A <--> E(A)", "E + Q <--> E(B; residual = A - P)",
+           "E(; residual = A - P) + P <--> E(A)",
+           "E(; residual = A - P) + B <--> E(B; residual = A - P)"]
+    @test [M.runs_toward_products(m, k) for k in M.steps(m)] == [true, false, false, true]
+end
+
+@testset "excludes and exclusion_components: an :OnlyA dead-end binding" begin
+    M = ER.Mechanisms
+    am = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: S
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)                    :: EqualAI
+            E(S) + S::Mod ⇌ E(S, S::Mod)    :: OnlyA
+            E(S) <--> E(P)                  :: EqualAI
+            E(P) ⇌ E + P                    :: EqualAI
+        end
+    end)
+    m = M.catalytic(am)
+    # Canonical form numbers the forms E, E(P), E(S), E(S, S::Mod) and stores the steps
+    # E + P → E(P), E + S → E(S), E(S) → E(P), E(S) + S::Mod → E(S, S::Mod). The inactive
+    # conformation excludes the :OnlyA binding, which leaves E(S, S::Mod) alone.
+    @test M.step_text(m, 4) == "E(S) + S::Mod ⇌ E(S, S::Mod)"
+    @test [M.excludes(am, k, :active) for k in M.steps(m)] == [false, false, false, false]
+    @test [M.excludes(am, k, :inactive) for k in M.steps(m)] == [false, false, false, true]
+    @test M.exclusion_components(am, :active) == [1, 1, 1, 1]
+    @test M.exclusion_components(am, :inactive) == [1, 1, 1, 4]
+    # A plain mechanism excludes no step from either conformation.
+    @test [M.excludes(m, k, c) for k in M.steps(m) for c in (:active, :inactive)] ==
+          falses(8)
+    @test_throws ArgumentError M.excludes(am, 1, :both)
+    @test_throws ArgumentError M.excludes(m, 1, :both)
+    @test_throws ArgumentError M.exclusion_components(am, :both)
+end
+
+@testset "constant_columns: the joint solve's columns and their names" begin
+    M = ER.Mechanisms
+    col(edge, slot, inactive) = (; edge, slot, inactive)
+    # Uni-uni: E + P → E(P) and E + S → E(S) at rapid equilibrium, E(S) → E(P) steady
+    # state, each its own group. The isomerization's columns come first (kind 3), its
+    # reverse rate, which runs against the reaction, before its forward one; then the
+    # bindings, the larger content rank first.
+    m = ER.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
+    c = M.constant_columns(m)
+    @test c.columns == [col(3, 2, false), col(3, 1, false), col(2, 1, false),
+                        col(1, 1, false)]
+    @test c.names == [:k_EP_to_ES, :k_ES_to_EP, :K_ES_to_E_S, :K_EP_to_E_P]
+    @test c.in_law == trues(4)
+    @test (c.flat, c.tags, c.law) == ([1, 2, 3], [:None, :None, :None], falses(3))
+
+    # Allosteric uni-uni: E + P → E(P) :EqualAI, E + S → E(S) :NonequalAI and
+    # E(S) → E(P) :OnlyA, one group each. The :NonequalAI and :OnlyA groups get inactive
+    # columns; the inactive copies of the :OnlyA step lie outside the inactive law
+    # (block 2) and come first, then the inactive binding (block 1), then the active
+    # columns (block 0). An :OnlyA step's inactive copy takes its own name.
+    am = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: OnlyA
+            E(P) ⇌ E + P      :: EqualAI
+        end
+        regulatory_site(2): R::OnlyI
+    end)
+    a = M.constant_columns(am)
+    @test a.columns == [col(3, 2, true), col(3, 1, true), col(2, 1, true),
+                        col(3, 2, false), col(3, 1, false), col(2, 1, false),
+                        col(1, 1, false)]
+    @test a.names == [:k_I_EP_to_ES, :k_I_ES_to_EP, :K_I_ES_to_E_S, :k_A_EP_to_ES,
+                      :k_A_ES_to_EP, :K_A_ES_to_E_S, :K_EP_to_E_P]
+    @test a.in_law == BitVector([0, 0, 1, 1, 1, 1, 1])
+    @test (a.flat, a.tags, a.law) ==
+          ([1, 2, 3], [:EqualAI, :NonequalAI, :OnlyA], BitVector([1, 1, 0]))
+end
+
+@testset "regulator_constant: a regulator ligand's constant per conformation" begin
+    M = ER.Mechanisms
+    am = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R, X, Y, Z
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: NonequalAI
+            E(P) ⇌ E + P      :: EqualAI
+        end
+        regulatory_site(2): R::OnlyI
+        regulatory_site(2): X::NonequalAI
+        regulatory_site(2): Y::EqualAI
+        regulatory_site(2): Z::OnlyA
+    end)
+    # Each ligand with its own tag, in the active and then the inactive conformation: an
+    # :OnlyI ligand is absent from the active one and an :OnlyA ligand from the inactive
+    # one; an :EqualAI ligand has one bare name in both.
+    @test [M.regulator_constant(am, lig, tag, inactive)
+           for (lig, tag) in ((:R, :OnlyI), (:X, :NonequalAI), (:Y, :EqualAI), (:Z, :OnlyA))
+           for inactive in (false, true)] ==
+          [nothing, :K_I_Rreg, :K_A_Xreg, :K_I_Xreg, :K_Yreg, :K_Yreg, :K_A_Zreg, nothing]
+end
+
+@testset "segment_walk and has_unbalanced_cycle on plain arrays" begin
+    M = ER.Mechanisms
+    # Nodes 1-3 present, node 4 not. Transitions: 1 → 2 (+1), 2 → 1 (-1), 2 → 3 (+1),
+    # 3 → 1 (-2), each taking up one name by `change`.
+    present = BitVector([1, 1, 1, 0])
+    out = [[1], [2, 3], [4], Int[]]
+    to = [2, 1, 3, 1]
+    w = M.segment_walk(present, out, to, [1 -1 1 -2])
+    @test w.segment_of == [1, 1, 1, 0]
+    @test w.segments == [[1, 2, 3]]
+    @test w.offsets == [0 1 2 0]
+    @test w.parent == [0, 1, 3, 0]
+    @test w.disagreeing == 0
+    # With 3 → 1 taking up -1, the cycle 1 → 2 → 3 → 1 takes up one copy net: transition 4
+    # is the first whose offsets disagree.
+    @test M.segment_walk(present, out, to, [1 -1 1 -1]).disagreeing == 4
+
+    # The triangle 1 → 2 → 3 → 1 balances at weights 1, 1, -2 and not at 1, 1, -1; without
+    # its third step it closes no cycle.
+    from, to3 = [1, 2, 3], [2, 3, 1]
+    buffers() = (zeros(Int, 3), zeros(Int, 3))
+    @test !M.has_unbalanced_cycle(from, to3, [1, 1, -2], trues(3), buffers()...)
+    @test M.has_unbalanced_cycle(from, to3, [1, 1, -1], trues(3), buffers()...)
+    @test !M.has_unbalanced_cycle(from, to3, [1, 1, -1], BitVector([1, 1, 0]),
+                                  buffers()...)
+end

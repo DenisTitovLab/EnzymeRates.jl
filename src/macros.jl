@@ -63,8 +63,7 @@ end
 ```
 """
 macro enzyme_reaction(block)
-    (; reactants, regs, mults, shared) = Mechanisms._parse_reaction_block(block)
-    return Mechanisms._reaction_expr(reactants, regs, mults, shared)
+    return Mechanisms.reaction_expr(block)
 end
 
 """
@@ -158,7 +157,7 @@ E_total
 ```
 """
 macro enzyme_mechanism(block)
-    return :($_compiled_mechanism($(Mechanisms._raw_mechanism(block, false))))
+    return :($_compiled_mechanism($(Mechanisms.raw_mechanism(block, false))))
 end
 
 """
@@ -248,15 +247,15 @@ E_total
 ```
 """
 macro allosteric_mechanism(block)
-    return :($_compiled_mechanism($(Mechanisms._raw_mechanism(block, true))))
+    return :($_compiled_mechanism($(Mechanisms.raw_mechanism(block, true))))
 end
 
 """
     _checked_mechanism(raw) -> Mechanism or AllostericMechanism
 
-The mechanism that `raw`, the walker's value for a mechanism block (`_raw_mechanism`),
+The mechanism that `raw`, the walker's value for a mechanism block (`raw_mechanism`),
 writes, checked: its names must spell every string one way only
-(`_check_uniquely_decodable`, as a reaction's are checked), then the constructors
+(`check_uniquely_decodable`, as a reaction's are checked), then the constructors
 (`Mechanism(raw)`, `AllostericMechanism(raw)`) and the boundary check
 (`check_valid_rate_equation`) check the mechanism. The macros (`_compiled_mechanism`) and
 the parser (`_parse_mechanism`) build every mechanism through it, so they accept the same
@@ -264,9 +263,7 @@ mechanisms.
 """
 function _checked_mechanism(raw::Union{Mechanisms.RawMechanism,
                                         Mechanisms.RawAllostericMechanism})
-    c = raw isa Mechanisms.RawMechanism ? raw : raw.catalytic
-    Mechanisms._check_uniquely_decodable([c.substrates; c.products], c.modifiers,
-                                         "Mechanism")
+    Mechanisms.check_uniquely_decodable(raw)
     m = raw isa Mechanisms.RawMechanism ? Mechanisms.Mechanism(raw) :
                                          Mechanisms.AllostericMechanism(raw)
     Derivation.check_valid_rate_equation(m)
@@ -288,7 +285,7 @@ _compiled_mechanism(raw::Union{Mechanisms.RawMechanism,
 
 The mechanism `text` writes: one unqualified `@enzyme_mechanism` or `@allosteric_mechanism`
 block, such as `show` prints for a mechanism, with any whitespace around it. It reads the
-parsed expression with the macros' walker (`_raw_mechanism`), never evaluating it, and
+parsed expression with the macros' walker (`raw_mechanism`), never evaluating it, and
 checks the mechanism as the macros do (`_checked_mechanism`). A block the macros reject
 fails with the macros' message and text with a syntax error with `Meta.parse`'s
 `ParseError`; any other text, incomplete text included, fails with this function's own.
@@ -300,5 +297,5 @@ function _parse_mechanism(text::AbstractString)
     ex isa Expr && ex.head === :macrocall && length(ex.args) == 3 && ex.args[1] in macros ||
         error("_parse_mechanism: expected the text of one @enzyme_mechanism or " *
               "@allosteric_mechanism block; got $ex")
-    _checked_mechanism(Mechanisms._raw_mechanism(ex.args[3], ex.args[1] === macros[2]))
+    _checked_mechanism(Mechanisms.raw_mechanism(ex.args[3], ex.args[1] === macros[2]))
 end

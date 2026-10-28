@@ -15,15 +15,15 @@ flip, split and tagging searches keep what `has_valid_rate_equation` accepts. Th
 constructors and the Sig decoder call neither, so code that builds a mechanism internally
 never trips a check meant for the mechanisms it returns.
 """
-check_valid_rate_equation(m::Mechanisms._AnyMech) = _check_verdict(m, _memo_verdict(m))
+check_valid_rate_equation(m::_AnyMech) = _check_verdict(m, _memo_verdict(m))
 
 """Whether `check_valid_rate_equation(m)` passes: identify's base tier, the enumerator's
 exits and its flip, split and tagging searches keep a mechanism exactly when it does."""
-has_valid_rate_equation(m::Mechanisms._AnyMech) = _memo_verdict(m).fault === _NO_FAULT
+has_valid_rate_equation(m::_AnyMech) = _memo_verdict(m).fault === _NO_FAULT
 
 """Error with the guard's message (`_guard_message`) unless `m`'s verdict `v` holds no
 fault."""
-function _check_verdict(m::Mechanisms._AnyMech, v)
+function _check_verdict(m::_AnyMech, v)
     v.fault === _NO_FAULT || error(_guard_message(m, v))
     nothing
 end
@@ -32,11 +32,13 @@ end
 holds no fault (`_check_verdict`)."""
 _well_posed(m) = (_check_verdict(m, _guard(m)); m)
 
-"""The concrete mechanism the compiled type `M` encodes (`_concrete`), checked as
-`check_valid_rate_equation` checks it, without the memo (`_well_posed`): the input of every
-derivation entry."""
-_derivation_input(@nospecialize(M::Type{<:Mechanisms.AbstractEnzymeMechanism})) =
-    _well_posed(Mechanisms._concrete(M()))
+"""The concrete mechanism the compiled type `M` encodes (`Mechanism(em)`,
+`AllostericMechanism(aem)`), checked as `check_valid_rate_equation` checks it, without the
+memo (`_well_posed`): the input of every derivation entry."""
+_derivation_input(@nospecialize(M::Type{<:Mechanisms.EnzymeMechanism})) =
+    _well_posed(Mechanisms.Mechanism(M()))
+_derivation_input(@nospecialize(M::Type{<:Mechanisms.AllostericEnzymeMechanism})) =
+    _well_posed(Mechanisms.AllostericMechanism(M()))
 
 # ─── The guard: verdicts, networks, faces, classes 1 and 2 ─────────────
 
@@ -246,7 +248,7 @@ function _law_network(am::Mechanisms.AllostericMechanism)
     re = Mechanisms.rapid_equilibrium_steps(m)
     n, nf = length(Mechanisms.steps(m)), length(Mechanisms.species(m))
     use, fast, present = falses(n, 2), falses(n, 2), falses(2 * nf)
-    for (c, conformation) in enumerate((:active, :inactive))
+    for (c, conformation) in enumerate(_CONFORMATIONS)
         mask = Mechanisms.conformation_steps(am, conformation)
         use[:, c] .= mask
         fast[:, c] .= mask .& re
@@ -259,7 +261,7 @@ end
 
 """
 The ε-network N of `m`, its rapid-equilibrium flags overridden by `re`: every form and
-edge in each copy. In the copy that excludes an edge (`_excludes`), a rapid-equilibrium
+edge in each copy. In the copy that excludes an edge (`excludes`), a rapid-equilibrium
 plain binding stays fast while its uptake vanishes and its release keeps its rate; any
 other excluded edge is slow and vanishes both ways. A plain mechanism's ε-network is its
 law network.
@@ -273,7 +275,7 @@ function _eps_network(am::Mechanisms.AllostericMechanism,
     n = length(Mechanisms.steps(m))
     fast, vanish_forward, vanish_reverse = falses(n, 2), falses(n, 2), falses(n, 2)
     for c in 1:2, k in Mechanisms.steps(m)
-        excluded = Mechanisms._excludes(am, k, c)
+        excluded = Mechanisms.excludes(am, k, _CONFORMATIONS[c])
         plain = Mechanisms.step_kind(m, k) === :binding
         fast[k, c] = re[k] && (!excluded || plain)
         vanish_forward[k, c] = excluded
@@ -338,7 +340,7 @@ end
     _fast_segments(net) -> (; segment, segments, offset, cycle)
 
 The rapid-equilibrium segments of `net`, walked breadth-first along its fast transitions
-(`_segment_walk`) from each present node no earlier walk reached: `segment[u]`, node
+(`segment_walk`) from each present node no earlier walk reached: `segment[u]`, node
 `u`'s (0 for a node `net` does not hold); `segments`, each one's nodes in walk order;
 `offset[n, u]`, the copies of name `n` (`_guard_names`) the walk takes up from the
 segment's first node to `u`; and `cycle`, the transitions of the first fast cycle that
@@ -347,8 +349,8 @@ tree path, in cycle order.
 When `cycle` is empty, each offset is a potential: it does not depend on the walk.
 """
 function _fast_segments(net::_Network)
-    w = Mechanisms._segment_walk(net.present, _out_transitions(net, net.fast), net.to,
-                                 net.change)
+    w = Mechanisms.segment_walk(net.present, _out_transitions(net, net.fast), net.to,
+                                net.change)
     t = w.disagreeing
     cycle = t == 0 ? Int[] : _tree_cycle(net, w.parent, net.from[t], net.to[t], t)
     (; segment = w.segment_of, w.segments, offset = w.offsets, cycle)
@@ -382,7 +384,7 @@ network) and, for an allosteric mechanism, admission's face condition (`_admissi
 on the ε-network), the first fault winning. `_WELL_POSED` when every check passes. It
 reads the reaction graph through masks and builds nothing.
 """
-function _guard(mech::Mechanisms._AnyMech)
+function _guard(mech::_AnyMech)
     m = Mechanisms.catalytic(mech)
     Mechanisms.has_turnover_cycle(m, trues(length(Mechanisms.steps(m)))) ||
         return _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0)
@@ -676,7 +678,7 @@ carries the stage it stopped at, the edge that feeds the trap or joins it to its
 trap carries the copy its forms share (`_common_copy`). A face the limit test accepts
 reports `_LIMIT_EQUAL`.
 """
-function _check_face(mech::Mechanisms._AnyMech, net::_Network, faces::Vector{UInt64},
+function _check_face(mech::_AnyMech, net::_Network, faces::Vector{UInt64},
                      i::Int)
     s = _face_structure(net, faces[i])
     stage = _face_stage(s)
@@ -705,7 +707,7 @@ end
 
 """The first class-3 fault of `mech` on its law network `net`, face by face in the order
 of `_faces`; `_WELL_POSED` when every face passes."""
-function _faces_verdict(mech::Mechanisms._AnyMech, net::_Network)
+function _faces_verdict(mech::_AnyMech, net::_Network)
     faces = _faces(Mechanisms.catalytic(mech))
     _first_face_fault(i -> _check_face(mech, net, faces, i), faces)
 end

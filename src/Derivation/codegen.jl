@@ -48,7 +48,7 @@ function _state!(vars::_Vars, defs::Vector{Pair{Int, _Poly}}, m::Mechanisms.Mech
     b = _bare_law(m, mask, L.vars.names[L.vars.conc])
     nc = count(L.vars.conc)
     bare(v) = v <= nc ? nothing :
-              value[s.column[Mechanisms._Column(b.cols[v - nc]..., inactive)]]
+              value[s.column[_Column((b.cols[v - nc]..., inactive))]]
     shift = _term(L.shift)
     D = zero(_Poly)
     for (σ, T) in zip(b.sigma, b.trees)

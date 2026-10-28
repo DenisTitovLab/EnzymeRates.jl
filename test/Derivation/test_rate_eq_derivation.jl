@@ -181,7 +181,7 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
                                   EnzymeRates.Mechanisms.allo_states(site))
                 for (inactive, suffix) in ((false, ""), (true, "_T"))
                     tag === :EqualAI && inactive && continue
-                    K = EnzymeRates.Mechanisms._reg_K(mech, lig, tag, inactive)
+                    K = EnzymeRates.Mechanisms.regulator_constant(mech, lig, tag, inactive)
                     K === nothing ||
                         push!(out, Symbol("K_", lig, suffix, "_reg", j) => all_params[K])
                 end
@@ -1211,7 +1211,7 @@ end
     v = EnzymeRates.Derivation._guard(trap)
     @test (v.fault, v.limit, v.face) ==
           (EnzymeRates.Derivation._TRAP, EnzymeRates.Derivation._LIMIT_SPEED, 2)
-    @test EnzymeRates.Mechanisms._step_text(trap.catalytic, v.edge) ==
+    @test EnzymeRates.Mechanisms.step_text(trap.catalytic, v.edge) ==
           "E(NAD) + Lactate ⇌ E(Lactate, NAD)"
     @test _testhelper_admission_faults(trap) ==
           [NO, EnzymeRates.Derivation._TRAP, NO, NO, NO, EnzymeRates.Derivation._SPLIT, NO]
@@ -1795,7 +1795,7 @@ end
     # A mechanism the guard rejects (a bottomless rapid-equilibrium segment) is among
     # them.
     D = EnzymeRates.Derivation
-    rejected = EnzymeRates.Mechanism(EnzymeRates.Mechanisms._raw_mechanism(:(begin
+    rejected = EnzymeRates.Mechanism(EnzymeRates.Mechanisms.raw_mechanism(:(begin
         substrates: S
         products: P, Q
         steps: begin
@@ -2266,7 +2266,7 @@ end
 
 @testset "constants that would share a name are rejected" begin
     # The walker reads the block the field-by-field raw value writes.
-    @test EnzymeRates.Mechanisms._raw_mechanism(_testhelper_relabelled_block(:F), true) ==
+    @test EnzymeRates.Mechanisms.raw_mechanism(_testhelper_relabelled_block(:F), true) ==
           _testhelper_relabelled_raw(:F)
     for label in (:A, :I)
         reason = "`$label` cannot be a conformation label: constant names tag a " *
@@ -2566,8 +2566,7 @@ v = E_total * (Q_A * D_A * W_A + L * Q_I * D_I * W_I) * (S - P / Keq) / (D_A^2 *
 end
 
 @testset "Parameter-struct allosteric helpers" begin
-    @testset "_edge_names and _kreg_params" begin
-        names_of(am, params) = [EnzymeRates.Mechanisms.name(p, am) for p in params]
+    @testset "_edge_names and the regulator constants" begin
         flat_names(am, state) = reduce(vcat, EnzymeRates.Derivation._edge_names(am, state))
         # :NonequalAI cat groups + :NonequalAI reg ligand → both conformations named.
         aem = @allosteric_mechanism begin
@@ -2589,8 +2588,8 @@ end
               Set([:K_I_ES_to_E_S, :k_ES_to_EP, :k_EP_to_ES, :K_I_EP_to_E_P])
         @test Set(flat_names(am, :A)) ==
               Set([:K_A_ES_to_E_S, :k_ES_to_EP, :k_EP_to_ES, :K_A_EP_to_E_P])
-        @test names_of(am, EnzymeRates.Mechanisms._kreg_params(am, :A)) == [:K_A_Rreg]
-        @test names_of(am, EnzymeRates.Mechanisms._kreg_params(am, :I)) == [:K_I_Rreg]
+        @test _testhelper_regulator_constants(am, :A) == [:K_A_Rreg]
+        @test _testhelper_regulator_constants(am, :I) == [:K_I_Rreg]
 
         # Balanced :OnlyA bindings (both S and P) keep the :NonequalAI iso
         # Haldane-valid. The inactive conformation keeps no form but E, so its law has
@@ -2609,8 +2608,8 @@ end
         end
         am_skip = EnzymeRates.AllostericMechanism(aem_skip)
         @test all(isempty, EnzymeRates.Derivation._edge_names(am_skip, :I))
-        @test isempty(EnzymeRates.Mechanisms._kreg_params(am_skip, :I))
-        @test names_of(am_skip, EnzymeRates.Mechanisms._kreg_params(am_skip, :A)) ==
+        @test isempty(_testhelper_regulator_constants(am_skip, :I))
+        @test _testhelper_regulator_constants(am_skip, :A) ==
               [:K_A_Rreg]
 
         # An :OnlyI reg ligand has an inactive constant and no active one; an :EqualAI
@@ -2627,8 +2626,8 @@ end
             end
             regulatory_site(1): R::OnlyI
         end)
-        @test isempty(EnzymeRates.Mechanisms._kreg_params(am_onlyi, :A))
-        @test names_of(am_onlyi, EnzymeRates.Mechanisms._kreg_params(am_onlyi, :I)) ==
+        @test isempty(_testhelper_regulator_constants(am_onlyi, :A))
+        @test _testhelper_regulator_constants(am_onlyi, :I) ==
               [:K_I_Rreg]
         am_equal = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: S
@@ -2642,9 +2641,9 @@ end
             end
             regulatory_site(1): R::EqualAI
         end)
-        @test names_of(am_equal, EnzymeRates.Mechanisms._kreg_params(am_equal, :A)) ==
+        @test _testhelper_regulator_constants(am_equal, :A) ==
               [:K_Rreg]
-        @test isempty(EnzymeRates.Mechanisms._kreg_params(am_equal, :I))
+        @test isempty(_testhelper_regulator_constants(am_equal, :I))
     end
 end
 

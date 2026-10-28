@@ -391,7 +391,7 @@ per state.
 function _redundant_copy_groups(m::Union{Mechanisms.Mechanism,
                                           Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
-    members = Mechanisms._group_members(cm)
+    members = _group_members(cm)
     any(ks -> _bound_copy(cm, first(ks)) !== nothing, members) || return Int[]
     if m isa Mechanisms.Mechanism
         twin = _productive_twin(cm, trues(length(Mechanisms.steps(cm))))
@@ -453,9 +453,9 @@ children; the other moves preserve both rules.
 function _assert_emission_rules(m::Union{Mechanisms.Mechanism,
                                           Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
-    members = Mechanisms._group_members(cm)
-    # A group as its edges' sides (`_sides`), the names its constants take.
-    label(g) = join((join(Mechanisms._sides(cm, k), " → ") for k in members[g]), ", ")
+    members = _group_members(cm)
+    # A group as its steps' DSL lines (`step_text`).
+    label(g) = join((Mechanisms.step_text(cm, k) for k in members[g]), ", ")
     flux = _flux_carrying_groups(cm, Mechanisms.rapid_equilibrium_steps(cm))
     for (g, ks) in enumerate(members)
         Mechanisms.is_rapid_equilibrium(cm, first(ks)) || flux[g] || error(
@@ -496,12 +496,12 @@ function _assert_atom_conserving(m::Union{Mechanisms.Mechanism,
     side(form::Int, other::Int, free::Mechanisms.Metabolites) =
         [names(Mechanisms.bound(cm, form)); names(Mechanisms.residual(cm, form)[1]);
          names(Mechanisms.residual(cm, other)[2]); names(free)]
-    for k in Mechanisms._flat_edges(cm)
+    for g in 1:Mechanisms.ngroups(cm), k in Mechanisms.members(cm, g)
         f, t = Mechanisms.ends(cm, k)
         taken, given = Mechanisms.taken_up(cm, k), Mechanisms.given_off(cm, k)
         diff = _net_atoms(rxn, side(t, f, given), side(f, t, taken))
         isempty(diff) && continue
-        from, to = Mechanisms._form_name(cm, f), Mechanisms._form_name(cm, t)
+        from, to = Mechanisms.form_text(cm, f), Mechanisms.form_text(cm, t)
         error("atom-non-conserving step $from → $to (consumed $(names(taken)), " *
               "released $(names(given))): " *
               "atoms(to) + atoms(released) − atoms(from) − atoms(consumed) = $diff")

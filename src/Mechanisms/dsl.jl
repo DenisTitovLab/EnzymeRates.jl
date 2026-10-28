@@ -139,13 +139,17 @@ function _parse_multiplicity_tuple(values, label)
 end
 
 """
-Build the `EnzymeReaction` `Expr` from parsed declarations: `reactants` as
-`(type, name, atoms)` and `regulators` as `(type, name, reg_type)`, each
-`type` naming the `Metabolite` subtype to construct. The macro returns it unescaped, so
-hygiene resolves its names in EnzymeRates itself and the macro works in a module that
-imports the package under another name or imports only the macro.
+    reaction_expr(block) -> Expr
+
+The `EnzymeReaction` `Expr` that `@enzyme_reaction`'s `block` writes, from its parsed
+declarations (`_parse_reaction_block`): `reactants` as `(type, name, atoms)` and
+`regulators` as `(type, name, reg_type)`, each `type` naming the `Metabolite` subtype to
+construct. The macro returns it unescaped, so hygiene resolves its names in EnzymeRates
+itself and the macro works in a module that imports the package under another name or
+imports only the macro.
 """
-function _reaction_expr(reactants, regulators, mults, shared)
+function reaction_expr(block)
+    (; reactants, regs, mults, shared) = _parse_reaction_block(block)
     reactant_exprs = [
         :(EnzymeRates.Mechanisms.ReactantAtoms(
             EnzymeRates.Mechanisms.$type($(QuoteNode(name))),
@@ -154,7 +158,7 @@ function _reaction_expr(reactants, regulators, mults, shared)
     regulator_exprs = [
         :(EnzymeRates.Mechanisms.DeclaredRegulator(
             EnzymeRates.Mechanisms.$type($(QuoteNode(name))), $(QuoteNode(reg_type))))
-        for (type, name, reg_type) in regulators]
+        for (type, name, reg_type) in regs]
     shared_exprs = [:(($(QuoteNode(a)), $(QuoteNode(b)))) for (a, b) in shared]
     :(EnzymeRates.Mechanisms.EnzymeReaction(
         EnzymeRates.Mechanisms.ReactantAtoms[$(reactant_exprs...)],
@@ -218,7 +222,7 @@ end
 # ─── Mechanism macro blocks as written ─────────────────────────────────
 
 """
-    _raw_mechanism(block, allosteric::Bool) -> RawMechanism or RawAllostericMechanism
+    raw_mechanism(block, allosteric::Bool) -> RawMechanism or RawAllostericMechanism
 
 The mechanism a mechanism macro's `begin ... end` block writes, as raw input:
 `@allosteric_mechanism`'s grammar when `allosteric`, else `@enzyme_mechanism`'s. It reads
@@ -232,7 +236,7 @@ holds one `begin ... end` block (`_raw_steps`). `@allosteric_mechanism` adds
 when omitted) and `regulatory_site(n):` lines, each listing its ligands as `X::Tag`
 (`_raw_site`); every allosteric regulator sits on exactly one of them.
 """
-function _raw_mechanism(block, allosteric::Bool)
+function raw_mechanism(block, allosteric::Bool)
     macro_name = allosteric ? "@allosteric_mechanism" : "@enzyme_mechanism"
     block isa Expr && block.head === :block ||
         error("$macro_name: expected a `begin ... end` block, got $block")
@@ -297,6 +301,20 @@ function _raw_mechanism(block, allosteric::Bool)
     _check_site_ligands(regulators, sites)
     RawAllostericMechanism(raw, tags, something(multiplicity, 1), sites)
 end
+
+"""
+    check_uniquely_decodable(raw::Union{RawMechanism, RawAllostericMechanism})
+
+Error unless the names `raw` declares spell every string one way
+(`_check_uniquely_decodable`): its substrates and products, and the names under
+`modifiers:`. An allosteric mechanism's catalytic part is checked; its regulatory-site
+ligands bind no form. The macros check every mechanism they read this way before
+building it.
+"""
+check_uniquely_decodable(raw::RawMechanism) =
+    _check_uniquely_decodable([raw.substrates; raw.products], raw.modifiers, "Mechanism")
+check_uniquely_decodable(raw::RawAllostericMechanism) =
+    check_uniquely_decodable(raw.catalytic)
 
 """
 A `regulatory_site(n): X::Tag, ...` line as written: `label` is its `regulatory_site(n)`
@@ -647,13 +665,13 @@ end
 
 """
 Print the `steps:` block of `m`: one line per kinetic group in group order, a group of
-one step as the step (`_step_text`), a larger group as the tuple of its steps in edge
+one step as the step (`step_text`), a larger group as the tuple of its steps in edge
 order, and, when `tags` holds one tag per group, each line ending in its group's tag.
 """
 function _print_steps(io::IO, m::Mechanism, tags::Vector{Symbol})
     print(io, "\n    steps: begin")
     for (g, members) in enumerate(_group_members(m))
-        text = join((_step_text(m, k) for k in members), ", ")
+        text = join((step_text(m, k) for k in members), ", ")
         print(io, "\n        ", length(members) == 1 ? text : "($text)")
         isempty(tags) || print(io, " :: ", tags[g])
     end

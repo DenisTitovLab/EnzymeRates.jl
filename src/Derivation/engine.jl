@@ -204,7 +204,7 @@ mechanism `shown`, the allosteric mechanism for an MWC conformation.
 """
 function _law(m::Mechanisms.Mechanism, s::_Solve, mask::BitVector; inactive::Bool = false,
               concentrations::Vector{Symbol} = Mechanisms.metabolites(m),
-              shown::Mechanisms._AnyMech = m)
+              shown::_AnyMech = m)
     _assert_derivable(m, mask)
     try
         b = _bare_law(m, mask, concentrations)
@@ -215,8 +215,8 @@ function _law(m::Mechanisms.Mechanism, s::_Solve, mask::BitVector; inactive::Boo
         value = _column_values(vars, s)
         nc = length(concentrations)
         sub(p) = _subst(v -> v <= nc ? nothing :
-                             value[s.column[Mechanisms._Column(b.cols[v - nc]...,
-                                                               inactive)]], p)
+                             value[s.column[_Column((b.cols[v - nc]..., inactive))]],
+                      p)
         side(xs) = _monomial((vars.index[x] => 1 for x in xs)...)
         H = _term(side(Mechanisms.substrates(m))) -
             _term(_mmul(side(Mechanisms.products(m)), _monomial(keq => -1)))
@@ -298,14 +298,14 @@ end
 """
 The binding polynomial of regulatory site `site` of `am` in the active (`inactive =
 false`) or inactive conformation, over `vars`: 1 plus each ligand's concentration over its
-dissociation constant (`_reg_K`), an `:OnlyI` ligand left out of the active conformation
-and an `:OnlyA` one out of the inactive.
+dissociation constant (`regulator_constant`), an `:OnlyI` ligand left out of the active
+conformation and an `:OnlyA` one out of the inactive.
 """
 function _site_weight(am::Mechanisms.AllostericMechanism, vars::_Vars,
                       site::Mechanisms.RegulatorySite, inactive::Bool)
     W = one(_Poly)
     for (lig, tag) in zip(Mechanisms.ligands(site), Mechanisms.allo_states(site))
-        K = Mechanisms._reg_K(am, lig, tag, inactive)
+        K = Mechanisms.regulator_constant(am, lig, tag, inactive)
         K === nothing && continue
         W = W + _term(_monomial(vars.index[lig] => 1, vars.index[K] => -1))
     end
@@ -345,14 +345,14 @@ function _law(am::Mechanisms.AllostericMechanism, s::_Solve)
                                      for site in Mechanisms.regulatory_sites(am)]
     _AlloLaw(vars, LA.H, LA, LI, fA, fI, sites, Mechanisms.catalytic_multiplicity(am))
 end
-_law(m::Mechanisms._AnyMech) = _law(m, _solve(m))
+_law(m::_AnyMech) = _law(m, _solve(m))
 
 """
     _with_law(f, m, s = _solve(m)) -> f(m, s, L)
 
 `f` called on `m`, its solve `s` and its law `L = _law(m, s)`.
 """
-_with_law(f, m::Mechanisms._AnyMech, s::_Solve = _solve(m)) = f(m, s, _law(m, s))
+_with_law(f, m::_AnyMech, s::_Solve = _solve(m)) = f(m, s, _law(m, s))
 
 """
 The spanning trees of the multigraph whose Laplacian is `lap`: the determinant of `lap`

@@ -1033,7 +1033,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test _testhelper_face_faults(am)[2] === ER.Derivation._BOTTOMLESS
         v = ER.Derivation._guard(am)
         @test v.fault === ER.Derivation._NO_LIMIT
-        @test ER.Mechanisms._step_text(am.catalytic, v.edge) == "E + P ⇌ E(P)"
+        @test ER.Mechanisms.step_text(am.catalytic, v.edge) == "E + P ⇌ E(P)"
         @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(5)) === :no_path
         @test_throws ErrorException(
             ER.Derivation._guard_message(am, v)) @allosteric_mechanism begin
@@ -1841,7 +1841,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # modifier-only name bound by a step, a covalent residual, a Theorell–Chance step,
         # and steps at rapid equilibrium and at steady state. It holds no reactant's
         # modifier copy.
-        m = ER.Mechanism(ER.Mechanisms._raw_mechanism(:(begin
+        m = ER.Mechanism(ER.Mechanisms.raw_mechanism(:(begin
             substrates: A, B
             products: P, Q
             modifiers: I
@@ -2172,7 +2172,7 @@ end
     step_of(pred) = only(s for s in cat.steps if pred(s))
     bind_s = step_of(s -> s.consumed == [ER.Mechanisms.Met(:S, false)])
     bind_p = step_of(s -> s.consumed == [ER.Mechanisms.Met(:P, false)])
-    iso = step_of(ER.Mechanisms._is_iso)
+    iso = step_of(ER.Enumeration._is_iso)
     # The catalytic steps written as `steps`, labelled `group`, every group :EqualAI.
     _testhelper_rebuild(steps, group) = _testhelper_thrown() do
         ER.AllostericMechanism(ER.Mechanisms.RawAllostericMechanism(
@@ -2764,7 +2764,7 @@ end
 @testset "each reaction appears once in a mechanism" begin
     # The mechanism over A and P whose steps, each its own group, are `lines`, built and
     # checked as the constructor checks raw input.
-    _testhelper_written(lines...) = ER.Mechanism(ER.Mechanisms._raw_mechanism(:(begin
+    _testhelper_written(lines...) = ER.Mechanism(ER.Mechanisms.raw_mechanism(:(begin
         substrates: A
         products: P
         steps: $(Expr(:block, lines...))
@@ -2831,7 +2831,7 @@ end
     # :Estar, so every constant named after one form would also name the other. The
     # reaction's names spell each name one way; the clash comes from a conformation label.
     err = _testhelper_thrown() do
-        ER.Mechanism(ER.Mechanisms._raw_mechanism(:(begin
+        ER.Mechanism(ER.Mechanisms.raw_mechanism(:(begin
             substrates: star
             products: P
             steps: begin
@@ -3161,7 +3161,7 @@ end
         end
         v = ER.Derivation._guard(lone)
         @test v.fault === ER.Derivation._NO_LIMIT
-        @test ER.Mechanisms._step_text(lone.catalytic, v.edge) == "E + A ⇌ E(A)"
+        @test ER.Mechanisms.step_text(lone.catalytic, v.edge) == "E + A ⇌ E(A)"
         @test_throws ErrorException(
             ER.Derivation._guard_message(lone, v)) @allosteric_mechanism begin
             substrates: A, B
@@ -3440,8 +3440,7 @@ end
         EnzymeRates.Derivation._edge_names(m, :None)
     _testhelper_param_names(m::EnzymeRates.AllostericMechanism) =
         [[EnzymeRates.Derivation._edge_names(m, state) for state in (:A, :I)];
-         [[EnzymeRates.Mechanisms.name(p, m)] for state in (:A, :I)
-          for p in EnzymeRates.Mechanisms._kreg_params(m, state)]]
+         [[K] for state in (:A, :I) for K in _testhelper_regulator_constants(m, state)]]
     # `rebuilt` is `m` constructed again from the raw input it writes back.
     function _testhelper_check_identity(m, rebuilt)
         shown = repr(m)
@@ -3500,7 +3499,7 @@ end
     # The constructor checks the representation only, so it builds the mechanism from
     # the walker's raw value, and the mechanism compiles; every derivation entry then
     # rejects it with the same message.
-    raw = EnzymeRates.Mechanisms._raw_mechanism(:(begin
+    raw = EnzymeRates.Mechanisms.raw_mechanism(:(begin
         substrates: S
         products: P, Q
         steps: begin

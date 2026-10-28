@@ -423,12 +423,6 @@ substrates(r::EnzymeReaction) =
 products(r::EnzymeReaction) =
     Product[metabolite(ra) for ra in reactants(r) if metabolite(ra) isa Product]
 
-"""The distinct metabolite names of `rxn`: substrates, then products, then regulators,
-each in stored order, keeping a name's first occurrence."""
-_metabolite_names(rxn::EnzymeReaction) =
-    unique!(Symbol[name.(substrates(rxn)); name.(products(rxn));
-                   [name(regulator(rm)) for rm in regulators(rxn)]])
-
 """
 Print `r` as the `@enzyme_reaction` text that builds it: each reactant with its atoms as
 one formula, the competitive inhibitors and allosteric regulators, the catalytic
@@ -459,7 +453,7 @@ end
 
 # ─── Raw input: a mechanism as the DSL writes it ─────────────────────
 #
-# The mechanism macros read a block into these plain values (`_raw_mechanism`), before
+# The mechanism macros read a block into these plain values (`raw_mechanism`), before
 # any constructor orients, sorts or checks it; `Mechanism(raw)` and
 # `AllostericMechanism(raw)` build the mechanism they write.
 
@@ -984,7 +978,7 @@ function _check_onlyi_groups(catalytic::Mechanism, cat_allo_states::Vector{Symbo
         exchanged != 0 && exchanged & ~modifiers == 0 &&
             (f.bound & ~modifiers, f.added, f.subtracted) ==
             (t.bound & ~modifiers, t.added, t.subtracted) && continue
-        error("AllostericMechanism: $(_step_text(catalytic, k)) is tagged :OnlyI but " *
+        error("AllostericMechanism: $(step_text(catalytic, k)) is tagged :OnlyI but " *
               "does more than bind a modifier. Only the active conformation " *
               "catalyzes, so :OnlyI fits only a group whose steps take up or give off " *
               "modifiers alone. Tag its group :NonequalAI.")
@@ -1170,8 +1164,8 @@ function _check_distinct_form_names(m::Mechanism)
     for f in eachindex(m.forms)
         other = get!(seen, _form_name(m, f), f)
         other == f ||
-            error("Mechanism: the enzyme forms $(_form_text(m, other)) and " *
-                  "$(_form_text(m, f)) both render the name $(_form_name(m, f)); every " *
+            error("Mechanism: the enzyme forms $(form_text(m, other)) and " *
+                  "$(form_text(m, f)) both render the name $(_form_name(m, f)); every " *
                   "constant is named after the forms its step joins, so rename a " *
                   "metabolite to tell the two forms apart")
     end
@@ -1449,9 +1443,8 @@ function _group_members(m::Mechanism)
 end
 _has_residual(f::Form) = f.added != 0 || f.subtracted != 0
 _is_binding(e::Edge) = e.released == 0 && total(e.consumed) == 1
-"""Whether edge `e`, or raw step `s`, takes up and gives off nothing: an isomerization."""
+"""Whether edge `e` takes up and gives off nothing: an isomerization."""
 _is_iso(e::Edge) = e.consumed == 0 && e.released == 0
-_is_iso(s::RawStep) = isempty(s.consumed) && isempty(s.released)
 """The entry a binding takes up; 0 for any other edge."""
 _bound_entry(e::Edge) = _is_binding(e) ? (trailing_zeros(e.consumed) >> 2) + 1 : 0
 """The entry binding `e` takes up and the bound entries of its two forms; the entry is 0
@@ -1481,6 +1474,8 @@ with several metabolites on a side. The joint solve's priority (`_priority_key`)
 allosteric moves (`_chemistry_groups`) read it to tell catalysis from binding."""
 _is_chemistry(m::Mechanism, e::Edge) = !_is_plain_binding(m, e)
 """
+    runs_toward_products(m, k) -> Bool
+
 Whether step `k` of `m` runs, as stored, toward products: from the side that holds more
 substrates, bound or free, then fewer products, the order canonical form gives a step that
 exchanges several metabolites (`_orientation`). A step that takes up or gives off one
@@ -1488,24 +1483,12 @@ metabolite is stored as its uptake, so a half-reaction that releases a product,
 `E(A) <--> E(; residual = A - P) + P`, runs toward products against its stored direction.
 A step whose two sides tie, such as an isomerization of free forms, runs as stored.
 """
-function _runs_toward_products(m::Mechanism, k::Int)
+function runs_toward_products(m::Mechanism, k::Int)
     e = m.edges[k]
     substrate_mask, product_mask = _role_masks(m)
     _side_score(m.forms, e.from, e.consumed, substrate_mask, product_mask) >=
         _side_score(m.forms, e.to, e.released, substrate_mask, product_mask)
 end
-"""Whether each kinetic group of `m` holds some edge `k` with `pred(k)`."""
-function _groups_with(pred, m::Mechanism)
-    out = falses(ngroups(m))
-    for (k, g) in enumerate(m.group)
-        pred(k) && (out[g] = true)
-    end
-    out
-end
-"""Whether each kinetic group of `m` holds a chemistry edge (`_is_chemistry`). The
-allosteric moves tag a chemistry group apart from a binding group."""
-_chemistry_groups(m::Mechanism) =
-    _groups_with(k -> _is_chemistry(m, m.edges[k]), m)
 """The edges group by group, each group in edge order: the order the joint solve and the
 derivation read them in."""
 _flat_edges(m::Mechanism) = reduce(vcat, _group_members(m); init = Int[])
@@ -1572,8 +1555,8 @@ function _name_index(m::Mechanism)
 end
 
 """
-    _segment_walk(present, out, to, change) -> (; segment_of, segments, offsets, parent,
-                                                 disagreeing)
+    segment_walk(present, out, to, change) -> (; segment_of, segments, offsets, parent,
+                                                disagreeing)
 
 The segments of a graph of nodes and transitions, walked breadth-first along the
 transitions from each `present` node no earlier walk reached, in node order: `out[u]`
@@ -1586,8 +1569,8 @@ node), and `disagreeing` the first transition whose offsets disagree, 0 when non
 Such a transition closes, with its tree path, a cycle that takes up some name net; when
 there is none, each offset is a potential and does not depend on the walk.
 """
-function _segment_walk(present::BitVector, out::Vector{Vector{Int}}, to::Vector{Int},
-                       change::Matrix{Int})
+function segment_walk(present::BitVector, out::Vector{Vector{Int}}, to::Vector{Int},
+                      change::Matrix{Int})
     nn = length(present)
     segment_of, segments, parent = zeros(Int, nn), Vector{Int}[], zeros(Int, nn)
     offsets, disagreeing = zeros(Int, size(change, 1), nn), 0
@@ -1623,7 +1606,7 @@ end
     re_segments(m, on, re) -> (; segment_of, segments, offsets, bottom)
 
 The rapid-equilibrium segments of the steps of `m` that `on` keeps, joined by the kept
-steps that `re` flags (`_segment_walk`). `segments[s]` lists segment `s`'s forms
+steps that `re` flags (`segment_walk`). `segments[s]` lists segment `s`'s forms
 breadth-first from its first form, each form's steps in the order `_flat_edges` reads
 them, and the segments are numbered by their first forms; `segment_of[f]` is form `f`'s
 segment, 0 for a form no kept step touches (`present_species`). `offsets[n, f]` is how many
@@ -1673,7 +1656,7 @@ function re_segments(m::Mechanism, on::BitVector, re::BitVector)
         end
     end
     present = present_species(m, on)
-    (; segment_of, segments, offsets) = _segment_walk(present, out, to, change)
+    (; segment_of, segments, offsets) = segment_walk(present, out, to, change)
     for segment in segments, n in axes(offsets, 1)
         low = minimum(f -> offsets[n, f], segment)
         for f in segment
@@ -1710,7 +1693,7 @@ end
 forms `from[k]` and `to[k]` with weight `weight[k]`: giving every form a potential that
 rises by each step's weight along it then fails somewhere, which a weighted union-find in
 the buffers `parent` and `offset` (one entry per form) detects."""
-function _has_unbalanced_cycle(from, to, weight, on, parent, offset)
+function has_unbalanced_cycle(from, to, weight, on, parent, offset)
     parent .= eachindex(parent); fill!(offset, 0)
     function root(x)
         p = 0
@@ -1736,7 +1719,7 @@ end
 
 Whether a cycle of the steps of `m` that `on` keeps turns the reaction over: no potential
 of the forms rises along each step by its uptake of the first substrate (a modifier copy
-counting as it), which a weighted union-find finds (`_has_unbalanced_cycle`). A cycle of a
+counting as it), which a weighted union-find finds (`has_unbalanced_cycle`). A cycle of a
 mechanism whose steps conserve atoms runs the reaction a whole number of times, so its
 uptake of the first substrate is zero only when it turns nothing over; a hand-written
 cycle that does not is read by that uptake alone. The guard's class 1 rejects a
@@ -1751,16 +1734,22 @@ function has_turnover_cycle(m::Mechanism, on::BitVector)
     uptake(c::Counts) =
         sum((copies(c, i) for i in eachindex(m.table) if name_of[i] == x1); init = 0)
     n = length(m.forms)
-    _has_unbalanced_cycle([e.from for e in m.edges], [e.to for e in m.edges],
-                          [uptake(e.consumed) - uptake(e.released) for e in m.edges],
-                          on, zeros(Int, n), zeros(Int, n))
+    has_unbalanced_cycle([e.from for e in m.edges], [e.to for e in m.edges],
+                         [uptake(e.consumed) - uptake(e.released) for e in m.edges],
+                         on, zeros(Int, n), zeros(Int, n))
 end
 
-"""Whether conformation `c` (1 active, 2 inactive) of `am` excludes edge `k`: an `:OnlyA`
-group's edge in the inactive conformation, an `:OnlyI` group's in the active one. There a
-plain binding loses its affinity and any other edge is blocked (spec section 7)."""
-_excludes(am::AllostericMechanism, k::Int, c::Int) =
-    _excluded_by(am.cat_allo_states[am.catalytic.group[k]], c == 2)
+"""
+    excludes(m, k, c::Symbol) -> Bool
+
+Whether conformation `c` (`:active` or `:inactive`) of `m` excludes step `k` of its
+catalytic graph: an `:OnlyA` group's step in the inactive conformation, an `:OnlyI`
+group's in the active one. There a plain binding loses its affinity and any other step is
+blocked (spec section 7). A plain mechanism excludes no step.
+"""
+excludes(am::AllostericMechanism, k::Int, c::Symbol) =
+    _excluded_by(am.cat_allo_states[am.catalytic.group[k]], _conformation_index(c) == 2)
+excludes(::Mechanism, ::Int, c::Symbol) = (_conformation_index(c); false)
 
 """Whether a step whose kinetic group is tagged `tag` is excluded from the inactive
 conformation (`inactive`) or the active one: an `:OnlyA` step from the inactive, an
@@ -1768,17 +1757,19 @@ conformation (`inactive`) or the active one: an `:OnlyA` step from the inactive,
 _excluded_by(tag::Symbol, inactive::Bool) = tag === (inactive ? :OnlyA : :OnlyI)
 
 """
+    exclusion_components(am, c::Symbol) -> Vector{Int}
+
 Each form's component under the edges of `am`'s catalytic graph that conformation `c`
-(1 active, 2 inactive) keeps (`_excludes`), every form included, labelled by its smallest
+(`:active` or `:inactive`) keeps (`excludes`), every form included, labelled by its smallest
 form index, so free E's label is 1. Admission reads each plain binding `c` excludes as an
 arc from its unbound side's component to its bound side's (`_arcs`).
 """
-function _exclusion_components(am::AllostericMechanism, c::Int)
+function exclusion_components(am::AllostericMechanism, c::Symbol)
     m = am.catalytic
     parent = collect(eachindex(m.forms))
     top(i) = (while parent[i] != i; i = parent[i]; end; i)
     for (k, e) in enumerate(m.edges)
-        _excludes(am, k, c) && continue
+        excludes(am, k, c) && continue
         a, b = top(e.from), top(e.to)
         a == b || (parent[max(a, b)] = min(a, b))
     end
@@ -1790,7 +1781,7 @@ end
 
 The steps of conformation `c` (`:active` or `:inactive`) of `m`, one flag per step in
 `m`'s stored direction. For an allosteric mechanism these are the steps of its catalytic
-graph that `c` does not exclude (`_excludes`: an `:OnlyI` group's from the active
+graph that `c` does not exclude (`excludes`: an `:OnlyI` group's from the active
 conformation, an `:OnlyA` group's from the inactive one) between forms they join to free
 E, form 1. The conformations interconvert at free E alone, so a form those steps do not
 join to it holds no enzyme of that conformation, a second free form included. The law
@@ -1803,15 +1794,14 @@ stopping test (`_stops_inactive_turnover`) and the hyperbolic test
 (`_hyperbolic_catalysis`) read each conformation from it.
 """
 function conformation_steps(am::AllostericMechanism, c::Symbol)
-    i = _conformation_index(c)
-    comp = _exclusion_components(am, i)
-    BitVector([!_excludes(am, k, i) && comp[e.from] == 1
+    comp = exclusion_components(am, c)
+    BitVector([!excludes(am, k, c) && comp[e.from] == 1
                for (k, e) in enumerate(am.catalytic.edges)])
 end
 conformation_steps(m::Mechanism, c::Symbol) =
     (_conformation_index(c) == 1 ? trues : falses)(length(m.edges))
 
-"""The index of conformation `c` that `_excludes` reads: 1 for `:active`, 2 for
+"""The index of conformation `c` that `excludes` reads: 1 for `:active`, 2 for
 `:inactive`."""
 _conformation_index(c::Symbol) =
     c === :active ? 1 : c === :inactive ? 2 :

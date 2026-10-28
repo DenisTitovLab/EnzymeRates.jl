@@ -1715,7 +1715,7 @@ end
         # `modifiers:` or as a reactant's X::Mod.
         M, F = EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.RawForm
         s, p, i, smod = M(:S, false), M(:P, false), M(:I, true), M(:S, true)
-        raw = EnzymeRates.Mechanisms._raw_mechanism(quote
+        raw = EnzymeRates.Mechanisms.raw_mechanism(quote
             substrates: S
             products:   P
             modifiers:  I, S
@@ -1737,7 +1737,7 @@ end
             [1, 2, 2, 3, 4])
         # An allosteric block adds a tag per group label, the catalytic multiplicity
         # (1 when omitted) and its sites, each ligand list as written.
-        allo = EnzymeRates.Mechanisms._raw_mechanism(quote
+        allo = EnzymeRates.Mechanisms.raw_mechanism(quote
             substrates: S
             products:   P
             allosteric_regulators: X, Y
@@ -2027,7 +2027,7 @@ end
         # A tag after a parenthesized right-hand side tags the step, as after a bare one.
         M, F = EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.RawForm
         s, p = M(:S, false), M(:P, false)
-        @test EnzymeRates.Mechanisms._raw_mechanism(quote
+        @test EnzymeRates.Mechanisms.raw_mechanism(quote
             substrates: S
             products:   P
             steps: begin
@@ -2445,4 +2445,67 @@ end
     @test [EnzymeRates.Mechanisms.mechanism_id(_testhelper_lift(em))
            for em in (plain, ping_pong, allosteric)] ==
           ["f4ce3f6878d7229f", "dbcebb00ac48b73f", "3d6c468d7b38224b"]
+end
+
+@testset "DSL entry points: reaction_expr, raw_mechanism, check_uniquely_decodable" begin
+    M = EnzymeRates.Mechanisms
+    # The `EnzymeReaction` expression a block writes builds the reaction the macro builds.
+    @test eval(M.reaction_expr(:(begin
+        substrates: S[C]
+        products: P[C]
+        competitive_inhibitors: I
+    end))) == @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        competitive_inhibitors: I
+    end
+
+    # A mechanism block as written: each step in written order and direction, one group
+    # label per statement.
+    S, P = M.Met(:S, false), M.Met(:P, false)
+    E, ES, EP = M.RawForm(:E, M.Met[]), M.RawForm(:E, [S]), M.RawForm(:E, [P])
+    steps = [M.RawStep(E, ES, [S], M.Met[], true),
+             M.RawStep(ES, EP, M.Met[], M.Met[], false),
+             M.RawStep(EP, E, M.Met[], [P], true)]
+    plain = M.RawMechanism([:S], [:P], Symbol[], steps, [1, 2, 3])
+    @test M.raw_mechanism(:(begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end), false) == plain
+    allosteric = M.raw_mechanism(:(begin
+        substrates: S
+        products: P
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: OnlyA
+            E(P) ⇌ E + P      :: EqualAI
+        end
+        regulatory_site(2): R::OnlyI
+    end), true)
+    @test allosteric == M.RawAllostericMechanism(plain, [:NonequalAI, :OnlyA, :EqualAI], 2,
+                                                 [M.RawSite([:R], 2, [:OnlyI])])
+
+    # Names that spell every string one way pass; Ac + CoA and AcCoA spell AcCoA twice.
+    @test M.check_uniquely_decodable(plain) === nothing
+    @test M.check_uniquely_decodable(allosteric) === nothing
+    Ac, CoA, AcCoA = M.Met(:Ac, false), M.Met(:CoA, false), M.Met(:AcCoA, false)
+    EAc, EAcCoA = M.RawForm(:E, [Ac]), M.RawForm(:E, [Ac, CoA])
+    clash = M.RawMechanism([:Ac, :CoA], [:AcCoA], Symbol[],
+                           [M.RawStep(E, EAc, [Ac], M.Met[], true),
+                            M.RawStep(EAc, EAcCoA, [CoA], M.Met[], true),
+                            M.RawStep(EAcCoA, E, M.Met[], [AcCoA], false)], [1, 2, 3])
+    two_ways = ErrorException(
+        "Mechanism: Ac + CoA and AcCoA both spell AcCoA: enzyme forms and their " *
+        "constants join the names of the metabolites they bind without a separator, so " *
+        "two forms would share a name; rename a metabolite")
+    @test_throws two_ways M.check_uniquely_decodable(clash)
+    @test_throws two_ways M.check_uniquely_decodable(
+        M.RawAllostericMechanism(clash, [:EqualAI, :EqualAI, :EqualAI], 1, M.RawSite[]))
 end

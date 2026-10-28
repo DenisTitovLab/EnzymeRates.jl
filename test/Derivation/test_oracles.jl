@@ -296,7 +296,7 @@ end
             end
         end)
         two_enzymes = EnzymeRates.Mechanisms._canonicalize(
-            EnzymeRates.Mechanisms._raw_mechanism(:(begin
+            EnzymeRates.Mechanisms.raw_mechanism(:(begin
             substrates: S
             products: P
             steps: begin
@@ -475,8 +475,8 @@ const _testhelper_sample_regroupings =
             law_names =
                 Set(n for state in (:A, :I)
                     for ns in EnzymeRates.Derivation._edge_names(m, state) for n in ns)
-            reg = Set(EnzymeRates.Mechanisms.name(p, m) for state in (:A, :I)
-                      for p in EnzymeRates.Mechanisms._kreg_params(m, state))
+            reg = Set(K for state in (:A, :I)
+                      for K in _testhelper_regulator_constants(m, state))
             fitted = _testhelper_dependent_param_exprs(m)[2]
             append!(stray, setdiff(fitted, law_names, reg, (:L,)))
         end
@@ -563,7 +563,7 @@ end
     end
     @test r2 isa EnzymeRates.AllostericMechanism
     @test r2 == EnzymeRates.AllostericMechanism(
-        EnzymeRates.Mechanisms._raw_mechanism(:(begin
+        EnzymeRates.Mechanisms.raw_mechanism(:(begin
         substrates: S
         products: P
         steps: begin
