@@ -61,7 +61,7 @@ mechanism, and the edges its tags keep of an allosteric one. The beam expands a 
 seed without fitting it (`_base_tier`)."""
 function _degenerate(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
-    re = Mechanisms._flags(cm)
+    re = Mechanisms.rapid_equilibrium_steps(cm)
     on = Mechanisms.conformation_steps(m, :active)
     !(_has_vmax(cm, re, cm.substrates, on) && _has_vmax(cm, re, cm.products, on)) ||
         _chemistry_equilibrates_both_sides(cm, re, on)
@@ -228,7 +228,7 @@ makes a twin. The forms are `m`'s own, so the twins of a mechanism the dead-end 
 builds are found on that mechanism (`_dead_end_child`).
 """
 function _productive_twin(m::Mechanisms.Mechanism, mask::BitVector)
-    s = Mechanisms.re_segments(m, mask, Mechanisms._flags(m))
+    s = Mechanisms.re_segments(m, mask, Mechanisms.rapid_equilibrium_steps(m))
     name_of = Mechanisms._name_index(m)
     modifiers = Mechanisms._modifier_mask(m)
     # A form's bound names, sorted, its conformation and its residual.
@@ -427,7 +427,7 @@ function _assert_emission_rules(m::Union{Mechanisms.Mechanism,
     members = Mechanisms._group_members(cm)
     # A group as its edges' sides (`_sides`), the names its constants take.
     label(g) = join((join(Mechanisms._sides(cm, k), " → ") for k in members[g]), ", ")
-    flux = _flux_carrying_groups(cm, Mechanisms._flags(cm))
+    flux = _flux_carrying_groups(cm, Mechanisms.rapid_equilibrium_steps(cm))
     for (g, ks) in enumerate(members)
         cm.edges[first(ks)].rapid_equilibrium || flux[g] || error(
             "expand_mechanisms: steady-state kinetic group {" * label(g) * "} has no " *

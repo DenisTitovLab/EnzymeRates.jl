@@ -68,6 +68,7 @@ end
         @test all(isempty(M.given_off(m, k)) for k in M.steps(m))
         @test [M.is_rapid_equilibrium(m, k) for k in M.steps(m)] ==
               [true, true, false, true, false, true, false]
+        @test M.rapid_equilibrium_steps(m) == BitVector([1, 1, 0, 1, 0, 1, 0])
         @test [M.step_kind(m, k) for k in M.steps(m)] ==
               [:binding, :binding, :binding, :binding, :isomerization, :binding, :binding]
     end
@@ -131,6 +132,7 @@ end
               [[:P], [:S], Symbol[]]
         @test all(isempty(M.given_off(m, k)) for k in M.steps(m))
         @test [M.is_rapid_equilibrium(m, k) for k in M.steps(m)] == [true, true, false]
+        @test M.rapid_equilibrium_steps(m) == BitVector([1, 1, 0])
         @test [M.step_kind(m, k) for k in M.steps(m)] ==
               [:binding, :binding, :isomerization]
     end
@@ -392,7 +394,8 @@ end
         n = length(M.steps(m))
         # Every mechanism turns the reaction over, and none at rapid equilibrium alone.
         @test (spec.name, M.has_turnover_cycle(m, trues(n))) == (spec.name, true)
-        @test (spec.name, M.has_turnover_cycle(m, M._flags(m))) == (spec.name, false)
+        @test (spec.name, M.has_turnover_cycle(m, M.rapid_equilibrium_steps(m))) ==
+              (spec.name, false)
         subsets = [[Int[]]; [[i] for i in 1:n]; [[i, j] for i in 1:n for j in (i + 1):n]]
         masks = [BitVector(k in s for k in 1:n) for s in subsets]
         mech isa ER.AllostericMechanism &&

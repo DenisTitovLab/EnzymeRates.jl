@@ -112,7 +112,7 @@ function _bare_law(m::Mechanisms.Mechanism, mask::BitVector, concentrations::Vec
     ratio(k) = _mmul(_mpow(bare(k, 1), _is_binding(m, k) ? -1 : 1),
                      _mmul(conc(Mechanisms.taken_up(m, k)),
                            _mpow(conc(Mechanisms.given_off(m, k)), -1)))
-    s = Mechanisms.re_segments(m, mask, Mechanisms._flags(m))
+    s = Mechanisms.re_segments(m, mask, Mechanisms.rapid_equilibrium_steps(m))
     re = [k for k in Mechanisms.steps(m)
           if mask[k] && Mechanisms.is_rapid_equilibrium(m, k)]
     nforms = length(Mechanisms.species(m))

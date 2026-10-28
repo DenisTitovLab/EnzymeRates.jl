@@ -29,7 +29,7 @@ class 2's fix holds whichever step of the cycle is picked."""
 function _every_step_cures(mech::Mechanisms._AnyMech, net::_Network, cycle::Vector{Int})
     m = Mechanisms.catalytic(mech)
     for t in cycle
-        re = Mechanisms._flags(m)
+        re = Mechanisms.rapid_equilibrium_steps(m)
         re[Mechanisms.members(m, Mechanisms.group(m, net.edge[t]))] .= false
         isempty(_re_turnover_transitions(_eps_network(mech, re))) || return false
     end

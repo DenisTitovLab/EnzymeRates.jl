@@ -108,7 +108,8 @@ end
 # The number of rapid-equilibrium segments of the catalytic graph of `m`.
 _testhelper_segment_count(m) =
     (cm = EnzymeRates.Mechanisms.catalytic(m);
-     EnzymeRates.Enumeration._re_segment_count(cm, EnzymeRates.Mechanisms._flags(cm)))
+     EnzymeRates.Enumeration._re_segment_count(
+         cm, EnzymeRates.Mechanisms.rapid_equilibrium_steps(cm)))
 
 # Ground truth for the parameter counts the enumeration moves report: the number of
 # fitted parameters of the compiled rate equation.
@@ -157,7 +158,7 @@ _testhelper_is_tc(e) = e.consumed != 0 && e.released != 0
 # The flags of graph `m` with every kinetic group that holds an edge satisfying one of
 # `preds` turned steady state.
 function _testhelper_flip_flags(m, preds...)
-    re = EnzymeRates.Mechanisms._flags(m)
+    re = EnzymeRates.Mechanisms.rapid_equilibrium_steps(m)
     hit = EnzymeRates.Mechanisms._groups_with(k -> any(p -> p(m.edges[k]), preds), m.group,
                                               EnzymeRates.Mechanisms.ngroups(m))
     re[hit[m.group]] .= false
@@ -1428,7 +1429,7 @@ end
     end
     # The pair {P@E, Q@E} fails class 3 at zero products.
     pq = [_testhelper_edge(parent, "E + P ⇌ EP"), _testhelper_edge(parent, "E + Q ⇌ EQ")]
-    pair = EnzymeRates.Mechanisms._flags(parent)
+    pair = EnzymeRates.Mechanisms.rapid_equilibrium_steps(parent)
     pair[pq] .= false
     v = EnzymeRates.Derivation._guard(
         EnzymeRates.Mechanisms._build(EnzymeRates.Mechanisms._raw(parent, pair)))
@@ -3192,7 +3193,7 @@ end
         cm = am.catalytic
         verdict = EnzymeRates.Derivation._admission_interior(am).fault
         flux = EnzymeRates.Enumeration._flux_carrying_edges(
-            cm, EnzymeRates.Mechanisms._flags(cm))
+            cm, EnzymeRates.Mechanisms.rapid_equilibrium_steps(cm))
         units = [(g, bp) for g in 1:EnzymeRates.Mechanisms.ngroups(cm)
                  for bp in EnzymeRates.Enumeration._context_bipartitions(cm, g)]
         reverted = [EnzymeRates.Enumeration._revert_zero_flux_parts(cm, bp, flux)
@@ -3200,7 +3201,7 @@ end
         for sel in [[[u] for u in eachindex(units)];
                     [[u, v] for u in eachindex(units) for v in u+1:length(units)
                      if units[u][1] != units[v][1]]]
-            re = EnzymeRates.Mechanisms._flags(cm)
+            re = EnzymeRates.Mechanisms.rapid_equilibrium_steps(cm)
             foreach(u -> re[reverted[u]] .= true, sel)
             child = EnzymeRates.Enumeration._apply_bipartitions(am, units[sel], re)
             @test EnzymeRates.Derivation._admission_interior(child).fault === verdict
@@ -9306,7 +9307,7 @@ end
     end)
     @test all(EnzymeRates.Enumeration._flux_carrying_groups(tc, _testhelper_all_ss(tc)))
     @test EnzymeRates.Enumeration._flux_carrying_groups(
-        tc, EnzymeRates.Mechanisms._flags(tc)) ==
+        tc, EnzymeRates.Mechanisms.rapid_equilibrium_steps(tc)) ==
           [!first(fs) for fs in _testhelper_group_flags(tc)]
 
     # A merged central complex X with two fused steps into it and no
@@ -9351,7 +9352,7 @@ end
         [m.edges[first(ks)] for ks in EnzymeRates.Mechanisms._group_members(m)]
     ss_binding(e) = EnzymeRates.Mechanisms._is_binding(e) && !e.rapid_equilibrium
     flags = EnzymeRates.Enumeration._flux_carrying_groups(
-        shunt, EnzymeRates.Mechanisms._flags(shunt))
+        shunt, EnzymeRates.Mechanisms.rapid_equilibrium_steps(shunt))
     for (g, e) in enumerate(_testhelper_firsts(shunt))
         if ss_binding(e)
             @test EnzymeRates.Mechanisms._form_name(shunt, e.from) == "E" && !flags[g]
@@ -9390,7 +9391,7 @@ end
     @test _testhelper_respeed_verdicts(loop; rng = Random.MersenneTwister(92),
                                        law = :limit)[2] === :pattern
     lflags = EnzymeRates.Enumeration._flux_carrying_groups(
-        loop, EnzymeRates.Mechanisms._flags(loop))
+        loop, EnzymeRates.Mechanisms.rapid_equilibrium_steps(loop))
     for (g, e) in enumerate(_testhelper_firsts(loop))
         if ss_binding(e)
             @test !lflags[g]
@@ -9400,7 +9401,7 @@ end
     end
     @test count(ss_binding, _testhelper_firsts(loop)) == 1
     @test EnzymeRates.Enumeration._re_segment_count(
-        loop, EnzymeRates.Mechanisms._flags(loop)) == 1
+        loop, EnzymeRates.Mechanisms.rapid_equilibrium_steps(loop)) == 1
 end
 
 @testset "MERGE, ELIM and the seed tests on the ordered bi-bi seed" begin
@@ -9437,8 +9438,10 @@ end
     # Q, weight 1 + 1 + 1 + 1 = 4, all at rapid equilibrium. The seed's cycle runs
     # through its steady-state isomerization, and its RE steps form a tree.
     # every step RE: infinite rate
-    @test ER.Mechanisms.has_turnover_cycle(base, ER.Mechanisms._flags(base))
-    @test !ER.Mechanisms.has_turnover_cycle(seed, ER.Mechanisms._flags(seed))
+    @test ER.Mechanisms.has_turnover_cycle(base,
+                                           ER.Mechanisms.rapid_equilibrium_steps(base))
+    @test !ER.Mechanisms.has_turnover_cycle(seed,
+                                            ER.Mechanisms.rapid_equilibrium_steps(seed))
     _testhelper_variant(ss) = .!BitVector([_testhelper_binds(base, ss...)(e)
                                            for e in base.edges])
     _testhelper_clean(m, re) = !ER.Mechanisms.has_turnover_cycle(m, re) &&
@@ -9484,7 +9487,7 @@ end
     gA, gQ = group_of(_testhelper_binds(tc, :A)), group_of(_testhelper_binds(tc, :Q))
     gTC = group_of(_testhelper_is_tc)
     # E → E(A) → E(Q) → E, all RE
-    @test ER.Mechanisms.has_turnover_cycle(tc, ER.Mechanisms._flags(tc))
+    @test ER.Mechanisms.has_turnover_cycle(tc, ER.Mechanisms.rapid_equilibrium_steps(tc))
     _testhelper_ss(which) = BitVector([!(g in which) for g in tc.group])
     # The Theorell–Chance step takes up B and gives off P, so V turns it RE for either
     # side. {A, Q, TC}: V for substrates leaves Q steady state, V for products leaves A,
@@ -9588,7 +9591,7 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    @test !ER.Mechanisms.has_turnover_cycle(m, ER.Mechanisms._flags(m))
+    @test !ER.Mechanisms.has_turnover_cycle(m, ER.Mechanisms.rapid_equilibrium_steps(m))
     @test ER.Mechanisms.has_turnover_cycle(m, trues(length(m.edges)))
 end
 
@@ -9611,7 +9614,7 @@ end
     # node, left by the RE B binding (traversed away from E(B; res) it gives B off) and
     # by the RE Q binding (away from E(Q) it gives Q off): C fails. At zero products the
     # forms past the steady-state step drain to E and E(A), so B is not needed.
-    re = ER.Mechanisms._flags(seed)
+    re = ER.Mechanisms.rapid_equilibrium_steps(seed)
     @test ER.Enumeration._has_vmax(seed, re, seed.substrates) &&
           ER.Enumeration._has_vmax(seed, re, seed.products)
     @test ER.Enumeration._chemistry_equilibrates_both_sides(seed, re)
@@ -9694,8 +9697,10 @@ end
             E + P <--> E(P)
         end
     end)
-    @test !ER.Enumeration._has_vmax(only_s, ER.Mechanisms._flags(only_s), only_s.substrates)
-    @test !ER.Enumeration._has_vmax(only_p, ER.Mechanisms._flags(only_p), only_p.products)
+    @test !ER.Enumeration._has_vmax(only_s, ER.Mechanisms.rapid_equilibrium_steps(only_s),
+                                    only_s.substrates)
+    @test !ER.Enumeration._has_vmax(only_p, ER.Mechanisms.rapid_equilibrium_steps(only_p),
+                                    only_p.products)
     @test _testhelper_degenerate(only_s) && _testhelper_degenerate(only_p)
     # The twin is skipped as the seed's twin, not as degenerate.
     @test !ER.Enumeration._degenerate(twin) && !_testhelper_degenerate(twin)
@@ -11502,9 +11507,9 @@ end
         end
     end)
     # Flipping E + S ⇌ E(S) cuts the one segment in two.
-    @test EnzymeRates.Enumeration._re_segment_count(m,
-                                                    EnzymeRates.Mechanisms._flags(m)) == 1
-    flipped = EnzymeRates.Mechanisms._flags(m)
+    @test EnzymeRates.Enumeration._re_segment_count(
+        m, EnzymeRates.Mechanisms.rapid_equilibrium_steps(m)) == 1
+    flipped = EnzymeRates.Mechanisms.rapid_equilibrium_steps(m)
     flipped[_testhelper_edge(m, "E + S ⇌ ES")] = false
     @test EnzymeRates.Enumeration._re_segment_count(m, flipped) == 2
 
@@ -11520,7 +11525,7 @@ end
         end
     end)
     @test _testhelper_segment_count(am) == 1
-    am_flipped = EnzymeRates.Mechanisms._flags(am.catalytic)
+    am_flipped = EnzymeRates.Mechanisms.rapid_equilibrium_steps(am.catalytic)
     am_flipped[_testhelper_edge(am, "E + S ⇌ ES")] = false
     @test EnzymeRates.Enumeration._re_segment_count(am.catalytic, am_flipped) == 2
 
@@ -11532,7 +11537,7 @@ end
              if all(k -> seed.edges[k].rapid_equilibrium, ks)]
     @test length(flips) == 508
     @test all(flips) do (seed, g)
-        re = EnzymeRates.Mechanisms._flags(seed)
+        re = EnzymeRates.Mechanisms.rapid_equilibrium_steps(seed)
         re[seed.group .== g] .= false
         flipped = EnzymeRates.Mechanisms._canonicalize(
             EnzymeRates.Mechanisms._raw(seed, re)).mechanism
@@ -11557,7 +11562,7 @@ end
 
 "Whole-group flip of groups `gs` of `m` to steady state (test helper)."
 function _testhelper_flip_groups(m, gs)
-    re = EnzymeRates.Mechanisms._flags(m)
+    re = EnzymeRates.Mechanisms.rapid_equilibrium_steps(m)
     re[[g in gs for g in m.group]] .= false
     EnzymeRates.Mechanism(EnzymeRates.Mechanisms._raw(m, re))
 end
@@ -11825,7 +11830,7 @@ end
     @test sort(findall(==(g), m.group)) == sort(abortive)
     @test !any(k -> m.edges[k].rapid_equilibrium, abortive)
     @test EnzymeRates.Enumeration._flux_carrying_edges(
-        m, EnzymeRates.Mechanisms._flags(m))[abortive] == falses(2)
+        m, EnzymeRates.Mechanisms.rapid_equilibrium_steps(m))[abortive] == falses(2)
     bp = only(EnzymeRates.Enumeration._context_bipartitions(m, g))
     @test all(part -> length(part) == 1, bp)
     reverted =
@@ -11835,7 +11840,7 @@ end
         EnzymeRates.Enumeration._revert_zero_flux_parts(m, bp, trues(length(m.edges))))
     # The child built with those flags holds both parts at rapid equilibrium, each its
     # forms and lists unchanged.
-    re = EnzymeRates.Mechanisms._flags(m)
+    re = EnzymeRates.Mechanisms.rapid_equilibrium_steps(m)
     re[reverted] .= true
     child = EnzymeRates.Enumeration._apply_bipartitions(m, [(g, bp)], re)
     @test [(e.from, e.to, e.consumed, e.released) for e in child.edges] ==
@@ -16103,7 +16108,7 @@ end
     @test EnzymeRates.Mechanisms._step_text(a_alone, v.edge) == "E + P ⇌ E(P)"
     @test _testhelper_respeed_verdicts(a_alone; rng = Random.MersenneTwister(91),
                                        law = :limit)[v.face] === :pattern
-    flags = EnzymeRates.Mechanisms._flags(parent)
+    flags = EnzymeRates.Mechanisms.rapid_equilibrium_steps(parent)
     flags[[_testhelper_edge(parent, "E + A ⇌ EA"),
            _testhelper_edge(parent, "EB + A ⇌ EPQ")]] .= false
     @test EnzymeRates.Mechanisms._build(EnzymeRates.Mechanisms._raw(parent, flags)) ==
@@ -16220,7 +16225,7 @@ end
     @test _testhelper_respeed_verdicts(a_flip; rng = Random.MersenneTwister(29),
                                        law = :limit)[v.face] === :pattern
     cm = EnzymeRates.Mechanisms.catalytic(parent)
-    flags = EnzymeRates.Mechanisms._flags(cm)
+    flags = EnzymeRates.Mechanisms.rapid_equilibrium_steps(cm)
     flags[cm.group .== cm.group[_testhelper_edge(parent, "E + A ⇌ EA")]] .= false
     @test EnzymeRates.Mechanisms._build(EnzymeRates.Mechanisms._raw(parent, flags)) ==
           a_flip

@@ -66,7 +66,7 @@ function _expand_re_to_ss(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMe
         k -> (cm.edges[k].consumed | cm.edges[k].released) & modifiers != 0, cm.group,
         Mechanisms.ngroups(cm))
     eligible(g) = !(g in flanks) && !exchanges_modifier[g]
-    base = _re_segment_count(cm, Mechanisms._flags(cm))
+    base = _re_segment_count(cm, Mechanisms.rapid_equilibrium_steps(cm))
     flips = _minimal_flips(re -> _re_segment_count(cm, re) > base, m, eligible)
     children = typeof(m)[Mechanisms._build(Mechanisms._raw(m, re)) for re in flips]
     filter(_hyperbolic_where_required, children)
@@ -123,7 +123,7 @@ extended and a passing one is not.
 """
 function _minimal_flips(admissible, m::Mechanisms._AnyMech, eligible = _ -> true)
     cm = Mechanisms.catalytic(m)
-    flags = Mechanisms._flags(cm)
+    flags = Mechanisms.rapid_equilibrium_steps(cm)
     members = Mechanisms._group_members(cm)
     flux = _flux_carrying_groups(cm, falses(length(cm.edges)))
     units = [g for g in eachindex(members)
@@ -354,7 +354,7 @@ function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
                                                Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
     members = Mechanisms._group_members(cm)
-    flags = Mechanisms._flags(cm)
+    flags = Mechanisms.rapid_equilibrium_steps(cm)
     flux = _flux_carrying_edges(cm, flags)
     units = Tuple{Int, Tuple{Vector{Int}, Vector{Int}}}[]
     reverted = Vector{Int}[]
@@ -473,7 +473,8 @@ For an allosteric mechanism both parts inherit the group's catalytic allo-state 
 """
 function _apply_bipartitions(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
                              selection,
-                             re::BitVector = Mechanisms._flags(Mechanisms.catalytic(m)))
+                             re::BitVector = Mechanisms.rapid_equilibrium_steps(
+                                 Mechanisms.catalytic(m)))
     group, origin = _bipartitioned_groups(Mechanisms.catalytic(m), selection)
     m isa Mechanisms.Mechanism ? Mechanisms.Mechanism(Mechanisms._raw(m, re, group)) :
         Mechanisms.AllostericMechanism(

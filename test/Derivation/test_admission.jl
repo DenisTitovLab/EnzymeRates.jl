@@ -1472,7 +1472,7 @@ end
         end
     end
     candidate(re) = EnzymeRates.Mechanisms._build(EnzymeRates.Mechanisms._raw(ldh, re))
-    flags = EnzymeRates.Mechanisms._flags(ldh)
+    flags = EnzymeRates.Mechanisms.rapid_equilibrium_steps(ldh)
     @test EnzymeRates.Derivation._guard(candidate(flags)).fault ===
           EnzymeRates.Derivation._TRAP
     # The feeding step steady-state through the flags: the graph of the trap test's fix.

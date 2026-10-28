@@ -87,6 +87,10 @@ given_off(m::Mechanism, k::Int) = Metabolites(m.edges[k].released, m.table)
 """Whether step `k` of `m` is at rapid equilibrium."""
 is_rapid_equilibrium(m::Mechanism, k::Int) = m.edges[k].rapid_equilibrium
 
+"""The steps of `m` at rapid equilibrium, one flag per step (`is_rapid_equilibrium`)."""
+rapid_equilibrium_steps(m::Mechanism) =
+    BitVector([is_rapid_equilibrium(m, k) for k in steps(m)])
+
 """
 What step `k` of `m` does: `:isomerization` when it takes up and gives off nothing
 (`_is_iso`), `:binding` when it is a plain binding (`_is_chemistry` fails), else

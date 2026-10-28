@@ -186,7 +186,7 @@ Whether `mech` with the kinetic group of edge `k` made steady-state passes the g
 """
 function _steady_state_passes(mech::Mechanisms._AnyMech, k::Int)
     m = Mechanisms.catalytic(mech)
-    re = Mechanisms._flags(m)
+    re = Mechanisms.rapid_equilibrium_steps(m)
     re[Mechanisms.members(m, Mechanisms.group(m, k))] .= false
     _guard(Mechanisms._build(Mechanisms._raw(mech, re))) === _WELL_POSED
 end

@@ -1529,8 +1529,6 @@ derivation read them in."""
 _flat_edges(m::Mechanism) = reduce(vcat, _group_members(m); init = Int[])
 """Whether `f` is a free form: nothing bound and no residual, whatever its label."""
 _is_free(f::Form) = f.bound == 0 && !_has_residual(f)
-"""Each edge's rapid-equilibrium flag."""
-_flags(m::Mechanism) = BitVector([e.rapid_equilibrium for e in m.edges])
 """The nibbles of the entries of `m` for which `pred` holds: a count of `m`'s entries
 meets this mask when it holds such an entry."""
 function _entry_mask(pred, m::Mechanism)
@@ -1724,7 +1722,7 @@ The steady-state graph between the rapid-equilibrium segments of the steps of `m
 steady-state steps that join two segments, in step order.
 """
 function segment_graph(m::Mechanism, on::BitVector)
-    s = re_segments(m, on, _flags(m))
+    s = re_segments(m, on, rapid_equilibrium_steps(m))
     steps = [k for (k, e) in enumerate(m.edges)
              if on[k] && !e.rapid_equilibrium && s.segment_of[e.from] != s.segment_of[e.to]]
     merge(s, (; steps))
@@ -1852,7 +1850,7 @@ function _raw_form(m::Mechanism, f::Int, extra::Met...)
 end
 
 """
-    _raw(m, re = _flags(m), group = m.group)
+    _raw(m, re = rapid_equilibrium_steps(m), group = m.group)
 
 `m` as raw input: every edge a step in its stored direction, edge `k` at rapid
 equilibrium where `re[k]` holds and labelled `group[k]`, by default its own flag and
@@ -1860,7 +1858,8 @@ group. Every vector is fresh, so a move that edits the raw value never edits `m`
 moves build children from it: the checked constructor canonicalizes the new flags and
 groups.
 """
-function _raw(m::Mechanism, re::BitVector = _flags(m), group::Vector{Int} = m.group)
+function _raw(m::Mechanism, re::BitVector = rapid_equilibrium_steps(m),
+              group::Vector{Int} = m.group)
     steps = [RawStep(_raw_form(m, e.from), _raw_form(m, e.to),
                      Met[m.table[i] for i in entries(e.consumed)],
                      Met[m.table[i] for i in entries(e.released)], re[k])
@@ -1869,13 +1868,13 @@ function _raw(m::Mechanism, re::BitVector = _flags(m), group::Vector{Int} = m.gr
 end
 
 """
-    _raw(am, re = _flags(am.catalytic), group = am.catalytic.group,
+    _raw(am, re = rapid_equilibrium_steps(am.catalytic), group = am.catalytic.group,
          tags = am.cat_allo_states)
 
 `am` as raw input: its catalytic graph as `_raw(am.catalytic, re, group)` writes it, its
 group label `l` tagged `tags[l]`, and its multiplicity and regulatory sites.
 """
-_raw(am::AllostericMechanism, re::BitVector = _flags(am.catalytic),
+_raw(am::AllostericMechanism, re::BitVector = rapid_equilibrium_steps(am.catalytic),
      group::Vector{Int} = am.catalytic.group, tags::Vector{Symbol} = am.cat_allo_states) =
     RawAllostericMechanism(_raw(am.catalytic, re, group), copy(tags),
                            am.catalytic_multiplicity, _raw_sites(am))

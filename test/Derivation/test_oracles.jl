@@ -929,7 +929,7 @@ end
                          _testhelper_population_sample] if m isa EnzymeRates.Mechanism]
     found = Bool[]
     for m in plain
-        flags = EnzymeRates.Mechanisms._flags(m)
+        flags = EnzymeRates.Mechanisms.rapid_equilibrium_steps(m)
         for re in [[flags];
                    [flags .| (m.group .== g) for g in 1:EnzymeRates.Mechanisms.ngroups(m)];
                    [trues(length(m.edges))]]

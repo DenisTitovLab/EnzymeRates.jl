@@ -233,7 +233,8 @@ rapid-equilibrium flags overridden by `re`; an allosteric mechanism's two copies
 holding the steps of its conformation (`conformation_steps`) and the forms they touch
 (`present_species`), free E always, joined by the flip at free E.
 """
-function _law_network(m::Mechanisms.Mechanism, re::BitVector = Mechanisms._flags(m))
+function _law_network(m::Mechanisms.Mechanism,
+                      re::BitVector = Mechanisms.rapid_equilibrium_steps(m))
     n = length(Mechanisms.steps(m))
     fast = falses(n, 1)
     fast[:, 1] .= re
@@ -242,7 +243,7 @@ function _law_network(m::Mechanisms.Mechanism, re::BitVector = Mechanisms._flags
 end
 function _law_network(am::Mechanisms.AllostericMechanism)
     m = Mechanisms.catalytic(am)
-    re = Mechanisms._flags(m)
+    re = Mechanisms.rapid_equilibrium_steps(m)
     n, nf = length(Mechanisms.steps(m)), length(Mechanisms.species(m))
     use, fast, present = falses(n, 2), falses(n, 2), falses(2 * nf)
     for (c, conformation) in enumerate((:active, :inactive))
@@ -263,10 +264,11 @@ plain binding stays fast while its uptake vanishes and its release keeps its rat
 other excluded edge is slow and vanishes both ways. A plain mechanism's ε-network is its
 law network.
 """
-_eps_network(m::Mechanisms.Mechanism, re::BitVector = Mechanisms._flags(m)) =
-    _law_network(m, re)
+_eps_network(m::Mechanisms.Mechanism,
+             re::BitVector = Mechanisms.rapid_equilibrium_steps(m)) = _law_network(m, re)
 function _eps_network(am::Mechanisms.AllostericMechanism,
-                      re::BitVector = Mechanisms._flags(Mechanisms.catalytic(am)))
+                      re::BitVector =
+                          Mechanisms.rapid_equilibrium_steps(Mechanisms.catalytic(am)))
     m = Mechanisms.catalytic(am)
     n = length(Mechanisms.steps(m))
     fast, vanish_forward, vanish_reverse = falses(n, 2), falses(n, 2), falses(n, 2)
