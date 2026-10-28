@@ -1610,8 +1610,9 @@ steps that `re` flags (`segment_walk`). `segments[s]` lists segment `s`'s forms
 breadth-first from its first form, each form's steps in the order `_flat_edges` reads
 them, and the segments are numbered by their first forms; `segment_of[f]` is form `f`'s
 segment, 0 for a form no kept step touches (`present_species`). `offsets[n, f]` is how many
-more of metabolite name `n` (`_name_index`) form `f` carries than the form of its segment
-that carries fewest of it. Within a segment, rapid equilibrium fixes each form's weight
+more of metabolite name `n` form `f` carries than the form of its segment that carries
+fewest of it, `n` being the position of the name among the mechanism's distinct
+metabolite names, in sorted order. Within a segment, rapid equilibrium fixes each form's weight
 relative to any other as a monomial in concentrations, one factor per metabolite taken up
 or given off along the path between them; chemistry passes the counts through unchanged.
 

@@ -1,5 +1,5 @@
-# ABOUTME: The Fitting module: FittingProblem, the loss, multi-start fits with Optimization.jl
-# ABOUTME: and rate constants rescaled to reference turnovers.
+# ABOUTME: The Fitting module: FittingProblem, the loss, multi-start fits with
+# ABOUTME: Optimization.jl and rate constants rescaled to reference turnovers.
 module Fitting
 
 using ..Mechanisms: Mechanisms

@@ -2575,7 +2575,7 @@ end
     failure = only(failures)
     @test failure isa EnzymeRates.FitFailure
     @test failure.mech == m_bad                    # the ORIGINAL parent
-    # The recorded error is the assertion's: the chemistry step ES → EP makes an N.
+    # The recorded error is the assertion's: the chemistry step E(S) → E(P) makes an N.
     @test occursin("atom-non-conserving step E(S) → E(P)", failure.error)
     @test occursin("= Dict(:N => 1)", failure.error)
     # A well-formed parent, a seed of the reaction, expands with no failure.

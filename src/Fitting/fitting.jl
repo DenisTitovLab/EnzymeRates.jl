@@ -77,7 +77,8 @@ function FittingProblem(mechanism::Mechanisms.AbstractEnzymeMechanism, table;
 end
 
 """
-    rate_data(table, metabolite_names; Keq, absolute, reference, owner) → (; data, reference)
+    rate_data(table, metabolite_names; Keq, absolute, reference, owner)
+        → (; data, reference)
 
 Validate a rate table and its reference anchors. `data` is `Tables.columntable(table)`:
 `Keq` must be positive and finite, the table needs a `group` column, a `Rate` column and

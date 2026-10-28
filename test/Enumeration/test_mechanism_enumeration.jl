@@ -13234,9 +13234,10 @@ end
 @testset "every bi-bi init mechanism and child is what its raw input builds" begin
     # An aggregate regression pin over the bi-bi seed set and its first expansion level
     # (the exception to writing every fixture inline). Every mechanism the moves emit
-    # goes through the checked constructor, so writing it back as raw input (`_raw`) and
-    # building that again gives the same mechanism: no child keeps a direction, an order
-    # or a group number the constructor would change.
+    # goes through the checked constructor, so writing it back as raw input
+    # (`RawMechanism`, `RawAllostericMechanism`) and building that again gives the same
+    # mechanism: no child keeps a direction, an order or a group number the constructor
+    # would change.
     init = EnzymeRates.Enumeration.init_mechanisms(bi_bi_rxn)
     kids = EnzymeRates.Enumeration.expand_mechanisms(init, bi_bi_rxn)
     @test length(init) == 239
@@ -16445,7 +16446,7 @@ end
     @test isempty(base)
     @test length(failures) == 1 && failures[1] isa Tuple{Any, String}
     @test failures[1][1] == m_bad
-    # The recorded error is the assertion's: the chemistry step ES → EP makes an N.
+    # The recorded error is the assertion's: the chemistry step E(S) → E(P) makes an N.
     @test occursin("atom-non-conserving step E(S) → E(P)", failures[1][2])
     @test occursin("= Dict(:N => 1)", failures[1][2])
 end

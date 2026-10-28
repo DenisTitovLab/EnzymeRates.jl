@@ -333,7 +333,6 @@ function _testhelper_net_uptake_cycle(m, on::BitVector)
     end
 end
 
-
 @testset "turnover cycle: every subset of steps of five mechanisms" begin
     M = ER.Mechanisms
     # Each mechanism with the cycles of its steps that turn the reaction over, written as

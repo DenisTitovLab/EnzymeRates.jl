@@ -506,15 +506,14 @@ The structure procedure A reads on face `face` of the law network
 `net`: `alive`, the transitions that take up no zeroed name; `closed`, the closed classes
 of the alive ones; the rapid-equilibrium segments (`segment` per node, `segments`
 breadth-first) and each node's uptake of every name from its segment's first node
-(`offset`, `_fast_segments`); the lowest nodes, at the segment's
-componentwise least uptake of the zeroed names, whose weight stays
-positive on the face; `bottomless`, the first segment with no lowest node (0 when none);
-the fast classes (closed classes of the alive fast transitions, a node with no alive fast
-exit its own), `class_of` each node's (0 for a node that drains elsewhere) and `trap`,
-the classes of no lowest node; `aggregated`, the closed classes of the chain over fast
-classes that an alive slow transition and then alive fast paths make; and `law_classes`,
-the closed classes of the law's segment chain, its alive slow transitions out of lowest
-nodes.
+(`offset`, `_fast_segments`); `bottomless`, the first segment with no lowest node (0 when
+none), a lowest node being one at the segment's componentwise least uptake of the zeroed
+names, whose weight stays positive on the face; the fast classes (closed classes of the
+alive fast transitions, a node with no alive fast exit its own), `class_of` each node's
+(0 for a node that drains elsewhere) and `trap`, the classes of no lowest node;
+`aggregated`, the closed classes of the chain over fast classes that an alive slow
+transition and then alive fast paths make; and `law_classes`, the closed classes of the
+law's segment chain, its alive slow transitions out of lowest nodes.
 """
 function _face_structure(net::_Network, face::UInt64)
     nn, nt = net.nforms * net.ncopies, length(net.from)

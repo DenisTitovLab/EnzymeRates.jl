@@ -115,12 +115,12 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     #     the @generated rate_equation body, so the first call costs what it costs in
     #     a process that never ran init_mechanisms.
     #     Before both, the script counts the package image's `_rate_body` specializations.
-    #   - fit: the identify path on bi-bi mechanisms as _process_batch and cross_validation_loss
-    #     take it: PASS1 (`_pass1_record`: complexity, the guard, the solve and its
-    #     fitted count, the law, the printed law, and the mechanism's text, id and key,
-    #     all on the concrete mechanism), PASS2 (FittingProblem and a CMA-ES
-    #     fit) and one LOOCV fold. Encoding every seed's Sig and a full pass on the first
-    #     of five written-out seeds compile everything that does not depend on the
+    #   - fit: the identify path on bi-bi mechanisms as _process_batch and
+    #     cross_validation_loss take it: PASS1 (`_pass1_record`: complexity, the guard,
+    #     the solve and its fitted count, the law, the printed law, and the mechanism's
+    #     text, id and key, all on the concrete mechanism), PASS2 (FittingProblem and a
+    #     CMA-ES fit) and one LOOCV fold. Encoding every seed's Sig and a full pass on the
+    #     first of five written-out seeds compile everything that does not depend on the
     #     mechanism, so each fresh mechanism after them compiles only what its own type
     #     needs. The five differ in Sig length and in fitted names, and are picked by
     #     content, not by their place in the seeds. The census counts the method

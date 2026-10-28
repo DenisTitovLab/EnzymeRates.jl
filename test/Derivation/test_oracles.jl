@@ -1178,7 +1178,7 @@ function _testhelper_rebuilt(m, graph, site = identity)
 end
 
 """`m` with every metabolite renamed by `rename`, built by the constructors from its raw
-form (`_raw`), without the guard."""
+form (`_testhelper_written`), without the guard."""
 function _testhelper_renamed(m, rename::Dict{Symbol, Symbol})
     r(x::Symbol) = get(rename, x, x)
     met(x::EnzymeRates.Mechanisms.Met) = EnzymeRates.Mechanisms.Met(r(x.name), x.modifier)

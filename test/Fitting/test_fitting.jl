@@ -641,7 +641,7 @@ end
     end
 
     # ── Cross-validation loss ─────────────────────────────────────────────────
-    @testset "cross_validation_loss is the held-out group's loss of the fit on the others" begin
+    @testset "cross_validation_loss: the held-out loss of the fit on the other groups" begin
         using OptimizationCMAEvolutionStrategy
         optimizer = CMAEvolutionStrategyOpt()
         data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
@@ -654,8 +654,8 @@ end
         Random.seed!(7)
         g1 = map(col -> col[data.group .== "G1"], data)
         g2 = map(col -> col[data.group .== "G2"], data)
-        fit = fit_rate_equation(
-            FittingProblem(uni_uni, g1; Keq = Keq_val, reference), optimizer; fit_options...)
+        fit = fit_rate_equation(FittingProblem(uni_uni, g1; Keq = Keq_val, reference),
+                                optimizer; fit_options...)
         expected = EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
             FittingProblem(uni_uni, g2; Keq = Keq_val, reference))
         @test cv isa Float64
@@ -677,8 +677,8 @@ end
         Random.seed!(7)
         g1 = map(col -> col[data.group .== "G1"], data)
         g2 = map(col -> col[data.group .== "G2"], data)
-        fit = fit_rate_equation(
-            FittingProblem(uni_uni, g1; Keq = Keq_val, reference), optimizer; fit_options...)
+        fit = fit_rate_equation(FittingProblem(uni_uni, g1; Keq = Keq_val, reference),
+                                optimizer; fit_options...)
         @test fit.retcode === :ReferenceFailed
         @test isfinite(cv)
         @test cv == EnzymeRates.Fitting.loss!([log(v) for v in fit.params],

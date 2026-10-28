@@ -3153,7 +3153,7 @@ end
     @test EnzymeRates.Derivation._potential_on_sccs(turning, broken, 1)
 end
 
-@testset "the guard rejects a steady-state dead end whose law vanishes at zero products" begin
+@testset "the guard rejects a steady-state dead end whose law is 0/0 at zero products" begin
     # E(P) leaves only by binding Q, so every other form's weight holds Q, and E(P) is fed
     # only from E(P, Q), which E(Q) + P ⇌ E(P, Q) ties to P: each term of the denominator
     # holds P or Q, so the law is 0/0 with both zero (face 2), where the law's segment
