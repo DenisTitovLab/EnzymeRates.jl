@@ -724,6 +724,40 @@ end
     @test EnzymeRates._fit_keywords(plain, prob_abs) == (; Keq = 10.0, absolute = true)
 end
 
+# In absolute mode `_fit_keywords` passes no reference, so a fold takes none.
+@testset "cross_validation_loss in absolute mode is the uncentered held-out loss" begin
+    em = EnzymeRates.compile_mechanism(_testhelper_uni_seed)
+    data = _testhelper_uni_prob(NamedTuple).data
+    prob_abs = IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0,
+                                           absolute=true)
+    optimizer = CMAEvolutionStrategyOpt()
+    fit_options = (; n_restarts = 1, maxiters = 50)
+    Random.seed!(11)
+    cv = EnzymeRates.Fitting.cross_validation_loss(em, data, "G1";
+        EnzymeRates._fit_keywords(em, prob_abs)..., optimizer, fit_options...)
+    Random.seed!(11)
+    on(g) = map(col -> col[data.group .== g], data)
+    fit = fit_rate_equation(FittingProblem(em, on("G2"); Keq=10.0, absolute=true),
+                            optimizer; fit_options...)
+    @test cv == EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
+        FittingProblem(em, on("G1"); Keq=10.0, absolute=true))
+end
+
+@testset "identify_rate_equation selects a mechanism in absolute mode" begin
+    data = _testhelper_uni_prob(NamedTuple).data
+    prob_abs = IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0,
+                                           absolute=true)
+    res = mktempdir() do tmp
+        identify_rate_equation(prob_abs; optimizer=CMAEvolutionStrategyOpt(),
+            min_beam_width=1, loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+            max_param_count=3, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
+            save_dir=tmp, show_progress=false)
+    end
+    @test res isa IdentifyRateEquationResults
+    @test nrow(res.cv_results) >= 1
+    @test all(isfinite, res.cv_results.cv_score)
+end
+
 # The number of method instances, inferred or compiled, of the methods EnzymeRates and
 # its submodules define, keyword-call methods included.
 function _testhelper_enzymerates_method_instances()

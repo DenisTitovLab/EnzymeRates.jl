@@ -181,13 +181,16 @@ function _fold_problem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechani
 end
 
 """
-    cross_validation_loss(mechanism, data, held_out; Keq, absolute, reference, optimizer,
-        kwargs...) → Float64
+    cross_validation_loss(mechanism, data, held_out; Keq, absolute, reference = nothing,
+        optimizer, kwargs...) → Float64
 
 The loss on the rows of `data` whose `group` is `held_out` of `mechanism` fitted to the
 other rows: `fit_rate_equation(problem, optimizer; kwargs...)` on a `FittingProblem` with
-`Keq`, `absolute` and `reference`. A non-finite loss raises (naming the held-out group): a
-corrupted fold must abort model selection rather than propagate a bad score.
+`Keq`, `absolute` and `reference`, which absolute mode leaves `nothing`. A training fit
+that fails its reference (`:ReferenceFailed`) keeps its parameters unscaled, and the
+relative loss, blind to the scale, still scores them. A non-finite loss raises (naming the
+held-out group): a corrupted fold must abort model selection rather than propagate a bad
+score.
 
 This function and `_fold_problem` take `mechanism` `@nospecialize`. Cross-validation runs
 a candidate's folds after its full fit, which compiled `loss!` for the folds' problem type,
@@ -196,7 +199,7 @@ so a fold infers and compiles nothing for the mechanism.
 function cross_validation_loss(
     @nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
     data::NamedTuple, held_out;
-    Keq, absolute, reference, optimizer, kwargs...)
+    Keq, absolute, reference = nothing, optimizer, kwargs...)
     held = data.group .== held_out
     problem_keywords = (; Keq, absolute, reference)
     fit = fit_rate_equation(_fold_problem(mechanism, data, .!held; problem_keywords...),
