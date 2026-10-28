@@ -14,8 +14,7 @@ The two halves and the optimizer layer are described below.
 The package is four submodules and a top level:
 
 ```
-Mechanisms ← Derivation ← Fitting
-                        ← Enumeration
+Mechanisms ← Derivation ← {Fitting, Enumeration}
 top level (identify, macros, exports) uses all four
 ```
 
@@ -32,8 +31,9 @@ module calls its own names bare.
   `compile_mechanism`, the naming rules and the DSL's reader and printer. Its interface is
   the accessors, views and writers below.
 - **`Derivation`**: the well-posedness guard, the joint solve and the rate law with its
-  code, text and key. Besides the public `rate_equation`, `rate_equation_string`,
-  `parameters`, `all_parameters` and `fitted_params`, it offers
+  code, text and key. Besides the exported `rate_equation`, `rate_equation_string`,
+  `parameters` and `all_parameters`, and `fitted_params` (not exported; reached as
+  `EnzymeRates.fitted_params`), it offers
   `has_valid_rate_equation(m)` and `check_valid_rate_equation(m)` (the guard's verdict,
   and the same check throwing its message), `parameter_count(m)`,
   `rate_equation_key(m)`, `rate_equation_complexity(m)` and
@@ -72,8 +72,8 @@ and the array walks under them, `segment_walk` and `has_unbalanced_cycle`.
 
 The writers rebuild a mechanism through its written form. `RawMechanism(m)`,
 `RawStep(m, k)` and `RawForm(m, x)` give that form; `with_flags(m, re)` and
-`regroup(m, groups, re)` build a mechanism with new flags or kinetic groups through the
-checked constructors; `with_tags(am, tags)` retags through the composition constructor;
+`regroup(m, groups, re)` build a mechanism with the given flags or kinetic groups through
+the checked constructors; `with_tags(am, tags)` retags through the composition constructor;
 `canonical_graph(raw)` builds a canonical graph with only the alignment check. The
 naming rules (`name(p, m)`, `constant_columns`, `regulator_constant`), the DSL text of
 forms and steps (`form_text`, `step_text`) and the text id (`mechanism_id`) complete the
@@ -301,7 +301,7 @@ build its canonical graph (`_canonicalize`) and check it; `canonical_graph(raw)`
 with only the alignment check, for the seed bases and the dead-end move's candidates. The
 written form of a built mechanism is `RawMechanism(m)` (`RawForm(m, x)`, `RawStep(m, k)`),
 and the writers `with_flags(m, re)` and `regroup(m, groups, re)` rebuild a mechanism with
-new flags or kinetic groups through it. The moves that tag a mechanism or change its
+the given flags or kinetic groups through it. The moves that tag a mechanism or change its
 regulatory sites compose the parent's catalytic graph with other tags or sites through the
 composition constructor, `AllostericMechanism(m, tags, multiplicity, sites)` (directly or by
 `with_tags`), which runs only its tag and site checks. Going `from → to`, an edge takes up
