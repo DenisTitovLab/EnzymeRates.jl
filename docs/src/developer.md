@@ -11,20 +11,25 @@ The two halves and the optimizer layer are described below.
 
 ## Modules
 
-The package is four submodules and a top level:
+The package is five submodules and a top level:
 
 ```
+Data
 Mechanisms ← Derivation ← {Fitting, Enumeration}
-top level (identify, macros, exports) uses all four
+top level (identify, macros, exports) uses all five
 ```
 
 Each submodule lives in `src/<Module>/`, where `<Module>.jl` declares the module, includes
 its files and lists its interface as `const API = (...)`; its tests live in
 `test/<Module>/`. A module names only the modules to its left: `Mechanisms` names none,
-`Derivation` only `Mechanisms`, and `Fitting` and `Enumeration` only those two. A call
+`Derivation` only `Mechanisms`, `Enumeration` only those two, and `Fitting` those two and
+`Data`. A call
 into another module is qualified (`Derivation.check_valid_rate_equation(m)`); code inside a
 module calls its own names bare.
 
+- **`Data`**: `RateData`, a rate table checked against a metabolite list, with its `Keq`
+  and reference anchors, which `FittingProblem` and identify's problem each hold; it names
+  no other module.
 - **`Mechanisms`**: reactions and mechanisms as values. It holds `EnzymeReaction`, the
   raw input (`RawMechanism`, `RawStep`, `RawForm`, `RawAllostericMechanism`, `RawSite`),
   the canonical graphs `Mechanism` and `AllostericMechanism`, the singleton types and
@@ -43,9 +48,8 @@ module calls its own names bare.
   mechanisms it fits first, and `expand_mechanisms` the children of each mechanism it
   keeps. `init_mechanisms`, `seed_mechanisms` and the moves are private; tests reach them
   as `EnzymeRates.Enumeration.init_mechanisms`.
-- **`Fitting`**: `FittingProblem`, `fit_rate_equation`, `rescale_parameter_values`,
-  `rate_data` (the validated rate table and reference anchors, which identify's problem
-  builds too) and `cross_validation_loss` (the loss on one held-out group).
+- **`Fitting`**: `FittingProblem`, `fit_rate_equation`, `rescale_parameter_values` and
+  `cross_validation_loss` (the loss on one held-out group).
 - **The top level** (`src/EnzymeRates.jl`, `macros.jl`, `identify_rate_equation.jl`):
   identify, the exports and the three mechanism macros, which run the guard and so cannot
   live in `Mechanisms`.

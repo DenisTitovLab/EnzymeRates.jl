@@ -219,9 +219,9 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             rec isa ER._Candidate || error("PASS1 gave \$(repr(rec))")
             s1 = _testhelper_instances(methods(show))
             em = ER.compile_mechanism(m)
-            fp = FittingProblem(em, PROB.data; ER._fit_keywords(em, PROB)...)
+            fp = FittingProblem(em, PROB.rate_data.data; ER._fit_keywords(em, PROB)...)
             fit_rate_equation(fp, OPT; FIT_KW...)
-            ER.Fitting.cross_validation_loss(em, PROB.data, "G1";
+            ER.Fitting.cross_validation_loss(em, PROB.rate_data.data, "G1";
                              ER._fit_keywords(em, PROB)..., optimizer = OPT, FIT_KW...)
             fit = (_testhelper_all_instances() - n0, Base.jit_total_bytes() - b0,
                    (Base.cumulative_compile_time_ns()[1] - t0) / 1e9)

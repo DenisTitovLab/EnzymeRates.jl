@@ -4,11 +4,11 @@ module Fitting
 
 using ..Mechanisms: Mechanisms
 using ..Derivation: Derivation
+using ..Data: Data
 using FunctionWrappers: FunctionWrapper
 using Optimization: Optimization
-using Tables: Tables
 
-const API = (:FittingProblem, :cross_validation_loss, :fit_rate_equation, :rate_data,
+const API = (:FittingProblem, :cross_validation_loss, :fit_rate_equation,
     :rescale_parameter_values)
 
 include("fitting.jl")

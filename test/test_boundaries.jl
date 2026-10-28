@@ -1,16 +1,17 @@
 # ABOUTME: Checks the module boundaries of src/ by parsing it (API lists, layers, field
 # ABOUTME: access, underscore names, exports), and that public names resolve and show docs.
 
-# The four submodules, each a folder src/<Module>/ with src/<Module>/<Module>.jl.
-const _testhelper_MODULES = (:Mechanisms, :Derivation, :Enumeration, :Fitting)
+# The five submodules, each a folder src/<Module>/ with src/<Module>/<Module>.jl.
+const _testhelper_MODULES = (:Data, :Mechanisms, :Derivation, :Enumeration, :Fitting)
 
 # The modules each module may name through `Module.name`. The top level (files outside
-# src/<Module>/, owner :EnzymeRates) may name all four.
+# src/<Module>/, owner :EnzymeRates) may name all five.
 const _testhelper_LAYERS = Dict(
+    :Data => Symbol[],
     :Mechanisms => Symbol[],
     :Derivation => [:Mechanisms],
     :Enumeration => [:Mechanisms, :Derivation],
-    :Fitting => [:Mechanisms, :Derivation],
+    :Fitting => [:Mechanisms, :Derivation, :Data],
 )
 
 # Per file (path relative to src/), the expressions allowed despite a banned name,
@@ -31,7 +32,7 @@ const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}(
     "Derivation/print.jl" => Set(["A.sites"]),
     "Enumeration/filters.jl" => Set(["s.steps"]),
     "Fitting/fitting.jl" => Set(["data.group"]),
-    "identify_rate_equation.jl" => Set(["data.group", "prob.data.group"]),
+    "identify_rate_equation.jl" => Set(["rate_data.data.group", "prob.rate_data.data.group"]),
     # The seed builder reads the written form (`RawStep`, `RawForm`, `RawMechanism`, `Met`)
     # that it assembles and transforms.
     "Enumeration/seeds.jl" => Set([
@@ -61,7 +62,7 @@ function _testhelper_walk(visit, ex, line = Ref(0))
     end
 end
 
-"""The module `M` of a `M.name` or `EnzymeRates.M.name` node (one of the four modules), else
+"""The module `M` of a `M.name` or `EnzymeRates.M.name` node (one of the five modules), else
 `nothing`. A node of one argument (`using X: name` lists) is no `M.name`, nor is a quoted
 path that interpolates its name (`:(M.\$T)`)."""
 function _testhelper_module_head(ex)
@@ -75,7 +76,7 @@ function _testhelper_module_head(ex)
 end
 
 """`(module, name)` for each name that a `using Path.Mod: a, b` or `import Path.Mod: a`
-statement takes from one of the four modules; `Mod` itself is no use."""
+statement takes from one of the five modules; `Mod` itself is no use."""
 function _testhelper_imported_names(ex)
     (length(ex.args) == 1 && ex.args[1] isa Expr && ex.args[1].head === :(:)) || return []
     path, items... = ex.args[1].args
@@ -85,7 +86,7 @@ function _testhelper_imported_names(ex)
     [(mod, name) for name in names if name !== mod]
 end
 
-"""`(module, name, line)` for each `Mod.name` in the source text, `Mod` one of the four
+"""`(module, name, line)` for each `Mod.name` in the source text, `Mod` one of the five
 modules (also written `EnzymeRates.Mod.name`), and for each name imported from one. A type
 annotation `x::Mod.T` and a method extension `function Mod.f(...)` are uses of `T` and
 `f`."""

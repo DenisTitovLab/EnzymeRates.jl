@@ -23,6 +23,8 @@ export identify_rate_equation
 using Dates
 using Distributed
 
+include("Data/Data.jl")
+using .Data: Data
 include("Mechanisms/Mechanisms.jl")
 using .Mechanisms: Mechanisms, EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism,
     metabolites, Mechanism, AllostericMechanism, compile_mechanism

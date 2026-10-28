@@ -9,24 +9,19 @@ rate constants.
 
 # Fields
 - `mechanism`: an `AbstractEnzymeMechanism` instance
-- `data`: `NamedTuple` of column vectors (via `Tables.columntable`)
+- `rate_data`: the validated table, `Keq` (fixed equilibrium constant), `absolute` and
+  `reference`, as a `RateData`. `absolute = false` selects relative mode (per-group-centered
+  loss, fit scaled to the reference turnovers); `true` selects absolute per-enzyme turnover
+  mode (uncentered loss, no scale). `reference` holds the anchors
+  `concentrations => turnover` that set a relative fit's scale; empty in absolute mode
 - `group_point_indexes`: row indices grouped by unique `group` values
-- `Keq`: fixed equilibrium constant
-- `absolute`: `false` selects relative mode (per-group-centered loss, fit scaled to the
-  reference turnovers); `true` selects absolute per-enzyme turnover mode (uncentered
-  loss, no scale)
-- `reference`: the anchors `concentrations => turnover` that set a relative fit's scale;
-  empty in absolute mode
 - `log_abs_rates`: pre-computed `log.(abs.(Rate))`
 - `log_ratios_buffer`: pre-allocated working buffer for loss computation
 """
 struct FittingProblem{M<:Mechanisms.AbstractEnzymeMechanism, D<:NamedTuple}
     mechanism::M
-    data::D
+    rate_data::Data.RateData{D}
     group_point_indexes::Vector{Vector{Int}}
-    Keq::Float64
-    absolute::Bool
-    reference::Vector{Pair{NamedTuple, Float64}}
     log_abs_rates::Vector{Float64}
     log_ratios_buffer::Vector{Float64}
 end
@@ -64,99 +59,15 @@ fp = FittingProblem(m, data; Keq = 2.0, reference = [(A = 10.0, B = 5.0) => 42.0
 function FittingProblem(mechanism::Mechanisms.AbstractEnzymeMechanism, table;
         Keq::Real, absolute::Bool=false, reference=nothing)
     mets = Mechanisms.metabolites(mechanism)
-    (; data, reference) = rate_data(table, mets; Keq, absolute, reference,
-                                    owner = "mechanism")
+    rate_data = Data.RateData(table, mets; Keq, absolute, reference, owner = "mechanism")
+    data = rate_data.data
     group_map = Dict{eltype(data.group), Vector{Int}}()
     for (i, g) in enumerate(data.group)
         push!(get!(() -> Int[], group_map, g), i)
     end
-    # The typed constructor converts Keq to the field type.
     FittingProblem{typeof(mechanism), typeof(data)}(
-        mechanism, data, collect(values(group_map)), Keq, absolute, reference,
+        mechanism, rate_data, collect(values(group_map)),
         log.(abs.(data.Rate)), Vector{Float64}(undef, length(data.Rate)))
-end
-
-"""
-    rate_data(table, metabolite_names; Keq, absolute, reference, owner)
-        → (; data, reference)
-
-Validate a rate table and its reference anchors. `data` is `Tables.columntable(table)`:
-`Keq` must be positive and finite, the table needs a `group` column, a `Rate` column and
-one column per name in `metabolite_names`, no metabolite may be named `group` or `Rate`,
-every concentration must be a finite number ≥ 0 (zero is valid), and every rate must be a
-finite, nonzero number (the loss takes its log). `reference` is what a problem stores: in
-relative mode (`absolute = false`) the anchors, which it requires, checked against
-`metabolite_names` of the `owner` (`"mechanism"` or `"reaction"`), with Float64 turnovers;
-in absolute mode, where `reference` must be `nothing`, an empty vector.
-"""
-function rate_data(table, metabolite_names; Keq, absolute::Bool, reference, owner::String)
-    (; data = _rate_table(table, metabolite_names, Keq),
-       reference = _reference(reference, absolute, metabolite_names, owner))
-end
-
-# The validated `Tables.columntable(table)`; see `rate_data`.
-function _rate_table(table, mnames, Keq)
-    0 < Keq < Inf || error("Keq must be positive and finite; got $Keq")
-    data = Tables.columntable(table)
-    for req in (:group, :Rate)
-        req in mnames && error("Metabolite $req has the name of the required $req " *
-                               "column; rename the metabolite")
-        req in keys(data) || error("Missing required column: $req")
-    end
-    for m in mnames
-        m in keys(data) || error("Missing metabolite column: $m")
-        i = findfirst(c -> !(c isa Real && isfinite(c) && c >= 0), data[m])
-        i === nothing || error("Concentration $m at row $i must be a finite number ≥ 0; " *
-                               "got $(repr(data[m][i]))")
-    end
-    i = findfirst(r -> !(r isa Real && isfinite(r)), data.Rate)
-    i === nothing ||
-        error("Rate at row $i must be a finite number; got $(repr(data.Rate[i]))")
-    i = findfirst(iszero, data.Rate)
-    i === nothing || error("Zero rate at row $i: log(0) is undefined")
-    data
-end
-
-# The reference anchors a problem stores; see `rate_data`.
-function _reference(reference, absolute::Bool, mets, owner::String)
-    if absolute
-        reference === nothing || error(
-            "reference applies only to relative mode; absolute turnover data set the " *
-            "rate scale themselves")
-        return Pair{NamedTuple, Float64}[]
-    end
-    reference === nothing && error(
-        "relative mode needs reference = [(concentrations...) => turnover, ...] to set " *
-        "the rate scale; pass absolute = true for absolute per-enzyme turnover data")
-    _check_anchors(reference, mets, "reference", owner)
-    Pair{NamedTuple, Float64}[concs => Float64(t) for (concs, t) in reference]
-end
-
-"""
-    _check_anchors(anchors, mets, name, owner)
-
-Error unless `anchors`, the argument `name` (`"reference"` or `"kcats"`), is a nonempty
-vector of `concentrations => turnover` pairs whose concentrations are a `NamedTuple` of
-finite numbers ≥ 0 keyed by names in `mets`, the metabolites of the `owner`, and whose
-turnover is a finite, nonzero number.
-"""
-function _check_anchors(anchors, mets, name::String, owner::String)
-    anchors isa AbstractVector{<:Pair} || error("$name must be a vector of " *
-        "(concentrations => turnover) pairs; got $(repr(anchors))")
-    isempty(anchors) &&
-        error("$name is empty; pass at least one (concentrations => turnover) anchor")
-    for (concs, measured) in anchors
-        concs isa NamedTuple ||
-            error("$name: concentrations must be a NamedTuple; got $(repr(concs))")
-        for (k, c) in pairs(concs)
-            k in mets || error("$name: $k is not a metabolite of the $owner " *
-                               "(metabolites: $(join(mets, ", ")))")
-            c isa Real && isfinite(c) && c >= 0 || error(
-                "$name: concentration of $k must be a finite number ≥ 0; got $(repr(c))")
-        end
-        measured isa Real && isfinite(measured) && measured != 0 || error(
-            "$name: turnover must be a finite, nonzero number; got $(repr(measured))")
-    end
 end
 
 """
@@ -224,11 +135,11 @@ end
 Compute the log-ratio loss. Zero-allocation on the hot path.
 
 Parameters in `x` are in log-space (i.e., actual rate constants =
-`exp.(x)`). In relative mode (`fp.absolute == false`) each group's
+`exp.(x)`). In relative mode (`fp.rate_data.absolute == false`) each group's
 log-ratios are centered (mean-subtracted) before squaring, making the
 loss invariant to per-group E_total scaling (relative data). In absolute
-mode (`fp.absolute`) the log-ratios are squared without centering, so the absolute
-magnitude is scored (absolute per-enzyme turnover data).
+mode (`fp.rate_data.absolute`) the log-ratios are squared without centering, so the
+absolute magnitude is scored (absolute per-enzyme turnover data).
 
 Sign mismatches (predicted vs measured rate sign) incur a flat penalty
 of 100.0 per point, counted in the per-point loop and added after. In the
@@ -245,17 +156,17 @@ function loss!(x::AbstractVector, fp::FittingProblem)
 
     # Build params NamedTuple from log-space x
     fitted = NamedTuple{ParamNames}(ntuple(i -> exp(x[i]), Val(N)))
-    params = merge(fitted, (Keq = fp.Keq, E_total = 1.0))
+    params = merge(fitted, (Keq = fp.rate_data.Keq, E_total = 1.0))
 
     # Pass 1: fill log_ratios_buffer and count sign mismatches. A zero or NaN
     # prediction counts as one: its sign never equals a nonzero rate's ±1.
     n_mismatch = 0
     @inbounds for i in 1:n_data
         concs = NamedTuple{MetNames}(ntuple(
-            j -> getproperty(fp.data, MetNames[j])[i], Val(K),
+            j -> getproperty(fp.rate_data.data, MetNames[j])[i], Val(K),
         ))
         pred = Derivation.rate_equation(fp.mechanism, concs, params)
-        meas_sign = sign(fp.data.Rate[i])
+        meas_sign = sign(fp.rate_data.data.Rate[i])
         if sign(pred) != meas_sign
             buf[i] = 10.0
             n_mismatch += 1
@@ -264,11 +175,11 @@ function loss!(x::AbstractVector, fp::FittingProblem)
         end
     end
 
-    # Pass 2: loss. Relative (fp.absolute false) → per-group mean-centered, removing
-    # each group's arbitrary scale. Absolute → uncentered: the y-axis is absolute
+    # Pass 2: loss. Relative (fp.rate_data.absolute false) → per-group mean-centered,
+    # removing each group's arbitrary scale. Absolute → uncentered: the y-axis is absolute
     # per-enzyme turnover, so the absolute magnitude is meaningful.
     total_loss = 0.0
-    if fp.absolute
+    if fp.rate_data.absolute
         @inbounds for i in 1:n_data
             total_loss += buf[i] * buf[i]
         end
@@ -345,10 +256,10 @@ present in both a named common option and `solver_kwargs` takes the
 `solver_kwargs` value. `lb`/`ub` are the log-space bounds passed to the
 `OptimizationProblem`.
 
-In relative mode (`fp.absolute == false`) the returned steady-state rate constants are
-multiplied by one factor so the mechanism reproduces the reference turnovers
-`fp.reference` (see `FittingProblem`): the geometric mean of measured over predicted
-turnover, as `rescale_parameter_values` computes it. A fit whose predicted turnover at a
+In relative mode (`fp.rate_data.absolute == false`) the returned steady-state rate
+constants are multiplied by one factor so the mechanism reproduces the reference turnovers
+`fp.rate_data.reference` (see `FittingProblem`): the geometric mean of measured over
+predicted turnover, as `rescale_parameter_values` computes it. A fit whose predicted turnover at a
 reference anchor is zero, non-finite or of the other sign has no such factor: it returns
 its parameters unscaled, with `loss = Inf` and `retcode = :ReferenceFailed`, and does not
 throw. In absolute mode, or when no restart reaches a finite loss (`loss = Inf`,
@@ -413,10 +324,11 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     end
 
     result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(np)))
-    (fp.absolute || !isfinite(best_loss)) &&
+    (fp.rate_data.absolute || !isfinite(best_loss)) &&
         return (params = result_params, loss = best_loss, retcode = best_retcode)
     ratios = _anchor_log_ratios((_, _) -> nothing, fp.mechanism,
-                                merge(result_params, (Keq = fp.Keq,)), fp.reference)
+                                merge(result_params, (Keq = fp.rate_data.Keq,)),
+                                fp.rate_data.reference)
     ratios === nothing &&
         return (params = result_params, loss = Inf, retcode = :ReferenceFailed)
     scale = exp(sum(ratios) / length(ratios))
@@ -457,7 +369,7 @@ params, spread = rescale_parameter_values(m, merge(fit.params, (; Keq = 2.0)), k
 function rescale_parameter_values(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism),
                                   params::NamedTuple, kcats::AbstractVector{<:Pair})
     _check_has_keq(params)
-    _check_anchors(kcats, Mechanisms.metabolites(m), "kcats", "mechanism")
+    Data.check_anchors(kcats, Mechanisms.metabolites(m), "kcats", "mechanism")
     log_ratios = _anchor_log_ratios(m, params, kcats) do concs, predicted
         error("kcats: at $concs the mechanism predicts turnover $predicted; an anchor " *
               "needs a finite, nonzero predicted turnover of the measured turnover's sign")

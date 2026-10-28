@@ -174,18 +174,18 @@ end
         ok_data = (group = ["G1"], Rate = [1.0], S = [1.0], P = [0.1])
         ref = _testhelper_row_reference(ok_data)
         fp = FittingProblem(uni_uni, ok_data; Keq=1.0, reference=ref)
-        @test fp.absolute === false
-        @test fp.reference == [(S = 1.0, P = 0.1) => 1.0]
+        @test fp.rate_data.absolute === false
+        @test fp.rate_data.reference == [(S = 1.0, P = 0.1) => 1.0]
         fp_abs = FittingProblem(uni_uni, ok_data; Keq=1.0, absolute=true)
-        @test fp_abs.absolute === true && isempty(fp_abs.reference)
+        @test fp_abs.rate_data.absolute === true && isempty(fp_abs.rate_data.reference)
         # An integer Keq converts to the Float64 field.
-        @test FittingProblem(uni_uni, ok_data; Keq=2, reference=ref).Keq === 2.0
+        @test FittingProblem(uni_uni, ok_data; Keq=2, reference=ref).rate_data.Keq === 2.0
         # The concrete-mechanism constructor passes the keywords on.
         fp_conc = FittingProblem(EnzymeRates.Mechanism(uni_uni), ok_data; Keq=1.0,
                                  reference=ref)
-        @test fp_conc.absolute === false && fp_conc.reference == ref
+        @test fp_conc.rate_data.absolute === false && fp_conc.rate_data.reference == ref
         @test FittingProblem(EnzymeRates.Mechanism(uni_uni), ok_data; Keq=1.0,
-                             absolute=true).absolute === true
+                             absolute=true).rate_data.absolute === true
         # There is no kcat keyword: measured kcats rescale a fit afterwards.
         @test_throws MethodError FittingProblem(uni_uni, ok_data; Keq=1.0, reference=ref,
                                                 scale_k_to_kcat=1.0)
@@ -567,57 +567,13 @@ end
     end
 
     # ── Validation errors ──────────────────────────────────────────────────────
-    @testset "Validation errors" begin
-        ref = [(S = 1.0, P = 0.1) => 1.0]
-        # Missing Rate column
-        data_no_rate = (group = ["G1"], S = [1.0], P = [0.1])
-        @test_throws ErrorException FittingProblem(uni_uni, data_no_rate; Keq=1.0,
-                                                   reference=ref)
-
-        # Missing metabolite column
-        data_no_met = (group = ["G1"], Rate = [1.0], S = [1.0])
-        @test_throws ErrorException FittingProblem(uni_uni, data_no_met; Keq=1.0,
-                                                   reference=ref)
-
-        # Zero rate
+    # The table and reference checks are tested in test/Data/test_rate_data.jl.
+    @testset "Validation errors reach the caller" begin
         data_zero = (group = ["G1"], Rate = [0.0], S = [1.0], P = [0.1])
-        @test_throws ErrorException FittingProblem(uni_uni, data_zero; Keq=1.0,
-                                                   reference=ref)
-
-        # Missing group column
-        data_no_grp = (Rate = [1.0], S = [1.0], P = [0.1])
-        @test_throws ErrorException FittingProblem(uni_uni, data_no_grp; Keq=1.0,
-                                                   reference=ref)
-
-        # A non-finite, missing or non-numeric rate: the error names the Rate column and
-        # the row, and shows the value as Julia prints it, so a String rate is quoted.
-        for (bad, shown) in ((NaN, "NaN"), (Inf, "Inf"), (-Inf, "-Inf"),
-                             (missing, "missing"), ("1.0", "\"1.0\""))
-            data_bad = (group = ["G1", "G1"], Rate = [1.0, bad], S = [1.0, 2.0],
-                        P = [0.1, 0.1])
-            @test_throws(
-                ErrorException("Rate at row 2 must be a finite number; got $shown"),
-                FittingProblem(uni_uni, data_bad; Keq=1.0, reference=ref))
-        end
-
-        # A concentration that is not a finite number ≥ 0: the error names the column
-        # and the row. Zero is a valid concentration.
-        for (bad, shown) in ((NaN, "NaN"), (Inf, "Inf"), (-1.0, "-1.0"),
-                             (missing, "missing"), ("1.0", "\"1.0\""))
-            data_bad = (group = ["G1", "G1"], Rate = [1.0, 2.0], S = [1.0, bad],
-                        P = [0.1, 0.1])
-            @test_throws(
-                ErrorException(
-                    "Concentration S at row 2 must be a finite number ≥ 0; got $shown"),
-                FittingProblem(uni_uni, data_bad; Keq=1.0, reference=ref))
-        end
-        data_zero_S = (group = ["G1", "G1"], Rate = [1.0, 2.0], S = [0.0, 1.0],
-                       P = [0.1, 0.1])
-        @test FittingProblem(uni_uni, data_zero_S; Keq=1.0, reference=ref) isa
-              FittingProblem
-
-        # A metabolite named after a required column would read that column, here the
-        # measured rates, as its concentrations.
+        @test_throws(ErrorException("Zero rate at row 1: log(0) is undefined"),
+                     FittingProblem(uni_uni, data_zero; Keq=1.0,
+                                    reference=[(S = 1.0, P = 0.1) => 1.0]))
+        # A metabolite of the mechanism named after a required column
         rate_named = @enzyme_mechanism begin
             substrates: Rate
             products:   P
@@ -631,13 +587,6 @@ end
                            "rename the metabolite"),
             FittingProblem(rate_named, (group = ["G1"], Rate = [1.0], P = [0.1]); Keq=1.0,
                            reference=[(P = 0.1,) => 1.0]))
-
-        # A Keq that is not positive and finite
-        data_ok = (group = ["G1"], Rate = [1.0], S = [1.0], P = [0.1])
-        for (bad, shown) in ((0, "0"), (-1, "-1"), (Inf, "Inf"), (NaN, "NaN"))
-            @test_throws(ErrorException("Keq must be positive and finite; got $shown"),
-                FittingProblem(uni_uni, data_ok; Keq=bad, reference=ref))
-        end
     end
 
     # ── Cross-validation loss ─────────────────────────────────────────────────
@@ -683,22 +632,6 @@ end
         @test isfinite(cv)
         @test cv == EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
             FittingProblem(uni_uni, g2; Keq = Keq_val, reference))
-    end
-
-    @testset "rate_data returns the validated table and the reference anchors" begin
-        data = (group = ["G1", "G1"], Rate = [1.0, 2.0], S = [1.0, 2.0], P = [0.1, 0.1])
-        rd = EnzymeRates.Fitting.rate_data(data, (:S, :P); Keq = 2.0, absolute = false,
-            reference = [(S = 1.0,) => 3], owner = "mechanism")
-        @test rd == (data = data, reference = [(S = 1.0,) => 3.0])
-        @test rd.reference isa Vector{Pair{NamedTuple, Float64}}
-        abs_rd = EnzymeRates.Fitting.rate_data(data, (:S, :P); Keq = 2.0, absolute = true,
-            reference = nothing, owner = "reaction")
-        @test isempty(abs_rd.reference)
-        @test_throws(
-            ErrorException("reference: Q is not a metabolite of the reaction " *
-                           "(metabolites: S, P)"),
-            EnzymeRates.Fitting.rate_data(data, (:S, :P); Keq = 2.0, absolute = false,
-                reference = [(Q = 1.0,) => 3.0], owner = "reaction"))
     end
 
 end

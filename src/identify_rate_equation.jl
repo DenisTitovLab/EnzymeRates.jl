@@ -15,15 +15,14 @@ constant for rate equation identification.
 
 # Fields
 - `reaction`: the `EnzymeReaction` instance
-- `data`: `NamedTuple` of column vectors with `:group`,
-  `:Rate`, and metabolite columns
-- `Keq`: fixed equilibrium constant
-- `absolute`: `false` (the default) treats the data as relative and scales every fit to
-  the reference turnovers; `true` treats it as absolute per-enzyme turnover (see
-  `FittingProblem`)
-- `reference`: the anchors `concentrations => turnover` that set every relative fit's
-  scale (see `FittingProblem`), keyed by the reaction's metabolites, with any metabolite
-  left out at zero; empty in absolute mode
+- `rate_data`: the validated table (`NamedTuple` of column vectors with `:group`, `:Rate`
+  and metabolite columns), `Keq` (fixed equilibrium constant), `absolute` and
+  `reference`, as a `RateData`. `absolute = false` (the default) treats the data as
+  relative and scales every fit to the reference turnovers; `true` treats it as absolute
+  per-enzyme turnover (see `FittingProblem`). `reference` holds the anchors
+  `concentrations => turnover` that set every relative fit's scale (see
+  `FittingProblem`), keyed by the reaction's metabolites, with any metabolite left out at
+  zero; empty in absolute mode
 
 Construct it with `IdentifyRateEquationProblem(reaction, table; Keq, absolute = false,
 reference)`; `reference` is required in relative mode and refused in absolute mode.
@@ -32,10 +31,7 @@ mechanism that leaves out an optional regulator ignores that regulator's concent
 """
 struct IdentifyRateEquationProblem{D<:NamedTuple}
     reaction::Mechanisms.EnzymeReaction
-    data::D
-    Keq::Float64
-    absolute::Bool
-    reference::Vector{Pair{NamedTuple, Float64}}
+    rate_data::Data.RateData{D}
 end
 
 """The distinct metabolite names of `rxn`: substrates, then products, then regulators,
@@ -52,32 +48,32 @@ function IdentifyRateEquationProblem(
 )
     mnames = _metabolite_names(reaction)
     # Every metabolite the reaction declares needs a concentration column.
-    (; data, reference) = Fitting.rate_data(table, mnames;
-        Keq, absolute, reference, owner = "reaction")
+    rate_data = Data.RateData(table, mnames; Keq, absolute, reference, owner = "reaction")
 
     # Validate at least 2 groups for CV
-    n_groups = length(unique(data.group))
+    n_groups = length(unique(rate_data.data.group))
     n_groups >= 2 || error(
         "Need at least 2 unique groups for " *
         "cross-validation, got $n_groups")
 
-    IdentifyRateEquationProblem{typeof(data)}(reaction, data, Keq, absolute, reference)
+    IdentifyRateEquationProblem(reaction, rate_data)
 end
 
 """
 The `FittingProblem` keywords of `prob` for `mechanism`: `Keq`, `absolute` and, in
-relative mode, `prob.reference` with each anchor's concentrations limited to the
+relative mode, `prob.rate_data.reference` with each anchor's concentrations limited to the
 metabolites `mechanism` binds (it does not respond to the others). The reference keeps
 the problem's element type, so every fit and fold passes keywords of one type.
 """
 function _fit_keywords(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
                        prob::IdentifyRateEquationProblem)
-    prob.absolute && return (; Keq = prob.Keq, absolute = true)
+    (; Keq, absolute, reference) = prob.rate_data
+    absolute && return (; Keq, absolute)
     mets = Mechanisms.metabolites(mechanism)
-    (; Keq = prob.Keq, absolute = false,
+    (; Keq, absolute,
        reference = Pair{NamedTuple, Float64}[
            NamedTuple{Tuple(filter(in(mets), keys(concs)))}(concs) => turnover
-           for (concs, turnover) in prob.reference])
+           for (concs, turnover) in reference])
 end
 
 """
@@ -669,7 +665,7 @@ function _process_batch(
         rep_fits = pmap(reps) do r
             try
                 em = Mechanisms.compile_mechanism(r.mech)
-                fp = FittingProblem(em, prob.data; _fit_keywords(em, prob)...)
+                fp = FittingProblem(em, prob.rate_data.data; _fit_keywords(em, prob)...)
                 fit = fit_rate_equation(fp, optimizer; kwargs...)
                 _Fit(Float64[fit.params[x] for x in _fit_order(r)], fit.loss, fit.retcode,
                      r.mech, r.mechanism_id)
@@ -1012,8 +1008,8 @@ end
                         show_progress, kwargs...) -> IdentifyRateEquationResults
 
 Cross-validate the candidates of `pool` (the cv pool `_beam_search` returns) by leaving
-one group of `prob.data` out at a time, select one by the 1-SE rule (`_select_best_row`)
-and write `loocv_results.csv` and `best_equation.csv` to `save_dir`. A candidate's fold
+one group of `prob.rate_data.data` out at a time, select one by the 1-SE rule
+(`_select_best_row`) and write `loocv_results.csv` and `best_equation.csv` to `save_dir`. A candidate's fold
 losses come from fitting, on each fold, the source of the fit it reads
 (`memo[e.fit_key].source`), so candidates that read one fit share their fold losses and
 each fit's folds run once.
@@ -1042,11 +1038,11 @@ function _cv_model_selection(
     # a (fit key, fold) grid so all folds run across every worker. `pmap` keeps the grid
     # order (the fold varies fastest), so column j of `by_fit` holds fit key j's fold
     # losses in `groups` order, and column ci of `scores` candidate ci's.
-    groups = unique(prob.data.group)
+    groups = unique(prob.rate_data.data.group)
     fit_keys = unique(e.fit_key for e in candidates)
     fold_losses = pmap([(memo[k].source, g) for k in fit_keys for g in groups]) do (m, g)
         mechanism = Mechanisms.compile_mechanism(m)
-        Fitting.cross_validation_loss(mechanism, prob.data, g;
+        Fitting.cross_validation_loss(mechanism, prob.rate_data.data, g;
             _fit_keywords(mechanism, prob)..., optimizer, kwargs...)
     end
     by_fit = reshape(Float64.(fold_losses), length(groups), :)
@@ -1059,7 +1055,7 @@ function _cv_model_selection(
     best_mechanism = Mechanisms.compile_mechanism(candidates[best_row_idx].mech)
 
     # Flatten per-fold scores into one column per held-out group.
-    # Group order matches the `groups = unique(prob.data.group)` iteration above.
+    # Group order matches the `groups = unique(prob.rate_data.data.group)` iteration above.
     for (i, g) in enumerate(groups)
         cv_df[!, Symbol("cv_fold_$g")] = scores[i, :]
     end

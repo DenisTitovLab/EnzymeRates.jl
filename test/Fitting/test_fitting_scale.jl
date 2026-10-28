@@ -32,19 +32,19 @@ using OptimizationCMAEvolutionStrategy
         # Absolute data set the scale themselves: no reference is needed, and one passed
         # is an error.
         fp_abs = FittingProblem(mm, mm_data; Keq = 2.0, absolute = true)
-        @test fp_abs.absolute && isempty(fp_abs.reference)
+        @test fp_abs.rate_data.absolute && isempty(fp_abs.rate_data.reference)
         @test_throws(ErrorException("reference applies only to relative mode; absolute " *
                                     "turnover data set the rate scale themselves"),
                      FittingProblem(mm, mm_data; Keq = 2.0, absolute = true,
                                     reference = [(S = 10.0,) => 3.0]))
         # The problem stores the anchors with Float64 turnovers; integers convert.
         fp = FittingProblem(mm, mm_data; Keq = 2.0, reference = [(S = 10,) => 3])
-        @test fp.reference == [(S = 10,) => 3.0]
-        @test fp.reference isa Vector{Pair{NamedTuple, Float64}}
+        @test fp.rate_data.reference == [(S = 10,) => 3.0]
+        @test fp.rate_data.reference isa Vector{Pair{NamedTuple, Float64}}
         # The concrete-mechanism constructor passes the reference on.
         fp_conc = FittingProblem(EnzymeRates.Mechanism(mm), mm_data; Keq = 2.0,
                                  reference = [(S = 10.0,) => 3.0])
-        @test fp_conc.reference == [(S = 10.0,) => 3.0]
+        @test fp_conc.rate_data.reference == [(S = 10.0,) => 3.0]
     end
 
     @testset "reference anchors are validated at construction" begin

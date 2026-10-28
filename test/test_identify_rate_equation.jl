@@ -119,19 +119,19 @@ end
         prob = IdentifyRateEquationProblem(
             test_rxn, test_data; Keq=Keq_val, reference=ref)
         @test prob.reaction === test_rxn
-        @test typeof(prob) === IdentifyRateEquationProblem{typeof(prob.data)}
-        @test prob.Keq == Keq_val
+        @test typeof(prob) === IdentifyRateEquationProblem{typeof(prob.rate_data.data)}
+        @test prob.rate_data.Keq == Keq_val
         @test length(
-            unique(prob.data.group)) == 5
+            unique(prob.rate_data.data.group)) == 5
 
         # absolute and reference: relative mode, which needs a reference, unless set;
         # absolute mode takes none.
-        @test prob.absolute === false
-        @test prob.reference == ref
-        @test prob.reference isa Vector{Pair{NamedTuple, Float64}}
+        @test prob.rate_data.absolute === false
+        @test prob.rate_data.reference == ref
+        @test prob.rate_data.reference isa Vector{Pair{NamedTuple, Float64}}
         prob_abs = IdentifyRateEquationProblem(
             test_rxn, test_data; Keq=Keq_val, absolute=true)
-        @test prob_abs.absolute === true && isempty(prob_abs.reference)
+        @test prob_abs.rate_data.absolute === true && isempty(prob_abs.rate_data.reference)
         @test_throws(
             ErrorException("relative mode needs reference = [(concentrations...) => " *
                            "turnover, ...] to set the rate scale; pass absolute = true " *
@@ -162,7 +162,7 @@ end
             test_rxn, test_data; Keq=Keq_val, reference=ref, scale_k_to_kcat=1.0)
         # An integer Keq converts to the Float64 field.
         @test IdentifyRateEquationProblem(test_rxn, test_data; Keq=10,
-                                          reference=ref).Keq === 10.0
+                                          reference=ref).rate_data.Keq === 10.0
 
         # Missing metabolite column
         @test_throws(
@@ -446,7 +446,7 @@ end
 
         # cv_score_se = standard error of the row's per-fold scores.
         @test "cv_score_se" in names(results.cv_results)
-        fold_cols = [Symbol("cv_fold_$g") for g in unique(prob.data.group)]
+        fold_cols = [Symbol("cv_fold_$g") for g in unique(prob.rate_data.data.group)]
         for row in eachrow(results.cv_results)
             folds = [row[c] for c in fold_cols]
             @test row.cv_score ≈ mean(folds)
@@ -458,7 +458,7 @@ end
             best_row.mechanism)) === results.best
 
         # Per-fold columns named by held-out group label.
-        groups = unique(prob.data.group)
+        groups = unique(prob.rate_data.data.group)
         for g in groups
             @test Symbol("cv_fold_$g") in
                 propertynames(results.cv_results)
@@ -627,8 +627,8 @@ end
         prob = IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0,
                                            reference=_testhelper_row_reference(data))
 
-        groups = unique(prob.data.group)
-        scores = [EnzymeRates.Fitting.cross_validation_loss(m, prob.data, g;
+        groups = unique(prob.rate_data.data.group)
+        scores = [EnzymeRates.Fitting.cross_validation_loss(m, prob.rate_data.data, g;
             EnzymeRates._fit_keywords(m, prob)...,
             optimizer=CMAEvolutionStrategyOpt(),
             n_restarts=2, maxtime=2.0, maxiters=500) for g in groups]
@@ -646,7 +646,7 @@ end
         # `fit_rate_equation` call throw; `cross_validation_loss` must propagate that
         # error, not swallow it (a corrupted CV must abort model selection).
         @test_throws Exception EnzymeRates.Fitting.cross_validation_loss(
-            m, prob.data, first(groups); EnzymeRates._fit_keywords(m, prob)...,
+            m, prob.rate_data.data, first(groups); EnzymeRates._fit_keywords(m, prob)...,
             optimizer=CMAEvolutionStrategyOpt(),
             n_restarts=1, maxtime=1.0, beam_fraction=0.5)
     end
@@ -659,23 +659,26 @@ end
     em = EnzymeRates.compile_mechanism(_testhelper_uni_seed)
     for data_form in (NamedTuple, DataFrame)
         prob = _testhelper_uni_prob(data_form)
-        full = FittingProblem(em, prob.data; Keq=prob.Keq, absolute=prob.absolute,
-                              reference=prob.reference)
-        fold = EnzymeRates.Fitting._fold_problem(em, prob.data,
-            prob.data.group .== prob.data.group[3]; EnzymeRates._fit_keywords(em, prob)...)
+        full = FittingProblem(em, prob.rate_data.data; Keq=prob.rate_data.Keq,
+                              absolute=prob.rate_data.absolute,
+                              reference=prob.rate_data.reference)
+        fold = EnzymeRates.Fitting._fold_problem(em, prob.rate_data.data,
+            prob.rate_data.data.group .== prob.rate_data.data.group[3];
+            EnzymeRates._fit_keywords(em, prob)...)
         @test typeof(fold) === typeof(full)
-        @test fold.data.S == [3.0, 4.0]
-        @test fold.data.P == [0.3, 0.4]
-        @test fold.data.Rate == [1.0, 1.1]
+        @test fold.rate_data.data.S == [3.0, 4.0]
+        @test fold.rate_data.data.P == [0.3, 0.4]
+        @test fold.rate_data.data.Rate == [1.0, 1.1]
         # A fold copies the problem's mode and reference.
-        @test fold.Keq === 10.0 && fold.absolute === false &&
-              fold.reference == [(S = 1.0, P = 0.1) => 0.5]
-        prob_abs = IdentifyRateEquationProblem(prob.reaction, prob.data; Keq=prob.Keq,
-                                               absolute=true)
-        fold_abs = EnzymeRates.Fitting._fold_problem(em, prob_abs.data,
-            prob.data.group .== prob.data.group[3];
+        @test fold.rate_data.Keq === 10.0 && fold.rate_data.absolute === false &&
+              fold.rate_data.reference == [(S = 1.0, P = 0.1) => 0.5]
+        prob_abs = IdentifyRateEquationProblem(prob.reaction, prob.rate_data.data;
+                                               Keq=prob.rate_data.Keq, absolute=true)
+        fold_abs = EnzymeRates.Fitting._fold_problem(em, prob_abs.rate_data.data,
+            prob.rate_data.data.group .== prob.rate_data.data.group[3];
             EnzymeRates._fit_keywords(em, prob_abs)...)
-        @test fold_abs.absolute === true && isempty(fold_abs.reference)
+        @test fold_abs.rate_data.absolute === true &&
+              isempty(fold_abs.rate_data.reference)
     end
 end
 
@@ -717,8 +720,9 @@ end
     @test EnzymeRates._fit_keywords(regulated, prob) ==
           (; Keq = 10.0, absolute = false, reference = [(S = 2.0, R = 0.5) => 0.8])
     # So the fit of the mechanism without R takes the problem's reference.
-    @test EnzymeRates.Fitting._fold_problem(plain, prob.data, trues(4);
-              EnzymeRates._fit_keywords(plain, prob)...).reference == [(S = 2.0,) => 0.8]
+    @test EnzymeRates.Fitting._fold_problem(plain, prob.rate_data.data, trues(4);
+              EnzymeRates._fit_keywords(plain, prob)...).rate_data.reference ==
+          [(S = 2.0,) => 0.8]
     prob_abs = IdentifyRateEquationProblem(rxn, data; Keq=10.0, absolute=true)
     @test EnzymeRates._fit_keywords(plain, prob_abs) == (; Keq = 10.0, absolute = true)
 end
@@ -726,7 +730,7 @@ end
 # In absolute mode `_fit_keywords` passes no reference, so a fold takes none.
 @testset "cross_validation_loss in absolute mode is the uncentered held-out loss" begin
     em = EnzymeRates.compile_mechanism(_testhelper_uni_seed)
-    data = _testhelper_uni_prob(NamedTuple).data
+    data = _testhelper_uni_prob(NamedTuple).rate_data.data
     prob_abs = IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0,
                                            absolute=true)
     optimizer = CMAEvolutionStrategyOpt()
@@ -743,7 +747,7 @@ end
 end
 
 @testset "identify_rate_equation selects a mechanism in absolute mode" begin
-    data = _testhelper_uni_prob(NamedTuple).data
+    data = _testhelper_uni_prob(NamedTuple).rate_data.data
     prob_abs = IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0,
                                            absolute=true)
     res = mktempdir() do tmp
@@ -809,11 +813,12 @@ end
     # Typed as the abstract mechanism, as in the pipeline, so each call dispatches on the
     # mechanism's run-time type.
     for em in EnzymeRates.Mechanisms.AbstractEnzymeMechanism[re_binding, ss_binding]
-        full = FittingProblem(em, prob.data; Keq=prob.Keq, absolute=prob.absolute,
-                              reference=prob.reference)
+        full = FittingProblem(em, prob.rate_data.data; Keq=prob.rate_data.Keq,
+                              absolute=prob.rate_data.absolute,
+                              reference=prob.rate_data.reference)
         fit_rate_equation(full, optimizer; n_restarts=1, maxiters=10)
         n = _testhelper_enzymerates_method_instances()
-        EnzymeRates.Fitting.cross_validation_loss(em, prob.data, "G1";
+        EnzymeRates.Fitting.cross_validation_loss(em, prob.rate_data.data, "G1";
             EnzymeRates._fit_keywords(em, prob)..., optimizer, n_restarts=1, maxiters=10)
         push!(added, _testhelper_enzymerates_method_instances() - n)
     end
@@ -1908,7 +1913,7 @@ end
     res = EnzymeRates._cv_model_selection(entries, memo, prob; optimizer = opt,
         se_threshold = 1.0, save_dir = mktempdir(), show_progress = false,
         n_restarts = 1, maxtime = 1.0)
-    groups = unique(prob.data.group)
+    groups = unique(prob.rate_data.data.group)
     @test opt.count == 2 * length(groups)
     folds(r) = [r[Symbol("cv_fold_$g")] for g in groups]
     twins = [r for r in eachrow(res.cv_results) if r.key == entries[1].key]
@@ -2169,7 +2174,7 @@ end
     res = EnzymeRates._cv_model_selection(entries, memo, prob; optimizer = opt,
         se_threshold = 1.0, save_dir = mktempdir(), show_progress = false,
         n_restarts = 1, maxtime = 1.0)
-    groups = unique(prob.data.group)
+    groups = unique(prob.rate_data.data.group)
     @test opt.count == length(groups)
     folds(r) = [r[Symbol("cv_fold_$g")] for g in groups]
     @test res.cv_results.n_params == [2, 3]
@@ -2203,8 +2208,8 @@ end
         @test best.fit_source_id[1] == f.row.mechanism_id
         fp = parameters(res.best, FittedParameters())
         params = merge(NamedTuple{fp}(Tuple(Float64(best[1, x]) for x in fp)),
-                       (Keq = prob.Keq, E_total = 1.0))
-        source = merge(f.row.params, (Keq = prob.Keq, E_total = 1.0))
+                       (Keq = prob.rate_data.Keq, E_total = 1.0))
+        source = merge(f.row.params, (Keq = prob.rate_data.Keq, E_total = 1.0))
         rng = Random.MersenneTwister(14)
         for _ in 1:3
             concs = (S = exp(randn(rng)), P = exp(randn(rng)))
@@ -2843,12 +2848,12 @@ end
     @test res.cv_results.n_params == [5, 5, 6]
     @test res.cv_results.loss == [0.2, 0.5, 0.1]
 
-    groups = unique(prob.data.group)
+    groups = unique(prob.rate_data.data.group)
     folds(r) = [r[Symbol("cv_fold_$g")] for g in groups]
     for r in eachrow(res.cv_results)
         m = only(e.mech for e in pool if sprint(show, e.mech) == r.mechanism)
         em = EnzymeRates.compile_mechanism(m)
-        serial = [EnzymeRates.Fitting.cross_validation_loss(em, prob.data, g;
+        serial = [EnzymeRates.Fitting.cross_validation_loss(em, prob.rate_data.data, g;
             EnzymeRates._fit_keywords(em, prob)...,
             optimizer=stub(), n_restarts=1, maxtime=1.0) for g in groups]
         @test folds(r) == serial
