@@ -8,6 +8,10 @@ using Distributed: pmap
 
 const API = (:base_mechanisms, :expand_mechanisms)
 
+"""Whether the guard (`Derivation.check_valid_rate_equation`) accepts `m`: the test the
+enumerator's exits and its flip, split and tagging searches apply to a candidate."""
+_guard_accepts(m) = Derivation.check_valid_rate_equation(m; throw = false)
+
 include("seeds.jl")
 include("moves.jl")
 include("filters.jl")

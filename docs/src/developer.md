@@ -22,7 +22,7 @@ Each submodule lives in `src/<Module>/`, where `<Module>.jl` declares the module
 its files and lists its interface as `const API = (...)`; its tests live in
 `test/<Module>/`. A module names only the modules to its left: `Mechanisms` names none,
 `Derivation` only `Mechanisms`, and `Fitting` and `Enumeration` only those two. A call
-into another module is qualified (`Derivation.has_valid_rate_equation(m)`); code inside a
+into another module is qualified (`Derivation.check_valid_rate_equation(m)`); code inside a
 module calls its own names bare.
 
 - **`Mechanisms`**: reactions and mechanisms as values. It holds `EnzymeReaction`, the
@@ -35,9 +35,9 @@ module calls its own names bare.
   `parameters` (with the kinds `IndependentParameters`, `FittedParameters` and
   `AllParameters`, and a method that adds the dependent constants to a set of values), it
   offers
-  `has_valid_rate_equation(m)` and `check_valid_rate_equation(m)` (the guard's verdict,
-  and the same check throwing its message), `parameter_count(m)`,
-  `rate_equation_key(m)`, `rate_equation_complexity(m)` and
+  `check_valid_rate_equation(m; throw = true)` (the guard's verdict as a `Bool`, throwing
+  its message on a fault unless `throw = false`), `parameter_count(m)`,
+  `rate_equation_dedup_key(m)`, `rate_equation_complexity(m)` and
   `scale_rate_constants(m, params, factor)`.
 - **`Enumeration`**: candidate mechanisms. `base_mechanisms` gives identify the
   mechanisms it fits first, and `expand_mechanisms` the children of each mechanism it
@@ -77,11 +77,10 @@ The writers rebuild a mechanism through its written form. `RawMechanism(m)`,
 the checked constructors; `with_tags(am, tags)` retags through the composition constructor;
 `canonical_graph(raw)` builds a canonical graph with only the alignment check. The
 naming rules (`name(p, m)`, `constant_columns`, `regulator_constant`), the DSL text of
-forms and steps (`form_text`, `step_text`) and the text id (`mechanism_id`) complete the
-graph interface. The rest of `Mechanisms.API` is the types, the accessors of reactions and
-regulatory sites (`reactants`, `regulators`, `ligands`, `allo_states`, …) and the DSL
-entry points the macros call (`raw_mechanism`, `reaction_expr`,
-`check_uniquely_decodable`).
+forms and steps (`form_text`, `step_text`) complete the graph interface. The rest of
+`Mechanisms.API` is the types, the accessors of reactions and regulatory sites
+(`reactants`, `regulators`, `ligands`, `allo_states`, …) and the DSL entry points the
+macros call (`raw_mechanism`, `reaction_expr`, `check_uniquely_decodable`).
 
 ### The boundary test
 
@@ -237,13 +236,13 @@ mechanism's own names (the canonical order). At 100 labellings the search stops,
 takes its mechanism's own key. The L-phantom certificate (`_phantom_weights`) solves exactly
 for a rescaling of the other constants that absorbs `L` in a one-subunit variant whose
 inactive conformation turns nothing over, and it alone decides an L phantom (`_is_phantom`).
-`rate_equation_key(m)` gives identify a mechanism's key and the key of the fit it reads:
-its own, or for such a variant its active law's when that law holds every fitted constant
-but `L`. The variant reads that fit when a mechanism with that law was fitted in an earlier
-batch or is fitted in the variant's own (`_process_batch`).
+`rate_equation_dedup_key(m)` gives identify a mechanism's key and the key of the fit it
+reads: its own, or for such a variant its active law's when that law holds every fitted
+constant but `L`. The variant reads that fit when a mechanism with that law was fitted in
+an earlier batch or is fitted in the variant's own (`_process_batch`).
 
 Identify asks one mechanism four questions in a row: `check_valid_rate_equation`,
-`parameters`, `rate_equation_string` and `rate_equation_key`. A private memo (`_Memo`,
+`parameters`, `rate_equation_string` and `rate_equation_dedup_key`. A private memo (`_Memo`,
 `src/Derivation/memo.jl`) keeps the guard verdict, joint solve and law of the last
 concrete mechanism asked about, matched by `===`, so each is derived once for all four.
 The memo holds one mechanism in the task's local storage, so it never grows and tasks
@@ -259,7 +258,8 @@ reaction graph through masks and never constructs a mechanism. It returns an isb
 loop reads: Julia 1.12 and 1.13 can hoist the box of a `Union` value out of a loop
 without a write barrier, which corrupts the heap. `check_valid_rate_equation(m)` throws
 `_guard_message(m, v)`, which names each step by its DSL line (`step_text`) and the face;
-`has_valid_rate_equation(m)` is the enumerator's drop test.
+`check_valid_rate_equation(m; throw = false)` returns the verdict instead, the
+enumerator's drop test.
 
 The guard builds two networks of one catalytic subunit whose conformations flip at free E
 (`_Network`): the **law network**, each conformation's kept steps on the forms free E
@@ -361,7 +361,8 @@ defined is the well-posedness guard's question (`src/Derivation/guard.jl`; see
 [Well-posedness guard](@ref)). The macros, the parser and every derivation entry throw on a
 mechanism it rejects (`check_valid_rate_equation`), and identify's base tier, the
 enumerator's exits and its flip, split and tagging searches drop one
-(`has_valid_rate_equation`). The constructors and the Sig decoder do not run it.
+(`check_valid_rate_equation(m; throw = false)`). The constructors and the Sig decoder do
+not run it.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration
 builds, expands, and deduplicates many thousands of candidate mechanisms (see

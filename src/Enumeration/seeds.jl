@@ -451,7 +451,7 @@ whose flip to steady state gives a valid, flux-carrying, non-degenerate candidat
 variant: no rapid-equilibrium turnover cycle (`has_turnover_cycle`), a maximal rate both
 ways (`_has_vmax`), no chemistry in equilibrium with both sides
 (`_chemistry_equilibrates_both_sides`), every steady-state group carrying flux, and the
-guard (`has_valid_rate_equation`). The first three tests read index arrays
+guard (`_guard_accepts`). The first three tests read index arrays
 (`_seed_candidate_screen`); the other two run only on a candidate that passes them.
 A merged variant that is its seed's lumping twin (`_lumping_twin`) is skipped: the unmerged
 form with rapid-equilibrium flanks has its family at the same count. A base's groups come in
@@ -490,7 +490,7 @@ enumeration respects `shared_catalytic_site`. The variants of each seed
 are mixed: a three-group merged variant or a decorated Theorell–Chance variant
 fits more parameters than its seed, a merged ping-pong variant fewer. Errors when
 the reaction has no catalytic topology. A seed whose rate law the guard rejects
-(`has_valid_rate_equation`) is dropped; the flip search has run the guard on every
+(`_guard_accepts`) is dropped; the flip search has run the guard on every
 variant.
 """
 function init_mechanisms(r::Mechanisms.EnzymeReaction)
@@ -502,7 +502,7 @@ function init_mechanisms(r::Mechanisms.EnzymeReaction)
              for steps in seeds]
     foreach(m -> _assert_atom_conserving(m, r), mechs)
     seen = Set(mechs)
-    out = filter(Derivation.has_valid_rate_equation, mechs)
+    out = filter(_guard_accepts, mechs)
     for m in unique(mechs), v in _seed_variants(m, r)
         v in seen && continue
         push!(seen, v)
@@ -543,7 +543,7 @@ each level's child generation is distributed via `pmap`, then deduped and
 folded back into the next frontier in frontier order — the same order the
 serial FIFO BFS would enqueue in — so the result is byte-identical to a serial
 traversal. Errors when no mechanism binds every required regulator; a seed whose rate
-law the guard rejects (`has_valid_rate_equation`) is dropped. The search still expands such
+law the guard rejects (`_guard_accepts`) is dropped. The search still expands such
 a node: only the seeds it returns are checked.
 """
 function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
@@ -589,7 +589,7 @@ function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symb
               "optional with `optional_competitive_inhibitors` or " *
               "`optional_allosteric_regulators`, or remove its declaration")
     end
-    filter!(Derivation.has_valid_rate_equation, seeds)
+    filter!(_guard_accepts, seeds)
     seeds
 end
 
@@ -656,7 +656,7 @@ ping-pong seeds' children). Only a flip can cure it: the other moves keep every 
 step's rapid-equilibrium flag, and the steps they add bind regulators, which neither
 degeneracy condition reads. An expansion error is returned as a failure, one per seed,
 carrying the seed and the first 200 characters of the error. The flip search emits only
-children the guard accepts (`has_valid_rate_equation`).
+children the guard accepts (`_guard_accepts`).
 """
 function _base_tier(mechs::Vector, rxn::Mechanisms.EnzymeReaction)
     base = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[

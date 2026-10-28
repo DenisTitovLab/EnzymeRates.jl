@@ -3,7 +3,6 @@
 module Mechanisms
 
 import Unicode
-using SHA: sha256
 
 const API = (:AbstractEnzymeMechanism, :AllostericEnzymeMechanism, :AllostericMechanism,
     :AllostericRegulator, :CompetitiveInhibitor, :EnzymeMechanism, :EnzymeReaction,
@@ -13,7 +12,7 @@ const API = (:AbstractEnzymeMechanism, :AllostericEnzymeMechanism, :AllostericMe
     :check_uniquely_decodable, :compile_mechanism, :conformation, :conformation_steps,
     :constant_columns, :copies, :ends, :excludes, :exclusion_components, :form_text,
     :given_off, :group, :has_turnover_cycle, :has_unbalanced_cycle, :is_binding,
-    :is_rapid_equilibrium, :ligands, :mechanism_id, :members, :metabolite,
+    :is_rapid_equilibrium, :ligands, :members, :metabolite,
     :metabolite_names, :metabolites, :modifier_copies, :modifiers, :multiplicity, :name,
     :ngroups, :present_species, :products, :rapid_equilibrium_steps, :raw_mechanism,
     :re_segments, :reactants, :reaction_expr, :reg_type, :regroup, :regulator,

@@ -1090,7 +1090,7 @@ end
     @test _testhelper_respeed_verdicts(unfed; rng = Random.MersenneTwister(8),
                                        law = :limit)[2] === :agree
     # The package law is 0/0 at zero products: the guard rejects the face as bottomless.
-    @test !EnzymeRates.Derivation.has_valid_rate_equation(unfed)
+    @test !_testhelper_is_valid(unfed)
     v = EnzymeRates.Derivation._guard(unfed)
     @test (v.fault, v.face) == (bottomless, 2)
 end
@@ -1282,7 +1282,7 @@ end
         @test all(_testhelper_agrees.([v.fault for v in verdicts], oracles))
         @test all(f -> _testhelper_names_its_step(m, verdicts[f]), faces)
     end
-    @test !EnzymeRates.Derivation.has_valid_rate_equation(dead_end)
+    @test !_testhelper_is_valid(dead_end)
     v = EnzymeRates.Derivation._guard(dead_end)
     @test (v.fault, v.face) == (multi, 2)
     # Where the law's segment chain has two closed classes, the message names the face and
@@ -1478,7 +1478,7 @@ end
     # The feeding step steady-state through the flags: the graph of the trap test's fix.
     fed = copy(flags)
     fed[_testhelper_edge(ldh, "EP + Q ⇌ EPQ")] = false
-    @test EnzymeRates.Derivation.has_valid_rate_equation(candidate(fed))
+    @test _testhelper_is_valid(candidate(fed))
     # Every step at rapid equilibrium: a fast cycle turns the reaction over.
     @test EnzymeRates.Derivation._guard(candidate(trues(length(ldh.edges)))).fault ===
           EnzymeRates.Derivation._RE_TURNOVER
@@ -3169,7 +3169,7 @@ end
             E(P) + Q <--> E(P, Q)
         end
     end
-    @test !EnzymeRates.Derivation.has_valid_rate_equation(m)
+    @test !_testhelper_is_valid(m)
     v = EnzymeRates.Derivation._guard(m)
     @test (v.fault, v.face) == (EnzymeRates.Derivation._LAW_MULTI, 2)
     # The negative control of `_testhelper_finite_on_every_face`, which cannot derive
@@ -3199,7 +3199,7 @@ end
             E(P) + Q <--> E(P, Q) :: OnlyA
         end
     end
-    @test !EnzymeRates.Derivation.has_valid_rate_equation(am)
+    @test !_testhelper_is_valid(am)
     w = EnzymeRates.Derivation._guard(am)
     @test (w.fault, w.face) == (EnzymeRates.Derivation._ISLAND, 0)
 end
@@ -4040,4 +4040,37 @@ end
     for (label, am) in pairs(_testhelper_onlyi_fixtures())
         @test (label, EnzymeRates.Enumeration._redundant_copy_groups(am)) == (label, Int[])
     end
+end
+
+@testset "check_valid_rate_equation returns a Bool" begin
+    # A mechanism whose reaction no cycle of steps turns over fails the guard; with
+    # `throw = false` the verdict comes back as a Bool and nothing is thrown.
+    good = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
+    bad = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P, Q
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + Q <--> E(Q)
+            E(P) + Q <--> E(P, Q)
+        end
+    end
+    check = EnzymeRates.Derivation.check_valid_rate_equation
+    @test check(good) === true
+    @test check(good; throw = false) === true
+    @test check(bad; throw = false) === false
+    @test @inferred(check(good)) === true
+    @test @inferred(check(bad; throw = false)) === false
+    v = EnzymeRates.Derivation._guard(bad)
+    @test_throws ErrorException(EnzymeRates.Derivation._guard_message(bad, v)) check(bad)
 end

@@ -1,10 +1,11 @@
 # ABOUTME: Beam-search pipeline to identify the best rate equation.
 # ABOUTME: Enumerates mechanisms, fits one representative per rate-law key
-# ABOUTME: (`rate_equation_key`), and selects among the fits by cross-validation.
+# ABOUTME: (`rate_equation_dedup_key`), and selects among the fits by cross-validation.
 
 using DataFrames
 using CSV
 using Statistics
+using SHA: sha256
 
 """
     IdentifyRateEquationProblem{D}
@@ -381,10 +382,14 @@ function _select_count!(
     findall(in(selected), law_keys)
 end
 
+"""A mechanism's id in identify's CSVs: the first 16 hex digits of the SHA-256 of its text
+(`show`), so every process and Julia version gives one mechanism one id."""
+_mechanism_id(text::AbstractString) = bytes2hex(sha256(text))[1:16]
+
 """
-A fit as identify stores it, once per rate-law key (`rate_equation_key`): `values` holds
-the fitted constants at their canonical positions (its `parameters`), then `L` for an MWC
-law, so every mechanism with that key reads them through its own canonical order;
+A fit as identify stores it, once per rate-law key (`rate_equation_dedup_key`): `values`
+holds the fitted constants at their canonical positions (its `parameters`), then `L` for an
+MWC law, so every mechanism with that key reads them through its own canonical order;
 `loss` and `retcode` are `fit_rate_equation`'s; `source` is the
 mechanism that was fitted and `source_id` its `mechanism_id`.
 """
@@ -396,16 +401,17 @@ struct _Fit
     source_id::String
 end
 
-"""A rate law's key and its fitted constants in canonical order (`rate_equation_key`)."""
+"""A rate law's key and its fitted constants in canonical order
+(`rate_equation_dedup_key`)."""
 const _LawKey = @NamedTuple{key::String, order::Vector{Symbol}}
 
 """
 A mechanism `_pass1_record` derived: its fitted constants in `FittedParameters`
 order, its text and the text's id (`mechanism_id`), its printed law, its law's key
-(`canon`), whether it is an L phantom that reads another law's fit (`rate_equation_key`
-gives it a fit key other than its key), `canon0`, the key of the law whose fit it reads
-(for a phantom its active law, its law at `L = 0`; `canon` otherwise), and whether its
-law's labelling reached the leaf cap (`capped`).
+(`canon`), whether it is an L phantom that reads another law's fit
+(`rate_equation_dedup_key` gives it a fit key other than its key), `canon0`, the key of the
+law whose fit it reads (for a phantom its active law, its law at `L = 0`; `canon`
+otherwise), and whether its law's labelling reached the leaf cap (`capped`).
 """
 struct _Candidate
     mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
@@ -440,8 +446,8 @@ function _row_params(c::_Candidate, order::Vector{Symbol}, values::Vector{Float6
 end
 
 """One fitted mechanism: its parameter count, its fit's loss and retcode, its rate-law key
-(`rate_equation_key`), the key of the fit it reads (`fit_key`: its own, or for an L phantom
-the key of its law at `L = 0`), and its CSV row."""
+(`rate_equation_dedup_key`), the key of the fit it reads (`fit_key`: its own, or for an L
+phantom the key of its law at `L = 0`), and its CSV row."""
 struct BatchEntry
     mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
     n_params::Int
@@ -474,7 +480,7 @@ function _failure_row(f::FitFailure)
      parent_n_params = missing,
      loss = missing,
      mechanism = text,
-     mechanism_id = Mechanisms.mechanism_id(text),
+     mechanism_id = _mechanism_id(text),
      parent_id = missing,
      rate_equation = missing,
      retcode = missing,
@@ -552,8 +558,8 @@ alone and compiling nothing. Skip it over `eq_complexity_filter` (`:complexity_s
 (`check_valid_rate_equation`); skip it over `max_param_count` by its fitted constants
 (`FittedParameters`, `:param_skip`); else print its law (`rate_equation_string` with its
 coefficients), take its text and the text's id (`mechanism_id`), and read its law's key
-and the key of the fit it reads (`rate_equation_key`; a law whose labelling reaches the
-leaf cap gets a key of its own, and an L phantom reads the fit of its law at `L = 0`).
+and the key of the fit it reads (`rate_equation_dedup_key`; a law whose labelling reaches
+the leaf cap gets a key of its own, and an L phantom reads the fit of its law at `L = 0`).
 Returns the skip's symbol, a `FitFailure` when a step throws, else a `_Candidate`.
 """
 function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
@@ -564,12 +570,12 @@ function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
         fitted = collect(Derivation.parameters(m, Derivation.FittedParameters()))
         length(fitted) > max_param_count && return :param_skip
         eq_text = Derivation.rate_equation_string(m; coefficients = true)
-        k = Derivation.rate_equation_key(m)
+        k = Derivation.rate_equation_dedup_key(m)
         canon = (key = k.key, order = k.parameters)
         phantom = k.fit_key != k.key
         canon0 = phantom ? (key = k.fit_key, order = k.fit_parameters) : canon
         text = sprint(show, m)
-        _Candidate(m, fitted, text, Mechanisms.mechanism_id(text), eq_text, canon, phantom,
+        _Candidate(m, fitted, text, _mechanism_id(text), eq_text, canon, phantom,
                    canon0, k.capped)
     catch e
         FitFailure(m, _exc_string(e))
@@ -594,11 +600,11 @@ mechanism with that key reads it through its own canonical order, so its row car
 own parameter names: same law ⟹ same fitted values and same rescaling, so no refit is
 needed. `memo` persists across iterations (threaded from `_beam_search`), so a law fit in
 an earlier iteration is never refit. A representative whose fit throws fails ALL the
-mechanisms with its key (all-or-nothing per law). An L phantom (`rate_equation_key` gives
-it a fit key other than its key: a rescaling certificate, which needs one catalytic subunit
-and an inactive conformation that turns nothing over) is never a representative. It reads
-the fit of its law at `L = 0`, its active law's key (`fit_key`), from `memo` or from this
-batch's representatives, through its own order and with `L = 0`, and its row sets
+mechanisms with its key (all-or-nothing per law). An L phantom (`rate_equation_dedup_key`
+gives it a fit key other than its key: a rescaling certificate, which needs one catalytic
+subunit and an inactive conformation that turns nothing over) is never a representative. It
+reads the fit of its law at `L = 0`, its active law's key (`fit_key`), from `memo` or from
+this batch's representatives, through its own order and with `L = 0`, and its row sets
 `L_phantom`. A phantom whose law at `L = 0` has
 no fit there, or lacks one of its other fitted constants, is fitted as an ordinary
 candidate; so is one whose source's fit throws, after the representatives. When a phantom

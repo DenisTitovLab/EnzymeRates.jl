@@ -2405,48 +2405,6 @@ end
     end
 end
 
-# The CSV mechanism_id column: the first 16 hex digits of the SHA-256 of a mechanism's
-# text, so every process and Julia version gives one id. The ids pinned here come from
-# another SHA-256 implementation (Python's hashlib), applied to the texts that
-# test_types.jl pins for these three mechanisms.
-@testset "mechanism_id cuts the SHA-256 of a mechanism's text to 16 hex digits" begin
-    plain = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-        end
-    end
-    ping_pong = @enzyme_mechanism begin
-        substrates: A, B; products: P, Q
-        steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
-            E + Q ⇌ E(Q)
-        end
-    end
-    allosteric = @allosteric_mechanism begin
-        substrates: S
-        products: P
-        allosteric_regulators: I, J
-        catalytic_multiplicity: 2
-        steps: begin
-            E + S ⇌ E(S)     :: EqualAI
-            E(S) <--> E(P)   :: OnlyA
-            E(P) ⇌ E + P     :: EqualAI
-        end
-        regulatory_site(3): I::OnlyI, J::EqualAI
-    end
-    @test [EnzymeRates.Mechanisms.mechanism_id(_testhelper_lift(em))
-           for em in (plain, ping_pong, allosteric)] ==
-          ["f4ce3f6878d7229f", "dbcebb00ac48b73f", "3d6c468d7b38224b"]
-end
-
 @testset "DSL entry points: reaction_expr, raw_mechanism, check_uniquely_decodable" begin
     M = EnzymeRates.Mechanisms
     # The `EnzymeReaction` expression a block writes builds the reaction the macro builds.

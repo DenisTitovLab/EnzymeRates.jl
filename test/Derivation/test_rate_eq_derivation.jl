@@ -1831,9 +1831,11 @@ end
         end
     end), false))
     mechs = [[_testhelper_lift(s.mechanism) for s in MECHANISM_TEST_SPECS]; rejected]
-    questions = (D.has_valid_rate_equation, D.check_valid_rate_equation,
+    questions = (m -> D.check_valid_rate_equation(m; throw = false),
+                 D.check_valid_rate_equation,
                  m -> parameters(m, FittedParameters()), rate_equation_string,
-                 m -> rate_equation_string(m; coefficients = true), D.rate_equation_key)
+                 m -> rate_equation_string(m; coefficients = true),
+                 D.rate_equation_dedup_key)
     answer(q, m) = try q(m) catch e; e end
     expected = [[answer(q, deepcopy(m)) for q in questions] for m in mechs]
     @test expected[end][1] === false && expected[end][2] isa ErrorException

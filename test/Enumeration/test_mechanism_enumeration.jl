@@ -1350,7 +1350,7 @@ end
     # ring E–E(P)–E(P, Q)–E(Q)–E needs two cuts to raise the segment count, so
     # every pair of ring edges gains. Cutting the two edges at E ({P@E, Q@E})
     # would leave {E(P), E(Q), E(P, Q)} with no bottom form, which class 3 rejects at
-    # zero products: the flip move's guard (`has_valid_rate_equation`) fails that pair,
+    # zero products: the flip move's guard (`check_valid_rate_equation`) fails that pair,
     # so it counts as failed and is not emitted.
     # Its supersets are reached by one more flip from the other pairs' children.
     # The two pairs at E(P) and at E(Q) isolate one form joined to the rest by two
@@ -5043,7 +5043,7 @@ end
     # a regulator, none declared). Instead each nonempty set of binding
     # groups is tagged :OnlyA on top of the base whose chemistry is :OnlyA,
     # and the move emits each; the exits keep those the guard accepts
-    # (`has_valid_rate_equation`).
+    # (`check_valid_rate_equation`).
     em_seed = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -5502,8 +5502,8 @@ end
                                             EnzymeRates.Derivation._LIMIT_DIFFER, [:A, :B])
     end
     kept = [b_half2, q_half2, bq_half2]
-    @test all(EnzymeRates.Derivation.has_valid_rate_equation, kept)
-    @test !any(EnzymeRates.Derivation.has_valid_rate_equation, setdiff(result, kept))
+    @test all(_testhelper_is_valid, kept)
+    @test !any(_testhelper_is_valid, setdiff(result, kept))
     @test Set(c for c in EnzymeRates.Enumeration.expand_mechanisms([m], bi_bi_pp_allo_rxn)
               if c isa EnzymeRates.AllostericMechanism) == Set(kept)
     # Δ params: each kept child adds L only; every tag is :EqualAI or :OnlyA.
@@ -5884,10 +5884,10 @@ end
                             abp_half2, abpq_half2, a_every, q_every, aq_every, b_every,
                             ab_every, bq_every, abq_every, p_every, ap_every, pq_every,
                             apq_every, bp_every, abp_every, bpq_every, abpq_every])
-    @test !any(EnzymeRates.Derivation.has_valid_rate_equation, kids)
+    @test !any(_testhelper_is_valid, kids)
     @test all(EnzymeRates.Enumeration._hyperbolic_where_required,
               [a_half1, p_half1, ap_half1])
-    @test !any(EnzymeRates.Derivation.has_valid_rate_equation, [a_half1, p_half1, ap_half1])
+    @test !any(_testhelper_is_valid, [a_half1, p_half1, ap_half1])
     @test !any(c -> c isa EnzymeRates.AllostericMechanism,
                EnzymeRates.Enumeration.expand_mechanisms([m], rxn))
 end
@@ -5897,7 +5897,7 @@ end
     # catalytic. The catalytic group is never a bare primary :OnlyA (that V-type needs a
     # regulator, none declared), so every child is a K-type: every non-empty subset of
     # the 2 bindings (S, P) is set :OnlyA on top of the base whose chemical step is
-    # :OnlyA (dead inactive), and the guard keeps all 3 (`has_valid_rate_equation`).
+    # :OnlyA (dead inactive), and the guard keeps all 3 (`check_valid_rate_equation`).
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
@@ -6066,7 +6066,7 @@ end
     #   * 3 K-type variants (binding-group :OnlyA, no regulatory site) at
     #     +1 param each — the conformational constant L; each tags a nonempty
     #     set of the bindings :OnlyA on top of the base whose chemical step is
-    #     :OnlyA, and the guard keeps all 3 (`has_valid_rate_equation`);
+    #     :OnlyA, and the guard keeps all 3 (`check_valid_rate_equation`);
     #   * 4 V-type variants (the catalytic group :OnlyA paired with one
     #     regulator at a site) at +2 params each — L plus the regulator's K
     #     — one per (regulator, tag), regulator ∈ {R1, R2}, tag ∈
@@ -6420,7 +6420,7 @@ end
     # only multiplicity 1; multiplicity 2 would stack a second source of powers
     # and emits nothing. Three binding groups (S, P, Q), each subset :OnlyA with
     # the chemistry :OnlyA: 2^3 - 1 = 7 K-type children, all valid
-    # (`has_valid_rate_equation`).
+    # (`check_valid_rate_equation`).
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P, Q
@@ -7885,7 +7885,7 @@ end
     @test Set(kids) == Set([a_relaxed, q_relaxed, b_relaxed, p_relaxed])
     @test all(EnzymeRates.Enumeration._hyperbolic_catalysis, kids)
     for d in (abortive_a_relaxed, abortive_p_relaxed)
-        @test EnzymeRates.Derivation.has_valid_rate_equation(d) &&
+        @test _testhelper_is_valid(d) &&
               !EnzymeRates.Enumeration._hyperbolic_catalysis(d)
     end
 end
@@ -8655,7 +8655,7 @@ end
     # binding + 1 catalytic, no regulator declared) tags each nonempty set
     # of the bindings :OnlyA on top of the base whose chemical step is
     # :OnlyA, 3 distinct AllostericMechanism variants that the exit guard
-    # (`has_valid_rate_equation`) all keeps (the catalytic group is never a bare
+    # (`check_valid_rate_equation`) all keeps (the catalytic group is never a bare
     # primary :OnlyA — that needs a regulator). Other moves do not
     # produce AllostericMechanism output from a plain Mechanism, so
     # exactly 3 exist.
@@ -13819,7 +13819,7 @@ end
     @test length(kids) == 7
     @test Set(kids) == Set([p_tagged, q_tagged, b_at_eq_tagged, p_q_tagged,
                             p_b_at_eq_tagged, q_b_at_eq_tagged, all_tagged])
-    @test all(EnzymeRates.Derivation.has_valid_rate_equation, setdiff(kids, [p_tagged]))
+    @test all(_testhelper_is_valid, setdiff(kids, [p_tagged]))
     @test EnzymeRates.Derivation._guard(p_tagged).fault === EnzymeRates.Derivation._NO_LIMIT
 end
 
@@ -13893,7 +13893,7 @@ end
         m, t, 1, EnzymeRates.Mechanisms.RegulatorySite[]) for t in tags]
     @test length(bases) == 3
     @test Set(bases) == Set([base_bd, base_bq, base_dq])
-    @test all(EnzymeRates.Derivation.has_valid_rate_equation, bases)
+    @test all(_testhelper_is_valid, bases)
     chem = EnzymeRates.Enumeration._chemistry_groups(m)
     p = only(findall(!, chem))
     vt = [c ? :OnlyA : :EqualAI for c in chem]
@@ -13956,7 +13956,7 @@ end
     kids = EnzymeRates.Enumeration._expand_to_allosteric(m, rxn)
     @test length(kids) == 4
     @test Set(kids) == Set([p_on_bd, p_on_bq, p_on_dq, p_on_every])
-    @test !any(EnzymeRates.Derivation.has_valid_rate_equation, kids)
+    @test !any(_testhelper_is_valid, kids)
     @test !any(c -> c isa EnzymeRates.AllostericMechanism,
                EnzymeRates.Enumeration.expand_mechanisms([m], rxn))
 end
@@ -14014,7 +14014,7 @@ end
     @test Set(kids) == Set([p_relaxed, b_at_eq_relaxed, q_relaxed])
     @test EnzymeRates.Derivation._guard(q_relaxed).fault ===
           EnzymeRates.Derivation._NO_LIMIT
-    @test all(EnzymeRates.Derivation.has_valid_rate_equation, [p_relaxed, b_at_eq_relaxed])
+    @test all(_testhelper_is_valid, [p_relaxed, b_at_eq_relaxed])
 end
 
 @testset "expand_mechanisms expands a parent whose binding changes conformation" begin
@@ -14941,7 +14941,7 @@ end
     # Aggregate regression pin over the whole seed set: the search reaches 1,664 seeds and
     # the guard drops 32 of them, each a `_SPLIT`.
     @test length(seeds) == 1632
-    @test all(ER.Derivation.has_valid_rate_equation, seeds)
+    @test all(_testhelper_is_valid, seeds)
     # The six-step ping-pong with its first half-reaction tagged :OnlyA fails class 3 at
     # zero A and B, so it is dropped; with its second half tagged instead it stays.
     half1 = @_testhelper_unguarded @allosteric_mechanism begin
@@ -15177,7 +15177,7 @@ end
     @test Set(kids) == Set([k_q_half1, k_q_half2, k_q_every, v_half1_a, v_half1_i,
                             v_half2_a, v_half2_i])
     kept = [k_q_half2, v_half1_a, v_half1_i, v_half2_a, v_half2_i]
-    @test all(EnzymeRates.Derivation.has_valid_rate_equation, kept)
+    @test all(_testhelper_is_valid, kept)
     @test EnzymeRates.Derivation._guard(k_q_half1).fault === EnzymeRates.Derivation._PUMPED
     @test EnzymeRates.Derivation._guard(k_q_every).fault === EnzymeRates.Derivation._ISLAND
     @test Set(c for c in EnzymeRates.Enumeration.expand_mechanisms([m], rxn)
@@ -15618,8 +15618,8 @@ end
                             bq_every, abq_every, p_every, ap_every, pq_every, apq_every,
                             bp_every, abp_every, bpq_every, abpq_every, v_a, v_i])
     kept = [k_q, k_b, k_qb, v_a, v_i]
-    @test all(EnzymeRates.Derivation.has_valid_rate_equation, kept)
-    @test !any(EnzymeRates.Derivation.has_valid_rate_equation, setdiff(kids, kept))
+    @test all(_testhelper_is_valid, kept)
+    @test !any(_testhelper_is_valid, setdiff(kids, kept))
     @test Set(c for c in EnzymeRates.Enumeration.expand_mechanisms([m], rxn)
               if c isa EnzymeRates.AllostericMechanism) == Set(kept)
 end
@@ -15648,8 +15648,8 @@ end
     kids = EnzymeRates.Enumeration._expand_change_allo_state(k_type)
     @test length(kids) == 1
     @test Set(kids) == Set([q_relaxed])
-    @test EnzymeRates.Derivation.has_valid_rate_equation(k_type) &&
-          EnzymeRates.Derivation.has_valid_rate_equation(q_relaxed)
+    @test _testhelper_is_valid(k_type) &&
+          _testhelper_is_valid(q_relaxed)
 end
 
 @testset "change_allo_state relaxes a one-half V-type, leaving class 3 to the exit" begin
@@ -15769,7 +15769,7 @@ end
     @test (v.fault, v.limit, names) ==
           (EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_SPEED, [:A, :B])
     kept = [a_relaxed, b_relaxed, q_relaxed, p_relaxed, site_relaxed]
-    @test all(EnzymeRates.Derivation.has_valid_rate_equation, kept)
+    @test all(_testhelper_is_valid, kept)
     exits = EnzymeRates.Enumeration.expand_mechanisms([v_type], rxn)
     @test chemistry_relaxed ∉ exits && all(in(exits), kept)
     # Every kept child turns the reaction over once products are present. At zero
@@ -16067,8 +16067,8 @@ end
     moved = EnzymeRates.Enumeration._expand_to_allosteric(parent, rxn)
     @test length(moved) == 13
     @test Set(moved) == Set([admitted; tagged[1:3]; rejected])
-    @test all(EnzymeRates.Derivation.has_valid_rate_equation, admitted)
-    @test !any(EnzymeRates.Derivation.has_valid_rate_equation, rejected)
+    @test all(_testhelper_is_valid, admitted)
+    @test !any(_testhelper_is_valid, rejected)
     @test all(t -> EnzymeRates.Derivation._guard(t).fault ===
                    EnzymeRates.Derivation._ISLAND, tagged)
     # The ε-path oracle, on one subunit, finds no single limit of the island:
@@ -16087,7 +16087,7 @@ end
     # 0988ab459f638946). Flipping the A group alone gains a segment but leaves a face
     # whose steady state moves with the relative speeds of the rapid-equilibrium steps, a
     # class-3 rejection (`_LIMIT_SPEED`) the RE-speed oracle reads as a pattern. The flip
-    # move's guard (`has_valid_rate_equation`) fails that set, so the move extends it:
+    # move's guard (`check_valid_rate_equation`) fails that set, so the move extends it:
     # the A group with each of the other three rapid-equilibrium groups. The other two
     # minimal sets pass and stay: five children; the minimal sets alone, without class 3
     # in the predicate, would give two.
@@ -16242,7 +16242,7 @@ end
     flags[cm.group .== cm.group[_testhelper_edge(parent, "E + A ⇌ EA")]] .= false
     @test EnzymeRates.Mechanisms.with_flags(parent, flags) ==
           a_flip
-    @test EnzymeRates.Derivation.has_valid_rate_equation(
+    @test _testhelper_is_valid(
         EnzymeRates.Mechanisms.with_flags(cm, flags))
     expected = EnzymeRates.AllostericMechanism.([
         (@allosteric_mechanism begin      # Q@E
@@ -16457,7 +16457,7 @@ end
     # the chemistry, or the pair E(P) ⇌ F(P) and F + P ⇌ E(P) made steady state) leave the
     # :OnlyA step E <--> F bridging forms of the inactive conformation at zero P. That is
     # admission's face condition, part of the guard the flip search asks of each candidate
-    # (`has_valid_rate_equation`), so the three sets count as failed and are extended; no
+    # (`check_valid_rate_equation`), so the three sets count as failed and are extended; no
     # extension gains. The search emits the other three flips. Two of them keep the
     # chemistry in rapid equilibrium with both sides, which makes them degenerate. The base
     # tier keeps the last flip.
@@ -16568,7 +16568,7 @@ end
             end
         end),
         kept]
-    @test ER.Derivation.has_valid_rate_equation(seed)
+    @test _testhelper_is_valid(seed)
     @test ER.Enumeration._degenerate(seed)
     kids = ER.Enumeration._expand_re_to_ss(seed)
     @test length(kids) == 3
@@ -16671,7 +16671,7 @@ end
         end)]
     @test ER.Enumeration._degenerate(seed)
     @test length(ER.Enumeration._expand_re_to_ss(seed)) == 6
-    @test all(ER.Derivation.has_valid_rate_equation, ER.Enumeration._expand_re_to_ss(seed))
+    @test all(_testhelper_is_valid, ER.Enumeration._expand_re_to_ss(seed))
     base, failures = ER.Enumeration._base_tier([seed], rxn)
     @test isempty(failures)
     @test length(base) == 6

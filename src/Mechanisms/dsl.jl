@@ -638,17 +638,6 @@ Base.@nospecializeinfer Base.show(io::IO, @nospecialize(em::EnzymeMechanism)) =
 Base.@nospecializeinfer Base.show(io::IO, @nospecialize(aem::AllostericEnzymeMechanism)) =
     show(io, AllostericMechanism(aem))
 
-"""
-    mechanism_id(m)
-    mechanism_id(text)
-
-A mechanism's id in identify's CSVs: the first 16 hex digits of the SHA-256 of `m`'s DSL
-text (`show`), or of that text given as `text`, so every process and Julia version gives
-one mechanism one id.
-"""
-mechanism_id(text::AbstractString) = bytes2hex(sha256(text))[1:16]
-mechanism_id(m::_AnyMech) = mechanism_id(sprint(show, m))
-
 """Print the line `label: item, item, ...` of a mechanism's block, or nothing when
 `items` is empty."""
 function _print_line(io::IO, label::String, items::Vector)

@@ -6,7 +6,7 @@ The derivation memo of a task (`_memo`): the concrete mechanism `m` last asked a
 its guard verdict (`_guard`), joint solve (`_solve`) and law (`_law`), each filled on
 first need. Identify's PASS 1 asks one mechanism several questions in a row
 (`check_valid_rate_equation`, `parameters`, `rate_equation_string`,
-`rate_equation_key`); through the memo they run the guard, the solve and the law once.
+`rate_equation_dedup_key`); through the memo they run the guard, the solve and the law once.
 The memo holds one mechanism, replaced by the next one asked about (compared by `===`),
 and lives in the task's local storage, so tasks share nothing. The compiled types'
 derivation (`_derivation_input`, `rate_equation`) never reads it.

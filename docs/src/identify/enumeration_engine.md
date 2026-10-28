@@ -72,7 +72,7 @@ on the candidate built as a mechanism, once it passes the others:
 
 - **Valid.** No cycle of rapid-equilibrium steps runs the net reaction
   (`has_turnover_cycle`), and the guard accepts the candidate
-  (`has_valid_rate_equation`).
+  (`check_valid_rate_equation`).
 - **Flux-carrying.** Every steady-state group carries net flux.
 - **Non-degenerate.** A degenerate mechanism's rate at zero products ignores some
   substrate or grows without bound as the substrates grow, or the same holds for

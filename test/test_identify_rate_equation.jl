@@ -348,7 +348,7 @@ end
         # row records no parent.
         @test row.mechanism == sprint(show, m)
         @test EnzymeRates._parse_mechanism(row.mechanism) == m
-        @test row.mechanism_id == EnzymeRates.Mechanisms.mechanism_id(m)
+        @test row.mechanism_id == EnzymeRates._mechanism_id(sprint(show, m))
         @test ismissing(row.parent_id)
         @test row.error == "boom"
         @test ismissing(row.key) && ismissing(row.fit_inherited) &&
@@ -360,7 +360,7 @@ end
         # printed text: it is the 64-hex SHA-256 of the canonical text, the same on every
         # call, and another law gets another key.
         m = _testhelper_uni_seed
-        id = EnzymeRates.Mechanisms.mechanism_id(m)
+        id = EnzymeRates._mechanism_id(sprint(show, m))
         c = EnzymeRates.Derivation._canonical(EnzymeRates.Derivation._law(m), id)
         again = EnzymeRates.Derivation._canonical(EnzymeRates.Derivation._law(m), id)
         @test (again.key, again.text, again.order) == (c.key, c.text, c.order)
@@ -375,7 +375,7 @@ end
                 E(P) <--> E + P
             end
         end)
-        other = EnzymeRates.Mechanisms.mechanism_id(ss_release)
+        other = EnzymeRates._mechanism_id(sprint(show, ss_release))
         @test EnzymeRates.Derivation._canonical(
             EnzymeRates.Derivation._law(ss_release), other).key != c.key
     end
@@ -405,8 +405,8 @@ end
     best_row = results.cv_results[
         EnzymeRates._select_best_row(results.cv_results), :]
     # The rate-law key of a mechanism's text: the key PASS1 gives it.
-    _testhelper_key_of(text) =
-        EnzymeRates.Derivation.rate_equation_key(EnzymeRates._parse_mechanism(text)).key
+    _testhelper_key_of(text) = EnzymeRates.Derivation.rate_equation_dedup_key(
+        EnzymeRates._parse_mechanism(text)).key
 
     @testset "mechanism recovery" begin
         # The best mechanism should fit the noiseless data with near-zero loss.
@@ -549,8 +549,7 @@ end
             @test "parent_id" in names(df_file)
             # Each row holds its mechanism's text, which reads back as the mechanism that
             # prints it, and the text's id.
-            @test all(EnzymeRates.Mechanisms.mechanism_id.(
-                          EnzymeRates._parse_mechanism.(df_file.mechanism)) .==
+            @test all(EnzymeRates._mechanism_id.(df_file.mechanism) .==
                       df_file.mechanism_id)
             @test all(t -> sprint(show, EnzymeRates._parse_mechanism(t)) == t,
                       df_file.mechanism)
@@ -1030,10 +1029,10 @@ end
     end)
     buckets = Dict{String, Vector{Int}}()
     for (i, m) in enumerate(EnzymeRates.Enumeration.init_mechanisms(reaction))
-        k = EnzymeRates.Derivation.rate_equation_key(m)
+        k = EnzymeRates.Derivation.rate_equation_dedup_key(m)
         @test !k.capped
         push!(get!(buckets, k.key, Int[]), i)
-        i % 25 == 1 && @test EnzymeRates.Derivation.rate_equation_key(m).key == k.key
+        i % 25 == 1 && @test EnzymeRates.Derivation.rate_equation_dedup_key(m).key == k.key
     end
     @test length(buckets) == 239
 end
@@ -1979,7 +1978,7 @@ end
             A = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
     prob = IdentifyRateEquationProblem(rxn, data; Keq = 10.0,
                                        reference = _testhelper_row_reference(data))
-    id = EnzymeRates.Mechanisms.mechanism_id(pinwheel)
+    id = EnzymeRates._mechanism_id(sprint(show, pinwheel))
     batch_log = String[]
     entries, failures = EnzymeRates._process_batch(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[pinwheel], prob;
@@ -2821,8 +2820,8 @@ end
         em = EnzymeRates.compile_mechanism(m)
         fkeys = parameters(em, FittedParameters())
         text = sprint(show, m)
-        id = EnzymeRates.Mechanisms.mechanism_id(m)
-        key = EnzymeRates.Derivation.rate_equation_key(m).key
+        id = EnzymeRates._mechanism_id(sprint(show, m))
+        key = EnzymeRates.Derivation.rate_equation_dedup_key(m).key
         memo[key] = EnzymeRates._Fit(ones(length(fkeys)), loss, :Success, m, id)
         row = (n_params=length(fkeys), loss=loss, mechanism=text, mechanism_id=id,
                rate_equation="v", retcode="Success", error=missing,
@@ -2863,4 +2862,46 @@ end
     for g in groups
         @test saved[!, "cv_fold_$g"] == res.cv_results[!, Symbol("cv_fold_$g")]
     end
+end
+
+# The CSV mechanism_id column (`_mechanism_id`): the first 16 hex digits of the SHA-256 of
+# a mechanism's text, so every process and Julia version gives one id. The ids pinned here
+# come from another SHA-256 implementation (Python's hashlib), applied to the texts that
+# test_types.jl pins for these three mechanisms.
+@testset "_mechanism_id cuts the SHA-256 of a mechanism's text to 16 hex digits" begin
+    plain = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    ping_pong = @enzyme_mechanism begin
+        substrates: A, B; products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+            E + Q ⇌ E(Q)
+        end
+    end
+    allosteric = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: I, J
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)     :: EqualAI
+            E(S) <--> E(P)   :: OnlyA
+            E(P) ⇌ E + P     :: EqualAI
+        end
+        regulatory_site(3): I::OnlyI, J::EqualAI
+    end
+    @test [EnzymeRates._mechanism_id(sprint(show, _testhelper_lift(em)))
+           for em in (plain, ping_pong, allosteric)] ==
+          ["f4ce3f6878d7229f", "dbcebb00ac48b73f", "3d6c468d7b38224b"]
 end

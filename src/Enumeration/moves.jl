@@ -61,7 +61,7 @@ route through the others — as happens once a split has separated a
 metabolite's binding steps, or a catalytic step from its inhibitor-bound
 mirror. A flip that leaves the segment count unchanged adds an SS step whose
 endpoints share a segment, which the rate equation never sees. A flip set whose child the
-guard rejects (`has_valid_rate_equation`) also counts as failed, so the minimal-set search
+guard rejects (`_guard_accepts`) also counts as failed, so the minimal-set search
 extends it instead of emitting it; so does
 a set one of whose flipped groups carries no flux in the child
 (`_flux_carrying_groups` on the flipped groups): the child is its parent plus
@@ -140,7 +140,7 @@ set. A unit is a rapid-equilibrium kinetic group that carries flux with every ed
 state (`_flux_carrying_groups`) and passes `eligible`. A candidate turns its units' edges
 steady state and keeps every other flag. It passes when `admissible` holds on its flags,
 every flipped group carries flux in it, and the guard accepts the mechanism it builds
-(`has_valid_rate_equation`). The first two tests read the flags, so only a candidate that
+(`_guard_accepts`). The first two tests read the flags, so only a candidate that
 passes them is built. The sets come from `_minimal_gaining_sets`, so a failing set is
 extended and a passing one is not.
 """
@@ -162,7 +162,7 @@ function _minimal_flips(admissible,
     end
     passes(sel) = (re = flipped(sel);
                    admissible(re) && all(_flux_carrying_groups(cm, re)[units[sel]]) &&
-                   Derivation.has_valid_rate_equation(Mechanisms.with_flags(m, re)))
+                   _guard_accepts(Mechanisms.with_flags(m, re)))
     [flipped(sel) for sel in _minimal_gaining_sets(passes, _ -> 1:length(units))]
 end
 
@@ -352,7 +352,7 @@ rejected set are the all-RE groups sharing a rapid-equilibrium segment with any
 step of the split groups: a tie needs an RE cycle through the carve, and every
 group on that cycle lies in that segment. The count is the joint solve's on the built
 child (`parameter_count`), which derives no rate polynomial, and a set whose child the
-guard rejects (`has_valid_rate_equation`) also counts as failed, so the search extends it
+guard rejects (`_guard_accepts`) also counts as failed, so the search extends it
 instead of emitting it.
 A part of a steady-state group none of whose edges carries flux
 (`_flux_carrying_edges`, computed once on the parent, since a split moves no edge)
@@ -397,7 +397,7 @@ function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
     accepted = Dict{Vector{Int}, typeof(m)}()
     function gains(sel)
         c = _apply_bipartitions(m, units[sel], flags_of(sel))
-        Derivation.parameter_count(c) > base && Derivation.has_valid_rate_equation(c) ||
+        Derivation.parameter_count(c) > base && _guard_accepts(c) ||
             return false
         accepted[sel] = c
         true
@@ -698,14 +698,14 @@ end
 """
     _valid_tagging(m::Mechanism, tags::Vector{Symbol}) -> Bool
 
-Whether the guard (`has_valid_rate_equation`) accepts `m` with the tags `tags`, one per
+Whether the guard (`_guard_accepts`) accepts `m` with the tags `tags`, one per
 kinetic group, over one catalytic subunit with no regulatory site. The guard's checks read
 neither the multiplicity nor the sites, so every child the tagging move builds on these
 tags gets the same verdict at the exits, up to the limit test's random draw, whose seed
 hashes the mechanism.
 """
 _valid_tagging(m::Mechanisms.Mechanism, tags::Vector{Symbol}) =
-    Derivation.has_valid_rate_equation(Mechanisms.AllostericMechanism(
+    _guard_accepts(Mechanisms.AllostericMechanism(
         m, tags, 1, Mechanisms.RegulatorySite[]))
 
 """
@@ -947,7 +947,7 @@ conformation and leave its affinity no path to zero; where the inactive conforma
 binds nothing (every binding `:OnlyA`), the skipped variant is rate-equivalent to the
 form emitted directly, so no observable hypothesis is lost.
 
-The guard at the enumerator's exits (`has_valid_rate_equation`) judges each child:
+The guard at the enumerator's exits (`_guard_accepts`) judges each child:
 relaxing an `:OnlyA` binding joins its two sides, which can leave another tagged binding
 inside one component or close a cycle of tagged bindings, and a face can fail. A
 regulatory ligand's tag does not enter the guard — a regulator site completes no catalytic

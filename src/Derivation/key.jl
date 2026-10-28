@@ -123,8 +123,8 @@ sorted. The fitted constants, every other variable a term holds, are coloured by
 refinement on the term–constant incidence; while colours tie, each constant of the first
 tied class is individualized in turn, keeping the smallest text (`_search!`). At
 `_KEY_LEAF_CAP` labellings the law takes the key of `"mechanism|" * mechanism_id`.
-`mechanism_id` may be the mechanism itself, whose id (`mechanism_id`) is then taken only
-at the cap.
+`mechanism_id` may be the mechanism itself, whose id (the first 16 hex digits of the
+SHA-256 of its text, `show`) is then taken only at the cap.
 """
 function _canonical(L::Union{_Law, _AlloLaw},
                     mechanism_id::Union{AbstractString, _AnyMech})
@@ -158,7 +158,7 @@ function _canonical(L::Union{_Law, _AlloLaw},
                   inc, occ, labels)
     if st.leaves >= _KEY_LEAF_CAP
         text = "mechanism|" * (mechanism_id isa AbstractString ? mechanism_id :
-                               Mechanisms.mechanism_id(mechanism_id))
+                               bytes2hex(sha256(sprint(show, mechanism_id)))[1:16])
         return _Canonical(vars.names[params], text, bytes2hex(sha256(text)), st.leaves,
                           true)
     end
@@ -246,17 +246,17 @@ _is_phantom(A::_AlloLaw) = !isempty(_phantom_weights(A))
 # ─── The key a mechanism is fitted under ───────────────────────────────────
 
 """
-    rate_equation_key(m) -> (; key, parameters, fit_key, fit_parameters, capped)
+    rate_equation_dedup_key(m) -> (; key, parameters, fit_key, fit_parameters, capped)
 
 The rate-law key of the well-posed mechanism `m` and the key of the fit it reads, from its
 law (through the memo, `_Memo`). `key` and `parameters` are its law's canonical key and its
 fitted constants in canonical order (`_canonical`); `capped` says that the labelling
-reached the leaf cap, so the law took the key of `m`'s text id (`mechanism_id`).
+reached the leaf cap, so the law took the key of `m`'s text id (`_canonical`).
 `fit_key` and `fit_parameters` name the law whose fit `m` reads: its own, except for an L
 phantom (`_is_phantom`), which reads its active law, its law at `L = 0`, when that law
 holds every fitted constant of `m` but `L`. Two mechanisms with one key share one fit.
 """
-function rate_equation_key(m::_AnyMech)
+function rate_equation_dedup_key(m::_AnyMech)
     check_valid_rate_equation(m)
     _with_memo_law(m) do m, s, L
         own = _canonical(L, m)

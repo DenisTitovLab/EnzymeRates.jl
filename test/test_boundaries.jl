@@ -293,8 +293,8 @@ end
 
 @testset "boundary scanner" begin
     @testset "cross_refs" begin
-        @test _testhelper_cross_refs("Derivation.has_valid_rate_equation(m)") ==
-              [(:Derivation, :has_valid_rate_equation, 1)]
+        @test _testhelper_cross_refs("Derivation.check_valid_rate_equation(m)") ==
+              [(:Derivation, :check_valid_rate_equation, 1)]
         @test isempty(_testhelper_cross_refs("Base.show(io, x)"))
         @test _testhelper_cross_refs("\n\nf(x::Mechanisms.Mechanism) = 1") ==
               [(:Mechanisms, :Mechanism, 3)]
@@ -349,11 +349,11 @@ end
     cleanly_layered = (
         "Mechanisms/Mechanisms.jl" => "const API = (:Mechanism, :compile_mechanism)",
         "Mechanisms/types.jl" => "struct Mechanism\n    edges::Vector{Int}\nend",
-        "Derivation/Derivation.jl" => "const API = (:has_valid_rate_equation,)",
+        "Derivation/Derivation.jl" => "const API = (:check_valid_rate_equation,)",
         "Derivation/guard.jl" =>
             "f(m::Mechanisms.Mechanism) = Mechanisms.compile_mechanism(m)",
         "Fitting/Fitting.jl" => "const API = (:fit,)",
-        "Fitting/fit.jl" => "g(m) = Derivation.has_valid_rate_equation(m)",
+        "Fitting/fit.jl" => "g(m) = Derivation.check_valid_rate_equation(m)",
         "EnzymeRates.jl" => "h(m) = Fitting.fit(m)",
     )
     @testset "module_sources and api" begin
@@ -392,7 +392,7 @@ end
     end
     @testset "rule 2 finds a sibling the layer forbids, not the top level" begin
         _testhelper_with_tree(cleanly_layered...,
-            "Mechanisms/up.jl" => "f(m) = Derivation.has_valid_rate_equation(m)",
+            "Mechanisms/up.jl" => "f(m) = Derivation.check_valid_rate_equation(m)",
             "Derivation/across.jl" => "f(m) = Fitting.fit(m)",
             "Fitting/ok.jl" => "f(m) = Mechanisms.compile_mechanism(m)") do root
             found = _testhelper_layer_violations(root)

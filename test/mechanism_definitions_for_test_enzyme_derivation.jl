@@ -812,7 +812,7 @@ law of a mechanism the guard rejects is derived once, unchecked
 function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     mech = _testhelper_lift(m)
     fitted = _testhelper_dependent_param_exprs(mech)[2]
-    rate = if EnzymeRates.Derivation.has_valid_rate_equation(mech)
+    rate = if _testhelper_is_valid(mech)
         em = EnzymeRates.compile_mechanism(mech)
         (c, p) -> rate_equation(em, c, p)
     else
@@ -919,6 +919,9 @@ end
 # ε-path oracle of admission, along integer potentials or the corners of the admissible
 # cone and five orders of the two limits; the exact LP of admission's existence test; and
 # the concerted n-protomer oracle.
+
+"""Whether the guard accepts `m` (`check_valid_rate_equation` with `throw = false`)."""
+_testhelper_is_valid(m) = EnzymeRates.Derivation.check_valid_rate_equation(m; throw = false)
 
 """
     @_testhelper_unguarded call

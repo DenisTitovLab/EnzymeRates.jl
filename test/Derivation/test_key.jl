@@ -439,7 +439,7 @@ end
         EnzymeRates.Derivation._phantom_weights(_testhelper_exponent_toy_law(p, q)))
 end
 
-@testset "rate_equation_key gives a phantom its own key and the active law's fit key" begin
+@testset "rate_equation_dedup_key gives a phantom its own key and its active law's fit" begin
     # The merged uni-uni K-type at one catalytic subunit is an L phantom: its active law,
     # its law at L = 0, holds every fitted constant but L and is the law of the plain
     # merged uni-uni, so it reads that law's fit. Its own key, under which identify
@@ -460,11 +460,11 @@ end
             E + P ⇌ E(P)       :: OnlyA
         end
     end)
-    id = EnzymeRates.Mechanisms.mechanism_id(phantom)
+    id = "phantom"
     A = EnzymeRates.Derivation._law(phantom)
     own = EnzymeRates.Derivation._canonical(A, id)
-    k = EnzymeRates.Derivation.rate_equation_key(phantom)
-    p = EnzymeRates.Derivation.rate_equation_key(plain)
+    k = EnzymeRates.Derivation.rate_equation_dedup_key(phantom)
+    p = EnzymeRates.Derivation.rate_equation_dedup_key(plain)
     @test (k.key, k.parameters, k.capped) == (own.key, own.order, false)
     @test k.fit_key == p.key == p.fit_key != k.key
     @test k.fit_parameters ==
@@ -489,6 +489,32 @@ end
         regulatory_site(1): R::EqualAI
     end)
     @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(regulated))
-    r = EnzymeRates.Derivation.rate_equation_key(regulated)
+    r = EnzymeRates.Derivation.rate_equation_dedup_key(regulated)
     @test (r.fit_key, r.fit_parameters) == (r.key, r.parameters)
+end
+
+@testset "a capped key keeps its text id" begin
+    # Five two-step cycles E → X → E, alike up to the label of X, reach the leaf cap: the
+    # law takes the SHA-256 of "mechanism|" and the first 16 hex digits of the SHA-256 of
+    # the mechanism's text. Both strings were read once and must not change.
+    pinwheel = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> F + P
+            F + A <--> E + P
+            E + A <--> G + P
+            G + A <--> E + P
+            E + A <--> H + P
+            H + A <--> E + P
+            E + A <--> J + P
+            J + A <--> E + P
+            E + A <--> M + P
+            M + A <--> E + P
+        end
+    end)
+    k = EnzymeRates.Derivation.rate_equation_dedup_key(pinwheel)
+    @test k.capped
+    @test k.key == bytes2hex(EnzymeRates.Derivation.sha256("mechanism|3e5cf962a87e32c2"))
+    @test k.key == "aad3760e4c4c15acad2ac3f839b5ba7454edaeefc0efd0b913bdb6eb65bdc606"
 end

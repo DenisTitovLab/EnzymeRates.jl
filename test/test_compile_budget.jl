@@ -467,7 +467,7 @@ end
             m = ER._parse_mechanism(String(text))
             println("BODY ", i, " ",
                     bytes2hex(sha256(string(ER.Derivation._rate_body(m)))))
-            println("KEY ", i, " ", ER.Derivation.rate_equation_key(m).key)
+            println("KEY ", i, " ", ER.Derivation.rate_equation_dedup_key(m).key)
             println("FULL ", i, " ", bytes2hex(sha256(ER.rate_equation_string(m))))
             println("COEF ", i, " ",
                     bytes2hex(sha256(ER.rate_equation_string(m; coefficients = true))))
