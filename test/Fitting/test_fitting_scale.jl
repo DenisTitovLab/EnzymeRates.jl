@@ -210,7 +210,12 @@ using OptimizationCMAEvolutionStrategy
         end
         anchor_message = "an anchor needs a finite, nonzero predicted turnover of the " *
                          "measured turnover's sign"
-        # No substrate and no product: the predicted turnover is zero.
+        # No substrate and no product: the predicted turnover is zero. The message names
+        # the failing anchor and its prediction.
+        @test_throws(ErrorException("kcats: at (S = 0.0,) the mechanism predicts " *
+                                    "turnover 0.0; " * anchor_message),
+                     rescale_parameter_values(mm, p,
+                                              [(S = 1.0,) => 1.0, (S = 0.0,) => 1.0]))
         @test_throws(anchor_message, rescale_parameter_values(mm, p, [(S = 0.0,) => 1.0]))
         # The product alone runs the reaction backwards, against a forward measurement.
         @test_throws(anchor_message, rescale_parameter_values(mm, p, [(P = 1.0,) => 1.0]))

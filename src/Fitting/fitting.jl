@@ -410,8 +410,8 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(np)))
     (fp.absolute || !isfinite(best_loss)) &&
         return (params = result_params, loss = best_loss, retcode = best_retcode)
-    ratios = _anchor_log_ratios(fp.mechanism, merge(result_params, (Keq = fp.Keq,)),
-                                fp.reference)
+    ratios = _anchor_log_ratios((_, _) -> nothing, fp.mechanism,
+                                merge(result_params, (Keq = fp.Keq,)), fp.reference)
     ratios === nothing &&
         return (params = result_params, loss = Inf, retcode = :ReferenceFailed)
     scale = exp(sum(ratios) / length(ratios))
@@ -453,11 +453,10 @@ function rescale_parameter_values(@nospecialize(m::Mechanisms.AbstractEnzymeMech
                                   params::NamedTuple, kcats::AbstractVector{<:Pair})
     _check_has_keq(params)
     _check_anchors(kcats, Mechanisms.metabolites(m), "kcats", "mechanism")
-    log_ratios = _anchor_log_ratios(m, params, kcats)
-    log_ratios === nothing && error(
-        "kcats: the mechanism predicts zero, non-finite or opposite-sign turnover at an " *
-        "anchor; an anchor needs a finite, nonzero predicted turnover of the measured " *
-        "turnover's sign")
+    log_ratios = _anchor_log_ratios(m, params, kcats) do concs, predicted
+        error("kcats: at $concs the mechanism predicts turnover $predicted; an anchor " *
+              "needs a finite, nonzero predicted turnover of the measured turnover's sign")
+    end
     center = sum(log_ratios) / length(log_ratios)
     spread = length(log_ratios) == 1 ? 0.0 :
         sqrt(sum(r -> (r - center)^2, log_ratios) / (length(log_ratios) - 1))
@@ -465,15 +464,15 @@ function rescale_parameter_values(@nospecialize(m::Mechanisms.AbstractEnzymeMech
 end
 
 """
-    _anchor_log_ratios(m, params, anchors) -> Union{Vector{Float64}, Nothing}
+    _anchor_log_ratios(fail, m, params, anchors)
 
 `log(measured / predicted)` for each anchor `concentrations => measured` of `anchors`,
 where `predicted` is the turnover of `m` at `params` (which hold `Keq`) per unit
-`E_total`, with every metabolite the anchor leaves out at zero; `nothing` when a
+`E_total`, with every metabolite the anchor leaves out at zero. At the first anchor whose
 predicted turnover is zero, non-finite or of the other sign than the measured one, which
-no factor on the rate constants reproduces.
+no factor on the rate constants reproduces, it returns `fail(concentrations, predicted)`.
 """
-function _anchor_log_ratios(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism),
+function _anchor_log_ratios(fail, @nospecialize(m::Mechanisms.AbstractEnzymeMechanism),
                             params::NamedTuple, anchors)
     mets = Mechanisms.metabolites(m)
     turnover_params = merge(params, (E_total = 1.0,))
@@ -483,7 +482,7 @@ function _anchor_log_ratios(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism)
             NamedTuple{mets}(Tuple(Float64(get(concs, k, 0.0)) for k in mets)),
             turnover_params)
         isfinite(predicted) && predicted != 0 && sign(predicted) == sign(measured) ||
-            return nothing
+            return fail(concs, predicted)
         push!(log_ratios, log(measured / predicted))
     end
     log_ratios
