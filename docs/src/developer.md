@@ -92,7 +92,8 @@ package, and fails on:
 2. a module naming a module it may not depend on;
 3. a field of a mechanism type (`Mechanism`, `AllostericMechanism`, `Form`, `Edge`, `Met`,
    `Metabolites`, `RegulatorySite` or a `Raw*` type) read outside `Mechanisms`;
-4. an underscore name in an `API` list or used across modules.
+4. an underscore name in an `API` list or used across modules;
+5. an `export` in a module, which would let `using ..Mod` bring in bare names.
 
 To use another module's function, add it to that module's `API` list under a name
 without an underscore. Rule 3 matches field names, not types, so the test lists by file

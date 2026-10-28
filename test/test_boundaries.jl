@@ -1,5 +1,5 @@
-# ABOUTME: Checks the module boundaries of src/ by parsing it (API lists, layering, field
-# ABOUTME: access, underscore names), and that public names resolve and show their docs.
+# ABOUTME: Checks the module boundaries of src/ by parsing it (API lists, layers, field
+# ABOUTME: access, underscore names, exports), and that public names resolve and show docs.
 
 # The four submodules, each a folder src/<Module>/ with src/<Module>/<Module>.jl.
 const _testhelper_MODULES = (:Mechanisms, :Derivation, :Enumeration, :Fitting)
@@ -210,6 +210,18 @@ function _testhelper_underscore_violations(root)
         for m in keys(_testhelper_module_sources(root)))
 end
 
+"""`(file, line)` for each `export` in a module's folder: a module's names reach the others
+only qualified, so an export would let `using ..Mod` bring bare names past rule 1."""
+function _testhelper_export_violations(root)
+    found = Tuple{String, Int}[]
+    for files in values(_testhelper_module_sources(root)), file in files
+        _testhelper_walk(Meta.parseall(read(file, String))) do ex, line
+            ex.head === :export && push!(found, (_testhelper_relpath(root, file), line))
+        end
+    end
+    found
+end
+
 """Banned field accesses outside `Mechanisms` that `allowed` does not list."""
 function _testhelper_field_violations(root, ban, allowed)
     found = NamedTuple{(:user, :file, :name, :line, :text),
@@ -246,7 +258,7 @@ const _testhelper_FIELD_BAN = Dict(:Derivation => _testhelper_MECHANISM_FIELDS,
     :Enumeration => _testhelper_MECHANISM_FIELDS, :Fitting => _testhelper_MECHANISM_FIELDS,
     :EnzymeRates => _testhelper_MECHANISM_FIELDS)
 
-"""Runs the four rules over the tree at `root`."""
+"""Runs the five rules over the tree at `root`."""
 function _testhelper_check_boundaries(root, ban, allowed)
     modules = sort!(collect(keys(_testhelper_module_sources(root))))
     @testset "every cross-module name is in its API list" begin
@@ -263,6 +275,9 @@ function _testhelper_check_boundaries(root, ban, allowed)
         for m in modules
             @test isempty(underscore[m])
         end
+    end
+    @testset "no module exports a name" begin
+        @test isempty(_testhelper_export_violations(root))
     end
 end
 
@@ -362,6 +377,7 @@ end
             @test isempty(_testhelper_field_violations(root,
                 Dict(:Derivation => Set([:edges])), Dict{String, Set{String}}()))
             @test all(isempty, values(_testhelper_underscore_violations(root)))
+            @test isempty(_testhelper_export_violations(root))
         end
     end
     @testset "rule 1 finds a name outside the API list, in a module and at the top" begin
@@ -404,6 +420,13 @@ end
             "Fitting/Fitting.jl" => "const API = (:fit,)") do root
             @test _testhelper_underscore_violations(root) == Dict(
                 :Mechanisms => [:_raw], :Derivation => [:_guard], :Fitting => [])
+        end
+    end
+    @testset "rule 5 finds an export in a module, not at the top level" begin
+        _testhelper_with_tree(cleanly_layered...,
+            "Derivation/api.jl" => "f() = 1\n\nexport f, g",
+            "EnzymeRates.jl" => "export fit") do root
+            @test _testhelper_export_violations(root) == [("Derivation/api.jl", 3)]
         end
     end
 end
