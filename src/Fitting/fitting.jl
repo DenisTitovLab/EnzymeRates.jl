@@ -349,7 +349,8 @@ multiplied by one factor so the mechanism reproduces the reference turnovers
 turnover, as `rescale_parameter_values` computes it. A fit whose predicted turnover at a
 reference anchor is zero, non-finite or of the other sign has no such factor: it returns
 its parameters unscaled, with `loss = Inf` and `retcode = :ReferenceFailed`, and does not
-throw. In absolute mode the rate constants are returned as fitted.
+throw. In absolute mode, or when no restart reaches a finite loss (`loss = Inf`,
+`retcode = :NoFiniteLoss`), the rate constants are returned as fitted.
 
 Returns a NamedTuple `(params, loss, retcode)` where:
 - `params`: fitted rate constants as a NamedTuple
@@ -407,7 +408,8 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     end
 
     result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(np)))
-    fp.absolute && return (params = result_params, loss = best_loss, retcode = best_retcode)
+    (fp.absolute || !isfinite(best_loss)) &&
+        return (params = result_params, loss = best_loss, retcode = best_retcode)
     ratios = _anchor_log_ratios(fp.mechanism, merge(result_params, (Keq = fp.Keq,)),
                                 fp.reference)
     ratios === nothing &&

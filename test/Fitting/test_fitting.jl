@@ -6,15 +6,19 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
 
 # An optimizer stub whose every solve returns `u` for each log-space coordinate, so a
 # fit's raw constants are known exactly and the scale applied to them can be checked.
+# With `infinite = true` every solve reports an infinite objective, as a fit with no
+# finite loss does.
 struct _testhelper_ConstantStubOpt
     u::Float64
+    infinite::Bool
 end
+_testhelper_ConstantStubOpt(u; infinite = false) = _testhelper_ConstantStubOpt(u, infinite)
 Optimization.allowsbounds(::_testhelper_ConstantStubOpt) = true
 function Optimization.SciMLBase.__solve(prob::Optimization.OptimizationProblem,
         opt::_testhelper_ConstantStubOpt; kwargs...)
     u = fill(opt.u, length(prob.u0))
-    build_solution(DefaultOptimizationCache(prob.f, prob.p), opt, u, prob.f(u, prob.p);
-                   retcode = ReturnCode.Success)
+    build_solution(DefaultOptimizationCache(prob.f, prob.p), opt, u,
+                   opt.infinite ? Inf : prob.f(u, prob.p); retcode = ReturnCode.Success)
 end
 
 @testset "Fitting" begin
@@ -436,6 +440,13 @@ end
         tiny = _testhelper_stub_fit(-700.0; reference=[(S = 1.0,) => 2.0])
         @test all(==(exp(-700.0)), values(tiny.params))
         @test tiny.loss == Inf && tiny.retcode === :ReferenceFailed
+        # With no finite restart the fit returns before the reference step, so its retcode
+        # says so even where the reference would fail.
+        no_finite = fit_rate_equation(
+            FittingProblem(uni_uni, data; Keq=Keq_val, reference=[(P = 1.0,) => 1.0]),
+            _testhelper_ConstantStubOpt(0.0; infinite=true); n_restarts=1)
+        @test no_finite.params == NamedTuple{pn}((1.0, 1.0, 1.0))
+        @test no_finite.loss == Inf && no_finite.retcode === :NoFiniteLoss
         # Absolute mode returns the fitted constants as they are.
         absolute_fit = _testhelper_stub_fit(0.0; absolute=true)
         @test keys(absolute_fit) == (:params, :loss, :retcode)
@@ -649,6 +660,29 @@ end
             FittingProblem(uni_uni, g2; Keq = Keq_val, reference))
         @test cv isa Float64
         @test cv == expected
+    end
+
+    @testset "a fold whose reference fails scores the unscaled fit" begin
+        using OptimizationCMAEvolutionStrategy
+        optimizer = CMAEvolutionStrategyOpt()
+        data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+                S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
+        # With S alone the law runs forward, against this reverse turnover: no factor
+        # matches it, so every training fit fails its reference.
+        reference = [(S = 1.0,) => -0.5]
+        fit_options = (; n_restarts = 1, maxiters = 50)
+        Random.seed!(7)
+        cv = EnzymeRates.Fitting.cross_validation_loss(uni_uni, data, "G2";
+            Keq = Keq_val, absolute = false, reference, optimizer, fit_options...)
+        Random.seed!(7)
+        g1 = map(col -> col[data.group .== "G1"], data)
+        g2 = map(col -> col[data.group .== "G2"], data)
+        fit = fit_rate_equation(
+            FittingProblem(uni_uni, g1; Keq = Keq_val, reference), optimizer; fit_options...)
+        @test fit.retcode === :ReferenceFailed
+        @test isfinite(cv)
+        @test cv == EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
+            FittingProblem(uni_uni, g2; Keq = Keq_val, reference))
     end
 
     @testset "rate_data returns the validated table and the reference anchors" begin
