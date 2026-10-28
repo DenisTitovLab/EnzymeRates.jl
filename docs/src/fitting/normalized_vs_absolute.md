@@ -51,8 +51,9 @@ substrate the anchor leaves at zero. Such a fit fails: `fit_rate_equation` retur
 constants unscaled, with `loss = Inf` and `retcode = :ReferenceFailed`, and identify drops
 the mechanism from the search. Name every substrate and every essential activator in an
 anchor so each candidate law runs there: a law that needs an activator predicts zero
-turnover where the anchor leaves it at zero, and its fit fails. In identify, a mechanism that leaves out an optional regulator ignores that
-regulator's concentration in the anchors.
+turnover where the anchor leaves it at zero, and its fit fails. In identify, a mechanism
+that leaves out an optional regulator ignores that regulator's concentration in the
+anchors.
 
 Relative mode is the right choice when your data reports relative rates
 (arbitrary units, percent activity, or values normalized per some `E_total`
