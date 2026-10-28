@@ -397,8 +397,9 @@ function _guard(mech::_AnyMech)
     v === _WELL_POSED || return v
     law, faces = _law_network(mech), _faces(m)
     _first_face_fault(faces) do i
-        v = _check_face(mech, law, faces, i)
-        v.fault === _NO_FAULT ? _admission_face(mech, eps, law, faces, i) : v
+        face_verdict = _check_face(mech, law, faces, i)
+        face_verdict.fault === _NO_FAULT ? _admission_face(mech, eps, law, faces, i) :
+            face_verdict
     end
 end
 
