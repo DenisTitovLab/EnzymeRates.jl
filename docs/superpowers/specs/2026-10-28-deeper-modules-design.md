@@ -1,7 +1,7 @@
 # Deeper modules: design
 
 Branch `deep-modules-simplification` at 05315f78, on top of the first module split
-(`2026-10-27-deep-modules-simplification-design.md`). Same PR, version 0.11.0.
+(`2026-10-27-deep-modules-simplification-design.md`). Same PR, version 0.10.0 (Denis: PRs #85–#95 and this PR ship together as 0.10.0).
 
 ## Intent
 
