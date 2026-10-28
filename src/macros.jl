@@ -17,10 +17,10 @@ with their atoms, and the regulators and oligomeric states the search may use.
 - `substrates:` and `products:` (required) list each reactant with its atoms, one
   chemical formula in brackets: `S[C6H12O6]`. The atoms of the two sides balance, and a
   name is a substrate or a product, not both.
-- `competitive_inhibitors:` lists the `CompetitiveInhibitor`s, names that bind the
+- `competitive_inhibitors:` lists the competitive inhibitors, names that bind the
   catalytic site without reacting. A substrate or product listed here may also bind as
   its modifier copy, which a mechanism writes `X::Mod`.
-- `allosteric_regulators:` lists the `AllostericRegulator`s, names that bind regulatory
+- `allosteric_regulators:` lists the allosteric regulators, names that bind regulatory
   sites. A type tag, `A::Activator` or `A::Inhibitor`, pins the regulator to the
   allosteric state that activates or inhibits; an untagged one (`:unspecified`) may take
   either. Only these entries take a type tag. A name may be both a competitive

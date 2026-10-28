@@ -133,24 +133,18 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     trace_script = """
         using EnzymeRates
         r = EnzymeRates.EnzymeReaction(
-            [EnzymeRates.Mechanisms.ReactantAtoms(EnzymeRates.Mechanisms.Substrate(:A),
-                                                  [:C => 1]),
-             EnzymeRates.Mechanisms.ReactantAtoms(EnzymeRates.Mechanisms.Substrate(:B),
-                                                  [:N => 1]),
-             EnzymeRates.Mechanisms.ReactantAtoms(EnzymeRates.Mechanisms.Product(:P),
-                                                  [:C => 1]),
-             EnzymeRates.Mechanisms.ReactantAtoms(EnzymeRates.Mechanisms.Product(:Q),
-                                                  [:N => 1])],
-            EnzymeRates.Mechanisms.DeclaredRegulator[],
+            [EnzymeRates.Mechanisms.Reactant(:A, [:C => 1]),
+             EnzymeRates.Mechanisms.Reactant(:B, [:N => 1])],
+            [EnzymeRates.Mechanisms.Reactant(:P, [:C => 1]),
+             EnzymeRates.Mechanisms.Reactant(:Q, [:N => 1])],
+            EnzymeRates.Mechanisms.Regulator[],
             Int[1],
         )
         EnzymeRates.Enumeration.init_mechanisms(r)
         r_uni = EnzymeRates.EnzymeReaction(
-            [EnzymeRates.Mechanisms.ReactantAtoms(EnzymeRates.Mechanisms.Substrate(:S),
-                                                  [:C => 1]),
-             EnzymeRates.Mechanisms.ReactantAtoms(EnzymeRates.Mechanisms.Product(:P),
-                                                  [:C => 1])],
-            EnzymeRates.Mechanisms.DeclaredRegulator[],
+            [EnzymeRates.Mechanisms.Reactant(:S, [:C => 1])],
+            [EnzymeRates.Mechanisms.Reactant(:P, [:C => 1])],
+            EnzymeRates.Mechanisms.Regulator[],
             Int[1],
         )
         GC.gc()

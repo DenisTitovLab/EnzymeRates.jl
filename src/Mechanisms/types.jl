@@ -1,27 +1,7 @@
 # ABOUTME: Value types: EnzymeReaction, and the mechanism as a reaction graph in canonical
 # ABOUTME: form, with its raw input, checks, identity and Sig.
 
-# ─── Concrete type hierarchy ──────────────────────────────────────────
-
-# Metabolite / Reactant / Regulator hierarchy.
-abstract type Metabolite end
-abstract type Reactant <: Metabolite end
-abstract type Regulator <: Metabolite end
-
-struct Substrate <: Reactant
-    name::Symbol
-end
-struct Product <: Reactant
-    name::Symbol
-end
-struct AllostericRegulator <: Regulator
-    name::Symbol
-end
-struct CompetitiveInhibitor <: Regulator
-    name::Symbol
-end
-
-name(m::Metabolite)::Symbol = m.name
+# ─── Concrete types ───────────────────────────────────────────────────
 
 """
 RegulatorySite: a binding site (possibly multimeric) for one or
@@ -78,26 +58,27 @@ struct Kreg <: Parameter
     state::Symbol
 end
 
-# Per-reactant and per-regulator bundling structs. Canonical
-# ordering of atoms so two equivalent constructions
-# compare equal under `==` / `hash`; an element listed twice (`S[CHC]`) counts once with
-# the summed count, as `S[C2H]` writes it.
-struct ReactantAtoms
-    metabolite::Reactant
+"""
+Reactant: a substrate or product of a reaction, with its atoms as `element => count`
+pairs. The constructor sorts the atoms by element so two equivalent constructions compare
+equal under `==` / `hash`; an element listed twice (`S[CHC]`) counts once with the summed
+count, as `S[C2H]` writes it.
+"""
+struct Reactant
+    name::Symbol
     atoms::Vector{Pair{Symbol,Int}}
-    function ReactantAtoms(metabolite::Reactant,
-                           atoms::Vector{<:Pair{Symbol,<:Integer}})
+    function Reactant(name::Symbol, atoms::Vector{<:Pair{Symbol,<:Integer}})
         isempty(atoms) && error(
-            "ReactantAtoms: $(name(metabolite)) has no declared atoms; atoms " *
+            "Reactant: $name has no declared atoms; atoms " *
             "are mandatory (use `[C…]` bracket syntax in @enzyme_reaction).")
         bad = findfirst(a -> a.second isa Bool || a.second ≤ 0, atoms)
         bad === nothing ||
-            error("ReactantAtoms: $(name(metabolite)) atom count for element " *
+            error("Reactant: $name atom count for element " *
                   "$(atoms[bad].first) must be a positive integer, got " *
                   "$(atoms[bad].second).")
         bad = findfirst(a -> !occursin(r"^[A-Z][a-z]*$", String(a.first)), atoms)
         bad === nothing ||
-            error("ReactantAtoms: $(name(metabolite)) has the element " *
+            error("Reactant: $name has the element " *
                   "$(atoms[bad].first); an element is a capital letter and any lowercase " *
                   "letters, such as C or Cl")
         merged = Pair{Symbol,Int}[]
@@ -108,31 +89,35 @@ struct ReactantAtoms
                 push!(merged, e => c)
             end
         end
-        new(metabolite, merged)
+        new(name, merged)
     end
 end
 
-metabolite(r::ReactantAtoms) = r.metabolite
-atoms(r::ReactantAtoms)      = r.atoms
-
-struct DeclaredRegulator
-    regulator::Regulator
-    reg_type::Symbol
-    function DeclaredRegulator(regulator::Regulator, reg_type::Symbol = :unspecified)
-        reg_type in (:activator, :inhibitor, :unspecified) ||
-            error("DeclaredRegulator: reg_type must be :activator, :inhibitor, or " *
-                  ":unspecified, got $reg_type")
-        regulator isa CompetitiveInhibitor && reg_type !== :unspecified &&
-            error("DeclaredRegulator: $(name(regulator)) is a competitive inhibitor, " *
-                  "which takes no regulator type, got $(repr(reg_type)); only an " *
+"""
+Regulator: a metabolite a reaction declares as a regulator. `kind` is `:allosteric` (it
+binds a regulatory site) or `:competitive` (a competitive inhibitor of the catalytic
+site). `effect` is `:activator` or `:inhibitor` when the declaration pins the regulator
+to the conformation it favors, else `:unspecified`; a competitive inhibitor takes no
+effect.
+"""
+struct Regulator
+    name::Symbol
+    kind::Symbol
+    effect::Symbol
+    function Regulator(name::Symbol, kind::Symbol, effect::Symbol = :unspecified)
+        kind in (:allosteric, :competitive) ||
+            error("Regulator: kind must be :allosteric or :competitive, got $kind")
+        effect in (:activator, :inhibitor, :unspecified) ||
+            error("Regulator: effect must be :activator, :inhibitor, or " *
+                  ":unspecified, got $effect")
+        kind === :competitive && effect !== :unspecified &&
+            error("Regulator: $name is a competitive inhibitor, " *
+                  "which takes no regulator type, got $(repr(effect)); only an " *
                   "allosteric regulator is an activator (::Activator) or an inhibitor " *
                   "(::Inhibitor)")
-        new(regulator, reg_type)
+        new(name, kind, effect)
     end
 end
-
-regulator(r::DeclaredRegulator) = r.regulator
-reg_type(r::DeclaredRegulator)  = r.reg_type
 
 """
 The names no metabolite takes: `E_total`, `Keq`, `L` and `N`, which name or are kept for
@@ -273,11 +258,11 @@ pair it with rate data in an
 it to `EnzymeRates.Enumeration.init_mechanisms` to enumerate candidate mechanisms.
 
 # Fields
-- `reactants::Vector{ReactantAtoms}` — substrates and products, each
+- `substrates::Vector{Reactant}` and `products::Vector{Reactant}` — each reactant
   carrying its per-atom inventory (used for ping-pong residual bookkeeping
   and atom conservation across steps).
-- `regulators::Vector{DeclaredRegulator}` — competitive inhibitors and
-  allosteric regulators, each with its regulator type.
+- `regulators::Vector{Regulator}` — competitive inhibitors and
+  allosteric regulators, each with its `kind` and `effect`.
 - `allowed_catalytic_multiplicities::Vector{Int}` — the oligomeric states, one
   or more, that the allosteric enumerator may assign to the catalytic core.
 - `shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}` — `(substrate,
@@ -286,8 +271,8 @@ it to `EnzymeRates.Enumeration.init_mechanisms` to enumerate candidate mechanism
 
 Construct one with the [`@enzyme_reaction`](@ref EnzymeRates.@enzyme_reaction) DSL. Each
 reactant takes an atom bracket (`S[C]`, `A[C1H1]`); the brackets are load-bearing for
-ping-pong and multi-substrate reactions. Reactants and regulators are sorted
-by name in the constructor, a name's competitive inhibitor before its
+ping-pong and multi-substrate reactions. Substrates, products and regulators are
+sorted by name in the constructor, a name's competitive inhibitor before its
 allosteric regulator, so two equivalent declarations compare equal under
 `==`/`hash`. The constructor rejects a name listed as both a substrate
 and a product: concentrations and constants are keyed by name. For the same
@@ -322,18 +307,19 @@ end
 ```
 """
 struct EnzymeReaction
-    reactants::Vector{ReactantAtoms}
-    regulators::Vector{DeclaredRegulator}
+    substrates::Vector{Reactant}
+    products::Vector{Reactant}
+    regulators::Vector{Regulator}
     allowed_catalytic_multiplicities::Vector{Int}
     shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}
 
-    function EnzymeReaction(reactants::Vector{ReactantAtoms},
-                            regulators::Vector{DeclaredRegulator},
+    function EnzymeReaction(substrates::Vector{Reactant}, products::Vector{Reactant},
+                            regulators::Vector{Regulator},
                             allowed_catalytic_multiplicities::Vector{Int};
                             shared_catalytic_site = Tuple{Symbol,Symbol}[])
-        sorted_reactants = sort(reactants; by = ra -> name(metabolite(ra)))
-        sorted_regulators = sort(regulators;
-            by = rm -> (name(regulator(rm)), regulator(rm) isa AllostericRegulator))
+        sorted_substrates = sort(substrates; by = r -> r.name)
+        sorted_products = sort(products; by = r -> r.name)
+        sorted_regulators = sort(regulators; by = r -> (r.name, r.kind === :allosteric))
         # A nonempty list of distinct Ints ≥ 1, as a DSL text writes one.
         ms = allowed_catalytic_multiplicities
         !isempty(ms) && all(≥(1), ms) && allunique(ms) ||
@@ -341,15 +327,12 @@ struct EnzymeReaction
                   "list of distinct Ints ≥ 1, got $ms")
         sorted_mults = sort(allowed_catalytic_multiplicities)
 
-        sub_names  = Symbol[name(metabolite(ra)) for ra in sorted_reactants
-                            if metabolite(ra) isa Substrate]
-        prod_names = Symbol[name(metabolite(ra)) for ra in sorted_reactants
-                            if metabolite(ra) isa Product]
+        sub_names  = Symbol[r.name for r in sorted_substrates]
+        prod_names = Symbol[r.name for r in sorted_products]
         isempty(sub_names)  && error("EnzymeReaction: substrates must not be empty")
         isempty(prod_names) && error("EnzymeReaction: products must not be empty")
 
-        reg_keys   = [(name(regulator(rm)), typeof(regulator(rm)))
-                      for rm in sorted_regulators]
+        reg_keys   = [(r.name, r.kind) for r in sorted_regulators]
         allunique(sub_names)  || error("EnzymeReaction: duplicate substrate names")
         allunique(prod_names) || error("EnzymeReaction: duplicate product names")
         allunique(reg_keys)   ||
@@ -361,7 +344,7 @@ struct EnzymeReaction
         _check_metabolite_names("EnzymeReaction",
                                 Symbol[sub_names; prod_names; first.(reg_keys)])
         _check_uniquely_decodable([sub_names; prod_names],
-            Symbol[n for (n, kind) in reg_keys if kind === CompetitiveInhibitor],
+            Symbol[n for (n, kind) in reg_keys if kind === :competitive],
             "EnzymeReaction")
 
         sub_set  = Set(sub_names)
@@ -386,18 +369,16 @@ struct EnzymeReaction
             "EnzymeReaction: duplicate shared_catalytic_site pair")
 
         # A name may be declared once per regulator kind — the same metabolite
-        # may bind BOTH as an AllostericRegulator and as a CompetitiveInhibitor
+        # may bind BOTH as an allosteric regulator and as a competitive inhibitor
         # (the two roles render to distinct parameter names). A regulator may
         # also share a substrate/product name (so `concs.X` drives every role);
         # cross-category names need not be unique.
 
-        # Atom mass-balance: per-element sum over substrate vs product
-        # reactants. Dispatch by metabolite TYPE (not name) so a substrate and
-        # product sharing a name route to the correct side.
+        # Atom mass-balance: per-element sum over substrates vs products.
         sub_atoms  = Dict{Symbol,Int}()
         prod_atoms = Dict{Symbol,Int}()
-        for ra in sorted_reactants, (elem, c) in atoms(ra)
-            tgt = metabolite(ra) isa Substrate ? sub_atoms : prod_atoms
+        for (rs, tgt) in ((sorted_substrates, sub_atoms), (sorted_products, prod_atoms)),
+            r in rs, (elem, c) in r.atoms
             tgt[elem] = get(tgt, elem, 0) + c
         end
         for elem in union(keys(sub_atoms), keys(prod_atoms))
@@ -409,19 +390,10 @@ struct EnzymeReaction
                 "Declared atoms must balance.")
         end
 
-        new(sorted_reactants, sorted_regulators, sorted_mults, sorted_shared)
+        new(sorted_substrates, sorted_products, sorted_regulators, sorted_mults,
+            sorted_shared)
     end
 end
-
-reactants(r::EnzymeReaction) = r.reactants
-regulators(r::EnzymeReaction) = r.regulators
-allowed_catalytic_multiplicities(r::EnzymeReaction) =
-    r.allowed_catalytic_multiplicities
-shared_catalytic_site(r::EnzymeReaction) = r.shared_catalytic_site
-substrates(r::EnzymeReaction) =
-    Substrate[metabolite(ra) for ra in reactants(r) if metabolite(ra) isa Substrate]
-products(r::EnzymeReaction) =
-    Product[metabolite(ra) for ra in reactants(r) if metabolite(ra) isa Product]
 
 """
 Print `r` as the `@enzyme_reaction` text that builds it: each reactant with its atoms as
@@ -429,25 +401,23 @@ one formula, the competitive inhibitors and allosteric regulators, the catalytic
 multiplicities unless they are the default 1, and the shared catalytic sites.
 """
 function Base.show(io::IO, r::EnzymeReaction)
-    mults = allowed_catalytic_multiplicities(r)
-    formula(ra) = join("$e" * (c == 1 ? "" : "$c") for (e, c) in atoms(ra))
-    tag(rm) = reg_type(rm) === :activator ? "::Activator" :
-              reg_type(rm) === :inhibitor ? "::Inhibitor" : ""
-    entry(rm) = "$(name(regulator(rm)))" * tag(rm)
+    mults = r.allowed_catalytic_multiplicities
+    formula(re) = join("$e" * (c == 1 ? "" : "$c") for (e, c) in re.atoms)
+    tag(reg) = reg.effect === :activator ? "::Activator" :
+               reg.effect === :inhibitor ? "::Inhibitor" : ""
+    entry(reg) = "$(reg.name)" * tag(reg)
     line(label, entries) = isempty(entries) ||
                            print(io, "\n    ", label, ": ", join(entries, ", "))
     print(io, "@enzyme_reaction begin")
-    for (label, T) in (("substrates", Substrate), ("products", Product))
-        line(label, ["$(name(metabolite(ra)))[$(formula(ra))]"
-                     for ra in reactants(r) if metabolite(ra) isa T])
-    end
-    for (label, T) in (("competitive_inhibitors", CompetitiveInhibitor),
-                       ("allosteric_regulators", AllostericRegulator))
-        line(label, [entry(rm) for rm in regulators(r) if regulator(rm) isa T])
+    line("substrates", ["$(re.name)[$(formula(re))]" for re in r.substrates])
+    line("products", ["$(re.name)[$(formula(re))]" for re in r.products])
+    for (label, kind) in (("competitive_inhibitors", :competitive),
+                          ("allosteric_regulators", :allosteric))
+        line(label, [entry(reg) for reg in r.regulators if reg.kind === kind])
     end
     mults == [1] || print(io, "\n    oligomeric_state: ",
                           length(mults) == 1 ? only(mults) : "(" * join(mults, ", ") * ")")
-    line("shared_catalytic_site", ["($s, $p)" for (s, p) in shared_catalytic_site(r)])
+    line("shared_catalytic_site", ["($s, $p)" for (s, p) in r.shared_catalytic_site])
     print(io, "\nend")
 end
 
@@ -1224,7 +1194,7 @@ end
 # symbols, integers and flags, so every process agrees on them. An isbits type (`Form`,
 # `Edge`) keeps Julia's `==`, which compares its fields. `Met` keeps Julia's `==`, which
 # compares its two fields, and has its own `hash`.
-for T in (RegulatorySite, Krapid, Kfor, Krev, Kreg, ReactantAtoms, DeclaredRegulator,
+for T in (RegulatorySite, Krapid, Kfor, Krev, Kreg, Reactant, Regulator,
           EnzymeReaction, RawForm, RawStep, RawMechanism, RawSite, RawAllostericMechanism,
           Form, Edge, Mechanism, AllostericMechanism)
     fs = fieldnames(T)

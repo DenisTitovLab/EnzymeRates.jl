@@ -1176,29 +1176,41 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
 
     # ─── Concrete type hierarchy ──────────────────────────────────────
 
-    @testset "Metabolite hierarchy: Substrate / Product / Regulators" begin
-        s = ER.Mechanisms.Substrate(:ATP)
-        p = ER.Mechanisms.Product(:ADP)
-        a = ER.Mechanisms.AllostericRegulator(:cAMP)
-        i = ER.Mechanisms.CompetitiveInhibitor(:I)
+    @testset "reaction fields are its declaration" begin
+        rxn = @enzyme_reaction begin
+            substrates: B[N], A[C2H]
+            products: P[C2HN]
+            competitive_inhibitors: I
+            allosteric_regulators: X::Activator, Y::Inhibitor, Z
+            oligomeric_state: (2, 1)
+            shared_catalytic_site: (A, P)
+        end
+        @test [s.name for s in rxn.substrates] == [:A, :B]
+        @test rxn.substrates[1].atoms == [:C => 2, :H => 1]
+        @test rxn.products == [ER.Mechanisms.Reactant(:P, [:N => 1, :H => 1, :C => 2])]
+        @test rxn.regulators == [ER.Mechanisms.Regulator(:I, :competitive, :unspecified),
+                                 ER.Mechanisms.Regulator(:X, :allosteric, :activator),
+                                 ER.Mechanisms.Regulator(:Y, :allosteric, :inhibitor),
+                                 ER.Mechanisms.Regulator(:Z, :allosteric, :unspecified)]
+        @test rxn.allowed_catalytic_multiplicities == [1, 2]
+        @test rxn.shared_catalytic_site == [(:A, :P)]
+        @test sprint(show, rxn) ==
+              "@enzyme_reaction begin\n    substrates: A[C2H], B[N]\n" *
+              "    products: P[C2HN]\n    competitive_inhibitors: I\n" *
+              "    allosteric_regulators: X::Activator, Y::Inhibitor, Z\n" *
+              "    oligomeric_state: (1, 2)\n    shared_catalytic_site: (A, P)\nend"
+    end
 
-        @test s isa ER.Mechanisms.Reactant
-        @test s isa ER.Mechanisms.Metabolite
-        @test p isa ER.Mechanisms.Reactant
-        @test a isa ER.Mechanisms.Regulator
-        @test a isa ER.Mechanisms.Metabolite
-        @test i isa ER.Mechanisms.Regulator
-
-        @test ER.Mechanisms.name(s) === :ATP
-        @test ER.Mechanisms.name(p) === :ADP
-        @test ER.Mechanisms.name(a) === :cAMP
-        @test ER.Mechanisms.name(i) === :I
-
-        @test ER.Mechanisms.Substrate(:X) == ER.Mechanisms.Substrate(:X)
-        @test ER.Mechanisms.Substrate(:X) != ER.Mechanisms.Substrate(:Y)
-        # Distinct subtypes with same name are NOT equal (struct identity matters).
-        @test ER.Mechanisms.Substrate(:X) != ER.Mechanisms.Product(:X)
-        @test hash(ER.Mechanisms.Substrate(:X)) == hash(ER.Mechanisms.Substrate(:X))
+    @testset "Reactant and Regulator compare by content" begin
+        @test ER.Mechanisms.Reactant(:X, [:C => 1]) == ER.Mechanisms.Reactant(:X, [:C => 1])
+        @test ER.Mechanisms.Reactant(:X, [:C => 1]) != ER.Mechanisms.Reactant(:Y, [:C => 1])
+        @test hash(ER.Mechanisms.Reactant(:X, [:C => 1])) ==
+              hash(ER.Mechanisms.Reactant(:X, [:C => 1]))
+        a = ER.Mechanisms.Regulator(:A, :allosteric)
+        @test a == ER.Mechanisms.Regulator(:A, :allosteric, :unspecified)
+        @test hash(a) == hash(ER.Mechanisms.Regulator(:A, :allosteric))
+        @test a != ER.Mechanisms.Regulator(:A, :competitive)
+        @test a != ER.Mechanisms.Regulator(:A, :allosteric, :activator)
     end
 
     @testset "RegulatorySite: validation + accessors" begin
@@ -1276,105 +1288,85 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test kr != ER.Mechanisms.Kreg(:A, :I) && kr != ER.Mechanisms.Kreg(:B, :A)
     end
 
-    @testset "ReactantAtoms canonicalizes atom ordering" begin
-        ra1 = ER.Mechanisms.ReactantAtoms(
-            ER.Mechanisms.Substrate(:ATP),
-            [:C => 10, :H => 16, :N => 5],
-        )
-        ra2 = ER.Mechanisms.ReactantAtoms(
-            ER.Mechanisms.Substrate(:ATP),
-            [:N => 5, :H => 16, :C => 10],
-        )
+    @testset "Reactant canonicalizes atom ordering" begin
+        ra1 = ER.Mechanisms.Reactant(:ATP, [:C => 10, :H => 16, :N => 5])
+        ra2 = ER.Mechanisms.Reactant(:ATP, [:N => 5, :H => 16, :C => 10])
         @test ra1 == ra2
         @test hash(ra1) == hash(ra2)
-        @test ER.Mechanisms.metabolite(ra1) == ER.Mechanisms.Substrate(:ATP)
-        @test ER.Mechanisms.atoms(ra1) == [:C => 10, :H => 16, :N => 5]
-
-        # Distinct metabolite kinds: ATP-Substrate != ATP-Product
-        ra_p = ER.Mechanisms.ReactantAtoms(
-            ER.Mechanisms.Product(:ATP), [:C => 10, :H => 16, :N => 5])
-        @test ra1 != ra_p
+        @test ra1.name === :ATP
+        @test ra1.atoms == [:C => 10, :H => 16, :N => 5]
 
         # An element listed twice counts once with the summed count, so every writing of
         # one formula gives one value.
-        ra3 = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(:ATP),
-                                          [:C => 4, :N => 5, :C => 6, :H => 16])
+        ra3 = ER.Mechanisms.Reactant(:ATP, [:C => 4, :N => 5, :C => 6, :H => 16])
         @test ra3 == ra1 && hash(ra3) == hash(ra1)
-        @test ER.Mechanisms.atoms(ra3) == [:C => 10, :H => 16, :N => 5]
+        @test ra3.atoms == [:C => 10, :H => 16, :N => 5]
     end
 
-    @testset "ReactantAtoms validation" begin
+    @testset "Reactant validation" begin
         # Mandatory atoms: empty atom list is rejected.
-        @test_throws ErrorException ER.Mechanisms.ReactantAtoms(
-            ER.Mechanisms.Substrate(:S), Pair{Symbol,Int}[])
+        @test_throws ErrorException ER.Mechanisms.Reactant(:S, Pair{Symbol,Int}[])
         # Positive counts: zero / negative rejected.
-        @test_throws ErrorException ER.Mechanisms.ReactantAtoms(
-            ER.Mechanisms.Substrate(:S), [:C => 0])
-        @test_throws ErrorException ER.Mechanisms.ReactantAtoms(
-            ER.Mechanisms.Substrate(:S), [:C => -1])
+        @test_throws ErrorException ER.Mechanisms.Reactant(:S, [:C => 0])
+        @test_throws ErrorException ER.Mechanisms.Reactant(:S, [:C => -1])
         # Bool is not a valid count. Use untyped vector so Bool survives to
         # the constructor (Pair{Symbol,Int}[:C => true] would convert true→1).
-        @test_throws ErrorException ER.Mechanisms.ReactantAtoms(
-            ER.Mechanisms.Substrate(:S), [:C => true])
+        @test_throws ErrorException ER.Mechanisms.Reactant(:S, [:C => true])
         # An element is what a formula in `@enzyme_reaction` writes: a capital letter and
         # any lowercase letters.
         for el in (:c, :CL, Symbol("C1"))
             @test_throws(
-                ErrorException("ReactantAtoms: S has the element $el; an " *
+                ErrorException("Reactant: S has the element $el; an " *
                                "element is a capital letter and any lowercase " *
                                "letters, such as C or Cl"),
-                ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(:S), [el => 1]))
+                ER.Mechanisms.Reactant(:S, [el => 1]))
         end
         # Valid construction still works.
-        ra = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(:S), [:C => 6, :H => 12])
-        @test ER.Mechanisms.atoms(ra) == [:C => 6, :H => 12]
+        @test ER.Mechanisms.Reactant(:S, [:C => 6, :H => 12]).atoms == [:C => 6, :H => 12]
     end
 
     @testset "EnzymeReaction validation" begin
-        S = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(:S), [:C => 1])
-        P = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Product(:P), [:C => 1])
-        P2 = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Product(:P), [:C => 1])
-        Punbal = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Product(:P), [:C => 2])
-        noregs = ER.Mechanisms.DeclaredRegulator[]
-        regS = ER.Mechanisms.DeclaredRegulator(ER.Mechanisms.CompetitiveInhibitor(:S))
-        regA = ER.Mechanisms.DeclaredRegulator(ER.Mechanisms.CompetitiveInhibitor(:A))
-        regA2 = ER.Mechanisms.DeclaredRegulator(ER.Mechanisms.CompetitiveInhibitor(:A))
+        M = ER.Mechanisms
+        S = M.Reactant(:S, [:C => 1])
+        P = M.Reactant(:P, [:C => 1])
+        Punbal = M.Reactant(:P, [:C => 2])
+        noregs = M.Regulator[]
+        regS = M.Regulator(:S, :competitive)
+        regA = M.Regulator(:A, :competitive)
+        regA2 = M.Regulator(:A, :competitive)
 
-        # Empty substrate set rejected (only a product in reactants).
-        @test_throws ErrorException ER.EnzymeReaction([P], noregs, Int[1])
-        # Empty product set rejected (only a substrate in reactants).
-        @test_throws ErrorException ER.EnzymeReaction([S], noregs, Int[1])
+        # Empty substrate set rejected.
+        @test_throws ErrorException ER.EnzymeReaction(M.Reactant[], [P], noregs, Int[1])
+        # Empty product set rejected.
+        @test_throws ErrorException ER.EnzymeReaction([S], M.Reactant[], noregs, Int[1])
         # Duplicate product names rejected.
-        @test_throws ErrorException ER.EnzymeReaction([S, P, P2], noregs, Int[1])
+        @test_throws ErrorException ER.EnzymeReaction([S], [P, P], noregs, Int[1])
         # Atom imbalance rejected (S has 1 C, Punbal has 2 C).
-        @test_throws ErrorException ER.EnzymeReaction([S, Punbal], noregs, Int[1])
+        @test_throws ErrorException ER.EnzymeReaction([S], [Punbal], noregs, Int[1])
         # Two regulators of the same kind with the same name rejected.
-        @test_throws ErrorException ER.EnzymeReaction(
-            [S, P], [regA, regA2], Int[1])
+        @test_throws ErrorException ER.EnzymeReaction([S], [P], [regA, regA2], Int[1])
         # A regulator MAY share a substrate/product name (`::Mod` role tag:
-        # one metabolite binds as a CompetitiveInhibitor under its real name).
-        rxn_inh = ER.EnzymeReaction([S, P], [regS], Int[1])
-        @test :S in ER.Mechanisms.name.(ER.Mechanisms.substrates(rxn_inh))
+        # one metabolite binds as a competitive inhibitor under its real name).
+        rxn_inh = ER.EnzymeReaction([S], [P], [regS], Int[1])
+        @test :S in [s.name for s in rxn_inh.substrates]
         # Valid balanced reaction with a distinct-named regulator still constructs.
-        rxn = ER.EnzymeReaction([S, P], [regA], Int[1])
-        @test ER.Mechanisms.name.(ER.Mechanisms.substrates(rxn)) == [:S]
-        @test ER.Mechanisms.name.(ER.Mechanisms.products(rxn)) == [:P]
+        rxn = ER.EnzymeReaction([S], [P], [regA], Int[1])
+        @test [s.name for s in rxn.substrates] == [:S]
+        @test [p.name for p in rxn.products] == [:P]
         # A name listed as both a substrate and a product is rejected, whether it
         # is the only reactant name (X → X) or one of several (A + B → A + C).
-        Xs = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(:X), [:C => 2])
-        Xp = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Product(:X), [:C => 2])
+        Xs = M.Reactant(:X, [:C => 2])
         @test_throws ErrorException(
             "EnzymeReaction: X named as both a substrate and a product; " *
             "concentrations and constants are keyed by name") ER.EnzymeReaction(
-            [Xs, Xp], noregs, Int[1])
-        As = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(:A), [:C => 1])
-        Bs = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(:B), [:N => 1])
-        Ap = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Product(:A), [:C => 1])
-        Cp = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Product(:C), [:N => 1])
+            [Xs], [Xs], noregs, Int[1])
+        As = M.Reactant(:A, [:C => 1])
+        Bs = M.Reactant(:B, [:N => 1])
+        Cp = M.Reactant(:C, [:N => 1])
         @test_throws ErrorException(
             "EnzymeReaction: A named as both a substrate and a product; " *
             "concentrations and constants are keyed by name") ER.EnzymeReaction(
-            [As, Bs, Ap, Cp], noregs, Int[1])
+            [As, Bs], [As, Cp], noregs, Int[1])
         # A reactant or a regulator takes no name a rate equation keeps for its constants
         # and the local names of its code, and no name holding `_`, which constant names
         # use to join names.
@@ -1383,12 +1375,9 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             "and v are kept for a rate equation's constants and local names")
         for n in (:E_total, :Keq, :L, :N, :params, :concs, :v)
             @test_throws _testhelper_reserved(n) ER.EnzymeReaction(
-                [ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(n), [:C => 1]), P],
-                noregs, Int[1])
+                [M.Reactant(n, [:C => 1])], [P], noregs, Int[1])
             @test_throws _testhelper_reserved(n) ER.EnzymeReaction(
-                [S, P],
-                [ER.Mechanisms.DeclaredRegulator(ER.Mechanisms.AllostericRegulator(n))],
-                Int[1])
+                [S], [P], [M.Regulator(n, :allosteric)], Int[1])
         end
         @test_throws _testhelper_reserved(:E_total) @enzyme_reaction begin
             substrates: S[C]
@@ -1399,8 +1388,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             "EnzymeReaction: the metabolite name $n holds `_`; constant names join " *
             "metabolite names with `_`, so a metabolite name holds none")
         @test_throws _testhelper_underscore(:L_Ala) ER.EnzymeReaction(
-            [ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(:L_Ala), [:C => 1]), P],
-            noregs, Int[1])
+            [M.Reactant(:L_Ala, [:C => 1])], [P], noregs, Int[1])
         @test_throws _testhelper_underscore(:I_X) @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -1412,8 +1400,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         free_E = ErrorException("EnzymeReaction: E cannot name a metabolite; it labels " *
                                 "the free enzyme form")
         @test_throws free_E ER.EnzymeReaction(
-            [ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(:E), [:C => 1]), P],
-            noregs, Int[1])
+            [M.Reactant(:E, [:C => 1])], [P], noregs, Int[1])
         @test_throws free_E @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -1423,18 +1410,14 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             @test_throws(ErrorException("EnzymeReaction: \"$n\" cannot name a " *
                                         "metabolite; a metabolite name is an identifier " *
                                         "that is no keyword"),
-                         ER.EnzymeReaction([S, P],
-                                           [ER.Mechanisms.DeclaredRegulator(
-                                               ER.Mechanisms.CompetitiveInhibitor(n))],
+                         ER.EnzymeReaction([S], [P], [M.Regulator(n, :competitive)],
                                            Int[1]))
         end
         # A contextual keyword is a keyword only in its own construct (`abstract type`,
         # `for outer`, `var"..."`), which no DSL text writes, so it names a metabolite and
         # the reaction's text reads back.
         for n in (:abstract, :mutable, :outer, :primitive, :public, :type, :var)
-            r = ER.EnzymeReaction(
-                [ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(n), [:C => 1]), P],
-                noregs, Int[1])
+            r = ER.EnzymeReaction([M.Reactant(n, [:C => 1])], [P], noregs, Int[1])
             @test eval(Meta.parse(sprint(show, r))) == r
         end
         # Julia reads some identifiers as others: a micro sign as μ, a decomposed é as one
@@ -1446,154 +1429,115 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             @test_throws(ErrorException("EnzymeReaction: Julia reads the name \"$n\" as " *
                                         "\"$read\", so no DSL text can write it; use " *
                                         "\"$read\""),
-                         ER.EnzymeReaction([ER.Mechanisms.ReactantAtoms(
-                             ER.Mechanisms.Substrate(Symbol(n)), [:C => 1]),
-                                            P],
+                         ER.EnzymeReaction([M.Reactant(Symbol(n), [:C => 1])], [P],
                                            noregs, Int[1]))
         end
         for n in (:α, :Δ, :μM, :S₁, :é)
-            r = ER.EnzymeReaction(
-                [ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(n), [:C => 1]), P],
-                noregs, Int[1])
+            r = ER.EnzymeReaction([M.Reactant(n, [:C => 1])], [P], noregs, Int[1])
             @test eval(Meta.parse(sprint(show, r))) == r
         end
-        # A single name MAY be declared in BOTH regulator roles: one
-        # AllostericRegulator and one CompetitiveInhibitor. The two roles
-        # render to distinct parameter names, so both are kept.
-        regAllo = ER.Mechanisms.DeclaredRegulator(
-            ER.Mechanisms.AllostericRegulator(:A))
-        rxn_dual = ER.EnzymeReaction([S, P], [regA, regAllo], Int[1])
-        dual_regs = ER.Mechanisms.regulators(rxn_dual)
-        @test length(dual_regs) == 2
-        @test Set(typeof(ER.Mechanisms.regulator(rm)) for rm in dual_regs) ==
-              Set([ER.Mechanisms.AllostericRegulator,
-                   ER.Mechanisms.CompetitiveInhibitor])
-        @test all(ER.Mechanisms.name(ER.Mechanisms.regulator(rm)) == :A
-                  for rm in dual_regs)
+        # A single name MAY be declared in BOTH regulator roles: one allosteric
+        # regulator and one competitive inhibitor. The two roles render to distinct
+        # parameter names, so both are kept.
+        regAllo = M.Regulator(:A, :allosteric)
+        rxn_dual = ER.EnzymeReaction([S], [P], [regA, regAllo], Int[1])
+        @test length(rxn_dual.regulators) == 2
+        @test Set(reg.kind for reg in rxn_dual.regulators) ==
+              Set([:allosteric, :competitive])
+        @test all(reg.name == :A for reg in rxn_dual.regulators)
         # Two allosteric regulators of the same name still rejected.
-        regAllo2 = ER.Mechanisms.DeclaredRegulator(
-            ER.Mechanisms.AllostericRegulator(:A))
         @test_throws ErrorException ER.EnzymeReaction(
-            [S, P], [regAllo, regAllo2], Int[1])
+            [S], [P], [regAllo, M.Regulator(:A, :allosteric)], Int[1])
     end
 
     @testset "EnzymeReaction shared_catalytic_site" begin
-        A = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(:A), [:C => 1])
-        B = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(:B), [:C => 1])
-        P = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Product(:P), [:C => 1])
-        Q = ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Product(:Q), [:C => 1])
-        noregs = ER.Mechanisms.DeclaredRegulator[]
+        M = ER.Mechanisms
+        A = M.Reactant(:A, [:C => 1])
+        B = M.Reactant(:B, [:C => 1])
+        P = M.Reactant(:P, [:C => 1])
+        Q = M.Reactant(:Q, [:C => 1])
+        noregs = M.Regulator[]
 
         # Accepts a valid (substrate, product) pair; stored normalized + sorted.
-        r = ER.EnzymeReaction([A, B, P, Q], noregs, Int[1];
+        r = ER.EnzymeReaction([A, B], [P, Q], noregs, Int[1];
             shared_catalytic_site = [(:A, :P)])
-        @test ER.Mechanisms.shared_catalytic_site(r) == [(:A, :P)]
+        @test r.shared_catalytic_site == [(:A, :P)]
 
         # Normalizes product-first input to (substrate, product).
-        r2 = ER.EnzymeReaction([A, B, P, Q], noregs, Int[1];
+        r2 = ER.EnzymeReaction([A, B], [P, Q], noregs, Int[1];
             shared_catalytic_site = [(:P, :A)])
-        @test ER.Mechanisms.shared_catalytic_site(r2) == [(:A, :P)]
+        @test r2.shared_catalytic_site == [(:A, :P)]
 
         # Sorts multiple pairs.
-        r3 = ER.EnzymeReaction([A, B, P, Q], noregs, Int[1];
+        r3 = ER.EnzymeReaction([A, B], [P, Q], noregs, Int[1];
             shared_catalytic_site = [(:B, :Q), (:A, :P)])
-        @test ER.Mechanisms.shared_catalytic_site(r3) == [(:A, :P), (:B, :Q)]
+        @test r3.shared_catalytic_site == [(:A, :P), (:B, :Q)]
 
         # Default is empty.
-        @test ER.Mechanisms.shared_catalytic_site(
-            ER.EnzymeReaction([A, P], noregs, Int[1])) ==
+        @test ER.EnzymeReaction([A], [P], noregs, Int[1]).shared_catalytic_site ==
             Tuple{Symbol,Symbol}[]
 
         # Rejections.
         @test_throws ErrorException ER.EnzymeReaction(  # unknown name
-            [A, B, P, Q], noregs, Int[1]; shared_catalytic_site = [(:A, :Z)])
+            [A, B], [P, Q], noregs, Int[1]; shared_catalytic_site = [(:A, :Z)])
         @test_throws ErrorException ER.EnzymeReaction(  # two substrates
-            [A, B, P, Q], noregs, Int[1]; shared_catalytic_site = [(:A, :B)])
+            [A, B], [P, Q], noregs, Int[1]; shared_catalytic_site = [(:A, :B)])
         @test_throws ErrorException ER.EnzymeReaction(  # two products
-            [A, B, P, Q], noregs, Int[1]; shared_catalytic_site = [(:P, :Q)])
+            [A, B], [P, Q], noregs, Int[1]; shared_catalytic_site = [(:P, :Q)])
         @test_throws ErrorException ER.EnzymeReaction(  # duplicate pair
-            [A, B, P, Q], noregs, Int[1]; shared_catalytic_site = [(:A, :P), (:P, :A)])
+            [A, B], [P, Q], noregs, Int[1]; shared_catalytic_site = [(:A, :P), (:P, :A)])
 
         # A metabolite that is BOTH a substrate and a competitive inhibitor may
         # still be the substrate side of a shared pair (validation keys on the
         # substrate/product role, not the inhibitor role).
-        regA = ER.Mechanisms.DeclaredRegulator(ER.Mechanisms.CompetitiveInhibitor(:A))
-        r_dual = ER.EnzymeReaction([A, B, P, Q], [regA], Int[1];
+        regA = M.Regulator(:A, :competitive)
+        r_dual = ER.EnzymeReaction([A, B], [P, Q], [regA], Int[1];
             shared_catalytic_site = [(:A, :P)])
-        @test ER.Mechanisms.shared_catalytic_site(r_dual) == [(:A, :P)]
+        @test r_dual.shared_catalytic_site == [(:A, :P)]
 
         # == / hash reflect the field.
-        @test r != ER.EnzymeReaction([A, B, P, Q], noregs, Int[1])
-        @test hash(r) != hash(ER.EnzymeReaction([A, B, P, Q], noregs, Int[1]))
-        @test r == ER.EnzymeReaction([A, B, P, Q], noregs, Int[1];
+        @test r != ER.EnzymeReaction([A, B], [P, Q], noregs, Int[1])
+        @test hash(r) != hash(ER.EnzymeReaction([A, B], [P, Q], noregs, Int[1]))
+        @test r == ER.EnzymeReaction([A, B], [P, Q], noregs, Int[1];
             shared_catalytic_site = [(:A, :P)])
     end
 
-    @testset "DeclaredRegulator compares by content" begin
-        rm1 = ER.Mechanisms.DeclaredRegulator(ER.Mechanisms.AllostericRegulator(:A))
-        rm2 = ER.Mechanisms.DeclaredRegulator(ER.Mechanisms.AllostericRegulator(:A))
-        @test rm1 == rm2
-        @test hash(rm1) == hash(rm2)
-        @test ER.Mechanisms.regulator(rm1) ==
-              ER.Mechanisms.AllostericRegulator(:A)
-
-        # CompetitiveInhibitor also accepted
-        rm_ci = ER.Mechanisms.DeclaredRegulator(
-            ER.Mechanisms.CompetitiveInhibitor(:I))
-        @test ER.Mechanisms.regulator(rm_ci) ==
-              ER.Mechanisms.CompetitiveInhibitor(:I)
-    end
-
-    @testset "DeclaredRegulator reg_type" begin
-        rm0 = ER.Mechanisms.DeclaredRegulator(ER.Mechanisms.AllostericRegulator(:X))
-        @test ER.Mechanisms.reg_type(rm0) == :unspecified      # default
-        rmA = ER.Mechanisms.DeclaredRegulator(
-            ER.Mechanisms.AllostericRegulator(:X), :activator)
-        @test ER.Mechanisms.reg_type(rmA) == :activator
-        @test rm0 != rmA                                      # reg_type participates in ==
-        @test rm0 ==
-              ER.Mechanisms.DeclaredRegulator(ER.Mechanisms.AllostericRegulator(:X))
-        @test hash(rmA) != hash(rm0)
-        @test_throws ErrorException ER.Mechanisms.DeclaredRegulator(
-            ER.Mechanisms.AllostericRegulator(:X), :bogus)
+    @testset "Regulator kind and effect" begin
+        M = ER.Mechanisms
+        @test M.Regulator(:X, :allosteric).effect == :unspecified      # default
+        @test M.Regulator(:X, :allosteric, :activator).effect == :activator
+        @test M.Regulator(:X, :allosteric) != M.Regulator(:X, :allosteric, :activator)
+        @test_throws(ErrorException("Regulator: kind must be :allosteric or " *
+                                    ":competitive, got bogus"),
+                     M.Regulator(:X, :bogus))
+        @test_throws(ErrorException("Regulator: effect must be :activator, :inhibitor, " *
+                                    "or :unspecified, got bogus"),
+                     M.Regulator(:X, :allosteric, :bogus))
         # A competitive inhibitor takes no type: only an allosteric regulator activates or
         # inhibits through the conformation it favors.
         for t in (:activator, :inhibitor)
             @test_throws(
-                ErrorException("DeclaredRegulator: X is a competitive " *
+                ErrorException("Regulator: X is a competitive " *
                                "inhibitor, which takes no regulator type, got " *
                                ":$t; only an allosteric regulator is an " *
                                "activator (::Activator) or an inhibitor " *
                                "(::Inhibitor)"),
-                ER.Mechanisms.DeclaredRegulator(ER.Mechanisms.CompetitiveInhibitor(:X), t))
+                M.Regulator(:X, :competitive, t))
         end
     end
 
     @testset "EnzymeReaction canonicalizes reactant + regulator ordering" begin
+        M = ER.Mechanisms
         r1 = EnzymeReaction(
-            [ER.Mechanisms.ReactantAtoms(
-                 ER.Mechanisms.Substrate(:B), [:C => 1]),
-             ER.Mechanisms.ReactantAtoms(
-                 ER.Mechanisms.Substrate(:A), [:C => 1]),
-             ER.Mechanisms.ReactantAtoms(
-                 ER.Mechanisms.Product(:P), [:C => 2])],
-            [ER.Mechanisms.DeclaredRegulator(
-                 ER.Mechanisms.AllostericRegulator(:Y)),
-             ER.Mechanisms.DeclaredRegulator(
-                 ER.Mechanisms.AllostericRegulator(:X))],
+            [M.Reactant(:B, [:C => 1]), M.Reactant(:A, [:C => 1])],
+            [M.Reactant(:P, [:C => 2])],
+            [M.Regulator(:Y, :allosteric), M.Regulator(:X, :allosteric)],
             [3, 1, 2],
         )
         r2 = EnzymeReaction(
-            [ER.Mechanisms.ReactantAtoms(
-                 ER.Mechanisms.Substrate(:A), [:C => 1]),
-             ER.Mechanisms.ReactantAtoms(
-                 ER.Mechanisms.Substrate(:B), [:C => 1]),
-             ER.Mechanisms.ReactantAtoms(
-                 ER.Mechanisms.Product(:P), [:C => 2])],
-            [ER.Mechanisms.DeclaredRegulator(
-                 ER.Mechanisms.AllostericRegulator(:X)),
-             ER.Mechanisms.DeclaredRegulator(
-                 ER.Mechanisms.AllostericRegulator(:Y))],
+            [M.Reactant(:A, [:C => 1]), M.Reactant(:B, [:C => 1])],
+            [M.Reactant(:P, [:C => 2])],
+            [M.Regulator(:X, :allosteric), M.Regulator(:Y, :allosteric)],
             [1, 2, 3],
         )
         @test r1 == r2
@@ -1602,10 +1546,9 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
 
     @testset "EnzymeReaction takes one or more catalytic multiplicities, each ≥ 1" begin
         _testhelper_reaction(mults) =
-            EnzymeReaction(ER.Mechanisms.ReactantAtoms[
-                ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Substrate(:S), [:C => 1]),
-                ER.Mechanisms.ReactantAtoms(ER.Mechanisms.Product(:P), [:C => 1])],
-                           ER.Mechanisms.DeclaredRegulator[], mults)
+            EnzymeReaction([ER.Mechanisms.Reactant(:S, [:C => 1])],
+                           [ER.Mechanisms.Reactant(:P, [:C => 1])],
+                           ER.Mechanisms.Regulator[], mults)
         @test_throws(ErrorException("EnzymeReaction: allowed_catalytic_multiplicities " *
                                     "must be a nonempty list of distinct Ints ≥ 1, got " *
                                     "[0, 1]"),
@@ -3684,7 +3627,7 @@ end
         substrates: NAD[C]
         products:   NADH[C]
     end
-    @test ER.Mechanisms.name.(ER.Mechanisms.products(nadh)) == [:NADH]
+    @test [p.name for p in nadh.products] == [:NADH]
     @test_throws _testhelper_two_ways("NAD + H", "NADH", "NADH") @enzyme_reaction begin
         substrates: NAD[C], H[N]
         products:   NADH[CN]
@@ -3696,6 +3639,5 @@ end
         competitive_inhibitors: I
         allosteric_regulators: AI
     end
-    @test ER.Mechanisms.name.(
-        ER.Mechanisms.regulator.(ER.Mechanisms.regulators(allosteric))) == [:AI, :I]
+    @test [reg.name for reg in allosteric.regulators] == [:AI, :I]
 end

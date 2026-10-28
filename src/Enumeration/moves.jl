@@ -619,7 +619,7 @@ end
     _expand_add_dead_end_regulator(m::Union{Mechanism, AllostericMechanism},
                                    rxn::EnzymeReaction) → Vector{typeof(m)}
 
-Add a dead-end regulator binding step set. For each `CompetitiveInhibitor`
+Add a dead-end regulator binding step set. For each competitive inhibitor
 declared in `rxn` but not yet bound by `m`'s steps, enumerate inhibitor
 competition patterns (S × P × existing inhibitors); for each pattern,
 add RE binding steps to the forms where a competing metabolite is free, unless
@@ -649,14 +649,12 @@ function _expand_add_dead_end_regulator(m::Union{Mechanisms.Mechanism,
                                                   Mechanisms.AllostericMechanism},
                                         rxn::Mechanisms.EnzymeReaction)
     cm = Mechanisms.catalytic(m)
-    sub_names = Set(Mechanisms.name(s) for s in Mechanisms.substrates(rxn))
-    prod_names = Set(Mechanisms.name(p) for p in Mechanisms.products(rxn))
+    sub_names = Set(s.name for s in rxn.substrates)
+    prod_names = Set(p.name for p in rxn.products)
     bound_regs = _bound_comp_inhibitors(m)
     excluded = union(bound_regs, _bound_allo_regs(m))
-    eligible_regs = [Mechanisms.name(Mechanisms.regulator(rm))
-                     for rm in Mechanisms.regulators(rxn)
-                     if Mechanisms.regulator(rm) isa Mechanisms.CompetitiveInhibitor &&
-                        Mechanisms.name(Mechanisms.regulator(rm)) ∉ excluded]
+    eligible_regs = [reg.name for reg in rxn.regulators
+                     if reg.kind === :competitive && reg.name ∉ excluded]
     isempty(eligible_regs) && return typeof(m)[]
 
     # Per form, the names bound productively and the names bound as modifiers: a
@@ -814,13 +812,12 @@ ping-pong's abortive complexes can give the inactive law a power the parent lack
 """
 function _expand_to_allosteric(m::Mechanisms.Mechanism, rxn::Mechanisms.EnzymeReaction)
     hyperbolic = _hyperbolic_catalysis(m)
-    cns = [cn for cn in Mechanisms.allowed_catalytic_multiplicities(rxn)
+    cns = [cn for cn in rxn.allowed_catalytic_multiplicities
            if cn == 1 || hyperbolic]
     isempty(cns) && return Mechanisms.AllostericMechanism[]
     chem = _chemistry_groups(m)
     vtags = [c ? :OnlyA : :EqualAI for c in chem]
-    regs = [Mechanisms.name(Mechanisms.regulator(rm)) for rm in Mechanisms.regulators(rxn)
-            if Mechanisms.regulator(rm) isa Mechanisms.AllostericRegulator]
+    regs = [reg.name for reg in rxn.regulators if reg.kind === :allosteric]
     bases = _tagging_bases(m)
     # K-type: a nonempty set of binding groups :OnlyA on top of a base, and on top of the
     # every-chemistry set when the guard rejects it; the exits drop those it rejects.
@@ -853,7 +850,7 @@ end
                                      rxn::EnzymeReaction)
         → Vector{AllostericMechanism}
 
-Add one `AllostericRegulator` declared in `rxn` not yet bound by `am`
+Add one allosteric regulator declared in `rxn` not yet bound by `am`
 at a regulatory site. A name already bound as a catalytic-step dead-end
 competitive inhibitor is still eligible: a metabolite may play both
 roles, and the two render to distinct parameters. For each (new ligand,
@@ -879,10 +876,8 @@ function _expand_add_allosteric_regulator(
     taken = _bound_allo_regs(am)
     sites = Mechanisms.regulatory_sites(am)
     results = Mechanisms.AllostericMechanism[]
-    for rm in Mechanisms.regulators(rxn)
-        reg = Mechanisms.regulator(rm)
-        reg isa Mechanisms.AllostericRegulator && !(Mechanisms.name(reg) in taken) ||
-            continue
+    for reg in rxn.regulators
+        reg.kind === :allosteric && !(reg.name in taken) || continue
         # Non-:EqualAI tags at any (new or existing) site.
         for tag in (:OnlyA, :OnlyI, :NonequalAI), site_idx in 0:length(sites)
             # Appending to an existing site whose conformations are disjoint
@@ -891,14 +886,14 @@ function _expand_add_allosteric_regulator(
             # equation — redundant, so skip it.
             site_idx >= 1 && isempty(intersect(_state_conformations(tag),
                 _site_active_states(sites[site_idx]))) && continue
-            push!(results, _make_am_with_added_reg(am, Mechanisms.name(reg), tag, site_idx))
+            push!(results, _make_am_with_added_reg(am, reg.name, tag, site_idx))
         end
         # :EqualAI only at an existing site that keeps a non-:EqualAI ligand: an
         # all-:EqualAI site binds both conformations alike and cancels from the rate.
         for site_idx in findall(site -> any(!=(:EqualAI), Mechanisms.allo_states(site)),
                                 sites)
             push!(results,
-                  _make_am_with_added_reg(am, Mechanisms.name(reg), :EqualAI, site_idx))
+                  _make_am_with_added_reg(am, reg.name, :EqualAI, site_idx))
         end
     end
     results

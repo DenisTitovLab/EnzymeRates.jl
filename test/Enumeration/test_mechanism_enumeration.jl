@@ -24,8 +24,7 @@ _testhelper_raw_residual(f::EnzymeRates.Mechanisms.RawForm) =
 # kinetic group.
 _testhelper_topo_mech(rxn, t::Vector{EnzymeRates.Mechanisms.RawStep}) =
     EnzymeRates.Mechanism(EnzymeRates.Mechanisms.RawMechanism(
-        EnzymeRates.Mechanisms.name.(EnzymeRates.Mechanisms.substrates(rxn)),
-        EnzymeRates.Mechanisms.name.(EnzymeRates.Mechanisms.products(rxn)), Symbol[], t,
+        [s.name for s in rxn.substrates], [p.name for p in rxn.products], Symbol[], t,
         collect(eachindex(t))))
 
 # The names (`_form_name`) of the forms the raw steps `t` of a topology or a seed join,
@@ -11463,8 +11462,7 @@ end
     n_checked = 0
     n_nonhyperbolic = 0
     for rxn in (unibi, pingpong)
-        mets = Symbol[EnzymeRates.Mechanisms.name(x) for x in vcat(
-            EnzymeRates.Mechanisms.substrates(rxn), EnzymeRates.Mechanisms.products(rxn))]
+        mets = Symbol[x.name for x in vcat(rxn.substrates, rxn.products)]
         level = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
             m for m in EnzymeRates.Enumeration.init_mechanisms(rxn)]
         mechs = copy(level)

@@ -227,7 +227,7 @@ is never emitted.
 
 ### 3. Add a competitive inhibitor binding site
 
-Adds binding steps for a `CompetitiveInhibitor` declared in the reaction, as a
+Adds binding steps for a competitive inhibitor declared in the reaction, as a
 dead-end complex with the enzyme. The move enumerates the combinations of enzyme
 species the inhibitor can bind, emitting one child mechanism per combination,
 subject to three rules:

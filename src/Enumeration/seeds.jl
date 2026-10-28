@@ -36,8 +36,8 @@ written as the binding it reverses, so every binding takes its metabolite up. Er
 when the reaction has none.
 """
 function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
-    sub_names = Symbol[Mechanisms.name(s) for s in Mechanisms.substrates(reaction)]
-    prod_names = Symbol[Mechanisms.name(p) for p in Mechanisms.products(reaction)]
+    sub_names = Symbol[s.name for s in reaction.substrates]
+    prod_names = Symbol[p.name for p in reaction.products]
 
     # The form on :E binding `on_subs` and `on_prods` after a route consumed `consumed`
     # and released `released`. Its covalent residual adds the consumed substrates not
@@ -229,8 +229,8 @@ function _expand_substrate_product_dead_ends(
     topos::Vector{Vector{Mechanisms.RawStep}},
     reaction::Mechanisms.EnzymeReaction,
 )
-    sub_names = Set(Mechanisms.name(s) for s in Mechanisms.substrates(reaction))
-    prod_names = Set(Mechanisms.name(p) for p in Mechanisms.products(reaction))
+    sub_names = Set(s.name for s in reaction.substrates)
+    prod_names = Set(p.name for p in reaction.products)
     mets = sort!(collect(union(sub_names, prod_names)))
 
     # Competition patterns depend only on the reaction, so they are computed once.
@@ -239,7 +239,7 @@ function _expand_substrate_product_dead_ends(
     # whose forbidden-edge set contains every declared pair. The complete
     # bipartite pattern contains all edges and always survives, so the list is
     # never empty.
-    patterns = filter(pat -> all(in(pat), Mechanisms.shared_catalytic_site(reaction)),
+    patterns = filter(pat -> all(in(pat), reaction.shared_catalytic_site),
                       _competition_patterns(sub_names, prod_names))
 
     held(f::Mechanisms.RawForm) = Set(x.name for x in f.bound)
@@ -494,8 +494,8 @@ the reaction has no catalytic topology. A seed whose rate law the guard rejects
 variant.
 """
 function init_mechanisms(r::Mechanisms.EnzymeReaction)
-    subs = Symbol[Mechanisms.name(s) for s in Mechanisms.substrates(r)]
-    prods = Symbol[Mechanisms.name(p) for p in Mechanisms.products(r)]
+    subs = Symbol[s.name for s in r.substrates]
+    prods = Symbol[p.name for p in r.products]
     seeds = _expand_substrate_product_dead_ends(_catalytic_topologies(r), r)
     mechs = [Mechanisms.Mechanism(Mechanisms.RawMechanism(subs, prods, Symbol[], steps,
                                                           _seed_groups(steps)))

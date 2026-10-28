@@ -30,10 +30,16 @@ const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}(
     "Derivation/limit_test.jl" => Set(["net.conformation", "net.from", "net.to"]),
     "Derivation/messages.jl" => Set(["net.conformation", "net.from", "v.conformation"]),
     "Derivation/print.jl" => Set(["A.sites"]),
-    "Enumeration/filters.jl" => Set(["s.steps"]),
+    # The reaction's declared fields (`EnzymeReaction`'s substrates and products, and the
+    # names of `Reactant` and `Regulator`) share names with mechanism fields.
+    "Enumeration/filters.jl" => Set(["s.steps", "ra.name", "reaction.products",
+        "reaction.substrates", "reg.name"]),
+    "Enumeration/moves.jl" => Set(["p.name", "reg.name", "rxn.products", "rxn.substrates",
+        "s.name"]),
     "Fitting/fitting.jl" => Set(["data.group"]),
     "identify_rate_equation.jl" => Set(["data.group", "rate_data.data.group",
-        "prob.rate_data.data.group"]),
+        "prob.rate_data.data.group", "r.name", "reg.name", "rxn.products",
+        "rxn.substrates"]),
     # The seed builder reads the written form (`RawStep`, `RawForm`, `RawMechanism`, `Met`)
     # that it assembles and transforms.
     "Enumeration/seeds.jl" => Set([
@@ -44,7 +50,9 @@ const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}(
         "joined.modifiers", "joined.products", "joined.steps", "joined.substrates",
         "raw.group", "raw.modifiers", "raw.products", "raw.steps", "raw.substrates",
         "release.consumed", "release.from", "s.consumed", "s.from", "s.rapid_equilibrium",
-        "s.released", "s.to", "s0.from", "s0.to", "x.name", "y.modifier", "y.name"]),
+        "s.released", "s.to", "s0.from", "s0.to", "x.name", "y.modifier", "y.name",
+        "p.name", "r.products", "r.substrates", "reaction.products", "reaction.substrates",
+        "s.name"]),
 )
 
 const _testhelper_MECHANISM_TYPES = (:Mechanism, :AllostericMechanism, :Form, :Edge, :Met,

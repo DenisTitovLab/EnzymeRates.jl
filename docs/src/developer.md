@@ -82,8 +82,8 @@ the checked constructors; `with_tags(am, tags)` retags through the composition c
 `canonical_graph(raw)` builds a canonical graph with only the alignment check. The
 naming rules (`name(p, m)`, `constant_columns`, `regulator_constant`), the DSL text of
 forms and steps (`form_text`, `step_text`) complete the graph interface. The rest of
-`Mechanisms.API` is the types, the accessors of reactions and regulatory sites
-(`reactants`, `regulators`, `ligands`, `allo_states`, …) and the DSL entry points the
+`Mechanisms.API` is the types (`Reactant`, `Regulator`, …), the accessors of regulatory
+sites (`ligands`, `allo_states`, …) and the DSL entry points the
 macros call (`raw_mechanism`, `reaction_expr`, `check_uniquely_decodable`).
 
 ### The boundary test

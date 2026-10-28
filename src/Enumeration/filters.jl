@@ -429,10 +429,9 @@ zero counts dropped. A name may repeat; a name that names no reactant carries no
 """
 function _net_atoms(reaction::Mechanisms.EnzymeReaction, plus, minus)
     acc = Dict{Symbol,Int}()
-    for ra in Mechanisms.reactants(reaction)
-        k = count(==(Mechanisms.name(Mechanisms.metabolite(ra))), plus) -
-            count(==(Mechanisms.name(Mechanisms.metabolite(ra))), minus)
-        for (a, c) in Mechanisms.atoms(ra)
+    for ra in [reaction.substrates; reaction.products]
+        k = count(==(ra.name), plus) - count(==(ra.name), minus)
+        for (a, c) in ra.atoms
             acc[a] = get(acc, a, 0) + k * c
         end
     end
@@ -516,9 +515,9 @@ end
 
 Whether every regulatory ligand of `m` respects the type `rxn` declares for it, given the
 other ligands at its site. A `Mechanism` has no regulatory sites and passes. A ligand's
-type is the `reg_type` of its `AllostericRegulator` entry in `rxn`, or `:unspecified`
-when `rxn` has no such entry (the name is absent, or declared only as another
-`Regulator` subtype). An `:unspecified` ligand always passes. A designated activator is
+type is the `effect` of its allosteric `Regulator` entry in `rxn`, or `:unspecified`
+when `rxn` has no such entry (the name is absent, or declared only as a competitive
+inhibitor). An `:unspecified` ligand always passes. A designated activator is
 never `:OnlyI` and a designated inhibitor is never `:OnlyA`; the type-matching pure
 state and `:NonequalAI` are always allowed. `:EqualAI` is an antagonist state and is
 rejected only when another ligand at the site is a same-type designated effector, since
@@ -527,9 +526,8 @@ it would counteract that ligand's declared direction.
 _respects_reg_type(::Mechanisms.Mechanism, ::Mechanisms.EnzymeReaction) = true
 function _respects_reg_type(am::Mechanisms.AllostericMechanism,
                             rxn::Mechanisms.EnzymeReaction)
-    declared = Dict(Mechanisms.name(Mechanisms.regulator(rm)) => Mechanisms.reg_type(rm)
-                    for rm in Mechanisms.regulators(rxn)
-                    if Mechanisms.regulator(rm) isa Mechanisms.AllostericRegulator)
+    declared = Dict(reg.name => reg.effect
+                    for reg in rxn.regulators if reg.kind === :allosteric)
     all(Mechanisms.regulatory_sites(am)) do site
         types = [get(declared, l, :unspecified) for l in Mechanisms.ligands(site)]
         all(zip(types, Mechanisms.allo_states(site))) do (t, state)

@@ -139,7 +139,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   syntax returns with this feature. `_expand_to_allosteric` and
   `_expand_add_allosteric_regulator` give every regulatory site the catalytic
   multiplicity. The derivation already powers each site by its own multiplicity, so only
-  the DSL (`_parse_regulator_entries`, `src/Mechanisms/dsl.jl`; `DeclaredRegulator`,
+  the DSL (`_parse_regulator_entries`, `src/Mechanisms/dsl.jl`; `Regulator`,
   `src/Mechanisms/types.jl`) and enumeration change: those two moves, and
   `_expand_merge_regulatory_sites`, which must merge only sites of equal multiplicity.
   Keep a bare `A` at the catalytic multiplicity, widen only on an explicit list, and

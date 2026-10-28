@@ -37,10 +37,8 @@ end
 """The distinct metabolite names of `rxn`: substrates, then products, then regulators,
 each in stored order, keeping a name's first occurrence."""
 _metabolite_names(rxn::Mechanisms.EnzymeReaction) =
-    unique!(Symbol[Mechanisms.name.(Mechanisms.substrates(rxn));
-                   Mechanisms.name.(Mechanisms.products(rxn));
-                   [Mechanisms.name(Mechanisms.regulator(rm))
-                    for rm in Mechanisms.regulators(rxn)]])
+    unique!(Symbol[[r.name for r in rxn.substrates]; [r.name for r in rxn.products];
+                   [reg.name for reg in rxn.regulators]])
 
 function IdentifyRateEquationProblem(
     reaction::Mechanisms.EnzymeReaction, table; Keq::Real,
@@ -847,20 +845,18 @@ _fit_failures(failures) = [FitFailure(m, msg) for (m, msg) in failures]
                          optional_competitive_inhibitors)
         -> (required_allo::Set{Symbol}, required_comp::Set{Symbol})
 
-The regulators the beam seed must bind: every `AllostericRegulator` and every
-`CompetitiveInhibitor` declared in `rxn`, minus the names the caller marked
+The regulators the beam seed must bind: every allosteric regulator and every
+competitive inhibitor declared in `rxn`, minus the names the caller marked
 optional. Both sets empty means the beam starts from the unregulated seeds; see
 `Enumeration.base_mechanisms`.
 """
 function _required_regulators(rxn::Mechanisms.EnzymeReaction,
                               optional_allosteric_regulators::Vector{Symbol},
                               optional_competitive_inhibitors::Vector{Symbol})
-    required(T, optional) = setdiff(
-        Set{Symbol}(Mechanisms.name(Mechanisms.regulator(rm))
-                    for rm in Mechanisms.regulators(rxn) if Mechanisms.regulator(rm) isa T),
-        optional)
-    (required(Mechanisms.AllostericRegulator, optional_allosteric_regulators),
-     required(Mechanisms.CompetitiveInhibitor, optional_competitive_inhibitors))
+    required(kind, optional) = setdiff(
+        Set{Symbol}(reg.name for reg in rxn.regulators if reg.kind === kind), optional)
+    (required(:allosteric, optional_allosteric_regulators),
+     required(:competitive, optional_competitive_inhibitors))
 end
 
 function _beam_search(
