@@ -1497,6 +1497,20 @@ isomerization, a fused binding (`E(A) + B → E(P, Q)`), a Theorell–Chance ste
 with several metabolites on a side. The joint solve's priority (`_priority_key`) and the
 allosteric moves (`_chemistry_groups`) read it to tell catalysis from binding."""
 _is_chemistry(m::Mechanism, e::Edge) = !_is_plain_binding(m, e)
+"""
+Whether step `k` of `m` runs, as stored, toward products: from the side that holds more
+substrates, bound or free, then fewer products, the order canonical form gives a step that
+exchanges several metabolites (`_orientation`). A step that takes up or gives off one
+metabolite is stored as its uptake, so a half-reaction that releases a product,
+`E(A) <--> E(; residual = A - P) + P`, runs toward products against its stored direction.
+A step whose two sides tie, such as an isomerization of free forms, runs as stored.
+"""
+function _runs_toward_products(m::Mechanism, k::Int)
+    e = m.edges[k]
+    substrate_mask, product_mask = _role_masks(m)
+    _side_score(m.forms, e.from, e.consumed, substrate_mask, product_mask) >=
+        _side_score(m.forms, e.to, e.released, substrate_mask, product_mask)
+end
 """Whether each of `n` kinetic groups, edge `k` in group `group[k]`, holds some edge `k`
 with `pred(k)`."""
 function _groups_with(pred, group::Vector{Int}, n::Int)

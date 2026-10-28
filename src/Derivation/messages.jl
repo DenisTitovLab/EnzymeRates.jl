@@ -28,10 +28,9 @@ steady-state with its kinetic group leaves no fast cycle that turns the reaction
 class 2's fix holds whichever step of the cycle is picked."""
 function _every_step_cures(mech::Mechanisms._AnyMech, net::_Network, cycle::Vector{Int})
     m = Mechanisms.catalytic(mech)
-    members = Mechanisms._group_members(m)
     for t in cycle
         re = Mechanisms._flags(m)
-        re[members[m.group[net.edge[t]]]] .= false
+        re[Mechanisms.members(m, Mechanisms.group(m, net.edge[t]))] .= false
         isempty(_re_turnover_transitions(_eps_network(mech, re))) || return false
     end
     true
@@ -103,7 +102,7 @@ function _face_message(who::String, mech::Mechanisms._AnyMech, v::_Verdict)
         bindings = unique!([net.edge[t] for t in eachindex(net.from)
                             if net.fast[t] && net.edge[t] != 0 &&
                                s.segment[net.from[t]] == s.bottomless &&
-                               Mechanisms._is_binding(m.edges[net.edge[t]])])
+                               _is_binding(m, net.edge[t])])
         k = findfirst(k -> _steady_state_passes(mech, k), bindings)
         fix = k === nothing ? "" :
               " Make the group of $(Mechanisms._step_text(m, bindings[k])) steady-state."

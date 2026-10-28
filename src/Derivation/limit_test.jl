@@ -195,26 +195,30 @@ rapid-equilibrium speed per edge and conformation, the flip's speed; concentrati
 """
 function _model_point(m::Mechanisms.Mechanism, tags::Vector{Symbol}, ncopies::Int,
                       face::UInt64, rng::_ResidueStream)
-    nf, name_of = length(m.forms), Mechanisms._name_index(m)
-    nnames = maximum(name_of; init = 0)
+    nf, names = length(Mechanisms.species(m)), _guard_names(m)
+    nnames = length(names)
     nv = ncopies * nf + nnames
-    excluded(k, c) = Mechanisms._excluded_by(tags[m.group[k]], c == 2)
+    excluded(k, c) = Mechanisms._excluded_by(tags[Mechanisms.group(m, k)], c == 2)
     function drop!(row, k, c, dir)
-        e = m.edges[k]
-        row[(c - 1) * nf + e.from] += dir
-        row[(c - 1) * nf + e.to] -= dir
-        foreach(i -> row[ncopies * nf + name_of[i]] += dir, Mechanisms.entries(e.consumed))
-        foreach(i -> row[ncopies * nf + name_of[i]] -= dir, Mechanisms.entries(e.released))
+        a, b = Mechanisms.ends(m, k)
+        row[(c - 1) * nf + a] += dir
+        row[(c - 1) * nf + b] -= dir
+        up, off = Mechanisms.taken_up(m, k), Mechanisms.given_off(m, k)
+        for (n, name) in enumerate(names)
+            row[ncopies * nf + n] +=
+                dir * (Mechanisms.copies(up, name) - Mechanisms.copies(off, name))
+        end
         row
     end
     ties = Vector{Int}[]
-    for members in Mechanisms._group_members(m), c in 1:ncopies
+    for g in 1:Mechanisms.ngroups(m), c in 1:ncopies
+        members = Mechanisms.members(m, g)
         lead = first(members)
         excluded(lead, c) && continue
         for k in members[2:end]
             push!(ties, drop!(drop!(zeros(Int, nv), k, c, 1), lead, c, -1))
         end
-        if c == 2 && tags[m.group[lead]] === :EqualAI
+        if c == 2 && tags[g] === :EqualAI
             for k in members
                 push!(ties, drop!(drop!(zeros(Int, nv), k, 2, 1), k, 1, -1))
             end
@@ -225,26 +229,33 @@ function _model_point(m::Mechanisms.Mechanism, tags::Vector{Symbol}, ncopies::In
     t = [_residue!(rng) for _ in axes(B, 2)]
     x = [reduce(_mulp, (_powp(t[j], B[i, j]) for j in axes(B, 2) if B[i, j] != 0);
                 init = Int64(1)) for i in 1:nv]
-    K = ones(Int64, length(m.edges), ncopies)
-    for (k, e) in enumerate(m.edges), c in 1:ncopies
-        num, den = x[(c - 1) * nf + e.from], x[(c - 1) * nf + e.to]
-        for i in Mechanisms.entries(e.consumed)
-            num = _mulp(num, x[ncopies * nf + name_of[i]])
-        end
-        for i in Mechanisms.entries(e.released)
-            den = _mulp(den, x[ncopies * nf + name_of[i]])
-        end
+    K = ones(Int64, length(Mechanisms.steps(m)), ncopies)
+    xnames = view(x, (ncopies * nf + 1):nv)
+    for k in Mechanisms.steps(m), c in 1:ncopies
+        a, b = Mechanisms.ends(m, k)
+        num = _mul_held(x[(c - 1) * nf + a], Mechanisms.taken_up(m, k), names, xnames)
+        den = _mul_held(x[(c - 1) * nf + b], Mechanisms.given_off(m, k), names, xnames)
         K[k, c] = _mulp(num, _invp(den))
     end
     ss = [_residue!(rng) for _ in 1:Mechanisms.ngroups(m), _ in 1:ncopies]
     for g in 1:Mechanisms.ngroups(m)
         ncopies == 2 && tags[g] === :EqualAI && (ss[g, 2] = ss[g, 1])
     end
-    re = [_residue!(rng) for _ in m.edges, _ in 1:ncopies]
+    re = [_residue!(rng) for _ in Mechanisms.steps(m), _ in 1:ncopies]
     flip = _residue!(rng)
     L = ncopies == 2 ? _mulp(x[1], _invp(x[nf + 1])) : Int64(1)
     conc = [_zeroes(face, n) ? Int64(0) : _residue!(rng) for n in 1:nnames]
     (; K, ss, re, flip, L, conc)
+end
+
+"""`r` times `value[n]` once for each copy of name `n` of `names` (`_guard_names`) that
+`held` holds, mod p."""
+function _mul_held(r::Int64, held::Mechanisms.Metabolites, names::Vector{Symbol},
+                   value::AbstractVector{Int64})
+    for (n, x) in enumerate(names), _ in 1:Mechanisms.copies(held, x)
+        r = _mulp(r, value[n])
+    end
+    r
 end
 
 """`pt` with new rapid-equilibrium and flip speeds: another speed pattern."""
@@ -256,19 +267,17 @@ _respeed_point(pt, rng::_ResidueStream) =
 its speed times `K` in the stored direction, its speed alone in reverse, times each
 metabolite it takes up, a fast one times `Λ` unless `Λ` is 0."""
 function _rates_p(m::Mechanisms.Mechanism, net::_Network, pt, conc::Vector{Int64}, Λ::Int64)
-    name_of = Mechanisms._name_index(m)
+    names = _guard_names(m)
     r = zeros(Int64, length(net.from))
     for t in eachindex(net.from)
         k, c = net.edge[t], net.conformation[t]
         if k == 0
             r[t] = net.forward[t] ? _mulp(pt.flip, pt.L) : pt.flip
         else
-            speed = net.fast[t] ? pt.re[k, c] : pt.ss[m.group[k], c]
+            speed = net.fast[t] ? pt.re[k, c] : pt.ss[Mechanisms.group(m, k), c]
             r[t] = net.forward[t] ? _mulp(speed, pt.K[k, c]) : speed
-            e = m.edges[k]
-            for i in Mechanisms.entries(net.forward[t] ? e.consumed : e.released)
-                r[t] = _mulp(r[t], conc[name_of[i]])
-            end
+            held = net.forward[t] ? Mechanisms.taken_up(m, k) : Mechanisms.given_off(m, k)
+            r[t] = _mul_held(r[t], held, names, conc)
         end
         net.fast[t] && Λ != 0 && (r[t] = _mulp(r[t], Λ))
     end
@@ -420,7 +429,7 @@ function _face_limit_check(mech::Mechanisms._AnyMech, net::_Network, s, face::UI
                            seed::UInt64)
     m, tags = Mechanisms.catalytic(mech), Mechanisms._solve_tags(mech)
     rng = _ResidueStream(seed)
-    x1 = Mechanisms._turnover_name(m)
+    x1 = _turnover_name(m)
     # Class 2, which runs first, leaves no fast cycle that takes `x1` up: a potential.
     h = s.offset[x1, :]
     limit(pt) = _limit_by_interpolation(m, net, s, pt, h, x1, rng)

@@ -61,7 +61,7 @@ end
 """The program of a plain law: `num = H·Q`, `den = D` (`_state!`)."""
 function _program(m::Mechanisms.Mechanism, s::_Solve, L::_Law)
     vars, defs = deepcopy(L.vars), Pair{Int, _Poly}[]
-    Q, D = _state!(vars, defs, m, s, L, trues(length(m.edges)), false)
+    Q, D = _state!(vars, defs, m, s, L, trues(length(Mechanisms.steps(m))), false)
     _Program(vars, defs, _factor!(vars, defs, L.H) * Q, D)
 end
 

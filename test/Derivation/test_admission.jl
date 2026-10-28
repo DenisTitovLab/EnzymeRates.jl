@@ -2052,7 +2052,7 @@ end
     bind, release, chem = (_testhelper_edge(am, t) for t in
                            ("E + S ⇌ ES", "E + P ⇌ EP", "ES <--> EP"))
     # The chemistry is stored substrate side first, so it runs toward products as stored.
-    @test EnzymeRates.Derivation._runs_toward_products(m, m.edges[chem])
+    @test EnzymeRates.Mechanisms._runs_toward_products(m, chem)
     v = EnzymeRates.Derivation._guard(am)
     @test v == EnzymeRates.Derivation._Verdict(NL, U, 0, 2, bind)
     @test EnzymeRates.Derivation._admission_interior(am) == v
@@ -2625,8 +2625,7 @@ end
         end
     end
     half1 = _testhelper_edge(both, "E_res_plusA_minusP + P <--> EA")
-    @test !EnzymeRates.Derivation._runs_toward_products(both.catalytic,
-                                                        both.catalytic.edges[half1])
+    @test !EnzymeRates.Mechanisms._runs_toward_products(both.catalytic, half1)
     v = EnzymeRates.Derivation._guard(both)
     @test v == EnzymeRates.Derivation._Verdict(IS, U, 0, 2, half1)
     @test !isempty(_testhelper_exclusion(both, 2).lost)
@@ -2689,8 +2688,7 @@ end
     for (x, fixed, forms) in ((r3, r3_untagged, "F, F(I)"), (r4, r4_untagged, "F"))
         iso = _testhelper_edge_between(x, "E", "F")
         # An isomerization of free forms ties on both sides, so it runs as stored.
-        @test EnzymeRates.Derivation._runs_toward_products(x.catalytic,
-                                                           x.catalytic.edges[iso])
+        @test EnzymeRates.Mechanisms._runs_toward_products(x.catalytic, iso)
         v = EnzymeRates.Derivation._guard(x)
         @test v == EnzymeRates.Derivation._Verdict(IS, U, 0, 2, iso)
         @test _testhelper_island_verdict(x)
@@ -2939,7 +2937,7 @@ end
     for (x, potential) in ((am, false), (noturn, true))
         eps, law = EnzymeRates.Derivation._eps_network(x),
             EnzymeRates.Derivation._law_network(x)
-        row = EnzymeRates.Mechanisms._turnover_name(x.catalytic)
+        row = EnzymeRates.Derivation._turnover_name(x.catalytic)
         for face in EnzymeRates.Derivation._faces(x.catalytic)[1:3]
             s = EnzymeRates.Derivation._face_sets(eps, law.present, face)
             nodes = s.fed .& .!s.stranded
@@ -3000,7 +2998,7 @@ end
     # part of its kept and fast transitions (T0+): the census's case for T0+.
     eps, law = EnzymeRates.Derivation._eps_network(am),
         EnzymeRates.Derivation._law_network(am)
-    row = EnzymeRates.Mechanisms._turnover_name(m)
+    row = EnzymeRates.Derivation._turnover_name(m)
     faces = EnzymeRates.Derivation._faces(m)
     by_potential = map(faces) do face
         s = EnzymeRates.Derivation._face_sets(eps, law.present, face)
@@ -4012,7 +4010,7 @@ end
         @test EnzymeRates.Derivation._fewest_slow(eps, nodes, s.alive) == 3
         @test EnzymeRates.Derivation._face_condition(
             eps, law.present, faces[i],
-            EnzymeRates.Mechanisms._turnover_name(am.catalytic)) ==
+            EnzymeRates.Derivation._turnover_name(am.catalytic)) ==
               EnzymeRates.Derivation._Verdict(BR, U, 0, 0, 0)
     end
     # The message names the vanishing steps a cheapest in-tree needs: the M binding at

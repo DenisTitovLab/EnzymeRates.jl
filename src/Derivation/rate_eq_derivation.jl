@@ -101,12 +101,12 @@ function _edge_names(m::Mechanisms._AnyMech, state::Symbol,
                      kept = Mechanisms._kept_members(m))
     cm = Mechanisms.catalytic(m)
     mask = Mechanisms.conformation_steps(m, state === :I ? :inactive : :active)
-    tag(g) = m isa Mechanisms.AllostericMechanism &&
-             Mechanisms.tag(m, g) === :EqualAI ? :EqualAI : state
+    tag(k) = m isa Mechanisms.AllostericMechanism &&
+             Mechanisms.tag(m, Mechanisms.group(cm, k)) === :EqualAI ? :EqualAI : state
     [mask[k] ? Symbol[Mechanisms.name(p, m, kept)
-                      for p in Mechanisms._edge_constants(cm, k, tag(cm.group[k]))] :
+                      for p in Mechanisms._edge_constants(cm, k, tag(k))] :
                Symbol[]
-     for k in eachindex(cm.edges)]
+     for k in Mechanisms.steps(cm)]
 end
 
 # ─── Steady-state rate-constant names ──────────────────────────
@@ -119,11 +119,11 @@ constants, `Keq`, `E_total`, `L` and the regulator constants alone.
 """
 function _ss_rate_constant_names(@nospecialize(em::Mechanisms.AbstractEnzymeMechanism))
     m = _derivation_input(typeof(em))
-    edges = Mechanisms.catalytic(m).edges
+    cm = Mechanisms.catalytic(m)
     states = m isa Mechanisms.Mechanism ? (:None,) : (:A, :I)
     kept = Mechanisms._kept_members(m)
     Set{Symbol}(n for st in states for (k, ns) in enumerate(_edge_names(m, st, kept))
-                if !edges[k].rapid_equilibrium for n in ns)
+                if !Mechanisms.is_rapid_equilibrium(cm, k) for n in ns)
 end
 
 """

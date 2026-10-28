@@ -16,15 +16,25 @@ const _testhelper_LAYERS = Dict(
 # The modules whose API lists and cross-module uses may still name underscore names.
 const _testhelper_UNDERSCORE_PENDING = Set{Symbol}([:Mechanisms])
 
-# Per owner (a module or :EnzymeRates for the top level), the field names banned there.
-const _testhelper_FIELD_BAN = Dict{Symbol, Set{Symbol}}()
-
 # Per file (path relative to src/), the expressions allowed despite a banned name,
-# such as "data.group".
-const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}()
+# such as "data.group". In Derivation they read its own values: the guard's networks
+# (`_Network`'s `from`, `to` and `conformation`), its verdicts (`_Verdict.conformation`),
+# the MWC law (`_AlloLaw.sites`) and the steps of `segment_graph`'s result.
+const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}(
+    "Derivation/admission.jl" => Set(["eps.from", "eps.to", "net.conformation", "net.from",
+        "net.to", "v.conformation"]),
+    "Derivation/codegen.jl" => Set(["A.sites"]),
+    "Derivation/engine.jl" => Set(["a.sites", "b.sites", "s.steps"]),
+    "Derivation/guard.jl" => Set(["net.conformation", "net.from", "net.to"]),
+    "Derivation/key.jl" => Set(["A.sites"]),
+    "Derivation/limit_test.jl" => Set(["net.conformation", "net.from", "net.to"]),
+    "Derivation/messages.jl" => Set(["net.conformation", "net.from", "v.conformation"]),
+    "Derivation/print.jl" => Set(["A.sites"]),
+)
 
 const _testhelper_MECHANISM_TYPES = (:Mechanism, :AllostericMechanism, :Form, :Edge, :Met,
-    :RegulatorySite, :RawForm, :RawStep, :RawMechanism, :RawSite, :RawAllostericMechanism)
+    :Metabolites, :RegulatorySite, :RawForm, :RawStep, :RawMechanism, :RawSite,
+    :RawAllostericMechanism)
 
 """Calls `visit(ex, line)` on every `Expr` below `ex`, children before parents; `line` is
 the source line of the statement holding `ex`."""
@@ -218,6 +228,9 @@ end
 const _testhelper_SRC = normpath(joinpath(@__DIR__, "..", "src"))
 const _testhelper_MECHANISM_FIELDS = _testhelper_mechanism_fields(_testhelper_SRC)
 
+# Per owner (a module or :EnzymeRates for the top level), the field names banned there.
+const _testhelper_FIELD_BAN = Dict(:Derivation => _testhelper_MECHANISM_FIELDS)
+
 """Runs the four rules over the tree at `root`. A module in `pending` may still hold
 underscore names: its rule 4 check is `@test_broken`."""
 function _testhelper_check_boundaries(root, pending, ban, allowed)
@@ -305,7 +318,7 @@ end
     @testset "mechanism fields come from the struct definitions" begin
         @test issubset([:substrates, :edges, :group, :bound, :from, :to, :consumed,
             :released, :ligands, :multiplicity, :catalytic, :name, :modifier,
-            :steps, :sites, :regulatory_sites, :cat_allo_states],
+            :steps, :sites, :regulatory_sites, :cat_allo_states, :counts],
             _testhelper_MECHANISM_FIELDS)
     end
 

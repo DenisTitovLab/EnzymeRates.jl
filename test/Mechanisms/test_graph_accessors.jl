@@ -27,6 +27,7 @@ function _testhelper_test_graph_accessors_allocate_nothing(m, x, k)
     @test _testhelper_allocated(M.ngroups, m) == 0
     @test _testhelper_allocated(M.copies, s, :S) == 0
     @test _testhelper_allocated(isempty, s) == 0
+    @test _testhelper_allocated(length, s) == 0
     @test _testhelper_allocated(∪, s, t) == 0
     @test _testhelper_allocated(∩, s, t) == 0
 end
@@ -83,6 +84,7 @@ end
         @test EAB isa M.Metabolites
         @test (M.copies(EAB, :A), M.copies(EAB, :B), M.copies(EAB, :P)) == (1, 1, 0)
         @test !isempty(EA) && isempty(M.bound(m, 1))
+        @test (length(EAB), length(EA), length(M.bound(m, 1))) == (2, 1, 0)
         @test EA ∪ EB == EAB
         # A multiset union holds each metabolite as often as the fuller side does.
         @test EA ∪ EAB == EAB
@@ -179,6 +181,29 @@ end
     @test _testhelper_allocated(M.step_kind, m, 1) == 0
 end
 
+@testset "graph accessors: a ping-pong's residual" begin
+    M = ER.Mechanisms
+    m = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B <--> E(B; residual = A - P)
+            E(B; residual = A - P) <--> E + Q
+        end
+    end)
+    # Canonical form numbers the forms E, E(; residual = A - P), E(A),
+    # E(B; residual = A - P): forms of one label sort by their bound metabolites, the
+    # empty list first.
+    @test [M.metabolite_names(M.bound(m, x)) for x in M.species(m)] ==
+          [Symbol[], Symbol[], [:A], [:B]]
+    # The residual: the substrates a form adds and the products it subtracts.
+    @test [M.metabolite_names.(M.residual(m, x)) for x in M.species(m)] ==
+          [(Symbol[], Symbol[]), ([:A], [:P]), (Symbol[], Symbol[]), ([:A], [:P])]
+    @test _testhelper_allocated(M.residual, m, 2) == 0
+end
+
 @testset "graph accessors: a metabolite and its modifier copy" begin
     M = ER.Mechanisms
     # Substrate inhibition: a second S binds E(S) as a modifier.
@@ -200,6 +225,7 @@ end
     # A reactant and its modifier copy count under one name, as they share a concentration.
     @test M.metabolite_names(ESS) == [:S, :S]
     @test M.copies(ESS, :S) == 2 && M.copies(ESS, :P) == 0
+    @test length(ESS) == 2
     @test M.ends(m, 4) == (3, 4)
     @test M.metabolite_names(M.taken_up(m, 4)) == [:S]
     @test M.step_kind(m, 4) === :binding

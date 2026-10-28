@@ -30,6 +30,9 @@ metabolite_names(s::Metabolites) = Symbol[s.table[i].name for i in entries(s.cou
 
 Base.isempty(s::Metabolites) = s.counts == 0
 
+"""The number of metabolites `s` holds, each copy counted."""
+Base.length(s::Metabolites) = total(s.counts)
+
 """The multiset holding each metabolite as often as the fuller of `s` and `t` does."""
 Base.union(s::Metabolites, t::Metabolites) = _combine(max, s, t)
 
@@ -58,6 +61,11 @@ species(m::Mechanism) = 1:length(m.forms)
 
 """The metabolites form `x` of `m` binds."""
 bound(m::Mechanism, x::Int) = Metabolites(m.forms[x].bound, m.table)
+
+"""The residual of form `x` of `m`, as `(added, subtracted)`: the substrates it adds and
+the products it subtracts."""
+residual(m::Mechanism, x::Int) =
+    (Metabolites(m.forms[x].added, m.table), Metabolites(m.forms[x].subtracted, m.table))
 
 """The conformation label of form `x` of `m`."""
 conformation(m::Mechanism, x::Int) = m.conformations[m.forms[x].conformation]

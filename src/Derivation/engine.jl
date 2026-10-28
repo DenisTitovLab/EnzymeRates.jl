@@ -99,49 +99,54 @@ function _bare_law(m::Mechanisms.Mechanism, mask::BitVector, concentrations::Vec
     foreach(x -> _var!(vars, x; conc = true), concentrations)
     cols = Tuple{Int, Int}[]
     at = Dict{Tuple{Int, Int}, Int}()
-    for (k, e) in enumerate(m.edges), slot in 1:(e.rapid_equilibrium ? 1 : 2)
+    for k in Mechanisms.steps(m), slot in 1:(Mechanisms.is_rapid_equilibrium(m, k) ? 1 : 2)
         mask[k] || continue
         push!(cols, (k, slot))
         at[(k, slot)] = _var!(vars, Symbol("c", k, "_", slot))
     end
-    conc(c::Mechanisms.Counts) =
-        _monomial((vars.index[m.table[i].name] => Mechanisms.copies(c, i)
-                   for i in eachindex(m.table))...)
+    conc(held::Mechanisms.Metabolites) =
+        _monomial((vars.index[x] => 1 for x in Mechanisms.metabolite_names(held))...)
     bare(k, slot) = _monomial(at[(k, slot)] => 1)
     # The equilibrium ratio w(to)/w(from) of rapid-equilibrium edge k: [M]/K for a binding
-    # (K a dissociation constant), K·Π[consumed]/Π[released] for any other edge.
-    ratio(k) = _mmul(_mpow(bare(k, 1), Mechanisms._is_binding(m.edges[k]) ? -1 : 1),
-                     _mmul(conc(m.edges[k].consumed), _mpow(conc(m.edges[k].released), -1)))
+    # (K a dissociation constant), K·Π[taken up]/Π[given off] for any other edge.
+    ratio(k) = _mmul(_mpow(bare(k, 1), _is_binding(m, k) ? -1 : 1),
+                     _mmul(conc(Mechanisms.taken_up(m, k)),
+                           _mpow(conc(Mechanisms.given_off(m, k)), -1)))
     s = Mechanisms.re_segments(m, mask, Mechanisms._flags(m))
-    re = [k for k in eachindex(m.edges) if mask[k] && m.edges[k].rapid_equilibrium]
-    alpha = fill(_Mono(), length(m.forms))
-    placed = falses(length(m.forms))
+    re = [k for k in Mechanisms.steps(m)
+          if mask[k] && Mechanisms.is_rapid_equilibrium(m, k)]
+    nforms = length(Mechanisms.species(m))
+    alpha = fill(_Mono(), nforms)
+    placed = falses(nforms)
+    # Whether edge k joins form v to a placed form.
+    joins_placed(k, v) = ((a, b) = Mechanisms.ends(m, k);
+                          (b == v && placed[a]) || (a == v && placed[b]))
     for segment in s.segments
         placed[segment[1]] = true
         for v in segment[2:end]
-            k = first(k for k in re if (m.edges[k].to == v && placed[m.edges[k].from]) ||
-                                       (m.edges[k].from == v && placed[m.edges[k].to]))
-            e = m.edges[k]
-            alpha[v] = e.to == v ? _mmul(alpha[e.from], ratio(k)) :
-                                   _mmul(alpha[e.to], _mpow(ratio(k), -1))
+            k = first(k for k in re if joins_placed(k, v))
+            a, b = Mechanisms.ends(m, k)
+            alpha[v] = b == v ? _mmul(alpha[a], ratio(k)) :
+                                _mmul(alpha[b], _mpow(ratio(k), -1))
             placed[v] = true
         end
     end
     for k in re
-        e = m.edges[k]
+        a, b = Mechanisms.ends(m, k)
         any(q -> vars.conc[q.first],
-            _mmul(_mmul(alpha[e.from], ratio(k)), _mpow(alpha[e.to], -1))) && error(
+            _mmul(_mmul(alpha[a], ratio(k)), _mpow(alpha[b], -1))) && error(
             "internal error: a rapid-equilibrium cycle of this mechanism turns the " *
             "reaction over (class 2)")
     end
     pairs, W = Tuple{Int, Int}[], Dict{Tuple{Int, Int}, _Poly}()
     flux = Tuple{Int, Int, Int, _Mono, _Mono}[]
     x = vars.index[first(Mechanisms.substrates(m))]
-    for (k, e) in enumerate(m.edges)
-        mask[k] && !e.rapid_equilibrium || continue
-        f = _mmul(_mmul(bare(k, 1), conc(e.consumed)), alpha[e.from])
-        r = _mmul(_mmul(bare(k, 2), conc(e.released)), alpha[e.to])
-        a, b = s.segment_of[e.from], s.segment_of[e.to]
+    for k in Mechanisms.steps(m)
+        mask[k] && !Mechanisms.is_rapid_equilibrium(m, k) || continue
+        from, to = Mechanisms.ends(m, k)
+        f = _mmul(_mmul(bare(k, 1), conc(Mechanisms.taken_up(m, k))), alpha[from])
+        r = _mmul(_mmul(bare(k, 2), conc(Mechanisms.given_off(m, k))), alpha[to])
+        a, b = s.segment_of[from], s.segment_of[to]
         push!(flux, (Int(_mexp(_mmul(f, _mpow(r, -1)), x)), a, b, f, r))
         a == b && continue
         minmax(a, b) in pairs || push!(pairs, minmax(a, b))
@@ -226,7 +231,7 @@ function _law(m::Mechanisms.Mechanism, s::_Solve, mask::BitVector; inactive::Boo
 end
 
 """The law of the edges of `m` over the independents of `s`, every edge kept."""
-_law(m::Mechanisms.Mechanism, s::_Solve) = _law(m, s, trues(length(m.edges)))
+_law(m::Mechanisms.Mechanism, s::_Solve) = _law(m, s, trues(length(Mechanisms.steps(m))))
 
 # ─── The MWC law ─────────────────────────────────────────────────────────
 
@@ -396,8 +401,8 @@ function rate_equation_complexity(m::Mechanisms.Mechanism, mask::BitVector)
     G <= 1 && return G
     lap = zeros(Int, G, G)
     for k in s.steps
-        e = m.edges[k]
-        g1, g2 = s.segment_of[e.from], s.segment_of[e.to]
+        a, b = Mechanisms.ends(m, k)
+        g1, g2 = s.segment_of[a], s.segment_of[b]
         lap[g1, g1] += 1; lap[g2, g2] += 1; lap[g1, g2] -= 1; lap[g2, g1] -= 1
     end
     τ = _tree_count(lap)
@@ -414,7 +419,7 @@ free E alone counting 0, saturated at `typemax(Int)`. The cap (`_assert_derivabl
 identify's `eq_complexity_filter` read it.
 """
 rate_equation_complexity(m::Mechanisms.Mechanism) =
-    rate_equation_complexity(m, trues(length(m.edges)))
+    rate_equation_complexity(m, trues(length(Mechanisms.steps(m))))
 function rate_equation_complexity(am::Mechanisms.AllostericMechanism)
     m, imask = Mechanisms.catalytic(am), Mechanisms.conformation_steps(am, :inactive)
     a = rate_equation_complexity(m, Mechanisms.conformation_steps(am, :active))

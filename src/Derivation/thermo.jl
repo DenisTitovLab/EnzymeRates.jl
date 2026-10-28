@@ -13,6 +13,11 @@ _class(c::Mechanisms._Column, g::Int, tag::Symbol) =
     Mechanisms._excluded_by(tag, c.inactive) ? (c.edge, c.slot, c.inactive, true) :
                                     (g, c.slot, c.inactive, false)
 
+"""Whether step `k` of `m` is a binding: it takes up one metabolite and gives off none,
+whether or not its two forms differ by that metabolite alone."""
+_is_binding(m::Mechanisms.Mechanism, k::Int) =
+    isempty(Mechanisms.given_off(m, k)) && length(Mechanisms.taken_up(m, k)) == 1
+
 """
     _fundamental_cycles(m, flat) -> (Z, multiples)
 
@@ -24,22 +29,23 @@ metabolite counts by name, so a reactant's modifier copy counts as the reactant.
 on a cycle whose net change is no multiple of the net reaction. Integer arithmetic
 throughout.
 
-The net change reads each edge's consumed (-1) and released (+1) metabolites only. An
+The net change reads what each edge takes up (-1) and gives off (+1) only. An
 isomerization carries no free-pool metabolite — its bound content is encoded in the
 enzyme forms it joins — so it contributes zero. Do NOT add a from-bound/to-bound
 difference for it: that double-counts metabolites already accounted for by the binding
 and release steps and inflates the cycle's net change (e.g. 1/Keq -> 1/Keq^2).
 """
 function _fundamental_cycles(m::Mechanisms.Mechanism, flat::Vector{Int})
-    path = [zeros(Int, length(flat)) for _ in m.forms]   # signed tree edges from the root
-    seen, tree = falses(length(m.forms)), falses(length(flat))
-    for root in eachindex(m.forms)
+    forms = Mechanisms.species(m)
+    path = [zeros(Int, length(flat)) for _ in forms]   # signed tree edges from the root
+    seen, tree = falses(length(forms)), falses(length(flat))
+    for root in forms
         seen[root] && continue
         seen[root] = grown = true
         while grown
             grown = false
             for (j, k) in enumerate(flat)
-                a, b = m.edges[k].from, m.edges[k].to
+                a, b = Mechanisms.ends(m, k)
                 seen[a] == seen[b] && continue
                 from, to, sgn = seen[a] ? (a, b, 1) : (b, a, -1)
                 path[to] .= path[from]
@@ -49,23 +55,21 @@ function _fundamental_cycles(m::Mechanisms.Mechanism, flat::Vector{Int})
         end
     end
     net = Dict{Symbol, Int}()
-    foreach(x -> net[x] = -1, m.substrates)
-    foreach(x -> net[x] = 1, m.products)
-    x1 = first(m.substrates)
+    foreach(x -> net[x] = -1, Mechanisms.substrates(m))
+    foreach(x -> net[x] = 1, Mechanisms.products(m))
+    x1 = first(Mechanisms.substrates(m))
     rows, multiples = Vector{Int}[], Int[]
     for (j, k) in enumerate(flat)
         tree[j] && continue
-        z = path[m.edges[k].from] - path[m.edges[k].to]
+        a, b = Mechanisms.ends(m, k)
+        z = path[a] - path[b]
         z[j] += 1
         change = Dict{Symbol, Int}(x => 0 for x in keys(net))
         for (i, kk) in enumerate(flat)
             z[i] == 0 && continue
-            e = m.edges[kk]
-            for x in Mechanisms.entries(e.released)
-                haskey(net, m.table[x].name) && (change[m.table[x].name] += z[i])
-            end
-            for x in Mechanisms.entries(e.consumed)
-                haskey(net, m.table[x].name) && (change[m.table[x].name] -= z[i])
+            up, off = Mechanisms.taken_up(m, kk), Mechanisms.given_off(m, kk)
+            for x in keys(net)
+                change[x] += z[i] * (Mechanisms.copies(off, x) - Mechanisms.copies(up, x))
             end
         end
         c = change[x1] * net[x1]
@@ -101,7 +105,7 @@ function _joint_system(m::Mechanisms._AnyMech, cols = Mechanisms._ordered_column
     index = Dict(c => i for (i, c) in enumerate(columns))
     column(k, slot, inactive) =
         index[Mechanisms._Column(k, slot, inactive &&
-                                 Mechanisms._has_inactive_columns(tags[cm.group[k]]))]
+            Mechanisms._has_inactive_columns(tags[Mechanisms.group(cm, k)]))]
     Z, multiples = _fundamental_cycles(cm, flat)
     rows, rhs = Vector{Int}[], Int[]
     for inactive in (allosteric ? (false, true) : (false,)), i in eachindex(multiples)
@@ -109,17 +113,16 @@ function _joint_system(m::Mechanisms._AnyMech, cols = Mechanisms._ordered_column
         for (j, k) in enumerate(flat)
             z = Z[i, j]
             z == 0 && continue
-            e = cm.edges[k]
-            row[column(k, 1, inactive)] +=
-                e.rapid_equilibrium && Mechanisms._is_binding(e) ? -z : z
-            e.rapid_equilibrium || (row[column(k, 2, inactive)] -= z)
+            re = Mechanisms.is_rapid_equilibrium(cm, k)
+            row[column(k, 1, inactive)] += re && _is_binding(cm, k) ? -z : z
+            re || (row[column(k, 2, inactive)] -= z)
         end
         push!(rows, row)
         push!(rhs, multiples[i])
     end
     first_of = Dict{Tuple{Int, Int, Bool, Bool}, Int}()
     for (i, c) in enumerate(columns)
-        g = cm.group[c.edge]
+        g = Mechanisms.group(cm, c.edge)
         f = get!(first_of, _class(c, g, tags[g]), i)
         f == i && continue
         row = zeros(Int, length(columns))
@@ -198,7 +201,7 @@ the state its name takes: `:None` in a plain mechanism; `:I` for an inactive cop
 function _column_parameter(m::Mechanisms._AnyMech, c::Mechanisms._Column)
     cm = Mechanisms.catalytic(m)
     state = m isa Mechanisms.Mechanism ? :None : c.inactive ? :I :
-            Mechanisms.tag(m, cm.group[c.edge]) === :EqualAI ? :EqualAI : :A
+            Mechanisms.tag(m, Mechanisms.group(cm, c.edge)) === :EqualAI ? :EqualAI : :A
     Mechanisms._edge_constants(cm, c.edge, state)[c.slot]
 end
 
@@ -266,7 +269,8 @@ function _solve(m::Mechanisms._AnyMech)
     n = length(sys.columns)
     kept = Mechanisms._kept_members(m, cols)
     names = [Mechanisms.name(_column_parameter(m, c), m, kept) for c in sys.columns]
-    group = Mechanisms.catalytic(m).group
+    cm = Mechanisms.catalytic(m)
+    group = [Mechanisms.group(cm, k) for k in Mechanisms.steps(cm)]
     class(c) = _class(c, group[c.edge], sys.tags[group[c.edge]])
     last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
     in_law(c) = c.inactive ? sys.law[c.edge] :
