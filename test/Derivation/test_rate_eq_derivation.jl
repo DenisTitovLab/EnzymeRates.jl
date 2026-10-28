@@ -2590,6 +2590,7 @@ end
               Set([:K_A_ES_to_E_S, :k_ES_to_EP, :k_EP_to_ES, :K_A_EP_to_E_P])
         @test _testhelper_regulator_constants(am, :A) == [:K_A_Rreg]
         @test _testhelper_regulator_constants(am, :I) == [:K_I_Rreg]
+        @test EnzymeRates.Derivation._regulator_names(am) == [:K_A_Rreg, :K_I_Rreg]
 
         # Balanced :OnlyA bindings (both S and P) keep the :NonequalAI iso
         # Haldane-valid. The inactive conformation keeps no form but E, so its law has
@@ -2609,6 +2610,7 @@ end
         am_skip = EnzymeRates.AllostericMechanism(aem_skip)
         @test all(isempty, EnzymeRates.Derivation._edge_names(am_skip, :I))
         @test isempty(_testhelper_regulator_constants(am_skip, :I))
+        @test EnzymeRates.Derivation._regulator_names(am_skip) == [:K_A_Rreg]
         @test _testhelper_regulator_constants(am_skip, :A) ==
               [:K_A_Rreg]
 
@@ -2627,6 +2629,7 @@ end
             regulatory_site(1): R::OnlyI
         end)
         @test isempty(_testhelper_regulator_constants(am_onlyi, :A))
+        @test EnzymeRates.Derivation._regulator_names(am_onlyi) == [:K_I_Rreg]
         @test _testhelper_regulator_constants(am_onlyi, :I) ==
               [:K_I_Rreg]
         am_equal = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
@@ -2644,6 +2647,7 @@ end
         @test _testhelper_regulator_constants(am_equal, :A) ==
               [:K_Rreg]
         @test isempty(_testhelper_regulator_constants(am_equal, :I))
+        @test EnzymeRates.Derivation._regulator_names(am_equal) == [:K_Rreg]
     end
 end
 

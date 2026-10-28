@@ -109,7 +109,7 @@ function _constant_sides(m::_AnyMech, k::Int, slot::Int, state::Symbol,
     cm = catalytic(m)
     g = cm.group[k]
     group_tag = m isa AllostericMechanism ? tag(m, g) : :None
-    _excluded_by(group_tag, state === :I) && return _sides(cm, k)
+    excludes(group_tag, state === :I ? :inactive : :active) && return _sides(cm, k)
     inactive = state === :I && group_tag in (:NonequalAI, :OnlyI)
     _sides(cm, get(() -> kept[(g, 1, inactive)], kept, (g, slot, inactive)))
 end
@@ -311,6 +311,6 @@ inactive one). An `:EqualAI` ligand has one bare name in both conformations
 """
 function regulator_constant(am::AllostericMechanism, lig::Symbol, tag::Symbol,
                             inactive::Bool)
-    _excluded_by(tag, inactive) && return nothing
+    excludes(tag, inactive ? :inactive : :active) && return nothing
     name(Kreg(lig, tag === :EqualAI ? :EqualAI : inactive ? :I : :A), am)
 end

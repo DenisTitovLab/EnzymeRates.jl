@@ -603,6 +603,12 @@ end
     # A plain mechanism excludes no step from either conformation.
     @test [M.excludes(m, k, c) for k in M.steps(m) for c in (:active, :inactive)] ==
           falses(8)
+    # The rule by tag: an :OnlyA step leaves the inactive conformation, an :OnlyI step the
+    # active one; an :EqualAI or :NonequalAI step stays in both.
+    @test [M.excludes(tag, c) for tag in (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
+           for c in (:active, :inactive)] ==
+          [false, true, true, false, false, false, false, false]
+    @test_throws ArgumentError M.excludes(:OnlyA, :both)
     @test_throws ArgumentError M.excludes(am, 1, :both)
     @test_throws ArgumentError M.excludes(m, 1, :both)
     @test_throws ArgumentError M.exclusion_components(am, :both)

@@ -1741,20 +1741,21 @@ end
 
 """
     excludes(m, k, c::Symbol) -> Bool
+    excludes(tag::Symbol, c::Symbol) -> Bool
 
 Whether conformation `c` (`:active` or `:inactive`) of `m` excludes step `k` of its
 catalytic graph: an `:OnlyA` group's step in the inactive conformation, an `:OnlyI`
 group's in the active one. There a plain binding loses its affinity and any other step is
 blocked (spec section 7). A plain mechanism excludes no step.
+
+With a tag, whether conformation `c` excludes a step or a regulator ligand tagged `tag`:
+the one rule by which the steps, the regulator constants and the moves' ligand states
+read the tags.
 """
 excludes(am::AllostericMechanism, k::Int, c::Symbol) =
-    _excluded_by(am.cat_allo_states[am.catalytic.group[k]], _conformation_index(c) == 2)
+    excludes(am.cat_allo_states[am.catalytic.group[k]], c)
 excludes(::Mechanism, ::Int, c::Symbol) = (_conformation_index(c); false)
-
-"""Whether a step whose kinetic group is tagged `tag` is excluded from the inactive
-conformation (`inactive`) or the active one: an `:OnlyA` step from the inactive, an
-`:OnlyI` step from the active."""
-_excluded_by(tag::Symbol, inactive::Bool) = tag === (inactive ? :OnlyA : :OnlyI)
+excludes(tag::Symbol, c::Symbol) = tag === (_conformation_index(c) == 2 ? :OnlyA : :OnlyI)
 
 """
     exclusion_components(am, c::Symbol) -> Vector{Int}
