@@ -7,27 +7,27 @@ rapid equilibrium every steady-state edge that takes up or gives off one of them
 rapid-equilibrium turnover cycle (condition V). Only the edges `on` flags count, so an
 allosteric mechanism's test can read its active law (`_degenerate`)."""
 function _has_vmax(m::Mechanisms.Mechanism, re::BitVector, names::Vector{Symbol},
-                   on::BitVector = trues(length(Mechanisms.steps(m))))
-    touches = BitVector([_exchanges(m, k, names) for k in Mechanisms.steps(m)])
+                   on::BitVector = trues(length(m.steps)))
+    touches = BitVector([_exchanges(m, k, names) for k in eachindex(m.steps)])
     !Mechanisms.has_turnover_cycle(m, (re .| touches) .& on)
 end
 
 """Whether `s` holds a metabolite named in `names`, a reactant's modifier copy under its
 reactant's name."""
-_holds(s::Mechanisms.Metabolites, names::Vector{Symbol}) =
-    any(n -> Mechanisms.copies(s, n) > 0, names)
+_holds(s::Vector{Mechanisms.Met}, names::Vector{Symbol}) =
+    any(x -> x.name in names, s)
 
 """Whether step `k` of `m` takes up or gives off a metabolite named in `names`
 (`_holds`)."""
 _exchanges(m::Mechanisms.Mechanism, k::Int, names::Vector{Symbol}) =
-    _holds(Mechanisms.taken_up(m, k), names) || _holds(Mechanisms.given_off(m, k), names)
+    _holds(m.steps[k].taken_up, names) || _holds(m.steps[k].given_off, names)
 
 """Whether step `k` of `m` takes up a metabolite named in one of `subs` and `prods` (a
 reactant of one side of the reaction) and gives off one named in the other, as a
 Theorell–Chance step does."""
 function _crosses_sides(m::Mechanisms.Mechanism, k::Int, subs::Vector{Symbol},
                         prods::Vector{Symbol})
-    t, g = Mechanisms.taken_up(m, k), Mechanisms.given_off(m, k)
+    t, g = m.steps[k].taken_up, m.steps[k].given_off
     _holds(t, subs) && _holds(g, prods) || _holds(t, prods) && _holds(g, subs)
 end
 
@@ -46,24 +46,24 @@ Only the edges `on` flags count (`_degenerate`).
 """
 function _chemistry_equilibrates_both_sides(
         m::Mechanisms.Mechanism, re::BitVector,
-        on::BitVector = trues(length(Mechanisms.steps(m))))
+        on::BitVector = trues(length(m.steps)))
     re = re .& on
-    subs, prods = Mechanisms.substrates(m), Mechanisms.products(m)
-    releases(node, side) = any(Mechanisms.steps(m)) do k
-        from, to = Mechanisms.ends(m, k)
+    subs, prods = m.substrates, m.products
+    releases(node, side) = any(eachindex(m.steps)) do k
+        (; from, to) = m.steps[k]
         re[k] &&
-            (to in node && !(from in node) && _holds(Mechanisms.taken_up(m, k), side) ||
-             from in node && !(to in node) && _holds(Mechanisms.given_off(m, k), side))
+            (to in node && !(from in node) && _holds(m.steps[k].taken_up, side) ||
+             from in node && !(to in node) && _holds(m.steps[k].given_off, side))
     end
     # The forms joined by RE isomerizations, one node per segment; a merged complex
     # outside every RE isomerization is a node of its own.
     isos = BitVector([re[k] && Mechanisms.step_kind(m, k) === :isomerization
-                      for k in Mechanisms.steps(m)])
+                      for k in eachindex(m.steps)])
     s = Mechanisms.re_segments(m, isos, isos)
     nodes = [s.segments; [[x] for x in _merged_complexes(m, subs, on)
                           if s.segment_of[x] == 0]]
     any(node -> releases(node, subs) && releases(node, prods), nodes) ||
-        any(k -> re[k] && _crosses_sides(m, k, subs, prods), Mechanisms.steps(m))
+        any(k -> re[k] && _crosses_sides(m, k, subs, prods), eachindex(m.steps))
 end
 
 """Whether `m` is degenerate by the structural conditions V and C: no maximal rate in one
@@ -74,10 +74,10 @@ mechanism, and the edges its tags keep of an allosteric one. The beam expands a 
 seed without fitting it (`_base_tier`)."""
 function _degenerate(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
-    re = Mechanisms.rapid_equilibrium_steps(cm)
+    re = _rapid_equilibrium_flags(cm)
     on = Mechanisms.conformation_steps(m, :active)
-    !(_has_vmax(cm, re, Mechanisms.substrates(cm), on) &&
-      _has_vmax(cm, re, Mechanisms.products(cm), on)) ||
+    !(_has_vmax(cm, re, cm.substrates, on) &&
+      _has_vmax(cm, re, cm.products, on)) ||
         _chemistry_equilibrates_both_sides(cm, re, on)
 end
 
@@ -90,7 +90,7 @@ only reweights each enzyme form and adds no power of its own.
 """
 _requires_hyperbolic_catalysis(::Mechanisms.Mechanism) = false
 _requires_hyperbolic_catalysis(am::Mechanisms.AllostericMechanism) =
-    Mechanisms.catalytic_multiplicity(am) > 1
+    am.catalytic_multiplicity > 1
 
 """Whether `m` passes `_hyperbolic_catalysis` where it `_requires_hyperbolic_catalysis`;
 true where it does not."""
@@ -98,7 +98,7 @@ _hyperbolic_where_required(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericM
     !_requires_hyperbolic_catalysis(m) || _hyperbolic_catalysis(m)
 
 """
-    _hyperbolic_catalysis(m::Mechanism, on = trues(length(steps(m)))) -> Bool
+    _hyperbolic_catalysis(m::Mechanism, on = trues(length(m.steps))) -> Bool
 
 Whether the King–Altman denominator of `m`'s catalytic scheme has degree at most
 1 in every substrate and product concentration. Every binding of a substrate or
@@ -124,9 +124,9 @@ every segment still reaches `S` once each given edge's source keeps that edge
 as its only way out (`_all_reach`).
 """
 function _hyperbolic_catalysis(m::Mechanisms.Mechanism,
-                               on::BitVector = trues(length(Mechanisms.steps(m))))
-    on_site = on .& BitVector([!any(_holds_modifier(m, x) for x in Mechanisms.ends(m, k))
-                               for k in Mechanisms.steps(m)])
+                               on::BitVector = trues(length(m.steps)))
+    on_site = on .& BitVector([!(_holds_modifier(m, e.from) || _holds_modifier(m, e.to))
+                               for e in m.steps])
     s = Mechanisms.segment_graph(m, on_site)
     # A metabolite name's row of the offsets: its position among the sorted names.
     names = sort!(Mechanisms.metabolites(m))
@@ -134,15 +134,15 @@ function _hyperbolic_catalysis(m::Mechanisms.Mechanism,
     # Directed segment-graph edges: source segment, target segment, source form, the
     # names (their rows, `name_of`) bound in that direction.
     edges = Tuple{Int, Int, Int, Vector{Int}}[]
-    rows(side) = [name_of(n) for n in Mechanisms.metabolite_names(side)]
+    rows(side) = [name_of(x.name) for x in side]
     for k in s.steps
-        from, to = Mechanisms.ends(m, k)
+        (; from, to) = m.steps[k]
         a, b = s.segment_of[from], s.segment_of[to]
-        push!(edges, (a, b, from, rows(Mechanisms.taken_up(m, k))))
-        push!(edges, (b, a, to, rows(Mechanisms.given_off(m, k))))
+        push!(edges, (a, b, from, rows(m.steps[k].taken_up)))
+        push!(edges, (b, a, to, rows(m.steps[k].given_off)))
     end
     n = length(s.segments)
-    for y in [Mechanisms.substrates(m); Mechanisms.products(m)]
+    for y in [m.substrates; m.products]
         x = name_of(y)
         score(e) = count(==(x), e[4]) + s.offsets[x, e[3]]
         carrying = [e for e in edges if score(e) > 0]
@@ -245,12 +245,12 @@ makes a twin. The forms are `m`'s own, so the twins of a mechanism the dead-end 
 builds are found on that mechanism (`_dead_end_child`).
 """
 function _productive_twin(m::Mechanisms.Mechanism, mask::BitVector)
-    s = Mechanisms.re_segments(m, mask, Mechanisms.rapid_equilibrium_steps(m))
+    s = Mechanisms.re_segments(m, mask, _rapid_equilibrium_flags(m))
     # A metabolite name's row of the offsets: its position among the sorted names.
     names = sort!(Mechanisms.metabolites(m))
     # A form's bound names, sorted, its conformation and its residual.
-    composition(f) = (Mechanisms.metabolite_names(Mechanisms.bound(m, f)),
-                      Mechanisms.conformation(m, f), Mechanisms.residual(m, f))
+    composition(f) = ([x.name for x in m.nodes[f].bound], m.nodes[f].conformation,
+                      (m.nodes[f].added, m.nodes[f].subtracted))
     function (site::Int, ligand::Symbol)
         n = searchsortedfirst(names, ligand)
         n <= length(names) && names[n] === ligand || return 0
@@ -266,17 +266,16 @@ function _productive_twin(m::Mechanisms.Mechanism, mask::BitVector)
     end
 end
 
-"""Whether form `x` of `m` holds a modifier (`modifier_copies`)."""
+"""Whether form `x` of `m` holds a modifier copy."""
 _holds_modifier(m::Mechanisms.Mechanism, x::Int) =
-    !isempty(Mechanisms.modifier_copies(Mechanisms.bound(m, x)))
+    any(x -> x.modifier, m.nodes[x].bound)
 
 """The name of the modifier copy that step `k` of `m` binds (a `:binding` or
 `:fused_binding` step), or `nothing` when the step binds no modifier copy."""
 function _bound_copy(m::Mechanisms.Mechanism, k::Int)
-    t = Mechanisms.taken_up(m, k)
-    Mechanisms.step_kind(m, k) in (:binding, :fused_binding) &&
-        !isempty(Mechanisms.modifier_copies(t)) ?
-        only(Mechanisms.metabolite_names(t)) : nothing
+    t = m.steps[k].taken_up
+    Mechanisms.step_kind(m, k) in (:binding, :fused_binding) && any(x -> x.modifier, t) ?
+        only(t).name : nothing
 end
 
 """
@@ -285,7 +284,7 @@ whose complex has a productive twin (`twin`, a `_productive_twin` of one state's
 """
 function _all_twin(m::Mechanisms.Mechanism, ks::Vector{Int}, twin)
     ligand = _bound_copy(m, first(ks))
-    ligand !== nothing && all(k -> twin(Mechanisms.ends(m, k)[1], ligand) != 0, ks)
+    ligand !== nothing && all(k -> twin(m.steps[k].from, ligand) != 0, ks)
 end
 
 """
@@ -328,28 +327,28 @@ function _gauge_rescaling(m::Mechanisms.Mechanism, members::Vector{Vector{Int}},
                           twin, label)
     _all_twin(m, members[g], twin) || return nothing
     ligand = _bound_copy(m, first(members[g]))::Symbol
-    twin_of = Dict(Mechanisms.ends(m, k)[2] => twin(Mechanisms.ends(m, k)[1], ligand)
+    twin_of = Dict(m.steps[k].to => twin(m.steps[k].from, ligand)
                    for k in members[g])
     # The rapid-equilibrium bindings of the ligand itself, not of a modifier copy.
     binding_group = Dict{Tuple{Int, Int}, Int}()
     for (h, ks) in enumerate(members), k in ks
-        t = Mechanisms.taken_up(m, k)
-        Mechanisms.is_rapid_equilibrium(m, k) &&
+        t = m.steps[k].taken_up
+        m.steps[k].rapid_equilibrium &&
             Mechanisms.step_kind(m, k) in (:binding, :fused_binding) &&
-            isempty(Mechanisms.modifier_copies(t)) && Mechanisms.copies(t, ligand) == 1 &&
-            (binding_group[Mechanisms.ends(m, k)] = h)
+            !any(x -> x.modifier, t) && _copies(t, ligand) == 1 &&
+            (binding_group[(m.steps[k].from, m.steps[k].to)] = h)
     end
     class = Dict{Int, _GaugeClass}(complex => label(g, 0) for complex in keys(twin_of))
     for k in members[g]
-        from, to = Mechanisms.ends(m, k)
+        (; from, to) = m.steps[k]
         t = twin_of[to]
         haskey(class, t) && continue
         h = count(==(t), values(twin_of)) == 1 ? get(binding_group, (from, t), 0) : 0
         class[t] = h > 0 ? label(h, 0) : label(0, t)
     end
     σ(f) = get(class, f, _NO_RESCALING)
-    rescale(k) = (a = σ(Mechanisms.ends(m, k)[1]); b = σ(Mechanisms.ends(m, k)[2]);
-                  Mechanisms.is_rapid_equilibrium(m, k) && a == b ?
+    rescale(k) = (a = σ(m.steps[k].from); b = σ(m.steps[k].to);
+                  m.steps[k].rapid_equilibrium && a == b ?
                       (_NO_RESCALING, _NO_RESCALING) : (a, b))
     rescaling = Dict{Int, Tuple{_GaugeClass, _GaugeClass}}()
     for (h, ks) in enumerate(members)
@@ -396,12 +395,12 @@ function _redundant_copy_groups(m::Union{Mechanisms.Mechanism,
     members = Mechanisms.groups(cm)
     any(ks -> _bound_copy(cm, first(ks)) !== nothing, members) || return Int[]
     if m isa Mechanisms.Mechanism
-        twin = _productive_twin(cm, trues(length(Mechanisms.steps(cm))))
+        twin = _productive_twin(cm, trues(length(cm.steps)))
         return [g for g in eachindex(members)
                 if _gauge_rescaling(cm, members, g, twin, _one_state_class) !== nothing]
     end
     am = m::Mechanisms.AllostericMechanism
-    equal(h) = Mechanisms.tag(am, h) === :EqualAI
+    equal(h) = am.mwc_tags[h] === :EqualAI
     masks = (Mechanisms.conformation_steps(am, :active),
              Mechanisms.conformation_steps(am, :inactive))
     kept = [[filter(k -> mask[k], ks) for ks in members] for mask in masks]
@@ -457,9 +456,9 @@ function _assert_emission_rules(m::Union{Mechanisms.Mechanism,
     members = Mechanisms.groups(cm)
     # A group as its steps' DSL lines (`step_text`).
     label(g) = join((Mechanisms.step_text(cm, k) for k in members[g]), ", ")
-    flux = _flux_carrying_groups(cm, Mechanisms.rapid_equilibrium_steps(cm))
+    flux = _flux_carrying_groups(cm, _rapid_equilibrium_flags(cm))
     for (g, ks) in enumerate(members)
-        Mechanisms.is_rapid_equilibrium(cm, first(ks)) || flux[g] || error(
+        cm.steps[first(ks)].rapid_equilibrium || flux[g] || error(
             "expand_mechanisms: steady-state kinetic group {" * label(g) * "} has no " *
             "step that carries net flux, so its two constants enter the rate only as " *
             "their ratio; write the group at rapid equilibrium")
@@ -491,15 +490,15 @@ function _assert_atom_conserving(m::Union{Mechanisms.Mechanism,
                                            Mechanisms.AllostericMechanism},
                                  rxn::Mechanisms.EnzymeReaction)
     cm = Mechanisms.catalytic(m)
-    names = Mechanisms.metabolite_names
+    names(v::Vector{Mechanisms.Met}) = Symbol[x.name for x in v]
     # The names counted on one side of an edge: `form`'s bound metabolites and residual
     # additions, the residual subtractions of the `other` form, and the free metabolites.
-    side(form::Int, other::Int, free::Mechanisms.Metabolites) =
-        [names(Mechanisms.bound(cm, form)); names(Mechanisms.residual(cm, form)[1]);
-         names(Mechanisms.residual(cm, other)[2]); names(free)]
-    for g in 1:Mechanisms.ngroups(cm), k in Mechanisms.members(cm, g)
-        f, t = Mechanisms.ends(cm, k)
-        taken, given = Mechanisms.taken_up(cm, k), Mechanisms.given_off(cm, k)
+    side(form::Int, other::Int, free::Vector{Mechanisms.Met}) =
+        [names(cm.nodes[form].bound); cm.nodes[form].added;
+         cm.nodes[other].subtracted; names(free)]
+    for ks in Mechanisms.groups(cm), k in ks
+        f, t = cm.steps[k].from, cm.steps[k].to
+        taken, given = cm.steps[k].taken_up, cm.steps[k].given_off
         diff = _net_atoms(rxn, side(t, f, given), side(f, t, taken))
         isempty(diff) && continue
         from, to = Mechanisms.form_text(cm, f), Mechanisms.form_text(cm, t)
@@ -530,9 +529,9 @@ function _respects_reg_type(am::Mechanisms.AllostericMechanism,
                             rxn::Mechanisms.EnzymeReaction)
     declared = Dict(reg.name => reg.effect
                     for reg in rxn.regulators if reg.kind === :allosteric)
-    all(Mechanisms.regulatory_sites(am)) do site
-        types = [get(declared, l, :unspecified) for l in Mechanisms.ligands(site)]
-        all(zip(types, Mechanisms.mwc_tags(site))) do (t, state)
+    all(am.regulatory_sites) do site
+        types = [get(declared, l, :unspecified) for l in site.ligands]
+        all(zip(types, site.mwc_tags)) do (t, state)
             t === :unspecified ||
                 !(t === :activator && state === :OnlyI ||
                   t === :inhibitor && state === :OnlyA ||

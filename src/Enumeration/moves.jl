@@ -5,9 +5,9 @@
 
 """Whether each kinetic group of graph `m` holds some step `k` with `pred(k)`."""
 function _groups_with(pred, m::Mechanisms.Mechanism)
-    out = falses(Mechanisms.ngroups(m))
-    for k in Mechanisms.steps(m)
-        pred(k) && (out[Mechanisms.group(m, k)] = true)
+    out = falses(length(Mechanisms.groups(m)))
+    for k in eachindex(m.steps)
+        pred(k) && (out[m.steps[k].group] = true)
     end
     out
 end
@@ -79,11 +79,11 @@ function _expand_re_to_ss(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMe
     cm = Mechanisms.catalytic(m)
     flanks = _chain_flank_groups(m)
     exchanges_modifier = _groups_with(cm) do k
-        !isempty(Mechanisms.modifier_copies(Mechanisms.taken_up(cm, k))) ||
-            !isempty(Mechanisms.modifier_copies(Mechanisms.given_off(cm, k)))
+        any(x -> x.modifier, cm.steps[k].taken_up) ||
+            any(x -> x.modifier, cm.steps[k].given_off)
     end
     eligible(g) = !(g in flanks) && !exchanges_modifier[g]
-    base = _re_segment_count(cm, Mechanisms.rapid_equilibrium_steps(cm))
+    base = _re_segment_count(cm, _rapid_equilibrium_flags(cm))
     flips = _minimal_flips(re -> _re_segment_count(cm, re) > base, m, eligible)
     children = typeof(m)[Mechanisms.with_flags(m, re) for re in flips]
     filter(_hyperbolic_where_required, children)
@@ -100,13 +100,13 @@ subunit a flank's flip can be visible through the two conformations.
 """
 function _chain_flank_groups(m::Mechanisms.Mechanism)
     # The group of each edge alone in its group, 0 for any other edge.
-    lone = zeros(Int, length(Mechanisms.steps(m)))
+    lone = zeros(Int, length(m.steps))
     for (g, ks) in enumerate(Mechanisms.groups(m))
         length(ks) == 1 && (lone[only(ks)] = g)
     end
-    at = [Int[] for _ in Mechanisms.species(m)]
-    for k in Mechanisms.steps(m)
-        from, to = Mechanisms.ends(m, k)
+    at = [Int[] for _ in eachindex(m.nodes)]
+    for k in eachindex(m.steps)
+        (; from, to) = m.steps[k]
         push!(at[from], k); push!(at[to], k)
     end
     # The group of the flank of edge `k0` at form `x`, 0 when there is none.
@@ -115,13 +115,13 @@ function _chain_flank_groups(m::Mechanisms.Mechanism)
         length(rest) == 1 || return 0
         k = only(rest)
         Mechanisms.step_kind(m, k) in (:binding, :fused_binding) &&
-            Mechanisms.ends(m, k)[2] == x ? lone[k] : 0
+            m.steps[k].to == x ? lone[k] : 0
     end
     out = Set{Int}()
-    for k0 in Mechanisms.steps(m)
+    for k0 in eachindex(m.steps)
         lone[k0] != 0 && Mechanisms.step_kind(m, k0) === :isomerization &&
-            !Mechanisms.is_rapid_equilibrium(m, k0) || continue
-        f1, f2 = flank.(k0, Mechanisms.ends(m, k0))
+            !m.steps[k0].rapid_equilibrium || continue
+        f1, f2 = flank.(k0, (m.steps[k0].from, m.steps[k0].to))
         f1 == 0 || f2 == 0 || union!(out, (f1, f2))
     end
     out
@@ -145,9 +145,9 @@ function _minimal_flips(admissible,
                         m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
                         eligible = _ -> true)
     cm = Mechanisms.catalytic(m)
-    flags = Mechanisms.rapid_equilibrium_steps(cm)
+    flags = _rapid_equilibrium_flags(cm)
     members = Mechanisms.groups(cm)
-    flux = _flux_carrying_groups(cm, falses(length(Mechanisms.steps(cm))))
+    flux = _flux_carrying_groups(cm, falses(length(cm.steps)))
     units = [g for g in eachindex(members)
              if all(k -> flags[k], members[g]) && flux[g] && eligible(g)]
     function flipped(sel)
@@ -187,14 +187,14 @@ enumerator emits is. The test reads each edge's metabolite lists, so it holds fo
 and Theorell–Chance steps as well.
 """
 function _flux_carrying_edges(m::Mechanisms.Mechanism, re::BitVector)
-    s = Mechanisms.re_segments(m, trues(length(Mechanisms.steps(m))), re)
+    s = Mechanisms.re_segments(m, trues(length(m.steps)), re)
     rho = _name_signs(m)
     offset(f) = sum(rho[n] * s.offsets[n, f] for n in eachindex(rho); init = 0)
-    flags = falses(length(Mechanisms.steps(m)))
+    flags = falses(length(m.steps))
     edges = Tuple{Int, Int}[]; weights = Int[]; owner = Int[]
-    for k in Mechanisms.steps(m)
+    for k in eachindex(m.steps)
         re[k] && continue
-        from, to = Mechanisms.ends(m, k)
+        (; from, to) = m.steps[k]
         weight = _uptake_weight(m, k) + offset(from) - offset(to)
         a, b = s.segment_of[from], s.segment_of[to]
         if a == b
@@ -228,16 +228,16 @@ end
 """Each metabolite name's net uptake sign, the names sorted (the rows of `re_segments`'
 offsets): +1 for a substrate, −1 for a product, 0 for a modifier-only name."""
 _name_signs(m::Mechanisms.Mechanism) =
-    Int[n in Mechanisms.substrates(m) ? 1 : n in Mechanisms.products(m) ? -1 : 0
+    Int[n in m.substrates ? 1 : n in m.products ? -1 : 0
         for n in sort!(Mechanisms.metabolites(m))]
 
 """The substrates step `k` of `m` takes up net, less the products it takes up net. A
 reactant's modifier copy counts as its reactant, whose concentration it shares."""
 function _uptake_weight(m::Mechanisms.Mechanism, k::Int)
-    t, g = Mechanisms.taken_up(m, k), Mechanisms.given_off(m, k)
-    net(x) = Mechanisms.copies(t, x) - Mechanisms.copies(g, x)
-    sum(net, Mechanisms.substrates(m); init = 0) -
-        sum(net, Mechanisms.products(m); init = 0)
+    t, g = m.steps[k].taken_up, m.steps[k].given_off
+    net(x) = _copies(t, x) - _copies(g, x)
+    sum(net, m.substrates; init = 0) -
+        sum(net, m.products; init = 0)
 end
 
 """
@@ -296,7 +296,7 @@ end
 `re[k]` holds (`re_segments`). The flip move measures each candidate on its flags, so it
 builds only the candidates that raise the count."""
 _re_segment_count(m::Mechanisms.Mechanism, re::BitVector) =
-    length(Mechanisms.re_segments(m, trues(length(Mechanisms.steps(m))), re).segments)
+    length(Mechanisms.re_segments(m, trues(length(m.steps)), re).segments)
 
 """
     _minimal_gaining_sets(gains, partners) -> Vector{Vector{Int}}
@@ -372,7 +372,7 @@ function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
                                                Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
     members = Mechanisms.groups(cm)
-    flags = Mechanisms.rapid_equilibrium_steps(cm)
+    flags = _rapid_equilibrium_flags(cm)
     flux = _flux_carrying_edges(cm, flags)
     units = Tuple{Int, Tuple{Vector{Int}, Vector{Int}}}[]
     reverted = Vector{Int}[]
@@ -399,12 +399,12 @@ function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
         accepted[sel] = c
         true
     end
-    every = trues(length(Mechanisms.steps(cm)))
+    every = trues(length(cm.steps))
     # RE segment ids touched by each kinetic group's edges; empty for a steady-state
     # group, which lies on no RE cycle and so never partners a set that does not gain.
     segment_of = Mechanisms.re_segments(cm, every, flags).segment_of
     segments = [flags[first(ks)] ?
-                    Set{Int}(segment_of[Mechanisms.ends(cm, k)[1]] for k in ks) :
+                    Set{Int}(segment_of[cm.steps[k].from] for k in ks) :
                     Set{Int}() for ks in members]
     partners(sel) = begin
         isempty(sel) && return 1:length(units)
@@ -425,15 +425,15 @@ metabolites off (two or more: a step giving off one is stored as the binding it
 reverses), and its first for an isomerization (both lists empty).
 """
 function _context_form(m::Mechanisms.Mechanism, k::Int)
-    from, to = Mechanisms.ends(m, k)
-    isempty(Mechanisms.taken_up(m, k)) && !isempty(Mechanisms.given_off(m, k)) ? to : from
+    (; from, to) = m.steps[k]
+    isempty(m.steps[k].taken_up) && !isempty(m.steps[k].given_off) ? to : from
 end
 
-"""The copies of metabolite `name` that `s` holds as a modifier when `copy` holds (its
-`modifier_copies`), else those it holds productively."""
-function _held_copies(s::Mechanisms.Metabolites, name::Symbol, copy::Bool)
-    modifier = Mechanisms.copies(Mechanisms.modifier_copies(s), name)
-    copy ? modifier : Mechanisms.copies(s, name) - modifier
+"""The copies of metabolite `name` that `s` holds as a modifier when `copy` holds, else those
+it holds productively."""
+function _held_copies(s::Vector{Mechanisms.Met}, name::Symbol, copy::Bool)
+    modifier = count(x -> x.modifier && x.name === name, s)
+    copy ? modifier : _copies(s, name) - modifier
 end
 
 """
@@ -456,27 +456,26 @@ conformations (by label), then residuals (by the names they add, then those they
 subtract), for deterministic output.
 """
 function _context_bipartitions(m::Mechanisms.Mechanism, g::Int)
-    ks = Mechanisms.members(m, g)
+    ks = Mechanisms.groups(m)[g]
     # The group's own bound ligand, as (name, copy), when its first edge is a binding.
-    first_up = Mechanisms.taken_up(m, first(ks))
+    first_up = m.steps[first(ks)].taken_up
     own = Mechanisms.step_kind(m, first(ks)) in (:binding, :fused_binding) ?
-        (only(Mechanisms.metabolite_names(first_up)),
-         !isempty(Mechanisms.modifier_copies(first_up))) : nothing
+        (only(first_up).name, any(x -> x.modifier, first_up)) : nothing
     forms = [_context_form(m, k) for k in ks]
-    carries(x, (name, copy)) = _held_copies(Mechanisms.bound(m, x), name, copy) > 0
+    carries(x, (name, copy)) = _held_copies(m.nodes[x].bound, name, copy) > 0
     ligands = unique!([(n, copy) for x in forms
-                       for n in Mechanisms.metabolite_names(Mechanisms.bound(m, x))
+                       for n in (y.name for y in m.nodes[x].bound)
                        for copy in (false, true)
                        if carries(x, (n, copy)) && (n, copy) != own])
-    role((name, copy)) = copy ? 0 : name in Mechanisms.products(m) ? 1 : 2
+    role((name, copy)) = copy ? 0 : name in m.products ? 1 : 2
     division(holds) = Int[k for (k, x) in zip(ks, forms) if holds(x)]
     divisions = [division(x -> carries(x, l))
                  for l in sort!(ligands; by = l -> (role(l), first(l)))]
-    append!(divisions, division(x -> Mechanisms.conformation(m, x) === c)
-            for c in sort!(unique(Mechanisms.conformation(m, x) for x in forms)))
-    append!(divisions, division(x -> Mechanisms.residual(m, x) == r)
-            for r in sort!(unique(Mechanisms.residual(m, x) for x in forms);
-                           by = r -> Mechanisms.metabolite_names.(r)))
+    append!(divisions, division(x -> m.nodes[x].conformation === c)
+            for c in sort!(unique(m.nodes[x].conformation for x in forms)))
+    residual(x) = (m.nodes[x].added, m.nodes[x].subtracted)
+    append!(divisions, division(x -> residual(x) == r)
+            for r in sort!(unique(residual(x) for x in forms)))
     parts(with) = (without = Int[k for k in ks if !(k in with)];
                    first(ks) in with ? (with, without) : (without, with))
     unique!(first, Tuple{Vector{Int}, Vector{Int}}[
@@ -491,7 +490,7 @@ it.
 """
 function _bipartitioned_groups(m::Mechanisms.Mechanism, selection)
     second = Dict(g => last(bp) for (g, bp) in selection)
-    group, n = zeros(Int, length(Mechanisms.steps(m))), 0
+    group, n = zeros(Int, length(m.steps)), 0
     for (g, ks) in enumerate(Mechanisms.groups(m))
         group[ks] .= (n += 1)
         haskey(second, g) && (group[second[g]] .= (n += 1))
@@ -508,7 +507,7 @@ semantics).
 """
 function _apply_bipartitions(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
                              selection,
-                             re::BitVector = Mechanisms.rapid_equilibrium_steps(
+                             re::BitVector = _rapid_equilibrium_flags(
                                  Mechanisms.catalytic(m)))
     Mechanisms.regroup(m, _bipartitioned_groups(Mechanisms.catalytic(m), selection), re)
 end
@@ -521,7 +520,7 @@ rapid equilibrium already, so it reverts none.
 """
 _revert_zero_flux_parts(m::Mechanisms.Mechanism, bp, flux::BitVector) =
     Int[k for part in bp if !any(k -> flux[k], part)
-        for k in part if !Mechanisms.is_rapid_equilibrium(m, k)]
+        for k in part if !m.steps[k].rapid_equilibrium]
 
 """
 The forms of graph `m` where metabolite `name`, as its modifier copy when `copy` holds
@@ -533,11 +532,11 @@ its dead-end site. The dead-end move targets these forms for competition with th
 metabolite. A metabolite `m` does not hold is free nowhere.
 """
 function _forms_where_free(m::Mechanisms.Mechanism, name::Symbol, copy::Bool)
-    free = falses(length(Mechanisms.species(m)))
-    for k in Mechanisms.steps(m)
-        from, to = Mechanisms.ends(m, k)
-        _held_copies(Mechanisms.taken_up(m, k), name, copy) > 0 && (free[from] = true)
-        _held_copies(Mechanisms.given_off(m, k), name, copy) > 0 && (free[to] = true)
+    free = falses(length(m.nodes))
+    for k in eachindex(m.steps)
+        (; from, to) = m.steps[k]
+        _held_copies(m.steps[k].taken_up, name, copy) > 0 && (free[from] = true)
+        _held_copies(m.steps[k].given_off, name, copy) > 0 && (free[to] = true)
     end
     free
 end
@@ -552,20 +551,20 @@ the declared modifiers, and the child's table gains its entry.
 """
 function _dead_end_raw(m::Mechanisms.Mechanism, reg::Symbol, sites::Vector{Int})
     inhibitor = Mechanisms.Met(reg, true)
-    steps = Mechanisms.RawStep[Mechanisms.RawStep(m, k) for k in Mechanisms.steps(m)]
-    group = [Mechanisms.group(m, k) for k in Mechanisms.steps(m)]
-    for k in Mechanisms.steps(m)
-        all(in(sites), Mechanisms.ends(m, k)) || continue
+    steps = Mechanisms.RawStep[Mechanisms.RawStep(m, k) for k in eachindex(m.steps)]
+    group = [m.steps[k].group for k in eachindex(m.steps)]
+    for k in eachindex(m.steps)
+        all(in(sites), (m.steps[k].from, m.steps[k].to)) || continue
         push!(steps, Mechanisms.RawStep(m, k, inhibitor))
-        push!(group, Mechanisms.group(m, k))
+        push!(group, m.steps[k].group)
     end
     for f in sites
         push!(steps, Mechanisms.RawStep(Mechanisms.RawForm(m, f),
                                         Mechanisms.RawForm(m, f, inhibitor),
                                         [inhibitor], Mechanisms.Met[], true))
-        push!(group, Mechanisms.ngroups(m) + 1)
+        push!(group, length(Mechanisms.groups(m)) + 1)
     end
-    Mechanisms.RawMechanism(copy(Mechanisms.substrates(m)), copy(Mechanisms.products(m)),
+    Mechanisms.RawMechanism(copy(m.substrates), copy(m.products),
                             sort!(unique!([Mechanisms.modifiers(m); reg])), steps, group)
 end
 
@@ -590,10 +589,10 @@ complex of the copy has a twin in the active state (`_all_twin`), which redundan
 function _dead_end_child(m::Mechanisms.Mechanism, raw::Mechanisms.RawMechanism,
                          reg::Symbol)
     cm = Mechanisms.canonical_graph(raw)
-    twin = _productive_twin(cm, trues(length(Mechanisms.steps(cm))))
-    binding = findfirst(k -> _held_copies(Mechanisms.taken_up(cm, k), reg, true) > 0,
-                        Mechanisms.steps(cm))::Int
-    _gauge_rescaling(cm, Mechanisms.groups(cm), Mechanisms.group(cm, binding), twin,
+    twin = _productive_twin(cm, trues(length(cm.steps)))
+    binding = findfirst(k -> _held_copies(cm.steps[k].taken_up, reg, true) > 0,
+                        eachindex(cm.steps))::Int
+    _gauge_rescaling(cm, Mechanisms.groups(cm), cm.steps[binding].group, twin,
                      _one_state_class) === nothing || return nothing
     Mechanisms.Mechanism(raw)
 end
@@ -601,14 +600,14 @@ function _dead_end_child(am::Mechanisms.AllostericMechanism, raw::Mechanisms.Raw
                          reg::Symbol)
     child = Mechanisms.AllostericMechanism(
         Mechanisms.RawAllostericMechanism(
-            raw, [Mechanisms.mwc_tags(am); :EqualAI],
-            Mechanisms.catalytic_multiplicity(am),
-            Mechanisms.RawSite.(Mechanisms.regulatory_sites(am))))
+            raw, [am.mwc_tags; :EqualAI],
+            am.catalytic_multiplicity,
+            Mechanisms.RawSite.(am.regulatory_sites)))
     cm = Mechanisms.catalytic(child)
     # The copy's own bindings, the only edges that take it up.
-    bindings = findall(k -> _held_copies(Mechanisms.taken_up(cm, k), reg, true) > 0,
-                       Mechanisms.steps(cm))
-    _all_twin(cm, bindings, _productive_twin(cm, trues(length(Mechanisms.steps(cm))))) &&
+    bindings = findall(k -> _held_copies(cm.steps[k].taken_up, reg, true) > 0,
+                       eachindex(cm.steps))
+    _all_twin(cm, bindings, _productive_twin(cm, trues(length(cm.steps)))) &&
         !isempty(_redundant_copy_groups(child)) ? nothing : child
 end
 
@@ -656,18 +655,17 @@ function _expand_add_dead_end_regulator(m::Union{Mechanisms.Mechanism,
 
     # Per form, the names bound productively and the names bound as modifiers: a
     # reactant's copy sits at a dead-end site, not at its reactant's.
-    names_held(x, copy) = (b = Mechanisms.bound(cm, x);
-                           Set(n for n in Mechanisms.metabolite_names(b)
-                               if _held_copies(b, n, copy) > 0))
-    productive = [names_held(x, false) for x in Mechanisms.species(cm)]
-    inhibiting = [names_held(x, true) for x in Mechanisms.species(cm)]
+    names_held(x, copy) = (b = cm.nodes[x].bound;
+                           Set(y.name for y in b if _held_copies(b, y.name, copy) > 0))
+    productive = [names_held(x, false) for x in eachindex(cm.nodes)]
+    inhibiting = [names_held(x, true) for x in eachindex(cm.nodes)]
 
     # The sites of each competition pattern in form order, once each in pattern order.
     placements = Vector{Int}[]
     for (comp_subs, comp_prods, comp_inhibitors) in
             _inhibitor_competition_patterns(sub_names, prod_names, collect(bound_regs))
         comp_reactants = union(comp_subs, comp_prods)
-        target_forms = falses(length(Mechanisms.species(cm)))
+        target_forms = falses(length(cm.nodes))
         for met in comp_reactants
             target_forms .|= _forms_where_free(cm, met, false)
         end
@@ -871,7 +869,7 @@ function _expand_add_allosteric_regulator(
     am::Mechanisms.AllostericMechanism, rxn::Mechanisms.EnzymeReaction,
 )
     taken = _bound_allo_regs(am)
-    sites = Mechanisms.regulatory_sites(am)
+    sites = am.regulatory_sites
     results = Mechanisms.AllostericMechanism[]
     for reg in rxn.regulators
         reg.kind === :allosteric && !(reg.name in taken) || continue
@@ -887,7 +885,7 @@ function _expand_add_allosteric_regulator(
         end
         # :EqualAI only at an existing site that keeps a non-:EqualAI ligand: an
         # all-:EqualAI site binds both conformations alike and cancels from the rate.
-        for site_idx in findall(site -> any(!=(:EqualAI), Mechanisms.mwc_tags(site)),
+        for site_idx in findall(site -> any(!=(:EqualAI), site.mwc_tags),
                                 sites)
             push!(results,
                   _make_am_with_added_reg(am, reg.name, :EqualAI, site_idx))
@@ -906,19 +904,19 @@ allosteric state `tag`. Multiplicity for a new site inherits
 function _make_am_with_added_reg(
     am::Mechanisms.AllostericMechanism, reg::Symbol, tag::Symbol, site_idx::Int,
 )
-    sites = copy(Mechanisms.regulatory_sites(am))
+    sites = copy(am.regulatory_sites)
     if site_idx == 0
-        push!(sites, Mechanisms.RegulatorySite([reg], Mechanisms.catalytic_multiplicity(am),
+        push!(sites, Mechanisms.RegulatorySite([reg], am.catalytic_multiplicity,
                                                [tag]))
     else
         s = sites[site_idx]
         sites[site_idx] =
-            Mechanisms.RegulatorySite([Mechanisms.ligands(s); reg],
-                                      Mechanisms.multiplicity(s),
-                                      [Mechanisms.mwc_tags(s); tag])
+            Mechanisms.RegulatorySite([s.ligands; reg],
+                                      s.multiplicity,
+                                      [s.mwc_tags; tag])
     end
-    Mechanisms.AllostericMechanism(Mechanisms.catalytic(am), Mechanisms.mwc_tags(am),
-                                   Mechanisms.catalytic_multiplicity(am), sites)
+    Mechanisms.AllostericMechanism(Mechanisms.catalytic(am), am.mwc_tags,
+                                   am.catalytic_multiplicity, sites)
 end
 
 """
@@ -954,7 +952,7 @@ where a copy that was new there can become its twin with a consistent gauge, and
 the copy's constant then shows in neither state.
 """
 function _expand_change_allo_state(am::Mechanisms.AllostericMechanism)
-    states = Mechanisms.mwc_tags(am)
+    states = am.mwc_tags
     chem = _chemistry_groups(Mechanisms.catalytic(am))
     # Binding catalytic groups relax individually; the chemistry groups relax together,
     # in one variant, and only while no binding group is :OnlyA.
@@ -967,17 +965,17 @@ function _expand_change_allo_state(am::Mechanisms.AllostericMechanism)
         new_states[gs] .= :NonequalAI
         push!(results, Mechanisms.with_tags(am, new_states))
     end
-    for (si, site) in enumerate(Mechanisms.regulatory_sites(am)),
-        li in eachindex(Mechanisms.ligands(site))
-        Mechanisms.mwc_tags(site)[li] == :NonequalAI && continue
-        new_sites = copy(Mechanisms.regulatory_sites(am))
-        new_states = copy(Mechanisms.mwc_tags(site))
+    for (si, site) in enumerate(am.regulatory_sites),
+        li in eachindex(site.ligands)
+        site.mwc_tags[li] == :NonequalAI && continue
+        new_sites = copy(am.regulatory_sites)
+        new_states = copy(site.mwc_tags)
         new_states[li] = :NonequalAI
-        new_sites[si] = Mechanisms.RegulatorySite(Mechanisms.ligands(site),
-                                                  Mechanisms.multiplicity(site), new_states)
+        new_sites[si] = Mechanisms.RegulatorySite(site.ligands,
+                                                  site.multiplicity, new_states)
         push!(results,
               Mechanisms.AllostericMechanism(Mechanisms.catalytic(am), states,
-                                             Mechanisms.catalytic_multiplicity(am),
+                                             am.catalytic_multiplicity,
                                              new_sites))
     end
     filter!(c -> isempty(_redundant_copy_groups(c)), results)
@@ -1007,7 +1005,7 @@ identical to keeping them separate, so that all-keep merge is redundant.
 """
 function _site_active_states(site::Mechanisms.RegulatorySite)
     active = Set{Symbol}()
-    for st in Mechanisms.mwc_tags(site)
+    for st in site.mwc_tags
         union!(active, _state_conformations(st))
     end
     active
@@ -1041,14 +1039,14 @@ ligands by name, so two merge routes reaching the same ligand partition produce
 `expand_mechanisms` drops every child that fails `_respects_reg_type`.
 """
 function _expand_merge_regulatory_sites(am::Mechanisms.AllostericMechanism)
-    sites = Mechanisms.regulatory_sites(am)
+    sites = am.regulatory_sites
     n = length(sites)
     results = Mechanisms.AllostericMechanism[]
     for i in 1:(n - 1), j in (i + 1):n
-        ligs = vcat(Mechanisms.ligands(sites[i]), Mechanisms.ligands(sites[j]))
-        base_states = vcat(Mechanisms.mwc_tags(sites[i]),
-                           Mechanisms.mwc_tags(sites[j]))
-        mult = Mechanisms.multiplicity(sites[i])
+        ligs = vcat(sites[i].ligands, sites[j].ligands)
+        base_states = vcat(sites[i].mwc_tags,
+                           sites[j].mwc_tags)
+        mult = sites[i].multiplicity
         others = Mechanisms.RegulatorySite[sites[k] for k in 1:n if k != i && k != j]
         redundant = isempty(intersect(_site_active_states(sites[i]),
                                        _site_active_states(sites[j])))
@@ -1063,8 +1061,8 @@ function _expand_merge_regulatory_sites(am::Mechanisms.AllostericMechanism)
             merged = Mechanisms.RegulatorySite(ligs, mult, states)
             push!(results,
                   Mechanisms.AllostericMechanism(Mechanisms.catalytic(am),
-                                                 Mechanisms.mwc_tags(am),
-                                                 Mechanisms.catalytic_multiplicity(am),
+                                                 am.mwc_tags,
+                                                 am.catalytic_multiplicity,
                                                  vcat(others, [merged])))
         end
     end

@@ -359,10 +359,10 @@ end
 substrate enters, a `:fused_binding` (`step_kind`) that takes up a metabolite named in
 `subs`. Only the edges `on` flags count."""
 _merged_complexes(m::Mechanisms.Mechanism, subs::Vector{Symbol},
-                  on::BitVector = trues(length(Mechanisms.steps(m)))) =
-    unique(Mechanisms.ends(m, k)[2] for k in Mechanisms.steps(m)
+                  on::BitVector = trues(length(m.steps))) =
+    unique(m.steps[k].to for k in eachindex(m.steps)
            if on[k] && Mechanisms.step_kind(m, k) === :fused_binding &&
-              _holds(Mechanisms.taken_up(m, k), subs))
+              _holds(m.steps[k].taken_up, subs))
 
 """
 The tests of `_seed_variants` that build nothing, for the graph `m` of one base of a
@@ -378,23 +378,23 @@ maximal-rate test runs on the candidate's rapid-equilibrium edges and more, and 
 edges never removes such a cycle, so a turnover cycle of the candidate fails both tests.
 """
 function _seed_candidate_screen(m::Mechanisms.Mechanism)
-    ks = Mechanisms.steps(m)
+    ks = eachindex(m.steps)
     any(k -> Mechanisms.step_kind(m, k) === :isomerization, ks) &&
         error("_seed_candidate_screen: the seed base holds an isomerization; a base " *
               "has every isomerization merged")
-    subs, prods = Mechanisms.substrates(m), Mechanisms.products(m)
-    from = [Mechanisms.ends(m, k)[1] for k in ks]
-    to = [Mechanisms.ends(m, k)[2] for k in ks]
+    subs, prods = m.substrates, m.products
+    from = [m.steps[k].from for k in ks]
+    to = [m.steps[k].to for k in ks]
     weight = [_uptake_weight(m, k) for k in ks]
     touches(side) = BitVector([_exchanges(m, k, side) for k in ks])
     sub_step, prod_step = touches(subs), touches(prods)
     crossing = BitVector([_crosses_sides(m, k, subs, prods) for k in ks])
     complexes = _merged_complexes(m, subs)
-    leaves(x, side) = BitVector([to[k] == x && _holds(Mechanisms.taken_up(m, k), side) ||
-                                 from[k] == x && _holds(Mechanisms.given_off(m, k), side)
+    leaves(x, side) = BitVector([to[k] == x && _holds(m.steps[k].taken_up, side) ||
+                                 from[k] == x && _holds(m.steps[k].given_off, side)
                                  for k in ks])
     exits = [(leaves(x, subs), leaves(x, prods)) for x in complexes]
-    n = length(Mechanisms.species(m))
+    n = length(m.nodes)
     parent = zeros(Int, n); offset = zeros(Int, n)
     turnover(on) = Mechanisms.has_unbalanced_cycle(from, to, weight, on, parent, offset)
     meets(a::BitVector, b::BitVector) = any(k -> a[k] && b[k], eachindex(a))
@@ -434,9 +434,9 @@ end
 complex, forms `cx` of `base`, has two edges, both steady state and each alone in its
 group."""
 _lumping_twin(base::Mechanisms.Mechanism, cx::Vector{Int}, re::BitVector) = all(cx) do f
-    at = findall(k -> f in Mechanisms.ends(base, k), Mechanisms.steps(base))
+    at = findall(e -> f == e.from || f == e.to, base.steps)
     length(at) == 2 &&
-        all(k -> !re[k] && length(Mechanisms.members(base, Mechanisms.group(base, k))) == 1,
+        all(k -> !re[k] && count(e -> e.group == base.steps[k].group, base.steps) == 1,
             at)
 end
 
@@ -464,7 +464,7 @@ function _seed_variants(m::Mechanisms.Mechanism, rxn::Mechanisms.EnzymeReaction)
         _assert_atom_conserving(base, rxn)
         flips = _minimal_flips(_seed_candidate_screen(base), base)
         if i == 1
-            cx = _merged_complexes(base, Mechanisms.substrates(base))
+            cx = _merged_complexes(base, base.substrates)
             filter!(re -> !_lumping_twin(base, cx, re), flips)
         end
         append!(variants, [Mechanisms.with_flags(base, re) for re in flips])
@@ -596,17 +596,14 @@ end
 a `Mechanism`)."""
 _bound_allo_regs(::Mechanisms.Mechanism) = Set{Symbol}()
 _bound_allo_regs(am::Mechanisms.AllostericMechanism) =
-    Set{Symbol}(lig for site in Mechanisms.regulatory_sites(am)
-                for lig in Mechanisms.ligands(site))
+    Set{Symbol}(lig for site in am.regulatory_sites
+                for lig in site.ligands)
 
-"""Names of the competitive inhibitors some step of `m` takes up as a modifier
-(`modifier_copies`)."""
+"""Names of the competitive inhibitors some step of `m` takes up as a modifier."""
 function _bound_comp_inhibitors(m::Union{Mechanisms.Mechanism,
                                           Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
-    Set{Symbol}(n for k in Mechanisms.steps(cm)
-                for n in Mechanisms.metabolite_names(
-                    Mechanisms.modifier_copies(Mechanisms.taken_up(cm, k))))
+    Set{Symbol}(x.name for e in cm.steps for x in e.taken_up if x.modifier)
 end
 
 """
@@ -619,10 +616,10 @@ optional regulator bound, and reg-type-respecting.
 function _is_seed_node(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
                        rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
                        required_comp::Set{Symbol})
-    m isa Mechanisms.AllostericMechanism && (:NonequalAI in Mechanisms.mwc_tags(m) ||
-        any(site -> length(Mechanisms.ligands(site)) != 1 ||
-                    only(Mechanisms.mwc_tags(site)) == :NonequalAI,
-            Mechanisms.regulatory_sites(m))) && return false
+    m isa Mechanisms.AllostericMechanism && (:NonequalAI in m.mwc_tags ||
+        any(site -> length(site.ligands) != 1 ||
+                    only(site.mwc_tags) == :NonequalAI,
+            m.regulatory_sites)) && return false
     issubset(_bound_allo_regs(m), required_allo) || return false
     issubset(_bound_comp_inhibitors(m), required_comp) || return false
     _respects_reg_type(m, rxn) || return false
