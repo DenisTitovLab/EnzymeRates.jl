@@ -62,9 +62,8 @@ const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}(
         "s.name"]),
 )
 
-const _testhelper_MECHANISM_TYPES = (:Mechanism, :AllostericMechanism, :Form, :Edge, :Met,
-    :Metabolites, :RegulatorySite, :RawForm, :RawStep, :RawMechanism, :RawSite,
-    :RawAllostericMechanism)
+const _testhelper_MECHANISM_TYPES = (:Mechanism, :AllostericMechanism, :Met, :Metabolites,
+    :RegulatorySite, :RawForm, :RawStep, :RawMechanism, :RawSite, :RawAllostericMechanism)
 
 """Calls `visit(ex, line)` on every `Expr` below `ex`, children before parents; `line` is
 the source line of the statement holding `ex`."""
@@ -365,10 +364,12 @@ end
               Dict(:A => [:x, :y, :z], :B => [:w])
     end
     @testset "mechanism fields come from the struct definitions" begin
-        @test issubset([:substrates, :edges, :group, :bound, :from, :to, :consumed,
+        @test issubset([:substrates, :nodes, :group, :bound, :from, :to, :consumed,
             :released, :ligands, :multiplicity, :catalytic, :name, :modifier,
-            :steps, :sites, :regulatory_sites, :mwc_tags, :counts],
+            :steps, :sites, :regulatory_sites, :mwc_tags, :mets],
             _testhelper_MECHANISM_FIELDS)
+        # A node's and a step's own fields are not banned.
+        @test isdisjoint([:taken_up, :given_off], _testhelper_MECHANISM_FIELDS)
     end
 
     cleanly_layered = (

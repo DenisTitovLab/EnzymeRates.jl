@@ -5,75 +5,80 @@ using Statistics: median
 
 const ER = EnzymeRates
 
-"""The counts of `list`, table entries listed with repeats."""
-_testhelper_pack(list) = foldl((c, i) -> c + (ER.Mechanisms.Counts(1) << (4 * (i - 1))),
-                               list; init = ER.Mechanisms.Counts(0))
-
 """Uni-uni with rapid-equilibrium bindings, written field by field in canonical form:
-forms E, E(P), E(S); the bindings of P and S, then E(S) → E(P)."""
+nodes E, E(P), E(S); the bindings of P and S, then E(S) → E(P)."""
 function _testhelper_graph_uniuni()
-    P, S = _testhelper_pack([1]), _testhelper_pack([2])
+    M = ER.Mechanisms
+    P, S, none = [M.Met(:P, false)], [M.Met(:S, false)], M.Met[]
     ER.Mechanism(
         [:S], [:P],
-        [EnzymeRates.Mechanisms.Met(:P, false), EnzymeRates.Mechanisms.Met(:S, false)],
-        [:E],
-        [ER.Mechanisms.Form(1, 0, 0, 0), ER.Mechanisms.Form(1, P, 0, 0),
-         ER.Mechanisms.Form(1, S, 0, 0)],
-        [ER.Mechanisms.Edge(1, 2, P, 0, true), ER.Mechanisms.Edge(1, 3, S, 0, true),
-         ER.Mechanisms.Edge(3, 2, 0, 0, false)],
-        [1, 2, 3])
+        [M.Node(:E, none, Symbol[], Symbol[]), M.Node(:E, P, Symbol[], Symbol[]),
+         M.Node(:E, S, Symbol[], Symbol[])],
+        [M.Step(1, 2, P, none, true, 1), M.Step(1, 3, S, none, true, 2),
+         M.Step(3, 2, none, none, false, 3)])
 end
 
-@testset "packed counts list the table entries of a form or a step side" begin
-    c = _testhelper_pack([1, 1, 3])
-    @test (ER.Mechanisms.copies(c, 1), ER.Mechanisms.copies(c, 2),
-           ER.Mechanisms.copies(c, 3)) == (2, 0, 1)
-    @test ER.Mechanisms.total(c) == 3
-    @test ER.Mechanisms.entries(c) == [1, 1, 3]
-    @test ER.Mechanisms.entries(ER.Mechanisms.Counts(0)) == Int[] &&
-          ER.Mechanisms.total(ER.Mechanisms.Counts(0)) == 0
-    # The last of 32 entries, 15 copies: the top four bits.
-    top = ER.Mechanisms.Counts(15) << 124
-    @test ER.Mechanisms.copies(top, 32) == 15 && ER.Mechanisms.total(top) == 15 &&
-          ER.Mechanisms.entries(top) == fill(32, 15)
+"""The metabolites `A`, `B`, `C`, `D` (`Met`s, none a modifier), indexed 1 to 4."""
+const _testhelper_METS = [ER.Mechanisms.Met(x, false) for x in (:A, :B, :C, :D)]
+
+"""The sorted metabolite list holding `_testhelper_METS[i]` once for each `i` of
+`list`."""
+_testhelper_mets(list) = sort!([_testhelper_METS[i] for i in list])
+
+@testset "a metabolite list holds each metabolite as often as a form binds it" begin
+    s = ER.Mechanisms.Metabolites(_testhelper_mets([1, 1, 3]))
+    @test (ER.Mechanisms.copies(s, :A), ER.Mechanisms.copies(s, :B),
+           ER.Mechanisms.copies(s, :C)) == (2, 0, 1)
+    @test length(s) == 3
+    @test ER.Mechanisms.metabolite_names(s) == [:A, :A, :C]
+    none = ER.Mechanisms.Metabolites(ER.Mechanisms.Met[])
+    @test ER.Mechanisms.metabolite_names(none) == Symbol[] && length(none) == 0
+    # Fifteen copies of the last of 32 names, a count past any small field.
+    names = [Symbol("S", i) for i in 1:32]
+    top = ER.Mechanisms.Metabolites(fill(ER.Mechanisms.Met(names[32], false), 15))
+    @test ER.Mechanisms.copies(top, :S32) == 15 && length(top) == 15 &&
+          ER.Mechanisms.metabolite_names(top) == fill(:S32, 15)
 end
 
-@testset "entry lists order lexicographically, a list before every list it begins" begin
-    # Every list over four entries with at most two copies of each, against Julia's order
-    # of the listed entries; the packed numbers order differently ([1, 2] < [2], 17 > 16).
+@testset "metabolite lists order lexicographically, a list before the lists it begins" begin
+    # Every list over four metabolites with at most two copies of each: nodes that differ
+    # in their bound lists alone order as Julia orders the lists of metabolite indices.
     lists = [reduce(vcat, [fill(i, n[i]) for i in 1:4]; init = Int[])
              for n in Iterators.product(0:2, 0:2, 0:2, 0:2)]
-    @test all(ER.Mechanisms._seq_less(_testhelper_pack(a), _testhelper_pack(b)) ==
-                  isless(a, b) for a in lists,
-              b in lists)
-    @test _testhelper_pack([1, 2]) > _testhelper_pack([2])
+    node(list) = ER.Mechanisms.Node(:E, _testhelper_mets(list), Symbol[], Symbol[])
+    @test all(isless(node(a), node(b)) == isless(a, b) for a in lists, b in lists)
 end
 
-@testset "forms order by label, bound, added, subtracted; edges by ends, lists, flag" begin
-    A, B, AB = _testhelper_pack([1]), _testhelper_pack([2]), _testhelper_pack([1, 2])
-    @test ER.Mechanisms.Form(1, B, 0, 0) < ER.Mechanisms.Form(2, 0, 0, 0)
-    @test ER.Mechanisms.Form(1, AB, 0, 0) < ER.Mechanisms.Form(1, B, 0, 0)
-    @test ER.Mechanisms.Form(1, B, 0, 0) < ER.Mechanisms.Form(1, B, A, 0) <
-          ER.Mechanisms.Form(1, B, AB, 0)
-    @test ER.Mechanisms.Form(1, B, A, 0) < ER.Mechanisms.Form(1, B, A, B)
-    @test !(ER.Mechanisms.Form(1, B, A, B) < ER.Mechanisms.Form(1, B, A, B))
-    @test ER.Mechanisms.Edge(1, 3, 0, 0, false) < ER.Mechanisms.Edge(2, 1, 0, 0, false)
-    @test ER.Mechanisms.Edge(1, 2, 0, 0, false) < ER.Mechanisms.Edge(1, 3, 0, 0, false)
-    @test ER.Mechanisms.Edge(1, 2, AB, 0, true) < ER.Mechanisms.Edge(1, 2, B, 0, false)
-    @test ER.Mechanisms.Edge(1, 2, A, AB, true) < ER.Mechanisms.Edge(1, 2, A, B, false)
-    @test ER.Mechanisms.Edge(1, 2, A, 0, false) < ER.Mechanisms.Edge(1, 2, A, 0, true)
-    @test ER.Mechanisms._reversed(ER.Mechanisms.Edge(1, 2, A, B, true)) ==
-          ER.Mechanisms.Edge(2, 1, B, A, true)
+@testset "nodes order by label, bound, added, subtracted; steps by ends, lists, flag" begin
+    M = ER.Mechanisms
+    A, B, AB, none = _testhelper_mets([1]), _testhelper_mets([2]), _testhelper_mets([1, 2]),
+                     M.Met[]
+    node(c, bound, added = Symbol[], subtracted = Symbol[]) =
+        M.Node(c, bound, added, subtracted)
+    @test node(:E, B) < node(:F, none)
+    @test node(:E, AB) < node(:E, B)
+    @test node(:E, B) < node(:E, B, [:A]) < node(:E, B, [:A, :B])
+    @test node(:E, B, [:A]) < node(:E, B, [:A], [:B])
+    @test !(node(:E, B, [:A], [:B]) < node(:E, B, [:A], [:B]))
+    @test M.Step(1, 3, none, none, false, 1) < M.Step(2, 1, none, none, false, 1)
+    @test M.Step(1, 2, none, none, false, 1) < M.Step(1, 3, none, none, false, 1)
+    @test M.Step(1, 2, AB, none, true, 1) < M.Step(1, 2, B, none, false, 1)
+    @test M.Step(1, 2, A, AB, true, 1) < M.Step(1, 2, A, B, false, 1)
+    @test M.Step(1, 2, A, none, false, 1) < M.Step(1, 2, A, none, true, 1)
+    # The group takes no part in the order.
+    @test !(M.Step(1, 2, A, none, false, 1) < M.Step(1, 2, A, none, false, 2)) &&
+          !(M.Step(1, 2, A, none, false, 2) < M.Step(1, 2, A, none, false, 1))
+    @test M._reversed(M.Step(1, 2, A, B, true, 3)) == M.Step(2, 1, B, A, true, 3)
 end
 
 """Whether a value of type `T` hashes the same in every process: a symbol, an integer or
 a flag, a vector of such values, or one of the types whose hash folds its name and its
 fields (`_testhelper_hash_folds`), whose fields are such values in turn."""
 function _testhelper_hash_is_content(T)
-    T in (Symbol, Bool, Int, UInt128) && return true
+    T in (Symbol, Bool, Int) && return true
     T <: Vector && return _testhelper_hash_is_content(eltype(T))
     T in (EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.RegulatorySite,
-          ER.Mechanisms.Form, ER.Mechanisms.Edge, ER.Mechanism,
+          ER.Mechanisms.Node, ER.Mechanisms.Step, ER.Mechanism,
           ER.AllostericMechanism) || return false
     all(_testhelper_hash_is_content, fieldtypes(T))
 end
@@ -92,23 +97,27 @@ _testhelper_hash_folds(x, h) =
     site = EnzymeRates.Mechanisms.RegulatorySite([:R], 2, [:OnlyI])
     am = ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 2, [site])
     h = UInt(17)
-    for x in (m.forms[2], m.edges[3], m, am, m.table[1], site)
+    for x in (m.nodes[2], m.steps[3], m, am, m.nodes[2].bound[1], site)
         @test _testhelper_hash_folds(x, h)
     end
     @test all(
         _testhelper_hash_is_content,
-        (ER.Mechanisms.Form, ER.Mechanisms.Edge, ER.Mechanism, ER.AllostericMechanism))
+        (ER.Mechanisms.Node, ER.Mechanisms.Step, ER.Mechanism, ER.AllostericMechanism))
     # Each field takes part in `==` and `hash`.
     @test m == _testhelper_graph_uniuni() && hash(m) == hash(_testhelper_graph_uniuni())
     for f in fieldnames(ER.Mechanism)
         fields = Any[getfield(m, g) for g in fieldnames(ER.Mechanism)]
         i = findfirst(==(f), fieldnames(ER.Mechanism))
-        fields[i] = f === :group ? [1, 3, 2] : f === :substrates ? [:A] :
-                    f === :products ? [:Q] : f === :conformations ? [:F] :
-                    f === :table ? reverse(m.table) : reverse(getfield(m, f))
+        fields[i] = f === :substrates ? [:A] : f === :products ? [:Q] :
+                    reverse(getfield(m, f))
         other = ER.Mechanism(fields...)
         @test other != m && hash(other) != hash(m)
     end
+    # The steps' groups take part too.
+    regrouped = ER.Mechanism(m.substrates, m.products, m.nodes,
+        [ER.Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off, e.rapid_equilibrium, g)
+         for (e, g) in zip(m.steps, [1, 3, 2])])
+    @test regrouped != m && hash(regrouped) != hash(m)
     @test am == ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 2, [site])
     @test am != ER.AllostericMechanism(m, [:EqualAI, :OnlyA, :OnlyA], 2, [site])
     @test am != ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 4, [site])
@@ -117,13 +126,12 @@ _testhelper_hash_folds(x, h) =
 end
 
 @testset "a mechanism's fields are its graph and nothing else" begin
-    # No reaction and no cache: the names, the table, the forms, the edges and their
-    # groups, and for an allosteric mechanism its tags, multiplicity and sites.
-    @test fieldnames(ER.Mechanism) ==
-          (:substrates, :products, :table, :conformations, :forms, :edges, :group)
-    @test fieldnames(ER.Mechanisms.Form) == (:conformation, :bound, :added, :subtracted)
-    @test fieldnames(ER.Mechanisms.Edge) ==
-          (:from, :to, :consumed, :released, :rapid_equilibrium)
+    # No reaction and no cache: the names, the nodes and the steps with their groups, and
+    # for an allosteric mechanism its tags, multiplicity and sites.
+    @test fieldnames(ER.Mechanism) == (:substrates, :products, :nodes, :steps)
+    @test fieldnames(ER.Mechanisms.Node) == (:conformation, :bound, :added, :subtracted)
+    @test fieldnames(ER.Mechanisms.Step) ==
+          (:from, :to, :taken_up, :given_off, :rapid_equilibrium, :group)
     @test fieldnames(ER.AllostericMechanism) ==
           (:catalytic, :mwc_tags, :catalytic_multiplicity, :regulatory_sites)
 end
@@ -274,8 +282,9 @@ end
             (E ⇌ F, F ⇌ G, G ⇌ E)
         end
     end), false))
-    @test c.misaligned ==
-          [ER.Mechanisms.Edge(1, 4, 0, 0, true), ER.Mechanisms.Edge(4, 5, 0, 0, true)]
+    none = EnzymeRates.Mechanisms.Met[]
+    @test c.misaligned == [ER.Mechanisms.Step(1, 4, none, none, true, 4),
+                           ER.Mechanisms.Step(4, 5, none, none, true, 4)]
 end
 
 """Bindings of each name of `names` to free E, at rapid equilibrium."""
@@ -285,16 +294,15 @@ _testhelper_bindings(names) = [EnzymeRates.Mechanisms.RawStep(
     [EnzymeRates.Mechanisms.Met(x, false)], EnzymeRates.Mechanisms.Met[], true)
                                for x in names]
 
-@testset "a graph holds at most 32 table entries and 15 copies of one entry" begin
+@testset "a graph holds any number of metabolites and of copies of one" begin
     names = [Symbol("S", i) for i in 1:32]
     _testhelper_raw(n) = EnzymeRates.Mechanisms.RawMechanism(
         names[1:(n - 1)], [:P], Symbol[], _testhelper_bindings([names[1:(n - 1)]; :P]),
         collect(1:n))
-    @test length(ER.Mechanisms._canonicalize(_testhelper_raw(32)).mechanism.table) == 32
-    @test_throws(ErrorException("Mechanism: a mechanism holds at most 32 metabolite " *
-                                "entries (a name and its modifier copy count apart); " *
-                                "this one has 33"),
-                 ER.Mechanisms._canonicalize(_testhelper_raw(33)))
+    _testhelper_entries(raw) =
+        length(ER.Mechanisms._table(ER.Mechanisms._canonicalize(raw).mechanism))
+    @test _testhelper_entries(_testhelper_raw(32)) == 32
+    @test _testhelper_entries(_testhelper_raw(33)) == 33
     # A reactant and its modifier copy are two entries.
     _testhelper_copy_of(x) = EnzymeRates.Mechanisms.RawStep(
         EnzymeRates.Mechanisms.RawForm(:E, EnzymeRates.Mechanisms.Met[]),
@@ -304,10 +312,7 @@ _testhelper_bindings(names) = [EnzymeRates.Mechanisms.RawStep(
                                                [_testhelper_bindings([names[1:16]; :P]);
                                                 _testhelper_copy_of.(names[1:16])],
                                                collect(1:33))
-    @test_throws(ErrorException("Mechanism: a mechanism holds at most 32 metabolite " *
-                                "entries (a name and its modifier copy count apart); " *
-                                "this one has 33"),
-                 ER.Mechanisms._canonicalize(both))
+    @test _testhelper_entries(both) == 33
     _testhelper_holding(n) = EnzymeRates.Mechanisms.RawMechanism(
         [:A], [:P], Symbol[],
         [EnzymeRates.Mechanisms.RawStep(
@@ -315,13 +320,10 @@ _testhelper_bindings(names) = [EnzymeRates.Mechanisms.RawStep(
          EnzymeRates.Mechanisms.RawForm(:F, fill(EnzymeRates.Mechanisms.Met(:A, false), n)),
          EnzymeRates.Mechanisms.Met[], EnzymeRates.Mechanisms.Met[], false)],
         [1])
-    @test ER.Mechanisms.copies(
-        ER.Mechanisms._canonicalize(_testhelper_holding(15)).mechanism.forms[1].bound, 1) ==
-          15
-    @test_throws(ErrorException("Mechanism: a form or a step side holds A more than 15 " *
-                                "times; a mechanism holds at most 15 copies of one " *
-                                "metabolite there"),
-                 ER.Mechanisms._canonicalize(_testhelper_holding(16)))
+    for n in (15, 16)
+        m = ER.Mechanisms._canonicalize(_testhelper_holding(n)).mechanism
+        @test ER.Mechanisms.copies(ER.Mechanisms.bound(m, 1), :A) == n
+    end
 end
 
 """An allosteric `raw` written another way, the same mechanism: its catalytic steps
@@ -367,9 +369,14 @@ _testhelper_walk(block; allosteric = false) =
 end
 
 """Whether `m` stores each of its vectors at its length: `m` takes the memory of the
-value rebuilt from a copy of each vector, which `copy` stores at its length."""
+value rebuilt from a copy of each vector, its nodes' and steps' lists included, which
+`copy` stores at its length."""
 _testhelper_stored_at_length(m::ER.Mechanism) = Base.summarysize(m) == Base.summarysize(
-    ER.Mechanism((copy(getfield(m, f)) for f in fieldnames(ER.Mechanism))...))
+    ER.Mechanism(copy(m.substrates), copy(m.products),
+                 [ER.Mechanisms.Node(n.conformation, copy(n.bound), copy(n.added),
+                                     copy(n.subtracted)) for n in m.nodes],
+                 [ER.Mechanisms.Step(e.from, e.to, copy(e.taken_up), copy(e.given_off),
+                                     e.rapid_equilibrium, e.group) for e in m.steps]))
 _testhelper_stored_at_length(am::ER.AllostericMechanism) =
     _testhelper_stored_at_length(am.catalytic) && Base.summarysize(am) ==
     Base.summarysize(ER.AllostericMechanism(am.catalytic, copy(am.mwc_tags),
@@ -859,13 +866,13 @@ end
         end
     end)))
     # Forms in content order: a residual form binds nothing, so it follows free E.
-    @test [ER.Mechanisms._form_name(m, f) for f in eachindex(m.forms)] ==
+    @test [ER.Mechanisms._form_name(m, f) for f in eachindex(m.nodes)] ==
           ["E", "E_res_plusA_minusP", "EA", "EB_res_plusA_minusP", "EI", "EQ", "EQQmod"]
-    @test [ER.Mechanisms.form_text(m, f) for f in eachindex(m.forms)] ==
+    @test [ER.Mechanisms.form_text(m, f) for f in eachindex(m.nodes)] ==
           ["E", "E(; residual = A - P)", "E(A)", "E(B; residual = A - P)", "E(I)",
            "E(Q)", "E(Q, Q::Mod)"]
     # Each edge's sides in its stored direction: releases stored as bindings.
-    @test [join(ER.Mechanisms._sides(m, k), " → ") for k in eachindex(m.edges)] ==
+    @test [join(ER.Mechanisms._sides(m, k), " → ") for k in eachindex(m.steps)] ==
           ["E_A → EA", "E_I → EI", "E_Q → EQ", "E_res_plusA_minusP_P → EA",
            "E_res_plusA_minusP_B → EB_res_plusA_minusP", "EB_res_plusA_minusP → EQ",
            "EQ_Qmod → EQQmod"]
@@ -887,14 +894,14 @@ end
         end
     end)))
     names(forms) = [ER.Mechanisms._form_name(m, f) for f in forms]
-    @test names(eachindex(m.forms)) == ["E", "EP", "EPQ", "EQ", "ES"]
+    @test names(eachindex(m.nodes)) == ["E", "EP", "EPQ", "EQ", "ES"]
     # One edge per group, so the edges group by group are the edges in order.
     @test [_testhelper_edge_text(m, k) for k in ER.Mechanisms._flat_edges(m)] ==
           ["E + P <--> EP", "E + Q <--> EQ", "E + S ⇌ ES", "EP + Q ⇌ EPQ", "EQ + P ⇌ EPQ",
            "ES <--> EPQ"]
     @test ER.Mechanisms.rapid_equilibrium_steps(m) == BitVector([0, 0, 1, 1, 1, 0])
-    @test [ER.Mechanisms._is_free(f) for f in m.forms] == [true, false, false, false, false]
-    every = trues(length(m.edges))
+    @test [ER.Mechanisms._is_free(f) for f in m.nodes] == [true, false, false, false, false]
+    every = trues(length(m.steps))
     @test ER.Mechanisms.present_species(m, every) == trues(5)
     # Each segment breadth-first from its first form; offsets per metabolite name (rows
     # P, Q, S) above the segment's lowest.
@@ -962,16 +969,16 @@ end
             D <--> E
         end
     end)))
-    @test [ER.Mechanisms._form_name(m, f) for f in eachindex(m.forms)] ==
+    @test [ER.Mechanisms._form_name(m, f) for f in eachindex(m.nodes)] ==
           ["E", "D", "EA", "EP"]
     @test ER.Mechanisms._base_rank(m) == [2, 1, 3, 4]
     # P enters at D and A at E, so the isomerization runs from D (orientation tier 2).
-    texts = [_testhelper_edge_text(m, k) for k in eachindex(m.edges)]
+    texts = [_testhelper_edge_text(m, k) for k in eachindex(m.steps)]
     @test texts == ["E + A <--> EA", "D <--> E", "D + P <--> EP", "EA <--> EP"]
     # By base rank the edges from D come first.
     @test ER.Mechanisms._edge_base_rank(m) == [3, 1, 2, 4]
-    @test [ER.Mechanisms._is_iso(e) for e in m.edges] == [false, true, false, true]
-    @test [ER.Mechanisms._binds_product(m, e) for e in m.edges] ==
+    @test [ER.Mechanisms._is_iso(e) for e in m.steps] == [false, true, false, true]
+    @test [ER.Mechanisms._binds_product(m, e) for e in m.steps] ==
           [false, false, true, false]
 end
 
@@ -1000,12 +1007,11 @@ _testhelper_decode(::ER.AllostericMechanism, @nospecialize(sig)) =
         [EnzymeRates.Mechanisms.RegulatorySite([:X, :R], 2, [:OnlyA, :OnlyI])])
     aem = ER.AllostericEnzymeMechanism(am)
     @test ER.AllostericMechanism(aem) == am
-    # A name outside ASCII, and table entries past the sixteenth, whose counts fill the
-    # high half of a packed count: αKG sorts last, entry 32, the top four bits.
+    # A name outside ASCII, sorting last among 32 metabolite entries.
     names = [[Symbol("S", i) for i in 1:30]; :αKG]
     wide = ER.Mechanism(EnzymeRates.Mechanisms.RawMechanism(
         names, [:P], Symbol[], _testhelper_bindings([names; :P]), collect(1:32)))
-    @test wide.table[32] == EnzymeRates.Mechanisms.Met(:αKG, false)
+    @test ER.Mechanisms._table(wide)[32] == EnzymeRates.Mechanisms.Met(:αKG, false)
     @test _testhelper_decode(wide, ER.Mechanisms._sig_of(wide)) == wide
 end
 
@@ -1146,9 +1152,9 @@ function _testhelper_canonical_text(x)
              "$(join(m.products, ", "))" *
              (isempty(mods) ? "" : " | modifiers: $(join(mods, ", "))"),
              "forms: " *
-             join([ER.Mechanisms._form_name(m, f) for f in eachindex(m.forms)], ", ")]
-    for k in eachindex(m.edges)
-        g = m.group[k]
+             join([ER.Mechanisms._form_name(m, f) for f in eachindex(m.nodes)], ", ")]
+    for k in eachindex(m.steps)
+        g = m.steps[k].group
         push!(lines, "$k: $(_testhelper_edge_text(m, k)) | group $g" *
                      (allo ? " :: $(x.mwc_tags[g])" : ""))
     end
@@ -1196,12 +1202,12 @@ function _testhelper_subgraphs_agree(x)
         s = ER.Mechanisms.re_segments(m, mask, ER.Mechanisms.rapid_equilibrium_steps(m))
         segments, extras = _testhelper_re_segments(g, kept)
         present = findall(!=(0), s.segment_of)
-        names = unique!([e.name for e in m.table])
+        names = ER.Mechanisms._distinct_names(m)
         _testhelper_offsets(f) = Dict(names[n] => s.offsets[n, f]
                                       for n in eachindex(names) if s.offsets[n, f] > 0)
         s.segments == segments && [_testhelper_offsets(f) for f in present] == extras
     end
-    _testhelper_segments_agree(trues(length(m.edges)), trues(length(flat))) || return false
+    _testhelper_segments_agree(trues(length(m.steps)), trues(length(flat))) || return false
     x isa ER.AllostericMechanism || return true
     inactive = ER.Mechanisms.conformation_steps(x, :inactive)
     kept = _testhelper_inactive_reach(g)
@@ -1240,8 +1246,9 @@ let population = _testhelper_census_population(),
         end
     end))
     x = ER.Mechanism(raw)
-    @test x.conformations == [:D, :E] && x.forms[1:2] == [ER.Mechanisms.Form(2, 0, 0, 0),
-                                                          ER.Mechanisms.Form(1, 0, 0, 0)]
+    none = EnzymeRates.Mechanisms.Met[]
+    @test x.nodes[1:2] == [ER.Mechanisms.Node(:E, none, Symbol[], Symbol[]),
+                           ER.Mechanisms.Node(:D, none, Symbol[], Symbol[])]
     @test _testhelper_graph(x).forms[1:2] == ["E", "D"]
     # The census's first populations: each graph decodes from its Sig and builds again
     # from the raw input it writes back.
@@ -1372,6 +1379,58 @@ end
         end); allosteric = true)
         @test _testhelper_canonical_text(ER.AllostericMechanism(raw)) == allosteric_text
     end
+end
+
+"""Whether `x` survives its round trips: its printed text reads back as `x` and prints
+again as that text, two reads of the text hash alike, and `x` decodes from its compiled
+type as itself."""
+function _testhelper_round_trips(x)
+    text = sprint(show, x)
+    a, b = ER.DSL.parse_mechanism(text), ER.DSL.parse_mechanism(text)
+    a == x && sprint(show, a) == text && hash(a) == hash(b) == hash(x) &&
+        _testhelper_lift(ER.compile_mechanism(x)) == x
+end
+
+@testset "storage round trips" begin
+    # The specs, plain and allosteric, and the bi-bi init set, the enumeration golden set
+    # (`phase2_init_golden.txt`).
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+    end
+    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
+        @test _testhelper_round_trips(_testhelper_lift(spec.mechanism))
+    end
+    init = EnzymeRates.Enumeration.init_mechanisms(rxn)
+    @test length(init) == 239
+    @test isempty([i for (i, x) in enumerate(init) if !_testhelper_round_trips(x)])
+end
+
+@testset "nodes and steps are the storage" begin
+    m = ER.Mechanism(_testhelper_walk(:(begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)))
+    @test fieldnames(ER.Mechanism) == (:substrates, :products, :nodes, :steps)
+    @test length(m.nodes) == 3
+    @test m.nodes[1] == ER.Mechanisms.Node(:E, EnzymeRates.Mechanisms.Met[], Symbol[],
+                                           Symbol[])
+    # Nodes E, E(P), E(S); the release of P is stored as the binding it reverses, and
+    # sorts first.
+    @test [n.bound for n in m.nodes[2:3]] ==
+          [[EnzymeRates.Mechanisms.Met(:P, false)], [EnzymeRates.Mechanisms.Met(:S, false)]]
+    @test m.steps[1].taken_up == [EnzymeRates.Mechanisms.Met(:P, false)]
+    @test m.steps[2].taken_up == [EnzymeRates.Mechanisms.Met(:S, false)]
+    @test (m.steps[2].from, m.steps[2].to, m.steps[2].given_off) ==
+          (1, 3, EnzymeRates.Mechanisms.Met[])
+    @test m.steps[1].rapid_equilibrium && m.steps[2].rapid_equilibrium &&
+          !m.steps[3].rapid_equilibrium
+    @test [s.group for s in m.steps] == [1, 2, 3]
 end
 
 @testset "the constructor builds a spec's graph in under 20 µs, the median over specs" begin

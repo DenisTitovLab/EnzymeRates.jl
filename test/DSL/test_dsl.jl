@@ -47,16 +47,15 @@ _testhelper_role(x, t) = t.modifier ? :modifier : t.name in x.substrates ? :subs
 
 """Form `f` of graph `x` as the macros wrote it: its conformation label, and each bound
 metabolite's name with its role (`_testhelper_role`)."""
-_testhelper_form_roles(x, f) = (x.conformations[x.forms[f].conformation],
-    [(t.name, _testhelper_role(x, t))
-     for t in x.table[EnzymeRates.Mechanisms.entries(x.forms[f].bound)]])
+_testhelper_form_roles(x, f) = (x.nodes[f].conformation,
+    [(t.name, _testhelper_role(x, t)) for t in x.nodes[f].bound])
 
-"""Whether an edge of graph `x` binds metabolite entry `t`."""
+"""Whether a step of graph `x` binds metabolite entry `t`."""
 _testhelper_binds_entry(x, t) = e -> EnzymeRates.Mechanisms._is_binding(e) &&
-    x.table[EnzymeRates.Mechanisms._bound_entry(e)] == t
+    only(e.taken_up) == t
 
-"""The edge of graph `x` that binds metabolite entry `t`."""
-_testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edges))
+"""The step of graph `x` that binds metabolite entry `t`."""
+_testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.steps))
 
 @testset "DSL" begin
     @testset "DSL: call-form notation parses each form's label and bound metabolites" begin
@@ -89,7 +88,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         # canonicalizes iso direction physical-forward (substrate-bound
         # `from`, product-bound `to`) via `_orientation`, so E(S) is its
         # `from` form and E(P) its `to` form.
-        iso_step = only(filter(EnzymeRates.Mechanisms._is_iso, mech.edges))
+        iso_step = only(filter(EnzymeRates.Mechanisms._is_iso, mech.steps))
         @test _testhelper_form_roles(mech, iso_step.from) == (:E, [(:S, :substrate)])
         @test _testhelper_form_roles(mech, iso_step.to) == (:E, [(:P, :product)])
 
@@ -109,9 +108,8 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             end
         end
         mech_multi = EnzymeRates.Mechanism(m_multi)
-        eab = only(f for (f, x) in enumerate(mech_multi.forms)             # E(A, B)
-                   if Set(EnzymeRates.Mechanisms._entry_names(mech_multi, x.bound)) ==
-                      Set([:A, :B]))
+        eab = only(f for (f, x) in enumerate(mech_multi.nodes)             # E(A, B)
+                   if Set(y.name for y in x.bound) == Set([:A, :B]))
         @test _testhelper_form_roles(mech_multi, eab) ==
               (:E, [(:A, :substrate), (:B, :substrate)])
         # The modifier-only name I binds as a modifier.
@@ -154,7 +152,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             end
         end
         @test m_res isa EnzymeMechanism
-        @test length(EnzymeRates.Mechanism(m_res).edges) == 6
+        @test length(EnzymeRates.Mechanism(m_res).steps) == 6
 
         # Reject atom bracket syntax in substrates:
         @test_throws "expects bare names" eval(:(@enzyme_mechanism begin
@@ -1241,7 +1239,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
             end
         end
         @test m isa EnzymeMechanism
-        @test length(EnzymeRates.Mechanism(m).edges) == 2
+        @test length(EnzymeRates.Mechanism(m).steps) == 2
         @test Set(_testhelper_graph(m).forms) == Set(["E", "ES"])
         @test Set(metabolites(m)) == Set([:S, :P])
     end
@@ -1306,8 +1304,8 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         # it binds into.
         _testhelper_bound_roles(m) = (cm = EnzymeRates.Mechanisms.catalytic(m);
             Dict(EnzymeRates.Mechanisms._form_name(cm, e.to) =>
-                     _testhelper_role(cm, cm.table[EnzymeRates.Mechanisms._bound_entry(e)])
-                 for e in cm.edges if EnzymeRates.Mechanisms._is_binding(e)))
+                     _testhelper_role(cm, only(e.taken_up))
+                 for e in cm.steps if EnzymeRates.Mechanisms._is_binding(e)))
         # A substrate also declared a modifier binds as the substrate in a bare
         # catalytic step; `E(A::Mod)` writes its modifier form.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
@@ -1420,7 +1418,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.edge
         end)
         @test count(
             _testhelper_binds_entry(dual.catalytic, EnzymeRates.Mechanisms.Met(:R, true)),
-            dual.catalytic.edges) == 1
+            dual.catalytic.steps) == 1
         @test :R in EnzymeRates.Mechanisms.ligands(
             only(EnzymeRates.Mechanisms.regulatory_sites(dual)))
     end

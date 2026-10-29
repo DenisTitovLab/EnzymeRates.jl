@@ -39,7 +39,7 @@ end
         m = _testhelper_lift(spec.mechanism)
         m isa EnzymeRates.Mechanism || continue
         n_plain += 1
-        mask = trues(length(m.edges))
+        mask = trues(length(m.steps))
         @test EnzymeRates.Derivation.rate_equation_complexity(m, mask) ===
               Int(_testhelper_laplacian_tree_count(m, mask))
     end
@@ -285,7 +285,7 @@ end
     end)
     mask = BitVector([EnzymeRates.Mechanisms.step_text(m, k) in ("E + A <--> E(A)",
                                                                   "E(Q) + P <--> E(P, Q)")
-                      for k in eachindex(m.edges)])
+                      for k in eachindex(m.steps)])
     @test EnzymeRates.Derivation.rate_equation_complexity(m, mask) == 0
     msg = "internal error: the steady-state steps of this mechanism " *
           "do not join its rapid-equilibrium segments"
@@ -351,7 +351,7 @@ end
     end)
     bad = _testhelper_overflowing(EnzymeRates.Derivation._solve(mm))
     err = @test_throws ErrorException EnzymeRates.Derivation._law(mm, bad,
-                                                                  trues(length(mm.edges)))
+                                                                  trues(length(mm.steps)))
     @test startswith(err.value.msg, "internal error: the rate law of this mechanism " *
                                     "leaves Int64 arithmetic")
     @test endswith(err.value.msg, sprint(show, mm))
@@ -485,7 +485,7 @@ end
             cm = EnzymeRates.Mechanisms.catalytic(sub)
             onlyi =
                 Set(x for (k, ns) in enumerate(EnzymeRates.Derivation._edge_names(sub, :I))
-                    if EnzymeRates.Mechanisms.tag(sub, cm.group[k]) === :OnlyI
+                    if EnzymeRates.Mechanisms.tag(sub, cm.steps[k].group) === :OnlyI
                     for x in ns)
             held = Set(A.vars.names[v] for mo in keys(A.active.D.terms) for (v, _) in mo)
             @test !isempty(onlyi)

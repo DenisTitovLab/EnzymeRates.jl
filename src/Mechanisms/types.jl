@@ -507,85 +507,52 @@ end
 # ─── The reaction graph ───────────────────────────────────────────────
 
 """
-Copies of each metabolite-table entry, four bits per entry: entry `i` holds bits
-`4(i - 1)` to `4i - 1`. A mechanism therefore holds at most 32 table entries and at most
-15 copies of one entry on a form or a step side.
+    Node
+
+An enzyme form: its conformation label, the metabolites it binds, and its residual: the
+substrates it adds and the products it subtracts. Each list is sorted and holds a name as
+often as the form does.
 """
-const Counts = UInt128
-
-"""How many copies of table entry `i` `c` counts."""
-copies(c::Counts, i::Int) = Int((c >> (4 * (i - 1))) & 0xf)
-
-"""The number of copies `c` counts over every entry."""
-function total(c::Counts)
-    n = 0
-    while c != 0
-        n += Int(c & 0xf)
-        c >>= 4
-    end
-    n
-end
-
-"""The table entries `c` counts, ascending, each as often as counted."""
-function entries(c::Counts)
-    out = Int[]
-    i = 1
-    while c != 0
-        for _ in 1:Int(c & 0xf)
-            push!(out, i)
-        end
-        c >>= 4
-        i += 1
-    end
-    out
+struct Node
+    conformation::Symbol
+    bound::Vector{Met}
+    added::Vector{Symbol}
+    subtracted::Vector{Symbol}
 end
 
 """
-An enzyme form: its conformation label (an index into the mechanism's sorted
-`conformations`), the table entries it binds, and its residual: the substrates it adds
-and the products it subtracts.
-"""
-struct Form
-    conformation::Int
-    bound::Counts
-    added::Counts
-    subtracted::Counts
-end
+    Step
 
+A step between nodes `from` and `to` of its mechanism, stored in its physical-forward
+direction: going `from → to` it takes up `taken_up` and gives off `given_off`, each list
+sorted. `rapid_equilibrium` marks a rapid-equilibrium step, and `group` is the step's
+kinetic group.
 """
-A step between forms `from` and `to`, stored in its physical-forward direction: going
-`from → to` it takes up `consumed` and gives off `released`. `rapid_equilibrium` marks
-a rapid-equilibrium step.
-"""
-struct Edge
+struct Step
     from::Int
     to::Int
-    consumed::Counts
-    released::Counts
+    taken_up::Vector{Met}
+    given_off::Vector{Met}
     rapid_equilibrium::Bool
+    group::Int
 end
 
 """
     Mechanism
 
 A mechanism as its reaction graph, in canonical form: two writings of one mechanism give
-equal fields. `substrates`, `products` and `conformations` are sorted; `table` holds
-each metabolite entry once, sorted by (name, modifier), a reactant and its modifier copy
-being two entries; `forms` hold free E first, then the other forms in content order;
-`edges` run physical-forward, in content order; `group[k]` is edge `k`'s kinetic group,
-the groups numbered by their first edge. `Mechanism(raw::RawMechanism)` builds one and
-checks it; the field constructor checks nothing and serves canonical form and the Sig
-decoder. Lift it to its compiled type with `EnzymeRates.compile_mechanism(m)` or
-`EnzymeMechanism(m)`.
+equal fields. `substrates` and `products` are sorted; `nodes` hold free E first, then the
+other nodes in content order (`isless(::Node)`); `steps` run physical-forward, in content
+order (`isless(::Step)`), the kinetic groups numbered by their first step.
+`Mechanism(raw::RawMechanism)` builds one and checks it; the field constructor checks
+nothing and serves canonical form and the Sig decoder. Lift it to its compiled type with
+`EnzymeRates.compile_mechanism(m)` or `EnzymeMechanism(m)`.
 """
 struct Mechanism
     substrates::Vector{Symbol}
     products::Vector{Symbol}
-    table::Vector{Met}
-    conformations::Vector{Symbol}
-    forms::Vector{Form}
-    edges::Vector{Edge}
-    group::Vector{Int}
+    nodes::Vector{Node}
+    steps::Vector{Step}
 end
 
 """
@@ -643,43 +610,30 @@ struct AllostericEnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
 
 # ─── Content order ──────────────────────────────────────────────────────
 
-"""
-Whether the entries `a` counts, listed ascending with repeats, come before those of `b`
-in lexicographic order, a list coming before every longer list it begins. With the table
-sorted by (name, modifier), this is the order of the two metabolite lists by name, then
-by modifier.
-"""
-function _seq_less(a::Counts, b::Counts)
-    a == b && return false
-    i = trailing_zeros(a ⊻ b) >> 2           # first entry, from 0, whose copies differ
-    ca, cb = (a >> (4i)) & 0xf, (b >> (4i)) & 0xf
-    # Both lists go on with min(ca, cb) copies of entry i. The one with more copies goes
-    # on with entry i; the other goes on with a later entry, or ends.
-    ca > cb ? (b >> (4i + 4)) != 0 : (a >> (4i + 4)) == 0
+"""Nodes by label, then bound metabolites, residual additions and residual subtractions,
+each list in lexicographic order, a list coming before every longer list it begins."""
+function Base.isless(f::Node, g::Node)
+    f.conformation === g.conformation || return isless(f.conformation, g.conformation)
+    c = cmp(f.bound, g.bound)
+    c == 0 && (c = cmp(f.added, g.added))
+    c == 0 && (c = cmp(f.subtracted, g.subtracted))
+    c < 0
 end
 
-"""Forms by label, then bound entries, residual additions and residual subtractions,
-each entry list in lexicographic order (`_seq_less`)."""
-function Base.isless(f::Form, g::Form)
-    f.conformation != g.conformation && return f.conformation < g.conformation
-    f.bound != g.bound && return _seq_less(f.bound, g.bound)
-    f.added != g.added && return _seq_less(f.added, g.added)
-    _seq_less(f.subtracted, g.subtracted)
-end
-
-"""Edges by form indices, then consumed and released entries as lists (`_seq_less`), then
-the flag, steady state first. Tuples and `argmin` over edges compare by it, never by the
-packed numbers."""
-function Base.isless(e::Edge, f::Edge)
+"""Steps by node indices, then taken-up and given-off metabolites as lists (as
+`isless(::Node)` orders them), then the flag, steady state first; the group takes no part.
+Tuples and `argmin` over steps compare by it."""
+function Base.isless(e::Step, f::Step)
     e.from != f.from && return e.from < f.from
     e.to != f.to && return e.to < f.to
-    e.consumed != f.consumed && return _seq_less(e.consumed, f.consumed)
-    e.released != f.released && return _seq_less(e.released, f.released)
-    e.rapid_equilibrium < f.rapid_equilibrium
+    c = cmp(e.taken_up, f.taken_up)
+    c == 0 && (c = cmp(e.given_off, f.given_off))
+    c == 0 ? e.rapid_equilibrium < f.rapid_equilibrium : c < 0
 end
 
-"""`e` stored in the opposite direction: forms swapped, consumed and released swapped."""
-_reversed(e::Edge) = Edge(e.to, e.from, e.released, e.consumed, e.rapid_equilibrium)
+"""`e` stored in the opposite direction: nodes swapped, taken-up and given-off swapped."""
+_reversed(e::Step) =
+    Step(e.to, e.from, e.given_off, e.taken_up, e.rapid_equilibrium, e.group)
 
 # ─── Canonical form ─────────────────────────────────────────────────────
 
@@ -688,139 +642,94 @@ _reversed(e::Edge) = Edge(e.to, e.from, e.released, e.consumed, e.rapid_equilibr
         -> (; mechanism, edge_of, flipped, group_of, form_of, misaligned)
 
 The canonical `Mechanism` that `raw` writes, with no representation check. `edge_of[j]`
-is the edge written step `j` became, `flipped[j]` whether that edge runs against step
+is the step written step `j` became, `flipped[j]` whether that step runs against step
 `j` as written, `group_of[l]` the kinetic group written label `l` became,
-`form_of[2j - 1]` and `form_of[2j]` the forms step `j`'s two written ends became, and
+`form_of[2j - 1]` and `form_of[2j]` the nodes step `j`'s two written ends became, and
 `misaligned` the lead and member of a tied kinetic group that no orientation aligns, or
-no edge. Alignment stops at that group, so a result with a misaligned pair is not
-canonical. Errors only where no encoding exists: more than 32 table entries or more than
-15 copies of one entry on a form or a step side. The checked constructors build on it.
+no step. Alignment stops at that group, so a result with a misaligned pair is not
+canonical. The checked constructors build on it. The nodes and steps share the sorted
+lists of `raw`'s forms and steps, which the `RawForm` and `RawStep` constructors made.
 """
 function _canonicalize(raw::RawMechanism)
     substrates, products = sort(raw.substrates), sort(raw.products)
-    table = _metabolite_table(raw)
-    conformations = sort!(unique!([f.conformation for s in raw.steps
-                                   for f in (s.from, s.to)]))
     n = length(raw.steps)
-    ends = Vector{Form}(undef, 2n)
+    ends = Vector{Node}(undef, 2n)
     for (j, s) in enumerate(raw.steps)
-        ends[2j - 1] = _form(table, conformations, s.from)
-        ends[2j] = _form(table, conformations, s.to)
+        ends[2j - 1] = _node(s.from)
+        ends[2j] = _node(s.to)
     end
-    forms, form_of = _sorted_forms(ends, conformations)
-    written = [Edge(form_of[2j - 1], form_of[2j], _counts(table, s.consumed),
-                    _counts(table, s.released), s.rapid_equilibrium)
-               for (j, s) in enumerate(raw.steps)]
-    substrate_mask, product_mask = _role_masks(table, substrates)
-    fwd, misaligned = _orientation(forms, written, raw.group, substrate_mask, product_mask)
+    nodes, form_of = _sorted_nodes(ends)
+    written = [Step(form_of[2j - 1], form_of[2j], s.consumed, s.released,
+                    s.rapid_equilibrium, raw.group[j]) for (j, s) in enumerate(raw.steps)]
+    fwd, misaligned = _orientation(nodes, written, substrates)
     stored = [fwd[j] ? written[j] : _reversed(written[j]) for j in 1:n]
     p = sortperm(stored)
-    group, group_of = _number_groups(raw.group[p], maximum(raw.group; init = 0))
-    # A search keeps every mechanism it emits, so the table, the labels and the forms,
-    # each built in a vector grown past its length, are stored as copies at their length.
-    m = Mechanism(substrates, products, copy(table), copy(conformations), copy(forms),
-                  stored[p], group)
+    group, group_of = _number_groups([stored[i].group for i in p],
+                                     maximum(raw.group; init = 0))
+    steps = [Step(e.from, e.to, e.taken_up, e.given_off, e.rapid_equilibrium, group[k])
+             for (k, e) in enumerate(view(stored, p))]
+    m = Mechanism(substrates, products, nodes, steps)
     (; mechanism = m, edge_of = invperm(p), flipped = .!fwd, group_of, form_of,
      misaligned)
 end
 
-"""Every metabolite entry `raw` holds, sorted and once each: bound, consumed and released
-metabolites, and the residual names as non-modifier entries."""
-function _metabolite_table(raw::RawMechanism)
-    seen = Met[]
-    for s in raw.steps
-        append!(seen, s.consumed, s.released)
-        for f in (s.from, s.to)
-            append!(seen, f.bound)
-            foreach(x -> push!(seen, Met(x, false)), f.added)
-            foreach(x -> push!(seen, Met(x, false)), f.subtracted)
-        end
+"""Form `f` as a node, sharing its sorted lists."""
+_node(f::RawForm) = Node(f.conformation, f.bound, f.added, f.subtracted)
+
+"""The distinct nodes of `ends` in canonical order, free E (label `E`, nothing bound, no
+residual) first, and the index each end became. A search keeps every mechanism it
+emits, so the nodes, built in a vector grown past its length, are stored as a copy at
+its length."""
+function _sorted_nodes(ends::Vector{Node})
+    nodes, node_of = Node[], Vector{Int}(undef, length(ends))
+    for t in sortperm(ends; by = n -> (!_is_free_E(n), n))
+        (isempty(nodes) || nodes[end] != ends[t]) && push!(nodes, ends[t])
+        node_of[t] = length(nodes)
     end
-    table = unique!(sort!(seen))
-    length(table) <= 32 || error("Mechanism: a mechanism holds at most 32 metabolite " *
-        "entries (a name and its modifier copy count apart); this one has " *
-        "$(length(table))")
-    table
+    copy(nodes), node_of
 end
 
-"""The counts of `mets`, entries of the sorted `table`."""
-function _counts(table::Vector{Met}, mets)
-    c = Counts(0)
-    for x in mets
-        i = searchsortedfirst(table, x)
-        copies(c, i) == 15 && error("Mechanism: a form or a step side holds $(x.name) " *
-            "more than 15 times; a mechanism holds at most 15 copies of one metabolite " *
-            "there")
-        c += Counts(1) << (4 * (i - 1))
-    end
-    c
-end
-
-"""Form `f` as entries of the sorted `table` and `conformations`."""
-_form(table::Vector{Met}, conformations::Vector{Symbol}, f::RawForm) =
-    Form(searchsortedfirst(conformations, f.conformation), _counts(table, f.bound),
-         _counts(table, (Met(x, false) for x in f.added)),
-         _counts(table, (Met(x, false) for x in f.subtracted)))
-
-"""The distinct forms of `ends` in canonical order, free E (label `E`, nothing bound, no
-residual) first, and the index each end became."""
-function _sorted_forms(ends::Vector{Form}, conformations::Vector{Symbol})
-    free_E = Form(something(findfirst(==(:E), conformations), 0), 0, 0, 0)
-    forms, form_of = Form[], Vector{Int}(undef, length(ends))
-    for t in sortperm(ends; by = f -> (f != free_E, f))
-        (isempty(forms) || forms[end] != ends[t]) && push!(forms, ends[t])
-        form_of[t] = length(forms)
-    end
-    forms, form_of
-end
-
-"""Masks of the table's substrate entries and of its product entries; a modifier entry
-is in neither, so it counts on neither side of a reaction."""
-function _role_masks(table::Vector{Met}, substrates::Vector{Symbol})
-    substrate_mask = product_mask = Counts(0)
-    for (i, x) in enumerate(table)
+"""Canonical form's tier-1 side order: substrates, bound plus free, then fewer products.
+`free` lists the metabolites a step takes up or gives off at node `n`; a modifier counts on
+neither side, and every other name that is no substrate counts as a product."""
+function _side_score(n::Node, free::Vector{Met}, substrates::Vector{Symbol})
+    s = p = 0
+    for list in (n.bound, free), x in list
         x.modifier && continue
-        nibble = Counts(0xf) << (4 * (i - 1))
-        insorted(x.name, substrates) ? (substrate_mask |= nibble) :
-                                       (product_mask |= nibble)
+        x.name in substrates ? (s += 1) : (p += 1)
     end
-    substrate_mask, product_mask
+    (s, -p)
 end
-
-"""Canonical form's tier-1 side order: substrates, bound plus free, then fewer products."""
-_side_score(forms::Vector{Form}, f::Int, free::Counts, substrate_mask::Counts,
-            product_mask::Counts) =
-    (total(forms[f].bound & substrate_mask) + total(free & substrate_mask),
-     -total(forms[f].bound & product_mask) - total(free & product_mask))
 
 """
-    _orientation(forms, written, labels, substrate_mask, product_mask)
-        -> (fwd::BitVector, misaligned::Vector{Edge})
+    _orientation(nodes, written, substrates) -> (fwd::BitVector, misaligned::Vector{Step})
 
-Whether each written edge runs in its physical-forward direction. A step with one
+Whether each written step runs in its physical-forward direction. A step with one
 metabolite in all takes it up (tier 0). Otherwise the side holding more substrates,
 bound plus free, then fewer products, comes first (tier 1); otherwise the step runs from
-a form where only products enter or leave to one where only substrates do (tier 2);
-otherwise from the earlier form (tier 3). A modifier entry counts on neither side. Entry
-sides are read over every edge as written; reversing an edge swaps its ends and lists
+a node where only products enter or leave to one where only substrates do (tier 2);
+otherwise from the earlier node (tier 3). A modifier counts on neither side. Entry
+sides are read over every step as written; reversing a step swaps its ends and lists
 together, so they do not depend on any written direction. Tied groups then turn as one
 (`_align_tied_groups!`).
 """
-function _orientation(forms::Vector{Form}, written::Vector{Edge}, labels::Vector{Int},
-                      substrate_mask::Counts, product_mask::Counts)
-    side(c::Counts) = UInt8((c & substrate_mask != 0) + 2 * (c & product_mask != 0))
-    enters = zeros(UInt8, length(forms))
+function _orientation(nodes::Vector{Node}, written::Vector{Step},
+                      substrates::Vector{Symbol})
+    substrate(x::Met) = !x.modifier && x.name in substrates
+    product(x::Met) = !x.modifier && !(x.name in substrates)
+    side(list::Vector{Met}) = UInt8(any(substrate, list) + 2 * any(product, list))
+    enters = zeros(UInt8, length(nodes))
     for e in written
-        enters[e.from] |= side(e.consumed)
-        enters[e.to] |= side(e.released)
+        enters[e.from] |= side(e.taken_up)
+        enters[e.to] |= side(e.given_off)
     end
     n = length(written)
     fwd, tier = trues(n), zeros(Int, n)
     for (k, e) in enumerate(written)
-        a = _side_score(forms, e.from, e.consumed, substrate_mask, product_mask)
-        b = _side_score(forms, e.to, e.released, substrate_mask, product_mask)
-        if total(e.consumed) + total(e.released) == 1
-            fwd[k] = e.consumed != 0
+        a = _side_score(nodes[e.from], e.taken_up, substrates)
+        b = _side_score(nodes[e.to], e.given_off, substrates)
+        if length(e.taken_up) + length(e.given_off) == 1
+            fwd[k] = !isempty(e.taken_up)
         elseif a != b
             fwd[k], tier[k] = a > b, 1
         elseif (enters[e.from], enters[e.to]) in ((0x02, 0x01), (0x01, 0x02))
@@ -829,43 +738,43 @@ function _orientation(forms::Vector{Form}, written::Vector{Edge}, labels::Vector
             fwd[k], tier[k] = e.from < e.to, 3
         end
     end
-    misaligned = _align_tied_groups!(fwd, tier, forms, written, labels)
+    misaligned = _align_tied_groups!(fwd, tier, nodes, written)
     fwd, misaligned
 end
 
 """
-Turn the steps tiers 2 and 3 decide in each kinetic group (`labels`) with the group's
-lead: the tied step that changes conformation first, then by tier, then by its oriented
-edge. A group's steps share their constants, so a conformational change and its mirror
-at other bound forms must run the same way. Every other tied step that takes up and
-gives off the lead's metabolites takes the orientation that does, and, if it changes
-conformation, makes the lead's change; a step that fits both ways keeps its own. Returns
-the lead and the first step that fits the lead's metabolites but not its change, or no
-edge.
+Turn the steps tiers 2 and 3 decide in each kinetic group (each written step's `group`
+label) with the group's lead: the tied step that changes conformation first, then by
+tier, then by its oriented step. A group's steps share their constants, so a
+conformational change and its mirror at other bound nodes must run the same way. Every
+other tied step that takes up and gives off the lead's metabolites takes the orientation
+that does, and, if it changes conformation, makes the lead's change; a step that fits both
+ways keeps its own. Returns the lead and the first step that fits the lead's metabolites
+but not its change, or no step.
 """
-function _align_tied_groups!(fwd::BitVector, tier::Vector{Int}, forms::Vector{Form},
-                             written::Vector{Edge}, labels::Vector{Int})
-    label_pair(e::Edge) = (forms[e.from].conformation, forms[e.to].conformation)
-    turns(e::Edge) = label_pair(e)[1] != label_pair(e)[2]
+function _align_tied_groups!(fwd::BitVector, tier::Vector{Int}, nodes::Vector{Node},
+                             written::Vector{Step})
+    label_pair(e::Step) = (nodes[e.from].conformation, nodes[e.to].conformation)
+    turns(e::Step) = label_pair(e)[1] !== label_pair(e)[2]
     oriented(k::Int) = fwd[k] ? written[k] : _reversed(written[k])
-    for l in unique(labels)
-        tied = [k for k in eachindex(written) if labels[k] == l && tier[k] > 1]
+    for l in unique(e.group for e in written)
+        tied = [k for k in eachindex(written) if written[k].group == l && tier[k] > 1]
         length(tied) < 2 && continue
         lead = oriented(argmin(k -> (!turns(oriented(k)), tier[k], oriented(k)), tied))
         for k in tied
             o = oriented(k)
             same = [x for x in (o, _reversed(o))
-                    if (x.consumed, x.released) == (lead.consumed, lead.released)]
+                    if (x.taken_up, x.given_off) == (lead.taken_up, lead.given_off)]
             isempty(same) && continue
             i = findfirst(x -> !turns(x) || label_pair(x) == label_pair(lead), same)
             i === nothing && return [lead, same[1]]
             fwd[k] = same[i] == written[k]
         end
     end
-    Edge[]
+    Step[]
 end
 
-"""Group labels in edge order renumbered by first occurrence, and the number each
+"""Group labels in step order renumbered by first occurrence, and the number each
 written label took."""
 function _number_groups(labels::Vector{Int}, G::Int)
     group_of, group = zeros(Int, G), similar(labels)
@@ -936,18 +845,18 @@ function _check_tags(mwc_tags::Vector{Symbol}, G::Int, catalytic_multiplicity::I
 end
 
 """Error when a kinetic group of `catalytic` tagged `:OnlyI` (`mwc_tags`) holds a
-step that does more than take up or give off modifiers (`_modifier_mask`), or whose two
-forms differ in anything but their modifiers and label: only the active conformation
-catalyzes, so a group it lacks binds modifiers alone (spec section 7)."""
+step that does more than take up or give off modifiers, or whose two nodes differ in
+anything but their modifiers and label: only the active conformation catalyzes, so a
+group it lacks binds modifiers alone (spec section 7)."""
 function _check_onlyi_groups(catalytic::Mechanism, mwc_tags::Vector{Symbol})
-    modifiers = _modifier_mask(catalytic)
-    for (k, e) in enumerate(catalytic.edges)
-        mwc_tags[catalytic.group[k]] === :OnlyI || continue
-        exchanged = e.consumed | e.released
-        f, t = catalytic.forms[e.from], catalytic.forms[e.to]
-        exchanged != 0 && exchanged & ~modifiers == 0 &&
-            (f.bound & ~modifiers, f.added, f.subtracted) ==
-            (t.bound & ~modifiers, t.added, t.subtracted) && continue
+    reactants(list::Vector{Met}) = filter(x -> !x.modifier, list)
+    for (k, e) in enumerate(catalytic.steps)
+        mwc_tags[e.group] === :OnlyI || continue
+        f, t = catalytic.nodes[e.from], catalytic.nodes[e.to]
+        !_is_iso(e) && all(x -> x.modifier, e.taken_up) &&
+            all(x -> x.modifier, e.given_off) &&
+            (reactants(f.bound), f.added, f.subtracted) ==
+            (reactants(t.bound), t.added, t.subtracted) && continue
         error("AllostericMechanism: $(step_text(catalytic, k)) is tagged :OnlyI but " *
               "does more than bind a modifier. Only the active conformation " *
               "catalyzes, so :OnlyI fits only a group whose steps take up or give off " *
@@ -963,7 +872,7 @@ function _check_ligands(sites::Vector{RegulatorySite}, catalytic::Mechanism)
     ligs = Symbol[l for s in sites for l in s.ligands]
     _check_metabolite_names("AllostericMechanism", ligs)
     for l in ligs
-        insorted(l, catalytic.conformations) &&
+        any(n -> n.conformation === l, catalytic.nodes) &&
             label_collision_error(l, "AllostericMechanism", "ligand")
     end
     dup = findfirst(i -> ligs[i] in view(ligs, 1:(i - 1)), eachindex(ligs))
@@ -1006,21 +915,22 @@ Error unless the canonical mechanism `m` represents one: conformation labels sha
 labels (`check_conformation_label`), none a metabolite's name; every name declared (in
 `modifiers`, the declared modifiers, or among its substrates and products), a modifier
 entry only for a declared modifier and a plain entry only for a reactant, residuals that
-add substrates and subtract products; no step joining a form to itself, taking up and
-giving off one metabolite, or binding a metabolite into a form that holds it in another
+add substrates and subtract products; no step joining a node to itself, taking up and
+giving off one metabolite, or binding a metabolite into a node that holds it in another
 role; tied steps that make one conformational change (`misaligned`, from
-`_canonicalize`); no two forms that render one name; each kinetic group one kind of step
+`_canonicalize`); no two nodes that render one name; each kinetic group one kind of step
 with one flag; each reaction once; free E; one connected graph; and a step that
 exchanges each declared name, a modifier as a modifier.
 """
-function _check_representation(m::Mechanism, misaligned::Vector{Edge},
+function _check_representation(m::Mechanism, misaligned::Vector{Step},
                                modifiers::Vector{Symbol})
-    for c in m.conformations
+    table = _table(m)
+    for c in sort!(unique!([n.conformation for n in m.nodes]))
         check_conformation_label(c, "Mechanism")
-        any(x -> x.name === c, m.table) &&
+        any(x -> x.name === c, table) &&
             label_collision_error(c, "Mechanism", "declared metabolite")
     end
-    for x in m.table
+    for x in table
         _is_reactant(m, x.name) || x.name in modifiers ||
             error("Mechanism: $(x.name) is not declared; declare it under substrates:, " *
                   "products: or modifiers:")
@@ -1030,27 +940,27 @@ function _check_representation(m::Mechanism, misaligned::Vector{Edge},
         x.modifier || _is_reactant(m, x.name) ||
             error("Mechanism: $(x.name) is a modifier, so it binds only as a modifier")
     end
-    substrate_mask, product_mask = _role_masks(m)
-    for f in m.forms, (bad, verb) in ((f.added & product_mask, "adds"),
-                                      (f.subtracted & substrate_mask, "subtracts"))
-        bad == 0 ||
+    for n in m.nodes, (list, verb, wrong) in ((n.added, "adds", ∉(m.substrates)),
+                                              (n.subtracted, "subtracts", ∈(m.substrates)))
+        i = findfirst(wrong, list)
+        i === nothing ||
             error("Mechanism: a residual adds substrates and subtracts products; one " *
-                  "$verb $(m.table[first(entries(bad))].name)")
+                  "$verb $(list[i])")
     end
-    for e in m.edges
+    for e in m.steps
         e.from == e.to &&
             error("Step: both ends are the form $(_form_name(m, e.from)); a step joins " *
                   "two forms")
-        shared = _occupied(e.consumed) & _occupied(e.released)
-        shared == 0 ||
+        shared = unique!([x for x in e.taken_up if x in e.given_off])
+        isempty(shared) ||
             error("Step $(_form_name(m, e.from)) → $(_form_name(m, e.to)): " *
-                  "$(join(_entry_names(m, shared), ", ")) both " *
+                  "$(join([x.name for x in shared], ", ")) both " *
                   "consumed and released")
         _binds_by_name(m, e) && !_is_plain_binding(m, e) &&
             error("Step $(_form_name(m, e.from)) → $(_form_name(m, e.to)) changes a " *
                   "metabolite's role: $(_form_name(m, e.to)) holds " *
                   "$(_form_name(m, e.from))'s metabolites plus " *
-                  "$(m.table[_bound_entry(e)].name) by name, not by role; write a " *
+                  "$(only(e.taken_up).name) by name, not by role; write a " *
                   "modifier copy as X::Mod on both sides")
     end
     _check_aligned(m, misaligned)
@@ -1063,24 +973,23 @@ function _check_representation(m::Mechanism, misaligned::Vector{Edge},
     _check_declared_used(m, modifiers)
 end
 
-"""Error unless form 1 of `m` is free E: label `E`, nothing bound, no residual. Canonical
+"""Error unless node 1 of `m` is free E: label `E`, nothing bound, no residual. Canonical
 form puts free E first wherever a mechanism holds it."""
 function _check_free_E(m::Mechanism)
-    E = findfirst(==(:E), m.conformations)
-    E !== nothing && !isempty(m.forms) && m.forms[1] == Form(E, 0, 0, 0) ||
+    !isempty(m.nodes) && _is_free_E(m.nodes[1]) ||
         error("Mechanism: no free enzyme form E; every mechanism holds the free form E, " *
               "with nothing bound and no residual")
 end
 
-"""Error unless the edges of `m` join every form to free E, form 1: forms that never
+"""Error unless the steps of `m` join every node to free E, node 1: nodes that never
 meet free E split the enzyme between parts with no single steady state."""
 function _check_connected(m::Mechanism)
-    reached = falses(length(m.forms))
+    reached = falses(length(m.nodes))
     reached[1] = true
     grew = true
     while grew
         grew = false
-        for e in m.edges
+        for e in m.steps
             reached[e.from] == reached[e.to] && continue
             reached[e.from] = reached[e.to] = true
             grew = true
@@ -1096,9 +1005,7 @@ end
 product, and some step takes up or gives off each modifier `modifiers` declares as a
 modifier: a declared name that no step exchanges takes no part in the rate law."""
 function _check_declared_used(m::Mechanism, modifiers::Vector{Symbol})
-    exchanged = mapreduce(e -> _occupied(e.consumed) | _occupied(e.released), |, m.edges;
-                          init = Counts(0))
-    used(x::Met) = (i = _entry(m, x); i != 0 && copies(exchanged, i) > 0)
+    used(x::Met) = any(e -> x in e.taken_up || x in e.given_off, m.steps)
     for (names, kind) in ((m.substrates, "substrate"), (m.products, "product"))
         k = findfirst(n -> !used(Met(n, false)), names)
         k === nothing ||
@@ -1111,7 +1018,7 @@ end
 
 """Error unless `misaligned`, from `_canonicalize`, is empty: it holds the lead and a member
 of a tied kinetic group that no orientation aligns."""
-function _check_aligned(m::Mechanism, misaligned::Vector{Edge})
+function _check_aligned(m::Mechanism, misaligned::Vector{Step})
     isempty(misaligned) ||
         error("Mechanism: a kinetic group holds $(join(_sides(m, misaligned[1]), " → ")) " *
               "and $(join(_sides(m, misaligned[2]), " → ")), which make different " *
@@ -1120,18 +1027,11 @@ function _check_aligned(m::Mechanism, misaligned::Vector{Edge})
     nothing
 end
 
-"""A count of 1 for every entry `c` counts at least once."""
-function _occupied(c::Counts)
-    x = c | (c >> 1)
-    x |= x >> 2
-    x & Counts(0x11111111111111111111111111111111)
-end
-
-"""Error when two forms of `m` render one name: every constant is named after the forms
+"""Error when two nodes of `m` render one name: every constant is named after the nodes
 its step joins (`_form_name`)."""
 function _check_distinct_form_names(m::Mechanism)
     seen = Dict{String, Int}()
-    for f in eachindex(m.forms)
+    for f in eachindex(m.nodes)
         other = get!(seen, _form_name(m, f), f)
         other == f ||
             error("Mechanism: the enzyme forms $(form_text(m, other)) and " *
@@ -1141,16 +1041,16 @@ function _check_distinct_form_names(m::Mechanism)
     end
 end
 
-"""Error unless the edges of each kinetic group (`groups`) take up and give off the same
-entries and carry one flag: they share their constants."""
+"""Error unless the steps of each kinetic group (`groups`) take up and give off the same
+metabolites and carry one flag: they share their constants."""
 function _check_uniform_groups(m::Mechanism, groups::Vector{Vector{Int}})
-    label(e::Edge) = join(_sides(m, e), " → ") * (e.rapid_equilibrium ? " (RE)" : " (SS)")
+    label(e::Step) = join(_sides(m, e), " → ") * (e.rapid_equilibrium ? " (RE)" : " (SS)")
     for members in groups
-        e1 = m.edges[first(members)]
+        e1 = m.steps[first(members)]
         for k in members
-            e = m.edges[k]
-            (e.consumed, e.released, e.rapid_equilibrium) ==
-                (e1.consumed, e1.released, e1.rapid_equilibrium) && continue
+            e = m.steps[k]
+            (e.taken_up, e.given_off, e.rapid_equilibrium) ==
+                (e1.taken_up, e1.given_off, e1.rapid_equilibrium) && continue
             error("Mechanism: a kinetic group holds $(label(e1)) and $(label(e)), " *
                   "which differ in kind or in RE/SS; the steps of a kinetic group " *
                   "share their constants, so they must be the same kind of step " *
@@ -1159,22 +1059,22 @@ function _check_uniform_groups(m::Mechanism, groups::Vector{Vector{Int}})
     end
 end
 
-"""Error when one reaction, the unordered pair of an edge's two sides, appears in two
-edges: a reaction belongs to one kinetic group, whose constants are named after it, and
-one group holding it twice would count its edge twice. Reads the groups (`groups`) in
-order, each in edge order, and names the reaction as the edge seen first stores it."""
+"""Error when one reaction, the unordered pair of a step's two sides, appears in two
+steps: a reaction belongs to one kinetic group, whose constants are named after it, and
+one group holding it twice would count its step twice. Reads the groups (`groups`) in
+order, each in step order, and names the reaction as the step seen first stores it."""
 function _check_each_reaction_once(m::Mechanism, groups::Vector{Vector{Int}})
-    seen = Dict{NTuple{2, Tuple{Int, Counts}}, Tuple{Int, Int}}()
-    flag(e::Edge) = e.rapid_equilibrium ? "RE" : "SS"
+    seen = Dict{NTuple{2, Tuple{Int, Vector{Met}}}, Tuple{Int, Int}}()
+    flag(e::Step) = e.rapid_equilibrium ? "RE" : "SS"
     for (g, members) in enumerate(groups), k in members
-        e = m.edges[k]
-        key = minmax((e.from, e.consumed), (e.to, e.released))
+        e = m.steps[k]
+        key = minmax((e.from, e.taken_up), (e.to, e.given_off))
         if haskey(seen, key)
             g0, k0 = seen[key]
             text = join(_sides(m, k0), " ⇌ ")
             g0 == g && error("Mechanism: kinetic group $g holds the reaction $text " *
                              "twice; a mechanism holds each reaction once")
-            e0 = m.edges[k0]
+            e0 = m.steps[k0]
             flags = flag(e0) == flag(e) ? "" :
                 " ($(flag(e0)) in group $g0, $(flag(e)) in group $g)"
             error("Mechanism: kinetic groups $g0 and $g both hold the reaction " *
@@ -1187,18 +1087,17 @@ end
 
 # ─── Identity ───────────────────────────────────────────────────────────
 
-# `hash` by content for every value type, and `==` by content for those whose fields hold
-# vectors or structs, whose default `==` would compare identity: each field in declaration
-# order, seeded with the type's name. A struct's default hash mixes in its type's identity,
+# `==` and `hash` by content for every value type whose fields hold vectors or structs,
+# whose default `==` would compare identity: each field in declaration order, `hash`
+# seeded with the type's name. A struct's default hash mixes in its type's identity,
 # which changes between precompile sessions; a graph's hash and a raw value's read only
-# symbols, integers and flags, so every process agrees on them. An isbits type (`Form`,
-# `Edge`) keeps Julia's `==`, which compares its fields. `Met` keeps Julia's `==`, which
-# compares its two fields, and has its own `hash`.
+# symbols, integers and flags, so every process agrees on them. `Met` keeps Julia's `==`,
+# which compares its two fields, and has its own `hash`.
 for T in (RegulatorySite, Krapid, Kfor, Krev, Kreg, Reactant, Regulator,
           EnzymeReaction, RawForm, RawStep, RawMechanism, RawSite, RawAllostericMechanism,
-          Form, Edge, Mechanism, AllostericMechanism)
+          Node, Step, Mechanism, AllostericMechanism)
     fs = fieldnames(T)
-    isbitstype(T) || @eval Base.:(==)(a::$T, b::$T) =
+    @eval Base.:(==)(a::$T, b::$T) =
         $(reduce((l, r) -> :($l && $r), [:(a.$f == b.$f) for f in fs]))
     @eval Base.hash(x::$T, h::UInt) =
         $(foldl((acc, f) -> :(hash(x.$f, $acc)), fs;
@@ -1208,12 +1107,13 @@ end
 # ─── Sig ────────────────────────────────────────────────────────────────
 #
 # A mechanism's Sig, every entry an `Int`:
-#   plain       the numbers of substrates, products, table entries, conformation labels,
-#               forms and edges; the substrate and product names; each table entry's
-#               name and modifier flag; the conformation labels; each form (label,
-#               bound, added, subtracted); each edge (from, to, consumed, released,
-#               flag); each edge's group. A packed count takes two entries, high half
-#               first.
+#   plain       its names: their number, then each name, the sorted distinct names of its
+#               reactants, metabolites and conformation labels; the substrates and the
+#               products; the number of nodes, then each node (label, bound, added,
+#               subtracted); the number of steps, then each step (from, to, taken up,
+#               given off, flag, group). After the names, a name is its index among them,
+#               a list is its length followed by its entries, and a metabolite is its name
+#               followed by its modifier flag.
 #   name        its number of characters, then each character's code point.
 #   allosteric  the plain Sig of its catalytic mechanism; one tag code per group; the
 #               catalytic multiplicity; the number of sites, then per site its
@@ -1232,31 +1132,43 @@ function _sig_name!(out::Vector{Int}, s::Symbol)
     end
     out
 end
-_sig_counts!(out::Vector{Int}, c::Counts) = push!(out, (c >> 64) % Int, c % Int)
+
+"""The sorted distinct names of `m`: its reactants, its metabolite names and its
+conformation labels."""
+_sig_names(m::Mechanism) =
+    sort!(unique!([m.substrates; m.products; [x.name for x in _table(m)];
+                   [n.conformation for n in m.nodes]]))
 
 function _sig_mechanism!(out::Vector{Int}, m::Mechanism)
-    push!(out, length(m.substrates), length(m.products), length(m.table),
-          length(m.conformations), length(m.forms), length(m.edges))
-    foreach(s -> _sig_name!(out, s), m.substrates)
-    foreach(s -> _sig_name!(out, s), m.products)
-    for x in m.table
-        _sig_name!(out, x.name)
-        push!(out, x.modifier)
+    names = _sig_names(m)
+    push!(out, length(names))
+    foreach(s -> _sig_name!(out, s), names)
+    index(s::Symbol) = searchsortedfirst(names, s)
+    function symbols!(list::Vector{Symbol})
+        push!(out, length(list))
+        foreach(s -> push!(out, index(s)), list)
     end
-    foreach(s -> _sig_name!(out, s), m.conformations)
-    for f in m.forms
-        push!(out, f.conformation)
-        _sig_counts!(out, f.bound)
-        _sig_counts!(out, f.added)
-        _sig_counts!(out, f.subtracted)
+    function mets!(list::Vector{Met})
+        push!(out, length(list))
+        foreach(x -> push!(out, index(x.name), x.modifier), list)
     end
-    for e in m.edges
+    symbols!(m.substrates)
+    symbols!(m.products)
+    push!(out, length(m.nodes))
+    for n in m.nodes
+        push!(out, index(n.conformation))
+        mets!(n.bound)
+        symbols!(n.added)
+        symbols!(n.subtracted)
+    end
+    push!(out, length(m.steps))
+    for e in m.steps
         push!(out, e.from, e.to)
-        _sig_counts!(out, e.consumed)
-        _sig_counts!(out, e.released)
-        push!(out, e.rapid_equilibrium)
+        mets!(e.taken_up)
+        mets!(e.given_off)
+        push!(out, e.rapid_equilibrium, e.group)
     end
-    append!(out, m.group)
+    out
 end
 
 """`m` as one homogeneous integer tuple, the only type parameter of its compiled type."""
@@ -1285,25 +1197,17 @@ function _next_name!(r::_SigReader)
     n = _next!(r)
     Symbol(String([Char(_next!(r)) for _ in 1:n]))
 end
-function _next_counts!(r::_SigReader)
-    hi = _next!(r) % UInt64
-    lo = _next!(r) % UInt64
-    (Counts(hi) << 64) | Counts(lo)
-end
 
 function _read_mechanism!(r::_SigReader)
-    ns = _next!(r); np = _next!(r); nt = _next!(r)
-    nc = _next!(r); nf = _next!(r); ne = _next!(r)
-    substrates = [_next_name!(r) for _ in 1:ns]
-    products = [_next_name!(r) for _ in 1:np]
-    table = [Met(_next_name!(r), _next!(r) == 1) for _ in 1:nt]
-    conformations = [_next_name!(r) for _ in 1:nc]
-    forms = [Form(_next!(r), _next_counts!(r), _next_counts!(r), _next_counts!(r))
-             for _ in 1:nf]
-    edges = [Edge(_next!(r), _next!(r), _next_counts!(r), _next_counts!(r),
-                  _next!(r) == 1) for _ in 1:ne]
-    group = [_next!(r) for _ in 1:ne]
-    Mechanism(substrates, products, table, conformations, forms, edges, group)
+    names = [_next_name!(r) for _ in 1:_next!(r)]
+    symbols() = Symbol[names[_next!(r)] for _ in 1:_next!(r)]
+    mets() = Met[Met(names[_next!(r)], _next!(r) == 1) for _ in 1:_next!(r)]
+    substrates = symbols()
+    products = symbols()
+    nodes = [Node(names[_next!(r)], mets(), symbols(), symbols()) for _ in 1:_next!(r)]
+    steps = [Step(_next!(r), _next!(r), mets(), mets(), _next!(r) == 1, _next!(r))
+             for _ in 1:_next!(r)]
+    Mechanism(substrates, products, nodes, steps)
 end
 
 function _read_site!(r::_SigReader)
@@ -1365,8 +1269,35 @@ compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)
 
 substrates(m::Mechanism) = m.substrates
 products(m::Mechanism) = m.products
-"""Every name bound as a modifier, reactant copies included, sorted."""
-modifiers(m::Mechanism) = unique!([x.name for x in m.table if x.modifier])
+"""
+Every metabolite entry `m` holds, sorted by (name, modifier) and once each: the
+metabolites its nodes bind and its steps take up and give off, and its residual names as
+non-modifier entries. A reactant and its modifier copy are two entries.
+"""
+function _table(m::Mechanism)
+    table = Met[]
+    add(x::Met) = x in table || push!(table, x)
+    for n in m.nodes
+        foreach(add, n.bound)
+        foreach(x -> add(Met(x, false)), n.added)
+        foreach(x -> add(Met(x, false)), n.subtracted)
+    end
+    for e in m.steps
+        foreach(add, e.taken_up)
+        foreach(add, e.given_off)
+    end
+    sort!(table)
+end
+"""Every name bound as a modifier, reactant copies included, sorted. It reads the nodes and
+steps without building `_table`: the guard asks for it many times per mechanism."""
+function modifiers(m::Mechanism)
+    names = Symbol[]
+    add(list::Vector{Met}) =
+        foreach(x -> x.modifier && !(x.name in names) && push!(names, x.name), list)
+    foreach(n -> add(n.bound), m.nodes)
+    foreach(e -> (add(e.taken_up); add(e.given_off)), m.steps)
+    sort!(names)
+end
 # The concentration names in the order the rate law reads them: substrates, products,
 # then the modifier-only names, each by name; an allosteric mechanism appends each site's
 # ligands in site order, once each.
@@ -1374,17 +1305,8 @@ metabolites(m::Mechanism) = unique!([m.substrates; m.products; modifiers(m)])
 metabolites(am::AllostericMechanism) =
     unique!([metabolites(am.catalytic);
              [l for s in am.regulatory_sites for l in s.ligands]])
-"""The index of `x` in `m`'s table, or 0 when `m` holds no such entry."""
-function _entry(m::Mechanism, x::Met)
-    i = searchsortedfirst(m.table, x)
-    i <= length(m.table) && m.table[i] == x ? i : 0
-end
-"""The names of the table entries of `m` that `c` counts (`entries`), a copy by its
-reactant's name, in entry order, each as often as counted."""
-_entry_names(m::Mechanism, c::Counts) = Symbol[m.table[i].name for i in entries(c)]
 """Whether `x` names a substrate or a product of `m`."""
 _is_reactant(m::Mechanism, x::Symbol) = insorted(x, m.substrates) || insorted(x, m.products)
-_role_masks(m::Mechanism) = _role_masks(m.table, m.substrates)
 
 # An allosteric mechanism's names are its catalytic graph's, plus its site ligands.
 substrates(am::AllostericMechanism) = substrates(am.catalytic)
@@ -1402,47 +1324,60 @@ mwc_tags(am::AllostericMechanism) = am.mwc_tags
 catalytic_multiplicity(am::AllostericMechanism) = am.catalytic_multiplicity
 regulatory_sites(am::AllostericMechanism) = am.regulatory_sites
 """The number of kinetic groups of `m`."""
-ngroups(m::Mechanism) = maximum(m.group; init = 0)
-"""Each kinetic group's edges, in edge order."""
+ngroups(m::Mechanism) = maximum(e -> e.group, m.steps; init = 0)
+"""Each step's kinetic group, in step order."""
+_group_labels(m::Mechanism) = Int[e.group for e in m.steps]
+"""Each kinetic group's steps, in step order."""
 function _group_members(m::Mechanism)
     members = [Int[] for _ in 1:ngroups(m)]
-    for (k, g) in enumerate(m.group)
-        push!(members[g], k)
+    for (k, e) in enumerate(m.steps)
+        push!(members[e.group], k)
     end
     members
 end
-_has_residual(f::Form) = f.added != 0 || f.subtracted != 0
-_is_binding(e::Edge) = e.released == 0 && total(e.consumed) == 1
-"""Whether edge `e` takes up and gives off nothing: an isomerization."""
-_is_iso(e::Edge) = e.consumed == 0 && e.released == 0
-"""The entry a binding takes up; 0 for any other edge."""
-_bound_entry(e::Edge) = _is_binding(e) ? (trailing_zeros(e.consumed) >> 2) + 1 : 0
-"""The entry binding `e` takes up and the bound entries of its two forms; the entry is 0
-unless `e` is a binding whose two forms carry one residual."""
-function _binding_ends(m::Mechanism, e::Edge)
-    f, t = m.forms[e.from], m.forms[e.to]
-    i = (f.added, f.subtracted) == (t.added, t.subtracted) ? _bound_entry(e) : 0
-    i, f.bound, t.bound
+_has_residual(n::Node) = !isempty(n.added) || !isempty(n.subtracted)
+"""Whether step `e` takes up one metabolite and gives off none."""
+_is_binding(e::Step) = isempty(e.given_off) && length(e.taken_up) == 1
+"""Whether step `e` takes up and gives off nothing: an isomerization."""
+_is_iso(e::Step) = isempty(e.taken_up) && isempty(e.given_off)
+"""Whether binding `e` joins two nodes of `m` that carry one residual."""
+function _keeps_residual(m::Mechanism, e::Step)
+    f, t = m.nodes[e.from], m.nodes[e.to]
+    f.added == t.added && f.subtracted == t.subtracted
 end
-"""Whether binding `e` takes up its entry into a form that holds its source's entries plus
-that one, with the same residual; the label may change."""
-function _is_plain_binding(m::Mechanism, e::Edge)
-    i, f, t = _binding_ends(m, e)
-    i != 0 && copies(f, i) < 15 && t == f + (Counts(1) << (4 * (i - 1)))
+"""Whether the sorted list `t` is the sorted list `f` with one more `x`."""
+function _holds_one_more(t::Vector{Met}, f::Vector{Met}, x::Met)
+    length(t) == length(f) + 1 || return false
+    j, skipped = 1, false
+    for y in t
+        if j <= length(f) && y == f[j]
+            j += 1
+        elseif !skipped && y == x
+            skipped = true
+        else
+            return false
+        end
+    end
+    skipped
 end
-"""Whether binding `e` takes up its entry into a form that holds its source's metabolites
-plus that one by name, with the same residual: a plain binding, or one that binds a
-reactant where its modifier copy sits, or the reverse."""
-function _binds_by_name(m::Mechanism, e::Edge)
-    i, f, t = _binding_ends(m, e)
-    i == 0 && return false
-    _entry_names(m, t) == sort!(push!(_entry_names(m, f), m.table[i].name))
+"""Whether binding `e` takes up its metabolite into a node that holds its source's
+metabolites plus that one, with the same residual; the label may change."""
+_is_plain_binding(m::Mechanism, e::Step) =
+    _is_binding(e) && _keeps_residual(m, e) &&
+    _holds_one_more(m.nodes[e.to].bound, m.nodes[e.from].bound, only(e.taken_up))
+"""Whether binding `e` takes up its metabolite into a node that holds its source's
+metabolites plus that one by name, with the same residual: a plain binding, or one that
+binds a reactant where its modifier copy sits, or the reverse."""
+function _binds_by_name(m::Mechanism, e::Step)
+    _is_binding(e) && _keeps_residual(m, e) || return false
+    names(n::Int) = Symbol[x.name for x in m.nodes[n].bound]
+    names(e.to) == sort!(push!(names(e.from), only(e.taken_up).name))
 end
 """Whether `e` of `m` is anything but a plain binding (`_is_plain_binding`): an
 isomerization, a fused binding (`E(A) + B → E(P, Q)`), a Theorell–Chance step or a step
 with several metabolites on a side. The joint solve's priority (`_priority_key`) and the
 allosteric moves (`_chemistry_groups`) read it to tell catalysis from binding."""
-_is_chemistry(m::Mechanism, e::Edge) = !_is_plain_binding(m, e)
+_is_chemistry(m::Mechanism, e::Step) = !_is_plain_binding(m, e)
 """
     runs_toward_products(m, k) -> Bool
 
@@ -1454,75 +1389,54 @@ metabolite is stored as its uptake, so a half-reaction that releases a product,
 A step whose two sides tie, such as an isomerization of free forms, runs as stored.
 """
 function runs_toward_products(m::Mechanism, k::Int)
-    e = m.edges[k]
-    substrate_mask, product_mask = _role_masks(m)
-    _side_score(m.forms, e.from, e.consumed, substrate_mask, product_mask) >=
-        _side_score(m.forms, e.to, e.released, substrate_mask, product_mask)
+    e = m.steps[k]
+    _side_score(m.nodes[e.from], e.taken_up, m.substrates) >=
+        _side_score(m.nodes[e.to], e.given_off, m.substrates)
 end
-"""The edges group by group, each group in edge order: the order the joint solve and the
+"""The steps group by group, each group in step order: the order the joint solve and the
 derivation read them in."""
 _flat_edges(m::Mechanism) = reduce(vcat, _group_members(m); init = Int[])
-"""Whether `f` is a free form: nothing bound and no residual, whatever its label."""
-_is_free(f::Form) = f.bound == 0 && !_has_residual(f)
-"""The nibbles of the entries of `m` for which `pred` holds: a count of `m`'s entries
-meets this mask when it holds such an entry."""
-function _entry_mask(pred, m::Mechanism)
-    mask = Counts(0)
-    for (i, x) in enumerate(m.table)
-        pred(x) && (mask |= Counts(0xf) << (4 * (i - 1)))
-    end
-    mask
-end
-"""The nibbles of `m`'s modifier entries: a count of `m`'s entries meets this mask when it
-holds a modifier."""
-_modifier_mask(m::Mechanism) = _entry_mask(x -> x.modifier, m)
-"""Whether edge `e` of `m` binds a product: it takes up one product, not as a modifier."""
-_binds_product(m::Mechanism, e::Edge) =
-    (i = _bound_entry(e); i != 0 && !m.table[i].modifier &&
-                          insorted(m.table[i].name, m.products))
-"""Each form's position in content order (`isless(::Form)`: label, bound, added,
-subtracted): its index, except that free E moves behind the forms whose label sorts before
-`E` (a free form labelled D)."""
-_base_rank(m::Mechanism) = invperm(sortperm(m.forms))
-"""Each edge's position by the base ranks (`_base_rank`) of its two forms, then its
-consumed and released entries as lists: the content order of the joint solve's ties
+"""Whether `n` is a free node: nothing bound and no residual, whatever its label."""
+_is_free(n::Node) = isempty(n.bound) && !_has_residual(n)
+"""Whether `n` is free E: label `E`, nothing bound and no residual."""
+_is_free_E(n::Node) = n.conformation === :E && _is_free(n)
+"""Whether step `e` of `m` binds a product: it takes up one product, not as a modifier."""
+_binds_product(m::Mechanism, e::Step) =
+    _is_binding(e) && (x = only(e.taken_up); !x.modifier && insorted(x.name, m.products))
+"""Each node's position in content order (`isless(::Node)`: label, bound, added,
+subtracted): its index, except that free E moves behind the nodes whose label sorts before
+`E` (a free node labelled D)."""
+_base_rank(m::Mechanism) = invperm(sortperm(m.nodes))
+"""Each step's position by the base ranks (`_base_rank`) of its two nodes, then its
+taken-up and given-off metabolites as lists: the content order of the joint solve's ties
 (`_priority_key`)."""
 function _edge_base_rank(m::Mechanism)
     rank = _base_rank(m)
-    invperm(sortperm([Edge(rank[e.from], rank[e.to], e.consumed, e.released,
-                           e.rapid_equilibrium) for e in m.edges]))
+    invperm(sortperm([Step(rank[e.from], rank[e.to], e.taken_up, e.given_off,
+                           e.rapid_equilibrium, e.group) for e in m.steps]))
 end
 
-# Sub-graphs: a mask says which edges of a mechanism a sub-graph keeps, such as an
+# Sub-graphs: a mask says which steps of a mechanism a sub-graph keeps, such as an
 # allosteric mechanism's inactive conformation. Nothing here constructs a mechanism, so no
 # check meant for the mechanisms a user writes fires on a sub-graph.
 
 """
     present_species(m, on) -> BitVector
 
-The forms of `m` that the steps `on` keeps touch, one flag per form: a sub-graph's law,
+The nodes of `m` that the steps `on` keeps touch, one flag per node: a sub-graph's law,
 segments and network cover these.
 """
 function present_species(m::Mechanism, on::BitVector)
-    present = falses(length(m.forms))
-    for (k, e) in enumerate(m.edges)
+    present = falses(length(m.nodes))
+    for (k, e) in enumerate(m.steps)
         on[k] && (present[e.from] = present[e.to] = true)
     end
     present
 end
 
-"""Each table entry's metabolite name as a position among the distinct names of the table
-(`unique` of its names, in table order): a reactant and its modifier copy share one, as
-they share a concentration."""
-function _name_index(m::Mechanism)
-    index = Vector{Int}(undef, length(m.table))
-    n = 0
-    for (i, x) in enumerate(m.table)
-        (i > 1 && m.table[i - 1].name === x.name) || (n += 1)
-        index[i] = n
-    end
-    index
-end
+"""The distinct metabolite names of `m` (`_table`), sorted: a reactant and its modifier
+copy share one, as they share a concentration."""
+_distinct_names(m::Mechanism) = unique!([x.name for x in _table(m)])
 
 """
     segment_walk(present, out, to, change) -> (; segment_of, segments, offsets, parent,
@@ -1603,25 +1517,26 @@ mixing a substrate and a product (a mixed abortive complex, or the ping-pong `E`
 `E(; residual)` pair) is harmless: no turnover is possible at that corner.
 """
 function re_segments(m::Mechanism, on::BitVector, re::BitVector)
-    nf = length(m.forms)
-    name_of = _name_index(m)
-    nn = maximum(name_of; init = 0)
+    nf = length(m.nodes)
+    names = _distinct_names(m)
+    nn = length(names)
+    row(x::Met) = findfirst(n -> n === x.name, names)::Int
     # Each kept rapid-equilibrium step as two transitions, 2j - 1 in its stored direction
     # and 2j in reverse, each listed at the form it leaves.
     kept = [k for k in _flat_edges(m) if on[k] && re[k]]
     out, to = [Int[] for _ in 1:nf], zeros(Int, 2 * length(kept))
     change = zeros(Int, nn, 2 * length(kept))
     for (j, k) in enumerate(kept)
-        e = m.edges[k]
+        e = m.steps[k]
         t = 2j - 1
         to[t], to[t + 1] = e.to, e.from
         push!(out[e.from], t)
         push!(out[e.to], t + 1)
-        for i in entries(e.consumed)
-            change[name_of[i], t] += 1
+        for x in e.taken_up
+            change[row(x), t] += 1
         end
-        for i in entries(e.released)
-            change[name_of[i], t] -= 1
+        for x in e.given_off
+            change[row(x), t] -= 1
         end
         for n in 1:nn
             change[n, t + 1] = -change[n, t]
@@ -1637,9 +1552,9 @@ function re_segments(m::Mechanism, on::BitVector, re::BitVector)
     end
     # Whether each metabolite name is a product, and whether a substrate.
     products, substrates = falses(nn), falses(nn)
-    for (i, x) in enumerate(m.table)
-        products[name_of[i]] = insorted(x.name, m.products)
-        substrates[name_of[i]] = insorted(x.name, m.substrates)
+    for (n, x) in enumerate(names)
+        products[n] = insorted(x, m.products)
+        substrates[n] = insorted(x, m.substrates)
     end
     bottomless(segment, side) = length(segment) >= 2 &&
         all(f -> any(n -> side[n] && offsets[n, f] > 0, 1:nn), segment)
@@ -1656,7 +1571,7 @@ steady-state steps that join two segments, in step order.
 """
 function segment_graph(m::Mechanism, on::BitVector)
     s = re_segments(m, on, rapid_equilibrium_steps(m))
-    steps = [k for (k, e) in enumerate(m.edges)
+    steps = [k for (k, e) in enumerate(m.steps)
              if on[k] && !e.rapid_equilibrium && s.segment_of[e.from] != s.segment_of[e.to]]
     merge(s, (; steps))
 end
@@ -1699,15 +1614,12 @@ mechanism whose steps hold no turnover cycle, as its rate is zero everywhere; a 
 cycle of rapid-equilibrium steps makes the rate infinite (`_has_vmax`).
 """
 function has_turnover_cycle(m::Mechanism, on::BitVector)
-    # The metabolite-name index (`_name_index`) of the first substrate, whose net uptake
-    # is the rate.
-    name_of = _name_index(m)
-    x1 = name_of[searchsortedfirst(m.table, Met(m.substrates[1], false))]
-    uptake(c::Counts) =
-        sum((copies(c, i) for i in eachindex(m.table) if name_of[i] == x1); init = 0)
-    n = length(m.forms)
-    has_unbalanced_cycle([e.from for e in m.edges], [e.to for e in m.edges],
-                         [uptake(e.consumed) - uptake(e.released) for e in m.edges],
+    # The first substrate, whose net uptake, a modifier copy counting as it, is the rate.
+    s1 = m.substrates[1]
+    uptake(list::Vector{Met}) = count(x -> x.name === s1, list)
+    n = length(m.nodes)
+    has_unbalanced_cycle([e.from for e in m.steps], [e.to for e in m.steps],
+                         [uptake(e.taken_up) - uptake(e.given_off) for e in m.steps],
                          on, zeros(Int, n), zeros(Int, n))
 end
 
@@ -1725,7 +1637,7 @@ the one rule by which the steps, the regulator constants and the moves' ligand s
 read the tags.
 """
 excludes(am::AllostericMechanism, k::Int, c::Symbol) =
-    excludes(am.mwc_tags[am.catalytic.group[k]], c)
+    excludes(am.mwc_tags[am.catalytic.steps[k].group], c)
 excludes(::Mechanism, ::Int, c::Symbol) = (_conformation_index(c); false)
 excludes(tag::Symbol, c::Symbol) = tag === (_conformation_index(c) == 2 ? :OnlyA : :OnlyI)
 
@@ -1739,14 +1651,14 @@ arc from its unbound side's component to its bound side's (`_arcs`).
 """
 function exclusion_components(am::AllostericMechanism, c::Symbol)
     m = am.catalytic
-    parent = collect(eachindex(m.forms))
+    parent = collect(eachindex(m.nodes))
     top(i) = (while parent[i] != i; i = parent[i]; end; i)
-    for (k, e) in enumerate(m.edges)
+    for (k, e) in enumerate(m.steps)
         excludes(am, k, c) && continue
         a, b = top(e.from), top(e.to)
         a == b || (parent[max(a, b)] = min(a, b))
     end
-    [top(f) for f in eachindex(m.forms)]
+    [top(f) for f in eachindex(m.nodes)]
 end
 
 """
@@ -1769,10 +1681,10 @@ stopping test (`_stops_inactive_turnover`) and the hyperbolic test
 function conformation_steps(am::AllostericMechanism, c::Symbol)
     comp = exclusion_components(am, c)
     BitVector([!excludes(am, k, c) && comp[e.from] == 1
-               for (k, e) in enumerate(am.catalytic.edges)])
+               for (k, e) in enumerate(am.catalytic.steps)])
 end
 conformation_steps(m::Mechanism, c::Symbol) =
-    (_conformation_index(c) == 1 ? trues : falses)(length(m.edges))
+    (_conformation_index(c) == 1 ? trues : falses)(length(m.steps))
 
 """The index of conformation `c` that `excludes` reads: 1 for `:active`, 2 for
 `:inactive`."""

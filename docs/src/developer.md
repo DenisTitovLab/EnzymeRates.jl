@@ -60,9 +60,9 @@ module calls its own names bare.
 ### Accessors, views and writers
 
 Code outside `Mechanisms` reads a mechanism through accessors, never through its fields,
-so the storage stays hidden: the packed counts, the metabolite table's indices, the
-stored direction, the form numbering and the canonical order. Forms and steps are integer
-handles, and a set of steps is a `BitVector` over steps.
+so the storage stays hidden: the nodes and steps, the stored direction, the form
+numbering and the canonical order. Forms and steps are integer handles, and a set of steps
+is a `BitVector` over steps.
 
 | Layer | Accessors |
 |---|---|
@@ -97,8 +97,8 @@ package, and fails on:
 1. a name of another module, as `Mod.name` or imported by `using`, that the module's
    `API` list lacks;
 2. a module naming a module it may not depend on;
-3. a field of a mechanism type (`Mechanism`, `AllostericMechanism`, `Form`, `Edge`, `Met`,
-   `Metabolites`, `RegulatorySite` or a `Raw*` type) read outside `Mechanisms`;
+3. a field of a mechanism type (`Mechanism`, `AllostericMechanism`, `Met`, `Metabolites`,
+   `RegulatorySite` or a `Raw*` type) read outside `Mechanisms`;
 4. an underscore name in an `API` list or used across modules;
 5. an `export` in a module, which would let `using ..Mod` bring in bare names.
 
@@ -290,17 +290,16 @@ its base search tries.
 
 Mechanism enumeration uses the **concrete types** `Mechanism` and `AllostericMechanism`
 (`src/Mechanisms/types.jl`) — internal, not exported. A `Mechanism` is a reaction graph in
-canonical form: its sorted `substrates` and `products`; `table`, each metabolite entry its
-forms and steps hold, once, sorted by name and then by whether it binds as a modifier
-(`Met`), a reactant and its modifier copy being two entries; `conformations`, the sorted
-conformation labels; `forms` (`Form`: a label's index, and the entries it binds, adds and
-subtracts, each a packed count of table entries, `Counts`); `edges` (`Edge`: two form
-indices, the entries the step takes up and gives off, and its rapid-equilibrium flag); and
-`group[k]`, edge `k`'s kinetic group. It holds no reaction, and `==` and `hash` read its
-fields alone, alike in every process. An `AllostericMechanism` holds a catalytic
-`Mechanism`, one allosteric tag per kinetic group, the catalytic multiplicity and the
-regulatory sites. Only `Mechanisms` reads these fields; the other modules use its accessors
-(see [Accessors, views and writers](@ref)).
+canonical form: its sorted `substrates` and `products`; `nodes` (`Node`: an enzyme form's
+conformation label, the metabolites it binds, and the substrates it adds and the products
+it subtracts as its residual); and `steps` (`Step`: two node indices, the metabolites the
+step takes up and gives off, its rapid-equilibrium flag and its kinetic group). Each list
+of metabolites (`Met`: a name, and whether it binds as a modifier, so a reactant and its
+modifier copy are two metabolites) and of names is sorted. It holds no reaction, and `==`
+and `hash` read its fields alone, alike in every process. An `AllostericMechanism` holds
+a catalytic `Mechanism`, one allosteric tag per kinetic group, the catalytic multiplicity
+and the regulatory sites. Only `Mechanisms` reads these fields; the other modules use its
+accessors (see [Accessors, views and writers](@ref)).
 
 The macros, the parser and the moves that change flags, groups or steps write a mechanism as
 raw input (`RawMechanism` of `RawStep`s between `RawForm`s, and `RawAllostericMechanism`):
@@ -312,10 +311,10 @@ and the writers `with_flags(m, re)` and `regroup(m, groups, re)` rebuild a mecha
 the given flags or kinetic groups through it. The moves that tag a mechanism or change its
 regulatory sites compose the parent's catalytic graph with other tags or sites through the
 composition constructor, `AllostericMechanism(m, tags, multiplicity, sites)` (directly or by
-`with_tags`), which runs only its tag and site checks. Going `from → to`, an edge takes up
-the entries in `consumed` and gives off those in `released`. Steps are classified by these
-counts. A binding takes up exactly one metabolite and gives off none (`is_binding`). It is
-plain when its target form is its source form with that metabolite added, the residual
+`with_tags`), which runs only its tag and site checks. Going `from → to`, a step takes up
+the metabolites in `taken_up` and gives off those in `given_off`. Steps are classified by
+these lists. A binding takes up exactly one metabolite and gives off none (`is_binding`). It
+is plain when its target form is its source form with that metabolite added, the residual
 unchanged and the conformation free to change (`_is_plain_binding`), and fused otherwise, as
 when the last substrate binds straight into the product-bound form (`E(A) + B → E(P, Q)`).
 The constructor rejects a binding whose forms match a plain binding by name but not by role,

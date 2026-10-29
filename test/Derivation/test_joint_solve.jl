@@ -155,7 +155,7 @@ end
                 E + A::Mod ⇌ E(A::Mod)
             end
         end)
-        @test m.table ==
+        @test EnzymeRates.Mechanisms._table(m) ==
               [EnzymeRates.Mechanisms.Met(:A, false), EnzymeRates.Mechanisms.Met(:A, true),
                EnzymeRates.Mechanisms.Met(:P, false)]
     end
@@ -175,7 +175,7 @@ end
                 D <--> E
             end
         end)
-        iso = only(k for k in eachindex(m.edges)
+        iso = only(k for k in eachindex(m.steps)
                    if occursin("D", _testhelper_edge_text(m, k)))
         @test _testhelper_edge_text(m, iso) == "E <--> D"
         kf, kr = EnzymeRates.Mechanisms._edge_constants(m, iso, :None)
@@ -236,10 +236,10 @@ end
                for k in EnzymeRates.Mechanisms._flat_edges(m)] ==
               ["E <--> D", "ES <--> DS", "E + P <--> EP", "E + S <--> ES", "D + S <--> DS",
                "ES <--> EP"]
-        label(f) = m.conformations[m.forms[f].conformation]
+        label(f) = m.nodes[f].conformation
         tied =
             only(ks for ks in EnzymeRates.Mechanisms._group_members(m) if length(ks) == 2)
-        @test all(k -> label(m.edges[k].from) === :E && label(m.edges[k].to) === :D, tied)
+        @test all(k -> label(m.steps[k].from) === :E && label(m.steps[k].to) === :D, tied)
         # Written E <--> D and E(S) <--> D(S), the group is stored the same way.
         @test EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
@@ -322,7 +322,7 @@ end
             end
         end)
         kept = EnzymeRates.Mechanisms._kept_members(am)
-        group = am.catalytic.group
+        group = EnzymeRates.Mechanisms._group_labels(am.catalytic)
         g = only(g for (g, members) in enumerate(
             EnzymeRates.Mechanisms._group_members(am.catalytic)) if length(members) == 2)
         # Active: E(A) + I sorts before E(P) + I (A before P), so it is kept; inactive:
@@ -396,7 +396,8 @@ end
                 # In elimination order the last column of a class overwrites the earlier
                 # ones. The inactive copy of an :OnlyA step is a class of its own, which
                 # `_kept_members` leaves out.
-                group = EnzymeRates.Mechanisms.catalytic(mech).group
+                group = EnzymeRates.Mechanisms._group_labels(
+                    EnzymeRates.Mechanisms.catalytic(mech))
                 last_of_class = Dict{Tuple{Int, Int, Bool}, Int}()
                 for c in sys.columns
                     g = group[c.edge]
@@ -461,9 +462,9 @@ end
                 E(AB) ⇌ E + AB
             end
         end)
-        names = [EnzymeRates.Mechanisms._form_name(m, f) for f in eachindex(m.forms)]
+        names = [EnzymeRates.Mechanisms._form_name(m, f) for f in eachindex(m.nodes)]
         eac, eab = findfirst(==("EAC"), names), findfirst(==("EAB"), names)
-        @test isless(m.forms[eac], m.forms[eab]) && eac < eab
+        @test isless(m.nodes[eac], m.nodes[eab]) && eac < eab
         @test names[eac] > names[eab]
         # The solve's content tie ranks the graph's forms the same way (`_base_rank`).
         rank = EnzymeRates.Mechanisms._base_rank(m)
@@ -478,8 +479,8 @@ end
                                                     (EnzymeRates.Mechanism,))))
         @test isconcretetype(only(Base.return_types(EnzymeRates.Mechanisms._edge_base_rank,
                                                     (EnzymeRates.Mechanism,))))
-        @test isbitstype(EnzymeRates.Mechanisms.Form) &&
-              isbitstype(EnzymeRates.Mechanisms.Edge)
+        @test all(isconcretetype, fieldtypes(EnzymeRates.Mechanisms.Node)) &&
+              all(isconcretetype, fieldtypes(EnzymeRates.Mechanisms.Step))
     end
 end
 

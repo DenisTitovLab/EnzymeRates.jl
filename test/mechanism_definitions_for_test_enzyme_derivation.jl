@@ -143,9 +143,8 @@ function _testhelper_graph(m)
     in_law, in_active = EnzymeRates.Mechanisms.conformation_steps(mech, :inactive),
         EnzymeRates.Mechanisms.conformation_steps(mech, :active)
     steps = map(edges) do k
-        e, g = cm.edges[k], cm.group[k]
-        consumed = cm.table[EnzymeRates.Mechanisms.entries(e.consumed)]
-        released = cm.table[EnzymeRates.Mechanisms.entries(e.released)]
+        e = cm.steps[k]
+        g, consumed, released = e.group, e.taken_up, e.given_off
         shared = allo && tags[g] === :EqualAI
         (from = e.from, to = e.to,
          consumed = Symbol[x.name for x in consumed],
@@ -162,8 +161,8 @@ function _testhelper_graph(m)
               mwc_tags = copy(EnzymeRates.Mechanisms.mwc_tags(site)))
              for site in (allo ? EnzymeRates.Mechanisms.regulatory_sites(mech) :
                                  EnzymeRates.Mechanisms.RegulatorySite[])]
-    (forms = String[EnzymeRates.Mechanisms._form_name(cm, f) for f in eachindex(cm.forms)],
-     free = Bool[EnzymeRates.Mechanisms._is_free(f) for f in cm.forms], steps, tags,
+    (forms = String[EnzymeRates.Mechanisms._form_name(cm, f) for f in eachindex(cm.nodes)],
+     free = Bool[EnzymeRates.Mechanisms._is_free(f) for f in cm.nodes], steps, tags,
      inactive = Int[j for (j, k) in enumerate(edges) if in_law[k]],
      active = Int[j for (j, k) in enumerate(edges) if in_active[k]],
      catalytic_multiplicity = allo ?
@@ -375,17 +374,16 @@ edge takes up or gives off there (`_entry_label`, so a reactant's modifier copy 
 `Amod`): `"E + S ⇌ ES"`, `"EA + B <--> EQ + P"`, `"E + Amod ⇌ EAmod"`."""
 function _testhelper_edge_text(m, k::Int)
     g = EnzymeRates.Mechanisms.catalytic(_testhelper_lift(m))
-    e = g.edges[k]
-    labels(c) = [EnzymeRates.Mechanisms._entry_label(g, i)
-                 for i in EnzymeRates.Mechanisms.entries(c)]
-    side(f, c) = join([EnzymeRates.Mechanisms._form_name(g, f); labels(c)], " + ")
-    side(e.from, e.consumed) * (e.rapid_equilibrium ? " ⇌ " : " <--> ") *
-        side(e.to, e.released)
+    e = g.steps[k]
+    labels(list) = [EnzymeRates.Mechanisms._entry_label(g, x) for x in list]
+    side(f, list) = join([EnzymeRates.Mechanisms._form_name(g, f); labels(list)], " + ")
+    side(e.from, e.taken_up) * (e.rapid_equilibrium ? " ⇌ " : " <--> ") *
+        side(e.to, e.given_off)
 end
 
 """The edge of the catalytic graph of `m` whose text (`_testhelper_edge_text`) is `text`."""
 _testhelper_edge(m, text) =
-    only(k for k in eachindex(EnzymeRates.Mechanisms.catalytic(_testhelper_lift(m)).edges)
+    only(k for k in eachindex(EnzymeRates.Mechanisms.catalytic(_testhelper_lift(m)).steps)
          if _testhelper_edge_text(m, k) == text)
 
 """
@@ -493,8 +491,8 @@ function _testhelper_consistent_point(m, rng)
     # `_testhelper_conformation_steps` assigns.)
     cm = EnzymeRates.Mechanisms.catalytic(mech)
     flat = EnzymeRates.Mechanisms._flat_edges(cm)
-    K = ones(BigFloat, length(cm.edges), 2)
-    forward = ones(BigFloat, length(cm.edges), 2)
+    K = ones(BigFloat, length(cm.steps), 2)
+    forward = ones(BigFloat, length(cm.steps), 2)
     rates = Dict{Tuple{Int, Int}, BigFloat}()
     for c in 1:nconf, s in g.steps
         names = c == 1 || tag(s.group) === :EqualAI ? s.names : s.inactive_names
@@ -946,7 +944,7 @@ it also binds the catalytic site.
 """
 function _testhelper_faces(m)
     cm = EnzymeRates.Mechanisms.catalytic(_testhelper_lift(m))
-    mods = Set(x.name for x in cm.table
+    mods = Set(x.name for x in EnzymeRates.Mechanisms._table(cm)
                if x.modifier && !(x.name in cm.substrates || x.name in cm.products))
     base = [Set{Symbol}(), Set(cm.products), Set(cm.substrates)]
     length(cm.substrates) >= 2 && append!(base, [Set([x]) for x in cm.substrates])
@@ -972,7 +970,7 @@ catalytic graph: an `:OnlyA` group's edge in the inactive conformation, an `:Onl
 group's in the active one. A plain mechanism excludes nothing."""
 function _testhelper_excludes(m, k::Int, c::Int)
     m isa EnzymeRates.AllostericMechanism || return false
-    tag = EnzymeRates.Mechanisms.tag(m, m.catalytic.group[k])
+    tag = EnzymeRates.Mechanisms.tag(m, m.catalytic.steps[k].group)
     (c == 2 && tag === :OnlyA) || (c == 1 && tag === :OnlyI)
 end
 
@@ -1015,7 +1013,7 @@ end
 conformation, log-uniform over `10^±3`: a speed pattern of the RE-speed oracle."""
 _testhelper_draw_speeds(m, rng) =
     BigFloat[big(10)^(3 * (2 * big(rand(rng)) - 1))
-             for _ in EnzymeRates.Mechanisms.catalytic(_testhelper_lift(m)).edges, _ in 1:2]
+             for _ in EnzymeRates.Mechanisms.catalytic(_testhelper_lift(m)).steps, _ in 1:2]
 
 """
     _testhelper_network(m, point, concs; speeds, mode = :law, ε = 1, potentials, sigma,
@@ -1045,10 +1043,10 @@ function _testhelper_network(m, point, concs::AbstractDict; speeds::Matrix{BigFl
                              theta::Vector{BigFloat} = BigFloat[])
     mech = _testhelper_lift(m)
     cm = EnzymeRates.Mechanisms.catalytic(mech)
-    nf = length(cm.forms)
+    nf = length(cm.nodes)
     nc = mech isa EnzymeRates.AllostericMechanism ? 2 : 1
     x1 = first(cm.substrates)
-    met_names(c) = [cm.table[i].name for i in EnzymeRates.Mechanisms.entries(c)]
+    met_names(list) = [x.name for x in list]
     # The law keeps the forms in free E's component (`_testhelper_exclusion`, numbered by
     # first form); the ε-network keeps every form.
     keep = [mode === :law ? _testhelper_exclusion(mech, c).component .== 1 : trues(nf)
@@ -1056,7 +1054,7 @@ function _testhelper_network(m, point, concs::AbstractDict; speeds::Matrix{BigFl
     nodes = [(f, c) for c in 1:nc for f in 1:nf if keep[c][f]]
     id = Dict(node => n for (n, node) in enumerate(nodes))
     links = _testhelper_Link[]
-    for c in 1:nc, (k, e) in enumerate(cm.edges)
+    for c in 1:nc, (k, e) in enumerate(cm.steps)
         keep[c][e.from] && keep[c][e.to] || continue
         excluded = _testhelper_excludes(mech, k, c)
         mode === :law && excluded && continue
@@ -1073,9 +1071,9 @@ function _testhelper_network(m, point, concs::AbstractDict; speeds::Matrix{BigFl
                              false
             end
         end
-        w = count(==(x1), met_names(e.consumed)) - count(==(x1), met_names(e.released))
-        conc_in = prod((concs[x] for x in met_names(e.consumed)); init = big(1))
-        conc_out = prod((concs[x] for x in met_names(e.released)); init = big(1))
+        w = count(==(x1), met_names(e.taken_up)) - count(==(x1), met_names(e.given_off))
+        conc_in = prod((concs[x] for x in met_names(e.taken_up)); init = big(1))
+        conc_out = prod((concs[x] for x in met_names(e.given_off)); init = big(1))
         push!(links, _testhelper_Link(id[(e.from, c)], id[(e.to, c)], f * conc_in,
                                       r * conc_out, w, fast))
     end
@@ -1406,10 +1404,10 @@ E's does not reach along the arcs (islands).
 """
 function _testhelper_exclusion(am, c::Int)
     cm = EnzymeRates.Mechanisms.catalytic(am)
-    nf = length(cm.forms)
+    nf = length(cm.nodes)
     parent = collect(1:nf)
     root(i) = parent[i] == i ? i : root(parent[i])
-    for (k, e) in enumerate(cm.edges)
+    for (k, e) in enumerate(cm.steps)
         _testhelper_excludes(am, k, c) || (parent[root(e.from)] = root(e.to))
     end
     roots = [root(f) for f in 1:nf]
@@ -1417,7 +1415,7 @@ function _testhelper_exclusion(am, c::Int)
     component = [label[r] for r in roots]
     n = length(label)
     arcs = Tuple{Int, Int, Int}[(component[e.from], component[e.to], k)
-                                for (k, e) in enumerate(cm.edges)
+                                for (k, e) in enumerate(cm.steps)
                                 if _testhelper_excludes(am, k, c) &&
                                    EnzymeRates.Mechanisms._is_plain_binding(cm, e)]
     failure = any(a -> a[1] == a[2], arcs) ? :inside : :none
@@ -1447,7 +1445,7 @@ end
 
 """The excluding conformations of `am` with their exclusion structures, `[(c, ex)]`."""
 function _testhelper_excluding(am)
-    edges = eachindex(EnzymeRates.Mechanisms.catalytic(am).edges)
+    edges = eachindex(EnzymeRates.Mechanisms.catalytic(am).steps)
     [(c, _testhelper_exclusion(am, c)) for c in 1:2
      if any(k -> _testhelper_excludes(am, k, c), edges)]
 end
@@ -1472,7 +1470,7 @@ rapid-equilibrium binding. Each is `(; potentials, sigma, theta)`, `potentials[c
 potential of form `f` in conformation `c` (empty where `c` excludes nothing).
 """
 function _testhelper_standard_directions(am)
-    ne = length(EnzymeRates.Mechanisms.catalytic(am).edges)
+    ne = length(EnzymeRates.Mechanisms.catalytic(am).steps)
     directions = []
     for offset in (1, -1), σ in (big(0.5), big(1.0), big(2.0))
         potentials = [BigFloat[] for _ in 1:2]
@@ -1516,7 +1514,7 @@ function _testhelper_corner_directions(am, rng)
         append!(slots, [(:start, c, x) for x in 1:maximum(ex.component)
                         if x != ex.component[1] && !(x in entered)])
     end
-    for (k, e) in enumerate(cm.edges)
+    for (k, e) in enumerate(cm.steps)
         any(c -> _testhelper_excludes(am, k, c), 1:2) || continue
         if !EnzymeRates.Mechanisms._is_plain_binding(cm, e)
             push!(slots, (:sigma, k, 0))
@@ -1536,7 +1534,7 @@ function _testhelper_corner_directions(am, rng)
             φ = _testhelper_component_potentials(ex, start, rise)
             potentials[c] = [φ[x] for x in ex.component]
         end
-        edges = eachindex(cm.edges)
+        edges = eachindex(cm.steps)
         (; potentials,
          sigma = [high((:sigma, k, 0)) ? big(16.0) : big(0.125) for k in edges],
          theta = [high((:theta, k, 0)) ? big(1.0) : big(0.0) for k in edges])
@@ -1551,7 +1549,7 @@ that is |δ| for a plain binding and 2σ + |δ| for any other edge, whose expone
 function _testhelper_epsilon_span(am, d)
     cm = EnzymeRates.Mechanisms.catalytic(am)
     span = big(0.0)
-    for c in 1:2, (k, e) in enumerate(cm.edges)
+    for c in 1:2, (k, e) in enumerate(cm.steps)
         _testhelper_excludes(am, k, c) || continue
         rise = abs(d.potentials[c][e.to] - d.potentials[c][e.from])
         span += EnzymeRates.Mechanisms._is_plain_binding(cm, e) ? rise : 2 * d.sigma[k] +
@@ -1729,11 +1727,11 @@ scaling); any other excluded edge's exponent is free.
 """
 function _testhelper_lp_existence(am, c::Int)
     cm = EnzymeRates.Mechanisms.catalytic(am)
-    excluded = [k for k in eachindex(cm.edges) if _testhelper_excludes(am, k, c)]
+    excluded = [k for k in eachindex(cm.steps) if _testhelper_excludes(am, k, c)]
     plain =
-        [k for k in excluded if EnzymeRates.Mechanisms._is_plain_binding(cm, cm.edges[k])]
+        [k for k in excluded if EnzymeRates.Mechanisms._is_plain_binding(cm, cm.steps[k])]
     isempty(plain) && return true
-    rows = _testhelper_cycle_basis((forms = cm.forms, steps = cm.edges))
+    rows = _testhelper_cycle_basis((forms = cm.nodes, steps = cm.steps))
     isempty(rows) && return true
     Z = Rational{BigInt}.(permutedims(reduce(hcat, rows)))
     AP, AF = Z[:, plain], Z[:, setdiff(excluded, plain)]
@@ -1754,8 +1752,8 @@ function _testhelper_certified(am, c::Int)
     start = [x == ex.component[1] ? big(0.0) : big(1.0) for x in 1:maximum(ex.component)]
     φ = _testhelper_component_potentials(ex, start, ones(BigFloat, length(ex.arcs)))
     a = [_testhelper_excludes(am, k, c) ? φ[ex.component[e.to]] - φ[ex.component[e.from]] :
-         big(0.0) for (k, e) in enumerate(cm.edges)]
-    rows = _testhelper_cycle_basis((forms = cm.forms, steps = cm.edges))
+         big(0.0) for (k, e) in enumerate(cm.steps)]
+    rows = _testhelper_cycle_basis((forms = cm.nodes, steps = cm.steps))
     all(arc -> a[arc[3]] >= 1, ex.arcs) && all(z -> iszero(sum(z .* a)), rows)
 end
 

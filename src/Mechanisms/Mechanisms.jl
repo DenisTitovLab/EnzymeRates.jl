@@ -5,7 +5,7 @@ module Mechanisms
 import Unicode
 
 const API = (:AbstractEnzymeMechanism, :AllostericEnzymeMechanism, :AllostericMechanism,
-    :EnzymeMechanism, :EnzymeReaction, :Mechanism, :Met, :Metabolites,
+    :EnzymeMechanism, :EnzymeReaction, :Mechanism, :Met, :Metabolites, :Node,
     :RawAllostericMechanism, :RawForm, :RawMechanism, :RawSite, :RawStep, :Reactant,
     :Regulator, :RegulatorySite, :bound, :canonical_graph,
     :catalytic, :catalytic_multiplicity, :check_conformation_label,
@@ -16,8 +16,8 @@ const API = (:AbstractEnzymeMechanism, :AllostericEnzymeMechanism, :AllostericMe
     :metabolites, :modifier_copies, :modifiers, :multiplicity, :mwc_tags, :name, :ngroups,
     :present_species, :products, :rapid_equilibrium_steps, :re_segments, :regroup,
     :regulator_constant, :regulatory_sites, :residual, :runs_toward_products,
-    :segment_graph, :segment_walk, :species, :step_kind, :step_text, :steps, :substrates,
-    :tag, :taken_up, :with_flags, :with_tags)
+    :segment_graph, :segment_walk, :species, :Step, :step_kind, :step_text, :steps,
+    :substrates, :tag, :taken_up, :with_flags, :with_tags)
 
 include("types.jl")
 include("accessors.jl")

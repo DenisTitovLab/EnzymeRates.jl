@@ -582,9 +582,9 @@ through the checked constructor only when kept. The twins are the
 candidate's, not the parent's, though they are the same forms: the complexes are not
 productive, and their edges attach each complex to its site's segment and join no two
 segments, so every form of `m` keeps its segment and offsets; but the complexes sort in
-among `m`'s forms and the copy's table entry moves every later one, so `m`'s form and entry
-indices do not hold in the candidate. Only the new group is tested: `m` holds no redundant
-copy group (the parent rule), and in each of about 218,000 enumerated parents checked, the
+among `m`'s forms, so `m`'s form indices do not hold in the candidate. Only the new group
+is tested: `m` holds no redundant copy group (the parent rule), and in each of about
+218,000 enumerated parents checked, the
 placement made no older copy redundant (an empirical finding, not a proof). An allosteric
 child is built through the checked constructor, its copy's group tagged `:EqualAI`, with
 `m`'s multiplicity and regulatory sites, and runs `_redundant_copy_groups` only when every

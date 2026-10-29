@@ -932,8 +932,9 @@ end
     for m in plain
         flags = EnzymeRates.Mechanisms.rapid_equilibrium_steps(m)
         for re in [[flags];
-                   [flags .| (m.group .== g) for g in 1:EnzymeRates.Mechanisms.ngroups(m)];
-                   [trues(length(m.edges))]]
+                   [flags .| (EnzymeRates.Mechanisms._group_labels(m) .== g)
+                    for g in 1:EnzymeRates.Mechanisms.ngroups(m)];
+                   [trues(length(m.steps))]]
             net = EnzymeRates.Derivation._eps_network(m, re)
             turnover = !isempty(EnzymeRates.Derivation._re_turnover_transitions(net))
             @test turnover == EnzymeRates.Mechanisms.has_turnover_cycle(m, re)
@@ -1005,8 +1006,8 @@ end
     # A flip at the other free form gives another law: the law tells the flip form.
     m = eval(Meta.parse(_testhelper_iso_text(:uu_ss, (E_, E_, E_, N_))))
     am = EnzymeRates.AllostericMechanism(m)
-    eprime = only(f for f in 2:length(am.catalytic.forms)
-                  if EnzymeRates.Mechanisms._is_free(am.catalytic.forms[f]))
+    eprime = only(f for f in 2:length(am.catalytic.nodes)
+                  if EnzymeRates.Mechanisms._is_free(am.catalytic.nodes[f]))
     fitted = _testhelper_dependent_param_exprs(typeof(m))[2]
     rng = Random.MersenneTwister(201)
     for _ in 1:3
@@ -1024,15 +1025,15 @@ end
                                              extra = "D ⇌ E :: NonequalAI")))
     am = EnzymeRates.AllostericMechanism(m)
     cm = am.catalytic
-    d = only(f for f in 2:length(cm.forms)
-             if EnzymeRates.Mechanisms._is_free(cm.forms[f]) &&
-                cm.conformations[cm.forms[f].conformation] === :D)
-    kd = only(j for (j, e) in enumerate(cm.edges) if Set((e.from, e.to)) == Set((1, d)))
+    d = only(f for f in 2:length(cm.nodes)
+             if EnzymeRates.Mechanisms._is_free(cm.nodes[f]) &&
+                cm.nodes[f].conformation === :D)
+    kd = only(j for (j, e) in enumerate(cm.steps) if Set((e.from, e.to)) == Set((1, d)))
     fitted = _testhelper_dependent_param_exprs(typeof(m))[2]
     rng = Random.MersenneTwister(202)
     for _ in 1:3
         point, concs, params = _testhelper_law_inputs(am, fitted, rng)
-        ratio(c) = cm.edges[kd].from == d ? 1 / point.K[kd, c] : point.K[kd, c]
+        ratio(c) = cm.steps[kd].from == d ? 1 / point.K[kd, c] : point.K[kd, c]
         at_d = _testhelper_steady_state_rate(am, merge(point, (L = point.L * ratio(2) /
                                                                ratio(1),)),
                                              concs; flip = d)
@@ -1125,7 +1126,7 @@ end
     rxn = _testhelper_pingpong_census_rxn
     rng = Random.MersenneTwister(406)
     seeds = [m for m in EnzymeRates.Enumeration.init_mechanisms(rxn)
-             if any(EnzymeRates.Mechanisms._has_residual, m.forms)]
+             if any(EnzymeRates.Mechanisms._has_residual, m.nodes)]
     @test length(seeds) == 18
     nbases, n_moved, n_kids = Dict{Int, Int}(), 0, 0
     for m in seeds
@@ -1271,8 +1272,8 @@ end
 """60 children of `children` that bind I, spaced evenly through their content order
 (`_testhelper_content_text`); when fewer than 60 bind I, some repeat."""
 function _testhelper_i_binding_sample(children)
-    binds_i = unique!([c for c in children if any(
-        x -> x.name === :I, EnzymeRates.Mechanisms.catalytic(c).table)])
+    binds_i = unique!([c for c in children if any(x -> x.name === :I,
+        EnzymeRates.Mechanisms._table(EnzymeRates.Mechanisms.catalytic(c)))])
     sorted = binds_i[sortperm(_testhelper_content_text.(binds_i))]
     sorted[round.(Int, range(1, length(sorted); length = 60))]
 end
@@ -1550,7 +1551,7 @@ end
     # regression pins over the declaration's seed set (CLAUDE.md enumeration rule 1's
     # exception).
     rxn = _testhelper_phantom_pingpong_rxn
-    covalent(m) = any(EnzymeRates.Mechanisms._has_residual, m.forms)
+    covalent(m) = any(EnzymeRates.Mechanisms._has_residual, m.nodes)
     inits = filter(covalent, collect(EnzymeRates.Enumeration.init_mechanisms(rxn)))
     flips = [c for m in inits for c in EnzymeRates.Enumeration._expand_re_to_ss(m)
              if _testhelper_is_valid(c) && covalent(c)]

@@ -3,70 +3,68 @@
 
 # ─── Form names, step sides, and forms and steps as DSL text ───────────
 
-"""Whether entry `i` of `m` is a reactant's modifier copy (`A::Mod`); a modifier-only
-name has no copy, so its entry is not one."""
-_is_reactant_copy(m::Mechanism, i::Int) =
-    m.table[i].modifier && _is_reactant(m, m.table[i].name)
+"""Whether `x` is a reactant's modifier copy (`A::Mod`) in `m`; a modifier-only name has
+no copy, so it is not one."""
+_is_reactant_copy(m::Mechanism, x::Met) = x.modifier && _is_reactant(m, x.name)
 
-"""Entry `i` as names write it: its name, with `mod` on a reactant's modifier copy; a
+"""`x` as names write it: its name, with `mod` on a reactant's modifier copy; a
 modifier-only name stays bare."""
-_entry_label(m::Mechanism, i::Int) =
-    _is_reactant_copy(m, i) ? string(m.table[i].name, "mod") : String(m.table[i].name)
+_entry_label(m::Mechanism, x::Met) =
+    _is_reactant_copy(m, x) ? string(x.name, "mod") : String(x.name)
 
-"""Form `f`'s name: its label, its bound entries' labels in table order, then any
+"""Node `f`'s name: its label, its bound metabolites' labels in sorted order, then any
 residual as `_res`, `_plus<name>` per substrate it adds and `_minus<name>` per product it
 subtracts (`E`, `EAB`, `EPmodQ`, `EB_res_plusA_minusP`)."""
 function _form_name(m::Mechanism, f::Int)
-    x = m.forms[f]
+    x = m.nodes[f]
     io = IOBuffer()
-    print(io, m.conformations[x.conformation])
-    foreach(i -> print(io, _entry_label(m, i)), entries(x.bound))
+    print(io, x.conformation)
+    foreach(y -> print(io, _entry_label(m, y)), x.bound)
     if _has_residual(x)
         print(io, "_res")
-        foreach(i -> print(io, "_plus", m.table[i].name), entries(x.added))
-        foreach(i -> print(io, "_minus", m.table[i].name), entries(x.subtracted))
+        foreach(n -> print(io, "_plus", n), x.added)
+        foreach(n -> print(io, "_minus", n), x.subtracted)
     end
     String(take!(io))
 end
 
-"""Entry `i` of `m` as a mechanism macro writes a metabolite: its name, with `::Mod` on a
+"""`x` as a mechanism macro writes a metabolite of `m`: its name, with `::Mod` on a
 reactant's modifier copy; a modifier-only name stays bare."""
-_met_text(m::Mechanism, i::Int) =
-    _is_reactant_copy(m, i) ? "$(m.table[i].name)::Mod" : String(m.table[i].name)
+_met_text(m::Mechanism, x::Met) =
+    _is_reactant_copy(m, x) ? "$(x.name)::Mod" : String(x.name)
 
-"""Form `f` as a mechanism macro writes it: its label alone when it binds nothing and
+"""Node `f` as a mechanism macro writes it: its label alone when it binds nothing and
 keeps no residual (`E`, `Estar`), else its label with its bound metabolites (`_met_text`)
 and residual in parentheses: `E(NAD, P)`, `E(A::Mod)`, `E(B; residual = A - P)`,
 `E(; residual = A - P)`."""
 function form_text(m::Mechanism, f::Int)
-    x = m.forms[f]
-    label = String(m.conformations[x.conformation])
+    x = m.nodes[f]
+    label = String(x.conformation)
     _is_free(x) && return label
-    terms = join(_entry_names(m, x.added), " + ") *
-            join(" - $(m.table[i].name)" for i in entries(x.subtracted))
+    terms = join(x.added, " + ") * join(" - $n" for n in x.subtracted)
     res = _has_residual(x) ? "; residual = " * lstrip(terms) : ""
-    label * "(" * join((_met_text(m, i) for i in entries(x.bound)), ", ") * res * ")"
+    label * "(" * join((_met_text(m, y) for y in x.bound), ", ") * res * ")"
 end
 
-"""A step side: form `f`'s name and the labels of the free entries `c`, joined by `_`
-(`EA_B` for `E(A) + B`)."""
-_side_name(m::Mechanism, f::Int, c::Counts) =
-    join([_form_name(m, f); [_entry_label(m, i) for i in entries(c)]], "_")
-"""An edge's two sides in its stored direction; every step constant is named after
+"""A step side: node `f`'s name and the labels of the free metabolites `free`, joined by
+`_` (`EA_B` for `E(A) + B`)."""
+_side_name(m::Mechanism, f::Int, free::Vector{Met}) =
+    join([_form_name(m, f); [_entry_label(m, x) for x in free]], "_")
+"""A step's two sides in its stored direction; every step constant is named after
 them."""
-_sides(m::Mechanism, e::Edge) =
-    (_side_name(m, e.from, e.consumed), _side_name(m, e.to, e.released))
-_sides(m::Mechanism, k::Int) = _sides(m, m.edges[k])
+_sides(m::Mechanism, e::Step) =
+    (_side_name(m, e.from, e.taken_up), _side_name(m, e.to, e.given_off))
+_sides(m::Mechanism, k::Int) = _sides(m, m.steps[k])
 
-"""Edge `k` of `m` as a mechanism macro writes its step, in its stored direction: each
-side is its form (`form_text`) and the metabolites the step takes up or gives off there
+"""Step `k` of `m` as a mechanism macro writes it, in its stored direction: each side is
+its node (`form_text`) and the metabolites the step takes up or gives off there
 (`_met_text`), joined by `⇌` (rapid equilibrium) or `<-->` (steady state):
 `E + S ⇌ E(S)`, `E(A) + B <--> E(Q) + P`."""
 function step_text(m::Mechanism, k::Int)
-    e = m.edges[k]
-    side(f, c) = join([form_text(m, f); [_met_text(m, i) for i in entries(c)]], " + ")
-    side(e.from, e.consumed) * (e.rapid_equilibrium ? " ⇌ " : " <--> ") *
-        side(e.to, e.released)
+    e = m.steps[k]
+    side(f, free) = join([form_text(m, f); [_met_text(m, x) for x in free]], " + ")
+    side(e.from, e.taken_up) * (e.rapid_equilibrium ? " ⇌ " : " <--> ") *
+        side(e.to, e.given_off)
 end
 
 # ─── name(p::Parameter, m) chokepoint ─────────────────────────────────
@@ -107,7 +105,7 @@ class, so every parameter of every edge renders.
 function _constant_sides(m::_AnyMech, k::Int, slot::Int, state::Symbol,
                          kept::Dict{Tuple{Int, Int, Bool}, Int})
     cm = catalytic(m)
-    g = cm.group[k]
+    g = cm.steps[k].group
     group_tag = m isa AllostericMechanism ? tag(m, g) : :None
     excludes(group_tag, state === :I ? :inactive : :active) && return _sides(cm, k)
     inactive = state === :I && group_tag in (:NonequalAI, :OnlyI)
@@ -152,7 +150,7 @@ step, a step with two metabolites on one side — as the equilibrium constant of
 stored direction.
 """
 _edge_constants(m::Mechanism, k::Int, state::Symbol) =
-    m.edges[k].rapid_equilibrium ? Parameter[Krapid(k, state)] :
+    m.steps[k].rapid_equilibrium ? Parameter[Krapid(k, state)] :
                                    Parameter[Kfor(k, state), Krev(k, state)]
 
 # ─── Kept members of kinetic classes ─────────────────────────────────
@@ -178,9 +176,9 @@ its rank `edge_rank[k]` (`_edge_base_rank`), the smaller rank kept.
 """
 function _priority_key(m::Mechanism, k::Int, slot::Int, block::Int,
                        edge_rank::Vector{Int})
-    e = m.edges[k]
+    e = m.steps[k]
     kind = _is_iso(e) ? 3 : _is_chemistry(m, e) ? 2 : 1
-    occupied = m.forms[e.from].bound != 0 && m.forms[e.to].bound != 0
+    occupied = !isempty(m.nodes[e.from].bound) && !isempty(m.nodes[e.to].bound)
     ss = !e.rapid_equilibrium
     against = ss && (slot == 2) != _binds_product(m, e)
     (block, kind, occupied, ss, against, edge_rank[k])
@@ -221,16 +219,17 @@ function _ordered_columns(m::_AnyMech)
     law = conformation_steps(m, :inactive)
     alaw = conformation_steps(m, :active)
     allosteric = m isa AllostericMechanism
+    group = _group_labels(cm)
     columns = _Column[]
     for k in flat, inactive in (false, true)
-        inactive && !(allosteric && _has_inactive_columns(tags[cm.group[k]])) && continue
-        for slot in 1:(cm.edges[k].rapid_equilibrium ? 1 : 2)
+        inactive && !(allosteric && _has_inactive_columns(tags[group[k]])) && continue
+        for slot in 1:(cm.steps[k].rapid_equilibrium ? 1 : 2)
             push!(columns, _Column((k, slot, inactive)))
         end
     end
     rank = _edge_base_rank(cm)
     block(c) = c.inactive ? (law[c.edge] ? 1 : 2) :
-               _in_active_law(c.edge, cm.group, tags, law, alaw) ? 0 : 2
+               _in_active_law(c.edge, group, tags, law, alaw) ? 0 : 2
     priorities = [_priority_key(cm, c.edge, c.slot, block(c), rank) for c in columns]
     (; columns = columns[sortperm(priorities; rev = true)], flat, tags, law, alaw)
 end
@@ -245,7 +244,7 @@ edge in the conformation that excludes it (an `:OnlyA` edge's inactive copy, an 
 edge's active one) is a class of its own, so neither of these appears.
 """
 function _kept_members(m::_AnyMech, cols = _ordered_columns(m))
-    group = catalytic(m).group
+    group = _group_labels(catalytic(m))
     kept = Dict{Tuple{Int, Int, Bool}, Int}()
     for c in cols.columns
         g = group[c.edge]
@@ -262,7 +261,7 @@ the state its name takes: `:None` in a plain mechanism; `:I` for an inactive cop
 function _column_parameter(m::_AnyMech, c::_Column)
     cm = catalytic(m)
     state = m isa Mechanism ? :None : c.inactive ? :I :
-            tag(m, cm.group[c.edge]) === :EqualAI ? :EqualAI : :A
+            tag(m, cm.steps[c.edge].group) === :EqualAI ? :EqualAI : :A
     _edge_constants(cm, c.edge, state)[c.slot]
 end
 
@@ -289,7 +288,7 @@ the inactive conformation (`conformation_steps`).
 function constant_columns(m::_AnyMech)
     cols = _ordered_columns(m)
     kept = _kept_members(m, cols)
-    group = catalytic(m).group
+    group = _group_labels(catalytic(m))
     names = [name(_column_parameter(m, c), m, kept) for c in cols.columns]
     in_law = BitVector([c.inactive ? cols.law[c.edge] :
                         _in_active_law(c.edge, group, cols.tags, cols.law, cols.alaw)

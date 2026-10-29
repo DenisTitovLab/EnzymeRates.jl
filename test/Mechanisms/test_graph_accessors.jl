@@ -10,10 +10,12 @@ function _testhelper_allocated(f, args...)
 end
 
 """Test that the scalar graph accessors of `m`, on form `x` and step `k`, allocate
-nothing."""
+nothing: each reads a stored value, and a multiset (`bound`, `taken_up`, `given_off`)
+wraps a stored list without copying it. `∪`, `∩` and `modifier_copies` build a new list,
+so they are not among them."""
 function _testhelper_test_graph_accessors_allocate_nothing(m, x, k)
     M = ER.Mechanisms
-    s, t = M.bound(m, x), M.taken_up(m, k)
+    s = M.bound(m, x)
     @test _testhelper_allocated(M.species, m) == 0
     @test _testhelper_allocated(M.bound, m, x) == 0
     @test _testhelper_allocated(M.conformation, m, x) == 0
@@ -29,9 +31,6 @@ function _testhelper_test_graph_accessors_allocate_nothing(m, x, k)
     @test _testhelper_allocated(M.copies, s, :S) == 0
     @test _testhelper_allocated(isempty, s) == 0
     @test _testhelper_allocated(length, s) == 0
-    @test _testhelper_allocated(M.modifier_copies, s) == 0
-    @test _testhelper_allocated(∪, s, t) == 0
-    @test _testhelper_allocated(∩, s, t) == 0
 end
 
 @testset "graph accessors: random-order bi-bi" begin
@@ -225,7 +224,6 @@ end
     # The residual: the substrates a form adds and the products it subtracts.
     @test [M.metabolite_names.(M.residual(m, x)) for x in M.species(m)] ==
           [(Symbol[], Symbol[]), ([:A], [:P]), (Symbol[], Symbol[]), ([:A], [:P])]
-    @test _testhelper_allocated(M.residual, m, 2) == 0
 end
 
 @testset "graph accessors: a metabolite and its modifier copy" begin
@@ -267,7 +265,8 @@ end
     other = ER.Mechanism(em)
     @test M.bound(other, 4) == ESS && hash(M.bound(other, 4)) == hash(ESS)
     @test M.bound(other, 3) != ESS
-    # They combine only over one metabolite table.
+    # Multisets of two mechanisms combine by content: E(S) holds S, E(S, S::Mod) holds S
+    # and its modifier copy.
     uniuni = ER.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
@@ -277,8 +276,8 @@ end
             E(P) ⇌ E + P
         end
     end)
-    @test_throws "combine the metabolites of one mechanism" ESS ∪ M.bound(uniuni, 3)
-    @test_throws "combine the metabolites of one mechanism" ESS ∩ M.bound(uniuni, 3)
+    @test ESS ∪ M.bound(uniuni, 3) == ESS
+    @test ESS ∩ M.bound(uniuni, 3) == M.bound(uniuni, 3) == M.bound(m, 3)
 end
 
 @testset "conformation_steps" begin

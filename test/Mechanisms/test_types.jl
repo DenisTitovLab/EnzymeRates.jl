@@ -55,7 +55,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # Steps are canonicalized at construction, so compare content
         # order-independently.
         mech = ER.Mechanism(m)
-        @test Set(_testhelper_edge_text(mech, k) for k in eachindex(mech.edges)) ==
+        @test Set(_testhelper_edge_text(mech, k) for k in eachindex(mech.steps)) ==
               Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
         @test ER.Mechanisms.ngroups(mech) == 3
         @test Set(_testhelper_graph(m).forms) == Set(["E", "ES", "EP"])
@@ -78,8 +78,8 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         mech2 = ER.Mechanism(m2)
         @test ER.Mechanisms.ngroups(mech2) == 4
         shared = only(ks for ks in ER.Mechanisms._group_members(mech2) if length(ks) == 2)
-        @test all(k -> mech2.table[ER.Mechanisms._bound_entry(mech2.edges[k])] ==
-                  ER.Mechanisms.Met(:R, true),
+        @test all(k -> ER.Mechanisms._is_binding(mech2.steps[k]) &&
+                       only(mech2.steps[k].taken_up) == ER.Mechanisms.Met(:R, true),
                   shared)
     end
 
@@ -249,7 +249,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         members = ER.Mechanisms._group_members(am_c.catalytic)
         onlyA_g = only(g for g in eachindex(members)
                        if ER.Mechanisms.tag(am_c, g) === :OnlyA)
-        @test !ER.Mechanisms._is_binding(am_c.catalytic.edges[first(members[onlyA_g])])
+        @test !ER.Mechanisms._is_binding(am_c.catalytic.steps[first(members[onlyA_g])])
         @test all(ER.Mechanisms.tag(am_c, g) === :EqualAI
                   for g in eachindex(members) if g != onlyA_g)
         @test ER.Mechanisms.allosteric_regulators(am_c) == [:I]
@@ -689,7 +689,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test copy_first == copy_last
         for m in (copy_last, copy_first)
             segment = ER.Mechanisms.re_segments(
-                m, trues(length(m.edges)), ER.Mechanisms.rapid_equilibrium_steps(m)).bottom
+                m, trues(length(m.steps)), ER.Mechanisms.rapid_equilibrium_steps(m)).bottom
             @test [ER.Mechanisms._form_name(m, f) for f in segment] ==
                   ["EA", "EAB", "EB", "EAmodB"]
         end
@@ -1577,7 +1577,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             end
         end
         m = ER.Mechanism(s2)
-        iso = only(e for e in m.edges
+        iso = only(e for e in m.steps
                    if ER.Mechanisms._is_iso(e) &&
                        ER.Mechanisms._form_name(m, e.from) in ("E", "F"))
         @test ER.Mechanisms._form_name(m, iso.from) == "F"  # product-exit
@@ -1592,14 +1592,14 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         flat = ER.Mechanisms._flat_edges(m)
         @test Set(_testhelper_edge_text(m, k) for k in flat) ==
               Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
-        @test m.group[flat] == [1, 2, 3]
-        @test length(m.edges) == 3
+        @test [m.steps[k].group for k in flat] == [1, 2, 3]
+        @test length(m.steps) == 3
         # Canonical by construction: a permuted input yields identical storage.
         m_perm = ER.Mechanism(_testhelper_raw_uniuni([rel, bind, iso]))
-        @test (m.forms, m.edges, m.group) == (m_perm.forms, m_perm.edges, m_perm.group)
+        @test (m.nodes, m.steps) == (m_perm.nodes, m_perm.steps)
         @test m == m_perm && hash(m) == hash(m_perm)
-        # Steps and groups sort by content (`isless(::Edge)`), each form by its
-        # content (`isless(::Form)`) with free E first. The residual form
+        # Steps and groups sort by content (`isless(::Step)`), each form by its
+        # content (`isless(::Node)`) with free E first. The residual form
         # E(; residual = A - P) binds nothing, so its steps come before those of E(A),
         # though its name, E_res_plusA_minusP, sorts after EA.
         pingpong = ER.Mechanism(@enzyme_mechanism begin
@@ -1623,7 +1623,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                "EA <--> EP_res_plusA_minusP",
                "EB_res_plusA_minusP ⇌ EQ"]
         # The forms come in that order too: free E, then by content.
-        @test [ER.Mechanisms._form_name(pingpong, f) for f in eachindex(pingpong.forms)] ==
+        @test [ER.Mechanisms._form_name(pingpong, f) for f in eachindex(pingpong.nodes)] ==
               ["E", "E_res_plusA_minusP", "EA", "EB_res_plusA_minusP",
                "EP_res_plusA_minusP", "EQ"]
     end
@@ -1636,10 +1636,10 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
 
         @test (ER.Mechanisms.substrates(m), ER.Mechanisms.products(m)) == ([:S], [:P])
         # Steps canonicalized; allosteric tags stay bound to their steps.
-        @test Set(_testhelper_edge_text(m, k) for k in eachindex(m.catalytic.edges)) ==
+        @test Set(_testhelper_edge_text(m, k) for k in eachindex(m.catalytic.steps)) ==
               Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
         _testhelper_state_of(text) =
-            ER.Mechanisms.tag(m, m.catalytic.group[_testhelper_edge(m, text)])
+            ER.Mechanisms.tag(m, m.catalytic.steps[_testhelper_edge(m, text)].group)
         @test _testhelper_state_of("E + S ⇌ ES") == :EqualAI
         @test _testhelper_state_of("ES <--> EP")  == :OnlyA
         @test _testhelper_state_of("E + P ⇌ EP")  == :NonequalAI
@@ -1674,7 +1674,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             end
         end)
         onlyi_tags = fill(:EqualAI, ER.Mechanisms.ngroups(uni))
-        onlyi_tags[uni.group[_testhelper_edge(uni, "E + S ⇌ ES")]] = :OnlyI
+        onlyi_tags[uni.steps[_testhelper_edge(uni, "E + S ⇌ ES")].group] = :OnlyI
         @test_throws ErrorException(
             "AllostericMechanism: E + S ⇌ E(S) is tagged :OnlyI but does more than " *
             "bind a modifier. Only the active conformation catalyzes, so :OnlyI fits " *
@@ -1941,18 +1941,17 @@ end
         [:A, :B, :S], [:P, :Q], [:A], first.(cases), collect(eachindex(cases))))
     m = c.mechanism
     for (j, (_, chemistry, binding, turned)) in enumerate(cases)
-        e = m.edges[c.edge_of[j]]
+        e = m.steps[c.edge_of[j]]
         @test ER.Mechanisms._is_chemistry(m, e) == chemistry
         @test ER.Mechanisms._is_binding(e) == binding
         turned === missing || @test c.flipped[j] == turned
     end
-    @test ER.Mechanisms._is_iso(m.edges[c.edge_of[3]]) &&
-          ER.Mechanisms._is_iso(m.edges[c.edge_of[11]])
+    @test ER.Mechanisms._is_iso(m.steps[c.edge_of[3]]) &&
+          ER.Mechanisms._is_iso(m.steps[c.edge_of[11]])
     # The copy's binding takes up an entry of its own, into a form of its own.
-    plain, copy_binding = m.edges[c.edge_of[1]], m.edges[c.edge_of[10]]
-    @test m.table[ER.Mechanisms._bound_entry(copy_binding)] == A_copy &&
-          m.table[ER.Mechanisms._bound_entry(plain)] == met(:A) && copy_binding.to !=
-          plain.to
+    plain, copy_binding = m.steps[c.edge_of[1]], m.steps[c.edge_of[10]]
+    @test copy_binding.taken_up == [A_copy] && plain.taken_up == [met(:A)] &&
+          copy_binding.to != plain.to
 end
 
 @testset "the macros reject a binding that changes a metabolite's role" begin
@@ -2153,7 +2152,7 @@ end
     # The fused release E(A, B) → E(Q) + P is stored as the binding of P it
     # reverses, E(Q) + P → E(A, B), so its forward rate constant binds P.
     mech = ER.Mechanism(m)
-    k = only(k for (k, e) in enumerate(mech.edges) if ER.Mechanisms._is_chemistry(mech, e))
+    k = only(k for (k, e) in enumerate(mech.steps) if ER.Mechanisms._is_chemistry(mech, e))
     kon, koff = ER.Mechanisms._edge_constants(mech, k, :None)
     @test kon isa ER.Mechanisms.Kfor && koff isa ER.Mechanisms.Krev
     @test ER.Mechanisms.name(kon, mech) == :k_EQ_P_to_EAB &&
@@ -2269,7 +2268,7 @@ end
     _testhelper_check_law_against_oracle(pingpong)
     # One name per class: a rapid-equilibrium group's K, a steady-state group's kf, kr.
     pm = ER.Mechanism(pingpong)
-    @test length(pp_names) == sum(pm.edges[first(ks)].rapid_equilibrium ? 1 : 2
+    @test length(pp_names) == sum(pm.steps[first(ks)].rapid_equilibrium ? 1 : 2
                                   for ks in ER.Mechanisms._group_members(pm))
 end
 
@@ -2359,9 +2358,9 @@ end
     end
     m = ER.Mechanism(forward)
     @test ER.Mechanism(backward) == m
-    k = only(k for (k, e) in enumerate(m.edges) if ER.Mechanisms._is_iso(e))
-    @test ER.Mechanisms._form_name(m, m.edges[k].from) == "F" &&
-          ER.Mechanisms._form_name(m, m.edges[k].to) == "E"
+    k = only(k for (k, e) in enumerate(m.steps) if ER.Mechanisms._is_iso(e))
+    @test ER.Mechanisms._form_name(m, m.steps[k].from) == "F" &&
+          ER.Mechanisms._form_name(m, m.steps[k].to) == "E"
     kf, kr = ER.Mechanisms._edge_constants(m, k, :None)
     @test ER.Mechanisms.name(kf, m) == :k_F_to_E && ER.Mechanisms.name(kr, m) == :k_E_to_F
 end
@@ -2382,7 +2381,7 @@ end
             E + P::Mod ⇌ E(P::Mod)
         end
     end)
-    iso = only(e for e in m.edges
+    iso = only(e for e in m.steps
                if ER.Mechanisms._is_iso(e) &&
                    ER.Mechanisms._form_name(m, e.from) in ("E", "F"))
     @test ER.Mechanisms._form_name(m, iso.from) == "F" &&
@@ -2409,9 +2408,9 @@ end
         end
     end
     m = ER.Mechanism(ss)
-    label(f) = m.conformations[m.forms[f].conformation]
-    mirror = only(m.edges[ks] for ks in ER.Mechanisms._group_members(m)
-                  if length(ks) == 2 && all(k -> ER.Mechanisms._is_iso(m.edges[k]), ks))
+    label(f) = m.nodes[f].conformation
+    mirror = only(m.steps[ks] for ks in ER.Mechanisms._group_members(m)
+                  if length(ks) == 2 && all(k -> ER.Mechanisms._is_iso(m.steps[k]), ks))
     @test all(e -> label(e.from) == :F && label(e.to) == :E, mirror)
     @test !occursin("Wegscheider", rate_equation_string(ss))
     # The written direction and order of the mirrored steps do not matter.
@@ -2462,10 +2461,9 @@ end
 function _testhelper_exchanges(mech)
     cm = ER.Mechanisms.catalytic(mech)
     group = only(ks for ks in ER.Mechanisms._group_members(cm) if !any(
-        k -> ER.Mechanisms._is_iso(cm.edges[k]) || ER.Mechanisms._is_binding(cm.edges[k]),
+        k -> ER.Mechanisms._is_iso(cm.steps[k]) || ER.Mechanisms._is_binding(cm.steps[k]),
         ks))
-    [(cm.table[ER.Mechanisms.entries(e.consumed)],
-      cm.table[ER.Mechanisms.entries(e.released)]) for e in cm.edges[group]]
+    [(e.taken_up, e.given_off) for e in cm.steps[group]]
 end
 
 @testset "a kinetic group ties one metabolite exchange at two conformations" begin
@@ -2977,9 +2975,9 @@ end
         cm = am.catalytic
         v = ER.Derivation._admission(
             ER.AllostericMechanism(cm, tags, 1, ER.Mechanisms.RegulatorySite[]))
-        e = v.edge == 0 ? nothing : cm.edges[v.edge]
+        e = v.edge == 0 ? nothing : cm.steps[v.edge]
         (v.fault, e === nothing || !ER.Mechanisms._is_binding(e) ? nothing :
-                  cm.table[ER.Mechanisms._bound_entry(e)].name)
+                  only(e.taken_up).name)
     end
     NO, NL = ER.Derivation._NO_FAULT, ER.Derivation._NO_LIMIT
 

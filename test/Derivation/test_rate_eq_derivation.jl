@@ -923,10 +923,10 @@ const _testhelper_fused_cases = [
     end
     m = ER.Mechanism(em)
     form(text) =
-        only(f for f in eachindex(m.forms) if ER.Mechanisms._form_name(m, f) == text)
+        only(f for f in eachindex(m.nodes) if ER.Mechanisms._form_name(m, f) == text)
     a_copy, ab, e = form("EAmod"), form("EAb"), form("E")
     @test e == 1 && a_copy < ab
-    s = ER.Mechanisms.re_segments(m, trues(length(m.edges)),
+    s = ER.Mechanisms.re_segments(m, trues(length(m.steps)),
                                   ER.Mechanisms.rapid_equilibrium_steps(m))
     @test all(seg -> seg[1] == minimum(seg), s.segments)
     @test s.segments[s.segment_of[e]][1] == e
@@ -1052,10 +1052,10 @@ const _testhelper_tc_cases = (
     end
     # canonical orientation: the substrate side is `from`
     m = ER.Mechanism(tc_ss)
-    e = only(e for e in m.edges
+    e = only(e for e in m.steps
              if !ER.Mechanisms._is_iso(e) && !ER.Mechanisms._is_binding(e))
     @test ER.Mechanisms._form_name(m, e.from) == "EA" &&
-          m.table[ER.Mechanisms.entries(e.consumed)] == [ER.Mechanisms.Met(:B, false)]
+          e.taken_up == [ER.Mechanisms.Met(:B, false)]
     @test :k_EA_B_to_EQ_P in _testhelper_step_constant_names(tc_ss)
     @test :k_EQ_P_to_EA_B in _testhelper_step_constant_names(tc_ss)
 end
@@ -1130,9 +1130,9 @@ end
     onlyA_groups = [g for g in eachindex(members)
                     if EnzymeRates.Mechanisms.tag(am, g) === :OnlyA]
     @test length(onlyA_groups) == 2
-    onlyA_firsts = [cm.edges[first(members[g])] for g in onlyA_groups]
+    onlyA_firsts = [cm.steps[first(members[g])] for g in onlyA_groups]
     @test count(e -> EnzymeRates.Mechanisms._is_binding(e) &&
-                     cm.table[EnzymeRates.Mechanisms._bound_entry(e)].name === :ATP,
+                     only(e.taken_up).name === :ATP,
                 onlyA_firsts) == 1
     @test count(!EnzymeRates.Mechanisms._is_binding, onlyA_firsts) == 1
 end

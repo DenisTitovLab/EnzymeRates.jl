@@ -27,10 +27,8 @@ Form `x` of `m` as written: its conformation label, its bound metabolites with `
 added, and its residual.
 """
 function RawForm(m::Mechanism, x::Int, extra::Met...)
-    f = m.forms[x]
-    RawForm(m.conformations[f.conformation],
-            Met[[m.table[i] for i in entries(f.bound)]; extra...],
-            _entry_names(m, f.added), _entry_names(m, f.subtracted))
+    n = m.nodes[x]
+    RawForm(n.conformation, Met[n.bound; extra...], n.added, n.subtracted)
 end
 
 """
@@ -45,10 +43,9 @@ RawStep(m::Mechanism, k::Int, extra::Met...) =
 
 """Step `k` of `m` as written (`RawStep`), at rapid equilibrium when `re` holds."""
 function _written_step(m::Mechanism, k::Int, re::Bool, extra::Met...)
-    e = m.edges[k]
-    RawStep(RawForm(m, e.from, extra...), RawForm(m, e.to, extra...),
-            Met[m.table[i] for i in entries(e.consumed)],
-            Met[m.table[i] for i in entries(e.released)], re)
+    e = m.steps[k]
+    RawStep(RawForm(m, e.from, extra...), RawForm(m, e.to, extra...), e.taken_up,
+            e.given_off, re)
 end
 
 """
@@ -57,7 +54,7 @@ end
 `m` as written: its declared names, and each step as `RawStep(m, k)`, labelled by its
 kinetic group. Every vector is fresh, and `Mechanism(RawMechanism(m)) == m`.
 """
-RawMechanism(m::Mechanism) = _written(m, rapid_equilibrium_steps(m), m.group)
+RawMechanism(m::Mechanism) = _written(m, rapid_equilibrium_steps(m), _group_labels(m))
 
 """
     RawAllostericMechanism(am::AllostericMechanism)
@@ -67,7 +64,7 @@ as its group, and its multiplicity and regulatory sites. Every vector is fresh, 
 `AllostericMechanism(RawAllostericMechanism(am)) == am`.
 """
 RawAllostericMechanism(am::AllostericMechanism) =
-    _written(am, rapid_equilibrium_steps(am.catalytic), am.catalytic.group)
+    _written(am, rapid_equilibrium_steps(am.catalytic), _group_labels(am.catalytic))
 
 """`m` as written (`RawMechanism`), step `k` at rapid equilibrium where `re[k]` holds and
 labelled `groups[k]`."""
@@ -79,7 +76,7 @@ _written(m::Mechanism, re::BitVector, groups::Vector{Int}) =
 and each label tagged as the group of its first step."""
 function _written(am::AllostericMechanism, re::BitVector, groups::Vector{Int})
     cm = am.catalytic
-    tags = Symbol[am.mwc_tags[cm.group[findfirst(==(l), groups)]]
+    tags = Symbol[am.mwc_tags[cm.steps[findfirst(==(l), groups)].group]
                   for l in 1:maximum(groups; init = 0)]
     RawAllostericMechanism(_written(cm, re, groups), tags, am.catalytic_multiplicity,
                            RawSite.(am.regulatory_sites))
@@ -100,7 +97,7 @@ RawSite(s::RegulatorySite) = RawSite(copy(s.ligands), s.multiplicity, copy(s.mwc
 `m` with step `k` of its catalytic graph at rapid equilibrium where `re[k]` holds, every
 step in its kinetic group: `regroup` with `m`'s own groups.
 """
-with_flags(m::_AnyMech, re::BitVector) = regroup(m, catalytic(m).group, re)
+with_flags(m::_AnyMech, re::BitVector) = regroup(m, _group_labels(catalytic(m)), re)
 
 """
     regroup(m, groups::Vector{Int}, re::BitVector = rapid_equilibrium_steps(catalytic(m)))

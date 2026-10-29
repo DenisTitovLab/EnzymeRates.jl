@@ -471,7 +471,7 @@ end
                  regulators = mech isa EnzymeRates.AllostericMechanism ?
                               EnzymeRates.Mechanisms.allosteric_regulators(mech) : Symbol[])
         raw = EnzymeRates.Mechanisms.RawMechanism(cm)
-        for k in eachindex(cm.edges)
+        for k in eachindex(cm.steps)
             op, lhs, rhs = EnzymeRates.DSL._step_parts(
                 Meta.parse(EnzymeRates.Mechanisms.step_text(cm, k)), "@enzyme_mechanism")
             @test EnzymeRates.DSL._raw_step(op, lhs, rhs, names,
@@ -1161,9 +1161,9 @@ end
     end
     # The message names the closed set and the steps out of it, with no fix.
     v = _testhelper_face_verdicts(weighted)[2]
-    leaving = only(k for (k, e) in enumerate(weighted.edges)
-                   if weighted.forms[e.from].conformation !=
-                      weighted.forms[e.to].conformation)
+    leaving = only(k for (k, e) in enumerate(weighted.steps)
+                   if weighted.nodes[e.from].conformation !=
+                      weighted.nodes[e.to].conformation)
     @test v.edge == leaving
     @test EnzymeRates.Derivation._guard_message(weighted, v) ==
           "Mechanism: at zero P, the forms {F(S)} keep enzyme away from free E: every " *
@@ -1480,7 +1480,7 @@ end
     fed[_testhelper_edge(ldh, "EP + Q ⇌ EPQ")] = false
     @test _testhelper_is_valid(candidate(fed))
     # Every step at rapid equilibrium: a fast cycle turns the reaction over.
-    @test EnzymeRates.Derivation._guard(candidate(trues(length(ldh.edges)))).fault ===
+    @test EnzymeRates.Derivation._guard(candidate(trues(length(ldh.steps)))).fault ===
           EnzymeRates.Derivation._RE_TURNOVER
 end
 
@@ -2605,7 +2605,7 @@ end
 @testset "forms reached only through tagged chemistry are an island" begin
     rng = Random.MersenneTwister(41)
     IS, U = EnzymeRates.Derivation._ISLAND, EnzymeRates.Derivation._LIMIT_UNTESTED
-    _testhelper_edge_between(x, a, b) = only(k for (k, e) in enumerate(x.catalytic.edges)
+    _testhelper_edge_between(x, a, b) = only(k for (k, e) in enumerate(x.catalytic.steps)
         if Set(EnzymeRates.Mechanisms._form_name.(Ref(x.catalytic), (e.from, e.to))) ==
            Set((a, b)))
     _testhelper_island_verdict(x) =
@@ -3884,7 +3884,7 @@ end
     v = EnzymeRates.Derivation._guard(am)
     @test (v.fault, v.face, v.conformation) ==
           (EnzymeRates.Derivation._NO_ACTIVE_TURNOVER, 0, 1)
-    ks = [k for k in eachindex(am.catalytic.edges)
+    ks = [k for k in eachindex(am.catalytic.steps)
           if EnzymeRates.Mechanisms.excludes(am, k, :active)]
     @test !EnzymeRates.Derivation._retag_passes(am, ks, :EqualAI)
     @test !EnzymeRates.Derivation._retag_passes(am, ks, :NonequalAI)
